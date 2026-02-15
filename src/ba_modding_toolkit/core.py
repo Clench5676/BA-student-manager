@@ -99,7 +99,7 @@ def get_unity_platform_info(input: Path | Env) -> tuple[str, str]:
                          如果找不到则返回 ("UnknownPlatform", "Unknown")
     """
     if isinstance(input, Path):
-        env = UnityPy.load(str(input))
+        env = load_bundle(str(input))
     elif isinstance(input, Env):
         env = input
     else:

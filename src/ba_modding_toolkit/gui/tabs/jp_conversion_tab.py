@@ -9,7 +9,7 @@ from ...i18n import t
 from ... import core
 from ...utils import get_search_resource_dirs
 from ..base_tab import TabFrame
-from ..components import Theme, UIComponents, FileListbox, ModeSwitcher, SettingRow
+from ..components import UIComponents, FileListbox, ModeSwitcher, SettingRow
 from ..utils import handle_drop, select_file
 
 class JPGLConversionTab(TabFrame):
@@ -131,6 +131,7 @@ class JPGLConversionTab(TabFrame):
             self.master.after(0, lambda: self._update_jp_listbox(jp_files))
             self.logger.status(t("log.status.ready"))
         else:
+            self.logger.log(f'⚠️ {t("log.search.no_found")}')
             self.logger.status(t("log.status.search_not_found"))
 
     def _update_jp_listbox(self, files: list[Path]):
@@ -165,7 +166,8 @@ class JPGLConversionTab(TabFrame):
         perform_crc = False
         
         if crc_setting == "auto":
-            platform, unity_version = core.get_unity_platform_info(self.global_bundle_path)
+            target_bundle = self.global_bundle_path if self.mode_var.get() == "jp_to_global" else jp_files[0]
+            platform, unity_version = core.get_unity_platform_info(target_bundle)
             self.logger.log(t("log.platform_info", platform=platform, version=unity_version))
             perform_crc = (platform == "StandaloneWindows64") and (self.mode_var.get() == "jp_to_global")
         elif crc_setting == "true":

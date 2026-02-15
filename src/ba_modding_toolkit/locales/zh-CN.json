@@ -251,14 +251,14 @@
 			"skel_detected": "检测到 .skel 文件: {name}",
 			"version_mismatch_converting": "检测到Spine版本不匹配（当前{current}，目标{target}），将进行转换。",
 			"converting_atlas": "正在转换 Atlas: {name}",
-		"version_detected_downgrading": "检测到Spine版本: {version}，尝试降级...",
-		"atlas_downgrade_success": "Atlas 降级成功",
-		"atlas_downgrade_failed": "Atlas 降级失败",
-		"edit_atlas": "编辑了 Atlas 文件: {filename}",
-		"unpacking_atlas": "正在解包 Atlas: {name}",
-		"atlas_unpack_success": "Atlas 解包成功，帧已保存至: {path}",
-		"atlas_unpack_failed": "Atlas 解包失败"
-	},
+			"version_detected_downgrading": "检测到Spine版本: {version}，尝试降级...",
+			"atlas_downgrade_success": "Atlas 降级成功",
+			"atlas_downgrade_failed": "Atlas 降级失败",
+			"edit_atlas": "编辑了 Atlas 文件: {filename}",
+			"unpacking_atlas": "正在解包 Atlas: {name}",
+			"atlas_unpack_success": "Atlas 解包成功，帧已保存至: {path}",
+			"atlas_unpack_failed": "Atlas 解包失败"
+		},
 		"packer": {
 			"start_packing": "开始从资源文件夹打包...",
 			"pack_success_path": "打包成功。文件已输出至: {path}",
@@ -310,7 +310,8 @@
 			"old_mod_asset_count": "旧 Mod 包含 {count} 个资源。",
 			"checking_candidate": "正在检查: {name}",
 			"find_failed": "查找失败: {message}",
-			"found_count": "成功查找到 {count} 个匹配文件。"
+			"found_count": "成功查找到 {count} 个匹配文件。",
+			"no_found": "未找到文件"
 		},
 		"extractor": {
 			"starting_extraction": "开始从 \"{filename}\" 提取资源...",
