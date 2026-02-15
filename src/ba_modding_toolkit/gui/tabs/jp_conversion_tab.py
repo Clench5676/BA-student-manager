@@ -11,6 +11,7 @@ from ...utils import get_search_resource_dirs
 from ..base_tab import TabFrame
 from ..components import UIComponents, FileListbox, ModeSwitcher, SettingRow
 from ..utils import handle_drop, select_file
+from ..dialogs import FileSelectionDialog
 
 class JPGLConversionTab(TabFrame):
     """日服与国际服格式互相转换的标签页"""
@@ -46,11 +47,12 @@ class JPGLConversionTab(TabFrame):
 
         # 2. 日服 Bundle 文件列表 (FileListbox，支持多文件)
         self.jp_files_listbox = FileListbox(
-            self.file_frame, 
-            title=t("ui.jp_conversion.role_jp_source"), 
+            self.file_frame,
+            title=t("ui.jp_conversion.role_jp_source"),
             placeholder_text=t("ui.jp_conversion.placeholder_jp_files"),
             height=3,
-            logger=self.logger
+            logger=self.logger,
+            on_files_added=self._on_jp_files_added
         )
         self.jp_files_listbox.get_frame().pack(fill=tk.BOTH, expand=True)
         
@@ -138,6 +140,87 @@ class JPGLConversionTab(TabFrame):
         self.jp_files_listbox._clear_list()
         self.jp_files_listbox.add_files(files)
         self.logger.log(t("log.search.found_count", count=len(files)))
+
+    # --- 反向查找：JP文件添加后自动查找Global文件 ---
+    def _on_jp_files_added(self, paths: list[Path]) -> None:
+        """当JP文件被添加时的回调，如果是第一个文件且开启了自动搜索，则查找对应的Global文件"""
+        if not self.app.auto_search_var.get():
+            return
+        if not paths:
+            return
+        # 只有当Global文件未设置时才进行查找
+        if self.global_bundle_path is not None:
+            return
+        # 使用第一个JP文件作为查找基础
+        first_jp_file = paths[0]
+        self._auto_find_global_file(first_jp_file)
+
+    def _auto_find_global_file(self, jp_file: Path):
+        """当指定了JP文件后，自动在资源目录查找对应的Global文件"""
+        if not self.app.game_resource_dir_var.get():
+            self.logger.log(f'⚠️ {t("log.jp_convert.auto_search_no_game_dir")}')
+            return
+
+        self.run_in_thread(lambda: self._find_global_worker(jp_file))
+
+    def _find_global_worker(self, jp_file: Path):
+        """后台线程：查找Global文件"""
+        self.logger.status(t("log.status.searching"))
+
+        # 更新UI为搜索中状态
+        self.master.after(0, lambda: self.global_label.config(
+            text=t("ui.mod_update.status_searching"),
+            bootstyle="warning"
+        ))
+
+        base_game_dir = Path(self.app.game_resource_dir_var.get())
+        search_paths = get_search_resource_dirs(base_game_dir, self.app.auto_detect_subdirs_var.get())
+
+        # 使用find_new_bundle_path查找Global文件
+        found_paths, message = core.find_new_bundle_path(
+            jp_file,
+            search_paths,
+            self.logger.log
+        )
+
+        # 在主线程中处理结果
+        self.master.after(0, lambda: self._handle_global_search_result(found_paths, message))
+
+    def _handle_global_search_result(self, found_paths: list[Path], message: str):
+        """处理Global文件搜索结果"""
+        if not found_paths:
+            # 没有找到匹配文件
+            ui_message = t("ui.mod_update.status_not_found", message=message)
+            self.global_label.config(text=ui_message, bootstyle="danger")
+            self.logger.status(t("log.status.search_not_found"))
+        elif len(found_paths) == 1:
+            # 只有一个匹配文件，直接使用
+            self._set_global_bundle_file(found_paths[0])
+        else:
+            # 多个匹配文件，弹出选择对话框
+            dialog = FileSelectionDialog(
+                self.master,
+                title=t("ui.dialog.select_file"),
+                candidates=found_paths,
+                message=t("ui.dialog.multiple_matches_found", count=len(found_paths)),
+                display_formatter=lambda p: f"{p.parent.name} / {p.name}"
+            )
+
+            selected_path = dialog.get_selected_path()
+            if selected_path:
+                self._set_global_bundle_file(selected_path)
+            else:
+                # 用户取消了选择
+                ui_message = t("ui.mod_update.status_not_found", message=t("ui.dialog.selection_cancelled"))
+                self.global_label.config(text=ui_message, bootstyle="warning")
+                self.logger.status(t("log.status.search_not_found"))
+
+    def _set_global_bundle_file(self, path: Path):
+        """设置Global bundle文件路径"""
+        self.global_bundle_path = path
+        self.global_label.config(text=path.name, bootstyle="success")
+        self.logger.log(t("log.file.loaded", path=path))
+        self.logger.status(t("log.status.ready"))
 
     # --- 核心转换流程 ---
     def run_conversion_thread(self):
