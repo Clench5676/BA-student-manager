@@ -41,14 +41,20 @@ def get_system_language() -> str | None:
 def get_default_language() -> str:
     """
     根据系统语言获取默认语言设置
-    如果系统语言是中文，使用zh-CN，否则使用debug模式
+    优先级：BAMT_LANG 环境变量 > 系统语言检测
     """
+    # 优先检查环境变量
+    import os
+    env_lang = os.environ.get("BAMT_LANG")
+    if env_lang:
+        return env_lang
+
     system_lang = get_system_language()
-    # 如果系统语言是中文，使用zh-CN，否则使用debug模式
+    # 如果系统语言是中文，使用zh-CN，否则使用en-US
     if system_lang and (system_lang.startswith("zh-")):
         return "zh-CN"
     else:
-        return "debug"
+        return "en-US"
 
 class I18n:
     def __init__(self, lang: str | None = None, locales_dir: str | None = None):
