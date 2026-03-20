@@ -158,6 +158,7 @@ class CrcToolTab(TabFrame):
                 self.logger.log(f'⚠️ {t("log.crc.match_no_correction_needed")}')
                 messagebox.showinfo(t("common.result"), t("message.crc.match_no_correction_needed"))
                 self.logger.status(t("log.status.calculation_done"))
+                self.master.after(0, lambda: self.replace_button.config(state=tk.NORMAL))
                 return True
             
             # 计算输出文件路径

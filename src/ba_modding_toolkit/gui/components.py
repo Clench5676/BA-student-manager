@@ -49,53 +49,23 @@ class Logger:
 # --- 主题与颜色管理 ---
 
 class Theme:
-    """集中管理应用的所有颜色，确保UI风格统一。"""
+    """集中管理原生Tkinter组件的颜色和字体
+        不包含ttkbootstrap组件"""
     # 背景色
-    WINDOW_BG = '#f0f2f5'
-    FRAME_BG = '#ffffff'
     INPUT_BG = '#ecf0f1'
-    MUTED_BG = '#e9ecef' # 用于拖放区等不活跃背景
 
     # 文本颜色
-    TEXT_TITLE = '#080808'
     TEXT_NORMAL = '#34495e'
-    TEXT_LIGHT = '#ffffff'
-    
-    # 按钮颜色 (背景/前景)
-    BUTTON_PRIMARY_BG = '#3498db'
-    BUTTON_SECONDARY_BG = '#9b59b6'
-    BUTTON_ACCENT_BG = '#8e44ad'
-    BUTTON_SUCCESS_BG = '#27ae60'
-    BUTTON_WARNING_BG = '#f39c12'
-    BUTTON_DANGER_BG = '#e74c3c'
-    BUTTON_FG = TEXT_LIGHT
-
-    # 状态颜色 (用于文本提示)
-    COLOR_SUCCESS = '#27ae60'
-    COLOR_WARNING = '#e67e22'
-    COLOR_ERROR = '#e74c3c'
 
     # 特殊组件颜色
     LOG_BG = '#2c3e50'
     LOG_FG = '#ecf0f1'
     LOG_SELECTED = '#3a5a7a'
-    STATUS_BAR_BG = '#34495e'
-    STATUS_BAR_FG = '#ecf0f1'
-    MODE_SWITCHER_ACTIVE = '#e0e0e0'
-    
-    # 侧边栏颜色
-    SIDEBAR_BG = '#2c3e50'
-    SIDEBAR_BUTTON_BG = '#34495e'
-    SIDEBAR_BUTTON_FG = '#ecf0f1'
-    SIDEBAR_BUTTON_ACTIVE_BG = '#3498db'
-    SIDEBAR_BUTTON_ACTIVE_FG = '#ffffff'
 
     # 字体
     DROP_ZONE_FONT = ("Microsoft YaHei", 9)
     INPUT_FONT = ("Microsoft YaHei", 9)
     STATUS_BAR_FONT = ("Microsoft YaHei", 9)
-    BUTTON_FONT = ("Segoe UI", 10, "bold")
-    SIDEBAR_FONT = ("Segoe UI", 9)
     LOG_FONT = ("Consolas", 9)
     TOOLTIP_FONT = ("Microsoft YaHei", 9)
     
