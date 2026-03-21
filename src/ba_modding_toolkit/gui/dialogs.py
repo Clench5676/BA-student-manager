@@ -1,4 +1,4 @@
-# ui/dialogs.py
+# gui/dialogs.py
 
 import tkinter as tk
 import ttkbootstrap as tb

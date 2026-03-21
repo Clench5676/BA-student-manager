@@ -1,4 +1,4 @@
-# ui/tabs/jp_conversion_tab.py
+# gui/tabs/jp_conversion_tab.py
 
 import tkinter as tk
 import ttkbootstrap as tb
@@ -9,17 +9,13 @@ from ...i18n import t
 from ... import core
 from ...utils import get_search_resource_dirs
 from ..base_tab import TabFrame
-from ..components import UIComponents, FileListbox, ModeSwitcher, SettingRow
-from ..utils import handle_drop, select_file
+from ..components import DropZone, FileListbox, ModeSwitcher, SettingRow, UIComponents
 from ..dialogs import FileSelectionDialog
 
 class JPGLConversionTab(TabFrame):
     """日服与国际服格式互相转换的标签页"""
 
     def create_widgets(self):
-        # 文件路径变量
-        self.global_bundle_path: Path | None = None
-        
         # --- 转换模式选择 ---
         self.mode_var = tk.StringVar(value="jp_to_global")
         
@@ -37,12 +33,14 @@ class JPGLConversionTab(TabFrame):
         self.file_frame = tb.Frame(self)
         self.file_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 3))
         
-        # 1. 国际服 Bundle 文件 (单文件拖放区)
-        self.global_frame, self.global_label = UIComponents.create_file_drop_zone(
-            self.file_frame, t("ui.jp_conversion.role_global_source"), 
-            self.drop_global_bundle, self.browse_global_bundle,
-            clear_cmd=self.clear_callback('global_bundle_path'),
-            label_text=t("ui.jp_conversion.placeholder_global_bundle")
+        # 1. 国际服 Bundle 文件
+        self.global_zone = DropZone(
+            self.file_frame,
+            title=t("ui.jp_conversion.role_global_source"),
+            placeholder_text=t("ui.jp_conversion.placeholder_global_bundle"),
+            on_file_selected=self.on_global_selected,
+            filetypes=[(t("file_type.bundle"), "*.bundle"), (t("file_type.all_files"), "*.*")],
+            logger=self.logger
         )
 
         # 2. 日服 Bundle 文件列表 (FileListbox，支持多文件)
@@ -86,26 +84,19 @@ class JPGLConversionTab(TabFrame):
     def _switch_view(self):
         """根据选择的模式更新UI文案"""
         if self.mode_var.get() == "jp_to_global":
-            self.global_frame.config(text=t("ui.jp_conversion.role_global_target"))
+            self.global_zone.config(text=t("ui.jp_conversion.role_global_target"))
             self.jp_files_listbox.get_frame().config(text=t("ui.jp_conversion.role_jp_source"))
         else:
-            self.global_frame.config(text=t("ui.jp_conversion.role_global_source"))
+            self.global_zone.config(text=t("ui.jp_conversion.role_global_source"))
             self.jp_files_listbox.get_frame().config(text=t("ui.jp_conversion.role_jp_target"))
 
-    # --- 国际服文件处理 ---
-    def drop_global_bundle(self, event):
-        callback = lambda path: self.set_file_path('global_bundle_path', self.global_label, path, t("ui.jp_conversion.global_bundle"), callback=lambda: self._auto_find_jp_files() if self.app.auto_search_var.get() else None)
-        handle_drop(event, callback=callback)
-    
-    def browse_global_bundle(self):
-        select_file(
-            title=t("ui.dialog.select", type=t("ui.jp_conversion.global_bundle")),
-            callback=lambda path: self.set_file_path(
-                'global_bundle_path', self.global_label, path, t("ui.jp_conversion.global_bundle"), 
-                callback=lambda: self._auto_find_jp_files() if self.app.auto_search_var.get() else None
-            ),
-            log=self.logger.log
-        )
+    def on_global_selected(self, path: Path):
+        """Global 文件选中后的处理"""
+        self.logger.log(t("log.file.loaded", path=path))
+        self.logger.status(t("log.status.ready"))
+        # 自动搜索 JP 文件
+        if self.app.auto_search_var.get():
+            self._auto_find_jp_files()
 
     # --- 自动搜索逻辑 ---
     def _auto_find_jp_files(self):
@@ -113,10 +104,12 @@ class JPGLConversionTab(TabFrame):
         if not self.app.game_resource_dir_var.get():
             self.logger.log(f'⚠️ {t("log.jp_convert.auto_search_no_game_dir")}')
             return
-        if not self.global_bundle_path:
-            self.logger.log(f'⚠️ {t("log.file.not_exist", path=self.global_bundle_path)}')
+        if not self.global_zone.path:
+            self.logger.log(f'⚠️ {t("log.file.not_exist", path=self.global_zone.path)}')
             return
-            
+        
+        # 清除旧的 JP 文件列表，准备重新搜索
+        self.jp_files_listbox._clear_list()
         self.run_in_thread(self._find_worker)
 
     def _find_worker(self):
@@ -125,11 +118,10 @@ class JPGLConversionTab(TabFrame):
         game_search_dirs = get_search_resource_dirs(base_game_dir, self.app.auto_detect_subdirs_var.get())
 
         jp_files = core.find_all_jp_counterparts(
-            self.global_bundle_path, game_search_dirs, self.logger.log
+            self.global_zone.path, game_search_dirs, self.logger.log
         )
         
         if jp_files:
-            # 线程安全更新列表
             self.master.after(0, lambda: self._update_jp_listbox(jp_files))
             self.logger.status(t("log.status.ready"))
         else:
@@ -149,7 +141,7 @@ class JPGLConversionTab(TabFrame):
         if not paths:
             return
         # 只有当Global文件未设置时才进行查找
-        if self.global_bundle_path is not None:
+        if self.global_zone.path is not None:
             return
         # 使用第一个JP文件作为查找基础
         first_jp_file = paths[0]
@@ -168,10 +160,7 @@ class JPGLConversionTab(TabFrame):
         self.logger.status(t("log.status.searching"))
 
         # 更新UI为搜索中状态
-        self.master.after(0, lambda: self.global_label.config(
-            text=t("ui.mod_update.status_searching"),
-            bootstyle="warning"
-        ))
+        self.master.after(0, lambda: self.global_zone.set_searching())
 
         base_game_dir = Path(self.app.game_resource_dir_var.get())
         search_paths = get_search_resource_dirs(base_game_dir, self.app.auto_detect_subdirs_var.get())
@@ -191,11 +180,12 @@ class JPGLConversionTab(TabFrame):
         if not found_paths:
             # 没有找到匹配文件
             ui_message = t("ui.mod_update.status_not_found", message=message)
-            self.global_label.config(text=ui_message, bootstyle="danger")
+            self.global_zone.set_error(ui_message)
             self.logger.status(t("log.status.search_not_found"))
         elif len(found_paths) == 1:
-            # 只有一个匹配文件，直接使用
-            self._set_global_bundle_file(found_paths[0])
+            self.global_zone.set_path(found_paths[0])
+            self.logger.log(t("log.file.loaded", path=found_paths[0]))
+            self.logger.status(t("log.status.ready"))
         else:
             # 多个匹配文件，弹出选择对话框
             dialog = FileSelectionDialog(
@@ -208,19 +198,14 @@ class JPGLConversionTab(TabFrame):
 
             selected_path = dialog.get_selected_path()
             if selected_path:
-                self._set_global_bundle_file(selected_path)
+                self.global_zone.set_path(selected_path)
+                self.logger.log(t("log.file.loaded", path=selected_path))
+                self.logger.status(t("log.status.ready"))
             else:
                 # 用户取消了选择
                 ui_message = t("ui.mod_update.status_not_found", message=t("ui.dialog.selection_cancelled"))
-                self.global_label.config(text=ui_message, bootstyle="warning")
+                self.global_zone.set_warning(ui_message)
                 self.logger.status(t("log.status.search_not_found"))
-
-    def _set_global_bundle_file(self, path: Path):
-        """设置Global bundle文件路径"""
-        self.global_bundle_path = path
-        self.global_label.config(text=path.name, bootstyle="success")
-        self.logger.log(t("log.file.loaded", path=path))
-        self.logger.status(t("log.status.ready"))
 
     # --- 核心转换流程 ---
     def run_conversion_thread(self):
@@ -231,7 +216,7 @@ class JPGLConversionTab(TabFrame):
         output_dir = Path(self.app.output_dir_var.get())
         jp_files = self.jp_files_listbox.file_list
         
-        if not self.global_bundle_path:
+        if not self.global_zone.path:
             messagebox.showerror(t("common.error"), t("message.no_file_selected"))
             return
         if not jp_files:
@@ -249,7 +234,7 @@ class JPGLConversionTab(TabFrame):
         perform_crc = False
         
         if crc_setting == "auto":
-            target_bundle = self.global_bundle_path if self.mode_var.get() == "jp_to_global" else jp_files[0]
+            target_bundle = self.global_zone.path if self.mode_var.get() == "jp_to_global" else jp_files[0]
             platform, unity_version = core.get_unity_platform_info(target_bundle)
             self.logger.log(t("log.platform_info", platform=platform, version=unity_version))
             perform_crc = (platform == "StandaloneWindows64") and (self.mode_var.get() == "jp_to_global")
@@ -266,7 +251,7 @@ class JPGLConversionTab(TabFrame):
         self.logger.status(t("common.processing"))
         if self.mode_var.get() == "jp_to_global":
             success, message = core.process_jp_to_global_conversion(
-                global_bundle_path=self.global_bundle_path,
+                global_bundle_path=self.global_zone.path,
                 jp_bundle_paths=jp_files,
                 output_dir=output_dir,
                 save_options=save_options,
@@ -274,7 +259,7 @@ class JPGLConversionTab(TabFrame):
             )
         else:
             success, message = core.process_global_to_jp_conversion(
-                global_bundle_path=self.global_bundle_path,
+                global_bundle_path=self.global_zone.path,
                 jp_template_paths=jp_files,
                 output_dir=output_dir,
                 save_options=save_options,

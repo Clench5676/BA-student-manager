@@ -1,16 +1,15 @@
-# ui/tabs/asset_extractor_tab.py
+# gui/tabs/asset_extractor_tab.py
 
 import tkinter as tk
 import ttkbootstrap as tb
 from tkinter import messagebox
 from pathlib import Path
-import os
 
 from ...i18n import t
 from ... import core
 from ..base_tab import TabFrame
-from ..components import Theme, UIComponents, SettingRow, FileListbox
-from ..utils import handle_drop, select_file, select_directory, open_directory
+from ..components import UIComponents, SettingRow, FileListbox
+from ..utils import select_directory, open_directory
 
 class AssetExtractorTab(TabFrame):
     def create_widgets(self):
@@ -113,19 +112,14 @@ class AssetExtractorTab(TabFrame):
     
     def open_output_dir(self):
         """打开输出子目录"""
-        # 获取子目录名
         subdir_name = self.subdir_var.get().strip()
-        if not subdir_name and self.bundle_path:
-            subdir_name = self.bundle_path.stem
+        base_path = Path(self.app.output_dir_var.get())
         
-        if subdir_name:
-            # 如果是相对路径，则与输出目录组合
-            if not Path(subdir_name).is_absolute():
-                output_path = Path(self.app.output_dir_var.get()) / subdir_name
-            else:
-                output_path = Path(subdir_name)
+        # 绝对路径直接使用，否则拼接到全局输出目录
+        if subdir_name and Path(subdir_name).is_absolute():
+            output_path = Path(subdir_name)
         else:
-            output_path = Path(self.app.output_dir_var.get())
+            output_path = base_path / subdir_name
             
         open_directory(output_path, create_if_not_exist=True)
 

@@ -1,8 +1,6 @@
-# ui/base_tab.py
+# gui/base_tab.py
 
-import tkinter as tk
 import ttkbootstrap as tb
-from pathlib import Path
 import threading
 from typing import Callable, TYPE_CHECKING
 if TYPE_CHECKING:
@@ -26,28 +24,3 @@ class TabFrame(tb.Frame):
         thread = threading.Thread(target=target, args=args)
         thread.daemon = True
         thread.start()
-
-    def set_file_path(self, path_var_name: str, label_widget: tb.Label, path: Path, file_type_name: str, callback: Callable[[], None] | None = None):
-        setattr(self, path_var_name, path)
-        label_widget.config(text=path.name, bootstyle="success")
-        self.logger.log(t("log.file.loaded_type", type=file_type_name, name=path.name))
-        self.logger.status(t("log.status.loaded", type=file_type_name))
-        if callback:
-            callback()
-
-    def set_folder_path(self, path_var_name: str, label_widget: tb.Label, path: Path, folder_type_name: str):
-        setattr(self, path_var_name, path)
-        label_widget.config(text=path.name, bootstyle="success")
-        self.logger.log(t("log.file.loaded_type", type=folder_type_name, name=path.name))
-        self.logger.status(t("log.status.loaded", type=folder_type_name))
-
-    def clear_callback(self, attr_name: str, default_value = None, log_msg: str | None = None) -> Callable[[], None]:
-        def _clear_action():
-            # 重置属性值
-            setattr(self, attr_name, default_value)
-            
-            # 如果提供了日志消息，则记录
-            if log_msg:
-                self.logger.log(log_msg)
-                
-        return _clear_action

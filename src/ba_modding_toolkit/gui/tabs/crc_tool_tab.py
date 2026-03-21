@@ -1,39 +1,40 @@
-# ui/tabs/crc_tool_tab.py
+# gui/tabs/crc_tool_tab.py
 
 import tkinter as tk
 import ttkbootstrap as tb
-from tkinter import messagebox, filedialog
+from tkinter import messagebox
 from pathlib import Path
 import shutil
 
 from ...i18n import t
 from ..base_tab import TabFrame
-from ..components import Theme, UIComponents
-from ..utils import handle_drop, replace_file, select_file
+from ..components import DropZone, UIComponents
+from ..utils import replace_file
 from ...utils import CRCUtils, get_search_resource_dirs
 
 class CrcToolTab(TabFrame):
     def create_widgets(self):
-        self.original_path = None
-        self.modified_path = None
-
-        # 1. 待修正文件
-        _, self.modified_label = UIComponents.create_file_drop_zone(
-            self, t("ui.label.modified_file"), self.drop_modified, self.browse_modified,
-            clear_cmd=self.clear_callback('modified_path'),
-            label_text=t("ui.crc_tool.placeholder_modified")
+        # 待修正文件
+        self.modified_zone = DropZone(
+            self, title=t("ui.label.modified_file"),
+            placeholder_text=t("ui.crc_tool.placeholder_modified"),
+            on_file_selected=self.on_modified_selected,
+            filetypes=[(t("file_type.bundle"), "*.bundle"), (t("file_type.all_files"), "*.*")],
+            logger=self.logger
         )
 
-        # 2. 原始文件 - 使用新的 search_path_var 参数来显示查找路径
-        original_frame, self.original_label = UIComponents.create_file_drop_zone(
-            self, t("ui.label.original_file"), self.drop_original, self.browse_original,
+        # 原始文件
+        self.original_zone = DropZone(
+            self, title=t("ui.label.original_file"),
+            placeholder_text=t("ui.crc_tool.placeholder_origin"),
+            on_file_selected=self.on_original_selected,
+            filetypes=[(t("file_type.bundle"), "*.bundle"), (t("file_type.all_files"), "*.*")],
             search_path_var=self.app.game_resource_dir_var,
-            clear_cmd=self.clear_callback('original_path'),
-            label_text=t("ui.crc_tool.placeholder_origin")
+            logger=self.logger
         )
 
-        # 3. 操作按钮
-        action_button_frame = tb.Frame(self) # 使用与父框架相同的背景色
+        # 操作按钮
+        action_button_frame = tb.Frame(self)
         action_button_frame.pack(fill=tk.X, pady=10)
         action_button_frame.grid_columnconfigure((0, 1, 2), weight=1)
         
@@ -44,65 +45,41 @@ class CrcToolTab(TabFrame):
         self.replace_button = UIComponents.create_button(action_button_frame, t("action.replace_original"), self.replace_original_thread, bootstyle="danger", state="disabled", style="large")
         self.replace_button.grid(row=0, column=2, sticky="ew", padx=5)
 
-    def drop_original(self, event):
-        handle_drop(event, callback=self.set_original_file)
-
-    def browse_original(self):
-        select_file(
-            title=t("ui.dialog.select", type=t("ui.label.original_file")),
-            filetypes=[(t("file_type.bundle"), "*.bundle"), (t("file_type.all_files"), "*.*")],
-            callback=self.set_original_file,
-            log=self.logger.log
-        )
-    
-    def drop_modified(self, event):
-        handle_drop(event, callback=self.set_modified_file)
-    def browse_modified(self):
-        select_file(
-            title=t("ui.dialog.select", type=t("ui.label.modified_file")),
-            filetypes=[(t("file_type.bundle"), "*.bundle"), (t("file_type.all_files"), "*.*")],
-            callback=self.set_modified_file,
-            log=self.logger.log
-        )
-
-    def set_original_file(self, path: Path):
-        self.original_path = path
-        self.original_label.config(text=path.name, bootstyle="success")
+    def on_original_selected(self, path: Path):
+        """原始文件选中后的处理"""
         self.logger.log(t("log.crc.loaded_original", file=path))
         self.logger.status(t("log.status.loaded", type="original"))
 
-    def set_modified_file(self, path: Path):
-        self.modified_path = path
-        self.modified_label.config(text=path.name, bootstyle="success")
+    def on_modified_selected(self, path: Path):
+        """待修正文件选中后的处理"""
         self.logger.log(t("log.crc.loaded_modified", file=path))
         
+        # 清除旧的 original_file，准备重新搜索
+        self.original_zone.clear()
+        
+        # 自动搜索 original 文件
         game_dir_str = self.app.game_resource_dir_var.get()
         if not game_dir_str:
             self.logger.log(f'⚠️ {t("log.game_dir_not_set")}')
             return
 
         base_game_dir = Path(game_dir_str)
-        
-        # 构造搜索目录列表
         search_dirs = get_search_resource_dirs(base_game_dir, self.app.auto_detect_subdirs_var.get())
 
-        found = False
         for directory in search_dirs:
             if not directory.is_dir():
                 continue # 跳过不存在的子目录
             
             candidate = directory / path.name
             if candidate.exists():
-                self.set_original_file(candidate)
+                self.original_zone.set_path(candidate)
                 self.logger.log(t("log.file_found_in_subdir", subdir=directory.name, filename=candidate.name))
-                found = True
-                break # 找到后即停止搜索
+                return
         
-        if not found:
-            self.logger.log(f'⚠️ {t("log.file_not_found_in_dirs", filename=path.name)}')
+        self.logger.log(f'⚠️ {t("log.file_not_found_in_dirs", filename=path.name)}')
 
     def _validate_paths(self):
-        if not self.original_path or not self.modified_path:
+        if not self.original_zone.path or not self.modified_zone.path:
             messagebox.showerror(t("common.error"), t("message.crc.provide_both_files"))
             return False
         return True
@@ -111,13 +88,11 @@ class CrcToolTab(TabFrame):
         if self._validate_paths(): self.run_in_thread(self.run_correction)
 
     def calculate_values_thread(self):
-        # 检查路径情况 - 至少需要设置一个文件路径
-        if not self.original_path and not self.modified_path:
+        if not self.original_zone.path and not self.modified_zone.path:
             messagebox.showerror(t("common.error"), t("message.crc.provide_at_least_one_file"))
             return
         
-        # 如果只有一个文件路径被设置，计算单个文件的CRC32值
-        if bool(self.original_path) != bool(self.modified_path):
+        if bool(self.original_zone.path) != bool(self.modified_zone.path):
             self.run_in_thread(self.calculate_single_value)
         # 如果两个文件都有，计算两个文件的CRC32值并进行比较
         else:
@@ -147,7 +122,7 @@ class CrcToolTab(TabFrame):
             
             # 先检测CRC是否一致
             try:
-                is_crc_match = CRCUtils.check_crc_match(self.original_path, self.modified_path)
+                is_crc_match = CRCUtils.check_crc_match(self.original_zone.path, self.modified_zone.path)
             except Exception as e:
                 self.logger.log(f'❌ {t("log.crc.check_failed", error=e)}')
                 messagebox.showerror(t("common.error"), t("message.crc.check_failed"))
@@ -161,16 +136,13 @@ class CrcToolTab(TabFrame):
                 self.master.after(0, lambda: self.replace_button.config(state=tk.NORMAL))
                 return True
             
-            # 计算输出文件路径
-            output_filename = self.modified_path.name
+            output_filename = self.modified_zone.path.name
             output_path = output_dir / output_filename
             
-            # 先复制修改后的文件到输出目录
-            shutil.copy2(self.modified_path, output_path)
+            shutil.copy2(self.modified_zone.path, output_path)
             self.logger.log(t("log.file.saved", path=output_path))
             
-            # 修正输出目录中的文件CRC
-            success = CRCUtils.manipulate_crc(self.original_path, output_path, self.app.get_extra_bytes())
+            success = CRCUtils.manipulate_crc(self.original_zone.path, output_path, self.app.get_extra_bytes())
             
             if success:
                 self.final_output_path = output_path
@@ -194,8 +166,7 @@ class CrcToolTab(TabFrame):
         """计算单个文件的CRC32值"""
         self.logger.status(t("common.processing"))
         try:
-            # 确定要计算的文件路径
-            target_path = self.modified_path if self.modified_path else self.original_path
+            target_path = self.modified_zone.path if self.modified_zone.path else self.original_zone.path
             
             with open(target_path, "rb") as f: file_data = f.read()
             crc_hex = f"{CRCUtils.compute_crc32(file_data):08X}"
@@ -213,8 +184,8 @@ class CrcToolTab(TabFrame):
         """计算两个文件的CRC32值，并判断是否匹配"""
         self.logger.status(t("common.processing"))
         try:
-            with open(self.original_path, "rb") as f: original_data = f.read()
-            with open(self.modified_path, "rb") as f: modified_data = f.read()
+            with open(self.original_zone.path, "rb") as f: original_data = f.read()
+            with open(self.modified_zone.path, "rb") as f: modified_data = f.read()
 
             original_crc_hex = f"{CRCUtils.compute_crc32(original_data):08X}"
             modified_crc_hex = f"{CRCUtils.compute_crc32(modified_data):08X}"
@@ -240,13 +211,13 @@ class CrcToolTab(TabFrame):
         if self.final_output_path and self.final_output_path.exists():
             source_path = self.final_output_path
         else:
-            source_path = self.modified_path
+            source_path = self.modified_zone.path
             
-        success = replace_file(
+        replace_file(
             source_path=source_path,
-            dest_path=self.original_path,
+            dest_path=self.original_zone.path,
             create_backup=self.app.create_backup_var.get(),
             ask_confirm=True,
-            confirm_message=t("message.confirm_replace_file", path=self.original_path.name),
+            confirm_message=t("message.confirm_replace_file", path=self.original_zone.path.name),
             log=self.logger.log,
         )

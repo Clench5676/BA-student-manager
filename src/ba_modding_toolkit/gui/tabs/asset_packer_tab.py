@@ -1,4 +1,4 @@
-# ui/tabs/asset_packer_tab.py
+# gui/tabs/asset_packer_tab.py
 
 import tkinter as tk
 import ttkbootstrap as tb
@@ -8,27 +8,29 @@ from pathlib import Path
 from ...i18n import t
 from ... import core
 from ..base_tab import TabFrame
-from ..components import Theme, UIComponents, SettingRow
-from ..utils import handle_drop, replace_file, select_file, select_directory
+from ..components import DropZone, SettingRow, UIComponents
+from ..utils import replace_file
 
 class AssetPackerTab(TabFrame):
     def create_widgets(self):
-        self.bundle_path: Path = None
-        self.folder_path: Path = None
-        self.final_output_path: Path = None
+        self.final_output_path: Path | None = None
         
         # 资源文件夹
-        _, self.folder_label = UIComponents.create_folder_drop_zone(
-            self, t("ui.label.assets_folder_to_pack"), self.drop_folder, self.browse_folder,
-            clear_cmd=self.clear_callback('folder_path'),
-            label_text=t("ui.packer.placeholder_assets")
+        self.folder_zone = DropZone(
+            self, title=t("ui.label.assets_folder_to_pack"),
+            placeholder_text=t("ui.packer.placeholder_assets"),
+            on_file_selected=self.on_folder_selected,
+            allow_folder=True,
+            logger=self.logger
         )
 
         # 目标 Bundle 文件
-        _, self.bundle_label = UIComponents.create_file_drop_zone(
-            self, t("ui.label.target_bundle_file"), self.drop_bundle, self.browse_bundle,
-            clear_cmd=self.clear_callback('bundle_path'),
-            label_text=t("ui.packer.placeholder_bundle")
+        self.bundle_zone = DropZone(
+            self, title=t("ui.label.target_bundle_file"),
+            placeholder_text=t("ui.packer.placeholder_bundle"),
+            on_file_selected=self.on_bundle_selected,
+            filetypes=[(t("file_type.bundle"), "*.bundle"), (t("file_type.all_files"), "*.*")],
+            logger=self.logger
         )
         
         # 旧版 Spine 文件名修正选项
@@ -60,37 +62,22 @@ class AssetPackerTab(TabFrame):
         self.replace_button = UIComponents.create_button(action_button_frame, t("action.replace_original"), self.replace_original_thread, bootstyle="danger", state="disabled", style="large")
         self.replace_button.grid(row=0, column=1, sticky="ew", padx=(5, 0), pady=10)
 
-    def drop_bundle(self, event):
-        handle_drop(event, callback=lambda path: self.set_file_path('bundle_path', self.bundle_label, path, t("ui.label.target_bundle_file")))
-    
-    def browse_bundle(self):
-        select_file(
-            title=t("ui.dialog.select", type=t("ui.label.target_bundle_file")),
-            filetypes=[(t("file_type.bundle"), "*.bundle"), (t("file_type.all_files"), "*.*")],
-            callback=lambda path: self.set_file_path('bundle_path', self.bundle_label, path, t("ui.label.target_bundle_file")),
-            log=self.logger.log
-        )
-    
-    def drop_folder(self, event):
-        def validate_folder(path: Path) -> bool:
-            if not path.is_dir():
-                messagebox.showwarning(t("message.invalid_operation"), t("message.packer.require_folder_with_assets"))
-                return False
-            return True
-        
-        handle_drop(event, callback=lambda path: self.set_folder_path('folder_path', self.folder_label, path, t("ui.label.assets_folder_to_pack")), error_message=t("message.drop_single_folder"), validation_callback=validate_folder)
+    def on_bundle_selected(self, path: Path):
+        """Bundle 文件选中后的处理"""
+        self.logger.log(t("log.file.loaded", path=path))
+        self.logger.status(t("log.status.ready"))
 
-    def browse_folder(self):
-        folder_path = select_directory(
-            var=None,
-            title=t("ui.dialog.select", type=t("ui.label.assets_folder_to_pack")),
-            log=self.logger.log
-        )
-        if folder_path:
-            self.set_folder_path('folder_path', self.folder_label, Path(folder_path), t("ui.label.assets_folder_to_pack"))
+    def on_folder_selected(self, path: Path):
+        """资源文件夹选中后的处理"""
+        if not path.is_dir():
+            messagebox.showwarning(t("message.invalid_operation"), t("message.packer.require_folder_with_assets"))
+            self.folder_zone.clear()
+            return
+        self.logger.log(t("log.file.loaded", path=path))
+        self.logger.status(t("log.status.ready"))
 
     def run_replacement_thread(self):
-        if not all([self.bundle_path, self.folder_path, self.app.output_dir_var.get()]):
+        if not all([self.bundle_zone.path, self.folder_zone.path, self.app.output_dir_var.get()]):
             messagebox.showerror(t("common.error"), t("message.packer.missing_paths"))
             return
         self.run_in_thread(self.run_replacement)
@@ -115,7 +102,7 @@ class AssetPackerTab(TabFrame):
         perform_crc = False
         
         if crc_setting == "auto":
-            platform, unity_version = core.get_unity_platform_info(self.bundle_path)
+            platform, unity_version = core.get_unity_platform_info(self.bundle_zone.path)
             self.logger.log(t("log.platform_info", platform=platform, version=unity_version))
             perform_crc = platform == "StandaloneWindows64"
         elif crc_setting == "true":
@@ -135,8 +122,8 @@ class AssetPackerTab(TabFrame):
         )
         
         success, message = core.process_asset_packing(
-            target_bundle_path = self.bundle_path,
-            asset_folder = self.folder_path,
+            target_bundle_path = self.bundle_zone.path,
+            asset_folder = self.folder_zone.path,
             output_dir = output_dir,
             save_options = save_options,
             spine_options = spine_options,
@@ -146,7 +133,7 @@ class AssetPackerTab(TabFrame):
         )
         
         if success:
-            generated_bundle_filename = self.bundle_path.name
+            generated_bundle_filename = self.bundle_zone.path.name
             self.final_output_path = output_dir / generated_bundle_filename
             
             self.logger.log(f'✅ {t("log.packer.pack_success_path", path=self.final_output_path)}')
@@ -163,22 +150,21 @@ class AssetPackerTab(TabFrame):
         if not self.final_output_path or not self.final_output_path.exists():
             messagebox.showerror(t("common.error"), t("message.packer.generated_file_not_found_for_replace"))
             return
-        if not self.bundle_path or not self.bundle_path.exists():
-            messagebox.showerror(t("common.error"), t("message.file_not_found", path=self.bundle_path))
+        if not self.bundle_zone.path or not self.bundle_zone.path.exists():
+            messagebox.showerror(t("common.error"), t("message.file_not_found", path=self.bundle_zone.path))
             return
         
         self.run_in_thread(self.replace_original)
 
     def replace_original(self):
-        """执行实际的文件替换操作（在线程中）"""
-        target_file = self.bundle_path
+        target_file = self.bundle_zone.path
         source_file = self.final_output_path
         
-        success = replace_file(
+        replace_file(
             source_path=source_file,
             dest_path=target_file,
             create_backup=self.app.create_backup_var.get(),
             ask_confirm=True,
-            confirm_message=t("message.confirm_replace_file", path=self.bundle_path.name),
+            confirm_message=t("message.confirm_replace_file", path=self.bundle_zone.path.name),
             log=self.logger.log,
         )

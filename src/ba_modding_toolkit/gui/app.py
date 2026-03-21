@@ -1,4 +1,4 @@
-# ui/app.py
+# gui/app.py
 
 import sys
 import tkinter as tk
@@ -7,13 +7,13 @@ import ttkbootstrap as tb
 from pathlib import Path
 from ttkbootstrap.widgets.scrolled import ScrolledText 
 
+from ..i18n import i18n_manager, t, get_system_language, get_locale_dir
 from ..utils import get_environment_info, get_BA_path, parse_hex_bytes
 from .components import Theme, Logger, UIComponents
 from .utils import ConfigManager, open_directory, select_directory
 from .dialogs import SettingsDialog
 from .base_tab import TabFrame
 from .tabs import ModUpdateTab, CrcToolTab, AssetPackerTab, AssetExtractorTab, JPGLConversionTab
-from ..i18n import i18n_manager, t, get_system_language, get_locale_dir
 
 class App(tk.Frame):
     def __init__(self, master: tk.Tk):

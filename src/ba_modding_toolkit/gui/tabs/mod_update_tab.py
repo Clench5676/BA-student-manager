@@ -1,4 +1,4 @@
-# ui/tabs/mod_update_tab.py
+# gui/tabs/mod_update_tab.py
 
 import tkinter as tk
 import ttkbootstrap as tb
@@ -8,20 +8,16 @@ from pathlib import Path
 from ...i18n import t
 from ... import core
 from ..base_tab import TabFrame
-from ..components import Theme, UIComponents, FileListbox, ModeSwitcher
+from ..components import DropZone, FileListbox, ModeSwitcher, UIComponents
 from ..dialogs import FileSelectionDialog
-from ..utils import handle_drop, replace_file, select_file, select_directory
+from ..utils import replace_file
 from ...utils import get_search_resource_dirs
 
 class ModUpdateTab(TabFrame):
     """一个整合了单个更新和批量更新功能的标签页"""
     def create_widgets(self):
-        # --- 共享变量 ---
-        # 单个更新
-        self.old_mod_path: Path | None = None
-        self.new_mod_path: Path | None = None
         self.final_output_path: Path | None = None
-        # 批量更新
+        self.new_mod_path: Path | None = None
         self.mod_file_list: list[Path] = []
         
         # --- 模式切换 ---
@@ -60,18 +56,22 @@ class ModUpdateTab(TabFrame):
     # --- 单个更新UI和逻辑 ---
     def _create_single_mode_widgets(self, parent):
         # 1. 旧版 Mod 文件
-        _, self.old_mod_label = UIComponents.create_file_drop_zone(
-            parent, t("ui.label.mod_file"), self.drop_old_mod, self.browse_old_mod,
-            clear_cmd=self.clear_callback('old_mod_path'),
-            label_text=t("ui.mod_update.placeholder_old")
+        self.old_mod_zone = DropZone(
+            parent, title=t("ui.label.mod_file"),
+            placeholder_text=t("ui.mod_update.placeholder_old"),
+            on_file_selected=self.on_old_mod_selected,
+            filetypes=[(t("file_type.bundle"), "*.bundle"), (t("file_type.all_files"), "*.*")],
+            logger=self.logger
         )
         
         # 2. 新版游戏资源文件
-        new_mod_frame, self.new_mod_label = UIComponents.create_file_drop_zone(
-            parent, t("ui.label.target_resource_bundle"), self.drop_new_mod, self.browse_new_mod,
+        self.new_mod_zone = DropZone(
+            parent, title=t("ui.label.target_resource_bundle"),
+            placeholder_text=t("ui.mod_update.placeholder_new"),
+            on_file_selected=self.on_new_mod_selected,
+            filetypes=[(t("file_type.bundle"), "*.bundle"), (t("file_type.all_files"), "*.*")],
             search_path_var=self.app.game_resource_dir_var,
-            clear_cmd=self.clear_callback('new_mod_path'),
-            label_text=t("ui.mod_update.placeholder_new")
+            logger=self.logger
         )
 
         # 操作按钮区域
@@ -85,51 +85,33 @@ class ModUpdateTab(TabFrame):
         self.replace_button = UIComponents.create_button(action_button_frame, t("action.replace_original"), self.replace_original_thread, bootstyle="danger", state="disabled", style="large")
         self.replace_button.grid(row=0, column=1, sticky="ew", padx=(5, 0), pady=2)
 
-    def drop_old_mod(self, event):
-        handle_drop(event, callback=lambda path: self.set_file_path('old_mod_path', self.old_mod_label, path, t("ui.label.mod_file"), callback=self.auto_find_new_bundle))
+    def on_old_mod_selected(self, path: Path):
+        """旧版 Mod 文件选中后的处理"""
+        self.logger.log(t("log.file.loaded", path=path))
+        self.new_mod_path = None
+        self.new_mod_zone.clear()
+        self.run_in_thread(self._find_new_bundle_worker)
 
-    def browse_old_mod(self):
-        select_file(
-            title=t("ui.dialog.select", type=t("ui.label.mod_file")),
-            filetypes=[(t("file_type.bundle"), "*.bundle"), (t("file_type.all_files"), "*.*")],
-            callback=lambda path: self.set_file_path('old_mod_path', self.old_mod_label, path, t("ui.label.mod_file"), callback=self.auto_find_new_bundle),
-            log=self.logger.log
-        )
-
-    def drop_new_mod(self, event):
-        handle_drop(event, callback=self.set_new_mod_file)
-
-    def browse_new_mod(self):
-        select_file(
-            title=t("ui.dialog.select", type=t("ui.label.target_resource_bundle")),
-            filetypes=[(t("file_type.bundle"), "*.bundle"), (t("file_type.all_files"), "*.*")],
-            callback=self.set_new_mod_file,
-            log=self.logger.log
-        )
-            
-    def set_new_mod_file(self, path: Path):
+    def on_new_mod_selected(self, path: Path):
+        """新版资源文件选中后的处理"""
         self.new_mod_path = path
-        self.new_mod_label.config(text=path.name, bootstyle="success")
+        self.new_mod_zone.set_success(path.name)
         self.logger.log(t("log.file.loaded", path=path))
         self.logger.status(t("log.status.ready"))
 
-    def auto_find_new_bundle(self):
-        self.run_in_thread(self._find_new_bundle_worker)
-        
     def _find_new_bundle_worker(self):
-        self.new_mod_label.config(text=t("ui.mod_update.status_searching"), bootstyle="warning")
+        self.new_mod_zone.set_searching()
         self.logger.status(t("log.status.processing_detailed"))
         
         base_game_dir = Path(self.app.game_resource_dir_var.get())
         search_paths = get_search_resource_dirs(base_game_dir, self.app.auto_detect_subdirs_var.get())
 
         found_paths, message = core.find_new_bundle_path(
-            self.old_mod_path,
+            self.old_mod_zone.path,
             search_paths,
             self.logger.log
         )
         
-        # 在主线程中处理结果
         self.master.after(0, lambda: self._handle_search_result(found_paths, message))
     
     def _handle_search_result(self, found_paths: list[Path], message: str):
@@ -137,11 +119,10 @@ class ModUpdateTab(TabFrame):
         if not found_paths:
             # 没有找到匹配文件
             ui_message = t("ui.mod_update.status_not_found", message=message)
-            self.new_mod_label.config(text=ui_message, bootstyle="danger")
+            self.new_mod_zone.set_error(ui_message)
             self.logger.status(t("log.status.search_not_found"))
         elif len(found_paths) == 1:
-            # 只有一个匹配文件，直接使用
-            self.set_new_mod_file(found_paths[0])
+            self.on_new_mod_selected(found_paths[0])
         else:
             # 多个匹配文件，弹出选择对话框
             dialog = FileSelectionDialog(
@@ -154,15 +135,15 @@ class ModUpdateTab(TabFrame):
             
             selected_path = dialog.get_selected_path()
             if selected_path:
-                self.set_new_mod_file(selected_path)
+                self.on_new_mod_selected(selected_path)
             else:
                 # 用户取消了选择
                 ui_message = t("ui.mod_update.status_not_found", message=t("ui.dialog.selection_cancelled"))
-                self.new_mod_label.config(text=ui_message, bootstyle="warning")
+                self.new_mod_zone.set_warning(ui_message)
                 self.logger.status(t("log.status.search_not_found"))
 
     def run_update_thread(self):
-        if not all([self.old_mod_path, self.new_mod_path, self.app.game_resource_dir_var.get(), self.app.output_dir_var.get()]):
+        if not all([self.old_mod_zone.path, self.new_mod_path, self.app.game_resource_dir_var.get(), self.app.output_dir_var.get()]):
             messagebox.showerror(t("common.error"), t("message.missing_paths"))
             return
         
@@ -185,7 +166,7 @@ class ModUpdateTab(TabFrame):
 
         self.logger.log("\n" + "="*50)
         self.logger.log(t("log.mod_update.updating"))
-        self.logger.status(t("log.status.processing_detailed", filename=self.old_mod_path.name))
+        self.logger.status(t("log.status.processing_detailed", filename=self.old_mod_zone.path.name))
         
         asset_types_to_replace = set()
         if self.app.replace_all_var.get():
@@ -218,7 +199,7 @@ class ModUpdateTab(TabFrame):
         )
         
         success, message = core.process_mod_update(
-            old_mod_path = self.old_mod_path,
+            old_mod_path = self.old_mod_zone.path,
             new_bundle_path = self.new_mod_path,
             output_dir = output_dir,
             asset_types_to_replace = asset_types_to_replace,
@@ -273,8 +254,7 @@ class ModUpdateTab(TabFrame):
     def _create_batch_mode_widgets(self, parent):
         # 创建文件列表框，传入自定义显示格式：文件夹名 / 文件名
         self.batch_file_listbox = FileListbox(
-            parent,
-            t("ui.label.mod_file"),
+            parent, t("ui.label.mod_file"),
             self.mod_file_list,
             t("ui.mod_update.placeholder_batch"),
             height=10,
@@ -305,7 +285,6 @@ class ModUpdateTab(TabFrame):
         self.logger.log(t("log.mod_update.batch_start"))
         self.logger.status(t("log.status.batch_starting"))
 
-        # 1. 准备参数
         output_dir = Path(self.app.output_dir_var.get())
         base_game_dir = Path(self.app.game_resource_dir_var.get())
         search_paths = get_search_resource_dirs(base_game_dir, self.app.auto_detect_subdirs_var.get())
@@ -349,7 +328,6 @@ class ModUpdateTab(TabFrame):
         def progress_callback(current, total, filename):
             self.logger.status(t("log.status.processing_batch", current=current, total=total, filename=filename))
 
-        # 2. 调用核心处理函数
         success_count, fail_count, failed_tasks = core.process_batch_mod_update(
             mod_file_list=self.mod_file_list,
             search_paths=search_paths,
@@ -361,7 +339,6 @@ class ModUpdateTab(TabFrame):
             progress_callback=progress_callback
         )
         
-        # 3. 处理结果并更新UI
         total_files = len(self.mod_file_list)
         
         self.logger.log(t("log.mod_update.batch_summary", total=total_files, success=success_count, fail=fail_count))

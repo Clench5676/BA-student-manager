@@ -210,7 +210,6 @@
 		},
 		"file": {
 			"loaded": "已加载: {path}",
-			"loaded_type": "已加载 {type}: {name}",
 			"saving_bundle_prefix": "正在保存 Bundle...",
 			"compression_method": "压缩方式: {compression}",
 			"crc_correction": "CRC修正: {crc_status}",
@@ -354,7 +353,6 @@
 			"searching_jp_counterparts": "正在为 \"{name}\" 搜索对应的JP文件...",
 			"starting_jp_to_global": "开始JP -> Global转换...",
 			"global_base_file": "国际服源文件: {name}",
-			"jp_asset_file": "日服 {type} 文件: {name}",
 			"jp_files_count": "选中的日服文件数量: {count}",
 			"extracted_count_from_jp": "从日服文件提取了 {count} 个资源",
 			"no_assets_replaced": "未替换任何资源",
@@ -404,7 +402,6 @@
 			"placeholder_old": "拖放待更新或移植的 Mod 文件到此处\n或点击下方按钮选择",
 			"placeholder_new": "选择修改后文件后将自动查找原始文件\n或手动拖放/浏览文件",
 			"placeholder_batch": "将文件或文件夹拖放到此处...",
-			"status_searching": "正在搜索对应资源...",
 			"status_not_found": "未找到匹配资源：{message}"
 		},
 		"crc_tool": {
@@ -438,7 +435,8 @@
 		},
 		"drop_zone": {
 			"file_hint": "将文件拖放到此处\n或点击下方按钮选择",
-			"folder_hint": "将文件夹拖放到此处\n或点击下方按钮选择"
+			"folder_hint": "将文件夹拖放到此处\n或点击下方按钮选择",
+			"searching": "正在查找……"
 		},
 		"label": {
 			"custom_resource_dir": "自定义资源目录",

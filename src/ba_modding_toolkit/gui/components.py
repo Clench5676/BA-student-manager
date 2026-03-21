@@ -1,4 +1,4 @@
-# ui/components.py
+# gui/components.py
 
 import tkinter as tk
 import ttkbootstrap as tb
@@ -170,99 +170,6 @@ class UIComponents:
         return checkbutton
 
     @staticmethod
-    def _debounce_wraplength(event: tk.Event) -> None:
-        """
-        防抖处理函数，用于更新标签的 wraplength。
-        只在窗口大小调整停止后执行。
-        """
-        widget = event.widget
-        # 如果之前已经设置了定时器，先取消它
-        if hasattr(widget, "_debounce_timer"):
-            widget.after_cancel(widget._debounce_timer)
-        
-        # 设置一个新的定时器，在指定时间后执行更新操作
-        widget._debounce_timer = widget.after(500, lambda: widget.config(wraplength=widget.winfo_width() - 10))
-
-    @staticmethod
-    def create_drop_zone(parent, title, drop_cmd, browse_cmd, label_text, button_text, search_path_var=None, clear_cmd: Callable[[], None] | None = None):
-        """
-        创建通用的拖放区域组件
-        
-        Args:
-            parent: 父组件
-            title: 标题
-            drop_cmd: 拖放回调
-            browse_cmd: 浏览按钮回调
-            label_text: 初始提示文本
-            button_text: 浏览按钮文本
-            search_path_var: (可选) 搜索路径变量
-            clear_cmd: (可选) 清除按钮回调。点击清除按钮时，UI会自动恢复初始状态，并调用此函数清理外部变量。
-        """
-        frame = tb.Labelframe(parent, text=title, padding=(15, 12))
-        frame.pack(fill=tk.X, pady=(0, 5))
-
-        # 如果提供了 search_path_var，则在拖放区上方添加查找路径输入框
-        if search_path_var is not None:
-            search_frame = tb.Frame(frame)
-            search_frame.pack(fill=tk.X, pady=(0, 8))
-            tb.Label(search_frame, text=t("ui.label.search_path")).pack(side=tk.LEFT, padx=(0,5))
-            UIComponents.create_textbox_entry(
-                search_frame, 
-                textvariable=search_path_var,
-                placeholder_text=t("ui.label.game_resource_dir"),
-                readonly=True
-            ).pack(side=tk.LEFT, fill=tk.X, expand=True)
-
-        # 创建显示区域 Label
-        drop_zone = tb.Label(frame, text=label_text, relief="sunken", anchor="center", justify="center", padding=10, font=Theme.DROP_ZONE_FONT, bootstyle="inverse-light")
-        drop_zone.pack(fill=tk.X, pady=(0, 8))
-        drop_zone.drop_target_register(DND_FILES)
-        drop_zone.dnd_bind('<<Drop>>', drop_cmd)
-        drop_zone.bind('<Configure>', UIComponents._debounce_wraplength)
-
-        # 按钮容器 (用于并排显示浏览和清除按钮)
-        btn_frame = tb.Frame(frame)
-        btn_frame.pack(anchor=tk.CENTER)
-
-        # 浏览按钮
-        UIComponents.create_button(btn_frame, button_text, browse_cmd, bootstyle="primary", style="short").pack(side=tk.LEFT, padx=(0, 5))
-
-        # 清除逻辑
-        def _handle_clear():
-            # 1. 恢复 UI 至初始状态 (文本、背景、字体颜色)
-            drop_zone.config(text=label_text, bootstyle="inverse-light")
-            # 2. 调用外部清理逻辑 (如果存在)
-            if clear_cmd:
-                clear_cmd()
-
-        # 清除按钮
-        UIComponents.create_button(btn_frame, t("action.clear"), _handle_clear, bootstyle="warning", style="short").pack(side=tk.LEFT)
-
-        return frame, drop_zone
-
-    @staticmethod
-    def create_file_drop_zone(parent, title, drop_cmd, browse_cmd, search_path_var=None, clear_cmd: Callable[[], None] | None = None, label_text: str | None = None):
-        """创建文件拖放区域"""
-        return UIComponents.create_drop_zone(
-            parent, title, drop_cmd, browse_cmd, 
-            label_text if label_text is not None else t("ui.drop_zone.file_hint"), 
-            t("action.browse_file"),
-            search_path_var,
-            clear_cmd=clear_cmd
-        )
-
-    @staticmethod
-    def create_folder_drop_zone(parent, title, drop_cmd, browse_cmd, clear_cmd: Callable[[], None] | None = None, label_text: str | None = None):
-        """创建文件夹拖放区域"""
-        return UIComponents.create_drop_zone(
-            parent, title, drop_cmd, browse_cmd,
-            label_text if label_text is not None else t("ui.drop_zone.folder_hint"),
-            t("action.browse_folder"),
-            search_path_var=None,
-            clear_cmd=clear_cmd
-        )
-
-    @staticmethod
     def create_path_entry(parent, title, textvariable, select_cmd, open_cmd=None, placeholder_text=None, open_button=True):
         """
         创建路径输入框组件
@@ -362,6 +269,142 @@ class UIComponents:
         )
         Tooltip(label, text)
         return label
+
+# --- DropZone 组件类 ---
+
+class DropZone(tb.Labelframe):
+    """拖放区域组件，内置拖放和浏览逻辑，提供 path 属性和 on_file_selected 回调"""
+
+    def __init__(
+        self, parent,
+        title: str, placeholder_text: str,
+        on_file_selected: Callable[[Path], None] | None = None,
+        filetypes: list[tuple[str, str]] | None = None,
+        search_path_var=None,
+        clear_cmd: Callable[[], None] | None = None,
+        allow_folder: bool = False,
+        logger=None,
+        **kwargs
+    ):
+        super().__init__(parent, text=title, padding=(15, 12), **kwargs)
+        self.pack(fill=tk.X, pady=(0, 5))
+        
+        self.placeholder_text = placeholder_text
+        self._on_file_selected = on_file_selected
+        self._clear_cmd = clear_cmd
+        self._filetypes = filetypes
+        self._allow_folder = allow_folder
+        self._logger = logger
+        self._path: Path | None = None
+
+        # 如果提供了 search_path_var，则在拖放区上方添加查找路径输入框
+        if search_path_var is not None:
+            search_frame = tb.Frame(self)
+            search_frame.pack(fill=tk.X, pady=(0, 8))
+            tb.Label(search_frame, text=t("ui.label.search_path")).pack(side=tk.LEFT, padx=(0, 5))
+            UIComponents.create_textbox_entry(
+                search_frame,
+                textvariable=search_path_var,
+                placeholder_text=t("ui.label.game_resource_dir"),
+                readonly=True
+            ).pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        # 创建拖放区域标签
+        self.label = tb.Label(
+            self, text=placeholder_text,
+            relief="sunken",
+            anchor="center",
+            justify="center",
+            padding=10,
+            font=Theme.DROP_ZONE_FONT,
+            bootstyle="inverse-light"
+        )
+        self.label.pack(fill=tk.X, pady=(0, 8))
+        self.label.drop_target_register(DND_FILES)
+        self.label.dnd_bind('<<Drop>>', self._handle_drop)
+        self.label.bind('<Configure>', self._debounce_wraplength)
+
+        # 按钮容器
+        btn_frame = tb.Frame(self)
+        btn_frame.pack(anchor=tk.CENTER)
+
+        # 浏览按钮
+        button_text = t("action.browse_folder") if allow_folder else t("action.browse_file")
+        UIComponents.create_button(btn_frame, button_text, self._handle_browse, bootstyle="primary", style="short").pack(side=tk.LEFT, padx=(0, 5))
+
+        # 清除按钮
+        UIComponents.create_button(btn_frame, t("action.clear"), self.clear, bootstyle="warning", style="short").pack(side=tk.LEFT)
+
+    @property
+    def path(self) -> Path | None:
+        """当前选中的路径"""
+        return self._path
+
+    def set_path(self, path: Path) -> None:
+        """外部设置路径"""
+        self._path = path
+        self.set_success(path.name)
+
+    def set_success(self, text: str | None = None) -> None:
+        """设置成功状态（绿色）"""
+        self.label.config(text=text, bootstyle="success")
+
+    def set_warning(self, text: str | None = None) -> None:
+        """设置警告状态（黄色）"""
+        self.label.config(text=text, bootstyle="warning")
+
+    def set_error(self, text: str | None = None) -> None:
+        """设置错误状态（红色）"""
+        self.label.config(text=text, bootstyle="danger")
+
+    def set_searching(self, text: str | None = None) -> None:
+        """设置搜索中状态"""
+        self.label.config(text=text or t("ui.drop_zone.searching"), bootstyle="warning")
+
+    def clear(self) -> None:
+        """清除状态，恢复初始状态，并调用外部清理回调"""
+        self._path = None
+        self.label.config(text=self.placeholder_text, bootstyle="inverse-light")
+        if self._clear_cmd:
+            self._clear_cmd()
+
+    def _handle_drop(self, event: tk.Event) -> None:
+        """内部处理拖放事件"""
+        path = Path(event.data.strip('{}'))
+        self._set_file(path)
+
+    def _handle_browse(self) -> None:
+        """内部处理浏览按钮"""
+        if self._allow_folder:
+            path = select_directory(
+                title=t("ui.dialog.select", type=self.cget("text")),
+                log=self._logger.log if self._logger else None
+            )
+            if path:
+                self._set_file(Path(path))
+        else:
+            select_file(
+                title=t("ui.dialog.select", type=self.cget("text")),
+                filetypes=self._filetypes,
+                callback=self._set_file,
+                log=self._logger.log if self._logger else None
+            )
+
+    def _set_file(self, path: Path) -> None:
+        """设置文件并触发回调"""
+        self._path = path
+        self.set_success(path.name if path.is_file() else path.name)
+        if self._on_file_selected:
+            self._on_file_selected(path)
+
+    @staticmethod
+    def _debounce_wraplength(event: tk.Event) -> None:
+        """防抖处理函数，用于更新标签的 wraplength"""
+        widget = event.widget
+        if hasattr(widget, "_debounce_timer"):
+            widget.after_cancel(widget._debounce_timer)
+        widget._debounce_timer = widget.after(500,
+            lambda: widget.config(wraplength=widget.winfo_width() - 10))
 
 
 class SettingRow:

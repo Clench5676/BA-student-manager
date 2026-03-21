@@ -1,4 +1,4 @@
-# ui/utils.py
+# gui/utils.py
 
 import sys
 import subprocess
