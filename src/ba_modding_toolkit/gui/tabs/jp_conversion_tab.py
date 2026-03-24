@@ -93,7 +93,7 @@ class JPGLConversionTab(TabFrame):
     def on_global_selected(self, path: Path):
         """Global 文件选中后的处理"""
         self.logger.log(t("log.file.loaded", path=path))
-        self.logger.status(t("log.status.ready"))
+        self.logger.status(t("status.ready"))
         # 自动搜索 JP 文件
         if self.app.auto_search_var.get():
             self._auto_find_jp_files()
@@ -113,7 +113,7 @@ class JPGLConversionTab(TabFrame):
         self.run_in_thread(self._find_worker)
 
     def _find_worker(self):
-        self.logger.status(t("log.status.searching"))
+        self.logger.status(t("status.searching"))
         base_game_dir = Path(self.app.game_resource_dir_var.get())
         game_search_dirs = get_search_resource_dirs(base_game_dir, self.app.auto_detect_subdirs_var.get())
 
@@ -123,10 +123,10 @@ class JPGLConversionTab(TabFrame):
         
         if jp_files:
             self.master.after(0, lambda: self._update_jp_listbox(jp_files))
-            self.logger.status(t("log.status.ready"))
+            self.logger.status(t("status.ready"))
         else:
             self.logger.log(f'⚠️ {t("log.search.no_found")}')
-            self.logger.status(t("log.status.search_not_found"))
+            self.logger.status(t("status.search_not_found"))
 
     def _update_jp_listbox(self, files: list[Path]):
         self.jp_files_listbox._clear_list()
@@ -157,7 +157,7 @@ class JPGLConversionTab(TabFrame):
 
     def _find_global_worker(self, jp_file: Path):
         """后台线程：查找Global文件"""
-        self.logger.status(t("log.status.searching"))
+        self.logger.status(t("status.searching"))
 
         # 更新UI为搜索中状态
         self.master.after(0, lambda: self.global_zone.set_searching())
@@ -181,11 +181,11 @@ class JPGLConversionTab(TabFrame):
             # 没有找到匹配文件
             ui_message = t("ui.mod_update.status_not_found", message=message)
             self.global_zone.set_error(ui_message)
-            self.logger.status(t("log.status.search_not_found"))
+            self.logger.status(t("status.search_not_found"))
         elif len(found_paths) == 1:
             self.global_zone.set_path(found_paths[0])
             self.logger.log(t("log.file.loaded", path=found_paths[0]))
-            self.logger.status(t("log.status.ready"))
+            self.logger.status(t("status.ready"))
         else:
             # 多个匹配文件，弹出选择对话框
             dialog = FileSelectionDialog(
@@ -200,12 +200,12 @@ class JPGLConversionTab(TabFrame):
             if selected_path:
                 self.global_zone.set_path(selected_path)
                 self.logger.log(t("log.file.loaded", path=selected_path))
-                self.logger.status(t("log.status.ready"))
+                self.logger.status(t("status.ready"))
             else:
                 # 用户取消了选择
                 ui_message = t("ui.mod_update.status_not_found", message=t("ui.dialog.selection_cancelled"))
                 self.global_zone.set_warning(ui_message)
-                self.logger.status(t("log.status.search_not_found"))
+                self.logger.status(t("status.search_not_found"))
 
     # --- 核心转换流程 ---
     def run_conversion_thread(self):
@@ -268,8 +268,8 @@ class JPGLConversionTab(TabFrame):
         
         # 4. 结果反馈
         if success:
-            self.logger.status(t("log.status.done"))
+            self.logger.status(t("status.done"))
             messagebox.showinfo(t("common.success"), message)
         else:
-            self.logger.status(t("log.status.failed"))
+            self.logger.status(t("status.failed"))
             messagebox.showerror(t("common.fail"), message)

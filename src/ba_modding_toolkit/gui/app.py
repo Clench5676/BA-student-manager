@@ -25,7 +25,7 @@ class App(tk.Frame):
         # 在创建UI组件前加载配置，确保语言设置正确
         self.load_config_on_startup()  # 启动时加载配置
         self.create_widgets()
-        self.logger.status(t("log.status.ready"))
+        self.logger.status(t("status.ready"))
 
     def setup_main_window(self):
         self.master.title(t("ui.app_title"))

@@ -171,7 +171,7 @@ class AssetExtractorTab(TabFrame):
         self.run_in_thread(self.run_extraction, self.bundle_paths, final_output_path, asset_types, enable_atlas_downgrade, spine_converter_path, atlas_export_mode)
 
     def run_extraction(self, bundle_paths: list[Path], output_dir: Path, asset_types: set[str], enable_atlas_downgrade=False, spine_converter_path=None, atlas_export_mode="atlas"):
-        self.logger.status(t("log.status.extracting"))
+        self.logger.status(t("status.extracting"))
         
         # 创建 SpineOptions 对象
         target_version = self.app.spine_downgrade_version_var.get().strip()
@@ -196,4 +196,4 @@ class AssetExtractorTab(TabFrame):
         else:
             messagebox.showerror(t("common.fail"), message)
             
-        self.logger.status(t("log.status.done"))
+        self.logger.status(t("status.done"))

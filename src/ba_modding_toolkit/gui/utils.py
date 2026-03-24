@@ -174,7 +174,7 @@ def replace_file(source_path: Path,
         log(t("log.file.overwritten", path=dest_path)) 
         shutil.copy2(source_path, dest_path) 
         
-        log(t("log.status.done")) 
+        log(t("status.done")) 
         messagebox.showinfo(t("common.success"), t("message.process_success")) 
         return True 
 

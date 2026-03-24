@@ -59,7 +59,7 @@ class CrcToolTab(TabFrame):
     def on_original_selected(self, path: Path):
         """原始文件选中后的处理"""
         self.logger.log(t("log.crc.loaded_original", file=path))
-        self.logger.status(t("log.status.loaded", type="original"))
+        self.logger.status(t("status.loaded", type="original"))
 
     def on_modified_selected(self, path: Path):
         """待修正文件选中后的处理"""
@@ -146,7 +146,7 @@ class CrcToolTab(TabFrame):
             if not self.app.output_dir_var or not self.app.output_dir_var.get():
                 self.logger.log(f'❌ {t("log.output_dir_not_set")}')
                 messagebox.showerror(t("common.error"), t("message.output_dir_not_set"))
-                self.logger.status(t("log.status.failed"))
+                self.logger.status(t("status.failed"))
                 return False
             
             # 创建输出目录（如果不存在）
@@ -165,7 +165,7 @@ class CrcToolTab(TabFrame):
             if current_crc == target_crc:
                 self.logger.log(f'⚠️ {t("log.crc.match_no_correction_needed")}')
                 messagebox.showinfo(t("common.result"), t("message.crc.match_no_correction_needed"))
-                self.logger.status(t("log.status.calculation_done"))
+                self.logger.status(t("status.calculation_done"))
                 if self.original_zone.path:
                     self.master.after(0, lambda: self.replace_button.config(state=tk.NORMAL))
                 return True
@@ -188,12 +188,12 @@ class CrcToolTab(TabFrame):
             else:
                 self.logger.log(f'❌ {t("log.crc.correction_failed")}')
                 messagebox.showerror(t("common.fail"), t("message.crc.correction_failed"))
-            self.logger.status(t("log.status.done"))
+            self.logger.status(t("status.done"))
             return success
                 
         except Exception as e:
             self.logger.log(t("log.error_detail", error=e))
-            self.logger.status(t("log.status.error", error=e))
+            self.logger.status(t("status.error", error=e))
             messagebox.showerror(t("common.error"), t("message.execution_error", error=e))
             return False
         
@@ -208,12 +208,12 @@ class CrcToolTab(TabFrame):
             crc_str = f"{crc_value}(0x{crc_value:08X})"
 
             self.logger.log(t("log.crc.file_crc32", crc=crc_str))
-            self.logger.status(t("log.status.calculation_done"))
+            self.logger.status(t("status.calculation_done"))
             messagebox.showinfo(t("common.result"), t("message.crc.file_crc32", crc=crc_str))
             
         except Exception as e:
             self.logger.log(f'❌ {t("log.crc.calculation_error", error=e)}')
-            self.logger.status(t("log.status.error", error=e))
+            self.logger.status(t("status.error", error=e))
             messagebox.showerror(t("common.error"), t("message.crc.calculation_error", error=e))
 
     def calculate_values(self):
@@ -233,7 +233,7 @@ class CrcToolTab(TabFrame):
 
             msg = f"{t('message.crc.modified_file_crc32', crc=modified_crc_str)}\n{t('message.crc.original_file_crc32', crc=original_crc_str)}\n"
 
-            self.logger.status(t("log.status.calculation_done"))
+            self.logger.status(t("status.calculation_done"))
             if original_crc_value == modified_crc_value:
                 self.logger.log(t("log.crc.match_yes"))
                 messagebox.showinfo(t("common.result"), f"{msg}{t('message.crc.match_yes')}")
@@ -242,7 +242,7 @@ class CrcToolTab(TabFrame):
                 messagebox.showwarning(t("common.result"), f"{msg}{t('message.crc.match_no')}")
         except Exception as e:
             self.logger.log(f'❌ {t("log.crc.calculation_error", error=e)}')
-            self.logger.status(t("log.status.error", error=e))
+            self.logger.status(t("status.error", error=e))
             messagebox.showerror(t("common.error"), t("message.crc.calculation_error", error=e))
 
     def replace_original(self):

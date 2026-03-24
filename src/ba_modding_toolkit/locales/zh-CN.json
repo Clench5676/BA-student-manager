@@ -117,7 +117,6 @@
 		"process_success": "处理成功！",
 		"process_failed": "处理失败: {error}",
 		"error_during_process": "处理过程中发生错误:\n{error}",
-		"no_bundles_in_folder": "在该文件夹中没有找到任何 .bundle 文件。",
 		"cannot_open_explorer": "无法打开目录: {error}",
 		"open_manually": "请手动打开目录：{path}",
 		"invalid_operation": "操作无效",
@@ -146,8 +145,6 @@
 		},
 		"crc": {
 			"provide_at_least_one_file": "请至少提供一个文件路径。",
-			"provide_both_files": "请同时提供原始文件和待修正文件。",
-			"check_failed": "检测CRC值时发生错误。请检查原始文件和修改后文件是否正确。",
 			"match_no_correction_needed": "CRC值已匹配，无需进行修正操作。",
 			"correction_success": "CRC 修正成功！\n修正后的文件已保存至输出目录:\n{path}",
 			"correction_failed": "CRC 修正失败。",
@@ -192,22 +189,22 @@
 			"no_assets_matched": "未找到任何匹配的资源，无法进行转换。"
 		}
 	},
+	"status": {
+		"ready": "准备就绪",
+		"processing": "正在处理",
+		"processing_detailed": "正在处理: {filename}",
+		"processing_batch": "正在处理 ({current}/{total}): {filename}",
+		"batch_starting": "正在开始批量更新",
+		"searching": "正在查找文件...",
+		"search_not_found": "未找到匹配文件",
+		"done": "处理完成",
+		"failed": "处理失败",
+		"error": "错误：{error}",
+		"loaded": "已加载 {type}",
+		"calculation_done": "计算完成",
+		"extracting": "正在提取资源..."
+	},
 	"log": {
-		"status": {
-			"ready": "准备就绪",
-			"processing": "正在处理",
-			"processing_detailed": "正在处理: {filename}",
-			"processing_batch": "正在处理 ({current}/{total}): {filename}",
-			"batch_starting": "正在开始批量更新",
-			"searching": "正在查找文件...",
-			"search_not_found": "未找到匹配文件",
-			"done": "处理完成",
-			"failed": "处理失败",
-			"error": "错误：{error}",
-			"loaded": "已加载 {type}",
-			"calculation_done": "计算完成",
-			"extracting": "正在提取资源..."
-		},
 		"file": {
 			"loaded": "已加载: {path}",
 			"saving_bundle_prefix": "正在保存 Bundle...",
@@ -294,7 +291,6 @@
 			"extracting_from_global": "正在从国际服文件提取资源",
 			"extracting_from_jp": "正在从日服文件提取资源",
 			"applying_to_global": "正在应用到国际服文件",
-			"migration_complete": "迁移完成: {text_count} 个 TextAsset, {tex_count} 个 Texture2D",
 			"conversion_complete": "转换完成",
 			"copy_converted_files": "复制成功转换的文件"
 		},
@@ -369,7 +365,6 @@
 		"output_dir_not_set": "未设置输出目录",
 		"error_detail": "发生错误：{error}",
 		"error_processing": "处理过程中发生错误：{error}",
-		"processing_filename": "正在处理文件: {name}",
 		"processing_filename_with_progress": "({current}/{total}) 正在处理文件: {name}",
 		"process_failed": "处理失败: {error}",
 		"replace_original": "现在可以按下\"{button}\"按钮来覆盖原始文件",
@@ -421,10 +416,9 @@
 			"mode_gl_to_jp": "Global → JP (拆分)",
 			"placeholder_jp_files": "拖放所有相关的日服文件 (textures, textassets...) 到此处",
 			"role_jp_source": "日服 Bundle (源文件)",
-			"role_global_source": "国际服 Bundle (源文件)",
-			"global_bundle": "国际服 Bundle",
-			"role_global_target": "国际服 Bundle (目标文件)",
 			"role_jp_target": "日服 Bundle (目标文件)",
+			"role_global_source": "国际服 Bundle (源文件)",
+			"role_global_target": "国际服 Bundle (目标文件)",
 			"placeholder_global_bundle": "拖放国际服的Bundle文件\n或点击下方按钮选择"
 		},
 		"dialog": {

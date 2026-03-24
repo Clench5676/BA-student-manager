@@ -1132,7 +1132,7 @@ def process_batch_mod_update(
             progress_callback(current_progress, total_files, filename)
 
         log("\n" + "=" * 50)
-        log(t("log.status.processing_batch", current=current_progress, total=total_files, filename=filename))
+        log(t("status.processing_batch", current=current_progress, total=total_files, filename=filename))
 
         # 查找对应的新资源文件
         new_bundle_paths, find_message = find_new_bundle_path(

@@ -117,7 +117,6 @@
 		"process_success": "Process Successful!",
 		"process_failed": "Process Failed: {error}",
 		"error_during_process": "An error occurred during processing:\n{error}",
-		"no_bundles_in_folder": "No .bundle files found in this folder.",
 		"cannot_open_explorer": "Cannot open directory: {error}",
 		"open_manually": "Please open the directory manually: {path}",
 		"invalid_operation": "Invalid operation",
@@ -146,8 +145,6 @@
 		},
 		"crc": {
 			"provide_at_least_one_file": "Please provide at least one file path.",
-			"provide_both_files": "Please provide both the original file and the file to be corrected.",
-			"check_failed": "Error checking CRC value. Please verify the original and modified files are correct.",
 			"match_no_correction_needed": "CRC values match, no correction needed.",
 			"correction_success": "CRC Correction Successful!\nThe corrected file has been saved to the output directory:\n{path}",
 			"correction_failed": "CRC Correction Failed.",
@@ -184,35 +181,32 @@
 		},
 		"jp_convert": {
 			"load_global_failed": "Failed to load Global server source file",
-			"load_jp_asset_failed": "Failed to load JP server {type} file",
 			"jp_to_global_success": "JP -> Global conversion successful!\nReplaced {asset_count} assets",
 			"global_to_jp_success": "Global -> JP conversion successful!\nReplaced {bundle_count} Bundles, {asset_count} assets",
 			"conversion_error": "Error occurred during conversion:\n{error}",
 			"load_global_source_failed": "Failed to load Global server source file",
 			"no_assets_in_source": "No extractable assets found in the source file. Cannot convert.",
-			"no_assets_matched": "No matching assets found. Cannot convert.",
-			"save_asset_bundle_failed": "Failed to save {type} Bundle: {message}"
+			"no_assets_matched": "No matching assets found. Cannot convert."
 		}
 	},
+	"status": {
+		"ready": "Ready",
+		"processing": "Processing",
+		"processing_detailed": "Processing: {filename}",
+		"processing_batch": "Processing ({current}/{total}): {filename}",
+		"batch_starting": "Starting batch update",
+		"searching": "Searching for files...",
+		"search_not_found": "No matching files found",
+		"done": "Done",
+		"failed": "Failed",
+		"error": "Error: {error}",
+		"loaded": "Loaded {type}",
+		"calculation_done": "Calculation done",
+		"extracting": "Extracting resources..."
+	},
 	"log": {
-		"status": {
-			"ready": "Ready",
-			"processing": "Processing",
-			"processing_detailed": "Processing: {filename}",
-			"processing_batch": "Processing ({current}/{total}): {filename}",
-			"batch_starting": "Starting batch update",
-			"searching": "Searching for files...",
-			"search_not_found": "No matching files found",
-			"done": "Done",
-			"failed": "Failed",
-			"error": "Error: {error}",
-			"loaded": "Loaded {type}",
-			"calculation_done": "Calculation done",
-			"extracting": "Extracting resources..."
-		},
 		"file": {
 			"loaded": "Loaded: {path}",
-			"loaded_type": "Loaded {type}: {name}",
 			"saving_bundle_prefix": "Saving Bundle...",
 			"compression_method": "Compression: {compression}",
 			"crc_correction": "CRC Correction: {crc_status}",
@@ -256,11 +250,7 @@
 			"version_detected_downgrading": "Detected Spine version: {version}. Attempting downgrade...",
 			"atlas_downgrade_success": "Atlas downgrade successful",
 			"atlas_downgrade_failed": "Atlas downgrade failed",
-			"missing_matching_atlas": "Found {skel} but missing matching {atlas}. Handling as standalone file.",
-			"skel_conversion_failed_using_original": "Skel conversion failed. Using original .skel file.",
-			"no_skel_found": "No .skel file found in bundle.",
 			"edit_atlas": "Edited Atlas file: {filename}",
-			"rescaling_page": "Rescaling page {page} (scale: {scale})",
 			"unpacking_atlas": "Unpacking Atlas: {name}",
 			"atlas_unpack_success": "Atlas unpack successful, frames saved to: {path}",
 			"atlas_unpack_failed": "Atlas unpack failed"
@@ -301,8 +291,8 @@
 			"extracting_from_global": "Extracting resources from Global file",
 			"extracting_from_jp": "Extracting resources from JP file",
 			"applying_to_global": "Applying to Global file",
-			"migration_complete": "Migration complete: {text_count} TextAssets, {tex_count} Texture2Ds",
-			"conversion_complete": "Conversion complete"
+			"conversion_complete": "Conversion complete",
+			"copy_converted_files": "Copying converted files"
 		},
 		"compression": {
 			"original_short": "Orig",
@@ -324,9 +314,8 @@
 			"using_temp_dir": "Using temp directory: {path}",
 			"skipping_unnamed": "Skipping an unnamed {type} asset",
 			"extraction_failed": "Error extracting asset {name}: {error}",
-			"processing_asset_group": "Processing asset group: {name}",
-			"copying_file": "Copying file: {name}",
-			"starting_extraction_num": "Extracting resources from {num} fils..."
+			"starting_extraction_num": "Extracting resources from {num} fils...",
+			"processing_file": "Processing: {name}"
 		},
 		"migration": {
 			"extracting_from_old_bundle": "Extracting specified asset types from old bundle: {types}",
@@ -360,7 +349,6 @@
 			"searching_jp_counterparts": "Searching for corresponding JP files for \"{name}\"...",
 			"starting_jp_to_global": "Starting JP -> Global conversion...",
 			"global_base_file": "Global source file: {name}",
-			"jp_asset_file": "JP {type} file: {name}",
 			"jp_files_count": "Number of selected JP files: {count}",
 			"extracted_count_from_jp": "Extracted {count} assets from JP files",
 			"no_assets_replaced": "No assets replaced",
@@ -377,7 +365,6 @@
 		"output_dir_not_set": "Output directory not set",
 		"error_detail": "Error occurred: {error}",
 		"error_processing": "Error occurred during processing: {error}",
-		"processing_filename": "Processing file: {name}",
 		"processing_filename_with_progress": "({current}/{total}) Processing file: {name}",
 		"process_failed": "Process failed: {error}",
 		"replace_original": "You can now press the \"{button}\" button to overwrite the original file",
@@ -410,12 +397,12 @@
 			"placeholder_old": "Drag and drop the old Mod file to update or port here\nOr click the button below to select",
 			"placeholder_new": "Selecting a modified file will auto-search for the original\nOr drag/browse manually",
 			"placeholder_batch": "Drag and drop files or folders here...",
-			"status_searching": "Searching for corresponding resources...",
 			"status_not_found": "Matching resource not found: {message}"
 		},
 		"crc_tool": {
 			"placeholder_modified": "Drag and drop Bundle to correct CRC here\nOr click the button below to select",
-			"placeholder_origin": "Selecting a file to correct will auto-search for the original\nOr drag/browse manually"
+			"placeholder_origin": "Selecting a file to correct will auto-search for the original\nOr drag/browse manually",
+			"target_crc_placeholder": "Will be auto-filled after selecting a modified file"
 		},
 		"packer": {
 			"placeholder_assets": "Drag and drop folder containing assets (.png/.skel/.atlas) here\nOr click the button below to select",
@@ -430,7 +417,6 @@
 			"placeholder_jp_files": "Drag and drop all related JP files (textures, textassets...) here",
 			"role_jp_source": "JP Bundle (Source)",
 			"role_global_source": "Global Bundle (Source)",
-			"global_bundle": "Global Bundle",
 			"role_global_target": "Global Bundle (Target)",
 			"role_jp_target": "JP Bundle (Target)",
 			"placeholder_global_bundle": "Drag and drop Global Bundle file here\nOr click the button below to select"
@@ -444,7 +430,8 @@
 		},
 		"drop_zone": {
 			"file_hint": "Drag and drop files here\nOr click the button below to select",
-			"folder_hint": "Drag and drop folder here\nOr click the button below to select"
+			"folder_hint": "Drag and drop folder here\nOr click the button below to select",
+			"searching": "Searching......"
 		},
 		"label": {
 			"custom_resource_dir": "Custom Resource Dir",
@@ -461,7 +448,8 @@
 			"original_file": "Original File",
 			"modified_file": "File to Correct",
 			"environment": "Environment",
-			"options": "Options"
+			"options": "Options",
+			"target_crc": "Target CRC Value"
 		},
 		"log_area": "Log",
 		"status_label": "Status: "

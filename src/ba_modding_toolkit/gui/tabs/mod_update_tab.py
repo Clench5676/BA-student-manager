@@ -97,11 +97,11 @@ class ModUpdateTab(TabFrame):
         self.new_mod_path = path
         self.new_mod_zone.set_success(path.name)
         self.logger.log(t("log.file.loaded", path=path))
-        self.logger.status(t("log.status.ready"))
+        self.logger.status(t("status.ready"))
 
     def _find_new_bundle_worker(self):
         self.new_mod_zone.set_searching()
-        self.logger.status(t("log.status.processing_detailed"))
+        self.logger.status(t("status.processing_detailed"))
         
         base_game_dir = Path(self.app.game_resource_dir_var.get())
         search_paths = get_search_resource_dirs(base_game_dir, self.app.auto_detect_subdirs_var.get())
@@ -120,7 +120,7 @@ class ModUpdateTab(TabFrame):
             # 没有找到匹配文件
             ui_message = t("ui.mod_update.status_not_found", message=message)
             self.new_mod_zone.set_error(ui_message)
-            self.logger.status(t("log.status.search_not_found"))
+            self.logger.status(t("status.search_not_found"))
         elif len(found_paths) == 1:
             self.on_new_mod_selected(found_paths[0])
         else:
@@ -140,7 +140,7 @@ class ModUpdateTab(TabFrame):
                 # 用户取消了选择
                 ui_message = t("ui.mod_update.status_not_found", message=t("ui.dialog.selection_cancelled"))
                 self.new_mod_zone.set_warning(ui_message)
-                self.logger.status(t("log.status.search_not_found"))
+                self.logger.status(t("status.search_not_found"))
 
     def run_update_thread(self):
         if not all([self.old_mod_zone.path, self.new_mod_path, self.app.game_resource_dir_var.get(), self.app.output_dir_var.get()]):
@@ -166,7 +166,7 @@ class ModUpdateTab(TabFrame):
 
         self.logger.log("\n" + "="*50)
         self.logger.log(t("log.mod_update.updating"))
-        self.logger.status(t("log.status.processing_detailed", filename=self.old_mod_zone.path.name))
+        self.logger.status(t("status.processing_detailed", filename=self.old_mod_zone.path.name))
         
         asset_types_to_replace = set()
         if self.app.replace_all_var.get():
@@ -225,7 +225,7 @@ class ModUpdateTab(TabFrame):
             self.master.after(0, lambda: self.replace_button.config(state=tk.DISABLED))
             messagebox.showinfo(t("common.success"), t("message.process_success"))
         
-        self.logger.status(t("log.status.done"))
+        self.logger.status(t("status.done"))
 
     def replace_original_thread(self):
         if not self.final_output_path or not self.final_output_path.exists():
@@ -283,7 +283,7 @@ class ModUpdateTab(TabFrame):
     def _batch_update_worker(self):
         self.logger.log("\n" + "#"*50)
         self.logger.log(t("log.mod_update.batch_start"))
-        self.logger.status(t("log.status.batch_starting"))
+        self.logger.status(t("status.batch_starting"))
 
         output_dir = Path(self.app.output_dir_var.get())
         base_game_dir = Path(self.app.game_resource_dir_var.get())
@@ -293,7 +293,7 @@ class ModUpdateTab(TabFrame):
             output_dir.mkdir(parents=True, exist_ok=True)
         except Exception as e:
             messagebox.showerror(t("common.error"), t("message.process_failed", error=e))
-            self.logger.status(t("log.status.error", error=e))
+            self.logger.status(t("status.error", error=e))
             return
 
         asset_types_to_replace = set()
@@ -326,7 +326,7 @@ class ModUpdateTab(TabFrame):
 
         # 更新UI状态的回调函数
         def progress_callback(current, total, filename):
-            self.logger.status(t("log.status.processing_batch", current=current, total=total, filename=filename))
+            self.logger.status(t("status.processing_batch", current=current, total=total, filename=filename))
 
         success_count, fail_count, failed_tasks = core.process_batch_mod_update(
             mod_file_list=self.mod_file_list,
@@ -348,4 +348,4 @@ class ModUpdateTab(TabFrame):
             failed_list = "\n".join([t("log.mod_update.failed_item", filename=f) for f in failed_tasks])
             self.logger.log(failed_list)
 
-        self.logger.status(t("log.status.done"))
+        self.logger.status(t("status.done"))

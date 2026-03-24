@@ -65,7 +65,7 @@ class AssetPackerTab(TabFrame):
     def on_bundle_selected(self, path: Path):
         """Bundle 文件选中后的处理"""
         self.logger.log(t("log.file.loaded", path=path))
-        self.logger.status(t("log.status.ready"))
+        self.logger.status(t("status.ready"))
 
     def on_folder_selected(self, path: Path):
         """资源文件夹选中后的处理"""
@@ -74,7 +74,7 @@ class AssetPackerTab(TabFrame):
             self.folder_zone.clear()
             return
         self.logger.log(t("log.file.loaded", path=path))
-        self.logger.status(t("log.status.ready"))
+        self.logger.status(t("status.ready"))
 
     def run_replacement_thread(self):
         if not all([self.bundle_zone.path, self.folder_zone.path, self.app.output_dir_var.get()]):
@@ -143,7 +143,7 @@ class AssetPackerTab(TabFrame):
         else:
             messagebox.showerror(t("common.fail"), message)
         
-        self.logger.status(t("log.status.done"))
+        self.logger.status(t("status.done"))
 
     def replace_original_thread(self):
         """启动替换原始游戏文件的线程"""
