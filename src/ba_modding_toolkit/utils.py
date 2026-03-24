@@ -91,6 +91,7 @@ LogFunc = Callable[[str], None]
 class CRCUtils:
     """
     一个封装了CRC32计算和修正逻辑的工具类。
+    Prototype by [kalina](https://github.com/kalinaowo)
     """
 
     # --- 公开的静态方法 ---
@@ -126,17 +127,15 @@ class CRCUtils:
         return crc_1 == crc_2
     
     @staticmethod
-    def apply_crc_fix(original_data: bytes, modified_data: bytes) -> bytes | None:
+    def apply_crc_fix(modified_data: bytes, target_crc: int) -> bytes | None:
         """
-        计算修正CRC后的数据。
+        计算修正CRC后的数据，使其达到指定的目标CRC值。
         如果修正成功，返回修正后的完整字节数据；如果失败，返回None。
         """
-        original_crc = CRCUtils.compute_crc32(original_data)
-
         # 计算新数据加上4个空字节的CRC，为修正值留出空间
         modified_crc = CRCUtils.compute_crc32(modified_data + b'\x00\x00\x00\x00')
 
-        original_bytes = CRCUtils._u32_to_bytes_be(original_crc)
+        original_bytes = CRCUtils._u32_to_bytes_be(target_crc)
         modified_bytes = CRCUtils._u32_to_bytes_be(modified_crc)
 
         xor_result = CRCUtils._xor_bytes(original_bytes, modified_bytes)
@@ -155,27 +154,23 @@ class CRCUtils:
         final_data = modified_data + correction_bytes
 
         final_crc = CRCUtils.compute_crc32(final_data)
-        is_crc_match = (final_crc == original_crc)
+        is_crc_match = (final_crc == target_crc)
 
         return final_data if is_crc_match else None
 
     @staticmethod
-    def manipulate_crc(original_path: Path, modified_path: Path, extra_bytes: bytes | None = None) -> bool:
+    def manipulate_file_crc(modified_path: Path, target_crc: int, extra_bytes: bytes | None = None) -> bool:
         """
-        修正modified_path文件的CRC，使其与original_path文件匹配。
-        此方法封装了apply_crc_fix方法，处理文件的读写操作。
+        修正modified_path文件的CRC，使其达到指定的目标CRC值。
         extra_bytes: 可选的4字节数据，将在CRC计算前附加到modified_data后
         """
-        with open(str(original_path), "rb") as f:
-            original_data = f.read()
         with open(str(modified_path), "rb") as f:
             modified_data = f.read()
 
-        # 如有extra_bytes，先附加到modified_data
         if extra_bytes:
             modified_data = modified_data + extra_bytes
 
-        corrected_data = CRCUtils.apply_crc_fix(original_data, modified_data)
+        corrected_data = CRCUtils.apply_crc_fix(modified_data, target_crc)
 
         if corrected_data:
             with open(modified_path, "wb") as f:

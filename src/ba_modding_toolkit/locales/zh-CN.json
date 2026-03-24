@@ -406,7 +406,8 @@
 		},
 		"crc_tool": {
 			"placeholder_modified": "拖放待修正CRC值的 Bundle\n或点击下方按钮选择",
-			"placeholder_origin": "选择待修正文件后将自动查找原始文件\n或手动拖放/浏览文件"
+			"placeholder_origin": "选择待修正文件后将自动查找原始文件\n或手动拖放/浏览文件",
+			"target_crc_placeholder": "选择待修正文件后自动填充"
 		},
 		"packer": {
 			"placeholder_assets": "拖放包含待打包资源 (.png/.skel/.atlas) 的文件夹\n或点击下方按钮选择",
@@ -453,7 +454,8 @@
 			"original_file": "原始文件",
 			"modified_file": "待修正文件",
 			"environment": "运行环境",
-			"options": "选项"
+			"options": "选项",
+			"target_crc": "目标 CRC"
 		},
 		"log_area": "日志",
 		"status_label": "状态："

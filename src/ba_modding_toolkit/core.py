@@ -198,13 +198,13 @@ def compress_bundle(
 def _save_and_crc(
     env: Env,
     output_path: Path,
-    original_bundle_path: Path,
     save_options: SaveOptions,
     log: LogFunc = no_log,
 ) -> tuple[bool, str]:
     """
     一个辅助函数，用于生成压缩bundle数据，根据需要执行CRC修正，并最终保存到文件。
     封装了保存、CRC修正的逻辑。
+    CRC修正使用输出文件名中提取的目标CRC值。
 
     Returns:
         tuple(bool, str): (是否成功, 状态消息) 的元组。
@@ -228,8 +228,11 @@ def _save_and_crc(
         success_message = t("message.save_success")
 
         if save_options.perform_crc:
-            with open(original_bundle_path, "rb") as f:
-                original_data = f.read()
+            # 从输出文件名提取目标 CRC
+            _, _, _, _, crc_str = parse_filename(output_path.name)
+            if not crc_str or not crc_str.isdigit():
+                return False, t("message.crc.correction_failed_file_not_generated", name=output_path.name)
+            target_crc = int(crc_str)
 
             # 如有extra_bytes，先附加到modified_data
             crc_input_data = modified_data
@@ -237,8 +240,8 @@ def _save_and_crc(
                 crc_input_data = modified_data + save_options.extra_bytes
 
             corrected_data = CRCUtils.apply_crc_fix(
-                original_data,
-                crc_input_data
+                crc_input_data,
+                target_crc
             )
 
             if not corrected_data:
@@ -681,7 +684,6 @@ def process_asset_packing(
         save_ok, save_message = _save_and_crc(
             env=env,
             output_path=output_path,
-            original_bundle_path=target_bundle_path,
             save_options=save_options,
             log=log
         )
@@ -1073,7 +1075,6 @@ def process_mod_update(
         save_ok, save_message = _save_and_crc(
             env=modified_env,
             output_path=output_path,
-            original_bundle_path=new_bundle_path,
             save_options=save_options,
             log=log
         )
@@ -1386,7 +1387,6 @@ def process_jp_to_global_conversion(
         save_ok, save_message = _save_and_crc(
             env=global_env,
             output_path=output_path,
-            original_bundle_path=global_bundle_path,
             save_options=save_options,
             log=log
         )
@@ -1482,7 +1482,6 @@ def process_global_to_jp_conversion(
                 save_ok, save_msg = _save_and_crc(
                     env=template_env,
                     output_path=output_path,
-                    original_bundle_path=jp_template_path,
                     save_options=save_options,
                     log=log
                 )

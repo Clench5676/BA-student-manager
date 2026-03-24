@@ -213,12 +213,26 @@ def handle_crc(args: CrcTap, logger) -> None:
         return
 
     # --- 模式 2: 修正 CRC ---
-    if not original_path:
-        logger.log("❌ Error: For CRC fix, must provide '--original' or use '--resource-dir' for auto-search.")
+    if not modified_path:
+        logger.log("❌ Error: For CRC fix, must provide '--modified' file.")
         return
 
     try:
-        if CRCUtils.check_crc_match(original_path, modified_path):
+        # 从文件名提取目标 CRC
+        from ..core import parse_filename
+        _, _, _, _, crc_str = parse_filename(modified_path.name)
+        if not crc_str:
+            logger.log("❌ Error: Could not extract target CRC from filename.")
+            return
+        
+        target_crc = int(crc_str)
+        logger.log(f"Target CRC from filename: {target_crc:08X}")
+
+        # 检查当前 CRC 是否已匹配
+        with open(modified_path, "rb") as f:
+            current_crc = CRCUtils.compute_crc32(f.read())
+        
+        if current_crc == target_crc:
             logger.log("⚠ CRC values already match, no fix needed.")
             return
 
@@ -229,7 +243,7 @@ def handle_crc(args: CrcTap, logger) -> None:
             shutil.copy2(modified_path, backup_path)
             logger.log(f"  > Backup file created: {backup_path.name}")
 
-        success = CRCUtils.manipulate_crc(original_path, modified_path, parse_hex_bytes(args.extra_bytes))
+        success = CRCUtils.manipulate_file_crc(modified_path, target_crc, parse_hex_bytes(args.extra_bytes))
 
         if success:
             logger.log("✅ CRC Fix Successful! The modified file has been updated.")

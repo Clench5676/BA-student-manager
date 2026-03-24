@@ -8,9 +8,10 @@ import shutil
 
 from ...i18n import t
 from ..base_tab import TabFrame
-from ..components import DropZone, UIComponents
+from ..components import DropZone, UIComponents, SettingRow
 from ..utils import replace_file
 from ...utils import CRCUtils, get_search_resource_dirs
+from ...core import parse_filename
 
 class CrcToolTab(TabFrame):
     def create_widgets(self):
@@ -21,6 +22,16 @@ class CrcToolTab(TabFrame):
             on_file_selected=self.on_modified_selected,
             filetypes=[(t("file_type.bundle"), "*.bundle"), (t("file_type.all_files"), "*.*")],
             logger=self.logger
+        )
+
+        # 目标 CRC 输入框
+        self.target_crc_var = tk.StringVar()
+        SettingRow.create_entry_row(
+            self,
+            label=t("ui.label.target_crc"),
+            text_var=self.target_crc_var,
+            placeholder_text=t("ui.crc_tool.target_crc_placeholder"),
+            expand=True
         )
 
         # 原始文件
@@ -54,6 +65,12 @@ class CrcToolTab(TabFrame):
         """待修正文件选中后的处理"""
         self.logger.log(t("log.crc.loaded_modified", file=path))
         
+        # 从文件名提取目标 CRC
+        _, _, _, _, crc_str = parse_filename(path.name)
+        if crc_str:
+            target_crc = int(crc_str)
+            self.target_crc_var.set(f"{target_crc:08X}")
+        
         # 清除旧的 original_file，准备重新搜索
         self.original_zone.clear()
         
@@ -68,7 +85,7 @@ class CrcToolTab(TabFrame):
 
         for directory in search_dirs:
             if not directory.is_dir():
-                continue # 跳过不存在的子目录
+                continue
             
             candidate = directory / path.name
             if candidate.exists():
@@ -79,13 +96,26 @@ class CrcToolTab(TabFrame):
         self.logger.log(f'⚠️ {t("log.file_not_found_in_dirs", filename=path.name)}')
 
     def _validate_paths(self):
-        if not self.original_zone.path or not self.modified_zone.path:
-            messagebox.showerror(t("common.error"), t("message.crc.provide_both_files"))
+        if not self.modified_zone.path:
+            messagebox.showerror(t("common.error"), t("message.crc.provide_at_least_one_file"))
             return False
         return True
 
+    def _validate_target_crc(self) -> int | None:
+        """验证并解析目标 CRC 值"""
+        crc_str = self.target_crc_var.get().strip().removeprefix("0x")
+        if not crc_str:
+            messagebox.showerror(t("common.error"), t("message.crc.provide_at_least_one_file"))
+            return None
+        try:
+            return int(crc_str, 16)
+        except ValueError:
+            messagebox.showerror(t("common.error"), t("message.crc.calculation_error", error="Invalid CRC format"))
+            return None
+
     def run_correction_thread(self):
-        if self._validate_paths(): self.run_in_thread(self.run_correction)
+        if self._validate_paths(): 
+            self.run_in_thread(self.run_correction)
 
     def calculate_values_thread(self):
         if not self.original_zone.path and not self.modified_zone.path:
@@ -99,7 +129,10 @@ class CrcToolTab(TabFrame):
             self.run_in_thread(self.calculate_values)
 
     def replace_original_thread(self):
-        if self._validate_paths(): self.run_in_thread(self.replace_original)
+        if not self.original_zone.path:
+            messagebox.showerror(t("common.error"), t("message.crc.provide_at_least_one_file"))
+            return
+        self.run_in_thread(self.replace_original)
 
     def run_correction(self):
         self.final_output_path = None
@@ -120,20 +153,21 @@ class CrcToolTab(TabFrame):
             output_dir = Path(self.app.output_dir_var.get())
             output_dir.mkdir(parents=True, exist_ok=True)
             
-            # 先检测CRC是否一致
-            try:
-                is_crc_match = CRCUtils.check_crc_match(self.original_zone.path, self.modified_zone.path)
-            except Exception as e:
-                self.logger.log(f'❌ {t("log.crc.check_failed", error=e)}')
-                messagebox.showerror(t("common.error"), t("message.crc.check_failed"))
-                self.logger.status(t("log.status.error", error=e))
+            # 获取目标 CRC
+            target_crc = self._validate_target_crc()
+            if target_crc is None:
                 return False
             
-            if is_crc_match:
+            # 检测当前文件 CRC 是否已匹配目标
+            with open(self.modified_zone.path, "rb") as f:
+                current_crc = CRCUtils.compute_crc32(f.read())
+            
+            if current_crc == target_crc:
                 self.logger.log(f'⚠️ {t("log.crc.match_no_correction_needed")}')
                 messagebox.showinfo(t("common.result"), t("message.crc.match_no_correction_needed"))
                 self.logger.status(t("log.status.calculation_done"))
-                self.master.after(0, lambda: self.replace_button.config(state=tk.NORMAL))
+                if self.original_zone.path:
+                    self.master.after(0, lambda: self.replace_button.config(state=tk.NORMAL))
                 return True
             
             output_filename = self.modified_zone.path.name
@@ -142,13 +176,14 @@ class CrcToolTab(TabFrame):
             shutil.copy2(self.modified_zone.path, output_path)
             self.logger.log(t("log.file.saved", path=output_path))
             
-            success = CRCUtils.manipulate_crc(self.original_zone.path, output_path, self.app.get_extra_bytes())
+            success = CRCUtils.manipulate_file_crc(output_path, target_crc, self.app.get_extra_bytes())
             
             if success:
                 self.final_output_path = output_path
                 self.logger.log(t("log.crc.correction_success"))
-                self.logger.log(t("log.replace_original", button=t('action.replace_original')))
-                self.master.after(0, lambda: self.replace_button.config(state=tk.NORMAL))
+                if self.original_zone.path:
+                    self.logger.log(t("log.replace_original", button=t('action.replace_original')))
+                    self.master.after(0, lambda: self.replace_button.config(state=tk.NORMAL))
                 messagebox.showinfo(t("common.success"), t("message.crc.correction_success", path=output_path))
             else:
                 self.logger.log(f'❌ {t("log.crc.correction_failed")}')
@@ -167,13 +202,14 @@ class CrcToolTab(TabFrame):
         self.logger.status(t("common.processing"))
         try:
             target_path = self.modified_zone.path if self.modified_zone.path else self.original_zone.path
-            
+
             with open(target_path, "rb") as f: file_data = f.read()
-            crc_hex = f"{CRCUtils.compute_crc32(file_data):08X}"
-            
-            self.logger.log(t("log.crc.file_crc32", crc=crc_hex))
+            crc_value = CRCUtils.compute_crc32(file_data)
+            crc_str = f"{crc_value}(0x{crc_value:08X})"
+
+            self.logger.log(t("log.crc.file_crc32", crc=crc_str))
             self.logger.status(t("log.status.calculation_done"))
-            messagebox.showinfo(t("common.result"), t("message.crc.file_crc32", crc=crc_hex))
+            messagebox.showinfo(t("common.result"), t("message.crc.file_crc32", crc=crc_str))
             
         except Exception as e:
             self.logger.log(f'❌ {t("log.crc.calculation_error", error=e)}')
@@ -187,16 +223,18 @@ class CrcToolTab(TabFrame):
             with open(self.original_zone.path, "rb") as f: original_data = f.read()
             with open(self.modified_zone.path, "rb") as f: modified_data = f.read()
 
-            original_crc_hex = f"{CRCUtils.compute_crc32(original_data):08X}"
-            modified_crc_hex = f"{CRCUtils.compute_crc32(modified_data):08X}"
-            
-            self.logger.log(t("log.crc.modified_file_crc32", crc=modified_crc_hex))
-            self.logger.log(t("log.crc.original_file_crc32", crc=original_crc_hex))
+            original_crc_value = CRCUtils.compute_crc32(original_data)
+            modified_crc_value = CRCUtils.compute_crc32(modified_data)
+            original_crc_str = f"{original_crc_value}(0x{original_crc_value:08X})"
+            modified_crc_str = f"{modified_crc_value}(0x{modified_crc_value:08X})"
 
-            msg = f"{t('message.crc.modified_file_crc32', crc=modified_crc_hex)}\n{t('message.crc.original_file_crc32', crc=original_crc_hex)}\n"
+            self.logger.log(t("log.crc.modified_file_crc32", crc=modified_crc_str))
+            self.logger.log(t("log.crc.original_file_crc32", crc=original_crc_str))
+
+            msg = f"{t('message.crc.modified_file_crc32', crc=modified_crc_str)}\n{t('message.crc.original_file_crc32', crc=original_crc_str)}\n"
 
             self.logger.status(t("log.status.calculation_done"))
-            if original_crc_hex == modified_crc_hex:
+            if original_crc_value == modified_crc_value:
                 self.logger.log(t("log.crc.match_yes"))
                 messagebox.showinfo(t("common.result"), f"{msg}{t('message.crc.match_yes')}")
             else:
