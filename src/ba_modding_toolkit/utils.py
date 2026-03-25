@@ -104,10 +104,10 @@ class CRCUtils:
         return binascii.crc32(data) & 0xFFFFFFFF
 
     @staticmethod
-    def check_crc_match(source_1: Path | bytes, source_2: Path | bytes) -> bool:
+    def check_crc_match(source_1: Path | bytes, source_2: Path | bytes) -> tuple[bool, int, int]:
         """
         检测两个文件或字节数据的CRC值是否匹配。
-        返回True表示CRC值一致，False表示不一致。
+        返回 (是否匹配, crc_1, crc_2)。
         """
         if isinstance(source_1, Path):
             with open(str(source_1), "rb") as f:
@@ -124,7 +124,7 @@ class CRCUtils:
         crc_1 = CRCUtils.compute_crc32(data_1)
         crc_2 = CRCUtils.compute_crc32(data_2)
         
-        return crc_1 == crc_2
+        return crc_1 == crc_2, crc_1, crc_2
     
     @staticmethod
     def apply_crc_fix(modified_data: bytes, target_crc: int) -> bytes | None:
@@ -161,7 +161,8 @@ class CRCUtils:
     @staticmethod
     def manipulate_file_crc(modified_path: Path, target_crc: int, extra_bytes: bytes | None = None) -> bool:
         """
-        修正modified_path文件的CRC，使其达到指定的目标CRC值。
+        修正modified_path文件的CRC，使其达到指定的目标CRC值
+        这个函数会直接修改文件内容，而不是输出到指定目录
         extra_bytes: 可选的4字节数据，将在CRC计算前附加到modified_data后
         """
         with open(str(modified_path), "rb") as f:

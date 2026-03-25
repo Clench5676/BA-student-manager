@@ -98,7 +98,7 @@ class CrcTap(Tap):
 
     # 操作选项
     check_only: bool = False  # Only calculate and compare CRC, do not modify any files.
-    no_backup: bool = False  # Do not create a backup (.bak) before fixing the file.
+    no_backup: bool = False  # Do not create a backup (.backup) before fixing the file.
     extra_bytes: str | None = None  # Extra bytes in hex format (e.g., "0x08080808" or "QWERTYUI") to append before CRC correction.
 
     def configure(self) -> None:

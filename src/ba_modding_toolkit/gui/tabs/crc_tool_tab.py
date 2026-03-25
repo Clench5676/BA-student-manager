@@ -220,11 +220,10 @@ class CrcToolTab(TabFrame):
         """计算两个文件的CRC32值，并判断是否匹配"""
         self.logger.status(t("common.processing"))
         try:
-            with open(self.original_zone.path, "rb") as f: original_data = f.read()
-            with open(self.modified_zone.path, "rb") as f: modified_data = f.read()
+            is_match, original_crc_value, modified_crc_value = CRCUtils.check_crc_match(
+                self.original_zone.path, self.modified_zone.path
+            )
 
-            original_crc_value = CRCUtils.compute_crc32(original_data)
-            modified_crc_value = CRCUtils.compute_crc32(modified_data)
             original_crc_str = f"{original_crc_value}(0x{original_crc_value:08X})"
             modified_crc_str = f"{modified_crc_value}(0x{modified_crc_value:08X})"
 
@@ -234,7 +233,7 @@ class CrcToolTab(TabFrame):
             msg = f"{t('message.crc.modified_file_crc32', crc=modified_crc_str)}\n{t('message.crc.original_file_crc32', crc=original_crc_str)}\n"
 
             self.logger.status(t("status.calculation_done"))
-            if original_crc_value == modified_crc_value:
+            if is_match:
                 self.logger.log(t("log.crc.match_yes"))
                 messagebox.showinfo(t("common.result"), f"{msg}{t('message.crc.match_yes')}")
             else:

@@ -13,6 +13,7 @@ from ..core import (
     process_asset_packing,
     process_asset_extraction,
     extract_core_filename,
+    parse_filename,
 )
 from ..utils import get_environment_info, CRCUtils, get_BA_path, get_search_resource_dirs, parse_hex_bytes
 
@@ -219,7 +220,6 @@ def handle_crc(args: CrcTap, logger) -> None:
 
     try:
         # 从文件名提取目标 CRC
-        from ..core import parse_filename
         _, _, _, _, crc_str = parse_filename(modified_path.name)
         if not crc_str:
             logger.log("❌ Error: Could not extract target CRC from filename.")
@@ -239,7 +239,7 @@ def handle_crc(args: CrcTap, logger) -> None:
         logger.log("CRC mismatch. Starting CRC fix...")
 
         if not args.no_backup:
-            backup_path = modified_path.with_suffix(modified_path.suffix + '.bak')
+            backup_path = modified_path.with_suffix(modified_path.suffix + '.backup')
             shutil.copy2(modified_path, backup_path)
             logger.log(f"  > Backup file created: {backup_path.name}")
 
