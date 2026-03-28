@@ -24,3 +24,8 @@ where = ["src"]
 [project.scripts]
 bamt = "ba_modding_toolkit.gui.main:main"
 bamt-cli = "ba_modding_toolkit.cli.main:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+]
