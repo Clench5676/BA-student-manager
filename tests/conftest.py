@@ -5,6 +5,8 @@ from PIL import Image
 ASSETS_DIR = Path(__file__).parent / "assets"
 BUNDLES_DIR = ASSETS_DIR / "bundles"
 ASSETS_INPUT_DIR = ASSETS_DIR / "assets"
+PACKER_DIR = ASSETS_DIR / "packer"
+
 MOD_UPDATE_DIR = ASSETS_DIR / "mod_update"
 MOD_UPDATE_OLD_DIR = MOD_UPDATE_DIR / "old"
 MOD_UPDATE_NEW_DIR = MOD_UPDATE_DIR / "new"
@@ -48,15 +50,19 @@ def has_file(directory: Path, extension: str) -> bool:
 
 
 def has_sample_bundle() -> bool:
-    return has_file(BUNDLES_DIR, ".bundle")
+    return has_file(PACKER_DIR, ".bundle")
 
 
 def has_sample_image() -> bool:
-    return has_file(ASSETS_INPUT_DIR, ".png")
+    return has_file(PACKER_DIR, ".png")
 
 
 def has_sample_skel() -> bool:
-    return has_file(ASSETS_INPUT_DIR, ".skel")
+    return has_file(PACKER_DIR, ".skel")
+
+
+def has_sample_atlas() -> bool:
+    return has_file(PACKER_DIR, ".atlas")
 
 
 def has_mod_update_samples() -> bool:
@@ -65,22 +71,22 @@ def has_mod_update_samples() -> bool:
 
 @pytest.fixture
 def sample_bundle_path() -> Path | None:
-    return find_first_file(BUNDLES_DIR, ".bundle")
+    return find_first_file(PACKER_DIR, ".bundle")
 
 
 @pytest.fixture
 def sample_image_path() -> Path | None:
-    return find_first_file(ASSETS_INPUT_DIR, ".png")
+    return find_first_file(PACKER_DIR, ".png")
 
 
 @pytest.fixture
 def sample_skel_path() -> Path | None:
-    return find_first_file(ASSETS_INPUT_DIR, ".skel")
+    return find_first_file(PACKER_DIR, ".skel")
 
 
 @pytest.fixture
 def sample_atlas_path() -> Path | None:
-    return find_first_file(ASSETS_INPUT_DIR, ".atlas")
+    return find_first_file(PACKER_DIR, ".atlas")
 
 
 @pytest.fixture
