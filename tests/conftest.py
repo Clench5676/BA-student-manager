@@ -14,7 +14,7 @@ MOD_UPDATE_NEW_DIR = MOD_UPDATE_DIR / "new"
 
 def compare_images_mse(img1: Image.Image, img2: Image.Image) -> float:
     if img1.size != img2.size:
-        raise ValueError(f"图片尺寸不匹配: {img1.size} vs {img2.size}")
+        raise ValueError(f"Size mismatch: {img1.size} vs {img2.size}")
     
     img1 = img1.convert("RGBA")
     img2 = img2.convert("RGBA")
@@ -47,6 +47,35 @@ def has_file(directory: Path, extension: str) -> bool:
     if not directory.exists():
         return False
     return bool(list(directory.glob(f"*{extension}")))
+
+
+def compare_directory_assets(
+    old_dir: Path,
+    new_dir: Path,
+    mse_threshold: float = 50.0,
+) -> None:
+    old_pngs = list(old_dir.glob("*.png"))
+    new_pngs = list(new_dir.glob("*.png"))
+
+    if old_pngs and new_pngs:
+        for old_png in old_pngs:
+            new_png = new_dir / old_png.name
+            if new_png.exists():
+                old_img = Image.open(old_png).convert("RGBA")
+                new_img = Image.open(new_png).convert("RGBA")
+
+                if old_img.size == new_img.size:
+                    mse = compare_images_mse(old_img, new_img)
+                    assert mse < mse_threshold, f"MSE={mse} >= {mse_threshold}"
+
+    for ext in ("*.skel", "*.atlas"):
+        old_files = list(old_dir.glob(ext))
+        new_files = list(new_dir.glob(ext))
+        if old_files and new_files:
+            for old_file in old_files:
+                new_file = new_dir / old_file.name
+                if new_file.exists():
+                    assert old_file.read_bytes() == new_file.read_bytes()
 
 
 def has_sample_bundle() -> bool:
