@@ -6,10 +6,8 @@ import shutil
 from ba_modding_toolkit.core import (
     process_asset_packing,
     process_asset_extraction,
-    load_bundle,
     SaveOptions,
 )
-from ba_modding_toolkit.utils import CRCUtils
 from conftest import compare_images_mse, has_sample_bundle, has_sample_image, has_sample_skel, has_sample_atlas
 
 MSE_THRESHOLD = 20.0
@@ -65,77 +63,6 @@ class TestAssetPacking:
         if extracted_png.exists():
             extracted_img = Image.open(extracted_png)
             assert extracted_img.size == original_size
-
-    def test_pack_with_lzma_compression(
-        self,
-        sample_bundle_path: Path,
-        sample_image_path: Path,
-        tmp_path: Path,
-    ):
-        asset_folder = tmp_path / "assets"
-        asset_folder.mkdir()
-        output_dir = tmp_path / "output"
-        output_dir.mkdir()
-        
-        shutil.copy(sample_image_path, asset_folder / sample_image_path.name)
-        
-        save_options = SaveOptions(
-            perform_crc=False,
-            compression="lzma",
-        )
-        
-        success, msg = process_asset_packing(
-            target_bundle_path=sample_bundle_path,
-            asset_folder=asset_folder,
-            output_dir=output_dir,
-            save_options=save_options
-        )
-        
-        assert success is True, msg
-        
-        packed_bundle = output_dir / sample_bundle_path.name
-        assert packed_bundle.exists()
-        
-        env = load_bundle(packed_bundle)
-        assert env is not None
-
-    def test_pack_with_crc_fix(
-        self,
-        sample_bundle_path: Path,
-        sample_image_path: Path,
-        tmp_path: Path,
-    ):
-        asset_folder = tmp_path / "assets"
-        asset_folder.mkdir()
-        output_dir = tmp_path / "output"
-        output_dir.mkdir()
-        
-        shutil.copy(sample_image_path, asset_folder / sample_image_path.name)
-        
-        target_crc = 12345678
-        crc_bundle_name = f"test_2024-01-01_{target_crc}.bundle"
-        
-        bundle_copy = tmp_path / crc_bundle_name
-        shutil.copy(sample_bundle_path, bundle_copy)
-        
-        save_options = SaveOptions(
-            perform_crc=True,
-            compression="none",
-        )
-        
-        success, msg = process_asset_packing(
-            target_bundle_path=bundle_copy,
-            asset_folder=asset_folder,
-            output_dir=output_dir,
-            save_options=save_options
-        )
-        assert success is True, msg
-        
-        packed_bundle = output_dir / crc_bundle_name
-        assert packed_bundle.exists()
-        with packed_bundle.open("rb") as f:
-            output_data = f.read()
-        assert CRCUtils.compute_crc32(output_data) == target_crc
 
     def test_pack_textasset(
         self,

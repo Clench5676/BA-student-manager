@@ -4,7 +4,6 @@ from PIL import Image
 
 ASSETS_DIR = Path(__file__).parent / "assets"
 BUNDLES_DIR = ASSETS_DIR / "bundles"
-ASSETS_INPUT_DIR = ASSETS_DIR / "assets"
 PACKER_DIR = ASSETS_DIR / "packer"
 
 MOD_UPDATE_DIR = ASSETS_DIR / "mod_update"

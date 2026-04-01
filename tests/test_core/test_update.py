@@ -97,7 +97,7 @@ class TestModUpdate:
         output_dir.mkdir()
         
         save_options = SaveOptions(
-            perform_crc=False,
+            perform_crc=True,
             compression="none",
         )
         
@@ -122,34 +122,3 @@ class TestModUpdate:
         )
         
         compare_directory_assets(old_extract_dir, new_extract_dir, MSE_THRESHOLD)
-
-    def test_mod_update_with_crc_fix(
-        self,
-        old_mod_bundle_path: Path,
-        new_original_bundle_path: Path,
-        tmp_path: Path,
-    ):
-        import re
-        crc_match = re.search(r'_(\d+)\.bundle$', new_original_bundle_path.name)
-        if not crc_match:
-            pytest.skip("new_original.bundle 文件名不包含 CRC")
-        
-        target_crc = int(crc_match.group(1))
-        
-        output_dir = tmp_path / "output"
-        output_dir.mkdir()
-        
-        save_options = SaveOptions(
-            perform_crc=True,
-            compression="none",
-        )
-        
-        success, msg = process_mod_update(
-            old_mod_path=old_mod_bundle_path,
-            new_bundle_path=new_original_bundle_path,
-            output_dir=output_dir,
-            asset_types_to_replace={"Texture2D"},
-            save_options=save_options,
-        )
-        
-        assert success is True, msg
