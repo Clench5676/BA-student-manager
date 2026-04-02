@@ -21,6 +21,13 @@ class TestComputeCrc32:
         assert CRCUtils.compute_crc32(b"hello world") == 222957957
         assert CRCUtils.compute_crc32(b"") == 0
         assert CRCUtils.compute_crc32(b"test") == 3632233996
+        assert CRCUtils.compute_crc32(b"0808") == 206773752
+    
+    def test_compute_crc32_2_methods(self, tmp_path: Path):
+        data = b"8080 0800 8800 0888 8080 0800 8088 0000 8080 0800 8800 0008 8080 0800 8800 8888 8080 0800 8088 8008 8080 0800 8088 0000 8080 0800 8088 8808 8080 0800 8088 0088"
+        file = tmp_path / "test.bin"
+        file.write_bytes(data)
+        assert CRCUtils.compute_crc32(file) == CRCUtils.compute_crc32(data)
 
 
 class TestCheckCrcMatch:
@@ -212,7 +219,7 @@ class TestManipulateFileCrc:
         result = CRCUtils.manipulate_file_crc(test_file, target_crc)
         
         assert result is True
-        assert CRCUtils.compute_crc32(test_file.read_bytes()) == target_crc
+        assert CRCUtils.compute_crc32(test_file) == target_crc
 
 
 class TestCrcFixIntegration:
@@ -258,8 +265,7 @@ class TestCrcFixIntegration:
 )
 class TestCrcWithBundle:
     def test_compute_crc32_from_bundle(self, sample_bundle_path: Path):
-        data = sample_bundle_path.read_bytes()
-        crc = CRCUtils.compute_crc32(data)
+        crc = CRCUtils.compute_crc32(sample_bundle_path)
         
         assert isinstance(crc, int)
         assert 0 <= crc <= 0xFFFFFFFF
@@ -288,13 +294,12 @@ class TestCrcWithBundle:
         test_file = tmp_path / "test.bundle"
         shutil.copy(sample_bundle_path, test_file)
         
-        original_crc = CRCUtils.compute_crc32(sample_bundle_path.read_bytes())
         target_crc = 0x12345678
         
         result = CRCUtils.manipulate_file_crc(test_file, target_crc)
         
         assert result is True
-        assert CRCUtils.compute_crc32(test_file.read_bytes()) == target_crc
+        assert CRCUtils.compute_crc32(test_file) == target_crc
 
     def test_bundle_crc_fix_preserves_content(self, sample_bundle_path: Path, tmp_path: Path):
         test_file = tmp_path / "test.bundle"

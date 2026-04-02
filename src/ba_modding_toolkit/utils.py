@@ -94,35 +94,39 @@ class CRCUtils:
     Prototype by [kalina](https://github.com/kalinaowo)
     """
 
+    POLY_NORMAL = 0x104C11DB7
+    POLY_DEGREE = 32
+    GF2_INVERSE_X32 = 0xCBF1ACDA
+    _BIT_REVERSE_TABLE = bytes(int(f"{i:08b}"[::-1], 2) for i in range(256))
+
     # --- 公开的静态方法 ---
 
     @staticmethod
-    def compute_crc32(data: bytes) -> int:
+    def compute_crc32(src: Path | str | bytes) -> int:
         """
         计算数据的标准CRC32 (IEEE)值。
         """
-        return binascii.crc32(data) & 0xFFFFFFFF
+        if isinstance(src, bytes):
+            return binascii.crc32(src) & 0xFFFFFFFF
+        return CRCUtils._compute_crc32_file(src)
 
     @staticmethod
-    def check_crc_match(source_1: Path | bytes, source_2: Path | bytes) -> tuple[bool, int, int]:
+    def _compute_crc32_file(path: str | Path) -> int:
+        """分块计算文件 CRC32，避免大文件内存溢出"""
+        crc = 0
+        with open(path, "rb") as f:
+            while chunk := f.read(8192):  # 8KB 分块
+                crc = binascii.crc32(chunk, crc)
+        return crc & 0xFFFFFFFF
+
+    @staticmethod
+    def check_crc_match(source_1: Path | str | bytes, source_2: Path | str | bytes) -> tuple[bool, int, int]:
         """
         检测两个文件或字节数据的CRC值是否匹配。
         返回 (是否匹配, crc_1, crc_2)。
         """
-        if isinstance(source_1, Path):
-            with open(str(source_1), "rb") as f:
-                data_1 = f.read()
-        else:
-            data_1 = source_1
-
-        if isinstance(source_2, Path):
-            with open(str(source_2), "rb") as f:
-                data_2 = f.read()
-        else:
-            data_2 = source_2
-
-        crc_1 = CRCUtils.compute_crc32(data_1)
-        crc_2 = CRCUtils.compute_crc32(data_2)
+        crc_1 = CRCUtils.compute_crc32(source_1)
+        crc_2 = CRCUtils.compute_crc32(source_2)
         
         return crc_1 == crc_2, crc_1, crc_2
     
@@ -133,33 +137,20 @@ class CRCUtils:
         如果修正成功，返回修正后的完整字节数据；如果失败，返回None。
         """
         # 计算新数据加上4个空字节的CRC，为修正值留出空间
-        modified_crc = CRCUtils.compute_crc32(modified_data + b'\x00\x00\x00\x00')
+        base_crc = binascii.crc32(modified_data)
+        crc_with_zeros = binascii.crc32(b'\x00\x00\x00\x00', base_crc) & 0xFFFFFFFF
+        k = CRCUtils._reverse_bits_32(target_crc ^ crc_with_zeros)
 
-        original_bytes = CRCUtils._u32_to_bytes_be(target_crc)
-        modified_bytes = CRCUtils._u32_to_bytes_be(modified_crc)
-
-        xor_result = CRCUtils._xor_bytes(original_bytes, modified_bytes)
-        reversed_bytes = CRCUtils._reverse_bits_in_bytes(xor_result)
-        k = CRCUtils._bytes_to_u32_be(reversed_bytes)
-
-        # CRC32多项式: x^32 + x^26 + ... + 1
-        crc32_poly = 0x104C11DB7
-
-        correction_value = CRCUtils._gf_inverse(k, crc32_poly)
-        correction_bytes_raw = CRCUtils._u32_to_bytes_be(correction_value)
-
-        # 反转每个字节内的位
-        correction_bytes = bytes(CRCUtils._reverse_byte_bits(b) for b in correction_bytes_raw)
-
+        correction_value = CRCUtils._gf2_multiply_mod(k, CRCUtils.GF2_INVERSE_X32)
+        correction_bytes = CRCUtils._reverse_bytes_internal_bits(correction_value)
         final_data = modified_data + correction_bytes
 
         final_crc = CRCUtils.compute_crc32(final_data)
         is_crc_match = (final_crc == target_crc)
-
         return final_data if is_crc_match else None
 
     @staticmethod
-    def manipulate_file_crc(modified_path: Path, target_crc: int, extra_bytes: bytes | None = None) -> bool:
+    def manipulate_file_crc(modified_path: str | Path, target_crc: int, extra_bytes: bytes | None = None) -> bool:
         """
         修正modified_path文件的CRC，使其达到指定的目标CRC值
         这个函数会直接修改文件内容，而不是输出到指定目录
@@ -183,88 +174,29 @@ class CRCUtils:
     # --- 内部使用的私有静态方法 ---
 
     @staticmethod
-    def _bytes_to_u32_be(b):
-        return int.from_bytes(b, 'big')
+    def _reverse_bits_32(val_u32: int) -> int:
+        """快速翻转 32 位整数的所有比特位"""
+        b = val_u32.to_bytes(4, 'big')
+        rev_b = bytes(CRCUtils._BIT_REVERSE_TABLE[x] for x in b[::-1])
+        return int.from_bytes(rev_b, 'big')
 
     @staticmethod
-    def _u32_to_bytes_be(i):
-        return i.to_bytes(4, 'big')
+    def _reverse_bytes_internal_bits(val_u32: int) -> bytes:
+        """将整数转为字节，并反转每个字节内部的比特位"""
+        b = val_u32.to_bytes(4, 'big')
+        return bytes(CRCUtils._BIT_REVERSE_TABLE[x] for x in b)
 
     @staticmethod
-    def _reverse_bits_in_bytes(b):
-        num = CRCUtils._bytes_to_u32_be(b)
-        rev = 0
-        for i in range(32):
-            if (num >> i) & 1:
-                rev |= 1 << (31 - i)
-        return CRCUtils._u32_to_bytes_be(rev)
-
-    @staticmethod
-    def _gf_multiply(a, b):
+    def _gf2_multiply_mod(a, b):
         result = 0
-        while b:
+        while b != 0:
             if b & 1:
                 result ^= a
-            a <<= 1
             b >>= 1
+            a <<= 1
+            if a >> CRCUtils.POLY_DEGREE:
+                a ^= CRCUtils.POLY_NORMAL
         return result
-
-    @staticmethod
-    def _gf_divide(dividend, divisor):
-        if divisor == 0:
-            return 0
-        quotient = 0
-        remainder = dividend
-        divisor_bits = divisor.bit_length()
-        while remainder.bit_length() >= divisor_bits and remainder != 0:
-            shift = remainder.bit_length() - divisor_bits
-            quotient |= 1 << shift
-            remainder ^= divisor << shift
-        return quotient
-
-    @staticmethod
-    def _gf_mod(dividend, divisor, n):
-        if divisor == 0:
-            return dividend
-        while dividend != 0 and dividend.bit_length() >= divisor.bit_length():
-            shift = dividend.bit_length() - divisor.bit_length()
-            dividend ^= divisor << shift
-        mask = (1 << n) - 1 if n < 64 else 0xFFFFFFFFFFFFFFFF
-        return dividend & mask
-
-    @staticmethod
-    def _gf_multiply_modular(a, b, modulus, n):
-        product = CRCUtils._gf_multiply(a, b)
-        return CRCUtils._gf_mod(product, modulus, n)
-
-    @staticmethod
-    def _gf_modular_inverse(a, m):
-        if a == 0:
-            raise ValueError("Inverse of zero does not exist")
-        old_r, r = m, a
-        old_s, s = 0, 1
-        while r != 0:
-            q = CRCUtils._gf_divide(old_r, r)
-            old_r, r = r, old_r ^ CRCUtils._gf_multiply(q, r)
-            old_s, s = s, old_s ^ CRCUtils._gf_multiply(q, s)
-        if old_r != 1:
-            raise ValueError("Modular inverse does not exist")
-        return old_s
-
-    @staticmethod
-    def _gf_inverse(k, poly):
-        x32 = 0x100000000
-        inverse = CRCUtils._gf_modular_inverse(x32, poly)
-        result = CRCUtils._gf_multiply_modular(k, inverse, poly, 32)
-        return result
-
-    @staticmethod
-    def _xor_bytes(a: bytes, b: bytes) -> bytes:
-        return bytes(x ^ y for x, y in zip(a, b))
-
-    @staticmethod
-    def _reverse_byte_bits(byte):
-        return int('{:08b}'.format(byte)[::-1], 2)
 
 def get_environment_info(ignore_tk: bool = False):
     """Collects and formats key environment details."""

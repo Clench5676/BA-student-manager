@@ -66,8 +66,7 @@ class TestCrcFix:
         success, msg = _save_and_crc(env, output_path, save_options)
         assert success is True, msg
         
-        output_data = output_path.read_bytes()
-        actual_crc = CRCUtils.compute_crc32(output_data)
+        actual_crc = CRCUtils.compute_crc32(output_path)
         assert actual_crc == target_crc
 
     def test_save_without_crc_fix(
@@ -87,8 +86,7 @@ class TestCrcFix:
         success, msg = _save_and_crc(env, output_path, save_options)
         assert success is True, msg
         
-        output_data = output_path.read_bytes()
-        actual_crc = CRCUtils.compute_crc32(output_data)
+        actual_crc = CRCUtils.compute_crc32(output_path)
         assert actual_crc != 99999999
 
     def test_crc_fix_with_specific_target(
@@ -109,8 +107,7 @@ class TestCrcFix:
         success, msg = _save_and_crc(env, output_path, save_options)
         assert success is True, msg
         
-        output_data = output_path.read_bytes()
-        actual_crc = CRCUtils.compute_crc32(output_data)
+        actual_crc = CRCUtils.compute_crc32(output_path)
         assert actual_crc == target_crc
 
 
@@ -164,8 +161,7 @@ class TestExtraBytes:
         success, msg = _save_and_crc(env, output_path, save_options)
         assert success is True, msg
         
-        output_data = output_path.read_bytes()
-        actual_crc = CRCUtils.compute_crc32(output_data)
+        actual_crc = CRCUtils.compute_crc32(output_path)
         assert actual_crc == target_crc
 
     def test_extra_bytes_preserved_in_output(
@@ -228,8 +224,7 @@ class TestCombinedIO:
         reloaded_env = load_bundle(output_path)
         assert reloaded_env is not None
         
-        output_data = output_path.read_bytes()
-        actual_crc = CRCUtils.compute_crc32(output_data)
+        actual_crc = CRCUtils.compute_crc32(output_path)
         assert actual_crc == target_crc
 
     @pytest.mark.parametrize("compression", ["lzma", "lz4", "none"])
