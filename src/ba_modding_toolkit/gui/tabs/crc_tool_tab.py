@@ -159,8 +159,7 @@ class CrcToolTab(TabFrame):
                 return False
             
             # 检测当前文件 CRC 是否已匹配目标
-            with open(self.modified_zone.path, "rb") as f:
-                current_crc = CRCUtils.compute_crc32(f.read())
+            current_crc = CRCUtils.compute_crc32(self.modified_zone.path)
             
             if current_crc == target_crc:
                 self.logger.log(f'⚠️ {t("log.crc.match_no_correction_needed")}')
@@ -203,8 +202,7 @@ class CrcToolTab(TabFrame):
         try:
             target_path = self.modified_zone.path if self.modified_zone.path else self.original_zone.path
 
-            with open(target_path, "rb") as f: file_data = f.read()
-            crc_value = CRCUtils.compute_crc32(file_data)
+            crc_value = CRCUtils.compute_crc32(target_path)
             crc_str = f"{crc_value}(0x{crc_value:08X})"
 
             self.logger.log(t("log.crc.file_crc32", crc=crc_str))
