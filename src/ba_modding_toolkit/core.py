@@ -812,6 +812,12 @@ def process_asset_extraction(
                         if downgrade_enabled:
                             # 使用降级后的文件
                             source_atlas_path = temp_output_dir / atlas_path.name
+                            # 解包需要atlas和png在同一目录，复制png到降级目录
+                            png_path = temp_extraction_dir / f"{atlas_path.stem}.png"
+                            if png_path.exists():
+                                dest_png_path = temp_output_dir / png_path.name
+                                if not dest_png_path.exists():
+                                    shutil.copy2(png_path, dest_png_path)
                         else:
                             # 使用原始文件
                             source_atlas_path = atlas_path
