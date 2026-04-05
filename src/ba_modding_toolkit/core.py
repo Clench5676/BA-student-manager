@@ -152,25 +152,6 @@ def load_bundle(
     log(f'❌ {t("log.file.load_failed", path=bundle_path)}')
     return None
 
-def save_bundle(
-    env: Env,
-    output_path: Path,
-    compression: CompressionType = "lzma",
-    log: LogFunc = no_log,
-) -> bool:
-    """
-    将修改后的 Unity bundle 保存到指定路径。
-    """
-    try:
-        bundle_data = compress_bundle(env, compression, log)
-        with open(output_path, "wb") as f:
-            f.write(bundle_data)
-        return True
-    except Exception as e:
-        log(f'❌ {t("log.file.save_failed", path=output_path, error=e)}')
-        log(traceback.format_exc())
-        return False
-
 def compress_bundle(
     env: Env,
     compression: CompressionType = "none",
@@ -195,7 +176,7 @@ def compress_bundle(
     
     return env.file.save(**save_kwargs)
 
-def _save_and_crc(
+def save_bundle(
     env: Env,
     output_path: Path,
     save_options: SaveOptions,
@@ -212,19 +193,19 @@ def _save_and_crc(
     try:
         # 准备保存信息并记录日志
         compression_map = {
-            "lzma": "LZMA",
-            "lz4": "LZ4",
-            "none": t("log.compression.none_short"),
-            "original": t("log.compression.original_short")
+            "lzma": t("log.compression.lzma"),
+            "lz4": t("log.compression.lz4"),
+            "none": t("log.compression.none"),
+            "original": t("log.compression.original")
         }
         compression_str = compression_map.get(save_options.compression, save_options.compression.upper())
         crc_status_str = t("common.on") if save_options.perform_crc else t("common.off")
         log(f"  > {t('log.file.saving_bundle_prefix')} [{t('log.file.compression_method', compression=compression_str)}] [{t('log.file.crc_correction', crc_status=crc_status_str)}]")
 
         # 从 env 生成修改后的压缩 bundle 数据
-        modified_data = compress_bundle(env, save_options.compression, log)
+        compressed_data = compress_bundle(env, save_options.compression, log)
 
-        final_data = modified_data
+        final_data = compressed_data
         success_message = t("message.save_success")
 
         if save_options.perform_crc:
@@ -235,12 +216,8 @@ def _save_and_crc(
             target_crc = int(crc_str)
 
             # 如有extra_bytes，先附加到modified_data
-            crc_input_data = modified_data
-            if save_options.extra_bytes:
-                crc_input_data = modified_data + save_options.extra_bytes
-
             corrected_data = CRCUtils.apply_crc_fix(
-                crc_input_data,
+                compressed_data + save_options.extra_bytes,
                 target_crc
             )
 
@@ -248,18 +225,18 @@ def _save_and_crc(
                 return False, t("message.crc.correction_failed_file_not_generated", name=output_path.name)
             
             final_data = corrected_data
-            success_message = t("message.save_and_crc_success")
 
         # 写入文件
         with open(output_path, "wb") as f:
             f.write(final_data)
-        
+        success_message = t("message.save_success")
+
         return True, success_message
 
     except Exception as e:
-        log(f'❌ {t("log.file.save_or_crc_failed", path=output_path, error=e)}')
+        log(f'❌ {t("log.file.save_failed", path=output_path, error=e)}')
         log(traceback.format_exc())
-        return False, t("message.save_or_crc_error", error=e)
+        return False, t("message.save_error", error=e)
 
 
 # ====== 寻找对应文件 ======
@@ -681,7 +658,7 @@ def process_asset_packing(
 
         # 4. 保存和修正
         output_path = output_dir / target_bundle_path.name
-        save_ok, save_message = _save_and_crc(
+        save_ok, save_message = save_bundle(
             env=env,
             output_path=output_path,
             save_options=save_options,
@@ -1072,7 +1049,7 @@ def process_mod_update(
         
         # 保存和修正文件
         output_path = output_dir / new_bundle_path.name
-        save_ok, save_message = _save_and_crc(
+        save_ok, save_message = save_bundle(
             env=modified_env,
             output_path=output_path,
             save_options=save_options,
@@ -1384,7 +1361,7 @@ def process_jp_to_global_conversion(
         
         # 3. 保存最终文件
         output_path = output_dir / global_bundle_path.name
-        save_ok, save_message = _save_and_crc(
+        save_ok, save_message = save_bundle(
             env=global_env,
             output_path=output_path,
             save_options=save_options,
@@ -1479,7 +1456,7 @@ def process_global_to_jp_conversion(
                     log(f"  - {item}")
                 
                 output_path = output_dir / jp_template_path.name
-                save_ok, save_msg = _save_and_crc(
+                save_ok, save_msg = save_bundle(
                     env=template_env,
                     output_path=output_path,
                     save_options=save_options,

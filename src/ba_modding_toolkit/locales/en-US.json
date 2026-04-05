@@ -124,8 +124,6 @@
 		"create_dir_failed_detail": "Failed to create directory:\n{path}\n\nError details: {error}",
 		"output_dir_not_set": "Output directory not set. Please configure it in settings first.",
 		"save_success": "File saved successfully.",
-		"save_and_crc_success": "File saved and CRC corrected successfully.",
-		"save_or_crc_error": "Error saving or correcting file: {error}",
 		"same_file": "Both paths are identical!",
 		"config": {
 			"saved": "Configuration saved.",
@@ -187,7 +185,8 @@
 			"load_global_source_failed": "Failed to load Global server source file",
 			"no_assets_in_source": "No extractable assets found in the source file. Cannot convert.",
 			"no_assets_matched": "No matching assets found. Cannot convert."
-		}
+		},
+		"save_error": "Error saving file: {error}"
 	},
 	"status": {
 		"ready": "Ready",
@@ -217,7 +216,6 @@
 			"read_in_memory_failed": "Failed to read file \"{name}\" in memory: {error}",
 			"load_failed": "Failed to load \"{path}\" by any method.",
 			"save_failed": "Failed to save file to \"{path}\": {error}",
-			"save_or_crc_failed": "Failed to save or correct bundle file to \"{path}\": {error}",
 			"directory_opened": "Opened directory: {path}",
 			"added_count": "Added {count} files",
 			"removed_count": "Removed {count} files",
@@ -295,8 +293,10 @@
 			"copy_converted_files": "Copying converted files"
 		},
 		"compression": {
-			"original_short": "Orig",
-			"none_short": "None"
+			"original": "Orig",
+			"none": "None",
+			"lzma": "LZMA",
+			"lz4": "LZ4"
 		},
 		"search": {
 			"searching_for_file": "Searching for corresponding file for \"{name}\"...",

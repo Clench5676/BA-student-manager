@@ -13,7 +13,7 @@ from pathlib import Path
 from ba_modding_toolkit.core import (
     load_bundle,
     compress_bundle,
-    _save_and_crc,
+    save_bundle,
     SaveOptions,
 )
 from ba_modding_toolkit.utils import CRCUtils
@@ -63,7 +63,7 @@ class TestCrcFix:
             compression="none",
         )
         
-        success, msg = _save_and_crc(env, output_path, save_options)
+        success, msg = save_bundle(env, output_path, save_options)
         assert success is True, msg
         
         actual_crc = CRCUtils.compute_crc32(output_path)
@@ -83,7 +83,7 @@ class TestCrcFix:
             compression="none",
         )
         
-        success, msg = _save_and_crc(env, output_path, save_options)
+        success, msg = save_bundle(env, output_path, save_options)
         assert success is True, msg
         
         actual_crc = CRCUtils.compute_crc32(output_path)
@@ -104,7 +104,7 @@ class TestCrcFix:
             compression="lzma",
         )
         
-        success, msg = _save_and_crc(env, output_path, save_options)
+        success, msg = save_bundle(env, output_path, save_options)
         assert success is True, msg
         
         actual_crc = CRCUtils.compute_crc32(output_path)
@@ -133,7 +133,7 @@ class TestExtraBytes:
             compression="none",
         )
         
-        success, msg = _save_and_crc(env, output_path, save_options)
+        success, msg = save_bundle(env, output_path, save_options)
         assert success is True, msg
         
         output_data = output_path.read_bytes()
@@ -158,7 +158,7 @@ class TestExtraBytes:
             compression="lzma",
         )
         
-        success, msg = _save_and_crc(env, output_path, save_options)
+        success, msg = save_bundle(env, output_path, save_options)
         assert success is True, msg
         
         actual_crc = CRCUtils.compute_crc32(output_path)
@@ -181,7 +181,7 @@ class TestExtraBytes:
             compression="none",
         )
         
-        success, msg = _save_and_crc(env, output_path, save_options)
+        success, msg = save_bundle(env, output_path, save_options)
         assert success is True, msg
         
         output_data = output_path.read_bytes()
@@ -218,7 +218,7 @@ class TestCombinedIO:
             compression=compression,
         )
         
-        success, msg = _save_and_crc(env, output_path, save_options)
+        success, msg = save_bundle(env, output_path, save_options)
         assert success is True, msg
         
         reloaded_env = load_bundle(output_path)
@@ -245,7 +245,7 @@ class TestCombinedIO:
             compression=compression,
         )
         
-        success, msg = _save_and_crc(env, output_path, save_options)
+        success, msg = save_bundle(env, output_path, save_options)
         assert success is True, msg
         
         reloaded_env = load_bundle(output_path)
