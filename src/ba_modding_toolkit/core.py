@@ -216,9 +216,11 @@ def save_bundle(
             target_crc = int(crc_str)
 
             # 如有extra_bytes，先附加到modified_data
+            if save_options.extra_bytes:
+                compressed_data += save_options.extra_bytes
+
             corrected_data = CRCUtils.apply_crc_fix(
-                compressed_data + save_options.extra_bytes,
-                target_crc
+                compressed_data, target_crc
             )
 
             if not corrected_data:
@@ -709,11 +711,8 @@ def process_asset_extraction(
     """
     try:
         # 统一处理为列表
-        if isinstance(bundle_path, Path):
-            bundle_paths = [bundle_path]
-        else:
-            bundle_paths = bundle_path
-        
+        bundle_paths = [bundle_path] if isinstance(bundle_path, Path) else bundle_path
+
         log("\n" + "="*50)
         if len(bundle_paths) == 1:
             log(t("log.extractor.starting_extraction", filename=bundle_paths[0].name))
@@ -728,10 +727,10 @@ def process_asset_extraction(
         downgrade_enabled = spine_options and spine_options.is_valid()
 
         with tempfile.TemporaryDirectory() as temp_dir:
-            temp_extraction_dir = Path(temp_dir)
-            log(f"  > {t('log.extractor.using_temp_dir', path=temp_extraction_dir)}")
+            work_dir = Path(temp_dir)
+            log(f"  > {t('log.extractor.using_temp_dir', path=work_dir)}")
 
-            # --- 阶段 1: 统一提取所有相关资源到临时目录 ---
+            # ========== 阶段 1: 提取资源 ==========
             log(f'\n--- {t("log.section.extract_to_temp")} ---')
             extraction_count = 0
             
@@ -754,11 +753,11 @@ def process_asset_extraction(
                             continue
 
                         if obj.type == AssetType.TextAsset:
-                            dest_path = temp_extraction_dir / resource_name
+                            dest_path = work_dir / resource_name
                             asset_bytes = data.m_Script.encode("utf-8", "surrogateescape")
                             dest_path.write_bytes(asset_bytes)
                         elif obj.type == AssetType.Texture2D:
-                            dest_path = temp_extraction_dir / f"{resource_name}.png"
+                            dest_path = work_dir / f"{resource_name}.png"
                             data.image.convert("RGBA").save(dest_path)
                         
                         log(f"  - {dest_path.name}")
@@ -771,93 +770,53 @@ def process_asset_extraction(
                 log(f"⚠️ {msg}")
                 return True, msg
 
-            # --- 阶段 2: 处理并移动文件 ---
-            # 使用临时目录存储降级后的文件
-            with tempfile.TemporaryDirectory() as temp_dir_b:
-                temp_output_dir = Path(temp_dir_b)
-                
-                # 阶段 2a: 降级处理（如果需要）
-                if downgrade_enabled:
-                    log(f'\n--- {t("log.section.process_spine_downgrade")} ---')
-                    
-                    # 处理所有 skel 文件
-                    skel_files = list(temp_extraction_dir.glob("*.skel"))
-                    for skel_path in skel_files:
-                        log(f"  > {t('log.extractor.processing_file', name=skel_path.name)}")
-                        SpineUtils.process_skel_downgrade(
-                            skel_path,
-                            temp_output_dir,
-                            spine_options.converter_path,
-                            spine_options.target_version,
-                            log
-                        )
-                    
-                    # 处理所有 atlas 文件
-                    atlas_files = list(temp_extraction_dir.glob("*.atlas"))
-                    for atlas_path in atlas_files:
-                        log(f"  > {t('log.extractor.processing_file', name=atlas_path.name)}")
-                        SpineUtils.process_atlas_downgrade(
-                            atlas_path,
-                            temp_output_dir,
-                            log
-                        )
-                
-                # 阶段 2b: 解包处理（如果需要）
-                if atlas_export_mode in ("unpack", "both"):
-                    log(f'\n--- {t("log.section.process_atlas_unpack")} ---')
-                    
-                    atlas_files = list(temp_extraction_dir.glob("*.atlas"))
-                    for atlas_path in atlas_files:
-                        # 确定使用哪个文件进行解包
-                        if downgrade_enabled:
-                            # 使用降级后的文件
-                            source_atlas_path = temp_output_dir / atlas_path.name
-                            # 解包需要atlas和png在同一目录，复制png到降级目录
-                            png_path = temp_extraction_dir / f"{atlas_path.stem}.png"
-                            if png_path.exists():
-                                dest_png_path = temp_output_dir / png_path.name
-                                if not dest_png_path.exists():
-                                    shutil.copy2(png_path, dest_png_path)
-                        else:
-                            # 使用原始文件
-                            source_atlas_path = atlas_path
-                        
-                        if source_atlas_path.exists():
-                            SpineUtils.unpack_atlas_frames(
-                                source_atlas_path,
-                                output_dir,
-                                log
-                            )
-                
-                # 阶段 2c: 复制文件到输出目录
-                if downgrade_enabled:
-                    log(f'\n--- {t("log.section.copy_converted_files")} ---')
-                    for item in temp_output_dir.iterdir():
-                        # unpack 模式下跳过 atlas 和 png 文件
-                        if atlas_export_mode == "unpack" and item.suffix.lower() in ('.atlas', '.png'):
-                            continue
-                        shutil.copy2(item, output_dir / item.name)
-                        log(f"  - {item.name}")
-                elif atlas_export_mode == "atlas":
-                    # 未启用降级且为 atlas 模式，直接复制原始文件
-                    log(f'\n--- {t("log.section.move_to_output")} ---')
-                    for item in temp_extraction_dir.iterdir():
-                        shutil.copy2(item, output_dir / item.name)
-                        log(f"  - {item.name}")
-                
-                # 阶段 3: 复制剩余的独立文件（跳过已存在的）
-                # 只在需要时执行
-                if downgrade_enabled or atlas_export_mode != "atlas":
-                    log(f'\n--- {t("log.section.copy_standalone_files")} ---')
-                    for item in temp_extraction_dir.iterdir():
-                        # unpack 模式下跳过 atlas 和 png 文件
-                        if atlas_export_mode == "unpack" and item.suffix.lower() in ('.atlas', '.png'):
-                            continue
-                        dest = output_dir / item.name
-                        if not dest.exists():
-                            shutil.copy2(item, dest)
-                            log(f"  - {item.name}")
+            # ========== 阶段 2: 处理资源 ==========
 
+            # 2.1 Spine降级处理
+            if downgrade_enabled:
+                log(f'\n--- {t("log.section.process_spine_downgrade")} ---')
+
+                # 降级所有 skel 文件（直接覆盖到工作目录）
+                for skel_path in work_dir.glob("*.skel"):
+                    log(f"  > {t('log.extractor.processing_file', name=skel_path.name)}")
+                    SpineUtils.process_skel_downgrade(
+                        skel_path,
+                        work_dir,
+                        spine_options.converter_path,
+                        spine_options.target_version,
+                        log
+                    )
+
+                # 降级所有 atlas 文件（直接覆盖到工作目录）
+                for atlas_path in work_dir.glob("*.atlas"):
+                    log(f"  > {t('log.extractor.processing_file', name=atlas_path.name)}")
+                    SpineUtils.process_atlas_downgrade(
+                        atlas_path,
+                        work_dir,
+                        log
+                    )
+
+            # 2.2 Atlas解包处理
+            if atlas_export_mode in ("unpack", "both"):
+                log(f'\n--- {t("log.section.process_atlas_unpack")} ---')
+
+                for atlas_path in work_dir.glob("*.atlas"):
+                    SpineUtils.unpack_atlas_frames(atlas_path, output_dir, log)
+
+                    # unpack模式下删除atlas和png（只保留解包后的帧）
+                    if atlas_export_mode == "unpack":
+                        atlas_path.unlink(missing_ok=True)
+                        png_path = work_dir / f"{atlas_path.stem}.png"
+                        png_path.unlink(missing_ok=True)
+
+            # ========== 阶段 3: 输出文件 ==========
+            # 将工作目录中剩余的文件复制到输出目录
+            remaining_files = list(work_dir.iterdir())
+            if remaining_files:
+                log(f'\n--- {t("log.section.move_to_output")} ---')
+                for item in remaining_files:
+                    shutil.copy2(item, output_dir / item.name)
+                    log(f"  - {item.name}")
 
         total_files_extracted = len(list(output_dir.iterdir()))
         success_msg = t("message.extractor.extraction_complete", count=total_files_extracted)
