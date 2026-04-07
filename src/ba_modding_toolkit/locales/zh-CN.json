@@ -100,7 +100,8 @@
 		"skel_converter": "SpineSkeletonConverter.exe"
 	},
 	"message": {
-		"confirm_replace_file": "此操作将覆盖文件: {path}\n\n建议确保已开启备份功能。\n确定要继续吗？",
+		"confirm_replace_file": "此操作将覆盖文件：{path}\n\n建议确保已开启备份功能。\n确定要继续吗？",
+		"confirm_replace_files": "此操作将覆盖 {count} 个文件：\n\n{files}",
 		"confirm_reset_settings": "确定要重置为默认设置吗？",
 		"file_not_found": "找不到文件: {path}",
 		"file_not_selected": "未选中文件",
@@ -186,7 +187,8 @@
 			"no_assets_in_source": "源文件中未找到任何可提取资源，无法进行转换。",
 			"no_assets_matched": "未找到任何匹配的资源，无法进行转换。"
 		},
-		"save_error": "保存文件时发生错误: {error}"
+		"save_error": "保存文件时发生错误: {error}",
+		"replace_result": "已完成替换！成功：{success}，失败：{fail}"
 	},
 	"status": {
 		"ready": "准备就绪",
@@ -363,6 +365,7 @@
 		"file_not_found_in_dirs": "未能在指定的资源目录中找到对应的原始文件 \"{filename}\"。",
 		"file_found_in_subdir": "已在 \"{subdir}\" 中自动找到并加载原始文件: {filename}",
 		"output_dir_not_set": "未设置输出目录",
+		"success_fail": "成功：{success}，失败：{fail}",
 		"error_detail": "发生错误：{error}",
 		"error_processing": "处理过程中发生错误：{error}",
 		"processing_filename_with_progress": "({current}/{total}) 正在处理文件: {name}",

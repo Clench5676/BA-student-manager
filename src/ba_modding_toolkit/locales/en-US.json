@@ -101,6 +101,7 @@
 	},
 	"message": {
 		"confirm_replace_file": "This operation will overwrite the file: {path}\n\nIt is recommended to ensure that backups are enabled.\nAre you sure you want to continue?",
+		"confirm_replace_files": "This operation will overwrite {count} files:\n{files}",
 		"confirm_reset_settings": "Are you sure you want to reset to default settings?",
 		"file_not_found": "File not found: {path}",
 		"file_not_selected": "No file selected",
@@ -186,7 +187,8 @@
 			"no_assets_in_source": "No extractable assets found in the source file. Cannot convert.",
 			"no_assets_matched": "No matching assets found. Cannot convert."
 		},
-		"save_error": "Error saving file: {error}"
+		"save_error": "Error saving file: {error}",
+		"replace_result": "Replacement completed!\nSuccess: {success} files, Fail: {fail} files"
 	},
 	"status": {
 		"ready": "Ready",
@@ -371,7 +373,8 @@
 		"generated_file_not_found": "Operation reported success, but the generated file was not found in the output directory.",
 		"replace_resource_failed": "Error replacing resource [{type}] {name}: {error}",
 		"platform_info": "Target Platform: {platform} (Unity {version})",
-		"unnamed_resource": "Unnamed {type} asset"
+		"unnamed_resource": "Unnamed {type} asset",
+		"success_fail": "Success: {success}, Fail: {fail}"
 	},
 	"ui": {
 		"app_title": "BA Modding Toolkit",

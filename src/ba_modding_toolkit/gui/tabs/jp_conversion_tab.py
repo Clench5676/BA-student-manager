@@ -11,9 +11,15 @@ from ...utils import get_search_resource_dirs
 from ..base_tab import TabFrame
 from ..components import DropZone, FileListbox, ModeSwitcher, SettingRow, UIComponents
 from ..dialogs import FileSelectionDialog
+from ..utils import replace_file, replace_files
 
 class JPGLConversionTab(TabFrame):
     """日服与国际服格式互相转换的标签页"""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.final_output_paths: list[Path] = []
+        self.replaced_source_files: list[Path] = []  # 记录被成功替换的原始文件路径
 
     def create_widgets(self):
         # --- 转换模式选择 ---
@@ -68,7 +74,8 @@ class JPGLConversionTab(TabFrame):
         
         # --- 操作按钮 ---
         action_button_frame = tb.Frame(self)
-        action_button_frame.pack(fill=tk.X, pady=2)
+        action_button_frame.pack(fill=tk.X, pady=10)
+        action_button_frame.grid_columnconfigure((0, 1), weight=1)
         
         self.run_button = UIComponents.create_button(
             action_button_frame, t("action.convert"),
@@ -76,7 +83,16 @@ class JPGLConversionTab(TabFrame):
             bootstyle="success",
             style="large"
         )
-        self.run_button.pack(fill=tk.X, pady=10)
+        self.run_button.grid(row=0, column=0, sticky="ew", padx=(0, 5))
+        
+        self.replace_button = UIComponents.create_button(
+            action_button_frame, t("action.replace_original"),
+            self.replace_original_thread,
+            bootstyle="danger",
+            state="disabled",
+            style="large"
+        )
+        self.replace_button.grid(row=0, column=1, sticky="ew", padx=(5, 0))
         
         # 初始化视图标签
         self._switch_view()
@@ -211,6 +227,87 @@ class JPGLConversionTab(TabFrame):
     def run_conversion_thread(self):
         self.run_in_thread(self.run_conversion)
     
+    # --- 覆盖原文件功能 ---
+    def replace_original_thread(self):
+        """覆盖原文件的线程入口"""
+        if not self.final_output_paths:
+            messagebox.showerror(t("common.error"), t("message.no_file_selected"))
+            return
+
+        # 根据模式确定要覆盖的目标文件
+        if self.mode_var.get() == "jp_to_global":
+            target_files = self.jp_files_listbox.file_list
+        else:
+            # global_to_jp 模式：使用被替换的原始文件列表
+            target_files = self.replaced_source_files
+
+        if not target_files:
+            messagebox.showerror(t("common.error"), t("message.list_empty"))
+            return
+
+        # 检查输出文件是否存在
+        for output_path in self.final_output_paths:
+            if not output_path.exists():
+                messagebox.showerror(t("common.error"), t("message.file_not_found", path=output_path))
+                return
+
+        # 在主线程中显示确认对话框
+        files_to_replace = []
+        for i, output_path in enumerate(self.final_output_paths):
+            if i < len(target_files):
+                target_file = target_files[i]
+                files_to_replace.append(f"  {target_file.name}")
+
+        files_list = "\n".join(files_to_replace)
+
+        confirm_message = t("message.confirm_replace_files", count=len(files_to_replace), files=files_list)
+
+        # 显示确认对话框，如果用户确认则执行覆盖
+        if messagebox.askyesno(t("common.warning"), confirm_message):
+            self.run_in_thread(self.replace_original)
+
+    def replace_original(self):
+        """实际的覆盖逻辑"""
+        if self.mode_var.get() == "jp_to_global":
+            target_files = self.jp_files_listbox.file_list
+        else:
+            # global_to_jp 模式：使用被替换的原始文件列表
+            target_files = self.replaced_source_files
+
+        # 只有一个文件时，使用 replace_file
+        if len(self.final_output_paths) == 1 and len(target_files) >= 1:
+            success = replace_file(
+                source_path=self.final_output_paths[0],
+                dest_path=target_files[0],
+                create_backup=self.app.create_backup_var.get(),
+                ask_confirm=False,  # 已经在上一步确认过了
+                log=self.logger.log,
+            )
+
+            # 更新状态栏
+            if success:
+                self.logger.status(t("status.done"))
+            else:
+                self.logger.status(t("status.failed"))
+        else:
+            # 多个文件时，使用 replace_files
+            file_pairs: list[tuple[Path, Path]] = []
+            for i, output_path in enumerate(self.final_output_paths):
+                if i < len(target_files):
+                    file_pairs.append((output_path, target_files[i]))
+
+            success_count, fail_count = replace_files(
+                file_pairs=file_pairs,
+                create_backup=self.app.create_backup_var.get(),
+                ask_confirm=False,  # 已经在上一步确认过了
+                log=self.logger.log,
+            )
+
+            self.logger.status(t("status.done"))
+        
+        # 覆盖完成后禁用按钮
+        self.master.after(0, lambda: self.replace_button.config(state=tk.DISABLED))
+    
     def run_conversion(self):
         # 1. 验证输入
         output_dir = Path(self.app.output_dir_var.get())
@@ -228,6 +325,11 @@ class JPGLConversionTab(TabFrame):
         except Exception as e:
             self.logger.log(f'❌ {t("message.create_dir_failed_detail",path=output_dir, error=e)}')
             return
+        
+        # 重置输出文件路径列表和按钮状态
+        self.final_output_paths = []
+        self.replaced_source_files = []
+        self.master.after(0, lambda: self.replace_button.config(state=tk.DISABLED))
         
         # 2. 准备选项
         crc_setting = self.app.enable_crc_correction_var.get()
@@ -267,8 +369,16 @@ class JPGLConversionTab(TabFrame):
                 asset_types_to_replace=asset_types_to_replace,
                 log=self.logger.log
             )
+            
+            # 记录输出文件路径（jp_to_global 模式只输出一个文件）
+            if success:
+                output_path = output_dir / self.global_zone.path.name
+                if output_path.exists():
+                    self.final_output_paths.append(output_path)
+                    # 启用覆盖按钮
+                    self.master.after(0, lambda: self.replace_button.config(state=tk.NORMAL))
         else:
-            success, message = core.process_global_to_jp_conversion(
+            success, message, replaced_files = core.process_global_to_jp_conversion(
                 global_bundle_path=self.global_zone.path,
                 jp_template_paths=jp_files,
                 output_dir=output_dir,
@@ -276,6 +386,18 @@ class JPGLConversionTab(TabFrame):
                 asset_types_to_replace=asset_types_to_replace,
                 log=self.logger.log
             )
+
+            # 记录输出文件路径和被替换的原始文件路径
+            if success:
+                self.replaced_source_files = replaced_files
+                for src_file in replaced_files:
+                    output_path = output_dir / src_file.name
+                    if output_path.exists():
+                        self.final_output_paths.append(output_path)
+
+                # 如果有输出文件，启用覆盖按钮
+                if self.final_output_paths:
+                    self.master.after(0, lambda: self.replace_button.config(state=tk.NORMAL))
         
         # 4. 结果反馈
         if success:

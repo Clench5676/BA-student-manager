@@ -635,7 +635,7 @@ def process_asset_packing(
             return False, t("message.packer.no_matching_assets_to_pack")
         
         # 报告替换结果
-        log(f"\n✅ {t('log.migration.strategy_success', name=strategy_name, count=replacement_count)}:")
+        log(f"✅ {t('log.migration.strategy_success', name=strategy_name, count=replacement_count)}:")
         for item in replaced_assets_log:
             log(f"  - {item}")
 
@@ -1350,14 +1350,14 @@ def process_global_to_jp_conversion(
     save_options: SaveOptions,
     asset_types_to_replace: set[str],
     log: LogFunc = no_log,
-) -> tuple[bool, str]:
+) -> tuple[bool, str, list[Path]]:
     """
     处理国际服转日服的转换。
-    
+
     将一个国际服格式的bundle文件，使用多个日服bundle作为模板，
     将国际服的资源分发替换到对应的日服文件中。
     只替换模板中已存在的同名同类型资源。
-    
+
     Args:
         global_bundle_path: 待转换的国际服bundle文件路径。
         jp_template_paths: 日服bundle文件路径列表（用作模板）。
@@ -1365,9 +1365,9 @@ def process_global_to_jp_conversion(
         save_options: 保存选项。
         asset_types_to_replace: 要替换的资源类型集合。
         log: 日志记录函数。
-    
+
     Returns:
-        tuple[bool, str]: (是否成功, 状态消息) 的元组
+        tuple[bool, str, list[Path]]: (是否成功, 状态消息, 被替换的原始文件路径列表) 的元组
     """
     try:
         log("="*50)
@@ -1381,63 +1381,85 @@ def process_global_to_jp_conversion(
             return False, t("message.jp_convert.load_global_source_failed")
         
         log(f'\n--- {t("log.section.extracting_from_global")} ---')
-        strategy_name = 'cont_name_type'
-        key_func = MATCH_STRATEGIES[strategy_name]
-        
-        source_replacement_map = _extract_assets_from_bundle(
-            global_env, asset_types_to_replace, key_func, None, log
-        )
-        
-        if not source_replacement_map:
-            msg = t("message.jp_convert.no_assets_in_source")
-            log(f"  > ⚠️ {msg}")
-            return False, msg
-        log(f"  > {t('log.jp_convert.extracted_count', count=len(source_replacement_map))}")
+
+        # 定义匹配策略
+        strategies: list[tuple[str, KeyGeneratorFunc]] = [
+            ('path_id', MATCH_STRATEGIES['path_id']),
+            ('cont_name_type', MATCH_STRATEGIES['cont_name_type']),
+            ('name_type', MATCH_STRATEGIES['name_type']),
+        ]
 
         success_count = 0
         total_changes = 0
         total_files = len(jp_template_paths)
-        
-        # 2. 遍历每个日服模板文件进行处理
-        for i, jp_template_path in enumerate(jp_template_paths, 1):
-            log(t("log.processing_filename_with_progress", current=i, total=total_files, name=jp_template_path.name))
-            
-            template_env = load_bundle(jp_template_path, log)
-            if not template_env:
-                log(f"  > ❌ {t('message.load_failed')}: {jp_template_path.name}")
+        replaced_files: list[Path] = []  # 记录被成功替换的原始文件路径
+
+        # 2. 按顺序尝试每种策略
+        for strategy_name, key_func in strategies:
+            log(f'\n{t("log.migration.trying_strategy", name=strategy_name)}')
+
+            # 根据当前策略从国际服 bundle 构建替换清单
+            source_replacement_map = _extract_assets_from_bundle(
+                global_env, asset_types_to_replace, key_func, None, log
+            )
+
+            if not source_replacement_map:
+                log(f"  > ⚠️ {t('common.warning')}: {t('log.migration.strategy_no_assets_found', name=strategy_name)}")
                 continue
 
-            # 应用替换，函数会自动匹配并替换存在于模板中的资源
-            replacement_count, replaced_logs, _ = _apply_replacements(
-                template_env, source_replacement_map, key_func, log
-            )
-            
-            if replacement_count > 0:
-                log(f"\n✅ {t('log.migration.strategy_success', name=strategy_name, count=replacement_count)}:")
-                for item in replaced_logs:
-                    log(f"  - {item}")
-                
-                output_path = output_dir / jp_template_path.name
-                save_ok, save_msg = save_bundle(
-                    env=template_env,
-                    output_path=output_path,
-                    save_options=save_options,
-                    log=log
+            log(f"  > {t('log.jp_convert.extracted_count', count=len(source_replacement_map))}")
+
+            strategy_success = False
+            strategy_total_changes = 0
+
+            # 3. 遍历每个日服模板文件进行处理
+            for i, jp_template_path in enumerate(jp_template_paths, 1):
+                log(t("log.processing_filename_with_progress", current=i, total=total_files, name=jp_template_path.name))
+
+                template_env = load_bundle(jp_template_path, log)
+                if not template_env:
+                    log(f"  > ❌ {t('message.load_failed')}: {jp_template_path.name}")
+                    continue
+
+                # 应用替换，函数会自动匹配并替换存在于模板中的资源
+                replacement_count, replaced_logs, _ = _apply_replacements(
+                    template_env, source_replacement_map, key_func, log
                 )
-                if save_ok:
-                    log(f"  ✅ {t('log.file.saved', path=output_path)}")
-                    success_count += 1
-                    total_changes += replacement_count
+
+                if replacement_count > 0:
+                    log(f"✅ {t('log.migration.strategy_success', name=strategy_name, count=replacement_count)}")
+                    for item in replaced_logs:
+                        log(f"  - {item}")
+
+                    output_path = output_dir / jp_template_path.name
+                    save_ok, save_msg = save_bundle(
+                        env=template_env,
+                        output_path=output_path,
+                        save_options=save_options,
+                        log=log
+                    )
+                    if save_ok:
+                        log(f"  ✅ {t('log.file.saved', path=output_path)}")
+                        success_count += 1
+                        total_changes += replacement_count
+                        strategy_success = True
+                        strategy_total_changes += replacement_count
+                        replaced_files.append(jp_template_path)  # 记录被替换的原始文件
+                    else:
+                        log(f"  ❌ {t('log.file.save_failed', path=output_path, error=save_msg)}")
                 else:
-                    log(f"  ❌ {t('log.file.save_failed', path=output_path, error=save_msg)}")
-            else:
-                log(f"  > {t('log.file.no_changes_made')}")
+                    log(f"  > {t('log.file.no_changes_made')}")
+
+            # 如果当前策略成功替换了至少一个资源，就结束
+            if strategy_success:
+                log(f"\n✅ {t('log.migration.strategy_success', name=strategy_name, count=strategy_total_changes)}")
+                break
 
         log(f'\n--- {t("log.section.conversion_complete")} ---')
         log(f"{t('log.jp_convert.global_to_jp_complete')}")
-        return True, t("message.jp_convert.global_to_jp_success",bundle_count=success_count, asset_count=total_changes)
-        
+        return True, t("message.jp_convert.global_to_jp_success",bundle_count=success_count, asset_count=total_changes), replaced_files
+
     except Exception as e:
         log(f"\n❌ {t('common.error')}: {t('log.jp_convert.error_global_to_jp', error=e)}")
         log(traceback.format_exc())
-        return False, t("message.jp_convert.conversion_error", error=e)
+        return False, t("message.jp_convert.conversion_error", error=e), []
