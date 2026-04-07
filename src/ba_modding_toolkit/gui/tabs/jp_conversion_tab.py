@@ -237,7 +237,7 @@ class JPGLConversionTab(TabFrame):
             target_bundle = self.global_zone.path if self.mode_var.get() == "jp_to_global" else jp_files[0]
             platform, unity_version = core.get_unity_platform_info(target_bundle)
             self.logger.log(t("log.platform_info", platform=platform, version=unity_version))
-            perform_crc = (platform == "StandaloneWindows64") and (self.mode_var.get() == "jp_to_global")
+            perform_crc = (platform == "StandaloneWindows64")
         elif crc_setting == "true":
             perform_crc = True
         
@@ -247,6 +247,15 @@ class JPGLConversionTab(TabFrame):
             compression=self.app.compression_method_var.get()
         )
         
+        # 从设置页获取资源类型
+        asset_types_to_replace = set()
+        if self.app.replace_all_var.get():
+            asset_types_to_replace = {"ALL"}
+        else:
+            if self.app.replace_texture2d_var.get(): asset_types_to_replace.add("Texture2D")
+            if self.app.replace_textasset_var.get(): asset_types_to_replace.add("TextAsset")
+            if self.app.replace_mesh_var.get(): asset_types_to_replace.add("Mesh")
+        
         # 3. 调用处理函数
         self.logger.status(t("common.processing"))
         if self.mode_var.get() == "jp_to_global":
@@ -255,6 +264,7 @@ class JPGLConversionTab(TabFrame):
                 jp_bundle_paths=jp_files,
                 output_dir=output_dir,
                 save_options=save_options,
+                asset_types_to_replace=asset_types_to_replace,
                 log=self.logger.log
             )
         else:
@@ -263,6 +273,7 @@ class JPGLConversionTab(TabFrame):
                 jp_template_paths=jp_files,
                 output_dir=output_dir,
                 save_options=save_options,
+                asset_types_to_replace=asset_types_to_replace,
                 log=self.logger.log
             )
         

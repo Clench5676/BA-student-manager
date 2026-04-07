@@ -1252,6 +1252,7 @@ def process_jp_to_global_conversion(
     jp_bundle_paths: list[Path],
     output_dir: Path,
     save_options: SaveOptions,
+    asset_types_to_replace: set[str],
     log: LogFunc = no_log,
 ) -> tuple[bool, str]:
     """
@@ -1281,9 +1282,6 @@ def process_jp_to_global_conversion(
         replacement_map: dict[AssetKey, AssetContent] = {}
         strategy_name = 'cont_name_type'
         key_func = MATCH_STRATEGIES[strategy_name]
-        
-        # 根据日服文件名动态确定要提取的资源类型
-        asset_types = _get_asset_types_from_jp_filenames(jp_bundle_paths)
 
         total_files = len(jp_bundle_paths)
         for i, jp_path in enumerate(jp_bundle_paths, 1):
@@ -1295,7 +1293,7 @@ def process_jp_to_global_conversion(
             
             # 提取资源并合并到主清单
             jp_assets = _extract_assets_from_bundle(
-                jp_env, asset_types, key_func, None, log
+                jp_env, asset_types_to_replace, key_func, None, log
             )
             replacement_map.update(jp_assets)
 
@@ -1350,6 +1348,7 @@ def process_global_to_jp_conversion(
     jp_template_paths: list[Path],
     output_dir: Path,
     save_options: SaveOptions,
+    asset_types_to_replace: set[str],
     log: LogFunc = no_log,
 ) -> tuple[bool, str]:
     """
@@ -1364,6 +1363,7 @@ def process_global_to_jp_conversion(
         jp_template_paths: 日服bundle文件路径列表（用作模板）。
         output_dir: 输出目录。
         save_options: 保存选项。
+        asset_types_to_replace: 要替换的资源类型集合。
         log: 日志记录函数。
     
     Returns:
@@ -1383,12 +1383,9 @@ def process_global_to_jp_conversion(
         log(f'\n--- {t("log.section.extracting_from_global")} ---')
         strategy_name = 'cont_name_type'
         key_func = MATCH_STRATEGIES[strategy_name]
-
-        # 根据日服模板文件名确定要提取哪些类型的资源
-        asset_types = _get_asset_types_from_jp_filenames(jp_template_paths)
         
         source_replacement_map = _extract_assets_from_bundle(
-            global_env, asset_types, key_func, None, log
+            global_env, asset_types_to_replace, key_func, None, log
         )
         
         if not source_replacement_map:
