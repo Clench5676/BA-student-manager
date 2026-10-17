@@ -405,7 +405,9 @@ class FileListWindow(StoppableDialog):
         self._header_click_column: int | None = None
 
         # 绑定右键事件，在菜单弹出前捕获列索引
-        self.table.view.bind("<Button-3>", self._capture_header_column, add="+")
+        # Right-click is Button-2 on macOS Aqua (same check as ttkbootstrap's Tableview)
+        right_click = "<Button-2>" if self.table.tk.call("tk", "windowingsystem") == "aqua" else "<Button-3>"
+        self.table.view.bind(right_click, self._capture_header_column, add="+")
 
         if hasattr(self.table, '_rightclickmenu_head'):
             head_menu = self.table._rightclickmenu_head

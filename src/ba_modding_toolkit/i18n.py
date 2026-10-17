@@ -1,6 +1,7 @@
 # i18n.py
 import json
 import locale
+import sys
 from functools import reduce, lru_cache
 from pathlib import Path
 from typing import Any
@@ -31,10 +32,24 @@ def get_system_language() -> str | None:
     try:
         # 获取系统默认 locale，例如 ('zh_CN', 'UTF-8')
         loc = locale.getdefaultlocale()[0]
+        # None without LANG, or "C" after Python's C locale coercion (LC_CTYPE=C.UTF-8)
+        if sys.platform == "darwin" and loc in (None, "C", "POSIX"):
+            loc = _get_macos_language()
         return loc.replace("_", "-")
     except Exception:
         print("Error: Failed to detect system language.")
         return None
+
+def _get_macos_language() -> str | None:
+    """Return the preferred macOS UI language (e.g. zh-Hans-CN).
+
+    Apps launched from Finder get no LANG etc., so locale cannot detect the language.
+    """
+    import subprocess
+    result = subprocess.run(["defaults", "read", "-g", "AppleLanguages"], capture_output=True, text=True)
+    # Output looks like: ( "zh-Hans-CN", en )
+    languages = [item.strip().strip('"') for item in result.stdout.strip().strip("()").split(",")]
+    return next((lang for lang in languages if lang), None)
 
 def get_default_language() -> str:
     """

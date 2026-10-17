@@ -30,7 +30,8 @@ FILE_TYPE_MAP: dict[FileType, tuple[str, str]] = {
     FileType.BUNDLE: ("file_type.bundle", "*.bundle"),
     FileType.BUNDLE_BACKUP: ("file_type.bundle_backup", "*.bundle.backup"),
     FileType.ALL: ("file_type.all_files", "*.*"),
-    FileType.EXECUTABLE: ("file_type.executable", "*.exe"),
+    # Executables on macOS (e.g. adb) have no file extension
+    FileType.EXECUTABLE: ("file_type.executable", "*" if sys.platform == "darwin" else "*.exe"),
 }
 
 

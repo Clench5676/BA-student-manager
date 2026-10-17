@@ -1,6 +1,7 @@
 # utils.py
 
 import binascii
+import shutil
 import subprocess
 import sys
 import time
@@ -236,12 +237,27 @@ class CRCUtils:
                 a ^= CRCUtils.POLY_NORMAL
         return result
 
+def _get_exe_dir() -> Path:
+    """Return the directory for config and user data.
+
+    A macOS .app usually lives somewhere read-only (/Applications, a mounted DMG,
+    App Translocation), so app bundles use ~/Library/Application Support/BA-Modding-Toolkit
+    instead and copy the Addons bundled in the app (character ID map etc.) there on first launch.
+    """
+    if "__compiled__" not in globals() or not hasattr(__compiled__, "containing_dir"):
+        return Path(__file__).resolve().parents[2]
+    if not getattr(__compiled__, "macos_bundle_mode", False):
+        return Path(__compiled__.containing_dir).resolve()
+
+    data_dir = Path.home() / "Library" / "Application Support" / "BA-Modding-Toolkit"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    bundled_addons = Path(sys.executable).parent / "Addons"
+    if bundled_addons.is_dir() and not (data_dir / "Addons").exists():
+        shutil.copytree(bundled_addons, data_dir / "Addons")
+    return data_dir
+
 # 程序所在目录（打包后为 exe 目录，开发环境为项目根目录）
-EXE_DIR: Path = (
-    Path(__compiled__.containing_dir).resolve()
-    if "__compiled__" in globals() and hasattr(__compiled__, "containing_dir")
-    else Path(__file__).resolve().parents[2]
-)
+EXE_DIR: Path = _get_exe_dir()
 
 def get_environment_info(ignore_tk: bool = False):
     """Collects and formats key environment details."""

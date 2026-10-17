@@ -1,5 +1,6 @@
 # gui/components.py
 
+import sys
 import tkinter as tk
 import ttkbootstrap as tb
 from ttkbootstrap.widgets.tooltip import ToolTip
@@ -121,6 +122,12 @@ class Theme:
     STATUS_BAR_FONT = ("Microsoft YaHei", 9)
     LOG_FONT = ("Consolas", 9)
     TOOLTIP_FONT = ("Microsoft YaHei", 9)
+
+    if sys.platform == "darwin":
+        # Tk on macOS sizes fonts at 72 DPI (Windows: 96 DPI) and has no YaHei/Consolas,
+        # so use system fonts at larger sizes to render text as large as on Windows
+        DROP_ZONE_FONT = INPUT_FONT = STATUS_BAR_FONT = TOOLTIP_FONT = ("PingFang SC", 12)
+        LOG_FONT = ("Menlo", 11)
 
 
 # --- UI 组件工厂 ---
