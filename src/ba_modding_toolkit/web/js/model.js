@@ -551,6 +551,7 @@ export async function show(key, host, { frame: mode = "left", onAction = null } 
   const my = ++token;
   const v = (view = new ChibiView(host, key));
   v.onAction = onAction;
+  v.frameTo(mode); // before the load this only records the framing
   v.ready = (async () => {
     try {
       await v.load(`/asset/model/${encodeURIComponent(key)}.glb`);
@@ -560,7 +561,8 @@ export async function show(key, host, { frame: mode = "left", onAction = null } 
       throw err;
     }
     if (my !== token) return null;
-    v.frameTo(mode, true);
+    // the framing asked for last: fullscreen may have been entered or left while the model loaded
+    v.frameTo(v.mode, true);
     await v.compile();
     if (my !== token) return null;
     await v.start();
