@@ -34,7 +34,7 @@ const TITLE_LEFT = -1270, RIGHT = 1412, GAP = 16;
 const TOOL_Y = 446.5; // centre of the search, sort and order buttons in SeletControl's units
 
 let view = { ...normalizeView(DEFAULT_VIEW), scroll: 0 };
-let query = "", searching = false;
+let query = "", searching = false, searchTimer = 0; // searchTimer: the search box's debounce
 let layouts = null, data = null, ctx = null, items = [], rows = new Map(), contentH = 0, rendered = new Map(), dirty = true;
 let dom = {}; // the list's live elements: clip, scroll host (the newest, maybe still built), scrollbar, empty list, search
 
@@ -374,11 +374,12 @@ async function renderSearch(host) {
     left: `${ORIGIN[0] + (2 - 389) * S}px`, top: `${ORIGIN[1] - (258 + 46) * S}px`, width: `${778 * S}px`, height: `${92 * S}px`,
     fontSize: `${60 * S}px`,
   });
-  let timer = 0;
-  const apply = () => { if (el.value === query) return; query = el.value; view.scroll = 0; relist(); };
+  // a box closed or rebuilt meanwhile (its timer is cleared then) never filters the list
+  const apply = () => { if (!searching || !el.isConnected || el.value === query) return; query = el.value; view.scroll = 0; relist(); };
+  const later = (ms) => { clearTimeout(searchTimer); searchTimer = setTimeout(apply, ms); };
   // typing with an input method (Chinese, Japanese) filters once the word is committed
-  el.addEventListener("input", (ev) => { if (ev.isComposing) return; clearTimeout(timer); timer = setTimeout(apply, 90); });
-  el.addEventListener("compositionend", () => { clearTimeout(timer); timer = setTimeout(apply, 0); });
+  el.addEventListener("input", (ev) => { if (!ev.isComposing) later(90); });
+  el.addEventListener("compositionend", () => later(0));
   el.addEventListener("keydown", (ev) => {
     if (ev.isComposing) return;
     if (ev.key === "Escape") { ev.preventDefault(); closeSearch(); } else if (ev.key === "Enter") el.blur();
@@ -399,6 +400,7 @@ function openSearch() {
   renderAll().then(() => dom.input?.focus());
 }
 function closeSearch() {
+  clearTimeout(searchTimer);
   searching = false;
   query = "";
   view.scroll = 0;
@@ -431,6 +433,9 @@ let frameToken = 0;
 async function renderAll() {
   const my = ++frameToken;
   listToken += 1; // a search still building its rows gives way
+  // a keystroke still waiting for its debounce is taken now: the rebuilt box starts from it
+  clearTimeout(searchTimer);
+  if (searching && dom.input?.isConnected) query = dom.input.value;
   const host = $("roster");
   const next = document.createElement("div");
   const lay = toolbarLayout();
