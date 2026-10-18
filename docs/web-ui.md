@@ -201,6 +201,7 @@ Events on `/api/events`:
 | `app.consent {granted}` | records the choice; `false` closes the app |
 | `app.openClassic {tab}` | starts the classic GUI on a tab |
 | `i18n.strings {lang}` | `{key: text}` for `webui.*` |
+| `loading.list {lang}` | the loading screen illustrations for a UI language: `{lang, images: [{name, n, w, h, url}]}` (zh → tw, ja → jp, then en, then any; none without a game) |
 | `roster.list` | families with variants, mod counts, fresh flags, favourites, recent order |
 | `family.get {key}` | a family with its variants, mods and each variant's state |
 | `favorites.set {variant, on}` | |
@@ -221,6 +222,7 @@ Events on `/api/events`:
 | `/asset/ui/textures.json`, `/asset/ui/texture/<name>.png` | light |
 | `/asset/ui/layout/<root>.json?path=<subpath>` | light |
 | `/asset/art/bg/<name>`, `/asset/art/portrait/<name>.png` | heavy |
+| `/asset/art/loading/<name>.jpg` (a loading illustration on black) | heavy |
 | `/asset/spine/spr/<core>/<file>`, `/asset/spine/lobby/<core>/<file>`, `/asset/spine/mod/<id>/<file>` | heavy |
 
 Thumbnails (faces, busts, expression cards, variant cards) are rendered in the page from the skeletons, in one
