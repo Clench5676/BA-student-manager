@@ -137,6 +137,28 @@ def test_gzip_responses_are_unpacked(monkeypatch):
     assert json.loads(globallines.GlobalLines()._get(globallines.URLS[0])) == TABLE
 
 
+def test_bodies_over_the_limit_are_refused_packed_or_unpacked(monkeypatch):
+    monkeypatch.setattr(globallines, "MAX_BYTES", 1 << 16)
+    # a small gzip body that unpacks to 16 times the limit
+    bomb = gzip.compress(b" " * (1 << 20))
+    assert len(bomb) < 1 << 16
+    monkeypatch.setattr(globallines.urllib.request, "urlopen", lambda req, timeout: Response(bomb, gzipped=True))
+    with pytest.raises(ValueError, match="too large"):
+        globallines.GlobalLines()._get(globallines.URLS[0])
+    monkeypatch.setattr(globallines.urllib.request, "urlopen", lambda req, timeout: Response(b"x" * ((1 << 16) + 1)))
+    with pytest.raises(ValueError, match="too large"):
+        globallines.GlobalLines()._get(globallines.URLS[0])
+    # a cut-off gzip body is an error too, not a short table
+    cut = gzip.compress(json.dumps(TABLE).encode())[:-20]
+    monkeypatch.setattr(globallines.urllib.request, "urlopen", lambda req, timeout: Response(cut, gzipped=True))
+    with pytest.raises(ValueError, match="truncated"):
+        globallines.GlobalLines()._get(globallines.URLS[0])
+    # at the limit it is read
+    monkeypatch.setattr(globallines.urllib.request, "urlopen",
+                        lambda req, timeout: Response(gzip.compress(b"y" * (1 << 16)), gzipped=True))
+    assert globallines.GlobalLines()._get(globallines.URLS[0]) == b"y" * (1 << 16)
+
+
 def test_a_trickling_download_gives_up_at_the_deadline(monkeypatch):
     clock = {"now": 1000.0}
 

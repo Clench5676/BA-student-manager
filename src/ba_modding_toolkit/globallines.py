@@ -13,13 +13,13 @@ rows go on the dialogue's voice clips in order: with fewer rows than clips the l
 
 from __future__ import annotations
 
-import gzip
 import json
 import logging
 import re
 import threading
 import time
 import urllib.request
+import zlib
 from collections.abc import Iterable
 from typing import Any
 
@@ -35,7 +35,7 @@ USER_AGENT = "Blue-Archive-Modding-and-Patching-Tool"
 TIMEOUT = 20.0  # seconds for each network operation
 DEADLINE = 60.0  # seconds for the whole table from both sources (a slow or trickling link gives up then)
 RETRY_AFTER = 300.0  # seconds before the table is asked for again after it could not be read
-MAX_BYTES = 64 << 20  # the table is about 15 MB (2.4 MB compressed)
+MAX_BYTES = 64 << 20  # the table is about 15 MB (2.4 MB compressed); a bound on the bytes received and unpacked
 CHUNK = 256 << 10
 CATEGORY = "UILobbySpecial"  # the memorial lobby's dialogues
 COLUMNS = {"LocalizeEN": "en", "LocalizeTW": "zh-TW", "LocalizeKR": "ko", "LocalizeTH": "th", "LocalizeJP": "ja"}
@@ -125,6 +125,17 @@ def merge(kivo: dict[str, dict[str, str]], official: dict[str, dict[str, str]]) 
     return out
 
 
+def _gunzip(data: bytes) -> bytes:
+    """A gzip body unpacked to at most MAX_BYTES (a small body can unpack to far more)."""
+    d = zlib.decompressobj(16 + zlib.MAX_WBITS)
+    out = d.decompress(data, MAX_BYTES + 1)
+    if len(out) > MAX_BYTES or d.unconsumed_tail:
+        raise ValueError("table too large")
+    if not d.eof:
+        raise ValueError("truncated gzip body")
+    return out
+
+
 class GlobalLines:
     """The Global server's memorial lobby lines, fetched once per session and kept in memory."""
 
@@ -157,7 +168,7 @@ class GlobalLines:
                     raise ValueError("table too large")
                 chunks.append(chunk)
         data = b"".join(chunks)
-        return gzip.decompress(data) if gzipped else data
+        return _gunzip(data) if gzipped else data
 
     def dialogues(self, character_id: int | str) -> Dialogues:
         """The memorial lobby dialogues of a character (its SchaleDB id is the game's character id); ``{}`` when the

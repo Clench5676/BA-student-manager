@@ -377,9 +377,9 @@ Online data, fetched on demand and kept in memory only (never written to disk):
 - Kivo (`kivo.py`): one student page per variant (zh-CN, ja and the voices, by voice clip name).
 - The Global server's CharacterDialog table (`globallines.py`), as ba-data publishes it
   (github.com/electricgoat/ba-data, `global` branch, a jsDelivr mirror second): one download per session (about
-  2.4 MB compressed; 60 s at most), only when the UI language is not zh-CN; after a failure it is asked for again
-  after 5 minutes. `lobby.lines` waits up to 3 s for it, then answers with Kivo's lines alone (the download goes on for
-  the next lobby).
+  2.4 MB compressed; 60 s and 64 MB received or unpacked at most), only when the UI language is not zh-CN; after a
+  failure it is asked for again after 5 minutes. `lobby.lines` waits up to 3 s for it, then answers with Kivo's lines
+  alone (the download goes on for the next lobby).
   SchaleDB's voice data has no memorial lobby lines. A dialogue's rows (`UILobbySpecial`, by `GroupId`, played by the
   talk animation the first row names) go on that animation's voice clips in order; with fewer rows than clips the last
   clips get none (the row before stays on screen), with more rows the rest join the last clip's line.
