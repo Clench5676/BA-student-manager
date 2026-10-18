@@ -1029,6 +1029,7 @@
 			"tab": {
 				"general": "通用",
 				"sound": "音量",
+				"l2d": "L2D",
 				"folders": "目录"
 			},
 			"language": "语言",
@@ -1052,6 +1053,11 @@
 			},
 			"voice": "语音",
 			"mute": "静音",
+			"zoomOut": {
+				"label": "缩小范围",
+				"game": "游戏视野",
+				"art": "完整画面"
+			},
 			"server": {
 				"label": "服务器",
 				"global": "国际服",

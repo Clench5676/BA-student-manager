@@ -171,6 +171,7 @@ def build_api(s: Services) -> RpcRegistry:
             "gameDirs": {"global": st.get("game_resource_dir"), "japan": st.get("game_resource_dir_japan")},
             "gameFound": s.game_found(), "libraryDir": str(s.library_dir()), "outputDir": st.get("output_dir"),
             "voiceVolume": int(s.state.get("voice_volume", 80)), "voiceMuted": bool(s.state.get("voice_muted", False)),
+            "lobbyZoomOut": bool(s.state.get("lobby_zoom_out", False)),
             "consent": s.state.consent, "cacheDir": str(s.cache_dir()),
             "version": get_version_info().get("version"), "native": s.window is not None,
         }
@@ -212,6 +213,8 @@ def build_api(s: Services) -> RpcRegistry:
             s.state.set("voice_volume", max(0, min(100, int(value))))
         elif key == "voiceMuted":
             s.state.set("voice_muted", bool(value))
+        elif key == "lobbyZoomOut":
+            s.state.set("lobby_zoom_out", bool(value))
         else:
             raise ServiceError("bad_params", key=key)
         return settings_get()

@@ -8,7 +8,7 @@ import { $, S, clone, glyphsOf, hitButton, toast, wrapPath } from "./util.js";
 
 const { node, sprite, label, find, rect } = NGUI;
 const fitText = (...a) => NGUI.fitText(...a);
-const TABS = ["general", "sound", "folders"];
+const TABS = ["general", "sound", "l2d", "folders"];
 const CONTENT = { x: 209, top: 375, w: 1576, h: 854 }; // the panel's inner list area (List/BG), units
 const ROW_W = 1552;
 
@@ -142,6 +142,10 @@ function rows() {
     add(valueRow("Classic", 0, T("settings.classic.label"), T("settings.classic.hint"), [[T("settings.classic.open"), () => call(() => rpc("app.openClassic", { tab: "settings" }))]]));
   } else if (tab === "sound") {
     add(sliderRow("Voice", 0, T("settings.voice"), p.voiceVolume, p.voiceMuted));
+  } else if (tab === "l2d") {
+    // the memorial lobby's fullscreen zoom: out to the game's view, or out to the whole painted art
+    add(radioRow("ZoomOut", 0, T("settings.zoomOut.label"), [[false, T("settings.zoomOut.game")], [true, T("settings.zoomOut.art")]],
+      !!p.lobbyZoomOut, (v) => set("lobbyZoomOut", v)));
   } else {
     const region = p.fileSource === "windows_japan" ? "japan" : "global";
     add(radioRow("Server", 0, T("settings.server.label"), [["windows_global", T("settings.server.global")], ["windows_japan", T("settings.server.japan")]],

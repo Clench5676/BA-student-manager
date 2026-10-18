@@ -285,6 +285,9 @@ stand-in in the page font shows instead.
   way spine-unity's shader converts its vertex colours (an additive slot at alpha 0.42 adds 0.15 of its texture).
   Without WebGL2 the player draws in plain sRGB values as before. Drawn in sRGB values, glows such as Kurumi's photo
   booth light or Niko's window washed the scene out to white.
+- **Zoom.** Fullscreen opens on the game's 16:9 view and zooms in to 2x. The Settings L2D tab (`lobbyZoomOut`, off by
+  default) lets it zoom out further, to the widest 16:9 view inside the painted art (one 16-unit cell inside the
+  painted rect).
 
 ## Tests
 

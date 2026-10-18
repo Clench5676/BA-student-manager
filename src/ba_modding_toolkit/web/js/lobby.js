@@ -20,7 +20,7 @@ const FEATHER_MS = 100;     // the fallback's feather and extension follow a zoo
 const FADE_MS = 450;        // the switch crossfade, in step with the UI slide (app.css .45s)
 const TALK_GUARD_MS = 500;  // a tap does not skip a dialogue that started this recently
 
-let players = [], current = null, mode = "left", extendTimer = null, chain = null, token = 0, wantTouch = false;
+let players = [], current = null, mode = "left", extendTimer = null, chain = null, token = 0, wantTouch = false, zoomOut = false;
 let talk = null, talkIndex = -1, cueTimers = [], audios = [], subtitleTimer = null;
 let lines = {}, muted = false, volume = 0.8, lineOf = (l) => l?.["zh-CN"] || "";
 const listeners = new Set();
@@ -238,7 +238,12 @@ function measure(loaded) {
   // the painted rect counts a 16-unit cell as painted by its centre, so the art can end a few units before its
   // border: the left view keeps one cell inside it
   const inner = sparse ? edge : { ...edge, x0: edge.x0 + 16, x1: edge.x1 - 16, y0: edge.y0 + 16, y1: edge.y1 - 16 };
-  return { main: main.name, painted, edge, sparse, touch, full, left: leftView(inner, touch, G), sequences };
+  // the zoom-out limit (a setting): the painted art one cell in, and never less than the game's view; art that hardly
+  // covers the view keeps the game's view
+  const outer = sparse ? rectOf(full) : {
+    x0: Math.min(inner.x0, full.x), x1: Math.max(inner.x1, full.x + full.w), y0: Math.min(inner.y0, full.y), y1: Math.max(inner.y1, full.y + full.h),
+  };
+  return { main: main.name, painted, edge, sparse, touch, full, outer, left: leftView(inner, touch, G), sequences };
 }
 
 // switch between the left view and fullscreen: the old framing fades out over the new one, in step with the UI slide;
@@ -268,19 +273,31 @@ function crossfade() {
   fade.style.opacity = "0";
 }
 
-// fullscreen zoom at a stage point: between the game's view (never wider, so nothing the game never shows appears)
-// and ZOOM_IN x; the width is clamped first, so the point under the pointer holds at the limits too
-function bounds() { return current.meta.full; }
+// fullscreen zoom at a stage point: from ZOOM_IN x to the game's view (never wider, so nothing the game never shows
+// appears), or with the zoom-out setting to the widest view inside the painted art; the width is clamped first, so the
+// point under the pointer holds at the limits too
+const rectOf = (v) => ({ x0: v.x, x1: v.x + v.w, y0: v.y, y1: v.y + v.h });
+function bounds() { return zoomOut && current.meta.outer ? current.meta.outer : rectOf(current.meta.full); }
+const widest = (B) => Math.min(B.x1 - B.x0, ((B.y1 - B.y0) * 16) / 9);
 function clampView(v) {
   const B = bounds();
-  return { x: clamp(v.x, B.x, B.x + B.w - v.w), y: clamp(v.y, B.y, B.y + B.h - v.h), w: v.w, h: v.h };
+  return { x: clamp(v.x, B.x0, B.x1 - v.w), y: clamp(v.y, B.y0, B.y1 - v.h), w: v.w, h: v.h };
 }
 export function zoomAt(factor, sx, sy) {
   if (mode !== "full" || !current?.meta || !(factor > 0)) return;
-  const T = current.target, B = bounds();
+  const T = current.target, full = current.meta.full;
   const fx = sx / STAGE.w, fy = 1 - sy / STAGE.h, ux = T.x + fx * T.w, uy = T.y + fy * T.h;
-  const w = clamp(T.w / factor, B.w / ZOOM_IN, B.w), h = (w * 9) / 16;
+  const w = clamp(T.w / factor, full.w / ZOOM_IN, Math.max(full.w, widest(bounds()))), h = (w * 9) / 16;
   setView(clampView({ x: ux - fx * w, y: uy - fy * h, w, h }), false);
+}
+// the zoom-out setting: off brings a wider view back to the game's view, around the same centre
+export function setZoomOut(on) {
+  zoomOut = !!on;
+  if (!current?.meta || !current.target || mode !== "full") return;
+  const T = current.target, full = current.meta.full;
+  if (T.w <= full.w + 1e-6) { setView(clampView(T), false); return; }
+  const cx = T.x + T.w / 2, cy = T.y + T.h / 2, w = Math.max(full.w, Math.min(T.w, widest(bounds()))), h = (w * 9) / 16;
+  setView(clampView({ x: cx - w / 2, y: cy - h / 2, w, h }), false);
 }
 // pan by a stage-pixel drag (content follows the pointer); only moves while zoomed in
 export function panBy(dx, dy) {
@@ -297,6 +314,7 @@ export function resetZoom() {
 export const limits = () => current?.meta && {
   game: game(), painted: current.meta.painted, full: current.meta.full, left: current.meta.left, view: current.view,
   target: current.target, touch: current.meta.touch, zoom: current.meta.full.w / current.view.w, mode,
+  outer: current.meta.outer, zoomOut, bounds: bounds(),
   tracks: mainPlayer()?.animationState?.tracks.map((t) => t?.animation?.name || null) || [],
 };
 

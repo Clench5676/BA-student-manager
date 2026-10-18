@@ -1401,6 +1401,7 @@ async function ensureLayouts() {
 // the voice volume and mute from the settings (development runs started with --mute stay silent)
 export function applyPrefs(prefs) {
   Lobby.setVolume((prefs?.voiceVolume ?? 80) / 100, ctx?.info?.mute || prefs?.voiceMuted);
+  Lobby.setZoomOut(!!prefs?.lobbyZoomOut);
 }
 
 // show(context, familyData, variantKey, {inPlace}): open the detail screen on a variant; resolves once the screen is
