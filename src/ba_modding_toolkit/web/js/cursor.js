@@ -61,7 +61,7 @@ async function initPointer() {
 
 // --- touch effect ---
 
-let tex = null, shade = null, glow = null, tint = null, raf = 0, shown = false;
+let tex = null, shade = null, glow = null, raf = 0, shown = false;
 const effects = new Map(); // pointerId -> effect (a released one moves to a fresh key)
 let released = 0, reduced = null;
 
@@ -111,7 +111,9 @@ async function loadTextures() {
     for (let y = 0; y < tri.height; y++) for (let x = 0; x < tw; x++) mask[y * tw + x] = tri.data[(y * tri.width + f * tw + x) * 4 + 3];
     return channels(mask, tw, tri.height);
   });
-  return { ringAlpha, trailU, disc: channels(discMask, disc.width, disc.height), frames };
+  // the flash's multiplied disc is tinted on this one
+  const tint = canvas(disc.width, disc.height);
+  return { ringAlpha, trailU, disc: channels(discMask, disc.width, disc.height), frames, tint };
 }
 
 const sample = (arr, u) => arr[Math.min(arr.length - 1, Math.max(0, Math.floor(u * arr.length)))];
@@ -138,7 +140,8 @@ function fit(c) {
   return g;
 }
 
-// an additive sprite: one draw per colour channel (sRGB values)
+// an additive sprite: one draw per colour channel (sRGB values); the alpha is back at 1 after it (the rings and the
+// trails fold their alpha into the colour)
 function addSprite(g, set, color, x, y, w, h) {
   for (let ch = 0; ch < 3; ch++) {
     const a = color[ch];
@@ -146,15 +149,16 @@ function addSprite(g, set, color, x, y, w, h) {
     g.globalAlpha = a;
     g.drawImage(set[ch], x, y, w, h);
   }
+  g.globalAlpha = 1;
 }
 
-function drawTrail(g, fx, U) {
+function drawTrail(g, fx, U, t) {
   const { points, segments } = FX.trailState(fx);
   if (!segments.length) return;
   g.lineCap = "round";
   g.lineWidth = Math.max(1, FX.FX.trail.width * U);
   for (const s of segments) {
-    const k = sample(tex.trailU, s.u);
+    const k = sample(t.trailU, s.u);
     if (k <= 0) continue;
     const a = points[s.from], b = points[s.to];
     g.strokeStyle = rgb(s.color, k);
@@ -165,8 +169,8 @@ function drawTrail(g, fx, U) {
   }
 }
 
-function drawArc(g, p, fx, now, U) {
-  const st = FX.arcState(p, now), A = tex.ringAlpha, n = A.length;
+function drawArc(g, p, fx, now, U, t) {
+  const st = FX.arcState(p, now), A = t.ringAlpha, n = A.length;
   // the dissolve keeps the part of the ring whose alpha reaches the threshold: one stretch around u = 0.5
   let lo = 0, hi = n - 1;
   while (lo < n && A[lo] < st.threshold) lo++;
@@ -193,32 +197,38 @@ function drawArc(g, p, fx, now, U) {
   }
 }
 
-function draw(now) {
-  const U = unit(), back = fit(shade), front = fit(glow);
+// the effects (list) at now on the light's context (front) and the multiplied one (back), U CSS px to a world unit;
+// t: the textures (loadTextures, with the tint canvas)
+export function paint(front, back, list, now, U, t = tex) {
   // the trails first, plainly (a trail does not add onto itself), then everything else added
-  for (const fx of effects.values()) drawTrail(front, fx, U);
+  for (const fx of list) drawTrail(front, fx, U, t);
   front.globalCompositeOperation = "lighter";
-  for (const fx of effects.values()) {
+  for (const fx of list) {
     for (const p of fx.items) {
-      if (p.kind === "arc") drawArc(front, p, fx, now, U);
+      if (p.kind === "arc") drawArc(front, p, fx, now, U, t);
       else if (p.kind === "flash") {
         const st = FX.flashState(p, now), d = st.size * U, x = fx.ox * U - d / 2, y = fx.oy * U - d / 2;
         const { add, keep } = FX.overBlend(st.color, st.alpha);
-        addSprite(front, tex.disc, add, x, y, d, d);
+        addSprite(front, t.disc, add, x, y, d, d);
         // what is behind keeps (1 - alpha) of itself: the disc's mask in that colour, multiplied
-        const t = tint.getContext("2d");
-        t.globalCompositeOperation = "copy";
-        t.drawImage(tex.disc[3], 0, 0);
-        t.globalCompositeOperation = "source-in";
-        t.fillStyle = `rgb(${keep.map((k) => Math.round(k * 255)).join(",")})`;
-        t.fillRect(0, 0, tint.width, tint.height);
-        back.drawImage(tint, x, y, d, d);
+        const tg = t.tint.getContext("2d");
+        tg.globalCompositeOperation = "copy";
+        tg.drawImage(t.disc[3], 0, 0);
+        tg.globalCompositeOperation = "source-in";
+        tg.fillStyle = `rgb(${keep.map((k) => Math.round(k * 255)).join(",")})`;
+        tg.fillRect(0, 0, t.tint.width, t.tint.height);
+        back.drawImage(t.tint, x, y, d, d);
       } else {
         const st = FX.sparkState(p, now), d = st.size * U;
-        if (d > 0.1) addSprite(front, tex.frames[st.frame], st.color.map(FX.toSrgb), st.x * U - d / 2, st.y * U - d / 2, d, d);
+        if (d > 0.1) addSprite(front, t.frames[st.frame], st.color.map(FX.toSrgb), st.x * U - d / 2, st.y * U - d / 2, d, d);
       }
     }
   }
+}
+
+function draw(now) {
+  const back = fit(shade), front = fit(glow);
+  paint(front, back, [...effects.values()], now, unit());
 }
 
 function show(on) {
@@ -285,7 +295,6 @@ async function initTouch() {
   reduced = matchMedia("(prefers-reduced-motion: reduce)");
   shade = layer("shade");
   glow = layer("glow");
-  tint = canvas(tex.disc[3].width, tex.disc[3].height);
   for (const [type, fn] of [["pointerdown", down], ["pointermove", move], ["pointerup", up], ["pointercancel", up]]) {
     addEventListener(type, fn, { capture: true, passive: true });
   }

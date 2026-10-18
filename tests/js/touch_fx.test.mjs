@@ -7,7 +7,7 @@ import {
   FX, arcState, curve, drag, flashState, gradient, overBlend, press, release, sparkState, step, toLinear, toSrgb,
   trailState,
 } from "../../src/ba_modding_toolkit/web/js/touch-fx.js";
-import { cursorValue } from "../../src/ba_modding_toolkit/web/js/cursor.js";
+import { cursorValue, paint } from "../../src/ba_modding_toolkit/web/js/cursor.js";
 
 const near = (a, b, eps = 1e-6) => assert.ok(Math.abs(a - b) <= eps, `${a} != ${b}`);
 // a fixed sequence instead of Math.random
@@ -185,4 +185,35 @@ test("the pointer takes the first cursor syntax the engine supports", () => {
   assert.equal(cursorValue("a", "b", (v) => v.startsWith("-webkit")), '-webkit-image-set(url("a") 1x, url("b") 2x) 0 0, auto');
   assert.equal(cursorValue("a", "b", (v) => v.startsWith("url")), 'url("a") 0 0, auto');
   assert.equal(cursorValue("a", "b", () => false), null);
+});
+
+// a 2D context that records the global alpha of each stroke and image draw
+function recorder() {
+  const g = { globalAlpha: 1, globalCompositeOperation: "source-over", strokes: [], images: [] };
+  for (const m of ["beginPath", "moveTo", "lineTo", "arc", "fillRect", "setTransform", "clearRect"]) g[m] = () => {};
+  g.stroke = () => g.strokes.push({ alpha: g.globalAlpha, cap: g.lineCap });
+  g.drawImage = () => g.images.push(g.globalAlpha);
+  return g;
+}
+
+test("every effect's rings are stroked at full alpha, whatever the effect before them drew", () => {
+  const tintContext = recorder();
+  const tex = {
+    ringAlpha: new Float32Array(32).fill(1), trailU: new Float32Array(32).fill(1),
+    disc: [{}, {}, {}, { width: 8, height: 8 }], frames: [[{}, {}, {}, {}], [{}, {}, {}, {}]],
+    tint: { width: 8, height: 8, getContext: () => tintContext },
+  };
+  // two presses 80 ms apart (a double click): the first one's sparks, fading in and out, are drawn before the second
+  // one's rings, every frame of the second one's ring life
+  const first = press(1, 1, 0, seq(0.3, 0.7, 0.5)), second = press(1.2, 1, 0.08, seq(0.6, 0.2, 0.4));
+  let faded = 0;
+  for (let now = 0.08; now < 0.08 + FX.arc.life; now += 0.005) {
+    const front = recorder(), back = recorder();
+    paint(front, back, [first, second], now, 100, tex);
+    const rings = front.strokes.filter((s) => s.cap === "butt");
+    assert.ok(rings.length >= 2 * FX.arc.count, `${rings.length} ring strokes at ${now}`);
+    assert.deepEqual([...new Set(rings.map((s) => s.alpha))], [1], `ring alphas at ${now}`);
+    if (front.images.some((a) => a < 1)) faded++; // sprites draw their colour channels at lower alphas
+  }
+  assert.ok(faded > 0);
 });
