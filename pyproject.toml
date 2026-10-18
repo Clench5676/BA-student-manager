@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "pillow>=10.4.0",
+    "pywebview>=6.2.1",
     "spineatlas>=1.0.13",
     "tkinterdnd2>=0.4.3",
     "toml>=0.10.2",
@@ -27,6 +28,7 @@ spineatlas = { git = "https://github.com/Agent-0808/SpineAtlas.git", rev = "fix/
 [project.scripts]
 bamt = "ba_modding_toolkit.gui.main:main"
 bamt-cli = "ba_modding_toolkit.cli.main:main"
+bamt-web = "ba_modding_toolkit.webui.main:main"
 
 [dependency-groups]
 dev = [

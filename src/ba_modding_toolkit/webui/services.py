@@ -1,0 +1,166 @@
+"""Builds and holds the services behind the web UI, and answers /asset/... requests."""
+
+from __future__ import annotations
+
+import json
+import logging
+import threading
+from pathlib import Path
+from typing import Any
+
+from ..config import Settings, user_cache_dir
+from ..errors import ServiceError
+from ..utils import EXE_DIR
+from .events import EventBus
+from .jobs import JobRunner
+from .server import MIME, AssetResponse
+from .state import UiState
+
+logger = logging.getLogger(__name__)
+
+
+class Services:
+    """The web UI's service container. Game-backed services are built on first use and rebuilt after a game
+    folder change; tests pass fakes for any of them."""
+
+    def __init__(self, settings: Settings | None = None, data_dir: Path = EXE_DIR, *,
+                 events: EventBus | None = None, jobs: JobRunner | None = None, state: UiState | None = None,
+                 cache: Any = None, game: Any = None, catalog: Any = None, library: Any = None):
+        self.settings = settings or Settings()
+        self.data_dir = Path(data_dir)
+        self.events = events or EventBus()
+        self.jobs = jobs or JobRunner(self.events)
+        self.state = state or UiState(self.data_dir / "webui.json")
+        self.window: Any = None  # the pywebview window, when there is one (see native.py)
+        self._lock = threading.RLock()
+        self._cache, self._game, self._catalog, self._library = cache, game, catalog, library
+        self._injected = {k for k, v in (("game", game), ("catalog", catalog), ("library", library)) if v is not None}
+        self.settings.on_change(self._on_settings_changed)
+
+    # --- lazily built services ---
+
+    @property
+    def cache(self) -> Any:
+        with self._lock:
+            if self._cache is None:
+                from ..gameassets import AssetCache
+
+                self._cache = AssetCache(user_cache_dir())
+                self._cache.allowed = self.state.consent is True
+            return self._cache
+
+    @property
+    def game(self) -> Any:
+        with self._lock:
+            if self._game is None:
+                dirs = self.settings.resource_dirs()
+                if not dirs:
+                    raise ServiceError("game_not_found")
+                from ..gameassets import GameAssets
+
+                self._game = GameAssets(dirs, self.cache)
+            return self._game
+
+    def game_found(self) -> bool:
+        try:
+            self.game
+            return True
+        except ServiceError:
+            return False
+
+    @property
+    def catalog(self) -> Any:
+        with self._lock:
+            if self._catalog is None:
+                from ..catalog import Catalog
+
+                csv = Path(self.settings.get("bacii_map_path"))
+                self._catalog = Catalog(self.game if self.game_found() else None, csv if csv.exists() else None)
+            return self._catalog
+
+    @property
+    def library(self) -> Any:
+        with self._lock:
+            if self._library is None:
+                from ..library import ModLibrary
+
+                self._library = ModLibrary(self.data_dir / "library", self.catalog, self.game, self.settings)
+            return self._library
+
+    def _on_settings_changed(self) -> None:
+        # a new game folder means new game-backed services
+        with self._lock:
+            for name in ("game", "catalog", "library"):
+                if name not in self._injected:
+                    setattr(self, f"_{name}", None)
+        self.events.publish("config.changed")
+
+    def set_consent(self, granted: bool) -> None:
+        self.state.set_consent(granted)
+        if self._cache is not None:
+            self._cache.allowed = granted
+
+    # --- /asset/... ---
+
+    def asset(self, path: str, query: dict[str, str]) -> AssetResponse:
+        parts = path.split("/")
+        kind = parts[0]
+        if kind == "ui":
+            return self._ui_asset(parts[1:], query)
+        if kind == "art" and len(parts) == 3:
+            if parts[1] == "bg":
+                data, mime = self.game.collection_bg(_stem(parts[2]))
+                return AssetResponse(data, mime, light=False)
+            if parts[1] == "portrait":
+                return AssetResponse(self.game.collection_portrait(_stem(parts[2])), "image/png", light=False)
+        if kind == "spine" and len(parts) == 4:
+            return self._spine_asset(parts[1], parts[2], parts[3])
+        raise KeyError(path)
+
+    def _ui_asset(self, parts: list[str], query: dict[str, str]) -> AssetResponse:
+        game = self.game
+        if parts == ["atlases.json"]:
+            return _json(game.atlases(), light=True)
+        if parts == ["textures.json"]:
+            return _json({name: f"/asset/ui/texture/{name}.png" for name in game.textures()}, light=True)
+        if len(parts) == 3 and parts[0] == "sprite":
+            return AssetResponse(game.sprite_png(parts[1], _stem(parts[2])), "image/png", light=True)
+        if len(parts) == 2 and parts[0] == "texture":
+            return AssetResponse(game.texture_png(_stem(parts[1])), "image/png", light=True)
+        if len(parts) == 2 and parts[0] == "layout":
+            return _json(game.layout(_stem(parts[1]), query.get("path", "")), light=True)
+        raise KeyError("/".join(parts))
+
+    def _spine_asset(self, kind: str, key: str, name: str) -> AssetResponse:
+        if kind in ("spr", "lobby"):
+            files = self.game.spine_files(kind, key)
+        elif kind == "mod":
+            files = self.game.spine_files_from(self.library.preview_bundles(key))
+        else:
+            raise KeyError(kind)
+        data = files.get(name)
+        if data is None:
+            # "skeleton.skel" / "skeleton.atlas" stand for the one skeleton in the files
+            suffix = Path(name).suffix
+            if Path(name).stem == "skeleton":
+                matches = [k for k in files if k.endswith(suffix)]
+                data = files[matches[0]] if len(matches) == 1 else None
+        if data is None:
+            raise KeyError(name)
+        return AssetResponse(data, MIME.get(Path(name).suffix, "application/octet-stream"), light=False)
+
+    def close(self) -> None:
+        self.jobs.shutdown()
+        self.events.close()
+
+
+def _stem(name: str) -> str:
+    for suffix in (".png", ".jpg", ".json"):
+        if name.endswith(suffix):
+            return name[: -len(suffix)]
+    return name
+
+
+def _json(data: Any, light: bool) -> AssetResponse:
+    return AssetResponse(json.dumps(data, ensure_ascii=False, separators=(",", ":")).encode("utf-8"),
+                         "application/json", light)
