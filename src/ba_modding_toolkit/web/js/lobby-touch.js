@@ -6,15 +6,20 @@
 // - press and drag anywhere else: the eyes follow (Touch_Eye). During a dialogue only the bone follows and the
 //   dialogue goes on; any other drag ends it.
 // - tap on the body: the next dialogue.
-// - mouse wheel or trackpad pinch: zoom at the pointer; right- or middle-button drag and the horizontal wheel pan.
+// - zoom at the pointer with a mouse wheel or a trackpad pinch (ctrl + wheel in Chromium and WebView2, gesture events
+//   in WebKit); pan with a two-finger trackpad swipe in any direction, the horizontal wheel, or a right- or
+//   middle-button drag. Panning only moves while zoomed in.
 // Positions are NGUI units (lobby.js): the stage shows the current view, each skeleton sits at its prefab offset and
 // scale. Lobbies without prefab data get boxes around the character's own bones (medians over the game's lobbies).
 
 const SLOP = { mouse: 10, pen: 10, touch: 24 };  // stage px a tap may move (NGUI's mouse click threshold is 10)
 const WHEEL = 0.0015;                            // zoom by exp(-deltaY * WHEEL) per wheel pixel
+const PINCH = 0.01;                              // ctrl + wheel (a trackpad pinch): exp(-deltaY * PINCH)
+const SCROLL_MS = 120;                           // wheel events this close together belong to one scroll
 const STAGE = { w: 1920, h: 1080 };
 
 let lobby = null, items = [], bodies = [], host = null, press = null, pointer = null, gesture = 1;
+let scroll = { kind: null, at: -Infinity }, pinchUntil = -Infinity;
 const clamp = (v, a, b) => Math.max(Math.min(a, b), Math.min(Math.max(a, b), v));
 
 // per lobby: the drags resolved to their skeletons' bones, the body boxes; null clears
@@ -166,23 +171,50 @@ function up(e) {
   }
   cursor(...(pointer || []));
 }
+// a mouse wheel notch: whole lines (deltaMode 1, 2), or the legacy wheelDeltaY in steps of 120 with no horizontal part.
+// A trackpad scrolls in small, uneven steps, often with some horizontal motion and with momentum after the fingers
+// lift; one scroll keeps the kind its first event had, so a trackpad step that happens to be 120 still pans.
+export function wheelKind(e, now = performance.now(), last = scroll) {
+  if (now - last.at < SCROLL_MS && last.kind) return last.kind;
+  if (e.deltaMode === 1 || e.deltaMode === 2) return "mouse";
+  const wd = e.wheelDeltaY || 0;
+  return !e.deltaX && !e.wheelDeltaX && wd !== 0 && wd % 120 === 0 ? "mouse" : "trackpad";
+}
 function wheel(e) {
   if (!lobby) return;
   e.preventDefault();
-  const [sx, sy] = stagePoint(e), unit = e.deltaMode === 1 ? 40 : e.deltaMode === 2 ? 800 : 1;
-  // vertical wheel and trackpad pinch (ctrlKey) zoom; horizontal scrolling pans, which only moves while zoomed in
-  if (e.ctrlKey || Math.abs(e.deltaY) >= Math.abs(e.deltaX)) lobby.zoomAt(Math.exp(-e.deltaY * unit * WHEEL * (e.ctrlKey ? 4 : 1)), sx, sy);
-  else lobby.panBy(-e.deltaX * unit, 0);
+  const [sx, sy] = stagePoint(e), unit = e.deltaMode === 1 ? 40 : e.deltaMode === 2 ? 800 : 1, now = performance.now();
+  // stage px per CSS px: a two-finger swipe moves the art as far as the fingers moved
+  const r = host.getBoundingClientRect(), k = r.width ? STAGE.w / r.width : 1;
+  if (e.ctrlKey) {
+    // a trackpad pinch (Chromium, WebView2) or ctrl + mouse wheel; WebKit pinches with gesture events instead, which
+    // some versions accompany with ctrl + wheel events: those are left to the gesture
+    scroll = { kind: null, at: -Infinity };
+    if (now < pinchUntil) return;
+    const notch = wheelKind(e, now, scroll) === "mouse";
+    lobby.zoomAt(Math.exp(-e.deltaY * unit * (notch ? WHEEL : PINCH)), sx, sy);
+    return;
+  }
+  const kind = wheelKind(e, now);
+  scroll = { kind, at: now };
+  if (kind === "mouse" && Math.abs(e.deltaY) >= Math.abs(e.deltaX)) {
+    lobby.zoomAt(Math.exp(-e.deltaY * unit * WHEEL), sx, sy);
+    return;
+  }
+  // a trackpad swipe (or a horizontal wheel): the art moves with the fingers, as in a scrolled page
+  lobby.panBy(-e.deltaX * unit * k, kind === "mouse" ? 0 : -e.deltaY * unit * k);
 }
 // Safari / WKWebView trackpad pinch
-function gestureStart(e) { e.preventDefault(); gesture = 1; }
+function gestureStart(e) { e.preventDefault(); gesture = 1; pinchUntil = performance.now() + 300; }
 function gestureChange(e) {
   if (!lobby) return;
   e.preventDefault();
+  pinchUntil = performance.now() + 300;
   const [sx, sy] = stagePoint(e);
   lobby.zoomAt(e.scale / gesture, sx, sy);
   gesture = e.scale;
 }
+function gestureEnd(e) { e.preventDefault(); pinchUntil = performance.now() + 300; }
 const menu = (e) => e.preventDefault();
 
 // the pointer shows what a press would do: grab over a drag box, grabbing while dragging, a hand over the body
@@ -196,7 +228,8 @@ function cursor(sx, sy) {
 }
 
 const handlers = [["pointerdown", down], ["pointermove", move], ["pointerup", up], ["pointercancel", up],
-  ["wheel", wheel, { passive: false }], ["gesturestart", gestureStart], ["gesturechange", gestureChange], ["contextmenu", menu]];
+  ["wheel", wheel, { passive: false }],
+  ["gesturestart", gestureStart], ["gesturechange", gestureChange], ["gestureend", gestureEnd], ["contextmenu", menu]];
 export function attach(el) {
   if (!el || host === el || !lobby) return;
   detach();
@@ -211,6 +244,8 @@ export function detach() {
   }
   press = null;
   pointer = null;
+  scroll = { kind: null, at: -Infinity };
+  pinchUntil = -Infinity;
   if (!host) return;
   for (const [type, fn, opts] of handlers) host.removeEventListener(type, fn, opts);
   host.classList.remove("grab", "grabbing", "talk");

@@ -288,6 +288,10 @@ stand-in in the page font shows instead.
 - **Zoom.** Fullscreen opens on the game's 16:9 view and zooms in to 2x. The Settings L2D tab (`lobbyZoomOut`, off by
   default) lets it zoom out further, to the widest 16:9 view inside the painted art (one 16-unit cell inside the
   painted rect).
+- **Input.** Press and drag: head pat, eye follow and the other drag boxes. Mouse wheel (whole lines, or
+  `wheelDeltaY` in steps of 120 with no horizontal part) and pinch (ctrl + wheel in Chromium / WebView2, gesture
+  events in WebKit) zoom at the pointer; a two-finger trackpad swipe pans in any direction, and one scroll keeps the
+  kind of its first event. A right- or middle-button drag pans.
 
 ## Tests
 
