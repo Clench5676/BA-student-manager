@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-  DEFAULT_VIEW, FILTERS, NATURAL, SORTS, arrange, filtering, fold, neighbour, normalizeView, order,
+  DEFAULT_VIEW, FILTERS, NATURAL, RECENT_MAX, SORTS, arrange, filtering, fold, neighbour, normalizeView, order, visit,
 } from "../../src/ba_modding_toolkit/web/js/roster-order.js";
 
 const v = (key, extra = {}) => ({
@@ -60,6 +60,29 @@ test("the order button flips the sort but not the favourites first", () => {
   assert.deepEqual(keys(added), ["aru", "hoshino_swimsuit"]);
   const mods = order(data(), view({ sort: "mods", order: "desc", mods: "mods" }), { label });
   assert.deepEqual(keys(mods), ["aru", "hoshino_swimsuit"]); // aru is a favourite
+});
+
+test("a visit moves the variant to the front of the recently viewed, like the server records it", () => {
+  const d = data();
+  visit(d, "np0045"); // never viewed: first, the others one down
+  assert.deepEqual(keys(order(d, view({ mods: "none" }), { label })), ["np0045", "citizen_borot2", "hoshino"]);
+  visit(d, "hoshino"); // viewed before: first, only the ones before it move
+  const recent = Object.fromEntries(d.families.flatMap((f) => f.variants).map((x) => [x.key, x.recent]));
+  assert.deepEqual(recent, { hoshino: 0, hoshino_swimsuit: null, np0045: 1, aru: 2, citizen_borot2: 3 });
+  assert.deepEqual(keys(order(d, view({ mods: "none" }), { label })), ["hoshino", "np0045", "citizen_borot2"]);
+  // merged: a family is as recent as its most recent variant
+  visit(d, "citizen_borot2");
+  assert.equal(order(d, view({ merged: true }), { label }).find((c) => c.family === "hoshino").recent, 1);
+  // the indexes the server gives after UiState.visit ([key, *others][:RECENT_MAX]), with keys of another install
+  // (not in this roster) among them; a variant viewed for the first time pushes the last one out
+  const server = Array.from({ length: RECENT_MAX }, (_, i) => `k${i}`);
+  const many = { families: [{ key: "f", base: {}, variants: [
+    ...server.filter((_, i) => i % 3).map((k) => v(k, { recent: server.indexOf(k) })), v("x1"), v("x2")] }] };
+  for (const key of ["k20", "k7", "x1", "k47", "k49", "x2", "k1"]) {
+    server.splice(0, server.length, ...[key, ...server.filter((k) => k !== key)].slice(0, RECENT_MAX));
+    visit(many, key);
+    for (const x of many.families[0].variants) assert.equal(x.recent, server.includes(x.key) ? server.indexOf(x.key) : null, `${key}: ${x.key}`);
+  }
 });
 
 test("name sort uses the collator of the UI language", () => {

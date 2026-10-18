@@ -3,6 +3,7 @@
 //   arrange(data, view, opts) -> { groups: [{ id: "mods" | "none", items }], total }  the cards as the roster shows them
 //   order(data, view, opts)   -> the same cards in one list
 //   neighbour(list, full, at, delta) -> the card before or after the shown variant (or family, merged)
+//   visit(data, key)          the recently viewed order after a visit, in the roster's data
 
 export const SORTS = ["recent", "added", "name", "mods", "default"];
 // the direction each sort reads in by default; the order button flips it
@@ -150,6 +151,18 @@ export function arrange(data, view, { query = "", label = (v) => v?.["zh-CN"] ??
 }
 
 export const order = (data, view, opts) => arrange(data, view, opts).groups.flatMap((g) => g.items);
+
+// a visit to a variant in roster.list's data, as the server records it (webui/state.py UiState.visit: first in the
+// recently viewed, the ones before it one down, at most RECENT_MAX kept), so the list has it without a new roster.list
+export const RECENT_MAX = 50;
+export function visit(data, key) {
+  const vs = (data?.families || []).flatMap((f) => f.variants || []);
+  const was = vs.find((v) => v.key === key)?.recent ?? Infinity;
+  for (const v of vs) {
+    if (v.key === key) v.recent = 0;
+    else if (v.recent != null && v.recent < was) v.recent = v.recent + 1 < RECENT_MAX ? v.recent + 1 : null;
+  }
+}
 
 // the card delta steps away from the shown one (at: {family, variant, merged}) in list, wrapping round; a variant
 // the list hides (another chip of the family, a deep link) steps to the nearest listed card after or before its place

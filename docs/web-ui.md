@@ -281,6 +281,8 @@ ported.
 - The search (the game's CharacterSearch box over the top of the list) matches every name language, the family's base
   names and the file id, ignoring case, width, kana and separators (with the marks inside names, as in
   Shiroko*Terror); every word must match.
+- A visit to a variant (`ui.visit`) is mirrored in the page's roster data, so "Recently Viewed" has it on the way
+  back without a new `roster.list`.
 - The detail screen's arrows step through the cards as the list showed them when it was left, in its order, wrapping
   round; a variant the list hides (another chip, a deep link) steps from its place in the whole list.
 
