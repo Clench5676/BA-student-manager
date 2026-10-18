@@ -778,6 +778,10 @@ class _Exporter:
             vectors = {name for name in colors if _VECTOR_NAME.search(name)}
         if outline is None:
             outline = "_OutlineTint" in colors
+        # Material.SetShaderPassEnabled: the game turns the outline off on some materials whose shader has one
+        # (the MX/C-Hair-Transparent strands, ch0109's fan)
+        if any(str(p).lower() == "outline" for p in tree.get("disabledShaderPasses") or []):
+            outline = False
         state = None
         if form is not None:
             try:

@@ -428,6 +428,20 @@ def test_visit_skips_disabled_and_hidden_renderers():
     assert names == {"CH0189": False, "CH0189_Face_Outline": False, "CH0189_Face01_Outline": False, "Off": True}
 
 
+def test_material_outline_respects_disabled_shader_passes():
+    # MX/C-Hair-Transparent has an Outline pass; CH0264_Hair_Alpha turns it off (Material.SetShaderPassEnabled), the
+    # other passes a material may turn off (the shadow caster) leave the outline alone
+    form = _form("MX/C-Hair-Transparent", passes=[("UniversalForward", 2, 0, 5, 10, "Transparent"), ("Outline", 1, 1, 1, 0, None)])
+    shader = _object(9, "Shader", m_ParsedForm=form)
+    props = {"m_TexEnvs": [], "m_Colors": [("_OutlineTint", {"r": 0.5, "g": 0.5, "b": 0.5, "a": 1})], "m_Floats": []}
+    ref = {"m_FileID": 0, "m_PathID": 9}
+    mats = [_object(10 + i, "Material", m_Name=name, m_Shader=ref, m_SavedProperties=props, disabledShaderPasses=passes)
+            for i, (name, passes) in enumerate([("Hair", []), ("Hair_Alpha", ["Outline"]), ("Shadowless", ["SHADOWCASTER"])])]
+    exporter = model._Exporter(_Graph(shader, *mats), "ch0264")
+    outlines = {m.tree["m_Name"]: exporter.glb.json["materials"][exporter.material(m)]["extras"]["outline"] for m in mats}
+    assert outlines == {"Hair": True, "Hair_Alpha": False, "Shadowless": True}
+
+
 # --- CAB discovery ---
 
 def _unityfs(names, *, version=7, at_end=False, compress=True):
