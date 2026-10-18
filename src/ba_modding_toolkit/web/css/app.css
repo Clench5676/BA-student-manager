@@ -117,7 +117,8 @@ button { font: inherit; color: inherit; border: 0; background: none; cursor: poi
 #ngui-chips, #ngui-expr, .topbar, .nav { transition: transform .45s ease, opacity .45s ease; }
 .stage.fullscreen #ngui .side.left, .stage.fullscreen #ngui-chips { transform: translateX(-70%); opacity: 0; }
 .stage.fullscreen #ngui .side.right, .stage.fullscreen #ngui-expr { transform: translateX(70%); opacity: 0; }
-.stage.fullscreen .topbar { transform: translateY(-140%); }
+/* the round back button hangs below the bar, so the bar moves out by more than its own height */
+.stage.fullscreen .topbar { transform: translateY(-200%); pointer-events: none; }
 .stage.fullscreen .nav { transform: translateY(140%); }
 .stage.fullscreen .lobby-frost { opacity: 0; }
 
