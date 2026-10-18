@@ -1,19 +1,15 @@
 // 3D chibi for the detail screen's third tab. The GLB is exported from the user's game files in memory
 // (gameassets/model.py): the game's material constants are in the material extras, the halo follower (FxFollower)
-// in the root extras, and each clip's slot, loop flag and SetMouthTile events in the animation extras. The look
-// approximates the game's toon shaders (one light, a shadow tint below a threshold, inverted-hull outlines), the
-// camera the formation screen's. One view at a time; hide() frees its WebGL context at once.
+// in the root extras, and each clip's slot, loop flag, SetMouthTile events and renderer switches in the animation
+// extras. The materials are ports of the game's character shaders (chibi-materials.js), the camera starts at the
+// formation screen's view and orbits freely. One view at a time; hide() frees its WebGL context at once.
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { chibiMaterial, disposeDefaults, outlineMaterial, setOutlineScale } from "./chibi-materials.js";
 
-const srgb = (c) => new THREE.Color().setRGB(c[0], c[1], c[2], THREE.SRGBColorSpace);
-const lin = (c) => new THREE.Vector3(c[0], c[1], c[2]);
 const ease = (t) => 1 - Math.pow(1 - t, 3);
 
-// one light for every toon material, in view space (a studio light that follows the camera)
-const LIGHT = { value: new THREE.Vector3(-0.3, 0.75, 0.6).normalize() };
-const FLAT = ["eyemouth", "eyebrow", "halo", "unlit", "transparent"];
 // where the chibi stands on the host (its centre, in stage pixels) and how much of the host's height it takes (halo
 // included): beside the panel it stays above the nameplate; fullscreen it stands in the middle. Pixels, not
 // fractions, so it does not jump when the host widens for fullscreen.
@@ -28,140 +24,6 @@ const ACTIONS = {
   victory: { slots: ["Victory_Start"], next: "Victory_End" },
   pickup: { slots: ["Formation_Pickup"] },
 };
-
-function toonMaterial(src, ex, textures, mouth) {
-  const kind = ex.kind || "general";
-  const c = ex.colors || {}, f = ex.floats || {};
-  const mat = new THREE.MeshBasicMaterial({ map: src.map || null, color: 0xffffff, side: f._Cull === 0 ? THREE.DoubleSide : THREE.FrontSide });
-  mat.name = src.name;
-  if (kind === "eyebrow") { mat.color = srgb(c._Tint || [0.5, 0.3, 0.3]); mat.map = null; }
-  const uniforms = {
-    toonLight: LIGHT,
-    toonTint: { value: lin(c._ShadowTint || [0.8, 0.8, 0.85]) },
-    toonThreshold: { value: f._ShadowThreshold ?? 0.5 },
-    layerR: { value: new THREE.Vector4(...(c._ShadowTintR4 || [0.8, 0.8, 0.8, 0.8])) },
-    layerG: { value: new THREE.Vector4(...(c._ShadowTintG4 || [0.8, 0.8, 0.8, 0.8])) },
-    layerB: { value: new THREE.Vector4(...(c._ShadowTintB4 || [0.85, 0.85, 0.85, 0.85])) },
-    layerT: { value: new THREE.Vector4(...(c._ShadowThreshold4 || [0.5, 0.5, 0.5, 0.5])) },
-    maskMap: { value: textures._MaskTex || null },
-    maskG: { value: f._MaskGSensitivity ?? 1 },
-    zCorrection: { value: f._ZCorrection ?? 0 },
-  };
-  const defines = [];
-  if (kind === "body" && textures._MaskTex) defines.push("#define TOON_LAYER4");
-  else if (textures._MaskTex && kind !== "face") defines.push("#define TOON_MASK");
-  if (FLAT.includes(kind)) defines.push("#define TOON_FLAT");
-  if (kind === "transparent") { mat.transparent = true; mat.depthWrite = false; mat.side = THREE.DoubleSide; }
-  if (kind === "eyebrow") defines.push("#define Z_CORRECTION");
-  if (kind === "eyemouth" && mouth) defines.push("#define MOUTH_TILE");
-  if (kind === "halo") {
-    defines.push("#define HALO");
-    uniforms.haloTint = { value: lin(c._Tint || [1, 1, 1]) };
-    // the glow replacement only runs with the material's _GLOW_0 keyword and a strength above zero
-    const glow = (ex.keywords || []).includes("_GLOW_0") && (f._GlowStrength0 ?? 0) > 0;
-    uniforms.haloGlow = { value: lin(c._GlowTint0 || [1, 1, 1]).multiplyScalar(f._GlowStrength0 ?? 1) };
-    uniforms.haloMask = { value: glow ? lin(c._GlowMaskColor0 || [2, 2, 2]) : new THREE.Vector3(9, 9, 9) }; // 9: never matches
-    mat.side = THREE.DoubleSide;
-    mat.toneMapped = false;
-    // an untextured halo (MX/C-Halo/Simple) is one flat colour
-    if (!mat.map) mat.color = srgb(c._SimpleBaseColor || c._Tint || [1, 1, 1]);
-  }
-  if (mouth && kind === "eyemouth") {
-    uniforms.mouthMap = { value: mouth.texture };
-    uniforms.mouthOffset = mouth.offset; // shared, set by SetMouthTile
-    uniforms.mouthScale = { value: new THREE.Vector2(...mouth.scale) };
-    mat.alphaTest = 0.5;
-  }
-  mat.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, uniforms);
-    const head = defines.join("\n") + "\n";
-    shader.vertexShader = head + shader.vertexShader
-      .replace("#include <common>", "#include <common>\nvarying vec3 vToonN;\nuniform float zCorrection;")
-      .replace("#include <fog_vertex>", [
-        "#include <fog_vertex>",
-        "#if defined( USE_ENVMAP ) || defined( USE_SKINNING )",
-        "  vToonN = normalize( transformedNormal );",
-        "#else",
-        "  vToonN = normalize( normalMatrix * normal );",
-        "#endif",
-        "#ifdef Z_CORRECTION",
-        // eyebrows are drawn over the fringe: pull them toward the camera in view space
-        "  vec4 zc = mvPosition; zc.z += zCorrection * 0.6;",
-        "  gl_Position.z = ( projectionMatrix * zc ).z / ( projectionMatrix * zc ).w * gl_Position.w;",
-        "#endif",
-      ].join("\n"));
-    shader.fragmentShader = head + shader.fragmentShader
-      .replace("#include <common>", [
-        "#include <common>",
-        "varying vec3 vToonN;",
-        "uniform vec3 toonLight; uniform vec3 toonTint; uniform float toonThreshold;",
-        "uniform vec4 layerR; uniform vec4 layerG; uniform vec4 layerB; uniform vec4 layerT;",
-        "uniform sampler2D maskMap; uniform float maskG;",
-        "#ifdef HALO\nuniform vec3 haloTint; uniform vec3 haloGlow; uniform vec3 haloMask;\n#endif",
-        "#ifdef MOUTH_TILE\nuniform sampler2D mouthMap; uniform vec2 mouthOffset; uniform vec2 mouthScale;\n#endif",
-      ].join("\n"))
-      .replace("#include <map_fragment>", [
-        "#include <map_fragment>",
-        "#ifdef MOUTH_TILE",
-        // Unity uv (origin bottom-left); the mouth is the bottom-left quarter of the EyeMouth atlas
-        "{ vec2 u = vec2( vMapUv.x, 1.0 - vMapUv.y );",
-        "  if ( u.x < 0.25 && u.y < 0.375 ) {",
-        "    vec2 t = u * mouthScale;",
-        "    if ( t.x > 0.125 || t.y > 0.125 ) discard;",
-        "    vec4 m = texture2D( mouthMap, vec2( t.x + mouthOffset.x, 1.0 - ( t.y + mouthOffset.y ) ) );",
-        "    diffuseColor = vec4( m.rgb, m.a );",
-        "  } }",
-        "#endif",
-        // the glow replacement reads the texture (map_fragment declares sampledDiffuseColor only with a map)
-        "#if defined( HALO ) && defined( USE_MAP )",
-        "{ vec3 s = pow( max( sampledDiffuseColor.rgb, 0.0 ), vec3( 1.0 / 2.2 ) );",
-        "  float g = 1.0 - smoothstep( 0.06, 0.22, distance( s, haloMask ) );",
-        "  diffuseColor.rgb = mix( diffuseColor.rgb * haloTint, haloGlow, g ); }",
-        "#endif",
-      ].join("\n"))
-      .replace("#include <opaque_fragment>", [
-        "#ifndef TOON_FLAT",
-        "{ vec3 n = normalize( vToonN ); if ( ! gl_FrontFacing ) n = -n;",
-        "  float hl = dot( n, toonLight ) * 0.5 + 0.5;",
-        "  vec3 tint = toonTint; float th = toonThreshold;",
-        "  #if defined( TOON_LAYER4 ) || defined( TOON_MASK )",
-        "  vec4 mk = texture2D( maskMap, vMapUv );",
-        "  hl += ( mk.g - 0.5 ) * maskG;",
-        "  #endif",
-        "  #ifdef TOON_LAYER4",
-        "  int l = int( clamp( floor( mk.a * 5.0 + 0.5 ), 0.0, 3.0 ) );",
-        "  tint = vec3( layerR[ l ], layerG[ l ], layerB[ l ] ); th = layerT[ l ];",
-        "  #endif",
-        "  float lit = smoothstep( th - 0.02, th + 0.02, hl );",
-        "  outgoingLight *= mix( tint, vec3( 1.0 ), lit ); }",
-        "#endif",
-        "#include <opaque_fragment>",
-      ].join("\n"));
-  };
-  mat.customProgramCacheKey = () => "bamt-chibi-" + defines.join("|");
-  return mat;
-}
-
-// inverted hull along the smoothed outline normal (_OUTLINE), width from the vertex colour alpha, constant on screen
-function outlineMaterial(ex, map) {
-  const c = ex.colors || {}, f = ex.floats || {};
-  const mat = new THREE.MeshBasicMaterial({ map, color: srgb(c._OutlineTint || [0.5, 0.5, 0.5]), side: THREE.BackSide });
-  mat.onBeforeCompile = (shader) => {
-    shader.uniforms.outlineWidth = { value: f._OutlineThickness ?? 0.003 };
-    shader.vertexShader = shader.vertexShader
-      .replace("#include <common>", "#include <common>\nattribute vec3 _outline;\nattribute vec4 color;\nuniform float outlineWidth;")
-      .replace("#include <beginnormal_vertex>", "vec3 objectNormal = length( _outline ) > 0.0 ? _outline : normal;")
-      .replace("#include <project_vertex>", [
-        "#include <project_vertex>",
-        "{ vec3 vn = normalize( normalMatrix * objectNormal );",
-        "  vec2 d = normalize( ( projectionMatrix * vec4( vn, 0.0 ) ).xy + 1e-6 );",
-        "  float aspect = projectionMatrix[ 1 ][ 1 ] / projectionMatrix[ 0 ][ 0 ];",
-        "  gl_Position.xy += d * vec2( 1.0 / aspect, 1.0 ) * outlineWidth * 2.2 * color.a * gl_Position.w; }",
-      ].join("\n"));
-  };
-  mat.customProgramCacheKey = () => "bamt-chibi-outline";
-  return mat;
-}
 
 const stageScale = () => (document.getElementById("stage")?.getBoundingClientRect().width || 1920) / 1920;
 
@@ -178,9 +40,10 @@ class ChibiView {
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(FOV, 1, 0.01, 100);
     this.controls = new OrbitControls(this.camera, this.canvas);
-    // no panning; between a little from below and well from above, between the bust and a step back
+    // no panning, any angle (straight from above to straight from below); the zoom stays between the bust and a
+    // step back (frameTo)
     Object.assign(this.controls, { enableDamping: true, dampingFactor: 0.12, enablePan: false, zoomSpeed: 0.8,
-      minPolarAngle: Math.PI * 0.30, maxPolarAngle: Math.PI * 0.56 });
+      minPolarAngle: 0, maxPolarAngle: Math.PI });
     this.clock = new THREE.Clock();
     this.mode = "left";
     this.view = { ...FRAMES.left };
@@ -202,6 +65,7 @@ class ChibiView {
     const w = this.host.clientWidth || 1, h = this.host.clientHeight || 1, scale = stageScale();
     this.renderer.setPixelRatio(Math.min(2, (window.devicePixelRatio || 1) * scale));
     this.renderer.setSize(w, h, false);
+    setOutlineScale(w, h); // the game's outline is 0.1 % of its screen width: here the stage's
     this.controls.rotateSpeed = 0.7 / Math.max(0.25, scale); // pointer moves are in screen pixels
     this.applyView();
   }
@@ -224,48 +88,82 @@ class ChibiView {
   async load(url) {
     const gltf = await new GLTFLoader().loadAsync(url);
     if (this.disposed) return;
-    const json = gltf.parser.json;
+    const json = gltf.parser.json, parser = gltf.parser;
     const ex = json.extras || {};
-    const textures = await Promise.all((json.textures || []).map((_, i) => gltf.parser.getDependency("texture", i)));
+    const textures = await Promise.all((json.textures || []).map((_, i) => parser.getDependency("texture", i)));
+    const nodes = await Promise.all((json.nodes || []).map((_, i) => parser.getDependency("node", i)));
     if (this.disposed) { for (const t of textures) t.dispose(); return; }
-    for (const t of textures) { t.colorSpace = THREE.SRGBColorSpace; t.flipY = false; }
-    this.textures = textures; // some are only in shader uniforms (mask, mouth): disposed by hand
-    // the mouth atlas comes as a texture of the EyeMouth material (_MouthTileTex)
+    // colour textures are decoded from sRGB, masks and direction maps are data (the game's linear colour space)
+    textures.forEach((t, i) => {
+      t.colorSpace = json.textures[i].extras?.linear ? THREE.NoColorSpace : THREE.SRGBColorSpace;
+      t.flipY = false;
+    });
+    this.textures = textures; // they are only in shader uniforms: disposed by hand
+    // the mouth atlas comes as a texture of the EyeMouth material (_MouthTileTex); SetMouthTile moves its offset
     const mats = json.materials || [];
     const eye = mats.find((m) => m.extras?.kind === "eyemouth" && m.extras.textures?._MouthTileTex);
     if (eye) {
       const t = eye.extras.textures._MouthTileTex;
-      this.mouth = { texture: textures[t.index], scale: t.scale, offset: { value: new THREE.Vector2(...t.offset) },
+      this.mouth = { st: { value: new THREE.Vector4(t.scale[0], t.scale[1], t.offset[0], t.offset[1]) },
         cols: eye.extras.floats?._MouthTileCols || 8, rows: eye.extras.floats?._MouthTileRows || 8 };
     }
+    // the node of a mesh object: a node of one primitive is the mesh, of several a group around them
+    const nodeOf = (o) => {
+      for (let q = o; q; q = q.parent) {
+        const i = parser.associations.get(q)?.nodes;
+        if (i !== undefined) return i;
+      }
+      return undefined;
+    };
     const root = gltf.scene;
-    const outlines = [];
+    const meshes = [];
     root.traverse((o) => {
-      const node = json.nodes[gltf.parser.associations.get(o)?.nodes];
+      const node = json.nodes[parser.associations.get(o)?.nodes];
       if (node?.extras?.hidden) o.visible = false;
-      if (!o.isMesh) return;
+      if (o.isMesh) meshes.push(o);
+    });
+    this.spaces = []; // [material, the object whose space its shader reads directions in]
+    for (const o of meshes) {
       o.frustumCulled = false;
-      const mex = mats[gltf.parser.associations.get(o.material)?.materials]?.extras || {};
+      const gltfMaterial = o.material;
+      const mex = mats[parser.associations.get(gltfMaterial)?.materials]?.extras || {};
       const texs = {};
       for (const [k, v] of Object.entries(mex.textures || {})) texs[k] = textures[v.index];
-      o.material = toonMaterial(o.material, mex, texs, this.mouth);
-      if (o.isSkinnedMesh && o.geometry.attributes._outline && !FLAT.includes(mex.kind)) {
-        const ol = new THREE.SkinnedMesh(o.geometry, outlineMaterial(mex, o.material.map));
-        ol.bind(o.skeleton, o.bindMatrix);
+      const { material, objectSpace, outline, queue } = chibiMaterial(mex, texs, this.mouth);
+      material.name = gltfMaterial.name;
+      o.material = material;
+      o.renderOrder = queue; // the game's render queue: geometry, then the eyes over the face, then transparents
+      gltfMaterial.dispose();
+      if (objectSpace) {
+        // a skinned renderer draws in its root bone's space (Unity's unity_ObjectToWorld), a static one in its own
+        const def = json.nodes[nodeOf(o)];
+        const skeleton = def?.skin !== undefined ? json.skins[def.skin].skeleton : undefined;
+        this.spaces.push([material, o.isSkinnedMesh && skeleton !== undefined ? nodes[skeleton] : o]);
+      }
+      if (outline && o.geometry.attributes._outline) {
+        const ol = o.isSkinnedMesh ? new THREE.SkinnedMesh(o.geometry, outlineMaterial(mex, texs._MainTex))
+          : new THREE.Mesh(o.geometry, outlineMaterial(mex, texs._MainTex));
+        if (o.isSkinnedMesh) ol.bind(o.skeleton, o.bindMatrix);
         ol.frustumCulled = false;
         ol.name = `${o.name}_outline`;
-        outlines.push([o, ol]);
+        ol.renderOrder = queue;
+        o.add(ol); // shown and hidden with its mesh
       }
-    });
-    for (const [o, ol] of outlines) { o.parent.add(ol); ol.visible = o.visible; }
+    }
     this.scene.add(root);
     this.root = root;
     this.gltf = gltf;
     this.mixer = new THREE.AnimationMixer(root);
     this.mixer.addEventListener("finished", (e) => this.finished(e.action));
     this.clips = new Map();
+    // renderers a clip switches (an expression's alternative face), each with its state at rest
+    this.switches = new Map();
     gltf.animations.forEach((clip, i) => {
       const extras = json.animations[i]?.extras || {};
+      for (const t of extras.toggles || []) {
+        const object = nodes[t.node];
+        if (object && !this.switches.has(t.node)) this.switches.set(t.node, { object, rest: object.visible });
+      }
       if (extras.slot && !this.clips.has(extras.slot)) this.clips.set(extras.slot, { clip, ...extras });
     });
     // without a clip (NPC placeholders) the rest pose shows the props and the weapon where their bones rest, beside
@@ -275,6 +173,25 @@ class ChibiView {
     this.addShadow();
     this.act("idle", { fade: 0, quiet: true });
     this.measure();
+  }
+
+  // the renderers the playing clip switches on or off at its time (step keys); the others as at rest, as the
+  // game's animator writes the defaults of what a state does not animate
+  applySwitches() {
+    if (!this.switches?.size) return;
+    const states = new Map();
+    const t = this.action?.time ?? 0;
+    for (const s of this.slot?.toggles || []) {
+      let on = !!s.keys[0][1];
+      for (const [time, state] of s.keys) if (time <= t + 1e-4) on = !!state;
+      states.set(s.node, on);
+    }
+    for (const [node, s] of this.switches) s.object.visible = states.has(node) ? states.get(node) : s.rest;
+  }
+
+  // the face and hair shaders read directions in their renderer's space (Unity's unity_ObjectToWorld)
+  updateSpaces() {
+    for (const [material, object] of this.spaces || []) material.uniforms.objectToWorld.value.setFromMatrix4(object.matrixWorld);
   }
 
   // FxFollower: the halo eases toward a point and rotation fixed to the head bone, clamped in head space
@@ -309,6 +226,7 @@ class ChibiView {
   // half the height, and rises to the face as the camera closes in.
   measure() {
     this.mixer.update(0);
+    this.applySwitches();
     this.followHalo(0, true);
     this.root.updateMatrixWorld(true);
     const all = new THREE.Box3(), body = new THREE.Box3();
@@ -466,7 +384,8 @@ class ChibiView {
     if (tile == null || tile === this.mouthTile) return;
     this.mouthTile = tile; // kept between clips, like the game
     // int = row * 100 + col; offsets in Unity uv (rows from the bottom)
-    this.mouth.offset.value.set((tile % 100) / this.mouth.cols, Math.floor(tile / 100) / this.mouth.rows);
+    const st = this.mouth.st.value;
+    st.set(st.x, st.y, (tile % 100) / this.mouth.cols, Math.floor(tile / 100) / this.mouth.rows);
   }
 
   // a tap on the character plays the cafe touch reaction, then the idle again; a drag still orbits
@@ -517,11 +436,14 @@ class ChibiView {
   tick() {
     const dt = Math.min(0.1, this.clock.getDelta());
     this.mixer?.update(dt);
+    this.applySwitches();
     this.updateMouth();
     this.followHalo(dt);
     this.stepTween();
     this.liftTarget();
     this.controls.update();
+    this.root?.updateMatrixWorld();
+    this.updateSpaces();
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -559,6 +481,7 @@ class ChibiView {
       }
     });
     for (const t of this.textures || []) t.dispose();
+    disposeDefaults();
     this.renderer.dispose();
     this.renderer.forceContextLoss();
     this.canvas.remove();

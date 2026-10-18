@@ -193,6 +193,153 @@ def test_glb_writer_layout():
     assert binary[view["byteOffset"]:view["byteOffset"] + view["byteLength"]] == b"\x89PNG.."
 
 
+def test_glb_writer_samplers_and_linear_textures():
+    glb = model.GlbWriter()
+    clamp = {"magFilter": 9729, "minFilter": 9729, "wrapS": 33071, "wrapT": 33071}
+    a = glb.image(b"a", "Body", sampler=clamp)
+    b = glb.image(b"b", "Body_Mask", linear=True, sampler=dict(clamp))
+    c = glb.image(b"c", "Halo")
+    data = glb.finish()
+    doc = json.loads(data[20:20 + struct.unpack_from("<I", data, 12)[0]])
+    # one sampler per distinct setting, the default (trilinear, repeat) first
+    assert doc["samplers"] == [{"magFilter": 9729, "minFilter": 9987, "wrapS": 10497, "wrapT": 10497}, clamp]
+    assert [doc["textures"][i]["sampler"] for i in (a, b, c)] == [1, 1, 0]
+    assert doc["textures"][b]["extras"] == {"linear": True} and "extras" not in doc["textures"][a]
+
+
+def test_texture_sampler_follows_the_game_settings():
+    # bilinear without mipmaps, clamped (the characters' textures); point; trilinear with mipmaps; per-axis wrap
+    settings = lambda **s: {"m_TextureSettings": {"m_FilterMode": 1, "m_WrapU": 1, "m_WrapV": 1, **s}, "m_MipCount": 1}  # noqa: E731
+    assert model.texture_sampler(settings()) == {"magFilter": 9729, "minFilter": 9729, "wrapS": 33071, "wrapT": 33071}
+    assert model.texture_sampler(settings(m_FilterMode=0, m_WrapU=0))["magFilter"] == 9728
+    assert model.texture_sampler(settings(m_FilterMode=0, m_WrapU=0))["minFilter"] == 9728
+    assert model.texture_sampler({**settings(m_FilterMode=2), "m_MipCount": 9})["minFilter"] == 9987
+    assert model.texture_sampler({**settings(), "m_MipCount": 9})["minFilter"] == 9985
+    assert model.texture_sampler(settings(m_WrapU=0, m_WrapV=2)) == {"magFilter": 9729, "minFilter": 9729,
+                                                                      "wrapS": 10497, "wrapT": 33648}
+    assert model.texture_sampler({})["wrapS"] == 10497  # no settings: Unity's defaults
+
+
+# --- shaders ---
+
+def _form(name, props=(), passes=(), sub_tags=()):
+    """A shader's m_ParsedForm: properties (name, m_Type) and passes (light mode, cull, zwrite, src, dst, queue tag);
+    a state value is a property name (read from the material) or a fixed number."""
+    def entry(v):
+        return {"val": 0.0, "name": v} if isinstance(v, str) else {"val": float(v), "name": "<noninit>"}
+    out = []
+    for mode, cull, zwrite, src, dst, queue in passes:
+        tags = [("LIGHTMODE", mode)] + ([("QUEUE", queue)] if queue else [])
+        out.append({"m_State": {"m_Name": mode, "m_Tags": {"tags": tags}, "culling": entry(cull), "zWrite": entry(zwrite),
+                                "rtBlend0": {"srcBlend": entry(src), "destBlend": entry(dst)}}})
+    return {"m_Name": name, "m_PropInfo": {"m_Props": [{"m_Name": n, "m_Type": t} for n, t in props]},
+            "m_SubShaders": [{"m_Passes": out, "m_Tags": {"tags": list(sub_tags)}}]}
+
+
+def test_shader_kind_by_name_prefix():
+    kinds = {name: model.shader_kind(name) for name in (
+        "MX/C-General/Layer4", "MX/C-General/Layer4-Inline", "MX/C-General/Single", "MX/C-General/Transparent",
+        "MX/C-Hair-Transparent", "MX/C-Face", "MX/C-EyesMouth", "MX/C-Eyebrow-OneColor", "MX/C-Halo/Simple",
+        "MX/C-Weapon-NoOutline", "ProjectMX/WeaponTest1Damage", "MX/C-Simple", "MX/C-Simple-Transparent",
+        "MX/C-Transparent-ST", "Unlit/Texture", "FX/General Unlit Texture", "MX/E-Standard")}
+    assert kinds == {
+        "MX/C-General/Layer4": "body", "MX/C-General/Layer4-Inline": "body", "MX/C-General/Single": "general",
+        "MX/C-General/Transparent": "general", "MX/C-Hair-Transparent": "hair", "MX/C-Face": "face",
+        "MX/C-EyesMouth": "eyemouth", "MX/C-Eyebrow-OneColor": "eyebrow", "MX/C-Halo/Simple": "halo",
+        "MX/C-Weapon-NoOutline": "weapon", "ProjectMX/WeaponTest1Damage": "weapon", "MX/C-Simple": "simple",
+        "MX/C-Simple-Transparent": "transparent", "MX/C-Transparent-ST": "transparent", "Unlit/Texture": "unlit",
+        "FX/General Unlit Texture": "unlit", "MX/E-Standard": "general"}
+    assert model.shader_kind(None) == "general"
+
+
+def test_shader_vectors_outline_and_state():
+    layer4 = _form("MX/C-General/Layer4", props=[("_Tint", 0), ("_ShadowTintR4", 1), ("_MainTex", 4), ("_MaskGSensitivity", 3)],
+                   passes=[("UniversalForward", "_Cull", "_ZWrite", "_SrcBlend", "_DstBlend", None),
+                           ("Outline", 1, 1, 1, 0, None), ("SHADOWCASTER", 0, 1, 1, 0, None)])
+    assert model.shader_vectors(layer4) == {"_ShadowTintR4"}
+    assert model.shader_outline(layer4)
+    # the state names material properties: the material's floats decide
+    floats = {"_Cull": 0.0, "_ZWrite": 1.0, "_SrcBlend": 1.0, "_DstBlend": 0.0}
+    assert model.shader_state(layer4, floats) == {"cull": 0, "zwrite": 1, "src": 1, "dst": 0, "queue": 2000}
+    # MX/C-General/Transparent blends in the pass whatever the material's floats say; its queue tag counts
+    transparent = _form("MX/C-General/Transparent", passes=[("UniversalForward", "_Cull", 0, 5, 10, "Transparent")])
+    assert model.shader_state(transparent, {"_Cull": 2.0, "_SrcBlend": 1.0, "_DstBlend": 0.0}) == \
+        {"cull": 2, "zwrite": 0, "src": 5, "dst": 10, "queue": 3000}
+    assert not model.shader_outline(transparent)
+    # a pass without a light mode (the halos), a queue with an offset, a material's own render queue
+    eyes = _form("MX/C-EyesMouth", passes=[("DepthOnly", 2, 1, 1, 0, None), ("", 2, 1, 5, 10, "Geometry+1")])
+    assert model.shader_state(eyes, {})["queue"] == 2001 and model.shader_state(eyes, {})["src"] == 5
+    assert model.shader_state(eyes, {}, custom_queue=2450)["queue"] == 2450
+    assert model.shader_state(_form("X", passes=[("UniversalForward", 2, 1, 1, 0, None)], sub_tags=[("Queue", "AlphaTest")]),
+                              {})["queue"] == 2450
+
+
+# --- renderer switches ---
+
+def test_bind_toggles_walks_the_curve_index():
+    face, face01, fx = (zlib.crc32(p.encode()) for p in ("Face", "Face01", "bone_root/FX"))
+    enabled, active = zlib.crc32(b"m_Enabled"), zlib.crc32(b"m_IsActive")
+    bindings = [
+        {"typeID": 4, "attribute": 2, "path": face},            # a rotation: curves 0-3
+        {"typeID": 25, "attribute": enabled, "path": face},     # Renderer.m_Enabled: 4
+        {"typeID": 137, "attribute": enabled, "path": face01},  # SkinnedMeshRenderer.m_Enabled: 5
+        {"typeID": 1, "attribute": active, "path": fx},         # GameObject.m_IsActive: 6
+        {"typeID": 23, "attribute": 99, "path": face},          # another renderer property: 7
+        {"typeID": 25, "attribute": enabled, "path": 12345},    # an unknown path: 8
+        {"typeID": 25, "attribute": enabled, "path": face01, "isPPtrCurve": 1},  # 9
+    ]
+    curves = {i: [float(i)] for i in range(10)}
+    assert model.bind_toggles(bindings, curves, {face: 1, face01: 2, fx: 3}) == [
+        (1, "renderer", [4.0]), (2, "renderer", [5.0]), (3, "active", [6.0])]
+
+
+def test_toggle_keys_are_change_points():
+    times = [0.0, 0.5, 1.0, 1.5, 2.0]
+    assert model.toggle_keys([1.0, 1.0, 0.0, 0.2, 1.0], times) == [[0.0, 1], [1.0, 0], [2.0, 1]]
+    assert model.toggle_keys([0.0], times) == [[0.0, 0]]  # a constant curve
+    assert model.toggle_keys([0.0, 1.0], [2.0, 2.5], start=2.0) == [[0.0, 0], [0.5, 1]]  # from the clip start
+
+
+def test_toggles_bring_in_disabled_renderers_and_drop_rest_states(monkeypatch):
+    # Miyu (ch0145): two faces enabled in the prefab, the idle turns the expression face off; a disabled face that a
+    # clip turns on is exported hidden at rest; a GameObject switch reaches the renderers below it
+    graph = _Graph(
+        *_game_object(1, "CH0145", [], children=(10, 20, 30, 40)),
+        *_game_object(10, "Face", [_object(12, "SkinnedMeshRenderer", m_Enabled=1)]),
+        *_game_object(20, "Face01", [_object(22, "SkinnedMeshRenderer", m_Enabled=1)]),
+        *_game_object(30, "Face02", [_object(32, "SkinnedMeshRenderer", m_Enabled=0)]),
+        *_game_object(40, "Props", [], children=(50,)),
+        *_game_object(50, "Prop", [_object(52, "SkinnedMeshRenderer", m_Enabled=1)]),
+    )
+    exporter = model._Exporter(graph, "ch0145")
+    exporter.visit(graph.objects[1], None, "", True)
+    assert list(exporter.disabled) == [3]  # the node of Face02
+
+    def meshes(renderers=None):  # what meshes() leaves on the nodes: a skinned mesh node under the root
+        for node, _, _ in (exporter.renderers if renderers is None else renderers):
+            exporter.nodes.append({"name": exporter.nodes[node]["name"] + "_mesh"})
+            exporter.nodes[node].setdefault("extras", {})["renderer"] = len(exporter.nodes) - 1
+    monkeypatch.setattr(exporter, "meshes", meshes)
+    exporter.meshes()
+    nodes = {path: i for i, path in exporter.path_of.items()}
+    by_hash = {zlib.crc32(path.encode()): i for path, i in nodes.items()}
+    enabled, active = zlib.crc32(b"m_Enabled"), zlib.crc32(b"m_IsActive")
+    tt = {"m_MuscleClip": {"m_StartTime": 0.0}, "m_ClipBindingConstant": {"genericBindings": [
+        {"typeID": 25, "attribute": enabled, "path": zlib.crc32(b"Face")},     # 1 all along: the rest state
+        {"typeID": 25, "attribute": enabled, "path": zlib.crc32(b"Face01")},   # off
+        {"typeID": 25, "attribute": enabled, "path": zlib.crc32(b"Face02")},   # on after 1 s
+        {"typeID": 1, "attribute": active, "path": zlib.crc32(b"Props")},      # off after 0.5 s
+    ]}}
+    decoded = model.DecodedClip(1.5, [0.0, 0.5, 1.0, 1.5], {0: [1.0], 1: [0.0], 2: [0.0, 0.0, 1.0, 1.0], 3: [1.0, 0.0, 0.0, 0.0]})
+    toggles = exporter.toggles(tt, decoded, by_hash)
+    mesh = lambda name: exporter.nodes[nodes[name]]["extras"]["renderer"]  # noqa: E731
+    assert toggles == [{"node": mesh("Face01"), "keys": [[0.0, 0]]}, {"node": mesh("Props/Prop"), "keys": [[0.0, 1], [0.5, 0]]},
+                       {"node": mesh("Face02"), "keys": [[0.0, 0], [1.0, 1]]}]
+    assert exporter.nodes[mesh("Face02")]["extras"] == {"hidden": True} and not exporter.disabled
+    # a later clip does not export it twice
+    assert exporter.toggles(tt, decoded, by_hash) == toggles
+
+
 def _strict(data):
     """The JSON chunk of a GLB, parsed like the viewer's JSON.parse (no NaN or Infinity)."""
     def reject(token):
@@ -472,6 +619,21 @@ def test_real_chibi_exports(tmp_path):
     assert doc["skins"] and all(len(s["joints"]) > 0 for s in doc["skins"])
     kinds = {m["extras"]["kind"] for m in doc["materials"]}
     assert {"body", "face", "hair", "eyemouth", "halo"} <= kinds
+    # what the viewer's shader ports read: Vector properties, outline passes, the colour pass state, linear masks and
+    # the game's samplers (no mipmaps on the characters' textures)
+    body = next(m["extras"] for m in doc["materials"] if m["extras"]["kind"] == "body")
+    assert "_ShadowTintR4" in body["vectors"] and "_OutlineTint" not in body["vectors"] and body["outline"]
+    assert body["state"]["src"] == 1 and body["state"]["dst"] == 0 and body["state"]["queue"] == 2000
+    eyes = next(m["extras"] for m in doc["materials"] if m["extras"]["kind"] == "eyemouth")
+    assert (eyes["state"]["src"], eyes["state"]["dst"], eyes["state"]["queue"]) == (5, 10, 2001) and not eyes["outline"]
+    masks = {t["name"] for t in doc["textures"] if t.get("extras", {}).get("linear")}
+    assert masks and all("mask" in n.lower() or "spec" in n.lower() or "green" in n.lower() for n in masks)
+    assert all(doc["samplers"][t["sampler"]]["minFilter"] in (9728, 9729) for t in doc["textures"])
+    if "ch0145" in game.model_cores():  # Miyu: the idle turns her expression face off
+        miyu = _strict(game.model_glb("ch0145"))
+        idle = next(a for a in miyu["animations"] if a["extras"]["slot"] == "Formation_Idle")
+        assert [miyu["nodes"][t["node"]]["name"] for t in idle["extras"]["toggles"]] == ["CH0145_Face01_Outline_mesh"]
+        assert idle["extras"]["toggles"][0]["keys"] == [[0.0, 0]]
     if "saya_original" in game.model_cores():  # an infinite material constant
         fade = [m["extras"]["colors"].get("_CameraFadeParams") for m in _strict(game.model_glb("saya_original"))["materials"]]
         assert [0.0, model.FLT_MAX, 0.0, 0.0] in fade
