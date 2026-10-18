@@ -49,7 +49,10 @@ const commit = (fn) => (batch ? batch.push(fn) : fn());
 // one on screen and belongs to that change: a re-render still running at the commit (late lobby lines) then follows
 // it instead of keeping the old part in the commit.
 const applied = { screen: 0, chips: 0, expr: 0 };
-const showable = (part, my, latest, gen) => my === latest || (!!batch && gen === showGen && my > applied[part]);
+const showable = (part, my, latest, gen) => open && (my === latest || (!!batch && gen === showGen && my > applied[part]));
+// the screen is shown (from show() until hide()): what a show, a tab change or a job started for it starts nothing
+// once it is hidden (the left side's players least of all)
+let open = false;
 // a generation of the screen: a newer show, tab change or hide ends the wait of the one before
 let showGen = 0, endWait = () => {};
 function begin() {
@@ -104,8 +107,12 @@ function candidates(v = variant()) {
     ...familyMods().filter((m) => m.kind === "spr" && m.target !== v.key).map(mod),
   ];
 }
-// the game file parts of one kind ("spr" portrait, "lobby" memorial lobby)
-const partsOf = (v, kind = "spr") => (v.state?.files || []).filter((f) => f.kind === kind);
+// the game file parts of one kind ("spr" portrait, "lobby" memorial lobby, "model" the 3D chibi's prefab bundles,
+// newest first)
+const partsOf = (v, kind = "spr") => (kind === "model" ? v.modelFiles || [] : (v.state?.files || []).filter((f) => f.kind === kind));
+// the kind of game file the shown tab is about, and the newest date of a kind's files
+const tabKind = () => (tab === "lobby" || tab === "model" ? tab : "spr");
+const dateOf = (v, kind) => (kind === "spr" ? v.date : partsOf(v, kind).map((f) => f.date).filter(Boolean).sort().pop());
 // what the variant's game file carries now: the one non-official source among its parts (a mod often replaces one part)
 function appliedOf(v, kind = "spr") {
   const sources = new Set(partsOf(v, kind).map((f) => f.applied).filter((a) => a !== "official"));
@@ -174,7 +181,7 @@ function screenTree() {
   const t = clone(layouts.list);
   off(t, "Top", "NUITop_Scenes", "LeftInfo/CharInfo_Disable", "LeftInfo/CharCombatStyle", "RightInfo/Target/Disable",
     "RightInfo/Target/Active/2_LevelUp", "RightInfo/Target/Active/3_Transcendence", "RightInfo/Target/Active/FullCollier", "RightInfo/Target/Active/Effect");
-  const v = variant(), c = current(), kind = tab === "lobby" ? "lobby" : "spr";
+  const v = variant(), c = current(), kind = tabKind();
   const swapped = tab === "lobby" ? appliedOf(v, "lobby") !== "official" : tab === "model" ? false : appliedKey() !== "self";
   // layer 1 of the panel: measured on the game screenshots it lets about 55 % of the background through
   widget(t, "RightInfo/Target/Active/Bg").color = "#0c284b/0.45";
@@ -206,7 +213,7 @@ function screenTree() {
   const now = tab === "portrait" ? c.label : tab === "lobby" ? lobbyLabel(v) : T("model.original");
   const stats = [["Label_Life", "info.current", "Data_Widget/Data", now],
     ["Label_Attact", "info.status", "Data_Widget/Data", T(swapped ? "status.replaced" : "status.original")],
-    ["Label_Defense", "info.gameFile", "Data", v.date || "—"], ["Label_Healing", "info.crc", "Data_Widget/Data", T(crc[0]), crc[1]]];
+    ["Label_Defense", "info.gameFile", "Data", dateOf(v, kind) || "—"], ["Label_Healing", "info.crc", "Data_Widget/Data", T(crc[0]), crc[1]]];
   // the value column starts after the longest caption of its column
   const capW = (keys) => Math.max(...keys.map((k) => advanceOf(T(k), 42))) + 24;
   const leftCap = capW(["info.current", "info.gameFile"]), rightCap = capW(["info.status", "info.crc"]);
@@ -424,14 +431,14 @@ function hits(view, leftHost, rightHost) {
     add(rightHost, `${INFO}/Weapon/Equip_1/UIEquipmentCard/Btn_Target/Normal/Card_Bg`, openPopup, T("row.switch.portrait"));
     add(rightHost, `${INFO}/Weapon/Btn_Up_Wrapper/Btn_Up/BG (1)`, addMods, T("popup.add"));
   }
-  add(rightHost, `${INFO}/Status/Btn_Up_Wrapper/Btn_Up/BG (1)`, () => reveal(gameFile(variant(), tab === "lobby" ? "lobby" : "spr")), T(platform === "mac" ? "open.mac" : "open.win"));
+  add(rightHost, `${INFO}/Status/Btn_Up_Wrapper/Btn_Up/BG (1)`, () => reveal(gameFile(variant(), tabKind())), T(platform === "mac" ? "open.mac" : "open.win"));
   const act = (card, fn, title) => add(rightHost, `${INFO}/Skill/${card}/Bg`, fn, title);
   act("SkillData_EX (1)", () => runUpdate(), T("act.update"));
   act("SkillData_EX (2)", () => runExtract(), T("act.extract"));
   act("SkillData_EX (3)", () => runCompare(), T("act.compare"));
   add(leftHost, "LeftInfo/CharInfo/Char_Target/Pin/Pin_On/Bg", toggleFav, T("fav.label"));
   add(leftHost, "LeftInfo/CharInfo/Char_Target/Pin/Pin_Off/Bg", toggleFav, T("fav.label"));
-  add(leftHost, "LeftInfo/CharInfo/Char_Target/Char_CVCollectionBtn", copyName, baseName(gameFile()));
+  add(leftHost, "LeftInfo/CharInfo/Char_Target/Char_CVCollectionBtn", copyName, baseName(gameFile(variant(), tabKind())));
   add(leftHost, "Arrow_L/Left", () => ctx.stepFamily(fam.key, -1));
   add(rightHost, "Arrow_R/Right", () => ctx.stepFamily(fam.key, 1));
   if (tab === "lobby" || tab === "model") add(leftHost, "LeftInfo/CharInfo/Char_Target/Char_ZoomBtn", () => setFullscreen(true), T("lobby.fullscreen"));
@@ -448,7 +455,7 @@ async function call(fn) {
 }
 async function reveal(path) { if (path) await call(() => rpc("os.reveal", { path })); }
 async function copyName() {
-  const name = baseName(gameFile());
+  const name = baseName(gameFile(variant(), tabKind()));
   try { await navigator.clipboard.writeText(name); toast(name); } catch { toast(name); }
 }
 async function toggleFav() {
@@ -512,6 +519,7 @@ async function applyCandidate(key) {
       expression = "00";
       clearTimeout(blinkTimer);
       mainPlayer = null;
+      if (!open) return null; // the screen was left meanwhile: the next show reads the family again
       return changeInPlace(async () => {
         const data = await call(() => rpc("family.get", { key: fam.key }));
         if (data) fam = data;
@@ -649,7 +657,9 @@ function togglePlayAll() {
   if (Lobby.playingAll()) Lobby.stop();
   else Lobby.playAll();
 }
-// a dialogue started (a card, play all, a tap on the character in fullscreen), ended or stopped
+// a dialogue started (a card, play all, a tap on the character in fullscreen), ended or stopped. A lobby that is
+// hidden stops without telling (and off the lobby tab nothing is followed): the tab change, the variant change and
+// hide() reset what is followed here, so the next start redraws the cards and the play-all button.
 let lobbyAll = false;
 Lobby.onTalk((anim, all) => {
   if (tab !== "lobby" || (lobbySeq === anim && lobbyAll === all)) return;
@@ -1184,6 +1194,7 @@ function showTab(id) {
   expanded = false;
   exprScroll = 0;
   lobbySeq = null;
+  lobbyAll = false;
   return changeInPlace(() => Promise.all([renderAll(), renderLeft()]));
 }
 
@@ -1193,8 +1204,11 @@ function showTab(id) {
 // single players: when the shown one is replaced by another variant's, a still of it holds the place meanwhile.
 const LEFT = ["portrait", "lobby", "model"];
 let shownLeft = null, shownKey = null;
-const leftKey = (part, v) => (part === "lobby" ? v.lobby : part === "model" ? v.key : null);
+// what the lobby or the model shows: the same variant of another install (game folder, file source) is another one
+const leftKey = (part, v) => (part === "lobby" ? `${v.lobby}@${fam.version}` : part === "model" ? `${v.key}@${fam.version}` : null);
+let lobbyFrom = null; // the install of the lobby in lobby.js, which keeps a lobby shown again by its core
 function renderLeft() {
+  if (!open) return Promise.resolve();
   const v = variant(), my = ++leftToken, want = tab, el = $(want), key = leftKey(want, v);
   const same = want === shownLeft;
   if (!same) {
@@ -1203,8 +1217,10 @@ function renderLeft() {
     el.classList.add("pending");
   }
   const swap = same && key !== shownKey ? freezeLeft(want) : null;
-  const ready = Promise.resolve(swap).then(() => (want === "portrait" ? (mainPlayer ? null : loadSpine(baseOf(current())))
-    : want === "lobby" ? showLobby(v, my) : showModel(v, my)));
+  // a newer left side or hide() came first: nothing is started
+  const ready = Promise.resolve(swap).then(() => (my !== leftToken ? null
+    : want === "portrait" ? (mainPlayer ? null : loadSpine(baseOf(current())))
+      : want === "lobby" ? showLobby(v, my) : showModel(v, my)));
   return ready.then(() => commit(() => {
     if (my !== leftToken) return;
     el.hidden = false;
@@ -1260,7 +1276,9 @@ function unfreezeLeft(now = false) {
 // the memorial lobby: every layer in and drawn, the still for the switch card, the dialogue strip; the lines from
 // Kivo when they come in time (later ones re-render the strip)
 async function showLobby(v, my) {
-  const still = () => my === leftToken && tab === "lobby" && variantKey === v.key;
+  const still = () => open && my === leftToken && tab === "lobby" && variantKey === v.key;
+  if (lobbyFrom !== fam.version) Lobby.hide($("lobby"));
+  lobbyFrom = fam.version;
   const m = await Lobby.show(v.lobby, $("lobby"), v.key);
   if (!m || !still()) return;
   if (fullscreen) { Lobby.frame("full"); Lobby.interactive(true); }
@@ -1280,12 +1298,12 @@ async function showLobby(v, my) {
 // the 3D chibi: loaded, its shaders compiled and its first frame drawn; the actions fill row 4 and a still of it goes
 // on the switch card
 async function showModel(v, my) {
-  const still = () => my === leftToken && tab === "model" && variantKey === v.key;
+  const still = () => open && my === leftToken && tab === "model" && variantKey === v.key;
   try {
     const M = await ModelLib();
     if (!still()) return;
     const list = await M.show(v.key, $("model"), {
-      frame: fullscreen ? "full" : "left",
+      frame: fullscreen ? "full" : "left", version: fam.version,
       onAction: (a) => { if (tab === "model" && variantKey === v.key) { modelAction = a; renderExpressions(); } },
     });
     if (!list || !still()) return;
@@ -1294,8 +1312,9 @@ async function showModel(v, my) {
     if (!modelShot && !fullscreen) modelShot = M.snapshot();
     await Promise.all([renderScreen(), renderExpressions()]);
   } catch (err) {
+    // a model that cannot be read (a broken or unreadable GLB): the tab stays, empty, and the rest of the screen works
     console.error(err);
-    if (still()) toast(T("error.internal", { error: err?.message || String(err) }), { kind: "error" });
+    if (still()) toast(T("model.failed"), { kind: "error" });
   }
 }
 function hideModel() {
@@ -1335,6 +1354,22 @@ function setFullscreen(on) {
   if (tab === "model") modelLib?.then((M) => M.frame(on ? "full" : "left"));
   $("fs-exit").hidden = !on;
   if (on) { wake(); stage().addEventListener("pointermove", wake); } else { stage().removeEventListener("pointermove", wake); clearTimeout(idleTimer); }
+  if (!on) stillAfterFullscreen();
+}
+// the switch card's still is taken in the left framing: when fullscreen was entered before the lobby or the model was
+// in, the still is taken once the left framing is back
+async function stillAfterFullscreen() {
+  const part = tab, key = variantKey;
+  const wanted = () => open && !fullscreen && tab === part && variantKey === key && (part === "lobby"
+    ? !lobbyShot && !!Lobby.meta() : part === "model" && !modelShot && !!$("model").querySelector(".model-view.ready"));
+  if (!wanted()) return;
+  // the lobby draws the left view within a few frames; the model glides there
+  const M = part === "model" ? await ModelLib() : null;
+  await (M ? M.settled() : frames(4));
+  if (!wanted()) return;
+  if (M) modelShot = M.snapshot();
+  else lobbyShot = snapshotLobby();
+  if (M ? modelShot : lobbyShot) renderScreen();
 }
 
 async function reload() {
@@ -1363,11 +1398,13 @@ export function applyPrefs(prefs) {
 export async function show(context, familyData, key, { inPlace = false } = {}) {
   ctx = context;
   applyPrefs(ctx.prefs);
+  open = true;
   const g = begin();
   await ensureLayouts();
-  if (g.gen !== showGen) return;
+  if (g.gen !== showGen) return; // a newer show, or hide()
   const sameFamily = fam?.key === familyData.key;
-  const sameVariant = sameFamily && variantKey === key;
+  // the same variant of another install (another game folder or file source) is read again like another variant
+  const sameVariant = sameFamily && variantKey === key && fam.version === familyData.version;
   fam = familyData;
   variantKey = fam.variants.some((v) => v.key === key && v.spr) ? key : (fam.variants.find((v) => v.spr) || fam.variants[0]).key;
   setTitle(T("top.students"), () => { location.hash = "#/roster"; });
@@ -1376,31 +1413,39 @@ export async function show(context, familyData, key, { inPlace = false } = {}) {
     expanded = false;
     lobbyShot = null;
     lobbySeq = null;
+    lobbyAll = false;
     modelShot = null;
     modelActions = [];
     modelAction = null;
-    if (tab === "lobby" && !hasLobby(variant())) tab = "portrait";
-    if (tab === "model" && !hasModel(variant())) tab = "portrait";
     // a new portrait is loaded; the shown one stays until it is committed
     clearTimeout(blinkTimer);
     mainPlayer = null;
   }
+  // the tabs the variant has, on every show: another install may lack a part under the same variant
+  if (tab === "lobby" && !hasLobby(variant())) tab = "portrait";
+  if (tab === "model" && !hasModel(variant())) tab = "portrait";
   rpc("ui.visit", { variant: variantKey }).catch(() => {});
   // the left side starts at once, beside the panels
   await prepare(g, inPlace, async () => {
     await Promise.all([renderAll(), renderLeft()]);
     await settleThumbs();
   });
+  // the server's index of the lobbies' prefabs takes seconds to build the first time: built in the background once
+  // the screen is in, so the lobby tab does not wait for it
+  if (open && hasLobby(variant())) rpc("lobby.warm").catch(() => {});
 }
 
 // leaving the screen: stop the players, drop any change being prepared
 export function hide() {
+  open = false;
   begin();
   batch = null;
   leftToken += 1;
   if (fullscreen) setFullscreen(false);
   disposePortrait();
   Lobby.hide($("lobby"));
+  lobbySeq = null;
+  lobbyAll = false;
   hideModel();
   unfreezeLeft(true);
   shownLeft = shownKey = null;

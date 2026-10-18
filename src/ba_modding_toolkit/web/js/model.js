@@ -63,6 +63,8 @@ function toonMaterial(src, ex, textures, mouth) {
     uniforms.haloMask = { value: glow ? lin(c._GlowMaskColor0 || [2, 2, 2]) : new THREE.Vector3(9, 9, 9) }; // 9: never matches
     mat.side = THREE.DoubleSide;
     mat.toneMapped = false;
+    // an untextured halo (MX/C-Halo/Simple) is one flat colour
+    if (!mat.map) mat.color = srgb(c._SimpleBaseColor || c._Tint || [1, 1, 1]);
   }
   if (mouth && kind === "eyemouth") {
     uniforms.mouthMap = { value: mouth.texture };
@@ -110,7 +112,8 @@ function toonMaterial(src, ex, textures, mouth) {
         "    diffuseColor = vec4( m.rgb, m.a );",
         "  } }",
         "#endif",
-        "#ifdef HALO",
+        // the glow replacement reads the texture (map_fragment declares sampledDiffuseColor only with a map)
+        "#if defined( HALO ) && defined( USE_MAP )",
         "{ vec3 s = pow( max( sampledDiffuseColor.rgb, 0.0 ), vec3( 1.0 / 2.2 ) );",
         "  float g = 1.0 - smoothstep( 0.06, 0.22, distance( s, haloMask ) );",
         "  diffuseColor.rgb = mix( diffuseColor.rgb * haloTint, haloGlow, g ); }",
@@ -184,6 +187,11 @@ class ChibiView {
     this.tween = null;
     this.observer = new ResizeObserver(() => this.resize());
     this.observer.observe(host);
+    // a window resize only rescales the stage (the host keeps its layout size), a move to another screen or a
+    // browser zoom changes the pixel ratio: both change the canvas resolution
+    this.onWindow = () => this.resize();
+    addEventListener("resize", this.onWindow);
+    this.watchPixelRatio();
     this.canvas.addEventListener("dblclick", () => this.home());
     this.enableTap();
     this.resize();
@@ -196,6 +204,14 @@ class ChibiView {
     this.renderer.setSize(w, h, false);
     this.controls.rotateSpeed = 0.7 / Math.max(0.25, scale); // pointer moves are in screen pixels
     this.applyView();
+  }
+
+  // a media query matches the current pixel ratio only, so it is renewed on every change
+  watchPixelRatio() {
+    this.dpr?.removeEventListener("change", this.onPixelRatio);
+    this.dpr = matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`);
+    this.onPixelRatio = () => { this.watchPixelRatio(); this.resize(); };
+    this.dpr.addEventListener("change", this.onPixelRatio);
   }
 
   // the orbit target projects to the host's centre; shift the view so it lands on the frame's point instead
@@ -211,6 +227,7 @@ class ChibiView {
     const json = gltf.parser.json;
     const ex = json.extras || {};
     const textures = await Promise.all((json.textures || []).map((_, i) => gltf.parser.getDependency("texture", i)));
+    if (this.disposed) { for (const t of textures) t.dispose(); return; }
     for (const t of textures) { t.colorSpace = THREE.SRGBColorSpace; t.flipY = false; }
     this.textures = textures; // some are only in shader uniforms (mask, mouth): disposed by hand
     // the mouth atlas comes as a texture of the EyeMouth material (_MouthTileTex)
@@ -337,8 +354,7 @@ class ChibiView {
     const offset = this.camera.position.clone().sub(this.controls.target);
     const ratio = this.fit ? THREE.MathUtils.clamp(offset.length() / this.fit, 0.45, 1.3) : 1;
     this.fit = fit;
-    this.controls.minDistance = fit * 0.45; // about the bust
-    this.controls.maxDistance = fit * 1.3;  // a step back
+    this.limits = { min: fit * 0.45, max: fit * 1.3 }; // about the bust, a step back
     this.camera.near = fit / 50;
     this.camera.far = fit * 20;
     const keep = !snap && offset.lengthSq() > 0;
@@ -347,15 +363,18 @@ class ChibiView {
 
   // double-click: back to the front view at the fit distance
   home() {
-    if (this.size) this.moveTo(this.homeDirection(), this.fit, FRAMES[this.mode], false);
+    if (this.limits) this.moveTo(this.homeDirection(), this.fit, FRAMES[this.mode], false);
   }
 
   // the camera as a direction and distance from the orbit target, so the target can rise while it moves
   moveTo(direction, distance, view, snap) {
     const offset = this.camera.position.clone().sub(this.controls.target);
-    this.tween = { t0: performance.now(), dir0: offset.lengthSq() ? offset.clone().normalize() : direction.clone(), dist0: offset.length() || distance,
-      dir1: direction.clone(), dist1: distance, view0: { ...this.view }, view1: { x: view.x, y: view.y } };
-    if (snap) this.tween.t0 = -Infinity;
+    const tw = (this.tween = { t0: performance.now(), dir0: offset.lengthSq() ? offset.clone().normalize() : direction.clone(), dist0: offset.length() || distance,
+      dir1: direction.clone(), dist1: distance, view0: { ...this.view }, view1: { x: view.x, y: view.y } });
+    if (snap) tw.t0 = -Infinity;
+    // the orbit controls clamp the distance on every update: while the camera glides, the zoom limits take in both
+    // ends, and the new fit's limits apply once it arrives
+    Object.assign(this.controls, { minDistance: Math.min(this.limits.min, tw.dist0, tw.dist1), maxDistance: Math.max(this.limits.max, tw.dist0, tw.dist1) });
     this.stepTween();
     if (snap) { this.liftTarget(); this.controls.update(); }
   }
@@ -369,7 +388,10 @@ class ChibiView {
     this.camera.position.copy(this.controls.target).add(dir.normalize().multiplyScalar(tw.dist0 + (tw.dist1 - tw.dist0) * k));
     this.view = { x: tw.view0.x + (tw.view1.x - tw.view0.x) * k, y: tw.view0.y + (tw.view1.y - tw.view0.y) * k };
     this.applyView();
-    if (t >= 1) this.tween = null;
+    if (t >= 1) {
+      this.tween = null;
+      Object.assign(this.controls, { minDistance: this.limits.min, maxDistance: this.limits.max });
+    }
   }
 
   // closing in moves the orbit target from the body's centre up to the face, so the closest view is the bust;
@@ -377,7 +399,7 @@ class ChibiView {
   liftTarget() {
     if (!this.fit) return;
     const o = this.controls, offset = this.camera.position.clone().sub(o.target);
-    const t = THREE.MathUtils.clamp((this.fit - offset.length()) / (this.fit - o.minDistance), 0, 1);
+    const t = THREE.MathUtils.clamp((this.fit - offset.length()) / (this.fit - this.limits.min), 0, 1);
     o.target.set(this.target.x, this.target.y + (this.faceY - this.target.y) * ease(t), this.target.z);
     this.camera.position.copy(o.target).add(offset);
   }
@@ -476,12 +498,20 @@ class ChibiView {
     });
   }
 
-  // shaders before the first frame, in the background where the GPU driver can (else three.js warns on every call)
+  // shaders before the first frame, in the background where the GPU driver can. Polled here rather than with
+  // renderer.compileAsync, whose timer throws (and never settles) once the view is disposed meanwhile.
   async compile() {
+    const r = this.renderer;
+    let pending;
     try {
-      if (this.renderer.extensions.has("KHR_parallel_shader_compile")) await this.renderer.compileAsync(this.scene, this.camera);
-      else this.renderer.compile(this.scene, this.camera);
-    } catch { /* compiled on the first frame instead */ }
+      pending = r.compile(this.scene, this.camera);
+    } catch { return; } // compiled on the first frame instead
+    if (!r.extensions.has("KHR_parallel_shader_compile")) return;
+    // isReady() is false while the driver compiles (null once the context is lost: nothing to wait for)
+    while (pending.size && !this.disposed) {
+      for (const m of pending) if (r.properties.get(m).currentProgram?.isReady() !== false) pending.delete(m);
+      if (pending.size) await new Promise((resolve) => setTimeout(resolve, 10));
+    }
   }
 
   tick() {
@@ -517,6 +547,8 @@ class ChibiView {
     this.renderer.setAnimationLoop(null);
     this.drawn?.();
     this.observer.disconnect();
+    removeEventListener("resize", this.onWindow);
+    this.dpr.removeEventListener("change", this.onPixelRatio);
     this.controls.dispose();
     this.mixer?.stopAllAction();
     this.scene.traverse((o) => {
@@ -537,9 +569,10 @@ let view = null, token = 0;
 
 // show(variantKey, host, {frame, onAction}): load and show a variant's chibi; resolves with the action names once
 // the first frame is drawn, or null when another show or a hide came first. onAction(name) follows the current
-// action when it changes by itself (a tap, a reaction ending).
-export async function show(key, host, { frame: mode = "left", onAction = null } = {}) {
-  if (view?.key === key && view.host === host) {
+// action when it changes by itself (a tap, a reaction ending). The shown view is kept for the same variant of the
+// same install (version: the game's resource version; another game folder or file source loads it again).
+export async function show(key, host, { frame: mode = "left", onAction = null, version = null } = {}) {
+  if (view?.key === key && view.host === host && view.version === version) {
     view.onAction = onAction;
     if (view.mode !== mode) view.frameTo(mode);
     return view.ready;
@@ -547,7 +580,9 @@ export async function show(key, host, { frame: mode = "left", onAction = null } 
   hide(host);
   const my = ++token;
   const v = (view = new ChibiView(host, key));
+  v.version = version;
   v.onAction = onAction;
+  v.frameTo(mode); // before the load this only records the framing
   v.ready = (async () => {
     try {
       await v.load(`/asset/model/${encodeURIComponent(key)}.glb`);
@@ -557,7 +592,8 @@ export async function show(key, host, { frame: mode = "left", onAction = null } 
       throw err;
     }
     if (my !== token) return null;
-    v.frameTo(mode, true);
+    // the framing asked for last: fullscreen may have been entered or left while the model loaded
+    v.frameTo(v.mode, true);
     await v.compile();
     if (my !== token) return null;
     await v.start();
@@ -576,6 +612,10 @@ export function hide(host) {
 }
 
 export function frame(mode) { view?.frameTo(mode); }
+// resolves once the camera has arrived at its framing (a change of framing glides there)
+export function settled() {
+  return new Promise((resolve) => { const check = () => (view?.tween ? requestAnimationFrame(check) : resolve()); check(); });
+}
 export const actions = () => view?.actions() || [];
 export const current = () => view?.current || null;
 export function play(name) { return view?.act(name, { quiet: true }) || false; }

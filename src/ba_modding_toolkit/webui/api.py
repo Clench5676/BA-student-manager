@@ -6,6 +6,8 @@ import json
 import logging
 import sys
 import tempfile
+import threading
+import weakref
 import webbrowser
 from pathlib import Path
 from typing import Any
@@ -13,6 +15,7 @@ from typing import Any
 from .. import updater
 from ..errors import ServiceError
 from ..i18n import get_locale_dir, i18n_manager
+from ..naming import parse_filename
 from ..utils import get_version_info
 from .rpc import RpcRegistry, to_json
 from .services import Services
@@ -259,6 +262,33 @@ def build_api(s: Services) -> RpcRegistry:
                              "variants": [variant_json(v, mods, favorites, recent, modified) for v in f.variants]})
         return {"families": families}
 
+    fingerprints: dict[str, Any] = {}  # the bundle hash cache for model_files, made on first use
+
+    def model_files(core: str | None) -> list[dict[str, Any]]:
+        """A 3D chibi's prefab bundles (character-<dev>-_mxload-*), newest first, in the shape of the variant state's
+        file parts, with the CRC state by the library's rules (official, fixed by trailing bytes, or needing a fix)."""
+        try:
+            index = getattr(s.game, "_model_index", None) if core else None
+            names = index().get(core.lower(), []) if index else []
+        except (ServiceError, OSError):
+            return []
+        if "cache" not in fingerprints:
+            from ..library.storage import Fingerprints
+
+            fingerprints["cache"] = Fingerprints()
+        out = []
+        for name in names:
+            path = Path(name)
+            parsed = parse_filename(path.name)
+            try:
+                fp = fingerprints["cache"].get(path)
+            except OSError:
+                continue
+            matches = bool(parsed.crc) and fp.crc == int(parsed.crc)
+            crc = "ok" if matches and fp.trailing == 0 else "fixed" if matches and fp.trailing else "needs_fix"
+            out.append({"file": str(path), "kind": "model", "date": parsed.date, "size": fp.size, "crc": crc})
+        return sorted(out, key=lambda part: (part["date"] or "", part["file"]), reverse=True)
+
     @rpc.method("family.get")
     def family_get(key: str) -> dict[str, Any]:
         f = s.catalog.family(key)
@@ -268,8 +298,35 @@ def build_api(s: Services) -> RpcRegistry:
             item = variant_json(v, mods, favorites, recent)
             item["state"] = to_json(s.library.state(v.key))
             item["modList"] = [to_json(m) for m in mods.get(v.key, [])]
+            item["modelFiles"] = model_files(v.model)
             variants.append(item)
-        return {"key": f.key, "base": f.names, "school": f.school, "variants": variants}
+        # the game's resource version tells installs apart (another game folder or file source): the page then reads
+        # every part of a variant again, even under the same variant key
+        return {"key": f.key, "base": f.names, "school": f.school, "variants": variants,
+                "version": s.game.resource_version if s.game_found() else None}
+
+    warmed: dict[str, Any] = {"game": None}
+    warm_lock = threading.Lock()
+
+    @rpc.method("lobby.warm")
+    def lobby_warm() -> None:
+        """Build the memorial lobby prefab index in the background (its first build reads every lobby element bundle,
+        about 8 s), once per game, so the first lobby shown does not wait for it. Nothing without a game."""
+        if not s.game_found():
+            return
+        game = s.game
+        with warm_lock:
+            if warmed["game"] is not None and warmed["game"]() is game:
+                return
+            warmed["game"] = weakref.ref(game)
+
+        def build() -> None:
+            try:
+                game._lobby_prefabs()
+            except Exception:  # the lobby builds it again when it needs it
+                logger.debug("Cannot build the memorial lobby prefab index", exc_info=True)
+
+        threading.Thread(target=build, name="lobby-warm", daemon=True).start()
 
     @rpc.method("lobby.lines")
     def lobby_lines(variant: str) -> dict[str, Any]:

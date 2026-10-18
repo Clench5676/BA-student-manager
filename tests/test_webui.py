@@ -1,5 +1,6 @@
 """Tests for the web UI server, RPC layer, jobs and events, driven through the WSGI app without a window."""
 
+import binascii
 import io
 import json
 import threading
@@ -220,6 +221,34 @@ def test_roster_and_family(app, services):
     assert fam["variants"][0]["favorite"] is True
     assert fam["variants"][0]["state"] == {"applied": "official", "crc": "ok"}
     assert fam["variants"][0]["modList"] == [{"id": "m1", "target": "hoshino", "fresh": True}]
+    assert fam["version"] == "rv1"  # the install the parts come from
+
+
+def _bundle(folder: Path, stem: str, trailing: bytes = b"") -> Path:
+    """A minimal UnityFS file named with the CRC of its whole content, as the game names its bundles."""
+    head = b"UnityFS\x00" + (6).to_bytes(4, "big") + b"5.x.x\x002021.3\x00"
+    data = head + (len(head) + 8 + 16).to_bytes(8, "big") + bytes(16)
+    crc = binascii.crc32(data + trailing) & 0xFFFFFFFF
+    path = folder / f"{stem}_{crc}.bundle"
+    path.write_bytes(data + trailing)
+    return path
+
+
+def test_family_lists_the_model_prefab_bundles(app, services, monkeypatch, tmp_path):
+    old = _bundle(tmp_path, "character-hoshino_original-_mxload-2024-11-18_000_assets_all")
+    new = _bundle(tmp_path, "character-hoshino_original-_mxload-2025-07-25_assets_all", trailing=b"\x01\x02\x03\x04")
+    broken = tmp_path / "character-hoshino_original-_mxload-2025-08-01_assets_all_12345.bundle"
+    broken.write_bytes(old.read_bytes())
+    monkeypatch.setattr(FakeGame, "_model_index", lambda self: {"hoshino_original": [str(old), str(new), str(broken)]},
+                        raising=False)
+    services.catalog.v.model = "hoshino_original"
+    files = rpc(app, "family.get", key="hoshino")["result"]["variants"][0]["modelFiles"]
+    # newest first, each with the date and CRC state the info panel shows (the library's rules)
+    assert [(Path(f["file"]), f["date"], f["crc"], f["kind"]) for f in files] == [
+        (broken, "2025-08-01", "needs_fix", "model"), (new, "2025-07-25", "fixed", "model"), (old, "2024-11-18", "ok", "model")]
+    assert files[2]["size"] == old.stat().st_size
+    services.catalog.v.model = None
+    assert rpc(app, "family.get", key="hoshino")["result"]["variants"][0]["modelFiles"] == []
 
 
 def test_catalog_follows_the_selected_server(tmp_path: Path):
@@ -271,6 +300,35 @@ def test_loading_list_shape(app, services, monkeypatch):
     assert rpc(app, "loading.list")["result"]["images"]  # the app's own language
     monkeypatch.setattr(services, "game_found", lambda: False)
     assert rpc(app, "loading.list")["result"] == {"lang": None, "images": []}
+
+
+def test_lobby_warm_builds_the_prefab_index_once_per_game(app, services, monkeypatch):
+    calls, release = [], threading.Event()
+
+    def prefabs(game):
+        calls.append(game)
+        release.wait(5)
+        return {}
+
+    monkeypatch.setattr(FakeGame, "_lobby_prefabs", prefabs, raising=False)
+    first = services.game
+    # answered at once while the index is built in the background; a second call does not start another build
+    assert "error" not in rpc(app, "lobby.warm") and "error" not in rpc(app, "lobby.warm")
+    release.set()
+    for thread in [t for t in threading.enumerate() if t.name == "lobby-warm"]:
+        thread.join(5)
+    assert calls == [first]
+    # another game (a new game folder or file source) is warmed again
+    services._game = FakeGame()
+    rpc(app, "lobby.warm")
+    for thread in [t for t in threading.enumerate() if t.name == "lobby-warm"]:
+        thread.join(5)
+    assert calls == [first, services._game]
+    # without a game nothing is started
+    monkeypatch.setattr(services, "game_found", lambda: False)
+    services._game = FakeGame()
+    assert "error" not in rpc(app, "lobby.warm")
+    assert len(calls) == 2
 
 
 def test_static_files_stay_inside_web_dir(app, tmp_path):
