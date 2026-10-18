@@ -9,7 +9,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from ..config import Settings, user_cache_dir
+from ..config import APP_DIR_NAME, Settings, user_cache_dir
 from ..kivo import Kivo
 from ..errors import ServiceError
 from ..utils import EXE_DIR
@@ -50,7 +50,7 @@ class Services:
             if self._cache is None:
                 from ..gameassets import AssetCache
 
-                self._cache = AssetCache(allowed=self.state.consent is True, root=user_cache_dir())
+                self._cache = AssetCache(allowed=self.state.consent is True, root=self.cache_dir())
             return self._cache
 
     @property
@@ -90,6 +90,29 @@ class Services:
 
                 self._library = ModLibrary(self.library_dir(), self.catalog, self.game, self.settings)
             return self._library
+
+    def cache_dir(self) -> Path:
+        """Where light game UI assets are cached: a BA-Modding-Toolkit/cache folder inside the folder the user chose,
+        else the default user cache folder. Always a folder of its own, so clearing it never touches anything else."""
+        chosen = self.state.get("cache_parent")
+        return Path(chosen) / APP_DIR_NAME / "cache" if chosen else user_cache_dir()
+
+    def set_cache_parent(self, parent: Path) -> Path:
+        """Cache in another folder; the old cache is removed (it is rebuilt from the game files on demand)."""
+        parent = Path(parent).expanduser().resolve()
+        if not parent.is_dir():
+            raise ServiceError("path_not_found", path=str(parent))
+        with self._lock:
+            old = self.cache_dir()
+            self.state.set("cache_parent", str(parent))
+            new = self.cache_dir()
+            if new != old:
+                if self._cache is not None:
+                    self._cache.clear()  # removes the old cache folder only
+                    self._cache.root = new
+                elif old.is_dir() and old.name == "cache" and old.parent.name == APP_DIR_NAME:
+                    shutil.rmtree(old, ignore_errors=True)
+        return new
 
     def library_dir(self) -> Path:
         """Where the mod library lives: the user's choice, else the data directory's library folder."""

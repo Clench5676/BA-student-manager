@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Any
 
 from .. import updater
-from ..config import user_cache_dir
 from ..errors import ServiceError
 from ..i18n import get_locale_dir, i18n_manager
 from ..utils import get_version_info
@@ -66,7 +65,7 @@ def build_api(s: Services) -> RpcRegistry:
             "gameFound": found,
             "resourceVersion": s.game.resource_version if found else None,
             "consent": s.state.consent,
-            "cacheDir": str(user_cache_dir()),
+            "cacheDir": str(s.cache_dir()),
             "dataDir": str(s.data_dir),
             "native": s.window is not None,
             "compiled": updater.is_compiled(),
@@ -129,7 +128,7 @@ def build_api(s: Services) -> RpcRegistry:
             "gameDirs": {"global": st.get("game_resource_dir"), "japan": st.get("game_resource_dir_japan")},
             "gameFound": s.game_found(), "libraryDir": str(s.library_dir()), "outputDir": st.get("output_dir"),
             "voiceVolume": int(s.state.get("voice_volume", 80)), "voiceMuted": bool(s.state.get("voice_muted", False)),
-            "consent": s.state.consent, "cacheDir": str(user_cache_dir()),
+            "consent": s.state.consent, "cacheDir": str(s.cache_dir()),
             "version": get_version_info().get("version"), "native": s.window is not None,
         }
 
@@ -164,6 +163,8 @@ def build_api(s: Services) -> RpcRegistry:
             st.save()
         elif key == "libraryDir":
             s.move_library(Path(str(value)))
+        elif key == "cacheDir":
+            s.set_cache_parent(Path(str(value)))
         elif key == "voiceVolume":
             s.state.set("voice_volume", max(0, min(100, int(value))))
         elif key == "voiceMuted":

@@ -125,7 +125,7 @@ async function boot() {
   }));
   addEventListener("hashchange", route);
   await route();
-  if (info.consent !== true) await Consent.show($("consent"), info.cacheDir);
+  if (info.consent !== true) await Consent.show($("consent"), info.cacheDir, info.native);
   // released builds look for a newer release once per launch (development runs do not)
   if (info.compiled) Update.check($("consent"));
 }

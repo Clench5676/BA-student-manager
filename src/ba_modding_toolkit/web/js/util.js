@@ -23,6 +23,30 @@ export function text(tree, path, value, extra = {}) {
 }
 export const widget = (tree, path) => at(tree, path)?.widgets.find((x) => "w_" in x);
 
+// a path (or a short text ending in one) broken after its separators to fit maxW; the largest size from fsMax down
+// to fsMin that needs at most maxLines lines. Never cut: a part longer than a line is broken between characters.
+export function wrapPath(path, fsMax, fsMin, maxW, maxLines = 3) {
+  const parts = String(path ?? "").split(/(?<=[\\/ ])/).flatMap((part) => {
+    if (glyphsOf(part, fsMin) <= maxW) return [part];
+    const out = [];
+    let cur = "";
+    for (const ch of part) { if (cur && glyphsOf(cur + ch, fsMin) > maxW) { out.push(cur); cur = ch; } else cur += ch; }
+    return cur ? [...out, cur] : out;
+  });
+  let best = null;
+  for (let fs = fsMax; fs >= fsMin; fs -= 2) {
+    const lines = [];
+    let cur = "";
+    for (const part of parts) {
+      if (cur && glyphsOf((cur + part).trimEnd(), fs) > maxW) { lines.push(cur.trimEnd()); cur = part; } else cur += part;
+    }
+    if (cur) lines.push(cur.trimEnd());
+    best = { text: lines.join("\n"), fs, lines: lines.length };
+    if (lines.length <= maxLines) return best;
+  }
+  return best;
+}
+
 // an invisible button over a rendered widget
 export function hitButton(host, [l, t, w, h], fn, title, z = 50) {
   const b = document.createElement("button");

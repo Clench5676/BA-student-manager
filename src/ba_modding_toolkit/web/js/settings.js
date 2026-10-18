@@ -4,7 +4,7 @@
 import * as NGUI from "./ngui.js";
 import { rpc } from "./api.js";
 import { T, platform } from "./i18n.js";
-import { $, S, clone, glyphsOf, hitButton, toast } from "./util.js";
+import { $, S, clone, glyphsOf, hitButton, toast, wrapPath } from "./util.js";
 
 const { node, sprite, label, find, rect } = NGUI;
 const fitText = (...a) => NGUI.fitText(...a);
@@ -62,15 +62,17 @@ function radioRow(name, y, title, options, selected, onPick) {
   return { tree: row, h, hits };
 }
 
-// a value with one or two buttons on the right (folders, version, cache)
+// a value with one or two buttons on the right (folders, version, cache); long values wrap, never cut
 function valueRow(name, y, title, value, buttons) {
-  const h = 240, row = rowBase(name, y, h, title), hits = [];
   const room = 1440 - buttons.length * 320;
-  const f = fitText(value || T("settings.notSet"), 38, 30, room);
-  row.children.push(node("Value", [-718, -h / 2 + 62], [label(f.lines > 1 ? value : f.text, Math.min(f.fs, 38), "#2d4664/1.00", room, 56, { pivot: 3, depth: 8, ellipsis: true })]));
+  const f = wrapPath(value || T("settings.notSet"), 38, 30, room, 3);
+  const lineH = f.fs * 1.3, blockH = Math.max(lineH * f.lines, 112);
+  const h = 130 + blockH + 30, row = rowBase(name, y, h, title), hits = [];
+  const midY = h / 2 - 130 - blockH / 2;
+  row.children.push(node("Value", [-718, midY], [label(f.text, f.fs, "#2d4664/1.00", room, lineH * f.lines + 10, { pivot: 3, depth: 8 })]));
   buttons.forEach(([caption, fn, enabled = true], i) => {
     const x = 700 - (buttons.length - 1 - i) * 320 - 150;
-    row.children.push(buttonNode(`Btn_${i}`, x, -h / 2 + 70, caption, { enabled }));
+    row.children.push(buttonNode(`Btn_${i}`, x, midY, caption, { enabled }));
     if (enabled) hits.push({ path: `${name}/Btn_${i}`, fn, title: caption });
   });
   return { tree: row, h, hits };
@@ -133,8 +135,9 @@ function rows() {
   const open = T(platform === "mac" ? "open.mac" : "open.win");
   if (tab === "general") {
     add(radioRow("Language", 0, T("settings.language"), p.languages.map((l) => [l.code, l.name]), p.language, (v) => set("language", v)));
-    add(valueRow("Cache", 0, T("settings.cache.label"), p.consent ? `${T("settings.cache.on")} - ${p.cacheDir}` : T("settings.cache.off"),
-      [[T("settings.cache.clear"), async () => { if (await call(() => rpc("settings.clearCache")) !== null) toast(T("settings.cache.cleared")); }, !!p.consent]]));
+    add(valueRow("Cache", 0, T("settings.cache.label"), p.consent ? T("cacheTo", { path: p.cacheDir }) : `${T("settings.cache.off")} - ${p.cacheDir}`, [
+      [T("settings.cache.change"), browse("cacheDir", p.cacheDir), p.native],
+      [T("settings.cache.clear"), async () => { if (await call(() => rpc("settings.clearCache")) !== null) toast(T("settings.cache.cleared")); }, !!p.consent]]));
     add(valueRow("Version", 0, T("settings.version"), (p.version || "").replace(/-dev$/, ""), [[T("settings.update.check"), checkUpdate]]));
     add(valueRow("Classic", 0, T("settings.classic.label"), T("settings.classic.hint"), [[T("settings.classic.open"), () => call(() => rpc("app.openClassic", { tab: "settings" }))]]));
   } else if (tab === "sound") {

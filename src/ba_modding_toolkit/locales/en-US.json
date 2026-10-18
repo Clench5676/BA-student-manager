@@ -793,7 +793,8 @@
 				"items": "Portraits, memorial lobbies, sprites, voices, backgrounds",
 				"how": "Read from the game folder each time"
 			},
-			"note": "Game assets belong to their owners, stay on this device and can be cleared in Settings"
+			"note": "Game assets belong to their owners, stay on this device and can be cleared in Settings",
+			"change": "Change"
 		},
 		"info": {
 			"title": {
@@ -999,7 +1000,8 @@
 				"on": "Cached on this device",
 				"off": "Not cached",
 				"clear": "Clear Cache",
-				"cleared": "Cache cleared"
+				"cleared": "Cache cleared",
+				"change": "Change"
 			},
 			"version": "Version",
 			"update": {
@@ -1026,6 +1028,7 @@
 			"notSet": "Not set",
 			"saved": "Saved",
 			"button": "Settings"
-		}
+		},
+		"cacheTo": "Cached in {path}"
 	}
 }
