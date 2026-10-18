@@ -23,6 +23,7 @@ class Variant:
     page_id: str | None = None  # the student page on Kivo (kivo.wiki), for lobby lines
     recruitable: bool = False  # playable on the selected server, not only on some server
     model: str | None = None  # the 3D chibi's dev name (character-<dev>-_mxload-* bundles)
+    schale_id: int | None = None  # the game's character id (SchaleDB's student id), for the Global server's lines
 
     def to_json(self) -> dict:
         """Return an independent JSON-ready record for RPC responses."""

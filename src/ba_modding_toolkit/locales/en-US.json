@@ -835,7 +835,8 @@
 			"fullscreen": "Fullscreen",
 			"playAll": "Play All Dialogue",
 			"stop": "Stop",
-			"exit": "Exit Fullscreen"
+			"exit": "Exit Fullscreen",
+			"dialogue": "Dialogue {n}"
 		},
 		"model": {
 			"original": "Original",

@@ -185,7 +185,7 @@ class Catalog:
                               art.get("bg", {}).get((entry.get("bg") or "").lower()), portrait,
                               max(filter(None, dates), default=None), entry.get("page_id") or None,
                               recruitable=self._recruitable(entry, portrait is not None, bool(collection)),
-                              model=model_core(key, aliases[1:], models))
+                              model=model_core(key, aliases[1:], models), schale_id=entry.get("schale_id"))
             family.variants.append(variant)
             variants[key] = variant
             cores[core.lower()] = variant

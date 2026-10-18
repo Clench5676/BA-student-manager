@@ -164,10 +164,6 @@ const TEXTURES = {
   "svg:stop": svg('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><rect x="10" y="10" width="28" height="28" rx="4" fill="#2b496e"/></svg>'),
   "svg:folder": svg('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><path fill="#2d5164" d="M5 12a3 3 0 0 1 3-3h11l4 5h17a3 3 0 0 1 3 3v19a3 3 0 0 1-3 3H8a3 3 0 0 1-3-3Z"/></svg>'),
 };
-// a dialogue card: a speech bubble with the dialogue's number (the game's lines are not read yet)
-const talkCard = (n) => svg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 200"><rect width="240" height="200" fill="#eef4f8"/>
-  <path d="M60 54h120a16 16 0 0 1 16 16v52a16 16 0 0 1-16 16h-66l-26 22v-22H60a16 16 0 0 1-16-16V70a16 16 0 0 1 16-16Z" fill="#fff" stroke="#9fb7cc" stroke-width="5"/>
-  <text x="120" y="111" text-anchor="middle" font-family="RHR, PingFang SC, sans-serif" font-size="40" fill="#2c4564">${String(n).padStart(2, "0")}</text></svg>`);
 
 // an upright texture inside a slanted body is clipped to the body (the game does this with panel clipping)
 const clipped = (name, pos, url, win, img, opts = {}) => node(name, pos, [{ clipImage: url, w_: win.w, h_: win.h, pivot: 4, depth: opts.depth ?? 9,
@@ -618,7 +614,7 @@ async function renderChips() {
 }
 
 // --- row 4: a box, then cards on the columns of row 2's skill cards, the pile in the button column ---
-function stripCard(name, x, { w = CARD.w, h = CARD.h, thumb: pic = null, selected = false, dim = false, caption = "", body = "", tone = "#ffffff" } = {}) {
+function stripCard(name, x, { w = CARD.w, h = CARD.h, thumb: pic = null, selected = false, dim = false, caption = "", body = "", placeholder = false, tone = "#ffffff" } = {}) {
   const vis = h - 13, cy = 6.5; // the visible body's centre sits 6.5 units above the widget's centre
   const kids = [node("Line", [1, cy], [sprite("Common_Line_Raius20px", w - 10, vis, { incline: 10, depth: 9, color: "#bebebe/1.00" })])];
   if (pic) kids.push(node("Thumb", [1, cy], [{ clipImage: pic, w_: w - 18, h_: vis - 8, pivot: 4, depth: 8, incline: 10, radius: 16, color: "#ffffff/1.00", imgSize: "cover", imgPosition: "center 50%" }]));
@@ -629,10 +625,11 @@ function stripCard(name, x, { w = CARD.w, h = CARD.h, thumb: pic = null, selecte
   }
   if (body) {
     // a dialogue line: centred on the card, as large as fits in up to four lines; a longer line ends in an ellipsis
-    // (the subtitle shows it in full)
+    // (the subtitle shows it in full). A placeholder (no line in the UI language) is grey and slanted.
     let f = fitText(body, 40, 32, w - 52, 4), cut = body;
     while (f.lines === 1 && glyphsOf(f.text, f.fs) > w - 52 && cut.length > 4) { cut = cut.slice(0, -2).trimEnd(); f = fitText(`${cut}…`, 40, 32, w - 52, 4); }
-    kids.push(node("Body", [0, cy], [label(f.text, f.fs, "#2c4564/1.00", w - 40, f.fs * 1.3 * f.lines, { depth: 12 })]));
+    const ink = placeholder ? "#8f9aa6/1.00" : "#2c4564/1.00";
+    kids.push(node("Body", [0, cy], [label(f.text, f.fs, ink, w - 40, f.fs * 1.3 * f.lines, { depth: 12, italic: placeholder })]));
   }
   if (selected) kids.push(node("Select", [1, cy], [sprite("Card_Select_Line_Blue", w + 6, vis + 8, { incline: 10, depth: 20 })],
     [node("Check", [w / 2 - 30 + (vis / 2 - 26) * TAN10, vis / 2 - 26], [sprite("Common_Icon_Check_B", 56, 54, { type: 0, depth: 21 })])]));
@@ -642,10 +639,10 @@ function stripCard(name, x, { w = CARD.w, h = CARD.h, thumb: pic = null, selecte
 // row 4 per tab: the portrait's faces, the memorial lobby's dialogues
 function row4Items() {
   if (tab === "lobby") {
-    // the lines from Kivo when they could be read, else a numbered speech bubble
+    // the dialogue's lines in the UI language, else a numbered placeholder
     return (Lobby.meta()?.sequences || []).map((sq) => {
-      const text = Lobby.textOf(sq).join(" ");
-      return text ? { key: sq.anim, body: text, title: text } : { key: sq.anim, thumb: talkCard(sq.n), title: String(sq.n) };
+      const text = Lobby.textOf(sq).join(" "), none = T("lobby.dialogue", { n: sq.n });
+      return text ? { key: sq.anim, body: text, title: text } : { key: sq.anim, body: none, placeholder: true, title: none };
     });
   }
   if (tab === "model") return modelActions.map((a) => ({ key: a, caption: T(`model.action.${a}`), title: T(`model.action.${a}`) }));
@@ -685,7 +682,7 @@ async function renderExpressions() {
   const ok = () => showable("expr", my, exprToken, gen);
   const host = $("ngui-expr");
   const list = row4Items(), sel = row4Selected(), unfolded = expanded, pics = [];
-  const cardOf = (it, x, extra = {}) => stripCard(`Item_${it.key}`, x, { thumb: it.thumb, body: it.body, caption: it.caption, selected: it.key === sel, ...extra });
+  const cardOf = (it, x, extra = {}) => stripCard(`Item_${it.key}`, x, { thumb: it.thumb, body: it.body, placeholder: it.placeholder, caption: it.caption, selected: it.key === sel, ...extra });
   const cards = [];
   if (unfolded || list.length <= 4) {
     list.forEach((it, i) => cards.push({ tree: cardOf(it, COLS[0] + i * PITCH), item: it }));
@@ -1283,8 +1280,10 @@ function unfreezeLeft(now = false) {
   }
 }
 
-// the memorial lobby: every layer in and drawn, the still for the switch card, the dialogue strip; the lines from
-// Kivo when they come in time (later ones re-render the strip)
+// the UI language -> its key in the lobby lines
+const LINE_LANG = { "zh-CN": "zh-CN", "zh-TW": "zh-TW", "en-US": "en", "ja-JP": "ja", "ko-KR": "ko", "th-TH": "th" };
+// the memorial lobby: every layer in and drawn, the still for the switch card, the dialogue strip; the lines when
+// they come in time (later ones re-render the strip)
 async function showLobby(v, my) {
   const still = () => open && my === leftToken && tab === "lobby" && variantKey === v.key;
   if (lobbyFrom !== fam.version) Lobby.hide($("lobby"));
@@ -1292,11 +1291,13 @@ async function showLobby(v, my) {
   const m = await Lobby.show(v.lobby, $("lobby"), v.key);
   if (!m || !still()) return;
   if (fullscreen) { Lobby.frame("full"); Lobby.interactive(true); }
-  // lines and voices from Kivo; the Chinese UIs show the Chinese text, the others the original Japanese
-  const lines = rpc("lobby.lines", { variant: v.key }).then((table) => {
+  // the lines in the UI language only (Kivo's Chinese and Japanese, the Global server's English and the others), on
+  // the voice clips of each talk animation, and Kivo's voices; nothing in another language stands in for a missing one
+  const key = LINE_LANG[language()] || "en";
+  const talks = Object.fromEntries(m.sequences.map((sq) => [sq.anim, sq.cues.map((c) => c.clip)]));
+  const lines = rpc("lobby.lines", { variant: v.key, talks, lang: key }).then((table) => {
     if (!still()) return null;
-    const pick = (l) => (language().startsWith("zh") ? l?.["zh-CN"] || l?.ja : l?.ja || l?.["zh-CN"]) || "";
-    Lobby.setLines(table, pick);
+    Lobby.setLines(table, (l) => l?.[key] || "");
     return renderExpressions();
   }).catch(() => { if (still()) Lobby.setLines({}, null); });
   // the still is taken in the left framing, once the players have drawn a few frames of it

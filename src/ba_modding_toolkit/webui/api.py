@@ -9,12 +9,14 @@ import tempfile
 import threading
 import weakref
 import webbrowser
+from concurrent.futures import Future
 from pathlib import Path
 from typing import Any
 
-from .. import updater
+from .. import globallines, updater
 from ..errors import ServiceError
 from ..i18n import get_locale_dir, i18n_manager
+from ..kivo import clip_id
 from ..naming import parse_filename
 from ..utils import get_version_info
 from .rpc import RpcRegistry, to_json
@@ -23,6 +25,7 @@ from .system import open_classic, reveal
 
 logger = logging.getLogger(__name__)
 UI_LANGS = ("zh-CN", "zh-TW", "en-US", "ja-JP")
+LINE_LANGS = {"zh-CN": "zh-CN", "zh-TW": "zh-TW", "en-US": "en", "ja-JP": "ja"}  # UI language -> lobby lines key
 
 
 def ui_strings(lang: str) -> dict[str, str]:
@@ -45,6 +48,28 @@ def _flatten(node: Any, prefix: str, out: dict[str, str]) -> None:
             _flatten(v, f"{prefix}.{k}", out)
     elif isinstance(node, str):
         out[prefix] = node
+
+
+def clip_talks(talks: Any) -> dict[str, list[str]]:
+    """The page's {talk animation: [clip ids]}, checked and normalised; {} when absent or malformed."""
+    if not isinstance(talks, dict):
+        return {}
+    return {str(anim): [clip_id(str(c)) for c in ids[:32]] for anim, ids in list(talks.items())[:64]
+            if isinstance(ids, list)}
+
+
+def _background(fn: Any, *args: Any) -> Future:
+    """Run fn on a daemon thread (a slow download never holds up quitting); its result as a future."""
+    future: Future = Future()
+
+    def run() -> None:
+        try:
+            future.set_result(fn(*args))
+        except BaseException as e:  # handed to the caller
+            future.set_exception(e)
+
+    threading.Thread(target=run, name="lobby-lines", daemon=True).start()
+    return future
 
 
 def _url_bg(name: str | None) -> str | None:
@@ -329,11 +354,29 @@ def build_api(s: Services) -> RpcRegistry:
         threading.Thread(target=build, name="lobby-warm", daemon=True).start()
 
     @rpc.method("lobby.lines")
-    def lobby_lines(variant: str) -> dict[str, Any]:
-        """The memorial lobby's lines by voice clip, from Kivo (``lines_unavailable`` offline)."""
+    def lobby_lines(variant: str, talks: dict[str, list[str]] | None = None, lang: str | None = None) -> dict[str, Any]:
+        """The memorial lobby's lines by voice clip ({clip: {lang: text, "voice": bool}}): Kivo's (zh-CN, ja, the
+        voices) and, for a ``lang`` other than zh-CN, the Global server's official text on the clips of each talk
+        animation (``talks``: {animation: [clip ids in order]} from the skeleton, else Kivo's clip names).
+        ``lines_unavailable`` when neither can be read."""
         v = s.catalog.variant(variant)
-        lines = s.kivo.lines(v.page_id or "")
-        return {clip: {"zh-CN": line["zh-CN"], "ja": line["ja"], "voice": bool(line["audio"])} for clip, line in lines.items()}
+        lang = lang or LINE_LANGS.get(i18n_manager.lang, "en")
+        character = getattr(v, "schale_id", None)
+        # the Global table (a download the first time) is read while Kivo's page is
+        pending = _background(s.global_lines.dialogues, character) if lang != "zh-CN" and character else None
+        try:
+            kivo = s.kivo.lines(v.page_id or "")
+        except ServiceError:
+            kivo = None
+        official: dict[str, dict[str, str]] = {}
+        if pending is not None:
+            try:
+                official = globallines.by_clip(pending.result(), clip_talks(talks) or globallines.talks_of(kivo or {}))
+            except ServiceError:
+                pass
+        if kivo is None and not official:
+            raise ServiceError("lines_unavailable")
+        return globallines.merge(kivo or {}, official)
 
     @rpc.method("favorites.set")
     def favorites_set(variant: str, on: bool) -> None:

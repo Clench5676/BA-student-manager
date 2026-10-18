@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from ..config import APP_DIR_NAME, Settings, user_cache_dir
+from ..globallines import GlobalLines
 from ..kivo import Kivo
 from ..errors import ServiceError
 from ..utils import EXE_DIR
@@ -36,6 +37,7 @@ class Services:
         self.window: Any = None  # the pywebview window, when there is one (see native.py)
         self.update_info: Any = None  # the last update check's result
         self.kivo = Kivo()
+        self.global_lines = GlobalLines()
         self.mute = False  # development: never play voices
         self._lock = threading.RLock()
         self._cache, self._game, self._catalog, self._library = cache, game, catalog, library

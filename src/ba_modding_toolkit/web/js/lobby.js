@@ -627,7 +627,9 @@ function silence() {
   audios = [];
 }
 
-// lines by clip id ({clip: {"zh-CN", ja, voice}}) and the language picker for them
+// lines by clip id ({clip: {lang: text, voice}}: Kivo's Chinese and Japanese, the Global server's English and others)
+// and the picker of the UI language's line ("" when it has none: a cue without one leaves the subtitle as it is, since
+// one row of the game's text can cover two clips)
 export function setLines(table, pick) {
   lines = table || {};
   if (pick) lineOf = pick;
