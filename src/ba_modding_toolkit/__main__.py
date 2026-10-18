@@ -1,11 +1,7 @@
 # __main__.py
+# python -m ba_modding_toolkit (and the compiled app): the web UI, or the classic GUI with --classic / --tab
 
-try:
-    from . import gui
-    print("from . import gui")
-except ImportError:
-    import ba_modding_toolkit.gui as gui
-    print("import ba_modding_toolkit.gui as gui")
+from ba_modding_toolkit.launcher import main
 
 if __name__ == "__main__":
-    gui.main()
+    main()
