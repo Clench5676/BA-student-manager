@@ -47,10 +47,10 @@ jobs:
 
           # 元数据
           windows-icon-from-ico: src/ba_modding_toolkit/assets/eligma.ico
-          product-name: "BA Modding Toolkit CLI"
+          product-name: "Blue Archive Modding and Patching Tool CLI"
           product-version: ${{ steps.get_version.outputs.file_version }}
           file-version: ${{ steps.get_version.outputs.file_version }}
-          file-description: "BA Modding Toolkit CLI (Test Build)"
+          file-description: "Blue Archive Modding and Patching Tool CLI (Test Build)"
           company-name: "Agent-0808"
           copyright: "Copyright ©2025-2026 Agent-0808. Licensed under GPLv3."
           trademarks: "Blue Archive ©NEXON Games Co., Ltd. & Yostar, Inc. This tool is unofficial and not endorsed by them."

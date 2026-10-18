@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # scripts/build_macos.sh
 #
-# Build "BA Modding Toolkit.app" with Nuitka on macOS and package it as a DMG
+# Build "Blue Archive Modding and Patching Tool.app" with Nuitka on macOS and package it as a DMG
 # (for the architecture of the build machine).
 # Requires uv and the Xcode Command Line Tools (clang); sips / iconutil / hdiutil ship with macOS.
 #
@@ -19,7 +19,7 @@ ROOT="$PWD"
 
 PYTHON="${PYTHON:-3.12.11}"
 NUITKA_VERSION="${NUITKA_VERSION:-4.3}"
-APP_NAME="BA Modding Toolkit"
+APP_NAME="Blue Archive Modding and Patching Tool"
 BUNDLE_ID="io.github.agent-0808.ba-modding-toolkit"
 BUILD_DIR="$ROOT/build/macos"
 DIST_DIR="$ROOT/dist"
@@ -121,7 +121,7 @@ rm -rf "$BUILD_DIR"/*.app
         --copyright="Copyright ©2025-2026 Agent-0808. Licensed under GPLv3." \
         --trademarks="Blue Archive ©NEXON Games Co., Ltd. & Yostar, Inc. This tool is unofficial and not endorsed by them." \
         --output-dir="$BUILD_DIR" \
-        --output-filename=BA-Modding-Toolkit \
+        --output-filename=Blue-Archive-Modding-and-Patching-Tool \
         --report="$BUILD_DIR/compilation-report.xml" \
         --assume-yes-for-downloads \
         ba_modding_toolkit
@@ -141,7 +141,7 @@ mkdir -p "$STAGING" "$DIST_DIR"
 ditto "$APP" "$STAGING/$APP_NAME.app"
 ln -s /Applications "$STAGING/Applications"
 
-DMG="$DIST_DIR/BA-Modding-Toolkit-v$VERSION-macos-$(uname -m).dmg"
+DMG="$DIST_DIR/Blue-Archive-Modding-and-Patching-Tool-v$VERSION-macos-$(uname -m).dmg"
 rm -f "$DMG"
 hdiutil create -volname "$APP_NAME" -srcfolder "$STAGING" -fs HFS+ -format UDZO -ov "$DMG"
 rm -rf "$STAGING"

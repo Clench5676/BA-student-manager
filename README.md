@@ -4,15 +4,17 @@
   </p>
   <p>
     <a href="https://www.gnu.org/licenses/gpl-3.0"><img alt="License: GPLv3" src="https://img.shields.io/badge/License-GPL--3.0-orange.svg"></a>
-    <img alt="GitHub Release" src="https://img.shields.io/github/v/release/Agent-0808/BA-Modding-Toolkit">
-    <img alt="GitHub Repo stars" src="https://img.shields.io/github/stars/Agent-0808/BA-Modding-Toolkit?style=flat">
-    <img alt="GitHub Downloads (all assets, all releases)" src="https://img.shields.io/github/downloads/Agent-0808/BA-Modding-Toolkit/total">
+    <img alt="GitHub Release" src="https://img.shields.io/github/v/release/Clench5676/BlueArchive-Modding-and-Patching-Tool">
+    <img alt="GitHub Repo stars" src="https://img.shields.io/github/stars/Clench5676/BlueArchive-Modding-and-Patching-Tool?style=flat">
+    <img alt="GitHub Downloads (all assets, all releases)" src="https://img.shields.io/github/downloads/Clench5676/BlueArchive-Modding-and-Patching-Tool/total">
   </p>
 </div>
 
-# BA Modding Toolkit
+# Blue Archive Modding and Patching Tool
 
 [简体中文](README_zh-CN.md) | English
+
+Based on [BA Modding Toolkit](https://github.com/Agent-0808/BA-Modding-Toolkit) by Agent-0808.
 
 A toolkit based on UnityPy for automating the creation and updating of Blue Archive/ブルーアーカイブ mods.
 
@@ -27,11 +29,11 @@ Supports Steam version (PC) and other versions (Global/JP server, PC/Android/iOS
 - Want to create your own mod to replace character illustrations, but don't know how to operate?
 - Want to extract character illustrations or other assets?
 
-BA Modding Toolkit can help you solve the above problems, with foolproof operations, no need to manually manipulate bundle files.
+Blue Archive Modding and Patching Tool can help you solve the above problems, with foolproof operations, no need to manually manipulate bundle files.
 
 ## Getting Started
 
-You can download the latest version of the executable file from the [Releases](https://github.com/Agent-0808/BA-Modding-Toolkit/releases) page, and double-click to run the program.
+You can download the latest version of the executable file from the [Releases](https://github.com/Clench5676/BlueArchive-Modding-and-Patching-Tool/releases) page, and double-click to run the program.
 
 ## Program Functionalities
 
@@ -61,7 +63,7 @@ The add-ons mentioned in this section are optional, and you can choose whether t
 > [!WARNING]
 > The following add-ons are independent third-party programs. Please comply with their licenses when downloading and using them.
 > 
-> BA-Modding-Toolkit only invokes the programs through `subprocess` module. It does not contain or distribute any code or files of these programs, nor is it responsible for any issues that may arise during their use.
+> Blue Archive Modding and Patching Tool only invokes the programs through `subprocess` module. It does not contain or distribute any code or files of these programs, nor is it responsible for any issues that may arise during their use.
 
 ### Spine Skeleton Data Converter
 
@@ -129,7 +131,7 @@ If you are interested in adding a new language, PRs are welcome. However, due to
 
 In addition to the graphical interface, this project provides a Command Line Interface (CLI) version `cli/main.py`.
 
-You can download the precompiled executable file `BAMT-CLI.exe` from the [Releases](https://github.com/Agent-0808/BA-Modding-Toolkit/releases) page or use the `uv run bamt-cli` command to run the source code.
+You can download the precompiled executable file `BAMT-CLI.exe` from the [Releases](https://github.com/Clench5676/BlueArchive-Modding-and-Patching-Tool/releases) page or use the `uv run bamt-cli` command to run the source code.
 
 ### CLI Usage
 
@@ -162,8 +164,8 @@ Check the [CLI Usage](https://github.com/Agent-0808/BA-Modding-Toolkit/wiki/CLI-
 Please ensure that Python 3.11 or higher is installed.
 
 ```bash
-git clone https://github.com/Agent-0808/BA-Modding-Toolkit.git
-cd BA-Modding-Toolkit
+git clone https://github.com/Clench5676/BlueArchive-Modding-and-Patching-Tool.git
+cd BlueArchive-Modding-and-Patching-Tool
 
 # use uv to manage dependencies
 python -m pip install uv
@@ -176,7 +178,7 @@ python -m ba_modding_toolkit
 
 The author's programming skills are limited, welcome to provide suggestions or issues, and also welcome to contribute code to improve this project.
 
-You can add `BA-Modding-Toolkit` code to your project or modify the existing code to implement custom Mod creation and update functionality.
+You can add `Blue Archive Modding and Patching Tool` code to your project or modify the existing code to implement custom Mod creation and update functionality.
 
 `cli/main.py` is a command-line interface (CLI) version of the main program, which you can refer to for calling processing functions.
 
@@ -196,7 +198,7 @@ The table below lists tested environment configurations for reference.
 ### File Structure
 
 ```
-BA-Modding-Toolkit/
+BlueArchive-Modding-and-Patching-Tool/
 │ 
 │ # ============= Code =============
 │ 
@@ -293,5 +295,5 @@ Some useful related repositories:
 ### Disclaimer
 
 <sub>
-BA Modding Toolkit is a personal project and is not affiliated with, endorsed by, or connected to NEXON Games Co., Ltd., NEXON Korea Corp., Yostar, Inc., or any of their subsidiaries. All game assets, characters, music, and related intellectual property are the trademarks or registered trademarks of their respective owners. They are used in this tool for educational and interoperability purposes only (fair use). Please respect the Terms of Service of the official game. Do not use this tool for cheating or malicious activities.
+Blue Archive Modding and Patching Tool is a personal project and is not affiliated with, endorsed by, or connected to NEXON Games Co., Ltd., NEXON Korea Corp., Yostar, Inc., or any of their subsidiaries. All game assets, characters, music, and related intellectual property are the trademarks or registered trademarks of their respective owners. They are used in this tool for educational and interoperability purposes only (fair use). Please respect the Terms of Service of the official game. Do not use this tool for cheating or malicious activities.
 </sub>

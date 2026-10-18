@@ -13,7 +13,7 @@ class BaseTap(Tap):
     """基础Tap类，提供共享配置。"""
 
     def configure(self) -> None:
-        self.description = "BA Modding Toolkit - Command Line Interface."
+        self.description = "Blue Archive Modding and Patching Tool - Command Line Interface."
         self.formatter_class = RawTextHelpFormatter
         self._underscores_to_dashes = True
 

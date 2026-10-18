@@ -48,10 +48,10 @@ jobs:
 
           # 元数据
           windows-icon-from-ico: ba_modding_toolkit/assets/eligma.ico
-          product-name: "BA Modding Toolkit"
+          product-name: "Blue Archive Modding and Patching Tool"
           product-version: ${{ steps.get_version.outputs.file_version }}
           file-version: ${{ steps.get_version.outputs.file_version }}
-          file-description: "BA Modding Toolkit"
+          file-description: "Blue Archive Modding and Patching Tool"
           company-name: "Agent-0808"
           copyright: "Copyright ©2025-2026 Agent-0808. Licensed under GPLv3."
           trademarks: "Blue Archive ©NEXON Games Co., Ltd. & Yostar, Inc. This tool is unofficial and not endorsed by them."
@@ -76,14 +76,14 @@ jobs:
             ba_modding_toolkit/locales=ba_modding_toolkit/locales
           windows-console-mode: disable
           output-dir: ../build
-          output-file: "BA-Modding-Toolkit.exe"
+          output-file: "Blue-Archive-Modding-and-Patching-Tool.exe"
           assume-yes-for-downloads: true
 
       # 整理发布文件夹
       - name: Prepare Release Directory
         run: |
           New-Item -ItemType Directory -Path "publish" -Force
-          Copy-Item -Path "build/BA-Modding-Toolkit.exe" -Destination "publish/"
+          Copy-Item -Path "build/Blue-Archive-Modding-and-Patching-Tool.exe" -Destination "publish/"
         # Copy-Item -Path "src/ba_modding_toolkit/locales" -Destination "publish/locales" -Recurse
         shell: powershell
 
@@ -100,7 +100,7 @@ jobs:
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: BA-Modding-Toolkit-Windows-Build
+          name: Blue-Archive-Modding-and-Patching-Tool-Windows-Build
           path: publish/
 
       # 打包成 Zip
@@ -109,7 +109,7 @@ jobs:
         run: |
           $tag_name = "${{ github.ref_name }}"
           cd publish
-          Compress-Archive -Path * -DestinationPath "../BA-Modding-Toolkit-$tag_name.zip"
+          Compress-Archive -Path * -DestinationPath "../Blue-Archive-Modding-and-Patching-Tool-$tag_name.zip"
         shell: powershell
 
       # 上传 Zip
@@ -117,4 +117,4 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v1
         with:
-          files: BA-Modding-Toolkit-${{ github.ref_name }}.zip
+          files: Blue-Archive-Modding-and-Patching-Tool-${{ github.ref_name }}.zip

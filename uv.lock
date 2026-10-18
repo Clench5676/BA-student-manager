@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.11"
 
 [[package]]
@@ -48,7 +48,7 @@ wheels = [
 ]
 
 [[package]]
-name = "ba-modding-toolkit"
+name = "blue-archive-modding-and-patching-tool"
 version = "2.11.0"
 source = { editable = "." }
 dependencies = [

@@ -565,7 +565,7 @@
 		}
 	},
 	"ui": {
-		"app_title": "BA Modding Toolkit",
+		"app_title": "Blue Archive Modding and Patching Tool",
 		"tabs": {
 			"mod_update": "Mod Update",
 			"batch_update": "Batch Update",

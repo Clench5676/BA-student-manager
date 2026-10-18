@@ -4,15 +4,17 @@
   </p>
   <p>
     <a href="https://www.gnu.org/licenses/gpl-3.0"><img alt="License: GPLv3" src="https://img.shields.io/badge/License-GPL--3.0-orange.svg"></a>
-    <img alt="GitHub Release" src="https://img.shields.io/github/v/release/Agent-0808/BA-Modding-Toolkit">
-    <img alt="GitHub Repo stars" src="https://img.shields.io/github/stars/Agent-0808/BA-Modding-Toolkit?style=flat">
-    <img alt="GitHub Downloads (all assets, all releases)" src="https://img.shields.io/github/downloads/Agent-0808/BA-Modding-Toolkit/total">
+    <img alt="GitHub Release" src="https://img.shields.io/github/v/release/Clench5676/BlueArchive-Modding-and-Patching-Tool">
+    <img alt="GitHub Repo stars" src="https://img.shields.io/github/stars/Clench5676/BlueArchive-Modding-and-Patching-Tool?style=flat">
+    <img alt="GitHub Downloads (all assets, all releases)" src="https://img.shields.io/github/downloads/Clench5676/BlueArchive-Modding-and-Patching-Tool/total">
   </p>
 </div>
 
-# BA Modding Toolkit
+# Blue Archive Modding and Patching Tool
 
 简体中文 | [English](README.md)
+
+基于 Agent-0808 的 [BA Modding Toolkit](https://github.com/Agent-0808/BA-Modding-Toolkit)。
 
 一个基于 UnityPy 的工具集，可用于自动化制作与更新 Blue Archive（碧蓝档案/蔚蓝档案/ブルーアーカイブ）游戏的 Mod 文件流程。
 
@@ -27,11 +29,11 @@
 - 想要自己制作一个 mod，替换角色立绘，但不懂如何操作？
 - 想要提取角色立绘或其他资源？
 
-BA Modding Toolkit 可以帮助您解决以上问题，完全傻瓜式操作，无需对bundle文件手动操作。
+Blue Archive Modding and Patching Tool 可以帮助您解决以上问题，完全傻瓜式操作，无需对bundle文件手动操作。
 
 ## 开始使用
 
-您可以从页面右方的 [Releases](https://github.com/Agent-0808/BA-Modding-Toolkit/releases) 页面下载最新版本的可执行文件，直接双击运行即可启动程序。
+您可以从页面右方的 [Releases](https://github.com/Clench5676/BlueArchive-Modding-and-Patching-Tool/releases) 页面下载最新版本的可执行文件，直接双击运行即可启动程序。
 
 ## 程序功能说明
 
@@ -61,7 +63,7 @@ BA Modding Toolkit 可以帮助您解决以上问题，完全傻瓜式操作，�
 > [!WARNING]
 > 以下的扩展功能都是独立的第三方程序，当下载并使用时请遵守其协议。
 > 
-> BA-Modding-Toolkit 仅通过 `subprocess` 方式通过命令行调用对应程序，不会包含、分发这些程序的任何代码或文件，也不负责其使用过程中可能出现的任何问题。
+> Blue Archive Modding and Patching Tool 仅通过 `subprocess` 方式通过命令行调用对应程序，不会包含、分发这些程序的任何代码或文件，也不负责其使用过程中可能出现的任何问题。
 
 ### Spine 骨骼转换工具
 
@@ -129,7 +131,7 @@ BA Modding Toolkit 可以帮助您解决以上问题，完全傻瓜式操作，�
 
 除了图形界面，本项目还提供了一个命令行接口（CLI）版本的程序 `cli/main.py`。
 
-可以从 [Releases](https://github.com/Agent-0808/BA-Modding-Toolkit/releases) 页面下载经过编译的可执行文件`BAMT-CLI`，也可以使用`uv run bamt-cli`命令运行源代码。
+可以从 [Releases](https://github.com/Clench5676/BlueArchive-Modding-and-Patching-Tool/releases) 页面下载经过编译的可执行文件`BAMT-CLI`，也可以使用`uv run bamt-cli`命令运行源代码。
 
 ### CLI 使用方法
 
@@ -162,8 +164,8 @@ bamt-cli backup -h
 请安装 Python 3.12+ 版本，安装依赖后运行：
 
 ```bash
-git clone https://github.com/Agent-0808/BA-Modding-Toolkit.git
-cd BA-Modding-Toolkit
+git clone https://github.com/Clench5676/BlueArchive-Modding-and-Patching-Tool.git
+cd BlueArchive-Modding-and-Patching-Tool
 
 # 使用 uv 管理依赖
 python -m pip install uv
@@ -176,7 +178,7 @@ python -m ba_modding_toolkit
 
 作者的编程水平有限，欢迎提出建议或是issue，也欢迎贡献代码以改进本项目。
 
-您可以将 `BA-Modding-Toolkit` 的代码加入您的项目中或是进行修改，以实现自定义的 Mod 制作和更新功能。
+您可以将 `Blue Archive Modding and Patching Tool` 的代码加入您的项目中或是进行修改，以实现自定义的 Mod 制作和更新功能。
 
 `cli/main.py` 是一个命令行接口（CLI）版本的主程序，您可以参考其调用处理函数的方式。
 
@@ -196,7 +198,7 @@ python -m ba_modding_toolkit
 ### 文件结构
 
 ```
-BA-Modding-Toolkit/
+BlueArchive-Modding-and-Patching-Tool/
 │ 
 │ # ============= 程序 =============
 │ 
@@ -293,5 +295,5 @@ BA-Modding-Toolkit/
 ### 免责声明 / Disclaimer
 
 <sub>
-BA Modding Toolkit is a personal project and is not affiliated with, endorsed by, or connected to NEXON Games Co., Ltd., NEXON Korea Corp., Yostar, Inc., or any of their subsidiaries. All game assets, characters, music, and related intellectual property are the trademarks or registered trademarks of their respective owners. They are used in this tool for educational and interoperability purposes only (fair use). Please respect the Terms of Service of the official game. Do not use this tool for cheating or malicious activities.
+Blue Archive Modding and Patching Tool is a personal project and is not affiliated with, endorsed by, or connected to NEXON Games Co., Ltd., NEXON Korea Corp., Yostar, Inc., or any of their subsidiaries. All game assets, characters, music, and related intellectual property are the trademarks or registered trademarks of their respective owners. They are used in this tool for educational and interoperability purposes only (fair use). Please respect the Terms of Service of the official game. Do not use this tool for cheating or malicious activities.
 </sub>

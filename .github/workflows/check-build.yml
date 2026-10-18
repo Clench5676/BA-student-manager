@@ -49,10 +49,10 @@ jobs:
 
           # 元数据
           windows-icon-from-ico: ba_modding_toolkit/assets/eligma.ico
-          product-name: "BA Modding Toolkit"
+          product-name: "Blue Archive Modding and Patching Tool"
           product-version: ${{ steps.get_version.outputs.file_version }}
           file-version: ${{ steps.get_version.outputs.file_version }}
-          file-description: "BA Modding Toolkit (Test Build)"
+          file-description: "Blue Archive Modding and Patching Tool (Test Build)"
           company-name: "Agent-0808"
           copyright: "Copyright ©2025-2026 Agent-0808. Licensed under GPLv3."
           trademarks: "Blue Archive ©NEXON Games Co., Ltd. & Yostar, Inc. This tool is unofficial and not endorsed by them."
@@ -72,14 +72,14 @@ jobs:
             ba_modding_toolkit/locales=ba_modding_toolkit/locales
           windows-console-mode: disable
           output-dir: ../build
-          output-file: "BA-Modding-Toolkit.exe"
+          output-file: "Blue-Archive-Modding-and-Patching-Tool.exe"
           assume-yes-for-downloads: true
 
       # 整理发布文件夹
       - name: Prepare Release Directory
         run: |
           New-Item -ItemType Directory -Path "publish" -Force
-          Copy-Item -Path "build/BA-Modding-Toolkit.exe" -Destination "publish/"
+          Copy-Item -Path "build/Blue-Archive-Modding-and-Patching-Tool.exe" -Destination "publish/"
         # Copy-Item -Path "src/ba_modding_toolkit/locales" -Destination "publish/locales" -Recurse
         shell: powershell
 
@@ -87,5 +87,5 @@ jobs:
       - name: Upload Test Build Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: BA-Modding-Toolkit-Test-Build-PR${{ github.event.pull_request.number }}
+          name: Blue-Archive-Modding-and-Patching-Tool-Test-Build-PR${{ github.event.pull_request.number }}
           path: publish/

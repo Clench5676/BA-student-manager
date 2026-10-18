@@ -428,7 +428,7 @@ class SettingsDialog(tb.Toplevel):
             section,
             label=t("ui.label.github"),
             button_text=t("action.open"),
-            command=lambda: webbrowser.open("https://github.com/Agent-0808/BA-Modding-Toolkit"),
+            command=lambda: webbrowser.open("https://github.com/Clench5676/BlueArchive-Modding-and-Patching-Tool"),
             bootstyle="info"
         )
 

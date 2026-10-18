@@ -340,7 +340,7 @@ def get_environment_info(ignore_tk: bool = False):
     lines.append("======== Environment Information ========")
 
     # --- Available Languages ---
-    lines.append("\n--- BA Modding Toolkit ---")
+    lines.append("\n--- Blue Archive Modding and Patching Tool ---")
     version_info = get_version_info()
     lines.append(f"Version:             {version_info['version'] or 'N/A'}")
     lines.append(f"Commit:              {version_info['commit_hash'] or 'N/A'}")

@@ -1,5 +1,5 @@
 [project]
-name = "BA-Modding-Toolkit"
+name = "Blue-Archive-Modding-and-Patching-Tool"
 version = "2.11.0"
 description = "更新、移植、修复碧蓝档案mod的工具集 | Updating&Porting&Fixing Mods for Blue Archive"
 readme = "README.md"

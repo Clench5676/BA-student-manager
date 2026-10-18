@@ -1,6 +1,6 @@
 # BAMT tests
 
-本目录用于存储BA Modding Toolkit的测试用例
+本目录用于存储Blue Archive Modding and Patching Tool的测试用例
 
 ## 需要提供的文件
 
