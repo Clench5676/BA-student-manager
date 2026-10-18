@@ -226,17 +226,25 @@ def _get_exe_dir() -> Path:
     A macOS .app usually lives somewhere read-only (/Applications, a mounted DMG,
     App Translocation), so app bundles use ~/Library/Application Support/BA-Modding-Toolkit
     instead and copy the Addons bundled in the app (character ID map etc.) there on first launch.
+    Windows onefile builds copy their bundled Addons next to the original executable instead.
     """
     if "__compiled__" not in globals() or not hasattr(__compiled__, "containing_dir"):
         return Path(__file__).resolve().parents[2]
-    if not getattr(__compiled__, "macos_bundle_mode", False):
-        return Path(__compiled__.containing_dir).resolve()
-
-    data_dir = Path.home() / "Library" / "Application Support" / "BA-Modding-Toolkit"
-    data_dir.mkdir(parents=True, exist_ok=True)
-    bundled_addons = Path(sys.executable).parent / "Addons"
+    if getattr(__compiled__, "macos_bundle_mode", False):
+        data_dir = Path.home() / "Library" / "Application Support" / "BA-Modding-Toolkit"
+        data_dir.mkdir(parents=True, exist_ok=True)
+        bundled_addons = Path(sys.executable).parent / "Addons"
+    else:
+        data_dir = Path(__compiled__.containing_dir).resolve()
+        # Module files live in the onefile extraction tree; containing_dir is the portable install.
+        bundled_addons = Path(__file__).resolve().parents[1] / "Addons"
     if bundled_addons.is_dir() and not (data_dir / "Addons").exists():
-        shutil.copytree(bundled_addons, data_dir / "Addons")
+        try:
+            shutil.copytree(bundled_addons, data_dir / "Addons")
+        except OSError as e:
+            import logging
+
+            logging.getLogger(__name__).warning("Could not copy bundled Addons to %s: %s", data_dir, e)
     return data_dir
 
 # 程序所在目录（打包后为 exe 目录，开发环境为项目根目录）

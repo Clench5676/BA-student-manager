@@ -26,8 +26,21 @@ $env:UV_PROJECT_ENVIRONMENT = Join-Path $Build "venv"
 uv sync --frozen --no-dev --python $Python
 if ($LASTEXITCODE -ne 0) { throw "uv sync failed" }
 $Py = Join-Path $env:UV_PROJECT_ENVIRONMENT "Scripts\python.exe"
+if ((& $Py -c "import sysconfig; print(sysconfig.get_platform())").Trim() -ne "win-amd64") {
+    throw "the Windows build requires an x64 Python interpreter"
+}
 uv pip install --python $Py "nuitka==$NuitkaVersion" ordered-set
 if ($LASTEXITCODE -ne 0) { throw "installing Nuitka failed" }
+
+# --- Bundled character ID map and license (BA-Characters-Internal-ID, CC BY-SA 4.0) ---
+$Addons = Join-Path $Build "Addons"
+$BaciiBase = "https://agent-0808.github.io/BA-characters-internal-id/data"
+if (Test-Path $Addons) { Remove-Item -Recurse -Force $Addons }
+New-Item -ItemType Directory -Path $Addons | Out-Null
+Invoke-WebRequest -UseBasicParsing -Uri "$BaciiBase/students_data.csv" `
+    -OutFile (Join-Path $Addons "BA-Characters-Internal-ID.csv")
+Invoke-WebRequest -UseBasicParsing -Uri "$BaciiBase/LICENSE-DATA.txt" `
+    -OutFile (Join-Path $Addons "BA-Characters-Internal-ID-LICENSE.txt")
 
 # --- Version info: _version.py for the app, a numeric file version for Windows ---
 $Version = (& $Py -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])").Trim()
@@ -65,6 +78,7 @@ $Common = @(
     "--file-version=$FileVersion",
     "--output-dir=$Build",
     "--assume-yes-for-downloads",
+    "--include-data-dir=$Addons=Addons",
     "--include-data-dir=$ArchspecCpu=archspec/cpu"
 )
 
