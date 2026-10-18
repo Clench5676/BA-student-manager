@@ -785,7 +785,8 @@ function loadSpine(base) {
           layer.classList.remove("fading");
           for (const old of previous) {
             old.classList.add("fading");
-            setTimeout(() => { old.player?.dispose(); old.remove(); }, 400);
+            // once only: a quick second step retires the same layer again, and disposePortrait() may have freed it
+            setTimeout(() => { if (old.isConnected) { old.player?.dispose(); old.remove(); } }, 400);
           }
         });
         resolve();
