@@ -1,7 +1,10 @@
 """Build the offline catalog from local character maps and SchaleDB exports.
 
 Optional prototype names, wiki proposals and variant metadata override derived
-values. No game assets are extracted or written by this command.
+values. Variant words and base names that the character map leaves untranslated
+come from the curated glossary and name table in catalog/data/naming.json, and
+name_sources says whether that wording is official or translated. No game assets
+are extracted or written by this command.
 """
 
 from __future__ import annotations
@@ -19,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from ba_modding_toolkit.catalog._data import base_rank, csv_entry, read_character_map
 from ba_modding_toolkit.catalog._names import (
-    LANGUAGES, NAMING, clean, compose, csv_bases, csv_names, given_name, short_name,
+    LANGUAGES, NAMING, clean, compose, csv_bases, csv_names, csv_sources, given_name, short_name,
 )
 
 logger = logging.getLogger(__name__)
@@ -192,8 +195,7 @@ def build_catalog(csv_path: Path, schaledb: Path, names_path: Path | None = None
                 continue
             if key in row_map:
                 entry["names"], entry["fallbacks"] = csv_names(row_map[key], bases)
-                entry["name_sources"] = {lang: "fallback" if lang in entry["fallbacks"] else "derived"
-                                         for lang in LANGUAGES}
+                entry["name_sources"] = csv_sources(row_map[key], bases, entry["fallbacks"])
             if "research_key" not in entry:
                 page = pages.get(entry.get("page_id"))
                 entry["kind"] = "extra-spr" if page else "npc"
