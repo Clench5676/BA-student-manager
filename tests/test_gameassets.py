@@ -290,18 +290,23 @@ def loading_game(tmp_path, monkeypatch):
     art.paste((255, 0, 0, 255), (16, 0, 32, 16))
     first, second = (tmp_path / name for name in LOADING_BUNDLES)
     envs = {
+        # Tip cards are 11-21 and 57; the other numbers are comics
         first: SimpleNamespace(objects=[
-            _loading_texture(1, "CAB-a", "LoadingImage_02_en", (2048, 1024)),
-            _loading_texture(2, "CAB-a", "LoadingImage_01_En", (2000, 1200), art),
-            _loading_texture(3, "CAB-a", "LoadingImage_01_tw", (2048, 1024)),
+            _loading_texture(1, "CAB-a", "LoadingImage_12_en", (2048, 1024)),
+            _loading_texture(2, "CAB-a", "LoadingImage_11_En", (2000, 1200), art),
+            _loading_texture(3, "CAB-a", "LoadingImage_11_tw", (2048, 1024)),
             _loading_texture(4, "CAB-a", "Common_Loading_Icon", (64, 64)),
-            _Object("MonoBehaviour", 5, "CAB-a", name="LoadingImage_09_en"),
+            _Object("MonoBehaviour", 5, "CAB-a", name="LoadingImage_13_en"),
+            _loading_texture(6, "CAB-a", "LoadingImage_01_en", (2048, 1024)),
+            _loading_texture(7, "CAB-a", "LoadingImage_22_en", (2048, 1024)),
         ]),
         second: SimpleNamespace(objects=[
-            _loading_texture(1, "CAB-b", "Loadingimage_47_Tw", (2000, 1200)),
-            _loading_texture(2, "CAB-b", "LoadingImage_03_th", (2048, 1024)),
+            _loading_texture(1, "CAB-b", "Loadingimage_57_Tw", (2000, 1200)),
+            _loading_texture(2, "CAB-b", "LoadingImage_21_th", (2048, 1024)),
             # the same illustration twice (another bundle part) is listed once
-            _loading_texture(3, "CAB-b", "LoadingImage_02_EN", (2048, 1024)),
+            _loading_texture(3, "CAB-b", "LoadingImage_12_EN", (2048, 1024)),
+            # a language with comics only
+            _loading_texture(4, "CAB-b", "LoadingImage_05_kr", (2048, 1024)),
         ]),
     }
 
@@ -315,15 +320,16 @@ def loading_game(tmp_path, monkeypatch):
 
 def test_loading_index_names_sizes_and_languages(loading_game):
     images = loading_game.loading_images()
-    assert sorted(images) == ["en", "th", "tw"]
+    assert sorted(images) == ["en", "kr", "th", "tw"]
     assert [(e["name"], e["n"], e["w"], e["h"]) for e in images["en"]] == [
-        ("LoadingImage_01_En", 1, 2000, 1200), ("LoadingImage_02_en", 2, 2048, 1024)]
-    assert [e["name"] for e in images["tw"]] == ["LoadingImage_01_tw", "Loadingimage_47_Tw"]
+        ("LoadingImage_01_en", 1, 2048, 1024), ("LoadingImage_11_En", 11, 2000, 1200),
+        ("LoadingImage_12_en", 12, 2048, 1024), ("LoadingImage_22_en", 22, 2048, 1024)]
+    assert [e["name"] for e in images["tw"]] == ["LoadingImage_11_tw", "Loadingimage_57_Tw"]
 
 
 @pytest.mark.parametrize("ui_lang,lang", [
     ("en-US", "en"), ("zh-CN", "tw"), ("zh-TW", "tw"), ("ja-JP", "en"), ("th-TH", "th"), ("vi-VN", "en"),
-    ("ru-RU", "en"), ("", "en"),
+    ("ru-RU", "en"), ("", "en"), ("ko-KR", "en"),  # Korean has comics only here
 ])
 def test_loading_list_language_fallback(loading_game, ui_lang, lang):
     listing = loading_game.loading_list(ui_lang)
@@ -331,19 +337,33 @@ def test_loading_list_language_fallback(loading_game, ui_lang, lang):
     assert listing["images"] and all(e["url"] == f"/asset/art/loading/{e['name']}.jpg" for e in listing["images"])
 
 
+def test_loading_list_has_the_tip_cards_only(loading_game):
+    assert service.LOADING_TIPS == {11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 57}
+    english = loading_game.loading_list("en-US")["images"]
+    assert [e["name"] for e in english] == ["LoadingImage_11_En", "LoadingImage_12_en"]  # comics 01 and 22 left out
+    assert [e["n"] for e in loading_game.loading_list("zh-CN")["images"]] == [11, 57]
+    assert [e["n"] for e in loading_game.loading_list("th-TH")["images"]] == [21]
+
+
 def test_loading_list_falls_back_to_english_then_any(tmp_path):
     game = GameAssets([tmp_path], AssetCache(root=tmp_path / "cache"))
-    entry = {"name": "LoadingImage_01_kr", "n": 1, "w": 2048, "h": 1024}
-    game._indexes["loading"] = {"images": {"kr": [entry], "th": [{**entry, "name": "LoadingImage_01_th"}]},
+    entry = {"name": "LoadingImage_11_kr", "n": 11, "w": 2048, "h": 1024}
+    game._indexes["loading"] = {"images": {"kr": [entry], "th": [{**entry, "name": "LoadingImage_11_th"}]},
                                 "records": {}}
     assert game.loading_list("zh-CN")["lang"] == "kr"   # no tw, no en: the first language present
     assert game.loading_list("th-TH")["lang"] == "th"
     game._indexes["loading"] = {"images": {}, "records": {}}
     assert game.loading_list("en-US") == {"lang": None, "images": []}
+    # comics only: no illustration, the loading screen stays black with its indicator
+    comic = {"name": "LoadingImage_01_en", "n": 1, "w": 2048, "h": 1024}
+    game._indexes["loading"] = {"images": {"en": [comic], "tw": [{**comic, "name": "LoadingImage_22_tw", "n": 22}]},
+                                "records": {}}
+    assert game.loading_list("en-US") == {"lang": None, "images": []}
+    assert game.loading_list("zh-CN") == {"lang": None, "images": []}
 
 
 def test_loading_image_on_black_in_memory_only(loading_game):
-    data = loading_game.loading_image("LoadingImage_01_En")
+    data = loading_game.loading_image("LoadingImage_11_En")
     image = Image.open(BytesIO(data))
     assert image.format == "JPEG" and image.size == (32, 16)
     assert max(image.getpixel((2, 8))) < 24          # transparent texels become the black backdrop
@@ -577,6 +597,9 @@ def test_real_loading_screen(real_game):
     assert images.get("en") and images.get("tw")
     assert real_game.loading_list("zh-CN")["lang"] == "tw"
     assert real_game.loading_list("en-US")["lang"] == "en"
+    for lang in ("en-US", "zh-CN"):  # the Tip cards only
+        numbers = {e["n"] for e in real_game.loading_list(lang)["images"]}
+        assert numbers and numbers <= service.LOADING_TIPS
     entry = real_game.loading_list("en-US")["images"][0]
     before = {p: p.stat().st_mtime_ns for p in real_game.cache.root.rglob("*") if p.is_file()}
     image = Image.open(BytesIO(real_game.loading_image(entry["name"])))

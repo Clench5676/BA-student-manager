@@ -222,7 +222,7 @@ Events on `/api/events`:
 | `app.consent {granted}` | records the choice; `false` closes the app |
 | `app.openClassic {tab}` | starts the classic GUI on a tab |
 | `i18n.strings {lang}` | `{key: text}` for `webui.*` |
-| `loading.list {lang}` | the loading screen illustrations for a UI language: `{lang, images: [{name, n, w, h, url}]}` (zh → tw, ja → jp, then en, then any; none without a game) |
+| `loading.list {lang}` | the loading screen's Tip cards for a UI language: `{lang, images: [{name, n, w, h, url}]}` (zh → tw, ja → jp, then en, then any; none without a game or without Tip cards) |
 | `roster.list` | families with variants, mod counts, fresh flags, favourites, recent order, `added` (when the newest own mod was added) |
 | `settings.get` / `settings.set {key, value}` | the settings popup's values; key `roster` keeps the student list's view (merge, segment filters, sort, order, filter groups; `webui/state.py roster_view`) |
 | `family.get {key}` | a family with its variants, mods and each variant's state; `modelFiles` per variant (the 3D model's prefab bundles, newest first) and `version` (the game's resource version, so a switched install reloads the screen) |
@@ -295,10 +295,11 @@ down (its viewport has the canvas's own aspect).
 
 `loading.js` draws the game's own loading screen: UILoading (a black backdrop and one illustration, drawn at its own
 size, 1 texel = 1 prefab unit) and UIRepeater ("Now Loading", the hopping dots and Arona turning round, animated in
-`app.css` from the keyframes of the clip `UIAni_Repeat 1`; its UIAudioPlay is never played). The game's tips and
-comics are part of the illustrations, one file per language (`loading.list`); the pick is uniform and skips the last
-few shown, and the next one is fetched and decoded ahead. Before the atlases are in, or without a game, a plain
-stand-in in the page font shows instead.
+`app.css` from the keyframes of the clip `UIAni_Repeat 1`; its UIAudioPlay is never played). Only the game's "Tip!"
+cards are shown, one file per language (`loading.list`: LoadingImage 11 to 21 and 57 in every language the Global
+client ships; the other numbers are comics and are left out); without any, the screen stays black with the indicator.
+The pick is uniform and skips the last few shown, and the next one is fetched and decoded ahead. Before the atlases are
+in, or without a game, a plain stand-in in the page font shows instead.
 
 - `scene(fn)` covers the start, a detail screen opened from another screen or a deep link, and the roster's first
   build: a fade to black (150 ms), then, while the work goes on, the illustration (at least 800 ms once shown) and

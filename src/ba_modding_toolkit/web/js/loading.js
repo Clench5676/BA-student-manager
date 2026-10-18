@@ -1,7 +1,8 @@
 // Loading screen, from the game's own prefabs:
 //   - UILoading (Resources/UI/UILoading.prefab): a black backdrop (BlackBG) and one illustration (the UITexture
 //     LoadingImage, which the game fills at run time). The illustration is drawn at its own size, 1 texel = 1 prefab
-//     unit, never stretched. The game's tips and comics are part of the illustrations, one file per language.
+//     unit, never stretched. Only the game's "Tip!" cards are shown (loading.list leaves the comics out), one file per
+//     language; without any, the screen stays black with the indicator.
 //   - UIRepeater: "Now Loading" letters, three hopping dots and Arona turning round, in the bottom-right corner;
 //     app.css animates it like the game's legacy clip "UIAni_Repeat 1". Its UIAudioPlay is never played.
 // Two modes. scene(fn) covers a change of screen: a fade to black, then the illustration and the indicator while the
@@ -32,7 +33,7 @@ let repeater = null, geometry = null;
 
 // --- setup ---
 
-// after app.info: the illustrations of the UI language (none without a game) and the prefabs
+// after app.info: the Tip cards of the UI language (none without a game) and the prefabs
 export function init(info) {
   if (!info?.gameFound) { setImages([], null); return; }
   rpc("loading.list", { lang: info.language }).then((l) => setImages(l.images, l.lang), () => setImages([], null));

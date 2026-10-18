@@ -57,6 +57,9 @@ LOADING_IMAGE = re.compile(r"^LoadingImage_(\d+)(?:_([A-Za-z]+))?$", re.I)
 # The UI language's primary subtag -> the illustration languages to try first. The Global client ships en, kr, tw
 # and th (a Japanese client jp). Simplified Chinese has none of its own: Traditional Chinese is the closest script.
 LOADING_LANGS = {"zh": ("tw",), "ja": ("jp",), "ko": ("kr",), "th": ("th",)}
+# The loading screen shows only the "Tip!" cards (game help on a light panel); the other illustrations are comics.
+# The same numbers in every language the Global client ships (en, kr, th, tw; checked one by one, 2026-10).
+LOADING_TIPS = frozenset((*range(11, 22), 57))
 LOADING_JPEG_QUALITY = 88
 
 
@@ -372,8 +375,10 @@ class GameAssets:
         return deepcopy(self._loading_index()["images"])
 
     def loading_list(self, ui_lang: str) -> dict[str, Any]:
-        """The illustrations for a UI language: the language's own, else English, else any the install has."""
-        images = self._loading_index()["images"]
+        """The Tip cards for a UI language: the language's own, else English, else any the install has. None: the
+        loading screen stays black with its indicator."""
+        images = {lang: [entry for entry in entries if entry["n"] in LOADING_TIPS]
+                  for lang, entries in self._loading_index()["images"].items()}
         primary = (ui_lang or "").split("-")[0].lower()
         for lang in dict.fromkeys((*LOADING_LANGS.get(primary, ()), "en", "default", *sorted(images))):
             if images.get(lang):
