@@ -141,6 +141,8 @@ const colorOf = (c) => {
 //       on / off (node names or paths to force), shift { name|path: [dx, dy] units },
 //       texts { name|path: text }, textures { name|path: url }, textureNames { texture name: url },
 //       styles { name|path: css }, rootPath (prefix used in paths), z (z-index offset)
+// Resolves with { nodes, scale, origin, pictures }: pictures are the clipImage pictures still being made (thumbnails),
+// each a promise settled once it is in.
 export async function render(tree, host, opts = {}) {
   await init();
   const S = opts.scale ?? 1920 / 2960;
@@ -148,7 +150,7 @@ export async function render(tree, host, opts = {}) {
   const on = new Set(opts.on || []), off = new Set(opts.off || []);
   const pick = (map, name, path) => (map ? map[path] ?? map[name] : undefined);
   const nodes = new Map();
-  const jobs = [], post = [];
+  const jobs = [], post = [], pictures = [];
 
   function walk(n, px, py, sx, sy, alpha, path) {
     const p = path ? `${path}/${n.name}` : n.name;
@@ -202,11 +204,18 @@ export async function render(tree, host, opts = {}) {
       });
       const src = w.clipImage;
       if (src) {
-        // a URL, or a promise of one (a thumbnail being rendered): thumbnails fill in when ready, render() does not wait
+        // a URL, or a promise of one (a thumbnail being rendered): thumbnails fill in when ready, render() does not
+        // wait. One that comes in after the first frames fades in instead of popping.
+        const t0 = performance.now();
+        Object.assign(pic.style, { opacity: "0", transition: "opacity .25s ease" });
         const done = Promise.resolve(src).then((u) => (u && w.tint ? tinted(u, w.tint) : u)).then((u) => {
-          if (u) pic.style.backgroundImage = `url("${u}")`;
+          if (!u) return;
+          pic.style.backgroundImage = `url("${u}")`;
+          if (performance.now() - t0 < 50) pic.style.transition = "none";
+          pic.style.opacity = "1";
         }).catch(() => {});
         if (typeof src === "string") jobs.push(done);
+        else pictures.push(done);
       }
       el.appendChild(pic);
     } else if ("text" in w) {
@@ -273,7 +282,7 @@ export async function render(tree, host, opts = {}) {
   walk(tree, 0, 0, 1, 1, 1, opts.rootPath || "");
   await Promise.all(jobs);
   for (const [el, css] of post) el.style.cssText += css;
-  return { nodes, scale: S, origin: [ox, oy] };
+  return { nodes, scale: S, origin: [ox, oy], pictures };
 }
 
 // find a subtree by path ("A/B/C", relative to the given node)
