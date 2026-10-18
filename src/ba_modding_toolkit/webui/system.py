@@ -43,6 +43,17 @@ def reveal(path: str | Path) -> None:
         raise ServiceError("reveal_failed", path=str(p), error=str(e)) from e
 
 
+def program_command() -> list[str]:
+    """How to start this program again: a compiled build runs its own executable (argv[0]: sys.executable names a
+    "python" that does not exist inside a Nuitka app bundle, and on Windows argv[0] is the onefile launcher)."""
+    if "__compiled__" in globals() or getattr(sys, "frozen", False):
+        argv0 = Path(sys.argv[0])
+        if argv0.is_file():
+            return [str(argv0.resolve())]
+        return [sys.executable]
+    return [sys.executable, "-m", "ba_modding_toolkit"]
+
+
 CLASSIC_TABS = ("mod_update", "batch_update", "mod_install", "crc_tool", "asset_packer", "asset_extractor",
                 "adb_push", "tools")
 
@@ -51,10 +62,7 @@ def open_classic(tab: str | None = None) -> None:
     """Start the classic Tk GUI in its own process, optionally on a tab or (``"settings"``) in its settings."""
     if tab is not None and tab not in CLASSIC_TABS and tab != "settings":
         raise ServiceError("bad_params", tab=tab)
-    if "__compiled__" in globals() or getattr(sys, "frozen", False):
-        cmd = [sys.executable]  # a compiled build: the executable itself starts the classic GUI
-    else:
-        cmd = [sys.executable, "-m", "ba_modding_toolkit"]
+    cmd = program_command()
     if tab == "settings":
         cmd += ["--settings"]
     elif tab:
