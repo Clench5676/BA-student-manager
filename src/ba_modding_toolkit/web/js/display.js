@@ -244,8 +244,13 @@ const load = () => (loading ||= Promise.all([NGUI.layout("UIPopup_FilterSort"), 
   .then(([fs, group]) => { layout = { fs, group }; }, (err) => { loading = null; throw err; }));
 
 // draw both tabs once off screen, so the first open finds the frame's images made (the popup's large panels take
-// seconds to slice the first time)
-export async function warm() {
+// a while to slice the first time); once per session, started when the pointer comes to the sort button
+let warming = null;
+export function warm() {
+  warming ||= drawAhead().catch((err) => { warming = null; console.warn("display warm-up", err); });
+  return warming;
+}
+async function drawAhead() {
   await load();
   if (!$("display").hidden) return;
   const keep = [draft, tab, count];

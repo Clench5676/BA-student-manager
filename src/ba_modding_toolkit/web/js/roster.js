@@ -476,6 +476,7 @@ async function renderAll() {
     if (title) b.title = title;
     b.addEventListener("click", fn);
     next.appendChild(b);
+    return b;
   };
   const segY = 720 - 219 - 50.2;
   const reset = (fn) => () => { fn(); view.scroll = 0; save(); renderAll(); };
@@ -483,7 +484,8 @@ async function renderAll() {
   ["all", "yes", "no"].forEach((k, i) => hit([lay.seg2 - (2.5 - i) * lay.segW, segY, lay.segW, 104], reset(() => { view.recruit = k; })));
   hit([lay.cbLeft + lay.cbW / 2, 720 - 273, lay.cbW, 110], reset(() => { view.merged = !view.merged; }));
   hit([lay.search, TOOL_Y, 150, 116], () => (searching ? closeSearch() : openSearch()), T("roster.search"));
-  hit([lay.sort, TOOL_Y, lay.sortW, 116], openDisplay, T("display.title"));
+  // the display settings' first drawing takes a while: it starts as the pointer comes to the button
+  hit([lay.sort, TOOL_Y, lay.sortW, 116], openDisplay, T("display.title")).addEventListener("pointerenter", () => Display.warm());
   hit([lay.order, TOOL_Y, 243, 116], flipOrder, T(view.order === "desc" ? "roster.desc" : "roster.asc"));
 
   // the cards: the rows in view get a moment to come in before the swap
@@ -498,8 +500,8 @@ async function renderAll() {
   host.replaceChildren(...next.childNodes);
 }
 
-// the search box, the empty list and the display settings are first drawn a while after the roster, so their images
-// are ready when they are opened
+// the search box and the empty list (small) are first drawn a while after the roster, so their images are ready when
+// they are needed
 let warmed = false;
 function warm() {
   if (warmed) return;
@@ -509,7 +511,6 @@ function warm() {
     Promise.all([
       NGUI.render(searchTree(), scratch, { scale: S, origin: ORIGIN }),
       NGUI.render(emptyTree(), scratch, { scale: S, origin: ORIGIN }),
-      Display.warm(),
     ]).catch((err) => console.warn("warm-up", err));
   }, 2500);
 }
