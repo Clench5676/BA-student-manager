@@ -63,6 +63,8 @@ function toonMaterial(src, ex, textures, mouth) {
     uniforms.haloMask = { value: glow ? lin(c._GlowMaskColor0 || [2, 2, 2]) : new THREE.Vector3(9, 9, 9) }; // 9: never matches
     mat.side = THREE.DoubleSide;
     mat.toneMapped = false;
+    // an untextured halo (MX/C-Halo/Simple) is one flat colour
+    if (!mat.map) mat.color = srgb(c._SimpleBaseColor || c._Tint || [1, 1, 1]);
   }
   if (mouth && kind === "eyemouth") {
     uniforms.mouthMap = { value: mouth.texture };
@@ -110,7 +112,8 @@ function toonMaterial(src, ex, textures, mouth) {
         "    diffuseColor = vec4( m.rgb, m.a );",
         "  } }",
         "#endif",
-        "#ifdef HALO",
+        // the glow replacement reads the texture (map_fragment declares sampledDiffuseColor only with a map)
+        "#if defined( HALO ) && defined( USE_MAP )",
         "{ vec3 s = pow( max( sampledDiffuseColor.rgb, 0.0 ), vec3( 1.0 / 2.2 ) );",
         "  float g = 1.0 - smoothstep( 0.06, 0.22, distance( s, haloMask ) );",
         "  diffuseColor.rgb = mix( diffuseColor.rgb * haloTint, haloGlow, g ); }",
