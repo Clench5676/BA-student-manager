@@ -67,7 +67,7 @@ const frames = (n) => new Promise((resolve) => {
 function loadPlayer(base, el) {
   return new Promise((resolve, reject) => {
     const p = new spine.SpinePlayer(el, {
-      skeleton: `${base}.skel`, atlas: `${base}.atlas`, animation: "Idle_01",
+      skeleton: `${base}.skel`, atlas: `${base}.atlas`, animation: undefined, // capture() sets the idle (some NPCs have no Idle_01)
       premultipliedAlpha: false, alpha: true, backgroundColor: "#00000000",
       showControls: false, showLoading: false, preserveDrawingBuffer: true,
       viewport: { padLeft: 0, padRight: 0, padTop: 0, padBottom: 0, transitionTime: 0 },
