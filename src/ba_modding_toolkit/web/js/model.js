@@ -187,6 +187,11 @@ class ChibiView {
     this.tween = null;
     this.observer = new ResizeObserver(() => this.resize());
     this.observer.observe(host);
+    // a window resize only rescales the stage (the host keeps its layout size), a move to another screen or a
+    // browser zoom changes the pixel ratio: both change the canvas resolution
+    this.onWindow = () => this.resize();
+    addEventListener("resize", this.onWindow);
+    this.watchPixelRatio();
     this.canvas.addEventListener("dblclick", () => this.home());
     this.enableTap();
     this.resize();
@@ -199,6 +204,14 @@ class ChibiView {
     this.renderer.setSize(w, h, false);
     this.controls.rotateSpeed = 0.7 / Math.max(0.25, scale); // pointer moves are in screen pixels
     this.applyView();
+  }
+
+  // a media query matches the current pixel ratio only, so it is renewed on every change
+  watchPixelRatio() {
+    this.dpr?.removeEventListener("change", this.onPixelRatio);
+    this.dpr = matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`);
+    this.onPixelRatio = () => { this.watchPixelRatio(); this.resize(); };
+    this.dpr.addEventListener("change", this.onPixelRatio);
   }
 
   // the orbit target projects to the host's centre; shift the view so it lands on the frame's point instead
@@ -525,6 +538,8 @@ class ChibiView {
     this.renderer.setAnimationLoop(null);
     this.drawn?.();
     this.observer.disconnect();
+    removeEventListener("resize", this.onWindow);
+    this.dpr.removeEventListener("change", this.onPixelRatio);
     this.controls.dispose();
     this.mixer?.stopAllAction();
     this.scene.traverse((o) => {
