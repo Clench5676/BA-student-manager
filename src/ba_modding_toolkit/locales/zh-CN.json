@@ -835,7 +835,8 @@
 			"fullscreen": "全屏",
 			"playAll": "播放全部对话",
 			"stop": "停止",
-			"exit": "退出全屏"
+			"exit": "退出全屏",
+			"dialogue": "对话 {n}"
 		},
 		"model": {
 			"original": "原版",

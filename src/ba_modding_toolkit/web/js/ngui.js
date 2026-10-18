@@ -3,7 +3,7 @@
 //   - sprites: Simple / Sliced (9-slice, borders from the atlas) / Tiled, tinted like NGUI (mColor multiplies the
 //     mostly white sprite), flipped, sheared by inclineAngle
 //   - textures: the game's UITexture images, or per-node overrides
-//   - labels: plain text in the page font, sized from the label's font size
+//   - labels: plain text in the page font, sized from the label's font size (italic: a placeholder's slant)
 // Depth becomes z-index; NGUI y points up, the stage's y points down.
 import { spriteUrl } from "./api.js";
 
@@ -227,6 +227,7 @@ export async function render(tree, host, opts = {}) {
         display: "flex", alignItems: ["flex-start", "center", "flex-end"][Math.floor((w.pivot ?? 4) / 3)],
         justifyContent: { left: "flex-start", center: "center", right: "flex-end", justify: "center" }[align],
         color: col.hex, fontSize: `${(fontSizeFor(text, w.fontSize || 40) * sy * S).toFixed(2)}px`, lineHeight: "1.15", whiteSpace: "pre", textAlign: align,
+        fontStyle: w.italic ? "italic" : "",
         paddingBottom: `${(fontSizeFor(text, w.fontSize || 40) * sy * S * (isLatin(text) ? LATIN_LIFT : GLYPH_LIFT) * 2).toFixed(2)}px`,
       });
       if (w.ellipsis) {

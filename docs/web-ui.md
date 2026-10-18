@@ -8,7 +8,8 @@ at runtime and never shipped with the program.
 
 - Screens: consent popup, student roster, student detail (Portrait, Memorial Lobby and 3D tabs), the
   switch-portrait popup and the variant picker. The lobby is framed and touched like the game (its prefab data,
-  `lobby.json`) and plays its dialogue with Kivo's voices and lines; the 3D tab shows the variant's chibi, exported
+  `lobby.json`) and plays its dialogue with Kivo's voices and the lines in the UI language (Kivo's Chinese and
+  Japanese, the Global server's official English and the others); the 3D tab shows the variant's chibi, exported
   from the install, and is disabled only for variants without one.
 - Nav entries without a new screen yet open the classic Tk GUI on that tab (`bamt --tab <name>`).
 - `bamt` (and the compiled app) starts the web UI; `bamt --classic` starts the classic Tk GUI.
@@ -125,6 +126,7 @@ class Variant:
     page_id: str | None       # the student page on Kivo, for lobby lines
     recruitable: bool         # on the selected server: its collection portrait is installed, else the shipped flag
     model: str | None         # 3D chibi dev name, e.g. "hoshino_original", "ch0242", when the install has it
+    schale_id: int | None     # the game's character id (SchaleDB's), for the Global server's lobby lines
 
 @dataclass
 class Family:
@@ -214,6 +216,7 @@ Events on `/api/events`:
 | `roster.list` | families with variants, mod counts, fresh flags, favourites, recent order |
 | `family.get {key}` | a family with its variants, mods and each variant's state; `modelFiles` per variant (the 3D model's prefab bundles, newest first) and `version` (the game's resource version, so a switched install reloads the screen) |
 | `lobby.warm` | builds the memorial lobby prefab index in the background (once per game); the detail screen calls it for a variant with a lobby |
+| `lobby.lines {variant, talks, lang}` | `{clip: {lang: text, voice}}`: zh-CN from Kivo, ja from Kivo else the Global server, en, zh-TW, ko and th from the Global server (read only for a `lang` other than zh-CN); `talks` (`{animation: [clip ids]}` from the skeleton) places the Global rows on the clips; `lines_unavailable` when neither source can be read |
 | `favorites.set {variant, on}` | |
 | `mods.add {paths}` / `mods.pick` | added entries (`mods.pick` opens the native file dialog) |
 | `mods.remove {id}`, `mods.rename {id, label}`, `mods.seen {id}` | |
@@ -277,3 +280,18 @@ stand-in in the page font shows instead.
 - `gameassets` and end-to-end checks against a real install; skipped unless one is found (`BAMT_TEST_GAME_DIR`, or
   `game_paths.find_game_dirs`).
 - `webui` through its WSGI app, without a window.
+
+## Lobby lines
+
+Online data, fetched on demand and kept in memory only (never written to disk):
+
+- Kivo (`kivo.py`): one student page per variant (zh-CN, ja and the voices, by voice clip name).
+- The Global server's CharacterDialog table (`globallines.py`), as ba-data publishes it
+  (github.com/electricgoat/ba-data, `global` branch, a jsDelivr mirror second): one download per session (about
+  2.4 MB compressed), only when the UI language is not zh-CN; after a failure it is asked for again after 5 minutes.
+  SchaleDB's voice data has no memorial lobby lines. A dialogue's rows (`UILobbySpecial`, by `GroupId`, played by the
+  talk animation the first row names) go on that animation's voice clips in order; with fewer rows than clips the last
+  clips get none (the row before stays on screen), with more rows the rest join the last clip's line.
+
+The page shows only the UI language's lines: a dialogue card without one shows a grey, slanted "Dialogue N", and the
+subtitle shows nothing for it.
