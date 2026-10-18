@@ -57,6 +57,15 @@ LOADING_LANGS = {"zh": ("tw",), "ja": ("jp",), "ko": ("kr",), "th": ("th",)}
 LOADING_JPEG_QUALITY = 88
 
 
+def _stamp(path: str | Path) -> tuple[int, int] | None:
+    """A file's size and modification time, or None when it cannot be read."""
+    try:
+        stat = Path(path).stat()
+    except OSError:
+        return None
+    return stat.st_size, stat.st_mtime_ns
+
+
 class GameAssets:
     """Read light UI assets and heavy character art from the user's install.
 
@@ -482,12 +491,17 @@ class GameAssets:
             stamps.append((str(path), stat.st_size, stat.st_mtime_ns))
         key = _SCHEMA + "model/" + json.dumps([core, stamps])
         with _MODEL_LOCK:
-            data = self.cache.get(key, version=self.resource_version, disk=False)
-            if data is None:
-                index = self._cab_index()
-                with BundleGraph(index, overrides, fallback=lambda: self._cab_index(everything=True)) as graph:
-                    data = export_chibi(graph, bundles, core)
-                self.cache.put(key, data, version=self.resource_version, disk=False)
+            cached = self.cache.get(key, version=self.resource_version, disk=False)
+            # the meshes, textures and clips sit in other bundles than the prefab: the entry also keeps the stamps of
+            # every bundle the export read, so one changed in place (a mod install) exports again
+            if cached is not None and all(stamp is not None and _stamp(path) == stamp
+                                          for path, stamp in cached[1].items()):
+                return cached[0]
+            index = self._cab_index()
+            with BundleGraph(index, overrides, fallback=lambda: self._cab_index(everything=True)) as graph:
+                data = export_chibi(graph, bundles, core)
+                read = {path: _stamp(path) for path in graph.loaded}
+            self.cache.put(key, (data, read), version=self.resource_version, disk=False, size=len(data))
             return data
 
     def _lobby_prefabs(self) -> dict[str, str]:

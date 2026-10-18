@@ -368,6 +368,26 @@ def test_model_glb_is_memory_only_and_keyed_by_bundle_stamps(tmp_path, monkeypat
         game.model_glb("ch9999")
 
 
+def test_model_glb_exports_again_when_a_bundle_it_read_changes(tmp_path, monkeypatch):
+    prefab = "character-ch0242-_mxload-2024-11-18_assets_all_1.bundle"
+    dependency = "assets-_mx-characters-ch0242-_mxdependency-2024-11-18_004_assets_all_2.bundle"
+    game, resources = _game(tmp_path, prefab, dependency)
+    calls = []
+
+    def export(graph, bundles, dev, **kwargs):
+        graph.loaded.append(str(resources / dependency))  # the meshes, textures and clips
+        calls.append(dev)
+        return b"glTF" + bytes(len(calls))
+
+    monkeypatch.setattr(model, "export_chibi", export)
+    assert game.model_glb("ch0242") == game.model_glb("ch0242") == b"glTF\0"
+    os.utime(resources / dependency, ns=(1, 1))  # a texture mod installed in place
+    assert game.model_glb("ch0242") == game.model_glb("ch0242") == b"glTF\0\0"
+    (resources / dependency).unlink()
+    assert game.model_glb("ch0242") == b"glTF\0\0\0"
+    assert len(calls) == 3 and not (tmp_path / "cache").exists()
+
+
 def test_cab_index_skips_a_corrupt_bundle(tmp_path):
     # one damaged model-family bundle (an interrupted update) must not break every model
     game, resources = _game(tmp_path)
