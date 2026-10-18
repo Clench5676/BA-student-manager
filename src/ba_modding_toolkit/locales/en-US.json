@@ -945,7 +945,7 @@
 			"loading": "Reading game files",
 			"noGame": {
 				"title": "Game folder not found",
-				"hint": "Choose the game folder in the classic UI's Settings"
+				"hint": "Detect it, or choose the game folder"
 			},
 			"openSettings": "Open Settings"
 		},
@@ -985,6 +985,47 @@
 			"downloading": "Downloading {p}%",
 			"restarting": "Restarting to finish the update",
 			"page": "Open Download Page"
+		},
+		"settings": {
+			"title": "Settings",
+			"tab": {
+				"general": "General",
+				"sound": "Sound",
+				"folders": "Folders"
+			},
+			"language": "Language",
+			"cache": {
+				"label": "Asset Cache",
+				"on": "Cached on this device",
+				"off": "Not cached",
+				"clear": "Clear Cache",
+				"cleared": "Cache cleared"
+			},
+			"version": "Version",
+			"update": {
+				"check": "Check for Updates",
+				"none": "Up to date"
+			},
+			"classic": {
+				"label": "More Settings",
+				"hint": "Spine tools, ADB and more in the classic UI",
+				"open": "Open"
+			},
+			"voice": "Voice",
+			"mute": "Mute",
+			"server": {
+				"label": "Server",
+				"global": "Global",
+				"japan": "Japan"
+			},
+			"gameDir": "Game Folder",
+			"library": "Mod Library",
+			"output": "Output Folder",
+			"browse": "Browse",
+			"detect": "Detect",
+			"notSet": "Not set",
+			"saved": "Saved",
+			"button": "Settings"
 		}
 	}
 }

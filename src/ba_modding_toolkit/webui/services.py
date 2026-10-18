@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
 import threading
 from pathlib import Path
 from typing import Any
@@ -87,8 +88,40 @@ class Services:
             if self._library is None:
                 from ..library import ModLibrary
 
-                self._library = ModLibrary(self.data_dir / "library", self.catalog, self.game, self.settings)
+                self._library = ModLibrary(self.library_dir(), self.catalog, self.game, self.settings)
             return self._library
+
+    def library_dir(self) -> Path:
+        """Where the mod library lives: the user's choice, else the data directory's library folder."""
+        chosen = self.state.get("library_dir")
+        return Path(chosen) if chosen else self.data_dir / "library"
+
+    def move_library(self, target: Path) -> Path:
+        """Use another folder for the mod library. The current library moves there when the target holds none."""
+        target = Path(target).expanduser().resolve()
+        current = self.library_dir().resolve()
+        if target == current:
+            return target
+        if target.exists() and not target.is_dir():
+            raise ServiceError("path_not_found", path=str(target))
+        with self._lock:
+            if (current / "state.json").exists() and not (target / "state.json").exists():
+                target.mkdir(parents=True, exist_ok=True)
+                try:
+                    for item in ("mods", "originals", "state.json"):
+                        if (current / item).exists():
+                            shutil.move(str(current / item), str(target / item))
+                except OSError as e:
+                    raise ServiceError("library_io_error", file=str(target)) from e
+            self.state.set("library_dir", str(target))
+            if "library" not in self._injected:
+                self._library = None
+        self.events.publish("library.changed")
+        return target
+
+    def reload_game(self) -> None:
+        """Rebuild the game-backed services after the game folder or file source changed."""
+        self._on_settings_changed()
 
     def _on_settings_changed(self) -> None:
         # a new game folder means new game-backed services

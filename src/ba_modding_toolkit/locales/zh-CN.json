@@ -945,7 +945,7 @@
 			"loading": "读取游戏文件",
 			"noGame": {
 				"title": "未找到游戏目录",
-				"hint": "在经典界面的设置中选择游戏目录"
+				"hint": "自动检测或手动选择游戏目录"
 			},
 			"openSettings": "打开设置"
 		},
@@ -985,6 +985,47 @@
 			"downloading": "下载中 {p}%",
 			"restarting": "即将重启以完成更新",
 			"page": "前往下载页"
+		},
+		"settings": {
+			"title": "设置",
+			"tab": {
+				"general": "通用",
+				"sound": "音量",
+				"folders": "目录"
+			},
+			"language": "语言",
+			"cache": {
+				"label": "素材缓存",
+				"on": "已缓存到本机",
+				"off": "未缓存",
+				"clear": "清除缓存",
+				"cleared": "已清除缓存"
+			},
+			"version": "版本",
+			"update": {
+				"check": "检查更新",
+				"none": "已是最新版本"
+			},
+			"classic": {
+				"label": "更多设置",
+				"hint": "在经典界面中设置 Spine 工具、ADB 等",
+				"open": "打开"
+			},
+			"voice": "语音",
+			"mute": "静音",
+			"server": {
+				"label": "服务器",
+				"global": "国际服",
+				"japan": "日服"
+			},
+			"gameDir": "游戏目录",
+			"library": "Mod 仓库",
+			"output": "输出目录",
+			"browse": "浏览",
+			"detect": "自动检测",
+			"notSet": "未设置",
+			"saved": "已保存",
+			"button": "设置"
 		}
 	}
 }

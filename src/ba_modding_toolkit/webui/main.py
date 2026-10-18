@@ -8,7 +8,7 @@ import sys
 import threading
 import webbrowser
 
-from ..i18n import t
+from ..i18n import i18n_manager, t
 from .api import build_api
 from .server import Server, WebApp
 from .services import Services
@@ -20,6 +20,9 @@ CONFIG_POLL_SECONDS = 2.0
 
 def build(port: int = 0, services: Services | None = None, token: str | None = None) -> tuple[Services, Server]:
     s = services or Services()
+    lang = s.settings.get("language")
+    if lang and lang != i18n_manager.lang:
+        i18n_manager.set_language(lang)  # the language chosen in either GUI
     app = WebApp(build_api(s), s.events, assets=s.asset, consent=lambda: s.state.consent, token=token)
     return s, Server(app, port)
 

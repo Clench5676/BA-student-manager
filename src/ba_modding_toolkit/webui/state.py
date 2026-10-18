@@ -1,4 +1,6 @@
-"""Small UI state kept between launches: the asset consent and recently opened variants."""
+"""Small UI state kept between launches: the asset consent, recently opened variants and the web UI's own
+preferences (voice volume, the mod library folder). Kept apart from config.toml, which the classic GUI rewrites
+with only its own keys."""
 
 from __future__ import annotations
 
@@ -48,4 +50,14 @@ class UiState:
         with self._lock:
             recent = [v for v in self.recent() if v != variant_key]
             self._data["recent"] = [variant_key, *recent][:RECENT_MAX]
+            self._save()
+
+    # --- preferences ---
+
+    def get(self, key: str, default: Any = None) -> Any:
+        return self._data.get("prefs", {}).get(key, default)
+
+    def set(self, key: str, value: Any) -> None:
+        with self._lock:
+            self._data.setdefault("prefs", {})[key] = value
             self._save()

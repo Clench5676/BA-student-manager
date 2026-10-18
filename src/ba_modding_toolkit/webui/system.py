@@ -48,14 +48,16 @@ CLASSIC_TABS = ("mod_update", "batch_update", "mod_install", "crc_tool", "asset_
 
 
 def open_classic(tab: str | None = None) -> None:
-    """Start the classic Tk GUI in its own process, optionally on a tab."""
-    if tab is not None and tab not in CLASSIC_TABS:
+    """Start the classic Tk GUI in its own process, optionally on a tab or (``"settings"``) in its settings."""
+    if tab is not None and tab not in CLASSIC_TABS and tab != "settings":
         raise ServiceError("bad_params", tab=tab)
     if "__compiled__" in globals() or getattr(sys, "frozen", False):
         cmd = [sys.executable]  # a compiled build: the executable itself starts the classic GUI
     else:
         cmd = [sys.executable, "-m", "ba_modding_toolkit"]
-    if tab:
+    if tab == "settings":
+        cmd += ["--settings"]
+    elif tab:
         cmd += ["--tab", tab]
     try:
         subprocess.Popen(cmd, creationflags=CREATE_NO_WINDOW, env=os.environ.copy())

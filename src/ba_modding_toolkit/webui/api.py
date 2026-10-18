@@ -116,6 +116,83 @@ def build_api(s: Services) -> RpcRegistry:
         if s.window is not None:
             s.window.destroy()
 
+    # --- settings (the popup behind the top bar's settings button) ---
+
+    LANGUAGES = {"zh-CN": "简体中文", "en-US": "English"}  # each shown in its own language
+
+    @rpc.method("settings.get")
+    def settings_get() -> dict[str, Any]:
+        st = s.settings
+        return {
+            "language": i18n_manager.lang, "languages": [{"code": c, "name": n} for c, n in LANGUAGES.items()],
+            "fileSource": st.get("file_source"),
+            "gameDirs": {"global": st.get("game_resource_dir"), "japan": st.get("game_resource_dir_japan")},
+            "gameFound": s.game_found(), "libraryDir": str(s.library_dir()), "outputDir": st.get("output_dir"),
+            "voiceVolume": int(s.state.get("voice_volume", 80)), "voiceMuted": bool(s.state.get("voice_muted", False)),
+            "consent": s.state.consent, "cacheDir": str(user_cache_dir()),
+            "version": get_version_info().get("version"), "native": s.window is not None,
+        }
+
+    @rpc.method("settings.set")
+    def settings_set(key: str, value: Any) -> dict[str, Any]:
+        st = s.settings
+        if key == "language":
+            if value not in LANGUAGES:
+                raise ServiceError("bad_params", key=key)
+            st.set("language", value)
+            st.save()
+            i18n_manager.set_language(value)
+        elif key == "fileSource":
+            if value not in ("windows_global", "windows_japan"):
+                raise ServiceError("bad_params", key=key)
+            st.set("file_source", value)
+            st.save()
+            s.reload_game()
+        elif key in ("gameDir.global", "gameDir.japan"):
+            path = Path(str(value)).expanduser()
+            from ..searching import get_search_dirs
+
+            if not path.is_dir() or not get_search_dirs(path):
+                raise ServiceError("game_not_found")
+            st.set("game_resource_dir" if key.endswith("global") else "game_resource_dir_japan", str(path))
+            st.save()
+            s.reload_game()
+        elif key == "outputDir":
+            path = Path(str(value)).expanduser()
+            path.mkdir(parents=True, exist_ok=True)
+            st.set("output_dir", str(path))
+            st.save()
+        elif key == "libraryDir":
+            s.move_library(Path(str(value)))
+        elif key == "voiceVolume":
+            s.state.set("voice_volume", max(0, min(100, int(value))))
+        elif key == "voiceMuted":
+            s.state.set("voice_muted", bool(value))
+        else:
+            raise ServiceError("bad_params", key=key)
+        return settings_get()
+
+    @rpc.method("settings.detectGame")
+    def settings_detect_game(region: str) -> list[str]:
+        if region not in ("global", "japan"):
+            raise ServiceError("bad_params", region=region)
+        from ..game_paths import find_game_dirs
+
+        return [str(p) for p in find_game_dirs(region)]
+
+    @rpc.method("settings.pickFolder")
+    def settings_pick_folder(start: str | None = None) -> str | None:
+        if s.window is None:
+            raise ServiceError("native_unavailable")
+        import webview
+
+        result = s.window.create_file_dialog(webview.FileDialog.FOLDER, directory=start or "")
+        return str(result[0]) if result else None
+
+    @rpc.method("settings.clearCache")
+    def settings_clear_cache() -> None:
+        s.cache.clear()
+
     @rpc.method("i18n.strings")
     def i18n_strings(lang: str | None = None) -> dict[str, str]:
         return ui_strings(lang or i18n_manager.lang)

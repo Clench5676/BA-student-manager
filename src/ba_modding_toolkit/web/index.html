@@ -32,11 +32,15 @@
       <section class="screen message" id="screen-message" hidden>
         <h2 id="message-title"></h2>
         <p id="message-hint"></p>
+        <div class="message-actions" id="message-actions"></div>
       </section>
 
       <header class="topbar">
         <button class="back" aria-label="back"><i class="icon-back"></i></button>
         <h1 class="title"></h1>
+        <!-- the game's top bar option button, at the right end -->
+        <i class="top-line"></i>
+        <button class="top-option" id="top-option" aria-label="settings"><i></i></button>
       </header>
 
       <footer class="nav">
@@ -45,6 +49,7 @@
       </footer>
 
       <div class="consent-host" id="consent" hidden></div>
+      <div class="consent-host settings-host" id="settings" hidden></div>
       <div class="toast" id="toast" hidden></div>
     </div>
   </div>

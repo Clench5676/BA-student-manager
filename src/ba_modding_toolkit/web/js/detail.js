@@ -1058,9 +1058,9 @@ function renderLeft() {
       // lines and voices from Kivo; the Chinese UIs show the Chinese text, the others the original Japanese
       rpc("lobby.lines", { variant: v.key }).then((table) => {
         const pick = (l) => (language().startsWith("zh") ? l?.["zh-CN"] || l?.ja : l?.ja || l?.["zh-CN"]) || "";
-        Lobby.setLines(table, pick, ctx.info?.mute);
+        Lobby.setLines(table, pick);
         if (tab === "lobby" && variantKey === v.key) renderExpressions();
-      }).catch(() => Lobby.setLines({}, null, ctx.info?.mute));
+      }).catch(() => Lobby.setLines({}, null));
       // the still is taken in the left framing, once the players have drawn a few frames of it
       if (!lobbyShot && !fullscreen) {
         await new Promise((r) => { let n = 4; const step = () => (--n ? requestAnimationFrame(step) : r()); requestAnimationFrame(step); });
@@ -1119,9 +1119,15 @@ async function ensureLayouts() {
   layouts = { list: find(detail, "Inventory_ListControl"), collection, sortPopup, textures };
 }
 
+// the voice volume and mute from the settings (development runs started with --mute stay silent)
+export function applyPrefs(prefs) {
+  Lobby.setVolume((prefs?.voiceVolume ?? 80) / 100, ctx?.info?.mute || prefs?.voiceMuted);
+}
+
 // show(context, familyData, variantKey): open the detail screen on a variant
 export async function show(context, familyData, key) {
   ctx = context;
+  applyPrefs(ctx.prefs);
   await ensureLayouts();
   const sameFamily = fam?.key === familyData.key;
   const sameVariant = sameFamily && variantKey === key;

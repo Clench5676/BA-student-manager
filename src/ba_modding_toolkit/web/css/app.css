@@ -38,6 +38,13 @@ button { font: inherit; color: inherit; border: 0; background: none; cursor: poi
 }
 .back .icon-back { display: inline-block; width: 46px; height: 36px; margin: -6px 0 0 -2px; background: url("/asset/ui/sprite/Common/Common_Icon_Back.png") center / contain no-repeat; }
 .title { margin-left: -12px; font: var(--w) 42px/1 var(--font); color: var(--navy-text); letter-spacing: 1px; }
+/* the game's top bar option button (Common_Top_Option_Btn tinted #466399) and the slanted divider before it */
+.top-option { position: absolute; right: 44px; top: 7px; width: 50px; height: 50px; display: grid; place-items: center; }
+.top-option i { width: 39px; height: 40px; background-color: #466399;
+  -webkit-mask: url("/asset/ui/sprite/Common/Common_Top_Option_Btn.png") center / contain no-repeat;
+  mask: url("/asset/ui/sprite/Common/Common_Top_Option_Btn.png") center / contain no-repeat; }
+.top-option:hover i { background-color: #2a63c5; }
+.top-line { position: absolute; right: 118px; top: 16px; width: 3px; height: 32px; background: #dde8f1; transform: skewX(-10deg); }
 
 /* --- bottom navigation, pressed down to the bottom edge; icons only peek over the bar --- */
 .nav { position: absolute; left: 0; right: 0; bottom: 0; height: 104px; z-index: 1000; }
@@ -63,6 +70,13 @@ button { font: inherit; color: inherit; border: 0; background: none; cursor: poi
 .scrollbar i { position: absolute; left: 0; right: 0; border-radius: 5px; background: #92a6b7; }
 .consent-host { position: absolute; inset: 0; z-index: 2000; }
 .consent-host[hidden] { display: none; }
+
+/* settings: the rows scroll inside the popup's white panel */
+.settings-host { z-index: 2500; }
+.settings-rows { position: absolute; z-index: 3005; overflow-y: auto; overflow-x: hidden; scrollbar-width: none; }
+.settings-rows::-webkit-scrollbar { display: none; }
+.settings-rows-inner { position: relative; }
+.slider-hit { cursor: ew-resize; touch-action: none; }
 
 /* --- detail --- */
 .layer-host { position: absolute; inset: 0; pointer-events: none; }
@@ -150,3 +164,6 @@ button { font: inherit; color: inherit; border: 0; background: none; cursor: poi
 .screen.message[hidden] { display: none; }
 .screen.message h2 { font: var(--w) 56px/1.2 var(--font); color: #2d4664; }
 .screen.message p { font: var(--w) 32px/1.4 var(--font); color: #5b6f86; }
+.message-actions { display: flex; gap: 28px; margin-top: 18px; }
+.message-button { min-width: 240px; padding: 22px 40px; border-radius: 10px; background: #8de4ff; color: #314665; font: var(--w) 34px/1 var(--font);
+  transform: skewX(-10deg); box-shadow: 0 4px 0 rgba(40, 80, 120, .25); }

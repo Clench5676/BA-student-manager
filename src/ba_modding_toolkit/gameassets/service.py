@@ -38,6 +38,7 @@ PREFAB_HINTS = {
     "UIPopup_GachaCharList": "ui-_mxload-prefabs-2025-07-02_assets_all_2249507476.bundle",
     "UIPopup_Sort": "ui-_mxload-prefabs-2025-07-02_assets_all_792282090.bundle",
     "UICharacterDetail": "ui-_mxload-prefabs-2025-07-02_assets_all_2968814143.bundle",
+    "UIPopup_Option_PC": "ui-_mxload-prefabs-2025-11-28_assets_all_1183413113.bundle",
 }
 
 

@@ -8,7 +8,7 @@
 import { spineFiles } from "./api.js";
 
 let players = [], current = null, mode = "left", extendTimer = null, chain = null, token = 0;
-let lines = {}, muted = false, cueTimers = [], audios = [], subtitleTimer = null, lineOf = (l) => l?.["zh-CN"] || "";
+let lines = {}, muted = false, volume = 0.8, cueTimers = [], audios = [], subtitleTimer = null, lineOf = (l) => l?.["zh-CN"] || "";
 
 const base = (core) => `/asset/spine/lobby/${encodeURIComponent(core)}/`;
 
@@ -197,6 +197,7 @@ export function play(anim, { fromChain = false } = {}) {
     if (!lines[cue.clip]?.voice) continue;
     cueTimers.push(setTimeout(() => {
       const a = new Audio(`/asset/voice/${encodeURIComponent(current.variant)}/${encodeURIComponent(cue.clip)}.ogg`);
+      a.volume = volume;
       audios.push(a);
       a.play().catch(() => {});
     }, cue.t * 1000));
@@ -247,11 +248,17 @@ function silence() {
   audios = [];
 }
 
-// lines by clip id ({clip: {"zh-CN", ja, voice}}) and the language picker for them; muted never plays voices
-export function setLines(table, pick, mute) {
+// lines by clip id ({clip: {"zh-CN", ja, voice}}) and the language picker for them
+export function setLines(table, pick) {
   lines = table || {};
   if (pick) lineOf = pick;
+}
+// the voice volume (0 to 1); muted never plays voices
+export function setVolume(value, mute) {
+  volume = Math.max(0, Math.min(1, value));
   muted = !!mute;
+  for (const a of audios) a.volume = volume;
+  if (muted) silence();
 }
 // a sequence's lines, one per voice clip
 export const textOf = (seq) => seq.cues.map((c) => lineOf(lines[c.clip])).filter(Boolean);
