@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-  DEFAULT_VIEW, FILTERS, NATURAL, SORTS, arrange, filtering, fold, normalizeView, order,
+  DEFAULT_VIEW, FILTERS, NATURAL, SORTS, arrange, filtering, fold, neighbour, normalizeView, order,
 } from "../../src/ba_modding_toolkit/web/js/roster-order.js";
 
 const v = (key, extra = {}) => ({
@@ -102,4 +102,24 @@ test("merged, a family is one card shown by its first variant or the first one t
   assert.deepEqual(swim.map((c) => [c.family, c.key]), [["hoshino", "hoshino_swimsuit"]]);
   // family attributes are any of its variants': hoshino has a recruitable variant, citizen has none
   assert.deepEqual(order(data(), view({ merged: true, recruit: "no" }), { label }).map((c) => c.family), ["citizen"]);
+});
+
+test("the arrows step through the shown cards in order and wrap", () => {
+  const d = data();
+  const list = order(d, view({ recruit: "yes" }), { label });
+  assert.deepEqual(keys(list), ["aru", "hoshino_swimsuit", "hoshino"]);
+  const full = () => order(d, view(), { label, unfiltered: true });
+  const at = (variant, family) => ({ variant, family, merged: false });
+  assert.equal(neighbour(list, full, at("hoshino_swimsuit", "hoshino"), 1).key, "hoshino");
+  assert.equal(neighbour(list, full, at("hoshino", "hoshino"), 1).key, "aru");      // wraps
+  assert.equal(neighbour(list, full, at("aru", "aru"), -1).key, "hoshino");        // wraps back
+  // a variant the list hides steps from its place in the whole roster: np0045 comes after hoshino there
+  assert.equal(neighbour(list, full, at("np0045", "hoshino"), 1).key, "aru");
+  assert.equal(neighbour(list, full, at("np0045", "hoshino"), -1).key, "hoshino");
+  // the only card: nowhere to go
+  assert.equal(neighbour(list.slice(0, 1), full, at("aru", "aru"), 1), null);
+  // merged: families
+  const merged = order(d, view({ merged: true }), { label });
+  assert.equal(neighbour(merged, null, { family: "hoshino", variant: "np0045", merged: true }, 1).family, "citizen");
+  assert.equal(neighbour([], full, at("aru", "aru"), 1), null);
 });

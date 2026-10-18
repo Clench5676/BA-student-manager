@@ -439,8 +439,9 @@ function hits(view, leftHost, rightHost) {
   add(leftHost, "LeftInfo/CharInfo/Char_Target/Pin/Pin_On/Bg", toggleFav, T("fav.label"));
   add(leftHost, "LeftInfo/CharInfo/Char_Target/Pin/Pin_Off/Bg", toggleFav, T("fav.label"));
   add(leftHost, "LeftInfo/CharInfo/Char_Target/Char_CVCollectionBtn", copyName, baseName(gameFile(variant(), tabKind())));
-  add(leftHost, "Arrow_L/Left", () => ctx.stepFamily(fam.key, -1));
-  add(rightHost, "Arrow_R/Right", () => ctx.stepFamily(fam.key, 1));
+  // the previous or next card of the student list, within its filters and in its order
+  add(leftHost, "Arrow_L/Left", () => ctx.step(-1, fam.key, variantKey));
+  add(rightHost, "Arrow_R/Right", () => ctx.step(1, fam.key, variantKey));
   if (tab === "lobby" || tab === "model") add(leftHost, "LeftInfo/CharInfo/Char_Target/Char_ZoomBtn", () => setFullscreen(true), T("lobby.fullscreen"));
   if (tab === "lobby") add(leftHost, "LeftInfo/CharInfo/Char_Target/Char_PlayBtn", togglePlayAll, T(Lobby.playingAll() ? "lobby.stop" : "lobby.playAll"));
   const v = variant();

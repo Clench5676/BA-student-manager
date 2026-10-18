@@ -1,7 +1,8 @@
 // The student list's cards and their order for a view (merge, segment filters, the display settings' filters and
-// sort, the search). No DOM: the tests run it in Node.
+// sort, the search), shared by the roster and the detail screen's arrows. No DOM: the tests run it in Node.
 //   arrange(data, view, opts) -> { groups: [{ id: "mods" | "none", items }], total }  the cards as the roster shows them
 //   order(data, view, opts)   -> the same cards in one list
+//   neighbour(list, full, at, delta) -> the card before or after the shown variant (or family, merged)
 
 export const SORTS = ["recent", "added", "name", "mods", "default"];
 // the direction each sort reads in by default; the order button flips it
@@ -147,3 +148,28 @@ export function arrange(data, view, { query = "", label = (v) => v?.["zh-CN"] ??
 }
 
 export const order = (data, view, opts) => arrange(data, view, opts).groups.flatMap((g) => g.items);
+
+// the card delta steps away from the shown one (at: {family, variant, merged}) in list, wrapping round; a variant
+// the list hides (another chip of the family, a deep link) steps to the nearest listed card after or before its place
+// in full (the unfiltered order, or a function making it). Null when there is nowhere else to go.
+export function neighbour(list, full, at, delta) {
+  const usable = list.filter((c) => c.spr);
+  if (!usable.length) return null;
+  const id = (c) => (at.merged ? c.family : c.key);
+  const here = at.merged ? at.family : at.variant;
+  const step = (i, len) => (((i + delta) % len) + len) % len;
+  let next = null;
+  const i = usable.findIndex((c) => id(c) === here);
+  if (i >= 0) {
+    next = usable[step(i, usable.length)];
+  } else {
+    const all = typeof full === "function" ? full() : full || [];
+    const byId = new Map(usable.map((c) => [id(c), c]));
+    const j = all.findIndex((c) => id(c) === here);
+    if (j >= 0) {
+      for (let k = 1, p = j; k < all.length && !next; k++) { p = step(p, all.length); next = byId.get(id(all[p])) || null; }
+    }
+    next ||= usable[delta > 0 ? 0 : usable.length - 1];
+  }
+  return next && id(next) !== here ? next : null;
+}

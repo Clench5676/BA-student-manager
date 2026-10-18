@@ -266,6 +266,8 @@ ported.
   roster`); the search lasts the session.
 - The search (the game's CharacterSearch box over the top of the list) matches every name language, the family's base
   names and the file id, ignoring case, width, kana and separators; every word must match.
+- The detail screen's arrows step through the cards as the list showed them when it was left, in its order, wrapping
+  round; a variant the list hides (another chip, a deep link) steps from its place in the whole list.
 
 ### Loading screen
 
@@ -283,7 +285,7 @@ stand-in in the page font shows instead.
   so. One overlay at a time: a newer call takes over the one on screen.
 - The detail screen resolves `show()` only when it is ready: the panels, the left side's first frame (the portrait,
   or the lobby with its still, or the 3D model with its shaders compiled) and, within 1.2 s, the visible thumbnails;
-  the lobby's lines from Kivo get 1.5 s. A change inside the screen (a variant chip, the family arrows, a tab, an
+  the lobby's lines from Kivo get 1.5 s. A change inside the screen (a variant chip, the arrows, a tab, an
   applied portrait) renders every part off screen and swaps them in one frame. The left side loads laid out but
   transparent; when a lobby or a model replaces another one, a still of the old one holds its place meanwhile.
 - The consent popup comes after the first screen is revealed. The illustrations are game art: memory only, served
