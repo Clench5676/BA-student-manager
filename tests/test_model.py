@@ -193,6 +193,87 @@ def test_glb_writer_layout():
     assert binary[view["byteOffset"]:view["byteOffset"] + view["byteLength"]] == b"\x89PNG.."
 
 
+def test_glb_writer_samplers_and_linear_textures():
+    glb = model.GlbWriter()
+    clamp = {"magFilter": 9729, "minFilter": 9729, "wrapS": 33071, "wrapT": 33071}
+    a = glb.image(b"a", "Body", sampler=clamp)
+    b = glb.image(b"b", "Body_Mask", linear=True, sampler=dict(clamp))
+    c = glb.image(b"c", "Halo")
+    data = glb.finish()
+    doc = json.loads(data[20:20 + struct.unpack_from("<I", data, 12)[0]])
+    # one sampler per distinct setting, the default (trilinear, repeat) first
+    assert doc["samplers"] == [{"magFilter": 9729, "minFilter": 9987, "wrapS": 10497, "wrapT": 10497}, clamp]
+    assert [doc["textures"][i]["sampler"] for i in (a, b, c)] == [1, 1, 0]
+    assert doc["textures"][b]["extras"] == {"linear": True} and "extras" not in doc["textures"][a]
+
+
+def test_texture_sampler_follows_the_game_settings():
+    # bilinear without mipmaps, clamped (the characters' textures); point; trilinear with mipmaps; per-axis wrap
+    settings = lambda **s: {"m_TextureSettings": {"m_FilterMode": 1, "m_WrapU": 1, "m_WrapV": 1, **s}, "m_MipCount": 1}  # noqa: E731
+    assert model.texture_sampler(settings()) == {"magFilter": 9729, "minFilter": 9729, "wrapS": 33071, "wrapT": 33071}
+    assert model.texture_sampler(settings(m_FilterMode=0, m_WrapU=0))["magFilter"] == 9728
+    assert model.texture_sampler(settings(m_FilterMode=0, m_WrapU=0))["minFilter"] == 9728
+    assert model.texture_sampler({**settings(m_FilterMode=2), "m_MipCount": 9})["minFilter"] == 9987
+    assert model.texture_sampler({**settings(), "m_MipCount": 9})["minFilter"] == 9985
+    assert model.texture_sampler(settings(m_WrapU=0, m_WrapV=2)) == {"magFilter": 9729, "minFilter": 9729,
+                                                                      "wrapS": 10497, "wrapT": 33648}
+    assert model.texture_sampler({})["wrapS"] == 10497  # no settings: Unity's defaults
+
+
+# --- shaders ---
+
+def _form(name, props=(), passes=(), sub_tags=()):
+    """A shader's m_ParsedForm: properties (name, m_Type) and passes (light mode, cull, zwrite, src, dst, queue tag);
+    a state value is a property name (read from the material) or a fixed number."""
+    def entry(v):
+        return {"val": 0.0, "name": v} if isinstance(v, str) else {"val": float(v), "name": "<noninit>"}
+    out = []
+    for mode, cull, zwrite, src, dst, queue in passes:
+        tags = [("LIGHTMODE", mode)] + ([("QUEUE", queue)] if queue else [])
+        out.append({"m_State": {"m_Name": mode, "m_Tags": {"tags": tags}, "culling": entry(cull), "zWrite": entry(zwrite),
+                                "rtBlend0": {"srcBlend": entry(src), "destBlend": entry(dst)}}})
+    return {"m_Name": name, "m_PropInfo": {"m_Props": [{"m_Name": n, "m_Type": t} for n, t in props]},
+            "m_SubShaders": [{"m_Passes": out, "m_Tags": {"tags": list(sub_tags)}}]}
+
+
+def test_shader_kind_by_name_prefix():
+    kinds = {name: model.shader_kind(name) for name in (
+        "MX/C-General/Layer4", "MX/C-General/Layer4-Inline", "MX/C-General/Single", "MX/C-General/Transparent",
+        "MX/C-Hair-Transparent", "MX/C-Face", "MX/C-EyesMouth", "MX/C-Eyebrow-OneColor", "MX/C-Halo/Simple",
+        "MX/C-Weapon-NoOutline", "ProjectMX/WeaponTest1Damage", "MX/C-Simple", "MX/C-Simple-Transparent",
+        "MX/C-Transparent-ST", "Unlit/Texture", "FX/General Unlit Texture", "MX/E-Standard")}
+    assert kinds == {
+        "MX/C-General/Layer4": "body", "MX/C-General/Layer4-Inline": "body", "MX/C-General/Single": "general",
+        "MX/C-General/Transparent": "general", "MX/C-Hair-Transparent": "hair", "MX/C-Face": "face",
+        "MX/C-EyesMouth": "eyemouth", "MX/C-Eyebrow-OneColor": "eyebrow", "MX/C-Halo/Simple": "halo",
+        "MX/C-Weapon-NoOutline": "weapon", "ProjectMX/WeaponTest1Damage": "weapon", "MX/C-Simple": "simple",
+        "MX/C-Simple-Transparent": "transparent", "MX/C-Transparent-ST": "transparent", "Unlit/Texture": "unlit",
+        "FX/General Unlit Texture": "unlit", "MX/E-Standard": "general"}
+    assert model.shader_kind(None) == "general"
+
+
+def test_shader_vectors_outline_and_state():
+    layer4 = _form("MX/C-General/Layer4", props=[("_Tint", 0), ("_ShadowTintR4", 1), ("_MainTex", 4), ("_MaskGSensitivity", 3)],
+                   passes=[("UniversalForward", "_Cull", "_ZWrite", "_SrcBlend", "_DstBlend", None),
+                           ("Outline", 1, 1, 1, 0, None), ("SHADOWCASTER", 0, 1, 1, 0, None)])
+    assert model.shader_vectors(layer4) == {"_ShadowTintR4"}
+    assert model.shader_outline(layer4)
+    # the state names material properties: the material's floats decide
+    floats = {"_Cull": 0.0, "_ZWrite": 1.0, "_SrcBlend": 1.0, "_DstBlend": 0.0}
+    assert model.shader_state(layer4, floats) == {"cull": 0, "zwrite": 1, "src": 1, "dst": 0, "queue": 2000}
+    # MX/C-General/Transparent blends in the pass whatever the material's floats say; its queue tag counts
+    transparent = _form("MX/C-General/Transparent", passes=[("UniversalForward", "_Cull", 0, 5, 10, "Transparent")])
+    assert model.shader_state(transparent, {"_Cull": 2.0, "_SrcBlend": 1.0, "_DstBlend": 0.0}) == \
+        {"cull": 2, "zwrite": 0, "src": 5, "dst": 10, "queue": 3000}
+    assert not model.shader_outline(transparent)
+    # a pass without a light mode (the halos), a queue with an offset, a material's own render queue
+    eyes = _form("MX/C-EyesMouth", passes=[("DepthOnly", 2, 1, 1, 0, None), ("", 2, 1, 5, 10, "Geometry+1")])
+    assert model.shader_state(eyes, {})["queue"] == 2001 and model.shader_state(eyes, {})["src"] == 5
+    assert model.shader_state(eyes, {}, custom_queue=2450)["queue"] == 2450
+    assert model.shader_state(_form("X", passes=[("UniversalForward", 2, 1, 1, 0, None)], sub_tags=[("Queue", "AlphaTest")]),
+                              {})["queue"] == 2450
+
+
 # --- renderer switches ---
 
 def test_bind_toggles_walks_the_curve_index():
@@ -538,6 +619,16 @@ def test_real_chibi_exports(tmp_path):
     assert doc["skins"] and all(len(s["joints"]) > 0 for s in doc["skins"])
     kinds = {m["extras"]["kind"] for m in doc["materials"]}
     assert {"body", "face", "hair", "eyemouth", "halo"} <= kinds
+    # what the viewer's shader ports read: Vector properties, outline passes, the colour pass state, linear masks and
+    # the game's samplers (no mipmaps on the characters' textures)
+    body = next(m["extras"] for m in doc["materials"] if m["extras"]["kind"] == "body")
+    assert "_ShadowTintR4" in body["vectors"] and "_OutlineTint" not in body["vectors"] and body["outline"]
+    assert body["state"]["src"] == 1 and body["state"]["dst"] == 0 and body["state"]["queue"] == 2000
+    eyes = next(m["extras"] for m in doc["materials"] if m["extras"]["kind"] == "eyemouth")
+    assert (eyes["state"]["src"], eyes["state"]["dst"], eyes["state"]["queue"]) == (5, 10, 2001) and not eyes["outline"]
+    masks = {t["name"] for t in doc["textures"] if t.get("extras", {}).get("linear")}
+    assert masks and all("mask" in n.lower() or "spec" in n.lower() or "green" in n.lower() for n in masks)
+    assert all(doc["samplers"][t["sampler"]]["minFilter"] in (9728, 9729) for t in doc["textures"])
     if "ch0145" in game.model_cores():  # Miyu: the idle turns her expression face off
         miyu = _strict(game.model_glb("ch0145"))
         idle = next(a for a in miyu["animations"] if a["extras"]["slot"] == "Formation_Idle")

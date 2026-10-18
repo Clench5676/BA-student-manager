@@ -3,9 +3,9 @@
 The prefabs are in the bundle family ``character-<dev>-_mxload-*``; their meshes, materials, textures and clips sit
 in other bundles and are reached through external CAB references. :class:`BundleGraph` loads only the bundles the
 used objects point into, by a CAB -> bundle index. :func:`export_chibi` walks one prefab and writes the skinned
-meshes, the skeleton, the textures as PNG, the game's material constants (material extras), the halo follower and
-the mouth receiver (root extras) and the clips, decoded from Unity's streamed, dense and constant curves, with the
-renderers they switch on and off (animation extras).
+meshes, the skeleton, the textures as PNG (with the game's samplers and colour spaces), the game's material constants
+and render states (material extras), the halo follower and the mouth receiver (root extras) and the clips, decoded
+from Unity's streamed, dense and constant curves, with the renderers they switch on and off (animation extras).
 
 Unity is left-handed (+Z forward), glTF right-handed: positions, rotations and bind matrices are mirrored on X.
 Nothing is written to disk.
@@ -17,6 +17,7 @@ import io
 import json
 import logging
 import math
+import re
 import struct
 import zlib
 from contextlib import ExitStack
@@ -40,12 +41,24 @@ DEFAULT_CLIPS = ("Formation_Idle", "Formation_Pickup", "Cafe_Idle", "Cafe_Reacti
 # idles used when a prefab has neither the formation nor the cafe idle (NPC and battle-only prefabs)
 FALLBACK_IDLES = ("Normal_Idle", "Stand_Idle", "Idle")
 PREFAB_KINDS = {"echelon": "Echelon_{}", "battle": "{}", "cafe": "Cafe_{}", "strategy": "Strategy_{}"}
-SHADER_KINDS = {
-    "MX/C-Face": "face", "MX/C-General/Layer4": "body", "MX/C-Hair": "hair", "MX/C-EyesMouth": "eyemouth",
-    "MX/C-Eyebrow-OneColor": "eyebrow", "MX/C-Eyebrow": "eyebrow", "MX/C-Halo/UnlitTextured": "halo",
-    "MX/C-Halo/Simple": "halo", "MX/C-Weapon": "weapon", "MX/C-General/Single": "general",
-    "MX/C-Simple-Transparent": "transparent", "Unlit/TexColorHDR": "unlit",
-}
+# the viewer's shading model for a shader, by name prefix (variants such as -Inline, -Transparent or -NoOutline share
+# their base shader's lighting); the first match wins
+SHADER_KINDS = (
+    ("MX/C-General/Layer4", "body"), ("MX/C-Face", "face"), ("MX/C-Hair", "hair"), ("MX/C-EyesMouth", "eyemouth"),
+    ("MX/C-Eyebrow", "eyebrow"), ("MX/C-Halo", "halo"), ("MX/C-Weapon", "weapon"), ("ProjectMX/Weapon", "weapon"),
+    ("MX/C-Simple-Transparent", "transparent"), ("MX/C-Transparent", "transparent"), ("MX/C-Simple", "simple"),
+    ("MX/C-General", "general"), ("Unlit/", "unlit"), ("FX/", "unlit"), ("DSFX/", "unlit"),
+)
+
+
+def shader_kind(shader: str | None) -> str:
+    """The shading model of a shader name ("general", MX/C-General/Single's, for anything unknown)."""
+    for prefix, kind in SHADER_KINDS:
+        if shader and shader.startswith(prefix):
+            return kind
+    return "general"
+
+
 _ARRAY = 34962
 _INDICES = 34963
 
@@ -420,9 +433,23 @@ class GlbWriter:
         self.json["accessors"].append(accessor)
         return len(self.json["accessors"]) - 1
 
-    def image(self, png: bytes, name: str) -> int:
+    def sampler(self, sampler: Mapping[str, int]) -> int:
+        """The index of a sampler, added once."""
+        samplers = self.json["samplers"]
+        if dict(sampler) not in samplers:
+            samplers.append(dict(sampler))
+        return samplers.index(dict(sampler))
+
+    def image(self, png: bytes, name: str, linear: bool = False, sampler: Mapping[str, int] | None = None) -> int:
+        """A PNG texture; ``linear`` marks data textures (masks, direction maps) the game samples without the sRGB
+        decode (glTF has no flag for that: it goes in the texture extras). ``sampler``: filters and wrapping, else the
+        first sampler (trilinear, repeat)."""
         self.json["images"].append({"bufferView": self.view(png), "mimeType": "image/png", "name": name})
-        self.json["textures"].append({"sampler": 0, "source": len(self.json["images"]) - 1, "name": name})
+        texture: dict[str, Any] = {"sampler": self.sampler(sampler) if sampler else 0,
+                                   "source": len(self.json["images"]) - 1, "name": name}
+        if linear:
+            texture["extras"] = {"linear": True}
+        self.json["textures"].append(texture)
         return len(self.json["textures"]) - 1
 
     def finish(self) -> bytes:
@@ -538,6 +565,80 @@ def _vec3(v: Mapping[str, float]) -> list[float]:
     return [v["x"], v["y"], v["z"]]
 
 
+# glTF sampler constants
+_NEAREST, _LINEAR, _LINEAR_MIPMAP_NEAREST, _LINEAR_MIPMAP_LINEAR = 9728, 9729, 9985, 9987
+_WRAPS = {0: 10497, 1: 33071, 2: 33648, 3: 33071}  # Unity Repeat, Clamp, Mirror, MirrorOnce
+
+
+def texture_sampler(tree: Mapping[str, Any]) -> dict[str, int]:
+    """A glTF sampler for a Texture2D as the game samples it (m_TextureSettings): point or bilinear, mipmaps only when
+    the texture has them (the characters' textures have none, a viewer that generated them would blur and darken
+    thin details at a distance), and its wrap modes."""
+    s = tree.get("m_TextureSettings") or {}
+    point = s.get("m_FilterMode", 1) == 0
+    mips = (tree.get("m_MipCount") or 1) > 1
+    sampler = {"magFilter": _NEAREST if point else _LINEAR,
+               "minFilter": (_LINEAR_MIPMAP_LINEAR if s.get("m_FilterMode", 1) == 2 else _LINEAR_MIPMAP_NEAREST) if mips
+               else (_NEAREST if point else _LINEAR)}
+    wrap = s.get("m_WrapMode", 0)
+    sampler["wrapS"] = _WRAPS.get(s.get("m_WrapU", wrap), 10497)
+    sampler["wrapT"] = _WRAPS.get(s.get("m_WrapV", wrap), 10497)
+    return sampler
+
+
+def shader_vectors(form: Mapping[str, Any]) -> set[str]:
+    """Names of a shader's Vector properties (m_Type 1). In a linear-space project the game converts Color properties
+    from sRGB to linear before a shader sees them, Vector properties not; materials store both in m_Colors."""
+    return {p["m_Name"] for p in form["m_PropInfo"]["m_Props"] if p.get("m_Type") == 1}
+
+
+def shader_outline(form: Mapping[str, Any]) -> bool:
+    """Whether a shader draws the inverted-hull outline: a pass with the light mode "Outline"."""
+    for sub in form["m_SubShaders"]:
+        for p in sub["m_Passes"]:
+            tags = dict(p["m_State"]["m_Tags"]["tags"])
+            if tags.get("LIGHTMODE", "").lower() == "outline":
+                return True
+    return False
+
+
+# passes that do not draw the colour: the outline, shadow and depth passes
+_NOT_FORWARD = {"outline", "outlinesolidcolor", "shadowcaster", "depthonly", "srpdefaultunlit", "meta"}
+_QUEUES = {"background": 1000, "geometry": 2000, "alphatest": 2450, "transparent": 3000, "overlay": 4000}
+
+
+def shader_state(form: Mapping[str, Any], floats: Mapping[str, float], custom_queue: int = -1) -> dict[str, Any]:
+    """The render state of a shader's colour pass for one material: {cull, zwrite, src, dst, queue}. A state either
+    names a material property (``_Cull``, ``_SrcBlend`` ...: the material's float decides) or is fixed in the pass.
+    Cull 0 off, 1 front, 2 back; blend factors as UnityEngine.Rendering.BlendMode (1 One, 0 Zero, 5 SrcAlpha,
+    10 OneMinusSrcAlpha)."""
+    def tags(entry: Mapping[str, Any]) -> dict[str, str]:
+        return {k.lower(): v for k, v in (entry.get("m_Tags") or {}).get("tags", [])}
+
+    passes = [p for sub in form["m_SubShaders"] for p in sub["m_Passes"]]
+    mode = lambda p: tags(p["m_State"]).get("lightmode", "").lower()  # noqa: E731
+    forward = ([p for p in passes if mode(p) == "universalforward"]
+               or [p for p in passes if mode(p) not in _NOT_FORWARD] or passes)
+    state = forward[0]["m_State"]
+    blend = state.get("rtBlend0") or state["rtBlend"][0]
+
+    def value(entry: Mapping[str, Any]) -> float:
+        name = entry.get("name", "")
+        return float(floats[name]) if name in floats else float(entry["val"])
+
+    queue = custom_queue
+    if queue is None or queue < 0:
+        spec = tags(state).get("queue") or tags(form["m_SubShaders"][0]).get("queue") or "Geometry"
+        base, _, offset = spec.partition("+")
+        queue = _QUEUES.get(base.strip().lower(), 2000) + (int(offset) if offset.strip().isdigit() else 0)
+    return {"cull": int(value(state["culling"])), "zwrite": int(value(state["zWrite"])),
+            "src": int(value(blend["srcBlend"])), "dst": int(value(blend["destBlend"])), "queue": int(queue)}
+
+
+# Vector properties of the character shaders, for a material whose shader cannot be read
+_VECTOR_NAME = re.compile(r"4$|Dir")
+
+
 def _prefabs(graph: BundleGraph, bundles: Iterable[Path]) -> dict[str, Any]:
     """Prefab roots of the prefab bundles by lower-case stem (Echelon_CH0242, CH0242, ...)."""
     found = {}
@@ -638,7 +739,10 @@ class _Exporter:
             data = obj.read()
             buffer = io.BytesIO()
             data.image.save(buffer, format="PNG", compress_level=1)
-            self.textures[key] = self.glb.image(buffer.getvalue(), data.m_Name)
+            # m_ColorSpace 0: imported without sRGB (masks, the hair direction map), sampled as stored
+            linear = getattr(data, "m_ColorSpace", 1) == 0
+            sampler = texture_sampler(self.g.tree(obj))
+            self.textures[key] = self.glb.image(buffer.getvalue(), data.m_Name, linear=linear, sampler=sampler)
         return self.textures[key]
 
     def material(self, obj: Any) -> int:
@@ -647,12 +751,14 @@ class _Exporter:
             return self.materials[key]
         g, tree = self.g, self.g.tree(obj)
         shader_obj = g.deref(obj, tree.get("m_Shader"))
-        shader = None
+        shader, vectors, outline, form = None, None, None, None
         if shader_obj is not None:
             try:
-                shader = g.tree(shader_obj)["m_ParsedForm"]["m_Name"]
+                form = g.tree(shader_obj)["m_ParsedForm"]
+                shader = form["m_Name"]
+                vectors, outline = shader_vectors(form), shader_outline(form)
             except (KeyError, TypeError, ValueError):
-                shader = None
+                shader, form = None, None
         props = tree["m_SavedProperties"]
         textures = {}
         for name, env in props["m_TexEnvs"]:
@@ -663,11 +769,24 @@ class _Exporter:
         colors = {k: _color(v) for k, v in props["m_Colors"]}
         floats = {k: round(v, 5) for k, v in props["m_Floats"]}
         keywords = set(tree.get("m_ValidKeywords") or []) | set((tree.get("m_ShaderKeywords") or "").split())
+        if vectors is None:
+            vectors = {name for name in colors if _VECTOR_NAME.search(name)}
+        if outline is None:
+            outline = "_OutlineTint" in colors
+        state = None
+        if form is not None:
+            try:
+                state = shader_state(form, floats, tree.get("m_CustomRenderQueue", -1))
+            except (KeyError, TypeError, ValueError, IndexError):
+                state = None
         material: dict[str, Any] = {
             "name": tree["m_Name"], "doubleSided": floats.get("_Cull", 2) == 0,
             "pbrMetallicRoughness": {"metallicFactor": 0, "roughnessFactor": 1},
-            "extras": {"shader": shader, "kind": SHADER_KINDS.get(shader, "general"), "colors": colors,
-                       "floats": floats, "textures": textures, "keywords": sorted(keywords)},
+            # colors: as the material stores them (sRGB for Color properties); vectors: the ones the game passes
+            # through unconverted (Vector properties), every other color is converted to linear first
+            "extras": {"shader": shader, "kind": shader_kind(shader), "colors": colors,
+                       "vectors": sorted(vectors & set(colors)), "floats": floats, "textures": textures,
+                       "keywords": sorted(keywords), "outline": outline, "state": state},
         }
         if "_MainTex" in textures:
             material["pbrMetallicRoughness"]["baseColorTexture"] = {"index": textures["_MainTex"]["index"]}
