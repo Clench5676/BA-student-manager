@@ -36,7 +36,7 @@ const TOOL_Y = 446.5; // centre of the search, sort and order buttons in SeletCo
 let view = { ...normalizeView(DEFAULT_VIEW), scroll: 0 };
 let query = "", searching = false;
 let layouts = null, data = null, ctx = null, items = [], rows = new Map(), contentH = 0, rendered = new Map(), dirty = true;
-let dom = {}; // the list's live elements: scroll host, scrollbar, empty-list host, search input
+let dom = {}; // the list's live elements: clip, scroll host (the newest, maybe still built), scrollbar, empty list, search
 
 const listTop = () => (searching ? SEARCH_LIST_TOP : PAPER_TOP);
 const clipTop = () => ORIGIN[1] - listTop() * S;
@@ -338,18 +338,17 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 let listToken = 0;
 
 // the cards again for the current view (a search keystroke): the frame stays; the new rows are built off screen and
-// replace the old ones in one go
+// replace whatever the clip shows in one go (a relist overtaken by a newer one never swapped its rows in)
 async function relist() {
   const my = ++listToken;
   items = layoutItems();
-  const old = dom.scrollHost;
   const scrollHost = document.createElement("div");
   scrollHost.className = "card-scroll";
   dom.scrollHost = scrollHost;
   rendered = new Map();
   await Promise.race([Promise.all([applyScroll(), renderEmpty(dom.empty)]), sleep(ROWS_CAP)]);
   if (my !== listToken || dom.scrollHost !== scrollHost) return;
-  old?.replaceWith(scrollHost);
+  dom.clip.replaceChildren(scrollHost);
 }
 
 // --- search: the game's search box over the top of the list, filtering as one types ---
@@ -490,7 +489,7 @@ async function renderAll() {
 
   // the cards: the rows in view get a moment to come in before the swap
   rendered = new Map();
-  dom = { scrollHost, bar, empty };
+  dom = { clip, scrollHost, bar, empty };
   items = layoutItems();
   const input = searching ? renderSearch(next) : Promise.resolve(null);
   await Promise.race([Promise.all([applyScroll(), renderEmpty(empty), input]), sleep(ROWS_CAP)]);
