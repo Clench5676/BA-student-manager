@@ -841,7 +841,7 @@
 			"original": "Original",
 			"has": "Yes",
 			"none": "None",
-			"failed": "Could not load the sprite",
+			"failed": "3D model unavailable",
 			"action": {
 				"idle": "Idle",
 				"reaction": "Reaction",
