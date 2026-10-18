@@ -102,6 +102,15 @@ class GameAssets:
 bundle headers). The GLB is never written to disk; the memory entry is reused while every bundle the export read is
 unchanged.
 
+The GLB carries what the game's shaders need: per material its shader, shading kind, constants (`colors` as stored,
+`vectors` naming the Vector properties the game passes unconverted), `keywords`, whether it draws an outline and its
+colour pass `state` (cull, depth write, blend, queue, resolved against the material); per texture its sampler (filter,
+wrap, mipmaps as in the game: the characters' textures have none) and `extras.linear` for masks; per clip the renderer
+switches it animates (`toggles`: alternative faces), so a renderer the prefab disables is exported when a clip turns
+it on. `web/js/chibi-materials.js` ports the MX/C-* shaders from their compiled D3D11 programs (the game is in linear
+colour space; the character light is the standard one, white and from straight above, without ambient). The outline is
+0.1 % of the stage width times the vertex colour alpha, as in the game.
+
 `AssetNotFound` (a `KeyError`) when a name is unknown. Layout nodes use the schema of
 `prototype/research-v4/tools/layout.py`: `{name, active, pos[x, y], scale[x, y], rotZ, widgets[], children?}` with
 the widget fields documented there; atlas and texture references are resolved to names.
