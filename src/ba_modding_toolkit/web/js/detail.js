@@ -49,7 +49,10 @@ const commit = (fn) => (batch ? batch.push(fn) : fn());
 // one on screen and belongs to that change: a re-render still running at the commit (late lobby lines) then follows
 // it instead of keeping the old part in the commit.
 const applied = { screen: 0, chips: 0, expr: 0 };
-const showable = (part, my, latest, gen) => my === latest || (!!batch && gen === showGen && my > applied[part]);
+const showable = (part, my, latest, gen) => open && (my === latest || (!!batch && gen === showGen && my > applied[part]));
+// the screen is shown (from show() until hide()): what a show, a tab change or a job started for it starts nothing
+// once it is hidden (the left side's players least of all)
+let open = false;
 // a generation of the screen: a newer show, tab change or hide ends the wait of the one before
 let showGen = 0, endWait = () => {};
 function begin() {
@@ -512,6 +515,7 @@ async function applyCandidate(key) {
       expression = "00";
       clearTimeout(blinkTimer);
       mainPlayer = null;
+      if (!open) return null; // the screen was left meanwhile: the next show reads the family again
       return changeInPlace(async () => {
         const data = await call(() => rpc("family.get", { key: fam.key }));
         if (data) fam = data;
@@ -1198,6 +1202,7 @@ const LEFT = ["portrait", "lobby", "model"];
 let shownLeft = null, shownKey = null;
 const leftKey = (part, v) => (part === "lobby" ? v.lobby : part === "model" ? v.key : null);
 function renderLeft() {
+  if (!open) return Promise.resolve();
   const v = variant(), my = ++leftToken, want = tab, el = $(want), key = leftKey(want, v);
   const same = want === shownLeft;
   if (!same) {
@@ -1206,8 +1211,10 @@ function renderLeft() {
     el.classList.add("pending");
   }
   const swap = same && key !== shownKey ? freezeLeft(want) : null;
-  const ready = Promise.resolve(swap).then(() => (want === "portrait" ? (mainPlayer ? null : loadSpine(baseOf(current())))
-    : want === "lobby" ? showLobby(v, my) : showModel(v, my)));
+  // a newer left side or hide() came first: nothing is started
+  const ready = Promise.resolve(swap).then(() => (my !== leftToken ? null
+    : want === "portrait" ? (mainPlayer ? null : loadSpine(baseOf(current())))
+      : want === "lobby" ? showLobby(v, my) : showModel(v, my)));
   return ready.then(() => commit(() => {
     if (my !== leftToken) return;
     el.hidden = false;
@@ -1263,7 +1270,7 @@ function unfreezeLeft(now = false) {
 // the memorial lobby: every layer in and drawn, the still for the switch card, the dialogue strip; the lines from
 // Kivo when they come in time (later ones re-render the strip)
 async function showLobby(v, my) {
-  const still = () => my === leftToken && tab === "lobby" && variantKey === v.key;
+  const still = () => open && my === leftToken && tab === "lobby" && variantKey === v.key;
   const m = await Lobby.show(v.lobby, $("lobby"), v.key);
   if (!m || !still()) return;
   if (fullscreen) { Lobby.frame("full"); Lobby.interactive(true); }
@@ -1283,7 +1290,7 @@ async function showLobby(v, my) {
 // the 3D chibi: loaded, its shaders compiled and its first frame drawn; the actions fill row 4 and a still of it goes
 // on the switch card
 async function showModel(v, my) {
-  const still = () => my === leftToken && tab === "model" && variantKey === v.key;
+  const still = () => open && my === leftToken && tab === "model" && variantKey === v.key;
   try {
     const M = await ModelLib();
     if (!still()) return;
@@ -1366,9 +1373,10 @@ export function applyPrefs(prefs) {
 export async function show(context, familyData, key, { inPlace = false } = {}) {
   ctx = context;
   applyPrefs(ctx.prefs);
+  open = true;
   const g = begin();
   await ensureLayouts();
-  if (g.gen !== showGen) return;
+  if (g.gen !== showGen) return; // a newer show, or hide()
   const sameFamily = fam?.key === familyData.key;
   const sameVariant = sameFamily && variantKey === key;
   fam = familyData;
@@ -1399,6 +1407,7 @@ export async function show(context, familyData, key, { inPlace = false } = {}) {
 
 // leaving the screen: stop the players, drop any change being prepared
 export function hide() {
+  open = false;
   begin();
   batch = null;
   leftToken += 1;
