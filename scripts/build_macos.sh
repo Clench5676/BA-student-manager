@@ -80,6 +80,13 @@ if [[ ! -d $TCL8_DIR ]]; then
 fi
 EXTRA_ARGS+=("--include-data-dir=$TCL8_DIR=tcl8")
 
+# archspec (used by the texture decoders) finds its CPU tables through archspec/cpu/../json, which only resolves
+# when the archspec/cpu folder exists; compiled modules leave no folder, so ship one with a placeholder file
+ARCHSPEC_CPU="$BUILD_DIR/archspec-cpu"
+mkdir -p "$ARCHSPEC_CPU"
+echo "keeps archspec/cpu/../json resolvable in the compiled app" > "$ARCHSPEC_CPU/placeholder"
+EXTRA_ARGS+=("--include-data-dir=$ARCHSPEC_CPU=archspec/cpu")
+
 # The ccache Nuitka downloads is x86_64; under Rosetta it invokes clang through xcrun, whose libxcrun
 # no longer has an x86_64 slice in recent Command Line Tools, so compilation fails.
 # Disable ccache unless a native one is on PATH

@@ -40,6 +40,12 @@ $env:GITHUB_REF_NAME = $Version
 $env:GITHUB_REF_TYPE = "tag"
 & $Py scripts\extract_version.py | Out-Null
 
+# archspec (used by the texture decoders) finds its CPU tables through archspec/cpu/../json, which only resolves
+# when the archspec/cpu folder exists; compiled modules leave no folder, so ship one with a placeholder file
+$ArchspecCpu = Join-Path $Build "archspec-cpu"
+New-Item -ItemType Directory -Force -Path $ArchspecCpu | Out-Null
+Set-Content -Path (Join-Path $ArchspecCpu "placeholder") -Value "keeps archspec/cpu/../json resolvable in the compiled app"
+
 $Name = "Blue-Archive-Modding-and-Patching-Tool"
 $Gui = "$Name-$Version-windows-x64.exe"
 $Cli = "$Name-cli-$Version-windows-x64.exe"
@@ -58,7 +64,8 @@ $Common = @(
     "--product-version=$FileVersion",
     "--file-version=$FileVersion",
     "--output-dir=$Build",
-    "--assume-yes-for-downloads"
+    "--assume-yes-for-downloads",
+    "--include-data-dir=$ArchspecCpu=archspec/cpu"
 )
 
 try {
