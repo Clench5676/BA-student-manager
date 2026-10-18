@@ -7,6 +7,7 @@ import logging
 import sys
 import threading
 import webbrowser
+from pathlib import Path
 
 from ..i18n import i18n_manager, t
 from .api import build_api
@@ -36,6 +37,22 @@ def _watch_config(s: Services, stop: threading.Event) -> None:
             logger.exception("config reload failed")
 
 
+def _trace_to_file(path: Path) -> None:
+    """The front end's input trace (debug.trace) also goes to a file next to the settings, which a compiled app can
+    send along without a terminal; it starts empty on every --debug start."""
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        handler = logging.FileHandler(path, mode="w", encoding="utf-8")
+    except OSError:
+        logger.warning("cannot write the input trace to %s", path, exc_info=True)
+        return
+    handler.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
+    trace = logging.getLogger("ba_modding_toolkit.webui.trace")
+    trace.setLevel(logging.INFO)
+    trace.addHandler(handler)
+    logger.info("input trace in %s", path)
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="bamt-web")
     parser.add_argument("--browser", action="store_true", help="open the UI in the system browser instead of a window")
@@ -50,6 +67,9 @@ def main(argv: list[str] | None = None) -> None:
 
     s, server = build(args.port, token=args.token)
     s.mute = args.mute
+    s.debug = args.debug
+    if args.debug:
+        _trace_to_file(s.data_dir / "input-trace.log")
     server.start()
     stop = threading.Event()
     threading.Thread(target=_watch_config, args=(s, stop), name="bamt-config", daemon=True).start()

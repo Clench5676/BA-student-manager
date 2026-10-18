@@ -1029,6 +1029,7 @@
 			"tab": {
 				"general": "General",
 				"sound": "Sound",
+				"l2d": "L2D",
 				"folders": "Folders"
 			},
 			"language": "Language",
@@ -1052,6 +1053,11 @@
 			},
 			"voice": "Voice",
 			"mute": "Mute",
+			"zoomOut": {
+				"label": "Zoom Out",
+				"game": "Game View",
+				"art": "Full Art"
+			},
 			"server": {
 				"label": "Server",
 				"global": "Global",

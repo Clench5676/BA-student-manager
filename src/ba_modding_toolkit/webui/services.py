@@ -39,6 +39,7 @@ class Services:
         self.kivo = Kivo()
         self.global_lines = GlobalLines()
         self.mute = False  # development: never play voices
+        self.debug = False  # started with --debug: the front end may send its input trace (debug.trace)
         self._lock = threading.RLock()
         self._cache, self._game, self._catalog, self._library = cache, game, catalog, library
         self._injected = {k for k, v in (("game", game), ("catalog", catalog), ("library", library)) if v is not None}
