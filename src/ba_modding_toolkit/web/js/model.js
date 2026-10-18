@@ -610,6 +610,10 @@ export function hide(host) {
 }
 
 export function frame(mode) { view?.frameTo(mode); }
+// resolves once the camera has arrived at its framing (a change of framing glides there)
+export function settled() {
+  return new Promise((resolve) => { const check = () => (view?.tween ? requestAnimationFrame(check) : resolve()); check(); });
+}
 export const actions = () => view?.actions() || [];
 export const current = () => view?.current || null;
 export function play(name) { return view?.act(name, { quiet: true }) || false; }

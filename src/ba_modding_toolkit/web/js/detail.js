@@ -1346,6 +1346,22 @@ function setFullscreen(on) {
   if (tab === "model") modelLib?.then((M) => M.frame(on ? "full" : "left"));
   $("fs-exit").hidden = !on;
   if (on) { wake(); stage().addEventListener("pointermove", wake); } else { stage().removeEventListener("pointermove", wake); clearTimeout(idleTimer); }
+  if (!on) stillAfterFullscreen();
+}
+// the switch card's still is taken in the left framing: when fullscreen was entered before the lobby or the model was
+// in, the still is taken once the left framing is back
+async function stillAfterFullscreen() {
+  const part = tab, key = variantKey;
+  const wanted = () => open && !fullscreen && tab === part && variantKey === key && (part === "lobby"
+    ? !lobbyShot && !!Lobby.meta() : part === "model" && !modelShot && !!$("model").querySelector(".model-view.ready"));
+  if (!wanted()) return;
+  // the lobby draws the left view within a few frames; the model glides there
+  const M = part === "model" ? await ModelLib() : null;
+  await (M ? M.settled() : frames(4));
+  if (!wanted()) return;
+  if (M) modelShot = M.snapshot();
+  else lobbyShot = snapshotLobby();
+  if (M ? modelShot : lobbyShot) renderScreen();
 }
 
 async function reload() {
