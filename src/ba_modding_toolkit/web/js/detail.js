@@ -749,7 +749,8 @@ function enableDrag(clip, track) {
 // --- main Spine portrait ---
 // loadSpine(base) -> Promise, resolved once the portrait's first frame is drawn and the expression strip shows its
 // faces (also on an error, after the toast). The new layer stays transparent until committed; then it fades in over
-// the old one, which goes.
+// the old one, which goes. A portrait that cannot be shown takes the old one away too: the left side stays empty
+// rather than showing another variant under this one's name.
 function loadSpine(base) {
   const my = ++spineToken;
   const host = $("portrait");
@@ -759,6 +760,15 @@ function loadSpine(base) {
   const previous = [...host.querySelectorAll(".layer")].filter((l) => l !== layer);
   clearTimeout(blinkTimer);
   prioritise(base);
+  // layers fade out, then their players are freed (once each: a failed portrait may retire layers already going)
+  const retire = (layers) => {
+    for (const old of layers) {
+      if (old.retired) continue;
+      old.retired = true;
+      old.classList.add("fading");
+      setTimeout(() => { old.player?.dispose(); old.remove(); }, 400);
+    }
+  };
   return new Promise((resolve) => {
     layer.done = resolve; // settled by disposePortrait() too
     layer.player = new spine.SpinePlayer(layer, {
@@ -784,16 +794,19 @@ function loadSpine(base) {
         commit(() => {
           if (my !== spineToken) return;
           layer.classList.remove("fading");
-          for (const old of previous) {
-            old.classList.add("fading");
-            setTimeout(() => { old.player?.dispose(); old.remove(); }, 400);
-          }
+          retire(previous);
         });
         resolve();
       },
-      error: (_p, message) => {
+      error: (player, message) => {
         console.error(message);
         toast(T("error.internal", { error: message }), { kind: "error" });
+        // spine-player's own error box (black, with the message) never shows: the toast says it
+        layer.querySelector(".spine-player-error")?.remove();
+        if (my === spineToken) {
+          if (mainPlayer === player) { clearTimeout(blinkTimer); mainPlayer = null; } // it broke after it was shown
+          commit(() => { if (my === spineToken) retire([...previous, layer]); });
+        }
         resolve();
       },
     });
