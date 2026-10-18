@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import threading
 from collections.abc import Iterable
 from copy import deepcopy
@@ -27,6 +28,17 @@ logger = logging.getLogger(__name__)
 _SCHEMA = "gameassets-v1/"
 _SPRITE_FIELDS = ("x", "y", "width", "height", "borderLeft", "borderRight", "borderTop",
                   "borderBottom", "paddingLeft", "paddingRight", "paddingTop", "paddingBottom")
+
+
+# Where the prefabs the UI uses are in the Global client (bundle file names, as of the 2026-10 resource version).
+# Checked before scanning every prefab bundle; a game update that renames them falls back to the scan.
+PREFAB_HINTS = {
+    "UICharacterCollection": "ui-_mxload-prefabs-2025-07-02_assets_all_2244454933.bundle",
+    "UICharacterCollectionPopulatorUnit": "ui-uiassetobject-_mxload-2024-11-18_assets_all_625906829.bundle",
+    "UIPopup_GachaCharList": "ui-_mxload-prefabs-2025-07-02_assets_all_2249507476.bundle",
+    "UIPopup_Sort": "ui-_mxload-prefabs-2025-07-02_assets_all_792282090.bundle",
+    "UICharacterDetail": "ui-_mxload-prefabs-2025-07-02_assets_all_2968814143.bundle",
+}
 
 
 class GameAssets:
@@ -210,6 +222,25 @@ class GameAssets:
     def _prefabs(self) -> dict:
         return self._index("prefabs", self._scan_prefabs)
 
+    def _prefab_bundle(self, root: str) -> Path:
+        """The bundle holding a prefab root: the known bundle name first (one small read), else the full index
+        (a scan of every UI prefab bundle, about 12 s cold)."""
+        hint = PREFAB_HINTS.get(root)
+        if hint:
+            try:
+                path = self._bundle_path(hint)
+            except AssetNotFound:
+                path = None
+            if path is not None:
+                suffix = f"/{root.lower()}.prefab"
+                with open_bundle(path) as env:
+                    if any(name.lower().endswith(suffix) for name in env.container):
+                        return path
+        try:
+            return self._bundle_path(self._prefabs()[root])
+        except KeyError:
+            raise AssetNotFound(root) from None
+
     def _scan_prefabs(self) -> dict:
         roots = {}
         for path in filter(is_prefab, self._paths()):
@@ -235,10 +266,7 @@ class GameAssets:
     def layout(self, root: str, subpath: str = "") -> dict:
         """Return a prefab tree, optionally selecting an exact child subpath."""
         def build() -> dict:
-            try:
-                path = self._bundle_path(self._prefabs()[root])
-            except KeyError:
-                raise AssetNotFound(root) from None
+            path = self._prefab_bundle(root)
             extra = self._index("layout-textures", lambda: self._scan_textures(
                 filter(is_layout_texture, self._paths()))["names"])
             names = self._atlas_index()["names"] | self._texture_index()["names"] | extra
@@ -292,9 +320,12 @@ class GameAssets:
         categories = {"spr": "spinecharacters", "lobby": "spinelobbies"}
         if kind not in categories:
             raise AssetNotFound(kind)
+        # shared bundles of the category (e.g. "_mxcommon-.asset") are not skeletons
+        valid = (lambda core: core.endswith("_spr")) if kind == "spr" else (lambda core: True)
         groups = self._index("spine-cores/" + kind, lambda: {
             core: [str(path) for path in paths]
             for core, paths in group_bundles(self._paths(), categories[kind]).items()
+            if re.fullmatch(r"[a-z0-9_]+", core) and valid(core)
         }, disk=False)
         return {core: [Path(path) for path in paths] for core, paths in groups.items()}
 
