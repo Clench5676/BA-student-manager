@@ -21,6 +21,7 @@ class Variant:
     portrait: str | None
     date: str | None
     page_id: str | None = None  # the student page on Kivo (kivo.wiki), for lobby lines
+    model: str | None = None  # the 3D chibi's dev name (character-<dev>-_mxload-* bundles)
 
     def to_json(self) -> dict:
         """Return an independent JSON-ready record for RPC responses."""
