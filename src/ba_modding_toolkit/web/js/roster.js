@@ -381,7 +381,8 @@ async function renderSearch(host) {
   el.addEventListener("input", (ev) => { if (!ev.isComposing) later(90); });
   el.addEventListener("compositionend", () => later(0));
   el.addEventListener("keydown", (ev) => {
-    if (ev.isComposing) return;
+    // the key that ends a conversion is the input method's (WebKit sends it after compositionend, as keyCode 229)
+    if (ev.isComposing || ev.keyCode === 229) return;
     if (ev.key === "Escape") { ev.preventDefault(); closeSearch(); } else if (ev.key === "Enter") el.blur();
   });
   host.appendChild(el);
