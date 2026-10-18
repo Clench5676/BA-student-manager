@@ -4,17 +4,22 @@
 // The left view puts the head-pat point (Touch_Point) left of the panel and stays inside the painted rect P, the
 // largest rectangle around G that the lobby's opaque art covers, so neither view shows a blank edge; switching between
 // them crossfades. Dialogues play the talk clips with the game's own tracks and mixes, their voices and one subtitle
-// line per voice cue. The lines and voices come from Kivo (setLines), matched by the voice clip names the talk
-// animations carry in their events. The edge extension (border pixels stretched outwards and blurred) is only a
-// fallback for mods whose art does not cover the view.
+// line per voice cue; lobby-touch.js adds the game's touch interaction and the wheel zoom in fullscreen. The lines and
+// voices come from Kivo (setLines), matched by the voice clip names the talk animations carry in their events.
+// The edge extension (border pixels stretched outwards and blurred) is only a fallback for mods whose art does not
+// cover the view.
 import { spineFiles } from "./api.js";
+import * as Touch from "./lobby-touch.js";
 
 const STAGE = { w: 1920, h: 1080 };
 const GAME = { x: -1480, y: -832.5, w: 2960, h: 1665 };  // lobby.json "view": the game's 16:9 view in NGUI units
+const ZOOM_IN = 2;          // fullscreen zoom limit relative to the game's view (the art is about 0.5 texel per unit)
+const ZOOM_TAU = 0.08;      // s: a zoom or pan eases to its target
 const FADE_MS = 450;        // the switch crossfade, in step with the UI slide (app.css .45s)
+const TALK_GUARD_MS = 500;  // a tap does not skip a dialogue that started this recently
 
-let players = [], current = null, mode = "left", extendTimer = null, chain = null, token = 0;
-let talk = null, cueTimers = [], audios = [], subtitleTimer = null;
+let players = [], current = null, mode = "left", extendTimer = null, chain = null, token = 0, wantTouch = false;
+let talk = null, talkIndex = -1, cueTimers = [], audios = [], subtitleTimer = null;
 let lines = {}, muted = false, volume = 0.8, lineOf = (l) => l?.["zh-CN"] || "";
 const listeners = new Set();
 
@@ -160,10 +165,28 @@ const layerViewport = (v, l) => ({
   x: (v.x - l.x) / l.scale, y: (v.y - l.y) / l.scale, width: v.w / l.scale, height: v.h / l.scale,
   padLeft: 0, padRight: 0, padTop: 0, padBottom: 0, transitionTime: 0, animations: {},
 });
-// the shared view of this frame (every player asks in its frame hook)
-const viewNow = () => current?.view || null;
-function setView(view) {
-  current.view = view;
+// the shared view of this frame, eased towards its target once per frame (every player asks in its frame hook; the
+// document timeline's time is the same for all of them within a frame)
+function viewNow() {
+  const c = current;
+  if (!c?.view) return null;
+  const now = document.timeline?.currentTime ?? performance.now();
+  if (now !== c.viewAt) {
+    const dt = c.viewAt == null ? 0 : clamp((now - c.viewAt) / 1000, 0, 0.1);
+    c.viewAt = now;
+    const v = c.view, t = c.target;
+    if (t && v !== t) {
+      const k = 1 - Math.exp(-dt / ZOOM_TAU);
+      const w = v.w + (t.w - v.w) * k;
+      c.view = { x: v.x + (t.x - v.x) * k, y: v.y + (t.y - v.y) * k, w, h: (w * 9) / 16 };
+      if (Math.abs(t.w - w) < 0.05 && Math.abs(t.x - c.view.x) < 0.05 && Math.abs(t.y - c.view.y) < 0.05) c.view = t;
+    }
+  }
+  return c.view;
+}
+function setView(view, immediate) {
+  current.target = view;
+  if (immediate) current.view = view;
 }
 
 // the lobby's frame, head-pat point and talk sequences
@@ -207,14 +230,17 @@ function measure(loaded) {
   return { main: main.name, painted, edge, sparse, touch, full, left: leftView(edge, touch, G), sequences };
 }
 
-// switch between the left view and fullscreen: the old framing fades out over the new one, in step with the UI slide
+// switch between the left view and fullscreen: the old framing fades out over the new one, in step with the UI slide;
+// the zoom resets
 export function frame(m) {
   const changed = m !== mode;
   mode = m;
   if (!current?.meta) return;
   if (changed) crossfade();
-  setView(viewOf(current.meta));
+  setView(viewOf(current.meta), true);
   feather(current.view);
+  if (m !== "full") Touch.detach();
+  else if (wantTouch) Touch.attach(current.host);
 }
 function crossfade() {
   const fade = current.host?.querySelector(".lobby-fade");
@@ -231,10 +257,34 @@ function crossfade() {
   fade.style.opacity = "0";
 }
 
-// for checks: the rects involved, the current view and the character's tracks
+// fullscreen zoom at a stage point: between the game's view (never wider, so nothing the game never shows appears)
+// and ZOOM_IN x; the width is clamped first, so the point under the pointer holds at the limits too
+function bounds() { return current.meta.full; }
+function clampView(v) {
+  const B = bounds();
+  return { x: clamp(v.x, B.x, B.x + B.w - v.w), y: clamp(v.y, B.y, B.y + B.h - v.h), w: v.w, h: v.h };
+}
+export function zoomAt(factor, sx, sy) {
+  if (mode !== "full" || !current?.meta || !(factor > 0)) return;
+  const T = current.target, B = bounds();
+  const fx = sx / STAGE.w, fy = 1 - sy / STAGE.h, ux = T.x + fx * T.w, uy = T.y + fy * T.h;
+  const w = clamp(T.w / factor, B.w / ZOOM_IN, B.w), h = (w * 9) / 16;
+  setView(clampView({ x: ux - fx * w, y: uy - fy * h, w, h }), false);
+}
+// pan by a stage-pixel drag (content follows the pointer); only moves while zoomed in
+export function panBy(dx, dy) {
+  if (mode !== "full" || !current?.meta) return;
+  const T = current.target;
+  setView(clampView({ x: T.x - (dx / STAGE.w) * T.w, y: T.y + (dy / STAGE.h) * T.h, w: T.w, h: T.h }), false);
+}
+export function resetZoom() {
+  if (current?.meta) setView(viewOf(current.meta), true);
+}
+// for checks: the rects involved, the current view, the zoom relative to the game's view, the character's tracks
 export const limits = () => current?.meta && {
   game: game(), painted: current.meta.painted, full: current.meta.full, left: current.meta.left, view: current.view,
-  touch: current.meta.touch, mode, tracks: mainPlayer()?.animationState?.tracks.map((t) => t?.animation?.name || null) || [],
+  target: current.target, touch: current.meta.touch, zoom: current.meta.full.w / current.view.w, mode,
+  tracks: mainPlayer()?.animationState?.tracks.map((t) => t?.animation?.name || null) || [],
 };
 
 // the switch card's still: a 450 x 253 crop around the face inside the left view (so fully painted), returned in
@@ -262,6 +312,11 @@ function makePlayer(host, layer, onReady, onError = () => {}) {
     frame: (p) => {
       const v = viewNow();
       if (v) { p.currentViewport = layerViewport(v, layer); p.previousViewport = null; }
+    },
+    // after the animation, before the world transform: the dragged bones follow the pointer
+    updateWorldTransform: (p, delta) => {
+      Touch.apply(p, delta);
+      p.skeleton.updateWorldTransform(spine.Physics.update);
     },
     success: (player) => {
       player.bamtLayer = layer;
@@ -335,20 +390,28 @@ export async function show(core, host, variant) {
   const ext = host.querySelector(".lobby-extend"), viewHost = host.querySelector(".lobby-view"), fade = host.querySelector(".lobby-fade");
   ext.width = EXT_W; ext.height = EXT_H;
   fade.width = STAGE.w; fade.height = STAGE.h;
-  current = { core, variant, host, info: null, meta: null, view: null };
+  current = { core, variant, host, info: null, meta: null, view: null, target: null, viewAt: null };
+  talkIndex = -1;
   current.ready = (async () => {
     const { info, layers } = await layersOf(core);
     if (my !== token || !layers.length) return null;
     current.info = info;
-    setView(game()); // the first frames are already in the game's framing
+    setView(game(), true); // the first frames are already in the game's framing
     const loaded = (await Promise.all(layers.map((layer) => new Promise((resolve) => {
       players.push(makePlayer(viewHost, layer, (player) => resolve({ ...layer, player }), () => resolve(null)));
     })))).filter(Boolean);
     if (my !== token || !loaded.length) return null;
     current.meta = measure(loaded);
-    setView(viewOf(current.meta));
+    setView(viewOf(current.meta), true);
     feather(current.view);
+    const main = loaded.find((l) => l.name === current.meta.main)?.player;
+    Touch.setup({
+      players: loaded.map((l) => l.player), main, info, toWorld, zoomAt, panBy, playClip, clearClip, next,
+      talking: () => !!talk, stopTalk: stop, blocked: () => Idle.blocking > 0,
+      pause: () => Idle.pause(), resume: () => Idle.resume(), interrupt: () => Idle.interrupt(),
+    });
     Idle.start(loaded.map((l) => l.player));
+    if (mode === "full" && wantTouch) Touch.attach(host);
     return current.meta;
   })();
   return current.ready;
@@ -356,6 +419,8 @@ export async function show(core, host, variant) {
 
 export function hide(host) {
   token += 1;
+  Touch.detach();
+  Touch.setup(null);
   Idle.stop();
   for (const p of players) p.dispose();
   players = [];
@@ -365,6 +430,18 @@ export function hide(host) {
   endTalk(false);
   clearTimeout(subtitleTimer);
   if (host) host.innerHTML = "";
+}
+
+// fullscreen interaction on or off (lobby-touch.js); it only runs in the fullscreen framing
+export function interactive(on) {
+  wantTouch = !!on;
+  if (wantTouch && mode === "full" && current?.meta) Touch.attach(current.host);
+  else Touch.detach();
+}
+// a stage point (px) -> NGUI units in the current view
+function toWorld(sx, sy) {
+  const v = current?.view || game();
+  return [v.x + (sx / STAGE.w) * v.w, v.y + (1 - sy / STAGE.h) * v.h];
 }
 
 // --- clips: an animation played the way the lobby's clip asset says (track, loop, mixes, chain, sync clips) ---
@@ -406,9 +483,9 @@ function clearClip(p, name, depth = 0) {
 const mainPlayer = () => players.find((p) => p.bamtLayer?.name === current?.meta?.main) || players[players.length - 1];
 
 // --- random idle clips (SpineCharacter.idleBaseRandomClipPool): blinks, ear twitches, expression changes, each
-// after a random wait; held back while a dialogue runs. Without them the newer lobbies never blink. ---
+// after a random wait; held back while a dialogue or a drag runs. Without them the newer lobbies never blink. ---
 const Idle = {
-  timers: new Set(), playing: [],
+  timers: new Set(), paused: 0, blocking: 0, playing: [],
   start(list) {
     this.stop();
     for (const p of list) for (const name of current?.info?.randomIdle?.[p.bamtLayer.name] || []) this.schedule(p, name);
@@ -421,7 +498,7 @@ const Idle = {
   },
   fire(p, name) {
     if (!current || !p.animationState) return;
-    if (talk) { this.schedule(p, name); return; }
+    if (this.paused || talk) { this.schedule(p, name); return; }
     const c = clipOf(p, name), r = c.random || { loops: [0, 0] }, st = p.animationState;
     const [lo, hi] = r.loops || [0, 0], times = 1 + lo + Math.floor(Math.random() * (Math.max(lo, hi) - lo + 1));
     st.setEmptyAnimation(c.track, 0);
@@ -431,16 +508,20 @@ const Idle = {
     st.addEmptyAnimation(c.track, c.outro || 0, 0);
     const ms = p.skeleton.data.findAnimation(name).duration * times * 1000, entry = { p, track: c.track, outro: c.outro };
     this.playing.push(entry);
+    if (c.block) this.blocking += 1;
     this.later(() => {
       this.playing = this.playing.filter((x) => x !== entry);
+      if (c.block) this.blocking = Math.max(0, this.blocking - 1);
       this.schedule(p, name);
     }, ms);
   },
-  // a dialogue takes over: running random clips fade out
+  // a dialogue or a drag takes over: running random clips fade out
   interrupt() {
     for (const { p, track, outro } of this.playing) p.animationState?.setEmptyAnimation(track, outro || 0.2);
   },
-  stop() { for (const id of this.timers) clearTimeout(id); this.timers.clear(); this.playing = []; },
+  pause() { this.paused += 1; },
+  resume() { this.paused = Math.max(0, this.paused - 1); },
+  stop() { for (const id of this.timers) clearTimeout(id); this.timers.clear(); this.paused = 0; this.blocking = 0; this.playing = []; },
 };
 
 // --- dialogues: the talk clip (Talk_NN_M, its sync Talk_NN_A) with the game's mixes, the voices and one subtitle line
@@ -449,10 +530,11 @@ export function play(anim, { fromChain = false } = {}) {
   const m = current?.meta;
   if (!m) return null;
   if (!fromChain) chain = null;
-  const seq = m.sequences.find((s) => s.anim === anim), p = mainPlayer();
+  const i = m.sequences.findIndex((s) => s.anim === anim), seq = m.sequences[i], p = mainPlayer();
   if (!seq || !p?.animationState) return null;
   endTalk(false); // the new talk takes over tracks 1 and 2
   Idle.interrupt();
+  talkIndex = i;
   const my = (talk = { seq, started: performance.now() });
   for (const cue of seq.cues) {
     cueTimers.push(setTimeout(() => {
@@ -499,6 +581,13 @@ export function stop() {
   chain = null;
   endTalk(true);
   if (was) emit();
+}
+// the next dialogue after the last one played (a tap on the body); a dialogue that has only just started is not cut
+export function next() {
+  const seqs = current?.meta?.sequences;
+  if (!seqs?.length || (talk && performance.now() - talk.started < TALK_GUARD_MS)) return;
+  chain = null;
+  play(seqs[(talkIndex + 1) % seqs.length].anim);
 }
 // every dialogue in order, each starting when the previous one ends
 export function playAll() {

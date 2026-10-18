@@ -1081,7 +1081,7 @@ function renderLeft() {
   if (tab === "lobby") {
     Lobby.show(v.lobby, $("lobby"), v.key).then(async (m) => {
       if (!m || tab !== "lobby") return;
-      if (fullscreen) Lobby.frame("full");
+      if (fullscreen) { Lobby.frame("full"); Lobby.interactive(true); }
       renderExpressions();
       // lines and voices from Kivo; the Chinese UIs show the Chinese text, the others the original Japanese
       const still = () => tab === "lobby" && variantKey === v.key;
@@ -1124,10 +1124,11 @@ const wake = () => {
   clearTimeout(idleTimer);
   idleTimer = setTimeout(() => exit.classList.add("idle"), 2500);
 };
+// in fullscreen the character can be touched and the view zoomed like in the game; leaving resets the zoom
 function setFullscreen(on) {
   fullscreen = on;
   stage().classList.toggle("fullscreen", on);
-  if (tab === "lobby") Lobby.frame(on ? "full" : "left");
+  if (tab === "lobby") { Lobby.frame(on ? "full" : "left"); Lobby.interactive(on); }
   $("fs-exit").hidden = !on;
   if (on) { wake(); stage().addEventListener("pointermove", wake); } else { stage().removeEventListener("pointermove", wake); clearTimeout(idleTimer); }
 }
