@@ -66,9 +66,15 @@ def is_texture(path: Path) -> bool:
 
 
 def is_prefab(path: Path) -> bool:
-    """Whether a bundle can contain a UI prefab root."""
+    """Whether a bundle can contain a UI prefab root (Resources/UI holds the loading screen, UILoading)."""
     return (path.name.startswith(("ui-_mxload-prefabs-", "ui-uiassetobject-"))
-            or (path.name.startswith("prologdepengroup-") and "-addressableasset-ui-" in path.name))
+            or (path.name.startswith("prologdepengroup-") and "-addressableasset-ui-" in path.name)
+            or (path.name.startswith("prologgroup-") and "-resources-ui-" in path.name))
+
+
+def is_loading_art(path: Path) -> bool:
+    """Whether a bundle holds the loading screen illustrations (UIs/01_Common/12_Loading)."""
+    return "-uis-01_common-12_loading-" in path.name
 
 
 def cab_names(path: Path) -> list[str]:
