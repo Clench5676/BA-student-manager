@@ -467,9 +467,13 @@ class ChibiView {
     return ray.intersectObjects(this.root.children, true).some((h) => !h.object.name.endsWith("_outline") && visible(h.object));
   }
 
+  // the render loop; resolves once the first frame is on the canvas (or the view is disposed first)
   start() {
     this.clock.getDelta();
-    this.renderer.setAnimationLoop(() => this.tick());
+    return new Promise((drawn) => {
+      this.drawn = drawn;
+      this.renderer.setAnimationLoop(() => { this.tick(); drawn(); });
+    });
   }
 
   // shaders before the first frame, in the background where the GPU driver can (else three.js warns on every call)
@@ -511,6 +515,7 @@ class ChibiView {
   dispose() {
     this.disposed = true;
     this.renderer.setAnimationLoop(null);
+    this.drawn?.();
     this.observer.disconnect();
     this.controls.dispose();
     this.mixer?.stopAllAction();
@@ -555,8 +560,9 @@ export async function show(key, host, { frame: mode = "left", onAction = null } 
     v.frameTo(mode, true);
     await v.compile();
     if (my !== token) return null;
-    v.start();
-    requestAnimationFrame(() => { if (my === token) v.reveal(); });
+    await v.start();
+    if (my !== token) return null;
+    v.reveal();
     return v.actions();
   })();
   return v.ready;
