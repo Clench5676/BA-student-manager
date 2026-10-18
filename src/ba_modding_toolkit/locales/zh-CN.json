@@ -975,7 +975,28 @@
 			"lines_unavailable": "暂时读不到台词",
 			"busy": "请等当前任务完成",
 			"library_target_not_empty": "目标文件夹里已有 Mod 仓库的文件：{path}",
-			"library_io_error": "无法写入 Mod 仓库：{file}"
+			"library_io_error": "无法写入 Mod 仓库：{file}",
+			"asset_extraction_failed": "无法从游戏文件中读取素材",
+			"asset_load_failed": "无法读取游戏文件：{path}",
+			"bundle_invalid": "不是有效的资源包：{file}",
+			"catalog_data_invalid": "角色数据已损坏",
+			"catalog_family_not_found": "找不到这名学生",
+			"catalog_variant_not_found": "找不到这个变种",
+			"game_file_conflict": "游戏文件冲突：{file}",
+			"game_file_not_found": "找不到对应的游戏文件",
+			"game_file_outside_resources": "目标不在游戏目录中：{file}",
+			"game_running": "请先关闭游戏",
+			"game_status_unavailable": "无法确认游戏是否在运行",
+			"library_operation_failed": "Mod 仓库操作失败",
+			"mod_apply_failed": "应用 Mod 失败",
+			"mod_not_found": "找不到这个 Mod",
+			"mod_target_mismatch": "这个 Mod 不适用于此变种",
+			"mod_update_failed": "更新 Mod 失败",
+			"original_invalid": "保留的原版文件已损坏：{file}",
+			"original_unavailable": "没有可用的原版文件，请先用游戏启动器校验文件",
+			"source_unsupported": "不支持的来源",
+			"variant_incompatible": "两个立绘的结构不同，无法互换",
+			"variant_not_found": "找不到这个变种"
 		},
 		"drop": {
 			"hint": "拖入 Mod 文件以添加"
@@ -1032,6 +1053,16 @@
 			"saved": "已保存",
 			"button": "设置"
 		},
-		"cacheTo": "缓存到 {path}"
+		"cacheTo": "缓存到 {path}",
+		"languageName": "简体中文",
+		"a11y": {
+			"back": "返回"
+		},
+		"compare": {
+			"changed": "已修改",
+			"added": "新增",
+			"removed": "移除",
+			"none": "与游戏文件相同"
+		}
 	}
 }

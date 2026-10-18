@@ -67,19 +67,24 @@ function noGame() {
   ]);
 }
 
+let routeToken = 0;
 async function route() {
+  const my = ++routeToken;
   const parts = location.hash.replace(/^#\/?/, "").split("/").map(decodeURIComponent);
   try {
     if (parts[0] === "student" && parts[1]) {
       Roster.invalidate();
       const fam = await rpc("family.get", { key: parts[1] });
+      if (my !== routeToken) return; // a later navigation took over
       showScreen("detail");
       await Detail.show(ctx, fam, parts[2]);
     } else {
       Detail.hide();
+      const data = await roster();
+      if (my !== routeToken) return;
       showScreen("roster");
       setTitle(T("top.students"), null);
-      await Roster.show(ctx, await roster());
+      await Roster.show(ctx, data);
     }
   } catch (err) {
     console.error(err);
@@ -96,6 +101,12 @@ async function boot() {
   ctx.prefs = await rpc("settings.get").catch(() => null);
   setStrings(info.language, await rpc("i18n.strings", { lang: info.language }));
   document.title = T("top.students");
+  document.querySelector(".topbar .back").setAttribute("aria-label", T("a11y.back"));
+  $("fs-exit").setAttribute("aria-label", T("lobby.exit"));
+  $("top-option").setAttribute("aria-label", T("settings.button"));
+  // subscribed before the no-game screen too, so choosing the game folder elsewhere reaches the page
+  on("config.changed", () => { if (!info.gameFound) { location.reload(); return; } ctx.invalidateRoster(); route(); });
+  on("app.busy", () => toast(T("error.busy"), { kind: "error" }));
   await document.fonts.ready;
   if (!info.gameFound) {
     renderNav(0);
@@ -117,7 +128,6 @@ async function boot() {
       toast(T(`error.${err.code}`, err.params), { kind: "error" });
     }
   });
-  on("config.changed", () => { ctx.invalidateRoster(); route(); });
   $("top-option").addEventListener("click", () => Settings.open((key, prefs) => {
     ctx.prefs = prefs;
     Detail.applyPrefs(prefs);

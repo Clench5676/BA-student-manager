@@ -53,14 +53,27 @@ function connect() {
   }
 }
 
-// a job's end as a promise (resolves with the result, rejects with RpcError)
+// a job's end as a promise (resolves with the result, rejects with RpcError). Events can arrive before this
+// subscribes, or be lost while the event stream reconnects, so the job's state is also polled.
 export function waitJob(id, onProgress) {
   return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (fn, value) => { if (settled) return; settled = true; offs.forEach((f) => f()); fn(value); };
     const offs = [
       on("job.progress", (d) => { if (d.id === id) onProgress?.(d); }),
-      on("job.done", (d) => { if (d.id === id) { offs.forEach((f) => f()); resolve(d.result); } }),
-      on("job.failed", (d) => { if (d.id === id) { offs.forEach((f) => f()); reject(new RpcError(d.code, d.params)); } }),
+      on("job.done", (d) => { if (d.id === id) finish(resolve, d.result); }),
+      on("job.failed", (d) => { if (d.id === id) finish(reject, new RpcError(d.code, d.params)); }),
     ];
+    const poll = async () => {
+      if (settled) return;
+      try {
+        const job = await rpc("jobs.get", { id });
+        if (job.state === "done") return finish(resolve, job.result);
+        if (job.state === "failed") return finish(reject, new RpcError(job.error?.code || "internal", job.error?.params || {}));
+      } catch { /* try again */ }
+      setTimeout(poll, 1500);
+    };
+    poll();
   });
 }
 

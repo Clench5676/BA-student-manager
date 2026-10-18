@@ -24,7 +24,7 @@ const stage = () => document.getElementById("stage");
 let ctx = null, fam = null, variantKey = null, layouts = null;
 let tab = "portrait", fullscreen = false, expression = "00", expanded = false, exprScroll = 0;
 let mainPlayer = null, blinkTimer = null, pending = null, pickerSel = null, lobbySeq = null, busy = false, lobbyShot = null;
-let renderToken = 0, exprToken = 0, chipToken = 0;
+let renderToken = 0, exprToken = 0, chipToken = 0, seqTimer = null;
 
 // --- names, candidates, state ---
 const fullName = (v) => L(v.names)?.full ?? v.key;
@@ -44,9 +44,9 @@ function candidates(v = variant()) {
   const mod = (m) => ({ key: `m:${m.id}`, kind: "mod", id: m.id, label: modLabel(m), mod: m, origin: fam.variants.find((o) => o.key === m.target) });
   return [
     { key: "self", kind: "self", label: shortName(v), spr: v.spr, variant: v, recruit: v.playable, fav: isFav(v) },
-    ...familyMods().filter((m) => m.target === v.key).map(mod),
+    ...familyMods().filter((m) => m.kind === "spr" && m.target === v.key).map(mod),
     ...others.map((o) => ({ key: `v:${o.key}`, kind: "variant", label: shortName(o), spr: o.spr, variant: o, recruit: o.playable, fav: isFav(o) })),
-    ...familyMods().filter((m) => m.target !== v.key).map(mod),
+    ...familyMods().filter((m) => m.kind === "spr" && m.target !== v.key).map(mod),
   ];
 }
 // the game file parts of one kind ("spr" portrait, "lobby" memorial lobby)
@@ -68,6 +68,13 @@ function appliedKey(v = variant()) {
   return "unknown";
 }
 const current = () => candidates().find((c) => c.key === appliedKey()) || candidates()[0];
+// what the variant's lobby files carry, as a label: the original, a mod's name, or "replaced"
+function lobbyLabel(v) {
+  const a = appliedOf(v, "lobby");
+  if (a === "official") return T("lobby.original");
+  const mod = a.startsWith("mod:") && familyMods().find((m) => m.id === a.slice(4));
+  return mod ? modLabel(mod) : T("status.replaced");
+}
 const sourceOf = (key) => (key === "self" ? "official" : key.startsWith("m:") ? `mod:${key.slice(2)}` : `variant:${key.slice(2)}`);
 const gameFile = (v = variant(), kind = "spr") => partsOf(v, kind)[0]?.file || null;
 const baseName = (path) => (path ? path.split(/[\\/]/).pop() : "—");
@@ -112,7 +119,8 @@ function screenTree() {
   const t = clone(layouts.list);
   off(t, "Top", "NUITop_Scenes", "LeftInfo/CharInfo_Disable", "LeftInfo/CharCombatStyle", "RightInfo/Target/Disable",
     "RightInfo/Target/Active/2_LevelUp", "RightInfo/Target/Active/3_Transcendence", "RightInfo/Target/Active/FullCollier", "RightInfo/Target/Active/Effect");
-  const v = variant(), c = current(), swapped = appliedKey() !== "self";
+  const v = variant(), c = current(), kind = tab === "lobby" ? "lobby" : "spr";
+  const swapped = tab === "lobby" ? appliedOf(v, "lobby") !== "official" : appliedKey() !== "self";
   // layer 1 of the panel: measured on the game screenshots it lets about 55 % of the background through
   widget(t, "RightInfo/Target/Active/Bg").color = "#0c284b/0.45";
 
@@ -138,9 +146,9 @@ function screenTree() {
   // row 1: portrait information
   text(t, `${INFO}/Title_Bg/Label_Locale`, T(`info.title.${tab}`), { w_: 600 });
   text(t, `${INFO}/Detail_Btn/Label_Locale`, T("info.details"));
-  const crcState = crcOf(v, tab === "lobby" ? "lobby" : "spr");
+  const crcState = crcOf(v, kind);
   const crc = crcState === "fixed" ? ["crc.fixed", "#1f9a52"] : crcState === "needs_fix" ? ["crc.needed", "#d9822b"] : ["crc.original", "#000000"];
-  const stats = [["Label_Life", "info.current", "Data_Widget/Data", tab === "portrait" ? c.label : T(`${tab}.original`)],
+  const stats = [["Label_Life", "info.current", "Data_Widget/Data", tab === "portrait" ? c.label : lobbyLabel(v)],
     ["Label_Attact", "info.status", "Data_Widget/Data", T(swapped ? "status.replaced" : "status.original")],
     ["Label_Defense", "info.gameFile", "Data", v.date || "—"], ["Label_Healing", "info.crc", "Data_Widget/Data", T(crc[0]), crc[1]]];
   // the value column starts after the longest caption of its column
@@ -331,7 +339,7 @@ function addSwitchText(host, view) {
   const textW = w * 0.42 - 44; // the chevron sits in the last 44 px
   Object.assign(box.style, { left: `${l + w * 0.5}px`, top: `${t}px`, width: `${w * 0.42}px`, height: `${h * 0.94}px`, paddingRight: "44px" });
   const c = current();
-  const sub = tab === "lobby" ? T("lobby.original")
+  const sub = tab === "lobby" ? lobbyLabel(variant())
     : c.kind === "mod" && c.origin && c.origin.key !== variant().key ? `${shortName(c.origin)} - ${c.label}` : c.label;
   const title = T(`row.switch.${tab}`);
   const tf = fitText(title, 46, 34, textW / S), sf = fitText(sub, 32, 24, textW / S);
@@ -395,14 +403,16 @@ async function addMods() {
 
 // a job with a sticky progress line; the family is re-read afterwards
 async function job(method, params, { onDone } = {}) {
-  if (busy) return;
+  if (busy) { toast(T("error.busy"), { kind: "error" }); return false; }
   busy = true;
+  let ok = false;
   renderScreen();
   toast(T("job.running"), { sticky: true });
   try {
     const id = await rpc(method, params);
     const result = await waitJob(id, (p) => toast(`${T("job.running")} ${p.current}/${p.total}`, { sticky: true }));
     toast(T("job.done"));
+    ok = true;
     await onDone?.(result);
   } catch (err) {
     toast(errorText(err), { kind: "error", sticky: false });
@@ -410,6 +420,7 @@ async function job(method, params, { onDone } = {}) {
     busy = false;
     await reload();
   }
+  return ok;
 }
 function runUpdate() {
   const c = current();
@@ -430,9 +441,10 @@ async function runCompare() {
 }
 async function applyCandidate(key) {
   const v = variant();
-  await job("actions.apply", { variant: v.key, source: sourceOf(key) }, {
+  const ok = await job("actions.apply", { variant: v.key, source: sourceOf(key), kind: "spr" }, {
     onDone: () => { forget(spineBase("spr", v.spr)); disposePortrait(); },
   });
+  if (!ok) return;
   ctx.invalidateRoster();
   expression = "00";
   if (tab === "portrait") loadSpine(baseOf(current()));
@@ -550,8 +562,14 @@ function row4Items() {
 const row4Selected = () => (tab === "lobby" ? lobbySeq : expression);
 function row4Pick(key) {
   if (tab === "lobby") {
+    clearTimeout(seqTimer);
     if (lobbySeq === key) { lobbySeq = null; Lobby.stop(); }
-    else { lobbySeq = key; Lobby.play(key); }
+    else {
+      lobbySeq = key;
+      const seq = Lobby.play(key);
+      // when the dialogue ends the card lets go, so the next click plays it again
+      if (seq) seqTimer = setTimeout(() => { if (lobbySeq === key && !Lobby.playingAll()) { lobbySeq = null; renderExpressions(); } }, seq.duration * 1000 + 300);
+    }
     renderScreen(); // the play-all button follows
   } else { expression = key; applyExpression(); }
 }
@@ -957,7 +975,13 @@ async function renderPopup(scroll = 0) {
           [T("field.crc"), crc ? T(crc[0]) : "—", crc?.[1] && `${crc[1]}/1.00`]],
         actions: [[T(platform === "mac" ? "open.mac" : "open.win"), () => reveal(file)],
           c.kind === "mod"
-            ? [T("btn.remove"), async () => { if (await call(() => rpc("mods.remove", { id: c.id })) !== null) { await reload(); ctx.invalidateRoster(); if (pending === c.key) pending = appliedKey(); renderPopup(); } }]
+            ? [T("btn.remove"), async () => {
+              try { await rpc("mods.remove", { id: c.id }); } catch (err) { toast(errorText(err), { kind: "error" }); return; }
+              await reload();
+              ctx.invalidateRoster();
+              if (pending === c.key) pending = appliedKey();
+              renderPopup();
+            }]
             : [T("btn.extract"), () => { closePopup(false); job("actions.extract", { target: `variant:${c.variant.key}` }, { onDone: (r) => reveal(r?.folder) }); }]],
       };
     },
@@ -1017,10 +1041,11 @@ async function showCompare(result) {
   find(t, "BlackBg/BlackBgClickArea").widgets.find((w) => "sprite" in w).color = "#000000/0.60";
   const rows = (result.assets || []).filter((d) => d.status !== "same").slice(0, 12);
   const color = { changed: "#d9822b", added: "#1f9a52", removed: "#c0392b" };
+  if (!rows.length) popup.children.push(node("None", [0, 120], [label(T("compare.none"), 44, "#2d4664/1.00", 1600, 60, { depth: 8 })]));
   rows.forEach((d, i) => {
     const y = 400 - i * 64;
-    popup.children.push(node(`R_${i}`, [-820, y], [label(`${d.type}  ${d.name}`, 38, "#2d4664/1.00", 1300, 50, { pivot: 3, depth: 8, ellipsis: true })]),
-      node(`S_${i}`, [820, y], [label(d.status, 38, `${color[d.status] || "#2d4664"}/1.00`, 300, 50, { pivot: 5, depth: 8 })]));
+    popup.children.push(node(`R_${i}`, [-820, y], [label(`${d.type} - ${d.name}`, 38, "#2d4664/1.00", 1300, 50, { pivot: 3, depth: 8, ellipsis: true })]),
+      node(`S_${i}`, [820, y], [label(T(`compare.${d.status}`), 38, `${color[d.status] || "#2d4664"}/1.00`, 300, 50, { pivot: 5, depth: 8 })]));
   });
   host.hidden = false;
   const next = document.createElement("div");
@@ -1056,11 +1081,13 @@ function renderLeft() {
       if (fullscreen) Lobby.frame("full");
       renderExpressions();
       // lines and voices from Kivo; the Chinese UIs show the Chinese text, the others the original Japanese
+      const still = () => tab === "lobby" && variantKey === v.key;
       rpc("lobby.lines", { variant: v.key }).then((table) => {
+        if (!still()) return;
         const pick = (l) => (language().startsWith("zh") ? l?.["zh-CN"] || l?.ja : l?.ja || l?.["zh-CN"]) || "";
         Lobby.setLines(table, pick);
-        if (tab === "lobby" && variantKey === v.key) renderExpressions();
-      }).catch(() => Lobby.setLines({}, null));
+        renderExpressions();
+      }).catch(() => { if (still()) Lobby.setLines({}, null); });
       // the still is taken in the left framing, once the players have drawn a few frames of it
       if (!lobbyShot && !fullscreen) {
         await new Promise((r) => { let n = 4; const step = () => (--n ? requestAnimationFrame(step) : r()); requestAnimationFrame(step); });

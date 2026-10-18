@@ -15,7 +15,7 @@ const GLYPH_LIFT = 0.06;
 // Latin glyphs of this font are small next to its CJK glyphs and read low (lowercase mass sits on the baseline): text
 // without CJK is drawn 12 % larger and lifted a little more. Measuring goes through textWidth, so layout agrees.
 const LATIN_SCALE = 1.12, LATIN_LIFT = 0.085;
-const isLatin = (str) => !/[⺀-鿿　-〿＀-￯぀-ヿ]/.test(str);
+const isLatin = (str) => !/[\u2e80-\u9fff\u3000-\u303f\uff00-\uffef\u3040-\u30ff]/.test(str);
 export const fontSizeFor = (str, fs) => fs * (isLatin(str) ? LATIN_SCALE : 1);
 const measureCtx = document.createElement("canvas").getContext("2d");
 export function textWidth(str, fs) {
@@ -317,21 +317,22 @@ export const node = (name, pos, widgets = [], children = [], scale = [1, 1]) => 
 export const sprite = (name, w, h, opts = {}) => ({ sprite: name, atlas: "Common", type: 1, w_: w, h_: h, pivot: 4, depth: 5, color: "#ffffff/1.00", incline: 0, flip: 0, ...opts });
 export const label = (text, fontSize, color, w, h, opts = {}) => ({ cls: "UILabel", text, fontSize, color, w_: w, h_: h, pivot: 4, depth: 9, align: 0, ...opts });
 
-// glyph extent: a closing full-width bracket is mostly blank on the right
-export const glyphWidth = (str, fs) => Math.max(...String(str).split("\n").map((l) => textWidth(l, fs) - (/[）」]$/.test(l) ? fs * 0.45 : 0)));
+// glyph extent: a closing full-width bracket or corner bracket is mostly blank on the right
+export const glyphWidth = (str, fs) => Math.max(...String(str).split("\n").map((l) => textWidth(l, fs) - (/[\uff09\u300d]$/.test(l) ? fs * 0.45 : 0)));
 // fit text into maxW: shrink from fsMax to fsMin on one line; if it still does not fit, break into up to maxLines lines
-// at the smallest size that fits. Breaks go at separators (，、 , - spaces, before brackets) first, then between CJK
+// at the smallest size that fits. Breaks go at separators (full-width comma and enumeration comma, ", ", " - ", spaces,
+// before brackets) first, then between CJK
 // words; closing punctuation never starts a line. Wrapped text is never larger than fsMin.
-const CJK = /[぀-ヿ㐀-鿿＀-￯]/;
+const CJK = /[\u3040-\u30ff\u3400-\u9fff\uff00-\uffef]/;
 function tokensOf(str, cjkBreaks) {
-  let tokens = String(str).split(/(?<=[，、]|, | - |\s)|(?=[（(])/).filter(Boolean);
-  // CJK runs break between words (Intl.Segmenter), so 添加记忆大厅 wraps as 添加 / 记忆大厅, not 添加记 / 忆大厅
+  let tokens = String(str).split(/(?<=[\uff0c\u3001]|, | - |\s)|(?=[\uff08(])/).filter(Boolean);
+  // CJK runs break between words (Intl.Segmenter), so a compound such as "add memorial lobby" wraps between its words, not inside one
   const seg = typeof Intl !== "undefined" && Intl.Segmenter ? new Intl.Segmenter(document.documentElement.lang || "zh", { granularity: "word" }) : null;
   if (cjkBreaks) tokens = tokens.flatMap((tok) => (!CJK.test(tok) ? [tok] : seg ? [...seg.segment(tok)].map((x) => x.segment)
-    : tok.match(/[぀-ヿ㐀-鿿＀-￯]|[^぀-ヿ㐀-鿿＀-￯]+/g)));
+    : tok.match(/[\u3040-\u30ff\u3400-\u9fff\uff00-\uffef]|[^\u3040-\u30ff\u3400-\u9fff\uff00-\uffef]+/g)));
   const merged = [];
   for (const tok of tokens) {
-    if (merged.length && /^[，、）」。,.)]/.test(tok)) merged[merged.length - 1] += tok;
+    if (merged.length && /^[\uff0c\u3001\uff09\u300d\u3002,.)]/.test(tok)) merged[merged.length - 1] += tok;
     else merged.push(tok);
   }
   return merged;

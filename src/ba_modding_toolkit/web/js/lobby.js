@@ -78,7 +78,7 @@ export function frame(m) {
   feather(view);
 }
 
-function makePlayer(host, layer, onReady) {
+function makePlayer(host, layer, onReady, onError = () => {}) {
   const div = document.createElement("div");
   div.className = "lobby-layer";
   host.appendChild(div);
@@ -92,7 +92,7 @@ function makePlayer(host, layer, onReady) {
       if (idle) player.animationState.setAnimation(0, idle, true);
       onReady(player);
     },
-    error: (_p, message) => console.error(message),
+    error: (_p, message) => { console.error(message); onError(); },
   });
 }
 
@@ -153,10 +153,10 @@ export async function show(core, host, variant) {
   current.ready = (async () => {
     const layers = await layersOf(core);
     if (my !== token || !layers.length) return null;
-    const loaded = await Promise.all(layers.map((layer) => new Promise((resolve) => {
-      players.push(makePlayer(viewHost, layer, resolve));
-    })));
-    if (my !== token) return null;
+    const loaded = (await Promise.all(layers.map((layer) => new Promise((resolve) => {
+      players.push(makePlayer(viewHost, layer, resolve, () => resolve(null)));
+    })))).filter(Boolean);
+    if (my !== token || !loaded.length) return null;
     const character = loaded[loaded.length - 1];
     current.meta = measure(character);
     const view = viewOf(current.meta);

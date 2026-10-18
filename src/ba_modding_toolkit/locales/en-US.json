@@ -975,7 +975,28 @@
 			"lines_unavailable": "Lines are not available right now",
 			"busy": "Wait for the current task to finish",
 			"library_target_not_empty": "The folder already holds mod library files: {path}",
-			"library_io_error": "Could not write to the mod library: {file}"
+			"library_io_error": "Could not write to the mod library: {file}",
+			"asset_extraction_failed": "Could not read the assets from the game files",
+			"asset_load_failed": "Could not read a game file: {path}",
+			"bundle_invalid": "Not a valid bundle: {file}",
+			"catalog_data_invalid": "The character data is damaged",
+			"catalog_family_not_found": "Student not found",
+			"catalog_variant_not_found": "Variant not found",
+			"game_file_conflict": "Conflicting game files: {file}",
+			"game_file_not_found": "The matching game file was not found",
+			"game_file_outside_resources": "The target is outside the game folder: {file}",
+			"game_running": "Close the game first",
+			"game_status_unavailable": "Could not tell whether the game is running",
+			"library_operation_failed": "The mod library could not do that",
+			"mod_apply_failed": "Could not apply the mod",
+			"mod_not_found": "Mod not found",
+			"mod_target_mismatch": "This mod does not fit this variant",
+			"mod_update_failed": "Could not update the mod",
+			"original_invalid": "The kept original is damaged: {file}",
+			"original_unavailable": "No original file to restore; verify the game files in the launcher first",
+			"source_unsupported": "Unsupported source",
+			"variant_incompatible": "The two portraits are built differently and cannot be swapped",
+			"variant_not_found": "Variant not found"
 		},
 		"drop": {
 			"hint": "Drop mod files to add them"
@@ -1032,6 +1053,16 @@
 			"saved": "Saved",
 			"button": "Settings"
 		},
-		"cacheTo": "Cached in {path}"
+		"cacheTo": "Cached in {path}",
+		"languageName": "English",
+		"a11y": {
+			"back": "Back"
+		},
+		"compare": {
+			"changed": "Changed",
+			"added": "Added",
+			"removed": "Removed",
+			"none": "Same as the game file"
+		}
 	}
 }
