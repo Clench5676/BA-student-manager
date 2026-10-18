@@ -43,9 +43,9 @@ function candidates(v = variant()) {
   const others = fam.variants.filter((o) => o.key !== v.key && o.spr);
   const mod = (m) => ({ key: `m:${m.id}`, kind: "mod", id: m.id, label: modLabel(m), mod: m, origin: fam.variants.find((o) => o.key === m.target) });
   return [
-    { key: "self", kind: "self", label: shortName(v), spr: v.spr, variant: v, recruit: v.playable, fav: isFav(v) },
+    { key: "self", kind: "self", label: shortName(v), spr: v.spr, variant: v, recruit: v.recruitable, fav: isFav(v) },
     ...familyMods().filter((m) => m.kind === "spr" && m.target === v.key).map(mod),
-    ...others.map((o) => ({ key: `v:${o.key}`, kind: "variant", label: shortName(o), spr: o.spr, variant: o, recruit: o.playable, fav: isFav(o) })),
+    ...others.map((o) => ({ key: `v:${o.key}`, kind: "variant", label: shortName(o), spr: o.spr, variant: o, recruit: o.recruitable, fav: isFav(o) })),
     ...familyMods().filter((m) => m.kind === "spr" && m.target !== v.key).map(mod),
   ];
 }
@@ -454,10 +454,10 @@ async function applyCandidate(key) {
 // 3 columns x 2 rows; a long name takes two columns; with more variants than fit, the last cell opens the picker.
 const CHIP_FS = 38, CHIP_W = 272, CHIP_PITCH = 290;
 const chipSpan = (item) => {
-  const need = glyphsOf(shortName(item), 32) + (item.playable ? 32 * 1.35 / RECRUIT.ratio + 6 : 0) + (appliedKey(item) !== "self" ? 34 : 0);
+  const need = glyphsOf(shortName(item), 32) + (item.recruitable ? 32 * 1.35 / RECRUIT.ratio + 6 : 0) + (appliedKey(item) !== "self" ? 34 : 0);
   return need > CHIP_W - 40 ? 2 : 1;
 };
-const byRank = (a, b) => (isFav(b) - isFav(a)) || (b.playable - a.playable) || a.order - b.order;
+const byRank = (a, b) => (isFav(b) - isFav(a)) || (b.recruitable - a.recruitable) || a.order - b.order;
 function placeChips(items) {
   const cells = [];
   let row = 0, col = 0;
@@ -471,7 +471,7 @@ function placeChips(items) {
   return cells;
 }
 function chipLayout() {
-  // favourites first, then playable variants, then story-only ones in release order
+  // favourites first, then recruitable variants, then the others in release order
   const list = fam.variants.filter((v) => v.spr).sort(byRank);
   const all = placeChips(list);
   if (all) return all;
@@ -510,7 +510,7 @@ async function renderChips() {
     const y = 234 - 58 - row * 84, x = 514 + (y - CENTRE_Y) * TAN10 + (col + (span - 1) / 2 - 1) * CHIP_PITCH;
     const w = CHIP_W + (span - 1) * CHIP_PITCH;
     return v
-      ? chipNode(`Chip_${v.key}`, [x, y], w, shortName(v), v.key === variantKey, appliedKey(v) !== "self", v.playable, hasFresh(v))
+      ? chipNode(`Chip_${v.key}`, [x, y], w, shortName(v), v.key === variantKey, appliedKey(v) !== "self", v.recruitable, hasFresh(v))
       : chipNode("Chip_more", [x, y], w, T("chips.more", { n: more }), false, false, false);
   }));
   const next = document.createDocumentFragment();
@@ -1002,7 +1002,7 @@ let pickerSeg = 0;
 async function openPicker(scroll = 0) {
   pickerSel = pickerSel || variantKey;
   const items = fam.variants.filter((o) => o.spr).sort(byRank).map((o) => ({
-    key: o.key, kind: o.playable ? "playable" : "other", recruit: o.playable, label: shortName(o), full: fullName(o),
+    key: o.key, kind: o.recruitable ? "playable" : "other", recruit: o.recruitable, label: shortName(o), full: fullName(o),
     thumb: thumb(spineBase("spr", o.spr), "card"), big: () => thumb(spineBase("spr", o.spr), "bust"),
     inUse: o.key === variantKey, fav: isFav(o), isNew: hasFresh(o), src: o,
   })).filter((it) => pickerSeg === 0 || (pickerSeg === 1) === it.recruit);

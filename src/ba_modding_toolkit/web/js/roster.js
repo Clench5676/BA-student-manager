@@ -143,12 +143,12 @@ function entries() {
     if (!f.variants.length) continue;
     if (view.merged) {
       const first = f.variants[0];
-      list.push({ ...first, name: L(f.base), recruit: f.variants.some((v) => v.playable), mods: f.variants.reduce((s, v) => s + (v.mods || 0), 0),
+      list.push({ ...first, name: L(f.base), recruit: f.variants.some((v) => v.recruitable), mods: f.variants.reduce((s, v) => s + (v.mods || 0), 0),
         favorite: f.variants.some((v) => v.favorite), fresh: f.variants.some((v) => v.fresh),
         replaced: f.variants.find((v) => v.replaced)?.replaced || null,
         recent: Math.min(...f.variants.map((v) => v.recent ?? Infinity)), family: f.key, n: n++ });
     } else {
-      for (const v of f.variants) list.push({ ...v, name: L(v.names).full, recruit: v.playable, family: f.key, recent: v.recent ?? Infinity, n: n++ });
+      for (const v of f.variants) list.push({ ...v, name: L(v.names).full, recruit: v.recruitable, family: f.key, recent: v.recent ?? Infinity, n: n++ });
     }
   }
   return list

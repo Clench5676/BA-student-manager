@@ -32,6 +32,7 @@ class FakeVariant:
     bg: str | None = "BG_Test_Collection"
     portrait: str | None = None
     date: str | None = None
+    recruitable: bool = True
 
 
 @dataclass
@@ -199,11 +200,28 @@ def test_roster_and_family(app, services):
     assert v["key"] == "hoshino" and v["mods"] == 1 and v["fresh"] is True
     assert v["replaced"] == "variant:hoshino_swimsuit"
     assert v["bg"] == "/asset/art/bg/BG_Test_Collection"
+    assert v["playable"] is True and v["recruitable"] is True
     rpc(app, "favorites.set", variant="hoshino", on=True)
+    services.catalog.v.recruitable = False  # playable on another server only
     fam = rpc(app, "family.get", key="hoshino")["result"]
+    assert fam["variants"][0]["playable"] is True and fam["variants"][0]["recruitable"] is False
     assert fam["variants"][0]["favorite"] is True
     assert fam["variants"][0]["state"] == {"applied": "official", "crc": "ok"}
     assert fam["variants"][0]["modList"] == [{"id": "m1", "target": "hoshino", "fresh": True}]
+
+
+def test_catalog_follows_the_selected_server(tmp_path: Path):
+    settings = Settings(tmp_path / "config.toml")
+    settings.set("file_source", "windows_japan")
+    s = Services(settings, tmp_path, state=UiState(tmp_path / "webui.json"), cache=object(), game=FakeGame(),
+                 library=FakeLibrary())
+    try:
+        assert s.catalog.server == "japan"
+        settings.set("file_source", "windows_global")
+        s.reload_game()
+        assert s.catalog.server == "global"
+    finally:
+        s.close()
 
 
 def test_consent_controls_cache_headers(app, services):

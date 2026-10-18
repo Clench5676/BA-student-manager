@@ -19,6 +19,7 @@ __all__ = ["Catalog", "Family", "Variant"]
 DEFAULT_DATA = Path(__file__).parent / "data" / "catalog.json"
 logger = logging.getLogger(__name__)
 HOME_SUFFIXES = ("_home", "_home_gl", "_home_teen")
+SERVERS = ("japan", "global")  # the keys of the shipped release flags, as Settings.server_region() names them
 
 
 class GameSource(Protocol):
@@ -40,10 +41,12 @@ class Catalog:
     cached snapshot. Only the supplied game object performs game asset access.
     """
 
-    def __init__(self, game: GameSource | None, character_map: Path | None, data: Path = DEFAULT_DATA):
+    def __init__(self, game: GameSource | None, character_map: Path | None, data: Path = DEFAULT_DATA,
+                 server: str = "global"):
         self.game = game
         self.character_map = Path(character_map) if character_map is not None else None
         self.data = Path(data)
+        self.server = server  # whose release flags apply when the install has no collection portrait
         self._lock = threading.RLock()
         self._snapshot: tuple[dict[str, Family], dict[str, Variant], dict[str, Variant]] | None = None
 
@@ -100,6 +103,10 @@ class Catalog:
                         raise ValueError("Empty catalog name")
                 if not isinstance(entry["order"], int) or not isinstance(entry["playable"], bool):
                     raise ValueError("Invalid catalog variant")
+                released = entry.get("released")
+                if released is not None and not (isinstance(released, dict) and all(
+                        server in SERVERS and isinstance(flag, bool) for server, flag in released.items())):
+                    raise ValueError("Invalid catalog release flags")
             shipped_students = set(students)
             if self.character_map is not None and self.character_map.exists():
                 for row in read_character_map(self.character_map):
@@ -130,6 +137,9 @@ class Catalog:
         lobby_names = {core.lower(): core for core in lobbies}
         art = {kind: {name.lower(): name for name in names}
                for kind, names in self.game.collection_names().items()}
+        collection = art.get("portrait", {})
+        if portraits and not collection:
+            logger.warning("No collection portraits found; recruitable follows the shipped release flags")
         families, variants, cores = {}, {}, {}
         for core, paths in sorted(portraits.items()):
             key = core.lower().removesuffix("_spr")
@@ -144,7 +154,7 @@ class Catalog:
             entry = entries[key]
             student = students[str(entry["student_id"])]
             if key in added:
-                portrait = art.get("portrait", {}).get(f"student_portrait_{key}_collection")
+                portrait = collection.get(f"student_portrait_{key}_collection")
                 if portrait:
                     entry.update(playable=True, portrait=portrait)
                 entry["bg"] = entries[student["base"]].get("bg")
@@ -155,11 +165,12 @@ class Catalog:
             homes = [lobby_names[alias.lower() + suffix] for alias in aliases for suffix in HOME_SUFFIXES
                      if alias.lower() + suffix in lobby_names]
             dates = [parse_filename(path.name).date for path in paths]
+            portrait = collection.get((entry.get("portrait") or "").lower())
             variant = Variant(key, entry["file_id"], family_key, entry["names"], entry["playable"],
                               entry["order"], core, next(iter(homes), None),
-                              art.get("bg", {}).get((entry.get("bg") or "").lower()),
-                              art.get("portrait", {}).get((entry.get("portrait") or "").lower()),
-                              max(filter(None, dates), default=None), entry.get("page_id") or None)
+                              art.get("bg", {}).get((entry.get("bg") or "").lower()), portrait,
+                              max(filter(None, dates), default=None), entry.get("page_id") or None,
+                              recruitable=self._recruitable(entry, portrait is not None, bool(collection)))
             family.variants.append(variant)
             variants[key] = variant
             cores[core.lower()] = variant
@@ -170,6 +181,20 @@ class Catalog:
                 else:
                     cores.setdefault(home.lower(), variant)
         for family in families.values():
-            family.variants.sort(key=lambda variant: (variant.key != family.key, not variant.playable,
-                                                      variant.order, variant.key))
+            # recruitable here first, then playable on another server, then story and NPC variants
+            family.variants.sort(key=lambda variant: (variant.key != family.key, not variant.recruitable,
+                                                      not variant.playable, variant.order, variant.key))
         return dict(sorted(families.items())), variants, cores
+
+    def _recruitable(self, entry: dict, installed: bool, indexed: bool) -> bool:
+        """Whether a playable variant can be recruited on the selected server.
+
+        Each server builds its collection bundles with the students it has released, so an installed collection
+        portrait decides. Without one, the shipped flag tells a portrait-name gap (True) from a student not on this
+        server yet (False); with no flag either, the install decides unless it has no collection index at all."""
+        if not entry["playable"]:
+            return False
+        if installed:
+            return True
+        flag = (entry.get("released") or {}).get(self.server)
+        return flag if flag is not None else not indexed
