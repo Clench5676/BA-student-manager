@@ -329,3 +329,27 @@ def test_every_service_error_has_a_string():
     for lang in ("zh-CN", "en-US"):
         strings = ui_strings(lang)
         assert not [c for c in sorted(codes) if f"webui.error.{c}" not in strings], lang
+
+
+def test_static_files_behind_symlinks_are_served(app, tmp_path):
+    # a macOS app bundle keeps some page folders as symlinks into Contents/Resources
+    page, resources = tmp_path / "web", tmp_path / "Resources" / "vendor"
+    (page).mkdir()
+    resources.mkdir(parents=True)
+    (resources / "lib.js").write_text("var lib = 1;")
+    (page / "vendor").symlink_to(resources, target_is_directory=True)
+    (tmp_path / "secret.txt").write_text("no")
+    app.static_dir = page
+    assert call(app, "/vendor/lib.js")[2] == b"var lib = 1;"
+    assert call(app, "/vendor/../../secret.txt")[0] == "404 Not Found"
+    assert call(app, "/../secret.txt")[0] == "404 Not Found"
+
+
+def test_program_command_in_a_compiled_build(monkeypatch, tmp_path):
+    from ba_modding_toolkit.webui import system
+    exe = tmp_path / "Tool"
+    exe.write_text("")
+    monkeypatch.setitem(system.__dict__, "__compiled__", True)
+    monkeypatch.setattr(system.sys, "argv", [str(exe)])
+    monkeypatch.setattr(system.sys, "executable", str(tmp_path / "python"))
+    assert system.program_command() == [str(exe.resolve())]

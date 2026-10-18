@@ -10,7 +10,7 @@ import secrets
 import socketserver
 import threading
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Iterable
 from urllib.parse import parse_qs, unquote
 from wsgiref.simple_server import WSGIRequestHandler, WSGIServer, make_server
@@ -151,8 +151,13 @@ class WebApp:
 
     def _static(self, path: str, start_response: Callable) -> Iterable[bytes]:
         rel = "index.html" if path in ("", "/") else path.lstrip("/")
-        file = (self.static_dir / rel).resolve()
-        if self.static_dir not in file.parents or not file.is_file():
+        # check the path itself, not where it resolves to: a macOS app bundle keeps some folders of the page as
+        # symlinks into Contents/Resources, which are part of the page all the same
+        parts = PurePosixPath(rel).parts
+        if not parts or any(p in ("", ".", "..") or "\\" in p or ":" in p for p in parts):
+            return self._text(start_response, "404 Not Found", "not found")
+        file = self.static_dir.joinpath(*parts)
+        if not file.is_file():
             return self._text(start_response, "404 Not Found", "not found")
         mime = MIME.get(file.suffix.lower()) or mimetypes.guess_type(file.name)[0] or "application/octet-stream"
         return self._respond(start_response, "200 OK", file.read_bytes(), mime, [("Cache-Control", "no-cache")])
