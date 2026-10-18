@@ -52,9 +52,10 @@ function viewFor(p, frame, aspect) {
   const cyFace = face ? (face.y0 + face.y1) / 2 : offset.y + size.y * 0.8;
   // face: head and hair; bust and roster: head down to the waist; card: framed on the face only, so every skeleton
   // gets the same head size whatever it holds
-  const w = frame === "bust" || frame === "roster" ? Math.max(faceW * 3.8, size.x * 0.42) : frame === "card" ? faceW * 3.4 : Math.max(faceW * 2.9, size.x * 0.34);
+  // face: the whole head (face and hair) in the middle of the card, the face a little below the centre
+  const w = frame === "bust" || frame === "roster" ? Math.max(faceW * 3.8, size.x * 0.42) : frame === "card" ? faceW * 3.4 : Math.max(faceW * 3.3, size.x * 0.36);
   const h = w / aspect;
-  const cy = frame === "bust" || frame === "roster" ? cyFace - h * 0.2 : frame === "card" ? cyFace - h * 0.06 : cyFace + h * 0.12;
+  const cy = frame === "bust" || frame === "roster" ? cyFace - h * 0.2 : frame === "card" ? cyFace - h * 0.06 : cyFace + h * 0.07;
   return { x: cx - w / 2, y: cy - h / 2, width: w, height: h, padLeft: 0, padRight: 0, padTop: 0, padBottom: 0, transitionTime: 0, animations: {} };
 }
 
