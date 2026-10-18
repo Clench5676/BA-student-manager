@@ -1101,20 +1101,18 @@ function renderLeft() {
     });
   } else Lobby.hide($("lobby"));
 }
-// a still of the lobby for the switch card, framed on the character: in the left framing the head-pat point sits at
-// 28 % across and 34 % down the stage (lobby.js viewOf); the crop is centred right of and below it, so the face lands
-// in the part of the card the title does not cover
+// a still of the lobby for the switch card, framed on the face: lobby.js picks the crop inside the left view, which
+// lies inside the lobby's painted area, so the still is opaque everywhere and the card's mask fades it out softly
 function snapshotLobby() {
   const canvases = [...$("lobby").querySelectorAll(".lobby-view canvas")];
   if (!canvases.length) return null;
   const W = canvases[0].width, H = canvases[0].height;
-  const cw = W * 0.5, ch = cw * (253 / 450);
-  const x0 = Math.max(0, Math.min(W - cw, W * 0.35 - cw / 2)), y0 = Math.max(0, Math.min(H - ch, H * 0.44 - ch / 2));
+  const r = Lobby.stillRect(W, H) || { x: W * 0.1, y: H * 0.16, w: W * 0.5, h: W * 0.5 * (253 / 450) };
   const c = document.createElement("canvas");
   c.width = 900; c.height = Math.round(900 * (253 / 450));
   const g = c.getContext("2d");
   g.imageSmoothingQuality = "high";
-  for (const src of canvases) g.drawImage(src, x0, y0, cw, ch, 0, 0, c.width, c.height);
+  for (const src of canvases) g.drawImage(src, r.x, r.y, r.w, r.h, 0, 0, c.width, c.height);
   return new Promise((resolve) => c.toBlob((b) => resolve(b ? URL.createObjectURL(b) : null)));
 }
 

@@ -129,6 +129,9 @@ button { font: inherit; color: inherit; border: 0; background: none; cursor: poi
 .lobby[hidden] { display: none; }
 .lobby-view, .lobby-layer { position: absolute; inset: 0; }
 .lobby-extend { position: absolute; inset: 0; width: 100%; height: 100%; filter: blur(26px) saturate(1.05); transform: scale(1.08); }
+.lobby-extend[hidden] { display: none; }
+/* the previous framing, faded out over the new one when switching between the left view and fullscreen */
+.lobby-fade { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; opacity: 0; }
 .lobby-frost { position: absolute; inset: 0; pointer-events: none; transition: opacity .45s ease;
   -webkit-backdrop-filter: blur(18px) saturate(1.08) brightness(1.04); backdrop-filter: blur(18px) saturate(1.08) brightness(1.04);
   -webkit-mask-image: linear-gradient(90deg, transparent 38%, #000 56%); mask-image: linear-gradient(90deg, transparent 38%, #000 56%);
