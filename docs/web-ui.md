@@ -9,7 +9,8 @@ at runtime and never shipped with the program.
 - Screens: consent popup, student roster, student detail (Portrait and Memorial Lobby tabs; the 3D tab is shown
   disabled), the switch-portrait popup and the variant picker.
 - Nav entries without a new screen yet open the classic Tk GUI on that tab (`bamt --tab <name>`).
-- The classic GUI (`bamt`) stays the default. The new UI starts with `bamt-web`.
+- `bamt` (and the compiled app) starts the web UI; `bamt --classic` starts the classic Tk GUI.
+- Released builds look for a newer GitHub release at start and can update themselves (`updater.py`).
 - Out of scope for now: voices and subtitles (no game source yet), 3D models, a settings screen, the other tool
   screens, zh-TW and ja UI strings.
 
@@ -24,7 +25,7 @@ pywebview window (main thread) ── HTTP ──> WebServer (threaded WSGI, 127
 ```
 
 The front end only speaks HTTP and SSE, never the pywebview `js_api`. So it runs in any browser during development
-(`bamt-web --browser`), and tests drive the WSGI app without a window. Native features (file dialogs, drag-and-drop
+(`bamt --browser`, or `--serve` for tools), and tests drive the WSGI app without a window. Native features (file dialogs, drag-and-drop
 paths, reveal in the file manager) run in Python; dropped paths reach the page as an event.
 
 Every request must carry the session token (cookie `bamt`, set when the page is first opened with `/?t=<token>`, or
@@ -196,6 +197,8 @@ Events on `/api/events`:
 | `actions.update {mod}` / `actions.extract {target}` | job id |
 | `actions.compare {mod}` | per-asset differences |
 | `os.reveal {path}` | |
+| `app.checkUpdate` | the newest release above this version, or `null` |
+| `app.update` / `app.installUpdate {file}` | job id (download and MD5 check) / swap in the build and quit |
 
 ## Asset routes
 
