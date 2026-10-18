@@ -1,0 +1,27 @@
+{
+  "families": [
+    {
+      "base": "Hoshino",
+      "schoolKey": "Abydos",
+      "variants": [
+        {
+          "collectionBG": "BG_Abydos_Collection",
+          "key": "hoshino",
+          "kind": "playable",
+          "kivoSkin": "",
+          "rosterPortrait": "../assets/Student_Portrait_Hoshino_Collection.png",
+          "rosterPortraitSource": "collection",
+          "sprFile": "hoshino_spr"
+        },
+        {
+          "collectionBG": "BG_Abydos_Collection",
+          "key": "hoshino_np0001",
+          "kind": "extra-spr",
+          "kivoSkin": "",
+          "rosterPortraitSource": "rendered-from-spr",
+          "sprFile": "NP0001_spr"
+        }
+      ]
+    }
+  ]
+}

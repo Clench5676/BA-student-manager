@@ -1,0 +1,8 @@
+﻿file_id,student_id,page_id,spine_remark,name_cn,name_tw,name_en,name_jp,skin_cn,skin_tw,skin_en,skin_jp,school_id,school_name
+hoshino,42,76,,小鸟游 星野,小鳥遊 星野,Takanashi Hoshino,小鳥遊 ホシノ,,,,,1,Abydos
+CH0010,42,10,,小鸟游 星野,小鳥遊 星野,Takanashi Hoshino,小鳥遊 ホシノ,泳装,泳裝,Swimsuit,水着,1,Abydos
+CH0020,42,20,,小鸟游 星野,小鳥遊 星野,Takanashi Hoshino,小鳥遊 ホシノ,体操服,體育服,Track,体操服,1,Abydos
+NP0001,42,76,头套,小鸟游 星野,小鳥遊 星野,Takanashi Hoshino,小鳥遊 ホシノ,,,,,1,Abydos
+NP0999,42,76,运动服,小鸟游 星野,小鳥遊 星野,Takanashi Hoshino,小鳥遊 ホシノ,,,,,1,Abydos
+NP1000,555,555,,,,Some Newcomer,,,,,,,
+CH1001,555,556,,,,Some Newcomer,,,,Swimsuit,,,

@@ -1,0 +1,47 @@
+{
+  "10005": {
+    "CollectionBG": "BG_Abydos_Collection",
+    "DefaultOrder": 5,
+    "DevName": "Hoshino",
+    "Id": 10005,
+    "IsReleased": [
+      true,
+      true,
+      true
+    ],
+    "Name": "ホシノ",
+    "PathName": "hoshino",
+    "PersonalName": "ホシノ",
+    "School": "Abydos"
+  },
+  "10025": {
+    "CollectionBG": "BG_Abydos_Collection",
+    "DefaultOrder": 10,
+    "DevName": "CH0020",
+    "Id": 10025,
+    "IsReleased": [
+      true,
+      true,
+      true
+    ],
+    "Name": "ホシノ（体操服）",
+    "PathName": "hoshino_track",
+    "PersonalName": "ホシノ",
+    "School": "Abydos"
+  },
+  "10045": {
+    "CollectionBG": "BG_Abydos_Collection",
+    "DefaultOrder": 100,
+    "DevName": "CH0010",
+    "Id": 10045,
+    "IsReleased": [
+      true,
+      true,
+      true
+    ],
+    "Name": "ホシノ（水着）",
+    "PathName": "hoshino_swimsuit",
+    "PersonalName": "ホシノ",
+    "School": "Abydos"
+  }
+}

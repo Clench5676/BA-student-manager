@@ -1,0 +1,165 @@
+{
+  "students": {
+    "42": {
+      "base": "hoshino",
+      "names": {
+        "en": "Hoshino",
+        "ja": "ホシノ",
+        "zh-CN": "星野",
+        "zh-TW": "星野"
+      },
+      "school": "Abydos"
+    },
+    "7": {
+      "base": "ch9000",
+      "names": {
+        "en": "Hoshino",
+        "ja": "ホシノ",
+        "zh-CN": "星野",
+        "zh-TW": "星野"
+      },
+      "school": "Abydos"
+    }
+  },
+  "variants": {
+    "ch0010": {
+      "bg": "BG_Abydos_Collection",
+      "core_aliases": [
+        "hoshino_swimsuit"
+      ],
+      "file_id": "CH0010",
+      "names": {
+        "en": {
+          "full": "Hoshino (Swimsuit)",
+          "short": "Swimsuit"
+        },
+        "ja": {
+          "full": "ホシノ（水着）",
+          "short": "水着"
+        },
+        "zh-CN": {
+          "full": "星野（泳装）",
+          "short": "泳装"
+        },
+        "zh-TW": {
+          "full": "星野（泳裝）",
+          "short": "泳裝"
+        }
+      },
+      "order": 1,
+      "playable": true,
+      "portrait": "Student_Portrait_CH0010_Collection",
+      "school": "Abydos",
+      "student_id": "42"
+    },
+    "ch0020": {
+      "bg": "BG_Abydos_Collection",
+      "file_id": "CH0020",
+      "names": {
+        "en": {
+          "full": "Hoshino (Track)",
+          "short": "Track"
+        },
+        "ja": {
+          "full": "ホシノ（体操服）",
+          "short": "体操服"
+        },
+        "zh-CN": {
+          "full": "星野（体操服）",
+          "short": "体操服"
+        },
+        "zh-TW": {
+          "full": "星野（體育服）",
+          "short": "體育服"
+        }
+      },
+      "order": 2,
+      "playable": true,
+      "portrait": "Student_Portrait_CH0020_Collection",
+      "school": "Abydos",
+      "student_id": "42"
+    },
+    "ch9000": {
+      "bg": "BG_Abydos_Collection",
+      "file_id": "CH9000",
+      "names": {
+        "en": {
+          "full": "Hoshino",
+          "short": "Original"
+        },
+        "ja": {
+          "full": "ホシノ",
+          "short": "通常"
+        },
+        "zh-CN": {
+          "full": "星野",
+          "short": "原皮"
+        },
+        "zh-TW": {
+          "full": "星野",
+          "short": "原皮"
+        }
+      },
+      "order": 0,
+      "playable": true,
+      "portrait": "Student_Portrait_hoshino_Collection",
+      "school": "Abydos",
+      "student_id": "7"
+    },
+    "hoshino": {
+      "bg": "BG_Abydos_Collection",
+      "file_id": "hoshino",
+      "names": {
+        "en": {
+          "full": "Hoshino",
+          "short": "Original"
+        },
+        "ja": {
+          "full": "ホシノ",
+          "short": "通常"
+        },
+        "zh-CN": {
+          "full": "星野",
+          "short": "原皮"
+        },
+        "zh-TW": {
+          "full": "星野",
+          "short": "原皮"
+        }
+      },
+      "order": 0,
+      "playable": true,
+      "portrait": "Student_Portrait_hoshino_Collection",
+      "school": "Abydos",
+      "student_id": "42"
+    },
+    "np0001": {
+      "bg": "BG_Abydos_Collection",
+      "file_id": "NP0001",
+      "names": {
+        "en": {
+          "full": "Hoshino (Robber)",
+          "short": "Robber"
+        },
+        "ja": {
+          "full": "ホシノ（Robber）",
+          "short": "Robber"
+        },
+        "zh-CN": {
+          "full": "星野（Robber）",
+          "short": "Robber"
+        },
+        "zh-TW": {
+          "full": "星野（Robber）",
+          "short": "Robber"
+        }
+      },
+      "order": 0,
+      "playable": false,
+      "portrait": null,
+      "school": "Abydos",
+      "student_id": "42"
+    }
+  },
+  "version": 1
+}

@@ -1,0 +1,889 @@
+{
+  "families": {
+    "Aris": {
+      "en": "Aris",
+      "ja": "アリス",
+      "zh-CN": "爱丽丝",
+      "zh-TW": "愛麗絲"
+    },
+    "Aru": {
+      "en": "Aru",
+      "ja": "アル",
+      "zh-CN": "爱露",
+      "zh-TW": "亞瑠"
+    },
+    "Cherino": {
+      "en": "Cherino",
+      "ja": "チェリノ",
+      "zh-CN": "切里诺",
+      "zh-TW": "潔莉諾"
+    },
+    "Hina": {
+      "en": "Hina",
+      "ja": "ヒナ",
+      "zh-CN": "日奈",
+      "zh-TW": "陽奈"
+    },
+    "Hoshino": {
+      "en": "Hoshino",
+      "ja": "ホシノ",
+      "zh-CN": "星野",
+      "zh-TW": "星野"
+    },
+    "Izuna": {
+      "en": "Izuna",
+      "ja": "イズナ",
+      "zh-CN": "泉奈",
+      "zh-TW": "伊樹菜"
+    },
+    "Kisaki": {
+      "en": "Kisaki",
+      "ja": "キサキ",
+      "zh-CN": "妃咲",
+      "zh-TW": "妃姬"
+    },
+    "Mika": {
+      "en": "Mika",
+      "ja": "ミカ",
+      "zh-CN": "未花",
+      "zh-TW": "彌香"
+    },
+    "Shiroko": {
+      "en": "Shiroko",
+      "ja": "シロコ",
+      "zh-CN": "白子",
+      "zh-TW": "白子"
+    },
+    "Tsurugi": {
+      "en": "Tsurugi",
+      "ja": "ツルギ",
+      "zh-CN": "鹤城",
+      "zh-TW": "弦生"
+    }
+  },
+  "file_ids": {
+    "aris": "aris",
+    "aris_battle": "ch0334",
+    "aris_maid": "ch0200",
+    "aru": "aru",
+    "aru_dress": "ch0240",
+    "aru_newyear": "aru_newyear",
+    "cherino": "cherino",
+    "cherino_onsen": "ch0164",
+    "hina": "hina",
+    "hina_dress": "ch0230",
+    "hina_swimsuit": "ch0063",
+    "hoshino": "hoshino",
+    "hoshino_battle": "ch0258",
+    "hoshino_battle_np0179": "np0179",
+    "hoshino_battle_np0196": "np0196",
+    "hoshino_battle_np0197": "np0197",
+    "hoshino_battle_np0198": "np0198",
+    "hoshino_battle_np0200": "np0200",
+    "hoshino_battle_np0201": "np0201",
+    "hoshino_battle_np0202": "np0202",
+    "hoshino_firstyear": "ch0241",
+    "hoshino_firstyear_np0167": "np0167",
+    "hoshino_np0045": "np0045",
+    "hoshino_np0173": "np0173",
+    "hoshino_np0204": "np0204",
+    "hoshino_robber": "hoshino_robber",
+    "hoshino_swimsuit": "hoshino_swimsuit",
+    "hoshino_swimsuit_np0063": "np0063",
+    "hoshino_terror": "np0186",
+    "izuna": "izuna",
+    "izuna_swimsuit": "ch0179",
+    "kisaki": "ch0139",
+    "kisaki_np0216": "np0216",
+    "kisaki_swimsuit": "ch0356",
+    "kisaki_swimsuit_np0284": "np0284",
+    "mika": "ch0069",
+    "mika_swimsuit": "ch0294",
+    "shiroko": "shiroko",
+    "shiroko_cycling": "shiroko_ridingsuit",
+    "shiroko_swimsuit": "ch0188",
+    "shiroko_terror": "ch0263",
+    "tsurugi": "tsurugi",
+    "tsurugi_swimsuit": "ch0060"
+  },
+  "rules": {
+    "full": "base name; variant part in brackets. zh/ja full-width （）, en ' (...)' with a space before. Parts joined by '，' (zh), ', ' (en), '、' (ja). Never a middle dot (U+00B7 or U+30FB). Terror forms use the official '＊' pattern (en '*').",
+    "short": "chip label: the bracket content only; the base variant uses 原皮 (zh-CN), 原皮 (zh-TW), Original (en), 通常 (ja); Terror forms use the part after ＊."
+  },
+  "variants": {
+    "aris": {
+      "en": {
+        "full": "Aris",
+        "short": "Original"
+      },
+      "ja": {
+        "full": "アリス",
+        "short": "通常"
+      },
+      "zh-CN": {
+        "full": "爱丽丝",
+        "short": "原皮"
+      },
+      "zh-TW": {
+        "full": "愛麗絲",
+        "short": "原皮"
+      }
+    },
+    "aris_battle": {
+      "en": {
+        "full": "Aris (Armed)",
+        "short": "Armed"
+      },
+      "ja": {
+        "full": "アリス（臨戦）",
+        "short": "臨戦"
+      },
+      "zh-CN": {
+        "full": "爱丽丝（武装）",
+        "short": "武装"
+      },
+      "zh-TW": {
+        "full": "愛麗絲（武裝）",
+        "short": "武裝"
+      }
+    },
+    "aris_maid": {
+      "en": {
+        "full": "Aris (Maid)",
+        "short": "Maid"
+      },
+      "ja": {
+        "full": "アリス（メイド）",
+        "short": "メイド"
+      },
+      "zh-CN": {
+        "full": "爱丽丝（女仆）",
+        "short": "女仆"
+      },
+      "zh-TW": {
+        "full": "愛麗絲（女僕）",
+        "short": "女僕"
+      }
+    },
+    "aru": {
+      "en": {
+        "full": "Aru",
+        "short": "Original"
+      },
+      "ja": {
+        "full": "アル",
+        "short": "通常"
+      },
+      "zh-CN": {
+        "full": "爱露",
+        "short": "原皮"
+      },
+      "zh-TW": {
+        "full": "亞瑠",
+        "short": "原皮"
+      }
+    },
+    "aru_dress": {
+      "en": {
+        "full": "Aru (Dress)",
+        "short": "Dress"
+      },
+      "ja": {
+        "full": "アル（ドレス）",
+        "short": "ドレス"
+      },
+      "zh-CN": {
+        "full": "爱露（礼服）",
+        "short": "礼服"
+      },
+      "zh-TW": {
+        "full": "亞瑠（禮服）",
+        "short": "禮服"
+      }
+    },
+    "aru_newyear": {
+      "en": {
+        "full": "Aru (New Year)",
+        "short": "New Year"
+      },
+      "ja": {
+        "full": "アル（正月）",
+        "short": "正月"
+      },
+      "zh-CN": {
+        "full": "爱露（新年）",
+        "short": "新年"
+      },
+      "zh-TW": {
+        "full": "亞瑠（正月）",
+        "short": "正月"
+      }
+    },
+    "cherino": {
+      "en": {
+        "full": "Cherino",
+        "short": "Original"
+      },
+      "ja": {
+        "full": "チェリノ",
+        "short": "通常"
+      },
+      "zh-CN": {
+        "full": "切里诺",
+        "short": "原皮"
+      },
+      "zh-TW": {
+        "full": "潔莉諾",
+        "short": "原皮"
+      }
+    },
+    "cherino_onsen": {
+      "en": {
+        "full": "Cherino (Hot Spring)",
+        "short": "Hot Spring"
+      },
+      "ja": {
+        "full": "チェリノ（温泉）",
+        "short": "温泉"
+      },
+      "zh-CN": {
+        "full": "切里诺（温泉）",
+        "short": "温泉"
+      },
+      "zh-TW": {
+        "full": "潔莉諾（溫泉）",
+        "short": "溫泉"
+      }
+    },
+    "hina": {
+      "en": {
+        "full": "Hina",
+        "short": "Original"
+      },
+      "ja": {
+        "full": "ヒナ",
+        "short": "通常"
+      },
+      "zh-CN": {
+        "full": "日奈",
+        "short": "原皮"
+      },
+      "zh-TW": {
+        "full": "陽奈",
+        "short": "原皮"
+      }
+    },
+    "hina_dress": {
+      "en": {
+        "full": "Hina (Dress)",
+        "short": "Dress"
+      },
+      "ja": {
+        "full": "ヒナ（ドレス）",
+        "short": "ドレス"
+      },
+      "zh-CN": {
+        "full": "日奈（礼服）",
+        "short": "礼服"
+      },
+      "zh-TW": {
+        "full": "陽奈（禮服）",
+        "short": "禮服"
+      }
+    },
+    "hina_swimsuit": {
+      "en": {
+        "full": "Hina (Swimsuit)",
+        "short": "Swimsuit"
+      },
+      "ja": {
+        "full": "ヒナ（水着）",
+        "short": "水着"
+      },
+      "zh-CN": {
+        "full": "日奈（泳装）",
+        "short": "泳装"
+      },
+      "zh-TW": {
+        "full": "陽奈（泳裝）",
+        "short": "泳裝"
+      }
+    },
+    "hoshino": {
+      "en": {
+        "full": "Hoshino",
+        "short": "Original"
+      },
+      "ja": {
+        "full": "ホシノ",
+        "short": "通常"
+      },
+      "zh-CN": {
+        "full": "星野",
+        "short": "原皮"
+      },
+      "zh-TW": {
+        "full": "星野",
+        "short": "原皮"
+      }
+    },
+    "hoshino_battle": {
+      "en": {
+        "full": "Hoshino (Armed)",
+        "short": "Armed"
+      },
+      "ja": {
+        "full": "ホシノ（臨戦）",
+        "short": "臨戦"
+      },
+      "zh-CN": {
+        "full": "星野（武装）",
+        "short": "武装"
+      },
+      "zh-TW": {
+        "full": "星野（武裝）",
+        "short": "武裝"
+      }
+    },
+    "hoshino_battle_np0179": {
+      "en": {
+        "full": "Hoshino (Armed, Wounded)",
+        "short": "Armed, Wounded"
+      },
+      "ja": {
+        "full": "ホシノ（臨戦、負傷）",
+        "short": "臨戦、負傷"
+      },
+      "zh-CN": {
+        "full": "星野（武装，霰弹枪持盾，战损）",
+        "short": "武装，霰弹枪持盾，战损"
+      },
+      "zh-TW": {
+        "full": "星野（武裝，霰彈槍持盾，戰損）",
+        "short": "武裝，霰彈槍持盾，戰損"
+      }
+    },
+    "hoshino_battle_np0196": {
+      "en": {
+        "full": "Hoshino (Armed, Handgun)",
+        "short": "Armed, Handgun"
+      },
+      "ja": {
+        "full": "ホシノ（臨戦、拳銃）",
+        "short": "臨戦、拳銃"
+      },
+      "zh-CN": {
+        "full": "星野（武装，手枪持盾）",
+        "short": "武装，手枪持盾"
+      },
+      "zh-TW": {
+        "full": "星野（武裝，手槍持盾）",
+        "short": "武裝，手槍持盾"
+      }
+    },
+    "hoshino_battle_np0197": {
+      "en": {
+        "full": "Hoshino (Armed, Shotgun, Handgun)",
+        "short": "Armed, Shotgun, Handgun"
+      },
+      "ja": {
+        "full": "ホシノ（臨戦、ショットガン、拳銃）",
+        "short": "臨戦、ショットガン、拳銃"
+      },
+      "zh-CN": {
+        "full": "星野（武装，双持）",
+        "short": "武装，双持"
+      },
+      "zh-TW": {
+        "full": "星野（武裝，雙持）",
+        "short": "武裝，雙持"
+      }
+    },
+    "hoshino_battle_np0198": {
+      "en": {
+        "full": "Hoshino (Armed, Shotgun)",
+        "short": "Armed, Shotgun"
+      },
+      "ja": {
+        "full": "ホシノ（臨戦、ショットガン）",
+        "short": "臨戦、ショットガン"
+      },
+      "zh-CN": {
+        "full": "星野（武装，单持霰弹枪）",
+        "short": "武装，单持霰弹枪"
+      },
+      "zh-TW": {
+        "full": "星野（武裝，單持霰彈槍）",
+        "short": "武裝，單持霰彈槍"
+      }
+    },
+    "hoshino_battle_np0200": {
+      "en": {
+        "full": "Hoshino (Armed, Handgun, Wounded)",
+        "short": "Armed, Handgun, Wounded"
+      },
+      "ja": {
+        "full": "ホシノ（臨戦、拳銃、負傷）",
+        "short": "臨戦、拳銃、負傷"
+      },
+      "zh-CN": {
+        "full": "星野（武装，手枪持盾，战损）",
+        "short": "武装，手枪持盾，战损"
+      },
+      "zh-TW": {
+        "full": "星野（武裝，手槍持盾，戰損）",
+        "short": "武裝，手槍持盾，戰損"
+      }
+    },
+    "hoshino_battle_np0201": {
+      "en": {
+        "full": "Hoshino (Armed, Shotgun, Handgun, Wounded)",
+        "short": "Armed, Shotgun, Handgun, Wounded"
+      },
+      "ja": {
+        "full": "ホシノ（臨戦、ショットガン、拳銃、負傷）",
+        "short": "臨戦、ショットガン、拳銃、負傷"
+      },
+      "zh-CN": {
+        "full": "星野（武装，双持，战损）",
+        "short": "武装，双持，战损"
+      },
+      "zh-TW": {
+        "full": "星野（武裝，雙持，戰損）",
+        "short": "武裝，雙持，戰損"
+      }
+    },
+    "hoshino_battle_np0202": {
+      "en": {
+        "full": "Hoshino (Armed, Shotgun, Wounded)",
+        "short": "Armed, Shotgun, Wounded"
+      },
+      "ja": {
+        "full": "ホシノ（臨戦、ショットガン、負傷）",
+        "short": "臨戦、ショットガン、負傷"
+      },
+      "zh-CN": {
+        "full": "星野（武装，单持霰弹枪，战损）",
+        "short": "武装，单持霰弹枪，战损"
+      },
+      "zh-TW": {
+        "full": "星野（武裝，單持霰彈槍，戰損）",
+        "short": "武裝，單持霰彈槍，戰損"
+      }
+    },
+    "hoshino_firstyear": {
+      "en": {
+        "full": "Hoshino (1st Year)",
+        "short": "1st Year"
+      },
+      "ja": {
+        "full": "ホシノ（1年生）",
+        "short": "1年生"
+      },
+      "zh-CN": {
+        "full": "星野（一年级）",
+        "short": "一年级"
+      },
+      "zh-TW": {
+        "full": "星野（一年級）",
+        "short": "一年級"
+      }
+    },
+    "hoshino_firstyear_np0167": {
+      "en": {
+        "full": "Hoshino (1st Year, School Swimsuit)",
+        "short": "1st Year, School Swimsuit"
+      },
+      "ja": {
+        "full": "ホシノ（1年生、スクール水着）",
+        "short": "1年生、スクール水着"
+      },
+      "zh-CN": {
+        "full": "星野（一年级，学校泳装）",
+        "short": "一年级，学校泳装"
+      },
+      "zh-TW": {
+        "full": "星野（一年級，學校泳裝）",
+        "short": "一年級，學校泳裝"
+      }
+    },
+    "hoshino_np0045": {
+      "en": {
+        "full": "Hoshino (Track)",
+        "short": "Track"
+      },
+      "ja": {
+        "full": "ホシノ（体操服）",
+        "short": "体操服"
+      },
+      "zh-CN": {
+        "full": "星野（体操服）",
+        "short": "体操服"
+      },
+      "zh-TW": {
+        "full": "星野（體育服）",
+        "short": "體育服"
+      }
+    },
+    "hoshino_np0173": {
+      "en": {
+        "full": "Hoshino (2nd Year)",
+        "short": "2nd Year"
+      },
+      "ja": {
+        "full": "ホシノ（2年生）",
+        "short": "2年生"
+      },
+      "zh-CN": {
+        "full": "星野（旧冬装）",
+        "short": "旧冬装"
+      },
+      "zh-TW": {
+        "full": "星野（舊冬裝）",
+        "short": "舊冬裝"
+      }
+    },
+    "hoshino_np0204": {
+      "en": {
+        "full": "Hoshino (2nd Year, No Scarf)",
+        "short": "2nd Year, No Scarf"
+      },
+      "ja": {
+        "full": "ホシノ（2年生、マフラーなし）",
+        "short": "2年生、マフラーなし"
+      },
+      "zh-CN": {
+        "full": "星野（旧冬装，无围巾）",
+        "short": "旧冬装，无围巾"
+      },
+      "zh-TW": {
+        "full": "星野（舊冬裝，無圍巾）",
+        "short": "舊冬裝，無圍巾"
+      }
+    },
+    "hoshino_robber": {
+      "en": {
+        "full": "Hoshino (Robber)",
+        "short": "Robber"
+      },
+      "ja": {
+        "full": "ホシノ（覆面）",
+        "short": "覆面"
+      },
+      "zh-CN": {
+        "full": "星野（头套）",
+        "short": "头套"
+      },
+      "zh-TW": {
+        "full": "星野（頭套）",
+        "short": "頭套"
+      }
+    },
+    "hoshino_swimsuit": {
+      "en": {
+        "full": "Hoshino (Swimsuit)",
+        "short": "Swimsuit"
+      },
+      "ja": {
+        "full": "ホシノ（水着）",
+        "short": "水着"
+      },
+      "zh-CN": {
+        "full": "星野（泳装）",
+        "short": "泳装"
+      },
+      "zh-TW": {
+        "full": "星野（泳裝）",
+        "short": "泳裝"
+      }
+    },
+    "hoshino_swimsuit_np0063": {
+      "en": {
+        "full": "Hoshino (Swimsuit, Robber)",
+        "short": "Swimsuit, Robber"
+      },
+      "ja": {
+        "full": "ホシノ（水着、覆面）",
+        "short": "水着、覆面"
+      },
+      "zh-CN": {
+        "full": "星野（泳装，头套）",
+        "short": "泳装，头套"
+      },
+      "zh-TW": {
+        "full": "星野（泳裝，頭套）",
+        "short": "泳裝，頭套"
+      }
+    },
+    "hoshino_terror": {
+      "en": {
+        "full": "Hoshino*Terror",
+        "short": "Terror"
+      },
+      "ja": {
+        "full": "ホシノ＊テラー",
+        "short": "テラー"
+      },
+      "zh-CN": {
+        "full": "星野＊恐怖",
+        "short": "恐怖"
+      },
+      "zh-TW": {
+        "full": "星野＊TERROR",
+        "short": "TERROR"
+      }
+    },
+    "izuna": {
+      "en": {
+        "full": "Izuna",
+        "short": "Original"
+      },
+      "ja": {
+        "full": "イズナ",
+        "short": "通常"
+      },
+      "zh-CN": {
+        "full": "泉奈",
+        "short": "原皮"
+      },
+      "zh-TW": {
+        "full": "伊樹菜",
+        "short": "原皮"
+      }
+    },
+    "izuna_swimsuit": {
+      "en": {
+        "full": "Izuna (Swimsuit)",
+        "short": "Swimsuit"
+      },
+      "ja": {
+        "full": "イズナ（水着）",
+        "short": "水着"
+      },
+      "zh-CN": {
+        "full": "泉奈（泳装）",
+        "short": "泳装"
+      },
+      "zh-TW": {
+        "full": "伊樹菜（泳裝）",
+        "short": "泳裝"
+      }
+    },
+    "kisaki": {
+      "en": {
+        "full": "Kisaki",
+        "short": "Original"
+      },
+      "ja": {
+        "full": "キサキ",
+        "short": "通常"
+      },
+      "zh-CN": {
+        "full": "妃咲",
+        "short": "原皮"
+      },
+      "zh-TW": {
+        "full": "妃姬",
+        "short": "原皮"
+      }
+    },
+    "kisaki_np0216": {
+      "en": {
+        "full": "Kisaki (Kiki)",
+        "short": "Kiki"
+      },
+      "ja": {
+        "full": "キサキ（キキ）",
+        "short": "キキ"
+      },
+      "zh-CN": {
+        "full": "妃咲（幼儿园）",
+        "short": "幼儿园"
+      },
+      "zh-TW": {
+        "full": "妃姬（幼稚園）",
+        "short": "幼稚園"
+      }
+    },
+    "kisaki_swimsuit": {
+      "en": {
+        "full": "Kisaki (Swimsuit)",
+        "short": "Swimsuit"
+      },
+      "ja": {
+        "full": "キサキ（水着）",
+        "short": "水着"
+      },
+      "zh-CN": {
+        "full": "妃咲（泳装）",
+        "short": "泳装"
+      },
+      "zh-TW": {
+        "full": "妃姬（泳裝）",
+        "short": "泳裝"
+      }
+    },
+    "kisaki_swimsuit_np0284": {
+      "en": {
+        "full": "Kisaki (Swimsuit, Kiki)",
+        "short": "Swimsuit, Kiki"
+      },
+      "ja": {
+        "full": "キサキ（水着、キキ）",
+        "short": "水着、キキ"
+      },
+      "zh-CN": {
+        "full": "妃咲（泳装，幼儿园）",
+        "short": "泳装，幼儿园"
+      },
+      "zh-TW": {
+        "full": "妃姬（泳裝，幼稚園）",
+        "short": "泳裝，幼稚園"
+      }
+    },
+    "mika": {
+      "en": {
+        "full": "Mika",
+        "short": "Original"
+      },
+      "ja": {
+        "full": "ミカ",
+        "short": "通常"
+      },
+      "zh-CN": {
+        "full": "未花",
+        "short": "原皮"
+      },
+      "zh-TW": {
+        "full": "彌香",
+        "short": "原皮"
+      }
+    },
+    "mika_swimsuit": {
+      "en": {
+        "full": "Mika (Swimsuit)",
+        "short": "Swimsuit"
+      },
+      "ja": {
+        "full": "ミカ（水着）",
+        "short": "水着"
+      },
+      "zh-CN": {
+        "full": "未花（泳装）",
+        "short": "泳装"
+      },
+      "zh-TW": {
+        "full": "彌香（泳裝）",
+        "short": "泳裝"
+      }
+    },
+    "shiroko": {
+      "en": {
+        "full": "Shiroko",
+        "short": "Original"
+      },
+      "ja": {
+        "full": "シロコ",
+        "short": "通常"
+      },
+      "zh-CN": {
+        "full": "白子",
+        "short": "原皮"
+      },
+      "zh-TW": {
+        "full": "白子",
+        "short": "原皮"
+      }
+    },
+    "shiroko_cycling": {
+      "en": {
+        "full": "Shiroko (Cycling)",
+        "short": "Cycling"
+      },
+      "ja": {
+        "full": "シロコ（ライディング）",
+        "short": "ライディング"
+      },
+      "zh-CN": {
+        "full": "白子（骑行）",
+        "short": "骑行"
+      },
+      "zh-TW": {
+        "full": "白子（單車）",
+        "short": "單車"
+      }
+    },
+    "shiroko_swimsuit": {
+      "en": {
+        "full": "Shiroko (Swimsuit)",
+        "short": "Swimsuit"
+      },
+      "ja": {
+        "full": "シロコ（水着）",
+        "short": "水着"
+      },
+      "zh-CN": {
+        "full": "白子（泳装）",
+        "short": "泳装"
+      },
+      "zh-TW": {
+        "full": "白子（泳裝）",
+        "short": "泳裝"
+      }
+    },
+    "shiroko_terror": {
+      "en": {
+        "full": "Shiroko*Terror",
+        "short": "Terror"
+      },
+      "ja": {
+        "full": "シロコ＊テラー",
+        "short": "テラー"
+      },
+      "zh-CN": {
+        "full": "白子＊恐怖",
+        "short": "恐怖"
+      },
+      "zh-TW": {
+        "full": "白子＊TERROR",
+        "short": "TERROR"
+      }
+    },
+    "tsurugi": {
+      "en": {
+        "full": "Tsurugi",
+        "short": "Original"
+      },
+      "ja": {
+        "full": "ツルギ",
+        "short": "通常"
+      },
+      "zh-CN": {
+        "full": "鹤城",
+        "short": "原皮"
+      },
+      "zh-TW": {
+        "full": "弦生",
+        "short": "原皮"
+      }
+    },
+    "tsurugi_swimsuit": {
+      "en": {
+        "full": "Tsurugi (Swimsuit)",
+        "short": "Swimsuit"
+      },
+      "ja": {
+        "full": "ツルギ（水着）",
+        "short": "水着"
+      },
+      "zh-CN": {
+        "full": "鹤城（泳装）",
+        "short": "泳装"
+      },
+      "zh-TW": {
+        "full": "弦生（泳裝）",
+        "short": "泳裝"
+      }
+    }
+  }
+}

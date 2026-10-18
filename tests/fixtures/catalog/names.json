@@ -1,0 +1,30 @@
+{
+  "families": {
+    "Hoshino": {
+      "zh-CN": "星野",
+      "zh-TW": "星野",
+      "en": "Hoshino",
+      "ja": "ホシノ"
+    }
+  },
+  "variants": {
+    "hoshino_np0001": {
+      "zh-CN": {
+        "full": "星野（Mask）",
+        "short": "Mask"
+      },
+      "zh-TW": {
+        "full": "星野（Mask）",
+        "short": "Mask"
+      },
+      "en": {
+        "full": "Hoshino (Mask)",
+        "short": "Mask"
+      },
+      "ja": {
+        "full": "ホシノ（Mask）",
+        "short": "Mask"
+      }
+    }
+  }
+}
