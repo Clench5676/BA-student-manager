@@ -841,6 +841,7 @@
 			"original": "原版",
 			"has": "有",
 			"none": "无",
+			"failed": "无法读取 3D 模型",
 			"action": {
 				"idle": "待机",
 				"reaction": "互动",

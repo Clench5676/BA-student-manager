@@ -841,6 +841,7 @@
 			"original": "Original",
 			"has": "Yes",
 			"none": "None",
+			"failed": "Could not load the sprite",
 			"action": {
 				"idle": "Idle",
 				"reaction": "Reaction",

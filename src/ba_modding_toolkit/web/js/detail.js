@@ -1304,8 +1304,9 @@ async function showModel(v, my) {
     if (!modelShot && !fullscreen) modelShot = M.snapshot();
     await Promise.all([renderScreen(), renderExpressions()]);
   } catch (err) {
+    // a model that cannot be read (a broken or unreadable GLB): the tab stays, empty, and the rest of the screen works
     console.error(err);
-    if (still()) toast(T("error.internal", { error: err?.message || String(err) }), { kind: "error" });
+    if (still()) toast(T("model.failed"), { kind: "error" });
   }
 }
 function hideModel() {
