@@ -20,11 +20,16 @@ fi
 md5_of() { python3 -c 'import hashlib, sys; print(hashlib.md5(open(sys.argv[1], "rb").read()).hexdigest())' "$1"; }
 
 FILES=()
+NAME=Blue-Archive-Modding-and-Patching-Tool
 for f in "$@"; do
     [[ $f == *.md5 ]] && continue
     if [[ ! -f $f ]]; then echo "missing: $f" >&2; exit 1; fi
     name=$(basename "$f")
-    if [[ $name != *"-$VERSION-"* ]]; then echo "$name is not a $VERSION build" >&2; exit 1; fi
+    case "$name" in
+        "$NAME-$VERSION-macos-arm64.dmg"|"$NAME-$VERSION-macos-x86_64.dmg"|\
+        "$NAME-$VERSION-windows-x64.exe"|"$NAME-cli-$VERSION-windows-x64.exe") ;;
+        *) echo "$name is not a $VERSION build" >&2; exit 1 ;;
+    esac
     hash=$(md5_of "$f")
     if [[ -f $f.md5 ]]; then
         if [[ $(cut -d' ' -f1 < "$f.md5" | tr 'A-F' 'a-f') != "$hash" ]]; then echo "MD5 mismatch: $name" >&2; exit 1; fi
@@ -33,17 +38,27 @@ for f in "$@"; do
     fi
     FILES+=("$f" "$f.md5")
 done
+if [[ ${#FILES[@]} -eq 0 ]]; then echo "no build files supplied" >&2; exit 1; fi
 
 if ! git diff --quiet || ! git diff --cached --quiet; then
     echo "commit or stash your changes first" >&2
     exit 1
 fi
-if ! git rev-parse -q --verify "refs/tags/$VERSION" >/dev/null; then
+if git rev-parse -q --verify "refs/tags/$VERSION" >/dev/null; then
+    if [[ $(git rev-list -n1 "refs/tags/$VERSION") != "$(git rev-parse HEAD)" ]]; then
+        echo "tag $VERSION does not point at HEAD" >&2
+        exit 1
+    fi
+else
     git tag -a "$VERSION" -m "$VERSION"
 fi
 git push origin "refs/tags/$VERSION"
 
 PRERELEASE=()
 [[ $VERSION == *-* ]] && PRERELEASE=(--prerelease)
-gh release create "$VERSION" --verify-tag --title "$VERSION" --notes "" ${PRERELEASE[@]+"${PRERELEASE[@]}"} "${FILES[@]}"
+if gh release view "$VERSION" >/dev/null 2>&1; then
+    gh release upload "$VERSION" --clobber "${FILES[@]}"
+else
+    gh release create "$VERSION" --verify-tag --title "$VERSION" --notes "" ${PRERELEASE[@]+"${PRERELEASE[@]}"} "${FILES[@]}"
+fi
 echo "Released $VERSION: ${FILES[*]}"
