@@ -51,3 +51,9 @@ def test_offline_is_a_service_error(monkeypatch):
     assert e.value.code == "lines_unavailable"
     with pytest.raises(ServiceError):
         k.lines("../etc")
+
+
+def test_chinese_lines_lose_the_spaces_kivo_wraps_with():
+    page = {"voice": [{"description": "CH0187_MemorialLobby_1_1", "text": "这里， 老师。\n好。",
+                       "text_original": "ここ。"}]}
+    assert kivo.lobby_lines(page)["ch0187_memoriallobby_1_1"]["zh-CN"] == "这里，老师。好。"

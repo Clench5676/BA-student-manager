@@ -66,7 +66,7 @@ def lobby_lines(page: dict[str, Any]) -> dict[str, dict[str, str]]:
         audio = j.get("file") or ""
         if audio.startswith("//"):
             audio = "https:" + audio
-        lines[cid] = {"zh-CN": (c.get("text") or j.get("text") or "").strip(), "ja": _one_line(j.get("text_original")),
+        lines[cid] = {"zh-CN": _one_line(c.get("text") or j.get("text")), "ja": _one_line(j.get("text_original")),
                       "audio": audio}
     return lines
 
