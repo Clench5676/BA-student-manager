@@ -19,7 +19,7 @@ from .cache import AssetCache
 from . import lobby
 from .discovery import (
     bundle_paths, cab_names, group_bundles, is_atlas, is_layout_texture, is_loading_art,
-    is_lobby_prefab, is_model_dependency, is_prefab, is_texture, resource_version,
+    is_lobby_prefab, is_model_dependency, is_pointer_texture, is_prefab, is_texture, resource_version,
 )
 from .errors import AssetNotFound
 from .layouts import export_layout, subtree
@@ -237,13 +237,18 @@ class GameAssets:
         """List the names available in the shared UI texture families."""
         return sorted(self._texture_index()["textures"])
 
+    def _pointer_index(self) -> dict:
+        """The PC client's cursor and the touch effect's textures (a small scan, about 0.1 s). An index of its own,
+        so a UI texture index cached before these families were read stays valid."""
+        return self._index("pointer-textures", lambda: self._scan_textures(
+            filter(is_pointer_texture, self._paths()))["textures"])
+
     def texture_png(self, name: str) -> bytes:
-        """Decode a shared UI texture and return PNG bytes."""
+        """Decode a shared UI texture (or a cursor or touch effect texture) and return PNG bytes."""
         def build() -> bytes:
-            try:
-                record = self._texture_index()["textures"][name]
-            except KeyError:
-                raise AssetNotFound(name) from None
+            record = self._texture_index()["textures"].get(name) or self._pointer_index().get(name)
+            if record is None:
+                raise AssetNotFound(name)
             return png_bytes(self._image(record))
         return self._cached("texture/" + name, build)
 
