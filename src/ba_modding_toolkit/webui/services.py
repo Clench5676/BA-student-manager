@@ -127,14 +127,27 @@ class Services:
             return target
         if target.exists() and not target.is_dir():
             raise ServiceError("path_not_found", path=str(target))
+        if self.jobs.busy():
+            raise ServiceError("busy")  # a running job still writes through the current library
+        items = ("mods", "originals", "state.json")
         with self._lock:
             if (current / "state.json").exists() and not (target / "state.json").exists():
+                clashes = [item for item in items if (target / item).exists()]
+                if clashes:
+                    raise ServiceError("library_target_not_empty", path=str(target / clashes[0]))
                 target.mkdir(parents=True, exist_ok=True)
+                moved = []
                 try:
-                    for item in ("mods", "originals", "state.json"):
+                    for item in items:
                         if (current / item).exists():
                             shutil.move(str(current / item), str(target / item))
+                            moved.append(item)
                 except OSError as e:
+                    for item in reversed(moved):  # put back what already moved
+                        try:
+                            shutil.move(str(target / item), str(current / item))
+                        except OSError:
+                            logger.exception("could not move %s back to %s", item, current)
                     raise ServiceError("library_io_error", file=str(target)) from e
             self.state.set("library_dir", str(target))
             if "library" not in self._injected:
