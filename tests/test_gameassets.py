@@ -315,6 +315,54 @@ def test_mod_spine_cache_invalidates_without_disk_writes(tmp_path, monkeypatch):
         game.spine_files_from([tmp_path / "absent.bundle"])
 
 
+@pytest.mark.parametrize("library_dir,game_dir", [("a-library", "z-game"), ("z-library", "a-game")])
+@pytest.mark.parametrize("texture_only", [False, True])
+def test_spine_mod_overrides_win_independent_of_paths_and_cache_order(
+        tmp_path, monkeypatch, library_dir, game_dir, texture_only):
+    official = tmp_path / game_dir / "preload.bundle"
+    mod = tmp_path / library_dir / "mod.bundle"
+    for path in (official, mod):
+        path.parent.mkdir()
+        path.touch()
+    atlas = "Pages/Hero.PNG\nsize: 1,1\n"
+    def objects(color, skeleton):
+        return [
+            _Object("TextAsset", 1, "CAB", data=SimpleNamespace(m_Name="hero.skel", m_Script=skeleton)),
+            _Object("TextAsset", 2, "CAB", data=SimpleNamespace(m_Name="hero.atlas", m_Script=atlas)),
+            _Object("Texture2D", 3, "CAB", data=SimpleNamespace(
+                m_Name="hero", image=Image.new("RGBA", (1, 1), color))),
+        ]
+    official_objects = objects("blue", "official")
+    official_objects.append(_Object("TextAsset", 4, "CAB", data=SimpleNamespace(
+        m_Name="extra.skel", m_Script="official extra")))
+    mod_objects = objects("red", "modded")
+    if texture_only:
+        mod_objects = mod_objects[-1:]
+    loads = []
+    @contextmanager
+    def open_fake(path):
+        loads.append(path)
+        yield SimpleNamespace(objects=mod_objects if path == mod else official_objects)
+    monkeypatch.setattr("ba_modding_toolkit.gameassets.spine.open_bundle", open_fake)
+    cache = AssetCache(root=tmp_path / "cache", allowed=True)
+    game = GameAssets([official.parent], cache)
+    files = game.spine_files_from([official, mod])
+    assert files["hero.skel"] == (b"official" if texture_only else b"modded")
+    assert files["hero.atlas"] == atlas.encode()
+    assert files["extra.skel"] == b"official extra"
+    assert files["Pages/Hero.PNG"] == files["hero.png"]
+    assert Image.open(BytesIO(files["hero.png"])).getpixel((0, 0)) == (255, 0, 0, 255)
+    assert loads == [official, mod]
+    assert game.spine_files_from([official, mod]) == files
+    assert loads == [official, mod]
+    # The same paths in another order are a different composition, not a cache hit.
+    reversed_files = game.spine_files_from([mod, official])
+    assert reversed_files["hero.skel"] == b"official"
+    assert Image.open(BytesIO(reversed_files["hero.png"])).getpixel((0, 0)) == (0, 0, 255, 255)
+    assert loads == [official, mod, mod, official]
+    assert not cache.root.exists()
+
+
 @pytest.fixture(scope="module")
 def real_game(tmp_path_factory):
     if not GAME_DIR.is_dir():

@@ -339,10 +339,14 @@ class GameAssets:
         return self.spine_files_from(bundles)
 
     def spine_files_from(self, bundles: list[Path]) -> dict[str, bytes]:
-        """Extract mod or game bundle parts in memory, invalidating changed mods."""
+        """Extract ordered parts in memory; later bundles override earlier files.
+
+        Supply official parts first and mod parts last. Cache identity includes
+        the order and file stamps, so precedence and changed mods invalidate it.
+        """
         if not bundles:
             raise AssetNotFound("spine")
-        paths = sorted(set(Path(path).resolve() for path in bundles))
+        paths = list(dict.fromkeys(Path(path).resolve() for path in bundles))
         stamps = []
         for path in paths:
             try:
