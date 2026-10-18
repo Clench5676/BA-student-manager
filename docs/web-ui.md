@@ -226,7 +226,7 @@ Events on `/api/events`:
 | `settings.get` / `settings.set {key, value}` | the settings popup's values; key `roster` keeps the student list's view (merge, segment filters, sort, order, filter groups; `webui/state.py roster_view`) |
 | `family.get {key}` | a family with its variants, mods and each variant's state; `modelFiles` per variant (the 3D model's prefab bundles, newest first) and `version` (the game's resource version, so a switched install reloads the screen) |
 | `lobby.warm` | builds the memorial lobby prefab index in the background (once per game); the detail screen calls it for a variant with a lobby |
-| `lobby.lines {variant, talks, lang}` | `{clip: {lang: text, voice}}`: zh-CN from Kivo, ja from Kivo else the Global server, en, zh-TW, ko and th from the Global server (read only for a `lang` other than zh-CN); `talks` (`{animation: [clip ids]}` from the skeleton) places the Global rows on the clips; `lines_unavailable` when neither source can be read |
+| `lobby.lines {variant, talks, lang}` | `{clip: {lang: text, voice}}`: zh-CN from Kivo, ja from Kivo else the Global server, en, zh-TW, ko and th from the Global server (read only for a `lang` other than zh-CN, left out when its table is not in within 3 s); `talks` (`{animation: [clip ids]}` from the skeleton) places the Global rows on the clips; `lines_unavailable` when neither source can be read |
 | `debug.trace {events}` | the fullscreen lobby's input events, logged (logger `ba_modding_toolkit.webui.trace`, and `input-trace.log` in the data directory) only when the app was started with `--debug`; ignored otherwise |
 | `favorites.set {variant, on}` | |
 | `mods.add {paths}` / `mods.pick` | added entries (`mods.pick` opens the native file dialog) |
@@ -377,7 +377,9 @@ Online data, fetched on demand and kept in memory only (never written to disk):
 - Kivo (`kivo.py`): one student page per variant (zh-CN, ja and the voices, by voice clip name).
 - The Global server's CharacterDialog table (`globallines.py`), as ba-data publishes it
   (github.com/electricgoat/ba-data, `global` branch, a jsDelivr mirror second): one download per session (about
-  2.4 MB compressed), only when the UI language is not zh-CN; after a failure it is asked for again after 5 minutes.
+  2.4 MB compressed; 60 s at most), only when the UI language is not zh-CN; after a failure it is asked for again
+  after 5 minutes. `lobby.lines` waits up to 3 s for it, then answers with Kivo's lines alone (the download goes on for
+  the next lobby).
   SchaleDB's voice data has no memorial lobby lines. A dialogue's rows (`UILobbySpecial`, by `GroupId`, played by the
   talk animation the first row names) go on that animation's voice clips in order; with fewer rows than clips the last
   clips get none (the row before stays on screen), with more rows the rest join the last clip's line.

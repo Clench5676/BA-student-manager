@@ -32,9 +32,11 @@ URLS = (
     "https://cdn.jsdelivr.net/gh/electricgoat/ba-data@global/DB/CharacterDialogExcelTable.json",  # mirror
 )
 USER_AGENT = "Blue-Archive-Modding-and-Patching-Tool"
-TIMEOUT = 20.0
+TIMEOUT = 20.0  # seconds for each network operation
+DEADLINE = 60.0  # seconds for the whole table from both sources (a slow or trickling link gives up then)
 RETRY_AFTER = 300.0  # seconds before the table is asked for again after it could not be read
 MAX_BYTES = 64 << 20  # the table is about 15 MB (2.4 MB compressed)
+CHUNK = 256 << 10
 CATEGORY = "UILobbySpecial"  # the memorial lobby's dialogues
 COLUMNS = {"LocalizeEN": "en", "LocalizeTW": "zh-TW", "LocalizeKR": "ko", "LocalizeTH": "th", "LocalizeJP": "ja"}
 TALK = re.compile(r"Talk_\d+_M")
@@ -131,13 +133,30 @@ class GlobalLines:
         self._table: dict[int, Dialogues] | None = None
         self._failed_at = float("-inf")
 
-    def _get(self, url: str) -> bytes:
+    def _get(self, url: str, deadline: float | None = None) -> bytes:
+        """The body of url, unpacked, at most MAX_BYTES; TimeoutError once time.monotonic() passes deadline."""
+        deadline = time.monotonic() + DEADLINE if deadline is None else deadline
+
+        def left() -> float:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("table download too slow")
+            return remaining
+
         req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept-Encoding": "gzip"})
-        with urllib.request.urlopen(req, timeout=TIMEOUT) as res:
-            data = res.read(MAX_BYTES + 1)
+        chunks, size = [], 0
+        with urllib.request.urlopen(req, timeout=min(TIMEOUT, left())) as res:
             gzipped = (res.headers.get("Content-Encoding") or "").lower() == "gzip"
-        if len(data) > MAX_BYTES:
-            raise ValueError("table too large")
+            while True:
+                left()
+                chunk = res.read1(CHUNK)  # what has come in: the deadline is checked between network reads
+                if not chunk:
+                    break
+                size += len(chunk)
+                if size > MAX_BYTES:
+                    raise ValueError("table too large")
+                chunks.append(chunk)
+        data = b"".join(chunks)
         return gzip.decompress(data) if gzipped else data
 
     def dialogues(self, character_id: int | str) -> Dialogues:
@@ -159,9 +178,13 @@ class GlobalLines:
             return {}
 
     def _read(self) -> dict[int, Dialogues] | None:
+        deadline = time.monotonic() + DEADLINE
         for url in URLS:
+            if time.monotonic() >= deadline:
+                logger.info("Global lobby lines unavailable: no time left for %s", url)
+                break
             try:
-                data = json.loads(self._get(url))
+                data = json.loads(self._get(url, deadline))
                 rows = data.get("DataList") if isinstance(data, dict) else data
                 if not isinstance(rows, list):
                     raise ValueError("no rows")

@@ -2,6 +2,8 @@
 
 import gzip
 import json
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -9,6 +11,7 @@ import pytest
 from ba_modding_toolkit import globallines
 from ba_modding_toolkit.config import Settings
 from ba_modding_toolkit.errors import ServiceError
+from ba_modding_toolkit.webui import api as webui_api
 from ba_modding_toolkit.webui.api import build_api
 from ba_modding_toolkit.webui.services import Services
 from ba_modding_toolkit.webui.state import UiState
@@ -83,7 +86,7 @@ class Fetcher(globallines.GlobalLines):
         super().__init__()
         self.payload, self.error, self.urls = payload, error, []
 
-    def _get(self, url):
+    def _get(self, url, deadline=None):
         self.urls.append(url)
         if self.error:
             raise self.error
@@ -108,23 +111,59 @@ def test_offline_is_a_service_error_and_not_asked_again_at_once():
     assert len(g.urls) == len(globallines.URLS)
 
 
+class Response:
+    """An HTTP response giving its body in pieces (read1: what one network read brings)."""
+
+    def __init__(self, body, gzipped=False, piece=1 << 16, on_read=None):
+        self.headers = {"Content-Encoding": "gzip"} if gzipped else {}
+        self.body, self.piece, self.on_read = body, piece, on_read
+
+    def read1(self, n):
+        if self.on_read:
+            self.on_read()
+        out, self.body = self.body[:min(n, self.piece)], self.body[min(n, self.piece):]
+        return out
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
 def test_gzip_responses_are_unpacked(monkeypatch):
     body = gzip.compress(json.dumps(TABLE).encode())
-
-    class Response:
-        headers = {"Content-Encoding": "gzip"}
-
-        def read(self, n):
-            return body
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *a):
-            return False
-
-    monkeypatch.setattr(globallines.urllib.request, "urlopen", lambda req, timeout: Response())
+    monkeypatch.setattr(globallines.urllib.request, "urlopen", lambda req, timeout: Response(body, gzipped=True, piece=100))
     assert json.loads(globallines.GlobalLines()._get(globallines.URLS[0])) == TABLE
+
+
+def test_a_trickling_download_gives_up_at_the_deadline(monkeypatch):
+    clock = {"now": 1000.0}
+
+    class Time:
+        @staticmethod
+        def monotonic():
+            return clock["now"]
+
+    def tick():
+        clock["now"] += 7.0  # each network read brings a few bytes, just within the socket timeout
+
+    opened = []
+
+    def urlopen(req, timeout):
+        opened.append((req.full_url, timeout))
+        return Response(gzip.compress(json.dumps(TABLE).encode()), gzipped=True, piece=8, on_read=tick)
+
+    monkeypatch.setattr(globallines, "time", Time)
+    monkeypatch.setattr(globallines.urllib.request, "urlopen", urlopen)
+    g = globallines.GlobalLines()
+    with pytest.raises(ServiceError) as e:
+        g.dialogues(10005)
+    assert e.value.code == "lines_unavailable"
+    # the deadline covers both sources: the mirror is not tried once it has passed
+    assert [url for url, _ in opened] == [globallines.URLS[0]]
+    assert opened[0][1] == globallines.TIMEOUT
+    assert clock["now"] - 1000.0 < globallines.DEADLINE + 7.0 + 1e-9
 
 
 # --- the lobby.lines RPC ---
@@ -187,3 +226,48 @@ def test_lobby_lines_without_kivo_or_global(api):
     # malformed clips from the page are ignored
     s.kivo = Kivo()
     assert "hoshino_memoriallobby_1" in rpc.call("lobby.lines", {"variant": "hoshino", "talks": [1, 2], "lang": "en"})["result"]
+
+
+class SlowFetcher(Fetcher):
+    """A table download that takes until released."""
+
+    def __init__(self, payload):
+        super().__init__(payload)
+        self.release = threading.Event()
+
+    def _get(self, url, deadline=None):
+        self.urls.append(url)
+        assert self.release.wait(10)
+        return self.payload
+
+
+def test_lobby_lines_do_not_wait_long_for_a_slow_global_table(api, monkeypatch):
+    s, rpc = api
+    monkeypatch.setattr(webui_api, "LINES_WAIT", 0.3)
+    s.global_lines = SlowFetcher(json.dumps(TABLE).encode())
+    talks = {"Talk_01_M": ["hoshino_memoriallobby_1"]}
+    results = []
+
+    def call():
+        start = time.monotonic()
+        lines = rpc.call("lobby.lines", {"variant": "hoshino", "talks": talks, "lang": "en"})["result"]
+        results.append((time.monotonic() - start, lines))
+
+    # several calls meanwhile (the page moving through lobbies): each answers with Kivo's lines in time
+    threads = [threading.Thread(target=call) for _ in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(5)
+    assert len(results) == 4
+    for took, lines in results:
+        assert took < 2.0
+        assert lines["hoshino_memoriallobby_1"] == {"zh-CN": "\u6b38\u563f", "ja": "\u3078\u3048", "voice": True}
+    assert s.global_lines.urls == [globallines.URLS[0]]  # one download, the others wait for it
+    # once the table is in, the next call has the Global text
+    s.global_lines.release.set()
+    deadline = time.monotonic() + 5
+    while s.global_lines._table is None and time.monotonic() < deadline:
+        time.sleep(0.02)
+    lines = rpc.call("lobby.lines", {"variant": "hoshino", "talks": talks, "lang": "en"})["result"]
+    assert lines["hoshino_memoriallobby_1"]["en"].startswith("Wow")
