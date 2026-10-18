@@ -84,7 +84,8 @@ def build_api(s: Services) -> RpcRegistry:
 
     # --- students ---
 
-    def variant_json(v: Any, mods: dict[str, list], favorites: set[str], recent: list[str]) -> dict[str, Any]:
+    def variant_json(v: Any, mods: dict[str, list], favorites: set[str], recent: list[str],
+                     modified: dict[str, str] | None = None) -> dict[str, Any]:
         own = mods.get(v.key, [])
         return {
             "key": v.key, "fileId": v.file_id, "family": v.family, "names": v.names, "playable": v.playable,
@@ -92,6 +93,8 @@ def build_api(s: Services) -> RpcRegistry:
             "bg": _url_bg(v.bg), "portrait": _url_portrait(v.portrait),
             "favorite": v.key in favorites, "mods": len(own), "fresh": any(m.fresh for m in own),
             "recent": recent.index(v.key) if v.key in recent else None,
+            # the portrait game file carries something other than the official portrait (a mod or another variant)
+            "replaced": (modified or {}).get(v.key),
         }
 
     def mods_by_target() -> dict[str, list]:
@@ -105,10 +108,11 @@ def build_api(s: Services) -> RpcRegistry:
         if not s.game_found():
             raise ServiceError("game_not_found")
         mods, favorites, recent = mods_by_target(), s.library.favorites(), s.state.recent()
+        modified = s.library.modified()
         families = []
         for f in s.catalog.families():
             families.append({"key": f.key, "base": f.names, "school": f.school,
-                             "variants": [variant_json(v, mods, favorites, recent) for v in f.variants]})
+                             "variants": [variant_json(v, mods, favorites, recent, modified) for v in f.variants]})
         return {"families": families}
 
     @rpc.method("family.get")

@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Blue Archive Modding and Patching Tool</title>
+  <link rel="stylesheet" href="vendor/spine-player-4.2.120/spine-player.css">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <div class="viewport">
+    <div class="stage" id="stage">
+      <!-- student list: rendered from the game's prefab layouts -->
+      <section class="screen" id="screen-roster" hidden>
+        <div class="ngui-host" id="roster"></div>
+      </section>
+
+      <!-- student detail: game background < portrait or lobby < everything else from the UICharacterDetail prefab -->
+      <section class="screen" id="screen-detail" hidden>
+        <div class="layer-host" id="ngui-bg"></div>
+        <div class="portrait" id="portrait"></div>
+        <div class="lobby" id="lobby" hidden></div>
+        <div class="layer-host ui" id="ngui"></div>
+        <div class="layer-host ui" id="ngui-chips"></div>
+        <div class="layer-host ui" id="ngui-expr"></div>
+        <button class="fs-exit" id="fs-exit" hidden aria-label="exit fullscreen"></button>
+        <div class="layer-host popup-host" id="popup" hidden></div>
+        <div class="layer-host popup-host" id="picker" hidden></div>
+      </section>
+
+      <!-- no game folder and similar -->
+      <section class="screen message" id="screen-message" hidden>
+        <h2 id="message-title"></h2>
+        <p id="message-hint"></p>
+      </section>
+
+      <header class="topbar">
+        <button class="back" aria-label="back"><i class="icon-back"></i></button>
+        <h1 class="title"></h1>
+      </header>
+
+      <footer class="nav">
+        <div class="nav-bar"></div>
+        <div class="nav-items" id="nav"></div>
+      </footer>
+
+      <div class="consent-host" id="consent" hidden></div>
+      <div class="toast" id="toast" hidden></div>
+    </div>
+  </div>
+
+  <script src="vendor/spine-player-4.2.120/spine-player.min.js"></script>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

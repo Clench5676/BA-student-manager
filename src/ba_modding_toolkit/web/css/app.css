@@ -1,0 +1,143 @@
+/* Game-style UI: frames come from the game's prefabs (ngui.js); these rules only cover the stage, hosts, hit areas,
+   the top bar, the navigation and the few texts the game has no widget for. One font weight, like the game.
+   Fixed 1920 x 1080 stage scaled to the window. */
+
+@font-face { font-family: "RHR"; font-weight: 500; src: url("../fonts/ResourceHanRoundedCN-Medium.woff2") format("woff2"); }
+
+:root {
+  --navy-text: #2c445c;
+  --font: "RHR", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --w: 500;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; background: #0d1626; overflow: hidden; }
+button { font: inherit; color: inherit; border: 0; background: none; cursor: pointer; }
+
+.viewport { position: fixed; inset: 0; }
+.stage {
+  position: absolute; left: 50%; top: 50%; width: 1920px; height: 1080px;
+  transform: translate(-50%, -50%) scale(var(--scale, .5));
+  overflow: hidden; font-family: var(--font); font-weight: var(--w); color: var(--navy-text); user-select: none;
+  background: linear-gradient(180deg, #d3eef9 0%, #b6e0f3 55%, #9fd4ee 100%);
+}
+.screen { position: absolute; inset: 0; }
+.screen[hidden] { display: none; }
+
+/* --- top bar (Common_Top_Menu_Bg 9-slice, left 310 keeps the triangle pattern) --- */
+.topbar {
+  position: absolute; left: 0; top: 0; width: 100%; height: 64px; display: flex; align-items: center; z-index: 1000;
+  border-style: solid; border-width: 0 11px 0 172px;
+  border-image: url("/asset/ui/sprite/Common/Common_Top_Menu_Bg.png") 0 20 0 310 fill / 0 11px 0 172px stretch;
+  filter: drop-shadow(0 2px 3px rgba(30, 60, 100, .18));
+}
+.back {
+  position: absolute; left: -134px; top: 9px; width: 91px; height: 95px;
+  background: url("/asset/ui/sprite/Common/Common_Circle_Back_Btn.png") center / contain no-repeat;
+  display: grid; place-items: center;
+}
+.back .icon-back { display: inline-block; width: 46px; height: 36px; margin: -6px 0 0 -2px; background: url("/asset/ui/sprite/Common/Common_Icon_Back.png") center / contain no-repeat; }
+.title { margin-left: -12px; font: var(--w) 42px/1 var(--font); color: var(--navy-text); letter-spacing: 1px; }
+
+/* --- bottom navigation, pressed down to the bottom edge; icons only peek over the bar --- */
+.nav { position: absolute; left: 0; right: 0; bottom: 0; height: 104px; z-index: 1000; }
+.nav-bar {
+  position: absolute; left: 34px; right: 34px; bottom: 0; height: 60px; border-radius: 10px 10px 0 0;
+  background: linear-gradient(180deg, rgba(255, 255, 255, .95), rgba(240, 246, 250, .94));
+  box-shadow: 0 3px 10px rgba(30, 60, 100, .22);
+}
+.nav-items { position: absolute; left: 50px; right: 50px; bottom: 0; height: 104px; display: flex; justify-content: space-between; }
+.nav-item { position: relative; width: 180px; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; padding-bottom: 13px; font: var(--w) 26px/1 var(--font); color: #2c3c54; letter-spacing: 1px; white-space: nowrap; }
+.nav-item .nav-icon { width: 60px; height: 54px; margin-bottom: 4px; background: center / contain no-repeat; filter: drop-shadow(0 3px 2px rgba(30, 60, 100, .2)); }
+.nav-item.active { color: #2a63c5; }
+
+/* --- roster --- */
+.ngui-host { position: absolute; inset: 0; }
+.card-hit { position: absolute; z-index: 900; background: transparent; cursor: pointer; }
+.card-hit:disabled { cursor: default; }
+.card-clip { position: absolute; left: 0; right: 0; overflow: hidden; z-index: 100; touch-action: none; }
+.card-scroll { position: absolute; left: 0; top: 0; width: 1920px; height: 1px; will-change: transform; }
+.card-row { position: absolute; inset: 0; }
+.scrollbar { position: absolute; z-index: 150; width: 10px; border-radius: 5px; background: #ccd7df; pointer-events: none; }
+.scrollbar[hidden] { display: none; }
+.scrollbar i { position: absolute; left: 0; right: 0; border-radius: 5px; background: #92a6b7; }
+.consent-host { position: absolute; inset: 0; z-index: 2000; }
+.consent-host[hidden] { display: none; }
+
+/* --- detail --- */
+.layer-host { position: absolute; inset: 0; pointer-events: none; }
+.layer-host .hit, .layer-host .expr-clip, .layer-host .popup-cards { pointer-events: auto; }
+.layer-host.ui { z-index: 2; }
+#ngui-chips { z-index: 3; }
+#ngui-expr { z-index: 4; }
+.portrait { position: absolute; left: 20px; top: 40px; width: 960px; height: 1560px; z-index: 1; }
+.portrait .layer { position: absolute; inset: 0; transition: opacity .35s ease; }
+.portrait .layer.fading { opacity: 0; }
+.portrait .spine-player, .lobby-layer .spine-player, .thumb-player .spine-player { background: transparent !important; }
+.popup-host { z-index: 20; pointer-events: auto; }
+.popup-host[hidden] { display: none; }
+.hit { position: absolute; background: transparent; cursor: pointer; }
+
+/* switch-portrait card: the game's weapon card has no text slot */
+.switch-text { position: absolute; z-index: 40; display: flex; flex-direction: column; justify-content: center; gap: 6px; padding-bottom: 5px; color: #2d4664; pointer-events: none; }
+.switch-text b { font: var(--w) var(--title-size, 30px)/1.15 var(--font); }
+.switch-text span { font: var(--w) var(--sub-size, 21px)/1.2 var(--font); color: #5b6f86; }
+.switch-go { position: absolute; right: 6px; top: 50%; width: 22px; height: 34px; margin-top: -17px; background-color: #9fb0c2; transform: scaleX(-.6);
+  -webkit-mask: url("/asset/ui/sprite/Common/Cafe_Icon_Arrow.png") center / contain no-repeat; mask: url("/asset/ui/sprite/Common/Cafe_Icon_Arrow.png") center / contain no-repeat; }
+
+/* expression strip clip; unfolded it scrolls and drags */
+.expr-clip { position: absolute; overflow: hidden; }
+.expr-clip.expanded { overflow-x: auto; scrollbar-width: none; cursor: grab;
+  -webkit-mask-image: linear-gradient(90deg, transparent 2%, #000 7%, #000 93%, transparent 99%); mask-image: linear-gradient(90deg, transparent 2%, #000 7%, #000 93%, transparent 99%); }
+.expr-clip.expanded::-webkit-scrollbar { display: none; }
+.expr-track { position: relative; height: 100%; min-width: 100%; }
+
+/* popups */
+.popup-cards { position: absolute; z-index: 30; overflow-y: auto; overflow-x: hidden; scrollbar-width: none; }
+.popup-cards::-webkit-scrollbar { display: none; }
+.popup-cards-inner { position: relative; }
+.popup-host .scrollbar { z-index: 60; }
+
+/* left halves and right halves of the UI, so fullscreen can slide each away */
+#ngui .side { position: absolute; inset: 0; pointer-events: none; transition: transform .45s ease, opacity .45s ease; }
+#ngui-chips, #ngui-expr, .topbar, .nav { transition: transform .45s ease, opacity .45s ease; }
+.stage.fullscreen #ngui .side.left, .stage.fullscreen #ngui-chips { transform: translateX(-70%); opacity: 0; }
+.stage.fullscreen #ngui .side.right, .stage.fullscreen #ngui-expr { transform: translateX(70%); opacity: 0; }
+.stage.fullscreen .topbar { transform: translateY(-140%); }
+.stage.fullscreen .nav { transform: translateY(140%); }
+.stage.fullscreen .lobby-frost { opacity: 0; }
+
+/* the collection background dims behind the lobby */
+#ngui-bg.dim { filter: blur(6px) brightness(.9); }
+
+/* memorial lobby: the lobby's skeletons fill the stage; the right side fades into a frosted blur */
+.lobby { position: absolute; inset: 0; z-index: 1; }
+.lobby[hidden] { display: none; }
+.lobby-view, .lobby-layer { position: absolute; inset: 0; }
+.lobby-extend { position: absolute; inset: 0; width: 100%; height: 100%; filter: blur(26px) saturate(1.05); transform: scale(1.08); }
+.lobby-frost { position: absolute; inset: 0; pointer-events: none; transition: opacity .45s ease;
+  -webkit-backdrop-filter: blur(18px) saturate(1.08) brightness(1.04); backdrop-filter: blur(18px) saturate(1.08) brightness(1.04);
+  -webkit-mask-image: linear-gradient(90deg, transparent 38%, #000 56%); mask-image: linear-gradient(90deg, transparent 38%, #000 56%);
+  background: linear-gradient(90deg, rgba(225, 240, 250, 0) 38%, rgba(225, 240, 250, .22) 66%); }
+
+/* fullscreen exit: the game's hide-UI icon at the top right, fades while the pointer rests */
+.fs-exit { position: absolute; right: 36px; top: 28px; z-index: 30; width: 92px; height: 92px; border-radius: 50%;
+  background: rgba(20, 40, 70, .55) url("/asset/ui/sprite/Common/Common_UIHide_Icon2.png") center / 56% no-repeat; transition: opacity .6s ease; }
+.fs-exit[hidden] { display: none; }
+.fs-exit.idle { opacity: 0; }
+
+/* thumbnails are rendered by a hidden player */
+.thumb-host { position: fixed; left: 0; top: 0; width: 0; height: 0; overflow: visible; opacity: 0; pointer-events: none; z-index: -1; }
+.thumb-player { position: absolute; left: 0; top: 0; }
+
+/* status line */
+.toast { position: absolute; left: 50%; bottom: 128px; transform: translateX(-50%); z-index: 3000; max-width: 1200px; padding: 14px 30px;
+  border-radius: 10px; background: rgba(16, 34, 56, .82); color: #fff; font: var(--w) 28px/1.35 var(--font); white-space: pre-line; pointer-events: none; }
+.toast[hidden] { display: none; }
+.toast.error { background: rgba(120, 30, 30, .86); }
+
+/* message screen */
+.screen.message { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; }
+.screen.message[hidden] { display: none; }
+.screen.message h2 { font: var(--w) 56px/1.2 var(--font); color: #2d4664; }
+.screen.message p { font: var(--w) 32px/1.4 var(--font); color: #5b6f86; }

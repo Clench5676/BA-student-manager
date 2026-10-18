@@ -45,8 +45,7 @@ class Services:
             if self._cache is None:
                 from ..gameassets import AssetCache
 
-                self._cache = AssetCache(user_cache_dir())
-                self._cache.allowed = self.state.consent is True
+                self._cache = AssetCache(allowed=self.state.consent is True, root=user_cache_dir())
             return self._cache
 
     @property
@@ -138,6 +137,8 @@ class Services:
             files = self.game.spine_files_from(self.library.preview_bundles(key))
         else:
             raise KeyError(kind)
+        if name == "files.json":
+            return _json(sorted(files), light=False)
         data = files.get(name)
         if data is None:
             # "skeleton.skel" / "skeleton.atlas" stand for the one skeleton in the files

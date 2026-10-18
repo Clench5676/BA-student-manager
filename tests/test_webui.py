@@ -104,6 +104,9 @@ class FakeLibrary:
     def mods(self):
         return [FakeMod("m1", "hoshino")]
 
+    def modified(self):
+        return {"hoshino": "variant:hoshino_swimsuit"}
+
     def favorites(self):
         return set(self.favs)
 
@@ -194,6 +197,7 @@ def test_roster_and_family(app, services):
     roster = rpc(app, "roster.list")["result"]
     v = roster["families"][0]["variants"][0]
     assert v["key"] == "hoshino" and v["mods"] == 1 and v["fresh"] is True
+    assert v["replaced"] == "variant:hoshino_swimsuit"
     assert v["bg"] == "/asset/art/bg/BG_Test_Collection"
     rpc(app, "favorites.set", variant="hoshino", on=True)
     fam = rpc(app, "family.get", key="hoshino")["result"]

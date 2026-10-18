@@ -2,6 +2,10 @@ output/
 Addons/
 adb_cache/
 config.toml
+# web UI user data in the development data directory
+/library/
+/webui.json
+/webview/
 
 locales/
 src/ba_modding_toolkit/locales/tmp/

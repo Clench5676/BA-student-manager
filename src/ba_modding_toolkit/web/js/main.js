@@ -1,0 +1,102 @@
+// Boot and routing: #/roster (the student list) and #/student/<family>/<variant> (the detail screen).
+import * as Consent from "./consent.js";
+import * as Detail from "./detail.js";
+import * as NGUI from "./ngui.js";
+import * as Roster from "./roster.js";
+import { on, rpc } from "./api.js";
+import { T, setStrings } from "./i18n.js";
+import { renderNav, setTitle } from "./nav.js";
+import { $, fitStage, toast } from "./util.js";
+
+let info = null, rosterData = null, rosterStale = true;
+
+const ctx = {
+  dragged: false,
+  go: (family, variant) => { location.hash = `#/student/${encodeURIComponent(family)}/${encodeURIComponent(variant)}`; },
+  invalidateRoster: () => { rosterStale = true; Roster.invalidate(); },
+  // the next or previous family in the roster's order
+  stepFamily: async (key, delta) => {
+    const data = await roster();
+    const list = data.families.filter((f) => f.variants.some((v) => v.spr));
+    const i = list.findIndex((f) => f.key === key);
+    const next = list[(i + delta + list.length) % list.length];
+    if (next) ctx.go(next.key, next.variants.find((v) => v.spr).key);
+  },
+};
+
+async function roster() {
+  if (!rosterData || rosterStale) {
+    rosterData = await rpc("roster.list");
+    rosterStale = false;
+  }
+  return rosterData;
+}
+
+function showScreen(name) {
+  for (const id of ["screen-roster", "screen-detail", "screen-message"]) $(id).hidden = id !== `screen-${name}`;
+}
+
+function message(title, hint) {
+  showScreen("message");
+  $("message-title").textContent = title;
+  $("message-hint").textContent = hint || "";
+}
+
+async function route() {
+  const parts = location.hash.replace(/^#\/?/, "").split("/").map(decodeURIComponent);
+  try {
+    if (parts[0] === "student" && parts[1]) {
+      Roster.invalidate();
+      const fam = await rpc("family.get", { key: parts[1] });
+      showScreen("detail");
+      await Detail.show(ctx, fam, parts[2]);
+    } else {
+      Detail.hide();
+      showScreen("roster");
+      setTitle(T("top.students"), null);
+      await Roster.show(ctx, await roster());
+    }
+  } catch (err) {
+    console.error(err);
+    if (err.code === "game_not_found") message(T("app.noGame.title"), T("app.noGame.hint"));
+    else toast(T(`error.${err.code || "internal"}`, err.params || { error: String(err) }), { kind: "error" });
+  }
+}
+
+async function boot() {
+  fitStage();
+  addEventListener("resize", fitStage);
+  info = await rpc("app.info");
+  setStrings(info.language, await rpc("i18n.strings", { lang: info.language }));
+  document.title = T("top.students");
+  await document.fonts.ready;
+  if (!info.gameFound) {
+    renderNav(0);
+    message(T("app.noGame.title"), T("app.noGame.hint"));
+    return;
+  }
+  toast(T("app.loading"), { sticky: true });
+  await NGUI.init();
+  renderNav(0);
+  toast("");
+  // files dropped on the window are added to the library
+  on("drop", async ({ paths }) => {
+    try {
+      const added = await rpc("mods.add", { paths });
+      toast(added.length ? `${T("popup.add")} ${added.length}` : T("drop.hint"));
+      ctx.invalidateRoster();
+      route();
+    } catch (err) {
+      toast(T(`error.${err.code}`, err.params), { kind: "error" });
+    }
+  });
+  on("config.changed", () => { ctx.invalidateRoster(); route(); });
+  addEventListener("hashchange", route);
+  await route();
+  if (info.consent !== true) await Consent.show($("consent"), info.cacheDir);
+}
+
+boot().catch((err) => {
+  console.error(err);
+  toast(String(err), { kind: "error", sticky: true });
+});

@@ -18,9 +18,9 @@ logger = logging.getLogger(__name__)
 CONFIG_POLL_SECONDS = 2.0
 
 
-def build(port: int = 0, services: Services | None = None) -> tuple[Services, Server]:
+def build(port: int = 0, services: Services | None = None, token: str | None = None) -> tuple[Services, Server]:
     s = services or Services()
-    app = WebApp(build_api(s), s.events, assets=s.asset, consent=lambda: s.state.consent)
+    app = WebApp(build_api(s), s.events, assets=s.asset, consent=lambda: s.state.consent, token=token)
     return s, Server(app, port)
 
 
@@ -36,21 +36,25 @@ def _watch_config(s: Services, stop: threading.Event) -> None:
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="bamt-web")
     parser.add_argument("--browser", action="store_true", help="open the UI in the system browser instead of a window")
+    parser.add_argument("--serve", action="store_true", help="only run the server (for development tools)")
     parser.add_argument("--port", type=int, default=0)
+    parser.add_argument("--token", help="a fixed session token instead of a random one (development only)")
     parser.add_argument("--debug", action="store_true")
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.DEBUG if args.debug else logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
-    s, server = build(args.port)
+    s, server = build(args.port, token=args.token)
     server.start()
     stop = threading.Event()
     threading.Thread(target=_watch_config, args=(s, stop), name="bamt-config", daemon=True).start()
     logger.info("web UI at %s", server.url)
 
     try:
-        if args.browser:
-            webbrowser.open(server.url)
+        if args.browser or args.serve:
+            if args.browser:
+                webbrowser.open(server.url)
+            print(server.url, flush=True)
             stop.wait()
         else:
             _run_window(s, server, args.debug)
