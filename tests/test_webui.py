@@ -353,3 +353,13 @@ def test_program_command_in_a_compiled_build(monkeypatch, tmp_path):
     monkeypatch.setattr(system.sys, "argv", [str(exe)])
     monkeypatch.setattr(system.sys, "executable", str(tmp_path / "python"))
     assert system.program_command() == [str(exe.resolve())]
+
+
+def test_open_classic_always_asks_for_the_classic_gui(monkeypatch):
+    from ba_modding_toolkit.webui import system
+    calls = []
+    monkeypatch.setattr(system, "program_command", lambda: ["tool"])
+    monkeypatch.setattr(system.subprocess, "Popen", lambda cmd, **kw: calls.append(cmd))
+    system.open_classic()
+    system.open_classic("settings")
+    assert calls == [["tool", "--classic"], ["tool", "--classic", "--settings"]]

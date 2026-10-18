@@ -62,7 +62,8 @@ def open_classic(tab: str | None = None) -> None:
     """Start the classic Tk GUI in its own process, optionally on a tab or (``"settings"``) in its settings."""
     if tab is not None and tab not in CLASSIC_TABS and tab != "settings":
         raise ServiceError("bad_params", tab=tab)
-    cmd = program_command()
+    # without --classic the launcher starts the web UI again
+    cmd = program_command() + ["--classic"]
     if tab == "settings":
         cmd += ["--settings"]
     elif tab:
