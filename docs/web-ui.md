@@ -84,7 +84,7 @@ class GameAssets:
                                                                #   paddingLeft, paddingRight, paddingTop, paddingBottom}}}
     def sprite_png(self, atlas: str, sprite: str) -> bytes
     def textures(self) -> list[str]                            # UITexture names
-    def texture_png(self, name: str) -> bytes
+    def texture_png(self, name: str) -> bytes                  # also the pointer and touch effect textures
     def layout(self, root: str, subpath: str = "") -> dict     # prefab subtree, schema below
 
     # heavy
@@ -244,7 +244,7 @@ Events on `/api/events`:
 | Route | Class |
 |---|---|
 | `/asset/ui/atlases.json`, `/asset/ui/sprite/<atlas>/<name>.png` | light |
-| `/asset/ui/textures.json`, `/asset/ui/texture/<name>.png` | light |
+| `/asset/ui/textures.json`, `/asset/ui/texture/<name>.png` (also the PC pointer and the touch effect's textures, an index of their own outside the listing) | light |
 | `/asset/ui/layout/<root>.json?path=<subpath>` | light |
 | `/asset/art/bg/<name>`, `/asset/art/portrait/<name>.png` | heavy |
 | `/asset/art/loading/<name>.jpg` (a loading illustration on black) | heavy |
@@ -304,6 +304,32 @@ stand-in in the page font shows instead.
   transparent; when a lobby or a model replaces another one, a still of the old one holds its place meanwhile.
 - The consent popup comes after the first screen is revealed. The illustrations are game art: memory only, served
   with `Cache-Control: no-store`.
+
+### Pointer and touch effect
+
+`cursor.js` gives the page the PC client's own pointer and the touch effect it shows on every press; `touch-fx.js`
+simulates the effect (pure functions, tested in Node from `tests/test_touch_fx.py`). Both read their textures through
+the light texture route (`gameassets` indexes the GLPC_Cursor, shared UI and EffectsFreezed texture bundles for them,
+in `pointer-textures`); without a game the system cursor stays and there is no effect.
+
+- **Pointer.** `ControllerMouse.SetPCCursorStyle` sets `PCIcon_MousePoint` (64 x 64; its MousePoint option chooses
+  this or the system arrow) with `Cursor.SetCursor`, hotspot (0, 0) and `CursorMode.Auto`, which Windows shows at the
+  system cursor size: here a 32 CSS px cursor with the texture as its 2x image (`image-set`, `-webkit-image-set` or a
+  plain `url` by `CSS.supports`), set as `--cursor` and `--cursor-press` on the root. The game has no hover or pressed pointer, so buttons show it too; drag handles keep `grab` and
+  `grabbing`, text fields the text cursor. `Cursor_1` (the halo crosshair, hotspot in its middle, a software cursor)
+  is the controller's pointer and is not used.
+- **Touch effect.** `Resources/UI/FX_Touch`, spawned by TouchEffectCreater at the pointer through the UI camera
+  (orthographic size 1: the stage is 2 units high), dragged while the button is held and stopped 60 frames after the
+  release. Its parts and numbers come from the prefab's ParticleSystem and TrailRenderer typetrees and its materials'
+  compiled shaders: two spinning rings cut by a dissolve threshold over `FX_TEX_Grad_Ring3`, a flash disc
+  (`FX_TEX_Circle_01`, its colour added, its alpha hiding what is behind), twinkling triangles
+  (`FX_TEX_Triangle_02_1`) leaving the press and 5 per unit of drag, and a 0.3 s trail 0.005 units wide
+  (`FX_TEX_Trail_03`). Colours are worked out in linear light as in the game and saturate where it does.
+- **Drawing.** Two canvases over the whole window (`pointer-events: none`, device pixel ratio aware, hidden with no
+  frame loop while nothing animates): the light on one screened over the page, what the flash hides on a multiplied
+  one under it. The page blends in sRGB values, so the flash's blend is fitted to be exact over black and over white.
+- **Reduced motion** (`prefers-reduced-motion: reduce`): a press keeps its burst, a drag leaves no trail and no
+  triangles.
 
 ### Memorial lobby
 
