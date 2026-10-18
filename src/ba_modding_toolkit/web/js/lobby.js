@@ -9,6 +9,7 @@
 // The edge extension (border pixels stretched outwards and blurred) is only a fallback for mods whose art does not
 // cover the view.
 import { spineFiles } from "./api.js";
+import * as Linear from "./linear.js";
 import * as Touch from "./lobby-touch.js";
 
 const STAGE = { w: 1920, h: 1080 };
@@ -324,7 +325,12 @@ function makePlayer(host, layer, onReady, onError = () => {}) {
     frame: (p) => {
       const v = viewNow();
       if (v) { p.currentViewport = layerViewport(v, layer); p.previousViewport = null; }
+      Linear.begin(p);
     },
+    // in linear light like the game (linear.js): the slot colours as its shader sees them, then the frame drawn into
+    // its framebuffer goes onto the canvas
+    update: (p) => Linear.tint(p),
+    draw: (p) => Linear.end(p),
     // after the animation, before the world transform: the dragged bones follow the pointer
     updateWorldTransform: (p, delta) => {
       Touch.apply(p, delta);
@@ -332,6 +338,7 @@ function makePlayer(host, layer, onReady, onError = () => {}) {
     },
     success: (player) => {
       player.bamtLayer = layer;
+      Linear.attach(player);
       if (layer.skin) try { player.skeleton.setSkinByName(layer.skin); player.skeleton.setSlotsToSetupPose(); } catch { /* the default skin */ }
       const idle = idleOf(player.skeleton.data, layer);
       if (idle) player.animationState.setAnimation(0, idle, true);
