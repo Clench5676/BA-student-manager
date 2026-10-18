@@ -16,6 +16,7 @@ import re
 import shlex
 import subprocess
 import sys
+import sysconfig
 import tempfile
 import urllib.request
 from dataclasses import dataclass, field
@@ -91,16 +92,17 @@ def platform_suffix() -> str | None:
     if sys.platform == "darwin":
         return f"-macos-{'arm64' if machine in ('arm64', 'aarch64') else 'x86_64'}.dmg"
     if sys.platform == "win32":
-        return f"-windows-{'arm64' if machine in ('arm64', 'aarch64') else 'x64'}.exe"
+        # The x64 build also runs on ARM hosts; only x64 Windows assets are published.
+        return "-windows-x64.exe" if sysconfig.get_platform().lower() == "win-amd64" else None
     return None
 
 
-def pick_assets(assets: list[dict], suffix: str | None) -> tuple[Asset | None, Asset | None]:
+def pick_assets(assets: list[dict], suffix: str | None, version: str) -> tuple[Asset | None, Asset | None]:
     """The GUI build for this platform and its ``.md5`` file (the CLI builds are named ``...-cli-...``)."""
     if not suffix:
         return None, None
     by_name = {a["name"]: Asset(a["name"], a["browser_download_url"], int(a.get("size") or 0)) for a in assets}
-    builds = [a for n, a in by_name.items() if n.endswith(suffix) and "-cli-" not in n.lower()]
+    builds = [a for n, a in by_name.items() if n.endswith(f"-{version}{suffix}") and "-cli-" not in n.lower()]
     if not builds:
         return None, None
     build = sorted(builds, key=lambda a: a.name)[0]
@@ -128,8 +130,9 @@ def latest(releases: list[dict], current: str, suffix: str | None) -> UpdateInfo
     if best is None:
         return None
     rel = best[1]
-    asset, checksum = pick_assets(rel.get("assets", []), suffix)
-    return UpdateInfo(version=rel["tag_name"].lstrip("v"), current=current, page=rel.get("html_url", ""),
+    version = rel["tag_name"].removeprefix("v")
+    asset, checksum = pick_assets(rel.get("assets", []), suffix, version)
+    return UpdateInfo(version=version, current=current, page=rel.get("html_url", ""),
                       asset=asset, checksum=checksum, prerelease=bool(rel.get("prerelease")),
                       installable=bool(asset and checksum and is_compiled() and install_target() is not None))
 
@@ -163,8 +166,8 @@ def md5_of(path: Path) -> str:
 
 
 def download(info: UpdateInfo, dest: Path, progress: Callable[[int, int, str], None] | None = None,
-             timeout: float = 30.0) -> Path:
-    """Download the build and check it against its MD5 file; returns the verified file."""
+             timeout: float = 30.0) -> tuple[Path, str]:
+    """Download and verify the build; return its path and the MD5 to retain for ``install``."""
     if not info.asset or not info.checksum:
         raise ServiceError("update_unavailable", version=info.version)
     dest.mkdir(parents=True, exist_ok=True)
@@ -196,23 +199,35 @@ def download(info: UpdateInfo, dest: Path, progress: Callable[[int, int, str], N
         partial.unlink(missing_ok=True)
         raise ServiceError("update_checksum_mismatch", file=info.asset.name)
     os.replace(partial, target)
-    return target
+    return target, expected
 
 
 # --- installing: a script swaps the program in once this process has quit ---
 
 def install_target() -> Path | None:
-    """What an update replaces: the ``.app`` bundle on macOS, the program's ``.exe`` on Windows."""
+    """The writable ``.app`` bundle or ``.exe`` an update can replace, or None."""
+    target = None
     if sys.platform == "darwin":
         for parent in Path(sys.executable).resolve().parents:
             if parent.suffix == ".app":
-                return parent
-        return None
-    if sys.platform == "win32":
+                if parent.is_relative_to("/Volumes") or "AppTranslocation" in parent.parts:
+                    return None
+                target = parent
+                break
+    elif sys.platform == "win32":
         # Nuitka onefile runs from a temporary folder; argv[0] is the program the user started
         exe = Path(sys.argv[0]).resolve()
-        return exe if exe.suffix.lower() == ".exe" and exe.exists() else None
-    return None
+        if exe.suffix.lower() == ".exe" and exe.is_file():
+            target = exe
+    if target is None or not os.access(target.parent, os.W_OK) or not os.access(target, os.W_OK):
+        return None
+    try:
+        # Windows os.access does not check directory ACLs (notably those on Program Files).
+        with tempfile.TemporaryFile(prefix=".bamt-write-test-", dir=target.parent):
+            pass
+    except OSError:
+        return None
+    return target
 
 
 def macos_script(dmg: Path, app: Path, pid: int) -> str:
@@ -236,48 +251,64 @@ open {q(str(app))}
 """
 
 
-def windows_script(new_exe: Path, exe: Path, pids: list[int]) -> str:
+def windows_script(pids: list[int]) -> str:
+    """An ASCII helper; paths arrive through Unicode environment variables, expanded only once."""
     labels = "\n".join(f":wait{pid}\n" + f'tasklist /FI "PID eq {pid}" 2>nul | find "{pid}" >nul && (timeout /t 1 /nobreak >nul & goto wait{pid})'
                         for pid in pids)
     return f"""@echo off
+setlocal DisableDelayedExpansion
 rem waits for the program (the onefile launcher and the program it started) to quit, then replaces it with the
 rem downloaded build and starts it again; the move is retried while Windows still holds the old file
 {labels}
 set tries=0
 :move
-move /Y "{new_exe}" "{exe}" >nul && goto start
+move /Y "%BAMT_UPDATE_NEW_EXE%" "%BAMT_UPDATE_EXE%" >nul && goto start
 set /a tries+=1
 if %tries% geq 60 goto end
 timeout /t 1 /nobreak >nul
 goto move
 :start
-start "" "{exe}"
+start "" "%BAMT_UPDATE_EXE%"
 :end
 del "%~f0"
 """
 
 
-def install(downloaded: Path) -> None:
-    """Start the swap script; the caller then quits the app so the script can replace it."""
+def install(downloaded: Path, expected_md5: str) -> None:
+    """Recheck the MD5 retained from ``download``, then start the swap helper; the caller must quit."""
     target = install_target()
     if not is_compiled() or target is None:
         raise ServiceError("update_unsupported")
+    if not re.fullmatch(r"[0-9a-fA-F]{32}", expected_md5):
+        raise ServiceError("update_checksum_mismatch", file=downloaded.name)
+    try:
+        actual = md5_of(downloaded)
+    except OSError as e:
+        raise ServiceError("update_download_failed", error=str(e)) from e
+    if actual != expected_md5.lower():
+        raise ServiceError("update_checksum_mismatch", file=downloaded.name)
     pid = os.getpid()
     if sys.platform == "darwin":
         fd, name = tempfile.mkstemp(prefix="bamt-update-", suffix=".sh")
-        with os.fdopen(fd, "w") as f:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(macos_script(downloaded, target, pid))
         os.chmod(name, 0o755)
         subprocess.Popen(["/bin/sh", name], start_new_session=True, stdin=subprocess.DEVNULL,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     elif sys.platform == "win32":
         fd, name = tempfile.mkstemp(prefix="bamt-update-", suffix=".cmd")
-        with os.fdopen(fd, "w", encoding="mbcs", errors="replace") as f:
+        with os.fdopen(fd, "w", encoding="ascii") as f:
             # a onefile build runs as a launcher process plus this one; wait for both
             parent = os.environ.get("NUITKA_ONEFILE_PARENT", "")
             pids = [pid] + ([int(parent)] if parent.isdigit() else [])
-            f.write(windows_script(downloaded, target, pids))
-        detached = 0x00000008 | 0x00000200 | 0x08000000  # DETACHED_PROCESS | NEW_PROCESS_GROUP | NO_WINDOW
-        subprocess.Popen(["cmd", "/c", name], creationflags=detached, close_fds=True)
+            f.write(windows_script(pids))
+        env = os.environ.copy()
+        env.update(BAMT_UPDATE_SCRIPT=name, BAMT_UPDATE_NEW_EXE=str(downloaded.resolve()), BAMT_UPDATE_EXE=str(target))
+        # cmd expands these variables once. Literal percent signs in their values are not expanded again.
+        # Quoting the variable also protects the helper's own path when TEMP contains spaces or percent signs.
+        cmd = env.get("COMSPEC", "cmd.exe")
+        command = f'"{cmd}" /d /v:off /s /c ""%BAMT_UPDATE_SCRIPT%""'
+        hidden = 0x00000200 | 0x08000000  # CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW
+        subprocess.Popen(command, env=env, creationflags=hidden, close_fds=True)
     else:
         raise ServiceError("update_unsupported")
