@@ -19,6 +19,7 @@
       <section class="screen" id="screen-detail" hidden>
         <div class="layer-host" id="ngui-bg"></div>
         <div class="portrait" id="portrait"></div>
+        <div class="model" id="model" hidden></div>
         <div class="lobby" id="lobby" hidden></div>
         <div class="layer-host ui" id="ngui"></div>
         <div class="layer-host ui" id="ngui-chips"></div>
@@ -55,6 +56,11 @@
   </div>
 
   <script src="vendor/spine-player-4.2.120/spine-player.min.js"></script>
+  <!-- three.js for the 3D model tab (js/model.js, loaded with the first model) -->
+  <script type="importmap">
+    { "imports": { "three": "./vendor/three-0.160.0/build/three.module.min.js",
+                   "three/addons/": "./vendor/three-0.160.0/examples/jsm/" } }
+  </script>
   <script type="module" src="js/main.js"></script>
 </body>
 </html>

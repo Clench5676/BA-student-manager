@@ -33,6 +33,7 @@ class FakeVariant:
     portrait: str | None = None
     date: str | None = None
     recruitable: bool = True
+    model: str | None = None
 
 
 @dataclass

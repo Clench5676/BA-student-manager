@@ -201,6 +201,12 @@ class Services:
                 return AssetResponse(self.game.collection_portrait(_stem(parts[2])), "image/png", light=False)
         if kind == "spine" and len(parts) == 4:
             return self._spine_asset(parts[1], parts[2], parts[3])
+        if kind == "model" and len(parts) == 2 and parts[1].endswith(".glb"):
+            # a variant's 3D chibi, exported from the game files in memory and never cached
+            core = self.catalog.variant(_stem(parts[1])).model
+            if not core:
+                raise KeyError(path)
+            return AssetResponse(self.game.model_glb(core), MIME[".glb"], light=False)
         if kind == "voice" and len(parts) == 3:
             # a memorial lobby voice clip from Kivo, relayed so it is never cached
             variant = self.catalog.variant(parts[1])
@@ -249,7 +255,7 @@ class Services:
 
 
 def _stem(name: str) -> str:
-    for suffix in (".png", ".jpg", ".json", ".ogg"):
+    for suffix in (".png", ".jpg", ".json", ".ogg", ".glb"):
         if name.endswith(suffix):
             return name[: -len(suffix)]
     return name

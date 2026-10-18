@@ -16,8 +16,8 @@ from PIL import Image
 from ..errors import ServiceError
 from .cache import AssetCache
 from .discovery import (
-    bundle_paths, group_bundles, is_atlas, is_layout_texture,
-    is_prefab, is_texture, resource_version,
+    bundle_paths, cab_names, group_bundles, is_atlas, is_layout_texture,
+    is_model_dependency, is_prefab, is_texture, resource_version,
 )
 from .errors import AssetNotFound
 from .layouts import export_layout, subtree
@@ -26,6 +26,8 @@ from .unity import find_object, object_record, open_bundle, reference, ref_key
 
 logger = logging.getLogger(__name__)
 _SCHEMA = "gameassets-v1/"
+# One model export at a time in the process: an export holds the path locks of every bundle it reads
+_MODEL_LOCK = threading.Lock()
 _SPRITE_FIELDS = ("x", "y", "width", "height", "borderLeft", "borderRight", "borderTop",
                   "borderBottom", "paddingLeft", "paddingRight", "paddingTop", "paddingBottom")
 
@@ -362,3 +364,61 @@ class GameAssets:
                 self.cache.put(_SCHEMA + key, value, version=self.resource_version,
                                disk=False, size=sum(len(data) for data in value.values()))
             return dict(value)
+
+    # --- 3D chibi models: memory only, never cached on disk ---
+
+    def _model_index(self) -> dict[str, list[str]]:
+        return self._index("model-cores", lambda: {
+            core: [str(path) for path in paths]
+            for core, paths in group_bundles(self._paths(), "character").items()
+            if re.fullmatch(r"[a-z0-9_]+", core)
+        }, disk=False)
+
+    def model_cores(self) -> set[str]:
+        """Lower-case dev names with a 3D chibi prefab bundle (character-<dev>-_mxload-*)."""
+        return set(self._model_index())
+
+    def _cab_index(self, everything: bool = False) -> dict[str, str]:
+        """CAB name -> bundle path, from bundle headers only: the model families (about 2k bundles, 0.3 s cold), or
+        every bundle when a model points outside them (a few seconds, once per resource version)."""
+        def build() -> dict[str, str]:
+            index: dict[str, str] = {}
+            for path in self._paths():
+                if everything or is_model_dependency(path):
+                    try:
+                        names = cab_names(path)
+                    except (OSError, ValueError):
+                        logger.debug("Cannot read the CAB names of %s", path, exc_info=True)
+                        continue
+                    for cab in names:
+                        index.setdefault(cab, str(path))
+            return index
+        return self._index("cabs-all" if everything else "cabs", build, disk=False)
+
+    def model_glb(self, core: str, overrides: Iterable[Path] = ()) -> bytes:
+        """Export a chibi to GLB bytes (memory only). ``overrides`` are bundles that replace the official bundles
+        holding the same CABs (mod previews)."""
+        from .model import BundleGraph, export_chibi
+
+        core = core.lower()
+        try:
+            bundles = [Path(path) for path in self._model_index()[core]]
+        except KeyError:
+            raise AssetNotFound(("model", core)) from None
+        overrides = list(dict.fromkeys(Path(path).resolve() for path in overrides))
+        stamps = []
+        for path in [*bundles, *overrides]:
+            try:
+                stat = path.stat()
+            except FileNotFoundError:
+                raise AssetNotFound(str(path)) from None
+            stamps.append((str(path), stat.st_size, stat.st_mtime_ns))
+        key = _SCHEMA + "model/" + json.dumps([core, stamps])
+        with _MODEL_LOCK:
+            data = self.cache.get(key, version=self.resource_version, disk=False)
+            if data is None:
+                index = self._cab_index()
+                with BundleGraph(index, overrides, fallback=lambda: self._cab_index(everything=True)) as graph:
+                    data = export_chibi(graph, bundles, core)
+                self.cache.put(key, data, version=self.resource_version, disk=False)
+            return data

@@ -22,6 +22,7 @@ class Variant:
     date: str | None
     page_id: str | None = None  # the student page on Kivo (kivo.wiki), for lobby lines
     recruitable: bool = False  # playable on the selected server, not only on some server
+    model: str | None = None  # the 3D chibi's dev name (character-<dev>-_mxload-* bundles)
 
     def to_json(self) -> dict:
         """Return an independent JSON-ready record for RPC responses."""

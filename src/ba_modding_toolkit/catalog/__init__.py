@@ -33,6 +33,19 @@ class GameSource(Protocol):
         """Return available background and portrait texture names."""
         ...
 
+    def model_cores(self) -> set[str]:
+        """Return the lower-case dev names of installed 3D chibi prefabs (optional for a game source)."""
+        ...
+
+
+def model_core(key: str, aliases: list[str], cores: set[str]) -> str | None:
+    """The 3D chibi of a variant: its key, the key + '_original' (base variants, e.g. hoshino_original), then the
+    dev aliases, then the aliases + '_original'. Dependencies are never matched by name (the CAB index resolves
+    them)."""
+    aliases = [alias.lower() for alias in aliases]
+    candidates = [key, key + "_original", *aliases, *(alias + "_original" for alias in aliases)]
+    return next((name for name in candidates if name in cores), None)
+
 
 class Catalog:
     """Build and cache a thread-safe roster; reload after the game scan changes.
@@ -140,6 +153,7 @@ class Catalog:
         collection = art.get("portrait", {})
         if portraits and not collection:
             logger.warning("No collection portraits found; recruitable follows the shipped release flags")
+        models = getattr(self.game, "model_cores", set)()
         families, variants, cores = {}, {}, {}
         for core, paths in sorted(portraits.items()):
             key = core.lower().removesuffix("_spr")
@@ -170,7 +184,8 @@ class Catalog:
                               entry["order"], core, next(iter(homes), None),
                               art.get("bg", {}).get((entry.get("bg") or "").lower()), portrait,
                               max(filter(None, dates), default=None), entry.get("page_id") or None,
-                              recruitable=self._recruitable(entry, portrait is not None, bool(collection)))
+                              recruitable=self._recruitable(entry, portrait is not None, bool(collection)),
+                              model=model_core(key, aliases[1:], models))
             family.variants.append(variant)
             variants[key] = variant
             cores[core.lower()] = variant

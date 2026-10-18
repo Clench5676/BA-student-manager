@@ -29,7 +29,7 @@ MIME = {
     ".css": "text/css; charset=utf-8", ".html": "text/html; charset=utf-8", ".json": "application/json",
     ".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg", ".webp": "image/webp",
     ".woff2": "font/woff2", ".ttf": "font/ttf", ".atlas": "text/plain; charset=utf-8",
-    ".skel": "application/octet-stream",
+    ".skel": "application/octet-stream", ".glb": "model/gltf-binary",
 }
 
 
