@@ -8,9 +8,9 @@
 // cursor. Cursor_1 (the halo crosshair, hotspot in its middle, a software cursor) is the controller's pointer.
 //
 // Touch effect: touch-fx.js simulates FX_Touch; this draws it on two canvases over the whole window, below the
-// pointer and above everything else, idle (hidden, no frame loop) while nothing animates. The light goes to a canvas
-// screened over the page, what the flash disc hides to a multiplied one under it (touch-fx.js overBlend: the page
-// blends in sRGB values, the game in linear light). Sizes follow the stage (the game's screen is 2 units high).
+// pointer and above everything else, idle (hidden, no frame loop, no bitmap) while nothing animates. The light goes to
+// a canvas screened over the page, what the flash disc hides to a multiplied one under it (touch-fx.js overBlend: the
+// page blends in sRGB values, the game in linear light). Sizes follow the stage (the game's screen is 2 units high).
 //
 // Both use the game's textures from the light /asset/ui/texture route; without a game the system cursor stays and
 // there is no effect.
@@ -124,6 +124,7 @@ function layer(cls) {
   c.className = `touch-fx ${cls}`;
   c.setAttribute("aria-hidden", "true");
   c.hidden = true;
+  c.width = c.height = 0; // no bitmap until the first press
   document.body.appendChild(c);
   return c;
 }
@@ -246,10 +247,10 @@ function frame() {
     else if (!fx.pressed) effects.delete(id);
   }
   if (!live) {
-    // nothing to draw: clear, hide and wait for the next press or drag
-    fit(shade);
-    fit(glow);
+    // nothing to draw: hide, give back the two window-sized bitmaps (fit sizes them again on the next press) and wait
+    // for the next press or drag
     show(false);
+    for (const c of [shade, glow]) c.width = c.height = 0;
     return;
   }
   show(true);

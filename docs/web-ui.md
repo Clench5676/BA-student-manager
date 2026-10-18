@@ -334,8 +334,9 @@ in `pointer-textures`); without a game the system cursor stays and there is no e
   (`FX_TEX_Triangle_02_1`) leaving the press and 5 per unit of drag, and a 0.3 s trail 0.005 units wide
   (`FX_TEX_Trail_03`). Colours are worked out in linear light as in the game and saturate where it does.
 - **Drawing.** Two canvases over the whole window (`pointer-events: none`, device pixel ratio aware, hidden with no
-  frame loop while nothing animates): the light on one screened over the page, what the flash hides on a multiplied
-  one under it. The page blends in sRGB values, so the flash's blend is fitted to be exact over black and over white.
+  frame loop and no bitmap while nothing animates): the light on one screened over the page, what the flash hides on a
+  multiplied one under it. The page blends in sRGB values, so the flash's blend is fitted to be exact over black and
+  over white.
 - **Reduced motion** (`prefers-reduced-motion: reduce`): a press keeps its burst, a drag leaves no trail and no
   triangles.
 
