@@ -212,7 +212,8 @@ Events on `/api/events`:
 | `i18n.strings {lang}` | `{key: text}` for `webui.*` |
 | `loading.list {lang}` | the loading screen illustrations for a UI language: `{lang, images: [{name, n, w, h, url}]}` (zh → tw, ja → jp, then en, then any; none without a game) |
 | `roster.list` | families with variants, mod counts, fresh flags, favourites, recent order |
-| `family.get {key}` | a family with its variants, mods and each variant's state |
+| `family.get {key}` | a family with its variants, mods and each variant's state; `modelFiles` per variant (the 3D model's prefab bundles, newest first) and `version` (the game's resource version, so a switched install reloads the screen) |
+| `lobby.warm` | builds the memorial lobby prefab index in the background (once per game); the detail screen calls it for a variant with a lobby |
 | `favorites.set {variant, on}` | |
 | `mods.add {paths}` / `mods.pick` | added entries (`mods.pick` opens the native file dialog) |
 | `mods.remove {id}`, `mods.rename {id, label}`, `mods.seen {id}` | |
