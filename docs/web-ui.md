@@ -254,7 +254,9 @@ Events on `/api/events`:
 | `/asset/voice/<variant>/<clip>` (a lobby voice relayed from Kivo) | heavy |
 
 Thumbnails (faces, busts, expression cards, variant cards) are rendered in the page from the skeletons, in one
-shared offscreen WebGL context, and kept as in-memory blob URLs.
+shared offscreen WebGL context, and kept as in-memory blob URLs. They are framed on the face (the expression and eye
+slots, halos left out), sized by its width held between 170 and 400 skeleton units, never by the skeleton's bounds;
+the bounds stand in only where no face is found.
 
 ## Front end
 

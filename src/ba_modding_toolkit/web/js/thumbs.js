@@ -31,13 +31,18 @@ function hostEl() {
   return host;
 }
 
-// the expression overlay slots (eyes, "0N_" attachments) mark the face on Blue Archive portraits
+// the expression overlay slots (eyes, "0N_" attachments) mark the face on Blue Archive portraits; halos are named
+// like them on some ("01_halo" on Hina) and are left out
+export const isFacePart = (slot, attachment) => {
+  const names = `${slot} ${attachment}`;
+  return /eye|face|^0\d_|default/i.test(names) && !/halo/i.test(names);
+};
 function faceBox(skeleton) {
   const verts = new Float32Array(4096);
   let box = null;
   for (const slot of skeleton.slots) {
     const att = slot.attachment;
-    if (!att || !/eye|face|^0\d_|default/i.test(`${slot.data.name} ${att.name}`)) continue;
+    if (!att || !isFacePart(slot.data.name, att.name)) continue;
     let count = 0;
     if (att instanceof spine.RegionAttachment) { att.computeWorldVertices(slot, verts, 0, 2); count = 8; }
     else if (att instanceof spine.MeshAttachment) { count = att.worldVerticesLength; if (count > verts.length) continue; att.computeWorldVertices(slot, 0, count, verts, 0, 2); }
@@ -50,20 +55,34 @@ function faceBox(skeleton) {
   return box;
 }
 
+// a face's width in skeleton units, held within what faces measure: every portrait has the game's scale and faces are
+// 170 to 400 units wide (most 190 to 260), so eyes alone frame like a whole face. A "face" wider than NOT_FACE is a
+// body part named like one (a few NPCs): the bounds stand in.
+export const FACE_W = [170, 400];
+export const NOT_FACE = 600;
+
+// thumbFrame(found, bounds, frame, aspect) -> the skeleton rect {x, y, width, height} a thumbnail shows. found: the
+// face box {x0, y0, x1, y1} or null; bounds: the skeleton's {x, y, w, h}. Every frame is sized on the face, never on the
+// bounds, so a weapon, wings or a prop beside the character never shrink her; the bounds only stand in without a face.
+// face: the whole head (face and hair), the face a little below the centre; bust and roster: head down to the waist;
+// card: the head.
+export function thumbFrame(found, bounds, frame, aspect) {
+  const face = found && found.x1 - found.x0 <= NOT_FACE ? found : null;
+  const faceW = face ? Math.min(Math.max(face.x1 - face.x0, FACE_W[0]), FACE_W[1]) : bounds.w * 0.17;
+  const cx = face ? (face.x0 + face.x1) / 2 : bounds.x + bounds.w / 2;
+  const cyFace = face ? (face.y0 + face.y1) / 2 : bounds.y + bounds.h * 0.8;
+  const bust = frame === "bust" || frame === "roster";
+  const w = bust ? faceW * 3.8 : frame === "card" ? faceW * 3.4 : faceW * 3.3;
+  const h = w / aspect;
+  const cy = bust ? cyFace - h * 0.2 : frame === "card" ? cyFace - h * 0.06 : cyFace + h * 0.07;
+  return { x: cx - w / 2, y: cy - h / 2, width: w, height: h };
+}
+
 function viewFor(p, frame, aspect) {
   const offset = new spine.Vector2(), size = new spine.Vector2();
   p.skeleton.getBounds(offset, size, []);
-  const face = faceBox(p.skeleton);
-  const faceW = face ? face.x1 - face.x0 : size.x * 0.17;
-  const cx = face ? (face.x0 + face.x1) / 2 : offset.x + size.x / 2;
-  const cyFace = face ? (face.y0 + face.y1) / 2 : offset.y + size.y * 0.8;
-  // face: head and hair; bust and roster: head down to the waist; card: framed on the face only, so every skeleton
-  // gets the same head size whatever it holds
-  // face: the whole head (face and hair) in the middle of the card, the face a little below the centre
-  const w = frame === "bust" || frame === "roster" ? Math.max(faceW * 3.8, size.x * 0.42) : frame === "card" ? faceW * 3.4 : Math.max(faceW * 3.3, size.x * 0.36);
-  const h = w / aspect;
-  const cy = frame === "bust" || frame === "roster" ? cyFace - h * 0.2 : frame === "card" ? cyFace - h * 0.06 : cyFace + h * 0.07;
-  return { x: cx - w / 2, y: cy - h / 2, width: w, height: h, padLeft: 0, padRight: 0, padTop: 0, padBottom: 0, transitionTime: 0, animations: {} };
+  const rect = thumbFrame(faceBox(p.skeleton), { x: offset.x, y: offset.y, w: size.x, h: size.y }, frame, aspect);
+  return { ...rect, padLeft: 0, padRight: 0, padTop: 0, padBottom: 0, transitionTime: 0, animations: {} };
 }
 
 const frames = (n) => new Promise((resolve) => {
