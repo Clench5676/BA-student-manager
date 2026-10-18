@@ -21,7 +21,7 @@ from ba_modding_toolkit.errors import ServiceError
 from ba_modding_toolkit.gameassets import AssetCache, AssetNotFound, GameAssets
 from ba_modding_toolkit.gameassets import service, unity
 from ba_modding_toolkit.gameassets.discovery import (
-    bundle_paths, group_bundles, is_loading_art, is_prefab, is_texture, resource_version,
+    bundle_paths, group_bundles, is_loading_art, is_pointer_texture, is_prefab, is_texture, resource_version,
 )
 from ba_modding_toolkit.gameassets.spine import atlas_pages, extract_spine
 from ba_modding_toolkit.searching import get_search_dirs
@@ -258,6 +258,56 @@ def test_external_atlas_crop_orientation_and_decode_once(tmp_path, monkeypatch):
     assert loads[-1] == relocated / second.name
 
 
+POINTER_BUNDLES = (
+    "assets-_mx-uis-glpc_cursor-_mxdependency-textures-2026-10-13_assets_all_4004527728.bundle",
+    "assets-_mx-uis-_mxcommon-_mxdependency-textures-2026-04-06_assets_all_3563113514.bundle",
+    "assets-_mx-effectsfreezed-texture-_mxdependency-2024-11-18_001_assets_all_3681797415.bundle",
+    "prologdepengroup-assets-_mx-effectsfreezed-texture-_mxprolog-2024-11-18_assets_all_1621163271.bundle",
+)
+
+
+def test_pointer_texture_families():
+    for name in POINTER_BUNDLES:
+        assert is_pointer_texture(Path(name))
+        # an index of their own: the UI texture index (and its listing) stays as it was
+        assert not is_texture(Path(name))
+    for name in ("assets-_mx-characters-ch0305-_mxdependency-textures-2026-04-06_assets_all_4018753285.bundle",
+                 "uis-00_images-_mxload-2024-11-18.bundle", "assets-_mx-effectsfreezed-material-_mxdependency-1.bundle"):
+        assert not is_pointer_texture(Path(name))
+
+
+def test_texture_route_falls_back_to_the_pointer_textures(tmp_path, monkeypatch):
+    ui, cursor, fx = (tmp_path / name for name in ("uis-00_images-_mxload-2024-11-18.bundle", *POINTER_BUNDLES[::2]))
+    for path in (ui, cursor, fx):
+        path.touch()
+    pointer = Image.new("RGBA", (4, 4), (0, 128, 255, 255))
+    envs = {
+        ui: SimpleNamespace(objects=[_Object("Texture2D", 1, "CAB-ui", name="UITex_BGBlueLight",
+                                             data=SimpleNamespace(image=Image.new("RGBA", (2, 2), "white")))]),
+        cursor: SimpleNamespace(objects=[_Object("Texture2D", 1, "CAB-cursor", name="PCIcon_MousePoint",
+                                                 data=SimpleNamespace(image=pointer))]),
+        fx: SimpleNamespace(objects=[_Object("Texture2D", 7, "CAB-fx", name="FX_TEX_Trail_03",
+                                             data=SimpleNamespace(image=Image.new("RGBA", (8, 2), "red")))]),
+    }
+
+    @contextmanager
+    def open_fake(path):
+        yield envs[path]
+
+    monkeypatch.setattr(service, "open_bundle", open_fake)
+    game = GameAssets([tmp_path], AssetCache(root=tmp_path / "cache", allowed=True))
+    assert game.textures() == ["UITex_BGBlueLight"]
+    assert Image.open(BytesIO(game.texture_png("PCIcon_MousePoint"))).getpixel((1, 1)) == (0, 128, 255, 255)
+    assert Image.open(BytesIO(game.texture_png("FX_TEX_Trail_03"))).size == (8, 2)
+    assert Image.open(BytesIO(game.texture_png("UITex_BGBlueLight"))).size == (2, 2)
+    with pytest.raises(AssetNotFound):
+        game.texture_png("Cursor_404")
+    # light assets: the pointer index and its PNGs may be kept on disk with consent
+    fresh = GameAssets([tmp_path], AssetCache(root=tmp_path / "cache", allowed=True))
+    envs.clear()
+    assert Image.open(BytesIO(fresh.texture_png("PCIcon_MousePoint"))).size == (4, 4)
+
+
 LOADING_BUNDLES = (
     "prologgroup-assets-_mx-addressableasset-uis-01_common-12_loading-_mxprolog-2024-11-18_000_assets_all_1.bundle",
     "prologgroup-assets-_mx-addressableasset-uis-01_common-12_loading-_mxprolog-2024-11-18_assets_all_2.bundle",
@@ -485,6 +535,20 @@ def test_real_atlases_and_sprite_pixels(real_game):
         if prototype.is_file():
             with Image.open(prototype) as expected:
                 assert image.tobytes() == expected.convert("RGBA").tobytes()
+
+
+@real_install
+def test_real_pointer_and_touch_effect_textures(real_game):
+    """The PC client's pointer (UIs/GLPC_Cursor) and FX_Touch's textures, as cursor.js asks for them."""
+    sizes = {"PCIcon_MousePoint": (64, 64), "FX_TEX_Grad_Ring3": (256, 128), "FX_TEX_Circle_01": (512, 512),
+             "FX_TEX_Triangle_02_1": (256, 128), "FX_TEX_Trail_03": (512, 512)}
+    for name, size in sizes.items():
+        image = Image.open(BytesIO(real_game.texture_png(name))).convert("RGBA")
+        assert image.size == size, name
+    pointer = Image.open(BytesIO(real_game.texture_png("PCIcon_MousePoint"))).convert("RGBA")
+    assert pointer.getpixel((1, 1))[3] > 0          # the arrow's tip is the top left corner (hotspot 0, 0)
+    assert pointer.getpixel((63, 63))[3] == 0
+    assert "PCIcon_MousePoint" not in real_game.textures()
 
 
 @real_install

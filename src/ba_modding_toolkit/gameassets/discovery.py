@@ -65,6 +65,14 @@ def is_texture(path: Path) -> bool:
             or name.startswith(("uis-01_common-09_popupimage-", "uis-01_common-13_campaignimage-")))
 
 
+def is_pointer_texture(path: Path) -> bool:
+    """Whether a bundle can hold the PC client's mouse cursor (UIs/GLPC_Cursor, also in the shared UI textures) or
+    the textures of the touch effect (Resources/UI/FX_Touch: the EffectsFreezed texture families)."""
+    name = path.name
+    return ("-uis-glpc_cursor-" in name or "-uis-_mxcommon-_mxdependency-textures-" in name
+            or "-effectsfreezed-texture-" in name)
+
+
 def is_prefab(path: Path) -> bool:
     """Whether a bundle can contain a UI prefab root (Resources/UI holds the loading screen, UILoading)."""
     return (path.name.startswith(("ui-_mxload-prefabs-", "ui-uiassetobject-"))
