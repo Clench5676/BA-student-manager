@@ -730,7 +730,8 @@ def analyze_bundles(
     for i, item in enumerate(items):
         for analyzer in analyzers:
             analyzer(item)
-        progress_callback(i + 1, total, item.path.name)
+        if progress_callback:
+            progress_callback(i + 1, total, item.path.name)
 
 
 # 需要补充备份 textassets 的 Spine 相关分类（立绘 / 记忆大厅 / Spine 背景）
