@@ -234,7 +234,10 @@ function measure(loaded) {
       return { anim, n: Number(m[1]), duration: a.duration, cues };
     })
     .sort((a, b) => a.n - b.n);
-  return { main: main.name, painted, edge, sparse, touch, full, left: leftView(edge, touch, G), sequences };
+  // the painted rect counts a 16-unit cell as painted by its centre, so the art can end a few units before its
+  // border: the left view keeps one cell inside it
+  const inner = sparse ? edge : { ...edge, x0: edge.x0 + 16, x1: edge.x1 - 16, y0: edge.y0 + 16, y1: edge.y1 - 16 };
+  return { main: main.name, painted, edge, sparse, touch, full, left: leftView(inner, touch, G), sequences };
 }
 
 // switch between the left view and fullscreen: the old framing fades out over the new one, in step with the UI slide;
