@@ -6,13 +6,14 @@ at runtime and never shipped with the program.
 
 ## First milestone
 
-- Screens: consent popup, student roster, student detail (Portrait and Memorial Lobby tabs; the 3D tab is shown
-  disabled), the switch-portrait popup and the variant picker.
+- Screens: consent popup, student roster, student detail (Portrait, Memorial Lobby and 3D tabs), the
+  switch-portrait popup and the variant picker. The lobby is framed and touched like the game (its prefab data,
+  `lobby.json`) and plays its dialogue with Kivo's voices and lines; the 3D tab shows the variant's chibi, exported
+  from the install, and is disabled only for variants without one.
 - Nav entries without a new screen yet open the classic Tk GUI on that tab (`bamt --tab <name>`).
 - `bamt` (and the compiled app) starts the web UI; `bamt --classic` starts the classic Tk GUI.
 - Released builds look for a newer GitHub release at start and can update themselves (`updater.py`).
-- Out of scope for now: voices and subtitles (no game source yet), 3D models, a settings screen, the other tool
-  screens, zh-TW and ja UI strings.
+- Out of scope for now: a settings screen, the other tool screens, zh-TW and ja UI strings.
 
 ## Process layout
 
@@ -59,8 +60,8 @@ Imports only go one way: `webui` → `library` → `catalog` → `gameassets` �
 - **Game assets.** Two classes:
   - *Light*: atlas sprites, atlas metadata, UI textures, prefab layouts and the bundle indexes. Kept in memory; written
     to the disk cache only after the user agreed (`consent = true`).
-  - *Heavy*: collection backgrounds and portraits, Spine skeletons, lobbies, anything from a character bundle. Memory
-    only, never written to disk, served with `Cache-Control: no-store`.
+  - *Heavy*: collection backgrounds and portraits, Spine skeletons, lobbies and their data, 3D models, voices,
+    anything from a character bundle. Memory only, never written to disk, served with `Cache-Control: no-store`.
 - **Disk cache.** `user_cache_dir()/<resource_version>/...`, where `user_cache_dir()` is
   `%LOCALAPPDATA%\BA-Modding-Toolkit\cache` on Windows, `~/Library/Application Support/BA-Modding-Toolkit/cache` on
   macOS and `$XDG_CACHE_HOME/BA-Modding-Toolkit` (or `~/.cache/...`) elsewhere. It can be cleared from the UI.
@@ -92,7 +93,14 @@ class GameAssets:
     def spine_cores(self, kind: str) -> dict[str, list[Path]]  # kind "spr" | "lobby": core -> bundle parts
     def spine_files(self, kind: str, core: str) -> dict[str, bytes]        # file name -> bytes (.skel, .atlas, pages)
     def spine_files_from(self, bundles: list[Path]) -> dict[str, bytes]    # the same, for a mod's bundle files
+    def lobby_info(self, core: str) -> dict                    # a lobby's layers, touch boxes and clips (lobby.py)
+    def model_cores(self) -> set[str]                          # dev names with a chibi (character-<dev>-_mxload-*)
+    def model_glb(self, core: str) -> bytes                    # the chibi as one GLB (model.py)
 ```
+
+`model_glb` reads the prefab bundles, then only the bundles its objects point into (a CAB name index built from the
+bundle headers). The GLB is never written to disk; the memory entry is reused while every bundle the export read is
+unchanged.
 
 `AssetNotFound` (a `KeyError`) when a name is unknown. Layout nodes use the schema of
 `prototype/research-v4/tools/layout.py`: `{name, active, pos[x, y], scale[x, y], rotZ, widgets[], children?}` with
@@ -116,6 +124,7 @@ class Variant:
     date: str | None          # date of the portrait bundle
     page_id: str | None       # the student page on Kivo, for lobby lines
     recruitable: bool         # on the selected server: its collection portrait is installed, else the shipped flag
+    model: str | None         # 3D chibi dev name, e.g. "hoshino_original", "ch0242", when the install has it
 
 @dataclass
 class Family:
@@ -224,6 +233,9 @@ Events on `/api/events`:
 | `/asset/art/bg/<name>`, `/asset/art/portrait/<name>.png` | heavy |
 | `/asset/art/loading/<name>.jpg` (a loading illustration on black) | heavy |
 | `/asset/spine/spr/<core>/<file>`, `/asset/spine/lobby/<core>/<file>`, `/asset/spine/mod/<id>/<file>` | heavy |
+| `/asset/spine/lobby/<core>/lobby.json` (prefab layout, touch boxes, clips; no skeleton is extracted) | heavy |
+| `/asset/model/<variant>.glb` (the variant's chibi, `model/gltf-binary`) | heavy |
+| `/asset/voice/<variant>/<clip>` (a lobby voice relayed from Kivo) | heavy |
 
 Thumbnails (faces, busts, expression cards, variant cards) are rendered in the page from the skeletons, in one
 shared offscreen WebGL context, and kept as in-memory blob URLs.
