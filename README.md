@@ -1,299 +1,142 @@
-<div align="center" style="text-align:center">
-  <p>
-    <img alt="BAMT icon" src=https://github.com/Agent-0808/BA-Modding-Toolkit/blob/99332127fc5478e227a37d60bad12074c9472992/docs/title.png?raw=true/>
-  </p>
+<div align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/logo-dark.png">
+    <img alt="BMPT" src="docs/logo.png" width="280">
+  </picture>
+
+  <h1>Blue Archive Modding and Patching Tool</h1>
+
+  <p><b>Your Blue Archive mods, managed in an interface that feels like the game.</b></p>
+
   <p>
     <a href="https://www.gnu.org/licenses/gpl-3.0"><img alt="License: GPLv3" src="https://img.shields.io/badge/License-GPL--3.0-orange.svg"></a>
-    <img alt="GitHub Release" src="https://img.shields.io/github/v/release/Clench5676/BlueArchive-Modding-and-Patching-Tool">
-    <img alt="GitHub Repo stars" src="https://img.shields.io/github/stars/Clench5676/BlueArchive-Modding-and-Patching-Tool?style=flat">
-    <img alt="GitHub Downloads (all assets, all releases)" src="https://img.shields.io/github/downloads/Clench5676/BlueArchive-Modding-and-Patching-Tool/total">
+    <img alt="GitHub Release" src="https://img.shields.io/github/v/release/Clench5676/BlueArchive-Modding-and-Patching-Tool?include_prereleases">
+    <img alt="GitHub Downloads" src="https://img.shields.io/github/downloads/Clench5676/BlueArchive-Modding-and-Patching-Tool/total">
   </p>
+
+  <p>English | <a href="README_zh-CN.md">简体中文</a></p>
 </div>
 
-# Blue Archive Modding and Patching Tool
+## Why BMPT
 
-[简体中文](README_zh-CN.md) | English
+- **See every student you can mod.** The student list is built from your own game install: every portrait variant,
+  official names in Chinese, English and Japanese, recruitable students marked, favourites pinned.
+- **Preview before you play.** Live Spine portraits with every expression, memorial lobbies with their dialogue lines
+  and voices.
+- **Switch portraits in one click.** Wear a mod, or another outfit's portrait, on any variant. The official file is
+  kept the first time it is replaced, so going back is always one click away.
+- **Fix "Abnormal Client".** Modded files get their CRC corrected automatically, so the game accepts them.
+- **Bring old mods back.** Update mods made for earlier game versions to the current files.
+- **Everything else, still here.** Batch update, batch install, CRC tools, asset packing and extraction, ADB push to
+  Android, mod reports and backups.
+- **Always current.** BMPT checks for new releases and updates itself.
 
-Based on [BA Modding Toolkit](https://github.com/Agent-0808/BA-Modding-Toolkit) by Agent-0808.
+Works with the Steam (Global) and Japanese PC clients; Android files through ADB.
 
-A toolkit based on UnityPy for automating the creation and updating of Blue Archive/ブルーアーカイブ mods.
+## Get BMPT
 
-Supports Steam version (PC) and other versions (Global/JP server, PC/Android/iOS).
+Download the latest build from [Releases](https://github.com/Clench5676/BlueArchive-Modding-and-Patching-Tool/releases).
 
-## Introduction
+| Platform | File | Requirements |
+|---|---|---|
+| Windows | `...-windows-x64.exe` | Windows 10 or 11 with the [WebView2 runtime](https://developer.microsoft.com/microsoft-edge/webview2/) (built into Windows 11) |
+| macOS | `...-macos-arm64.dmg` | macOS 11 or later, Apple silicon |
+| Command line | `...-cli-...-windows-x64.exe` | Windows 10 or 11 |
 
-![Abnormal Client](docs/help/abnormal-en.png)
+Each build comes with an `.md5` file to check the download.
 
-- Downloaded a mod from the internet, replaced the corresponding file in the game directory, but the game shows "Abnormal Client" and cannot login?
-- Downloaded a mod released a long time ago, but the filename is different from the latest version? Even after replacement, the character image doesn't change/doesn't display at all/game freezes?
-- Want to create your own mod to replace character illustrations, but don't know how to operate?
-- Want to extract character illustrations or other assets?
+## Start in three steps
 
-Blue Archive Modding and Patching Tool can help you solve the above problems, with foolproof operations, no need to manually manipulate bundle files.
+1. Open BMPT. It finds your game folder on its own; if not, choose it in Settings.
+2. Allow the asset cache once, so the game's interface loads instantly next time.
+3. Pick a student, open **Switch Portrait**, choose a portrait and **Apply**.
 
-## Getting Started
+Drop mod files onto the window to add them to your mod library.
 
-You can download the latest version of the executable file from the [Releases](https://github.com/Clench5676/BlueArchive-Modding-and-Patching-Tool/releases) page, and double-click to run the program.
+## Your game, your device
 
-## Program Functionalities
+- Game art is read from your own installation each time and never leaves your computer. BMPT ships no game assets.
+- With your consent, only light interface assets (icons, buttons, frames) are cached, in your user folder. Portraits,
+  memorial lobbies, voices and backgrounds are never stored. Clear the cache in Settings at any time.
+- Memorial lobby lines and voices are read on demand from [Kivo](https://kivo.wiki) and kept in memory only.
 
-> [!TIP]
-> Check out the [Usage](https://github.com/Agent-0808/BA-Modding-Toolkit/wiki/Usage) Page for detailed instructions.
+## Classic tools
 
-The program contains multiple functionalities:
+Every tool of the original toolkit is one click away in the bottom bar (or `--classic` to open the classic window):
 
-- **Mod Update**: Update or port Mod files between different platforms
-- **Batch Update**: Batch process multiple Mod files
-- **CRC Tool**: CRC checksum calculation and correction functionality
-- **Asset Packer**: Pack asset files from a folder into a Bundle file, replacing the corresponding assets in the Bundle
-- **Asset Extractor**: Extract specified types of assets from Bundle files
-- **Tools**
-  - Generate Mod Report：Generate a report of all Mod files in the game directory.
-  - Fix Abnormal Client：Fix the "abnormal client" issue.
-  - Backup Mods：Backup all Mod files in the game directory.
-- **ADB File Push**: Push local files to Android devices using ADB commands.
-- **File List**: View and manage all Bundle files in the specified directory.
+| Tool | What it does |
+|---|---|
+| Mod Update | Port a mod to the current game files, or between platforms |
+| Batch Update | Update many mods at once |
+| Batch Install | Check mods against your game and install them, with before and after previews |
+| CRC Tool | Calculate and correct CRC checksums |
+| Asset Packer | Pack images, skeletons and atlases into a game bundle |
+| Asset Extractor | Extract textures, Spine skeletons and more from bundles |
+| ADB Push | Read and write game files on an Android device |
+| Tools | Mod report, "Abnormal Client" repair, mod backup, batch previews |
 
-![How to update a mod with BAMT GUI](docs/help/gui-help-mod-update-en.png)
+More in the [usage guide](https://github.com/Agent-0808/BA-Modding-Toolkit/wiki/Usage).
 
-## Add-Ons
+### Optional add-ons
 
-The add-ons mentioned in this section are optional, and you can choose whether to enable them according to your needs.
+Independent third-party programs; set their paths in the classic Settings. BMPT only starts them and ships none of
+their files.
 
-> [!WARNING]
-> The following add-ons are independent third-party programs. Please comply with their licenses when downloading and using them.
-> 
-> Blue Archive Modding and Patching Tool only invokes the programs through `subprocess` module. It does not contain or distribute any code or files of these programs, nor is it responsible for any issues that may arise during their use.
+- [SpineSkeletonDataConverter](https://github.com/wang606/SpineSkeletonDataConverter): convert Spine 3 skeletons of
+  older mods to Spine 4, and back when extracting.
+- [SpineViewer](https://github.com/ww-rm/SpineViewer): render previews and compare animation lists.
+- [Android Debug Bridge](https://developer.android.com/tools/releases/platform-tools): work with files on Android
+  devices ([guide](https://github.com/Agent-0808/BA-Modding-Toolkit/wiki/ADB-Usage)).
 
-### Spine Skeleton Data Converter
+## Languages
 
-**[wang606/SpineSkeletonDataConverter](https://github.com/wang606/SpineSkeletonDataConverter)**
+Simplified Chinese and English. Traditional Chinese and Japanese are next, then Thai and Vietnamese.
 
-This tool can convert Spine 3 format `.skel` files used in some older Mods to the Spine 4 format supported by the current game version. 
-Additionally, it can convert Spine 4 format files to Spine 3 format in the "Asset Extractor" feature.
-
-Configure the path of the `SpineSkeletonDataConverter.exe` program in the settings interface and check the "Enable Spine Conversion" option.
-
-- There may be inconsistencies before and after conversion.
-- Even if `SpineSkeletonDataConverter.exe` is not configured, you can still use this program normally to update Mods that *use Spine files compatible with the current version (4.2.xx)*.
-- If the Mod you want to update was made in 2025 or later, it already uses the Spine 4 format, so you can update it normally without configuring this option.
-
-### Spine Viewer
-
-**[ww-rm/SpineViewer](https://github.com/ww-rm/SpineViewer)**
-
-This tool can parse and render Spine `.skel` animation files. You can configure the path to `SpineViewerCLI.exe` in the Settings interface for use by this program.
-
-- Right-click to preview in the "File List" window
-- In the Asset Extractor tab, you can optionally render preview images after extraction.
-- In the "Mod Report" feature, you can optionally render preview images when generating the report.
-- It can be used to detect differences in `.skel` animation lists, and is used in the "Mod Update" and "Asset Packer" features.
-
-### ADB (Android Debug Bridge)
-
-**[Android Debug Bridge](https://developer.android.com/tools/releases/platform-tools)**
-
-This tool can communicate with Android devices. You can configure the path of `adb.exe` in the settings interface to directly read and write files on Android devices in the same way as local files on Windows, without manually exporting or importing files from Android devices.
-
-- This feature requires an Android device to be connected and authorized for this program to access.
-- After setting the path to `adb.exe`, select the target Android device and corresponding file source in the "Settings" window.
-
-> [!TIP]
-> Check out the [ADB-Usage](https://github.com/Agent-0808/BA-Modding-Toolkit/wiki/ADB-Usage) Page for detailed instructions.
-
-## Subproject
-
-### BA-characters-internal-id
-
-**[Agent-0808/BA-characters-internal-id](https://github.com/Agent-0808/BA-characters-internal-id)**
-
-A reference table that records the mapping between in-game character names and their corresponding internal file IDs (e.g., `CH0288` → Utsumi Aoba).
-
-- In various features, after parsing the Bundle file name to obtain the internal ID, the actual character name can be displayed based on this lookup table.
-- It is also used to display character names based on internal character IDs when generating Mod reports.
-
-> [!NOTE]
-> The packaged version downloaded from Releases already includes a copy of the data file (`BA-Characters-Internal-ID.csv`) in the `Addons/` subdirectory next to the executable, ready to use out of the box. You can also download the latest version manually in the Settings interface.
->
-> The data file is licensed under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/legalcode) (see `Addons/BA-Characters-Internal-ID-LICENSE.txt` for the full notice). The data is compiled from the text data of [KivoWiki](https://kivo.wiki) and is used in this program only for fair purposes such as displaying character names.
-
-## Language Support
-
-The development language of this project is **zh-CN**, and the currently maintained language is **en-US**.
-
-During the Beta stage, we only guarantee the completeness of **zh-CN** content; texts for other languages may not be updated promptly when new content is added. We will gradually supplement and improve the maintained languages before the official release. If you find any errors in the existing language content, feel free to point them out via Issue or PR.
-
-If you want to add a language yourself, you can create a `locales` folder next to the EXE file and put the new language file in it (e.g. `new-LANG.json`). The program will load external language files from that directory.
-
-If you are interested in adding a new language, PRs are welcome. However, due to limited maintenance capacity, newly added languages will most likely not be actively maintained afterwards — your understanding is appreciated.
-
-## Command Line Interface (CLI)
-
-In addition to the graphical interface, this project provides a Command Line Interface (CLI) version `cli/main.py`.
-
-You can download the precompiled executable file `BAMT-CLI.exe` from the [Releases](https://github.com/Clench5676/BlueArchive-Modding-and-Patching-Tool/releases) page or use the `uv run bamt-cli` command to run the source code.
-
-### CLI Usage
-
-All operations can be executed via the `bamt-cli` command. You can use `--help` to view all available commands and parameters.
+## Command line
 
 ```bash
-# View all available commands
-bamt-cli -h
-
-# View environment information
-bamt-cli env
-
-# View detailed help and examples for a specific command
-bamt-cli update -h
-bamt-cli batch-update -h
-bamt-cli pack -h
-bamt-cli extract -h
-bamt-cli crc -h
-bamt-cli report -h
-bamt-cli backup -h
+bamt-cli -h          # all commands
+bamt-cli update -h   # one command's options and examples
 ```
 
-> [!NOTE]
-> Due to the technical limitation of the `Tap` library, the compiled binary file cannot display parameter variable annotations. When running the source code, the parameter variable annotations will be displayed in the help information.
+Commands: `update`, `batch-update`, `pack`, `extract`, `crc`, `report`, `backup`, `env`.
+See the [CLI guide](https://github.com/Agent-0808/BA-Modding-Toolkit/wiki/CLI-Usage-&-Arguments).
 
-Check the [CLI Usage](https://github.com/Agent-0808/BA-Modding-Toolkit/wiki/CLI-Usage-&-Arguments) Page for Complete Usage Instructions.
+## Build from source
 
-## Developing
-
-Please ensure that Python 3.11 or higher is installed.
+Python 3.12 and [uv](https://docs.astral.sh/uv/):
 
 ```bash
 git clone https://github.com/Clench5676/BlueArchive-Modding-and-Patching-Tool.git
 cd BlueArchive-Modding-and-Patching-Tool
-
-# use uv to manage dependencies
-python -m pip install uv
 uv sync
-uv run bamt
-# or use legacy way to install dependencies
-python -m pip install .
-python -m ba_modding_toolkit
+uv run bamt            # the app; uv run bamt --classic for the classic window
+uv run pytest
 ```
 
-The author's programming skills are limited, welcome to provide suggestions or issues, and also welcome to contribute code to improve this project.
+Release builds: `scripts/build_macos.sh` (macOS) and `scripts/build_windows.ps1` (Windows). How the interface works:
+[docs/web-ui.md](docs/web-ui.md).
 
-You can add `Blue Archive Modding and Patching Tool` code to your project or modify the existing code to implement custom Mod creation and update functionality.
+## Credits
 
-`cli/main.py` is a command-line interface (CLI) version of the main program, which you can refer to for calling processing functions.
+Based on [BA Modding Toolkit](https://github.com/Agent-0808/BA-Modding-Toolkit) by Agent-0808, with thanks to
+[Deathemonic](https://github.com/Deathemonic) (CRC patching with [BA-CY](https://github.com/Deathemonic/BA-CY)),
+[kalina](https://github.com/kalinaowo) (the first `CRCUtils`) and every contributor.
 
-### Tested Environments
+Character names come from [BA-characters-internal-id](https://github.com/Agent-0808/BA-characters-internal-id)
+(CC BY-SA 4.0, compiled from [Kivo](https://kivo.wiki)) and [SchaleDB](https://schaledb.com).
 
-The table below lists tested environment configurations for reference.
+Built with [UnityPy](https://github.com/K0lb3/UnityPy), [pywebview](https://github.com/r0x0r/pywebview),
+[Spine Runtimes](https://github.com/EsotericSoftware/spine-runtimes) (Spine Runtimes License),
+[Resource Han Rounded](https://github.com/CyanoHao/Resource-Han-Rounded) (SIL OFL 1.1),
+[Pillow](https://python-pillow.github.io/), [SpineAtlas](https://github.com/Rin-Wood/SpineAtlas),
+[ttkbootstrap](https://github.com/israel-dryer/ttkbootstrap), [tkinterdnd2](https://github.com/pmgagne/tkinterdnd2),
+[toml](https://github.com/uiri/toml) and [Tap](https://github.com/swansonk14/typed-argument-parser).
 
-| Operating System | Python | UnityPy | Pillow | Status | Note   |
-|:------------------- |:-------------- |:--------------- |:-------------- |:------ | :--- |
-| Windows 10          | 3.12.4         | 1.23.0     | 12.0.0    | ✅   | Dev Env |
-| Windows 10          | 3.11.x         | 1.23.0     | 12.0.0    | ✅   |  |
-| Windows 10          | 3.12.4         | 1.23.0     | 10.4.0    | ✅   |  |
-| Windows 10          | 3.13.7         | 1.23.0     | 11.3.0    | ✅   |  |
-| Windows 10          | 3.12.4         | 1.24.0     | 10.4.0    | ❌   |  |
-| Ubuntu 22.04 (WSL2) | 3.13.10        | 1.23.0     | 12.0.0    | ✅   |  |
+See also [BA-AD](https://github.com/Deathemonic/BA-AD) (download game resources) and
+[AtlasToolkit](https://github.com/com55/AtlasToolkit) (edit atlas sprites).
 
-### File Structure
-
-```
-BlueArchive-Modding-and-Patching-Tool/
-│ 
-│ # ============= Code =============
-│ 
-├── src/ba_modding_toolkit/
-│ ├── __init__.py
-│ ├── __main__.py    # Entry point
-│ ├── core.py        # Core processing logic
-│ ├── searching.py   # Searching logic
-│ ├── bundle.py      # Bundle class
-│ ├── spine.py       # Spine-related utilities
-│ ├── report.py      # Mod report generator
-│ ├── naming.py      # File naming logic
-│ ├── models.py      # Data models
-│ ├── i18n.py        # Internationalization functionality
-│ ├── utils.py       # Utility classes and helper functions
-│ ├── adb/           # ADB related modules
-│ ├── cli/           # Command Line Interface (CLI) package
-│ │ ├── __main__.py     # CLI Entry Point
-│ │ ├── main.py         # CLI Main Program
-│ │ ├── taps.py         # Command Line Argument Parsing
-│ │ └── handlers.py     # Command Line Argument Handling
-│ ├── gui/           # GUI package
-│ │ ├── __init__.py
-│ │ ├── main.py         # GUI program main entry point
-│ │ ├── app.py          # Main application App class
-│ │ ├── components.py   # UI components, themes, logging
-│ │ ├── configs.py      # Configuration definitions
-│ │ ├── utils.py        # UI related utility functions
-│ │ ├── windows/        # Individual windows
-│ │ │ ├── __init__.py
-│ │ │ ├── adb_browser.py           # ADB Browser window
-│ │ │ ├── settings.py              # Settings window
-│ │ │ ├── abnormal_check_dialog.py # Abnormal Client Check
-│ │ │ ├── report_dialog.py         # Report Dialog
-│ │ │ ├── backup_dialog.py         # Backup Dialog
-│ │ │ └── file_list_window.py      # File List window
-│ │ └── tabs/           # Feature tabs
-│ │   ├── __init__.py
-│ │   ├── base_tab.py              # TabFrame base class
-│ │   ├── mod_update_tab.py        # Mod Update tab
-│ │   ├── batch_update_tab.py      # Batch Update tab
-│ │   ├── crc_tool_tab.py          # CRC Tool tab
-│ │   ├── asset_packer_tab.py      # Asset Packer tab
-│ │   ├── asset_extractor_tab.py   # Asset Extractor tab
-│ │   ├── adb_push_tab.py          # ADB Push tab
-│ │   └── tools_tab.py             # Tools tab
-│ ├── assets/         # Project assets
-│ └── locales/        # Language files
-├── tests/            # Pytest test cases folder
-│ ├── assets/         # Test assets
-│ └── test_*.py       # Test cases
-├── config.toml       # Local configuration file (automatically generated)
-│ 
-│ # ============= Misc. =============
-│ 
-├── requirements.txt # Python dependency list (for legacy installation)
-├── pyproject.toml   # Python project configuration file
-├── LICENSE          # Project license file
-├── docs/            # Project documentation folder
-│ └── help/              # Images in help documentation
-├── README_zh-CN.md  # Project documentation (Chinese)
-└── README.md        # Project documentation (this file)
-```
-
-## Acknowledgement
-
-Thank you to all contributors for their valuable contributions.
-
-Special thanks to:
-
-- [Deathemonic](https://github.com/Deathemonic): Patching CRC with [BA-CY](https://github.com/Deathemonic/BA-CY).
-- [kalina](https://github.com/kalinaowo): Creating the prototype of the `CRCUtils` class.
-
-### Third-Party Libraries
-
-This project uses the following excellent 3rd-party libraries:
-
-- [UnityPy](https://github.com/K0lb3/UnityPy) (MIT License): Core library for parsing and manipulating Unity Bundle files
-- [Pillow](https://python-pillow.github.io/) (MIT License): Image processing
-- [tkinterdnd2](https://github.com/pmgagne/tkinterdnd2) (MIT License): Adds drag-and-drop functionality support for Tkinter
-- [ttkbootstrap](https://github.com/israel-dryer/ttkbootstrap) (MIT License): Modern Tkinter theme library
-- [toml](https://github.com/uiri/toml) (MIT License): Parse and dump TOML configuration file
-- [SpineAtlas](https://github.com/Rin-Wood/SpineAtlas) (MIT License): Spine animation file atlas parser and editor
-- [Tap](https://github.com/swansonk14/typed-argument-parser) (MIT License): Parsing command line arguments
-- [pytest](https://pytest.org/en/stable/) (MIT License): Test framework
-
-### See Also
-
-Some useful related repositories:
-
-- [BA-AD](https://github.com/Deathemonic/BA-AD)：Download original game resources
-- [AtlasToolkit](https://github.com/com55/AtlasToolkit): Extract, modify, and repack atlas sprites
-
-### Disclaimer
-
-<sub>
-Blue Archive Modding and Patching Tool is a personal project and is not affiliated with, endorsed by, or connected to NEXON Games Co., Ltd., NEXON Korea Corp., Yostar, Inc., or any of their subsidiaries. All game assets, characters, music, and related intellectual property are the trademarks or registered trademarks of their respective owners. They are used in this tool for educational and interoperability purposes only (fair use). Please respect the Terms of Service of the official game. Do not use this tool for cheating or malicious activities.
-</sub>
+<sub>BMPT is a personal, unofficial project, not affiliated with or endorsed by NEXON Games Co., Ltd., NEXON Korea
+Corp., Yostar, Inc. or their subsidiaries. Blue Archive and all of its assets, characters and music belong to their
+owners and are used only for interoperability on your own device. Respect the game's Terms of Service; do not use this
+tool for cheating.</sub>
