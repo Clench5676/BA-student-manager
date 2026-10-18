@@ -1,12 +1,12 @@
-// Memorial lobby for the detail screen's second tab, framed like the game.
+// Memorial lobby for the detail screen's second tab, framed and played like the game.
 // The lobby's UILobbyElement prefab (lobby.json, read by the server) places every skeleton in NGUI units around the
 // prefab root, the screen centre; at 16:9 the game shows the 2960 x 1665 units G around it. Fullscreen shows exactly G.
 // The left view puts the head-pat point (Touch_Point) left of the panel and stays inside the painted rect P, the
 // largest rectangle around G that the lobby's opaque art covers, so neither view shows a blank edge; switching between
-// them crossfades. Dialogue sequences play the talk animations (Talk_NN_M with Talk_NN_A), their voices and a subtitle.
-// The lines and voices come from Kivo (setLines), matched by the voice clip names the talk animations carry as Spine
-// events. The edge extension (border pixels stretched outwards and blurred) is only a fallback for mods whose art does
-// not cover the view.
+// them crossfades. Dialogues play the talk clips with the game's own tracks and mixes, their voices and one subtitle
+// line per voice cue. The lines and voices come from Kivo (setLines), matched by the voice clip names the talk
+// animations carry in their events. The edge extension (border pixels stretched outwards and blurred) is only a
+// fallback for mods whose art does not cover the view.
 import { spineFiles } from "./api.js";
 
 const STAGE = { w: 1920, h: 1080 };
@@ -14,7 +14,9 @@ const GAME = { x: -1480, y: -832.5, w: 2960, h: 1665 };  // lobby.json "view": t
 const FADE_MS = 450;        // the switch crossfade, in step with the UI slide (app.css .45s)
 
 let players = [], current = null, mode = "left", extendTimer = null, chain = null, token = 0;
-let lines = {}, muted = false, volume = 0.8, cueTimers = [], audios = [], subtitleTimer = null, lineOf = (l) => l?.["zh-CN"] || "";
+let talk = null, cueTimers = [], audios = [], subtitleTimer = null;
+let lines = {}, muted = false, volume = 0.8, lineOf = (l) => l?.["zh-CN"] || "";
+const listeners = new Set();
 
 const base = (core) => `/asset/spine/lobby/${encodeURIComponent(core)}/`;
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -189,13 +191,17 @@ function measure(loaded) {
     .map((a) => /^Talk_(\d+)_M$/.exec(a.name))
     .filter(Boolean)
     .map((m) => {
-      const anim = m[0], sync = `Talk_${m[1]}_A`;
-      const a = data.findAnimation(anim);
-      // the voice clips: events named after them (e.g. "Images/sound/Hoshino_MemorialLobby_1"), with their times
-      const cues = a.timelines.filter((tl) => tl instanceof spine.EventTimeline).flatMap((tl) => tl.events)
-        .filter((e) => /memoriallobby/i.test(e.data.name)).map((e) => ({ t: e.time, clip: clipId(e.data.name) }))
-        .sort((x, y) => x.t - y.t);
-      return { anim, sync: data.findAnimation(sync) ? sync : null, n: Number(m[1]), duration: a.duration, cues };
+      const anim = m[0], a = data.findAnimation(anim);
+      // the voice cues: the "Talk" event whose string names the clip (every lobby), or an event named after the
+      // clip (older lobbies only), with its time
+      const cues = [];
+      for (const e of a.timelines.filter((tl) => tl instanceof spine.EventTimeline).flatMap((tl) => tl.events)) {
+        const s = e.stringValue ?? e.data.stringValue ?? "";
+        const id = /^talk$/i.test(e.data.name) && /memoriallobby/i.test(s) ? clipId(s) : /memoriallobby/i.test(e.data.name) ? clipId(e.data.name) : null;
+        if (id && !cues.some((c) => c.clip === id)) cues.push({ t: e.time, clip: id });
+      }
+      cues.sort((x, y) => x.t - y.t);
+      return { anim, n: Number(m[1]), duration: a.duration, cues };
     })
     .sort((a, b) => a.n - b.n);
   return { main: main.name, painted, edge, sparse, touch, full, left: leftView(edge, touch, G), sequences };
@@ -225,10 +231,10 @@ function crossfade() {
   fade.style.opacity = "0";
 }
 
-// for checks: the rects involved and the current view
+// for checks: the rects involved, the current view and the character's tracks
 export const limits = () => current?.meta && {
   game: game(), painted: current.meta.painted, full: current.meta.full, left: current.meta.left, view: current.view,
-  touch: current.meta.touch, mode,
+  touch: current.meta.touch, mode, tracks: mainPlayer()?.animationState?.tracks.map((t) => t?.animation?.name || null) || [],
 };
 
 // the switch card's still: a 450 x 253 crop around the face inside the left view (so fully painted), returned in
@@ -250,7 +256,7 @@ function makePlayer(host, layer, onReady, onError = () => {}) {
   return new spine.SpinePlayer(div, {
     skeleton: `${layer.spine}.skel`, atlas: `${layer.spine}.atlas`, animation: undefined,
     premultipliedAlpha: false, alpha: true, backgroundColor: "#00000000", showControls: false, showLoading: false,
-    preserveDrawingBuffer: true, defaultMix: isBg(layer.name) ? 0.2 : 0.4,
+    preserveDrawingBuffer: true, defaultMix: current?.info?.defaultMix?.[layer.name] ?? 0.2,
     viewport: layerViewport(game(), layer),
     // every frame: the shared view, no spine-player viewport transitions of its own
     frame: (p) => {
@@ -342,6 +348,7 @@ export async function show(core, host, variant) {
     current.meta = measure(loaded);
     setView(viewOf(current.meta));
     feather(current.view);
+    Idle.start(loaded.map((l) => l.player));
     return current.meta;
   })();
   return current.ready;
@@ -349,79 +356,172 @@ export async function show(core, host, variant) {
 
 export function hide(host) {
   token += 1;
+  Idle.stop();
   for (const p of players) p.dispose();
   players = [];
   current = null;
   clearInterval(extendTimer);
   chain = null;
-  silence();
+  endTalk(false);
   clearTimeout(subtitleTimer);
   if (host) host.innerHTML = "";
 }
 
-// the character: the layer with the head-pat point, not just the last one by name
+// --- clips: an animation played the way the lobby's clip asset says (track, loop, mixes, chain, sync clips) ---
+function clipOf(p, name) {
+  const c = current?.info?.clips?.[p.bamtLayer?.name]?.[name];
+  if (c) return c;
+  // without the clip asset (a mod, or no prefab data): the usual layout of the lobby clips
+  const sync = /_M$/.test(name) ? name.replace(/_M$/, "_A") : null, isA = /_A$/.test(name), talky = /^Talk/.test(name);
+  const mix = talky ? 0.3 : p.animationState.data.defaultMix;
+  return { track: isA ? 2 : 1, loop: /^(Pat|Look|Pinch|HandFollow|Touch)_\d+_[MA]$/.test(name), finish: 2,
+    intro: isA && !talky ? 0 : mix, outro: mix, next: null, sync: sync && p.skeleton.data.findAnimation(sync) ? [sync] : [] };
+}
+function playClip(p, name, depth = 0) {
+  const st = p?.animationState, data = p?.skeleton?.data;
+  if (!st || !data.findAnimation(name) || depth > 4) return null;
+  const c = clipOf(p, name), t = c.track, cur = st.tracks[t];
+  let entry;
+  if (!cur || (cur.animation.name === "<empty>" && !cur.mixingFrom)) {
+    // an idle track: fade in over the lower tracks (setAnimation on an empty track would ignore the mix)
+    st.setEmptyAnimation(t, 0);
+    entry = st.addAnimation(t, name, c.loop, 0);
+  } else entry = st.setAnimation(t, name, c.loop);
+  entry.mixDuration = c.intro;
+  if (!c.loop) {
+    if ((c.finish === 1 || c.finish === 3) && c.next && data.findAnimation(c.next)) {
+      const n = clipOf(p, c.next);
+      st.addAnimation(t, c.next, n.loop, 0).mixDuration = n.intro;
+    } else if (c.finish === 2) st.addEmptyAnimation(t, c.outro, 0);
+  }
+  for (const s of c.sync || []) playClip(p, s, depth + 1);
+  return entry;
+}
+function clearClip(p, name, depth = 0) {
+  if (!p?.animationState || depth > 4) return;
+  const c = clipOf(p, name);
+  p.animationState.setEmptyAnimation(c.track, c.outro || 0.2);
+  for (const s of c.sync || []) clearClip(p, s, depth + 1);
+}
 const mainPlayer = () => players.find((p) => p.bamtLayer?.name === current?.meta?.main) || players[players.length - 1];
 
-// a dialogue sequence: the talk animation and its sync on tracks 1 and 2, its voices on their cue times, the subtitle;
-// then back to idle. Starts at once, cutting off whatever was playing.
+// --- random idle clips (SpineCharacter.idleBaseRandomClipPool): blinks, ear twitches, expression changes, each
+// after a random wait; held back while a dialogue runs. Without them the newer lobbies never blink. ---
+const Idle = {
+  timers: new Set(), playing: [],
+  start(list) {
+    this.stop();
+    for (const p of list) for (const name of current?.info?.randomIdle?.[p.bamtLayer.name] || []) this.schedule(p, name);
+  },
+  later(fn, ms) { const id = setTimeout(() => { this.timers.delete(id); fn(); }, ms); this.timers.add(id); },
+  schedule(p, name) {
+    if (!p.skeleton?.data.findAnimation(name)) return;
+    const r = clipOf(p, name).random || { min: 8, max: 15 };
+    this.later(() => this.fire(p, name), Math.max(1, r.min + Math.random() * Math.max(0, r.max - r.min)) * 1000);
+  },
+  fire(p, name) {
+    if (!current || !p.animationState) return;
+    if (talk) { this.schedule(p, name); return; }
+    const c = clipOf(p, name), r = c.random || { loops: [0, 0] }, st = p.animationState;
+    const [lo, hi] = r.loops || [0, 0], times = 1 + lo + Math.floor(Math.random() * (Math.max(lo, hi) - lo + 1));
+    st.setEmptyAnimation(c.track, 0);
+    st.addAnimation(c.track, name, false, 0).mixDuration = c.intro;
+    for (let i = 1; i < times; i++) st.addAnimation(c.track, name, false, 0).mixDuration = 0;
+    // the last frame must not stay on a track above the face tracks
+    st.addEmptyAnimation(c.track, c.outro || 0, 0);
+    const ms = p.skeleton.data.findAnimation(name).duration * times * 1000, entry = { p, track: c.track, outro: c.outro };
+    this.playing.push(entry);
+    this.later(() => {
+      this.playing = this.playing.filter((x) => x !== entry);
+      this.schedule(p, name);
+    }, ms);
+  },
+  // a dialogue takes over: running random clips fade out
+  interrupt() {
+    for (const { p, track, outro } of this.playing) p.animationState?.setEmptyAnimation(track, outro || 0.2);
+  },
+  stop() { for (const id of this.timers) clearTimeout(id); this.timers.clear(); this.playing = []; },
+};
+
+// --- dialogues: the talk clip (Talk_NN_M, its sync Talk_NN_A) with the game's mixes, the voices and one subtitle line
+// per voice cue; then back to idle. A dialogue starts at once, cutting off whatever was playing. ---
 export function play(anim, { fromChain = false } = {}) {
-  if (!current?.meta) return null;
+  const m = current?.meta;
+  if (!m) return null;
   if (!fromChain) chain = null;
-  const seq = current.meta.sequences.find((s) => s.anim === anim);
-  const character = mainPlayer();
-  if (!seq || !character?.animationState) return null;
-  silence();
-  for (const cue of muted ? [] : seq.cues) {
-    if (!lines[cue.clip]?.voice) continue;
+  const seq = m.sequences.find((s) => s.anim === anim), p = mainPlayer();
+  if (!seq || !p?.animationState) return null;
+  endTalk(false); // the new talk takes over tracks 1 and 2
+  Idle.interrupt();
+  const my = (talk = { seq, started: performance.now() });
+  for (const cue of seq.cues) {
     cueTimers.push(setTimeout(() => {
-      const a = new Audio(`/asset/voice/${encodeURIComponent(current.variant)}/${encodeURIComponent(cue.clip)}.ogg`);
-      a.volume = volume;
-      audios.push(a);
-      a.play().catch(() => {});
+      if (talk !== my) return;
+      const text = lineOf(lines[cue.clip]);
+      if (text) subtitle(text);
+      if (!muted && lines[cue.clip]?.voice) voice(cue.clip);
     }, cue.t * 1000));
   }
-  subtitle(textOf(seq), seq.duration);
-  const state = character.animationState;
-  state.setAnimation(1, seq.anim, false).mixDuration = 0.25;
-  if (seq.sync) state.setAnimation(2, seq.sync, false).mixDuration = 0.25;
-  state.addEmptyAnimation(1, 0.2, seq.duration);
-  if (seq.sync) state.addEmptyAnimation(2, 0.2, seq.duration);
+  cueTimers.push(setTimeout(() => finishTalk(my), seq.duration * 1000 + 300));
+  playClip(p, seq.anim);
+  emit();
   return seq;
 }
-
-// stop at once: talk tracks fade back to idle, voices and subtitle go
-export function stop() {
-  chain = null;
-  silence();
-  subtitle([], 0);
-  const character = mainPlayer();
-  if (character?.animationState) {
-    character.animationState.setEmptyAnimation(1, 0.25);
-    character.animationState.setEmptyAnimation(2, 0.25);
+function voice(clip) {
+  const a = new Audio(`/asset/voice/${encodeURIComponent(current.variant)}/${encodeURIComponent(clip)}.ogg`);
+  a.volume = volume;
+  audios.push(a);
+  a.play().catch(() => {});
+}
+function finishTalk(my) {
+  if (talk !== my) return;
+  endTalk(false);
+  const run = chain;
+  if (run && current?.meta) {
+    const seq = current.meta.sequences[++run.i];
+    if (seq) { setTimeout(() => { if (chain === run) play(seq.anim, { fromChain: true }); }, 200); return; }
+    chain = null;
   }
+  emit();
 }
-
-// every dialogue in order, each starting when the previous one ends
-export function playAll(onStep, onEnd) {
-  if (!current?.meta) return;
-  const run = { i: 0 };
-  chain = run;
-  const next = () => {
-    if (chain !== run || !current?.meta) return;
-    const seq = current.meta.sequences[run.i++];
-    if (!seq) { chain = null; onEnd?.(); return; }
-    play(seq.anim, { fromChain: true });
-    onStep?.(seq.anim);
-    setTimeout(next, (seq.duration + 0.5) * 1000);
-  };
-  next();
-}
-export const playingAll = () => !!chain;
-export const meta = () => current?.meta || null;
-
-function silence() {
+function endTalk(fade) {
   for (const t of cueTimers) clearTimeout(t);
   cueTimers = [];
+  silence();
+  subtitle("");
+  if (talk && fade) clearClip(mainPlayer(), talk.seq.anim);
+  talk = null;
+}
+
+// stop at once: the talk tracks fade back to idle, voices and subtitle go
+export function stop() {
+  const was = !!talk || !!chain; // play all may sit between two dialogues
+  chain = null;
+  endTalk(true);
+  if (was) emit();
+}
+// every dialogue in order, each starting when the previous one ends
+export function playAll() {
+  const seqs = current?.meta?.sequences;
+  if (!seqs?.length) return;
+  const run = { i: 0 };
+  chain = run;
+  play(seqs[0].anim, { fromChain: true });
+}
+export const playingAll = () => !!chain;
+export const playing = () => talk?.seq.anim || null;
+export const meta = () => current?.meta || null;
+// onTalk(cb): cb(anim or null, playingAll) whenever a dialogue starts, ends or stops; returns an unsubscribe function
+export function onTalk(cb) {
+  listeners.add(cb);
+  return () => listeners.delete(cb);
+}
+function emit() {
+  const anim = talk?.seq.anim || null, all = !!chain;
+  for (const cb of listeners) try { cb(anim, all); } catch (e) { console.error(e); }
+}
+
+function silence() {
   for (const a of audios) a.pause();
   audios = [];
 }
@@ -441,22 +541,21 @@ export function setVolume(value, mute) {
 // a sequence's lines, one per voice clip
 export const textOf = (seq) => seq.cues.map((c) => lineOf(lines[c.clip])).filter(Boolean);
 
-// subtitles leave upwards and the next one rises in from below
-function subtitle(textLines, duration) {
-  const box = document.querySelector(".lobby-subtitle");
+// one subtitle line at a time: the old one leaves upwards and the next rises in from below
+function subtitle(text) {
+  const box = current?.host?.querySelector(".lobby-subtitle");
   if (!box) return;
   clearTimeout(subtitleTimer);
   const showNew = () => {
-    box.textContent = textLines.join("\n");
-    box.hidden = !textLines.length;
+    box.textContent = text;
+    box.hidden = !text;
     box.classList.remove("out");
     box.classList.add("in");
     requestAnimationFrame(() => requestAnimationFrame(() => box.classList.remove("in")));
-    if (textLines.length) subtitleTimer = setTimeout(() => subtitle([], 0), (duration || 6) * 1000 + 300);
   };
   if (!box.hidden && box.textContent) {
     box.classList.add("out");
-    subtitleTimer = setTimeout(() => { box.hidden = true; if (textLines.length) showNew(); }, 260);
-  } else if (textLines.length) showNew();
+    subtitleTimer = setTimeout(() => { box.hidden = true; box.textContent = ""; if (text) showNew(); }, 260);
+  } else if (text) showNew();
   else box.hidden = true;
 }

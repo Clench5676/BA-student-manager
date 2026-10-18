@@ -24,7 +24,7 @@ const stage = () => document.getElementById("stage");
 let ctx = null, fam = null, variantKey = null, layouts = null;
 let tab = "portrait", fullscreen = false, expression = "00", expanded = false, exprScroll = 0;
 let mainPlayer = null, blinkTimer = null, pending = null, pickerSel = null, lobbySeq = null, busy = false, lobbyShot = null;
-let renderToken = 0, exprToken = 0, chipToken = 0, seqTimer = null;
+let renderToken = 0, exprToken = 0, chipToken = 0;
 
 // --- names, candidates, state ---
 const fullName = (v) => L(v.names)?.full ?? v.key;
@@ -561,25 +561,25 @@ function row4Items() {
 }
 const row4Selected = () => (tab === "lobby" ? lobbySeq : expression);
 function row4Pick(key) {
-  if (tab === "lobby") {
-    clearTimeout(seqTimer);
-    if (lobbySeq === key) { lobbySeq = null; Lobby.stop(); }
-    else {
-      lobbySeq = key;
-      const seq = Lobby.play(key);
-      // when the dialogue ends the card lets go, so the next click plays it again
-      if (seq) seqTimer = setTimeout(() => { if (lobbySeq === key && !Lobby.playingAll()) { lobbySeq = null; renderExpressions(); } }, seq.duration * 1000 + 300);
-    }
-    renderScreen(); // the play-all button follows
-  } else { expression = key; applyExpression(); }
+  // the card follows the dialogue through Lobby.onTalk: selected while it plays, let go when it ends
+  if (tab === "lobby") { if (Lobby.playing() === key) Lobby.stop(); else Lobby.play(key); }
+  else { expression = key; applyExpression(); }
 }
-// play every dialogue in order; the cards follow along
+// play every dialogue in order; the cards and the play-all button follow along (Lobby.onTalk)
 function togglePlayAll() {
-  if (Lobby.playingAll()) { Lobby.stop(); lobbySeq = null; }
-  else Lobby.playAll((anim) => { lobbySeq = anim; renderExpressions(); }, () => { lobbySeq = null; renderExpressions(); renderScreen(); });
-  renderExpressions();
-  renderScreen();
+  if (Lobby.playingAll()) Lobby.stop();
+  else Lobby.playAll();
 }
+// a dialogue started (a card, play all, a tap on the character in fullscreen), ended or stopped
+let lobbyAll = false;
+Lobby.onTalk((anim, all) => {
+  if (tab !== "lobby" || (lobbySeq === anim && lobbyAll === all)) return;
+  const button = lobbyAll !== all;
+  lobbySeq = anim;
+  lobbyAll = all;
+  renderExpressions();
+  if (button) renderScreen();
+});
 
 async function renderExpressions() {
   const my = ++exprToken;
