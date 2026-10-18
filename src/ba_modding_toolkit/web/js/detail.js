@@ -12,7 +12,7 @@ import * as Loading from "./loading.js";
 import * as Lobby from "./lobby.js";
 import { rpc, spineBase, waitJob } from "./api.js";
 import { L, T, language, platform } from "./i18n.js";
-import { forget, prioritise, thumb } from "./thumbs.js";
+import { forget, idleAnimation, prioritise, thumb } from "./thumbs.js";
 import { setTitle } from "./nav.js";
 import {
   $, DOT, RECRUIT, S, TAN10, advanceOf, at, clone, glyphsOf, hitButton, markedLabel, off, text, toast, widget, wrapPath,
@@ -755,11 +755,10 @@ function enableDrag(clip, track) {
 }
 
 // --- main Spine portrait ---
-// the looping idle on track 0: Idle_01, else the skeleton's first animation (the NPC portraits with only "00")
-const idleOf = (data) => (data.findAnimation("Idle_01") ? "Idle_01" : data.animations[0]?.name);
 // loadSpine(base) -> Promise, resolved once the portrait's first frame is drawn and the expression strip shows its
 // faces (also on an error, after the toast). The new layer stays transparent until committed; then it fades in over
-// the old one, which goes.
+// the old one, which goes. A portrait that cannot be shown takes the old one away too: the left side stays empty
+// rather than showing another variant under this one's name.
 function loadSpine(base) {
   const my = ++spineToken;
   const host = $("portrait");
@@ -769,19 +768,32 @@ function loadSpine(base) {
   const previous = [...host.querySelectorAll(".layer")].filter((l) => l !== layer);
   clearTimeout(blinkTimer);
   prioritise(base);
+  // layers fade out, then their players are freed (once each: a failed portrait may retire layers already going)
+  const retire = (layers) => {
+    for (const old of layers) {
+      if (old.retired) continue;
+      old.retired = true;
+      old.classList.add("fading");
+      // disposePortrait() may have freed it meanwhile (a quick second step)
+      setTimeout(() => { if (old.isConnected) { old.player?.dispose(); old.remove(); } }, 400);
+    }
+  };
   return new Promise((resolve) => {
     layer.done = resolve; // settled by disposePortrait() too
     layer.player = new spine.SpinePlayer(layer, {
-      // the idle is set in success(): some NPC portraits (citizen_borot2, blacksuit, ...) have no Idle_01, only "00"
+      // the idle is set in success(): some NPC skeletons have no Idle_01, and spine-player fails on a missing one
       skeleton: `${base}.skel`, atlas: `${base}.atlas`, animation: undefined,
       premultipliedAlpha: false, alpha: true, backgroundColor: "#00000000",
       showControls: false, showLoading: false, preserveDrawingBuffer: true,
       // no viewport transition: spine-player starts it from an undefined viewport and draws nothing meanwhile
       viewport: { padLeft: "6%", padRight: "6%", padTop: "3%", padBottom: "0%", transitionTime: 0 },
       success: async (player) => {
-        // before the first await: spine-player takes the viewport from track 0 and plays once success() returns
-        const idle = idleOf(player.skeleton.data);
+        // before the first await: once this returns, spine-player frames the view on track 0's animation and plays.
+        // With nothing on track 0 it would pause (no face, no blink): a skeleton without an idle gets an empty
+        // animation there that never ends, so it keeps its setup pose and the faces on tracks 1-2 still play.
+        const idle = idleAnimation(player.skeleton.data);
         if (idle) player.animationState.setAnimation(0, idle, true);
+        else player.animationState.setEmptyAnimation(0, 0).trackEnd = Number.MAX_VALUE;
         if (my !== spineToken) { resolve(); return; } // a newer portrait took over; it retires this layer
         mainPlayer = player;
         applyExpression();
@@ -791,17 +803,19 @@ function loadSpine(base) {
         commit(() => {
           if (my !== spineToken) return;
           layer.classList.remove("fading");
-          for (const old of previous) {
-            old.classList.add("fading");
-            // once only: a quick second step retires the same layer again, and disposePortrait() may have freed it
-            setTimeout(() => { if (old.isConnected) { old.player?.dispose(); old.remove(); } }, 400);
-          }
+          retire(previous);
         });
         resolve();
       },
-      error: (_p, message) => {
+      error: (player, message) => {
         console.error(message);
         toast(T("error.internal", { error: message }), { kind: "error" });
+        // spine-player's own error box (black, with the message) never shows: the toast says it
+        layer.querySelector(".spine-player-error")?.remove();
+        if (my === spineToken) {
+          if (mainPlayer === player) { clearTimeout(blinkTimer); mainPlayer = null; } // it broke after it was shown
+          commit(() => { if (my === spineToken) retire([...previous, layer]); });
+        }
         resolve();
       },
     });

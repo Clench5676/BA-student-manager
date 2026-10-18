@@ -10,6 +10,13 @@ const FRAMES = {
   roster: [404, 456],
 };
 
+// the looping idle of a portrait skeleton: Idle_01, else its first idle-like animation; null when it has none (a few
+// NPC portraits only carry the "00" face), which leaves the setup pose under the face
+export function idleAnimation(data) {
+  if (data.findAnimation("Idle_01")) return "Idle_01";
+  return data.animations.find((a) => /^idle/i.test(a.name))?.name || null;
+}
+
 const cache = new Map();   // key -> Promise<url>
 const queue = [];          // { base, frame, expr, resolve, reject }
 let running = false;
@@ -82,14 +89,14 @@ async function capture(player, el, frame, expr) {
   const [w, h] = FRAMES[frame];
   el.style.width = `${w}px`;
   el.style.height = `${h}px`;
-  const state = player.animationState;
-  state.setAnimation(0, player.skeleton.data.findAnimation("Idle_01") ? "Idle_01" : player.skeleton.data.animations[0].name, true);
+  const state = player.animationState, idle = idleAnimation(player.skeleton.data);
+  const entry = idle ? state.setAnimation(0, idle, true) : state.setEmptyAnimation(0, 0);
   state.clearTrack(1);
   if (expr && player.skeleton.data.findAnimation(expr)) state.setAnimation(1, expr, true);
   state.apply(player.skeleton);
   player.skeleton.updateWorldTransform(spine.Physics.update);
   player.config.viewport = viewFor(player, frame, w / h);
-  player.setViewport(state.tracks[0]?.animation?.name || "Idle_01");
+  player.setViewport(entry.animation);
   await frames(3);
   const canvas = el.querySelector("canvas");
   return new Promise((resolve) => canvas.toBlob((b) => resolve(b ? URL.createObjectURL(b) : null)));
