@@ -215,6 +215,9 @@ def test_texture_sampler_follows_the_game_settings():
     assert model.texture_sampler(settings(m_FilterMode=0, m_WrapU=0))["minFilter"] == 9728
     assert model.texture_sampler({**settings(m_FilterMode=2), "m_MipCount": 9})["minFilter"] == 9987
     assert model.texture_sampler({**settings(), "m_MipCount": 9})["minFilter"] == 9985
+    # point with mipmaps (ch0270): the nearest texel of the nearest mipmap, never a blend
+    assert model.texture_sampler({**settings(m_FilterMode=0), "m_MipCount": 9}) == {
+        "magFilter": 9728, "minFilter": 9984, "wrapS": 33071, "wrapT": 33071}
     assert model.texture_sampler(settings(m_WrapU=0, m_WrapV=2)) == {"magFilter": 9729, "minFilter": 9729,
                                                                       "wrapS": 10497, "wrapT": 33648}
     assert model.texture_sampler({})["wrapS"] == 10497  # no settings: Unity's defaults

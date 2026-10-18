@@ -566,20 +566,25 @@ def _vec3(v: Mapping[str, float]) -> list[float]:
 
 
 # glTF sampler constants
-_NEAREST, _LINEAR, _LINEAR_MIPMAP_NEAREST, _LINEAR_MIPMAP_LINEAR = 9728, 9729, 9985, 9987
+_NEAREST, _LINEAR = 9728, 9729
+_NEAREST_MIPMAP_NEAREST, _LINEAR_MIPMAP_NEAREST, _LINEAR_MIPMAP_LINEAR = 9984, 9985, 9987
 _WRAPS = {0: 10497, 1: 33071, 2: 33648, 3: 33071}  # Unity Repeat, Clamp, Mirror, MirrorOnce
 
 
 def texture_sampler(tree: Mapping[str, Any]) -> dict[str, int]:
-    """A glTF sampler for a Texture2D as the game samples it (m_TextureSettings): point or bilinear, mipmaps only when
-    the texture has them (the characters' textures have none, a viewer that generated them would blur and darken
-    thin details at a distance), and its wrap modes."""
+    """A glTF sampler for a Texture2D as the game samples it (m_TextureSettings): point, bilinear or trilinear,
+    mipmaps only when the texture has them (the characters' textures have none, a viewer that generated them would
+    blur and darken thin details at a distance), and its wrap modes. Point takes the nearest texel of the nearest
+    mipmap, bilinear blends texels within the nearest mipmap, trilinear blends two mipmaps as well."""
     s = tree.get("m_TextureSettings") or {}
-    point = s.get("m_FilterMode", 1) == 0
+    mode = s.get("m_FilterMode", 1)
+    point = mode == 0
     mips = (tree.get("m_MipCount") or 1) > 1
-    sampler = {"magFilter": _NEAREST if point else _LINEAR,
-               "minFilter": (_LINEAR_MIPMAP_LINEAR if s.get("m_FilterMode", 1) == 2 else _LINEAR_MIPMAP_NEAREST) if mips
-               else (_NEAREST if point else _LINEAR)}
+    if mips:
+        minify = _NEAREST_MIPMAP_NEAREST if point else _LINEAR_MIPMAP_LINEAR if mode == 2 else _LINEAR_MIPMAP_NEAREST
+    else:
+        minify = _NEAREST if point else _LINEAR
+    sampler = {"magFilter": _NEAREST if point else _LINEAR, "minFilter": minify}
     wrap = s.get("m_WrapMode", 0)
     sampler["wrapS"] = _WRAPS.get(s.get("m_WrapU", wrap), 10497)
     sampler["wrapT"] = _WRAPS.get(s.get("m_WrapV", wrap), 10497)
