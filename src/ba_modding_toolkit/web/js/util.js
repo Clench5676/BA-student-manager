@@ -26,15 +26,17 @@ export const widget = (tree, path) => at(tree, path)?.widgets.find((x) => "w_" i
 // a path (or a short text ending in one) broken after its separators to fit maxW; the largest size from fsMax down
 // to fsMin that needs at most maxLines lines. Never cut: a part longer than a line is broken between characters.
 export function wrapPath(path, fsMax, fsMin, maxW, maxLines = 3) {
-  const parts = String(path ?? "").split(/(?<=[\\/ ])/).flatMap((part) => {
-    if (glyphsOf(part, fsMin) <= maxW) return [part];
-    const out = [];
-    let cur = "";
-    for (const ch of part) { if (cur && glyphsOf(cur + ch, fsMin) > maxW) { out.push(cur); cur = ch; } else cur += ch; }
-    return cur ? [...out, cur] : out;
-  });
+  const pieces = String(path ?? "").split(/(?<=[\\/ ])/);
   let best = null;
   for (let fs = fsMax; fs >= fsMin; fs -= 2) {
+    // a piece wider than a line at this size is broken between characters
+    const parts = pieces.flatMap((piece) => {
+      if (glyphsOf(piece.trimEnd(), fs) <= maxW) return [piece];
+      const out = [];
+      let cur = "";
+      for (const ch of piece) { if (cur && glyphsOf(cur + ch, fs) > maxW) { out.push(cur); cur = ch; } else cur += ch; }
+      return cur ? [...out, cur] : out;
+    });
     const lines = [];
     let cur = "";
     for (const part of parts) {

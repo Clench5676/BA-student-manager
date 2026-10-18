@@ -11,7 +11,7 @@ import { L, T, language, platform } from "./i18n.js";
 import { forget, prioritise, thumb } from "./thumbs.js";
 import { setTitle } from "./nav.js";
 import {
-  $, DOT, RECRUIT, S, TAN10, advanceOf, at, clone, glyphsOf, hitButton, markedLabel, off, text, toast, widget,
+  $, DOT, RECRUIT, S, TAN10, advanceOf, at, clone, glyphsOf, hitButton, markedLabel, off, text, toast, widget, wrapPath,
 } from "./util.js";
 
 const { node, sprite, label, find, rect } = NGUI;
@@ -843,18 +843,21 @@ function detailsTree(it, title, fields, actions) {
       node("Text", [0, 0], [], markedLabel(c, { fs: 32, fsMin: 24, color: i === 0 && it.recruit ? "#ffffff/1.00" : "#2c4564/1.00", maxW: cw - 30, mark: i === 0 && it.recruit, depth: 8 }).nodes),
     ]));
   });
-  // fields, on the game's light stats box
-  const boxT = b.t - 750, rowH = 64, boxH = fields.length * rowH + 24;
+  // fields, on the game's light stats box; long values (file names) wrap, never cut
+  const capW = Math.max(...fields.map(([k]) => advanceOf(k, 38))) + 30, room = w - 120 - capW;
+  const values = fields.map(([, v]) => wrapPath(String(v), 38, 26, room, 3));
+  const rowHs = values.map((f) => Math.max(64, f.lines * f.fs * 1.25 + 16));
+  const boxT = b.t - 750, boxH = rowHs.reduce((a, h) => a + h, 0) + 24;
   kids.push(node("Fields", [cx, boxT - boxH / 2], [sprite("Common_Bg_Raius10px", w - 40, boxH, { depth: 5, color: "#ecf5f9/1.00" })], [
     node("Line", [0, 0], [sprite("Common_Line_Raius10px", w - 34, boxH + 6, { depth: 4, color: "#c0c9d4/1.00" })]),
   ]));
-  const capW = Math.max(...fields.map(([k]) => advanceOf(k, 38))) + 30;
-  const valFs = Math.min(38, ...fields.map(([, v]) => fitText(String(v), 38, 26, w - 120 - capW).fs));
-  fields.forEach(([k, v, color], i) => {
-    const y = boxT - 12 - rowH / 2 - i * rowH, x0 = b.l + 50;
+  let top = boxT - 12;
+  fields.forEach(([k, , color], i) => {
+    const rowH = rowHs[i], y = top - rowH / 2, x0 = b.l + 50, f = values[i];
     kids.push(node(`F_${i}`, [x0, y], [label(k, 38, "#2d4664/1.00", capW, 50, { pivot: 3, depth: 8 })]));
-    kids.push(node(`V_${i}`, [x0 + capW, y], [label(String(v), valFs, color || "#000000/1.00", w - 100 - capW, 50, { pivot: 3, depth: 8, ellipsis: true })]));
+    kids.push(node(`V_${i}`, [x0 + capW, y], [label(f.text, f.fs, color || "#000000/1.00", room + 20, f.lines * f.fs * 1.25 + 8, { pivot: 3, depth: 8 })]));
     if (i < fields.length - 1) kids.push(node(`L_${i}`, [cx, y - rowH / 2], [sprite("Common_Line_Dot", w - 100, 4, { type: 2, depth: 7, color: "#c0c9d4/1.00" })]));
+    top -= rowH;
   });
   actions.forEach(([caption], i) => {
     const bw = (w - 60) / actions.length, x = b.l + 30 + bw / 2 + i * bw, f = fitText(caption, 40, 26, bw - 60);
