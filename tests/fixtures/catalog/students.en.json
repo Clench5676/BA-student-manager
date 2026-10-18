@@ -21,8 +21,8 @@
     "Id": 10025,
     "IsReleased": [
       true,
-      true,
-      true
+      false,
+      false
     ],
     "Name": "Hoshino (Track)",
     "PathName": "hoshino_track",

@@ -33,6 +33,8 @@ PORTRAIT_ALIASES = {
 STORY_ALIASES = {"hoshino_firstyear": "ch0241", "hoshino_terror": "np0186"}
 CORE_ALIASES = {"airi": ["airi0"]}
 SERVER_INDEX = {"ja": 0, "en": 1, "zh-TW": 1, "zh-CN": 2}
+# SchaleDB IsReleased is [Japan, Global, China]; the keys are Settings.server_region() values
+RELEASE_INDEX = {"japan": 0, "global": 1}
 
 
 def read_json(path: Path | None) -> dict:
@@ -103,6 +105,10 @@ def build_catalog(csv_path: Path, schaledb: Path, names_path: Path | None = None
         entry.update(playable=True, kind="playable", bg=student.get("CollectionBG"),
                      portrait=portrait_name(entry, student), school=student.get("School"),
                      schale_id=student["Id"], order=student.get("DefaultOrder", student["Id"]))
+        # per-server release, used at runtime when the install has no collection portrait for the variant
+        flags = student.get("IsReleased") or []
+        if flags:
+            entry["released"] = {server: bool(flags[i]) for server, i in RELEASE_INDEX.items() if i < len(flags)}
         aliases = {student["PathName"].lower(), student["DevName"].lower(),
                    re.sub(r"_\d+$", "", student["DevName"].lower())}
         aliases.update(CORE_ALIASES.get(key, []))
@@ -157,6 +163,7 @@ def build_catalog(csv_path: Path, schaledb: Path, names_path: Path | None = None
                 entry["portrait"] = None
             if not entry["playable"]:
                 entry["fallbacks"] = {lang: "story_variant" for lang in LANGUAGES}
+                entry.pop("released", None)
 
     grouped = defaultdict(list)
     for key, entry in entries.items():

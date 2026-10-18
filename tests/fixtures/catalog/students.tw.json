@@ -21,8 +21,8 @@
     "Id": 10025,
     "IsReleased": [
       true,
-      true,
-      true
+      false,
+      false
     ],
     "Name": "星野（體育服）",
     "PathName": "hoshino_track",

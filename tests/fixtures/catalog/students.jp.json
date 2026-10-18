@@ -21,8 +21,8 @@
     "Id": 10025,
     "IsReleased": [
       true,
-      true,
-      true
+      false,
+      false
     ],
     "Name": "ホシノ（体操服）",
     "PathName": "hoshino_track",

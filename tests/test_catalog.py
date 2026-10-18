@@ -197,6 +197,12 @@ def test_shipped_names_and_playable_art_invariants(shipped: dict):
         assert set(student["names"]) == set(LANGUAGES)
         if entry["playable"]:
             assert entry["bg"] and entry["portrait"]
+            # every playable student is out on Japan; Global may not have them yet
+            assert set(entry["released"]) == {"japan", "global"}
+            assert all(isinstance(flag, bool) for flag in entry["released"].values())
+            assert entry["released"]["japan"] is True
+        else:
+            assert "released" not in entry
         for lang, name in entry["names"].items():
             assert name["full"] and name["short"]
             assert not any(dot in str(name) for dot in ("\u00b7", "\u30fb"))
@@ -251,6 +257,14 @@ def test_generator_matches_orders_and_applies_curated_then_wiki(generator):
     assert entries["ch0010"]["portrait"] == "Student_Portrait_CH0010_Collection"
     assert data["summary"]["kinds"]["playable"] == 3
     assert not data["summary"]["conflicts"]
+
+
+def test_generator_ships_the_per_server_release_flags(generator):
+    entries = generator.build_catalog(FIXTURES / "characters.csv", FIXTURES, FIXTURES / "names.json",
+                                      FIXTURES / "wiki.json", FIXTURES / "variants.json")["variants"]
+    assert entries["ch0020"]["released"] == {"japan": True, "global": False}
+    assert entries["hoshino"]["released"] == entries["ch0010"]["released"] == {"japan": True, "global": True}
+    assert "released" not in entries["np0001"]
 
 
 def test_generator_cli_is_deterministic_and_needs_no_install(tmp_path: Path):
