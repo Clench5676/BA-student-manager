@@ -244,7 +244,16 @@ def real_game(tmp_path_factory):
 
 
 @pytest.mark.skipif(not GAME_DIR.is_dir(), reason="No local game install")
-def test_real_lobbies(real_game):
+def test_real_lobbies(real_game, monkeypatch):
+    from ba_modding_toolkit.gameassets.service import _SCHEMA
+    cache, puts = real_game.cache, []
+    put = cache.put
+
+    def record(key, value, **kwargs):
+        puts.append((key, kwargs.get("disk", True)))
+        put(key, value, **kwargs)
+
+    monkeypatch.setattr(cache, "put", record)
     hoshino = real_game.lobby_info("hoshino_home")
     assert hoshino["prefab"] == "LobbyHoshino" and hoshino["main"] == "Hoshino_home"
     assert {d["kind"] for d in hoshino["drags"]} >= {"pat", "look"} and hoshino["touches"]
@@ -253,6 +262,10 @@ def test_real_lobbies(real_game):
     assert {(l["y"], l["scale"]) for l in momiji["layers"]} == {(-1106.3, 1.15)}
     aru = {l["name"]: l["active"] for l in real_game.lobby_info("aru_home")["layers"]}
     assert aru["Aru_home"] is True and False in aru.values()
-    # lobby data is derived from character bundles: nothing but the name index reaches the disk cache
-    files = [p.name for p in real_game.cache.root.rglob("*") if p.is_file()]
-    assert all("lobby/" not in name for name in files)
+    # lobby data is derived from character bundles: kept in memory, and nothing but the prefab name index reaches the
+    # disk cache (consent is on)
+    assert sum(key.startswith(_SCHEMA + "lobby/") and not disk for key, disk in puts) == 3
+    on_disk = {key for key, disk in puts if disk}
+    assert on_disk == {_SCHEMA + "lobby-prefabs"}
+    files = {p for p in cache.root.rglob("*") if p.is_file()}
+    assert files == {cache._path(real_game.resource_version, key) for key in on_disk}

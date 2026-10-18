@@ -15,6 +15,7 @@ const STAGE = { w: 1920, h: 1080 };
 const GAME = { x: -1480, y: -832.5, w: 2960, h: 1665 };  // lobby.json "view": the game's 16:9 view in NGUI units
 const ZOOM_IN = 2;          // fullscreen zoom limit relative to the game's view (the art is about 0.5 texel per unit)
 const ZOOM_TAU = 0.08;      // s: a zoom or pan eases to its target
+const FEATHER_MS = 100;     // the fallback's feather and extension follow a zoom or pan at most this often
 const FADE_MS = 450;        // the switch crossfade, in step with the UI slide (app.css .45s)
 const TALK_GUARD_MS = 500;  // a tap does not skip a dialogue that started this recently
 
@@ -180,6 +181,12 @@ function viewNow() {
       const w = v.w + (t.w - v.w) * k;
       c.view = { x: v.x + (t.x - v.x) * k, y: v.y + (t.y - v.y) * k, w, h: (w * 9) / 16 };
       if (Math.abs(t.w - w) < 0.05 && Math.abs(t.x - c.view.x) < 0.05 && Math.abs(t.y - c.view.y) < 0.05) c.view = t;
+      // sparse art (the fallback): the feather and the extension move with the art's border, while the view eases
+      // (throttled) and once it settles
+      if (c.meta?.sparse && (c.view === t || now - (c.featherAt ?? -Infinity) >= FEATHER_MS)) {
+        c.featherAt = now;
+        feather(c.view);
+      }
     }
   }
   return c.view;
@@ -278,7 +285,9 @@ export function panBy(dx, dy) {
   setView(clampView({ x: T.x - (dx / STAGE.w) * T.w, y: T.y + (dy / STAGE.h) * T.h, w: T.w, h: T.h }), false);
 }
 export function resetZoom() {
-  if (current?.meta) setView(viewOf(current.meta), true);
+  if (!current?.meta) return;
+  setView(viewOf(current.meta), true);
+  feather(current.view);
 }
 // for checks: the rects involved, the current view, the zoom relative to the game's view, the character's tracks
 export const limits = () => current?.meta && {

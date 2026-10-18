@@ -193,6 +193,91 @@ def test_glb_writer_layout():
     assert binary[view["byteOffset"]:view["byteOffset"] + view["byteLength"]] == b"\x89PNG.."
 
 
+def _strict(data):
+    """The JSON chunk of a GLB, parsed like the viewer's JSON.parse (no NaN or Infinity)."""
+    def reject(token):
+        raise ValueError(f"not JSON: {token}")
+    return json.loads(data[20:20 + struct.unpack_from("<I", data, 12)[0]], parse_constant=reject)
+
+
+def test_glb_json_has_only_finite_numbers():
+    # Saya's body material holds _CameraFadeParams = (0, inf, 0, 0)
+    graph = SimpleNamespace(tree=lambda obj: obj.tree, deref=lambda obj, pointer: None)
+    exporter = model._Exporter(graph, "saya_original")
+    material = SimpleNamespace(assets_file=SimpleNamespace(name="CAB-A"), path_id=1, tree={
+        "m_Name": "Saya_Body", "m_Shader": {"m_FileID": 0, "m_PathID": 0}, "m_SavedProperties": {
+            "m_TexEnvs": [], "m_Floats": [["_Cull", 2.0], ["_Far", math.inf]],
+            "m_Colors": [["_CameraFadeParams", {"r": 0.0, "g": math.inf, "b": 0.0, "a": 0.0}],
+                         ["_Odd", {"r": math.nan, "g": -math.inf, "b": 1.0, "a": 1.0}]]}})
+    exporter.material(material)
+    exporter.nodes.append({"name": "root", "translation": [math.inf, 0.0, 0.0]})
+    exporter.glb.json["scenes"][0]["nodes"].append(0)
+    doc = _strict(exporter.glb.finish())
+    extras = doc["materials"][0]["extras"]
+    assert extras["colors"]["_CameraFadeParams"] == [0.0, model.FLT_MAX, 0.0, 0.0]
+    assert extras["colors"]["_Odd"] == [0.0, -model.FLT_MAX, 1.0, 1.0]  # NaN becomes 0
+    assert extras["floats"] == {"_Cull": 2.0, "_Far": model.FLT_MAX}
+    assert doc["nodes"][0]["translation"] == [model.FLT_MAX, 0.0, 0.0]
+
+
+def test_glb_writer_rejects_what_is_not_finite(monkeypatch):
+    # without the clean-up a non-finite number fails the export instead of the viewer
+    monkeypatch.setattr(model, "finite_json", lambda value: value)
+    glb = model.GlbWriter()
+    glb.json["nodes"].append({"name": "root", "scale": [math.nan, 1.0, 1.0]})
+    with pytest.raises(ValueError):
+        glb.finish()
+
+
+# --- the hierarchy ---
+
+class _Graph:
+    """Objects by path id, read like BundleGraph."""
+
+    def __init__(self, *objects):
+        self.objects = {obj.path_id: obj for obj in objects}
+
+    def tree(self, obj):
+        return obj.tree
+
+    def deref(self, obj, pointer):
+        return self.objects.get(pointer["m_PathID"]) if obj is not None and pointer and pointer.get("m_PathID") else None
+
+    def script(self, behaviour):
+        return None
+
+
+def _object(pid, kind, **tree):
+    return SimpleNamespace(assets_file=SimpleNamespace(name="CAB-A"), path_id=pid, type=SimpleNamespace(name=kind), tree=tree)
+
+
+def _game_object(pid, name, components, children=(), active=1):
+    """A GameObject (pid), its Transform (pid + 1) and further components."""
+    ref = lambda p: {"m_FileID": 0, "m_PathID": p}  # noqa: E731
+    transform = _object(pid + 1, "Transform", m_LocalPosition={"x": 0, "y": 0, "z": 0},
+                        m_LocalRotation={"x": 0, "y": 0, "z": 0, "w": 1}, m_LocalScale={"x": 1, "y": 1, "z": 1},
+                        m_Children=[ref(c + 1) for c in children], m_GameObject=ref(pid))
+    go = _object(pid, "GameObject", m_Name=name, m_IsActive=active,
+                 m_Component=[{"component": ref(pid + 1)}] + [{"component": ref(c.path_id)} for c in components])
+    return [go, transform, *components]
+
+
+def test_visit_skips_disabled_and_hidden_renderers():
+    # an alternative face the prefab keeps disabled (ch0189) and a renderer under an inactive object
+    graph = _Graph(
+        *_game_object(1, "CH0189", [], children=(10, 20, 30)),
+        *_game_object(10, "CH0189_Face_Outline", [_object(12, "SkinnedMeshRenderer", m_Enabled=1)]),
+        *_game_object(20, "CH0189_Face01_Outline", [_object(22, "SkinnedMeshRenderer", m_Enabled=0)]),
+        *_game_object(30, "Off", [_object(32, "MeshRenderer", m_Enabled=1)], active=0),
+    )
+    exporter = model._Exporter(graph, "ch0189")
+    exporter.visit(graph.objects[1], None, "", True)
+    assert [graph.tree(go)["m_Name"] for _, _, go in exporter.renderers] == ["CH0189_Face_Outline"]
+    names = {n["name"]: n.get("extras", {}).get("hidden", False) for n in exporter.nodes}
+    # the disabled renderer's object stays a plain node (clips may move it), the inactive one is hidden
+    assert names == {"CH0189": False, "CH0189_Face_Outline": False, "CH0189_Face01_Outline": False, "Off": True}
+
+
 # --- CAB discovery ---
 
 def _unityfs(names, *, version=7, at_end=False, compress=True):
@@ -222,6 +307,23 @@ def test_cab_names_rejects_other_files(tmp_path):
     broken.write_bytes(b"UnityFS\0\0\0\0\x07")
     with pytest.raises(ValueError):
         cab_names(broken)
+
+
+def _corrupt_unityfs(flags):
+    """A UnityFS header whose compressed blocks info is garbage."""
+    packed = b"\xff" * 40
+    head = b"UnityFS\0" + struct.pack(">I", 7) + b"5.x.x\0" + b"2021.3.0f1\0" + struct.pack(">qIII", 0, len(packed), 200, flags)
+    return head + b"\0" * (-len(head) % 16) + packed + b"DATA"
+
+
+@pytest.mark.parametrize("flags", [1, 2, 3, 4])  # LZMA, LZ4, LZ4HC, LZHAM
+def test_cab_names_wraps_decompression_errors(tmp_path, flags):
+    path = tmp_path / "corrupt.bundle"
+    path.write_bytes(_corrupt_unityfs(flags))
+    with pytest.raises(ValueError):
+        cab_names(path)
+    with pytest.raises(OSError):
+        cab_names(tmp_path / "missing.bundle")
 
 
 def test_model_dependency_families():
@@ -264,6 +366,36 @@ def test_model_glb_is_memory_only_and_keyed_by_bundle_stamps(tmp_path, monkeypat
     assert game.model_glb("ch0242") == b"glTF\0\0"  # a changed prefab bundle exports again
     with pytest.raises(AssetNotFound):
         game.model_glb("ch9999")
+
+
+def test_model_glb_exports_again_when_a_bundle_it_read_changes(tmp_path, monkeypatch):
+    prefab = "character-ch0242-_mxload-2024-11-18_assets_all_1.bundle"
+    dependency = "assets-_mx-characters-ch0242-_mxdependency-2024-11-18_004_assets_all_2.bundle"
+    game, resources = _game(tmp_path, prefab, dependency)
+    calls = []
+
+    def export(graph, bundles, dev, **kwargs):
+        graph.loaded.append(str(resources / dependency))  # the meshes, textures and clips
+        calls.append(dev)
+        return b"glTF" + bytes(len(calls))
+
+    monkeypatch.setattr(model, "export_chibi", export)
+    assert game.model_glb("ch0242") == game.model_glb("ch0242") == b"glTF\0"
+    os.utime(resources / dependency, ns=(1, 1))  # a texture mod installed in place
+    assert game.model_glb("ch0242") == game.model_glb("ch0242") == b"glTF\0\0"
+    (resources / dependency).unlink()
+    assert game.model_glb("ch0242") == b"glTF\0\0\0"
+    assert len(calls) == 3 and not (tmp_path / "cache").exists()
+
+
+def test_cab_index_skips_a_corrupt_bundle(tmp_path):
+    # one damaged model-family bundle (an interrupted update) must not break every model
+    game, resources = _game(tmp_path)
+    good = "assets-_mx-characters-ch0242-_mxdependency-2024-11-18_004_assets_all_2.bundle"
+    (resources / good).write_bytes(_unityfs(["CAB-good"]))
+    (resources / "assets-_mx-characters-ch0243-_mxdependency-2024-11-18_004_assets_all_3.bundle").write_bytes(
+        _corrupt_unityfs(2))
+    assert {cab: Path(path).name for cab, path in game._cab_index().items()} == {"cab-good": good}
 
 
 def test_model_graph_falls_back_to_every_bundle_once(tmp_path):
@@ -333,11 +465,14 @@ def test_real_chibi_exports(tmp_path):
     assert {"hoshino_original", "ch0242"} <= game.model_cores()
     data = game.model_glb("hoshino_original")
     assert data[:4] == b"glTF" and struct.unpack_from("<I", data, 8)[0] == len(data)
-    doc = json.loads(data[20:20 + struct.unpack_from("<I", data, 12)[0]])
+    doc = _strict(data)
     assert doc["extras"]["prefab"] == "Echelon_Hoshino_Original" and "haloFollower" in doc["extras"]
     slots = [a["extras"]["slot"] for a in doc["animations"]]
     assert slots[0] == "Formation_Idle" and "Cafe_Reaction" in slots and len(slots) == len(set(slots))
     assert doc["skins"] and all(len(s["joints"]) > 0 for s in doc["skins"])
     kinds = {m["extras"]["kind"] for m in doc["materials"]}
     assert {"body", "face", "hair", "eyemouth", "halo"} <= kinds
+    if "saya_original" in game.model_cores():  # an infinite material constant
+        fade = [m["extras"]["colors"].get("_CameraFadeParams") for m in _strict(game.model_glb("saya_original"))["materials"]]
+        assert [0.0, model.FLT_MAX, 0.0, 0.0] in fade
     assert not (tmp_path / "cache").exists()
