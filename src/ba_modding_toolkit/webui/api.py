@@ -97,8 +97,8 @@ def build_api(s: Services) -> RpcRegistry:
         dest = Path(tempfile.mkdtemp(prefix="bamt-update-"))
 
         def download(log: Any, progress: Any) -> dict[str, str]:
-            path = updater.download(info, dest, progress)
-            s.update_file = (path, updater.md5_of(path))  # what installUpdate may swap in
+            path, md5 = updater.download(info, dest, progress)
+            s.update_file = (path, md5)  # what installUpdate may swap in
             return {"file": str(path)}
 
         return s.jobs.submit("update.download", download)
