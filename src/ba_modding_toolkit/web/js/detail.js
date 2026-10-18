@@ -12,7 +12,7 @@ import * as Loading from "./loading.js";
 import * as Lobby from "./lobby.js";
 import { rpc, spineBase, waitJob } from "./api.js";
 import { L, T, language, platform } from "./i18n.js";
-import { forget, prioritise, thumb } from "./thumbs.js";
+import { forget, idleAnimation, prioritise, thumb } from "./thumbs.js";
 import { setTitle } from "./nav.js";
 import {
   $, DOT, RECRUIT, S, TAN10, advanceOf, at, clone, glyphsOf, hitButton, markedLabel, off, text, toast, widget, wrapPath,
@@ -762,12 +762,19 @@ function loadSpine(base) {
   return new Promise((resolve) => {
     layer.done = resolve; // settled by disposePortrait() too
     layer.player = new spine.SpinePlayer(layer, {
-      skeleton: `${base}.skel`, atlas: `${base}.atlas`, animation: "Idle_01",
+      // the idle is set in success(): some NPC skeletons have no Idle_01, and spine-player fails on a missing one
+      skeleton: `${base}.skel`, atlas: `${base}.atlas`, animation: undefined,
       premultipliedAlpha: false, alpha: true, backgroundColor: "#00000000",
       showControls: false, showLoading: false, preserveDrawingBuffer: true,
       // no viewport transition: spine-player starts it from an undefined viewport and draws nothing meanwhile
       viewport: { padLeft: "6%", padRight: "6%", padTop: "3%", padBottom: "0%", transitionTime: 0 },
       success: async (player) => {
+        // before the first await: once this returns, spine-player frames the view on track 0's animation and plays.
+        // With nothing on track 0 it would pause (no face, no blink): a skeleton without an idle gets an empty
+        // animation there that never ends, so it keeps its setup pose and the faces on tracks 1-2 still play.
+        const idle = idleAnimation(player.skeleton.data);
+        if (idle) player.animationState.setAnimation(0, idle, true);
+        else player.animationState.setEmptyAnimation(0, 0).trackEnd = Number.MAX_VALUE;
         if (my !== spineToken) { resolve(); return; } // a newer portrait took over; it retires this layer
         mainPlayer = player;
         applyExpression();
