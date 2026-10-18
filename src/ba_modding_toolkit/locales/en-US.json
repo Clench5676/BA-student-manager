@@ -965,10 +965,25 @@
 			"classic_failed": "Could not start the classic UI",
 			"unknown_method": "Unknown action: {method}",
 			"bad_params": "Invalid parameters",
-			"job_not_found": "Task not found"
+			"job_not_found": "Task not found",
+			"update_check_failed": "Could not check for updates",
+			"update_download_failed": "Could not download the update",
+			"update_checksum_mismatch": "The update failed its checksum",
+			"update_unavailable": "This release has no build for this device",
+			"update_unsupported": "This build cannot update itself"
 		},
 		"drop": {
 			"hint": "Drop mod files to add them"
+		},
+		"update": {
+			"title": "Update Available",
+			"current": "Current Version",
+			"latest": "New Version",
+			"later": "Later",
+			"now": "Update",
+			"downloading": "Downloading {p}%",
+			"restarting": "Restarting to finish the update",
+			"page": "Open Download Page"
 		}
 	}
 }

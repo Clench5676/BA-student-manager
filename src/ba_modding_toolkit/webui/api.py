@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import json
 import sys
+import tempfile
+import webbrowser
 from pathlib import Path
 from typing import Any
 
+from .. import updater
 from ..config import user_cache_dir
 from ..errors import ServiceError
 from ..i18n import get_locale_dir, i18n_manager
@@ -66,6 +69,7 @@ def build_api(s: Services) -> RpcRegistry:
             "cacheDir": str(user_cache_dir()),
             "dataDir": str(s.data_dir),
             "native": s.window is not None,
+            "compiled": updater.is_compiled(),
         }
 
     @rpc.method("app.consent")
@@ -77,6 +81,39 @@ def build_api(s: Services) -> RpcRegistry:
     @rpc.method("app.openClassic")
     def app_open_classic(tab: str | None = None) -> None:
         open_classic(tab)
+
+    # --- updates ---
+
+    @rpc.method("app.checkUpdate")
+    def app_check_update() -> Any:
+        s.update_info = updater.check()
+        return s.update_info
+
+    @rpc.method("app.update")
+    def app_update() -> str:
+        info = getattr(s, "update_info", None)
+        if info is None or not info.installable:
+            raise ServiceError("update_unsupported")
+        dest = Path(tempfile.mkdtemp(prefix="bamt-update-"))
+        return s.jobs.submit("update.download", lambda log, progress: {"file": str(updater.download(info, dest, progress))})
+
+    @rpc.method("app.openReleasePage")
+    def app_open_release_page() -> None:
+        info = getattr(s, "update_info", None)
+        if info is None or not info.page.startswith(f"https://github.com/{updater.REPO}/"):
+            raise ServiceError("update_unavailable")
+        webbrowser.open(info.page)
+
+    @rpc.method("app.installUpdate")
+    def app_install_update(file: str) -> None:
+        info = getattr(s, "update_info", None)
+        path = Path(file)
+        # only the build this session downloaded and verified
+        if info is None or info.asset is None or path.name != info.asset.name or not path.is_file():
+            raise ServiceError("update_unavailable")
+        updater.install(path)
+        if s.window is not None:
+            s.window.destroy()
 
     @rpc.method("i18n.strings")
     def i18n_strings(lang: str | None = None) -> dict[str, str]:

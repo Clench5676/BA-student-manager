@@ -3,6 +3,7 @@ import * as Consent from "./consent.js";
 import * as Detail from "./detail.js";
 import * as NGUI from "./ngui.js";
 import * as Roster from "./roster.js";
+import * as Update from "./update.js";
 import { on, rpc } from "./api.js";
 import { T, setStrings } from "./i18n.js";
 import { renderNav, setTitle } from "./nav.js";
@@ -94,6 +95,8 @@ async function boot() {
   addEventListener("hashchange", route);
   await route();
   if (info.consent !== true) await Consent.show($("consent"), info.cacheDir);
+  // released builds look for a newer release once per launch (development runs do not)
+  if (info.compiled) Update.check($("consent"));
 }
 
 boot().catch((err) => {

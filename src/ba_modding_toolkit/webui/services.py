@@ -32,6 +32,7 @@ class Services:
         self.jobs = jobs or JobRunner(self.events)
         self.state = state or UiState(self.data_dir / "webui.json")
         self.window: Any = None  # the pywebview window, when there is one (see native.py)
+        self.update_info: Any = None  # the last update check's result
         self._lock = threading.RLock()
         self._cache, self._game, self._catalog, self._library = cache, game, catalog, library
         self._injected = {k for k, v in (("game", game), ("catalog", catalog), ("library", library)) if v is not None}
