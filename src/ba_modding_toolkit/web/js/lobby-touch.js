@@ -112,21 +112,24 @@ function end(it) {
   else if (it.d.ing) lobby.clearClip(it.player, it.d.ing);
 }
 
+// one press at a time, owned by its pointer: a second finger neither starts, steers nor ends anything
+const other = (e) => press && e.pointerId !== press.id;
+
 function down(e) {
-  if (!lobby) return;
+  if (!lobby || press) return;
   const [sx, sy] = stagePoint(e);
   if (e.button === 1 || e.button === 2) {
     e.preventDefault();
-    press = { pan: true, last: [sx, sy] };
+    press = { id: e.pointerId, pan: true, last: [sx, sy] };
     host.setPointerCapture?.(e.pointerId);
     cursor();
     return;
   }
-  if (e.button !== 0 || press || lobby.blocked()) return;
+  if (e.button !== 0 || lobby.blocked()) return;
   host.setPointerCapture?.(e.pointerId);
   pointer = [sx, sy];
   const h = hit(sx, sy);
-  press = { at: [sx, sy], h, moved: false, timer: null, slop: SLOP[e.pointerType] ?? 10 };
+  press = { id: e.pointerId, at: [sx, sy], h, moved: false, timer: null, slop: SLOP[e.pointerType] ?? 10 };
   if (h?.type === "drag") {
     const my = press;
     press.timer = setTimeout(() => { if (press === my) start(h.it); }, (h.it.d.delay ?? 0.1) * 1000);
@@ -134,7 +137,7 @@ function down(e) {
   cursor();
 }
 function move(e) {
-  if (!lobby) return;
+  if (!lobby || other(e)) return;
   const [sx, sy] = stagePoint(e);
   if (press?.pan) {
     lobby.panBy(sx - press.last[0], sy - press.last[1]);
@@ -152,8 +155,8 @@ function move(e) {
     }
   }
 }
-function up() {
-  if (!press) return;
+function up(e) {
+  if (!press || other(e)) return;
   const p = press;
   press = null;
   if (!p.pan) {
