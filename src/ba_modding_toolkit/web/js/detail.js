@@ -28,7 +28,7 @@ let modelShot = null, modelActions = [], modelAction = null;
 // three.js and the model viewer load with the first 3D model
 let modelLib = null;
 const ModelLib = () => (modelLib ||= import("./model.js"));
-let renderToken = 0, exprToken = 0, chipToken = 0, seqTimer = null;
+let renderToken = 0, exprToken = 0, chipToken = 0;
 
 // --- names, candidates, state ---
 const fullName = (v) => L(v.names)?.full ?? v.key;
@@ -566,28 +566,28 @@ function row4Items() {
 }
 const row4Selected = () => (tab === "lobby" ? lobbySeq : tab === "model" ? modelAction : expression);
 function row4Pick(key) {
-  if (tab === "lobby") {
-    clearTimeout(seqTimer);
-    if (lobbySeq === key) { lobbySeq = null; Lobby.stop(); }
-    else {
-      lobbySeq = key;
-      const seq = Lobby.play(key);
-      // when the dialogue ends the card lets go, so the next click plays it again
-      if (seq) seqTimer = setTimeout(() => { if (lobbySeq === key && !Lobby.playingAll()) { lobbySeq = null; renderExpressions(); } }, seq.duration * 1000 + 300);
-    }
-    renderScreen(); // the play-all button follows
-  } else if (tab === "model") {
+  // the card follows the dialogue through Lobby.onTalk: selected while it plays, let go when it ends
+  if (tab === "lobby") { if (Lobby.playing() === key) Lobby.stop(); else Lobby.play(key); }
+  else if (tab === "model") {
     modelAction = key;
     modelLib?.then((M) => M.play(key));
   } else { expression = key; applyExpression(); }
 }
-// play every dialogue in order; the cards follow along
+// play every dialogue in order; the cards and the play-all button follow along (Lobby.onTalk)
 function togglePlayAll() {
-  if (Lobby.playingAll()) { Lobby.stop(); lobbySeq = null; }
-  else Lobby.playAll((anim) => { lobbySeq = anim; renderExpressions(); }, () => { lobbySeq = null; renderExpressions(); renderScreen(); });
-  renderExpressions();
-  renderScreen();
+  if (Lobby.playingAll()) Lobby.stop();
+  else Lobby.playAll();
 }
+// a dialogue started (a card, play all, a tap on the character in fullscreen), ended or stopped
+let lobbyAll = false;
+Lobby.onTalk((anim, all) => {
+  if (tab !== "lobby" || (lobbySeq === anim && lobbyAll === all)) return;
+  const button = lobbyAll !== all;
+  lobbySeq = anim;
+  lobbyAll = all;
+  renderExpressions();
+  if (button) renderScreen();
+});
 
 async function renderExpressions() {
   const my = ++exprToken;
@@ -1092,7 +1092,7 @@ function renderLeft() {
   if (tab === "lobby") {
     Lobby.show(v.lobby, $("lobby"), v.key).then(async (m) => {
       if (!m || tab !== "lobby") return;
-      if (fullscreen) Lobby.frame("full");
+      if (fullscreen) { Lobby.frame("full"); Lobby.interactive(true); }
       renderExpressions();
       // lines and voices from Kivo; the Chinese UIs show the Chinese text, the others the original Japanese
       const still = () => tab === "lobby" && variantKey === v.key;
@@ -1141,20 +1141,18 @@ function hideModel() {
   modelLib?.then((M) => M.hide($("model")));
 }
 
-// a still of the lobby for the switch card, framed on the character: in the left framing the head-pat point sits at
-// 28 % across and 34 % down the stage (lobby.js viewOf); the crop is centred right of and below it, so the face lands
-// in the part of the card the title does not cover
+// a still of the lobby for the switch card, framed on the face: lobby.js picks the crop inside the left view, which
+// lies inside the lobby's painted area, so the still is opaque everywhere and the card's mask fades it out softly
 function snapshotLobby() {
   const canvases = [...$("lobby").querySelectorAll(".lobby-view canvas")];
   if (!canvases.length) return null;
   const W = canvases[0].width, H = canvases[0].height;
-  const cw = W * 0.5, ch = cw * (253 / 450);
-  const x0 = Math.max(0, Math.min(W - cw, W * 0.35 - cw / 2)), y0 = Math.max(0, Math.min(H - ch, H * 0.44 - ch / 2));
+  const r = Lobby.stillRect(W, H) || { x: W * 0.1, y: H * 0.16, w: W * 0.5, h: W * 0.5 * (253 / 450) };
   const c = document.createElement("canvas");
   c.width = 900; c.height = Math.round(900 * (253 / 450));
   const g = c.getContext("2d");
   g.imageSmoothingQuality = "high";
-  for (const src of canvases) g.drawImage(src, x0, y0, cw, ch, 0, 0, c.width, c.height);
+  for (const src of canvases) g.drawImage(src, r.x, r.y, r.w, r.h, 0, 0, c.width, c.height);
   return new Promise((resolve) => c.toBlob((b) => resolve(b ? URL.createObjectURL(b) : null)));
 }
 
@@ -1166,10 +1164,11 @@ const wake = () => {
   clearTimeout(idleTimer);
   idleTimer = setTimeout(() => exit.classList.add("idle"), 2500);
 };
+// in fullscreen the character can be touched and the view zoomed like in the game; leaving resets the zoom
 function setFullscreen(on) {
   fullscreen = on;
   stage().classList.toggle("fullscreen", on);
-  if (tab === "lobby") Lobby.frame(on ? "full" : "left");
+  if (tab === "lobby") { Lobby.frame(on ? "full" : "left"); Lobby.interactive(on); }
   if (tab === "model") modelLib?.then((M) => M.frame(on ? "full" : "left"));
   $("fs-exit").hidden = !on;
   if (on) { wake(); stage().addEventListener("pointermove", wake); } else { stage().removeEventListener("pointermove", wake); clearTimeout(idleTimer); }
