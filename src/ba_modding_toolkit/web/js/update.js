@@ -32,9 +32,11 @@ async function show(host, info) {
   const installable = info.installable;
   find(btn, "Btn_Cancel/Label_Locale").widgets[0].text = T("update.later");
   find(btn, "Btn_Ok/Label_Locale").widgets[0].text = T(installable ? "update.now" : "update.page");
+  // one line on the slanted 496-wide body ("Open Download Page" shrinks rather than runs into the edges)
   for (const name of ["Btn_Cancel", "Btn_Ok"]) {
     const l = find(btn, `${name}/Label_Locale`).widgets[0];
-    l.fontSize = NGUI.fitText(l.text, 64, 40, 380).fs;
+    const f = NGUI.fitText(l.text, 64, 34, 400, 1);
+    Object.assign(l, { text: f.text, fontSize: f.fs });
   }
   find(t, "BlackBg/BlackBgClickArea").widgets.find((w) => "sprite" in w).color = "#000000/0.65";
   // the two versions on the game's light stats box

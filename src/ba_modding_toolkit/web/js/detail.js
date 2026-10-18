@@ -20,6 +20,13 @@ import {
 
 const { node, sprite, label, find, rect } = NGUI;
 const fitText = (...a) => NGUI.fitText(...a);
+// fitText for a box: where nothing fits from fsMin up (fitText then gives up on one line at fsMin - 8, however wide),
+// the same again from smaller sizes, down to 60 % of fsMin
+function fitIn(str, fsMax, fsMin, maxW, maxLines = 2) {
+  let f = fitText(str, fsMax, fsMin, maxW, maxLines), min = fsMin;
+  while (f.lines === 1 && f.fs < min && min - 8 >= fsMin * 0.6) { min -= 8; f = fitText(str, min + 6, min, maxW, maxLines); }
+  return f;
+}
 const ORIGIN = [960, 515]; // prefab centre; 25 px above the stage centre so the panels clear the nav bar
 const toStage = (x, y) => [ORIGIN[0] + x * S, ORIGIN[1] - y * S];
 const INFO = "RightInfo/Target/Active/1_NormalInfo";
@@ -229,7 +236,9 @@ function screenTree() {
     const right = name_ === "Label_Attact" || name_ === "Label_Healing";
     const dataNode = at(t, `${INFO}/Status/${name_}/${dataPath.split("/")[0]}`);
     dataNode.pos[0] = right ? rightCap : leftCap;
-    text(t, `${INFO}/Status/${name_}/${dataPath}`, String(value), { w_: rooms[i], fontSize: valueFs, ...(color ? { color: `${color}/1.00` } : {}) });
+    // a value still too wide at the smallest shared size (a long variant name) goes on two lines
+    const fit = glyphsOf(String(value), valueFs) > rooms[i] ? fitIn(String(value), valueFs, valueFs - 4, rooms[i]) : { text: String(value), fs: valueFs };
+    text(t, `${INFO}/Status/${name_}/${dataPath}`, fit.text, { w_: rooms[i], fontSize: fit.fs, ...(color ? { color: `${color}/1.00` } : {}) });
     const pot = find(t, `${INFO}/Status/${name_}/Data_Widget/Potential_Widget`);
     if (pot) pot.active = false;
   });
@@ -273,8 +282,9 @@ function screenTree() {
     for (const k of icon.children) if (["Bg_Skill_Plus", "Deco", "SkillIconBg (1)"].includes(k.name)) k.active = false; // EX-only rings
     Object.assign(widget(t, `${base}/Normal/SkillIconBg/Texture`), { texture: `glyph:${glyph}`, w_: 64, h_: 64 });
   }
-  // row 3: portrait box, the switch card (the game's light weapon card), add portrait
-  const boxTitle = fitText(T(`row.box.${tab}`), 48, 42, 128);
+  // row 3: portrait box, the switch card (the game's light weapon card), add portrait. The box's body spans
+  // -96..95 around its centre (its slanted right edge ends lower down a few units further left); the title sits at -8.
+  const boxTitle = fitIn(T(`row.box.${tab}`), 48, 42, 160);
   text(t, `${INFO}/Weapon/WeaponType/Label_WeaponType`, boxTitle.text, { fontSize: boxTitle.fs, w_: 200, h_: 60 * boxTitle.lines });
   at(t, `${INFO}/Weapon/WeaponType/Label_WeaponType`).pos = [-8, -2];
   off(t, `${INFO}/Weapon/WeaponType/Icon`);
@@ -295,7 +305,7 @@ function screenTree() {
       : clipped("Bust", [1, 6], tab === "model" ? modelShot : lobbyShot, win, { dx: -383 + 216, dy: 0, w: 450, h: 253 }, { depth: 10, mask: "linear-gradient(90deg, transparent 0, #000 10%, #000 70%, transparent 96%)" }));
   // the wrapper holds an enabled (cyan) and a disabled (grey) body and label; keep the enabled ones
   let bodies = 0, labels = 0;
-  const add = fitText(T(`row.add.${tab}`), 52, 30, 160, 2);
+  const add = fitIn(T(`row.add.${tab}`), 52, 30, 160, 3); // the cyan body is 205 wide, slanted
   for (const k of at(t, `${INFO}/Weapon/Btn_Up_Wrapper/Btn_Up`).children) {
     if (k.name === "BG (1)") { bodies += 1; if (bodies === 2) k.active = false; }
     if (k.name === "Label_Locale") { labels += 1; if (labels === 2) k.active = false; else Object.assign(k.widgets[0], { text: add.text, fontSize: add.fs, w_: 200, h_: 160 }); }
@@ -310,7 +320,7 @@ function screenTree() {
   find(box, "BG/BG (1)").widgets[0].w_ = BOX_RIGHT - 126;   // ends where the first skill card of row 2 ends
   find(box, "Line/Line").widgets[0].w_ = BOX_RIGHT + 3 - 123.7;
   const boxLabel = find(box, "Label_WeaponType");
-  const row4 = fitText(T(`row.four.${tab}`), 48, 42, 150);
+  const row4 = fitIn(T(`row.four.${tab}`), 48, 42, 200); // the box's body spans -96..148, the label sits at 20
   Object.assign(boxLabel.widgets[0], { text: row4.text, fontSize: row4.fs, w_: 240, h_: 60 * row4.lines });
   boxLabel.pos = [(87.5 + BOX_RIGHT) / 2 - 183.7 - 6, -2];
   at(t, `${INFO}/Equip`).children.push(box);
