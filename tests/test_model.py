@@ -229,6 +229,55 @@ def test_glb_writer_rejects_what_is_not_finite(monkeypatch):
         glb.finish()
 
 
+# --- the hierarchy ---
+
+class _Graph:
+    """Objects by path id, read like BundleGraph."""
+
+    def __init__(self, *objects):
+        self.objects = {obj.path_id: obj for obj in objects}
+
+    def tree(self, obj):
+        return obj.tree
+
+    def deref(self, obj, pointer):
+        return self.objects.get(pointer["m_PathID"]) if obj is not None and pointer and pointer.get("m_PathID") else None
+
+    def script(self, behaviour):
+        return None
+
+
+def _object(pid, kind, **tree):
+    return SimpleNamespace(assets_file=SimpleNamespace(name="CAB-A"), path_id=pid, type=SimpleNamespace(name=kind), tree=tree)
+
+
+def _game_object(pid, name, components, children=(), active=1):
+    """A GameObject (pid), its Transform (pid + 1) and further components."""
+    ref = lambda p: {"m_FileID": 0, "m_PathID": p}  # noqa: E731
+    transform = _object(pid + 1, "Transform", m_LocalPosition={"x": 0, "y": 0, "z": 0},
+                        m_LocalRotation={"x": 0, "y": 0, "z": 0, "w": 1}, m_LocalScale={"x": 1, "y": 1, "z": 1},
+                        m_Children=[ref(c + 1) for c in children], m_GameObject=ref(pid))
+    go = _object(pid, "GameObject", m_Name=name, m_IsActive=active,
+                 m_Component=[{"component": ref(pid + 1)}] + [{"component": ref(c.path_id)} for c in components])
+    return [go, transform, *components]
+
+
+def test_visit_skips_disabled_and_hidden_renderers():
+    # an alternative face the prefab keeps disabled (ch0189) and a renderer under an inactive object
+    graph = _Graph(
+        *_game_object(1, "CH0189", [], children=(10, 20, 30)),
+        *_game_object(10, "CH0189_Face_Outline", [_object(12, "SkinnedMeshRenderer", m_Enabled=1)]),
+        *_game_object(20, "CH0189_Face01_Outline", [_object(22, "SkinnedMeshRenderer", m_Enabled=0)]),
+        *_game_object(30, "Off", [_object(32, "MeshRenderer", m_Enabled=1)], active=0),
+    )
+    exporter = model._Exporter(graph, "ch0189")
+    exporter.visit(graph.objects[1], None, "", True)
+    assert [graph.tree(go)["m_Name"] for _, _, go in exporter.renderers] == ["CH0189_Face_Outline"]
+    names = {n["name"]: n.get("extras", {}).get("hidden", False) for n in exporter.nodes}
+    # the disabled renderer's object stays a plain node (clips may move it), the inactive one is hidden
+    assert names == {"CH0189": False, "CH0189_Face_Outline": False, "CH0189_Face01_Outline": False, "Off": True}
+
+
 # --- CAB discovery ---
 
 def _unityfs(names, *, version=7, at_end=False, compress=True):

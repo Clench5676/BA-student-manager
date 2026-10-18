@@ -534,7 +534,8 @@ class _Exporter:
     def visit(self, go_obj: Any, parent: int | None, path: str, active: bool, shown: bool = True) -> None:
         """Nodes for a GameObject and its children. Inactive objects and effect nodes (particles, the EX camera and
         light) are kept for the clips but marked hidden; renderers below a hidden node are not exported, since the
-        viewer never shows them (and their effect materials sit in unrelated bundles)."""
+        viewer never shows them (and their effect materials sit in unrelated bundles). Nor are renderers the prefab
+        disables (m_Enabled 0: alternative faces, bodies and props), which the game does not draw either."""
         g = self.g
         go = g.tree(go_obj)
         transform, components = None, []
@@ -573,7 +574,7 @@ class _Exporter:
         for obj in components:
             kind = obj.type.name
             if kind in ("SkinnedMeshRenderer", "MeshRenderer"):
-                if shown:
+                if shown and g.tree(obj).get("m_Enabled", 1):
                     self.renderers.append((index, obj, go_obj))
             elif kind == "MonoBehaviour":
                 name = g.script(obj)
