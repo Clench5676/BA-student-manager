@@ -1204,7 +1204,9 @@ function showTab(id) {
 // single players: when the shown one is replaced by another variant's, a still of it holds the place meanwhile.
 const LEFT = ["portrait", "lobby", "model"];
 let shownLeft = null, shownKey = null;
-const leftKey = (part, v) => (part === "lobby" ? v.lobby : part === "model" ? v.key : null);
+// what the lobby or the model shows: the same variant of another install (game folder, file source) is another one
+const leftKey = (part, v) => (part === "lobby" ? `${v.lobby}@${fam.version}` : part === "model" ? `${v.key}@${fam.version}` : null);
+let lobbyFrom = null; // the install of the lobby in lobby.js, which keeps a lobby shown again by its core
 function renderLeft() {
   if (!open) return Promise.resolve();
   const v = variant(), my = ++leftToken, want = tab, el = $(want), key = leftKey(want, v);
@@ -1275,6 +1277,8 @@ function unfreezeLeft(now = false) {
 // Kivo when they come in time (later ones re-render the strip)
 async function showLobby(v, my) {
   const still = () => open && my === leftToken && tab === "lobby" && variantKey === v.key;
+  if (lobbyFrom !== fam.version) Lobby.hide($("lobby"));
+  lobbyFrom = fam.version;
   const m = await Lobby.show(v.lobby, $("lobby"), v.key);
   if (!m || !still()) return;
   if (fullscreen) { Lobby.frame("full"); Lobby.interactive(true); }
@@ -1299,7 +1303,7 @@ async function showModel(v, my) {
     const M = await ModelLib();
     if (!still()) return;
     const list = await M.show(v.key, $("model"), {
-      frame: fullscreen ? "full" : "left",
+      frame: fullscreen ? "full" : "left", version: fam.version,
       onAction: (a) => { if (tab === "model" && variantKey === v.key) { modelAction = a; renderExpressions(); } },
     });
     if (!list || !still()) return;
@@ -1399,7 +1403,8 @@ export async function show(context, familyData, key, { inPlace = false } = {}) {
   await ensureLayouts();
   if (g.gen !== showGen) return; // a newer show, or hide()
   const sameFamily = fam?.key === familyData.key;
-  const sameVariant = sameFamily && variantKey === key;
+  // the same variant of another install (another game folder or file source) is read again like another variant
+  const sameVariant = sameFamily && variantKey === key && fam.version === familyData.version;
   fam = familyData;
   variantKey = fam.variants.some((v) => v.key === key && v.spr) ? key : (fam.variants.find((v) => v.spr) || fam.variants[0]).key;
   setTitle(T("top.students"), () => { location.hash = "#/roster"; });
@@ -1412,12 +1417,13 @@ export async function show(context, familyData, key, { inPlace = false } = {}) {
     modelShot = null;
     modelActions = [];
     modelAction = null;
-    if (tab === "lobby" && !hasLobby(variant())) tab = "portrait";
-    if (tab === "model" && !hasModel(variant())) tab = "portrait";
     // a new portrait is loaded; the shown one stays until it is committed
     clearTimeout(blinkTimer);
     mainPlayer = null;
   }
+  // the tabs the variant has, on every show: another install may lack a part under the same variant
+  if (tab === "lobby" && !hasLobby(variant())) tab = "portrait";
+  if (tab === "model" && !hasModel(variant())) tab = "portrait";
   rpc("ui.visit", { variant: variantKey }).catch(() => {});
   // the left side starts at once, beside the panels
   await prepare(g, inPlace, async () => {

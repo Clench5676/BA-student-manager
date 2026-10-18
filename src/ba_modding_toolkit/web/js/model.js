@@ -569,9 +569,10 @@ let view = null, token = 0;
 
 // show(variantKey, host, {frame, onAction}): load and show a variant's chibi; resolves with the action names once
 // the first frame is drawn, or null when another show or a hide came first. onAction(name) follows the current
-// action when it changes by itself (a tap, a reaction ending).
-export async function show(key, host, { frame: mode = "left", onAction = null } = {}) {
-  if (view?.key === key && view.host === host) {
+// action when it changes by itself (a tap, a reaction ending). The shown view is kept for the same variant of the
+// same install (version: the game's resource version; another game folder or file source loads it again).
+export async function show(key, host, { frame: mode = "left", onAction = null, version = null } = {}) {
+  if (view?.key === key && view.host === host && view.version === version) {
     view.onAction = onAction;
     if (view.mode !== mode) view.frameTo(mode);
     return view.ready;
@@ -579,6 +580,7 @@ export async function show(key, host, { frame: mode = "left", onAction = null } 
   hide(host);
   const my = ++token;
   const v = (view = new ChibiView(host, key));
+  v.version = version;
   v.onAction = onAction;
   v.frameTo(mode); // before the load this only records the framing
   v.ready = (async () => {

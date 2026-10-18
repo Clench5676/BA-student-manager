@@ -221,6 +221,7 @@ def test_roster_and_family(app, services):
     assert fam["variants"][0]["favorite"] is True
     assert fam["variants"][0]["state"] == {"applied": "official", "crc": "ok"}
     assert fam["variants"][0]["modList"] == [{"id": "m1", "target": "hoshino", "fresh": True}]
+    assert fam["version"] == "rv1"  # the install the parts come from
 
 
 def _bundle(folder: Path, stem: str, trailing: bytes = b"") -> Path:

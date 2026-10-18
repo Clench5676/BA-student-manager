@@ -300,7 +300,10 @@ def build_api(s: Services) -> RpcRegistry:
             item["modList"] = [to_json(m) for m in mods.get(v.key, [])]
             item["modelFiles"] = model_files(v.model)
             variants.append(item)
-        return {"key": f.key, "base": f.names, "school": f.school, "variants": variants}
+        # the game's resource version tells installs apart (another game folder or file source): the page then reads
+        # every part of a variant again, even under the same variant key
+        return {"key": f.key, "base": f.names, "school": f.school, "variants": variants,
+                "version": s.game.resource_version if s.game_found() else None}
 
     warmed: dict[str, Any] = {"game": None}
     warm_lock = threading.Lock()
