@@ -7,7 +7,7 @@
 import * as NGUI from "./ngui.js";
 import * as Lobby from "./lobby.js";
 import { rpc, spineBase, waitJob } from "./api.js";
-import { L, T, platform } from "./i18n.js";
+import { L, T, language, platform } from "./i18n.js";
 import { forget, prioritise, thumb } from "./thumbs.js";
 import { setTitle } from "./nav.js";
 import {
@@ -221,7 +221,7 @@ function screenTree() {
       ? clipped("Bust", [1, 6], thumb(baseOf(c), "bust"), win, { dx: -383 + 202 - 40, dy: -67.5, w: 404, h: 404 },
         { depth: 10, mask: "linear-gradient(90deg, #000 70%, transparent 98%)" })
       // wider than the window's slanted left edge, and faded at both ends so no hard picture edge shows
-      : clipped("Bust", [1, 6], lobbyShot, win, { dx: -383 + 216, dy: 0, w: 450, h: 253 }, { depth: 10, mask: "linear-gradient(90deg, transparent 0, #000 12%, #000 66%, transparent 96%)" }));
+      : clipped("Bust", [1, 6], lobbyShot, win, { dx: -383 + 216, dy: 0, w: 450, h: 253 }, { depth: 10, mask: "linear-gradient(90deg, transparent 0, #000 10%, #000 70%, transparent 96%)" }));
   // the wrapper holds an enabled (cyan) and a disabled (grey) body and label; keep the enabled ones
   let bodies = 0, labels = 0;
   const add = fitText(T(`row.add.${tab}`), 52, 30, 160, 2);
@@ -512,14 +512,21 @@ async function renderChips() {
 }
 
 // --- row 4: a box, then cards on the columns of row 2's skill cards, the pile in the button column ---
-function stripCard(name, x, { w = CARD.w, h = CARD.h, thumb: pic = null, selected = false, dim = false, caption = "", tone = "#ffffff" } = {}) {
+function stripCard(name, x, { w = CARD.w, h = CARD.h, thumb: pic = null, selected = false, dim = false, caption = "", body = "", tone = "#ffffff" } = {}) {
   const vis = h - 13, cy = 6.5; // the visible body's centre sits 6.5 units above the widget's centre
   const kids = [node("Line", [1, cy], [sprite("Common_Line_Raius20px", w - 10, vis, { incline: 10, depth: 9, color: "#bebebe/1.00" })])];
-  if (pic) kids.push(node("Thumb", [1, cy], [{ clipImage: pic, w_: w - 18, h_: vis - 8, pivot: 4, depth: 8, incline: 10, radius: 16, color: "#ffffff/1.00", imgSize: "cover", imgPosition: "center 22%" }]));
+  if (pic) kids.push(node("Thumb", [1, cy], [{ clipImage: pic, w_: w - 18, h_: vis - 8, pivot: 4, depth: 8, incline: 10, radius: 16, color: "#ffffff/1.00", imgSize: "cover", imgPosition: "center 50%" }]));
   if (dim) kids.push(node("Dim", [1, cy], [sprite("Common_Bg_Raius20px", w - 12, vis - 4, { incline: 10, depth: 10, color: "#000000/0.50" })]));
   if (caption) {
     const f = fitText(caption, 56, 28, w - 50);
     kids.push(node("Caption", [0, cy], [label(f.text, f.fs, dim ? "#ffffff/1.00" : "#2c4564/1.00", w - 30, f.fs * 1.3 * f.lines, { depth: 12 })]));
+  }
+  if (body) {
+    // a dialogue line: centred on the card, as large as fits in up to four lines; a longer line ends in an ellipsis
+    // (the subtitle shows it in full)
+    let f = fitText(body, 40, 32, w - 52, 4), cut = body;
+    while (f.lines === 1 && glyphsOf(f.text, f.fs) > w - 52 && cut.length > 4) { cut = cut.slice(0, -2); f = fitText(`${cut}…`, 40, 32, w - 52, 4); }
+    kids.push(node("Body", [0, cy], [label(f.text, f.fs, "#2c4564/1.00", w - 40, f.fs * 1.3 * f.lines, { depth: 12 })]));
   }
   if (selected) kids.push(node("Select", [1, cy], [sprite("Card_Select_Line_Blue", w + 6, vis + 8, { incline: 10, depth: 20 })],
     [node("Check", [w / 2 - 30 + (vis / 2 - 26) * TAN10, vis / 2 - 26], [sprite("Common_Icon_Check_B", 56, 54, { type: 0, depth: 21 })])]));
@@ -528,7 +535,13 @@ function stripCard(name, x, { w = CARD.w, h = CARD.h, thumb: pic = null, selecte
 
 // row 4 per tab: the portrait's faces, the memorial lobby's dialogues
 function row4Items() {
-  if (tab === "lobby") return (Lobby.meta()?.sequences || []).map((sq) => ({ key: sq.anim, thumb: talkCard(sq.n), title: String(sq.n) }));
+  if (tab === "lobby") {
+    // the lines from Kivo when they could be read, else a numbered speech bubble
+    return (Lobby.meta()?.sequences || []).map((sq) => {
+      const text = Lobby.textOf(sq).join(" ");
+      return text ? { key: sq.anim, body: text, title: text } : { key: sq.anim, thumb: talkCard(sq.n), title: String(sq.n) };
+    });
+  }
   if (tab === "model") return [];
   const base = baseOf(current());
   const names = mainPlayer?.skeleton ? mainPlayer.skeleton.data.animations.map((a) => a.name).filter((n) => /^\d{2}$/.test(n)).sort() : [];
@@ -554,7 +567,7 @@ async function renderExpressions() {
   const my = ++exprToken;
   const host = $("ngui-expr");
   const list = row4Items(), sel = row4Selected();
-  const cardOf = (it, x, extra = {}) => stripCard(`Item_${it.key}`, x, { thumb: it.thumb, selected: it.key === sel, ...extra });
+  const cardOf = (it, x, extra = {}) => stripCard(`Item_${it.key}`, x, { thumb: it.thumb, body: it.body, selected: it.key === sel, ...extra });
   const cards = [];
   if (expanded || list.length <= 4) {
     list.forEach((it, i) => cards.push({ tree: cardOf(it, COLS[0] + i * PITCH), item: it }));
@@ -1038,24 +1051,40 @@ function renderLeft() {
   if (tab === "portrait") { if (!mainPlayer) loadSpine(baseOf(current())); }
   else disposePortrait();
   if (tab === "lobby") {
-    Lobby.show(v.lobby, $("lobby")).then(async (m) => {
+    Lobby.show(v.lobby, $("lobby"), v.key).then(async (m) => {
       if (!m || tab !== "lobby") return;
-      Lobby.frame(fullscreen ? "full" : "left");
+      if (fullscreen) Lobby.frame("full");
       renderExpressions();
-      await new Promise((r) => setTimeout(r, 400));
-      lobbyShot = snapshotLobby();
-      renderScreen();
+      // lines and voices from Kivo; the Chinese UIs show the Chinese text, the others the original Japanese
+      rpc("lobby.lines", { variant: v.key }).then((table) => {
+        const pick = (l) => (language().startsWith("zh") ? l?.["zh-CN"] || l?.ja : l?.ja || l?.["zh-CN"]) || "";
+        Lobby.setLines(table, pick, ctx.info?.mute);
+        if (tab === "lobby" && variantKey === v.key) renderExpressions();
+      }).catch(() => Lobby.setLines({}, null, ctx.info?.mute));
+      // the still is taken in the left framing, once the players have drawn a few frames of it
+      if (!lobbyShot && !fullscreen) {
+        await new Promise((r) => { let n = 4; const step = () => (--n ? requestAnimationFrame(step) : r()); requestAnimationFrame(step); });
+        if (tab !== "lobby" || fullscreen) return;
+        lobbyShot = snapshotLobby();
+        renderScreen();
+      }
     });
   } else Lobby.hide($("lobby"));
 }
-// a still of the lobby as shown, for the switch card
+// a still of the lobby for the switch card, framed on the character: in the left framing the head-pat point sits at
+// 28 % across and 34 % down the stage (lobby.js viewOf); the crop is centred right of and below it, so the face lands
+// in the part of the card the title does not cover
 function snapshotLobby() {
   const canvases = [...$("lobby").querySelectorAll(".lobby-view canvas")];
   if (!canvases.length) return null;
+  const W = canvases[0].width, H = canvases[0].height;
+  const cw = W * 0.5, ch = cw * (253 / 450);
+  const x0 = Math.max(0, Math.min(W - cw, W * 0.35 - cw / 2)), y0 = Math.max(0, Math.min(H - ch, H * 0.44 - ch / 2));
   const c = document.createElement("canvas");
-  c.width = 960; c.height = 540;
+  c.width = 900; c.height = Math.round(900 * (253 / 450));
   const g = c.getContext("2d");
-  for (const src of canvases) g.drawImage(src, 0, 0, c.width, c.height);
+  g.imageSmoothingQuality = "high";
+  for (const src of canvases) g.drawImage(src, x0, y0, cw, ch, 0, 0, c.width, c.height);
   return new Promise((resolve) => c.toBlob((b) => resolve(b ? URL.createObjectURL(b) : null)));
 }
 

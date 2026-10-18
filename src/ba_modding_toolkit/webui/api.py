@@ -70,6 +70,7 @@ def build_api(s: Services) -> RpcRegistry:
             "dataDir": str(s.data_dir),
             "native": s.window is not None,
             "compiled": updater.is_compiled(),
+            "mute": s.mute,
         }
 
     @rpc.method("app.consent")
@@ -163,6 +164,13 @@ def build_api(s: Services) -> RpcRegistry:
             item["modList"] = [to_json(m) for m in mods.get(v.key, [])]
             variants.append(item)
         return {"key": f.key, "base": f.names, "school": f.school, "variants": variants}
+
+    @rpc.method("lobby.lines")
+    def lobby_lines(variant: str) -> dict[str, Any]:
+        """The memorial lobby's lines by voice clip, from Kivo (``lines_unavailable`` offline)."""
+        v = s.catalog.variant(variant)
+        lines = s.kivo.lines(v.page_id or "")
+        return {clip: {"zh-CN": line["zh-CN"], "ja": line["ja"], "voice": bool(line["audio"])} for clip, line in lines.items()}
 
     @rpc.method("favorites.set")
     def favorites_set(variant: str, on: bool) -> None:

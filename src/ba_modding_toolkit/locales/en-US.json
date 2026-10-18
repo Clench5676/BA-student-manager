@@ -970,7 +970,8 @@
 			"update_download_failed": "Could not download the update",
 			"update_checksum_mismatch": "The update failed its checksum",
 			"update_unavailable": "This release has no build for this device",
-			"update_unsupported": "This build cannot update itself"
+			"update_unsupported": "This build cannot update itself",
+			"lines_unavailable": "Lines are not available right now"
 		},
 		"drop": {
 			"hint": "Drop mod files to add them"

@@ -1,12 +1,14 @@
 // Memorial lobby for the detail screen's second tab. The lobby bundle's own skeletons (background layers, then the
 // character) play their idle tracks; the view is framed so the head-pat point (Touch_Point bone) sits at the
 // left-centre of the stage, and the right side fades into a frosted blur behind the panel. Dialogue sequences play
-// the talk animations (Talk_NN_M with Talk_NN_A). Where the view reaches past the lobby's painted area, the lobby's own
-// edge colours are stretched outwards and blurred, so the lobby never runs into an unrelated picture.
-// Everything about a lobby is read from its skeletons at load time.
+// the talk animations (Talk_NN_M with Talk_NN_A), their voices and a subtitle. Where the view reaches past the lobby's
+// painted area, the lobby's own edge colours are stretched outwards and blurred, so the lobby never runs into an
+// unrelated picture. The frame and the sequences are read from the skeletons at load time; the lines and voices come
+// from Kivo (setLines), matched by the voice clip names the talk animations carry as Spine events.
 import { spineFiles } from "./api.js";
 
 let players = [], current = null, mode = "left", extendTimer = null, chain = null, token = 0;
+let lines = {}, muted = false, cueTimers = [], audios = [], subtitleTimer = null, lineOf = (l) => l?.["zh-CN"] || "";
 
 const base = (core) => `/asset/spine/lobby/${encodeURIComponent(core)}/`;
 
@@ -19,6 +21,9 @@ async function layersOf(core) {
   return skels.filter((n) => atlases.has(n)).sort((a, b) => isBg(b) - isBg(a) || a.localeCompare(b))
     .map((n) => ({ name: n, role: isBg(n) ? "background" : "character", spine: `${base(core)}${encodeURIComponent(n)}` }));
 }
+
+// voice clip names as Kivo keys them: "Images/sound/Hoshino_MemorialLobby_3_1.ogg" -> "hoshino_memoriallobby_3_1"
+const clipId = (name) => name.toLowerCase().replace(/\\/g, "/").split("/").pop().replace(/\.(ogg|wav|mp3)$/, "").replace(/_new$/, "");
 
 // the lobby's frame and talk sequences, measured on the character skeleton in its setup pose
 function measure(character) {
@@ -35,7 +40,12 @@ function measure(character) {
     .filter(Boolean)
     .map((m) => {
       const anim = m[0], sync = `Talk_${m[1]}_A`;
-      return { anim, sync: data.findAnimation(sync) ? sync : null, n: Number(m[1]), duration: data.findAnimation(anim).duration };
+      const a = data.findAnimation(anim);
+      // the voice clips: events named after them (e.g. "Images/sound/Hoshino_MemorialLobby_1"), with their times
+      const cues = a.timelines.filter((tl) => tl instanceof spine.EventTimeline).flatMap((tl) => tl.events)
+        .filter((e) => /memoriallobby/i.test(e.data.name)).map((e) => ({ t: e.time, clip: clipId(e.data.name) }))
+        .sort((x, y) => x.t - y.t);
+      return { anim, sync: data.findAnimation(sync) ? sync : null, n: Number(m[1]), duration: a.duration, cues };
     })
     .sort((a, b) => a.n - b.n);
   return {
@@ -132,14 +142,14 @@ function feather(view) {
 }
 
 // show(core, host) -> Promise<meta> (frame, sequences); resolves once every layer is in
-export async function show(core, host) {
+export async function show(core, host, variant) {
   if (current?.core === core && players.length) return current.ready;
   hide(host);
   const my = ++token;
-  host.innerHTML = '<canvas class="lobby-extend"></canvas><div class="lobby-view"></div><div class="lobby-frost"></div>';
+  host.innerHTML = '<canvas class="lobby-extend"></canvas><div class="lobby-view"></div><div class="lobby-frost"></div><div class="lobby-subtitle" hidden></div>';
   const ext = host.querySelector(".lobby-extend"), viewHost = host.querySelector(".lobby-view");
   ext.width = EXT_W; ext.height = EXT_H;
-  current = { core, meta: null };
+  current = { core, variant, meta: null };
   current.ready = (async () => {
     const layers = await layersOf(core);
     if (my !== token || !layers.length) return null;
@@ -169,17 +179,29 @@ export function hide(host) {
   current = null;
   clearInterval(extendTimer);
   chain = null;
+  silence();
+  clearTimeout(subtitleTimer);
   if (host) host.innerHTML = "";
 }
 
-// a dialogue sequence: the talk animation and its sync on tracks 1 and 2, then back to idle; starts at once.
-// The game's voices and subtitles are not read yet, so dialogue plays silently.
+// a dialogue sequence: the talk animation and its sync on tracks 1 and 2, its voices on their cue times, the subtitle;
+// then back to idle. Starts at once, cutting off whatever was playing.
 export function play(anim, { fromChain = false } = {}) {
   if (!current?.meta) return null;
   if (!fromChain) chain = null;
   const seq = current.meta.sequences.find((s) => s.anim === anim);
   const character = players[players.length - 1];
   if (!seq || !character?.animationState) return null;
+  silence();
+  for (const cue of muted ? [] : seq.cues) {
+    if (!lines[cue.clip]?.voice) continue;
+    cueTimers.push(setTimeout(() => {
+      const a = new Audio(`/asset/voice/${encodeURIComponent(current.variant)}/${encodeURIComponent(cue.clip)}.ogg`);
+      audios.push(a);
+      a.play().catch(() => {});
+    }, cue.t * 1000));
+  }
+  subtitle(textOf(seq), seq.duration);
   const state = character.animationState;
   state.setAnimation(1, seq.anim, false).mixDuration = 0.25;
   if (seq.sync) state.setAnimation(2, seq.sync, false).mixDuration = 0.25;
@@ -188,9 +210,11 @@ export function play(anim, { fromChain = false } = {}) {
   return seq;
 }
 
-// stop at once: talk tracks fade back to idle
+// stop at once: talk tracks fade back to idle, voices and subtitle go
 export function stop() {
   chain = null;
+  silence();
+  subtitle([], 0);
   const character = players[players.length - 1];
   if (character?.animationState) {
     character.animationState.setEmptyAnimation(1, 0.25);
@@ -215,3 +239,39 @@ export function playAll(onStep, onEnd) {
 }
 export const playingAll = () => !!chain;
 export const meta = () => current?.meta || null;
+
+function silence() {
+  for (const t of cueTimers) clearTimeout(t);
+  cueTimers = [];
+  for (const a of audios) a.pause();
+  audios = [];
+}
+
+// lines by clip id ({clip: {"zh-CN", ja, voice}}) and the language picker for them; muted never plays voices
+export function setLines(table, pick, mute) {
+  lines = table || {};
+  if (pick) lineOf = pick;
+  muted = !!mute;
+}
+// a sequence's lines, one per voice clip
+export const textOf = (seq) => seq.cues.map((c) => lineOf(lines[c.clip])).filter(Boolean);
+
+// subtitles leave upwards and the next one rises in from below
+function subtitle(textLines, duration) {
+  const box = document.querySelector(".lobby-subtitle");
+  if (!box) return;
+  clearTimeout(subtitleTimer);
+  const showNew = () => {
+    box.textContent = textLines.join("\n");
+    box.hidden = !textLines.length;
+    box.classList.remove("out");
+    box.classList.add("in");
+    requestAnimationFrame(() => requestAnimationFrame(() => box.classList.remove("in")));
+    if (textLines.length) subtitleTimer = setTimeout(() => subtitle([], 0), (duration || 6) * 1000 + 300);
+  };
+  if (!box.hidden && box.textContent) {
+    box.classList.add("out");
+    subtitleTimer = setTimeout(() => { box.hidden = true; if (textLines.length) showNew(); }, 260);
+  } else if (textLines.length) showNew();
+  else box.hidden = true;
+}

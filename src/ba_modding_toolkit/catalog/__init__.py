@@ -159,7 +159,7 @@ class Catalog:
                               entry["order"], core, next(iter(homes), None),
                               art.get("bg", {}).get((entry.get("bg") or "").lower()),
                               art.get("portrait", {}).get((entry.get("portrait") or "").lower()),
-                              max(filter(None, dates), default=None))
+                              max(filter(None, dates), default=None), entry.get("page_id") or None)
             family.variants.append(variant)
             variants[key] = variant
             cores[core.lower()] = variant

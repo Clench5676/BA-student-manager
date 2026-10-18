@@ -970,7 +970,8 @@
 			"update_download_failed": "下载更新失败",
 			"update_checksum_mismatch": "更新文件校验失败",
 			"update_unavailable": "此版本没有适用于本机的安装包",
-			"update_unsupported": "当前版本不支持在线更新"
+			"update_unsupported": "当前版本不支持在线更新",
+			"lines_unavailable": "暂时读不到台词"
 		},
 		"drop": {
 			"hint": "拖入 Mod 文件以添加"

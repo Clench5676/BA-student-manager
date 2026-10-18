@@ -20,6 +20,7 @@ class Variant:
     bg: str | None
     portrait: str | None
     date: str | None
+    page_id: str | None = None  # the student page on Kivo (kivo.wiki), for lobby lines
 
     def to_json(self) -> dict:
         """Return an independent JSON-ready record for RPC responses."""

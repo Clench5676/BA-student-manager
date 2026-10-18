@@ -39,12 +39,14 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--serve", action="store_true", help="only run the server (for development tools)")
     parser.add_argument("--port", type=int, default=0)
     parser.add_argument("--token", help="a fixed session token instead of a random one (development only)")
+    parser.add_argument("--mute", action="store_true", help="never play voices (development and tests)")
     parser.add_argument("--debug", action="store_true")
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.DEBUG if args.debug else logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
     s, server = build(args.port, token=args.token)
+    s.mute = args.mute
     server.start()
     stop = threading.Event()
     threading.Thread(target=_watch_config, args=(s, stop), name="bamt-config", daemon=True).start()

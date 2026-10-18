@@ -68,6 +68,7 @@ async function boot() {
   fitStage();
   addEventListener("resize", fitStage);
   info = await rpc("app.info");
+  ctx.info = info;
   setStrings(info.language, await rpc("i18n.strings", { lang: info.language }));
   document.title = T("top.students");
   await document.fonts.ready;

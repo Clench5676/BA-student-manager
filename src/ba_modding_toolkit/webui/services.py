@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from ..config import Settings, user_cache_dir
+from ..kivo import Kivo
 from ..errors import ServiceError
 from ..utils import EXE_DIR
 from .events import EventBus
@@ -33,6 +34,8 @@ class Services:
         self.state = state or UiState(self.data_dir / "webui.json")
         self.window: Any = None  # the pywebview window, when there is one (see native.py)
         self.update_info: Any = None  # the last update check's result
+        self.kivo = Kivo()
+        self.mute = False  # development: never play voices
         self._lock = threading.RLock()
         self._cache, self._game, self._catalog, self._library = cache, game, catalog, library
         self._injected = {k for k, v in (("game", game), ("catalog", catalog), ("library", library)) if v is not None}
@@ -115,6 +118,10 @@ class Services:
                 return AssetResponse(self.game.collection_portrait(_stem(parts[2])), "image/png", light=False)
         if kind == "spine" and len(parts) == 4:
             return self._spine_asset(parts[1], parts[2], parts[3])
+        if kind == "voice" and len(parts) == 3:
+            # a memorial lobby voice clip from Kivo, relayed so it is never cached
+            variant = self.catalog.variant(parts[1])
+            return AssetResponse(self.kivo.audio(variant.page_id or "", _stem(parts[2])), "audio/ogg", light=False)
         raise KeyError(path)
 
     def _ui_asset(self, parts: list[str], query: dict[str, str]) -> AssetResponse:
@@ -157,7 +164,7 @@ class Services:
 
 
 def _stem(name: str) -> str:
-    for suffix in (".png", ".jpg", ".json"):
+    for suffix in (".png", ".jpg", ".json", ".ogg"):
         if name.endswith(suffix):
             return name[: -len(suffix)]
     return name
