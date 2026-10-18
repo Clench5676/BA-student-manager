@@ -569,3 +569,19 @@ def test_real_spine_files_and_pages_stay_in_memory(real_game, kind, core):
         for page in pages:
             assert files[page].startswith(b"\x89PNG")
     assert set(real_game.cache.root.rglob("*.cache")) == before
+
+
+@real_install
+def test_real_loading_screen(real_game):
+    images = real_game.loading_images()
+    assert images.get("en") and images.get("tw")
+    assert real_game.loading_list("zh-CN")["lang"] == "tw"
+    assert real_game.loading_list("en-US")["lang"] == "en"
+    entry = real_game.loading_list("en-US")["images"][0]
+    before = {p: p.stat().st_mtime_ns for p in real_game.cache.root.rglob("*") if p.is_file()}
+    image = Image.open(BytesIO(real_game.loading_image(entry["name"])))
+    assert image.format == "JPEG" and image.size == (entry["w"], entry["h"])
+    after = {p: p.stat().st_mtime_ns for p in real_game.cache.root.rglob("*") if p.is_file()}
+    assert before == after  # game art: never written to the disk cache
+    for root, child in (("UILoading", "LoadingImage"), ("UIRepeater", "Widget")):
+        assert child in [c["name"] for c in real_game.layout(root)["children"]]
