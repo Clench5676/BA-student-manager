@@ -36,7 +36,7 @@ def reveal(path: str | Path) -> None:
             subprocess.run(["open", "-R", str(p)] if p.is_file() else ["open", str(p)], check=True)
         elif _is_wsl():
             win = subprocess.run(["wslpath", "-w", str(p)], capture_output=True, text=True, check=True).stdout.strip()
-            subprocess.Popen(f'explorer.exe /select,"{win}"' if p.is_file() else f'explorer.exe "{win}"')
+            subprocess.Popen(["explorer.exe", f"/select,{win}"] if p.is_file() else ["explorer.exe", win])
         else:
             subprocess.run(["xdg-open", str(p.parent if p.is_file() else p)], check=True)
     except (OSError, subprocess.CalledProcessError) as e:

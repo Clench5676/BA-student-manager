@@ -39,7 +39,7 @@ def _one_line(text: str | None) -> str:
     if not text:
         return ""
     text = re.sub(r"\s*\n\s*", "", text).strip()
-    return re.sub(r"(?<=[^\x00-\x7f])[ 　]+(?=[^\x00-\x7f])", "", text)
+    return re.sub(r"(?<=[^\x00-\x7f])[ \u3000]+(?=[^\x00-\x7f])", "", text)
 
 
 def lobby_lines(page: dict[str, Any]) -> dict[str, dict[str, str]]:

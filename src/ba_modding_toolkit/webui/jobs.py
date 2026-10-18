@@ -71,8 +71,12 @@ class JobRunner:
         with self._lock:
             return any(j.state in ("queued", "running") for j in self._jobs.values())
 
-    def shutdown(self) -> None:
+    def shutdown(self, wait: float | None = None) -> None:
+        """Stop after the queued jobs; with ``wait``, block up to that many seconds for them (a job writing into the
+        game folder must not be cut off by the app exiting)."""
         self._queue.put(None)
+        if wait is not None and self._thread.is_alive():
+            self._thread.join(wait)
 
     def _run(self) -> None:
         while True:

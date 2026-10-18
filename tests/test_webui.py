@@ -285,3 +285,47 @@ def test_ui_strings_fall_back_key_by_key():
     assert set(zh) == set(en)
     assert all("·" not in v and "・" not in v for v in zh.values())
     assert ui_strings("zh-TW")["webui.tab.lobby"] == "记忆大厅"  # falls back to zh-CN until zh-TW exists
+
+
+def test_cookie_found_among_unparsable_cookies(app):
+    _, headers, _ = call(app, "/?t=tok", token=None)
+    ours = headers["Set-Cookie"].split(";")[0]
+    status, _, _ = call(app, "/api/rpc", "POST", {"method": "app.info"}, token=None, cookie=f'junk="a;b; x=[1]; {ours}')
+    assert status == "200 OK"
+
+
+def test_non_ascii_token_is_refused_not_crashed(app):
+    assert call(app, "/api/rpc", "POST", {"method": "app.info"}, token="星野")[0] == "403 Forbidden"
+    assert call(app, "/?t=星野", token=None)[0] == "403 Forbidden"
+
+
+def test_install_update_needs_the_window_and_the_verified_download(app, services, tmp_path):
+    assert rpc(app, "app.installUpdate", file=str(tmp_path / "x.dmg"))["error"]["code"] == "update_unsupported"
+
+
+def test_settings_change_waits_for_the_running_job(services):
+    gate = threading.Event()
+    library = services.library
+    job = services.jobs.submit("slow", lambda log, progress: gate.wait(5))
+    deadline = time.monotonic() + 5
+    while not services.jobs.busy() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    services._injected.discard("library")
+    services._on_settings_changed()
+    assert services._library is library  # not swapped while the job runs
+    gate.set()
+    while services.jobs.get(job).state != "done" and time.monotonic() < deadline:
+        time.sleep(0.01)
+    services._refresh_if_idle()
+    assert services._library is None
+
+
+def test_every_service_error_has_a_string():
+    import re
+    root = Path(__file__).resolve().parents[1] / "src" / "ba_modding_toolkit"
+    codes = set()
+    for path in root.rglob("*.py"):
+        codes |= set(re.findall(r'ServiceError\("([a-z_]+)"', path.read_text(encoding="utf-8")))
+    for lang in ("zh-CN", "en-US"):
+        strings = ui_strings(lang)
+        assert not [c for c in sorted(codes) if f"webui.error.{c}" not in strings], lang

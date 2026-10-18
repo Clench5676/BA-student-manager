@@ -55,6 +55,7 @@ class Services:
 
     @property
     def game(self) -> Any:
+        self._refresh_if_idle()
         with self._lock:
             if self._game is None:
                 dirs = self.settings.resource_dirs()
@@ -74,6 +75,7 @@ class Services:
 
     @property
     def catalog(self) -> Any:
+        self._refresh_if_idle()
         with self._lock:
             if self._catalog is None:
                 from ..catalog import Catalog
@@ -84,6 +86,7 @@ class Services:
 
     @property
     def library(self) -> Any:
+        self._refresh_if_idle()
         with self._lock:
             if self._library is None:
                 from ..library import ModLibrary
@@ -160,12 +163,21 @@ class Services:
         self._on_settings_changed()
 
     def _on_settings_changed(self) -> None:
-        # a new game folder means new game-backed services
+        # a new game folder means new game-backed services; while a job runs they are swapped once it is done, so the
+        # job never shares the library with a second instance
         with self._lock:
+            self._stale = True
+        self._refresh_if_idle()
+        self.events.publish("config.changed")
+
+    def _refresh_if_idle(self) -> None:
+        with self._lock:
+            if not getattr(self, "_stale", False) or self.jobs.busy():
+                return
+            self._stale = False
             for name in ("game", "catalog", "library"):
                 if name not in self._injected:
                     setattr(self, f"_{name}", None)
-        self.events.publish("config.changed")
 
     def set_consent(self, granted: bool) -> None:
         self.state.set_consent(granted)
@@ -222,13 +234,15 @@ class Services:
             suffix = Path(name).suffix
             if Path(name).stem == "skeleton":
                 matches = [k for k in files if k.endswith(suffix)]
-                data = files[matches[0]] if len(matches) == 1 else None
+                named = [k for k in matches if Path(k).stem.lower() == key.lower()]
+                pick = named or (matches if len(matches) == 1 else [])
+                data = files[pick[0]] if pick else None
         if data is None:
             raise KeyError(name)
         return AssetResponse(data, MIME.get(Path(name).suffix, "application/octet-stream"), light=False)
 
-    def close(self) -> None:
-        self.jobs.shutdown()
+    def close(self, wait: float | None = 600.0) -> None:
+        self.jobs.shutdown(wait=wait)
         self.events.close()
 
 

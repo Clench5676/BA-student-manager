@@ -10,7 +10,6 @@ import secrets
 import socketserver
 import threading
 from dataclasses import dataclass
-from http.cookies import SimpleCookie
 from pathlib import Path
 from typing import Any, Callable, Iterable
 from urllib.parse import parse_qs, unquote
@@ -67,7 +66,7 @@ class WebApp:
 
         if not self._host_ok(environ):
             return self._text(start_response, "403 Forbidden", "forbidden")
-        if path == "/" and hmac.compare_digest(query.get("t", ""), self.token):
+        if path == "/" and self._same(query.get("t", "")):
             # first load: remember the token in a cookie and drop it from the address
             return self._respond(start_response, "303 See Other", b"", "text/plain",
                                  [("Location", "/"), ("Set-Cookie", self._cookie())])
@@ -96,17 +95,21 @@ class WebApp:
     def _cookie(self) -> str:
         return f"{self._cookie_name()}={self.token}; Path=/; HttpOnly; SameSite=Strict"
 
+    def _same(self, value: str) -> bool:
+        # compare bytes: compare_digest refuses non-ASCII str
+        return hmac.compare_digest(value.encode("utf-8", "surrogateescape"), self.token.encode("utf-8"))
+
     def _token_ok(self, environ: dict) -> bool:
         header = environ.get("HTTP_X_BAMT_TOKEN", "")
-        if header and hmac.compare_digest(header, self.token):
+        if header and self._same(header):
             return True
-        cookie = SimpleCookie()
-        try:
-            cookie.load(environ.get("HTTP_COOKIE", ""))
-        except Exception:
-            return False
-        morsel = cookie.get(self._cookie_name())
-        return morsel is not None and hmac.compare_digest(morsel.value, self.token)
+        # split the Cookie header by hand: one unparsable cookie from another local page must not hide ours
+        name = self._cookie_name()
+        for part in environ.get("HTTP_COOKIE", "").split(";"):
+            key, sep, value = part.strip().partition("=")
+            if sep and key == name and self._same(value.strip().strip('"')):
+                return True
+        return False
 
     def _host_ok(self, environ: dict) -> bool:
         host = environ.get("HTTP_HOST", "")

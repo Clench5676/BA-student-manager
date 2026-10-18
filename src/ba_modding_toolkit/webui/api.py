@@ -75,7 +75,7 @@ def build_api(s: Services) -> RpcRegistry:
     @rpc.method("app.consent")
     def app_consent(granted: bool) -> None:
         s.set_consent(bool(granted))
-        if not granted and s.window is not None:
+        if not granted and s.window is not None and not s.jobs.busy():
             s.window.destroy()
 
     @rpc.method("app.openClassic")
@@ -95,7 +95,13 @@ def build_api(s: Services) -> RpcRegistry:
         if info is None or not info.installable:
             raise ServiceError("update_unsupported")
         dest = Path(tempfile.mkdtemp(prefix="bamt-update-"))
-        return s.jobs.submit("update.download", lambda log, progress: {"file": str(updater.download(info, dest, progress))})
+
+        def download(log: Any, progress: Any) -> dict[str, str]:
+            path = updater.download(info, dest, progress)
+            s.update_file = (path, updater.md5_of(path))  # what installUpdate may swap in
+            return {"file": str(path)}
+
+        return s.jobs.submit("update.download", download)
 
     @rpc.method("app.openReleasePage")
     def app_open_release_page() -> None:
@@ -106,24 +112,31 @@ def build_api(s: Services) -> RpcRegistry:
 
     @rpc.method("app.installUpdate")
     def app_install_update(file: str) -> None:
-        info = getattr(s, "update_info", None)
-        path = Path(file)
-        # only the build this session downloaded and verified
-        if info is None or info.asset is None or path.name != info.asset.name or not path.is_file():
+        # only the build this session downloaded and verified, only in the app window (it has to quit to be
+        # replaced), and never while a job writes into the game folder
+        downloaded = getattr(s, "update_file", None)
+        if s.window is None:
+            raise ServiceError("update_unsupported")
+        if downloaded is None or Path(file) != downloaded[0] or not downloaded[0].is_file():
             raise ServiceError("update_unavailable")
-        updater.install(path)
-        if s.window is not None:
-            s.window.destroy()
+        if s.jobs.busy():
+            raise ServiceError("busy")
+        updater.install(downloaded[0], downloaded[1])
+        s.window.destroy()
 
     # --- settings (the popup behind the top bar's settings button) ---
 
-    LANGUAGES = {"zh-CN": "简体中文", "en-US": "English"}  # each shown in its own language
+    LANGUAGES = ("zh-CN", "en-US")
+
+    def language_name(code: str) -> str:
+        # each language is named in itself (webui.languageName of its own locale file)
+        return ui_strings(code).get("webui.languageName", code)
 
     @rpc.method("settings.get")
     def settings_get() -> dict[str, Any]:
         st = s.settings
         return {
-            "language": i18n_manager.lang, "languages": [{"code": c, "name": n} for c, n in LANGUAGES.items()],
+            "language": i18n_manager.lang, "languages": [{"code": c, "name": language_name(c)} for c in LANGUAGES],
             "fileSource": st.get("file_source"),
             "gameDirs": {"global": st.get("game_resource_dir"), "japan": st.get("game_resource_dir_japan")},
             "gameFound": s.game_found(), "libraryDir": str(s.library_dir()), "outputDir": st.get("output_dir"),
@@ -298,14 +311,19 @@ def build_api(s: Services) -> RpcRegistry:
         return result
 
     @rpc.method("actions.apply")
-    def actions_apply(variant: str, source: str) -> str:
+    def actions_apply(variant: str, source: str, kind: str = "spr") -> str:
+        """Put a source on the variant's portrait ("spr") or memorial lobby ("lobby") game files."""
+        if kind not in ("spr", "lobby"):
+            raise ServiceError("bad_params", kind=kind)
         return s.jobs.submit("apply", lambda log, progress, **p: after_change(s.library.apply(log=log, progress=progress, **p)),
-                             variant_key=variant, source=source)
+                             variant_key=variant, source=source, kind=kind)
 
     @rpc.method("actions.restore")
-    def actions_restore(variant: str) -> str:
+    def actions_restore(variant: str, kind: str = "spr") -> str:
+        if kind not in ("spr", "lobby"):
+            raise ServiceError("bad_params", kind=kind)
         return s.jobs.submit("restore", lambda log, progress, **p: after_change(s.library.restore(log=log, **p)),
-                             variant_key=variant)
+                             variant_key=variant, kind=kind)
 
     @rpc.method("actions.update")
     def actions_update(mod: str) -> str:

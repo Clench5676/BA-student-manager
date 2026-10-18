@@ -92,8 +92,16 @@ def _run_window(s: Services, server: Server, debug: bool) -> None:
         except Exception:
             logger.exception("drag and drop is unavailable")
 
+    def on_closing() -> bool:
+        # a job may be writing into the game folder: keep the window until it is done
+        if s.jobs.busy():
+            s.events.publish("app.busy")
+            return False
+        return True
+
     window.events.initialized += on_initialized
     window.events.loaded += on_loaded
+    window.events.closing += on_closing
     storage = s.data_dir / "webview"  # never next to the program in a compiled build: data_dir follows EXE_DIR rules
     webview.start(debug=debug, private_mode=True, storage_path=str(storage))
 
