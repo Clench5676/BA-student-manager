@@ -24,6 +24,8 @@ from .services import Services
 from .system import open_classic, reveal
 
 logger = logging.getLogger(__name__)
+trace_logger = logging.getLogger("ba_modding_toolkit.webui.trace")
+TRACE_BATCH, TRACE_LINE = 100, 600  # events per debug.trace call, characters per logged event
 UI_LANGS = ("zh-CN", "zh-TW", "en-US", "ja-JP")
 LINE_LANGS = {"zh-CN": "zh-CN", "zh-TW": "zh-TW", "en-US": "en", "ja-JP": "ja"}  # UI language -> lobby lines key
 
@@ -100,6 +102,7 @@ def build_api(s: Services) -> RpcRegistry:
             "native": s.window is not None,
             "compiled": updater.is_compiled(),
             "mute": s.mute,
+            "debug": s.debug,
         }
 
     @rpc.method("app.consent")
@@ -239,6 +242,16 @@ def build_api(s: Services) -> RpcRegistry:
     @rpc.method("settings.clearCache")
     def settings_clear_cache() -> None:
         s.cache.clear()
+
+    @rpc.method("debug.trace")
+    def debug_trace(events: list[Any]) -> None:
+        """Input events of the fullscreen lobby, logged when the app was started with --debug (a user's trackpad
+        reproduces once and the log tells what the page received)."""
+        if not s.debug or not isinstance(events, list):
+            return
+        for event in events[:TRACE_BATCH]:
+            line = json.dumps(event, ensure_ascii=True, separators=(",", ":"), default=str)
+            trace_logger.info("%s", line[:TRACE_LINE])
 
     @rpc.method("i18n.strings")
     def i18n_strings(lang: str | None = None) -> dict[str, str]:

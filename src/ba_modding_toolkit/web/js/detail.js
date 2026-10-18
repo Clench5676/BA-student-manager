@@ -1402,6 +1402,8 @@ async function ensureLayouts() {
 export function applyPrefs(prefs) {
   Lobby.setVolume((prefs?.voiceVolume ?? 80) / 100, ctx?.info?.mute || prefs?.voiceMuted);
   Lobby.setZoomOut(!!prefs?.lobbyZoomOut);
+  // started with --debug: the fullscreen lobby's pointer, wheel and gesture events go to the app's log
+  Lobby.setTrace(ctx?.info?.debug ? (events) => rpc("debug.trace", { events }).catch(() => {}) : null);
 }
 
 // show(context, familyData, variantKey, {inPlace}): open the detail screen on a variant; resolves once the screen is

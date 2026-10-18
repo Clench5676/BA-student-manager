@@ -208,7 +208,7 @@ Events on `/api/events`:
 
 | Method | Result |
 |---|---|
-| `app.info` | version, language, platform, game found, resource version, consent (`null`, `true`, `false`), paths |
+| `app.info` | version, language, platform, game found, resource version, consent (`null`, `true`, `false`), paths, `debug` (started with `--debug`) |
 | `app.consent {granted}` | records the choice; `false` closes the app |
 | `app.openClassic {tab}` | starts the classic GUI on a tab |
 | `i18n.strings {lang}` | `{key: text}` for `webui.*` |
@@ -217,6 +217,7 @@ Events on `/api/events`:
 | `family.get {key}` | a family with its variants, mods and each variant's state; `modelFiles` per variant (the 3D model's prefab bundles, newest first) and `version` (the game's resource version, so a switched install reloads the screen) |
 | `lobby.warm` | builds the memorial lobby prefab index in the background (once per game); the detail screen calls it for a variant with a lobby |
 | `lobby.lines {variant, talks, lang}` | `{clip: {lang: text, voice}}`: zh-CN from Kivo, ja from Kivo else the Global server, en, zh-TW, ko and th from the Global server (read only for a `lang` other than zh-CN); `talks` (`{animation: [clip ids]}` from the skeleton) places the Global rows on the clips; `lines_unavailable` when neither source can be read |
+| `debug.trace {events}` | the fullscreen lobby's input events, logged (logger `ba_modding_toolkit.webui.trace`, and `input-trace.log` in the data directory) only when the app was started with `--debug`; ignored otherwise |
 | `favorites.set {variant, on}` | |
 | `mods.add {paths}` / `mods.pick` | added entries (`mods.pick` opens the native file dialog) |
 | `mods.remove {id}`, `mods.rename {id, label}`, `mods.seen {id}` | |
@@ -293,6 +294,9 @@ stand-in in the page font shows instead.
   events in WebKit) zoom at the pointer; a two-finger trackpad swipe pans in any direction, and one scroll keeps the
   kind of its first event. A right- or middle-button drag pans. Native drags and the Force Touch look-up are turned
   off on the lobby.
+- **Input trace.** Started with `--debug`, the page sends the fullscreen lobby's pointer, wheel and gesture events
+  (moves and scrolls at most every 50 ms) and every press anywhere in the document, with its target, through
+  `debug.trace`, so a trackpad problem can be reproduced once and the log sent.
 
 ## Tests
 

@@ -19,7 +19,7 @@ const SCROLL_MS = 120;                           // wheel events this close toge
 const STAGE = { w: 1920, h: 1080 };
 
 let lobby = null, items = [], bodies = [], host = null, press = null, pointer = null, gesture = 1;
-let scroll = { kind: null, at: -Infinity }, pinchUntil = -Infinity;
+let scroll = { kind: null, at: -Infinity }, pinchUntil = -Infinity, traceSink = null;
 const clamp = (v, a, b) => Math.max(Math.min(a, b), Math.min(Math.max(a, b), v));
 
 // per lobby: the drags resolved to their skeletons' bones, the body boxes; null clears
@@ -122,10 +122,11 @@ const other = (e) => press && e.pointerId !== press.id;
 
 // pointer capture keeps a drag that leaves the stage; where it is refused, the press goes on without it
 function capture(e) {
-  try { host.setPointerCapture?.(e.pointerId); } catch { /* refused: the press goes on without it */ }
+  try { host.setPointerCapture?.(e.pointerId); } catch (err) { trace("capture-refused", e, { error: String(err?.name || err) }); }
 }
 
 function down(e) {
+  trace("down", e, { blocked: lobby?.blocked() || undefined });
   if (!lobby || press) return;
   const [sx, sy] = stagePoint(e);
   if (e.button === 1 || e.button === 2) {
@@ -147,6 +148,7 @@ function down(e) {
   cursor();
 }
 function move(e) {
+  trace("move", e);
   if (!lobby || other(e)) return;
   const [sx, sy] = stagePoint(e);
   if (press?.pan) {
@@ -166,6 +168,7 @@ function move(e) {
   }
 }
 function up(e) {
+  trace(e.type === "pointercancel" ? "cancel" : "up", e);
   if (!press || other(e)) return;
   const p = press;
   press = null;
@@ -195,22 +198,23 @@ function wheel(e) {
     // a trackpad pinch (Chromium, WebView2) or ctrl + mouse wheel; WebKit pinches with gesture events instead, which
     // some versions accompany with ctrl + wheel events: those are left to the gesture
     scroll = { kind: null, at: -Infinity };
-    if (now < pinchUntil) return;
+    if (now < pinchUntil) return trace("wheel", e, { act: "skip" });
     const notch = wheelKind(e, now, scroll) === "mouse";
     lobby.zoomAt(Math.exp(-e.deltaY * unit * (notch ? WHEEL : PINCH)), sx, sy);
-    return;
+    return trace("wheel", e, { act: notch ? "zoom" : "pinch" });
   }
   const kind = wheelKind(e, now);
   scroll = { kind, at: now };
   if (kind === "mouse" && Math.abs(e.deltaY) >= Math.abs(e.deltaX)) {
     lobby.zoomAt(Math.exp(-e.deltaY * unit * WHEEL), sx, sy);
-    return;
+    return trace("wheel", e, { act: "zoom" });
   }
   // a trackpad swipe (or a horizontal wheel): the art moves with the fingers, as in a scrolled page
   lobby.panBy(-e.deltaX * unit * k, kind === "mouse" ? 0 : -e.deltaY * unit * k);
+  trace("wheel", e, { act: "pan" });
 }
 // Safari / WKWebView trackpad pinch
-function gestureStart(e) { e.preventDefault(); gesture = 1; pinchUntil = performance.now() + 300; }
+function gestureStart(e) { e.preventDefault(); gesture = 1; pinchUntil = performance.now() + 300; trace("gesturestart", e); }
 function gestureChange(e) {
   if (!lobby) return;
   e.preventDefault();
@@ -218,11 +222,12 @@ function gestureChange(e) {
   const [sx, sy] = stagePoint(e);
   lobby.zoomAt(e.scale / gesture, sx, sy);
   gesture = e.scale;
+  trace("gesturechange", e);
 }
-function gestureEnd(e) { e.preventDefault(); pinchUntil = performance.now() + 300; }
+function gestureEnd(e) { e.preventDefault(); pinchUntil = performance.now() + 300; trace("gestureend", e); }
 const menu = (e) => e.preventDefault();
 // no native drag of the canvases, and no Force Touch look-up on a firm trackpad press (WebKit)
-function noDrag(e) { e.preventDefault(); }
+function noDrag(e) { e.preventDefault(); trace(e.type, e); }
 
 // the pointer shows what a press would do: grab over a drag box, grabbing while dragging, a hand over the body
 function cursor(sx, sy) {
@@ -235,7 +240,7 @@ function cursor(sx, sy) {
 }
 
 const handlers = [["pointerdown", down], ["pointermove", move], ["pointerup", up], ["pointercancel", up],
-  ["wheel", wheel, { passive: false }],
+  ["lostpointercapture", (e) => trace("lostcapture", e)], ["wheel", wheel, { passive: false }],
   ["gesturestart", gestureStart], ["gesturechange", gestureChange], ["gestureend", gestureEnd], ["contextmenu", menu],
   ["dragstart", noDrag], ["webkitmouseforcewillbegin", noDrag], ["webkitmouseforcedown", noDrag]];
 export function attach(el) {
@@ -243,6 +248,7 @@ export function attach(el) {
   detach();
   host = el;
   for (const [type, fn, opts] of handlers) host.addEventListener(type, fn, opts);
+  if (traceSink) for (const type of SPY) document.addEventListener(type, spy, true);
 }
 // leaving fullscreen: a running drag ends as if released
 export function detach() {
@@ -256,6 +262,7 @@ export function detach() {
   pinchUntil = -Infinity;
   if (!host) return;
   for (const [type, fn, opts] of handlers) host.removeEventListener(type, fn, opts);
+  for (const type of SPY) document.removeEventListener(type, spy, true);
   host.classList.remove("grab", "grabbing", "talk");
   host = null;
 }
@@ -288,6 +295,48 @@ export function apply(player, delta) {
     it.bone.x = it.cur[0];
     it.bone.y = it.cur[1];
   }
+}
+
+// --- input trace (the app started with --debug): what the lobby receives, throttled, for a bug report ---
+// spy: every pointer, mouse and drag event in the document while the fullscreen lobby is attached, with its target,
+// so an event that never reaches the lobby shows up too
+const SPY = ["pointerdown", "pointerup", "pointercancel", "mousedown", "mouseup", "dragstart", "click"];
+function spy(e) {
+  const t = e.target, name = t?.tagName ? `${t.tagName.toLowerCase()}${t.id ? "#" + t.id : ""}${typeof t.className === "string" && t.className ? "." + t.className.trim().split(/\s+/).join(".") : ""}` : String(t);
+  trace(`doc:${e.type}`, e, { target: name, onLobby: !!host?.contains(t) });
+}
+const MOVES = new Set(["move", "wheel", "gesturechange"]);
+let traceBuf = [], traceTimer = null, traceLast = {}, traceDropped = 0;
+// sink(events) receives batches of plain objects; null turns the trace off
+export function setTrace(sink) {
+  traceSink = sink || null;
+  traceBuf = [];
+  if (host) for (const type of SPY) document[sink ? "addEventListener" : "removeEventListener"](type, spy, true);
+}
+function trace(kind, e, extra) {
+  if (!traceSink) return;
+  const now = performance.now();
+  // moves and scrolls: at most one every 50 ms of each kind (the rest are counted)
+  if (MOVES.has(kind) && !extra?.act && now - (traceLast[kind] || -Infinity) < 50) { traceDropped++; return; }
+  if (MOVES.has(kind) && extra?.act && now - (traceLast[kind + extra.act] || -Infinity) < 50) { traceDropped++; return; }
+  traceLast[extra?.act ? kind + extra.act : kind] = now;
+  const r = host?.getBoundingClientRect();
+  const ev = { t: Math.round(now), k: kind, type: e?.type, pt: e?.pointerType, id: e?.pointerId, b: e?.button, bs: e?.buttons,
+    x: e?.clientX != null ? Math.round(e.clientX) : undefined, y: e?.clientY != null ? Math.round(e.clientY) : undefined,
+    dx: e?.deltaX, dy: e?.deltaY, dm: e?.deltaMode, wdy: e?.wheelDeltaY, wdx: e?.wheelDeltaX, ctrl: e?.ctrlKey || undefined,
+    scale: e?.scale, prim: e?.isPrimary, pr: e?.pressure || undefined, force: e?.webkitForce || undefined, press: press ? (press.pan ? "pan" : press.h?.type || "none") : undefined,
+    host: r ? [Math.round(r.width), Math.round(r.height)] : undefined, dropped: traceDropped || undefined, ...extra };
+  traceDropped = 0;
+  for (const k of Object.keys(ev)) if (ev[k] === undefined) delete ev[k];
+  traceBuf.push(ev);
+  if (traceBuf.length >= 40) flushTrace();
+  else if (!traceTimer) traceTimer = setTimeout(flushTrace, 500);
+}
+function flushTrace() {
+  clearTimeout(traceTimer);
+  traceTimer = null;
+  const batch = traceBuf.splice(0);
+  if (batch.length) try { traceSink?.(batch); } catch { /* a trace never breaks the lobby */ }
 }
 
 // for checks: the boxes and the drag state

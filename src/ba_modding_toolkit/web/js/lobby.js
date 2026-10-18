@@ -469,6 +469,9 @@ export function hide(host) {
   if (host) host.innerHTML = "";
 }
 
+// the input trace of the fullscreen interaction (lobby-touch.js): sink(events) gets batches, null turns it off
+export const setTrace = (sink) => Touch.setTrace(sink);
+
 // fullscreen interaction on or off (lobby-touch.js); it only runs in the fullscreen framing
 export function interactive(on) {
   wantTouch = !!on;
