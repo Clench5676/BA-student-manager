@@ -109,7 +109,8 @@ wrap, mipmaps as in the game: the characters' textures have none) and `extras.li
 switches it animates (`toggles`: alternative faces), so a renderer the prefab disables is exported when a clip turns
 it on. `web/js/chibi-materials.js` ports the MX/C-* shaders from their compiled D3D11 programs (the game is in linear
 colour space; the character light is the standard one, white and from straight above, without ambient). The outline is
-0.1 % of the stage width times the vertex colour alpha, as in the game.
+0.1 % of the stage width times the vertex colour alpha, as in the game. The camera orbits freely; the zoom stays between
+the bust and a step back, and a double click returns to the front view.
 
 `AssetNotFound` (a `KeyError`) when a name is unknown. Layout nodes use the schema of
 `prototype/research-v4/tools/layout.py`: `{name, active, pos[x, y], scale[x, y], rotZ, widgets[], children?}` with

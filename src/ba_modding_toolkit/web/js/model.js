@@ -1,8 +1,8 @@
 // 3D chibi for the detail screen's third tab. The GLB is exported from the user's game files in memory
 // (gameassets/model.py): the game's material constants are in the material extras, the halo follower (FxFollower)
 // in the root extras, and each clip's slot, loop flag, SetMouthTile events and renderer switches in the animation
-// extras. The materials are ports of the game's character shaders (chibi-materials.js), the camera the formation
-// screen's. One view at a time; hide() frees its WebGL context at once.
+// extras. The materials are ports of the game's character shaders (chibi-materials.js), the camera starts at the
+// formation screen's view and orbits freely. One view at a time; hide() frees its WebGL context at once.
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
@@ -40,9 +40,10 @@ class ChibiView {
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(FOV, 1, 0.01, 100);
     this.controls = new OrbitControls(this.camera, this.canvas);
-    // no panning; between a little from below and well from above, between the bust and a step back
+    // no panning, any angle (straight from above to straight from below); the zoom stays between the bust and a
+    // step back (frameTo)
     Object.assign(this.controls, { enableDamping: true, dampingFactor: 0.12, enablePan: false, zoomSpeed: 0.8,
-      minPolarAngle: Math.PI * 0.30, maxPolarAngle: Math.PI * 0.56 });
+      minPolarAngle: 0, maxPolarAngle: Math.PI });
     this.clock = new THREE.Clock();
     this.mode = "left";
     this.view = { ...FRAMES.left };
