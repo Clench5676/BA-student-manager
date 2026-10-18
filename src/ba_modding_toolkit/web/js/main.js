@@ -137,7 +137,7 @@ async function boot() {
 async function start() {
   info = await rpc("app.info");
   ctx.info = info;
-  Loading.init(info); // the loading illustrations of the UI language, fetched while the rest starts
+  Loading.init(info); // the loading screen's backdrop from the game's prefab
   ctx.prefs = await rpc("settings.get").catch(() => null);
   Roster.init(ctx.prefs?.roster);
   setStrings(info.language, await rpc("i18n.strings", { lang: info.language }));

@@ -1,22 +1,18 @@
 // Loading screen, from the game's own prefabs:
-//   - UILoading (Resources/UI/UILoading.prefab): a black backdrop (BlackBG) and one illustration (the UITexture
-//     LoadingImage, which the game fills at run time). The illustration is drawn at its own size, 1 texel = 1 prefab
-//     unit, never stretched. Only the game's "Tip!" cards are shown (loading.list leaves the comics out), one file per
-//     language; without any, the screen stays black with the indicator.
+//   - UILoading (Resources/UI/UILoading.prefab): its black backdrop (BlackBG). The game also shows an illustration
+//     there (the UITexture LoadingImage); the tool leaves the middle of the screen empty.
 //   - UIRepeater: "Now Loading" letters, three hopping dots and Arona turning round, in the bottom-right corner;
 //     app.css animates it like the game's legacy clip "UIAni_Repeat 1". Its UIAudioPlay is never played.
-// Two modes. scene(fn) covers a change of screen: a fade to black, then the illustration and the indicator while the
+// Two modes. scene(fn) covers a change of screen: a fade to black, then the indicator while the
 // work goes on. wait(promise) shows the indicator alone over the current screen, for a wait inside it. There is one
 // overlay at a time; a newer call takes over the one on screen instead of flashing a new one.
 import * as NGUI from "./ngui.js";
-import { rpc } from "./api.js";
 import { T } from "./i18n.js";
 import { S, toast } from "./util.js";
 
 const STAGE_UNITS_H = 1080 / S; // 1665 units: the stage is taller than the prefabs' 2960 x 1440 frame
 const FADE_BLACK = 150;         // a scene first fades to black; work done by then fades straight back
 const FADE_OUT = 300;
-const MIN_ART = 800;            // a shown illustration stays at least this long
 const WAIT_AFTER = 300;         // indicator mode: a shorter wait shows nothing
 const WAIT_MIN = 500;           // once shown, the indicator stays at least this long
 const HARD_CAP = 15000;         // after this, whatever there is is revealed
@@ -25,22 +21,16 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const stage = () => document.getElementById("stage");
 
 let overlay = null, gen = 0, closeSeq = 0;
-// illustrations of the UI language: [{name, n, w, h, url}]; the next pick is fetched and decoded ahead of time
-const art = { list: [], lang: null, recent: [], next: null };
-let listed = null;
-const listKnown = new Promise((resolve) => { listed = resolve; });
 let repeater = null, geometry = null;
 
 // --- setup ---
 
-// after app.info: the Tip cards of the UI language (none without a game) and the prefabs
+// after app.info: the backdrop colour from the game's prefab (black without a game)
 export function init(info) {
-  if (!info?.gameFound) { setImages([], null); return; }
-  rpc("loading.list", { lang: info.language }).then((l) => setImages(l.images, l.lang), () => setImages([], null));
+  if (!info?.gameFound) return;
   NGUI.layout("UILoading").then((tree) => {
-    const pos = NGUI.find(tree, "LoadingImage")?.pos || [0, 0];
     const back = NGUI.find(tree, "BlackBG")?.widgets.find((w) => "color" in w)?.color;
-    geometry = { x: 960 + pos[0] * S, y: 540 - pos[1] * S, back: back ? back.split("/")[0] : "#000000" };
+    geometry = { back: back ? back.split("/")[0] : "#000000" };
     if (overlay) overlay.el.querySelector(".loading-back").style.background = geometry.back;
   }).catch(() => {});
 }
@@ -51,37 +41,6 @@ export function relabel() {
   label(overlay.el);
   const text = overlay.el.querySelector(".loading-plain span");
   if (text) text.textContent = nowLoading();
-}
-
-export function setImages(list, lang) {
-  art.list = list || [];
-  art.lang = lang;
-  art.next = null;
-  listed();
-  prefetch();
-}
-
-// a uniform pick, never one of the last few shown (the game's weights cannot be read)
-function choose() {
-  const list = art.list;
-  if (!list.length) return null;
-  const recent = art.recent.slice(0, Math.min(8, Math.floor(list.length / 2)));
-  const pool = list.filter((it) => !recent.includes(it.name));
-  const from = pool.length ? pool : list;
-  return from[Math.floor(Math.random() * from.length)];
-}
-
-// fetch and decode the next illustration ahead of time, so the next loading screen shows it at once
-export function prefetch() {
-  if (art.next || !art.list.length) return art.next;
-  const it = choose();
-  const img = new Image();
-  img.decoding = "async";
-  img.alt = "";
-  img.draggable = false;
-  img.src = it.url;
-  art.next = { it, img, ready: img.decode().then(() => true, () => false) };
-  return art.next;
 }
 
 export const active = () => !!overlay && !overlay.closing;
@@ -108,7 +67,7 @@ function open(mode, opaque = false) {
   if (!el.isConnected) stage().appendChild(el);
   if (boot && el !== boot) boot.remove();
   const o = { el, mode, ind: el.querySelector(".loading-ind"), back: el.querySelector(".loading-back"),
-    shownAt: performance.now(), artAt: 0, closing: false, done: false, sprites: false, artTried: false };
+    shownAt: performance.now(), closing: false, done: false, sprites: false };
   if (opaque) el.classList.add("on");
   else { void el.offsetWidth; el.classList.add("on"); } // fade in from the first frame
   overlay = o;
@@ -180,31 +139,10 @@ async function upgrade(o) {
   o.ind.replaceChildren(next);
 }
 
-// once the screen is black and the work goes on: the indicator, then the illustration once it is decoded
-async function decorate(o) {
+// once the screen is black and the work goes on: the indicator in the corner, nothing in the middle
+function decorate(o) {
   if (!o.ind.firstChild) plain(o.ind);
   upgrade(o);
-  if (o.mode !== "full" || o.artTried) return;
-  o.artTried = true;
-  await listKnown;
-  const next = prefetch();
-  if (!next || !(await next.ready)) {
-    if (next && art.next === next) art.next = null; // a broken one is not tried again first
-    return;
-  }
-  if (o !== overlay || o.closing || o.done || o.mode !== "full") return; // the work was done first: no flash
-  art.next = null;
-  art.recent.unshift(next.it.name);
-  const { it, img } = next;
-  const g = geometry || { x: 960, y: 540 };
-  img.className = "loading-art";
-  Object.assign(img.style, { left: `${(g.x - (it.w * S) / 2).toFixed(1)}px`, top: `${(g.y - (it.h * S) / 2).toFixed(1)}px`,
-    width: `${(it.w * S).toFixed(1)}px`, height: `${(it.h * S).toFixed(1)}px` });
-  o.el.insertBefore(img, o.ind);
-  void img.offsetWidth;
-  img.classList.add("in");
-  o.artAt = performance.now();
-  prefetch(); // the one after
 }
 
 // --- modes ---
@@ -226,9 +164,7 @@ export async function scene(fn, { opaque = false } = {}) {
   if (my === gen) {
     o.done = true;
     if (timedOut) toast(T("loading.slow"));
-    const left = o.artAt ? MIN_ART - (performance.now() - o.artAt) : 0;
-    if (left > 0) await sleep(left);
-    if (my === gen && o === overlay && !o.closing) await close(o);
+    if (o === overlay && !o.closing) await close(o);
   }
   if (failed) throw error;
   return result;

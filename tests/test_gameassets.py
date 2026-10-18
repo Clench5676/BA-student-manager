@@ -21,7 +21,7 @@ from ba_modding_toolkit.errors import ServiceError
 from ba_modding_toolkit.gameassets import AssetCache, AssetNotFound, GameAssets
 from ba_modding_toolkit.gameassets import service, unity
 from ba_modding_toolkit.gameassets.discovery import (
-    bundle_paths, group_bundles, is_loading_art, is_pointer_texture, is_prefab, is_texture, resource_version,
+    bundle_paths, group_bundles, is_pointer_texture, is_prefab, is_texture, resource_version,
 )
 from ba_modding_toolkit.gameassets.spine import atlas_pages, extract_spine
 from ba_modding_toolkit.searching import get_search_dirs
@@ -308,124 +308,13 @@ def test_texture_route_falls_back_to_the_pointer_textures(tmp_path, monkeypatch)
     assert Image.open(BytesIO(fresh.texture_png("PCIcon_MousePoint"))).size == (4, 4)
 
 
-LOADING_BUNDLES = (
-    "prologgroup-assets-_mx-addressableasset-uis-01_common-12_loading-_mxprolog-2024-11-18_000_assets_all_1.bundle",
-    "prologgroup-assets-_mx-addressableasset-uis-01_common-12_loading-_mxprolog-2024-11-18_assets_all_2.bundle",
-)
-
-
-def test_loading_screen_discovery_and_prefab_hints():
-    for name in LOADING_BUNDLES:
-        assert is_loading_art(Path(name))
-        assert not is_texture(Path(name)) and not is_prefab(Path(name))
-    assert not is_loading_art(Path("uis-01_common-14_charactercollect-_mxload-2024-11-18.bundle"))
+def test_loading_screen_prefab_hints():
     # UILoading lives in Resources/UI, which the prefab scan has to reach after a game update renames the bundle
     assert is_prefab(Path("prologgroup-assets-_mx-resources-ui-_mxprolog-2026-04-13_assets_all_2006567787.bundle"))
     assert not is_prefab(Path("prologgroup-assets-_mx-resources-excel-_mxprolog-2026-04-13_assets_all_1.bundle"))
     assert service.PREFAB_HINTS["UILoading"].startswith("prologgroup-assets-_mx-resources-ui-")
     assert is_prefab(Path(service.PREFAB_HINTS["UILoading"]))
     assert is_prefab(Path(service.PREFAB_HINTS["UIRepeater"]))
-
-
-def _loading_texture(pid, cab, name, size, image=None):
-    data = SimpleNamespace(m_Width=size[0], m_Height=size[1], image=image)
-    return _Object("Texture2D", pid, cab, name=name, data=data)
-
-
-@pytest.fixture
-def loading_game(tmp_path, monkeypatch):
-    for name in LOADING_BUNDLES:
-        (tmp_path / name).touch()
-    art = Image.new("RGBA", (32, 16), (255, 255, 255, 0))  # transparent (white, alpha 0) left half
-    art.paste((255, 0, 0, 255), (16, 0, 32, 16))
-    first, second = (tmp_path / name for name in LOADING_BUNDLES)
-    envs = {
-        # Tip cards are 11-21 and 57; the other numbers are comics
-        first: SimpleNamespace(objects=[
-            _loading_texture(1, "CAB-a", "LoadingImage_12_en", (2048, 1024)),
-            _loading_texture(2, "CAB-a", "LoadingImage_11_En", (2000, 1200), art),
-            _loading_texture(3, "CAB-a", "LoadingImage_11_tw", (2048, 1024)),
-            _loading_texture(4, "CAB-a", "Common_Loading_Icon", (64, 64)),
-            _Object("MonoBehaviour", 5, "CAB-a", name="LoadingImage_13_en"),
-            _loading_texture(6, "CAB-a", "LoadingImage_01_en", (2048, 1024)),
-            _loading_texture(7, "CAB-a", "LoadingImage_22_en", (2048, 1024)),
-        ]),
-        second: SimpleNamespace(objects=[
-            _loading_texture(1, "CAB-b", "Loadingimage_57_Tw", (2000, 1200)),
-            _loading_texture(2, "CAB-b", "LoadingImage_21_th", (2048, 1024)),
-            # the same illustration twice (another bundle part) is listed once
-            _loading_texture(3, "CAB-b", "LoadingImage_12_EN", (2048, 1024)),
-            # a language with comics only
-            _loading_texture(4, "CAB-b", "LoadingImage_05_kr", (2048, 1024)),
-        ]),
-    }
-
-    @contextmanager
-    def open_fake(path):
-        yield envs[path]
-
-    monkeypatch.setattr(service, "open_bundle", open_fake)
-    return GameAssets([tmp_path], AssetCache(root=tmp_path / "cache", allowed=True))
-
-
-def test_loading_index_names_sizes_and_languages(loading_game):
-    images = loading_game.loading_images()
-    assert sorted(images) == ["en", "kr", "th", "tw"]
-    assert [(e["name"], e["n"], e["w"], e["h"]) for e in images["en"]] == [
-        ("LoadingImage_01_en", 1, 2048, 1024), ("LoadingImage_11_En", 11, 2000, 1200),
-        ("LoadingImage_12_en", 12, 2048, 1024), ("LoadingImage_22_en", 22, 2048, 1024)]
-    assert [e["name"] for e in images["tw"]] == ["LoadingImage_11_tw", "Loadingimage_57_Tw"]
-
-
-@pytest.mark.parametrize("ui_lang,lang", [
-    ("en-US", "en"), ("zh-CN", "tw"), ("zh-TW", "tw"), ("ja-JP", "en"), ("th-TH", "th"), ("vi-VN", "en"),
-    ("ru-RU", "en"), ("", "en"), ("ko-KR", "en"),  # Korean has comics only here
-])
-def test_loading_list_language_fallback(loading_game, ui_lang, lang):
-    listing = loading_game.loading_list(ui_lang)
-    assert listing["lang"] == lang
-    assert listing["images"] and all(e["url"] == f"/asset/art/loading/{e['name']}.jpg" for e in listing["images"])
-
-
-def test_loading_list_has_the_tip_cards_only(loading_game):
-    assert service.LOADING_TIPS == {11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 57}
-    english = loading_game.loading_list("en-US")["images"]
-    assert [e["name"] for e in english] == ["LoadingImage_11_En", "LoadingImage_12_en"]  # comics 01 and 22 left out
-    assert [e["n"] for e in loading_game.loading_list("zh-CN")["images"]] == [11, 57]
-    assert [e["n"] for e in loading_game.loading_list("th-TH")["images"]] == [21]
-
-
-def test_loading_list_falls_back_to_english_then_any(tmp_path):
-    game = GameAssets([tmp_path], AssetCache(root=tmp_path / "cache"))
-    entry = {"name": "LoadingImage_11_kr", "n": 11, "w": 2048, "h": 1024}
-    game._indexes["loading"] = {"images": {"kr": [entry], "th": [{**entry, "name": "LoadingImage_11_th"}]},
-                                "records": {}}
-    assert game.loading_list("zh-CN")["lang"] == "kr"   # no tw, no en: the first language present
-    assert game.loading_list("th-TH")["lang"] == "th"
-    game._indexes["loading"] = {"images": {}, "records": {}}
-    assert game.loading_list("en-US") == {"lang": None, "images": []}
-    # comics only: no illustration, the loading screen stays black with its indicator
-    comic = {"name": "LoadingImage_01_en", "n": 1, "w": 2048, "h": 1024}
-    game._indexes["loading"] = {"images": {"en": [comic], "tw": [{**comic, "name": "LoadingImage_22_tw", "n": 22}]},
-                                "records": {}}
-    assert game.loading_list("en-US") == {"lang": None, "images": []}
-    assert game.loading_list("zh-CN") == {"lang": None, "images": []}
-
-
-def test_loading_image_on_black_in_memory_only(loading_game):
-    data = loading_game.loading_image("LoadingImage_11_En")
-    image = Image.open(BytesIO(data))
-    assert image.format == "JPEG" and image.size == (32, 16)
-    assert max(image.getpixel((2, 8))) < 24          # transparent texels become the black backdrop
-    red = image.getpixel((28, 8))
-    assert red[0] > 200 and red[1] < 60 and red[2] < 60
-    with pytest.raises(AssetNotFound):
-        loading_game.loading_image("LoadingImage_99_en")
-    with pytest.raises(AssetNotFound):
-        loading_game.loading_image("Common_Loading_Icon")
-    # the name index may be cached with the user's consent; the illustration itself never reaches the disk
-    written = [p.read_bytes() for p in loading_game.cache.root.rglob("*.cache")]
-    assert written and not any(b.startswith(b"\xff\xd8") for b in written)
 
 
 def test_unknown_names_raise_asset_not_found(tmp_path):
@@ -655,23 +544,7 @@ def test_real_spine_files_and_pages_stay_in_memory(real_game, kind, core):
     assert set(real_game.cache.root.rglob("*.cache")) == before
 
 
-@real_install
-def test_real_loading_screen(real_game):
-    images = real_game.loading_images()
-    assert images.get("en") and images.get("tw")
-    assert real_game.loading_list("zh-CN")["lang"] == "tw"
-    assert real_game.loading_list("en-US")["lang"] == "en"
-    for lang in ("en-US", "zh-CN"):  # the Tip cards only
-        numbers = {e["n"] for e in real_game.loading_list(lang)["images"]}
-        assert numbers and numbers <= service.LOADING_TIPS
-    entry = real_game.loading_list("en-US")["images"][0]
-    before = {p: p.stat().st_mtime_ns for p in real_game.cache.root.rglob("*") if p.is_file()}
-    image = Image.open(BytesIO(real_game.loading_image(entry["name"])))
-    assert image.format == "JPEG" and image.size == (entry["w"], entry["h"])
-    after = {p: p.stat().st_mtime_ns for p in real_game.cache.root.rglob("*") if p.is_file()}
-    assert before == after  # game art: never written to the disk cache
-    for root, child in (("UILoading", "LoadingImage"), ("UIRepeater", "Widget")):
-        assert child in [c["name"] for c in real_game.layout(root)["children"]]
+
 
 
 @real_install

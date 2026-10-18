@@ -222,7 +222,6 @@ Events on `/api/events`:
 | `app.consent {granted}` | records the choice; `false` closes the app |
 | `app.openClassic {tab}` | starts the classic GUI on a tab |
 | `i18n.strings {lang}` | `{key: text}` for `webui.*` |
-| `loading.list {lang}` | the loading screen's Tip cards for a UI language: `{lang, images: [{name, n, w, h, url}]}` (zh → tw, ja → jp, then en, then any; none without a game or without Tip cards) |
 | `roster.list` | families with variants, mod counts, fresh flags, favourites, recent order, `added` (when the newest own mod was added) |
 | `settings.get` / `settings.set {key, value}` | the settings popup's values; key `roster` keeps the student list's view (merge, segment filters, sort, order, filter groups; `webui/state.py roster_view`) |
 | `family.get {key}` | a family with its variants, mods and each variant's state; `modelFiles` per variant (the 3D model's prefab bundles, newest first) and `version` (the game's resource version, so a switched install reloads the screen) |
@@ -247,7 +246,6 @@ Events on `/api/events`:
 | `/asset/ui/textures.json`, `/asset/ui/texture/<name>.png` (also the PC pointer and the touch effect's textures, an index of their own outside the listing) | light |
 | `/asset/ui/layout/<root>.json?path=<subpath>` | light |
 | `/asset/art/bg/<name>`, `/asset/art/portrait/<name>.png` | heavy |
-| `/asset/art/loading/<name>.jpg` (a loading illustration on black) | heavy |
 | `/asset/spine/spr/<core>/<file>`, `/asset/spine/lobby/<core>/<file>`, `/asset/spine/mod/<id>/<file>` | heavy |
 | `/asset/spine/lobby/<core>/lobby.json` (prefab layout, touch boxes, clips; no skeleton is extracted) | heavy |
 | `/asset/model/<variant>.glb` (the variant's chibi, `model/gltf-binary`) | heavy |
@@ -295,17 +293,14 @@ down (its viewport has the canvas's own aspect).
 
 ### Loading screen
 
-`loading.js` draws the game's own loading screen: UILoading (a black backdrop and one illustration, drawn at its own
-size, 1 texel = 1 prefab unit) and UIRepeater ("Now Loading", the hopping dots and Arona turning round, animated in
-`app.css` from the keyframes of the clip `UIAni_Repeat 1`; its UIAudioPlay is never played). Only the game's "Tip!"
-cards are shown, one file per language (`loading.list`: LoadingImage 11 to 21 and 57 in every language the Global
-client ships; the other numbers are comics and are left out); without any, the screen stays black with the indicator.
-The pick is uniform and skips the last few shown, and the next one is fetched and decoded ahead. Before the atlases are
-in, or without a game, a plain stand-in in the page font shows instead.
+`loading.js` draws the game's own loading screen: UILoading's black backdrop with nothing in the middle (the game
+shows an illustration there; the tool does not) and UIRepeater in the bottom-right corner ("Now Loading", the
+hopping dots and Arona turning round, animated in `app.css` from the keyframes of the clip `UIAni_Repeat 1`; its
+UIAudioPlay is never played). Before the atlases are in, or without a game, a plain stand-in in the page font shows
+instead.
 
 - `scene(fn)` covers the start, a detail screen opened from another screen or a deep link, and the roster's first
-  build: a fade to black (150 ms), then, while the work goes on, the illustration (at least 800 ms once shown) and
-  the indicator; work done within the fade only fades back. `wait(promise)` shows the indicator alone over the
+  build: a fade to black (150 ms), then, while the work goes on, the indicator; work done within the fade only fades back. `wait(promise)` shows the indicator alone over the
   screen after 300 ms (at least 500 ms), for changes inside it. Both give up after 15 s, reveal what there is and say
   so. One overlay at a time: a newer call takes over the one on screen.
 - The detail screen resolves `show()` only when it is ready: the panels, the left side's first frame (the portrait,
@@ -313,8 +308,7 @@ in, or without a game, a plain stand-in in the page font shows instead.
   the lobby's lines from Kivo get 1.5 s. A change inside the screen (a variant chip, the arrows, a tab, an
   applied portrait) renders every part off screen and swaps them in one frame. The left side loads laid out but
   transparent; when a lobby or a model replaces another one, a still of the old one holds its place meanwhile.
-- The consent popup comes after the first screen is revealed. The illustrations are game art: memory only, served
-  with `Cache-Control: no-store`.
+- The consent popup comes after the first screen is revealed.
 
 ### Pointer and touch effect
 

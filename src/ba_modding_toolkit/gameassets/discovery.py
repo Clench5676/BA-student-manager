@@ -80,11 +80,6 @@ def is_prefab(path: Path) -> bool:
             or (path.name.startswith("prologgroup-") and "-resources-ui-" in path.name))
 
 
-def is_loading_art(path: Path) -> bool:
-    """Whether a bundle holds the loading screen illustrations (UIs/01_Common/12_Loading)."""
-    return "-uis-01_common-12_loading-" in path.name
-
-
 def cab_names(path: Path) -> list[str]:
     """Lower-case CAB names of a UnityFS bundle, from its header and blocks info only (no data block is read).
 

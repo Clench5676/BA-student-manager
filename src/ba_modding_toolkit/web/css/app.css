@@ -185,7 +185,7 @@ input[type="text"], input[type="search"], textarea { cursor: text; }
 .thumb-host { position: fixed; left: 0; top: 0; width: 0; height: 0; overflow: visible; opacity: 0; pointer-events: none; z-index: -1; }
 .thumb-player { position: absolute; left: 0; top: 0; }
 
-/* --- loading screen (loading.js): the game's UILoading (black backdrop, the illustration at its own size) and
+/* --- loading screen (loading.js): the game's UILoading (its black backdrop; the middle stays empty) and
    UIRepeater ("Now Loading") prefabs; above the top bar and the nav, below the consent popup, settings and toast --- */
 .loading { position: absolute; inset: 0; z-index: 1500; opacity: 0; transition: opacity .15s ease; pointer-events: auto; }
 .loading.on { opacity: 1; }
@@ -193,8 +193,6 @@ input[type="text"], input[type="search"], textarea { cursor: text; }
 .loading.indicator { pointer-events: none; transition-duration: .2s; }
 .loading-back { position: absolute; inset: 0; background: #000; transition: opacity .15s ease; }
 .loading.indicator .loading-back { opacity: 0; }
-.loading-art { position: absolute; opacity: 0; transition: opacity .25s ease; pointer-events: none; user-select: none; }
-.loading-art.in { opacity: 1; }
 .loading-ind, .loading-repeater { position: absolute; inset: 0; pointer-events: none; }
 /* indicator mode: a shade under the corner, so the letters read over the nav bar */
 .loading.indicator .loading-ind { background: radial-gradient(ellipse 680px 240px at 100% 100%, rgba(10, 24, 44, .8) 0%, rgba(10, 24, 44, .55) 50%, rgba(10, 24, 44, 0) 100%); }

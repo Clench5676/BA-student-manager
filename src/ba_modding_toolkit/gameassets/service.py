@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import io
 import json
 import logging
 import re
@@ -18,7 +17,7 @@ from ..errors import ServiceError
 from .cache import AssetCache
 from . import lobby
 from .discovery import (
-    bundle_paths, cab_names, group_bundles, is_atlas, is_layout_texture, is_loading_art,
+    bundle_paths, cab_names, group_bundles, is_atlas, is_layout_texture,
     is_lobby_prefab, is_model_dependency, is_pointer_texture, is_prefab, is_texture, resource_version,
 )
 from .errors import AssetNotFound
@@ -51,16 +50,6 @@ PREFAB_HINTS = {
     "UIRepeater": "ui-_mxload-prefabs-2025-07-02_assets_all_1187726256.bundle",
 }
 
-# Loading screen illustrations: LoadingImage_<number>_<language>, one texture per language. The names mix cases
-# ("_kr" and "_Kr", "Loadingimage_47_Tw"); a name without a language is filed under "default".
-LOADING_IMAGE = re.compile(r"^LoadingImage_(\d+)(?:_([A-Za-z]+))?$", re.I)
-# The UI language's primary subtag -> the illustration languages to try first. The Global client ships en, kr, tw
-# and th (a Japanese client jp). Simplified Chinese has none of its own: Traditional Chinese is the closest script.
-LOADING_LANGS = {"zh": ("tw",), "ja": ("jp",), "ko": ("kr",), "th": ("th",)}
-# The loading screen shows only the "Tip!" cards (game help on a light panel); the other illustrations are comics.
-# The same numbers in every language the Global client ships (en, kr, th, tw; checked one by one, 2026-10).
-LOADING_TIPS = frozenset((*range(11, 22), 57))
-LOADING_JPEG_QUALITY = 88
 
 
 def _stamp(path: str | Path) -> tuple[int, int] | None:
@@ -350,62 +339,6 @@ class GameAssets:
     def collection_portrait(self, name: str) -> bytes:
         """Return a collection portrait as PNG bytes (memory only)."""
         return self._collection_png(name, "Student_Portrait_")
-
-    # --- loading screen illustrations: the index holds names, sizes and locators only; the pixels stay in memory ---
-
-    def _loading_index(self) -> dict:
-        def build() -> dict:
-            images: dict[str, dict[int, dict]] = {}
-            records: dict[str, dict] = {}
-            for path in filter(is_loading_art, self._paths()):
-                with open_bundle(path) as env:
-                    for obj in env.objects:
-                        if obj.type.name != "Texture2D":
-                            continue
-                        name = obj.peek_name()
-                        match = LOADING_IMAGE.match(name)
-                        if not match or name in records:
-                            continue
-                        texture = obj.read()  # the header; the pixels are decoded on request
-                        lang, number = (match.group(2) or "default").lower(), int(match.group(1))
-                        entry = {"name": name, "n": number, "w": texture.m_Width, "h": texture.m_Height}
-                        images.setdefault(lang, {}).setdefault(number, entry)
-                        records[name] = object_record(path, obj, name)
-            return {"images": {lang: [entries[n] for n in sorted(entries)] for lang, entries in images.items()},
-                    "records": records}
-        return self._index("loading", build)
-
-    def loading_images(self) -> dict[str, list[dict]]:
-        """Loading illustrations by language: name, number and native size in texels (1 texel = 1 prefab unit)."""
-        return deepcopy(self._loading_index()["images"])
-
-    def loading_list(self, ui_lang: str) -> dict[str, Any]:
-        """The Tip cards for a UI language: the language's own, else English, else any the install has. None: the
-        loading screen stays black with its indicator."""
-        images = {lang: [entry for entry in entries if entry["n"] in LOADING_TIPS]
-                  for lang, entries in self._loading_index()["images"].items()}
-        primary = (ui_lang or "").split("-")[0].lower()
-        for lang in dict.fromkeys((*LOADING_LANGS.get(primary, ()), "en", "default", *sorted(images))):
-            if images.get(lang):
-                return {"lang": lang, "images": [{**entry, "url": f"/asset/art/loading/{entry['name']}.jpg"}
-                                                 for entry in images[lang]]}
-        return {"lang": None, "images": []}
-
-    def loading_image(self, name: str) -> bytes:
-        """One illustration on the loading screen's black backdrop (UILoading's BlackBG), as JPEG. Game art: kept
-        in the memory cache only, never written to disk."""
-        def build() -> bytes:
-            record = self._loading_index()["records"].get(name)
-            if record is None:
-                raise AssetNotFound(name)
-            with open_bundle(self._bundle_path(record["bundle"])) as env:
-                image = find_object(env, record).read().image.convert("RGBA")
-            backdrop = Image.new("RGBA", image.size, (0, 0, 0, 255))
-            backdrop.alpha_composite(image)
-            out = io.BytesIO()
-            backdrop.convert("RGB").save(out, "JPEG", quality=LOADING_JPEG_QUALITY)
-            return out.getvalue()
-        return self._cached("art/loading/" + name, build, disk=False)
 
     def spine_cores(self, kind: str) -> dict[str, list[Path]]:
         """Group portrait or lobby bundle parts by parsed Spine core."""

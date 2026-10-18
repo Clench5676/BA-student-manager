@@ -74,17 +74,6 @@ class FakeGame:
     def spine_files(self, kind, core):
         return {f"{core}.skel": b"skel", f"{core}.atlas": b"atlas", f"{core}.png": b"png"}
 
-    def loading_list(self, ui_lang):
-        lang = "tw" if ui_lang.startswith("zh") else "en"
-        name = f"LoadingImage_01_{lang}"
-        return {"lang": lang, "images": [{"name": name, "n": 1, "w": 2048, "h": 1024,
-                                          "url": f"/asset/art/loading/{name}.jpg"}]}
-
-    def loading_image(self, name):
-        if name != "LoadingImage_01_en":
-            raise KeyError(name)
-        return b"\xff\xd8 jpeg"
-
 
 class FakeCatalog:
     def __init__(self):
@@ -283,25 +272,6 @@ def test_asset_routes(app):
     assert call(app, "/asset/spine/spr/hoshino_spr/hoshino_spr.atlas")[2] == b"atlas"
     assert call(app, "/asset/spine/spr/hoshino_spr/skeleton.skel")[2] == b"skel"
     assert call(app, "/asset/spine/spr/hoshino_spr/other.png")[0] == "404 Not Found"
-
-
-def test_loading_illustrations_are_never_cacheable(app, services):
-    services.state.set_consent(True)
-    status, headers, body = call(app, "/asset/art/loading/LoadingImage_01_en.jpg")
-    assert status == "200 OK" and body.startswith(b"\xff\xd8")
-    assert headers["Content-Type"] == "image/jpeg" and headers["Cache-Control"] == "no-store"
-    assert call(app, "/asset/art/loading/LoadingImage_99_en.jpg")[0] == "404 Not Found"
-    assert call(app, "/asset/art/loading/LoadingImage_01_en.png")[0] == "404 Not Found"
-
-
-def test_loading_list_shape(app, services, monkeypatch):
-    result = rpc(app, "loading.list", lang="zh-CN")["result"]
-    assert result["lang"] == "tw"
-    assert set(result["images"][0]) == {"name", "n", "w", "h", "url"}
-    assert rpc(app, "loading.list", lang="en-US")["result"]["lang"] == "en"
-    assert rpc(app, "loading.list")["result"]["images"]  # the app's own language
-    monkeypatch.setattr(services, "game_found", lambda: False)
-    assert rpc(app, "loading.list")["result"] == {"lang": None, "images": []}
 
 
 def test_lobby_warm_builds_the_prefab_index_once_per_game(app, services, monkeypatch):
