@@ -775,5 +775,200 @@
 		"anim_diff": {
 			"title": "动画缺失警告"
 		}
+	},
+	"webui": {
+		"top": {
+			"students": "学生"
+		},
+		"consent": {
+			"title": "使用游戏素材",
+			"no": "不同意并退出",
+			"yes": "同意并缓存",
+			"cached": {
+				"label": "缓存到本机",
+				"items": "界面图标、按钮、边框、纹理、字体"
+			},
+			"never": {
+				"label": "不缓存",
+				"items": "立绘、记忆大厅、3D 模型、语音、背景",
+				"how": "每次从游戏目录读取"
+			},
+			"note": "素材版权归原游戏所有，仅本机使用，可在设置中清除"
+		},
+		"info": {
+			"title": {
+				"portrait": "立绘信息",
+				"lobby": "记忆大厅信息",
+				"model": "3D 模型信息"
+			},
+			"details": "详情",
+			"current": "当前",
+			"status": "状态",
+			"gameFile": "游戏文件",
+			"crc": "CRC"
+		},
+		"row": {
+			"box": {
+				"portrait": "立绘",
+				"lobby": "记忆大厅",
+				"model": "3D 模型"
+			},
+			"switch": {
+				"portrait": "切换立绘",
+				"lobby": "切换记忆大厅",
+				"model": "切换 3D 模型"
+			},
+			"add": {
+				"portrait": "添加立绘",
+				"lobby": "添加记忆大厅",
+				"model": "添加 3D 模型"
+			},
+			"four": {
+				"portrait": "差分",
+				"lobby": "对话",
+				"model": "动作"
+			}
+		},
+		"lobby": {
+			"original": "原版",
+			"fullscreen": "全屏",
+			"playAll": "播放全部对话",
+			"stop": "停止",
+			"exit": "退出全屏"
+		},
+		"model": {
+			"original": "原版",
+			"has": "有",
+			"none": "无"
+		},
+		"nav": {
+			"students": "学生",
+			"modUpdate": "Mod 更新",
+			"batch": "批量更新",
+			"install": "批量安装",
+			"crc": "CRC 工具",
+			"pack": "资源打包",
+			"extract": "资源提取",
+			"adb": "ADB 推送",
+			"tools": "工具"
+		},
+		"roster": {
+			"title": "学生名单",
+			"merge": "合并变种"
+		},
+		"seg": {
+			"all": "全部",
+			"mods": "有 Mod",
+			"noMods": "无 Mod",
+			"recruit": "可招募",
+			"noRecruit": "不可招募"
+		},
+		"sort": {
+			"recent": "最近修改",
+			"release": "发布时间",
+			"default": "默认"
+		},
+		"band": {
+			"mods": "Mod × {n}",
+			"replaced": "已替换"
+		},
+		"bar": {
+			"noMods": "无 Mod"
+		},
+		"tab": {
+			"portrait": "立绘",
+			"lobby": "记忆大厅",
+			"model": "3D 模型"
+		},
+		"status": {
+			"original": "游戏原版",
+			"replaced": "已替换",
+			"gameFile": "游戏文件",
+			"installed": "已安装",
+			"notInstalled": "未安装"
+		},
+		"crc": {
+			"original": "无需修正",
+			"needed": "需修正",
+			"fixed": "已修正"
+		},
+		"open": {
+			"mac": "在访达中显示",
+			"win": "在文件资源管理器中显示"
+		},
+		"act": {
+			"edit": "修改",
+			"update": "更新",
+			"extract": "提取",
+			"compare": "对比"
+		},
+		"chips": {
+			"more": "更多 +{n}"
+		},
+		"fav": {
+			"label": "收藏",
+			"on": "已收藏"
+		},
+		"fold": {
+			"label": "收起"
+		},
+		"popup": {
+			"switch": "切换立绘",
+			"apply": "应用",
+			"cancel": "取消",
+			"inUse": "使用中",
+			"add": "添加立绘"
+		},
+		"field": {
+			"file": "文件",
+			"type": "类型",
+			"size": "大小",
+			"status": "状态",
+			"crc": "CRC"
+		},
+		"type": {
+			"recruit": "可招募",
+			"noRecruit": "不可招募",
+			"added": "添加的立绘"
+		},
+		"btn": {
+			"open": "在访达中显示",
+			"extract": "提取",
+			"remove": "移除"
+		},
+		"picker": {
+			"title": "选择变种",
+			"ok": "确认",
+			"group": "{name} {n}"
+		},
+		"app": {
+			"loading": "读取游戏文件",
+			"noGame": {
+				"title": "未找到游戏目录",
+				"hint": "在经典界面的设置中选择游戏目录"
+			},
+			"openSettings": "打开设置"
+		},
+		"job": {
+			"running": "处理中",
+			"done": "完成",
+			"failed": "失败"
+		},
+		"error": {
+			"internal": "出错了：{error}",
+			"game_not_found": "未找到游戏目录",
+			"mod_unsupported": "不支持的文件：{file}",
+			"game_file_locked": "游戏文件被占用，请先关闭游戏",
+			"native_unavailable": "浏览器模式下不可用",
+			"path_not_found": "路径不存在：{path}",
+			"reveal_failed": "无法打开文件管理器",
+			"classic_failed": "无法启动经典界面",
+			"unknown_method": "未知操作：{method}",
+			"bad_params": "参数错误",
+			"job_not_found": "任务不存在"
+		},
+		"drop": {
+			"hint": "拖入 Mod 文件以添加"
+		}
 	}
 }

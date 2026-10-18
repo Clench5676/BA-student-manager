@@ -775,5 +775,200 @@
 		"anim_diff": {
 			"title": "Missing Animations Warning"
 		}
+	},
+	"webui": {
+		"top": {
+			"students": "Students"
+		},
+		"consent": {
+			"title": "Use Game Assets",
+			"no": "Decline and Quit",
+			"yes": "Agree and Cache",
+			"cached": {
+				"label": "Cached on This Device",
+				"items": "UI icons, buttons, frames, textures, fonts"
+			},
+			"never": {
+				"label": "Never Cached",
+				"items": "Portraits, memorial lobbies, sprites, voices, backgrounds",
+				"how": "Read from the game folder each time"
+			},
+			"note": "Game assets belong to their owners, stay on this device and can be cleared in Settings"
+		},
+		"info": {
+			"title": {
+				"portrait": "Portrait Info",
+				"lobby": "Memorial Lobby Info",
+				"model": "Sprite Info"
+			},
+			"details": "Details",
+			"current": "Current",
+			"status": "Status",
+			"gameFile": "Game File",
+			"crc": "CRC"
+		},
+		"row": {
+			"box": {
+				"portrait": "Portrait",
+				"lobby": "Memorial Lobby",
+				"model": "Sprite"
+			},
+			"switch": {
+				"portrait": "Switch Portrait",
+				"lobby": "Switch Memorial Lobby",
+				"model": "Switch Sprite"
+			},
+			"add": {
+				"portrait": "Add Portrait",
+				"lobby": "Add Memorial Lobby",
+				"model": "Add Sprite"
+			},
+			"four": {
+				"portrait": "Faces",
+				"lobby": "Dialogue",
+				"model": "Motion"
+			}
+		},
+		"lobby": {
+			"original": "Original",
+			"fullscreen": "Fullscreen",
+			"playAll": "Play All Dialogue",
+			"stop": "Stop",
+			"exit": "Exit Fullscreen"
+		},
+		"model": {
+			"original": "Original",
+			"has": "Yes",
+			"none": "None"
+		},
+		"nav": {
+			"students": "Students",
+			"modUpdate": "Mod Update",
+			"batch": "Batch Update",
+			"install": "Batch Install",
+			"crc": "CRC Tool",
+			"pack": "Asset Packer",
+			"extract": "Asset Extractor",
+			"adb": "ADB Push",
+			"tools": "Tools"
+		},
+		"roster": {
+			"title": "Student List",
+			"merge": "Group Variants"
+		},
+		"seg": {
+			"all": "All",
+			"mods": "Modded",
+			"noMods": "No Mod",
+			"recruit": "Recruitable",
+			"noRecruit": "Not Recruitable"
+		},
+		"sort": {
+			"recent": "Last Modified",
+			"release": "Release Date",
+			"default": "Default"
+		},
+		"band": {
+			"mods": "Mod × {n}",
+			"replaced": "Replaced"
+		},
+		"bar": {
+			"noMods": "No Mod"
+		},
+		"tab": {
+			"portrait": "Portrait",
+			"lobby": "Memorial Lobby",
+			"model": "Sprite"
+		},
+		"status": {
+			"original": "Original",
+			"replaced": "Replaced",
+			"gameFile": "Game File",
+			"installed": "Installed",
+			"notInstalled": "Not Installed"
+		},
+		"crc": {
+			"original": "Not Needed",
+			"needed": "Needs Fix",
+			"fixed": "Fixed"
+		},
+		"open": {
+			"mac": "Show in Finder",
+			"win": "Show in Explorer"
+		},
+		"act": {
+			"edit": "Edit",
+			"update": "Update",
+			"extract": "Extract",
+			"compare": "Compare"
+		},
+		"chips": {
+			"more": "More +{n}"
+		},
+		"fav": {
+			"label": "Favorite",
+			"on": "Favorited"
+		},
+		"fold": {
+			"label": "Collapse"
+		},
+		"popup": {
+			"switch": "Switch Portrait",
+			"apply": "Apply",
+			"cancel": "Cancel",
+			"inUse": "In Use",
+			"add": "Add Portrait"
+		},
+		"field": {
+			"file": "File",
+			"type": "Type",
+			"size": "Size",
+			"status": "Status",
+			"crc": "CRC"
+		},
+		"type": {
+			"recruit": "Recruitable",
+			"noRecruit": "Not Recruitable",
+			"added": "Added"
+		},
+		"btn": {
+			"open": "Show in Finder",
+			"extract": "Extract",
+			"remove": "Remove"
+		},
+		"picker": {
+			"title": "Select Variant",
+			"ok": "Confirm",
+			"group": "{name} {n}"
+		},
+		"app": {
+			"loading": "Reading game files",
+			"noGame": {
+				"title": "Game folder not found",
+				"hint": "Choose the game folder in the classic UI's Settings"
+			},
+			"openSettings": "Open Settings"
+		},
+		"job": {
+			"running": "Working",
+			"done": "Done",
+			"failed": "Failed"
+		},
+		"error": {
+			"internal": "Something went wrong: {error}",
+			"game_not_found": "Game folder not found",
+			"mod_unsupported": "Unsupported file: {file}",
+			"game_file_locked": "A game file is in use; close the game first",
+			"native_unavailable": "Not available in browser mode",
+			"path_not_found": "Path not found: {path}",
+			"reveal_failed": "Could not open the file manager",
+			"classic_failed": "Could not start the classic UI",
+			"unknown_method": "Unknown action: {method}",
+			"bad_params": "Invalid parameters",
+			"job_not_found": "Task not found"
+		},
+		"drop": {
+			"hint": "Drop mod files to add them"
+		}
 	}
 }
