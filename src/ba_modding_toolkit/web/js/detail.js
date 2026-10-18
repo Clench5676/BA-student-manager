@@ -13,6 +13,7 @@ import * as Lobby from "./lobby.js";
 import { rpc, spineBase, waitJob } from "./api.js";
 import { L, T, language, platform } from "./i18n.js";
 import { forget, idleAnimation, prioritise, thumb } from "./thumbs.js";
+import { portraitViewport } from "./portrait-view.js";
 import { setTitle } from "./nav.js";
 import {
   $, DOT, RECRUIT, S, TAN10, advanceOf, at, clone, glyphsOf, hitButton, markedLabel, off, text, toast, widget, wrapPath,
@@ -31,6 +32,8 @@ const ORIGIN = [960, 515]; // prefab centre; 25 px above the stage centre so the
 const toStage = (x, y) => [ORIGIN[0] + x * S, ORIGIN[1] - y * S];
 const INFO = "RightInfo/Target/Active/1_NormalInfo";
 const stage = () => document.getElementById("stage");
+// the portrait's players cover the stage (.portrait in app.css), so nothing the game shows is cut at a box edge
+const PORTRAIT_BOX = { left: 0, top: 0, width: 1920, height: 1080 };
 
 let ctx = null, fam = null, variantKey = null, layouts = null;
 let tab = "portrait", fullscreen = false, expression = "00", expanded = false, exprScroll = 0;
@@ -785,8 +788,9 @@ function loadSpine(base) {
       skeleton: `${base}.skel`, atlas: `${base}.atlas`, animation: undefined,
       premultipliedAlpha: false, alpha: true, backgroundColor: "#00000000",
       showControls: false, showLoading: false, preserveDrawingBuffer: true,
-      // no viewport transition: spine-player starts it from an undefined viewport and draws nothing meanwhile
-      viewport: { padLeft: "6%", padRight: "6%", padTop: "3%", padBottom: "0%", transitionTime: 0 },
+      // framed like the game (portrait-view.js), never on the skeleton's bounds; no viewport transition:
+      // spine-player starts it from an undefined viewport and draws nothing meanwhile
+      viewport: portraitViewport(layouts && find(layouts.list, "CharacterPos"), { origin: ORIGIN, s: S, box: PORTRAIT_BOX }),
       success: async (player) => {
         // before the first await: once this returns, spine-player frames the view on track 0's animation and plays.
         // With nothing on track 0 it would pause (no face, no blink): a skeleton without an idle gets an empty

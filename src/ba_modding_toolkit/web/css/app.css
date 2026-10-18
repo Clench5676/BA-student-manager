@@ -97,7 +97,8 @@ input[type="text"], input[type="search"], textarea { cursor: text; }
 .layer-host.ui { z-index: 2; }
 #ngui-chips { z-index: 3; }
 #ngui-expr { z-index: 4; }
-.portrait { position: absolute; left: 20px; top: 40px; width: 960px; height: 1560px; z-index: 1; }
+/* the portrait covers the stage like the game's, under every panel (PORTRAIT_BOX in detail.js) */
+.portrait { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; z-index: 1; }
 .portrait .layer { position: absolute; inset: 0; transition: opacity .35s ease; }
 .portrait .layer.fading { opacity: 0; }
 .portrait .spine-player, .lobby-layer .spine-player, .thumb-player .spine-player { background: transparent !important; }
