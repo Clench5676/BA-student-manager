@@ -309,6 +309,23 @@ def test_cab_names_rejects_other_files(tmp_path):
         cab_names(broken)
 
 
+def _corrupt_unityfs(flags):
+    """A UnityFS header whose compressed blocks info is garbage."""
+    packed = b"\xff" * 40
+    head = b"UnityFS\0" + struct.pack(">I", 7) + b"5.x.x\0" + b"2021.3.0f1\0" + struct.pack(">qIII", 0, len(packed), 200, flags)
+    return head + b"\0" * (-len(head) % 16) + packed + b"DATA"
+
+
+@pytest.mark.parametrize("flags", [1, 2, 3, 4])  # LZMA, LZ4, LZ4HC, LZHAM
+def test_cab_names_wraps_decompression_errors(tmp_path, flags):
+    path = tmp_path / "corrupt.bundle"
+    path.write_bytes(_corrupt_unityfs(flags))
+    with pytest.raises(ValueError):
+        cab_names(path)
+    with pytest.raises(OSError):
+        cab_names(tmp_path / "missing.bundle")
+
+
 def test_model_dependency_families():
     for name in ("character-ch0242-_mxload-2024-11-18_assets_all_1.bundle",
                  "assets-_mx-characters-ch0242-_mxdependency-2024-11-18_004_assets_all_2.bundle",
@@ -349,6 +366,16 @@ def test_model_glb_is_memory_only_and_keyed_by_bundle_stamps(tmp_path, monkeypat
     assert game.model_glb("ch0242") == b"glTF\0\0"  # a changed prefab bundle exports again
     with pytest.raises(AssetNotFound):
         game.model_glb("ch9999")
+
+
+def test_cab_index_skips_a_corrupt_bundle(tmp_path):
+    # one damaged model-family bundle (an interrupted update) must not break every model
+    game, resources = _game(tmp_path)
+    good = "assets-_mx-characters-ch0242-_mxdependency-2024-11-18_004_assets_all_2.bundle"
+    (resources / good).write_bytes(_unityfs(["CAB-good"]))
+    (resources / "assets-_mx-characters-ch0243-_mxdependency-2024-11-18_004_assets_all_3.bundle").write_bytes(
+        _corrupt_unityfs(2))
+    assert {cab: Path(path).name for cab, path in game._cab_index().items()} == {"cab-good": good}
 
 
 def test_model_graph_falls_back_to_every_bundle_once(tmp_path):

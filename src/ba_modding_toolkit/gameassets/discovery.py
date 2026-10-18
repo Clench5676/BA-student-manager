@@ -80,7 +80,8 @@ def is_loading_art(path: Path) -> bool:
 def cab_names(path: Path) -> list[str]:
     """Lower-case CAB names of a UnityFS bundle, from its header and blocks info only (no data block is read).
 
-    Raises ValueError for a file that is not a readable UnityFS bundle.
+    Raises ValueError for a file that is not a readable UnityFS bundle (a truncated or corrupt header or blocks
+    info included), OSError when the file cannot be read.
     """
     from UnityPy.helpers.CompressionHelper import DECOMPRESSION_MAP
 
@@ -116,7 +117,11 @@ def cab_names(path: Path) -> list[str]:
             names.append(info[pos:end].decode("utf-8", "replace").lower())
             pos = end + 1
         return names
-    except (struct.error, KeyError, IndexError, UnicodeError) as exc:
+    except OSError:
+        raise
+    except Exception as exc:
+        # besides struct, index and lookup errors, every decompressor raises its own type (LZ4BlockError,
+        # LZMAError, NotImplementedError for LZHAM): one damaged bundle must not break the callers' scans
         raise ValueError(f"not a readable UnityFS bundle: {path}") from exc
 
 
