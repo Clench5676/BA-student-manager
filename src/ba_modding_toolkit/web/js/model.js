@@ -340,8 +340,7 @@ class ChibiView {
     const offset = this.camera.position.clone().sub(this.controls.target);
     const ratio = this.fit ? THREE.MathUtils.clamp(offset.length() / this.fit, 0.45, 1.3) : 1;
     this.fit = fit;
-    this.controls.minDistance = fit * 0.45; // about the bust
-    this.controls.maxDistance = fit * 1.3;  // a step back
+    this.limits = { min: fit * 0.45, max: fit * 1.3 }; // about the bust, a step back
     this.camera.near = fit / 50;
     this.camera.far = fit * 20;
     const keep = !snap && offset.lengthSq() > 0;
@@ -350,15 +349,18 @@ class ChibiView {
 
   // double-click: back to the front view at the fit distance
   home() {
-    if (this.size) this.moveTo(this.homeDirection(), this.fit, FRAMES[this.mode], false);
+    if (this.limits) this.moveTo(this.homeDirection(), this.fit, FRAMES[this.mode], false);
   }
 
   // the camera as a direction and distance from the orbit target, so the target can rise while it moves
   moveTo(direction, distance, view, snap) {
     const offset = this.camera.position.clone().sub(this.controls.target);
-    this.tween = { t0: performance.now(), dir0: offset.lengthSq() ? offset.clone().normalize() : direction.clone(), dist0: offset.length() || distance,
-      dir1: direction.clone(), dist1: distance, view0: { ...this.view }, view1: { x: view.x, y: view.y } };
-    if (snap) this.tween.t0 = -Infinity;
+    const tw = (this.tween = { t0: performance.now(), dir0: offset.lengthSq() ? offset.clone().normalize() : direction.clone(), dist0: offset.length() || distance,
+      dir1: direction.clone(), dist1: distance, view0: { ...this.view }, view1: { x: view.x, y: view.y } });
+    if (snap) tw.t0 = -Infinity;
+    // the orbit controls clamp the distance on every update: while the camera glides, the zoom limits take in both
+    // ends, and the new fit's limits apply once it arrives
+    Object.assign(this.controls, { minDistance: Math.min(this.limits.min, tw.dist0, tw.dist1), maxDistance: Math.max(this.limits.max, tw.dist0, tw.dist1) });
     this.stepTween();
     if (snap) { this.liftTarget(); this.controls.update(); }
   }
@@ -372,7 +374,10 @@ class ChibiView {
     this.camera.position.copy(this.controls.target).add(dir.normalize().multiplyScalar(tw.dist0 + (tw.dist1 - tw.dist0) * k));
     this.view = { x: tw.view0.x + (tw.view1.x - tw.view0.x) * k, y: tw.view0.y + (tw.view1.y - tw.view0.y) * k };
     this.applyView();
-    if (t >= 1) this.tween = null;
+    if (t >= 1) {
+      this.tween = null;
+      Object.assign(this.controls, { minDistance: this.limits.min, maxDistance: this.limits.max });
+    }
   }
 
   // closing in moves the orbit target from the body's centre up to the face, so the closest view is the bust;
@@ -380,7 +385,7 @@ class ChibiView {
   liftTarget() {
     if (!this.fit) return;
     const o = this.controls, offset = this.camera.position.clone().sub(o.target);
-    const t = THREE.MathUtils.clamp((this.fit - offset.length()) / (this.fit - o.minDistance), 0, 1);
+    const t = THREE.MathUtils.clamp((this.fit - offset.length()) / (this.fit - this.limits.min), 0, 1);
     o.target.set(this.target.x, this.target.y + (this.faceY - this.target.y) * ease(t), this.target.z);
     this.camera.position.copy(o.target).add(offset);
   }
