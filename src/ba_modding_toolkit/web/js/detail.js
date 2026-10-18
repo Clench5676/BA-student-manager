@@ -621,7 +621,7 @@ function stripCard(name, x, { w = CARD.w, h = CARD.h, thumb: pic = null, selecte
     // a dialogue line: centred on the card, as large as fits in up to four lines; a longer line ends in an ellipsis
     // (the subtitle shows it in full)
     let f = fitText(body, 40, 32, w - 52, 4), cut = body;
-    while (f.lines === 1 && glyphsOf(f.text, f.fs) > w - 52 && cut.length > 4) { cut = cut.slice(0, -2); f = fitText(`${cut}…`, 40, 32, w - 52, 4); }
+    while (f.lines === 1 && glyphsOf(f.text, f.fs) > w - 52 && cut.length > 4) { cut = cut.slice(0, -2).trimEnd(); f = fitText(`${cut}…`, 40, 32, w - 52, 4); }
     kids.push(node("Body", [0, cy], [label(f.text, f.fs, "#2c4564/1.00", w - 40, f.fs * 1.3 * f.lines, { depth: 12 })]));
   }
   if (selected) kids.push(node("Select", [1, cy], [sprite("Card_Select_Line_Blue", w + 6, vis + 8, { incline: 10, depth: 20 })],
