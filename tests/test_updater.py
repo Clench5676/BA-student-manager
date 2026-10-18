@@ -86,8 +86,9 @@ def test_download_checks_the_md5(tmp_path, monkeypatch):
 def test_scripts_wait_replace_and_restart():
     mac = updater.macos_script(Path("/tmp/u/new app.dmg"), Path("/Applications/Tool.app"), 42)
     assert "kill -0 42" in mac and "'/tmp/u/new app.dmg'" in mac and "open /Applications/Tool.app" in mac
-    win = updater.windows_script(Path(r"C:\t\new.exe"), Path(r"C:\Tools\Tool.exe"), 42)
-    assert 'PID eq 42' in win and r'move /Y "C:\t\new.exe" "C:\Tools\Tool.exe"' in win and r'start "" "C:\Tools\Tool.exe"' in win
+    win = updater.windows_script(Path(r"C:\t\new.exe"), Path(r"C:\Tools\Tool.exe"), [42, 7])
+    assert 'PID eq 42' in win and 'PID eq 7' in win and "goto move" in win
+    assert r'move /Y "C:\t\new.exe" "C:\Tools\Tool.exe"' in win and r'start "" "C:\Tools\Tool.exe"' in win
 
 
 def test_install_refuses_development_runs(tmp_path):

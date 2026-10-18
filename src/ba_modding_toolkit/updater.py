@@ -236,13 +236,23 @@ open {q(str(app))}
 """
 
 
-def windows_script(new_exe: Path, exe: Path, pid: int) -> str:
+def windows_script(new_exe: Path, exe: Path, pids: list[int]) -> str:
+    labels = "\n".join(f":wait{pid}\n" + f'tasklist /FI "PID eq {pid}" 2>nul | find "{pid}" >nul && (timeout /t 1 /nobreak >nul & goto wait{pid})'
+                        for pid in pids)
     return f"""@echo off
-rem waits for the program to quit, then replaces it with the downloaded build and starts it again
-:wait
-tasklist /FI "PID eq {pid}" 2>nul | find "{pid}" >nul && (timeout /t 1 /nobreak >nul & goto wait)
-move /Y "{new_exe}" "{exe}" >nul || (timeout /t 2 /nobreak >nul & move /Y "{new_exe}" "{exe}" >nul)
+rem waits for the program (the onefile launcher and the program it started) to quit, then replaces it with the
+rem downloaded build and starts it again; the move is retried while Windows still holds the old file
+{labels}
+set tries=0
+:move
+move /Y "{new_exe}" "{exe}" >nul && goto start
+set /a tries+=1
+if %tries% geq 60 goto end
+timeout /t 1 /nobreak >nul
+goto move
+:start
 start "" "{exe}"
+:end
 del "%~f0"
 """
 
@@ -263,7 +273,10 @@ def install(downloaded: Path) -> None:
     elif sys.platform == "win32":
         fd, name = tempfile.mkstemp(prefix="bamt-update-", suffix=".cmd")
         with os.fdopen(fd, "w", encoding="mbcs", errors="replace") as f:
-            f.write(windows_script(downloaded, target, pid))
+            # a onefile build runs as a launcher process plus this one; wait for both
+            parent = os.environ.get("NUITKA_ONEFILE_PARENT", "")
+            pids = [pid] + ([int(parent)] if parent.isdigit() else [])
+            f.write(windows_script(downloaded, target, pids))
         detached = 0x00000008 | 0x00000200 | 0x08000000  # DETACHED_PROCESS | NEW_PROCESS_GROUP | NO_WINDOW
         subprocess.Popen(["cmd", "/c", name], creationflags=detached, close_fds=True)
     else:
