@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import sys
 import tempfile
 import webbrowser
@@ -17,6 +18,7 @@ from .rpc import RpcRegistry, to_json
 from .services import Services
 from .system import open_classic, reveal
 
+logger = logging.getLogger(__name__)
 UI_LANGS = ("zh-CN", "zh-TW", "en-US", "ja-JP")
 
 
@@ -210,6 +212,18 @@ def build_api(s: Services) -> RpcRegistry:
     @rpc.method("i18n.strings")
     def i18n_strings(lang: str | None = None) -> dict[str, str]:
         return ui_strings(lang or i18n_manager.lang)
+
+    @rpc.method("loading.list")
+    def loading_list(lang: str | None = None) -> dict[str, Any]:
+        """The loading screen illustrations for a UI language; none without a game folder or when they cannot be
+        read (the loading screen then stays plain)."""
+        if not s.game_found():
+            return {"lang": None, "images": []}
+        try:
+            return s.game.loading_list(lang or i18n_manager.lang)
+        except (ServiceError, KeyError, OSError):
+            logger.warning("Cannot list the loading screen illustrations", exc_info=True)
+            return {"lang": None, "images": []}
 
     # --- students ---
 

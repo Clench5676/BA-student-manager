@@ -201,6 +201,7 @@ Events on `/api/events`:
 | `app.consent {granted}` | records the choice; `false` closes the app |
 | `app.openClassic {tab}` | starts the classic GUI on a tab |
 | `i18n.strings {lang}` | `{key: text}` for `webui.*` |
+| `loading.list {lang}` | the loading screen illustrations for a UI language: `{lang, images: [{name, n, w, h, url}]}` (zh → tw, ja → jp, then en, then any; none without a game) |
 | `roster.list` | families with variants, mod counts, fresh flags, favourites, recent order |
 | `family.get {key}` | a family with its variants, mods and each variant's state |
 | `favorites.set {variant, on}` | |
@@ -221,6 +222,7 @@ Events on `/api/events`:
 | `/asset/ui/textures.json`, `/asset/ui/texture/<name>.png` | light |
 | `/asset/ui/layout/<root>.json?path=<subpath>` | light |
 | `/asset/art/bg/<name>`, `/asset/art/portrait/<name>.png` | heavy |
+| `/asset/art/loading/<name>.jpg` (a loading illustration on black) | heavy |
 | `/asset/spine/spr/<core>/<file>`, `/asset/spine/lobby/<core>/<file>`, `/asset/spine/mod/<id>/<file>` | heavy |
 
 Thumbnails (faces, busts, expression cards, variant cards) are rendered in the page from the skeletons, in one
@@ -233,6 +235,28 @@ consent popup and the lobby player, as ES modules under `web/js/`, one page with
 `#/student/<family>/<variant>`). Its data comes from the RPC methods above instead of the generated `data.js`, its
 art from `/asset/...`, and its strings from the locale files. Prototype-only URL parameters and render hacks are not
 ported.
+
+### Loading screen
+
+`loading.js` draws the game's own loading screen: UILoading (a black backdrop and one illustration, drawn at its own
+size, 1 texel = 1 prefab unit) and UIRepeater ("Now Loading", the hopping dots and Arona turning round, animated in
+`app.css` from the keyframes of the clip `UIAni_Repeat 1`; its UIAudioPlay is never played). The game's tips and
+comics are part of the illustrations, one file per language (`loading.list`); the pick is uniform and skips the last
+few shown, and the next one is fetched and decoded ahead. Before the atlases are in, or without a game, a plain
+stand-in in the page font shows instead.
+
+- `scene(fn)` covers the start, a detail screen opened from another screen or a deep link, and the roster's first
+  build: a fade to black (150 ms), then, while the work goes on, the illustration (at least 800 ms once shown) and
+  the indicator; work done within the fade only fades back. `wait(promise)` shows the indicator alone over the
+  screen after 300 ms (at least 500 ms), for changes inside it. Both give up after 15 s, reveal what there is and say
+  so. One overlay at a time: a newer call takes over the one on screen.
+- The detail screen resolves `show()` only when it is ready: the panels, the left side's first frame (the portrait,
+  or the lobby with its still, or the 3D model with its shaders compiled) and, within 1.2 s, the visible thumbnails;
+  the lobby's lines from Kivo get 1.5 s. A change inside the screen (a variant chip, the family arrows, a tab, an
+  applied portrait) renders every part off screen and swaps them in one frame. The left side loads laid out but
+  transparent; when a lobby or a model replaces another one, a still of the old one holds its place meanwhile.
+- The consent popup comes after the first screen is revealed. The illustrations are game art: memory only, served
+  with `Cache-Control: no-store`.
 
 ## Tests
 

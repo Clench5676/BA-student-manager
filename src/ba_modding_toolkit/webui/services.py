@@ -194,6 +194,9 @@ class Services:
         if kind == "ui":
             return self._ui_asset(parts[1:], query)
         if kind == "art" and len(parts) == 3:
+            if parts[1] == "loading" and parts[2].endswith(".jpg"):
+                # a loading screen illustration: game art, composited in memory and never cached
+                return AssetResponse(self.game.loading_image(_stem(parts[2])), "image/jpeg", light=False)
             if parts[1] == "bg":
                 data, mime = self.game.collection_bg(_stem(parts[2]))
                 return AssetResponse(data, mime, light=False)

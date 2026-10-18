@@ -957,6 +957,10 @@
 			},
 			"openSettings": "打开设置"
 		},
+		"loading": {
+			"now": "Now Loading",
+			"slow": "仍在加载"
+		},
 		"job": {
 			"running": "处理中",
 			"done": "完成",

@@ -1,6 +1,9 @@
-// Boot and routing: #/roster (the student list) and #/student/<family>/<variant> (the detail screen).
+// Boot and routing: #/roster (the student list) and #/student/<family>/<variant> (the detail screen). The game's
+// loading screen covers the start and every change of screen until the new one is ready; a change inside the detail
+// screen (a variant chip, the family arrows) keeps the old screen until the new one swaps in, with the indicator alone.
 import * as Consent from "./consent.js";
 import * as Detail from "./detail.js";
+import * as Loading from "./loading.js";
 import * as NGUI from "./ngui.js";
 import * as Roster from "./roster.js";
 import * as Settings from "./settings.js";
@@ -67,24 +70,43 @@ function noGame() {
   ]);
 }
 
-let routeToken = 0;
+let routeToken = 0, rosterBuilt = false;
 async function route() {
   const my = ++routeToken;
   const parts = location.hash.replace(/^#\/?/, "").split("/").map(decodeURIComponent);
   try {
     if (parts[0] === "student" && parts[1]) {
       Roster.invalidate();
-      const fam = await rpc("family.get", { key: parts[1] });
-      if (my !== routeToken) return; // a later navigation took over
-      showScreen("detail");
-      await Detail.show(ctx, fam, parts[2]);
+      if (!$("screen-detail").hidden && !Loading.covering()) {
+        // in place: the shown screen stays until every part of the new one is ready, then all of it swaps at once
+        await Loading.wait((async () => {
+          const fam = await rpc("family.get", { key: parts[1] });
+          if (my === routeToken) await Detail.show(ctx, fam, parts[2], { inPlace: true });
+        })());
+      } else {
+        // from another screen, a deep link or the start: behind the loading screen
+        await Loading.scene(async (covered) => {
+          const fam = await rpc("family.get", { key: parts[1] });
+          await covered;
+          if (my !== routeToken) return; // a later navigation took over
+          showScreen("detail");
+          await Detail.show(ctx, fam, parts[2]);
+        });
+      }
     } else {
-      Detail.hide();
-      const data = await roster();
-      if (my !== routeToken) return;
-      showScreen("roster");
-      setTitle(T("top.students"), null);
-      await Roster.show(ctx, data);
+      const open = async (covered) => {
+        const data = await roster();
+        await covered;
+        if (my !== routeToken) return;
+        Detail.hide();
+        showScreen("roster");
+        setTitle(T("top.students"), null);
+        await Roster.show(ctx, data);
+        rosterBuilt = true;
+      };
+      // the roster's first build is covered too; afterwards it comes back at once
+      if (!rosterBuilt || Loading.covering()) await Loading.scene(open);
+      else await open(null);
     }
   } catch (err) {
     console.error(err);
@@ -96,10 +118,22 @@ async function route() {
 async function boot() {
   fitStage();
   addEventListener("resize", fitStage);
+  // the page starts behind the loading screen: the game's UI is read, then the first screen is built
+  await Loading.scene(start, { opaque: true });
+  if (!info?.gameFound) return;
+  // the consent popup only once the first screen is revealed
+  if (info.consent !== true) await Consent.show($("consent"), info.cacheDir, info.native);
+  // released builds look for a newer release once per launch (development runs do not)
+  if (info.compiled) Update.check($("consent"));
+}
+
+async function start() {
   info = await rpc("app.info");
   ctx.info = info;
+  Loading.init(info); // the loading illustrations of the UI language, fetched while the rest starts
   ctx.prefs = await rpc("settings.get").catch(() => null);
   setStrings(info.language, await rpc("i18n.strings", { lang: info.language }));
+  Loading.relabel();
   document.title = T("top.students");
   document.querySelector(".topbar .back").setAttribute("aria-label", T("a11y.back"));
   $("fs-exit").setAttribute("aria-label", T("lobby.exit"));
@@ -113,10 +147,8 @@ async function boot() {
     noGame();
     return;
   }
-  toast(T("app.loading"), { sticky: true });
   await NGUI.init();
   renderNav(0);
-  toast("");
   // files dropped on the window are added to the library
   on("drop", async ({ paths }) => {
     try {
@@ -135,9 +167,6 @@ async function boot() {
   }));
   addEventListener("hashchange", route);
   await route();
-  if (info.consent !== true) await Consent.show($("consent"), info.cacheDir, info.native);
-  // released builds look for a newer release once per launch (development runs do not)
-  if (info.compiled) Update.check($("consent"));
 }
 
 boot().catch((err) => {
