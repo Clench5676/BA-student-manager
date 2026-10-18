@@ -23,15 +23,16 @@ export function textWidth(str, fs) {
   return Math.max(...String(str).split("\n").map((l) => measureCtx.measureText(l).width));
 }
 
-let index = null, textures = null;
+let index = null, textures = null, initDone = null;
 const images = new Map(), tints = new Map();
 
-export async function init() {
-  if (index) return;
-  [index, textures] = await Promise.all([
+// the atlas and texture indexes, fetched once however many callers wait for them (the loading screen asks first)
+export function init() {
+  initDone ||= Promise.all([
     fetch("/asset/ui/atlases.json").then((r) => (r.ok ? r.json() : {})),
     fetch("/asset/ui/textures.json").then((r) => (r.ok ? r.json() : {})),
-  ]);
+  ]).then(([a, t]) => { [index, textures] = [a, t]; }, (err) => { initDone = null; throw err; });
+  return initDone;
 }
 
 export function load(url) {
