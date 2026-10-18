@@ -649,7 +649,9 @@ function togglePlayAll() {
   if (Lobby.playingAll()) Lobby.stop();
   else Lobby.playAll();
 }
-// a dialogue started (a card, play all, a tap on the character in fullscreen), ended or stopped
+// a dialogue started (a card, play all, a tap on the character in fullscreen), ended or stopped. A lobby that is
+// hidden stops without telling (and off the lobby tab nothing is followed): the tab change, the variant change and
+// hide() reset what is followed here, so the next start redraws the cards and the play-all button.
 let lobbyAll = false;
 Lobby.onTalk((anim, all) => {
   if (tab !== "lobby" || (lobbySeq === anim && lobbyAll === all)) return;
@@ -1184,6 +1186,7 @@ function showTab(id) {
   expanded = false;
   exprScroll = 0;
   lobbySeq = null;
+  lobbyAll = false;
   return changeInPlace(() => Promise.all([renderAll(), renderLeft()]));
 }
 
@@ -1376,6 +1379,7 @@ export async function show(context, familyData, key, { inPlace = false } = {}) {
     expanded = false;
     lobbyShot = null;
     lobbySeq = null;
+    lobbyAll = false;
     modelShot = null;
     modelActions = [];
     modelAction = null;
@@ -1401,6 +1405,8 @@ export function hide() {
   if (fullscreen) setFullscreen(false);
   disposePortrait();
   Lobby.hide($("lobby"));
+  lobbySeq = null;
+  lobbyAll = false;
   hideModel();
   unfreezeLeft(true);
   shownLeft = shownKey = null;
