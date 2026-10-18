@@ -6,7 +6,6 @@ import ttkbootstrap as tb
 import tkinter.messagebox as messagebox
 import threading
 import webbrowser
-from ttkbootstrap.widgets.scrolled import ScrolledFrame
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 if TYPE_CHECKING:
@@ -16,7 +15,7 @@ from ...i18n import t
 from ...models import FileType
 from ...utils import get_environment_info
 from ...naming import CharacterInternalIDMap
-from ..components import Theme, UIComponents, SettingRow
+from ..components import Theme, UIComponents, SettingRow, VerticalScrolledFrame
 from ..utils import select_file, open_directory
 
 class SettingsDialog(tb.Toplevel):
@@ -26,7 +25,7 @@ class SettingsDialog(tb.Toplevel):
 
         self._setup_window()
 
-        self.scroll_frame = ScrolledFrame(self, autohide=True)
+        self.scroll_frame = VerticalScrolledFrame(self, autohide=True)
         self.scroll_frame.pack(fill=tk.BOTH, expand=True, padx=15, pady=15)
         self.content_area = tb.Frame(self.scroll_frame)
         self.content_area.pack(fill=tk.BOTH, expand=True, padx=(0, 15))

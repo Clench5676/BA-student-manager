@@ -4,7 +4,7 @@ import sys
 import tkinter as tk
 import ttkbootstrap as tb
 from ttkbootstrap.widgets.tooltip import ToolTip
-from ttkbootstrap.widgets.scrolled import ScrolledText
+from ttkbootstrap.widgets.scrolled import ScrolledFrame, ScrolledText
 from tkinterdnd2 import DND_FILES
 from PIL import Image as PILImage, ImageTk
 from pathlib import Path
@@ -99,6 +99,27 @@ def create_log_area(parent: tk.Widget) -> ScrolledText:
         spacing1=2,                     # 段前间距（像素）
     )
     return st
+
+# --- Mouse wheel ---
+
+def _is_macos_horizontal_wheel(widget: tk.Misc, event: tk.Event) -> bool:
+    """Whether a <MouseWheel> event is horizontal scrolling on macOS
+
+    Tk on macOS reports the horizontal part of trackpad scrolling as Shift+MouseWheel.
+    """
+    return bool(event.state & 0x0001) and widget.tk.call("tk", "windowingsystem") == "aqua"
+
+
+class VerticalScrolledFrame(ScrolledFrame):
+    """ttkbootstrap ScrolledFrame that ignores horizontal wheel events
+
+    ScrolledFrame applies every <MouseWheel> vertically, so on macOS the horizontal part of
+    trackpad scrolling made the content jitter, most visibly when scrolled to an end.
+    """
+
+    def _on_mousewheel(self, event: tk.Event) -> None:
+        if not _is_macos_horizontal_wheel(self, event):
+            super()._on_mousewheel(event)
 
 # --- 主题与颜色管理 ---
 
@@ -1481,7 +1502,7 @@ class ZoomableCanvas(tb.Canvas):
 
     def _on_wheel(self, event):
         """滚轮缩放（Windows delta ±120）"""
-        if self._pil is None:
+        if self._pil is None or _is_macos_horizontal_wheel(self, event):
             return
         factor = 1.1 if event.delta > 0 else 1 / 1.1
         new_scale = min(max(self._scale * factor, 0.05), 8.0)
