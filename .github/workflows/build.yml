@@ -1,9 +1,8 @@
 name: build executable file
 
+# Releases are built locally (scripts/build_macos.sh, scripts/build_windows.ps1) and published with
+# scripts/release.sh; this workflow only builds on demand.
 on:
-  push:
-    tags:
-      - 'v*' # Trigger when push tag start with v (etc. v0.1.0)
   workflow_dispatch: # Manual
   
 permissions:

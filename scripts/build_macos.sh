@@ -2,7 +2,9 @@
 # scripts/build_macos.sh
 #
 # Build "Blue Archive Modding and Patching Tool.app" with Nuitka on macOS and package it as a DMG
-# (for the architecture of the build machine).
+# (for the architecture of the build machine), with an MD5 file next to it:
+#   dist/Blue-Archive-Modding-and-Patching-Tool-<version>-macos-<arch>.dmg (+ .md5)
+# The in-app update downloads this DMG; keep the name.
 # Requires uv and the Xcode Command Line Tools (clang); sips / iconutil / hdiutil ship with macOS.
 #
 # Usage: scripts/build_macos.sh
@@ -51,7 +53,7 @@ if [[ ! -e $VERSION_FILE ]]; then
     trap 'rm -f "$ROOT/$VERSION_FILE"' EXIT
 fi
 GITHUB_SHA="${GITHUB_SHA:-$(git rev-parse HEAD 2>/dev/null || true)}" \
-GITHUB_REF_NAME="${GITHUB_REF_NAME:-$(git branch --show-current 2>/dev/null || true)}" \
+GITHUB_REF_NAME="${GITHUB_REF_NAME:-$VERSION}" GITHUB_REF_TYPE="${GITHUB_REF_TYPE:-tag}" \
     "$PY" scripts/extract_version.py >/dev/null
 
 # --- Bundled character ID map (BA-Characters-Internal-ID, CC BY-SA 4.0), copied to the user data dir on first launch ---
@@ -110,6 +112,8 @@ rm -rf "$BUILD_DIR"/*.app
         --include-package-data=archspec \
         --include-data-dir=ba_modding_toolkit/assets=ba_modding_toolkit/assets \
         --include-data-dir=ba_modding_toolkit/locales=ba_modding_toolkit/locales \
+        --include-data-dir=ba_modding_toolkit/web=ba_modding_toolkit/web \
+        --include-data-dir=ba_modding_toolkit/catalog/data=ba_modding_toolkit/catalog/data \
         ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"} \
         --macos-app-name="$APP_NAME" \
         --macos-signed-app-name="$BUNDLE_ID" \
@@ -141,9 +145,13 @@ mkdir -p "$STAGING" "$DIST_DIR"
 ditto "$APP" "$STAGING/$APP_NAME.app"
 ln -s /Applications "$STAGING/Applications"
 
-DMG="$DIST_DIR/Blue-Archive-Modding-and-Patching-Tool-v$VERSION-macos-$(uname -m).dmg"
-rm -f "$DMG"
+DMG="$DIST_DIR/Blue-Archive-Modding-and-Patching-Tool-$VERSION-macos-$(uname -m).dmg"
+rm -f "$DMG" "$DMG.md5"
 hdiutil create -volname "$APP_NAME" -srcfolder "$STAGING" -fs HFS+ -format UDZO -ov "$DMG"
 rm -rf "$STAGING"
 
-echo "Done: $DMG"
+# MD5 file in md5sum format ("<hash>  <file name>"), uploaded with the DMG
+HASH=$(md5 -q "$DMG")
+echo "$HASH  $(basename "$DMG")" > "$DMG.md5"
+
+echo "Done: $DMG ($HASH)"
