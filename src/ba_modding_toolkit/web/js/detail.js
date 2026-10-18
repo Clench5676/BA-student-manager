@@ -107,8 +107,12 @@ function candidates(v = variant()) {
     ...familyMods().filter((m) => m.kind === "spr" && m.target !== v.key).map(mod),
   ];
 }
-// the game file parts of one kind ("spr" portrait, "lobby" memorial lobby)
-const partsOf = (v, kind = "spr") => (v.state?.files || []).filter((f) => f.kind === kind);
+// the game file parts of one kind ("spr" portrait, "lobby" memorial lobby, "model" the 3D chibi's prefab bundles,
+// newest first)
+const partsOf = (v, kind = "spr") => (kind === "model" ? v.modelFiles || [] : (v.state?.files || []).filter((f) => f.kind === kind));
+// the kind of game file the shown tab is about, and the newest date of a kind's files
+const tabKind = () => (tab === "lobby" || tab === "model" ? tab : "spr");
+const dateOf = (v, kind) => (kind === "spr" ? v.date : partsOf(v, kind).map((f) => f.date).filter(Boolean).sort().pop());
 // what the variant's game file carries now: the one non-official source among its parts (a mod often replaces one part)
 function appliedOf(v, kind = "spr") {
   const sources = new Set(partsOf(v, kind).map((f) => f.applied).filter((a) => a !== "official"));
@@ -177,7 +181,7 @@ function screenTree() {
   const t = clone(layouts.list);
   off(t, "Top", "NUITop_Scenes", "LeftInfo/CharInfo_Disable", "LeftInfo/CharCombatStyle", "RightInfo/Target/Disable",
     "RightInfo/Target/Active/2_LevelUp", "RightInfo/Target/Active/3_Transcendence", "RightInfo/Target/Active/FullCollier", "RightInfo/Target/Active/Effect");
-  const v = variant(), c = current(), kind = tab === "lobby" ? "lobby" : "spr";
+  const v = variant(), c = current(), kind = tabKind();
   const swapped = tab === "lobby" ? appliedOf(v, "lobby") !== "official" : tab === "model" ? false : appliedKey() !== "self";
   // layer 1 of the panel: measured on the game screenshots it lets about 55 % of the background through
   widget(t, "RightInfo/Target/Active/Bg").color = "#0c284b/0.45";
@@ -209,7 +213,7 @@ function screenTree() {
   const now = tab === "portrait" ? c.label : tab === "lobby" ? lobbyLabel(v) : T("model.original");
   const stats = [["Label_Life", "info.current", "Data_Widget/Data", now],
     ["Label_Attact", "info.status", "Data_Widget/Data", T(swapped ? "status.replaced" : "status.original")],
-    ["Label_Defense", "info.gameFile", "Data", v.date || "—"], ["Label_Healing", "info.crc", "Data_Widget/Data", T(crc[0]), crc[1]]];
+    ["Label_Defense", "info.gameFile", "Data", dateOf(v, kind) || "—"], ["Label_Healing", "info.crc", "Data_Widget/Data", T(crc[0]), crc[1]]];
   // the value column starts after the longest caption of its column
   const capW = (keys) => Math.max(...keys.map((k) => advanceOf(T(k), 42))) + 24;
   const leftCap = capW(["info.current", "info.gameFile"]), rightCap = capW(["info.status", "info.crc"]);
@@ -427,14 +431,14 @@ function hits(view, leftHost, rightHost) {
     add(rightHost, `${INFO}/Weapon/Equip_1/UIEquipmentCard/Btn_Target/Normal/Card_Bg`, openPopup, T("row.switch.portrait"));
     add(rightHost, `${INFO}/Weapon/Btn_Up_Wrapper/Btn_Up/BG (1)`, addMods, T("popup.add"));
   }
-  add(rightHost, `${INFO}/Status/Btn_Up_Wrapper/Btn_Up/BG (1)`, () => reveal(gameFile(variant(), tab === "lobby" ? "lobby" : "spr")), T(platform === "mac" ? "open.mac" : "open.win"));
+  add(rightHost, `${INFO}/Status/Btn_Up_Wrapper/Btn_Up/BG (1)`, () => reveal(gameFile(variant(), tabKind())), T(platform === "mac" ? "open.mac" : "open.win"));
   const act = (card, fn, title) => add(rightHost, `${INFO}/Skill/${card}/Bg`, fn, title);
   act("SkillData_EX (1)", () => runUpdate(), T("act.update"));
   act("SkillData_EX (2)", () => runExtract(), T("act.extract"));
   act("SkillData_EX (3)", () => runCompare(), T("act.compare"));
   add(leftHost, "LeftInfo/CharInfo/Char_Target/Pin/Pin_On/Bg", toggleFav, T("fav.label"));
   add(leftHost, "LeftInfo/CharInfo/Char_Target/Pin/Pin_Off/Bg", toggleFav, T("fav.label"));
-  add(leftHost, "LeftInfo/CharInfo/Char_Target/Char_CVCollectionBtn", copyName, baseName(gameFile()));
+  add(leftHost, "LeftInfo/CharInfo/Char_Target/Char_CVCollectionBtn", copyName, baseName(gameFile(variant(), tabKind())));
   add(leftHost, "Arrow_L/Left", () => ctx.stepFamily(fam.key, -1));
   add(rightHost, "Arrow_R/Right", () => ctx.stepFamily(fam.key, 1));
   if (tab === "lobby" || tab === "model") add(leftHost, "LeftInfo/CharInfo/Char_Target/Char_ZoomBtn", () => setFullscreen(true), T("lobby.fullscreen"));
@@ -451,7 +455,7 @@ async function call(fn) {
 }
 async function reveal(path) { if (path) await call(() => rpc("os.reveal", { path })); }
 async function copyName() {
-  const name = baseName(gameFile());
+  const name = baseName(gameFile(variant(), tabKind()));
   try { await navigator.clipboard.writeText(name); toast(name); } catch { toast(name); }
 }
 async function toggleFav() {

@@ -15,6 +15,7 @@ from typing import Any
 from .. import updater
 from ..errors import ServiceError
 from ..i18n import get_locale_dir, i18n_manager
+from ..naming import parse_filename
 from ..utils import get_version_info
 from .rpc import RpcRegistry, to_json
 from .services import Services
@@ -261,6 +262,33 @@ def build_api(s: Services) -> RpcRegistry:
                              "variants": [variant_json(v, mods, favorites, recent, modified) for v in f.variants]})
         return {"families": families}
 
+    fingerprints: dict[str, Any] = {}  # the bundle hash cache for model_files, made on first use
+
+    def model_files(core: str | None) -> list[dict[str, Any]]:
+        """A 3D chibi's prefab bundles (character-<dev>-_mxload-*), newest first, in the shape of the variant state's
+        file parts, with the CRC state by the library's rules (official, fixed by trailing bytes, or needing a fix)."""
+        try:
+            index = getattr(s.game, "_model_index", None) if core else None
+            names = index().get(core.lower(), []) if index else []
+        except (ServiceError, OSError):
+            return []
+        if "cache" not in fingerprints:
+            from ..library.storage import Fingerprints
+
+            fingerprints["cache"] = Fingerprints()
+        out = []
+        for name in names:
+            path = Path(name)
+            parsed = parse_filename(path.name)
+            try:
+                fp = fingerprints["cache"].get(path)
+            except OSError:
+                continue
+            matches = bool(parsed.crc) and fp.crc == int(parsed.crc)
+            crc = "ok" if matches and fp.trailing == 0 else "fixed" if matches and fp.trailing else "needs_fix"
+            out.append({"file": str(path), "kind": "model", "date": parsed.date, "size": fp.size, "crc": crc})
+        return sorted(out, key=lambda part: (part["date"] or "", part["file"]), reverse=True)
+
     @rpc.method("family.get")
     def family_get(key: str) -> dict[str, Any]:
         f = s.catalog.family(key)
@@ -270,6 +298,7 @@ def build_api(s: Services) -> RpcRegistry:
             item = variant_json(v, mods, favorites, recent)
             item["state"] = to_json(s.library.state(v.key))
             item["modList"] = [to_json(m) for m in mods.get(v.key, [])]
+            item["modelFiles"] = model_files(v.model)
             variants.append(item)
         return {"key": f.key, "base": f.names, "school": f.school, "variants": variants}
 
