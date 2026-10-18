@@ -1420,6 +1420,9 @@ export async function show(context, familyData, key, { inPlace = false } = {}) {
     await Promise.all([renderAll(), renderLeft()]);
     await settleThumbs();
   });
+  // the server's index of the lobbies' prefabs takes seconds to build the first time: built in the background once
+  // the screen is in, so the lobby tab does not wait for it
+  if (open && hasLobby(variant())) rpc("lobby.warm").catch(() => {});
 }
 
 // leaving the screen: stop the players, drop any change being prepared

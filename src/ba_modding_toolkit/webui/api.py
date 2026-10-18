@@ -6,6 +6,8 @@ import json
 import logging
 import sys
 import tempfile
+import threading
+import weakref
 import webbrowser
 from pathlib import Path
 from typing import Any
@@ -270,6 +272,29 @@ def build_api(s: Services) -> RpcRegistry:
             item["modList"] = [to_json(m) for m in mods.get(v.key, [])]
             variants.append(item)
         return {"key": f.key, "base": f.names, "school": f.school, "variants": variants}
+
+    warmed: dict[str, Any] = {"game": None}
+    warm_lock = threading.Lock()
+
+    @rpc.method("lobby.warm")
+    def lobby_warm() -> None:
+        """Build the memorial lobby prefab index in the background (its first build reads every lobby element bundle,
+        about 8 s), once per game, so the first lobby shown does not wait for it. Nothing without a game."""
+        if not s.game_found():
+            return
+        game = s.game
+        with warm_lock:
+            if warmed["game"] is not None and warmed["game"]() is game:
+                return
+            warmed["game"] = weakref.ref(game)
+
+        def build() -> None:
+            try:
+                game._lobby_prefabs()
+            except Exception:  # the lobby builds it again when it needs it
+                logger.debug("Cannot build the memorial lobby prefab index", exc_info=True)
+
+        threading.Thread(target=build, name="lobby-warm", daemon=True).start()
 
     @rpc.method("lobby.lines")
     def lobby_lines(variant: str) -> dict[str, Any]:

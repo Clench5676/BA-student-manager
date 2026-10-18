@@ -273,6 +273,35 @@ def test_loading_list_shape(app, services, monkeypatch):
     assert rpc(app, "loading.list")["result"] == {"lang": None, "images": []}
 
 
+def test_lobby_warm_builds_the_prefab_index_once_per_game(app, services, monkeypatch):
+    calls, release = [], threading.Event()
+
+    def prefabs(game):
+        calls.append(game)
+        release.wait(5)
+        return {}
+
+    monkeypatch.setattr(FakeGame, "_lobby_prefabs", prefabs, raising=False)
+    first = services.game
+    # answered at once while the index is built in the background; a second call does not start another build
+    assert "error" not in rpc(app, "lobby.warm") and "error" not in rpc(app, "lobby.warm")
+    release.set()
+    for thread in [t for t in threading.enumerate() if t.name == "lobby-warm"]:
+        thread.join(5)
+    assert calls == [first]
+    # another game (a new game folder or file source) is warmed again
+    services._game = FakeGame()
+    rpc(app, "lobby.warm")
+    for thread in [t for t in threading.enumerate() if t.name == "lobby-warm"]:
+        thread.join(5)
+    assert calls == [first, services._game]
+    # without a game nothing is started
+    monkeypatch.setattr(services, "game_found", lambda: False)
+    services._game = FakeGame()
+    assert "error" not in rpc(app, "lobby.warm")
+    assert len(calls) == 2
+
+
 def test_static_files_stay_inside_web_dir(app, tmp_path):
     app.static_dir = tmp_path
     (tmp_path / "index.html").write_text("<html>")
