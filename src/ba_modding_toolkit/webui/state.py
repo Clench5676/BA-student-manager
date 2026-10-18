@@ -12,6 +12,44 @@ from typing import Any
 
 RECENT_MAX = 50
 
+# The student list's view (web/js/roster-order.js keeps the same rules): merge toggle, the two segment filters, the
+# display settings' sort, order and filter groups.
+ROSTER_SORTS = ("recent", "added", "name", "mods", "default")
+ROSTER_NATURAL = {"recent": "desc", "added": "desc", "name": "asc", "mods": "desc", "default": "asc"}
+ROSTER_FILTERS = {
+    "favorite": ("yes", "no"),
+    "portrait": ("official", "replaced"),
+    "lobby": ("yes", "no"),
+    "model": ("yes", "no"),
+    "kind": ("student", "npc"),
+}
+
+
+def roster_view(value: Any) -> dict[str, Any]:
+    """A stored or sent roster view with every field valid; unknown fields and options are dropped."""
+    src = value if isinstance(value, dict) else {}
+
+    def pick(key: str, allowed: tuple[str, ...], fallback: str) -> str:
+        v = src.get(key)
+        return v if isinstance(v, str) and v in allowed else fallback
+
+    sort = pick("sort", ROSTER_SORTS, "recent")
+    given = src.get("filters") if isinstance(src.get("filters"), dict) else {}
+    filters = {}
+    for group, options in ROSTER_FILTERS.items():
+        chosen = given.get(group)
+        on = [o for o in options if isinstance(chosen, list) and o in chosen]
+        if on:
+            filters[group] = on
+    return {
+        "merged": src.get("merged") is True,
+        "mods": pick("mods", ("all", "mods", "none"), "all"),
+        "recruit": pick("recruit", ("all", "yes", "no"), "all"),
+        "sort": sort,
+        "order": pick("order", ("asc", "desc"), ROSTER_NATURAL[sort]),
+        "filters": filters,
+    }
+
 
 class UiState:
     def __init__(self, path: Path):

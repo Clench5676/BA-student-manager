@@ -19,6 +19,7 @@ from ..naming import parse_filename
 from ..utils import get_version_info
 from .rpc import RpcRegistry, to_json
 from .services import Services
+from .state import roster_view
 from .system import open_classic, reveal
 
 logger = logging.getLogger(__name__)
@@ -146,6 +147,7 @@ def build_api(s: Services) -> RpcRegistry:
             "gameDirs": {"global": st.get("game_resource_dir"), "japan": st.get("game_resource_dir_japan")},
             "gameFound": s.game_found(), "libraryDir": str(s.library_dir()), "outputDir": st.get("output_dir"),
             "voiceVolume": int(s.state.get("voice_volume", 80)), "voiceMuted": bool(s.state.get("voice_muted", False)),
+            "roster": roster_view(s.state.get("roster")),
             "consent": s.state.consent, "cacheDir": str(s.cache_dir()),
             "version": get_version_info().get("version"), "native": s.window is not None,
         }
@@ -187,6 +189,8 @@ def build_api(s: Services) -> RpcRegistry:
             s.state.set("voice_volume", max(0, min(100, int(value))))
         elif key == "voiceMuted":
             s.state.set("voice_muted", bool(value))
+        elif key == "roster":
+            s.state.set("roster", roster_view(value))
         else:
             raise ServiceError("bad_params", key=key)
         return settings_get()
@@ -239,6 +243,8 @@ def build_api(s: Services) -> RpcRegistry:
             "order": v.order, "spr": v.spr, "lobby": v.lobby, "date": v.date, "model": v.model,
             "bg": _url_bg(v.bg), "portrait": _url_portrait(v.portrait),
             "favorite": v.key in favorites, "mods": len(own), "fresh": any(m.fresh for m in own),
+            # when the newest of its own mods was added (ISO), for the roster's "recently added" sort
+            "added": max((m.added for m in own if getattr(m, "added", None)), default=None),
             "recent": recent.index(v.key) if v.key in recent else None,
             # the portrait game file carries something other than the official portrait (a mod or another variant)
             "replaced": (modified or {}).get(v.key),

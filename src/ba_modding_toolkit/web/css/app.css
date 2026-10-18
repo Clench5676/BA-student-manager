@@ -68,6 +68,13 @@ button { font: inherit; color: inherit; border: 0; background: none; cursor: poi
 .scrollbar { position: absolute; z-index: 150; width: 10px; border-radius: 5px; background: #ccd7df; pointer-events: none; }
 .scrollbar[hidden] { display: none; }
 .scrollbar i { position: absolute; left: 0; right: 0; border-radius: 5px; background: #92a6b7; }
+/* the search box's input over the game's InputField: Label_Search's colour and size, the placeholder like
+   Label_Locale_Input; selectable although the stage is not */
+.roster-search { position: absolute; z-index: 320; border: 0; outline: 0; background: transparent; padding: 0; margin: 0;
+  font-family: var(--font); font-weight: var(--w); line-height: 1.15; color: #1f3f5f; caret-color: #1f3f5f; text-align: center;
+  -webkit-appearance: none; appearance: none; -webkit-user-select: text; user-select: text; }
+.roster-search::placeholder { color: #98a3ae; font-size: .92em; opacity: 1; }
+.roster-empty { position: absolute; inset: 0; pointer-events: none; }
 .consent-host { position: absolute; inset: 0; z-index: 2000; }
 .consent-host[hidden] { display: none; }
 

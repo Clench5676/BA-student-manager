@@ -132,6 +132,7 @@ async function start() {
   ctx.info = info;
   Loading.init(info); // the loading illustrations of the UI language, fetched while the rest starts
   ctx.prefs = await rpc("settings.get").catch(() => null);
+  Roster.init(ctx.prefs?.roster);
   setStrings(info.language, await rpc("i18n.strings", { lang: info.language }));
   Loading.relabel();
   document.title = T("top.students");

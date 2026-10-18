@@ -1,0 +1,149 @@
+// The student list's cards and their order for a view (merge, segment filters, the display settings' filters and
+// sort, the search). No DOM: the tests run it in Node.
+//   arrange(data, view, opts) -> { groups: [{ id: "mods" | "none", items }], total }  the cards as the roster shows them
+//   order(data, view, opts)   -> the same cards in one list
+
+export const SORTS = ["recent", "added", "name", "mods", "default"];
+// the direction each sort reads in by default; the order button flips it
+export const NATURAL = { recent: "desc", added: "desc", name: "asc", mods: "desc", default: "asc" };
+// the display settings' filter groups and their options; inside a group options add up, groups narrow
+export const FILTERS = {
+  favorite: ["yes", "no"],
+  portrait: ["official", "replaced"],
+  lobby: ["yes", "no"],
+  model: ["yes", "no"],
+  kind: ["student", "npc"],
+};
+export const DEFAULT_VIEW = Object.freeze({ merged: false, mods: "all", recruit: "all", sort: "recent", order: "desc", filters: {} });
+
+const pick = (value, allowed, fallback) => (allowed.includes(value) ? value : fallback);
+
+// a stored or edited view with every field valid (the server keeps the same rules: webui/state.py roster_view)
+export function normalizeView(v) {
+  const src = v && typeof v === "object" ? v : {};
+  const filters = {};
+  const given = src.filters && typeof src.filters === "object" ? src.filters : {};
+  for (const [group, options] of Object.entries(FILTERS)) {
+    const on = Array.isArray(given[group]) ? options.filter((o) => given[group].includes(o)) : [];
+    if (on.length) filters[group] = on;
+  }
+  return {
+    merged: src.merged === true,
+    mods: pick(src.mods, ["all", "mods", "none"], "all"),
+    recruit: pick(src.recruit, ["all", "yes", "no"], "all"),
+    sort: pick(src.sort, SORTS, DEFAULT_VIEW.sort),
+    order: pick(src.order, ["asc", "desc"], NATURAL[pick(src.sort, SORTS, DEFAULT_VIEW.sort)]),
+    filters,
+  };
+}
+
+// a group narrows only when some but not all of its options are on
+export const filtering = (filters) => Object.entries(FILTERS).some(([g, options]) => {
+  const on = filters?.[g] || [];
+  return on.length > 0 && on.length < options.length;
+});
+
+// --- search: every name language and the file id, case, width, kana and separators folded ---
+export function fold(str) {
+  return String(str ?? "").normalize("NFKC").toLowerCase()
+    .replace(/[\u3041-\u3096]/g, (c) => String.fromCharCode(c.charCodeAt(0) + 0x60)) // hiragana as katakana
+    .replace(/[\s()[\]{}\u00b7\u30fb\u3001\uff0c,.\-_'"]/g, "");
+}
+export const terms = (query) => String(query ?? "").split(/\s+/).map(fold).filter(Boolean);
+
+const haystacks = new WeakMap();
+function haystack(v, base) {
+  let h = haystacks.get(v);
+  if (h === undefined) {
+    const parts = [v.key, v.fileId];
+    for (const n of Object.values(v.names || {})) parts.push(n?.full);
+    for (const n of Object.values(base || {})) parts.push(n);
+    h = parts.filter(Boolean).map(fold).join("\u0000");
+    haystacks.set(v, h);
+  }
+  return h;
+}
+const matches = (v, base, words) => !words.length || words.every((w) => haystack(v, base).includes(w));
+
+// --- filters on one card's attributes ---
+function passes(card, filters) {
+  for (const [group, options] of Object.entries(FILTERS)) {
+    const on = filters[group] || [];
+    if (!on.length || on.length === options.length) continue;
+    const value = {
+      favorite: card.favorite ? "yes" : "no",
+      portrait: card.replaced ? "replaced" : "official",
+      lobby: card.lobby ? "yes" : "no",
+      model: card.model ? "yes" : "no",
+      kind: card.playable ? "student" : "npc",
+    }[group];
+    if (!on.includes(value)) return false;
+  }
+  return true;
+}
+
+const time = (iso) => { const t = Date.parse(iso || ""); return Number.isFinite(t) ? t : -Infinity; };
+
+// cards: one per variant, or one per family when merged (its attributes are any of its variants'; the card shows the
+// first variant, or the first one the search found)
+function cards(data, view, words, label) {
+  const list = [];
+  let n = 0;
+  for (const f of data.families || []) {
+    const vs = f.variants || [];
+    if (!vs.length) continue;
+    if (view.merged) {
+      const hit = words.length ? vs.find((v) => matches(v, f.base, words)) : vs[0];
+      const recent = Math.min(...vs.map((v) => (v.recent ?? Infinity)));
+      const card = {
+        ...vs[0], ...(hit ? { key: hit.key, spr: hit.spr, portrait: hit.portrait, names: hit.names } : {}),
+        name: label(f.base) ?? f.key, family: f.key, n: n++, matched: !!hit,
+        recruit: vs.some((v) => v.recruitable), mods: vs.reduce((s, v) => s + (v.mods || 0), 0),
+        favorite: vs.some((v) => v.favorite), fresh: vs.some((v) => v.fresh),
+        replaced: vs.find((v) => v.replaced)?.replaced || null,
+        lobby: vs.find((v) => v.lobby)?.lobby || null, model: vs.find((v) => v.model)?.model || null,
+        playable: vs.some((v) => v.playable),
+        recent, added: Math.max(...vs.map((v) => time(v.added))),
+      };
+      list.push(card);
+    } else {
+      for (const v of vs) {
+        list.push({ ...v, name: label(v.names)?.full ?? v.key, family: f.key, n: n++, matched: matches(v, f.base, words),
+          recruit: !!v.recruitable, recent: v.recent ?? Infinity, added: time(v.added) });
+      }
+    }
+  }
+  return list;
+}
+
+function comparator(view, collator) {
+  const by = {
+    recent: (a, b) => b.recent - a.recent,           // ascending: least recently viewed first
+    added: (a, b) => a.added - b.added,
+    name: (a, b) => (collator ? collator.compare(a.name, b.name) : a.name < b.name ? -1 : a.name > b.name ? 1 : 0),
+    mods: (a, b) => (a.mods || 0) - (b.mods || 0),
+    default: (a, b) => a.n - b.n,
+  }[view.sort];
+  const sign = view.order === "desc" ? -1 : 1;
+  const safe = (x) => (Number.isNaN(x) ? 0 : x);
+  // favourites (the game's pins) first whatever the sort; the catalog order breaks ties
+  return (a, b) => (b.favorite - a.favorite) || sign * safe(by(a, b)) || (a.n - b.n);
+}
+
+// opts: query (search text), label ({lang: value} -> the UI language's value), collator (Intl.Collator for names),
+// unfiltered (true: the whole roster in the view's order, for stepping from a card the view hides)
+export function arrange(data, view, { query = "", label = (v) => v?.["zh-CN"] ?? v?.en, collator = null, unfiltered = false } = {}) {
+  const words = unfiltered ? [] : terms(query);
+  const all = cards(data, view, words, label);
+  const shown = unfiltered ? all : all.filter((c) => c.matched
+    && (view.recruit === "all" || (view.recruit === "yes") === c.recruit)
+    && passes(c, view.filters || {}));
+  shown.sort(comparator(view, collator));
+  const groups = [];
+  const mods = unfiltered ? "all" : view.mods;
+  if (mods !== "none") groups.push({ id: "mods", items: shown.filter((c) => c.mods) });
+  if (mods !== "mods") groups.push({ id: "none", items: shown.filter((c) => !c.mods) });
+  return { groups, total: all.length };
+}
+
+export const order = (data, view, opts) => arrange(data, view, opts).groups.flatMap((g) => g.items);

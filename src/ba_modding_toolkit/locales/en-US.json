@@ -863,7 +863,12 @@
 		},
 		"roster": {
 			"title": "Student List",
-			"merge": "Group Variants"
+			"merge": "Group Variants",
+			"search": "Search",
+			"searchHint": "Name, File ID",
+			"empty": "No Results",
+			"asc": "Ascending",
+			"desc": "Descending"
 		},
 		"seg": {
 			"all": "All",
@@ -873,9 +878,31 @@
 			"noRecruit": "Not Recruitable"
 		},
 		"sort": {
-			"recent": "Last Modified",
+			"recent": "Recently Viewed",
+			"added": "Recently Added",
+			"name": "Name",
+			"mods": "Mod Count",
 			"release": "Release Date",
 			"default": "Default"
+		},
+		"display": {
+			"title": "Display Settings",
+			"tab": {
+				"filter": "Filter",
+				"sort": "Sort"
+			},
+			"count": "Showing {n}",
+			"reset": "Reset All",
+			"sortBy": "Sort By",
+			"close": "Close",
+			"fav": {
+				"off": "Not Favorited"
+			},
+			"kind": {
+				"title": "Type",
+				"student": "Student",
+				"npc": "NPC"
+			}
 		},
 		"band": {
 			"mods": "Mod × {n}",

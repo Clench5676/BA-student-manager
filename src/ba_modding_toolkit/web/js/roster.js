@@ -1,16 +1,23 @@
 // Roster: the game's student list prefabs rendered by ngui.js
-//   UICharacterCollection               list frame, ruled paper, filter / search / sort / order buttons
+//   UICharacterCollection               list frame, ruled paper, segment filters, search / sort / order buttons, the
+//                                       search box (CharacterSearch) and the empty list (LeftInfo_Empty)
 //   UICharacterCollectionPopulatorUnit  card template (UICollectCard) and the "not owned" section bar
 //   UIPopup_GachaCharList.Btn_Checkbox  checkbox toggle, reused for "group the variants of one character"
-// Two segment filters: mods (all / modded / no mod) and recruitment (all / recruitable / not recruitable). Cards with
-// mods come first; cards without mods follow the section bar, dimmed like not-owned students. Favourites (the game's
-// pins) come first in each group. Grouped, each character shows its first variant. Only the rows near the view are
-// rendered; the list scrolls with the wheel, by dragging and with the scrollbar.
+// Which cards show, and in what order, is roster-order.js: two segment filters (mods: all / modded / no mod;
+// recruitment: all / recruitable / not recruitable), the search (every name language and the file id), and the display
+// settings behind the sort button (display.js: filter groups and the sort key; the order button flips the order).
+// Cards with mods come first; cards without mods follow the section bar, dimmed like not-owned students. Favourites
+// (the game's pins) come first in each group. Grouped, each character shows its first variant (or the first one the
+// search found). The view is kept across launches (settings key "roster"), the search for the session. Only the rows
+// near the view are rendered; the list scrolls with the wheel, by dragging and with the scrollbar.
 import * as NGUI from "./ngui.js";
-import { spineBase } from "./api.js";
-import { L, T } from "./i18n.js";
+import * as Display from "./display.js";
+import * as Loading from "./loading.js";
+import { rpc, spineBase } from "./api.js";
+import { L, T, language } from "./i18n.js";
 import { thumb } from "./thumbs.js";
 import { $, RECRUIT, S, advanceOf, clone, glyphsOf } from "./util.js";
+import { DEFAULT_VIEW, SORTS, arrange, filtering, normalizeView, order as orderOf } from "./roster-order.js";
 
 const { node, sprite, label, find } = NGUI;
 const fitText = (...a) => NGUI.fitText(...a);
@@ -19,14 +26,49 @@ const PANEL_TOP = 92;                      // stage y of the list frame's top ed
 const ORIGIN = [960, PANEL_TOP + 525 * S]; // ListBG is centred at y -223 and 1496 tall: top edge at +525
 const SHORTEN = 145;                       // the list frame ends above the bottom navigation
 const PAPER_TOP = 334.5, PAPER_BOTTOM = -223 - 66 - (1247 - SHORTEN) / 2 + SHORTEN / 2;
-const CLIP_TOP = ORIGIN[1] - PAPER_TOP * S, CLIP_BOTTOM = ORIGIN[1] - PAPER_BOTTOM * S;
+// with the search box open (CharacterSearch/SearchName: top edge at 314, 112 tall) the cards start under it
+const SEARCH_LIST_TOP = 314 - 112 - 20;
+const CLIP_BOTTOM = ORIGIN[1] - PAPER_BOTTOM * S;
 const PITCH = 600, COLS = 6, LEFT = -1155, FIRST_Y = 281 - 18 - 245, BAR_EXTRA = 67 + 100;
 const TITLE_LEFT = -1270, RIGHT = 1412, GAP = 16;
+const TOOL_Y = 446.5; // centre of the search, sort and order buttons in SeletControl's units
 
-const view = { merged: false, filter: "all", recruit: "all", scroll: 0 };
-let layouts = null, data = null, ctx = null, items = [], contentH = 0, rendered = new Map(), dirty = true;
+let view = { ...normalizeView(DEFAULT_VIEW), scroll: 0 };
+let query = "", searching = false;
+let layouts = null, data = null, ctx = null, items = [], rows = new Map(), contentH = 0, rendered = new Map(), dirty = true;
+let dom = {}; // the list's live elements: scroll host, scrollbar, empty-list host, search input
+
+const listTop = () => (searching ? SEARCH_LIST_TOP : PAPER_TOP);
+const clipTop = () => ORIGIN[1] - listTop() * S;
 
 export function invalidate() { dirty = true; }
+
+// the saved view (settings.get's "roster"); called once at start, before the roster or a detail screen shows
+export function init(prefs) { view = { ...normalizeView(prefs), scroll: 0 }; }
+export const merged = () => view.merged;
+
+let saveTimer = 0;
+function save() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    rpc("settings.set", { key: "roster", value: normalizeView(view) })
+      .then((prefs) => { if (ctx) ctx.prefs = prefs; })
+      .catch((err) => console.warn("roster view not saved", err));
+  }, 250);
+}
+
+let collator = null, collatorLang = null;
+function opts(extra = {}) {
+  if (collatorLang !== language()) {
+    collatorLang = language();
+    try { collator = new Intl.Collator(collatorLang, { numeric: true, sensitivity: "base" }); } catch { collator = null; }
+  }
+  return { query, label: L, collator, ...extra };
+}
+
+// the cards in the roster's order, as it shows them (the detail screen's arrows step through these); unfiltered: the
+// whole roster in the same order
+export function order(rosterData, { unfiltered = false } = {}) { return orderOf(rosterData, view, opts({ unfiltered })); }
 
 // dragging the list: one pair of window listeners for the module's lifetime
 let drag = null;
@@ -36,7 +78,7 @@ addEventListener("pointermove", (ev) => {
   const dy = (ev.clientY - drag.y) / stageScaleNow();
   if (Math.abs(dy) > 6) ctx.dragged = true;
   view.scroll = drag.scroll - dy;
-  applyScroll(drag.scrollHost, drag.bar);
+  applyScroll();
 });
 addEventListener("pointerup", () => { drag = null; setTimeout(() => { if (ctx) ctx.dragged = false; }, 0); });
 
@@ -46,8 +88,10 @@ function toolbarLayout() {
   for (const [segW, segFs, sortFs, cbFs, titleFs] of steps) {
     const titleEnd = TITLE_LEFT + advanceOf(T("roster.title"), titleFs) + 40;
     const segLabels = ["seg.all", "seg.mods", "seg.noMods", "seg.all", "seg.recruit", "seg.noRecruit"].map((k) => fitText(T(k), segFs, 22, segW - 26));
-    const sortText = fitText(T("sort.recent"), sortFs, 28, 420);
-    const sortW = Math.max(300, glyphsOf(sortText.text, sortText.fs) + 170);
+    // the sort button is as wide as its longest key, so choosing another one moves nothing
+    const sortTexts = SORTS.map((k) => fitText(T(`sort.${k}`), sortFs, 28, 420));
+    const sortText = sortTexts[Math.max(0, SORTS.indexOf(view.sort))];
+    const sortW = Math.max(300, ...sortTexts.map((s) => glyphsOf(s.text, s.fs) + 170));
     const cbText = fitText(T("roster.merge"), cbFs, 24, 400);
     const cbW = 131 + glyphsOf(cbText.text, cbText.fs) + 46;
     let x = RIGHT;
@@ -62,7 +106,7 @@ function toolbarLayout() {
   return null;
 }
 
-// --- frame + top menu: our labels instead of image fonts, two segment filters, the checkbox ---
+// --- frame + top menu: our labels instead of image fonts, two segment filters, the checkbox, the tool states ---
 function frameTree(lay) {
   const t = clone(layouts.collection);
   const menu = find(t, "SeletControl/TopMenu");
@@ -89,19 +133,26 @@ function frameTree(lay) {
   };
   find(menu, "FilterBtn").active = false;
   menu.children.push(
-    segFilter("ModFilter", lay.segLabels.slice(0, 3), { all: 0, mods: 1, none: 2 }[view.filter], lay.seg1),
+    segFilter("ModFilter", lay.segLabels.slice(0, 3), { all: 0, mods: 1, none: 2 }[view.mods], lay.seg1),
     segFilter("RecruitFilter", lay.segLabels.slice(3), { all: 0, yes: 1, no: 2 }[view.recruit], lay.seg2));
-  find(menu, "SearchBtn").pos[0] = lay.search - 89;
+  // search: the game's toggle, pressed while the search box is open
+  const search = find(menu, "SearchBtn");
+  search.pos[0] = lay.search - 89;
+  find(search, "Btn_Normal").active = !searching;
+  find(search, "Btn_Pressed").active = searching;
+  // sort: the current key, and the funnel in blue while a display setting filters the list
   const sort = find(menu, "SortBtn");
   sort.pos[0] = lay.sort + 83;
   const body = find(sort, "Btn_Normal");
   const shrink = 622 - lay.sortW;
   body.widgets.find((w) => "sprite" in w).w_ = lay.sortW;
+  const filtered = filtering(view.filters);
   for (const name of ["FilterMarker_Off", "FilterMarker_On"]) {
     const n = find(body, name);
     n.pos[0] += shrink / 2;
     find(n, "Icon").pos[0] -= shrink;
     find(n, "Filter_02").widgets[0].w_ -= shrink;
+    n.active = (name === "FilterMarker_On") === filtered;
   }
   find(body, "Icon").pos[0] -= shrink / 2;
   find(body, "Type_1").active = false;
@@ -109,7 +160,11 @@ function frameTree(lay) {
   type2.active = true;
   Object.assign(find(type2, "Text").widgets[0], { text: lay.sortText.text, fontSize: lay.sortText.fs, w_: lay.sortW - 120 });
   find(type2, "Text").pos[0] = 30;
-  find(menu, "OrderBtn").pos[0] = lay.order + 45.1;
+  // order: one arrow, down for descending (the prefab holds both, Icon_Up flipped)
+  const orderBtn = find(menu, "OrderBtn");
+  orderBtn.pos[0] = lay.order + 45.1;
+  find(orderBtn, "Btn_Normal/Icon_down").active = view.order === "desc";
+  find(orderBtn, "Btn_Normal/Icon_Up").active = view.order !== "desc";
   // checkbox toggle after the title (game: "unowned students only" in the gacha character list)
   const cb = clone(layouts.checkbox);
   cb.name = "Merge";
@@ -136,49 +191,35 @@ function frameTree(lay) {
 }
 
 // --- entries and their positions ---
-function entries() {
-  const list = [];
-  let n = 0;
-  for (const f of data.families) {
-    if (!f.variants.length) continue;
-    if (view.merged) {
-      const first = f.variants[0];
-      list.push({ ...first, name: L(f.base), recruit: f.variants.some((v) => v.recruitable), mods: f.variants.reduce((s, v) => s + (v.mods || 0), 0),
-        favorite: f.variants.some((v) => v.favorite), fresh: f.variants.some((v) => v.fresh),
-        replaced: f.variants.find((v) => v.replaced)?.replaced || null,
-        recent: Math.min(...f.variants.map((v) => v.recent ?? Infinity)), family: f.key, n: n++ });
-    } else {
-      for (const v of f.variants) list.push({ ...v, name: L(v.names).full, recruit: v.recruitable, family: f.key, recent: v.recent ?? Infinity, n: n++ });
-    }
-  }
-  return list
-    .filter((e) => view.recruit === "all" || (view.recruit === "yes") === e.recruit)
-    .sort((a, b) => (b.favorite - a.favorite) || (a.recent - b.recent) || (a.n - b.n));
-}
-
 function layoutItems() {
-  const list = entries();
-  const groups = [];
-  if (view.filter !== "none") groups.push({ items: list.filter((e) => e.mods) });
-  if (view.filter !== "mods") groups.push({ items: list.filter((e) => !e.mods), bar: T("bar.noMods") });
+  const { groups } = arrange(data, view, opts());
   const out = [];
-  let y = FIRST_Y, first = true;
+  const shift = PAPER_TOP - listTop(); // the search box pushes the cards down
+  let y = FIRST_Y - shift, first = true;
   for (const g of groups) {
     if (!g.items.length) continue;
-    if (g.bar) {
+    const bar = g.id === "none" ? T("bar.noMods") : null;
+    if (bar) {
       // the section bar row is 67 units taller than a card row, plus air above it; first in the list, it only
       // needs room under the paper's top edge
       y -= first ? 67 : BAR_EXTRA;
-      out.push({ bar: g.bar, y: y + 307, row: `bar:${g.bar}` });
+      out.push({ bar, y: y + 307, row: `bar:${g.id}` });
     }
     g.items.forEach((e, i) => {
       const r = Math.floor(i / COLS);
-      out.push({ e, x: LEFT + (i % COLS) * 454, y: y - r * PITCH, row: `${g.bar || "mods"}:${r}` });
+      out.push({ e, x: LEFT + (i % COLS) * 454, y: y - r * PITCH, row: `${g.id}:${r}` });
     });
     y -= Math.ceil(g.items.length / COLS) * PITCH;
     first = false;
   }
-  contentH = (18 + 245 - y) * S;
+  contentH = (18 + 245 - shift - y) * S;
+  // rows with their items and top edge (stage px), for the virtual list
+  rows = new Map();
+  for (const it of out) {
+    let r = rows.get(it.row);
+    if (!r) rows.set(it.row, r = { items: [], top: ORIGIN[1] - (it.bar ? it.y + 60 : it.y + 245) * S });
+    r.items.push(it);
+  }
   return out;
 }
 
@@ -223,8 +264,7 @@ async function renderRow(host, rowKey) {
   host.appendChild(row);
   rendered.set(rowKey, row);
   const jobs = [];
-  for (const it of items) {
-    if (it.row !== rowKey) continue;
+  for (const it of rows.get(rowKey)?.items || []) {
     if (it.bar) {
       const bar = clone(layouts.bar);
       find(bar, "Label_Locale").widgets[0].text = it.bar;
@@ -250,85 +290,228 @@ async function renderRow(host, rowKey) {
   await Promise.all(jobs);
 }
 
-function rowTop(rowKey) {
-  const it = items.find((x) => x.row === rowKey);
-  return it ? ORIGIN[1] - (it.bar ? it.y + 60 : it.y + 245) * S : 0;
-}
-
-function syncRows(host) {
-  const viewH = CLIP_BOTTOM - CLIP_TOP;
-  const lo = CLIP_TOP + view.scroll - viewH, hi = CLIP_TOP + view.scroll + viewH * 2;
+// the rows near the view are rendered, the others dropped; resolves once the new ones are in
+function syncRows() {
+  const host = dom.scrollHost;
+  const viewH = CLIP_BOTTOM - clipTop();
+  const lo = clipTop() + view.scroll - viewH, hi = clipTop() + view.scroll + viewH * 2;
   const wanted = new Set();
-  for (const it of items) {
-    const top = rowTop(it.row);
-    if (top + PITCH * S >= lo && top <= hi) wanted.add(it.row);
-  }
+  for (const [key, r] of rows) if (r.top + PITCH * S >= lo && r.top <= hi) wanted.add(key);
   for (const [key, el] of rendered) if (!wanted.has(key)) { el.remove(); rendered.delete(key); }
-  for (const key of wanted) if (!rendered.has(key)) renderRow(host, key);
+  const jobs = [];
+  for (const key of wanted) if (!rendered.has(key)) jobs.push(renderRow(host, key));
+  return Promise.all(jobs);
 }
 
-function maxScroll() { return Math.max(0, contentH - (CLIP_BOTTOM - CLIP_TOP)); }
+function maxScroll() { return Math.max(0, contentH - (CLIP_BOTTOM - clipTop())); }
 
-function applyScroll(scrollHost, bar) {
+function applyScroll() {
+  const { scrollHost, bar } = dom;
+  if (!scrollHost) return Promise.resolve();
   view.scroll = Math.min(maxScroll(), Math.max(0, view.scroll));
-  scrollHost.style.transform = `translateY(${-CLIP_TOP - view.scroll}px)`;
-  const viewH = CLIP_BOTTOM - CLIP_TOP, th = Math.max(40, (viewH - 20) * Math.min(1, viewH / Math.max(1, contentH)));
+  scrollHost.style.transform = `translateY(${-clipTop() - view.scroll}px)`;
+  const viewH = CLIP_BOTTOM - clipTop(), th = Math.max(40, (viewH - 20) * Math.min(1, viewH / Math.max(1, contentH)));
   const thumbEl = bar.firstChild;
   thumbEl.style.height = `${th}px`;
   thumbEl.style.top = `${(viewH - 20 - th) * (maxScroll() ? view.scroll / maxScroll() : 0)}px`;
   bar.hidden = contentH <= viewH;
-  syncRows(scrollHost);
+  return syncRows();
 }
 
-async function renderAll() {
-  const host = $("roster");
-  host.innerHTML = "";
+// the game's empty list (Arona and a line) when nothing matches
+function emptyTree() {
+  const t = clone(find(layouts.collection, "SeletControl/LeftInfo_Empty"));
+  t.active = true;
+  t.pos[1] -= PAPER_TOP - listTop();
+  Object.assign(find(t, "Label_Locale").widgets[0], { text: T("roster.empty"), w_: 1200 });
+  return t;
+}
+async function renderEmpty(host) {
+  const next = document.createElement("div");
+  if (!items.length) await NGUI.render(emptyTree(), next, { scale: S, origin: ORIGIN, z: 120 });
+  host.replaceChildren(...next.childNodes);
+}
+
+// a change of the cards inside the frame waits this long for the visible rows before it swaps in anyway
+const ROWS_CAP = 250;
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+let listToken = 0;
+
+// the cards again for the current view (a search keystroke): the frame stays; the new rows are built off screen and
+// replace the old ones in one go
+async function relist() {
+  const my = ++listToken;
+  items = layoutItems();
+  const old = dom.scrollHost;
+  const scrollHost = document.createElement("div");
+  scrollHost.className = "card-scroll";
+  dom.scrollHost = scrollHost;
   rendered = new Map();
+  await Promise.race([Promise.all([applyScroll(), renderEmpty(dom.empty)]), sleep(ROWS_CAP)]);
+  if (my !== listToken || dom.scrollHost !== scrollHost) return;
+  old?.replaceWith(scrollHost);
+}
+
+// --- search: the game's search box over the top of the list, filtering as one types ---
+function searchTree() {
+  const box = clone(find(layouts.collection, "SeletControl/CharacterSearch"));
+  const input = find(box, "SearchName/SearchNameArea/InputField");
+  for (const c of input.children) c.widgets.find((w) => "text" in w).text = ""; // the input draws its text and placeholder
+  return box;
+}
+async function renderSearch(host) {
+  await NGUI.render(searchTree(), host, { scale: S, origin: ORIGIN, z: 300 });
+  // InputField sits at (2, 258) in SeletControl's units, the close button at (512, 258)
+  const el = document.createElement("input");
+  el.className = "roster-search";
+  el.type = "text";
+  el.enterKeyHint = "search";
+  el.spellcheck = false;
+  el.autocomplete = "off";
+  el.placeholder = T("roster.searchHint");
+  el.setAttribute("aria-label", T("roster.search"));
+  el.value = query;
+  Object.assign(el.style, {
+    left: `${ORIGIN[0] + (2 - 389) * S}px`, top: `${ORIGIN[1] - (258 + 46) * S}px`, width: `${778 * S}px`, height: `${92 * S}px`,
+    fontSize: `${60 * S}px`,
+  });
+  let timer = 0;
+  const apply = () => { if (el.value === query) return; query = el.value; view.scroll = 0; relist(); };
+  // typing with an input method (Chinese, Japanese) filters once the word is committed
+  el.addEventListener("input", (ev) => { if (ev.isComposing) return; clearTimeout(timer); timer = setTimeout(apply, 90); });
+  el.addEventListener("compositionend", () => { clearTimeout(timer); timer = setTimeout(apply, 0); });
+  el.addEventListener("keydown", (ev) => {
+    if (ev.isComposing) return;
+    if (ev.key === "Escape") { ev.preventDefault(); closeSearch(); } else if (ev.key === "Enter") el.blur();
+  });
+  host.appendChild(el);
+  const close = document.createElement("button");
+  close.className = "card-hit";
+  Object.assign(close.style, { left: `${ORIGIN[0] + (512 - 55) * S}px`, top: `${ORIGIN[1] - (258 + 55) * S}px`, width: `${110 * S}px`, height: `${110 * S}px`, zIndex: 330 });
+  close.title = T("display.close");
+  close.addEventListener("click", closeSearch);
+  host.appendChild(close);
+  return el;
+}
+
+function openSearch() {
+  searching = true;
+  view.scroll = 0;
+  renderAll().then(() => dom.input?.focus());
+}
+function closeSearch() {
+  searching = false;
+  query = "";
+  view.scroll = 0;
+  renderAll();
+}
+
+// --- display settings (the sort button) and the order button ---
+function openDisplay() {
+  Loading.wait(Display.open({
+    view,
+    count: (draft) => orderOf(data, { ...view, ...draft }, opts()).length,
+    onDone: (draft) => {
+      if (!draft) return;
+      Object.assign(view, draft, { scroll: 0 });
+      save();
+      renderAll();
+    },
+  }));
+}
+function flipOrder() {
+  view.order = view.order === "desc" ? "asc" : "desc";
+  view.scroll = 0;
+  save();
+  renderAll();
+}
+
+// the whole screen: built off screen, then swapped in for the one shown (no empty frame in between); a newer call
+// takes over from one still building
+let frameToken = 0;
+async function renderAll() {
+  const my = ++frameToken;
+  listToken += 1; // a search still building its rows gives way
+  const host = $("roster");
+  const next = document.createElement("div");
   const lay = toolbarLayout();
   const t = frameTree(lay);
-  await NGUI.render(find(t, "BG"), host, { scale: S, origin: [960, 540], rootPath: "BG" });
-  await NGUI.render({ ...t, children: t.children.filter((c) => ["ListBG", "SeletControl"].includes(c.name)) }, host, {
-    scale: S, origin: ORIGIN, off: ["Top", "LeftInfo_Empty", "CharacterSearch", "Btn_Information"],
-  });
-  items = layoutItems();
-  // cards live in a clipped scroll area: the inside of the ruled paper
+  await Promise.all([
+    NGUI.render(find(t, "BG"), next, { scale: S, origin: [960, 540], rootPath: "BG" }),
+    NGUI.render({ ...t, children: t.children.filter((c) => ["ListBG", "SeletControl"].includes(c.name)) }, next, {
+      scale: S, origin: ORIGIN, off: ["Top", "LeftInfo_Empty", "CharacterSearch", "Btn_Information"],
+    }),
+  ]);
+  if (my !== frameToken) return;
+  // cards live in a clipped scroll area: the inside of the ruled paper (under the search box while it is open)
   const clip = document.createElement("div");
   clip.className = "card-clip";
-  Object.assign(clip.style, { top: `${CLIP_TOP}px`, height: `${CLIP_BOTTOM - CLIP_TOP}px` });
+  Object.assign(clip.style, { top: `${clipTop()}px`, height: `${CLIP_BOTTOM - clipTop()}px` });
   const scrollHost = document.createElement("div");
   scrollHost.className = "card-scroll";
   clip.appendChild(scrollHost);
-  host.appendChild(clip);
+  next.appendChild(clip);
   // scrollbar in the paper's right gutter, game colours (track #ccd7df, thumb #92a6b7)
   const bar = document.createElement("div");
   bar.className = "scrollbar";
-  Object.assign(bar.style, { left: `${960 + 1391 * S - 5}px`, top: `${CLIP_TOP + 10}px`, height: `${CLIP_BOTTOM - CLIP_TOP - 20}px` });
+  Object.assign(bar.style, { left: `${960 + 1391 * S - 5}px`, top: `${clipTop() + 10}px`, height: `${CLIP_BOTTOM - clipTop() - 20}px` });
   bar.appendChild(document.createElement("i"));
-  host.appendChild(bar);
-  applyScroll(scrollHost, bar);
-
-  const stageScale = () => document.getElementById("stage").getBoundingClientRect().width / 1920;
+  next.appendChild(bar);
+  const empty = document.createElement("div");
+  empty.className = "roster-empty";
+  next.appendChild(empty);
   clip.addEventListener("wheel", (ev) => {
     if (Math.abs(ev.deltaY) < Math.abs(ev.deltaX)) return; // horizontal trackpad swipes
     ev.preventDefault();
-    view.scroll += ev.deltaY / stageScale();
-    applyScroll(scrollHost, bar);
+    view.scroll += ev.deltaY / stageScaleNow();
+    applyScroll();
   }, { passive: false });
-  clip.addEventListener("pointerdown", (ev) => { drag = { y: ev.clientY, scroll: view.scroll, scrollHost, bar }; ctx.dragged = false; });
+  clip.addEventListener("pointerdown", (ev) => { drag = { y: ev.clientY, scroll: view.scroll }; ctx.dragged = false; });
 
   // hit areas for the header controls (TopMenu sits at y 720 in SeletControl's units)
-  const hit = ([ux, uy, w, h], fn) => {
+  const hit = ([ux, uy, w, h], fn, title) => {
     const b = document.createElement("button");
     b.className = "card-hit";
     Object.assign(b.style, { left: `${ORIGIN[0] + (ux - w / 2) * S}px`, top: `${ORIGIN[1] - (uy + h / 2) * S}px`, width: `${w * S}px`, height: `${h * S}px` });
+    if (title) b.title = title;
     b.addEventListener("click", fn);
-    host.appendChild(b);
+    next.appendChild(b);
   };
   const segY = 720 - 219 - 50.2;
-  const reset = (fn) => () => { fn(); view.scroll = 0; renderAll(); };
-  ["all", "mods", "none"].forEach((k, i) => hit([lay.seg1 - (2.5 - i) * lay.segW, segY, lay.segW, 104], reset(() => { view.filter = k; })));
+  const reset = (fn) => () => { fn(); view.scroll = 0; save(); renderAll(); };
+  ["all", "mods", "none"].forEach((k, i) => hit([lay.seg1 - (2.5 - i) * lay.segW, segY, lay.segW, 104], reset(() => { view.mods = k; })));
   ["all", "yes", "no"].forEach((k, i) => hit([lay.seg2 - (2.5 - i) * lay.segW, segY, lay.segW, 104], reset(() => { view.recruit = k; })));
   hit([lay.cbLeft + lay.cbW / 2, 720 - 273, lay.cbW, 110], reset(() => { view.merged = !view.merged; }));
+  hit([lay.search, TOOL_Y, 150, 116], () => (searching ? closeSearch() : openSearch()), T("roster.search"));
+  hit([lay.sort, TOOL_Y, lay.sortW, 116], openDisplay, T("display.title"));
+  hit([lay.order, TOOL_Y, 243, 116], flipOrder, T(view.order === "desc" ? "roster.desc" : "roster.asc"));
+
+  // the cards: the rows in view get a moment to come in before the swap
+  rendered = new Map();
+  dom = { scrollHost, bar, empty };
+  items = layoutItems();
+  const input = searching ? renderSearch(next) : Promise.resolve(null);
+  await Promise.race([Promise.all([applyScroll(), renderEmpty(empty), input]), sleep(ROWS_CAP)]);
+  const el = await input;
+  if (my !== frameToken) return;
+  dom.input = el;
+  host.replaceChildren(...next.childNodes);
+}
+
+// the search box, the empty list and the display settings are first drawn a while after the roster, so their images
+// are ready when they are opened
+let warmed = false;
+function warm() {
+  if (warmed) return;
+  warmed = true;
+  setTimeout(() => {
+    const scratch = document.createElement("div");
+    Promise.all([
+      NGUI.render(searchTree(), scratch, { scale: S, origin: ORIGIN }),
+      NGUI.render(emptyTree(), scratch, { scale: S, origin: ORIGIN }),
+      Display.warm(),
+    ]).catch((err) => console.warn("warm-up", err));
+  }, 2500);
 }
 
 // show the roster; data comes from roster.list (re-read when invalidated)
@@ -345,4 +528,5 @@ export async function show(context, rosterData) {
     dirty = false;
     await renderAll();
   }
+  warm();
 }
