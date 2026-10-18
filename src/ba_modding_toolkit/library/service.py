@@ -310,6 +310,45 @@ class ModLibrary:
         return VariantState(variant_key, files, sources.pop() if len(sources) == 1 else "unknown",
                             crc, any(f.original for f in files))
 
+    @_serialized
+    def modified(self) -> dict[str, str]:
+        """Variants whose portrait files are not official, from cheap checks only (no hashing): the library's own
+        records while the file is unchanged since it wrote it, else trailing bytes after the bundle data.
+        Returns {variant key: source}, the source being "mod:<id>", "variant:<key>" or "unknown"."""
+        out: dict[str, str] = {}
+        for core, paths in self._scan().items():
+            if not core.endswith("_spr"):
+                continue
+            variant = self.catalog.variant_for_core(core)
+            if variant is None:
+                continue
+            sources = set()
+            for path in paths:
+                record = self._applied.get(str(path.resolve()))
+                try:
+                    stat = path.stat()
+                except OSError:
+                    continue
+                if record and record.get("size") == stat.st_size and record.get("mtime") == stat.st_mtime_ns:
+                    if record["source"] != "official":
+                        sources.add(record["source"])
+                elif Bundle.get_trailing_bytes(path):
+                    sources.add("unknown")
+            if sources:
+                out[variant.key] = sources.pop() if len(sources) == 1 else "unknown"
+        return out
+
+    @_serialized
+    def preview_bundles(self, mod_id: str) -> list[Path]:
+        """The bundles that make up a mod's skeleton for previewing: the mod's files plus the target's game parts
+        the mod does not replace (a mod often carries only the part it changes)."""
+        record = self._record(mod_id)
+        paths = self._paths(record)
+        replaced = {parse_filename(p.name).prefix for p in paths}
+        others = [p for p in self._game_files(record["target"], record["kind"])
+                  if parse_filename(p.name).prefix not in replaced]
+        return paths + others
+
     def _plan(self, record: dict[str, Any], log: LogFunc) -> list[mod_install.ModGroup]:
         groups = mod_install.plan_mod_install(self._paths(record), self._resource_dirs(), log)
         if not groups or any(file.action not in (mod_install.InstallAction.DIRECT_REPLACE,
@@ -346,6 +385,9 @@ class ModLibrary:
         records = {str(target.resolve()): {"source": source, "sha1": self._hashes.get(prepared).sha1}
                    for target, prepared in replacements.items()}
         if not changed:
+            for target in replacements:
+                stat = target.stat()
+                records[str(target.resolve())].update(size=stat.st_size, mtime=stat.st_mtime_ns)
             if any(self._applied.get(path) != record for path, record in records.items()):
                 self._applied.update(records)
                 try:
@@ -372,6 +414,9 @@ class ModLibrary:
                     if progress:
                         progress(i, len(changed), target.name)
                 saving_state = True
+                for target in changed:
+                    stat = target.stat()
+                    records[str(target.resolve())].update(size=stat.st_size, mtime=stat.st_mtime_ns)
                 self._applied.update(records)
                 self._save()
             except Exception as error:
