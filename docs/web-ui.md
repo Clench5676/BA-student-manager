@@ -283,6 +283,14 @@ ported.
 - The detail screen's arrows step through the cards as the list showed them when it was left, in its order, wrapping
   round; a variant the list hides (another chip, a deep link) steps from its place in the whole list.
 
+### Portrait
+
+The detail screen frames the portrait like the game (`portrait-view.js`): the skeleton's origin sits on
+UICharacterDetail's `CharacterPos` (`Inventory_ListControl/CharacterPos`, scale 101; a skeleton unit is 1/100 of a
+Unity unit in every SkeletonDataAsset), never on the skeleton's bounds, so a long weapon, wings or a prop beside the
+character neither shrink nor shift her. The player covers the stage under every panel and keeps one scale across and
+down (its viewport has the canvas's own aspect).
+
 ### Loading screen
 
 `loading.js` draws the game's own loading screen: UILoading (a black backdrop and one illustration, drawn at its own

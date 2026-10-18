@@ -585,3 +585,12 @@ def test_real_loading_screen(real_game):
     assert before == after  # game art: never written to the disk cache
     for root, child in (("UILoading", "LoadingImage"), ("UIRepeater", "Widget")):
         assert child in [c["name"] for c in real_game.layout(root)["children"]]
+
+
+@real_install
+def test_real_detail_layout_places_the_portrait(real_game):
+    # the detail screen frames portraits on this node (web/js/portrait-view.js): its origin and a uniform scale
+    detail = real_game.layout("UICharacterDetail")
+    content = next(c for c in detail["children"] if c["name"] == "Inventory_ListControl")
+    node = next(c for c in content["children"] if c["name"] == "CharacterPos")
+    assert len(node["pos"]) == 2 and node["scale"][0] == node["scale"][1] > 0
