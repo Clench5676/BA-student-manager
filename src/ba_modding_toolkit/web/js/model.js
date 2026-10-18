@@ -227,6 +227,7 @@ class ChibiView {
     const json = gltf.parser.json;
     const ex = json.extras || {};
     const textures = await Promise.all((json.textures || []).map((_, i) => gltf.parser.getDependency("texture", i)));
+    if (this.disposed) { for (const t of textures) t.dispose(); return; }
     for (const t of textures) { t.colorSpace = THREE.SRGBColorSpace; t.flipY = false; }
     this.textures = textures; // some are only in shader uniforms (mask, mouth): disposed by hand
     // the mouth atlas comes as a texture of the EyeMouth material (_MouthTileTex)
@@ -497,12 +498,20 @@ class ChibiView {
     });
   }
 
-  // shaders before the first frame, in the background where the GPU driver can (else three.js warns on every call)
+  // shaders before the first frame, in the background where the GPU driver can. Polled here rather than with
+  // renderer.compileAsync, whose timer throws (and never settles) once the view is disposed meanwhile.
   async compile() {
+    const r = this.renderer;
+    let pending;
     try {
-      if (this.renderer.extensions.has("KHR_parallel_shader_compile")) await this.renderer.compileAsync(this.scene, this.camera);
-      else this.renderer.compile(this.scene, this.camera);
-    } catch { /* compiled on the first frame instead */ }
+      pending = r.compile(this.scene, this.camera);
+    } catch { return; } // compiled on the first frame instead
+    if (!r.extensions.has("KHR_parallel_shader_compile")) return;
+    // isReady() is false while the driver compiles (null once the context is lost: nothing to wait for)
+    while (pending.size && !this.disposed) {
+      for (const m of pending) if (r.properties.get(m).currentProgram?.isReady() !== false) pending.delete(m);
+      if (pending.size) await new Promise((resolve) => setTimeout(resolve, 10));
+    }
   }
 
   tick() {
