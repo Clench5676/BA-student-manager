@@ -81,7 +81,9 @@ class Services:
                 from ..catalog import Catalog
 
                 csv = Path(self.settings.get("bacii_map_path"))
-                self._catalog = Catalog(self.game if self.game_found() else None, csv if csv.exists() else None)
+                # recruitable follows the server of the selected game folder
+                self._catalog = Catalog(self.game if self.game_found() else None, csv if csv.exists() else None,
+                                        server=self.settings.server_region())
             return self._catalog
 
     @property

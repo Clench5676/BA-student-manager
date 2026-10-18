@@ -115,9 +115,78 @@ def test_added_file_ids_can_use_installed_collection_portraits(game: FakeGame):
     game.collection_names = lambda: names
     catalog = Catalog(game, FIXTURES / "characters.csv", FIXTURES / "catalog.json")
     assert catalog.variant("ch1001").playable is True
+    assert catalog.variant("ch1001").recruitable is True
     assert catalog.variant("ch1001").portrait == "Student_Portrait_CH1001_Collection"
     assert catalog.variant("unknown_new").playable is True
+    assert catalog.variant("unknown_new").recruitable is True
+    assert catalog.variant("np1000").recruitable is False
     assert catalog.variant("np0999").bg == "BG_Abydos_Collection"
+
+
+def with_portraits(game: FakeGame, portraits: list[str]) -> FakeGame:
+    game.collection_names = lambda: {"bg": ["BG_Abydos_Collection"], "portrait": list(portraits)}
+    return game
+
+
+def recruitable(catalog: Catalog, *keys: str) -> dict[str, bool]:
+    return {key: catalog.variant(key).recruitable for key in keys}
+
+
+def test_recruitable_follows_the_installed_portraits_then_the_servers_flags(game: FakeGame):
+    keys = ("hoshino", "ch0010", "ch0020", "np0001", "np0999")
+    on_global = Catalog(game, FIXTURES / "characters.csv", FIXTURES / "catalog.json", server="global")
+    assert recruitable(on_global, *keys) == {"hoshino": True, "ch0010": True, "ch0020": False,
+                                             "np0001": False, "np0999": False}
+    assert on_global.variant("ch0020").playable is True  # playable on Japan only
+    on_japan = Catalog(game, FIXTURES / "characters.csv", FIXTURES / "catalog.json", server="japan")
+    assert recruitable(on_japan, *keys) == {"hoshino": True, "ch0010": True, "ch0020": True,
+                                            "np0001": False, "np0999": False}
+
+
+def test_installed_portrait_wins_over_a_stale_flag(game: FakeGame):
+    # a game update releases the student on Global before the app ships new flags
+    with_portraits(game, ["Student_Portrait_Hoshino_Collection", "Student_Portrait_CH0010_Collection",
+                          "Student_Portrait_CH0020_Collection"])
+    assert Catalog(game, None, FIXTURES / "catalog.json").variant("ch0020").recruitable is True
+
+
+def test_released_flag_covers_a_missing_portrait(game: FakeGame):
+    with_portraits(game, ["Student_Portrait_Hoshino_Collection"])
+    assert recruitable(Catalog(game, None, FIXTURES / "catalog.json"), "ch0010", "ch0020") == {
+        "ch0010": True, "ch0020": False}
+
+
+def test_without_flags_the_install_decides_unless_it_has_no_collection_index(game: FakeGame, caplog):
+    game.cores["spr"]["ch9000_spr"] = []
+    with_portraits(game, ["Student_Portrait_CH0010_Collection"])
+    assert recruitable(Catalog(game, None, FIXTURES / "catalog.json"), "hoshino", "ch9000") == {
+        "hoshino": True, "ch9000": False}
+    with_portraits(game, [])
+    catalog = Catalog(game, None, FIXTURES / "catalog.json")
+    assert recruitable(catalog, "hoshino", "ch0010", "ch0020", "ch9000", "np0001") == {
+        "hoshino": True, "ch0010": True, "ch0020": False, "ch9000": True, "np0001": False}
+    assert "No collection portraits" in caplog.text
+
+
+def test_not_recruitable_playables_follow_the_recruitable_ones(game: FakeGame, tmp_path: Path):
+    data = json.loads((FIXTURES / "catalog.json").read_text(encoding="utf-8"))
+    data["variants"]["ch0010"]["released"] = {"japan": False, "global": True}
+    path = tmp_path / "order.json"
+    path.write_text(json.dumps(data), encoding="utf-8")
+    with_portraits(game, ["Student_Portrait_Hoshino_Collection"])
+    family = Catalog(game, FIXTURES / "characters.csv", path, server="japan").family("hoshino")
+    assert [variant.key for variant in family.variants] == ["hoshino", "ch0020", "ch0010", "np0001", "np0999"]
+
+
+@pytest.mark.parametrize("released", [{"global": "no"}, {"china": True}, [True, False]])
+def test_invalid_release_flags_are_rejected(game: FakeGame, tmp_path: Path, released):
+    data = json.loads((FIXTURES / "catalog.json").read_text(encoding="utf-8"))
+    data["variants"]["ch0020"]["released"] = released
+    path = tmp_path / "flags.json"
+    path.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(ServiceError) as failure:
+        Catalog(game, None, path).families()
+    assert failure.value.code == "catalog_data_invalid"
 
 
 def test_lobby_aliases_regional_suffix_and_core_lookup(catalog: Catalog):
@@ -328,3 +397,18 @@ def test_installed_hoshino_portraits_and_swimsuit_lobby(installed_game_dir: Path
 def test_installed_collection_validation_reports_absent_textures(generator, shipped: dict, installed_game_dir: Path):
     mismatches = generator.validate_game(shipped, installed_game_dir)
     assert not [item for item in mismatches if item["key"] in ("hoshino", "hoshino_swimsuit", "ch0258")]
+
+
+@pytest.mark.skipif(not GAME_DIR.is_dir(), reason="No local game install for integration")
+def test_installed_recruitable_follows_portraits_then_flags(shipped: dict, installed_game_dir: Path, tmp_path: Path):
+    from ba_modding_toolkit.gameassets import AssetCache, GameAssets
+    from ba_modding_toolkit.searching import get_search_dirs
+
+    # allowed=False: the collection index stays in memory, nothing is written
+    game = GameAssets(get_search_dirs(installed_game_dir), AssetCache(allowed=False, root=tmp_path))
+    assert game.collection_names()["portrait"]  # the install signal is available
+    for server in ("global", "japan"):
+        for family in Catalog(game, None, server=server).families():
+            for variant in family.variants:
+                flag = shipped["variants"].get(variant.key, {}).get("released", {}).get(server)
+                assert variant.recruitable == (variant.playable and (variant.portrait is not None or flag is True))

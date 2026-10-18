@@ -49,6 +49,10 @@
       "order": 1,
       "playable": true,
       "portrait": "Student_Portrait_CH0010_Collection",
+      "released": {
+        "global": true,
+        "japan": true
+      },
       "school": "Abydos",
       "student_id": "42"
     },
@@ -76,6 +80,10 @@
       "order": 2,
       "playable": true,
       "portrait": "Student_Portrait_CH0020_Collection",
+      "released": {
+        "global": false,
+        "japan": true
+      },
       "school": "Abydos",
       "student_id": "42"
     },
@@ -130,6 +138,10 @@
       "order": 0,
       "playable": true,
       "portrait": "Student_Portrait_hoshino_Collection",
+      "released": {
+        "global": true,
+        "japan": true
+      },
       "school": "Abydos",
       "student_id": "42"
     },
