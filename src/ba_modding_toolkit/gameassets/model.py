@@ -4,7 +4,8 @@ The prefabs are in the bundle family ``character-<dev>-_mxload-*``; their meshes
 in other bundles and are reached through external CAB references. :class:`BundleGraph` loads only the bundles the
 used objects point into, by a CAB -> bundle index. :func:`export_chibi` walks one prefab and writes the skinned
 meshes, the skeleton, the textures as PNG, the game's material constants (material extras), the halo follower and
-the mouth receiver (root extras) and the clips, decoded from Unity's streamed, dense and constant curves.
+the mouth receiver (root extras) and the clips, decoded from Unity's streamed, dense and constant curves, with the
+renderers they switch on and off (animation extras).
 
 Unity is left-handed (+Z forward), glTF right-handed: positions, rotations and bind matrices are mirrored on X.
 Nothing is written to disk.
@@ -297,6 +298,37 @@ def bind_tracks(bindings: list[Mapping[str, int]], curves: Mapping[int, list[flo
     return out
 
 
+# switches a clip can animate: a renderer's m_Enabled (Renderer 25, MeshRenderer 23, SkinnedMeshRenderer 137) and a
+# GameObject's m_IsActive (1); the attribute of a non-Transform binding is the crc32 of the property name
+TOGGLE_TYPES = {25: "renderer", 23: "renderer", 137: "renderer", 1: "active"}
+TOGGLE_ATTRIBUTES = {"renderer": zlib.crc32(b"m_Enabled"), "active": zlib.crc32(b"m_IsActive")}
+
+
+def bind_toggles(bindings: list[Mapping[str, int]], curves: Mapping[int, list[float]],
+                 nodes: Mapping[int, int]) -> list[tuple[int, str, list[float]]]:
+    """(node, "renderer" | "active", values) of the renderer and GameObject switches a clip animates, in the same
+    curve index walk as :func:`bind_tracks`."""
+    out, index = [], 0
+    for binding in bindings:
+        kind = TOGGLE_TYPES.get(binding["typeID"])
+        if kind and binding["attribute"] == TOGGLE_ATTRIBUTES[kind] and binding["path"] in nodes \
+                and curves.get(index) is not None and not binding.get("isPPtrCurve"):
+            out.append((nodes[binding["path"]], kind, curves[index]))
+        index += binding_dims(binding)
+    return out
+
+
+def toggle_keys(values: list[float], times: list[float], start: float = 0.0) -> list[list[float]]:
+    """A switch curve as change points [[time, 0 | 1], ...] from the clip start (on at 0.5 and above)."""
+    keys: list[list[float]] = []
+    for i, value in enumerate(values):
+        state = 1 if value >= 0.5 else 0
+        if not keys or keys[-1][1] != state:
+            time = 0.0 if len(values) == 1 else round(times[i] - start, 4)
+            keys.append([time, state])
+    return keys
+
+
 def track_values(attribute: int, parts: list[list[float]]) -> tuple[str, list[tuple[float, ...]]]:
     """A glTF channel path and its values (mirrored; rotations normalised and kept continuous)."""
     length = max(len(p) for p in parts)
@@ -526,6 +558,9 @@ class _Exporter:
         self.node_of: dict[tuple[str, int], int] = {}  # Transform -> node
         self.path_of: dict[int, str] = {}              # node -> hierarchy path below the root
         self.renderers: list[tuple[int, Any, Any]] = []  # (node, renderer, GameObject), shown ones only
+        # renderers the prefab disables, by node: exported only when a clip enables them (alternative faces)
+        self.disabled: dict[int, tuple[int, Any, Any]] = {}
+        self.shown: set[int] = set()                     # nodes outside inactive and effect subtrees
         self.follower = self.mouth = None
         self.textures: dict[tuple[str, int], int] = {}
         self.materials: dict[tuple[str, int], int] = {}
@@ -534,8 +569,9 @@ class _Exporter:
     def visit(self, go_obj: Any, parent: int | None, path: str, active: bool, shown: bool = True) -> None:
         """Nodes for a GameObject and its children. Inactive objects and effect nodes (particles, the EX camera and
         light) are kept for the clips but marked hidden; renderers below a hidden node are not exported, since the
-        viewer never shows them (and their effect materials sit in unrelated bundles). Nor are renderers the prefab
-        disables (m_Enabled 0: alternative faces, bodies and props), which the game does not draw either."""
+        viewer never shows them (and their effect materials sit in unrelated bundles). Renderers the prefab disables
+        (m_Enabled 0: alternative faces, bodies and props) are kept aside: only a clip that enables one brings it in
+        (:meth:`toggles`)."""
         g = self.g
         go = g.tree(go_obj)
         transform, components = None, []
@@ -571,11 +607,15 @@ class _Exporter:
         here = active and bool(go["m_IsActive"])
         effect = any(obj.type.name in ("ParticleSystem", "Camera", "Light") for obj in components)
         shown = shown and here and not effect
+        if shown:
+            self.shown.add(index)
         for obj in components:
             kind = obj.type.name
             if kind in ("SkinnedMeshRenderer", "MeshRenderer"):
                 if shown and g.tree(obj).get("m_Enabled", 1):
                     self.renderers.append((index, obj, go_obj))
+                elif shown:
+                    self.disabled[index] = (index, obj, go_obj)
             elif kind == "MonoBehaviour":
                 name = g.script(obj)
                 if name == "FxFollower":
@@ -638,9 +678,9 @@ class _Exporter:
         return self.materials[key]
 
     # meshes
-    def meshes(self) -> None:
+    def meshes(self, renderers: Iterable[tuple[int, Any, Any]] | None = None) -> None:
         g, glb, root = self.g, self.glb, self.glb.json["scenes"][0]["nodes"][0]
-        for node_index, renderer, go_obj in self.renderers:
+        for node_index, renderer, go_obj in (self.renderers if renderers is None else renderers):
             tree = g.tree(renderer)
             if renderer.type.name == "SkinnedMeshRenderer":
                 mesh_obj = g.deref(renderer, tree["m_Mesh"])
@@ -789,8 +829,54 @@ class _Exporter:
                       for e in tt.get("m_Events", []) if e["functionName"] == "SetMouthTile"]
             animation["extras"] = {"slot": slot, "loop": bool(tt["m_MuscleClip"]["m_LoopTime"]),
                                    "duration": decoded.duration, "events": events}
+            toggles = self.toggles(tt, decoded, by_hash)
+            if toggles:
+                animation["extras"]["toggles"] = toggles
             if animation["channels"]:  # NPC placeholders have no bindings
                 glb.json["animations"].append(animation)
+
+    def toggles(self, tt: Mapping[str, Any], decoded: DecodedClip, by_hash: Mapping[int, int]) -> list[dict[str, Any]]:
+        """The renderers a clip switches on and off ({node: mesh node, keys: [[time, 0 | 1], ...]}), such as the
+        alternative faces of an expression. A renderer the prefab disables is exported once a clip enables it, hidden
+        at rest. Switches equal to the rest state over the whole clip are left out."""
+        start = tt["m_MuscleClip"]["m_StartTime"]
+        out: dict[int, list[list[float]]] = {}
+        for node, kind, values in bind_toggles(tt["m_ClipBindingConstant"]["genericBindings"], decoded.curves, by_hash):
+            if node not in self.shown:
+                continue  # below an inactive or effect object: nothing of it is exported
+            keys = toggle_keys(values, decoded.times, start)
+            if kind == "renderer":
+                if node in self.disabled and any(state for _, state in keys):
+                    self.meshes([self.disabled.pop(node)])
+                    self._hide_renderer(node)
+                nodes = [node]
+            else:  # a GameObject: every exported renderer at or below it
+                nodes = self._subtree(node)
+            for target in [t for t in map(self._renderer_node, nodes) if t is not None]:
+                rest = 0 if self.nodes[target].get("extras", {}).get("hidden") else 1
+                if any(state != rest for _, state in keys):
+                    out[target] = keys
+        return [{"node": node, "keys": keys} for node, keys in sorted(out.items())]
+
+    def _renderer_node(self, node: int) -> int | None:
+        """The node that draws a GameObject's renderer: its skinned mesh node, or the node itself for a static mesh."""
+        extras = self.nodes[node].get("extras", {})
+        if "renderer" in extras:
+            return extras["renderer"]
+        return node if "mesh" in self.nodes[node] else None
+
+    def _hide_renderer(self, node: int) -> None:
+        target = self._renderer_node(node)
+        if target is not None:
+            self.nodes[target].setdefault("extras", {})["hidden"] = True
+
+    def _subtree(self, node: int) -> list[int]:
+        out, stack = [], [node]
+        while stack:
+            n = stack.pop()
+            out.append(n)
+            stack.extend(c for c in self.nodes[n].get("children", []) if c in self.path_of)
+        return out
 
 
 def export_chibi(graph: BundleGraph, bundles: Iterable[Path], dev: str, *, prefab: str = "echelon",

@@ -1,6 +1,7 @@
 // 3D chibi for the detail screen's third tab. The GLB is exported from the user's game files in memory
 // (gameassets/model.py): the game's material constants are in the material extras, the halo follower (FxFollower)
-// in the root extras, and each clip's slot, loop flag and SetMouthTile events in the animation extras. The look
+// in the root extras, and each clip's slot, loop flag, SetMouthTile events and renderer switches in the animation
+// extras. The look
 // approximates the game's toon shaders (one light, a shadow tint below a threshold, inverted-hull outlines), the
 // camera the formation screen's. One view at a time; hide() frees its WebGL context at once.
 import * as THREE from "three";
@@ -227,6 +228,7 @@ class ChibiView {
     const json = gltf.parser.json;
     const ex = json.extras || {};
     const textures = await Promise.all((json.textures || []).map((_, i) => gltf.parser.getDependency("texture", i)));
+    const nodes = await Promise.all((json.nodes || []).map((_, i) => gltf.parser.getDependency("node", i)));
     if (this.disposed) { for (const t of textures) t.dispose(); return; }
     for (const t of textures) { t.colorSpace = THREE.SRGBColorSpace; t.flipY = false; }
     this.textures = textures; // some are only in shader uniforms (mask, mouth): disposed by hand
@@ -257,15 +259,21 @@ class ChibiView {
         outlines.push([o, ol]);
       }
     });
-    for (const [o, ol] of outlines) { o.parent.add(ol); ol.visible = o.visible; }
+    for (const [o, ol] of outlines) o.add(ol); // shown and hidden with its mesh
     this.scene.add(root);
     this.root = root;
     this.gltf = gltf;
     this.mixer = new THREE.AnimationMixer(root);
     this.mixer.addEventListener("finished", (e) => this.finished(e.action));
     this.clips = new Map();
+    // renderers a clip switches (an expression's alternative face), each with its state at rest
+    this.switches = new Map();
     gltf.animations.forEach((clip, i) => {
       const extras = json.animations[i]?.extras || {};
+      for (const t of extras.toggles || []) {
+        const object = nodes[t.node];
+        if (object && !this.switches.has(t.node)) this.switches.set(t.node, { object, rest: object.visible });
+      }
       if (extras.slot && !this.clips.has(extras.slot)) this.clips.set(extras.slot, { clip, ...extras });
     });
     // without a clip (NPC placeholders) the rest pose shows the props and the weapon where their bones rest, beside
@@ -275,6 +283,20 @@ class ChibiView {
     this.addShadow();
     this.act("idle", { fade: 0, quiet: true });
     this.measure();
+  }
+
+  // the renderers the playing clip switches on or off at its time (step keys); the others as at rest, as the
+  // game's animator writes the defaults of what a state does not animate
+  applySwitches() {
+    if (!this.switches?.size) return;
+    const states = new Map();
+    const t = this.action?.time ?? 0;
+    for (const s of this.slot?.toggles || []) {
+      let on = !!s.keys[0][1];
+      for (const [time, state] of s.keys) if (time <= t + 1e-4) on = !!state;
+      states.set(s.node, on);
+    }
+    for (const [node, s] of this.switches) s.object.visible = states.has(node) ? states.get(node) : s.rest;
   }
 
   // FxFollower: the halo eases toward a point and rotation fixed to the head bone, clamped in head space
@@ -309,6 +331,7 @@ class ChibiView {
   // half the height, and rises to the face as the camera closes in.
   measure() {
     this.mixer.update(0);
+    this.applySwitches();
     this.followHalo(0, true);
     this.root.updateMatrixWorld(true);
     const all = new THREE.Box3(), body = new THREE.Box3();
@@ -517,6 +540,7 @@ class ChibiView {
   tick() {
     const dt = Math.min(0.1, this.clock.getDelta());
     this.mixer?.update(dt);
+    this.applySwitches();
     this.updateMouth();
     this.followHalo(dt);
     this.stepTween();

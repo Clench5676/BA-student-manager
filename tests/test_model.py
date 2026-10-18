@@ -193,6 +193,72 @@ def test_glb_writer_layout():
     assert binary[view["byteOffset"]:view["byteOffset"] + view["byteLength"]] == b"\x89PNG.."
 
 
+# --- renderer switches ---
+
+def test_bind_toggles_walks_the_curve_index():
+    face, face01, fx = (zlib.crc32(p.encode()) for p in ("Face", "Face01", "bone_root/FX"))
+    enabled, active = zlib.crc32(b"m_Enabled"), zlib.crc32(b"m_IsActive")
+    bindings = [
+        {"typeID": 4, "attribute": 2, "path": face},            # a rotation: curves 0-3
+        {"typeID": 25, "attribute": enabled, "path": face},     # Renderer.m_Enabled: 4
+        {"typeID": 137, "attribute": enabled, "path": face01},  # SkinnedMeshRenderer.m_Enabled: 5
+        {"typeID": 1, "attribute": active, "path": fx},         # GameObject.m_IsActive: 6
+        {"typeID": 23, "attribute": 99, "path": face},          # another renderer property: 7
+        {"typeID": 25, "attribute": enabled, "path": 12345},    # an unknown path: 8
+        {"typeID": 25, "attribute": enabled, "path": face01, "isPPtrCurve": 1},  # 9
+    ]
+    curves = {i: [float(i)] for i in range(10)}
+    assert model.bind_toggles(bindings, curves, {face: 1, face01: 2, fx: 3}) == [
+        (1, "renderer", [4.0]), (2, "renderer", [5.0]), (3, "active", [6.0])]
+
+
+def test_toggle_keys_are_change_points():
+    times = [0.0, 0.5, 1.0, 1.5, 2.0]
+    assert model.toggle_keys([1.0, 1.0, 0.0, 0.2, 1.0], times) == [[0.0, 1], [1.0, 0], [2.0, 1]]
+    assert model.toggle_keys([0.0], times) == [[0.0, 0]]  # a constant curve
+    assert model.toggle_keys([0.0, 1.0], [2.0, 2.5], start=2.0) == [[0.0, 0], [0.5, 1]]  # from the clip start
+
+
+def test_toggles_bring_in_disabled_renderers_and_drop_rest_states(monkeypatch):
+    # Miyu (ch0145): two faces enabled in the prefab, the idle turns the expression face off; a disabled face that a
+    # clip turns on is exported hidden at rest; a GameObject switch reaches the renderers below it
+    graph = _Graph(
+        *_game_object(1, "CH0145", [], children=(10, 20, 30, 40)),
+        *_game_object(10, "Face", [_object(12, "SkinnedMeshRenderer", m_Enabled=1)]),
+        *_game_object(20, "Face01", [_object(22, "SkinnedMeshRenderer", m_Enabled=1)]),
+        *_game_object(30, "Face02", [_object(32, "SkinnedMeshRenderer", m_Enabled=0)]),
+        *_game_object(40, "Props", [], children=(50,)),
+        *_game_object(50, "Prop", [_object(52, "SkinnedMeshRenderer", m_Enabled=1)]),
+    )
+    exporter = model._Exporter(graph, "ch0145")
+    exporter.visit(graph.objects[1], None, "", True)
+    assert list(exporter.disabled) == [3]  # the node of Face02
+
+    def meshes(renderers=None):  # what meshes() leaves on the nodes: a skinned mesh node under the root
+        for node, _, _ in (exporter.renderers if renderers is None else renderers):
+            exporter.nodes.append({"name": exporter.nodes[node]["name"] + "_mesh"})
+            exporter.nodes[node].setdefault("extras", {})["renderer"] = len(exporter.nodes) - 1
+    monkeypatch.setattr(exporter, "meshes", meshes)
+    exporter.meshes()
+    nodes = {path: i for i, path in exporter.path_of.items()}
+    by_hash = {zlib.crc32(path.encode()): i for path, i in nodes.items()}
+    enabled, active = zlib.crc32(b"m_Enabled"), zlib.crc32(b"m_IsActive")
+    tt = {"m_MuscleClip": {"m_StartTime": 0.0}, "m_ClipBindingConstant": {"genericBindings": [
+        {"typeID": 25, "attribute": enabled, "path": zlib.crc32(b"Face")},     # 1 all along: the rest state
+        {"typeID": 25, "attribute": enabled, "path": zlib.crc32(b"Face01")},   # off
+        {"typeID": 25, "attribute": enabled, "path": zlib.crc32(b"Face02")},   # on after 1 s
+        {"typeID": 1, "attribute": active, "path": zlib.crc32(b"Props")},      # off after 0.5 s
+    ]}}
+    decoded = model.DecodedClip(1.5, [0.0, 0.5, 1.0, 1.5], {0: [1.0], 1: [0.0], 2: [0.0, 0.0, 1.0, 1.0], 3: [1.0, 0.0, 0.0, 0.0]})
+    toggles = exporter.toggles(tt, decoded, by_hash)
+    mesh = lambda name: exporter.nodes[nodes[name]]["extras"]["renderer"]  # noqa: E731
+    assert toggles == [{"node": mesh("Face01"), "keys": [[0.0, 0]]}, {"node": mesh("Props/Prop"), "keys": [[0.0, 1], [0.5, 0]]},
+                       {"node": mesh("Face02"), "keys": [[0.0, 0], [1.0, 1]]}]
+    assert exporter.nodes[mesh("Face02")]["extras"] == {"hidden": True} and not exporter.disabled
+    # a later clip does not export it twice
+    assert exporter.toggles(tt, decoded, by_hash) == toggles
+
+
 def _strict(data):
     """The JSON chunk of a GLB, parsed like the viewer's JSON.parse (no NaN or Infinity)."""
     def reject(token):
@@ -472,6 +538,11 @@ def test_real_chibi_exports(tmp_path):
     assert doc["skins"] and all(len(s["joints"]) > 0 for s in doc["skins"])
     kinds = {m["extras"]["kind"] for m in doc["materials"]}
     assert {"body", "face", "hair", "eyemouth", "halo"} <= kinds
+    if "ch0145" in game.model_cores():  # Miyu: the idle turns her expression face off
+        miyu = _strict(game.model_glb("ch0145"))
+        idle = next(a for a in miyu["animations"] if a["extras"]["slot"] == "Formation_Idle")
+        assert [miyu["nodes"][t["node"]]["name"] for t in idle["extras"]["toggles"]] == ["CH0145_Face01_Outline_mesh"]
+        assert idle["extras"]["toggles"][0]["keys"] == [[0.0, 0]]
     if "saya_original" in game.model_cores():  # an infinite material constant
         fade = [m["extras"]["colors"].get("_CameraFadeParams") for m in _strict(game.model_glb("saya_original"))["materials"]]
         assert [0.0, model.FLT_MAX, 0.0, 0.0] in fade
