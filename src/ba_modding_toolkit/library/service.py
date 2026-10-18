@@ -148,9 +148,10 @@ class ModLibrary:
 
     @_serialized
     def add(self, paths: list[Path]) -> list[ModEntry]:
-        """Copy supported bundles into the library, deduplicating by SHA-1."""
-        known = {self._hashes.get(path).sha1 for record in self._records.values() for path in self._paths(record)}
-        added = []
+        """Store one mod per core and date, deduplicating complete bundle sets."""
+        known = {frozenset((path.name, self._hashes.get(path).sha1) for path in self._paths(record))
+                 for record in self._records.values()}
+        groups: dict[tuple[str, str], dict[str, Path]] = {}
         for source in map(Path, paths):
             name = source.name.removesuffix(".backup") if source.name.endswith(".bundle.backup") else source.name
             parsed = parse_filename(name)
@@ -159,22 +160,34 @@ class ModLibrary:
             variant = self.catalog.variant_for_core(parsed.core.lower()) if kind else None
             if not name.endswith(".bundle") or not parsed.prefix or not parsed.crc or kind is None or variant is None:
                 raise ServiceError("mod_unsupported", file=source)
-            fingerprint = self._hashes.get(source)
-            if fingerprint.sha1 in known:
+            group = groups.setdefault((parsed.core.lower(), parsed.date), {})
+            if name in group and self._hashes.get(group[name]).sha1 != self._hashes.get(source).sha1:
+                raise ServiceError("mod_unsupported", file=source)
+            group[name] = source
+
+        added = []
+        for group in groups.values():
+            signature = frozenset((name, self._hashes.get(source).sha1) for name, source in group.items())
+            if signature in known:
                 continue
+            names = sorted(group)
+            parsed = parse_filename(names[0])
+            variant = self.catalog.variant_for_core(parsed.core.lower())
+            kind = "spr" if parsed.core.lower().endswith("_spr") else "lobby"
             mod_id = uuid.uuid4().hex
-            target = self.root / "mods" / mod_id / name
-            atomic_copy(source, target)
-            record = {"id": mod_id, "files": [name], "label": parsed.core, "target": variant.key,
+            directory = self.root / "mods" / mod_id
+            record = {"id": mod_id, "files": names, "label": parsed.core, "target": variant.key,
                       "kind": kind, "added": datetime.now(timezone.utc).isoformat(), "seen": False}
-            self._records[mod_id] = record
             try:
+                for name in names:
+                    atomic_copy(group[name], directory / name)
+                self._records[mod_id] = record
                 self._save()
             except OSError:
-                del self._records[mod_id]
-                shutil.rmtree(target.parent)
+                self._records.pop(mod_id, None)
+                shutil.rmtree(directory, ignore_errors=True)
                 raise
-            known.add(fingerprint.sha1)
+            known.add(signature)
             added.append(self._entry(record))
         return added
 
@@ -295,8 +308,8 @@ class ModLibrary:
             fingerprint = self._hashes.get(path)
             official = self._is_official(path)
             record = self._applied.get(str(path.resolve()), {})
-            applied = "official" if official else (
-                record["source"] if record.get("sha1") == fingerprint.sha1 else "unknown")
+            applied = record["source"] if record.get("sha1") == fingerprint.sha1 else (
+                "official" if official else "unknown")
             crc = "ok" if official else "fixed" if (
                 fingerprint.trailing is not None and fingerprint.trailing > 0
                 and parsed.crc and fingerprint.crc == int(parsed.crc)) else "needs_fix"
@@ -340,14 +353,20 @@ class ModLibrary:
 
     @_serialized
     def preview_bundles(self, mod_id: str) -> list[Path]:
-        """The bundles that make up a mod's skeleton for previewing: the mod's files plus the target's game parts
-        the mod does not replace (a mod often carries only the part it changes)."""
+        """Return missing official parts followed by the mod's overriding parts.
+
+        Parts match by prefix and resource type, independent of date and CRC.
+        Pass this order to ``GameAssets.spine_files_from`` so mod assets win.
+        """
         record = self._record(mod_id)
         paths = self._paths(record)
-        replaced = {parse_filename(p.name).prefix for p in paths}
-        others = [p for p in self._game_files(record["target"], record["kind"])
-                  if parse_filename(p.name).prefix not in replaced]
-        return paths + others
+        def part(path: Path) -> tuple[str, str | None]:
+            parsed = parse_filename(path.name)
+            return parsed.prefix, parsed.res_type
+        replaced = {part(path) for path in paths}
+        others = [self._official_for(path) for path in self._game_files(record["target"], record["kind"])
+                  if part(path) not in replaced]
+        return others + paths
 
     def _plan(self, record: dict[str, Any], log: LogFunc) -> list[mod_install.ModGroup]:
         groups = mod_install.plan_mod_install(self._paths(record), self._resource_dirs(), log)
@@ -414,7 +433,7 @@ class ModLibrary:
                     if progress:
                         progress(i, len(changed), target.name)
                 saving_state = True
-                for target in changed:
+                for target in replacements:
                     stat = target.stat()
                     records[str(target.resolve())].update(size=stat.st_size, mtime=stat.st_mtime_ns)
                 self._applied.update(records)
@@ -432,24 +451,57 @@ class ModLibrary:
                 raise
         return written
 
+    def _stage_adapted(self, sources: list[Path], targets: list[Path], directory: Path,
+                       log: LogFunc) -> dict[Path, Path]:
+        staged = self._stage_official(targets, directory / "targets")
+        output = directory / "output"
+        output.mkdir(parents=True)
+        adapted = adapt_variant_sources(
+            sources, list(staged.values()), directory / "sources", self.settings.asset_types(), log)
+        result = core.process_mod_update(
+            adapted, list(staged.values()), output,
+            self.settings.asset_types(), self.settings.save_options(self.settings.crc_needed(targets[0])),
+            self.settings.spine_options(), skip_unchanged=True, match_strategy="name_type",
+            anim_check=self.settings.anim_check_options(), log=log)
+        if not result.success:
+            raise ServiceError("mod_apply_failed", file=targets[0])
+        reverse = {value: key for key, value in staged.items()}
+        replacements = dict(staged)
+        for pair in result.file_pairs:
+            replacements[reverse[pair.source]] = pair.output
+        return replacements
+
     @_serialized
     def apply(self, variant_key: str, source: str, log: LogFunc = no_log,
-              progress: ProgressCallback | None = None) -> ApplyResult:
-        """Install a stored mod, another official variant, or the kept originals."""
-        self._variant(variant_key)
+              progress: ProgressCallback | None = None, kind: Kind | None = "spr") -> ApplyResult:
+        """Install one kind from a mod, variant, or originals; None selects both.
+
+        A mod replaces all parts of its own kind as a unit. Another variant's
+        mod must belong to the same family and is adapted to official targets.
+        """
+        variant = self._variant(variant_key)
         if source == "official":
-            return self.restore(variant_key, log)
+            return self.restore(variant_key, log, kind)
         with tempfile.TemporaryDirectory(prefix="bamt-library-") as temporary:
             work = Path(temporary)
             if source.startswith("mod:"):
                 record = self._record(source[4:])
-                if record["target"] != variant_key:
+                if (kind is not None and record["kind"] != kind) or (
+                        self._variant(record["target"]).family != variant.family):
                     raise ServiceError("mod_target_mismatch", id=record["id"], variant=variant_key)
+                targets = self._game_files(variant_key, record["kind"])
+                if not targets:
+                    raise ServiceError("game_file_not_found", variant=variant_key)
+                if record["target"] != variant_key:
+                    replacements = self._stage_adapted(self.preview_bundles(record["id"]), targets,
+                                                       work / record["kind"], log)
+                    files = self._commit(replacements, source, log, progress)
+                    return ApplyResult(variant_key, source, files, unchanged=not files)
                 groups = self._plan(record, log)
-                targets = self._plan_targets(groups)
-                allowed = set(self._game_files(variant_key, record["kind"]))
-                if any(path not in allowed for path in targets):
-                    raise ServiceError("game_file_outside_resources", file=next(p for p in targets if p not in allowed))
+                allowed = set(targets)
+                planned = self._plan_targets(groups)
+                if any(path not in allowed for path in planned):
+                    raise ServiceError("game_file_outside_resources", file=next(p for p in planned if p not in allowed))
                 staged = self._stage_official(targets, work / "targets")
                 # Execute only against temporary copies. The classic installer may
                 # copy directly or rebuild; all real game writes go through _commit.
@@ -470,28 +522,13 @@ class ModLibrary:
                 other = source[8:]
                 self._variant(other)
                 replacements = {}
-                for kind in ("spr", "lobby"):
-                    targets = self._game_files(variant_key, kind)
-                    sources = self._game_files(other, kind)
+                for current in (("spr", "lobby") if kind is None else (kind,)):
+                    targets = self._game_files(variant_key, current)
+                    sources = self._game_files(other, current)
                     if not targets or not sources:
                         continue
-                    staged = self._stage_official(targets, work / kind / "targets")
-                    output = work / kind / "output"
-                    output.mkdir(parents=True)
-                    adapted = adapt_variant_sources(
-                        [self._official_for(path) for path in sources], list(staged.values()),
-                        work / kind / "sources", self.settings.asset_types(), log)
-                    result = core.process_mod_update(
-                        adapted, list(staged.values()), output,
-                        self.settings.asset_types(), self.settings.save_options(self.settings.crc_needed(targets[0])),
-                        self.settings.spine_options(), skip_unchanged=True, match_strategy="name_type",
-                        anim_check=self.settings.anim_check_options(), log=log)
-                    if not result.success:
-                        raise ServiceError("mod_apply_failed", variant=variant_key)
-                    reverse = {value: key for key, value in staged.items()}
-                    replacements.update(staged)
-                    for pair in result.file_pairs:
-                        replacements[reverse[pair.source]] = pair.output
+                    replacements.update(self._stage_adapted(
+                        [self._official_for(path) for path in sources], targets, work / current, log))
                 if not replacements:
                     raise ServiceError("game_file_not_found", variant=variant_key)
             else:
@@ -500,9 +537,9 @@ class ModLibrary:
             return ApplyResult(variant_key, source, files, unchanged=not files)
 
     @_serialized
-    def restore(self, variant_key: str, log: LogFunc = no_log) -> ApplyResult:
-        """Restore every available part to its verified official bytes."""
-        targets = self._game_files(variant_key)
+    def restore(self, variant_key: str, log: LogFunc = no_log, kind: Kind | None = "spr") -> ApplyResult:
+        """Restore one kind to official bytes; None restores portrait and lobby."""
+        targets = self._game_files(variant_key, kind)
         if not targets:
             raise ServiceError("game_file_not_found", variant=variant_key)
         replacements = {path: self._official_for(path) for path in targets}
