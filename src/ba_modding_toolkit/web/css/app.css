@@ -8,11 +8,17 @@
   --navy-text: #2c445c;
   --font: "RHR", "PingFang SC", "Microsoft YaHei", sans-serif;
   --w: 500;
+  /* the pointer: the game's own once cursor.js has read it (the system cursor without a game); one for everything
+     and one for what reacts to a press (the game shows the same pointer on both) */
+  --cursor: default;
+  --cursor-press: pointer;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { height: 100%; background: #0d1626; overflow: hidden; }
-button { font: inherit; color: inherit; border: 0; background: none; cursor: pointer; }
+body { cursor: var(--cursor); }
+button { font: inherit; color: inherit; border: 0; background: none; cursor: var(--cursor-press); }
+input[type="text"], input[type="search"], textarea { cursor: text; }
 
 .viewport { position: fixed; inset: 0; }
 .stage {
@@ -60,8 +66,8 @@ button { font: inherit; color: inherit; border: 0; background: none; cursor: poi
 
 /* --- roster --- */
 .ngui-host { position: absolute; inset: 0; }
-.card-hit { position: absolute; z-index: 900; background: transparent; cursor: pointer; }
-.card-hit:disabled { cursor: default; }
+.card-hit { position: absolute; z-index: 900; background: transparent; cursor: var(--cursor-press); }
+.card-hit:disabled { cursor: var(--cursor); }
 .card-clip { position: absolute; left: 0; right: 0; overflow: hidden; z-index: 100; touch-action: none; }
 .card-scroll { position: absolute; left: 0; top: 0; width: 1920px; height: 1px; will-change: transform; }
 .card-row { position: absolute; inset: 0; }
@@ -97,7 +103,7 @@ button { font: inherit; color: inherit; border: 0; background: none; cursor: poi
 .portrait .spine-player, .lobby-layer .spine-player, .thumb-player .spine-player { background: transparent !important; }
 .popup-host { z-index: 20; pointer-events: auto; }
 .popup-host[hidden] { display: none; }
-.hit { position: absolute; background: transparent; cursor: pointer; }
+.hit { position: absolute; background: transparent; cursor: var(--cursor-press); }
 
 /* switch-portrait card: the game's weapon card has no text slot */
 .switch-text { position: absolute; z-index: 40; display: flex; flex-direction: column; justify-content: center; gap: 6px; padding-bottom: 5px; color: #2d4664; pointer-events: none; }
@@ -144,7 +150,7 @@ button { font: inherit; color: inherit; border: 0; background: none; cursor: poi
 .stage.fullscreen .lobby { touch-action: none; }
 .lobby.grab { cursor: grab; }
 .lobby.grabbing { cursor: grabbing; }
-.lobby.talk { cursor: pointer; }
+.lobby.talk { cursor: var(--cursor-press); }
 .lobby-frost { position: absolute; inset: 0; pointer-events: none; transition: opacity .45s ease;
   -webkit-backdrop-filter: blur(18px) saturate(1.08) brightness(1.04); backdrop-filter: blur(18px) saturate(1.08) brightness(1.04);
   -webkit-mask-image: linear-gradient(90deg, transparent 38%, #000 56%); mask-image: linear-gradient(90deg, transparent 38%, #000 56%);

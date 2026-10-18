@@ -2,6 +2,7 @@
 // loading screen covers the start and every change of screen until the new one is ready; a change inside the detail
 // screen (a variant chip, the arrows) keeps the old screen until the new one swaps in, with the indicator alone.
 import * as Consent from "./consent.js";
+import * as Cursor from "./cursor.js";
 import * as Detail from "./detail.js";
 import * as Loading from "./loading.js";
 import * as NGUI from "./ngui.js";
@@ -155,6 +156,8 @@ async function start() {
     return;
   }
   await NGUI.init();
+  // the game's pointer, read from the game in the background (the system cursor until then)
+  Cursor.init();
   renderNav(0);
   // files dropped on the window are added to the library
   on("drop", async ({ paths }) => {
