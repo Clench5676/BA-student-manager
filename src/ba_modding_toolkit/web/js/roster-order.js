@@ -45,10 +45,12 @@ export const filtering = (filters) => Object.entries(FILTERS).some(([g, options]
 });
 
 // --- search: every name language and the file id, case, width, kana and separators folded ---
+// separators: brackets, dots, commas, dashes, quotes and the marks inside official names (Shiroko*Terror,
+// Golconde&Decalcomania, a "?" title), so a name typed without them is found
 export function fold(str) {
   return String(str ?? "").normalize("NFKC").toLowerCase()
     .replace(/[\u3041-\u3096]/g, (c) => String.fromCharCode(c.charCodeAt(0) + 0x60)) // hiragana as katakana
-    .replace(/[\s()[\]{}\u00b7\u30fb\u3001\uff0c,.\-_'"]/g, "");
+    .replace(/[\s()[\]{}\u00b7\u30fb\u3001\uff0c,.\-_'"*&!?]/g, "");
 }
 export const terms = (query) => String(query ?? "").split(/\s+/).map(fold).filter(Boolean);
 

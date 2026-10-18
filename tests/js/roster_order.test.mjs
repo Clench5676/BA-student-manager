@@ -93,6 +93,28 @@ test("the search folds case, width, kana and separators across name languages an
   assert.equal(fold("\u661f\u91ce\uff08\u6cf3\u88c5\uff09"), "\u661f\u91ce\u6cf3\u88c5");
 });
 
+test("the marks inside official names are separators: found when typed without them", () => {
+  const d = { families: [
+    { key: "shiroko_terror", base: { en: "Shiroko*Terror", ja: "\u30b7\u30ed\u30b3\uff0a\u30c6\u30e9\u30fc", "zh-CN": "\u767d\u5b50*\u6050\u6016" }, variants: [
+      v("ch0209", { names: { en: { full: "Shiroko*Terror" }, ja: { full: "\u30b7\u30ed\u30b3\uff0a\u30c6\u30e9\u30fc" } } }),
+    ] },
+    { key: "golconde", base: { en: "Golconde&Decalcomania", ja: "\u30b4\u30eb\u30b3\u30f3\u30c0\uff06\u30c7\u30ab\u30eb\u30b3\u30de\u30cb\u30fc" }, variants: [
+      v("golconde", { names: { en: { full: "Golconde&Decalcomania" } } }),
+    ] },
+    { key: "president", base: { "zh-CN": "\u8054\u90a6\u5b66\u751f\u4f1a\u957f\uff1f" }, variants: [v("president")] },
+  ] };
+  const find = (q) => keys(order(d, view(), { label, query: q }));
+  assert.deepEqual(find("\u30b7\u30ed\u30b3\u30c6\u30e9\u30fc"), ["ch0209"]); // the IME's katakana, no asterisk
+  assert.deepEqual(find("\u3057\u308d\u3053\u3066\u3089\u30fc"), ["ch0209"]); // hiragana
+  assert.deepEqual(find("shirokoterror"), ["ch0209"]);
+  assert.deepEqual(find("\u767d\u5b50\u6050\u6016"), ["ch0209"]);
+  assert.deepEqual(find("Shiroko*Terror"), ["ch0209"]);                       // typed with it still works
+  assert.deepEqual(find("\u30b4\u30eb\u30b3\u30f3\u30c0\u30c7\u30ab\u30eb\u30b3\u30de\u30cb\u30fc"), ["golconde"]);
+  assert.deepEqual(find("golcondedecalcomania"), ["golconde"]);
+  assert.deepEqual(find("\u8054\u90a6\u5b66\u751f\u4f1a\u957f"), ["president"]);
+  assert.equal(fold("\u30b7\u30ed\u30b3\uff0a\u30c6\u30e9\u30fc"), "\u30b7\u30ed\u30b3\u30c6\u30e9\u30fc");
+});
+
 test("merged, a family is one card shown by its first variant or the first one the search found", () => {
   const all = order(data(), view({ merged: true }), { label });
   assert.deepEqual(all.map((c) => c.family), ["aru", "hoshino", "citizen"]);
