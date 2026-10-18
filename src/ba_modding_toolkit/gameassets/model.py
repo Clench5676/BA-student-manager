@@ -332,6 +332,24 @@ def pick_clips(names: list[str], wanted: Iterable[str] = DEFAULT_CLIPS, dev: str
 
 # --- GLB -----------------------------------------------------------------------------------------------------------
 
+FLT_MAX = 3.4028234663852886e38  # the largest float32
+
+
+def finite_json(value: Any) -> Any:
+    """A copy of a JSON tree with only finite numbers: an infinity becomes +-FLT_MAX (still unbounded for a shader),
+    NaN becomes 0. glTF readers parse the JSON chunk with a strict parser (JSON.parse), which rejects NaN and
+    Infinity, and the game's materials do hold infinite constants (``_CameraFadeParams`` of some NPCs and Saya)."""
+    if isinstance(value, float):
+        if math.isfinite(value):
+            return value
+        return math.copysign(FLT_MAX, value) if math.isinf(value) else 0.0
+    if isinstance(value, dict):
+        return {k: finite_json(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [finite_json(v) for v in value]
+    return value
+
+
 class GlbWriter:
     """glTF 2.0 JSON plus one binary buffer; buffer views are 4-byte aligned."""
 
@@ -378,8 +396,9 @@ class GlbWriter:
     def finish(self) -> bytes:
         self._align()
         self.json["buffers"] = [{"byteLength": len(self.bin)}]
-        doc = {k: v for k, v in self.json.items() if v != []}
-        text = json.dumps(doc, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+        doc = finite_json({k: v for k, v in self.json.items() if v != []})
+        # allow_nan=False: anything non-finite left over raises here instead of breaking the viewer's JSON.parse
+        text = json.dumps(doc, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
         text += b" " * (-len(text) % 4)
         total = 12 + 8 + len(text) + 8 + len(self.bin)
         return (struct.pack("<4sII", b"glTF", 2, total) + struct.pack("<I4s", len(text), b"JSON") + text

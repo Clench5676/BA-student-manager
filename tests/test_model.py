@@ -193,6 +193,42 @@ def test_glb_writer_layout():
     assert binary[view["byteOffset"]:view["byteOffset"] + view["byteLength"]] == b"\x89PNG.."
 
 
+def _strict(data):
+    """The JSON chunk of a GLB, parsed like the viewer's JSON.parse (no NaN or Infinity)."""
+    def reject(token):
+        raise ValueError(f"not JSON: {token}")
+    return json.loads(data[20:20 + struct.unpack_from("<I", data, 12)[0]], parse_constant=reject)
+
+
+def test_glb_json_has_only_finite_numbers():
+    # Saya's body material holds _CameraFadeParams = (0, inf, 0, 0)
+    graph = SimpleNamespace(tree=lambda obj: obj.tree, deref=lambda obj, pointer: None)
+    exporter = model._Exporter(graph, "saya_original")
+    material = SimpleNamespace(assets_file=SimpleNamespace(name="CAB-A"), path_id=1, tree={
+        "m_Name": "Saya_Body", "m_Shader": {"m_FileID": 0, "m_PathID": 0}, "m_SavedProperties": {
+            "m_TexEnvs": [], "m_Floats": [["_Cull", 2.0], ["_Far", math.inf]],
+            "m_Colors": [["_CameraFadeParams", {"r": 0.0, "g": math.inf, "b": 0.0, "a": 0.0}],
+                         ["_Odd", {"r": math.nan, "g": -math.inf, "b": 1.0, "a": 1.0}]]}})
+    exporter.material(material)
+    exporter.nodes.append({"name": "root", "translation": [math.inf, 0.0, 0.0]})
+    exporter.glb.json["scenes"][0]["nodes"].append(0)
+    doc = _strict(exporter.glb.finish())
+    extras = doc["materials"][0]["extras"]
+    assert extras["colors"]["_CameraFadeParams"] == [0.0, model.FLT_MAX, 0.0, 0.0]
+    assert extras["colors"]["_Odd"] == [0.0, -model.FLT_MAX, 1.0, 1.0]  # NaN becomes 0
+    assert extras["floats"] == {"_Cull": 2.0, "_Far": model.FLT_MAX}
+    assert doc["nodes"][0]["translation"] == [model.FLT_MAX, 0.0, 0.0]
+
+
+def test_glb_writer_rejects_what_is_not_finite(monkeypatch):
+    # without the clean-up a non-finite number fails the export instead of the viewer
+    monkeypatch.setattr(model, "finite_json", lambda value: value)
+    glb = model.GlbWriter()
+    glb.json["nodes"].append({"name": "root", "scale": [math.nan, 1.0, 1.0]})
+    with pytest.raises(ValueError):
+        glb.finish()
+
+
 # --- CAB discovery ---
 
 def _unityfs(names, *, version=7, at_end=False, compress=True):
@@ -333,11 +369,14 @@ def test_real_chibi_exports(tmp_path):
     assert {"hoshino_original", "ch0242"} <= game.model_cores()
     data = game.model_glb("hoshino_original")
     assert data[:4] == b"glTF" and struct.unpack_from("<I", data, 8)[0] == len(data)
-    doc = json.loads(data[20:20 + struct.unpack_from("<I", data, 12)[0]])
+    doc = _strict(data)
     assert doc["extras"]["prefab"] == "Echelon_Hoshino_Original" and "haloFollower" in doc["extras"]
     slots = [a["extras"]["slot"] for a in doc["animations"]]
     assert slots[0] == "Formation_Idle" and "Cafe_Reaction" in slots and len(slots) == len(set(slots))
     assert doc["skins"] and all(len(s["joints"]) > 0 for s in doc["skins"])
     kinds = {m["extras"]["kind"] for m in doc["materials"]}
     assert {"body", "face", "hair", "eyemouth", "halo"} <= kinds
+    if "saya_original" in game.model_cores():  # an infinite material constant
+        fade = [m["extras"]["colors"].get("_CameraFadeParams") for m in _strict(game.model_glb("saya_original"))["materials"]]
+        assert [0.0, model.FLT_MAX, 0.0, 0.0] in fade
     assert not (tmp_path / "cache").exists()
