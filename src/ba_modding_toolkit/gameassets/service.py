@@ -15,9 +15,10 @@ from PIL import Image
 
 from ..errors import ServiceError
 from .cache import AssetCache
+from . import lobby
 from .discovery import (
     bundle_paths, group_bundles, is_atlas, is_layout_texture,
-    is_prefab, is_texture, resource_version,
+    is_lobby_prefab, is_prefab, is_texture, resource_version,
 )
 from .errors import AssetNotFound
 from .layouts import export_layout, subtree
@@ -362,3 +363,69 @@ class GameAssets:
                 self.cache.put(_SCHEMA + key, value, version=self.resource_version,
                                disk=False, size=sum(len(data) for data in value.values()))
             return dict(value)
+
+    def _lobby_prefabs(self) -> dict[str, str]:
+        """Memorial lobby prefab names (lower case) -> bundle names, from the bundle containers alone (about 5 s
+        cold). It holds names only, so it is cached like the other indexes."""
+        def build() -> dict[str, str]:
+            names: dict[str, str] = {}
+            for path in filter(is_lobby_prefab, self._paths()):
+                with open_bundle(path) as env:
+                    for name in env.container:
+                        if name.lower().endswith(".prefab"):
+                            names.setdefault(name.rsplit("/", 1)[-1][:-7].lower(), path.name)
+            return names
+        return self._index("lobby-prefabs", build)
+
+    def lobby_info(self, core: str) -> dict:
+        """A memorial lobby's layout and interaction (see lobby.py), from its prefab and its own clip assets. It is
+        read from the character's bundles, so it stays in memory; the file stamps keep an applied mod apart."""
+        try:
+            bundles = self.spine_cores("lobby")[core.lower()]
+        except KeyError:
+            raise AssetNotFound(("lobby", core)) from None
+        stamps = [(path.name, path.stat().st_size, path.stat().st_mtime_ns) for path in bundles if path.exists()]
+
+        def build() -> bytes:
+            skeletons, behaviours = [], []
+            for path in bundles:
+                with open_bundle(path) as env:
+                    for obj in env.objects:
+                        if obj.type.name == "TextAsset":
+                            name = obj.peek_name()
+                            if name.lower().endswith(".skel"):
+                                skeletons.append(name[:-5])
+                        elif obj.type.name == "MonoBehaviour":
+                            try:
+                                behaviours.append((obj.path_id, obj.read_typetree()))
+                            except (ValueError, TypeError):
+                                logger.debug("Cannot read lobby behaviour %s", obj.path_id, exc_info=True)
+            skeletons = list(dict.fromkeys(skeletons))
+            clips = lobby.Clips(behaviours, skeletons)
+            prefabs, prefab = self._lobby_prefabs(), None
+            for name in lobby.prefab_candidates(core, skeletons):
+                if name in prefabs:
+                    prefab = self._lobby_prefab(prefabs[name], name, skeletons, clips)
+                    if prefab:
+                        break
+            return json.dumps(lobby.lobby_info(skeletons, clips, prefab), ensure_ascii=True,
+                              separators=(",", ":")).encode()
+        return json.loads(self._cached("lobby/" + json.dumps([core.lower(), stamps]), build, disk=False))
+
+    def _lobby_prefab(self, bundle: str, root: str, skeletons: list[str], clips: lobby.Clips) -> dict | None:
+        try:
+            path = self._bundle_path(bundle)
+        except AssetNotFound:
+            return None
+        with open_bundle(path) as env:
+            objects = {obj.path_id: obj for obj in env.objects}
+            kinds = {pid: obj.type.name for pid, obj in objects.items()}
+            trees: dict[int, dict] = {}
+
+            def tree(pid: int) -> dict:
+                # read on demand: a lobby bundle may hold several prefabs, only one tree is walked
+                if pid not in trees:
+                    trees[pid] = objects[pid].read_typetree()
+                return trees[pid]
+            scripts = {pid: tree(pid).get("m_ClassName") for pid, kind in kinds.items() if kind == "MonoScript"}
+            return lobby.read_prefab(kinds, tree, scripts, root, skeletons, clips)

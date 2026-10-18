@@ -70,6 +70,11 @@ def is_prefab(path: Path) -> bool:
             or (path.name.startswith("prologdepengroup-") and "-addressableasset-ui-" in path.name))
 
 
+def is_lobby_prefab(path: Path) -> bool:
+    """Whether a bundle holds memorial lobby prefabs (UILobbyElement/Lobby<Name>.prefab)."""
+    return path.name.startswith("ui-uilobbyelement-")
+
+
 def is_layout_texture(path: Path) -> bool:
     """Texture-only families additionally referenced by the detail prefab.
 

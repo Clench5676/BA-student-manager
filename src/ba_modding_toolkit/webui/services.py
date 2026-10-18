@@ -220,6 +220,10 @@ class Services:
         raise KeyError("/".join(parts))
 
     def _spine_asset(self, kind: str, key: str, name: str) -> AssetResponse:
+        if kind == "lobby" and name == "lobby.json":
+            # the lobby's layout and interaction from its prefab and clip assets; no skeleton file has this name, and
+            # it is answered without extracting (and PNG-encoding) the lobby's textures
+            return _json(self.game.lobby_info(key), light=False)
         if kind in ("spr", "lobby"):
             files = self.game.spine_files(kind, key)
         elif kind == "mod":
