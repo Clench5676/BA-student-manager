@@ -1,0 +1,210 @@
+{
+ "rows": [
+  {
+   "file_id": "NP0139",
+   "student_id": "65",
+   "page_id": "65",
+   "spine_remark": "无武器",
+   "name_kivo": "吉野 妮可",
+   "name_cn": "妮可",
+   "name_jp": "吉野 ニコ",
+   "name_en": "Yoshino Niko",
+   "name_tw": "吉野 仁子"
+  },
+  {
+   "file_id": "sukeban_sr",
+   "student_id": "188",
+   "page_id": "188",
+   "name_kivo": "不良学生A",
+   "name_jp": "チンピラA"
+  },
+  {
+   "file_id": "NP0291",
+   "student_id": "183",
+   "page_id": "183",
+   "spine_remark": "私服",
+   "name_kivo": "七神 凛",
+   "name_cn": "七神 凛",
+   "name_jp": "七神 リン",
+   "name_en": "Nanagami Rin",
+   "name_tw": "七神 琳"
+  },
+  {
+   "file_id": "CH0277",
+   "student_id": "386",
+   "page_id": "386",
+   "name_kivo": "微笑教授",
+   "name_cn": "笑笑教授",
+   "name_jp": "ニヤニヤ教授",
+   "name_en": "Professor Smug",
+   "name_tw": "笑眯眯教授"
+  },
+  {
+   "file_id": "NP0022",
+   "student_id": "217",
+   "page_id": "217",
+   "name_kivo": "茶话会成员A",
+   "name_jp": "NP0022"
+  }
+ ],
+ "expected": {
+  "np0139": {
+   "names": {
+    "zh-CN": {
+     "full": "妮可（无武器）",
+     "short": "无武器"
+    },
+    "zh-TW": {
+     "full": "仁子（無武器）",
+     "short": "無武器"
+    },
+    "en": {
+     "full": "Niko (No Weapon)",
+     "short": "No Weapon"
+    },
+    "ja": {
+     "full": "ニコ（武器なし）",
+     "short": "武器なし"
+    }
+   },
+   "name_sources": {
+    "en": "translated",
+    "ja": "translated",
+    "zh-TW": "translated",
+    "zh-CN": "fallback"
+   },
+   "fallbacks": {
+    "zh-CN": "story_variant",
+    "zh-TW": "story_variant",
+    "en": "story_variant",
+    "ja": "story_variant"
+   }
+  },
+  "sukeban_sr": {
+   "names": {
+    "zh-CN": {
+     "full": "不良学生A",
+     "short": "原皮"
+    },
+    "zh-TW": {
+     "full": "太妹A",
+     "short": "原皮"
+    },
+    "en": {
+     "full": "Thug A",
+     "short": "Original"
+    },
+    "ja": {
+     "full": "チンピラA",
+     "short": "通常"
+    }
+   },
+   "name_sources": {
+    "en": "translated",
+    "ja": "derived",
+    "zh-TW": "translated",
+    "zh-CN": "fallback"
+   },
+   "fallbacks": {
+    "en": "missing_csv_name",
+    "zh-TW": "missing_csv_name",
+    "zh-CN": "missing_csv_name"
+   }
+  },
+  "np0291": {
+   "names": {
+    "zh-CN": {
+     "full": "凛（便服）",
+     "short": "便服"
+    },
+    "zh-TW": {
+     "full": "琳（私服）",
+     "short": "私服"
+    },
+    "en": {
+     "full": "Rin (Casual)",
+     "short": "Casual"
+    },
+    "ja": {
+     "full": "リン（私服）",
+     "short": "私服"
+    }
+   },
+   "name_sources": {
+    "zh-CN": "official",
+    "zh-TW": "official",
+    "en": "official",
+    "ja": "official"
+   },
+   "fallbacks": {
+    "zh-CN": "story_variant",
+    "zh-TW": "story_variant",
+    "en": "story_variant",
+    "ja": "story_variant"
+   }
+  },
+  "ch0277": {
+   "names": {
+    "zh-CN": {
+     "full": "笑笑教授",
+     "short": "原皮"
+    },
+    "zh-TW": {
+     "full": "笑眯眯教授",
+     "short": "原皮"
+    },
+    "en": {
+     "full": "Professor Smug",
+     "short": "Original"
+    },
+    "ja": {
+     "full": "ニヤニヤ教授",
+     "short": "通常"
+    }
+   },
+   "name_sources": {
+    "zh-CN": "derived",
+    "zh-TW": "derived",
+    "en": "derived",
+    "ja": "derived"
+   },
+   "fallbacks": {}
+  },
+  "np0022": {
+   "names": {
+    "zh-CN": {
+     "full": "茶话会成员A",
+     "short": "原皮"
+    },
+    "zh-TW": {
+     "full": "茶會成員A",
+     "short": "原皮"
+    },
+    "en": {
+     "full": "Tea Party Member A",
+     "short": "Original"
+    },
+    "ja": {
+     "full": "ティーパーティーのメンバーA",
+     "short": "通常"
+    }
+   },
+   "name_sources": {
+    "en": "translated",
+    "ja": "translated",
+    "zh-TW": "translated",
+    "zh-CN": "fallback"
+   },
+   "fallbacks": {
+    "zh-CN": "missing_csv_name",
+    "zh-TW": "missing_csv_name",
+    "en": "missing_csv_name",
+    "ja": "missing_csv_name"
+   }
+  }
+ },
+ "foreign_script": {
+  "zh-TW": "们这个无学会员机龟组乌赛兰爱华铃凯义实现开发红亲卫队尔龙门联话医圣钢团风纪长劳务职种师贝结黄极带渔织车经帮剧监猎径玛装护运动应紧战时画轮镜鸦脸谱纸绷袄环响号丧魉语东乐头",
+  "ja": "们这无员龟组乌赛爱华铃凯义实现开发红亲卫队龙门联话钢团风纪长劳务职佣种师贝结极带渔织车经帮剧监猎玛护运动应紧战时轮镜鸦脸谱纸绷袄环响丧魉语东乐头兰圣"
+ }
+}
