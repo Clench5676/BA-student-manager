@@ -1,6 +1,6 @@
 // Boot and routing: #/roster (the student list) and #/student/<family>/<variant> (the detail screen). The game's
 // loading screen covers the start and every change of screen until the new one is ready; a change inside the detail
-// screen (a variant chip, the family arrows) keeps the old screen until the new one swaps in, with the indicator alone.
+// screen (a variant chip, the arrows) keeps the old screen until the new one swaps in, with the indicator alone.
 import * as Consent from "./consent.js";
 import * as Detail from "./detail.js";
 import * as Loading from "./loading.js";
@@ -10,22 +10,25 @@ import * as Settings from "./settings.js";
 import * as Update from "./update.js";
 import { on, rpc } from "./api.js";
 import { T, setStrings } from "./i18n.js";
+import { neighbour } from "./roster-order.js";
 import { renderNav, setTitle } from "./nav.js";
 import { $, fitStage, toast } from "./util.js";
 
 let info = null, rosterData = null, rosterStale = true;
+// the roster's cards as the list showed them when it was left (its filters, search and sort): the detail screen's
+// arrows step through these, so visits and edits on the way do not reshuffle them; taken afresh once the roster shows
+let stepCards = null;
 
 const ctx = {
   dragged: false,
   go: (family, variant) => { location.hash = `#/student/${encodeURIComponent(family)}/${encodeURIComponent(variant)}`; },
   invalidateRoster: () => { rosterStale = true; Roster.invalidate(); },
-  // the next or previous family in the roster's order
-  stepFamily: async (key, delta) => {
+  // the card before or after the shown variant (merged: family) in the roster's order, within its filters
+  step: async (delta, family, variant) => {
     const data = await roster();
-    const list = data.families.filter((f) => f.variants.some((v) => v.spr));
-    const i = list.findIndex((f) => f.key === key);
-    const next = list[(i + delta + list.length) % list.length];
-    if (next) ctx.go(next.key, next.variants.find((v) => v.spr).key);
+    stepCards ||= Roster.order(data);
+    const next = neighbour(stepCards, () => Roster.order(data, { unfiltered: true }), { family, variant, merged: Roster.merged() }, delta);
+    if (next) ctx.go(next.family, next.key);
   },
 };
 
@@ -76,6 +79,8 @@ async function route() {
   const parts = location.hash.replace(/^#\/?/, "").split("/").map(decodeURIComponent);
   try {
     if (parts[0] === "student" && parts[1]) {
+      // leaving the list: its cards as shown are the arrows' order
+      if (!stepCards && rosterData && !$("screen-roster").hidden) stepCards = Roster.order(rosterData);
       Roster.invalidate();
       if (!$("screen-detail").hidden && !Loading.covering()) {
         // in place: the shown screen stays until every part of the new one is ready, then all of it swaps at once
@@ -100,6 +105,7 @@ async function route() {
         if (my !== routeToken) return;
         Detail.hide();
         showScreen("roster");
+        stepCards = null;
         setTitle(T("top.students"), null);
         await Roster.show(ctx, data);
         rosterBuilt = true;
@@ -132,6 +138,7 @@ async function start() {
   ctx.info = info;
   Loading.init(info); // the loading illustrations of the UI language, fetched while the rest starts
   ctx.prefs = await rpc("settings.get").catch(() => null);
+  Roster.init(ctx.prefs?.roster);
   setStrings(info.language, await rpc("i18n.strings", { lang: info.language }));
   Loading.relabel();
   document.title = T("top.students");
@@ -139,7 +146,7 @@ async function start() {
   $("fs-exit").setAttribute("aria-label", T("lobby.exit"));
   $("top-option").setAttribute("aria-label", T("settings.button"));
   // subscribed before the no-game screen too, so choosing the game folder elsewhere reaches the page
-  on("config.changed", () => { if (!info.gameFound) { location.reload(); return; } ctx.invalidateRoster(); route(); });
+  on("config.changed", () => { if (!info.gameFound) { location.reload(); return; } stepCards = null; ctx.invalidateRoster(); route(); });
   on("app.busy", () => toast(T("error.busy"), { kind: "error" }));
   await document.fonts.ready;
   if (!info.gameFound) {
@@ -163,7 +170,7 @@ async function start() {
   $("top-option").addEventListener("click", () => Settings.open((key, prefs) => {
     ctx.prefs = prefs;
     Detail.applyPrefs(prefs);
-    if (key === "fileSource" || key.startsWith("gameDir") || key === "libraryDir") { ctx.invalidateRoster(); route(); }
+    if (key === "fileSource" || key.startsWith("gameDir") || key === "libraryDir") { stepCards = null; ctx.invalidateRoster(); route(); }
   }));
   addEventListener("hashchange", route);
   await route();

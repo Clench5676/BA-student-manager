@@ -17,7 +17,7 @@ from ba_modding_toolkit.webui.events import EventBus
 from ba_modding_toolkit.webui.jobs import JobRunner
 from ba_modding_toolkit.webui.server import WebApp
 from ba_modding_toolkit.webui.services import Services
-from ba_modding_toolkit.webui.state import UiState
+from ba_modding_toolkit.webui.state import UiState, roster_view
 
 
 @dataclass
@@ -105,6 +105,7 @@ class FakeMod:
     id: str
     target: str
     fresh: bool = True
+    added: str = "2026-10-01T08:00:00+00:00"
 
     def to_json(self):
         return {"id": self.id, "target": self.target, "fresh": self.fresh}
@@ -211,6 +212,7 @@ def test_roster_and_family(app, services):
     roster = rpc(app, "roster.list")["result"]
     v = roster["families"][0]["variants"][0]
     assert v["key"] == "hoshino" and v["mods"] == 1 and v["fresh"] is True
+    assert v["added"] == "2026-10-01T08:00:00+00:00"  # the newest own mod, for the "recently added" sort
     assert v["replaced"] == "variant:hoshino_swimsuit"
     assert v["bg"] == "/asset/art/bg/BG_Test_Collection"
     assert v["playable"] is True and v["recruitable"] is True
@@ -404,6 +406,25 @@ def test_cookie_found_among_unparsable_cookies(app):
 def test_non_ascii_token_is_refused_not_crashed(app):
     assert call(app, "/api/rpc", "POST", {"method": "app.info"}, token="星野")[0] == "403 Forbidden"
     assert call(app, "/?t=星野", token=None)[0] == "403 Forbidden"
+
+
+def test_roster_view_keeps_only_valid_fields():
+    assert roster_view(None) == {"merged": False, "mods": "all", "recruit": "all", "sort": "recent", "order": "desc",
+                                 "filters": {}}
+    view = roster_view({"merged": True, "mods": "none", "recruit": "maybe", "sort": "name", "extra": 1,
+                        "filters": {"lobby": ["no", "no", "x"], "kind": "npc", "favorite": [], "bogus": ["yes"]}})
+    assert view == {"merged": True, "mods": "none", "recruit": "all", "sort": "name", "order": "asc",
+                    "filters": {"lobby": ["no"]}}
+    assert roster_view({"sort": "mods", "order": "asc"})["order"] == "asc"
+
+
+def test_roster_view_is_kept_across_launches(app, services, tmp_path):
+    assert rpc(app, "settings.get")["result"]["roster"]["sort"] == "recent"
+    sent = {"merged": True, "recruit": "yes", "sort": "added", "order": "asc", "filters": {"portrait": ["replaced"]}}
+    saved = rpc(app, "settings.set", key="roster", value=sent)["result"]["roster"]
+    assert saved == {**roster_view(None), **sent}
+    # a new launch reads the same file
+    assert roster_view(UiState(tmp_path / "webui.json").get("roster")) == saved
 
 
 def test_install_update_needs_the_window_and_the_verified_download(app, services, tmp_path):

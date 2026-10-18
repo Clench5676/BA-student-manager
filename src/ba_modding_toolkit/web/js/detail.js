@@ -445,8 +445,9 @@ function hits(view, leftHost, rightHost) {
   add(leftHost, "LeftInfo/CharInfo/Char_Target/Pin/Pin_On/Bg", toggleFav, T("fav.label"));
   add(leftHost, "LeftInfo/CharInfo/Char_Target/Pin/Pin_Off/Bg", toggleFav, T("fav.label"));
   add(leftHost, "LeftInfo/CharInfo/Char_Target/Char_CVCollectionBtn", copyName, baseName(gameFile(variant(), tabKind())));
-  add(leftHost, "Arrow_L/Left", () => ctx.stepFamily(fam.key, -1));
-  add(rightHost, "Arrow_R/Right", () => ctx.stepFamily(fam.key, 1));
+  // the previous or next card of the student list, within its filters and in its order
+  add(leftHost, "Arrow_L/Left", () => ctx.step(-1, fam.key, variantKey));
+  add(rightHost, "Arrow_R/Right", () => ctx.step(1, fam.key, variantKey));
   if (tab === "lobby" || tab === "model") add(leftHost, "LeftInfo/CharInfo/Char_Target/Char_ZoomBtn", () => setFullscreen(true), T("lobby.fullscreen"));
   if (tab === "lobby") add(leftHost, "LeftInfo/CharInfo/Char_Target/Char_PlayBtn", togglePlayAll, T(Lobby.playingAll() ? "lobby.stop" : "lobby.playAll"));
   const v = variant();
@@ -754,6 +755,8 @@ function enableDrag(clip, track) {
 }
 
 // --- main Spine portrait ---
+// the looping idle on track 0: Idle_01, else the skeleton's first animation (the NPC portraits with only "00")
+const idleOf = (data) => (data.findAnimation("Idle_01") ? "Idle_01" : data.animations[0]?.name);
 // loadSpine(base) -> Promise, resolved once the portrait's first frame is drawn and the expression strip shows its
 // faces (also on an error, after the toast). The new layer stays transparent until committed; then it fades in over
 // the old one, which goes.
@@ -769,12 +772,16 @@ function loadSpine(base) {
   return new Promise((resolve) => {
     layer.done = resolve; // settled by disposePortrait() too
     layer.player = new spine.SpinePlayer(layer, {
-      skeleton: `${base}.skel`, atlas: `${base}.atlas`, animation: "Idle_01",
+      // the idle is set in success(): some NPC portraits (citizen_borot2, blacksuit, ...) have no Idle_01, only "00"
+      skeleton: `${base}.skel`, atlas: `${base}.atlas`, animation: undefined,
       premultipliedAlpha: false, alpha: true, backgroundColor: "#00000000",
       showControls: false, showLoading: false, preserveDrawingBuffer: true,
       // no viewport transition: spine-player starts it from an undefined viewport and draws nothing meanwhile
       viewport: { padLeft: "6%", padRight: "6%", padTop: "3%", padBottom: "0%", transitionTime: 0 },
       success: async (player) => {
+        // before the first await: spine-player takes the viewport from track 0 and plays once success() returns
+        const idle = idleOf(player.skeleton.data);
+        if (idle) player.animationState.setAnimation(0, idle, true);
         if (my !== spineToken) { resolve(); return; } // a newer portrait took over; it retires this layer
         mainPlayer = player;
         applyExpression();
@@ -786,7 +793,8 @@ function loadSpine(base) {
           layer.classList.remove("fading");
           for (const old of previous) {
             old.classList.add("fading");
-            setTimeout(() => { old.player?.dispose(); old.remove(); }, 400);
+            // once only: a quick second step retires the same layer again, and disposePortrait() may have freed it
+            setTimeout(() => { if (old.isConnected) { old.player?.dispose(); old.remove(); } }, 400);
           }
         });
         resolve();

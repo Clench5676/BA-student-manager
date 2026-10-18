@@ -223,7 +223,8 @@ Events on `/api/events`:
 | `app.openClassic {tab}` | starts the classic GUI on a tab |
 | `i18n.strings {lang}` | `{key: text}` for `webui.*` |
 | `loading.list {lang}` | the loading screen illustrations for a UI language: `{lang, images: [{name, n, w, h, url}]}` (zh → tw, ja → jp, then en, then any; none without a game) |
-| `roster.list` | families with variants, mod counts, fresh flags, favourites, recent order |
+| `roster.list` | families with variants, mod counts, fresh flags, favourites, recent order, `added` (when the newest own mod was added) |
+| `settings.get` / `settings.set {key, value}` | the settings popup's values; key `roster` keeps the student list's view (merge, segment filters, sort, order, filter groups; `webui/state.py roster_view`) |
 | `family.get {key}` | a family with its variants, mods and each variant's state; `modelFiles` per variant (the 3D model's prefab bundles, newest first) and `version` (the game's resource version, so a switched install reloads the screen) |
 | `lobby.warm` | builds the memorial lobby prefab index in the background (once per game); the detail screen calls it for a variant with a lobby |
 | `lobby.lines {variant, talks, lang}` | `{clip: {lang: text, voice}}`: zh-CN from Kivo, ja from Kivo else the Global server, en, zh-TW, ko and th from the Global server (read only for a `lang` other than zh-CN); `talks` (`{animation: [clip ids]}` from the skeleton) places the Global rows on the clips; `lines_unavailable` when neither source can be read |
@@ -263,6 +264,25 @@ consent popup and the lobby player, as ES modules under `web/js/`, one page with
 art from `/asset/...`, and its strings from the locale files. Prototype-only URL parameters and render hacks are not
 ported.
 
+### Student list
+
+`roster-order.js` decides which cards the list shows and in what order (pure functions, tested in Node from
+`tests/test_roster_order.py`); `roster.js` draws them and `display.js` is the game's display settings popup
+(UIPopup_FilterSort) behind the sort button.
+
+- One card per variant, or per family with "Group Variants" (its attributes are any of its variants'; the card shows
+  the first variant, or the first one the search found). Cards with mods first, the rest after the "No Mod" bar;
+  favourites lead each group whatever the sort.
+- Segment filters (mods, recruitment), the display settings' filter groups (favourite, portrait original or replaced,
+  memorial lobby, 3D model, student or NPC; options in a group add up, groups narrow) and the sort (recently viewed,
+  recently added, name with the UI language's collation, mod count, default); the order button flips the sort. The
+  funnel on the sort button turns blue while a filter group narrows the list. All of it is saved (`settings.set
+  roster`); the search lasts the session.
+- The search (the game's CharacterSearch box over the top of the list) matches every name language, the family's base
+  names and the file id, ignoring case, width, kana and separators; every word must match.
+- The detail screen's arrows step through the cards as the list showed them when it was left, in its order, wrapping
+  round; a variant the list hides (another chip, a deep link) steps from its place in the whole list.
+
 ### Loading screen
 
 `loading.js` draws the game's own loading screen: UILoading (a black backdrop and one illustration, drawn at its own
@@ -279,7 +299,7 @@ stand-in in the page font shows instead.
   so. One overlay at a time: a newer call takes over the one on screen.
 - The detail screen resolves `show()` only when it is ready: the panels, the left side's first frame (the portrait,
   or the lobby with its still, or the 3D model with its shaders compiled) and, within 1.2 s, the visible thumbnails;
-  the lobby's lines from Kivo get 1.5 s. A change inside the screen (a variant chip, the family arrows, a tab, an
+  the lobby's lines from Kivo get 1.5 s. A change inside the screen (a variant chip, the arrows, a tab, an
   applied portrait) renders every part off screen and swaps them in one frame. The left side loads laid out but
   transparent; when a lobby or a model replaces another one, a still of the old one holds its place meanwhile.
 - The consent popup comes after the first screen is revealed. The illustrations are game art: memory only, served

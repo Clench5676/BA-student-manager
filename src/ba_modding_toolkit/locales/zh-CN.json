@@ -864,7 +864,12 @@
 		},
 		"roster": {
 			"title": "学生名单",
-			"merge": "合并变种"
+			"merge": "合并变种",
+			"search": "搜索",
+			"searchHint": "名称、文件 ID",
+			"empty": "无结果",
+			"asc": "升序",
+			"desc": "降序"
 		},
 		"seg": {
 			"all": "全部",
@@ -874,9 +879,31 @@
 			"noRecruit": "不可招募"
 		},
 		"sort": {
-			"recent": "最近修改",
+			"recent": "最近查看",
+			"added": "最近添加",
+			"name": "名称",
+			"mods": "Mod 数量",
 			"release": "发布时间",
 			"default": "默认"
+		},
+		"display": {
+			"title": "显示设置",
+			"tab": {
+				"filter": "筛选",
+				"sort": "排序"
+			},
+			"count": "显示 {n}",
+			"reset": "全部重置",
+			"sortBy": "排序依据",
+			"close": "关闭",
+			"fav": {
+				"off": "未收藏"
+			},
+			"kind": {
+				"title": "类型",
+				"student": "学生",
+				"npc": "NPC"
+			}
 		},
 		"band": {
 			"mods": "Mod × {n}",
