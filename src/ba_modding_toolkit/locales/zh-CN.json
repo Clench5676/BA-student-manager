@@ -840,7 +840,14 @@
 		"model": {
 			"original": "原版",
 			"has": "有",
-			"none": "无"
+			"none": "无",
+			"action": {
+				"idle": "待机",
+				"reaction": "互动",
+				"walk": "行走",
+				"victory": "胜利",
+				"pickup": "拎起"
+			}
 		},
 		"nav": {
 			"students": "学生",

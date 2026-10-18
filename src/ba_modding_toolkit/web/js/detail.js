@@ -24,6 +24,10 @@ const stage = () => document.getElementById("stage");
 let ctx = null, fam = null, variantKey = null, layouts = null;
 let tab = "portrait", fullscreen = false, expression = "00", expanded = false, exprScroll = 0;
 let mainPlayer = null, blinkTimer = null, pending = null, pickerSel = null, lobbySeq = null, busy = false, lobbyShot = null;
+let modelShot = null, modelActions = [], modelAction = null;
+// three.js and the model viewer load with the first 3D model
+let modelLib = null;
+const ModelLib = () => (modelLib ||= import("./model.js"));
 let renderToken = 0, exprToken = 0, chipToken = 0, seqTimer = null;
 
 // --- names, candidates, state ---
@@ -33,7 +37,7 @@ const variant = () => fam.variants.find((v) => v.key === variantKey) || fam.vari
 const familyMods = () => fam.variants.flatMap((v) => v.modList || []);
 const isFav = (v) => !!v.favorite;
 const hasLobby = (v) => !!v.lobby;
-const hasModel = () => false; // 3D models are not read from the game yet
+const hasModel = (v) => !!v.model;
 const hasFresh = (v) => (v.modList || []).some((m) => m.fresh);
 const modLabel = (m) => m.label || m.file?.split(/[\\/]/).pop() || m.id;
 const baseOf = (c) => (c.kind === "mod" ? spineBase("mod", c.id) : spineBase("spr", c.spr));
@@ -120,7 +124,7 @@ function screenTree() {
   off(t, "Top", "NUITop_Scenes", "LeftInfo/CharInfo_Disable", "LeftInfo/CharCombatStyle", "RightInfo/Target/Disable",
     "RightInfo/Target/Active/2_LevelUp", "RightInfo/Target/Active/3_Transcendence", "RightInfo/Target/Active/FullCollier", "RightInfo/Target/Active/Effect");
   const v = variant(), c = current(), kind = tab === "lobby" ? "lobby" : "spr";
-  const swapped = tab === "lobby" ? appliedOf(v, "lobby") !== "official" : appliedKey() !== "self";
+  const swapped = tab === "lobby" ? appliedOf(v, "lobby") !== "official" : tab === "model" ? false : appliedKey() !== "self";
   // layer 1 of the panel: measured on the game screenshots it lets about 55 % of the background through
   widget(t, "RightInfo/Target/Active/Bg").color = "#0c284b/0.45";
 
@@ -148,7 +152,8 @@ function screenTree() {
   text(t, `${INFO}/Detail_Btn/Label_Locale`, T("info.details"));
   const crcState = crcOf(v, kind);
   const crc = crcState === "fixed" ? ["crc.fixed", "#1f9a52"] : crcState === "needs_fix" ? ["crc.needed", "#d9822b"] : ["crc.original", "#000000"];
-  const stats = [["Label_Life", "info.current", "Data_Widget/Data", tab === "portrait" ? c.label : lobbyLabel(v)],
+  const now = tab === "portrait" ? c.label : tab === "lobby" ? lobbyLabel(v) : T("model.original");
+  const stats = [["Label_Life", "info.current", "Data_Widget/Data", now],
     ["Label_Attact", "info.status", "Data_Widget/Data", T(swapped ? "status.replaced" : "status.original")],
     ["Label_Defense", "info.gameFile", "Data", v.date || "—"], ["Label_Healing", "info.crc", "Data_Widget/Data", T(crc[0]), crc[1]]];
   // the value column starts after the longest caption of its column
@@ -229,7 +234,7 @@ function screenTree() {
       ? clipped("Bust", [1, 6], thumb(baseOf(c), "bust"), win, { dx: -383 + 202 - 40, dy: -67.5, w: 404, h: 404 },
         { depth: 10, mask: "linear-gradient(90deg, #000 70%, transparent 98%)" })
       // wider than the window's slanted left edge, and faded at both ends so no hard picture edge shows
-      : clipped("Bust", [1, 6], lobbyShot, win, { dx: -383 + 216, dy: 0, w: 450, h: 253 }, { depth: 10, mask: "linear-gradient(90deg, transparent 0, #000 10%, #000 70%, transparent 96%)" }));
+      : clipped("Bust", [1, 6], tab === "model" ? modelShot : lobbyShot, win, { dx: -383 + 216, dy: 0, w: 450, h: 253 }, { depth: 10, mask: "linear-gradient(90deg, transparent 0, #000 10%, #000 70%, transparent 96%)" }));
   // the wrapper holds an enabled (cyan) and a disabled (grey) body and label; keep the enabled ones
   let bodies = 0, labels = 0;
   const add = fitText(T(`row.add.${tab}`), 52, 30, 160, 2);
@@ -284,9 +289,9 @@ function screenTree() {
       w_: 906, h_: 120, pivot: 6, depth: 5, incline: 10, radius: 10, color: "#ffffff/0.90",
       imgLeft: `${-13.4 * S}px`, imgTop: "0", imgWidth: `${388 * S}px`, imgHeight: `${172 * S}px`, imgSize: "100% 100%", imgPosition: "0 0" }]));
   }
-  // square buttons: fullscreen (lobby) or zoom, copy the file name, and on the lobby tab play all dialogue
+  // square buttons: fullscreen (lobby, 3D model) or zoom, copy the file name, and on the lobby tab play all dialogue
   at(t, `${np}/Char_CVCollectionBtn`).pos[0] = 1208.8;
-  if (tab === "lobby") Object.assign(widget(t, `${np}/Char_ZoomBtn/Sprite`), { sprite: "Common_UIHide_Icon", w_: 74, h_: 66, color: "#2b496e/1.00" });
+  if (tab === "lobby" || tab === "model") Object.assign(widget(t, `${np}/Char_ZoomBtn/Sprite`), { sprite: "Common_UIHide_Icon", w_: 74, h_: 66, color: "#2b496e/1.00" });
   Object.assign(widget(t, `${np}/Char_CVCollectionBtn/Sprite`), { sprite: "Common_Icon_Copy", w_: 64, h_: 76, color: "#2b496e/1.00" });
   if (tab === "lobby") {
     const play = clone(find(t, `${np}/Char_ZoomBtn`));
@@ -339,7 +344,7 @@ function addSwitchText(host, view) {
   const textW = w * 0.42 - 44; // the chevron sits in the last 44 px
   Object.assign(box.style, { left: `${l + w * 0.5}px`, top: `${t}px`, width: `${w * 0.42}px`, height: `${h * 0.94}px`, paddingRight: "44px" });
   const c = current();
-  const sub = tab === "lobby" ? lobbyLabel(variant())
+  const sub = tab === "lobby" ? lobbyLabel(variant()) : tab === "model" ? T("model.original")
     : c.kind === "mod" && c.origin && c.origin.key !== variant().key ? `${shortName(c.origin)} - ${c.label}` : c.label;
   const title = T(`row.switch.${tab}`);
   const tf = fitText(title, 46, 34, textW / S), sf = fitText(sub, 32, 24, textW / S);
@@ -372,7 +377,7 @@ function hits(view, leftHost, rightHost) {
   add(leftHost, "LeftInfo/CharInfo/Char_Target/Char_CVCollectionBtn", copyName, baseName(gameFile()));
   add(leftHost, "Arrow_L/Left", () => ctx.stepFamily(fam.key, -1));
   add(rightHost, "Arrow_R/Right", () => ctx.stepFamily(fam.key, 1));
-  if (tab === "lobby") add(leftHost, "LeftInfo/CharInfo/Char_Target/Char_ZoomBtn", () => setFullscreen(true), T("lobby.fullscreen"));
+  if (tab === "lobby" || tab === "model") add(leftHost, "LeftInfo/CharInfo/Char_Target/Char_ZoomBtn", () => setFullscreen(true), T("lobby.fullscreen"));
   if (tab === "lobby") add(leftHost, "LeftInfo/CharInfo/Char_Target/Char_PlayBtn", togglePlayAll, T(Lobby.playingAll() ? "lobby.stop" : "lobby.playAll"));
   const v = variant();
   [["Tab_1", "portrait", true], ["Tab_2", "lobby", hasLobby(v)], ["Tab_3", "model", hasModel(v)]].forEach(([n, id, ok]) => {
@@ -554,12 +559,12 @@ function row4Items() {
       return text ? { key: sq.anim, body: text, title: text } : { key: sq.anim, thumb: talkCard(sq.n), title: String(sq.n) };
     });
   }
-  if (tab === "model") return [];
+  if (tab === "model") return modelActions.map((a) => ({ key: a, caption: T(`model.action.${a}`), title: T(`model.action.${a}`) }));
   const base = baseOf(current());
   const names = mainPlayer?.skeleton ? mainPlayer.skeleton.data.animations.map((a) => a.name).filter((n) => /^\d{2}$/.test(n)).sort() : [];
   return (names.length ? names : ["00"]).map((e) => ({ key: e, thumb: thumb(base, "face", e) }));
 }
-const row4Selected = () => (tab === "lobby" ? lobbySeq : expression);
+const row4Selected = () => (tab === "lobby" ? lobbySeq : tab === "model" ? modelAction : expression);
 function row4Pick(key) {
   if (tab === "lobby") {
     clearTimeout(seqTimer);
@@ -571,6 +576,9 @@ function row4Pick(key) {
       if (seq) seqTimer = setTimeout(() => { if (lobbySeq === key && !Lobby.playingAll()) { lobbySeq = null; renderExpressions(); } }, seq.duration * 1000 + 300);
     }
     renderScreen(); // the play-all button follows
+  } else if (tab === "model") {
+    modelAction = key;
+    modelLib?.then((M) => M.play(key));
   } else { expression = key; applyExpression(); }
 }
 // play every dialogue in order; the cards follow along
@@ -585,7 +593,7 @@ async function renderExpressions() {
   const my = ++exprToken;
   const host = $("ngui-expr");
   const list = row4Items(), sel = row4Selected();
-  const cardOf = (it, x, extra = {}) => stripCard(`Item_${it.key}`, x, { thumb: it.thumb, body: it.body, selected: it.key === sel, ...extra });
+  const cardOf = (it, x, extra = {}) => stripCard(`Item_${it.key}`, x, { thumb: it.thumb, body: it.body, caption: it.caption, selected: it.key === sel, ...extra });
   const cards = [];
   if (expanded || list.length <= 4) {
     list.forEach((it, i) => cards.push({ tree: cardOf(it, COLS[0] + i * PITCH), item: it }));
@@ -1063,7 +1071,7 @@ async function renderAll() {
   await Promise.all([renderScreen(), renderChips(), renderExpressions()]);
 }
 
-// tabs: the left side shows the portrait or the memorial lobby
+// tabs: the left side shows the portrait, the memorial lobby or the 3D model
 function showTab(id) {
   tab = id;
   expanded = false;
@@ -1076,8 +1084,11 @@ function renderLeft() {
   const v = variant();
   $("portrait").hidden = tab !== "portrait";
   $("lobby").hidden = tab !== "lobby";
+  $("model").hidden = tab !== "model";
   if (tab === "portrait") { if (!mainPlayer) loadSpine(baseOf(current())); }
   else disposePortrait();
+  if (tab === "model") showModel(v);
+  else hideModel();
   if (tab === "lobby") {
     Lobby.show(v.lobby, $("lobby"), v.key).then(async (m) => {
       if (!m || tab !== "lobby") return;
@@ -1101,6 +1112,35 @@ function renderLeft() {
     });
   } else Lobby.hide($("lobby"));
 }
+// the 3D chibi: the actions fill row 4 once it is loaded; a still of it goes on the switch card
+async function showModel(v) {
+  const still = () => tab === "model" && variantKey === v.key;
+  try {
+    const M = await ModelLib();
+    if (!still()) return;
+    const list = await M.show(v.key, $("model"), {
+      frame: fullscreen ? "full" : "left",
+      onAction: (a) => { if (still()) { modelAction = a; renderExpressions(); } },
+    });
+    if (!list || !still()) return;
+    modelActions = list;
+    modelAction = M.current();
+    renderExpressions();
+    if (!modelShot && !fullscreen) {
+      modelShot = M.snapshot();
+      renderScreen();
+    }
+  } catch (err) {
+    console.error(err);
+    if (still()) toast(T("error.internal", { error: err?.message || String(err) }), { kind: "error" });
+  }
+}
+function hideModel() {
+  modelActions = [];
+  modelAction = null;
+  modelLib?.then((M) => M.hide($("model")));
+}
+
 // a still of the lobby for the switch card, framed on the character: in the left framing the head-pat point sits at
 // 28 % across and 34 % down the stage (lobby.js viewOf); the crop is centred right of and below it, so the face lands
 // in the part of the card the title does not cover
@@ -1130,6 +1170,7 @@ function setFullscreen(on) {
   fullscreen = on;
   stage().classList.toggle("fullscreen", on);
   if (tab === "lobby") Lobby.frame(on ? "full" : "left");
+  if (tab === "model") modelLib?.then((M) => M.frame(on ? "full" : "left"));
   $("fs-exit").hidden = !on;
   if (on) { wake(); stage().addEventListener("pointermove", wake); } else { stage().removeEventListener("pointermove", wake); clearTimeout(idleTimer); }
 }
@@ -1169,8 +1210,11 @@ export async function show(context, familyData, key) {
     expanded = false;
     lobbyShot = null;
     lobbySeq = null;
+    modelShot = null;
+    modelActions = [];
+    modelAction = null;
     if (tab === "lobby" && !hasLobby(variant())) tab = "portrait";
-    if (tab === "model") tab = "portrait";
+    if (tab === "model" && !hasModel(variant())) tab = "portrait";
     disposePortrait();
   }
   rpc("ui.visit", { variant: variantKey }).catch(() => {});
@@ -1183,6 +1227,7 @@ export function hide() {
   if (fullscreen) setFullscreen(false);
   disposePortrait();
   Lobby.hide($("lobby"));
+  hideModel();
   for (const id of ["popup", "picker"]) { $(id).hidden = true; $(id).innerHTML = ""; }
 }
 

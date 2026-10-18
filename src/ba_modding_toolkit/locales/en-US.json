@@ -840,7 +840,14 @@
 		"model": {
 			"original": "Original",
 			"has": "Yes",
-			"none": "None"
+			"none": "None",
+			"action": {
+				"idle": "Idle",
+				"reaction": "Reaction",
+				"walk": "Walk",
+				"victory": "Victory",
+				"pickup": "Pickup"
+			}
 		},
 		"nav": {
 			"students": "Students",
