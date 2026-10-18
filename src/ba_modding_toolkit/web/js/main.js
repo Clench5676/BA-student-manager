@@ -156,7 +156,7 @@ async function start() {
     return;
   }
   await NGUI.init();
-  // the game's pointer, read from the game in the background (the system cursor until then)
+  // the game's pointer and touch effect, read from the game in the background (the system cursor until then)
   Cursor.init();
   renderNav(0);
   // files dropped on the window are added to the library

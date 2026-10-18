@@ -249,3 +249,10 @@ input[type="text"], input[type="search"], textarea { cursor: text; }
 .message-actions { display: flex; gap: 28px; margin-top: 18px; }
 .message-button { min-width: 240px; padding: 22px 40px; border-radius: 10px; background: #8de4ff; color: #314665; font: var(--w) 34px/1 var(--font);
   transform: skewX(-10deg); box-shadow: 0 4px 0 rgba(40, 80, 120, .25); }
+
+/* the game's touch effect (cursor.js): over everything, never in the way of the pointer; the glow layer adds its light
+   to what is below (screen), the shade layer under it only darkens (multiply) */
+.touch-fx { position: fixed; left: 0; top: 0; width: 100vw; height: 100vh; z-index: 2147483647; pointer-events: none; }
+.touch-fx[hidden] { display: none; }
+.touch-fx.shade { mix-blend-mode: multiply; }
+.touch-fx.glow { mix-blend-mode: screen; }
