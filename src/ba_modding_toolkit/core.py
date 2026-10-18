@@ -625,7 +625,7 @@ def process_mod_update(
             return ModUpdateResult(False, msg, [])
 
         if not patches:
-            return False, t("message.mod_update.no_assets_extracted"), []
+            return ModUpdateResult(False, t("message.mod_update.no_assets_extracted"), [])
 
         log(f"  > {t('log.mod_update.pool_built', count=len(patches))}")
 
