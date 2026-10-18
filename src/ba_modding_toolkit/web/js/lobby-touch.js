@@ -120,18 +120,23 @@ function end(it) {
 // one press at a time, owned by its pointer: a second finger neither starts, steers nor ends anything
 const other = (e) => press && e.pointerId !== press.id;
 
+// pointer capture keeps a drag that leaves the stage; where it is refused, the press goes on without it
+function capture(e) {
+  try { host.setPointerCapture?.(e.pointerId); } catch { /* refused: the press goes on without it */ }
+}
+
 function down(e) {
   if (!lobby || press) return;
   const [sx, sy] = stagePoint(e);
   if (e.button === 1 || e.button === 2) {
     e.preventDefault();
     press = { id: e.pointerId, pan: true, last: [sx, sy] };
-    host.setPointerCapture?.(e.pointerId);
+    capture(e);
     cursor();
     return;
   }
   if (e.button !== 0 || lobby.blocked()) return;
-  host.setPointerCapture?.(e.pointerId);
+  capture(e);
   pointer = [sx, sy];
   const h = hit(sx, sy);
   press = { id: e.pointerId, at: [sx, sy], h, moved: false, timer: null, slop: SLOP[e.pointerType] ?? 10 };
@@ -216,6 +221,8 @@ function gestureChange(e) {
 }
 function gestureEnd(e) { e.preventDefault(); pinchUntil = performance.now() + 300; }
 const menu = (e) => e.preventDefault();
+// no native drag of the canvases, and no Force Touch look-up on a firm trackpad press (WebKit)
+function noDrag(e) { e.preventDefault(); }
 
 // the pointer shows what a press would do: grab over a drag box, grabbing while dragging, a hand over the body
 function cursor(sx, sy) {
@@ -229,7 +236,8 @@ function cursor(sx, sy) {
 
 const handlers = [["pointerdown", down], ["pointermove", move], ["pointerup", up], ["pointercancel", up],
   ["wheel", wheel, { passive: false }],
-  ["gesturestart", gestureStart], ["gesturechange", gestureChange], ["gestureend", gestureEnd], ["contextmenu", menu]];
+  ["gesturestart", gestureStart], ["gesturechange", gestureChange], ["gestureend", gestureEnd], ["contextmenu", menu],
+  ["dragstart", noDrag], ["webkitmouseforcewillbegin", noDrag], ["webkitmouseforcedown", noDrag]];
 export function attach(el) {
   if (!el || host === el || !lobby) return;
   detach();

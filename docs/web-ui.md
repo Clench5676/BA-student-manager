@@ -291,7 +291,8 @@ stand-in in the page font shows instead.
 - **Input.** Press and drag: head pat, eye follow and the other drag boxes. Mouse wheel (whole lines, or
   `wheelDeltaY` in steps of 120 with no horizontal part) and pinch (ctrl + wheel in Chromium / WebView2, gesture
   events in WebKit) zoom at the pointer; a two-finger trackpad swipe pans in any direction, and one scroll keeps the
-  kind of its first event. A right- or middle-button drag pans.
+  kind of its first event. A right- or middle-button drag pans. Native drags and the Force Touch look-up are turned
+  off on the lobby.
 
 ## Tests
 
