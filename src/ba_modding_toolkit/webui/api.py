@@ -218,7 +218,7 @@ def build_api(s: Services) -> RpcRegistry:
         own = mods.get(v.key, [])
         return {
             "key": v.key, "fileId": v.file_id, "family": v.family, "names": v.names, "playable": v.playable,
-            "order": v.order, "spr": v.spr, "lobby": v.lobby, "date": v.date,
+            "order": v.order, "spr": v.spr, "lobby": v.lobby, "date": v.date, "model": v.model,
             "bg": _url_bg(v.bg), "portrait": _url_portrait(v.portrait),
             "favorite": v.key in favorites, "mods": len(own), "fresh": any(m.fresh for m in own),
             "recent": recent.index(v.key) if v.key in recent else None,

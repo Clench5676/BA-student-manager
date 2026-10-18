@@ -32,6 +32,7 @@ class FakeVariant:
     bg: str | None = "BG_Test_Collection"
     portrait: str | None = None
     date: str | None = None
+    model: str | None = None
 
 
 @dataclass
