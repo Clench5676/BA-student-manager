@@ -99,9 +99,9 @@
 		"unpack_atlas": "解包 Atlas",
 		"unpack_atlas_info": "将 Atlas 解包为单独的 PNG 帧。\n解包后的帧保存在 images/ 子目录中。",
 		"game_dir_windows_global": "国际服Steam游戏目录",
-		"game_dir_windows_global_info": "国际服 Steam 版游戏的安装目录\n程序能够自动检测以下路径的子目录：\n- BlueArchive_Data/StreamingAssets/PUB/Resource/GameData/Windows\n- BlueArchive_Data/StreamingAssets/PUB/Resource/Preload/Windows\n- GameData/Windows\n- Preload/Windows",
+		"game_dir_windows_global_info": "国际服 Steam 版游戏的安装目录\n程序能够自动检测以下路径的子目录：\n- BlueArchive_Data/StreamingAssets/PUB/Resource/GameData/Windows\n- BlueArchive_Data/StreamingAssets/PUB/Resource/Preload/Windows\n- GameData/Windows\n- Preload/Windows\n点击“检测”可自动查找（Windows：注册表与 Steam 库；macOS：Wine 前缀）",
 		"game_dir_windows_japan": "日服PC游戏目录",
-		"game_dir_windows_japan_info": "日服 PC 版游戏的安装目录",
+		"game_dir_windows_japan_info": "日服 PC 版游戏的安装目录\n点击“检测”可自动查找（Windows：注册表；macOS：Wine 前缀）",
 		"game_dir_android_global": "Android(国际服) 目录",
 		"game_dir_android_global_info": "国际服 Android 设备上的游戏资源目录\n如: /storage/emulated/0/Android/data/com.nexon.bluearchive/files/",
 		"game_dir_android_japan": "Android(日服) 目录",
@@ -272,6 +272,10 @@
 			"spine_viewer_required": "SpineViewerCLI 程序未设置或路径无效。\n如果要启用该功能，请您自行下载 SpineViewer 程序，并遵守其协议。\n\n请在设置中配置 SpineViewerCLI 的路径。"
 		},
 		"download_confirm": "将从此地址下载文件：\n{url}\n\n保存至：{path}",
+		"game_dir": {
+			"detect_success": "已检测到游戏目录：\n{path}",
+			"detect_failed": "未检测到碧蓝档案的安装目录，请手动选择。"
+		},
 		"adb": {
 			"detect_success": "ADB 检测成功: {version}",
 			"detect_failed": "ADB 检测失败，请检查路径是否正确",
@@ -510,6 +514,9 @@
 			"output_files": "已输出: {count} 个",
 			"skipped_files": "已跳过: {count} 个",
 			"no_changes": "内容未变化"
+		},
+		"game_dir": {
+			"detected": "找到游戏目录：{path}"
 		},
 		"game_dir_not_set": "未设置游戏资源目录，无法自动寻找原始文件。",
 		"file_not_found_in_dirs": "未能在指定的资源目录中找到对应的原始文件 \"{filename}\"。",

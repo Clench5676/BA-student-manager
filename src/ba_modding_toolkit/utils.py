@@ -11,26 +11,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Literal, ParamSpec, TypeVar
 
+from .game_paths import find_game_dirs
+
 
 # Windows 下隐藏子进程的控制台窗口（避免Nuitka打包后弹出terminal）
 CREATE_NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
-
-def _get_path_from_registry(key_path: str) -> str | None:
-    """从 Windows 注册表获取 Steam 游戏的安装路径。"""
-    
-    try:
-        import winreg
-        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key_path)
-        install_path, _ = winreg.QueryValueEx(key, "InstallLocation")
-        winreg.CloseKey(key)
-        
-        if install_path:
-            return install_path
-            
-    except Exception as e:
-        print(f"读取注册表 {key_path} 时出错: {e}")
-
-    return None
 
 _ba_path_cache: dict[str, str | None] = {}
 
@@ -49,11 +34,9 @@ def get_BA_path(region: BARegion = "auto") -> str | None:
     if region in _ba_path_cache:
         return _ba_path_cache[region]
 
-    if region == "global":
-        BA_STEAM_APPID = 3557620
-        result = _get_path_from_registry(fr"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Steam App {BA_STEAM_APPID}")
-    elif region == "japan":
-        result = _get_path_from_registry(r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\e02a2fab-b426-5ce2-b9de-b9e7506c327e")
+    if region in ("global", "japan"):
+        game_dirs = find_game_dirs(region)
+        result = str(game_dirs[0]) if game_dirs else None
     else:  # auto
         result = get_BA_path("global") or get_BA_path("japan")
         return result  # auto 不缓存，保持对注册表变化的响应

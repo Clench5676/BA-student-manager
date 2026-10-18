@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 from ...i18n import t
 from ...models import FileType
 from ...utils import get_environment_info
+from ...game_paths import GameRegion, find_game_dirs
 from ...naming import CharacterInternalIDMap
 from ..components import Theme, UIComponents, SettingRow, VerticalScrolledFrame
 from ..utils import select_file, open_directory
@@ -99,7 +100,8 @@ class SettingsDialog(tb.Toplevel):
             path_config_frame,
             label=t("option.game_dir_windows_global"),
             path_var=self.app.game_resource_dir_var,
-            tooltip=t("option.game_dir_windows_global_info")
+            tooltip=t("option.game_dir_windows_global_info"),
+            extra_button=(t("action.detect"), lambda: self._detect_game_dir("global", self.app.game_resource_dir_var), "info"),
         )
 
         # Windows 日服路径
@@ -107,7 +109,8 @@ class SettingsDialog(tb.Toplevel):
             path_config_frame,
             label=t("option.game_dir_windows_japan"),
             path_var=self.app.game_resource_dir_japan_var,
-            tooltip=t("option.game_dir_windows_japan_info")
+            tooltip=t("option.game_dir_windows_japan_info"),
+            extra_button=(t("action.detect"), lambda: self._detect_game_dir("japan", self.app.game_resource_dir_japan_var), "info"),
         )
 
         # ADB 国际服路径
@@ -143,6 +146,18 @@ class SettingsDialog(tb.Toplevel):
         self._prev_file_source = source
         # 发送事件通知各tab更新
         self.app.event_generate("<<FileSourceChanged>>")
+
+    def _detect_game_dir(self, region: GameRegion, path_var: tk.StringVar):
+        """Detect the install directory of a region and fill it in (the first match wins)"""
+        game_dirs = find_game_dirs(region)
+        if not game_dirs:
+            self.app.logger.log(t("message.game_dir.detect_failed"))
+            messagebox.showwarning(t("common.warning"), t("message.game_dir.detect_failed"), parent=self)
+            return
+        for game_dir in game_dirs:
+            self.app.logger.log(t("log.game_dir.detected", path=game_dir))
+        path_var.set(str(game_dirs[0]))
+        messagebox.showinfo(t("common.success"), t("message.game_dir.detect_success", path=game_dirs[0]), parent=self)
 
     def _select_android_global_dir(self):
         """通过 ADB 浏览器选择国际服 Android 目录"""
