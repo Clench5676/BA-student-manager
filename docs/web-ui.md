@@ -298,9 +298,13 @@ down (its viewport has the canvas's own aspect).
 
 ### Popups
 
-The detail screen's popups (switch portrait, the variant picker, compare) are drawn on the game's popup frame
-(UIPopup_Sort) and cover the whole stage with its dark backdrop, top bar and navigation included, like the display
-settings and the settings; a click on the backdrop or Escape closes them (PopupClose).
+The detail screen's popups (switch portrait, the variant picker, compare, details) are drawn on the game's popup
+frame (UIPopup_Sort) and cover the whole stage with its dark backdrop, top bar and navigation included, like the
+display settings and the settings; a click on the backdrop or Escape closes them (PopupClose).
+
+- **Details** (the Portrait, Memorial Lobby and 3D Model info bars' button): the shown tab's game files. The folder,
+  what they carry and, for a mod, its file and the variant it was made for; then one row per bundle with its size,
+  date, CRC state and what it carries. The frame fits its content and scrolls past the stage's height.
 
 ### Loading screen
 

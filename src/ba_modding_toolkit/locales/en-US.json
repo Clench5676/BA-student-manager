@@ -961,7 +961,11 @@
 			"type": "Type",
 			"size": "Size",
 			"status": "Status",
-			"crc": "CRC"
+			"crc": "CRC",
+			"folder": "Folder",
+			"date": "Date",
+			"modFile": "Mod File",
+			"source": "Source"
 		},
 		"type": {
 			"recruit": "Recruitable",
