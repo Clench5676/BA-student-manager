@@ -15,7 +15,7 @@ from concurrent.futures import TimeoutError as FutureTimeout
 from pathlib import Path
 from typing import Any
 
-from .. import globallines, updater
+from .. import devmode, globallines, updater
 from ..errors import ServiceError
 from ..i18n import fallback_language, get_locale_dir, i18n_manager, offered_languages
 from ..kivo import clip_id
@@ -205,6 +205,7 @@ def build_api(s: Services) -> RpcRegistry:
             s.reload_game()
         elif key in ("gameDir.global", "gameDir.japan"):
             path = Path(str(value)).expanduser()
+            devmode.check_read(path)
             from ..searching import get_search_dirs
 
             if not path.is_dir() or not get_search_dirs(path):
@@ -214,6 +215,7 @@ def build_api(s: Services) -> RpcRegistry:
             s.reload_game()
         elif key == "outputDir":
             path = Path(str(value)).expanduser()
+            devmode.check_read(path)
             path.mkdir(parents=True, exist_ok=True)
             st.set("output_dir", str(path))
             st.save()
@@ -441,6 +443,9 @@ def build_api(s: Services) -> RpcRegistry:
 
     @rpc.method("mods.add")
     def mods_add(paths: list[str]) -> list[Any]:
+        # dev mode: refused before the library is built (ModLibrary.add checks again)
+        for p in paths:
+            devmode.check_read(Path(p))
         added = s.library.add([Path(p) for p in paths])
         s.events.publish("library.changed")
         return added

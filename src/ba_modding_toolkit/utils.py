@@ -179,6 +179,8 @@ class CRCUtils:
         这个函数会直接修改文件内容，而不是输出到指定目录
         extra_bytes: 可选的4字节数据，将在CRC计算前附加到modified_data后
         """
+        # dev mode: only files inside BAMT_DEV_WRITABLE are changed (ServiceError "dev_path_outside" otherwise)
+        devmode.check_write(modified_path)
         with open(str(modified_path), "rb") as f:
             modified_data = f.read()
 

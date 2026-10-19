@@ -13,6 +13,7 @@ from typing import Any, Callable
 
 from PIL import Image
 
+from .. import devmode
 from ..errors import ServiceError
 from .cache import AssetCache
 from . import lobby
@@ -85,6 +86,8 @@ class GameAssets:
     """
 
     def __init__(self, resource_dirs: list[Path], cache: AssetCache):
+        for path in resource_dirs:
+            devmode.check_read(path)  # dev mode: only game folders inside the dev roots
         self.resource_dirs = list(dict.fromkeys(Path(p).resolve() for p in resource_dirs if Path(p).is_dir()))
         if not self.resource_dirs:
             raise ServiceError("game_not_found")

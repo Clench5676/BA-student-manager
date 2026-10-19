@@ -540,6 +540,9 @@ def test_read_only_files_fail_cleanly(setup_library):
 
 
 def test_running_game_blocks_replacement(setup_library, monkeypatch):
+    # outside dev mode (devmode): inside BAMT_DEV_WRITABLE a game folder is written without the game check
+    monkeypatch.delenv("BAMT_DEV_ROOTS", raising=False)
+    monkeypatch.delenv("BAMT_DEV_WRITABLE", raising=False)
     env = setup_library
     entry = env.library.add([make_mod(env.original, env.tmp / "input")])[0]
     def running():

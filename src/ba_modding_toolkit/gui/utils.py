@@ -10,6 +10,7 @@ import shutil
 from typing import Callable, TYPE_CHECKING
 import ttkbootstrap as tb
 
+from .. import devmode
 from ..utils import CREATE_NO_WINDOW, no_log
 from ..i18n import t
 from ..models import FilePair, FileType, AnimDiffMap, LogFunc
@@ -249,6 +250,8 @@ def _perform_file_replace(
         return False
 
     try:
+        # dev mode: game files are written only inside BAMT_DEV_WRITABLE
+        devmode.check_write(dest_path)
         if create_backup:
             backup_path = dest_path.with_suffix(dest_path.suffix + '.backup')
             try:

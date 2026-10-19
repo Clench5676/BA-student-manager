@@ -6,6 +6,7 @@ Other platforms: the same lookups inside Wine prefixes (system.reg and the libra
 Windows Steam client), then the libraries of a native Steam client.
 """
 
+import logging
 import os
 import re
 import sys
@@ -13,6 +14,8 @@ from pathlib import Path
 from typing import Callable, Iterable, Iterator, Literal
 
 from . import devmode
+
+logger = logging.getLogger(__name__)
 
 GameRegion = Literal["global", "japan"]
 
@@ -44,11 +47,19 @@ def find_game_dirs(region: GameRegion) -> list[Path]:
     """Return the existing install directories found for a region, most likely first.
 
     When ``BAMT_GAME_DIRS_GLOBAL`` / ``BAMT_GAME_DIRS_JAPAN`` is set (devmode), the folders it names are returned and
-    nothing is searched.
+    nothing is searched. Dev mode (``BAMT_DEV_ROOTS``) never searches and drops named folders outside the dev roots.
     """
     named = devmode.game_dirs(region)
     if named is not None:
-        return _unique_dirs(named)
+        allowed = []
+        for path in named:
+            if devmode.allows_read(path):
+                allowed.append(path)
+            else:
+                logger.warning("Game folder outside the dev roots, ignored: %s", path)
+        return _unique_dirs(allowed)
+    if devmode.active():
+        return []
     if sys.platform == "win32":
         return _unique_dirs(_windows_candidates(region))
     return _unique_dirs(_unix_candidates(region))

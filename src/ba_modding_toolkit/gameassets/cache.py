@@ -14,7 +14,7 @@ from typing import Any
 
 from PIL import Image
 
-from .. import config
+from .. import config, devmode
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +26,7 @@ class AssetCache:
     and other decoded values are memory-only. Callers must pass ``disk=False``
     for heavy assets, including their lookups. No directories are created until
     the first permitted disk write. Changing ``allowed`` is synchronous with I/O.
+    In dev mode (devmode) the root must lie inside the dev roots.
     """
 
     def __init__(self, resource_version: str = "", *, allowed: bool = False,
@@ -34,6 +35,7 @@ class AssetCache:
             raise ValueError("max_bytes must be nonnegative")
         self.resource_version = resource_version
         self.root = Path(root) if root is not None else config.user_cache_dir()
+        devmode.check_read(self.root)
         self.max_bytes = max_bytes
         self._allowed = allowed
         self._lock = threading.RLock()

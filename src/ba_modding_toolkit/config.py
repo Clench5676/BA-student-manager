@@ -6,6 +6,7 @@ so both GUIs share one file. Unknown groups and keys found in the file are kept 
 
 from __future__ import annotations
 
+import logging
 import os
 import sys
 import threading
@@ -15,13 +16,16 @@ from typing import Any, Callable
 
 import toml
 
-from . import utils
+from . import devmode, utils
 from .models import AnimCheckOptions, SaveOptions, SkelConvertOptions
 from .naming import CharacterInternalIDMap
 from .utils import EXE_DIR, get_BA_path, parse_hex_bytes
 
 CONFIG_FILE = EXE_DIR / "config.toml"
 APP_DIR_NAME = "BA-Modding-Toolkit"
+
+logger = logging.getLogger(__name__)
+_ignored_game_dirs: set[str] = set()  # dev mode: game folders outside the dev roots, logged once each
 
 
 @dataclass(frozen=True)
@@ -126,9 +130,13 @@ def _coerce(key: str, value: Any) -> Any:
 
 
 class Settings:
-    """The settings in ``config.toml``. Thread-safe; ``reload_if_changed`` picks up saves made by the classic GUI."""
+    """The settings in ``config.toml``. Thread-safe; ``reload_if_changed`` picks up saves made by the classic GUI.
+
+    In dev mode (devmode) the file must lie inside the dev roots, and a game folder outside them is not used.
+    """
 
     def __init__(self, path: Path = CONFIG_FILE):
+        devmode.check_read(path)
         self.path = Path(path)
         self._lock = threading.RLock()
         self._values: dict[str, Any] = {}
@@ -221,7 +229,14 @@ class Settings:
         source = self.get("file_source")
         key = {"windows_global": "game_resource_dir", "windows_japan": "game_resource_dir_japan"}.get(source)
         value = self.get(key) if key else ""
-        return Path(value) if value else None
+        if not value:
+            return None
+        if not devmode.allows_read(value):
+            if value not in _ignored_game_dirs:
+                _ignored_game_dirs.add(value)
+                logger.warning("Game folder outside the dev roots, not used: %s", value)
+            return None
+        return Path(value)
 
     def resource_dirs(self) -> list[Path]:
         """The existing resource folders of the local game (empty when there is none)."""
@@ -265,6 +280,7 @@ class Settings:
 
     def output_subdir(self, name: str) -> Path:
         path = Path(self.get("output_dir")) / name
+        devmode.check_read(path)
         path.mkdir(parents=True, exist_ok=True)
         return path
 

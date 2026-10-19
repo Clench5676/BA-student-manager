@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Any, Callable
 
 from UnityPy.helpers.ResourceReader import get_resource_data
 
-from .. import core, mod_install
+from .. import core, devmode, mod_install
 from ..bundle import Bundle
 from ..catalog import HOME_SUFFIXES
 from ..errors import ServiceError
@@ -161,7 +161,10 @@ class ModLibrary:
 
     @_serialized
     def add(self, paths: list[Path]) -> list[ModEntry]:
-        """Store one mod per core and date, deduplicating complete bundle sets."""
+        """Store one mod per core and date, deduplicating complete bundle sets. In dev mode (devmode) only files
+        inside the dev roots are taken."""
+        for path in paths:
+            devmode.check_read(path)
         return self._add(paths)
 
     def _add(self, paths: list[Path]) -> list[ModEntry]:
@@ -699,7 +702,7 @@ class ModLibrary:
         variant = self._variant(variant_key)
         if source == "official":
             return self.restore(variant_key, log, kind)
-        with tempfile.TemporaryDirectory(prefix="bamt-library-") as temporary:
+        with tempfile.TemporaryDirectory(prefix=devmode.LIBRARY_STAGING_PREFIX) as temporary:
             work = Path(temporary)
             if source.startswith("mod:"):
                 record = self._record(source[4:])
@@ -770,7 +773,7 @@ class ModLibrary:
         record = self._record(mod_id)
         paths = self._paths(record)
         targets = self._plan_targets(self._plan(record, log))
-        with tempfile.TemporaryDirectory(prefix="bamt-library-update-") as temporary:
+        with tempfile.TemporaryDirectory(prefix=devmode.LIBRARY_STAGING_PREFIX + "update-") as temporary:
             output = Path(temporary)
             generated = []
             all_unchanged = True

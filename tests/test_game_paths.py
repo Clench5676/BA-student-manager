@@ -21,7 +21,7 @@ posix_only = pytest.mark.skipif(sys.platform == "win32", reason="Wine prefixes o
 def search_as_usual(monkeypatch):
     """These tests check the search itself, which the development hooks (devmode) replace; they search fake prefixes
     and libraries in tmp_path only."""
-    for name in ("BAMT_GAME_DIRS_GLOBAL", "BAMT_GAME_DIRS_JAPAN"):
+    for name in ("BAMT_GAME_DIRS_GLOBAL", "BAMT_GAME_DIRS_JAPAN", "BAMT_DEV_ROOTS", "BAMT_DEV_WRITABLE"):
         monkeypatch.delenv(name, raising=False)
 
 LIBRARY_FOLDERS = r'''"libraryfolders"
