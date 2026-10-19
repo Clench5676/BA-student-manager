@@ -28,19 +28,23 @@ void main() {
 const states = new WeakMap();
 
 function compile(gl) {
-  const shader = (type, src) => {
+  const prog = gl.createProgram();
+  for (const [type, src] of [[gl.VERTEX_SHADER, VS], [gl.FRAGMENT_SHADER, FS]]) {
     const s = gl.createShader(type);
     gl.shaderSource(s, src);
     gl.compileShader(s);
-    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s) || "shader");
-    return s;
-  };
-  const prog = gl.createProgram();
-  gl.attachShader(prog, shader(gl.VERTEX_SHADER, VS));
-  gl.attachShader(prog, shader(gl.FRAGMENT_SHADER, FS));
+    gl.attachShader(prog, s);
+    const log = gl.getShaderParameter(s, gl.COMPILE_STATUS) ? null : gl.getShaderInfoLog(s) || "shader";
+    gl.deleteShader(s); // freed with the program
+    if (log) { gl.deleteProgram(prog); throw new Error(log); }
+  }
   gl.bindAttribLocation(prog, 0, "p");
   gl.linkProgram(prog);
-  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog) || "program");
+  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+    const log = gl.getProgramInfoLog(prog) || "program";
+    gl.deleteProgram(prog);
+    throw new Error(log);
+  }
   // one triangle over the whole target, in its own vertex array so spine's attribute state stays untouched
   const vao = gl.createVertexArray(), buf = gl.createBuffer();
   gl.bindVertexArray(vao);
@@ -49,7 +53,17 @@ function compile(gl) {
   gl.enableVertexAttribArray(0);
   gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
   gl.bindVertexArray(null);
-  return { prog, vao, sampler: gl.getUniformLocation(prog, "t"), fbo: gl.createFramebuffer(), tex: gl.createTexture(), w: 0, h: 0 };
+  return { prog, vao, buf, sampler: gl.getUniformLocation(prog, "t"), fbo: gl.createFramebuffer(), tex: gl.createTexture(), w: 0, h: 0 };
+}
+
+// the program, the triangle and the drawing-buffer-sized framebuffer and texture (a lost context has freed them)
+function release(gl, res) {
+  if (!res || gl.isContextLost()) return;
+  gl.deleteFramebuffer(res.fbo);
+  gl.deleteTexture(res.tex);
+  gl.deleteVertexArray(res.vao);
+  gl.deleteBuffer(res.buf);
+  gl.deleteProgram(res.prog);
 }
 
 // an atlas page as an sRGB texture: the same pixels, decoded to linear light when sampled
@@ -79,7 +93,7 @@ export function attach(player) {
   if (!gl || typeof WebGL2RenderingContext === "undefined" || !(gl instanceof WebGL2RenderingContext) || states.has(player)) return false;
   let st;
   try {
-    st = { gl, res: compile(gl), on: true };
+    st = { gl, res: compile(gl), on: true, pages: [] };
   } catch (err) {
     console.warn("linear light unavailable", err);
     return false;
@@ -87,14 +101,18 @@ export function attach(player) {
   for (const texture of pagesOf(player)) {
     srgbPage(gl, texture);
     // a lost and restored context uploads the page again: keep it sRGB
+    const own = Object.prototype.hasOwnProperty.call(texture, "update") ? texture.update : undefined;
     const update = texture.update.bind(texture);
     texture.update = (mips) => { update(mips); if (st.on) srgbPage(gl, texture); };
+    st.pages.push([texture, own]);
   }
   // the program and the framebuffer are rebuilt after a context loss (spine restores its own objects first)
-  player.context.addRestorable?.({ restore: () => { try { st.res = compile(gl); } catch { st.on = false; } } });
+  st.restorable = { restore: () => { try { st.res = compile(gl); } catch { st.on = false; } } };
+  player.context.addRestorable?.(st.restorable);
   // additive slots add colour, not coverage
   const batcher = player.sceneRenderer?.batcher, table = spine.PolygonBatcher?.blendModesGL;
   if (batcher && table) {
+    st.batcher = batcher;
     batcher.setBlendMode = function (mode, pma) {
       const m = table[mode], src = pma ? m.srcRgbPma : m.srcRgb, dst = m.dstRgb;
       const srcA = mode === spine.BlendMode.Additive ? gl.ZERO : m.srcAlpha;
@@ -108,6 +126,28 @@ export function attach(player) {
   }
   states.set(player, st);
   return true;
+}
+
+// before the player is disposed: free the framebuffer, its drawing-buffer-sized texture and the program at once, and
+// give the pages and the batcher their own methods back. spine-player's dispose frees only what spine made, and a
+// context that is never lost keeps the rest on the GPU until the browser happens to collect it.
+export function detach(player) {
+  const st = states.get(player);
+  if (!st) return;
+  states.delete(player);
+  st.on = false;
+  if (st.saved) untint(st);
+  const { gl } = st;
+  if (st.bound && !gl.isContextLost()) gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  st.bound = false;
+  for (const [texture, own] of st.pages) {
+    if (own === undefined) delete texture.update;
+    else texture.update = own;
+  }
+  if (st.batcher) delete st.batcher.setBlendMode;
+  player.context?.removeRestorable?.(st.restorable);
+  release(gl, st.res);
+  st.res = null;
 }
 
 // in the player's frame hook, before it clears and draws: draw into the linear framebuffer

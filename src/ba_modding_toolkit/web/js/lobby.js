@@ -459,7 +459,10 @@ export function hide(host) {
   Touch.detach();
   Touch.setup(null);
   Idle.stop();
-  for (const p of players) p.dispose();
+  for (const p of players) {
+    Linear.detach(p); // its framebuffer and program: spine's dispose only frees spine's own objects
+    p.dispose();
+  }
   players = [];
   current = null;
   clearInterval(extendTimer);
