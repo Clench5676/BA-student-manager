@@ -16,6 +16,7 @@ import { L, T, language, platform } from "./i18n.js";
 import { forget, idleAnimation, prioritise, thumb } from "./thumbs.js";
 import { portraitViewport } from "./portrait-view.js";
 import { setTitle } from "./nav.js";
+import { KEYS, deltaOf, pacer, typing } from "./step-keys.js";
 import {
   $, DOT, RECRUIT, S, TAN10, advanceOf, at, clone, glyphsOf, hitButton, markedLabel, off, text, toast, widget, wrapPath,
 } from "./util.js";
@@ -427,7 +428,11 @@ async function renderScreen() {
   commit(() => {
     if (!ok()) return;
     applied.screen = my;
+    // the control with the keyboard's focus keeps it in the new screen (an arrow stepped with Enter, a step key
+    // pressed on a button), where the new screen has it
+    const had = host.contains(document.activeElement) ? document.activeElement.dataset?.part : null;
     host.replaceChildren(...next.children);
+    if (had) [...host.querySelectorAll(".hit")].find((b) => b.dataset.part === had)?.focus({ preventScroll: true });
     bgHost.replaceChildren(frag);
     bgHost.classList.toggle("dim", shown !== "portrait");
     bgHost.hidden = shown === "lobby"; // the lobby extends its own edges instead
@@ -459,9 +464,10 @@ function addSwitchText(host, view) {
 }
 
 function hits(view, leftHost, rightHost) {
+  // each button names its part, so the focus finds it again in the next render
   const add = (host, path, fn, title) => {
     const el = view.nodes.get(`Inventory_ListControl/${path}`)?.els[0];
-    if (el) hitButton(host, rect(el), fn, title);
+    if (el) hitButton(host, rect(el), fn, title).dataset.part = path;
   };
   if (tab === "portrait") {
     add(rightHost, `${INFO}/Weapon/Equip_1/UIEquipmentCard/Btn_Target/Normal/Card_Bg`, openPopup, T("row.switch.portrait"));
@@ -1486,7 +1492,11 @@ function changeInPlace(work) {
   return Loading.wait(prepare(g, true, async () => {
     await work();
     await settleThumbs();
-  }));
+  })).then((ready) => {
+    // it may have taken over a show (a tab clicked while a step loads): the screen is on that student now
+    if (ready && fam) arrived(fam.key, askedKey);
+    return ready;
+  });
 }
 
 // tabs: the left side shows the portrait, the memorial lobby or the 3D model
@@ -1738,6 +1748,52 @@ export function applyPrefs(prefs) {
   Lobby.setTrace(ctx?.info?.debug ? (events) => rpc("debug.trace", { events }).catch(() => {}) : null);
 }
 
+// --- the previous and next student from the keyboard: the PC client's keys for the arrows (step-keys.js) ---
+// A key steps exactly like its arrow (ctx.step: the roster's cards in its order), one step at a time: the next one
+// waits until the screen shows the student the last one went to (arrived), so a held key goes at the pace the screen
+// follows and starts no load it would drop. The keys are the screen's own: not while a text field or an input method
+// has them, under a popup (the screen's, the settings, the consent or update dialog), in a fullscreen view (the lobby,
+// the 3D model, the portrait's visual mode), during a job or another change of the screen, or behind the loading screen.
+const blocked = () => !open || !fam || fullscreen || Visual.isOpen() || busy || Loading.covering() || $("screen-detail").hidden
+  || !!document.querySelector(".popup-host:not([hidden]), .consent-host:not([hidden])");
+const changing = () => !!batch; // an in-place change is being prepared (a step, a chip, a tab, an applied portrait)
+// the address, as main.js routes it: what the arrows asked for
+function address() {
+  try { return location.hash.replace(/^#\/?/, "").split("/").map(decodeURIComponent); } catch { return []; }
+}
+let arrivals = [], askedKey = null; // askedKey: the variant the last show() was asked for, as in the address
+// the screen is ready on a student (or was left: no arguments): a step waiting for the address to be shown goes on
+function arrived(family, key) {
+  if (!arrivals.length) return;
+  const [screen, f, k] = address();
+  if (family !== undefined && (screen !== "student" || f !== family || k !== key)) return; // a newer address comes
+  for (const resolve of arrivals.splice(0)) resolve();
+}
+const keySteps = pacer(async (delta) => {
+  if (blocked() || changing()) return;
+  const from = location.hash;
+  let resolve;
+  const shown = new Promise((r) => { resolve = r; arrivals.push(r); });
+  try {
+    await ctx.step(delta, fam.key, variantKey);
+  } finally {
+    // nowhere else to go (or the step failed): nothing to wait for
+    if (location.hash === from) resolve();
+  }
+  let timer;
+  await Promise.race([shown, new Promise((r) => { timer = setTimeout(r, HARD_CAP); })]); // a screen that never comes
+  clearTimeout(timer);
+  arrivals = arrivals.filter((r) => r !== resolve);
+});
+addEventListener("keydown", (ev) => {
+  const delta = deltaOf(ev);
+  if (!delta || typing(ev.target) || blocked() || (changing() && !keySteps.busy)) return;
+  ev.preventDefault(); // the page's own use of the arrows (scrolling the unfolded strip) gives way to the step
+  keySteps.press(delta, ev.repeat);
+});
+addEventListener("keyup", (ev) => { if (KEYS[ev.key]) keySteps.release(KEYS[ev.key]); });
+addEventListener("blur", () => keySteps.release());
+
 // show(context, familyData, variantKey, {inPlace}): open the detail screen on a variant; resolves once the screen is
 // ready (the panels, the left side's first frame, the visible thumbnails within THUMBS_CAP). In place (another
 // variant or family while the screen is shown), the shown screen stays until then and every part swaps in one frame.
@@ -1745,6 +1801,7 @@ export async function show(context, familyData, key, { inPlace = false } = {}) {
   ctx = context;
   applyPrefs(ctx.prefs);
   open = true;
+  askedKey = key;
   const g = begin();
   await ensureLayouts();
   if (g.gen !== showGen) return; // a newer show, or hide()
@@ -1774,14 +1831,18 @@ export async function show(context, familyData, key, { inPlace = false } = {}) {
   if (tab === "model" && !hasModel(variant())) tab = "portrait";
   rpc("ui.visit", { variant: variantKey }).catch(() => {});
   // the left side starts at once, beside the panels
-  await prepare(g, inPlace, async () => {
+  const ready = await prepare(g, inPlace, async () => {
     await Promise.all([renderAll(), renderLeft()]);
     await settleThumbs();
   });
+  if (ready) arrived(familyData.key, key);
   // the server's index of the lobbies' prefabs takes seconds to build the first time: built in the background once
   // the screen is in, so the lobby tab does not wait for it
   if (open && hasLobby(variant())) rpc("lobby.warm").catch(() => {});
 }
+
+// a route to a student failed (main.js): a key step waiting for that screen goes on at once
+export function stepFailed() { arrived(); }
 
 // leaving the screen: stop the players, drop any change being prepared
 export function hide() {
@@ -1800,6 +1861,8 @@ export function hide() {
   shownLeft = shownKey = null;
   for (const part of LEFT) { $(part).hidden = true; $(part).classList.remove("pending", "leaving"); }
   for (const id of ["popup", "picker"]) { $(id).hidden = true; $(id).innerHTML = ""; }
+  keySteps.clear();
+  arrived();
 }
 
 $("fs-exit")?.addEventListener("click", () => setFullscreen(false));

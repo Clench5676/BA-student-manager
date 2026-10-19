@@ -423,6 +423,17 @@ ported.
   list's first frames (about 100 to 200 ms) with the portraits only, without the frame, the card frames and the
   dimming of the cards without mods. A rebuild inside the list (filters, sort, search) waits the same way for the
   pictures the list does not show yet. A portrait thumbnail still being rendered fills in later, as before.
+- The left and right arrow keys step like the arrows, as in the PC client: its key mapping
+  (`Assets/_MX/AddressableAsset/KeyMapping/PCKeyMappingSO.asset`) binds UICharacterDetail's `Arrow_L/Left` to
+  `UI_KeyMapping_Common_ArrowLeft_isUsed` (LeftArrow) and `Arrow_R/Right` to `UI_KeyMapping_Common_ArrowRight_isUsed`
+  (RightArrow), with no second key and no key icon on the arrows (`step-keys.js`, tested in Node from
+  `tests/test_step_keys.py`). One step at a time: the next one waits until the screen shows the student the last one
+  went to, so a held key steps at the pace the screen follows and starts no load it would drop; a press meanwhile
+  waits (the latest one only), a held key's repeat only while the key is held. The keys do nothing with a modifier
+  held, while a text field or an input method has them, under a popup (the screen's, the settings, the consent or
+  update dialog), in a fullscreen view (the lobby, the 3D model, the portrait's visual mode), during a job or another
+  change of the screen, or behind the loading screen. A focused control of the screen (an arrow stepped with Enter)
+  keeps the focus in the new screen.
 
 ### Portrait
 
