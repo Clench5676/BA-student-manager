@@ -388,6 +388,17 @@ ported.
   back without a new `roster.list`.
 - The detail screen's arrows step through the cards as the list showed them when it was left, in its order, wrapping
   round; a variant the list hides (another chip, a deep link) steps from its place in the whole list.
+- The left and right arrow keys step like the arrows, as in the PC client: its key mapping
+  (`Assets/_MX/AddressableAsset/KeyMapping/PCKeyMappingSO.asset`) binds UICharacterDetail's `Arrow_L/Left` to
+  `UI_KeyMapping_Common_ArrowLeft_isUsed` (LeftArrow) and `Arrow_R/Right` to `UI_KeyMapping_Common_ArrowRight_isUsed`
+  (RightArrow), with no second key and no key icon on the arrows (`step-keys.js`, tested in Node from
+  `tests/test_step_keys.py`). One step at a time: the next one waits until the screen shows the student the last one
+  went to, so a held key steps at the pace the screen follows and starts no load it would drop; a press meanwhile
+  waits (the latest one only), a held key's repeat only while the key is held. The keys do nothing with a modifier
+  held, while a text field or an input method has them, under a popup (the screen's, the settings, the consent or
+  update dialog), in a fullscreen view (the lobby, the 3D model, the portrait's visual mode), during a job or another
+  change of the screen, or behind the loading screen. A focused control of the screen (an arrow stepped with Enter)
+  keeps the focus in the new screen.
 
 ### Portrait
 
