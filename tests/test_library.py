@@ -1022,6 +1022,21 @@ def test_prune_deletes_copies_of_files_a_game_update_replaced(setup_library):
     assert kept_copy(env, updated).exists()
 
 
+def test_prune_keeps_a_copy_an_older_official_file_does_not_replace(setup_library):
+    env = setup_library
+    older = env.original.read_bytes()
+    env.original.unlink()
+    newer = game_bundle(env.game_dir, date="2026-02-01", payload=b"newer official")
+    entry, = env.library.add([make_mod(newer, env.tmp / "input")])
+    env.library.apply("test", f"mod:{entry.id}")
+    backup = kept_copy(env, newer)
+    # the newer file is gone and an older official file of the same part is back (an old copy of the folder put back)
+    newer.unlink()
+    env.original.write_bytes(older)
+    library = reload_library(env)
+    assert library.prune() == [] and backup.read_bytes() == header_bundle(b"newer official")
+
+
 @pytest.mark.parametrize("case", ["modded", "missing", "unrecorded", "other_install"])
 def test_prune_keeps_copies_it_cannot_verify(setup_library, case):
     env = setup_library

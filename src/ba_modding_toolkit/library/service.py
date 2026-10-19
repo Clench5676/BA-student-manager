@@ -428,11 +428,15 @@ class ModLibrary:
             mine = [path for path in owners if any(path.is_relative_to(d) for d in dirs) and not path.exists()]
             if not mine or self._needed_elsewhere(original.name, {str(path) for path in mine}):
                 continue
-            core = parse_filename(original.name).core.lower()
-            superseded = True
+            parsed = parse_filename(original.name)
+            core = parsed.core.lower()
+            # a successor is dated after the old file: an older official file of the same part (a downgrade, an old
+            # copy of the folder put back) does not replace the only official copy of the newer one
+            superseded = bool(parsed.date)
             for path in mine:
                 successors = [other for other in index.get(core, [])
-                              if other.parent == path.parent and part(other) == part(path)]
+                              if other.parent == path.parent and part(other) == part(path)
+                              and parse_filename(other.name).date > parsed.date]
                 try:
                     if not successors or not all(self._is_official(other) for other in successors):
                         superseded = False

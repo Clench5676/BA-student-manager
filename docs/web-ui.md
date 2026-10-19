@@ -350,8 +350,9 @@ every part is back). After every switch, whatever its outcome, and once per libr
 `library.prune` job), `prune` deletes the copies no longer needed: those whose game file is verified official again,
 and those a game update made useless. File names carry the date and CRC, so an update leaves the old copy without a
 game file; it is deleted when the library's own record places the old file in the current game folder and that
-folder now holds the same part (prefix and resource type) verified official. A copy no record places, one another
-game folder still needs (as above), or one whose new file is not official is kept.
+folder now holds the same part (prefix and resource type) dated after it, verified official. A copy no record places,
+one another game folder still needs (as above), one with only an older file of its part (a downgrade, an old copy of
+the folder put back) or one whose new file is not official is kept.
 
 The 3D model has no switch: the library keeps no 3D mods. It would take a `model` kind (`character-<dev>-_mxload-*`
 prefab bundles, whose meshes, textures and clips sit in other bundles found by CAB), its detection in `add`, game
