@@ -16,11 +16,13 @@ import math
 import os
 import tempfile
 import threading
-import time
 import unicodedata
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+
+# the lock and the replace shared with the mod library (ba_modding_toolkit.filelock), under their old names
+from ..filelock import file_lock as _file_lock, replace as _replace
 
 logger = logging.getLogger(__name__)
 
@@ -93,55 +95,6 @@ def roster_view(value: Any) -> dict[str, Any]:
         "order": pick("order", ("asc", "desc"), ROSTER_NATURAL[sort]),
         "filters": filters,
     }
-
-
-@contextlib.contextmanager
-def _file_lock(path: Path) -> Iterator[None]:
-    """An exclusive lock on a lock file, shared with the other processes using it (fcntl.flock, msvcrt.locking on
-    Windows). Without a lock file (an unwritable folder) the change goes ahead unlocked; writing then fails as before."""
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        handle = open(path, "a+b")  # noqa: SIM115 - held for the lock's lifetime
-    except OSError:
-        logger.warning("cannot lock %s", path, exc_info=True)
-        yield
-        return
-    with handle:
-        if os.name == "nt":
-            import msvcrt
-
-            handle.seek(0)
-            msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)  # retries for 10 s, then raises
-            try:
-                yield
-            finally:
-                handle.seek(0)
-                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
-        else:
-            import fcntl
-
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-            try:
-                yield
-            finally:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
-
-
-# Windows: a file another program has open without delete sharing (a virus scanner or the search indexer looking at
-# the new file) cannot be replaced for a moment
-REPLACE_TRIES, REPLACE_WAIT = (20, 0.05) if os.name == "nt" else (1, 0.0)
-
-
-def _replace(src: str, dst: Path, tries: int = REPLACE_TRIES, wait: float = REPLACE_WAIT) -> None:
-    """os.replace, tried again for a moment while another program holds the file (PermissionError)."""
-    for attempt in range(1, tries + 1):
-        try:
-            os.replace(src, dst)
-            return
-        except PermissionError:
-            if attempt >= tries:
-                raise
-            time.sleep(wait)
 
 
 def _recent_of(data: dict[str, Any]) -> list[str]:
