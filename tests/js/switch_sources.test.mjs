@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { appliedKey, appliedOf, candidates, coreOf, partsOf, sourceOf } from "../../src/ba_modding_toolkit/web/js/switch-sources.js";
+import { appliedKey, appliedOf, candidates, coreOf, partsOf, sourceOf, switchKindOf } from "../../src/ba_modding_toolkit/web/js/switch-sources.js";
 
 const part = (kind, applied, extra = {}) => ({ file: `/game/${kind}-${applied}.bundle`, kind, applied, crc: "ok", ...extra });
 const mod = (id, target, kind) => ({ id, target, kind, label: id, file: `/library/mods/${id}/${id}.bundle`, fresh: false });
@@ -75,4 +75,10 @@ test("parts and cores of a kind", () => {
   assert.equal(partsOf(v, "model")[0].file, "m");
   assert.equal(coreOf(v, "spr"), "a_spr");
   assert.equal(coreOf(v, "lobby"), null);
+});
+
+test("the switch card's kind per tab: none on the 3D tab, whose card stays inert", () => {
+  assert.equal(switchKindOf("portrait"), "spr");
+  assert.equal(switchKindOf("lobby"), "lobby");
+  assert.equal(switchKindOf("model"), null);
 });

@@ -3,6 +3,10 @@
 // (tests/js/switch_sources.test.mjs). Switching writes the chosen source into the game's files (actions.apply); the
 // library keeps what it replaces (docs/web-ui.md, library).
 
+// what the switch card of a detail tab switches: the portrait ("spr") or the memorial lobby ("lobby"); null on the 3D
+// tab ("model"), whose card has nothing to switch to (the library keeps no 3D mods): no chevron, no popup
+export const switchKindOf = (tab) => (tab === "lobby" ? "lobby" : tab === "portrait" ? "spr" : null);
+
 // the core of a variant's skeleton of a kind: its portrait or its memorial lobby
 export const coreOf = (v, kind = "spr") => (kind === "lobby" ? v.lobby : v.spr) || null;
 

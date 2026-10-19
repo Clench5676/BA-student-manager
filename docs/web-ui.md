@@ -522,7 +522,7 @@ navigation included, like the display settings and the settings; a click on the 
   (a lobby's main skeleton, named like its core), "In Use" marks what the game shows now. Apply writes the choice
   into the game files (`actions.apply` with the tab's kind), then the portrait or the lobby is read again from them,
   under a still of the old one. Row 2's update and compare act on the mod the shown tab's files carry. The 3D tab's
-  card has nothing to switch yet (library).
+  card has nothing to switch to yet (library): no chevron, and a click opens nothing.
 
 - **Aliases** (the pencil after the name on the nameplate, the game's name edit icon `Cafe_Icon_NameEdit`): the
   user's own aliases of the student, which the roster search matches (several, at most 8 of up to 24 characters;

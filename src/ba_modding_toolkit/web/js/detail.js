@@ -18,7 +18,7 @@ import { L, T, language, platform } from "./i18n.js";
 import { forget, idleAnimation, prioritise, thumb } from "./thumbs.js";
 import { portraitViewport } from "./portrait-view.js";
 import { setTitle } from "./nav.js";
-import { appliedKey as keyOf, appliedOf, candidates as listSources, partsOf, sourceOf } from "./switch-sources.js";
+import { appliedKey as keyOf, appliedOf, candidates as listSources, partsOf, sourceOf, switchKindOf } from "./switch-sources.js";
 import {
   $, DOT, RECRUIT, S, TAN10, advanceOf, at, clone, glyphsOf, hitButton, markedLabel, off, text, toast, widget, wrapPath,
 } from "./util.js";
@@ -126,7 +126,7 @@ function candidates(v = variant(), kind = "spr") {
 // the kind of game file the shown tab is about, and the newest date of a kind's files
 const tabKind = () => (tab === "lobby" || tab === "model" ? tab : "spr");
 // the switch card's kind on the shown tab: the portrait or the lobby; null on the 3D tab (the library keeps no 3D mods)
-const switchKind = () => (tab === "lobby" ? "lobby" : tab === "portrait" ? "spr" : null);
+const switchKind = () => switchKindOf(tab);
 const dateOf = (v, kind) => (kind === "spr" ? v.date : partsOf(v, kind).map((f) => f.date).filter(Boolean).sort().pop());
 function crcOf(v, kind = "spr") {
   const states = partsOf(v, kind).map((f) => f.crc);
@@ -444,7 +444,8 @@ function addSwitchText(host, view) {
   b.innerText = tf.text;
   span.innerText = sf.text;
   go.className = "switch-go";
-  box.append(b, span, go);
+  // the chevron only where the card opens a popup: the 3D card has nothing to switch to and stays inert (hits)
+  box.append(b, span, ...(switchKind() ? [go] : []));
   host.appendChild(box);
 }
 
