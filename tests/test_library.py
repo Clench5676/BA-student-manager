@@ -1196,6 +1196,33 @@ def test_a_mod_the_game_shows_cannot_be_removed(setup_library):
     assert not entry.file.exists() and env.library.mods() == []
 
 
+def test_a_mod_in_use_in_another_game_folder_is_refused_with_that_folder(setup_library):
+    env = setup_library
+    second = second_install(env, "GameData/Windows")
+    entry, = env.library.add([make_mod(env.original, env.tmp / "input")])
+    env.settings.set("game_resource_dir", str(env.tmp / "second_game"))
+    env.library.apply("test", f"mod:{entry.id}")
+    use_install(env, env.original)
+    with pytest.raises(ServiceError) as caught:
+        env.library.remove(entry.id)
+    # the game folder as the settings name it, not its resource subfolder
+    assert caught.value.code == "mod_in_use_elsewhere"
+    assert caught.value.params["folder"] == (env.tmp / "second_game").resolve()
+    assert caught.value.params["file"] == second.resolve()
+    json.dumps(caught.value.to_json())
+    # in use in this game folder too: that one is named first
+    env.library.apply("test", f"mod:{entry.id}")
+    expect_error("mod_in_use", lambda: env.library.remove(entry.id))
+    assert entry.file.is_file() and [m.id for m in env.library.mods()] == [entry.id]
+
+
+@pytest.mark.parametrize("language", ["en-US", "zh-CN"])
+def test_the_in_use_refusals_have_their_messages(language):
+    locales = Path(core.__file__).parent / "locales"
+    errors = json.loads((locales / f"{language}.json").read_text(encoding="utf-8"))["webui"]["error"]
+    assert errors["mod_in_use"] and "{folder}" in errors["mod_in_use_elsewhere"]
+
+
 def test_a_mod_adapted_to_another_variant_cannot_be_removed(setup_library, monkeypatch):
     env = setup_library
     env.catalog.variants["other"].family = "test"

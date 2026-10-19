@@ -1046,6 +1046,7 @@
 			"library_operation_failed": "Mod 仓库操作失败",
 			"mod_apply_failed": "应用 Mod 失败",
 			"mod_in_use": "游戏中正在使用，请先切换为其他",
+			"mod_in_use_elsewhere": "其他游戏目录中正在使用：{folder}",
 			"mod_not_found": "找不到这个 Mod",
 			"mod_target_mismatch": "这个 Mod 不适用于此变种",
 			"mod_update_failed": "更新 Mod 失败",

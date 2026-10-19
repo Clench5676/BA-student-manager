@@ -24,6 +24,7 @@ from ..catalog import HOME_SUFFIXES
 from ..errors import ServiceError
 from ..models import AssetType, LogFunc, ProgressCallback
 from ..naming import parse_filename
+from ..searching import SEARCH_DIR_SUFFIXES
 from ..utils import no_log
 from .models import (
     ApplyResult, AssetDifference, CompareResult, GameFileState, Kind, ModEntry,
@@ -39,6 +40,17 @@ if TYPE_CHECKING:
     from ..gameassets import GameAssets
 
 logger = logging.getLogger(__name__)
+
+
+def _game_folder(game_file: Path) -> Path:
+    """The game folder a game file is in, as the settings name it: its resource folder less the subfolder the search
+    looks in (searching.SEARCH_DIR_SUFFIXES)."""
+    folder = game_file.parent
+    for suffix in sorted(filter(None, SEARCH_DIR_SUFFIXES), key=len, reverse=True):
+        parts = tuple(part.lower() for part in Path(suffix).parts)
+        if len(folder.parts) > len(parts) and tuple(part.lower() for part in folder.parts[-len(parts):]) == parts:
+            return Path(*folder.parts[:-len(parts)])
+    return folder
 
 
 def _serialized(method: Callable) -> Callable:
@@ -200,13 +212,21 @@ class ModLibrary:
         """Remove a stored mod while retaining restore copies and applied history.
 
         A mod the game still shows (one of its game files is unchanged since the
-        library put the mod there) is refused with ``mod_in_use``: the library is
-        the only place it is kept once another source replaces it.
+        library put the mod there) is refused: the library is the only place it
+        is kept once another source replaces it. ``mod_in_use`` names the file in
+        the current game folder, ``mod_in_use_elsewhere`` the other game folder
+        (``folder``) where it is in use, to be switched there first.
         """
         record = self._record(mod_id)
         in_use = self._in_use(mod_id)
-        if in_use is not None:
-            raise ServiceError("mod_in_use", id=mod_id, file=in_use)
+        if in_use:
+            dirs = self._resource_dirs()
+            here = [path for path in in_use if any(path.is_relative_to(d) for d in dirs)]
+            if here:
+                raise ServiceError("mod_in_use", id=mod_id, file=here[0])
+            # not limited to this game folder: removed, the mod would be left only in the other folder's game files,
+            # lost to a check in its launcher or a game update there
+            raise ServiceError("mod_in_use_elsewhere", id=mod_id, file=in_use[0], folder=_game_folder(in_use[0]))
         del self._records[mod_id]
         try:
             self._save()
@@ -319,18 +339,19 @@ class ModLibrary:
             return record["source"]
         return "official" if self._is_official(path) else "unknown"
 
-    def _in_use(self, mod_id: str) -> Path | None:
-        """A game file that still carries the mod, in this install or another one the library wrote to."""
+    def _in_use(self, mod_id: str) -> list[Path]:
+        """The game files that still carry the mod, in this install or another one the library wrote to."""
+        paths = []
         for name, record in self._applied.items():
             if record.get("source") != f"mod:{mod_id}":
                 continue
             path = Path(name)
             try:
                 if path.is_file() and self._hashes.get(path).sha1 == record["sha1"]:
-                    return path
+                    paths.append(path)
             except OSError:
                 continue
-        return None
+        return paths
 
     def _keep_replaced(self, targets: list[Path]) -> list[str]:
         """Store the game files about to be replaced that are kept nowhere else as library mods, and return the ids

@@ -302,7 +302,7 @@ class ModLibrary:
                                                    # added, fresh, size, date, crc
     def add(self, paths: list[Path]) -> list[ModEntry]   # copies into the library; target from the file name's core
                                                          # (portrait "_spr", lobby "_home", "_home_gl", "_home_teen")
-    def remove(self, mod_id: str) -> None                # mod_in_use while the game shows it
+    def remove(self, mod_id: str) -> None                # refused while a game folder shows it (see below)
     def rename(self, mod_id: str, label: str) -> None
     def mark_seen(self, mod_id: str) -> None
     def favorites(self) -> set[str]; def set_favorite(self, variant_key: str, on: bool) -> None
@@ -335,9 +335,10 @@ What a switch replaces is always kept:
   (still modded, by the library or by another tool since). That file decides, not the library's record of it, which
   is stale once the file changed or is gone from a folder still there (an install moved, a game update); only a file
   whose folder cannot be seen at all (an unmounted drive) is judged by its record.
-- **A mod** stays in the library (`mods/<id>/`): switching away never touches it, and `remove` refuses one the game
-  still shows (`mod_in_use`: a game file is unchanged since the library put it there, in any install), so switch
-  first.
+- **A mod** stays in the library (`mods/<id>/`): switching away never touches it, and `remove` refuses one a game
+  folder still shows (a game file is unchanged since the library put it there), so switch first: `mod_in_use` in the
+  current game folder, else `mod_in_use_elsewhere` with that game folder (`folder`). Another game folder counts too:
+  removed, the mod would be left only in that folder's game files, lost to a check in its launcher or a game update.
 - **Another variant's files** are only read, and can be adapted again.
 - **A file changed outside the library** (another tool, the classic GUI, a manual copy; `applied` is `unknown`), or a
   mod removed from the library while it was applied (before `remove` refused that), is added to the library as a
@@ -397,7 +398,7 @@ library).
 | `favorites.set {variant, on}` | |
 | `aliases.set {family, aliases}` | the user's own aliases of a student as kept (`webui/state.py`: NFC, no control or format characters, whitespace runs one space, empty and repeated ones, ignoring case and width, dropped); `alias_too_long` past 24 characters, `alias_too_many` past 8, and nothing is kept then; an empty list forgets them |
 | `mods.add {paths}` / `mods.pick` | added entries (`mods.pick` opens the native file dialog) |
-| `mods.remove {id}`, `mods.rename {id, label}`, `mods.seen {id}` | `mods.remove`: `mod_in_use` while the game shows the mod |
+| `mods.remove {id}`, `mods.rename {id, label}`, `mods.seen {id}` | `mods.remove`: `mod_in_use` while the game shows the mod, `mod_in_use_elsewhere {folder}` while another game folder does |
 | `actions.apply {variant, source, kind}` / `actions.restore {variant, kind}` | job id; switches what the game shows, `kind` `spr` (default) or `lobby` (see library) |
 | `actions.update {mod}` / `actions.extract {target}` | job id |
 | `actions.compare {mod}` | per-asset differences |
