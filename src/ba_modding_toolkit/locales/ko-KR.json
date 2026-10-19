@@ -8,7 +8,7 @@
 		"success": "성공",
 		"error": "오류",
 		"warning": "경고",
-		"tip": "안내",
+		"tip": "알림",
 		"3rd_party": "서드파티",
 		"processing": "처리 중...",
 		"fail": "실패",
@@ -65,7 +65,7 @@
 		"file_source_adb_global": "Android 글로벌(ADB)",
 		"file_source_adb_japan": "Android 일본(ADB)",
 		"crc_correction": "CRC 수정",
-		"crc_correction_info": "번들 파일의 CRC 체크섬을 수정해 파일을 바꾼 뒤 나오는 '비정상적인 클라이언트' 오류를 막습니다.\nSteam 버전은 반드시 켜야 하며, 모바일 버전은 필요 없습니다.\n'자동'이면 대상 번들의 플랫폼 정보로 필요 여부를 판단합니다.",
+		"crc_correction_info": "번들 파일의 CRC 체크섬을 수정해 파일을 바꾼 뒤 나오는 '정상적이지 않은 클라이언트' 오류를 막습니다.\nSteam 버전은 반드시 켜야 하며, 모바일 버전은 필요 없습니다.\n'자동'이면 대상 번들의 플랫폼 정보로 필요 여부를 판단합니다.",
 		"extra_bytes": "추가 바이트",
 		"extra_bytes_info": "CRC 수정 전에 덧붙일 데이터.\n0x로 시작하면 16진수(예: 0x0808), 그 외에는 ASCII 문자열(예: AB). 비워 두면 사용 안 함.",
 		"backup": "백업 생성",
@@ -89,7 +89,7 @@
 		"spine_target_version": "대상 버전",
 		"spine_target_version_info": "\"A.B.C\" 형식.\n설정한 버전과 다른 skel 파일은 거부됩니다.\nSkel 변환기를 설정하고 켜 두면 이 버전으로 자동 변환합니다.",
 		"preview_thumbnail_size": "미리보기 썸네일 크기",
-		"preview_thumbnail_size_info": "미리보기 창 썸네일의 최대 변 길이(픽셀)",
+		"preview_thumbnail_size_info": "미리보기 창 썸네일의 긴 변 최대 길이(픽셀)",
 		"spine_downgrade": "Spine 다운그레이드 사용",
 		"spine_downgrade_info": "(선택 확장 기능)\n외부 프로그램으로 구버전 Spine과 호환되는 파일(.skel, .atlas)을 내보냅니다.\nSkel 변환기 경로를 설정해야 합니다.",
 		"spine_downgrade_target_version": "대상 버전",
@@ -117,11 +117,11 @@
 		"check_animations": "애니메이션 차이 감지",
 		"check_animations_info": ".skel 파일 교체 시 대상에 소스에 없는 애니메이션이 있는지 감지\nSpineViewerCLI 경로 설정 필요",
 		"mod_install_render_preview": "미리보기 렌더링",
-		"mod_install_render_preview_info": "모드 설치 확인 창에서 Spine 미리보기와 텍스처를 백그라운드로 렌더링\n끄면 파일과 에셋만 표시되고 창이 바로 열림\nSpineViewerCLI 경로 설정 필요",
+		"mod_install_render_preview_info": "모드 설치 확인 창에서 Spine 미리보기와 텍스처를 백그라운드에서 렌더링\n끄면 파일과 에셋만 표시되고 창이 바로 열림\nSpineViewerCLI 경로 설정 필요",
 		"match_strategy": "매칭 전략",
 		"match_strategy_info": "리소스 매칭 전략 선택:\n- path_id: 같은 버전 파일에 적합, 정확히 일치\n- cont_name_type: 컨테이너+이름+유형 일치, 버전 간 이전(글로벌과 일본 서버 사이)에 적합\n- name_type: 이름+유형 일치",
 		"enable_bleed": "Bleed",
-		"enable_bleed_info": "이미지 파일에 Bleed 처리를 적용합니다.\n패킹한 이미지의 테두리가 게임에서 검게 보이거나 계단처럼 깨지면 켜는 것을 권장합니다.",
+		"enable_bleed_info": "이미지 파일에 Bleed 처리를 적용합니다.\n패킹한 이미지의 테두리가 게임에서 검게 보이거나 계단 현상이 생기면 켜는 것을 권장합니다.",
 		"enable_spine38_name_fix": "구버전 Spine 파일명 변경",
 		"enable_spine38_name_fix_info": "구버전 Spine이 내보낸 파일명 형식을 새 형식으로 바꿉니다.\n예: CH0808_home2.png → CH0808_home_2.png",
 		"enable_spine_preview": "Spine 미리보기 생성",
@@ -208,7 +208,7 @@
 			"process_complete": "처리 완료!\n파일 {count}개를 패킹했습니다.\n\n파일을 출력 폴더에 저장했습니다. 이제 \"{button}\" 버튼을 눌러 변경 사항을 적용할 수 있습니다."
 		},
 		"crc": {
-			"provide_at_least_one_file": "파일 경로를 하나 이상 입력해 주세요.",
+			"provide_at_least_one_file": "파일 경로를 하나 이상 지정해 주세요.",
 			"match_no_correction_needed": "CRC 값이 일치해 수정할 필요가 없습니다.",
 			"correction_success": "CRC 수정 완료!\n수정한 파일을 출력 폴더에 저장했습니다:\n{path}",
 			"correction_failed": "CRC 수정 실패.",
@@ -234,7 +234,7 @@
 			"check_file_exists": "\"{path}\"이(가) 있는지 확인해 주세요.",
 			"no_matching_files_in_dir": "지정한 폴더에서 일치하는 파일을 찾지 못했습니다.",
 			"no_comparable_assets": "이전 모드 파일에 비교할 수 있는 에셋이 없습니다.",
-			"new_file_confirmed": "새 버전 파일 확인: {name}",
+			"new_file_confirmed": "새 버전 파일 확정: {name}",
 			"no_matching_asset_found": "어느 후보 파일에서도 이전 모드의 리소스 이름과 일치하는 에셋을 찾지 못해 새 버전 파일을 정할 수 없습니다.",
 			"found_multiple_matches": "일치하는 파일 {count}개",
 			"filename_parse_failed": "파일 이름을 해석하지 못했습니다"
@@ -246,7 +246,7 @@
 		"mod_update": {
 			"success": "업데이트 완료!",
 			"no_assets_extracted": "소스 파일에서 추출한 에셋이 없습니다",
-			"no_targets_processed": "처리된 대상 파일이 없습니다",
+			"no_targets_processed": "처리에 성공한 대상 파일이 없습니다",
 			"all_targets_unchanged": "모든 대상 파일에 변경이 없어 업데이트할 필요가 없습니다"
 		},
 		"mod_install": {
@@ -255,7 +255,7 @@
 			"no_game_dir": "게임 리소스 폴더가 설정되지 않아 모드와 게임 파일의 관계를 분석할 수 없습니다.",
 			"adb_unsupported": "모드 설치는 아직 ADB 모드를 지원하지 않습니다. 로컬 파일 소스로 바꿔 주세요.",
 			"nothing_selected": "설치할 그룹을 선택하지 않았습니다.",
-			"summary": "설치 완료!\n성공: {installed}개 그룹\n건너뜀(설치됨): {skipped}개 그룹\n실패: {failed}개 그룹",
+			"summary": "설치 완료!\n성공: {installed}개 그룹\n건너뜀(이미 설치됨): {skipped}개 그룹\n실패: {failed}개 그룹",
 			"failed_detail": "실패 내역:\n{details}"
 		},
 		"save_error": "파일 저장 중 오류: {error}",
@@ -391,7 +391,7 @@
 			"anim_diff_title": "다음 파일에 원래 모드에 없는 새 애니메이션이 있습니다:",
 			"anim_diff_item_count": "애니메이션 {count}개 누락",
 			"anim_diff_missing_list": "누락 목록: {animations}",
-			"anim_diff_hint": "안내: 게임의 애니메이션이 업데이트되었을 수 있습니다. 이전 모드를 그대로 쓰면 이 애니메이션이 재생될 때 게임이 멈출 수 있습니다."
+			"anim_diff_hint": "참고: 게임의 애니메이션이 업데이트되었을 수 있습니다. 이전 모드를 그대로 쓰면 이 애니메이션이 재생될 때 게임이 멈출 수 있습니다."
 		},
 		"packer": {
 			"start_packing": "리소스 패킹 시작...",
@@ -486,7 +486,7 @@
 			"plan_start": "모드 파일 {count}개 분석 중...",
 			"group_info": "그룹 [{core}](파일 {count}개)",
 			"same_name_found": "같은 이름의 파일 발견: {filename}, 바로 교체합니다",
-			"filter_latest_date": "날짜별 버전이 여러 개라 최신 버전 사용: {date}",
+			"filter_latest_date": "날짜별 버전이 여러 개여서 최신 버전 사용: {date}",
 			"update_targets": "업데이트 필요, 대상 파일 {count}개 일치: {names}",
 			"target_conflict": "대상 파일 충돌: {filename}",
 			"plan_done": "분석 완료: 파일 {total}개 / 그룹 {groups}개(바로 교체 {direct}, 업데이트 {update}, 찾지 못함 {not_found}, 오류 {error})",
@@ -495,7 +495,7 @@
 			"crc_resave": "CRC 충돌 수정 필요, 다시 저장: {filename}",
 			"replace_failed": "파일 교체 실패: {path}({error})",
 			"already_installed": "그룹 [{core}]의 에셋에 모두 변경이 없어 설치된 것으로 보고 건너뜀",
-			"execute_done": "설치 완료: 성공 {installed}개 그룹 / 건너뜀 {skipped} / 실패 {failed}",
+			"execute_done": "설치 완료: 그룹 성공 {installed}개 / 건너뜀 {skipped}개 / 실패 {failed}개",
 			"list_cleaned": "설치된 파일 {count}개를 목록에서 제거했습니다"
 		},
 		"batch": {
@@ -579,13 +579,13 @@
 		},
 		"tools": {
 			"batch_tools": "일괄 도구",
-			"batch_tools_info": "모드 감지 방식: 번들 파일 헤더에 기록된 크기와 실제 파일 크기를 비교해, 파일 끝에 추가 바이트(trailing bytes)가 붙어 있으면 모드로 판단합니다. 아래 일괄 도구는 모두 이 방식으로 감지합니다.\n\n주의: 이 감지 방식은 Steam 버전에서만 보장됩니다. 다른 버전의 모드는 CRC 수정 없이도 게임에 들어갈 수 있어 감지를 보장할 수 없습니다.",
+			"batch_tools_info": "모드 감지 방식: 번들 파일 헤더에 기록된 크기와 실제 파일 크기를 비교해, 파일 끝에 추가 바이트(trailing bytes)가 붙어 있으면 모드로 판단합니다. 아래 일괄 도구는 모두 이 방식으로 감지합니다.\n\n주의: 이 감지 방식은 Steam 버전에서만 보장됩니다. 다른 버전은 CRC를 수정하지 않은 모드로도 게임에 접속할 수 있어 감지를 보장할 수 없습니다.",
 			"report": {
 				"title": "모드 보고서 생성",
 				"info": "게임 폴더에서 감지된 모든 모드 파일을 스캔해 분류별 Markdown 보고서를 만듭니다. Spine 미리보기 이미지도 렌더링할 수 있습니다."
 			},
 			"abnormal_check": {
-				"title": "\"비정상적인 클라이언트\" 수정",
+				"title": "\"정상적이지 않은 클라이언트\" 수정",
 				"info": "파일명의 CRC와 실제 파일 CRC가 다른 모드 파일(게임 클라이언트가 비정상으로 판단하는 파일)을 감지하고 한 번에 수정합니다.",
 				"result_list": "감지 결과",
 				"column_filename": "파일명",
@@ -691,7 +691,7 @@
 			"contains": "파일 {count}개 포함: {types}"
 		},
 		"preview": {
-			"double_click_hint": "이미지를 더블 클릭하면 원래 크기로 봅니다"
+			"double_click_hint": "이미지를 더블 클릭하면 원본 크기로 볼 수 있습니다"
 		},
 		"label": {
 			"mod_file": "처리할 모드 파일",
@@ -757,7 +757,7 @@
 				"has_trailing": "끝부분 바이트 있음",
 				"crc_mismatch": "CRC 불일치",
 				"has_character": "캐릭터 이름 있음",
-				"common_mod": "흔한 모드 접두사"
+				"common_mod": "자주 쓰이는 모드 접두사"
 			},
 			"op": {
 				"contains": "포함",
@@ -793,7 +793,7 @@
 				"items": "일러스트, 메모리얼 로비, 3D 모델, 보이스, 배경",
 				"how": "매번 게임 폴더에서 읽기"
 			},
-			"note": "게임 에셋의 권리는 원저작자에게 있으며, 이 기기에만 보관되고 설정에서 지울 수 있습니다",
+			"note": "게임 에셋은 저작권자의 소유이며, 이 기기에만 보관되고 설정에서 지울 수 있습니다",
 			"change": "변경"
 		},
 		"info": {
