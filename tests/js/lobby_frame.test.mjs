@@ -148,3 +148,17 @@ test("each skeleton gets its atlas, also when the game's file names differ", () 
   assert.deepEqual(pairs(["A_home.skel", "B_home.skel", "C_home.atlas"]), {});
   assert.deepEqual(pairs(["A_home.skel", "A_home.atlas", "B_home.skel"]), { A_home: "A_home" });
 });
+
+test("each layer loops its idle, never an intro, and an intro-only skeleton rests", () => {
+  const idle = (anims, layer = {}, info = null) => Lobby.idleOf(data(anims), { name: "X", ...layer }, info);
+  // the SpineCharacter's idle clip, else Idle_01, else the prefab's animation unless it is an intro (Hasumi_home)
+  assert.equal(idle({ Idle_01: 4, Idle_02: 4 }, {}, { idle: { X: "Idle_02" } }), "Idle_02");
+  assert.equal(idle({ Start_Idle: 9, Idle_01: 4 }, { animation: "Start_Idle" }), "Idle_01");
+  assert.equal(idle({ Start_Idle_01: 9, Loop: 3 }, { animation: "Loop" }), "Loop");
+  // else the first other animation, Dummy last
+  assert.equal(idle({ Dummy: 0.03, Start_Idle_01: 9, Sea_01: 2 }), "Sea_01");
+  assert.equal(idle({ Dummy: 0.03, Start_Idle_01: 9 }), "Dummy"); // CH0184_00, Wakamo_Scene_0
+  // the scenes of Shigure's intro timeline: nothing to loop, the setup pose (looped, her intro train crossed the view)
+  assert.equal(idle({ Start_Idle_00: 6 }), null);
+  assert.equal(idle({}), null);
+});

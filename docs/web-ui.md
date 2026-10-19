@@ -630,6 +630,16 @@ in `pointer-textures`); without a game the system cursor stays and there is no e
     the first frame compiles each shader once. Everything is freed with the lobby (`particles-gl.js` detach and
     dispose), and made again on the next frame once a lost WebGL context is restored (a restorable of each player's
     context, as linear.js has). Without WebGL2 nothing is drawn.
+- **Intro scenes.** Three prefabs keep four skeletons of their intro timeline (a PlayableDirector with Spine Animation
+  State tracks) parked beside the scene: Shigure's Shigure_00 and Shigure_01 at x -4500 and 4500, CH0184_00 and
+  Wakamo_Scene_0. Their clip assets are on track -1 (only the timeline plays them). Shigure's timeline (an Animation
+  track on `Shigure`) puts Shigure_00 at x 0 until 5 s, Shigure_01 until 9.17 s, then Shigure_home, each scene back
+  at its place after, and spine-unity sets a Spine track empty when its clip ends (`dontEndWithClip` off), so the
+  scenes rest in their setup pose, out of the game's view. The lobby never loops an intro (`idleOf`): a skeleton
+  with intros only rests in its setup pose, one with a Dummy loops that. Looped, Shigure_00's Start_Idle_00 drew its
+  train (`train Sample`) across the bottom of the view, over Shigure, every 6 s. Not reproduced: an idle's sync clips
+  (15 lobbies, e.g. Shigure's Train_00_R on track 3, her own train passing behind the bridge after a random 10 to
+  15 s; snow, clouds, petals, stars elsewhere).
 - **Zoom.** Fullscreen opens on the game's 16:9 view and zooms in to 2x. How far it zooms out is the Settings L2D
   tab's zoom-out row (`settings.set lobbyZoom` and `lobbyZoomCustom`; `lobby_zoom` and `lobby_zoom_custom` in
   `webui.json`, where the boolean `lobby_zoom_out` it replaces still reads as Full Art or Game View; Full Art when
