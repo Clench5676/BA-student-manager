@@ -96,7 +96,10 @@ class Services:
             if self._library is None:
                 from ..library import ModLibrary
 
-                self._library = ModLibrary(self.library_dir(), self.catalog, self.game, self.settings)
+                library = self._library = ModLibrary(self.library_dir(), self.catalog, self.game, self.settings)
+                # kept originals the game no longer needs (verified in the launcher, replaced by a game update) are
+                # deleted once per library, on the job worker so no apply runs meanwhile
+                self.jobs.submit("library.prune", lambda log, progress: [str(p) for p in library.prune()])
             return self._library
 
     def cache_dir(self) -> Path:

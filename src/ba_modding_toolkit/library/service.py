@@ -20,6 +20,7 @@ from UnityPy.helpers.ResourceReader import get_resource_data
 
 from .. import core, mod_install
 from ..bundle import Bundle
+from ..catalog import HOME_SUFFIXES
 from ..errors import ServiceError
 from ..models import AssetType, LogFunc, ProgressCallback
 from ..naming import parse_filename
@@ -149,6 +150,9 @@ class ModLibrary:
     @_serialized
     def add(self, paths: list[Path]) -> list[ModEntry]:
         """Store one mod per core and date, deduplicating complete bundle sets."""
+        return self._add(paths)
+
+    def _add(self, paths: list[Path]) -> list[ModEntry]:
         known = {frozenset((path.name, self._hashes.get(path).sha1) for path in self._paths(record))
                  for record in self._records.values()}
         groups: dict[tuple[str, str], dict[str, Path]] = {}
@@ -156,7 +160,7 @@ class ModLibrary:
             name = source.name.removesuffix(".backup") if source.name.endswith(".bundle.backup") else source.name
             parsed = parse_filename(name)
             kind: Kind | None = "spr" if parsed.core.lower().endswith("_spr") else (
-                "lobby" if parsed.core.lower().endswith(("_home", "_home_gl")) else None)
+                "lobby" if parsed.core.lower().endswith(HOME_SUFFIXES) else None)
             variant = self.catalog.variant_for_core(parsed.core.lower()) if kind else None
             if not name.endswith(".bundle") or not parsed.prefix or not parsed.crc or kind is None or variant is None:
                 raise ServiceError("mod_unsupported", file=source)
@@ -193,8 +197,16 @@ class ModLibrary:
 
     @_serialized
     def remove(self, mod_id: str) -> None:
-        """Remove a stored mod while retaining restore copies and applied history."""
+        """Remove a stored mod while retaining restore copies and applied history.
+
+        A mod the game still shows (one of its game files is unchanged since the
+        library put the mod there) is refused with ``mod_in_use``: the library is
+        the only place it is kept once another source replaces it.
+        """
         record = self._record(mod_id)
+        in_use = self._in_use(mod_id)
+        if in_use is not None:
+            raise ServiceError("mod_in_use", id=mod_id, file=in_use)
         del self._records[mod_id]
         try:
             self._save()
@@ -299,6 +311,146 @@ class ModLibrary:
                 original.unlink()
                 raise ServiceError("original_invalid", file=game_file)
 
+    def _carried(self, path: Path) -> str:
+        """What a game file carries: the source the library put there while the file is unchanged since, else
+        "official" or "unknown" (changed outside the library)."""
+        record = self._applied.get(str(path.resolve()), {})
+        if record.get("sha1") == self._hashes.get(path).sha1:
+            return record["source"]
+        return "official" if self._is_official(path) else "unknown"
+
+    def _in_use(self, mod_id: str) -> Path | None:
+        """A game file that still carries the mod, in this install or another one the library wrote to."""
+        for name, record in self._applied.items():
+            if record.get("source") != f"mod:{mod_id}":
+                continue
+            path = Path(name)
+            try:
+                if path.is_file() and self._hashes.get(path).sha1 == record["sha1"]:
+                    return path
+            except OSError:
+                continue
+        return None
+
+    def _keep_replaced(self, targets: list[Path]) -> list[str]:
+        """Store the game files about to be replaced that are kept nowhere else as library mods, and return the ids
+        of the mods added. Official files go to originals/ (_keep_original), mods of the library stay in mods/, and
+        another variant's files can be adapted again; what is left is a file changed outside the library (another
+        tool, a manual copy) or a mod removed from the library before removing an applied mod was refused."""
+        keep = []
+        for target in targets:
+            carried = self._carried(target)
+            if carried == "unknown" or (carried.startswith("mod:") and carried[4:] not in self._records):
+                keep.append(target)
+        if not keep:
+            return []
+        added = self._add(keep)
+        for entry in added:
+            logger.info("Kept the replaced game file %s as mod %s", entry.file.name, entry.id)
+        return [entry.id for entry in added]
+
+    def _drop_mods(self, mod_ids: list[str]) -> None:
+        """Forget mods _keep_replaced added for a replacement that was rolled back (their files are in the game
+        again). A state that cannot be saved still lists them; loading drops records without files."""
+        if not mod_ids:
+            return
+        for mod_id in mod_ids:
+            self._records.pop(mod_id, None)
+        try:
+            self._save()
+        except OSError:
+            logger.warning("Could not save the library state after a rollback", exc_info=True)
+        for mod_id in mod_ids:
+            shutil.rmtree(self.root / "mods" / mod_id, ignore_errors=True)
+
+    def _needed_elsewhere(self, name: str, path: Path) -> bool:
+        """Whether a game file of another install (another game folder sharing this library) with the same name
+        was left carrying something else than the official file, so it may still need the kept original."""
+        resolved = str(path.resolve())
+        return any(other != resolved and Path(other).name == name and record.get("source") != "official"
+                   for other, record in self._applied.items())
+
+    def _release_original(self, game_file: Path) -> bool:
+        """Delete a kept original once its game file is verified official again: byte for byte the kept copy,
+        official by the CRC in its name, and needed by no other install."""
+        original = self._original_path(game_file)
+        try:
+            if not original.is_file() or not game_file.is_file():
+                return False
+            if (self._hashes.get(game_file).sha1 != self._hashes.get(original).sha1
+                    or not self._is_official(game_file) or self._needed_elsewhere(game_file.name, game_file)):
+                return False
+            original.unlink()
+        except OSError:
+            logger.warning("Could not release the kept original of %s", game_file, exc_info=True)
+            return False
+        logger.info("Released the kept original of %s", game_file.name)
+        return True
+
+    def _prune(self) -> list[Path]:
+        directory = self.root / "originals"
+        if not directory.is_dir():
+            return []
+        dirs = self._resource_dirs()
+        index = self._scan()
+        current = {path.name: path for paths in index.values() for path in paths}
+
+        def part(path: Path) -> tuple[str, str | None]:
+            parsed = parse_filename(path.name)
+            return parsed.prefix, parsed.res_type
+
+        released, stale = [], []
+        for original in sorted(directory.glob("*.bundle")):
+            game_file = current.get(original.name)
+            if game_file is not None:
+                if self._release_original(game_file):
+                    released.append(original)
+                continue
+            # The name carries the CRC: after a game update the old file is gone and its copy can never be restored.
+            # Only the install's own records tell which folder it was in; without one it may be another install's.
+            owners = [Path(name) for name in self._applied if Path(name).name == original.name]
+            mine = [path for path in owners if any(path.is_relative_to(d) for d in dirs) and not path.exists()]
+            others = [path for path in owners if path not in mine]
+            if not mine or any(self._applied[str(path)].get("source") != "official" for path in others):
+                continue
+            core = parse_filename(original.name).core.lower()
+            superseded = True
+            for path in mine:
+                successors = [other for other in index.get(core, [])
+                              if other.parent == path.parent and part(other) == part(path)]
+                try:
+                    if not successors or not all(self._is_official(other) for other in successors):
+                        superseded = False
+                except OSError:
+                    superseded = False
+            if not superseded:
+                continue
+            try:
+                original.unlink()
+            except OSError:
+                logger.warning("Could not delete the outdated original %s", original, exc_info=True)
+                continue
+            logger.info("Deleted the original %s, replaced by a game update", original.name)
+            released.append(original)
+            stale.extend(str(path) for path in mine)
+        if stale:
+            old_applied = dict(self._applied)
+            for name in stale:
+                self._applied.pop(name, None)
+            try:
+                self._save()
+            except OSError:
+                self._applied = old_applied
+                logger.warning("Could not save the library state after pruning", exc_info=True)
+        return released
+
+    @_serialized
+    def prune(self) -> list[Path]:
+        """Delete the kept originals no longer needed and return them: those whose game file is verified official
+        again (restored, or verified in the game's launcher), and those of files a game update replaced with a
+        verified official file of the same part. Originals of another install's files are kept."""
+        return self._prune()
+
     @_serialized
     def state(self, variant_key: str) -> VariantState:
         """Inspect all game parts using headers and cached hashes, without UnityPy."""
@@ -307,9 +459,7 @@ class ModLibrary:
             parsed = parse_filename(path.name)
             fingerprint = self._hashes.get(path)
             official = self._is_official(path)
-            record = self._applied.get(str(path.resolve()), {})
-            applied = record["source"] if record.get("sha1") == fingerprint.sha1 else (
-                "official" if official else "unknown")
+            applied = self._carried(path)
             crc = "ok" if official else "fixed" if (
                 fingerprint.trailing is not None and fingerprint.trailing > 0
                 and parsed.crc and fingerprint.crc == int(parsed.crc)) else "needs_fix"
@@ -394,6 +544,19 @@ class ModLibrary:
 
     def _commit(self, replacements: dict[Path, Path], source: str, log: LogFunc,
                 progress: ProgressCallback | None = None) -> list[Path]:
+        """Write prepared files over game files as one unit, keeping what they replace: the official file in
+        originals/ (once), a file kept nowhere else as a library mod (_keep_replaced). Every written part is rolled
+        back on failure. Afterwards, kept originals no longer needed are deleted (_prune), whatever the outcome."""
+        try:
+            return self._write(replacements, source, log, progress)
+        finally:
+            try:
+                self._prune()
+            except Exception:  # never in the way of the switch itself; the next prune tries again
+                logger.warning("Could not prune the kept originals", exc_info=True)
+
+    def _write(self, replacements: dict[Path, Path], source: str, log: LogFunc,
+               progress: ProgressCallback | None = None) -> list[Path]:
         for target, prepared in replacements.items():
             check_resource_path(target, self._resource_dirs())
             if self._hashes.get(prepared).trailing is None:
@@ -417,12 +580,18 @@ class ModLibrary:
             return []
         written = []
         with writable_game_files(list(changed), self._resource_dirs()), tempfile.TemporaryDirectory() as temporary:
-            rollback = {}
-            for i, target in enumerate(changed):
+            for target in changed:
                 self._keep_original(target)
-                backup = Path(temporary) / str(i)
-                shutil.copyfile(target, backup)
-                rollback[target] = backup
+            kept = self._keep_replaced(list(changed))
+            rollback = {}
+            try:
+                for i, target in enumerate(changed):
+                    backup = Path(temporary) / str(i)
+                    shutil.copyfile(target, backup)
+                    rollback[target] = backup
+            except Exception:
+                self._drop_mods(kept)
+                raise
             saving_state = False
             try:
                 for i, (target, prepared) in enumerate(changed.items(), 1):
@@ -440,11 +609,16 @@ class ModLibrary:
                 self._save()
             except Exception as error:
                 self._applied = old_applied
+                restored = True
                 for target in reversed(written):
                     try:
                         atomic_copy(rollback[target], target)
                     except OSError:
+                        restored = False
                         logger.exception("Could not roll back game file %s", target)
+                if restored:
+                    # what they kept is in the game again; a part left half written keeps them
+                    self._drop_mods(kept)
                 if isinstance(error, OSError):
                     code = "library_io_error" if saving_state else "game_file_locked"
                     raise ServiceError(code, file=error.filename) from error

@@ -309,6 +309,31 @@ def test_asset_routes(app):
     assert call(app, "/asset/spine/spr/hoshino_spr/other.png")[0] == "404 Not Found"
 
 
+def test_a_new_library_prunes_its_kept_originals_once(tmp_path, monkeypatch):
+    pruned = []
+
+    class Library:
+        def __init__(self, *args):
+            pass
+
+        def prune(self):
+            pruned.append(self)
+            return [tmp_path / "originals" / "a.bundle"]
+
+    monkeypatch.setattr("ba_modding_toolkit.library.ModLibrary", Library)
+    s = Services(Settings(tmp_path / "config.toml"), tmp_path, state=UiState(tmp_path / "webui.json"),
+                 cache=object(), game=FakeGame(), catalog=FakeCatalog())
+    try:
+        library = s.library
+        assert s.library is library
+        deadline = time.monotonic() + 5
+        while (not pruned or s.jobs.busy()) and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert pruned == [library]
+    finally:
+        s.close()
+
+
 def test_lobby_warm_builds_the_prefab_index_once_per_game(app, services, monkeypatch):
     calls, cabs, release = [], [], threading.Event()
 

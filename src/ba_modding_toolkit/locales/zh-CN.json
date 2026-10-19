@@ -1045,13 +1045,14 @@
 			"game_status_unavailable": "无法确认游戏是否在运行",
 			"library_operation_failed": "Mod 仓库操作失败",
 			"mod_apply_failed": "应用 Mod 失败",
+			"mod_in_use": "游戏中正在使用，请先切换为其他",
 			"mod_not_found": "找不到这个 Mod",
 			"mod_target_mismatch": "这个 Mod 不适用于此变种",
 			"mod_update_failed": "更新 Mod 失败",
 			"original_invalid": "保留的原版文件已损坏：{file}",
 			"original_unavailable": "没有可用的原版文件，请先用游戏启动器校验文件",
 			"source_unsupported": "不支持的来源",
-			"variant_incompatible": "两个立绘的结构不同，无法互换",
+			"variant_incompatible": "两者结构不同，无法互换",
 			"variant_not_found": "找不到这个变种"
 		},
 		"drop": {

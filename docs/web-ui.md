@@ -301,23 +301,60 @@ class ModLibrary:
     def mods(self) -> list[ModEntry]               # id, file, label, target (variant key), kind ("spr" | "lobby"),
                                                    # added, fresh, size, date, crc
     def add(self, paths: list[Path]) -> list[ModEntry]   # copies into the library; target from the file name's core
-    def remove(self, mod_id: str) -> None
+                                                         # (portrait "_spr", lobby "_home", "_home_gl", "_home_teen")
+    def remove(self, mod_id: str) -> None                # mod_in_use while the game shows it
     def rename(self, mod_id: str, label: str) -> None
     def mark_seen(self, mod_id: str) -> None
     def favorites(self) -> set[str]; def set_favorite(self, variant_key: str, on: bool) -> None
     def state(self, variant_key: str) -> VariantState    # game files, applied ("official" | "mod:<id>" |
                                                          # "variant:<key>" | "unknown"), crc ("ok" | "fixed" |
                                                          # "needs_fix"), backup available
-    def apply(self, variant_key: str, source: str, log, progress) -> ApplyResult    # source as in state.applied
-    def restore(self, variant_key: str, log) -> ApplyResult
+    def apply(self, variant_key: str, source: str, log, progress, kind="spr") -> ApplyResult
+                                                         # source as in state.applied; kind "spr" | "lobby"
+    def restore(self, variant_key: str, log, kind="spr") -> ApplyResult
+    def prune(self) -> list[Path]                        # kept originals deleted (see below)
     def update(self, mod_id: str, log, progress) -> UpdateResult   # rebuild against the current game file
     def extract(self, target: str, out_dir: Path, log) -> Path     # target "variant:<key>" or "mod:<id>"
     def compare(self, mod_id: str) -> CompareResult                # per-asset differences vs the game file
 ```
 
-Applying writes into the game folder. The first time a game file is replaced, its official copy is kept in the
-library (`originals/`), so restoring works even after several mods were applied (the classic GUI's single `.backup`
-is overwritten by the second install).
+**Switching** is what the detail screen's switch cards do (Switch Portrait, Switch Memorial Lobby): `apply` writes
+the chosen source into the variant's game files of that kind, so the game itself shows it. The sources: the official
+files (`official`, the same as `restore`), a mod (`mod:<id>`; one made for another variant of the family is adapted
+to this variant's files), or another variant's official files (`variant:<key>`, adapted). A mod replaces every part
+of its kind as a unit: parts it has no file for go back to official. The portrait and the lobby are switched apart.
+
+What a switch replaces is always kept:
+
+- **An official file** is copied to `originals/<file name>` the first time it is replaced (copied once, checked by
+  the CRC in its name, never from a modded file: `original_unavailable` then, and nothing is written). Restoring
+  copies it back, also after several mods (the classic GUI's single `.backup` is overwritten by the second
+  install). The copy is deleted once the game file is verified official again: byte for byte the kept copy and
+  official by its CRC, after a restore, after a mod that leaves that part official, or after the game's launcher
+  verified the files. Not while another install sharing the library (another game folder) left a file of that name
+  modded.
+- **A mod** stays in the library (`mods/<id>/`): switching away never touches it, and `remove` refuses one the game
+  still shows (`mod_in_use`: a game file is unchanged since the library put it there, in any install), so switch
+  first.
+- **Another variant's files** are only read, and can be adapted again.
+- **A file changed outside the library** (another tool, the classic GUI, a manual copy; `applied` is `unknown`), or a
+  mod removed from the library while it was applied (before `remove` refused that), is added to the library as a
+  new mod (labelled with its core, marked new) before it is overwritten; a file already in the library is not stored
+  twice. Without an official copy to keep it is never overwritten (`original_unavailable`).
+
+Every write goes through `_commit`: resource path checks, the game not running, the files lockable, atomic
+replacement, and a rollback of every written part when one fails (the mods it had just kept are dropped again once
+every part is back). After every switch, whatever its outcome, and once per library in the web UI (a
+`library.prune` job), `prune` deletes the copies no longer needed: those whose game file is verified official again,
+and those a game update made useless. File names carry the date and CRC, so an update leaves the old copy without a
+game file; it is deleted when the library's own record places the old file in the current game folder and that
+folder now holds the same part (prefix and resource type) verified official. A copy no record places, one of
+another install, or one whose new file is not official is kept.
+
+The 3D model has no switch: the library keeps no 3D mods. It would take a `model` kind (`character-<dev>-_mxload-*`
+prefab bundles, whose meshes, textures and clips sit in other bundles found by CAB), its detection in `add`, game
+files matched by bundle name rather than by core, a preview through `GameAssets.model_glb(overrides=...)`, and no
+variant swap (chibis do not share meshes and bones).
 
 ## Jobs and events
 
@@ -333,6 +370,9 @@ Events on `/api/events`:
 | `job.failed` | `{id, code, params}` |
 | `drop` | `{paths: [str]}` |
 | `library.changed`, `config.changed` | `{}` |
+
+Besides the front end's jobs, the web UI submits one of its own: `library.prune` once per library it builds (see
+library).
 
 ## RPC
 
@@ -354,8 +394,8 @@ Events on `/api/events`:
 | `favorites.set {variant, on}` | |
 | `aliases.set {family, aliases}` | the user's own aliases of a student as kept (`webui/state.py`: NFC, no control or format characters, whitespace runs one space, empty and repeated ones, ignoring case and width, dropped); `alias_too_long` past 24 characters, `alias_too_many` past 8, and nothing is kept then; an empty list forgets them |
 | `mods.add {paths}` / `mods.pick` | added entries (`mods.pick` opens the native file dialog) |
-| `mods.remove {id}`, `mods.rename {id, label}`, `mods.seen {id}` | |
-| `actions.apply {variant, source}` / `actions.restore {variant}` | job id |
+| `mods.remove {id}`, `mods.rename {id, label}`, `mods.seen {id}` | `mods.remove`: `mod_in_use` while the game shows the mod |
+| `actions.apply {variant, source, kind}` / `actions.restore {variant, kind}` | job id; switches what the game shows, `kind` `spr` (default) or `lobby` (see library) |
 | `actions.update {mod}` / `actions.extract {target}` | job id |
 | `actions.compare {mod}` | per-asset differences |
 | `os.reveal {path}` | |
@@ -682,7 +722,9 @@ in `pointer-textures`); without a game the system cursor stays and there is no e
 
 ## Tests
 
-- `config`, `catalog` and `library` with fixtures and temporary folders.
+- `config`, `catalog` and `library` with fixtures and temporary folders (`library`: a fake game folder of
+  header-only bundles; its end-to-end checks copy a few real bundles into a temporary folder, never writing into the
+  install).
 - `gameassets` and end-to-end checks against a real install; skipped unless one is found (`BAMT_TEST_GAME_DIR`, or
   `game_paths.find_game_dirs`).
 - `webui` through its WSGI app, without a window.

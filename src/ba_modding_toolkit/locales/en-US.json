@@ -1045,13 +1045,14 @@
 			"game_status_unavailable": "Could not tell whether the game is running",
 			"library_operation_failed": "The mod library could not do that",
 			"mod_apply_failed": "Could not apply the mod",
+			"mod_in_use": "In use in the game; switch to another first",
 			"mod_not_found": "Mod not found",
 			"mod_target_mismatch": "This mod does not fit this variant",
 			"mod_update_failed": "Could not update the mod",
 			"original_invalid": "The kept original is damaged: {file}",
 			"original_unavailable": "No original file to restore; verify the game files in the launcher first",
 			"source_unsupported": "Unsupported source",
-			"variant_incompatible": "The two portraits are built differently and cannot be swapped",
+			"variant_incompatible": "Built differently; cannot be swapped",
 			"variant_not_found": "Variant not found"
 		},
 		"drop": {
