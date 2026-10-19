@@ -45,17 +45,18 @@ function rowBase(name, y, h, title) {
   ]);
 }
 
-// radio options in a row (the game's On / Off toggles, as many as needed)
+// radio options in a row (the game's On / Off toggles, as many as needed): [value, text, the text's language if it is
+// not the page's]
 function radioRow(name, y, title, options, selected, onPick) {
   const h = 240, row = rowBase(name, y, h, title), hits = [];
   const pitch = Math.min(508, 1400 / options.length);
-  options.forEach(([value, text], i) => {
+  options.forEach(([value, text, lang], i) => {
     const x = -689 + i * pitch, on = value === selected;
-    const f = fitText(text, 48, 34, pitch - 110);
+    const f = fitText(text, 48, 34, pitch - 110, 2, lang);
     row.children.push(node(`Opt_${i}`, [x, -h / 2 + 65.5], [], [
       node("BG", [0, 0], [sprite("Common_Btn_Radio_BG", 60, 60, { type: 0, depth: 25 })]),
       ...(on ? [node("On", [0, 0], [sprite("Common_Btn_Radio_On", 60, 60, { type: 0, depth: 26 })])] : []),
-      node("Label", [49, -5], [label(f.text, f.fs, `#2c4663/${on ? "1.00" : "0.71"}`, pitch - 90, 50, { pivot: 3, depth: 26 })]),
+      node("Label", [49, -5], [label(f.text, f.fs, `#2c4663/${on ? "1.00" : "0.71"}`, pitch - 90, 50, { pivot: 3, depth: 26, lang })]),
     ]));
     hits.push({ path: `${name}/Opt_${i}/BG`, w: pitch - 20, fn: () => onPick(value), title: text });
   });
@@ -154,7 +155,8 @@ function rows() {
   };
   const open = T(platform === "mac" ? "open.mac" : "open.win");
   if (tab === "general") {
-    add(radioRow("Language", 0, T("settings.language"), p.languages.map((l) => [l.code, l.name]), p.language, (v) => set("language", v)));
+    // each language named in itself, in its own fonts
+    add(radioRow("Language", 0, T("settings.language"), p.languages.map((l) => [l.code, l.name, l.code]), p.language, (v) => set("language", v)));
     add(valueRow("Cache", 0, T("settings.cache.label"), p.consent ? T("cacheTo", { path: p.cacheDir }) : `${T("settings.cache.off")} - ${p.cacheDir}`, [
       [T("settings.cache.change"), browse("cacheDir", p.cacheDir), p.native],
       [T("settings.cache.clear"), async () => { if (await call(() => rpc("settings.clearCache")) !== null) toast(T("settings.cache.cleared")); }, !!p.consent]]));

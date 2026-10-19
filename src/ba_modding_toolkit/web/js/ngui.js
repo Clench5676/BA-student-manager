@@ -20,15 +20,24 @@ const LATIN_SCALE = 1.12, LATIN_LIFT = 0.085;
 const isLatin = (str) => !/[\u2e80-\u9fff\u3000-\u303f\uff00-\uffef\u3040-\u30ff\uac00-\ud7af\u1100-\u11ff\u3130-\u318f]/.test(str);
 export const fontSizeFor = (str, fs) => fs * (isLatin(str) ? LATIN_SCALE : 1);
 const measureCtx = document.createElement("canvas").getContext("2d");
-// the page font stack of the UI language (app.css --font, chosen by the html lang), read again when the lang changes
-let stackLang = null, stack = "RHR, sans-serif";
+// the font stack text in a language draws with (app.css --font): the UI language's (the html lang), or another one's
+// for text tagged with its own lang (fitText's lang); read from a probe element once per language
+const stacks = new Map();
+let measureLang = null; // the language fitText measures in, when not the page's
+const textLang = () => measureLang || document.documentElement.lang || "";
 function fontStack() {
-  const lang = document.documentElement.lang;
-  if (lang !== stackLang) {
-    stackLang = lang;
-    stack = getComputedStyle(document.documentElement).getPropertyValue("--font").trim() || "RHR, sans-serif";
-  }
-  return stack;
+  const lang = textLang();
+  if (stacks.has(lang)) return stacks.get(lang);
+  let stack = "";
+  try {
+    const probe = document.createElement("span");
+    probe.lang = lang;
+    document.documentElement.appendChild(probe);
+    stack = getComputedStyle(probe).getPropertyValue("--font").trim();
+    probe.remove();
+  } catch { /* no page to read it from */ }
+  if (stack) stacks.set(lang, stack); // not before the style sheet is in
+  return stack || "RHR, sans-serif";
 }
 export function textWidth(str, fs) {
   measureCtx.font = `500 ${fontSizeFor(str, fs)}px ${fontStack()}`;
@@ -242,6 +251,7 @@ export async function render(tree, host, opts = {}) {
         fontStyle: w.italic ? "italic" : "",
         paddingBottom: `${(fontSizeFor(text, w.fontSize || 40) * sy * S * (isLatin(text) ? LATIN_LIFT : GLYPH_LIFT) * 2).toFixed(2)}px`,
       });
+      if (w.lang) el.lang = w.lang; // text in another language than the page's draws with its fonts (app.css)
       if (w.ellipsis) {
         const span = document.createElement("span");
         Object.assign(span.style, { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100%" });
@@ -372,7 +382,7 @@ const NO_END = /[\uff08\uff3b\uff5b\uff5f\u3008\u300a\u300c\u300e\u3010\u3014\u3
 function tokensOf(str, cjkBreaks) {
   let tokens = String(str).split(/(?<=[\uff0c\u3001]|, | - |\s)|(?=[\uff08(])/).filter(Boolean);
   // CJK runs break between words (Intl.Segmenter), so a compound such as "add memorial lobby" wraps between its words, not inside one
-  const seg = typeof Intl !== "undefined" && Intl.Segmenter ? new Intl.Segmenter(document.documentElement.lang || "zh", { granularity: "word" }) : null;
+  const seg = typeof Intl !== "undefined" && Intl.Segmenter ? new Intl.Segmenter(textLang() || "zh", { granularity: "word" }) : null;
   if (cjkBreaks) tokens = tokens.flatMap((tok) => (!CJK.test(tok) ? [tok] : seg ? [...seg.segment(tok)].map((x) => x.segment)
     : tok.match(/[\u3040-\u30ff\u3400-\u9fff\uff00-\uffef]|[^\u3040-\u30ff\u3400-\u9fff\uff00-\uffef]+/g)));
   // a token that may not start a line joins the one before it, one after an opening bracket joins that bracket
@@ -394,8 +404,17 @@ function breakLines(tokens, fs, maxW) {
   if (cur) lines.push(cur.trimEnd());
   return lines;
 }
-export function fitText(str, fsMax, fsMin, maxW, maxLines = 2) {
-  str = String(str ?? "");
+// lang: the text's language when it is not the page's (it is drawn in that language's fonts, app.css)
+export function fitText(str, fsMax, fsMin, maxW, maxLines = 2, lang = null) {
+  const outer = measureLang;
+  measureLang = lang || outer;
+  try {
+    return fitLines(String(str ?? ""), fsMax, fsMin, maxW, maxLines);
+  } finally {
+    measureLang = outer;
+  }
+}
+function fitLines(str, fsMax, fsMin, maxW, maxLines) {
   for (let fs = fsMax; fs >= fsMin; fs -= 2) if (glyphWidth(str, fs) <= maxW) return { text: str, fs, lines: 1 };
   for (const cjkBreaks of [false, true]) {
     const tokens = tokensOf(str, cjkBreaks);
@@ -419,7 +438,7 @@ export function fitText(str, fsMax, fsMin, maxW, maxLines = 2) {
 // fitText into a label widget: its text and size, and its box at least maxW wide, so text fitted to maxW never spills
 // out of a narrower box (a prefab label is often a little narrower than the button drawn round it)
 export function fitLabel(widget, str, fsMax, fsMin, maxW, maxLines = 2) {
-  const f = fitText(str, fsMax, fsMin, maxW, maxLines);
+  const f = fitText(str, fsMax, fsMin, maxW, maxLines, widget.lang);
   Object.assign(widget, { text: f.text, fontSize: f.fs, w_: Math.max(widget.w_ || 0, maxW) });
   return f;
 }

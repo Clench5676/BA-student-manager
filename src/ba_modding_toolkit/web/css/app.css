@@ -11,18 +11,22 @@
 
 :root {
   --navy-text: #2c445c;
-  --font: "RHR", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
   --w: 500;
   /* the pointer: the game's own once cursor.js has read it (the system cursor without a game); one for everything
      and one for what reacts to a press (the game shows the same pointer on both) */
   --cursor: default;
   --cursor-press: pointer;
 }
-/* per UI language (html lang, i18n.js): its own system fonts for CJK (macOS, Windows, Linux), RHR last for a glyph
-   none of them has; ngui.textWidth measures with the same stack */
-:root:lang(zh-TW) { --font: "RHR Latin", "PingFang TC", "Microsoft JhengHei UI", "Microsoft JhengHei", "Noto Sans CJK TC", "RHR", sans-serif; }
-:root:lang(ja) { --font: "RHR Latin", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Meiryo UI", "Noto Sans CJK JP", "RHR", sans-serif; }
-:root:lang(ko) { --font: "RHR Latin", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans CJK KR", "RHR", sans-serif; }
+/* per language (the html lang, i18n.js, or an element's own): zh-CN and en-US draw everything with RHR, the others
+   their own system fonts for CJK (macOS, Windows, Linux), RHR last for a glyph none of them has. ngui.textWidth
+   measures with the page's stack */
+:root, [lang="zh-CN"], [lang="en-US"] { --font: "RHR", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; }
+:lang(zh-TW) { --font: "RHR Latin", "PingFang TC", "Microsoft JhengHei UI", "Microsoft JhengHei", "Noto Sans CJK TC", "RHR", sans-serif; }
+:lang(ja) { --font: "RHR Latin", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Meiryo UI", "Noto Sans CJK JP", "RHR", sans-serif; }
+:lang(ko) { --font: "RHR Latin", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans CJK KR", "RHR", sans-serif; }
+/* text in another language than the page's (each language's name in the language list) draws with its own stack: a
+   Korean screen's fonts have no glyph for some Simplified characters and would mix two fonts in one name */
+.stage [lang] { font-family: var(--font); }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { height: 100%; background: #0d1626; overflow: hidden; }
