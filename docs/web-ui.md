@@ -18,27 +18,42 @@ at runtime and never shipped with the program.
 
 ## Languages
 
-- The UI languages are the localization roadmap's M1 (`i18n.UI_LANGUAGES`: zh-CN, zh-TW, en-US, ja-JP, ko-KR); a
-  language is offered (the settings popup, `settings.set language`) once its locale file
-  `locales/<code>.json` exists (`i18n.offered_languages`). The classic GUI lists every locale file.
+- The UI languages are the localization roadmap's M1 (`i18n.UI_LANGUAGES`: zh-CN, zh-TW, en-US, ja-JP, ko-KR), all
+  shipped since 0.1.0-alpha.3: `locales/<code>.json` has every en-US key of the web UI and the classic GUI
+  (`tests/test_locales.py`). A language is offered (the settings popup, `settings.set language`) once its locale
+  file exists (`i18n.offered_languages`), each named in itself and drawn in its own fonts. The classic GUI lists
+  every locale file.
+- Wording: game concepts take the official server's words (the Global client's Traditional Chinese and Korean, the JP
+  server's Japanese, the Global English); Simplified Chinese follows Kivo's community wording. Words the game never
+  uses follow each language's community and the UI text separators (Korean: half-width brackets and ", ").
 - The first start takes the system language (`i18n.match_language`): Traditional Chinese (zh-Hant, zh-TW, zh-HK,
-  zh-MO) zh-TW, other Chinese zh-CN, Japanese ja-JP, Korean ko-KR, the rest en-US. Without the language's file yet,
-  Traditional Chinese gets the whole zh-CN screen, the others en-US. `BAMT_LANG` overrides it.
+  zh-MO) zh-TW, other Chinese zh-CN, Japanese ja-JP, Korean ko-KR, the rest en-US. Without the language's file (a
+  build that leaves it out), Traditional Chinese gets the whole zh-CN screen, the others en-US. `BAMT_LANG`
+  overrides it.
 - A string a locale file lacks falls back key by key (`i18n.fallback_language`): Simplified Chinese to zh-CN, every
   other language, Traditional Chinese included, to en-US. A Simplified (and Kivo-worded) string in a Traditional
   screen reads as a wrong translation, an English one as an untranslated one, which also shows the translator what
   is missing; CLDR, too, gives zh-Hant the root locale as its parent, not zh.
-- Names come with the data per language (`i18n.js` `NAME_LANG`: zh-CN, zh-TW, en, ja, ko); a missing name falls
-  back to en, Simplified Chinese ones to zh-CN first. The lobby's lines follow the UI language (`LINE_LANGS`).
+- Names come with the data per language (`i18n.js` `NAME_LANG`: zh-CN, zh-TW, en, ja, ko); the catalog names every
+  variant in all five (the game's own names where it has them, SchaleDB's, curated ones, or translated in the game's
+  vocabulary); a missing name would fall back to en, Simplified Chinese ones to zh-CN first. The lobby's lines follow
+  the UI language (`LINE_LANGS`: Kivo's zh-CN and ja, the Global client's zh-TW, en and ko).
+- Text fitting (`ngui.fitText`) shrinks, then wraps at separators and between words (`Intl.Segmenter` in the text's
+  language), keeping the CJK line-breaking rules: no closing bracket, comma, full stop, ellipsis, small kana or
+  prolonged sound mark starts a line, no opening bracket ends one. `ngui.fitLabel` also widens the label to the
+  width it was fitted to.
 - Fonts: the page draws with Resource Han Rounded CN (`web/fonts`, OFL, shipped). It covers every Han and kana
   character of the zh-TW and ja names and of the games' UI strings, but in Simplified Chinese glyph forms and
   punctuation positions, and it has no Hangul. So the html `lang` (set from the UI language) picks a stack in
   `app.css`: zh-CN and en-US keep the font for everything; zh-TW, ja and ko keep it for Latin letters and digits
   only (`RHR Latin`, the same file with a `unicode-range`) and draw CJK with the system font of the language
   (PingFang TC / Microsoft JhengHei, Hiragino Sans / Yu Gothic UI, Apple SD Gothic Neo / Malgun Gothic, Noto Sans CJK
-  on Linux), with the full font last for a glyph none of them has. No font is added. `ngui.textWidth` measures with
-  the same stack, and Hangul counts as CJK for the label sizing. The classic GUI switches its text font to the
-  language's system font the same way (`Theme.use_language`).
+  on Linux), with the full font last for a glyph none of them has. No font is added. Text in another language than
+  the page's carries its own `lang` (a label widget's `lang`, as each language's name in the settings) and draws with
+  that language's stack, so a name never mixes two fonts. `ngui.textWidth` measures with the same stack as the text
+  draws with, and Hangul counts as CJK for the label sizing. The classic GUI switches the font of its own text
+  widgets (drop zones, inputs, status bar, tooltips) to the language's system font the same way
+  (`Theme.use_language`); its ttk widgets keep the system's default font.
 - The Global client's own fonts (in the install: Noto Sans TC Medium for zh-TW, GyeonggiTitle Medium as the Korean
   main font, Noto Sans and RSU for en and th) are not used yet.
 

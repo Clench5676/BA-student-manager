@@ -20,7 +20,7 @@
 ## Why BMPT
 
 - **See every student you can mod.** The student list is built from your own game install: every portrait variant,
-  official names in Chinese, English and Japanese, recruitable students marked, favourites pinned.
+  official names in Chinese, English, Japanese and Korean, recruitable students marked, favourites pinned.
 - **Preview before you play.** Live Spine portraits with every expression, memorial lobbies with their dialogue lines
   and voices.
 - **Switch portraits in one click.** Wear a mod, or another outfit's portrait, on any variant. The official file is
@@ -90,7 +90,7 @@ their files.
 
 ## Languages
 
-Simplified Chinese and English. Traditional Chinese, Japanese and Korean are next, then Thai and Vietnamese.
+English, Simplified Chinese, Traditional Chinese, Japanese and Korean. Thai and Vietnamese are next.
 
 ## Command line
 
