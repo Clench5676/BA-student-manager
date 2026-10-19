@@ -8,6 +8,10 @@
 // cursor. Cursor_1 (the halo crosshair, hotspot in its middle, a software cursor) is the controller's pointer.
 // The window must leave body's cursor alone: pywebview's text_select=False adds "body { cursor: default }" after
 // app.css (webui/main.py keeps it True).
+// WebKit (WKWebView) drops a cursor image whose box would cross the window's right or bottom edge and shows the system
+// arrow instead (Style::Cursor::selectImageCursor): the image is cut to the texture's opaque part, and smaller cuts of
+// it follow in the list for the last pixels at those edges (the first one that fits is shown). Other engines take the
+// first, the whole pointer.
 //
 // Touch effect: touch-fx.js simulates FX_Touch; this draws it on two canvases over the whole window, below the
 // pointer and above everything else, idle (hidden, no frame loop, no bitmap) while nothing animates. The light goes to
@@ -21,6 +25,7 @@ import * as FX from "./touch-fx.js";
 const POINTER = "PCIcon_MousePoint";
 const TEXTURES = { ring: "FX_TEX_Grad_Ring3", disc: "FX_TEX_Circle_01", tri: "FX_TEX_Triangle_02_1", trail: "FX_TEX_Trail_03" };
 const SIZE = 32; // CSS px
+const STEP = 4; // CSS px between the cuts kept for the window's right and bottom edges
 
 function image(name) {
   return new Promise((resolve) => {
@@ -38,23 +43,51 @@ function canvas(w, h) {
   return c;
 }
 
-function scaled(img, size) {
-  const c = canvas(size, size), g = c.getContext("2d");
+// the pointer at `scale` times its CSS size, cut to a box of w x h CSS px from its top left (the hotspot), as an object
+// URL: the cursor value stays short (every button resolves it), unlike with data: URLs
+function cut(img, scale, w, h) {
+  const c = canvas(w * scale, h * scale), g = c.getContext("2d");
   g.imageSmoothingQuality = "high";
-  g.drawImage(img, 0, 0, size, size);
-  return c.toDataURL("image/png");
+  g.drawImage(img, 0, 0, SIZE * scale, SIZE * scale);
+  return new Promise((resolve) => c.toBlob((blob) => resolve(blob && URL.createObjectURL(blob)), "image/png"));
 }
 
-// the pointer as a CSS cursor value, in the first syntax the engine takes (image-set keeps it sharp on HiDPI)
-export function cursorValue(one, two, supports = (v) => CSS.supports("cursor", v)) {
-  const set = `url("${one}") 1x, url("${two}") 2x`;
-  return [`image-set(${set}) 0 0, auto`, `-webkit-image-set(${set}) 0 0, auto`, `url("${one}") 0 0, auto`].find(supports) || null;
+// the opaque part of the pointer's texture (an ImageData) from its top left, in CSS px at `size`
+export function opaqueBox({ data, width, height }, size = SIZE) {
+  let w = 0, h = 0;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      if (data[(y * width + x) * 4 + 3]) { w = Math.max(w, x + 1); h = y + 1; }
+    }
+  }
+  return w ? [Math.ceil(w * size / width), Math.ceil(h * size / height)] : [size, size];
+}
+
+// the pointer's boxes in the order WebKit tries them: the whole pointer, then narrower ones for the right edge,
+// shorter ones for the bottom edge and smaller squares for the corner, `step` CSS px apart
+export function pointerBoxes([w, h], step = STEP) {
+  const cuts = (n) => Array.from({ length: Math.ceil(n / step) - 1 }, (_, i) => (Math.ceil(n / step) - 1 - i) * step);
+  return [[w, h], ...cuts(w).map((x) => [x, h]), ...cuts(h).map((y) => [w, y]), ...cuts(Math.min(w, h)).map((s) => [s, s])];
+}
+
+// the pointer as a CSS cursor value, in the first syntax the engine takes (image-set keeps it sharp on HiDPI): sets
+// lists each box's 1x and 2x image, the system cursor comes last
+export function cursorValue(sets, supports = (v) => CSS.supports("cursor", v)) {
+  const list = (one) => [...sets.map((set) => `${one(set)} 0 0`), "auto"].join(", ");
+  return [
+    list(([a, b]) => `image-set(url("${a}") 1x, url("${b}") 2x)`),
+    list(([a, b]) => `-webkit-image-set(url("${a}") 1x, url("${b}") 2x)`),
+    list(([a]) => `url("${a}")`),
+  ].find(supports) || null;
 }
 
 async function initPointer() {
   const img = await image(POINTER);
   if (!img) return;
-  const value = cursorValue(scaled(img, SIZE), scaled(img, SIZE * 2));
+  const boxes = pointerBoxes(opaqueBox(pixels(img)));
+  const sets = await Promise.all(boxes.map(([w, h]) => Promise.all([cut(img, 1, w, h), cut(img, 2, w, h)])));
+  if (sets.flat().some((url) => !url)) return;
+  const value = cursorValue(sets);
   if (!value) return;
   const root = document.documentElement.style;
   root.setProperty("--cursor", value);
