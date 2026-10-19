@@ -71,7 +71,9 @@ Imports only go one way: `webui` → `library` → `catalog` → `gameassets` �
 - **User data.** The mod library and UI state live in `utils.EXE_DIR` (the portable data directory the app already
   uses for `config.toml` and `output/`). Several instances may share it: a change to the UI state (`webui.json`) is
   applied to the file as it is at that moment, read again under a lock the instances share (`webui.json.lock`), so
-  no instance erases another's keys, and reads follow the other instances' writes. The user's own aliases of the
+  no instance erases another's keys, and reads follow the other instances' writes. Those reads take the same lock, as
+  Windows cannot replace a file another process has open; a replace that meets another program's handle (a virus
+  scanner, the search indexer) is tried again for up to a second there. The user's own aliases of the
   students are there too (`aliases`: `{family key: [alias]}`, one student's entry changed at a time), never in the
   program folder or the repository.
 

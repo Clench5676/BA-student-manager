@@ -5,10 +5,13 @@ import json
 import os
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
+import pytest
+
 import ba_modding_toolkit
-from ba_modding_toolkit.webui.state import ALIAS_LENGTH, ALIAS_MAX, UiState
+from ba_modding_toolkit.webui.state import ALIAS_LENGTH, ALIAS_MAX, UiState, _replace
 
 
 def test_instances_keep_each_others_keys(tmp_path):
@@ -60,6 +63,82 @@ def test_an_unreadable_file_keeps_what_is_known(tmp_path):
     state.set("voice_muted", True)
     assert UiState(path).get("voice_muted") is True
     assert not list(tmp_path.glob("*.tmp")), "no temporary file is left behind"
+
+
+def test_a_write_waits_for_another_instance_reading(tmp_path, monkeypatch):
+    """Windows cannot replace a file another process has open (Python opens files without FILE_SHARE_DELETE): an
+    instance reads the file another one wrote under the lock the instances share, so a write waits for the read
+    instead of failing. Windows' rule is played here: os.replace fails while a reader has the file open."""
+    path = tmp_path / "webui.json"
+    a, b = UiState(path), UiState(path)
+    a.set("voice_volume", 40)  # b reads the file again on its next look
+    held, reading, release = [0], threading.Event(), threading.Event()
+    real_read_text, real_replace = Path.read_text, os.replace
+
+    def read_text(self, *args, **kwargs):
+        if self != path or threading.current_thread().name != "reader":
+            return real_read_text(self, *args, **kwargs)
+        held[0] += 1
+        try:
+            reading.set()
+            release.wait(10)
+            return real_read_text(self, *args, **kwargs)
+        finally:
+            held[0] -= 1
+
+    def replace(src, dst):
+        if Path(dst) == path and held[0]:
+            raise PermissionError(13, "The process cannot access the file because it is being used by another "
+                                      "process", str(dst))
+        real_replace(src, dst)
+
+    monkeypatch.setattr(Path, "read_text", read_text)
+    monkeypatch.setattr(os, "replace", replace)
+    seen, errors = [], []
+
+    def write():
+        try:
+            a.set("voice_muted", True)
+        except OSError as err:
+            errors.append(err)
+
+    reader = threading.Thread(target=lambda: seen.append(b.get("voice_volume")), name="reader")
+    writer = threading.Thread(target=write, name="writer")
+    reader.start()
+    assert reading.wait(10)
+    writer.start()
+    writer.join(0.3)  # unlocked, the write would fail at once; locked, it waits for the read
+    release.set()
+    reader.join(10)
+    writer.join(10)
+    assert errors == []
+    assert seen == [40]
+    assert UiState(path).get("voice_muted") is True and UiState(path).get("voice_volume") == 40
+
+
+def test_a_file_held_for_a_moment_is_replaced_once_let_go(tmp_path, monkeypatch):
+    """Another program holding the file without delete sharing (on Windows a virus scanner or the search indexer
+    looking at it) delays a write for a moment instead of failing it."""
+    calls = []
+    real_replace = os.replace
+
+    def replace(src, dst):
+        calls.append(dst)
+        if len(calls) < 3:
+            raise PermissionError(13, "Access is denied", str(dst))
+        real_replace(src, dst)
+
+    monkeypatch.setattr(os, "replace", replace)
+    src, dst = tmp_path / "new.tmp", tmp_path / "webui.json"
+    src.write_text("{}", encoding="utf-8")
+    _replace(str(src), dst, tries=5, wait=0)
+    assert len(calls) == 3 and dst.read_text(encoding="utf-8") == "{}" and not src.exists()
+    # held for longer: the error comes out once the tries are spent
+    calls.clear()
+    src.write_text("{}", encoding="utf-8")
+    with pytest.raises(PermissionError):
+        _replace(str(src), dst, tries=2, wait=0)
+    assert len(calls) == 2
 
 
 def test_own_aliases_are_kept_per_student_and_merged(tmp_path):
