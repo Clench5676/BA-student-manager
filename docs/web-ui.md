@@ -121,11 +121,33 @@ only an EX skill shows are kept aside the same way, though the prefab enables th
 (of the face renderers, the ones without eyes beside one with them; the gag face lies in front of the eyes, and the
 skill's timeline, not the Animator, switches the faces) and a cut-in copy of the body.
 `web/js/chibi-materials.js` ports the MX/C-* shaders from their compiled D3D11 programs (the game is in linear
-colour space; the character light is the standard one, white and from straight above, without ambient), and for props
+colour space; the light is the formation screen's, below), and for props
 DSFX/FX_SHADER_Matcap (a riot shield, soup), MX/E-Water (the surface colour: the game deepens it by the camera depth
 behind it, which a lone chibi lacks) and the unlit and effect shaders, each with its own texture slot and colour. The outline is
 0.1 % of the stage width times the vertex colour alpha, as in the game. The camera orbits freely; the zoom stays between
 the bust and a step back, and a double click returns to the front view.
+
+The light is the formation screen's, read from the game rather than fitted to renders:
+
+- *Light colour.* The game's modified URP (`ForwardLights.SetupMainLightConstants`) derives `_MxCharLightTone`,
+  `_MxCharShadowTone` and `_MxCharLightData` from the main directional light (or a `CharacterLightColor` override):
+  hue and brightness apart, data.x = 0.85 max + 0.15 (`characterLight`). UIFormation's light is white, intensity 1:
+  tone 1, data (1, 1).
+- *Direction.* `_MxCharLightDir` comes from the topmost `CharacterLight`; on the formation screen that is GameMain's
+  CharacterLightFallback, from straight above.
+- *Ambient.* Layer4, Single, Hair, Face and Weapon add the ambient probe (`unity_SH*`), evaluated per vertex at the
+  world normal, clamped at 0 and scaled to a channel sum of at most 0.3. Outside battle the active scene is EmptyScene
+  (`Persistent.GameStart` loads it alone; only battles, minigames and Undercover set another scene active), Trilight
+  ambient with the colours SceneLightingLoader also uses as its defaults. `trilightProbe` turns them into the probe as
+  Unity 2021.3 does (UnityPlayer: a cube map of 2 x 2 texels a face, +Y sky, -Y ground, the sides equator, projected
+  onto L2 SH, then the cosine lobe): about +0.1 in every channel, bluer on surfaces that face up.
+
+Other screens differ: the cafe (Cafe3D) sets its own Trilight colours (a neutral +0.1), and each battle stage has its
+own main light, ambient and baked light probes. Against the 30 EnemyInfo renders, the 21 newer ones (the `CH0xxx` and
+`*_Original` names) match with the ambient (median game / tool ratio in linear light: lit hair and body 1.00, 1.10
+without it; shadowed hair 1.02 and body 1.07, 1.18 and 1.25 without it), and the 8 older ones (`Aru_SR`,
+`Hoshino_SG` and the like) match without it: they were rendered in a scene without ambient, about 10 % darker than
+the formation screen.
 
 `AssetNotFound` (a `KeyError`) when a name is unknown. Layout nodes use the schema of
 `prototype/research-v4/tools/layout.py`: `{name, active, pos[x, y], scale[x, y], rotZ, widgets[], children?}` with
