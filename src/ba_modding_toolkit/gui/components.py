@@ -150,6 +150,24 @@ class Theme:
         DROP_ZONE_FONT = INPUT_FONT = STATUS_BAR_FONT = TOOLTIP_FONT = ("PingFang SC", 12)
         LOG_FONT = ("Menlo", 11)
 
+    # The system font of each UI language for the text above (Windows, macOS): Simplified Chinese glyph forms read
+    # wrong in Traditional Chinese and Japanese, and the Chinese fonts have no Hangul
+    LANGUAGE_FONTS = {
+        "zh-TW": ("Microsoft JhengHei UI", "PingFang TC"),
+        "ja-JP": ("Yu Gothic UI", "Hiragino Sans"),
+        "ko-KR": ("Malgun Gothic", "Apple SD Gothic Neo"),
+    }
+
+    @classmethod
+    def use_language(cls, lang: str) -> None:
+        """Switch the text fonts to the UI language's system font; call before the widgets are built."""
+        families = cls.LANGUAGE_FONTS.get(lang)
+        if not families:
+            return
+        family = families[1] if sys.platform == "darwin" else families[0]
+        for name in ("DROP_ZONE_FONT", "INPUT_FONT", "STATUS_BAR_FONT", "TOOLTIP_FONT"):
+            setattr(cls, name, (family, getattr(cls, name)[1]))
+
 
 # --- UI 组件工厂 ---
 

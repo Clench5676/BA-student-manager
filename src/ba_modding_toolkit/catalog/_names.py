@@ -15,7 +15,8 @@ import json
 import re
 from pathlib import Path
 
-LANGUAGES = {"zh-CN": "cn", "zh-TW": "tw", "en": "en", "ja": "jp"}
+# name language -> the character map column suffix (name_kr, skin_kr) and SchaleDB table (students.kr.json)
+LANGUAGES = {"zh-CN": "cn", "zh-TW": "tw", "en": "en", "ja": "jp", "ko": "kr"}
 NAMING = json.loads((Path(__file__).parent / "data" / "naming.json").read_text(encoding="utf-8"))
 BASE_SHORT: dict[str, str] = NAMING["base_short"]
 SEPARATORS: dict[str, str] = NAMING["separators"]
@@ -39,11 +40,18 @@ def column(row: dict[str, str], field: str, lang: str) -> str:
 def clean(value: str, lang: str) -> str:
     """Normalize brackets, separators and the Terror asterisk without translating game wording.
 
-    Every language but English writes the Terror asterisk full width (U+FF0A).
+    Chinese and Japanese write the Terror asterisk full width (U+FF0A) and full-width brackets; English and Korean
+    keep the half-width ones, Korean without a space before the bracket, as the game writes them (아즈사(수영복),
+    시로코*테러). A Korean middle dot joins the words of one name (환량 · 츠쿠모가미): a space takes its place.
     """
+    if lang == "ko":
+        value = re.sub(r"\s*[\u00b7\u30fb]\s*", " ", value)
+        value = re.sub(r"\s*[\uff0c\u3001]\s*|\s*,\s*", SEPARATORS[lang], value.strip())
     value = re.sub(r"[\u00b7\u30fb\uff0c\u3001]|,\s*", SEPARATORS[lang], value.strip())
     if lang == "en":
         return re.sub(r"\s*[\uff08(](.*)[\uff09)]$", r" (\1)", value)
+    if lang == "ko":
+        return re.sub(r"\s*[\uff08(](.*)[\uff09)]$", r"(\1)", value.replace("\uff0a", "*"))
     value = value.replace("*", "\uff0a")
     return re.sub(r"\s*[\uff08(](.*)[\uff09)]$", "\uff08" + r"\1" + "\uff09", value)
 
@@ -51,6 +59,16 @@ def clean(value: str, lang: str) -> str:
 def given_name(value: str) -> str:
     """Extract the given name from a character map's surname-first name."""
     return value.strip().rsplit(maxsplit=1)[-1] if value.strip() else ""
+
+
+def bracketed(base: str, inner: str, lang: str) -> str:
+    """A base name with its variant words in the language's brackets: Hoshino (Swimsuit), 호시노(수영복),
+    星野（泳装）."""
+    if lang == "en":
+        return f"{base} ({inner})"
+    if lang == "ko":
+        return f"{base}({inner})"
+    return f"{base}\uff08{inner}\uff09"
 
 
 def short_name(full: str, lang: str) -> str:
@@ -62,7 +80,7 @@ def short_name(full: str, lang: str) -> str:
 def compose(base: str, parts: list[str], lang: str) -> dict[str, str]:
     """Compose a full display name and its variant chip label."""
     inner = SEPARATORS[lang].join(dict.fromkeys(clean(part, lang) for part in parts if part))
-    full = f"{base} ({inner})" if lang == "en" else f"{base}\uff08{inner}\uff09"
+    full = bracketed(base, inner, lang)
     return {"full": full if inner else base, "short": inner or BASE_SHORT[lang]}
 
 
@@ -76,13 +94,22 @@ def remark(row: dict[str, str]) -> str:
     return row.get("spine_remark") or TWINS.get(row.get("file_id", "").lower(), {}).get("remark", "")
 
 
+def _glossary_wins(raw: str, localized: str, lang: str) -> bool:
+    """Whether the glossary's word for a Kivo skin replaces the character map's own: a zh-TW skin that only repeats
+    the Kivo text, and a ko skin the game words otherwise (the map's 임전, 정월, 캠프 for the game's 무장, 새해, 캠핑)."""
+    word = NAMING["glossary"].get(raw, {}).get(lang)
+    if word is None or word == localized:
+        return False
+    return lang == "ko" or (lang == "zh-TW" and localized == raw)
+
+
 def _parts(row: dict[str, str], lang: str) -> list[tuple[str, dict | str | None]]:
     """Return the variant words of a row with their origin.
 
     The origin is "csv" for a localized character map skin, the glossary entry that
     supplied the word, or None when the raw Kivo text had to be kept. Glossary keys are
     Kivo's words, so zh-CN keeps the raw Kivo text. A zh-TW skin that only repeats the
-    Kivo text counts as missing when the glossary writes it otherwise.
+    Kivo text, and a ko skin the glossary words otherwise, count as missing (_glossary_wins).
     """
     raw_skin = row.get("skin_kivo") or row.get("skin_cn", "")
     glossary = NAMING["glossary"]
@@ -90,8 +117,7 @@ def _parts(row: dict[str, str], lang: str) -> list[tuple[str, dict | str | None]
     for raw, localized in ((raw_skin, column(row, "skin", lang)), (remark(row), "")):
         if not raw and not localized:
             continue
-        if localized and not (lang == "zh-TW" and localized == raw
-                              and glossary.get(raw, {}).get(lang, localized) != localized):
+        if localized and not _glossary_wins(raw, localized, lang):
             parts.append((localized, "csv"))
             continue
         for part in re.split(PART_SEPARATORS, raw):

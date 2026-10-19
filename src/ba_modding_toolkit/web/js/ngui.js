@@ -16,11 +16,22 @@ const GLYPH_LIFT = 0.06;
 // Latin glyphs of this font are small next to its CJK glyphs and read low (lowercase mass sits on the baseline): text
 // without CJK is drawn 12 % larger and lifted a little more. Measuring goes through textWidth, so layout agrees.
 const LATIN_SCALE = 1.12, LATIN_LIFT = 0.085;
-const isLatin = (str) => !/[\u2e80-\u9fff\u3000-\u303f\uff00-\uffef\u3040-\u30ff]/.test(str);
+// CJK here: Han, kana, CJK punctuation and full-width forms, and Hangul (syllables, jamo, compatibility jamo)
+const isLatin = (str) => !/[\u2e80-\u9fff\u3000-\u303f\uff00-\uffef\u3040-\u30ff\uac00-\ud7af\u1100-\u11ff\u3130-\u318f]/.test(str);
 export const fontSizeFor = (str, fs) => fs * (isLatin(str) ? LATIN_SCALE : 1);
 const measureCtx = document.createElement("canvas").getContext("2d");
+// the page font stack of the UI language (app.css --font, chosen by the html lang), read again when the lang changes
+let stackLang = null, stack = "RHR, sans-serif";
+function fontStack() {
+  const lang = document.documentElement.lang;
+  if (lang !== stackLang) {
+    stackLang = lang;
+    stack = getComputedStyle(document.documentElement).getPropertyValue("--font").trim() || "RHR, sans-serif";
+  }
+  return stack;
+}
 export function textWidth(str, fs) {
-  measureCtx.font = `500 ${fontSizeFor(str, fs)}px RHR, "PingFang SC", sans-serif`;
+  measureCtx.font = `500 ${fontSizeFor(str, fs)}px ${fontStack()}`;
   return Math.max(...String(str).split("\n").map((l) => measureCtx.measureText(l).width));
 }
 
