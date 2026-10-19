@@ -1013,7 +1013,7 @@
 			"internal": "Something went wrong: {error}",
 			"game_not_found": "Game folder not found",
 			"mod_unsupported": "Unsupported file: {file}",
-			"game_file_locked": "A game file is in use; close the game first",
+			"game_file_locked": "A game file is in use, close the game first",
 			"native_unavailable": "Not available in browser mode",
 			"path_not_found": "Path not found: {path}",
 			"reveal_failed": "Could not open the file manager",
@@ -1051,9 +1051,9 @@
 			"mod_target_mismatch": "This mod does not fit this variant",
 			"mod_update_failed": "Could not update the mod",
 			"original_invalid": "The kept original is damaged: {file}",
-			"original_unavailable": "No original file to restore; verify the game files in the launcher first",
+			"original_unavailable": "No original file to restore, verify the game files in the launcher first",
 			"source_unsupported": "Unsupported source",
-			"variant_incompatible": "Built differently; cannot be swapped",
+			"variant_incompatible": "Built differently, cannot be swapped",
 			"variant_not_found": "Variant not found"
 		},
 		"drop": {
