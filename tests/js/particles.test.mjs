@@ -1,0 +1,354 @@
+// Tests for web/js/particles.js (the lobby particle simulation and its geometry) and web/js/particles-gl.js (drawing
+// into a player's context and freeing it again, against a recording stand-in for WebGL2). Run by
+// tests/test_particles_player.py with Node's test runner.
+import assert from "node:assert/strict";
+import { test } from "node:test";
+
+const P = await import("../../src/ba_modding_toolkit/web/js/particles.js");
+const { Effects, value, colorAt, shapePoint, geometry, vertexColor, slotOf, drawOrder, STRIDE, WORLD, IDENTITY } = P;
+
+const near = (a, b, eps = 1e-6, what = "") => assert.ok(Math.abs(a - b) <= eps, `${what} ${a} != ${b}`);
+// a seeded 0..1 source, so every run emits the same particles
+function lcg(seed = 1) {
+  let s = seed >>> 0;
+  return () => ((s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296);
+}
+// a system as particles.py exports it, with neutral defaults
+function sys(over = {}) {
+  const base = {
+    main: { duration: 1, loop: 1, prewarm: 0, delay: 0, speedScale: 1, space: 0, scaling: 0, life: 10, speed: 0, size: [1],
+      rotation: [0], flipRotation: 0, color: { col: [1, 1, 1, 1] }, gravity: 0, max: 1000 },
+    emission: { rate: 0, dist: 0, bursts: [] }, shape: null, modules: {},
+    renderer: { mode: 0, align: 0, sort: 0, minSize: 0, maxSize: 0.5, lengthScale: 2, velocityScale: 0, pivot: [0, 0, 0],
+      flip: [0, 0, 0], streams: { uv: [0, 2] } },
+    playOnAwake: 1, material: "m", queue: 3000, order: 0, layer: 0, name: "s", path: "s", anchor: null,
+    rel: IDENTITY, static: IDENTITY, ls: [1, 1, 1], z: 0,
+  };
+  const out = { ...base, ...over };
+  for (const k of ["main", "emission", "renderer"]) out[k] = { ...base[k], ...(over[k] || {}) };
+  return out;
+}
+const effects = (systems, opts = {}) => new Effects({ systems }, { seed: 7, random: lcg(3), ...opts });
+const run = (fx, seconds, dt = 0.1) => { for (let t = 0; t < seconds - 1e-9; t += dt) fx.update(dt); };
+
+test("MinMaxCurves and gradients", () => {
+  assert.equal(value(2.5, 0.3, 0.9), 2.5);
+  assert.equal(value({ r: [1, 3] }, 0, 0.5), 2);
+  // an AnimationCurve with flat tangents eases between its keys, times its multiplier
+  near(value({ c: [[0, 0, 0, 0], [1, 2, 0, 0]], k: 1 }, 0.5, 0), 1);
+  near(value({ c: [[0, 1, 0, 0]], c0: [[0, 0, 0, 0]], k: 2 }, 0.5, 0.25), 0.5);
+  assert.deepEqual(colorAt({ col: [1, 0.5, 0, 1] }, 0.3, 0.2), [1, 0.5, 0, 1]);
+  assert.deepEqual(colorAt({ r: [[0, 0, 0, 0], [1, 1, 1, 1]] }, 0, 0.25), [0.25, 0.25, 0.25, 0.25]);
+  const g = { c: [[0, 1, 0, 0], [1, 0, 0, 1]], a: [[0, 0], [1, 1]], fixed: 0 };
+  assert.deepEqual(colorAt({ g }, 0.5, 0), [0.5, 0, 0.5, 0.5]);
+  // fixed mode: the first key at or after t
+  assert.deepEqual(colorAt({ g: { ...g, fixed: 1 } }, 0.5, 0), [0, 0, 1, 1]);
+  // a random colour of the gradient
+  assert.deepEqual(colorAt({ g, pick: 1 }, 0.9, 0), [1, 0, 0, 0]);
+});
+
+test("rate over time and bursts with cycles, looping or not", () => {
+  const rate = effects([sys({ emission: { rate: 10 } })]);
+  run(rate, 1);
+  // ten a second (the last one may wait for the next frame)
+  assert.ok(rate.count() >= 9 && rate.count() <= 10, `rate ${rate.count()}`);
+  const loop = effects([sys({ emission: { bursts: [{ t: 0.25, n: 3, cycles: 2, interval: 0.5, p: 1 }] } })]);
+  run(loop, 1);
+  assert.equal(loop.count(), 6);
+  run(loop, 1);
+  assert.equal(loop.count(), 12);
+  const once = effects([sys({ main: { loop: 0 }, emission: { bursts: [{ t: 0, n: 5, cycles: 1, interval: 0.01, p: 1 }] } })]);
+  once.update(0.016);
+  assert.equal(once.count(), 5, "a burst at 0 fires on the first frame");
+  run(once, 2);
+  assert.equal(once.count(), 5);
+  assert.equal(once.systems[0].done, true);
+});
+
+test("prewarm, start delay, max particles and lifetime", () => {
+  const warm = effects([sys({ main: { prewarm: 1 }, emission: { rate: 10 } })]);
+  warm.update(0);
+  assert.ok(warm.count() >= 9 && warm.count() <= 10, `prewarmed ${warm.count()}`);
+  const late = effects([sys({ main: { delay: 0.5 }, emission: { rate: 10 } })]);
+  run(late, 0.5);
+  assert.equal(late.count(), 0);
+  run(late, 0.5);
+  assert.ok(late.count() >= 4 && late.count() <= 5, `after the delay ${late.count()}`);
+  const capped = effects([sys({ main: { max: 3 }, emission: { rate: 100 } })]);
+  run(capped, 1);
+  assert.equal(capped.count(), 3);
+  const short = effects([sys({ main: { life: 0.5 }, emission: { rate: 10 } })]);
+  run(short, 3);
+  assert.ok(short.count() >= 4 && short.count() <= 6, `alive ${short.count()}`);
+  // a system that does not play on awake (or a sub-emitter) emits nothing by itself
+  const idle = effects([sys({ playOnAwake: 0, emission: { rate: 10 } }), sys({ isSub: 1, emission: { rate: 10 } })]);
+  run(idle, 1);
+  assert.equal(idle.count(), 0);
+});
+
+test("shapes emit inside their volume, on their surface or edge, along their direction", () => {
+  const r = lcg(9);
+  for (let i = 0; i < 200; i++) {
+    const box = shapePoint({ type: 5, radius: 1, thickness: 1, arc: 360 }, r);
+    assert.ok(box.p.every((v) => Math.abs(v) <= 0.5) && box.d[2] === 1);
+    const circle = shapePoint({ type: 10, radius: 2, thickness: 1, arc: 360 }, r);
+    assert.ok(Math.hypot(circle.p[0], circle.p[1]) <= 2 + 1e-9 && circle.p[2] === 0);
+    const ring = shapePoint({ type: 11, radius: 2, thickness: 1, arc: 360 }, r);
+    near(Math.hypot(ring.p[0], ring.p[1]), 2, 1e-9, "circle edge");
+    const sphere = shapePoint({ type: 0, radius: 3, thickness: 0, arc: 360 }, r);
+    near(Math.hypot(...sphere.p), 3, 1e-9, "sphere surface");
+    const cone = shapePoint({ type: 4, radius: 1, thickness: 1, angle: 25, arc: 360 }, r);
+    assert.ok(cone.p[2] === 0 && cone.d[2] > Math.cos((26 * Math.PI) / 180));
+    const edge = shapePoint({ type: 12, radius: 4, thickness: 1, arc: 360 }, r);
+    assert.ok(Math.abs(edge.p[0]) <= 4 && edge.p[1] === 0 && edge.d[1] === 1);
+  }
+  // shape position, rotation and scale place the points
+  const fx = effects([sys({ emission: { rate: 50 }, shape: { type: 5, radius: 1, thickness: 1, arc: 360, arcMode: 0, pos: [10, 0, 0],
+    rot: [0, 0, 0], scale: [2, 4, 0], randomDir: 0, spherical: 0, randomPos: 0 } })]);
+  fx.update(0.1);
+  for (const p of fx.systems[0].particles) assert.ok(Math.abs(p.pos[0] - 10) <= 1 && Math.abs(p.pos[1]) <= 2 && p.pos[2] === 0);
+});
+
+test("a system under a bone follows it in local space, stays behind in world space", () => {
+  const anchor = { skeleton: "Home", bone: "FX", go: [100, 0, 0, 0, 0, 100, 0, -962, 0, 0, 100, 0], ds: 0.01 };
+  let bone = { a: 1, b: 0, c: 0, d: 1, worldX: 200, worldY: 300 };
+  const defs = [sys({ anchor, emission: { bursts: [{ t: 0, n: 1, cycles: 1, interval: 0.01, p: 1 }] } }),
+    sys({ anchor, main: { space: 1 }, emission: { bursts: [{ t: 0, n: 1, cycles: 1, interval: 0.01, p: 1 }] } })];
+  const fx = effects(defs, { bone: (skeleton, name) => (skeleton === "Home" && name === "FX" ? bone : null) });
+  fx.update(0.016);
+  const at = (s) => { const g = geometry(fx, fx.systems[s]); return [(g.data[0] + g.data[2 * STRIDE]) / 2, (g.data[1] + g.data[2 * STRIDE + 1]) / 2]; };
+  // skeleton units x 0.01 to Unity units, x 100 on the skeleton GameObject, which sits 962 units down
+  assert.deepEqual(fx.systems[0].W.slice(0, 12).filter((_, i) => i % 4 === 3), [200, -662, 0]);
+  assert.deepEqual(at(0).map(Math.round), [200, -662]);
+  bone = { ...bone, worldX: 250 };
+  fx.update(0.016);
+  assert.deepEqual(at(0).map(Math.round), [250, -662]);
+  assert.deepEqual(at(1).map(Math.round), [200, -662]);
+});
+
+test("velocity over lifetime: linear, orbital, radial and the speed modifier; limit velocity; gravity", () => {
+  const one = { bursts: [{ t: 0, n: 1, cycles: 1, interval: 0.01, p: 1 }] };
+  const linear = effects([sys({ emission: one, modules: { velocity: { x: 0, y: 10, z: 0, orbitalX: 0, orbitalY: 0, orbitalZ: 0,
+    orbitalOffsetX: 0, orbitalOffsetY: 0, orbitalOffsetZ: 0, radial: 0, speed: 0.5, world: 0 } } })]);
+  run(linear, 1);
+  near(linear.systems[0].particles[0].pos[1], 5, 1e-6, "linear y");
+  // a quarter turn a second around z, from (1, 0): exactly (0, 1) after one second whatever the steps
+  const orbit = effects([sys({ emission: one, shape: { type: 5, radius: 1, thickness: 1, arc: 360, pos: [1, 0, 0], rot: [0, 0, 0],
+    scale: [0, 0, 0], randomDir: 0, spherical: 0, randomPos: 0 },
+  modules: { velocity: { x: 0, y: 0, z: 0, orbitalX: 0, orbitalY: 0, orbitalZ: Math.PI / 2, orbitalOffsetX: 0, orbitalOffsetY: 0,
+    orbitalOffsetZ: 0, radial: 0, speed: 1, world: 0 } } })]);
+  orbit.update(0.001);
+  run(orbit, 1);
+  const p = orbit.systems[0].particles[0].pos;
+  near(Math.hypot(p[0], p[1]), 1, 1e-9, "orbit radius");
+  near(Math.atan2(p[1], p[0]), (Math.PI / 2) * 1.001, 1e-6, "orbit angle");
+  // limit velocity with full dampening: never faster than the limit
+  const limited = effects([sys({ emission: one, main: { speed: 100 }, shape: { type: 5, radius: 1, thickness: 1, arc: 360, pos: [0, 0, 0],
+    rot: [0, 0, 0], scale: [0, 0, 0], randomDir: 0, spherical: 0, randomPos: 0 },
+  modules: { limit: { speed: 2, dampen: 1, drag: 0, sep: 0, world: 0 } } })]);
+  run(limited, 1);
+  near(limited.systems[0].particles[0].pos[2], 2, 1e-6, "limited distance");
+  // gravity pulls in Unity world units (the UI root's 2-unit-high view)
+  const falling = effects([sys({ emission: one, main: { gravity: 1, space: 1 } })]);
+  run(falling, 1);
+  near(falling.systems[0].particles[0].vel[1], -9.81 * WORLD, 1e-6, "gravity");
+});
+
+test("colour, size and rotation over lifetime; texture sheet frames", () => {
+  const one = { bursts: [{ t: 0, n: 1, cycles: 1, interval: 0.01, p: 1 }] };
+  const fx = effects([sys({ emission: one, main: { life: 2, color: { col: [1, 0.5, 0.5, 1] } }, modules: {
+    color: { g: { c: [[0, 1, 1, 1], [1, 1, 1, 1]], a: [[0, 1], [1, 0]], fixed: 0 } },
+    size: { x: { c: [[0, 0, 1, 1], [1, 1, 1, 1]], k: 2 }, sep: 0 },
+    rotation: { z: Math.PI, sep: 0 },
+    sheet: { x: 2, y: 2, type: 0, rowMode: 1, row: 0, frame: 0.25, start: 0.25, cycles: 1, time: 0, fps: 30 },
+  } })]);
+  run(fx, 1);
+  const s = fx.systems[0], cur = fx.current(s, s.particles[0]);
+  near(cur.color[3], 0.5, 1e-6, "alpha over lifetime");
+  near(cur.color[1], 0.5, 1e-6, "start colour kept");
+  near(cur.size[0], 1, 1e-6, "size over lifetime");
+  near(cur.rot[2], Math.PI, 1e-6, "rotation over lifetime");
+  // a quarter of the sheet over time plus a quarter to start: the third tile, the bottom left one of a 2 x 2 sheet
+  assert.equal(cur.frame, 2);
+  const g = geometry(fx, s);
+  const uvs = [0, 1, 2, 4].map((v) => [g.data[v * STRIDE + 2], g.data[v * STRIDE + 3]]);
+  assert.deepEqual(uvs, [[0, 0], [0.5, 0], [0.5, 0.5], [0, 0.5]]);
+  // a random start frame over the whole sheet reaches every tile
+  const many = effects([sys({ emission: { rate: 400 }, modules: {
+    sheet: { x: 2, y: 2, type: 0, rowMode: 1, row: 0, frame: 0, start: { r: [0, 0.9999] }, cycles: 1, time: 0, fps: 30 } } })]);
+  run(many, 0.5);
+  const tiles = new Set(many.systems[0].particles.map((p) => many.current(many.systems[0], p).frame));
+  assert.deepEqual([...tiles].sort(), [0, 1, 2, 3]);
+});
+
+test("sub-emitters spawn at their parent while it lives and burst where it dies", () => {
+  const parent = sys({ main: { life: 0.5, speed: 100 }, emission: { bursts: [{ t: 0, n: 1, cycles: 1, interval: 0.01, p: 1 }] },
+    shape: { type: 5, radius: 1, thickness: 1, arc: 360, pos: [0, 0, 0], rot: [0, 0, 0], scale: [0, 0, 0], randomDir: 0, spherical: 0, randomPos: 0 },
+    subs: [{ type: 0, system: 1, inherit: 0, p: 1 }, { type: 2, system: 2, inherit: 0, p: 1 }] });
+  const trail = sys({ isSub: 1, emission: { rate: 20 } });
+  const pop = sys({ isSub: 1, main: { life: 5 }, emission: { bursts: [{ t: 0, n: 4, cycles: 1, interval: 0.01, p: 1 }] } });
+  const fx = effects([parent, trail, pop]);
+  run(fx, 0.4);
+  const [, t] = fx.systems;
+  assert.ok(t.particles.length >= 6, `trail ${t.particles.length}`);
+  // each spawned where the parent was: along +z as it flew
+  assert.ok(t.particles.every((p) => p.pos[2] > 0 && p.pos[2] <= 40 + 1e-6));
+  assert.equal(fx.systems[2].particles.length, 0);
+  run(fx, 0.3);
+  assert.equal(fx.systems[0].particles.length, 0);
+  assert.equal(fx.systems[2].particles.length, 4);
+  for (const p of fx.systems[2].particles) assert.ok(p.pos[2] >= 40 && p.pos[2] <= 50, `death burst at ${p.pos[2]}`);
+});
+
+test("geometry: billboard size, the view's max size, stretch and meshes; vertex colours", () => {
+  const one = { bursts: [{ t: 0, n: 1, cycles: 1, interval: 0.01, p: 1 }] };
+  const scaled = [100, 0, 0, 0, 0, 100, 0, 0, 0, 0, 100, 0];
+  const quad = (over) => {
+    const fx = effects([sys({ emission: one, static: scaled, ...over })]);
+    fx.update(0.016);
+    const g = geometry(fx, fx.systems[0]);
+    const xs = [], ys = [];
+    for (let v = 0; v < g.count; v++) { xs.push(g.data[v * STRIDE]); ys.push(g.data[v * STRIDE + 1]); }
+    // a copy: geometry() fills one buffer again on every call
+    return { w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys), g: { data: g.data.slice(), count: g.count } };
+  };
+  const plain = quad({ main: { size: [2] } });
+  assert.equal(plain.g.count, 6);
+  near(plain.w, 200, 1e-6, "width"); near(plain.h, 200, 1e-6, "height");
+  // no bigger than half the game view's height
+  const big = quad({ main: { size: [20] } });
+  near(big.h, 0.5 * 1665, 1e-6, "max size");
+  // stretched along the velocity: size x length scale long
+  const stretched = quad({ main: { size: [1], speed: 1 }, renderer: { mode: 1, lengthScale: 3 },
+    shape: { type: 12, radius: 0, thickness: 1, arc: 360, pos: [0, 0, 0], rot: [0, 0, 0], scale: [1, 1, 1], randomDir: 0, spherical: 0, randomPos: 0 } });
+  near(stretched.h, 300, 1e-3, "stretched length"); near(stretched.w, 100, 1e-3, "stretched width");
+  const fx = effects([sys({ emission: one, static: scaled, renderer: { mode: 4, mesh: "tri" } })]);
+  fx.update(0.016);
+  const g = geometry(fx, fx.systems[0], { meshes: { tri: { v: [0, 0, 0, 1, 0, 0, 0, 1, 0], i: [0, 1, 2], uv: [0, 0, 1, 0, 0, 1] } } });
+  assert.equal(g.count, 3);
+  assert.deepEqual([g.data[STRIDE], g.data[STRIDE + 1], g.data[2 * STRIDE], g.data[2 * STRIDE + 1]].map(Math.round), [100, 0, 0, 100]);
+  // a billboard's normal faces the camera; a mesh's turns with the particle (a quarter turn about y here)
+  assert.deepEqual([...plain.g.data.slice(18, 21)], [0, 0, -1]);
+  const turned = effects([sys({ emission: one, static: scaled, main: { rotation: [0, Math.PI / 2, 0] }, renderer: { mode: 4, mesh: "tri" } })]);
+  turned.update(0.016);
+  const tg = geometry(turned, turned.systems[0], { meshes: { tri: { v: [0, 0, 0, 1, 0, 0, 0, 1, 0], i: [0, 1, 2], n: [0, 0, -1, 0, 0, -1, 0, 0, -1] } } });
+  assert.deepEqual([...tg.data.slice(18, 21)].map((v) => Math.round(v * 1e6) / 1e6 + 0), [-1, 0, 0]);
+  // the vertex colour: clamped to 8 bits (Color32), then decoded from sRGB in linear light; alpha as it is
+  assert.deepEqual(vertexColor([2, 0.5, -1, 0.25], false), [1, 128 / 255, 0, 64 / 255]);
+  near(vertexColor([1, 0.5, 0, 1], true)[1], 0.2158605, 1e-6, "linear");
+});
+
+test("sort modes draw the oldest or the youngest particles on top", () => {
+  const fx = effects([sys({ emission: { rate: 10 }, renderer: { sort: 2 } })]);
+  run(fx, 1);
+  const s = fx.systems[0];
+  const n = s.particles.length;
+  s.particles.forEach((p, i) => { p.color = [i / n, 0, 0, 1]; });
+  const firstRed = () => geometry(fx, s, { linear: false }).data[14]; // the first vertex's red
+  // oldest in front: the youngest (emitted last) is drawn first
+  near(firstRed(), Math.round(((n - 1) / n) * 255) / 255, 1e-6, "youngest first");
+  s.def.renderer.sort = 3;
+  near(firstRed(), 0, 1e-6, "oldest first");
+});
+
+test("draw order against the skeletons: sorting order, render queue, then back to front", () => {
+  const layers = [{ order: -1, queue: 2900, z: 0 }, { order: 0, queue: 2900, z: 0 }];
+  assert.deepEqual(slotOf({ order: 0, queue: 3100, z: 0 }, layers), { layer: 1, where: "above" });
+  assert.deepEqual(slotOf({ order: -2, queue: 3100, z: 0 }, layers), { layer: 0, where: "below" });
+  assert.deepEqual(slotOf({ order: -1, queue: 3000, z: 0 }, layers), { layer: 0, where: "above" });
+  assert.deepEqual(slotOf({ order: 0, queue: 2800, z: 0 }, layers), { layer: 0, where: "above" });
+  const systems = [{ def: { order: 1, queue: 3000, z: 0 }, index: 0 }, { def: { order: 0, queue: 3100, z: 5 }, index: 1 },
+    { def: { order: 0, queue: 3100, z: 10 }, index: 2 }, { def: { order: 0, queue: 3000, z: 0 }, index: 3 }];
+  assert.deepEqual(drawOrder(systems).map((s) => s.index), [3, 2, 1, 0]);
+});
+
+// --- particles-gl.js: drawing into a player's context and freeing it -------------------------------------------------
+
+class FakeGL {}
+globalThis.WebGL2RenderingContext = FakeGL;
+function fakeGL() {
+  const calls = [], live = new Set();
+  let n = 0;
+  const target = Object.assign(new FakeGL(), { calls, live, drawingBufferWidth: 64, drawingBufferHeight: 32 });
+  return new Proxy(target, {
+    get(t, name) {
+      if (name in t) return t[name];
+      if (typeof name !== "string") return undefined;
+      if (/^[A-Z0-9_]+$/.test(name)) return name;
+      return (...args) => {
+        calls.push([name, ...args]);
+        if (name.startsWith("create")) { const o = { kind: name.slice(6), id: ++n }; live.add(o); return o; }
+        if (name.startsWith("delete")) { live.delete(args[0]); return undefined; }
+        if (name === "getShaderParameter" || name === "getProgramParameter") return args[1] === "ACTIVE_UNIFORMS" ? 0 : true;
+        if (name === "checkFramebufferStatus") return "FRAMEBUFFER_COMPLETE";
+        if (name === "isContextLost") return false;
+        return null;
+      };
+    },
+  });
+}
+class Texture { update() {} getImage() { return {}; } }
+class Batcher { setBlendMode() {} }
+globalThis.spine = { BlendMode: { Normal: 0, Additive: 1 },
+  PolygonBatcher: { blendModesGL: [{ srcRgb: 1, srcRgbPma: 1, dstRgb: 2, srcAlpha: 1 }, { srcRgb: 1, srcRgbPma: 1, dstRgb: 1, srcAlpha: 1 }] } };
+globalThis.performance ??= { now: () => Date.now() };
+const Linear = await import("../../src/ba_modding_toolkit/web/js/linear.js");
+const GL = await import("../../src/ba_modding_toolkit/web/js/particles-gl.js");
+
+function player(gl, layer) {
+  const page = Object.assign(new Texture(), { texture: {}, useMipMaps: false });
+  return {
+    bamtLayer: layer,
+    context: { gl, addRestorable() {}, removeRestorable() {} },
+    skeleton: { data: { skins: [{ getAttachments: () => [{ attachment: { region: { texture: page } } }] }] } },
+    sceneRenderer: { batcher: new Batcher(), camera: { update() {}, projectionView: { values: new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]) } } },
+  };
+}
+
+test("the effects draw in their layer's context with the game's blend and free everything on detach", async () => {
+  const gl = fakeGL(), p = player(gl, { name: "Home", x: 0, y: -962, scale: 1, order: 0, queue: 2900, z: 0 });
+  Linear.attach(p);
+  const linearObjects = new Set(gl.live);
+  const tex = { id: "cab-a_1", name: "glow", w: 4, h: 4, filter: 1, mips: 1, wrap: [1, 0], srgb: 1 };
+  const fx = {
+    systems: [sys({ material: "add", queue: 3100, emission: { rate: 50 } }), sys({ material: "blend", queue: 2800, emission: { rate: 50 } })],
+    materials: {
+      add: { program: "additive", src: 1, dst: 1, queue: 3100, tex: { _Texture: { ...tex, st: [1, 1, 0, 0] } }, floats: {}, colors: { _Color: [2, 2, 2, 1] } },
+      blend: { program: "alphaBlend", src: 5, dst: 10, queue: 2800, tex: { _Texture: { default: "white", st: [1, 1, 0, 0] } }, floats: { _Multiply: 1 }, colors: {} },
+    },
+    textures: { "cab-a_1": tex }, meshes: {},
+  };
+  const loads = [];
+  const effects = GL.create(fx, { base: "/asset/spine/lobby/x/", bone: () => null, load: async (url) => { loads.push(url); return { width: 4, height: 4 }; } });
+  await new Promise((r) => setTimeout(r, 0));
+  assert.deepEqual(loads, ["/asset/spine/lobby/x/fx_cab-a_1.png"]);
+  effects.layers([p]);
+  Linear.begin(p);
+  const from = gl.calls.length;
+  effects.below(p, 0.1);
+  effects.above(p);
+  const ours = gl.calls.slice(from);
+  Linear.end(p);
+  assert.equal(ours.filter(([name]) => name === "drawArrays").length, 2);
+  // the alpha-blended system (queue 2800) under the skeleton, the additive one (3100) over it: colour adds, coverage not
+  const blends = ours.filter(([name]) => name === "blendFuncSeparate").map((c) => c.slice(1));
+  assert.deepEqual(blends, [["SRC_ALPHA", "ONE_MINUS_SRC_ALPHA", "ONE", "ONE_MINUS_SRC_ALPHA"], ["ONE", "ONE", "ZERO", "ONE"]]);
+  // the texture as the game samples it: sRGB, mipmapped, clamped in u and repeated in v
+  assert.ok(gl.calls.some(([name, , , format]) => name === "texImage2D" && format === "SRGB8_ALPHA8"));
+  assert.ok(gl.calls.some(([name]) => name === "generateMipmap"));
+  assert.ok(gl.calls.some((c) => c[0] === "texParameteri" && c[2] === "TEXTURE_WRAP_S" && c[3] === "CLAMP_TO_EDGE"));
+  const stats = effects.stats();
+  assert.equal(stats.contexts, 1);
+  assert.ok(stats.particles > 0 && stats.frames === 1);
+
+  effects.detach(p);
+  assert.deepEqual([...gl.live].filter((o) => !linearObjects.has(o)), [], "particle objects left");
+  effects.dispose();
+  assert.equal(effects.stats().particles, 0);
+  const before = gl.calls.length;
+  effects.below(p, 0.1);
+  effects.above(p);
+  assert.equal(gl.calls.length, before, "nothing is drawn after dispose");
+  Linear.detach(p);
+  assert.equal(gl.live.size, 0);
+});
