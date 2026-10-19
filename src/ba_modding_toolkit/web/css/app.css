@@ -19,7 +19,7 @@
 }
 /* per language (the html lang, i18n.js, or an element's own): zh-CN and en-US draw everything with RHR, the others
    their own system fonts for CJK (macOS, Windows, Linux), RHR last for a glyph none of them has. ngui.textWidth
-   measures with the page's stack */
+   measures with the stack the text draws with */
 :root, [lang="zh-CN"], [lang="en-US"] { --font: "RHR", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; }
 :lang(zh-TW) { --font: "RHR Latin", "PingFang TC", "Microsoft JhengHei UI", "Microsoft JhengHei", "Noto Sans CJK TC", "RHR", sans-serif; }
 :lang(ja) { --font: "RHR Latin", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Meiryo UI", "Noto Sans CJK JP", "RHR", sans-serif; }
