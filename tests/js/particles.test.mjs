@@ -73,6 +73,19 @@ test("a loop's burst at 0 fires every loop at 60 fps and right after a prewarm",
   assert.equal(exact.count(), 7, "not again in the next frame");
 });
 
+test("a prewarm simulates exactly one duration", () => {
+  // ch0294's F_star_3: a 0.05 s loop, shorter than the prewarm's 1/30 s step
+  const star = effects([sys({ main: { duration: 0.05, prewarm: 1, life: 100 }, emission: { bursts: [{ t: 0.04, n: 1, cycles: 1, interval: 0.01, p: 1 }] } })]);
+  star.update(0);
+  near(star.systems[0].clock.time, 0.05, 1e-12, "after the prewarm");
+  star.update(1 / 30);
+  assert.equal(star.count(), 1, "the next loop's burst (0.09 s) is still ahead at 0.083 s");
+  // 2.01 s: sixty steps of 1/30 s and one of 0.01 s
+  const odd = effects([sys({ main: { duration: 2.01, prewarm: 1 }, emission: { rate: 10 } })]);
+  odd.update(0);
+  near(odd.systems[0].clock.time, 2.01, 1e-9, "after the prewarm");
+});
+
 test("rate over time and bursts with cycles, looping or not", () => {
   const rate = effects([sys({ emission: { rate: 10 } })]);
   run(rate, 1);

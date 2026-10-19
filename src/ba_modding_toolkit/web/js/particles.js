@@ -240,15 +240,17 @@ export class Effects {
     }
   }
 
-  // advance every system by dt seconds; prewarmed systems first simulate one duration
+  // advance every system by dt seconds; prewarmed systems first simulate one duration, exactly (a loop shorter than
+  // a step, or not a whole number of them, ends on a shorter step)
   update(dt) {
     dt = Math.max(0, Math.min(MAX_DT, dt || 0));
     this.place();
     if (!this.started) {
       this.started = true;
       for (const s of this.systems) {
+        const D = s.def.main.duration;
         if (!s.playing || !s.def.main.prewarm || !s.def.main.loop) continue;
-        for (let t = 0; t < s.def.main.duration - 1e-9; t += PREWARM_STEP) this.step(s, PREWARM_STEP, true);
+        for (let t = 0; t < D - EPS; t += PREWARM_STEP) this.step(s, Math.min(PREWARM_STEP, D - t), true);
       }
     }
     this.time += dt;
