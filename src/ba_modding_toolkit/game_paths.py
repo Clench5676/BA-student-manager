@@ -12,6 +12,8 @@ import sys
 from pathlib import Path
 from typing import Callable, Iterable, Iterator, Literal
 
+from . import devmode
+
 GameRegion = Literal["global", "japan"]
 
 STEAM_APP_ID = 3557620
@@ -39,7 +41,14 @@ _SKIPPED_SUPPORT_DIRS = {
 
 
 def find_game_dirs(region: GameRegion) -> list[Path]:
-    """Return the existing install directories found for a region, most likely first."""
+    """Return the existing install directories found for a region, most likely first.
+
+    When ``BAMT_GAME_DIRS_GLOBAL`` / ``BAMT_GAME_DIRS_JAPAN`` is set (devmode), the folders it names are returned and
+    nothing is searched.
+    """
+    named = devmode.game_dirs(region)
+    if named is not None:
+        return _unique_dirs(named)
     if sys.platform == "win32":
         return _unique_dirs(_windows_candidates(region))
     return _unique_dirs(_unix_candidates(region))

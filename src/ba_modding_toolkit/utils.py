@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Literal, ParamSpec, TypeVar
 
+from . import devmode
 from .game_paths import find_game_dirs
 
 
@@ -220,24 +221,30 @@ class CRCUtils:
                 a ^= CRCUtils.POLY_NORMAL
         return result
 
-def _get_exe_dir() -> Path:
+def _get_exe_dir(override: Path | None = None) -> Path:
     """Return the directory for config and user data.
 
     A macOS .app usually lives somewhere read-only (/Applications, a mounted DMG,
     App Translocation), so app bundles use ~/Library/Application Support/BA-Modding-Toolkit
     instead and copy the Addons bundled in the app (character ID map etc.) there on first launch.
     Windows onefile builds copy their bundled Addons next to the original executable instead.
+
+    ``override`` (``BAMT_DATA_DIR``, see devmode) replaces the folder in every case; a build still copies its
+    bundled Addons there, so it runs as shipped.
     """
     if "__compiled__" not in globals() or not hasattr(__compiled__, "containing_dir"):
-        return Path(__file__).resolve().parents[2]
+        if override is None:
+            return Path(__file__).resolve().parents[2]
+        override.mkdir(parents=True, exist_ok=True)
+        return override
     if getattr(__compiled__, "macos_bundle_mode", False):
-        data_dir = Path.home() / "Library" / "Application Support" / "BA-Modding-Toolkit"
-        data_dir.mkdir(parents=True, exist_ok=True)
+        data_dir = override or Path.home() / "Library" / "Application Support" / "BA-Modding-Toolkit"
         bundled_addons = Path(sys.executable).parent / "Addons"
     else:
-        data_dir = Path(__compiled__.containing_dir).resolve()
+        data_dir = override or Path(__compiled__.containing_dir).resolve()
         # Module files live in the onefile extraction tree; containing_dir is the portable install.
         bundled_addons = Path(__file__).resolve().parents[1] / "Addons"
+    data_dir.mkdir(parents=True, exist_ok=True)
     if bundled_addons.is_dir() and not (data_dir / "Addons").exists():
         try:
             shutil.copytree(bundled_addons, data_dir / "Addons")
@@ -247,8 +254,11 @@ def _get_exe_dir() -> Path:
             logging.getLogger(__name__).warning("Could not copy bundled Addons to %s: %s", data_dir, e)
     return data_dir
 
+# The data directory BAMT_DATA_DIR names, as the program started (fixed with EXE_DIR; the cache follows it too)
+DATA_DIR_OVERRIDE: Path | None = devmode.data_dir()
+
 # 程序所在目录（打包后为 exe 目录，开发环境为项目根目录）
-EXE_DIR: Path = _get_exe_dir()
+EXE_DIR: Path = _get_exe_dir(DATA_DIR_OVERRIDE)
 
 def get_environment_info(ignore_tk: bool = False):
     """Collects and formats key environment details."""

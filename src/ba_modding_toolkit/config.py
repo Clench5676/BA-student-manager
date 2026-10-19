@@ -15,6 +15,7 @@ from typing import Any, Callable
 
 import toml
 
+from . import utils
 from .models import AnimCheckOptions, SaveOptions, SkelConvertOptions
 from .naming import CharacterInternalIDMap
 from .utils import EXE_DIR, get_BA_path, parse_hex_bytes
@@ -269,7 +270,12 @@ class Settings:
 
 
 def user_cache_dir() -> Path:
-    """Where light game UI assets may be cached after the user agreed (never next to the program)."""
+    """Where light game UI assets may be cached after the user agreed (never next to the program).
+
+    With ``BAMT_DATA_DIR`` (devmode) the cache is ``<BAMT_DATA_DIR>/cache``, never the released app's.
+    """
+    if utils.DATA_DIR_OVERRIDE is not None:
+        return utils.DATA_DIR_OVERRIDE / "cache"
     if sys.platform == "win32":
         base = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
         return base / APP_DIR_NAME / "cache"
