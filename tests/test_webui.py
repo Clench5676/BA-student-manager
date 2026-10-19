@@ -275,7 +275,7 @@ def test_asset_routes(app):
 
 
 def test_lobby_warm_builds_the_prefab_index_once_per_game(app, services, monkeypatch):
-    calls, release = [], threading.Event()
+    calls, cabs, release = [], [], threading.Event()
 
     def prefabs(game):
         calls.append(game)
@@ -283,13 +283,16 @@ def test_lobby_warm_builds_the_prefab_index_once_per_game(app, services, monkeyp
         return {}
 
     monkeypatch.setattr(FakeGame, "_lobby_prefabs", prefabs, raising=False)
+    # then the index of every bundle's CABs, for the lobbies' particle effects
+    monkeypatch.setattr(FakeGame, "_cab_index", lambda game, everything=False: cabs.append((game, everything)) or {},
+                        raising=False)
     first = services.game
     # answered at once while the index is built in the background; a second call does not start another build
     assert "error" not in rpc(app, "lobby.warm") and "error" not in rpc(app, "lobby.warm")
     release.set()
     for thread in [t for t in threading.enumerate() if t.name == "lobby-warm"]:
         thread.join(5)
-    assert calls == [first]
+    assert calls == [first] and cabs == [(first, True)]
     # another game (a new game folder or file source) is warmed again
     services._game = FakeGame()
     rpc(app, "lobby.warm")

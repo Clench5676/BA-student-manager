@@ -235,6 +235,15 @@ class Services:
             # the lobby's layout and interaction from its prefab and clip assets; no skeleton file has this name, and
             # it is answered without extracting (and PNG-encoding) the lobby's textures
             return _json(self.game.lobby_info(key), light=False)
+        if kind == "lobby" and name.startswith("fx_") and name.endswith(".png"):
+            # a texture of the lobby's particle effects (lobby.json fx.textures), read from the game files; any other
+            # name is one of the skeletons' own files
+            from ..gameassets import AssetNotFound
+
+            try:
+                return AssetResponse(self.game.lobby_fx_texture(key, name[3:-4]), "image/png", light=False)
+            except AssetNotFound:
+                pass
         if kind in ("spr", "lobby"):
             files = self.game.spine_files(kind, key)
         elif kind == "mod":

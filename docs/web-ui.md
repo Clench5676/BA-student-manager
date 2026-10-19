@@ -96,7 +96,9 @@ class GameAssets:
     def spine_cores(self, kind: str) -> dict[str, list[Path]]  # kind "spr" | "lobby": core -> bundle parts
     def spine_files(self, kind: str, core: str) -> dict[str, bytes]        # file name -> bytes (.skel, .atlas, pages)
     def spine_files_from(self, bundles: list[Path]) -> dict[str, bytes]    # the same, for a mod's bundle files
-    def lobby_info(self, core: str) -> dict                    # a lobby's layers, touch boxes, clips and post-processing (lobby.py)
+    def lobby_info(self, core: str) -> dict                    # a lobby's layers, touch boxes, clips, post-processing
+                                                               # (lobby.py) and particle effects (particles.py)
+    def lobby_fx_texture(self, core: str, tex_id: str) -> bytes # a texture lobby_info's "fx" lists, as PNG
     def model_cores(self) -> set[str]                          # dev names with a chibi (character-<dev>-_mxload-*)
     def model_glb(self, core: str) -> bytes                    # the chibi as one GLB (model.py)
 ```
@@ -235,7 +237,7 @@ Events on `/api/events`:
 | `roster.list` | families with variants, mod counts, fresh flags, favourites, recent order, `added` (when the newest own mod was added) |
 | `settings.get` / `settings.set {key, value}` | the settings popup's values; key `roster` keeps the student list's view (merge, segment filters, sort, order, filter groups; `webui/state.py roster_view`) |
 | `family.get {key}` | a family with its variants, mods and each variant's state; `modelFiles` per variant (the 3D model's prefab bundles, newest first) and `version` (the game's resource version, so a switched install reloads the screen) |
-| `lobby.warm` | builds the memorial lobby prefab index in the background (once per game); the detail screen calls it for a variant with a lobby |
+| `lobby.warm` | builds the memorial lobby prefab index and the index of every bundle's CABs (the particle effects' materials, textures and meshes) in the background (once per game); the detail screen calls it for a variant with a lobby |
 | `lobby.lines {variant, talks, lang}` | `{clip: {lang: text, voice}}`: zh-CN from Kivo, ja from Kivo else the Global server, en, zh-TW, ko and th from the Global server (read only for a `lang` other than zh-CN, left out when its table is not in within 3 s); `talks` (`{animation: [clip ids]}` from the skeleton) places the Global rows on the clips; `lines_unavailable` when neither source can be read |
 | `debug.trace {events}` | the fullscreen lobby's input events, logged (logger `ba_modding_toolkit.webui.trace`, and `input-trace.log` in the data directory) only when the app was started with `--debug`; ignored otherwise |
 | `favorites.set {variant, on}` | |
@@ -257,7 +259,8 @@ Events on `/api/events`:
 | `/asset/ui/layout/<root>.json?path=<subpath>` | light |
 | `/asset/art/bg/<name>`, `/asset/art/portrait/<name>.png` | heavy |
 | `/asset/spine/spr/<core>/<file>`, `/asset/spine/lobby/<core>/<file>`, `/asset/spine/mod/<id>/<file>` | heavy |
-| `/asset/spine/lobby/<core>/lobby.json` (prefab layout, touch boxes, clips, post-processing; no skeleton is extracted) | heavy |
+| `/asset/spine/lobby/<core>/lobby.json` (prefab layout, touch boxes, clips, post-processing, particle effects; no skeleton is extracted) | heavy |
+| `/asset/spine/lobby/<core>/fx_<id>.png` (a particle texture the lobby's `fx.textures` lists) | heavy |
 | `/asset/model/<variant>.glb` (the variant's chibi, `model/gltf-binary`) | heavy |
 | `/asset/voice/<variant>/<clip>` (a lobby voice relayed from Kivo) | heavy |
 
@@ -398,6 +401,36 @@ in `pointer-textures`); without a game the system cursor stays and there is no e
   right) in the game and +1.0 / -0.9 / +0.9 / -1.0 here, and her face is Y 157.7 in the game, 157.3 with PP, 145.0
   without. The other 18 show no offset at all, so they were taken with PP off, and they match the lobby with it off:
   mean |dY| 1.8 off, 3.6 on (CH0326 Y 198.4: 199.4 off, 205.8 on; CH0228 209.0: 209.0 and 213.2).
+- **Particle effects** (`gameassets/particles.py`, `particles.js`, `particles-gl.js`). Nearly every lobby prefab
+  carries Unity ParticleSystems: bokeh and dust over the scene, stars, petals, Michiru's sparkler. `lobby.json` lists
+  them under `fx` with their modules, renderer, material and place, and the page simulates and draws them:
+  - Place: a system under a SkeletonUtilityBone (Follow) moves with that bone of its skeleton, through the transforms
+    below the bone; any other keeps its place in the prefab. Local simulation space moves the particles with it, world
+    space leaves them behind. Unity world units are the UI root's (the 1665-unit view is 2 units high).
+  - Simulated: duration, looping, prewarm, start delay, lifetime, speed, size and rotation (1D or 3D), colour,
+    gravity, max particles, scaling mode, simulation speed; emission over time and bursts (cycles, intervals,
+    probability); the shapes sphere, hemisphere, cone, box (volume, shell, edge), circle, edge, rectangle and donut
+    with arc, thickness and their own transform; velocity over lifetime (linear, orbital, radial, speed modifier),
+    limit velocity (dampen), force, colour, size and rotation over lifetime, texture sheet animation (start frame and
+    frame over time as fractions of the sheet), custom data and birth and death sub-emitters. Billboards (view or
+    local alignment, max size a fraction of the game's view height), stretched billboards and meshes.
+  - Drawn: the game's DSFX shaders ported from their compiled programs (Additive, AlphaBlend, AlphaBlend_Add, the
+    Mask, Distort, Step, Step_MXChar and Step_Distort variants, AlphaBlend_2_Roz, AlwaysView_Add, Matcap with the
+    meshes' normals, General Unlit VertexColor) with each material's blend, in linear
+    light: textures sampled as sRGB where the game imports them so, vertex colours as 8-bit sRGB decoded, Color
+    properties decoded (above 1 by a 2.2 power), Vector properties as stored. Each system draws in the context of the
+    skeleton layer it sorts after (sorting order, then render queue, then back to front), between that layer's clear
+    and its skeleton or after it. The textures come from the game files on request and stay in memory.
+  - Not reproduced: noise, collision, trails, lights, inherit velocity, rate over distance and the by-speed modules
+    (each in one lobby at most, or none); limit velocity's drag; sorting layers other than the default; Animators and
+    scripts that move or switch systems during a talk (a system plays as the prefab leaves it); mesh and sprite emitter
+    shapes (emitted from the shape's origin). Systems with the AlphaBlend_Add_Distort_1a or
+    AlphaBlend_Add_Double_Distort_1a shaders (ch0188's waterfall, ch0334's boosters) are left out. The
+    framebuffer holds 8 bits per channel, so light that adds up past white is clipped at once (the game clips the sum
+    at the end; the same result for purely additive light).
+  - Cost: about 0.2 ms of main-thread time a frame for a typical lobby, 0.6 ms for the busiest (about 300 particles);
+    the first frame compiles each shader once. Everything is freed with the lobby (`particles-gl.js` detach and
+    dispose). Without WebGL2 nothing is drawn.
 - **Zoom.** Fullscreen opens on the game's 16:9 view and zooms in to 2x. The Settings L2D tab (`lobbyZoomOut`, off by
   default) lets it zoom out further, to the widest 16:9 view inside the painted art (one 16-unit cell inside the
   painted rect). The painted rect is found on idle poses; with the setting on, the poses of every clip the lobby

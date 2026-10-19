@@ -8,8 +8,11 @@
 // voices come from Kivo (setLines), matched by the voice clip names the talk animations carry in their events.
 // The edge extension (border pixels stretched outwards and blurred) is only a fallback for mods whose art does not
 // cover the view.
+// The prefab's particle systems (bokeh, dust, glints, Michiru's sparkler) are simulated and drawn into the layers'
+// own frames by particles-gl.js, in their sorting order relative to the skeletons and following the bones they hang on.
 import { spineFiles } from "./api.js";
 import * as Linear from "./linear.js";
+import * as Particles from "./particles-gl.js";
 import * as Touch from "./lobby-touch.js";
 
 const STAGE = { w: 1920, h: 1080 };
@@ -504,7 +507,7 @@ export function stillRect(canvasW, canvasH) {
   return { x: ((x - v.x) / v.w) * canvasW, y: ((v.y + v.h - top) / v.h) * canvasH, w: (w / v.w) * canvasW, h: (h / v.h) * canvasH };
 }
 
-function makePlayer(host, layer, onReady, onError = () => {}) {
+function makePlayer(host, layer, onReady, onError = () => {}, fx = null) {
   const div = document.createElement("div");
   div.className = "lobby-layer";
   host.appendChild(div);
@@ -520,9 +523,16 @@ function makePlayer(host, layer, onReady, onError = () => {}) {
       Linear.begin(p);
     },
     // in linear light like the game (linear.js): the slot colours as its shader sees them, then the frame drawn into
-    // its framebuffer goes onto the canvas
-    update: (p) => Linear.tint(p),
-    draw: (p) => Linear.end(p),
+    // its framebuffer goes onto the canvas; the particle effects that sort before the skeleton draw after the clear,
+    // the others after it
+    update: (p, delta) => {
+      Linear.tint(p);
+      fx?.below(p, delta);
+    },
+    draw: (p) => {
+      fx?.above(p);
+      Linear.end(p);
+    },
     // after the animation, before the world transform: the dragged bones follow the pointer
     updateWorldTransform: (p, delta) => {
       Touch.apply(p, delta);
@@ -609,10 +619,12 @@ export async function show(core, host, variant) {
     if (my !== token || !layers.length) return null;
     current.info = info;
     setView(game(), true); // the first frames are already in the game's framing
+    const fx = (current.fx = info?.fx?.systems?.length ? Particles.create(info.fx, { base: base(core), bone: boneOf }) : null);
     const loaded = (await Promise.all(layers.map((layer) => new Promise((resolve) => {
-      players.push(makePlayer(viewHost, layer, (player) => resolve({ ...layer, player }), () => resolve(null)));
+      players.push(makePlayer(viewHost, layer, (player) => resolve({ ...layer, player }), () => resolve(null), fx));
     })))).filter(Boolean);
     if (my !== token || !loaded.length) return null;
+    fx?.layers(loaded.map((l) => l.player));
     current.meta = measure(loaded);
     current.loaded = loaded;
     setView(viewOf(current.meta), true);
@@ -639,9 +651,11 @@ export function hide(host) {
   Touch.setup(null);
   Idle.stop();
   for (const p of players) {
+    current?.fx?.detach(p); // the particles' programs, buffers and textures in its context
     Linear.detach(p); // its framebuffer and program: spine's dispose only frees spine's own objects
     p.dispose();
   }
+  current?.fx?.dispose();
   players = [];
   current = null;
   clearInterval(extendTimer);
@@ -703,6 +717,13 @@ function clearClip(p, name, depth = 0) {
   for (const s of c.sync || []) clearClip(p, s, depth + 1);
 }
 const mainPlayer = () => players.find((p) => p.bamtLayer?.name === current?.meta?.main) || players[players.length - 1];
+// a bone of a layer's skeleton in its current pose, for the particle systems that follow it (SkeletonUtilityBone)
+function boneOf(skeleton, name) {
+  const bone = players.find((p) => p.bamtLayer?.name === skeleton)?.skeleton?.findBone(name);
+  return bone && bone.active !== false ? bone : null;
+}
+// for checks: the particle effects' live particles, systems, loaded textures, GL contexts and time per frame
+export const effects = (opts) => current?.fx?.stats(opts) || null;
 
 // --- random idle clips (SpineCharacter.idleBaseRandomClipPool): blinks, ear twitches, expression changes, each
 // after a random wait; held back while a dialogue or a drag runs. Without them the newer lobbies never blink. ---

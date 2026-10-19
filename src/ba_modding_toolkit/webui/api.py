@@ -354,7 +354,8 @@ def build_api(s: Services) -> RpcRegistry:
     @rpc.method("lobby.warm")
     def lobby_warm() -> None:
         """Build the memorial lobby prefab index in the background (its first build reads every lobby element bundle,
-        about 8 s), once per game, so the first lobby shown does not wait for it. Nothing without a game."""
+        about 8 s) and the index of every bundle's CABs (where the particle effects' materials, textures and meshes
+        are, about 4 s), once per game, so the first lobby shown does not wait for them. Nothing without a game."""
         if not s.game_found():
             return
         game = s.game
@@ -366,8 +367,9 @@ def build_api(s: Services) -> RpcRegistry:
         def build() -> None:
             try:
                 game._lobby_prefabs()
-            except Exception:  # the lobby builds it again when it needs it
-                logger.debug("Cannot build the memorial lobby prefab index", exc_info=True)
+                game._cab_index(everything=True)
+            except Exception:  # the lobby builds them again when it needs them
+                logger.debug("Cannot build the memorial lobby indexes", exc_info=True)
 
         threading.Thread(target=build, name="lobby-warm", daemon=True).start()
 
