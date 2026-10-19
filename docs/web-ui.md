@@ -141,7 +141,9 @@ feet, looking level, and the screen's centre lies at that height: fullscreen sho
 game's scale, about 42 % of the screen's height), beside the panel the same view moved left and up so the feet stay
 above the nameplate. A chibi whose box would leave the host is framed from further back (`frameDistance`). The camera
 orbits freely around the point at the formation camera's height, which rises to the face as it closes in; the zoom
-stays between the bust (0.45 of the distance) and a step back (1.3), and a double click returns to the front view.
+stays between the bust (`bustDistance`: the face on the framing's point, the halo's top at the host's top edge, about
+0.3 of the distance) and a step back (1.3). Fullscreen and back keep the zoom's place between the two (`carryZoom`),
+and a double click returns to the front view.
 
 The light is the formation screen's, read from the game rather than fitted to renders:
 

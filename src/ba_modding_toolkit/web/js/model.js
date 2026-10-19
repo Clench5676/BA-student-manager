@@ -38,6 +38,24 @@ export function frameDistance(box, frame, fov = FORMATION_VIEW.fov, base = FORMA
   return Math.max(base, at(box.max.y, frame.y - margin), at(-box.min.y, Math.min(frame.floor, frame.h - margin) - frame.y),
     at(Math.max(box.max.x, -box.min.x), side));
 }
+
+// The closest camera distance for a frame: the bust. Closing in lifts the orbit target to the face (`face`: its
+// height above the target), which then lies on the frame point; the bust is where the box's top (the halo) reaches
+// the host's top edge, a margin kept. Between a tenth and 0.45 of the frame's distance (`fit`), so a box whose top
+// lies at or below the face still closes in.
+export function bustDistance(box, face, frame, fit, fov = FORMATION_VIEW.fov, margin = 24) {
+  const t = 2 * Math.tan(THREE.MathUtils.degToRad(fov) / 2);
+  const d = ((box.max.y - face) * frame.h) / (t * Math.max(frame.y - margin, 1));
+  return THREE.MathUtils.clamp(d, fit * 0.1, fit * 0.45);
+}
+
+// A distance carried over to another framing: closer than the fit, as the same share of the way to the bust (the
+// target's lift goes on from where it was); further back, as the same multiple of the fit (up to 1.3).
+export function carryZoom(distance, from, to) {
+  if (distance < from.fit) return to.fit - (to.fit - to.min) * Math.min(1, (from.fit - distance) / (from.fit - from.min));
+  return to.fit * Math.min(distance / from.fit, 1.3);
+}
+
 // the tab's actions: the clip slots they play, in order of preference; "next" follows a clip that plays once,
 // "then" is the action after it
 const ACTIONS = {
@@ -64,7 +82,7 @@ class ChibiView {
     this.camera = new THREE.PerspectiveCamera(FORMATION_VIEW.fov, 1, 0.01, 100);
     this.controls = new OrbitControls(this.camera, this.canvas);
     // no panning, any angle (straight from above to straight from below); the zoom stays between the bust and a
-    // step back (frameTo)
+    // step back (frameTo, bustDistance)
     Object.assign(this.controls, { enableDamping: true, dampingFactor: 0.12, enablePan: false, zoomSpeed: 0.8,
       minPolarAngle: 0, maxPolarAngle: Math.PI });
     this.clock = new THREE.Clock();
@@ -276,33 +294,46 @@ class ChibiView {
     return new THREE.Vector3(0, 0, 1);
   }
 
-  // switch between the framing beside the panel and fullscreen; the orbit angle and the zoom (relative to the
-  // fit) stay as they were
+  // switch between the framing beside the panel and fullscreen; the orbit angle and the zoom (its place between
+  // the bust and the fit, or beyond the fit) stay as they were
   frameTo(mode, snap = false) {
     this.mode = FRAMES[mode] ? mode : "left";
     const f = FRAMES[this.mode];
     if (!this.size) { this.view = { x: f.x, y: f.y }; this.applyView(); return; }
     const fit = frameDistance(this.box, f);
+    const range = { fit, min: bustDistance(this.box, this.faceY - this.target.y, f, fit) };
     const offset = this.camera.position.clone().sub(this.controls.target);
-    const ratio = this.fit ? THREE.MathUtils.clamp(offset.length() / this.fit, 0.45, 1.3) : 1;
+    const keep = !snap && !!this.fit && offset.lengthSq() > 0;
+    const from = this.range(); // gliding: where it is now
+    const distance = keep ? carryZoom(offset.length(), from, range) : fit;
     this.fit = fit;
-    this.limits = { min: fit * 0.45, max: fit * 1.3 }; // about the bust, a step back
+    this.limits = { min: range.min, max: fit * 1.3 }; // the bust, a step back
     this.camera.near = fit / 50;
     this.camera.far = fit * 20;
-    const keep = !snap && offset.lengthSq() > 0;
-    this.moveTo(keep ? offset.normalize() : this.homeDirection(), fit * (keep ? ratio : 1), f, snap);
+    this.moveTo(keep ? offset.normalize() : this.homeDirection(), distance, f, snap, keep ? from : null);
   }
 
-  // double-click: back to the front view at the fit distance
+  // double-click: back to the front view at the fit distance (from where a change of framing has brought the zoom
+  // range so far)
   home() {
-    if (this.limits) this.moveTo(this.homeDirection(), this.fit, FRAMES[this.mode], false);
+    if (this.limits) this.moveTo(this.homeDirection(), this.fit, FRAMES[this.mode], false, this.range());
   }
 
-  // the camera as a direction and distance from the orbit target, so the target can rise while it moves
-  moveTo(direction, distance, view, snap) {
+  // the zoom range the target's lift spans, {fit, min}; while the camera glides to another framing it goes from the
+  // old range to the new one with the camera, so the lift (and the target) does not jump
+  range() {
+    const r = { fit: this.fit, min: this.limits?.min ?? this.fit }, tw = this.tween;
+    if (!tw?.range0) return r;
+    const k = ease(THREE.MathUtils.clamp((performance.now() - tw.t0) / TWEEN, 0, 1));
+    return { fit: tw.range0.fit + (r.fit - tw.range0.fit) * k, min: tw.range0.min + (r.min - tw.range0.min) * k };
+  }
+
+  // the camera as a direction and distance from the orbit target, so the target can rise while it moves; range0:
+  // the zoom range it leaves (a change of framing)
+  moveTo(direction, distance, view, snap, range0 = null) {
     const offset = this.camera.position.clone().sub(this.controls.target);
     const tw = (this.tween = { t0: performance.now(), dir0: offset.lengthSq() ? offset.clone().normalize() : direction.clone(), dist0: offset.length() || distance,
-      dir1: direction.clone(), dist1: distance, view0: { ...this.view }, view1: { x: view.x, y: view.y } });
+      dir1: direction.clone(), dist1: distance, view0: { ...this.view }, view1: { x: view.x, y: view.y }, range0 });
     if (snap) tw.t0 = -Infinity;
     // the orbit controls clamp the distance on every update: while the camera glides, the zoom limits take in both
     // ends, and the new fit's limits apply once it arrives
@@ -326,12 +357,12 @@ class ChibiView {
     }
   }
 
-  // closing in moves the orbit target from the body's centre up to the face, so the closest view is the bust;
-  // the camera keeps its offset from the target
+  // closing in moves the orbit target from the formation camera's height up to the face, so the closest view is the
+  // bust; the camera keeps its offset from the target
   liftTarget() {
     if (!this.fit) return;
-    const o = this.controls, offset = this.camera.position.clone().sub(o.target);
-    const t = THREE.MathUtils.clamp((this.fit - offset.length()) / (this.fit - this.limits.min), 0, 1);
+    const o = this.controls, offset = this.camera.position.clone().sub(o.target), { fit, min } = this.range();
+    const t = THREE.MathUtils.clamp((fit - offset.length()) / (fit - min), 0, 1);
     o.target.set(this.target.x, this.target.y + (this.faceY - this.target.y) * ease(t), this.target.z);
     this.camera.position.copy(o.target).add(offset);
   }
