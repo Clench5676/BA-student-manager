@@ -1065,6 +1065,111 @@ def test_a_copy_shared_by_two_installs_is_kept_until_both_are_official(setup_lib
     assert env.original.read_bytes() == official and not backup.exists()
 
 
+def second_install(env, subfolder=""):
+    """Another game folder sharing the library, holding the same official file as the first; returns that file."""
+    folder = env.tmp / "second_game"
+    path = folder / subfolder / env.original.name
+    path.parent.mkdir(parents=True)
+    path.write_bytes(env.original.read_bytes())
+    return path
+
+
+def use_install(env, game_file):
+    env.settings.set("game_resource_dir", str(game_file.parent))
+
+
+def test_a_moved_install_releases_its_copy_once_restored(setup_library):
+    env = setup_library
+    official = env.original.read_bytes()
+    entry, = env.library.add([make_mod(env.original, env.tmp / "input")])
+    env.library.apply("test", f"mod:{entry.id}")
+    backup = kept_copy(env, env.original)
+    # the install's files move to another folder; the old folder stays behind without them
+    moved = env.tmp / "moved_game" / env.original.name
+    moved.parent.mkdir()
+    shutil.move(env.original, moved)
+    use_install(env, moved)
+    env.library.restore("test")
+    # the old folder's record no longer describes a file: nothing there needs the copy
+    assert moved.read_bytes() == official and not backup.exists()
+    assert [m.id for m in env.library.mods()] == [entry.id]  # the moved mod is in the library already
+
+
+def test_a_copy_is_released_when_another_folder_was_verified_in_its_launcher(setup_library):
+    env = setup_library
+    official = env.original.read_bytes()
+    second = second_install(env)
+    entry, = env.library.add([make_mod(env.original, env.tmp / "input")])
+    env.library.apply("test", f"mod:{entry.id}")
+    env.original.write_bytes(official)  # the first install's launcher verified its files
+    use_install(env, second)
+    env.library.apply("test", f"mod:{entry.id}")
+    backup = kept_copy(env, env.original)
+    assert backup.read_bytes() == official
+    env.library.restore("test")
+    assert second.read_bytes() == official and not backup.exists()
+
+
+def test_a_copy_is_kept_while_another_folder_cannot_be_seen(setup_library):
+    env = setup_library
+    official = env.original.read_bytes()
+    second = second_install(env)
+    entry, = env.library.add([make_mod(env.original, env.tmp / "input")])
+    env.library.apply("test", f"mod:{entry.id}")
+    use_install(env, second)
+    env.library.apply("test", f"mod:{entry.id}")
+    unmounted = env.tmp / "unmounted"
+    shutil.move(env.game_dir, unmounted)  # the first install's drive is unmounted
+    env.library.restore("test")
+    backup = kept_copy(env, env.original)
+    assert second.read_bytes() == official and backup.read_bytes() == official
+    assert env.library.prune() == [] and backup.exists()
+    # mounted again and restored there too: the copy goes
+    shutil.move(unmounted, env.game_dir)
+    use_install(env, env.original)
+    env.library.restore("test")
+    assert env.original.read_bytes() == official and not backup.exists()
+
+
+def test_a_copy_is_kept_while_another_folder_is_modded_outside_the_library(setup_library):
+    env = setup_library
+    official = env.original.read_bytes()
+    second = second_install(env)
+    entry, = env.library.add([make_mod(env.original, env.tmp / "input")])
+    env.library.apply("test", f"mod:{entry.id}")
+    external = header_bundle(b"from another tool")
+    env.original.write_bytes(external)  # the first install changed outside the library since
+    use_install(env, second)
+    env.library.apply("test", f"mod:{entry.id}")
+    env.library.restore("test")
+    backup = kept_copy(env, env.original)
+    assert second.read_bytes() == official and backup.read_bytes() == official
+    # the copy is what lets the first install switch back: its file is kept as a mod, the copy restored
+    use_install(env, env.original)
+    env.library.restore("test")
+    assert env.original.read_bytes() == official and not backup.exists()
+    kept, = [m for m in env.library.mods() if m.id != entry.id]
+    assert kept.file.read_bytes() == external
+
+
+def test_prune_deletes_an_outdated_copy_another_folder_no_longer_needs(setup_library):
+    env = setup_library
+    official = env.original.read_bytes()
+    second = second_install(env)
+    entry, = env.library.add([make_mod(env.original, env.tmp / "input")])
+    env.library.apply("test", f"mod:{entry.id}")
+    use_install(env, second)
+    env.library.apply("test", f"mod:{entry.id}")
+    second.write_bytes(official)  # the second install's launcher verified its files
+    use_install(env, env.original)
+    # a game update in the first install
+    env.original.unlink()
+    game_bundle(env.game_dir, date="2026-02-01", payload=b"updated official")
+    backup = kept_copy(env, env.original)
+    library = reload_library(env)
+    assert library.prune() == [backup] and not backup.exists()
+
+
 def test_a_mod_the_game_shows_cannot_be_removed(setup_library):
     env = setup_library
     entry, = env.library.add([make_mod(env.original, env.tmp / "input")])

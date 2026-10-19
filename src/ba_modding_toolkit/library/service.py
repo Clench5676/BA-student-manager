@@ -363,12 +363,27 @@ class ModLibrary:
         for mod_id in mod_ids:
             shutil.rmtree(self.root / "mods" / mod_id, ignore_errors=True)
 
-    def _needed_elsewhere(self, name: str, path: Path) -> bool:
-        """Whether a game file of another install (another game folder sharing this library) with the same name
-        was left carrying something else than the official file, so it may still need the kept original."""
-        resolved = str(path.resolve())
-        return any(other != resolved and Path(other).name == name and record.get("source") != "official"
-                   for other, record in self._applied.items())
+    def _needed_elsewhere(self, name: str, mine: set[str]) -> bool:
+        """Whether another install (another game folder sharing this library) may still need the kept original of
+        a file name: a file of that name the library wrote to outside ``mine`` (resolved paths) needs it."""
+        return any(self._needs_original(Path(other), record) for other, record in self._applied.items()
+                   if other not in mine and Path(other).name == name)
+
+    def _needs_original(self, path: Path, record: dict[str, str]) -> bool:
+        """Whether a game file the library wrote to may still need the kept original of its name: while it is not
+        official. The file decides, not the record, which is stale once the file changed since (verified in the
+        launcher, switched by another tool) or is gone from its folder (an install moved, a game update). Only a
+        file whose folder cannot be seen at all (an unmounted drive) is judged by its record."""
+        try:
+            if not path.parent.is_dir():
+                return record.get("source") != "official"
+            if not path.is_file():
+                return False
+            # still modded, by the library or changed outside it since: the kept copy is the only official file the
+            # library has to switch that install back
+            return not self._is_official(path)
+        except OSError:
+            return True
 
     def _release_original(self, game_file: Path) -> bool:
         """Delete a kept original once its game file is verified official again: byte for byte the kept copy,
@@ -378,7 +393,8 @@ class ModLibrary:
             if not original.is_file() or not game_file.is_file():
                 return False
             if (self._hashes.get(game_file).sha1 != self._hashes.get(original).sha1
-                    or not self._is_official(game_file) or self._needed_elsewhere(game_file.name, game_file)):
+                    or not self._is_official(game_file)
+                    or self._needed_elsewhere(game_file.name, {str(game_file.resolve())})):
                 return False
             original.unlink()
         except OSError:
@@ -410,8 +426,7 @@ class ModLibrary:
             # Only the install's own records tell which folder it was in; without one it may be another install's.
             owners = [Path(name) for name in self._applied if Path(name).name == original.name]
             mine = [path for path in owners if any(path.is_relative_to(d) for d in dirs) and not path.exists()]
-            others = [path for path in owners if path not in mine]
-            if not mine or any(self._applied[str(path)].get("source") != "official" for path in others):
+            if not mine or self._needed_elsewhere(original.name, {str(path) for path in mine}):
                 continue
             core = parse_filename(original.name).core.lower()
             superseded = True

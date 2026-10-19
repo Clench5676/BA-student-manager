@@ -331,8 +331,10 @@ What a switch replaces is always kept:
   copies it back, also after several mods (the classic GUI's single `.backup` is overwritten by the second
   install). The copy is deleted once the game file is verified official again: byte for byte the kept copy and
   official by its CRC, after a restore, after a mod that leaves that part official, or after the game's launcher
-  verified the files. Not while another install sharing the library (another game folder) left a file of that name
-  modded.
+  verified the files. Not while a file of that name in another game folder sharing the library is not official
+  (still modded, by the library or by another tool since). That file decides, not the library's record of it, which
+  is stale once the file changed or is gone from a folder still there (an install moved, a game update); only a file
+  whose folder cannot be seen at all (an unmounted drive) is judged by its record.
 - **A mod** stays in the library (`mods/<id>/`): switching away never touches it, and `remove` refuses one the game
   still shows (`mod_in_use`: a game file is unchanged since the library put it there, in any install), so switch
   first.
@@ -348,8 +350,8 @@ every part is back). After every switch, whatever its outcome, and once per libr
 `library.prune` job), `prune` deletes the copies no longer needed: those whose game file is verified official again,
 and those a game update made useless. File names carry the date and CRC, so an update leaves the old copy without a
 game file; it is deleted when the library's own record places the old file in the current game folder and that
-folder now holds the same part (prefix and resource type) verified official. A copy no record places, one of
-another install, or one whose new file is not official is kept.
+folder now holds the same part (prefix and resource type) verified official. A copy no record places, one another
+game folder still needs (as above), or one whose new file is not official is kept.
 
 The 3D model has no switch: the library keeps no 3D mods. It would take a `model` kind (`character-<dev>-_mxload-*`
 prefab bundles, whose meshes, textures and clips sit in other bundles found by CAB), its detection in `add`, game
