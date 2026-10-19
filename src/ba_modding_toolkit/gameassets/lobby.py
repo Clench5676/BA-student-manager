@@ -4,8 +4,9 @@ The game places a memorial lobby with its UILobbyElement prefab (Lobby<Name>.pre
 place in NGUI units around the prefab root, which is the screen centre, and at 16:9 the game shows 2960 x 1665 of those
 units. SpineDragIK components (head pat, eye follow, pinch, ...) and SpineCharacterBodyTouch (a tap plays the next
 dialogue) carry the touch boxes, SpineCharacter the idle and random idle clips, and the lobby's clip assets
-("<skeleton>-<animation>" MonoBehaviours) the track, loop, mixes and chains of every animation. Its URP Volumes (PPV,
-PPV_C, PPV_D) point to the post-processing profiles the game's camera applies over the lobby.
+("<skeleton>-<animation>" MonoBehaviours) the track, loop, mixes, chains, sync clips, random timing and sound keys of
+every animation. Its URP Volumes (PPV, PPV_C, PPV_D) point to the post-processing profiles the game's camera applies
+over the lobby.
 
 Everything here works on plain typetrees (dicts), so it runs without game files; the service reads the bundles.
 Lengths are NGUI units with y up and the prefab root at (0, 0), except a drag's orig / min / max / offset, which are
@@ -48,17 +49,25 @@ def _short(name: str | None) -> str | None:
     return name.split("-", 1)[1] if name and "-" in name else name
 
 
-def clip_entry(tree: dict, default_mix: float, names: dict[int, str]) -> dict:
-    """One clip asset: where and how its animation plays, the mixes resolved against the skeleton's default. outroAt
-    is when the clip's own outro starts, seconds after its end (SpineBase.PlayMasked: OutroMix from its
-    OutroStartOffset after the end; null: the default mix, ending with the clip)."""
+def clip_entry(tree: dict, default_mix: float, names: dict[int, str],
+               sound: Callable[[dict], str | None] | None = None) -> dict:
+    """One clip asset: where and how its animation plays, the mixes resolved against the skeleton's default.
+
+    As the game's SpineClip and SpineBase use them (GameAssembly.dll): mode is the PlayMode (0 the base track,
+    1 masked, 2 masked at random times, 3 a random idle clip), finish the FinishMode (0 nothing, 1 the idle, 2 the
+    track fades out, 3 the next clip). random holds the waits of modes 2 and 3: the first wait by "pre"
+    (RandomTimingIntroDelayMode: 0 none, 1 min to max, 2 preDelay plus min to max), then min to max after each
+    play, and "loops" the extra plays queued after the first. outroAt is when the clip's own outro starts,
+    seconds after its end (null: the outro ends with the clip). sounds are its SoundKeys, [time, event id], with
+    sound(pointer) giving an event's id."""
     nxt = tree.get("NextClipObject", {}).get("m_PathID", 0)
     mode = tree.get("PlayMode", 1)
     random = None
     if mode in (2, 3) or tree.get("RandomTimingIntroDelayMode"):
         random = {"min": _r(tree.get("RandomDelayMin", 0)), "max": _r(tree.get("RandomDelayMax", 0)),
-                  "loops": [tree.get("AddRandomLoopMin", 0), tree.get("AddRandomLoopMax", 0)]}
-    return {
+                  "loops": [tree.get("AddRandomLoopMin", 0), tree.get("AddRandomLoopMax", 0)],
+                  "pre": tree.get("RandomTimingIntroDelayMode", 0), "preDelay": _r(tree.get("IntroDelayDuration", 0))}
+    entry = {
         "track": tree.get("Track", 0), "loop": bool(tree.get("Loop")), "mode": mode, "finish": tree.get("FinishMode", 0),
         "intro": _r(default_mix if tree.get("UseDefaultIntroMix") else tree.get("IntroMix", 0), 3),
         "outro": _r(default_mix if tree.get("UseDefaultOutroMix") else tree.get("OutroMix", 0), 3),
@@ -67,12 +76,34 @@ def clip_entry(tree: dict, default_mix: float, names: dict[int, str]) -> dict:
         "sync": [_short(names[p["m_PathID"]]) for p in tree.get("SyncPlayClipObjects", []) if p.get("m_PathID") in names],
         "block": bool(tree.get("BlockInteractionOnPlay")), "random": random,
     }
+    keys = [[_r(k.get("Time", 0), 3), sound(k.get("Event") or {})] for k in tree.get("SoundKeys") or []] if sound else []
+    if any(event for _, event in keys):
+        entry["sounds"] = [k for k in keys if k[1]]
+    return entry
+
+
+def sound_event(tree: dict, clip_id: Callable[[dict], str | None]) -> dict | None:
+    """A sound key's AnimationAudioEvent as the game plays it (AudioPlayer.PlayByAudioData, AudioSourceData
+    .SetAudioSources): one of its clips picked at random, at its volume, and at its pitch when that is above 0 (as
+    a playback rate; a pitch of 0 or below keeps the source's 1). clip_id(pointer) gives an AudioClip's id. None for
+    other events (an AmbientAudioEvent, which no lobby clip's sound key uses) or without clips."""
+    data = tree.get("AudioData")
+    if not isinstance(data, dict):
+        return None
+    clips = [c for c in (clip_id(p) for p in data.get("AudioClips") or []) if c]
+    if not clips:
+        return None
+    pitch = float(data.get("Pitch", 1.0))
+    return {"name": tree.get("m_Name", ""), "volume": _r(data.get("Volume", 1.0), 3),
+            "pitch": _r(pitch, 3) if pitch > 0 else 1.0, "clips": clips}
 
 
 class Clips:
     """The clip assets and skeleton data assets of a lobby core, from its MonoBehaviour typetrees."""
 
-    def __init__(self, behaviours: Iterable[tuple[int, dict]], skeletons: Iterable[str] = ()):
+    def __init__(self, behaviours: Iterable[tuple[int, dict]], skeletons: Iterable[str] = (),
+                 sound: Callable[[int, dict], str | None] | None = None):
+        # sound(clip asset path id, event pointer) gives a sound key event's id (clip_entry)
         named = {s.lower(): s for s in skeletons}
         raw, names = [], {}
         self.mixes: dict[str, float] = {}      # skeleton -> SkeletonDataAsset.defaultMix
@@ -96,8 +127,14 @@ class Clips:
             skel, _, anim = tree.get("m_Name", "").partition("-")
             skel = named.get(skel.lower(), skel)
             anim = anim or tree["ClipName"]
-            self.clips.setdefault(skel, {})[anim] = clip_entry(tree, mixes.get(skel.lower(), 0.2), names)
+            resolve = (lambda pointer, pid=pid: sound(pid, pointer)) if sound else None
+            self.clips.setdefault(skel, {})[anim] = clip_entry(tree, mixes.get(skel.lower(), 0.2), names, resolve)
             self.by_pid[pid] = (skel, anim)
+
+    def sound_events(self) -> list[str]:
+        """The ids of the events the clips' sound keys play, sorted."""
+        return sorted({event for anims in self.clips.values() for c in anims.values()
+                       for _, event in c.get("sounds", [])})
 
     def anim(self, pointer: dict | None) -> str | None:
         """The animation a clip pointer plays (pointers into the core bundles match by path id)."""
@@ -326,7 +363,7 @@ def read_prefab(kinds: dict[int, str], tree: Callable[[int], dict], scripts: dic
         return {"rect": rect, "rot": rot, "depth": widget.get("mDepth", 0),
                 "enabled": n["active"] and bool(t.get("m_Enabled", 1)) and bool(box.get("m_Enabled", True))}
 
-    drags, touches, random_idle, idle, dialog, container, volumes = [], [], {}, {}, {}, None, []
+    drags, touches, random_idle, idle, idles, dialog, container, volumes = [], [], {}, {}, {}, {}, None, []
     for n in nodes:
         for cls, pid, t in n["all"]:
             if is_volume(t):
@@ -364,9 +401,11 @@ def read_prefab(kinds: dict[int, str], tree: Callable[[int], dict], scripts: dic
                 pool = [a for a in map(clips.anim, t.get("idleBaseRandomClipPool", [])) if a]
                 if pool:
                     random_idle[skel] = pool
-                first = next((a for a in map(clips.anim, t.get("idleClipPool", [])) if a), None)
-                if first:
-                    idle[skel] = first
+                # every clip of the idle pool plays at once, each on its own track with its sync clips
+                # (SpineBase.PlayBaseClip); the first is the looping idle
+                pool = list(dict.fromkeys(a for a in map(clips.anim, t.get("idleClipPool", [])) if a))
+                if pool:
+                    idle[skel], idles[skel] = pool[0], pool
             elif cls == "ChatDialog":
                 for b in t.get("DialogBoxes", []):
                     box_node = by_go.get(b.get("GameObject", {}).get("m_PathID", 0))
@@ -380,17 +419,19 @@ def read_prefab(kinds: dict[int, str], tree: Callable[[int], dict], scripts: dic
     sa_go = {n["go"]: skeleton_of_sa.get(n["pids"].get("SkeletonAnimation", 0)) for n in nodes}
     fx = particles.build(nodes, lambda go: sa_go.get(go), lambda skel: clips.scales.get(skel, _DATA_SCALE), resolve)
     return {"prefab": tree(tree(top)["m_GameObject"]["m_PathID"])["m_Name"], "main": main, "layers": layers,
-            "drags": drags, "touches": touches, "randomIdle": random_idle, "idle": idle, "dialog": dialog,
-            "post": post_processing(volumes), "fx": fx}
+            "drags": drags, "touches": touches, "randomIdle": random_idle, "idle": idle, "idles": idles,
+            "dialog": dialog, "post": post_processing(volumes), "fx": fx}
 
 
-def lobby_info(skeletons: Iterable[str], clips: Clips, prefab: dict | None) -> dict:
+def lobby_info(skeletons: Iterable[str], clips: Clips, prefab: dict | None, sounds: dict | None = None) -> dict:
     """Everything the web UI's lobby needs. Without a prefab (e.g. a mod with other skeleton names) every skeleton
-    sits at the standard place; the front end then finds the touch boxes from the bones."""
+    sits at the standard place; the front end then finds the touch boxes from the bones. sounds: the sound key
+    events by id (sound_event)."""
     if prefab is None:
-        prefab = {"prefab": None, "main": None, "drags": [], "touches": [], "randomIdle": {}, "idle": {}, "dialog": {},
-                  "post": {},
+        prefab = {"prefab": None, "main": None, "drags": [], "touches": [], "randomIdle": {}, "idle": {}, "idles": {},
+                  "dialog": {}, "post": {},
                   "layers": [{"name": s, **STANDARD, "active": True, "order": 0, "queue": 3000, "z": 0.0, "index": i,
                               "skin": None, "animation": None} for i, s in enumerate(dict.fromkeys(skeletons))],
                   "fx": {"systems": [], "materials": {}, "textures": {}, "meshes": {}}}
-    return {"view": dict(GAME_VIEW), **prefab, "defaultMix": dict(clips.mixes), "clips": clips.clips}
+    return {"view": dict(GAME_VIEW), **prefab, "defaultMix": dict(clips.mixes), "clips": clips.clips,
+            "sounds": dict(sounds or {})}

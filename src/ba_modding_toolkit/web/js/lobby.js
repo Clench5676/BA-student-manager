@@ -11,10 +11,13 @@
 // (Unlocked, Custom) it shows what the game's lobby camera clears to, black, through the lobby's grade with PP on.
 // The prefab's particle systems (bokeh, dust, glints, Michiru's sparkler) are simulated and drawn into the layers'
 // own frames by particles-gl.js, in their sorting order relative to the skeletons and following the bones they hang on.
+// Each skeleton's idle starts the clips the game's does (Shigure's train, snow, clouds, stars), some of them at random
+// times (lobby-sync.js), and the clips' sound keys play the game's sounds at the voice volume.
 import { spineFiles } from "./api.js";
 import * as Linear from "./linear.js";
 import * as Particles from "./particles-gl.js";
 import * as Touch from "./lobby-touch.js";
+import * as Sync from "./lobby-sync.js";
 
 const STAGE = { w: 1920, h: 1080 };
 const GAME = { x: -1480, y: -832.5, w: 2960, h: 1665 };  // lobby.json "view": the game's 16:9 view in NGUI units
@@ -86,6 +89,15 @@ export function idleOf(data, layer, info = current?.info) {
   return [info?.idle?.[layer.name], "Idle_01", layer.animation].find(ok)
     || data.animations.find((a) => ok(a.name) && a.name !== "Dummy")?.name
     || data.animations.find((a) => ok(a.name))?.name || null;
+}
+// the clips a skeleton's idle starts besides itself (SpineBase.PlayBaseClip plays every clip of the SpineCharacter's
+// idle pool, each with its sync clips): the idle's sync clips and the rest of its pool, when the idle is the pool's
+// first clip. clip(name) gives a clip (lobby.json clips): Shigure's Train_00_R, Hoshino's whale, the snow, clouds,
+// petals, stars and sweat of other lobbies.
+export function idleClips(info, name, idle, clip) {
+  const pool = info?.idles?.[name] || [];
+  if (!idle || pool[0] !== idle) return [];
+  return [...new Set([...(clip(idle)?.sync || []), ...pool.slice(1)])];
 }
 
 // --- painted rect P: opaque, normal-blend triangles of every layer, over a few idle poses, on a 16-unit grid ---
@@ -217,13 +229,14 @@ const DRAG_CLIP = /^(Pat|Look|Pinch|HandFollow|Touch)(End)?_\d+_M$/;
 const safeRects = new Map(); // lobby (core and skeleton hashes) -> safe rect, for the session
 
 // The poses to check, [layer index, tracks]: every clip the lobby plays (its dialogues, the drag clips and their ends,
-// the random idle clips and the clips they chain to) every CLIP_STEP, on its own track over the idle and with its sync
-// clips, as playClip plays them. layers: {name, data, idle, main}; clip(layer, name) gives the clip's track, next, sync.
+// the clips the idle starts, the random idle clips and the clips they chain to) every CLIP_STEP, on its own track over
+// the idle and with its sync clips, as playClip plays them. layers: {name, data, idle, main}; clip(layer, name) gives
+// the clip's track, next, sync.
 export function clipPoses(layers, info, talks, clip) {
   const out = [];
   layers.forEach((l, index) => {
     const data = l.data, idleDur = l.idle ? data.findAnimation(l.idle)?.duration || 0 : 0;
-    const names = [...(info?.randomIdle?.[l.name] || [])];
+    const names = [...idleClips(info, l.name, l.idle, (name) => clip(l, name)), ...(info?.randomIdle?.[l.name] || [])];
     if (l.main) {
       names.push(...talks);
       const drags = (info?.drags || []).filter((d) => d.skeleton === l.name);
@@ -603,8 +616,10 @@ function makePlayer(host, layer, onReady, onError = () => {}, fx = null) {
     premultipliedAlpha: false, alpha: true, backgroundColor: "#00000000", showControls: false, showLoading: false,
     preserveDrawingBuffer: true, defaultMix: current?.info?.defaultMix?.[layer.name] ?? 0.2,
     viewport: layerViewport(game(), layer),
-    // every frame: the shared view, no spine-player viewport transitions of its own
-    frame: (p) => {
+    // every frame: the random-timing clips that are due (before the animation update, as the game's coroutines run
+    // before the next Update), the shared view, no spine-player viewport transitions of its own
+    frame: (p, delta) => {
+      p.bamtRuns?.tick(delta);
       const v = viewNow();
       if (v) { p.currentViewport = layerViewport(v, layer); p.previousViewport = null; }
       Linear.begin(p);
@@ -620,8 +635,10 @@ function makePlayer(host, layer, onReady, onError = () => {}, fx = null) {
       fx?.above(p);
       Linear.end(p);
     },
-    // after the animation, before the world transform: the dragged bones follow the pointer
+    // after the animation, before the world transform: the sound keys its track entries have reached, and the
+    // dragged bones follow the pointer
     updateWorldTransform: (p, delta) => {
+      p.bamtSounds?.tick();
       Touch.apply(p, delta);
       p.skeleton.updateWorldTransform(spine.Physics.update);
     },
@@ -634,8 +651,14 @@ function makePlayer(host, layer, onReady, onError = () => {}, fx = null) {
         Linear.setScreen(player, layerViewport(game(), layer));
       }
       if (layer.skin) try { player.skeleton.setSkinByName(layer.skin); player.skeleton.setSlotsToSetupPose(); } catch { /* the default skin */ }
+      // the idle, and with it the clips it starts (its sync clips, the rest of its pool), as the game's OnEnable
+      player.bamtSounds = new Sync.SoundKeys(sfx);
+      player.bamtRuns = new Sync.Runs(player.animationState, { clip: (name) => clipOf(player, name),
+        duration: (name) => player.skeleton.data.findAnimation(name)?.duration || 0,
+        onEntry: (entry, c) => soundsOf(player, entry, c) });
       const idle = idleOf(player.skeleton.data, layer);
-      if (idle) player.animationState.setAnimation(0, idle, true);
+      if (idle) soundsOf(player, player.animationState.setAnimation(0, idle, true), clipOf(player, idle));
+      for (const name of idleClips(current?.info, layer.name, idle, (n) => clipOf(player, n))) playClip(player, name);
       onReady(player);
     },
     error: (_p, message) => { console.error(message); onError(); },
@@ -756,6 +779,7 @@ export function hide(host) {
   clearInterval(extendTimer);
   chain = null;
   endTalk(false);
+  Sfx.clear();
   clearTimeout(subtitleTimer);
   if (host) { host.innerHTML = ""; host.classList.remove("open-edge"); }
 }
@@ -785,37 +809,58 @@ function clipOf(p, name) {
   return { track: isA ? 2 : 1, loop: /^(Pat|Look|Pinch|HandFollow|Touch)_\d+_[MA]$/.test(name), finish: 2,
     intro: isA && !talky ? 0 : mix, outro: mix, next: null, sync: sync && p.skeleton.data.findAnimation(sync) ? [sync] : [] };
 }
+// As the game's PlaySpineClip: a clip of mode 2 waits for its random turn (lobby-sync.js), a random idle clip (mode 3)
+// plays on its own schedule (Idle), the others play at once; then the clip's sync clips.
 function playClip(p, name, depth = 0) {
   const st = p?.animationState, data = p?.skeleton?.data;
   if (!st || !data.findAnimation(name) || depth > 4) return null;
   const c = clipOf(p, name), t = c.track, cur = st.tracks[t];
-  let entry;
-  if (!cur || (cur.animation.name === "<empty>" && !cur.mixingFrom)) {
-    // an idle track: fade in over the lower tracks (setAnimation on an empty track would ignore the mix)
-    st.setEmptyAnimation(t, 0);
-    entry = st.addAnimation(t, name, c.loop, 0);
-  } else entry = st.setAnimation(t, name, c.loop);
-  entry.mixDuration = c.intro;
-  if (!c.loop) {
-    // the outro or the next clip: so that it ends with the clip (outroAt null), else from that long after its end
-    const at = c.outroAt == null ? 0 : data.findAnimation(name).duration + c.outroAt;
-    if ((c.finish === 1 || c.finish === 3) && c.next && data.findAnimation(c.next)) enqueue(p, t, c.next, at);
-    else if (c.finish === 2) st.addEmptyAnimation(t, c.outro, at);
+  let entry = null;
+  if (c.mode === 2) p.bamtRuns?.start(name);
+  else if (c.mode !== 3) {
+    if (!cur || (cur.animation.name === "<empty>" && !cur.mixingFrom)) {
+      // an idle track: fade in over the lower tracks (setAnimation on an empty track would ignore the mix)
+      st.setEmptyAnimation(t, 0);
+      entry = st.addAnimation(t, name, c.loop, 0);
+    } else entry = st.setAnimation(t, name, c.loop);
+    entry.mixDuration = c.intro;
+    soundsOf(p, entry, c);
+    if (!c.loop) {
+      // the outro or the next clip: so that it ends with the clip (outroAt null), else from that long after its end
+      const at = c.outroAt == null ? 0 : data.findAnimation(name).duration + c.outroAt;
+      if ((c.finish === 1 || c.finish === 3) && c.next && data.findAnimation(c.next)) enqueue(p, t, c.next, at, entry);
+      else if (c.finish === 2) st.addEmptyAnimation(t, c.outro, at);
+    }
   }
   for (const s of c.sync || []) playClip(p, s, depth + 1);
   return entry;
 }
-// the clip after another on its track (EnqueueSpineClip), delay as for addAnimation
-function enqueue(p, t, name, delay) {
-  const n = clipOf(p, name), e = p.animationState.addAnimation(t, name, n.loop, delay);
+// the clip after another on its track (EnqueueSpineClip), delay as for addAnimation; a random-timing one starts its
+// wait once the clip before it completes (EnqueueRandomTiming: Hoshino's WhaleMove_01_R after Start_WhaleMove_01_R)
+function enqueue(p, t, name, delay, after) {
+  const st = p.animationState, n = clipOf(p, name);
+  if (n.mode === 2) {
+    Sync.listen(after, { complete: () => { if (p.animationState) playClip(p, name); } });
+    return;
+  }
+  const e = st.addAnimation(t, name, n.loop, delay);
   if (delay <= 0) e.delay = Math.max(0, e.delay + e.mixDuration - n.intro); // its mix ends with the clip before
   e.mixDuration = n.intro;
+  soundsOf(p, e, n);
 }
 function clearClip(p, name, depth = 0) {
   if (!p?.animationState || depth > 4) return;
   const c = clipOf(p, name);
+  if (c.mode === 2) p.bamtRuns?.stop(name);
   p.animationState.setEmptyAnimation(c.track, c.outro || 0.2);
   for (const s of c.sync || []) clearClip(p, s, depth + 1);
+}
+// a dialogue starts or ends: the game returns the character to its idle keeping the idle's clips (ReturnToIdle with
+// PlaySyncClipsIfNotPlaying), and a random-timing one that has not played yet starts its wait again
+function returnToIdle(p) {
+  if (!p?.bamtRuns || !p.skeleton) return;
+  const idle = idleOf(p.skeleton.data, p.bamtLayer);
+  p.bamtRuns.returnToIdle(idleClips(current?.info, p.bamtLayer.name, idle, (n) => clipOf(p, n)));
 }
 const mainPlayer = () => players.find((p) => p.bamtLayer?.name === current?.meta?.main) || players[players.length - 1];
 // a bone of a layer's skeleton in its current pose, for the particle systems that follow it (SkeletonUtilityBone)
@@ -878,6 +923,7 @@ export function play(anim, { fromChain = false } = {}) {
   if (!seq || !p?.animationState) return null;
   endTalk(false); // the new talk takes over tracks 1 and 2
   Idle.interrupt();
+  returnToIdle(p);
   talkIndex = i;
   const my = (talk = { seq, started: performance.now() });
   for (const cue of seq.cues) {
@@ -902,6 +948,7 @@ function voice(clip) {
 function finishTalk(my) {
   if (talk !== my) return;
   endTalk(false);
+  returnToIdle(mainPlayer());
   const run = chain;
   if (run && current?.meta) {
     const seq = current.meta.sequences[++run.i];
@@ -923,7 +970,9 @@ function endTalk(fade) {
 export function stop() {
   const was = !!talk || !!chain; // play all may sit between two dialogues
   chain = null;
+  const talking = !!talk;
   endTalk(true);
+  if (talking) returnToIdle(mainPlayer());
   if (was) emit();
 }
 // the next dialogue after the last one played (a tap on the body); a dialogue that has only just started is not cut
@@ -966,13 +1015,71 @@ export function setLines(table, pick) {
   lines = table || {};
   if (pick) lineOf = pick;
 }
-// the voice volume (0 to 1); muted never plays voices
+// the voice volume (0 to 1), which the clips' sounds follow too; muted never plays voices or sounds
 export function setVolume(value, mute) {
   volume = Math.max(0, Math.min(1, value));
   muted = !!mute;
   for (const a of audios) a.volume = volume;
-  if (muted) silence();
+  Sfx.follow();
+  if (muted) { silence(); Sfx.stop(); }
 }
+
+// --- the clips' sounds (SpineClip.SoundKeys, played by lobby-sync.js): an AnimationAudioEvent plays one of its
+// clips at random, at its volume and at its pitch, a playback rate as Unity's pitch is (AudioPlayer.PlayByAudioData).
+// The clips come from the game files (lobby.json sounds, /asset/spine/lobby/<core>/sfx_<clip>.wav), fetched once a
+// clip with sound keys starts and kept as blobs for the lobby; the game's SFX volume is the app's voice volume. ---
+const Sfx = {
+  urls: new Map(), playing: new Set(), log: [],
+  load(clip) {
+    if (!this.urls.has(clip) && current) {
+      this.urls.set(clip, fetch(`${base(current.core)}sfx_${encodeURIComponent(clip)}.wav`)
+        .then((r) => (r.ok ? r.blob() : null)).then((b) => (b ? URL.createObjectURL(b) : null)).catch(() => null));
+    }
+    return this.urls.get(clip) || Promise.resolve(null);
+  },
+  prefetch(id) {
+    for (const clip of current?.info?.sounds?.[id]?.clips || []) this.load(clip);
+  },
+  play(id) {
+    const ev = current?.info?.sounds?.[id];
+    this.log.push({ event: id, name: ev?.name || null, at: Math.round(performance.now()) });
+    if (this.log.length > 40) this.log.shift();
+    if (!ev?.clips?.length || muted || !(volume > 0)) return;
+    const clip = ev.clips[Math.floor(Math.random() * ev.clips.length)], my = token;
+    this.load(clip).then((url) => {
+      if (!url || my !== token || muted) return;
+      const a = new Audio(url);
+      a.bamtVolume = ev.volume ?? 1;
+      a.volume = clamp(a.bamtVolume * volume, 0, 1);
+      a.preservesPitch = a.webkitPreservesPitch = a.mozPreservesPitch = false;
+      a.defaultPlaybackRate = a.playbackRate = ev.pitch || 1;
+      this.playing.add(a);
+      a.onended = () => this.playing.delete(a);
+      a.play().catch(() => this.playing.delete(a));
+    });
+  },
+  follow() { for (const a of this.playing) a.volume = clamp(a.bamtVolume * volume, 0, 1); }, // a new voice volume
+  stop() { for (const a of this.playing) a.pause(); this.playing.clear(); },
+  clear() {
+    this.stop();
+    for (const url of this.urls.values()) url.then((u) => u && URL.revokeObjectURL(u));
+    this.urls.clear();
+    this.log = [];
+  },
+};
+const sfx = (id) => Sfx.play(id);
+// a track entry's sound keys (the game's EnqueueSoundKeys on every entry a clip sets), their clips fetched ahead
+function soundsOf(p, entry, c) {
+  if (!entry || !c?.sounds?.length || !p?.bamtSounds) return;
+  p.bamtSounds.watch(entry, c.sounds);
+  if (!muted && volume > 0) for (const [, id] of c.sounds) Sfx.prefetch(id);
+}
+// for checks: each layer's random-timing clips (seconds until each plays next) and tracks, and the sound keys played
+// lately (also while muted)
+export const clipRuns = () => players.filter((p) => p.bamtLayer).map((p) => ({ layer: p.bamtLayer.name,
+  time: +(p.bamtRuns?.time || 0).toFixed(3), runs: p.bamtRuns?.list() || [],
+  tracks: p.animationState?.tracks.map((t) => t?.animation?.name || null) || [] }));
+export const soundLog = () => Sfx.log.slice();
 // a sequence's lines, one per voice clip
 export const textOf = (seq) => seq.cues.map((c) => lineOf(lines[c.clip])).filter(Boolean);
 

@@ -100,9 +100,11 @@ class GameAssets:
     def spine_cores(self, kind: str) -> dict[str, list[Path]]  # kind "spr" | "lobby": core -> bundle parts
     def spine_files(self, kind: str, core: str) -> dict[str, bytes]        # file name -> bytes (.skel, .atlas, pages)
     def spine_files_from(self, bundles: list[Path]) -> dict[str, bytes]    # the same, for a mod's bundle files
-    def lobby_info(self, core: str) -> dict                    # a lobby's layers, touch boxes, clips, post-processing
-                                                               # (lobby.py) and particle effects (particles.py)
+    def lobby_info(self, core: str) -> dict                    # a lobby's layers, touch boxes, clips, idle pools,
+                                                               # sound events, post-processing (lobby.py) and
+                                                               # particle effects (particles.py)
     def lobby_fx_texture(self, core: str, tex_id: str) -> bytes # a texture lobby_info's "fx" lists, as PNG
+    def lobby_sound(self, core: str, clip_id: str) -> bytes   # a clip lobby_info's "sounds" lists, decoded to WAV
     def model_cores(self) -> set[str]                          # dev names with a chibi (character-<dev>-_mxload-*)
     def model_glb(self, core: str) -> bytes                    # the chibi as one GLB (model.py)
 ```
@@ -415,8 +417,9 @@ library).
 | `/asset/ui/layout/<root>.json?path=<subpath>` | light |
 | `/asset/art/bg/<name>`, `/asset/art/portrait/<name>.png` | heavy |
 | `/asset/spine/spr/<core>/<file>`, `/asset/spine/lobby/<core>/<file>`, `/asset/spine/mod/<id>/<file>` (`skeleton.skel` and `skeleton.atlas` stand for the skeleton named like the core, a mod's own core for a mod, else the only one) | heavy |
-| `/asset/spine/lobby/<core>/lobby.json` (prefab layout, touch boxes, clips, post-processing, particle effects; no skeleton is extracted) | heavy |
+| `/asset/spine/lobby/<core>/lobby.json` (prefab layout, touch boxes, clips, idle pools, sound events, post-processing, particle effects; no skeleton is extracted) | heavy |
 | `/asset/spine/lobby/<core>/fx_<id>.png` (a particle texture the lobby's `fx.textures` lists) | heavy |
+| `/asset/spine/lobby/<core>/sfx_<id>.wav` (a sound clip the lobby's `sounds` list, decoded in memory) | heavy |
 | `/asset/model/<variant>.glb` (the variant's chibi, `model/gltf-binary`) | heavy |
 | `/asset/voice/<variant>/<clip>` (a lobby voice relayed from Kivo) | heavy |
 
@@ -712,14 +715,46 @@ in `pointer-textures`); without a game the system cursor stays and there is no e
   at its place after, and spine-unity sets a Spine track empty when its clip ends (`dontEndWithClip` off), so the
   scenes rest in their setup pose, out of the game's view. The lobby never loops an intro (`idleOf`): a skeleton
   with intros only rests in its setup pose, one with a Dummy loops that. Looped, Shigure_00's Start_Idle_00 drew its
-  train (`train Sample`) across the bottom of the view, over Shigure, every 6 s. Not reproduced: an idle's sync clips
-  (15 lobbies, e.g. Shigure's Train_00_R on track 3, her own train passing behind the bridge after a random 10 to
-  15 s; snow, clouds, petals, stars elsewhere).
+  train (`train Sample`) across the bottom of the view, over Shigure, every 6 s.
 - **Clip endings** (SpineBase `PlayMasked`, `QueueTrackClose`, `EnqueueSpineClip`, `EnqueueMasked`). A clip that
   does not loop and has FinishMode 2 fades its track out: with UseDefaultOutroMix over the skeleton's default mix,
   ending with the clip; otherwise over its OutroMix, starting OutroStartOffset after the clip's end (`clips.*.outroAt`),
   so a talk's last frame holds while it fades (0.3 to 0.6 s for most). FinishMode 3 queues the next clip the same way
   (its intro mix ending with the clip, or starting at its end).
+- **Idle clips** (`lobby-sync.js`; the rules read from GameAssembly.dll: SpineBase `PlayBaseClip`, `PlaySpineClip`,
+  `CoPlayMaskedRandomTiming`, `ResetRandomizedDelayWithDuration`, `AddRandomCountLoop`, `EnqueueRandomTiming`,
+  `ReturnToIdleWithSpineClips`, `PlaySyncClipsIfNotPlaying`, `StopAllMasks`; the enums' values from
+  `global-metadata.dat`). A SpineCharacter starts every clip of its idle pool, each on its own track, and each with
+  its sync clips (`lobby.json` `idles`, `clips.*.sync`). A clip's PlayMode says how: 0 the base track and 1 masked
+  play at once, 3 is a random idle clip (played by the random idle schedule only), 2 masked at random times: it waits
+  (RandomTimingIntroDelayMode 0: not at all, 1: RandomDelayMin to Max, 2: IntroDelayDuration plus that), plays once
+  on its track, at full weight on an empty track and mixing in from its own last frame after that (its intro mix),
+  plus AddRandomLoopMin to Max extra plays queued one duration apart; a looping one then waits again, from that start,
+  its playing time plus RandomDelayMin to Max; between plays the track holds the last frame, nothing fades it out.
+  The clock is the skeleton's own animation time. A dialogue keeps them: the game returns the character to its idle
+  at the start and the end of one keeping the idle's clips, and starts again only the wait of a random-timing clip
+  that has not played yet (its track still empty); a drag stops every other track (`StopAllMasks(false)`) but keeps
+  them too. They are part of the clips the zoom-out limits are measured over (on their track over the idle, on every
+  layer). 19 lobbies: Shigure's Train_00_R (track 3, 3 s plus 10 to 15 s, then 6.67 s plus 10 to 15 s; the
+  `train` slot, draw index 141, passes behind the bridge and Shigure from the top right, and a light flashes over the
+  right side), Hoshino's background (Start_WhaleMove_01_R at once, 30.6 s, then WhaleMove_01_R, 56.7 s, every 3 to 4 s
+  after the last), Seia's butterflies (both lobbies, 5 to 10 s apart), Kayoko (New Year) snow, Serina (Christmas) and
+  Saki (Swimsuit) backgrounds, Nagusa's petals and clouds, Takane's aurora and breath (2 s plus 8 to 10 s), Hare
+  (Camp)'s three shooting stars (6 s plus 20 to 30, 8 to 15 and 15 to 22 s), Pina (Guide)'s petals, Sumire
+  (Part-Timer)'s and Hasumi (Swimsuit)'s sweat (10 s plus 25 to 30 and 15 to 20 s), Michiru (Dress)'s petals, Reisa
+  (Magical)'s leaves, Yuzu (Armed)'s background and clouds (0 to 3 s apart), Kisaki (Swimsuit)'s fog, Erika's and
+  Juri's clouds; the others without a wait loop back to back. Not reproduced: a random-timing clip's next clip
+  (FinishMode 3 on a one-shot, which no lobby has).
+- **Clip sounds.** A clip's SoundKeys (`clips.*.sounds`: time, event) play when its track entry's animation time
+  reaches them, every loop on a looping entry, and no more once the entry is interrupted, ends or completes
+  (`EnqueueSoundKeys`, `CoPlaySoundKeys`); 40 clips have them, 37 talks of 15 lobbies (cloth, leather, swings),
+  Shigure's train (`SFX_Spine_Subway` at 3.1 s) and Hoshino's whale. Every event is an AnimationAudioEvent of the
+  lobbies' shared bundle (`lobby.json` `sounds`): one of its AudioClips at random, at its volume, and at its pitch
+  when that is above 0 (as a playback rate, the pitch going with it; 8 of the 32 events have a negative one, which
+  the game never sets on the source). The clip is decoded from the game's audio bundle in memory (UnityPy's FMOD, `sfx_<id>.wav`), fetched
+  once a clip with sound keys starts and kept as a blob for the lobby. They follow the voice volume and mute (the
+  game's SFX slider has no counterpart yet), and `--mute` silences them. Not reproduced: a lobby's ambient loop
+  (SpineBase `ambientEvent`, AmbientAudioPlayer).
 - **Zoom.** Fullscreen opens on the game's 16:9 view and zooms in to 2x. How far it zooms out is the Settings L2D
   tab's zoom-out row (`settings.set lobbyZoom` and `lobbyZoomCustom`; `lobby_zoom` and `lobby_zoom_custom` in
   `webui.json`, where the boolean `lobby_zoom_out` it replaces still reads as Full Art or Game View; Full Art when
