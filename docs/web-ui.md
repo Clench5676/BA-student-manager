@@ -271,7 +271,7 @@ Events on `/api/events`:
 | `app.openClassic {tab}` | starts the classic GUI on a tab |
 | `i18n.strings {lang}` | `{key: text}` for `webui.*` |
 | `roster.list` | families with variants, mod counts, fresh flags, favourites, recent order, `added` (when the newest own mod was added), `aliases` per family and per variant (matched by the search, never shown), `custom` per family (the user's own aliases) |
-| `settings.get` / `settings.set {key, value}` | the settings popup's values; key `roster` keeps the student list's view (merge, segment filters, sort, order, filter groups; `webui/state.py roster_view`) |
+| `settings.get` / `settings.set {key, value}` | the settings popup's values; key `roster` keeps the student list's view (merge, segment filters, sort, order, filter groups; `webui/state.py roster_view`); `lobbyZoom` is `{mode, custom}` in `settings.get`, set by keys `lobbyZoom` (`game`, `art`, `unlocked`, `custom`) and `lobbyZoomCustom` (1.0 to 4.0 game views across, kept in 0.1 steps) |
 | `family.get {key}` | a family with its variants (and `aliases` and `custom`, as in `roster.list`), mods and each variant's state; `modelFiles` per variant (the 3D model's prefab bundles, newest first) and `version` (the game's resource version, so a switched install reloads the screen) |
 | `lobby.warm` | builds the memorial lobby prefab index and the index of every bundle's CABs (the particle effects' materials, textures and meshes) in the background (once per game); the detail screen calls it for a variant with a lobby |
 | `lobby.lines {variant, talks, lang}` | `{clip: {lang: text, voice}}`: zh-CN from Kivo, ja from Kivo else the Global server, en, zh-TW, ko and th from the Global server (read only for a `lang` other than zh-CN, left out when its table is not in within 3 s); `talks` (`{animation: [clip ids]}` from the skeleton) places the Global rows on the clips; `lines_unavailable` when neither source can be read |
@@ -519,15 +519,31 @@ in `pointer-textures`); without a game the system cursor stays and there is no e
     the *_1a systems add 0.1 to 0.3 ms (ch0188's eleven splashes, ch0334's eight booster meshes);
     the first frame compiles each shader once. Everything is freed with the lobby (`particles-gl.js` detach and
     dispose). Without WebGL2 nothing is drawn.
-- **Zoom.** Fullscreen opens on the game's 16:9 view and zooms in to 2x. The Settings L2D tab (`lobbyZoomOut`, off by
-  default) lets it zoom out further, to the widest 16:9 view inside the painted art (one 16-unit cell inside the
-  painted rect). The painted rect is found on idle poses; with the setting on, the poses of every clip the lobby
-  plays (dialogues with their sync clips, the drag clips and their ends, random idle clips, every 0.1 s over the
-  idle) are checked in the background, in 8 ms slices, within 24 cells of its sides, and the rect gives up what one
-  uncovers: a dialogue that moves the scene never shows a blank edge. Over the 265 lobbies (headless SwiftShader) it
-  takes 780 poses and 0.55 s of slices at the median (2.2 s at most); 34 lobbies give up cells, most one, Kurumi three
-  (Talk_07_M scales her scene down), Serika's CH0189 up to six (the end of every dialogue) and CH0303 up to four (a
-  random idle clip). The result is kept for the session.
+- **Zoom.** Fullscreen opens on the game's 16:9 view and zooms in to 2x. How far it zooms out is the Settings L2D
+  tab's zoom-out row (`settings.set lobbyZoom` and `lobbyZoomCustom`; `lobby_zoom` and `lobby_zoom_custom` in
+  `webui.json`, where the boolean `lobby_zoom_out` it replaces still reads as Full Art or Game View); panning stays
+  inside the same limit, and no limit goes past 4 game views across:
+  - *Game View* (the default): the game's view, never wider.
+  - *Full Art*: the widest 16:9 view inside the painted art (one 16-unit cell inside the painted rect). The painted
+    rect is found on idle poses; the poses of every clip the lobby plays (dialogues with their sync clips, the drag
+    clips and their ends, random idle clips, every 0.1 s over the idle) are checked in the background, in 8 ms
+    slices, within 24 cells of its sides, and the rect gives up what one uncovers: a dialogue that moves the scene
+    never shows a blank edge. Over the 265 lobbies (headless SwiftShader) it takes 780 poses and 0.55 s of slices at
+    the median (2.2 s at most); 34 lobbies give up cells, most one, Kurumi three (Talk_07_M scales her scene down),
+    Serika's CH0189 up to six (the end of every dialogue) and CH0303 up to four (a random idle clip).
+  - *Unlocked*: the box of the art the idle poses paint (the same opaque art) joined to the scene across gaps of at
+    most two cells, widened by what the clips paint (the same pass) up to 24 cells past it; parts parked away from
+    the scene are left out (Toki's close-up head to the right, Miku's second stage set to the left), and a dialogue
+    that moves or scales the whole scene (CH0243, Airi's CH0251) does not open the limit to its whole path. Kurumi
+    1.41 game views across (Full Art 1.23), Toki 1.58 (1.27), Miku 1.44 (1.17); over the 265 lobbies 1.20 at the
+    median (Full Art 1.16), 1.59 at the 90th percentile and 2.41 at most (CH0356's waterfall), 63 within 0.02 of Full
+    Art. The art is looked for within three game views around the game's view (14 lobbies reach that edge). The pass
+    costs 10 to 30 % more with it (Kurumi 0.78 to 0.90 s, Toki 0.82 to 1.06 s).
+  - *Custom*: 1.0 to 4.0 game views across (0.1 steps, a slider row under the option), around the game's view.
+
+  Past the painted art (Unlocked, Custom) the lobby shows black: what the game's lobby camera clears to (level1
+  `Persistent/Camera`, solid colour, black). Sparse art (a mod) keeps the blurred edge extension. The measurements are
+  kept for the session.
 - **Input.** Press and drag: head pat, eye follow and the other drag boxes. Mouse wheel (a notch zooms at least a
   line's worth) and pinch (ctrl + wheel in Chromium / WebView2, gesture events in WebKit) zoom at the pointer; a
   two-finger trackpad swipe pans in any direction. A wheel is told by its steps: whole lines, `wheelDeltaY` in steps

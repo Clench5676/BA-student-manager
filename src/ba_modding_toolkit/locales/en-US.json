@@ -1099,7 +1099,11 @@
 			"zoomOut": {
 				"label": "Zoom Out",
 				"game": "Game View",
-				"art": "Full Art"
+				"art": "Full Art",
+				"unlocked": "Unlocked",
+				"custom": "Custom",
+				"limit": "Custom Limit",
+				"factor": "{v}x"
 			},
 			"post": {
 				"label": "Post-Processing",

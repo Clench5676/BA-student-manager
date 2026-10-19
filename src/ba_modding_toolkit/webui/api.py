@@ -23,7 +23,7 @@ from ..naming import parse_filename
 from ..utils import get_version_info
 from .rpc import RpcRegistry, to_json
 from .services import Services
-from .state import ALIAS_LENGTH, ALIAS_MAX, alias_key, alias_text, roster_view
+from .state import ALIAS_LENGTH, ALIAS_MAX, LOBBY_ZOOM_MODES, alias_key, alias_text, is_number, lobby_zoom, roster_view
 from .system import open_classic, reveal
 
 logger = logging.getLogger(__name__)
@@ -180,7 +180,9 @@ def build_api(s: Services) -> RpcRegistry:
             "gameDirs": {"global": st.get("game_resource_dir"), "japan": st.get("game_resource_dir_japan")},
             "gameFound": s.game_found(), "libraryDir": str(s.library_dir()), "outputDir": st.get("output_dir"),
             "voiceVolume": int(s.state.get("voice_volume", 80)), "voiceMuted": bool(s.state.get("voice_muted", False)),
-            "lobbyZoomOut": bool(s.state.get("lobby_zoom_out", False)),
+            # {mode, custom}; before the modes it was a boolean, lobby_zoom_out
+            "lobbyZoom": lobby_zoom(s.state.get("lobby_zoom"), s.state.get("lobby_zoom_custom"),
+                                    s.state.get("lobby_zoom_out")),
             "lobbyPost": bool(s.state.get("lobby_post", True)),
             "roster": roster_view(s.state.get("roster")),
             "consent": s.state.consent, "cacheDir": str(s.cache_dir()),
@@ -224,8 +226,14 @@ def build_api(s: Services) -> RpcRegistry:
             s.state.set("voice_volume", max(0, min(100, int(value))))
         elif key == "voiceMuted":
             s.state.set("voice_muted", bool(value))
-        elif key == "lobbyZoomOut":
-            s.state.set("lobby_zoom_out", bool(value))
+        elif key == "lobbyZoom":
+            if not isinstance(value, str) or value not in LOBBY_ZOOM_MODES:
+                raise ServiceError("bad_params", key=key)
+            s.state.set("lobby_zoom", value)
+        elif key == "lobbyZoomCustom":
+            if not is_number(value):
+                raise ServiceError("bad_params", key=key)
+            s.state.set("lobby_zoom_custom", lobby_zoom(None, value)["custom"])
         elif key == "lobbyPost":
             s.state.set("lobby_post", bool(value))
         elif key == "roster":

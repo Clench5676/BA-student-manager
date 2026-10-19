@@ -1724,7 +1724,7 @@ async function ensureLayouts() {
 // post-processing from the settings
 export function applyPrefs(prefs) {
   Lobby.setVolume((prefs?.voiceVolume ?? 80) / 100, ctx?.info?.mute || prefs?.voiceMuted);
-  Lobby.setZoomOut(!!prefs?.lobbyZoomOut);
+  Lobby.setZoomLimit(prefs?.lobbyZoom);
   Lobby.setPostProcessing(prefs?.lobbyPost !== false);
   // started with --debug: the fullscreen lobby's pointer, wheel and gesture events go to the app's log
   Lobby.setTrace(ctx?.info?.debug ? (events) => rpc("debug.trace", { events }).catch(() => {}) : null);

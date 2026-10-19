@@ -1099,7 +1099,11 @@
 			"zoomOut": {
 				"label": "缩小范围",
 				"game": "游戏视野",
-				"art": "完整画面"
+				"art": "完整画面",
+				"unlocked": "解除限制",
+				"custom": "自定义",
+				"limit": "自定义上限",
+				"factor": "{v}x"
 			},
 			"post": {
 				"label": "后期处理",
