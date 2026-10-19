@@ -26,6 +26,15 @@ at runtime and never shipped with the program.
 - Wording: game concepts take the official server's words (the Global client's Traditional Chinese and Korean, the JP
   server's Japanese, the Global English); Simplified Chinese follows Kivo's community wording. Words the game never
   uses follow each language's community and the UI text separators (Korean: half-width brackets and ", ").
+- The Enable Mods switch, the scan consent, the mod prompts, the classic hand-off, the quit prompt, the tray menu and
+  Settings' Mods tab take their strings from `webui.mods.*`, `switch.*`, `classic.*`, `quit.*`, `tray.*`,
+  `settings.mods.*` and `error.*`, in every language. Install labels (`mods.installNamed`) keep the folder name as it
+  is; `mods.helpFolders` joins them with the language's list separator (`、` in zh-CN, zh-TW and ja, `, ` in en and
+  ko). Japanese and Korean name the mod library as `settings.library` does (MODライブラリ, 모드 라이브러리). Japanese
+  errors that ask for an action keep the polite form (`error.game_running`, `error.classic_open`); other Japanese
+  strings are fragments. Repair advice is text only: `error.original_unavailable` says that no official copy is
+  left, and `mods.repairSteam` gives Steam's menu path in each Steam client's words, followed by `mods.repairThen`;
+  the in-game repair line comes once that route is confirmed on each server.
 - The first start takes the system language (`i18n.match_language`): Traditional Chinese (zh-Hant, zh-TW, zh-HK,
   zh-MO) zh-TW, other Chinese zh-CN, Japanese ja-JP, Korean ko-KR, the rest en-US. Without the language's file (a
   build that leaves it out), Traditional Chinese gets the whole zh-CN screen, the others en-US. `BAMT_LANG`
