@@ -690,7 +690,6 @@ def test_a_moved_install_matches_by_last_bytes_only_with_scan_consent(world):
     move_install(world, moved)
     new_file = moved / world.spr.name
     os_time = new_file.stat().st_mtime_ns + 5_000_000_000
-    import os
     os.utime(new_file, ns=(os_time, os_time))  # a copy that kept the bytes, not the date
     world.reload()
     assert str(new_file.resolve()) not in json.loads((world.root / "state.json").read_text())["applied"]
@@ -706,7 +705,6 @@ def test_a_moved_install_with_consent_is_rekeyed_by_its_last_bytes(world):
     move_install(world, moved)
     new_file = moved / world.spr.name
     later = new_file.stat().st_mtime_ns + 5_000_000_000
-    import os
     os.utime(new_file, ns=(later, later))
     world.consent = True
     world.reload()
@@ -1088,10 +1086,12 @@ def test_a_forget_by_the_last_data_directory_naming_it_drops_the_record(world):
     old = world.key(world.game)
     world.reload()  # A no longer names it: its id leaves named_by
     assert "A" not in world.profiles()["folders"][old]["named_by"]
+    assert world.folder(world.game)["built"]
     world.library.forget(old)
     assert old not in world.profiles()["folders"]
     assert json.loads((world.root / "state.json").read_text())["applied"]  # the history stays
-    assert world.original(world.spr).exists() or True  # kept originals are not cleared by a forget
+    assert world.original(world.spr).exists()  # and so do the kept originals; no game file is touched
+    assert world.spr.read_bytes() == OFFICIAL
 
 
 def test_naming_a_hidden_install_again_shows_it_again(world):
@@ -1429,7 +1429,6 @@ def test_a_record_without_trailing_bytes_matches_by_size_and_date_only(world):
     mod = world.add(world.spr, payload=b"longer unfixed mod")  # another size than the official file
     world.library.apply("test", f"mod:{mod.id}")
     later = world.spr.stat().st_mtime_ns + 5_000_000_000
-    import os
     os.utime(world.spr, ns=(later, later))  # the same bytes, a new date
     entry = world.entries()[(world.key(), "test_spr")]
     assert entry.state == "changed"  # rule 3: the official size of its name says unknown
@@ -1468,7 +1467,7 @@ def test_an_unfixed_outside_write_of_the_official_size_is_caught_when_reached(wo
     world.spr.write_bytes(header_bundle(b"outside!"))  # no CRC fix, no trailing bytes, the official size
     entry = world.entries()[(world.key(), "test_spr")]
     assert entry.state == "reset"  # judged cheaply: official, changed since written
-    result = world.toggle(True, ) if False else world.library.toggle(True, True)
+    result = world.library.toggle(True, True)  # a Retry of the On
     assert result.skipped and result.skipped[0]["why"] == "changed"  # an On never overwrites it
     assert world.spr.read_bytes() == header_bundle(b"outside!")
     result = world.toggle(False)
