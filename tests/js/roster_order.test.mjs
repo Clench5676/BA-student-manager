@@ -138,6 +138,37 @@ test("the marks inside official names are separators: found when typed without t
   assert.equal(fold("\u30b7\u30ed\u30b3\uff0a\u30c6\u30e9\u30fc"), "\u30b7\u30ed\u30b3\u30c6\u30e9\u30fc");
 });
 
+test("the aliases (the CN server's names) are found but never shown", () => {
+  const d = { families: [
+    { key: "momoi", base: { "zh-CN": "\u6843\u4e95", en: "Momoi" }, aliases: ["\u6843"], variants: [
+      v("momoi", { names: { "zh-CN": { full: "\u6843\u4e95" }, en: { full: "Momoi" } }, aliases: ["\u6843"] }),
+      v("np0267", { names: { "zh-CN": { full: "\u6843\u4e95\uff08\u4e34\u6218\uff09" }, en: { full: "Momoi (Armed)" } },
+        aliases: ["\u6843\uff08\u6b66\u88c5\uff09"], playable: false }),
+    ] },
+    { key: "kanna", base: { "zh-CN": "\u53f6\u6e1a", en: "Kanna" }, aliases: ["\u5eb7\u5a1c"], variants: [
+      v("ch0170", { names: { "zh-CN": { full: "\u53f6\u6e1a" }, en: { full: "Kanna" } }, aliases: ["\u5eb7\u5a1c"] }),
+      v("ch0260", { names: { "zh-CN": { full: "\u53f6\u6e1a\uff08\u6cf3\u88c5\uff09" }, en: { full: "Kanna (Swimsuit)" } } }),
+    ] },
+  ] };
+  const find = (q, extra = {}) => order(d, view(extra), { label, query: q });
+  // a variant's alias: the server's costume word, typed alone or with the name, brackets left out
+  assert.deepEqual(keys(find("\u6b66\u88c5")), ["np0267"]);
+  assert.deepEqual(keys(find("\u6843\u6b66\u88c5")), ["np0267"]);
+  // the family's alias finds every variant, the ones whose own aliases do not repeat it too
+  assert.deepEqual(keys(find("\u5eb7\u5a1c")), ["ch0170", "ch0260"]);
+  assert.deepEqual(keys(find("\u5eb7\u5a1c \u6cf3\u88c5")), ["ch0260"]);
+  // the cards keep their names; nothing of the alias shows
+  assert.deepEqual(find("\u6b66\u88c5").map((c) => c.name), ["\u6843\u4e95\uff08\u4e34\u6218\uff09"]);
+  // merged: the card is the variant the alias found
+  assert.deepEqual(find("\u6b66\u88c5", { merged: true }).map((c) => [c.family, c.key, c.name]), [["momoi", "np0267", "\u6843\u4e95"]]);
+  // the detail screen's arrows step through the same search
+  const list = find("\u5eb7\u5a1c");
+  assert.equal(neighbour(list, null, { family: "kanna", variant: "ch0170", merged: false }, 1).key, "ch0260");
+  // malformed aliases (not strings) are ignored
+  const bad = { families: [{ key: "x", base: {}, aliases: [null, 3], variants: [v("x", { aliases: [{}] })] }] };
+  assert.deepEqual(keys(order(bad, view(), { label, query: "x" })), ["x"]);
+});
+
 test("merged, a family is one card shown by its first variant or the first one the search found", () => {
   const all = order(data(), view({ merged: true }), { label });
   assert.deepEqual(all.map((c) => c.family), ["aru", "hoshino", "citizen"]);

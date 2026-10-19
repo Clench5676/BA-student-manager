@@ -276,6 +276,7 @@ def build_api(s: Services) -> RpcRegistry:
         own = mods.get(v.key, [])
         return {
             "key": v.key, "fileId": v.file_id, "family": v.family, "names": v.names, "playable": v.playable,
+            "aliases": v.aliases,  # the search matches them, the page never shows them (the CN server's names)
             "recruitable": v.recruitable,  # on the selected server; playable is on some server
             "order": v.order, "spr": v.spr, "lobby": v.lobby, "date": v.date, "model": v.model,
             "bg": _url_bg(v.bg), "portrait": _url_portrait(v.portrait),
@@ -301,7 +302,7 @@ def build_api(s: Services) -> RpcRegistry:
         modified = s.library.modified()
         families = []
         for f in s.catalog.families():
-            families.append({"key": f.key, "base": f.names, "school": f.school,
+            families.append({"key": f.key, "base": f.names, "aliases": f.aliases, "school": f.school,
                              "variants": [variant_json(v, mods, favorites, recent, modified) for v in f.variants]})
         return {"families": families}
 
@@ -345,7 +346,7 @@ def build_api(s: Services) -> RpcRegistry:
             variants.append(item)
         # the game's resource version tells installs apart (another game folder or file source): the page then reads
         # every part of a variant again, even under the same variant key
-        return {"key": f.key, "base": f.names, "school": f.school, "variants": variants,
+        return {"key": f.key, "base": f.names, "aliases": f.aliases, "school": f.school, "variants": variants,
                 "version": s.game.resource_version if s.game_found() else None}
 
     warmed: dict[str, Any] = {"game": None}

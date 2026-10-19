@@ -35,6 +35,7 @@ class FakeVariant:
     date: str | None = None
     recruitable: bool = True
     model: str | None = None
+    aliases: list = field(default_factory=list)
 
 
 @dataclass
@@ -43,6 +44,7 @@ class FakeFamily:
     names: dict
     school: str | None
     variants: list
+    aliases: list = field(default_factory=list)
 
 
 class FakeGame:
@@ -213,6 +215,14 @@ def test_roster_and_family(app, services):
     assert fam["variants"][0]["state"] == {"applied": "official", "crc": "ok"}
     assert fam["variants"][0]["modList"] == [{"id": "m1", "target": "hoshino", "fresh": True}]
     assert fam["version"] == "rv1"  # the install the parts come from
+
+
+def test_roster_and_family_carry_the_aliases_the_search_matches(app, services):
+    services.catalog.f.aliases = ["\u5c0f\u661f"]
+    services.catalog.v.aliases = ["\u5c0f\u661f\uff08x\uff09"]
+    for result in (rpc(app, "roster.list")["result"]["families"][0], rpc(app, "family.get", key="hoshino")["result"]):
+        assert result["aliases"] == ["\u5c0f\u661f"]
+        assert result["variants"][0]["aliases"] == ["\u5c0f\u661f\uff08x\uff09"]
 
 
 def _bundle(folder: Path, stem: str, trailing: bytes = b"") -> Path:

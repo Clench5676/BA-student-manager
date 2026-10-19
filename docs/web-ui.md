@@ -246,9 +246,9 @@ Events on `/api/events`:
 | `app.consent {granted}` | records the choice; `false` closes the app |
 | `app.openClassic {tab}` | starts the classic GUI on a tab |
 | `i18n.strings {lang}` | `{key: text}` for `webui.*` |
-| `roster.list` | families with variants, mod counts, fresh flags, favourites, recent order, `added` (when the newest own mod was added) |
+| `roster.list` | families with variants, mod counts, fresh flags, favourites, recent order, `added` (when the newest own mod was added), `aliases` per family and per variant (matched by the search, never shown) |
 | `settings.get` / `settings.set {key, value}` | the settings popup's values; key `roster` keeps the student list's view (merge, segment filters, sort, order, filter groups; `webui/state.py roster_view`) |
-| `family.get {key}` | a family with its variants, mods and each variant's state; `modelFiles` per variant (the 3D model's prefab bundles, newest first) and `version` (the game's resource version, so a switched install reloads the screen) |
+| `family.get {key}` | a family with its variants (and `aliases`, as in `roster.list`), mods and each variant's state; `modelFiles` per variant (the 3D model's prefab bundles, newest first) and `version` (the game's resource version, so a switched install reloads the screen) |
 | `lobby.warm` | builds the memorial lobby prefab index and the index of every bundle's CABs (the particle effects' materials, textures and meshes) in the background (once per game); the detail screen calls it for a variant with a lobby |
 | `lobby.lines {variant, talks, lang}` | `{clip: {lang: text, voice}}`: zh-CN from Kivo, ja from Kivo else the Global server, en, zh-TW, ko and th from the Global server (read only for a `lang` other than zh-CN, left out when its table is not in within 3 s); `talks` (`{animation: [clip ids]}` from the skeleton) places the Global rows on the clips; `lines_unavailable` when neither source can be read |
 | `debug.trace {events}` | the fullscreen lobby's input events, logged (logger `ba_modding_toolkit.webui.trace`, and `input-trace.log` in the data directory) only when the app was started with `--debug`; ignored otherwise |
@@ -305,9 +305,10 @@ ported.
   funnel on the sort button turns blue while a filter group narrows the list. All of it is saved (`settings.set
   roster`); the search lasts the session.
 - The search (the game's CharacterSearch box over the top of the list) matches every name language, the family's base
-  names and the file id, ignoring case, width, kana and separators (with the marks inside names, as in
-  Shiroko*Terror); every word must match. Its input opens focused at once, before the box is drawn round it, and
-  stays in the page across rebuilds, so nothing typed meanwhile is lost.
+  names, the aliases (the variant's and the family's: the CN server's zh-CN names, never shown; see catalog) and the
+  file id, ignoring case, width, kana and separators (with the marks inside names, as in Shiroko*Terror); every word
+  must match. Its input opens focused at once, before the box is drawn round it, and stays in the page across
+  rebuilds, so nothing typed meanwhile is lost. The detail screen's arrows follow the same search.
 - Keyboard focus moves the list through its own scroll position (the clip never scrolls by itself, so the virtual
   rows and the scrollbar stay in step); the cards are in the page in the list's order, and the focused one shows a
   ring in the game's selection blue.
