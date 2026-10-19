@@ -1,5 +1,6 @@
 """Variant names in every language: the curated name table and the shipped catalog."""
 
+from collections import defaultdict
 import csv
 import importlib.util
 import json
@@ -12,7 +13,8 @@ import pytest
 
 from ba_modding_toolkit.catalog import DEFAULT_DATA
 from ba_modding_toolkit.catalog._names import (
-    BASE_SHORT, FILE_ID, LANGUAGES, NAMES, NAMING, SEPARATORS, csv_bases, usable,
+    BASE_SHORT, FILE_ID, LANGUAGES, NAMES, NAMING, PART_SEPARATORS, SEPARATORS, TWINS, csv_bases,
+    remark, usable,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures" / "catalog"
@@ -21,6 +23,17 @@ CASES = json.loads((FIXTURES / "name_table.json").read_text(encoding="utf-8"))
 KIVO = json.loads((FIXTURES / "kivo_sample.json").read_text(encoding="utf-8"))
 CJK = re.compile(r"[　-ヿ㐀-鿿＀-￯]")
 SOURCES = {"derived", "curated", "fallback", "official", "translated"}
+# Variants still named alike in a language, with why they are not told apart yet:
+# Hina's pajama sprite and Ein, Sof and Ohr were exported a second time with the same Kivo
+# remark; np0081 and np0082 are the NPC-era school sprites of Asuna and Karin (Kivo's
+# "NPC era" remark sits on a second character map row the builder does not use); the
+# Japanese game names both forms of Shun (Swimsuit) alike.
+KNOWN_TWINS = {
+    lang: {frozenset(pair) for pair in (("np0009", "np0205"), ("np0129", "np0270"), ("np0130", "np0271"),
+                                        ("np0131", "np0272"), ("np0081", "ch0281"), ("np0082", "ch0282"))}
+    for lang in LANGUAGES
+}
+KNOWN_TWINS["ja"].add(frozenset(("ch0355", "np0288")))
 
 
 @pytest.fixture(scope="module")
@@ -156,6 +169,24 @@ def test_shipped_terror_names_use_one_asterisk(shipped: dict):
     assert {"ch0199", "ch0263", "np0125", "np0186", "np0231", "np0232"} <= set(terror)
     for key in terror:
         assert "*" in shipped["variants"][key]["names"]["en"]["full"], key
+
+
+def test_shipped_variants_have_distinct_names(shipped: dict):
+    for lang in LANGUAGES:
+        keys = defaultdict(set)
+        for key, entry in shipped["variants"].items():
+            keys[entry["names"][lang]["full"]].add(key)
+        twins = {frozenset(found) for found in keys.values() if len(found) > 1}
+        assert twins == KNOWN_TWINS[lang], lang
+
+
+def test_twin_words_come_from_the_glossary_and_yield_to_kivo():
+    for file_id, twin in TWINS.items():
+        assert twin.get("basis"), file_id
+        assert all(NAMING["glossary"][part].get(lang) for part in re.split(PART_SEPARATORS, twin["remark"])
+                   for lang in ("en", "ja", "zh-TW")), file_id
+    assert remark({"file_id": "NP0289"}) == TWINS["np0289"]["remark"]
+    assert remark({"file_id": "NP0289", "spine_remark": "Kivo"}) == "Kivo"
 
 
 @pytest.mark.skipif(not os.environ.get("BAMT_CATALOG_ARGS"), reason="BAMT_CATALOG_ARGS names no build inputs")

@@ -18,6 +18,9 @@ SEPARATORS: dict[str, str] = NAMING["separators"]
 # Curated base names keyed by the zh-CN base the character map yields; each lists only the
 # languages the map lacks or gets wrong, plus whether that wording is official or translated.
 NAMES: dict[str, dict[str, str]] = NAMING["names"]
+# Variant words for sprites whose Kivo remark would leave them named like another sprite,
+# keyed by file id; Kivo's own remark wins once it has one.
+TWINS: dict[str, dict[str, str]] = NAMING["twins"]
 PART_SEPARATORS = r"[,\uff0c\u3001\u00b7\u30fb]"
 FILE_ID = re.compile(r"_|spr$|^(?:np|ch)\d+$", re.IGNORECASE)
 
@@ -64,6 +67,11 @@ def usable(value: str) -> bool:
     return bool(value.strip()) and not FILE_ID.search(value.strip())
 
 
+def remark(row: dict[str, str]) -> str:
+    """Return the row's Kivo remark, or the curated word that tells a twin sprite apart."""
+    return row.get("spine_remark") or TWINS.get(row.get("file_id", "").lower(), {}).get("remark", "")
+
+
 def _parts(row: dict[str, str], lang: str) -> list[tuple[str, dict | str | None]]:
     """Return the variant words of a row with their origin.
 
@@ -73,10 +81,9 @@ def _parts(row: dict[str, str], lang: str) -> list[tuple[str, dict | str | None]
     Kivo text counts as missing when the glossary writes it otherwise.
     """
     raw_skin = row.get("skin_kivo") or row.get("skin_cn", "")
-    remark = row.get("spine_remark", "")
     glossary = NAMING["glossary"]
     parts = []
-    for raw, localized in ((raw_skin, column(row, "skin", lang)), (remark, "")):
+    for raw, localized in ((raw_skin, column(row, "skin", lang)), (remark(row), "")):
         if not raw and not localized:
             continue
         if localized and not (lang == "zh-TW" and localized == raw
@@ -98,7 +105,7 @@ def csv_names(row: dict[str, str], bases: dict[str, str]) -> tuple[dict, dict]:
     returned fallback map identifies languages that still need official wording.
     """
     names, fallbacks = {}, {}
-    story = bool(row.get("skin_cn") or row.get("skin_kivo") or row.get("spine_remark"))
+    story = bool(row.get("skin_cn") or row.get("skin_kivo") or remark(row))
     for lang in LANGUAGES:
         parts = _parts(row, lang)
         if any(origin is None for _, origin in parts):
