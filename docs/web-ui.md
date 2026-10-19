@@ -585,7 +585,7 @@ in `pointer-textures`); without a game the system cursor stays and there is no e
     the first frame compiles each shader once. Everything is freed with the lobby (`particles-gl.js` detach and
     dispose), and made again on the next frame once a lost WebGL context is restored (a restorable of each player's
     context, as linear.js has). Without WebGL2 nothing is drawn.
-- **Intro scenes.** Four prefabs keep the skeletons of their intro timeline (a PlayableDirector with Spine Animation
+- **Intro scenes.** Three prefabs keep four skeletons of their intro timeline (a PlayableDirector with Spine Animation
   State tracks) parked beside the scene: Shigure's Shigure_00 and Shigure_01 at x -4500 and 4500, CH0184_00 and
   Wakamo_Scene_0. Their clip assets are on track -1 (only the timeline plays them). Shigure's timeline (an Animation
   track on `Shigure`) puts Shigure_00 at x 0 until 5 s, Shigure_01 until 9.17 s, then Shigure_home, each scene back
