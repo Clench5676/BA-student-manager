@@ -27,6 +27,15 @@ APP_DIR_NAME = "BA-Modding-Toolkit"
 class Field:
     group: str
     default: Any  # a value, or a callable returning one
+    # the value's type (bool, int or str): values read from the file are coerced to it, so a callable default (game
+    # detection) runs only when the key is missing; inferred from a plain default, required for a callable one
+    kind: type | None = None
+
+    def __post_init__(self) -> None:
+        if self.kind is None:
+            if callable(self.default):
+                raise TypeError("a field with a callable default needs its kind")
+            object.__setattr__(self, "kind", type(self.default))
 
 
 def _default_file_source() -> str:
@@ -40,15 +49,15 @@ def _default_file_source() -> str:
 # key -> field, in the order of gui/configs.py
 FIELDS: dict[str, Field] = {
     # Directories
-    "file_source": Field("Directories", _default_file_source),
-    "game_resource_dir": Field("Directories", lambda: get_BA_path("global") or ""),
-    "game_resource_dir_japan": Field("Directories", lambda: get_BA_path("japan") or ""),
+    "file_source": Field("Directories", _default_file_source, str),
+    "game_resource_dir": Field("Directories", lambda: get_BA_path("global") or "", str),
+    "game_resource_dir_japan": Field("Directories", lambda: get_BA_path("japan") or "", str),
     "game_dir_android_global": Field("Directories", "/storage/emulated/0/Android/data/com.nexon.bluearchive/files/PUB/Resource/"),
     "game_dir_android_japan": Field("Directories", "/storage/emulated/0/Android/data/com.Yostar JP.BlueArchive/files/"),
-    "mod_backup_path": Field("Directories", lambda: str(EXE_DIR / "output" / "backup")),
+    "mod_backup_path": Field("Directories", lambda: str(EXE_DIR / "output" / "backup"), str),
     # AppSettings
     "language": Field("AppSettings", ""),
-    "output_dir": Field("AppSettings", lambda: str(EXE_DIR / "output")),
+    "output_dir": Field("AppSettings", lambda: str(EXE_DIR / "output"), str),
     "max_workers": Field("AppSettings", 4),
     # SaveOptions
     "extra_bytes": Field("SaveOptions", "0x08080808"),
@@ -76,7 +85,7 @@ FIELDS: dict[str, Field] = {
     "preview_thumbnail_size": Field("SpineViewer", 768),
     "mod_install_render_preview": Field("SpineViewer", True),
     # BACIIMap
-    "bacii_map_path": Field("BACIIMap", lambda: str(EXE_DIR / "Addons" / "BA-Characters-Internal-ID.csv")),
+    "bacii_map_path": Field("BACIIMap", lambda: str(EXE_DIR / "Addons" / "BA-Characters-Internal-ID.csv"), str),
     "character_index_column": Field("BACIIMap", "file_id"),
     "character_name_field": Field("BACIIMap", CharacterInternalIDMap.DEFAULT_NAME_FIELD),
     # Tabs
@@ -91,7 +100,7 @@ FIELDS: dict[str, Field] = {
     # ADB
     "adb_path": Field("ADB", "adb"),
     "adb_device": Field("ADB", ""),
-    "adb_cache_dir": Field("ADB", lambda: str(EXE_DIR / "Addons" / "adb_cache")),
+    "adb_cache_dir": Field("ADB", lambda: str(EXE_DIR / "Addons" / "adb_cache"), str),
 }
 
 
@@ -101,18 +110,17 @@ def _default(key: str) -> Any:
 
 
 def _coerce(key: str, value: Any) -> Any:
-    """Bring a value read from the file to the type of the field's default."""
-    sample = FIELDS[key].default
-    sample = sample() if callable(sample) else sample
+    """Bring a value read from the file to the field's type, without running a callable default."""
+    kind = FIELDS[key].kind
     try:
-        if isinstance(sample, bool):
+        if kind is bool:
             return value if isinstance(value, bool) else str(value).strip().lower() in ("1", "true", "yes", "on")
-        if isinstance(sample, int):
+        if kind is int:
             return int(value)
-        if isinstance(sample, str):
+        if kind is str:
             return str(value)
     except (TypeError, ValueError):
-        return sample
+        return _default(key)
     return value
 
 
