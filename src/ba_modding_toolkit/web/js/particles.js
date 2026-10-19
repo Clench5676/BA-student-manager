@@ -698,22 +698,36 @@ export function geometry(fxs, s, { meshes = {}, linear = true } = {}) {
 
 // --- draw order -----------------------------------------------------------------------------------------------------
 
-const sortKey = (x) => [x.order || 0, x.queue ?? 3000, -(x.z || 0)];
-// Unity draws transparent renderers by sorting layer, order in layer, render queue, then back to front. layers: the
-// lobby's skeleton players in their stacking order (each with order, queue and z). A system draws in the context of
-// the last layer that sorts before it ("above" that skeleton), or below the first one; a tie puts it above.
-export function slotOf(def, layers) {
-  const before = (a, b) => {
-    const ka = sortKey(a), kb = sortKey(b);
-    for (let i = 0; i < 3; i++) if (ka[i] !== kb[i]) return ka[i] < kb[i];
-    return true;
-  };
-  let slot = -1;
-  layers.forEach((l, i) => { if (before(l, def)) slot = i; });
-  return slot < 0 ? { layer: 0, where: "below" } : { layer: slot, where: "above" };
+// Unity draws transparent renderers by sorting layer, order in layer, render queue, then back to front: by the
+// distance from the camera plus, for a particle renderer, its sorting fudge (Unity world units). The key's last part
+// is that distance in lobby units, negated (the farther draws first).
+const sortKey = (x) => [x.order || 0, x.queue ?? 3000, -((x.z || 0) + (x.fudge || 0) * WORLD)];
+const before = (a, b) => {
+  const ka = sortKey(a), kb = sortKey(b);
+  for (let i = 0; i < 3; i++) if (ka[i] !== kb[i]) return ka[i] < kb[i];
+  return true;
+};
+
+// The render queues a layer's skeleton draws in, lowest first. spine-unity gives every submesh the material of its
+// atlas page and Unity sorts each submesh by its own material's queue, so a skeleton whose pages sit in several
+// queues (lobby.json layer "pages": {page: queue}) draws in as many parts, one per queue; else in one, its queue.
+export function queuesOf(layer) {
+  const queues = [...new Set(Object.values(layer?.pages || {}))].sort((a, b) => a - b);
+  return queues.length ? queues : [layer?.queue ?? 3000];
 }
 
-// systems in drawing order: order in layer, queue, back to front, then the prefab's order
+// Where a system draws among the lobby's skeletons. layers: the skeleton players' layers in their stacking order (each
+// with order, queue, pages and z), each drawn in the parts of queuesOf. The system draws in the context of the last
+// layer with a part that sorts before it, after that part ({layer, part}), or before the first layer's first part
+// (part -1); a tie puts it after. Hibiki's river surface (queue 3000) draws after her lobby's background page (2900),
+// before her own (3050).
+export function slotOf(def, layers) {
+  let slot = { layer: 0, part: -1 };
+  layers.forEach((l, i) => queuesOf(l).forEach((queue, part) => { if (before({ ...l, queue }, def)) slot = { layer: i, part }; }));
+  return slot;
+}
+
+// systems in drawing order: order in layer, queue, back to front (with the sorting fudge), then the prefab's order
 export function drawOrder(systems) {
   return systems.slice().sort((a, b) => {
     const ka = sortKey(a.def), kb = sortKey(b.def);

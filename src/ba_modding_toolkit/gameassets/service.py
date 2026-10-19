@@ -677,8 +677,9 @@ class GameAssets:
 
 
 class _FxResolver:
-    """Reads what a lobby's particle renderers point at, for lobby.read_prefab: a material as (id, particles.material)
-    with its textures (particles.texture), a mesh as (id, particles.mesh). Ids are "<cab>_<path id>"."""
+    """Reads what a lobby's renderers point at, for lobby.read_prefab: a particle material as (id, particles.material)
+    with its textures (particles.texture), a mesh as (id, particles.mesh), and the render queue of a skeleton's atlas
+    pages ("pages": a SkeletonDataAsset, or one Material) as (id, {texture name: queue}). Ids are "<cab>_<path id>"."""
 
     def __init__(self, graph: Any, objects: dict[int, Any], shader_forms: dict):
         self.graph, self.objects, self.forms = graph, objects, shader_forms
@@ -704,18 +705,43 @@ class _FxResolver:
                 data = read_mesh(obj.read())
                 tris = [t for sub in data.triangles for t in sub]
                 out = (oid, particles.mesh(data.vertices, data.uv0, data.normals, tris, data.colors))
+            elif kind == "pages" and obj.type.name in ("MonoBehaviour", "Material"):
+                out = (oid, self._pages(obj))
         except Exception:  # an unreadable object: the system is left out
             logger.debug("Cannot read lobby particle %s %s", kind, oid, exc_info=True)
             out = None
         self.done[(kind, oid)] = out
         return out
 
-    def _material(self, obj: Any) -> dict:
-        from . import particles
+    def _pages(self, obj: Any) -> dict[str, int]:
+        """{texture name: render queue} of a SkeletonDataAsset's atlas pages, as spine-unity draws them: each page with
+        the material its SpineAtlasAsset lists for it (matched by the material's main texture name, which is the page's
+        file name without its extension). For a Material, its own page. The textures' pixels are never read."""
+        g = self.graph
+        materials = [obj]
+        if obj.type.name == "MonoBehaviour":
+            materials = []
+            for atlas in (g.deref(obj, p) for p in g.tree(obj).get("atlasAssets") or []):
+                if atlas is not None:
+                    materials += [g.deref(atlas, p) for p in g.tree(atlas).get("materials") or []]
+        out: dict[str, int] = {}
+        for mat in materials:
+            if mat is None or mat.type.name != "Material":
+                continue
+            tree = g.tree(mat)
+            envs = dict((tree.get("m_SavedProperties") or {}).get("m_TexEnvs", []))
+            tex = g.deref(mat, (envs.get("_MainTex") or {}).get("m_Texture"))
+            name = tex.peek_name() if tex is not None else None
+            if name:
+                out.setdefault(name, self._state(mat, tree)[2]["queue"])
+        return out
+
+    def _state(self, obj: Any, tree: dict) -> tuple[str | None, dict | None, dict]:
+        """A material's shader name, the shader's parsed form (the parts read here) and the render state of its
+        colour pass for this material (model.shader_state: blend and queue)."""
         from .model import shader_state
 
         g = self.graph
-        tree = g.tree(obj)
         shader = g.deref(obj, tree.get("m_Shader"))
         name, form = None, None
         if shader is not None:
@@ -739,6 +765,15 @@ class _FxResolver:
         if not state:
             queue = tree.get("m_CustomRenderQueue", -1)
             state = {"src": 1, "dst": 0, "queue": queue if queue and queue >= 0 else 3000}
+        return name, form, state
+
+    def _material(self, obj: Any) -> dict:
+        from . import particles
+
+        g = self.graph
+        tree = g.tree(obj)
+        name, form, state = self._state(obj, tree)
+        props = tree.get("m_SavedProperties") or {}
         textures = {}
         for prop, env in props.get("m_TexEnvs", []):
             tex = g.deref(obj, env.get("m_Texture"))

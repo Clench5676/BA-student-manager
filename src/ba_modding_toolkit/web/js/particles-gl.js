@@ -1,10 +1,11 @@
 // Draws a memorial lobby's particle effects (particles.js) inside its skeleton players, in linear light like them:
 // each system goes into the WebGL2 context of the layer it sorts after (or before the bottom one), blended into that
-// player's linear framebuffer (linear.js) between the frame's clear and the skeleton, or after the skeleton. The
+// player's linear framebuffer (linear.js) between the frame's clear and the skeleton, between two parts of the
+// skeleton (one per render queue of its atlas pages, skeleton-parts.js) or after the skeleton. The
 // shaders port the game's compiled DSFX programs; their textures come from the lobby's own route (fx_<id>.png, memory
 // only) and are sampled as sRGB where the game imports them so. Without linear light (no WebGL2) nothing is drawn.
 import * as Linear from "./linear.js";
-import { Effects, STRIDE, drawOrder, geometry, slotOf } from "./particles.js";
+import { Effects, STRIDE, drawOrder, geometry, queuesOf, slotOf } from "./particles.js";
 import { toLinear } from "./touch-fx.js";
 
 const VS_HEAD = `#version 300 es
@@ -435,8 +436,9 @@ function mat4(a, b) {
 }
 
 // A lobby's effects: create() once its lobby.json is in, layers() once its players are, then every player calls
-// below() in its update hook (after the clear, before the skeleton; the bottom player also advances the simulation)
-// and above() in its draw hook (after the skeleton, before linear.js copies the frame out). dispose() frees it all.
+// below() in its update hook (after the clear, before the skeleton; the bottom player also advances the simulation),
+// between() after each part of its skeleton but the last (drawsAfter() says whether that draws anything) and above()
+// in its draw hook (after the skeleton, before linear.js copies the frame out). dispose() frees it all.
 export function create(fx, { base, bone, load = loadImage } = {}) {
   const effects = new Effects(fx, { bone });
   const images = new Map(); // texture id -> HTMLImageElement once loaded (null while loading)
@@ -539,30 +541,44 @@ export function create(fx, { base, bone, load = loadImage } = {}) {
     gl.activeTexture(gl.TEXTURE0);
   }
 
+  // what draws after a part of a player's skeleton (none: nothing, or after the dispose)
+  const after = (player, part) => (disposed ? null : slots.get(player)?.after[part]);
+  const timed = (fn) => { const t0 = performance.now(); fn(); cpu.ms += performance.now() - t0; };
+  function between(player, part) {
+    const list = after(player, part);
+    if (list?.length) timed(() => draw(player, list));
+  }
+
   return {
     effects,
-    // players: the lobby's skeleton players in stacking order, each with its layer (bamtLayer: order, queue, z)
+    // players: the lobby's skeleton players in stacking order, each with its layer (bamtLayer: order, queue, pages, z)
+    // and drawn in the parts of its pages' queues (skeleton-parts.js)
     layers(players) {
       bottom = players[0] || null;
-      slots = new Map(players.map((p) => [p, { below: [], above: [] }]));
+      slots = new Map(players.map((p) => [p, { below: [], after: queuesOf(p.bamtLayer).map(() => []) }]));
       for (const s of drawOrder(effects.systems)) {
         if (!s.def.material && !s.def.subs) continue;
-        const { layer, where } = slotOf(s.def, players.map((p) => p.bamtLayer || {}));
-        slots.get(players[layer])?.[where].push(s);
+        const { layer, part } = slotOf(s.def, players.map((p) => p.bamtLayer || {}));
+        const slot = slots.get(players[layer]);
+        if (slot) (part < 0 ? slot.below : slot.after[part]).push(s);
       }
     },
+    // before the player's skeleton (the bottom player also advances the simulation)
     below(player, dt) {
       if (disposed) return;
-      const t0 = performance.now();
-      if (player === bottom) { effects.update(dt); cpu.frames++; }
-      draw(player, slots.get(player)?.below);
-      cpu.ms += performance.now() - t0;
+      timed(() => {
+        if (player === bottom) { effects.update(dt); cpu.frames++; }
+        draw(player, slots.get(player)?.below);
+      });
     },
+    // whether anything draws after that part of the player's skeleton
+    drawsAfter: (player, part) => !!after(player, part)?.length,
+    // after a part of the player's skeleton, before the next one
+    between,
+    // after the player's whole skeleton
     above(player) {
-      if (disposed) return;
-      const t0 = performance.now();
-      draw(player, slots.get(player)?.above);
-      cpu.ms += performance.now() - t0;
+      const list = slots.get(player)?.after;
+      if (list) between(player, list.length - 1);
     },
     // free one player's GL objects (before it is disposed)
     detach: release,

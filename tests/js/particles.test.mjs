@@ -416,13 +416,49 @@ test("sort modes draw the oldest or the youngest particles on top", () => {
 
 test("draw order against the skeletons: sorting order, render queue, then back to front", () => {
   const layers = [{ order: -1, queue: 2900, z: 0 }, { order: 0, queue: 2900, z: 0 }];
-  assert.deepEqual(slotOf({ order: 0, queue: 3100, z: 0 }, layers), { layer: 1, where: "above" });
-  assert.deepEqual(slotOf({ order: -2, queue: 3100, z: 0 }, layers), { layer: 0, where: "below" });
-  assert.deepEqual(slotOf({ order: -1, queue: 3000, z: 0 }, layers), { layer: 0, where: "above" });
-  assert.deepEqual(slotOf({ order: 0, queue: 2800, z: 0 }, layers), { layer: 0, where: "above" });
+  assert.deepEqual(slotOf({ order: 0, queue: 3100, z: 0 }, layers), { layer: 1, part: 0 });
+  assert.deepEqual(slotOf({ order: -2, queue: 3100, z: 0 }, layers), { layer: 0, part: -1 });
+  assert.deepEqual(slotOf({ order: -1, queue: 3000, z: 0 }, layers), { layer: 0, part: 0 });
+  assert.deepEqual(slotOf({ order: 0, queue: 2800, z: 0 }, layers), { layer: 0, part: 0 });
   const systems = [{ def: { order: 1, queue: 3000, z: 0 }, index: 0 }, { def: { order: 0, queue: 3100, z: 5 }, index: 1 },
     { def: { order: 0, queue: 3100, z: 10 }, index: 2 }, { def: { order: 0, queue: 3000, z: 0 }, index: 3 }];
   assert.deepEqual(drawOrder(systems).map((s) => s.index), [3, 2, 1, 0]);
+});
+
+test("a skeleton whose atlas pages sit in several render queues draws in parts, the effects between them by queue", () => {
+  // hibiki_home: the background page at 2900, Hibiki's at 3050; the river surface and most bokeh at 3000 (order 0),
+  // a few bokeh at order 1
+  const hibiki = { order: 0, queue: 2900, pages: { Hibiki_home: 3050, Hibiki_home2: 2900 }, z: 0 };
+  assert.deepEqual(P.queuesOf(hibiki), [2900, 3050]);
+  assert.deepEqual(P.queuesOf({ order: 0, queue: 2950, z: 0 }), [2950], "a layer without pages: its own queue");
+  assert.deepEqual(P.queuesOf({ pages: {} }), [3000]);
+  assert.deepEqual(slotOf({ order: 0, queue: 3000, z: 0 }, [hibiki]), { layer: 0, part: 0 }, "over the river, under her");
+  assert.deepEqual(slotOf({ order: 1, queue: 3000, z: 0 }, [hibiki]), { layer: 0, part: 1 }, "over everything");
+  assert.deepEqual(slotOf({ order: 0, queue: 2800, z: 0 }, [hibiki]), { layer: 0, part: -1 });
+  assert.deepEqual(slotOf({ order: 0, queue: 3050, z: 0 }, [hibiki]), { layer: 0, part: 1 }, "a tie draws after");
+  // ch0356_home: the scenery at 2900, Kisaki at 3100, the mist in front of her at 3200
+  const kisaki = { order: 0, queue: 2900, pages: { CH0356_home: 3100, CH0356_home_2: 3200, CH0356_home_3: 2900, CH0356_home_4: 2900 }, z: 0 };
+  assert.deepEqual(P.queuesOf(kisaki), [2900, 3100, 3200]);
+  assert.deepEqual(slotOf({ order: 0, queue: 2950, z: 0 }, [kisaki]), { layer: 0, part: 0 });
+  assert.deepEqual(slotOf({ order: 0, queue: 3100, z: 0 }, [kisaki]), { layer: 0, part: 1 });
+  // across layers: the last part of any layer that sorts before the system
+  const bg = { order: -1, queue: 2900, pages: { bg: 2900, sky: 2800 }, z: 0 };
+  assert.deepEqual(slotOf({ order: -1, queue: 2850, z: 0 }, [bg, hibiki]), { layer: 0, part: 0 });
+  assert.deepEqual(slotOf({ order: 0, queue: 2950, z: 0 }, [bg, hibiki]), { layer: 1, part: 0 });
+});
+
+test("the sorting fudge pushes a system back (above 0) or forward (below 0) among the same queue", () => {
+  // hibiki_home's systems at queue 3000: the glows and the river surface (fudge 50 and 80) behind the bokeh (-10)
+  const systems = [{ def: { order: 0, queue: 3000, z: 0, fudge: -10 }, index: 0 }, { def: { order: 0, queue: 3000, z: 0, fudge: 50 }, index: 1 },
+    { def: { order: 0, queue: 3000, z: 0 }, index: 2 }, { def: { order: 0, queue: 3000, z: 0, fudge: 80 }, index: 3 }];
+  assert.deepEqual(drawOrder(systems).map((s) => s.index), [3, 1, 2, 0]);
+  // in world units: a fudge of 1 outweighs a z of WORLD / 2 lobby units nearer
+  const pushed = { def: { order: 0, queue: 3000, z: -WORLD / 2, fudge: 1 }, index: 0 }, flat = { def: { order: 0, queue: 3000, z: 0 }, index: 1 };
+  assert.deepEqual(drawOrder([flat, pushed]).map((s) => s.index), [0, 1]);
+  // and against a part of the same queue: behind it with a fudge above 0, after it otherwise
+  const layer = { order: 0, queue: 2900, pages: { a: 2900, b: 3000 }, z: 0 };
+  assert.deepEqual(slotOf({ order: 0, queue: 3000, z: 0, fudge: 50 }, [layer]), { layer: 0, part: 0 });
+  assert.deepEqual(slotOf({ order: 0, queue: 3000, z: 0, fudge: -5 }, [layer]), { layer: 0, part: 1 });
 });
 
 // --- particles-gl.js: drawing into a player's context and freeing it -------------------------------------------------
@@ -632,4 +668,68 @@ test("the ported *_1a programs: their vertex stage routes the custom data, the d
   effects.detach(p);
   effects.dispose();
   Linear.detach(p);
+});
+
+test("the effects between two parts of a skeleton draw only there", async () => {
+  const gl = fakeGL(), p = player(gl, { name: "Hibiki_home", x: 0, y: -962, scale: 1, order: 0, queue: 2900,
+    pages: { Hibiki_home: 3050, Hibiki_home2: 2900 }, z: 0 });
+  Linear.attach(p);
+  const white = { _Texture: { default: "white", st: [1, 1, 0, 0] } };
+  const fx = {
+    systems: [sys({ material: "river", queue: 3000, emission: { rate: 50 } }), sys({ material: "bokeh", queue: 3000, order: 1, emission: { rate: 50 } })],
+    materials: { river: { program: "additive", src: 1, dst: 1, queue: 3000, tex: white, floats: {}, colors: {} },
+      bokeh: { program: "additive", src: 1, dst: 1, queue: 3000, tex: white, floats: {}, colors: {} } },
+    textures: {}, meshes: {},
+  };
+  const effects = GL.create(fx, { base: "/x/", bone: () => null, load: async () => ({}) });
+  effects.layers([p]);
+  assert.equal(effects.drawsAfter(p, 0), true, "the river surface after the background page");
+  assert.equal(effects.drawsAfter(p, 1), true, "the order 1 bokeh after the whole skeleton");
+  assert.equal(effects.drawsAfter(p, 2), false);
+  Linear.begin(p);
+  const draws = (fn) => { const from = gl.calls.length; fn(); return gl.calls.slice(from).filter(([name]) => name === "drawArrays").length; };
+  assert.equal(draws(() => effects.below(p, 0.1)), 0);
+  assert.equal(draws(() => effects.between(p, 0)), 1);
+  assert.equal(draws(() => effects.above(p)), 1);
+  Linear.end(p);
+  effects.detach(p);
+  effects.dispose();
+  assert.equal(effects.drawsAfter(p, 0), false, "nothing after the dispose");
+  Linear.detach(p);
+});
+
+// --- skeleton-parts.js: a skeleton drawn one render queue at a time ---------------------------------------------------
+
+const Parts = await import("../../src/ba_modding_toolkit/web/js/skeleton-parts.js");
+
+test("a skeleton draws one part per queue of its pages, each with its own slots, the effects in between", () => {
+  const layer = { order: 0, queue: 2900, pages: { Kisaki: 3100, Kisaki_2: 3200, Kisaki_3: 2900, Kisaki_4: 2900 }, z: 0 };
+  const parts = Parts.partsOf(layer);
+  assert.equal(parts.count, 3);
+  assert.deepEqual(["Kisaki_4", "Kisaki_3", "Kisaki", "Kisaki_2", "Other"].map(parts.of), [0, 0, 1, 2, 0]);
+  assert.equal(Parts.partsOf({ order: 0, queue: 3000, z: 0 }).count, 1);
+  const on = (page) => ({ region: { page: { name: `${page}.png` } } });
+  assert.equal(Parts.pageOf(on("Kisaki_2")), "Kisaki_2");
+  assert.equal(Parts.pageOf({}), null);
+  // the draw order mixes the pages: the front mist (Kisaki_2) sits under her in it, a clipping slot covers both
+  const clip = { clipping: true };
+  const slots = [["sky", on("Kisaki_4")], ["mist", on("Kisaki_2")], ["clip", clip], ["body", on("Kisaki")], ["river", on("Kisaki_3")],
+    ["empty", null]].map(([name, attachment]) => ({ name, attachment }));
+  const skeleton = { drawOrder: slots };
+  const log = [];
+  Parts.drawInParts(skeleton, parts, (k) => log.push([k, slots.filter((s) => s.attachment).map((s) => s.name)]), (k) => log.push(["between", k]));
+  assert.deepEqual(log, [
+    [0, ["sky", "clip", "river"]], ["between", 0],
+    [1, ["clip", "body"]], ["between", 1],
+    [2, ["mist", "clip"]],
+  ]);
+  assert.deepEqual(slots.map((s) => s.attachment && Parts.pageOf(s.attachment)), ["Kisaki_4", "Kisaki_2", null, "Kisaki", "Kisaki_3", null]);
+  assert.equal(slots[2].attachment, clip, "every attachment is given back");
+  // one part: a single draw, nothing emptied
+  const one = [];
+  Parts.drawInParts(skeleton, Parts.partsOf({ queue: 3000 }), (k) => one.push([k, slots.filter((s) => s.attachment).length]), () => one.push("between"));
+  assert.deepEqual(one, [[0, 5]]);
+  // a draw that throws still gives the attachments back
+  assert.throws(() => Parts.drawInParts(skeleton, parts, () => { throw new Error("lost context"); }));
+  assert.deepEqual(slots.map((s) => !!s.attachment), [true, true, true, true, true, false]);
 });

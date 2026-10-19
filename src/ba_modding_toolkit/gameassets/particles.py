@@ -445,6 +445,9 @@ def build(nodes: list[dict], skeleton_of_go: Callable[[int], str | None], data_s
         item["queue"] = materials[mat_id]["queue"] if mat_id else 3000
         item["order"] = int(rend.get("m_SortingOrder", 0)) if rend else 0
         item["layer"] = int(rend.get("m_SortingLayerID", 0)) if rend else 0
+        # Unity world units added to its distance from the camera when transparents of the same queue are sorted back
+        # to front: above 0 it draws earlier (behind), below 0 later (Hibiki's river surface 50, her bokeh -10)
+        item["fudge"] = _r(rend.get("m_SortingFudge", 0.0)) if rend else 0.0
         # the anchor: the nearest SkeletonUtilityBone above (or on) the system, and the skeleton it follows
         chain, cur, anchor = [], n, None
         while cur is not None:
