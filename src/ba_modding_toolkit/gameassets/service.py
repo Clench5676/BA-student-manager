@@ -27,6 +27,9 @@ from .unity import find_object, object_record, open_bundle, reference, ref_key
 
 logger = logging.getLogger(__name__)
 _SCHEMA = "gameassets-v1/"
+# The layout export's format, part of each cached layout's key: raise it whenever export_layout's output changes, so
+# layouts cached in an older format are rebuilt and no other cached asset is dropped (v2: state controllers' nodes)
+_LAYOUT = "layout-v2/"
 # One model export at a time in the process: an export holds the path locks of every bundle it reads
 _MODEL_LOCK = threading.Lock()
 _SPRITE_FIELDS = ("x", "y", "width", "height", "borderLeft", "borderRight", "borderTop",
@@ -316,13 +319,13 @@ class GameAssets:
         # rather than pinning every visited prefab tree alongside the indexes.
         def encode() -> bytes:
             return json.dumps(build(), ensure_ascii=True, separators=(",", ":")).encode()
-        data = self._cached("layout/" + root, encode)
+        data = self._cached(_LAYOUT + root, encode)
         try:
             tree = json.loads(data)
         except (ValueError, UnicodeError):
             logger.warning("Rebuilding invalid prefab layout %s", root)
             tree = build()
-            self.cache.put(_SCHEMA + "layout/" + root, json.dumps(tree).encode(),
+            self.cache.put(_SCHEMA + _LAYOUT + root, json.dumps(tree).encode(),
                            version=self.resource_version)
         return subtree(tree, subpath)
 
