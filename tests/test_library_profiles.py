@@ -4,6 +4,7 @@ header-only bundles in temporary game folders (never a real install, library or 
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import threading
 import time
@@ -2302,3 +2303,94 @@ def test_the_status_lists_installs_with_ids_and_distinct_folder_names(world):
     (world.root / "profiles.json").write_text("{broken")
     (world.root / "profiles.json.prev").write_text("{broken")
     assert world.library.status()["reason"] == "profiles_unreadable"
+
+
+# --- real bundles: copies of an official game folder named by BAMT_TEST_GAME_DIR, never the folder itself ---
+
+GAME_DIR = Path(os.environ.get("BAMT_TEST_GAME_DIR") or "/nonexistent/bamt-real-game")
+
+
+def real_portrait(tmp_path: Path) -> tuple[Path, Path, str]:
+    """A small official portrait core copied into a temporary game folder; returns (folder, texture bundle, core)."""
+    from ba_modding_toolkit.models import AssetType
+    from ba_modding_toolkit.searching import get_search_dirs
+    resources = get_search_dirs(GAME_DIR)
+    candidates = [path for directory in resources for path in directory.glob("assets-_mx-spinecharacters-*.bundle")
+                  if parse_filename(path.name).core.endswith("_spr")
+                  and parse_filename(path.name).res_type in ("003", "textures")]
+    for path in sorted(candidates, key=lambda p: p.stat().st_size)[:12]:
+        bundle = Bundle.load(path)
+        if bundle and any(obj.type == AssetType.Texture2D for obj in bundle.env.objects):
+            core_name = parse_filename(path.name).core
+            game = tmp_path / "game"
+            game.mkdir()
+            for other in (p for directory in resources for p in directory.glob("*.bundle")
+                          if parse_filename(p.name).core == core_name):
+                shutil.copyfile(other, game / other.name)
+            return game, game / path.name, core_name
+    pytest.skip("No small portrait texture bundle available")
+
+
+@pytest.mark.skipif(not GAME_DIR.is_dir(), reason="Blue Archive install unavailable")
+def test_real_bundles_off_on_drift_and_adoption(tmp_path, monkeypatch):
+    from PIL import Image
+    from ba_modding_toolkit.models import AssetType
+    monkeypatch.setattr(safety, "check_game_not_running", lambda: None)
+    game, texture_file, core_name = real_portrait(tmp_path)
+    official = {path.name: path.read_bytes() for path in game.iterdir()}
+    settings = Settings(tmp_path / "config.toml")
+    settings.set("game_resource_dir", str(game))
+    settings.set("compression_method", "lz4")
+    settings.set("enable_crc_correction", "true")
+    key = core_name.lower().removesuffix("_spr")
+    catalog = FakeCatalog(FakeVariant(key, core_name.lower()))
+    consent = {"value": True}
+    library = ModLibrary(tmp_path / "library", catalog, None, settings, scan_allowed=lambda: consent["value"],
+                         data_id="A")
+    texture = next(obj for obj in Bundle.load(texture_file).env.objects if obj.type == AssetType.Texture2D)
+    image = tmp_path / "art" / f"{texture.peek_name()}.png"
+    image.parent.mkdir()
+    Image.new("RGBA", texture.read().image.size, (255, 0, 255, 255)).save(image)
+    (tmp_path / "mod").mkdir()
+    success, message, pairs = core.process_asset_packing([texture_file], [image], tmp_path / "mod",
+                                                         settings.save_options(False))
+    assert success, message
+    mod, = library.add([pairs[0].output])
+    library.apply(key, f"mod:{mod.id}")  # the installer adds the CRC fix
+    applied = texture_file.read_bytes()
+    assert library.state(key).crc == "fixed"
+    pin = library.current_pin()
+
+    library.toggle(False, True)
+    assert {path.name: path.read_bytes() for path in game.iterdir()} == official
+    built = library.profiles.read()["folders"][pin.key]["built"][core_name.lower()]
+    assert list(built["parts"]) == [texture_file.name] and built["parts"][texture_file.name]["mod_file"] is None
+
+    def fail(*args, **kwargs):
+        raise AssertionError("the installer must not run")
+
+    monkeypatch.setattr(mod_install, "execute_mod_install", fail)
+    library.toggle(True, False)
+    assert texture_file.read_bytes() == applied  # byte for byte, from the built copy
+
+    texture_file.write_bytes(official[texture_file.name])  # a Steam check
+    entry = {(e.install, e.core): e for e in library.entries()}[(pin.key, core_name.lower())]
+    assert entry.state == "reset"
+    library.restore_drift([{"install": pin.key, "core": core_name.lower(), "state": "reset"}])
+    assert texture_file.read_bytes() == applied
+
+    # a CRC-fixed mod installed by another tool in a second install, with the classic GUI's backup beside it
+    other = tmp_path / "other"
+    other.mkdir()
+    for name, data in official.items():
+        (other / name).write_bytes(data)
+    (other / (texture_file.name + ".backup")).write_bytes(official[texture_file.name])
+    (other / texture_file.name).write_bytes(applied)
+    settings.set("game_resource_dir_japan", str(other))
+    library = ModLibrary(tmp_path / "library", catalog, None, settings, scan_allowed=lambda: consent["value"],
+                         data_id="A")
+    library.toggle(False, True)  # adopted: it is the same part set as nothing in the library, so a new mod
+    assert (other / texture_file.name).read_bytes() == official[texture_file.name]
+    library.toggle(True, False)
+    assert (other / texture_file.name).read_bytes() == applied
+    assert texture_file.read_bytes() == applied
