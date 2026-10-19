@@ -8,9 +8,12 @@ name_sources says whether that wording is official or translated.
 Simplified Chinese follows Kivo's community wording for base names and costume
 words: it is read from the character map's Kivo columns (name_kivo, skin_kivo, the
 Kivo student list's name and page skin), for playable students too, and curated
-zh-CN names are not applied over it. No game assets are extracted or written by
-this command. With the build arguments (all but --out) in BAMT_CATALOG_ARGS, the
-tests check that a rebuild reproduces the shipped catalog.
+zh-CN names are not applied over it. The CN server's names (the character map's
+name_cn and skin_cn, SchaleDB's cn table and the name table's cn wording) become the
+students' and variants' "aliases", which the roster search matches without showing
+them. No game assets are extracted or written by this command. With the build
+arguments (all but --out) in BAMT_CATALOG_ARGS, the tests check that a rebuild
+reproduces the shipped catalog.
 """
 
 from __future__ import annotations
@@ -28,7 +31,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from ba_modding_toolkit.catalog._data import base_rank, csv_entry, read_character_map
 from ba_modding_toolkit.catalog._names import (
-    LANGUAGES, NAMING, clean, compose, csv_bases, csv_names, csv_sources, given_name, short_name, usable,
+    LANGUAGES, NAMES, NAMING, clean, cn_aliases, cn_base, cn_words, compose, csv_bases, csv_names, csv_sources,
+    given_name, name_head, short_name, usable,
 )
 
 logger = logging.getLogger(__name__)
@@ -276,13 +280,50 @@ def build_catalog(csv_path: Path, schaledb: Path, names_path: Path | None = None
             entries[key]["name_sources"][lang] = "curated"
     for entry in entries.values():
         entry.pop("research_order", None)
+    add_aliases(students, entries, row_map, matches, localized["zh-CN"], cn_words(rows))
     kinds = Counter(entry["kind"] for entry in entries.values())
     sources = Counter(source for entry in entries.values() for source in entry["name_sources"].values())
     fallback_count = sum(len(entry["fallbacks"]) for entry in entries.values())
+    aliased = sum(1 for entry in entries.values() if entry.get("aliases"))
     summary = {"kinds": dict(kinds), "names": dict(sources), "fallbacks": fallback_count,
-               "conflicts": conflicts}
+               "conflicts": conflicts, "aliases": aliased}
     return {"version": 1, "students": students, "variants": entries, "summary": summary,
             "rules": names.get("rules", {})}
+
+
+def add_aliases(students: dict, entries: dict, row_map: dict, matches: dict, schale_cn: dict,
+                words: dict[str, str]) -> None:
+    """Give students and variants the CN server's names as "aliases" where they differ from the shown zh-CN.
+
+    A student's server names come from its variants named by the base alone (not a Terror
+    form): the character map's name_cn and SchaleDB's cn PersonalName, then the name table's
+    cn wording. A variant's aliases are its zh-CN name with those names, its own row's name_cn
+    and the server's costume words (cn_words), and SchaleDB's cn name of a playable variant.
+    Only non-empty lists are written.
+    """
+    server: dict[str, set[str]] = defaultdict(set)
+    heads: dict[str, str] = {}
+    for key, entry in entries.items():
+        heads[key] = cn_base(row_map[key]) if key in row_map else ""
+        student = students[str(entry["student_id"])]
+        if name_head(entry["names"]["zh-CN"]["full"]) != student["names"]["zh-CN"]:
+            continue
+        personal = schale_cn.get(str(matches[key]["Id"]), {}).get("PersonalName") if key in matches else None
+        server[str(entry["student_id"])].update(name for name in (heads[key], clean(personal or "", "zh-CN")) if name)
+    for sid, student in students.items():
+        table = NAMES.get(student["names"]["zh-CN"], {}).get("cn")
+        if table:
+            server[sid].add(clean(table, "zh-CN"))
+        aliases = sorted(server[sid] - {student["names"]["zh-CN"]})
+        if aliases:
+            student["aliases"] = aliases
+    for key, entry in entries.items():
+        sid = str(entry["student_id"])
+        own = schale_cn.get(str(matches[key]["Id"]), {}).get("Name") if key in matches else None
+        aliases = cn_aliases(entry["names"]["zh-CN"]["full"], students[sid]["names"]["zh-CN"], server[sid], words,
+                             [heads[key]], [clean(own, "zh-CN")] if own else [])
+        if aliases:
+            entry["aliases"] = aliases
 
 
 def validate_game(data: dict, directory: Path) -> list[dict[str, str]]:

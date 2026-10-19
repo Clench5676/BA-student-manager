@@ -97,6 +97,11 @@ const settleThumbs = () => Promise.race([Promise.allSettled([...screenPics, ...e
 // --- names, candidates, state ---
 const fullName = (v) => L(v.names)?.full ?? v.key;
 const shortName = (v) => L(v.names)?.short ?? v.key;
+// the user's own aliases of the student (family.get's custom; webui/state.py keeps the same limits): the roster search
+// finds the student by them, and the nameplate shows them small after the name
+const ALIAS_MAX = 8, ALIAS_LENGTH = 24;
+const customAliases = () => (Array.isArray(fam?.custom) ? fam.custom.filter((a) => typeof a === "string" && a) : []);
+const aliasList = () => customAliases().join(/^(zh|ja)/.test(language()) ? "\u3001" : ", ");
 const variant = () => fam.variants.find((v) => v.key === variantKey) || fam.variants[0];
 const familyMods = () => fam.variants.flatMap((v) => v.modList || []);
 const isFav = (v) => !!v.favorite;
@@ -344,9 +349,11 @@ function screenTree() {
     lblNode.pos = isOn ? [26, -1] : [62, 4];
     widget(t, `${base}/Bg`).w_ = 36 + 17 + 10 + tw + 30;
   }
-  const nm = fitText(fullName(v), 64, 44, 780);
+  // the name leaves room for the alias pencil after it
+  const nm = fitText(fullName(v), 64, 44, PLATE_RIGHT - 110 - PENCIL - 24);
   text(t, `${np}/Label_Name`, nm.text, { w_: 800, fontSize: nm.fs });
   at(t, `${np}/Label_Name`).pos = [110, 288];
+  aliasPlate(at(t, np), 110 + glyphsOf(nm.text, nm.fs));
   // the dark plate keeps its bottom edge and loses the level row; the game's shard texture is clipped to it
   widget(t, `${np}/BG`).h_ = 120;
   off(t, `${np}/BG/Deco`);
@@ -370,6 +377,24 @@ function screenTree() {
     at(t, np).children.push(play);
   }
   return t;
+}
+
+// after the name on the dark plate: the user's own aliases, small and dim, then the pencil of the game's input popup
+// (UIPopup_Input's Cafe_Icon_NameEdit) that opens their editor. Where the name leaves too little room, the pencil
+// alone (its tooltip lists them).
+const PLATE_RIGHT = 925; // the plate's right edge at the name's height, less a margin
+const PENCIL = 46;
+function aliasPlate(np, nameEnd) {
+  const list = aliasList();
+  let x = nameEnd + 24;
+  const room = PLATE_RIGHT - PENCIL - 24 - x;
+  if (list && room >= 120) {
+    const fs = 36, w = Math.min(glyphsOf(list, fs) + 4, room);
+    np.children.push(node("Label_Alias", [x, 279], [label(list, fs, "#ffffff/0.62", w, 50, { pivot: 3, depth: 22, ellipsis: true })]));
+    x += w;
+  }
+  np.children.push(node("Char_AliasBtn", [Math.min(x + 24 + PENCIL / 2, PLATE_RIGHT - PENCIL / 2), 287],
+    [sprite("Cafe_Icon_NameEdit", PENCIL, PENCIL, { type: 0, depth: 22, color: "#ffffff/0.85" })]));
 }
 
 async function renderScreen() {
@@ -449,6 +474,15 @@ function hits(view, leftHost, rightHost) {
   add(leftHost, "LeftInfo/CharInfo/Char_Target/Pin/Pin_On/Bg", toggleFav, T("fav.label"));
   add(leftHost, "LeftInfo/CharInfo/Char_Target/Pin/Pin_Off/Bg", toggleFav, T("fav.label"));
   add(leftHost, "LeftInfo/CharInfo/Char_Target/Char_CVCollectionBtn", copyName, baseName(gameFile(variant(), tabKind())));
+  // the aliases after the name and the pencil open the alias editor; the tooltip lists them
+  const aliasEls = ["Label_Alias", "Char_AliasBtn"].map((n) => view.nodes.get(`Inventory_ListControl/LeftInfo/CharInfo/Char_Target/${n}`)?.els[0]).filter(Boolean);
+  if (aliasEls.length) {
+    const boxes = aliasEls.map(rect), pad = 14;
+    const l = Math.min(...boxes.map((b) => b[0])) - pad, tp = Math.min(...boxes.map((b) => b[1])) - pad;
+    const r = Math.max(...boxes.map((b) => b[0] + b[2])) + pad, bt = Math.max(...boxes.map((b) => b[1] + b[3])) + pad;
+    const list = aliasList();
+    hitButton(leftHost, [l, tp, r - l, bt - tp], () => openAliases(), list ? `${T("alias.title")} - ${list}` : T("alias.title"));
+  }
   // the previous or next card of the student list, within its filters and in its order
   add(leftHost, "Arrow_L/Left", () => ctx.step(-1, fam.key, variantKey));
   add(rightHost, "Arrow_R/Right", () => ctx.step(1, fam.key, variantKey));
@@ -869,6 +903,8 @@ function closable(view, close) {
   closeTop = close;
 }
 addEventListener("keydown", (ev) => {
+  // Escape while an input method composes (an alias being typed) cancels the composition, not the popup
+  if (ev.isComposing || ev.keyCode === 229) return;
   if (ev.key !== "Escape" || !closeTop || ($("popup").hidden && $("picker").hidden)) return;
   ev.preventDefault();
   closeTop();
@@ -1244,6 +1280,100 @@ async function showCompare(result) {
   host.replaceChildren(...next.childNodes);
 }
 
+// --- the alias editor (the nameplate's pencil): the user's own aliases of the student on the popup frame, one input
+// row each, drawn like the game's input row (UIPopup_Input's Input_NickName: a grey box with a line round it, a dark
+// icon at its end), the cross removing it, then an empty row with the pencil to add one while there is room. OK keeps
+// them (aliases.set); Cancel, the close button, the backdrop or Escape drop the changes. Enter in the empty row adds
+// what it holds, in another row goes to the next one, in an empty one at the end keeps them; never while an input
+// method is composing (isComposing, or keyCode 229, which WebKit sends for the key that ends a conversion). ---
+const AL = { w: 1500, rowW: 1180, rowH: 100, pitch: 124, top: 236, bottom: 334 };
+let aliasToken = 0;
+// draft: the rows; focusAt: the row to focus (the empty one when null); carry: the empty row of the editor drawn before,
+// which keeps the focus while this one is drawn: what is typed there meanwhile goes into the new empty row
+async function openAliases(draft = customAliases(), focusAt = null, family = fam.key, carry = null) {
+  const my = ++aliasToken;
+  const host = $("popup");
+  const names = draft.slice(0, ALIAS_MAX);
+  const adding = names.length < ALIAS_MAX;
+  const n = names.length + (adding ? 1 : 0);
+  const h = AL.top + (n - 1) * AL.pitch + AL.bottom;
+  const ys = Array.from({ length: n }, (_, i) => FRAME_Y + h / 2 - AL.top - i * AL.pitch);
+  const t = popupFrame(T("alias.title"), AL.w, h, { ok: T("picker.ok"), cancel: T("popup.cancel") });
+  const popup = find(t, "Popup");
+  ys.forEach((y, i) => {
+    const add = adding && i === n - 1;
+    const icon = add ? sprite("Cafe_Icon_NameEdit", 50, 50, { type: 0, depth: 9, color: "#2d4664/1.00" })
+      : sprite("Common_Icon_Close", 42, 42, { type: 0, depth: 9, color: "#2d4664/1.00" });
+    popup.children.push(node(`Row_${i}`, [0, y], [sprite("Common_Bg_Raius10px", AL.rowW, AL.rowH, { depth: 6, color: "#e6eaec/1.00" })], [
+      node("BG_Line", [0, 0], [sprite("Common_line_10px", AL.rowW + 2, AL.rowH, { depth: 7, color: "#cfd4da/1.00" })]),
+      node("Icon", [AL.rowW / 2 - 58, 0], [icon]),
+    ]));
+  });
+  host.hidden = false;
+  const next = document.createElement("div");
+  const view = await NGUI.render(t, next, { scale: S, origin: [960, 540], z: 10 });
+  if (my !== aliasToken) return;
+  const close = () => { aliasToken += 1; host.hidden = true; host.innerHTML = ""; };
+  // the screen was left or shows another student meanwhile
+  if (!open || fam.key !== family) { close(); return; }
+  const inputs = [];
+  // the rows' aliases as edited, and what the empty row holds
+  const rows = () => inputs.slice(0, names.length).map((el) => el.value);
+  const typed = () => (adding ? inputs[n - 1].value : "");
+  const keep = async () => {
+    const saved = await call(() => rpc("aliases.set", { family, aliases: [...rows(), typed()] }));
+    if (!saved || my !== aliasToken) return; // an error is shown and the editor stays
+    close();
+    ctx.invalidateRoster();
+    if (fam.key !== family) return;
+    fam.custom = saved;
+    renderScreen();
+  };
+  ys.forEach((y, i) => {
+    const add = adding && i === n - 1;
+    const el = document.createElement("input");
+    el.className = "alias-input";
+    el.type = "text";
+    el.maxLength = ALIAS_LENGTH;
+    el.spellcheck = false;
+    el.autocomplete = "off";
+    el.enterKeyHint = add ? "done" : "next";
+    el.value = add ? carry?.value || "" : names[i];
+    el.placeholder = add ? T("alias.add") : "";
+    el.setAttribute("aria-label", add ? T("alias.add") : T("alias.title"));
+    Object.assign(el.style, {
+      left: `${960 + (-AL.rowW / 2 + 36) * S}px`, top: `${540 - (y + AL.rowH / 2) * S}px`,
+      width: `${(AL.rowW - 150) * S}px`, height: `${AL.rowH * S}px`, fontSize: `${50 * S}px`,
+    });
+    el.addEventListener("keydown", (ev) => {
+      if (ev.isComposing || ev.keyCode === 229 || ev.key !== "Enter") return;
+      ev.preventDefault();
+      if (add && el.value.trim()) {
+        const text = el.value;
+        el.value = "";
+        openAliases([...rows(), text], names.length + 1, family, el);
+      }
+      else if (i < n - 1) inputs[i + 1].focus();
+      else keep();
+    });
+    next.appendChild(el);
+    inputs.push(el);
+    const [ix, iy] = [960 + (AL.rowW / 2 - 58) * S, 540 - y * S], size = 84 * S;
+    const b = hitButton(next, [ix - size / 2, iy - size / 2, size, size],
+      add ? () => el.focus() : () => openAliases(rows().filter((_, j) => j !== i), i, family, adding ? inputs[n - 1] : null),
+      add ? T("alias.add") : T("alias.remove"), 86);
+    if (add) b.tabIndex = -1;
+  });
+  const hit = (path, fn) => { const el = view.nodes.get(path)?.els[0]; if (el) hitButton(next, rect(el), fn, "", 80); };
+  hit("Center/Popup/Btn/Btn_Ok/BG (1)", keep);
+  hit("Center/Popup/Btn/Btn_Cancel/BG (1)", close);
+  hit("Center/Popup/Base/BG/Btn_Close", close);
+  closable(view, close);
+  host.replaceChildren(...next.childNodes);
+  const target = inputs[focusAt ?? inputs.length - 1] || inputs[inputs.length - 1];
+  target?.focus();
+}
+
 // --- details (the info bar's Details button): the shown tab's game files on the popup frame. A summary (the folder,
 // what the files carry and, for a mod, its file and the variant it was made for), then one row per bundle: name,
 // size, date, CRC and what it carries ---
@@ -1577,6 +1707,8 @@ export async function show(context, familyData, key, { inPlace = false } = {}) {
   await ensureLayouts();
   if (g.gen !== showGen) return; // a newer show, or hide()
   const sameFamily = fam?.key === familyData.key;
+  // the alias editor of another student goes (a history step while it was open)
+  if (!sameFamily && $("popup").querySelector(".alias-input")) { aliasToken += 1; $("popup").hidden = true; $("popup").innerHTML = ""; }
   // the same variant of another install (another game folder or file source) is read again like another variant
   const sameVariant = sameFamily && variantKey === key && fam.version === familyData.version;
   fam = familyData;

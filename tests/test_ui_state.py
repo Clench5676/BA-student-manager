@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 import ba_modding_toolkit
-from ba_modding_toolkit.webui.state import UiState
+from ba_modding_toolkit.webui.state import ALIAS_LENGTH, ALIAS_MAX, UiState
 
 
 def test_instances_keep_each_others_keys(tmp_path):
@@ -60,6 +60,45 @@ def test_an_unreadable_file_keeps_what_is_known(tmp_path):
     state.set("voice_muted", True)
     assert UiState(path).get("voice_muted") is True
     assert not list(tmp_path.glob("*.tmp")), "no temporary file is left behind"
+
+
+def test_own_aliases_are_kept_per_student_and_merged(tmp_path):
+    path = tmp_path / "webui.json"
+    a, b = UiState(path), UiState(path)
+    assert a.aliases() == {}
+    assert a.set_aliases("momoi", ["\u5c0f\u6843", "Momo"]) == ["\u5c0f\u6843", "Momo"]
+    b.set_aliases("kanna", ["\u5eb7\u5a1c"])  # b never read a's entry: it must not write a stale copy over it
+    b.set("voice_volume", 40)
+    assert UiState(path).aliases() == {"momoi": ["\u5c0f\u6843", "Momo"], "kanna": ["\u5eb7\u5a1c"]}
+    assert a.aliases()["kanna"] == ["\u5eb7\u5a1c"]  # reads follow the other instance
+    # none left: the student's entry goes, the others stay
+    assert a.set_aliases("momoi", ["", "  "]) == []
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert data["aliases"] == {"kanna": ["\u5eb7\u5a1c"]} and data["prefs"] == {"voice_volume": 40}
+
+
+def test_own_aliases_are_cleaned(tmp_path):
+    state = UiState(tmp_path / "webui.json")
+    kept = state.set_aliases("momoi", [
+        "  Momo \t chan ",        # whitespace runs become one space, trimmed
+        "momo  chan",             # the same alias ignoring case: dropped
+        "\uff2d\uff4f\uff4d\uff4f chan",  # full width: the same again
+        "a\u0000b\u200bc\u202ed",  # control and format characters are dropped
+        "x" * (ALIAS_LENGTH + 1),  # too long: dropped
+        "<b>x</b>",               # markup is kept as text; the page never reads it as HTML
+        7, None,                  # not text
+    ])
+    assert kept == ["Momo chan", "abcd", "<b>x</b>"]
+    assert state.set_aliases("many", [f"a{i}" for i in range(ALIAS_MAX + 3)]) == [f"a{i}" for i in range(ALIAS_MAX)]
+    # a hand-edited file is read the same way
+    (tmp_path / "webui.json").write_text(json.dumps({"aliases": {"x": ["ok", 3, ""], "y": "no", "z": []}}),
+                                         encoding="utf-8")
+    assert UiState(tmp_path / "webui.json").aliases() == {"x": ["ok"]}
+    (tmp_path / "webui.json").write_text(json.dumps({"aliases": ["x"]}), encoding="utf-8")
+    state = UiState(tmp_path / "webui.json")
+    assert state.aliases() == {}
+    assert state.set_aliases("x", ["ok"]) == ["ok"]  # a malformed table is replaced, not a crash
+    assert UiState(tmp_path / "webui.json").aliases() == {"x": ["ok"]}
 
 
 WRITER = """

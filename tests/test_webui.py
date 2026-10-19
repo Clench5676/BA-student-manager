@@ -17,7 +17,7 @@ from ba_modding_toolkit.webui.events import EventBus
 from ba_modding_toolkit.webui.jobs import JobRunner
 from ba_modding_toolkit.webui.server import WebApp
 from ba_modding_toolkit.webui.services import Services
-from ba_modding_toolkit.webui.state import UiState, roster_view
+from ba_modding_toolkit.webui.state import ALIAS_LENGTH, ALIAS_MAX, UiState, roster_view
 
 
 @dataclass
@@ -35,6 +35,7 @@ class FakeVariant:
     date: str | None = None
     recruitable: bool = True
     model: str | None = None
+    aliases: list = field(default_factory=list)
 
 
 @dataclass
@@ -43,6 +44,7 @@ class FakeFamily:
     names: dict
     school: str | None
     variants: list
+    aliases: list = field(default_factory=list)
 
 
 class FakeGame:
@@ -213,6 +215,39 @@ def test_roster_and_family(app, services):
     assert fam["variants"][0]["state"] == {"applied": "official", "crc": "ok"}
     assert fam["variants"][0]["modList"] == [{"id": "m1", "target": "hoshino", "fresh": True}]
     assert fam["version"] == "rv1"  # the install the parts come from
+
+
+def test_roster_and_family_carry_the_aliases_the_search_matches(app, services):
+    services.catalog.f.aliases = ["\u5c0f\u661f"]
+    services.catalog.v.aliases = ["\u5c0f\u661f\uff08x\uff09"]
+    for result in (rpc(app, "roster.list")["result"]["families"][0], rpc(app, "family.get", key="hoshino")["result"]):
+        assert result["aliases"] == ["\u5c0f\u661f"]
+        assert result["variants"][0]["aliases"] == ["\u5c0f\u661f\uff08x\uff09"]
+
+
+def test_own_aliases_are_kept_and_listed(app, services, tmp_path):
+    assert rpc(app, "roster.list")["result"]["families"][0]["custom"] == []
+    kept = rpc(app, "aliases.set", family="hoshino", aliases=[" Oji  san ", "oji san", "", "<i>x</i>"])["result"]
+    assert kept == ["Oji san", "<i>x</i>"]
+    assert rpc(app, "roster.list")["result"]["families"][0]["custom"] == kept
+    assert rpc(app, "family.get", key="hoshino")["result"]["custom"] == kept
+    # kept across launches, in the user's data folder
+    assert UiState(tmp_path / "webui.json").aliases() == {"hoshino": kept}
+    # past the limits nothing changes
+    too_long = rpc(app, "aliases.set", family="hoshino", aliases=["x" * (ALIAS_LENGTH + 1)])["error"]
+    assert too_long == {"code": "alias_too_long", "params": {"max": ALIAS_LENGTH}}
+    too_many = rpc(app, "aliases.set", family="hoshino", aliases=[f"a{i}" for i in range(ALIAS_MAX + 1)])["error"]
+    assert too_many == {"code": "alias_too_many", "params": {"max": ALIAS_MAX}}
+    # repeats count once
+    assert rpc(app, "aliases.set", family="hoshino", aliases=["a"] * (ALIAS_MAX + 1))["result"] == ["a"]
+    assert rpc(app, "aliases.set", family="hoshino", aliases=kept)["result"] == kept
+    for bad in ("x", [1], None):
+        assert rpc(app, "aliases.set", family="hoshino", aliases=bad)["error"]["code"] == "bad_params"
+    assert rpc(app, "aliases.set", family="nobody", aliases=["x"])["error"]["code"] == "family_not_found"
+    assert rpc(app, "family.get", key="hoshino")["result"]["custom"] == kept
+    # none: the student's entry goes
+    assert rpc(app, "aliases.set", family="hoshino", aliases=[])["result"] == []
+    assert UiState(tmp_path / "webui.json").aliases() == {}
 
 
 def _bundle(folder: Path, stem: str, trailing: bytes = b"") -> Path:

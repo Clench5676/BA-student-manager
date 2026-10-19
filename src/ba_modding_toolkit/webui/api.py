@@ -23,7 +23,7 @@ from ..naming import parse_filename
 from ..utils import get_version_info
 from .rpc import RpcRegistry, to_json
 from .services import Services
-from .state import roster_view
+from .state import ALIAS_LENGTH, ALIAS_MAX, alias_key, alias_text, roster_view
 from .system import open_classic, reveal
 
 logger = logging.getLogger(__name__)
@@ -276,6 +276,7 @@ def build_api(s: Services) -> RpcRegistry:
         own = mods.get(v.key, [])
         return {
             "key": v.key, "fileId": v.file_id, "family": v.family, "names": v.names, "playable": v.playable,
+            "aliases": v.aliases,  # the search matches them, the page never shows them (the CN server's names)
             "recruitable": v.recruitable,  # on the selected server; playable is on some server
             "order": v.order, "spr": v.spr, "lobby": v.lobby, "date": v.date, "model": v.model,
             "bg": _url_bg(v.bg), "portrait": _url_portrait(v.portrait),
@@ -298,10 +299,11 @@ def build_api(s: Services) -> RpcRegistry:
         if not s.game_found():
             raise ServiceError("game_not_found")
         mods, favorites, recent = mods_by_target(), s.library.favorites(), s.state.recent()
-        modified = s.library.modified()
+        modified, custom = s.library.modified(), s.state.aliases()
         families = []
         for f in s.catalog.families():
-            families.append({"key": f.key, "base": f.names, "school": f.school,
+            families.append({"key": f.key, "base": f.names, "aliases": f.aliases, "custom": custom.get(f.key, []),
+                             "school": f.school,
                              "variants": [variant_json(v, mods, favorites, recent, modified) for v in f.variants]})
         return {"families": families}
 
@@ -345,8 +347,24 @@ def build_api(s: Services) -> RpcRegistry:
             variants.append(item)
         # the game's resource version tells installs apart (another game folder or file source): the page then reads
         # every part of a variant again, even under the same variant key
-        return {"key": f.key, "base": f.names, "school": f.school, "variants": variants,
+        return {"key": f.key, "base": f.names, "aliases": f.aliases, "custom": s.state.aliases().get(f.key, []),
+                "school": f.school, "variants": variants,
                 "version": s.game.resource_version if s.game_found() else None}
+
+    @rpc.method("aliases.set")
+    def aliases_set(family: str, aliases: list[str]) -> list[str]:
+        """Keep the user's own aliases of a student (the roster search matches them) and return them as kept: each
+        cleaned (state.alias_text), empty and repeated ones dropped. ``alias_too_long`` or ``alias_too_many`` past the
+        limits; nothing is kept then."""
+        if not isinstance(family, str) or not isinstance(aliases, list) or not all(isinstance(a, str) for a in aliases):
+            raise ServiceError("bad_params", key="aliases")
+        key = s.catalog.family(family).key
+        names = [alias_text(a) for a in aliases]
+        if any(len(name) > ALIAS_LENGTH for name in names):
+            raise ServiceError("alias_too_long", max=ALIAS_LENGTH)
+        if len({alias_key(name) for name in names if name}) > ALIAS_MAX:
+            raise ServiceError("alias_too_many", max=ALIAS_MAX)
+        return s.state.set_aliases(key, names)
 
     warmed: dict[str, Any] = {"game": None}
     warm_lock = threading.Lock()

@@ -45,7 +45,7 @@ export const filtering = (filters) => Object.entries(FILTERS).some(([g, options]
   return on.length > 0 && on.length < options.length;
 });
 
-// --- search: every name language and the file id, case, width, kana and separators folded ---
+// --- search: every name language, the aliases and the file id, case, width, kana and separators folded ---
 // separators: brackets, dots, commas, dashes, quotes and the marks inside official names (Shiroko*Terror,
 // Golconde&Decalcomania, a "?" title), so a name typed without them is found
 export function fold(str) {
@@ -55,19 +55,22 @@ export function fold(str) {
 }
 export const terms = (query) => String(query ?? "").split(/\s+/).map(fold).filter(Boolean);
 
+// what a variant is found by: its names, its family's base names, the aliases the UI never shows (the variant's and
+// the family's, the CN server's wording) and the user's own aliases of the family (f.custom: an edit puts a new list
+// there, which makes the text again)
 const haystacks = new WeakMap();
-function haystack(v, base) {
+function haystack(v, f) {
   let h = haystacks.get(v);
-  if (h === undefined) {
-    const parts = [v.key, v.fileId];
+  if (h === undefined || h.custom !== f?.custom) {
+    const parts = [v.key, v.fileId, ...(v.aliases || []), ...(f?.aliases || []), ...(f?.custom || [])];
     for (const n of Object.values(v.names || {})) parts.push(n?.full);
-    for (const n of Object.values(base || {})) parts.push(n);
-    h = parts.filter(Boolean).map(fold).join("\u0000");
+    for (const n of Object.values(f?.base || {})) parts.push(n);
+    h = { custom: f?.custom, text: parts.filter((p) => typeof p === "string" && p).map(fold).join("\u0000") };
     haystacks.set(v, h);
   }
-  return h;
+  return h.text;
 }
-const matches = (v, base, words) => !words.length || words.every((w) => haystack(v, base).includes(w));
+const matches = (v, f, words) => !words.length || words.every((w) => haystack(v, f).includes(w));
 
 // --- filters on one card's attributes ---
 function passes(card, filters) {
@@ -97,7 +100,7 @@ function cards(data, view, words, label) {
     const vs = f.variants || [];
     if (!vs.length) continue;
     if (view.merged) {
-      const hit = words.length ? vs.find((v) => matches(v, f.base, words)) : vs[0];
+      const hit = words.length ? vs.find((v) => matches(v, f, words)) : vs[0];
       const recent = Math.min(...vs.map((v) => (v.recent ?? Infinity)));
       const card = {
         ...vs[0], ...(hit ? { key: hit.key, spr: hit.spr, portrait: hit.portrait, names: hit.names } : {}),
@@ -112,7 +115,7 @@ function cards(data, view, words, label) {
       list.push(card);
     } else {
       for (const v of vs) {
-        list.push({ ...v, name: label(v.names)?.full ?? v.key, family: f.key, n: n++, matched: matches(v, f.base, words),
+        list.push({ ...v, name: label(v.names)?.full ?? v.key, family: f.key, n: n++, matched: matches(v, f, words),
           recruit: !!v.recruitable, recent: v.recent ?? Infinity, added: time(v.added) });
       }
     }

@@ -2,11 +2,15 @@
 
 Simplified Chinese follows Kivo's community wording: zh-CN names and skins come from the
 character map's Kivo columns (name_kivo, skin_kivo), and the CN server's (name_cn, skin_cn)
-only fill in where Kivo has none. The other languages use their own columns.
+only fill in where Kivo has none. The other languages use their own columns. The CN server's
+names stay findable: they are the aliases the roster search matches (cn_words, cn_base,
+cn_name).
 """
 
 from __future__ import annotations
 
+from collections import Counter, defaultdict
+from collections.abc import Iterable
 import json
 import re
 from pathlib import Path
@@ -182,3 +186,69 @@ def csv_bases(row: dict[str, str]) -> dict[str, str]:
         value = column(row, "name", lang)
         bases[lang] = clean(entry.get(lang) or split(value if usable(value) else fallback), lang)
     return bases
+
+
+# --- aliases: the CN server's wording, which the roster search matches although zh-CN shows Kivo's ---
+
+def cn_words(rows: Iterable[dict[str, str]]) -> dict[str, str]:
+    """Map each Kivo costume word to the CN server's word where they differ.
+
+    Read from the character map rows whose skin_kivo and skin_cn differ, part by part when
+    both have as many parts (the pairing most rows make wins, then the first by code point),
+    then the glossary's ``cn`` entries for the words only Kivo's remarks use.
+    """
+    pairs: dict[str, Counter] = defaultdict(Counter)
+    for row in rows:
+        kivo = [part for part in re.split(PART_SEPARATORS, row.get("skin_kivo", "")) if part]
+        server = [part for part in re.split(PART_SEPARATORS, row.get("skin_cn", "")) if part]
+        if len(kivo) == len(server):
+            for word, cn in zip(kivo, server):
+                if word != cn:
+                    pairs[word][cn] += 1
+    words = {word: min(found.items(), key=lambda item: (-item[1], item[0]))[0] for word, found in pairs.items()}
+    words.update({word: entry["cn"] for word, entry in NAMING["glossary"].items() if entry.get("cn")})
+    return dict(sorted(words.items()))
+
+
+def cn_base(row: dict[str, str]) -> str:
+    """Return the CN server's name of a character map row (name_cn; a surname-first name's given name), or ''."""
+    name = row.get("name_cn", "").strip()
+    if not usable(name):
+        return ""
+    return clean(given_name(name) if " " in name else name, "zh-CN")
+
+
+def name_head(full: str) -> str:
+    """Return a zh-CN full name without its bracketed variant words."""
+    match = re.fullmatch(r"(.*?)\uff08(.*)\uff09", full)
+    return match.group(1) if match else full
+
+
+def cn_name(full: str, base: str, server_base: str, words: dict[str, str]) -> str:
+    """Return a zh-CN full name in the CN server's wording.
+
+    The base name it starts with becomes ``server_base`` and each variant word in its
+    brackets the server's word (``words``, from cn_words); the rest is kept.
+    """
+    match = re.fullmatch(r"(.*?)\uff08(.*)\uff09", full)
+    head, inner = match.groups() if match else (full, "")
+    if head.startswith(base):
+        head = server_base + head[len(base):]
+    parts = [words.get(part, part) for part in inner.split(SEPARATORS["zh-CN"])] if inner else []
+    return compose(head, parts, "zh-CN")["full"]
+
+
+def cn_aliases(full: str, base: str, server_bases: Iterable[str], words: dict[str, str],
+               heads: Iterable[str] = (), extra: Iterable[str] = ()) -> list[str]:
+    """Return a variant's aliases, its zh-CN name in the CN server's wording, without the shown name.
+
+    ``server_bases`` are the server's names of the student (the base when it has none), each
+    put in place of the base the name starts with; ``heads`` are the server's names of this
+    variant's character, put in place of all the name before its brackets; ``extra`` names
+    are the server's own and kept as they are. The variant words become the server's words.
+    """
+    found = {cn_name(full, base, server_base, words) for server_base in (set(server_bases) or {base})}
+    head = name_head(full)
+    found.update(cn_name(full, head, name, words) for name in heads if name)
+    found.update(name for name in extra if name)
+    return sorted(found - {full})

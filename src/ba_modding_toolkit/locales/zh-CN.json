@@ -866,7 +866,7 @@
 			"title": "学生名单",
 			"merge": "合并变种",
 			"search": "搜索",
-			"searchHint": "名称、文件 ID",
+			"searchHint": "名称、别名、文件 ID",
 			"empty": "无结果",
 			"asc": "升序",
 			"desc": "降序"
@@ -946,6 +946,11 @@
 			"label": "收藏",
 			"on": "已收藏"
 		},
+		"alias": {
+			"title": "别名",
+			"add": "添加别名",
+			"remove": "删除"
+		},
 		"fold": {
 			"label": "收起"
 		},
@@ -1010,6 +1015,8 @@
 			"classic_failed": "无法启动经典界面",
 			"unknown_method": "未知操作：{method}",
 			"bad_params": "参数错误",
+			"alias_too_long": "别名最多 {max} 字",
+			"alias_too_many": "别名最多 {max} 个",
 			"job_not_found": "任务不存在",
 			"update_check_failed": "无法检查更新",
 			"update_download_failed": "下载更新失败",

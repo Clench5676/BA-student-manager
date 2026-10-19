@@ -100,6 +100,11 @@ input[type="text"], input[type="search"], textarea { cursor: text; }
 .slider-hit { cursor: ew-resize; touch-action: none; }
 
 /* --- detail --- */
+/* the alias editor's inputs, over the game's input rows (UIPopup_Input's text and placeholder colours) */
+.alias-input { position: absolute; z-index: 85; border: 0; outline: 0; background: transparent; padding: 0; margin: 0;
+  font-family: var(--font); font-weight: var(--w); line-height: 1.15; color: #1f3f5f; caret-color: #1f3f5f; text-align: left;
+  -webkit-appearance: none; appearance: none; -webkit-user-select: text; user-select: text; }
+.alias-input::placeholder { color: #98a3ae; opacity: 1; }
 .layer-host { position: absolute; inset: 0; pointer-events: none; }
 .layer-host .hit, .layer-host .expr-clip, .layer-host .popup-cards { pointer-events: auto; }
 .layer-host.ui { z-index: 2; }

@@ -12,7 +12,7 @@ from typing import Protocol
 from ..errors import ServiceError
 from ..naming import parse_filename
 from ._data import base_rank, csv_entry, read_character_map
-from ._names import BASE_SHORT, LANGUAGES, csv_bases, csv_names
+from ._names import BASE_SHORT, LANGUAGES, cn_aliases, cn_base, cn_words, csv_bases, csv_names, name_head
 from .models import Family, Variant
 
 __all__ = ["Catalog", "Family", "Variant"]
@@ -20,6 +20,11 @@ DEFAULT_DATA = Path(__file__).parent / "data" / "catalog.json"
 logger = logging.getLogger(__name__)
 HOME_SUFFIXES = ("_home", "_home_gl", "_home_teen")
 SERVERS = ("japan", "global")  # the keys of the shipped release flags, as Settings.server_region() names them
+
+
+def _names_list(value: object) -> bool:
+    """Whether a catalog field holds a list of non-empty names (the aliases)."""
+    return isinstance(value, list) and all(isinstance(name, str) and name.strip() for name in value)
 
 
 class GameSource(Protocol):
@@ -120,9 +125,14 @@ class Catalog:
                 if released is not None and not (isinstance(released, dict) and all(
                         server in SERVERS and isinstance(flag, bool) for server, flag in released.items())):
                     raise ValueError("Invalid catalog release flags")
+            for record in (*entries.values(), *students.values()):
+                if not _names_list(record.get("aliases", [])):
+                    raise ValueError("Invalid catalog aliases")
             shipped_students = set(students)
             if self.character_map is not None and self.character_map.exists():
-                for row in read_character_map(self.character_map):
+                rows = read_character_map(self.character_map)
+                words = cn_words(rows)
+                for row in rows:
                     key = row["file_id"].lower()
                     if key in entries:
                         continue
@@ -130,6 +140,13 @@ class Catalog:
                     sid = str(entry["student_id"])
                     student = students.setdefault(sid, {"names": csv_bases(row), "school": entry["school"]})
                     entry["names"], entry["fallbacks"] = csv_names(row, student["names"])
+                    base, server = student["names"]["zh-CN"], cn_base(row)
+                    # a new student takes the CN server's name of its rows named by the base alone
+                    if (sid not in shipped_students and server and server != base
+                            and name_head(entry["names"]["zh-CN"]["full"]) == base):
+                        student["aliases"] = sorted({*student.get("aliases", []), server})
+                    entry["aliases"] = cn_aliases(entry["names"]["zh-CN"]["full"], base,
+                                                  student.get("aliases", []), words, [server])
                     entry["order"] = 1 + max((e["order"] for e in entries.values()
                                               if str(e["student_id"]) == sid), default=-1)
                     entries[key] = entry
@@ -173,7 +190,8 @@ class Catalog:
                     entry.update(playable=True, portrait=portrait)
                 entry["bg"] = entries[student["base"]].get("bg")
             family_key = student["base"]
-            family = families.setdefault(family_key, Family(family_key, student["names"], student.get("school"), []))
+            family = families.setdefault(family_key, Family(family_key, student["names"], student.get("school"), [],
+                                                            list(student.get("aliases", []))))
             aliases = [key, *(alias for alias in entry.get("core_aliases", [])
                               if alias.lower() not in entries or alias.lower() == key)]
             homes = [lobby_names[alias.lower() + suffix] for alias in aliases for suffix in HOME_SUFFIXES
@@ -185,7 +203,8 @@ class Catalog:
                               art.get("bg", {}).get((entry.get("bg") or "").lower()), portrait,
                               max(filter(None, dates), default=None), entry.get("page_id") or None,
                               recruitable=self._recruitable(entry, portrait is not None, bool(collection)),
-                              model=model_core(key, aliases[1:], models), schale_id=entry.get("schale_id"))
+                              model=model_core(key, aliases[1:], models), schale_id=entry.get("schale_id"),
+                              aliases=list(entry.get("aliases", [])))
             family.variants.append(variant)
             variants[key] = variant
             cores[core.lower()] = variant

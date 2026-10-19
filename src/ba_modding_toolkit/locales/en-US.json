@@ -866,7 +866,7 @@
 			"title": "Student List",
 			"merge": "Group Variants",
 			"search": "Search",
-			"searchHint": "Name, File ID",
+			"searchHint": "Name, Alias, File ID",
 			"empty": "No Results",
 			"asc": "Ascending",
 			"desc": "Descending"
@@ -946,6 +946,11 @@
 			"label": "Favorite",
 			"on": "Favorited"
 		},
+		"alias": {
+			"title": "Aliases",
+			"add": "Add Alias",
+			"remove": "Remove"
+		},
 		"fold": {
 			"label": "Collapse"
 		},
@@ -1010,6 +1015,8 @@
 			"classic_failed": "Could not start the classic UI",
 			"unknown_method": "Unknown action: {method}",
 			"bad_params": "Invalid parameters",
+			"alias_too_long": "Aliases: {max} characters max",
+			"alias_too_many": "Up to {max} aliases",
 			"job_not_found": "Task not found",
 			"update_check_failed": "Could not check for updates",
 			"update_download_failed": "Could not download the update",
