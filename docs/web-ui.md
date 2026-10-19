@@ -271,6 +271,30 @@ swimsuit does in the screenshots; the tool plays Formation_Idle only).
 `prototype/research-v4/tools/layout.py`: `{name, active, pos[x, y], scale[x, y], rotZ, widgets[], children?}` with
 the widget fields documented there; atlas and texture references are resolved to names.
 
+**Button states.** The game's buttons (`MXButton`) carry no NGUI button colours: no prefab has a `UIButton` or
+`UIButtonColor`, so there is no `disabledColor`, `hover` or `pressed` to read. A disabled or locked button is a node of
+its own that a controller shows instead of the normal one, and its look is in that node's widgets. The layout gives
+these controllers a `states` object, each field's node as a path below the controller's node (what `subtree` and
+`?path=` take; `""` is the node itself, `null` an unset field):
+
+| Controller | Fields |
+|---|---|
+| `OpenConditionButtonController` | `Enable`, `Disable`, `Prohibited` |
+| `UIButtonEnableSwitch` | `enableButton`, `disableButton` |
+| `MXDualStateButton` | `NormalButton`, `DisabledButton` |
+| `ButtonActivator` | `activeObject`, `inactiveObject`, `button`, `contentsLockObject` |
+
+The lobby's bottom menu (`UILobby`, `Front/Bottom/Menu/BG/Grid/<entry>`, a prefab hint) holds the game's disabled look
+for the greyed navigation. An entry with an open condition (Cafe, Academy, Craft, Shop, Gacha) shows `Able`, the icon
+sprite untinted (`#ffffff`), or `Disable`, the same sprite at `#797979` with `Common_Icon_Lock` over it; Student,
+Formation and Social have the same `Disable` node without a controller. The label is the entry's own child, outside
+both, and the prefab gives it no disabled colour (`#2d4664` or `#2c4564` in both states). Checked on every prefab of
+the 2026-10 resource version: 421 controllers and 1124 references, each inside its controller's node and unambiguous
+by name.
+
+Cached layouts carry the export's format in their key (`layout-v2/<root>`, `_LAYOUT` in `service.py`). A change to
+the export raises it, so layouts cached before are exported again and no other cached asset is dropped.
+
 ## catalog
 
 ```python
