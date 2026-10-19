@@ -2,7 +2,8 @@
 // (gameassets/model.py): the game's material constants are in the material extras, the halo follower (FxFollower)
 // in the root extras, and each clip's slot, loop flag, SetMouthTile events and renderer switches in the animation
 // extras. The materials are ports of the game's character shaders (chibi-materials.js), the camera starts at the
-// formation screen's view and orbits freely. One view at a time; hide() frees its WebGL context at once.
+// formation screen's view of one character (FORMATION_VIEW) and orbits freely. One view at a time; hide() frees its
+// WebGL context at once.
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
@@ -10,11 +11,33 @@ import { chibiMaterial, disposeDefaults, outlineMaterial, setOutlineScale } from
 
 const ease = (t) => 1 - Math.pow(1 - t, 3);
 
-// where the chibi stands on the host (its centre, in stage pixels) and how much of the host's height it takes (halo
-// included): beside the panel it stays above the nameplate; fullscreen it stands in the middle. Pixels, not
-// fractions, so it does not jump when the host widens for fullscreen.
-const FRAMES = { left: { x: 490, y: 390, fill: 0.55 }, full: { x: 960, y: 540, fill: 0.8 } };
-const FOV = 26, ELEVATION = 12, TWEEN = 450;
+// The formation screen's view of one character (UIFormation under GameMain's camera): the game camera (vertical
+// field of view 10, at the origin, level) shows the NGUI root 11.43 ahead, 2 units high (2 / 1665 of a unit per NGUI
+// unit at 16:9), and each character at its slot (UnitPositions/Position1-4): 630 NGUI units to the character's unit,
+// 316.4 toward the camera and 222.6 below Position_Set, whose anchors put it 56.25 below the screen's centre. In the
+// character's units the camera stands 14.6 away and 0.44 above its feet, looking level: the screen's centre lies at
+// that height, and a character takes the same share of the screen's height whatever its size.
+export const FORMATION_VIEW = (() => {
+  const s = 2 / 1665, k = 630 * s;
+  return { fov: 10, distance: (11.43 - 316.4 * s) / k, eye: ((222.6 + 56.25) * s) / k };
+})();
+
+// where the formation view's centre (the point 0.44 above the feet) lands on the host, in stage pixels, for a host of
+// w x h: beside the panel the feet stay above the nameplate (floor); fullscreen it is the formation screen's centre.
+// Pixels, not fractions, so the chibi does not jump when the host widens for fullscreen.
+const FRAMES = { left: { x: 490, y: 500, w: 1000, h: 1080, floor: 700 }, full: { x: 960, y: 540, w: 1920, h: 1080, floor: 1056 } };
+const TWEEN = 450;
+
+// The camera distance (character units) for a frame: the formation screen's, or further back where the chibi's box
+// (halo and props included; relative to the orbit target, x across and y up) would leave the host around the frame
+// point (stage px, a margin kept) or reach below its floor.
+export function frameDistance(box, frame, fov = FORMATION_VIEW.fov, base = FORMATION_VIEW.distance, margin = 24) {
+  const t = 2 * Math.tan(THREE.MathUtils.degToRad(fov) / 2); // the visible height per unit of distance
+  const at = (units, px) => (units > 0 ? (units * frame.h) / (t * Math.max(px, 1)) : 0); // `units` over `px`
+  const side = Math.min(frame.x, frame.w - frame.x) - margin;
+  return Math.max(base, at(box.max.y, frame.y - margin), at(-box.min.y, Math.min(frame.floor, frame.h - margin) - frame.y),
+    at(Math.max(box.max.x, -box.min.x), side));
+}
 // the tab's actions: the clip slots they play, in order of preference; "next" follows a clip that plays once,
 // "then" is the action after it
 const ACTIONS = {
@@ -38,7 +61,7 @@ class ChibiView {
     this.canvas.className = "model-view";
     host.appendChild(this.canvas);
     this.scene = new THREE.Scene();
-    this.camera = new THREE.PerspectiveCamera(FOV, 1, 0.01, 100);
+    this.camera = new THREE.PerspectiveCamera(FORMATION_VIEW.fov, 1, 0.01, 100);
     this.controls = new OrbitControls(this.camera, this.canvas);
     // no panning, any angle (straight from above to straight from below); the zoom stays between the bust and a
     // step back (frameTo)
@@ -221,8 +244,8 @@ class ChibiView {
   }
 
   // the size of the chibi in its first idle frame (halo included). The orbit target stands over the prefab's root
-  // (where the character stands, as on the formation screen; weapons and props would pull a box centre aside) at
-  // half the height, and rises to the face as the camera closes in.
+  // (where the character stands, as on the formation screen; weapons and props would pull a box centre aside) at the
+  // formation camera's height, and rises to the face as the camera closes in.
   measure() {
     this.mixer.update(0);
     this.applySwitches();
@@ -242,19 +265,15 @@ class ChibiView {
     if (all.isEmpty()) all.set(new THREE.Vector3(-0.3, 0, -0.3), new THREE.Vector3(0.3, 1, 0.3));
     const origin = this.root.getWorldPosition(new THREE.Vector3());
     this.size = all.getSize(new THREE.Vector3());
-    this.target = new THREE.Vector3(origin.x, all.getCenter(new THREE.Vector3()).y, origin.z);
+    this.target = new THREE.Vector3(origin.x, origin.y + FORMATION_VIEW.eye, origin.z);
+    this.box = { min: all.min.clone().sub(this.target), max: all.max.clone().sub(this.target) };
     this.faceY = body.min.y + (body.max.y - body.min.y) * 0.78; // a chibi's face sits in the top quarter
     this.controls.target.copy(this.target);
   }
 
-  fitDistance(fill) {
-    return (this.size.y / fill) / 2 / Math.tan(THREE.MathUtils.degToRad(FOV) / 2);
-  }
-
-  // the front view, a little from above
+  // the front view, level, as on the formation screen
   homeDirection() {
-    const el = THREE.MathUtils.degToRad(ELEVATION);
-    return new THREE.Vector3(0, Math.sin(el), Math.cos(el));
+    return new THREE.Vector3(0, 0, 1);
   }
 
   // switch between the framing beside the panel and fullscreen; the orbit angle and the zoom (relative to the
@@ -263,7 +282,7 @@ class ChibiView {
     this.mode = FRAMES[mode] ? mode : "left";
     const f = FRAMES[this.mode];
     if (!this.size) { this.view = { x: f.x, y: f.y }; this.applyView(); return; }
-    const fit = this.fitDistance(f.fill);
+    const fit = frameDistance(this.box, f);
     const offset = this.camera.position.clone().sub(this.controls.target);
     const ratio = this.fit ? THREE.MathUtils.clamp(offset.length() / this.fit, 0.45, 1.3) : 1;
     this.fit = fit;
@@ -427,10 +446,13 @@ class ChibiView {
   snapshot(aspect = 450 / 253) {
     if (!this.root) return null;
     this.renderer.render(this.scene, this.camera);
-    const W = this.canvas.width, H = this.canvas.height, px = W / (this.host.clientWidth || 1);
-    const fill = FRAMES[this.mode].fill;
-    const ch = H * fill * 0.5, cw = ch * aspect, cy = this.view.y * px - H * fill * 0.18;
-    const x0 = Math.max(0, Math.min(W - cw, this.view.x * px - cw / 2)), y0 = Math.max(0, Math.min(H - ch, cy - ch / 2));
+    const W = this.canvas.width, H = this.canvas.height;
+    // the chibi's box on the canvas (its height, its centre over the root), as rendered
+    const at = (y) => new THREE.Vector3(this.target.x, this.target.y + y, this.target.z).project(this.camera);
+    const top = at(this.box.max.y), bottom = at(this.box.min.y);
+    const h = ((top.y - bottom.y) / 2) * H, x = ((top.x + 1) / 2) * W, y = ((1 - (top.y + bottom.y) / 2) / 2) * H;
+    const ch = h * 0.5, cw = ch * aspect, cy = y - h * 0.18;
+    const x0 = Math.max(0, Math.min(W - cw, x - cw / 2)), y0 = Math.max(0, Math.min(H - ch, cy - ch / 2));
     const c = document.createElement("canvas");
     c.width = 900;
     c.height = Math.round(900 / aspect);

@@ -1,5 +1,5 @@
-"""The 3D chibi's materials (web/js/chibi-materials.js) are front-end code: their tests run with Node's test runner,
-skipped where Node is not installed."""
+"""The 3D chibi's materials (web/js/chibi-materials.js) and camera (web/js/model.js) are front-end code: their tests
+run with Node's test runner, skipped where Node is not installed."""
 
 import shutil
 import subprocess
@@ -9,9 +9,16 @@ import pytest
 
 NODE = shutil.which("node")
 TESTS = Path(__file__).parent / "js" / "chibi_materials.test.mjs"
+VIEW_TESTS = Path(__file__).parent / "js" / "model_view.test.mjs"
 
 
 @pytest.mark.skipif(NODE is None, reason="Node.js is not installed")
 def test_chibi_materials_in_node():
     result = subprocess.run([NODE, "--test", str(TESTS)], capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.skipif(NODE is None, reason="Node.js is not installed")
+def test_chibi_view_in_node():
+    result = subprocess.run([NODE, "--test", str(VIEW_TESTS)], capture_output=True, text=True, timeout=120)
     assert result.returncode == 0, result.stdout + result.stderr

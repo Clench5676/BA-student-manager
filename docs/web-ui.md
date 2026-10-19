@@ -126,8 +126,20 @@ DSFX/FX_SHADER_Matcap (a riot shield, soup), MX/E-Water (the surface colour: the
 behind it, which a lone chibi lacks) and the unlit and effect shaders, each with its own texture slot and colour. Terms the
 game's vertex programs compute stay per vertex: the outline's colour (the texture sampled at the vertex), MX/C-Weapon's
 N.V and N.H. The outline is 0.1 % of the stage width times the vertex colour alpha, as in the game. There is no ground
-shadow: the formation screen draws none. The camera orbits freely; the zoom stays
-between the bust and a step back, and a double click returns to the front view.
+shadow: the formation screen draws none.
+
+The camera opens at the formation screen's view of one character (`FORMATION_VIEW` in `model.js`). GameMain's camera
+(vertical field of view 10, at the origin, level; `CameraFovScaler` only widens it on screens narrower than 4:3) draws
+the NGUI root 11.43 ahead, 2 units high, so 2 / 1665 of a unit per NGUI unit at 16:9 (UIRoot: constrained, 2960 x 1440,
+fit width and height). UIFormation parents each character to its slot (`TeamPosition.SetCharacter`: local position,
+rotation and scale reset), UnitPositions/Position1-4: 630 NGUI units to the character's unit, 316.4 toward the camera,
+222.6 below Position_Set, whose anchors (BottomMenus to EchelonTab + 720) put it 56.25 below the screen's centre at
+16:9, turned 180 degrees to face the camera. In the character's units the camera stands 14.6 away and 0.44 above the
+feet, looking level, and the screen's centre lies at that height: fullscreen shows exactly that (the chibi at the
+game's scale, about 42 % of the screen's height), beside the panel the same view moved left and up so the feet stay
+above the nameplate. A chibi whose box would leave the host is framed from further back (`frameDistance`). The camera
+orbits freely around the point at the formation camera's height, which rises to the face as it closes in; the zoom
+stays between the bust (0.45 of the distance) and a step back (1.3), and a double click returns to the front view.
 
 The light is the formation screen's, read from the game rather than fitted to renders:
 
