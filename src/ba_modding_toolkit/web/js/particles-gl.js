@@ -7,7 +7,7 @@ import * as Linear from "./linear.js";
 import { Effects, STRIDE, drawOrder, geometry, slotOf } from "./particles.js";
 import { toLinear } from "./touch-fx.js";
 
-const VS = `#version 300 es
+const VS_HEAD = `#version 300 es
 in vec2 a_pos;
 in vec4 a_t0;
 in vec4 a_t1;
@@ -20,10 +20,20 @@ out vec4 v_t1;
 out vec4 v_t2;
 out vec4 v_col;
 out vec3 v_n;
-void main() {
-  gl_Position = u_proj * vec4(a_pos, 0.0, 1.0);
-  v_t0 = a_t0; v_t1 = a_t1; v_t2 = a_t2; v_col = a_col; v_n = a_n;
+`;
+// The DSFX *_1a vertex programs route the particle's custom data into each UV: per UV, CustomData_<UV>Tiling_CD1XYXY
+// and _CD2XYXY pick components of custom data 1 (TEXCOORD1) and 2 (TEXCOORD2) that scale the UV, and
+// CustomData_<UV>Offset_CD1XYXY and _CD2XYXY the ones that are added to it; the fragment program adds the plain
+// tiled UV and the scrolling.
+const CD_UV = `vec2 cdUv(vec2 base, vec4 t1, vec4 t2, vec4 o1, vec4 o2) {
+  vec4 a = a_t1 * t1, b = a_t2 * t2, c = a_t1 * o1, d = a_t2 * o2;
+  return base * (a.xy + a.zw + b.xy + b.zw) + c.xy + c.zw + d.xy + d.zw;
 }`;
+// the selector vectors of one UV in a *_1a material (the double distortion's per channel: DistortTilingR_CD1XYXY)
+const cd = (uv, ch = "") => [`_CustomData_${uv}Tiling${ch}_CD1XYXY`, `_CustomData_${uv}Tiling${ch}_CD2XYXY`,
+  `_CustomData_${uv}Offset${ch}_CD1XYXY`, `_CustomData_${uv}Offset${ch}_CD2XYXY`];
+const cdUv = (base, uv, ch = "") => `cdUv(${base}, ${cd(uv, ch).join(", ")})`;
+const tiled = (t) => `uv * ${t}_ST.xy + ${t}_ST.zw`;
 
 const HEAD = `#version 300 es
 precision highp float;
@@ -105,6 +115,84 @@ export const PROGRAMS = {
   o = vec4(m.a * k * m.rgb * v_col.rgb * _Color.rgb * _Multiply, clamp(k * sel * v_col.a * v_col.a * _Color.a * _Multiply, 0.0, 1.0));
 }`,
   },
+  // DSFX/FX_SHADER_AlphaBlend_Add_Distort_1a (the material's blend; ch0334's boosters add, One One): the distortion
+  // texture's xy times its power (custom data 2 through _CustomData_DistortPower_CD2XYXY, plus the material's) shifts
+  // the main UV and the mask UV, each by its keyword (_Main_Distort_Use, _Mask_Distort_Use). The vertex program puts
+  // the custom data's share of the distortion UV in v_t3.zw, of the main and mask UVs in v_t5; v_t4 is custom data 2.
+  // Only the alpha takes the main texture's red with RGB (_RGBRGBA 0); the colour is always times its alpha.
+  distort1a: {
+    tex: ["_Tex_Main", "_Tex_Mask", "_Tex_Distort"], colors: ["_Color"],
+    vectors: [...cd("Main"), ...cd("Mask"), ...cd("Distort"), "_CustomData_DistortPower_CD2XYXY"],
+    floats: ["_Main_Distort_Use", "_Mask_Distort_Use", "_RGBRGBA", "_AlphaPremultiplyOn", "_Alphaclip_Value", "_Multiply",
+      "_Dis_Speed_X", "_Dis_Speed_Y", "_Distortion_Power_X", "_Distortion_Power_Y", "_Main_Speed_X", "_Main_Speed_Y",
+      "_Tex_Mask_Speed_X", "_Tex_Mask_Speed_Y"],
+    vertex: {
+      outs: 3,
+      src: `  vec2 uv = a_t0.xy;
+  v_t3 = vec4(uv, ${cdUv(tiled("_Tex_Distort"), "Distort")});
+  v_t4 = a_t2;
+  v_t5 = vec4(${cdUv(tiled("_Tex_Main"), "Main")}, ${cdUv(tiled("_Tex_Mask"), "Mask")});`,
+    },
+    src: `void main() {
+  vec2 uv = v_t3.xy, dd = vec2(0.0);
+  bool toMain = ${on("_Main_Distort_Use")}, toMask = ${on("_Mask_Distort_Use")};
+  if (toMain || toMask) {
+    vec4 p = v_t4 * _CustomData_DistortPower_CD2XYXY;
+    vec4 d = texture(_Tex_Distort, ${tiled("_Tex_Distort")} + fract(_TimeY * vec2(_Dis_Speed_X, _Dis_Speed_Y)) + v_t3.zw);
+    dd = (p.xy + p.zw + vec2(_Distortion_Power_X, _Distortion_Power_Y)) * d.xy;
+  }
+  vec4 m = texture(_Tex_Main, ${tiled("_Tex_Main")} + _TimeY * vec2(_Main_Speed_X, _Main_Speed_Y) + (toMain ? dd : vec2(0.0)) + v_t5.xy);
+  float k = texture(_Tex_Mask, ${tiled("_Tex_Mask")} + _TimeY * vec2(_Tex_Mask_Speed_X, _Tex_Mask_Speed_Y) + (toMask ? dd : vec2(0.0)) + v_t5.zw).x;
+  float a = clamp((${on("_RGBRGBA")} ? m.a : m.r) * v_col.a * _Color.a * k, 0.0, 1.0);
+  if (a < _Alphaclip_Value) discard;
+  vec3 rgb = m.rgb * _Color.rgb * k * _Multiply * m.a * v_col.rgb;
+  o = vec4(${on("_AlphaPremultiplyOn")} ? rgb * a : rgb, a);
+}`,
+  },
+  // DSFX/FX_SHADER_AlphaBlend_Add_Double_Distort_1a (One OneMinusSrcAlpha in the lobbies: ch0188's and ch0356's water
+  // splashes): two distortions from one texture, its red and its green channel, each with its own tiling, scroll and
+  // power; _Tex_Main_Distort and _Tex_Mask_Distort (Off, R, G, RG) say which shift the main and the mask UV. Custom
+  // data as in distort1a: v_t3.zw red, v_t5.xy green, v_t5.zw main, v_t6.xy mask; the vertex program tiles the custom
+  // data's distortion UVs by _Tex_DistortRG_ST, the fragment program the plain ones by _R / _GTilingxyOffsetzw.
+  doubleDistort: {
+    tex: ["_Tex_Main", "_Tex_Mask", "_Tex_DistortRG"], colors: ["_Color"],
+    vectors: [...cd("Main"), ...cd("Mask"), ...cd("Distort", "R"), ...cd("Distort", "G"), "_CustomData_DistortPowerR_CD2XYXY",
+      "_CustomData_DistortPowerG_CD2XYXY", "_RTilingxyOffsetzw", "_GTilingxyOffsetzw"],
+    floats: ["_Tex_Main_Distort", "_Tex_Mask_Distort", "_RGBRGBA", "_AlphaPremultiplyOn", "_Alphaclip_Value", "_Multiply",
+      "_Main_Speed_X", "_Main_Speed_Y", "_Mask_Speed_X", "_Mask_Speed_Y", "_RDistort_Speed_X", "_RDistort_Speed_Y",
+      "_RDistort_Power_X", "_RDistort_Power_Y", "_GDistort_Speed_X", "_GDistort_Speed_Y", "_GDistort_Power_X", "_GDistort_Power_Y"],
+    vertex: {
+      outs: 4,
+      src: `  vec2 uv = a_t0.xy, base = ${tiled("_Tex_DistortRG")};
+  v_t3 = vec4(uv, ${cdUv("base", "Distort", "R")});
+  v_t4 = a_t2;
+  v_t5 = vec4(${cdUv("base", "Distort", "G")}, ${cdUv(tiled("_Tex_Main"), "Main")});
+  v_t6 = vec4(${cdUv(tiled("_Tex_Mask"), "Mask")}, 0.0, 0.0);`,
+    },
+    src: `// KeywordEnum(Off, R, G, RG): does the mode take the channel (1 red, 2 green)
+bool takes(float mode, float channel) { float m = floor(mode + 0.5); return m == channel || m == 3.0; }
+void main() {
+  vec2 uv = v_t3.xy, r = vec2(0.0), g = vec2(0.0);
+  if (takes(_Tex_Main_Distort, 1.0) || takes(_Tex_Mask_Distort, 1.0)) {
+    vec4 p = v_t4 * _CustomData_DistortPowerR_CD2XYXY;
+    float d = texture(_Tex_DistortRG, uv * _RTilingxyOffsetzw.xy + _RTilingxyOffsetzw.zw + fract(_TimeY * vec2(_RDistort_Speed_X, _RDistort_Speed_Y)) + v_t3.zw).r;
+    r = (p.xy + p.zw + vec2(_RDistort_Power_X, _RDistort_Power_Y)) * d;
+  }
+  if (takes(_Tex_Main_Distort, 2.0) || takes(_Tex_Mask_Distort, 2.0)) {
+    vec4 p = v_t4 * _CustomData_DistortPowerG_CD2XYXY;
+    float d = texture(_Tex_DistortRG, uv * _GTilingxyOffsetzw.xy + _GTilingxyOffsetzw.zw + fract(_TimeY * vec2(_GDistort_Speed_X, _GDistort_Speed_Y)) + v_t5.xy).g;
+    g = (p.xy + p.zw + vec2(_GDistort_Power_X, _GDistort_Power_Y)) * d;
+  }
+  vec2 dMain = (takes(_Tex_Main_Distort, 1.0) ? r : vec2(0.0)) + (takes(_Tex_Main_Distort, 2.0) ? g : vec2(0.0));
+  vec2 dMask = (takes(_Tex_Mask_Distort, 1.0) ? r : vec2(0.0)) + (takes(_Tex_Mask_Distort, 2.0) ? g : vec2(0.0));
+  vec4 m = texture(_Tex_Main, ${tiled("_Tex_Main")} + _TimeY * vec2(_Main_Speed_X, _Main_Speed_Y) + dMain + v_t5.zw);
+  float k = texture(_Tex_Mask, ${tiled("_Tex_Mask")} + _TimeY * vec2(_Mask_Speed_X, _Mask_Speed_Y) + dMask + v_t6.xy).x;
+  float a = clamp(v_col.a * v_col.a * (${on("_RGBRGBA")} ? m.a : m.r) * _Color.a * _Multiply * k, 0.0, 1.0);
+  if (a < _Alphaclip_Value) discard;
+  vec3 rgb = m.rgb * v_col.rgb * _Color.rgb * _Multiply * m.a * k;
+  o = vec4(${on("_AlphaPremultiplyOn")} ? rgb * a : rgb, a);
+}`,
+  },
   // DSFX/FX_SHADER_Step_0 (One OneMinusSrcAlpha): the mask against a threshold cuts the main texture; also
   // DSFX/FX_SHADER_Step_0_MXChar, the same program with dither and grayscale variants (the material's blend)
   step: {
@@ -181,10 +269,30 @@ export const PROGRAMS = {
   vertexColor: { tex: [], floats: [], colors: [], src: "void main() { o = v_col; }" },
 };
 
-// the GLSL of a program: its uniforms (textures with their _ST, floats, colours, vectors) and body
+// a program's own vertex outputs past TEXCOORD0..2 (v_t3...), which its fragment program reads
+const extra = (p, dir) => Array.from({ length: p.vertex?.outs || 0 }, (_, i) => `${dir} vec4 v_t${3 + i};`);
+
+// the vertex GLSL of a program: the particle's position, its vertex streams passed on as they are and, for the
+// programs that port their vertex program too, what that computes (with the textures' _ST and the vectors)
+export function vertexSource(kind) {
+  const p = PROGRAMS[kind], v = p.vertex;
+  const lines = [VS_HEAD];
+  if (v) {
+    for (const t of p.tex) lines.push(`uniform vec4 ${t}_ST;`);
+    for (const c of p.vectors || []) lines.push(`uniform vec4 ${c};`);
+    lines.push(...extra(p, "out"), CD_UV);
+  }
+  lines.push(`void main() {
+  gl_Position = u_proj * vec4(a_pos, 0.0, 1.0);
+  v_t0 = a_t0; v_t1 = a_t1; v_t2 = a_t2; v_col = a_col; v_n = a_n;${v ? `\n${v.src}` : ""}
+}`);
+  return lines.join("\n");
+}
+
+// the fragment GLSL of a program: its uniforms (textures with their _ST, floats, colours, vectors) and body
 export function fragmentSource(kind) {
   const p = PROGRAMS[kind];
-  const lines = [HEAD];
+  const lines = [HEAD, ...extra(p, "in")];
   for (const t of p.tex) lines.push(`uniform sampler2D ${t};`, `uniform vec4 ${t}_ST;`);
   for (const f of p.floats) lines.push(`uniform float ${f};`);
   for (const c of [...p.colors, ...(p.vectors || [])]) lines.push(`uniform vec4 ${c};`);
@@ -202,7 +310,7 @@ const FACTOR = (gl) => [gl.ZERO, gl.ONE, gl.DST_COLOR, gl.SRC_COLOR, gl.ONE_MINU
 
 function compile(gl, kind) {
   const prog = gl.createProgram();
-  for (const [type, src] of [[gl.VERTEX_SHADER, VS], [gl.FRAGMENT_SHADER, fragmentSource(kind)]]) {
+  for (const [type, src] of [[gl.VERTEX_SHADER, vertexSource(kind)], [gl.FRAGMENT_SHADER, fragmentSource(kind)]]) {
     const s = gl.createShader(type);
     gl.shaderSource(s, src);
     gl.compileShader(s);

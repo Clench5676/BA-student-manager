@@ -160,7 +160,9 @@ def test_material_and_texture():
     assert mat["colors"]["_Color"] == [2.0, 2.0, 2.0, 1.0] and mat["colors"]["_UV_Add_TilingOffset"] == [1.0, 1.0, 0.0, 0.0]
     assert mat["vectors"] == ["_UV_Add_TilingOffset"]
     assert particles.program("DSFX/FX_SHADER_Matcap_0") == "matcap"
-    assert particles.program("DSFX/FX_SHADER_AlphaBlend_Add_Distort_1a") is None and particles.program(None) is None
+    assert particles.program("DSFX/FX_SHADER_AlphaBlend_Add_Distort_1a") == "distort1a"
+    assert particles.program("DSFX/FX_SHADER_AlphaBlend_Add_Double_Distort_1a") == "doubleDistort"
+    assert particles.program("FX/FX_SHADER_WAKAMOFire_Ptcle") is None and particles.program(None) is None
 
 
 def test_mesh():

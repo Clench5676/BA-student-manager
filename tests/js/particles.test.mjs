@@ -352,3 +352,69 @@ test("the effects draw in their layer's context with the game's blend and free e
   Linear.detach(p);
   assert.equal(gl.live.size, 0);
 });
+
+// a stand-in that also compiles: the uniforms a program declares (from the sources attached to it) are its active
+// uniforms, so a draw's uniform calls can be read back by name
+function compilingGL() {
+  const gl = fakeGL(), sources = new Map(), attached = new Map();
+  const uniforms = (prog) => [...new Set((attached.get(prog) || [])
+    .flatMap((s) => [...(sources.get(s) || "").matchAll(/uniform \w+ (\w+);/g)].map((m) => m[1])))];
+  return new Proxy(gl, {
+    get(t, name) {
+      if (name === "shaderSource") return (s, src) => { sources.set(s, src); };
+      if (name === "attachShader") return (p, s) => { attached.set(p, [...(attached.get(p) || []), s]); };
+      if (name === "getProgramParameter") return (p, what) => (what === "ACTIVE_UNIFORMS" ? uniforms(p).length : true);
+      if (name === "getActiveUniform") return (p, i) => ({ name: uniforms(p)[i] });
+      if (name === "getUniformLocation") return (p, n) => ({ uniform: n });
+      return t[name];
+    },
+  });
+}
+
+test("the ported *_1a programs: their vertex stage routes the custom data, the draw passes selectors as stored", () => {
+  // only the *_1a programs have a vertex stage of their own (TEXCOORD3.. as the game's vertex programs output them)
+  assert.ok(!/v_t3/.test(GL.vertexSource("distort")) && !/v_t3/.test(GL.fragmentSource("distort")));
+  for (const [kind, outs] of [["distort1a", 3], ["doubleDistort", 4]]) {
+    const vs = GL.vertexSource(kind), fs = GL.fragmentSource(kind);
+    for (let i = 3; i < 3 + outs; i++) assert.ok(vs.includes(`out vec4 v_t${i};`) && fs.includes(`in vec4 v_t${i};`), `${kind} v_t${i}`);
+    assert.ok(!vs.includes(`v_t${3 + outs};`), `${kind} has ${outs} outputs`);
+    // every selector the vertex program reads is a uniform of the vertex stage
+    for (const name of vs.match(/_CustomData_\w+/g)) assert.ok(vs.includes(`uniform vec4 ${name};`), name);
+  }
+  assert.ok(GL.vertexSource("doubleDistort").includes("_CustomData_DistortOffsetR_CD2XYXY"));
+  const gl = compilingGL(), p = player(gl, { name: "Home", x: 0, y: -962, scale: 1, order: 0, queue: 2900, z: 0 });
+  Linear.attach(p);
+  const colors = { _Color: [2, 1, 1, 1], _RTilingxyOffsetzw: [2, 7, 0, 0], _GTilingxyOffsetzw: [3, 11, 0, 0],
+    _CustomData_DistortOffsetR_CD2XYXY: [0, 0, 1, 0], _CustomData_DistortPowerG_CD2XYXY: [0, 1, 0, 0] };
+  for (const v of GL.PROGRAMS.doubleDistort.vectors) colors[v] ??= [0, 0, 0, 0];
+  const white = { default: "white", st: [1, 1, 0, 0] };
+  const fx = {
+    systems: [sys({ material: "splash", queue: 3100, emission: { rate: 50 } })],
+    materials: { splash: { program: "doubleDistort", src: 1, dst: 10, queue: 3100,
+      tex: { _Tex_Main: { ...white, st: [0.6, 3, 0.03, -0.73] }, _Tex_Mask: white, _Tex_DistortRG: white },
+      floats: { _Tex_Main_Distort: 3, _Tex_Mask_Distort: 0, _RGBRGBA: 1, _Multiply: 1.5, _RDistort_Power_Y: -0.12 }, colors,
+      vectors: GL.PROGRAMS.doubleDistort.vectors } },
+    textures: {}, meshes: {},
+  };
+  const effects = GL.create(fx, { base: "/x/", bone: () => null, load: async () => ({}) });
+  effects.layers([p]);
+  Linear.begin(p);
+  const from = gl.calls.length;
+  effects.below(p, 0.1);
+  effects.above(p);
+  const draws = gl.calls.slice(from).filter(([name]) => name === "drawArrays").length;
+  Linear.end(p);
+  const set = (name) => gl.calls.filter((c) => c[1]?.uniform === name).map((c) => c.slice(2));
+  // Vector properties as stored, the HDR colour decoded, floats as they are, the textures' tiling
+  assert.deepEqual(set("_CustomData_DistortOffsetR_CD2XYXY"), [[0, 0, 1, 0]]);
+  assert.deepEqual(set("_RTilingxyOffsetzw"), [[2, 7, 0, 0]]);
+  near(set("_Color")[0][0], Math.pow(2, 2.2), 1e-6, "HDR colour");
+  assert.deepEqual(set("_Tex_Main_Distort"), [[3]]);
+  assert.deepEqual(set("_RDistort_Power_Y"), [[-0.12]]);
+  assert.deepEqual(set("_GDistort_Power_X"), [[0]], "a float the material lacks reads 0");
+  assert.deepEqual(set("_Tex_Main_ST"), [[0.6, 3, 0.03, -0.73]]);
+  assert.equal(draws, 1);
+  effects.detach(p);
+  effects.dispose();
+  Linear.detach(p);
+});

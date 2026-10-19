@@ -28,6 +28,8 @@ PROGRAMS = {
     "DSFX/FX_SHADER_AlphaBlend_Add": "alphaBlendAdd",
     "DSFX/FX_SHADER_AlphaBlend_Add_Mask_0": "mask",
     "DSFX/FX_SHADER_AlphaBlend_Add_Distort_0": "distort",
+    "DSFX/FX_SHADER_AlphaBlend_Add_Distort_1a": "distort1a",
+    "DSFX/FX_SHADER_AlphaBlend_Add_Double_Distort_1a": "doubleDistort",
     "DSFX/FX_SHADER_Step_0": "step",
     "DSFX/FX_SHADER_Step_0_MXChar": "step",
     "DSFX/FX_SHADER_Step_Distort_0": "stepDistort",

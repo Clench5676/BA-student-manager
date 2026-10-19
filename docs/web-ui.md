@@ -415,20 +415,30 @@ in `pointer-textures`); without a game the system cursor stays and there is no e
     frame over time as fractions of the sheet), custom data and birth and death sub-emitters. Billboards (view or
     local alignment, max size a fraction of the game's view height), stretched billboards and meshes.
   - Drawn: the game's DSFX shaders ported from their compiled programs (Additive, AlphaBlend, AlphaBlend_Add, the
-    Mask, Distort, Step, Step_MXChar and Step_Distort variants, AlphaBlend_2_Roz, AlwaysView_Add, Matcap with the
-    meshes' normals, General Unlit VertexColor) with each material's blend, in linear
+    Mask, Distort, Step, Step_MXChar and Step_Distort variants, AlphaBlend_Add_Distort_1a and
+    AlphaBlend_Add_Double_Distort_1a, AlphaBlend_2_Roz, AlwaysView_Add, Matcap with the meshes' normals, General
+    Unlit VertexColor) with each material's blend, in linear
     light: textures sampled as sRGB where the game imports them so, vertex colours as 8-bit sRGB decoded, Color
     properties decoded (above 1 by a 2.2 power), Vector properties as stored. Each system draws in the context of the
     skeleton layer it sorts after (sorting order, then render queue, then back to front), between that layer's clear
     and its skeleton or after it. The textures come from the game files on request and stay in memory.
+  - The two *_1a shaders (ch0188's and ch0356's water splashes, ch0334's boosters) are UV distortions like Distort:
+    their one pass samples only their own main, mask and distortion textures (no grab pass, no camera opaque
+    texture), so nothing behind them is read. They also port their vertex programs, which route the particle's
+    custom data into each UV through the material's CustomData_* selector vectors (which components of custom data
+    1 and 2 add to a UV's tiling and offset, and to the distortion power); the Double variant takes two distortions
+    from the red and green channels of one texture, each with its own tiling, scroll and power, and its keywords
+    (_Tex_Main_Distort, _Tex_Mask_Distort: Off, R, G, RG) say which shift the main and the mask UV.
   - Not reproduced: noise, collision, trails, lights, inherit velocity, rate over distance and the by-speed modules
     (each in one lobby at most, or none); limit velocity's drag; sorting layers other than the default; Animators and
     scripts that move or switch systems during a talk (a system plays as the prefab leaves it); mesh and sprite emitter
-    shapes (emitted from the shape's origin). Systems with the AlphaBlend_Add_Distort_1a or
-    AlphaBlend_Add_Double_Distort_1a shaders (ch0188's waterfall, ch0334's boosters) are left out. The
+    shapes (emitted from the shape's origin); the materials' culling (most DSFX materials cull back faces: in Unity a
+    locally aligned billboard or a mesh turned away from the camera is not drawn; here every face is, as the
+    mirrored transforms of ch0058's splashes and ch0334's stretched sparks would need Unity's own handling first). The
     framebuffer holds 8 bits per channel, so light that adds up past white is clipped at once (the game clips the sum
     at the end; the same result for purely additive light).
   - Cost: about 0.2 ms of main-thread time a frame for a typical lobby, 0.6 ms for the busiest (about 300 particles);
+    the *_1a systems add 0.1 to 0.3 ms (ch0188's eleven splashes, ch0334's eight booster meshes);
     the first frame compiles each shader once. Everything is freed with the lobby (`particles-gl.js` detach and
     dispose). Without WebGL2 nothing is drawn.
 - **Zoom.** Fullscreen opens on the game's 16:9 view and zooms in to 2x. The Settings L2D tab (`lobbyZoomOut`, off by
