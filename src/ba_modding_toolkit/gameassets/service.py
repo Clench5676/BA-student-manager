@@ -78,6 +78,7 @@ class GameAssets:
         self._guard = threading.RLock()
         self._locks: dict[str, threading.RLock] = {}
         self._indexes: dict[str, Any] = {}
+        self._shader_forms: dict[tuple[str, int], dict] = {}  # shader (cab, path id) -> name, properties, pass states
 
     def _lock(self, key: str) -> threading.RLock:
         with self._guard:
@@ -499,19 +500,114 @@ class GameAssets:
         return json.loads(self._cached("lobby/" + json.dumps([core.lower(), stamps]), build, disk=False))
 
     def _lobby_prefab(self, bundle: str, root: str, skeletons: list[str], clips: lobby.Clips) -> dict | None:
+        from .model import BundleGraph
+
         try:
             path = self._bundle_path(bundle)
         except AssetNotFound:
             return None
-        with open_bundle(path) as env:
+        # the particle renderers' materials, textures and meshes sit in other bundles (the lobbies' shared effect
+        # bundles, the shader bundles, a character's own): one graph holds them open, so it runs alone like a model
+        # export (see BundleGraph)
+        index = self._cab_index(everything=True)
+        with _MODEL_LOCK, BundleGraph(index) as graph:
+            env = graph.add(path)
             objects = {obj.path_id: obj for obj in env.objects}
             kinds = {pid: obj.type.name for pid, obj in objects.items()}
-            trees: dict[int, dict] = {}
 
             def tree(pid: int) -> dict:
                 # read on demand: a lobby bundle may hold several prefabs, only one tree is walked
-                if pid not in trees:
-                    trees[pid] = objects[pid].read_typetree()
-                return trees[pid]
+                return graph.tree(objects[pid])
             scripts = {pid: tree(pid).get("m_ClassName") for pid, kind in kinds.items() if kind == "MonoScript"}
-            return lobby.read_prefab(kinds, tree, scripts, root, skeletons, clips)
+            fx = _FxResolver(graph, objects, self._shader_forms)
+            return lobby.read_prefab(kinds, tree, scripts, root, skeletons, clips, fx.resolve)
+
+    def lobby_fx_texture(self, core: str, tex_id: str) -> bytes:
+        """A texture of a lobby's particle effects as PNG (memory only): only ids the lobby's info lists."""
+        if tex_id not in self.lobby_info(core).get("fx", {}).get("textures", {}):
+            raise AssetNotFound(("lobby-fx", core, tex_id))
+        cab, _, pid = tex_id.rpartition("_")
+        bundle = self._cab_index(everything=True).get(cab)
+        if bundle is None or not pid.lstrip("-").isdigit():
+            raise AssetNotFound(("lobby-fx", core, tex_id))
+
+        def build() -> bytes:
+            with open_bundle(Path(bundle)) as env:
+                obj = next((o for o in env.objects if o.path_id == int(pid) and o.assets_file.name.lower() == cab
+                            and o.type.name == "Texture2D"), None)
+                if obj is None:
+                    raise AssetNotFound(("lobby-fx", core, tex_id))
+                return png_bytes(obj.read().image)
+        return self._cached("lobby-fx/" + tex_id, build, disk=False)
+
+
+class _FxResolver:
+    """Reads what a lobby's particle renderers point at, for lobby.read_prefab: a material as (id, particles.material)
+    with its textures (particles.texture), a mesh as (id, particles.mesh). Ids are "<cab>_<path id>"."""
+
+    def __init__(self, graph: Any, objects: dict[int, Any], shader_forms: dict):
+        self.graph, self.objects, self.forms = graph, objects, shader_forms
+        self.done: dict[tuple[str, str], Any] = {}
+
+    def resolve(self, kind: str, owner: int, pointer: dict) -> tuple[str, Any] | None:
+        from . import particles
+        from .model import read_mesh
+
+        g = self.graph
+        own = self.objects.get(owner)
+        obj = g.deref(own, pointer) if own is not None else None
+        if obj is None:
+            return None
+        oid = f"{obj.assets_file.name.lower()}_{obj.path_id}"
+        if (kind, oid) in self.done:
+            return self.done[(kind, oid)]
+        out = None
+        try:
+            if kind == "material" and obj.type.name == "Material":
+                out = (oid, self._material(obj))
+            elif kind == "mesh" and obj.type.name == "Mesh":
+                data = read_mesh(obj.read())
+                tris = [t for sub in data.triangles for t in sub]
+                out = (oid, particles.mesh(data.vertices, data.uv0, data.normals, tris, data.colors))
+        except Exception:  # an unreadable object: the system is left out
+            logger.debug("Cannot read lobby particle %s %s", kind, oid, exc_info=True)
+            out = None
+        self.done[(kind, oid)] = out
+        return out
+
+    def _material(self, obj: Any) -> dict:
+        from . import particles
+        from .model import shader_state
+
+        g = self.graph
+        tree = g.tree(obj)
+        shader = g.deref(obj, tree.get("m_Shader"))
+        name, form = None, None
+        if shader is not None:
+            key = (shader.assets_file.name.lower(), shader.path_id)
+            if key not in self.forms:
+                # a shader's typetree carries its compiled programs: read once, keep the parts used here
+                full = g.tree(shader).get("m_ParsedForm") or {}
+                self.forms[key] = {"m_Name": full.get("m_Name"), "m_PropInfo": full.get("m_PropInfo", {"m_Props": []}),
+                                   "m_SubShaders": [{"m_Tags": s.get("m_Tags"), "m_Passes": [
+                                       {"m_State": p.get("m_State")} for p in s.get("m_Passes", [])]}
+                                       for s in full.get("m_SubShaders", [])]}
+                g.trees.pop((key[0], key[1]), None)
+            form = self.forms[key]
+            name = form.get("m_Name")
+        props = tree.get("m_SavedProperties") or {}
+        floats = {k: v for k, v in props.get("m_Floats", []) if isinstance(v, (int, float))}
+        try:
+            state = shader_state(form, floats, tree.get("m_CustomRenderQueue", -1)) if form else {}
+        except (KeyError, TypeError, IndexError, ValueError):
+            state = {}
+        if not state:
+            queue = tree.get("m_CustomRenderQueue", -1)
+            state = {"src": 1, "dst": 0, "queue": queue if queue and queue >= 0 else 3000}
+        textures = {}
+        for prop, env in props.get("m_TexEnvs", []):
+            tex = g.deref(obj, env.get("m_Texture"))
+            if tex is not None and tex.type.name == "Texture2D":
+                textures[prop] = particles.texture(g.tree(tex), f"{tex.assets_file.name.lower()}_{tex.path_id}")
+                g.trees.pop((tex.assets_file.name.lower(), tex.path_id), None)  # its pixels are read when served
+        return particles.material(name, tree, state, form["m_PropInfo"].get("m_Props", []) if form else (), textures)

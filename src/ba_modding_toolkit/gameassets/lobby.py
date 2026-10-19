@@ -16,6 +16,9 @@ from __future__ import annotations
 import math
 import re
 from collections.abc import Callable, Iterable
+from typing import Any
+
+from . import particles
 
 # the game's 16:9 view around the prefab root (the UI's 2960-unit NGUI width, util.js S = 1920 / 2960)
 GAME_VIEW = {"x": -1480.0, "y": -832.5, "w": 2960.0, "h": 1665.0}
@@ -131,10 +134,12 @@ def _kind(go: str, bone: str | None) -> str:
 
 
 def read_prefab(kinds: dict[int, str], tree: Callable[[int], dict], scripts: dict[int, str], root: str,
-                skeletons: Iterable[str], clips: Clips) -> dict | None:
-    """The lobby's layout and touch boxes from one prefab bundle: kinds maps path ids to object types, tree reads a
-    typetree, scripts maps MonoScript path ids to class names. None when the root is missing or places none of the
-    skeletons."""
+                skeletons: Iterable[str], clips: Clips,
+                resolve: Callable[[str, int, dict], tuple[str, Any] | None] | None = None) -> dict | None:
+    """The lobby's layout, touch boxes and particle effects from one prefab bundle: kinds maps path ids to object
+    types, tree reads a typetree, scripts maps MonoScript path ids to class names, resolve(kind, owner path id,
+    pointer) reads a material ("material") or mesh ("mesh") in another bundle as (id, data) (particles.build). None
+    when the root is missing or places none of the skeletons."""
     wanted = {s.lower(): s for s in skeletons}
     top = next((pid for pid, kind in kinds.items() if kind in _TRANSFORMS and not tree(pid)["m_Father"]["m_PathID"]
                 and tree(tree(pid)["m_GameObject"]["m_PathID"])["m_Name"].lower() == root.lower()), None)
@@ -149,26 +154,32 @@ def read_prefab(kinds: dict[int, str], tree: Callable[[int], dict], scripts: dic
             if kind == "MonoBehaviour":
                 t = tree(pid)
                 out.append((scripts.get(t.get("m_Script", {}).get("m_PathID"), "?"), pid, t))
-            elif kind in ("BoxCollider", "MeshRenderer"):
+            elif kind in ("BoxCollider", "MeshRenderer", "ParticleSystem", "ParticleSystemRenderer"):
                 out.append((kind, pid, tree(pid)))
         return out
 
     # one walk from the root: world transform, activity and components of every GameObject, in hierarchy order
     nodes: list[dict] = []
 
-    def walk(tf: int, m: tuple[float, ...], active: bool) -> None:
+    def walk(tf: int, m: tuple[float, ...], m3: list[float], active: bool, parent: int, path: str) -> None:
         t = tree(tf)
         go = t["m_GameObject"]["m_PathID"]
         m = _mul(m, _local(t))
+        local3 = particles.trs(t)
+        m3 = particles.mul(m3, local3)  # the full 3D transform, for the particle systems
         active = active and bool(tree(go).get("m_IsActive", 1))
         comps = components(go)
-        nodes.append({"go": go, "name": tree(go)["m_Name"], "m": m, "active": active, "all": comps,
-                      "first": {cls: c for cls, _, c in reversed(comps)}})
+        name = tree(go)["m_Name"]
+        path = f"{path}/{name}" if path else name
+        nodes.append({"go": go, "name": name, "m": m, "active": active, "all": comps,
+                      "first": {cls: c for cls, _, c in reversed(comps)},
+                      "pids": {cls: pid for cls, pid, _ in reversed(comps)},
+                      "parent": parent, "path": path, "t": t, "local3": local3, "m3": m3})
         for child in t.get("m_Children", []):
             if child["m_PathID"] in kinds:
-                walk(child["m_PathID"], m, active)
+                walk(child["m_PathID"], m, m3, active, go, path)
 
-    walk(top, (1.0, 0.0, 0.0, 1.0, 0.0, 0.0), True)
+    walk(top, (1.0, 0.0, 0.0, 1.0, 0.0, 0.0), particles.IDENTITY, True, 0, "")
     by_go = {n["go"]: n for n in nodes}
 
     # skeletons: SkeletonAnimation GameObjects named (by their data asset, else by themselves) after a core skeleton
@@ -183,12 +194,21 @@ def read_prefab(kinds: dict[int, str], tree: Callable[[int], dict], scripts: dic
                 continue
             skeleton_of_sa[pid] = name
             renderer = n["first"].get("MeshRenderer", {})
+            # its material's render queue: a particle system with the same sorting order draws before or after the
+            # skeleton by it
+            queue = 3000
+            mats = renderer.get("m_Materials") or []
+            if resolve is not None and mats and mats[0].get("m_PathID"):
+                found = resolve("material", n["pids"].get("MeshRenderer", 0), mats[0])
+                if found:
+                    queue = found[1].get("queue", 3000)
             layers.append({
                 "name": name, "x": _r(n["m"][4]), "y": _r(n["m"][5]),
                 # NGUI units per skeleton unit: the GameObject's world scale times SkeletonDataAsset.scale
                 "scale": _r(math.hypot(n["m"][0], n["m"][1]) * clips.scales.get(name, _DATA_SCALE), 5),
                 "active": n["active"] and bool(sa.get("m_Enabled", 1)) and bool(renderer.get("m_Enabled", True)),
-                "order": renderer.get("m_SortingOrder", 0), "index": len(layers),
+                "order": renderer.get("m_SortingOrder", 0), "queue": queue, "z": particles.rounded(n["m3"])[11],
+                "index": len(layers),
                 "skin": sa.get("initialSkinName") or None, "animation": sa.get("_animationName") or None,
             })
     if not layers:
@@ -261,8 +281,10 @@ def read_prefab(kinds: dict[int, str], tree: Callable[[int], dict], scripts: dic
     # the character: whose head is patted, else whose body is touched, else the container's
     main = next((d["skeleton"] for d in drags if d["kind"] == "pat"), None) or next(
         (d["skeleton"] for d in drags), None) or next((t["skeleton"] for t in touches), None) or container
+    sa_go = {n["go"]: skeleton_of_sa.get(n["pids"].get("SkeletonAnimation", 0)) for n in nodes}
+    fx = particles.build(nodes, lambda go: sa_go.get(go), lambda skel: clips.scales.get(skel, _DATA_SCALE), resolve)
     return {"prefab": tree(tree(top)["m_GameObject"]["m_PathID"])["m_Name"], "main": main, "layers": layers,
-            "drags": drags, "touches": touches, "randomIdle": random_idle, "idle": idle, "dialog": dialog}
+            "drags": drags, "touches": touches, "randomIdle": random_idle, "idle": idle, "dialog": dialog, "fx": fx}
 
 
 def lobby_info(skeletons: Iterable[str], clips: Clips, prefab: dict | None) -> dict:
@@ -270,6 +292,7 @@ def lobby_info(skeletons: Iterable[str], clips: Clips, prefab: dict | None) -> d
     sits at the standard place; the front end then finds the touch boxes from the bones."""
     if prefab is None:
         prefab = {"prefab": None, "main": None, "drags": [], "touches": [], "randomIdle": {}, "idle": {}, "dialog": {},
-                  "layers": [{"name": s, **STANDARD, "active": True, "order": 0, "index": i, "skin": None,
-                              "animation": None} for i, s in enumerate(dict.fromkeys(skeletons))]}
+                  "layers": [{"name": s, **STANDARD, "active": True, "order": 0, "queue": 3000, "z": 0.0, "index": i,
+                              "skin": None, "animation": None} for i, s in enumerate(dict.fromkeys(skeletons))],
+                  "fx": {"systems": [], "materials": {}, "textures": {}, "meshes": {}}}
     return {"view": dict(GAME_VIEW), **prefab, "defaultMix": dict(clips.mixes), "clips": clips.clips}
