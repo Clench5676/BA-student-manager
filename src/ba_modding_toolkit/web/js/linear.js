@@ -32,12 +32,15 @@ void main() { gl_Position = vec4(p, 0.0, 1.0); }`;
 // the game shows nothing to match, so both shifts are held at those of the nearest point of G's edge instead of
 // growing with the distance. With crop to fit (every lobby's Panini) neither reads past G from inside it, as in the
 // game, whose camera target ends there.
+// The bottom layer (clear) is drawn over the camera's clear colour, black, before the colour steps, as the game's
+// camera target holds it: where the art leaves the target clear, and at its alpha edges, the grade runs over black too
+// (lift shows there). The layers above stay transparent where they draw nothing.
 const FS = `#version 300 es
 precision highp float;
 uniform sampler2D t;
 uniform vec2 size;
 uniform vec4 screen;
-uniform float ca;
+uniform float ca, clear;
 uniform vec4 panini;
 uniform float grade, exposure;
 uniform vec3 filt, hsc, lift, gamma, gain;
@@ -84,11 +87,17 @@ void main() {
   }
   // premultiplied samples: each channel from its own, the coverage of the pixel's own place
   vec3 c = vec3(r.r, g.g, b.b), a3 = vec3(r.a, g.a, b.a);
+  if (clear > 0.5) {
+    // over black: the camera target's colour, graded as a whole, and opaque
+    c = min(c, 1.0);
+    o = vec4(enc(grade > 0.5 ? graded(c) : c), 1.0);
+    return;
+  }
   vec3 col = min(c / max(a3, 1e-6), 1.0) * step(1e-6, a3);
   vec3 cover = r.a > 0.0 ? enc(grade > 0.5 ? graded(col) : col) * r.a : vec3(0.0);
   o = vec4(min(cover + max(c - a3, 0.0), 1.0), r.a);
 }`;
-const UNIFORMS = ["t", "size", "screen", "ca", "panini", "grade", "exposure", "filt", "hsc", "lift", "gamma", "gain"];
+const UNIFORMS = ["t", "size", "screen", "ca", "clear", "panini", "grade", "exposure", "filt", "hsc", "lift", "gamma", "gain"];
 
 const states = new WeakMap();
 
@@ -332,6 +341,11 @@ export function setScreen(player, view) {
   const st = states.get(player);
   if (st) st.screen = view?.width > 0 && view?.height > 0 ? { x: view.x, y: view.y, w: view.width, h: view.height } : null;
 }
+// true for the bottom layer: drawn over the camera's clear colour (black, graded with the rest), opaque
+export function setClear(player, on) {
+  const st = states.get(player);
+  if (st) st.clear = !!on;
+}
 const CANVAS = Object.freeze([0, 0, 1, 1]);
 // the screen on the canvas this frame, [x, y, w, h] in canvas uv (y up), from the camera the skeleton was just drawn
 // with; the canvas itself (exactly) when they are the same within a millionth
@@ -360,6 +374,7 @@ export function end(player) {
   gl.uniform2f(u.size, w, h);
   const screen = screenOnCanvas(st.screen, player.sceneRenderer?.camera);
   gl.uniform4f(u.screen, ...screen);
+  gl.uniform1f(u.clear, st.clear ? 1 : 0);
   // Panini's extents: the game screen's aspect, the canvas's when the canvas is the screen
   const aspect = screen === CANVAS ? w / h : st.screen.w / st.screen.h;
   if (st.post && (!st.params || st.params.aspect !== aspect)) st.params = { aspect, p: postParams(st.post, aspect) };

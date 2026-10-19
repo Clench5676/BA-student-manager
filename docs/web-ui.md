@@ -581,8 +581,10 @@ in `pointer-textures`); without a game the system cursor stays and there is no e
   - *Custom*: 1.0 to 4.0 game views across (0.1 steps, a slider row under the option), around the game's view.
 
   Past the painted art (Unlocked, Custom) the lobby shows black: what the game's lobby camera clears to (level1
-  `Persistent/Camera`, solid colour, black). Sparse art (a mod) keeps the blurred edge extension. The measurements are
-  kept for the session.
+  `Persistent/Camera`, solid colour, black). With PP on, the grade runs over that black as over the art: the bottom
+  layer is drawn over it before grading, so the art's alpha edges blend into it in linear light too. 7 lobbies lift
+  it above black (ch0082 60/255 grey, ch0259 45, ch0058 40, ch0222 a dark blue). Without WebGL2 the page shows black
+  there. Sparse art (a mod) keeps the blurred edge extension. The measurements are kept for the session.
 - **Input.** Press and drag: head pat, eye follow and the other drag boxes. Mouse wheel (a notch zooms at least a
   line's worth) and pinch (ctrl + wheel in Chromium / WebView2, gesture events in WebKit) zoom at the pointer; a
   two-finger trackpad swipe pans in any direction. A wheel is told by its steps: whole lines, `wheelDeltaY` in steps

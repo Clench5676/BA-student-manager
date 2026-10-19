@@ -151,8 +151,9 @@ test("the pass hands the shader the lobby's parameters, and none while switched 
   const on = frameUniforms(gl, p);
   assert.deepEqual(on.size, [64, 32]); // the drawing buffer
   close(on.ca[0], 0.005); // intensity x 0.05
-  // no screen given: the canvas is the screen
+  // no screen given: the canvas is the screen; not the bottom layer: no clear colour
   assert.deepEqual(on.screen, [0, 0, 1, 1]);
+  assert.deepEqual(on.clear, [0]);
   // the framebuffer's texture is filtered and clamped for the shifted reads
   assert.ok(gl.calls.some(([name, , key, value]) => name === "texParameteri" && key === "TEXTURE_WRAP_S" && value === "CLAMP_TO_EDGE"));
   assert.ok(gl.calls.some(([name, , key, value]) => name === "texParameteri" && key === "TEXTURE_MIN_FILTER" && value === "LINEAR"));
@@ -214,4 +215,30 @@ test("the pass places the post-processing in the game's screen, at the screen's 
   closeAll(frameUniforms(gl, p).panini.slice(0, 2), [Math.tan(Math.PI / 36) * 2, Math.tan(Math.PI / 36)]);
   assert.deepEqual(frameUniforms(gl, p).screen, [0, 0, 1, 1]);
   Linear.detach(p);
+});
+
+test("only the layer drawn over the camera's clear colour is made opaque, with PP on or off", () => {
+  const gl = fakeGL(), bottom = player(gl), top = player(gl);
+  Linear.attach(bottom);
+  Linear.attach(top);
+  // ch0082: a lifted black (lift 0.04325), which the bottom layer shows where the art leaves the target clear
+  const post = { liftGammaGain: { lift: [1, 1, 1, 0.04325], gamma: [1, 1, 1, 0.01442], gain: [1, 1, 1, -0.04325] } };
+  for (const p of [bottom, top]) Linear.setPost(p, post);
+  Linear.setClear(bottom, true);
+  assert.deepEqual(frameUniforms(gl, bottom).clear, [1]);
+  assert.deepEqual(frameUniforms(gl, top).clear, [0]);
+  const lifted = frameUniforms(gl, bottom).lift;
+  assert.ok(lifted.every((x) => Math.abs(x - 0.04325) < 1e-6), `${lifted}`);
+  // PP off: still over the clear colour (black, ungraded)
+  Linear.setPostEnabled(false);
+  try {
+    const off = frameUniforms(gl, bottom);
+    assert.deepEqual([off.clear, off.grade, off.lift], [[1], [0], [0, 0, 0]]);
+  } finally {
+    Linear.setPostEnabled(true);
+  }
+  Linear.setClear(bottom, false);
+  assert.deepEqual(frameUniforms(gl, bottom).clear, [0]);
+  Linear.detach(bottom);
+  Linear.detach(top);
 });
