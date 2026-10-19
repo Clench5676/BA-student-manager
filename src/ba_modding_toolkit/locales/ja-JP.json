@@ -204,7 +204,7 @@
 			"missing_paths": "対象Bundleとパックするアセットフォルダーを選択し、全体設定で出力フォルダーを指定してください。",
 			"load_target_bundle_failed": "CRCパッチの除去も試みましたが、対象Bundleファイルを読み込めませんでした。ファイルが破損していないか確認してください。",
 			"no_supported_files_found": "指定したフォルダーに対応ファイル（{extensions}）が見つかりません。",
-			"no_matching_assets_to_pack": "パックできる、名前の一致するアセットが見つかりません。",
+			"no_matching_assets_to_pack": "名前が一致するパック対象のアセットが見つかりません。",
 			"process_complete": "処理が完了しました！\n{count}個のファイルをパックしました。\n\nファイルは出力フォルダーに保存されています。「{button}」ボタンで変更を適用できます。"
 		},
 		"crc": {
@@ -222,7 +222,7 @@
 		},
 		"spine": {
 			"version_conflict_header": "以下の.skelファイルはSpineバージョンが対象バージョン（{major_minor}.x）と一致しないため、置き換えを拒否しました：",
-			"version_conflict_item": "  - {name}（元のバージョン：{source}）",
+			"version_conflict_item": "  - {name}（バージョン：{source}）",
 			"version_conflict_hint": "Spineコンバーターの設定を確認してください。"
 		},
 		"report_open_prompt": "レポートを生成しました！\nレポートファイルを開きますか？",
@@ -245,7 +245,7 @@
 		},
 		"mod_update": {
 			"success": "更新に成功しました！",
-			"no_assets_extracted": "元のファイルからアセットを抽出できませんでした",
+			"no_assets_extracted": "置き換え元のファイルからアセットを抽出できませんでした",
 			"no_targets_processed": "正常に処理できた対象ファイルがありません",
 			"all_targets_unchanged": "すべての対象ファイルに変更がないため、更新は不要です"
 		},
@@ -333,7 +333,7 @@
 			"save_failed": "ファイルを「{path}」に保存できませんでした：{error}",
 			"directory_opened": "フォルダーを開きました：{path}",
 			"added_count": "{count}個のファイルを追加しました",
-			"removed_count": "{count}個のファイルを削除しました",
+			"removed_count": "{count}個のファイルをリストから削除しました",
 			"list_cleared": "リストをクリアしました",
 			"downloaded": "ダウンロードしました：{path}",
 			"no_files_found_in_folder": "このフォルダーに{type}ファイルが見つかりません",
@@ -425,7 +425,7 @@
 			"bundle_count": "Bundleファイルが{count}個見つかりました",
 			"mod_count": "MODファイルが{count}個見つかりました",
 			"render_preview": "プレビュー画像をレンダリング",
-			"render_retry": "MODにアセットがすべては含まれていないため、元のファイルを含めて再試行します：{prefix}",
+			"render_retry": "MODに一部のアセットしか含まれていないため、元のファイルを含めて再試行します：{prefix}",
 			"render_count": "プレビューを{count}個レンダリングしました",
 			"no_mod_found": "MODファイルが見つかりません",
 			"saved": "レポートを保存しました：{path}",
@@ -453,11 +453,11 @@
 			"lz4": "LZ4"
 		},
 		"search": {
-			"searching_for_file_group": "{count}個の元ファイルに対応する対象ファイルを検索中...",
+			"searching_for_file_group": "{count}個の置き換え元ファイルに対応する対象ファイルを検索中...",
 			"file_prefix": "ファイル名の接頭辞：「{prefix}」",
 			"file_core": "ファイル名のコア：「{core}」",
 			"found_candidates": "候補ファイルが{count}個見つかりました。内容を検証しています...",
-			"source_mod_asset_count": "元のグループのアセットは{count}個です。",
+			"source_mod_asset_count": "置き換え元グループのアセットは{count}個です。",
 			"checking_candidate": "確認中：{name}",
 			"find_failed": "検索に失敗しました：{message}"
 		},
@@ -469,13 +469,13 @@
 			"skipping_unnamed": "名前のない{type}アセットをスキップ",
 			"extraction_failed": "アセット{name}の抽出中にエラーが発生しました：{error}",
 			"processing_file": "処理中：{name}",
-			"stream_ref_dangling": "抽出をスキップ [{name}]：シリアライズデータがBundle内にないストリームデータファイル（.resS）を参照しているため、置き換えるとアセットが破損します",
-			"stream_ref_export_unsupported": "書き出しをスキップ [{name}]：.resSストリーム参照を含むアセットは、再パックできるダンプとしての書き出しにまだ対応していません"
+			"stream_ref_dangling": "[{name}]の抽出をスキップ：シリアライズデータがBundle内にないストリームデータファイル（.resS）を参照しているため、置き換えるとアセットが破損します",
+			"stream_ref_export_unsupported": "[{name}]の書き出しをスキップ：.resSストリーム参照を含むアセットは、再パックできるダンプとしての書き出しにまだ対応していません"
 		},
 		"mod_update": {
 			"all_processes_complete": "すべての処理が完了しました！",
 			"updating": "更新中...",
-			"source_files": "元のグループ（{count}個のファイル）",
+			"source_files": "置き換え元グループ（{count}個のファイル）",
 			"target_files": "対象グループ（{count}個のファイル）",
 			"pool_built": "置き換え用のアセットを{count}個用意しました",
 			"target_unchanged": "対象に変更なし：{name}（アセット{count}個）、スキップします",
@@ -484,17 +484,17 @@
 		},
 		"mod_install": {
 			"plan_start": "{count}個のMODファイルを解析中...",
-			"group_info": "グループ [{core}]（{count}個のファイル）",
+			"group_info": "グループ[{core}]（{count}個のファイル）",
 			"same_name_found": "同名のファイルが見つかりました：{filename}。そのまま置き換えます",
 			"filter_latest_date": "日付の異なる複数のバージョンがあるため、最新を使用します：{date}",
 			"update_targets": "更新が必要です。{count}個の対象ファイルに一致：{names}",
 			"target_conflict": "対象ファイルの競合：{filename}",
 			"plan_done": "解析完了：{total}個のファイル / {groups}グループ（直接置き換え{direct}、更新{update}、未検出{not_found}、エラー{error}）",
 			"execute_start": "{count}個のMODグループを導入中...",
-			"execute_group": "グループ [{core}] を導入中...",
+			"execute_group": "グループ[{core}]を導入中...",
 			"crc_resave": "CRC衝突の修正が必要なため、再保存します：{filename}",
 			"replace_failed": "ファイルの置き換えに失敗しました：{path}（{error}）",
-			"already_installed": "グループ [{core}] のアセットはすべて変更がないため、導入済みとしてスキップします",
+			"already_installed": "グループ[{core}]のアセットはすべて変更がないため、導入済みとしてスキップします",
 			"execute_done": "導入完了：成功{installed}グループ / スキップ{skipped}グループ / 失敗{failed}グループ",
 			"list_cleaned": "導入済みのファイル{count}個をリストから削除しました"
 		},
@@ -528,9 +528,9 @@
 		"process_failed": "処理に失敗しました：{error}",
 		"replace_original": "「{button}」ボタンで元のファイルを上書きできます",
 		"generated_file_not_found": "操作は成功と報告されましたが、生成されたファイルが出力フォルダーに見つかりません。",
-		"replace_resource_failed": "リソース [{type}] {name} の置き換え中にエラーが発生しました：{error}",
-		"replace_applied": "[{type}] {name} を置き換えました",
-		"replace_skipped_same_content": "[{type}] {name} の置き換えをスキップ：内容が元のファイルと同じです",
+		"replace_resource_failed": "リソース[{type}] {name}の置き換え中にエラーが発生しました：{error}",
+		"replace_applied": "[{type}] {name}を置き換えました",
+		"replace_skipped_same_content": "[{type}] {name}の置き換えをスキップ：内容が元のファイルと同じです",
 		"replace_companion_exists": "付随ストリームファイル{name}がすでにあるため、添付をスキップします",
 		"replace_companion_attached": "付随ファイル：{names}",
 		"stream_prefix_skip": "ストリーム参照の接頭辞{src}と対象SF名{dst}の長さが異なるため、書き換えをスキップします",
@@ -579,7 +579,7 @@
 		},
 		"tools": {
 			"batch_tools": "一括ツール",
-			"batch_tools_info": "MODの検出方法：Bundleファイルのヘッダーに記録されたサイズと実際のファイルサイズを比べ、ファイル末尾に余分なバイト（trailing bytes）が付いていればMODと判定します。以下の一括ツールはすべてこの方法で検出します。\n\n注：この検出方法が有効なのはSteam版のみです。他のバージョンのMODはCRC修正なしでもゲームに入れるため、検出できるとは限りません。",
+			"batch_tools_info": "MODの検出方法：Bundleファイルのヘッダーに記録されたサイズと実際のファイルサイズを比べ、ファイル末尾に余分なバイト（trailing bytes）が付いていればMODと判定します。以下の一括ツールはすべてこの方法で検出します。\n\n注：この検出方法が有効なのはSteam版のみです。他のバージョンではCRC修正なしでもMODが動作するため、検出できるとは限りません。",
 			"report": {
 				"title": "MODレポートを生成",
 				"info": "ゲームフォルダー内で検出したすべてのMODファイルをスキャンし、カテゴリ別にまとめたMarkdownレポートを生成します。Spineのプレビュー画像もレンダリングできます。"
@@ -930,7 +930,7 @@
 			"notInstalled": "未導入"
 		},
 		"crc": {
-			"original": "不要",
+			"original": "修正不要",
 			"needed": "要修正",
 			"fixed": "修正済み"
 		},
@@ -975,7 +975,7 @@
 			"folder": "フォルダー",
 			"date": "日付",
 			"modFile": "MODファイル",
-			"source": "ソース"
+			"source": "流用元"
 		},
 		"type": {
 			"recruit": "実装済み",
@@ -989,7 +989,7 @@
 		},
 		"picker": {
 			"title": "バリエーション選択",
-			"ok": "OK",
+			"ok": "確認",
 			"group": "{name} {n}"
 		},
 		"app": {
@@ -1058,7 +1058,7 @@
 			"hint": "MODファイルをドロップして追加"
 		},
 		"update": {
-			"title": "アップデート",
+			"title": "アップデートあり",
 			"current": "現在のバージョン",
 			"latest": "新しいバージョン",
 			"later": "あとで",
@@ -1106,7 +1106,7 @@
 				"factor": "{v}倍"
 			},
 			"post": {
-				"label": "ポストプロセス",
+				"label": "ポストプロセッシング",
 				"on": "ON",
 				"off": "OFF"
 			},
