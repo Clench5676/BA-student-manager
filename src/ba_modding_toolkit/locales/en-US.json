@@ -865,7 +865,8 @@
 			"pack": "Asset Packer",
 			"extract": "Asset Extractor",
 			"adb": "ADB Push",
-			"tools": "Tools"
+			"tools": "Tools",
+			"classic": "{label} - Classic UI"
 		},
 		"roster": {
 			"title": "Student List",
@@ -962,9 +963,85 @@
 		"popup": {
 			"switch": "Switch Portrait",
 			"apply": "Apply",
+			"save": "Save",
 			"cancel": "Cancel",
 			"inUse": "In Use",
 			"add": "Add Portrait"
+		},
+		"mods": {
+			"switch": "Enable Mods",
+			"guide": "Guide",
+			"offState": "Mods off",
+			"onState": "Mods on",
+			"helpOff": "Off: all portraits and memorial lobbies back to official at once",
+			"helpOn": "On: your configured mods again",
+			"helpKept": "Mods stay in the mod library",
+			"helpGame": "Only while the game is closed",
+			"helpFolders": "Game folders: {folders}",
+			"installNamed": "{server} ({folder})",
+			"explainOnce": "Not shown again",
+			"builtWhat": "Built mods kept for instant On",
+			"builtSize": "Disk use: {size}, can grow large",
+			"builtClear": "Clear Built Mods",
+			"builtCleared": "Built mods cleared",
+			"originalsSize": "Official copies for Off: {size}",
+			"scanOff": "Other mods not checked",
+			"allowCheck": "Allow Check",
+			"scan": {
+				"title": "Check Game Files",
+				"checked": {
+					"label": "Checked",
+					"items": "Start and end of each portrait and memorial lobby file",
+					"why": "Finds mods outside the library, files reset by a repair or update, files with no official copy"
+				},
+				"never": {
+					"label": "Never",
+					"items": "Reading whole files, sending anything off this device"
+				},
+				"note": "Declined: those checks stay off, change in Settings",
+				"no": "Don't Allow",
+				"yes": "Allow"
+			},
+			"notSwitched": "Not switched: {n}",
+			"sourceMissing": "Gone from the library: {n}",
+			"retry": "Retry",
+			"details": "Details",
+			"offTitle": "Turn Off Mods",
+			"onTitle": "Turn On Mods",
+			"toAdd": "Added to the library first: {n}",
+			"stuck": "Left as is, no official copy: {n}",
+			"size": "Total size: {size}",
+			"selected": "Selected: {n}",
+			"result": "Done: {done}, failed: {failed}",
+			"saved": "Saved, applied when mods are on",
+			"untrackedTitle": "Mods Not in the Library",
+			"untrackedHint": "Lost to a game update or file check unless added",
+			"untrackedAdd": "Add to Library",
+			"addTurnOn": "Add and Turn On Mods",
+			"dontAsk": "Don't Ask Again",
+			"copy": {
+				"kept": "Kept",
+				"backup": "Backup",
+				"elsewhere": "Other Folder",
+				"none": "No Official Copy"
+			},
+			"overwritten": "Overwritten",
+			"damaged": "Damaged",
+			"overwrittenTitle": "Official File Overwritten",
+			"overwrittenNone": "No official copy left",
+			"addFirst": "Add before any repair",
+			"lastCopy": "Only copy of a file still in the game",
+			"mayNotStart": "The game may not start",
+			"repairSteam": "Steam: Properties - Installed Files - Verify integrity of game files",
+			"repairThen": "Then start this app again",
+			"driftTitle": "Mods Back to Official",
+			"driftWhy": "Game files verified, repaired or updated",
+			"driftApply": "Apply Mod Configuration",
+			"driftKeep": "Keep as Is",
+			"stillOverwritten": "Still overwritten: {n}"
+		},
+		"switch": {
+			"configured": "Set"
 		},
 		"field": {
 			"file": "File",
@@ -975,7 +1052,8 @@
 			"folder": "Folder",
 			"date": "Date",
 			"modFile": "Mod File",
-			"source": "Source"
+			"source": "Source",
+			"copy": "Official Copy"
 		},
 		"type": {
 			"recruit": "Playable",
@@ -998,7 +1076,8 @@
 				"title": "Game folder not found",
 				"hint": "Detect it, or choose the game folder"
 			},
-			"openSettings": "Open Settings"
+			"openSettings": "Open Settings",
+			"closed": "Closed"
 		},
 		"loading": {
 			"now": "Now Loading",
@@ -1052,10 +1131,19 @@
 			"mod_target_mismatch": "This mod does not fit this variant",
 			"mod_update_failed": "Could not update the mod",
 			"original_invalid": "The kept original is damaged: {file}",
-			"original_unavailable": "No original file to restore, verify the game files in the launcher first",
+			"original_unavailable": "No official copy left",
 			"source_unsupported": "Unsupported source",
 			"variant_incompatible": "Built differently, cannot be swapped",
-			"variant_not_found": "Variant not found"
+			"variant_not_found": "Variant not found",
+			"steam_busy": "Steam is updating or verifying the game",
+			"classic_open": "Close the classic UI first",
+			"entry_changed": "Game files changed, check again",
+			"folder_changed": "Game folders changed, try again",
+			"state_changed": "Switched elsewhere, check again",
+			"profiles_unreadable": "Unreadable mod settings: {file}",
+			"not_enough_space": "Not enough space: {need} needed, {free} free",
+			"mod_last_copy": "Only copy of a file still in the game: {file}",
+			"scan_off": "File check off"
 		},
 		"drop": {
 			"hint": "Drop mod files to add them"
@@ -1070,13 +1158,32 @@
 			"restarting": "Restarting to finish the update",
 			"page": "Open Download Page"
 		},
+		"classic": {
+			"hint": "Opens in the classic UI, over this window",
+			"opening": "Opening the classic UI",
+			"front": "Bring to Front",
+			"opened": "Classic UI Open",
+			"autoApply": "Apply automatically once it closes",
+			"queued": "Applies once the classic UI closes",
+			"notApplied": "Not Applied"
+		},
+		"quit": {
+			"title": "Notice",
+			"ask": "Quit?"
+		},
+		"tray": {
+			"working": "Working {done}/{total}",
+			"drift": "Back to Official: {n}",
+			"quit": "Quit"
+		},
 		"settings": {
 			"title": "Settings",
 			"tab": {
 				"general": "General",
 				"sound": "Sound",
 				"l2d": "L2D",
-				"folders": "Folders"
+				"folders": "Folders",
+				"mods": "Mods"
 			},
 			"language": "Language",
 			"cache": {
@@ -1095,7 +1202,21 @@
 			"classic": {
 				"label": "More Settings",
 				"hint": "Spine tools, ADB and more in the classic UI",
-				"open": "Open"
+				"open": "Open",
+				"ask": "Ask Before Opening"
+			},
+			"mods": {
+				"shown": "Show on Main Screens",
+				"scan": "File Check",
+				"tray": {
+					"win": "Tray Icon",
+					"mac": "Menu Bar Icon"
+				},
+				"files": "Game Files",
+				"check": "Check",
+				"clean": "No changes found",
+				"folders": "Game Folders",
+				"forget": "Remove from List"
 			},
 			"voice": "Voice",
 			"mute": "Mute",
