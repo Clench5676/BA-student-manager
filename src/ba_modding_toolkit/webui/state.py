@@ -1,6 +1,7 @@
 """Small UI state kept between launches: the asset consent, recently opened variants, the user's own aliases of the
-students and the web UI's own preferences (voice volume, the mod library folder). Kept apart from config.toml, which
-the classic GUI rewrites with only its own keys.
+students and the web UI's own preferences (voice volume, the mod library folder, the scan consent, the mod switch's
+and the classic hand-off's flags, the data directory's id). Kept apart from config.toml, which the classic GUI
+rewrites with only its own keys.
 
 Several app instances may share one data folder: every change is applied to the file as it is at that moment (read
 again under a lock the instances share), so one instance never erases what another wrote, and reads pick up the
@@ -14,6 +15,7 @@ import json
 import logging
 import math
 import os
+import secrets
 import tempfile
 import threading
 import unicodedata
@@ -228,6 +230,76 @@ class UiState:
             prefs[key] = value
 
         self._update(change)
+
+    def flag(self, key: str) -> bool:
+        """A boolean preference of the mod switch and the classic hand-off (FLAGS), its default until set."""
+        value = self.get(key)
+        return value if isinstance(value, bool) else FLAGS[key]
+
+    @property
+    def scan_consent(self) -> bool | None:
+        """None until the user answered the scan consent popup; then True (the game folders may be checked) or
+        False."""
+        value = self.get("scan_consent")
+        return value if isinstance(value, bool) else None
+
+    def data_id(self, data_dir: Path) -> str:
+        """This data directory's id (``data_id``), kept with the data directory's own path (``data_path``): made at
+        the first call. When the path recorded with it is another one, the folder was copied or moved: a copy (the
+        recorded folder still exists and holds the same id) gets a new id, so it never shares the original's; a moved
+        folder keeps its id and records its new path. Only the services call it, when they first build the library,
+        so the constructor never adds preferences."""
+        here = data_path(data_dir)
+        made: list[str] = []
+
+        def change(data: dict[str, Any]) -> None:
+            prefs = data.get("prefs")
+            if not isinstance(prefs, dict):
+                prefs = data["prefs"] = {}
+            old, path = prefs.get("data_id"), prefs.get("data_path")
+            if _is_data_id(old) and path == here:
+                made.append(old)
+                return
+            if _is_data_id(old) and not (isinstance(path, str) and path and _holds_id(Path(path), old)):
+                new = old  # moved (or no path recorded yet): the same data directory
+                logger.info("data directory now at %s, keeping its id", here)
+            else:
+                new = secrets.token_hex(DATA_ID_LENGTH // 2)
+                if _is_data_id(old):
+                    logger.info("data directory copied from %s: new id", path)
+            prefs["data_id"], prefs["data_path"] = new, here
+            made.append(new)
+
+        current = self.get("data_id")
+        if _is_data_id(current) and self.get("data_path") == here:
+            return current
+        self._update(change)
+        return made[0]
+
+
+# Boolean preferences and their defaults: the Enable Mods switch shown on the main screens, the tray or menu bar icon,
+# the hand-off prompt before the classic UI opens, and whether the first toggle's explanation was shown
+FLAGS = {"mod_switch_shown": True, "tray": False, "classic_prompt": True, "mods_explained": False}
+DATA_ID_LENGTH = 12  # hex digits
+
+
+def data_path(data_dir: Path) -> str:
+    """A data directory's path as ``data_path`` records it: resolved, and case-folded on Windows."""
+    return os.path.normcase(str(Path(data_dir).resolve()))
+
+
+def _is_data_id(value: Any) -> bool:
+    return isinstance(value, str) and len(value) == DATA_ID_LENGTH and all(c in "0123456789abcdef" for c in value)
+
+
+def _holds_id(folder: Path, data_id: str) -> bool:
+    """Whether a data directory still exists and its webui.json holds this id (the folder was copied, not moved)."""
+    try:
+        data = json.loads((folder / "webui.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    prefs = data.get("prefs") if isinstance(data, dict) else None
+    return isinstance(prefs, dict) and prefs.get("data_id") == data_id
 
 
 # The memorial lobby's fullscreen zoom-out limit (web/js/lobby.js zoomBounds): the game's view, the art every clip keeps
