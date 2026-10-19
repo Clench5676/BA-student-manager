@@ -40,8 +40,10 @@ def placeholders(text: str) -> list[str]:
     return sorted(name for _, name, _, _ in string.Formatter().parse(text) if name is not None)
 
 
-def test_there_are_translations():
-    assert "zh-CN" in TRANSLATIONS
+def test_every_ui_language_ships():
+    """The localization roadmap's M1 is complete: every UI language has its locale file, so all are offered."""
+    assert i18n.offered_languages(LOCALES) == list(i18n.UI_LANGUAGES)
+    assert set(i18n.UI_LANGUAGES) - {REFERENCE} <= set(TRANSLATIONS)
 
 
 @pytest.mark.parametrize("code", TRANSLATIONS)
@@ -64,6 +66,16 @@ def test_same_placeholders_as_en_us(code):
              if key in reference and placeholders(text) != placeholders(reference[key])
              and (code, key) not in KNOWN_PLACEHOLDER_DIFFERENCES}
     assert wrong == {}
+
+
+@pytest.mark.parametrize("code", TRANSLATIONS)
+def test_strings_format_with_en_us_values(code):
+    """No stray brace: each string formats (str.format, as I18n.t does) with the values en-US's string takes."""
+    reference = flatten(load(REFERENCE))
+    for key, text in flatten(load(code)).items():
+        values = {name: "x" for name in placeholders(reference.get(key, "")) + placeholders(text)}
+        if values:
+            text.format(**values)
 
 
 @pytest.mark.parametrize("code", [REFERENCE, *TRANSLATIONS])
