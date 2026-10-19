@@ -170,7 +170,6 @@ class ChibiView {
     // the character; the game's clips scale them away, so fold them here
     if (!this.clips.size) root.traverse((o) => { if (/^(prop_root|Bip001_Weapon)$/i.test(o.name)) o.scale.setScalar(0); });
     await this.setupHalo(ex.haloFollower);
-    this.addShadow();
     this.act("idle", { fade: 0, quiet: true });
     this.measure();
   }
@@ -246,10 +245,6 @@ class ChibiView {
     this.target = new THREE.Vector3(origin.x, all.getCenter(new THREE.Vector3()).y, origin.z);
     this.faceY = body.min.y + (body.max.y - body.min.y) * 0.78; // a chibi's face sits in the top quarter
     this.controls.target.copy(this.target);
-    if (this.shadow) {
-      this.shadow.position.set(origin.x, body.min.y + 0.002, origin.z);
-      this.shadow.scale.setScalar(body.getSize(new THREE.Vector3()).y * 0.62);
-    }
   }
 
   fitDistance(fill) {
@@ -320,25 +315,6 @@ class ChibiView {
     const t = THREE.MathUtils.clamp((this.fit - offset.length()) / (this.fit - this.limits.min), 0, 1);
     o.target.set(this.target.x, this.target.y + (this.faceY - this.target.y) * ease(t), this.target.z);
     this.camera.position.copy(o.target).add(offset);
-  }
-
-  // a soft round shadow under the feet, as on the formation screen
-  addShadow() {
-    const c = document.createElement("canvas");
-    c.width = c.height = 128;
-    const g = c.getContext("2d"), grad = g.createRadialGradient(64, 64, 0, 64, 64, 64);
-    grad.addColorStop(0, "rgba(20,30,50,.28)");
-    grad.addColorStop(0.65, "rgba(20,30,50,.16)");
-    grad.addColorStop(1, "rgba(20,30,50,0)");
-    g.fillStyle = grad;
-    g.fillRect(0, 0, 128, 128);
-    const tex = new THREE.CanvasTexture(c);
-    tex.colorSpace = THREE.SRGBColorSpace;
-    const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false }));
-    m.rotation.x = -Math.PI / 2;
-    m.renderOrder = -1;
-    this.scene.add(m);
-    this.shadow = m;
   }
 
   // --- actions ---
