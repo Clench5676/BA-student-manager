@@ -86,6 +86,43 @@ test("prewarm, start delay, max particles and lifetime", () => {
   assert.equal(idle.count(), 0);
 });
 
+test("ring buffer: particles held at their end or looping their lifetime until max particles replaces them", () => {
+  const one = { bursts: [{ t: 0, n: 1, cycles: 1, interval: 0.01, p: 1 }] };
+  // pause until replaced (ch0334's boosters: one particle a second, never looping): held at the end of its life
+  const held = effects([sys({ main: { loop: 0, life: 1, speed: 1, ring: 1, ringRange: [0, 1] }, emission: one,
+    shape: { type: 4, angle: 0, radius: 0, thickness: 1, arc: 360, pos: [0, 0, 0], rot: [0, 0, 0], scale: [1, 1, 1], randomDir: 0, spherical: 0, randomPos: 0 } })]);
+  run(held, 3);
+  const h = held.systems[0].particles;
+  assert.equal(h.length, 1);
+  near(h[0].age, 1, 1e-9, "held at its lifetime");
+  const at = h[0].pos.slice();
+  run(held, 1);
+  assert.deepEqual(h[0].pos, at, "a held particle does not move");
+  near(held.current(held.systems[0], h[0]).size[0], 1, 1e-9);
+  // loop until replaced (ch0188's sea meshes): the age runs through the loop range again and again
+  const looped = effects([sys({ main: { loop: 0, life: 2, ring: 2, ringRange: [0.25, 0.75] }, emission: one })]);
+  run(looped, 1.6);
+  const l = looped.systems[0].particles;
+  assert.equal(l.length, 1);
+  near(l[0].age, 0.6, 1e-6, "1.6 s: at 1.5 s it went back to 0.5 s");
+  run(looped, 10);
+  assert.equal(l.length, 1);
+  assert.ok(l[0].age >= 0.5 - 1e-9 && l[0].age < 1.5, `in the loop range ${l[0].age}`);
+  // with max particles reached, a new particle takes the oldest one's place; without a ring buffer it is not emitted
+  const full = effects([sys({ main: { max: 2, life: 100, ring: 1, ringRange: [0, 1] }, emission: { rate: 10 } })]);
+  run(full, 1);
+  const kept = full.systems[0].particles;
+  assert.equal(kept.length, 2);
+  assert.ok(kept.every((p) => p.age < 0.5), "the newest two");
+  const plain = effects([sys({ main: { max: 2, life: 100 }, emission: { rate: 10 } })]);
+  run(plain, 1);
+  assert.ok(plain.systems[0].particles.every((p) => p.age > 0.5), "the first two");
+  // without a ring buffer a particle dies at the end of its life
+  const mortal = effects([sys({ main: { loop: 0, life: 1 }, emission: one })]);
+  run(mortal, 1.5);
+  assert.equal(mortal.count(), 0);
+});
+
 test("shapes emit inside their volume, on their surface or edge, along their direction", () => {
   const r = lcg(9);
   for (let i = 0; i < 200; i++) {
@@ -233,6 +270,13 @@ test("geometry: billboard size, the view's max size, stretch and meshes; vertex 
   turned.update(0.016);
   const tg = geometry(turned, turned.systems[0], { meshes: { tri: { v: [0, 0, 0, 1, 0, 0, 0, 1, 0], i: [0, 1, 2], n: [0, 0, -1, 0, 0, -1, 0, 0, -1] } } });
   assert.deepEqual([...tg.data.slice(18, 21)].map((v) => Math.round(v * 1e6) / 1e6 + 0), [-1, 0, 0]);
+  // a mesh particle's colour times the mesh's vertex colours (ch0188's sea meshes fade out at their ends by them)
+  const tinted = effects([sys({ emission: one, static: scaled, main: { color: { col: [1, 0.5, 1, 0.8] } }, renderer: { mode: 4, mesh: "tri" } })]);
+  tinted.update(0.016);
+  const cg = geometry(tinted, tinted.systems[0], { linear: false, meshes: { tri: { v: [0, 0, 0, 1, 0, 0, 0, 1, 0], i: [0, 1, 2],
+    c: [1, 1, 1, 1, 1, 1, 1, 0, 0.5, 1, 1, 0.5] } } });
+  const colours = [0, 1, 2].map((v) => [...cg.data.slice(v * STRIDE + 14, v * STRIDE + 18)].map((x) => Math.round(x * 255)));
+  assert.deepEqual(colours, [[255, 128, 255, 204], [255, 128, 255, 0], [128, 128, 255, 102]]);
   // the vertex colour: clamped to 8 bits (Color32), then decoded from sRGB in linear light; alpha as it is
   assert.deepEqual(vertexColor([2, 0.5, -1, 0.25], false), [1, 128 / 255, 0, 64 / 255]);
   near(vertexColor([1, 0.5, 0, 1], true)[1], 0.2158605, 1e-6, "linear");
@@ -351,4 +395,70 @@ test("the effects draw in their layer's context with the game's blend and free e
   assert.equal(gl.calls.length, before, "nothing is drawn after dispose");
   Linear.detach(p);
   assert.equal(gl.live.size, 0);
+});
+
+// a stand-in that also compiles: the uniforms a program declares (from the sources attached to it) are its active
+// uniforms, so a draw's uniform calls can be read back by name
+function compilingGL() {
+  const gl = fakeGL(), sources = new Map(), attached = new Map();
+  const uniforms = (prog) => [...new Set((attached.get(prog) || [])
+    .flatMap((s) => [...(sources.get(s) || "").matchAll(/uniform \w+ (\w+);/g)].map((m) => m[1])))];
+  return new Proxy(gl, {
+    get(t, name) {
+      if (name === "shaderSource") return (s, src) => { sources.set(s, src); };
+      if (name === "attachShader") return (p, s) => { attached.set(p, [...(attached.get(p) || []), s]); };
+      if (name === "getProgramParameter") return (p, what) => (what === "ACTIVE_UNIFORMS" ? uniforms(p).length : true);
+      if (name === "getActiveUniform") return (p, i) => ({ name: uniforms(p)[i] });
+      if (name === "getUniformLocation") return (p, n) => ({ uniform: n });
+      return t[name];
+    },
+  });
+}
+
+test("the ported *_1a programs: their vertex stage routes the custom data, the draw passes selectors as stored", () => {
+  // only the *_1a programs have a vertex stage of their own (TEXCOORD3.. as the game's vertex programs output them)
+  assert.ok(!/v_t3/.test(GL.vertexSource("distort")) && !/v_t3/.test(GL.fragmentSource("distort")));
+  for (const [kind, outs] of [["distort1a", 3], ["doubleDistort", 4]]) {
+    const vs = GL.vertexSource(kind), fs = GL.fragmentSource(kind);
+    for (let i = 3; i < 3 + outs; i++) assert.ok(vs.includes(`out vec4 v_t${i};`) && fs.includes(`in vec4 v_t${i};`), `${kind} v_t${i}`);
+    assert.ok(!vs.includes(`v_t${3 + outs};`), `${kind} has ${outs} outputs`);
+    // every selector the vertex program reads is a uniform of the vertex stage
+    for (const name of vs.match(/_CustomData_\w+/g)) assert.ok(vs.includes(`uniform vec4 ${name};`), name);
+  }
+  assert.ok(GL.vertexSource("doubleDistort").includes("_CustomData_DistortOffsetR_CD2XYXY"));
+  const gl = compilingGL(), p = player(gl, { name: "Home", x: 0, y: -962, scale: 1, order: 0, queue: 2900, z: 0 });
+  Linear.attach(p);
+  const colors = { _Color: [2, 1, 1, 1], _RTilingxyOffsetzw: [2, 7, 0, 0], _GTilingxyOffsetzw: [3, 11, 0, 0],
+    _CustomData_DistortOffsetR_CD2XYXY: [0, 0, 1, 0], _CustomData_DistortPowerG_CD2XYXY: [0, 1, 0, 0] };
+  for (const v of GL.PROGRAMS.doubleDistort.vectors) colors[v] ??= [0, 0, 0, 0];
+  const white = { default: "white", st: [1, 1, 0, 0] };
+  const fx = {
+    systems: [sys({ material: "splash", queue: 3100, emission: { rate: 50 } })],
+    materials: { splash: { program: "doubleDistort", src: 1, dst: 10, queue: 3100,
+      tex: { _Tex_Main: { ...white, st: [0.6, 3, 0.03, -0.73] }, _Tex_Mask: white, _Tex_DistortRG: white },
+      floats: { _Tex_Main_Distort: 3, _Tex_Mask_Distort: 0, _RGBRGBA: 1, _Multiply: 1.5, _RDistort_Power_Y: -0.12 }, colors,
+      vectors: GL.PROGRAMS.doubleDistort.vectors } },
+    textures: {}, meshes: {},
+  };
+  const effects = GL.create(fx, { base: "/x/", bone: () => null, load: async () => ({}) });
+  effects.layers([p]);
+  Linear.begin(p);
+  const from = gl.calls.length;
+  effects.below(p, 0.1);
+  effects.above(p);
+  const draws = gl.calls.slice(from).filter(([name]) => name === "drawArrays").length;
+  Linear.end(p);
+  const set = (name) => gl.calls.filter((c) => c[1]?.uniform === name).map((c) => c.slice(2));
+  // Vector properties as stored, the HDR colour decoded, floats as they are, the textures' tiling
+  assert.deepEqual(set("_CustomData_DistortOffsetR_CD2XYXY"), [[0, 0, 1, 0]]);
+  assert.deepEqual(set("_RTilingxyOffsetzw"), [[2, 7, 0, 0]]);
+  near(set("_Color")[0][0], Math.pow(2, 2.2), 1e-6, "HDR colour");
+  assert.deepEqual(set("_Tex_Main_Distort"), [[3]]);
+  assert.deepEqual(set("_RDistort_Power_Y"), [[-0.12]]);
+  assert.deepEqual(set("_GDistort_Power_X"), [[0]], "a float the material lacks reads 0");
+  assert.deepEqual(set("_Tex_Main_ST"), [[0.6, 3, 0.03, -0.73]]);
+  assert.equal(draws, 1);
+  effects.detach(p);
+  effects.dispose();
+  Linear.detach(p);
 });
