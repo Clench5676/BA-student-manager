@@ -385,6 +385,13 @@ in `pointer-textures`); without a game the system cursor stays and there is no e
   the three-sample chromatic aberration, then post exposure, the clamp to 0..1 and the LUT's steps (contrast in LogC,
   colour filter, lift / gamma / gain, hue, saturation), in linear light; the LUT's own 32-step interpolation is not
   modelled. A layer is post-processed on its own (7 lobbies have more than one).
+- **PP setting.** The Settings L2D tab's `lobbyPost` (on by default) is the PC client's PP option
+  (`AllowPostProcessing`, graphics options): off draws the lobby without its volumes, at once. Of the 19 in-game
+  captures among the references, only Michiru's (CH0113) shows chromatic aberration, and it matches the lobby with
+  PP on: at the survey's 400 px crop the colour edges are offset +1.0 / -1.0 / +0.8 / -1.1 px (top, bottom, left,
+  right) in the game and +1.0 / -0.9 / +0.9 / -1.0 here, and her face is Y 157.7 in the game, 157.3 with PP, 145.0
+  without. The other 18 show no offset at all, so they were taken with PP off, and they match the lobby with it off:
+  mean |dY| 1.8 off, 3.6 on (CH0326 Y 198.4: 199.4 off, 205.8 on; CH0228 209.0: 209.0 and 213.2).
 - **Zoom.** Fullscreen opens on the game's 16:9 view and zooms in to 2x. The Settings L2D tab (`lobbyZoomOut`, off by
   default) lets it zoom out further, to the widest 16:9 view inside the painted art (one 16-unit cell inside the
   painted rect). The painted rect is found on idle poses; with the setting on, the poses of every clip the lobby

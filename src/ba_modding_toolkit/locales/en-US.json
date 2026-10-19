@@ -1089,6 +1089,11 @@
 				"game": "Game View",
 				"art": "Full Art"
 			},
+			"post": {
+				"label": "Post-Processing",
+				"on": "On",
+				"off": "Off"
+			},
 			"server": {
 				"label": "Server",
 				"global": "Global",

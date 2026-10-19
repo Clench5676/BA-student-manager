@@ -437,6 +437,10 @@ export function setZoomOut(on) {
   if (zoomOut) measureClips();
   reclamp();
 }
+// the game's PP option: off draws the lobby without its post-processing volumes (the next frame shows it)
+export function setPostProcessing(on) {
+  Linear.setPostEnabled(on);
+}
 // a view wider than the limit now allows eases back inside it, around the same centre
 function reclamp() {
   if (!current?.meta || !current.target || mode !== "full") return;
