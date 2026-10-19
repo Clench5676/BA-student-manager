@@ -7,9 +7,11 @@ import logging
 import sys
 import tempfile
 import threading
+import time
 import weakref
 import webbrowser
 from concurrent.futures import Future
+from concurrent.futures import TimeoutError as FutureTimeout
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +31,9 @@ trace_logger = logging.getLogger("ba_modding_toolkit.webui.trace")
 TRACE_BATCH, TRACE_LINE = 100, 600  # events per debug.trace call, characters per logged event
 UI_LANGS = ("zh-CN", "zh-TW", "en-US", "ja-JP")
 LINE_LANGS = {"zh-CN": "zh-CN", "zh-TW": "zh-TW", "en-US": "en", "ja-JP": "ja"}  # UI language -> lobby lines key
+# seconds lobby.lines waits for the Global table (a download the first time); it answers with Kivo's lines after that,
+# so a slow download never holds the page's connections (the table keeps coming in for the next lobby)
+LINES_WAIT = 3.0
 
 
 def ui_strings(lang: str) -> dict[str, str]:
@@ -368,11 +373,13 @@ def build_api(s: Services) -> RpcRegistry:
         """The memorial lobby's lines by voice clip ({clip: {lang: text, "voice": bool}}): Kivo's (zh-CN, ja, the
         voices) and, for a ``lang`` other than zh-CN, the Global server's official text on the clips of each talk
         animation (``talks``: {animation: [clip ids in order]} from the skeleton, else Kivo's clip names).
-        ``lines_unavailable`` when neither can be read."""
+        ``lines_unavailable`` when neither can be read; the Global text is left out when its table takes longer
+        than LINES_WAIT."""
         v = s.catalog.variant(variant)
         lang = lang or LINE_LANGS.get(i18n_manager.lang, "en")
         character = getattr(v, "schale_id", None)
         # the Global table (a download the first time) is read while Kivo's page is
+        until = time.monotonic() + LINES_WAIT
         pending = _background(s.global_lines.dialogues, character) if lang != "zh-CN" and character else None
         try:
             kivo = s.kivo.lines(v.page_id or "")
@@ -381,7 +388,10 @@ def build_api(s: Services) -> RpcRegistry:
         official: dict[str, dict[str, str]] = {}
         if pending is not None:
             try:
-                official = globallines.by_clip(pending.result(), clip_talks(talks) or globallines.talks_of(kivo or {}))
+                table = pending.result(timeout=max(0.0, until - time.monotonic()))
+                official = globallines.by_clip(table, clip_talks(talks) or globallines.talks_of(kivo or {}))
+            except FutureTimeout:
+                logger.info("Global lobby lines not ready after %.0f s: only Kivo's for %s", LINES_WAIT, variant)
             except ServiceError:
                 pass
         if kivo is None and not official:

@@ -11,7 +11,7 @@ import * as Settings from "./settings.js";
 import * as Update from "./update.js";
 import { on, rpc } from "./api.js";
 import { T, setStrings } from "./i18n.js";
-import { neighbour } from "./roster-order.js";
+import { neighbour, visit } from "./roster-order.js";
 import { renderNav, setTitle } from "./nav.js";
 import { $, fitStage, toast } from "./util.js";
 
@@ -39,6 +39,14 @@ async function roster() {
     rosterStale = false;
   }
   return rosterData;
+}
+
+// the visit the detail screen records (ui.visit) goes into the roster's data too, so "Recently Viewed" has it on the
+// way back; the variant is the one the detail screen shows for the link (one with a portrait)
+function visited(fam, key) {
+  const vs = fam?.variants || [];
+  const shown = vs.some((v) => v.key === key && v.spr) ? key : (vs.find((v) => v.spr) || vs[0])?.key;
+  if (rosterData && shown) visit(rosterData, shown);
 }
 
 function showScreen(name) {
@@ -87,7 +95,9 @@ async function route() {
         // in place: the shown screen stays until every part of the new one is ready, then all of it swaps at once
         await Loading.wait((async () => {
           const fam = await rpc("family.get", { key: parts[1] });
-          if (my === routeToken) await Detail.show(ctx, fam, parts[2], { inPlace: true });
+          if (my !== routeToken) return;
+          visited(fam, parts[2]);
+          await Detail.show(ctx, fam, parts[2], { inPlace: true });
         })());
       } else {
         // from another screen, a deep link or the start: behind the loading screen
@@ -96,6 +106,7 @@ async function route() {
           await covered;
           if (my !== routeToken) return; // a later navigation took over
           showScreen("detail");
+          visited(fam, parts[2]);
           await Detail.show(ctx, fam, parts[2]);
         });
       }

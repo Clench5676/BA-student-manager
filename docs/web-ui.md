@@ -228,7 +228,7 @@ Events on `/api/events`:
 | `settings.get` / `settings.set {key, value}` | the settings popup's values; key `roster` keeps the student list's view (merge, segment filters, sort, order, filter groups; `webui/state.py roster_view`) |
 | `family.get {key}` | a family with its variants, mods and each variant's state; `modelFiles` per variant (the 3D model's prefab bundles, newest first) and `version` (the game's resource version, so a switched install reloads the screen) |
 | `lobby.warm` | builds the memorial lobby prefab index in the background (once per game); the detail screen calls it for a variant with a lobby |
-| `lobby.lines {variant, talks, lang}` | `{clip: {lang: text, voice}}`: zh-CN from Kivo, ja from Kivo else the Global server, en, zh-TW, ko and th from the Global server (read only for a `lang` other than zh-CN); `talks` (`{animation: [clip ids]}` from the skeleton) places the Global rows on the clips; `lines_unavailable` when neither source can be read |
+| `lobby.lines {variant, talks, lang}` | `{clip: {lang: text, voice}}`: zh-CN from Kivo, ja from Kivo else the Global server, en, zh-TW, ko and th from the Global server (read only for a `lang` other than zh-CN, left out when its table is not in within 3 s); `talks` (`{animation: [clip ids]}` from the skeleton) places the Global rows on the clips; `lines_unavailable` when neither source can be read |
 | `debug.trace {events}` | the fullscreen lobby's input events, logged (logger `ba_modding_toolkit.webui.trace`, and `input-trace.log` in the data directory) only when the app was started with `--debug`; ignored otherwise |
 | `favorites.set {variant, on}` | |
 | `mods.add {paths}` / `mods.pick` | added entries (`mods.pick` opens the native file dialog) |
@@ -281,7 +281,10 @@ ported.
   funnel on the sort button turns blue while a filter group narrows the list. All of it is saved (`settings.set
   roster`); the search lasts the session.
 - The search (the game's CharacterSearch box over the top of the list) matches every name language, the family's base
-  names and the file id, ignoring case, width, kana and separators; every word must match.
+  names and the file id, ignoring case, width, kana and separators (with the marks inside names, as in
+  Shiroko*Terror); every word must match.
+- A visit to a variant (`ui.visit`) is mirrored in the page's roster data, so "Recently Viewed" has it on the way
+  back without a new `roster.list`.
 - The detail screen's arrows step through the cards as the list showed them when it was left, in its order, wrapping
   round; a variant the list hides (another chip, a deep link) steps from its place in the whole list.
 
@@ -333,8 +336,9 @@ in `pointer-textures`); without a game the system cursor stays and there is no e
   (`FX_TEX_Triangle_02_1`) leaving the press and 5 per unit of drag, and a 0.3 s trail 0.005 units wide
   (`FX_TEX_Trail_03`). Colours are worked out in linear light as in the game and saturate where it does.
 - **Drawing.** Two canvases over the whole window (`pointer-events: none`, device pixel ratio aware, hidden with no
-  frame loop while nothing animates): the light on one screened over the page, what the flash hides on a multiplied
-  one under it. The page blends in sRGB values, so the flash's blend is fitted to be exact over black and over white.
+  frame loop and no bitmap while nothing animates): the light on one screened over the page, what the flash hides on a
+  multiplied one under it. The page blends in sRGB values, so the flash's blend is fitted to be exact over black and
+  over white.
 - **Reduced motion** (`prefers-reduced-motion: reduce`): a press keeps its burst, a drag leaves no trail and no
   triangles.
 
@@ -378,7 +382,9 @@ Online data, fetched on demand and kept in memory only (never written to disk):
 - Kivo (`kivo.py`): one student page per variant (zh-CN, ja and the voices, by voice clip name).
 - The Global server's CharacterDialog table (`globallines.py`), as ba-data publishes it
   (github.com/electricgoat/ba-data, `global` branch, a jsDelivr mirror second): one download per session (about
-  2.4 MB compressed), only when the UI language is not zh-CN; after a failure it is asked for again after 5 minutes.
+  2.4 MB compressed; 60 s and 64 MB received or unpacked at most), only when the UI language is not zh-CN; after a
+  failure it is asked for again after 5 minutes. `lobby.lines` waits up to 3 s for it, then answers with Kivo's lines
+  alone (the download goes on for the next lobby).
   SchaleDB's voice data has no memorial lobby lines. A dialogue's rows (`UILobbySpecial`, by `GroupId`, played by the
   talk animation the first row names) go on that animation's voice clips in order; with fewer rows than clips the last
   clips get none (the row before stays on screen), with more rows the rest join the last clip's line.

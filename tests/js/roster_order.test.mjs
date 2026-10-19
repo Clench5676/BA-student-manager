@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-  DEFAULT_VIEW, FILTERS, NATURAL, SORTS, arrange, filtering, fold, neighbour, normalizeView, order,
+  DEFAULT_VIEW, FILTERS, NATURAL, RECENT_MAX, SORTS, arrange, filtering, fold, neighbour, normalizeView, order, visit,
 } from "../../src/ba_modding_toolkit/web/js/roster-order.js";
 
 const v = (key, extra = {}) => ({
@@ -62,6 +62,29 @@ test("the order button flips the sort but not the favourites first", () => {
   assert.deepEqual(keys(mods), ["aru", "hoshino_swimsuit"]); // aru is a favourite
 });
 
+test("a visit moves the variant to the front of the recently viewed, like the server records it", () => {
+  const d = data();
+  visit(d, "np0045"); // never viewed: first, the others one down
+  assert.deepEqual(keys(order(d, view({ mods: "none" }), { label })), ["np0045", "citizen_borot2", "hoshino"]);
+  visit(d, "hoshino"); // viewed before: first, only the ones before it move
+  const recent = Object.fromEntries(d.families.flatMap((f) => f.variants).map((x) => [x.key, x.recent]));
+  assert.deepEqual(recent, { hoshino: 0, hoshino_swimsuit: null, np0045: 1, aru: 2, citizen_borot2: 3 });
+  assert.deepEqual(keys(order(d, view({ mods: "none" }), { label })), ["hoshino", "np0045", "citizen_borot2"]);
+  // merged: a family is as recent as its most recent variant
+  visit(d, "citizen_borot2");
+  assert.equal(order(d, view({ merged: true }), { label }).find((c) => c.family === "hoshino").recent, 1);
+  // the indexes the server gives after UiState.visit ([key, *others][:RECENT_MAX]), with keys of another install
+  // (not in this roster) among them; a variant viewed for the first time pushes the last one out
+  const server = Array.from({ length: RECENT_MAX }, (_, i) => `k${i}`);
+  const many = { families: [{ key: "f", base: {}, variants: [
+    ...server.filter((_, i) => i % 3).map((k) => v(k, { recent: server.indexOf(k) })), v("x1"), v("x2")] }] };
+  for (const key of ["k20", "k7", "x1", "k47", "k49", "x2", "k1"]) {
+    server.splice(0, server.length, ...[key, ...server.filter((k) => k !== key)].slice(0, RECENT_MAX));
+    visit(many, key);
+    for (const x of many.families[0].variants) assert.equal(x.recent, server.includes(x.key) ? server.indexOf(x.key) : null, `${key}: ${x.key}`);
+  }
+});
+
 test("name sort uses the collator of the UI language", () => {
   const collator = new Intl.Collator("en", { numeric: true, sensitivity: "base" });
   const en = (x) => x?.en ?? x?.["zh-CN"];
@@ -91,6 +114,28 @@ test("the search folds case, width, kana and separators across name languages an
   assert.deepEqual(find("hoshino (swimsuit)"), ["hoshino_swimsuit"]);   // every word must match
   assert.deepEqual(find("zzz"), []);
   assert.equal(fold("\u661f\u91ce\uff08\u6cf3\u88c5\uff09"), "\u661f\u91ce\u6cf3\u88c5");
+});
+
+test("the marks inside official names are separators: found when typed without them", () => {
+  const d = { families: [
+    { key: "shiroko_terror", base: { en: "Shiroko*Terror", ja: "\u30b7\u30ed\u30b3\uff0a\u30c6\u30e9\u30fc", "zh-CN": "\u767d\u5b50*\u6050\u6016" }, variants: [
+      v("ch0209", { names: { en: { full: "Shiroko*Terror" }, ja: { full: "\u30b7\u30ed\u30b3\uff0a\u30c6\u30e9\u30fc" } } }),
+    ] },
+    { key: "golconde", base: { en: "Golconde&Decalcomania", ja: "\u30b4\u30eb\u30b3\u30f3\u30c0\uff06\u30c7\u30ab\u30eb\u30b3\u30de\u30cb\u30fc" }, variants: [
+      v("golconde", { names: { en: { full: "Golconde&Decalcomania" } } }),
+    ] },
+    { key: "president", base: { "zh-CN": "\u8054\u90a6\u5b66\u751f\u4f1a\u957f\uff1f" }, variants: [v("president")] },
+  ] };
+  const find = (q) => keys(order(d, view(), { label, query: q }));
+  assert.deepEqual(find("\u30b7\u30ed\u30b3\u30c6\u30e9\u30fc"), ["ch0209"]); // the IME's katakana, no asterisk
+  assert.deepEqual(find("\u3057\u308d\u3053\u3066\u3089\u30fc"), ["ch0209"]); // hiragana
+  assert.deepEqual(find("shirokoterror"), ["ch0209"]);
+  assert.deepEqual(find("\u767d\u5b50\u6050\u6016"), ["ch0209"]);
+  assert.deepEqual(find("Shiroko*Terror"), ["ch0209"]);                       // typed with it still works
+  assert.deepEqual(find("\u30b4\u30eb\u30b3\u30f3\u30c0\u30c7\u30ab\u30eb\u30b3\u30de\u30cb\u30fc"), ["golconde"]);
+  assert.deepEqual(find("golcondedecalcomania"), ["golconde"]);
+  assert.deepEqual(find("\u8054\u90a6\u5b66\u751f\u4f1a\u957f"), ["president"]);
+  assert.equal(fold("\u30b7\u30ed\u30b3\uff0a\u30c6\u30e9\u30fc"), "\u30b7\u30ed\u30b3\u30c6\u30e9\u30fc");
 });
 
 test("merged, a family is one card shown by its first variant or the first one the search found", () => {

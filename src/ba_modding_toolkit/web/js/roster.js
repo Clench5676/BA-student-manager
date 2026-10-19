@@ -34,9 +34,9 @@ const TITLE_LEFT = -1270, RIGHT = 1412, GAP = 16;
 const TOOL_Y = 446.5; // centre of the search, sort and order buttons in SeletControl's units
 
 let view = { ...normalizeView(DEFAULT_VIEW), scroll: 0 };
-let query = "", searching = false;
+let query = "", searching = false, searchTimer = 0; // searchTimer: the search box's debounce
 let layouts = null, data = null, ctx = null, items = [], rows = new Map(), contentH = 0, rendered = new Map(), dirty = true;
-let dom = {}; // the list's live elements: scroll host, scrollbar, empty-list host, search input
+let dom = {}; // the list's live elements: clip, scroll host (the newest, maybe still built), scrollbar, empty list, search
 
 const listTop = () => (searching ? SEARCH_LIST_TOP : PAPER_TOP);
 const clipTop = () => ORIGIN[1] - listTop() * S;
@@ -338,18 +338,17 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 let listToken = 0;
 
 // the cards again for the current view (a search keystroke): the frame stays; the new rows are built off screen and
-// replace the old ones in one go
+// replace whatever the clip shows in one go (a relist overtaken by a newer one never swapped its rows in)
 async function relist() {
   const my = ++listToken;
   items = layoutItems();
-  const old = dom.scrollHost;
   const scrollHost = document.createElement("div");
   scrollHost.className = "card-scroll";
   dom.scrollHost = scrollHost;
   rendered = new Map();
   await Promise.race([Promise.all([applyScroll(), renderEmpty(dom.empty)]), sleep(ROWS_CAP)]);
   if (my !== listToken || dom.scrollHost !== scrollHost) return;
-  old?.replaceWith(scrollHost);
+  dom.clip.replaceChildren(scrollHost);
 }
 
 // --- search: the game's search box over the top of the list, filtering as one types ---
@@ -375,13 +374,15 @@ async function renderSearch(host) {
     left: `${ORIGIN[0] + (2 - 389) * S}px`, top: `${ORIGIN[1] - (258 + 46) * S}px`, width: `${778 * S}px`, height: `${92 * S}px`,
     fontSize: `${60 * S}px`,
   });
-  let timer = 0;
-  const apply = () => { if (el.value === query) return; query = el.value; view.scroll = 0; relist(); };
+  // a box closed or rebuilt meanwhile (its timer is cleared then) never filters the list
+  const apply = () => { if (!searching || !el.isConnected || el.value === query) return; query = el.value; view.scroll = 0; relist(); };
+  const later = (ms) => { clearTimeout(searchTimer); searchTimer = setTimeout(apply, ms); };
   // typing with an input method (Chinese, Japanese) filters once the word is committed
-  el.addEventListener("input", (ev) => { if (ev.isComposing) return; clearTimeout(timer); timer = setTimeout(apply, 90); });
-  el.addEventListener("compositionend", () => { clearTimeout(timer); timer = setTimeout(apply, 0); });
+  el.addEventListener("input", (ev) => { if (!ev.isComposing) later(90); });
+  el.addEventListener("compositionend", () => later(0));
   el.addEventListener("keydown", (ev) => {
-    if (ev.isComposing) return;
+    // the key that ends a conversion is the input method's (WebKit sends it after compositionend, as keyCode 229)
+    if (ev.isComposing || ev.keyCode === 229) return;
     if (ev.key === "Escape") { ev.preventDefault(); closeSearch(); } else if (ev.key === "Enter") el.blur();
   });
   host.appendChild(el);
@@ -400,6 +401,7 @@ function openSearch() {
   renderAll().then(() => dom.input?.focus());
 }
 function closeSearch() {
+  clearTimeout(searchTimer);
   searching = false;
   query = "";
   view.scroll = 0;
@@ -432,6 +434,9 @@ let frameToken = 0;
 async function renderAll() {
   const my = ++frameToken;
   listToken += 1; // a search still building its rows gives way
+  // a keystroke still waiting for its debounce is taken now: the rebuilt box starts from it
+  clearTimeout(searchTimer);
+  if (searching && dom.input?.isConnected) query = dom.input.value;
   const host = $("roster");
   const next = document.createElement("div");
   const lay = toolbarLayout();
@@ -490,7 +495,7 @@ async function renderAll() {
 
   // the cards: the rows in view get a moment to come in before the swap
   rendered = new Map();
-  dom = { scrollHost, bar, empty };
+  dom = { clip, scrollHost, bar, empty };
   items = layoutItems();
   const input = searching ? renderSearch(next) : Promise.resolve(null);
   await Promise.race([Promise.all([applyScroll(), renderEmpty(empty), input]), sleep(ROWS_CAP)]);
