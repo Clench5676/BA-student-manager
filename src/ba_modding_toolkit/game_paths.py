@@ -188,6 +188,30 @@ def steam_app_dirs(steam_dir: Path, to_host: Callable[[str], Path | None]) -> It
             yield library / "steamapps" / "common" / install_dir
 
 
+def steam_app_manifest(game_folder: Path) -> Path | None:
+    """The app manifest of the Steam library holding a game folder, or None outside a Steam library
+
+    The folder may be the install root (steamapps/common/<installdir>) or a resource folder below it: the walk goes
+    up to an ancestor named "common" whose parent is "steamapps", first along the folder as given (a link to the
+    install keeps its library), then along its resolved path.
+    """
+    walks = [game_folder]
+    try:
+        resolved = game_folder.resolve()
+    except (OSError, RuntimeError):
+        resolved = game_folder
+    if resolved != game_folder:
+        walks.append(resolved)
+    for folder in walks:
+        for ancestor in (folder, *folder.parents):
+            if ancestor.name.casefold() == "common" and ancestor.parent.name.casefold() == "steamapps":
+                manifest = ancestor.parent / f"appmanifest_{STEAM_APP_ID}.acf"
+                if manifest.is_file():
+                    return manifest
+                break
+    return None
+
+
 def vdf_values(text: str, key: str) -> list[str]:
     """Values of a key in Valve KeyValues text (libraryfolders.vdf, appmanifest_*.acf)"""
     pattern = r'"' + re.escape(key) + r'"\s+"((?:[^"\\]|\\.)*)"'
