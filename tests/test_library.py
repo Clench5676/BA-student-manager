@@ -553,8 +553,8 @@ def test_running_game_blocks_replacement(setup_library, monkeypatch):
 
 
 def test_detects_game_process(monkeypatch):
-    monkeypatch.setattr(safety.subprocess, "run", lambda *args, **kwargs:
-                        SimpleNamespace(stdout='"BlueArchive.exe","123"\n' if os.name == "nt" else '/game/BlueArchive.exe\n'))
+    # the process list readers have their own tests in test_safety.py
+    monkeypatch.setattr(safety, "game_processes", lambda: ["/game/BlueArchive.exe"])
     expect_error("game_running", safety.check_game_not_running)
 
 
