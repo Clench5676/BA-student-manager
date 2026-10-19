@@ -299,6 +299,67 @@ def test_invalid_data_has_service_error_and_reload_keeps_snapshot(game: FakeGame
     assert catalog.family("hoshino").key == "hoshino"
 
 
+def test_core_map_agrees_with_the_roster_on_every_core(game: FakeGame):
+    game.cores["spr"].update({"np1000_spr": [], "ch1001_spr": []})  # rows only the character map has
+    catalog = Catalog(game, FIXTURES / "characters.csv", FIXTURES / "catalog.json")
+    mapped = catalog.core_map(game.cores["spr"], game.cores["lobby"])
+    roster = {core: catalog.variant_for_core(core) for core in [*game.cores["spr"], *game.cores["lobby"]]}
+    for core, variant in roster.items():
+        if variant is not None:
+            assert mapped.key(core) == variant.key, core
+    assert all(mapped.core(v.key, "spr") == v.spr for f in catalog.families() for v in f.variants)
+    assert all(mapped.core(v.key, "lobby") == v.lobby for f in catalog.families() for v in f.variants if v.lobby)
+    # a lobby without a portrait of its variant here: the variant its name gives, else the core less its suffix
+    assert roster["missing_home"] is None and mapped.key("missing_home") == "missing"
+    assert mapped.names["hoshino"]["en"]["full"] == catalog.variant("hoshino").names["en"]["full"]
+    assert "unknown_new" not in mapped.names  # no shipped names: the cards show the core name
+    assert game.calls == ["spr", "lobby", "collection"]  # the map asks the game nothing
+
+
+def test_core_map_of_another_install_follows_the_data_not_the_current_install(catalog: Catalog):
+    # a Japan folder holding a lobby named by a dev alias and a student the current install lacks
+    japan = catalog.core_map(["ch0020_spr", "ch0042_spr"], ["hoshino_swimsuit_home", "ch0042_home", "ch0010_home_gl"])
+    assert japan.key("hoshino_swimsuit_home") == "ch0010"  # ch0010's core alias, though ch0010 has no portrait there
+    assert japan.key("ch0010_home_gl") == "ch0010"
+    assert japan.core("ch0010", "lobby") == "ch0010_home_gl"  # a direct file-id match first
+    assert japan.key("ch0042_spr") == japan.key("ch0042_home") == "ch0042"
+    assert japan.core("ch0042", "spr") == "ch0042_spr" and japan.core("ch0010", "spr") is None
+    assert catalog.variant_for_core("hoshino_swimsuit_home").key == "ch0010"
+
+
+def test_core_map_copies_the_kept_parse(game: FakeGame):
+    catalog = Catalog(game, None, FIXTURES / "catalog.json")
+    before = {core: catalog.variant_for_core(core).key for core in game.cores["spr"]}
+    first = catalog.core_map(["newcomer_spr"], [])
+    assert first.key("newcomer_spr") == "newcomer"
+    second = catalog.core_map(["hoshino_spr"], ["newcomer_home"])
+    # the first install's unknown key never enters the second's map, nor the roster's
+    assert second.key("newcomer_home") == "newcomer" and "newcomer" not in second.spr
+    assert "newcomer" not in second.names
+    with pytest.raises(ServiceError):
+        catalog.variant("newcomer")
+    assert {core: catalog.variant_for_core(core).key for core in game.cores["spr"]} == before
+
+
+def test_reload_parses_the_data_again_for_the_map_and_keeps_both_when_invalid(game: FakeGame, tmp_path: Path):
+    data_path = tmp_path / "data.json"
+    data = json.loads((FIXTURES / "catalog.json").read_text(encoding="utf-8"))
+    data_path.write_text(json.dumps(data), encoding="utf-8")
+    catalog = Catalog(game, None, data_path)
+    assert catalog.core_map([], ["dev_alias_home"]).key("dev_alias_home") == "dev_alias"
+    data["variants"]["ch0020"]["core_aliases"] = ["dev_alias"]
+    data_path.write_text(json.dumps(data), encoding="utf-8")
+    assert catalog.core_map([], ["dev_alias_home"]).key("dev_alias_home") == "dev_alias"  # the kept parse
+    catalog.reload()
+    assert catalog.core_map([], ["dev_alias_home"]).key("dev_alias_home") == "ch0020"
+    data_path.write_text('{"students":{},"variants":{"bad":{}}}', encoding="utf-8")
+    with pytest.raises(ServiceError) as failure:
+        catalog.reload()
+    assert failure.value.code == "catalog_data_invalid"
+    assert catalog.core_map([], ["dev_alias_home"]).key("dev_alias_home") == "ch0020"
+    assert catalog.family("hoshino").key == "hoshino"
+
+
 @pytest.fixture(scope="module")
 def shipped() -> dict:
     return json.loads(DEFAULT_DATA.read_text(encoding="utf-8"))
