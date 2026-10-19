@@ -430,6 +430,73 @@ def test_visit_skips_disabled_and_hidden_renderers():
     assert names == {"CH0189": False, "CH0189_Face_Outline": False, "CH0189_Face01_Outline": False, "Off": True}
 
 
+def test_ex_only_renderers_alternative_faces_and_cut_in_bodies():
+    # Koyuki (ch0198): the gag face (no eyes) beside the face with eyes
+    koyuki = [(1, "CH0198_Mesh", [("body", 900), ("eyemouth", 96), ("hair", 800)]),
+              (2, "CH0198_Face01_Outline", [("face", 1944)]),
+              (3, "CH0198_Face_Outline", [("face", 1704), ("eyebrow", 318), ("eyemouth", 192)])]
+    assert model.ex_only_renderers(koyuki) == {2}
+    # Chiaki (ch0238): the body's small face part is not a face renderer; Face02 (no eyes) goes, Face01 stays
+    chiaki = [(1, "CH0238_Body", [("body", 900), ("face", 96), ("eyemouth", 96)]),
+              (2, "CH0238_Face01", [("face", 2652), ("eyemouth", 582)]), (3, "CH0238_Face02", [("face", 2700)])]
+    assert model.ex_only_renderers(chiaki) == {3}
+    # Hasumi (Swimsuit): the second face carries the sunglasses (another material) and no eyes
+    hasumi = [(1, "CH0291_Face_01", [("face", 2142), ("eyebrow", 60), ("eyemouth", 591)]),
+              (2, "CH0291_Face_02", [("face", 1602), ("eyebrow", 60), ("general", 300)])]
+    assert model.ex_only_renderers(hasumi) == {2}
+    # Neru (School): a prop drawn with the face material is not a face renderer
+    neru = [(1, "CH0280_Prop_Outline", [("face", 216), ("eyebrow", 12)]),
+            (2, "CH0280_Face_Outline", [("face", 3252), ("eyemouth", 558)]), (3, "CH0280_Face01_Outline", [("face", 2865)])]
+    assert model.ex_only_renderers(neru) == {3}
+    # one face (eyes in the body), or two faces and none with eyes: nothing to choose
+    assert model.ex_only_renderers([(1, "Body", [("body", 900), ("eyemouth", 96)]), (2, "Face", [("face", 2112)])]) == set()
+    assert model.ex_only_renderers([(1, "Face", [("face", 2000)]), (2, "Face01", [("face", 1900)])]) == set()
+    # Shigure (Hot Spring): the cut-in copy of the body goes; a cut-in prop stays (the clips scale props away)
+    shigure = [(1, "CH0123_CutIn_Body", [("body", 900), ("face", 1914), ("eyemouth", 978)]),
+               (2, "CH0123_Body", [("body", 900), ("face", 1914), ("eyemouth", 978)]),
+               (3, "CH139_Cutin_chair", [("general", 400)])]
+    assert model.ex_only_renderers(shigure) == {1}
+    # only cut-in bodies: none of them goes
+    assert model.ex_only_renderers(shigure[:1]) == set()
+
+
+def test_set_aside_ex_only_reads_submeshes_and_shaders(monkeypatch):
+    ref = lambda p: {"m_FileID": 0, "m_PathID": p}  # noqa: E731
+    shaders = {name: _object(pid, "Shader", m_ParsedForm={"m_Name": name})
+               for pid, name in ((900, "MX/C-Face"), (901, "MX/C-EyesMouth"), (902, "MX/C-Eyebrow"))}
+    mats = [_object(910 + i, "Material", m_Name=f"M{i}", m_Shader=ref(s.path_id)) for i, s in enumerate(shaders.values())]
+    face = _object(920, "Mesh", m_SubMeshes=[{"indexCount": 1704}, {"indexCount": 318}, {"indexCount": 192}])
+    gag = _object(921, "Mesh", m_SubMeshes=[{"indexCount": 1944}])
+    graph = _Graph(
+        *shaders.values(), *mats, face, gag,
+        *_game_object(1, "CH0198", [], children=(10, 20)),
+        *_game_object(10, "CH0198_Face01_Outline", [_object(12, "SkinnedMeshRenderer", m_Enabled=1, m_Mesh=ref(921),
+                                                            m_Materials=[ref(910)])]),
+        *_game_object(20, "CH0198_Face_Outline", [_object(22, "SkinnedMeshRenderer", m_Enabled=1, m_Mesh=ref(920),
+                                                          m_Materials=[ref(910), ref(912), ref(911)])]),
+    )
+    exporter = model._Exporter(graph, "ch0198")
+    exporter.visit(graph.objects[1], None, "", True)
+    exporter.set_aside_ex_only()
+    assert [graph.tree(go)["m_Name"] for _, _, go in exporter.renderers] == ["CH0198_Face_Outline"]
+    assert list(exporter.disabled) == [1]  # the gag face's node, exported only when a clip turns it on
+
+    def meshes(renderers=None):
+        for node, _, _ in (exporter.renderers if renderers is None else renderers):
+            exporter.nodes.append({"name": exporter.nodes[node]["name"] + "_mesh"})
+            exporter.nodes[node].setdefault("extras", {})["renderer"] = len(exporter.nodes) - 1
+    monkeypatch.setattr(exporter, "meshes", meshes)
+    exporter.meshes()
+    enabled = zlib.crc32(b"m_Enabled")
+    tt = {"m_MuscleClip": {"m_StartTime": 0.0}, "m_ClipBindingConstant": {"genericBindings": [
+        {"typeID": 137, "attribute": enabled, "path": zlib.crc32(b"CH0198_Face01_Outline")}]}}
+    # a clip that turns it off changes nothing (hidden at rest already); one that turns it on brings it in
+    assert exporter.toggles(tt, model.DecodedClip(1.0, [0.0, 1.0], {0: [0.0]}), {zlib.crc32(b"CH0198_Face01_Outline"): 1}) == []
+    toggles = exporter.toggles(tt, model.DecodedClip(1.0, [0.0, 1.0], {0: [0.0, 1.0]}), {zlib.crc32(b"CH0198_Face01_Outline"): 1})
+    gag_mesh = exporter.nodes[1]["extras"]["renderer"]
+    assert toggles == [{"node": gag_mesh, "keys": [[0.0, 0], [1.0, 1]]}] and exporter.nodes[gag_mesh]["extras"]["hidden"]
+
+
 def test_material_outline_respects_disabled_shader_passes():
     # MX/C-Hair-Transparent has an Outline pass; CH0264_Hair_Alpha turns it off (Material.SetShaderPassEnabled), the
     # other passes a material may turn off (the shadow caster) leave the outline alone
@@ -648,11 +715,15 @@ def test_real_chibi_exports(tmp_path):
     masks = {t["name"] for t in doc["textures"] if t.get("extras", {}).get("linear")}
     assert masks and all("mask" in n.lower() or "spec" in n.lower() or "green" in n.lower() for n in masks)
     assert all(doc["samplers"][t["sampler"]]["minFilter"] in (9728, 9729) for t in doc["textures"])
-    if "ch0145" in game.model_cores():  # Miyu: the idle turns her expression face off
+    drawn = lambda doc: {n["name"] for n in doc["nodes"] if "mesh" in n}  # noqa: E731
+    if "ch0145" in game.model_cores():  # Miyu: every clip turns her expression face off, so it is never drawn
         miyu = _strict(game.model_glb("ch0145"))
         idle = next(a for a in miyu["animations"] if a["extras"]["slot"] == "Formation_Idle")
-        assert [miyu["nodes"][t["node"]]["name"] for t in idle["extras"]["toggles"]] == ["CH0145_Face01_Outline_mesh"]
-        assert idle["extras"]["toggles"][0]["keys"] == [[0.0, 0]]
+        assert "toggles" not in idle["extras"]
+        assert "CH0145_Face_Outline_mesh" in drawn(miyu) and "CH0145_Face01_Outline_mesh" not in drawn(miyu)
+    if "ch0198" in game.model_cores():  # Koyuki: no clip switches her faces; the gag face is left out
+        koyuki = drawn(_strict(game.model_glb("ch0198")))
+        assert "CH0198_Face_Outline_mesh" in koyuki and "CH0198_Face01_Outline_mesh" not in koyuki
     if "saya_original" in game.model_cores():  # an infinite material constant
         fade = [m["extras"]["colors"].get("_CameraFadeParams") for m in _strict(game.model_glb("saya_original"))["materials"]]
         assert [0.0, model.FLT_MAX, 0.0, 0.0] in fade
