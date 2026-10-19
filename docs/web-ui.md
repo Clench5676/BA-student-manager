@@ -407,6 +407,10 @@ does (`OnPressScreen`, `OnMoveSpine`, `PlayZoomInOut`, `co_ReturnToDefaultPositi
   buttons are rendered off screen first, so every part starts in the same frame.
 - Leaving glides back to the detail screen's framing exactly. Not reproduced: the phone's gyroscope (mobile only) and
   the button sounds. Without the prefab the portrait still goes fullscreen, with the tool's exit button.
+- While any fullscreen view is open (this one, the lobby's, the 3D model's), the slid-out UI, the top bar and the
+  navigation are inert (`uiOut`): Tab reaches only the view's own buttons (the tool's exit button in the others), and no
+  hidden control acts. Leaving (`uiBack`) gives the focus back to the control that had it and always closes the
+  visual mode, whatever tab the screen shows by then.
 
 ### Popups
 

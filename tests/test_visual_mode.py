@@ -16,6 +16,7 @@ from ba_modding_toolkit.searching import get_search_dirs
 
 NODE = shutil.which("node")
 TESTS = Path(__file__).parent / "js" / "visual_view.test.mjs"
+MODE_TESTS = Path(__file__).parent / "js" / "visual_mode.test.mjs"
 GAME_DIR = Path(os.environ.get("BAMT_TEST_GAME_DIR", str(
     Path.home() / "Library/Application Support/Blue Archive/Game")))
 
@@ -23,6 +24,14 @@ GAME_DIR = Path(os.environ.get("BAMT_TEST_GAME_DIR", str(
 @pytest.mark.skipif(NODE is None, reason="Node.js is not installed")
 def test_visual_view_in_node():
     result = subprocess.run([NODE, "--test", str(TESTS)], capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.skipif(NODE is None, reason="Node.js is not installed")
+def test_visual_mode_leaving_in_node():
+    """The detail screen's UI is out of the keyboard's reach while a fullscreen view is open, and leaving fullscreen
+    always closes the visual mode (visual-mode.js uiOut, uiBack)."""
+    result = subprocess.run([NODE, "--test", str(MODE_TESTS)], capture_output=True, text=True, timeout=120)
     assert result.returncode == 0, result.stdout + result.stderr
 
 
