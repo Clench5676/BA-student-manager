@@ -13,6 +13,7 @@ from ..config import APP_DIR_NAME, Settings, user_cache_dir
 from ..globallines import GlobalLines
 from ..kivo import Kivo
 from ..errors import ServiceError
+from ..naming import parse_filename
 from ..utils import EXE_DIR
 from .events import EventBus
 from .jobs import JobRunner
@@ -247,10 +248,14 @@ class Services:
                 return AssetResponse(self.game.lobby_fx_texture(key, name[3:-4]), "image/png", light=False)
             except AssetNotFound:
                 pass
+        core = key
         if kind in ("spr", "lobby"):
             files = self.game.spine_files(kind, key)
         elif kind == "mod":
-            files = self.game.spine_files_from(self.library.preview_bundles(key))
+            bundles = self.library.preview_bundles(key)
+            files = self.game.spine_files_from(bundles)
+            # the mod's own core names its skeleton (a lobby has more than one: the character and its background)
+            core = parse_filename(bundles[-1].name).core
         else:
             raise KeyError(kind)
         if name == "files.json":
@@ -261,7 +266,7 @@ class Services:
             suffix = Path(name).suffix
             if Path(name).stem == "skeleton":
                 matches = [k for k in files if k.endswith(suffix)]
-                named = [k for k in matches if Path(k).stem.lower() == key.lower()]
+                named = [k for k in matches if Path(k).stem.lower() == core.lower()]
                 pick = named or (matches if len(matches) == 1 else [])
                 data = files[pick[0]] if pick else None
         if data is None:

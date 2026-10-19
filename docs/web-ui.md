@@ -7,7 +7,7 @@ at runtime and never shipped with the program.
 ## First milestone
 
 - Screens: consent popup, student roster, student detail (Portrait, Memorial Lobby and 3D tabs), the
-  switch-portrait popup and the variant picker. The lobby is framed and touched like the game (its prefab data,
+  switch popups (portrait, memorial lobby) and the variant picker. The lobby is framed and touched like the game (its prefab data,
   `lobby.json`) and plays its dialogue with Kivo's voices and the lines in the UI language (Kivo's Chinese and
   Japanese, the Global server's official English and the others); the 3D tab shows the variant's chibi, exported
   from the install, and is disabled only for variants without one.
@@ -410,7 +410,7 @@ library).
 | `/asset/ui/textures.json`, `/asset/ui/texture/<name>.png` (also the PC pointer and the touch effect's textures, an index of their own outside the listing) | light |
 | `/asset/ui/layout/<root>.json?path=<subpath>` | light |
 | `/asset/art/bg/<name>`, `/asset/art/portrait/<name>.png` | heavy |
-| `/asset/spine/spr/<core>/<file>`, `/asset/spine/lobby/<core>/<file>`, `/asset/spine/mod/<id>/<file>` | heavy |
+| `/asset/spine/spr/<core>/<file>`, `/asset/spine/lobby/<core>/<file>`, `/asset/spine/mod/<id>/<file>` (`skeleton.skel` and `skeleton.atlas` stand for the skeleton named like the core, a mod's own core for a mod, else the only one) | heavy |
 | `/asset/spine/lobby/<core>/lobby.json` (prefab layout, touch boxes, clips, post-processing, particle effects; no skeleton is extracted) | heavy |
 | `/asset/spine/lobby/<core>/fx_<id>.png` (a particle texture the lobby's `fx.textures` lists) | heavy |
 | `/asset/model/<variant>.glb` (the variant's chibi, `model/gltf-binary`) | heavy |
@@ -504,9 +504,19 @@ does (`OnPressScreen`, `OnMoveSpine`, `PlayZoomInOut`, `co_ReturnToDefaultPositi
 
 ### Popups
 
-The detail screen's popups (switch portrait, the variant picker, compare, details, aliases) are drawn on the game's
-popup frame (UIPopup_Sort) and cover the whole stage with its dark backdrop, top bar and navigation included, like the
-display settings and the settings; a click on the backdrop or Escape closes them (PopupClose).
+The detail screen's popups (switch portrait, switch memorial lobby, the variant picker, compare, details, aliases) are
+drawn on the game's popup frame (UIPopup_Sort) and cover the whole stage with its dark backdrop, top bar and
+navigation included, like the display settings and the settings; a click on the backdrop or Escape closes them
+(PopupClose).
+
+- **Switch Portrait, Switch Memorial Lobby** (the switch card of the Portrait and Memorial Lobby tabs; the add button
+  beside it adds mods of either kind): what the game can show for that kind (`switch-sources.js`, tested in Node):
+  the variant's own files, its added portraits or lobbies, the other variants' own (those with one of their own),
+  then the other variants' added ones. Cards are framed on the face of each skeleton (a lobby's main skeleton, named
+  like its core), "In Use" marks what the game shows now. Apply writes the choice into the game files
+  (`actions.apply` with the tab's kind), then the portrait or the lobby is read again from them, under a still of the
+  old one. Row 2's update and compare act on the mod the shown tab's files carry. The 3D tab's card has nothing to
+  switch yet (library).
 
 - **Aliases** (the pencil after the name on the nameplate, the game's name edit icon `Cafe_Icon_NameEdit`): the
   user's own aliases of the student, which the roster search matches (several, at most 8 of up to 24 characters;

@@ -309,6 +309,17 @@ def test_asset_routes(app):
     assert call(app, "/asset/spine/spr/hoshino_spr/other.png")[0] == "404 Not Found"
 
 
+def test_mod_skeleton_is_the_one_named_by_the_mods_core(app, services, monkeypatch):
+    # a memorial lobby mod holds the character's skeleton and its background's
+    bundle = Path("assets-_mx-spinelobbies-hoshino_home-_mxdependency-2026-01-01_assets_all_1.bundle")
+    monkeypatch.setattr(services.library, "preview_bundles", lambda mod_id: [bundle], raising=False)
+    monkeypatch.setattr(services.game, "spine_files_from", lambda bundles: {
+        "Hoshino_home.skel": b"main", "Hoshino_home.atlas": b"main atlas",
+        "Hoshino_home_bg.skel": b"bg", "Hoshino_home_bg.atlas": b"bg atlas"}, raising=False)
+    assert call(app, "/asset/spine/mod/m1/skeleton.skel")[2] == b"main"
+    assert call(app, "/asset/spine/mod/m1/skeleton.atlas")[2] == b"main atlas"
+
+
 def test_a_new_library_prunes_its_kept_originals_once(tmp_path, monkeypatch):
     pruned = []
 
