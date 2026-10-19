@@ -415,3 +415,11 @@ export function fitText(str, fsMax, fsMin, maxW, maxLines = 2) {
   }
   return { text: str, fs: fsMin - 8, lines: 1 };
 }
+
+// fitText into a label widget: its text and size, and its box at least maxW wide, so text fitted to maxW never spills
+// out of a narrower box (a prefab label is often a little narrower than the button drawn round it)
+export function fitLabel(widget, str, fsMax, fsMin, maxW, maxLines = 2) {
+  const f = fitText(str, fsMax, fsMin, maxW, maxLines);
+  Object.assign(widget, { text: f.text, fontSize: f.fs, w_: Math.max(widget.w_ || 0, maxW) });
+  return f;
+}

@@ -1,4 +1,4 @@
-// Tests for the text fitting in web/js/ngui.js (fitText): the CJK line-breaking rules in every UI language.
+// Tests for the text fitting in web/js/ngui.js (fitText, fitLabel): the CJK line-breaking rules in every UI language.
 // Run by tests/test_ngui_fit.py with Node's test runner: node --test tests/js/ngui_fit.test.mjs
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -14,7 +14,7 @@ const ctx = {
 };
 globalThis.document = { createElement: () => ({ getContext: () => ctx }), documentElement: { lang: "ja-JP" } };
 globalThis.getComputedStyle = () => ({ getPropertyValue: () => "" });
-const { fitText } = await import("../../src/ba_modding_toolkit/web/js/ngui.js");
+const { fitLabel, fitText } = await import("../../src/ba_modding_toolkit/web/js/ngui.js");
 
 const BAD_START = /^[、。，．：；！？）」』】〉》…‥ーぁぃぅぇぉっゃゅょゎァィゥェォッャュョヮヵヶ〜～,.!?)]/;
 const BAD_END = /[（「『【〈《(]$/;
@@ -49,4 +49,13 @@ test("Korean breaks at spaces and keeps its punctuation on the line before", () 
 test("Simplified Chinese still breaks at its separators first", () => {
   document.documentElement.lang = "zh-CN";
   assert.equal(fitText("星野（一年级，学校泳装）", 40, 32, 6 * 32).text, "星野（一年级，\n学校泳装）");
+});
+
+test("a fitted label's box is at least as wide as the width it was fitted to", () => {
+  const widget = { text: "", fontSize: 72, w_: 400 };
+  const f = fitLabel(widget, "Finder에서 보기", 64, 40, 420);
+  assert.deepEqual([widget.text, widget.fontSize, widget.w_], [f.text, f.fs, 420]);
+  const wide = { text: "", fontSize: 72, w_: 600 };
+  fitLabel(wide, "OK", 64, 40, 420);
+  assert.equal(wide.w_, 600);
 });
