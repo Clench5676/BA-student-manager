@@ -4,7 +4,7 @@ the classic GUI rewrites with only its own keys.
 
 Several app instances may share one data folder: every change is applied to the file as it is at that moment (read
 again under a lock the instances share), so one instance never erases what another wrote, and reads pick up the
-other instances' writes."""
+other instances' writes, under the same lock: Windows cannot replace a file another process has open."""
 
 from __future__ import annotations
 
@@ -16,6 +16,7 @@ import math
 import os
 import tempfile
 import threading
+import time
 import unicodedata
 from collections.abc import Callable, Iterator
 from pathlib import Path
@@ -126,6 +127,23 @@ def _file_lock(path: Path) -> Iterator[None]:
                 fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
+# Windows: a file another program has open without delete sharing (a virus scanner or the search indexer looking at
+# the new file) cannot be replaced for a moment
+REPLACE_TRIES, REPLACE_WAIT = (20, 0.05) if os.name == "nt" else (1, 0.0)
+
+
+def _replace(src: str, dst: Path, tries: int = REPLACE_TRIES, wait: float = REPLACE_WAIT) -> None:
+    """os.replace, tried again for a moment while another program holds the file (PermissionError)."""
+    for attempt in range(1, tries + 1):
+        try:
+            os.replace(src, dst)
+            return
+        except PermissionError:
+            if attempt >= tries:
+                raise
+            time.sleep(wait)
+
+
 def _recent_of(data: dict[str, Any]) -> list[str]:
     value = data.get("recent")
     return [v for v in value if isinstance(v, str)] if isinstance(value, list) else []
@@ -157,13 +175,19 @@ class UiState:
 
     def _current(self) -> dict[str, Any]:
         """The state as the file holds it now (another instance may have written it); what was last known while the
-        file is missing or unreadable."""
+        file is missing or unreadable. Read under the lock the instances share, so another instance's write never
+        meets this one's open file (Windows refuses to replace it)."""
         with self._lock:
-            signature = self._signature()
-            if signature is not None and signature != self._seen:
-                data = self._read()
-                if data is not None:
-                    self._data, self._seen = data, signature
+            if self._signature() in (None, self._seen):
+                return self._data
+            try:
+                with _file_lock(self._lock_path):
+                    signature, data = self._signature(), self._read()
+            except OSError:  # the lock not had in time (Windows gives up after 10 s): what was last known
+                logger.warning("cannot lock %s", self._lock_path, exc_info=True)
+                return self._data
+            if signature is not None and data is not None:
+                self._data, self._seen = data, signature
             return self._data
 
     def _update(self, change: Callable[[dict[str, Any]], None]) -> None:
@@ -179,7 +203,7 @@ class UiState:
             try:
                 with os.fdopen(fd, "w", encoding="utf-8") as out:
                     out.write(json.dumps(data, ensure_ascii=False, indent=1))
-                os.replace(name, self.path)
+                _replace(name, self.path)
             except BaseException:
                 with contextlib.suppress(OSError):
                     os.unlink(name)

@@ -1653,15 +1653,24 @@ const wake = () => {
 };
 // in fullscreen the character can be touched and the view zoomed like in the game; leaving resets the zoom. The
 // portrait's fullscreen is the game's visual mode (visual-mode.js), with the game's own buttons instead of fs-exit.
+// Leaving puts every part back whatever the tab is by now (an in-place show may have changed it); setStage(false)
+// closes the visual mode.
 function setFullscreen(on) {
   if (on && tab === "portrait") { enterVisual(); return; }
-  fullscreen = on;
-  stage().classList.toggle("fullscreen", on);
-  if (tab === "portrait") Visual.close();
-  if (tab === "lobby") { Lobby.frame(on ? "full" : "left"); Lobby.interactive(on); }
-  if (tab === "model") modelLib?.then((M) => M.frame(on ? "full" : "left"));
+  setStage(on);
+  if (!on || tab === "lobby") { Lobby.frame(on ? "full" : "left"); Lobby.interactive(on); }
+  if (!on || tab === "model") modelLib?.then((M) => M.frame(on ? "full" : "left"));
   showExit(on);
   if (!on) stillAfterFullscreen();
+}
+// the UI slides out (app.css .stage.fullscreen) and out of the keyboard's reach; back, the visual mode closes and the
+// focus returns (visual-mode.js uiOut, uiBack)
+const slidOut = () => [$("ngui"), $("ngui-chips"), $("ngui-expr"), stage().querySelector(".topbar"), stage().querySelector(".nav")];
+function setStage(on) {
+  fullscreen = on;
+  stage().classList.toggle("fullscreen", on);
+  if (on) Visual.uiOut(slidOut());
+  else Visual.uiBack(slidOut(), { refocus: open });
 }
 function showExit(on) {
   $("fs-exit").hidden = !on;
@@ -1678,8 +1687,7 @@ async function enterVisual() {
   const strings = { reset: T("visual.reset"), back: T("lobby.exit"), hide: T("visual.hide"), show: T("visual.show") };
   const parts = await Visual.prepare({ layout, bg: variant().bg, strings }).catch((err) => { console.error(err); return null; });
   if (my !== visualToken || !open || fullscreen || tab !== "portrait" || variantKey !== key || !mainPlayer?.skeleton) return;
-  fullscreen = true;
-  stage().classList.add("fullscreen");
+  setStage(true);
   Visual.open({
     parts, skeleton: mainPlayer.skeleton, detail: detailViewport(), host: stage(), bgHost: $("visual-bg"), uiHost: $("visual-ui"),
     players: () => [...$("portrait").querySelectorAll(".layer")].map((l) => l.player).filter(Boolean),

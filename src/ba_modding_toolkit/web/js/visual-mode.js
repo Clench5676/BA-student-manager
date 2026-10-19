@@ -113,6 +113,28 @@ function finish(s) {
   for (const host of [s.o.bgHost, s.o.uiHost]) { host.hidden = true; host.replaceChildren(); host.classList.remove("on"); }
 }
 
+// Every fullscreen view of the detail screen (this one, the memorial lobby's, the 3D model's) slides the screen's UI
+// out (app.css .stage.fullscreen). uiOut(parts): while out, the parts are inert, so a control nobody sees neither
+// takes the keyboard's focus nor acts; the focused one lets go. uiBack(parts): they come back, the visual mode closes
+// whichever tab the screen shows by then (a tab changed meanwhile must not leave its full-screen touch area over the
+// screen), and the control that had the focus gets it back (refocus: false while the screen is being left).
+let asideFocus = null;
+export function uiOut(parts) {
+  const live = parts.filter(Boolean), focused = document.activeElement;
+  if (focused && live.some((p) => p.contains(focused))) {
+    asideFocus = focused;
+    focused.blur();
+  }
+  for (const p of live) p.inert = true;
+}
+export function uiBack(parts, { refocus = true } = {}) {
+  close();
+  for (const p of parts) if (p) p.inert = false;
+  const back = asideFocus;
+  asideFocus = null;
+  if (refocus && back?.isConnected && !back.closest("[inert]")) back.focus({ preventScroll: true });
+}
+
 // spine-player's per-frame hook (detail.js passes it as the portrait players' config.frame): before the player
 // frames its camera, the view of this frame
 export function frame(player) {
