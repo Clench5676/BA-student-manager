@@ -194,6 +194,85 @@ def test_enlarged_lobby_scale_and_unknown_skeletons():
     assert build_prefab().read("LobbyMissing", SKELETONS, core_clips()) is None
 
 
+def param(value, override: int = 1) -> dict:
+    """A volume parameter as its typetree holds it (a Vector4 as x y z w)."""
+    if isinstance(value, (list, tuple)):
+        value = dict(zip("xyzw", value))
+    return {"m_OverrideState": override, "m_Value": value}
+
+
+def color(r: float, g: float, b: float) -> dict:
+    return {"m_OverrideState": 1, "m_Value": {"r": r, "g": g, "b": b, "a": 1.0}}
+
+
+def component(name: str, active: int = 1, **params) -> dict:
+    return {"m_Name": name, "active": active, **params}
+
+
+def test_post_processing_blends_the_volumes_like_urp():
+    ppv = [
+        component("ChromaticAberration", intensity=param(0.075)),
+        component("LiftGammaGain", lift=param([1.0, 1.0, 1.0, 0.0]), gain=param([0.98568, 1.0, 0.94948, 0.0]),
+                  gamma=param([0.5, 0.5, 0.5, 0.3], override=0)),  # not overridden: stays at its default
+        component("PaniniProjection", active=0, distance=param(1.0), cropToFit=param(1.0)),  # switched off
+        component("DepthOfField", mode=param(1)),  # not drawn: ignored
+    ]
+    flash = [component("ColorAdjustments", postExposure=param(5.5), colorFilter=color(1.0, 0.81539, 0.74057))]
+    volumes = [
+        {"weight": 1.0, "priority": 0.0, "global": True, "active": True, "components": ppv},
+        # the prefab keeps the flash volume a little on: 1.5 % of it
+        {"weight": 0.015, "priority": 0.0, "global": True, "active": True, "components": flash},
+        {"weight": 0.0, "priority": 0.0, "global": True, "active": True, "components": [component("DepthOfField")]},
+        {"weight": 1.0, "priority": 0.0, "global": True, "active": False, "components": [
+            component("ChromaticAberration", intensity=param(1.0))]},
+    ]
+    post = lobby.post_processing(volumes)
+    assert post == {
+        "chromaticAberration": 0.075,
+        "liftGammaGain": {"lift": [1.0, 1.0, 1.0, 0.0], "gamma": [1.0, 1.0, 1.0, 0.0], "gain": [0.98568, 1.0, 0.94948, 0.0]},
+        "colorAdjustments": {"postExposure": 0.0825, "contrast": 0.0, "colorFilter": [1.0, 0.99723, 0.99611],
+                             "hueShift": 0.0, "saturation": 0.0},
+    }
+    assert json.loads(json.dumps(post)) == post
+
+
+def test_post_processing_priority_weight_and_defaults():
+    def ca(value: float, weight: float = 1.0, priority: float = 0.0) -> dict:
+        return {"weight": weight, "priority": priority, "global": True, "active": True,
+                "components": [component("ChromaticAberration", intensity=param(value))]}
+    # the higher priority goes last whatever the hierarchy order; a partial weight lerps from what is below
+    assert lobby.post_processing([ca(0.2, priority=1.0), ca(0.1)]) == {"chromaticAberration": 0.2}
+    assert lobby.post_processing([ca(0.1), ca(0.3, weight=0.5)]) == {"chromaticAberration": 0.2}
+    # effects that end up doing nothing are left out, as are local volumes and a Panini projection at distance 0
+    assert lobby.post_processing([ca(0.0)]) == {}
+    assert lobby.post_processing([{**ca(0.1), "global": False}]) == {}
+    panini = {"weight": 0.368, "priority": 0.0, "global": True, "active": True,
+              "components": [component("PaniniProjection", distance=param(1.0), cropToFit=param(1.0))]}
+    assert lobby.post_processing([panini]) == {"panini": {"distance": 0.368, "cropToFit": 1.0}}
+    assert lobby.post_processing([]) == {}
+
+
+def test_prefab_volumes_follow_only_the_volumes_that_count():
+    p = build_prefab()
+    fields = {"m_IsGlobal": 1, "priority": 0.0, "blendDistance": 0.0}
+    p.node(12, "PPV", father=1)
+    p.mb(12, 1201, 7777, weight=1.0, sharedProfile=ref(-501, 4), **fields)
+    p.node(13, "PPV_C", father=12)
+    p.mb(13, 1301, 7777, weight=0.0, sharedProfile=ref(-502, 4), **fields)
+    profiles = {-501: [component("ChromaticAberration", intensity=param(0.1))]}
+    asked = []
+
+    def profile(pid, pointer):
+        asked.append((pid, pointer["m_PathID"]))
+        return profiles.get(pointer["m_PathID"])
+    kinds = {pid: kind for pid, (kind, _) in p.objects.items()}
+    info = lobby.read_prefab(kinds, lambda pid: p.objects[pid][1], SCRIPTS, "LobbyTest", SKELETONS, core_clips(), profile)
+    assert info["post"] == {"chromaticAberration": 0.1}
+    assert asked == [(1201, -501)]  # the flash volume at weight 0 is never followed
+    # without a resolver (or without volumes) there is nothing to apply
+    assert build_prefab().read("LobbyTest", SKELETONS, core_clips())["post"] == {}
+
+
 def test_lobby_info_with_and_without_prefab():
     clips = core_clips()
     info = lobby.lobby_info(SKELETONS, clips, build_prefab().read("LobbyTest", SKELETONS, clips))
@@ -201,7 +280,7 @@ def test_lobby_info_with_and_without_prefab():
     assert info["defaultMix"]["Test_home"] == 0.4 and "Pat_01_M" in info["clips"]["Test_home"]
     assert json.loads(json.dumps(info)) == info
     bare = lobby.lobby_info(["A_home", "A_bg", "A_home"], lobby.Clips([], []), None)
-    assert bare["prefab"] is None and bare["drags"] == [] and bare["touches"] == []
+    assert bare["prefab"] is None and bare["drags"] == [] and bare["touches"] == [] and bare["post"] == {}
     assert [(l["name"], l["x"], l["y"], l["scale"], l["active"]) for l in bare["layers"]] == [
         ("A_home", 0.0, -962.0, 1.0, True), ("A_bg", 0.0, -962.0, 1.0, True)]
 
@@ -262,6 +341,10 @@ def test_real_lobbies(real_game, monkeypatch):
     assert {(l["y"], l["scale"]) for l in momiji["layers"]} == {(-1106.3, 1.15)}
     aru = {l["name"]: l["active"] for l in real_game.lobby_info("aru_home")["layers"]}
     assert aru["Aru_home"] is True and False in aru.values()
+    # the camera's post-processing from the prefab's volumes (PPV at weight 1; the flash and depth of field at 0)
+    assert hoshino["post"] == {
+        "chromaticAberration": 0.12, "panini": {"distance": 1.0, "cropToFit": 1.0},
+        "liftGammaGain": {"lift": [1.0, 1.0, 1.0, 0.0], "gamma": [1.0, 1.0, 1.0, 0.0], "gain": [1.0, 0.9116, 0.96201, 0.0]}}
     # lobby data is derived from character bundles: kept in memory, and nothing but the prefab name index reaches the
     # disk cache (consent is on)
     assert sum(key.startswith(_SCHEMA + "lobby/") and not disk for key, disk in puts) == 3

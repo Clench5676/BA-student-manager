@@ -473,7 +473,7 @@ class GameAssets:
         stamps = [(path.name, path.stat().st_size, path.stat().st_mtime_ns) for path in bundles if path.exists()]
 
         def build() -> bytes:
-            skeletons, behaviours = [], []
+            skeletons, behaviours, trees = [], [], {}
             for path in bundles:
                 with open_bundle(path) as env:
                     for obj in env.objects:
@@ -483,26 +483,34 @@ class GameAssets:
                                 skeletons.append(name[:-5])
                         elif obj.type.name == "MonoBehaviour":
                             try:
-                                behaviours.append((obj.path_id, obj.read_typetree()))
+                                tree = obj.read_typetree()
                             except (ValueError, TypeError):
                                 logger.debug("Cannot read lobby behaviour %s", obj.path_id, exc_info=True)
+                                continue
+                            behaviours.append((obj.path_id, tree))
+                            # the volume profiles and their components are behaviours of the core's bundles too
+                            trees[(obj.assets_file.name.lower(), obj.path_id)] = tree
             skeletons = list(dict.fromkeys(skeletons))
             clips = lobby.Clips(behaviours, skeletons)
             prefabs, prefab = self._lobby_prefabs(), None
             for name in lobby.prefab_candidates(core, skeletons):
                 if name in prefabs:
-                    prefab = self._lobby_prefab(prefabs[name], name, skeletons, clips)
+                    prefab = self._lobby_prefab(prefabs[name], name, skeletons, clips, trees)
                     if prefab:
                         break
             return json.dumps(lobby.lobby_info(skeletons, clips, prefab), ensure_ascii=True,
                               separators=(",", ":")).encode()
         return json.loads(self._cached("lobby/" + json.dumps([core.lower(), stamps]), build, disk=False))
 
-    def _lobby_prefab(self, bundle: str, root: str, skeletons: list[str], clips: lobby.Clips) -> dict | None:
+    def _lobby_prefab(self, bundle: str, root: str, skeletons: list[str], clips: lobby.Clips,
+                      behaviours: dict[tuple[str, int], dict] | None = None) -> dict | None:
+        """read_prefab on a prefab bundle; behaviours are the lobby core's MonoBehaviours by (CAB name, path id),
+        where the prefab's volume profiles usually are."""
         try:
             path = self._bundle_path(bundle)
         except AssetNotFound:
             return None
+        known = dict(behaviours or {})
         with open_bundle(path) as env:
             objects = {obj.path_id: obj for obj in env.objects}
             kinds = {pid: obj.type.name for pid, obj in objects.items()}
@@ -513,5 +521,44 @@ class GameAssets:
                 if pid not in trees:
                     trees[pid] = objects[pid].read_typetree()
                 return trees[pid]
+
+            def profile(pid: int, pointer: dict) -> list[dict] | None:
+                cab, ref = reference(objects[pid], pointer)
+                key = (cab.lower(), ref)
+                if key not in known:
+                    known.update(self._lobby_behaviours(cab))
+                found = known.get(key)
+                if found is None:
+                    logger.debug("Volume profile %s not found", key)
+                    return None
+                # the components are sub-assets of the profile, in its own file
+                parts = [(key[0], c.get("m_PathID")) for c in found.get("components", []) if not c.get("m_FileID")]
+                return [known[part] for part in parts if part in known]
             scripts = {pid: tree(pid).get("m_ClassName") for pid, kind in kinds.items() if kind == "MonoScript"}
-            return lobby.read_prefab(kinds, tree, scripts, root, skeletons, clips)
+            return lobby.read_prefab(kinds, tree, scripts, root, skeletons, clips, profile)
+
+    def _lobby_behaviours(self, cab: str) -> dict[tuple[str, int], dict]:
+        """The MonoBehaviours of another lobby core's bundle by (CAB name, path id): a few lobbies share a volume
+        profile (Neru's is Serika's). Read on demand and kept in memory only, like the lobby data."""
+        def build() -> dict[str, str]:
+            index: dict[str, str] = {}
+            for paths in self.spine_cores("lobby").values():
+                for path in paths:
+                    try:
+                        for name in cab_names(path):
+                            index.setdefault(name, str(path))
+                    except (OSError, ValueError):
+                        logger.debug("Cannot read the CAB names of %s", path, exc_info=True)
+            return index
+        path = self._index("lobby-cabs", build, disk=False).get(cab.lower())
+        out: dict[tuple[str, int], dict] = {}
+        if path is None:
+            return out
+        with open_bundle(Path(path)) as env:
+            for obj in env.objects:
+                if obj.type.name == "MonoBehaviour" and obj.assets_file.name.lower() == cab.lower():
+                    try:
+                        out[(cab.lower(), obj.path_id)] = obj.read_typetree()
+                    except (ValueError, TypeError):
+                        logger.debug("Cannot read lobby behaviour %s", obj.path_id, exc_info=True)
+        return out

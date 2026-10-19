@@ -4,7 +4,8 @@ The game places a memorial lobby with its UILobbyElement prefab (Lobby<Name>.pre
 place in NGUI units around the prefab root, which is the screen centre, and at 16:9 the game shows 2960 x 1665 of those
 units. SpineDragIK components (head pat, eye follow, pinch, ...) and SpineCharacterBodyTouch (a tap plays the next
 dialogue) carry the touch boxes, SpineCharacter the idle and random idle clips, and the lobby's clip assets
-("<skeleton>-<animation>" MonoBehaviours) the track, loop, mixes and chains of every animation.
+("<skeleton>-<animation>" MonoBehaviours) the track, loop, mixes and chains of every animation. Its URP Volumes (PPV,
+PPV_C, PPV_D) point to the post-processing profiles the game's camera applies over the lobby.
 
 Everything here works on plain typetrees (dicts), so it runs without game files; the service reads the bundles.
 Lengths are NGUI units with y up and the prefab root at (0, 0), except a drag's orig / min / max / offset, which are
@@ -16,6 +17,7 @@ from __future__ import annotations
 import math
 import re
 from collections.abc import Callable, Iterable
+from typing import Any
 
 # the game's 16:9 view around the prefab root (the UI's 2960-unit NGUI width, util.js S = 1920 / 2960)
 GAME_VIEW = {"x": -1480.0, "y": -832.5, "w": 2960.0, "h": 1665.0}
@@ -130,11 +132,87 @@ def _kind(go: str, bone: str | None) -> str:
     return re.sub(r"ik$", "", go.lower()) or "drag"  # PinchIK -> pinch, HandFollowIK -> handfollow, TouchIK -> touch
 
 
+# --- post-processing: the URP volumes a lobby prefab carries (PPV at weight 1; PPV_C and PPV_D, the flash and the
+# depth of field a talk's timeline drives, mostly at 0) ---
+
+# the volume components the lobbies use and their parameters' defaults in URP 12 (Unity 2021.3): every camera frame
+# starts from these and each global volume blends its overridden parameters over them by its weight
+VOLUME_DEFAULTS: dict[str, dict[str, Any]] = {
+    "ChromaticAberration": {"intensity": 0.0},
+    "LiftGammaGain": {"lift": [1.0, 1.0, 1.0, 0.0], "gamma": [1.0, 1.0, 1.0, 0.0], "gain": [1.0, 1.0, 1.0, 0.0]},
+    "PaniniProjection": {"distance": 0.0, "cropToFit": 1.0},
+    "ColorAdjustments": {"postExposure": 0.0, "contrast": 0.0, "colorFilter": [1.0, 1.0, 1.0, 1.0], "hueShift": 0.0,
+                         "saturation": 0.0},
+}
+_POST_KEYS = {"ChromaticAberration": "chromaticAberration", "LiftGammaGain": "liftGammaGain",
+              "PaniniProjection": "panini", "ColorAdjustments": "colorAdjustments"}
+
+
+def is_volume(tree: dict) -> bool:
+    """A URP Volume (its MonoScript lives in the render pipeline's assembly, outside the prefab bundle)."""
+    return "sharedProfile" in tree and "weight" in tree and "m_IsGlobal" in tree
+
+
+def _value(raw: Any) -> Any:
+    """A volume parameter's m_Value as a float or a list (Vector4 x y z w, Color r g b a)."""
+    if isinstance(raw, dict):
+        return [float(raw.get(k, 0.0)) for k in (("r", "g", "b", "a") if "r" in raw else ("x", "y", "z", "w"))]
+    return float(raw)
+
+
+def _lerp(a: Any, b: Any, t: float) -> Any:
+    return [x + (y - x) * t for x, y in zip(a, b)] if isinstance(a, list) else a + (b - a) * t
+
+
+def counts(volume: dict) -> bool:
+    """Whether a volume takes part in the blend: enabled on an active GameObject, global, with a weight above 0."""
+    return bool(volume.get("active")) and bool(volume.get("global")) and float(volume.get("weight", 0.0)) > 0
+
+
+def post_processing(volumes: Iterable[dict]) -> dict:
+    """What the lobby's post-processing volumes leave on screen, blended the way URP's VolumeManager does it: the
+    enabled global volumes with a weight above 0, by priority (equal ones in hierarchy order), each active component
+    lerping its overridden parameters from the stack's value by the volume's weight. Only effects that end up doing
+    something are kept (URP's IsActive): {"chromaticAberration": intensity, "panini": {distance, cropToFit},
+    "liftGammaGain": {lift, gamma, gain}, "colorAdjustments": {postExposure, contrast, colorFilter, hueShift,
+    saturation}}. volumes: {"weight", "priority", "global", "active", "components"} (the profile's component
+    typetrees)."""
+    stack = {kind: {k: list(v) if isinstance(v, list) else v for k, v in params.items()}
+             for kind, params in VOLUME_DEFAULTS.items()}
+    ordered = sorted(enumerate(volumes), key=lambda iv: (iv[1].get("priority", 0.0), iv[0]))
+    for _, vol in ordered:
+        if not counts(vol):
+            continue
+        weight = min(1.0, float(vol["weight"]))
+        for comp in vol.get("components") or []:
+            params = stack.get(comp.get("m_Name", ""))
+            if params is None or not comp.get("active", 1):
+                continue
+            for key in params:
+                field = comp.get(key)
+                if isinstance(field, dict) and field.get("m_OverrideState") and "m_Value" in field:
+                    params[key] = _lerp(params[key], _value(field["m_Value"]), weight)
+
+    def rounded(v: Any) -> Any:
+        return [_r(x, 5) for x in v] if isinstance(v, list) else _r(v, 5)
+    post: dict[str, Any] = {}
+    for kind, params in stack.items():
+        if params == VOLUME_DEFAULTS[kind] or (kind == "PaniniProjection" and params["distance"] <= 0) or (
+                kind == "ChromaticAberration" and params["intensity"] <= 0):
+            continue
+        values = {k: rounded(v) for k, v in params.items()}
+        if kind == "ColorAdjustments":
+            values["colorFilter"] = values["colorFilter"][:3]  # the alpha is not used
+        post[_POST_KEYS[kind]] = values["intensity"] if kind == "ChromaticAberration" else values
+    return post
+
+
 def read_prefab(kinds: dict[int, str], tree: Callable[[int], dict], scripts: dict[int, str], root: str,
-                skeletons: Iterable[str], clips: Clips) -> dict | None:
+                skeletons: Iterable[str], clips: Clips,
+                profile: Callable[[int, dict], list[dict] | None] | None = None) -> dict | None:
     """The lobby's layout and touch boxes from one prefab bundle: kinds maps path ids to object types, tree reads a
-    typetree, scripts maps MonoScript path ids to class names. None when the root is missing or places none of the
-    skeletons."""
+    typetree, scripts maps MonoScript path ids to class names, profile(volume path id, sharedProfile pointer) gives a
+    volume profile's component typetrees. None when the root is missing or places none of the skeletons."""
     wanted = {s.lower(): s for s in skeletons}
     top = next((pid for pid, kind in kinds.items() if kind in _TRANSFORMS and not tree(pid)["m_Father"]["m_PathID"]
                 and tree(tree(pid)["m_GameObject"]["m_PathID"])["m_Name"].lower() == root.lower()), None)
@@ -218,10 +296,17 @@ def read_prefab(kinds: dict[int, str], tree: Callable[[int], dict], scripts: dic
         return {"rect": rect, "rot": rot, "depth": widget.get("mDepth", 0),
                 "enabled": n["active"] and bool(t.get("m_Enabled", 1)) and bool(box.get("m_Enabled", True))}
 
-    drags, touches, random_idle, idle, dialog, container = [], [], {}, {}, {}, None
+    drags, touches, random_idle, idle, dialog, container, volumes = [], [], {}, {}, {}, None, []
     for n in nodes:
-        for cls, _, t in n["all"]:
-            if cls == "SpineDragIK" and "BoxCollider" in n["first"]:
+        for cls, pid, t in n["all"]:
+            if is_volume(t):
+                vol = {"weight": float(t.get("weight", 0.0)), "priority": float(t.get("priority", 0.0)),
+                       "global": bool(t.get("m_IsGlobal")), "active": n["active"] and bool(t.get("m_Enabled", 1))}
+                # only the volumes that take part are followed into their profile (often in another bundle)
+                if profile is not None and counts(vol):
+                    vol["components"] = profile(pid, t["sharedProfile"]) or []
+                volumes.append(vol)
+            elif cls == "SpineDragIK" and "BoxCollider" in n["first"]:
                 skel = skeleton_of(t.get("SpineController"))
                 if skel is None:
                     continue
@@ -262,7 +347,8 @@ def read_prefab(kinds: dict[int, str], tree: Callable[[int], dict], scripts: dic
     main = next((d["skeleton"] for d in drags if d["kind"] == "pat"), None) or next(
         (d["skeleton"] for d in drags), None) or next((t["skeleton"] for t in touches), None) or container
     return {"prefab": tree(tree(top)["m_GameObject"]["m_PathID"])["m_Name"], "main": main, "layers": layers,
-            "drags": drags, "touches": touches, "randomIdle": random_idle, "idle": idle, "dialog": dialog}
+            "drags": drags, "touches": touches, "randomIdle": random_idle, "idle": idle, "dialog": dialog,
+            "post": post_processing(volumes)}
 
 
 def lobby_info(skeletons: Iterable[str], clips: Clips, prefab: dict | None) -> dict:
@@ -270,6 +356,7 @@ def lobby_info(skeletons: Iterable[str], clips: Clips, prefab: dict | None) -> d
     sits at the standard place; the front end then finds the touch boxes from the bones."""
     if prefab is None:
         prefab = {"prefab": None, "main": None, "drags": [], "touches": [], "randomIdle": {}, "idle": {}, "dialog": {},
+                  "post": {},
                   "layers": [{"name": s, **STANDARD, "active": True, "order": 0, "index": i, "skin": None,
                               "animation": None} for i, s in enumerate(dict.fromkeys(skeletons))]}
     return {"view": dict(GAME_VIEW), **prefab, "defaultMix": dict(clips.mixes), "clips": clips.clips}
