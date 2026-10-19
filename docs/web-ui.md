@@ -69,7 +69,9 @@ Imports only go one way: `webui` → `library` → `catalog` → `gameassets` �
 - **Resource version.** SHA-1 of `Catalog/Windows/catalog_Windows.hash` when present, else of the sorted
   `(name, size)` listing of the resource folders. The cache key; a game update starts a new cache folder.
 - **User data.** The mod library and UI state live in `utils.EXE_DIR` (the portable data directory the app already
-  uses for `config.toml` and `output/`).
+  uses for `config.toml` and `output/`). Several instances may share it: a change to the UI state (`webui.json`) is
+  applied to the file as it is at that moment, read again under a lock the instances share (`webui.json.lock`), so
+  no instance erases another's keys, and reads follow the other instances' writes.
 
 ## gameassets
 
