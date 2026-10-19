@@ -515,12 +515,14 @@ navigation included, like the display settings and the settings; a click on the 
 
 - **Switch Portrait, Switch Memorial Lobby** (the switch card of the Portrait and Memorial Lobby tabs; the add button
   beside it adds mods of either kind): what the game can show for that kind (`switch-sources.js`, tested in Node):
-  the variant's own files, its added portraits or lobbies, the other variants' own (those with one of their own),
-  then the other variants' added ones. Cards are framed on the face of each skeleton (a lobby's main skeleton, named
-  like its core), "In Use" marks what the game shows now. Apply writes the choice into the game files
-  (`actions.apply` with the tab's kind), then the portrait or the lobby is read again from them, under a still of the
-  old one. Row 2's update and compare act on the mod the shown tab's files carry. The 3D tab's card has nothing to
-  switch yet (library).
+  the variant's own files and its added portraits or lobbies; for the portrait also the other variants' own (those
+  with one of their own), then the other variants' added ones. Other variants' lobbies and their added ones are not
+  offered: another student's lobby under this variant's lobby prefab is untested in the game (the library itself
+  still takes `variant:<key>` and other variants' mods for the lobby). Cards are framed on the face of each skeleton
+  (a lobby's main skeleton, named like its core), "In Use" marks what the game shows now. Apply writes the choice
+  into the game files (`actions.apply` with the tab's kind), then the portrait or the lobby is read again from them,
+  under a still of the old one. Row 2's update and compare act on the mod the shown tab's files carry. The 3D tab's
+  card has nothing to switch yet (library).
 
 - **Aliases** (the pencil after the name on the nameplate, the game's name edit icon `Cafe_Icon_NameEdit`): the
   user's own aliases of the student, which the roster search matches (several, at most 8 of up to 24 characters;

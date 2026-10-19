@@ -2,9 +2,10 @@
 // sprite, tint, incline and position; this file swaps labels and textures, hides what the tool has no use for, and adds
 // what the game has no screen for: variant chips, the expression strip and the portrait and lobby switchers. A family
 // is one base character with all of its variant portraits; each variant's game file carries one portrait (its own
-// skeleton, another variant's skeleton or an added portrait), and likewise one memorial lobby. Added portraits and
-// lobbies belong to the variant whose game file they replace (mod.target) and can be worn by the other variants of
-// the family. Switching writes the chosen one into the game files (switch-sources.js, actions.apply).
+// skeleton, another variant's skeleton or an added portrait), and likewise one memorial lobby (its own or an added
+// one). Added portraits and lobbies belong to the variant whose game file they replace (mod.target); added portraits
+// can be worn by the other variants of the family, lobbies are not offered to them. Switching writes the chosen one
+// into the game files (switch-sources.js, actions.apply).
 // The screen is shown only when it is ready: the panels, the left side's first frame (portrait, lobby or model) and,
 // within a short soft cap, the visible thumbnails. A change inside the screen (another variant, a tab, an applied
 // portrait) prepares every part off screen and swaps all of them in one frame (the commit barrier below).
@@ -116,7 +117,7 @@ const modLabel = (m) => m.label || m.file?.split(/[\\/]/).pop() || m.id;
 const baseOf = (c, kind = "spr") => (c.kind === "mod" ? spineBase("mod", c.id) : spineBase(kind === "lobby" ? "lobby" : "spr", c.core));
 
 // what the switch card of a kind offers (switch-sources.js), with the names and marks the cards show: the variant's
-// own portrait or lobby, its added ones, the other variants' ones, the other variants' added ones
+// own portrait or lobby and its added ones, then for the portrait the other variants' ones and their added ones
 function candidates(v = variant(), kind = "spr") {
   return listSources(fam, v, kind).map((c) => (c.kind === "mod"
     ? { ...c, label: modLabel(c.mod) }
@@ -1157,8 +1158,8 @@ async function listPopup({ hostId, title, okText, items, selected, onSelect, onO
   host.querySelector(".popup-cards").scrollTop = scrollTop;
 }
 
-// switch portrait or memorial lobby: the variant's own skeleton and added ones, then the other variants'; OK writes
-// the chosen one into the game files (applyCandidate)
+// switch portrait or memorial lobby: the variant's own skeleton and added ones, then the other variants' portraits;
+// OK writes the chosen one into the game files (applyCandidate)
 let popupSeg = 0, popupToken = 0, popupKind = "spr";
 async function renderPopup(scroll = 0) {
   const v = variant(), kind = popupKind, inUseKey = appliedKey(v, kind);

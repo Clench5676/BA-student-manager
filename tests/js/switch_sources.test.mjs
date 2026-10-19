@@ -32,14 +32,15 @@ test("candidates of the portrait: own, own mods, other variants, their mods", ()
   assert.equal(list.at(-1).origin.key, "hoshino_swimsuit");
 });
 
-test("candidates of the memorial lobby: lobby mods and variants with a lobby of their own", () => {
+test("candidates of the memorial lobby: the variant's own lobby and its lobby mods only", () => {
   const fam = family();
   const list = candidates(fam, fam.variants[0], "lobby");
-  // no portrait mods, no variant without a lobby, none sharing the same lobby files
-  assert.deepEqual(list.map((c) => c.key), ["self", "m:l1", "v:hoshino_swimsuit", "m:l2"]);
+  // no portrait mods, and neither another variant's lobby nor its lobby mods (untested under this variant's prefab)
+  assert.deepEqual(list.map((c) => c.key), ["self", "m:l1"]);
   assert.equal(list[0].core, "hoshino_home");
-  assert.equal(list[2].core, "hoshino_swimsuit_home");
   assert.ok(list.every((c) => c.kind !== "mod" || c.mod.kind === "lobby"));
+  assert.deepEqual(candidates(fam, fam.variants[1], "lobby").map((c) => c.key), ["self", "m:l2"]);
+  assert.deepEqual(candidates(fam, fam.variants[2], "lobby").map((c) => c.key), ["self"]);
 });
 
 test("what the game shows, per kind", () => {

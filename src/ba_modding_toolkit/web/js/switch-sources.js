@@ -31,18 +31,20 @@ export function appliedKey(v, kind = "spr") {
 export const sourceOf = (key) => (key === "self" ? "official" : key.startsWith("m:") ? `mod:${key.slice(2)}` : `variant:${key.slice(2)}`);
 
 // the sources a variant's portrait or lobby can be switched to, in the switch popup's order: its own official files,
-// its own mods of that kind, the other variants' official files (those with their own skeleton of that kind), then
-// the other variants' mods of that kind. Each: { key, kind ("self" | "mod" | "variant"), core, variant, id, mod,
-// origin (the variant a mod was made for) }.
+// its own mods of that kind, then for the portrait the other variants' official files (those with a portrait of their
+// own) and the other variants' portrait mods. Other variants' memorial lobbies and their lobby mods are not offered:
+// another student's lobby put under this variant's lobby prefab is untested in the game. Each: { key, kind ("self" |
+// "mod" | "variant"), core, variant, id, mod, origin (the variant a mod was made for) }.
 export function candidates(fam, v, kind = "spr") {
   const mods = fam.variants.flatMap((o) => o.modList || []).filter((m) => m.kind === kind);
   const own = coreOf(v, kind);
-  const others = fam.variants.filter((o) => o.key !== v.key && coreOf(o, kind) && coreOf(o, kind) !== own);
+  const across = kind !== "lobby"; // whether other variants' files and mods are offered
+  const others = across ? fam.variants.filter((o) => o.key !== v.key && coreOf(o, kind) && coreOf(o, kind) !== own) : [];
   const mod = (m) => ({ key: `m:${m.id}`, kind: "mod", id: m.id, mod: m, core: null, origin: fam.variants.find((o) => o.key === m.target) || null });
   return [
     { key: "self", kind: "self", core: own, variant: v },
     ...mods.filter((m) => m.target === v.key).map(mod),
     ...others.map((o) => ({ key: `v:${o.key}`, kind: "variant", core: coreOf(o, kind), variant: o })),
-    ...mods.filter((m) => m.target !== v.key).map(mod),
+    ...(across ? mods.filter((m) => m.target !== v.key).map(mod) : []),
   ];
 }
