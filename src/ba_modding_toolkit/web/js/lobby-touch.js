@@ -231,8 +231,11 @@ function wheel(e) {
   }
   const fresh = !(now - scroll.at < SCROLL_MS && scroll.kind), kind = wheelKind(e, now);
   if (fresh) {
-    // a scroll that only may be a wheel keeps the view it started from, to go back to if it turns out a trackpad
-    scroll = { kind, at: now, from: kind === "mouse" && step === "maybe" ? lobby.viewTarget?.() : null };
+    // a scroll that starts like a wheel zooming in pixels keeps the view it started from, to go back to if it turns
+    // out a trackpad: a WebKit whole line, and a Chromium notch too (a Windows touchpad's first step can be exactly
+    // 100 px, wheelDelta 120); a second notch confirms the wheel
+    const zooms = kind === "mouse" && !e.deltaMode && Math.abs(e.deltaY) >= Math.abs(e.deltaX);
+    scroll = { kind, at: now, from: zooms ? lobby.viewTarget?.() : null };
   } else {
     if (scroll.kind === "mouse" && kind === "trackpad" && scroll.from) lobby.setViewTarget?.(scroll.from);
     if (step === "notch" || kind === "trackpad") scroll.from = null;

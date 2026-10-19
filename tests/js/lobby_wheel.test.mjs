@@ -107,6 +107,29 @@ test("WebKit: a wheel without acceleration (whole lines) zooms on every notch", 
   } finally { r.done(); }
 });
 
+test("Chromium: a touchpad swipe whose first step is exactly a notch zooms back to where it was and pans", () => {
+  // Windows precision touchpads in Chromium / WebView2: pixel steps with wheelDelta 1.2 x deltaY, the first one
+  // sometimes a round 100 px (120)
+  const pad = (dy) => ({ deltaMode: 0, deltaX: 0, deltaY: dy, wheelDeltaX: 0, wheelDeltaY: Math.round(-1.2 * dy) });
+  const r = rig();
+  try {
+    const start = r.width();
+    r.send(pad(100), 1000);
+    r.send(pad(37));
+    r.send(pad(21));
+    assert.deepEqual(r.calls.map((c) => c[0]), ["zoom", "restore", "pan", "pan"]);
+    assert.equal(r.width(), start);
+  } finally { r.done(); }
+});
+
+test("Chromium: a wheel spun notch after notch keeps every zoom", () => {
+  const r = rig();
+  try {
+    for (let i = 0; i < 4; i++) r.send(chromium(-1), 40);
+    assert.deepEqual(r.calls.map((c) => c[0]), ["zoom", "zoom", "zoom", "zoom"]);
+  } finally { r.done(); }
+});
+
 test("Chromium: notches zoom, a horizontal notch pans", () => {
   const r = rig();
   try {

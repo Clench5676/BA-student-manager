@@ -372,7 +372,8 @@ in `pointer-textures`); without a game the system cursor stays and there is no e
   two-finger trackpad swipe pans in any direction. A wheel is told by its steps: whole lines, `wheelDeltaY` in steps
   of 120 (Chromium), or in WebKit, whose `wheelDeltaY` is 3 x `deltaY` for every device, tenths of a line kept in
   16.16 fixed point (4.000244 px) against a trackpad's whole pixels. One scroll keeps the kind of its first event; one
-  taken for a wheel that then sends a trackpad step goes back to the view it started from and pans. A Magic Mouse
+  taken for a wheel that then sends a trackpad step goes back to the view it started from and pans (a WebKit whole
+  line, or a Chromium notch: a Windows touchpad's first step can be exactly 100 px, wheelDelta 120). A Magic Mouse
   scrolls like a trackpad (ctrl + scroll zooms). A right- or middle-button drag pans. Native drags and the Force
   Touch look-up are turned off on the lobby.
 - **Input trace.** Started with `--debug`, the page sends the fullscreen lobby's pointer, wheel and gesture events
