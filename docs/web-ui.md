@@ -106,11 +106,17 @@ bundle headers). The GLB is never written to disk; the memory entry is reused wh
 unchanged.
 
 The GLB carries what the game's shaders need: per material its shader, shading kind, constants (`colors` as stored,
-`vectors` naming the Vector properties the game passes unconverted), `keywords`, whether it draws an outline (its
+`vectors` naming the Vector properties and `hdr` the HDR Color properties the game passes unconverted; it converts
+every other Color property from sRGB), `keywords`, whether it draws an outline (its
 shader's Outline pass, unless the material turns that pass off) and its colour pass `state` (cull, depth write, blend, queue, resolved against the material); per texture its sampler (filter,
 wrap, mipmaps as in the game: the characters' textures have none) and `extras.linear` for masks; per clip the renderer
 switches it animates (`toggles`: alternative faces), so a renderer the prefab disables is exported when a clip turns
-it on. `web/js/chibi-materials.js` ports the MX/C-* shaders from their compiled D3D11 programs (the game is in linear
+it on. Euler rotation curves are turned into quaternions in the rotation order their binding carries (`customType`:
+Unity's own ZXY for curves made in Unity, XYZ where an FBX kept Euler curves, as NP0186's battle idle). Renderers
+only an EX skill shows are kept aside the same way, though the prefab enables them: the alternative expression faces
+(of the face renderers, the ones without eyes beside one with them; the gag face lies in front of the eyes, and the
+skill's timeline, not the Animator, switches the faces) and a cut-in copy of the body.
+`web/js/chibi-materials.js` ports the MX/C-* shaders from their compiled D3D11 programs (the game is in linear
 colour space; the character light is the standard one, white and from straight above, without ambient), and for props
 DSFX/FX_SHADER_Matcap (a riot shield, soup), MX/E-Water (the surface colour: the game deepens it by the camera depth
 behind it, which a lone chibi lacks) and the unlit and effect shaders, each with its own texture slot and colour. The outline is

@@ -75,3 +75,26 @@ test("unlit and effect shaders read their own slot and colour", () => {
   assert.equal(r.material.uniforms.mainMap.value, map);
   near(r.material.uniforms.tint.value.y, 0);
 });
+
+test("HDR Color properties as stored, other Color properties from sRGB, Vector properties as stored", () => {
+  // Kurumi's hair (ch0173): the shadow tint is an HDR Color, used as stored (not darkened by an sRGB decode)
+  const hair = chibiMaterial({ shader: "MX/C-Hair", kind: "hair", hdr: ["_ShadowTint", "_Tint"],
+    colors: { _Tint: [1, 1, 1, 1], _ShadowTint: [0.72549, 0.61064, 0.5451, 1], _GlowTint: [0.2, 0.2, 0.2, 1] } }, {});
+  const s = hair.material.uniforms.shadowTint.value;
+  near(s.x, 0.72549);
+  near(s.z, 0.5451);
+  // a Color without the HDR flag (here _GlowTint, as listed) is decoded
+  near(hair.material.uniforms.glowTint.value.x, linear(0.2));
+  // the weapon's _ShadowTint is a plain Color: decoded
+  const weapon = chibiMaterial({ shader: "MX/C-Weapon", kind: "weapon", hdr: ["_GlowTint0"],
+    colors: { _Color: [1, 1, 1, 1], _ShadowTint: [0.5, 0.5, 0.5, 1] } }, {});
+  near(weapon.material.uniforms.shadowTint.value.x, linear(0.5));
+  // Aru's halo: an HDR tint above 1 keeps its hue (no 2.2 power that would push every channel past white)
+  const halo = chibiMaterial({ shader: "MX/C-Halo/UnlitTextured", kind: "halo", hdr: ["_Tint"],
+    colors: { _Tint: [3.68861, 1.7574, 1.52565, 1] } }, { _MainTex: tex("Halo") });
+  assert.deepEqual(halo.material.uniforms.tint.value.toArray().map((v) => +v.toFixed(5)), [3.68861, 1.7574, 1.52565, 1]);
+  // Layer4's per-layer tints are Vector properties: as stored
+  const body = chibiMaterial({ shader: "MX/C-General/Layer4", kind: "body", vectors: ["_ShadowTintR4"],
+    colors: { _ShadowTintR4: [0.93333, 0.72307, 0.59434, 0.52661] } }, {});
+  near(body.material.uniforms.layerTintR.value.y, 0.72307);
+});

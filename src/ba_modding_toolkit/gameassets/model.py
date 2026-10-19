@@ -60,6 +60,35 @@ def shader_kind(shader: str | None) -> str:
     return "general"
 
 
+# the objects of an EX skill's cut-in, by hierarchy path
+CUT_IN = re.compile(r"cut_?in", re.IGNORECASE)
+
+
+def ex_only_renderers(renderers: Iterable[tuple[int, str, list[tuple[str, int]]]]) -> set[int]:
+    """The renderers of a prefab the game shows only in an EX skill, out of (node, hierarchy path, [(shading kind,
+    index count) per submesh]) of the renderers the prefab enables.
+
+    - Cut-in bodies: a second body with a face for the skill's cut-in (``CH0123_CutIn_Body``), beside the body that is
+      not one. Cut-in props (a chair) stay: the clips scale them away like any prop.
+    - Alternative expression faces: of the face renderers (a face part at least half the largest one), the ones
+      without eyes, beside one with them. The prefab enables them all, and the gag face lies in front of the eyes, so
+      drawn together it hides them; the skill's timeline switches the faces (Kasumi's turns her face with eyes off),
+      and where a clip does it, every clip turns the face without eyes off (Miyu, Kaede, Tsukuyo).
+    """
+    renderers = list(renderers)
+    with_face = {node for node, _, parts in renderers if any(kind == "face" for kind, _ in parts)}
+    out = {node for node, path, _ in renderers if node in with_face and CUT_IN.search(path)}
+    if out == with_face:
+        out = set()
+    faces = {node: (sum(count for kind, count in parts if kind == "face"), any(kind == "eyemouth" for kind, _ in parts))
+             for node, _, parts in renderers if node in with_face and node not in out}
+    largest = max((size for size, _ in faces.values()), default=0)
+    main = {node: eyes for node, (size, eyes) in faces.items() if largest and size >= 0.5 * largest}
+    if any(main.values()):
+        out |= {node for node, eyes in main.items() if not eyes}
+    return out
+
+
 _ARRAY = 34962
 _INDICES = 34963
 
@@ -215,11 +244,22 @@ def qmul(a: tuple, b: tuple) -> tuple[float, float, float, float]:
             aw * bz + ax * by - ay * bx + az * bw, aw * bw - ax * bx - ay * by - az * bz)
 
 
-def euler_to_quat(e: Iterable[float]) -> tuple[float, float, float, float]:
-    """Unity Euler degrees, applied Z, then X, then Y: q = qy * qx * qz."""
+# Unity's rotation orders (math::RotationOrder), the axis applied first leading; an Euler binding of a clip carries
+# its order in customType: 4 (ZXY, Unity's own, Quaternion.Euler) for curves made in Unity, 0 (XYZ) for the ones a
+# DCC tool's FBX kept as Euler (NP0186's battle idle)
+ROTATION_ORDERS = {0: "XYZ", 1: "XZY", 2: "YZX", 3: "YXZ", 4: "ZXY", 5: "ZYX"}
+UNITY_ORDER = 4
+
+
+def euler_to_quat(e: Iterable[float], order: int = UNITY_ORDER) -> tuple[float, float, float, float]:
+    """Unity Euler degrees in a rotation order; Unity's own (ZXY) applies Z, then X, then Y: q = qy * qx * qz."""
     x, y, z = (math.radians(a) / 2 for a in e)
-    qx, qy, qz = (math.sin(x), 0, 0, math.cos(x)), (0, math.sin(y), 0, math.cos(y)), (0, 0, math.sin(z), math.cos(z))
-    return qmul(qmul(qy, qx), qz)
+    axes = {"X": (math.sin(x), 0, 0, math.cos(x)), "Y": (0, math.sin(y), 0, math.cos(y)),
+            "Z": (0, 0, math.sin(z), math.cos(z))}
+    q: tuple = (0.0, 0.0, 0.0, 1.0)
+    for axis in ROTATION_ORDERS.get(order, ROTATION_ORDERS[UNITY_ORDER]):
+        q = qmul(axes[axis], q)
+    return q
 
 
 # --- animation clips (generic mecanim clips: streamed + dense + constant curves) -----------------------------------
@@ -312,6 +352,12 @@ def bind_tracks(bindings: list[Mapping[str, int]], curves: Mapping[int, list[flo
     return out
 
 
+def euler_orders(bindings: list[Mapping[str, int]], nodes: Mapping[int, int]) -> dict[int, int]:
+    """The rotation order (:data:`ROTATION_ORDERS`) of each node a clip rotates with Euler curves."""
+    return {nodes[b["path"]]: b.get("customType", UNITY_ORDER) for b in bindings
+            if b["typeID"] == 4 and b["attribute"] == 4 and b["path"] in nodes}
+
+
 # switches a clip can animate: a renderer's m_Enabled (Renderer 25, MeshRenderer 23, SkinnedMeshRenderer 137) and a
 # GameObject's m_IsActive (1); the attribute of a non-Transform binding is the crc32 of the property name
 TOGGLE_TYPES = {25: "renderer", 23: "renderer", 137: "renderer", 1: "active"}
@@ -343,15 +389,17 @@ def toggle_keys(values: list[float], times: list[float], start: float = 0.0) -> 
     return keys
 
 
-def track_values(attribute: int, parts: list[list[float]]) -> tuple[str, list[tuple[float, ...]]]:
-    """A glTF channel path and its values (mirrored; rotations normalised and kept continuous)."""
+def track_values(attribute: int, parts: list[list[float]],
+                 order: int = UNITY_ORDER) -> tuple[str, list[tuple[float, ...]]]:
+    """A glTF channel path and its values (mirrored; rotations normalised and kept continuous; Euler curves in their
+    rotation order)."""
     length = max(len(p) for p in parts)
     rows = [tuple(p[i] if len(p) > 1 else p[0] for p in parts) for i in range(length)]
     if attribute == 1:
         return "translation", [mpos(v) for v in rows]
     if attribute == 3:
         return "scale", rows
-    quats = [quat_norm(mquat(v if attribute == 2 else euler_to_quat(v))) for v in rows]
+    quats = [quat_norm(mquat(v if attribute == 2 else euler_to_quat(v, order))) for v in rows]
     for i in range(1, len(quats)):
         if sum(a * b for a, b in zip(quats[i], quats[i - 1])) < 0:
             quats[i] = tuple(-x for x in quats[i])
@@ -598,6 +646,18 @@ def shader_vectors(form: Mapping[str, Any]) -> set[str]:
     return {p["m_Name"] for p in form["m_PropInfo"]["m_Props"] if p.get("m_Type") == 1}
 
 
+_HDR = 16  # ShaderPropertyFlags.HDR
+
+
+def shader_hdr(form: Mapping[str, Any]) -> set[str]:
+    """Names of a shader's HDR Color properties (m_Type 0 with the HDR flag). Their stored values are linear already:
+    the game passes them unconverted, like Vector properties. The character shaders mark most of their colours HDR
+    (the hair's and face's _ShadowTint, _Tint, _OutlineTint, the halos' tints): decoded as sRGB, the hair's shadow
+    came out about half as bright and redder than the EnemyInfo renders, and an HDR halo tint (Aru's 3.69, 1.76,
+    1.53) near white instead of coral."""
+    return {p["m_Name"] for p in form["m_PropInfo"]["m_Props"] if p.get("m_Type") == 0 and p.get("m_Flags", 0) & _HDR}
+
+
 def shader_outline(form: Mapping[str, Any]) -> bool:
     """Whether a shader draws the inverted-hull outline: a pass with the light mode "Outline"."""
     for sub in form["m_SubShaders"]:
@@ -738,6 +798,36 @@ class _Exporter:
                 name = g.tree(child_go)["m_Name"]
                 self.visit(child_go, index, f"{path}/{name}" if path else name, here, shown)
 
+    def set_aside_ex_only(self) -> None:
+        """Keep the renderers only an EX skill shows (:func:`ex_only_renderers`) aside like disabled ones: a clip that
+        turns one on brings it in, hidden at rest."""
+        parts = [(node, self.path_of[node], self._parts(renderer, go_obj)) for node, renderer, go_obj in self.renderers]
+        aside = ex_only_renderers(parts)
+        for entry in [r for r in self.renderers if r[0] in aside]:
+            self.renderers.remove(entry)
+            self.disabled[entry[0]] = entry
+
+    def _parts(self, renderer: Any, go_obj: Any) -> list[tuple[str, int]]:
+        """(shading kind, index count) of each submesh a renderer draws, read without exporting anything."""
+        g = self.g
+        tree = g.tree(renderer)
+        if renderer.type.name == "SkinnedMeshRenderer":
+            mesh = g.deref(renderer, tree.get("m_Mesh"))
+        else:
+            filt = g.component(go_obj, "MeshFilter")
+            mesh = g.deref(filt, g.tree(filt).get("m_Mesh")) if filt is not None else None
+        subs = g.tree(mesh).get("m_SubMeshes", []) if mesh is not None else []
+        parts = []
+        for sub, pointer in zip(subs, tree.get("m_Materials", [])):
+            material = g.deref(renderer, pointer)
+            shader = g.deref(material, g.tree(material).get("m_Shader")) if material is not None else None
+            try:
+                name = g.tree(shader)["m_ParsedForm"]["m_Name"] if shader is not None else None
+            except (KeyError, TypeError, ValueError):
+                name = None
+            parts.append((shader_kind(name), int(sub.get("indexCount", 0))))
+        return parts
+
     # textures and materials
     def texture(self, obj: Any) -> int:
         key = _key(obj)
@@ -757,12 +847,12 @@ class _Exporter:
             return self.materials[key]
         g, tree = self.g, self.g.tree(obj)
         shader_obj = g.deref(obj, tree.get("m_Shader"))
-        shader, vectors, outline, form = None, None, None, None
+        shader, vectors, hdr, outline, form = None, None, set(), None, None
         if shader_obj is not None:
             try:
                 form = g.tree(shader_obj)["m_ParsedForm"]
                 shader = form["m_Name"]
-                vectors, outline = shader_vectors(form), shader_outline(form)
+                vectors, hdr, outline = shader_vectors(form), shader_hdr(form), shader_outline(form)
             except (KeyError, TypeError, ValueError):
                 shader, form = None, None
         props = tree["m_SavedProperties"]
@@ -792,10 +882,11 @@ class _Exporter:
         material: dict[str, Any] = {
             "name": tree["m_Name"], "doubleSided": floats.get("_Cull", 2) == 0,
             "pbrMetallicRoughness": {"metallicFactor": 0, "roughnessFactor": 1},
-            # colors: as the material stores them (sRGB for Color properties); vectors: the ones the game passes
-            # through unconverted (Vector properties), every other color is converted to linear first
+            # colors: as the material stores them; vectors and hdr: the ones the game passes through unconverted
+            # (Vector properties, HDR Color properties), every other color is converted from sRGB to linear first
             "extras": {"shader": shader, "kind": shader_kind(shader), "colors": colors,
-                       "vectors": sorted(vectors & set(colors)), "floats": floats, "textures": textures,
+                       "vectors": sorted(vectors & set(colors)), "hdr": sorted(hdr & set(colors)),
+                       "floats": floats, "textures": textures,
                        "keywords": sorted(keywords), "outline": outline, "state": state},
         }
         if "_MainTex" in textures:
@@ -932,13 +1023,15 @@ class _Exporter:
             exported.add(names[index])
             tt = clips[index].read_typetree()
             decoded = decode_clip(tt)
-            tracks = bind_tracks(tt["m_ClipBindingConstant"]["genericBindings"], decoded.curves, by_hash)
+            bindings = tt["m_ClipBindingConstant"]["genericBindings"]
+            tracks = bind_tracks(bindings, decoded.curves, by_hash)
+            orders = euler_orders(bindings, by_hash)
             animation: dict[str, Any] = {"name": tt["m_Name"], "channels": [], "samplers": []}
             times = glb.accessor(decoded.times, "SCALAR", minmax=True)
             zero = None
             for node, attrs in tracks.items():
                 for attribute, parts in attrs.items():
-                    path, values = track_values(attribute, parts)
+                    path, values = track_values(attribute, parts, orders.get(node, UNITY_ORDER))
                     if all(max(abs(a - b) for a, b in zip(v, values[0])) < 1e-5 for v in values):
                         # constant over the clip: one key, or nothing when it is the rest pose (three.js restores
                         # the original state of bindings no clip uses)
@@ -1024,6 +1117,7 @@ def export_chibi(graph: BundleGraph, bundles: Iterable[Path], dev: str, *, prefa
         raise AssetNotFound(("model", dev))
     exporter = _Exporter(graph, dev)
     exporter.visit(root, None, "", True)
+    exporter.set_aside_ex_only()
     exporter.meshes()
     exporter.glb.json["extras"] = exporter.extras(name)
     exporter.animations(exporter.controller_clips(prefabs), clips)

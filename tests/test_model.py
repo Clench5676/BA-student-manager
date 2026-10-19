@@ -148,6 +148,37 @@ def test_track_values_mirror_and_continuity():
     assert path == "rotation" and values[0] == pytest.approx((0, -s, 0, s))
 
 
+def test_euler_rotation_orders():
+    s = math.sqrt(0.5)
+    qx, qy = (s, 0, 0, s), (0, s, 0, s)
+    # Unity's own order (ZXY): X before Y, q = qy * qx; XYZ the same here, ZYX applies Y first
+    assert model.euler_to_quat((90, 90, 0)) == pytest.approx(model.qmul(qy, qx))
+    assert model.euler_to_quat((90, 90, 0), 0) == pytest.approx(model.qmul(qy, qx))
+    assert model.euler_to_quat((90, 90, 0), 5) == pytest.approx(model.qmul(qx, qy))
+    # X and Z: ZXY applies Z first (q = qx * qz), XYZ applies X first (q = qz * qx)
+    qz = (0, 0, s, s)
+    assert model.euler_to_quat((90, 0, 90)) == pytest.approx(model.qmul(qx, qz))
+    assert model.euler_to_quat((90, 0, 90), 0) == pytest.approx(model.qmul(qz, qx))
+    # an unknown order falls back to Unity's
+    assert model.euler_to_quat((90, 0, 90), 9) == pytest.approx(model.euler_to_quat((90, 0, 90)))
+
+
+def test_euler_orders_from_custom_type():
+    a, b, c = (zlib.crc32(p) for p in (b"bone_root/Bip001", b"bone_root/Bip001/Bip001 Head", b"bone_root/other"))
+    bindings = [
+        {"typeID": 4, "attribute": 4, "path": a, "customType": 0},  # an FBX's Euler curve (XYZ)
+        {"typeID": 4, "attribute": 4, "path": b, "customType": 4},  # one made in Unity (ZXY)
+        {"typeID": 4, "attribute": 2, "path": c, "customType": 0},  # a quaternion: no order
+        {"typeID": 4, "attribute": 4, "path": 12345, "customType": 0},  # a path the model lacks
+    ]
+    assert model.euler_orders(bindings, {a: 0, b: 1, c: 2}) == {0: 0, 1: 4}
+    # the order reaches the channel: 90 degrees about X then Z (XYZ) differs from Z then X (Unity's)
+    _, xyz = model.track_values(4, [[90.0], [0.0], [90.0]], 0)
+    _, zxy = model.track_values(4, [[90.0], [0.0], [90.0]])
+    assert xyz[0] != pytest.approx(zxy[0])
+    assert xyz[0] == pytest.approx(model.quat_norm(model.mquat(model.euler_to_quat((90, 0, 90), 0))))
+
+
 def test_mirror_matrix_and_quaternion_helpers():
     identity = {f"e{r}{c}": float(r == c) for r in range(4) for c in range(4)}
     assert model.mirror_matrix(identity) == [float(r == c) for c in range(4) for r in range(4)]
@@ -226,8 +257,8 @@ def test_texture_sampler_follows_the_game_settings():
 # --- shaders ---
 
 def _form(name, props=(), passes=(), sub_tags=()):
-    """A shader's m_ParsedForm: properties (name, m_Type) and passes (light mode, cull, zwrite, src, dst, queue tag);
-    a state value is a property name (read from the material) or a fixed number."""
+    """A shader's m_ParsedForm: properties (name, m_Type[, m_Flags]) and passes (light mode, cull, zwrite, src, dst,
+    queue tag); a state value is a property name (read from the material) or a fixed number."""
     def entry(v):
         return {"val": 0.0, "name": v} if isinstance(v, str) else {"val": float(v), "name": "<noninit>"}
     out = []
@@ -235,7 +266,8 @@ def _form(name, props=(), passes=(), sub_tags=()):
         tags = [("LIGHTMODE", mode)] + ([("QUEUE", queue)] if queue else [])
         out.append({"m_State": {"m_Name": mode, "m_Tags": {"tags": tags}, "culling": entry(cull), "zWrite": entry(zwrite),
                                 "rtBlend0": {"srcBlend": entry(src), "destBlend": entry(dst)}}})
-    return {"m_Name": name, "m_PropInfo": {"m_Props": [{"m_Name": n, "m_Type": t} for n, t in props]},
+    return {"m_Name": name, "m_PropInfo": {"m_Props": [{"m_Name": p[0], "m_Type": p[1], "m_Flags": (p + (0,))[2]}
+                                                       for p in props]},
             "m_SubShaders": [{"m_Passes": out, "m_Tags": {"tags": list(sub_tags)}}]}
 
 
@@ -263,6 +295,11 @@ def test_shader_vectors_outline_and_state():
                            ("Outline", 1, 1, 1, 0, None), ("SHADOWCASTER", 0, 1, 1, 0, None)])
     assert model.shader_vectors(layer4) == {"_ShadowTintR4"}
     assert model.shader_outline(layer4)
+    # HDR Color properties (flag 16) are stored linear; a plain Color (Weapon's _ShadowTint) or a hidden one is not
+    hair = _form("MX/C-Hair", props=[("_Tint", 0, 16), ("_ShadowTint", 0, 16), ("_CodeAddColor", 0, 1), ("_SpecDir", 1, 16)])
+    assert model.shader_hdr(hair) == {"_Tint", "_ShadowTint"}
+    assert model.shader_hdr(_form("MX/C-Weapon", props=[("_Color", 0), ("_ShadowTint", 0), ("_GlowTint0", 0, 16)])) == \
+        {"_GlowTint0"}
     # the state names material properties: the material's floats decide
     floats = {"_Cull": 0.0, "_ZWrite": 1.0, "_SrcBlend": 1.0, "_DstBlend": 0.0}
     assert model.shader_state(layer4, floats) == {"cull": 0, "zwrite": 1, "src": 1, "dst": 0, "queue": 2000}
@@ -428,6 +465,73 @@ def test_visit_skips_disabled_and_hidden_renderers():
     names = {n["name"]: n.get("extras", {}).get("hidden", False) for n in exporter.nodes}
     # the disabled renderer's object stays a plain node (clips may move it), the inactive one is hidden
     assert names == {"CH0189": False, "CH0189_Face_Outline": False, "CH0189_Face01_Outline": False, "Off": True}
+
+
+def test_ex_only_renderers_alternative_faces_and_cut_in_bodies():
+    # Koyuki (ch0198): the gag face (no eyes) beside the face with eyes
+    koyuki = [(1, "CH0198_Mesh", [("body", 900), ("eyemouth", 96), ("hair", 800)]),
+              (2, "CH0198_Face01_Outline", [("face", 1944)]),
+              (3, "CH0198_Face_Outline", [("face", 1704), ("eyebrow", 318), ("eyemouth", 192)])]
+    assert model.ex_only_renderers(koyuki) == {2}
+    # Chiaki (ch0238): the body's small face part is not a face renderer; Face02 (no eyes) goes, Face01 stays
+    chiaki = [(1, "CH0238_Body", [("body", 900), ("face", 96), ("eyemouth", 96)]),
+              (2, "CH0238_Face01", [("face", 2652), ("eyemouth", 582)]), (3, "CH0238_Face02", [("face", 2700)])]
+    assert model.ex_only_renderers(chiaki) == {3}
+    # Hasumi (Swimsuit): the second face carries the sunglasses (another material) and no eyes
+    hasumi = [(1, "CH0291_Face_01", [("face", 2142), ("eyebrow", 60), ("eyemouth", 591)]),
+              (2, "CH0291_Face_02", [("face", 1602), ("eyebrow", 60), ("general", 300)])]
+    assert model.ex_only_renderers(hasumi) == {2}
+    # Neru (School): a prop drawn with the face material is not a face renderer
+    neru = [(1, "CH0280_Prop_Outline", [("face", 216), ("eyebrow", 12)]),
+            (2, "CH0280_Face_Outline", [("face", 3252), ("eyemouth", 558)]), (3, "CH0280_Face01_Outline", [("face", 2865)])]
+    assert model.ex_only_renderers(neru) == {3}
+    # one face (eyes in the body), or two faces and none with eyes: nothing to choose
+    assert model.ex_only_renderers([(1, "Body", [("body", 900), ("eyemouth", 96)]), (2, "Face", [("face", 2112)])]) == set()
+    assert model.ex_only_renderers([(1, "Face", [("face", 2000)]), (2, "Face01", [("face", 1900)])]) == set()
+    # Shigure (Hot Spring): the cut-in copy of the body goes; a cut-in prop stays (the clips scale props away)
+    shigure = [(1, "CH0123_CutIn_Body", [("body", 900), ("face", 1914), ("eyemouth", 978)]),
+               (2, "CH0123_Body", [("body", 900), ("face", 1914), ("eyemouth", 978)]),
+               (3, "CH139_Cutin_chair", [("general", 400)])]
+    assert model.ex_only_renderers(shigure) == {1}
+    # only cut-in bodies: none of them goes
+    assert model.ex_only_renderers(shigure[:1]) == set()
+
+
+def test_set_aside_ex_only_reads_submeshes_and_shaders(monkeypatch):
+    ref = lambda p: {"m_FileID": 0, "m_PathID": p}  # noqa: E731
+    shaders = {name: _object(pid, "Shader", m_ParsedForm={"m_Name": name})
+               for pid, name in ((900, "MX/C-Face"), (901, "MX/C-EyesMouth"), (902, "MX/C-Eyebrow"))}
+    mats = [_object(910 + i, "Material", m_Name=f"M{i}", m_Shader=ref(s.path_id)) for i, s in enumerate(shaders.values())]
+    face = _object(920, "Mesh", m_SubMeshes=[{"indexCount": 1704}, {"indexCount": 318}, {"indexCount": 192}])
+    gag = _object(921, "Mesh", m_SubMeshes=[{"indexCount": 1944}])
+    graph = _Graph(
+        *shaders.values(), *mats, face, gag,
+        *_game_object(1, "CH0198", [], children=(10, 20)),
+        *_game_object(10, "CH0198_Face01_Outline", [_object(12, "SkinnedMeshRenderer", m_Enabled=1, m_Mesh=ref(921),
+                                                            m_Materials=[ref(910)])]),
+        *_game_object(20, "CH0198_Face_Outline", [_object(22, "SkinnedMeshRenderer", m_Enabled=1, m_Mesh=ref(920),
+                                                          m_Materials=[ref(910), ref(912), ref(911)])]),
+    )
+    exporter = model._Exporter(graph, "ch0198")
+    exporter.visit(graph.objects[1], None, "", True)
+    exporter.set_aside_ex_only()
+    assert [graph.tree(go)["m_Name"] for _, _, go in exporter.renderers] == ["CH0198_Face_Outline"]
+    assert list(exporter.disabled) == [1]  # the gag face's node, exported only when a clip turns it on
+
+    def meshes(renderers=None):
+        for node, _, _ in (exporter.renderers if renderers is None else renderers):
+            exporter.nodes.append({"name": exporter.nodes[node]["name"] + "_mesh"})
+            exporter.nodes[node].setdefault("extras", {})["renderer"] = len(exporter.nodes) - 1
+    monkeypatch.setattr(exporter, "meshes", meshes)
+    exporter.meshes()
+    enabled = zlib.crc32(b"m_Enabled")
+    tt = {"m_MuscleClip": {"m_StartTime": 0.0}, "m_ClipBindingConstant": {"genericBindings": [
+        {"typeID": 137, "attribute": enabled, "path": zlib.crc32(b"CH0198_Face01_Outline")}]}}
+    # a clip that turns it off changes nothing (hidden at rest already); one that turns it on brings it in
+    assert exporter.toggles(tt, model.DecodedClip(1.0, [0.0, 1.0], {0: [0.0]}), {zlib.crc32(b"CH0198_Face01_Outline"): 1}) == []
+    toggles = exporter.toggles(tt, model.DecodedClip(1.0, [0.0, 1.0], {0: [0.0, 1.0]}), {zlib.crc32(b"CH0198_Face01_Outline"): 1})
+    gag_mesh = exporter.nodes[1]["extras"]["renderer"]
+    assert toggles == [{"node": gag_mesh, "keys": [[0.0, 0], [1.0, 1]]}] and exporter.nodes[gag_mesh]["extras"]["hidden"]
 
 
 def test_material_outline_respects_disabled_shader_passes():
@@ -642,17 +746,25 @@ def test_real_chibi_exports(tmp_path):
     # the game's samplers (no mipmaps on the characters' textures)
     body = next(m["extras"] for m in doc["materials"] if m["extras"]["kind"] == "body")
     assert "_ShadowTintR4" in body["vectors"] and "_OutlineTint" not in body["vectors"] and body["outline"]
+    # HDR colours, passed as stored: the hair's shadow tint and the halo's tint
+    hair = next(m["extras"] for m in doc["materials"] if m["extras"]["kind"] == "hair")
+    halo = next(m["extras"] for m in doc["materials"] if m["extras"]["kind"] == "halo")
+    assert "_ShadowTint" in hair["hdr"] and "_ShadowTintR4" not in body["hdr"] and "_Tint" in halo["hdr"]
     assert body["state"]["src"] == 1 and body["state"]["dst"] == 0 and body["state"]["queue"] == 2000
     eyes = next(m["extras"] for m in doc["materials"] if m["extras"]["kind"] == "eyemouth")
     assert (eyes["state"]["src"], eyes["state"]["dst"], eyes["state"]["queue"]) == (5, 10, 2001) and not eyes["outline"]
     masks = {t["name"] for t in doc["textures"] if t.get("extras", {}).get("linear")}
     assert masks and all("mask" in n.lower() or "spec" in n.lower() or "green" in n.lower() for n in masks)
     assert all(doc["samplers"][t["sampler"]]["minFilter"] in (9728, 9729) for t in doc["textures"])
-    if "ch0145" in game.model_cores():  # Miyu: the idle turns her expression face off
+    drawn = lambda doc: {n["name"] for n in doc["nodes"] if "mesh" in n}  # noqa: E731
+    if "ch0145" in game.model_cores():  # Miyu: every clip turns her expression face off, so it is never drawn
         miyu = _strict(game.model_glb("ch0145"))
         idle = next(a for a in miyu["animations"] if a["extras"]["slot"] == "Formation_Idle")
-        assert [miyu["nodes"][t["node"]]["name"] for t in idle["extras"]["toggles"]] == ["CH0145_Face01_Outline_mesh"]
-        assert idle["extras"]["toggles"][0]["keys"] == [[0.0, 0]]
+        assert "toggles" not in idle["extras"]
+        assert "CH0145_Face_Outline_mesh" in drawn(miyu) and "CH0145_Face01_Outline_mesh" not in drawn(miyu)
+    if "ch0198" in game.model_cores():  # Koyuki: no clip switches her faces; the gag face is left out
+        koyuki = drawn(_strict(game.model_glb("ch0198")))
+        assert "CH0198_Face_Outline_mesh" in koyuki and "CH0198_Face01_Outline_mesh" not in koyuki
     if "saya_original" in game.model_cores():  # an infinite material constant
         fade = [m["extras"]["colors"].get("_CameraFadeParams") for m in _strict(game.model_glb("saya_original"))["materials"]]
         assert [0.0, model.FLT_MAX, 0.0, 0.0] in fade
