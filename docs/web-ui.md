@@ -69,7 +69,9 @@ Imports only go one way: `webui` → `library` → `catalog` → `gameassets` �
 - **Resource version.** SHA-1 of `Catalog/Windows/catalog_Windows.hash` when present, else of the sorted
   `(name, size)` listing of the resource folders. The cache key; a game update starts a new cache folder.
 - **User data.** The mod library and UI state live in `utils.EXE_DIR` (the portable data directory the app already
-  uses for `config.toml` and `output/`).
+  uses for `config.toml` and `output/`). Several instances may share it: a change to the UI state (`webui.json`) is
+  applied to the file as it is at that moment, read again under a lock the instances share (`webui.json.lock`), so
+  no instance erases another's keys, and reads follow the other instances' writes.
 
 ## gameassets
 
@@ -255,8 +257,9 @@ Events on `/api/events`:
 
 Thumbnails (faces, busts, expression cards, variant cards) are rendered in the page from the skeletons, in one
 shared offscreen WebGL context, and kept as in-memory blob URLs. They are framed on the face (the expression and eye
-slots, halos left out), sized by its width held between 170 and 400 skeleton units, never by the skeleton's bounds;
-the bounds stand in only where no face is found.
+slots, halos left out; without a part named like one, the face-sized parts the expression animations switch, as
+many NPC portraits name their face slot `0`, `00` or `defalt`), sized by its width held between 170 and 400
+skeleton units, never by the skeleton's bounds; the bounds stand in only where no face is found.
 
 ## Front end
 
@@ -282,7 +285,11 @@ ported.
   roster`); the search lasts the session.
 - The search (the game's CharacterSearch box over the top of the list) matches every name language, the family's base
   names and the file id, ignoring case, width, kana and separators (with the marks inside names, as in
-  Shiroko*Terror); every word must match.
+  Shiroko*Terror); every word must match. Its input opens focused at once, before the box is drawn round it, and
+  stays in the page across rebuilds, so nothing typed meanwhile is lost.
+- Keyboard focus moves the list through its own scroll position (the clip never scrolls by itself, so the virtual
+  rows and the scrollbar stay in step); the cards are in the page in the list's order, and the focused one shows a
+  ring in the game's selection blue.
 - A visit to a variant (`ui.visit`) is mirrored in the page's roster data, so "Recently Viewed" has it on the way
   back without a new `roster.list`.
 - The detail screen's arrows step through the cards as the list showed them when it was left, in its order, wrapping
@@ -295,6 +302,16 @@ UICharacterDetail's `CharacterPos` (`Inventory_ListControl/CharacterPos`, scale 
 Unity unit in every SkeletonDataAsset), never on the skeleton's bounds, so a long weapon, wings or a prop beside the
 character neither shrink nor shift her. The player covers the stage under every panel and keeps one scale across and
 down (its viewport has the canvas's own aspect).
+
+### Popups
+
+The detail screen's popups (switch portrait, the variant picker, compare, details) are drawn on the game's popup
+frame (UIPopup_Sort) and cover the whole stage with its dark backdrop, top bar and navigation included, like the
+display settings and the settings; a click on the backdrop or Escape closes them (PopupClose).
+
+- **Details** (the Portrait, Memorial Lobby and 3D Model info bars' button): the shown tab's game files. The folder,
+  what they carry and, for a mod, its file and the variant it was made for; then one row per bundle with its size,
+  date, CRC state and what it carries. The frame fits its content and scrolls past the stage's height.
 
 ### Loading screen
 

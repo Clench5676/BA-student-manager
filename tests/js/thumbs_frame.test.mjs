@@ -3,10 +3,26 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { FACE_W, NOT_FACE, isFacePart, thumbFrame } from "../../src/ba_modding_toolkit/web/js/thumbs.js";
+import { FACE_W, NOT_FACE, faceOf, isFacePart, thumbFrame } from "../../src/ba_modding_toolkit/web/js/thumbs.js";
 
 const near = (a, b, eps = 1e-6) => assert.ok(Math.abs(a - b) < eps, `${a} != ${b}`);
 const box = (x0, x1, y0, y1) => ({ x0, x1, y0, y1 });
+const part = (slot, b, expr = false, attachment = slot) => ({ slot, attachment, box: b, expr });
+
+test("the face: the parts named like one, else the parts the expressions switch", () => {
+  // np0111 (Ako, Operator): its face slot is "0", switched by the expressions; the hair and the body are not
+  const ako = [part("NP111", box(-238, 300, 358, 1368)), part("front hair", box(-165, 200, 932, 1207)),
+    part("0", box(-81, 125, 972, 1127), true), part("halo", box(-243, 157, 1186, 1443), true)];
+  assert.deepEqual(faceOf(ako), box(-81, 125, 972, 1127));
+  // a part named like a face wins over the switched ones, as before
+  const named = [part("01_Normal", box(-100, 100, 900, 1100), true, "default"), part("mouth", box(-40, 40, 950, 990), true)];
+  assert.deepEqual(faceOf(named), box(-100, 100, 900, 1100));
+  // a whole body swapped per expression (citizen_animal1) is too large for a face: nothing is found
+  assert.equal(faceOf([part("citizen_animal1", box(-239, 303, -300, 1158), true)]), null);
+  assert.equal(faceOf([part("body", box(-700, 700, 0, 400), true)]), null);
+  assert.equal(faceOf([part("NP111", box(-238, 300, 358, 1368))]), null);
+  assert.equal(faceOf([]), null);
+});
 
 test("face parts: expression overlays and eyes, never halos", () => {
   for (const [slot, att] of [["00_defalt", "00_defalt"], ["default", "00_default"], ["eyeclose", "eyeclose"],

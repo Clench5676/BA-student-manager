@@ -23,10 +23,11 @@ export function text(tree, path, value, extra = {}) {
 }
 export const widget = (tree, path) => at(tree, path)?.widgets.find((x) => "w_" in x);
 
-// a path (or a short text ending in one) broken after its separators to fit maxW; the largest size from fsMax down
-// to fsMin that needs at most maxLines lines. Never cut: a part longer than a line is broken between characters.
+// a path (or a short text ending in one) broken after its separators (and the dashes and underscores of bundle names)
+// to fit maxW; the largest size from fsMax down to fsMin that needs at most maxLines lines. Never cut: a part longer
+// than a line is broken between characters.
 export function wrapPath(path, fsMax, fsMin, maxW, maxLines = 3) {
-  const pieces = String(path ?? "").split(/(?<=[\\/ ])/);
+  const pieces = String(path ?? "").split(/(?<=[\\/ _-])/);
   let best = null;
   for (let fs = fsMax; fs >= fsMin; fs -= 2) {
     // a piece wider than a line at this size is broken between characters
