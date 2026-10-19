@@ -76,12 +76,16 @@ export function pairAtlases(files) {
 
 // voice clip names as Kivo keys them: "Images/sound/Hoshino_MemorialLobby_3_1.ogg" -> "hoshino_memoriallobby_3_1"
 const clipId = (name) => name.toLowerCase().replace(/\\/g, "/").split("/").pop().replace(/\.(ogg|wav|mp3)$/, "").replace(/_new$/, "");
-// the looping idle: the SpineCharacter's idle clip, else Idle_01, else the prefab's start animation; never an intro
-// (Hasumi_home's prefab starts "Start_Idle", which must not loop)
-function idleOf(data, layer) {
+// the looping idle: the SpineCharacter's idle clip, else Idle_01, else the prefab's start animation, else the first
+// other animation (Dummy last); never an intro (Hasumi_home's prefab starts "Start_Idle", which must not loop). A
+// skeleton with intros only gets none: Shigure's Shigure_00 and Shigure_01, the scenes of her lobby's intro timeline,
+// parked beside the scene, rest in their setup pose as spine-unity leaves them when the timeline's clip ends (looped,
+// Shigure_00's train crossed the bottom of the view in front of her).
+export function idleOf(data, layer, info = current?.info) {
   const ok = (n) => n && !/^start_/i.test(n) && data.findAnimation(n);
-  return [current?.info?.idle?.[layer.name], "Idle_01", layer.animation].find(ok)
-    || data.animations.find((a) => ok(a.name) && a.name !== "Dummy")?.name || data.animations[0]?.name;
+  return [info?.idle?.[layer.name], "Idle_01", layer.animation].find(ok)
+    || data.animations.find((a) => ok(a.name) && a.name !== "Dummy")?.name
+    || data.animations.find((a) => ok(a.name))?.name || null;
 }
 
 // --- painted rect P: opaque, normal-blend triangles of every layer, over a few idle poses, on a 16-unit grid ---
