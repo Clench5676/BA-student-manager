@@ -512,7 +512,7 @@ def test_install_update_needs_the_window_and_the_verified_download(app, services
 def test_settings_change_waits_for_the_running_job(services):
     gate = threading.Event()
     library = services.library
-    job = services.jobs.submit("slow", lambda log, progress: gate.wait(5))
+    job = services.jobs.submit("slow", lambda log, progress: gate.wait(5), writes="library")
     deadline = time.monotonic() + 5
     while not services.jobs.busy() and time.monotonic() < deadline:
         time.sleep(0.01)

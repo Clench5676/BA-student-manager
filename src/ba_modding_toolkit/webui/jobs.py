@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 LOG_FLUSH_SECONDS = 0.1
 PROGRESS_SECONDS = 0.1
+WRITES = ("game", "library")  # a writer job writes the game folder (and the library), or the library only
 
 
 @dataclass
@@ -26,7 +27,8 @@ class Job:
     kind: str
     params: dict[str, Any]
     fn: Callable[..., Any]
-    state: str = "queued"  # queued, running, done, failed
+    writes: str | None = None  # "game", "library" or None (read-only)
+    state: str = "queued"  # queued, running, done, failed, dropped
     result: Any = None
     error: dict[str, Any] | None = None
     log: list[str] = field(default_factory=list)
@@ -34,9 +36,17 @@ class Job:
     def to_json(self) -> dict[str, Any]:
         return {"id": self.id, "kind": self.kind, "state": self.state, "result": self.result, "error": self.error}
 
+    @property
+    def pending(self) -> bool:
+        return self.state in ("queued", "running")
+
 
 class JobRunner:
-    """A single worker thread: UnityPy and the game folder are never touched by two jobs at once."""
+    """A single worker thread: UnityPy and the game folder are never touched by two jobs at once.
+
+    Writer jobs (``writes``: the game folder or the library) hold back the window's close button, ``app.quit``, a
+    library move and the services rebuild after a game folder change; read-only jobs (an extract, a download) do not.
+    """
 
     def __init__(self, events: EventBus, keep: int = 50):
         self._events = events
@@ -46,19 +56,32 @@ class JobRunner:
         self._keep = keep
         self._ids = itertools.count(1)
         self._lock = threading.Lock()
+        self._closing = False
+        self._idle = threading.Condition(self._lock)
+        self._listeners: list[Callable[[Job], Any]] = []
         self._thread = threading.Thread(target=self._run, name="bamt-jobs", daemon=True)
         self._thread.start()
 
-    def submit(self, kind: str, fn: Callable[..., Any], **params: Any) -> str:
-        """Queue ``fn(log=..., progress=..., **params)``; returns the job id."""
-        job = Job(id=f"j{next(self._ids)}", kind=kind, params=params, fn=fn)
+    def submit(self, kind: str, fn: Callable[..., Any], *, writes: str | None = None, **params: Any) -> str:
+        """Queue ``fn(log=..., progress=..., **params)``; returns the job id. ``writes`` marks a writer job."""
+        if writes is not None and writes not in WRITES:
+            raise ValueError(f"unknown writes {writes!r}")
+        job = Job(id=f"j{next(self._ids)}", kind=kind, params=params, fn=fn, writes=writes)
         with self._lock:
             self._jobs[job.id] = job
             self._order.append(job.id)
             while len(self._order) > self._keep:
-                self._jobs.pop(self._order.pop(0), None)
+                # never forget a job that is still to run: busy() and wait() count it
+                drop = next((i for i, jid in enumerate(self._order) if not self._jobs[jid].pending), None)
+                if drop is None:
+                    break
+                self._jobs.pop(self._order.pop(drop), None)
         self._queue.put(job)
         return job.id
+
+    def listen(self, fn: Callable[[Job], Any]) -> None:
+        """Call ``fn(job)`` on the worker after each job finished (its state is done or failed by then)."""
+        self._listeners.append(fn)
 
     def get(self, job_id: str) -> Job:
         with self._lock:
@@ -68,22 +91,59 @@ class JobRunner:
         return job
 
     def busy(self) -> bool:
+        """Whether a writer job is queued or running."""
         with self._lock:
-            return any(j.state in ("queued", "running") for j in self._jobs.values())
+            return any(j.writes and j.pending for j in self._jobs.values())
+
+    def active(self, *kinds: str) -> bool:
+        """Whether a job of one of these kinds is queued or running."""
+        with self._lock:
+            return any(j.kind in kinds and j.pending for j in self._jobs.values())
+
+    def running(self) -> Job | None:
+        with self._lock:
+            return next((j for j in self._jobs.values() if j.state == "running"), None)
+
+    def wait(self, job_id: str, timeout: float | None = None) -> bool:
+        """Wait until a job ran (done, failed or dropped); whether it did in time. An unknown job counts as done."""
+        with self._idle:
+            return self._idle.wait_for(lambda: job_id not in self._jobs or not self._jobs[job_id].pending, timeout)
 
     def shutdown(self, wait: float | None = None) -> None:
-        """Stop after the queued jobs; with ``wait``, block up to that many seconds for them (a job writing into the
-        game folder must not be cut off by the app exiting)."""
+        """Stop: queued read-only jobs are dropped, queued writer jobs still run (quitting is refused while one is
+        queued, so a normal quit drops none). With ``wait``, block up to that many seconds while a writer job is
+        queued or running (a job writing into the game folder must not be cut off by the app exiting); a running
+        read-only job is not waited for (the worker is a daemon thread)."""
+        with self._lock:
+            self._closing = True
         self._queue.put(None)
-        if wait is not None and self._thread.is_alive():
-            self._thread.join(wait)
+        if wait is not None and self._thread.is_alive() and self.busy():
+            deadline = time.monotonic() + wait
+            with self._idle:
+                self._idle.wait_for(lambda: not any(j.writes and j.pending for j in self._jobs.values()),
+                                    max(0.0, deadline - time.monotonic()))
 
     def _run(self) -> None:
         while True:
             job = self._queue.get()
             if job is None:
                 return
+            with self._lock:
+                drop = self._closing and not job.writes
+                if drop:
+                    job.state = "dropped"
+                    self._idle.notify_all()
+            if drop:
+                logger.info("job %s (%s) dropped at shutdown", job.id, job.kind)
+                continue
             self._execute(job)
+            with self._idle:
+                self._idle.notify_all()
+            for fn in list(self._listeners):
+                try:
+                    fn(job)
+                except Exception:
+                    logger.exception("job listener failed")
 
     def _execute(self, job: Job) -> None:
         events = self._events
