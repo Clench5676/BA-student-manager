@@ -284,6 +284,9 @@ ported.
   names and the file id, ignoring case, width, kana and separators (with the marks inside names, as in
   Shiroko*Terror); every word must match. Its input opens focused at once, before the box is drawn round it, and
   stays in the page across rebuilds, so nothing typed meanwhile is lost.
+- Keyboard focus moves the list through its own scroll position (the clip never scrolls by itself, so the virtual
+  rows and the scrollbar stay in step); the cards are in the page in the list's order, and the focused one shows a
+  ring in the game's selection blue.
 - A visit to a variant (`ui.visit`) is mirrored in the page's roster data, so "Recently Viewed" has it on the way
   back without a new `roster.list`.
 - The detail screen's arrows step through the cards as the list showed them when it was left, in its order, wrapping

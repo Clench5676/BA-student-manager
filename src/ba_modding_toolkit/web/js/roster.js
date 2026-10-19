@@ -262,10 +262,14 @@ function cardTree(e) {
 const portraitOf = (e) => e.portrait || (e.spr ? thumb(spineBase("spr", e.spr), "roster") : null);
 
 // --- rows near the view ---
+// rows sit in the page in the list's order, and each row's buttons left to right, so the keyboard steps through the
+// cards as they show
 async function renderRow(host, rowKey) {
   const row = document.createElement("div");
   row.className = "card-row";
-  host.appendChild(row);
+  const top = rows.get(rowKey)?.top ?? 0;
+  row.dataset.top = String(top);
+  host.insertBefore(row, [...host.children].find((r) => Number(r.dataset.top) > top) || null);
   rendered.set(rowKey, row);
   const jobs = [];
   for (const it of rows.get(rowKey)?.items || []) {
@@ -280,16 +284,15 @@ async function renderRow(host, rowKey) {
     const t = cardTree(it.e);
     t.pos = [it.x, it.y];
     const tex = portraitOf(it.e);
-    jobs.push(NGUI.render(t, row, { scale: S, origin: ORIGIN, z: 100, textures: tex ? { Char_Portrait: tex } : {} }).then(() => {
-      const hit = document.createElement("button");
-      hit.className = "card-hit";
-      const [sx, sy] = [ORIGIN[0] + it.x * S, ORIGIN[1] - it.y * S];
-      Object.assign(hit.style, { left: `${sx - 218 * S}px`, top: `${sy - 245 * S}px`, width: `${436 * S}px`, height: `${490 * S}px` });
-      hit.title = it.e.name;
-      if (it.e.spr) hit.addEventListener("click", () => { if (!ctx.dragged) location.hash = `#/student/${encodeURIComponent(it.e.family)}/${encodeURIComponent(it.e.key)}`; });
-      else hit.disabled = true;
-      row.appendChild(hit);
-    }));
+    const hit = document.createElement("button");
+    hit.className = "card-hit";
+    const [sx, sy] = [ORIGIN[0] + it.x * S, ORIGIN[1] - it.y * S];
+    Object.assign(hit.style, { left: `${sx - 218 * S}px`, top: `${sy - 245 * S}px`, width: `${436 * S}px`, height: `${490 * S}px` });
+    hit.title = it.e.name;
+    if (it.e.spr) hit.addEventListener("click", () => { if (!ctx.dragged) location.hash = `#/student/${encodeURIComponent(it.e.family)}/${encodeURIComponent(it.e.key)}`; });
+    else hit.disabled = true;
+    row.appendChild(hit);
+    jobs.push(NGUI.render(t, row, { scale: S, origin: ORIGIN, z: 100, textures: tex ? { Char_Portrait: tex } : {} }));
   }
   await Promise.all(jobs);
 }
@@ -505,6 +508,25 @@ async function buildFrame(my) {
     applyScroll();
   }, { passive: false });
   clip.addEventListener("pointerdown", (ev) => { drag = { y: ev.clientY, scroll: view.scroll }; ctx.dragged = false; });
+  // a card focused from the keyboard is brought into view through the list's own position, so the rows, the
+  // scrollbar and the virtual list stay in step; whatever still scrolls the clip itself (the browser showing a
+  // focused card) goes the same way
+  clip.addEventListener("focusin", (ev) => {
+    if (!ev.target.classList?.contains("card-hit")) return;
+    const r = ev.target.getBoundingClientRect(), c = clip.getBoundingClientRect(), k = stageScaleNow();
+    if (r.top < c.top) view.scroll -= (c.top - r.top) / k;
+    else if (r.bottom > c.bottom) view.scroll += (r.bottom - c.bottom) / k;
+    else return;
+    applyScroll();
+  });
+  clip.addEventListener("scroll", () => {
+    const dy = clip.scrollTop;
+    if (!dy && !clip.scrollLeft) return;
+    clip.scrollTop = 0;
+    clip.scrollLeft = 0;
+    view.scroll += dy;
+    applyScroll();
+  });
 
   // hit areas for the header controls (TopMenu sits at y 720 in SeletControl's units)
   const hit = ([ux, uy, w, h], fn, title) => {
