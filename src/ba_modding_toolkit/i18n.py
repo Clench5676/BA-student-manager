@@ -2,6 +2,7 @@
 import json
 import locale
 import sys
+from collections.abc import Iterable
 from functools import reduce, lru_cache
 from pathlib import Path
 from typing import Any
@@ -51,6 +52,58 @@ def _get_macos_language() -> str | None:
     languages = [item.strip().strip('"') for item in result.stdout.strip().strip("()").split(",")]
     return next((lang for lang in languages if lang), None)
 
+# The UI languages the app knows (the localization roadmap's M1), in the order the language choices list them. A
+# language is offered once its locale file exists.
+UI_LANGUAGES = ("zh-CN", "zh-TW", "en-US", "ja-JP", "ko-KR")
+DEFAULT_LANGUAGE = "en-US"
+# Chinese written in Traditional characters: the script subtag, else the regions that write it
+_TRADITIONAL = ("zh-hant", "zh-tw", "zh-hk", "zh-mo")
+
+
+def is_traditional_chinese(lang: str) -> bool:
+    """Whether a language tag is Chinese in Traditional characters (zh-TW, zh-Hant-HK, zh_MO, ...)."""
+    tag = lang.replace("_", "-").lower()
+    return any(tag == t or tag.startswith(t + "-") for t in _TRADITIONAL)
+
+
+def fallback_language(lang: str) -> str:
+    """The language whose strings stand in, key by key, for the ones a locale file lacks.
+
+    Simplified Chinese falls back to zh-CN; every other language, Traditional Chinese included, to en-US. A
+    Traditional Chinese screen with a few Simplified strings (in Kivo's wording, too) reads as a wrong translation,
+    an English string reads as an untranslated one and stands out to the translator; CLDR, likewise, gives zh-Hant
+    the root locale as its parent, not zh.
+    """
+    tag = lang.replace("_", "-").lower()
+    if (tag == "zh" or tag.startswith("zh-")) and not is_traditional_chinese(tag):
+        return "zh-CN"
+    return DEFAULT_LANGUAGE
+
+
+def match_language(system_lang: str | None, available: Iterable[str]) -> str:
+    """The UI language for a system language tag (zh-Hans-CN, zh_TW, ja-JP, ko, ...), among the available ones.
+
+    Traditional Chinese (zh-Hant, zh-TW, zh-HK, zh-MO) takes zh-TW, else the whole zh-CN screen, which reads better
+    than an English one (a whole screen, unlike a string here and there, is consistent in itself); other Chinese
+    takes zh-CN, Japanese ja-JP, Korean ko-KR; anything else, and a language whose locale file does not exist yet,
+    en-US.
+    """
+    available = set(available)
+    tag = (system_lang or "").replace("_", "-").lower()
+    primary = tag.split("-")[0]
+    if primary == "zh":
+        wanted = ["zh-TW", "zh-CN"] if is_traditional_chinese(tag) else ["zh-CN"]
+    else:
+        wanted = [code for code in UI_LANGUAGES if code.split("-")[0].lower() == primary]
+    return next((code for code in wanted if code in available), DEFAULT_LANGUAGE)
+
+
+def offered_languages(locales_dir: Path | None = None) -> list[str]:
+    """The UI languages to offer, in UI_LANGUAGES order: those whose locale file exists."""
+    folder = locales_dir or get_locale_dir()
+    return [code for code in UI_LANGUAGES if (folder / f"{code}.json").is_file()]
+
+
 def get_default_language() -> str:
     """
     根据系统语言获取默认语言设置
@@ -64,14 +117,12 @@ def get_default_language() -> str:
 
     system_lang = get_system_language()
     # 如果系统语言是中文，使用zh-CN，否则使用en-US
-    if system_lang and (system_lang.startswith("zh-")):
-        return "zh-CN"
-    else:
-        return "en-US"
+    # The system language picks among the UI languages whose locale file exists (match_language)
+    return match_language(system_lang, offered_languages())
 
 class I18n:
     def __init__(self, lang: str | None = None, locales_dir: str | None = None):
-        self.fallback_lang = "en-US"
+        self.fallback_lang = DEFAULT_LANGUAGE
         self.lang = lang or get_default_language()
         self.locales_dir = Path(locales_dir) if locales_dir else get_locale_dir()
         self.translations: dict[str, Any] = {}
@@ -85,6 +136,7 @@ class I18n:
         支持 Debug 模式和 key 级别回退：
         - zh-* 语言：回退到 zh-CN → key
         - 其他语言：回退到 en-US → key
+        Traditional Chinese (zh-TW, zh-Hant-*) falls back to en-US, not zh-CN: see fallback_language.
         """
         # print(f"Loading locales from: {self.locales_dir}")
         
@@ -95,10 +147,7 @@ class I18n:
             print("I18n: Debug mode enabled.")
             return
 
-        if self.lang.startswith("zh-"):
-            fallback_code = "zh-CN"
-        else:
-            fallback_code = "en-US"
+        fallback_code = fallback_language(self.lang)
 
         main_path = self.locales_dir / f"{self.lang}.json"
         fallback_path = self.locales_dir / f"{fallback_code}.json"

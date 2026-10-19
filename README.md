@@ -90,7 +90,7 @@ their files.
 
 ## Languages
 
-Simplified Chinese and English. Traditional Chinese and Japanese are next, then Thai and Vietnamese.
+Simplified Chinese and English. Traditional Chinese, Japanese and Korean are next, then Thai and Vietnamese.
 
 ## Command line
 

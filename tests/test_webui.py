@@ -12,6 +12,7 @@ import pytest
 
 from ba_modding_toolkit.config import Settings
 from ba_modding_toolkit.errors import ServiceError
+from ba_modding_toolkit.i18n import offered_languages
 from ba_modding_toolkit.webui.api import build_api, ui_strings
 from ba_modding_toolkit.webui.events import EventBus
 from ba_modding_toolkit.webui.jobs import JobRunner
@@ -401,7 +402,14 @@ def test_ui_strings_fall_back_key_by_key():
     assert en["webui.tab.model"] == "3D Model"
     assert set(zh) == set(en)
     assert all("·" not in v and "・" not in v for v in zh.values())
-    assert ui_strings("zh-TW")["webui.tab.lobby"] == "记忆大厅"  # falls back to zh-CN until zh-TW exists
+    # Traditional Chinese falls back to English, not to Simplified Chinese (i18n.fallback_language); Korean and
+    # Japanese too, key by key: until its locale file ships a language shows the English strings, then its own
+    for lang in ("zh-TW", "ja-JP", "ko-KR"):
+        shipped = lang in offered_languages()
+        assert (ui_strings(lang)["webui.tab.lobby"] != en["webui.tab.lobby"]) is shipped, lang
+        assert set(ui_strings(lang)) == set(en), lang
+    assert ui_strings("ja-JP")["webui.tab.lobby"] == "メモリアルロビー"
+    assert ui_strings("zh-SG")["webui.tab.lobby"] == "记忆大厅"
 
 
 def test_cookie_found_among_unparsable_cookies(app):
@@ -433,6 +441,27 @@ def test_roster_view_is_kept_across_launches(app, services, tmp_path):
     assert saved == {**roster_view(None), **sent}
     # a new launch reads the same file
     assert roster_view(UiState(tmp_path / "webui.json").get("roster")) == saved
+
+
+def test_settings_offer_the_languages_with_a_locale_file(app, services, tmp_path, monkeypatch):
+    from ba_modding_toolkit.i18n import i18n_manager
+    from ba_modding_toolkit.webui import api as webui_api
+
+    locales = tmp_path / "locales"
+    locales.mkdir()
+    for code, name in (("zh-CN", "简体中文"), ("en-US", "English"), ("ko-KR", "한국어")):
+        (locales / f"{code}.json").write_text(json.dumps({"webui": {"languageName": name}}), encoding="utf-8")
+    monkeypatch.setattr(webui_api, "get_locale_dir", lambda: locales)
+    monkeypatch.setattr(webui_api, "offered_languages", lambda: offered_languages(locales))
+    monkeypatch.setattr(i18n_manager, "lang", i18n_manager.lang)  # restored after the test
+    languages = rpc(app, "settings.get")["result"]["languages"]
+    assert languages == [{"code": "zh-CN", "name": "简体中文"}, {"code": "en-US", "name": "English"},
+                         {"code": "ko-KR", "name": "한국어"}]
+    # a known language without its locale file yet (zh-TW, ja-JP) cannot be chosen
+    assert rpc(app, "settings.set", key="language", value="zh-TW")["error"]["code"] == "bad_params"
+    monkeypatch.setattr(i18n_manager, "set_language", lambda lang: None)
+    assert "error" not in rpc(app, "settings.set", key="language", value="ko-KR")
+    assert services.settings.get("language") == "ko-KR"
 
 
 def test_install_update_needs_the_window_and_the_verified_download(app, services, tmp_path):
