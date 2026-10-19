@@ -41,8 +41,9 @@ def clean(value: str, lang: str) -> str:
     """Normalize brackets, separators and the Terror asterisk without translating game wording.
 
     Chinese and Japanese write the Terror asterisk full width (U+FF0A) and full-width brackets; English and Korean
-    keep the half-width ones, Korean without a space before the bracket, as the game writes them (아즈사(수영복),
-    시로코*테러). A Korean middle dot joins the words of one name (환량 · 츠쿠모가미): a space takes its place.
+    keep the half-width ones, Korean without a space before the bracket, as the game writes them (Azusa(Swimsuit),
+    Shiroko*Terror in Hangul). A Korean middle dot joins the words of one name (Kanryou and Tsukumogami): a space takes
+    its place.
     """
     if lang == "ko":
         value = re.sub(r"\s*[\u00b7\u30fb]\s*", " ", value)
@@ -62,8 +63,8 @@ def given_name(value: str) -> str:
 
 
 def bracketed(base: str, inner: str, lang: str) -> str:
-    """A base name with its variant words in the language's brackets: Hoshino (Swimsuit), 호시노(수영복),
-    星野（泳装）."""
+    """A base name with its variant words in the language's brackets: Hoshino (Swimsuit) in English, half-width
+    brackets with no space in Korean, full-width brackets in Chinese and Japanese."""
     if lang == "en":
         return f"{base} ({inner})"
     if lang == "ko":
@@ -96,7 +97,8 @@ def remark(row: dict[str, str]) -> str:
 
 def _glossary_wins(raw: str, localized: str, lang: str) -> bool:
     """Whether the glossary's word for a Kivo skin replaces the character map's own: a zh-TW skin that only repeats
-    the Kivo text, and a ko skin the game words otherwise (the map's 임전, 정월, 캠프 for the game's 무장, 새해, 캠핑)."""
+    the Kivo text, and a ko skin the game words otherwise (the map's words for Battle Ready, New Year and Camp give way
+    to the game's own)."""
     word = NAMING["glossary"].get(raw, {}).get(lang)
     if word is None or word == localized:
         return False
