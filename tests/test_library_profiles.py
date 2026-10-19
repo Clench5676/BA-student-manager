@@ -1797,7 +1797,482 @@ def test_keeping_an_outside_change_of_a_core_only_another_install_has(world):
     kept, = world.library.mods()
     assert kept.file.read_bytes() == data and kept.target == "ch9999"
 
+
+def test_an_on_reaches_an_unconfigured_listed_entry(world):
     world.library.profiles.update(lambda data: data.update(
         enabled=False, unfinished=[{"install": world.key(), "core": "test_spr", "why": "pending"}]))
     world.library.toggle(True, False)
     assert world.unfinished() == []  # it holds the intent: official, nothing configured
+
+
+# --- alpha.3 records, game updates and gone records ---
+
+def test_alpha3_records_of_a_two_part_lobby_and_a_game_update_give_updated(world):
+    world.consent = True
+    parts = [game_bundle(world.game, "test_home", part=part, payload=part.encode() * 3) for part in ("002", "003")]
+    mod, = world.library.add([make_mod(part, world.tmp / "pack", payload=b"lobbymod" + part.name[-30:-27].encode(),
+                                       fixed=True) for part in parts])
+    world.library.apply("test", f"mod:{mod.id}", kind="lobby")
+    as_alpha3(world)
+    game_update(parts[0], payload=b"updated lobby part")  # one modded part renamed by the update
+    world.reload()  # the first alpha.4 start: the lookup migrates, then the start prunes
+    assert world.folder()["configured"]["test_home"]["source"] == f"mod:{mod.id}"
+    world.library.prune()
+    assert not world.original(parts[0]).exists()
+    applied = json.loads((world.root / "state.json").read_text())["applied"]
+    assert str(parts[0].resolve()) not in applied
+    assert "test_home" in world.folder()["updated"]
+    assert world.entries()[(world.key(), "test_home")].state == "updated"
+
+
+def test_alpha3_records_of_a_one_part_portrait_renamed_by_an_update_give_updated(world):
+    world.consent = True
+    mod = world.add(world.spr, fixed=True)
+    world.library.apply("test", f"mod:{mod.id}")
+    as_alpha3(world)
+    game_update(world.spr)
+    world.reload()
+    assert world.folder()["configured"]["test_spr"]["source"] == f"mod:{mod.id}"  # from its gone record
+    world.library.prune()
+    assert world.entries()[(world.key(), "test_spr")].state == "updated"
+
+
+def test_gone_records_stay_while_another_install_keeps_the_original(world, monkeypatch):
+    world.consent = True
+    second = world.tmp / "second"
+    second.mkdir()
+    shutil.copyfile(world.spr, second / world.spr.name)
+    world.settings.set("game_resource_dir_japan", str(second))  # two installs sharing file names
+    mod = world.add(world.spr, fixed=True)
+    world.library.apply("test", f"mod:{mod.id}")
+    world.library.apply("test", f"mod:{mod.id}", pin=pin_of(world, second))
+    old = world.spr
+    game_update(old)  # the first install updates; the second still holds the old name
+    world.reload()
+    world.library.prune()
+    assert world.original(old).exists()
+    assert str(old.resolve()) in json.loads((world.root / "state.json").read_text())["applied"]
+    assert world.folder()["updated"] == {}
+    assert world.entries()[(world.key(), "test_spr")].state == "updated"  # by the gone rule
+    rebuilding_installer(monkeypatch)
+    monkeypatch.setattr(mod_install, "_asset_match", lambda sources, candidates, log: (candidates, ""))
+    world.library.restore_drift([{"install": world.key(), "core": "test_spr", "state": "updated"}])
+    assert world.entries()[(world.key(), "test_spr")].state == "ok"
+    world.reload()
+    world.library.prune()
+    assert world.folder()["updated"] == {}
+    game_update(second / old.name)  # now the second install updates too
+    world.reload()
+    world.library.prune()
+    assert not world.original(old).exists()
+    applied = json.loads((world.root / "state.json").read_text())["applied"]
+    assert str(old.resolve()) not in applied and str((second / old.name).resolve()) not in applied
+    assert "test_spr" in world.folder(second)["updated"] and world.folder()["updated"] == {}
+
+
+def test_an_install_the_library_never_wrote_keeps_the_original_until_it_updates_too(world):
+    second = world.tmp / "second"
+    second.mkdir()
+    shutil.copyfile(world.spr, second / world.spr.name)
+    mod = world.add(world.spr, fixed=True)
+    world.library.apply("test", f"mod:{mod.id}")
+    world.settings.set("game_resource_dir_japan", str(second))  # named now, never written
+    old = world.spr
+    game_update(old)
+    world.reload()
+    world.library.prune()
+    assert world.original(old).exists()  # the second holds the old name without a record
+    game_update(second / old.name)
+    world.reload()
+    world.library.prune()
+    assert not world.original(old).exists()
+    assert str(old.resolve()) not in json.loads((world.root / "state.json").read_text())["applied"]
+
+
+def test_an_adopted_overwritten_part_renamed_by_an_update_is_updated_then_ok(world, monkeypatch):
+    world.consent = True
+    outside_mod(world.spr)
+    world.toggle(False)  # adopted, stuck
+    world.toggle(True)
+    game_update(world.spr)
+    assert world.entries()[(world.key(), "test_spr")].state == "updated"
+    world.reload()
+    world.library.prune()
+    rebuilding_installer(monkeypatch)
+    monkeypatch.setattr(mod_install, "_asset_match", lambda sources, candidates, log: (candidates, ""))
+    world.library.restore_drift([{"install": world.key(), "core": "test_spr", "state": "updated"}])
+    assert world.entries()[(world.key(), "test_spr")].state == "ok"
+
+
+def test_a_written_successor_ends_the_gone_rule_before_the_prune(world, monkeypatch):
+    world.consent = True
+    mod = world.add(world.spr, fixed=True)
+    world.library.apply("test", f"mod:{mod.id}")
+    successor = game_update(world.spr)
+    rebuilding_installer(monkeypatch)
+    monkeypatch.setattr(mod_install, "_asset_match", lambda sources, candidates, log: (candidates, ""))
+    world.library._switch(world.library.current_pin(), "test_spr", f"mod:{mod.id}")  # a bulk write: no prune
+    assert str(world.spr.resolve()) in json.loads((world.root / "state.json").read_text())["applied"]
+    assert successor.exists() and world.entries()[(world.key(), "test_spr")].state == "ok"
+
+
+# --- half drifted entries and whole built copies ---
+
+def two_part_lobby(world: World):
+    parts = [game_bundle(world.game, "test_home", part=part, payload=part.encode() * 3) for part in ("002", "003")]
+    mod, = world.library.add([make_mod(part, world.tmp / "pack", payload=b"lobbymod" + part.name[-30:-27].encode(),
+                                       fixed=True) for part in parts])
+    return parts, mod
+
+
+def test_a_half_reset_entry_turned_off_and_on_comes_back_whole(world):
+    world.consent = True
+    parts, mod = two_part_lobby(world)
+    world.library.apply("test", f"mod:{mod.id}", kind="lobby")
+    official = world.original(parts[0]).read_bytes()
+    parts[0].write_bytes(official)  # a Steam check put one modded part back
+    world.toggle(False)
+    assert "test_home" not in world.folder()["built"]  # it did not carry its mod: no half copy
+    world.toggle(True)  # rebuilt: both parts carry the mod again
+    assert world.entries()[(world.key(), "test_home")].state == "ok"
+    applied = json.loads((world.root / "state.json").read_text())["applied"]
+    assert all(applied[str(part.resolve())]["official"] is False for part in parts)
+
+
+def test_a_whole_built_copy_is_kept_through_a_reset_and_written_back_whole(world, monkeypatch):
+    world.consent = True
+    parts, mod = two_part_lobby(world)
+    world.library.apply("test", f"mod:{mod.id}", kind="lobby")
+    modded = {part: part.read_bytes() for part in parts}
+    world.toggle(False)
+    key = world.folder()["built"]["test_home"]
+    assert set(key["parts"]) == {part.name for part in parts}
+    world.toggle(True)
+    parts[0].write_bytes(world.original(parts[0]).read_bytes())  # reset after the On
+    world.toggle(False)
+    assert world.folder()["built"]["test_home"] == key  # kept as it was
+    no_installer(monkeypatch)
+    world.toggle(True)
+    assert {part: part.read_bytes() for part in parts} == modded
+
+
+def test_an_off_of_an_entry_carrying_its_mod_replaces_the_whole_key(world, monkeypatch):
+    lobby_parts, lobby_mod = two_part_lobby(world)
+    texture = world.add(lobby_parts[1], payload=b"texonly!", fixed=True, where="texture")
+    world.library.apply("test", f"mod:{lobby_mod.id}", kind="lobby")
+    world.toggle(False)
+    world.toggle(True)
+    world.library.apply("test", f"mod:{texture.id}", kind="lobby")
+    assert "test_home" not in world.folder()["built"]  # the configuration changed: its key went
+    world.toggle(False)
+    assert list(world.folder()["built"]["test_home"]["parts"]) == [lobby_parts[1].name]
+
+
+def test_adopting_with_mods_on_keeps_the_mod_files_as_its_built_copy(world, monkeypatch):
+    world.consent = True
+    keep_backup(world.spr)
+    data = outside_mod(world.spr)
+    world.library.adopt([{"install": world.key(), "core": "test_spr"}])
+    world.spr.write_bytes(OFFICIAL)  # a Steam check
+    assert world.entries()[(world.key(), "test_spr")].state == "reset"
+    no_installer(monkeypatch)
+    world.library.restore_drift([{"install": world.key(), "core": "test_spr", "state": "reset"}])
+    assert world.spr.read_bytes() == data
+
+
+def test_two_installs_share_one_built_file_until_both_drop_it(world, monkeypatch):
+    folder = japan(world)
+    second = folder / world.spr.name
+    mod = world.add(world.spr, fixed=True)
+    rebuilding_installer(monkeypatch)
+    world.library.apply("test", f"mod:{mod.id}")
+    world.library.apply("test", f"mod:{mod.id}", pin=pin_of(world, folder))
+    world.toggle(False)
+    built = list((world.root / "built").iterdir())
+    assert len(built) == 1
+    world.toggle(True)
+    world.library.restore("test")  # the first install's configuration goes
+    assert built[0].exists()
+    world.library.restore("test", pin=pin_of(world, folder))
+    assert not built[0].exists()
+    assert second.read_bytes() == OFFICIAL
+
+
+def test_a_game_update_drops_the_built_copy_and_on_rebuilds(world, monkeypatch):
+    mod = world.add(world.spr, fixed=True)
+    rebuilding_installer(monkeypatch)
+    world.library.apply("test", f"mod:{mod.id}")
+    world.toggle(False)
+    copy, = (world.root / "built").iterdir()
+    successor = game_update(world.spr)
+    world.reload()
+    world.library.prune()
+    assert "test_spr" not in world.folder()["built"]
+    monkeypatch.setattr(mod_install, "_asset_match", lambda sources, candidates, log: (candidates, ""))
+    world.toggle(True)
+    assert successor.read_bytes() != header_bundle(b"updated!")
+
+
+def test_a_variant_entry_whose_source_files_changed_is_rebuilt(world, monkeypatch):
+    other = game_bundle(world.game, "other_spr", payload=b"other!!!")
+    built = []
+
+    def update(sources, targets, output, *args, **kwargs):
+        built.append([source.name for source in sources])
+        result = output / targets[0].name
+        result.write_bytes(CRCUtils.apply_crc_fix(header_bundle(b"adapted!"), int(parse_filename(targets[0].name).crc)))
+        return ModUpdateResult(True, "updated", [FilePair(result, targets[0])])
+
+    monkeypatch.setattr("ba_modding_toolkit.library.service.adapt_variant_sources", lambda sources, *args: sources)
+    monkeypatch.setattr(core, "process_mod_update", update)
+    world.library.apply("test", "variant:other")
+    world.toggle(False)
+    assert world.folder()["built"]["test_spr"]["inputs"] == [other.name]
+    renamed = game_update(other, payload=b"other v2")
+    world.toggle(True)
+    assert built[-1] == [renamed.name] and len(built) == 2  # rebuilt from the new file, not written back
+
+
+# --- failures, Retry, rollbacks ---
+
+def test_one_locked_file_fails_one_entry_and_the_rest_go_on(world, monkeypatch):
+    files = three_mods(world)
+    lock_game_file(monkeypatch, files["other_spr"])
+    result = world.toggle(False)
+    assert [item["entry"]["core"] for item in result.failed] == ["other_spr"]
+    assert {item["core"] for item in result.done} == {"test_spr", "third_spr"}
+    assert world.unfinished() == [{"install": world.key(), "core": "other_spr", "why": "pending"}]
+
+
+def test_a_running_game_stops_the_toggle(world, monkeypatch):
+    three_mods(world)
+    calls = []
+
+    def running():
+        calls.append(1)
+        if len(calls) > 1:
+            raise ServiceError("game_running")
+
+    monkeypatch.setattr(safety, "check_game_not_running", running)
+    expect_error("game_running", lambda: world.toggle(False))
+    assert world.library.intent()["enabled"] is False  # the intent was saved first
+    assert len(world.unfinished()) == 3
+
+
+def test_an_off_that_does_not_fit_writes_nothing(world, monkeypatch):
+    world.consent = True
+    keep_backup(world.spr)
+    outside_mod(world.spr)
+    monkeypatch.setattr(service.shutil, "disk_usage", lambda path: SimpleNamespace(free=10))
+    error = expect_error("not_enough_space", lambda: world.toggle(False))
+    assert error.params["free"] == 10
+    assert world.library.intent()["enabled"] is True and world.library.mods() == []
+
+
+def test_an_older_library_source_than_the_configured_one_is_pending_and_on_applies_it(world, monkeypatch):
+    world.consent = True
+    first = world.add(world.spr, fixed=True)
+    second = world.add(world.spr, b"second!!", fixed=True, where="second")
+    world.library.apply("test", f"mod:{first.id}")
+    lock_game_file(monkeypatch, world.spr)
+    world.toggle(False)  # failed on it: still carries the first mod
+    monkeypatch.undo()
+    monkeypatch.setattr(safety, "check_game_not_running", lambda: None)
+    world.library.apply("test", f"mod:{second.id}")  # saved while off
+    assert world.entries()[(world.key(), "test_spr")].state == "pending"
+    world.toggle(True)
+    assert world.spr.read_bytes() == second.file.read_bytes()
+
+
+def test_retry_skips_stuck_entries(world):
+    world.consent = True
+    outside_mod(world.spr)
+    world.toggle(False)
+    result = world.library.toggle(False, False)
+    assert [item["core"] for item in result.stuck] == ["test_spr"] and result.done == []
+
+
+def test_a_configuration_changed_by_another_instance_is_read_when_reached(world):
+    first = world.add(world.spr, fixed=True)
+    second = world.add(world.spr, b"second!!", fixed=True, where="second")
+    world.library.apply("test", f"mod:{first.id}")
+    world.toggle(False)
+    real = service.ModLibrary._reach
+
+    def meanwhile(self, pin, core, *args, **kwargs):
+        Profiles(world.root).update(lambda data: data["folders"][pin.key]["configured"][core].update(
+            source=f"mod:{second.id}"))
+        return real(self, pin, core, *args, **kwargs)
+
+    service_reach = service.ModLibrary._reach
+    service.ModLibrary._reach = meanwhile
+    try:
+        world.toggle(True)
+    finally:
+        service.ModLibrary._reach = service_reach
+    assert world.spr.read_bytes() == second.file.read_bytes()
+
+
+def test_an_existing_mod_survives_a_rolled_back_write_over_its_bytes(world, monkeypatch):
+    keep = world.add(world.spr, b"keepme!!", fixed=True, where="keep")
+    keep_original = world.original(world.spr)
+    other = world.add(world.spr, b"other!!!", fixed=True, where="other")
+    world.library.apply("test", f"mod:{other.id}")
+    world.library.rename(keep.id, "Kept label")
+    shutil.copyfile(keep.file, world.spr)  # the classic GUI installed a library mod
+    lock_game_file(monkeypatch, world.spr)
+    expect_error("game_file_locked", lambda: world.library.apply("test", f"mod:{other.id}"))
+    entry = next(m for m in world.library.mods() if m.id == keep.id)
+    assert entry.label == "Kept label" and entry.file.exists() and keep_original.exists()
+
+
+def test_an_original_that_existed_before_a_failed_write_stays(world, monkeypatch):
+    first = world.add(world.spr, fixed=True)
+    second = world.add(world.spr, b"second!!", fixed=True, where="second")
+    world.library.apply("test", f"mod:{first.id}")
+    world.library.restore("test")
+    world.library.apply("test", f"mod:{first.id}")
+    lock_game_file(monkeypatch, world.spr)
+    expect_error("game_file_locked", lambda: world.library.apply("test", f"mod:{second.id}"))
+    assert world.original(world.spr).exists()
+
+
+def test_a_bulk_toggle_prunes_once_at_its_end(world, monkeypatch):
+    three_mods(world)
+    calls = []
+    real = service.ModLibrary._prune
+
+    def count(self):
+        calls.append(1)
+        return real(self)
+
+    monkeypatch.setattr(service.ModLibrary, "_prune", count)
+    world.toggle(False)
+    assert len(calls) == 1
+
+
+def test_apply_mod_configuration_switches_a_changed_entry_only_when_listed_as_changed(world):
+    world.consent = True
+    mod = world.add(world.spr, fixed=True)
+    world.library.apply("test", f"mod:{mod.id}")
+    data = outside_mod(world.spr)
+    result = world.library.restore_drift([{"install": world.key(), "core": "test_spr", "state": "reset"}])
+    assert result.skipped and world.spr.read_bytes() == data  # turned changed since it was listed
+    world.library.restore_drift([{"install": world.key(), "core": "test_spr", "state": "changed"}])
+    assert world.spr.read_bytes() == mod.file.read_bytes()
+    assert any(m.file.read_bytes() == data for m in world.library.mods())  # the outside change kept first
+
+
+def test_no_drift_is_applied_while_mods_are_off(world):
+    world.toggle(False)
+    expect_error("state_changed", lambda: world.library.restore_drift(
+        [{"install": world.key(), "core": "test_spr", "state": "reset"}]))
+
+
+def test_entries_of_cores_the_current_catalog_does_not_map_carry_shipped_names(world, monkeypatch):
+    world.consent = True
+    folder = japan(world, "ch0042_spr")
+    newcomer = next(folder.glob("*ch0042_spr*"))
+    keep_backup(newcomer)
+    outside_mod(newcomer)
+    names = {"en": {"full": "Shipped", "short": "Base"}}
+    real = world.catalog.core_map
+
+    def core_map(spr, lobby):
+        mapped = real(spr, lobby)
+        return type(mapped)(mapped.keys, mapped.spr, mapped.lobby, {"ch0042": names})
+
+    monkeypatch.setattr(world.catalog, "core_map", core_map)
+    world.reload()
+    entry = world.entries()[(world.key(folder), "ch0042_spr")]
+    assert entry.names == names and entry.variant == "ch0042"
+    keep_backup(world.spr)
+    outside_mod(world.spr)
+    assert world.entries()[(world.key(), "test_spr")].names is None  # mapped by the current catalog
+
+
+def test_the_lock_order_is_kept_across_threads(world, monkeypatch):
+    """The library lock, then state.json.lock, then profiles.json.lock: no thread takes an earlier one while
+    holding a later one, and none holds profiles.json.lock while it asks the scan consent."""
+    from ba_modding_toolkit import filelock
+    from ba_modding_toolkit.library import profiles as profiles_module
+    order = {"state.json.lock": 2, "profiles.json.lock": 3}
+    held = threading.local()
+    violations: list[str] = []
+    real_lock = filelock.file_lock
+
+    def stack() -> list[int]:
+        if not hasattr(held, "stack"):
+            held.stack = []
+        return held.stack
+
+    import contextlib
+
+    @contextlib.contextmanager
+    def tracked(path):
+        rank = order.get(Path(path).name, 9)
+        if any(level > rank for level in stack()):
+            violations.append(f"{Path(path).name} after {stack()}")
+        stack().append(rank)
+        try:
+            with real_lock(path):
+                yield
+        finally:
+            stack().pop()
+
+    monkeypatch.setattr(service, "file_lock", tracked)
+    monkeypatch.setattr(profiles_module, "file_lock", tracked)
+
+    class Tracked:
+        def __init__(self, lock):
+            self.lock = lock
+
+        def __enter__(self):
+            if any(level > 1 for level in stack()):
+                violations.append(f"library lock after {stack()}")
+            self.lock.acquire()
+            stack().append(1)
+
+        def __exit__(self, *exc):
+            stack().pop()
+            self.lock.release()
+
+        def acquire(self, *args, **kwargs):
+            return self.lock.acquire(*args, **kwargs)
+
+        def release(self):
+            return self.lock.release()
+
+    world.library._lock = Tracked(world.library._lock)
+
+    def consent():
+        if 3 in stack():
+            violations.append("consent asked holding profiles.json.lock")
+        return True
+
+    world.library._scan_allowed_input = consent
+    keep_backup(world.spr)
+    outside_mod(world.spr)
+    other = game_bundle(world.game, "other_spr")
+    mod = world.add(other, fixed=True)
+    world.library.apply("other", f"mod:{mod.id}")
+
+    def work_a():
+        world.library.scan()
+        world.library.toggle(False, True)
+        world.library.modified()
+
+    def work_b():
+        world.library.dismiss("untracked", [{"install": world.key(), "core": "test_spr"}])
+        world.library.prune()
+        world.library.judge_unfinished()
+
+    threads = [threading.Thread(target=work) for work in (work_a, work_b)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(10)
+    world.library.toggle(True, False)
+    world.library.restore("other")
+    world.library.remove(mod.id)
+    assert violations == []

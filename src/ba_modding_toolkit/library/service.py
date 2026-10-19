@@ -233,6 +233,15 @@ class _View:
         return trailing == 0 and (expected is None or size == expected)
 
     def part(self, path: Path, pin: Pin, kind: str) -> _Part:
+        """One file judged as ``allow`` permits. A file whose size or date changed while it was read is read again."""
+        part = self._part(path, pin, kind)
+        if self.allow != "full" and not part.matched:
+            stat = path.stat()
+            if (stat.st_size, stat.st_mtime_ns) != (part.size, part.mtime):
+                part = self._part(path, pin, kind)
+        return part
+
+    def _part(self, path: Path, pin: Pin, kind: str) -> _Part:
         record = self.applied.get(str(path.resolve()))
         stat = path.stat()
         size, mtime = stat.st_size, stat.st_mtime_ns
@@ -1553,8 +1562,8 @@ class ModLibrary:
         return staged
 
     @_serialized
-    def apply(self, variant_key: str, source: str, log: LogFunc = no_log,
-              progress: ProgressCallback | None = None, kind: Kind | None = "spr", pin: Pin | None = None) -> ApplyResult:
+    def apply(self, variant_key: str, source: str, log: LogFunc = no_log, progress: ProgressCallback | None = None,
+              kind: Kind | None = "spr", pin: Pin | None = None) -> ApplyResult:
         """Install one kind from a mod, variant, or originals; None selects both, and configure it.
 
         A mod replaces all parts of its own kind as a unit. Another variant's mod must belong to the same family and
