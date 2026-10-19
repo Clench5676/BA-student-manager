@@ -14,10 +14,16 @@ export const coreOf = (v, kind = "spr") => (kind === "lobby" ? v.lobby : v.spr) 
 // newest first)
 export const partsOf = (v, kind = "spr") => (kind === "model" ? v.modelFiles || [] : (v.state?.files || []).filter((f) => f.kind === kind));
 
-// what the variant's game files of a kind carry now: the one non-official source among its parts (a mod often
-// replaces one part), "official", or "unknown" when they carry several
+// whether a game file part holds official bytes: the server's verdict (family.get's official), else, from a server
+// without it, its applied source
+export const isOfficial = (f) => (typeof f.official === "boolean" ? f.official : f.applied === "official");
+
+// what the variant's game files of a kind carry now, from their non-official parts only (the library records every
+// part of a switched kind, the parts a mod left official included): the one source among them (a mod often replaces
+// one part), "official", or "unknown" when they carry several (tests/data/source_rule_cases.json, shared with the
+// library's own rule)
 export function appliedOf(v, kind = "spr") {
-  const sources = new Set(partsOf(v, kind).map((f) => f.applied).filter((a) => a !== "official"));
+  const sources = new Set(partsOf(v, kind).filter((f) => !isOfficial(f)).map((f) => f.applied));
   return !sources.size ? "official" : sources.size === 1 ? [...sources][0] : "unknown";
 }
 
