@@ -416,7 +416,8 @@ in `pointer-textures`); without a game the system cursor stays and there is no e
     with arc, thickness and their own transform; velocity over lifetime (linear, orbital, radial, speed modifier),
     limit velocity (dampen), force, colour, size and rotation over lifetime, texture sheet animation (start frame and
     frame over time as fractions of the sheet), custom data and birth and death sub-emitters. Billboards (view or
-    local alignment, max size a fraction of the game's view height), stretched billboards and meshes.
+    local alignment, max size a fraction of the game's view height), stretched billboards and meshes (the particle
+    colour times the mesh's vertex colours: ch0188's sea meshes fade out at their ends by them).
   - Drawn: the game's DSFX shaders ported from their compiled programs (Additive, AlphaBlend, AlphaBlend_Add, the
     Mask, Distort, Step, Step_MXChar and Step_Distort variants, AlphaBlend_Add_Distort_1a and
     AlphaBlend_Add_Double_Distort_1a, AlphaBlend_2_Roz, AlwaysView_Add, Matcap with the meshes' normals, General

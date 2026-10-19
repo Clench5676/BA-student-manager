@@ -15,9 +15,9 @@
 // position, rotation, scale, random and spherical direction), velocity over lifetime (linear, orbital with offset,
 // radial, speed modifier), limit velocity (dampen), force over lifetime, colour, size and rotation over lifetime,
 // texture sheet animation (grid: whole sheet or one row), custom data (vectors, colours) and sub-emitters (birth,
-// death). Not simulated: noise, collision, triggers, lights, trails, inherit velocity, rate over distance, limit
-// velocity's drag, the by-speed modules and external forces (none is used by more than one lobby); a system keeps
-// drawing without them.
+// death); mesh particles take their mesh's vertex colours. Not simulated: noise, collision, triggers, lights,
+// trails, inherit velocity, rate over distance, limit velocity's drag, the by-speed modules and external forces (none
+// is used by more than one lobby); a system keeps drawing without them.
 
 import { curve, toLinear } from "./touch-fx.js";
 
@@ -575,26 +575,28 @@ export function geometry(fxs, s, { meshes = {}, linear = true } = {}) {
       u0 = (cur.frame % cur.tiles[0]) * du;
       v0 = 1 - (Math.floor(cur.frame / cur.tiles[0]) + 1) * dv;
     }
-    const push = (x, y, u, v, n = FACING) => {
+    const push = (x, y, u, v, n = FACING, col = c) => {
       const uu = u0 + (fu ? 1 - u : u) * du, vv = v0 + (fv ? 1 - v : v) * dv;
       data[o++] = x; data[o++] = y;
       for (let k = 0; k < 12; k++) data[o + k] = tc[k];
       if (streams.uv) { data[o + streams.uv[0]] = uu; data[o + streams.uv[0] + 1] = vv; }
       if (streams.uv2) { data[o + streams.uv2[0]] = uu; data[o + streams.uv2[0] + 1] = vv; }
       o += 12;
-      data[o++] = c[0]; data[o++] = c[1]; data[o++] = c[2]; data[o++] = c[3];
+      data[o++] = col[0]; data[o++] = col[1]; data[o++] = col[2]; data[o++] = col[3];
       data[o++] = n[0]; data[o++] = n[1]; data[o++] = n[2];
     };
     if (mesh) {
       // the mesh scaled by the particle's 3D size and the system's scale, turned like a billboard (z clockwise on
-      // screen, then x and y), in the system's orientation with local alignment, else the camera's (world axes)
-      const deg = 180 / Math.PI;
+      // screen, then x and y), in the system's orientation with local alignment, else the camera's (world axes); the
+      // particle's colour times the mesh's vertex colours where it has them (ch0188's sea meshes fade out by them)
+      const deg = 180 / Math.PI, mc = mesh.c, pc = cur.color;
       const turn = mul(rend.align === 2 ? Rm : IDENTITY, euler(cur.rot[0] * deg, cur.rot[1] * deg, -cur.rot[2] * deg));
       const T = mul(turn, [cur.size[0] * sx, 0, 0, 0, 0, cur.size[1] * sy, 0, 0, 0, 0, cur.size[2] * sz, 0]);
       for (const idx of mesh.i) {
         const p = applyDir(T, mesh.v[idx * 3], mesh.v[idx * 3 + 1], mesh.v[idx * 3 + 2]);
         const n = mesh.n ? norm(applyDir(turn, mesh.n[idx * 3], mesh.n[idx * 3 + 1], mesh.n[idx * 3 + 2])) : FACING;
-        push(centre[0] + p[0], centre[1] + p[1], mesh.uv ? mesh.uv[idx * 2] : 0, mesh.uv ? mesh.uv[idx * 2 + 1] : 0, n);
+        const col = mc ? vertexColor([pc[0] * mc[idx * 4], pc[1] * mc[idx * 4 + 1], pc[2] * mc[idx * 4 + 2], pc[3] * mc[idx * 4 + 3]], linear) : c;
+        push(centre[0] + p[0], centre[1] + p[1], mesh.uv ? mesh.uv[idx * 2] : 0, mesh.uv ? mesh.uv[idx * 2 + 1] : 0, n, col);
       }
       continue;
     }

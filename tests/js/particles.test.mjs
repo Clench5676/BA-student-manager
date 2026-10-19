@@ -270,6 +270,13 @@ test("geometry: billboard size, the view's max size, stretch and meshes; vertex 
   turned.update(0.016);
   const tg = geometry(turned, turned.systems[0], { meshes: { tri: { v: [0, 0, 0, 1, 0, 0, 0, 1, 0], i: [0, 1, 2], n: [0, 0, -1, 0, 0, -1, 0, 0, -1] } } });
   assert.deepEqual([...tg.data.slice(18, 21)].map((v) => Math.round(v * 1e6) / 1e6 + 0), [-1, 0, 0]);
+  // a mesh particle's colour times the mesh's vertex colours (ch0188's sea meshes fade out at their ends by them)
+  const tinted = effects([sys({ emission: one, static: scaled, main: { color: { col: [1, 0.5, 1, 0.8] } }, renderer: { mode: 4, mesh: "tri" } })]);
+  tinted.update(0.016);
+  const cg = geometry(tinted, tinted.systems[0], { linear: false, meshes: { tri: { v: [0, 0, 0, 1, 0, 0, 0, 1, 0], i: [0, 1, 2],
+    c: [1, 1, 1, 1, 1, 1, 1, 0, 0.5, 1, 1, 0.5] } } });
+  const colours = [0, 1, 2].map((v) => [...cg.data.slice(v * STRIDE + 14, v * STRIDE + 18)].map((x) => Math.round(x * 255)));
+  assert.deepEqual(colours, [[255, 128, 255, 204], [255, 128, 255, 0], [128, 128, 255, 102]]);
   // the vertex colour: clamped to 8 bits (Color32), then decoded from sRGB in linear light; alpha as it is
   assert.deepEqual(vertexColor([2, 0.5, -1, 0.25], false), [1, 128 / 255, 0, 64 / 255]);
   near(vertexColor([1, 0.5, 0, 1], true)[1], 0.2158605, 1e-6, "linear");
