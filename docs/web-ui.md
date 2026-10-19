@@ -370,17 +370,21 @@ in `pointer-textures`); without a game the system cursor stays and there is no e
   way spine-unity's shader converts its vertex colours (an additive slot at alpha 0.42 adds 0.15 of its texture).
   Without WebGL2 the player draws in plain sRGB values as before. Drawn in sRGB values, glows such as Kurumi's photo
   booth light or Niko's window washed the scene out to white.
-- **Post-processing.** Every lobby prefab carries URP volumes (`PPV` at weight 1; `PPV_C`, a flash, and `PPV_D`, a
-  depth of field, which talk timelines drive and which mostly sit at 0). `lobby.py` follows the volumes that count
-  to their profiles (in the core's bundles, a few in another core's) and blends them the way URP's VolumeManager
-  does (`lobby.json` `post`); the effects in use are chromatic aberration (274 lobbies), lift / gamma / gain (256),
-  Panini projection (197, on the UI camera's stored 10-degree field of view: the middle enlarged by 0.6 %) and, at a
-  small weight left on in 21 prefabs, colour adjustments (post exposure, colour filter, contrast, hue). The linear
-  pass's copy to the canvas runs them as URP 12 does (Unity 2021.3, colour grading in LDR mode): Panini, chromatic
-  aberration, then exposure, saturate and the grading, in linear light. A layer is post-processed on its own (7
-  lobbies have more than one). The one reference that is a real in-game capture (Michiru, CH0113, whose chromatic
-  aberration shows) matches: face Y 157.6 in the game, 156.0 here, 145.2 without; the other references show no
-  aberration, so they are viewer renders or captures with the PC client's PP option off.
+- **Post-processing.** The lobby is drawn by the PC client's main Camera (level1 `Persistent/Camera`: perspective,
+  10-degree field of view, HDR), whose culling mask has the lobby's layer 12 and whose URP volume mask has layers 17
+  and 30. Every lobby prefab carries global URP volumes on layer 30 (`PPV` at weight 1; `PPV_C`, a flash, and
+  `PPV_D`, a depth of field, which talk timelines drive and which mostly sit at 0); four (Erika, Yoshimi, Shimiko,
+  CH0356) keep them on the UI layer 5, which that camera never blends, so they have none. `lobby.py` follows the
+  volumes that count to their profiles (in the core's bundles, a few in another core's) and blends them the way URP's
+  VolumeManager does (`lobby.json` `post`). Of the 265 lobbies: chromatic aberration in 259, lift / gamma / gain in
+  166, Panini projection in 190 (on the 10-degree view the middle is enlarged by 0.6 %) and, from a flash volume left
+  a little on, colour adjustments in 17 (post exposure up to +0.53 EV for Aru, colour filter, contrast, hue). No
+  lobby has bloom, vignette or tonemapping, and no depth of field or lens distortion is on at a weight above 0. The
+  linear pass's copy to the canvas runs them as URP 12 does (Unity 2021.3; the URP asset grades in LDR with a
+  32-step LUT; checked against PostProcessPass, UberPost, LutBuilderLdr and ColorUtils.PrepareLiftGammaGain): Panini,
+  the three-sample chromatic aberration, then post exposure, the clamp to 0..1 and the LUT's steps (contrast in LogC,
+  colour filter, lift / gamma / gain, hue, saturation), in linear light; the LUT's own 32-step interpolation is not
+  modelled. A layer is post-processed on its own (7 lobbies have more than one).
 - **Zoom.** Fullscreen opens on the game's 16:9 view and zooms in to 2x. The Settings L2D tab (`lobbyZoomOut`, off by
   default) lets it zoom out further, to the widest 16:9 view inside the painted art (one 16-unit cell inside the
   painted rect). The painted rect is found on idle poses; with the setting on, the poses of every clip the lobby

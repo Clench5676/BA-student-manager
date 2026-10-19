@@ -105,7 +105,7 @@ test("Toki: chromatic aberration and a brighter gain, the gain's offset taken as
   assert.equal(p.grade, true);
 });
 
-test("Miku: a coloured gain is decoded, scaled by 0.8 and kept at its luminance; Panini on the UI camera's 10 degrees", () => {
+test("Miku: a coloured gain is decoded, scaled by 0.8 and kept at its luminance; Panini on the lobby camera's 10 degrees", () => {
   const gain = [0.98568, 1, 0.94948];
   const p = Linear.postParams({ chromaticAberration: 0.075, panini: { distance: 1, cropToFit: 1 },
     liftGammaGain: { lift: [1, 1, 1, 0], gamma: [1, 1, 1, 0], gain: [...gain, 0] } });

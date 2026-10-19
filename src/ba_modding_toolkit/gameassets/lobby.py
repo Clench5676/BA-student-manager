@@ -146,6 +146,11 @@ VOLUME_DEFAULTS: dict[str, dict[str, Any]] = {
 }
 _POST_KEYS = {"ChromaticAberration": "chromaticAberration", "LiftGammaGain": "liftGammaGain",
               "PaniniProjection": "panini", "ColorAdjustments": "colorAdjustments"}
+# The lobby is drawn by the PC client's main Camera (level1 Persistent/Camera, whose culling mask has the lobby's layer
+# 12), and URP blends only the volumes on the layers of that camera's volume mask (UniversalAdditionalCameraData
+# m_VolumeLayerMask 0x40020000). Every lobby keeps its volumes on 30, but for four (Erika, Yoshimi, Shimiko and
+# CH0356) on the UI layer 5, which the camera never blends.
+CAMERA_VOLUME_LAYERS = frozenset({17, 30})
 
 
 def is_volume(tree: dict) -> bool:
@@ -165,18 +170,20 @@ def _lerp(a: Any, b: Any, t: float) -> Any:
 
 
 def counts(volume: dict) -> bool:
-    """Whether a volume takes part in the blend: enabled on an active GameObject, global, with a weight above 0."""
-    return bool(volume.get("active")) and bool(volume.get("global")) and float(volume.get("weight", 0.0)) > 0
+    """Whether a volume takes part in the blend: enabled on an active GameObject in the camera's volume layers (when
+    the layer is known), global, with a weight above 0."""
+    seen = volume.get("layer") is None or volume["layer"] in CAMERA_VOLUME_LAYERS
+    return seen and bool(volume.get("active")) and bool(volume.get("global")) and float(volume.get("weight", 0.0)) > 0
 
 
 def post_processing(volumes: Iterable[dict]) -> dict:
     """What the lobby's post-processing volumes leave on screen, blended the way URP's VolumeManager does it: the
-    enabled global volumes with a weight above 0, by priority (equal ones in hierarchy order), each active component
-    lerping its overridden parameters from the stack's value by the volume's weight. Only effects that end up doing
-    something are kept (URP's IsActive): {"chromaticAberration": intensity, "panini": {distance, cropToFit},
-    "liftGammaGain": {lift, gamma, gain}, "colorAdjustments": {postExposure, contrast, colorFilter, hueShift,
-    saturation}}. volumes: {"weight", "priority", "global", "active", "components"} (the profile's component
-    typetrees)."""
+    enabled global volumes on the camera's volume layers with a weight above 0, by priority (equal ones in hierarchy
+    order), each active component lerping its overridden parameters from the stack's value by the volume's weight.
+    Only effects that end up doing something are kept (URP's IsActive): {"chromaticAberration": intensity, "panini":
+    {distance, cropToFit}, "liftGammaGain": {lift, gamma, gain}, "colorAdjustments": {postExposure, contrast,
+    colorFilter, hueShift, saturation}}. volumes: {"weight", "priority", "global", "active", "layer" (optional),
+    "components"} (the profile's component typetrees)."""
     stack = {kind: {k: list(v) if isinstance(v, list) else v for k, v in params.items()}
              for kind, params in VOLUME_DEFAULTS.items()}
     ordered = sorted(enumerate(volumes), key=lambda iv: (iv[1].get("priority", 0.0), iv[0]))
@@ -301,7 +308,8 @@ def read_prefab(kinds: dict[int, str], tree: Callable[[int], dict], scripts: dic
         for cls, pid, t in n["all"]:
             if is_volume(t):
                 vol = {"weight": float(t.get("weight", 0.0)), "priority": float(t.get("priority", 0.0)),
-                       "global": bool(t.get("m_IsGlobal")), "active": n["active"] and bool(t.get("m_Enabled", 1))}
+                       "global": bool(t.get("m_IsGlobal")), "active": n["active"] and bool(t.get("m_Enabled", 1)),
+                       "layer": int(tree(n["go"]).get("m_Layer", 0))}
                 # only the volumes that take part are followed into their profile (often in another bundle)
                 if profile is not None and counts(vol):
                     vol["components"] = profile(pid, t["sharedProfile"]) or []

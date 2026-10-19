@@ -268,8 +268,9 @@ function untint(st) {
 }
 
 // --- the game camera's post-processing ---
-// The memorial lobby's camera is the PC client's UICamera (level0 / level1): orthographic, with a stored field of view
-// of 10 degrees, which is all URP's Panini projection reads (Camera.fieldOfView, whatever the projection).
+// The memorial lobby is drawn by the PC client's main Camera (level0 / level1): the one whose culling mask has the
+// lobby's layer 12 and whose volume mask has the volumes' layer 30 (UICamera has neither), perspective with a field of
+// view of 10 degrees (LobbyCameraConfigPP leaves it as it is), which is all URP's Panini projection reads.
 const FOV = 10;
 const lum = (c) => c[0] * 0.2126729 + c[1] * 0.7151522 + c[2] * 0.072175;
 // Mathf.GammaToLinearSpace (Color.linear): the sRGB curve, a 2.2 power above 1 (HDR colours)

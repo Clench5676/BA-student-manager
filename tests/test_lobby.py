@@ -38,10 +38,11 @@ class Prefab:
         self.objects: dict[int, tuple[str, dict]] = {}
 
     def node(self, go: int, name: str, father: int = 0, pos=(0.0, 0.0), scale=(1.0, 1.0), rot: float = 0.0,
-             active: int = 1) -> int:
+             active: int = 1, layer: int = 0) -> int:
         tf = go + 100000
         half = math.radians(rot) / 2
-        self.objects[go] = ("GameObject", {"m_Name": name, "m_IsActive": active, "m_Component": [{"component": ref(tf)}]})
+        self.objects[go] = ("GameObject", {"m_Name": name, "m_IsActive": active, "m_Layer": layer,
+                                           "m_Component": [{"component": ref(tf)}]})
         self.objects[tf] = ("Transform", {
             "m_GameObject": ref(go), "m_Father": ref(father + 100000 if father else 0), "m_Children": [],
             "m_LocalPosition": vec(*pos), "m_LocalScale": {"x": scale[0], "y": scale[1], "z": 1.0},
@@ -255,11 +256,15 @@ def test_post_processing_priority_weight_and_defaults():
 def test_prefab_volumes_follow_only_the_volumes_that_count():
     p = build_prefab()
     fields = {"m_IsGlobal": 1, "priority": 0.0, "blendDistance": 0.0}
-    p.node(12, "PPV", father=1)
+    p.node(12, "PPV", father=1, layer=30)
     p.mb(12, 1201, 7777, weight=1.0, sharedProfile=ref(-501, 4), **fields)
-    p.node(13, "PPV_C", father=12)
+    p.node(13, "PPV_C", father=12, layer=30)
     p.mb(13, 1301, 7777, weight=0.0, sharedProfile=ref(-502, 4), **fields)
-    profiles = {-501: [component("ChromaticAberration", intensity=param(0.1))]}
+    # a volume on the UI layer, which the lobby's camera never blends (Erika's, Yoshimi's)
+    p.node(14, "PPV_UI", father=1, layer=5)
+    p.mb(14, 1401, 7777, weight=1.0, sharedProfile=ref(-503, 4), **fields)
+    profiles = {-501: [component("ChromaticAberration", intensity=param(0.1))],
+                -503: [component("PaniniProjection", distance=param(1.0), cropToFit=param(1.0))]}
     asked = []
 
     def profile(pid, pointer):
@@ -268,7 +273,7 @@ def test_prefab_volumes_follow_only_the_volumes_that_count():
     kinds = {pid: kind for pid, (kind, _) in p.objects.items()}
     info = lobby.read_prefab(kinds, lambda pid: p.objects[pid][1], SCRIPTS, "LobbyTest", SKELETONS, core_clips(), profile)
     assert info["post"] == {"chromaticAberration": 0.1}
-    assert asked == [(1201, -501)]  # the flash volume at weight 0 is never followed
+    assert asked == [(1201, -501)]  # the flash volume at weight 0 and the one on the UI layer are never followed
     # without a resolver (or without volumes) there is nothing to apply
     assert build_prefab().read("LobbyTest", SKELETONS, core_clips())["post"] == {}
 
@@ -345,9 +350,11 @@ def test_real_lobbies(real_game, monkeypatch):
     assert hoshino["post"] == {
         "chromaticAberration": 0.12, "panini": {"distance": 1.0, "cropToFit": 1.0},
         "liftGammaGain": {"lift": [1.0, 1.0, 1.0, 0.0], "gamma": [1.0, 1.0, 1.0, 0.0], "gain": [1.0, 0.9116, 0.96201, 0.0]}}
+    # Erika's volumes sit on the UI layer, outside the lobby camera's volume mask: no post-processing in the game
+    assert real_game.lobby_info("erika_home")["post"] == {}
     # lobby data is derived from character bundles: kept in memory, and nothing but the prefab name index reaches the
     # disk cache (consent is on)
-    assert sum(key.startswith(_SCHEMA + "lobby/") and not disk for key, disk in puts) == 3
+    assert sum(key.startswith(_SCHEMA + "lobby/") and not disk for key, disk in puts) == 4
     on_disk = {key for key, disk in puts if disk}
     assert on_disk == {_SCHEMA + "lobby-prefabs"}
     files = {p for p in cache.root.rglob("*") if p.is_file()}
