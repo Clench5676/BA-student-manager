@@ -77,7 +77,8 @@ test("a change of framing keeps the zoom's place between the bust and the fit", 
   assert.notEqual(left.min, full.min);
   near(carryZoom(left.min, left, full), full.min); // the bust stays the bust
   near(carryZoom(left.fit, left, full), full.fit);
-  near(carryZoom((left.fit + left.min) / 2, left, full), (full.fit + full.min) / 2);
+  // halfway in the zoom's steps (each multiplies the distance): the same number of notches from the fit
+  near(carryZoom(Math.sqrt(left.fit * left.min), left, full), Math.sqrt(full.fit * full.min));
   near(carryZoom(left.fit * 1.2, left, full), full.fit * 1.2); // a step back, as a multiple of the fit
   near(carryZoom(left.fit * 2, left, full), full.fit * 1.3);
   // a framing further back (a tall chibi): the same share of the way

@@ -10,6 +10,7 @@ import pytest
 NODE = shutil.which("node")
 TESTS = Path(__file__).parent / "js" / "chibi_materials.test.mjs"
 VIEW_TESTS = Path(__file__).parent / "js" / "model_view.test.mjs"
+ZOOM_TESTS = Path(__file__).parent / "js" / "model_zoom.test.mjs"
 
 
 @pytest.mark.skipif(NODE is None, reason="Node.js is not installed")
@@ -21,4 +22,10 @@ def test_chibi_materials_in_node():
 @pytest.mark.skipif(NODE is None, reason="Node.js is not installed")
 def test_chibi_view_in_node():
     result = subprocess.run([NODE, "--test", str(VIEW_TESTS)], capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.skipif(NODE is None, reason="Node.js is not installed")
+def test_chibi_zoom_in_node():
+    result = subprocess.run([NODE, "--test", str(ZOOM_TESTS)], capture_output=True, text=True, timeout=120)
     assert result.returncode == 0, result.stdout + result.stderr
