@@ -123,7 +123,9 @@ skill's timeline, not the Animator, switches the faces) and a cut-in copy of the
 `web/js/chibi-materials.js` ports the MX/C-* shaders from their compiled D3D11 programs (the game is in linear
 colour space; the light is the formation screen's, below), and for props
 DSFX/FX_SHADER_Matcap (a riot shield, soup), MX/E-Water (the surface colour: the game deepens it by the camera depth
-behind it, which a lone chibi lacks) and the unlit and effect shaders, each with its own texture slot and colour. Terms the
+behind it, which a lone chibi lacks) and the unlit and effect shaders, each with its own texture slot and colour. An empty
+texture slot samples the shader's default texture, as in the game: MX/C-Halo/UnlitTextured without a texture (ch0109's,
+EN0009's halos) draws white x its HDR `_Tint` plus the glow; only MX/C-Halo/Simple draws a flat colour. Terms the
 game's vertex programs compute stay per vertex: the outline's colour (the texture sampled at the vertex), MX/C-Weapon's
 N.V and N.H. The outline is 0.1 % of the stage width times the vertex colour alpha, as in the game. There is no ground
 shadow: the formation screen draws none.
@@ -139,7 +141,10 @@ feet, looking level, and the screen's centre lies at that height: fullscreen sho
 game's scale, about 42 % of the screen's height), beside the panel the same view moved left and up so the feet stay
 above the nameplate. A chibi whose box would leave the host is framed from further back (`frameDistance`). The camera
 orbits freely around the point at the formation camera's height, which rises to the face as it closes in; the zoom
-stays between the bust (0.45 of the distance) and a step back (1.3), and a double click returns to the front view.
+stays between the bust (`bustDistance`: the face on the framing's point, the halo's top at the host's top edge, about
+0.3 of the distance) and a step back (1.3). Fullscreen and back keep the zoom's place between the two (`carryZoom`),
+and a double click returns to the front view. The switch card's still is rendered from that front view at the
+framing's distance (`stillCamera`), whatever the orbit and the zoom.
 
 The light is the formation screen's, read from the game rather than fitted to renders:
 

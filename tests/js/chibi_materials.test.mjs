@@ -100,6 +100,32 @@ test("HDR Color properties as stored, other Color properties from sRGB, Vector p
   near(body.material.uniforms.layerTintR.value.y, 0.72307);
 });
 
+test("a halo without a texture: Unity's white x _Tint and the glow; MX/C-Halo/Simple its colour alone", () => {
+  // Niya's halo (ch0109, as exported): MX/C-Halo/UnlitTextured with no _MainTex. Its fragment program is
+  // tex x _Tint + (1 - sat(|tex - mask|^2 x strictness)) x strength x _GlowTint0, and the empty slot samples the
+  // shader's default ("white"): the HDR _Tint as stored, not decoded from sRGB, and the glow on
+  const niya = chibiMaterial({ shader: "MX/C-Halo/UnlitTextured", kind: "halo", hdr: ["_GlowTint0", "_Tint"], keywords: ["_GLOW_0"],
+    colors: { _Color: [0.588, 0.588, 0.588, 1], _GlowMaskColor0: [0.84906, 0.84906, 0.84906, 1],
+      _GlowTint0: [0.82016, 0.78177, 0.90566, 1], _Tint: [0.9687, 0.92925, 1, 1] },
+    floats: { _GlowStrength0: 1, _GlowStrictness0: 1 } }, {});
+  const m = niya.material;
+  assert.ok("KIND_HALO" in m.defines && "GLOW" in m.defines && !("SIMPLE" in m.defines));
+  assert.deepEqual([...m.uniforms.mainMap.value.image.data], [255, 255, 255, 255]);
+  assert.deepEqual(m.uniforms.tint.value.toArray().map((v) => +v.toFixed(5)), [0.9687, 0.92925, 1, 1]);
+  near(m.uniforms.glowMask.value.x, linear(0.84906));
+  near(m.uniforms.glow.value.z, 0.90566);
+  near(m.uniforms.glow.value.w, 1);
+  // EN0009's: an orange tint stays orange (decoded, it came out red: 0.88, 0.32, 0.01)
+  const en = chibiMaterial({ shader: "MX/C-Halo/UnlitTextured", kind: "halo", hdr: ["_GlowTint0", "_Tint"],
+    colors: { _Tint: [0.9434, 0.60301, 0.12015, 1] } }, {});
+  assert.deepEqual(en.material.uniforms.tint.value.toArray().map((v) => +v.toFixed(5)), [0.9434, 0.60301, 0.12015, 1]);
+  // MX/C-Halo/Simple outputs _SimpleBaseColor (an HDR Color: as stored), with or without a stale _Tint
+  const simple = chibiMaterial({ shader: "MX/C-Halo/Simple", kind: "halo", hdr: ["_SimpleBaseColor"],
+    colors: { _SimpleBaseColor: [4.13675, 0.29269, 0.29269, 0.67843], _Tint: [1, 1, 1, 1] } }, {});
+  assert.ok("SIMPLE" in simple.material.defines);
+  assert.deepEqual(simple.material.uniforms.tint.value.toArray().map((v) => +v.toFixed(5)), [4.13675, 0.29269, 0.29269, 0.67843]);
+});
+
 test("the character light ForwardLights derives from the main light", () => {
   // the formation screen's white light, intensity 1
   assert.deepEqual(characterLight([1, 1, 1]), { tone: [1, 1, 1], shadowTone: [1, 1, 1], data: [1, 1] });
