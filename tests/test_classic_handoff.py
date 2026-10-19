@@ -1,5 +1,5 @@
-"""The classic hand-off: the control channel, the window's placement and classic.json (webui/classic.py,
-gui/control.py)."""
+"""The classic hand-off: the control channel, the window's placement, classic.json and the queue of writes for after
+the classic window (webui/classic.py, gui/control.py)."""
 
 from __future__ import annotations
 
@@ -900,3 +900,163 @@ def test_native_ops_without_a_window_do_nothing():
     assert ops.place(1, 0, cl.CLASSIC_SIZE) is None
     ops.before_raise(1)
     ops.raise_process(cl.ClassicProcess(1, "", 0, 0))
+
+
+# --- the queue ---
+
+
+A, B = "/games/global", "/games/japan"
+PINS = {A: ("pin", A, 1), B: ("pin", B, 1)}
+
+
+class Host:
+    def __init__(self, intent=True, pins=None, current=A):
+        self._intent, self._pins, self._current = intent, dict(pins or PINS), current
+        self.submitted: list = []
+
+    def intent(self):
+        return self._intent
+
+    def pins(self):
+        return self._pins
+
+    def current(self):
+        return self._current
+
+    def submit(self, method, params):
+        if params.get("fail"):
+            raise ServiceError("busy")
+        self.submitted.append((method, params))
+        return f"j{len(self.submitted)}"
+
+
+def toggle(enabled, expect, pins=PINS):
+    return cl.QueuedCall("mods.toggle", {"enabled": enabled, "expect": expect}, pins=dict(pins))
+
+
+def files_of(*paths):
+    return cl.stat_files(str(p) for p in paths)
+
+
+def apply_call(entry, path, source="mod:1"):
+    return cl.QueuedCall("actions.apply", {"variant": entry[1], "source": source, "kind": "spr"}, entries=(entry,),
+                         pins={entry[0]: PINS[entry[0]]}, files={entry: files_of(path)}, current=True)
+
+
+def test_one_toggle_queued_at_most():
+    q = cl.ClassicQueue()
+    assert q.add(toggle(False, True), intent=True) == 1
+    assert q.add(toggle(False, True), intent=True) == 1  # a later toggle replaces the queued one
+    assert q.add(toggle(True, False), intent=True) == 0  # back to the stored intent: nothing left to do
+    assert len(q) == 0
+    with pytest.raises(ServiceError):
+        q.add(cl.QueuedCall("app.installUpdate", {}))
+
+
+def test_a_queued_toggle_runs_after_the_close_and_a_stale_one_is_dropped():
+    q = cl.ClassicQueue()
+    q.add(toggle(False, True), intent=True)
+    host = Host(intent=True)
+    run = q.run(host)
+    assert host.submitted == [("mods.toggle", {"enabled": False, "expect": True})]
+    assert run.to_json()["submitted"][0]["job"] == "j1" and len(q) == 0
+    # switched elsewhere meanwhile: state_changed
+    q.add(toggle(False, True), intent=True)
+    run = q.run(Host(intent=False))
+    assert [d.code for d in run.dropped] == ["state_changed"] and run.submitted == []
+    # the known installs changed: folder_changed
+    q.add(toggle(False, True), intent=True)
+    run = q.run(Host(intent=True, pins={A: PINS[A]}))
+    assert [d.code for d in run.dropped] == ["folder_changed"]
+    assert run.to_json()["dropped"][0]["error"] == {"code": "folder_changed", "params": {}}
+
+
+def test_an_empty_queue_does_nothing():
+    host = Host()
+    run = cl.ClassicQueue().run(host)
+    assert host.submitted == [] and run.submitted == [] and run.dropped == []
+
+
+def test_the_latest_action_for_an_entry_wins(tmp_path):
+    f = tmp_path / "a.bundle"
+    f.write_bytes(b"x")
+    q = cl.ClassicQueue()
+    entry = (A, "hoshino_spr")
+    q.add(apply_call(entry, f, "mod:1"))
+    q.add(toggle(False, True), intent=True)
+    restore = cl.QueuedCall("actions.restore", {"variant": "hoshino", "kind": "spr"}, entries=(entry,),
+                            pins={A: PINS[A]}, files={entry: files_of(f)}, current=True)
+    assert q.add(restore) == 2
+    assert [i.method for i in q.items()] == ["mods.toggle", "actions.restore"]  # in order
+    host = Host()
+    run = q.run(host)
+    assert [m for m, _ in host.submitted] == ["mods.toggle", "actions.restore"] and not run.dropped
+
+
+def test_a_drift_action_is_narrowed_by_a_later_action_on_one_of_its_entries(tmp_path):
+    f1, f2 = tmp_path / "1.bundle", tmp_path / "2.bundle"
+    f1.write_bytes(b"1")
+    f2.write_bytes(b"2")
+    e1, e2 = (A, "a_home"), (B, "b_home")
+    drift = cl.QueuedCall("mods.restoreDrift", {"entries": [{"install": A, "core": "a_home"},
+                                                            {"install": B, "core": "b_home"}]},
+                          entries=(e1, e2), pins=dict(PINS), files={e1: files_of(f1), e2: files_of(f2)})
+    q = cl.ClassicQueue()
+    q.add(drift)
+    q.add(apply_call(e1, f1))
+    items = q.items()
+    assert [i.method for i in items] == ["mods.restoreDrift", "actions.apply"]
+    assert items[0].entries == (e2,) and items[0].params["entries"] == [{"install": B, "core": "b_home"}]
+    assert list(items[0].pins) == [B]
+    assert q.add(cl.QueuedCall("actions.restore", {"variant": "b", "kind": "lobby"}, entries=(e2,),
+                               pins={B: PINS[B]}, files={e2: files_of(f2)})) == 2
+    assert [i.method for i in q.items()] == ["actions.apply", "actions.restore"]
+
+
+def test_an_entry_whose_files_changed_is_dropped(tmp_path):
+    f1, f2 = tmp_path / "1.bundle", tmp_path / "2.bundle"
+    f1.write_bytes(b"1")
+    f2.write_bytes(b"2")
+    e1, e2 = (A, "a_home"), (A, "c_home")
+    drift = cl.QueuedCall("mods.restoreDrift", {"entries": ["e1", "e2"]}, entries=(e1, e2), pins={A: PINS[A]},
+                          files={e1: files_of(f1), e2: files_of(f2)})
+    q = cl.ClassicQueue()
+    q.add(drift)
+    f2.write_bytes(b"changed by the classic window")
+    host = Host()
+    run = q.run(host)
+    assert host.submitted == [("mods.restoreDrift", {"entries": ["e1"]})]
+    assert [(d.code, d.call.entries) for d in run.dropped] == [("entry_changed", (e2,))]
+    # a removed file counts as changed too
+    q.add(drift)
+    f1.unlink()
+    run = q.run(Host())
+    assert sorted(d.code for d in run.dropped) == ["entry_changed", "entry_changed"]
+
+
+def test_a_queued_apply_survives_a_change_to_the_other_install(tmp_path):
+    f = tmp_path / "a.bundle"
+    f.write_bytes(b"x")
+    q = cl.ClassicQueue()
+    q.add(apply_call((A, "hoshino_spr"), f))
+    host = Host(pins={A: PINS[A], B: ("pin", B, 2)})  # the Japan folder changed
+    run = q.run(host)
+    assert [m for m, _ in host.submitted] == ["actions.apply"] and not run.dropped
+    # its own install changed, or is no longer the current one: folder_changed
+    for host in (Host(pins={A: ("pin", A, 2), B: PINS[B]}), Host(current=B), Host(pins={B: PINS[B]})):
+        q.add(apply_call((A, "hoshino_spr"), f))
+        run = q.run(host)
+        assert [d.code for d in run.dropped] == ["folder_changed"] and host.submitted == []
+
+
+def test_a_refused_submit_is_listed_and_quitting_drops_the_queue(tmp_path):
+    f = tmp_path / "a.bundle"
+    f.write_bytes(b"x")
+    q = cl.ClassicQueue()
+    call = apply_call((A, "hoshino_spr"), f)
+    q.add(cl.QueuedCall(call.method, {**call.params, "fail": True}, call.entries, call.pins, call.files, True))
+    run = q.run(Host())
+    assert [(d.code, d.call.method) for d in run.dropped] == [("busy", "actions.apply")]
+    q.add(toggle(False, True), intent=True)
+    q.add(call)
+    assert q.clear() == 2 and len(q) == 0
