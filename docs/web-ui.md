@@ -143,7 +143,8 @@ above the nameplate. A chibi whose box would leave the host is framed from furth
 orbits freely around the point at the formation camera's height, which rises to the face as it closes in; the zoom
 stays between the bust (`bustDistance`: the face on the framing's point, the halo's top at the host's top edge, about
 0.3 of the distance) and a step back (1.3). Fullscreen and back keep the zoom's place between the two (`carryZoom`),
-and a double click returns to the front view.
+and a double click returns to the front view. The switch card's still is rendered from that front view at the
+framing's distance (`stillCamera`), whatever the orbit and the zoom.
 
 The light is the formation screen's, read from the game rather than fitted to renders:
 

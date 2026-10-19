@@ -56,6 +56,32 @@ export function carryZoom(distance, from, to) {
   return to.fit * Math.min(distance / from.fit, 1.3);
 }
 
+// the front view, level, as on the formation screen
+const HOME = new THREE.Vector3(0, 0, 1);
+
+// The switch card's still is taken from its own camera: the live one's lens, at the front view at the fit distance
+// from the orbit target, the target on the frame's point of a w x h host. The live camera's orbit and zoom do not
+// matter (seen from straight above, the box's height shrinks to nothing on the canvas).
+export function stillCamera(camera, target, fit, frame, w, h) {
+  const c = camera.clone();
+  c.position.copy(target).addScaledVector(HOME, fit);
+  c.up.set(0, 1, 0);
+  c.lookAt(target);
+  c.setViewOffset(w, h, w / 2 - frame.x, h / 2 - frame.y, w, h);
+  c.updateMatrixWorld();
+  return c;
+}
+
+// the still's crop of a W x H canvas rendered by `camera`: the upper body, from the chibi's box (around the target)
+// as projected: its height, its centre over the root
+export function stillCrop(camera, target, box, W, H, aspect) {
+  const at = (y) => new THREE.Vector3(target.x, target.y + y, target.z).project(camera);
+  const top = at(box.max.y), bottom = at(box.min.y);
+  const h = ((top.y - bottom.y) / 2) * H, x = ((top.x + 1) / 2) * W, y = ((1 - (top.y + bottom.y) / 2) / 2) * H;
+  const ch = h * 0.5, cw = ch * aspect, cy = y - h * 0.18;
+  return { x: Math.max(0, Math.min(W - cw, x - cw / 2)), y: Math.max(0, Math.min(H - ch, cy - ch / 2)), w: cw, h: ch };
+}
+
 // the tab's actions: the clip slots they play, in order of preference; "next" follows a clip that plays once,
 // "then" is the action after it
 const ACTIONS = {
@@ -291,7 +317,7 @@ class ChibiView {
 
   // the front view, level, as on the formation screen
   homeDirection() {
-    return new THREE.Vector3(0, 0, 1);
+    return HOME.clone();
   }
 
   // switch between the framing beside the panel and fullscreen; the orbit angle and the zoom (its place between
@@ -473,22 +499,25 @@ class ChibiView {
     this.renderer.render(this.scene, this.camera);
   }
 
-  // a still of the upper body for the switch card (rendered and read in one go: the drawing buffer is not kept)
+  // a still of the upper body for the switch card, from the front view at the fit distance in the current framing
+  // whatever the orbit and the zoom (stillCamera), cropped from the box as rendered (stillCrop). Rendered and read
+  // in one go (the drawing buffer is not kept), then the live view is drawn again before the canvas is shown.
   snapshot(aspect = 450 / 253) {
-    if (!this.root) return null;
+    if (!this.root || !this.fit) return null;
+    const w = this.host.clientWidth || 1, h = this.host.clientHeight || 1;
+    const camera = stillCamera(this.camera, this.target, this.fit, FRAMES[this.mode], w, h);
+    this.renderer.render(this.scene, camera);
+    const { x, y, w: cw, h: ch } = stillCrop(camera, this.target, this.box, this.canvas.width, this.canvas.height, aspect);
+    let still = null;
+    if (ch >= 1) {
+      const c = document.createElement("canvas");
+      c.width = 900;
+      c.height = Math.round(900 / aspect);
+      c.getContext("2d").drawImage(this.canvas, x, y, cw, ch, 0, 0, c.width, c.height);
+      still = c.toDataURL("image/png");
+    }
     this.renderer.render(this.scene, this.camera);
-    const W = this.canvas.width, H = this.canvas.height;
-    // the chibi's box on the canvas (its height, its centre over the root), as rendered
-    const at = (y) => new THREE.Vector3(this.target.x, this.target.y + y, this.target.z).project(this.camera);
-    const top = at(this.box.max.y), bottom = at(this.box.min.y);
-    const h = ((top.y - bottom.y) / 2) * H, x = ((top.x + 1) / 2) * W, y = ((1 - (top.y + bottom.y) / 2) / 2) * H;
-    const ch = h * 0.5, cw = ch * aspect, cy = y - h * 0.18;
-    const x0 = Math.max(0, Math.min(W - cw, x - cw / 2)), y0 = Math.max(0, Math.min(H - ch, cy - ch / 2));
-    const c = document.createElement("canvas");
-    c.width = 900;
-    c.height = Math.round(900 / aspect);
-    c.getContext("2d").drawImage(this.canvas, x0, y0, cw, ch, 0, 0, c.width, c.height);
-    return c.toDataURL("image/png");
+    return still;
   }
 
   reveal() { this.canvas.classList.add("ready"); }

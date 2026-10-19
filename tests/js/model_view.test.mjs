@@ -9,7 +9,9 @@ register(`data:text/javascript,${encodeURIComponent(`export async function resol
   if (spec === "three") return { url: ${JSON.stringify(VENDOR + "build/three.module.min.js")}, shortCircuit: true };
   if (spec.startsWith("three/addons/")) return { url: ${JSON.stringify(VENDOR + "examples/jsm/")} + spec.slice(13), shortCircuit: true };
   return next(spec, ctx); }`)}`);
-const { FORMATION_VIEW, bustDistance, carryZoom, frameDistance } = await import("../../src/ba_modding_toolkit/web/js/model.js");
+const THREE = await import("three");
+const { FORMATION_VIEW, bustDistance, carryZoom, frameDistance, stillCamera, stillCrop } =
+  await import("../../src/ba_modding_toolkit/web/js/model.js");
 
 const near = (a, b, eps = 1e-4) => assert.ok(Math.abs(a - b) <= eps, `${a} != ${b}`);
 const TAN5 = Math.tan((5 * Math.PI) / 180);
@@ -82,4 +84,29 @@ test("a change of framing keeps the zoom's place between the bust and the fit", 
   const far = { fit: 30, min: 6 };
   near(carryZoom(left.min, left, far), far.min);
   near(carryZoom(carryZoom(9, left, far), far, left), 9);
+});
+
+test("the switch card's still is the front view whatever the orbit and the zoom", () => {
+  const target = new THREE.Vector3(0, FORMATION_VIEW.eye, 0), fit = FORMATION_VIEW.distance, aspect = 450 / 253;
+  const live = (direction, distance) => {
+    const c = new THREE.PerspectiveCamera(FORMATION_VIEW.fov, 1, fit / 50, fit * 20);
+    c.position.copy(target).addScaledVector(direction.normalize(), distance);
+    c.lookAt(target);
+    c.setViewOffset(1000, 1080, 500 - LEFT.x, 540 - LEFT.y, 1000, 1080);
+    c.updateMatrixWorld();
+    return c;
+  };
+  const crop = (camera) => stillCrop(stillCamera(camera, target, fit, LEFT, 1000, 1080), target, KOHARU, 2000, 2160, aspect);
+  const home = crop(live(new THREE.Vector3(0, 0, 1), fit));
+  // the upper body: half the box's height, at the formation scale (the box 1.12 units tall at 845 px per unit here)
+  near(home.h, ((KOHARU.max.y - KOHARU.min.y) * pxPerUnit(fit, LEFT) * 2) / 2, 1e-3);
+  near(home.w / home.h, aspect);
+  // seen from straight above (and zoomed in, or from below and further back) the still is the same
+  for (const [direction, distance] of [[new THREE.Vector3(0, 1, 1e-4), fit * 0.3], [new THREE.Vector3(0.3, -1, 0.2), fit * 1.3]]) {
+    const c = live(direction, distance);
+    const r = crop(c);
+    for (const k of ["x", "y", "w", "h"]) near(r[k], home[k], 1e-3);
+    // cropped by the live camera itself, the box's height collapses (from above: to nothing)
+    assert.ok(stillCrop(c, target, KOHARU, 2000, 2160, aspect).h < home.h / 2);
+  }
 });
