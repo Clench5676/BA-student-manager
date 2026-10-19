@@ -1,6 +1,6 @@
-"""Small UI state kept between launches: the asset consent, recently opened variants and the web UI's own
-preferences (voice volume, the mod library folder). Kept apart from config.toml, which the classic GUI rewrites
-with only its own keys.
+"""Small UI state kept between launches: the asset consent, recently opened variants, the user's own aliases of the
+students and the web UI's own preferences (voice volume, the mod library folder). Kept apart from config.toml, which
+the classic GUI rewrites with only its own keys.
 
 Several app instances may share one data folder: every change is applied to the file as it is at that moment (read
 again under a lock the instances share), so one instance never erases what another wrote, and reads pick up the
@@ -15,6 +15,7 @@ import logging
 import os
 import tempfile
 import threading
+import unicodedata
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
@@ -22,6 +23,36 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 RECENT_MAX = 50
+# the user's own aliases of a student (the roster search matches them): at most this many, each this many characters
+ALIAS_MAX, ALIAS_LENGTH = 8, 24
+
+
+def alias_text(value: Any) -> str:
+    """One alias as it is kept: NFC text without control or format characters, every run of whitespace one space,
+    trimmed; '' for anything but text."""
+    if not isinstance(value, str):
+        return ""
+    text = "".join(ch for ch in unicodedata.normalize("NFC", value)
+                   if ch.isspace() or not unicodedata.category(ch).startswith("C"))
+    return " ".join(text.split())
+
+
+def alias_key(text: str) -> str:
+    """What makes two aliases the same one: case and width ignored."""
+    return unicodedata.normalize("NFKC", text).casefold()
+
+
+def custom_aliases(value: Any) -> list[str]:
+    """A student's own aliases as the page gets them: cleaned (alias_text), without empty, too long and repeated ones,
+    in their order, at most ALIAS_MAX."""
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in value if isinstance(value, list) else []:
+        text = alias_text(item)
+        if text and len(text) <= ALIAS_LENGTH and alias_key(text) not in seen:
+            seen.add(alias_key(text))
+            out.append(text)
+    return out[:ALIAS_MAX]
 
 # The student list's view (web/js/roster-order.js keeps the same rules): merge toggle, the two segment filters, the
 # display settings' sort, order and filter groups.
@@ -172,6 +203,38 @@ class UiState:
             data["recent"] = [variant_key, *recent][:RECENT_MAX]
 
         self._update(change)
+
+    # --- the user's own aliases, by family key ---
+
+    def aliases(self) -> dict[str, list[str]]:
+        """Every student's own aliases ({family key: [alias]}), cleaned as custom_aliases does; students without any
+        are left out."""
+        table = self._current().get("aliases")
+        if not isinstance(table, dict):
+            return {}
+        out = {}
+        for family, value in table.items():
+            names = custom_aliases(value)
+            if isinstance(family, str) and names:
+                out[family] = names
+        return out
+
+    def set_aliases(self, family: str, names: list[str]) -> list[str]:
+        """Keep a student's own aliases (none: forget the student's entry) and return them as kept. Only this
+        student's entry of the file changes."""
+        kept = custom_aliases(names)
+
+        def change(data: dict[str, Any]) -> None:
+            table = data.get("aliases")
+            if not isinstance(table, dict):
+                table = data["aliases"] = {}
+            if kept:
+                table[family] = kept
+            else:
+                table.pop(family, None)
+
+        self._update(change)
+        return kept
 
     # --- preferences ---
 

@@ -55,19 +55,20 @@ export function fold(str) {
 }
 export const terms = (query) => String(query ?? "").split(/\s+/).map(fold).filter(Boolean);
 
-// what a variant is found by: its names, its family's base names and the aliases the UI never shows (the variant's
-// and the family's, the CN server's wording)
+// what a variant is found by: its names, its family's base names, the aliases the UI never shows (the variant's and
+// the family's, the CN server's wording) and the user's own aliases of the family (f.custom: an edit puts a new list
+// there, which makes the text again)
 const haystacks = new WeakMap();
 function haystack(v, f) {
   let h = haystacks.get(v);
-  if (h === undefined) {
-    const parts = [v.key, v.fileId, ...(v.aliases || []), ...(f?.aliases || [])];
+  if (h === undefined || h.custom !== f?.custom) {
+    const parts = [v.key, v.fileId, ...(v.aliases || []), ...(f?.aliases || []), ...(f?.custom || [])];
     for (const n of Object.values(v.names || {})) parts.push(n?.full);
     for (const n of Object.values(f?.base || {})) parts.push(n);
-    h = parts.filter((p) => typeof p === "string" && p).map(fold).join("\u0000");
+    h = { custom: f?.custom, text: parts.filter((p) => typeof p === "string" && p).map(fold).join("\u0000") };
     haystacks.set(v, h);
   }
-  return h;
+  return h.text;
 }
 const matches = (v, f, words) => !words.length || words.every((w) => haystack(v, f).includes(w));
 

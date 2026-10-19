@@ -169,6 +169,22 @@ test("the aliases (the CN server's names) are found but never shown", () => {
   assert.deepEqual(keys(order(bad, view(), { label, query: "x" })), ["x"]);
 });
 
+test("the user's own aliases of a family find all of its variants, and an edit is found at once", () => {
+  const d = data();
+  const hoshino = d.families[0];
+  const find = (q) => keys(order(d, view(), { label, query: q }));
+  assert.deepEqual(find("ojisan"), []);
+  hoshino.custom = ["Oji-san", "\u5927\u53d4"];
+  assert.deepEqual(find("ojisan"), ["hoshino_swimsuit", "hoshino", "np0045"]); // separators folded like names
+  assert.deepEqual(find("\u5927\u53d4 \u6cf3\u88c5"), ["hoshino_swimsuit"]);
+  // an edit puts a new list in place: the old alias is gone, the new one is found
+  hoshino.custom = ["\u5c0f\u661f"];
+  assert.deepEqual(find("\u5927\u53d4"), []);
+  assert.deepEqual(find("\u5c0f\u661f"), ["hoshino_swimsuit", "hoshino", "np0045"]);
+  // never shown on the cards
+  assert.ok(order(d, view(), { label, query: "\u5c0f\u661f" }).every((c) => !c.name.includes("\u5c0f\u661f")));
+});
+
 test("merged, a family is one card shown by its first variant or the first one the search found", () => {
   const all = order(data(), view({ merged: true }), { label });
   assert.deepEqual(all.map((c) => c.family), ["aru", "hoshino", "citizen"]);
