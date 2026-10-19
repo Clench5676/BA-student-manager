@@ -341,6 +341,10 @@ async function renderEmpty(host) {
 
 // a change of the cards inside the frame waits this long for the visible rows before it swaps in anyway
 const ROWS_CAP = 250;
+// then this long, at most, for the pictures it draws to be decoded (NGUI.decoded): a list that shows again after the
+// detail screen has them all in its first frame (WebKit let go of them while it was hidden), not its cards undimmed
+// and without their frames until they come back
+const DECODE_CAP = 1000;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 let listToken = 0;
 
@@ -354,6 +358,8 @@ async function relist() {
   dom.scrollHost = scrollHost;
   rendered = new Map();
   await Promise.race([Promise.all([applyScroll(), renderEmpty(dom.empty)]), sleep(ROWS_CAP)]);
+  if (my !== listToken || dom.scrollHost !== scrollHost) return;
+  await NGUI.decoded(scrollHost, DECODE_CAP, dom.clip);
   if (my !== listToken || dom.scrollHost !== scrollHost) return;
   dom.clip.replaceChildren(scrollHost);
 }
@@ -556,6 +562,8 @@ async function buildFrame(my) {
   await Promise.race([Promise.all([applyScroll(), renderEmpty(empty), box]), sleep(ROWS_CAP)]);
   await box;
   if (my !== frameToken) return;
+  await NGUI.decoded(next, DECODE_CAP, host);
+  if (my !== frameToken) return;
   // the open search box's input stays in place (it may have the focus, a caret or an unfinished input method word);
   // everything else is swapped
   const keep = searching && searchEl?.parentNode === host ? searchEl : null;
@@ -581,7 +589,9 @@ function warm() {
   }, 2500);
 }
 
-// show the roster; data comes from roster.list (re-read when invalidated)
+// show the roster; data comes from roster.list (re-read when invalidated). Resolves once the list is ready to be seen,
+// built and its pictures decoded: the caller builds it behind the screen still shown and then shows it, so its first
+// frame is complete.
 export async function show(context, rosterData) {
   ctx = context;
   if (!layouts) {
@@ -594,6 +604,8 @@ export async function show(context, rosterData) {
     data = rosterData;
     dirty = false;
     await renderAll();
+  } else {
+    await NGUI.decoded($("roster"), DECODE_CAP); // the list as it was: its pictures again
   }
   warm();
 }
