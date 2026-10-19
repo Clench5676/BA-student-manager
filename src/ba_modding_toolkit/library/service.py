@@ -56,7 +56,7 @@ logger = logging.getLogger(__name__)
 SPACE_MARGIN = 512 * 1024 * 1024  # left free on the library's volume by an Off and an adoption
 SAVE_EVERY = (10, 2.0)  # a toggle saves its unfinished list every 10 entries or 2 s
 # a toggle's refusals that stop it: every later write would fail the same way
-STOPPING = ("game_running", "game_status_unavailable", "steam_busy", "folder_changed")
+STOPPING = ("game_running", "game_status_unavailable", "steam_busy", "folder_changed", "classic_open")
 
 
 def _game_folder(game_file: Path) -> Path:
@@ -460,13 +460,17 @@ class ModLibrary:
     """
 
     def __init__(self, root: Path, catalog: Catalog, game: GameAssets | None = None, settings: Settings | None = None,
-                 *, scan_allowed: Callable[[], bool] = lambda: False, data_id: str = "local") -> None:
+                 *, scan_allowed: Callable[[], bool] = lambda: False, data_id: str = "local",
+                 write_check: Callable[[Pin], None] | None = None) -> None:
+        """``write_check(pin)`` runs right before game files of an install are written, with the other checks of a
+        write, and refuses by raising ServiceError (the web UI: ``classic_open`` while a classic window is open)."""
         self.root = Path(root).resolve()
         self.catalog = catalog
         self.game = game  # unused: the library reads game files through its pins
         self.settings = settings
         self.data_id = data_id
         self._scan_allowed_input = scan_allowed
+        self._write_check = write_check
         self._lock = threading.RLock()
         self._hashes = Fingerprints()
         self._records: dict[str, dict[str, Any]] = {}
@@ -1493,7 +1497,9 @@ class ModLibrary:
     @contextlib.contextmanager
     def _writable(self, paths: list[Path], pin: Pin) -> Iterator[None]:
         """The checks right before game files are written: the game not running, Steam not updating or verifying the
-        install, the files inside its resource folders and lockable."""
+        install, the files inside its resource folders and lockable, and the caller's own check (write_check)."""
+        if self._write_check is not None:
+            self._write_check(pin)
         self._check_idle([pin])
         with safety.writable_game_files(paths, list(pin.dirs)):
             yield
