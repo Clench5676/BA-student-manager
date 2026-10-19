@@ -37,22 +37,46 @@ export const isFacePart = (slot, attachment) => {
   const names = `${slot} ${attachment}`;
   return /eye|face|^0\d_|default/i.test(names) && !/halo/i.test(names);
 };
+const isHalo = (part) => /halo/i.test(`${part.slot} ${part.attachment}`);
+
+// faceOf(parts) -> the face box {x0, y0, x1, y1} or null. parts: the skeleton's shown attachments in its idle,
+// { slot, attachment, box, expr }, expr when an expression animation ("00", "01", ...) switches the slot. The parts
+// named like a face, else the parts the expressions switch (many NPC portraits name their face slot "0", "00" or
+// "defalt"), each no larger than a face can be and halos left out: a whole body some NPCs (citizen_animal1) swap per
+// expression is no face.
+export function faceOf(parts) {
+  const union = (list) => list.reduce((b, { box: p }) => (b
+    ? { x0: Math.min(b.x0, p.x0), y0: Math.min(b.y0, p.y0), x1: Math.max(b.x1, p.x1), y1: Math.max(b.y1, p.y1) } : { ...p }), null);
+  const named = parts.filter((p) => isFacePart(p.slot, p.attachment));
+  if (named.length) return union(named);
+  const faceSized = ({ box: b }) => b.x1 - b.x0 <= NOT_FACE && b.y1 - b.y0 <= NOT_FACE;
+  return union(parts.filter((p) => p.expr && !isHalo(p) && faceSized(p)));
+}
+
 function faceBox(skeleton) {
   const verts = new Float32Array(4096);
-  let box = null;
-  for (const slot of skeleton.slots) {
+  // the slots the expression animations switch attachments on
+  const expr = new Set();
+  for (const a of skeleton.data.animations) {
+    if (!/^\d{2}$/.test(a.name)) continue;
+    for (const t of a.timelines) if (t instanceof spine.AttachmentTimeline) expr.add(t.slotIndex);
+  }
+  const parts = [];
+  skeleton.slots.forEach((slot, i) => {
     const att = slot.attachment;
-    if (!att || !isFacePart(slot.data.name, att.name)) continue;
+    if (!att) return;
     let count = 0;
     if (att instanceof spine.RegionAttachment) { att.computeWorldVertices(slot, verts, 0, 2); count = 8; }
-    else if (att instanceof spine.MeshAttachment) { count = att.worldVerticesLength; if (count > verts.length) continue; att.computeWorldVertices(slot, 0, count, verts, 0, 2); }
-    for (let i = 0; i < count; i += 2) {
-      box = box || { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };
-      box.x0 = Math.min(box.x0, verts[i]); box.x1 = Math.max(box.x1, verts[i]);
-      box.y0 = Math.min(box.y0, verts[i + 1]); box.y1 = Math.max(box.y1, verts[i + 1]);
+    else if (att instanceof spine.MeshAttachment) { count = att.worldVerticesLength; if (count > verts.length) return; att.computeWorldVertices(slot, 0, count, verts, 0, 2); }
+    if (!count) return;
+    const box = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };
+    for (let k = 0; k < count; k += 2) {
+      box.x0 = Math.min(box.x0, verts[k]); box.x1 = Math.max(box.x1, verts[k]);
+      box.y0 = Math.min(box.y0, verts[k + 1]); box.y1 = Math.max(box.y1, verts[k + 1]);
     }
-  }
-  return box;
+    parts.push({ slot: slot.data.name, attachment: att.name, box, expr: expr.has(i) });
+  });
+  return faceOf(parts);
 }
 
 // a face's width in skeleton units, held within what faces measure: every portrait has the game's scale and faces are

@@ -255,8 +255,9 @@ Events on `/api/events`:
 
 Thumbnails (faces, busts, expression cards, variant cards) are rendered in the page from the skeletons, in one
 shared offscreen WebGL context, and kept as in-memory blob URLs. They are framed on the face (the expression and eye
-slots, halos left out), sized by its width held between 170 and 400 skeleton units, never by the skeleton's bounds;
-the bounds stand in only where no face is found.
+slots, halos left out; without a part named like one, the face-sized parts the expression animations switch, as
+many NPC portraits name their face slot `0`, `00` or `defalt`), sized by its width held between 170 and 400
+skeleton units, never by the skeleton's bounds; the bounds stand in only where no face is found.
 
 ## Front end
 
