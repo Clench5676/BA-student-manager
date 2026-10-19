@@ -363,7 +363,8 @@ function makePlayer(host, layer, onReady, onError = () => {}) {
     },
     success: (player) => {
       player.bamtLayer = layer;
-      Linear.attach(player);
+      // the game camera's post-processing (the prefab's volumes) goes with the linear-light pass
+      if (Linear.attach(player)) Linear.setPost(player, current?.info?.post);
       if (layer.skin) try { player.skeleton.setSkinByName(layer.skin); player.skeleton.setSlotsToSetupPose(); } catch { /* the default skin */ }
       const idle = idleOf(player.skeleton.data, layer);
       if (idle) player.animationState.setAnimation(0, idle, true);

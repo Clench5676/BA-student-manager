@@ -6,6 +6,8 @@
 // Here the atlas pages are sampled as sRGB (decoded before filtering, as the GPU does in the game), the skeleton is
 // blended into an sRGB framebuffer (blending in linear light) and one pass copies the result to the canvas, encoded
 // again. Additive slots add colour only, never coverage, like the game's premultiplied vertex colours with alpha 0.
+// That pass is also the game camera's post-processing (setPost): the lobby prefab's URP volumes (lobby.json "post")
+// with URP 12's Panini projection, chromatic aberration and LDR colour grading, in that order and in linear light.
 // Without WebGL2 the player keeps drawing as before.
 
 const VS = `#version 300 es
@@ -14,16 +16,69 @@ void main() { gl_Position = vec4(p, 0.0, 1.0); }`;
 // the framebuffer holds linear, premultiplied colour; the canvas gets sRGB, premultiplied (the page composites the
 // layers' canvases). Light beyond the coverage (additive over a transparent part of an upper layer) is passed on as
 // it is, so it still brightens the layer below.
+// The post-processing as URP 12 runs it for the lobby's camera (Unity 2021.3, colour grading in LDR mode):
+// - Panini projection, its own pass (PaniniProjection.shader): the picture bent onto a cylinder, cropped to fit.
+// - chromatic aberration in the uber pass (UberPost.shader, the fast three-sample version): red at the pixel, green
+//   and blue a third and two thirds of the way to uv - coords * |coords|^2 * intensity * 0.05.
+// - colour grading (ApplyColorGrading, LutBuilderLdr.shader): post exposure, clamped to 0..1, then what the LUT holds:
+//   contrast in LogC around ACEScc mid grey, the colour filter, lift / gamma / gain, the hue shift, saturation.
+//   The other LUT stages (white balance, split toning, channel mixer, shadows / midtones / highlights, curves) are at
+//   their defaults in every lobby and leave the colour as it is. The LUT's 32-step interpolation is not modelled.
+// A layer above another one is post-processed on its own (one canvas per layer); the colour steps are affine but for
+// gamma, and the shifts are sub-pixel where characters stand, so the composite is the game's within a hair.
 const FS = `#version 300 es
 precision highp float;
 uniform sampler2D t;
+uniform vec2 size;
+uniform float ca;
+uniform vec4 panini;
+uniform float grade, exposure;
+uniform vec3 filt, hsc, lift, gamma, gain;
 out vec4 o;
+const vec3 LUM = vec3(0.2126729, 0.7151522, 0.0721750);
 vec3 enc(vec3 c) { return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c)); }
+vec2 bend(vec2 uv) {
+  if (panini.z <= 0.0) return uv;
+  vec2 v = (2.0 * uv - 1.0) * panini.xy * panini.w;
+  float d = panini.z, vd = 1.0 + d, hyp = v.x * v.x + vd * vd, id = v.x * d;
+  float cyl = (-id * v.x + vd * sqrt(hyp - id * id)) / hyp + d;
+  return v * (cyl / vd) / (cyl - d) / panini.xy * 0.5 + 0.5;
+}
+vec3 logc(vec3 x) { return 0.244161 * log2(max(5.555556 * x + 0.047996, 0.0)) * 0.30103 + 0.386036; }
+vec3 unlogc(vec3 x) { return (exp2((x - 0.386036) / 0.244161 * 3.321928) - 0.047996) / 5.555556; }
+vec3 hsv(vec3 c) {
+  vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
+  vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));
+  vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r));
+  float d = q.x - min(q.w, q.y);
+  return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + 1e-4)), d / (q.x + 1e-4), q.x);
+}
+vec3 rgb(vec3 c) { return c.z * mix(vec3(1.0), clamp(abs(fract(c.xxx + vec3(1.0, 2.0 / 3.0, 1.0 / 3.0)) * 6.0 - 3.0) - 1.0, 0.0, 1.0), c.y); }
+vec3 graded(vec3 c) {
+  c = clamp(c * exposure, 0.0, 1.0);
+  if (hsc.z != 1.0) c = unlogc((logc(c) - 0.4135884) * hsc.z + 0.4135884);
+  c = max(c * filt, 0.0);
+  c = c * gain + lift;
+  c = sign(c) * pow(abs(c), gamma);
+  if (hsc.x != 0.0) { vec3 h = hsv(c); h.x = fract(h.x + hsc.x); c = rgb(h); }
+  float luma = dot(c, LUM);
+  return clamp(luma + hsc.y * (c - luma), 0.0, 1.0);
+}
 void main() {
-  vec4 c = texelFetch(t, ivec2(gl_FragCoord.xy), 0);
-  vec3 cover = c.a > 0.0 ? enc(min(c.rgb / c.a, 1.0)) * c.a : vec3(0.0);
-  o = vec4(min(cover + max(c.rgb - c.a, 0.0), 1.0), c.a);
+  vec2 uv = gl_FragCoord.xy / size;
+  vec4 r = texture(t, bend(uv)), g = r, b = r;
+  if (ca > 0.0) {
+    vec2 k = 2.0 * uv - 1.0, step3 = -k * dot(k, k) * ca / 3.0;
+    g = texture(t, bend(uv + step3));
+    b = texture(t, bend(uv + 2.0 * step3));
+  }
+  // premultiplied samples: each channel from its own, the coverage of the pixel's own place
+  vec3 c = vec3(r.r, g.g, b.b), a3 = vec3(r.a, g.a, b.a);
+  vec3 col = min(c / max(a3, 1e-6), 1.0) * step(1e-6, a3);
+  vec3 cover = r.a > 0.0 ? enc(grade > 0.5 ? graded(col) : col) * r.a : vec3(0.0);
+  o = vec4(min(cover + max(c - a3, 0.0), 1.0), r.a);
 }`;
+const UNIFORMS = ["t", "size", "ca", "panini", "grade", "exposure", "filt", "hsc", "lift", "gamma", "gain"];
 
 const states = new WeakMap();
 
@@ -53,7 +108,8 @@ function compile(gl) {
   gl.enableVertexAttribArray(0);
   gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
   gl.bindVertexArray(null);
-  return { prog, vao, buf, sampler: gl.getUniformLocation(prog, "t"), fbo: gl.createFramebuffer(), tex: gl.createTexture(), w: 0, h: 0 };
+  const u = Object.fromEntries(UNIFORMS.map((name) => [name, gl.getUniformLocation(prog, name)]));
+  return { prog, vao, buf, u, fbo: gl.createFramebuffer(), tex: gl.createTexture(), w: 0, h: 0 };
 }
 
 // the program, the triangle and the drawing-buffer-sized framebuffer and texture (a lost context has freed them)
@@ -159,8 +215,12 @@ export function begin(player) {
   if (w !== res.w || h !== res.h) {
     gl.bindTexture(gl.TEXTURE_2D, res.tex);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.SRGB8_ALPHA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    // filtered in linear light and clamped at the edges, as URP samples its camera targets (sampler_LinearClamp);
+    // without post-processing every read is a texel centre
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     gl.bindFramebuffer(gl.FRAMEBUFFER, res.fbo);
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, res.tex, 0);
     if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
@@ -207,19 +267,77 @@ function untint(st) {
   st.saved = null;
 }
 
+// --- the game camera's post-processing ---
+// The memorial lobby's camera is the PC client's UICamera (level0 / level1): orthographic, with a stored field of view
+// of 10 degrees, which is all URP's Panini projection reads (Camera.fieldOfView, whatever the projection).
+const FOV = 10;
+const lum = (c) => c[0] * 0.2126729 + c[1] * 0.7151522 + c[2] * 0.072175;
+// Mathf.GammaToLinearSpace (Color.linear): the sRGB curve, a 2.2 power above 1 (HDR colours)
+const toLinear = (v) => (v <= 0.04045 ? v / 12.92 : v < 1 ? Math.pow((v + 0.055) / 1.055, 2.4) : Math.pow(v, 2.2));
+const IDENTITY = Object.freeze({ ca: 0, panini: [1, 1, 0, 1], grade: false, exposure: 1, filt: [1, 1, 1],
+  hsc: [0, 1, 1], lift: [0, 0, 0], gamma: [1, 1, 1], gain: [1, 1, 1] });
+// What the shader gets for a lobby's post-processing (lobby.json "post", lobby.py post_processing) on a target of the
+// given aspect, as URP 12's PostProcessPass, ColorGradingLutPass and ColorUtils.PrepareLiftGammaGain work it out;
+// null when there is nothing to do.
+export function postParams(post, aspect = 16 / 9) {
+  if (!post) return null;
+  const out = { ...IDENTITY };
+  if (post.chromaticAberration > 0) out.ca = post.chromaticAberration * 0.05;
+  const pn = post.panini;
+  if (pn?.distance > 0) {
+    const ey = Math.tan((FOV * Math.PI) / 360), ex = aspect * ey, d = pn.distance;
+    // CalcCropExtents over CalcViewExtents: the same ratio across and down
+    const near = 1 / Math.hypot(ex, 1), crop = (near * (1 + d)) / (near + d);
+    out.panini = [ex, ey, d, 1 + (Math.min(1, Math.max(0, crop)) - 1) * (pn.cropToFit ?? 1)];
+  }
+  const lgg = post.liftGammaGain;
+  if (lgg) {
+    const part = (v, k) => { const c = v.slice(0, 3).map((x) => toLinear(x) * k); return [c, lum(c)]; };
+    const [l, ll] = part(lgg.lift, 0.15), [g, gl] = part(lgg.gamma, 0.8), [n, nl] = part(lgg.gain, 0.8);
+    out.lift = l.map((x) => x - ll + lgg.lift[3]);
+    out.gamma = g.map((x) => 1 / Math.max(x - gl + lgg.gamma[3] + 1, 1e-3));
+    out.gain = n.map((x) => x - nl + lgg.gain[3] + 1);
+    out.grade = true;
+  }
+  const adj = post.colorAdjustments;
+  if (adj) {
+    out.exposure = Math.pow(2, adj.postExposure || 0);
+    out.filt = (adj.colorFilter || [1, 1, 1]).slice(0, 3).map(toLinear);
+    out.hsc = [(adj.hueShift || 0) / 360, (adj.saturation || 0) / 100 + 1, (adj.contrast || 0) / 100 + 1];
+    out.grade = true;
+  }
+  return out.ca > 0 || out.panini[2] > 0 || out.grade ? out : null;
+}
+export let postOn = true; // for checks: false draws every lobby without its post-processing
+export const setPostEnabled = (on) => { postOn = !!on; };
+// the lobby's post-processing for an attached player (lobby.json "post"; null: none)
+export function setPost(player, post) {
+  const st = states.get(player);
+  if (st) { st.post = post || null; st.params = null; }
+}
+
 // in the player's draw hook, after the skeleton: the linear framebuffer, encoded, onto the canvas
 export function end(player) {
   const st = states.get(player);
   if (st?.saved) untint(st);
   if (!st?.on || !st.bound) return;
-  const { gl, res } = st;
+  const { gl, res } = st, w = res.w, h = res.h;
   st.bound = false;
   gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   gl.disable(gl.BLEND);
   gl.useProgram(res.prog);
   gl.activeTexture(gl.TEXTURE0);
   gl.bindTexture(gl.TEXTURE_2D, res.tex);
-  gl.uniform1i(res.sampler, 0);
+  const u = res.u;
+  gl.uniform1i(u.t, 0);
+  gl.uniform2f(u.size, w, h);
+  if (st.post && (!st.params || st.params.w !== w || st.params.h !== h)) st.params = { w, h, p: postParams(st.post, w / h) };
+  const p = (postOn && st.params?.p) || IDENTITY;
+  gl.uniform1f(u.ca, p.ca);
+  gl.uniform4f(u.panini, ...p.panini);
+  gl.uniform1f(u.grade, p.grade ? 1 : 0);
+  gl.uniform1f(u.exposure, p.exposure);
+  for (const k of ["filt", "hsc", "lift", "gamma", "gain"]) gl.uniform3f(u[k], ...p[k]);
   gl.bindVertexArray(res.vao);
   gl.drawArrays(gl.TRIANGLES, 0, 3);
   gl.bindVertexArray(null); // blending stays off, as spine's batcher leaves it after a frame

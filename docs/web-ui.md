@@ -94,7 +94,7 @@ class GameAssets:
     def spine_cores(self, kind: str) -> dict[str, list[Path]]  # kind "spr" | "lobby": core -> bundle parts
     def spine_files(self, kind: str, core: str) -> dict[str, bytes]        # file name -> bytes (.skel, .atlas, pages)
     def spine_files_from(self, bundles: list[Path]) -> dict[str, bytes]    # the same, for a mod's bundle files
-    def lobby_info(self, core: str) -> dict                    # a lobby's layers, touch boxes and clips (lobby.py)
+    def lobby_info(self, core: str) -> dict                    # a lobby's layers, touch boxes, clips and post-processing (lobby.py)
     def model_cores(self) -> set[str]                          # dev names with a chibi (character-<dev>-_mxload-*)
     def model_glb(self, core: str) -> bytes                    # the chibi as one GLB (model.py)
 ```
@@ -249,7 +249,7 @@ Events on `/api/events`:
 | `/asset/ui/layout/<root>.json?path=<subpath>` | light |
 | `/asset/art/bg/<name>`, `/asset/art/portrait/<name>.png` | heavy |
 | `/asset/spine/spr/<core>/<file>`, `/asset/spine/lobby/<core>/<file>`, `/asset/spine/mod/<id>/<file>` | heavy |
-| `/asset/spine/lobby/<core>/lobby.json` (prefab layout, touch boxes, clips; no skeleton is extracted) | heavy |
+| `/asset/spine/lobby/<core>/lobby.json` (prefab layout, touch boxes, clips, post-processing; no skeleton is extracted) | heavy |
 | `/asset/model/<variant>.glb` (the variant's chibi, `model/gltf-binary`) | heavy |
 | `/asset/voice/<variant>/<clip>` (a lobby voice relayed from Kivo) | heavy |
 
@@ -353,6 +353,17 @@ in `pointer-textures`); without a game the system cursor stays and there is no e
   way spine-unity's shader converts its vertex colours (an additive slot at alpha 0.42 adds 0.15 of its texture).
   Without WebGL2 the player draws in plain sRGB values as before. Drawn in sRGB values, glows such as Kurumi's photo
   booth light or Niko's window washed the scene out to white.
+- **Post-processing.** Every lobby prefab carries URP volumes (`PPV` at weight 1; `PPV_C`, a flash, and `PPV_D`, a
+  depth of field, which talk timelines drive and which mostly sit at 0). `lobby.py` follows the volumes that count
+  to their profiles (in the core's bundles, a few in another core's) and blends them the way URP's VolumeManager
+  does (`lobby.json` `post`); the effects in use are chromatic aberration (274 lobbies), lift / gamma / gain (256),
+  Panini projection (197, on the UI camera's stored 10-degree field of view: the middle enlarged by 0.6 %) and, at a
+  small weight left on in 21 prefabs, colour adjustments (post exposure, colour filter, contrast, hue). The linear
+  pass's copy to the canvas runs them as URP 12 does (Unity 2021.3, colour grading in LDR mode): Panini, chromatic
+  aberration, then exposure, saturate and the grading, in linear light. A layer is post-processed on its own (7
+  lobbies have more than one). The one reference that is a real in-game capture (Michiru, CH0113, whose chromatic
+  aberration shows) matches: face Y 157.6 in the game, 156.0 here, 145.2 without; the other references show no
+  aberration, so they are viewer renders or captures with the PC client's PP option off.
 - **Zoom.** Fullscreen opens on the game's 16:9 view and zooms in to 2x. The Settings L2D tab (`lobbyZoomOut`, off by
   default) lets it zoom out further, to the widest 16:9 view inside the painted art (one 16-unit cell inside the
   painted rect).
