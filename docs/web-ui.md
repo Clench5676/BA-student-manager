@@ -383,7 +383,11 @@ in `pointer-textures`); without a game the system cursor stays and there is no e
   aberration, so they are viewer renders or captures with the PC client's PP option off.
 - **Zoom.** Fullscreen opens on the game's 16:9 view and zooms in to 2x. The Settings L2D tab (`lobbyZoomOut`, off by
   default) lets it zoom out further, to the widest 16:9 view inside the painted art (one 16-unit cell inside the
-  painted rect).
+  painted rect). The painted rect is found on idle poses; with the setting on, the poses of every clip the lobby
+  plays (dialogues with their sync clips, the drag clips and their ends, random idle clips, every 0.1 s over the
+  idle) are checked in the background, in 8 ms slices, within 24 cells of its sides, and the rect gives up what one
+  uncovers: a dialogue that moves the scene never shows a blank edge (Kurumi: 1011 poses, about 0.8 s, 3 cells). The
+  result is kept for the session.
 - **Input.** Press and drag: head pat, eye follow and the other drag boxes. Mouse wheel (a notch zooms at least a
   line's worth) and pinch (ctrl + wheel in Chromium / WebView2, gesture events in WebKit) zoom at the pointer; a
   two-finger trackpad swipe pans in any direction. A wheel is told by its steps: whole lines, `wheelDeltaY` in steps

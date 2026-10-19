@@ -128,6 +128,14 @@ def test_wheel_zooms_and_pans_in_node():
     assert result.returncode == 0, result.stdout + result.stderr
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="Node is not installed")
+def test_zoom_out_limit_in_node():
+    # the Full Art limit: every clip's poses are checked and the painted rect gives up what one uncovers
+    tests = Path(__file__).parent / "js" / "lobby_frame.test.mjs"
+    result = subprocess.run(["node", "--test", str(tests)], capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
 def test_lobby_strings_in_both_languages():
     for lang in ("zh-CN", "en-US"):
         strings = ui_strings(lang)

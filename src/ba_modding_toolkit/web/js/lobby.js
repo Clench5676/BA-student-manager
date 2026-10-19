@@ -62,46 +62,67 @@ function idleOf(data, layer) {
 
 // --- painted rect P: opaque, normal-blend triangles of every layer, over a few idle poses, on a 16-unit grid ---
 const CELL = 16, SAMPLES = 6;
-function paintedRect(loaded, G) {
-  const X0 = G.x - G.w, Y0 = G.y - G.h, gw = Math.ceil((G.w * 3) / CELL), gh = Math.ceil((G.h * 3) / CELL);
-  const acc = new Uint8Array(gw * gh).fill(1), cur = new Uint8Array(gw * gh);
+const QUAD = [0, 1, 2, 2, 3, 0];
+// the grid: three game views wide and high around the game's view
+function gridOf(G) {
+  return { X0: G.x - G.w, Y0: G.y - G.h, gw: Math.ceil((G.w * 3) / CELL), gh: Math.ceil((G.h * 3) / CELL) };
+}
+// a reusable skeleton of a layer (its skin set), posed by tracks [track, animation, time, loop] with no mixing
+function poser(l) {
+  const data = l.player.skeleton.data, sk = new spine.Skeleton(data), st = new spine.AnimationState(new spine.AnimationStateData(data));
+  if (l.skin) try { sk.setSkinByName(l.skin); } catch { /* the default skin */ }
+  return (tracks) => {
+    st.clearTracks();
+    sk.setToSetupPose();
+    for (const [track, name, time, loop] of tracks) {
+      const e = st.setAnimation(track, name, loop);
+      e.mixDuration = 0;
+      e.trackTime = time;
+    }
+    if (tracks.length) { st.update(0); st.apply(sk); }
+    sk.updateWorldTransform(spine.Physics.reset); // physics at rest, as a new skeleton's: no state from the last pose
+    return sk;
+  };
+}
+// sets the cells of `out` within the cell rects ([i0, i1, j0, j1], inclusive) whose centre one of the posed layer's
+// painted triangles covers; additive FX and see-through parts never count
+function paint(grid, l, sk, out, rects) {
+  const { X0, Y0, gw } = grid;
   const tri = (ax, ay, bx, by, cx, cy) => {
     const area = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
     if (Math.abs(area) < 1e-6) return;
-    const i0 = Math.max(0, Math.floor((Math.min(ax, bx, cx) - X0) / CELL)), i1 = Math.min(gw - 1, Math.floor((Math.max(ax, bx, cx) - X0) / CELL));
-    const j0 = Math.max(0, Math.floor((Math.min(ay, by, cy) - Y0) / CELL)), j1 = Math.min(gh - 1, Math.floor((Math.max(ay, by, cy) - Y0) / CELL));
-    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
-      const px = X0 + (i + 0.5) * CELL, py = Y0 + (j + 0.5) * CELL;
-      const w0 = ((bx - px) * (cy - py) - (by - py) * (cx - px)) / area, w1 = ((cx - px) * (ay - py) - (cy - py) * (ax - px)) / area;
-      if (w0 >= -1e-6 && w1 >= -1e-6 && 1 - w0 - w1 >= -1e-6) cur[j * gw + i] = 1;
+    const I0 = Math.floor((Math.min(ax, bx, cx) - X0) / CELL), I1 = Math.floor((Math.max(ax, bx, cx) - X0) / CELL);
+    const J0 = Math.floor((Math.min(ay, by, cy) - Y0) / CELL), J1 = Math.floor((Math.max(ay, by, cy) - Y0) / CELL);
+    for (const r of rects) {
+      const i0 = Math.max(I0, r[0]), i1 = Math.min(I1, r[1]), j0 = Math.max(J0, r[2]), j1 = Math.min(J1, r[3]);
+      for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+        const px = X0 + (i + 0.5) * CELL, py = Y0 + (j + 0.5) * CELL;
+        const w0 = ((bx - px) * (cy - py) - (by - py) * (cx - px)) / area, w1 = ((cx - px) * (ay - py) - (cy - py) * (ax - px)) / area;
+        if (w0 >= -1e-6 && w1 >= -1e-6 && 1 - w0 - w1 >= -1e-6) out[j * gw + i] = 1;
+      }
     }
   };
-  const QUAD = [0, 1, 2, 2, 3, 0];
+  for (const slot of sk.drawOrder) {
+    const a = slot.getAttachment();
+    if (!a || !slot.bone.active || slot.data.blendMode !== spine.BlendMode.Normal) continue;
+    if (slot.color.a * (a.color ? a.color.a : 1) < 0.9) continue;
+    let v, tris;
+    if (a instanceof spine.RegionAttachment) { v = new Float32Array(8); a.computeWorldVertices(slot, v, 0, 2); tris = QUAD; }
+    else if (a instanceof spine.MeshAttachment) { v = new Float32Array(a.worldVerticesLength); a.computeWorldVertices(slot, 0, a.worldVerticesLength, v, 0, 2); tris = a.triangles; }
+    else continue;
+    const X = (n) => l.x + v[n * 2] * l.scale, Y = (n) => l.y + v[n * 2 + 1] * l.scale;
+    for (let t = 0; t < tris.length; t += 3) tri(X(tris[t]), Y(tris[t]), X(tris[t + 1]), Y(tris[t + 1]), X(tris[t + 2]), Y(tris[t + 2]));
+  }
+}
+function paintedRect(loaded, G) {
+  const grid = gridOf(G), { X0, Y0, gw, gh } = grid, all = [[0, gw - 1, 0, gh - 1]];
+  const acc = new Uint8Array(gw * gh).fill(1), cur = new Uint8Array(gw * gh);
+  const posers = loaded.map((l) => [l, poser(l), idleOf(l.player.skeleton.data, l)]);
   for (let k = 0; k < SAMPLES; k++) {
     cur.fill(0);
-    for (const l of loaded) {
-      const data = l.player.skeleton.data, sk = new spine.Skeleton(data), anim = idleOf(data, l);
-      if (l.skin) try { sk.setSkinByName(l.skin); } catch { /* the default skin */ }
-      sk.setToSetupPose();
-      if (anim) {
-        const st = new spine.AnimationState(new spine.AnimationStateData(data));
-        st.setAnimation(0, anim, true);
-        st.update((data.findAnimation(anim).duration * k) / SAMPLES);
-        st.apply(sk);
-      }
-      sk.updateWorldTransform(spine.Physics.update);
-      for (const slot of sk.drawOrder) {
-        const a = slot.getAttachment();
-        // additive FX and see-through parts never count as painted
-        if (!a || !slot.bone.active || slot.data.blendMode !== spine.BlendMode.Normal) continue;
-        if (slot.color.a * (a.color ? a.color.a : 1) < 0.9) continue;
-        let v, tris;
-        if (a instanceof spine.RegionAttachment) { v = new Float32Array(8); a.computeWorldVertices(slot, v, 0, 2); tris = QUAD; }
-        else if (a instanceof spine.MeshAttachment) { v = new Float32Array(a.worldVerticesLength); a.computeWorldVertices(slot, 0, a.worldVerticesLength, v, 0, 2); tris = a.triangles; }
-        else continue;
-        const X = (n) => l.x + v[n * 2] * l.scale, Y = (n) => l.y + v[n * 2 + 1] * l.scale;
-        for (let t = 0; t < tris.length; t += 3) tri(X(tris[t]), Y(tris[t]), X(tris[t + 1]), Y(tris[t + 1]), X(tris[t + 2]), Y(tris[t + 2]));
-      }
+    for (const [l, pose, anim] of posers) {
+      const time = anim ? (l.player.skeleton.data.findAnimation(anim).duration * k) / SAMPLES : 0;
+      paint(grid, l, pose(anim ? [[0, anim, time, true]] : []), cur, all);
     }
     for (let i = 0; i < acc.length; i++) acc[i] &= cur[i];
   }
@@ -119,7 +140,129 @@ function paintedRect(loaded, G) {
     if (r.j0 > 0 && full(r.i0, r.i1, r.j0 - 1, r.j0 - 1)) { r.j0--; moved = true; }
     if (r.j1 < gh - 1 && full(r.i0, r.i1, r.j1 + 1, r.j1 + 1)) { r.j1++; moved = true; }
   }
-  return { x0: X0 + r.i0 * CELL, x1: X0 + (r.i1 + 1) * CELL, y0: Y0 + r.j0 * CELL, y1: Y0 + (r.j1 + 1) * CELL, covered };
+  return { x0: X0 + r.i0 * CELL, x1: X0 + (r.i1 + 1) * CELL, y0: Y0 + r.j0 * CELL, y1: Y0 + (r.j1 + 1) * CELL, covered, cells: r };
+}
+
+// --- the zoom-out limit, safe for every clip: P, measured on idle poses, shrunk until no clip the lobby plays uncovers
+// a cell near its edge (Kurumi's last dialogue moves the scene and showed a blank strip at the widest view) ---
+const BAND = 24;          // cells inside each side of P that are checked: a scene moving up to 384 units
+const CLIP_STEP = 0.1;    // s between the poses sampled from a clip
+const SLICE_MS = 8;       // the measurement runs in slices of the main thread, after the lobby is shown
+const DRAG_CLIP = /^(Pat|Look|Pinch|HandFollow|Touch)(End)?_\d+_M$/;
+const safeRects = new Map(); // lobby (core and skeleton hashes) -> safe rect, for the session
+
+// The poses to check, [layer index, tracks]: every clip the lobby plays (its dialogues, the drag clips and their ends,
+// the random idle clips and the clips they chain to) every CLIP_STEP, on its own track over the idle and with its sync
+// clips, as playClip plays them. layers: {name, data, idle, main}; clip(layer, name) gives the clip's track, next, sync.
+export function clipPoses(layers, info, talks, clip) {
+  const out = [];
+  layers.forEach((l, index) => {
+    const data = l.data, idleDur = l.idle ? data.findAnimation(l.idle)?.duration || 0 : 0;
+    const names = [...(info?.randomIdle?.[l.name] || [])];
+    if (l.main) {
+      names.push(...talks);
+      const drags = (info?.drags || []).filter((d) => d.skeleton === l.name);
+      if (drags.length) for (const d of drags) names.push(d.ing, d.end);
+      else names.push(...data.animations.map((a) => a.name).filter((n) => DRAG_CLIP.test(n)));
+    }
+    const seen = new Set();
+    while (names.length) {
+      const name = names.shift(), anim = name && !seen.has(name) ? data.findAnimation(name) : null;
+      if (!anim) continue;
+      seen.add(name);
+      const c = clip(l, name);
+      if (c.next) names.push(c.next);
+      const syncs = (c.sync || []).filter((s) => data.findAnimation(s)).map((s) => [clip(l, s).track, s]).filter(([t]) => t !== c.track);
+      const n = Math.max(1, Math.ceil(anim.duration / CLIP_STEP - 1e-6));
+      for (let k = 0; k <= n; k++) {
+        const t = Math.min(anim.duration, k * CLIP_STEP), tracks = [];
+        if (l.idle && c.track !== 0) tracks.push([0, l.idle, idleDur ? t % idleDur : 0, true]);
+        tracks.push([c.track, name, t, false]);
+        for (const [track, s] of syncs) tracks.push([track, s, t, false]);
+        out.push([index, tracks]);
+      }
+    }
+  });
+  return out;
+}
+// P (cells, inclusive) shrunk while the outer column or row of a side has a cell some pose left unpainted (`bad`, set
+// within `band` cells of P's sides only)
+export function shrinkRect(P, bad, gw, band = BAND) {
+  const r = { ...P };
+  const clear = (i0, i1, j0, j1) => { for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) if (bad[j * gw + i]) return false; return true; };
+  for (let moved = true; moved;) {
+    moved = false;
+    if (r.i0 - P.i0 < band && r.i0 < r.i1 && !clear(r.i0, r.i0, r.j0, r.j1)) { r.i0++; moved = true; }
+    if (P.i1 - r.i1 < band && r.i1 > r.i0 && !clear(r.i1, r.i1, r.j0, r.j1)) { r.i1--; moved = true; }
+    if (r.j0 - P.j0 < band && r.j0 < r.j1 && !clear(r.i0, r.i1, r.j0, r.j0)) { r.j0++; moved = true; }
+    if (P.j1 - r.j1 < band && r.j1 > r.j0 && !clear(r.i0, r.i1, r.j1, r.j1)) { r.j1--; moved = true; }
+  }
+  return r;
+}
+// one pose per step: the cells near P's sides that the pose leaves unpainted; every layer is drawn, the others idle
+function* measureSafe(loaded, meta, G) {
+  const grid = gridOf(G), P = meta.painted.cells, K = BAND;
+  const bands = [[P.i0, Math.min(P.i1, P.i0 + K - 1), P.j0, P.j1], [Math.max(P.i0, P.i1 - K + 1), P.i1, P.j0, P.j1],
+    [P.i0, P.i1, P.j0, Math.min(P.j1, P.j0 + K - 1)], [P.i0, P.i1, Math.max(P.j0, P.j1 - K + 1), P.j1]];
+  const bad = new Uint8Array(grid.gw * grid.gh), cur = new Uint8Array(grid.gw * grid.gh);
+  const layers = loaded.map((l) => ({ ...l, data: l.player.skeleton.data, idle: idleOf(l.player.skeleton.data, l), main: l.name === meta.main }));
+  const posers = layers.map(poser);
+  const plan = clipPoses(layers, current?.info, meta.sequences.map((s) => s.anim), (l, name) => clipOf(l.player, name));
+  for (const [index, tracks] of plan) {
+    cur.fill(0);
+    const t = tracks[tracks.length - 1][2];
+    layers.forEach((l, j) => {
+      const idleDur = l.idle ? l.data.findAnimation(l.idle).duration : 0;
+      const pose = j === index ? tracks : l.idle ? [[0, l.idle, idleDur ? t % idleDur : 0, true]] : [];
+      paint(grid, l, posers[j](pose), cur, bands);
+    });
+    for (const [i0, i1, j0, j1] of bands) for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) if (!cur[j * grid.gw + i]) bad[j * grid.gw + i] = 1;
+    yield;
+  }
+  const r = shrinkRect(P, bad, grid.gw);
+  return { x0: grid.X0 + r.i0 * CELL, x1: grid.X0 + (r.i1 + 1) * CELL, y0: grid.Y0 + r.j0 * CELL, y1: grid.Y0 + (r.j1 + 1) * CELL, poses: plan.length };
+}
+// the zoom-out limit (a setting): the art one cell in, and never less than the game's view; art that hardly covers the
+// view keeps the game's view. The painted rect counts a 16-unit cell as painted by its centre, so the art can end a
+// few units before its border.
+function outerOf(edge, full, sparse) {
+  if (sparse) return rectOf(full);
+  return { x0: Math.min(edge.x0 + CELL, full.x), x1: Math.max(edge.x1 - CELL, full.x + full.w),
+    y0: Math.min(edge.y0 + CELL, full.y), y1: Math.max(edge.y1 - CELL, full.y + full.h) };
+}
+// measure the clip-safe rect in the background (once per lobby in a session), then narrow the zoom-out limit to it
+function measureClips() {
+  const c = current, m = c?.meta;
+  if (!m || m.sparse || m.safe || c.measuring || !c.loaded) return;
+  const key = `${c.core}|${c.loaded.map((l) => `${l.name}:${l.player.skeleton.data.hash || ""}`).join(",")}`;
+  const done = (rect) => {
+    if (current !== c) return;
+    c.measuring = false;
+    m.safe = rect;
+    m.outer = outerOf(rect, m.full, false);
+    reclamp();
+  };
+  if (safeRects.has(key)) { done(safeRects.get(key)); return; }
+  c.measuring = true;
+  const job = measureSafe(c.loaded, m, game());
+  let busy = 0;
+  const slice = () => {
+    if (current !== c) return;
+    const from = performance.now(), until = from + SLICE_MS;
+    let step;
+    try {
+      do step = job.next(); while (!step.done && performance.now() < until);
+    } catch (err) {
+      console.warn("zoom-out limit over the clips", err); // keep the idle poses' limit
+      c.measuring = false;
+      return;
+    }
+    busy += performance.now() - from;
+    if (!step.done) { setTimeout(slice, 0); return; }
+    safeRects.set(key, { ...step.value, ms: Math.round(busy) });
+    done(safeRects.get(key));
+  };
+  setTimeout(slice, 0);
 }
 // the layers' setup-pose bounds, the painted area of the fallback for art that hardly covers the view
 function boundsRect(loaded) {
@@ -237,13 +380,10 @@ function measure(loaded) {
     .sort((a, b) => a.n - b.n);
   // the painted rect counts a 16-unit cell as painted by its centre, so the art can end a few units before its
   // border: the left view keeps one cell inside it
-  const inner = sparse ? edge : { ...edge, x0: edge.x0 + 16, x1: edge.x1 - 16, y0: edge.y0 + 16, y1: edge.y1 - 16 };
-  // the zoom-out limit (a setting): the painted art one cell in, and never less than the game's view; art that hardly
-  // covers the view keeps the game's view
-  const outer = sparse ? rectOf(full) : {
-    x0: Math.min(inner.x0, full.x), x1: Math.max(inner.x1, full.x + full.w), y0: Math.min(inner.y0, full.y), y1: Math.max(inner.y1, full.y + full.h),
-  };
-  return { main: main.name, painted, edge, sparse, touch, full, outer, left: leftView(inner, touch, G), sequences };
+  const inner = sparse ? edge : { ...edge, x0: edge.x0 + CELL, x1: edge.x1 - CELL, y0: edge.y0 + CELL, y1: edge.y1 - CELL };
+  // the zoom-out limit, until measureClips has narrowed it to what every clip keeps painted
+  const outer = outerOf(edge, full, sparse);
+  return { main: main.name, painted, edge, sparse, touch, full, outer, safe: null, left: leftView(inner, touch, G), sequences };
 }
 
 // switch between the left view and fullscreen: the old framing fades out over the new one, in step with the UI slide;
@@ -290,9 +430,15 @@ export function zoomAt(factor, sx, sy) {
   const w = clamp(T.w / factor, full.w / ZOOM_IN, Math.max(full.w, widest(bounds()))), h = (w * 9) / 16;
   setView(clampView({ x: ux - fx * w, y: uy - fy * h, w, h }), false);
 }
-// the zoom-out setting: off brings a wider view back to the game's view, around the same centre
+// the zoom-out setting: off brings a wider view back to the game's view, around the same centre; on measures the limit
+// over the lobby's clips (once)
 export function setZoomOut(on) {
   zoomOut = !!on;
+  if (zoomOut) measureClips();
+  reclamp();
+}
+// a view wider than the limit now allows eases back inside it, around the same centre
+function reclamp() {
   if (!current?.meta || !current.target || mode !== "full") return;
   const T = current.target, full = current.meta.full;
   if (T.w <= full.w + 1e-6) { setView(clampView(T), false); return; }
@@ -321,7 +467,7 @@ export function resetZoom() {
 export const limits = () => current?.meta && {
   game: game(), painted: current.meta.painted, full: current.meta.full, left: current.meta.left, view: current.view,
   target: current.target, touch: current.meta.touch, zoom: current.meta.full.w / current.view.w, mode,
-  outer: current.meta.outer, zoomOut, bounds: bounds(),
+  outer: current.meta.outer, zoomOut, bounds: bounds(), safe: current.meta.safe, measuring: !!current.measuring,
   tracks: mainPlayer()?.animationState?.tracks.map((t) => t?.animation?.name || null) || [],
 };
 
@@ -447,6 +593,7 @@ export async function show(core, host, variant) {
     })))).filter(Boolean);
     if (my !== token || !loaded.length) return null;
     current.meta = measure(loaded);
+    current.loaded = loaded;
     setView(viewOf(current.meta), true);
     feather(current.view);
     const main = loaded.find((l) => l.name === current.meta.main)?.player;
@@ -458,6 +605,8 @@ export async function show(core, host, variant) {
     });
     Idle.start(loaded.map((l) => l.player));
     if (mode === "full" && wantTouch) Touch.attach(host);
+    // with the zoom-out setting on: the limit over every clip, once the screen is up
+    setTimeout(() => { if (zoomOut && my === token) measureClips(); }, 400);
     return current.meta;
   })();
   return current.ready;
