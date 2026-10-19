@@ -865,7 +865,8 @@
 			"pack": "에셋 패킹",
 			"extract": "에셋 추출",
 			"adb": "ADB 푸시",
-			"tools": "도구"
+			"tools": "도구",
+			"classic": "{label} - 클래식 화면"
 		},
 		"roster": {
 			"title": "학생 리스트",
@@ -962,9 +963,85 @@
 		"popup": {
 			"switch": "일러스트 변경",
 			"apply": "적용",
+			"save": "저장",
 			"cancel": "취소",
 			"inUse": "사용 중",
 			"add": "일러스트 추가"
+		},
+		"mods": {
+			"switch": "모드 사용",
+			"guide": "안내",
+			"offState": "모드 꺼짐",
+			"onState": "모드 켜짐",
+			"helpOff": "끄기: 모든 일러스트와 메모리얼 로비를 한 번에 원본으로",
+			"helpOn": "켜기: 설정한 모드를 다시 적용",
+			"helpKept": "모드는 모드 라이브러리에 보관",
+			"helpGame": "게임 종료 중에만",
+			"helpFolders": "게임 폴더: {folders}",
+			"installNamed": "{server} ({folder})",
+			"explainOnce": "이 안내는 다시 표시되지 않음",
+			"builtWhat": "생성된 모드 보관, 켜면 바로 적용",
+			"builtSize": "사용 용량: {size}, 커질 수 있음",
+			"builtClear": "생성된 모드 삭제",
+			"builtCleared": "생성된 모드 삭제됨",
+			"originalsSize": "끄기용 원본 사본: {size}",
+			"scanOff": "다른 모드는 검사 안 함",
+			"allowCheck": "검사 허용",
+			"scan": {
+				"title": "게임 파일 검사",
+				"checked": {
+					"label": "검사 대상",
+					"items": "각 일러스트와 메모리얼 로비 파일의 앞부분과 끝부분",
+					"why": "모드 라이브러리 밖의 모드, 복원이나 업데이트로 돌아간 파일, 원본 없는 파일 찾기"
+				},
+				"never": {
+					"label": "하지 않는 것",
+					"items": "전체 파일 읽기, 기기 밖으로 전송"
+				},
+				"note": "거부하면 검사는 꺼진 상태로 유지, 설정에서 변경 가능",
+				"no": "허용 안 함",
+				"yes": "허용"
+			},
+			"notSwitched": "전환 안 됨: {n}",
+			"sourceMissing": "모드 라이브러리에서 삭제됨: {n}",
+			"retry": "다시 시도",
+			"details": "자세히",
+			"offTitle": "모드 끄기",
+			"onTitle": "모드 켜기",
+			"toAdd": "먼저 모드 라이브러리에 추가: {n}",
+			"stuck": "그대로 유지, 원본 없음: {n}",
+			"size": "총 용량: {size}",
+			"selected": "선택: {n}",
+			"result": "완료: {done}, 실패: {failed}",
+			"saved": "저장됨, 모드를 켜면 적용",
+			"untrackedTitle": "모드 라이브러리에 없는 모드",
+			"untrackedHint": "미추가 시 업데이트, 파일 검사로 사라짐",
+			"untrackedAdd": "모드 라이브러리에 추가",
+			"addTurnOn": "추가 후 모드 켜기",
+			"dontAsk": "다시 묻지 않기",
+			"copy": {
+				"kept": "보관됨",
+				"backup": "백업",
+				"elsewhere": "다른 폴더",
+				"none": "원본 없음"
+			},
+			"overwritten": "덮어씀",
+			"damaged": "손상됨",
+			"overwrittenTitle": "원본 파일 덮어씀",
+			"overwrittenNone": "원본 사본 없음",
+			"addFirst": "복원 전에 모드 라이브러리에 추가",
+			"lastCopy": "게임에서 사용 중인 파일의 유일한 사본",
+			"mayNotStart": "게임이 실행되지 않을 수 있음",
+			"repairSteam": "Steam: 속성 - 설치된 파일 - 게임 파일 무결성 확인",
+			"repairThen": "이후 이 앱을 다시 실행",
+			"driftTitle": "모드가 원본으로 돌아감",
+			"driftWhy": "게임 파일 검사, 복원, 업데이트",
+			"driftApply": "모드 설정 적용",
+			"driftKeep": "현재대로 유지",
+			"stillOverwritten": "여전히 덮어씀: {n}"
+		},
+		"switch": {
+			"configured": "설정됨"
 		},
 		"field": {
 			"file": "파일",
@@ -975,7 +1052,8 @@
 			"folder": "폴더",
 			"date": "날짜",
 			"modFile": "모드 파일",
-			"source": "출처"
+			"source": "출처",
+			"copy": "원본 사본"
 		},
 		"type": {
 			"recruit": "실장",
@@ -998,7 +1076,8 @@
 				"title": "게임 폴더를 찾을 수 없음",
 				"hint": "자동 감지 또는 게임 폴더 직접 선택"
 			},
-			"openSettings": "설정 열기"
+			"openSettings": "설정 열기",
+			"closed": "종료됨"
 		},
 		"loading": {
 			"now": "Now Loading",
@@ -1051,10 +1130,19 @@
 			"mod_target_mismatch": "이 바리에이션에 맞지 않는 모드",
 			"mod_update_failed": "모드를 업데이트할 수 없음",
 			"original_invalid": "보관한 원본 손상: {file}",
-			"original_unavailable": "복원할 원본 파일 없음, 먼저 런처에서 게임 파일을 검사해 주세요",
+			"original_unavailable": "원본 사본 없음",
 			"source_unsupported": "지원하지 않는 소스",
 			"variant_incompatible": "구조가 달라 서로 바꿀 수 없음",
-			"variant_not_found": "바리에이션을 찾을 수 없음"
+			"variant_not_found": "바리에이션을 찾을 수 없음",
+			"steam_busy": "Steam에서 게임 업데이트 또는 검사 중",
+			"classic_open": "먼저 클래식 화면을 닫아 주세요",
+			"entry_changed": "게임 파일 변경됨, 다시 검사",
+			"folder_changed": "게임 폴더 변경됨, 다시 시도",
+			"state_changed": "다른 곳에서 전환됨, 다시 확인",
+			"profiles_unreadable": "모드 설정을 읽을 수 없음: {file}",
+			"not_enough_space": "공간 부족: 필요 {need}, 여유 {free}",
+			"mod_last_copy": "게임에서 사용 중인 파일의 유일한 사본: {file}",
+			"scan_off": "파일 검사 꺼짐"
 		},
 		"drop": {
 			"hint": "모드 파일을 끌어다 놓아 추가"
@@ -1069,13 +1157,32 @@
 			"restarting": "업데이트 마무리를 위해 재시작 중",
 			"page": "다운로드 페이지 열기"
 		},
+		"classic": {
+			"hint": "클래식 화면에서 열림, 이 창 위에 표시",
+			"opening": "클래식 화면 여는 중",
+			"front": "앞으로 가져오기",
+			"opened": "클래식 화면 열림",
+			"autoApply": "닫으면 자동 적용",
+			"queued": "클래식 화면을 닫으면 적용",
+			"notApplied": "적용 안 됨"
+		},
+		"quit": {
+			"title": "알림",
+			"ask": "종료하시겠습니까?"
+		},
+		"tray": {
+			"working": "처리 중 {done}/{total}",
+			"drift": "원본으로 돌아감: {n}",
+			"quit": "종료"
+		},
 		"settings": {
 			"title": "설정",
 			"tab": {
 				"general": "일반",
 				"sound": "음량",
 				"l2d": "L2D",
-				"folders": "폴더"
+				"folders": "폴더",
+				"mods": "모드"
 			},
 			"language": "언어",
 			"cache": {
@@ -1094,7 +1201,21 @@
 			"classic": {
 				"label": "추가 설정",
 				"hint": "Spine 도구, ADB 등은 클래식 화면에서",
-				"open": "열기"
+				"open": "열기",
+				"ask": "열기 전에 확인"
+			},
+			"mods": {
+				"shown": "메인 화면에 표시",
+				"scan": "파일 검사",
+				"tray": {
+					"win": "트레이 아이콘",
+					"mac": "메뉴 막대 아이콘"
+				},
+				"files": "게임 파일",
+				"check": "검사",
+				"clean": "변경 없음",
+				"folders": "게임 폴더",
+				"forget": "목록에서 제거"
 			},
 			"voice": "보이스",
 			"mute": "음소거",
