@@ -7,7 +7,7 @@ at runtime and never shipped with the program.
 ## First milestone
 
 - Screens: consent popup, student roster, student detail (Portrait, Memorial Lobby and 3D tabs), the
-  switch-portrait popup and the variant picker. The lobby is framed and touched like the game (its prefab data,
+  switch popups (portrait, memorial lobby) and the variant picker. The lobby is framed and touched like the game (its prefab data,
   `lobby.json`) and plays its dialogue with Kivo's voices and the lines in the UI language (Kivo's Chinese and
   Japanese, the Global server's official English and the others); the 3D tab shows the variant's chibi, exported
   from the install, and is disabled only for variants without one.
@@ -301,23 +301,64 @@ class ModLibrary:
     def mods(self) -> list[ModEntry]               # id, file, label, target (variant key), kind ("spr" | "lobby"),
                                                    # added, fresh, size, date, crc
     def add(self, paths: list[Path]) -> list[ModEntry]   # copies into the library; target from the file name's core
-    def remove(self, mod_id: str) -> None
+                                                         # (portrait "_spr", lobby "_home", "_home_gl", "_home_teen")
+    def remove(self, mod_id: str) -> None                # refused while a game folder shows it (see below)
     def rename(self, mod_id: str, label: str) -> None
     def mark_seen(self, mod_id: str) -> None
     def favorites(self) -> set[str]; def set_favorite(self, variant_key: str, on: bool) -> None
     def state(self, variant_key: str) -> VariantState    # game files, applied ("official" | "mod:<id>" |
                                                          # "variant:<key>" | "unknown"), crc ("ok" | "fixed" |
                                                          # "needs_fix"), backup available
-    def apply(self, variant_key: str, source: str, log, progress) -> ApplyResult    # source as in state.applied
-    def restore(self, variant_key: str, log) -> ApplyResult
+    def apply(self, variant_key: str, source: str, log, progress, kind="spr") -> ApplyResult
+                                                         # source as in state.applied; kind "spr" | "lobby"
+    def restore(self, variant_key: str, log, kind="spr") -> ApplyResult
+    def prune(self) -> list[Path]                        # kept originals deleted (see below)
     def update(self, mod_id: str, log, progress) -> UpdateResult   # rebuild against the current game file
     def extract(self, target: str, out_dir: Path, log) -> Path     # target "variant:<key>" or "mod:<id>"
     def compare(self, mod_id: str) -> CompareResult                # per-asset differences vs the game file
 ```
 
-Applying writes into the game folder. The first time a game file is replaced, its official copy is kept in the
-library (`originals/`), so restoring works even after several mods were applied (the classic GUI's single `.backup`
-is overwritten by the second install).
+**Switching** is what the detail screen's switch cards do (Switch Portrait, Switch Memorial Lobby): `apply` writes
+the chosen source into the variant's game files of that kind, so the game itself shows it. The sources: the official
+files (`official`, the same as `restore`), a mod (`mod:<id>`; one made for another variant of the family is adapted
+to this variant's files), or another variant's official files (`variant:<key>`, adapted). A mod replaces every part
+of its kind as a unit: parts it has no file for go back to official. The portrait and the lobby are switched apart.
+
+What a switch replaces is always kept:
+
+- **An official file** is copied to `originals/<file name>` the first time it is replaced (copied once, checked by
+  the CRC in its name, never from a modded file: `original_unavailable` then, and nothing is written). Restoring
+  copies it back, also after several mods (the classic GUI's single `.backup` is overwritten by the second
+  install). The copy is deleted once the game file is verified official again: byte for byte the kept copy and
+  official by its CRC, after a restore, after a mod that leaves that part official, or after the game's launcher
+  verified the files. Not while a file of that name in another game folder sharing the library is not official
+  (still modded, by the library or by another tool since). That file decides, not the library's record of it, which
+  is stale once the file changed or is gone from a folder still there (an install moved, a game update); only a file
+  whose folder cannot be seen at all (an unmounted drive) is judged by its record.
+- **A mod** stays in the library (`mods/<id>/`): switching away never touches it, and `remove` refuses one a game
+  folder still shows (a game file is unchanged since the library put it there), so switch first: `mod_in_use` in the
+  current game folder, else `mod_in_use_elsewhere` with that game folder (`folder`). Another game folder counts too:
+  removed, the mod would be left only in that folder's game files, lost to a check in its launcher or a game update.
+- **Another variant's files** are only read, and can be adapted again.
+- **A file changed outside the library** (another tool, the classic GUI, a manual copy; `applied` is `unknown`), or a
+  mod removed from the library while it was applied (before `remove` refused that), is added to the library as a
+  new mod (labelled with its core, marked new) before it is overwritten; a file already in the library is not stored
+  twice. Without an official copy to keep it is never overwritten (`original_unavailable`).
+
+Every write goes through `_commit`: resource path checks, the game not running, the files lockable, atomic
+replacement, and a rollback of every written part when one fails (the mods it had just kept are dropped again once
+every part is back). After every switch, whatever its outcome, and once per library in the web UI (a
+`library.prune` job), `prune` deletes the copies no longer needed: those whose game file is verified official again,
+and those a game update made useless. File names carry the date and CRC, so an update leaves the old copy without a
+game file; it is deleted when the library's own record places the old file in the current game folder and that
+folder now holds the same part (prefix and resource type) dated after it, verified official. A copy no record places,
+one another game folder still needs (as above), one with only an older file of its part (a downgrade, an old copy of
+the folder put back) or one whose new file is not official is kept.
+
+The 3D model has no switch: the library keeps no 3D mods. It would take a `model` kind (`character-<dev>-_mxload-*`
+prefab bundles, whose meshes, textures and clips sit in other bundles found by CAB), its detection in `add`, game
+files matched by bundle name rather than by core, a preview through `GameAssets.model_glb(overrides=...)`, and no
+variant swap (chibis do not share meshes and bones).
 
 ## Jobs and events
 
@@ -333,6 +374,9 @@ Events on `/api/events`:
 | `job.failed` | `{id, code, params}` |
 | `drop` | `{paths: [str]}` |
 | `library.changed`, `config.changed` | `{}` |
+
+Besides the front end's jobs, the web UI submits one of its own: `library.prune` once per library it builds (see
+library).
 
 ## RPC
 
@@ -354,8 +398,8 @@ Events on `/api/events`:
 | `favorites.set {variant, on}` | |
 | `aliases.set {family, aliases}` | the user's own aliases of a student as kept (`webui/state.py`: NFC, no control or format characters, whitespace runs one space, empty and repeated ones, ignoring case and width, dropped); `alias_too_long` past 24 characters, `alias_too_many` past 8, and nothing is kept then; an empty list forgets them |
 | `mods.add {paths}` / `mods.pick` | added entries (`mods.pick` opens the native file dialog) |
-| `mods.remove {id}`, `mods.rename {id, label}`, `mods.seen {id}` | |
-| `actions.apply {variant, source}` / `actions.restore {variant}` | job id |
+| `mods.remove {id}`, `mods.rename {id, label}`, `mods.seen {id}` | `mods.remove`: `mod_in_use` while the game shows the mod, `mod_in_use_elsewhere {folder}` while another game folder does |
+| `actions.apply {variant, source, kind}` / `actions.restore {variant, kind}` | job id; switches what the game shows, `kind` `spr` (default) or `lobby` (see library) |
 | `actions.update {mod}` / `actions.extract {target}` | job id |
 | `actions.compare {mod}` | per-asset differences |
 | `os.reveal {path}` | |
@@ -370,7 +414,7 @@ Events on `/api/events`:
 | `/asset/ui/textures.json`, `/asset/ui/texture/<name>.png` (also the PC pointer and the touch effect's textures, an index of their own outside the listing) | light |
 | `/asset/ui/layout/<root>.json?path=<subpath>` | light |
 | `/asset/art/bg/<name>`, `/asset/art/portrait/<name>.png` | heavy |
-| `/asset/spine/spr/<core>/<file>`, `/asset/spine/lobby/<core>/<file>`, `/asset/spine/mod/<id>/<file>` | heavy |
+| `/asset/spine/spr/<core>/<file>`, `/asset/spine/lobby/<core>/<file>`, `/asset/spine/mod/<id>/<file>` (`skeleton.skel` and `skeleton.atlas` stand for the skeleton named like the core, a mod's own core for a mod, else the only one) | heavy |
 | `/asset/spine/lobby/<core>/lobby.json` (prefab layout, touch boxes, clips, post-processing, particle effects; no skeleton is extracted) | heavy |
 | `/asset/spine/lobby/<core>/fx_<id>.png` (a particle texture the lobby's `fx.textures` lists) | heavy |
 | `/asset/model/<variant>.glb` (the variant's chibi, `model/gltf-binary`) | heavy |
@@ -475,9 +519,21 @@ does (`OnPressScreen`, `OnMoveSpine`, `PlayZoomInOut`, `co_ReturnToDefaultPositi
 
 ### Popups
 
-The detail screen's popups (switch portrait, the variant picker, compare, details, aliases) are drawn on the game's
-popup frame (UIPopup_Sort) and cover the whole stage with its dark backdrop, top bar and navigation included, like the
-display settings and the settings; a click on the backdrop or Escape closes them (PopupClose).
+The detail screen's popups (switch portrait, switch memorial lobby, the variant picker, compare, details, aliases) are
+drawn on the game's popup frame (UIPopup_Sort) and cover the whole stage with its dark backdrop, top bar and
+navigation included, like the display settings and the settings; a click on the backdrop or Escape closes them
+(PopupClose).
+
+- **Switch Portrait, Switch Memorial Lobby** (the switch card of the Portrait and Memorial Lobby tabs; the add button
+  beside it adds mods of either kind): what the game can show for that kind (`switch-sources.js`, tested in Node):
+  the variant's own files and its added portraits or lobbies; for the portrait also the other variants' own (those
+  with one of their own), then the other variants' added ones. Other variants' lobbies and their added ones are not
+  offered: another student's lobby under this variant's lobby prefab is untested in the game (the library itself
+  still takes `variant:<key>` and other variants' mods for the lobby). Cards are framed on the face of each skeleton
+  (a lobby's main skeleton, named like its core), "In Use" marks what the game shows now. Apply writes the choice
+  into the game files (`actions.apply` with the tab's kind), then the portrait or the lobby is read again from them,
+  under a still of the old one. Row 2's update and compare act on the mod the shown tab's files carry. The 3D tab's
+  card has nothing to switch to yet (library): no chevron, and a click opens nothing.
 
 - **Aliases** (the pencil after the name on the nameplate, the game's name edit icon `Cafe_Icon_NameEdit`): the
   user's own aliases of the student, which the roster search matches (several, at most 8 of up to 24 characters;
@@ -701,7 +757,9 @@ in `pointer-textures`); without a game the system cursor stays and there is no e
 
 ## Tests
 
-- `config`, `catalog` and `library` with fixtures and temporary folders.
+- `config`, `catalog` and `library` with fixtures and temporary folders (`library`: a fake game folder of
+  header-only bundles; its end-to-end checks copy a few real bundles into a temporary folder, never writing into the
+  install).
 - `gameassets` and end-to-end checks against a real install; skipped unless one is found (`BAMT_TEST_GAME_DIR`, or
   `game_paths.find_game_dirs`).
 - `webui` through its WSGI app, without a window.
