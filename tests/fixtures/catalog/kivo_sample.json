@@ -1,0 +1,258 @@
+{
+ "source": "Kivo student list (api.kivo.wiki/api/v1/data/students) as cached on 2026-10-17: name and page skin are the community wording, name_cn and skin_cn the CN server terms; remark is the Kivo spine remark",
+ "variants": {
+  "airi": {
+   "name": "栗村 爱莉",
+   "name_cn": "栗村 爱理",
+   "skin": "",
+   "skin_cn": "",
+   "remark": ""
+  },
+  "arona": {
+   "name": "阿罗娜",
+   "name_cn": "阿洛娜",
+   "skin": "",
+   "skin_cn": "",
+   "remark": ""
+  },
+  "aru_newyear": {
+   "name": "陆八魔 阿露",
+   "name_cn": "陆八魔 爱露",
+   "skin": "正月",
+   "skin_cn": "新年",
+   "remark": ""
+  },
+  "ch0066": {
+   "name": "春原 瞬",
+   "name_cn": "春原 瞬",
+   "skin": "幼女",
+   "skin_cn": "小",
+   "remark": ""
+  },
+  "ch0082": {
+   "name": "冰室 濑名",
+   "name_cn": "冰室 濑名",
+   "skin": "私服",
+   "skin_cn": "便服",
+   "remark": ""
+  },
+  "ch0101": {
+   "name": "美甘 妮禄",
+   "name_cn": "美甘 妮露",
+   "skin": "兔女郎",
+   "skin_cn": "邦妮",
+   "remark": ""
+  },
+  "ch0124": {
+   "name": "姬木 梅露",
+   "name_cn": "姬木 芽瑠",
+   "skin": "",
+   "skin_cn": "",
+   "remark": ""
+  },
+  "ch0135": {
+   "name": "朱城 留美",
+   "name_cn": "朱城 瑠海",
+   "skin": "",
+   "skin_cn": "",
+   "remark": ""
+  },
+  "ch0170": {
+   "name": "尾刃 叶渚",
+   "name_cn": "尾刃 康娜",
+   "skin": "",
+   "skin_cn": "",
+   "remark": ""
+  },
+  "ch0174": {
+   "name": "天神山 音葵",
+   "name_cn": "御伽",
+   "skin": "",
+   "skin_cn": "",
+   "remark": ""
+  },
+  "ch0177": {
+   "name": "爱清 枫香",
+   "name_cn": "爱清 风香",
+   "skin": "正月",
+   "skin_cn": "新年",
+   "remark": ""
+  },
+  "ch0194": {
+   "name": "鹫见 芹娜",
+   "name_cn": "鹫见 芹娜",
+   "skin": "圣诞节",
+   "skin_cn": "圣诞",
+   "remark": ""
+  },
+  "ch0258": {
+   "name": "小鸟游 星野",
+   "name_cn": "小鸟游 星野",
+   "skin": "临战",
+   "skin_cn": "武装",
+   "remark": ""
+  },
+  "ch0335": {
+   "name": "天童 凯伊",
+   "name_cn": "天童 柯伊",
+   "skin": "",
+   "skin_cn": "",
+   "remark": ""
+  },
+  "ch9998": {
+   "name": "御坂 美琴",
+   "name_cn": "御坂 美琴",
+   "skin": "",
+   "skin_cn": "",
+   "remark": ""
+  },
+  "ch9999": {
+   "name": "初音未来",
+   "name_cn": "初音 未来",
+   "skin": "",
+   "skin_cn": "",
+   "remark": ""
+  },
+  "erika": {
+   "name": "旗见 绘里香",
+   "name_cn": "旗见 绘梨香",
+   "skin": "",
+   "skin_cn": "",
+   "remark": ""
+  },
+  "haruka": {
+   "name": "伊草 遥香",
+   "name_cn": "伊草 春香",
+   "skin": "",
+   "skin_cn": "",
+   "remark": ""
+  },
+  "kirara": {
+   "name": "夜樱 绮良",
+   "name_cn": "夜樱 绮罗罗",
+   "skin": "",
+   "skin_cn": "",
+   "remark": ""
+  },
+  "kotori": {
+   "name": "丰见 小鸟",
+   "name_cn": "丰见 琴里",
+   "skin": "",
+   "skin_cn": "",
+   "remark": ""
+  },
+  "marina": {
+   "name": "池仓 玛丽娜",
+   "name_cn": "池仓 真里奈",
+   "skin": "",
+   "skin_cn": "",
+   "remark": ""
+  },
+  "mimori": {
+   "name": "水羽 弥守",
+   "name_cn": "水羽 三森",
+   "skin": "",
+   "skin_cn": "",
+   "remark": ""
+  },
+  "momoi": {
+   "name": "才羽 桃井",
+   "name_cn": "才羽 桃",
+   "skin": "",
+   "skin_cn": "",
+   "remark": ""
+  },
+  "momoka": {
+   "name": "由良木 桃香",
+   "name_cn": "由良木 桃可",
+   "skin": "",
+   "skin_cn": "",
+   "remark": ""
+  },
+  "np0045": {
+   "name": "小鸟游 星野",
+   "name_cn": "小鸟游 星野",
+   "skin": "",
+   "skin_cn": "",
+   "remark": "运动服"
+  },
+  "np0177": {
+   "name": "朝雾 周防",
+   "name_cn": "朝雾 周防",
+   "skin": "",
+   "skin_cn": "",
+   "remark": "临战"
+  },
+  "pmcdirector": {
+   "name": "凯撒PMC 理事",
+   "name_cn": "凯撒PMC 董事",
+   "skin": "",
+   "skin_cn": "",
+   "remark": ""
+  },
+  "shinon": {
+   "name": "川流 诗乃",
+   "name_cn": "川流 诗音",
+   "skin": "",
+   "skin_cn": "",
+   "remark": ""
+  },
+  "shiroko_ridingsuit": {
+   "name": "砂狼 白子",
+   "name_cn": "砂狼 白子",
+   "skin": "骑行服",
+   "skin_cn": "骑行",
+   "remark": ""
+  },
+  "tomoe": {
+   "name": "佐城 智惠",
+   "name_cn": "佐城 巴",
+   "skin": "",
+   "skin_cn": "",
+   "remark": ""
+  }
+ },
+ "playables": [
+  {
+   "row": {
+    "name_kivo": "陆八魔 阿露",
+    "skin_kivo": "正月"
+   },
+   "student": {
+    "Name": "Aru (New Year)",
+    "PersonalName": "Aru"
+   },
+   "expected": "阿露（正月）"
+  },
+  {
+   "row": {
+    "name_kivo": "御坂 美琴"
+   },
+   "student": {
+    "Name": "Misaka Mikoto",
+    "PersonalName": "Mikoto"
+   },
+   "expected": "御坂美琴"
+  },
+  {
+   "row": {
+    "name_kivo": "初音未来"
+   },
+   "student": {
+    "Name": "Hatsune Miku",
+    "PersonalName": "Miku"
+   },
+   "expected": "初音未来"
+  },
+  {
+   "row": {
+    "name_kivo": "砂狼 白子*恐怖"
+   },
+   "student": {
+    "Name": "Shiroko*Terror",
+    "PersonalName": "Shiroko"
+   },
+   "expected": "白子＊恐怖"
+  }
+ ]
+}

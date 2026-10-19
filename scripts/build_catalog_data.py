@@ -3,8 +3,14 @@
 Optional prototype names, wiki proposals and variant metadata override derived
 values. Variant words and base names that the character map leaves untranslated
 come from the curated glossary and name table in catalog/data/naming.json, and
-name_sources says whether that wording is official or translated. No game assets
-are extracted or written by this command.
+name_sources says whether that wording is official or translated.
+
+Simplified Chinese follows Kivo's community wording for base names and costume
+words: it is read from the character map's Kivo columns (name_kivo, skin_kivo, the
+Kivo student list's name and page skin), for playable students too, and curated
+zh-CN names are not applied over it. No game assets are extracted or written by
+this command. With the build arguments (all but --out) in BAMT_CATALOG_ARGS, the
+tests check that a rebuild reproduces the shipped catalog.
 """
 
 from __future__ import annotations
@@ -22,7 +28,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from ba_modding_toolkit.catalog._data import base_rank, csv_entry, read_character_map
 from ba_modding_toolkit.catalog._names import (
-    LANGUAGES, NAMING, clean, compose, csv_bases, csv_names, csv_sources, given_name, short_name,
+    LANGUAGES, NAMING, clean, compose, csv_bases, csv_names, csv_sources, given_name, short_name, usable,
 )
 
 logger = logging.getLogger(__name__)
@@ -73,6 +79,23 @@ def match_student(row: dict, students: dict[str, dict]) -> list[dict]:
     return sorted(matches, key=lambda student: (student.get("DefaultOrder", student["Id"]), student["Id"]))
 
 
+def kivo(row: dict | None) -> bool:
+    """Whether a character map row carries Kivo's name, which zh-CN then follows."""
+    return bool(row) and usable(row.get("name_kivo", ""))
+
+
+def kivo_name(row: dict, student: dict) -> str:
+    """Return a playable variant's zh-CN name in Kivo's wording and the game's name pattern.
+
+    The game names a student by the given name, or by the full name for collaboration
+    students (Misaka Mikoto): Kivo's given or full name follows that, with Kivo's skin
+    word in brackets. A Terror form keeps its suffix, which Kivo writes in the name.
+    """
+    bare = re.sub(r"\s*\(.*\)$|\*.*$", "", student["Name"])
+    name = row["name_kivo"].replace(" ", "") if bare != student.get("PersonalName") else csv_bases(row)["zh-CN"]
+    return compose(clean(name, "zh-CN"), [row.get("skin_kivo", "")], "zh-CN")["full"]
+
+
 def portrait_name(entry: dict, student: dict) -> str:
     """Resolve collection texture names, including legacy and shared-form names."""
     key = entry["file_id"].lower()
@@ -120,7 +143,7 @@ def build_catalog(csv_path: Path, schaledb: Path, names_path: Path | None = None
         for lang in LANGUAGES:
             source = localized[lang].get(str(student["Id"]))
             if source and source.get("Name"):
-                full = clean(source["Name"], lang)
+                full = kivo_name(row, student) if lang == "zh-CN" and kivo(row) else clean(source["Name"], lang)
                 entry["names"][lang] = {"full": full, "short": short_name(full, lang)}
                 released = source.get("IsReleased", [])
                 entry["name_sources"][lang] = "derived"
@@ -180,11 +203,13 @@ def build_catalog(csv_path: Path, schaledb: Path, names_path: Path | None = None
         base_entry = entries[base_key]
         schale_base = matches.get(base_key)
         bases = csv_bases(row_map.get(base_key, {"file_id": base_key}))
+        # zh-CN keeps Kivo's given name over SchaleDB's and the curated one
+        own = [lang for lang in LANGUAGES if lang != "zh-CN" or not kivo(row_map.get(base_key))]
         if schale_base:
-            for lang in LANGUAGES:
+            for lang in own:
                 source = localized[lang].get(str(schale_base["Id"]), {})
                 bases[lang] = clean(source.get("PersonalName") or bases[lang], lang)
-        bases.update(override.get("names") or {})
+        bases.update({lang: name for lang, name in (override.get("names") or {}).items() if lang in own})
         school = override.get("school") or school_ids.get(row_map.get(base_key, {}).get("school_id")) or base_entry["school"]
         students[sid] = {"base": base_key, "names": bases, "school": school}
         pages = {entries[key].get("page_id"): entries[key] for key in keys if entries[key]["playable"]}
@@ -234,6 +259,8 @@ def build_catalog(csv_path: Path, schaledb: Path, names_path: Path | None = None
         entry = entries[key]
         entry["research_key"] = research_key
         for lang, value in values.items():
+            if lang == "zh-CN" and kivo(row_map.get(key)):
+                continue  # Kivo's wording, derived above
             entry["names"][lang] = {field: clean(value[field], lang) for field in ("full", "short")}
             entry["name_sources"][lang] = "curated"
     for research_key, value in wiki.items():
@@ -242,6 +269,8 @@ def build_catalog(csv_path: Path, schaledb: Path, names_path: Path | None = None
             conflicts.append({"type": "unresolved_wiki_name", "key": research_key})
             continue
         for lang, full in value.get("proposed", {}).items():
+            if lang == "zh-CN" and kivo(row_map.get(key)):
+                continue
             entries[key]["names"][lang] = {"full": clean(full, lang),
                                            "short": clean(value["proposedShort"][lang], lang)}
             entries[key]["name_sources"][lang] = "curated"

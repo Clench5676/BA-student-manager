@@ -127,6 +127,16 @@ function toggle(group, value) {
   render();
 }
 
+// the list header's decoration (BG_Tag/DecoTex_Normal, pivot top left at the header's right end) runs on past the
+// popup; the game's panel clips it at the popup's frame, so only the part over the frame's right margin shows
+function clipToFrame(view, frame) {
+  const deco = view.nodes.get("Center/Popup/Filter/BG_Tag/DecoTex_Normal")?.els[0];
+  if (!deco || !frame) return;
+  const [l, , w] = NGUI.rect(deco), [fl, , fw] = NGUI.rect(frame);
+  const over = l + w - (fl + fw);
+  if (over > 0) deco.style.clipPath = `inset(0 ${over.toFixed(2)}px 0 0)`;
+}
+
 const stagePx = ([x, y]) => [960 + x * S, 540 - y * S];
 function hitAt(host, [x, y], [w, h], fn, title) {
   const [l, t] = stagePx([x - w / 2, y + h / 2]);
@@ -142,6 +152,7 @@ async function render() {
   if (back) { back.style.pointerEvents = "auto"; back.addEventListener("click", () => finish(null)); }
   const body = view.nodes.get("Center/Popup/Base/BG")?.els[0];
   if (body) body.style.pointerEvents = "auto";
+  clipToFrame(view, body);
   hitAt(next, [1323, 639], [120, 120], () => finish(null), T("display.close"));
   [["filter", 474.5], ["sort", 337.7]].forEach(([id, y]) => {
     if (id !== tab) hitAt(next, [-1143, y], [420, 136], () => { tab = id; scroll = 0; render(); }, T(`display.tab.${id}`));
