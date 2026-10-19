@@ -134,7 +134,11 @@ The light is the formation screen's, read from the game rather than fitted to re
   hue and brightness apart, data.x = 0.85 max + 0.15 (`characterLight`). UIFormation's light is white, intensity 1:
   tone 1, data (1, 1).
 - *Direction.* `_MxCharLightDir` comes from the topmost `CharacterLight`; on the formation screen that is GameMain's
-  CharacterLightFallback, from straight above.
+  CharacterLightFallback, from above, 6 degrees toward the screen's right and away from the camera. Light directions
+  are world space in the game (`_MxCharLightDir`, MX/C-Weapon's `_FakeLightDir`), and the formation screen turns every
+  character 180 degrees to face the camera (its slot's rotation, an axis 0.4 degrees off the vertical): `slotSpace`
+  takes them into the character's space, so the light falls from the side it does in the game (weapons are lit from
+  the screen's right).
 - *Ambient.* Layer4, Single, Hair, Face and Weapon add the ambient probe (`unity_SH*`), evaluated per vertex at the
   world normal, clamped at 0 and scaled to a channel sum of at most 0.3. Outside battle the active scene is EmptyScene
   (`Persistent.GameStart` loads it alone; only battles, minigames and Undercover set another scene active), Trilight

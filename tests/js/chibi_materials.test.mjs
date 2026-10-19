@@ -8,8 +8,8 @@ const THREE_URL = new URL("../../src/ba_modding_toolkit/web/vendor/three-0.160.0
 register(`data:text/javascript,${encodeURIComponent(`export async function resolve(spec, ctx, next) {
   return spec === "three" ? { url: ${JSON.stringify(THREE_URL)}, shortCircuit: true } : next(spec, ctx); }`)}`);
 const THREE = await import("three");
-const { AMBIENT, EMPTY_SCENE_AMBIENT, ambientAt, characterLight, chibiMaterial, trilightProbe } =
-  await import("../../src/ba_modding_toolkit/web/js/chibi-materials.js");
+const { AMBIENT, CHARACTER_LIGHT_DIR, EMPTY_SCENE_AMBIENT, LIGHT, ambientAt, characterLight, chibiMaterial,
+  slotSpace, trilightProbe } = await import("../../src/ba_modding_toolkit/web/js/chibi-materials.js");
 
 const near = (a, b, eps = 1e-4) => assert.ok(Math.abs(a - b) <= eps, `${a} != ${b}`);
 const linear = (c) => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
@@ -143,3 +143,20 @@ test("the lit shaders add the ambient probe, the unlit ones do not", () => {
     assert.ok(!("AMBIENT_SH" in material.defines), kind);
   }
 });
+
+test("the formation screen's light falls on the character from its slot's side", () => {
+  // UIFormation's slots turn the character 180 degrees about an axis 0.415 degrees off the vertical: a world
+  // direction comes into the character's space with x and z flipped (and a slight lean), then mirrored to glTF
+  const w = slotSpace([0.1, 0.65, 0]);
+  [0.0905737, 0.6513804, 0].forEach((v, i) => near(w.getComponent(i), v));
+  // the character light (CharacterLightFallback, from above, a little toward the screen's right and away from the
+  // camera): in the character's glTF space toward +x (its left, the screen's right) and -z (behind it)
+  assert.deepEqual(CHARACTER_LIGHT_DIR, [0.10158, 0.9941, 0.03812]);
+  const l = LIGHT.charLightDir.value;
+  [0.087169, 0.995464, -0.03812].forEach((v, i) => near(l.getComponent(i), v));
+  // the weapons' fixed light (_FakeLightDir, world space, not normalised) likewise
+  const weapon = chibiMaterial({ shader: "MX/C-Weapon", kind: "weapon", vectors: ["_FakeLightDir"],
+    colors: { _FakeLightDir: [0.1, 0.65, 0, 0] } }, {});
+  [0.0905737, 0.6513804, 0].forEach((v, i) => near(weapon.material.uniforms.fakeLightDir.value.getComponent(i), v));
+});
+

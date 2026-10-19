@@ -15,8 +15,8 @@
 // The game runs in linear colour space: colour textures are decoded from sRGB, masks are not, Color properties are
 // converted to linear, and HDR Color properties (most of the character shaders' tints) and Vector properties are used
 // as stored. The light is the formation screen's (see LIGHT and AMBIENT below): the character light's direction from
-// straight above, its colour from the screen's white directional light, and the ambient probe of the scene the
-// screen runs in.
+// above, taken into the space of the character's slot, its colour from the screen's white directional light, and the
+// ambient probe of the scene the screen runs in.
 import * as THREE from "three";
 
 // glTF space mirrors Unity's x axis
@@ -37,12 +37,23 @@ export function characterLight(rgb) {
     data: [hi * 0.85 + 0.15, (hi + lo) / 2] };
 }
 
+// The formation screen turns every character to face its camera: UIFormation's slots (UnitPositions/Position1-4)
+// are rotated 180 degrees about an axis 0.4 degrees off the vertical. The game's light directions are world space;
+// the viewer shows the character in its own space, so they are taken into the slot's space (the inverse rotation),
+// then into glTF's (Unity's x mirrored). The light then falls on the character from the side it does in the game.
+export const FORMATION_SLOT = [0.007243064697831869, 0.9999737739562988, -3.166044e-10, -4.371024e-8];
+export function slotSpace(v, q = FORMATION_SLOT) {
+  const r = new THREE.Vector3(v[0], v[1], v[2]).applyQuaternion(new THREE.Quaternion(...q).normalize().invert());
+  return mirror([r.x, r.y, r.z]);
+}
+
 // The formation screen's light: UIFormation's directional light (white, intensity 1) is the main light; the
-// direction (_MxCharLightDir) is the top CharacterLight's, here GameMain's CharacterLightFallback, from straight above
-// (glTF world space: toward the light).
+// direction (_MxCharLightDir) is the top CharacterLight's, here GameMain's CharacterLightFallback, from above
+// (Unity world space, toward the light: a little toward the screen's right and away from the camera).
+export const CHARACTER_LIGHT_DIR = [0.10158, 0.9941, 0.03812];
 const FORMATION = characterLight([1, 1, 1]);
 export const LIGHT = {
-  charLightDir: { value: new THREE.Vector3(-0.10158, 0.9941, 0.03812).normalize() },
+  charLightDir: { value: slotSpace(CHARACTER_LIGHT_DIR).normalize() },
   charLightTone: { value: new THREE.Vector3(...FORMATION.tone) },
   charShadowTone: { value: new THREE.Vector3(...FORMATION.shadowTone) },
   charLightData: { value: new THREE.Vector2(...FORMATION.data) },
@@ -629,7 +640,8 @@ export function chibiMaterial(ex, textures, mouth) {
     // ProjectMX/WeaponTest1Damage names its slots in lower camel case
     uniforms.mainMap.value = map || textures._mainTex || defaultTexture("white");
     uniforms.maskMap.value = textures._SourceTex || textures._sourceTex || defaultTexture("white");
-    uniforms.fakeLightDir = { value: mirror(ex.colors?._FakeLightDir || [0.1, 0.65, 0]) };
+    // world space (not normalised) in the game: on the formation screen, a light from the screen's right
+    uniforms.fakeLightDir = { value: slotSpace(ex.colors?._FakeLightDir || [0.1, 0.65, 0]) };
     uniforms.weapon = { value: new THREE.Vector4(floatOf(ex, "_ShadowThreshold", 0.5), floatOf(ex, "_ShadowStrong", 10),
       floatOf(ex, "_LightValue", 0.5), floatOf(ex, "_LightStrong", 10)) };
     const s = colorOf(ex, "_SpecColor", [1, 1, 1, 1]);
