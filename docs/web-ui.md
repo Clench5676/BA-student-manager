@@ -309,7 +309,18 @@ class Catalog:
     def family(self, key: str) -> Family
     def variant(self, key: str) -> Variant
     def variant_for_core(self, core: str) -> Variant | None    # "ch0241_spr" or "ch0241_home" -> Variant
+    def core_map(self, spr_cores, lobby_cores) -> CoreMap       # any install's cores -> variant keys
+    def reload(self) -> None                                    # parse the data again, rebuild the snapshot
 ```
+
+`core_map` runs the roster's own core rules on another install's core names, so the library keys a core the same way
+in every game folder: a portrait core's key is the core less `_spr`; a lobby core belongs to the installed variant
+whose key or core alias plus `_home`, `_home_gl` or `_home_teen` names it, a direct file-id match first; a lobby core
+whose variant has no portrait in that install takes the variant the data names for it the same way, else the core less
+its suffix. `CoreMap` also gives each key's portrait core and primary lobby core there, and the shipped names of the
+keys the data has (the cards of a core the current catalog does not map). The shipped data and the character map are
+parsed once and kept; every build and every map works on a copy, so one install's unknown portrait keys never enter
+another's, and `reload()` parses both again, keeping the old parse and snapshot when the data is invalid.
 
 Sources: the character map CSV the app already downloads (`BA-Characters-Internal-ID.csv`, one row per file id, with
 student id, names and skins in several languages), the curated data file shipped in the package (names,
@@ -352,25 +363,40 @@ of their family.
 
 ```python
 class ModLibrary:
-    def __init__(self, root: Path, catalog: Catalog, game: GameAssets, settings: Settings): ...
+    def __init__(self, root: Path, catalog: Catalog, game: GameAssets | None, settings: Settings, *,
+                 scan_allowed: Callable[[], bool] = lambda: False, data_id: str = "local"): ...
     def mods(self) -> list[ModEntry]               # id, file, label, target (variant key), kind ("spr" | "lobby"),
-                                                   # added, fresh, size, date, crc
+                                                   # added, fresh, size, date, crc, core (lower case)
     def add(self, paths: list[Path]) -> list[ModEntry]   # copies into the library; target from the file name's core
                                                          # (portrait "_spr", lobby "_home", "_home_gl", "_home_teen")
-    def remove(self, mod_id: str) -> None                # refused while a game folder shows it (see below)
+    def remove(self, mod_id: str, confirm=False) -> None # refused while a game folder shows it (see below)
     def rename(self, mod_id: str, label: str) -> None
     def mark_seen(self, mod_id: str) -> None
     def favorites(self) -> set[str]; def set_favorite(self, variant_key: str, on: bool) -> None
-    def state(self, variant_key: str) -> VariantState    # game files, applied ("official" | "mod:<id>" |
-                                                         # "variant:<key>" | "unknown"), crc ("ok" | "fixed" |
-                                                         # "needs_fix"), backup available
-    def apply(self, variant_key: str, source: str, log, progress, kind="spr") -> ApplyResult
-                                                         # source as in state.applied; kind "spr" | "lobby"
-    def restore(self, variant_key: str, log, kind="spr") -> ApplyResult
+    def state(self, variant_key: str, pin=None) -> VariantState   # game files, applied ("official" | "mod:<id>" |
+                                                         # "variant:<key>" | "removed" | "unknown"), crc ("ok" |
+                                                         # "fixed" | "needs_fix"), copy, restorable, official
+    def configured(self, variant_key: str, pin=None) -> {"spr": source | None, "lobby": source | None}
+    def modified(self, pin=None) -> dict[str, str]       # the roster's Replaced flags (portraits)
+    def apply(self, variant_key, source, log, progress, kind="spr", pin=None) -> ApplyResult   # also deferred
+    def restore(self, variant_key, log, kind="spr", pin=None) -> ApplyResult
+    def would_write(self, variant_key, source, kind="spr", pin=None) -> bool   # for the classic window's rule
+    def preview_bundles(self, mod_id: str, pin=None) -> list[Path]
     def prune(self) -> list[Path]                        # kept originals deleted (see below)
     def update(self, mod_id: str, log, progress) -> UpdateResult   # rebuild against the current game file
     def extract(self, target: str, out_dir: Path, log) -> Path     # target "variant:<key>" or "mod:<id>"
     def compare(self, mod_id: str) -> CompareResult                # per-asset differences vs the game file
+    # the Enable Mods switch and mods already in use, over every known game folder
+    def installs(self) -> list[Pin]; def current_pin(self) -> Pin | None
+    def toggle(self, enabled, expect, pins=None, log, progress, cancel) -> ToggleResult   # also Retry
+    def restore_drift(self, entries, pins=None, log, progress, cancel) -> ToggleResult    # Apply Mod Configuration
+    def scan(self, pins=None, cancel=None, include_dismissed=False) -> ScanResult         # needs the scan consent
+    def entries(self, pins=None, include_dismissed=False) -> list[EntryState]
+    def adopt(self, entries, pins=None, log, progress, cancel) -> AdoptResult             # Add to Library
+    def dismiss(self, kind: "drift" | "untracked", entries) -> None                        # Keep as Is, Don't Ask Again
+    def forget(self, install: str) -> None                                                 # Remove from List
+    def clear_built(self) -> int                                                           # Clear Built Mods
+    def judge_unfinished(self) -> int; def intent(self) -> dict; def status(self) -> dict
 ```
 
 **Switching** is what the detail screen's switch cards do (Switch Portrait, Switch Memorial Lobby): `apply` writes
@@ -378,37 +404,127 @@ the chosen source into the variant's game files of that kind, so the game itself
 files (`official`, the same as `restore`), a mod (`mod:<id>`; one made for another variant of the family is adapted
 to this variant's files), or another variant's official files (`variant:<key>`, adapted). A mod replaces every part
 of its kind as a unit: parts it has no file for go back to official. The portrait and the lobby are switched apart.
+A mod is installed directly when its core is the target's core; a lobby mod belongs to one lobby core. The variant a
+mod belongs to is the one the current catalog gives its core, else the target stored when it was added.
+
+**Game folders.** Every call that reads or writes game files works on a `Pin` (an install key, its resource folders
+and its server), taken from the settings at the call, or given by the caller (the web UI's jobs pin what they saw at
+submit and are refused with `folder_changed` when the folders changed meanwhile). An install key is the install root
+of the setting (a setting naming a resource folder maps to the folder above it). The known installs, the ones the
+switch covers, are the Global and Japan folders the settings name, whatever the file source (ADB mode included),
+then every install with a configuration record whose folder exists. Without a current install (ADB mode, the folder
+missing) the switch still works over the others.
 
 What a switch replaces is always kept:
 
-- **An official file** is copied to `originals/<file name>` the first time it is replaced (copied once, checked by
-  the CRC in its name, never from a modded file: `original_unavailable` then, and nothing is written). Restoring
-  copies it back, also after several mods (the classic GUI's single `.backup` is overwritten by the second
-  install). The copy is deleted once the game file is verified official again: byte for byte the kept copy and
-  official by its CRC, after a restore, after a mod that leaves that part official, or after the game's launcher
-  verified the files. Not while a file of that name in another game folder sharing the library is not official
-  (still modded, by the library or by another tool since). That file decides, not the library's record of it, which
-  is stale once the file changed or is gone from a folder still there (an install moved, a game update); only a file
-  whose folder cannot be seen at all (an unmounted drive) is judged by its record.
-- **A mod** stays in the library (`mods/<id>/`): switching away never touches it, and `remove` refuses one a game
-  folder still shows (a game file is unchanged since the library put it there), so switch first: `mod_in_use` in the
-  current game folder, else `mod_in_use_elsewhere` with that game folder (`folder`). Another game folder counts too:
-  removed, the mod would be left only in that folder's game files, lost to a check in its launcher or a game update.
+- **An official file** is copied to `originals/<file name>` the first time it is replaced. The official copy is, in
+  this order: the original already kept, the game file itself, its `.backup` beside it (the classic GUI's, judged by
+  its name without `.backup`; the library never writes or deletes `.backup` files), or a file of its name in another
+  game folder; at write time each is checked by the CRC32 of its whole content against the CRC in its name, so a
+  modded file is never kept (`original_unavailable` then, and nothing is written). Restoring copies it back.
+- **A mod** stays in the library (`mods/<id>/`). While mods are on, `remove` refuses one a game folder still shows
+  (unchanged since the library put it there): `mod_in_use` in the current game folder, else `mod_in_use_elsewhere`
+  with that folder; in a folder the switch does not cover, in any state. While mods are off removing is allowed: every
+  configuration naming it is dropped, and when a game file still carries it with no official copy anywhere,
+  `mod_last_copy` asks first (`confirm`); the records of those files are marked removed, so nothing adopts them again
+  and the next Off reverts them.
 - **Another variant's files** are only read, and can be adapted again.
-- **A file changed outside the library** (another tool, the classic GUI, a manual copy; `applied` is `unknown`), or a
-  mod removed from the library while it was applied (before `remove` refused that), is added to the library as a
-  new mod (labelled with its core, marked new) before it is overwritten; a file already in the library is not stored
-  twice. Without an official copy to keep it is never overwritten (`original_unavailable`).
+- **A file changed outside the library** (another tool, the classic GUI, a manual copy), or the bytes of a source the
+  library no longer has, is added to the library as a new mod of its core before it is overwritten; a part set
+  already in the library is not stored twice. Each file a write reaches is judged in full here (its SHA-1 against the
+  library's record, then its CRC32), so a mod another tool installed without the CRC fix is kept too.
 
-Every write goes through `_commit`: resource path checks, the game not running, the files lockable, atomic
-replacement, and a rollback of every written part when one fails (the mods it had just kept are dropped again once
-every part is back). After every switch, whatever its outcome, and once per library in the web UI (a
-`library.prune` job), `prune` deletes the copies no longer needed: those whose game file is verified official again,
-and those a game update made useless. File names carry the date and CRC, so an update leaves the old copy without a
-game file; it is deleted when the library's own record places the old file in the current game folder and that
-folder now holds the same part (prefix and resource type) dated after it, verified official. A copy no record places,
-one another game folder still needs (as above), one with only an older file of its part (a downgrade, an old copy of
-the folder put back) or one whose new file is not official is kept.
+Every write goes through `_commit`: resource path checks, the game not running and Steam not updating or verifying
+the install, the files lockable, atomic replacement, and a rollback of every written part when one fails (the mods it
+had just kept are dropped again once every part is back, and the originals it had just kept from the game files are
+released). The records of `state.json` say for each file what was written there: the source, its SHA-1, size and
+date, whether the bytes are official (`official`, compared with the official copy), the write time (`at`), the last 8
+bytes when there are trailing bytes (`tail`) and the CRC state (`crc`). Older builds keep these keys in records they
+do not rewrite.
+
+**Kept originals and the prune.** After every switch, at the end of every bulk job, and once per library in the web
+UI (a `library.prune` job), `prune` decides about every kept original from names, file stats and records only, over
+every known install; it reads no game file's contents. An original stays:
+
+- while a configured entry may write non-official bytes over its file (so turning mods off and on copies nothing);
+- while any known install holds a file of its name that is not unchanged since the library wrote official bytes there.
+  An official file the library did not write (verified in Steam or by the game, restored by another tool) keeps it
+  until the library next writes or records official bytes there: a restore that finds the file official writes
+  nothing, records it and releases the original. A file of its name the library never wrote keeps it too: it may be
+  another tool's mod with this original as its only official copy;
+- while a file of its name the library wrote to elsewhere may need it, judged by stat; a folder that cannot be seen
+  (an unmounted drive) is judged by its record.
+
+Once its name is gone from every known install, a game update superseded it when each of its records' folders holds
+a later-dated file of the same part (prefix and resource type): it is deleted. An original no record places, or one
+with only an older file of its part (a downgrade), stays. The records of superseded files are dropped once no
+original of their name is kept, leaving the entry's `updated` marker when the library had written non-official bytes
+there. When unsure, an original stays: the cost is disk space, counted in the switch's help ("Official copies for
+Off").
+
+**Configuration (`profiles.json`).** Older builds rewrite `state.json` with their own keys only, so the configuration
+lives beside it in a file of its own: the Enable Mods switch (`enabled`, one intent for every known install; missing
+means on), its last change (`toggled`), the entries not switched yet (`unfinished`, each `pending`, `left` or
+`stuck`), and per install key its server, the data directories naming it or hiding it (`named_by`, `hidden`), the
+configured source per core (`configured`), the `updated` markers, the built copies (`built`) and the dismissed prompts
+(`dismissed`, files by name, size and date). The user's switch popup sets and drops configured sources; the switch
+never changes them. Every change is applied to the file as it is, under `profiles.json.lock`, unknown keys kept, the
+last good file kept as `profiles.json.prev` (read instead of an unreadable file, which is kept as
+`profiles.json.bad`); with neither readable the switch is unavailable (`profiles_unreadable`) and nothing is written.
+At each build the library finds each named install's record: its own, a moved install's (the one record of that
+server whose folder is gone while its parent exists; its files' records follow by size and date, or with scan consent
+by size and last bytes), else one migrated from what the library already wrote there, so existing users keep their
+mods through the first Off.
+
+**Entries.** One game core of a variant in one install (a portrait, or one memorial lobby core: `_home`, `_home_gl`
+and `_home_teen` are entries of their own), keyed by the variant key `Catalog.core_map` gives the core in its own
+install. What its files carry comes from their non-official parts only (`tests/data/source_rule_cases.json`, shared
+with the detail screen). Its state, first match wins: `damaged` (a header that cannot be read), `missing` (configured,
+no files), `untracked` / `changed` (files the library did not write, without / with a configuration), `source_missing`
+(a configured source gone from the library: listed once, then dropped), a take-over (a newer library write than the
+configuration, written by another instance: configured with it), `updated` / `reset` (mods on, a configured entry a
+game update renamed or a Steam check or repair put back, in whole or in part), `ok`, else `pending`.
+
+**The Enable Mods switch** (`toggle`). An Off adopts the mods it finds first (Add to Library: one mod per entry of its
+non-official parts, every part recorded, the entry configured with it), keeps the built copies, then switches every
+entry carrying a library source to official. An On switches every configured entry that does not carry its source
+back to it. The intent and the entries to reach are saved first, so a crash leaves them listed (the red dot and
+Retry, without a scan). Each entry is judged again when it is reached, with its configuration read again: a part the
+library can show unchanged by size and date (or the last bytes of a CRC-fixed file) carries its record's source, and
+every other part is read in full there. An outside change is adopted by an Off and never overwritten by an On.
+Refusals before anything is written: `folder_changed`, `state_changed` (another place switched first), the game
+running, Steam busy, and `not_enough_space` (what an Off copies, with 512 MiB to spare); a running game, Steam busy or
+changed folders stop a job midway, the rest stays listed. Overwritten entries (no official copy anywhere) are left as
+they are (`stuck`); the app never repairs game files, it names the repair to run.
+
+**Built copies.** Before an Off reverts an entry that carries its configured source, the library keeps the exact
+bytes it wrote there, whole: a file of the mod in `mods/<id>/` when one holds them (every adopted part, every direct
+install without a CRC fix), else a copy in `library/built/<sha1>.bundle`. On, Retry and Apply Mod Configuration write
+them back with one copy per part (no installer, no UnityPy), byte for byte, while they fit: built for that source,
+every part's name and every file name the build read (an adapted mod's official parts, another variant's files) still
+in the install. A game update, a changed or dropped configuration, a mod's update or removal, a Forget and Clear
+Built Mods drop them; a built file goes once no install's key references it. Built copies and kept originals hold
+game portraits and lobbies inside the library: restore copies of what the user's own switch wrote, never read to draw
+the UI, and their disk use can grow large (the switch's help shows both sizes; only built copies can be cleared).
+
+**What reads game files.** The scan consent (`scan_allowed`, asked at each use) covers every read the app makes on
+its own of files the library did not write: the scan (the start and the end of each portrait and memorial lobby file;
+headers and the last bytes of recorded files, never a whole file), an Off's own pass, the roster's Replaced mark for
+mods outside the library, and a moved install's re-keying by last bytes. Without it `scan` refuses with `scan_off`, an
+Off reverts what the library wrote or configured and adopts the changed files it meets on the way (other mods are not
+checked), and the roster's Replaced mark shows only what the library wrote. Needing no consent: names and stats, the
+library's own writes and folders, the files a switch or the user's own action reaches (read in full), and the
+family the detail screen shows, judged cheaply (size, date, header; Needs Fix only from the record of the switch that
+wrote the file, so it survives a restart). Nothing hashes a game file outside switching.
+
+**Several instances and data directories.** Two instances sharing a library merge `state.json` on every save (each
+one's records added, changed or removed, game file records written or dropped, favourites toggled) and read the
+other's writes before judging. An alpha.3 instance still rewrites the whole file: its save replaces what an alpha.4
+instance wrote since the alpha.3 one read it, and the records it writes itself lose the newer keys (they then count as
+an older build's, which the library handles). It never opens `profiles.json`. A data directory removing an
+install from its list (Remove from List, `forget`) drops its record only when no other data directory names it;
+otherwise it only hides the install there, and a toggle there lists that install's entries as not switched for the
+data directory that names it.
 
 The 3D model has no switch: the library keeps no 3D mods. It would take a `model` kind (`character-<dev>-_mxload-*`
 prefab bundles, whose meshes, textures and clips sit in other bundles found by CAB), its detection in `add`, game
