@@ -7,7 +7,8 @@
 // line per voice cue; lobby-touch.js adds the game's touch interaction and the wheel zoom in fullscreen. The lines and
 // voices come from Kivo (setLines), matched by the voice clip names the talk animations carry in their events.
 // The edge extension (border pixels stretched outwards and blurred) is only a fallback for mods whose art does not
-// cover the view.
+// cover the view. Fullscreen zooms out as far as the zoom-out setting allows (zoomBounds); past the painted art
+// (Unlocked, Custom) it shows black, as the game's lobby camera clears.
 // The prefab's particle systems (bokeh, dust, glints, Michiru's sparkler) are simulated and drawn into the layers'
 // own frames by particles-gl.js, in their sorting order relative to the skeletons and following the bones they hang on.
 import { spineFiles } from "./api.js";
@@ -18,12 +19,15 @@ import * as Touch from "./lobby-touch.js";
 const STAGE = { w: 1920, h: 1080 };
 const GAME = { x: -1480, y: -832.5, w: 2960, h: 1665 };  // lobby.json "view": the game's 16:9 view in NGUI units
 const ZOOM_IN = 2;          // fullscreen zoom limit relative to the game's view (the art is about 0.5 texel per unit)
+const ZOOM_OUT_MAX = 4;     // no zoom-out limit goes past this many game views across (the custom limit's range too)
+const ZOOM_CUSTOM = 2;      // the custom limit until one is set
 const ZOOM_TAU = 0.08;      // s: a zoom or pan eases to its target
 const FEATHER_MS = 100;     // the fallback's feather and extension follow a zoom or pan at most this often
 const FADE_MS = 450;        // the switch crossfade, in step with the UI slide (app.css .45s)
 const TALK_GUARD_MS = 500;  // a tap does not skip a dialogue that started this recently
 
-let players = [], current = null, mode = "left", extendTimer = null, chain = null, token = 0, wantTouch = false, zoomOut = false;
+let players = [], current = null, mode = "left", extendTimer = null, chain = null, token = 0, wantTouch = false;
+let zoomMode = "game", zoomCustom = ZOOM_CUSTOM; // the zoom-out setting (setZoomLimit)
 let talk = null, talkIndex = -1, cueTimers = [], audios = [], subtitleTimer = null;
 let lines = {}, muted = false, volume = 0.8, lineOf = (l) => l?.["zh-CN"] || "";
 const listeners = new Set();
@@ -104,18 +108,19 @@ function poser(l) {
     return sk;
   };
 }
-// sets the cells of `out` within the cell rects ([i0, i1, j0, j1], inclusive) whose centre one of the posed layer's
-// painted triangles covers; additive FX and see-through parts never count
-function paint(grid, l, sk, out, rects) {
+// sets the cells whose centre one of the posed layer's painted triangles covers, for each target [out, rects]: in
+// `out`, within its cell rects ([i0, i1, j0, j1], inclusive); additive FX and see-through parts never count
+function paint(grid, l, sk, targets) {
   const { X0, Y0, gw } = grid;
   const tri = (ax, ay, bx, by, cx, cy) => {
     const area = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
     if (Math.abs(area) < 1e-6) return;
     const I0 = Math.floor((Math.min(ax, bx, cx) - X0) / CELL), I1 = Math.floor((Math.max(ax, bx, cx) - X0) / CELL);
     const J0 = Math.floor((Math.min(ay, by, cy) - Y0) / CELL), J1 = Math.floor((Math.max(ay, by, cy) - Y0) / CELL);
-    for (const r of rects) {
+    for (const [out, rects] of targets) for (const r of rects) {
       const i0 = Math.max(I0, r[0]), i1 = Math.min(I1, r[1]), j0 = Math.max(J0, r[2]), j1 = Math.min(J1, r[3]);
       for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+        if (out[j * gw + i]) continue; // painted already
         const px = X0 + (i + 0.5) * CELL, py = Y0 + (j + 0.5) * CELL;
         const w0 = ((bx - px) * (cy - py) - (by - py) * (cx - px)) / area, w1 = ((cx - px) * (ay - py) - (cy - py) * (ax - px)) / area;
         if (w0 >= -1e-6 && w1 >= -1e-6 && 1 - w0 - w1 >= -1e-6) out[j * gw + i] = 1;
@@ -134,17 +139,51 @@ function paint(grid, l, sk, out, rects) {
     for (let t = 0; t < tris.length; t += 3) tri(X(tris[t]), Y(tris[t]), X(tris[t + 1]), Y(tris[t + 1]), X(tris[t + 2]), Y(tris[t + 2]));
   }
 }
+// the bounding box (cells, inclusive) of the cell rect P and the set cells of `mask` joined to it across gaps of at
+// most `gap` cells: the scene's art, without the parts parked away from it (a talk's close-up, a second stage set)
+const GAP = 2;
+export function sceneBox(mask, gw, gh, P, gap = GAP) {
+  const seen = new Uint8Array(gw * gh), queue = new Int32Array(gw * gh), b = { i0: P.i0, i1: P.i1, j0: P.j0, j1: P.j1 };
+  let head = 0, tail = 0;
+  for (let j = P.j0; j <= P.j1; j++) for (let i = P.i0; i <= P.i1; i++) { seen[j * gw + i] = 1; queue[tail++] = j * gw + i; }
+  const reach = gap + 1;
+  while (head < tail) {
+    const k = queue[head++], i = k % gw, j = (k - i) / gw;
+    for (let y = Math.max(0, j - reach); y <= Math.min(gh - 1, j + reach); y++) {
+      for (let x = Math.max(0, i - reach), row = y * gw; x <= Math.min(gw - 1, i + reach); x++) {
+        if (seen[row + x] || !mask[row + x]) continue;
+        seen[row + x] = 1;
+        queue[tail++] = row + x;
+        if (x < b.i0) b.i0 = x;
+        if (x > b.i1) b.i1 = x;
+        if (y < b.j0) b.j0 = y;
+        if (y > b.j1) b.j1 = y;
+      }
+    }
+  }
+  return b;
+}
+// the cells of the cell rect R outside the cell rect P inside it, as up to four cell rects (below, above, left and
+// right of P)
+export function around(P, R) {
+  return [[R.i0, R.i1, R.j0, P.j0 - 1], [R.i0, R.i1, P.j1 + 1, R.j1], [R.i0, P.i0 - 1, P.j0, P.j1], [P.i1 + 1, R.i1, P.j0, P.j1]]
+    .filter(([i0, i1, j0, j1]) => i0 <= i1 && j0 <= j1);
+}
+// a cell rect in NGUI units
+const unitsOf = (grid, r) => ({
+  x0: grid.X0 + r.i0 * CELL, x1: grid.X0 + (r.i1 + 1) * CELL, y0: grid.Y0 + r.j0 * CELL, y1: grid.Y0 + (r.j1 + 1) * CELL,
+});
 function paintedRect(loaded, G) {
   const grid = gridOf(G), { X0, Y0, gw, gh } = grid, all = [[0, gw - 1, 0, gh - 1]];
-  const acc = new Uint8Array(gw * gh).fill(1), cur = new Uint8Array(gw * gh);
+  const acc = new Uint8Array(gw * gh).fill(1), cur = new Uint8Array(gw * gh), any = new Uint8Array(gw * gh);
   const posers = loaded.map((l) => [l, poser(l), idleOf(l.player.skeleton.data, l)]);
   for (let k = 0; k < SAMPLES; k++) {
     cur.fill(0);
     for (const [l, pose, anim] of posers) {
       const time = anim ? (l.player.skeleton.data.findAnimation(anim).duration * k) / SAMPLES : 0;
-      paint(grid, l, pose(anim ? [[0, anim, time, true]] : []), cur, all);
+      paint(grid, l, pose(anim ? [[0, anim, time, true]] : []), [[cur, all]]);
     }
-    for (let i = 0; i < acc.length; i++) acc[i] &= cur[i];
+    for (let i = 0; i < acc.length; i++) { acc[i] &= cur[i]; any[i] |= cur[i]; }
   }
   const full = (i0, i1, j0, j1) => { for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) if (!acc[j * gw + i]) return false; return true; };
   const r = { i0: Math.floor((G.x + 1 - X0) / CELL), i1: Math.floor((G.x + G.w - 1 - X0) / CELL), j0: Math.floor((G.y + 1 - Y0) / CELL), j1: Math.floor((G.y + G.h - 1 - Y0) / CELL) };
@@ -160,7 +199,9 @@ function paintedRect(loaded, G) {
     if (r.j0 > 0 && full(r.i0, r.i1, r.j0 - 1, r.j0 - 1)) { r.j0--; moved = true; }
     if (r.j1 < gh - 1 && full(r.i0, r.i1, r.j1 + 1, r.j1 + 1)) { r.j1++; moved = true; }
   }
-  return { x0: X0 + r.i0 * CELL, x1: X0 + (r.i1 + 1) * CELL, y0: Y0 + r.j0 * CELL, y1: Y0 + (r.j1 + 1) * CELL, covered, cells: r };
+  // and the box of the scene's art in the idle poses (the Unlocked limit, until the clips widen it)
+  const box = sceneBox(any, gw, gh, r);
+  return { ...unitsOf(grid, r), covered, cells: r, any, whole: { ...unitsOf(grid, box), cells: box } };
 }
 
 // --- the zoom-out limit, safe for every clip: P, measured on idle poses, shrunk until no clip the lobby plays uncovers
@@ -219,12 +260,18 @@ export function shrinkRect(P, bad, gw, band = BAND) {
   }
   return r;
 }
-// one pose per step: the cells near P's sides that the pose leaves unpainted; every layer is drawn, the others idle
+// one pose per step: the cells near P's sides that the pose leaves unpainted (Full Art), and the cells outside P that
+// it paints (Unlocked); every layer is drawn, the others idle
 function* measureSafe(loaded, meta, G) {
   const grid = gridOf(G), P = meta.painted.cells, K = BAND;
   const bands = [[P.i0, Math.min(P.i1, P.i0 + K - 1), P.j0, P.j1], [Math.max(P.i0, P.i1 - K + 1), P.i1, P.j0, P.j1],
     [P.i0, P.i1, P.j0, Math.min(P.j1, P.j0 + K - 1)], [P.i0, P.i1, Math.max(P.j0, P.j1 - K + 1), P.j1]];
-  const bad = new Uint8Array(grid.gw * grid.gh), cur = new Uint8Array(grid.gw * grid.gh);
+  const bad = new Uint8Array(grid.gw * grid.gh), cur = new Uint8Array(grid.gw * grid.gh), any = meta.any.slice();
+  // `any` adds up over the idle and every pose, up to K cells past what the idle paints: a dialogue that moves or
+  // scales the whole scene (CH0243, Airi's CH0251) does not open the limit to its whole path
+  const W = meta.painted.whole.cells, reach = { i0: Math.max(0, W.i0 - K), i1: Math.min(grid.gw - 1, W.i1 + K),
+    j0: Math.max(0, W.j0 - K), j1: Math.min(grid.gh - 1, W.j1 + K) };
+  const targets = [[cur, bands], [any, around(P, reach)]];
   const layers = loaded.map((l) => ({ ...l, data: l.player.skeleton.data, idle: idleOf(l.player.skeleton.data, l), main: l.name === meta.main }));
   const posers = layers.map(poser);
   const plan = clipPoses(layers, current?.info, meta.sequences.map((s) => s.anim), (l, name) => clipOf(l.player, name));
@@ -234,13 +281,14 @@ function* measureSafe(loaded, meta, G) {
     layers.forEach((l, j) => {
       const idleDur = l.idle ? l.data.findAnimation(l.idle).duration : 0;
       const pose = j === index ? tracks : l.idle ? [[0, l.idle, idleDur ? t % idleDur : 0, true]] : [];
-      paint(grid, l, posers[j](pose), cur, bands);
+      paint(grid, l, posers[j](pose), targets);
     });
     for (const [i0, i1, j0, j1] of bands) for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) if (!cur[j * grid.gw + i]) bad[j * grid.gw + i] = 1;
     yield;
   }
-  const r = shrinkRect(P, bad, grid.gw);
-  return { x0: grid.X0 + r.i0 * CELL, x1: grid.X0 + (r.i1 + 1) * CELL, y0: grid.Y0 + r.j0 * CELL, y1: grid.Y0 + (r.j1 + 1) * CELL, poses: plan.length };
+  const s = sceneBox(any, grid.gw, grid.gh, P), box = { i0: Math.max(s.i0, reach.i0), i1: Math.min(s.i1, reach.i1),
+    j0: Math.max(s.j0, reach.j0), j1: Math.min(s.j1, reach.j1) };
+  return { ...unitsOf(grid, shrinkRect(P, bad, grid.gw)), poses: plan.length, whole: { ...unitsOf(grid, box), cells: box } };
 }
 // the zoom-out limit (a setting): the art one cell in, and never less than the game's view; art that hardly covers the
 // view keeps the game's view. The painted rect counts a 16-unit cell as painted by its centre, so the art can end a
@@ -250,7 +298,8 @@ function outerOf(edge, full, sparse) {
   return { x0: Math.min(edge.x0 + CELL, full.x), x1: Math.max(edge.x1 - CELL, full.x + full.w),
     y0: Math.min(edge.y0 + CELL, full.y), y1: Math.max(edge.y1 - CELL, full.y + full.h) };
 }
-// measure the clip-safe rect in the background (once per lobby in a session), then narrow the zoom-out limit to it
+// measure the limits over the clips in the background (once per lobby in a session), then narrow Full Art to what
+// every clip keeps painted and widen Unlocked to what any of them paints
 function measureClips() {
   const c = current, m = c?.meta;
   if (!m || m.sparse || m.safe || c.measuring || !c.loaded) return;
@@ -260,6 +309,7 @@ function measureClips() {
     c.measuring = false;
     m.safe = rect;
     m.outer = outerOf(rect, m.full, false);
+    m.whole = union(rect.whole, rectOf(m.full));
     reclamp();
   };
   if (safeRects.has(key)) { done(safeRects.get(key)); return; }
@@ -365,7 +415,7 @@ function measure(loaded) {
   const info = current.info, G = game();
   const main = loaded.find((l) => l.name === info?.main) || loaded.find((l) => l.player.skeleton.data.findBone("Touch_Point")) || loaded[loaded.length - 1];
   const data = main.player.skeleton.data;
-  const painted = paintedRect(loaded, G);
+  const { any, ...painted } = paintedRect(loaded, G); // any: the cells some idle pose paints
   // a lobby whose art covers less than half the view (a character-only mod): the game view with the old edge
   // extension and feather, measured on the skeletons' bounds
   const area = (r) => Math.max(0, r.x1 - r.x0) * Math.max(0, r.y1 - r.y0);
@@ -401,9 +451,12 @@ function measure(loaded) {
   // the painted rect counts a 16-unit cell as painted by its centre, so the art can end a few units before its
   // border: the left view keeps one cell inside it
   const inner = sparse ? edge : { ...edge, x0: edge.x0 + CELL, x1: edge.x1 - CELL, y0: edge.y0 + CELL, y1: edge.y1 - CELL };
-  // the zoom-out limit, until measureClips has narrowed it to what every clip keeps painted
+  // the zoom-out limits, until measureClips has narrowed Full Art to what every clip keeps painted and widened Unlocked
+  // to what any of them paints (sparse art: its skeletons' bounds)
   const outer = outerOf(edge, full, sparse);
-  return { main: main.name, painted, edge, sparse, touch, full, outer, safe: null, left: leftView(inner, touch, G), sequences };
+  const whole = union(sparse ? edge : painted.whole, rectOf(full));
+  return { main: main.name, painted, any, edge, sparse, touch, full, outer, whole, safe: null, left: leftView(inner, touch, G),
+    sequences };
 }
 
 // switch between the left view and fullscreen: the old framing fades out over the new one, in step with the UI slide;
@@ -434,10 +487,28 @@ function crossfade() {
 }
 
 // fullscreen zoom at a stage point: from ZOOM_IN x to the game's view (never wider, so nothing the game never shows
-// appears), or with the zoom-out setting to the widest view inside the painted art; the width is clamped first, so the
+// appears), or with the zoom-out setting to the widest view its limit allows; the width is clamped first, so the
 // point under the pointer holds at the limits too
 const rectOf = (v) => ({ x0: v.x, x1: v.x + v.w, y0: v.y, y1: v.y + v.h });
-function bounds() { return zoomOut && current.meta.outer ? current.meta.outer : rectOf(current.meta.full); }
+const union = (a, b) => ({ x0: Math.min(a.x0, b.x0), x1: Math.max(a.x1, b.x1), y0: Math.min(a.y0, b.y0), y1: Math.max(a.y1, b.y1) });
+const meet = (a, b) => ({ x0: Math.max(a.x0, b.x0), x1: Math.min(a.x1, b.x1), y0: Math.max(a.y0, b.y0), y1: Math.min(a.y1, b.y1) });
+// a 16:9 rect w units wide around the middle of R
+function centred(R, w) {
+  const cx = (R.x0 + R.x1) / 2, cy = (R.y0 + R.y1) / 2, h = (w * 9) / 16;
+  return { x0: cx - w / 2, x1: cx + w / 2, y0: cy - h / 2, y1: cy + h / 2 };
+}
+export const ZOOM_MODES = ["game", "art", "unlocked", "custom"];
+// the rect a fullscreen view stays inside for the zoom-out setting {mode, custom}: the game's view ("game"), the art
+// every clip keeps painted ("art"), the box of the scene's art over its poses ("unlocked"), or `custom` game views
+// across around the game's view ("custom", 1 to ZOOM_OUT_MAX); never less than the game's view, never more than
+// ZOOM_OUT_MAX game views across. m: the lobby's rects (measure), G: the game's view.
+export function zoomBounds(zoom, m, G) {
+  const full = rectOf(m.full), f = clamp(Number(zoom?.custom) || ZOOM_CUSTOM, 1, ZOOM_OUT_MAX);
+  const B = zoom?.mode === "art" ? m.outer : zoom?.mode === "unlocked" ? m.whole
+    : zoom?.mode === "custom" ? centred(full, f * G.w) : null;
+  return B ? union(meet(B, centred(full, ZOOM_OUT_MAX * G.w)), full) : full;
+}
+const bounds = () => zoomBounds({ mode: zoomMode, custom: zoomCustom }, current.meta, game());
 const widest = (B) => Math.min(B.x1 - B.x0, ((B.y1 - B.y0) * 16) / 9);
 function clampView(v) {
   const B = bounds();
@@ -450,12 +521,21 @@ export function zoomAt(factor, sx, sy) {
   const w = clamp(T.w / factor, full.w / ZOOM_IN, Math.max(full.w, widest(bounds()))), h = (w * 9) / 16;
   setView(clampView({ x: ux - fx * w, y: uy - fy * h, w, h }), false);
 }
-// the zoom-out setting: off brings a wider view back to the game's view, around the same centre; on measures the limit
-// over the lobby's clips (once)
-export function setZoomOut(on) {
-  zoomOut = !!on;
-  if (zoomOut) measureClips();
+// the zoom-out setting {mode, custom} (ZOOM_MODES; custom in game views across): a view wider than the new limit comes
+// back inside it, around the same centre; Full Art and Unlocked measure the lobby's clips (once)
+export function setZoomLimit(zoom) {
+  zoomMode = ZOOM_MODES.includes(zoom?.mode) ? zoom.mode : "game";
+  zoomCustom = clamp(Number(zoom?.custom) || ZOOM_CUSTOM, 1, ZOOM_OUT_MAX);
+  if (measuresClips()) measureClips();
+  openEdge();
   reclamp();
+}
+const measuresClips = () => zoomMode === "art" || zoomMode === "unlocked";
+// past the painted art (Unlocked, Custom) the lobby shows what the game's lobby camera clears to, black
+// (Persistent/Camera: solid colour clear); sparse art keeps the edge extension
+function openEdge() {
+  const open = (zoomMode === "unlocked" || zoomMode === "custom") && !!current?.meta && !current.meta.sparse;
+  current?.host?.classList.toggle("open-edge", open);
 }
 // the game's PP option: off draws the lobby without its post-processing volumes (the next frame shows it)
 export function setPostProcessing(on) {
@@ -491,7 +571,8 @@ export function resetZoom() {
 export const limits = () => current?.meta && {
   game: game(), painted: current.meta.painted, full: current.meta.full, left: current.meta.left, view: current.view,
   target: current.target, touch: current.meta.touch, zoom: current.meta.full.w / current.view.w, mode,
-  outer: current.meta.outer, zoomOut, bounds: bounds(), safe: current.meta.safe, measuring: !!current.measuring,
+  outer: current.meta.outer, whole: current.meta.whole, zoomLimit: { mode: zoomMode, custom: zoomCustom }, bounds: bounds(),
+  safe: current.meta.safe, measuring: !!current.measuring,
   tracks: mainPlayer()?.animationState?.tracks.map((t) => t?.animation?.name || null) || [],
 };
 
@@ -638,8 +719,9 @@ export async function show(core, host, variant) {
     });
     Idle.start(loaded.map((l) => l.player));
     if (mode === "full" && wantTouch) Touch.attach(host);
-    // with the zoom-out setting on: the limit over every clip, once the screen is up
-    setTimeout(() => { if (zoomOut && my === token) measureClips(); }, 400);
+    openEdge();
+    // with Full Art or Unlocked: the limits over every clip, once the screen is up
+    setTimeout(() => { if (measuresClips() && my === token) measureClips(); }, 400);
     return current.meta;
   })();
   return current.ready;
@@ -662,7 +744,7 @@ export function hide(host) {
   chain = null;
   endTalk(false);
   clearTimeout(subtitleTimer);
-  if (host) host.innerHTML = "";
+  if (host) { host.innerHTML = ""; host.classList.remove("open-edge"); }
 }
 
 // the input trace of the fullscreen interaction (lobby-touch.js): sink(events) gets batches, null turns it off

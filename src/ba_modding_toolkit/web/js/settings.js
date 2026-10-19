@@ -78,18 +78,38 @@ function valueRow(name, y, title, value, buttons) {
   return { tree: row, h, hits };
 }
 
-// the sound slider row (Master/Type_3): mute icon, slider, full icon, the mute check
-function sliderRow(name, y, title, value, muted) {
+// the game's slider row (Master/Type_3) with its title (fitted to titleW) and the thumb at f (0 to 1)
+function sliderTree(name, y, title, f, titleW = 360) {
   const t = clone(layout.slider);
   t.name = name;
   t.pos = [0, y];
-  Object.assign(find(t, "Label_Locale_OptionTitle").widgets[0], { text: title, fontSize: fitText(title, 50, 40, 360).fs, w_: 380 });
-  const thumb = find(t, "SlideBg/Thumb");
-  thumb.pos[0] = -316 + (632 * value) / 100;
+  Object.assign(find(t, "Label_Locale_OptionTitle").widgets[0], { text: title, fontSize: fitText(title, 50, 34, titleW).fs, w_: titleW + 20 });
+  find(t, "SlideBg/Thumb").pos[0] = -316 + 632 * f;
+  return t;
+}
+
+// the sound slider row: mute icon, slider, full icon, the mute check
+function sliderRow(name, y, title, value, muted) {
+  const t = sliderTree(name, y, title, value / 100);
   const mute = find(t, "Label_Mute");
   Object.assign(mute.widgets[0], { text: T("settings.mute"), fontSize: fitText(T("settings.mute"), 50, 34, 180).fs });
   find(mute, "Icon").active = !!muted;
-  return { tree: t, h: 172, hits: [{ path: `${name}/Label_Mute/Bg`, fn: () => set("voiceMuted", !muted), title: T("settings.mute") }], slider: `${name}/SlideBg` };
+  return { tree: t, h: 172, hits: [{ path: `${name}/Label_Mute/Bg`, fn: () => set("voiceMuted", !muted), title: T("settings.mute") }],
+    slider: { path: `${name}/SlideBg`, value: value / 100, steps: 100, set: (f) => set("voiceVolume", Math.round(f * 100)) } };
+}
+
+// the custom zoom-out limit: the slider row without the sound icons, the value where the mute check is
+const ZOOM_CUSTOM = [1, 4]; // game views across (webui/state.py LOBBY_ZOOM_CUSTOM), in 0.1 steps
+const factorText = (v) => T("settings.zoomOut.factor", { v: v.toFixed(1) });
+function factorRow(name, y, title, value) {
+  const [lo, hi] = ZOOM_CUSTOM, f = (value - lo) / (hi - lo), at = (x) => Math.round((lo + x * (hi - lo)) * 10) / 10;
+  const t = sliderTree(name, y - 34, title, f, 340); // its body (BG, 34 up) in the middle of the row
+  for (const path of ["Icon_Minimum", "Icon_Maximum", "Label_Mute/Bg", "Label_Mute/Icon"]) find(t, path).active = false;
+  find(t, "SlideBg").pos[0] += 60; // into the mute icon's place: room for the title
+  Object.assign(find(t, "Label_Mute").widgets[0], { text: factorText(value), fontSize: 50 });
+  const slider = { path: `${name}/SlideBg`, label: `${name}/Label_Mute`, value: f, steps: Math.round((hi - lo) * 10),
+    text: (x) => factorText(at(x)), set: (x) => set("lobbyZoomCustom", at(x)) };
+  return { tree: t, h: 172, hits: [], slider };
 }
 
 // --- tabs and frame ---
@@ -143,9 +163,12 @@ function rows() {
   } else if (tab === "sound") {
     add(sliderRow("Voice", 0, T("settings.voice"), p.voiceVolume, p.voiceMuted));
   } else if (tab === "l2d") {
-    // the memorial lobby's fullscreen zoom: out to the game's view, or out to the whole painted art
-    add(radioRow("ZoomOut", 0, T("settings.zoomOut.label"), [[false, T("settings.zoomOut.game")], [true, T("settings.zoomOut.art")]],
-      !!p.lobbyZoomOut, (v) => set("lobbyZoomOut", v)));
+    // the memorial lobby's fullscreen zoom-out limit: the game's view, the art every clip keeps painted, everything
+    // painted, or a custom number of game views across (its slider shows with Custom)
+    const zoom = p.lobbyZoom || { mode: "game", custom: 2 };
+    const modes = ["game", "art", "unlocked", "custom"].map((m) => [m, T(`settings.zoomOut.${m}`)]);
+    add(radioRow("ZoomOut", 0, T("settings.zoomOut.label"), modes, zoom.mode, (v) => set("lobbyZoom", v)));
+    if (zoom.mode === "custom") add(factorRow("ZoomCustom", 0, T("settings.zoomOut.limit"), zoom.custom));
     // the game's PP option: the lobby's post-processing volumes (colour grading, chromatic aberration, Panini)
     add(radioRow("Post", 0, T("settings.post.label"), [[true, T("settings.post.on")], [false, T("settings.post.off")]],
       p.lobbyPost !== false, (v) => set("lobbyPost", v)));
@@ -189,11 +212,12 @@ async function set(key, value) {
   render();
 }
 
-// --- slider dragging: the thumb follows the pointer, the value is saved on release ---
-function wireSlider(host, view, path, origin) {
-  const bar = view.nodes.get(path)?.els[0], thumbEntry = view.nodes.get(`${path}/Thumb`);
+// --- slider dragging: the thumb follows the pointer (and the value label, if any), the value is saved on release.
+// s: {path, value (0 to 1), steps, set(f), label?, text?(f)} ---
+function wireSlider(host, view, s) {
+  const bar = view.nodes.get(s.path)?.els[0], thumbEntry = view.nodes.get(`${s.path}/Thumb`);
   if (!bar || !thumbEntry) return;
-  const thumb = thumbEntry.els[0];
+  const thumb = thumbEntry.els[0], valueLabel = s.label ? view.nodes.get(s.label)?.els[0] : null;
   const [l, t, w, h] = rect(bar);
   const area = document.createElement("div");
   area.className = "hit slider-hit";
@@ -203,14 +227,17 @@ function wireSlider(host, view, path, origin) {
   const pad = (w - 632 * S) / 2; // the thumb travels 632 units inside the 689-unit bar
   const valueAt = (clientX) => {
     const x = (clientX - area.getBoundingClientRect().left) / stageScale() - 20 - pad;
-    return Math.round(Math.max(0, Math.min(1, x / (632 * S))) * 100);
+    return Math.round(Math.max(0, Math.min(1, x / (632 * S))) * s.steps) / s.steps;
   };
-  const base = parseFloat(thumb.style.left) - (-316 + (632 * prefs.voiceVolume) / 100) * S;
-  const move = (v) => { thumb.style.left = `${base + (-316 + (632 * v) / 100) * S}px`; };
+  const base = parseFloat(thumb.style.left) - (-316 + 632 * s.value) * S;
+  const move = (f) => {
+    thumb.style.left = `${base + (-316 + 632 * f) * S}px`;
+    if (valueLabel && s.text) valueLabel.textContent = s.text(f);
+  };
   let dragging = false;
   area.addEventListener("pointerdown", (e) => { dragging = true; area.setPointerCapture(e.pointerId); move(valueAt(e.clientX)); });
   area.addEventListener("pointermove", (e) => { if (dragging) move(valueAt(e.clientX)); });
-  area.addEventListener("pointerup", (e) => { if (!dragging) return; dragging = false; set("voiceVolume", valueAt(e.clientX)); });
+  area.addEventListener("pointerup", (e) => { if (!dragging) return; dragging = false; s.set(valueAt(e.clientX)); });
 }
 
 async function render() {
@@ -248,7 +275,7 @@ async function render() {
       const [l, t, w, h] = rect(el);
       hitButton(inner, [l, t, hit.w ? hit.w * S : w, h], hit.fn, hit.title, 3050);
     }
-    if (r.slider) wireSlider(inner, rv, `Rows/${r.slider}`, origin);
+    if (r.slider) wireSlider(inner, rv, { ...r.slider, path: `Rows/${r.slider.path}`, label: r.slider.label && `Rows/${r.slider.label}` });
   }
   if (my !== token || $("settings").hidden) return;
   host.replaceChildren(...next.childNodes);

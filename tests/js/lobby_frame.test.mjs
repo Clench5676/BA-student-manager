@@ -68,6 +68,51 @@ test("the painted rect gives up the cells a clip uncovers near its sides, at mos
   assert.deepEqual(Lobby.shrinkRect(P, new Uint8Array(gw * 40), gw, 8), P);
 });
 
+test("Unlocked keeps the art joined to the scene and leaves out parts parked away from it", () => {
+  const gw = 60, gh = 40, mask = new Uint8Array(gw * gh), P = { i0: 20, i1: 39, j0: 10, j1: 29 };
+  const fill = (i0, i1, j0, j1) => { for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) mask[j * gw + i] = 1; };
+  // nothing painted outside P: P itself
+  assert.deepEqual(Lobby.sceneBox(mask, gw, gh, P), P);
+  // a floor painted past the left side, touching it, and a lamp above, two empty cells away
+  fill(12, 19, 12, 20);
+  fill(30, 31, 32, 34);
+  // a close-up parked to the right behind a wide gap, and a speck three empty cells off the floor
+  fill(50, 58, 15, 25);
+  fill(8, 8, 15, 15);
+  assert.deepEqual(Lobby.sceneBox(mask, gw, gh, P), { i0: 12, i1: 39, j0: 10, j1: 34 });
+  // a wider gap allowance reaches the speck, never the close-up
+  assert.deepEqual(Lobby.sceneBox(mask, gw, gh, P, 3), { i0: 8, i1: 39, j0: 10, j1: 34 });
+  // the cells of a rect round P outside it, in up to four rects (where a clip's paint counts)
+  const R = { i0: 0, i1: 59, j0: 0, j1: 39 };
+  assert.deepEqual(Lobby.around(P, R), [[0, 59, 0, 9], [0, 59, 30, 39], [0, 19, 10, 29], [40, 59, 10, 29]]);
+  assert.deepEqual(Lobby.around(P, { i0: 20, i1: 45, j0: 10, j1: 29 }), [[40, 45, 10, 29]]);
+  assert.deepEqual(Lobby.around(R, R), []);
+});
+
+test("each zoom-out option gives its own limit, never less than the game's view or more than four across", () => {
+  const G = { x: -1480, y: -832.5, w: 2960, h: 1665 };
+  const m = { full: { ...G }, outer: { x0: -1704, x1: 1928, y0: -1537, y1: 1103 }, whole: { x0: -2056, x1: 2104, y0: -1697, y1: 1631 } };
+  const game = { x0: -1480, x1: 1480, y0: -832.5, y1: 832.5 };
+  const B = (mode, custom) => Lobby.zoomBounds({ mode, custom }, m, G);
+  assert.deepEqual(B("game"), game);
+  assert.deepEqual(B("art"), m.outer);
+  assert.deepEqual(B("unlocked"), m.whole);
+  // custom: that many game views across, around the game's view
+  assert.deepEqual(B("custom", 2), { x0: -2960, x1: 2960, y0: -1665, y1: 1665 });
+  assert.deepEqual(B("custom", 1), game);
+  // out of range or not a number: held to 1 to 4, else 2
+  assert.deepEqual(B("custom", 9), { x0: -5920, x1: 5920, y0: -3330, y1: 3330 });
+  assert.deepEqual(B("custom", 0.5), game);
+  assert.deepEqual(B("custom", "x"), B("custom", 2));
+  // an unknown mode is the game's view; a limit narrower than the game's view is widened to it, one wider than four
+  // views is cut to them
+  assert.deepEqual(B("everything"), game);
+  assert.deepEqual(Lobby.zoomBounds({ mode: "art" }, { ...m, outer: { x0: -100, x1: 100, y0: -100, y1: 100 } }, G), game);
+  assert.deepEqual(Lobby.zoomBounds({ mode: "unlocked" }, { ...m, whole: { x0: -90000, x1: 1600, y0: -900, y1: 900 } }, G),
+    { x0: -5920, x1: 1600, y0: -900, y1: 900 });
+  assert.deepEqual(Lobby.ZOOM_MODES, ["game", "art", "unlocked", "custom"]);
+});
+
 test("each skeleton gets its atlas, also when the game's file names differ", () => {
   const pairs = (files) => Object.fromEntries(Lobby.pairAtlases(files));
   // the usual lobby: one name each, a background with its own

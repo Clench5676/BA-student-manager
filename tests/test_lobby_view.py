@@ -48,11 +48,39 @@ def rpc(app, method, **params):
     return json.loads(body)
 
 
-def test_zoom_out_setting_is_off_by_default_and_persists(app, tmp_path):
-    assert rpc(app, "settings.get")["result"]["lobbyZoomOut"] is False
-    assert rpc(app, "settings.set", key="lobbyZoomOut", value=True)["result"]["lobbyZoomOut"] is True
-    assert UiState(tmp_path / "webui.json").get("lobby_zoom_out") is True
-    assert rpc(app, "settings.set", key="lobbyZoomOut", value=0)["result"]["lobbyZoomOut"] is False
+def test_zoom_out_setting_is_the_game_view_by_default_and_persists(app, tmp_path):
+    assert rpc(app, "settings.get")["result"]["lobbyZoom"] == {"mode": "game", "custom": 2.0}
+    for mode in ("art", "unlocked", "custom", "game"):
+        assert rpc(app, "settings.set", key="lobbyZoom", value=mode)["result"]["lobbyZoom"]["mode"] == mode
+        assert UiState(tmp_path / "webui.json").get("lobby_zoom") == mode
+    for bad in ("wide", "", None, True, ["art"]):
+        assert rpc(app, "settings.set", key="lobbyZoom", value=bad)["error"]["code"] == "bad_params"
+    assert rpc(app, "settings.get")["result"]["lobbyZoom"]["mode"] == "game"
+
+
+def test_custom_zoom_out_limit_is_kept_in_range_and_steps(app, tmp_path):
+    # game views across, 1.0 to 4.0 in 0.1 steps (lobby.js never zooms out further)
+    for value, kept in ((3.33, 3.3), (1, 1.0), (9, 4.0), (0.2, 1.0), (2.75, 2.8)):
+        assert rpc(app, "settings.set", key="lobbyZoomCustom", value=value)["result"]["lobbyZoom"]["custom"] == kept
+    assert UiState(tmp_path / "webui.json").get("lobby_zoom_custom") == 2.8
+    for bad in ("2", None, True, float("nan"), float("inf")):
+        assert rpc(app, "settings.set", key="lobbyZoomCustom", value=bad)["error"]["code"] == "bad_params"
+    assert rpc(app, "settings.get")["result"]["lobbyZoom"]["custom"] == 2.8
+
+
+def test_zoom_out_setting_migrates_the_saved_boolean(services, app):
+    # before the modes the setting was a boolean (lobby_zoom_out): on was Full Art, off the game's view
+    services.state.set("lobby_zoom_out", True)
+    assert rpc(app, "settings.get")["result"]["lobbyZoom"] == {"mode": "art", "custom": 2.0}
+    services.state.set("lobby_zoom_out", False)
+    assert rpc(app, "settings.get")["result"]["lobbyZoom"]["mode"] == "game"
+    # a chosen mode wins over the old boolean, and a damaged value falls back to it
+    services.state.set("lobby_zoom_out", True)
+    rpc(app, "settings.set", key="lobbyZoom", value="unlocked")
+    assert rpc(app, "settings.get")["result"]["lobbyZoom"]["mode"] == "unlocked"
+    services.state.set("lobby_zoom", "everything")
+    services.state.set("lobby_zoom_custom", "far")
+    assert rpc(app, "settings.get")["result"]["lobbyZoom"] == {"mode": "art", "custom": 2.0}
 
 
 def test_post_processing_setting_is_on_by_default_and_persists(app, tmp_path):
@@ -147,5 +175,6 @@ def test_zoom_out_limit_in_node():
 def test_lobby_strings_in_both_languages():
     for lang in ("zh-CN", "en-US"):
         strings = ui_strings(lang)
-        for key in ("tab.l2d", "zoomOut.label", "zoomOut.game", "zoomOut.art", "post.label", "post.on", "post.off"):
+        for key in ("tab.l2d", "zoomOut.label", "zoomOut.game", "zoomOut.art", "zoomOut.unlocked", "zoomOut.custom",
+                    "zoomOut.limit", "zoomOut.factor", "post.label", "post.on", "post.off"):
             assert strings.get(f"webui.settings.{key}"), (lang, key)

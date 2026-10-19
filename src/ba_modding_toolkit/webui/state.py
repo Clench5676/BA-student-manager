@@ -12,6 +12,7 @@ import contextlib
 import copy
 import json
 import logging
+import math
 import os
 import tempfile
 import threading
@@ -250,3 +251,24 @@ class UiState:
             prefs[key] = value
 
         self._update(change)
+
+
+# The memorial lobby's fullscreen zoom-out limit (web/js/lobby.js zoomBounds): the game's view, the art every clip keeps
+# painted (Full Art), the box of the scene's art over its poses (Unlocked), or a custom number of game views across.
+LOBBY_ZOOM_MODES = ("game", "art", "unlocked", "custom")
+LOBBY_ZOOM_CUSTOM = (1.0, 4.0)  # the custom limit's range; lobby.js never zooms out further (ZOOM_OUT_MAX)
+LOBBY_ZOOM_CUSTOM_DEFAULT = 2.0
+
+
+def is_number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def lobby_zoom(mode: Any, custom: Any, legacy: Any = None) -> dict[str, Any]:
+    """The zoom-out setting as stored, every field valid: the mode, else the boolean the setting was before (`legacy`,
+    lobby_zoom_out: on is Full Art, off the game's view), and the custom limit in 0.1 steps within its range."""
+    lo, hi = LOBBY_ZOOM_CUSTOM
+    return {
+        "mode": mode if isinstance(mode, str) and mode in LOBBY_ZOOM_MODES else "art" if legacy is True else "game",
+        "custom": round(min(hi, max(lo, float(custom))), 1) if is_number(custom) else LOBBY_ZOOM_CUSTOM_DEFAULT,
+    }
