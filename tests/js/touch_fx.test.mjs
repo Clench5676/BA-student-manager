@@ -1,4 +1,4 @@
-// Tests for web/js/touch-fx.js (the game's touch effect, simulated) and the pointer syntax of web/js/cursor.js, run
+// Tests for web/js/touch-fx.js (the game's touch effect, simulated) and the pointer of web/js/cursor.js, run
 // by tests/test_touch_fx.py with Node's test runner: node --test tests/js/touch_fx.test.mjs
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -7,7 +7,7 @@ import {
   FX, arcState, curve, drag, flashState, gradient, overBlend, press, release, sparkState, step, toLinear, toSrgb,
   trailState,
 } from "../../src/ba_modding_toolkit/web/js/touch-fx.js";
-import { cursorValue, paint } from "../../src/ba_modding_toolkit/web/js/cursor.js";
+import { cursorValue, opaqueBox, paint, pointerBoxes } from "../../src/ba_modding_toolkit/web/js/cursor.js";
 
 const near = (a, b, eps = 1e-6) => assert.ok(Math.abs(a - b) <= eps, `${a} != ${b}`);
 // a fixed sequence instead of Math.random
@@ -181,10 +181,47 @@ test("the trail runs from the head back to its oldest point, coloured along its 
 });
 
 test("the pointer takes the first cursor syntax the engine supports", () => {
-  assert.equal(cursorValue("a", "b", () => true), 'image-set(url("a") 1x, url("b") 2x) 0 0, auto');
-  assert.equal(cursorValue("a", "b", (v) => v.startsWith("-webkit")), '-webkit-image-set(url("a") 1x, url("b") 2x) 0 0, auto');
-  assert.equal(cursorValue("a", "b", (v) => v.startsWith("url")), 'url("a") 0 0, auto');
-  assert.equal(cursorValue("a", "b", () => false), null);
+  const one = [["a", "b"]], two = [["a", "b"], ["c", "d"]];
+  assert.equal(cursorValue(one, () => true), 'image-set(url("a") 1x, url("b") 2x) 0 0, auto');
+  assert.equal(cursorValue(one, (v) => v.startsWith("-webkit")), '-webkit-image-set(url("a") 1x, url("b") 2x) 0 0, auto');
+  assert.equal(cursorValue(one, (v) => v.startsWith("url")), 'url("a") 0 0, auto');
+  assert.equal(cursorValue(one, () => false), null);
+  // every box in order, the system cursor last
+  assert.equal(cursorValue(two, () => true), 'image-set(url("a") 1x, url("b") 2x) 0 0, image-set(url("c") 1x, url("d") 2x) 0 0, auto');
+  assert.equal(cursorValue(two, (v) => v.startsWith("url")), 'url("a") 0 0, url("c") 0 0, auto');
+});
+
+// an ImageData of w x h with the given pixels opaque
+function alpha(w, h, opaque) {
+  const data = new Uint8ClampedArray(w * h * 4);
+  for (const [x, y] of opaque) data[(y * w + x) * 4 + 3] = 255;
+  return { data, width: w, height: h };
+}
+
+test("the pointer's box is its texture's opaque part from the hotspot, in CSS px", () => {
+  // PCIcon_MousePoint: opaque up to (45, 61) of 64 x 64, shown at 32 CSS px
+  assert.deepEqual(opaqueBox(alpha(64, 64, [[0, 0], [45, 30], [10, 61]])), [23, 31]);
+  assert.deepEqual(opaqueBox(alpha(64, 64, [[63, 63]])), [32, 32]);
+  assert.deepEqual(opaqueBox(alpha(64, 64, [[1, 2]])), [1, 2]); // rounded up, never cut
+  assert.deepEqual(opaqueBox(alpha(64, 64, [])), [32, 32]);
+});
+
+test("near the right and bottom edges WebKit gets smaller and smaller cuts of the pointer", () => {
+  const boxes = pointerBoxes([23, 31]);
+  assert.deepEqual(boxes[0], [23, 31]); // the whole pointer first: what every other engine shows
+  assert.deepEqual(boxes.slice(1), [
+    [20, 31], [16, 31], [12, 31], [8, 31], [4, 31], // right edge: narrower, whole height
+    [23, 28], [23, 24], [23, 20], [23, 16], [23, 12], [23, 8], [23, 4], // bottom edge: shorter, whole width
+    [20, 20], [16, 16], [12, 12], [8, 8], [4, 4], // the corner
+  ]);
+  // WebKit shows the first box that fits between the hotspot and the window's edges
+  const shown = (right, bottom) => boxes.find(([w, h]) => w <= right && h <= bottom);
+  assert.deepEqual(shown(500, 500), [23, 31]);
+  assert.deepEqual(shown(22, 500), [20, 31]);
+  assert.deepEqual(shown(500, 30), [23, 28]);
+  assert.deepEqual(shown(18, 25), [16, 16]);
+  assert.deepEqual(shown(500, 3), undefined); // the last pixels: the system arrow
+  assert.deepEqual(pointerBoxes([4, 4]), [[4, 4]]);
 });
 
 // a 2D context that records the global alpha of each stroke and image draw

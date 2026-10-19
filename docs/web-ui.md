@@ -504,9 +504,19 @@ in `pointer-textures`); without a game the system cursor stays and there is no e
 - **Pointer.** `ControllerMouse.SetPCCursorStyle` sets `PCIcon_MousePoint` (64 x 64; its MousePoint option chooses
   this or the system arrow) with `Cursor.SetCursor`, hotspot (0, 0) and `CursorMode.Auto`, which Windows shows at the
   system cursor size: here a 32 CSS px cursor with the texture as its 2x image (`image-set`, `-webkit-image-set` or a
-  plain `url` by `CSS.supports`), set as `--cursor` and `--cursor-press` on the root. The game has no hover or pressed pointer, so buttons show it too; drag handles keep `grab` and
-  `grabbing`, text fields the text cursor. `Cursor_1` (the halo crosshair, hotspot in its middle, a software cursor)
-  is the controller's pointer and is not used.
+  plain `url` by `CSS.supports`), set as `--cursor` and `--cursor-press` on the root. The game has no hover or pressed
+  pointer, so buttons show it too; drag handles keep `grab` and `grabbing`, text fields the text cursor. `Cursor_1`
+  (the halo crosshair, hotspot in its middle, a software cursor) is the controller's pointer and is not used.
+- **Pointer in the window.** pywebview's `text_select=False` (its default) appends `body { user-select: none; cursor:
+  default }` to the page after `app.css`, which left the game's pointer on the buttons only and the system arrow on
+  everything else (the portrait, the lobby, the panels): the window is created with `text_select=True` and `app.css`
+  turns off selection on `body` itself.
+- **Window edges.** WebKit (WKWebView) drops a cursor image whose box would cross the window's right or bottom edge
+  and shows the system arrow (`Style::Cursor::selectImageCursor`); Chromium (WebView2) takes any cursor up to 32 px.
+  The image is cut to the texture's opaque part (23 x 31 CSS px), and smaller cuts follow in the list, 4 px apart:
+  narrower for the right edge, shorter for the bottom, squares for the corner. WebKit shows the first that fits, so the
+  pointer is cut at the edge, and only the last 3 px show the arrow. The images are object URLs, which keep the value
+  short (every button resolves it).
 - **Touch effect.** `Resources/UI/FX_Touch`, spawned by TouchEffectCreater at the pointer through the UI camera
   (orthographic size 1: the stage is 2 units high), dragged while the button is held and stopped 60 frames after the
   release. Its parts and numbers come from the prefab's ParticleSystem and TrailRenderer typetrees and its materials'
