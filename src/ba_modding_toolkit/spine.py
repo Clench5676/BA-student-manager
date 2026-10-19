@@ -506,7 +506,7 @@ class SpineViewer:
                 log(f'  ✓ {msg}')
                 return True, msg
             else:
-                msg = t("log.spine.render_file_not_found")
+                msg = t("log.spine.render_file_not_found", path=output_path)
                 log(f'  ✗ {msg}')
                 return False, msg
 

@@ -1,0 +1,1139 @@
+{
+	"common": {
+		"ok": "確定",
+		"cancel": "取消",
+		"default": "預設",
+		"on": "開啟",
+		"off": "關閉",
+		"success": "成功",
+		"error": "錯誤",
+		"warning": "警告",
+		"tip": "提示",
+		"3rd_party": "第三方功能",
+		"processing": "處理中……",
+		"fail": "失敗",
+		"result": "結果",
+		"unknown": "未知",
+		"auto": "自動"
+	},
+	"action": {
+		"browse": "瀏覽",
+		"browse_file": "瀏覽檔案……",
+		"browse_folder": "瀏覽資料夾……",
+		"select": "選擇",
+		"open": "開啟",
+		"download": "下載",
+		"add_files": "新增檔案",
+		"add_folder": "新增資料夾",
+		"remove": "移除",
+		"remove_selected": "移除所選",
+		"clear": "清除",
+		"clear_list": "清空清單",
+		"replace_original": "覆蓋原檔",
+		"print": "列印",
+		"start": "開始",
+		"update": "更新",
+		"pack": "打包",
+		"extract": "提取",
+		"calculate_crc": "計算",
+		"check_crc": "檢查 CRC",
+		"run_crc_correction": "修正",
+		"save": "儲存",
+		"load": "讀取",
+		"reset": "重置",
+		"refresh": "重新整理",
+		"filter": "篩選",
+		"analyze": "分析",
+		"install": "安裝",
+		"skip": "跳過",
+		"open_in_explorer": "開啟所在資料夾",
+		"copy_filename": "複製檔名",
+		"render_preview": "渲染預覽圖",
+		"send_to_extractor": "傳送到資源提取",
+		"cache_to_local": "緩存到本機",
+		"detect": "偵測",
+		"clear_cache": "清除緩存",
+		"generate": "產生",
+		"fix_all": "全部修復",
+		"start_backup": "開始備份"
+	},
+	"option": {
+		"file_source": "檔案來源",
+		"file_source_info": "選擇遊戲資源的來源平台與伺服器\n- Windows 國際服（本機）\n- Windows 日服（本機）\n- Android 國際服（ADB）\n- Android 日服（ADB）",
+		"file_source_windows_global": "Windows 國際服（本機）",
+		"file_source_windows_japan": "Windows 日服（本機）",
+		"file_source_adb_global": "Android 國際服（ADB）",
+		"file_source_adb_japan": "Android 日服（ADB）",
+		"crc_correction": "CRC 修正",
+		"crc_correction_info": "修正 Bundle 檔案的 CRC 檢查碼，避免修改後出現「不正常的用戶端」。\nSteam 版必須開啟此選項，手機版不需要。\n選擇「自動」時，依目標 Bundle 的平台資訊自動判斷是否需要。",
+		"extra_bytes": "額外位元組",
+		"extra_bytes_info": "CRC 修正前附加的資料。\n以 0x 開頭時按十六進位解析（如 0x0808），否則按 ASCII 字串處理（如 AB）。留空則不附加。",
+		"backup": "建立備份",
+		"backup_info": "替換檔案前先建立備份。",
+		"compression_method": "壓縮方式",
+		"compression_method_info": "設定 AssetBundle 檔案的壓縮方式。\n- LZMA：最高壓縮率\n- LZ4：中等壓縮率\n- Original：與目標檔案相同\n- None：不壓縮",
+		"skip_unchanged": "跳過未變更",
+		"skip_unchanged_info": "目標內容未變更時不輸出檔案",
+		"replace_texture": "Texture2D",
+		"replace_texture_info": "圖片資源檔案，包括立繪、模型材質等。",
+		"replace_textasset": "TextAsset",
+		"replace_textasset_info": ".skel 與 .atlas 檔案，與 Spine 動畫相關。",
+		"replace_mesh": "Mesh",
+		"replace_mesh_info": "3D 模型檔案。",
+		"replace_animationclip": "AnimationClip",
+		"replace_animationclip_info": "3D 模型的動畫片段",
+		"replace_all": "ALL",
+		"replace_all_info": "替換所有類型的資源。\n實驗性功能，不建議使用。",
+		"spine_conversion": "啟用 Spine 版本轉換",
+		"spine_conversion_info": "（選用擴充功能）\n呼叫外部程式，將 .skel 檔案轉換為支援的版本。\n需設定 Skel 轉換器的路徑。",
+		"spine_target_version": "目標版本",
+		"spine_target_version_info": "格式應為「A.B.C」。\n版本與設定不符的 skel 檔案將被拒絕。\n設定並啟用 Skel 轉換器時，會自動轉換為此版本。",
+		"preview_thumbnail_size": "預覽縮圖尺寸",
+		"preview_thumbnail_size_info": "預覽視窗中縮圖的最大邊長（像素）",
+		"spine_downgrade": "啟用 Spine 降級",
+		"spine_downgrade_info": "（選用擴充功能）\n呼叫外部程式，匯出相容舊版 Spine 的檔案（.skel 與 .atlas）。\n需設定 Skel 轉換器的路徑。",
+		"spine_downgrade_target_version": "目標版本",
+		"spine_downgrade_target_version_info": "格式應為「A.B.C」。",
+		"scale_atlas": "縮放圖片",
+		"scale_atlas_info": "進階選項\n降級 Spine 時，決定是否依 Atlas 檔案中的 scale 係數縮放圖片。\n\n啟用縮放：自動將圖片調整為相符的尺寸，可直接匯入 Spine，但會損失精度，可能造成各部位錯位。遊戲內渲染也會使用縮放後的圖片，精度降低。\n不縮放（預設）：保留原始精度，遊戲內渲染效果最佳，建議用於匯入遊戲。但匯入 Spine 時，區域（region）附件的尺寸不會改變，需手動將 scale 係數套用到骨骼的 Transform。\n\n縮放選項同時影響遊戲內渲染與 Spine 匯入：不縮放時，遊戲內顯示正常，Spine 需手動調整；啟用縮放時，圖片會被實際縮放，遊戲內也會呈現縮放後的效果（有精度損失），Spine 則不需手動調整。\n匯入 Spine 時，建議進階使用者採用不縮放，再依 scale 係數手動設定骨骼或部件的縮放，效果最佳。",
+		"unpack_atlas": "解包 Atlas",
+		"unpack_atlas_info": "將 Atlas 解包為單獨的 PNG 影格。\n解包後的影格儲存在 images/ 子資料夾。",
+		"game_dir_windows_global": "Steam 遊戲資料夾（國際服）",
+		"game_dir_windows_global_info": "Steam 版（國際服）的安裝資料夾\n程式可自動偵測以下子資料夾：\n- BlueArchive_Data/StreamingAssets/PUB/Resource/GameData/Windows\n- BlueArchive_Data/StreamingAssets/PUB/Resource/Preload/Windows\n- GameData/Windows\n- Preload/Windows\n點擊「偵測」自動尋找（Windows：登錄檔與 Steam 收藏庫；macOS：Wine 前綴）。",
+		"game_dir_windows_japan": "PC 遊戲資料夾（日服）",
+		"game_dir_windows_japan_info": "PC 版（日服）的安裝資料夾\n點擊「偵測」自動尋找（Windows：登錄檔；macOS：Wine 前綴）。",
+		"game_dir_android_global": "Android（國際服）資料夾",
+		"game_dir_android_global_info": "Android 裝置上的遊戲資源資料夾（國際服）\n例如：/storage/emulated/0/Android/data/com.nexon.bluearchive/files/",
+		"game_dir_android_japan": "Android（日服）資料夾",
+		"game_dir_android_japan_info": "Android 裝置上的遊戲資源資料夾（日服）\n例如：/storage/emulated/0/Android/data/com.Yostar JP.BlueArchive/files/",
+		"language": "語言 / Language",
+		"language_info": "程式的顯示語言。\n變更後需重新啟動程式才會生效。",
+		"output_dir": "輸出資料夾",
+		"output_dir_info": "存放程式產生檔案的資料夾。",
+		"skel_converter_path": "Skel 轉換器路徑",
+		"skel_converter_path_info": "SpineSkeletonDataConverter.exe 檔案的路徑。",
+		"spine_viewer_path": "SpineViewerCLI 路徑",
+		"spine_viewer_path_info": "SpineViewerCLI.exe 檔案的路徑。",
+		"check_animations": "偵測動畫差異",
+		"check_animations_info": "替換 .skel 檔案時，偵測目標是否含有來源沒有的動畫\n需設定 SpineViewerCLI 路徑",
+		"mod_install_render_preview": "渲染預覽圖",
+		"mod_install_render_preview_info": "在 Mod 安裝確認視窗中於背景渲染 Spine 預覽圖與材質\n關閉時只顯示檔案與資源，視窗立即開啟\n需設定 SpineViewerCLI 路徑",
+		"match_strategy": "比對策略",
+		"match_strategy_info": "選擇資源的比對策略：\n- path_id：適用於同版本檔案，精確比對\n- cont_name_type：以容器+名稱+類型比對，適用於跨版本移植（國際服與日服之間）\n- name_type：以名稱+類型比對",
+		"enable_bleed": "Bleed",
+		"enable_bleed_info": "對圖片檔案進行 Bleed 處理。\n若打包後的圖片在遊戲中出現黑邊或鋸齒邊緣，建議開啟。",
+		"enable_spine38_name_fix": "重新命名舊版 Spine 檔名",
+		"enable_spine38_name_fix_info": "將舊版 Spine 匯出的檔名格式改為新格式。\n例如：CH0808_home2.png → CH0808_home_2.png",
+		"enable_spine_preview": "產生 Spine 預覽圖",
+		"enable_spine_preview_info": "為 Spine 資源產生預覽圖（需設定 SpineViewerCLI 路徑）\n\n注意：此功能耗時較長。",
+		"extractor_render_preview": "渲染預覽圖",
+		"extractor_render_preview_info": "提取完成後，為提取出的 Spine 資源渲染預覽圖（需設定 SpineViewerCLI 路徑）。\n預覽直接使用已提取的檔案，不會重新提取。\n\n注意：若同時啟用 Atlas 解包，部分資源可能無法產生預覽。",
+		"report_format": "報告格式",
+		"report_format_info": "選擇報告的輸出格式：\n- 清單：每項一行，適合快速瀏覽\n- 表格：Markdown 表格，渲染預覽圖時建議使用",
+		"report_format_list": "清單",
+		"report_format_table": "表格",
+		"report_render_preset": "預覽畫質",
+		"report_render_preset_info": "選擇預覽圖的渲染畫質。\n畫質越高，渲染時間可能越長。",
+		"report_render_preset_low": "低畫質",
+		"report_render_preset_high": "高畫質",
+		"render_characters": "渲染角色立繪",
+		"render_characters_info": "渲染 spinecharacters 分類的 Spine 資源預覽圖",
+		"render_lobbies": "渲染紀念大廳",
+		"render_lobbies_info": "渲染 spinelobbies 分類的 Spine 資源預覽圖",
+		"render_background": "渲染其他 Spine 資源",
+		"render_background_info": "渲染 spinebackground 分類的 Spine 資源預覽圖",
+		"max_workers": "平行執行緒數",
+		"max_workers_info": "批次任務（批次更新、批次渲染預覽等）的平行執行緒數。\n數量越多處理越快，但記憶體與 CPU 用量也越高。",
+		"character_id_map": "角色 ID 對照表",
+		"character_id_map_info": "角色 ID 與名稱的對照表，用於顯示檔案對應的角色名稱。",
+		"character_index_column": "索引欄",
+		"character_index_column_info": "對照表 CSV 中作為查詢鍵（角色內部 ID）的欄。\n鍵值應形如 CH0808。",
+		"character_name_field": "角色名稱",
+		"character_name_field_info": "選擇角色名稱的顯示欄位：\nfull_name：kivo.wiki（簡體中文，最完整）\nname_cn：陸服\nname_jp：日文\nname_tw：繁體中文\nname_en：英文\nname_kr：韓文\n\n英文與韓文版只含角色名字；日文、陸服與繁體中文版另含角色服裝變體的名稱（如泳裝、女僕等）；kivo.wiki 版還含更多 NPC 變體的名稱（如運動服、無武裝等）。",
+		"adb_path": "ADB 路徑",
+		"adb_path_info": "adb.exe 的完整路徑，或填「adb」使用系統 PATH",
+		"adb_cache_dir": "緩存資料夾",
+		"adb_cache_dir_info": "ADB 檔案的本機緩存資料夾",
+		"backup_path": "備份路徑",
+		"backup_path_info": "選擇備份檔案的存放資料夾"
+	},
+	"file_type": {
+		"executable": "執行檔",
+		"all_files": "所有檔案",
+		"bundle": "AssetBundle 檔案",
+		"bundle_backup": "AssetBundle 備份",
+		"folder": "資料夾",
+		"skel_converter": "SpineSkeletonConverter.exe",
+		"spine_viewer": "SpineViewerCLI.exe"
+	},
+	"message": {
+		"confirm_replace_file": "此操作將覆蓋檔案：{path}\n\n建議先確認已開啟備份。\n確定要繼續嗎？",
+		"confirm_replace_files": "此操作將覆蓋 {count} 個檔案：\n{files}",
+		"and_more_files": "……以及其餘 {count} 個",
+		"confirm_reset_settings": "確定要重置為預設設定嗎？",
+		"file_not_found": "找不到檔案：{path}",
+		"file_not_selected": "未選擇檔案",
+		"load_failed": "載入檔案失敗",
+		"dir_not_found": "找不到資料夾：{path}",
+		"dir_not_found_create": "資料夾不存在：\n{path}\n\n是否要建立？",
+		"path_invalid": "路徑無效：{path}",
+		"no_file_selected": "未選擇檔案。",
+		"no_bundle_found": "找不到 Bundle 檔案",
+		"list_empty": "清單為空，請先新增項目。",
+		"drop_single_file": "請一次只拖放一個檔案。",
+		"missing_paths": "請確認已設定所有必要的路徑。",
+		"missing_asset_type": "請至少選擇一種資源類型。",
+		"process_success": "處理成功！",
+		"process_failed": "處理失敗：{error}",
+		"error_during_process": "處理時發生錯誤：\n{error}",
+		"cannot_open_explorer": "無法開啟資料夾：{error}",
+		"open_manually": "請手動開啟資料夾：{path}",
+		"invalid_operation": "無效的操作",
+		"execution_error": "執行時發生錯誤：\n{error}",
+		"output_dir_not_set": "未設定輸出資料夾，請先在設定中設定。",
+		"save_success": "檔案已儲存。",
+		"same_file": "兩個路徑相同！",
+		"config": {
+			"saved": "設定已儲存。",
+			"loaded": "設定已載入。",
+			"save_failed": "設定儲存失敗。",
+			"load_failed": "設定載入失敗。",
+			"language_changed": "語言設定已變更。\n請儲存設定並重新啟動程式以套用變更。\n是否立即儲存目前設定並關閉程式？"
+		},
+		"packer": {
+			"missing_paths": "請確認已選擇目標 Bundle 與要打包的資源資料夾，並在全域設定中指定輸出資料夾。",
+			"load_target_bundle_failed": "無法載入目標 Bundle 檔案，嘗試移除可能的 CRC 補丁後仍然失敗。請檢查檔案是否損毀。",
+			"no_supported_files_found": "指定資料夾中找不到支援的檔案（{extensions}）。",
+			"no_matching_assets_to_pack": "找不到名稱相符、可打包的資源。",
+			"process_complete": "處理完成！\n成功打包 {count} 個檔案。\n\n檔案已儲存至輸出資料夾，現在可以點擊「{button}」按鈕套用變更。"
+		},
+		"crc": {
+			"provide_at_least_one_file": "請至少提供一個檔案路徑。",
+			"match_no_correction_needed": "CRC 值相符，不需修正。",
+			"correction_success": "CRC 修正成功！\n修正後的檔案已儲存至輸出資料夾：\n{path}",
+			"correction_failed": "CRC 修正失敗。",
+			"file_crc32": "檔案 CRC32：{crc}",
+			"calculation_error": "計算 CRC 時發生錯誤：\n{error}",
+			"modified_file_crc32": "待修正檔案 CRC32：{crc}",
+			"original_file_crc32": "原始檔案　 CRC32：{crc}",
+			"match_yes": "CRC 相符：✅ 是",
+			"match_no": "CRC 相符：❌ 否",
+			"correction_failed_file_not_generated": "CRC 修正失敗，無法產生最終檔案「{name}」。"
+		},
+		"spine": {
+			"version_conflict_header": "以下 .skel 檔案的 Spine 版本與目標版本（{major_minor}.x）不符，已拒絕：",
+			"version_conflict_item": "  - {name}（來源版本 {source}）",
+			"version_conflict_hint": "請檢查 Spine 轉換器設定。"
+		},
+		"report_open_prompt": "報告已產生！\n是否開啟報告檔案？",
+		"batch_preview_open_prompt": "批次渲染完成！\n成功 {rendered} / {total} 組，是否開啟輸出資料夾？",
+		"batch_preview": {
+			"no_category": "請至少選擇一個要渲染的分類。"
+		},
+		"search": {
+			"check_file_exists": "請檢查「{path}」是否存在。",
+			"no_matching_files_in_dir": "指定資料夾中找不到相符的檔案。",
+			"no_comparable_assets": "舊版 Mod 檔案中沒有可比對的資源。",
+			"new_file_confirmed": "已確定新版檔案：{name}",
+			"no_matching_asset_found": "所有候選檔案中都找不到與舊版 Mod 資源名稱相符的資源，無法確定正確的新版檔案。",
+			"found_multiple_matches": "找到 {count} 個相符的檔案",
+			"filename_parse_failed": "檔名解析失敗"
+		},
+		"extractor": {
+			"no_assets_found": "找不到指定類型的可提取資源。",
+			"extraction_complete": "提取完成，共輸出 {count} 個檔案。"
+		},
+		"mod_update": {
+			"success": "更新成功！",
+			"no_assets_extracted": "來源檔案中沒有提取到任何資源",
+			"no_targets_processed": "沒有成功處理任何目標檔案",
+			"all_targets_unchanged": "所有目標檔案皆未變更，不需更新"
+		},
+		"mod_install": {
+			"filename_parse_failed": "無法解析檔名：{filename}",
+			"target_conflict": "多個 Mod 組指向同一個檔案：{filename}",
+			"no_game_dir": "未設定遊戲資源資料夾，無法分析 Mod 與遊戲檔案的關係。",
+			"adb_unsupported": "Mod 安裝暫不支援 ADB 模式，請切換為本機檔案來源。",
+			"nothing_selected": "未選擇要安裝的組。",
+			"summary": "安裝完成！\n成功：{installed} 組\n跳過（已安裝）：{skipped} 組\n失敗：{failed} 組",
+			"failed_detail": "失敗詳情：\n{details}"
+		},
+		"save_error": "儲存檔案時發生錯誤：{error}",
+		"replace_result": "替換完成！\n成功：{success} 個檔案，失敗：{fail} 個檔案",
+		"batch": {
+			"success": "批次處理完成！\n成功：{success}，失敗：{fail}"
+		},
+		"anim_diff": {
+			"header": "此 Mod 缺少遊戲所需的部分新動畫。\n遊戲中播放這些動畫時（例如劇情事件），\n遊戲可能會卡住。\n\n為避免此問題，請查看上方記錄中的缺少清單，\n並與 Mod 作者確認正確的更新版本。"
+		},
+		"3rd_party": {
+			"download_guide": "是否前往下載 {program}？\n{url}",
+			"skel_converter_not_configured": "尚未設定 SpineSkeletonDataConverter。\n請在設定頁面設定 SpineSkeletonDataConverter 的路徑。",
+			"spine_viewer_required": "尚未設定 SpineViewerCLI，或路徑無效。\n\n請在設定頁面設定 SpineViewerCLI 的路徑。"
+		},
+		"download_confirm": "從以下網址下載檔案：\n{url}\n\n並儲存至：{path}",
+		"game_dir": {
+			"detect_success": "已偵測到遊戲資料夾：\n{path}",
+			"detect_failed": "找不到《蔚藍檔案》的安裝位置，請手動選擇資料夾。"
+		},
+		"adb": {
+			"detect_success": "ADB 偵測成功：{version}",
+			"detect_failed": "ADB 偵測失敗，請檢查路徑。",
+			"not_connected": "ADB 裝置未連線",
+			"clear_cache_confirm": "確定要清除所有 ADB 緩存檔案嗎？",
+			"clear_cache_done": "緩存已清除，釋放 {size}",
+			"push_confirm": "以下檔案將推送到 Android 裝置，是否繼續？\n{files}",
+			"cache_complete": "緩存完成，成功 {success} 個，失敗 {fail} 個",
+			"no_local_files": "請先選擇要推送的本機檔案",
+			"no_target_dir": "請指定目標資料夾",
+			"push_summary": "推送完成：成功 {success} 個，失敗 {fail} 個"
+		},
+		"abnormal_check": {
+			"no_mismatch": "沒有 CRC 不符的檔案",
+			"confirm_fix": "要修復 {count} 個檔案的 CRC 值嗎？",
+			"fix_complete": "修復完成"
+		},
+		"backup": {
+			"path_required": "請先選擇備份路徑",
+			"clear_confirm": "備份資料夾已存在，是否清空後重新備份？",
+			"open_prompt": "備份完成，共備份 {count} 個 Mod 檔案。\n是否開啟備份資料夾？",
+			"no_mod_found": "找不到 Mod 檔案"
+		},
+		"task_running_close_confirm": "任務執行中，關閉視窗將中止任務。\n\n確定要關閉視窗嗎？"
+	},
+	"status": {
+		"ready": "就緒",
+		"processing": "處理中",
+		"processing_detailed": "處理中：{filename}",
+		"processing_batch": "處理中（{current}/{total}）：{filename}",
+		"batch_starting": "開始批次更新",
+		"searching": "正在尋找檔案……",
+		"search_not_found": "找不到相符的檔案",
+		"done": "完成",
+		"failed": "失敗",
+		"error": "錯誤：{error}",
+		"loaded": "已載入 {type}",
+		"calculation_done": "計算完成",
+		"extracting": "正在提取資源……",
+		"render_progress": "正在渲染預覽（{done}/{total}）……"
+	},
+	"log": {
+		"file": {
+			"loaded": "已載入：{path}",
+			"selected_num": "已選擇 {count} 個檔案",
+			"saving_bundle_prefix": "正在儲存 Bundle……",
+			"compression_method": "壓縮方式：{compression}",
+			"crc_correction": "CRC 修正：{crc_status}",
+			"saved": "輸出檔案已儲存至：{path}",
+			"backed_up": "檔案已備份至：{path}",
+			"overwritten": "已覆蓋：{path}",
+			"backup_failed": "建立備份檔案失敗：{error}",
+			"read_in_memory_failed": "無法在記憶體中讀取檔案「{name}」：{error}",
+			"load_failed": "無法以任何方式載入「{path}」。",
+			"save_failed": "無法將檔案儲存至「{path}」：{error}",
+			"directory_opened": "已開啟資料夾：{path}",
+			"added_count": "已新增 {count} 個檔案",
+			"removed_count": "已移除 {count} 個檔案",
+			"list_cleared": "清單已清空",
+			"downloaded": "已下載：{path}",
+			"no_files_found_in_folder": "此資料夾中找不到 {type} 檔案",
+			"no_changes_made": "此檔案未做任何修改，未儲存。",
+			"not_exist": "檔案不存在：{path}",
+			"rename": "已重新命名檔案：[{old}] -> [{new}]"
+		},
+		"config": {
+			"reset": "已重置為預設設定",
+			"saved": "設定已儲存",
+			"save_failed": "設定儲存失敗：{error}",
+			"load_failed": "讀取失敗",
+			"loaded": "設定已讀取",
+			"language": "目前語言：{language}",
+			"language_missing": "找不到語言檔案「{language}」"
+		},
+		"spine": {
+			"skel_converter_set": "已設定 Skel 轉換器：{path}",
+			"spine_viewer_set": "已設定 SpineViewerCLI：{path}",
+			"character_map_set": "已設定角色 ID 對照表：{path}",
+			"skel_version_detection_failed": "無法偵測目前 .skel 檔案的版本",
+			"converting_skel": "正在轉換 .skel 檔案：{name}",
+			"version_conversion": "目前版本：{current} -> 目標版本：{target}",
+			"executing_command": "執行指令：{command}",
+			"skel_conversion_success": "Skel 轉換成功",
+			"skel_conversion_failed": "Skel 轉換失敗",
+			"skel_detected": "偵測到 .skel 檔案：{name}",
+			"version_mismatch_converting": "偵測到 Spine 版本不符（目前 {current}，目標 {target}），將進行轉換。",
+			"version_mismatch_no_convert": "偵測到 Spine 版本不符（目前 {current}，目標 {target}），且未啟用 Spine 轉換器。",
+			"version_conflict_rejected": "偵測到 {count} 個 .skel 版本衝突，已拒絕替換",
+			"converting_atlas": "正在轉換 Atlas：{name}",
+			"version_detected_downgrading": "偵測到 Spine 版本：{version}，嘗試降級……",
+			"atlas_downgrade_success": "Atlas 降級成功",
+			"legacy_rename_detected": "偵測到需要重新命名的舊版檔名",
+			"edit_atlas": "已編輯 Atlas 檔案：{filename}",
+			"unpacking_atlas": "正在解包 Atlas：{name}",
+			"atlas_unpack_success": "Atlas 解包成功，影格已儲存至：{path}",
+			"atlas_unpack_failed": "Atlas 解包失敗",
+			"querying_info": "正在查詢動畫資訊：{name}",
+			"query_success": "找到 {anim_count} 個動畫、{skin_count} 個皮膚",
+			"query_failed": "查詢失敗。",
+			"rendering_preview": "正在渲染預覽圖：{name}（動畫：{anim}）",
+			"render_success": "預覽圖已渲染：{path}",
+			"render_failed": "預覽圖渲染失敗：{error}",
+			"render_file_not_found": "渲染完成，但找不到輸出檔案：{path}",
+			"no_skel_found": "找不到 .skel 檔案",
+			"no_animation_found": "找不到可用的動畫：{name}",
+			"using_first_animation": "找不到 Idle_01 或 Dummy，使用第一個動畫：{anim}",
+			"preview_complete": "預覽圖渲染完成，共產生 {count} 個檔案。",
+			"preview_failed": "預覽圖渲染失敗。",
+			"anim_check_comparing": "正在檢查動畫差異：{name}",
+			"anim_check_new_animations": "目標 {name} 含有來源沒有的動畫：{animations}",
+			"anim_check_no_diff": "{name} 動畫一致",
+			"anim_check_failed": "動畫差異檢查失敗：{error}",
+			"anim_diff_title": "以下檔案含有原 Mod 缺少的新動畫：",
+			"anim_diff_item_count": "缺少 {count} 個動畫",
+			"anim_diff_missing_list": "缺少清單：{animations}",
+			"anim_diff_hint": "提示：遊戲原版可能更新了動畫，直接使用舊版 Mod 時，觸發這些動畫可能會讓遊戲卡住。"
+		},
+		"packer": {
+			"start_packing": "開始打包資源……",
+			"pack_success_path": "打包成功，檔案已輸出至：{path}",
+			"found_files_to_process": "找到 {count} 個待處理檔案，正在掃描 Bundle 並替換……",
+			"no_assets_packed": "沒有成功打包任何資源。",
+			"no_changes_saved": "未做任何修改，已儲存原始 Bundle：{name}",
+			"packing_complete": "打包完成：成功打包 {success} / {total} 個資源。",
+			"unmatched_files_warning": "以下檔案在 Bundle 中找不到對應的資源",
+			"attempted_match": "嘗試比對：「{key}」",
+			"bleed_processed": "已對圖片 {name} 進行 Bleed 處理",
+			"strategy_success": "以策略 {strategy} 套用了 {count} 個資源"
+		},
+		"crc": {
+			"loaded_original": "已載入原始檔案：{file}",
+			"loaded_modified": "已載入待修正檔案：{file}",
+			"start_correction": "開始 CRC 修正……",
+			"match_no_correction_needed": "CRC 值相符，不需修正",
+			"correction_success": "CRC 修正成功！",
+			"correction_failed": "CRC 修正失敗",
+			"calculation_error": "計算 CRC 時發生錯誤：{error}",
+			"match_yes": "CRC 相符：✅ 是",
+			"match_no": "CRC 相符：❌ 否",
+			"file_crc32": "檔案 CRC32：{crc}",
+			"modified_file_crc32": "待修正檔案 CRC32：{crc}",
+			"original_file_crc32": "原始檔案　 CRC32：{crc}"
+		},
+		"report": {
+			"scan_start": "開始掃描",
+			"analyze_trailing": "正在分析尾端位元組",
+			"bundle_count": "找到 {count} 個 Bundle 檔案",
+			"mod_count": "找到 {count} 個 Mod 檔案",
+			"render_preview": "正在渲染預覽圖",
+			"render_retry": "Mod 未包含完整資源，改用原始檔案重試：{prefix}",
+			"render_count": "已渲染 {count} 張預覽圖",
+			"no_mod_found": "找不到 Mod 檔案",
+			"saved": "報告已儲存至：{path}",
+			"success": "報告產生成功，共 {count} 個 Mod"
+		},
+		"batch_preview": {
+			"scan_start": "開始批次渲染掃描",
+			"no_spine_found": "找不到 Spine 資源",
+			"group_count": "找到 {count} 組待渲染的 Spine 資源",
+			"render_count": "批次渲染完成：成功 {count} / {total} 組"
+		},
+		"section": {
+			"extract_to_temp": "提取資源到暫存資料夾",
+			"move_to_output": "將提取的檔案移到輸出資料夾",
+			"process_spine_downgrade": "處理 Spine 資源並降級",
+			"process_atlas_unpack": "解包 Atlas 影格圖片",
+			"render_preview": "渲染預覽圖",
+			"applying_to_targets": "套用到目標組",
+			"extracting_patches": "正在提取補丁"
+		},
+		"compression": {
+			"original": "原始",
+			"none": "無",
+			"lzma": "LZMA",
+			"lz4": "LZ4"
+		},
+		"search": {
+			"searching_for_file_group": "正在為 {count} 個來源檔案搜尋目標檔案……",
+			"file_prefix": "檔名前綴：「{prefix}」",
+			"file_core": "檔名核心：「{core}」",
+			"found_candidates": "找到 {count} 個候選檔案，正在驗證內容……",
+			"source_mod_asset_count": "來源組含有 {count} 個資源。",
+			"checking_candidate": "正在檢查：{name}",
+			"find_failed": "搜尋失敗：{message}"
+		},
+		"extractor": {
+			"starting_extraction": "開始從「{filename}」提取資源……",
+			"starting_extraction_num": "正在從 {num} 個檔案提取資源……",
+			"extraction_types": "提取類型：{types}",
+			"using_temp_dir": "使用暫存資料夾：{path}",
+			"skipping_unnamed": "跳過一個未命名的 {type} 資源",
+			"extraction_failed": "提取資源 {name} 時發生錯誤：{error}",
+			"processing_file": "正在處理：{name}",
+			"stream_ref_dangling": "跳過提取 [{name}]：序列化資料引用了 Bundle 中不存在的串流資料檔（.resS），替換會損毀資源",
+			"stream_ref_export_unsupported": "跳過匯出 [{name}]：含 .resS 串流引用的資源暫不支援匯出為可重新打包的 dump"
+		},
+		"mod_update": {
+			"all_processes_complete": "全部流程已完成！",
+			"updating": "正在更新……",
+			"source_files": "來源組（{count} 個檔案）",
+			"target_files": "目標組（{count} 個檔案）",
+			"pool_built": "替換池已建立，共 {count} 個資源",
+			"target_unchanged": "目標未變更：{name}（{count} 個資源），跳過",
+			"target_processed": "目標已處理：{name}（替換 {applied} 個資源）",
+			"all_targets_unchanged": "所有目標檔案皆未變更，不需更新"
+		},
+		"mod_install": {
+			"plan_start": "正在分析 {count} 個 Mod 檔案……",
+			"group_info": "組 [{core}]（{count} 個檔案）",
+			"same_name_found": "找到同名檔案：{filename}，將直接替換",
+			"filter_latest_date": "有多個日期版本，使用最新的：{date}",
+			"update_targets": "需要更新，符合 {count} 個目標檔案：{names}",
+			"target_conflict": "目標檔案衝突：{filename}",
+			"plan_done": "分析完成：共 {total} 個檔案 / {groups} 組（直接替換 {direct}，需更新 {update}，未找到 {not_found}，錯誤 {error}）",
+			"execute_start": "正在安裝 {count} 個 Mod 組……",
+			"execute_group": "正在安裝組 [{core}]……",
+			"crc_resave": "需要 CRC 碰撞修正，重新儲存：{filename}",
+			"replace_failed": "替換檔案失敗：{path}（{error}）",
+			"already_installed": "組 [{core}] 的所有資源皆未變更，視為已安裝，跳過",
+			"execute_done": "安裝完成：成功 {installed} 組 / 跳過 {skipped} 組 / 失敗 {failed} 組",
+			"list_cleaned": "已從清單移除 {count} 個已安裝的檔案"
+		},
+		"batch": {
+			"summary": "批次處理完成！\n總計：{total}，成功：{success}，失敗：{fail}",
+			"start": "開始批次處理……",
+			"failed_items_cnt": "共 {count} 個檔案處理失敗：",
+			"failed_item": "- {filename}",
+			"process_success": "處理成功：{filename}",
+			"process_failed": "處理失敗：{filename} - {message}",
+			"process_unchanged": "內容未變更，跳過：{filename}",
+			"output_files_list": "輸出檔案清單（共 {count} 個）："
+		},
+		"summary": {
+			"title": "處理摘要",
+			"total_files": "總計：{count} 個檔案",
+			"output_files": "已輸出：{count} 個檔案",
+			"skipped_files": "已跳過：{count} 個檔案",
+			"no_changes": "沒有變更"
+		},
+		"game_dir": {
+			"detected": "找到遊戲資料夾：{path}"
+		},
+		"game_dir_not_set": "未設定遊戲資源資料夾，無法自動尋找原始檔案。",
+		"file_not_found_in_dirs": "在指定的資源資料夾中找不到對應的原始檔案「{filename}」。",
+		"file_found_in_subdir": "已在「{subdir}」中自動找到並載入原始檔案：{filename}",
+		"output_dir_not_set": "未設定輸出資料夾",
+		"success_fail": "成功：{success}，失敗：{fail}",
+		"error_detail": "發生錯誤：{error}",
+		"error_processing": "處理時發生錯誤：{error}",
+		"process_failed": "處理失敗：{error}",
+		"replace_original": "現在可以按「{button}」按鈕覆蓋原始檔案",
+		"generated_file_not_found": "操作回報成功，但在輸出資料夾中找不到產生的檔案。",
+		"replace_resource_failed": "替換資源 [{type}] {name} 時發生錯誤：{error}",
+		"replace_applied": "已替換 [{type}] {name}",
+		"replace_skipped_same_content": "跳過替換 [{type}] {name}：內容與原始檔案相同",
+		"replace_companion_exists": "附屬串流檔案 {name} 已存在，跳過附加",
+		"replace_companion_attached": "附屬檔案：{names}",
+		"stream_prefix_skip": "串流引用前綴 {src} 與目標 SF 名稱 {dst} 長度不同，跳過改寫",
+		"platform_info": "目標平台：{platform}（Unity {version}）",
+		"unnamed_resource": "未命名的 {type} 資源",
+		"adb": {
+			"cache_hit": "緩存命中：{name}",
+			"cache_miss": "緩存未命中，從裝置拉取：{name}",
+			"pull_failed": "拉取失敗：{path} - {error}",
+			"push_failed": "推送失敗：{path} - {error}",
+			"list_dir_failed": "列出資料夾失敗：{path} - {error}",
+			"push_start": "正在推送到裝置：{name}",
+			"push_success": "推送成功：{name}",
+			"cache_caching": "正在將 {count} 個檔案緩存到本機……",
+			"cache_delete_failed": "刪除緩存檔案 {name} 失敗：{error}",
+			"push_start_batch": "正在推送 {count} 個檔案到 {dir}"
+		},
+		"abnormal_check": {
+			"found_count": "找到 {count} 個 CRC 不符的檔案",
+			"fixing": "正在修復：{filename}",
+			"fix_success": "修復成功：{filename}",
+			"fix_failed": "修復失敗：{filename}",
+			"fix_verify_failed": "修復驗證失敗：{filename}",
+			"fix_error": "修復 {filename} 時發生錯誤：{error}"
+		},
+		"backup": {
+			"start": "開始備份 Mod",
+			"found_mods": "找到 {count} 個 Mod 檔案",
+			"done": "備份完成，共 {count} 個檔案",
+			"companion_checking": "正在檢查關聯的 textasset：{filename}",
+			"companion_matched": "找到需一併備份的 textasset：{filename}"
+		}
+	},
+	"ui": {
+		"app_title": "Blue Archive Modding and Patching Tool",
+		"tabs": {
+			"mod_update": "Mod 更新",
+			"batch_update": "批次更新",
+			"mod_install": "Mod 安裝",
+			"crc_tool": "CRC 工具",
+			"asset_packer": "資源打包",
+			"asset_extractor": "資源提取",
+			"file_list": "檔案清單",
+			"adb_push": "ADB 檔案推送",
+			"tools": "工具"
+		},
+		"tools": {
+			"batch_tools": "批次工具",
+			"batch_tools_info": "Mod 偵測方式：比對 Bundle 檔頭記錄的大小與實際檔案大小，檔案尾端附加了額外位元組時即判定為 Mod。下方的批次工具都依此偵測。\n\n注意：此偵測方式只保證適用於 Steam 版。其他版本的 Mod 不需 CRC 修正即可進入遊戲，因此無法保證偵測得到。",
+			"report": {
+				"title": "產生 Mod 報告",
+				"info": "掃描遊戲資料夾中偵測到的所有 Mod 檔案，依分類產生 Markdown 報告，可選擇渲染 Spine 預覽圖。"
+			},
+			"abnormal_check": {
+				"title": "修復「不正常的用戶端」",
+				"info": "偵測檔名中的 CRC 與實際檔案 CRC 不符的 Mod 檔案（遊戲用戶端會判定這類檔案異常），並一鍵修復。",
+				"result_list": "偵測結果",
+				"column_filename": "檔名",
+				"column_char_name": "角色",
+				"column_target_crc": "目標 CRC",
+				"column_actual_crc": "實際 CRC"
+			},
+			"backup": {
+				"title": "備份 Mod",
+				"info": "將遊戲資料夾中偵測到的所有 Mod 檔案複製到指定的備份資料夾，並保留原始資料夾結構。"
+			},
+			"batch_preview": {
+				"title": "批次渲染預覽圖",
+				"info": "渲染指定遊戲資源資料夾中所有 Spine 資源（角色立繪、紀念大廳、Spine 背景）的預覽圖，不限 Mod 檔案。輸出到輸出資料夾的 batch_preview 子資料夾。",
+				"game_dir": "遊戲資源資料夾"
+			}
+		},
+		"settings": {
+			"title": "設定",
+			"button_text": "設定",
+			"group_save": "儲存設定",
+			"group_assets": "資源選項",
+			"group_skel_converter": "Skel 轉換器",
+			"group_spine_viewer": "SpineViewer",
+			"group_bacii": "角色名稱",
+			"group_performance": "效能",
+			"group_app": "應用程式設定",
+			"group_paths": "路徑設定",
+			"group_adb": "ADB 設定",
+			"adb": {
+				"device": "裝置選擇",
+				"detecting": "正在偵測……",
+				"device_connected": "裝置就緒",
+				"device_unauthorized": "裝置未授權，請在手機上允許 USB 偵錯。",
+				"device_offline": "裝置離線",
+				"cache_size": "緩存大小：{size}"
+			}
+		},
+		"column": {
+			"filename": "檔名",
+			"file_size": "大小",
+			"modified_time": "修改時間"
+		},
+		"adb_push": {
+			"local_files": "本機檔案",
+			"placeholder_local": "將檔案或資料夾拖放到這裡……",
+			"target_dir": "目標資料夾（裝置路徑）",
+			"push": "推送到裝置"
+		},
+		"mod_update": {
+			"placeholder_old": "將要更新或移植的舊版 Mod 檔案拖放到這裡\n或點擊下方按鈕選擇",
+			"placeholder_new": "選擇修改後的檔案時會自動尋找原始檔案\n或手動拖放、瀏覽",
+			"placeholder_batch": "將檔案或資料夾拖放到這裡……",
+			"status_not_found": "找不到相符的資源：{message}"
+		},
+		"mod_install": {
+			"placeholder": "將要安裝的 Mod 檔案拖放到這裡……",
+			"view_details": "查看詳情",
+			"dialog_title": "Mod 安裝確認",
+			"likely_installed": "可能已安裝",
+			"prev_group": "◀ 上一組",
+			"next_group": "下一組 ▶",
+			"preview_current": "目前",
+			"preview_new": "安裝後",
+			"preview_none": "尚無預覽",
+			"meta_title": "檔案與資源",
+			"confirm_install": "安裝（{install}/{total}）",
+			"action_direct_replace": "直接替換",
+			"action_update": "更新後替換",
+			"action_not_found": "找不到相符的檔案",
+			"action_error": "錯誤",
+			"action_mixed": "混合",
+			"meta_size": "{mod_size} → {existing_size}",
+			"diff_content_changed": "內容有變更",
+			"diff_unchanged": "未變更",
+			"diff_missing_anims": "缺少 {count} 個動畫",
+			"diff_will_replace": "將被替換",
+			"preview_rendering": "渲染中……",
+			"preview_failed": "渲染失敗"
+		},
+		"crc_tool": {
+			"placeholder_modified": "將要修正 CRC 的 Bundle 拖放到這裡\n或點擊下方按鈕選擇",
+			"placeholder_origin": "選擇待修正檔案時會自動尋找原始檔案\n或手動拖放、瀏覽"
+		},
+		"packer": {
+			"placeholder_assets": "將要打包的資源（.png、.skel、.atlas 等）拖放到這裡",
+			"placeholder_bundle": "將目標 Bundle 檔案拖放到這裡\n或點擊下方按鈕選擇"
+		},
+		"extractor": {
+			"placeholder_bundle": "將要提取的所有 Bundle 拖放到這裡"
+		},
+		"dialog": {
+			"select": "選擇{type}",
+			"select_file": "選擇檔案",
+			"adb_browser": "ADB 檔案選擇器",
+			"adb_browser_dir": "ADB 資料夾選擇器"
+		},
+		"drop_zone": {
+			"file_hint": "將檔案拖放到這裡\n或點擊下方按鈕選擇",
+			"folder_hint": "將資料夾拖放到這裡\n或點擊下方按鈕選擇",
+			"searching": "正在尋找……",
+			"multiple_files_rejected": "一次只能拖放一個檔案",
+			"contains": "含有 {count} 個檔案：{types}"
+		},
+		"preview": {
+			"double_click_hint": "按兩下圖片查看原尺寸"
+		},
+		"label": {
+			"mod_file": "要處理的 Mod 檔案",
+			"search_path": "搜尋路徑：",
+			"assets_to_pack": "要打包的資源",
+			"target_bundle_file": "目標 Bundle 檔案",
+			"bundles_to_extract": "要提取的 Bundle",
+			"original_file": "原始檔案",
+			"modified_file": "待修正檔案",
+			"environment": "執行環境",
+			"github": "GitHub",
+			"options": "選項",
+			"adb_cache": "ADB 緩存",
+			"target_crc": "目標 CRC 值",
+			"mod_info": "關於 Mod 偵測"
+		},
+		"log_area": "記錄",
+		"status_label": "狀態：",
+		"file_list": {
+			"window_title": "Bundle 檔案清單",
+			"column": {
+				"filename": "檔名",
+				"directory": "資料夾",
+				"file_size": "大小",
+				"modified_time": "修改時間",
+				"trailing_bytes": "尾端位元組",
+				"trailing_content": "尾端內容",
+				"category": "分類",
+				"core": "Core",
+				"character": "角色名稱",
+				"res_type": "資源類型",
+				"crc": "檔名 CRC",
+				"crc_actual": "實際 CRC"
+			},
+			"analyze_label": "分析：",
+			"analyze_trailing": "尾端位元組",
+			"analyze_naming": "檔名解析",
+			"analyze_crc": "CRC 檢查",
+			"no_analyzer_selected": "請至少選擇一種分析類型",
+			"scanning": "正在掃描……",
+			"analyzing": "正在分析……",
+			"analyzing_progress": "正在分析……（{done}/{total}）{filename}",
+			"crc_match": "CRC 相符：✅ 檔名 {expected} == 實際 {actual}",
+			"crc_mismatch": "CRC 不符：❌ 檔名 {expected} != 實際 {actual}",
+			"crc_no_filename_crc": "檔名中沒有 CRC 值，實際 CRC：{actual}",
+			"no_dirs_found": "找不到有效的搜尋資料夾",
+			"scan_complete": "掃描完成",
+			"analyze_complete": "分析完成",
+			"filter_label": "篩選：",
+			"select": {
+				"label": "批次選取",
+				"dialog_title": "批次選取條件",
+				"column": "目標欄",
+				"operator": "運算子",
+				"value": "比對值",
+				"action": "選取",
+				"action_filter": "選取並篩選",
+				"invert": "反向選取",
+				"no_match": "找不到相符的列",
+				"matched": "已選取 {count} 列"
+			},
+			"filter": {
+				"has_trailing": "含尾端位元組",
+				"crc_mismatch": "CRC 不符",
+				"has_character": "含角色名稱",
+				"common_mod": "常見 Mod 前綴"
+			},
+			"op": {
+				"contains": "包含",
+				"equals": "等於",
+				"starts_with": "開頭為",
+				"ends_with": "結尾為",
+				"regex": "正規表示式"
+			}
+		},
+		"adb_browser": {
+			"loading": "正在載入檔案清單……",
+			"error": "載入失敗：{error}",
+			"found": "掃描完成，共 {count} 個檔案"
+		},
+		"anim_diff": {
+			"title": "缺少動畫警告"
+		}
+	},
+	"webui": {
+		"top": {
+			"students": "學生"
+		},
+		"consent": {
+			"title": "使用遊戲素材",
+			"no": "不同意並退出",
+			"yes": "同意並緩存",
+			"cached": {
+				"label": "緩存到本機",
+				"items": "介面圖示、按鈕、邊框、材質、字型"
+			},
+			"never": {
+				"label": "不緩存",
+				"items": "立繪、紀念大廳、3D 模型、語音、背景",
+				"how": "每次從遊戲資料夾讀取"
+			},
+			"note": "素材版權歸原權利人所有，僅存於本機，可在設定中清除",
+			"change": "變更"
+		},
+		"info": {
+			"title": {
+				"portrait": "立繪資訊",
+				"lobby": "紀念大廳資訊",
+				"model": "3D 模型資訊"
+			},
+			"details": "詳情",
+			"current": "目前",
+			"status": "狀態",
+			"gameFile": "遊戲檔案",
+			"crc": "CRC"
+		},
+		"row": {
+			"box": {
+				"portrait": "立繪",
+				"lobby": "紀念大廳",
+				"model": "3D 模型"
+			},
+			"switch": {
+				"portrait": "切換立繪",
+				"lobby": "切換紀念大廳",
+				"model": "切換 3D 模型"
+			},
+			"add": {
+				"portrait": "新增立繪",
+				"lobby": "新增紀念大廳",
+				"model": "新增 3D 模型"
+			},
+			"four": {
+				"portrait": "差分",
+				"lobby": "對話",
+				"model": "動作"
+			}
+		},
+		"lobby": {
+			"original": "原版",
+			"fullscreen": "全螢幕",
+			"playAll": "播放全部對話",
+			"stop": "停止",
+			"exit": "離開全螢幕",
+			"dialogue": "對話 {n}"
+		},
+		"model": {
+			"original": "原版",
+			"has": "有",
+			"none": "無",
+			"failed": "無法讀取 3D 模型",
+			"action": {
+				"idle": "待機",
+				"reaction": "反應",
+				"walk": "行走",
+				"victory": "勝利",
+				"pickup": "拎起"
+			}
+		},
+		"visual": {
+			"reset": "重置",
+			"hide": "隱藏介面",
+			"show": "顯示介面"
+		},
+		"nav": {
+			"students": "學生",
+			"modUpdate": "Mod 更新",
+			"batch": "批次更新",
+			"install": "批次安裝",
+			"crc": "CRC 工具",
+			"pack": "資源打包",
+			"extract": "資源提取",
+			"adb": "ADB 推送",
+			"tools": "工具"
+		},
+		"roster": {
+			"title": "學生清單",
+			"merge": "合併變體",
+			"search": "搜尋",
+			"searchHint": "名字、別名、檔案 ID",
+			"empty": "沒有符合條件的學生",
+			"asc": "遞增",
+			"desc": "遞減"
+		},
+		"seg": {
+			"all": "全部",
+			"mods": "有 Mod",
+			"noMods": "無 Mod",
+			"recruit": "已實裝",
+			"noRecruit": "未實裝"
+		},
+		"sort": {
+			"recent": "最近查看",
+			"added": "最近新增",
+			"name": "名字",
+			"mods": "Mod 數量",
+			"release": "實裝日期",
+			"default": "預設"
+		},
+		"display": {
+			"title": "顯示設定",
+			"tab": {
+				"filter": "篩選",
+				"sort": "排序"
+			},
+			"count": "顯示 {n}",
+			"reset": "全部重置",
+			"sortBy": "排序依據",
+			"close": "關閉",
+			"fav": {
+				"off": "未加入"
+			},
+			"kind": {
+				"title": "類型",
+				"student": "學生",
+				"npc": "其他角色"
+			}
+		},
+		"band": {
+			"mods": "Mod × {n}",
+			"replaced": "已替換"
+		},
+		"bar": {
+			"noMods": "無 Mod"
+		},
+		"tab": {
+			"portrait": "立繪",
+			"lobby": "紀念大廳",
+			"model": "3D 模型"
+		},
+		"status": {
+			"original": "遊戲原版",
+			"replaced": "已替換",
+			"gameFile": "遊戲檔案",
+			"installed": "已安裝",
+			"notInstalled": "未安裝"
+		},
+		"crc": {
+			"original": "不需修正",
+			"needed": "需修正",
+			"fixed": "已修正"
+		},
+		"open": {
+			"mac": "在 Finder 中顯示",
+			"win": "在檔案總管中顯示"
+		},
+		"act": {
+			"edit": "編輯",
+			"update": "更新",
+			"extract": "提取",
+			"compare": "比對"
+		},
+		"chips": {
+			"more": "更多 +{n}"
+		},
+		"fav": {
+			"label": "我的最愛",
+			"on": "已加入"
+		},
+		"alias": {
+			"title": "別名",
+			"add": "新增別名",
+			"remove": "刪除"
+		},
+		"fold": {
+			"label": "收合"
+		},
+		"popup": {
+			"switch": "切換立繪",
+			"apply": "套用",
+			"cancel": "取消",
+			"inUse": "使用中",
+			"add": "新增立繪"
+		},
+		"field": {
+			"file": "檔案",
+			"type": "類型",
+			"size": "大小",
+			"status": "狀態",
+			"crc": "CRC",
+			"folder": "資料夾",
+			"date": "日期",
+			"modFile": "Mod 檔案",
+			"source": "來源"
+		},
+		"type": {
+			"recruit": "已實裝",
+			"noRecruit": "未實裝",
+			"added": "新增的立繪"
+		},
+		"btn": {
+			"open": "在 Finder 中顯示",
+			"extract": "提取",
+			"remove": "移除"
+		},
+		"picker": {
+			"title": "選擇變體",
+			"ok": "確認",
+			"group": "{name} {n}"
+		},
+		"app": {
+			"loading": "正在讀取遊戲檔案",
+			"noGame": {
+				"title": "找不到遊戲資料夾",
+				"hint": "自動偵測，或選擇遊戲資料夾"
+			},
+			"openSettings": "開啟設定"
+		},
+		"loading": {
+			"now": "Now Loading",
+			"slow": "仍在載入"
+		},
+		"job": {
+			"running": "處理中",
+			"done": "完成",
+			"failed": "失敗"
+		},
+		"error": {
+			"internal": "發生錯誤：{error}",
+			"game_not_found": "找不到遊戲資料夾",
+			"mod_unsupported": "不支援的檔案：{file}",
+			"game_file_locked": "遊戲檔案使用中，請先關閉遊戲",
+			"native_unavailable": "瀏覽器模式下無法使用",
+			"path_not_found": "找不到路徑：{path}",
+			"reveal_failed": "無法開啟檔案管理員",
+			"classic_failed": "無法啟動經典介面",
+			"unknown_method": "未知的操作：{method}",
+			"bad_params": "參數錯誤",
+			"alias_too_long": "別名最多 {max} 個字",
+			"alias_too_many": "別名最多 {max} 個",
+			"job_not_found": "找不到任務",
+			"update_check_failed": "無法檢查更新",
+			"update_download_failed": "無法下載更新",
+			"update_checksum_mismatch": "更新檔案的檢查碼不符",
+			"update_unavailable": "此版本沒有適用於此裝置的安裝檔",
+			"update_unsupported": "此版本無法自動更新",
+			"lines_unavailable": "暫時無法讀取台詞",
+			"busy": "請等候目前的任務完成",
+			"library_target_not_empty": "資料夾中已有 Mod 倉庫的檔案：{path}",
+			"library_io_error": "無法寫入 Mod 倉庫：{file}",
+			"asset_extraction_failed": "無法從遊戲檔案讀取素材",
+			"asset_load_failed": "無法讀取遊戲檔案：{path}",
+			"bundle_invalid": "不是有效的資源包：{file}",
+			"catalog_data_invalid": "角色資料已損毀",
+			"catalog_family_not_found": "找不到這名學生",
+			"catalog_variant_not_found": "找不到這個變體",
+			"game_file_conflict": "遊戲檔案衝突：{file}",
+			"game_file_not_found": "找不到對應的遊戲檔案",
+			"game_file_outside_resources": "目標不在遊戲資料夾中：{file}",
+			"game_running": "請先關閉遊戲",
+			"game_status_unavailable": "無法確認遊戲是否正在執行",
+			"library_operation_failed": "Mod 倉庫操作失敗",
+			"mod_apply_failed": "無法套用 Mod",
+			"mod_not_found": "找不到這個 Mod",
+			"mod_target_mismatch": "這個 Mod 不適用於此變體",
+			"mod_update_failed": "無法更新 Mod",
+			"original_invalid": "保留的原版檔案已損毀：{file}",
+			"original_unavailable": "沒有可還原的原版檔案，請先在啟動器中驗證遊戲檔案",
+			"source_unsupported": "不支援的來源",
+			"variant_incompatible": "兩個立繪的結構不同，無法互換",
+			"variant_not_found": "找不到這個變體"
+		},
+		"drop": {
+			"hint": "拖入 Mod 檔案以新增"
+		},
+		"update": {
+			"title": "有新版本",
+			"current": "目前版本",
+			"latest": "新版本",
+			"later": "稍後",
+			"now": "更新",
+			"downloading": "下載中 {p}%",
+			"restarting": "即將重新啟動以完成更新",
+			"page": "前往下載頁面"
+		},
+		"settings": {
+			"title": "設定",
+			"tab": {
+				"general": "一般",
+				"sound": "音量",
+				"l2d": "L2D",
+				"folders": "資料夾"
+			},
+			"language": "語言",
+			"cache": {
+				"label": "素材緩存",
+				"on": "已緩存到本機",
+				"off": "未緩存",
+				"clear": "清除緩存",
+				"cleared": "已清除緩存",
+				"change": "變更"
+			},
+			"version": "版本",
+			"update": {
+				"check": "檢查更新",
+				"none": "已是最新版本"
+			},
+			"classic": {
+				"label": "更多設定",
+				"hint": "經典介面中的 Spine 工具、ADB 等",
+				"open": "開啟"
+			},
+			"voice": "語音",
+			"mute": "靜音",
+			"zoomOut": {
+				"label": "縮小範圍",
+				"game": "遊戲視野",
+				"art": "完整畫面",
+				"unlocked": "解除限制",
+				"custom": "自訂",
+				"limit": "自訂上限",
+				"factor": "{v}x"
+			},
+			"post": {
+				"label": "後製",
+				"on": "開啟",
+				"off": "關閉"
+			},
+			"server": {
+				"label": "伺服器",
+				"global": "國際服",
+				"japan": "日服"
+			},
+			"gameDir": "遊戲資料夾",
+			"library": "Mod 倉庫",
+			"output": "輸出資料夾",
+			"browse": "瀏覽",
+			"detect": "自動偵測",
+			"notSet": "未設定",
+			"saved": "已儲存",
+			"button": "設定"
+		},
+		"cacheTo": "緩存到 {path}",
+		"languageName": "繁體中文",
+		"a11y": {
+			"back": "返回"
+		},
+		"compare": {
+			"changed": "已變更",
+			"added": "已新增",
+			"removed": "已移除",
+			"none": "與遊戲檔案相同"
+		}
+	}
+}
