@@ -2,8 +2,11 @@
 import logging
 import shutil
 import sys
+from functools import wraps
 from pathlib import Path
 
+from .. import devmode
+from ..errors import ServiceError
 from .taps import UpdateTap, PackTap, CrcTap, ParseTap, EnvTap, ExtractTap, BatchUpdateTap, ReportTap, BatchPreviewTap, BackupTap
 from ..searching import find_target_bundles, search_prefix, list_bundle_files, get_search_dirs
 from ..core import (
@@ -63,6 +66,42 @@ def setup_cli_logger() -> Logger:
     return CLILogger()
 
 
+# The commands' path arguments, held to the dev roots in dev mode (devmode); tool executables are not data
+_PATH_ARGS = ("old", "target", "resource_dir", "input_dir", "bundle", "bundles", "files", "folder", "bacii_path",
+              "output_dir")
+
+
+def _dev_refused(args, logger: Logger) -> bool:
+    """In dev mode, refuse a path argument outside the dev roots, or a file to fix in place outside
+    BAMT_DEV_WRITABLE: log it and return True."""
+    if not devmode.active():
+        return False
+    fixed = set(args.files) if isinstance(args, CrcTap) and not args.check else set()
+    for name in _PATH_ARGS:
+        value = getattr(args, name, None)
+        for path in value if isinstance(value, list) else [value]:
+            if path is None:
+                continue
+            check, where = ((devmode.check_write, "the writable dev folders (BAMT_DEV_WRITABLE)") if path in fixed
+                            else (devmode.check_read, "the dev roots (BAMT_DEV_ROOTS)"))
+            try:
+                check(path)
+            except ServiceError:
+                logger.log(f"❌ Error: '{path}' is outside {where}.")
+                return True
+    return False
+
+
+def _dev_guarded(handler):
+    """Run a command only once its path arguments pass the dev mode checks."""
+    @wraps(handler)
+    def run(args, logger: Logger = NULL_LOGGER) -> None:
+        if not _dev_refused(args, logger):
+            handler(args, logger)
+    return run
+
+
+@_dev_guarded
 def handle_update(args: UpdateTap, logger: Logger = NULL_LOGGER) -> None:
     """处理 'update' 命令的逻辑。"""
     logger.log("--- Start Mod Update ---")
@@ -160,6 +199,7 @@ def handle_update(args: UpdateTap, logger: Logger = NULL_LOGGER) -> None:
     else:
         logger.log("  - No file pairs processed.")
 
+@_dev_guarded
 def handle_batch_update(args: BatchUpdateTap, logger: Logger = NULL_LOGGER) -> None:
     """处理 'batch-update' 命令的逻辑。"""
     logger.log("--- Start Batch Mod Update ---")
@@ -259,6 +299,7 @@ def handle_batch_update(args: BatchUpdateTap, logger: Logger = NULL_LOGGER) -> N
     logger.log("="*50)
 
 
+@_dev_guarded
 def handle_asset_packing(args: PackTap, logger: Logger = NULL_LOGGER) -> None:
     """处理 'pack' 命令的逻辑。"""
     logger.log("--- Start Asset Packing ---")
@@ -332,6 +373,7 @@ def handle_asset_packing(args: PackTap, logger: Logger = NULL_LOGGER) -> None:
     logger.log("="*50)
 
 
+@_dev_guarded
 def handle_crc(args: CrcTap, logger: Logger = NULL_LOGGER) -> None:
     """处理 'crc' 命令的逻辑。"""
     logger.log("--- Start CRC Tool ---")
@@ -472,6 +514,7 @@ def handle_crc(args: CrcTap, logger: Logger = NULL_LOGGER) -> None:
         logger.log(f"❌ Error during CRC fix process: {e}")
 
 
+@_dev_guarded
 def handle_parse(args: ParseTap, logger: Logger = NULL_LOGGER) -> None:
     """处理 'parse' 命令的逻辑。"""
     logger.log("--- Start Filename Parser ---")
@@ -508,6 +551,7 @@ def handle_env(args: EnvTap, logger: Logger = NULL_LOGGER) -> None:
     logger.log(get_environment_info(ignore_tk=True))
 
 
+@_dev_guarded
 def handle_extract(args: ExtractTap, logger: Logger = NULL_LOGGER) -> None:
     """处理 'extract' 命令的逻辑。"""
     logger.log("--- Start Asset Extraction ---")
@@ -583,6 +627,7 @@ def handle_extract(args: ExtractTap, logger: Logger = NULL_LOGGER) -> None:
         logger.log(f"❌ Operation Failed: {message}")
 
 
+@_dev_guarded
 def handle_report(args: ReportTap, logger: Logger = NULL_LOGGER) -> None:
     """处理 'report' 命令的逻辑。"""
     from datetime import datetime
@@ -658,6 +703,7 @@ def handle_report(args: ReportTap, logger: Logger = NULL_LOGGER) -> None:
         logger.log(f"❌ Report Generation Failed: {message}")
 
 
+@_dev_guarded
 def handle_batch_preview(args: BatchPreviewTap, logger: Logger = NULL_LOGGER) -> None:
     """处理 'batch-preview' 命令的逻辑。"""
     logger.log("--- Start Batch Spine Preview Rendering ---")
@@ -722,6 +768,7 @@ def handle_batch_preview(args: BatchPreviewTap, logger: Logger = NULL_LOGGER) ->
         logger.log("❌ No preview images rendered.")
 
 
+@_dev_guarded
 def handle_backup(args: BackupTap, logger: Logger = NULL_LOGGER) -> None:
     """处理 'backup' 命令的逻辑。"""
     logger.log("--- Start Mod Backup ---")

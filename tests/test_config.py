@@ -2,9 +2,10 @@
 
 from pathlib import Path
 
+import pytest
 import toml
 
-from ba_modding_toolkit.config import FIELDS, Settings
+from ba_modding_toolkit.config import FIELDS, Field, Settings
 
 
 def test_defaults_when_file_missing(tmp_path: Path):
@@ -57,3 +58,44 @@ def test_asset_types(tmp_path: Path):
     assert s.asset_types() == {"Texture2D", "TextAsset", "Mesh", "AnimationClip"}
     s.set("replace_all", True)
     assert s.asset_types() == {"ALL"}
+
+
+def test_keys_in_the_file_never_run_game_detection(tmp_path: Path, monkeypatch):
+    """A value read from the file is coerced by the field's type: the detection default runs only for a missing key."""
+    from ba_modding_toolkit import config
+
+    def detect(region="auto"):
+        raise AssertionError("game detection ran")
+
+    monkeypatch.setattr(config, "get_BA_path", detect)
+    p = tmp_path / "config.toml"
+    p.write_text('[Directories]\nfile_source = "windows_global"\ngame_resource_dir = "/games/ba"\n'
+                 'game_resource_dir_japan = ""\n', encoding="utf-8")
+    s = Settings(p)
+    assert s.get("game_resource_dir") == "/games/ba"
+    assert s.get("game_resource_dir_japan") == ""
+    s.set("game_resource_dir", Path("/games/other"))
+    assert s.get("game_resource_dir") == "/games/other"
+    s.set("file_source", "windows_japan")
+    assert s.get("file_source") == "windows_japan"
+
+
+def test_a_missing_key_still_runs_its_default(tmp_path: Path, monkeypatch):
+    from ba_modding_toolkit import config
+
+    monkeypatch.setattr(config, "get_BA_path", lambda region="auto": "/found" if region == "global" else None)
+    s = Settings(tmp_path / "config.toml")
+    assert s.get("game_resource_dir") == "/found"
+    assert s.get("game_resource_dir_japan") == ""
+    assert s.get("file_source") == "windows_global"
+
+
+def test_field_kinds():
+    assert Field("G", True).kind is bool and Field("G", 4).kind is int and Field("G", "x").kind is str
+    assert Field("G", lambda: "x", str).kind is str
+    with pytest.raises(TypeError):
+        Field("G", lambda: "x")
+    for key, field in FIELDS.items():
+        if not callable(field.default):
+            assert field.kind is type(field.default), key
+        assert field.kind in (bool, int, str), key

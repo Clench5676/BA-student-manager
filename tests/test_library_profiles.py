@@ -1751,6 +1751,17 @@ def test_the_consent_is_asked_at_each_use(world):
     expect_error("scan_off", world.library.scan)
 
 
+def test_in_dev_mode_a_game_folder_outside_the_dev_roots_is_no_known_install(world, monkeypatch):
+    folder = japan(world)
+    mod = world.add(world.spr)
+    world.library.apply("test", f"mod:{mod.id}", pin=pin_of(world, folder))  # recorded there too
+    monkeypatch.setenv("BAMT_DEV_ROOTS", str(world.game))
+    monkeypatch.setenv("BAMT_DEV_WRITABLE", str(world.game))
+    assert [pin.key for pin in world.library.installs()] == [world.key()]
+    monkeypatch.setenv("BAMT_DEV_ROOTS", str(world.tmp))
+    assert {pin.key for pin in world.library.installs()} == {world.key(), world.key(folder)}
+
+
 def test_without_a_current_install_the_switch_still_covers_the_known_ones(world):
     mod = world.add(world.spr)
     world.library.apply("test", f"mod:{mod.id}")
@@ -2050,6 +2061,9 @@ def test_one_locked_file_fails_one_entry_and_the_rest_go_on(world, monkeypatch):
 
 
 def test_a_running_game_stops_the_toggle(world, monkeypatch):
+    # outside dev mode (devmode): inside BAMT_DEV_WRITABLE a game folder is written without the game check
+    monkeypatch.delenv("BAMT_DEV_ROOTS", raising=False)
+    monkeypatch.delenv("BAMT_DEV_WRITABLE", raising=False)
     three_mods(world)
     calls = []
 

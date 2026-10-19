@@ -1016,6 +1016,7 @@
 			"game_file_locked": "A game file is in use, close the game first",
 			"native_unavailable": "Not available in browser mode",
 			"path_not_found": "Path not found: {path}",
+			"dev_path_outside": "Outside the dev folders: {path}",
 			"reveal_failed": "Could not open the file manager",
 			"classic_failed": "Could not start the classic UI",
 			"unknown_method": "Unknown action: {method}",

@@ -15,6 +15,13 @@ from ba_modding_toolkit import updater, utils
 from ba_modding_toolkit.errors import ServiceError
 
 
+@pytest.fixture(autouse=True)
+def outside_dev_mode(monkeypatch):
+    """The updater as a user runs it: in dev mode (devmode) a build never replaces itself."""
+    monkeypatch.delenv("BAMT_DEV_ROOTS", raising=False)
+    monkeypatch.delenv("BAMT_DEV_WRITABLE", raising=False)
+
+
 def test_semver_precedence():
     order = ["0.1.0-alpha", "0.1.0-alpha.1", "0.1.0-alpha.beta", "0.1.0-beta", "0.1.0-beta.2", "0.1.0-beta.11",
              "0.1.0-rc.1", "0.1.0", "0.1.1", "0.2.0", "1.0.0"]

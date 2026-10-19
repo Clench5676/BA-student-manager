@@ -6,6 +6,7 @@ so both GUIs share one file. Unknown groups and keys found in the file are kept 
 
 from __future__ import annotations
 
+import logging
 import os
 import sys
 import threading
@@ -15,6 +16,7 @@ from typing import Any, Callable
 
 import toml
 
+from . import devmode, utils
 from .models import AnimCheckOptions, SaveOptions, SkelConvertOptions
 from .naming import CharacterInternalIDMap
 from .utils import EXE_DIR, get_BA_path, parse_hex_bytes
@@ -22,11 +24,23 @@ from .utils import EXE_DIR, get_BA_path, parse_hex_bytes
 CONFIG_FILE = EXE_DIR / "config.toml"
 APP_DIR_NAME = "BA-Modding-Toolkit"
 
+logger = logging.getLogger(__name__)
+_ignored_game_dirs: set[str] = set()  # dev mode: game folders outside the dev roots, logged once each
+
 
 @dataclass(frozen=True)
 class Field:
     group: str
     default: Any  # a value, or a callable returning one
+    # the value's type (bool, int or str): values read from the file are coerced to it, so a callable default (game
+    # detection) runs only when the key is missing; inferred from a plain default, required for a callable one
+    kind: type | None = None
+
+    def __post_init__(self) -> None:
+        if self.kind is None:
+            if callable(self.default):
+                raise TypeError("a field with a callable default needs its kind")
+            object.__setattr__(self, "kind", type(self.default))
 
 
 def _default_file_source() -> str:
@@ -40,15 +54,15 @@ def _default_file_source() -> str:
 # key -> field, in the order of gui/configs.py
 FIELDS: dict[str, Field] = {
     # Directories
-    "file_source": Field("Directories", _default_file_source),
-    "game_resource_dir": Field("Directories", lambda: get_BA_path("global") or ""),
-    "game_resource_dir_japan": Field("Directories", lambda: get_BA_path("japan") or ""),
+    "file_source": Field("Directories", _default_file_source, str),
+    "game_resource_dir": Field("Directories", lambda: get_BA_path("global") or "", str),
+    "game_resource_dir_japan": Field("Directories", lambda: get_BA_path("japan") or "", str),
     "game_dir_android_global": Field("Directories", "/storage/emulated/0/Android/data/com.nexon.bluearchive/files/PUB/Resource/"),
     "game_dir_android_japan": Field("Directories", "/storage/emulated/0/Android/data/com.Yostar JP.BlueArchive/files/"),
-    "mod_backup_path": Field("Directories", lambda: str(EXE_DIR / "output" / "backup")),
+    "mod_backup_path": Field("Directories", lambda: str(EXE_DIR / "output" / "backup"), str),
     # AppSettings
     "language": Field("AppSettings", ""),
-    "output_dir": Field("AppSettings", lambda: str(EXE_DIR / "output")),
+    "output_dir": Field("AppSettings", lambda: str(EXE_DIR / "output"), str),
     "max_workers": Field("AppSettings", 4),
     # SaveOptions
     "extra_bytes": Field("SaveOptions", "0x08080808"),
@@ -76,7 +90,7 @@ FIELDS: dict[str, Field] = {
     "preview_thumbnail_size": Field("SpineViewer", 768),
     "mod_install_render_preview": Field("SpineViewer", True),
     # BACIIMap
-    "bacii_map_path": Field("BACIIMap", lambda: str(EXE_DIR / "Addons" / "BA-Characters-Internal-ID.csv")),
+    "bacii_map_path": Field("BACIIMap", lambda: str(EXE_DIR / "Addons" / "BA-Characters-Internal-ID.csv"), str),
     "character_index_column": Field("BACIIMap", "file_id"),
     "character_name_field": Field("BACIIMap", CharacterInternalIDMap.DEFAULT_NAME_FIELD),
     # Tabs
@@ -91,7 +105,7 @@ FIELDS: dict[str, Field] = {
     # ADB
     "adb_path": Field("ADB", "adb"),
     "adb_device": Field("ADB", ""),
-    "adb_cache_dir": Field("ADB", lambda: str(EXE_DIR / "Addons" / "adb_cache")),
+    "adb_cache_dir": Field("ADB", lambda: str(EXE_DIR / "Addons" / "adb_cache"), str),
 }
 
 
@@ -101,25 +115,28 @@ def _default(key: str) -> Any:
 
 
 def _coerce(key: str, value: Any) -> Any:
-    """Bring a value read from the file to the type of the field's default."""
-    sample = FIELDS[key].default
-    sample = sample() if callable(sample) else sample
+    """Bring a value read from the file to the field's type, without running a callable default."""
+    kind = FIELDS[key].kind
     try:
-        if isinstance(sample, bool):
+        if kind is bool:
             return value if isinstance(value, bool) else str(value).strip().lower() in ("1", "true", "yes", "on")
-        if isinstance(sample, int):
+        if kind is int:
             return int(value)
-        if isinstance(sample, str):
+        if kind is str:
             return str(value)
     except (TypeError, ValueError):
-        return sample
+        return _default(key)
     return value
 
 
 class Settings:
-    """The settings in ``config.toml``. Thread-safe; ``reload_if_changed`` picks up saves made by the classic GUI."""
+    """The settings in ``config.toml``. Thread-safe; ``reload_if_changed`` picks up saves made by the classic GUI.
+
+    In dev mode (devmode) the file must lie inside the dev roots, and a game folder outside them is not used.
+    """
 
     def __init__(self, path: Path = CONFIG_FILE):
+        devmode.check_read(path)
         self.path = Path(path)
         self._lock = threading.RLock()
         self._values: dict[str, Any] = {}
@@ -212,7 +229,14 @@ class Settings:
         source = self.get("file_source")
         key = {"windows_global": "game_resource_dir", "windows_japan": "game_resource_dir_japan"}.get(source)
         value = self.get(key) if key else ""
-        return Path(value) if value else None
+        if not value:
+            return None
+        if not devmode.allows_read(value):
+            if value not in _ignored_game_dirs:
+                _ignored_game_dirs.add(value)
+                logger.warning("Game folder outside the dev roots, not used: %s", value)
+            return None
+        return Path(value)
 
     def resource_dirs(self) -> list[Path]:
         """The existing resource folders of the local game (empty when there is none)."""
@@ -256,12 +280,18 @@ class Settings:
 
     def output_subdir(self, name: str) -> Path:
         path = Path(self.get("output_dir")) / name
+        devmode.check_read(path)
         path.mkdir(parents=True, exist_ok=True)
         return path
 
 
 def user_cache_dir() -> Path:
-    """Where light game UI assets may be cached after the user agreed (never next to the program)."""
+    """Where light game UI assets may be cached after the user agreed (never next to the program).
+
+    With ``BAMT_DATA_DIR`` (devmode) the cache is ``<BAMT_DATA_DIR>/cache``, never the released app's.
+    """
+    if utils.DATA_DIR_OVERRIDE is not None:
+        return utils.DATA_DIR_OVERRIDE / "cache"
     if sys.platform == "win32":
         base = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
         return base / APP_DIR_NAME / "cache"

@@ -1016,6 +1016,7 @@
 			"game_file_locked": "ゲームファイルが使用中のため、先にゲームを終了してください",
 			"native_unavailable": "ブラウザモードでは使用できません",
 			"path_not_found": "パスが見つかりません：{path}",
+			"dev_path_outside": "開発用フォルダー外：{path}",
 			"reveal_failed": "ファイルマネージャーを開けません",
 			"classic_failed": "クラシック画面を起動できません",
 			"unknown_method": "不明な操作：{method}",

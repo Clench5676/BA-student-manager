@@ -9,6 +9,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
+from .. import devmode
 from ..config import APP_DIR_NAME, Settings, user_cache_dir
 from ..globallines import GlobalLines
 from ..kivo import Kivo
@@ -25,11 +26,16 @@ logger = logging.getLogger(__name__)
 
 class Services:
     """The web UI's service container. Game-backed services are built on first use and rebuilt after a game
-    folder change; tests pass fakes for any of them."""
+    folder change; tests pass fakes for any of them.
+
+    In dev mode (devmode) the data directory, the library and the cache must lie inside the dev roots, and moving
+    the library or the cache out of them is refused.
+    """
 
     def __init__(self, settings: Settings | None = None, data_dir: Path = EXE_DIR, *,
                  events: EventBus | None = None, jobs: JobRunner | None = None, state: UiState | None = None,
                  cache: Any = None, game: Any = None, catalog: Any = None, library: Any = None):
+        devmode.check_read(data_dir)
         self.settings = settings or Settings()
         self.data_dir = Path(data_dir)
         self.events = events or EventBus()
@@ -97,6 +103,7 @@ class Services:
             if self._library is None:
                 from ..library import ModLibrary
 
+                devmode.check_read(self.library_dir())
                 library = self._library = ModLibrary(self.library_dir(), self.catalog, self.game, self.settings)
                 # kept originals the game no longer needs (verified in the launcher, replaced by a game update) are
                 # deleted once per library, on the job worker so no apply runs meanwhile
@@ -112,6 +119,7 @@ class Services:
     def set_cache_parent(self, parent: Path) -> Path:
         """Cache in another folder; the old cache is removed (it is rebuilt from the game files on demand)."""
         parent = Path(parent).expanduser().resolve()
+        devmode.check_read(parent)
         if not parent.is_dir():
             raise ServiceError("path_not_found", path=str(parent))
         with self._lock:
@@ -134,6 +142,7 @@ class Services:
     def move_library(self, target: Path) -> Path:
         """Use another folder for the mod library. The current library moves there when the target holds none."""
         target = Path(target).expanduser().resolve()
+        devmode.check_read(target)
         current = self.library_dir().resolve()
         if target == current:
             return target

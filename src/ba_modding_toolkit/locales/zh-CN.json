@@ -1016,6 +1016,7 @@
 			"game_file_locked": "游戏文件被占用，请先关闭游戏",
 			"native_unavailable": "浏览器模式下不可用",
 			"path_not_found": "路径不存在：{path}",
+			"dev_path_outside": "不在开发目录中：{path}",
 			"reveal_failed": "无法打开文件管理器",
 			"classic_failed": "无法启动经典界面",
 			"unknown_method": "未知操作：{method}",

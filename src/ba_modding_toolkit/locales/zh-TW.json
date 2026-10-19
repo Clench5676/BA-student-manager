@@ -1016,6 +1016,7 @@
 			"game_file_locked": "遊戲檔案使用中，請先關閉遊戲",
 			"native_unavailable": "瀏覽器模式下無法使用",
 			"path_not_found": "找不到路徑：{path}",
+			"dev_path_outside": "不在開發資料夾中：{path}",
 			"reveal_failed": "無法開啟檔案管理員",
 			"classic_failed": "無法啟動經典介面",
 			"unknown_method": "未知的操作：{method}",

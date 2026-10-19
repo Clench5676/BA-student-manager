@@ -10,6 +10,7 @@ from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from typing import Iterator
 
+from .. import devmode
 from ..errors import ServiceError
 
 
@@ -38,8 +39,15 @@ def check_resource_path(path: Path, resource_dirs: list[Path]) -> Path:
 
 @contextmanager
 def writable_game_files(paths: list[Path], resource_dirs: list[Path]) -> Iterator[None]:
-    """Preflight destinations and hold POSIX advisory locks through replacement."""
-    check_game_not_running()
+    """Preflight destinations and hold POSIX advisory locks through replacement.
+
+    In dev mode (devmode) every destination must lie inside ``BAMT_DEV_WRITABLE``, and the game process check is
+    skipped there: a sandbox is never the folder the game runs from.
+    """
+    for path in paths:
+        devmode.check_write(path)
+    if not (paths and all(devmode.in_writable(path) for path in paths)):
+        check_game_not_running()
     with ExitStack() as stack:
         for path in sorted(set(paths)):
             check_resource_path(path, resource_dirs)

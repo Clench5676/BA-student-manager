@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Any, Callable, Iterator
 
 from UnityPy.helpers.ResourceReader import get_resource_data
 
-from .. import core, mod_install
+from .. import core, devmode, mod_install
 from ..bundle import Bundle
 from ..catalog import HOME_SUFFIXES
 from ..catalog.models import CoreMap
@@ -347,7 +347,7 @@ class _View:
             if other is not None and other.resolve() != exclude:
                 out.append(other)
         for path, _record in self.by_name.get(name, []):
-            if path != exclude and path not in out and path.parent.is_dir() and path.exists():
+            if path != exclude and path not in out and devmode.allows_read(path) and path.exists():
                 out.append(path)
         return out
 
@@ -629,7 +629,10 @@ class ModLibrary:
 
     @_serialized
     def add(self, paths: list[Path]) -> list[ModEntry]:
-        """Store one mod per core and date, deduplicating complete bundle sets."""
+        """Store one mod per core and date, deduplicating complete bundle sets. In dev mode (devmode) only files
+        inside the dev roots are taken."""
+        for path in paths:
+            devmode.check_read(path)
         return self._add(paths)
 
     def _known(self) -> dict[frozenset, str]:
@@ -860,7 +863,8 @@ class ModLibrary:
         return Pin(install_key(root), root, dirs, server)
 
     def _named_pins(self) -> list[Pin]:
-        """The Global and Japan folders the settings name, each when it is set and exists, whatever the file source."""
+        """The Global and Japan folders the settings name, each when it is set and exists, whatever the file source.
+        In dev mode (devmode) a folder outside the dev roots is not used, as the settings' own game folder."""
         out: list[Pin] = []
         if self.settings is None:
             return out
@@ -869,14 +873,16 @@ class ModLibrary:
                 value = self.settings.get(setting)
             except KeyError:
                 continue
-            pin = self._pin(Path(value), server) if value else None
+            if not value or not devmode.allows_read(value):
+                continue
+            pin = self._pin(Path(value), server)
             if pin is not None and all(other.key != pin.key for other in out):
                 out.append(pin)
         return out
 
     def _recorded_pin(self, key: str, folder: dict) -> Pin | None:
         root = Path(key)
-        if not root.is_dir():
+        if not devmode.allows_read(root) or not root.is_dir():
             return None
         dirs = tuple(directory.resolve() for directory in get_search_dirs(root))
         return Pin(key, root, dirs, folder.get("server") or "global") if dirs else None
@@ -1072,7 +1078,8 @@ class ModLibrary:
                     out.append(path)
         for recorded in self._applied:
             path = Path(recorded)
-            if path.name == name and path != exclude and path not in out and path.is_file():
+            if path.name == name and path != exclude and path not in out and devmode.allows_read(path) \
+                    and path.is_file():
                 out.append(path)
         return out
 
@@ -1642,7 +1649,7 @@ class ModLibrary:
         pin = self._current(pin)
         on = profiles_mod.enabled(self.profiles.read())
         try:
-            with tempfile.TemporaryDirectory(prefix="bamt-library-") as temporary:
+            with tempfile.TemporaryDirectory(prefix=devmode.LIBRARY_STAGING_PREFIX) as temporary:
                 work = Path(temporary)
                 if source.startswith("mod:"):
                     record = self._record(source[4:])
@@ -1742,7 +1749,7 @@ class ModLibrary:
         if not targets:
             raise ServiceError("game_file_not_found", variant=core)
         kind = kind_of(core) or "spr"
-        with tempfile.TemporaryDirectory(prefix="bamt-library-") as temporary:
+        with tempfile.TemporaryDirectory(prefix=devmode.LIBRARY_STAGING_PREFIX) as temporary:
             work = Path(temporary)
             replacements = None
             if source == "official":
@@ -2753,7 +2760,7 @@ class ModLibrary:
         record = self._record(mod_id)
         paths = self._paths(record)
         targets = self._plan_targets(self._plan(record, log, pin))
-        with tempfile.TemporaryDirectory(prefix="bamt-library-update-") as temporary:
+        with tempfile.TemporaryDirectory(prefix=devmode.LIBRARY_STAGING_PREFIX + "update-") as temporary:
             output = Path(temporary)
             generated = []
             all_unchanged = True

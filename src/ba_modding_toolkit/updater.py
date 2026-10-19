@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
+from . import devmode
 from .errors import ServiceError
 from .utils import get_version_info
 
@@ -205,7 +206,10 @@ def download(info: UpdateInfo, dest: Path, progress: Callable[[int, int, str], N
 # --- installing: a script swaps the program in once this process has quit ---
 
 def install_target() -> Path | None:
-    """The writable ``.app`` bundle or ``.exe`` an update can replace, or None."""
+    """The writable ``.app`` bundle or ``.exe`` an update can replace, or None (always in dev mode: a build under
+    test never replaces itself, see devmode)."""
+    if devmode.active():
+        return None
     target = None
     if sys.platform == "darwin":
         for parent in Path(sys.executable).resolve().parents:

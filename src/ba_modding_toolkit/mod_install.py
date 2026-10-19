@@ -11,6 +11,7 @@ import os
 import shutil
 import tempfile
 
+from . import devmode
 from .i18n import t
 from .utils import no_log
 from .models import (
@@ -155,6 +156,9 @@ def plan_mod_install(
         list[ModGroup]: 聚类后的安装组列表（决策与执行以组为单位）
     """
     search_dirs = [game_resource_dir] if isinstance(game_resource_dir, Path) else game_resource_dir
+    # dev mode: mods and game folders outside the dev roots are refused (ServiceError "dev_path_outside")
+    for path in [*mod_paths, *search_dirs]:
+        devmode.check_read(path)
 
     log("\n" + "=" * 50)
     log(f"📋 {t('log.mod_install.plan_start', count=len(mod_paths))}")
@@ -267,6 +271,8 @@ class InstallResult:
 def _backup_and_replace(src: Path, dst: Path, create_backup: bool, log: LogFunc) -> bool:
     """备份并替换文件（.backup 后缀约定与 GUI replace_file 一致）"""
     try:
+        # dev mode: game files are written only inside BAMT_DEV_WRITABLE (or the library's staging folders)
+        devmode.check_write(dst)
         if create_backup:
             backup_path = dst.with_suffix(dst.suffix + ".backup")
             shutil.copy2(dst, backup_path)
