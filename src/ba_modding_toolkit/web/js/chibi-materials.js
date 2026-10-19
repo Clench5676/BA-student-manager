@@ -10,6 +10,8 @@
 //   weapon      a half vector of the view and a fixed light (_FakeLightDir), a mask for shadow and highlight
 //   eyes/mouth  unlit, blended over the face; the bottom-left quarter of the atlas shows the mouth tile
 //   outline     an inverted hull along the smoothed normal (tangent), 0.1 % of the screen width times colour.a
+//   props       DSFX/FX_SHADER_Matcap (a matcap at the view-space normal), MX/E-Water-* (the surface colour) and the
+//               unlit and effect shaders, each with its own texture slot and colour
 // The game runs in linear colour space: colour textures are decoded from sRGB, masks are not, Color properties are
 // converted to linear and Vector properties are used as stored. The globals (_MxCharLight*) are the standard character
 // light's: white, intensity 1, from straight above (CharacterStandardLight / CharacterLightFallback), no ambient.
@@ -62,10 +64,23 @@ varying vec2 vUv;
 varying vec3 vWorldPos;
 varying vec3 vWorldNormal;
 varying float vRim;
+#ifdef VERTEX_TINT
+varying vec4 vTint;
+#endif
 #ifdef Z_CORRECTION
 uniform float zCorrection;
 #endif
 void main() {
+  #ifdef VERTEX_TINT
+  // the effect shaders multiply by the whole vertex colour
+  #if defined( USE_COLOR_ALPHA )
+  vTint = color;
+  #elif defined( USE_COLOR )
+  vTint = vec4( color, 1.0 );
+  #else
+  vTint = vec4( 1.0 );
+  #endif
+  #endif
   vec3 objectNormal = normal;
   #include <skinbase_vertex>
   #include <skinnormal_vertex>
@@ -144,10 +159,15 @@ uniform sampler2D mouthMap;
 uniform vec4 mouthST;
 uniform vec4 eyeTint;
 uniform vec4 mouthTint;
+// matcap
+uniform sampler2D matcapMap;
 varying vec2 vUv;
 varying vec3 vWorldPos;
 varying vec3 vWorldNormal;
 varying float vRim;
+#ifdef VERTEX_TINT
+varying vec4 vTint;
+#endif
 
 // pow as the game computes it (exp of log): 0 for 0, whatever the power
 float spow( float x, float p ) {
@@ -296,8 +316,40 @@ void main() {
   #endif
   #endif
 
+  #elif defined( KIND_MATCAP )
+  // DSFX/FX_SHADER_Matcap: texture x colour x vertex colour x the matcap at the view-space normal; the alpha is the
+  // matcap's, the vertex colour's and the colour's, not the texture's
+  vec3 vn = normalize( mat3( viewMatrix ) * normalize( vWorldNormal ) );
+  vec2 m = vn.xy * 0.5 + 0.5;
+  vec4 mc = texture2D( matcapMap, vec2( m.x, 1.0 - m.y ) );
+  col = albedo.rgb * vTint.rgb * mc.rgb;
+  alpha = mc.a * vTint.a * tint.a;
+
+  #elif defined( KIND_WATER )
+  // MX/E-Water-*: the surface colour lit by the light. The game deepens it toward _DepthColor and fades it in by how
+  // far the scene lies behind the surface (the camera depth texture); a chibi alone has nothing behind it, so it
+  // shows the surface, as a thin layer of water
+  col = tint.rgb * clamp( dot( N, charLightDir ), 0.0, 1.0 ) * charLightTone * charLightData.x;
+  alpha = tint.a;
+
   #else // unlit
+  #ifdef ALPHA_BLEND_ADD
+  // DSFX/FX_SHADER_AlphaBlend_Add: premultiplied by the texture's alpha (its red with _RGBRGBA off), blended One,
+  // OneMinusSrcAlpha: transparent parts add their colour
+  vec4 tx = texture2D( mainMap, vUv );
+  #ifdef RED_ALPHA
+  float ta = tx.r;
+  #else
+  float ta = tx.a;
+  #endif
+  #ifdef NO_MAIN_RGB
+  tx.rgb = vec3( 1.0 );
+  #endif
+  col = tx.rgb * vTint.rgb * tint.rgb * ta;
+  alpha = clamp( ta * vTint.a * tint.a, 0.0, 1.0 );
+  #else
   col = albedo.rgb;
+  #endif
   #endif
 
   #ifdef CUTOUT
@@ -364,6 +416,14 @@ const FACTORS = { 0: THREE.ZeroFactor, 1: THREE.OneFactor, 2: THREE.DstColorFact
 // the colour pass's state where the GLB has none (older exports): what the shaders usually do
 const FIXED = { transparent: { src: 5, dst: 10, zwrite: 0, queue: 3000 }, eyemouth: { src: 5, dst: 10, zwrite: 1, cull: 2, queue: 2001 },
   weapon: { src: 1, dst: 0, zwrite: 1, cull: 2 } };
+
+// the unlit and effect shaders, from their compiled programs: the texture slot and the colour property they read
+// (null: none; Unlit/Texture draws its texture alone). Any other one, such as FX/General Unlit (Texture) or
+// Unlit/TexColorHDR, reads the first of these it has.
+const UNLIT = { "Unlit/Texture": { color: null }, "MX/Unlit Outline": { color: "_Tint" },
+  "DSFX/FX_SHADER_AlphaBlend_Add": { map: "_Texture", color: "_Color" } };
+const UNLIT_MAPS = ["_MainTex", "_Main_Tex", "_BaseMap", "_Texture"];
+const UNLIT_COLORS = ["_Color", "_Main_Color", "_BaseColor", "_Tint"];
 
 // cull, depth write, blend and queue of the material's colour pass (resolved against its floats by the exporter)
 function renderState(ex, kind) {
@@ -504,9 +564,29 @@ export function chibiMaterial(ex, textures, mouth) {
     glowUniforms(ex, uniforms, defines);
     mat.toneMapped = false;
     outline = false;
+  } else if (kind === "matcap") {
+    defines.KIND_MATCAP = "";
+    defines.VERTEX_TINT = "";
+    uniforms.mainMap.value = textures._Main_Tex || map || defaultTexture("white");
+    uniforms.tint.value = colorOf(ex, "_Main_Color", [0, 0, 0, 0]);
+    uniforms.matcapMap = { value: textures._Matcap_Tex || defaultTexture("white") };
+  } else if (kind === "water") {
+    defines.KIND_WATER = "";
+    uniforms.tint.value = colorOf(ex, "_SurfaceColor", [0.1, 0.6, 1, 0.3]);
   } else if (kind === "unlit") {
-    uniforms.tint.value = colorOf(ex, "_Color", ex.colors?._Tint || [1, 1, 1, 1]);
-    outline = false;
+    // the effect and unlit shaders: their own texture slot and colour (the exporter tells whether one draws an
+    // outline: MX/Unlit Outline does)
+    const fx = UNLIT[shader] || {}, slot = fx.map || UNLIT_MAPS.find((name) => textures[name]);
+    uniforms.mainMap.value = (slot && textures[slot]) || defaultTexture("white");
+    const color = fx.color === undefined ? UNLIT_COLORS.find((name) => ex.colors?.[name]) : fx.color;
+    uniforms.tint.value = color ? colorOf(ex, color, [1, 1, 1, 1]) : new THREE.Vector4(1, 1, 1, 1);
+    if (shader === "DSFX/FX_SHADER_AlphaBlend_Add") {
+      defines.ALPHA_BLEND_ADD = "";
+      defines.VERTEX_TINT = "";
+      if (!floatOf(ex, "_RGBRGBA", 0)) defines.RED_ALPHA = "";
+      if (floatOf(ex, "_Main_Texture_No", 0)) defines.NO_MAIN_RGB = "";
+      uniforms.tint.value.multiplyScalar(floatOf(ex, "_Multiply", 1));
+    }
   } else {
     // MX/C-General/Single and the shaders built on it
     defines.KIND_SINGLE = "";

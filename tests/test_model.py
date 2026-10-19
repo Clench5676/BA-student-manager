@@ -215,6 +215,9 @@ def test_texture_sampler_follows_the_game_settings():
     assert model.texture_sampler(settings(m_FilterMode=0, m_WrapU=0))["minFilter"] == 9728
     assert model.texture_sampler({**settings(m_FilterMode=2), "m_MipCount": 9})["minFilter"] == 9987
     assert model.texture_sampler({**settings(), "m_MipCount": 9})["minFilter"] == 9985
+    # point with mipmaps (ch0270): the nearest texel of the nearest mipmap, never a blend
+    assert model.texture_sampler({**settings(m_FilterMode=0), "m_MipCount": 9}) == {
+        "magFilter": 9728, "minFilter": 9984, "wrapS": 33071, "wrapT": 33071}
     assert model.texture_sampler(settings(m_WrapU=0, m_WrapV=2)) == {"magFilter": 9729, "minFilter": 9729,
                                                                       "wrapS": 10497, "wrapT": 33648}
     assert model.texture_sampler({})["wrapS"] == 10497  # no settings: Unity's defaults
@@ -241,14 +244,16 @@ def test_shader_kind_by_name_prefix():
         "MX/C-General/Layer4", "MX/C-General/Layer4-Inline", "MX/C-General/Single", "MX/C-General/Transparent",
         "MX/C-Hair-Transparent", "MX/C-Face", "MX/C-EyesMouth", "MX/C-Eyebrow-OneColor", "MX/C-Halo/Simple",
         "MX/C-Weapon-NoOutline", "ProjectMX/WeaponTest1Damage", "MX/C-Simple", "MX/C-Simple-Transparent",
-        "MX/C-Transparent-ST", "Unlit/Texture", "FX/General Unlit Texture", "MX/E-Standard")}
+        "MX/C-Transparent-ST", "Unlit/Texture", "FX/General Unlit Texture", "MX/E-Standard", "MX/E-Water-V2",
+        "MX/Unlit Outline", "DSFX/FX_SHADER_Matcap", "DSFX/FX_SHADER_AlphaBlend_Add")}
     assert kinds == {
         "MX/C-General/Layer4": "body", "MX/C-General/Layer4-Inline": "body", "MX/C-General/Single": "general",
         "MX/C-General/Transparent": "general", "MX/C-Hair-Transparent": "hair", "MX/C-Face": "face",
         "MX/C-EyesMouth": "eyemouth", "MX/C-Eyebrow-OneColor": "eyebrow", "MX/C-Halo/Simple": "halo",
         "MX/C-Weapon-NoOutline": "weapon", "ProjectMX/WeaponTest1Damage": "weapon", "MX/C-Simple": "simple",
         "MX/C-Simple-Transparent": "transparent", "MX/C-Transparent-ST": "transparent", "Unlit/Texture": "unlit",
-        "FX/General Unlit Texture": "unlit", "MX/E-Standard": "general"}
+        "FX/General Unlit Texture": "unlit", "MX/E-Standard": "general", "MX/E-Water-V2": "water",
+        "MX/Unlit Outline": "unlit", "DSFX/FX_SHADER_Matcap": "matcap", "DSFX/FX_SHADER_AlphaBlend_Add": "unlit"}
     assert model.shader_kind(None) == "general"
 
 
@@ -423,6 +428,20 @@ def test_visit_skips_disabled_and_hidden_renderers():
     names = {n["name"]: n.get("extras", {}).get("hidden", False) for n in exporter.nodes}
     # the disabled renderer's object stays a plain node (clips may move it), the inactive one is hidden
     assert names == {"CH0189": False, "CH0189_Face_Outline": False, "CH0189_Face01_Outline": False, "Off": True}
+
+
+def test_material_outline_respects_disabled_shader_passes():
+    # MX/C-Hair-Transparent has an Outline pass; CH0264_Hair_Alpha turns it off (Material.SetShaderPassEnabled), the
+    # other passes a material may turn off (the shadow caster) leave the outline alone
+    form = _form("MX/C-Hair-Transparent", passes=[("UniversalForward", 2, 0, 5, 10, "Transparent"), ("Outline", 1, 1, 1, 0, None)])
+    shader = _object(9, "Shader", m_ParsedForm=form)
+    props = {"m_TexEnvs": [], "m_Colors": [("_OutlineTint", {"r": 0.5, "g": 0.5, "b": 0.5, "a": 1})], "m_Floats": []}
+    ref = {"m_FileID": 0, "m_PathID": 9}
+    mats = [_object(10 + i, "Material", m_Name=name, m_Shader=ref, m_SavedProperties=props, disabledShaderPasses=passes)
+            for i, (name, passes) in enumerate([("Hair", []), ("Hair_Alpha", ["Outline"]), ("Shadowless", ["SHADOWCASTER"])])]
+    exporter = model._Exporter(_Graph(shader, *mats), "ch0264")
+    outlines = {m.tree["m_Name"]: exporter.glb.json["materials"][exporter.material(m)]["extras"]["outline"] for m in mats}
+    assert outlines == {"Hair": True, "Hair_Alpha": False, "Shadowless": True}
 
 
 # --- CAB discovery ---

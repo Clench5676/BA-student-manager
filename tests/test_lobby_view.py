@@ -89,10 +89,12 @@ def test_input_trace_also_goes_to_a_file(tmp_path):
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="Node is not installed")
 def test_wheel_kinds():
-    # a mouse wheel zooms, a trackpad swipe pans; one scroll keeps the kind of its first event
+    # a mouse wheel zooms, a trackpad swipe pans; one scroll keeps the kind of its first event, unless a scroll taken
+    # for a wheel sends what no wheel sends. In WebKit (the macOS app) wheelDeltaY is 3 x deltaY for every device: a
+    # notch is a tenth of a line in 16.16 fixed point (4.000244 px), a trackpad step whole pixels.
     script = """
 const T = await import(process.argv[1]);
-const now = 10000, none = { kind: null, at: -Infinity };
+const now = 10000, none = { kind: null, at: -Infinity }, pad = { kind: "trackpad", at: now - 50 };
 const cases = [
   [{ deltaMode: 1, deltaY: 3, deltaX: 0 }, none],
   [{ deltaMode: 0, deltaY: 100, deltaX: 0, wheelDeltaY: -120, wheelDeltaX: 0 }, none],
@@ -102,12 +104,28 @@ const cases = [
   [{ deltaMode: 0, deltaY: 40, deltaX: 0, wheelDeltaY: -120, wheelDeltaX: 0 }, { kind: "trackpad", at: now - 50 }],
   [{ deltaMode: 0, deltaY: 40, deltaX: 0, wheelDeltaY: -120, wheelDeltaX: 0 }, { kind: "trackpad", at: now - 500 }],
   [{ deltaMode: 0, deltaY: 0, deltaX: 30, wheelDeltaY: 0, wheelDeltaX: -90 }, none],
+  [{ deltaMode: 0, deltaY: -4.000244140625, deltaX: 0, wheelDeltaY: 12, wheelDeltaX: 0 }, none],
+  [{ deltaMode: 0, deltaY: -3.9996337890625, deltaX: 0, wheelDeltaY: 11, wheelDeltaX: 0 }, none],
+  [{ deltaMode: 0, deltaY: 12.000732421875, deltaX: 0, wheelDeltaY: -36, wheelDeltaX: 0 }, none],
+  [{ deltaMode: 0, deltaY: 4.000244140625, deltaX: 0, wheelDeltaY: -12, wheelDeltaX: 0 }, pad],
+  [{ deltaMode: 0, deltaY: 7, deltaX: 0, wheelDeltaY: -21, wheelDeltaX: 0 }, { kind: "mouse", at: now - 20 }],
+  [{ deltaMode: 0, deltaY: 40, deltaX: 0, wheelDeltaY: -120, wheelDeltaX: 0 }, { kind: "mouse", at: now - 20 }],
+  [{ deltaMode: 0, deltaY: 0, deltaX: 0, wheelDeltaY: 0, wheelDeltaX: 0 }, none],
 ];
 console.log(JSON.stringify(cases.map(([e, last]) => T.wheelKind(e, now, last))));
 """
     out = subprocess.run(["node", "--input-type=module", "-e", script, (WEB / "js" / "lobby-touch.js").as_uri()],
                          capture_output=True, text=True, timeout=60, check=True).stdout
-    assert json.loads(out) == ["mouse", "mouse", "mouse", "trackpad", "trackpad", "trackpad", "mouse", "trackpad"]
+    assert json.loads(out) == ["mouse", "mouse", "mouse", "trackpad", "trackpad", "trackpad", "mouse", "trackpad",
+                               "mouse", "mouse", "mouse", "trackpad", "trackpad", "mouse", "trackpad"]
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="Node is not installed")
+def test_wheel_zooms_and_pans_in_node():
+    # the wheel handler on a recorded lobby: WebKit spins zoom, swipes pan, a swipe taken for a wheel is undone
+    tests = Path(__file__).parent / "js" / "lobby_wheel.test.mjs"
+    result = subprocess.run(["node", "--test", str(tests)], capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def test_lobby_strings_in_both_languages():

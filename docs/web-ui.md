@@ -104,12 +104,14 @@ bundle headers). The GLB is never written to disk; the memory entry is reused wh
 unchanged.
 
 The GLB carries what the game's shaders need: per material its shader, shading kind, constants (`colors` as stored,
-`vectors` naming the Vector properties the game passes unconverted), `keywords`, whether it draws an outline and its
-colour pass `state` (cull, depth write, blend, queue, resolved against the material); per texture its sampler (filter,
+`vectors` naming the Vector properties the game passes unconverted), `keywords`, whether it draws an outline (its
+shader's Outline pass, unless the material turns that pass off) and its colour pass `state` (cull, depth write, blend, queue, resolved against the material); per texture its sampler (filter,
 wrap, mipmaps as in the game: the characters' textures have none) and `extras.linear` for masks; per clip the renderer
 switches it animates (`toggles`: alternative faces), so a renderer the prefab disables is exported when a clip turns
 it on. `web/js/chibi-materials.js` ports the MX/C-* shaders from their compiled D3D11 programs (the game is in linear
-colour space; the character light is the standard one, white and from straight above, without ambient). The outline is
+colour space; the character light is the standard one, white and from straight above, without ambient), and for props
+DSFX/FX_SHADER_Matcap (a riot shield, soup), MX/E-Water (the surface colour: the game deepens it by the camera depth
+behind it, which a lone chibi lacks) and the unlit and effect shaders, each with its own texture slot and colour. The outline is
 0.1 % of the stage width times the vertex colour alpha, as in the game. The camera orbits freely; the zoom stays between
 the bust and a step back, and a double click returns to the front view.
 
@@ -350,11 +352,14 @@ in `pointer-textures`); without a game the system cursor stays and there is no e
 - **Zoom.** Fullscreen opens on the game's 16:9 view and zooms in to 2x. The Settings L2D tab (`lobbyZoomOut`, off by
   default) lets it zoom out further, to the widest 16:9 view inside the painted art (one 16-unit cell inside the
   painted rect).
-- **Input.** Press and drag: head pat, eye follow and the other drag boxes. Mouse wheel (whole lines, or
-  `wheelDeltaY` in steps of 120 with no horizontal part) and pinch (ctrl + wheel in Chromium / WebView2, gesture
-  events in WebKit) zoom at the pointer; a two-finger trackpad swipe pans in any direction, and one scroll keeps the
-  kind of its first event. A right- or middle-button drag pans. Native drags and the Force Touch look-up are turned
-  off on the lobby.
+- **Input.** Press and drag: head pat, eye follow and the other drag boxes. Mouse wheel (a notch zooms at least a
+  line's worth) and pinch (ctrl + wheel in Chromium / WebView2, gesture events in WebKit) zoom at the pointer; a
+  two-finger trackpad swipe pans in any direction. A wheel is told by its steps: whole lines, `wheelDeltaY` in steps
+  of 120 (Chromium), or in WebKit, whose `wheelDeltaY` is 3 x `deltaY` for every device, tenths of a line kept in
+  16.16 fixed point (4.000244 px) against a trackpad's whole pixels. One scroll keeps the kind of its first event; one
+  taken for a wheel that then sends a trackpad step goes back to the view it started from and pans. A Magic Mouse
+  scrolls like a trackpad (ctrl + scroll zooms). A right- or middle-button drag pans. Native drags and the Force
+  Touch look-up are turned off on the lobby.
 - **Input trace.** Started with `--debug`, the page sends the fullscreen lobby's pointer, wheel and gesture events
   (moves and scrolls at most every 50 ms) and every press anywhere in the document, with its target, through
   `debug.trace`, so a trackpad problem can be reproduced once and the log sent.
