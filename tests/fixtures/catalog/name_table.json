@@ -9,7 +9,8 @@
    "name_cn": "妮可",
    "name_jp": "吉野 ニコ",
    "name_en": "Yoshino Niko",
-   "name_tw": "吉野 仁子"
+   "name_tw": "吉野 仁子",
+   "name_kr": "요시노 니코"
   },
   {
    "file_id": "sukeban_sr",
@@ -27,7 +28,8 @@
    "name_cn": "七神 凛",
    "name_jp": "七神 リン",
    "name_en": "Nanagami Rin",
-   "name_tw": "七神 琳"
+   "name_tw": "七神 琳",
+   "name_kr": "나나가미 린"
   },
   {
    "file_id": "CH0277",
@@ -37,7 +39,8 @@
    "name_cn": "笑笑教授",
    "name_jp": "ニヤニヤ教授",
    "name_en": "Professor Smug",
-   "name_tw": "笑眯眯教授"
+   "name_tw": "笑眯眯教授",
+   "name_kr": "히죽히죽 교수"
   },
   {
    "file_id": "NP0022",
@@ -59,7 +62,9 @@
    "name_en": "Saiba Momoi",
    "skin_en": "Battle",
    "name_tw": "才羽 桃井",
-   "skin_tw": "武裝"
+   "skin_tw": "武裝",
+   "name_kr": "사이바 모모이",
+   "skin_kr": "임전"
   },
   {
    "file_id": "NP0102",
@@ -70,7 +75,8 @@
    "name_cn": "圣园 未花",
    "name_jp": "聖園 ミカ",
    "name_en": "Misono Mika",
-   "name_tw": "聖園 彌香"
+   "name_tw": "聖園 彌香",
+   "name_kr": "미소노 미카"
   },
   {
    "file_id": "CH0199",
@@ -80,7 +86,8 @@
    "name_cn": "砂狼 白子*恐怖",
    "name_jp": "砂狼 シロコ＊テラー",
    "name_en": "Sunaookami Shiroko*terror",
-   "name_tw": "砂狼 白子*TERROR"
+   "name_tw": "砂狼 白子*TERROR",
+   "name_kr": "스나오오카미 시로코*테러"
   },
   {
    "file_id": "NP0289",
@@ -90,7 +97,8 @@
    "name_cn": "戈尔孔达&德卡考马尼",
    "name_jp": "ゴルコンダ&デカルコマニー",
    "name_en": "Golconde&Decalcomania",
-   "name_tw": "戈爾孔特&轉印"
+   "name_tw": "戈爾孔特&轉印",
+   "name_kr": "골콩트&데칼코마니"
   }
  ],
  "expected": {
@@ -111,19 +119,25 @@
     "ja": {
      "full": "ニコ（武器なし）",
      "short": "武器なし"
+    },
+    "ko": {
+     "full": "니코(무기 없음)",
+     "short": "무기 없음"
     }
    },
    "name_sources": {
     "en": "translated",
     "ja": "translated",
     "zh-TW": "translated",
-    "zh-CN": "fallback"
+    "zh-CN": "fallback",
+    "ko": "translated"
    },
    "fallbacks": {
     "zh-CN": "story_variant",
     "zh-TW": "story_variant",
     "en": "story_variant",
-    "ja": "story_variant"
+    "ja": "story_variant",
+    "ko": "story_variant"
    }
   },
   "sukeban_sr": {
@@ -143,17 +157,23 @@
     "ja": {
      "full": "スケバンA",
      "short": "通常"
+    },
+    "ko": {
+     "full": "불량배 A",
+     "short": "기본"
     }
    },
    "name_sources": {
     "en": "official",
     "ja": "official",
     "zh-TW": "official",
-    "zh-CN": "derived"
+    "zh-CN": "derived",
+    "ko": "official"
    },
    "fallbacks": {
     "en": "missing_csv_name",
-    "zh-TW": "missing_csv_name"
+    "zh-TW": "missing_csv_name",
+    "ko": "missing_csv_name"
    }
   },
   "np0291": {
@@ -173,19 +193,25 @@
     "ja": {
      "full": "リン（私服）",
      "short": "私服"
+    },
+    "ko": {
+     "full": "린(사복)",
+     "short": "사복"
     }
    },
    "name_sources": {
     "zh-CN": "official",
     "zh-TW": "official",
     "en": "official",
-    "ja": "official"
+    "ja": "official",
+    "ko": "official"
    },
    "fallbacks": {
     "zh-CN": "story_variant",
     "zh-TW": "story_variant",
     "en": "story_variant",
-    "ja": "story_variant"
+    "ja": "story_variant",
+    "ko": "story_variant"
    }
   },
   "ch0277": {
@@ -205,13 +231,18 @@
     "ja": {
      "full": "ニヤニヤ教授",
      "short": "通常"
+    },
+    "ko": {
+     "full": "히죽히죽 교수",
+     "short": "기본"
     }
    },
    "name_sources": {
     "zh-CN": "derived",
     "zh-TW": "official",
     "en": "official",
-    "ja": "official"
+    "ja": "official",
+    "ko": "official"
    },
    "fallbacks": {}
   },
@@ -232,18 +263,24 @@
     "ja": {
      "full": "ティーパーティーの生徒A",
      "short": "通常"
+    },
+    "ko": {
+     "full": "티파티 부원 A",
+     "short": "기본"
     }
    },
    "name_sources": {
     "en": "official",
     "ja": "official",
     "zh-TW": "official",
-    "zh-CN": "derived"
+    "zh-CN": "derived",
+    "ko": "official"
    },
    "fallbacks": {
     "zh-TW": "missing_csv_name",
     "en": "missing_csv_name",
-    "ja": "missing_csv_name"
+    "ja": "missing_csv_name",
+    "ko": "missing_csv_name"
    }
   },
   "np0267": {
@@ -263,19 +300,25 @@
     "ja": {
      "full": "モモイ（臨戦）",
      "short": "臨戦"
+    },
+    "ko": {
+     "full": "모모이(무장)",
+     "short": "무장"
     }
    },
    "name_sources": {
     "zh-CN": "fallback",
     "zh-TW": "fallback",
     "en": "fallback",
-    "ja": "fallback"
+    "ja": "fallback",
+    "ko": "fallback"
    },
    "fallbacks": {
     "zh-CN": "story_variant",
     "zh-TW": "story_variant",
     "en": "story_variant",
-    "ja": "story_variant"
+    "ja": "story_variant",
+    "ko": "story_variant"
    }
   },
   "np0102": {
@@ -295,19 +338,25 @@
     "ja": {
      "full": "ミカ（体操服）",
      "short": "体操服"
+    },
+    "ko": {
+     "full": "미카(체육복)",
+     "short": "체육복"
     }
    },
    "name_sources": {
     "zh-CN": "fallback",
     "zh-TW": "fallback",
     "en": "fallback",
-    "ja": "fallback"
+    "ja": "fallback",
+    "ko": "fallback"
    },
    "fallbacks": {
     "zh-CN": "story_variant",
     "zh-TW": "story_variant",
     "en": "story_variant",
-    "ja": "story_variant"
+    "ja": "story_variant",
+    "ko": "story_variant"
    }
   },
   "ch0199": {
@@ -327,19 +376,25 @@
     "ja": {
      "full": "シロコ＊テラー（壊れたヘイロー）",
      "short": "壊れたヘイロー"
+    },
+    "ko": {
+     "full": "시로코*테러(부서진 헤일로)",
+     "short": "부서진 헤일로"
     }
    },
    "name_sources": {
     "zh-CN": "fallback",
     "zh-TW": "translated",
     "en": "translated",
-    "ja": "translated"
+    "ja": "translated",
+    "ko": "translated"
    },
    "fallbacks": {
     "zh-CN": "story_variant",
     "zh-TW": "story_variant",
     "en": "story_variant",
-    "ja": "story_variant"
+    "ja": "story_variant",
+    "ko": "story_variant"
    }
   },
   "np0289": {
@@ -359,19 +414,25 @@
     "ja": {
      "full": "ゴルコンダ&デカルコマニー（絵画なし）",
      "short": "絵画なし"
+    },
+    "ko": {
+     "full": "골콩트&데칼코마니(그림 없음)",
+     "short": "그림 없음"
     }
    },
    "name_sources": {
     "zh-CN": "fallback",
     "zh-TW": "translated",
     "en": "translated",
-    "ja": "translated"
+    "ja": "translated",
+    "ko": "translated"
    },
    "fallbacks": {
     "zh-CN": "story_variant",
     "zh-TW": "story_variant",
     "en": "story_variant",
-    "ja": "story_variant"
+    "ja": "story_variant",
+    "ko": "story_variant"
    }
   }
  },

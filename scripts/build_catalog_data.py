@@ -4,7 +4,8 @@ Optional prototype names, wiki proposals and variant metadata override derived
 values, and naming.json's story_names override those. Variant words and base names
 that the character map leaves untranslated come from the curated glossary and name
 table in catalog/data/naming.json, and name_sources says whether that wording is
-official or translated.
+official or translated. The SchaleDB folder holds students.{cn,tw,en,jp,kr}.json
+(SchaleDB data/<lang>/students.min.json); ko names are the Global server's Korean.
 
 Simplified Chinese follows Kivo's community wording for base names and costume
 words: it is read from the character map's Kivo columns (name_kivo, skin_kivo, the
@@ -46,7 +47,7 @@ PORTRAIT_ALIASES = {
 }
 STORY_ALIASES = {"hoshino_firstyear": "ch0241", "hoshino_terror": "np0186"}
 CORE_ALIASES = {"airi": ["airi0"]}
-SERVER_INDEX = {"ja": 0, "en": 1, "zh-TW": 1, "zh-CN": 2}
+SERVER_INDEX = {"ja": 0, "en": 1, "zh-TW": 1, "ko": 1, "zh-CN": 2}  # the server whose names each language shows
 # SchaleDB IsReleased is [Japan, Global, China]; the keys are Settings.server_region() values
 RELEASE_INDEX = {"japan": 0, "global": 1}
 
