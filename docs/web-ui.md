@@ -557,7 +557,8 @@ in `pointer-textures`); without a game the system cursor stays and there is no e
   - Cost: about 0.2 ms of main-thread time a frame for a typical lobby, 0.6 ms for the busiest (about 300 particles);
     the *_1a systems add 0.1 to 0.3 ms (ch0188's eleven splashes, ch0334's eight booster meshes);
     the first frame compiles each shader once. Everything is freed with the lobby (`particles-gl.js` detach and
-    dispose). Without WebGL2 nothing is drawn.
+    dispose), and made again on the next frame once a lost WebGL context is restored (a restorable of each player's
+    context, as linear.js has). Without WebGL2 nothing is drawn.
 - **Zoom.** Fullscreen opens on the game's 16:9 view and zooms in to 2x. How far it zooms out is the Settings L2D
   tab's zoom-out row (`settings.set lobbyZoom` and `lobbyZoomCustom`; `lobby_zoom` and `lobby_zoom_custom` in
   `webui.json`, where the boolean `lobby_zoom_out` it replaces still reads as Full Art or Game View; Full Art when

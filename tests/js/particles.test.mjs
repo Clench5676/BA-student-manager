@@ -486,6 +486,58 @@ test("the effects draw in their layer's context with the game's blend and free e
   assert.equal(gl.live.size, 0);
 });
 
+test("after a lost context is restored the effects make their GL objects again", async () => {
+  const gl = fakeGL(), p = player(gl, { name: "Home", x: 0, y: -962, scale: 1, order: 0, queue: 2900, z: 0 });
+  // spine's context: its restorables are called once the canvas gets its context back
+  const restorables = [];
+  p.context.addRestorable = (r) => restorables.push(r);
+  p.context.removeRestorable = (r) => { const i = restorables.indexOf(r); if (i >= 0) restorables.splice(i, 1); };
+  Linear.attach(p);
+  const tex = { id: "cab-a_1", name: "glow", w: 4, h: 4, filter: 1, mips: 0, wrap: [0, 0], srgb: 1 };
+  const fx = {
+    systems: [sys({ material: "add", queue: 3100, emission: { rate: 50 } })],
+    materials: { add: { program: "additive", src: 1, dst: 1, queue: 3100, tex: { _Texture: { ...tex, st: [1, 1, 0, 0] } }, floats: {}, colors: {} } },
+    textures: { "cab-a_1": tex }, meshes: {},
+  };
+  const effects = GL.create(fx, { base: "/x/", bone: () => null, load: async () => ({ width: 4, height: 4 }) });
+  await new Promise((r) => setTimeout(r, 0));
+  effects.layers([p]);
+  // the particles' calls of one frame, and the objects they bind
+  const frame = () => {
+    Linear.begin(p);
+    const from = gl.calls.length;
+    effects.below(p, 0.1);
+    effects.above(p);
+    const ours = gl.calls.slice(from);
+    Linear.end(p);
+    return ours;
+  };
+  const bound = (calls) => calls.filter(([name]) => ["bindVertexArray", "bindBuffer", "bindTexture", "useProgram"].includes(name))
+    .map((c) => c[c.length - 1]).filter(Boolean);
+  const first = frame();
+  assert.equal(first.filter(([name]) => name === "drawArrays").length, 1);
+  assert.equal(restorables.length, 2, "linear.js's and the effects'");
+  // the context is lost (every object with it), then restored: spine calls the restorables
+  gl.live.clear();
+  for (const r of [...restorables]) r.restore();
+  const second = frame();
+  assert.equal(second.filter(([name]) => name === "drawArrays").length, 1);
+  const objects = bound(second);
+  assert.ok(objects.length >= 4 && objects.every((o) => gl.live.has(o)), "only objects of the restored context are bound");
+  assert.ok(["VertexArray", "Buffer", "Texture", "Program"].every((kind) => objects.some((o) => o.kind === kind)));
+  assert.equal(effects.stats().contexts, 1);
+  // detach takes the restorable back and frees the new objects
+  const linearObjects = new Set(gl.live);
+  for (const o of objects) linearObjects.delete(o);
+  effects.detach(p);
+  assert.equal(restorables.length, 1);
+  assert.deepEqual([...gl.live].filter((o) => !linearObjects.has(o)), [], "particle objects left");
+  effects.dispose();
+  Linear.detach(p);
+  assert.equal(restorables.length, 0);
+  assert.equal(gl.live.size, 0);
+});
+
 // a stand-in that also compiles: the uniforms a program declares (from the sources attached to it) are its active
 // uniforms, so a draw's uniform calls can be read back by name
 function compilingGL() {
