@@ -1,4 +1,4 @@
-"""Operating-system helpers without Tk: reveal a file, start the classic GUI."""
+"""Operating-system helpers without Tk: reveal a file, the classic GUI's command line."""
 
 from __future__ import annotations
 
@@ -58,16 +58,31 @@ CLASSIC_TABS = ("mod_update", "batch_update", "mod_install", "crc_tool", "asset_
                 "adb_push", "tools")
 
 
-def open_classic(tab: str | None = None) -> None:
-    """Start the classic Tk GUI in its own process, optionally on a tab or (``"settings"``) in its settings."""
+def check_classic_tab(tab: str | None) -> None:
+    """``bad_params`` unless ``tab`` is a classic tab, ``"settings"`` (the classic settings) or ``None``."""
     if tab is not None and tab not in CLASSIC_TABS and tab != "settings":
         raise ServiceError("bad_params", tab=tab)
+
+
+def classic_command(tab: str | None = None, *, control: bool = False) -> list[str]:
+    """The command line of the classic Tk GUI, optionally on a tab or (``"settings"``) in its settings; ``control``
+    for a window the web UI places and raises over its control channel (``webui/classic.py``)."""
+    check_classic_tab(tab)
     # without --classic the launcher starts the web UI again
     cmd = program_command() + ["--classic"]
+    if control:
+        cmd += ["--control"]
     if tab == "settings":
         cmd += ["--settings"]
     elif tab:
         cmd += ["--tab", tab]
+    return cmd
+
+
+def open_classic(tab: str | None = None) -> None:
+    """Start the classic Tk GUI in its own process, unplaced and without a control channel. The alpha.3 hand-off,
+    until the RPC uses ``webui.classic.ClassicWindow``."""
+    cmd = classic_command(tab)
     try:
         subprocess.Popen(cmd, creationflags=CREATE_NO_WINDOW, env=os.environ.copy())
     except OSError as e:
