@@ -397,8 +397,10 @@ in `pointer-textures`); without a game the system cursor stays and there is no e
   painted rect). The painted rect is found on idle poses; with the setting on, the poses of every clip the lobby
   plays (dialogues with their sync clips, the drag clips and their ends, random idle clips, every 0.1 s over the
   idle) are checked in the background, in 8 ms slices, within 24 cells of its sides, and the rect gives up what one
-  uncovers: a dialogue that moves the scene never shows a blank edge (Kurumi: 1011 poses, about 0.8 s, 3 cells). The
-  result is kept for the session.
+  uncovers: a dialogue that moves the scene never shows a blank edge. Over the 265 lobbies (headless SwiftShader) it
+  takes 780 poses and 0.55 s of slices at the median (2.2 s at most); 34 lobbies give up cells, most one, Kurumi three
+  (Talk_07_M scales her scene down), Serika's CH0189 up to six (the end of every dialogue) and CH0303 up to four (a
+  random idle clip). The result is kept for the session.
 - **Input.** Press and drag: head pat, eye follow and the other drag boxes. Mouse wheel (a notch zooms at least a
   line's worth) and pinch (ctrl + wheel in Chromium / WebView2, gesture events in WebKit) zoom at the pointer; a
   two-finger trackpad swipe pans in any direction. A wheel is told by its steps: whole lines, `wheelDeltaY` in steps
