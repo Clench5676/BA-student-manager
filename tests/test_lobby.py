@@ -157,8 +157,10 @@ def test_clips_resolve_mixes_chains_and_random():
     assert set(clips.clips) == {"Test_home"}
     # the default intro is the skeleton's defaultMix, not a fixed value
     assert home["Pat_01_M"] == {"track": 1, "loop": True, "mode": 1, "finish": 2, "intro": 0.4, "outro": 0.4,
-                                "next": None, "sync": ["Pat_01_A"], "block": False, "random": None}
+                                "outroAt": None, "next": None, "sync": ["Pat_01_A"], "block": False, "random": None}
     assert home["Pat_01_A"]["intro"] == 0.0 and home["PatEnd_01_M"]["outro"] == 0.3
+    # its own outro: from the clip's end plus its OutroStartOffset; the default one ends with the clip
+    assert home["PatEnd_01_M"]["outroAt"] == 0.0
     assert home["Pat_02_M"]["finish"] == 3 and home["Pat_02_M"]["next"] == "Pat_01_M"
     assert home["Eye_Close_01"]["random"] == {"min": 8.0, "max": 15.0, "loops": [0, 1]}
     assert clips.anim(ref(8002, 3)) == "PatEnd_01_M" and clips.anim(ref(0)) is None

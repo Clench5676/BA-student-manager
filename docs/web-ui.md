@@ -715,6 +715,11 @@ in `pointer-textures`); without a game the system cursor stays and there is no e
   train (`train Sample`) across the bottom of the view, over Shigure, every 6 s. Not reproduced: an idle's sync clips
   (15 lobbies, e.g. Shigure's Train_00_R on track 3, her own train passing behind the bridge after a random 10 to
   15 s; snow, clouds, petals, stars elsewhere).
+- **Clip endings** (SpineBase `PlayMasked`, `QueueTrackClose`, `EnqueueSpineClip`, `EnqueueMasked`). A clip that
+  does not loop and has FinishMode 2 fades its track out: with UseDefaultOutroMix over the skeleton's default mix,
+  ending with the clip; otherwise over its OutroMix, starting OutroStartOffset after the clip's end (`clips.*.outroAt`),
+  so a talk's last frame holds while it fades (0.3 to 0.6 s for most). FinishMode 3 queues the next clip the same way
+  (its intro mix ending with the clip, or starting at its end).
 - **Zoom.** Fullscreen opens on the game's 16:9 view and zooms in to 2x. How far it zooms out is the Settings L2D
   tab's zoom-out row (`settings.set lobbyZoom` and `lobbyZoomCustom`; `lobby_zoom` and `lobby_zoom_custom` in
   `webui.json`, where the boolean `lobby_zoom_out` it replaces still reads as Full Art or Game View; Full Art when

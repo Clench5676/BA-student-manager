@@ -49,7 +49,9 @@ def _short(name: str | None) -> str | None:
 
 
 def clip_entry(tree: dict, default_mix: float, names: dict[int, str]) -> dict:
-    """One clip asset: where and how its animation plays, the mixes resolved against the skeleton's default."""
+    """One clip asset: where and how its animation plays, the mixes resolved against the skeleton's default. outroAt
+    is when the clip's own outro starts, seconds after its end (SpineBase.PlayMasked: OutroMix from its
+    OutroStartOffset after the end; null: the default mix, ending with the clip)."""
     nxt = tree.get("NextClipObject", {}).get("m_PathID", 0)
     mode = tree.get("PlayMode", 1)
     random = None
@@ -60,6 +62,7 @@ def clip_entry(tree: dict, default_mix: float, names: dict[int, str]) -> dict:
         "track": tree.get("Track", 0), "loop": bool(tree.get("Loop")), "mode": mode, "finish": tree.get("FinishMode", 0),
         "intro": _r(default_mix if tree.get("UseDefaultIntroMix") else tree.get("IntroMix", 0), 3),
         "outro": _r(default_mix if tree.get("UseDefaultOutroMix") else tree.get("OutroMix", 0), 3),
+        "outroAt": None if tree.get("UseDefaultOutroMix") else _r(tree.get("OutroStartOffset", 0), 3),
         "next": _short(names.get(nxt)) if nxt else None,
         "sync": [_short(names[p["m_PathID"]]) for p in tree.get("SyncPlayClipObjects", []) if p.get("m_PathID") in names],
         "block": bool(tree.get("BlockInteractionOnPlay")), "random": random,

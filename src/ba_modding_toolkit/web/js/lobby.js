@@ -797,13 +797,19 @@ function playClip(p, name, depth = 0) {
   } else entry = st.setAnimation(t, name, c.loop);
   entry.mixDuration = c.intro;
   if (!c.loop) {
-    if ((c.finish === 1 || c.finish === 3) && c.next && data.findAnimation(c.next)) {
-      const n = clipOf(p, c.next);
-      st.addAnimation(t, c.next, n.loop, 0).mixDuration = n.intro;
-    } else if (c.finish === 2) st.addEmptyAnimation(t, c.outro, 0);
+    // the outro or the next clip: so that it ends with the clip (outroAt null), else from that long after its end
+    const at = c.outroAt == null ? 0 : data.findAnimation(name).duration + c.outroAt;
+    if ((c.finish === 1 || c.finish === 3) && c.next && data.findAnimation(c.next)) enqueue(p, t, c.next, at);
+    else if (c.finish === 2) st.addEmptyAnimation(t, c.outro, at);
   }
   for (const s of c.sync || []) playClip(p, s, depth + 1);
   return entry;
+}
+// the clip after another on its track (EnqueueSpineClip), delay as for addAnimation
+function enqueue(p, t, name, delay) {
+  const n = clipOf(p, name), e = p.animationState.addAnimation(t, name, n.loop, delay);
+  if (delay <= 0) e.delay = Math.max(0, e.delay + e.mixDuration - n.intro); // its mix ends with the clip before
+  e.mixDuration = n.intro;
 }
 function clearClip(p, name, depth = 0) {
   if (!p?.animationState || depth > 4) return;
