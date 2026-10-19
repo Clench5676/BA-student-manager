@@ -7,7 +7,8 @@ files; the service resolves the materials, textures and meshes, which live in ot
 
 Values keep Unity's units and conventions: lengths in the system's own space (scaled as its scaling mode says),
 angles in radians as serialized, colours as stored (sRGB, converted by the front end), curve keys as
-[time, value, inSlope, outSlope]. Matrices are 3 x 4 row-major affine transforms [r00 r01 r02 tx r10 ... tz].
+[time, value, inSlope, outSlope], a slope null where it is infinite (a Constant tangent: Unity holds the left key's
+value over a segment with one). Matrices are 3 x 4 row-major affine transforms [r00 r01 r02 tx r10 ... tz].
 
 A MinMaxCurve becomes a number (constant), {"r": [min, max]} (random between two constants), {"c": keys, "k": k}
 (a curve times k) or {"c": max keys, "c0": min keys, "k": k} (random between two curves). A MinMaxGradient becomes
@@ -86,12 +87,15 @@ def rounded(m: list[float]) -> list[float]:
 
 # --- curves and gradients -------------------------------------------------------------------------------------------
 
-def _keys(curve: Mapping[str, Any] | None) -> list[list[float]]:
+def _slope(v: float) -> float | None:
+    # an infinite tangent (Constant: the curve is stepped) is None: its segment holds the left key's value
+    return None if math.isinf(v) else _r(v)
+
+
+def _keys(curve: Mapping[str, Any] | None) -> list[list[float | None]]:
     out = []
     for k in (curve or {}).get("m_Curve", []):
-        ins, outs = k.get("inSlope", 0.0), k.get("outSlope", 0.0)
-        out.append([_r(k["time"]), _r(k["value"]), _r(ins) if math.isfinite(ins) else 0.0,
-                    _r(outs) if math.isfinite(outs) else 0.0])
+        out.append([_r(k["time"]), _r(k["value"]), _slope(k.get("inSlope", 0.0)), _slope(k.get("outSlope", 0.0))])
     return out or [[0.0, 1.0, 0.0, 0.0]]
 
 

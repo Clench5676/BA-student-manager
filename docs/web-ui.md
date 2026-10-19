@@ -524,7 +524,9 @@ in `pointer-textures`); without a game the system cursor stays and there is no e
     cone, box (volume, shell, edge), circle, edge, rectangle and donut
     with arc, thickness and their own transform; velocity over lifetime (linear, orbital, radial, speed modifier),
     limit velocity (dampen), force, colour, size and rotation over lifetime, texture sheet animation (start frame and
-    frame over time as fractions of the sheet), custom data and birth and death sub-emitters. Billboards (view or
+    frame over time as fractions of the sheet), custom data and birth and death sub-emitters. Curves are evaluated as
+    Unity's are, a segment with a Constant (infinite) tangent holding its left key's value: the water drops of
+    misaki_home and ch0095_home keep still, then jump between speeds. Billboards (view or
     local alignment, max size a fraction of the game's view height), stretched billboards and meshes (the particle
     colour times the mesh's vertex colours: ch0188's sea meshes fade out at their ends by them).
   - Drawn: the game's DSFX shaders ported from their compiled programs (Additive, AlphaBlend, AlphaBlend_Add, the

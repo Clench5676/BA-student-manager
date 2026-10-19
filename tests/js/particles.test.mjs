@@ -47,6 +47,25 @@ test("MinMaxCurves and gradients", () => {
   assert.deepEqual(colorAt({ g, pick: 1 }, 0.9, 0), [1, 0, 0, 0]);
 });
 
+test("stepped curves: a segment with an infinite tangent (null) holds its left key's value", () => {
+  // misaki_home's wate_flow1 (velocity over lifetime y): every key past the first has Constant tangents
+  const keys = [[0, 0, 0, 0], [0.21129, -0.61894, null, null], [0.41147, -0.11064, null, null], [0.631, -0.86394, null, null],
+    [1, -1, 0, 0]];
+  const c = { c: keys, k: 1 };
+  assert.equal(value(c, 0.1, 0), 0, "held up to the next key (its in-slope is infinite)");
+  assert.equal(value(c, 0.21129, 0), -0.61894, "a key's own time starts its segment");
+  assert.equal(value(c, 0.3, 0), -0.61894);
+  assert.equal(value(c, 0.5, 0), -0.11064);
+  assert.equal(value(c, 0.9, 0), -0.86394, "the left out-slope alone steps the last segment");
+  assert.equal(value(c, 1, 0), -1);
+  // random between two stepped curves, times the multiplier
+  near(value({ c: keys, c0: [[0, 1, 0, 0], [1, 1, 0, 0]], k: 2 }, 0.3, 0.5), 2 * (1 + (-0.61894 - 1) * 0.5));
+  // finite tangents still ease: a straight ramp with slope 1
+  near(value({ c: [[0, 0, 1, 1], [1, 1, 1, null]], k: 1 }, 0.5, 0), 0.5);
+  near(value({ c: [[0, 0, 1, 1], [1, 1, 1, 1]], k: 1 }, 0.25, 0), 0.25);
+  assert.equal(P.curve([[0, 0, 0, 0], [1, 1, null, 0]], 0.75), 0);
+});
+
 test("a loop's burst at 0 fires every loop at 60 fps and right after a prewarm", () => {
   const one = { bursts: [{ t: 0, n: 1, cycles: 1, interval: 0.01, p: 1 }] };
   // ch0209's Flare_par: 120 frames of 1/60 s add up to a hair under its 2 s loop

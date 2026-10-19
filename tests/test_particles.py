@@ -40,9 +40,15 @@ def test_min_max_curves():
     # random between two constants; equal bounds are a constant
     assert particles.curve(mm(3, 4.0, 1.0)) == {"r": [1.0, 4.0]}
     assert particles.curve(mm(3, 2.0, 2.0)) == 2.0
-    # a curve times its multiplier, keys [time, value, in slope, out slope]; a stepped key's infinite slope is flat
-    c = particles.curve(mm(1, 2.0, hi_keys=[key(0.0, 0.0, 1.0), {**key(1.0, 1.0), "inSlope": math.inf}]))
-    assert c == {"c": [[0.0, 0.0, 1.0, 1.0], [1.0, 1.0, 0.0, 0.0]], "k": 2.0}
+    # a curve times its multiplier, keys [time, value, in slope, out slope]; an infinite slope (a Constant tangent,
+    # whose segment holds the left key's value) is None, a NaN one 0
+    c = particles.curve(mm(1, 2.0, hi_keys=[key(0.0, 0.0, 1.0), {**key(1.0, 1.0), "inSlope": math.inf},
+                                            {**key(2.0, 0.5), "inSlope": -math.inf, "outSlope": math.nan}]))
+    assert c == {"c": [[0.0, 0.0, 1.0, 1.0], [1.0, 1.0, None, 0.0], [2.0, 0.5, None, 0.0]], "k": 2.0}
+    # misaki_home's wate_flow1: velocity over lifetime y, every key but the first stepped in both curves
+    steps = [key(0.0, 0.0)] + [key(t, v, math.inf) for t, v in ((0.21129, -0.61894), (0.41147, -0.11064))]
+    both = particles.curve(mm(2, 1.0, hi_keys=steps, lo_keys=steps))
+    assert both["c"] == both["c0"] == [[0.0, 0.0, 0.0, 0.0], [0.21129, -0.61894, None, None], [0.41147, -0.11064, None, None]]
     both = particles.curve(mm(2, 1.0, hi_keys=[key(0.0, 1.0)], lo_keys=[key(0.0, 0.5)]))
     assert both == {"c": [[0.0, 1.0, 0.0, 0.0]], "c0": [[0.0, 0.5, 0.0, 0.0]], "k": 1.0}
     # a curve without keys reads 1

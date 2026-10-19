@@ -19,7 +19,7 @@
 // trails, inherit velocity, rate over distance, limit velocity's drag, the by-speed modules and external forces (none
 // is used by more than one lobby); a system keeps drawing without them.
 
-import { curve, toLinear } from "./touch-fx.js";
+import { toLinear } from "./touch-fx.js";
 
 export const WORLD = 1665 / 2;      // lobby units per Unity world unit
 export const VIEW_H = 1665;         // the game's view height in lobby units (max particle size is a fraction of it)
@@ -30,6 +30,22 @@ const DAMPEN_FPS = 30;              // limit velocity's dampen is per frame at t
 const EPS = 1e-9;                   // seconds: emission times this close count as the same
 
 // --- values ---------------------------------------------------------------------------------------------------------
+
+// an AnimationCurve (particles.py _keys: [time, value, inSlope, outSlope]) at t, as Unity evaluates it: constant
+// outside its keys, cubic Hermite between them, each segment from the last key at or before t; a segment whose left
+// out-slope or right in-slope is infinite (null: a Constant tangent) holds the left key's value (Unity's curve cache,
+// which the particle modules evaluate, makes such a segment stepped)
+export function curve(keys, t) {
+  if (t <= keys[0][0]) return keys[0][1];
+  const last = keys[keys.length - 1];
+  if (t >= last[0]) return last[1];
+  let i = 1;
+  while (keys[i][0] <= t) i++;
+  const [t0, v0, , m0] = keys[i - 1], [t1, v1, m1] = keys[i];
+  if (m0 == null || m1 == null) return v0;
+  const dt = t1 - t0, s = (t - t0) / dt, s2 = s * s, s3 = s2 * s;
+  return (2 * s3 - 3 * s2 + 1) * v0 + (s3 - 2 * s2 + s) * dt * m0 + (3 * s2 - 2 * s3) * v1 + (s3 - s2) * dt * m1;
+}
 
 // a MinMaxCurve (particles.py curve) at normalized time t with the particle's random r
 export function value(c, t, r) {
