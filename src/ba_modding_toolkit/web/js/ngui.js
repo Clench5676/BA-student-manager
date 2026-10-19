@@ -6,6 +6,7 @@
 //   - labels: plain text in the page font, sized from the label's font size (italic: a placeholder's slant)
 // Depth becomes z-index; NGUI y points up, the stage's y points down.
 import { spriteUrl } from "./api.js";
+import { decodeAll, imageUrls } from "./image-decode.js";
 
 const PIVX = [0, 0.5, 1, 0, 0.5, 1, 0, 0.5, 1];
 const PIVY = [0, 0, 0, 0.5, 0.5, 0.5, 1, 1, 1]; // fraction of the height above the pivot
@@ -322,6 +323,18 @@ export function layout(name) {
 
 // stage rectangle [left, top, width, height] of an element made by render()
 export const rect = (el) => ["left", "top", "width", "height"].map((k) => parseFloat(el.style[k]));
+
+// every picture drawn under root (its elements' CSS backgrounds, as render() sets them) loaded and decoded, for a
+// screen about to show (see image-decode.js); resolves after cap ms at the latest. A picture still being made (a
+// thumbnail) has no background yet and fills in later as before. shown: an element whose pictures are on screen now,
+// so decoded already; they are left out (a Chromium decode() takes a frame or two even then).
+export function decoded(root, cap, shown = null) {
+  const onScreen = shown?.isConnected && shown.getClientRects().length ? imageUrls(shown.querySelectorAll("*")) : [];
+  const skip = new Set(onScreen);
+  const urls = imageUrls([root, ...root.querySelectorAll("*")]).filter((url) => !skip.has(url));
+  const decode = (url) => { const img = new Image(); img.src = url; return img.decode(); };
+  return decodeAll(urls, decode, cap);
+}
 
 // a plain node, for building widgets by hand: node("Name", [x, y], [widget], [children])
 export const node = (name, pos, widgets = [], children = [], scale = [1, 1]) => ({ name, active: true, pos, scale, rotZ: 0, widgets, children });

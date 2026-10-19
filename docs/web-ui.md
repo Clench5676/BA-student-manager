@@ -416,6 +416,13 @@ ported.
   back without a new `roster.list`.
 - The detail screen's arrows step through the cards as the list showed them when it was left, in its order, wrapping
   round; a variant the list hides (another chip, a deep link) steps from its place in the whole list.
+- Back from the detail screen, the list is built behind it and the screens change once every picture the list draws
+  is decoded (`NGUI.decoded`, at most 1 s, the indicator alone after 300 ms; the URL and waiting logic is
+  `image-decode.js`, tested in Node from `tests/test_image_decode.py`). WebKit lets go of the
+  blob images a hidden screen draws (the sliced and tinted sprites `ngui.js` bakes): without the wait it painted the
+  list's first frames (about 100 to 200 ms) with the portraits only, without the frame, the card frames and the
+  dimming of the cards without mods. A rebuild inside the list (filters, sort, search) waits the same way for the
+  pictures the list does not show yet. A portrait thumbnail still being rendered fills in later, as before.
 
 ### Portrait
 
@@ -485,8 +492,8 @@ instead.
 
 - `scene(fn)` covers the start, a detail screen opened from another screen or a deep link, and the roster's first
   build: a fade to black (150 ms), then, while the work goes on, the indicator; work done within the fade only fades back. `wait(promise)` shows the indicator alone over the
-  screen after 300 ms (at least 500 ms), for changes inside it. Both give up after 15 s, reveal what there is and say
-  so. One overlay at a time: a newer call takes over the one on screen.
+  screen after 300 ms (at least 500 ms), for changes inside it and for the way back to the roster. Both give up after
+  15 s, reveal what there is and say so. One overlay at a time: a newer call takes over the one on screen.
 - The detail screen resolves `show()` only when it is ready: the panels, the left side's first frame (the portrait,
   or the lobby with its still, or the 3D model with its shaders compiled) and, within 1.2 s, the visible thumbnails;
   the lobby's lines from Kivo get 1.5 s. A change inside the screen (a variant chip, the arrows, a tab, an

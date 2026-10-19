@@ -111,20 +111,31 @@ async function route() {
         });
       }
     } else {
-      const open = async (covered) => {
-        const data = await roster();
-        await covered;
-        if (my !== routeToken) return;
+      const reveal = () => {
         Detail.hide();
         showScreen("roster");
         stepCards = null;
         setTitle(T("top.students"), null);
-        await Roster.show(ctx, data);
+      };
+      const open = async (covered) => {
+        const data = await roster();
+        await covered;
+        if (my !== routeToken) return;
+        // the list is built, its pictures decoded, behind the screen shown; then the screens change in one frame
+        try {
+          await Roster.show(ctx, data);
+        } catch (err) {
+          if (my === routeToken) reveal();
+          throw err;
+        }
+        if (my !== routeToken) return;
+        reveal();
         rosterBuilt = true;
       };
-      // the roster's first build is covered too; afterwards it comes back at once
+      // the roster's first build is covered too; afterwards the screen shown stays until the list is ready (with the
+      // indicator alone if that takes a while)
       if (!rosterBuilt || Loading.covering()) await Loading.scene(open);
-      else await open(null);
+      else await Loading.wait(open(null));
     }
   } catch (err) {
     console.error(err);
