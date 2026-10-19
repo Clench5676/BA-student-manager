@@ -37,17 +37,34 @@ async function layersOf(core) {
     fetch(spineFiles("lobby", core)).then((r) => (r.ok ? r.json() : [])),
     fetch(`${base(core)}lobby.json`).then((r) => (r.ok ? r.json() : null)).catch(() => null),
   ]);
-  const skels = new Set(files.filter((f) => f.endsWith(".skel")).map((f) => f.slice(0, -5)));
-  const atlases = new Set(files.filter((f) => f.endsWith(".atlas")).map((f) => f.slice(0, -6)));
-  const ok = (n) => skels.has(n) && atlases.has(n);
+  const atlasOf = pairAtlases(files), skels = [...atlasOf.keys()];
+  const ok = (n) => atlasOf.has(n);
   // equal sorting orders (akari_home before akari_bg in the prefab): background-named skeletons first
   let list = (info?.layers || []).filter((l) => l.active && ok(l.name))
     .sort((a, b) => a.order - b.order || isBg(b.name) - isBg(a.name) || a.index - b.index);
   if (!list.length) {
-    list = [...skels].filter(ok).sort((a, b) => isBg(b) - isBg(a) || a.localeCompare(b))
+    list = skels.sort((a, b) => isBg(b) - isBg(a) || a.localeCompare(b))
       .map((name, index) => ({ name, x: 0, y: -962, scale: 1, index, skin: null, animation: null }));
   }
-  return { info, layers: list.map((l) => ({ ...l, spine: `${base(core)}${encodeURIComponent(l.name)}` })) };
+  return { info, layers: list.map((l) => ({ ...l, spine: `${base(core)}${encodeURIComponent(l.name)}`,
+    atlas: `${base(core)}${encodeURIComponent(atlasOf.get(l.name))}.atlas` })) };
+}
+// skeleton name -> atlas name for a lobby's files: the atlas of the same name, else of the same name in another case
+// (Juri: juri_home.skel, Juri_home.atlas), else the one atlas left for the one skeleton left (CH9996_home.skel with
+// CH0996_home.atlas); the game pairs them through the SkeletonDataAsset, not by name. Skeletons without one are left out.
+export function pairAtlases(files) {
+  const skels = files.filter((f) => f.endsWith(".skel")).map((f) => f.slice(0, -5));
+  const atlases = files.filter((f) => f.endsWith(".atlas")).map((f) => f.slice(0, -6));
+  const out = new Map(), free = new Set(atlases);
+  for (const s of skels) if (free.has(s)) { out.set(s, s); free.delete(s); }
+  for (const s of skels) {
+    if (out.has(s)) continue;
+    const a = [...free].find((x) => x.toLowerCase() === s.toLowerCase());
+    if (a) { out.set(s, a); free.delete(a); }
+  }
+  const left = skels.filter((s) => !out.has(s));
+  if (left.length === 1 && free.size === 1) out.set(left[0], [...free][0]);
+  return out;
 }
 
 // voice clip names as Kivo keys them: "Images/sound/Hoshino_MemorialLobby_3_1.ogg" -> "hoshino_memoriallobby_3_1"
@@ -492,7 +509,7 @@ function makePlayer(host, layer, onReady, onError = () => {}) {
   div.className = "lobby-layer";
   host.appendChild(div);
   return new spine.SpinePlayer(div, {
-    skeleton: `${layer.spine}.skel`, atlas: `${layer.spine}.atlas`, animation: undefined,
+    skeleton: `${layer.spine}.skel`, atlas: layer.atlas || `${layer.spine}.atlas`, animation: undefined,
     premultipliedAlpha: false, alpha: true, backgroundColor: "#00000000", showControls: false, showLoading: false,
     preserveDrawingBuffer: true, defaultMix: current?.info?.defaultMix?.[layer.name] ?? 0.2,
     viewport: layerViewport(game(), layer),

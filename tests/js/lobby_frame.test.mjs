@@ -67,3 +67,17 @@ test("the painted rect gives up the cells a clip uncovers near its sides, at mos
   // nothing uncovered: P as it was
   assert.deepEqual(Lobby.shrinkRect(P, new Uint8Array(gw * 40), gw, 8), P);
 });
+
+test("each skeleton gets its atlas, also when the game's file names differ", () => {
+  const pairs = (files) => Object.fromEntries(Lobby.pairAtlases(files));
+  // the usual lobby: one name each, a background with its own
+  assert.deepEqual(pairs(["Akari_home.skel", "Akari_home.atlas", "Akari_home.png", "akari_bg.skel", "akari_bg.atlas"]),
+    { Akari_home: "Akari_home", akari_bg: "akari_bg" });
+  // Juri: the skeleton in lower case
+  assert.deepEqual(pairs(["Juri_home.atlas", "Juri_home.png", "juri_home.skel"]), { juri_home: "Juri_home" });
+  // CH9996: the atlas named after another character, the only one for the only skeleton
+  assert.deepEqual(pairs(["CH0996_home.atlas", "CH0996_home.png", "CH9996_home.skel"]), { CH9996_home: "CH0996_home" });
+  // two skeletons and one atlas that matches neither: none is guessed
+  assert.deepEqual(pairs(["A_home.skel", "B_home.skel", "C_home.atlas"]), {});
+  assert.deepEqual(pairs(["A_home.skel", "A_home.atlas", "B_home.skel"]), { A_home: "A_home" });
+});
