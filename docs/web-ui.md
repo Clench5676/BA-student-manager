@@ -591,7 +591,15 @@ in `pointer-textures`); without a game the system cursor stays and there is no e
     and ch0356, 35 systems in 8 lobbies, vanished after their lifetime without it); emission over time and bursts
     (cycles, intervals, probability; every loop fires its bursts, the first one right after a prewarm, also where
     frames of 1/60 s add up to a hair under the loop's end: missed before in 400 of the 1419 looping systems with
-    bursts, Tsurugi's smoke and Izuna's flare empty for 5 and 7.5 s after opening); the shapes sphere, hemisphere,
+    bursts, Tsurugi's smoke and Izuna's flare empty for 5 and 7.5 s after opening); a frame in Unity's order: the
+    particles whose life ends in it die first, then it emits into the places they freed, and a particle emitted within
+    it moves only for the part after its emission time (the rate's at the times its count passes a whole number), so a
+    particle lives its whole lifetime and a system at max particles replaces one in the frame it dies in, at any frame
+    rate. A frame used to emit before its deaths and draw a new particle a frame old: hibiki_home's river surface and
+    background glows (one particle each, 60 a second, living 1 and 5 s; ch0177 and ch0356 have the same river) went
+    missing for a frame at every replacement, its bottom-left corner blinking dark once a second, and Utaha's star (one
+    particle, two a second, living 1 s) was off a third of the time; 63 systems in 39 lobbies had such gaps (60 fps,
+    4 x 120 s); the shapes sphere, hemisphere,
     cone, box (volume, shell, edge), circle, edge, rectangle and donut
     with arc, thickness and their own transform; velocity over lifetime (linear, orbital, radial, speed modifier),
     limit velocity (dampen), force, colour, size and rotation over lifetime, texture sheet animation (start frame and

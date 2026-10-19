@@ -274,8 +274,14 @@ export class Effects {
     for (const s of this.systems) this.step(s, dt * (s.def.main.speedScale ?? 1), false);
   }
 
+  // One step, in Unity's order: the particles whose life ends within it die first, then it emits (into the places they
+  // freed: a system at max particles replaces a particle in the step it dies in), then everything moves, a particle
+  // emitted within the step for the part of it after its emission time. hibiki_home's river surface and background
+  // glows (one particle each, 60 a second, lifetimes of 1 and 5 s) went missing for a frame at every replacement:
+  // the bottom-left corner blinked dark once a second.
   step(s, dt, prewarm) {
     if (!(dt > 0)) return;
+    this.reap(s, dt);
     if (s.playing && !s.done) {
       let left = dt;
       if (!prewarm && s.delay > 0) {
@@ -291,14 +297,17 @@ export class Effects {
     this.simulate(s, dt);
   }
 
-  // emission over the next dt seconds of a clock: bursts fire when it passes their time within a loop (cycles
-  // times, every interval), the rate adds up over time. A burst up to EPS past the span's end fires in it (frames of
-  // 1/60 s add up to a hair under a loop's end), so the loops it visits reach that far too: else the loop that starts
-  // there would never fire its burst at 0, the next span taking it as already past.
+  // emission over the next dt seconds of a clock (the rest of the step): bursts fire when it passes their time within
+  // a loop (cycles times, every interval), the rate adds up over time. A burst up to EPS past the span's end fires in
+  // it (frames of 1/60 s add up to a hair under a loop's end), so the loops it visits reach that far too: else the
+  // loop that starts there would never fire its burst at 0, the next span taking it as already past. Each particle
+  // gets the share of the step left after its emission time: a burst's time, or when the rate's count passed a whole
+  // number (within EPS, as reap() takes deaths), so one that lives a whole number of the rate's intervals is replaced
+  // in the step it dies in at any frame rate.
   emitSpan(s, clock, dt, inst) {
     const main = s.def.main, em = s.def.emission || { rate: 0, bursts: [] }, D = main.duration;
-    const from = clock.time;
-    let to = from + dt;
+    const from = clock.time, end = from + dt;
+    let to = end;
     if (!main.loop) to = Math.min(to, D);
     if (to <= from && !clock.fresh) return;
     em.bursts.forEach((b, i) => {
@@ -312,20 +321,23 @@ export class Effects {
           if (t <= from + EPS && !(clock.fresh && t <= EPS)) continue;
           if (b.p < 1 && this.random() >= b.p) continue;
           const n = Math.round(value(b.n, local / D, this.random()));
-          for (let j = 0; j < n; j++) this.emit(s, local / D, inst);
+          for (let j = 0; j < n; j++) this.emit(s, local / D, inst, end - t);
         }
       }
     });
     const u = (from % D) / D, rate = value(em.rate, u, this.random());
     if (rate > 0) {
       clock.acc += rate * (to - from);
-      while (clock.acc >= 1) { clock.acc -= 1; this.emit(s, u, inst); }
+      // the count passed a whole number clock.acc / rate before `to`
+      while (clock.acc >= 1 - rate * EPS) { clock.acc -= 1; this.emit(s, u, inst, end - to + clock.acc / rate); }
     }
     clock.time = to;
     clock.fresh = false;
   }
 
-  emit(s, u, inst) {
+  // a new particle at the system's normalized time u; `share`: how much of this step is left after its emission
+  // (none given: the whole step, a death sub-emitter's burst)
+  emit(s, u, inst, share) {
     const def = s.def, main = def.main;
     if (s.particles.length >= main.max) {
       if (!main.ring || !s.particles.length) return null;
@@ -385,7 +397,8 @@ export class Effects {
       p = apply(s.M, p[0], p[1], p[2]);
       vel = applyDir(s.M, vel[0], vel[1], vel[2]);
     }
-    const pt = { seed, age: 0, life, size, rot, flip, color, pos: p, vel, anim: [0, 0, 0], u, cur: null, dead: false };
+    const pt = { seed, age: 0, life, size, rot, flip, color, pos: p, vel, anim: [0, 0, 0], u, cur: null, dead: false,
+      share: share === undefined ? null : Math.max(0, share) };
     s.particles.push(pt);
     for (const e of def.subs || []) {
       const sub = this.systems[e.system];
@@ -396,8 +409,20 @@ export class Effects {
     return pt;
   }
 
-  // move, age and turn the particles of a system
-  simulate(s, dt) {
+  // the particles that reach the end of their life within the next dt seconds (within EPS, as emitSpan() takes the
+  // rate's count) die, before the step emits; a ring buffer holds or loops them instead
+  reap(s, dt) {
+    const ends = (pt) => pt.age + dt >= pt.life - EPS;
+    if (s.def.main.ring || !s.particles.some(ends)) return;
+    s.particles = s.particles.filter((pt) => {
+      if (!ends(pt)) return true;
+      this.die(s, pt);
+      return false;
+    });
+  }
+
+  // move, age and turn the particles of a system over a step; one emitted in it moves for its share of it
+  simulate(s, step) {
     const def = s.def, main = def.main, mod = def.modules || {}, world = main.space === 1;
     const M = s.M, Minv = s.Minv;
     // a module's vector in the simulation space (world-space values are in Unity world units)
@@ -412,6 +437,9 @@ export class Effects {
     const alive = [];
     for (const pt of s.particles) {
       if (pt.paused) { alive.push(pt); continue; }
+      const dt = pt.share === null ? step : Math.min(step, pt.share);
+      pt.share = null;
+      if (!(dt > 0)) { alive.push(pt); continue; } // emitted at the step's very end
       pt.age += dt;
       const end = ring === 2 ? loopTo * pt.life : pt.life;
       if (pt.age >= end) {
