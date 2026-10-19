@@ -141,14 +141,14 @@
      "short": "Original"
     },
     "ja": {
-     "full": "チンピラA",
+     "full": "スケバンA",
      "short": "通常"
     }
    },
    "name_sources": {
-    "en": "translated",
-    "ja": "derived",
-    "zh-TW": "translated",
+    "en": "official",
+    "ja": "official",
+    "zh-TW": "official",
     "zh-CN": "derived"
    },
    "fallbacks": {
@@ -195,7 +195,7 @@
      "short": "原皮"
     },
     "zh-TW": {
-     "full": "笑眯眯教授",
+     "full": "笑咪咪教授",
      "short": "原皮"
     },
     "en": {
@@ -209,9 +209,9 @@
    },
    "name_sources": {
     "zh-CN": "derived",
-    "zh-TW": "derived",
-    "en": "derived",
-    "ja": "derived"
+    "zh-TW": "official",
+    "en": "official",
+    "ja": "official"
    },
    "fallbacks": {}
   },
@@ -230,14 +230,14 @@
      "short": "Original"
     },
     "ja": {
-     "full": "ティーパーティーのメンバーA",
+     "full": "ティーパーティーの生徒A",
      "short": "通常"
     }
    },
    "name_sources": {
-    "en": "translated",
-    "ja": "translated",
-    "zh-TW": "translated",
+    "en": "official",
+    "ja": "official",
+    "zh-TW": "official",
     "zh-CN": "derived"
    },
    "fallbacks": {

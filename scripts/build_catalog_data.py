@@ -1,9 +1,10 @@
 """Build the offline catalog from local character maps and SchaleDB exports.
 
 Optional prototype names, wiki proposals and variant metadata override derived
-values. Variant words and base names that the character map leaves untranslated
-come from the curated glossary and name table in catalog/data/naming.json, and
-name_sources says whether that wording is official or translated.
+values, and naming.json's story_names override those. Variant words and base names
+that the character map leaves untranslated come from the curated glossary and name
+table in catalog/data/naming.json, and name_sources says whether that wording is
+official or translated.
 
 Simplified Chinese follows Kivo's community wording for base names and costume
 words: it is read from the character map's Kivo columns (name_kivo, skin_kivo, the
@@ -278,6 +279,17 @@ def build_catalog(csv_path: Path, schaledb: Path, names_path: Path | None = None
             entries[key]["names"][lang] = {"full": clean(full, lang),
                                            "short": clean(value["proposedShort"][lang], lang)}
             entries[key]["name_sources"][lang] = "curated"
+    # naming.json's story names (the languages the research files lack, and the game's words where they have a
+    # community one) win over both
+    for research_key, value in NAMING["story_names"].items():
+        key = research.get(research_key)
+        if key not in entries:
+            continue
+        for lang in LANGUAGES:
+            if lang in value:
+                full, short = value[lang]
+                entries[key]["names"][lang] = {"full": clean(full, lang), "short": clean(short, lang)}
+                entries[key]["name_sources"][lang] = value["source"]
     for entry in entries.values():
         entry.pop("research_order", None)
     add_aliases(students, entries, row_map, matches, localized["zh-CN"], cn_words(rows))
