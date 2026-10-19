@@ -282,7 +282,8 @@ ported.
   roster`); the search lasts the session.
 - The search (the game's CharacterSearch box over the top of the list) matches every name language, the family's base
   names and the file id, ignoring case, width, kana and separators (with the marks inside names, as in
-  Shiroko*Terror); every word must match.
+  Shiroko*Terror); every word must match. Its input opens focused at once, before the box is drawn round it, and
+  stays in the page across rebuilds, so nothing typed meanwhile is lost.
 - A visit to a variant (`ui.visit`) is mirrored in the page's roster data, so "Recently Viewed" has it on the way
   back without a new `roster.list`.
 - The detail screen's arrows step through the cards as the list showed them when it was left, in its order, wrapping

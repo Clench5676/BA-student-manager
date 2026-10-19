@@ -80,6 +80,8 @@ input[type="text"], input[type="search"], textarea { cursor: text; }
   font-family: var(--font); font-weight: var(--w); line-height: 1.15; color: #1f3f5f; caret-color: #1f3f5f; text-align: center;
   -webkit-appearance: none; appearance: none; -webkit-user-select: text; user-select: text; }
 .roster-search::placeholder { color: #98a3ae; font-size: .92em; opacity: 1; }
+/* opened and focused before its box is drawn: it takes keystrokes unseen meanwhile */
+.roster-search.pending { opacity: 0; }
 .roster-empty { position: absolute; inset: 0; pointer-events: none; }
 .consent-host { position: absolute; inset: 0; z-index: 2000; }
 .consent-host[hidden] { display: none; }
