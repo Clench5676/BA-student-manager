@@ -14,7 +14,22 @@ at runtime and never shipped with the program.
 - Nav entries without a new screen yet open the classic Tk GUI on that tab (`bamt --tab <name>`).
 - `bamt` (and the compiled app) starts the web UI; `bamt --classic` starts the classic Tk GUI.
 - Released builds look for a newer GitHub release at start and can update themselves (`updater.py`).
-- Out of scope for now: a settings screen, the other tool screens, zh-TW and ja UI strings.
+- Out of scope for now: the other tool screens.
+
+## Languages
+
+- The UI languages are the localization roadmap's M1 (`i18n.UI_LANGUAGES`: zh-CN, zh-TW, en-US, ja-JP, ko-KR); a
+  language is offered (the settings popup, `settings.set language`) once its locale file
+  `locales/<code>.json` exists (`i18n.offered_languages`). The classic GUI lists every locale file.
+- The first start takes the system language (`i18n.match_language`): Traditional Chinese (zh-Hant, zh-TW, zh-HK,
+  zh-MO) zh-TW, other Chinese zh-CN, Japanese ja-JP, Korean ko-KR, the rest en-US. Without the language's file yet,
+  Traditional Chinese gets the whole zh-CN screen, the others en-US. `BAMT_LANG` overrides it.
+- A string a locale file lacks falls back key by key (`i18n.fallback_language`): Simplified Chinese to zh-CN, every
+  other language, Traditional Chinese included, to en-US. A Simplified (and Kivo-worded) string in a Traditional
+  screen reads as a wrong translation, an English one as an untranslated one, which also shows the translator what
+  is missing; CLDR, too, gives zh-Hant the root locale as its parent, not zh.
+- Names come with the data per language (`i18n.js` `NAME_LANG`: zh-CN, zh-TW, en, ja, ko); a missing name falls
+  back to en, Simplified Chinese ones to zh-CN first. The lobby's lines follow the UI language (`LINE_LANGS`).
 
 ## Process layout
 

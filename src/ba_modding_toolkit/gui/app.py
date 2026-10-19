@@ -9,7 +9,7 @@ import ttkbootstrap as tb
 from pathlib import Path
 from PIL import ImageTk
 
-from ..i18n import i18n_manager, t, get_system_language, get_locale_dir
+from ..i18n import i18n_manager, t, get_default_language, get_locale_dir
 from ..utils import get_environment_info, get_version_info, parse_hex_bytes, EXE_DIR
 from ..models import SaveOptions, SkelConvertOptions, AnimCheckOptions
 from ..bundle import Bundle
@@ -496,12 +496,9 @@ class App(tb.Frame, ConfigMixin):
         
         # 如果没有配置文件，根据系统语言检测设置默认语言
         if not config_loaded:
-            system_lang = get_system_language()
             # 如果系统语言是中文，使用zh-CN，否则使用en-US
-            if system_lang and system_lang.startswith("zh-"):
-                default_language = "zh-CN"
-            else:
-                default_language = "en-US"
+            # The system language picks among the UI languages with a locale file (i18n.match_language)
+            default_language = get_default_language()
             
             self.language_var.set(default_language)
             print(f"未找到配置文件，根据系统语言检测使用默认语言: {default_language}")

@@ -17,10 +17,10 @@ from ba_modding_toolkit.webui.services import Services
 from ba_modding_toolkit.webui.state import UiState
 
 
-def row(cid, group, order, en, tw="", anim="", category="UILobbySpecial", teen=False, jp=""):
+def row(cid, group, order, en, tw="", anim="", category="UILobbySpecial", teen=False, jp="", kr=""):
     return {"CharacterId": cid, "CostumeUniqueId": cid * 100 + 1, "DisplayOrder": order, "DialogCategory": category,
             "DialogCondition": "Idle", "GroupId": group, "DialogType": "Talk", "AnimationName": anim,
-            "LocalizeEN": en, "LocalizeTW": tw, "LocalizeKR": "", "LocalizeTH": "", "LocalizeJP": jp, "TeenMode": teen}
+            "LocalizeEN": en, "LocalizeTW": tw, "LocalizeKR": kr, "LocalizeTH": "", "LocalizeJP": jp, "TeenMode": teen}
 
 
 # the shape of ba-data's CharacterDialogExcelTable.json (Hoshino's third dialogue has two rows for three clips)
@@ -229,6 +229,25 @@ def test_lobby_lines_in_english(api):
     # without the skeleton's clips, Kivo's clip names place the rows (here one clip for both rows of Talk_03_M)
     lines = rpc.call("lobby.lines", {"variant": "hoshino", "lang": "en"})["result"]
     assert lines["hoshino_memoriallobby_3_1"]["en"] == "Is it okay? I shouldn't worry about that? All right, then."
+
+
+@pytest.mark.parametrize("ui, key", [("ko-KR", "ko"), ("zh-TW", "zh-TW")])
+def test_lobby_lines_default_to_the_ui_language(api, monkeypatch, ui, key):
+    from ba_modding_toolkit.i18n import i18n_manager
+
+    s, rpc = api
+    table = {"DataList": [*TABLE["DataList"],
+                          row(10005, 4, 310, "Look!", anim="Talk_04_M", kr="봐 봐!\n물고기야!")]}
+    s.global_lines = Fetcher(json.dumps(table).encode())
+    monkeypatch.setattr(i18n_manager, "lang", ui)
+    lines = rpc.call("lobby.lines", {"variant": "hoshino", "talks": {"Talk_04_M": ["h_2"], "Talk_01_M": ["h_1"]}})
+    lines = lines["result"]
+    assert s.global_lines.urls == [globallines.URLS[0]]
+    if key == "ko":
+        # Korean parts of a line keep the space between them (Hangul is spaced like English)
+        assert lines["h_2"]["ko"] == "봐 봐! 물고기야!"
+    else:
+        assert lines["h_1"]["zh-TW"] == "欸嘿～好厲害。"
 
 
 def test_lobby_lines_in_chinese_never_read_the_global_table(api):
