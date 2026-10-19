@@ -109,7 +109,9 @@ shader's Outline pass, unless the material turns that pass off) and its colour p
 wrap, mipmaps as in the game: the characters' textures have none) and `extras.linear` for masks; per clip the renderer
 switches it animates (`toggles`: alternative faces), so a renderer the prefab disables is exported when a clip turns
 it on. `web/js/chibi-materials.js` ports the MX/C-* shaders from their compiled D3D11 programs (the game is in linear
-colour space; the character light is the standard one, white and from straight above, without ambient). The outline is
+colour space; the character light is the standard one, white and from straight above, without ambient), and for props
+DSFX/FX_SHADER_Matcap (a riot shield, soup), MX/E-Water (the surface colour: the game deepens it by the camera depth
+behind it, which a lone chibi lacks) and the unlit and effect shaders, each with its own texture slot and colour. The outline is
 0.1 % of the stage width times the vertex colour alpha, as in the game. The camera orbits freely; the zoom stays between
 the bust and a step back, and a double click returns to the front view.
 

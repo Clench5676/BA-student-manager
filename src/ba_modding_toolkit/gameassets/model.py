@@ -47,7 +47,8 @@ SHADER_KINDS = (
     ("MX/C-General/Layer4", "body"), ("MX/C-Face", "face"), ("MX/C-Hair", "hair"), ("MX/C-EyesMouth", "eyemouth"),
     ("MX/C-Eyebrow", "eyebrow"), ("MX/C-Halo", "halo"), ("MX/C-Weapon", "weapon"), ("ProjectMX/Weapon", "weapon"),
     ("MX/C-Simple-Transparent", "transparent"), ("MX/C-Transparent", "transparent"), ("MX/C-Simple", "simple"),
-    ("MX/C-General", "general"), ("Unlit/", "unlit"), ("FX/", "unlit"), ("DSFX/", "unlit"),
+    ("MX/C-General", "general"), ("MX/E-Water", "water"), ("MX/Unlit", "unlit"), ("Unlit/", "unlit"),
+    ("DSFX/FX_SHADER_Matcap", "matcap"), ("FX/", "unlit"), ("DSFX/", "unlit"),
 )
 
 

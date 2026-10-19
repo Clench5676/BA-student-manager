@@ -244,14 +244,16 @@ def test_shader_kind_by_name_prefix():
         "MX/C-General/Layer4", "MX/C-General/Layer4-Inline", "MX/C-General/Single", "MX/C-General/Transparent",
         "MX/C-Hair-Transparent", "MX/C-Face", "MX/C-EyesMouth", "MX/C-Eyebrow-OneColor", "MX/C-Halo/Simple",
         "MX/C-Weapon-NoOutline", "ProjectMX/WeaponTest1Damage", "MX/C-Simple", "MX/C-Simple-Transparent",
-        "MX/C-Transparent-ST", "Unlit/Texture", "FX/General Unlit Texture", "MX/E-Standard")}
+        "MX/C-Transparent-ST", "Unlit/Texture", "FX/General Unlit Texture", "MX/E-Standard", "MX/E-Water-V2",
+        "MX/Unlit Outline", "DSFX/FX_SHADER_Matcap", "DSFX/FX_SHADER_AlphaBlend_Add")}
     assert kinds == {
         "MX/C-General/Layer4": "body", "MX/C-General/Layer4-Inline": "body", "MX/C-General/Single": "general",
         "MX/C-General/Transparent": "general", "MX/C-Hair-Transparent": "hair", "MX/C-Face": "face",
         "MX/C-EyesMouth": "eyemouth", "MX/C-Eyebrow-OneColor": "eyebrow", "MX/C-Halo/Simple": "halo",
         "MX/C-Weapon-NoOutline": "weapon", "ProjectMX/WeaponTest1Damage": "weapon", "MX/C-Simple": "simple",
         "MX/C-Simple-Transparent": "transparent", "MX/C-Transparent-ST": "transparent", "Unlit/Texture": "unlit",
-        "FX/General Unlit Texture": "unlit", "MX/E-Standard": "general"}
+        "FX/General Unlit Texture": "unlit", "MX/E-Standard": "general", "MX/E-Water-V2": "water",
+        "MX/Unlit Outline": "unlit", "DSFX/FX_SHADER_Matcap": "matcap", "DSFX/FX_SHADER_AlphaBlend_Add": "unlit"}
     assert model.shader_kind(None) == "general"
 
 
