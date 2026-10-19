@@ -402,9 +402,13 @@ def test_ui_strings_fall_back_key_by_key():
     assert set(zh) == set(en)
     assert all("·" not in v and "・" not in v for v in zh.values())
     # Traditional Chinese falls back to English, not to Simplified Chinese (i18n.fallback_language); Korean and
-    # Japanese too, key by key
+    # Japanese too, key by key: a language without its locale file yet is all English
+    from ba_modding_toolkit.i18n import offered_languages
     for lang in ("zh-TW", "ja-JP", "ko-KR"):
-        assert ui_strings(lang)["webui.tab.lobby"] == en["webui.tab.lobby"], lang
+        if lang not in offered_languages():
+            assert ui_strings(lang)["webui.tab.lobby"] == en["webui.tab.lobby"], lang
+    # a shipped translation: the Global client's own Korean term
+    assert ui_strings("ko-KR")["webui.tab.lobby"] == "메모리얼 로비"
     assert ui_strings("zh-SG")["webui.tab.lobby"] == "记忆大厅"
 
 
