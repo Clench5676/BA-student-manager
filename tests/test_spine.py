@@ -19,7 +19,6 @@ from ba_modding_toolkit.spine import (
     )
 from ba_modding_toolkit.bundle import Bundle
 from ba_modding_toolkit.models import NameTypeKey, AssetType
-from conftest import find_all_files
 
 if TYPE_CHECKING:
     from conftest import SampleCase, LegacyRenameCase
@@ -240,12 +239,13 @@ class TestAtlasOperations:
         images_dir = output_dir / "images"
         assert images_dir.exists()
         assert images_dir.is_dir()
-        files = find_all_files(images_dir, "")
+        # A frame name may hold folders ("01/Background", in lobbies): its PNG is saved in a subfolder
+        files = sorted(path for path in images_dir.rglob("*") if path.is_file())
         assert len(files) > 1
         assert all(file.suffix == ".png" for file in files)
 
         # 验证解包的帧名称与 atlas 记录一致
-        actual_frame_names = {f.stem for f in files}
+        actual_frame_names = {f.relative_to(images_dir).with_suffix("").as_posix() for f in files}
         assert actual_frame_names == expected_frame_names
 
 class TestLegacyRenameWithRealData:

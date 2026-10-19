@@ -171,16 +171,17 @@ def compare_images_mse(img1: Image.Image, img2: Image.Image) -> float:
 
 
 def find_first_file(directory: Path, extension: str) -> Path | None:
+    """The first file by name (``name.png`` before ``name_2.png``), the same on every file system."""
     if not directory.exists():
         return None
-    files = list(directory.glob(f"*{extension}"))
+    files = sorted(directory.glob(f"*{extension}"))
     return files[0] if files else None
 
 
 def find_all_files(directory: Path, extension: str) -> list[Path]:
     if not directory.exists():
         return []
-    return list(directory.glob(f"*{extension}"))
+    return sorted(directory.glob(f"*{extension}"))
 
 
 def has_file(directory: Path, extension: str) -> bool:
