@@ -143,11 +143,12 @@ class Profiles:
     def read(self) -> dict[str, Any] | None:
         """The configuration as the file holds it now (another instance may have written it), normalized; None while
         there is none yet. Read under the lock the instances share; ServiceError profiles_unreadable when neither
-        profiles.json nor its .prev can be read."""
+        profiles.json nor its .prev can be read. The answer is shared until the file changes: read it, never change
+        it (update is how the configuration changes)."""
         with self._lock:
             signatures = self._signatures()
             if signatures == self._seen:
-                return copy.deepcopy(self._data)
+                return self._data
             if signatures == (None, None):  # no configuration yet: nothing to lock (the folder stays untouched)
                 self._data, self._seen = None, signatures
                 return None
@@ -156,7 +157,7 @@ class Profiles:
                 data, _bad = self._load()
             self._data = normalized(data) if data is not None else None
             self._seen = signatures
-            return copy.deepcopy(self._data)
+            return self._data
 
     def exists(self) -> bool:
         """Whether a configuration exists (profiles.json or its .prev)."""
@@ -172,7 +173,7 @@ class Profiles:
             data = normalized(current)
             if change(data) is False:
                 self._data, self._seen = (normalized(current) if current is not None else None), self._signatures()
-                return data
+                return self._data if self._data is not None else data
             self.root.mkdir(parents=True, exist_ok=True)
             if bad:
                 # keep what could not be read for the user; .prev is the last good file already
@@ -181,7 +182,7 @@ class Profiles:
             elif self.path.exists():
                 self._copy(self.path, self.prev)
             self._write(data)
-            self._data, self._seen = copy.deepcopy(data), self._signatures()
+            self._data, self._seen = data, self._signatures()
             return data
 
     def _copy(self, source: Path, target: Path) -> None:

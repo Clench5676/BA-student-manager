@@ -151,30 +151,26 @@ class _View:
     - ``full``: write strength, every file the library cannot show unchanged is hashed in full (switching).
     """
 
-    def __init__(self, library: ModLibrary, pins: list[Pin], config: dict | None, allow: str) -> None:
+    def __init__(self, library: ModLibrary, pins: list[Pin], config: dict | None, allow: str,
+                 snapshot: bool = False) -> None:
+        """``snapshot``: copy the records, for a view read outside the library lock (the scan). A view used under
+        the lock shares the library's records and the maps built from them."""
         self.library = library
         self.pins = {pin.key: pin for pin in pins}
-        self.applied = {path: dict(record) for path, record in library._applied.items()}
         self.mods = set(library._records)
         self.config = config
         self.enabled = profiles_mod.enabled(config)
         self.allow = allow
         self.indexes = {pin.key: library._index(pin) for pin in pins}
         self.maps = {pin.key: library._core_map(pin) for pin in pins}
-        directory = library.root / "originals"
-        self.originals: dict[str, int] = {}
-        if directory.is_dir():
-            for path in directory.glob("*.bundle"):
-                with contextlib.suppress(OSError):
-                    self.originals[path.name] = path.stat().st_size
-        self.by_name: dict[str, list[tuple[Path, dict]]] = {}
-        self.by_folder: dict[Path, list[tuple[Path, dict]]] = {}
-        for name, record in self.applied.items():
-            path = Path(name)
-            self.by_name.setdefault(path.name, []).append((path, record))
-            self.by_folder.setdefault(path.parent, []).append((path, record))
-        self.names: dict[str, dict[str, Path]] = {
-            key: {path.name: path for paths in index.values() for path in paths} for key, index in self.indexes.items()}
+        self.names = {pin.key: library._names(pin) for pin in pins}
+        self.originals: dict[str, int] = dict(library._originals())
+        if snapshot:
+            self.applied = {path: dict(record) for path, record in library._applied.items()}
+            self.by_name, self.by_folder = _record_maps(self.applied)
+        else:
+            self.applied = library._applied
+            self.by_name, self.by_folder = library._record_maps()
         self._sizes: dict[str, int | None] = {}
 
     # --- what the library knows ---
@@ -442,6 +438,17 @@ def signature(parts: list[_Part]) -> list[tuple[str, int, int]]:
     return sorted((part.path.name, part.size, part.mtime) for part in parts)
 
 
+def _record_maps(applied: dict[str, dict]) -> tuple[dict[str, list[tuple[Path, dict]]], dict[Path, list]]:
+    """The library's game file records by file name and by folder."""
+    by_name: dict[str, list[tuple[Path, dict]]] = {}
+    by_folder: dict[Path, list[tuple[Path, dict]]] = {}
+    for name, record in applied.items():
+        path = Path(name)
+        by_name.setdefault(path.name, []).append((path, record))
+        by_folder.setdefault(path.parent, []).append((path, record))
+    return by_name, by_folder
+
+
 class ModLibrary:
     """Store mods, retain verified official originals, track installed sources, and keep the mod configuration and
     the Enable Mods switch (profiles.json).
@@ -467,8 +474,14 @@ class ModLibrary:
         self._applied: dict[str, dict[str, Any]] = {}
         self._base: tuple[dict, set, dict] = ({}, set(), {})  # the state as last read or written, for merges
         self._version = 0  # bumped by every change of _applied, so a scan can tell it is stale
-        self._indexes: dict[str, tuple[tuple, dict[str, list[Path]]]] = {}
+        # per install key: (folders' signature, index, its files, generation); file name -> lower-case core
+        self._indexes: dict[str, tuple[tuple, dict[str, list[Path]], frozenset, int]] = {}
+        self._cores: dict[str, str] = {}
+        self._generation = 0
         self._maps: dict[str, tuple[int, CoreMap]] = {}
+        self._names_cache: dict[str, tuple[int, dict[str, Path]]] = {}
+        self._originals_cache: tuple[Any, dict[str, int]] | None = None
+        self._maps_cache: tuple[tuple, Any] | None = None
         self.profiles = Profiles(self.root)
         self._load()
         with self._lock:
@@ -923,7 +936,8 @@ class ModLibrary:
                 idle(pin.root)
 
     def _index(self, pin: Pin) -> dict[str, list[Path]]:
-        """The install's bundle files by lower-case core (names only), rebuilt when a folder changes."""
+        """The install's bundle files by lower-case core (names only). Listed again when a folder changes, and
+        rebuilt only when the files there are not the same ones (a write replacing a file keeps the index)."""
         try:
             signature_ = tuple((str(d), d.stat().st_mtime_ns) for d in pin.dirs)
         except OSError:
@@ -931,26 +945,40 @@ class ModLibrary:
         cached = self._indexes.get(pin.key)
         if cached and cached[0] == signature_ and signature_:
             return cached[1]
-        index: dict[str, list[Path]] = {}
+        listing: list[tuple[str, str]] = []
         for directory in pin.dirs:
             try:
                 with os.scandir(directory) as entries:
-                    for entry in entries:
-                        if entry.name.endswith(".bundle") and entry.is_file(follow_symlinks=False):
-                            parsed = parse_filename(entry.name)
-                            index.setdefault(parsed.core.lower(), []).append(Path(entry.path))
+                    listing.extend((entry.name, entry.path) for entry in entries
+                                   if entry.name.endswith(".bundle") and entry.is_file(follow_symlinks=False))
             except OSError:
                 continue
+        files = frozenset(path for _name, path in listing)
+        if cached and cached[2] == files:
+            self._indexes[pin.key] = (signature_, cached[1], files, cached[3])
+            return cached[1]
+        index: dict[str, list[Path]] = {}
+        for name, path in listing:
+            core = self._cores.get(name)
+            if core is None:
+                core = self._cores[name] = parse_filename(name).core.lower()
+            index.setdefault(core, []).append(Path(path))
         index = {key: sorted(paths) for key, paths in index.items()}
-        self._indexes[pin.key] = (signature_, index)
+        self._generation += 1
+        self._indexes[pin.key] = (signature_, index, files, self._generation)
         return index
+
+    def _built_for(self, pin: Pin) -> int:
+        """Which build of the install's index the caches built on it belong to."""
+        self._index(pin)
+        return self._indexes[pin.key][3]
 
     def _core_map(self, pin: Pin) -> CoreMap:
         """How the install's cores map to variant keys (Catalog.core_map on its file names)."""
         index = self._index(pin)
-        built_for = self._indexes[pin.key][0]
+        built_for = self._built_for(pin)
         cached = self._maps.get(pin.key)
-        if cached and cached[0] == built_for and built_for:
+        if cached and cached[0] == built_for:
             return cached[1]
         named = {core: parse_filename(paths[0].name).core for core, paths in index.items()}
         spr = [named[core] for core in index if core.endswith("_spr")]
@@ -970,17 +998,55 @@ class ModLibrary:
         self._maps[pin.key] = (built_for, mapped)
         return mapped
 
+    def _names(self, pin: Pin) -> dict[str, Path]:
+        """The install's bundle files by name, rebuilt with its index."""
+        index = self._index(pin)
+        built_for = self._built_for(pin)
+        cached = self._names_cache.get(pin.key)
+        if cached and cached[0] == built_for:
+            return cached[1]
+        names = {path.name: path for paths in index.values() for path in paths}
+        self._names_cache[pin.key] = (built_for, names)
+        return names
+
+    def _originals(self) -> dict[str, int]:
+        """The kept originals by name with their sizes, listed again when the folder changed."""
+        directory = self.root / "originals"
+        try:
+            signature_: Any = directory.stat().st_mtime_ns
+        except OSError:
+            signature_ = None
+        if self._originals_cache and self._originals_cache[0] == signature_ and signature_ is not None:
+            return self._originals_cache[1]
+        sizes: dict[str, int] = {}
+        if signature_ is not None:
+            for path in directory.glob("*.bundle"):
+                with contextlib.suppress(OSError):
+                    sizes[path.name] = path.stat().st_size
+        self._originals_cache = (signature_, sizes)
+        return sizes
+
+    def _record_maps(self) -> tuple[dict, dict]:
+        """The records by name and by folder, rebuilt when the records changed."""
+        key = (self._version, id(self._applied), len(self._applied))
+        if self._maps_cache and self._maps_cache[0] == key:
+            return self._maps_cache[1]
+        maps = _record_maps(self._applied)
+        self._maps_cache = (key, maps)
+        return maps
+
     def _game_files(self, key: str, kind: Kind | None = None, pin: Pin | None = None) -> list[Path]:
         variant = self._variant(key)
         index = self._index(self._current(pin))
         return [path for current, value in (("spr", variant.spr), ("lobby", variant.lobby))
                 if value and (kind is None or current == kind) for path in index.get(value.lower(), [])]
 
-    def _view(self, pins: list[Pin], allow: str, config: dict | None | type(...) = ...) -> _View:
+    def _view(self, pins: list[Pin], allow: str, config: dict | None | type(...) = ...,
+              snapshot: bool = False) -> _View:
         self._refresh_state()
         if config is ...:
             config = self.profiles.read()
-        return _View(self, pins, config, allow)
+        return _View(self, pins, config, allow, snapshot)
 
     # --- official copies ---
 
@@ -2071,7 +2137,7 @@ class ModLibrary:
             raise ServiceError("scan_off")
         with self._lock, _errors("scan"):
             pins = list(pins) if pins is not None else self.installs()
-            view = self._view(pins, "scan")
+            view = self._view(pins, "scan", snapshot=True)
             version = self._version
         found = view.entries(pins, cancel)
         with self._lock, _errors("scan"):
