@@ -45,6 +45,32 @@
    "page_id": "217",
    "name_kivo": "茶话会成员A",
    "name_jp": "NP0022"
+  },
+  {
+   "file_id": "NP0267",
+   "student_id": "2",
+   "page_id": "579",
+   "name_kivo": "才羽 桃井",
+   "skin_kivo": "临战",
+   "name_cn": "才羽 桃",
+   "skin_cn": "武装",
+   "name_jp": "才羽 モモイ",
+   "skin_jp": "臨戦",
+   "name_en": "Saiba Momoi",
+   "skin_en": "Battle",
+   "name_tw": "才羽 桃井",
+   "skin_tw": "武裝"
+  },
+  {
+   "file_id": "NP0102",
+   "student_id": "1",
+   "page_id": "1",
+   "spine_remark": "运动服",
+   "name_kivo": "圣园 未花",
+   "name_cn": "圣园 未花",
+   "name_jp": "聖園 ミカ",
+   "name_en": "Misono Mika",
+   "name_tw": "聖園 彌香"
   }
  ],
  "expected": {
@@ -103,12 +129,11 @@
     "en": "translated",
     "ja": "derived",
     "zh-TW": "translated",
-    "zh-CN": "fallback"
+    "zh-CN": "derived"
    },
    "fallbacks": {
     "en": "missing_csv_name",
-    "zh-TW": "missing_csv_name",
-    "zh-CN": "missing_csv_name"
+    "zh-TW": "missing_csv_name"
    }
   },
   "np0291": {
@@ -146,7 +171,7 @@
   "ch0277": {
    "names": {
     "zh-CN": {
-     "full": "笑笑教授",
+     "full": "微笑教授",
      "short": "原皮"
     },
     "zh-TW": {
@@ -193,13 +218,76 @@
     "en": "translated",
     "ja": "translated",
     "zh-TW": "translated",
-    "zh-CN": "fallback"
+    "zh-CN": "derived"
    },
    "fallbacks": {
-    "zh-CN": "missing_csv_name",
     "zh-TW": "missing_csv_name",
     "en": "missing_csv_name",
     "ja": "missing_csv_name"
+   }
+  },
+  "np0267": {
+   "names": {
+    "zh-CN": {
+     "full": "桃井（临战）",
+     "short": "临战"
+    },
+    "zh-TW": {
+     "full": "桃井（武裝）",
+     "short": "武裝"
+    },
+    "en": {
+     "full": "Momoi (Battle)",
+     "short": "Battle"
+    },
+    "ja": {
+     "full": "モモイ（臨戦）",
+     "short": "臨戦"
+    }
+   },
+   "name_sources": {
+    "zh-CN": "fallback",
+    "zh-TW": "fallback",
+    "en": "fallback",
+    "ja": "fallback"
+   },
+   "fallbacks": {
+    "zh-CN": "story_variant",
+    "zh-TW": "story_variant",
+    "en": "story_variant",
+    "ja": "story_variant"
+   }
+  },
+  "np0102": {
+   "names": {
+    "zh-CN": {
+     "full": "未花（运动服）",
+     "short": "运动服"
+    },
+    "zh-TW": {
+     "full": "彌香（體育服）",
+     "short": "體育服"
+    },
+    "en": {
+     "full": "Mika (Track)",
+     "short": "Track"
+    },
+    "ja": {
+     "full": "ミカ（体操服）",
+     "short": "体操服"
+    }
+   },
+   "name_sources": {
+    "zh-CN": "fallback",
+    "zh-TW": "fallback",
+    "en": "fallback",
+    "ja": "fallback"
+   },
+   "fallbacks": {
+    "zh-CN": "story_variant",
+    "zh-TW": "story_variant",
+    "en": "story_variant",
+    "ja": "story_variant"
    }
   }
  },
