@@ -1310,7 +1310,7 @@ def test_kept_mods_are_dropped_when_the_switch_is_rolled_back(setup_library, mon
     assert kept_copy(env, env.original).exists()  # the game file is not official
 
 
-GAME_DIR =Path(os.environ.get("BAMT_TEST_GAME_DIR", "/Users/A200237264/Library/Application Support/Blue Archive/Game"))
+GAME_DIR = Path(os.environ.get("BAMT_TEST_GAME_DIR", "/Users/A200237264/Library/Application Support/Blue Archive/Game"))
 
 
 @pytest.mark.skipif(not GAME_DIR.is_dir(), reason="Blue Archive install unavailable")
