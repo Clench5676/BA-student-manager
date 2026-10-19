@@ -181,6 +181,36 @@ test("ring buffer: particles held at their end or looping their lifetime until m
   assert.equal(mortal.count(), 0);
 });
 
+test("a particle that dies is replaced in the same frame; one emitted within a frame moves for the rest of it", () => {
+  // hibiki_home's River_surface and BackGround_*: one particle at most, 60 a second, living 1 and 5 s. Emitted before
+  // the old one was gone, the new one waited a frame and the bottom-left corner blinked dark once a second
+  const frames = {
+    "60 Hz": () => 1 / 60,
+    "75 Hz": () => 1 / 75,
+    // spine-player's frame times are Date.now() differences, whole milliseconds
+    "60 Hz in whole ms": ((ms = [16, 17, 17], i = 0) => () => ms[i++ % 3] / 1000)(),
+    "120 Hz in whole ms": ((ms = [8, 8, 9], i = 0) => () => ms[i++ % 3] / 1000)(),
+    "144 Hz in whole ms": ((i = 0) => () => (Math.floor((++i * 1000) / 144) - Math.floor(((i - 1) * 1000) / 144)) / 1000)(),
+  };
+  for (const [label, next] of Object.entries(frames)) {
+    const fx = effects([1, 5].map((life) => sys({ main: { prewarm: 1, life, max: 1 }, emission: { rate: 60 } })));
+    let empty = 0;
+    for (let t = 0; t < 12;) {
+      const dt = next();
+      t += dt;
+      fx.update(dt);
+      empty += fx.systems.filter((s) => !s.particles.length).length;
+    }
+    assert.equal(empty, 0, `${label}: frames without a particle`);
+  }
+  // 25 a second over a 0.1 s frame: emitted at 0.04 and 0.08 s, so 0.06 and 0.02 s old at its end and moved as far
+  const fx = effects([sys({ main: { speed: 1 }, emission: { rate: 25 } })]);
+  fx.update(0.1);
+  const ps = fx.systems[0].particles;
+  assert.equal(ps.length, 2);
+  ps.forEach((p, i) => { near(p.age, [0.06, 0.02][i], 1e-9, "age"); near(p.pos[2], [0.06, 0.02][i], 1e-9, "distance"); });
+});
+
 test("shapes emit inside their volume, on their surface or edge, along their direction", () => {
   const r = lcg(9);
   for (let i = 0; i < 200; i++) {
