@@ -2276,3 +2276,29 @@ def test_the_lock_order_is_kept_across_threads(world, monkeypatch):
     world.library.restore("other")
     world.library.remove(mod.id)
     assert violations == []
+
+
+# --- what the switch's snapshot reads ---
+
+def test_the_status_lists_installs_with_ids_and_distinct_folder_names(world):
+    from ba_modding_toolkit.library.judge import distinguishing_folders
+    assert distinguishing_folders({"a": Path("/x/Steam/BlueArchive"), "b": Path("/y/Other/BlueArchive")}) == {
+        "a": "Steam/BlueArchive", "b": "Other/BlueArchive"}
+    assert distinguishing_folders({"a": Path("/x/BlueArchive"), "b": Path("/y/Steam")}) == {
+        "a": "BlueArchive", "b": "Steam"}
+    mod = world.add(world.spr)
+    world.library.apply("test", f"mod:{mod.id}")
+    other = world.tmp / "global2"
+    game_bundle(other)
+    world.settings.set("game_resource_dir", str(other))  # the first stays known by its record
+    status = world.library.status()
+    installs = {item["key"]: item for item in status["installs"]}
+    assert set(installs) == {world.key(), world.key(other)}
+    assert installs[world.key()]["named"] is False and installs[world.key(other)]["named"] is True
+    assert installs[world.key()]["distinct"] == "game" and installs[world.key(other)]["distinct"] == "global2"
+    assert len(installs[world.key()]["id"]) == 12 and status["current"] == world.key(other)
+    assert (status["enabled"], status["reason"], status["configured"]) == (True, None, 1)
+    assert status["unfinished"] == {"pending": 0, "left": 0, "stuck": 0}
+    (world.root / "profiles.json").write_text("{broken")
+    (world.root / "profiles.json.prev").write_text("{broken")
+    assert world.library.status()["reason"] == "profiles_unreadable"

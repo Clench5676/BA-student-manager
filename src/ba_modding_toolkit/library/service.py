@@ -34,8 +34,8 @@ from ..utils import no_log
 from . import profiles as profiles_mod
 from . import safety
 from .judge import (
-    CRC_STATES, LIBRARY_SOURCES, carried_of, classify, core_of, crc_state, date_of, install_key, install_root,
-    kind_of, leaves, now, part_of, says_official, seconds,
+    CRC_STATES, LIBRARY_SOURCES, carried_of, classify, core_of, crc_state, date_of, distinguishing_folders,
+    install_key, install_root, kind_of, leaves, now, part_of, says_official, seconds,
 )
 from .models import (
     AdoptResult, ApplyResult, AssetDifference, CompareResult, EntryState, GameFileState, Kind, ModEntry, Pin,
@@ -2260,13 +2260,22 @@ class ModLibrary:
     def status(self) -> dict[str, Any]:
         """What the switch's snapshot needs from the library, from names, stats and profiles.json only: the known
         installs, the current one, the intent, the configured count, the disk use of built copies and kept
-        originals, and ``reason`` (profiles_unreadable or None). Never takes the library lock."""
+        originals, and ``reason`` (profiles_unreadable or None). Never takes the library lock. Each install's
+        ``distinct`` is the shortest trailing part of its path that tells it from the other installs of its server
+        (for the install label, "Global (BlueArchive)"), None when it is the only one of its server."""
         pins = self.installs()
         named = {pin.key for pin in self._named_pins()}
         current = self.current_pin()
+        servers: dict[str, dict[str, Path]] = {}
+        for pin in pins:
+            servers.setdefault(pin.server, {})[pin.key] = pin.root
+        distinct: dict[str, str] = {}
+        for roots in servers.values():
+            if len(roots) > 1:
+                distinct.update(distinguishing_folders(roots))
         out: dict[str, Any] = {
             "installs": [{"id": pin.id, "key": pin.key, "server": pin.server, "folder": str(pin.root),
-                          "named": pin.key in named} for pin in pins],
+                          "named": pin.key in named, "distinct": distinct.get(pin.key)} for pin in pins],
             "current": current.key if current else None,
             "builtSize": _folder_size(self.root / "built"), "originalsSize": _folder_size(self.root / "originals"),
             "reason": None,
@@ -2413,7 +2422,8 @@ class ModLibrary:
                         outcome, why, entry = self._reach(pin, core, enabled, allowed, listed.get((pin.key, core)),
                                                           drift is not None, log)
                 except ServiceError as error:
-                    item = {"install": pin.key, "core": core, "variant": core, "kind": kind_of(core) or "spr"}
+                    item = {"install": pin.key, "core": core, "kind": kind_of(core) or "spr",
+                            "variant": self._core_map(pin).key(core) or core}
                     result["failed"].append({"entry": item, "code": error.code, "params": error.to_json()["params"]})
                     outcomes[(pin.key, core)] = "pending"
                     if error.code in STOPPING:
@@ -2428,7 +2438,8 @@ class ModLibrary:
                 kinds.add(entry["kind"])
             unsaved += 1
             if unsaved >= SAVE_EVERY[0] or time.monotonic() - saved_at >= SAVE_EVERY[1]:
-                self._save_outcomes(outcomes)
+                with _errors("toggle"):
+                    self._save_outcomes(outcomes)
                 outcomes, unsaved, saved_at = {}, 0, time.monotonic()
             if progress:
                 progress(i, len(plan), core)
