@@ -12,6 +12,7 @@ import pytest
 
 from ba_modding_toolkit.config import Settings
 from ba_modding_toolkit.errors import ServiceError
+from ba_modding_toolkit.i18n import offered_languages
 from ba_modding_toolkit.webui.api import build_api, ui_strings
 from ba_modding_toolkit.webui.events import EventBus
 from ba_modding_toolkit.webui.jobs import JobRunner
@@ -402,9 +403,12 @@ def test_ui_strings_fall_back_key_by_key():
     assert set(zh) == set(en)
     assert all("·" not in v and "・" not in v for v in zh.values())
     # Traditional Chinese falls back to English, not to Simplified Chinese (i18n.fallback_language); Korean and
-    # Japanese too, key by key
+    # Japanese too, key by key: until its locale file ships a language shows the English strings, then its own
     for lang in ("zh-TW", "ja-JP", "ko-KR"):
-        assert ui_strings(lang)["webui.tab.lobby"] == en["webui.tab.lobby"], lang
+        shipped = lang in offered_languages()
+        assert (ui_strings(lang)["webui.tab.lobby"] != en["webui.tab.lobby"]) is shipped, lang
+        assert set(ui_strings(lang)) == set(en), lang
+    assert ui_strings("ja-JP")["webui.tab.lobby"] == "メモリアルロビー"
     assert ui_strings("zh-SG")["webui.tab.lobby"] == "记忆大厅"
 
 
@@ -440,7 +444,7 @@ def test_roster_view_is_kept_across_launches(app, services, tmp_path):
 
 
 def test_settings_offer_the_languages_with_a_locale_file(app, services, tmp_path, monkeypatch):
-    from ba_modding_toolkit.i18n import i18n_manager, offered_languages
+    from ba_modding_toolkit.i18n import i18n_manager
     from ba_modding_toolkit.webui import api as webui_api
 
     locales = tmp_path / "locales"
