@@ -74,6 +74,7 @@ def _serialized(method: Callable) -> Callable:
     @wraps(method)
     def call(self: ModLibrary, *args: Any, **kwargs: Any) -> Any:
         with self._lock, _errors(method.__name__):
+            self._refresh_state()
             return method(self, *args, **kwargs)
     return call
 
@@ -390,7 +391,7 @@ class _View:
         copies = {str(part.path): self.copy_of(part, pin) for part in parts}
         overwritten = any(not part.official and part.carried != "damaged" and copies[str(part.path)] is None
                           for part in parts) and self.allow != "recorded"
-        variant = self.maps[pin.key].key(core) or core
+        variant = self.maps[pin.key].key(core) or (config or {}).get("variant") or core
         entry = _Entry(pin, core, kind, variant, parts, carried, configured, state, takeover,
                        drifted_present or drifted_gone or marker, overwritten, copies)
         entry.dismissed = self.dismissed(entry)
@@ -497,6 +498,7 @@ class ModLibrary:
         return records, favorites, applied
 
     def _load(self) -> None:
+        self._seen = self._state_signature()
         try:
             state = self._parse_state(json.loads((self.root / "state.json").read_text(encoding="utf-8")))
         except FileNotFoundError:
@@ -506,6 +508,34 @@ class ModLibrary:
             return
         self._records, self._favorites, self._applied = state
         self._base = copy.deepcopy(state)
+
+    def _state_signature(self) -> tuple[int, int] | None:
+        try:
+            stat = (self.root / "state.json").stat()
+        except OSError:
+            return None
+        return stat.st_mtime_ns, stat.st_size
+
+    def _refresh_state(self) -> None:
+        """Take in what another instance sharing the library wrote to state.json since this one last read or wrote
+        it (its size or date changed), keeping this instance's own changes not saved yet."""
+        if self._state_signature() == self._seen:
+            return
+        with file_lock(self.root / "state.json.lock"):
+            signature_ = self._state_signature()
+            try:
+                disk = self._parse_state(json.loads((self.root / "state.json").read_text(encoding="utf-8")))
+            except FileNotFoundError:
+                disk = ({}, set(), {})
+            except (OSError, ValueError, TypeError, KeyError, AttributeError):
+                self._seen = signature_
+                return
+        base, mine = self._base, (self._records, self._favorites, self._applied)
+        self._records = _merge(base[0], mine[0], disk[0])
+        self._favorites = (set(disk[1]) | (mine[1] - base[1])) - (base[1] - mine[1])
+        self._applied = _merge(base[2], mine[2], disk[2])
+        self._base, self._seen = copy.deepcopy(disk), signature_
+        self._version += 1
 
     def _save(self) -> None:
         """Write state.json, merged with what another instance sharing the library wrote since this one last read
@@ -531,6 +561,7 @@ class ModLibrary:
                 merged = (records, favorites, applied)
             atomic_json(path, {"version": 1, "mods": list(merged[0].values()),
                                "favorites": sorted(merged[1]), "applied": merged[2]})
+            self._seen = self._state_signature()
         self._records, self._favorites, self._applied = merged[0], merged[1], merged[2]
         self._base = copy.deepcopy(merged)
         self._version += 1
@@ -937,6 +968,7 @@ class ModLibrary:
                 if value and (kind is None or current == kind) for path in index.get(value.lower(), [])]
 
     def _view(self, pins: list[Pin], allow: str, config: dict | None | type(...) = ...) -> _View:
+        self._refresh_state()
         if config is ...:
             config = self.profiles.read()
         return _View(self, pins, config, allow)
