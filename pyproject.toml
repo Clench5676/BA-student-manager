@@ -21,6 +21,8 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+# only the app package goes into wheels, whatever else lies under src/
+include = ["ba_modding_toolkit*"]
 
 [tool.uv.sources]
 spineatlas = { git = "https://github.com/Agent-0808/SpineAtlas.git", rev = "fix/bounds-not-first" }
@@ -33,3 +35,7 @@ bamt-cli = "ba_modding_toolkit.cli.main:main"
 dev = [
     "pytest>=8.0.0",
 ]
+
+[tool.pytest.ini_options]
+# collect only tests/: the checkout's root may hold the user's own data and research folders
+testpaths = ["tests"]

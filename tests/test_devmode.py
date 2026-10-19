@@ -1,10 +1,12 @@
 """The environment hooks for isolated development runs (ba_modding_toolkit.devmode): inert without their variables,
 and what each does when set."""
 
+import fnmatch
 import json
 import os
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -642,3 +644,11 @@ def test_builds_carry_the_hooks_version():
     marker = Path(ba_modding_toolkit.__file__).parent / "assets" / "dev-hooks.json"
     assert json.loads(marker.read_text(encoding="utf-8")) == {"hooks": devmode.HOOKS}
 
+
+def test_wheels_hold_the_app_only():
+    data = tomllib.loads((SRC.parent / "pyproject.toml").read_text(encoding="utf-8"))
+    include = data["tool"]["setuptools"]["packages"]["find"]["include"]
+    for name in ("ba_modding_toolkit", "ba_modding_toolkit.webui", "ba_modding_toolkit.library"):
+        assert any(fnmatch.fnmatchcase(name, pattern) for pattern in include), name
+    for name in ("tests", "scripts", "tools", "tools.store"):
+        assert not any(fnmatch.fnmatchcase(name, pattern) for pattern in include), name
