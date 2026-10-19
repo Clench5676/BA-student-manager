@@ -875,8 +875,8 @@
 			"all": "All",
 			"mods": "Modded",
 			"noMods": "No Mod",
-			"recruit": "Recruitable",
-			"noRecruit": "Not Recruitable"
+			"recruit": "Playable",
+			"noRecruit": "NPC"
 		},
 		"sort": {
 			"recent": "Recently Viewed",
@@ -968,8 +968,8 @@
 			"source": "Source"
 		},
 		"type": {
-			"recruit": "Recruitable",
-			"noRecruit": "Not Recruitable",
+			"recruit": "Playable",
+			"noRecruit": "NPC",
 			"added": "Added"
 		},
 		"btn": {

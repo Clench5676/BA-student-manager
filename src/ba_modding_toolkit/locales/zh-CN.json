@@ -875,8 +875,8 @@
 			"all": "全部",
 			"mods": "有 Mod",
 			"noMods": "无 Mod",
-			"recruit": "可招募",
-			"noRecruit": "不可招募"
+			"recruit": "已实装",
+			"noRecruit": "未实装"
 		},
 		"sort": {
 			"recent": "最近查看",
@@ -968,8 +968,8 @@
 			"source": "来源"
 		},
 		"type": {
-			"recruit": "可招募",
-			"noRecruit": "不可招募",
+			"recruit": "已实装",
+			"noRecruit": "未实装",
 			"added": "添加的立绘"
 		},
 		"btn": {
