@@ -148,6 +148,9 @@ class Profiles:
             signatures = self._signatures()
             if signatures == self._seen:
                 return copy.deepcopy(self._data)
+            if signatures == (None, None):  # no configuration yet: nothing to lock (the folder stays untouched)
+                self._data, self._seen = None, signatures
+                return None
             with file_lock(self.lock_path):
                 signatures = self._signatures()
                 data, _bad = self._load()

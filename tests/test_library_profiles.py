@@ -123,6 +123,11 @@ def test_a_change_may_write_nothing(tmp_path):
     assert not (tmp_path / "profiles.json").exists()
 
 
+def test_reading_no_configuration_touches_nothing(tmp_path):
+    assert Profiles(tmp_path / "library").read() is None
+    assert not (tmp_path / "library").exists()
+
+
 # --- a library over temporary game folders ---
 
 class World:
