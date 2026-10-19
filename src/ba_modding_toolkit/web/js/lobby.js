@@ -27,7 +27,7 @@ const FADE_MS = 450;        // the switch crossfade, in step with the UI slide (
 const TALK_GUARD_MS = 500;  // a tap does not skip a dialogue that started this recently
 
 let players = [], current = null, mode = "left", extendTimer = null, chain = null, token = 0, wantTouch = false;
-let zoomMode = "game", zoomCustom = ZOOM_CUSTOM; // the zoom-out setting (setZoomLimit)
+let zoomMode = "art", zoomCustom = ZOOM_CUSTOM; // the zoom-out setting (setZoomLimit)
 let talk = null, talkIndex = -1, cueTimers = [], audios = [], subtitleTimer = null;
 let lines = {}, muted = false, volume = 0.8, lineOf = (l) => l?.["zh-CN"] || "";
 const listeners = new Set();
@@ -524,7 +524,7 @@ export function zoomAt(factor, sx, sy) {
 // the zoom-out setting {mode, custom} (ZOOM_MODES; custom in game views across): a view wider than the new limit comes
 // back inside it, around the same centre; Full Art and Unlocked measure the lobby's clips (once)
 export function setZoomLimit(zoom) {
-  zoomMode = ZOOM_MODES.includes(zoom?.mode) ? zoom.mode : "game";
+  zoomMode = ZOOM_MODES.includes(zoom?.mode) ? zoom.mode : "art";
   zoomCustom = clamp(Number(zoom?.custom) || ZOOM_CUSTOM, 1, ZOOM_OUT_MAX);
   if (measuresClips()) measureClips();
   openEdge();

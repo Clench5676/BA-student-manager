@@ -48,8 +48,8 @@ def rpc(app, method, **params):
     return json.loads(body)
 
 
-def test_zoom_out_setting_is_the_game_view_by_default_and_persists(app, tmp_path):
-    assert rpc(app, "settings.get")["result"]["lobbyZoom"] == {"mode": "game", "custom": 2.0}
+def test_zoom_out_setting_is_full_art_by_default_and_persists(app, tmp_path):
+    assert rpc(app, "settings.get")["result"]["lobbyZoom"] == {"mode": "art", "custom": 2.0}
     for mode in ("art", "unlocked", "custom", "game"):
         assert rpc(app, "settings.set", key="lobbyZoom", value=mode)["result"]["lobbyZoom"]["mode"] == mode
         assert UiState(tmp_path / "webui.json").get("lobby_zoom") == mode
@@ -81,6 +81,8 @@ def test_zoom_out_setting_migrates_the_saved_boolean(services, app):
     services.state.set("lobby_zoom", "everything")
     services.state.set("lobby_zoom_custom", "far")
     assert rpc(app, "settings.get")["result"]["lobbyZoom"] == {"mode": "art", "custom": 2.0}
+    services.state.set("lobby_zoom_out", False)
+    assert rpc(app, "settings.get")["result"]["lobbyZoom"]["mode"] == "game"
 
 
 def test_post_processing_setting_is_on_by_default_and_persists(app, tmp_path):

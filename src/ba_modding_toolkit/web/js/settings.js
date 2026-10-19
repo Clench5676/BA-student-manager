@@ -165,7 +165,7 @@ function rows() {
   } else if (tab === "l2d") {
     // the memorial lobby's fullscreen zoom-out limit: the game's view, the art every clip keeps painted, everything
     // painted, or a custom number of game views across (its slider shows with Custom)
-    const zoom = p.lobbyZoom || { mode: "game", custom: 2 };
+    const zoom = p.lobbyZoom || { mode: "art", custom: 2 };
     const modes = ["game", "art", "unlocked", "custom"].map((m) => [m, T(`settings.zoomOut.${m}`)]);
     add(radioRow("ZoomOut", 0, T("settings.zoomOut.label"), modes, zoom.mode, (v) => set("lobbyZoom", v)));
     if (zoom.mode === "custom") add(factorRow("ZoomCustom", 0, T("settings.zoomOut.limit"), zoom.custom));

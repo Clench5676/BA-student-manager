@@ -521,10 +521,10 @@ in `pointer-textures`); without a game the system cursor stays and there is no e
     dispose). Without WebGL2 nothing is drawn.
 - **Zoom.** Fullscreen opens on the game's 16:9 view and zooms in to 2x. How far it zooms out is the Settings L2D
   tab's zoom-out row (`settings.set lobbyZoom` and `lobbyZoomCustom`; `lobby_zoom` and `lobby_zoom_custom` in
-  `webui.json`, where the boolean `lobby_zoom_out` it replaces still reads as Full Art or Game View); panning stays
-  inside the same limit, and no limit goes past 4 game views across:
-  - *Game View* (the default): the game's view, never wider.
-  - *Full Art*: the widest 16:9 view inside the painted art (one 16-unit cell inside the painted rect). The painted
+  `webui.json`, where the boolean `lobby_zoom_out` it replaces still reads as Full Art or Game View; Full Art when
+  nothing is stored); panning stays inside the same limit, and no limit goes past 4 game views across:
+  - *Game View*: the game's view, never wider.
+  - *Full Art* (the default): the widest 16:9 view inside the painted art (one 16-unit cell inside the painted rect). The painted
     rect is found on idle poses; the poses of every clip the lobby plays (dialogues with their sync clips, the drag
     clips and their ends, random idle clips, every 0.1 s over the idle) are checked in the background, in 8 ms
     slices, within 24 cells of its sides, and the rect gives up what one uncovers: a dialogue that moves the scene

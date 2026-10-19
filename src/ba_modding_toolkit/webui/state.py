@@ -266,9 +266,9 @@ def is_number(value: Any) -> bool:
 
 def lobby_zoom(mode: Any, custom: Any, legacy: Any = None) -> dict[str, Any]:
     """The zoom-out setting as stored, every field valid: the mode, else the boolean the setting was before (`legacy`,
-    lobby_zoom_out: on is Full Art, off the game's view), and the custom limit in 0.1 steps within its range."""
+    lobby_zoom_out: off is the game's view), else Full Art; and the custom limit in 0.1 steps within its range."""
     lo, hi = LOBBY_ZOOM_CUSTOM
     return {
-        "mode": mode if isinstance(mode, str) and mode in LOBBY_ZOOM_MODES else "art" if legacy is True else "game",
+        "mode": mode if isinstance(mode, str) and mode in LOBBY_ZOOM_MODES else "game" if legacy is False else "art",
         "custom": round(min(hi, max(lo, float(custom))), 1) if is_number(custom) else LOBBY_ZOOM_CUSTOM_DEFAULT,
     }
