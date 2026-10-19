@@ -157,11 +157,62 @@ def test_clips_resolve_mixes_chains_and_random():
     assert set(clips.clips) == {"Test_home"}
     # the default intro is the skeleton's defaultMix, not a fixed value
     assert home["Pat_01_M"] == {"track": 1, "loop": True, "mode": 1, "finish": 2, "intro": 0.4, "outro": 0.4,
-                                "next": None, "sync": ["Pat_01_A"], "block": False, "random": None}
+                                "outroAt": None, "next": None, "sync": ["Pat_01_A"], "block": False, "random": None}
     assert home["Pat_01_A"]["intro"] == 0.0 and home["PatEnd_01_M"]["outro"] == 0.3
+    # its own outro: from the clip's end plus its OutroStartOffset; the default one ends with the clip
+    assert home["PatEnd_01_M"]["outroAt"] == 0.0
     assert home["Pat_02_M"]["finish"] == 3 and home["Pat_02_M"]["next"] == "Pat_01_M"
-    assert home["Eye_Close_01"]["random"] == {"min": 8.0, "max": 15.0, "loops": [0, 1]}
+    assert home["Eye_Close_01"]["random"] == {"min": 8.0, "max": 15.0, "loops": [0, 1], "pre": 1, "preDelay": 0.0}
     assert clips.anim(ref(8002, 3)) == "PatEnd_01_M" and clips.anim(ref(0)) is None
+    assert "sounds" not in home["Pat_01_M"] and clips.sound_events() == []
+
+
+def test_idle_sync_clips_and_sound_keys():
+    # Shigure's idle starts Train_00_R on track 3: masked at random times, its first wait 3 s plus 10 to 15 s, and a
+    # sound key at 3.1 s on an event of the lobbies' shared bundle; a clip of the idle pool beyond the first
+    events = {(-2, 1, -900): "cab-common_-900", (-3, 1, -901): "cab-common_-901"}
+    asked = []
+
+    def sound(owner, pointer):
+        asked.append(owner)
+        return events.get((owner, pointer["m_FileID"], pointer["m_PathID"]))
+    clips = lobby.Clips([
+        (9001, skeleton_data("Test_home", 0.4)),
+        (-1, clip("Test_home-Idle_01", 0, loop=1, PlayMode=0, FinishMode=0, SyncPlayClipObjects=[ref(-2), ref(0)])),
+        (-2, clip("Test_home-Train_00_R", 3, loop=1, PlayMode=2, UseDefaultIntroMix=0, RandomTimingIntroDelayMode=2,
+                  IntroDelayDuration=3.0, RandomDelayMin=10.0, RandomDelayMax=15.0,
+                  SoundKeys=[{"Time": 3.0999999046325684, "Event": ref(-900, 1)}, {"Time": 4.0, "Event": ref(0)}])),
+        (-3, clip("Test_home-Snow_00_R", 4, loop=1, PlayMode=2, SoundKeys=[{"Time": 0.5, "Event": ref(-901, 1)}])),
+    ], ["Test_home"], sound=sound)
+    home = clips.clips["Test_home"]
+    assert home["Idle_01"]["sync"] == ["Train_00_R"]  # an empty pointer is left out
+    train = home["Train_00_R"]
+    assert (train["track"], train["mode"], train["loop"], train["intro"]) == (3, 2, True, 0.0)
+    assert train["random"] == {"min": 10.0, "max": 15.0, "loops": [0, 0], "pre": 2, "preDelay": 3.0}
+    assert train["sounds"] == [[3.1, "cab-common_-900"]]  # a key without an event is dropped
+    assert clips.sound_events() == ["cab-common_-900", "cab-common_-901"]
+    assert set(asked) == {-2, -3}
+    # the idle pool: every clip of it, the first is the idle
+    p = build_prefab()
+    p.objects[303][1]["idleClipPool"] = [ref(8006, 3), ref(8005, 3), ref(8006, 3), ref(0)]
+    info = p.read("LobbyTest", SKELETONS, core_clips())
+    assert info["idle"] == {"Test_home": "Idle_01"} and info["idles"] == {"Test_home": ["Idle_01", "Eye_Close_01"]}
+
+
+def test_sound_events_as_the_game_plays_them():
+    def clip_id(pointer):
+        return f"cab-sfx_{pointer['m_PathID']}" if pointer.get("m_PathID") else None
+    subway = {"m_Name": "SFX_Spine_Subway", "AudioData": {"Volume": 0.699999988079071, "Pitch": 1.0,
+                                                          "AudioClips": [ref(655, 5), ref(0)]}}
+    assert lobby.sound_event(subway, clip_id) == {"name": "SFX_Spine_Subway", "volume": 0.7, "pitch": 1.0,
+                                                  "clips": ["cab-sfx_655"]}
+    # a pitch of 0 or below is not set on the source (it keeps 1), one above is the playback rate
+    cloth = {"m_Name": "SpineSFX_Cloth", "AudioData": {"Volume": 0.08, "Pitch": -3.0, "AudioClips": [ref(1, 5), ref(2, 5)]}}
+    assert lobby.sound_event(cloth, clip_id)["pitch"] == 1.0 and len(lobby.sound_event(cloth, clip_id)["clips"]) == 2
+    assert lobby.sound_event({**cloth, "AudioData": {**cloth["AudioData"], "Pitch": 3.0}}, clip_id)["pitch"] == 3.0
+    # an ambient event, or one without clips, is not a sound key's
+    assert lobby.sound_event({"m_Name": "AmbientAudioEvent_Breeze", "Clip": ref(3, 5), "Command": 0}, clip_id) is None
+    assert lobby.sound_event({"AudioData": {"AudioClips": []}}, clip_id) is None
 
 
 def test_prefab_layout_drags_touches_and_anchors():
@@ -363,6 +414,9 @@ def test_lobby_info_with_and_without_prefab():
     assert json.loads(json.dumps(info)) == info
     bare = lobby.lobby_info(["A_home", "A_bg", "A_home"], lobby.Clips([], []), None)
     assert bare["prefab"] is None and bare["drags"] == [] and bare["touches"] == [] and bare["post"] == {}
+    assert bare["idles"] == {} and bare["sounds"] == {} and info["sounds"] == {}
+    sounds = {"cab-a_1": {"name": "S", "volume": 0.7, "pitch": 1.0, "clips": ["cab-b_2"]}}
+    assert lobby.lobby_info(SKELETONS, clips, None, sounds)["sounds"] == sounds
     assert bare["fx"] == {"systems": [], "materials": {}, "textures": {}, "meshes": {}}
     assert [(l["name"], l["x"], l["y"], l["scale"], l["active"]) for l in bare["layers"]] == [
         ("A_home", 0.0, -962.0, 1.0, True), ("A_bg", 0.0, -962.0, 1.0, True)]
@@ -417,6 +471,32 @@ def test_lobby_fx_texture_route(tmp_path):
         # a skeleton file that happens to start like one is still served
         assert services.asset("spine/lobby/ch0113_home/fx_page.png", {}).body == b"atlas page"
         assert game.calls == [("ch0113_home", "cab-ab_-12"), ("ch0113_home", "page")]
+    finally:
+        services.close()
+
+
+class _SoundGame(_Game):
+    def lobby_sound(self, core, clip_id):
+        from ba_modding_toolkit.gameassets import AssetNotFound
+        self.calls.append((core, clip_id))
+        if clip_id != "cab-sfx_655":
+            raise AssetNotFound(clip_id)
+        return b"RIFF....WAVE"
+
+    def spine_files(self, kind, core):
+        return {"sfx_page.wav": b"a skeleton file"}
+
+
+def test_lobby_sound_route(tmp_path):
+    game = _SoundGame()
+    services = Services(Settings(tmp_path / "config.toml"), tmp_path, state=UiState(tmp_path / "webui.json"),
+                        cache=object(), game=game, catalog=object(), library=object())
+    try:
+        response = services.asset("spine/lobby/shigure_home/sfx_cab-sfx_655.wav", {})
+        assert (response.body, response.mime, response.light) == (b"RIFF....WAVE", "audio/wav", False)
+        # a file of the skeletons that happens to start like one is still served
+        assert services.asset("spine/lobby/shigure_home/sfx_page.wav", {}).body == b"a skeleton file"
+        assert game.calls == [("shigure_home", "cab-sfx_655"), ("shigure_home", "page")]
     finally:
         services.close()
 
@@ -492,3 +572,34 @@ def test_real_lobby_particles(real_game, monkeypatch):
         real_game.lobby_fx_texture("ch0187_home", tex_id + "0")
     # game art: kept in memory only
     assert any("lobby-fx/" in key for key, _ in puts) and not any(disk for key, disk in puts if "lobby-fx/" in key)
+
+
+@pytest.mark.skipif(not GAME_DIR.is_dir(), reason="No local game install")
+def test_real_lobby_idle_clips_and_sounds(real_game, monkeypatch):
+    from ba_modding_toolkit.gameassets import AssetNotFound
+    puts, put = [], real_game.cache.put
+
+    def record(key, value, **kwargs):
+        puts.append((key, kwargs.get("disk", True)))
+        put(key, value, **kwargs)
+
+    monkeypatch.setattr(real_game.cache, "put", record)
+    # Shigure's idle starts her train: track 3, at random times, with the subway's sound 3.1 s in
+    shigure = real_game.lobby_info("shigure_home")
+    assert shigure["idles"]["Shigure_home"] == ["Idle_01"]
+    assert shigure["clips"]["Shigure_home"]["Idle_01"]["sync"] == ["Train_00_R"]
+    train = shigure["clips"]["Shigure_home"]["Train_00_R"]
+    assert (train["track"], train["mode"], train["loop"]) == (3, 2, True)
+    assert train["random"] == {"min": 10.0, "max": 15.0, "loops": [0, 0], "pre": 2, "preDelay": 3.0}
+    (time, event), = train["sounds"]
+    assert time == 3.1 and shigure["sounds"][event]["name"] == "SFX_Spine_Subway"
+    assert shigure["sounds"][event]["volume"] == 0.7 and len(shigure["sounds"][event]["clips"]) == 1
+    # Yuzu's idle pool plays two background clips besides the idle
+    assert real_game.lobby_info("ch0336_home")["idles"]["CH0336_home"] == ["Idle_01", "Idle_BG_B_01_R", "Idle_Cloud_01_R"]
+    # the sound, decoded in memory (WAV), and only for clips the lobby lists
+    clip_id = shigure["sounds"][event]["clips"][0]
+    wav = real_game.lobby_sound("shigure_home", clip_id)
+    assert wav[:4] == b"RIFF" and wav[8:12] == b"WAVE" and len(wav) > 10000
+    with pytest.raises(AssetNotFound):
+        real_game.lobby_sound("aru_home", clip_id)
+    assert any("lobby-sound/" in key for key, _ in puts) and not any(disk for key, disk in puts if "lobby-sound/" in key)

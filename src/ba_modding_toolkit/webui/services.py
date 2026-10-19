@@ -248,6 +248,15 @@ class Services:
                 return AssetResponse(self.game.lobby_fx_texture(key, name[3:-4]), "image/png", light=False)
             except AssetNotFound:
                 pass
+        if kind == "lobby" and name.startswith("sfx_") and name.endswith(".wav"):
+            # a sound the lobby's clips play (lobby.json sounds), decoded from the game files in memory; any other
+            # name is one of the skeletons' own files
+            from ..gameassets import AssetNotFound
+
+            try:
+                return AssetResponse(self.game.lobby_sound(key, name[4:-4]), "audio/wav", light=False)
+            except AssetNotFound:
+                pass
         core = key
         if kind in ("spr", "lobby"):
             files = self.game.spine_files(kind, key)
