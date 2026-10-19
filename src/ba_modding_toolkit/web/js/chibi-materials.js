@@ -682,9 +682,11 @@ export function chibiMaterial(ex, textures, mouth) {
     outline = false;
   } else if (kind === "halo") {
     defines.KIND_HALO = "";
-    if (shader.endsWith("Simple") || !map) {
+    // MX/C-Halo/Simple draws _SimpleBaseColor alone. MX/C-Halo/UnlitTextured draws _MainTex x _Tint and the glow, also
+    // without a texture: the slot then samples Unity's white (ch0109's and EN0009's halos have none)
+    if (shader.endsWith("Simple")) {
       defines.SIMPLE = "";
-      uniforms.tint.value = colorOf(ex, "_SimpleBaseColor", ex.colors?._Tint || [1, 1, 1, 1]);
+      uniforms.tint.value = colorOf(ex, "_SimpleBaseColor", [1, 1, 1, 1]);
     }
     glowUniforms(ex, uniforms, defines);
     mat.toneMapped = false;
