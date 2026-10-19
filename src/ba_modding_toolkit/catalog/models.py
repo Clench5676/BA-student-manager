@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 
 
 @dataclass
@@ -24,6 +24,8 @@ class Variant:
     recruitable: bool = False  # playable on the selected server, not only on some server
     model: str | None = None  # the 3D chibi's dev name (character-<dev>-_mxload-* bundles)
     schale_id: int | None = None  # the game's character id (SchaleDB's student id), for the Global server's lines
+    # names the roster search matches but the UI never shows (the CN server's zh-CN wording)
+    aliases: list[str] = field(default_factory=list)
 
     def to_json(self) -> dict:
         """Return an independent JSON-ready record for RPC responses."""
@@ -38,6 +40,7 @@ class Family:
     names: dict[str, str]
     school: str | None
     variants: list[Variant]
+    aliases: list[str] = field(default_factory=list)  # base names the search matches but the UI never shows
 
     def to_json(self) -> dict:
         """Return an independent JSON-ready record for RPC responses."""

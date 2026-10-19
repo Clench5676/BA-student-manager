@@ -103,11 +103,17 @@ def test_name_table_entries_fit_their_languages():
     for entry in entries:
         assert entry["source"] in ("official", "translated"), entry
         assert entry.get("basis"), entry
-        assert set(entry) - {"source", "basis"} <= set(LANGUAGES), entry
+        assert set(entry) - {"source", "basis", "cn"} <= set(LANGUAGES), entry
         for lang in set(entry) & set(LANGUAGES):
             assert entry[lang] and not foreign(entry[lang], lang), (lang, entry)
     for entry in NAMING["glossary"].values():
         assert all(entry.get(lang) for lang in ("en", "ja", "zh-TW")), entry
+    # the CN server's wording (an alias, never shown) is Simplified Chinese and says where it is from
+    worded = [entry for entry in [*NAMING["glossary"].values(), *NAMES.values()] if "cn" in entry]
+    assert len(worded) >= 15
+    for entry in worded:
+        assert entry["cn"] and "cn:" in entry["basis"], entry
+        entry["cn"].encode("gb2312")  # Simplified Chinese only
 
 
 def write_cases(path: Path) -> Path:
@@ -155,6 +161,78 @@ def test_shipped_zh_cn_names_follow_kivo_wording(shipped: dict):
                 assert cn_word not in parts, (key, cn_word)
         if server != given:
             assert not name["full"].startswith(server + "\uff08") and name["full"] != server, key
+
+
+def test_shipped_aliases_keep_the_cn_servers_names(shipped: dict):
+    """The CN server's names that Kivo's wording replaced stay findable as aliases (never shown)."""
+    for key, kivo in KIVO["variants"].items():
+        entry = shipped["variants"][key]
+        student = shipped["students"][str(entry["student_id"])]
+        given, server = kivo_given(kivo["name"]), kivo_given(kivo["name_cn"])
+        if server != given:
+            assert server in student.get("aliases", []), key
+        if kivo["skin_cn"] and kivo["skin_cn"] != kivo["skin"]:
+            assert any(kivo["skin_cn"] in alias for alias in entry.get("aliases", [])), key
+    # the names the user knew from before the switch: Airi, Aru, Arona, Momoi, Fuuka, Haruka, Kanna, Neru, Tsumugi
+    students = {"airi": "\u7231\u7406", "aru": "\u7231\u9732", "arona": "\u963f\u6d1b\u5a1c", "momoi": "\u6843",
+                "fuuka": "\u98ce\u9999", "haruka": "\u6625\u9999", "ch0170": "\u5eb7\u5a1c",
+                "neru": "\u59ae\u9732", "ch0252": "\u4337"}
+    for key, server in students.items():
+        sid = str(shipped["variants"][key]["student_id"])
+        assert server in shipped["students"][sid]["aliases"], key
+        assert server in shipped["variants"][key]["aliases"], key
+    # and the CN server's costume words: New Year, Armed, Bunny, Casual, Track
+    words = {"aru_newyear": "\u65b0\u5e74", "np0267": "\u6b66\u88c5", "ch0099": "\u90a6\u59ae",
+             "ch0082": "\u4fbf\u670d", "np0045": "\u4f53\u64cd\u670d", "utahaturret": "\u5c0f\u96f7"}
+    for key, word in words.items():
+        assert any(word in alias for alias in shipped["variants"][key]["aliases"]), key
+
+
+def test_shipped_aliases_are_sorted_and_never_the_shown_name(shipped: dict):
+    records = [(sid, student["names"]["zh-CN"], student.get("aliases")) for sid, student in shipped["students"].items()]
+    records += [(key, entry["names"]["zh-CN"]["full"], entry.get("aliases")) for key, entry in shipped["variants"].items()]
+    with_aliases = [record for record in records if record[2] is not None]
+    assert len(with_aliases) > 200
+    for key, shown, aliases in with_aliases:
+        assert aliases and aliases == sorted(set(aliases)) and shown not in aliases, key
+        assert all(usable(alias) and alias.strip() == alias for alias in aliases), key
+    # a Terror form is its own name, never an alias of the student
+    shiroko = shipped["students"][str(shipped["variants"]["shiroko"]["student_id"])]
+    assert "aliases" not in shiroko
+
+
+def test_cn_words_pair_kivos_words_with_the_servers():
+    from ba_modding_toolkit.catalog._names import cn_words
+
+    armed, battle, bunny, bunny_cn = "\u4e34\u6218", "\u6b66\u88c5", "\u5154\u5973\u90ce", "\u90a6\u59ae"
+    rows = [{"skin_kivo": armed, "skin_cn": battle}, {"skin_kivo": f"{bunny},{armed}", "skin_cn": f"{bunny_cn},{battle}"},
+            {"skin_kivo": bunny, "skin_cn": "x"}, {"skin_kivo": "a,b", "skin_cn": "c"}, {"skin_kivo": "", "skin_cn": "d"}]
+    words = cn_words(rows)
+    assert words[armed] == battle and words[bunny] in (bunny_cn, "x")
+    assert "a" not in words and "" not in words
+    # Kivo's remark words the map never pairs come from the glossary (Track: the server's gym uniform word)
+    assert words["\u8fd0\u52a8\u670d"] == "\u4f53\u64cd\u670d"
+
+
+def test_cn_aliases_put_the_servers_names_in_place():
+    from ba_modding_toolkit.catalog._names import cn_aliases, cn_base, cn_name
+
+    momoi, peach = "\u6843\u4e95", "\u6843"
+    armed, battle, damaged = "\u4e34\u6218", "\u6b66\u88c5", "\u6218\u635f"
+    words = {armed: battle}
+    full = f"{momoi}\uff08{armed}\uff0c{damaged}\uff09"
+    assert cn_name(full, momoi, peach, words) == f"{peach}\uff08{battle}\uff0c{damaged}\uff09"
+    assert cn_name(momoi, momoi, peach, words) == peach
+    terror = "\u767d\u5b50\uff0a\u6050\u6016"  # Shiroko*Terror: the base is only the start of the name
+    assert cn_name(terror, "\u767d\u5b50", "\u767d\u5b50", words) == terror
+    # no server name for the student: the base stays and only the words change
+    assert cn_aliases(f"{momoi}\uff08{armed}\uff09", momoi, [], words) == [f"{momoi}\uff08{battle}\uff09"]
+    # the variant's own row names all of the head; the server's own name is kept as it is
+    assert cn_aliases(terror, "\u767d\u5b50", [], words, heads=[terror], extra=["x"]) == ["x"]
+    assert cn_aliases(momoi, momoi, [peach, momoi], words) == [peach]
+    assert cn_base({"name_cn": "\u624d\u7fbd \u6843"}) == peach
+    assert cn_base({"name_cn": "\u8054\u90a6\u7406\u4e8b\u4f1a\u957f"}) == "\u8054\u90a6\u7406\u4e8b\u4f1a\u957f"
+    assert cn_base({"name_cn": "NP0022"}) == cn_base({}) == ""
 
 
 @pytest.mark.parametrize("case", KIVO["playables"], ids=lambda case: case["student"]["Name"])

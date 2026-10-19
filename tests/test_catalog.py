@@ -189,6 +189,54 @@ def test_invalid_release_flags_are_rejected(game: FakeGame, tmp_path: Path, rele
     assert failure.value.code == "catalog_data_invalid"
 
 
+def test_shipped_aliases_reach_families_and_variants(game: FakeGame, tmp_path: Path):
+    data = json.loads((FIXTURES / "catalog.json").read_text(encoding="utf-8"))
+    data["students"]["42"]["aliases"] = ["\u5c0f\u661f"]
+    data["variants"]["ch0010"]["aliases"] = ["\u5c0f\u661f\uff08\u6cf3\u88c5\uff09"]
+    path = tmp_path / "aliases.json"
+    path.write_text(json.dumps(data), encoding="utf-8")
+    catalog = Catalog(game, None, path)
+    family = catalog.family("hoshino")
+    assert family.aliases == ["\u5c0f\u661f"]
+    assert catalog.variant("ch0010").aliases == ["\u5c0f\u661f\uff08\u6cf3\u88c5\uff09"]
+    assert catalog.variant("hoshino").aliases == []
+    assert family.to_json()["aliases"] == ["\u5c0f\u661f"]
+    assert family.to_json()["variants"][1]["aliases"] == ["\u5c0f\u661f\uff08\u6cf3\u88c5\uff09"]
+
+
+@pytest.mark.parametrize("aliases", ["\u5c0f\u661f", [""], [3], {"zh-CN": "x"}])
+def test_invalid_aliases_are_rejected(game: FakeGame, tmp_path: Path, aliases):
+    data = json.loads((FIXTURES / "catalog.json").read_text(encoding="utf-8"))
+    data["variants"]["ch0020"]["aliases"] = aliases
+    path = tmp_path / "aliases.json"
+    path.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(ServiceError) as failure:
+        Catalog(game, None, path).families()
+    assert failure.value.code == "catalog_data_invalid"
+
+
+def test_new_csv_rows_take_the_cn_servers_names_as_aliases(game: FakeGame, tmp_path: Path):
+    """A character the shipped data lacks: zh-CN shows Kivo's wording, the CN server's is an alias."""
+    momoi_kivo, momoi_cn = "\u624d\u7fbd \u6843\u4e95", "\u624d\u7fbd \u6843"  # Momoi
+    armed_kivo, armed_cn = "\u4e34\u6218", "\u6b66\u88c5"  # the Armed costume word
+    fields = ["file_id", "student_id", "page_id", "spine_remark", "name_kivo", "name_cn", "name_tw", "name_en",
+              "name_jp", "skin_kivo", "skin_cn", "skin_tw", "skin_en", "skin_jp", "school_id", "school_name"]
+    rows = [["CH1100", "900", "", "", momoi_kivo, momoi_cn, "", "Saiba Momoi", "", "", "", "", "", "", "4", ""],
+            ["NP1101", "900", "", "", momoi_kivo, momoi_cn, "", "Saiba Momoi", "", armed_kivo, armed_cn,
+             "", "Armed", "", "4", ""]]
+    csv_path = tmp_path / "map.csv"
+    csv_path.write_text("\n".join(",".join(row) for row in [fields, *rows]) + "\n", encoding="utf-8")
+    game.cores["spr"].update({"ch1100_spr": [], "np1101_spr": []})
+    catalog = Catalog(game, csv_path, FIXTURES / "catalog.json")
+    family = catalog.family("ch1100")
+    assert family.names["zh-CN"] == "\u6843\u4e95"
+    assert family.aliases == ["\u6843"]
+    assert catalog.variant("ch1100").aliases == ["\u6843"]
+    armed = catalog.variant("np1101")
+    assert armed.names["zh-CN"]["full"] == "\u6843\u4e95\uff08\u4e34\u6218\uff09"
+    assert armed.aliases == ["\u6843\uff08\u6b66\u88c5\uff09"]
+
+
 def test_lobby_aliases_regional_suffix_and_core_lookup(catalog: Catalog):
     assert catalog.variant("hoshino").lobby == "hoshino_home"
     assert catalog.variant("ch0010").lobby == "hoshino_swimsuit_home"
