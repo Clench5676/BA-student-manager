@@ -520,17 +520,24 @@ in `pointer-textures`); without a game the system cursor stays and there is no e
   - Place: a system under a SkeletonUtilityBone (Follow) moves with that bone of its skeleton, through the transforms
     below the bone; any other keeps its place in the prefab. Local simulation space moves the particles with it, world
     space leaves them behind. Unity world units are the UI root's (the 1665-unit view is 2 units high).
-  - Simulated: duration, looping, prewarm, start delay, lifetime, speed, size and rotation (1D or 3D), colour,
-    gravity, max particles, scaling mode, simulation speed, the ring buffer (pause until replaced holds a particle at
-    the end of its life, loop until replaced plays its loop range again, both until max particles needs its place:
-    ch0334's boosters, one particle a second, and the sea meshes of ch0188 and ch0356, 35 systems in 8 lobbies,
-    vanished after their lifetime without it); emission over time and bursts (cycles, intervals,
-    probability); the shapes sphere, hemisphere, cone, box (volume, shell, edge), circle, edge, rectangle and donut
+  - Simulated: duration, looping, prewarm (exactly one duration, in steps of 1/30 s), start delay, lifetime, speed,
+    size and rotation (1D or 3D), colour, gravity, max particles, scaling mode, simulation speed, the ring buffer
+    (pause until replaced holds a particle at the end of its life, loop until replaced plays its loop range again,
+    both until max particles needs its place: ch0334's boosters, one particle a second, and the sea meshes of ch0188
+    and ch0356, 35 systems in 8 lobbies, vanished after their lifetime without it); emission over time and bursts
+    (cycles, intervals, probability; every loop fires its bursts, the first one right after a prewarm, also where
+    frames of 1/60 s add up to a hair under the loop's end: missed before in 400 of the 1419 looping systems with
+    bursts, Tsurugi's smoke and Izuna's flare empty for 5 and 7.5 s after opening); the shapes sphere, hemisphere,
+    cone, box (volume, shell, edge), circle, edge, rectangle and donut
     with arc, thickness and their own transform; velocity over lifetime (linear, orbital, radial, speed modifier),
     limit velocity (dampen), force, colour, size and rotation over lifetime, texture sheet animation (start frame and
-    frame over time as fractions of the sheet), custom data and birth and death sub-emitters. Billboards (view or
+    frame over time as fractions of the sheet), custom data and birth and death sub-emitters. Curves are evaluated as
+    Unity's are, a segment with a Constant (infinite) tangent holding its left key's value: the water drops of
+    misaki_home and ch0095_home keep still, then jump between speeds. Billboards (view or
     local alignment, max size a fraction of the game's view height), stretched billboards and meshes (the particle
-    colour times the mesh's vertex colours: ch0188's sea meshes fade out at their ends by them).
+    colour times the mesh's vertex colours: ch0188's sea meshes fade out at their ends by them; each particle draws
+    one of its renderer's meshes, up to four, picked uniformly at random or by their weights: the four rain streaks
+    of misaki_home and ch0095_home and the two confetti triangles of five *_multi lobbies, 17 renderers in 7 lobbies).
   - Drawn: the game's DSFX shaders ported from their compiled programs (Additive, AlphaBlend, AlphaBlend_Add, the
     Mask, Distort, Step, Step_MXChar and Step_Distort variants, AlphaBlend_Add_Distort_1a and
     AlphaBlend_Add_Double_Distort_1a, AlphaBlend_2_Roz, AlwaysView_Add, Matcap with the meshes' normals, General
@@ -557,7 +564,8 @@ in `pointer-textures`); without a game the system cursor stays and there is no e
   - Cost: about 0.2 ms of main-thread time a frame for a typical lobby, 0.6 ms for the busiest (about 300 particles);
     the *_1a systems add 0.1 to 0.3 ms (ch0188's eleven splashes, ch0334's eight booster meshes);
     the first frame compiles each shader once. Everything is freed with the lobby (`particles-gl.js` detach and
-    dispose). Without WebGL2 nothing is drawn.
+    dispose), and made again on the next frame once a lost WebGL context is restored (a restorable of each player's
+    context, as linear.js has). Without WebGL2 nothing is drawn.
 - **Zoom.** Fullscreen opens on the game's 16:9 view and zooms in to 2x. How far it zooms out is the Settings L2D
   tab's zoom-out row (`settings.set lobbyZoom` and `lobbyZoomCustom`; `lobby_zoom` and `lobby_zoom_custom` in
   `webui.json`, where the boolean `lobby_zoom_out` it replaces still reads as Full Art or Game View; Full Art when

@@ -15,11 +15,12 @@
 // position, rotation, scale, random and spherical direction), velocity over lifetime (linear, orbital with offset,
 // radial, speed modifier), limit velocity (dampen), force over lifetime, colour, size and rotation over lifetime,
 // texture sheet animation (grid: whole sheet or one row), custom data (vectors, colours) and sub-emitters (birth,
-// death); mesh particles take their mesh's vertex colours. Not simulated: noise, collision, triggers, lights,
+// death); a mesh particle draws one of its renderer's meshes (up to four, picked per particle) and takes its vertex
+// colours. Not simulated: noise, collision, triggers, lights,
 // trails, inherit velocity, rate over distance, limit velocity's drag, the by-speed modules and external forces (none
 // is used by more than one lobby); a system keeps drawing without them.
 
-import { curve, toLinear } from "./touch-fx.js";
+import { toLinear } from "./touch-fx.js";
 
 export const WORLD = 1665 / 2;      // lobby units per Unity world unit
 export const VIEW_H = 1665;         // the game's view height in lobby units (max particle size is a fraction of it)
@@ -27,8 +28,25 @@ const GRAVITY = -9.81;              // Physics.gravity.y, world units / s^2
 const PREWARM_STEP = 1 / 30;
 const MAX_DT = 0.1;
 const DAMPEN_FPS = 30;              // limit velocity's dampen is per frame at this rate (frame-rate independent)
+const EPS = 1e-9;                   // seconds: emission times this close count as the same
 
 // --- values ---------------------------------------------------------------------------------------------------------
+
+// an AnimationCurve (particles.py _keys: [time, value, inSlope, outSlope]) at t, as Unity evaluates it: constant
+// outside its keys, cubic Hermite between them, each segment from the last key at or before t; a segment whose left
+// out-slope or right in-slope is infinite (null: a Constant tangent) holds the left key's value (Unity's curve cache,
+// which the particle modules evaluate, makes such a segment stepped)
+export function curve(keys, t) {
+  if (t <= keys[0][0]) return keys[0][1];
+  const last = keys[keys.length - 1];
+  if (t >= last[0]) return last[1];
+  let i = 1;
+  while (keys[i][0] <= t) i++;
+  const [t0, v0, , m0] = keys[i - 1], [t1, v1, m1] = keys[i];
+  if (m0 == null || m1 == null) return v0;
+  const dt = t1 - t0, s = (t - t0) / dt, s2 = s * s, s3 = s2 * s;
+  return (2 * s3 - 3 * s2 + 1) * v0 + (s3 - 2 * s2 + s) * dt * m0 + (3 * s2 - 2 * s3) * v1 + (s3 - s2) * dt * m1;
+}
 
 // a MinMaxCurve (particles.py curve) at normalized time t with the particle's random r
 export function value(c, t, r) {
@@ -81,7 +99,7 @@ export function rnd(seed, k) {
 const R = { life: 0, speed: 1, size: 2, sizeY: 3, sizeZ: 4, rotX: 5, rotY: 6, rot: 7, color: 8, colorLife: 9,
   sizeLife: 10, rotLife: 11, velX: 12, velY: 13, velZ: 14, orbit: 15, radial: 16, speedMod: 17, limit: 18,
   forceX: 19, forceY: 20, forceZ: 21, frame: 22, start: 23, row: 24, flipU: 25, flipV: 26, flipRot: 27, custom: 28,
-  burst: 38, sub: 39, shape: 40 };
+  mesh: 36, burst: 38, sub: 39, shape: 40 };
 
 // --- 3 x 4 affine matrices (row-major) ------------------------------------------------------------------------------
 
@@ -239,15 +257,17 @@ export class Effects {
     }
   }
 
-  // advance every system by dt seconds; prewarmed systems first simulate one duration
+  // advance every system by dt seconds; prewarmed systems first simulate one duration, exactly (a loop shorter than
+  // a step, or not a whole number of them, ends on a shorter step)
   update(dt) {
     dt = Math.max(0, Math.min(MAX_DT, dt || 0));
     this.place();
     if (!this.started) {
       this.started = true;
       for (const s of this.systems) {
+        const D = s.def.main.duration;
         if (!s.playing || !s.def.main.prewarm || !s.def.main.loop) continue;
-        for (let t = 0; t < s.def.main.duration - 1e-9; t += PREWARM_STEP) this.step(s, PREWARM_STEP, true);
+        for (let t = 0; t < D - EPS; t += PREWARM_STEP) this.step(s, Math.min(PREWARM_STEP, D - t), true);
       }
     }
     this.time += dt;
@@ -272,7 +292,9 @@ export class Effects {
   }
 
   // emission over the next dt seconds of a clock: bursts fire when it passes their time within a loop (cycles
-  // times, every interval), the rate adds up over time
+  // times, every interval), the rate adds up over time. A burst up to EPS past the span's end fires in it (frames of
+  // 1/60 s add up to a hair under a loop's end), so the loops it visits reach that far too: else the loop that starts
+  // there would never fire its burst at 0, the next span taking it as already past.
   emitSpan(s, clock, dt, inst) {
     const main = s.def.main, em = s.def.emission || { rate: 0, bursts: [] }, D = main.duration;
     const from = clock.time;
@@ -281,13 +303,13 @@ export class Effects {
     if (to <= from && !clock.fresh) return;
     em.bursts.forEach((b, i) => {
       const cycles = b.cycles > 0 ? b.cycles : Infinity;
-      for (let loop = Math.floor(from / D); loop <= Math.floor(to / D) && (main.loop || loop === 0); loop++) {
+      for (let loop = Math.floor(from / D); loop <= Math.floor((to + EPS) / D) && (main.loop || loop === 0); loop++) {
         for (let k = 0; k < cycles; k++) {
           const local = b.t + k * b.interval;
-          if (local > D + 1e-9) break;
+          if (local > D + EPS) break;
           const t = loop * D + local;
-          if (t > to + 1e-9) break;
-          if (t < from - 1e-9 || (t <= from + 1e-9 && !(clock.fresh && t <= 1e-9))) continue;
+          if (t > to + EPS) break;
+          if (t <= from + EPS && !(clock.fresh && t <= EPS)) continue;
           if (b.p < 1 && this.random() >= b.p) continue;
           const n = Math.round(value(b.n, local / D, this.random()));
           for (let j = 0; j < n; j++) this.emit(s, local / D, inst);
@@ -545,16 +567,31 @@ const FACING = [0, 0, -1];
 // quad corners [x, y, u, v] in the triangle order 0 1 2, 2 3 0
 const QUAD = [[-0.5, -0.5, 0, 0], [0.5, -0.5, 1, 0], [0.5, 0.5, 1, 1], [0.5, 0.5, 1, 1], [-0.5, 0.5, 0, 1], [-0.5, -0.5, 0, 0]];
 
+// the index of the mesh a particle draws among a mesh renderer's meshes (particles.py _mesh_choice): Unity picks one
+// per particle, uniformly at random or by the meshes' weights
+export function meshIndex(rend, seed) {
+  const n = rend.meshes?.length || 1;
+  if (n === 1) return 0;
+  const w = rend.weights || null, total = w ? w.reduce((a, b) => a + Math.max(0, b), 0) : n;
+  if (!(total > 0)) return 0;
+  let x = rnd(seed, R.mesh) * total;
+  for (let i = 0; i < n - 1; i++) {
+    x -= w ? Math.max(0, w[i]) : 1;
+    if (x < 0) return i;
+  }
+  return n - 1;
+}
+
 // One system's triangles for this frame: {data: Float32Array (STRIDE floats per vertex), count: vertices}, in a
 // buffer the next call reuses. meshes: lobby.json fx.meshes; linear: decode the colours from sRGB. Positions are
 // lobby units (z dropped: the camera is orthographic).
 let scratch = new Float32Array(0);
 export function geometry(fxs, s, { meshes = {}, linear = true } = {}) {
   const def = s.def, rend = def.renderer, world = def.main.space === 1;
-  const mesh = rend.mode === 4 ? meshes[rend.mesh] : null;
-  if (!s.particles.length || (rend.mode === 4 && !mesh)) return { data: new Float32Array(0), count: 0 };
+  const list = rend.mode === 4 ? (rend.meshes || [rend.mesh]).map((id) => meshes[id]) : null;
+  if (!s.particles.length || (list && !list.every(Boolean))) return { data: new Float32Array(0), count: 0 };
   const M = s.M, streams = rend.streams || { uv: [0, 2] };
-  const need = s.particles.length * (mesh ? mesh.i.length : 6) * STRIDE;
+  const need = s.particles.length * (list ? Math.max(...list.map((m) => m.i.length)) : 6) * STRIDE;
   if (scratch.length < need) scratch = new Float32Array(Math.max(need, scratch.length * 2, 4096));
   const data = scratch;
   let o = 0;
@@ -565,6 +602,7 @@ export function geometry(fxs, s, { meshes = {}, linear = true } = {}) {
   if (rend.sort === 2) order = order.slice().sort((a, b) => a.age - b.age);
   else if (rend.sort === 3) order = order.slice().sort((a, b) => b.age - a.age);
   for (const pt of order) {
+    const mesh = list && list[meshIndex(rend, pt.seed)];
     const cur = fxs.current(s, pt), c = vertexColor(cur.color, linear), tc = texcoords(streams, cur.custom);
     const centre = world ? pt.pos : apply(M, pt.pos[0], pt.pos[1], pt.pos[2]);
     const fu = rend.flip && rnd(pt.seed, R.flipU) < rend.flip[0], fv = rend.flip && rnd(pt.seed, R.flipV) < rend.flip[1];

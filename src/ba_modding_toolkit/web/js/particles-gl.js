@@ -441,6 +441,7 @@ export function create(fx, { base, bone, load = loadImage } = {}) {
   const effects = new Effects(fx, { bone });
   const images = new Map(); // texture id -> HTMLImageElement once loaded (null while loading)
   const contexts = new Map(); // player -> Context
+  const restorables = new Map(); // player -> what its context calls once restored after a loss
   let slots = new Map(), bottom = null, disposed = false;
   const cpu = { ms: 0, frames: 0 };
   const materials = fx?.materials || {}, meshes = fx?.meshes || {};
@@ -451,11 +452,27 @@ export function create(fx, { base, bone, load = loadImage } = {}) {
     load(`${base}fx_${encodeURIComponent(t.id)}.png`).then((img) => { if (!disposed) images.set(t.id, img); }, () => {});
   }
 
+  // the player's GL objects, made on its first draw; a lost context has freed them, so once it is restored (spine's
+  // context calls its restorables, as linear.js rebuilds its own) the next draw makes them again: the programs, the
+  // vertex array and buffer, and the textures from the images in memory
   function contextOf(player) {
     const gl = player?.context?.gl;
     if (!gl || !Linear.active(player)) return null;
+    if (!restorables.has(player)) {
+      const restorable = { restore: () => { contexts.delete(player); } };
+      restorables.set(player, restorable);
+      player.context.addRestorable?.(restorable);
+    }
     if (!contexts.has(player)) contexts.set(player, new Context(gl));
     return contexts.get(player);
+  }
+
+  // forget a player: its restorable, and its GL objects (freed unless its context has lost them)
+  function release(player) {
+    player.context?.removeRestorable?.(restorables.get(player));
+    restorables.delete(player);
+    contexts.get(player)?.release();
+    contexts.delete(player);
   }
 
   // the player's projection for lobby units: spine's camera (in the layer's skeleton units) after the layer's place
@@ -548,14 +565,10 @@ export function create(fx, { base, bone, load = loadImage } = {}) {
       cpu.ms += performance.now() - t0;
     },
     // free one player's GL objects (before it is disposed)
-    detach(player) {
-      contexts.get(player)?.release();
-      contexts.delete(player);
-    },
+    detach: release,
     dispose() {
       disposed = true;
-      for (const ctx of contexts.values()) ctx.release();
-      contexts.clear();
+      for (const player of new Set([...contexts.keys(), ...restorables.keys()])) release(player);
       images.clear();
       effects.clear();
       slots = new Map();

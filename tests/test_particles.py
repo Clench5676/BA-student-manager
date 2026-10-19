@@ -40,9 +40,15 @@ def test_min_max_curves():
     # random between two constants; equal bounds are a constant
     assert particles.curve(mm(3, 4.0, 1.0)) == {"r": [1.0, 4.0]}
     assert particles.curve(mm(3, 2.0, 2.0)) == 2.0
-    # a curve times its multiplier, keys [time, value, in slope, out slope]; a stepped key's infinite slope is flat
-    c = particles.curve(mm(1, 2.0, hi_keys=[key(0.0, 0.0, 1.0), {**key(1.0, 1.0), "inSlope": math.inf}]))
-    assert c == {"c": [[0.0, 0.0, 1.0, 1.0], [1.0, 1.0, 0.0, 0.0]], "k": 2.0}
+    # a curve times its multiplier, keys [time, value, in slope, out slope]; an infinite slope (a Constant tangent,
+    # whose segment holds the left key's value) is None, a NaN one 0
+    c = particles.curve(mm(1, 2.0, hi_keys=[key(0.0, 0.0, 1.0), {**key(1.0, 1.0), "inSlope": math.inf},
+                                            {**key(2.0, 0.5), "inSlope": -math.inf, "outSlope": math.nan}]))
+    assert c == {"c": [[0.0, 0.0, 1.0, 1.0], [1.0, 1.0, None, 0.0], [2.0, 0.5, None, 0.0]], "k": 2.0}
+    # misaki_home's wate_flow1: velocity over lifetime y, every key but the first stepped in both curves
+    steps = [key(0.0, 0.0)] + [key(t, v, math.inf) for t, v in ((0.21129, -0.61894), (0.41147, -0.11064))]
+    both = particles.curve(mm(2, 1.0, hi_keys=steps, lo_keys=steps))
+    assert both["c"] == both["c0"] == [[0.0, 0.0, 0.0, 0.0], [0.21129, -0.61894, None, None], [0.41147, -0.11064, None, None]]
     both = particles.curve(mm(2, 1.0, hi_keys=[key(0.0, 1.0)], lo_keys=[key(0.0, 0.5)]))
     assert both == {"c": [[0.0, 1.0, 0.0, 0.0]], "c0": [[0.0, 0.5, 0.0, 0.0]], "k": 1.0}
     # a curve without keys reads 1
@@ -173,6 +179,48 @@ def test_ring_buffer():
     assert (looped["ring"], looped["ringRange"]) == (2, [0.25, 0.75])
     assert "ring" not in particles.system({"ringBufferMode": 0}, {})["main"]
     assert "ring" not in particles.system({}, {})["main"]
+
+
+def test_mesh_renderer_meshes():
+    """A mesh renderer lists up to four meshes (m_Mesh..m_Mesh3); Unity draws each particle with one of them, so the
+    export keeps every one that resolves, in slot order, and their weights for a non-uniform distribution."""
+    tri = particles.mesh([(0, 0, 0), (1, 0, 0), (0, 1, 0)], None, None, [(0, 1, 2)])
+    material = {"program": "stepDistort", "queue": 3000, "tex": {}}
+
+    def node(go, slots, distribution=0, weights=(1.0, 1.0, 1.0, 1.0)):
+        rend = {"m_Enabled": 1, "m_RenderMode": 4, "m_Materials": [{"m_FileID": 2, "m_PathID": 9}],
+                "m_MeshDistribution": distribution}
+        for (slot, weight), pid, w in zip(particles._MESH_SLOTS, slots, weights):
+            rend[slot] = {"m_FileID": 3, "m_PathID": pid}
+            rend[weight] = w
+        return {"go": go, "name": f"rain_Trail{go}", "path": f"rain_Trail{go}", "active": True, "parent": 0,
+                "first": {"ParticleSystem": {}, "ParticleSystemRenderer": rend},
+                "pids": {"ParticleSystem": go * 10, "ParticleSystemRenderer": go * 10 + 1},
+                "t": {"m_LocalScale": {"x": 1.0, "y": 1.0, "z": 1.0}}, "local3": particles.IDENTITY, "m3": particles.IDENTITY}
+
+    asked = []
+
+    def resolve(kind, owner, pointer):
+        asked.append((kind, pointer["m_PathID"]))
+        if kind == "material":
+            return "cab-m_9", material
+        # mesh 13 does not resolve: it is left out
+        return (f"cab-m_{pointer['m_PathID']}", tri) if pointer["m_PathID"] in (11, 12, 14) else None
+
+    nodes = [node(1, (11, 12, 0, 14)), node(2, (12, 11, 0, 0), 1, (3.0, 1.0, 1.0, 1.0)), node(3, (11, 0, 0, 0)),
+             node(4, (0, 0, 13, 0))]
+    fx = particles.build(nodes, lambda go: None, lambda skel: 1.0, resolve)
+    rends = {s["name"]: s["renderer"] for s in fx["systems"]}
+    # ch0095's rain streaks: four meshes, uniformly at random (the empty slot is skipped, never asked for)
+    assert rends["rain_Trail1"]["mesh"] == "cab-m_11"
+    assert rends["rain_Trail1"]["meshes"] == ["cab-m_11", "cab-m_12", "cab-m_14"] and "weights" not in rends["rain_Trail1"]
+    # non-uniform: the weights of the meshes listed
+    assert rends["rain_Trail2"]["meshes"] == ["cab-m_12", "cab-m_11"] and rends["rain_Trail2"]["weights"] == [3.0, 1.0]
+    # one mesh: as before; none that resolves: the system is left out
+    assert rends["rain_Trail3"]["mesh"] == "cab-m_11" and "meshes" not in rends["rain_Trail3"]
+    assert "rain_Trail4" not in rends
+    assert set(fx["meshes"]) == {"cab-m_11", "cab-m_12", "cab-m_14"}
+    assert ("mesh", 0) not in asked
 
 
 def test_mesh():

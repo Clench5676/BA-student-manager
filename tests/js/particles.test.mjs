@@ -47,6 +47,64 @@ test("MinMaxCurves and gradients", () => {
   assert.deepEqual(colorAt({ g, pick: 1 }, 0.9, 0), [1, 0, 0, 0]);
 });
 
+test("stepped curves: a segment with an infinite tangent (null) holds its left key's value", () => {
+  // misaki_home's wate_flow1 (velocity over lifetime y): every key past the first has Constant tangents
+  const keys = [[0, 0, 0, 0], [0.21129, -0.61894, null, null], [0.41147, -0.11064, null, null], [0.631, -0.86394, null, null],
+    [1, -1, 0, 0]];
+  const c = { c: keys, k: 1 };
+  assert.equal(value(c, 0.1, 0), 0, "held up to the next key (its in-slope is infinite)");
+  assert.equal(value(c, 0.21129, 0), -0.61894, "a key's own time starts its segment");
+  assert.equal(value(c, 0.3, 0), -0.61894);
+  assert.equal(value(c, 0.5, 0), -0.11064);
+  assert.equal(value(c, 0.9, 0), -0.86394, "the left out-slope alone steps the last segment");
+  assert.equal(value(c, 1, 0), -1);
+  // random between two stepped curves, times the multiplier
+  near(value({ c: keys, c0: [[0, 1, 0, 0], [1, 1, 0, 0]], k: 2 }, 0.3, 0.5), 2 * (1 + (-0.61894 - 1) * 0.5));
+  // finite tangents still ease: a straight ramp with slope 1
+  near(value({ c: [[0, 0, 1, 1], [1, 1, 1, null]], k: 1 }, 0.5, 0), 0.5);
+  near(value({ c: [[0, 0, 1, 1], [1, 1, 1, 1]], k: 1 }, 0.25, 0), 0.25);
+  assert.equal(P.curve([[0, 0, 0, 0], [1, 1, null, 0]], 0.75), 0);
+});
+
+test("a loop's burst at 0 fires every loop at 60 fps and right after a prewarm", () => {
+  const one = { bursts: [{ t: 0, n: 1, cycles: 1, interval: 0.01, p: 1 }] };
+  // ch0209's Flare_par: 120 frames of 1/60 s add up to a hair under its 2 s loop
+  const flare = effects([sys({ main: { duration: 2, life: 100 }, emission: one })]);
+  run(flare, 7, 1 / 60);
+  assert.equal(flare.count(), 4, "the loops at 0, 2, 4 and 6 s");
+  // izuna's water_Flare_00 (twice the speed) and tsurugi's Smoke_00: a prewarmed 5 s loop of one 5 s particle. The
+  // prewarm's 150 steps of 1/30 s end a hair under 5 s; the next loop's particle is there from the first frame on
+  for (const speedScale of [1, 2]) {
+    const smoke = effects([sys({ main: { duration: 5, life: 5, prewarm: 1, speedScale }, emission: one })]);
+    const counts = [];
+    for (let f = 0; f < 60 * 12; f++) { smoke.update(1 / 60); if (f % 30 === 15) counts.push(smoke.count()); }
+    assert.deepEqual([...new Set(counts)], [1], `speed ${speedScale}: every half second`);
+  }
+  // hibiki's boke_L: a 7 s loop of three 8 s particles shows six at each loop's start, the prewarm's among them
+  const boke = effects([sys({ main: { duration: 7, life: 8, prewarm: 1 }, emission: { bursts: [{ ...one.bursts[0], n: 3 }] } })]);
+  boke.update(1 / 60);
+  assert.equal(boke.count(), 6);
+  // each burst once: frames of 1/16 s end exactly on the bursts (0, 0.5, 1 ... 3 s), which fire in the frame they end
+  const exact = effects([sys({ main: { duration: 1, life: 100 }, emission: { bursts: [{ t: 0, n: 1, cycles: 2, interval: 0.5, p: 1 }] } })]);
+  run(exact, 3, 1 / 16);
+  assert.equal(exact.count(), 7);
+  exact.update(1 / 16);
+  assert.equal(exact.count(), 7, "not again in the next frame");
+});
+
+test("a prewarm simulates exactly one duration", () => {
+  // ch0294's F_star_3: a 0.05 s loop, shorter than the prewarm's 1/30 s step
+  const star = effects([sys({ main: { duration: 0.05, prewarm: 1, life: 100 }, emission: { bursts: [{ t: 0.04, n: 1, cycles: 1, interval: 0.01, p: 1 }] } })]);
+  star.update(0);
+  near(star.systems[0].clock.time, 0.05, 1e-12, "after the prewarm");
+  star.update(1 / 30);
+  assert.equal(star.count(), 1, "the next loop's burst (0.09 s) is still ahead at 0.083 s");
+  // 2.01 s: sixty steps of 1/30 s and one of 0.01 s
+  const odd = effects([sys({ main: { duration: 2.01, prewarm: 1 }, emission: { rate: 10 } })]);
+  odd.update(0);
+  near(odd.systems[0].clock.time, 2.01, 1e-9, "after the prewarm");
+});
+
 test("rate over time and bursts with cycles, looping or not", () => {
   const rate = effects([sys({ emission: { rate: 10 } })]);
   run(rate, 1);
@@ -282,6 +340,37 @@ test("geometry: billboard size, the view's max size, stretch and meshes; vertex 
   near(vertexColor([1, 0.5, 0, 1], true)[1], 0.2158605, 1e-6, "linear");
 });
 
+test("a mesh renderer's meshes: one per particle, uniformly at random or by their weights", () => {
+  // ch0095's rain streaks (four meshes) and lobbyayane_multi's confetti (two triangles): a mesh per particle
+  const tri = { v: [0, 0, 0, 1, 0, 0, 0, 1, 0], i: [0, 1, 2] }, quad = { v: [0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0], i: [0, 1, 2, 2, 3, 0] };
+  const meshes = { tri, quad };
+  const many = { bursts: [{ t: 0, n: 400, cycles: 1, interval: 0.01, p: 1 }] };
+  const drawn = (renderer) => {
+    const fx = effects([sys({ emission: many, renderer: { mode: 4, mesh: "tri", ...renderer } })]);
+    fx.update(0.016);
+    const s = fx.systems[0], picks = s.particles.map((pt) => P.meshIndex(s.def.renderer, pt.seed));
+    // the geometry draws each particle's own mesh
+    const g = geometry(fx, s, { meshes });
+    assert.equal(g.count, picks.reduce((n, k) => n + [3, 6][k], 0));
+    return picks.filter((k) => k === 1).length / picks.length;
+  };
+  assert.equal(drawn({}), 0, "one mesh");
+  const uniform = drawn({ meshes: ["tri", "quad"] });
+  assert.ok(uniform > 0.4 && uniform < 0.6, `uniform ${uniform}`);
+  const weighted = drawn({ meshes: ["tri", "quad"], weights: [1, 3] });
+  assert.ok(weighted > 0.65 && weighted < 0.85, `weighted ${weighted}`);
+  assert.equal(drawn({ meshes: ["tri", "quad"], weights: [0, 1] }), 1);
+  // a particle keeps its mesh from frame to frame; four meshes are all drawn
+  const four = { meshes: ["a", "b", "c", "d"] }, seeds = Array.from({ length: 4000 }, (_, k) => k * 7919);
+  const share = [0, 1, 2, 3].map((m) => seeds.filter((sd) => P.meshIndex(four, sd) === m).length / seeds.length);
+  assert.ok(share.every((x) => x > 0.2 && x < 0.3), `shares ${share}`);
+  assert.equal(P.meshIndex(four, 12345), P.meshIndex(four, 12345));
+  // a listed mesh that is missing draws nothing
+  const fx = effects([sys({ emission: many, renderer: { mode: 4, mesh: "tri", meshes: ["tri", "gone"] } })]);
+  fx.update(0.016);
+  assert.equal(geometry(fx, fx.systems[0], { meshes }).count, 0);
+});
+
 test("sort modes draw the oldest or the youngest particles on top", () => {
   const fx = effects([sys({ emission: { rate: 10 }, renderer: { sort: 2 } })]);
   run(fx, 1);
@@ -394,6 +483,58 @@ test("the effects draw in their layer's context with the game's blend and free e
   effects.above(p);
   assert.equal(gl.calls.length, before, "nothing is drawn after dispose");
   Linear.detach(p);
+  assert.equal(gl.live.size, 0);
+});
+
+test("after a lost context is restored the effects make their GL objects again", async () => {
+  const gl = fakeGL(), p = player(gl, { name: "Home", x: 0, y: -962, scale: 1, order: 0, queue: 2900, z: 0 });
+  // spine's context: its restorables are called once the canvas gets its context back
+  const restorables = [];
+  p.context.addRestorable = (r) => restorables.push(r);
+  p.context.removeRestorable = (r) => { const i = restorables.indexOf(r); if (i >= 0) restorables.splice(i, 1); };
+  Linear.attach(p);
+  const tex = { id: "cab-a_1", name: "glow", w: 4, h: 4, filter: 1, mips: 0, wrap: [0, 0], srgb: 1 };
+  const fx = {
+    systems: [sys({ material: "add", queue: 3100, emission: { rate: 50 } })],
+    materials: { add: { program: "additive", src: 1, dst: 1, queue: 3100, tex: { _Texture: { ...tex, st: [1, 1, 0, 0] } }, floats: {}, colors: {} } },
+    textures: { "cab-a_1": tex }, meshes: {},
+  };
+  const effects = GL.create(fx, { base: "/x/", bone: () => null, load: async () => ({ width: 4, height: 4 }) });
+  await new Promise((r) => setTimeout(r, 0));
+  effects.layers([p]);
+  // the particles' calls of one frame, and the objects they bind
+  const frame = () => {
+    Linear.begin(p);
+    const from = gl.calls.length;
+    effects.below(p, 0.1);
+    effects.above(p);
+    const ours = gl.calls.slice(from);
+    Linear.end(p);
+    return ours;
+  };
+  const bound = (calls) => calls.filter(([name]) => ["bindVertexArray", "bindBuffer", "bindTexture", "useProgram"].includes(name))
+    .map((c) => c[c.length - 1]).filter(Boolean);
+  const first = frame();
+  assert.equal(first.filter(([name]) => name === "drawArrays").length, 1);
+  assert.equal(restorables.length, 2, "linear.js's and the effects'");
+  // the context is lost (every object with it), then restored: spine calls the restorables
+  gl.live.clear();
+  for (const r of [...restorables]) r.restore();
+  const second = frame();
+  assert.equal(second.filter(([name]) => name === "drawArrays").length, 1);
+  const objects = bound(second);
+  assert.ok(objects.length >= 4 && objects.every((o) => gl.live.has(o)), "only objects of the restored context are bound");
+  assert.ok(["VertexArray", "Buffer", "Texture", "Program"].every((kind) => objects.some((o) => o.kind === kind)));
+  assert.equal(effects.stats().contexts, 1);
+  // detach takes the restorable back and frees the new objects
+  const linearObjects = new Set(gl.live);
+  for (const o of objects) linearObjects.delete(o);
+  effects.detach(p);
+  assert.equal(restorables.length, 1);
+  assert.deepEqual([...gl.live].filter((o) => !linearObjects.has(o)), [], "particle objects left");
+  effects.dispose();
+  Linear.detach(p);
+  assert.equal(restorables.length, 0);
   assert.equal(gl.live.size, 0);
 });
 
