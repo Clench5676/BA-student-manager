@@ -47,6 +47,32 @@ test("MinMaxCurves and gradients", () => {
   assert.deepEqual(colorAt({ g, pick: 1 }, 0.9, 0), [1, 0, 0, 0]);
 });
 
+test("a loop's burst at 0 fires every loop at 60 fps and right after a prewarm", () => {
+  const one = { bursts: [{ t: 0, n: 1, cycles: 1, interval: 0.01, p: 1 }] };
+  // ch0209's Flare_par: 120 frames of 1/60 s add up to a hair under its 2 s loop
+  const flare = effects([sys({ main: { duration: 2, life: 100 }, emission: one })]);
+  run(flare, 7, 1 / 60);
+  assert.equal(flare.count(), 4, "the loops at 0, 2, 4 and 6 s");
+  // izuna's water_Flare_00 (twice the speed) and tsurugi's Smoke_00: a prewarmed 5 s loop of one 5 s particle. The
+  // prewarm's 150 steps of 1/30 s end a hair under 5 s; the next loop's particle is there from the first frame on
+  for (const speedScale of [1, 2]) {
+    const smoke = effects([sys({ main: { duration: 5, life: 5, prewarm: 1, speedScale }, emission: one })]);
+    const counts = [];
+    for (let f = 0; f < 60 * 12; f++) { smoke.update(1 / 60); if (f % 30 === 15) counts.push(smoke.count()); }
+    assert.deepEqual([...new Set(counts)], [1], `speed ${speedScale}: every half second`);
+  }
+  // hibiki's boke_L: a 7 s loop of three 8 s particles shows six at each loop's start, the prewarm's among them
+  const boke = effects([sys({ main: { duration: 7, life: 8, prewarm: 1 }, emission: { bursts: [{ ...one.bursts[0], n: 3 }] } })]);
+  boke.update(1 / 60);
+  assert.equal(boke.count(), 6);
+  // each burst once: frames of 1/16 s end exactly on the bursts (0, 0.5, 1 ... 3 s), which fire in the frame they end
+  const exact = effects([sys({ main: { duration: 1, life: 100 }, emission: { bursts: [{ t: 0, n: 1, cycles: 2, interval: 0.5, p: 1 }] } })]);
+  run(exact, 3, 1 / 16);
+  assert.equal(exact.count(), 7);
+  exact.update(1 / 16);
+  assert.equal(exact.count(), 7, "not again in the next frame");
+});
+
 test("rate over time and bursts with cycles, looping or not", () => {
   const rate = effects([sys({ emission: { rate: 10 } })]);
   run(rate, 1);

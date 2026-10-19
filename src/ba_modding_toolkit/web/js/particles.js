@@ -27,6 +27,7 @@ const GRAVITY = -9.81;              // Physics.gravity.y, world units / s^2
 const PREWARM_STEP = 1 / 30;
 const MAX_DT = 0.1;
 const DAMPEN_FPS = 30;              // limit velocity's dampen is per frame at this rate (frame-rate independent)
+const EPS = 1e-9;                   // seconds: emission times this close count as the same
 
 // --- values ---------------------------------------------------------------------------------------------------------
 
@@ -272,7 +273,9 @@ export class Effects {
   }
 
   // emission over the next dt seconds of a clock: bursts fire when it passes their time within a loop (cycles
-  // times, every interval), the rate adds up over time
+  // times, every interval), the rate adds up over time. A burst up to EPS past the span's end fires in it (frames of
+  // 1/60 s add up to a hair under a loop's end), so the loops it visits reach that far too: else the loop that starts
+  // there would never fire its burst at 0, the next span taking it as already past.
   emitSpan(s, clock, dt, inst) {
     const main = s.def.main, em = s.def.emission || { rate: 0, bursts: [] }, D = main.duration;
     const from = clock.time;
@@ -281,13 +284,13 @@ export class Effects {
     if (to <= from && !clock.fresh) return;
     em.bursts.forEach((b, i) => {
       const cycles = b.cycles > 0 ? b.cycles : Infinity;
-      for (let loop = Math.floor(from / D); loop <= Math.floor(to / D) && (main.loop || loop === 0); loop++) {
+      for (let loop = Math.floor(from / D); loop <= Math.floor((to + EPS) / D) && (main.loop || loop === 0); loop++) {
         for (let k = 0; k < cycles; k++) {
           const local = b.t + k * b.interval;
-          if (local > D + 1e-9) break;
+          if (local > D + EPS) break;
           const t = loop * D + local;
-          if (t > to + 1e-9) break;
-          if (t < from - 1e-9 || (t <= from + 1e-9 && !(clock.fresh && t <= 1e-9))) continue;
+          if (t > to + EPS) break;
+          if (t <= from + EPS && !(clock.fresh && t <= EPS)) continue;
           if (b.p < 1 && this.random() >= b.p) continue;
           const n = Math.round(value(b.n, local / D, this.random()));
           for (let j = 0; j < n; j++) this.emit(s, local / D, inst);
