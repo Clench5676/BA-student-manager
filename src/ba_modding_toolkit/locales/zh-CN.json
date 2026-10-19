@@ -851,6 +851,11 @@
 				"pickup": "拎起"
 			}
 		},
+		"visual": {
+			"reset": "重置",
+			"hide": "隐藏界面",
+			"show": "显示界面"
+		},
 		"nav": {
 			"students": "学生",
 			"modUpdate": "Mod 更新",

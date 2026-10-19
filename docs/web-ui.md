@@ -328,6 +328,32 @@ Unity unit in every SkeletonDataAsset), never on the skeleton's bounds, so a lon
 character neither shrink nor shift her. The player covers the stage under every panel and keeps one scale across and
 down (its viewport has the canvas's own aspect).
 
+**Visual mode** (`visual-mode.js`, framing in `visual-view.js`). The nameplate's square button with the rotate-phone
+icon (`Char_ZoomBtn`, UICharacterDetail's `ZoomButton`; its click is wired in code, the prefab's `onClick` is empty)
+opens the game's UICharacterVisualMode, a UI of its own. The identifiers in `global-metadata.dat` name what its code
+does (`OnPressScreen`, `OnMoveSpine`, `PlayZoomInOut`, `co_ReturnToDefaultPosition`, `CheckResetButtonState`,
+`OnClickHide`, `OnClickShow`, `UpdateGyro`, `SetScreenAutoRotation`); its prefab has a mobile group, drawn turned by
+90 degrees for a phone held upright (hence the icon), and a PC group, which the page draws:
+
+- The detail screen's UI slides out as in the lobby's fullscreen, and the portrait's own player (its face, its blink)
+  glides from the detail framing into the whole art: the body in the middle at `Character/CharacterPos`'s scale (50,
+  half the detail screen's 101; the tallest portrait, 3277 skeleton units, still fits the screen). The game reads the
+  body's centre and the default, least and largest scales of each character from its CharacterIllustCoordinate table
+  (`CharacterBodyCenterX/Y`, `DefaultScale`, `MinScale`, `MaxScale`), which the install keeps in the encrypted
+  `ExcelDB.db`: here the centre is the skeleton's origin across and the middle of its bounds down, and the zoom goes
+  from the whole art to 4 times closer (about twice the detail screen's size).
+- `BG`: the collection background, 4533 x 3400 units, under two light patterns (`UITex_BGPoliLight_1` and `_4`)
+  whose TweenAlpha ping-pongs between 0.2 and 0.5 every 1.25 s in opposite phase; it fades in over the detail screen's.
+- `TouchArea`: press and drag (any button, one finger) moves the art, the stage's centre staying on it; the mouse
+  wheel zooms at the pointer, a trackpad pinches and swipes (as in the lobby), two fingers pinch.
+- The buttons, their corners anchored to the screen's edges, slide in with `UIAni_CharacterVisualMode_PC` (its
+  Hermite keys sampled at 60 fps): `Btn_Back` (top left) and Escape leave, `Btn_HideUI` (top right) slides them out
+  and `Btn_ShowUI` fades in in its place to bring them back, `Btn_RefreshPos` (bottom right, `UI_BUTTON_RESET_POS`)
+  glides back to the whole art and is greyed out (`Btn_RefreshPos_Disable`) while it is shown. The background and the
+  buttons are rendered off screen first, so every part starts in the same frame.
+- Leaving glides back to the detail screen's framing exactly. Not reproduced: the phone's gyroscope (mobile only) and
+  the button sounds. Without the prefab the portrait still goes fullscreen, with the tool's exit button.
+
 ### Popups
 
 The detail screen's popups (switch portrait, the variant picker, compare, details, aliases) are drawn on the game's

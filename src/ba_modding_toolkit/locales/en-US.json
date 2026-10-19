@@ -851,6 +851,11 @@
 				"pickup": "Pickup"
 			}
 		},
+		"visual": {
+			"reset": "Reset",
+			"hide": "Hide UI",
+			"show": "Show UI"
+		},
 		"nav": {
 			"students": "Students",
 			"modUpdate": "Mod Update",

@@ -10,6 +10,7 @@
 import * as NGUI from "./ngui.js";
 import * as Loading from "./loading.js";
 import * as Lobby from "./lobby.js";
+import * as Visual from "./visual-mode.js";
 import { rpc, spineBase, waitJob } from "./api.js";
 import { L, T, language, platform } from "./i18n.js";
 import { forget, idleAnimation, prioritise, thumb } from "./thumbs.js";
@@ -363,7 +364,8 @@ function screenTree() {
       w_: 906, h_: 120, pivot: 6, depth: 5, incline: 10, radius: 10, color: "#ffffff/0.90",
       imgLeft: `${-13.4 * S}px`, imgTop: "0", imgWidth: `${388 * S}px`, imgHeight: `${172 * S}px`, imgSize: "100% 100%", imgPosition: "0 0" }]));
   }
-  // square buttons: fullscreen (lobby, 3D model) or zoom, copy the file name, and on the lobby tab play all dialogue
+  // square buttons: fullscreen (the portrait's visual mode with the game's own icon, the lobby, the 3D model), copy the
+  // file name, and on the lobby tab play all dialogue
   at(t, `${np}/Char_CVCollectionBtn`).pos[0] = 1208.8;
   if (tab === "lobby" || tab === "model") Object.assign(widget(t, `${np}/Char_ZoomBtn/Sprite`), { sprite: "Common_UIHide_Icon", w_: 74, h_: 66, color: "#2b496e/1.00" });
   Object.assign(widget(t, `${np}/Char_CVCollectionBtn/Sprite`), { sprite: "Common_Icon_Copy", w_: 64, h_: 76, color: "#2b496e/1.00" });
@@ -486,7 +488,7 @@ function hits(view, leftHost, rightHost) {
   // the previous or next card of the student list, within its filters and in its order
   add(leftHost, "Arrow_L/Left", () => ctx.step(-1, fam.key, variantKey));
   add(rightHost, "Arrow_R/Right", () => ctx.step(1, fam.key, variantKey));
-  if (tab === "lobby" || tab === "model") add(leftHost, "LeftInfo/CharInfo/Char_Target/Char_ZoomBtn", () => setFullscreen(true), T("lobby.fullscreen"));
+  add(leftHost, "LeftInfo/CharInfo/Char_Target/Char_ZoomBtn", () => setFullscreen(true), T("lobby.fullscreen"));
   if (tab === "lobby") add(leftHost, "LeftInfo/CharInfo/Char_Target/Char_PlayBtn", togglePlayAll, T(Lobby.playingAll() ? "lobby.stop" : "lobby.playAll"));
   const v = variant();
   [["Tab_1", "portrait", true], ["Tab_2", "lobby", hasLobby(v)], ["Tab_3", "model", hasModel(v)]].forEach(([n, id, ok]) => {
@@ -825,7 +827,9 @@ function loadSpine(base) {
       showControls: false, showLoading: false, preserveDrawingBuffer: true,
       // framed like the game (portrait-view.js), never on the skeleton's bounds; no viewport transition:
       // spine-player starts it from an undefined viewport and draws nothing meanwhile
-      viewport: portraitViewport(layouts && find(layouts.list, "CharacterPos"), { origin: ORIGIN, s: S, box: PORTRAIT_BOX }),
+      viewport: detailViewport(),
+      // the visual mode (visual-mode.js) frames it while it is open
+      frame: (p) => Visual.frame(p),
       success: async (player) => {
         // before the first await: once this returns, spine-player frames the view on track 0's animation and plays.
         // With nothing on track 0 it would pause (no face, no blink): a skeleton without an idle gets an empty
@@ -860,6 +864,8 @@ function loadSpine(base) {
     });
   });
 }
+// the detail screen's portrait framing: the skeleton's origin on CharacterPos
+const detailViewport = () => portraitViewport(layouts && find(layouts.list, "CharacterPos"), { origin: ORIGIN, s: S, box: PORTRAIT_BOX });
 function scheduleBlink(player) {
   clearTimeout(blinkTimer);
   blinkTimer = setTimeout(() => {
@@ -1645,15 +1651,41 @@ const wake = () => {
   clearTimeout(idleTimer);
   idleTimer = setTimeout(() => exit.classList.add("idle"), 2500);
 };
-// in fullscreen the character can be touched and the view zoomed like in the game; leaving resets the zoom
+// in fullscreen the character can be touched and the view zoomed like in the game; leaving resets the zoom. The
+// portrait's fullscreen is the game's visual mode (visual-mode.js), with the game's own buttons instead of fs-exit.
 function setFullscreen(on) {
+  if (on && tab === "portrait") { enterVisual(); return; }
   fullscreen = on;
   stage().classList.toggle("fullscreen", on);
+  if (tab === "portrait") Visual.close();
   if (tab === "lobby") { Lobby.frame(on ? "full" : "left"); Lobby.interactive(on); }
   if (tab === "model") modelLib?.then((M) => M.frame(on ? "full" : "left"));
+  showExit(on);
+  if (!on) stillAfterFullscreen();
+}
+function showExit(on) {
   $("fs-exit").hidden = !on;
   if (on) { wake(); stage().addEventListener("pointermove", wake); } else { stage().removeEventListener("pointermove", wake); clearTimeout(idleTimer); }
-  if (!on) stillAfterFullscreen();
+}
+// the visual mode: its background and buttons are made off screen first, then the UI slides out as the portrait
+// glides into the whole art and they come in. Without the prefab (another game version) the portrait still goes
+// fullscreen, with the tool's exit button.
+let visualToken = 0;
+async function enterVisual() {
+  if (fullscreen || !mainPlayer?.skeleton) return; // the portrait is not in yet
+  const my = ++visualToken, key = variantKey;
+  const layout = await layouts.visual;
+  const strings = { reset: T("visual.reset"), back: T("lobby.exit"), hide: T("visual.hide"), show: T("visual.show") };
+  const parts = await Visual.prepare({ layout, bg: variant().bg, strings }).catch((err) => { console.error(err); return null; });
+  if (my !== visualToken || !open || fullscreen || tab !== "portrait" || variantKey !== key || !mainPlayer?.skeleton) return;
+  fullscreen = true;
+  stage().classList.add("fullscreen");
+  Visual.open({
+    parts, skeleton: mainPlayer.skeleton, detail: detailViewport(), host: stage(), bgHost: $("visual-bg"), uiHost: $("visual-ui"),
+    players: () => [...$("portrait").querySelectorAll(".layer")].map((l) => l.player).filter(Boolean),
+    onBack: () => setFullscreen(false),
+  });
+  if (!parts) showExit(true);
 }
 // the switch card's still is taken in the left framing: when fullscreen was entered before the lobby or the model was
 // in, the still is taken once the left framing is back
@@ -1683,7 +1715,9 @@ async function ensureLayouts() {
     NGUI.layout("UICharacterDetail"), NGUI.layout("UICharacterCollection"), NGUI.layout("UIPopup_Sort"),
     fetch("/asset/ui/textures.json").then((r) => (r.ok ? r.json() : {})),
   ]);
-  layouts = { list: find(detail, "Inventory_ListControl"), collection, sortPopup, textures };
+  // the portrait's visual mode: fetched now, waited for once its button is pressed
+  const visual = NGUI.layout("UICharacterVisualMode").catch(() => null);
+  layouts = { list: find(detail, "Inventory_ListControl"), collection, sortPopup, textures, visual };
 }
 
 // the voice volume and mute (development runs started with --mute stay silent), the zoom-out limit and the
@@ -1747,6 +1781,7 @@ export function hide() {
   begin();
   batch = null;
   leftToken += 1;
+  Visual.close({ instant: true });
   if (fullscreen) setFullscreen(false);
   disposePortrait();
   Lobby.hide($("lobby"));

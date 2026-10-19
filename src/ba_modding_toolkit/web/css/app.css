@@ -196,6 +196,21 @@ input[type="text"], input[type="search"], textarea { cursor: text; }
 .fs-exit[hidden] { display: none; }
 .fs-exit.idle { opacity: 0; }
 
+/* the portrait's visual mode (visual-mode.js): its background fades in over the detail screen's, under the portrait;
+   the light patterns breathe like their TweenAlpha (0.2 to 0.5 and back every 1.25 s, in opposite phase). Its touch
+   area and buttons lie over everything; the buttons slide with the game's clip (Web Animations). */
+.visual-bg { position: absolute; inset: 0; overflow: hidden; pointer-events: none; opacity: 0; transition: opacity .45s ease; }
+.visual-bg.on { opacity: 1; }
+.visual-bg[hidden], .visual-ui[hidden], .visual-btn[hidden] { display: none; }
+@keyframes visual-breathe { from { opacity: .2; } to { opacity: .5; } }
+.visual-bg [data-path$="/Bg_Pt_1"] { animation: visual-breathe 1.25s linear infinite alternate; }
+.visual-bg [data-path$="/Bg_Pt_2"] { animation: visual-breathe 1.25s linear infinite alternate-reverse; }
+.visual-ui { position: absolute; inset: 0; z-index: 30; pointer-events: none; }
+.visual-touch { position: absolute; inset: 0; pointer-events: auto; touch-action: none; cursor: grab; }
+.visual-touch.grabbing { cursor: grabbing; }
+.visual-btn { position: absolute; inset: 0; pointer-events: none; }
+.visual-btn .hit { pointer-events: auto; }
+
 /* thumbnails are rendered by a hidden player */
 .thumb-host { position: fixed; left: 0; top: 0; width: 0; height: 0; overflow: visible; opacity: 0; pointer-events: none; z-index: -1; }
 .thumb-player { position: absolute; left: 0; top: 0; }
