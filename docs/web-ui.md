@@ -146,7 +146,35 @@ orbits freely around the point at the formation camera's height, which rises to 
 stays between the bust (`bustDistance`: the face on the framing's point, the halo's top at the host's top edge, about
 0.3 of the distance) and a step back (1.3). Fullscreen and back keep the zoom's place between the two (`carryZoom`),
 and a double click returns to the front view. The switch card's still is rendered from that front view at the
-framing's distance (`stillCamera`), whatever the orbit and the zoom.
+framing's distance (`stillCamera`), whatever the orbit, the zoom and the pan.
+
+Input (`attachInput`) is read as in the fullscreen lobby (`lobby-touch.js` `wheelStep` / `wheelKind`); the orbit
+controls only orbit (the left button, one finger):
+
+- *Mouse wheel.* Zooms in steps of the zoom (each multiplies the distance; `zoomShare` is the place between the fit
+  and the bust in those steps): five notches from the front view to the bust (`wheelZoom`). A notch counts at least
+  100 px (a Chromium / WebView2 notch; Firefox's 3 lines are 120 px; a slow macOS notch, a tenth of a line, is only
+  4 px), a faster spin's bigger steps zoom further, and one notch out is about the step back.
+- *Pinch.* Zooms half as far again as the fingers spread (`pinchZoom`: the distance times scale^-1.5), so one pinch of
+  about 2.2 x goes from the front view to the bust: ctrl + wheel in Chromium and WebView2 (the scale is
+  exp(-deltaY / 100); ctrl + a mouse wheel zooms by notches), gesture events in WebKit (the macOS app's WKWebView; the
+  ctrl + wheel events some versions send beside them are left to the gesture), two fingers on a touch screen.
+- *Pan.* A two-finger trackpad swipe, a Magic Mouse scroll or a horizontal wheel, and a right- or middle-button drag,
+  move the chibi as far as the fingers or the pointer moved, while zoomed in: the orbit target stays inside the
+  chibi's box scaled by the zoom's place (`clampPan`: nothing at the fit, the whole box at the bust), so zooming out
+  draws the pan back in and the front view has none. A double click also unpans.
+- *Easing.* The distance and the pan ease to their goals (0.08 s, as the lobby's view); a notch or a pinch adds to
+  the goal, which is clamped to the limits. A zoom or an orbit during a glide (a double click, fullscreen and back)
+  takes that part over from it while the framing glides on.
+- *Lift.* The target rises with the zoom's place so that the face comes to the framing's point evenly, notch by notch
+  (`liftShare`: about 28 px per notch for Koharu beside the panel).
+
+The OrbitControls zoom it replaces took 58 Chromium notches from the front view to the bust, about 1430 slow macOS
+notches and 26 trackpad swipes of 220 px on a 2x screen (it divides by `devicePixelRatio | 0`, so below a ratio of 1
+one event jumped to a limit), ignored `deltaMode` (Firefox: 0.06 % a notch), never saw WebKit's gesture events (no
+pinch in the macOS app) and needed some 80 Chromium pinches of 2 x; a zoom during a glide was overwritten until the
+glide ended, and the lift, eased by distance, did two thirds of its rise in the first fifth of the zoom, dropping the
+chibi before it grew.
 
 The light is the formation screen's, read from the game rather than fitted to renders:
 

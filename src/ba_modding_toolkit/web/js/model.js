@@ -2,14 +2,24 @@
 // (gameassets/model.py): the game's material constants are in the material extras, the halo follower (FxFollower)
 // in the root extras, and each clip's slot, loop flag, SetMouthTile events and renderer switches in the animation
 // extras. The materials are ports of the game's character shaders (chibi-materials.js), the camera starts at the
-// formation screen's view of one character (FORMATION_VIEW) and orbits freely. One view at a time; hide() frees its
-// WebGL context at once.
+// formation screen's view of one character (FORMATION_VIEW) and orbits freely; the wheel, pinches and swipes are read
+// as the fullscreen lobby reads them (attachInput). One view at a time; hide() frees its WebGL context at once.
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { chibiMaterial, disposeDefaults, outlineMaterial, setOutlineScale } from "./chibi-materials.js";
+import { wheelKind, wheelStep } from "./lobby-touch.js";
 
 const ease = (t) => 1 - Math.pow(1 - t, 3);
+const clamp = THREE.MathUtils.clamp;
+
+const ZOOM_TAU = 0.08;   // s: a zoom or pan eases to its goal, as in the lobby
+const NOTCH = 100;       // px: a wheel notch zooms at least as far as one of Chromium's (a slow notch on macOS is 4 px)
+const NOTCHES = 5;       // notches from the front view to the bust
+const PINCH = 1.5;       // a pinch zooms half as far again as the fingers spread: one pinch from the front view to the bust
+const CTRL_PINCH = 0.01; // Chromium's pinch as ctrl + wheel: the fingers' scale is exp(-deltaY / 100)
+const SCROLL_MS = 120;   // wheel events this close together belong to one scroll
+const PINCH_HOLD = 300;  // ms: WebKit's ctrl + wheel events beside its gesture events are left to the gesture
 
 // The formation screen's view of one character (UIFormation under GameMain's camera): the game camera (vertical
 // field of view 10, at the origin, level) shows the NGUI root 11.43 ahead, 2 units high (2 / 1665 of a unit per NGUI
@@ -49,11 +59,123 @@ export function bustDistance(box, face, frame, fit, fov = FORMATION_VIEW.fov, ma
   return THREE.MathUtils.clamp(d, fit * 0.1, fit * 0.45);
 }
 
+// The zoom's place between the fit (0) and the bust (1) of a zoom range {fit, min}, in the zoom's own steps (a notch
+// or a pinch multiplies the distance); below 0 further back than the fit.
+export function zoomShare(distance, { fit, min }) {
+  return fit > min && distance > 0 ? Math.log(fit / distance) / Math.log(fit / min) : 0;
+}
+
+// How far the orbit target has risen to the face (0 at the fit and further back, 1 at the bust): the face comes to the
+// frame point evenly, a notch or a pinch at a time, so closing in zooms towards the face instead of first dropping the
+// chibi (an eased lift by distance did two thirds of it in the first fifth of the zoom).
+export function liftShare(distance, range) {
+  const s = clamp(zoomShare(distance, range), 0, 1);
+  return clamp(1 - ((1 - s) * distance) / range.fit, 0, 1);
+}
+
 // A distance carried over to another framing: closer than the fit, as the same share of the way to the bust (the
 // target's lift goes on from where it was); further back, as the same multiple of the fit (up to 1.3).
 export function carryZoom(distance, from, to) {
-  if (distance < from.fit) return to.fit - (to.fit - to.min) * Math.min(1, (from.fit - distance) / (from.fit - from.min));
+  if (distance < from.fit) return to.fit * Math.pow(to.min / to.fit, Math.min(1, zoomShare(distance, from)));
   return to.fit * Math.min(distance / from.fit, 1.3);
+}
+
+// The camera distance's factor for a wheel step of `px` pixels (> 0 backs away) in a zoom range whose bust is `span`
+// = ln(fit / bust) in: a notch is at least NOTCH px, NOTCHES of them from the fit to the bust; a faster spin's bigger
+// steps zoom further.
+export function wheelZoom(px, span) {
+  return px ? Math.exp((Math.sign(px) * Math.max(Math.abs(px), NOTCH) * span) / (NOTCH * NOTCHES)) : 1;
+}
+
+// The camera distance's factor for a pinch whose fingers spread by `scale` (> 1 closes in)
+export const pinchZoom = (scale) => (scale > 0 ? Math.pow(scale, -PINCH) : 1);
+
+// The pan (the orbit target's offset from the lifted target, world units) kept inside the chibi's box as far as the
+// zoom allows: none at the fit and further back, the whole box at the bust. `box` lies around the formation target,
+// `lift` is the target's rise above it. Clamps `pan` in place.
+export function clampPan(pan, share, box, lift) {
+  const s = clamp(share, 0, 1);
+  pan.x = clamp(pan.x, s * box.min.x, s * box.max.x);
+  pan.y = clamp(pan.y, s * (box.min.y - lift), s * (box.max.y - lift));
+  pan.z = clamp(pan.z, s * box.min.z, s * box.max.z);
+  return pan;
+}
+
+// The view's wheel, pinch and pan input, read as the fullscreen lobby reads it (lobby-touch.js):
+// - a mouse wheel zooms (wheelZoom); a trackpad swipe, a Magic Mouse scroll or a horizontal wheel pans while zoomed in
+//   (as far as the fingers moved); a scroll that starts like a notch and turns out a swipe takes its zoom back.
+// - a pinch zooms (pinchZoom): ctrl + wheel in Chromium and WebView2 (ctrl + a mouse wheel zooms by notches), gesture
+//   events in WebKit (the macOS app), two fingers on a touch screen.
+// - a right- or middle-button drag pans.
+// `sink`: zoom(factor) multiplies the distance the zoom heads for, zoomGoal() and setZoomGoal(d) read and put back that
+// distance, span() is the zoom range's (wheelZoom), pan(dx, dy) moves the chibi by CSS px. Returns the detach function.
+export function attachInput(el, sink) {
+  let scroll = { kind: null, at: -Infinity }, pinchUntil = -Infinity, gesture = 1, gesturing = false, drag = null;
+  const touches = new Map();
+  const wheel = (e) => {
+    e.preventDefault();
+    const unit = e.deltaMode === 1 ? 40 : e.deltaMode === 2 ? 800 : 1, now = performance.now(), step = wheelStep(e);
+    if (e.ctrlKey) {
+      scroll = { kind: null, at: -Infinity };
+      if (now < pinchUntil) return;
+      sink.zoom(step === "smooth" ? pinchZoom(Math.exp(-e.deltaY * unit * CTRL_PINCH)) : wheelZoom(e.deltaY * unit, sink.span()));
+      return;
+    }
+    const fresh = !(now - scroll.at < SCROLL_MS && scroll.kind), kind = wheelKind(e, now, scroll);
+    if (fresh) {
+      // a scroll that starts like a wheel zooming in pixels keeps the zoom it started from, to go back to if it turns
+      // out a trackpad (lobby-touch.js); a second notch confirms the wheel
+      const zooms = kind === "mouse" && !e.deltaMode && Math.abs(e.deltaY) >= Math.abs(e.deltaX);
+      scroll = { kind, at: now, from: zooms ? sink.zoomGoal() : null };
+    } else {
+      if (scroll.kind === "mouse" && kind === "trackpad" && scroll.from != null) sink.setZoomGoal(scroll.from);
+      if (step === "notch" || kind === "trackpad") scroll.from = null;
+      scroll.kind = kind;
+      scroll.at = now;
+    }
+    if (kind === "mouse" && Math.abs(e.deltaY) >= Math.abs(e.deltaX)) sink.zoom(wheelZoom(e.deltaY * unit, sink.span()));
+    else sink.pan(-e.deltaX * unit, kind === "mouse" ? 0 : -e.deltaY * unit);
+  };
+  // WebKit's trackpad pinch (and its touch pinch, which also comes as pointers)
+  const gestureStart = (e) => { e.preventDefault(); gesture = 1; gesturing = true; pinchUntil = performance.now() + PINCH_HOLD; };
+  const gestureChange = (e) => {
+    e.preventDefault();
+    pinchUntil = performance.now() + PINCH_HOLD;
+    if (!(e.scale > 0)) return;
+    sink.zoom(pinchZoom(e.scale / gesture));
+    gesture = e.scale;
+  };
+  const gestureEnd = (e) => { e.preventDefault(); gesturing = false; pinchUntil = performance.now() + PINCH_HOLD; };
+  const spread = () => { const [a, b] = [...touches.values()]; return Math.hypot(a[0] - b[0], a[1] - b[1]); };
+  const down = (e) => {
+    if (e.pointerType === "touch") touches.set(e.pointerId, [e.clientX, e.clientY]);
+    else if ((e.button === 1 || e.button === 2) && !drag) {
+      e.preventDefault();
+      drag = { id: e.pointerId, at: [e.clientX, e.clientY] };
+    }
+  };
+  const move = (e) => {
+    if (drag?.id === e.pointerId) {
+      sink.pan(e.clientX - drag.at[0], e.clientY - drag.at[1]);
+      drag.at = [e.clientX, e.clientY];
+      return;
+    }
+    if (!touches.has(e.pointerId)) return;
+    const before = touches.size === 2 ? spread() : 0;
+    touches.set(e.pointerId, [e.clientX, e.clientY]);
+    if (before > 0 && !gesturing) {
+      const after = spread();
+      if (after > 0) sink.zoom(pinchZoom(after / before));
+    }
+  };
+  const up = (e) => {
+    touches.delete(e.pointerId);
+    if (drag?.id === e.pointerId) drag = null;
+  };
+  const handlers = [["wheel", wheel, { passive: false }], ["gesturestart", gestureStart], ["gesturechange", gestureChange],
+    ["gestureend", gestureEnd], ["pointerdown", down], ["pointermove", move], ["pointerup", up], ["pointercancel", up]];
+  for (const [type, fn, opts] of handlers) el.addEventListener(type, fn, opts);
+  return () => { for (const [type, fn, opts] of handlers) el.removeEventListener(type, fn, opts); };
 }
 
 // the front view, level, as on the formation screen
@@ -107,14 +229,24 @@ class ChibiView {
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(FORMATION_VIEW.fov, 1, 0.01, 100);
     this.controls = new OrbitControls(this.camera, this.canvas);
-    // no panning, any angle (straight from above to straight from below); the zoom stays between the bust and a
-    // step back (frameTo, bustDistance)
-    Object.assign(this.controls, { enableDamping: true, dampingFactor: 0.12, enablePan: false, zoomSpeed: 0.8,
+    // the controls orbit, at any angle (straight from above to straight from below), with one finger or the left
+    // button; zoom and pan are attachInput's, between the bust and a step back (frameTo, bustDistance). The controls'
+    // own zoom took 58 Chromium notches or about 1430 slow macOS ones (on a 2x screen) to the bust, and WebKit's
+    // pinch never reached them.
+    Object.assign(this.controls, { enableDamping: true, dampingFactor: 0.12, enablePan: false, enableZoom: false,
       minPolarAngle: 0, maxPolarAngle: Math.PI });
+    this.controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: null }; // a second finger pinches (attachInput)
     this.clock = new THREE.Clock();
     this.mode = "left";
     this.view = { ...FRAMES.left };
     this.tween = null;
+    this.goal = null; // the camera distance a zoom eases to
+    this.pan = new THREE.Vector3(); // the orbit target's offset from the lifted target, and the one it eases to
+    this.panGoal = new THREE.Vector3();
+    this.detachInput = attachInput(this.canvas, {
+      zoom: (f) => this.zoomBy(f), zoomGoal: () => this.zoomGoal(), setZoomGoal: (d) => this.setZoomGoal(d),
+      span: () => this.span(), pan: (dx, dy) => this.panBy(dx, dy),
+    });
     this.observer = new ResizeObserver(() => this.resize());
     this.observer.observe(host);
     // a window resize only rescales the stage (the host keeps its layout size), a move to another screen or a
@@ -331,7 +463,7 @@ class ChibiView {
     const offset = this.camera.position.clone().sub(this.controls.target);
     const keep = !snap && !!this.fit && offset.lengthSq() > 0;
     const from = this.range(); // gliding: where it is now
-    const distance = keep ? carryZoom(offset.length(), from, range) : fit;
+    const distance = keep ? carryZoom(this.goal ?? offset.length(), from, range) : fit; // a zoom under way: where it heads
     this.fit = fit;
     this.limits = { min: range.min, max: fit * 1.3 }; // the bust, a step back
     this.camera.near = fit / 50;
@@ -339,10 +471,12 @@ class ChibiView {
     this.moveTo(keep ? offset.normalize() : this.homeDirection(), distance, f, snap, keep ? from : null);
   }
 
-  // double-click: back to the front view at the fit distance (from where a change of framing has brought the zoom
-  // range so far)
+  // double-click: back to the front view at the fit distance, unpanned (from where a change of framing has brought
+  // the zoom range so far)
   home() {
-    if (this.limits) this.moveTo(this.homeDirection(), this.fit, FRAMES[this.mode], false, this.range());
+    if (!this.limits) return;
+    this.panGoal.set(0, 0, 0);
+    this.moveTo(this.homeDirection(), this.fit, FRAMES[this.mode], false, this.range());
   }
 
   // the zoom range the target's lift spans, {fit, min}; while the camera glides to another framing it goes from the
@@ -355,42 +489,100 @@ class ChibiView {
   }
 
   // the camera as a direction and distance from the orbit target, so the target can rise while it moves; range0:
-  // the zoom range it leaves (a change of framing)
+  // the zoom range it leaves (a change of framing). The glide takes the distance over from a zoom under way; the
+  // limits hold as the zoom's goal is clamped (setZoomGoal) and both ends of a glide lie inside them.
   moveTo(direction, distance, view, snap, range0 = null) {
     const offset = this.camera.position.clone().sub(this.controls.target);
+    this.goal = null;
     const tw = (this.tween = { t0: performance.now(), dir0: offset.lengthSq() ? offset.clone().normalize() : direction.clone(), dist0: offset.length() || distance,
       dir1: direction.clone(), dist1: distance, view0: { ...this.view }, view1: { x: view.x, y: view.y }, range0 });
     if (snap) tw.t0 = -Infinity;
-    // the orbit controls clamp the distance on every update: while the camera glides, the zoom limits take in both
-    // ends, and the new fit's limits apply once it arrives
-    Object.assign(this.controls, { minDistance: Math.min(this.limits.min, tw.dist0, tw.dist1), maxDistance: Math.max(this.limits.max, tw.dist0, tw.dist1) });
     this.stepTween();
-    if (snap) { this.liftTarget(); this.controls.update(); }
+    if (snap) { this.pan.copy(this.panGoal); this.liftTarget(); this.controls.update(); }
   }
 
+  // the glide's step; an orbit (turned) or a zoom (zoomed) under way since it began keeps its part, and the framing
+  // glides on
   stepTween() {
     const tw = this.tween;
     if (!tw) return;
     const t = Math.min(1, (performance.now() - tw.t0) / TWEEN), k = ease(t);
-    const dir = new THREE.Vector3().lerpVectors(tw.dir0, tw.dir1, k);
+    const offset = this.camera.position.clone().sub(this.controls.target);
+    const dir = tw.turned ? offset.clone() : new THREE.Vector3().lerpVectors(tw.dir0, tw.dir1, k);
     if (dir.lengthSq() < 1e-8) dir.copy(tw.dir1);
-    this.camera.position.copy(this.controls.target).add(dir.normalize().multiplyScalar(tw.dist0 + (tw.dist1 - tw.dist0) * k));
+    const distance = tw.zoomed ? offset.length() : tw.dist0 + (tw.dist1 - tw.dist0) * k;
+    this.camera.position.copy(this.controls.target).add(dir.normalize().multiplyScalar(distance));
     this.view = { x: tw.view0.x + (tw.view1.x - tw.view0.x) * k, y: tw.view0.y + (tw.view1.y - tw.view0.y) * k };
     this.applyView();
-    if (t >= 1) {
-      this.tween = null;
-      Object.assign(this.controls, { minDistance: this.limits.min, maxDistance: this.limits.max });
-    }
+    if (t >= 1) this.tween = null;
   }
 
-  // closing in moves the orbit target from the formation camera's height up to the face, so the closest view is the
-  // bust; the camera keeps its offset from the target
+  // closing in moves the orbit target from the formation camera's height up to the face (liftShare), so the closest
+  // view is the bust, plus the pan; the camera keeps its offset from the target
   liftTarget() {
     if (!this.fit) return;
-    const o = this.controls, offset = this.camera.position.clone().sub(o.target), { fit, min } = this.range();
-    const t = THREE.MathUtils.clamp((fit - offset.length()) / (fit - min), 0, 1);
-    o.target.set(this.target.x, this.target.y + (this.faceY - this.target.y) * ease(t), this.target.z);
+    const o = this.controls, offset = this.camera.position.clone().sub(o.target);
+    o.target.set(this.target.x, this.target.y + this.lift(offset.length()), this.target.z).add(this.pan);
     this.camera.position.copy(o.target).add(offset);
+  }
+
+  // the target's rise above the formation target at a camera distance
+  lift(distance, range = this.range()) {
+    return (this.faceY - this.target.y) * liftShare(distance, range);
+  }
+
+  // --- zoom and pan (attachInput) ---
+  distance() { return this.camera.position.distanceTo(this.controls.target); }
+
+  // the distance a zoom goes on from: where a zoom under way heads, or where the camera is
+  zoomGoal() { return this.goal ?? this.distance(); }
+
+  zoomBy(factor) {
+    if (factor > 0 && factor !== 1) this.setZoomGoal(this.zoomGoal() * factor);
+  }
+
+  // a zoom during a glide takes the distance over from it (the direction and the framing glide on)
+  setZoomGoal(distance) {
+    if (!this.limits || !(distance > 0)) return;
+    if (this.tween) this.tween.zoomed = true;
+    this.goal = clamp(distance, this.limits.min, this.limits.max);
+  }
+
+  // ln(fit / bust): the zoom's span from the front view to the bust (wheelZoom)
+  span() {
+    const { fit, min } = this.range();
+    return fit > min ? Math.log(fit / min) : 0;
+  }
+
+  // the chibi moves by dx, dy CSS px across the view (the target the other way, at its distance), as far as the zoom
+  // lets it (clampPan)
+  panBy(dx, dy) {
+    if (!this.limits || (!dx && !dy)) return;
+    const r = this.canvas.getBoundingClientRect(), d = this.distance();
+    const unit = (2 * d * Math.tan(THREE.MathUtils.degToRad(this.camera.fov) / 2)) / Math.max(r.height, 1);
+    this.camera.updateMatrixWorld();
+    const e = this.camera.matrixWorld.elements; // the camera's right (x) and up (y) axes
+    this.panGoal.x += (-dx * e[0] + dy * e[4]) * unit;
+    this.panGoal.y += (-dx * e[1] + dy * e[5]) * unit;
+    this.panGoal.z += (-dx * e[2] + dy * e[6]) * unit;
+    clampPan(this.panGoal, zoomShare(d, this.range()), this.box, this.lift(d));
+  }
+
+  // every frame: the distance eases to the zoom's goal (in steps of the zoom, as a notch or a pinch makes them) and the
+  // pan to its own, which zooming out draws in
+  stepZoom(dt) {
+    if (!this.limits) return;
+    const k = 1 - Math.exp(-dt / ZOOM_TAU);
+    if (this.goal != null) {
+      const offset = this.camera.position.clone().sub(this.controls.target), d = offset.length(), g = this.goal;
+      const next = Math.abs(Math.log(g / d)) < 1e-4 ? g : d * Math.pow(g / d, k);
+      if (next === g) this.goal = null;
+      this.camera.position.copy(this.controls.target).addScaledVector(offset.normalize(), next);
+    }
+    const range = this.range(), d = this.distance(), s = zoomShare(d, range), lift = this.lift(d, range);
+    clampPan(this.panGoal, s, this.box, lift);
+    this.pan.lerp(this.panGoal, k);
+    clampPan(this.pan, s, this.box, lift);
   }
 
   // --- actions ---
@@ -440,12 +632,25 @@ class ChibiView {
     st.set(st.x, st.y, (tile % 100) / this.mouth.cols, Math.floor(tile / 100) / this.mouth.rows);
   }
 
-  // a tap on the character plays the cafe touch reaction, then the idle again; a drag still orbits
+  // a tap on the character plays the cafe touch reaction, then the idle again; a drag still orbits, and during a glide
+  // takes the direction over from it. Only a lone press of the left button or one finger taps or orbits.
   enableTap() {
     let down = null;
-    this.canvas.addEventListener("pointerdown", (e) => { down = { x: e.clientX, y: e.clientY, t: performance.now() }; });
+    const pressed = new Set();
+    const moved = (e) => Math.hypot(e.clientX - down.x, e.clientY - down.y) > 6;
+    this.canvas.addEventListener("pointerdown", (e) => {
+      if (e.isPrimary) pressed.clear(); // the first finger, or a mouse: nothing else is down (a lost release)
+      pressed.add(e.pointerId);
+      down = pressed.size === 1 && e.button === 0 ? { id: e.pointerId, x: e.clientX, y: e.clientY, t: performance.now() } : null;
+    });
+    this.canvas.addEventListener("pointermove", (e) => {
+      if (down?.id === e.pointerId && this.tween && moved(e)) this.tween.turned = true;
+    });
+    const lift = (e) => pressed.delete(e.pointerId);
+    this.canvas.addEventListener("pointercancel", (e) => { lift(e); down = null; });
     this.canvas.addEventListener("pointerup", (e) => {
-      if (!down || Math.hypot(e.clientX - down.x, e.clientY - down.y) > 6 || performance.now() - down.t > 400) return;
+      lift(e);
+      if (down?.id !== e.pointerId || moved(e) || performance.now() - down.t > 400) { down = null; return; }
       down = null;
       if (this.root && this.current !== "reaction" && this.hit(e)) this.act("reaction", { fade: 0.2 });
     });
@@ -492,6 +697,7 @@ class ChibiView {
     this.updateMouth();
     this.followHalo(dt);
     this.stepTween();
+    this.stepZoom(dt);
     this.liftTarget();
     this.controls.update();
     this.root?.updateMatrixWorld();
@@ -529,6 +735,7 @@ class ChibiView {
     this.observer.disconnect();
     removeEventListener("resize", this.onWindow);
     this.dpr.removeEventListener("change", this.onPixelRatio);
+    this.detachInput();
     this.controls.dispose();
     this.mixer?.stopAllAction();
     this.scene.traverse((o) => {
@@ -601,3 +808,10 @@ export const actions = () => view?.actions() || [];
 export const current = () => view?.current || null;
 export function play(name) { return view?.act(name, { quiet: true }) || false; }
 export const snapshot = () => view?.snapshot() || null;
+// for checks: the camera's distance, the zoom's goal, range and place, the target's lift and the pan
+export function zoomState() {
+  if (!view?.limits) return null;
+  const d = view.distance(), range = view.range();
+  return { distance: d, goal: view.goal, fit: view.fit, min: view.limits.min, max: view.limits.max, share: zoomShare(d, range),
+    lift: view.lift(d, range), pan: view.pan.toArray(), panGoal: view.panGoal.toArray(), gliding: !!view.tween };
+}
