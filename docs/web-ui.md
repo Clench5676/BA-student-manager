@@ -296,6 +296,12 @@ Unity unit in every SkeletonDataAsset), never on the skeleton's bounds, so a lon
 character neither shrink nor shift her. The player covers the stage under every panel and keeps one scale across and
 down (its viewport has the canvas's own aspect).
 
+### Popups
+
+The detail screen's popups (switch portrait, the variant picker, compare) are drawn on the game's popup frame
+(UIPopup_Sort) and cover the whole stage with its dark backdrop, top bar and navigation included, like the display
+settings and the settings; a click on the backdrop or Escape closes them (PopupClose).
+
 ### Loading screen
 
 `loading.js` draws the game's own loading screen: UILoading's black backdrop with nothing in the middle (the game

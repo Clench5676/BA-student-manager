@@ -857,6 +857,22 @@ const LP = {
 };
 const COLS6 = 6;
 
+// a click on a popup's backdrop or Escape closes it, as the game's PopupClose does; its body takes the clicks that
+// miss its controls
+let closeTop = null;
+function closable(view, close) {
+  const back = view.nodes.get("Center/BlackBg/BlackBgClickArea")?.els[0];
+  if (back) { back.style.pointerEvents = "auto"; back.addEventListener("click", close); }
+  const body = view.nodes.get("Center/Popup/Base/BG")?.els[0];
+  if (body) body.style.pointerEvents = "auto";
+  closeTop = close;
+}
+addEventListener("keydown", (ev) => {
+  if (ev.key !== "Escape" || !closeTop || ($("popup").hidden && $("picker").hidden)) return;
+  ev.preventDefault();
+  closeTop();
+});
+
 function toolbar(right, y, { segs = null, sortKey = "sort.default", active = 0 } = {}) {
   const menu = find(layouts.collection, "SeletControl/TopMenu");
   const kids = [];
@@ -1051,6 +1067,7 @@ async function listPopup({ hostId, title, okText, items, selected, onSelect, onO
   const hit = (path, fn) => { const el = view.nodes.get(path)?.els[0]; if (el) hitButton(next, rect(el), fn, "", 80); };
   hit("Center/Popup/Btn/Btn_Ok/BG (1)", onOk);
   hit("Center/Popup/Base/BG/Btn_Close", onClose);
+  closable(view, onClose);
   const tb = toolbar(LP.list.r - 24, LP.list.t - 76, { segs, sortKey, active: seg });
   await NGUI.render(tb.tree, next, { scale: S, origin: [960, 540], z: 20 });
   if (tb.segBox && onSeg) {
@@ -1204,6 +1221,7 @@ async function showCompare(result) {
   const close = view.nodes.get("Center/Popup/Base/BG/Btn_Close")?.els[0];
   const done = () => { host.hidden = true; host.innerHTML = ""; };
   if (close) hitButton(next, rect(close), done, "", 80);
+  closable(view, done);
   host.replaceChildren(...next.childNodes);
 }
 

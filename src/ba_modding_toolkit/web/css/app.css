@@ -102,7 +102,9 @@ input[type="text"], input[type="search"], textarea { cursor: text; }
 .portrait .layer { position: absolute; inset: 0; transition: opacity .35s ease; }
 .portrait .layer.fading { opacity: 0; }
 .portrait .spine-player, .lobby-layer .spine-player, .thumb-player .spine-player { background: transparent !important; }
-.popup-host { z-index: 20; pointer-events: auto; }
+/* the detail screen's popups cover the whole stage like the game's (top bar and navigation included), under the
+   loading screen, the consent popup and settings */
+.popup-host { z-index: 1200; pointer-events: auto; }
 .popup-host[hidden] { display: none; }
 .hit { position: absolute; background: transparent; cursor: var(--cursor-press); }
 
