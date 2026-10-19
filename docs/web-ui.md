@@ -107,6 +107,14 @@ class GameAssets:
     def model_glb(self, core: str) -> bytes                    # the chibi as one GLB (model.py)
 ```
 
+The collection art is read where the game loads it: CostumeExcel's `CollectionBGTexturePath` and
+`CollectionTexturePath` point into `UIs/01_Common/14_CharacterCollect` (Addressables keys
+`uis/01_common/14_charactercollect/<name>`), the `uis-01_common-14_charactercollect-*` bundles. The index takes every
+`BG_*` texture there (most are `BG_<place>_Collection`, a few are named after the scenario background they reuse:
+`BG_NewYearFestival2` for the New Year variants, `BG_WaterFall`) and the `Student_Portrait_*_Collection` portraits;
+it holds names and bundle locations only, in memory. `/asset/art/bg/` serves only names starting with `BG_`,
+`/asset/art/portrait/` only `Student_Portrait_`.
+
 `model_glb` reads the prefab bundles, then only the bundles its objects point into (a CAB name index built from the
 bundle headers). The GLB is never written to disk; the memory entry is reused while every bundle the export read is
 unchanged.

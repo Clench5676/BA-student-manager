@@ -54,6 +54,18 @@ PREFAB_HINTS = {
 
 
 
+def is_collection_art(name: str) -> bool:
+    """Whether a texture of the character collection bundles (the game's UIs/01_Common/14_CharacterCollect folder, the
+    one CostumeExcel's CollectionBGTexturePath and CollectionTexturePath point into) is one the art routes serve.
+
+    Every background there is a costume's collection background: most are named BG_<place>_Collection, a few after
+    the scenario background they reuse (BG_NewYearFestival2, BG_WaterFall), and two are region copies
+    (BG_<place>_Collection_kr), so the suffix is not required. Portraits are Student_Portrait_<id>_Collection; the
+    folder's NPC_Portrait_* are never asked for.
+    """
+    return name.startswith("BG_") or (name.startswith("Student_Portrait_") and name.endswith("_Collection"))
+
+
 def _stamp(path: str | Path) -> tuple[int, int] | None:
     """A file's size and modification time, or None when it cannot be read."""
     try:
@@ -315,11 +327,11 @@ class GameAssets:
         return subtree(tree, subpath)
 
     def _collection(self) -> dict:
+        """Collection backgrounds and portraits by texture name (names and bundle locations only, memory only)."""
         def build() -> dict:
             paths = [p for p in self._paths() if p.name.startswith("uis-01_common-14_charactercollect-")]
             textures = self._scan_textures(paths)["textures"]
-            return {name: record for name, record in textures.items()
-                    if name.endswith("_Collection") and name.startswith(("BG_", "Student_Portrait_"))}
+            return {name: record for name, record in textures.items() if is_collection_art(name)}
         return self._index("collection", build, disk=False)
 
     def collection_names(self) -> dict[str, list[str]]:

@@ -308,6 +308,52 @@ def test_texture_route_falls_back_to_the_pointer_textures(tmp_path, monkeypatch)
     assert Image.open(BytesIO(fresh.texture_png("PCIcon_MousePoint"))).size == (4, 4)
 
 
+def test_collection_art_names():
+    # backgrounds named after a scenario background (CostumeExcel's CollectionBGTexturePath, e.g. Junko (New Year))
+    for name in ("BG_Abydos_Collection", "BG_NewYearFestival2", "BG_WaterFall", "BG_Hyakkiyako_Collection_kr",
+                 "Student_Portrait_CH0192_Collection"):
+        assert service.is_collection_art(name)
+    for name in ("NPC_Portrait_Arona_Collection", "Student_Portrait_CH0192", "UITex_BGPoliLight_1"):
+        assert not service.is_collection_art(name)
+
+
+def test_collection_backgrounds_without_the_collection_suffix(tmp_path, monkeypatch):
+    collect = tmp_path / "uis-01_common-14_charactercollect-_mxload-2024-11-18_000_assets_all_1238120891.bundle"
+    scenario = tmp_path / "uis-03_scenario-01_background-_mxload-2024-11-18_assets_all_3187232994.bundle"
+    for path in (collect, scenario):
+        path.touch()
+
+    def texture(pid, name, color):
+        return _Object("Texture2D", pid, "CAB-collect", name=name,
+                       data=SimpleNamespace(image=Image.new("RGB", (4, 3), color)))
+    envs = {collect: SimpleNamespace(objects=[
+        texture(1, "BG_Abydos_Collection", "white"), texture(2, "BG_NewYearFestival2", "red"),
+        texture(3, "Student_Portrait_CH0192_Collection", "blue"), texture(4, "NPC_Portrait_Arona_Collection", "black"),
+    ]), scenario: SimpleNamespace(objects=[_Object("Texture2D", 1, "CAB-scenario", name="BG_ScenarioOnly")])}
+
+    @contextmanager
+    def open_fake(path):
+        yield envs[path]
+
+    monkeypatch.setattr(service, "open_bundle", open_fake)
+    cache = AssetCache(root=tmp_path / "cache", allowed=True)
+    game = GameAssets([tmp_path], cache)
+    assert game.collection_names() == {"bg": ["BG_Abydos_Collection", "BG_NewYearFestival2"],
+                                       "portrait": ["Student_Portrait_CH0192_Collection"]}
+    data, mime = game.collection_bg("BG_NewYearFestival2")
+    assert mime == "image/png"
+    assert Image.open(BytesIO(data)).getpixel((0, 0))[:3] == (255, 0, 0)
+    # the routes' prefix checks: only backgrounds as backgrounds, only portraits as portraits
+    for call in (lambda: game.collection_bg("Student_Portrait_CH0192_Collection"),
+                 lambda: game.collection_portrait("BG_NewYearFestival2"),
+                 lambda: game.collection_bg("BG_ScenarioOnly"),
+                 lambda: game.collection_portrait("NPC_Portrait_Arona_Collection")):
+        with pytest.raises(AssetNotFound):
+            call()
+    # heavy art: neither the index nor the image reaches the disk, even with consent
+    assert not cache.root.exists()
+
+
 def test_loading_screen_prefab_hints():
     # UILoading lives in Resources/UI, which the prefab scan has to reach after a game update renames the bundle
     assert is_prefab(Path("prologgroup-assets-_mx-resources-ui-_mxprolog-2026-04-13_assets_all_2006567787.bundle"))
@@ -524,6 +570,22 @@ def test_real_collection_art_stays_in_memory(real_game):
         assert image.width > 0 and image.height > 0
     after = {p: p.stat().st_mtime_ns for p in real_game.cache.root.rglob("*") if p.is_file()}
     assert before == after
+
+
+@real_install
+def test_real_catalog_backgrounds_resolve(real_game):
+    """Every shipped background of a variant whose collection portrait is installed (so released on this server) is
+    in the collection index, including the ones not named *_Collection (Junko (New Year): BG_NewYearFestival2)."""
+    from ba_modding_toolkit.catalog import DEFAULT_DATA
+
+    names = real_game.collection_names()
+    portraits, backgrounds = set(names["portrait"]), set(names["bg"])
+    variants = json.loads(DEFAULT_DATA.read_text(encoding="utf-8"))["variants"]
+    expected = {entry["bg"] for entry in variants.values() if entry.get("bg") and entry.get("portrait") in portraits}
+    assert {"BG_NewYearFestival2", "BG_WaterFall"} <= expected
+    assert sorted(expected - backgrounds) == []
+    background, mime = real_game.collection_bg("BG_NewYearFestival2")
+    assert mime == "image/png" and Image.open(BytesIO(background)).size == (1024, 768)
 
 
 @real_install
