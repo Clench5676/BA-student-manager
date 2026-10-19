@@ -14,24 +14,101 @@
 //               unlit and effect shaders, each with its own texture slot and colour
 // The game runs in linear colour space: colour textures are decoded from sRGB, masks are not, Color properties are
 // converted to linear, and HDR Color properties (most of the character shaders' tints) and Vector properties are used
-// as stored. The globals (_MxCharLight*) are the standard character light's: white, intensity 1, from straight above
-// (CharacterStandardLight / CharacterLightFallback), no ambient.
+// as stored. The light is the formation screen's (see LIGHT and AMBIENT below): the character light's direction from
+// straight above, its colour from the screen's white directional light, and the ambient probe of the scene the
+// screen runs in.
 import * as THREE from "three";
 
 // glTF space mirrors Unity's x axis
 const mirror = (v) => new THREE.Vector3(-v[0], v[1], v[2]);
 
-// the shared character light (glTF world space: toward the light)
-export const LIGHT = {
-  charLightDir: { value: new THREE.Vector3(-0.10158, 0.9941, 0.03812).normalize() },
-  charLightTone: { value: new THREE.Vector3(1, 1, 1) },
-  charShadowTone: { value: new THREE.Vector3(1, 1, 1) },
-  charLightData: { value: new THREE.Vector2(1, 1) },
-  charAmbient: { value: new THREE.Vector3(0, 0, 0) },
-};
-
 // Unity's GammaToLinearSpace (HDR values above 1 by a 2.2 power)
 const toLinear = (c) => (c <= 0.04045 ? c / 12.92 : c < 1 ? Math.pow((c + 0.055) / 1.055, 2.4) : Math.pow(c, 2.2));
+
+// The character light globals the game's modified URP sets from the main light (ForwardLights.SetupMainLightConstants,
+// GameAssembly.dll): rgb is the main light's linear colour times its intensity, or CharacterLightColor's override.
+// tone = n * 0.75 + 0.25 with n = rgb / max(max(rgb), 1e-4); shadow tone = lerp(1, n / 2, t) with
+// t = saturate((max - min) / max * 0.88); data = (max * 0.85 + 0.15, (max + min) / 2).
+export function characterLight(rgb) {
+  const hi = Math.max(...rgb), lo = Math.min(...rgb), d = Math.max(hi, 1e-4);
+  const n = rgb.map((c) => c / d);
+  const t = Math.min(Math.max(((hi - lo) / d) * 0.88, 0), 1);
+  return { tone: n.map((c) => c * 0.75 + 0.25), shadowTone: n.map((c) => 1 + t * (c * 0.5 - 1)),
+    data: [hi * 0.85 + 0.15, (hi + lo) / 2] };
+}
+
+// The formation screen's light: UIFormation's directional light (white, intensity 1) is the main light; the
+// direction (_MxCharLightDir) is the top CharacterLight's, here GameMain's CharacterLightFallback, from straight above
+// (glTF world space: toward the light).
+const FORMATION = characterLight([1, 1, 1]);
+export const LIGHT = {
+  charLightDir: { value: new THREE.Vector3(-0.10158, 0.9941, 0.03812).normalize() },
+  charLightTone: { value: new THREE.Vector3(...FORMATION.tone) },
+  charShadowTone: { value: new THREE.Vector3(...FORMATION.shadowTone) },
+  charLightData: { value: new THREE.Vector2(...FORMATION.data) },
+};
+
+// The ambient light: the ambient probe as the engine passes it to a renderer (unity_SHAr ... unity_SHC), which the
+// character shaders evaluate per vertex at the world normal, clamp at 0 and scale to a channel sum of at most 0.3.
+// Outside battle the active scene is EmptyScene (Persistent.GameStart loads it alone; the lobby, formation and other
+// screens open over it): Trilight ambient, the colours below, which are also SceneLightingLoader's defaults.
+export const EMPTY_SCENE_AMBIENT = {
+  sky: [0.5457247, 0.7230554, 0.9734455], equator: [1, 1, 1], ground: [0.0592293, 0.0740774, 0.1037736],
+};
+
+// Unity 2021.3's Trilight probe (UnityPlayer.dll, m_UseRadianceAmbientProbe off): a cube map of 2 x 2 texels a face
+// (+Y sky, -Y ground, the sides equator; colours linearised, the intensity unused) projected face by face onto L2
+// spherical harmonics (each face weighted to 4 pi / 6), each coefficient then scaled by the cosine lobe. Returns the
+// shader constants in Unity space: [SHAr, SHAg, SHAb, SHBr, SHBg, SHBb, SHC].
+const SQRT_PI = Math.sqrt(Math.PI);
+const L0 = 1 / (2 * SQRT_PI), L1 = Math.sqrt(3) / (3 * SQRT_PI);
+const L2 = Math.sqrt(15) / (8 * SQRT_PI), L3 = Math.sqrt(5) / (16 * SQRT_PI);
+const LOBE = [L0, -L1, L1, -L1, L2, -L2, L3, -L2, L2 / 2];
+// per face: its u and v axes and its normal (+X, -X, +Y, -Y, +Z, -Z)
+const CUBE = [
+  [[0, 0, -1], [0, -1, 0], [1, 0, 0]], [[0, 0, 1], [0, -1, 0], [-1, 0, 0]], [[1, 0, 0], [0, 0, 1], [0, 1, 0]],
+  [[1, 0, 0], [0, 0, -1], [0, -1, 0]], [[1, 0, 0], [0, -1, 0], [0, 0, 1]], [[-1, 0, 0], [0, -1, 0], [0, 0, -1]],
+];
+export function trilightProbe({ sky, equator, ground }) {
+  const faces = [equator, equator, sky, ground, equator, equator].map((c) => c.map(toLinear));
+  const sh = [0, 1, 2].map(() => new Array(9).fill(0));
+  faces.forEach((color, f) => {
+    const [ua, va, na] = CUBE[f];
+    const acc = [0, 1, 2].map(() => new Array(9).fill(0));
+    let weights = 0;
+    for (const v of [-0.5, 0.5]) for (const u of [-0.5, 0.5]) {
+      const t = 1 + u * u + v * v, w = 4 / (t * Math.sqrt(t));
+      const d = [0, 1, 2].map((k) => na[k] + u * ua[k] + v * va[k]);
+      const len = Math.hypot(...d);
+      const [x, y, z] = d.map((c) => c / len);
+      const basis = [0.2820948, -0.4886025 * y, 0.4886025 * z, -0.4886025 * x, 1.0925485 * x * y, -1.0925485 * y * z,
+        0.9461747 * (z * z - 1 / 3), -1.0925485 * x * z, 0.5462742 * (x * x - y * y)];
+      for (let c = 0; c < 3; c++) for (let k = 0; k < 9; k++) acc[c][k] += color[c] * w * basis[k];
+      weights += w;
+    }
+    const s = (4 * Math.PI) / weights / 6;
+    for (let c = 0; c < 3; c++) for (let k = 0; k < 9; k++) sh[c][k] += acc[c][k] * LOBE[k] * s;
+  });
+  // the engine's packing: constant and linear, quadratic, final quadratic
+  const A = sh.map((c) => new THREE.Vector4(c[3], c[1], c[2], c[0] - c[6]));
+  const B = sh.map((c) => new THREE.Vector4(c[4], c[5], 3 * c[6], c[7]));
+  return [...A, ...B, new THREE.Vector4(sh[0][8], sh[1][8], sh[2][8], 1)];
+}
+
+// the shared ambient probe (Unity space; the vertex shader mirrors the normal)
+export const AMBIENT = { ambientSH: { value: trilightProbe(EMPTY_SCENE_AMBIENT) } };
+
+// the character shaders' ambient term at a world normal (Unity space), as the vertex shader computes it
+export function ambientAt(probe, n) {
+  const [x, y, z] = n, b = [x * y, y * z, z * z, z * x];
+  const v = [0, 1, 2].map((c) => {
+    const a = probe[c], q = probe[3 + c];
+    return Math.max(a.x * x + a.y * y + a.z * z + a.w + q.x * b[0] + q.y * b[1] + q.z * b[2] + q.w * b[3]
+      + [probe[6].x, probe[6].y, probe[6].z][c] * (x * x - y * y), 0);
+  });
+  const s = Math.max(v[0] + v[1] + v[2], 0.3);
+  return v.map((c) => (c * 0.3) / s);
+}
 
 // a material colour as the game's shader sees it: Color properties converted from sRGB, Vector properties and HDR
 // Color properties (stored linear) as stored
@@ -73,6 +150,11 @@ varying vec4 vTint;
 #ifdef Z_CORRECTION
 uniform float zCorrection;
 #endif
+varying vec3 vAmbient;
+#ifdef AMBIENT_SH
+// unity_SHAr, SHAg, SHAb, SHBr, SHBg, SHBb, SHC
+uniform vec4 ambientSH[ 7 ];
+#endif
 void main() {
   #ifdef VERTEX_TINT
   // the effect shaders multiply by the whole vertex colour
@@ -96,6 +178,18 @@ void main() {
   #endif
   vWorldPos = world.xyz;
   vWorldNormal = normalize( mat3( modelMatrix ) * objectNormal );
+  #ifdef AMBIENT_SH
+  // the ambient probe at the world normal (Unity space), clamped at 0, scaled to a channel sum of at most 0.3
+  vec4 n4 = vec4( -vWorldNormal.x, vWorldNormal.yz, 1.0 );
+  vec4 b4 = n4.xyzz * n4.yzzx;
+  vec3 sh = vec3( dot( ambientSH[ 0 ], n4 ), dot( ambientSH[ 1 ], n4 ), dot( ambientSH[ 2 ], n4 ) )
+    + vec3( dot( ambientSH[ 3 ], b4 ), dot( ambientSH[ 4 ], b4 ), dot( ambientSH[ 5 ], b4 ) )
+    + ambientSH[ 6 ].rgb * ( n4.x * n4.x - n4.y * n4.y );
+  sh = max( sh, 0.0 );
+  vAmbient = sh * ( 0.3 / max( sh.r + sh.g + sh.b, 0.3 ) );
+  #else
+  vAmbient = vec3( 0.0 );
+  #endif
   vUv = uv;
   #ifdef USE_COLOR_ALPHA
   vRim = color.a;
@@ -110,7 +204,7 @@ uniform vec3 charLightDir;
 uniform vec3 charLightTone;
 uniform vec3 charShadowTone;
 uniform vec2 charLightData;
-uniform vec3 charAmbient;
+varying vec3 vAmbient;
 uniform sampler2D mainMap;
 uniform sampler2D maskMap;
 uniform vec4 tint;
@@ -211,7 +305,7 @@ void main() {
   float th = dot( layerThreshold, layer ) + ( 1.0 - charLightData.y ) * 0.15;
   float lt = NdotL + 0.77 * NdotV + gTerm * maskG;
   float sh = clamp( ( th - lt ) * 10.0, 0.0, 1.0 );
-  vec3 diffuse = mix( charLightTone, shadowCol, sh ) * charLightData.x + charAmbient;
+  vec3 diffuse = mix( charLightTone, shadowCol, sh ) * charLightData.x + vAmbient;
   float rimM = dot( layerRimMultiplier, layer );
   float rim = clamp( fresnel * rimM - max( rimM - 1.0, 0.0 ), 0.0, 1.0 ) * vRim * dot( layerRimStrength, layer ) * charLightData.x;
   col = ( diffuse + rim * rimColor( NdotL ) + bright * charLightTone ) * albedo.rgb + mk.b * glowTint.rgb * glowTint.a;
@@ -251,7 +345,7 @@ void main() {
   inv = ( 1.0 - edge ) * inv + edge * min( inv * 4000.0, 1.0 );
   vec3 extra = ( view * viewLight.z + inv * invViewLight.y + viewLight.w ) * charLightTone;
   #endif
-  vec3 diffuse = mix( charLightTone, shadowCol, sh ) * charLightData.x + charAmbient;
+  vec3 diffuse = mix( charLightTone, shadowCol, sh ) * charLightData.x + vAmbient;
   col = ( diffuse + lit * rimColor( NdotL ) + extra ) * albedo.rgb + mk.b * glowTint.rgb * glowTint.a;
   if ( ! gl_FrontFacing ) col = albedo.rgb * twoSideTint.rgb * ( 0.33 * NdotL + 0.5 ) * shadowCol;
 
@@ -261,7 +355,7 @@ void main() {
   float lt = dot( N, SL ) + 0.77 * NdotV - ( ( 2.0 * mk.g - 1.0 ) - mk.r * adjustShadow ) * maskG;
   float th = threshold + ( 1.0 - charLightData.y ) * 0.15;
   float sh = clamp( ( th - lt ) * 2.0, 0.0, 1.0 );
-  vec3 diffuse = mix( charLightTone, shadowTint.rgb * charShadowTone, sh ) * charLightData.x + charAmbient;
+  vec3 diffuse = mix( charLightTone, shadowTint.rgb * charShadowTone, sh ) * charLightData.x + vAmbient;
   float rim = clamp( fresnel * rimMultiplier - rimLeveler, 0.0, 1.0 ) * vRim * rimStrength * charLightData.x;
   col = ( diffuse + rim * rimColor( NdotL ) ) * albedo.rgb;
 
@@ -270,7 +364,7 @@ void main() {
   vec4 mk = texture2D( maskMap, vUv );
   float lit = clamp( ( clamp( dot( N, H ) - weapon.x, 0.0, 1.0 ) - clamp( mk.g * 2.0 - weapon.x - 1.0, 0.0, 1.0 ) ) * weapon.y, 0.0, 1.0 );
   float hl = clamp( ( mk.r * NdotV - weapon.z ) * weapon.w, 0.0, 1.0 ) * specColor.a * charLightData.x;
-  vec3 light = mix( shadowTint.rgb * charShadowTone, charLightTone, lit ) * charLightData.x + charAmbient + hl * specColor.rgb * charLightTone;
+  vec3 light = mix( shadowTint.rgb * charShadowTone, charLightTone, lit ) * charLightData.x + vAmbient + hl * specColor.rgb * charLightTone;
   vec4 tex = texture2D( mainMap, vUv );
   col = light * tex.rgb * tint.rgb;
   #ifdef GLOW
@@ -448,6 +542,9 @@ function applyState(mat, state) {
   mat.blendDstAlpha = THREE.OneMinusSrcAlphaFactor;
 }
 
+// the shading kinds whose vertex programs do not read the ambient probe (Layer4, Single, Hair, Face and Weapon do)
+const NO_AMBIENT = new Set(["transparent", "simple", "eyemouth", "eyebrow", "halo", "matcap", "water", "unlit"]);
+
 // chibiMaterial(ex, textures, mouth): the game shader of a material (ex: the GLB material extras, textures: its
 // textures by slot name, mouth: the shared mouth tile state). Returns {material, objectSpace, outline, queue}:
 // objectSpace is set when the shader reads directions in the renderer's space (face, hair), and the caller keeps its
@@ -460,6 +557,7 @@ export function chibiMaterial(ex, textures, mouth) {
   const map = textures._MainTex || null;
   const uniforms = {
     ...LIGHT,
+    ...AMBIENT,
     mainMap: { value: map || defaultTexture("white") },
     maskMap: { value: defaultTexture("black") },
     tint: { value: colorOf(ex, "_Tint", [1, 1, 1, 1]) },
@@ -488,6 +586,7 @@ export function chibiMaterial(ex, textures, mouth) {
   if (!mat.transparent) defines.OPAQUE = "";
   if (mat.side !== THREE.FrontSide) defines.DOUBLE_SIDED_LIGHT = "";
   if (keywords.includes("_CHAR_CUTOUT_MODE")) defines.CUTOUT = "";
+  if (!NO_AMBIENT.has(kind)) defines.AMBIENT_SH = "";
   if (kind === "body") {
     defines.KIND_BODY = "";
     defines.CODE_COLORS = "";

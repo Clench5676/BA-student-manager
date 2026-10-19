@@ -8,7 +8,8 @@ const THREE_URL = new URL("../../src/ba_modding_toolkit/web/vendor/three-0.160.0
 register(`data:text/javascript,${encodeURIComponent(`export async function resolve(spec, ctx, next) {
   return spec === "three" ? { url: ${JSON.stringify(THREE_URL)}, shortCircuit: true } : next(spec, ctx); }`)}`);
 const THREE = await import("three");
-const { chibiMaterial } = await import("../../src/ba_modding_toolkit/web/js/chibi-materials.js");
+const { AMBIENT, EMPTY_SCENE_AMBIENT, ambientAt, characterLight, chibiMaterial, trilightProbe } =
+  await import("../../src/ba_modding_toolkit/web/js/chibi-materials.js");
 
 const near = (a, b, eps = 1e-4) => assert.ok(Math.abs(a - b) <= eps, `${a} != ${b}`);
 const linear = (c) => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
@@ -97,4 +98,48 @@ test("HDR Color properties as stored, other Color properties from sRGB, Vector p
   const body = chibiMaterial({ shader: "MX/C-General/Layer4", kind: "body", vectors: ["_ShadowTintR4"],
     colors: { _ShadowTintR4: [0.93333, 0.72307, 0.59434, 0.52661] } }, {});
   near(body.material.uniforms.layerTintR.value.y, 0.72307);
+});
+
+test("the character light ForwardLights derives from the main light", () => {
+  // the formation screen's white light, intensity 1
+  assert.deepEqual(characterLight([1, 1, 1]), { tone: [1, 1, 1], shadowTone: [1, 1, 1], data: [1, 1] });
+  // a brighter blue light: tone and shadow tone from the hue, the brightness in data
+  const blue = characterLight([0.5, 0.6, 1.2]);
+  [0.5625, 0.625, 1].forEach((v, i) => near(blue.tone[i], v));
+  [0.593611, 0.615, 0.743333].forEach((v, i) => near(blue.shadowTone[i], v));
+  near(blue.data[0], 1.17);
+  near(blue.data[1], 0.85);
+});
+
+test("the ambient probe: EmptyScene's Trilight as Unity 2021.3 projects it", () => {
+  // values of an independent port of UnityPlayer's cube map projection
+  const p = trilightProbe(EMPTY_SCENE_AMBIENT);
+  const row = (v) => v.toArray().map((x) => +x.toFixed(5));
+  assert.deepEqual(row(p[0]), [0, 0.06913, 0, 0.66539]);
+  assert.deepEqual(row(p[1]), [0, 0.1293, 0, 0.70862]);
+  assert.deepEqual(row(p[2]), [0, 0.25312, 0, 0.7979]);
+  assert.deepEqual(row(p[3]), [0, 0, 0.13565, 0]);
+  assert.deepEqual(row(p[6]), [0.13565, 0.11813, 0.08193, 1]);
+  // the shaders' ambient: a channel sum of 0.3, bluer facing the sky
+  [0.07853, 0.09439, 0.12708].forEach((v, i) => near(ambientAt(p, [0, 1, 0])[i], v, 2e-5));
+  [0.0998, 0.09992, 0.10028].forEach((v, i) => near(ambientAt(p, [0, -1, 0])[i], v, 2e-5));
+  // a uniform environment comes back as its linear colour; a dim one is not scaled up
+  const grey = trilightProbe({ sky: [0.5, 0.5, 0.5], equator: [0.5, 0.5, 0.5], ground: [0.5, 0.5, 0.5] });
+  near(ambientAt(grey, [0.3, 0.5, 0.81])[1], 0.1);
+  const dim = trilightProbe({ sky: [0.1, 0.1, 0.1], equator: [0.1, 0.1, 0.1], ground: [0.1, 0.1, 0.1] });
+  near(ambientAt(dim, [0, 0, 1])[0], linear(0.1));
+  // the materials share the module's probe
+  assert.deepEqual(AMBIENT.ambientSH.value.map(row), p.map(row));
+});
+
+test("the lit shaders add the ambient probe, the unlit ones do not", () => {
+  for (const kind of ["body", "hair", "face", "weapon", "general"]) {
+    const { material } = chibiMaterial({ shader: "MX/C-Test", kind }, {});
+    assert.ok("AMBIENT_SH" in material.defines, kind);
+    assert.equal(material.uniforms.ambientSH, AMBIENT.ambientSH);
+  }
+  for (const kind of ["transparent", "simple", "eyemouth", "eyebrow", "halo", "matcap", "water", "unlit"]) {
+    const { material } = chibiMaterial({ shader: "MX/C-Test", kind }, {});
+    assert.ok(!("AMBIENT_SH" in material.defines), kind);
+  }
 });
