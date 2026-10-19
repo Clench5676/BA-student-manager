@@ -226,8 +226,8 @@ def test_texture_sampler_follows_the_game_settings():
 # --- shaders ---
 
 def _form(name, props=(), passes=(), sub_tags=()):
-    """A shader's m_ParsedForm: properties (name, m_Type) and passes (light mode, cull, zwrite, src, dst, queue tag);
-    a state value is a property name (read from the material) or a fixed number."""
+    """A shader's m_ParsedForm: properties (name, m_Type[, m_Flags]) and passes (light mode, cull, zwrite, src, dst,
+    queue tag); a state value is a property name (read from the material) or a fixed number."""
     def entry(v):
         return {"val": 0.0, "name": v} if isinstance(v, str) else {"val": float(v), "name": "<noninit>"}
     out = []
@@ -235,7 +235,8 @@ def _form(name, props=(), passes=(), sub_tags=()):
         tags = [("LIGHTMODE", mode)] + ([("QUEUE", queue)] if queue else [])
         out.append({"m_State": {"m_Name": mode, "m_Tags": {"tags": tags}, "culling": entry(cull), "zWrite": entry(zwrite),
                                 "rtBlend0": {"srcBlend": entry(src), "destBlend": entry(dst)}}})
-    return {"m_Name": name, "m_PropInfo": {"m_Props": [{"m_Name": n, "m_Type": t} for n, t in props]},
+    return {"m_Name": name, "m_PropInfo": {"m_Props": [{"m_Name": p[0], "m_Type": p[1], "m_Flags": (p + (0,))[2]}
+                                                       for p in props]},
             "m_SubShaders": [{"m_Passes": out, "m_Tags": {"tags": list(sub_tags)}}]}
 
 
@@ -263,6 +264,11 @@ def test_shader_vectors_outline_and_state():
                            ("Outline", 1, 1, 1, 0, None), ("SHADOWCASTER", 0, 1, 1, 0, None)])
     assert model.shader_vectors(layer4) == {"_ShadowTintR4"}
     assert model.shader_outline(layer4)
+    # HDR Color properties (flag 16) are stored linear; a plain Color (Weapon's _ShadowTint) or a hidden one is not
+    hair = _form("MX/C-Hair", props=[("_Tint", 0, 16), ("_ShadowTint", 0, 16), ("_CodeAddColor", 0, 1), ("_SpecDir", 1, 16)])
+    assert model.shader_hdr(hair) == {"_Tint", "_ShadowTint"}
+    assert model.shader_hdr(_form("MX/C-Weapon", props=[("_Color", 0), ("_ShadowTint", 0), ("_GlowTint0", 0, 16)])) == \
+        {"_GlowTint0"}
     # the state names material properties: the material's floats decide
     floats = {"_Cull": 0.0, "_ZWrite": 1.0, "_SrcBlend": 1.0, "_DstBlend": 0.0}
     assert model.shader_state(layer4, floats) == {"cull": 0, "zwrite": 1, "src": 1, "dst": 0, "queue": 2000}
@@ -709,6 +715,10 @@ def test_real_chibi_exports(tmp_path):
     # the game's samplers (no mipmaps on the characters' textures)
     body = next(m["extras"] for m in doc["materials"] if m["extras"]["kind"] == "body")
     assert "_ShadowTintR4" in body["vectors"] and "_OutlineTint" not in body["vectors"] and body["outline"]
+    # HDR colours, passed as stored: the hair's shadow tint and the halo's tint
+    hair = next(m["extras"] for m in doc["materials"] if m["extras"]["kind"] == "hair")
+    halo = next(m["extras"] for m in doc["materials"] if m["extras"]["kind"] == "halo")
+    assert "_ShadowTint" in hair["hdr"] and "_ShadowTintR4" not in body["hdr"] and "_Tint" in halo["hdr"]
     assert body["state"]["src"] == 1 and body["state"]["dst"] == 0 and body["state"]["queue"] == 2000
     eyes = next(m["extras"] for m in doc["materials"] if m["extras"]["kind"] == "eyemouth")
     assert (eyes["state"]["src"], eyes["state"]["dst"], eyes["state"]["queue"]) == (5, 10, 2001) and not eyes["outline"]

@@ -13,8 +13,9 @@
 //   props       DSFX/FX_SHADER_Matcap (a matcap at the view-space normal), MX/E-Water-* (the surface colour) and the
 //               unlit and effect shaders, each with its own texture slot and colour
 // The game runs in linear colour space: colour textures are decoded from sRGB, masks are not, Color properties are
-// converted to linear and Vector properties are used as stored. The globals (_MxCharLight*) are the standard character
-// light's: white, intensity 1, from straight above (CharacterStandardLight / CharacterLightFallback), no ambient.
+// converted to linear, and HDR Color properties (most of the character shaders' tints) and Vector properties are used
+// as stored. The globals (_MxCharLight*) are the standard character light's: white, intensity 1, from straight above
+// (CharacterStandardLight / CharacterLightFallback), no ambient.
 import * as THREE from "three";
 
 // glTF space mirrors Unity's x axis
@@ -32,10 +33,12 @@ export const LIGHT = {
 // Unity's GammaToLinearSpace (HDR values above 1 by a 2.2 power)
 const toLinear = (c) => (c <= 0.04045 ? c / 12.92 : c < 1 ? Math.pow((c + 0.055) / 1.055, 2.4) : Math.pow(c, 2.2));
 
-// a material colour as the game's shader sees it: Color properties converted from sRGB, Vector properties as stored
+// a material colour as the game's shader sees it: Color properties converted from sRGB, Vector properties and HDR
+// Color properties (stored linear) as stored
 function colorOf(ex, name, fallback) {
   const c = (ex.colors || {})[name] || fallback;
-  if ((ex.vectors || []).includes(name)) return new THREE.Vector4(c[0], c[1], c[2], c[3] ?? 1);
+  const asStored = (ex.vectors || []).includes(name) || (ex.hdr || []).includes(name);
+  if (asStored) return new THREE.Vector4(c[0], c[1], c[2], c[3] ?? 1);
   return new THREE.Vector4(toLinear(c[0]), toLinear(c[1]), toLinear(c[2]), c[3] ?? 1);
 }
 const floatOf = (ex, name, fallback) => (ex.floats || {})[name] ?? fallback;

@@ -627,6 +627,18 @@ def shader_vectors(form: Mapping[str, Any]) -> set[str]:
     return {p["m_Name"] for p in form["m_PropInfo"]["m_Props"] if p.get("m_Type") == 1}
 
 
+_HDR = 16  # ShaderPropertyFlags.HDR
+
+
+def shader_hdr(form: Mapping[str, Any]) -> set[str]:
+    """Names of a shader's HDR Color properties (m_Type 0 with the HDR flag). Their stored values are linear already:
+    the game passes them unconverted, like Vector properties. The character shaders mark most of their colours HDR
+    (the hair's and face's _ShadowTint, _Tint, _OutlineTint, the halos' tints): decoded as sRGB, the hair's shadow
+    came out about half as bright and redder than the EnemyInfo renders, and an HDR halo tint (Aru's 3.69, 1.76,
+    1.53) near white instead of coral."""
+    return {p["m_Name"] for p in form["m_PropInfo"]["m_Props"] if p.get("m_Type") == 0 and p.get("m_Flags", 0) & _HDR}
+
+
 def shader_outline(form: Mapping[str, Any]) -> bool:
     """Whether a shader draws the inverted-hull outline: a pass with the light mode "Outline"."""
     for sub in form["m_SubShaders"]:
@@ -816,12 +828,12 @@ class _Exporter:
             return self.materials[key]
         g, tree = self.g, self.g.tree(obj)
         shader_obj = g.deref(obj, tree.get("m_Shader"))
-        shader, vectors, outline, form = None, None, None, None
+        shader, vectors, hdr, outline, form = None, None, set(), None, None
         if shader_obj is not None:
             try:
                 form = g.tree(shader_obj)["m_ParsedForm"]
                 shader = form["m_Name"]
-                vectors, outline = shader_vectors(form), shader_outline(form)
+                vectors, hdr, outline = shader_vectors(form), shader_hdr(form), shader_outline(form)
             except (KeyError, TypeError, ValueError):
                 shader, form = None, None
         props = tree["m_SavedProperties"]
@@ -851,10 +863,11 @@ class _Exporter:
         material: dict[str, Any] = {
             "name": tree["m_Name"], "doubleSided": floats.get("_Cull", 2) == 0,
             "pbrMetallicRoughness": {"metallicFactor": 0, "roughnessFactor": 1},
-            # colors: as the material stores them (sRGB for Color properties); vectors: the ones the game passes
-            # through unconverted (Vector properties), every other color is converted to linear first
+            # colors: as the material stores them; vectors and hdr: the ones the game passes through unconverted
+            # (Vector properties, HDR Color properties), every other color is converted from sRGB to linear first
             "extras": {"shader": shader, "kind": shader_kind(shader), "colors": colors,
-                       "vectors": sorted(vectors & set(colors)), "floats": floats, "textures": textures,
+                       "vectors": sorted(vectors & set(colors)), "hdr": sorted(hdr & set(colors)),
+                       "floats": floats, "textures": textures,
                        "keywords": sorted(keywords), "outline": outline, "state": state},
         }
         if "_MainTex" in textures:

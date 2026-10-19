@@ -106,7 +106,8 @@ bundle headers). The GLB is never written to disk; the memory entry is reused wh
 unchanged.
 
 The GLB carries what the game's shaders need: per material its shader, shading kind, constants (`colors` as stored,
-`vectors` naming the Vector properties the game passes unconverted), `keywords`, whether it draws an outline (its
+`vectors` naming the Vector properties and `hdr` the HDR Color properties the game passes unconverted; it converts
+every other Color property from sRGB), `keywords`, whether it draws an outline (its
 shader's Outline pass, unless the material turns that pass off) and its colour pass `state` (cull, depth write, blend, queue, resolved against the material); per texture its sampler (filter,
 wrap, mipmaps as in the game: the characters' textures have none) and `extras.linear` for masks; per clip the renderer
 switches it animates (`toggles`: alternative faces), so a renderer the prefab disables is exported when a clip turns
