@@ -790,7 +790,7 @@
 			},
 			"never": {
 				"label": "Never Cached",
-				"items": "Portraits, memorial lobbies, sprites, voices, backgrounds",
+				"items": "Portraits, memorial lobbies, 3D models, voices, backgrounds",
 				"how": "Read from the game folder each time"
 			},
 			"note": "Game assets belong to their owners, stay on this device and can be cleared in Settings",
@@ -800,7 +800,7 @@
 			"title": {
 				"portrait": "Portrait Info",
 				"lobby": "Memorial Lobby Info",
-				"model": "Sprite Info"
+				"model": "3D Model Info"
 			},
 			"details": "Details",
 			"current": "Current",
@@ -812,17 +812,17 @@
 			"box": {
 				"portrait": "Portrait",
 				"lobby": "Memorial Lobby",
-				"model": "Sprite"
+				"model": "3D Model"
 			},
 			"switch": {
 				"portrait": "Switch Portrait",
 				"lobby": "Switch Memorial Lobby",
-				"model": "Switch Sprite"
+				"model": "Switch 3D Model"
 			},
 			"add": {
 				"portrait": "Add Portrait",
 				"lobby": "Add Memorial Lobby",
-				"model": "Add Sprite"
+				"model": "Add 3D Model"
 			},
 			"four": {
 				"portrait": "Faces",
@@ -915,7 +915,7 @@
 		"tab": {
 			"portrait": "Portrait",
 			"lobby": "Memorial Lobby",
-			"model": "Sprite"
+			"model": "3D Model"
 		},
 		"status": {
 			"original": "Original",
@@ -961,7 +961,11 @@
 			"type": "Type",
 			"size": "Size",
 			"status": "Status",
-			"crc": "CRC"
+			"crc": "CRC",
+			"folder": "Folder",
+			"date": "Date",
+			"modFile": "Mod File",
+			"source": "Source"
 		},
 		"type": {
 			"recruit": "Recruitable",

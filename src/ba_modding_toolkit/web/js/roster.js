@@ -35,8 +35,12 @@ const TOOL_Y = 446.5; // centre of the search, sort and order buttons in SeletCo
 
 let view = { ...normalizeView(DEFAULT_VIEW), scroll: 0 };
 let query = "", searching = false, searchTimer = 0; // searchTimer: the search box's debounce
+// the search box's input: made and focused the moment the box opens, before the frame around it is drawn, and kept
+// in the page across rebuilds, so nothing typed meanwhile is lost
+let searchEl = null;
 let layouts = null, data = null, ctx = null, items = [], rows = new Map(), contentH = 0, rendered = new Map(), dirty = true;
-let dom = {}; // the list's live elements: clip, scroll host (the newest, maybe still built), scrollbar, empty list, search
+let dom = {}; // the list's live elements: clip, scroll host (the newest, maybe still built), scrollbar, empty list
+let building = false; // a frame is being built: the search box's keystrokes wait for it
 
 const listTop = () => (searching ? SEARCH_LIST_TOP : PAPER_TOP);
 const clipTop = () => ORIGIN[1] - listTop() * S;
@@ -258,10 +262,14 @@ function cardTree(e) {
 const portraitOf = (e) => e.portrait || (e.spr ? thumb(spineBase("spr", e.spr), "roster") : null);
 
 // --- rows near the view ---
+// rows sit in the page in the list's order, and each row's buttons left to right, so the keyboard steps through the
+// cards as they show
 async function renderRow(host, rowKey) {
   const row = document.createElement("div");
   row.className = "card-row";
-  host.appendChild(row);
+  const top = rows.get(rowKey)?.top ?? 0;
+  row.dataset.top = String(top);
+  host.insertBefore(row, [...host.children].find((r) => Number(r.dataset.top) > top) || null);
   rendered.set(rowKey, row);
   const jobs = [];
   for (const it of rows.get(rowKey)?.items || []) {
@@ -276,16 +284,15 @@ async function renderRow(host, rowKey) {
     const t = cardTree(it.e);
     t.pos = [it.x, it.y];
     const tex = portraitOf(it.e);
-    jobs.push(NGUI.render(t, row, { scale: S, origin: ORIGIN, z: 100, textures: tex ? { Char_Portrait: tex } : {} }).then(() => {
-      const hit = document.createElement("button");
-      hit.className = "card-hit";
-      const [sx, sy] = [ORIGIN[0] + it.x * S, ORIGIN[1] - it.y * S];
-      Object.assign(hit.style, { left: `${sx - 218 * S}px`, top: `${sy - 245 * S}px`, width: `${436 * S}px`, height: `${490 * S}px` });
-      hit.title = it.e.name;
-      if (it.e.spr) hit.addEventListener("click", () => { if (!ctx.dragged) location.hash = `#/student/${encodeURIComponent(it.e.family)}/${encodeURIComponent(it.e.key)}`; });
-      else hit.disabled = true;
-      row.appendChild(hit);
-    }));
+    const hit = document.createElement("button");
+    hit.className = "card-hit";
+    const [sx, sy] = [ORIGIN[0] + it.x * S, ORIGIN[1] - it.y * S];
+    Object.assign(hit.style, { left: `${sx - 218 * S}px`, top: `${sy - 245 * S}px`, width: `${436 * S}px`, height: `${490 * S}px` });
+    hit.title = it.e.name;
+    if (it.e.spr) hit.addEventListener("click", () => { if (!ctx.dragged) location.hash = `#/student/${encodeURIComponent(it.e.family)}/${encodeURIComponent(it.e.key)}`; });
+    else hit.disabled = true;
+    row.appendChild(hit);
+    jobs.push(NGUI.render(t, row, { scale: S, origin: ORIGIN, z: 100, textures: tex ? { Char_Portrait: tex } : {} }));
   }
   await Promise.all(jobs);
 }
@@ -358,9 +365,8 @@ function searchTree() {
   for (const c of input.children) c.widgets.find((w) => "text" in w).text = ""; // the input draws its text and placeholder
   return box;
 }
-async function renderSearch(host) {
-  await NGUI.render(searchTree(), host, { scale: S, origin: ORIGIN, z: 300 });
-  // InputField sits at (2, 258) in SeletControl's units, the close button at (512, 258)
+// the input over the game's InputField (at (2, 258) in SeletControl's units)
+function searchInput() {
   const el = document.createElement("input");
   el.className = "roster-search";
   el.type = "text";
@@ -374,37 +380,57 @@ async function renderSearch(host) {
     left: `${ORIGIN[0] + (2 - 389) * S}px`, top: `${ORIGIN[1] - (258 + 46) * S}px`, width: `${778 * S}px`, height: `${92 * S}px`,
     fontSize: `${60 * S}px`,
   });
-  // a box closed or rebuilt meanwhile (its timer is cleared then) never filters the list
-  const apply = () => { if (!searching || !el.isConnected || el.value === query) return; query = el.value; view.scroll = 0; relist(); };
-  const later = (ms) => { clearTimeout(searchTimer); searchTimer = setTimeout(apply, ms); };
   // typing with an input method (Chinese, Japanese) filters once the word is committed
-  el.addEventListener("input", (ev) => { if (!ev.isComposing) later(90); });
-  el.addEventListener("compositionend", () => later(0));
+  el.addEventListener("input", (ev) => { if (!ev.isComposing) searchLater(90); });
+  el.addEventListener("compositionend", () => searchLater(0));
   el.addEventListener("keydown", (ev) => {
     // the key that ends a conversion is the input method's (WebKit sends it after compositionend, as keyCode 229)
     if (ev.isComposing || ev.keyCode === 229) return;
     if (ev.key === "Escape") { ev.preventDefault(); closeSearch(); } else if (ev.key === "Enter") el.blur();
   });
-  host.appendChild(el);
+  return el;
+}
+// the list follows the box: a box closed meanwhile (its timer is cleared then) never filters it; while a frame is
+// being built, the frame takes the box's text when it is done
+function searchApply() {
+  const el = searchEl;
+  if (!searching || building || !el?.isConnected || el.value === query) return;
+  query = el.value;
+  view.scroll = 0;
+  relist();
+}
+function searchLater(ms) { clearTimeout(searchTimer); searchTimer = setTimeout(searchApply, ms); }
+
+async function renderSearch(host) {
+  await NGUI.render(searchTree(), host, { scale: S, origin: ORIGIN, z: 300 });
+  // the input the box opened with stays where it is in the page (it may have the focus); a new one goes in the frame
+  if (!searchEl) searchEl = searchInput();
+  if (!searchEl.isConnected) host.appendChild(searchEl);
+  // the close button at (512, 258)
   const close = document.createElement("button");
   close.className = "card-hit";
   Object.assign(close.style, { left: `${ORIGIN[0] + (512 - 55) * S}px`, top: `${ORIGIN[1] - (258 + 55) * S}px`, width: `${110 * S}px`, height: `${110 * S}px`, zIndex: 330 });
   close.title = T("display.close");
   close.addEventListener("click", closeSearch);
   host.appendChild(close);
-  return el;
 }
 
+// the input goes in at once and takes the focus; the box's frame and the list under it follow
 function openSearch() {
   searching = true;
   view.scroll = 0;
-  renderAll().then(() => dom.input?.focus());
+  searchEl = searchInput();
+  searchEl.classList.add("pending"); // unseen until its box is drawn round it
+  $("roster").appendChild(searchEl);
+  searchEl.focus();
+  renderAll();
 }
 function closeSearch() {
   clearTimeout(searchTimer);
   searching = false;
   query = "";
   view.scroll = 0;
+  searchEl = null; // goes with the frame it is in
   renderAll();
 }
 
@@ -433,10 +459,20 @@ function flipOrder() {
 let frameToken = 0;
 async function renderAll() {
   const my = ++frameToken;
+  building = true;
+  try {
+    await buildFrame(my);
+  } finally {
+    if (my === frameToken) building = false;
+  }
+  // keystrokes that came while the frame was built filter the list now
+  if (my === frameToken && searching && searchEl && searchEl.value !== query) searchLater(0);
+}
+async function buildFrame(my) {
   listToken += 1; // a search still building its rows gives way
   // a keystroke still waiting for its debounce is taken now: the rebuilt box starts from it
   clearTimeout(searchTimer);
-  if (searching && dom.input?.isConnected) query = dom.input.value;
+  if (searching && searchEl) query = searchEl.value;
   const host = $("roster");
   const next = document.createElement("div");
   const lay = toolbarLayout();
@@ -472,6 +508,25 @@ async function renderAll() {
     applyScroll();
   }, { passive: false });
   clip.addEventListener("pointerdown", (ev) => { drag = { y: ev.clientY, scroll: view.scroll }; ctx.dragged = false; });
+  // a card focused from the keyboard is brought into view through the list's own position, so the rows, the
+  // scrollbar and the virtual list stay in step; whatever still scrolls the clip itself (the browser showing a
+  // focused card) goes the same way
+  clip.addEventListener("focusin", (ev) => {
+    if (!ev.target.classList?.contains("card-hit")) return;
+    const r = ev.target.getBoundingClientRect(), c = clip.getBoundingClientRect(), k = stageScaleNow();
+    if (r.top < c.top) view.scroll -= (c.top - r.top) / k;
+    else if (r.bottom > c.bottom) view.scroll += (r.bottom - c.bottom) / k;
+    else return;
+    applyScroll();
+  });
+  clip.addEventListener("scroll", () => {
+    const dy = clip.scrollTop;
+    if (!dy && !clip.scrollLeft) return;
+    clip.scrollTop = 0;
+    clip.scrollLeft = 0;
+    view.scroll += dy;
+    applyScroll();
+  });
 
   // hit areas for the header controls (TopMenu sits at y 720 in SeletControl's units)
   const hit = ([ux, uy, w, h], fn, title) => {
@@ -497,12 +552,18 @@ async function renderAll() {
   rendered = new Map();
   dom = { clip, scrollHost, bar, empty };
   items = layoutItems();
-  const input = searching ? renderSearch(next) : Promise.resolve(null);
-  await Promise.race([Promise.all([applyScroll(), renderEmpty(empty), input]), sleep(ROWS_CAP)]);
-  const el = await input;
+  const box = searching ? renderSearch(next) : Promise.resolve();
+  await Promise.race([Promise.all([applyScroll(), renderEmpty(empty), box]), sleep(ROWS_CAP)]);
+  await box;
   if (my !== frameToken) return;
-  dom.input = el;
-  host.replaceChildren(...next.childNodes);
+  // the open search box's input stays in place (it may have the focus, a caret or an unfinished input method word);
+  // everything else is swapped
+  const keep = searching && searchEl?.parentNode === host ? searchEl : null;
+  const fresh = document.createDocumentFragment();
+  fresh.append(...next.childNodes);
+  for (const child of [...host.childNodes]) if (child !== keep) child.remove();
+  host.insertBefore(fresh, keep);
+  if (searching) searchEl?.classList.remove("pending");
 }
 
 // the search box and the empty list (small) are first drawn a while after the roster, so their images are ready when

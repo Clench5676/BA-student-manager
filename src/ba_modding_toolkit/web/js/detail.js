@@ -150,7 +150,7 @@ function lobbyLabel(v) {
 const sourceOf = (key) => (key === "self" ? "official" : key.startsWith("m:") ? `mod:${key.slice(2)}` : `variant:${key.slice(2)}`);
 const gameFile = (v = variant(), kind = "spr") => partsOf(v, kind)[0]?.file || null;
 const baseName = (path) => (path ? path.split(/[\\/]/).pop() : "—");
-const sizeText = (bytes) => (bytes ? `${(bytes / 1048576).toFixed(1)} MB` : "—");
+const sizeText = (bytes) => (!bytes ? "—" : bytes < 1048576 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1048576).toFixed(1)} MB`);
 const errorText = (err) => T(`error.${err.code}`, err.params || {});
 
 // white glyphs for the action cards (the game shows skill icons there), a folder for the file manager button
@@ -441,6 +441,7 @@ function hits(view, leftHost, rightHost) {
     add(rightHost, `${INFO}/Weapon/Btn_Up_Wrapper/Btn_Up/BG (1)`, addMods, T("popup.add"));
   }
   add(rightHost, `${INFO}/Status/Btn_Up_Wrapper/Btn_Up/BG (1)`, () => reveal(gameFile(variant(), tabKind())), T(platform === "mac" ? "open.mac" : "open.win"));
+  add(rightHost, `${INFO}/Detail_Btn`, showDetails, T("info.details"));
   const act = (card, fn, title) => add(rightHost, `${INFO}/Skill/${card}/Bg`, fn, title);
   act("SkillData_EX (1)", () => runUpdate(), T("act.update"));
   act("SkillData_EX (2)", () => runExtract(), T("act.extract"));
@@ -857,6 +858,22 @@ const LP = {
 };
 const COLS6 = 6;
 
+// a click on a popup's backdrop or Escape closes it, as the game's PopupClose does; its body takes the clicks that
+// miss its controls
+let closeTop = null;
+function closable(view, close) {
+  const back = view.nodes.get("Center/BlackBg/BlackBgClickArea")?.els[0];
+  if (back) { back.style.pointerEvents = "auto"; back.addEventListener("click", close); }
+  const body = view.nodes.get("Center/Popup/Base/BG")?.els[0];
+  if (body) body.style.pointerEvents = "auto";
+  closeTop = close;
+}
+addEventListener("keydown", (ev) => {
+  if (ev.key !== "Escape" || !closeTop || ($("popup").hidden && $("picker").hidden)) return;
+  ev.preventDefault();
+  closeTop();
+});
+
 function toolbar(right, y, { segs = null, sortKey = "sort.default", active = 0 } = {}) {
   const menu = find(layouts.collection, "SeletControl/TopMenu");
   const kids = [];
@@ -1051,6 +1068,7 @@ async function listPopup({ hostId, title, okText, items, selected, onSelect, onO
   const hit = (path, fn) => { const el = view.nodes.get(path)?.els[0]; if (el) hitButton(next, rect(el), fn, "", 80); };
   hit("Center/Popup/Btn/Btn_Ok/BG (1)", onOk);
   hit("Center/Popup/Base/BG/Btn_Close", onClose);
+  closable(view, onClose);
   const tb = toolbar(LP.list.r - 24, LP.list.t - 76, { segs, sortKey, active: seg });
   await NGUI.render(tb.tree, next, { scale: S, origin: [960, 540], z: 20 });
   if (tb.segBox && onSeg) {
@@ -1173,23 +1191,41 @@ async function openPicker(scroll = 0) {
   });
 }
 
-// compare: what the mod changes against the game's official file, on the popup frame
-async function showCompare(result) {
-  const host = $("popup");
+// the game's popup frame (UIPopup_Sort) at a size: backdrop, title, close button and, when given, its Cancel and OK
+// buttons with these labels near the bottom edge. The frame's centre sits 12 units under the stage's (Base -20, BG +8).
+const FRAME_Y = -12;
+function popupFrame(title, w, h, { ok = null, cancel = null } = {}) {
   const t = clone(find(layouts.sortPopup, "Center"));
   const popup = find(t, "Popup");
   popup.children = popup.children.filter((c) => ["Base", "Btn"].includes(c.name));
   const bg = find(popup, "Base/BG");
-  Object.assign(bg.widgets[0], { w_: 1900, h_: 1180 });
-  find(bg, "Texture_Top").pos = [-950 + 248, 590 - 66];
-  const title = find(bg, "Label_Title_Locale");
-  const tf = fitText(T("act.compare"), 72, 52, 1300);
-  Object.assign(title.widgets[0], { text: tf.text, fontSize: tf.fs, w_: 1400 });
-  title.pos = [0, 590 - 64];
-  find(title, "Line").widgets[0].w_ = glyphsOf(tf.text, tf.fs) + 14;
-  find(bg, "Btn_Close").pos = [950 - 90, 590 - 60];
-  find(popup, "Btn").active = false;
+  Object.assign(bg.widgets[0], { w_: w, h_: h });
+  find(bg, "Texture_Top").pos = [-w / 2 + 248, h / 2 - 66];
+  const titleNode = find(bg, "Label_Title_Locale");
+  const tf = fitText(title, 72, 52, 1300);
+  Object.assign(titleNode.widgets[0], { text: tf.text, fontSize: tf.fs, w_: 1400 });
+  titleNode.pos = [0, h / 2 - 64];
+  find(titleNode, "Line").widgets[0].w_ = glyphsOf(tf.text, tf.fs) + 14;
+  find(bg, "Btn_Close").pos = [w / 2 - 90, h / 2 - 60];
+  const btn = find(popup, "Btn");
+  btn.active = !!(ok || cancel);
+  btn.pos = [0, FRAME_Y - h / 2 + 122];
+  for (const [name, caption] of [["Btn_Ok", ok], ["Btn_Cancel", cancel]]) {
+    const b = find(btn, name);
+    b.active = !!caption;
+    if (!caption) continue;
+    const f = fitText(caption, 64, 40, 420);
+    Object.assign(find(b, "Label_Locale").widgets[0], { text: f.text, fontSize: f.fs });
+  }
   find(t, "BlackBg/BlackBgClickArea").widgets.find((w) => "sprite" in w).color = "#000000/0.60";
+  return t;
+}
+
+// compare: what the mod changes against the game's official file, on the popup frame
+async function showCompare(result) {
+  const host = $("popup");
+  const t = popupFrame(T("act.compare"), 1900, 1180);
+  const popup = find(t, "Popup");
   const rows = (result.assets || []).filter((d) => d.status !== "same").slice(0, 12);
   const color = { changed: "#d9822b", added: "#1f9a52", removed: "#c0392b" };
   if (!rows.length) popup.children.push(node("None", [0, 120], [label(T("compare.none"), 44, "#2d4664/1.00", 1600, 60, { depth: 8 })]));
@@ -1204,6 +1240,102 @@ async function showCompare(result) {
   const close = view.nodes.get("Center/Popup/Base/BG/Btn_Close")?.els[0];
   const done = () => { host.hidden = true; host.innerHTML = ""; };
   if (close) hitButton(next, rect(close), done, "", 80);
+  closable(view, done);
+  host.replaceChildren(...next.childNodes);
+}
+
+// --- details (the info bar's Details button): the shown tab's game files on the popup frame. A summary (the folder,
+// what the files carry and, for a mod, its file and the variant it was made for), then one row per bundle: name,
+// size, date, CRC and what it carries ---
+const DT = { w: 2200, h: 1400, l: -1040, r: 1040 };
+const DT_COLS = [["field.file", 1040], ["field.size", 220], ["field.date", 270], ["field.crc", 290], ["field.status", 260]];
+const crcLabel = (state) => (state === "fixed" ? [T("crc.fixed"), "#1f9a52"] : state === "needs_fix" ? [T("crc.needed"), "#d9822b"] : [T("crc.original"), "#000000"]);
+// what a game file carries, as a label: the original, a mod's name, another variant's name, or "replaced"
+function carriedLabel(applied) {
+  if (!applied || applied === "official") return T("status.original");
+  if (applied.startsWith("mod:")) { const m = familyMods().find((x) => x.id === applied.slice(4)); if (m) return modLabel(m); }
+  if (applied.startsWith("variant:")) { const o = fam.variants.find((x) => x.key === applied.slice(8)); if (o) return shortName(o); }
+  return T("status.replaced");
+}
+function detailsInfo() {
+  const v = variant(), kind = tabKind(), parts = partsOf(v, kind);
+  const first = parts[0]?.file || null;
+  const folder = first ? first.replace(/[\\/][^\\/]*$/, "") : "—";
+  const applied = kind === "model" ? "official" : appliedOf(v, kind);
+  const fields = [[T("field.folder"), folder], [T("info.current"), tab === "portrait" ? current().label : tab === "lobby" ? lobbyLabel(v) : T("model.original")]];
+  const mod = applied.startsWith("mod:") ? familyMods().find((m) => m.id === applied.slice(4)) : null;
+  const from = mod ? fam.variants.find((o) => o.key === mod.target) : applied.startsWith("variant:") ? fam.variants.find((o) => o.key === applied.slice(8)) : null;
+  if (mod) fields.push([T("field.modFile"), mod.file || "—"]);
+  if (from) fields.push([T("field.source"), fullName(from)]);
+  const rows = parts.map((p) => {
+    const crc = crcLabel(p.crc);
+    return [baseName(p.file), sizeText(p.size), p.date || "—", [crc[0], crc[1]], kind === "model" ? null : carriedLabel(p.applied)];
+  });
+  return { title: T(`info.title.${tab}`), fields, rows, reveal: first };
+}
+// the summary box and the file table, laid out from the top left of the scrolling area (units); returns the tree
+// and its height
+function detailsBody({ fields, rows }) {
+  const W = DT.r - DT.l, kids = [];
+  // summary: captions, then values that wrap (paths), never cut; on the game's light stats box
+  const capW = Math.max(...fields.map(([k]) => advanceOf(k, 38))) + 40, room = W - 80 - capW;
+  const values = fields.map(([, v]) => wrapPath(String(v), 38, 28, room, 3));
+  const rowHs = values.map((f) => Math.max(72, f.lines * f.fs * 1.25 + 22));
+  const boxH = rowHs.reduce((a, h) => a + h, 0) + 20;
+  const TOP = 12; // air under the scrolling area's top edge
+  kids.push(node("Summary", [W / 2, -TOP - boxH / 2], [sprite("Common_Bg_Raius10px", W - 6, boxH, { depth: 5, color: "#ecf5f9/1.00" })], [
+    node("Line", [0, 0], [sprite("Common_Line_Raius10px", W, boxH + 6, { depth: 4, color: "#c0c9d4/1.00" })]),
+  ]));
+  let y = -TOP - 10;
+  fields.forEach(([k], i) => {
+    const h = rowHs[i], cy = y - h / 2, f = values[i];
+    kids.push(node(`F_${i}`, [40, cy], [label(k, 38, "#2d4664/1.00", capW, 50, { pivot: 3, depth: 8 })]));
+    kids.push(node(`V_${i}`, [40 + capW, cy], [label(f.text, f.fs, "#000000/1.00", room + 20, f.lines * f.fs * 1.25 + 8, { pivot: 3, depth: 8 })]));
+    if (i < fields.length - 1) kids.push(node(`L_${i}`, [W / 2, y - h], [sprite("Common_Line_Dot", W - 60, 4, { type: 2, depth: 7, color: "#c0c9d4/1.00" })]));
+    y -= h;
+  });
+  // the file table: the list header's light blue bar with the captions, then the bundles
+  const cols = DT_COLS.filter((_, i) => i < 4 || rows.some((r) => r[4] !== null));
+  const extra = DT_COLS.reduce((a, [, w]) => a + w, 0) - cols.reduce((a, [, w]) => a + w, 0);
+  const widths = cols.map(([, w], i) => w + (i === 0 ? extra : 0));
+  const xs = widths.map((_, i) => 30 + widths.slice(0, i).reduce((a, w) => a + w, 0));
+  y = -TOP - boxH - 36;
+  kids.push(node("Head", [W / 2, y - 40], [sprite("Common_Bg_Raius10px", W, 80, { depth: 5, color: "#d1edff/1.00" })]));
+  cols.forEach(([key], i) => kids.push(node(`H_${i}`, [xs[i], y - 40], [label(T(key), fitText(T(key), 36, 28, widths[i] - 30).fs, "#294263/1.00", widths[i] - 20, 50, { pivot: 3, depth: 8 })])));
+  y -= 80;
+  rows.forEach((r, ri) => {
+    const name = wrapPath(r[0], 34, 26, widths[0] - 40, 2);
+    const h = Math.max(84, name.lines * name.fs * 1.25 + 28), cy = y - h / 2;
+    cols.forEach((_, i) => {
+      const [text, color] = i === 0 ? [name.text, "#000000"] : i === 3 ? r[3] : [r[i], "#000000"];
+      const fs = i === 0 ? name.fs : fitText(String(text), 34, 26, widths[i] - 30).fs;
+      kids.push(node(`R_${ri}_${i}`, [xs[i], cy], [label(String(text), fs, `${color}/1.00`, widths[i] - 20, (i === 0 ? name.lines : 1) * fs * 1.25 + 8, { pivot: 3, depth: 8 })]));
+    });
+    kids.push(node(`RL_${ri}`, [W / 2, y - h], [sprite("Common_Line_Dot", W - 40, 4, { type: 2, depth: 7, color: "#c0c9d4/1.00" })]));
+    y -= h;
+  });
+  return { tree: node("Details", [0, 0], [], kids), height: -y + 20 };
+}
+async function showDetails() {
+  const host = $("popup");
+  const info = detailsInfo();
+  const body = detailsBody(info);
+  // the frame fits its content, up to almost the whole stage (then the content scrolls): the title takes 140 units
+  // above the content, the buttons 228 under it
+  const h = Math.min(DT.h, Math.max(900, body.height + 140 + 228)), top = FRAME_Y + h / 2 - 140, bottom = FRAME_Y - h / 2 + 228;
+  const t = popupFrame(info.title, DT.w, h, { ok: T("picker.ok"), cancel: info.reveal ? T(platform === "mac" ? "open.mac" : "open.win") : null });
+  host.hidden = false;
+  const next = document.createElement("div");
+  const view = await NGUI.render(t, next, { scale: S, origin: [960, 540], z: 10 });
+  const done = () => { host.hidden = true; host.innerHTML = ""; };
+  const hit = (path, fn, title = "") => { const el = view.nodes.get(path)?.els[0]; if (el) hitButton(next, rect(el), fn, title, 80); };
+  hit("Center/Popup/Base/BG/Btn_Close", done);
+  hit("Center/Popup/Btn/Btn_Ok/BG (1)", done);
+  hit("Center/Popup/Btn/Btn_Cancel/BG (1)", () => reveal(info.reveal));
+  closable(view, done);
+  const inner = scrollArea(next, [960 + DT.l * S, 540 - top * S, (DT.r - DT.l) * S, (top - bottom) * S], body.height * S);
+  await NGUI.render(body.tree, inner, { scale: S, origin: [0, 0], z: 20 });
+  if (host.hidden) return;
   host.replaceChildren(...next.childNodes);
 }
 

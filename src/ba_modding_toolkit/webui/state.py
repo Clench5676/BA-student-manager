@@ -1,14 +1,25 @@
 """Small UI state kept between launches: the asset consent, recently opened variants and the web UI's own
 preferences (voice volume, the mod library folder). Kept apart from config.toml, which the classic GUI rewrites
-with only its own keys."""
+with only its own keys.
+
+Several app instances may share one data folder: every change is applied to the file as it is at that moment (read
+again under a lock the instances share), so one instance never erases what another wrote, and reads pick up the
+other instances' writes."""
 
 from __future__ import annotations
 
+import contextlib
+import copy
 import json
+import logging
 import os
+import tempfile
 import threading
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 RECENT_MAX = 50
 
@@ -51,51 +62,128 @@ def roster_view(value: Any) -> dict[str, Any]:
     }
 
 
+@contextlib.contextmanager
+def _file_lock(path: Path) -> Iterator[None]:
+    """An exclusive lock on a lock file, shared with the other processes using it (fcntl.flock, msvcrt.locking on
+    Windows). Without a lock file (an unwritable folder) the change goes ahead unlocked; writing then fails as before."""
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        handle = open(path, "a+b")  # noqa: SIM115 - held for the lock's lifetime
+    except OSError:
+        logger.warning("cannot lock %s", path, exc_info=True)
+        yield
+        return
+    with handle:
+        if os.name == "nt":
+            import msvcrt
+
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)  # retries for 10 s, then raises
+            try:
+                yield
+            finally:
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def _recent_of(data: dict[str, Any]) -> list[str]:
+    value = data.get("recent")
+    return [v for v in value if isinstance(v, str)] if isinstance(value, list) else []
+
+
 class UiState:
     def __init__(self, path: Path):
         self.path = Path(path)
-        self._lock = threading.Lock()
+        self._lock_path = self.path.with_name(f"{self.path.name}.lock")
+        self._lock = threading.RLock()
         self._data: dict[str, Any] = {}
+        self._seen: tuple[int, int] | None = None  # the file's (mtime, size) when it was last read or written
+        self._current()
+
+    def _signature(self) -> tuple[int, int] | None:
+        try:
+            st = self.path.stat()
+        except OSError:
+            return None
+        return st.st_mtime_ns, st.st_size
+
+    def _read(self) -> dict[str, Any] | None:
+        """The file's content now; None when it is missing or unreadable."""
         try:
             data = json.loads(self.path.read_text(encoding="utf-8"))
-            if isinstance(data, dict):
-                self._data = data
         except (OSError, ValueError):
-            self._data = {}
+            return None
+        return data if isinstance(data, dict) else None
 
-    def _save(self) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(self._data, ensure_ascii=False, indent=1), encoding="utf-8")
-        os.replace(tmp, self.path)
+    def _current(self) -> dict[str, Any]:
+        """The state as the file holds it now (another instance may have written it); what was last known while the
+        file is missing or unreadable."""
+        with self._lock:
+            signature = self._signature()
+            if signature is not None and signature != self._seen:
+                data = self._read()
+                if data is not None:
+                    self._data, self._seen = data, signature
+            return self._data
+
+    def _update(self, change: Callable[[dict[str, Any]], None]) -> None:
+        """Apply one change to the file's current content, read again under the lock the instances share, and write
+        it back: keys another instance wrote meanwhile are kept."""
+        with self._lock, _file_lock(self._lock_path):
+            data = self._read()
+            if data is None:
+                data = copy.deepcopy(self._data)
+            change(data)
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            fd, name = tempfile.mkstemp(prefix=f".{self.path.name}.", suffix=".tmp", dir=self.path.parent)
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as out:
+                    out.write(json.dumps(data, ensure_ascii=False, indent=1))
+                os.replace(name, self.path)
+            except BaseException:
+                with contextlib.suppress(OSError):
+                    os.unlink(name)
+                raise
+            self._data, self._seen = data, self._signature()
 
     @property
     def consent(self) -> bool | None:
         """None until the user answered the consent popup; then True (cache allowed) or False."""
-        value = self._data.get("consent")
+        value = self._current().get("consent")
         return value if isinstance(value, bool) else None
 
     def set_consent(self, granted: bool) -> None:
-        with self._lock:
-            self._data["consent"] = bool(granted)
-            self._save()
+        self._update(lambda data: data.__setitem__("consent", bool(granted)))
 
     def recent(self) -> list[str]:
-        value = self._data.get("recent")
-        return [v for v in value if isinstance(v, str)] if isinstance(value, list) else []
+        return _recent_of(self._current())
 
     def visit(self, variant_key: str) -> None:
-        with self._lock:
-            recent = [v for v in self.recent() if v != variant_key]
-            self._data["recent"] = [variant_key, *recent][:RECENT_MAX]
-            self._save()
+        def change(data: dict[str, Any]) -> None:
+            recent = [v for v in _recent_of(data) if v != variant_key]
+            data["recent"] = [variant_key, *recent][:RECENT_MAX]
+
+        self._update(change)
 
     # --- preferences ---
 
     def get(self, key: str, default: Any = None) -> Any:
-        return self._data.get("prefs", {}).get(key, default)
+        prefs = self._current().get("prefs")
+        return prefs.get(key, default) if isinstance(prefs, dict) else default
 
     def set(self, key: str, value: Any) -> None:
-        with self._lock:
-            self._data.setdefault("prefs", {})[key] = value
-            self._save()
+        def change(data: dict[str, Any]) -> None:
+            prefs = data.get("prefs")
+            if not isinstance(prefs, dict):
+                prefs = data["prefs"] = {}
+            prefs[key] = value
+
+        self._update(change)

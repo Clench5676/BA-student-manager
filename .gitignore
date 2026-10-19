@@ -5,6 +5,8 @@ config.toml
 # web UI user data in the development data directory
 /library/
 /webui.json
+/webui.json.lock
+/.webui.json.*.tmp
 /input-trace.log
 /webview/
 

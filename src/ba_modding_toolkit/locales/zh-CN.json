@@ -961,7 +961,11 @@
 			"type": "类型",
 			"size": "大小",
 			"status": "状态",
-			"crc": "CRC"
+			"crc": "CRC",
+			"folder": "文件夹",
+			"date": "日期",
+			"modFile": "Mod 文件",
+			"source": "来源"
 		},
 		"type": {
 			"recruit": "可招募",
