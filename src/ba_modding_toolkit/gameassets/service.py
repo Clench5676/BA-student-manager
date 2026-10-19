@@ -53,6 +53,8 @@ PREFAB_HINTS = {
     # the loading screen (Resources/UI/UILoading.prefab) and its "Now Loading" indicator
     "UILoading": "prologgroup-assets-_mx-resources-ui-_mxprolog-2026-04-13_assets_all_2006567787.bundle",
     "UIRepeater": "ui-_mxload-prefabs-2025-07-02_assets_all_1187726256.bundle",
+    # the lobby, whose bottom menu entries hold the game's disabled look (layouts.py STATE_FIELDS)
+    "UILobby": "ui-_mxload-prefabs-2025-07-02_assets_all_2178802179.bundle",
 }
 
 

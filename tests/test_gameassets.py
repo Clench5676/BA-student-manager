@@ -476,6 +476,11 @@ def test_loading_screen_prefab_hints():
     assert is_prefab(Path(service.PREFAB_HINTS["UIRepeater"]))
 
 
+def test_lobby_prefab_hint():
+    # the lobby's bottom menu (the greyed navigation's look) is read without the scan of every prefab bundle
+    assert is_prefab(Path(service.PREFAB_HINTS["UILobby"]))
+
+
 def test_unknown_names_raise_asset_not_found(tmp_path):
     game = GameAssets([tmp_path], AssetCache(root=tmp_path / "cache"))
     for call in (lambda: game.sprite_png("missing", "missing"), lambda: game.texture_png("missing"),
@@ -736,6 +741,7 @@ def test_real_detail_layout_places_the_portrait(real_game):
 def test_real_lobby_menu_disabled_look(real_game):
     """The lobby's bottom menu, where the greyed navigation takes the game's disabled look from: each entry with an
     open condition swaps Able for Disable, the same icon tinted #797979 beside a lock; the label is outside both."""
+    assert real_game._prefab_bundle("UILobby").name == service.PREFAB_HINTS["UILobby"]
     grid = real_game.layout("UILobby", "Front/Bottom/Menu/BG/Grid")
     for name in ("Cafe", "Craft", "Shop", "Gacha"):
         entry = subtree(grid, name)
