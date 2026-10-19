@@ -473,7 +473,7 @@
 			"stream_ref_export_unsupported": "Skipping export [{name}]: assets with .resS stream references cannot yet be exported as repackable dumps"
 		},
 		"mod_update": {
-			"all_processes_complete": "All processes completed!",
+			"all_processes_complete": "All processes completed! {count} assets processed.",
 			"updating": "Updating...",
 			"source_files": "Source group ({count} files)",
 			"target_files": "Target group ({count} files)",

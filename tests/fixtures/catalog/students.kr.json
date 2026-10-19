@@ -1,0 +1,47 @@
+{
+  "10005": {
+    "CollectionBG": "BG_Abydos_Collection",
+    "DefaultOrder": 5,
+    "DevName": "Hoshino",
+    "Id": 10005,
+    "IsReleased": [
+      true,
+      true,
+      true
+    ],
+    "Name": "호시노",
+    "PathName": "hoshino",
+    "PersonalName": "호시노",
+    "School": "Abydos"
+  },
+  "10025": {
+    "CollectionBG": "BG_Abydos_Collection",
+    "DefaultOrder": 10,
+    "DevName": "CH0020",
+    "Id": 10025,
+    "IsReleased": [
+      true,
+      false,
+      false
+    ],
+    "Name": "호시노(체육복)",
+    "PathName": "hoshino_track",
+    "PersonalName": "호시노",
+    "School": "Abydos"
+  },
+  "10045": {
+    "CollectionBG": "BG_Abydos_Collection",
+    "DefaultOrder": 100,
+    "DevName": "CH0010",
+    "Id": 10045,
+    "IsReleased": [
+      true,
+      true,
+      true
+    ],
+    "Name": "호시노(수영복)",
+    "PathName": "hoshino_swimsuit",
+    "PersonalName": "호시노",
+    "School": "Abydos"
+  }
+}

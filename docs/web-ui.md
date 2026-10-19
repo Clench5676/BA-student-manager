@@ -14,7 +14,48 @@ at runtime and never shipped with the program.
 - Nav entries without a new screen yet open the classic Tk GUI on that tab (`bamt --tab <name>`).
 - `bamt` (and the compiled app) starts the web UI; `bamt --classic` starts the classic Tk GUI.
 - Released builds look for a newer GitHub release at start and can update themselves (`updater.py`).
-- Out of scope for now: a settings screen, the other tool screens, zh-TW and ja UI strings.
+- Out of scope for now: the other tool screens.
+
+## Languages
+
+- The UI languages are the localization roadmap's M1 (`i18n.UI_LANGUAGES`: zh-CN, zh-TW, en-US, ja-JP, ko-KR), all
+  shipped since 0.1.0-alpha.3: `locales/<code>.json` has every en-US key of the web UI and the classic GUI
+  (`tests/test_locales.py`). A language is offered (the settings popup, `settings.set language`) once its locale
+  file exists (`i18n.offered_languages`), each named in itself and drawn in its own fonts. The classic GUI lists
+  every locale file.
+- Wording: game concepts take the official server's words (the Global client's Traditional Chinese and Korean, the JP
+  server's Japanese, the Global English); Simplified Chinese follows Kivo's community wording. Words the game never
+  uses follow each language's community and the UI text separators (Korean: half-width brackets and ", ").
+- The first start takes the system language (`i18n.match_language`): Traditional Chinese (zh-Hant, zh-TW, zh-HK,
+  zh-MO) zh-TW, other Chinese zh-CN, Japanese ja-JP, Korean ko-KR, the rest en-US. Without the language's file (a
+  build that leaves it out), Traditional Chinese gets the whole zh-CN screen, the others en-US. `BAMT_LANG`
+  overrides it.
+- A string a locale file lacks falls back key by key (`i18n.fallback_language`): Simplified Chinese to zh-CN, every
+  other language, Traditional Chinese included, to en-US. A Simplified (and Kivo-worded) string in a Traditional
+  screen reads as a wrong translation, an English one as an untranslated one, which also shows the translator what
+  is missing; CLDR, too, gives zh-Hant the root locale as its parent, not zh.
+- Names come with the data per language (`i18n.js` `NAME_LANG`: zh-CN, zh-TW, en, ja, ko); the catalog names every
+  variant in all five (the game's own names where it has them, SchaleDB's, curated ones, or translated in the game's
+  vocabulary); a missing name would fall back to en, Simplified Chinese ones to zh-CN first. The lobby's lines follow
+  the UI language (`LINE_LANGS`: Kivo's zh-CN and ja, the Global client's zh-TW, en and ko).
+- Text fitting (`ngui.fitText`) shrinks, then wraps at separators and between words (`Intl.Segmenter` in the text's
+  language), keeping the CJK line-breaking rules: no closing bracket, comma, full stop, ellipsis, small kana or
+  prolonged sound mark starts a line, no opening bracket ends one. `ngui.fitLabel` also widens the label to the
+  width it was fitted to.
+- Fonts: the page draws with Resource Han Rounded CN (`web/fonts`, OFL, shipped). It covers every Han and kana
+  character of the zh-TW and ja names and of the games' UI strings, but in Simplified Chinese glyph forms and
+  punctuation positions, and it has no Hangul. So the html `lang` (set from the UI language) picks a stack in
+  `app.css`: zh-CN and en-US keep the font for everything; zh-TW, ja and ko keep it for Latin letters and digits
+  only (`RHR Latin`, the same file with a `unicode-range`) and draw CJK with the system font of the language
+  (PingFang TC / Microsoft JhengHei, Hiragino Sans / Yu Gothic UI, Apple SD Gothic Neo / Malgun Gothic, Noto Sans CJK
+  on Linux), with the full font last for a glyph none of them has. No font is added. Text in another language than
+  the page's carries its own `lang` (a label widget's `lang`, as each language's name in the settings) and draws with
+  that language's stack, so a name never mixes two fonts. `ngui.textWidth` measures with the same stack as the text
+  draws with, and Hangul counts as CJK for the label sizing. The classic GUI switches the font of its own text
+  widgets (drop zones, inputs, status bar, tooltips) to the language's system font the same way
+  (`Theme.use_language`); its ttk widgets keep the system's default font.
+- The Global client's own fonts (in the install: Noto Sans TC Medium for zh-TW, GyeonggiTitle Medium as the Korean
+  main font, Noto Sans and RSU for en and th) are not used yet.
 
 ## Process layout
 
@@ -39,7 +80,7 @@ header `X-BAMT-Token`), and the `Host` header must be `127.0.0.1:<port>` or `loc
 src/ba_modding_toolkit/
   config.py      Tk-free settings: same config.toml groups and keys as gui/configs.py
   gameassets/    UI atlases, UI textures, prefab layouts, collection art and Spine skeletons from the install
-  catalog/       students (families) and their variants, names in zh-CN, zh-TW, en and ja
+  catalog/       students (families) and their variants, names in zh-CN, zh-TW, en, ja and ko
   library/       the user's portrait and lobby mods: add, remove, apply, restore, update, extract, compare
   webui/         server, RPC, events, jobs, pywebview window, entry point
   web/           static front end, no build step, plain ES modules
@@ -238,7 +279,7 @@ class Variant:
     key: str                  # file_id lower-cased: "hoshino", "hoshino_swimsuit", "ch0241", "np0045"
     file_id: str              # as in the character map: "CH0241"
     family: str               # Family.key
-    names: dict[str, dict]    # {lang: {"full": "星野（一年级）", "short": "一年级"}}, langs zh-CN zh-TW en ja
+    names: dict[str, dict]    # {lang: {"full": "星野（一年级）", "short": "一年级"}}, langs zh-CN zh-TW en ja ko
     playable: bool            # a playable student (on some server)
     order: int                # release order inside the family
     spr: str | None           # Spine portrait core, e.g. "ch0241_spr", when the install has it
@@ -275,6 +316,18 @@ student id, names and skins in several languages), the curated data file shipped
 backgrounds and portrait names, generated by `scripts/build_catalog_data.py`), and the game scan (which skeletons
 exist, dates). Skeletons missing from the map become their own family, named by file id. Names follow the variant name
 format: base name plus the variant in brackets, never `·` or `・`.
+
+Languages: zh-CN follows Kivo (below); zh-TW, en and ko are the Global server's official names, ja the JP server's.
+Playable students take SchaleDB's names per server (`students.{cn,tw,en,jp,kr}.json`); NPCs and story sprites the
+character map's columns (`name_kr`, `skin_kr` for ko) and `catalog/data/naming.json`: its name table and glossary
+give each language's word, from the Global client's ScenarioCharacterName (the scenario name of the sprite's own
+`CharacterSpine_<file id>`; the JP server's for ja) where the game names it, else a translation, and say which
+(`source`, `basis`). Korean writes names as the game does: half-width brackets without a space before them and the
+Terror asterisk half width (호시노(수영복), 시로코*테러), parts joined by ", ", the base variant 기본; a ko skin of the
+map that the game words otherwise yields to the glossary (the map's 임전, 정월, 캠프: the game's 무장, 새해, 캠핑).
+`naming.json`'s `story_names` hold the story variants whose research names (prototype `names.json`, wiki names)
+lack a language or use a community word (ko for the Hoshino and Kisaki story sprites; zh-TW's SchoolYear and Kiki
+words).
 
 Aliases: zh-CN shows Kivo's community wording, and the CN server's wording that it replaced stays findable. The
 builder writes `aliases` (only when not empty) per student and per variant: a student's are the server's given names

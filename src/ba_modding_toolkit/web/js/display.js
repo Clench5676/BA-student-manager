@@ -8,7 +8,6 @@ import { FILTERS, NATURAL, SORTS } from "./roster-order.js";
 import { $, S, clone, glyphsOf, hitButton } from "./util.js";
 
 const { node, find } = NGUI;
-const fitText = (...a) => NGUI.fitText(...a);
 const Z = 3000;
 // the filter list's visible area under its header (Filter/BG_List below Filter/BG_Tag), popup units
 const LIST = { cx: 212, top: 377, bottom: -404, w: 2244 };
@@ -30,12 +29,7 @@ const optionLabel = {
 const groupTitle = { favorite: () => T("fav.label"), portrait: () => T("tab.portrait"), lobby: () => T("tab.lobby"),
   model: () => T("tab.model"), kind: () => T("display.kind.title") };
 
-function setText(n, text, fsMax, fsMin, w) {
-  const lw = n.widgets.find((x) => "text" in x);
-  const f = fitText(text, fsMax, fsMin, w);
-  Object.assign(lw, { text: f.text, fontSize: f.fs, w_: Math.max(lw.w_, w) });
-  return f;
-}
+const setText = (n, text, fsMax, fsMin, w) => NGUI.fitLabel(n.widgets.find((x) => "text" in x), text, fsMax, fsMin, w);
 
 // --- the popup frame: backdrop, title, tabs, the shown panel, the buttons ---
 function frameTree() {

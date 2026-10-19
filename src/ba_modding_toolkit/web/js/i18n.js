@@ -3,8 +3,8 @@
 let strings = {};
 let lang = "zh-CN";
 
-// the app's language -> the key used in name data ({"zh-CN", "zh-TW", "en", "ja"})
-const NAME_LANG = { "zh-CN": "zh-CN", "zh-TW": "zh-TW", "en-US": "en", "ja-JP": "ja" };
+// the app's language -> the key used in name data ({"zh-CN", "zh-TW", "en", "ja", "ko"})
+export const NAME_LANG = { "zh-CN": "zh-CN", "zh-TW": "zh-TW", "en-US": "en", "ja-JP": "ja", "ko-KR": "ko" };
 
 export function setStrings(appLang, table) {
   lang = appLang || "zh-CN";
@@ -19,11 +19,20 @@ export function T(key, vars = {}) {
   return s.replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? "");
 }
 
-// {lang: value} -> the value for the UI language (falls back to zh-CN, then en, then any)
+// the name keys to try for a UI language: its own, then zh-CN for Simplified Chinese and en for the others
+// (Traditional Chinese included: a Simplified name in a Traditional screen reads as wrong, like the UI strings,
+// i18n.fallback_language), then whatever there is
+export function nameKeys(appLang) {
+  const own = NAME_LANG[appLang] || appLang;
+  const simplified = /^zh(-|$)/i.test(appLang) && !/^zh-(hant|tw|hk|mo)\b/i.test(appLang);
+  return [...new Set([own, simplified ? "zh-CN" : "en", "en", "zh-CN"])];
+}
+
+// {lang: value} -> the value for the UI language (see nameKeys)
 export function L(value) {
   if (!value || typeof value !== "object") return value;
-  const key = NAME_LANG[lang] || (lang.startsWith("zh") ? "zh-CN" : "en");
-  return value[key] ?? value[lang] ?? value["zh-CN"] ?? value.en ?? Object.values(value)[0];
+  for (const key of nameKeys(lang)) if (value[key] != null) return value[key];
+  return Object.values(value)[0];
 }
 
 // the platform decides the file manager's name

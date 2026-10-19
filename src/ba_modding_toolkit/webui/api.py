@@ -17,7 +17,7 @@ from typing import Any
 
 from .. import globallines, updater
 from ..errors import ServiceError
-from ..i18n import get_locale_dir, i18n_manager
+from ..i18n import fallback_language, get_locale_dir, i18n_manager, offered_languages
 from ..kivo import clip_id
 from ..naming import parse_filename
 from ..utils import get_version_info
@@ -29,8 +29,8 @@ from .system import open_classic, reveal
 logger = logging.getLogger(__name__)
 trace_logger = logging.getLogger("ba_modding_toolkit.webui.trace")
 TRACE_BATCH, TRACE_LINE = 100, 600  # events per debug.trace call, characters per logged event
-UI_LANGS = ("zh-CN", "zh-TW", "en-US", "ja-JP")
-LINE_LANGS = {"zh-CN": "zh-CN", "zh-TW": "zh-TW", "en-US": "en", "ja-JP": "ja"}  # UI language -> lobby lines key
+# UI language -> lobby lines key (globallines.COLUMNS: the Global server's en, zh-TW, ko; ja from Kivo, else Global)
+LINE_LANGS = {"zh-CN": "zh-CN", "zh-TW": "zh-TW", "en-US": "en", "ja-JP": "ja", "ko-KR": "ko"}
 # seconds lobby.lines waits for the Global table (a download the first time); it answers with Kivo's lines after that,
 # so a slow download never holds the page's connections (the table keeps coming in for the next lobby)
 LINES_WAIT = 3.0
@@ -38,7 +38,7 @@ LINES_WAIT = 3.0
 
 def ui_strings(lang: str) -> dict[str, str]:
     """The ``webui.*`` strings for a language, falling back key by key like the Python side does."""
-    fallback = "zh-CN" if lang.startswith("zh-") else "en-US"
+    fallback = fallback_language(lang)
     out: dict[str, str] = {}
     for code in dict.fromkeys((fallback, lang)):  # fallback first, the language itself wins
         path = get_locale_dir() / f"{code}.json"
@@ -165,8 +165,6 @@ def build_api(s: Services) -> RpcRegistry:
 
     # --- settings (the popup behind the top bar's settings button) ---
 
-    LANGUAGES = ("zh-CN", "en-US")
-
     def language_name(code: str) -> str:
         # each language is named in itself (webui.languageName of its own locale file)
         return ui_strings(code).get("webui.languageName", code)
@@ -175,7 +173,8 @@ def build_api(s: Services) -> RpcRegistry:
     def settings_get() -> dict[str, Any]:
         st = s.settings
         return {
-            "language": i18n_manager.lang, "languages": [{"code": c, "name": language_name(c)} for c in LANGUAGES],
+            "language": i18n_manager.lang,
+            "languages": [{"code": c, "name": language_name(c)} for c in offered_languages()],
             "fileSource": st.get("file_source"),
             "gameDirs": {"global": st.get("game_resource_dir"), "japan": st.get("game_resource_dir_japan")},
             "gameFound": s.game_found(), "libraryDir": str(s.library_dir()), "outputDir": st.get("output_dir"),
@@ -193,7 +192,7 @@ def build_api(s: Services) -> RpcRegistry:
     def settings_set(key: str, value: Any) -> dict[str, Any]:
         st = s.settings
         if key == "language":
-            if value not in LANGUAGES:
+            if value not in offered_languages():
                 raise ServiceError("bad_params", key=key)
             st.set("language", value)
             st.save()

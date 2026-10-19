@@ -326,7 +326,9 @@ def test_shipped_names_and_playable_art_invariants(shipped: dict):
             assert not any(dot in str(name) for dot in ("\u00b7", "\u30fb"))
             if name["full"] == student["names"][lang]:
                 assert name["short"] == BASE_SHORT[lang]
-            if lang != "en":
+            if lang in ("en", "ko"):  # half-width brackets, as the game writes them
+                assert "（" not in name["full"] and "）" not in name["full"]
+            else:
                 assert "(" not in name["full"] and ")" not in name["full"]
             if entry["name_sources"][lang] == "fallback":
                 assert lang in entry["fallbacks"]

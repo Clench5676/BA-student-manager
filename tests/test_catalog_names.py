@@ -13,7 +13,7 @@ import pytest
 
 from ba_modding_toolkit.catalog import DEFAULT_DATA
 from ba_modding_toolkit.catalog._names import (
-    BASE_SHORT, FILE_ID, LANGUAGES, NAMES, NAMING, PART_SEPARATORS, SEPARATORS, TWINS, csv_bases,
+    BASE_SHORT, FILE_ID, LANGUAGES, NAMES, NAMING, PART_SEPARATORS, SEPARATORS, TWINS, bracketed, csv_bases,
     remark, usable,
 )
 
@@ -22,6 +22,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CASES = json.loads((FIXTURES / "name_table.json").read_text(encoding="utf-8"))
 KIVO = json.loads((FIXTURES / "kivo_sample.json").read_text(encoding="utf-8"))
 CJK = re.compile(r"[　-ヿ㐀-鿿＀-￯]")
+HAN_KANA = re.compile(r"[぀-ヿ㐀-鿿＀-￯]")
 SOURCES = {"derived", "curated", "fallback", "official", "translated"}
 # Variants still named alike in a language, with why they are not told apart yet:
 # Hina's pajama sprite and Ein, Sof and Ohr were exported a second time with the same Kivo
@@ -53,6 +54,8 @@ def foreign(text: str, lang: str) -> list[str]:
     """Characters of another language's script in a name."""
     if lang == "en":
         return CJK.findall(text)
+    if lang == "ko":  # Hangul, Latin and digits; never Han characters, kana or full-width forms
+        return HAN_KANA.findall(text)
     return [char for char in text if char in CASES["foreign_script"].get(lang, "")]
 
 
@@ -91,8 +94,7 @@ def test_shipped_story_names_follow_the_bracket_rules(shipped: dict):
             if short == BASE_SHORT[lang]:
                 assert name["full"] == base[lang], (key, lang)
                 continue
-            bracket = f" ({short})" if lang == "en" else f"（{short}）"
-            assert name["full"] == base[lang] + bracket, (key, lang)
+            assert name["full"] == bracketed(base[lang], short, lang), (key, lang)
             assert not any(sep in short for sep in others[lang] - {SEPARATORS[lang].strip()}), (key, lang)
     assert checked > 400
 
@@ -241,12 +243,16 @@ def test_generator_names_playables_in_kivo_wording(generator, case):
 
 
 def test_shipped_terror_names_use_one_asterisk(shipped: dict):
-    names = [(key, lang, text) for key, lang, text in all_names(shipped) if lang != "en"]
+    # Chinese and Japanese write it full width, English and Korean half width (\uc2dc\ub85c\ucf54*\ud14c\ub7ec, as the game does)
+    half = ("en", "ko")
+    names = [(key, lang, text) for key, lang, text in all_names(shipped) if lang not in half]
     assert not [item for item in names if "*" in item[2]]
+    assert not [item for item in all_names(shipped) if item[1] in half and "\uff0a" in item[2]]
     terror = [key for key, entry in shipped["variants"].items() if "\uff0a" in entry["names"]["zh-CN"]["full"]]
     assert {"ch0199", "ch0263", "np0125", "np0186", "np0231", "np0232"} <= set(terror)
     for key in terror:
-        assert "*" in shipped["variants"][key]["names"]["en"]["full"], key
+        for lang in half:
+            assert "*" in shipped["variants"][key]["names"][lang]["full"], (key, lang)
 
 
 def test_shipped_variants_have_distinct_names(shipped: dict):

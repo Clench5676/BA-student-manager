@@ -1,0 +1,1141 @@
+{
+	"common": {
+		"ok": "OK",
+		"cancel": "キャンセル",
+		"default": "デフォルト",
+		"on": "ON",
+		"off": "OFF",
+		"success": "成功",
+		"error": "エラー",
+		"warning": "警告",
+		"tip": "ヒント",
+		"3rd_party": "サードパーティ",
+		"processing": "処理中...",
+		"fail": "失敗",
+		"result": "結果",
+		"unknown": "不明",
+		"auto": "自動"
+	},
+	"action": {
+		"browse": "参照",
+		"browse_file": "ファイルを参照...",
+		"browse_folder": "フォルダーを参照...",
+		"select": "選択",
+		"open": "開く",
+		"download": "ダウンロード",
+		"add_files": "ファイルを追加",
+		"add_folder": "フォルダーを追加",
+		"remove": "削除",
+		"remove_selected": "選択項目を削除",
+		"clear": "クリア",
+		"clear_list": "リストをクリア",
+		"replace_original": "元のファイルを上書き",
+		"print": "出力",
+		"start": "開始",
+		"update": "更新",
+		"pack": "パック",
+		"extract": "抽出",
+		"calculate_crc": "CRC計算",
+		"check_crc": "CRCチェック",
+		"run_crc_correction": "CRC修正",
+		"save": "保存",
+		"load": "読み込み",
+		"reset": "リセット",
+		"refresh": "再読み込み",
+		"filter": "フィルター",
+		"analyze": "解析",
+		"install": "導入",
+		"skip": "スキップ",
+		"open_in_explorer": "エクスプローラーで開く",
+		"copy_filename": "ファイル名をコピー",
+		"render_preview": "プレビューをレンダリング",
+		"send_to_extractor": "アセット抽出に送る",
+		"cache_to_local": "ローカルにキャッシュ",
+		"detect": "検出",
+		"clear_cache": "キャッシュクリア",
+		"generate": "生成",
+		"fix_all": "すべて修正",
+		"start_backup": "バックアップ開始"
+	},
+	"option": {
+		"file_source": "ファイル取得元",
+		"file_source_info": "ゲームリソースの取得元（プラットフォームとサーバー）を選択 \n- Windowsグローバル版（ローカル） \n- Windows日本版（ローカル） \n- Androidグローバル版（ADB） \n- Android日本版（ADB）",
+		"file_source_windows_global": "Windowsグローバル版（ローカル）",
+		"file_source_windows_japan": "Windows日本版（ローカル）",
+		"file_source_adb_global": "Androidグローバル版（ADB）",
+		"file_source_adb_japan": "Android日本版（ADB）",
+		"crc_correction": "CRC修正",
+		"crc_correction_info": "BundleファイルのCRCチェックサムを修正し、改変後の「異常なクライアント」エラーを防ぎます。\nSteam版では必ず有効にしてください。モバイル版では不要です。\n「自動」では、対象Bundleのプラットフォーム情報から要否を自動で判定します。",
+		"extra_bytes": "追加バイト",
+		"extra_bytes_info": "CRC修正の前に付加するデータ。\n0xで始まる場合は16進数（例：0x0808）、それ以外はASCII文字列（例：AB）として扱います。空欄で無効。",
+		"backup": "バックアップを作成",
+		"backup_info": "ファイルを置き換える前にバックアップを作成します。",
+		"compression_method": "圧縮方式",
+		"compression_method_info": "AssetBundleファイルの圧縮方式を設定します。\n- LZMA：最高圧縮率\n- LZ4：中程度の圧縮率\n- Original：対象ファイルと同じ\n- None：圧縮なし",
+		"skip_unchanged": "変更なしはスキップ",
+		"skip_unchanged_info": "対象の内容に変更がない場合、ファイルを出力しません",
+		"replace_texture": "Texture2D",
+		"replace_texture_info": "画像リソース（立ち絵、モデルのテクスチャなど）",
+		"replace_textasset": "TextAsset",
+		"replace_textasset_info": "Spineアニメーション関連の.skelと.atlasファイル",
+		"replace_mesh": "Mesh",
+		"replace_mesh_info": "3Dモデルファイル",
+		"replace_animationclip": "AnimationClip",
+		"replace_animationclip_info": "3Dモデルのアニメーション",
+		"replace_all": "ALL",
+		"replace_all_info": "すべての種類のリソースを置き換えます。\n実験的機能のため非推奨。",
+		"spine_conversion": "Spineバージョン変換を有効化",
+		"spine_conversion_info": "（オプション拡張機能）\n外部プログラムを呼び出し、.skelファイルを対応バージョンに変換します。\nSkelコンバーターのパス設定が必要です。",
+		"spine_target_version": "対象バージョン",
+		"spine_target_version_info": "形式は「A.B.C」。\nバージョンが設定と一致しないskelファイルは処理を拒否します。\nSkelコンバーターを設定して有効にすると、このバージョンに自動で変換します。",
+		"preview_thumbnail_size": "プレビューのサムネイルサイズ",
+		"preview_thumbnail_size_info": "プレビューウィンドウのサムネイルの最大辺長（ピクセル）",
+		"spine_downgrade": "Spineダウングレードを有効化",
+		"spine_downgrade_info": "（オプション拡張機能）\n外部プログラムを呼び出し、旧バージョンのSpineに対応したファイル（.skelと.atlas）を書き出します。\nSkelコンバーターのパス設定が必要です。",
+		"spine_downgrade_target_version": "対象バージョン",
+		"spine_downgrade_target_version_info": "形式は「A.B.C」。",
+		"scale_atlas": "画像を拡大縮小",
+		"scale_atlas_info": "高度なオプション\nSpineのダウングレード時に、Atlasファイルのscale係数に従って画像を拡大縮小するかを選びます。\n\n拡大縮小する：画像を自動で合うサイズに変更し、そのままSpineに読み込めますが、精度が落ちて各パーツがずれることがあります。ゲーム内の描画にも拡大縮小後の画像が使われるため、精度が下がります。\n拡大縮小しない（デフォルト）：元の精度を保ち、ゲーム内の描画が最も良く、ゲームへの導入に推奨します。ただしSpineに読み込むと、region（領域）タイプのアタッチメントのサイズは変わらないため、scale係数をボーンのTransformに手動で適用する必要があります。\n\nこのオプションはゲーム内の描画とSpineへの読み込みの両方に影響します。無効ではゲーム内は正常に表示され、Spineでは手動調整が必要です。有効では画像が実際に拡大縮小され、ゲーム内も拡大縮小後の見た目（精度低下あり）になり、Spineでは手動調整が不要です。\nSpineに読み込む用途では、上級者には「拡大縮小しない」＋scaleに合わせてボーンやパーツの拡大縮小を手動で設定する方法を推奨します。最も良い結果になります。",
+		"unpack_atlas": "Atlasをアンパック",
+		"unpack_atlas_info": "AtlasをPNGフレームごとにアンパックします。\nフレームはimages/サブフォルダーに保存されます。",
+		"game_dir_windows_global": "Steamゲームフォルダー（グローバル版）",
+		"game_dir_windows_global_info": "Steam版（グローバル版）のインストールフォルダー\n以下のサブフォルダーを自動で検出できます：\n- BlueArchive_Data/StreamingAssets/PUB/Resource/GameData/Windows\n- BlueArchive_Data/StreamingAssets/PUB/Resource/Preload/Windows\n- GameData/Windows\n- Preload/Windows\n「検出」で自動検索（Windows：レジストリとSteamライブラリ、macOS：Wineプレフィックス）。",
+		"game_dir_windows_japan": "PCゲームフォルダー（日本版）",
+		"game_dir_windows_japan_info": "PC版（日本版）のインストールフォルダー\n「検出」で自動検索（Windows：レジストリ、macOS：Wineプレフィックス）。",
+		"game_dir_android_global": "Android（グローバル版）フォルダー",
+		"game_dir_android_global_info": "Android端末上のゲームリソースフォルダー（グローバル版）\n例：/storage/emulated/0/Android/data/com.nexon.bluearchive/files/",
+		"game_dir_android_japan": "Android（日本版）フォルダー",
+		"game_dir_android_japan_info": "Android端末上のゲームリソースフォルダー（日本版）\n例：/storage/emulated/0/Android/data/com.Yostar JP.BlueArchive/files/",
+		"language": "言語 / Language",
+		"language_info": "プログラムの表示言語。\n変更はプログラムの再起動後に反映されます。",
+		"output_dir": "出力フォルダー",
+		"output_dir_info": "プログラムが生成するファイルの出力先フォルダー。",
+		"skel_converter_path": "Skelコンバーターのパス",
+		"skel_converter_path_info": "SpineSkeletonDataConverter.exeファイルのパス。",
+		"spine_viewer_path": "SpineViewerCLIのパス",
+		"spine_viewer_path_info": "SpineViewerCLI.exeファイルのパス。",
+		"check_animations": "アニメーションの差分を検出",
+		"check_animations_info": ".skelファイルの置き換え時、置き換え元にないアニメーションが対象に含まれているかを検出します\nSpineViewerCLIのパス設定が必要です",
+		"mod_install_render_preview": "プレビューをレンダリング",
+		"mod_install_render_preview_info": "MOD導入の確認ダイアログで、Spineのプレビューとテクスチャをバックグラウンドでレンダリングします\n無効にするとファイルとアセットのみを表示し、ダイアログがすぐに開きます\nSpineViewerCLIのパス設定が必要です",
+		"match_strategy": "マッチング方式",
+		"match_strategy_info": "リソースのマッチング方式を選択します：\n- path_id：同じバージョンのファイル向け、最も正確\n- cont_name_type：コンテナ＋名前＋種類で照合、バージョンをまたぐ移植（グローバル版と日本版の間）向け\n- name_type：名前＋種類で照合",
+		"enable_bleed": "ブリード",
+		"enable_bleed_info": "画像ファイルにブリード処理を行います。\nパック後の画像がゲーム内で黒い縁やギザギザの縁になる場合は有効にしてください。",
+		"enable_spine38_name_fix": "旧Spineのファイル名を変更",
+		"enable_spine38_name_fix_info": "旧バージョンのSpineが書き出したファイル名の形式を新しい形式に変更します。\n例：CH0808_home2.png → CH0808_home_2.png",
+		"enable_spine_preview": "Spineプレビューを生成",
+		"enable_spine_preview_info": "Spineアセットのプレビュー画像を生成します（SpineViewerCLIのパス設定が必要）\n\n注意：この機能は時間がかかります。",
+		"extractor_render_preview": "プレビューをレンダリング",
+		"extractor_render_preview_info": "抽出後、抽出したSpineアセットのプレビュー画像をレンダリングします（SpineViewerCLIのパス設定が必要）。\nプレビューは抽出済みのファイルをそのまま使い、再抽出はしません。\n\n注意：Atlasのアンパックも有効な場合、一部のアセットのプレビューを生成できないことがあります。",
+		"report_format": "レポート形式",
+		"report_format_info": "レポートの出力形式を選択します：\n- リスト：1行に1項目、ざっと見るのに便利\n- 表：Markdownの表、プレビュー画像をレンダリングする場合に推奨",
+		"report_format_list": "リスト",
+		"report_format_table": "表",
+		"report_render_preset": "プレビュー画質",
+		"report_render_preset_info": "プレビュー画像のレンダリング画質を選択します。\n高画質ほどレンダリングに時間がかかります。",
+		"report_render_preset_low": "低画質",
+		"report_render_preset_high": "高画質",
+		"render_characters": "立ち絵をレンダリング",
+		"render_characters_info": "spinecharactersカテゴリのSpineアセットのプレビュー画像をレンダリングします",
+		"render_lobbies": "メモリアルロビーをレンダリング",
+		"render_lobbies_info": "spinelobbiesカテゴリのSpineアセットのプレビュー画像をレンダリングします",
+		"render_background": "その他のSpineアセットをレンダリング",
+		"render_background_info": "spinebackgroundカテゴリのSpineアセットのプレビュー画像をレンダリングします",
+		"max_workers": "並列スレッド数",
+		"max_workers_info": "一括処理（一括更新、プレビューの一括レンダリングなど）の並列スレッド数。\n増やすと処理が速くなりますが、メモリとCPUの使用量が増えます。",
+		"character_id_map": "キャラクターIDマップ",
+		"character_id_map_info": "キャラクターIDと名前の対応表。ファイルに対応するキャラクター名の表示に使います。",
+		"character_index_column": "インデックス列",
+		"character_index_column_info": "マッピングCSVで検索キー（キャラクター内部ID）として使う列。\nキーはCH0808のような形式です。",
+		"character_name_field": "キャラクター名",
+		"character_name_field_info": "キャラクター名の表示フィールドを選択します：\nfull_name：kivo.wiki（中国語、最も網羅的）\nname_cn：中国版\nname_jp：日本語\nname_tw：繁体字中国語\nname_en：英語\nname_kr：韓国語\n\n英語と韓国語はキャラクター名のみです。日本語、中国版、繁体字中国語には衣装違いの名前（水着、メイドなど）も含まれます。kivo.wiki版にはさらに多くのNPCのバリエーション名（体操服、武器なしなど）も含まれます。",
+		"adb_path": "ADBのパス",
+		"adb_path_info": "adb.exeのフルパス、またはシステムのPATHを使う場合は「adb」",
+		"adb_cache_dir": "キャッシュフォルダー",
+		"adb_cache_dir_info": "ADBファイルのローカルキャッシュフォルダー",
+		"backup_path": "バックアップ先",
+		"backup_path_info": "バックアップファイルの保存先フォルダーを選択"
+	},
+	"file_type": {
+		"executable": "実行ファイル",
+		"all_files": "すべてのファイル",
+		"bundle": "AssetBundleファイル",
+		"bundle_backup": "AssetBundleバックアップ",
+		"folder": "フォルダー",
+		"skel_converter": "SpineSkeletonConverter.exe",
+		"spine_viewer": "SpineViewerCLI.exe"
+	},
+	"message": {
+		"confirm_replace_file": "次のファイルを上書きします：{path}\n\nバックアップを有効にしておくことをおすすめします。\n続行しますか？",
+		"confirm_replace_files": "{count}個のファイルを上書きします：\n{files}",
+		"and_more_files": "……ほか{count}個",
+		"confirm_reset_settings": "設定をデフォルトに戻しますか？",
+		"file_not_found": "ファイルが見つかりません：{path}",
+		"file_not_selected": "ファイルが選択されていません",
+		"load_failed": "ファイルの読み込みに失敗しました",
+		"dir_not_found": "フォルダーが見つかりません：{path}",
+		"dir_not_found_create": "フォルダーが存在しません：\n{path}\n\n作成しますか？",
+		"path_invalid": "無効なパス：{path}",
+		"no_file_selected": "ファイルが選択されていません。",
+		"no_bundle_found": "Bundleファイルが見つかりません",
+		"list_empty": "リストが空です。先に項目を追加してください。",
+		"drop_single_file": "ファイルは1つずつドロップしてください。",
+		"missing_paths": "必要なパスがすべて設定されているか確認してください。",
+		"missing_asset_type": "アセットの種類を1つ以上選択してください。",
+		"process_success": "処理が完了しました！",
+		"process_failed": "処理に失敗しました：{error}",
+		"error_during_process": "処理中にエラーが発生しました：\n{error}",
+		"cannot_open_explorer": "フォルダーを開けません：{error}",
+		"open_manually": "手動でフォルダーを開いてください：{path}",
+		"invalid_operation": "無効な操作です",
+		"execution_error": "実行中にエラーが発生しました：\n{error}",
+		"output_dir_not_set": "出力フォルダーが設定されていません。先に設定で指定してください。",
+		"save_success": "ファイルを保存しました。",
+		"same_file": "2つのパスが同じです！",
+		"config": {
+			"saved": "設定を保存しました。",
+			"loaded": "設定を読み込みました。",
+			"save_failed": "設定の保存に失敗しました。",
+			"load_failed": "設定の読み込みに失敗しました。",
+			"language_changed": "言語設定を変更しました。\n反映するには設定を保存してプログラムを再起動してください。\n今すぐ設定を保存してプログラムを終了しますか？"
+		},
+		"packer": {
+			"missing_paths": "対象Bundleとパックするアセットフォルダーを選択し、全体設定で出力フォルダーを指定してください。",
+			"load_target_bundle_failed": "CRCパッチの除去も試みましたが、対象Bundleファイルを読み込めませんでした。ファイルが破損していないか確認してください。",
+			"no_supported_files_found": "指定したフォルダーに対応ファイル（{extensions}）が見つかりません。",
+			"no_matching_assets_to_pack": "名前が一致するパック対象のアセットが見つかりません。",
+			"process_complete": "処理が完了しました！\n{count}個のファイルをパックしました。\n\nファイルは出力フォルダーに保存されています。「{button}」ボタンで変更を適用できます。"
+		},
+		"crc": {
+			"provide_at_least_one_file": "ファイルパスを1つ以上指定してください。",
+			"match_no_correction_needed": "CRC値が一致しているため、修正は不要です。",
+			"correction_success": "CRC修正に成功しました！\n修正したファイルを出力フォルダーに保存しました：\n{path}",
+			"correction_failed": "CRC修正に失敗しました。",
+			"file_crc32": "ファイルのCRC32：{crc}",
+			"calculation_error": "CRCの計算中にエラーが発生しました：\n{error}",
+			"modified_file_crc32": "修正対象ファイルのCRC32：{crc}",
+			"original_file_crc32": "元のファイルのCRC32：{crc}",
+			"match_yes": "CRC一致：✅ はい",
+			"match_no": "CRC一致：❌ いいえ",
+			"correction_failed_file_not_generated": "CRC修正に失敗しました。最終ファイル「{name}」を生成できませんでした。"
+		},
+		"spine": {
+			"version_conflict_header": "以下の.skelファイルはSpineバージョンが対象バージョン（{major_minor}.x）と一致しないため、置き換えを拒否しました：",
+			"version_conflict_item": "  - {name}（バージョン：{source}）",
+			"version_conflict_hint": "Spineコンバーターの設定を確認してください。"
+		},
+		"report_open_prompt": "レポートを生成しました！\nレポートファイルを開きますか？",
+		"batch_preview_open_prompt": "一括レンダリングが完了しました！\n{total}グループ中{rendered}グループ成功。出力フォルダーを開きますか？",
+		"batch_preview": {
+			"no_category": "レンダリングするカテゴリを1つ以上選択してください。"
+		},
+		"search": {
+			"check_file_exists": "「{path}」が存在するか確認してください。",
+			"no_matching_files_in_dir": "指定したフォルダーに一致するファイルが見つかりません。",
+			"no_comparable_assets": "旧MODファイルに比較できるアセットがありません。",
+			"new_file_confirmed": "新バージョンのファイルを特定しました：{name}",
+			"no_matching_asset_found": "どの候補ファイルにも旧MODのリソース名と一致するアセットがありません。正しい新バージョンのファイルを特定できません。",
+			"found_multiple_matches": "一致するファイルが{count}個見つかりました",
+			"filename_parse_failed": "ファイル名の解析に失敗しました"
+		},
+		"extractor": {
+			"no_assets_found": "指定した種類の抽出できるアセットが見つかりません。",
+			"extraction_complete": "抽出が完了しました。{count}個のファイルを出力しました。"
+		},
+		"mod_update": {
+			"success": "更新に成功しました！",
+			"no_assets_extracted": "置き換え元のファイルからアセットを抽出できませんでした",
+			"no_targets_processed": "正常に処理できた対象ファイルがありません",
+			"all_targets_unchanged": "すべての対象ファイルに変更がないため、更新は不要です"
+		},
+		"mod_install": {
+			"filename_parse_failed": "ファイル名を解析できません：{filename}",
+			"target_conflict": "複数のMODグループが同じファイルを対象にしています：{filename}",
+			"no_game_dir": "ゲームリソースフォルダーが設定されていないため、MODとゲームファイルの関係を解析できません。",
+			"adb_unsupported": "MOD導入はまだADBモードに対応していません。ローカルのファイル取得元に切り替えてください。",
+			"nothing_selected": "導入するグループが選択されていません。",
+			"summary": "導入が完了しました！\n成功：{installed}グループ\nスキップ（導入済み）：{skipped}グループ\n失敗：{failed}グループ",
+			"failed_detail": "失敗の詳細：\n{details}"
+		},
+		"save_error": "ファイルの保存中にエラーが発生しました：{error}",
+		"replace_result": "置き換えが完了しました！\n成功：{success}個、失敗：{fail}個",
+		"batch": {
+			"success": "一括処理が完了しました！\n成功：{success}、失敗：{fail}"
+		},
+		"anim_diff": {
+			"header": "ゲームに必要な新しいアニメーションの一部がこのMODにありません。\nゲーム内でこれらのアニメーションが再生されると（ストーリーイベント中など）、\nゲームがフリーズすることがあります。\n\nこの問題を避けるには、上のログで不足リストの詳細を確認し、\n正しい更新についてMOD作者に確認してください。"
+		},
+		"3rd_party": {
+			"download_guide": "{program}をダウンロードしますか？\n{url}",
+			"skel_converter_not_configured": "SpineSkeletonDataConverterが設定されていません。\n設定画面でSpineSkeletonDataConverterのパスを設定してください。",
+			"spine_viewer_required": "SpineViewerCLIが設定されていないか、パスが無効です。\n\n設定画面でSpineViewerCLIのパスを設定してください。"
+		},
+		"download_confirm": "次の場所からファイルをダウンロードします：\n{url}\n\n保存先：{path}",
+		"game_dir": {
+			"detect_success": "ゲームフォルダーを検出しました：\n{path}",
+			"detect_failed": "ブルーアーカイブのインストール先が見つかりません。フォルダーを手動で選択してください。"
+		},
+		"adb": {
+			"detect_success": "ADBを検出しました：{version}",
+			"detect_failed": "ADBを検出できません。パスを確認してください。",
+			"not_connected": "ADB端末が接続されていません",
+			"clear_cache_confirm": "ADBのキャッシュファイルをすべて削除しますか？",
+			"clear_cache_done": "キャッシュをクリアしました（{size}を解放）",
+			"push_confirm": "次のファイルをAndroid端末にプッシュします。続行しますか？\n{files}",
+			"cache_complete": "キャッシュ完了：成功{success}個、失敗{fail}個",
+			"no_local_files": "先にプッシュするローカルファイルを選択してください",
+			"no_target_dir": "転送先フォルダーを指定してください",
+			"push_summary": "プッシュ完了：成功{success}個、失敗{fail}個"
+		},
+		"abnormal_check": {
+			"no_mismatch": "CRCが一致しないファイルはありません",
+			"confirm_fix": "{count}個のファイルのCRC値を修正しますか？",
+			"fix_complete": "修正が完了しました"
+		},
+		"backup": {
+			"path_required": "先にバックアップ先を選択してください",
+			"clear_confirm": "バックアップフォルダーがすでにあります。中身を削除してバックアップし直しますか？",
+			"open_prompt": "バックアップが完了しました（MODファイル{count}個）。\nバックアップフォルダーを開きますか？",
+			"no_mod_found": "MODファイルが見つかりません"
+		},
+		"task_running_close_confirm": "タスクを実行中です。ウィンドウを閉じるとタスクは停止します。\n\nウィンドウを閉じますか？"
+	},
+	"status": {
+		"ready": "準備完了",
+		"processing": "処理中",
+		"processing_detailed": "処理中：{filename}",
+		"processing_batch": "処理中（{current}/{total}）：{filename}",
+		"batch_starting": "一括更新を開始しています",
+		"searching": "ファイルを検索中...",
+		"search_not_found": "一致するファイルが見つかりません",
+		"done": "完了",
+		"failed": "失敗",
+		"error": "エラー：{error}",
+		"loaded": "{type}を読み込みました",
+		"calculation_done": "計算完了",
+		"extracting": "リソースを抽出中...",
+		"render_progress": "プレビューをレンダリング中（{done}/{total}）..."
+	},
+	"log": {
+		"file": {
+			"loaded": "読み込み：{path}",
+			"selected_num": "{count}個のファイルを選択しました",
+			"saving_bundle_prefix": "Bundleを保存中...",
+			"compression_method": "圧縮方式：{compression}",
+			"crc_correction": "CRC修正：{crc_status}",
+			"saved": "出力ファイルを保存しました：{path}",
+			"backed_up": "ファイルをバックアップしました：{path}",
+			"overwritten": "上書きしました：{path}",
+			"backup_failed": "バックアップファイルの作成に失敗しました：{error}",
+			"read_in_memory_failed": "ファイル「{name}」をメモリ上で読み込めません：{error}",
+			"load_failed": "どの方法でも「{path}」を読み込めませんでした。",
+			"save_failed": "ファイルを「{path}」に保存できませんでした：{error}",
+			"directory_opened": "フォルダーを開きました：{path}",
+			"added_count": "{count}個のファイルを追加しました",
+			"removed_count": "{count}個のファイルをリストから削除しました",
+			"list_cleared": "リストをクリアしました",
+			"downloaded": "ダウンロードしました：{path}",
+			"no_files_found_in_folder": "このフォルダーに{type}ファイルが見つかりません",
+			"no_changes_made": "このファイルは変更されていないため、保存しませんでした。",
+			"not_exist": "ファイルが存在しません：{path}",
+			"rename": "ファイル名を変更：[{old}] -> [{new}]"
+		},
+		"config": {
+			"reset": "デフォルト設定に戻しました",
+			"saved": "設定を保存しました",
+			"save_failed": "設定の保存に失敗しました：{error}",
+			"load_failed": "読み込みに失敗しました",
+			"loaded": "設定を読み込みました",
+			"language": "現在の言語：{language}",
+			"language_missing": "言語ファイル「{language}」が見つかりません"
+		},
+		"spine": {
+			"skel_converter_set": "Skelコンバーターを設定しました：{path}",
+			"spine_viewer_set": "SpineViewerCLIを設定しました：{path}",
+			"character_map_set": "キャラクターIDマップを設定しました：{path}",
+			"skel_version_detection_failed": "現在の.skelファイルのバージョンを検出できません",
+			"converting_skel": ".skelファイルを変換中：{name}",
+			"version_conversion": "現在のバージョン：{current} -> 対象バージョン：{target}",
+			"executing_command": "コマンドを実行：{command}",
+			"skel_conversion_success": "skelの変換に成功しました",
+			"skel_conversion_failed": "skelの変換に失敗しました",
+			"skel_detected": ".skelファイルを検出：{name}",
+			"version_mismatch_converting": "Spineバージョンの不一致を検出しました（現在{current}、対象{target}）。変換します。",
+			"version_mismatch_no_convert": "Spineバージョンの不一致を検出しました（現在{current}、対象{target}）が、Spineコンバーターが有効になっていません。",
+			"version_conflict_rejected": "{count}個の.skelでバージョンの競合を検出したため、置き換えを拒否しました",
+			"converting_atlas": "Atlasを変換中：{name}",
+			"version_detected_downgrading": "Spineバージョンを検出：{version}。ダウングレードを試みます...",
+			"atlas_downgrade_success": "Atlasのダウングレードに成功しました",
+			"legacy_rename_detected": "名前の変更が必要な旧形式のファイル名を検出しました",
+			"edit_atlas": "Atlasファイルを編集しました：{filename}",
+			"unpacking_atlas": "Atlasをアンパック中：{name}",
+			"atlas_unpack_success": "Atlasのアンパックに成功しました。フレームの保存先：{path}",
+			"atlas_unpack_failed": "Atlasのアンパックに失敗しました",
+			"querying_info": "アニメーション情報を取得中：{name}",
+			"query_success": "アニメーション{anim_count}個、スキン{skin_count}個が見つかりました",
+			"query_failed": "取得に失敗しました。",
+			"rendering_preview": "プレビューをレンダリング中：{name}（アニメーション：{anim}）",
+			"render_success": "プレビューをレンダリングしました：{path}",
+			"render_failed": "プレビューのレンダリングに失敗しました：{error}",
+			"render_file_not_found": "プレビューのレンダリングは完了しましたが、出力ファイルが見つかりません：{path}",
+			"no_skel_found": ".skelファイルが見つかりません",
+			"no_animation_found": "使えるアニメーションがありません：{name}",
+			"using_first_animation": "Idle_01もDummyもないため、最初のアニメーションを使用します：{anim}",
+			"preview_complete": "プレビューのレンダリングが完了しました（{count}個のファイルを生成）。",
+			"preview_failed": "プレビューのレンダリングに失敗しました。",
+			"anim_check_comparing": "アニメーションの差分を確認中：{name}",
+			"anim_check_new_animations": "対象{name}に置き換え元にないアニメーションがあります：{animations}",
+			"anim_check_no_diff": "{name}のアニメーションは一致しています",
+			"anim_check_failed": "アニメーション差分の確認に失敗しました：{error}",
+			"anim_diff_title": "以下のファイルには、元のMODにない新しいアニメーションがあります：",
+			"anim_diff_item_count": "アニメーション{count}個が不足",
+			"anim_diff_missing_list": "不足リスト：{animations}",
+			"anim_diff_hint": "ヒント：ゲーム本体のアニメーションが更新された可能性があります。旧MODをそのまま使うと、これらのアニメーションが再生されたときにゲームがフリーズすることがあります。"
+		},
+		"packer": {
+			"start_packing": "リソースのパックを開始...",
+			"pack_success_path": "パックに成功しました。出力先：{path}",
+			"found_files_to_process": "処理するファイルが{count}個見つかりました。Bundleをスキャンして置き換えています...",
+			"no_assets_packed": "パックに成功したアセットはありません。",
+			"no_changes_saved": "変更がないため、元のBundleを保存しました：{name}",
+			"packing_complete": "パック完了：{total}個中{success}個のアセットをパックしました。",
+			"unmatched_files_warning": "以下のファイルはBundle内のどのアセットとも一致しませんでした",
+			"attempted_match": "照合を試行：「{key}」",
+			"bleed_processed": "画像{name}にブリード処理を行いました",
+			"strategy_success": "方式{strategy}で{count}個のアセットを適用しました"
+		},
+		"crc": {
+			"loaded_original": "元のファイルを読み込みました：{file}",
+			"loaded_modified": "修正対象ファイルを読み込みました：{file}",
+			"start_correction": "CRC修正を開始...",
+			"match_no_correction_needed": "CRC値が一致しているため、修正は不要です",
+			"correction_success": "CRC修正に成功しました！",
+			"correction_failed": "CRC修正に失敗しました",
+			"calculation_error": "CRCの計算中にエラーが発生しました：{error}",
+			"match_yes": "CRC一致：✅ はい",
+			"match_no": "CRC一致：❌ いいえ",
+			"file_crc32": "ファイルのCRC32：{crc}",
+			"modified_file_crc32": "修正対象ファイルのCRC32：{crc}",
+			"original_file_crc32": "元のファイルのCRC32：{crc}"
+		},
+		"report": {
+			"scan_start": "スキャン開始",
+			"analyze_trailing": "末尾バイトを解析",
+			"bundle_count": "Bundleファイルが{count}個見つかりました",
+			"mod_count": "MODファイルが{count}個見つかりました",
+			"render_preview": "プレビュー画像をレンダリング",
+			"render_retry": "MODに一部のアセットしか含まれていないため、元のファイルを含めて再試行します：{prefix}",
+			"render_count": "プレビューを{count}個レンダリングしました",
+			"no_mod_found": "MODファイルが見つかりません",
+			"saved": "レポートを保存しました：{path}",
+			"success": "レポートを生成しました（{count}個のMOD）"
+		},
+		"batch_preview": {
+			"scan_start": "一括レンダリングのスキャンを開始",
+			"no_spine_found": "Spineアセットが見つかりません",
+			"group_count": "レンダリングするSpineアセットが{count}グループ見つかりました",
+			"render_count": "一括レンダリング完了：{total}グループ中{count}グループ成功"
+		},
+		"section": {
+			"extract_to_temp": "リソースを一時フォルダーに抽出",
+			"move_to_output": "抽出したファイルを出力フォルダーに移動",
+			"process_spine_downgrade": "Spineアセットを処理してダウングレード",
+			"process_atlas_unpack": "Atlasのフレーム画像をアンパック",
+			"render_preview": "プレビュー画像をレンダリング",
+			"applying_to_targets": "対象グループに適用",
+			"extracting_patches": "パッチを抽出中"
+		},
+		"compression": {
+			"original": "元のまま",
+			"none": "なし",
+			"lzma": "LZMA",
+			"lz4": "LZ4"
+		},
+		"search": {
+			"searching_for_file_group": "{count}個の置き換え元ファイルに対応する対象ファイルを検索中...",
+			"file_prefix": "ファイル名の接頭辞：「{prefix}」",
+			"file_core": "ファイル名のコア：「{core}」",
+			"found_candidates": "候補ファイルが{count}個見つかりました。内容を検証しています...",
+			"source_mod_asset_count": "置き換え元グループのアセットは{count}個です。",
+			"checking_candidate": "確認中：{name}",
+			"find_failed": "検索に失敗しました：{message}"
+		},
+		"extractor": {
+			"starting_extraction": "「{filename}」から抽出を開始...",
+			"starting_extraction_num": "{num}個のファイルからリソースを抽出中...",
+			"extraction_types": "抽出する種類：{types}",
+			"using_temp_dir": "一時フォルダーを使用：{path}",
+			"skipping_unnamed": "名前のない{type}アセットをスキップ",
+			"extraction_failed": "アセット{name}の抽出中にエラーが発生しました：{error}",
+			"processing_file": "処理中：{name}",
+			"stream_ref_dangling": "[{name}]の抽出をスキップ：シリアライズデータがBundle内にないストリームデータファイル（.resS）を参照しているため、置き換えるとアセットが破損します",
+			"stream_ref_export_unsupported": "[{name}]の書き出しをスキップ：.resSストリーム参照を含むアセットは、再パックできるダンプとしての書き出しにまだ対応していません"
+		},
+		"mod_update": {
+			"all_processes_complete": "すべての処理が完了しました！{count} 件のアセットを処理しました。",
+			"updating": "更新中...",
+			"source_files": "置き換え元グループ（{count}個のファイル）",
+			"target_files": "対象グループ（{count}個のファイル）",
+			"pool_built": "置き換え用のアセットを{count}個用意しました",
+			"target_unchanged": "対象に変更なし：{name}（アセット{count}個）、スキップします",
+			"target_processed": "対象を処理しました：{name}（{applied}個のアセットを置き換え）",
+			"all_targets_unchanged": "すべての対象ファイルに変更がないため、更新は不要です"
+		},
+		"mod_install": {
+			"plan_start": "{count}個のMODファイルを解析中...",
+			"group_info": "グループ[{core}]（{count}個のファイル）",
+			"same_name_found": "同名のファイルが見つかりました：{filename}。そのまま置き換えます",
+			"filter_latest_date": "日付の異なる複数のバージョンがあるため、最新を使用します：{date}",
+			"update_targets": "更新が必要です。{count}個の対象ファイルに一致：{names}",
+			"target_conflict": "対象ファイルの競合：{filename}",
+			"plan_done": "解析完了：{total}個のファイル / {groups}グループ（直接置き換え{direct}、更新{update}、未検出{not_found}、エラー{error}）",
+			"execute_start": "{count}個のMODグループを導入中...",
+			"execute_group": "グループ[{core}]を導入中...",
+			"crc_resave": "CRC衝突の修正が必要なため、再保存します：{filename}",
+			"replace_failed": "ファイルの置き換えに失敗しました：{path}（{error}）",
+			"already_installed": "グループ[{core}]のアセットはすべて変更がないため、導入済みとしてスキップします",
+			"execute_done": "導入完了：成功{installed}グループ / スキップ{skipped}グループ / 失敗{failed}グループ",
+			"list_cleaned": "導入済みのファイル{count}個をリストから削除しました"
+		},
+		"batch": {
+			"summary": "一括処理が完了しました！\n合計：{total}、成功：{success}、失敗：{fail}",
+			"start": "一括処理を開始...",
+			"failed_items_cnt": "{count}個のファイルの処理に失敗しました：",
+			"failed_item": "- {filename}",
+			"process_success": "処理成功：{filename}",
+			"process_failed": "処理失敗：{filename} - {message}",
+			"process_unchanged": "内容に変更がないためスキップ：{filename}",
+			"output_files_list": "出力ファイル一覧（全{count}個）："
+		},
+		"summary": {
+			"title": "処理結果",
+			"total_files": "合計：{count}個のファイル",
+			"output_files": "出力：{count}個",
+			"skipped_files": "スキップ：{count}個",
+			"no_changes": "変更なし"
+		},
+		"game_dir": {
+			"detected": "ゲームフォルダーが見つかりました：{path}"
+		},
+		"game_dir_not_set": "ゲームリソースフォルダーが設定されていないため、元のファイルを自動で探せません。",
+		"file_not_found_in_dirs": "指定したリソースフォルダーに、対応する元のファイル「{filename}」が見つかりません。",
+		"file_found_in_subdir": "「{subdir}」で元のファイルを自動で見つけて読み込みました：{filename}",
+		"output_dir_not_set": "出力フォルダーが設定されていません",
+		"success_fail": "成功：{success}、失敗：{fail}",
+		"error_detail": "エラーが発生しました：{error}",
+		"error_processing": "処理中にエラーが発生しました：{error}",
+		"process_failed": "処理に失敗しました：{error}",
+		"replace_original": "「{button}」ボタンで元のファイルを上書きできます",
+		"generated_file_not_found": "操作は成功と報告されましたが、生成されたファイルが出力フォルダーに見つかりません。",
+		"replace_resource_failed": "リソース[{type}] {name}の置き換え中にエラーが発生しました：{error}",
+		"replace_applied": "[{type}] {name}を置き換えました",
+		"replace_skipped_same_content": "[{type}] {name}の置き換えをスキップ：内容が元のファイルと同じです",
+		"replace_companion_exists": "付随ストリームファイル{name}がすでにあるため、添付をスキップします",
+		"replace_companion_attached": "付随ファイル：{names}",
+		"stream_prefix_skip": "ストリーム参照の接頭辞{src}と対象SF名{dst}の長さが異なるため、書き換えをスキップします",
+		"platform_info": "対象プラットフォーム：{platform}（Unity {version}）",
+		"unnamed_resource": "名前のない{type}アセット",
+		"adb": {
+			"cache_hit": "キャッシュあり：{name}",
+			"cache_miss": "キャッシュなし、端末から取得：{name}",
+			"pull_failed": "取得に失敗：{path} - {error}",
+			"push_failed": "プッシュに失敗：{path} - {error}",
+			"list_dir_failed": "フォルダーの一覧取得に失敗：{path} - {error}",
+			"push_start": "端末にプッシュ中：{name}",
+			"push_success": "プッシュ成功：{name}",
+			"cache_caching": "{count}個のファイルをローカルにキャッシュ中...",
+			"cache_delete_failed": "キャッシュファイル{name}の削除に失敗しました：{error}",
+			"push_start_batch": "{count}個のファイルを{dir}にプッシュ中"
+		},
+		"abnormal_check": {
+			"found_count": "CRCが一致しないファイルが{count}個見つかりました",
+			"fixing": "修正中：{filename}",
+			"fix_success": "修正成功：{filename}",
+			"fix_failed": "修正失敗：{filename}",
+			"fix_verify_failed": "修正の検証に失敗：{filename}",
+			"fix_error": "{filename}の修正中にエラーが発生しました：{error}"
+		},
+		"backup": {
+			"start": "MODのバックアップを開始",
+			"found_mods": "MODファイルが{count}個見つかりました",
+			"done": "バックアップ完了（{count}個のファイル）",
+			"companion_checking": "関連するtextassetsを確認中：{filename}",
+			"companion_matched": "バックアップが必要な関連textassetsが見つかりました：{filename}"
+		}
+	},
+	"ui": {
+		"app_title": "Blue Archive Modding and Patching Tool",
+		"tabs": {
+			"mod_update": "MOD更新",
+			"batch_update": "一括更新",
+			"mod_install": "MOD導入",
+			"crc_tool": "CRCツール",
+			"asset_packer": "アセットパック",
+			"asset_extractor": "アセット抽出",
+			"file_list": "ファイル一覧",
+			"adb_push": "ADBファイルプッシュ",
+			"tools": "ツール"
+		},
+		"tools": {
+			"batch_tools": "一括ツール",
+			"batch_tools_info": "MODの検出方法：Bundleファイルのヘッダーに記録されたサイズと実際のファイルサイズを比べ、ファイル末尾に余分なバイト（trailing bytes）が付いていればMODと判定します。以下の一括ツールはすべてこの方法で検出します。\n\n注：この検出方法が有効なのはSteam版のみです。他のバージョンではCRC修正なしでもMODが動作するため、検出できるとは限りません。",
+			"report": {
+				"title": "MODレポートを生成",
+				"info": "ゲームフォルダー内で検出したすべてのMODファイルをスキャンし、カテゴリ別にまとめたMarkdownレポートを生成します。Spineのプレビュー画像もレンダリングできます。"
+			},
+			"abnormal_check": {
+				"title": "「異常なクライアント」を修正",
+				"info": "ファイル名に記されたCRCと実際のCRCが一致しないMODファイル（ゲームクライアントに異常と判定されます）を検出し、ワンクリックで修正します。",
+				"result_list": "検出結果",
+				"column_filename": "ファイル名",
+				"column_char_name": "キャラクター",
+				"column_target_crc": "対象CRC",
+				"column_actual_crc": "実際のCRC"
+			},
+			"backup": {
+				"title": "MODをバックアップ",
+				"info": "ゲームフォルダー内で検出したすべてのMODファイルを、フォルダー構成を保ったまま指定のバックアップ先にコピーします。"
+			},
+			"batch_preview": {
+				"title": "プレビューを一括レンダリング",
+				"info": "指定したゲームリソースフォルダー内のすべてのSpineアセット（立ち絵、メモリアルロビー、Spine背景）のプレビュー画像をレンダリングします。MODファイルに限りません。出力フォルダーのbatch_previewサブフォルダーに出力します。",
+				"game_dir": "ゲームリソースフォルダー"
+			}
+		},
+		"settings": {
+			"title": "設定",
+			"button_text": "設定",
+			"group_save": "設定の保存",
+			"group_assets": "アセットのオプション",
+			"group_skel_converter": "Skelコンバーター",
+			"group_spine_viewer": "SpineViewer",
+			"group_bacii": "キャラクター名",
+			"group_performance": "パフォーマンス",
+			"group_app": "アプリ設定",
+			"group_paths": "パス設定",
+			"group_adb": "ADB設定",
+			"adb": {
+				"device": "端末の選択",
+				"detecting": "検出中...",
+				"device_connected": "端末の準備完了",
+				"device_unauthorized": "端末が許可されていません。スマートフォンでUSBデバッグを許可してください。",
+				"device_offline": "端末がオフラインです",
+				"cache_size": "キャッシュサイズ：{size}"
+			}
+		},
+		"column": {
+			"filename": "ファイル名",
+			"file_size": "サイズ",
+			"modified_time": "更新日時"
+		},
+		"adb_push": {
+			"local_files": "ローカルファイル",
+			"placeholder_local": "ここにファイルまたはフォルダーをドラッグ＆ドロップ...",
+			"target_dir": "転送先フォルダー（端末上のパス）",
+			"push": "端末にプッシュ"
+		},
+		"mod_update": {
+			"placeholder_old": "更新または移植する旧MODファイルをここにドラッグ＆ドロップ\nまたは下のボタンで選択",
+			"placeholder_new": "改変後のファイルを選ぶと元のファイルを自動で検索\nまたはドロップか参照で手動選択",
+			"placeholder_batch": "ここにファイルまたはフォルダーをドラッグ＆ドロップ...",
+			"status_not_found": "一致するリソースが見つかりません：{message}"
+		},
+		"mod_install": {
+			"placeholder": "導入するMODファイルをここにドロップ...",
+			"view_details": "詳細を表示",
+			"dialog_title": "MOD導入の確認",
+			"likely_installed": "導入済みの可能性",
+			"prev_group": "◀ 前へ",
+			"next_group": "次へ ▶",
+			"preview_current": "現在",
+			"preview_new": "導入後",
+			"preview_none": "プレビューなし",
+			"meta_title": "ファイルとアセット",
+			"confirm_install": "導入（{install}/{total}）",
+			"action_direct_replace": "直接置き換え",
+			"action_update": "更新後に置き換え",
+			"action_not_found": "一致するファイルなし",
+			"action_error": "エラー",
+			"action_mixed": "混在",
+			"meta_size": "{mod_size} → {existing_size}",
+			"diff_content_changed": "内容に変更あり",
+			"diff_unchanged": "変更なし",
+			"diff_missing_anims": "アニメーション{count}個が不足",
+			"diff_will_replace": "置き換え予定",
+			"preview_rendering": "レンダリング中...",
+			"preview_failed": "レンダリング失敗"
+		},
+		"crc_tool": {
+			"placeholder_modified": "CRCを修正するBundleをここにドラッグ＆ドロップ\nまたは下のボタンで選択",
+			"placeholder_origin": "修正対象のファイルを選ぶと元のファイルを自動で検索\nまたはドロップか参照で手動選択"
+		},
+		"packer": {
+			"placeholder_assets": "パックするリソース（.png/.skel/.atlasなど）をここにドラッグ＆ドロップ",
+			"placeholder_bundle": "対象のBundleファイルをここにドラッグ＆ドロップ\nまたは下のボタンで選択"
+		},
+		"extractor": {
+			"placeholder_bundle": "抽出元のBundleをすべてここにドラッグ＆ドロップ"
+		},
+		"dialog": {
+			"select": "{type}を選択",
+			"select_file": "ファイルを選択",
+			"adb_browser": "ADBファイル選択",
+			"adb_browser_dir": "ADBフォルダー選択"
+		},
+		"drop_zone": {
+			"file_hint": "ここにファイルをドラッグ＆ドロップ\nまたは下のボタンで選択",
+			"folder_hint": "ここにフォルダーをドラッグ＆ドロップ\nまたは下のボタンで選択",
+			"searching": "検索中……",
+			"multiple_files_rejected": "ドロップできるファイルは1つのみ",
+			"contains": "{count}個のファイル：{types}"
+		},
+		"preview": {
+			"double_click_hint": "画像をダブルクリックで原寸表示"
+		},
+		"label": {
+			"mod_file": "処理するMODファイル",
+			"search_path": "検索パス：",
+			"assets_to_pack": "パックするアセット",
+			"target_bundle_file": "対象のBundleファイル",
+			"bundles_to_extract": "抽出元のBundle",
+			"original_file": "元のファイル",
+			"modified_file": "修正対象のファイル",
+			"environment": "環境情報",
+			"github": "GitHub",
+			"options": "オプション",
+			"adb_cache": "ADBキャッシュ",
+			"target_crc": "対象CRC値",
+			"mod_info": "MODの判定について"
+		},
+		"log_area": "ログ",
+		"status_label": "状態：",
+		"file_list": {
+			"window_title": "Bundleファイル一覧",
+			"column": {
+				"filename": "ファイル名",
+				"directory": "フォルダー",
+				"file_size": "サイズ",
+				"modified_time": "更新日時",
+				"trailing_bytes": "末尾バイト",
+				"trailing_content": "末尾の内容",
+				"category": "カテゴリ",
+				"core": "Core",
+				"character": "キャラクター名",
+				"res_type": "リソースの種類",
+				"crc": "ファイル名のCRC",
+				"crc_actual": "実際のCRC"
+			},
+			"analyze_label": "解析：",
+			"analyze_trailing": "末尾バイト",
+			"analyze_naming": "ファイル名の解析",
+			"analyze_crc": "CRCチェック",
+			"no_analyzer_selected": "解析の種類を1つ以上選択してください",
+			"scanning": "スキャン中...",
+			"analyzing": "解析中...",
+			"analyzing_progress": "解析中...（{done}/{total}）{filename}",
+			"crc_match": "CRC一致：✅ ファイル名 {expected} == 実際 {actual}",
+			"crc_mismatch": "CRC不一致：❌ ファイル名 {expected} != 実際 {actual}",
+			"crc_no_filename_crc": "ファイル名にCRC値がありません。実際のCRC：{actual}",
+			"no_dirs_found": "有効な検索フォルダーが見つかりません",
+			"scan_complete": "スキャン完了",
+			"analyze_complete": "解析完了",
+			"filter_label": "フィルター：",
+			"select": {
+				"label": "一括選択",
+				"dialog_title": "一括選択の条件",
+				"column": "対象の列",
+				"operator": "条件",
+				"value": "値",
+				"action": "選択",
+				"action_filter": "選択して絞り込み",
+				"invert": "反転",
+				"no_match": "一致する行が見つかりません",
+				"matched": "{count}行を選択しました"
+			},
+			"filter": {
+				"has_trailing": "末尾バイトあり",
+				"crc_mismatch": "CRC不一致",
+				"has_character": "キャラクター名あり",
+				"common_mod": "よくあるMODの接頭辞"
+			},
+			"op": {
+				"contains": "を含む",
+				"equals": "と等しい",
+				"starts_with": "で始まる",
+				"ends_with": "で終わる",
+				"regex": "正規表現"
+			}
+		},
+		"adb_browser": {
+			"loading": "ファイル一覧を読み込み中...",
+			"error": "読み込みに失敗しました：{error}",
+			"found": "スキャン完了、{count}個のファイル"
+		},
+		"anim_diff": {
+			"title": "アニメーション不足の警告"
+		}
+	},
+	"webui": {
+		"top": {
+			"students": "生徒"
+		},
+		"consent": {
+			"title": "ゲーム素材の利用",
+			"no": "同意せず終了",
+			"yes": "同意してキャッシュ",
+			"cached": {
+				"label": "この端末にキャッシュ",
+				"items": "UIのアイコン、ボタン、枠、テクスチャ、フォント"
+			},
+			"never": {
+				"label": "キャッシュしない",
+				"items": "立ち絵、メモリアルロビー、3Dモデル、ボイス、背景",
+				"how": "毎回ゲームフォルダーから読み込み"
+			},
+			"note": "素材の権利は権利者に帰属、この端末内でのみ使用、設定から削除可能",
+			"change": "変更"
+		},
+		"info": {
+			"title": {
+				"portrait": "立ち絵情報",
+				"lobby": "メモリアルロビー情報",
+				"model": "3Dモデル情報"
+			},
+			"details": "詳細",
+			"current": "現在",
+			"status": "状態",
+			"gameFile": "更新日",
+			"crc": "CRC"
+		},
+		"row": {
+			"box": {
+				"portrait": "立ち絵",
+				"lobby": "メモリアルロビー",
+				"model": "3Dモデル"
+			},
+			"switch": {
+				"portrait": "立ち絵切り替え",
+				"lobby": "メモリアルロビー切り替え",
+				"model": "3Dモデル切り替え"
+			},
+			"add": {
+				"portrait": "立ち絵追加",
+				"lobby": "メモリアルロビー追加",
+				"model": "3Dモデル追加"
+			},
+			"four": {
+				"portrait": "表情差分",
+				"lobby": "会話",
+				"model": "モーション"
+			}
+		},
+		"lobby": {
+			"original": "オリジナル",
+			"fullscreen": "フルスクリーン",
+			"playAll": "会話をすべて再生",
+			"stop": "停止",
+			"exit": "フルスクリーン終了",
+			"dialogue": "会話{n}"
+		},
+		"model": {
+			"original": "オリジナル",
+			"has": "あり",
+			"none": "なし",
+			"failed": "3Dモデルを読み込めません",
+			"action": {
+				"idle": "待機",
+				"reaction": "反応",
+				"walk": "歩行",
+				"victory": "勝利",
+				"pickup": "持ち上げ"
+			}
+		},
+		"visual": {
+			"reset": "リセット",
+			"hide": "UI非表示",
+			"show": "UI表示"
+		},
+		"nav": {
+			"students": "生徒",
+			"modUpdate": "MOD更新",
+			"batch": "一括更新",
+			"install": "一括導入",
+			"crc": "CRCツール",
+			"pack": "アセットパック",
+			"extract": "アセット抽出",
+			"adb": "ADBプッシュ",
+			"tools": "ツール"
+		},
+		"roster": {
+			"title": "生徒リスト",
+			"merge": "生徒ごとにまとめる",
+			"search": "検索",
+			"searchHint": "名前、別名、ファイルID",
+			"empty": "該当なし",
+			"asc": "昇順",
+			"desc": "降順"
+		},
+		"seg": {
+			"all": "すべて",
+			"mods": "MODあり",
+			"noMods": "MODなし",
+			"recruit": "実装済み",
+			"noRecruit": "未実装"
+		},
+		"sort": {
+			"recent": "閲覧日時",
+			"added": "追加日時",
+			"name": "名前",
+			"mods": "MOD数",
+			"release": "実装日",
+			"default": "デフォルト"
+		},
+		"display": {
+			"title": "表示設定",
+			"tab": {
+				"filter": "フィルター",
+				"sort": "ソート"
+			},
+			"count": "{n}件を表示",
+			"reset": "フィルタ初期化",
+			"sortBy": "ソート項目",
+			"close": "閉じる",
+			"fav": {
+				"off": "未登録"
+			},
+			"kind": {
+				"title": "種類",
+				"student": "生徒",
+				"npc": "その他"
+			}
+		},
+		"band": {
+			"mods": "MOD × {n}",
+			"replaced": "置き換え済み"
+		},
+		"bar": {
+			"noMods": "MODなし"
+		},
+		"tab": {
+			"portrait": "立ち絵",
+			"lobby": "メモリアルロビー",
+			"model": "3Dモデル"
+		},
+		"status": {
+			"original": "オリジナル",
+			"replaced": "置き換え済み",
+			"gameFile": "ゲームファイル",
+			"installed": "導入済み",
+			"notInstalled": "未導入"
+		},
+		"crc": {
+			"original": "修正不要",
+			"needed": "要修正",
+			"fixed": "修正済み"
+		},
+		"open": {
+			"mac": "Finderで表示",
+			"win": "エクスプローラーで表示"
+		},
+		"act": {
+			"edit": "編集",
+			"update": "更新",
+			"extract": "抽出",
+			"compare": "比較"
+		},
+		"chips": {
+			"more": "ほか{n}件"
+		},
+		"fav": {
+			"label": "お気に入り",
+			"on": "登録済み"
+		},
+		"alias": {
+			"title": "別名",
+			"add": "別名を追加",
+			"remove": "削除"
+		},
+		"fold": {
+			"label": "折りたたむ"
+		},
+		"popup": {
+			"switch": "立ち絵切り替え",
+			"apply": "適用",
+			"cancel": "キャンセル",
+			"inUse": "使用中",
+			"add": "立ち絵追加"
+		},
+		"field": {
+			"file": "ファイル",
+			"type": "種類",
+			"size": "サイズ",
+			"status": "状態",
+			"crc": "CRC",
+			"folder": "フォルダー",
+			"date": "日付",
+			"modFile": "MODファイル",
+			"source": "流用元"
+		},
+		"type": {
+			"recruit": "実装済み",
+			"noRecruit": "未実装",
+			"added": "追加した立ち絵"
+		},
+		"btn": {
+			"open": "Finderで表示",
+			"extract": "抽出",
+			"remove": "削除"
+		},
+		"picker": {
+			"title": "バリエーション選択",
+			"ok": "確認",
+			"group": "{name} {n}"
+		},
+		"app": {
+			"loading": "ゲームファイルを読み込み中",
+			"noGame": {
+				"title": "ゲームフォルダーが見つかりません",
+				"hint": "自動検出、またはゲームフォルダーを選択"
+			},
+			"openSettings": "設定を開く"
+		},
+		"loading": {
+			"now": "Now Loading",
+			"slow": "まだ読み込み中"
+		},
+		"job": {
+			"running": "処理中",
+			"done": "完了",
+			"failed": "失敗"
+		},
+		"error": {
+			"internal": "エラーが発生しました：{error}",
+			"game_not_found": "ゲームフォルダーが見つかりません",
+			"mod_unsupported": "非対応のファイル：{file}",
+			"game_file_locked": "ゲームファイルが使用中のため、先にゲームを終了してください",
+			"native_unavailable": "ブラウザモードでは使用できません",
+			"path_not_found": "パスが見つかりません：{path}",
+			"reveal_failed": "ファイルマネージャーを開けません",
+			"classic_failed": "クラシック画面を起動できません",
+			"unknown_method": "不明な操作：{method}",
+			"bad_params": "パラメーターが不正です",
+			"alias_too_long": "別名は{max}文字まで",
+			"alias_too_many": "別名は{max}個まで",
+			"job_not_found": "タスクが見つかりません",
+			"update_check_failed": "アップデートを確認できません",
+			"update_download_failed": "アップデートをダウンロードできません",
+			"update_checksum_mismatch": "アップデートのチェックサムが一致しません",
+			"update_unavailable": "このリリースにはこの端末向けのビルドがありません",
+			"update_unsupported": "このビルドは自動アップデートに非対応です",
+			"lines_unavailable": "現在セリフを読み込めません",
+			"busy": "現在のタスクの完了をお待ちください",
+			"library_target_not_empty": "このフォルダーにはすでにMODライブラリのファイルがあります：{path}",
+			"library_io_error": "MODライブラリに書き込めません：{file}",
+			"asset_extraction_failed": "ゲームファイルから素材を読み込めません",
+			"asset_load_failed": "ゲームファイルを読み込めません：{path}",
+			"bundle_invalid": "有効なBundleではありません：{file}",
+			"catalog_data_invalid": "キャラクターデータが破損しています",
+			"catalog_family_not_found": "生徒が見つかりません",
+			"catalog_variant_not_found": "バリエーションが見つかりません",
+			"game_file_conflict": "ゲームファイルが競合しています：{file}",
+			"game_file_not_found": "対応するゲームファイルが見つかりません",
+			"game_file_outside_resources": "対象がゲームフォルダーの外にあります：{file}",
+			"game_running": "先にゲームを終了してください",
+			"game_status_unavailable": "ゲームが起動中か確認できません",
+			"library_operation_failed": "MODライブラリの操作に失敗しました",
+			"mod_apply_failed": "MODの適用に失敗しました",
+			"mod_in_use": "ゲームで使用中のため、先に別のものに切り替えてください",
+			"mod_in_use_elsewhere": "別のゲームフォルダーで使用中：{folder}",
+			"mod_not_found": "MODが見つかりません",
+			"mod_target_mismatch": "このMODはこのバリエーションに対応していません",
+			"mod_update_failed": "MODの更新に失敗しました",
+			"original_invalid": "保管中のオリジナルファイルが破損しています：{file}",
+			"original_unavailable": "復元用のオリジナルファイルがないため、先にランチャーでファイルを検証してください",
+			"source_unsupported": "非対応の取得元",
+			"variant_incompatible": "構造が異なるため、入れ替えできません",
+			"variant_not_found": "バリエーションが見つかりません"
+		},
+		"drop": {
+			"hint": "MODファイルをドロップして追加"
+		},
+		"update": {
+			"title": "アップデートあり",
+			"current": "現在のバージョン",
+			"latest": "新しいバージョン",
+			"later": "あとで",
+			"now": "アップデート",
+			"downloading": "ダウンロード中（{p}%）",
+			"restarting": "アップデートを完了するため再起動します",
+			"page": "ダウンロードページへ"
+		},
+		"settings": {
+			"title": "設定",
+			"tab": {
+				"general": "一般",
+				"sound": "音量",
+				"l2d": "L2D",
+				"folders": "フォルダー"
+			},
+			"language": "言語",
+			"cache": {
+				"label": "素材キャッシュ",
+				"on": "この端末にキャッシュ済み",
+				"off": "未キャッシュ",
+				"clear": "クリア",
+				"cleared": "キャッシュをクリアしました",
+				"change": "変更"
+			},
+			"version": "バージョン",
+			"update": {
+				"check": "アップデート確認",
+				"none": "最新バージョンです"
+			},
+			"classic": {
+				"label": "その他の設定",
+				"hint": "Spineツール、ADBなどはクラシック画面で",
+				"open": "開く"
+			},
+			"voice": "ボイス",
+			"mute": "ミュート",
+			"zoomOut": {
+				"label": "ズームアウト",
+				"game": "ゲーム画面",
+				"art": "全体表示",
+				"unlocked": "制限なし",
+				"custom": "カスタム",
+				"limit": "カスタム上限",
+				"factor": "{v}倍"
+			},
+			"post": {
+				"label": "ポストプロセッシング",
+				"on": "ON",
+				"off": "OFF"
+			},
+			"server": {
+				"label": "サーバー",
+				"global": "グローバル版",
+				"japan": "日本版"
+			},
+			"gameDir": "ゲームフォルダー",
+			"library": "MODライブラリ",
+			"output": "出力フォルダー",
+			"browse": "参照",
+			"detect": "自動検出",
+			"notSet": "未設定",
+			"saved": "保存しました",
+			"button": "設定"
+		},
+		"cacheTo": "キャッシュ先：{path}",
+		"languageName": "日本語",
+		"a11y": {
+			"back": "戻る"
+		},
+		"compare": {
+			"changed": "変更",
+			"added": "追加",
+			"removed": "削除",
+			"none": "ゲームファイルと同じ"
+		}
+	}
+}

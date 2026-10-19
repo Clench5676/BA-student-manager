@@ -1273,9 +1273,7 @@ function popupFrame(title, w, h, { ok = null, cancel = null } = {}) {
   for (const [name, caption] of [["Btn_Ok", ok], ["Btn_Cancel", cancel]]) {
     const b = find(btn, name);
     b.active = !!caption;
-    if (!caption) continue;
-    const f = fitText(caption, 64, 40, 420);
-    Object.assign(find(b, "Label_Locale").widgets[0], { text: f.text, fontSize: f.fs });
+    if (caption) NGUI.fitLabel(find(b, "Label_Locale").widgets[0], caption, 64, 40, 420);
   }
   find(t, "BlackBg/BlackBgClickArea").widgets.find((w) => "sprite" in w).color = "#000000/0.60";
   return t;
