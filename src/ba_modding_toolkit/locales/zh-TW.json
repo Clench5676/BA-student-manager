@@ -1045,13 +1045,15 @@
 			"game_status_unavailable": "無法確認遊戲是否正在執行",
 			"library_operation_failed": "Mod 倉庫操作失敗",
 			"mod_apply_failed": "無法套用 Mod",
+			"mod_in_use": "遊戲中正在使用，請先切換為其他",
+			"mod_in_use_elsewhere": "其他遊戲資料夾正在使用：{folder}",
 			"mod_not_found": "找不到這個 Mod",
 			"mod_target_mismatch": "這個 Mod 不適用於此變體",
 			"mod_update_failed": "無法更新 Mod",
 			"original_invalid": "保留的原版檔案已損毀：{file}",
 			"original_unavailable": "沒有可還原的原版檔案，請先在啟動器中驗證遊戲檔案",
 			"source_unsupported": "不支援的來源",
-			"variant_incompatible": "兩個立繪的結構不同，無法互換",
+			"variant_incompatible": "兩者結構不同，無法互換",
 			"variant_not_found": "找不到這個變體"
 		},
 		"drop": {

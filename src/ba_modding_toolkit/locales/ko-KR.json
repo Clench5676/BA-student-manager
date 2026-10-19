@@ -1045,13 +1045,15 @@
 			"game_status_unavailable": "게임 실행 여부를 확인할 수 없음",
 			"library_operation_failed": "모드 라이브러리 작업 실패",
 			"mod_apply_failed": "모드를 적용할 수 없음",
+			"mod_in_use": "게임에서 사용 중, 먼저 다른 것으로 변경해 주세요",
+			"mod_in_use_elsewhere": "다른 게임 폴더에서 사용 중: {folder}",
 			"mod_not_found": "모드를 찾을 수 없음",
 			"mod_target_mismatch": "이 바리에이션에 맞지 않는 모드",
 			"mod_update_failed": "모드를 업데이트할 수 없음",
 			"original_invalid": "보관한 원본 손상: {file}",
 			"original_unavailable": "복원할 원본 파일 없음, 먼저 런처에서 게임 파일을 검사해 주세요",
 			"source_unsupported": "지원하지 않는 소스",
-			"variant_incompatible": "두 일러스트의 구조가 달라 서로 바꿀 수 없음",
+			"variant_incompatible": "구조가 달라 서로 바꿀 수 없음",
 			"variant_not_found": "바리에이션을 찾을 수 없음"
 		},
 		"drop": {

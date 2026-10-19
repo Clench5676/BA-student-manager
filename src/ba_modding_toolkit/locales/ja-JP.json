@@ -1045,13 +1045,15 @@
 			"game_status_unavailable": "ゲームが起動中か確認できません",
 			"library_operation_failed": "MODライブラリの操作に失敗しました",
 			"mod_apply_failed": "MODの適用に失敗しました",
+			"mod_in_use": "ゲームで使用中のため、先に別のものに切り替えてください",
+			"mod_in_use_elsewhere": "別のゲームフォルダーで使用中：{folder}",
 			"mod_not_found": "MODが見つかりません",
 			"mod_target_mismatch": "このMODはこのバリエーションに対応していません",
 			"mod_update_failed": "MODの更新に失敗しました",
 			"original_invalid": "保管中のオリジナルファイルが破損しています：{file}",
 			"original_unavailable": "復元用のオリジナルファイルがないため、先にランチャーでファイルを検証してください",
 			"source_unsupported": "非対応の取得元",
-			"variant_incompatible": "2つの立ち絵は構造が異なるため、入れ替えできません",
+			"variant_incompatible": "構造が異なるため、入れ替えできません",
 			"variant_not_found": "バリエーションが見つかりません"
 		},
 		"drop": {
