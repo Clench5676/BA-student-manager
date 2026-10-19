@@ -333,10 +333,14 @@ function emptyTree() {
   Object.assign(find(t, "Label_Locale").widgets[0], { text: T("roster.empty"), w_: 1200 });
   return t;
 }
-async function renderEmpty(host) {
+// the empty list's picture for the current items, built off screen (nothing when there are items)
+async function emptyPicture() {
   const next = document.createElement("div");
   if (!items.length) await NGUI.render(emptyTree(), next, { scale: S, origin: ORIGIN, z: 120 });
-  host.replaceChildren(...next.childNodes);
+  return next;
+}
+async function renderEmpty(host) {
+  host.replaceChildren(...(await emptyPicture()).childNodes);
 }
 
 // a change of the cards inside the frame waits this long for the visible rows before it swaps in anyway
@@ -357,11 +361,14 @@ async function relist() {
   scrollHost.className = "card-scroll";
   dom.scrollHost = scrollHost;
   rendered = new Map();
-  await Promise.race([Promise.all([applyScroll(), renderEmpty(dom.empty)]), sleep(ROWS_CAP)]);
+  const empty = emptyPicture();
+  await Promise.race([Promise.all([applyScroll(), empty]), sleep(ROWS_CAP)]);
   if (my !== listToken || dom.scrollHost !== scrollHost) return;
   await NGUI.decoded(scrollHost, DECODE_CAP, dom.clip);
   if (my !== listToken || dom.scrollHost !== scrollHost) return;
   dom.clip.replaceChildren(scrollHost);
+  // the empty list's picture changes with the cards (in the same frame when it is built by now), never before them
+  empty.then((next) => { if (my === listToken) dom.empty.replaceChildren(...next.childNodes); });
 }
 
 // --- search: the game's search box over the top of the list, filtering as one types ---
