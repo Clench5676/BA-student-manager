@@ -415,6 +415,61 @@ prefab bundles, whose meshes, textures and clips sit in other bundles found by C
 files matched by bundle name rather than by core, a preview through `GameAssets.model_glb(overrides=...)`, and no
 variant swap (chibis do not share meshes and bones).
 
+## Game watch
+
+### Checks before a write
+
+`library/safety.py` holds the checks every game file write makes first (`writable_game_files`). None of them reads a
+game file: the process list and Steam's manifests are not game files, so none needs the scan consent.
+
+- **Game running.** `check_game_not_running()` refuses with `game_running`, or `game_status_unavailable` when the
+  process list cannot be read. `game_processes()` lists the game's processes, never this process or its parent:
+  - Windows: the exe names of a Toolhelp snapshot (ctypes, no subprocess). `tasklist` is the fallback, run with
+    `CREATE_NO_WINDOW` so the windowed build never flashes a console window.
+  - macOS and Linux: `ps -A -ww -o pid=,comm=`, matched when the executable's file name is `BlueArchive` or
+    `Blue Archive` (`.exe` allowed), so a native build's `/Applications/Blue Archive.app/Contents/MacOS/Blue Archive`
+    matches with its spaces. Only without such a match, `ps -A -ww -o pid=,args=` for Wine and CrossOver, where the
+    process is the preloader and `BlueArchive.exe` or `Blue Archive.exe` is in its arguments as a path's last part.
+    `BlueArchiveTool.exe` and this program's own names never match.
+  - The JP server's launcher, which may update or repair files on its own, is not matched yet: its process name is
+    still to be found.
+- **Steam busy.** `check_steam_idle(game_folder)` refuses with `steam_busy` while the app manifest's `StateFlags` has
+  any of the bits 256 (update running), 1024 (update started), 65536 (reconfiguring), 131072 (validating), 262144
+  (adding files), 524288 (preallocating), 1048576 (downloading), 2097152 (staging), 4194304 (committing) or 8388608
+  (update stopping). `game_paths.steam_app_manifest()` finds the manifest by walking up from the folder, the install
+  root or a resource folder below it, to an ancestor `common` whose parent is `steamapps`, along the path as given and
+  then resolved, and takes `appmanifest_3557620.acf` there. No manifest (a folder outside a Steam library, the JP
+  server, a dev sandbox) means no check. The app running bit (64) is not used.
+- **The call.** `writable_game_files(paths, resource_dirs, *, game_folder=None)`: with `game_folder` (the install the
+  files belong to), Steam is checked for it after the game.
+
+### The poller
+
+`webui/gamewatch.py` greys the Enable Mods switch while a write would be refused. It polls every 3 s while
+`active()` says a page is connected to `/api/events` or the tray icon is shown, else every 15 s, and at once on
+`poke()` (the tray menu opening). Each poll checks the game once, Steam for every known install, and the classic
+window `classic.json` names. The write-time checks stay the authority; the poll only greys controls.
+
+```python
+GameWatch(installs, find_classic, profiles_seen, on_change, publish, request_scan, *, active, own_classic,
+          on_classic_closed, check_game, check_steam).start()   # a daemon thread; stop() ends it
+watch.state  # WatchState(game, steam_busy, classic) with .reason: game_running, game_status_unavailable,
+             # steam_busy (any known install), classic_open, or None, in that order
+```
+
+| Callable | Given by | What for |
+|---|---|---|
+| `installs()` | the services | the known installs' folders, read at each poll |
+| `find_classic()` | the classic hand-off (`webui/classic.py`) | the classic window `classic.json` names, or `None`; it owns the file, the identity check and the removal of a stale file |
+| `own_classic()` | the services | the pid of the classic window this instance started, which its own watcher thread reports, so the poll ignores it |
+| `profiles_seen()` | the services | whether another data directory changed `profiles.json`'s shared intent since the last poll |
+| `on_change(state)` | the services | the first poll, every change of the answer and every `profiles_seen()` yes: updates the `mods.state` snapshot and publishes `mods.state` |
+| `publish(event, data)` | the event bus | `classic.closed {code: null}` when a watched classic window ends, after `on_change`; then `on_classic_closed()` |
+| `request_scan()` | the scanner | the game stopping (from `game_running`), an install's Steam going idle, a watched classic window ending; the scanner runs it only with scan consent |
+
+A failing callable is logged and never stops the thread: an unreadable process list is `game_status_unavailable`,
+a failed Steam check is idle, and a failed classic lookup keeps the last answer.
+
 ## Jobs and events
 
 `JobRunner.submit(kind, fn, **params) -> job_id` runs `fn(log=..., progress=..., **params)` on one worker thread.
