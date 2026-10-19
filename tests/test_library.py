@@ -15,6 +15,7 @@ from PIL import Image, ImageChops, ImageStat
 
 from ba_modding_toolkit import core, mod_install
 from ba_modding_toolkit.bundle import Bundle
+from ba_modding_toolkit.catalog.models import CoreMap
 from ba_modding_toolkit.config import Settings
 from ba_modding_toolkit.errors import ServiceError
 from ba_modding_toolkit.library import ModLibrary
@@ -45,6 +46,16 @@ class FakeCatalog:
 
     def families(self):
         return [SimpleNamespace(key="test", variants=list(self.variants.values()))]
+
+    def core_map(self, spr_cores, lobby_cores):
+        """Any install's cores by the variants' cores; another core by the plain rule (the core less its suffix)."""
+        keys, spr, lobby = {}, {}, {}
+        for core in [*spr_cores, *lobby_cores]:
+            variant = self.variant_for_core(core.lower())
+            key = variant.key if variant else core.lower().removesuffix("_spr").split("_home")[0]
+            keys[core.lower()] = key
+            (spr if core.lower().endswith("_spr") else lobby).setdefault(key, core)
+        return CoreMap(keys, spr, lobby, {})
 
 
 def header_bundle(payload=b"official"):
@@ -373,10 +384,14 @@ def test_crc_fixed_state_and_external_change_invalidates_applied_record(setup_li
     env.library.apply("test", f"mod:{entry.id}")
     assert env.library.state("test").crc == "fixed"
     env.original.write_bytes(header_bundle(b"external"))
+    # the detail screen judges cheaply: no trailing bytes and the official size read as official
     state = env.library.state("test")
-    assert state.applied == "unknown" and state.crc == "needs_fix"
+    assert state.applied == "official" and state.crc == "ok"
     env.library.apply("test", "official")
     assert env.library.state("test").applied == "official"
+    # the write judges in full: the outside change was kept as a mod before it was overwritten
+    kept, = [m for m in env.library.mods() if m.id != entry.id]
+    assert kept.file.read_bytes() == header_bundle(b"external")
 
 
 def test_reapplying_identical_external_mod_records_its_source(setup_library):
@@ -389,7 +404,7 @@ def test_reapplying_identical_external_mod_records_its_source(setup_library):
     data["applied"] = {}
     state_path.write_text(json.dumps(data))
     library = reload_library(env)
-    assert library.state("test").applied == "unknown"
+    assert library.state("test").applied == "official"  # no record, the official size, no trailing bytes
     assert library.apply("test", f"mod:{entry.id}").unchanged
     assert reload_library(env).state("test").applied == f"mod:{entry.id}"
 
@@ -1002,7 +1017,11 @@ def test_prune_releases_copies_of_files_verified_official_outside_the_library(se
     assert env.library.prune() == [] and backup.exists()  # changed again, still not official
     env.original.write_bytes(official)  # the launcher verified the game files
     library = reload_library(env)
-    assert library.prune() == [backup] and not backup.exists()
+    # by stat alone a file verified outside the library is not known official, and the entry is configured
+    assert library.prune() == [] and backup.exists()
+    # a restore that finds it official writes nothing, records it and releases the copy
+    assert library.restore("test").unchanged
+    assert not backup.exists()
     assert library.state("test").applied == "official"
 
 
@@ -1060,7 +1079,12 @@ def test_prune_keeps_copies_it_cannot_verify(setup_library, case):
         game_bundle(other_game, "other_spr")
         env.settings.set("game_resource_dir", str(other_game))
     library = reload_library(env)
-    assert library.prune() == [] and backup.exists()
+    if case in ("modded", "other_install"):
+        # a successor counts by its name and date (a modded one is the scan's concern), and the first folder stays
+        # a known install by its record
+        assert library.prune() == [backup] and not backup.exists()
+    else:  # no successor, or no record placing the old file: it may be the only copy for a folder not seen
+        assert library.prune() == [] and backup.exists()
 
 
 def test_a_copy_shared_by_two_installs_is_kept_until_both_are_official(setup_library):
@@ -1125,7 +1149,11 @@ def test_a_copy_is_released_when_another_folder_was_verified_in_its_launcher(set
     backup = kept_copy(env, env.original)
     assert backup.read_bytes() == official
     env.library.restore("test")
-    assert second.read_bytes() == official and not backup.exists()
+    # the first install's file was verified outside the library: by stat it may still need the copy
+    assert second.read_bytes() == official and backup.exists()
+    use_install(env, env.original)
+    env.library.restore("test")
+    assert not backup.exists()
 
 
 def test_a_copy_is_kept_while_another_folder_cannot_be_seen(setup_library):
@@ -1185,7 +1213,15 @@ def test_prune_deletes_an_outdated_copy_another_folder_no_longer_needs(setup_lib
     game_bundle(env.game_dir, date="2026-02-01", payload=b"updated official")
     backup = kept_copy(env, env.original)
     library = reload_library(env)
-    assert library.prune() == [backup] and not backup.exists()
+    # the second install still holds the name, verified outside the library
+    assert library.prune() == [] and backup.exists()
+    use_install(env, second)
+    library.restore("test")
+    assert not backup.exists()
+    # the first install's gone record went with the copy, leaving the entry's updated marker
+    assert str(env.original) not in json.loads((env.root / "state.json").read_text())["applied"]
+    profiles = json.loads((env.root / "profiles.json").read_text())
+    assert "test_spr" in profiles["folders"][str(env.game_dir.resolve())]["updated"]
 
 
 def test_a_mod_the_game_shows_cannot_be_removed(setup_library):
@@ -1288,7 +1324,8 @@ def test_switching_keeps_an_applied_mod_missing_from_the_library(setup_library):
     (env.root / "state.json").write_text(json.dumps(data))
     shutil.rmtree(env.root / "mods" / entry.id)
     library = reload_library(env)
-    assert library.state("test").applied == f"mod:{entry.id}"
+    # the bytes of a mod the library no longer has are offered for adoption
+    assert library.state("test").applied == "unknown"
     library.restore("test")
     kept, = library.mods()
     assert kept.file.read_bytes() == installed and kept.id != entry.id
@@ -1302,7 +1339,7 @@ def test_a_replaced_file_already_in_the_library_is_not_stored_twice(setup_librar
     data["applied"] = {}
     (env.root / "state.json").write_text(json.dumps(data))
     library = reload_library(env)
-    assert library.state("test").applied == "unknown"
+    assert library.state("test").applied == "official"  # judged cheaply; the restore judges in full
     library.restore("test")
     assert [m.id for m in library.mods()] == [entry.id]
 

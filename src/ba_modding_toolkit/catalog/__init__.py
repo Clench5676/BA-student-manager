@@ -7,15 +7,15 @@ import json
 import logging
 import threading
 from pathlib import Path
-from typing import Protocol
+from typing import Iterable, Protocol
 
 from ..errors import ServiceError
 from ..naming import parse_filename
 from ._data import base_rank, csv_entry, read_character_map
 from ._names import BASE_SHORT, LANGUAGES, cn_aliases, cn_base, cn_words, csv_bases, csv_names, name_head
-from .models import Family, Variant
+from .models import CoreMap, Family, Variant
 
-__all__ = ["Catalog", "Family", "Variant"]
+__all__ = ["Catalog", "CoreMap", "Family", "Variant"]
 DEFAULT_DATA = Path(__file__).parent / "data" / "catalog.json"
 logger = logging.getLogger(__name__)
 HOME_SUFFIXES = ("_home", "_home_gl", "_home_teen")
@@ -67,11 +67,18 @@ class Catalog:
         self.server = server  # whose release flags apply when the install has no collection portrait
         self._lock = threading.RLock()
         self._snapshot: tuple[dict[str, Family], dict[str, Variant], dict[str, Variant]] | None = None
+        # the shipped data and the character map, parsed once and kept; every use works on a copy (_metadata)
+        self._parsed: tuple[dict, dict, set[str]] | None = None
 
     def reload(self) -> None:
-        """Rebuild the snapshot atomically, retaining the old one if rebuilding fails."""
+        """Rebuild the snapshot atomically, retaining the old one if rebuilding fails. The shipped data and the
+        character map are parsed again; the kept parse and the snapshot are replaced only when both succeed."""
         with self._lock:
-            self._snapshot = self._build()
+            parsed = self._parse() if self.game is not None or self._parsed is not None else None
+            snapshot = self._build(parsed)
+            if parsed is not None:
+                self._parsed = parsed
+            self._snapshot = snapshot
 
     def families(self) -> list[Family]:
         """Return families with at least one installed portrait skeleton, sorted by key."""
@@ -99,12 +106,36 @@ class Catalog:
         with self._lock:
             return copy.deepcopy(self._get()[2].get(core.lower()))
 
+    def core_map(self, spr_cores: Iterable[str], lobby_cores: Iterable[str]) -> CoreMap:
+        """Map an install's portrait and memorial lobby cores to variant keys by the roster's own rules, for any
+        install (the snapshot maps only the current one's). A portrait core's key is the core less "_spr"; a lobby
+        core belongs to the installed variant whose key or core alias plus a lobby suffix names it, a direct file-id
+        match first. A lobby core with no portrait of its variant in that install takes the variant the data names
+        for it the same way, else the core less its suffix. Each call works on a copy of the kept parse, so one
+        install's unknown portrait keys never enter another install's map."""
+        portraits, lobbies = list(spr_cores), list(lobby_cores)
+        with self._lock:
+            entries, students, added = self._metadata()
+            shipped = set(entries)
+            keys, homes, _aliases = self._map(entries, students, added, portraits, lobbies)
+        spr = {keys[core.lower()]: core for core in sorted(portraits)}
+        lobby = {key: cores[0] for key, cores in homes.items() if cores}
+        names = {key: entries[key]["names"] for key in set(keys.values()) if key in shipped}
+        return CoreMap(keys, spr, lobby, names)
+
     def _get(self) -> tuple[dict[str, Family], dict[str, Variant], dict[str, Variant]]:
         if self._snapshot is None:
             self._snapshot = self._build()
         return self._snapshot
 
     def _metadata(self) -> tuple[dict, dict, set[str]]:
+        """A copy of the kept parse of the shipped data and the character map, parsed on first use: a build adds the
+        install's unknown portrait keys to it, which must not leak into another build or another install's map."""
+        if self._parsed is None:
+            self._parsed = self._parse()
+        return copy.deepcopy(self._parsed)
+
+    def _parse(self) -> tuple[dict, dict, set[str]]:
         try:
             data = json.loads(self.data.read_text(encoding="utf-8"))
             entries = {key.lower(): dict(entry) for key, entry in data["variants"].items()}
@@ -158,21 +189,18 @@ class Catalog:
             logger.exception("Unable to read catalog metadata")
             raise ServiceError("catalog_data_invalid", path=str(self.data)) from exc
 
-    def _build(self) -> tuple[dict[str, Family], dict[str, Variant], dict[str, Variant]]:
-        if self.game is None:
-            return {}, {}, {}
-        entries, students, added = self._metadata()
-        portraits = self.game.spine_cores("spr")
-        lobbies = self.game.spine_cores("lobby")
+    @staticmethod
+    def _map(entries: dict, students: dict, added: set[str], portraits: list[str], lobbies: list[str]
+             ) -> tuple[dict[str, str], dict[str, list[str]], dict[str, list[str]]]:
+        """The roster's core rules on one install's core names: {lower-case core: variant key}, each key's lobby
+        cores in the install (the primary one first) and each portrait key's aliases (its key, then the core aliases
+        the rule kept). Unknown portrait keys are added to ``entries``, ``students`` and ``added``, as the roster
+        lists them, in the order the alias rule reads them."""
         lobby_names = {core.lower(): core for core in lobbies}
-        art = {kind: {name.lower(): name for name in names}
-               for kind, names in self.game.collection_names().items()}
-        collection = art.get("portrait", {})
-        if portraits and not collection:
-            logger.warning("No collection portraits found; recruitable follows the shipped release flags")
-        models = getattr(self.game, "model_cores", set)()
-        families, variants, cores = {}, {}, {}
-        for core, paths in sorted(portraits.items()):
+        keys: dict[str, str] = {}
+        homes_of: dict[str, list[str]] = {}
+        aliases_of: dict[str, list[str]] = {}
+        for core in sorted(portraits):
             key = core.lower().removesuffix("_spr")
             if key not in entries:
                 added.add(key)
@@ -183,6 +211,58 @@ class Catalog:
                 students[f"unknown:{key}"] = {"base": key, "names": {lang: file_id for lang in LANGUAGES},
                                              "school": None}
             entry = entries[key]
+            aliases = [key, *(alias for alias in entry.get("core_aliases", [])
+                              if alias.lower() not in entries or alias.lower() == key)]
+            homes = [lobby_names[alias.lower() + suffix] for alias in aliases for suffix in HOME_SUFFIXES
+                     if alias.lower() + suffix in lobby_names]
+            aliases_of[key], homes_of[key] = aliases, homes
+            keys[core.lower()] = key
+            for home in homes:
+                # A direct file-id match takes precedence over a shared dev alias.
+                if home.lower() in (key + suffix for suffix in HOME_SUFFIXES):
+                    keys[home.lower()] = key
+                else:
+                    keys.setdefault(home.lower(), key)
+        # lobby cores of variants without a portrait in this install: the variant the data names for them (its key,
+        # else a core alias), else the core less its suffix, so a core gets one key in every install
+        aliased: dict[str, str] = {}
+        for key, entry in entries.items():
+            for alias in entry.get("core_aliases", []):
+                if alias.lower() not in entries or alias.lower() == key:
+                    aliased.setdefault(alias.lower(), key)
+        suffixes = sorted(HOME_SUFFIXES, key=len, reverse=True)
+        lobby_only: dict[str, list[tuple[bool, int, str]]] = {}
+        for lower, core in sorted(lobby_names.items()):
+            suffix = next((s for s in suffixes if lower.endswith(s)), None)
+            if lower in keys or suffix is None:
+                continue
+            stem = lower[:-len(suffix)]
+            key = stem if stem in entries else aliased.get(stem, stem)
+            keys[lower] = key
+            lobby_only.setdefault(key, []).append((stem != key, HOME_SUFFIXES.index(suffix), core))
+        for key, found in lobby_only.items():
+            homes_of.setdefault(key, []).extend(core for *_, core in sorted(found))
+        return keys, homes_of, aliases_of
+
+    def _build(self, parsed: tuple[dict, dict, set[str]] | None = None
+               ) -> tuple[dict[str, Family], dict[str, Variant], dict[str, Variant]]:
+        if self.game is None:
+            return {}, {}, {}
+        entries, students, added = copy.deepcopy(parsed) if parsed is not None else self._metadata()
+        portraits = self.game.spine_cores("spr")
+        lobbies = self.game.spine_cores("lobby")
+        art = {kind: {name.lower(): name for name in names}
+               for kind, names in self.game.collection_names().items()}
+        collection = art.get("portrait", {})
+        if portraits and not collection:
+            logger.warning("No collection portraits found; recruitable follows the shipped release flags")
+        models = getattr(self.game, "model_cores", set)()
+        # the same mapping core_map gives any install, run on the core lists fetched once for this build
+        keys, homes_of, aliases_of = self._map(entries, students, added, list(portraits), list(lobbies))
+        families, variants, cores = {}, {}, {}
+        for core, paths in sorted(portraits.items()):
+            key = keys[core.lower()]
+            entry = entries[key]
             student = students[str(entry["student_id"])]
             if key in added:
                 portrait = collection.get(f"student_portrait_{key}_collection")
@@ -192,10 +272,7 @@ class Catalog:
             family_key = student["base"]
             family = families.setdefault(family_key, Family(family_key, student["names"], student.get("school"), [],
                                                             list(student.get("aliases", []))))
-            aliases = [key, *(alias for alias in entry.get("core_aliases", [])
-                              if alias.lower() not in entries or alias.lower() == key)]
-            homes = [lobby_names[alias.lower() + suffix] for alias in aliases for suffix in HOME_SUFFIXES
-                     if alias.lower() + suffix in lobby_names]
+            aliases, homes = aliases_of[key], homes_of[key]
             dates = [parse_filename(path.name).date for path in paths]
             portrait = collection.get((entry.get("portrait") or "").lower())
             variant = Variant(key, entry["file_id"], family_key, entry["names"], entry["playable"],
@@ -207,13 +284,8 @@ class Catalog:
                               aliases=list(entry.get("aliases", [])))
             family.variants.append(variant)
             variants[key] = variant
-            cores[core.lower()] = variant
-            for home in homes:
-                # A direct file-id match takes precedence over a shared dev alias.
-                if home.lower() in (key + suffix for suffix in HOME_SUFFIXES):
-                    cores[home.lower()] = variant
-                else:
-                    cores.setdefault(home.lower(), variant)
+        # the roster resolves the cores of installed portrait variants only
+        cores = {lower: variants[key] for lower, key in keys.items() if key in variants}
         for family in families.values():
             # recruitable here first, then playable on another server, then story and NPC variants
             family.variants.sort(key=lambda variant: (variant.key != family.key, not variant.recruitable,
