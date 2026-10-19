@@ -506,6 +506,7 @@ class App(tb.Frame, ConfigMixin):
         # 设置语言
         language = self.language_var.get()
         i18n_manager.set_language(language)
+        Theme.use_language(language)
         
         # 此时logger可能还未创建，使用print作为临时日志
         if config_loaded:

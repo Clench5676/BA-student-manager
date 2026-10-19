@@ -3,16 +3,26 @@
    Fixed 1920 x 1080 stage scaled to the window. */
 
 @font-face { font-family: "RHR"; font-weight: 500; src: url("../fonts/ResourceHanRoundedCN-Medium.woff2") format("woff2"); }
+/* The same font for Latin only (the file is fetched once): Resource Han Rounded CN has Simplified Chinese glyph forms
+   and punctuation and no Hangul, so in zh-TW, ja and ko the CJK text comes from that language's system font, the
+   letters and digits stay the page's */
+@font-face { font-family: "RHR Latin"; font-weight: 500; src: url("../fonts/ResourceHanRoundedCN-Medium.woff2") format("woff2");
+  unicode-range: U+0000-024F, U+2070-209F, U+20A0-20CF; }
 
 :root {
   --navy-text: #2c445c;
-  --font: "RHR", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font: "RHR", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
   --w: 500;
   /* the pointer: the game's own once cursor.js has read it (the system cursor without a game); one for everything
      and one for what reacts to a press (the game shows the same pointer on both) */
   --cursor: default;
   --cursor-press: pointer;
 }
+/* per UI language (html lang, i18n.js): its own system fonts for CJK (macOS, Windows, Linux), RHR last for a glyph
+   none of them has; ngui.textWidth measures with the same stack */
+:root:lang(zh-TW) { --font: "RHR Latin", "PingFang TC", "Microsoft JhengHei UI", "Microsoft JhengHei", "Noto Sans CJK TC", "RHR", sans-serif; }
+:root:lang(ja) { --font: "RHR Latin", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Meiryo UI", "Noto Sans CJK JP", "RHR", sans-serif; }
+:root:lang(ko) { --font: "RHR Latin", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans CJK KR", "RHR", sans-serif; }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { height: 100%; background: #0d1626; overflow: hidden; }

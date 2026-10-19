@@ -30,6 +30,17 @@ at runtime and never shipped with the program.
   is missing; CLDR, too, gives zh-Hant the root locale as its parent, not zh.
 - Names come with the data per language (`i18n.js` `NAME_LANG`: zh-CN, zh-TW, en, ja, ko); a missing name falls
   back to en, Simplified Chinese ones to zh-CN first. The lobby's lines follow the UI language (`LINE_LANGS`).
+- Fonts: the page draws with Resource Han Rounded CN (`web/fonts`, OFL, shipped). It covers every Han and kana
+  character of the zh-TW and ja names and of the games' UI strings, but in Simplified Chinese glyph forms and
+  punctuation positions, and it has no Hangul. So the html `lang` (set from the UI language) picks a stack in
+  `app.css`: zh-CN and en-US keep the font for everything; zh-TW, ja and ko keep it for Latin letters and digits
+  only (`RHR Latin`, the same file with a `unicode-range`) and draw CJK with the system font of the language
+  (PingFang TC / Microsoft JhengHei, Hiragino Sans / Yu Gothic UI, Apple SD Gothic Neo / Malgun Gothic, Noto Sans CJK
+  on Linux), with the full font last for a glyph none of them has. No font is added. `ngui.textWidth` measures with
+  the same stack, and Hangul counts as CJK for the label sizing. The classic GUI switches its text font to the
+  language's system font the same way (`Theme.use_language`).
+- The Global client's own fonts (in the install: Noto Sans TC Medium for zh-TW, GyeonggiTitle Medium as the Korean
+  main font, Noto Sans and RSU for en and th) are not used yet.
 
 ## Process layout
 
