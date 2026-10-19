@@ -165,6 +165,16 @@ def test_material_and_texture():
     assert particles.program("FX/FX_SHADER_WAKAMOFire_Ptcle") is None and particles.program(None) is None
 
 
+def test_ring_buffer():
+    # pause until replaced (1) and loop until replaced (2) with the loop range; none without a ring buffer
+    held = particles.system({"ringBufferMode": 1, "ringBufferLoopRange": {"x": 0.0, "y": 1.0}}, {})["main"]
+    assert (held["ring"], held["ringRange"]) == (1, [0.0, 1.0])
+    looped = particles.system({"ringBufferMode": 2, "ringBufferLoopRange": {"x": 0.25, "y": 0.75}}, {})["main"]
+    assert (looped["ring"], looped["ringRange"]) == (2, [0.25, 0.75])
+    assert "ring" not in particles.system({"ringBufferMode": 0}, {})["main"]
+    assert "ring" not in particles.system({}, {})["main"]
+
+
 def test_mesh():
     out = particles.mesh([(0, 0, 0), (1, 0, 0), (0, 1, 0)], [(0, 0), (1, 0), (0, 1)], None, [(0, 1, 2)],
                          [(1, 1, 1, 1)] * 3)

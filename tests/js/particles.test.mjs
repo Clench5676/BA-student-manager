@@ -86,6 +86,43 @@ test("prewarm, start delay, max particles and lifetime", () => {
   assert.equal(idle.count(), 0);
 });
 
+test("ring buffer: particles held at their end or looping their lifetime until max particles replaces them", () => {
+  const one = { bursts: [{ t: 0, n: 1, cycles: 1, interval: 0.01, p: 1 }] };
+  // pause until replaced (ch0334's boosters: one particle a second, never looping): held at the end of its life
+  const held = effects([sys({ main: { loop: 0, life: 1, speed: 1, ring: 1, ringRange: [0, 1] }, emission: one,
+    shape: { type: 4, angle: 0, radius: 0, thickness: 1, arc: 360, pos: [0, 0, 0], rot: [0, 0, 0], scale: [1, 1, 1], randomDir: 0, spherical: 0, randomPos: 0 } })]);
+  run(held, 3);
+  const h = held.systems[0].particles;
+  assert.equal(h.length, 1);
+  near(h[0].age, 1, 1e-9, "held at its lifetime");
+  const at = h[0].pos.slice();
+  run(held, 1);
+  assert.deepEqual(h[0].pos, at, "a held particle does not move");
+  near(held.current(held.systems[0], h[0]).size[0], 1, 1e-9);
+  // loop until replaced (ch0188's sea meshes): the age runs through the loop range again and again
+  const looped = effects([sys({ main: { loop: 0, life: 2, ring: 2, ringRange: [0.25, 0.75] }, emission: one })]);
+  run(looped, 1.6);
+  const l = looped.systems[0].particles;
+  assert.equal(l.length, 1);
+  near(l[0].age, 0.6, 1e-6, "1.6 s: at 1.5 s it went back to 0.5 s");
+  run(looped, 10);
+  assert.equal(l.length, 1);
+  assert.ok(l[0].age >= 0.5 - 1e-9 && l[0].age < 1.5, `in the loop range ${l[0].age}`);
+  // with max particles reached, a new particle takes the oldest one's place; without a ring buffer it is not emitted
+  const full = effects([sys({ main: { max: 2, life: 100, ring: 1, ringRange: [0, 1] }, emission: { rate: 10 } })]);
+  run(full, 1);
+  const kept = full.systems[0].particles;
+  assert.equal(kept.length, 2);
+  assert.ok(kept.every((p) => p.age < 0.5), "the newest two");
+  const plain = effects([sys({ main: { max: 2, life: 100 }, emission: { rate: 10 } })]);
+  run(plain, 1);
+  assert.ok(plain.systems[0].particles.every((p) => p.age > 0.5), "the first two");
+  // without a ring buffer a particle dies at the end of its life
+  const mortal = effects([sys({ main: { loop: 0, life: 1 }, emission: one })]);
+  run(mortal, 1.5);
+  assert.equal(mortal.count(), 0);
+});
+
 test("shapes emit inside their volume, on their surface or edge, along their direction", () => {
   const r = lcg(9);
   for (let i = 0; i < 200; i++) {

@@ -408,7 +408,10 @@ in `pointer-textures`); without a game the system cursor stays and there is no e
     below the bone; any other keeps its place in the prefab. Local simulation space moves the particles with it, world
     space leaves them behind. Unity world units are the UI root's (the 1665-unit view is 2 units high).
   - Simulated: duration, looping, prewarm, start delay, lifetime, speed, size and rotation (1D or 3D), colour,
-    gravity, max particles, scaling mode, simulation speed; emission over time and bursts (cycles, intervals,
+    gravity, max particles, scaling mode, simulation speed, the ring buffer (pause until replaced holds a particle at
+    the end of its life, loop until replaced plays its loop range again, both until max particles needs its place:
+    ch0334's boosters, one particle a second, and the sea meshes of ch0188 and ch0356, 35 systems in 8 lobbies,
+    vanished after their lifetime without it); emission over time and bursts (cycles, intervals,
     probability); the shapes sphere, hemisphere, cone, box (volume, shell, edge), circle, edge, rectangle and donut
     with arc, thickness and their own transform; velocity over lifetime (linear, orbital, radial, speed modifier),
     limit velocity (dampen), force, colour, size and rotation over lifetime, texture sheet animation (start frame and

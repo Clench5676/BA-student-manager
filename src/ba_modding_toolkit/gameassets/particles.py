@@ -241,7 +241,7 @@ def _main(ps: Mapping[str, Any]) -> dict:
     im = ps.get("InitialModule") or {}
     size3 = bool(im.get("size3D"))
     rot3 = bool(im.get("rotation3D"))
-    return {
+    out = {
         "duration": _r(max(0.05, ps.get("lengthInSec", 5.0))), "loop": 1 if ps.get("looping") else 0,
         "prewarm": 1 if ps.get("prewarm") else 0, "delay": curve(ps.get("startDelay")),
         "speedScale": _r(ps.get("simulationSpeed", 1.0)), "space": ps.get("moveWithTransform", 0),
@@ -255,6 +255,13 @@ def _main(ps: Mapping[str, Any]) -> dict:
         "color": gradient(im.get("startColor")), "gravity": curve(im.get("gravityModifier")),
         "max": int(im.get("maxNumParticles", 1000)),
     }
+    # the ring buffer keeps particles past their lifetime until max particles needs their place: 1 holds them at
+    # their end (pause until replaced), 2 plays the loop range of their lifetime over and over (loop until replaced)
+    ring = int(ps.get("ringBufferMode", 0) or 0)
+    if ring in (1, 2):
+        loop_range = ps.get("ringBufferLoopRange") or {}
+        out.update(ring=ring, ringRange=[_r(loop_range.get("x", 0.0)), _r(loop_range.get("y", 1.0))])
+    return out
 
 
 def _streams(renderer: Mapping[str, Any]) -> dict[str, list[int]]:

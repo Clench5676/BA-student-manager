@@ -9,14 +9,15 @@
 // high); the Local scaling mode, world-space forces and gravity are in world units.
 //
 // Simulated, by Unity's modules: main (duration, looping, prewarm, start delay, lifetime, speed, size and rotation in
-// 1D or 3D, colour, gravity, max particles, simulation space, scaling mode, simulation speed), emission (rate over
-// time, bursts with cycles and probability), shape (sphere, hemisphere, cone and cone volume, box with its shell and
-// edges, circle, edge, rectangle, donut: arc, radius thickness, position, rotation, scale, random and spherical
-// direction), velocity over lifetime (linear, orbital with offset, radial, speed modifier), limit velocity (dampen),
-// force over lifetime, colour, size and rotation over lifetime, texture sheet animation (grid: whole sheet or one row),
-// custom data (vectors, colours) and sub-emitters (birth, death). Not simulated: noise, collision, triggers, lights,
-// trails, inherit velocity, rate over distance, limit velocity's drag, the by-speed modules and external forces (none
-// is used by more than one lobby); a system keeps drawing without them.
+// 1D or 3D, colour, gravity, max particles, simulation space, scaling mode, simulation speed, ring buffer: pause or
+// loop until replaced), emission (rate over time, bursts with cycles and probability), shape (sphere, hemisphere,
+// cone and cone volume, box with its shell and edges, circle, edge, rectangle, donut: arc, radius thickness,
+// position, rotation, scale, random and spherical direction), velocity over lifetime (linear, orbital with offset,
+// radial, speed modifier), limit velocity (dampen), force over lifetime, colour, size and rotation over lifetime,
+// texture sheet animation (grid: whole sheet or one row), custom data (vectors, colours) and sub-emitters (birth,
+// death). Not simulated: noise, collision, triggers, lights, trails, inherit velocity, rate over distance, limit
+// velocity's drag, the by-speed modules and external forces (none is used by more than one lobby); a system keeps
+// drawing without them.
 
 import { curve, toLinear } from "./touch-fx.js";
 
@@ -304,7 +305,10 @@ export class Effects {
 
   emit(s, u, inst) {
     const def = s.def, main = def.main;
-    if (s.particles.length >= main.max) return null;
+    if (s.particles.length >= main.max) {
+      if (!main.ring || !s.particles.length) return null;
+      s.particles.shift().dead = true; // a ring buffer gives the oldest particle's place to the new one
+    }
     const seed = (rnd(this.seed, ++this.serial) * 4294967296) >>> 0, r = (k) => rnd(seed, k);
     let n = R.shape;
     const next = () => rnd(seed, n++);
@@ -381,10 +385,19 @@ export class Effects {
     };
     const gm = value(main.gravity, (s.clock.time % main.duration) / main.duration, 0.5);
     const g = gm ? toSim([0, GRAVITY * gm, 0], true) : null;
+    // ring buffer: past its lifetime a particle holds still at its end (1) or plays the loop range again (2)
+    const ring = main.ring || 0, [loopFrom, loopTo] = main.ringRange || [0, 1];
     const alive = [];
     for (const pt of s.particles) {
+      if (pt.paused) { alive.push(pt); continue; }
       pt.age += dt;
-      if (pt.age >= pt.life) { this.die(s, pt); continue; }
+      const end = ring === 2 ? loopTo * pt.life : pt.life;
+      if (pt.age >= end) {
+        if (ring === 1) { pt.age = pt.life; pt.paused = true; alive.push(pt); continue; }
+        if (ring !== 2) { this.die(s, pt); continue; }
+        const from = loopFrom * pt.life, span = end - from;
+        pt.age = span > 1e-6 ? from + ((pt.age - from) % span) : from;
+      }
       const t = pt.age / pt.life, r = (k) => rnd(pt.seed, k);
       if (mod.force) {
         const f = toSim([value(mod.force.x, t, r(R.forceX)), value(mod.force.y, t, r(R.forceY)), value(mod.force.z, t, r(R.forceZ))], mod.force.world);
