@@ -698,8 +698,10 @@ export function geometry(fxs, s, { meshes = {}, linear = true } = {}) {
 
 // --- draw order -----------------------------------------------------------------------------------------------------
 
-// Unity draws transparent renderers by sorting layer, order in layer, render queue, then back to front
-const sortKey = (x) => [x.order || 0, x.queue ?? 3000, -(x.z || 0)];
+// Unity draws transparent renderers by sorting layer, order in layer, render queue, then back to front: by the
+// distance from the camera plus, for a particle renderer, its sorting fudge (Unity world units). The key's last part
+// is that distance in lobby units, negated (the farther draws first).
+const sortKey = (x) => [x.order || 0, x.queue ?? 3000, -((x.z || 0) + (x.fudge || 0) * WORLD)];
 const before = (a, b) => {
   const ka = sortKey(a), kb = sortKey(b);
   for (let i = 0; i < 3; i++) if (ka[i] !== kb[i]) return ka[i] < kb[i];
@@ -725,7 +727,7 @@ export function slotOf(def, layers) {
   return slot;
 }
 
-// systems in drawing order: order in layer, queue, back to front, then the prefab's order
+// systems in drawing order: order in layer, queue, back to front (with the sorting fudge), then the prefab's order
 export function drawOrder(systems) {
   return systems.slice().sort((a, b) => {
     const ka = sortKey(a.def), kb = sortKey(b.def);

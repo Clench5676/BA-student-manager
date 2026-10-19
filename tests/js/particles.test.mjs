@@ -447,6 +447,20 @@ test("a skeleton whose atlas pages sit in several render queues draws in parts, 
   assert.deepEqual(slotOf({ order: 0, queue: 2950, z: 0 }, [bg, hibiki]), { layer: 1, part: 0 });
 });
 
+test("the sorting fudge pushes a system back (above 0) or forward (below 0) among the same queue", () => {
+  // hibiki_home's systems at queue 3000: the glows and the river surface (fudge 50 and 80) behind the bokeh (-10)
+  const systems = [{ def: { order: 0, queue: 3000, z: 0, fudge: -10 }, index: 0 }, { def: { order: 0, queue: 3000, z: 0, fudge: 50 }, index: 1 },
+    { def: { order: 0, queue: 3000, z: 0 }, index: 2 }, { def: { order: 0, queue: 3000, z: 0, fudge: 80 }, index: 3 }];
+  assert.deepEqual(drawOrder(systems).map((s) => s.index), [3, 1, 2, 0]);
+  // in world units: a fudge of 1 outweighs a z of WORLD / 2 lobby units nearer
+  const pushed = { def: { order: 0, queue: 3000, z: -WORLD / 2, fudge: 1 }, index: 0 }, flat = { def: { order: 0, queue: 3000, z: 0 }, index: 1 };
+  assert.deepEqual(drawOrder([flat, pushed]).map((s) => s.index), [0, 1]);
+  // and against a part of the same queue: behind it with a fudge above 0, after it otherwise
+  const layer = { order: 0, queue: 2900, pages: { a: 2900, b: 3000 }, z: 0 };
+  assert.deepEqual(slotOf({ order: 0, queue: 3000, z: 0, fudge: 50 }, [layer]), { layer: 0, part: 0 });
+  assert.deepEqual(slotOf({ order: 0, queue: 3000, z: 0, fudge: -5 }, [layer]), { layer: 0, part: 1 });
+});
+
 // --- particles-gl.js: drawing into a player's context and freeing it -------------------------------------------------
 
 class FakeGL {}

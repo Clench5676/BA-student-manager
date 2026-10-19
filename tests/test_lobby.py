@@ -342,9 +342,9 @@ def particle_system(rate: float = 5.0, subs=()) -> dict:
                                           for kind, pid in subs]}}
 
 
-def particle_renderer(material: int, order: int = 0, mode: int = 0) -> dict:
+def particle_renderer(material: int, order: int = 0, mode: int = 0, fudge: float = 0.0) -> dict:
     return {"m_Enabled": 1, "m_RenderMode": mode, "m_SortingOrder": order, "m_SortingLayerID": 0,
-            "m_Materials": [ref(material, 2)] if material else [], "m_Mesh": ref(0)}
+            "m_Materials": [ref(material, 2)] if material else [], "m_Mesh": ref(0), "m_SortingFudge": fudge}
 
 
 def test_prefab_particle_systems():
@@ -359,7 +359,7 @@ def test_prefab_particle_systems():
     p.mb(21, 2101, UTILITY, boneName="FX_Hand", mode=0)
     p.node(22, "FX_Loop", father=21, pos=(0.5, 0.0), rot=90.0)
     p.add(22, 2201, "ParticleSystem", particle_system(subs=[(0, 2301)]))
-    p.add(22, 2202, "ParticleSystemRenderer", particle_renderer(61, order=1))
+    p.add(22, 2202, "ParticleSystemRenderer", particle_renderer(61, order=1, fudge=50.0))
     # its birth sub-emitter, drawn with another material
     p.node(23, "Spark", father=22)
     p.add(23, 2301, "ParticleSystem", particle_system(rate=0.0))
@@ -409,7 +409,8 @@ def test_prefab_particle_systems():
     assert [round(v, 6) for v in loop["rel"]] == [0.0, -1.0, 0.0, 0.5, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0]
     # and in the prefab's pose: (1 + 0.5, 2) Unity units on the skeleton, x 100 and 962 down
     assert loop["static"][3] == 150.0 and loop["static"][7] == -762.0
-    assert (loop["material"], loop["queue"], loop["order"]) == ("cab-fx_61", 3100, 1)
+    assert (loop["material"], loop["queue"], loop["order"], loop["fudge"]) == ("cab-fx_61", 3100, 1, 50.0)
+    assert spark["fudge"] == 0.0
     assert loop["subs"] == [{"type": 0, "system": 1, "inherit": 0, "p": 1.0}] and spark["isSub"] == 1
     assert spark["anchor"]["bone"] == "FX_Hand" and spark["material"] == "cab-fx_62"
     assert set(fx["materials"]) == {"cab-fx_61", "cab-fx_62"}
@@ -589,13 +590,13 @@ def test_real_lobby_particles(real_game, monkeypatch):
 
 @pytest.mark.skipif(not GAME_DIR.is_dir(), reason="No local game install")
 def test_real_lobby_page_queues(real_game):
-    # Hibiki's background page draws at 2900 and her own at 3050: the river surface (3000) draws over the river,
-    # under her
+    # Hibiki's background page draws at 2900 and her own at 3050: the river surface (3000, pushed back by its sorting
+    # fudge among the other effects of that queue) draws over the river, under her
     hibiki = real_game.lobby_info("hibiki_home")
     layer, = hibiki["layers"]
     assert layer["pages"] == {"Hibiki_home": 3050, "Hibiki_home2": 2900} and layer["queue"] == 2900
     river = next(s for s in hibiki["fx"]["systems"] if s["name"] == "River_surface")
-    assert (river["order"], river["queue"]) == (0, 3000)
+    assert (river["order"], river["queue"], river["fudge"]) == (0, 3000, 50.0)
     # Kisaki (Swimsuit): the scenery at 2900, her at 3100, the mist in front of her at 3200
     kisaki, = real_game.lobby_info("ch0356_home")["layers"]
     assert kisaki["pages"] == {"CH0356_home": 3100, "CH0356_home_2": 3200, "CH0356_home_3": 2900, "CH0356_home_4": 2900}
