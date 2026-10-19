@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 const Lobby = await import("../../src/ba_modding_toolkit/web/js/lobby.js");
+const Linear = await import("../../src/ba_modding_toolkit/web/js/linear.js");
 
 // skeleton data with named animations of the given durations
 const data = (anims) => ({
@@ -111,6 +112,27 @@ test("each zoom-out option gives its own limit, never less than the game's view 
   assert.deepEqual(Lobby.zoomBounds({ mode: "unlocked" }, { ...m, whole: { x0: -90000, x1: 1600, y0: -900, y1: 900 } }, G),
     { x0: -5920, x1: 1600, y0: -900, y1: 900 });
   assert.deepEqual(Lobby.ZOOM_MODES, ["game", "art", "unlocked", "custom"]);
+});
+
+test("every layer's post-processing is placed in the game's view, whatever view the stage shows", () => {
+  const G = { x: -1480, y: -832.5, w: 2960, h: 1665 };
+  // spine-player's camera for a viewport on a 1920 x 1080 canvas (drawFrame: fitted and centred)
+  const camera = (vp, W = 1920, H = 1080) => {
+    const zoom = H / W > vp.height / vp.width ? vp.width / W : vp.height / H;
+    return { zoom, position: { x: vp.x + vp.width / 2, y: vp.y + vp.height / 2 }, viewportWidth: W, viewportHeight: H };
+  };
+  const screen = (l) => { const s = Lobby.layerViewport(G, l); return { x: s.x, y: s.y, w: s.width, h: s.height }; };
+  // a background at the standard place and a character layer with its own offset and scale (the prefab's)
+  for (const l of [{ x: 0, y: -962, scale: 1 }, { x: 37.5, y: -880, scale: 0.72 }]) {
+    // the fullscreen game view: the canvas itself, so the pass reads exactly as before
+    assert.deepEqual(Linear.screenOnCanvas(screen(l), camera(Lobby.layerViewport(G, l))), [0, 0, 1, 1]);
+    // the left view, a zoom panned into a corner, a view zoomed out past the game's: the game's view on the stage
+    for (const v of [{ x: 47.6, y: -400, w: 1672.4, h: 940.725 }, { x: 0, y: 0, w: 1480, h: 832.5 },
+      { x: -2960, y: -1665, w: 5920, h: 3330 }]) {
+      const got = Linear.screenOnCanvas(screen(l), camera(Lobby.layerViewport(v, l)));
+      [(G.x - v.x) / v.w, (G.y - v.y) / v.h, G.w / v.w, G.h / v.h].forEach((x, i) => assert.ok(Math.abs(got[i] - x) < 1e-9, `${got} ${i}`));
+    }
+  }
 });
 
 test("each skeleton gets its atlas, also when the game's file names differ", () => {

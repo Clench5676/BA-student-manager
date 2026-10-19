@@ -19,6 +19,7 @@ function fakeGL() {
         calls.push([name, ...args]);
         if (name.startsWith("create")) { const o = { kind: name.slice(6), id: ++n }; live.add(o); return o; }
         if (name.startsWith("delete")) { live.delete(args[0]); return undefined; }
+        if (name === "getUniformLocation") return { uniform: args[1] };
         if (name === "getShaderParameter" || name === "getProgramParameter") return true;
         if (name === "checkFramebufferStatus") return "FRAMEBUFFER_COMPLETE";
         if (name === "isContextLost") return false;
@@ -135,28 +136,82 @@ test("colour adjustments: exposure in stops, an HDR colour filter decoded with a
   assert.equal(p.grade, true);
 });
 
+// one frame through the pass: the uniforms it sets, by name (the stand-in's locations carry their names)
+function frameUniforms(gl, p) {
+  Linear.begin(p);
+  const from = gl.calls.length;
+  Linear.end(p);
+  return Object.fromEntries(gl.calls.slice(from).filter(([name]) => name.startsWith("uniform")).map(([, loc, ...v]) => [loc.uniform, v]));
+}
+
 test("the pass hands the shader the lobby's parameters, and none while switched off for a check", () => {
   const gl = fakeGL(), p = player(gl);
   Linear.attach(p);
   Linear.setPost(p, { chromaticAberration: 0.1 });
-  // the stand-in's uniform locations are all null: the values are read by call order
-  const uniforms = () => {
-    Linear.begin(p);
-    const from = gl.calls.length;
-    Linear.end(p);
-    return gl.calls.slice(from).filter(([name]) => name.startsWith("uniform"));
-  };
-  const on = uniforms();
-  assert.deepEqual(on.find(([name]) => name === "uniform2f").slice(2), [64, 32]); // the drawing buffer
-  close(on.filter(([name]) => name === "uniform1f")[0][2], 0.005); // intensity x 0.05
+  const on = frameUniforms(gl, p);
+  assert.deepEqual(on.size, [64, 32]); // the drawing buffer
+  close(on.ca[0], 0.005); // intensity x 0.05
+  // no screen given: the canvas is the screen
+  assert.deepEqual(on.screen, [0, 0, 1, 1]);
   // the framebuffer's texture is filtered and clamped for the shifted reads
   assert.ok(gl.calls.some(([name, , key, value]) => name === "texParameteri" && key === "TEXTURE_WRAP_S" && value === "CLAMP_TO_EDGE"));
   assert.ok(gl.calls.some(([name, , key, value]) => name === "texParameteri" && key === "TEXTURE_MIN_FILTER" && value === "LINEAR"));
   Linear.setPostEnabled(false);
   try {
-    close(uniforms().filter(([name]) => name === "uniform1f")[0][2], 0);
+    close(frameUniforms(gl, p).ca[0], 0);
   } finally {
     Linear.setPostEnabled(true);
   }
+  Linear.detach(p);
+});
+
+// --- the game's screen on the canvas ---
+const G = { x: -1480, y: -832.5, w: 2960, h: 1665 };
+// a layer placed by the prefab, and a view in NGUI units in its skeleton's units (lobby.js layerViewport)
+const LAYER = { x: 12, y: -962, scale: 0.8 };
+const inLayer = (v) => ({ x: (v.x - LAYER.x) / LAYER.scale, y: (v.y - LAYER.y) / LAYER.scale, width: v.w / LAYER.scale,
+  height: v.h / LAYER.scale });
+// the camera spine-player draws a viewport with on a W x H canvas (drawFrame: the viewport fitted, centred)
+function camera(v, W = 1920, H = 1080) {
+  const c = inLayer(v), zoom = H / W > c.height / c.width ? c.width / W : c.height / H;
+  return { zoom, position: { x: c.x + c.width / 2, y: c.y + c.height / 2 }, viewportWidth: W, viewportHeight: H };
+}
+const screenOf = (v, W, H) => { const s = inLayer(G); return Linear.screenOnCanvas({ x: s.x, y: s.y, w: s.width, h: s.height }, camera(v, W, H)); };
+// G's place in a 16:9 view, in the view's uv
+const place = (v) => [(G.x - v.x) / v.w, (G.y - v.y) / v.h, G.w / v.w, G.h / v.h];
+
+test("the game's screen on the canvas: the canvas itself in the game's view, its place in any other view", () => {
+  // fullscreen in the game's view: exactly the canvas (the shader then reads as before), at any 16:9 drawing buffer
+  for (const [W, H] of [[1920, 1080], [3840, 2160], [2400, 1350], [2112, 1188], [64, 36]]) assert.deepEqual(screenOf(G, W, H), [0, 0, 1, 1]);
+  // the detail screen's left view (Michiru: 1.77 x zoom, right of the middle) and a 2 x zoom panned to a corner
+  for (const v of [{ x: 47.6, y: -400, w: 1672.4, h: (1672.4 * 9) / 16 }, { x: 0, y: 0, w: 1480, h: 832.5 },
+    { x: -2086.8, y: -1173.825, w: 4173.6, h: 2347.65 }]) closeAll(screenOf(v), place(v), 1e-12);
+  // a canvas wider than 16:9: spine-player shows more across, so the screen takes less of it
+  const wide = screenOf(G, 2000, 1000);
+  closeAll(wide, [(1 - 2960 / (1665 * 2)) / 2, 0, 2960 / (1665 * 2), 1], 1e-12);
+  // no screen or no camera: the canvas
+  assert.deepEqual(Linear.screenOnCanvas(null, camera(G)), [0, 0, 1, 1]);
+  assert.deepEqual(Linear.screenOnCanvas({ x: 0, y: 0, w: 1, h: 1 }, undefined), [0, 0, 1, 1]);
+});
+
+test("the pass places the post-processing in the game's screen, at the screen's aspect", () => {
+  const gl = fakeGL(), p = player(gl);
+  Linear.attach(p);
+  Linear.setPost(p, { chromaticAberration: 0.12, panini: { distance: 1, cropToFit: 1 } });
+  Linear.setScreen(p, inLayer(G));
+  const v = { x: -740, y: -416.25, w: 1480, h: 832.5 }; // 2 x zoom around the middle
+  p.sceneRenderer.camera = camera(v, 64, 36);
+  gl.drawingBufferHeight = 36;
+  const u = frameUniforms(gl, p);
+  closeAll(u.screen, [-0.5, -0.5, 2, 2], 1e-12);
+  // the Panini extents of the camera's 16:9, also on a drawing buffer of another shape (64 x 32)
+  gl.drawingBufferHeight = 32;
+  p.sceneRenderer.camera = camera(v, 64, 32);
+  const tall = frameUniforms(gl, p);
+  closeAll(tall.panini.slice(0, 2), [(Math.tan(Math.PI / 36) * 16) / 9, Math.tan(Math.PI / 36)]);
+  // without a screen the canvas's own shape, as before
+  Linear.setScreen(p, null);
+  closeAll(frameUniforms(gl, p).panini.slice(0, 2), [Math.tan(Math.PI / 36) * 2, Math.tan(Math.PI / 36)]);
+  assert.deepEqual(frameUniforms(gl, p).screen, [0, 0, 1, 1]);
   Linear.detach(p);
 });

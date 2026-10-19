@@ -375,8 +375,9 @@ function leftView(P, T, G) {
   return { x: clamp(T.x - 0.28 * W, P.x0, P.x1 - W), y: clamp(T.y - 0.66 * H, P.y0, P.y1 - H), w: W, h: H };
 }
 const viewOf = (m, md = mode) => ({ ...(md === "full" ? m.full : m.left) });
-// a layer's spine-player viewport for a view: the view in that skeleton's own units
-const layerViewport = (v, l) => ({
+// a layer's spine-player viewport for a view: the view in that skeleton's own units (also the game's view, for the
+// post-processing's screen)
+export const layerViewport = (v, l) => ({
   x: (v.x - l.x) / l.scale, y: (v.y - l.y) / l.scale, width: v.w / l.scale, height: v.h / l.scale,
   padLeft: 0, padRight: 0, padTop: 0, padBottom: 0, transitionTime: 0, animations: {},
 });
@@ -621,8 +622,12 @@ function makePlayer(host, layer, onReady, onError = () => {}, fx = null) {
     },
     success: (player) => {
       player.bamtLayer = layer;
-      // the game camera's post-processing (the prefab's volumes) goes with the linear-light pass
-      if (Linear.attach(player)) Linear.setPost(player, current?.info?.post);
+      // the game camera's post-processing (the prefab's volumes) goes with the linear-light pass, placed in the
+      // camera's view whatever the player shows
+      if (Linear.attach(player)) {
+        Linear.setPost(player, current?.info?.post);
+        Linear.setScreen(player, layerViewport(game(), layer));
+      }
       if (layer.skin) try { player.skeleton.setSkinByName(layer.skin); player.skeleton.setSlotsToSetupPose(); } catch { /* the default skin */ }
       const idle = idleOf(player.skeleton.data, layer);
       if (idle) player.animationState.setAnimation(0, idle, true);
