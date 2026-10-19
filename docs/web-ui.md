@@ -580,6 +580,48 @@ drawn on the game's popup frame (UIPopup_Sort) and cover the whole stage with it
 navigation included, like the display settings and the settings; a click on the backdrop or Escape closes them
 (PopupClose).
 
+**The shared popup module** (`popup.js`, tested in Node from `tests/test_popup.py` on a stand-in DOM). Every screen
+draws its popups with it, and it reads its own prefabs once (`ready()`): UIPopup_Sort (required), the student list's
+tools (UICharacterCollection) and the gacha list's checkbox (UIPopup_GachaCharList.Btn_Checkbox), the last two
+optional, so a popup still works without them.
+
+- **Hosts.** The detail screen's own, `#popup` and `#picker`, inside the screen; and two on the stage, so a popup
+  shows on any screen: `#prompt` (z-index 2550) for list prompts and `#dialog` (z-index 2600) for message popups, both
+  over the settings (2500) and under the toast (3000). Each message popup is a layer of its own in `#dialog`, so one
+  opened from another shows over it.
+- **The stack.** Every open popup is on one stack (`opened(host, close)`), and Escape goes to the topmost one only.
+  A popup that must be answered with a button (no close button) takes Escape and does nothing with it, so nothing
+  under it acts. A popup leaves the stack by itself when its host is hidden or its layer is gone. Escape is left
+  alone while an input method composes (`isComposing`, `keyCode` 229) or when a control took the key itself
+  (`defaultPrevented`). `anyOpen()` tells whether any popup is up (the stack, or the consent, update, settings and
+  display hosts), and `whenIdle()` resolves once none is.
+- **Buttons.** Every button of a popup is an invisible button over the drawn one, named for assistive technology by
+  the caption it covers (`aria-label`) and marked with what it does (`data-action`). When a sprite is missing from
+  the atlases its button is placed from the prefab node, so the popup can still be answered.
+- **`popupFrame(title, w, h, {ok, cancel, close})`**: the frame at a size, its title, the close button and Cancel / OK
+  (a lone button in the middle).
+- **`message({title, lines, ok, cancel, check, close})`** in `#dialog`: lines of text, centred; when a line carries a
+  small button (`{text, button: {label, fn}}`, the consent popup's light blue Change button), every line is a row of
+  the game's light stats box with its button at the right. An optional checkbox (the gacha list's) under the lines.
+  It resolves once it closes, however it closes, with `{button, checked}`: `button` is `ok`, `cancel`, or `null` for
+  the close button, the backdrop and Escape; `checked` is the checkbox's state at that moment. `close: false` draws no
+  close button, and the backdrop and Escape do nothing. The popup takes the keyboard focus while it is open (Enter
+  presses nothing under it) and gives it back.
+- **`listPopup({...})`**: the frame laid out like the game's quick formation edit, the selection's details on the
+  left, the cards in a framed list on the right, the buttons under it. The student list's tools over the cards are
+  optional (`tools`); without them a hint and a footer show in their place. One card chosen (`selected`), or several
+  ticked (`multi`, with `selectable(items)` ticking all that can be, `toggled()` and `sizeOf()` for the ticked cards'
+  total size). A card that cannot be ticked (`disabled`) can still be clicked; `dim` darkens it like the roster's
+  not-owned cards with its picture in grey, and `badge` replaces In Use with the caller's word. Buttons right-aligned
+  under the list (the main ones in OK's blue, three or more a little smaller), a checkbox at their left, and no close
+  button when `onClose` is `null`. The cards' buttons are in the page in the list's order.
+
+**Start sequence** (`main.js`, `Popup.sequence`). Once the first screen is revealed the start popups come one at a
+time, in order, each only when it has something to show: the asset consent, then the update popup (released builds
+only). `Update.check` resolves when its popup closes: `later` (Later or Escape), `page` (the download page opened),
+`update` once an update has failed (one that works restarts the app), `null` with no newer release or offline. A step
+that fails is logged and the next one comes. Later tracks add their popups to `startPopups()` in their place.
+
 - **Switch Portrait, Switch Memorial Lobby** (the switch card of the Portrait and Memorial Lobby tabs; the add button
   beside it adds mods of either kind): what the game can show for that kind (`switch-sources.js`, tested in Node):
   the variant's own files and its added portraits or lobbies; for the portrait also the other variants' own (those
@@ -622,7 +664,7 @@ instead.
   the lobby's lines from Kivo get 1.5 s. A change inside the screen (a variant chip, the arrows, a tab, an
   applied portrait) renders every part off screen and swaps them in one frame. The left side loads laid out but
   transparent; when a lobby or a model replaces another one, a still of the old one holds its place meanwhile.
-- The consent popup comes after the first screen is revealed.
+- The start popups (the consent popup first) come after the first screen is revealed (Popups, "Start sequence").
 
 ### Pointer and touch effect
 
