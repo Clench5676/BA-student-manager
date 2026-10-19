@@ -1556,10 +1556,12 @@ async function ensureLayouts() {
   layouts = { list: find(detail, "Inventory_ListControl"), collection, sortPopup, textures };
 }
 
-// the voice volume and mute from the settings (development runs started with --mute stay silent)
+// the voice volume and mute (development runs started with --mute stay silent), the zoom-out limit and the
+// post-processing from the settings
 export function applyPrefs(prefs) {
   Lobby.setVolume((prefs?.voiceVolume ?? 80) / 100, ctx?.info?.mute || prefs?.voiceMuted);
   Lobby.setZoomOut(!!prefs?.lobbyZoomOut);
+  Lobby.setPostProcessing(prefs?.lobbyPost !== false);
   // started with --debug: the fullscreen lobby's pointer, wheel and gesture events go to the app's log
   Lobby.setTrace(ctx?.info?.debug ? (events) => rpc("debug.trace", { events }).catch(() => {}) : null);
 }

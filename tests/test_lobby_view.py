@@ -55,6 +55,14 @@ def test_zoom_out_setting_is_off_by_default_and_persists(app, tmp_path):
     assert rpc(app, "settings.set", key="lobbyZoomOut", value=0)["result"]["lobbyZoomOut"] is False
 
 
+def test_post_processing_setting_is_on_by_default_and_persists(app, tmp_path):
+    # the game's PP option: the lobby is drawn with its post-processing volumes unless it is turned off
+    assert rpc(app, "settings.get")["result"]["lobbyPost"] is True
+    assert rpc(app, "settings.set", key="lobbyPost", value=False)["result"]["lobbyPost"] is False
+    assert UiState(tmp_path / "webui.json").get("lobby_post") is False
+    assert rpc(app, "settings.set", key="lobbyPost", value=1)["result"]["lobbyPost"] is True
+
+
 def test_input_trace_is_logged_only_when_started_with_debug(app, services, caplog):
     caplog.set_level(logging.INFO, logger="ba_modding_toolkit.webui.trace")
     events = [{"k": "down", "pt": "mouse", "b": 0, "bs": 1}, {"k": "wheel", "dy": 4.5, "act": "pan"}]
@@ -128,8 +136,16 @@ def test_wheel_zooms_and_pans_in_node():
     assert result.returncode == 0, result.stdout + result.stderr
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="Node is not installed")
+def test_zoom_out_limit_in_node():
+    # the Full Art limit: every clip's poses are checked and the painted rect gives up what one uncovers
+    tests = Path(__file__).parent / "js" / "lobby_frame.test.mjs"
+    result = subprocess.run(["node", "--test", str(tests)], capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
 def test_lobby_strings_in_both_languages():
     for lang in ("zh-CN", "en-US"):
         strings = ui_strings(lang)
-        for key in ("tab.l2d", "zoomOut.label", "zoomOut.game", "zoomOut.art"):
+        for key in ("tab.l2d", "zoomOut.label", "zoomOut.game", "zoomOut.art", "post.label", "post.on", "post.off"):
             assert strings.get(f"webui.settings.{key}"), (lang, key)

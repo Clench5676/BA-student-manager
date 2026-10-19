@@ -96,7 +96,7 @@ class GameAssets:
     def spine_cores(self, kind: str) -> dict[str, list[Path]]  # kind "spr" | "lobby": core -> bundle parts
     def spine_files(self, kind: str, core: str) -> dict[str, bytes]        # file name -> bytes (.skel, .atlas, pages)
     def spine_files_from(self, bundles: list[Path]) -> dict[str, bytes]    # the same, for a mod's bundle files
-    def lobby_info(self, core: str) -> dict                    # a lobby's layers, touch boxes and clips (lobby.py)
+    def lobby_info(self, core: str) -> dict                    # a lobby's layers, touch boxes, clips and post-processing (lobby.py)
     def model_cores(self) -> set[str]                          # dev names with a chibi (character-<dev>-_mxload-*)
     def model_glb(self, core: str) -> bytes                    # the chibi as one GLB (model.py)
 ```
@@ -257,7 +257,7 @@ Events on `/api/events`:
 | `/asset/ui/layout/<root>.json?path=<subpath>` | light |
 | `/asset/art/bg/<name>`, `/asset/art/portrait/<name>.png` | heavy |
 | `/asset/spine/spr/<core>/<file>`, `/asset/spine/lobby/<core>/<file>`, `/asset/spine/mod/<id>/<file>` | heavy |
-| `/asset/spine/lobby/<core>/lobby.json` (prefab layout, touch boxes, clips; no skeleton is extracted) | heavy |
+| `/asset/spine/lobby/<core>/lobby.json` (prefab layout, touch boxes, clips, post-processing; no skeleton is extracted) | heavy |
 | `/asset/model/<variant>.glb` (the variant's chibi, `model/gltf-binary`) | heavy |
 | `/asset/voice/<variant>/<clip>` (a lobby voice relayed from Kivo) | heavy |
 
@@ -376,15 +376,44 @@ in `pointer-textures`); without a game the system cursor stays and there is no e
   way spine-unity's shader converts its vertex colours (an additive slot at alpha 0.42 adds 0.15 of its texture).
   Without WebGL2 the player draws in plain sRGB values as before. Drawn in sRGB values, glows such as Kurumi's photo
   booth light or Niko's window washed the scene out to white.
+- **Post-processing.** The lobby is drawn by the PC client's main Camera (level1 `Persistent/Camera`: perspective,
+  10-degree field of view, HDR), whose culling mask has the lobby's layer 12 and whose URP volume mask has layers 17
+  and 30. Every lobby prefab carries global URP volumes on layer 30 (`PPV` at weight 1; `PPV_C`, a flash, and
+  `PPV_D`, a depth of field, which talk timelines drive and which mostly sit at 0); four (Erika, Yoshimi, Shimiko,
+  CH0356) keep them on the UI layer 5, which that camera never blends, so they have none. `lobby.py` follows the
+  volumes that count to their profiles (in the core's bundles, a few in another core's) and blends them the way URP's
+  VolumeManager does (`lobby.json` `post`). Of the 265 lobbies: chromatic aberration in 259, lift / gamma / gain in
+  166, Panini projection in 190 (on the 10-degree view the middle is enlarged by 0.6 %) and, from a flash volume left
+  a little on, colour adjustments in 17 (post exposure up to +0.53 EV for Aru, colour filter, contrast, hue). No
+  lobby has bloom, vignette or tonemapping, and no depth of field or lens distortion is on at a weight above 0. The
+  linear pass's copy to the canvas runs them as URP 12 does (Unity 2021.3; the URP asset grades in LDR with a
+  32-step LUT; checked against PostProcessPass, UberPost, LutBuilderLdr and ColorUtils.PrepareLiftGammaGain): Panini,
+  the three-sample chromatic aberration, then post exposure, the clamp to 0..1 and the LUT's steps (contrast in LogC,
+  colour filter, lift / gamma / gain, hue, saturation), in linear light; the LUT's own 32-step interpolation is not
+  modelled. A layer is post-processed on its own (7 lobbies have more than one).
+- **PP setting.** The Settings L2D tab's `lobbyPost` (on by default) is the PC client's PP option
+  (`AllowPostProcessing`, graphics options): off draws the lobby without its volumes, at once. Of the 19 in-game
+  captures among the references, only Michiru's (CH0113) shows chromatic aberration, and it matches the lobby with
+  PP on: at the survey's 400 px crop the colour edges are offset +1.0 / -1.0 / +0.8 / -1.1 px (top, bottom, left,
+  right) in the game and +1.0 / -0.9 / +0.9 / -1.0 here, and her face is Y 157.7 in the game, 157.3 with PP, 145.0
+  without. The other 18 show no offset at all, so they were taken with PP off, and they match the lobby with it off:
+  mean |dY| 1.8 off, 3.6 on (CH0326 Y 198.4: 199.4 off, 205.8 on; CH0228 209.0: 209.0 and 213.2).
 - **Zoom.** Fullscreen opens on the game's 16:9 view and zooms in to 2x. The Settings L2D tab (`lobbyZoomOut`, off by
   default) lets it zoom out further, to the widest 16:9 view inside the painted art (one 16-unit cell inside the
-  painted rect).
+  painted rect). The painted rect is found on idle poses; with the setting on, the poses of every clip the lobby
+  plays (dialogues with their sync clips, the drag clips and their ends, random idle clips, every 0.1 s over the
+  idle) are checked in the background, in 8 ms slices, within 24 cells of its sides, and the rect gives up what one
+  uncovers: a dialogue that moves the scene never shows a blank edge. Over the 265 lobbies (headless SwiftShader) it
+  takes 780 poses and 0.55 s of slices at the median (2.2 s at most); 34 lobbies give up cells, most one, Kurumi three
+  (Talk_07_M scales her scene down), Serika's CH0189 up to six (the end of every dialogue) and CH0303 up to four (a
+  random idle clip). The result is kept for the session.
 - **Input.** Press and drag: head pat, eye follow and the other drag boxes. Mouse wheel (a notch zooms at least a
   line's worth) and pinch (ctrl + wheel in Chromium / WebView2, gesture events in WebKit) zoom at the pointer; a
   two-finger trackpad swipe pans in any direction. A wheel is told by its steps: whole lines, `wheelDeltaY` in steps
   of 120 (Chromium), or in WebKit, whose `wheelDeltaY` is 3 x `deltaY` for every device, tenths of a line kept in
   16.16 fixed point (4.000244 px) against a trackpad's whole pixels. One scroll keeps the kind of its first event; one
-  taken for a wheel that then sends a trackpad step goes back to the view it started from and pans. A Magic Mouse
+  taken for a wheel that then sends a trackpad step goes back to the view it started from and pans (a WebKit whole
+  line, or a Chromium notch: a Windows touchpad's first step can be exactly 100 px, wheelDelta 120). A Magic Mouse
   scrolls like a trackpad (ctrl + scroll zooms). A right- or middle-button drag pans. Native drags and the Force
   Touch look-up are turned off on the lobby.
 - **Input trace.** Started with `--debug`, the page sends the fullscreen lobby's pointer, wheel and gesture events

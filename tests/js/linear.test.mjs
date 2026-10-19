@@ -81,3 +81,82 @@ test("a lost context is not asked to delete anything", () => {
   assert.equal(gl.calls.filter(([name], i) => i >= before && name.startsWith("delete")).length, 0);
   assert.equal(p.restorables.length, 0);
 });
+
+// --- the game camera's post-processing (lobby.json "post") ---
+const close = (a, b, eps = 1e-5) => assert.ok(Math.abs(a - b) < eps, `${a} != ${b}`);
+const closeAll = (a, b, eps) => { assert.equal(a.length, b.length); a.forEach((x, i) => close(x, b[i], eps)); };
+// sRGB to linear for the colour wheels (Mathf.GammaToLinearSpace)
+const lin = (v) => (v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4));
+
+test("no post-processing, or one that does nothing, leaves the pass a plain copy", () => {
+  assert.equal(Linear.postParams(null), null);
+  assert.equal(Linear.postParams({}), null);
+  assert.equal(Linear.postParams({ chromaticAberration: 0, panini: { distance: 0, cropToFit: 1 } }), null);
+});
+
+test("Toki: chromatic aberration and a brighter gain, the gain's offset taken as it is", () => {
+  const p = Linear.postParams({ chromaticAberration: 0.07,
+    liftGammaGain: { lift: [1, 1, 1, 0], gamma: [1, 1, 1, 0], gain: [1, 1, 1, 0.0754] } });
+  close(p.ca, 0.0035);
+  assert.equal(p.panini[2], 0);
+  closeAll(p.gain, [1.0754, 1.0754, 1.0754]);
+  closeAll(p.lift, [0, 0, 0]);
+  closeAll(p.gamma, [1, 1, 1]);
+  assert.equal(p.grade, true);
+});
+
+test("Miku: a coloured gain is decoded, scaled by 0.8 and kept at its luminance; Panini on the lobby camera's 10 degrees", () => {
+  const gain = [0.98568, 1, 0.94948];
+  const p = Linear.postParams({ chromaticAberration: 0.075, panini: { distance: 1, cropToFit: 1 },
+    liftGammaGain: { lift: [1, 1, 1, 0], gamma: [1, 1, 1, 0], gain: [...gain, 0] } });
+  const c = gain.map((x) => lin(x) * 0.8), l = 0.2126729 * c[0] + 0.7151522 * c[1] + 0.072175 * c[2];
+  closeAll(p.gain, c.map((x) => x - l + 1));
+  closeAll(p.gain, [0.98609, 1.0119, 0.92303], 1e-4); // the blue a third of the way to yellow
+  // view extents tan(5 deg) x 16 / 9 and tan(5 deg); cropped to fit, the middle is enlarged by 0.6 %
+  closeAll(p.panini.slice(0, 3), [(Math.tan(Math.PI / 36) * 16) / 9, Math.tan(Math.PI / 36), 1]);
+  close(p.panini[3], 0.99402, 1e-5);
+  // without cropping, the scale stays 1
+  close(Linear.postParams({ panini: { distance: 1, cropToFit: 0 } }).panini[3], 1);
+});
+
+test("Niko: the gamma wheel's offset brightens the midtones (an inverse gamma below 1)", () => {
+  const p = Linear.postParams({ liftGammaGain: { lift: [1, 1, 1, 0], gamma: [0.97512, 0.98716, 1, 0.03715], gain: [1, 1, 1, 0] } });
+  closeAll(p.gamma, [0.98169, 0.96152, 0.94057], 1e-4);
+  assert.ok(p.gamma.every((g) => g < 1));
+  assert.equal(p.ca, 0);
+});
+
+test("colour adjustments: exposure in stops, an HDR colour filter decoded with a 2.2 power, hue, saturation, contrast", () => {
+  const p = Linear.postParams({ colorAdjustments: { postExposure: 0.22, contrast: 1.2258, colorFilter: [1.04, 1.04, 0.5],
+    hueShift: -2.15, saturation: 0 } });
+  close(p.exposure, Math.pow(2, 0.22));
+  closeAll(p.filt, [Math.pow(1.04, 2.2), Math.pow(1.04, 2.2), lin(0.5)]);
+  closeAll(p.hsc, [-2.15 / 360, 1, 1.012258]);
+  assert.equal(p.grade, true);
+});
+
+test("the pass hands the shader the lobby's parameters, and none while switched off for a check", () => {
+  const gl = fakeGL(), p = player(gl);
+  Linear.attach(p);
+  Linear.setPost(p, { chromaticAberration: 0.1 });
+  // the stand-in's uniform locations are all null: the values are read by call order
+  const uniforms = () => {
+    Linear.begin(p);
+    const from = gl.calls.length;
+    Linear.end(p);
+    return gl.calls.slice(from).filter(([name]) => name.startsWith("uniform"));
+  };
+  const on = uniforms();
+  assert.deepEqual(on.find(([name]) => name === "uniform2f").slice(2), [64, 32]); // the drawing buffer
+  close(on.filter(([name]) => name === "uniform1f")[0][2], 0.005); // intensity x 0.05
+  // the framebuffer's texture is filtered and clamped for the shifted reads
+  assert.ok(gl.calls.some(([name, , key, value]) => name === "texParameteri" && key === "TEXTURE_WRAP_S" && value === "CLAMP_TO_EDGE"));
+  assert.ok(gl.calls.some(([name, , key, value]) => name === "texParameteri" && key === "TEXTURE_MIN_FILTER" && value === "LINEAR"));
+  Linear.setPostEnabled(false);
+  try {
+    close(uniforms().filter(([name]) => name === "uniform1f")[0][2], 0);
+  } finally {
+    Linear.setPostEnabled(true);
+  }
+  Linear.detach(p);
+});
