@@ -7,9 +7,10 @@
 //               and view light
 //   face        its own light direction (_ShadowLightDir, in the renderer's space: the root bone), a softer edge
 //   hair        the light term plus a highlight band from the direction map (_HairSpecTex)
-//   weapon      a half vector of the view and a fixed light (_FakeLightDir), a mask for shadow and highlight
+//   weapon      N.H (the view and a fixed light, _FakeLightDir) and N.V per vertex, a mask for shadow and highlight
 //   eyes/mouth  unlit, blended over the face; the bottom-left quarter of the atlas shows the mouth tile
-//   outline     an inverted hull along the smoothed normal (tangent), 0.1 % of the screen width times colour.a
+//   outline     an inverted hull along the smoothed normal (tangent), 0.1 % of the screen width times colour.a,
+//               coloured per vertex (the texture at the vertex)
 //   props       DSFX/FX_SHADER_Matcap (a matcap at the view-space normal), MX/E-Water-* (the surface colour) and the
 //               unlit and effect shaders, each with its own texture slot and colour
 // The game runs in linear colour space: colour textures are decoded from sRGB, masks are not, Color properties are
@@ -166,6 +167,11 @@ varying vec3 vAmbient;
 // unity_SHAr, SHAg, SHAb, SHBr, SHBg, SHBb, SHC
 uniform vec4 ambientSH[ 7 ];
 #endif
+#ifdef KIND_WEAPON
+// MX/C-Weapon takes N.V and N.H (the half vector of the view and its fixed light) per vertex
+uniform vec3 fakeLightDir;
+varying vec2 vWeaponLight;
+#endif
 void main() {
   #ifdef VERTEX_TINT
   // the effect shaders multiply by the whole vertex colour
@@ -200,6 +206,10 @@ void main() {
   vAmbient = sh * ( 0.3 / max( sh.r + sh.g + sh.b, 0.3 ) );
   #else
   vAmbient = vec3( 0.0 );
+  #endif
+  #ifdef KIND_WEAPON
+  vec3 toCamera = normalize( cameraPosition - world.xyz );
+  vWeaponLight = vec2( dot( vWorldNormal, toCamera ), dot( vWorldNormal, normalize( toCamera + fakeLightDir ) ) );
   #endif
   vUv = uv;
   #ifdef USE_COLOR_ALPHA
@@ -257,7 +267,9 @@ uniform sampler2D specMap;
 uniform vec4 specDir; // xyz: _SpecDirMultiplier, w: _SpecTopMultiplier
 uniform vec4 spec; // top leveler, bottom area, bottom multiplier, strength
 // weapon
-uniform vec3 fakeLightDir;
+#ifdef KIND_WEAPON
+varying vec2 vWeaponLight; // N.V, N.H
+#endif
 uniform vec4 weapon; // shadow threshold, shadow strength, light value, light strength
 uniform vec4 specColor; // rgb, a: _SpecStrong
 uniform vec4 glowMask; // rgb, a: strictness
@@ -371,10 +383,9 @@ void main() {
   col = ( diffuse + rim * rimColor( NdotL ) ) * albedo.rgb;
 
   #elif defined( KIND_WEAPON )
-  vec3 H = normalize( V + fakeLightDir );
   vec4 mk = texture2D( maskMap, vUv );
-  float lit = clamp( ( clamp( dot( N, H ) - weapon.x, 0.0, 1.0 ) - clamp( mk.g * 2.0 - weapon.x - 1.0, 0.0, 1.0 ) ) * weapon.y, 0.0, 1.0 );
-  float hl = clamp( ( mk.r * NdotV - weapon.z ) * weapon.w, 0.0, 1.0 ) * specColor.a * charLightData.x;
+  float lit = clamp( ( clamp( vWeaponLight.y - weapon.x, 0.0, 1.0 ) - clamp( mk.g * 2.0 - weapon.x - 1.0, 0.0, 1.0 ) ) * weapon.y, 0.0, 1.0 );
+  float hl = clamp( ( mk.r * vWeaponLight.x - weapon.z ) * weapon.w, 0.0, 1.0 ) * specColor.a * charLightData.x;
   vec3 light = mix( shadowTint.rgb * charShadowTone, charLightTone, lit ) * charLightData.x + vAmbient + hl * specColor.rgb * charLightTone;
   vec4 tex = texture2D( mainMap, vUv );
   col = light * tex.rgb * tint.rgb;
@@ -478,7 +489,10 @@ const OUTLINE_VERTEX = /* glsl */ `
 #include <skinning_pars_vertex>
 attribute vec3 _outline;
 uniform vec2 outlineScale;
-varying vec2 vUv;
+uniform sampler2D mainMap;
+uniform vec3 outlineTint;
+uniform vec3 charLightTone;
+varying vec3 vColor;
 void main() {
   vec3 objectNormal = _outline;
   #include <skinbase_vertex>
@@ -496,16 +510,13 @@ void main() {
   float width = 1.0;
   #endif
   gl_Position.xy += d * outlineScale * width * gl_Position.w;
-  vUv = uv;
+  vColor = texture2D( mainMap, uv ).rgb * outlineTint * charLightTone;
 }`;
 
 const OUTLINE_FRAGMENT = /* glsl */ `
-uniform sampler2D mainMap;
-uniform vec3 outlineTint;
-uniform vec3 charLightTone;
-varying vec2 vUv;
+varying vec3 vColor;
 void main() {
-  gl_FragColor = vec4( texture2D( mainMap, vUv ).rgb * outlineTint * charLightTone, 1.0 );
+  gl_FragColor = vec4( vColor, 1.0 );
   #include <colorspace_fragment>
 }`;
 

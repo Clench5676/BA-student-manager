@@ -123,9 +123,10 @@ skill's timeline, not the Animator, switches the faces) and a cut-in copy of the
 `web/js/chibi-materials.js` ports the MX/C-* shaders from their compiled D3D11 programs (the game is in linear
 colour space; the light is the formation screen's, below), and for props
 DSFX/FX_SHADER_Matcap (a riot shield, soup), MX/E-Water (the surface colour: the game deepens it by the camera depth
-behind it, which a lone chibi lacks) and the unlit and effect shaders, each with its own texture slot and colour. The outline is
-0.1 % of the stage width times the vertex colour alpha, as in the game. The camera orbits freely; the zoom stays between
-the bust and a step back, and a double click returns to the front view.
+behind it, which a lone chibi lacks) and the unlit and effect shaders, each with its own texture slot and colour. Terms the
+game's vertex programs compute stay per vertex: the outline's colour (the texture sampled at the vertex), MX/C-Weapon's
+N.V and N.H. The outline is 0.1 % of the stage width times the vertex colour alpha, as in the game. The camera orbits freely; the zoom stays
+between the bust and a step back, and a double click returns to the front view.
 
 The light is the formation screen's, read from the game rather than fitted to renders:
 

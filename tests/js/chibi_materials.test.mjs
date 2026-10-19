@@ -8,7 +8,7 @@ const THREE_URL = new URL("../../src/ba_modding_toolkit/web/vendor/three-0.160.0
 register(`data:text/javascript,${encodeURIComponent(`export async function resolve(spec, ctx, next) {
   return spec === "three" ? { url: ${JSON.stringify(THREE_URL)}, shortCircuit: true } : next(spec, ctx); }`)}`);
 const THREE = await import("three");
-const { AMBIENT, CHARACTER_LIGHT_DIR, EMPTY_SCENE_AMBIENT, LIGHT, ambientAt, characterLight, chibiMaterial,
+const { AMBIENT, CHARACTER_LIGHT_DIR, EMPTY_SCENE_AMBIENT, LIGHT, ambientAt, characterLight, chibiMaterial, outlineMaterial,
   slotSpace, trilightProbe } = await import("../../src/ba_modding_toolkit/web/js/chibi-materials.js");
 
 const near = (a, b, eps = 1e-4) => assert.ok(Math.abs(a - b) <= eps, `${a} != ${b}`);
@@ -160,3 +160,14 @@ test("the formation screen's light falls on the character from its slot's side",
   [0.0905737, 0.6513804, 0].forEach((v, i) => near(weapon.material.uniforms.fakeLightDir.value.getComponent(i), v));
 });
 
+test("MX/C-Weapon and the outline work per vertex, as the game's programs do", () => {
+  const weapon = chibiMaterial({ shader: "MX/C-Weapon", kind: "weapon" }, {});
+  // N.V and N.H come from the vertex program; the fragment program thresholds them
+  assert.match(weapon.material.vertexShader, /vWeaponLight = vec2\( dot\( vWorldNormal, toCamera \)/);
+  assert.match(weapon.material.fragmentShader, /vWeaponLight\.y - weapon\.x/);
+  // the outline's colour: the texture sampled at the vertex, times _OutlineTint and the light colour
+  const outline = outlineMaterial({ colors: { _OutlineTint: [0.5, 0.5, 0.5, 1] }, hdr: ["_OutlineTint"] }, tex("Body"));
+  assert.match(outline.vertexShader, /vColor = texture2D\( mainMap, uv \)\.rgb \* outlineTint \* charLightTone/);
+  assert.ok(!/texture2D/.test(outline.fragmentShader));
+  near(outline.uniforms.outlineTint.value.x, 0.5);
+});
