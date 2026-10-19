@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
+from .. import devmode
 from ..i18n import t
 from ..utils import CREATE_NO_WINDOW, no_log
 
@@ -208,6 +209,9 @@ class ADBManager:
 
     def _run_command(self, args: list[str], timeout: int = 30) -> subprocess.CompletedProcess:
         """执行 ADB 命令，统一错误处理"""
+        # dev mode (devmode): never reach a connected phone, the user's own device and install
+        if devmode.active():
+            raise ADBError("ADB is off in dev mode (BAMT_DEV_ROOTS)")
         full_args = [self.adb_path]
         # 如果已选择设备，添加 -s serial
         if self._device and args[0] not in ("devices", "version", "start-server", "kill-server"):

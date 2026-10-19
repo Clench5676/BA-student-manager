@@ -573,6 +573,69 @@ def test_classic_file_replace_writes_writable_folders_only(sandboxed):
     assert target.read_bytes() == b"new"
 
 
+# --- ADB and self-update, refused in dev mode ---
+
+def test_adb_is_never_run_in_dev_mode(dev, monkeypatch, tmp_path):
+    from ba_modding_toolkit.adb import manager
+
+    def run(*args, **kwargs):
+        raise AssertionError("adb ran")
+
+    monkeypatch.setattr(manager.subprocess, "run", run)
+    adb = manager.ADBManager("adb")
+    with pytest.raises(manager.ADBError):
+        adb._run_command(["devices"])
+    available, message = adb.detect_adb()
+    assert available is False and "dev mode" in message
+    assert adb.get_devices() == [] and adb.is_connected is False
+    assert adb.push_file(tmp_path / "a.bundle", "/sdcard/a.bundle") is False
+    assert adb.pull_file("/sdcard/a.bundle", tmp_path / "pulled" / "a.bundle") is False
+    assert adb.list_dir("/sdcard") == [] and adb.file_exists("/sdcard/a.bundle") is False
+
+
+def test_adb_runs_without_dev_mode(monkeypatch):
+    from ba_modding_toolkit.adb import manager
+
+    calls = []
+
+    def run(args, **kwargs):
+        calls.append(args)
+        return subprocess.CompletedProcess(args, 0, "Android Debug Bridge version 1.0.41\n", "")
+
+    monkeypatch.setattr(manager.subprocess, "run", run)
+    assert manager.ADBManager("adb").detect_adb() == (True, "Android Debug Bridge version 1.0.41")
+    assert calls == [["adb", "version"]]
+
+
+@pytest.fixture
+def installable_build(tmp_path, monkeypatch):
+    """A writable macOS app bundle the updater could replace."""
+    from ba_modding_toolkit import updater
+
+    target = tmp_path / "Tool.app"
+    executable = target / "Contents" / "MacOS" / "Tool"
+    executable.parent.mkdir(parents=True)
+    executable.touch()
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(sys, "executable", str(executable))
+    monkeypatch.setattr(updater, "is_compiled", lambda: True)
+    return target
+
+
+def test_a_build_never_replaces_itself_in_dev_mode(installable_build, monkeypatch, tmp_path):
+    from ba_modding_toolkit import updater
+    from ba_modding_toolkit.errors import ServiceError
+
+    assert updater.install_target() == installable_build
+    monkeypatch.setenv("BAMT_DEV_ROOTS", str(tmp_path))
+    assert updater.install_target() is None
+    started = []
+    monkeypatch.setattr(updater.subprocess, "Popen", lambda *args, **kwargs: started.append(args))
+    with pytest.raises(ServiceError) as caught:
+        updater.install(tmp_path / "BAMPT-0.1.1-macos-arm64.dmg", "0" * 32)
+    assert caught.value.code == "update_unsupported" and started == []
+
+
 # --- builds ---
 
 def test_builds_carry_the_hooks_version():

@@ -13,7 +13,8 @@ the tool uses to the folders the run names. A user's run sets none of these vari
 - ``BAMT_DEV_ROOTS``: dev mode. The folders the tool may use: the settings file, the data directory, game folders,
   mods to import, the library, the cache and output folders must lie inside them (``check_read``). A game folder
   outside is ignored, any other path outside is refused (``ServiceError("dev_path_outside")``), and the game is never
-  searched for: only ``BAMT_GAME_DIRS_*`` name it. Set to nothing, it allows nothing.
+  searched for: only ``BAMT_GAME_DIRS_*`` name it. ADB commands are refused (the user's phone) and a build never
+  replaces itself with an update. Set to nothing, it allows nothing.
 - ``BAMT_DEV_WRITABLE``: the folders whose files the tool may change in place in dev mode (``check_write``): a
   writable copy of a game folder, the run's data folder, pytest's basetemp, never a read-only game folder. Game files
   are written (switch, restore, mod install, CRC fix) only there or in the library's staging folders, and the check
