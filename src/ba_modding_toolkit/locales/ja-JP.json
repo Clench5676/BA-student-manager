@@ -473,7 +473,7 @@
 			"stream_ref_export_unsupported": "[{name}]の書き出しをスキップ：.resSストリーム参照を含むアセットは、再パックできるダンプとしての書き出しにまだ対応していません"
 		},
 		"mod_update": {
-			"all_processes_complete": "すべての処理が完了しました！",
+			"all_processes_complete": "すべての処理が完了しました！{count} 件のアセットを処理しました。",
 			"updating": "更新中...",
 			"source_files": "置き換え元グループ（{count}個のファイル）",
 			"target_files": "対象グループ（{count}個のファイル）",

@@ -15,10 +15,7 @@ TRANSLATIONS = sorted(p.stem for p in LOCALES.glob("*.json") if p.stem != REFERE
 
 # Placeholder differences that predate this test, each checked against its caller: the zh-CN string leaves out
 # {path}, which the caller passes (extra arguments are ignored), and asks for {count}, which the caller passes too.
-KNOWN_PLACEHOLDER_DIFFERENCES = {
-    ("zh-CN", "log.spine.render_file_not_found"),
-    ("zh-CN", "log.mod_update.all_processes_complete"),
-}
+KNOWN_PLACEHOLDER_DIFFERENCES: set[tuple[str, str]] = set()
 
 
 def load(code: str) -> dict:

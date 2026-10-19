@@ -473,7 +473,7 @@
 			"stream_ref_export_unsupported": "내보내기 건너뜀 [{name}]: .resS 스트림 참조가 있는 에셋은 아직 다시 패킹할 수 있는 덤프로 내보낼 수 없습니다"
 		},
 		"mod_update": {
-			"all_processes_complete": "모든 처리 완료!",
+			"all_processes_complete": "모든 처리 완료! 에셋 {count}개 처리.",
 			"updating": "업데이트 중...",
 			"source_files": "소스 그룹(파일 {count}개)",
 			"target_files": "대상 그룹(파일 {count}개)",

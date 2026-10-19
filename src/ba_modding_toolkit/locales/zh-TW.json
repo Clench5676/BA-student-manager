@@ -473,7 +473,7 @@
 			"stream_ref_export_unsupported": "跳過匯出 [{name}]：含 .resS 串流引用的資源暫不支援匯出為可重新打包的 dump"
 		},
 		"mod_update": {
-			"all_processes_complete": "全部流程已完成！",
+			"all_processes_complete": "全部流程已完成！共處理 {count} 個資源。",
 			"updating": "正在更新……",
 			"source_files": "來源組（{count} 個檔案）",
 			"target_files": "目標組（{count} 個檔案）",
