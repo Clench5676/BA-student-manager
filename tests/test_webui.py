@@ -409,6 +409,8 @@ def test_ui_strings_fall_back_key_by_key():
         assert (ui_strings(lang)["webui.tab.lobby"] != en["webui.tab.lobby"]) is shipped, lang
         assert set(ui_strings(lang)) == set(en), lang
     assert ui_strings("ja-JP")["webui.tab.lobby"] == "メモリアルロビー"
+    # a shipped translation: the Global client's own Korean term
+    assert ui_strings("ko-KR")["webui.tab.lobby"] == "메모리얼 로비"
     assert ui_strings("zh-SG")["webui.tab.lobby"] == "记忆大厅"
 
 
