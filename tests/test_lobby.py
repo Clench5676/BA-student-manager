@@ -220,7 +220,8 @@ def test_prefab_layout_drags_touches_and_anchors():
     assert info["prefab"] == "LobbyTest" and info["main"] == "Test_home"
     layers = {l["name"]: l for l in info["layers"]}
     assert layers["Test_home"] == {"name": "Test_home", "x": 0.0, "y": -962.0, "scale": 1.0, "active": True,
-                                   "order": 0, "queue": 3000, "z": 0.0, "index": 0, "skin": None, "animation": None}
+                                   "order": 0, "queue": 3000, "pages": {}, "z": 0.0, "index": 0, "skin": None,
+                                   "animation": None}
     assert layers["Test_bg"]["order"] == -1 and layers["Test_bg"]["animation"] == "Idle_01"
     assert layers["Test_scene"]["active"] is False  # an inactive GameObject on the path
     pat, eye = info["drags"]
@@ -348,8 +349,10 @@ def particle_renderer(material: int, order: int = 0, mode: int = 0) -> dict:
 
 def test_prefab_particle_systems():
     p = build_prefab()
-    # the skeleton's own material sorts it in the transparent queue
+    # the skeletons' own materials sort them in the transparent queue: the character's atlas pages (its skeleton data's
+    # atlas assets) in two queues, the background's page by the material its renderer keeps
     p.objects[302][1]["m_Materials"] = [ref(60, 2)]
+    p.objects[402][1]["m_Materials"] = [ref(64, 2)]
     # a sparkler under a SkeletonUtilityBone of the character, 0.5 Unity units along the bone, turned 90 degrees
     p.node(20, "SkeletonUtility-SkeletonRoot", father=3)
     p.node(21, "FX_Hand", father=20, pos=(1.0, 2.0))
@@ -379,13 +382,23 @@ def test_prefab_particle_systems():
                  63: ("cab-fx_63", {"program": None, "queue": 3000, "tex": {}})}
     asked = []
 
+    pages = {(301, 9001): ("cab-core_9001", {"Test_home": 3050, "Test_home2": 2900}),
+             (402, 64): ("cab-sk_64", {"Test_bg": 2950})}
+
     def resolve(kind, owner, pointer):
         asked.append((kind, owner, pointer["m_PathID"]))
+        if kind == "pages":
+            return pages.get((owner, pointer["m_PathID"]))
         return materials.get(pointer["m_PathID"]) if kind == "material" else None
 
     info = p.read("LobbyTest", SKELETONS, core_clips(), resolve)
-    home = next(l for l in info["layers"] if l["name"] == "Test_home")
-    assert home["queue"] == 2900 and home["z"] == 0.0
+    layers = {l["name"]: l for l in info["layers"]}
+    home, bg = layers["Test_home"], layers["Test_bg"]
+    # every atlas page with its queue, the layer's own queue the lowest of them
+    assert home["pages"] == {"Test_home": 3050, "Test_home2": 2900} and home["queue"] == 2900 and home["z"] == 0.0
+    assert bg["pages"] == {"Test_bg": 2950} and bg["queue"] == 2950
+    # the skeleton data's pages are asked first, the renderer's materials only without them
+    assert ("pages", 301, 9001) in asked and ("pages", 302, 60) not in asked and ("pages", 401, 9002) in asked
     fx = info["fx"]
     # the dust's material has no ported program, the group has none and the inactive system is not read
     assert [s["name"] for s in fx["systems"]] == ["FX_Loop", "Spark"]
@@ -572,6 +585,25 @@ def test_real_lobby_particles(real_game, monkeypatch):
         real_game.lobby_fx_texture("ch0187_home", tex_id + "0")
     # game art: kept in memory only
     assert any("lobby-fx/" in key for key, _ in puts) and not any(disk for key, disk in puts if "lobby-fx/" in key)
+
+
+@pytest.mark.skipif(not GAME_DIR.is_dir(), reason="No local game install")
+def test_real_lobby_page_queues(real_game):
+    # Hibiki's background page draws at 2900 and her own at 3050: the river surface (3000) draws over the river,
+    # under her
+    hibiki = real_game.lobby_info("hibiki_home")
+    layer, = hibiki["layers"]
+    assert layer["pages"] == {"Hibiki_home": 3050, "Hibiki_home2": 2900} and layer["queue"] == 2900
+    river = next(s for s in hibiki["fx"]["systems"] if s["name"] == "River_surface")
+    assert (river["order"], river["queue"]) == (0, 3000)
+    # Kisaki (Swimsuit): the scenery at 2900, her at 3100, the mist in front of her at 3200
+    kisaki, = real_game.lobby_info("ch0356_home")["layers"]
+    assert kisaki["pages"] == {"CH0356_home": 3100, "CH0356_home_2": 3200, "CH0356_home_3": 2900, "CH0356_home_4": 2900}
+    # every page of the atlas the web UI loads has its queue (the page's file name without its extension)
+    for core, layer in (("hibiki_home", layer), ("ch0356_home", kisaki)):
+        atlas = real_game.spine_files("lobby", core)[f"{layer['name']}.atlas"].decode("utf8")
+        names = [line.strip()[:-4] for line in atlas.splitlines() if line.strip().lower().endswith(".png")]
+        assert names and set(names) == set(layer["pages"])
 
 
 @pytest.mark.skipif(not GAME_DIR.is_dir(), reason="No local game install")

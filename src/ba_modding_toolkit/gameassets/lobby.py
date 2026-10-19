@@ -174,6 +174,27 @@ def _kind(go: str, bone: str | None) -> str:
     return re.sub(r"ik$", "", go.lower()) or "drag"  # PinchIK -> pinch, HandFollowIK -> handfollow, TouchIK -> touch
 
 
+def _pages(resolve: Callable[[str, int, dict], tuple[str, Any] | None] | None, sa_pid: int, sa: dict,
+           renderer_pid: int, renderer: dict) -> dict[str, int]:
+    """The render queue of each atlas page of a skeleton, {texture name: queue}. spine-unity gives each submesh the
+    material of its page, and Unity sorts every submesh by its own material's queue: a skeleton whose pages sit in
+    several queues (the background page at 2900, the character's at 3050) is drawn in as many steps, in queue order,
+    and a particle system that sorts between two of them draws between them (Hibiki's river surface over the river,
+    under her). Read from the skeleton data's atlas assets, else from the materials the prefab's renderer keeps."""
+    if resolve is None:
+        return {}
+    pointer = sa.get("skeletonDataAsset") or {}
+    found = resolve("pages", sa_pid, pointer) if pointer.get("m_PathID") else None
+    if found and found[1]:
+        return dict(found[1])
+    out: dict[str, int] = {}
+    for mat in renderer.get("m_Materials") or []:
+        found = resolve("pages", renderer_pid, mat) if mat.get("m_PathID") else None
+        for page, queue in (found[1] if found else {}).items():
+            out.setdefault(page, queue)
+    return out
+
+
 # --- post-processing: the URP volumes a lobby prefab carries (PPV at weight 1; PPV_C and PPV_D, the flash and the
 # depth of field a talk's timeline drives, mostly at 0) ---
 
@@ -319,21 +340,14 @@ def read_prefab(kinds: dict[int, str], tree: Callable[[int], dict], scripts: dic
                 continue
             skeleton_of_sa[pid] = name
             renderer = n["first"].get("MeshRenderer", {})
-            # its material's render queue: a particle system with the same sorting order draws before or after the
-            # skeleton by it
-            queue = 3000
-            mats = renderer.get("m_Materials") or []
-            if resolve is not None and mats and mats[0].get("m_PathID"):
-                found = resolve("material", n["pids"].get("MeshRenderer", 0), mats[0])
-                if found:
-                    queue = found[1].get("queue", 3000)
+            pages = _pages(resolve, pid, sa, n["pids"].get("MeshRenderer", 0), renderer)
             layers.append({
                 "name": name, "x": _r(n["m"][4]), "y": _r(n["m"][5]),
                 # NGUI units per skeleton unit: the GameObject's world scale times SkeletonDataAsset.scale
                 "scale": _r(math.hypot(n["m"][0], n["m"][1]) * clips.scales.get(name, _DATA_SCALE), 5),
                 "active": n["active"] and bool(sa.get("m_Enabled", 1)) and bool(renderer.get("m_Enabled", True)),
-                "order": renderer.get("m_SortingOrder", 0), "queue": queue, "z": particles.rounded(n["m3"])[11],
-                "index": len(layers),
+                "order": renderer.get("m_SortingOrder", 0), "queue": min(pages.values(), default=3000), "pages": pages,
+                "z": particles.rounded(n["m3"])[11], "index": len(layers),
                 "skin": sa.get("initialSkinName") or None, "animation": sa.get("_animationName") or None,
             })
     if not layers:
@@ -430,8 +444,9 @@ def lobby_info(skeletons: Iterable[str], clips: Clips, prefab: dict | None, soun
     if prefab is None:
         prefab = {"prefab": None, "main": None, "drags": [], "touches": [], "randomIdle": {}, "idle": {}, "idles": {},
                   "dialog": {}, "post": {},
-                  "layers": [{"name": s, **STANDARD, "active": True, "order": 0, "queue": 3000, "z": 0.0, "index": i,
-                              "skin": None, "animation": None} for i, s in enumerate(dict.fromkeys(skeletons))],
+                  "layers": [{"name": s, **STANDARD, "active": True, "order": 0, "queue": 3000, "pages": {}, "z": 0.0,
+                              "index": i, "skin": None, "animation": None}
+                             for i, s in enumerate(dict.fromkeys(skeletons))],
                   "fx": {"systems": [], "materials": {}, "textures": {}, "meshes": {}}}
     return {"view": dict(GAME_VIEW), **prefab, "defaultMix": dict(clips.mixes), "clips": clips.clips,
             "sounds": dict(sounds or {})}

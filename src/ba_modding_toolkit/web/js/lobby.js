@@ -11,11 +11,14 @@
 // (Unlocked, Custom) it shows what the game's lobby camera clears to, black, through the lobby's grade with PP on.
 // The prefab's particle systems (bokeh, dust, glints, Michiru's sparkler) are simulated and drawn into the layers'
 // own frames by particles-gl.js, in their sorting order relative to the skeletons and following the bones they hang on.
+// A skeleton whose atlas pages sit in several render queues draws in one part per queue (skeleton-parts.js), the
+// effects that sort between two of them in between: Hibiki's river surface over the river, under her.
 // Each skeleton's idle starts the clips the game's does (Shigure's train, snow, clouds, stars), some of them at random
 // times (lobby-sync.js), and the clips' sound keys play the game's sounds at the voice volume.
 import { spineFiles } from "./api.js";
 import * as Linear from "./linear.js";
 import * as Particles from "./particles-gl.js";
+import * as Parts from "./skeleton-parts.js";
 import * as Touch from "./lobby-touch.js";
 import * as Sync from "./lobby-sync.js";
 
@@ -644,6 +647,7 @@ function makePlayer(host, layer, onReady, onError = () => {}, fx = null) {
     },
     success: (player) => {
       player.bamtLayer = layer;
+      drawInParts(player, Parts.partsOf(layer), fx);
       // the game camera's post-processing (the prefab's volumes) goes with the linear-light pass, placed in the
       // camera's view whatever the player shows
       if (Linear.attach(player)) {
@@ -662,6 +666,19 @@ function makePlayer(host, layer, onReady, onError = () => {}, fx = null) {
       onReady(player);
     },
     error: (_p, message) => { console.error(message); onError(); },
+  });
+}
+
+// The skeleton in the parts of its pages' render queues (skeleton-parts.js), in place of spine-player's one draw;
+// before the next part, the effects that sort after this one, for which spine's batch is flushed and begun again
+function drawInParts(player, parts, fx) {
+  if (!(parts.count > 1)) return;
+  const renderer = player.sceneRenderer, draw = renderer.drawSkeleton.bind(renderer);
+  renderer.drawSkeleton = (skeleton, ...args) => Parts.drawInParts(skeleton, parts, () => draw(skeleton, ...args), (part) => {
+    if (!fx?.drawsAfter(player, part)) return;
+    renderer.end();
+    fx.between(player, part);
+    renderer.begin();
   });
 }
 
