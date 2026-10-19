@@ -300,12 +300,14 @@ function screenTree() {
         { depth: 10, mask: "linear-gradient(90deg, #000 70%, transparent 98%)" })
       // wider than the window's slanted left edge, and faded at both ends so no hard picture edge shows
       : clipped("Bust", [1, 6], tab === "model" ? modelShot : lobbyShot, win, { dx: -383 + 216, dy: 0, w: 450, h: 253 }, { depth: 10, mask: "linear-gradient(90deg, transparent 0, #000 10%, #000 70%, transparent 96%)" }));
-  // the wrapper holds an enabled (cyan) and a disabled (grey) body and label; keep the enabled ones
+  // the wrapper holds an enabled (cyan) and a disabled (grey) body and label: the enabled ones while the tab has
+  // something to add and switch to (switchKind), else the disabled ones
+  const keep = switchKind() ? 1 : 2;
   let bodies = 0, labels = 0;
   const add = fitIn(T(`row.add.${tab}`), 52, 30, 160, 3); // the cyan body is 205 wide, slanted
   for (const k of at(t, `${INFO}/Weapon/Btn_Up_Wrapper/Btn_Up`).children) {
-    if (k.name === "BG (1)") { bodies += 1; if (bodies === 2) k.active = false; }
-    if (k.name === "Label_Locale") { labels += 1; if (labels === 2) k.active = false; else Object.assign(k.widgets[0], { text: add.text, fontSize: add.fs, w_: 200, h_: 160 }); }
+    if (k.name === "BG (1)") { bodies += 1; if (bodies !== keep) k.active = false; }
+    if (k.name === "Label_Locale") { labels += 1; if (labels !== keep) k.active = false; else Object.assign(k.widgets[0], { text: add.text, fontSize: add.fs, w_: 200, h_: 160 }); }
     if (k.name === "Bg" || k.name === "Lock" || k.name === "Dot") k.active = false;
   }
 
