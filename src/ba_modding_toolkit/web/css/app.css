@@ -16,7 +16,9 @@
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { height: 100%; background: #0d1626; overflow: hidden; }
-body { cursor: var(--cursor); }
+/* the page's own, not the host's: pywebview's text_select=False would add body { cursor: default } after this
+   (webui/main.py) */
+body { cursor: var(--cursor); -webkit-user-select: none; user-select: none; }
 button { font: inherit; color: inherit; border: 0; background: none; cursor: var(--cursor-press); }
 input[type="text"], input[type="search"], textarea { cursor: text; }
 

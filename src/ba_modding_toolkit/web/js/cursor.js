@@ -6,6 +6,8 @@
 // Here it is a CSS cursor of 32 CSS px with the texture as its 2x image, on everything the game would show it on
 // (buttons too: the game has no hover or pressed pointer); drag handles keep grab and grabbing, text fields the text
 // cursor. Cursor_1 (the halo crosshair, hotspot in its middle, a software cursor) is the controller's pointer.
+// The window must leave body's cursor alone: pywebview's text_select=False adds "body { cursor: default }" after
+// app.css (webui/main.py keeps it True).
 //
 // Touch effect: touch-fx.js simulates FX_Touch; this draws it on two canvases over the whole window, below the
 // pointer and above everything else, idle (hidden, no frame loop, no bitmap) while nothing animates. The light goes to

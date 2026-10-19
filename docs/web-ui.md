@@ -476,9 +476,13 @@ in `pointer-textures`); without a game the system cursor stays and there is no e
 - **Pointer.** `ControllerMouse.SetPCCursorStyle` sets `PCIcon_MousePoint` (64 x 64; its MousePoint option chooses
   this or the system arrow) with `Cursor.SetCursor`, hotspot (0, 0) and `CursorMode.Auto`, which Windows shows at the
   system cursor size: here a 32 CSS px cursor with the texture as its 2x image (`image-set`, `-webkit-image-set` or a
-  plain `url` by `CSS.supports`), set as `--cursor` and `--cursor-press` on the root. The game has no hover or pressed pointer, so buttons show it too; drag handles keep `grab` and
-  `grabbing`, text fields the text cursor. `Cursor_1` (the halo crosshair, hotspot in its middle, a software cursor)
-  is the controller's pointer and is not used.
+  plain `url` by `CSS.supports`), set as `--cursor` and `--cursor-press` on the root. The game has no hover or pressed
+  pointer, so buttons show it too; drag handles keep `grab` and `grabbing`, text fields the text cursor. `Cursor_1`
+  (the halo crosshair, hotspot in its middle, a software cursor) is the controller's pointer and is not used.
+- **Pointer in the window.** pywebview's `text_select=False` (its default) appends `body { user-select: none; cursor:
+  default }` to the page after `app.css`, which left the game's pointer on the buttons only and the system arrow on
+  everything else (the portrait, the lobby, the panels): the window is created with `text_select=True` and `app.css`
+  turns off selection on `body` itself.
 - **Touch effect.** `Resources/UI/FX_Touch`, spawned by TouchEffectCreater at the pointer through the UI camera
   (orthographic size 1: the stage is 2 units high), dragged while the button is held and stopped 60 frames after the
   release. Its parts and numbers come from the prefab's ParticleSystem and TrailRenderer typetrees and its materials'

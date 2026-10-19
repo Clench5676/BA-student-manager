@@ -96,8 +96,11 @@ def _run_window(s: Services, server: Server, debug: bool) -> None:
 
     from .native import WEBVIEW2_URL, renderer_supported, watch_drops
 
+    # text_select stays True: with False (pywebview's default) pywebview appends "body { user-select: none; cursor:
+    # default }" to the page, which replaces the game's pointer with the system arrow on everything but the buttons.
+    # The page turns off text selection itself (app.css).
     window = webview.create_window(t("ui.app_title"), server.url, width=1600, height=900, min_size=(960, 540),
-                                   background_color="#0d2a4c", text_select=False)
+                                   background_color="#0d2a4c", text_select=True)
     s.window = window
 
     def on_initialized(renderer: str) -> bool:

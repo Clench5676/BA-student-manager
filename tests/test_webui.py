@@ -499,3 +499,35 @@ def test_open_classic_always_asks_for_the_classic_gui(monkeypatch):
     system.open_classic()
     system.open_classic("settings")
     assert calls == [["tool", "--classic"], ["tool", "--classic", "--settings"]]
+
+
+def test_the_window_leaves_the_pointer_and_text_selection_to_the_page(monkeypatch, tmp_path):
+    """pywebview's text_select=False (its default) appends "body { user-select: none; cursor: default }" to the page,
+    after app.css: the game's pointer (web/js/cursor.js) then shows only on buttons, the system arrow everywhere else.
+    The window keeps text selection on and the page turns it off itself."""
+    import re
+    import sys
+    from types import SimpleNamespace
+
+    from ba_modding_toolkit.webui import main
+
+    class Hook:
+        def __iadd__(self, handler):
+            return self
+
+    created, started = {}, {}
+
+    def create_window(title, url, **options):
+        created.update(options)
+        return SimpleNamespace(events=SimpleNamespace(initialized=Hook(), loaded=Hook(), closing=Hook()))
+
+    monkeypatch.setitem(sys.modules, "webview", SimpleNamespace(create_window=create_window,
+                                                                start=lambda **options: started.update(options)))
+    main._run_window(SimpleNamespace(window=None, data_dir=tmp_path), SimpleNamespace(url="http://127.0.0.1:1/"), False)
+    assert created["text_select"] is True
+    assert started["private_mode"] is True
+
+    css = (Path(main.__file__).parent.parent / "web" / "css" / "app.css").read_text(encoding="utf-8")
+    body = " ".join(re.findall(r"^body\s*\{([^}]*)\}", css, re.M))
+    for declaration in ("cursor: var(--cursor)", "-webkit-user-select: none", " user-select: none"):
+        assert declaration in body
