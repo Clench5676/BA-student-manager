@@ -378,6 +378,23 @@ def mesh(vertices: list, uv: list | None, normals: list | None, triangles: Itera
     return out
 
 
+# a mesh renderer's meshes and their weights
+_MESH_SLOTS = (("m_Mesh", "m_MeshWeighting"), ("m_Mesh1", "m_MeshWeighting1"), ("m_Mesh2", "m_MeshWeighting2"),
+               ("m_Mesh3", "m_MeshWeighting3"))
+
+
+def _mesh_choice(ids: list[tuple[str, float]], distribution: int) -> dict:
+    """What a mesh renderer draws: "mesh", the first of its meshes, and with more than one "meshes", all of them in
+    their slots' order (the empty slots left out): Unity picks one per particle, uniformly at random, or with
+    m_MeshDistribution 1 (non-uniform random) by their weights ("weights")."""
+    out: dict[str, Any] = {"mesh": ids[0][0]}
+    if len(ids) > 1:
+        out["meshes"] = [i for i, _ in ids]
+        if distribution == 1:
+            out["weights"] = [w for _, w in ids]
+    return out
+
+
 def build(nodes: list[dict], skeleton_of_go: Callable[[int], str | None], data_scale: Callable[[str], float],
           resolve: Callable[[str, int, dict], Any] | None) -> dict:
     """The particle systems of a prefab walk (lobby.read_prefab nodes, in hierarchy order), with their place: under a
@@ -413,10 +430,15 @@ def build(nodes: list[dict], skeleton_of_go: Callable[[int], str | None], data_s
                     else:
                         mat_id = None
             if mat_id and item["renderer"]["mode"] == 4:
-                mesh_found = resolve("mesh", rend_pid, rend.get("m_Mesh") or {})
-                if mesh_found:
-                    meshes[mesh_found[0]] = mesh_found[1]
-                    item["renderer"]["mesh"] = mesh_found[0]
+                ids = []
+                for slot, weight in _MESH_SLOTS:
+                    pointer = rend.get(slot) or {}
+                    mesh_found = resolve("mesh", rend_pid, pointer) if pointer.get("m_PathID") else None
+                    if mesh_found:
+                        meshes[mesh_found[0]] = mesh_found[1]
+                        ids.append((mesh_found[0], _r(rend.get(weight, 1.0))))
+                if ids:
+                    item["renderer"].update(_mesh_choice(ids, rend.get("m_MeshDistribution", 0)))
                 else:
                     mat_id = None
         item["material"] = mat_id
@@ -471,6 +493,6 @@ def build(nodes: list[dict], skeleton_of_go: Callable[[int], str | None], data_s
     for s in out:
         if "subs" in s:
             s["subs"] = [{**e, "system": remap[e["system"]]} for e in s["subs"] if e["system"] in remap]
-    used_meshes = {s["renderer"].get("mesh") for s in out}
+    used_meshes = {m for s in out for m in s["renderer"].get("meshes", [s["renderer"].get("mesh")])}
     return {"systems": out, "materials": materials, "textures": textures,
             "meshes": {k: v for k, v in meshes.items() if k in used_meshes}}

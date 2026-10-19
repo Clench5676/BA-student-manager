@@ -340,6 +340,37 @@ test("geometry: billboard size, the view's max size, stretch and meshes; vertex 
   near(vertexColor([1, 0.5, 0, 1], true)[1], 0.2158605, 1e-6, "linear");
 });
 
+test("a mesh renderer's meshes: one per particle, uniformly at random or by their weights", () => {
+  // ch0095's rain streaks (four meshes) and lobbyayane_multi's confetti (two triangles): a mesh per particle
+  const tri = { v: [0, 0, 0, 1, 0, 0, 0, 1, 0], i: [0, 1, 2] }, quad = { v: [0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0], i: [0, 1, 2, 2, 3, 0] };
+  const meshes = { tri, quad };
+  const many = { bursts: [{ t: 0, n: 400, cycles: 1, interval: 0.01, p: 1 }] };
+  const drawn = (renderer) => {
+    const fx = effects([sys({ emission: many, renderer: { mode: 4, mesh: "tri", ...renderer } })]);
+    fx.update(0.016);
+    const s = fx.systems[0], picks = s.particles.map((pt) => P.meshIndex(s.def.renderer, pt.seed));
+    // the geometry draws each particle's own mesh
+    const g = geometry(fx, s, { meshes });
+    assert.equal(g.count, picks.reduce((n, k) => n + [3, 6][k], 0));
+    return picks.filter((k) => k === 1).length / picks.length;
+  };
+  assert.equal(drawn({}), 0, "one mesh");
+  const uniform = drawn({ meshes: ["tri", "quad"] });
+  assert.ok(uniform > 0.4 && uniform < 0.6, `uniform ${uniform}`);
+  const weighted = drawn({ meshes: ["tri", "quad"], weights: [1, 3] });
+  assert.ok(weighted > 0.65 && weighted < 0.85, `weighted ${weighted}`);
+  assert.equal(drawn({ meshes: ["tri", "quad"], weights: [0, 1] }), 1);
+  // a particle keeps its mesh from frame to frame; four meshes are all drawn
+  const four = { meshes: ["a", "b", "c", "d"] }, seeds = Array.from({ length: 4000 }, (_, k) => k * 7919);
+  const share = [0, 1, 2, 3].map((m) => seeds.filter((sd) => P.meshIndex(four, sd) === m).length / seeds.length);
+  assert.ok(share.every((x) => x > 0.2 && x < 0.3), `shares ${share}`);
+  assert.equal(P.meshIndex(four, 12345), P.meshIndex(four, 12345));
+  // a listed mesh that is missing draws nothing
+  const fx = effects([sys({ emission: many, renderer: { mode: 4, mesh: "tri", meshes: ["tri", "gone"] } })]);
+  fx.update(0.016);
+  assert.equal(geometry(fx, fx.systems[0], { meshes }).count, 0);
+});
+
 test("sort modes draw the oldest or the youngest particles on top", () => {
   const fx = effects([sys({ emission: { rate: 10 }, renderer: { sort: 2 } })]);
   run(fx, 1);

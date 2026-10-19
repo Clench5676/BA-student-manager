@@ -528,7 +528,9 @@ in `pointer-textures`); without a game the system cursor stays and there is no e
     Unity's are, a segment with a Constant (infinite) tangent holding its left key's value: the water drops of
     misaki_home and ch0095_home keep still, then jump between speeds. Billboards (view or
     local alignment, max size a fraction of the game's view height), stretched billboards and meshes (the particle
-    colour times the mesh's vertex colours: ch0188's sea meshes fade out at their ends by them).
+    colour times the mesh's vertex colours: ch0188's sea meshes fade out at their ends by them; each particle draws
+    one of its renderer's meshes, up to four, picked uniformly at random or by their weights: the four rain streaks
+    of misaki_home and ch0095_home and the two confetti triangles of five *_multi lobbies, 17 renderers in 7 lobbies).
   - Drawn: the game's DSFX shaders ported from their compiled programs (Additive, AlphaBlend, AlphaBlend_Add, the
     Mask, Distort, Step, Step_MXChar and Step_Distort variants, AlphaBlend_Add_Distort_1a and
     AlphaBlend_Add_Double_Distort_1a, AlphaBlend_2_Roz, AlwaysView_Add, Matcap with the meshes' normals, General

@@ -15,7 +15,8 @@
 // position, rotation, scale, random and spherical direction), velocity over lifetime (linear, orbital with offset,
 // radial, speed modifier), limit velocity (dampen), force over lifetime, colour, size and rotation over lifetime,
 // texture sheet animation (grid: whole sheet or one row), custom data (vectors, colours) and sub-emitters (birth,
-// death); mesh particles take their mesh's vertex colours. Not simulated: noise, collision, triggers, lights,
+// death); a mesh particle draws one of its renderer's meshes (up to four, picked per particle) and takes its vertex
+// colours. Not simulated: noise, collision, triggers, lights,
 // trails, inherit velocity, rate over distance, limit velocity's drag, the by-speed modules and external forces (none
 // is used by more than one lobby); a system keeps drawing without them.
 
@@ -98,7 +99,7 @@ export function rnd(seed, k) {
 const R = { life: 0, speed: 1, size: 2, sizeY: 3, sizeZ: 4, rotX: 5, rotY: 6, rot: 7, color: 8, colorLife: 9,
   sizeLife: 10, rotLife: 11, velX: 12, velY: 13, velZ: 14, orbit: 15, radial: 16, speedMod: 17, limit: 18,
   forceX: 19, forceY: 20, forceZ: 21, frame: 22, start: 23, row: 24, flipU: 25, flipV: 26, flipRot: 27, custom: 28,
-  burst: 38, sub: 39, shape: 40 };
+  mesh: 36, burst: 38, sub: 39, shape: 40 };
 
 // --- 3 x 4 affine matrices (row-major) ------------------------------------------------------------------------------
 
@@ -566,16 +567,31 @@ const FACING = [0, 0, -1];
 // quad corners [x, y, u, v] in the triangle order 0 1 2, 2 3 0
 const QUAD = [[-0.5, -0.5, 0, 0], [0.5, -0.5, 1, 0], [0.5, 0.5, 1, 1], [0.5, 0.5, 1, 1], [-0.5, 0.5, 0, 1], [-0.5, -0.5, 0, 0]];
 
+// the index of the mesh a particle draws among a mesh renderer's meshes (particles.py _mesh_choice): Unity picks one
+// per particle, uniformly at random or by the meshes' weights
+export function meshIndex(rend, seed) {
+  const n = rend.meshes?.length || 1;
+  if (n === 1) return 0;
+  const w = rend.weights || null, total = w ? w.reduce((a, b) => a + Math.max(0, b), 0) : n;
+  if (!(total > 0)) return 0;
+  let x = rnd(seed, R.mesh) * total;
+  for (let i = 0; i < n - 1; i++) {
+    x -= w ? Math.max(0, w[i]) : 1;
+    if (x < 0) return i;
+  }
+  return n - 1;
+}
+
 // One system's triangles for this frame: {data: Float32Array (STRIDE floats per vertex), count: vertices}, in a
 // buffer the next call reuses. meshes: lobby.json fx.meshes; linear: decode the colours from sRGB. Positions are
 // lobby units (z dropped: the camera is orthographic).
 let scratch = new Float32Array(0);
 export function geometry(fxs, s, { meshes = {}, linear = true } = {}) {
   const def = s.def, rend = def.renderer, world = def.main.space === 1;
-  const mesh = rend.mode === 4 ? meshes[rend.mesh] : null;
-  if (!s.particles.length || (rend.mode === 4 && !mesh)) return { data: new Float32Array(0), count: 0 };
+  const list = rend.mode === 4 ? (rend.meshes || [rend.mesh]).map((id) => meshes[id]) : null;
+  if (!s.particles.length || (list && !list.every(Boolean))) return { data: new Float32Array(0), count: 0 };
   const M = s.M, streams = rend.streams || { uv: [0, 2] };
-  const need = s.particles.length * (mesh ? mesh.i.length : 6) * STRIDE;
+  const need = s.particles.length * (list ? Math.max(...list.map((m) => m.i.length)) : 6) * STRIDE;
   if (scratch.length < need) scratch = new Float32Array(Math.max(need, scratch.length * 2, 4096));
   const data = scratch;
   let o = 0;
@@ -586,6 +602,7 @@ export function geometry(fxs, s, { meshes = {}, linear = true } = {}) {
   if (rend.sort === 2) order = order.slice().sort((a, b) => a.age - b.age);
   else if (rend.sort === 3) order = order.slice().sort((a, b) => b.age - a.age);
   for (const pt of order) {
+    const mesh = list && list[meshIndex(rend, pt.seed)];
     const cur = fxs.current(s, pt), c = vertexColor(cur.color, linear), tc = texcoords(streams, cur.custom);
     const centre = world ? pt.pos : apply(M, pt.pos[0], pt.pos[1], pt.pos[2]);
     const fu = rend.flip && rnd(pt.seed, R.flipU) < rend.flip[0], fv = rend.flip && rnd(pt.seed, R.flipV) < rend.flip[1];
