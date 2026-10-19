@@ -50,9 +50,9 @@
 		"copy_filename": "複製檔名",
 		"render_preview": "渲染預覽圖",
 		"send_to_extractor": "傳送到資源提取",
-		"cache_to_local": "緩存到本機",
+		"cache_to_local": "快取到本機",
 		"detect": "偵測",
-		"clear_cache": "清除緩存",
+		"clear_cache": "清除快取",
 		"generate": "產生",
 		"fix_all": "全部修復",
 		"start_backup": "開始備份"
@@ -152,8 +152,8 @@
 		"character_name_field_info": "選擇角色名稱的顯示欄位：\nfull_name：kivo.wiki（簡體中文，最完整）\nname_cn：陸服\nname_jp：日文\nname_tw：繁體中文\nname_en：英文\nname_kr：韓文\n\n英文與韓文版只含角色名字；日文、陸服與繁體中文版另含角色服裝變體的名稱（如泳裝、女僕等）；kivo.wiki 版還含更多 NPC 變體的名稱（如運動服、無武裝等）。",
 		"adb_path": "ADB 路徑",
 		"adb_path_info": "adb.exe 的完整路徑，或填「adb」使用系統 PATH",
-		"adb_cache_dir": "緩存資料夾",
-		"adb_cache_dir_info": "ADB 檔案的本機緩存資料夾",
+		"adb_cache_dir": "快取資料夾",
+		"adb_cache_dir_info": "ADB 檔案的本機快取資料夾",
 		"backup_path": "備份路徑",
 		"backup_path_info": "選擇備份檔案的存放資料夾"
 	},
@@ -280,10 +280,10 @@
 			"detect_success": "ADB 偵測成功：{version}",
 			"detect_failed": "ADB 偵測失敗，請檢查路徑。",
 			"not_connected": "ADB 裝置未連線",
-			"clear_cache_confirm": "確定要清除所有 ADB 緩存檔案嗎？",
-			"clear_cache_done": "緩存已清除，釋放 {size}",
+			"clear_cache_confirm": "確定要清除所有 ADB 快取檔案嗎？",
+			"clear_cache_done": "快取已清除，釋放 {size}",
 			"push_confirm": "以下檔案將推送到 Android 裝置，是否繼續？\n{files}",
-			"cache_complete": "緩存完成，成功 {success} 個，失敗 {fail} 個",
+			"cache_complete": "快取完成，成功 {success} 個，失敗 {fail} 個",
 			"no_local_files": "請先選擇要推送的本機檔案",
 			"no_target_dir": "請指定目標資料夾",
 			"push_summary": "推送完成：成功 {success} 個，失敗 {fail} 個"
@@ -537,15 +537,15 @@
 		"platform_info": "目標平台：{platform}（Unity {version}）",
 		"unnamed_resource": "未命名的 {type} 資源",
 		"adb": {
-			"cache_hit": "緩存命中：{name}",
-			"cache_miss": "緩存未命中，從裝置拉取：{name}",
+			"cache_hit": "快取命中：{name}",
+			"cache_miss": "快取未命中，從裝置拉取：{name}",
 			"pull_failed": "拉取失敗：{path} - {error}",
 			"push_failed": "推送失敗：{path} - {error}",
 			"list_dir_failed": "列出資料夾失敗：{path} - {error}",
 			"push_start": "正在推送到裝置：{name}",
 			"push_success": "推送成功：{name}",
-			"cache_caching": "正在將 {count} 個檔案緩存到本機……",
-			"cache_delete_failed": "刪除緩存檔案 {name} 失敗：{error}",
+			"cache_caching": "正在將 {count} 個檔案快取到本機……",
+			"cache_delete_failed": "刪除快取檔案 {name} 失敗：{error}",
 			"push_start_batch": "正在推送 {count} 個檔案到 {dir}"
 		},
 		"abnormal_check": {
@@ -621,7 +621,7 @@
 				"device_connected": "裝置就緒",
 				"device_unauthorized": "裝置未授權，請在手機上允許 USB 偵錯。",
 				"device_offline": "裝置離線",
-				"cache_size": "緩存大小：{size}"
+				"cache_size": "快取大小：{size}"
 			}
 		},
 		"column": {
@@ -704,7 +704,7 @@
 			"environment": "執行環境",
 			"github": "GitHub",
 			"options": "選項",
-			"adb_cache": "ADB 緩存",
+			"adb_cache": "ADB 快取",
 			"target_crc": "目標 CRC 值",
 			"mod_info": "關於 Mod 偵測"
 		},
@@ -783,13 +783,13 @@
 		"consent": {
 			"title": "使用遊戲素材",
 			"no": "不同意並退出",
-			"yes": "同意並緩存",
+			"yes": "同意並快取",
 			"cached": {
-				"label": "緩存到本機",
+				"label": "快取到本機",
 				"items": "介面圖示、按鈕、邊框、材質、字型"
 			},
 			"never": {
-				"label": "不緩存",
+				"label": "不快取",
 				"items": "立繪、紀念大廳、3D 模型、語音、背景",
 				"how": "每次從遊戲資料夾讀取"
 			},
@@ -1079,11 +1079,11 @@
 			},
 			"language": "語言",
 			"cache": {
-				"label": "素材緩存",
-				"on": "已緩存到本機",
-				"off": "未緩存",
-				"clear": "清除緩存",
-				"cleared": "已清除緩存",
+				"label": "素材快取",
+				"on": "已快取到本機",
+				"off": "未快取",
+				"clear": "清除快取",
+				"cleared": "已清除快取",
 				"change": "變更"
 			},
 			"version": "版本",
@@ -1126,7 +1126,7 @@
 			"saved": "已儲存",
 			"button": "設定"
 		},
-		"cacheTo": "緩存到 {path}",
+		"cacheTo": "快取到 {path}",
 		"languageName": "繁體中文",
 		"a11y": {
 			"back": "返回"
