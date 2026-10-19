@@ -488,7 +488,7 @@ class GameAssets:
         stamps = [(path.name, path.stat().st_size, path.stat().st_mtime_ns) for path in bundles if path.exists()]
 
         def build() -> bytes:
-            skeletons, behaviours, trees = [], [], {}
+            skeletons, behaviours, trees, keys = [], [], {}, {}
             for path in bundles:
                 with open_bundle(path) as env:
                     for obj in env.objects:
@@ -505,15 +505,23 @@ class GameAssets:
                             behaviours.append((obj.path_id, tree))
                             # the volume profiles and their components are behaviours of the core's bundles too
                             trees[(obj.assets_file.name.lower(), obj.path_id)] = tree
+                            # a clip's sound keys point at events in another bundle: their CAB names, by key
+                            for i, key in enumerate(tree.get("SoundKeys") or []):
+                                event = key.get("Event") or {}
+                                if event.get("m_PathID"):
+                                    cab, pid = reference(obj, event)
+                                    keys[(obj.path_id, event.get("m_FileID", 0), pid)] = f"{cab.lower()}_{pid}"
             skeletons = list(dict.fromkeys(skeletons))
-            clips = lobby.Clips(behaviours, skeletons)
+            clips = lobby.Clips(behaviours, skeletons, sound=lambda owner, pointer: keys.get(
+                (owner, pointer.get("m_FileID", 0), pointer.get("m_PathID", 0))))
             prefabs, prefab = self._lobby_prefabs(), None
             for name in lobby.prefab_candidates(core, skeletons):
                 if name in prefabs:
                     prefab = self._lobby_prefab(prefabs[name], name, skeletons, clips, trees)
                     if prefab:
                         break
-            return json.dumps(lobby.lobby_info(skeletons, clips, prefab), ensure_ascii=True,
+            sounds = self._lobby_sound_events(clips.sound_events())
+            return json.dumps(lobby.lobby_info(skeletons, clips, prefab, sounds), ensure_ascii=True,
                               separators=(",", ":")).encode()
         return json.loads(self._cached("lobby/" + json.dumps([core.lower(), stamps]), build, disk=False))
 
@@ -582,6 +590,69 @@ class GameAssets:
                     except (ValueError, TypeError):
                         logger.debug("Cannot read lobby behaviour %s", obj.path_id, exc_info=True)
         return out
+
+    def _lobby_sound_events(self, ids: Iterable[str]) -> dict[str, dict]:
+        """The sound key events (AnimationAudioEvent assets of the lobbies' shared bundle) by id ("<cab>_<path id>"),
+        as lobby.sound_event reads them; their clips are ids of the same form. An event that cannot be read is left
+        out. Part of the lobby data: kept in memory only."""
+        wanted: dict[str, set[int]] = {}
+        for event in ids:
+            cab, _, pid = event.rpartition("_")
+            if cab and pid.lstrip("-").isdigit():
+                wanted.setdefault(cab, set()).add(int(pid))
+        if not wanted:
+            return {}
+        index, out = self._cab_index(everything=True), {}
+        for cab, pids in wanted.items():
+            bundle = index.get(cab)
+            if bundle is None:
+                logger.debug("Sound events of %s not found", cab)
+                continue
+            try:
+                with open_bundle(Path(bundle)) as env:
+                    for obj in env.objects:
+                        if obj.path_id not in pids or obj.assets_file.name.lower() != cab \
+                                or obj.type.name != "MonoBehaviour":
+                            continue
+
+                        def clip_id(pointer: dict, obj: Any = obj) -> str | None:
+                            if not pointer.get("m_PathID"):
+                                return None
+                            c, p = reference(obj, pointer)
+                            return f"{c.lower()}_{p}"
+                        event = lobby.sound_event(obj.read_typetree(), clip_id)
+                        if event:
+                            out[f"{cab}_{obj.path_id}"] = event
+            except (OSError, ValueError, TypeError, ServiceError):
+                logger.debug("Cannot read the sound events of %s", cab, exc_info=True)
+        return out
+
+    def lobby_sound(self, core: str, clip_id: str) -> bytes:
+        """An AudioClip a lobby's sound events play, decoded to WAV in memory (UnityPy and FMOD); only clips the
+        lobby's info lists. Game audio: never cached on disk."""
+        if not any(clip_id in e.get("clips", ()) for e in self.lobby_info(core).get("sounds", {}).values()):
+            raise AssetNotFound(("lobby-sound", core, clip_id))
+        cab, _, pid = clip_id.rpartition("_")
+        bundle = self._cab_index(everything=True).get(cab)
+        if bundle is None or not pid.lstrip("-").isdigit():
+            raise AssetNotFound(("lobby-sound", core, clip_id))
+
+        def build() -> bytes:
+            with open_bundle(Path(bundle)) as env:
+                obj = next((o for o in env.objects if o.path_id == int(pid) and o.assets_file.name.lower() == cab
+                            and o.type.name == "AudioClip"), None)
+                if obj is None:
+                    raise AssetNotFound(("lobby-sound", core, clip_id))
+                try:
+                    samples = obj.read().samples
+                except Exception as exc:  # FMOD missing or a format it cannot decode
+                    logger.debug("Cannot decode the lobby sound %s", clip_id, exc_info=True)
+                    raise AssetNotFound(("lobby-sound", core, clip_id)) from exc
+                data = next(iter(samples.values()), None)
+                if not data:
+                    raise AssetNotFound(("lobby-sound", core, clip_id))
+                return data
+        return self._cached("lobby-sound/" + clip_id, build, disk=False)
 
     def lobby_fx_texture(self, core: str, tex_id: str) -> bytes:
         """A texture of a lobby's particle effects as PNG (memory only): only ids the lobby's info lists."""

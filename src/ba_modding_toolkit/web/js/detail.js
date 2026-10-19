@@ -1,9 +1,11 @@
 // Detail screen, built from the game's own prefab (UICharacterDetail) by ngui.js. The prefab supplies every frame,
 // sprite, tint, incline and position; this file swaps labels and textures, hides what the tool has no use for, and adds
-// what the game has no screen for: variant chips, the expression strip and the portrait switcher. A family is one base
-// character with all of its variant portraits; each variant's game file carries one portrait (its own skeleton,
-// another variant's skeleton or an added portrait). Added portraits belong to the variant whose game file they replace
-// (mod.target) and can be worn by the other variants of the family.
+// what the game has no screen for: variant chips, the expression strip and the portrait and lobby switchers. A family
+// is one base character with all of its variant portraits; each variant's game file carries one portrait (its own
+// skeleton, another variant's skeleton or an added portrait), and likewise one memorial lobby (its own or an added
+// one). Added portraits and lobbies belong to the variant whose game file they replace (mod.target); added portraits
+// can be worn by the other variants of the family, lobbies are not offered to them. Switching writes the chosen one
+// into the game files (switch-sources.js, actions.apply).
 // The screen is shown only when it is ready: the panels, the left side's first frame (portrait, lobby or model) and,
 // within a short soft cap, the visible thumbnails. A change inside the screen (another variant, a tab, an applied
 // portrait) prepares every part off screen and swaps all of them in one frame (the commit barrier below).
@@ -17,6 +19,7 @@ import { forget, idleAnimation, prioritise, thumb } from "./thumbs.js";
 import { portraitViewport } from "./portrait-view.js";
 import { setTitle } from "./nav.js";
 import { KEYS, deltaOf, pacer, typing } from "./step-keys.js";
+import { appliedKey as keyOf, appliedOf, candidates as listSources, partsOf, sourceOf, switchKindOf } from "./switch-sources.js";
 import {
   $, DOT, RECRUIT, S, TAN10, advanceOf, at, clone, glyphsOf, hitButton, markedLabel, off, text, toast, widget, wrapPath,
 } from "./util.js";
@@ -109,52 +112,40 @@ const familyMods = () => fam.variants.flatMap((v) => v.modList || []);
 const isFav = (v) => !!v.favorite;
 const hasLobby = (v) => !!v.lobby;
 const hasModel = (v) => !!v.model;
-const hasFresh = (v) => (v.modList || []).some((m) => m.fresh);
+const hasFresh = (v, kind = null) => (v.modList || []).some((m) => m.fresh && (!kind || m.kind === kind));
 const modLabel = (m) => m.label || m.file?.split(/[\\/]/).pop() || m.id;
-const baseOf = (c) => (c.kind === "mod" ? spineBase("mod", c.id) : spineBase("spr", c.spr));
+// a candidate's skeleton: a mod's preview (its parts over the official ones), else the variant's own portrait or lobby
+const baseOf = (c, kind = "spr") => (c.kind === "mod" ? spineBase("mod", c.id) : spineBase(kind === "lobby" ? "lobby" : "spr", c.core));
 
-// the variant's own portrait, its added portraits, the other variants' portraits, the other variants' added portraits
-function candidates(v = variant()) {
-  const others = fam.variants.filter((o) => o.key !== v.key && o.spr);
-  const mod = (m) => ({ key: `m:${m.id}`, kind: "mod", id: m.id, label: modLabel(m), mod: m, origin: fam.variants.find((o) => o.key === m.target) });
-  return [
-    { key: "self", kind: "self", label: shortName(v), spr: v.spr, variant: v, recruit: v.recruitable, fav: isFav(v) },
-    ...familyMods().filter((m) => m.kind === "spr" && m.target === v.key).map(mod),
-    ...others.map((o) => ({ key: `v:${o.key}`, kind: "variant", label: shortName(o), spr: o.spr, variant: o, recruit: o.recruitable, fav: isFav(o) })),
-    ...familyMods().filter((m) => m.kind === "spr" && m.target !== v.key).map(mod),
-  ];
+// what the switch card of a kind offers (switch-sources.js), with the names and marks the cards show: the variant's
+// own portrait or lobby and its added ones, then for the portrait the other variants' ones and their added ones
+function candidates(v = variant(), kind = "spr") {
+  return listSources(fam, v, kind).map((c) => (c.kind === "mod"
+    ? { ...c, label: modLabel(c.mod) }
+    : { ...c, label: shortName(c.variant), recruit: c.variant.recruitable, fav: isFav(c.variant) }));
 }
-// the game file parts of one kind ("spr" portrait, "lobby" memorial lobby, "model" the 3D chibi's prefab bundles,
-// newest first)
-const partsOf = (v, kind = "spr") => (kind === "model" ? v.modelFiles || [] : (v.state?.files || []).filter((f) => f.kind === kind));
 // the kind of game file the shown tab is about, and the newest date of a kind's files
 const tabKind = () => (tab === "lobby" || tab === "model" ? tab : "spr");
+// the switch card's kind on the shown tab: the portrait or the lobby; null on the 3D tab (the library keeps no 3D mods)
+const switchKind = () => switchKindOf(tab);
 const dateOf = (v, kind) => (kind === "spr" ? v.date : partsOf(v, kind).map((f) => f.date).filter(Boolean).sort().pop());
-// what the variant's game file carries now: the one non-official source among its parts (a mod often replaces one part)
-function appliedOf(v, kind = "spr") {
-  const sources = new Set(partsOf(v, kind).map((f) => f.applied).filter((a) => a !== "official"));
-  return !sources.size ? "official" : sources.size === 1 ? [...sources][0] : "unknown";
-}
 function crcOf(v, kind = "spr") {
   const states = partsOf(v, kind).map((f) => f.crc);
   return states.includes("needs_fix") ? "needs_fix" : states.includes("fixed") ? "fixed" : "ok";
 }
-function appliedKey(v = variant()) {
-  const a = appliedOf(v);
-  if (a === "official") return "self";
-  if (a.startsWith("mod:")) return `m:${a.slice(4)}`;
-  if (a.startsWith("variant:")) return `v:${a.slice(8)}`;
-  return "unknown";
-}
-const current = () => candidates().find((c) => c.key === appliedKey()) || candidates()[0];
-// what the variant's lobby files carry, as a label: the original, a mod's name, or "replaced"
+const appliedKey = (v = variant(), kind = "spr") => keyOf(v, kind);
+// what the game shows on the variant's portrait or lobby, as a candidate (the own one when it carries something the
+// library did not put there)
+const current = (kind = "spr") => candidates(variant(), kind).find((c) => c.key === appliedKey(variant(), kind)) || candidates(variant(), kind)[0];
+// a candidate's name on the cards: another variant's mod with that variant's name first
+const candidateLabel = (c, v = variant()) => (c.kind === "mod" && c.origin && c.origin.key !== v.key ? `${shortName(c.origin)} - ${c.label}` : c.label);
+// what the variant's lobby files carry, as a label: the original, a mod's or another variant's name, or "replaced"
 function lobbyLabel(v) {
-  const a = appliedOf(v, "lobby");
-  if (a === "official") return T("lobby.original");
-  const mod = a.startsWith("mod:") && familyMods().find((m) => m.id === a.slice(4));
-  return mod ? modLabel(mod) : T("status.replaced");
+  const key = appliedKey(v, "lobby");
+  if (key === "self") return T("lobby.original");
+  const c = candidates(v, "lobby").find((x) => x.key === key);
+  return c ? candidateLabel(c, v) : T("status.replaced");
 }
-const sourceOf = (key) => (key === "self" ? "official" : key.startsWith("m:") ? `mod:${key.slice(2)}` : `variant:${key.slice(2)}`);
 const gameFile = (v = variant(), kind = "spr") => partsOf(v, kind)[0]?.file || null;
 const baseName = (path) => (path ? path.split(/[\\/]/).pop() : "—");
 const sizeText = (bytes) => (!bytes ? "—" : bytes < 1048576 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1048576).toFixed(1)} MB`);
@@ -194,7 +185,7 @@ function screenTree() {
   const t = clone(layouts.list);
   off(t, "Top", "NUITop_Scenes", "LeftInfo/CharInfo_Disable", "LeftInfo/CharCombatStyle", "RightInfo/Target/Disable",
     "RightInfo/Target/Active/2_LevelUp", "RightInfo/Target/Active/3_Transcendence", "RightInfo/Target/Active/FullCollier", "RightInfo/Target/Active/Effect");
-  const v = variant(), c = current(), kind = tabKind();
+  const v = variant(), sk = switchKind(), c = current(sk || "spr"), kind = tabKind();
   const swapped = tab === "lobby" ? appliedOf(v, "lobby") !== "official" : tab === "model" ? false : appliedKey() !== "self";
   // layer 1 of the panel: measured on the game screenshots it lets about 55 % of the background through
   widget(t, "RightInfo/Target/Active/Bg").color = "#0c284b/0.45";
@@ -260,8 +251,9 @@ function screenTree() {
   const folderY = openText.lines > 1 ? 38 : 26;
   at(t, up).children.push(node("Folder", [-1.4 + folderY * TAN10, folderY], [{ texture: "svg:folder", w_: 56, h_: 50, pivot: 4, depth: 12, color: "#ffffff/1.00" }]));
 
-  // row 2: four actions. Title and icon centred as a group on the card's slanted midline.
-  const isMod = c.kind === "mod";
+  // row 2: four actions on what the shown tab's game files carry. Title and icon centred as a group on the card's
+  // slanted midline.
+  const isMod = !!sk && c.kind === "mod";
   const actions = [["SkillData_EX", "act.edit", "edit", false], ["SkillData_EX (1)", "act.update", "update", isMod && !busy],
     ["SkillData_EX (2)", "act.extract", "extract", !busy], ["SkillData_EX (3)", "act.compare", "compare", isMod && !busy]];
   // the row's white section spans x 58..1320 (Bg_W2 at 689, 1262 wide); cards keep the first card's 37-unit margins
@@ -295,7 +287,7 @@ function screenTree() {
   at(t, `${INFO}/Weapon/WeaponType/Label_WeaponType`).pos = [-8, -2];
   off(t, `${INFO}/Weapon/WeaponType/Icon`);
   const card = `${INFO}/Weapon/Equip_1/UIEquipmentCard/Btn_Target`;
-  if (tab !== "portrait" || !hasFresh(v)) off(t, `${INFO}/Weapon/Equip_1/UIEquipmentCard/Dot`);
+  if (!sk || !hasFresh(v, sk)) off(t, `${INFO}/Weapon/Equip_1/UIEquipmentCard/Dot`);
   off(t, `${card}/Normal_NotEquip`, `${card}/Lock`, `${card}/Normal/Icon`, `${card}/Normal/Icon_Star`,
     `${card}/Normal/Card_Equipment`, `${card}/Normal/Card_Bg/Deco`);
   text(t, `${card}/Normal/Card_Level`, "");
@@ -309,12 +301,14 @@ function screenTree() {
         { depth: 10, mask: "linear-gradient(90deg, #000 70%, transparent 98%)" })
       // wider than the window's slanted left edge, and faded at both ends so no hard picture edge shows
       : clipped("Bust", [1, 6], tab === "model" ? modelShot : lobbyShot, win, { dx: -383 + 216, dy: 0, w: 450, h: 253 }, { depth: 10, mask: "linear-gradient(90deg, transparent 0, #000 10%, #000 70%, transparent 96%)" }));
-  // the wrapper holds an enabled (cyan) and a disabled (grey) body and label; keep the enabled ones
+  // the wrapper holds an enabled (cyan) and a disabled (grey) body and label: the enabled ones while the tab has
+  // something to add and switch to (switchKind), else the disabled ones
+  const keep = switchKind() ? 1 : 2;
   let bodies = 0, labels = 0;
   const add = fitIn(T(`row.add.${tab}`), 52, 30, 160, 3); // the cyan body is 205 wide, slanted
   for (const k of at(t, `${INFO}/Weapon/Btn_Up_Wrapper/Btn_Up`).children) {
-    if (k.name === "BG (1)") { bodies += 1; if (bodies === 2) k.active = false; }
-    if (k.name === "Label_Locale") { labels += 1; if (labels === 2) k.active = false; else Object.assign(k.widgets[0], { text: add.text, fontSize: add.fs, w_: 200, h_: 160 }); }
+    if (k.name === "BG (1)") { bodies += 1; if (bodies !== keep) k.active = false; }
+    if (k.name === "Label_Locale") { labels += 1; if (labels !== keep) k.active = false; else Object.assign(k.widgets[0], { text: add.text, fontSize: add.fs, w_: 200, h_: 160 }); }
     if (k.name === "Bg" || k.name === "Lock" || k.name === "Dot") k.active = false;
   }
 
@@ -448,9 +442,7 @@ function addSwitchText(host, view) {
   box.className = "switch-text";
   const textW = w * 0.42 - 44; // the chevron sits in the last 44 px
   Object.assign(box.style, { left: `${l + w * 0.5}px`, top: `${t}px`, width: `${w * 0.42}px`, height: `${h * 0.94}px`, paddingRight: "44px" });
-  const c = current();
-  const sub = tab === "lobby" ? lobbyLabel(variant()) : tab === "model" ? T("model.original")
-    : c.kind === "mod" && c.origin && c.origin.key !== variant().key ? `${shortName(c.origin)} - ${c.label}` : c.label;
+  const sub = tab === "lobby" ? lobbyLabel(variant()) : tab === "model" ? T("model.original") : candidateLabel(current());
   const title = T(`row.switch.${tab}`);
   const tf = fitText(title, 46, 34, textW / S), sf = fitText(sub, 32, 24, textW / S);
   box.style.setProperty("--title-size", `${NGUI.fontSizeFor(title, tf.fs) * S}px`);
@@ -459,7 +451,8 @@ function addSwitchText(host, view) {
   b.innerText = tf.text;
   span.innerText = sf.text;
   go.className = "switch-go";
-  box.append(b, span, go);
+  // the chevron only where the card opens a popup: the 3D card has nothing to switch to and stays inert (hits)
+  box.append(b, span, ...(switchKind() ? [go] : []));
   host.appendChild(box);
 }
 
@@ -469,9 +462,11 @@ function hits(view, leftHost, rightHost) {
     const el = view.nodes.get(`Inventory_ListControl/${path}`)?.els[0];
     if (el) hitButton(host, rect(el), fn, title).dataset.part = path;
   };
-  if (tab === "portrait") {
-    add(rightHost, `${INFO}/Weapon/Equip_1/UIEquipmentCard/Btn_Target/Normal/Card_Bg`, openPopup, T("row.switch.portrait"));
-    add(rightHost, `${INFO}/Weapon/Btn_Up_Wrapper/Btn_Up/BG (1)`, addMods, T("popup.add"));
+  // the switch card puts another source on the game files of the shown tab (the 3D tab has none to offer yet)
+  const sk = switchKind();
+  if (sk) {
+    add(rightHost, `${INFO}/Weapon/Equip_1/UIEquipmentCard/Btn_Target/Normal/Card_Bg`, () => openPopup(sk), T(`row.switch.${tab}`));
+    add(rightHost, `${INFO}/Weapon/Btn_Up_Wrapper/Btn_Up/BG (1)`, addMods, T(`row.add.${tab}`));
   }
   add(rightHost, `${INFO}/Status/Btn_Up_Wrapper/Btn_Up/BG (1)`, () => reveal(gameFile(variant(), tabKind())), T(platform === "mac" ? "open.mac" : "open.win"));
   add(rightHost, `${INFO}/Detail_Btn`, showDetails, T("info.details"));
@@ -544,34 +539,50 @@ async function job(method, params, { onDone, after = reload } = {}) {
   }
   return ok;
 }
+// the mod the shown tab's game files carry (row 2's update and compare act on it), or null
+function shownMod() {
+  const sk = switchKind(), c = sk && current(sk);
+  return c?.kind === "mod" ? c : null;
+}
 function runUpdate() {
-  const c = current();
-  if (c.kind !== "mod" || busy) return;
+  const c = shownMod();
+  if (!c || busy) return;
   job("actions.update", { mod: c.id }, { onDone: () => { forget(spineBase("mod", c.id)); } });
 }
 function runExtract() {
-  const c = current();
+  const c = shownMod();
   if (busy) return;
-  const target = c.kind === "mod" ? `mod:${c.id}` : `variant:${variant().key}`;
+  const target = c ? `mod:${c.id}` : `variant:${variant().key}`;
   job("actions.extract", { target }, { onDone: (r) => reveal(r?.folder) });
 }
 async function runCompare() {
-  const c = current();
-  if (c.kind !== "mod" || busy) return;
+  const c = shownMod();
+  if (!c || busy) return;
   const result = await call(() => rpc("actions.compare", { mod: c.id }));
   if (result) showCompare(result);
 }
-async function applyCandidate(key) {
+// switch: the chosen source is written into the variant's game files of that kind, so the game shows it; the library
+// keeps what it replaces (an official file until it is official again, a mod in the library)
+async function applyCandidate(key, kind = "spr") {
   const v = variant();
-  await job("actions.apply", { variant: v.key, source: sourceOf(key), kind: "spr" }, {
-    onDone: () => { forget(spineBase("spr", v.spr)); },
-    // the applied portrait swaps in with the rest of the screen; the old one shows until then
+  await job("actions.apply", { variant: v.key, source: sourceOf(key), kind }, {
+    onDone: () => { forget(kind === "lobby" ? spineBase("lobby", v.lobby) : spineBase("spr", v.spr)); },
+    // the applied portrait or lobby swaps in with the rest of the screen; the old one shows until then
     after: (ok) => {
       if (!ok) return reload();
       ctx.invalidateRoster();
-      expression = "00";
-      clearTimeout(blinkTimer);
-      mainPlayer = null;
+      if (kind === "lobby") {
+        // lobby.js keeps a lobby by its core: read the game files again, under a still of the old one
+        lobbyStale = true;
+        lobbyShot = null;
+        lobbySeq = null;
+        lobbyAll = false;
+        if (shownLeft === "lobby") shownKey = null;
+      } else {
+        expression = "00";
+        clearTimeout(blinkTimer);
+        mainPlayer = null;
+      }
       if (!open) return null; // the screen was left meanwhile: the next show reads the family again
       return changeInPlace(async () => {
         const data = await call(() => rpc("family.get", { key: fam.key }));
@@ -1156,38 +1167,39 @@ async function listPopup({ hostId, title, okText, items, selected, onSelect, onO
   host.querySelector(".popup-cards").scrollTop = scrollTop;
 }
 
-// switch portrait: the variant's own skeleton and added portraits, then the other variants'
-let popupSeg = 0, popupToken = 0;
+// switch portrait or memorial lobby: the variant's own skeleton and added ones, then the other variants' portraits;
+// OK writes the chosen one into the game files (applyCandidate)
+let popupSeg = 0, popupToken = 0, popupKind = "spr";
 async function renderPopup(scroll = 0) {
-  const v = variant();
-  const items = candidates().map((c) => ({
+  const v = variant(), kind = popupKind, inUseKey = appliedKey(v, kind);
+  const items = candidates(v, kind).map((c) => ({
     key: c.key, kind: c.kind, recruit: c.kind !== "mod" && c.recruit,
-    label: c.kind === "mod" && c.origin && c.origin.key !== v.key ? `${shortName(c.origin)} - ${c.label}` : c.label,
+    label: candidateLabel(c, v),
     full: c.kind === "mod" ? c.label : fullName(c.variant),
-    thumb: thumb(baseOf(c), "card"), big: () => thumb(baseOf(c), "bust"),
-    inUse: c.key === appliedKey(), fav: c.fav, isNew: c.kind === "mod" && c.mod.fresh, src: c,
+    thumb: thumb(baseOf(c, kind), "card"), big: () => thumb(baseOf(c, kind), "bust"),
+    inUse: c.key === inUseKey, fav: c.fav, isNew: c.kind === "mod" && c.mod.fresh, src: c,
   }))
     .filter((it) => popupSeg === 0 || (popupSeg === 1) === !!it.recruit)
     .sort((a, b) => (b.fav ? 1 : 0) - (a.fav ? 1 : 0));
   await listPopup({
-    hostId: "popup", title: T("popup.switch"), okText: T("popup.apply"), items, selected: pending, keepScroll: scroll,
+    hostId: "popup", title: T(kind === "lobby" ? "row.switch.lobby" : "popup.switch"), okText: T("popup.apply"), items, selected: pending, keepScroll: scroll,
     segs: ["seg.all", "seg.recruit", "seg.noRecruit"], seg: popupSeg, onSeg: (i) => { popupSeg = i; renderPopup(); }, sortKey: "sort.default",
     onSelect: (key, s) => {
       pending = key;
-      const c = candidates().find((x) => x.key === key);
+      const c = candidates(v, kind).find((x) => x.key === key);
       if (c?.kind === "mod" && c.mod.fresh) rpc("mods.seen", { id: c.id }).then(() => { c.mod.fresh = false; }).catch(() => {});
       renderPopup(s);
     },
     onOk: () => closePopup(true), onClose: () => closePopup(false),
     details: (it) => {
       const c = it.src, inUse = it.inUse;
-      const file = c.kind === "mod" ? c.mod.file : gameFile(c.variant);
-      const size = c.kind === "mod" ? c.mod.size : partsOf(c.variant).reduce((n, f) => n + (f.size || 0), 0);
+      const file = c.kind === "mod" ? c.mod.file : gameFile(c.variant, kind);
+      const size = c.kind === "mod" ? c.mod.size : partsOf(c.variant, kind).reduce((n, f) => n + (f.size || 0), 0);
       const status = c.kind === "mod" ? (inUse ? ["status.installed", "#1f9a52"] : ["status.notInstalled", "#d9822b"]) : ["status.gameFile", ""];
-      const crcState = inUse ? crcOf(v) : null;
+      const crcState = inUse ? crcOf(v, kind) : null;
       const crc = crcState === "fixed" ? ["crc.fixed", "#1f9a52"] : crcState === "needs_fix" ? ["crc.needed", "#d9822b"] : crcState === "ok" ? ["crc.original", ""] : null;
       return {
-        title: T("info.title.portrait"),
+        title: T(kind === "lobby" ? "info.title.lobby" : "info.title.portrait"),
         fields: [[T("field.file"), baseName(file)], [T("field.size"), sizeText(size)], [T("field.status"), T(status[0]), status[1] && `${status[1]}/1.00`],
           [T("field.crc"), crc ? T(crc[0]) : "—", crc?.[1] && `${crc[1]}/1.00`]],
         actions: [[T(platform === "mac" ? "open.mac" : "open.win"), () => reveal(file)],
@@ -1196,7 +1208,7 @@ async function renderPopup(scroll = 0) {
               try { await rpc("mods.remove", { id: c.id }); } catch (err) { toast(errorText(err), { kind: "error" }); return; }
               await reload();
               ctx.invalidateRoster();
-              if (pending === c.key) pending = appliedKey();
+              if (pending === c.key) pending = appliedKey(variant(), kind);
               renderPopup();
             }]
             : [T("btn.extract"), () => { closePopup(false); job("actions.extract", { target: `variant:${c.variant.key}` }, { onDone: (r) => reveal(r?.folder) }); }]],
@@ -1204,11 +1216,11 @@ async function renderPopup(scroll = 0) {
     },
   });
 }
-function openPopup() { pending = appliedKey(); popupSeg = 0; renderPopup(); }
+function openPopup(kind = "spr") { popupKind = kind; pending = appliedKey(variant(), kind); popupSeg = 0; renderPopup(); }
 function closePopup(apply) {
   $("popup").hidden = true;
   $("popup").innerHTML = "";
-  if (apply && pending && pending !== appliedKey()) applyCandidate(pending);
+  if (apply && pending && pending !== appliedKey(variant(), popupKind)) applyCandidate(pending, popupKind);
 }
 
 // variant picker: every variant of the family in the same list layout
@@ -1516,6 +1528,7 @@ let shownLeft = null, shownKey = null;
 // what the lobby or the model shows: the same variant of another install (game folder, file source) is another one
 const leftKey = (part, v) => (part === "lobby" ? `${v.lobby}@${fam.version}` : part === "model" ? `${v.key}@${fam.version}` : null);
 let lobbyFrom = null; // the install of the lobby in lobby.js, which keeps a lobby shown again by its core
+let lobbyStale = false; // its game files were switched: lobby.js reads them again
 function renderLeft() {
   if (!open) return Promise.resolve();
   const v = variant(), my = ++leftToken, want = tab, el = $(want), key = leftKey(want, v);
@@ -1588,8 +1601,9 @@ const LINE_LANG = { "zh-CN": "zh-CN", "zh-TW": "zh-TW", "en-US": "en", "ja-JP": 
 // they come in time (later ones re-render the strip)
 async function showLobby(v, my) {
   const still = () => open && my === leftToken && tab === "lobby" && variantKey === v.key;
-  if (lobbyFrom !== fam.version) Lobby.hide($("lobby"));
+  if (lobbyFrom !== fam.version || lobbyStale) Lobby.hide($("lobby"));
   lobbyFrom = fam.version;
+  lobbyStale = false;
   const m = await Lobby.show(v.lobby, $("lobby"), v.key);
   if (!m || !still()) return;
   if (fullscreen) { Lobby.frame("full"); Lobby.interactive(true); }

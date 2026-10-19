@@ -174,6 +174,14 @@ def test_zoom_out_limit_in_node():
     assert result.returncode == 0, result.stdout + result.stderr
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="Node is not installed")
+def test_idle_clips_and_sound_keys_in_node():
+    # the clips the idle starts, played at random times as the game does, and the sound keys of the clips
+    tests = Path(__file__).parent / "js" / "lobby_sync.test.mjs"
+    result = subprocess.run(["node", "--test", str(tests)], capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
 def test_lobby_strings_in_both_languages():
     for lang in ("zh-CN", "en-US"):
         strings = ui_strings(lang)

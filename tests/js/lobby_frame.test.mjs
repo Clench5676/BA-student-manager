@@ -46,6 +46,24 @@ test("every clip the lobby plays is sampled over the idle, with its sync clip, t
   assert.deepEqual(byClip["1:Bird_01"][4], [[0, "Idle_01", 0.4, true], [1, "Bird_01", 0.4, false]]);
 });
 
+test("the clips the idle starts are sampled over it on their own tracks, on every layer", () => {
+  // Shigure's train on track 3 of the character; Hoshino's whale on track 1 of her background, then the clip it chains to
+  const main = { name: "Shigure_home", main: true, idle: "Idle_01", data: data({ Idle_01: 4, Train_00_R: 0.25 }) };
+  const bg = { name: "Hoshino_bg", main: false, idle: "Idle_01", data: data({ Idle_01: 2, Start_Whale: 0.1, Whale: 0.15 }) };
+  const clips = { Idle_01: { track: 0, sync: ["Train_00_R"] }, Train_00_R: { track: 3, sync: [] },
+    Start_Whale: { track: 1, next: "Whale", sync: [] }, Whale: { track: 1, sync: [] } };
+  const clipOf = (l, name) => (l === bg && name === "Idle_01" ? { track: 0, sync: ["Start_Whale"] } : clips[name]);
+  const info = { idles: { Shigure_home: ["Idle_01"], Hoshino_bg: ["Idle_01"] } };
+  const poses = Lobby.clipPoses([main, bg], info, [], clipOf);
+  const train = poses.filter(([layer, tracks]) => layer === 0 && tracks[1]?.[1] === "Train_00_R");
+  assert.equal(train.length, 4);
+  assert.deepEqual(train[2][1], [[0, "Idle_01", 0.2, true], [3, "Train_00_R", 0.2, false]]);
+  const whale = poses.filter(([layer]) => layer === 1).map(([, tracks]) => tracks[1][1]);
+  assert.deepEqual([...new Set(whale)], ["Start_Whale", "Whale"]);
+  // without the idle pools (no prefab data) only the clips played on demand
+  assert.equal(Lobby.clipPoses([main], {}, [], clipOf).length, 0);
+});
+
 test("without the prefab's drag boxes the drag clips are found by name", () => {
   const main = { name: "Mod_home", main: true, idle: null, data: data({ Pat_01_M: 0.1, PatEnd_01_M: 0.1, Look_01_M: 0.1, Talk_01_A: 1 }) };
   const names = new Set(Lobby.clipPoses([main], null, [], clip).map(([, tracks]) => tracks[0][1]));

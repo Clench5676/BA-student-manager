@@ -477,7 +477,8 @@ def build_api(s: Services) -> RpcRegistry:
 
     @rpc.method("actions.apply")
     def actions_apply(variant: str, source: str, kind: str = "spr") -> str:
-        """Put a source on the variant's portrait ("spr") or memorial lobby ("lobby") game files."""
+        """Switch what the game shows: write a source into the variant's portrait ("spr") or memorial lobby ("lobby")
+        game files. The library keeps what it replaces (ModLibrary._commit)."""
         if kind not in ("spr", "lobby"):
             raise ServiceError("bad_params", kind=kind)
         return s.jobs.submit("apply", lambda log, progress, **p: after_change(s.library.apply(log=log, progress=progress, **p)),
