@@ -305,6 +305,13 @@ export function panBy(dx, dy) {
   const T = current.target;
   setView(clampView({ x: T.x - (dx / STAGE.w) * T.w, y: T.y + (dy / STAGE.h) * T.h, w: T.w, h: T.h }), false);
 }
+// the view a zoom or pan is easing to, and putting one back (lobby-touch.js: a scroll taken for a wheel that turns out
+// a trackpad swipe)
+const viewTarget = () => current?.target || null;
+function setViewTarget(v) {
+  if (mode !== "full" || !current?.meta || !v) return;
+  setView(clampView(v), false);
+}
 export function resetZoom() {
   if (!current?.meta) return;
   setView(viewOf(current.meta), true);
@@ -444,6 +451,7 @@ export async function show(core, host, variant) {
     const main = loaded.find((l) => l.name === current.meta.main)?.player;
     Touch.setup({
       players: loaded.map((l) => l.player), main, info, toWorld, zoomAt, panBy, playClip, clearClip, next,
+      viewTarget, setViewTarget,
       talking: () => !!talk, stopTalk: stop, blocked: () => Idle.blocking > 0,
       pause: () => Idle.pause(), resume: () => Idle.resume(), interrupt: () => Idle.interrupt(),
     });

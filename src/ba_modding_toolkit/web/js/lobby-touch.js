@@ -8,12 +8,13 @@
 // - tap on the body: the next dialogue.
 // - zoom at the pointer with a mouse wheel or a trackpad pinch (ctrl + wheel in Chromium and WebView2, gesture events
 //   in WebKit); pan with a two-finger trackpad swipe in any direction, the horizontal wheel, or a right- or
-//   middle-button drag. Panning only moves while zoomed in.
+//   middle-button drag. Panning only moves while zoomed in. A Magic Mouse scrolls like a trackpad: ctrl + scroll zooms.
 // Positions are NGUI units (lobby.js): the stage shows the current view, each skeleton sits at its prefab offset and
 // scale. Lobbies without prefab data get boxes around the character's own bones (medians over the game's lobbies).
 
 const SLOP = { mouse: 10, pen: 10, touch: 24 };  // stage px a tap may move (NGUI's mouse click threshold is 10)
 const WHEEL = 0.0015;                            // zoom by exp(-deltaY * WHEEL) per wheel pixel
+const LINE = 40;                                 // px: a wheel notch zooms at least as far as one line
 const PINCH = 0.01;                              // ctrl + wheel (a trackpad pinch): exp(-deltaY * PINCH)
 const SCROLL_MS = 120;                           // wheel events this close together belong to one scroll
 const STAGE = { w: 1920, h: 1080 };
@@ -179,39 +180,72 @@ function up(e) {
   }
   cursor(...(pointer || []));
 }
-// a mouse wheel notch: whole lines (deltaMode 1, 2), or the legacy wheelDeltaY in steps of 120 with no horizontal part.
-// A trackpad scrolls in small, uneven steps, often with some horizontal motion and with momentum after the fingers
-// lift; one scroll keeps the kind its first event had, so a trackpad step that happens to be 120 still pans.
-export function wheelKind(e, now = performance.now(), last = scroll) {
-  if (now - last.at < SCROLL_MS && last.kind) return last.kind;
-  if (e.deltaMode === 1 || e.deltaMode === 2) return "mouse";
-  const wd = e.wheelDeltaY || 0;
-  return !e.deltaX && !e.wheelDeltaX && wd !== 0 && wd % 120 === 0 ? "mouse" : "trackpad";
+// What one wheel event says about its device: "notch" (a mouse wheel), "maybe" (a wheel, or a trackpad step that
+// happens to look like one) or "smooth" (a trackpad, a Magic Mouse).
+// - Lines or pages (deltaMode 1, 2): a wheel.
+// - Both axes, or neither (a trackpad's gesture start): a trackpad. A wheel moves one axis.
+// - WebKit (Safari, the macOS app's WKWebView) gives wheelDeltaY = 3 x deltaY for every device (wheel ticks of 40 px;
+//   Chromium on macOS does the same for a trackpad), so there it says nothing. A wheel notch is the system's line
+//   delta times 40 px instead: macOS accelerates notches in tenths of a line, kept in 16.16 fixed point, so a notch is
+//   k x 4 px off by a hair (4.000244, 7.99988, 12.000732 ...) and a whole number only at half lines (k a multiple of
+//   5). A trackpad's steps are whole pixels: 8 px is a trackpad, 4.000244 a wheel, 20 or 40 either.
+// - Chromium and WebView2 count whole notches in wheelDeltaY, in steps of 120.
+export function wheelStep(e) {
+  if (e.deltaMode === 1 || e.deltaMode === 2) return "notch";
+  const dx = e.deltaX || 0, dy = e.deltaY || 0;
+  if (!dx === !dy) return "smooth";
+  const d = dy || dx, w = (dy ? e.wheelDeltaY : e.wheelDeltaX) || 0;
+  if (Math.abs(w + 3 * d) < 1.01) {
+    const v = Math.abs(d), k = Math.round(v / 4);
+    if (k < 1 || Math.abs(v - 4 * k) > 8e-4 * k) return "smooth";
+    if (v !== Math.round(v)) return "notch";
+    return k % 5 === 0 ? "maybe" : "smooth";
+  }
+  return w && w % 120 === 0 ? "notch" : "smooth";
 }
+// A mouse wheel zooms, a trackpad swipe pans. Events this close together are one scroll and keep its kind, so a
+// trackpad step or its momentum that looks like a notch still pans; but a scroll read as a wheel turns out a trackpad
+// at the first event a wheel never sends.
+export function wheelKind(e, now = performance.now(), last = scroll) {
+  const step = wheelStep(e);
+  if (!(now - last.at < SCROLL_MS && last.kind)) return step === "smooth" ? "trackpad" : "mouse";
+  return last.kind === "mouse" && step === "smooth" ? "trackpad" : last.kind;
+}
+// a notch zooms at least as far as a line: a slow notch on macOS is a tenth of one (4 px), a step too small to see
+const notchZoom = (e, unit) => Math.exp(-Math.sign(e.deltaY) * Math.max(Math.abs(e.deltaY * unit), LINE) * WHEEL);
 function wheel(e) {
   if (!lobby) return;
   e.preventDefault();
   const [sx, sy] = stagePoint(e), unit = e.deltaMode === 1 ? 40 : e.deltaMode === 2 ? 800 : 1, now = performance.now();
   // stage px per CSS px: a two-finger swipe moves the art as far as the fingers moved
   const r = host.getBoundingClientRect(), k = r.width ? STAGE.w / r.width : 1;
+  const step = wheelStep(e);
   if (e.ctrlKey) {
-    // a trackpad pinch (Chromium, WebView2) or ctrl + mouse wheel; WebKit pinches with gesture events instead, which
-    // some versions accompany with ctrl + wheel events: those are left to the gesture
+    // a trackpad pinch (Chromium, WebView2) or ctrl + mouse wheel (or + Magic Mouse); WebKit pinches with gesture
+    // events instead, which some versions accompany with ctrl + wheel events: those are left to the gesture
     scroll = { kind: null, at: -Infinity };
-    if (now < pinchUntil) return trace("wheel", e, { act: "skip" });
-    const notch = wheelKind(e, now, scroll) === "mouse";
-    lobby.zoomAt(Math.exp(-e.deltaY * unit * (notch ? WHEEL : PINCH)), sx, sy);
-    return trace("wheel", e, { act: notch ? "zoom" : "pinch" });
+    if (now < pinchUntil) return trace("wheel", e, { act: "skip", step });
+    const notch = step !== "smooth";
+    lobby.zoomAt(notch ? notchZoom(e, unit) : Math.exp(-e.deltaY * unit * PINCH), sx, sy);
+    return trace("wheel", e, { act: notch ? "zoom" : "pinch", step });
   }
-  const kind = wheelKind(e, now);
-  scroll = { kind, at: now };
+  const fresh = !(now - scroll.at < SCROLL_MS && scroll.kind), kind = wheelKind(e, now);
+  if (fresh) {
+    // a scroll that only may be a wheel keeps the view it started from, to go back to if it turns out a trackpad
+    scroll = { kind, at: now, from: kind === "mouse" && step === "maybe" ? lobby.viewTarget?.() : null };
+  } else {
+    if (scroll.kind === "mouse" && kind === "trackpad" && scroll.from) lobby.setViewTarget?.(scroll.from);
+    if (step === "notch" || kind === "trackpad") scroll.from = null;
+    scroll.kind = kind;
+    scroll.at = now;
+  }
   if (kind === "mouse" && Math.abs(e.deltaY) >= Math.abs(e.deltaX)) {
-    lobby.zoomAt(Math.exp(-e.deltaY * unit * WHEEL), sx, sy);
-    return trace("wheel", e, { act: "zoom" });
+    lobby.zoomAt(notchZoom(e, unit), sx, sy);
+    return trace("wheel", e, { act: "zoom", step });
   }
   // a trackpad swipe (or a horizontal wheel): the art moves with the fingers, as in a scrolled page
   lobby.panBy(-e.deltaX * unit * k, kind === "mouse" ? 0 : -e.deltaY * unit * k);
-  trace("wheel", e, { act: "pan" });
+  trace("wheel", e, { act: "pan", step });
 }
 // Safari / WKWebView trackpad pinch
 function gestureStart(e) { e.preventDefault(); gesture = 1; pinchUntil = performance.now() + 300; trace("gesturestart", e); }

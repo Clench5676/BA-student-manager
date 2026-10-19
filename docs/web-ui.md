@@ -352,11 +352,14 @@ in `pointer-textures`); without a game the system cursor stays and there is no e
 - **Zoom.** Fullscreen opens on the game's 16:9 view and zooms in to 2x. The Settings L2D tab (`lobbyZoomOut`, off by
   default) lets it zoom out further, to the widest 16:9 view inside the painted art (one 16-unit cell inside the
   painted rect).
-- **Input.** Press and drag: head pat, eye follow and the other drag boxes. Mouse wheel (whole lines, or
-  `wheelDeltaY` in steps of 120 with no horizontal part) and pinch (ctrl + wheel in Chromium / WebView2, gesture
-  events in WebKit) zoom at the pointer; a two-finger trackpad swipe pans in any direction, and one scroll keeps the
-  kind of its first event. A right- or middle-button drag pans. Native drags and the Force Touch look-up are turned
-  off on the lobby.
+- **Input.** Press and drag: head pat, eye follow and the other drag boxes. Mouse wheel (a notch zooms at least a
+  line's worth) and pinch (ctrl + wheel in Chromium / WebView2, gesture events in WebKit) zoom at the pointer; a
+  two-finger trackpad swipe pans in any direction. A wheel is told by its steps: whole lines, `wheelDeltaY` in steps
+  of 120 (Chromium), or in WebKit, whose `wheelDeltaY` is 3 x `deltaY` for every device, tenths of a line kept in
+  16.16 fixed point (4.000244 px) against a trackpad's whole pixels. One scroll keeps the kind of its first event; one
+  taken for a wheel that then sends a trackpad step goes back to the view it started from and pans. A Magic Mouse
+  scrolls like a trackpad (ctrl + scroll zooms). A right- or middle-button drag pans. Native drags and the Force
+  Touch look-up are turned off on the lobby.
 - **Input trace.** Started with `--debug`, the page sends the fullscreen lobby's pointer, wheel and gesture events
   (moves and scrolls at most every 50 ms) and every press anywhere in the document, with its target, through
   `debug.trace`, so a trackpad problem can be reproduced once and the log sent.
