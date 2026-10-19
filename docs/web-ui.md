@@ -848,6 +848,64 @@ in `pointer-textures`); without a game the system cursor stays and there is no e
   (moves and scrolls at most every 50 ms) and every press anywhere in the document, with its target, through
   `debug.trace`, so a trackpad problem can be reproduced once and the log sent.
 
+## Classic window
+
+The bottom-bar entries without a web screen, and Settings' More Settings, hand over to the classic Tk GUI
+(`webui/classic.py`, its child side in `gui/control.py`). It runs in a process of its own on both systems: Tk (Aqua)
+and pywebview (Cocoa) both need the main thread on macOS, and a crash in a classic tab never takes the web UI with it.
+
+- **One window per data directory.** `ClassicWindow.open(tab)` (`app.openClassic`) starts the program again
+  (`system.classic_command(tab, control=True)`: `--classic --control`, then `--tab <name>` or `--settings`) and waits
+  up to 30 s for its `ready`; an exit or silence before that is `classic_failed {exit_code}` (`null` when it stayed
+  silent; a late `ready` is still taken, and the window then shows itself). With a window open, a click sends the tab
+  and a raise; while a classic task runs (`busy`), only the raise, so a running task's tab is never switched. A window
+  left by an earlier instance (below) is only raised.
+- **The channel** is the web UI's own HTTP server, not stdio (the Windows build is onefile without a console):
+  `BAMT_CLASSIC_URL` (the server's origin) and `BAMT_CLASSIC_TOKEN` (one-time, random) go to the child, which takes
+  them out of its environment at once. It long-polls `GET /api/classic/control` (25 s) for its lines (`place x y w h`,
+  `raise`, `tab <name>`, `settings`; anything else is ignored) and posts `POST /api/classic/report`
+  (`{"type": "ready", pid, hwnd, exe}`, `{"type": "shown", tab}`, `{"type": "busy", n}`). Both take the child's token
+  in `X-BAMT-Classic` and never the session token, and the WSGI app routes `/api/classic/*` to `ClassicWindow.wsgi`
+  after its Host check. A daemon thread polls; the Tk thread drains the lines with `root.after(100)`. When the web UI
+  quits, the polls are refused, and the classic window stays open on its own.
+- **Placement.** The child starts transparent (`-alpha 0`). After `ready` the parent places it, hands the foreground
+  over, then sends `raise` (always in that order): centred on the BAMT window, inside the work area of the screen that
+  holds BAMT's centre, and shrunk to fit (the classic window is a fixed 800 x 1000). On macOS the parent reads the
+  `NSWindow` frame and the screens' visible frames on the main thread, flips them against the primary screen and sends
+  `place` in Tk's coordinates (the title bar fits too); then `yieldActivationToApplication:` (macOS 14) or an
+  activation ignoring other apps. On Windows it scales the logical size by the monitor's DPI and moves the child's
+  window itself (`SetWindowPos` on the `hwnd` from `ready`; `AllowSetForegroundWindow(ASFW_ANY)` before the raise).
+  The raise shows the window, keeps it on top for 300 ms and focuses it; the user can bring BAMT back over it. With
+  no raise 5 s after `ready`, the child shows itself.
+- **Busy.** `TabFrame.run_in_thread` and `StoppableDialog.set_task_running` count the running tasks
+  (`gui/control.py busy`); each new count is reported.
+- **Output.** The child's stdout and stderr go to `classic.log` in the data directory (rewritten at each start,
+  unbuffered, UTF-8), never to an unread pipe.
+- **Exit.** A watcher thread waits for the process and publishes `classic.closed {code}`. Should the Windows onefile
+  launcher return before the window it unpacked, the pid the child reported is followed until it ends or stops
+  polling for 60 s.
+- **`classic.json`** (`<data dir>/classic.json`, `{pid, exe, hwnd, created}`) names the open window, so an instance
+  started later still refuses game-folder writes and can raise it. It is written at `ready` and removed with
+  `classic.closed`, and by the child at its exit. `created` is the creation time the system reports, as an integer:
+  `GetProcessTimes` on Windows (FILETIME, 100 ns), `proc_pidinfo`'s `pbi_start_tvsec` on macOS (seconds), else
+  `ps -o lstart=` under `LC_ALL=C TZ=UTC0`, parsed with a fixed English table, which gives the same number whatever
+  the caller's locale and time zone; `/proc/<pid>/stat` on Linux. `find_classic()` takes the pid only while it is
+  alive with that creation time (a reused pid has a later one), runs this program's classic GUI (the exe name on
+  Windows, `--classic` in its arguments elsewhere) and is neither this process nor its parent; any other file is
+  stale and removed, so it never blocks writes. `ClassicWindow.orphan()` is that reader for a window this instance
+  did not start (GameWatch's `find_classic`).
+- **Events.** `classic.opened {pid}` (process started), `classic.ready {pid, tab}` (window up, or a tab shown),
+  `classic.closed {code}`. `ClassicWindow.status()` gives `{open, ready, busy, pid, orphan}`.
+- **The queue** (`ClassicQueue`, decision 5). While a classic window is open the web UI does not write the game
+  folder; the classic modal can queue the refused write for when it closes. In memory only: quitting drops it. At
+  most one toggle (a later one replaces it, one back to the stored intent removes it) and one action per entry (the
+  latest wins; a `mods.restoreDrift` over several entries is narrowed to the others). Each item keeps its call, the
+  pins and the size and modification time of its entries' files. `run(host)`, after `classic.closed` and the scan
+  that follows it, submits each item as its normal job, in order, and lists the dropped ones: a toggle whose `expect`
+  is no longer the stored intent (`state_changed`) or whose pins are not the known installs (`folder_changed`); an
+  entry whose own install changed, or is no longer the current one for `actions.apply` and `actions.restore`
+  (`folder_changed`), or whose files changed (`entry_changed`); a refused submit with its own error.
+
 ## Tests
 
 - `config`, `catalog` and `library` with fixtures and temporary folders (`library`: a fake game folder of
