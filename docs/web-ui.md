@@ -167,6 +167,20 @@ without it; shadowed hair 1.02 and body 1.07, 1.18 and 1.25 without it), and the
 `Hoshino_SG` and the like) match without it: they were rendered in a scene without ambient, about 10 % darker than
 the formation screen.
 
+Checked against four screenshots of the formation screen (Global client, 2000 x 1125 game area): 14 students rendered
+at the formation camera and their slots line up with the screenshots to the pixel (silhouettes, feet at 757 of 1125),
+the Formation_Idle time picked per student by the closest match. Per region, the median game / tool ratio in linear
+light over the students: face 1.01, lit skin 1.01, shadowed skin 1.01, lit hair 1.01, shadowed hair 1.00, lit clothes
+0.99, shadowed clothes 1.00, lit weapons 0.99, shadowed weapons 1.05 (1.15 with the light in world space), halos 1.05.
+Taking the light into the slot's space lowers the mean difference on the same pixels for every student: hair 4.8 to
+3.7 sRGB levels (median), bodies 6.7 to 5.6, weapons 10.0 to 7.9; the faces, lit by their own direction, are unchanged.
+What remains: the screenshots are softer (a Gaussian of about 0.6 px brings the renders closest; compression or the
+game's resampling), fine dark lines come out lighter in them (the outline's dip about 0.75 of the tool's at the
+silhouette and 0.82 inside, lines painted in the textures 0.87: partly the screenshot's own loss of fine detail),
+halo sparkles (the halos' particle effects, not exported) and the formation screen's occasional
+Formation_Idle_Random (`CharacterEchelon` plays it instead of the idle at random where the prefab has one, as Mika's
+swimsuit does in the screenshots; the tool plays Formation_Idle only).
+
 `AssetNotFound` (a `KeyError`) when a name is unknown. Layout nodes use the schema of
 `prototype/research-v4/tools/layout.py`: `{name, active, pos[x, y], scale[x, y], rotZ, widgets[], children?}` with
 the widget fields documented there; atlas and texture references are resolved to names.
