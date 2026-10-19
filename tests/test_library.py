@@ -1216,6 +1216,23 @@ def test_a_mod_in_use_in_another_game_folder_is_refused_with_that_folder(setup_l
     assert entry.file.is_file() and [m.id for m in env.library.mods()] == [entry.id]
 
 
+def test_a_mod_whose_changed_part_is_official_again_can_be_removed(setup_library):
+    env = setup_library
+    game_bundle(env.game_dir, part="002", payload=b"skeleton")
+    official = env.original.read_bytes()
+    entry, = env.library.add([make_mod(env.original, env.tmp / "input")])
+    env.library.apply("test", f"mod:{entry.id}")
+    # a launcher check writes the official bytes back to the part the mod changed
+    env.original.write_bytes(official)
+    library = reload_library(env)
+    library.remove(entry.id)
+    assert library.mods() == []
+    # the untouched official part, still recorded under the removed mod, is not kept as a mod by the next switch
+    other, = library.add([make_mod(env.original, env.tmp / "next", payload=b"next mod")])
+    library.apply("test", f"mod:{other.id}")
+    assert [m.id for m in library.mods()] == [other.id]
+
+
 @pytest.mark.parametrize("language", ["en-US", "zh-CN"])
 def test_the_in_use_refusals_have_their_messages(language):
     locales = Path(core.__file__).parent / "locales"

@@ -340,14 +340,15 @@ class ModLibrary:
         return "official" if self._is_official(path) else "unknown"
 
     def _in_use(self, mod_id: str) -> list[Path]:
-        """The game files that still carry the mod, in this install or another one the library wrote to."""
+        """The game files that still carry the mod, in this install or another one the library wrote to. A part the
+        mod left official (it replaces its kind as a unit) carries nothing of it."""
         paths = []
         for name, record in self._applied.items():
             if record.get("source") != f"mod:{mod_id}":
                 continue
             path = Path(name)
             try:
-                if path.is_file() and self._hashes.get(path).sha1 == record["sha1"]:
+                if path.is_file() and self._hashes.get(path).sha1 == record["sha1"] and not self._is_official(path):
                     paths.append(path)
             except OSError:
                 continue
@@ -361,7 +362,9 @@ class ModLibrary:
         keep = []
         for target in targets:
             carried = self._carried(target)
-            if carried == "unknown" or (carried.startswith("mod:") and carried[4:] not in self._records):
+            # an official part a removed mod left untouched goes to originals/ like any official file
+            if carried == "unknown" or (carried.startswith("mod:") and carried[4:] not in self._records
+                                        and not self._is_official(target)):
                 keep.append(target)
         if not keep:
             return []
