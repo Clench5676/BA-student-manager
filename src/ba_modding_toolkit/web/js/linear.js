@@ -26,23 +26,36 @@ void main() { gl_Position = vec4(p, 0.0, 1.0); }`;
 //   their defaults in every lobby and leave the colour as it is. The LUT's 32-step interpolation is not modelled.
 // A layer above another one is post-processed on its own (one canvas per layer); the colour steps are affine but for
 // gamma, and the shifts are sub-pixel where characters stand, so the composite is the game's within a hair.
+// Panini and the aberration are placed in the game's screen, the camera's 16:9 view G (screen: G on the canvas, in
+// canvas uv), never in the canvas's own: the left view and a zoomed or panned fullscreen view show the game's picture
+// with its shifts where the game puts them on the art, magnified with it. Past G's edge (a view zoomed out beyond it)
+// the game shows nothing to match, so both shifts are held at those of the nearest point of G's edge instead of
+// growing with the distance. With crop to fit (every lobby's Panini) neither reads past G from inside it, as in the
+// game, whose camera target ends there.
+// The bottom layer (clear) is drawn over the camera's clear colour, black, before the colour steps, as the game's
+// camera target holds it: where the art leaves the target clear, and at its alpha edges, the grade runs over black too
+// (lift shows there). The layers above stay transparent where they draw nothing.
 const FS = `#version 300 es
 precision highp float;
 uniform sampler2D t;
 uniform vec2 size;
-uniform float ca;
+uniform vec4 screen;
+uniform float ca, clear;
 uniform vec4 panini;
 uniform float grade, exposure;
 uniform vec3 filt, hsc, lift, gamma, gain;
 out vec4 o;
 const vec3 LUM = vec3(0.2126729, 0.7151522, 0.0721750);
 vec3 enc(vec3 c) { return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c)); }
-vec2 bend(vec2 uv) {
-  if (panini.z <= 0.0) return uv;
-  vec2 v = (2.0 * uv - 1.0) * panini.xy * panini.w;
+// a point of the game's screen (uv) on the canvas texture
+vec2 canvas(vec2 s) { return screen.xy + s * screen.zw; }
+// Panini: where a point of the screen reads the picture; past the screen's edge, the shift of the nearest edge point
+vec2 bend(vec2 s) {
+  if (panini.z <= 0.0) return s;
+  vec2 q = clamp(s, 0.0, 1.0), v = (2.0 * q - 1.0) * panini.xy * panini.w;
   float d = panini.z, vd = 1.0 + d, hyp = v.x * v.x + vd * vd, id = v.x * d;
   float cyl = (-id * v.x + vd * sqrt(hyp - id * id)) / hyp + d;
-  return v * (cyl / vd) / (cyl - d) / panini.xy * 0.5 + 0.5;
+  return v * (cyl / vd) / (cyl - d) / panini.xy * 0.5 + 0.5 + (s - q);
 }
 vec3 logc(vec3 x) { return 0.244161 * log2(max(5.555556 * x + 0.047996, 0.0)) * 0.30103 + 0.386036; }
 vec3 unlogc(vec3 x) { return (exp2((x - 0.386036) / 0.244161 * 3.321928) - 0.047996) / 5.555556; }
@@ -65,20 +78,26 @@ vec3 graded(vec3 c) {
   return clamp(luma + hsc.y * (c - luma), 0.0, 1.0);
 }
 void main() {
-  vec2 uv = gl_FragCoord.xy / size;
-  vec4 r = texture(t, bend(uv)), g = r, b = r;
+  vec2 s = (gl_FragCoord.xy / size - screen.xy) / screen.zw;
+  vec4 r = texture(t, canvas(bend(s))), g = r, b = r;
   if (ca > 0.0) {
-    vec2 k = 2.0 * uv - 1.0, step3 = -k * dot(k, k) * ca / 3.0;
-    g = texture(t, bend(uv + step3));
-    b = texture(t, bend(uv + 2.0 * step3));
+    vec2 k = clamp(2.0 * s - 1.0, -1.0, 1.0), step3 = -k * dot(k, k) * ca / 3.0;
+    g = texture(t, canvas(bend(s + step3)));
+    b = texture(t, canvas(bend(s + 2.0 * step3)));
   }
   // premultiplied samples: each channel from its own, the coverage of the pixel's own place
   vec3 c = vec3(r.r, g.g, b.b), a3 = vec3(r.a, g.a, b.a);
+  if (clear > 0.5) {
+    // over black: the camera target's colour, graded as a whole, and opaque
+    c = min(c, 1.0);
+    o = vec4(enc(grade > 0.5 ? graded(c) : c), 1.0);
+    return;
+  }
   vec3 col = min(c / max(a3, 1e-6), 1.0) * step(1e-6, a3);
   vec3 cover = r.a > 0.0 ? enc(grade > 0.5 ? graded(col) : col) * r.a : vec3(0.0);
   o = vec4(min(cover + max(c - a3, 0.0), 1.0), r.a);
 }`;
-const UNIFORMS = ["t", "size", "ca", "panini", "grade", "exposure", "filt", "hsc", "lift", "gamma", "gain"];
+const UNIFORMS = ["t", "size", "screen", "ca", "clear", "panini", "grade", "exposure", "filt", "hsc", "lift", "gamma", "gain"];
 
 const states = new WeakMap();
 
@@ -316,6 +335,27 @@ export function setPost(player, post) {
   const st = states.get(player);
   if (st) { st.post = post || null; st.params = null; }
 }
+// the game camera's view (G) in the player's skeleton units, as a spine-player viewport {x, y, width, height}: the
+// screen the post-processing is placed in (null: the canvas is the screen)
+export function setScreen(player, view) {
+  const st = states.get(player);
+  if (st) st.screen = view?.width > 0 && view?.height > 0 ? { x: view.x, y: view.y, w: view.width, h: view.height } : null;
+}
+// true for the bottom layer: drawn over the camera's clear colour (black, graded with the rest), opaque
+export function setClear(player, on) {
+  const st = states.get(player);
+  if (st) st.clear = !!on;
+}
+const CANVAS = Object.freeze([0, 0, 1, 1]);
+// the screen on the canvas this frame, [x, y, w, h] in canvas uv (y up), from the camera the skeleton was just drawn
+// with; the canvas itself (exactly) when they are the same within a millionth
+export function screenOnCanvas(screen, camera) {
+  const vw = camera?.zoom * camera?.viewportWidth, vh = camera?.zoom * camera?.viewportHeight;
+  if (!screen || !(vw > 0) || !(vh > 0)) return CANVAS;
+  const x0 = camera.position.x - vw / 2, y0 = camera.position.y - vh / 2;
+  const out = [(screen.x - x0) / vw, (screen.y - y0) / vh, screen.w / vw, screen.h / vh];
+  return out.every((v, i) => Math.abs(v - CANVAS[i]) < 1e-6) ? CANVAS : out;
+}
 
 // in the player's draw hook, after the skeleton: the linear framebuffer, encoded, onto the canvas
 export function end(player) {
@@ -332,7 +372,12 @@ export function end(player) {
   const u = res.u;
   gl.uniform1i(u.t, 0);
   gl.uniform2f(u.size, w, h);
-  if (st.post && (!st.params || st.params.w !== w || st.params.h !== h)) st.params = { w, h, p: postParams(st.post, w / h) };
+  const screen = screenOnCanvas(st.screen, player.sceneRenderer?.camera);
+  gl.uniform4f(u.screen, ...screen);
+  gl.uniform1f(u.clear, st.clear ? 1 : 0);
+  // Panini's extents: the game screen's aspect, the canvas's when the canvas is the screen
+  const aspect = screen === CANVAS ? w / h : st.screen.w / st.screen.h;
+  if (st.post && (!st.params || st.params.aspect !== aspect)) st.params = { aspect, p: postParams(st.post, aspect) };
   const p = (postOn && st.params?.p) || IDENTITY;
   gl.uniform1f(u.ca, p.ca);
   gl.uniform4f(u.panini, ...p.panini);

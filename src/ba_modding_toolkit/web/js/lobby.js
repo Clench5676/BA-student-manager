@@ -8,7 +8,7 @@
 // voices come from Kivo (setLines), matched by the voice clip names the talk animations carry in their events.
 // The edge extension (border pixels stretched outwards and blurred) is only a fallback for mods whose art does not
 // cover the view. Fullscreen zooms out as far as the zoom-out setting allows (zoomBounds); past the painted art
-// (Unlocked, Custom) it shows black, as the game's lobby camera clears.
+// (Unlocked, Custom) it shows what the game's lobby camera clears to, black, through the lobby's grade with PP on.
 // The prefab's particle systems (bokeh, dust, glints, Michiru's sparkler) are simulated and drawn into the layers'
 // own frames by particles-gl.js, in their sorting order relative to the skeletons and following the bones they hang on.
 import { spineFiles } from "./api.js";
@@ -375,8 +375,9 @@ function leftView(P, T, G) {
   return { x: clamp(T.x - 0.28 * W, P.x0, P.x1 - W), y: clamp(T.y - 0.66 * H, P.y0, P.y1 - H), w: W, h: H };
 }
 const viewOf = (m, md = mode) => ({ ...(md === "full" ? m.full : m.left) });
-// a layer's spine-player viewport for a view: the view in that skeleton's own units
-const layerViewport = (v, l) => ({
+// a layer's spine-player viewport for a view: the view in that skeleton's own units (also the game's view, for the
+// post-processing's screen)
+export const layerViewport = (v, l) => ({
   x: (v.x - l.x) / l.scale, y: (v.y - l.y) / l.scale, width: v.w / l.scale, height: v.h / l.scale,
   padLeft: 0, padRight: 0, padTop: 0, padBottom: 0, transitionTime: 0, animations: {},
 });
@@ -532,7 +533,8 @@ export function setZoomLimit(zoom) {
 }
 const measuresClips = () => zoomMode === "art" || zoomMode === "unlocked";
 // past the painted art (Unlocked, Custom) the lobby shows what the game's lobby camera clears to, black
-// (Persistent/Camera: solid colour clear); sparse art keeps the edge extension
+// (Persistent/Camera: solid colour clear), graded with PP on: the bottom layer draws it (linear.js setClear), the page
+// shows black behind it without WebGL2; sparse art keeps the edge extension
 function openEdge() {
   const open = (zoomMode === "unlocked" || zoomMode === "custom") && !!current?.meta && !current.meta.sparse;
   current?.host?.classList.toggle("open-edge", open);
@@ -621,8 +623,12 @@ function makePlayer(host, layer, onReady, onError = () => {}, fx = null) {
     },
     success: (player) => {
       player.bamtLayer = layer;
-      // the game camera's post-processing (the prefab's volumes) goes with the linear-light pass
-      if (Linear.attach(player)) Linear.setPost(player, current?.info?.post);
+      // the game camera's post-processing (the prefab's volumes) goes with the linear-light pass, placed in the
+      // camera's view whatever the player shows
+      if (Linear.attach(player)) {
+        Linear.setPost(player, current?.info?.post);
+        Linear.setScreen(player, layerViewport(game(), layer));
+      }
       if (layer.skin) try { player.skeleton.setSkinByName(layer.skin); player.skeleton.setSlotsToSetupPose(); } catch { /* the default skin */ }
       const idle = idleOf(player.skeleton.data, layer);
       if (idle) player.animationState.setAnimation(0, idle, true);
@@ -708,6 +714,9 @@ export async function show(core, host, variant) {
     fx?.layers(loaded.map((l) => l.player));
     current.meta = measure(loaded);
     current.loaded = loaded;
+    // the bottom layer over the camera's clear colour (graded with PP on); sparse art keeps the page behind it, for
+    // the edge extension
+    Linear.setClear(loaded[0].player, !current.meta.sparse);
     setView(viewOf(current.meta), true);
     feather(current.view);
     const main = loaded.find((l) => l.name === current.meta.main)?.player;

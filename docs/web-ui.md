@@ -500,6 +500,13 @@ in `pointer-textures`); without a game the system cursor stays and there is no e
   the three-sample chromatic aberration, then post exposure, the clamp to 0..1 and the LUT's steps (contrast in LogC,
   colour filter, lift / gamma / gain, hue, saturation), in linear light; the LUT's own 32-step interpolation is not
   modelled. A layer is post-processed on its own (7 lobbies have more than one).
+  Panini and the aberration are placed in the game's screen (the camera's 16:9 view), not in the canvas: the left
+  view and a zoomed or panned fullscreen view show them where the game draws them on the art, magnified with it.
+  Placed in the canvas, Michiru's left view had a 7.7 px fringe at its left edge, near the middle of the game's
+  screen, where the game has none, and a 2x zoom drew 7.7 px at its edge for the game's 1.9 px magnified. Past the
+  game's view (zoomed out beyond it) the game shows nothing to match: both shifts keep the values of the nearest
+  point of its edge instead of growing with the distance. Every lobby's Panini crops to fit, so neither reads past
+  the game's view from inside it, as in the game.
 - **PP setting.** The Settings L2D tab's `lobbyPost` (on by default) is the PC client's PP option
   (`AllowPostProcessing`, graphics options): off draws the lobby without its volumes, at once. Of the 19 in-game
   captures among the references, only Michiru's (CH0113) shows chromatic aberration, and it matches the lobby with
@@ -574,8 +581,10 @@ in `pointer-textures`); without a game the system cursor stays and there is no e
   - *Custom*: 1.0 to 4.0 game views across (0.1 steps, a slider row under the option), around the game's view.
 
   Past the painted art (Unlocked, Custom) the lobby shows black: what the game's lobby camera clears to (level1
-  `Persistent/Camera`, solid colour, black). Sparse art (a mod) keeps the blurred edge extension. The measurements are
-  kept for the session.
+  `Persistent/Camera`, solid colour, black). With PP on, the grade runs over that black as over the art: the bottom
+  layer is drawn over it before grading, so the art's alpha edges blend into it in linear light too. 7 lobbies lift
+  it above black (ch0082 60/255 grey, ch0259 45, ch0058 40, ch0222 a dark blue). Without WebGL2 the page shows black
+  there. Sparse art (a mod) keeps the blurred edge extension. The measurements are kept for the session.
 - **Input.** Press and drag: head pat, eye follow and the other drag boxes. Mouse wheel (a notch zooms at least a
   line's worth) and pinch (ctrl + wheel in Chromium / WebView2, gesture events in WebKit) zoom at the pointer; a
   two-finger trackpad swipe pans in any direction. A wheel is told by its steps: whole lines, `wheelDeltaY` in steps
