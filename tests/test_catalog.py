@@ -18,7 +18,8 @@ from ba_modding_toolkit.naming import parse_filename
 
 FIXTURES = Path(__file__).parent / "fixtures" / "catalog"
 ROOT = Path(__file__).resolve().parents[1]
-GAME_DIR = Path(os.environ.get("BAMT_TEST_GAME_DIR") or Path.home() / "Library/Application Support/Blue Archive/Game")
+# the real-install tests run only on an official game folder named by BAMT_TEST_GAME_DIR
+GAME_DIR = Path(os.environ.get("BAMT_TEST_GAME_DIR") or "/nonexistent/bamt-real-game")
 
 
 class FakeGame:

@@ -15,8 +15,8 @@ from ba_modding_toolkit.gameassets import lobby
 from ba_modding_toolkit.webui.services import Services
 from ba_modding_toolkit.webui.state import UiState
 
-GAME_DIR = Path(os.environ.get("BAMT_TEST_GAME_DIR", str(
-    Path.home() / "Library/Application Support/Blue Archive/Game")))
+# the real-install tests run only on an official game folder named by BAMT_TEST_GAME_DIR
+GAME_DIR = Path(os.environ.get("BAMT_TEST_GAME_DIR") or "/nonexistent/bamt-real-game")
 
 SA, CHARACTER, DRAG, BODY, WIDGET, CHAT, UTILITY, CONTAINER = range(5001, 5009)
 SCRIPTS = {SA: "SkeletonAnimation", CHARACTER: "SpineCharacter", DRAG: "SpineDragIK", BODY: "SpineCharacterBodyTouch",

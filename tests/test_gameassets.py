@@ -27,9 +27,10 @@ from ba_modding_toolkit.gameassets.spine import atlas_pages, extract_spine
 from ba_modding_toolkit.searching import get_search_dirs
 
 logger = logging.getLogger(__name__)
-PROTOTYPE = Path("/Users/A200237264/Repos/BA-student-manager/prototype")
-GAME_DIR = Path(os.environ.get("BAMT_TEST_GAME_DIR", str(
-    Path.home() / "Library/Application Support/Blue Archive/Game")))
+# reference files extracted earlier, only when named (BAMT_TEST_PROTOTYPE); they may come from a modded install
+PROTOTYPE = Path(os.environ.get("BAMT_TEST_PROTOTYPE") or "/nonexistent/bamt-prototype")
+# the real-install tests run only on an official game folder named by BAMT_TEST_GAME_DIR
+GAME_DIR = Path(os.environ.get("BAMT_TEST_GAME_DIR") or "/nonexistent/bamt-real-game")
 real_install = pytest.mark.skipif(not GAME_DIR.is_dir(), reason="No local game install")
 
 

@@ -21,6 +21,18 @@ from ba_modding_toolkit.utils import LogFunc, no_log
 # 数据缺失时案例列表为空，引用案例 fixture 的测试自动跳过。
 ASSETS_DIR = Path(__file__).parent / "assets"
 
+
+@pytest.fixture(autouse=True, scope="session")
+def _no_game_detection():
+    """Tests never look for the user's game install: settings without game folders find none, instead of
+    scanning Wine prefixes, Steam libraries and the registry."""
+    from ba_modding_toolkit import utils
+    saved = dict(utils._ba_path_cache)
+    utils._ba_path_cache.update({"auto": None, "global": None, "japan": None})
+    yield
+    utils._ba_path_cache.clear()
+    utils._ba_path_cache.update(saved)
+
 SAMPLE_DIR = ASSETS_DIR / "sample"
 MOD_UPDATE_DIR = ASSETS_DIR / "mod_update"
 LEGACY_RENAME_DIR = ASSETS_DIR / "legacy_rename"

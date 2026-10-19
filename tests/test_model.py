@@ -21,7 +21,8 @@ from ba_modding_toolkit.gameassets.discovery import cab_names, is_model_dependen
 from ba_modding_toolkit.searching import get_search_dirs
 
 FIXTURES = Path(__file__).parent / "fixtures" / "catalog"
-GAME_DIR = Path(os.environ.get("BAMT_TEST_GAME_DIR", str(Path.home() / "Library/Application Support/Blue Archive/Game")))
+# the real-install tests run only on an official game folder named by BAMT_TEST_GAME_DIR
+GAME_DIR = Path(os.environ.get("BAMT_TEST_GAME_DIR") or "/nonexistent/bamt-real-game")
 
 
 # --- UnityPy workarounds ---
