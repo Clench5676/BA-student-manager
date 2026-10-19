@@ -130,6 +130,7 @@ async function route() {
     console.error(err);
     if (err.code === "game_not_found") { noGame(); return; }
     toast(T(`error.${err.code || "internal"}`, err.params || { error: String(err) }), { kind: "error" });
+    if (parts[0] === "student") Detail.stepFailed();
     // a student the catalog does not have (a stale or mistyped link): the screen shown before, its portrait, lobby or
     // 3D view, does not stay under that address; back to the list, under the error toast
     if (parts[0] === "student" && my === routeToken && String(err.code || "").startsWith("catalog_")) {

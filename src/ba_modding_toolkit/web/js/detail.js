@@ -1492,7 +1492,11 @@ function changeInPlace(work) {
   return Loading.wait(prepare(g, true, async () => {
     await work();
     await settleThumbs();
-  }));
+  })).then((ready) => {
+    // it may have taken over a show (a tab clicked while a step loads): the screen is on that student now
+    if (ready && fam) arrived(fam.key, askedKey);
+    return ready;
+  });
 }
 
 // tabs: the left side shows the portrait, the memorial lobby or the 3D model
@@ -1757,7 +1761,7 @@ const changing = () => !!batch; // an in-place change is being prepared (a step,
 function address() {
   try { return location.hash.replace(/^#\/?/, "").split("/").map(decodeURIComponent); } catch { return []; }
 }
-let arrivals = [];
+let arrivals = [], askedKey = null; // askedKey: the variant the last show() was asked for, as in the address
 // the screen is ready on a student (or was left: no arguments): a step waiting for the address to be shown goes on
 function arrived(family, key) {
   if (!arrivals.length) return;
@@ -1797,6 +1801,7 @@ export async function show(context, familyData, key, { inPlace = false } = {}) {
   ctx = context;
   applyPrefs(ctx.prefs);
   open = true;
+  askedKey = key;
   const g = begin();
   await ensureLayouts();
   if (g.gen !== showGen) return; // a newer show, or hide()
@@ -1835,6 +1840,9 @@ export async function show(context, familyData, key, { inPlace = false } = {}) {
   // the screen is in, so the lobby tab does not wait for it
   if (open && hasLobby(variant())) rpc("lobby.warm").catch(() => {});
 }
+
+// a route to a student failed (main.js): a key step waiting for that screen goes on at once
+export function stepFailed() { arrived(); }
 
 // leaving the screen: stop the players, drop any change being prepared
 export function hide() {
