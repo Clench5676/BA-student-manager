@@ -244,11 +244,22 @@ def qmul(a: tuple, b: tuple) -> tuple[float, float, float, float]:
             aw * bz + ax * by - ay * bx + az * bw, aw * bw - ax * bx - ay * by - az * bz)
 
 
-def euler_to_quat(e: Iterable[float]) -> tuple[float, float, float, float]:
-    """Unity Euler degrees, applied Z, then X, then Y: q = qy * qx * qz."""
+# Unity's rotation orders (math::RotationOrder), the axis applied first leading; an Euler binding of a clip carries
+# its order in customType: 4 (ZXY, Unity's own, Quaternion.Euler) for curves made in Unity, 0 (XYZ) for the ones a
+# DCC tool's FBX kept as Euler (NP0186's battle idle)
+ROTATION_ORDERS = {0: "XYZ", 1: "XZY", 2: "YZX", 3: "YXZ", 4: "ZXY", 5: "ZYX"}
+UNITY_ORDER = 4
+
+
+def euler_to_quat(e: Iterable[float], order: int = UNITY_ORDER) -> tuple[float, float, float, float]:
+    """Unity Euler degrees in a rotation order; Unity's own (ZXY) applies Z, then X, then Y: q = qy * qx * qz."""
     x, y, z = (math.radians(a) / 2 for a in e)
-    qx, qy, qz = (math.sin(x), 0, 0, math.cos(x)), (0, math.sin(y), 0, math.cos(y)), (0, 0, math.sin(z), math.cos(z))
-    return qmul(qmul(qy, qx), qz)
+    axes = {"X": (math.sin(x), 0, 0, math.cos(x)), "Y": (0, math.sin(y), 0, math.cos(y)),
+            "Z": (0, 0, math.sin(z), math.cos(z))}
+    q: tuple = (0.0, 0.0, 0.0, 1.0)
+    for axis in ROTATION_ORDERS.get(order, ROTATION_ORDERS[UNITY_ORDER]):
+        q = qmul(axes[axis], q)
+    return q
 
 
 # --- animation clips (generic mecanim clips: streamed + dense + constant curves) -----------------------------------
@@ -341,6 +352,12 @@ def bind_tracks(bindings: list[Mapping[str, int]], curves: Mapping[int, list[flo
     return out
 
 
+def euler_orders(bindings: list[Mapping[str, int]], nodes: Mapping[int, int]) -> dict[int, int]:
+    """The rotation order (:data:`ROTATION_ORDERS`) of each node a clip rotates with Euler curves."""
+    return {nodes[b["path"]]: b.get("customType", UNITY_ORDER) for b in bindings
+            if b["typeID"] == 4 and b["attribute"] == 4 and b["path"] in nodes}
+
+
 # switches a clip can animate: a renderer's m_Enabled (Renderer 25, MeshRenderer 23, SkinnedMeshRenderer 137) and a
 # GameObject's m_IsActive (1); the attribute of a non-Transform binding is the crc32 of the property name
 TOGGLE_TYPES = {25: "renderer", 23: "renderer", 137: "renderer", 1: "active"}
@@ -372,15 +389,17 @@ def toggle_keys(values: list[float], times: list[float], start: float = 0.0) -> 
     return keys
 
 
-def track_values(attribute: int, parts: list[list[float]]) -> tuple[str, list[tuple[float, ...]]]:
-    """A glTF channel path and its values (mirrored; rotations normalised and kept continuous)."""
+def track_values(attribute: int, parts: list[list[float]],
+                 order: int = UNITY_ORDER) -> tuple[str, list[tuple[float, ...]]]:
+    """A glTF channel path and its values (mirrored; rotations normalised and kept continuous; Euler curves in their
+    rotation order)."""
     length = max(len(p) for p in parts)
     rows = [tuple(p[i] if len(p) > 1 else p[0] for p in parts) for i in range(length)]
     if attribute == 1:
         return "translation", [mpos(v) for v in rows]
     if attribute == 3:
         return "scale", rows
-    quats = [quat_norm(mquat(v if attribute == 2 else euler_to_quat(v))) for v in rows]
+    quats = [quat_norm(mquat(v if attribute == 2 else euler_to_quat(v, order))) for v in rows]
     for i in range(1, len(quats)):
         if sum(a * b for a, b in zip(quats[i], quats[i - 1])) < 0:
             quats[i] = tuple(-x for x in quats[i])
@@ -1004,13 +1023,15 @@ class _Exporter:
             exported.add(names[index])
             tt = clips[index].read_typetree()
             decoded = decode_clip(tt)
-            tracks = bind_tracks(tt["m_ClipBindingConstant"]["genericBindings"], decoded.curves, by_hash)
+            bindings = tt["m_ClipBindingConstant"]["genericBindings"]
+            tracks = bind_tracks(bindings, decoded.curves, by_hash)
+            orders = euler_orders(bindings, by_hash)
             animation: dict[str, Any] = {"name": tt["m_Name"], "channels": [], "samplers": []}
             times = glb.accessor(decoded.times, "SCALAR", minmax=True)
             zero = None
             for node, attrs in tracks.items():
                 for attribute, parts in attrs.items():
-                    path, values = track_values(attribute, parts)
+                    path, values = track_values(attribute, parts, orders.get(node, UNITY_ORDER))
                     if all(max(abs(a - b) for a, b in zip(v, values[0])) < 1e-5 for v in values):
                         # constant over the clip: one key, or nothing when it is the rest pose (three.js restores
                         # the original state of bindings no clip uses)

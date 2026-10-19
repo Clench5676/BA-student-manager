@@ -148,6 +148,37 @@ def test_track_values_mirror_and_continuity():
     assert path == "rotation" and values[0] == pytest.approx((0, -s, 0, s))
 
 
+def test_euler_rotation_orders():
+    s = math.sqrt(0.5)
+    qx, qy = (s, 0, 0, s), (0, s, 0, s)
+    # Unity's own order (ZXY): X before Y, q = qy * qx; XYZ the same here, ZYX applies Y first
+    assert model.euler_to_quat((90, 90, 0)) == pytest.approx(model.qmul(qy, qx))
+    assert model.euler_to_quat((90, 90, 0), 0) == pytest.approx(model.qmul(qy, qx))
+    assert model.euler_to_quat((90, 90, 0), 5) == pytest.approx(model.qmul(qx, qy))
+    # X and Z: ZXY applies Z first (q = qx * qz), XYZ applies X first (q = qz * qx)
+    qz = (0, 0, s, s)
+    assert model.euler_to_quat((90, 0, 90)) == pytest.approx(model.qmul(qx, qz))
+    assert model.euler_to_quat((90, 0, 90), 0) == pytest.approx(model.qmul(qz, qx))
+    # an unknown order falls back to Unity's
+    assert model.euler_to_quat((90, 0, 90), 9) == pytest.approx(model.euler_to_quat((90, 0, 90)))
+
+
+def test_euler_orders_from_custom_type():
+    a, b, c = (zlib.crc32(p) for p in (b"bone_root/Bip001", b"bone_root/Bip001/Bip001 Head", b"bone_root/other"))
+    bindings = [
+        {"typeID": 4, "attribute": 4, "path": a, "customType": 0},  # an FBX's Euler curve (XYZ)
+        {"typeID": 4, "attribute": 4, "path": b, "customType": 4},  # one made in Unity (ZXY)
+        {"typeID": 4, "attribute": 2, "path": c, "customType": 0},  # a quaternion: no order
+        {"typeID": 4, "attribute": 4, "path": 12345, "customType": 0},  # a path the model lacks
+    ]
+    assert model.euler_orders(bindings, {a: 0, b: 1, c: 2}) == {0: 0, 1: 4}
+    # the order reaches the channel: 90 degrees about X then Z (XYZ) differs from Z then X (Unity's)
+    _, xyz = model.track_values(4, [[90.0], [0.0], [90.0]], 0)
+    _, zxy = model.track_values(4, [[90.0], [0.0], [90.0]])
+    assert xyz[0] != pytest.approx(zxy[0])
+    assert xyz[0] == pytest.approx(model.quat_norm(model.mquat(model.euler_to_quat((90, 0, 90), 0))))
+
+
 def test_mirror_matrix_and_quaternion_helpers():
     identity = {f"e{r}{c}": float(r == c) for r in range(4) for c in range(4)}
     assert model.mirror_matrix(identity) == [float(r == c) for c in range(4) for r in range(4)]
