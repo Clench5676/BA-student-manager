@@ -44,6 +44,8 @@ PREFAB_HINTS = {
     "UIPopup_FilterSort": "ui-_mxload-prefabs-2025-07-02_assets_all_2563991958.bundle",
     "UIFilterObjectList": "ui-uiassetobject-_mxload-2024-11-18_assets_all_625906829.bundle",
     "UICharacterDetail": "ui-_mxload-prefabs-2025-07-02_assets_all_2968814143.bundle",
+    # the portrait's fullscreen view, opened by the detail screen's ZoomButton
+    "UICharacterVisualMode": "ui-_mxload-prefabs-2025-07-02_assets_all_1664527646.bundle",
     "UIPopup_Option_PC": "ui-_mxload-prefabs-2025-11-28_assets_all_1183413113.bundle",
     # the loading screen (Resources/UI/UILoading.prefab) and its "Now Loading" indicator
     "UILoading": "prologgroup-assets-_mx-resources-ui-_mxprolog-2026-04-13_assets_all_2006567787.bundle",
