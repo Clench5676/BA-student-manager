@@ -11,7 +11,8 @@ register(`data:text/javascript,${encodeURIComponent(`export async function resol
   if (spec === "three") return { url: ${JSON.stringify(VENDOR + "build/three.module.min.js")}, shortCircuit: true };
   if (spec.startsWith("three/addons/")) return { url: ${JSON.stringify(VENDOR + "examples/jsm/")} + spec.slice(13), shortCircuit: true };
   return next(spec, ctx); }`)}`);
-const { attachInput, bustDistance, clampPan, frameDistance, liftShare, pinchZoom, wheelZoom, zoomShare } =
+const { attachInput, bustDistance, clampPan, frameDistance, liftShare, pinchZoom, restoreZoom, saveZoom, wheelZoom,
+  zoomShare } =
   await import("../../src/ba_modding_toolkit/web/js/model.js");
 
 const near = (a, b, eps = 1e-6) => assert.ok(Math.abs(a - b) <= eps, `${a} != ${b}`);
@@ -109,8 +110,8 @@ function rig() {
   let goal = 10;
   const sink = {
     zoom: (f) => { calls.push(["zoom", f]); goal *= f; },
-    zoomGoal: () => goal,
-    setZoomGoal: (d) => { calls.push(["restore", d]); goal = d; },
+    zoomSave: () => goal,
+    zoomRestore: (d) => { calls.push(["restore", d]); goal = d; },
     span: () => SPAN,
     pan: (dx, dy) => calls.push(["pan", dx, dy]),
   };
@@ -158,6 +159,55 @@ test("WebKit: a swipe that starts like a whole line takes its zoom back and pans
     assert.deepEqual(r.calls.map((c) => c[0]), ["zoom", "restore", "pan", "pan"]);
     assert.equal(r.goal(), start);
   } finally { r.done(); }
+});
+
+// a view's zoom state as ChibiView keeps it: the goal a zoom eases to, the glide (tween) and the camera's distance
+function view(distance, tween = null, goal = null) {
+  return { goal, tween, distance: () => distance, setZoomGoal(d) { if (this.tween) this.tween.zoomed = true; this.goal = d; } };
+}
+
+test("a swipe that starts like a notch during a glide gives the distance back to the glide", () => {
+  // double-click home from the bust: the glide eases 4.41 -> 14.60; the swipe's first step zooms, then it is taken back
+  const glide = { dist0: 4.41, dist1: 14.6 };
+  const v = view(7.2, glide);
+  const saved = saveZoom(v);
+  v.setZoomGoal(6.5);
+  assert.equal(glide.zoomed, true);
+  restoreZoom(v, saved);
+  assert.equal(glide.zoomed, false);
+  assert.equal(v.goal, null);
+  // a zoom made during the glide before the swipe stays the glide's
+  const zoomedGlide = { dist0: 4.41, dist1: 14.6, zoomed: true };
+  const w = view(8, zoomedGlide, 9);
+  const kept = saveZoom(w);
+  w.setZoomGoal(7);
+  restoreZoom(w, kept);
+  assert.equal(w.goal, 9);
+  assert.equal(zoomedGlide.zoomed, true);
+});
+
+test("a swipe that outlives the glide ends where the glide headed; a new glide keeps the distance", () => {
+  const glide = { dist0: 4.41, dist1: 14.6 };
+  const v = view(13, glide);
+  const saved = saveZoom(v);
+  v.setZoomGoal(12);
+  v.tween = null; // the glide ended during the swipe
+  restoreZoom(v, saved);
+  assert.equal(v.goal, 14.6);
+  const w = view(10);
+  const before = saveZoom(w);
+  w.setZoomGoal(9);
+  const next = { dist0: 9.5, dist1: 14.6 };
+  w.tween = next; w.goal = null; // a change of framing began a glide of its own
+  restoreZoom(w, before);
+  assert.equal(w.goal, null);
+  assert.equal(next.zoomed, undefined);
+  // at rest, the zoom goes back to where it was
+  const x = view(10);
+  const rest = saveZoom(x);
+  x.setZoomGoal(8);
+  restoreZoom(x, rest);
+  assert.equal(x.goal, 10);
 });
 
 test("WebKit: a trackpad pinch zooms by its gesture events, and its ctrl + wheel events are left to them", () => {

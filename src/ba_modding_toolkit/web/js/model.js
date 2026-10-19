@@ -107,8 +107,22 @@ export function clampPan(pan, share, box, lift) {
 // - a pinch zooms (pinchZoom): ctrl + wheel in Chromium and WebView2 (ctrl + a mouse wheel zooms by notches), gesture
 //   events in WebKit (the macOS app), two fingers on a touch screen.
 // - a right- or middle-button drag pans.
-// `sink`: zoom(factor) multiplies the distance the zoom heads for, zoomGoal() and setZoomGoal(d) read and put back that
-// distance, span() is the zoom range's (wheelZoom), pan(dx, dy) moves the chibi by CSS px. Returns the detach function.
+// `sink`: zoom(factor) multiplies the distance the zoom heads for, zoomSave() and zoomRestore(saved) take and put back
+// the zoom's state (saveZoom), span() is the zoom range's (wheelZoom), pan(dx, dy) moves the chibi by CSS px. Returns
+// the detach function.
+// the zoom's state before a scroll that may turn out a swipe (attachInput), and putting it back: during a glide its
+// own easing of the distance resumes (a glide the swipe outlived ends where it headed); a glide begun since owns the
+// distance. `view`: goal (the distance a zoom eases to, or null), tween (the glide, or null), distance(), setZoomGoal(d).
+export function saveZoom(view) {
+  return { goal: view.goal, tween: view.tween, zoomed: !!view.tween?.zoomed, distance: view.distance() };
+}
+export function restoreZoom(view, saved) {
+  if (view.tween && view.tween === saved.tween) {
+    view.goal = saved.goal;
+    view.tween.zoomed = saved.zoomed;
+  } else if (!view.tween) view.setZoomGoal(saved.goal ?? saved.tween?.dist1 ?? saved.distance);
+}
+
 export function attachInput(el, sink) {
   let scroll = { kind: null, at: -Infinity }, pinchUntil = -Infinity, gesture = 1, gesturing = false, drag = null;
   const touches = new Map();
@@ -126,9 +140,9 @@ export function attachInput(el, sink) {
       // a scroll that starts like a wheel zooming in pixels keeps the zoom it started from, to go back to if it turns
       // out a trackpad (lobby-touch.js); a second notch confirms the wheel
       const zooms = kind === "mouse" && !e.deltaMode && Math.abs(e.deltaY) >= Math.abs(e.deltaX);
-      scroll = { kind, at: now, from: zooms ? sink.zoomGoal() : null };
+      scroll = { kind, at: now, from: zooms ? sink.zoomSave() : null };
     } else {
-      if (scroll.kind === "mouse" && kind === "trackpad" && scroll.from != null) sink.setZoomGoal(scroll.from);
+      if (scroll.kind === "mouse" && kind === "trackpad" && scroll.from != null) sink.zoomRestore(scroll.from);
       if (step === "notch" || kind === "trackpad") scroll.from = null;
       scroll.kind = kind;
       scroll.at = now;
@@ -244,7 +258,7 @@ class ChibiView {
     this.pan = new THREE.Vector3(); // the orbit target's offset from the lifted target, and the one it eases to
     this.panGoal = new THREE.Vector3();
     this.detachInput = attachInput(this.canvas, {
-      zoom: (f) => this.zoomBy(f), zoomGoal: () => this.zoomGoal(), setZoomGoal: (d) => this.setZoomGoal(d),
+      zoom: (f) => this.zoomBy(f), zoomSave: () => saveZoom(this), zoomRestore: (saved) => restoreZoom(this, saved),
       span: () => this.span(), pan: (dx, dy) => this.panBy(dx, dy),
     });
     this.observer = new ResizeObserver(() => this.resize());
