@@ -1884,17 +1884,14 @@ class ModLibrary:
                 replaced.append(built[entry.core])
             built[entry.core] = key
 
-        def after(data: dict) -> None:
-            # another instance may have dropped the last reference since the first exists check
-            for part in entry.parts:
-                kept = parts.get(part.path.name)
-                if kept is not None and kept["mod_file"] is None:
-                    built = self.root / "built" / f"{kept['sha1']}.bundle"
-                    if not built.exists():
-                        atomic_copy(part.path, built)
-            self._delete_built_files(replaced, data)
-
-        self._update_profiles(change, after=after)
+        self._update_profiles(change, after=lambda data: self._delete_built_files(replaced, data))
+        # another instance may have dropped the last reference before the new key was saved
+        for part in entry.parts:
+            kept = parts.get(part.path.name)
+            if kept is not None and kept["mod_file"] is None:
+                built = self.root / "built" / f"{kept['sha1']}.bundle"
+                if not built.exists():
+                    atomic_copy(part.path, built)
 
     def _inputs(self, pin: Pin, core: str, source: str) -> list[str]:
         """The other game files a build of a source reads: an adapted mod's official parts of its own core, another
@@ -1949,8 +1946,9 @@ class ModLibrary:
 
     @_serialized
     def clear_built(self) -> int:
-        """Clear Built Mods: delete built/ and every built key with a part kept there. Keys whose parts are all files
-        of their mod stay: they use no disk. The kept originals stay (Off needs them). Returns the bytes freed."""
+        """Clear Built Mods: delete built/*.bundle and every built key with a part kept there. Keys whose parts are
+        all files of their mod stay: they use no disk. The kept originals stay (Off needs them). Returns the bytes
+        freed."""
         directory = self.root / "built"
         freed = _folder_size(directory)
 
@@ -1963,7 +1961,14 @@ class ModLibrary:
                         changed = True
             return changed
 
-        self._update_profiles(change, after=lambda data: shutil.rmtree(directory, ignore_errors=True))
+        def after(data: dict) -> None:
+            for path in directory.glob("*.bundle"):
+                with contextlib.suppress(OSError):
+                    path.unlink()
+            with contextlib.suppress(OSError):
+                directory.rmdir()
+
+        self._update_profiles(change, after=after)
         return freed
 
     # --- the configuration ---

@@ -612,6 +612,25 @@ def test_clear_built_mods_keeps_keys_of_mod_files(world, monkeypatch):
     assert status["builtSize"] == 0 and status["originalsSize"] > 0
 
 
+def test_clear_built_mods_keeps_another_instances_copy_in_progress(world, monkeypatch):
+    mod = world.add(world.spr, fixed=True)
+    rebuilding_installer(monkeypatch)
+    world.library.apply("test", f"mod:{mod.id}")
+    world.toggle(False)
+    directory = world.root / "built"
+    (directory / "unreferenced.bundle").write_bytes(b"unreferenced")
+    freed = sum(path.stat().st_size for path in directory.glob("*.bundle"))
+    temporary = directory / ".library-in-progress"
+    temporary.write_bytes(b"copy in progress")
+    assert world.library.status()["builtSize"] == freed
+
+    assert world.library.clear_built() == freed
+    assert list(directory.iterdir()) == [temporary]
+    assert temporary.read_bytes() == b"copy in progress"
+    assert world.folder()["built"] == {}
+    assert world.library.status()["builtSize"] == 0
+
+
 # --- the record lookup at build: the install's own record, a moved install's, or a migration ---
 
 def as_alpha3(world: World) -> None:
@@ -2077,6 +2096,27 @@ def test_a_built_key_keeps_its_file_when_another_instance_drops_the_last_referen
 
     if when == "before_save":
         update = other._update_profiles
+        lock = profiles_module.file_lock
+        copy = service.atomic_copy
+        held = False
+        copied = []
+
+        @contextmanager
+        def tracked(path):
+            nonlocal held
+            with lock(path):
+                held = True
+                try:
+                    yield
+                finally:
+                    held = False
+
+        def recover(source, target):
+            assert not held
+            assert target == built and not built.exists()
+            assert world.folder(folder)["built"]["test_spr"]["parts"][world.spr.name] == part
+            copied.append(target)
+            return copy(source, target)
 
         def meanwhile(change, after=None):
             # B has reused the existing file, but has not saved its key yet.
@@ -2085,8 +2125,11 @@ def test_a_built_key_keeps_its_file_when_another_instance_drops_the_last_referen
             assert not built.exists()
             return update(change) if after is None else update(change, after=after)
 
+        monkeypatch.setattr(profiles_module, "file_lock", tracked)
+        monkeypatch.setattr(service, "atomic_copy", recover)
         monkeypatch.setattr(other, "_update_profiles", meanwhile)
         other._make_built(pin, entry)
+        assert copied == [built]
     else:
         lock = profiles_module.file_lock
 
