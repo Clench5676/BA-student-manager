@@ -356,9 +356,12 @@ function listCard(it, x, y, selected) {
     node("Thumb", [1, 4], [{ clipImage: it.thumb, w_: w - 16, h_: h - 26, pivot: 4, depth: 8, incline: 10, radius: 18, color: "#ffffff/1.00", imgSize: "cover", imgPosition: "center 30%" }]),
     node("Line", [1, 4], [sprite("Common_Line_Raius20px", w - 12, h - 18, { incline: 10, depth: 9, color: "#ffffff/1.00" })]),
   ];
-  const lbl = markedLabel(it.label, { fs: 34, fsMin: 24, color: "#ffffff/1.00", maxW: w - 56, mark: false, maxLines: 2 });
+  const lbl = markedLabel(it.label, { fs: 34, fsMin: 24, color: "#ffffff/1.00", maxW: w - 56 - (it.nameEdit ? 60 : 0), mark: false, maxLines: 2 });
   const barH = Math.max(bar, 22 + lbl.lines * lbl.fs * 1.2), barY = -h / 2 - 10 - barH / 2;
-  kids.push(node("Bar", [barY * TAN10 + 4, barY], [sprite("Common_Bg_Raius10px", w - 22, barH, { incline: 10, depth: 8, color: "#2c4564/1.00" })], [node("Name", [0, 0], [], lbl.nodes)]));
+  kids.push(node("Bar", [barY * TAN10 + 4, barY], [sprite("Common_Bg_Raius10px", w - 22, barH, { incline: 10, depth: 8, color: "#2c4564/1.00" })], [
+    node("Name", [it.nameEdit ? -30 : 0, 0], [], lbl.nodes),
+    ...(it.nameEdit ? [node("EditName", [w / 2 - 50, 0], [sprite("Cafe_Icon_NameEdit", 42, 42, { type: 0, depth: 12 })])] : []),
+  ]));
   const corner = (dx, dy) => [dx + dy * TAN10, dy]; // a point inside the slanted card
   if (it.dim) kids.push(node("Dim", [1, 4], [sprite("Common_Bg_Raius10px", w - 12, h - 18, { incline: 10, depth: 24, color: "#000000/0.55" })]));
   const badge = it.badge || (it.inUse ? { text: T("popup.inUse"), color: "#ffbc11", ink: "#3a2a00" } : null);
@@ -391,8 +394,10 @@ function detailsTree(it, title, fields, actions) {
       node("Line", [1, 4], [sprite("Common_Line_Raius20px", w - 54, 438, { incline: 10, depth: 8, color: "#ffffff/1.00" })]),
     ]),
   ];
-  const nameFit = fitText(it.full, 52, 36, w - 60);
-  kids.push(node("Name", [cx, b.t - 610], [label(nameFit.text, nameFit.fs, "#2d4664/1.00", w - 40, 60 * nameFit.lines, { depth: 8 })]));
+  const nameFit = fitText(it.full, 52, 36, w - 60 - (it.nameEdit ? 70 : 0)), nameX = cx - (it.nameEdit ? 35 : 0);
+  kids.push(node("Name", [nameX, b.t - 610], [label(nameFit.text, nameFit.fs, "#2d4664/1.00", w - 40 - (it.nameEdit ? 70 : 0), 60 * nameFit.lines, { depth: 8 })]));
+  if (it.nameEdit) kids.push(node("EditName", [Math.min(nameX + glyphsOf(nameFit.text, nameFit.fs) / 2 + 32, b.r - 42), b.t - 610],
+    [sprite("Cafe_Icon_NameEdit", 46, 46, { type: 0, depth: 9, color: "#2d4664/1.00" })]));
   const using = it.inUseText || (it.inUse ? T("popup.inUse") : null);
   const chips = it.chips || [it.recruit ? T("type.recruit") : it.kind === "mod" ? T("type.added") : T("type.noRecruit"), ...(using ? [using] : [])];
   const dark = !it.chips && it.recruit; // the recruit chip: dark, with the recruit mark
@@ -431,7 +436,7 @@ function detailsTree(it, title, fields, actions) {
 
 // a list popup in host (an element or its id). Redrawn by the caller on every change (a card picked, a segment):
 //   items: [{key, label, full, thumb, big, recruit, kind, inUse, inUseText, fav, isNew, size, disabled, dim, badge: {text, color,
-//           ink}, chips}]; disabled: cannot be ticked (with multi); dim: the darkened look
+//           ink}, chips, nameEdit: {label, fn(scroll)}}]; disabled: cannot be ticked (with multi); dim: the darkened look
 //   inUseText: a saved source's caption in the detail chip, independent of whether its files are in use
 //   selected: the chosen key; with multi, the ticked keys (selectable(items) ticks all), focus: the card whose details
 //             show (by default the first ticked one)
@@ -502,9 +507,10 @@ export async function listPopup({
   const inkW = (COLS6 - 1) * LP.pitch[0] + LP.card.w + leanL + leanR, areaW = LP.list.r - LP.list.l - 32 - 30;
   const x0 = LP.list.l + 16 + (areaW - inkW) / 2 + leanL + LP.card.w / 2;
   const at = (i) => [x0 + (i % COLS6) * LP.pitch[0], top - 30 - LP.card.h / 2 - Math.floor(i / COLS6) * LP.pitch[1]];
-  await Promise.all(items.map((it, i) => {
+  await Promise.all(items.map(async (it, i) => {
     const styles = it.dim ? { [`Card_${it.key}/Thumb`]: "filter: grayscale(1)" } : undefined;
-    return NGUI.render(listCard(it, ...at(i), isSelected(it.key)), inner, { scale: S, origin, z: 30, styles });
+    const cv = await NGUI.render(listCard(it, ...at(i), isSelected(it.key)), inner, { scale: S, origin, z: 30, styles });
+    if (it.nameEdit) hit(inner, cv, `Card_${it.key}/Bar/EditName`, () => it.nameEdit.fn(inner.parentElement.scrollTop), { name: it.nameEdit.label, action: `alias:${it.key}` });
   }));
   // the cards' buttons in the list's order, so the keyboard steps through them as they show
   items.forEach((it, i) => {
@@ -518,6 +524,7 @@ export async function listPopup({
   if (sel && details) {
     const d = details(sel);
     const dv = await NGUI.render(detailsTree(sel, d.title, d.fields, d.actions), next, { scale: S, origin: [960, 540], z: 20 });
+    if (sel.nameEdit) hit(next, dv, "Details/EditName", () => sel.nameEdit.fn(inner.parentElement.scrollTop), { name: sel.nameEdit.label, action: "alias:details" });
     d.actions.forEach(([caption, fn], i) => { if (fn) hit(next, dv, `Details/Act_${i}`, fn, { name: caption }); });
   }
   if (tokens.get(host) !== my || host.hidden) return;

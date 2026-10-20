@@ -13,6 +13,7 @@ import shutil
 import tempfile
 import threading
 import time
+import unicodedata
 import uuid
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
@@ -662,9 +663,21 @@ class ModLibrary:
     def _entry(self, record: dict[str, Any]) -> ModEntry:
         paths = self._paths(record)
         parsed = parse_filename(paths[0].name)
-        return ModEntry(record["id"], paths[0], record["label"], self._target_of(record), record["kind"],
+        return ModEntry(record["id"], paths[0], self._label(record), self._target_of(record), record["kind"],
                         record["added"], not record["seen"], sum(p.stat().st_size for p in paths),
-                        parsed.date, parsed.crc, parsed.core.lower())
+                        parsed.date, parsed.crc, parsed.core.lower(), record.get("alias", ""))
+
+    def _label(self, record: dict[str, Any], seen: frozenset[str] = frozenset()) -> str:
+        """Resolve internal aliases and repaired names without touching bundle names or bytes."""
+        alias = record.get("alias")
+        if isinstance(alias, str) and alias:
+            return alias
+        source = record.get("repaired_from")
+        if isinstance(source, str) and source and source not in seen:
+            parent = self._records.get(source)
+            name = self._label(parent, seen | {record["id"]}) if parent else record["label"]
+            return t("webui.remap.name", name=name)
+        return record["label"]
 
     @_serialized
     def mods(self) -> list[ModEntry]:
@@ -828,13 +841,16 @@ class ModLibrary:
                 (added.configured if result.deferred else added.applied).append(entry)
         return added
 
-    def _store(self, files: dict[str, Path], label: str, target: str, kind: str) -> dict[str, Any]:
+    def _store(self, files: dict[str, Path], label: str, target: str, kind: str,
+               repaired_from: str | None = None) -> dict[str, Any]:
         """Copy a mod's files into the library and record it; nothing is left behind on failure."""
         names = sorted(files)
         mod_id = uuid.uuid4().hex
         directory = self.root / "mods" / mod_id
         record = {"id": mod_id, "files": names, "label": label, "target": target,
                   "kind": kind, "added": datetime.now(timezone.utc).isoformat(), "seen": False}
+        if repaired_from:
+            record["repaired_from"] = repaired_from
         try:
             for name in names:
                 atomic_copy(files[name], directory / name)
@@ -893,7 +909,7 @@ class ModLibrary:
         used = any(entry.get("source") == source
                    for folder in ((self.profiles.read() or {}).get("folders") or {}).values()
                    for entry in folder["configured"].values()) or bool(self._in_use(mod_id))
-        return {"name": self._record(mod_id)["label"], "used": used}
+        return {"name": self._label(self._record(mod_id)), "used": used}
 
     @_serialized
     @_mod_writer
@@ -1016,16 +1032,29 @@ class ModLibrary:
                     None)
 
     @_serialized
-    def rename(self, mod_id: str, label: str) -> None:
-        """Change a mod's display label."""
+    def rename(self, mod_id: str, label: str) -> ModEntry:
+        """Set or clear a metadata-only alias, retaining the default name."""
+        if not isinstance(label, str):
+            raise ServiceError("bad_params", key="label")
+        alias = " ".join("".join(ch for ch in unicodedata.normalize("NFC", label)
+                                 if ch.isspace() or not unicodedata.category(ch).startswith("C")).split())
+        if len(alias) > 120:
+            raise ServiceError("bad_params", key="label")
         record = self._record(mod_id)
-        old = record["label"]
-        record["label"] = label
+        old = record.get("alias")
+        if alias:
+            record["alias"] = alias
+        else:
+            record.pop("alias", None)
         try:
             self._save()
         except OSError:
-            record["label"] = old
+            if old is None:
+                record.pop("alias", None)
+            else:
+                record["alias"] = old
             raise
+        return self._entry(self._record(mod_id))
 
     @_serialized
     def mark_seen(self, mod_id: str) -> None:
@@ -3459,8 +3488,8 @@ class ModLibrary:
                 generated[target.name] = output / target.name
             # Compute the review before storing, so a failed comparison leaves no incomplete entry.
             comparison = self._compare_paths(mod_id, list(generated.values()), paths)
-            stored = self._store(generated, t("webui.remap.name", name=record["label"]),
-                                 record["target"], record["kind"])
+            stored = self._store(generated, self._label(record), record["target"], record["kind"],
+                                 repaired_from=mod_id)
         return RemapResult(self._entry(stored), report, replace(comparison, mod_id=stored["id"]))
 
     @_serialized

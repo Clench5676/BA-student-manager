@@ -579,9 +579,10 @@ def build_api(s: Services) -> RpcRegistry:
                         writes="library", library=library)
 
     @rpc.method("mods.rename")
-    def mods_rename(id: str, label: str) -> None:
-        s.library.rename(id, label)
-        s.events.publish("library.changed")
+    def mods_rename(id: str, label: str) -> dict[str, Any]:
+        entry = s.library.rename(id, label)
+        s.events.publish("library.changed", {"cores": [], "kinds": [], "mods": True})
+        return entry.to_json()
 
     @rpc.method("mods.seen")
     def mods_seen(id: str | None = None, ids: list[str] | None = None) -> None:

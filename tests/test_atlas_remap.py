@@ -378,6 +378,10 @@ def test_library_remap_keeps_installed_official_copy_and_original_mod(setup_libr
     result = env.library.remap(entry.id)
     assert result.mod.id != entry.id
     assert result.mod.label == t("webui.remap.name", name=entry.label)
+    assert env.library._records[result.mod.id]["repaired_from"] == entry.id
+    env.library.rename(entry.id, "My painting")
+    assert env.library._entry(env.library._records[result.mod.id]).label == t("webui.remap.name", name="My painting")
+    env.library.rename(entry.id, "")
     assert len(env.library.mods()) == 2
     assert result.mod.date == "2026-01-01"
     assert not result.report["partial"]

@@ -1305,6 +1305,22 @@ def test_add_rpc_adopts_installed_content_and_refreshes_the_snapshot(env, backgr
     assert env.s.mods_state()["configured"] == 1
 
 
+def test_mod_alias_rpc_returns_the_saved_name_and_publishes_metadata_change(env):
+    entry = env.add(env.spr)
+    before = {path: (path.read_bytes(), path.stat().st_mtime_ns) for path in (env.spr, entry.file)}
+    env.drain()
+    for alias in ("My portrait", ""):
+        saved = rpc(env.app, "mods.rename", id=entry.id, label=alias)["result"]
+        assert saved["id"] == entry.id
+        assert saved["alias"] == alias
+        assert saved["label"] == (alias or entry.label)
+        assert saved["file"] == str(entry.file)
+        assert events_named(env.drain(), "library.changed") == [{"cores": [], "kinds": [], "mods": True}]
+    assert all((path.read_bytes(), path.stat().st_mtime_ns) == stamp for path, stamp in before.items())
+    assert rpc(env.app, "mods.rename", id=entry.id, label=None)["error"]["code"] == "bad_params"
+    assert rpc(env.app, "mods.rename", id="missing", label="Alias")["error"]["code"] == "mod_not_found"
+
+
 def test_remap_rpc_pins_the_install_and_publishes_a_new_library_mod(env, monkeypatch):
     from dataclasses import replace
     from ba_modding_toolkit.library.models import CompareResult, RemapResult
