@@ -865,7 +865,8 @@
 			"pack": "資源打包",
 			"extract": "資源提取",
 			"adb": "ADB 推送",
-			"tools": "工具"
+			"tools": "工具",
+			"classic": "{label} - 經典介面"
 		},
 		"roster": {
 			"title": "學生清單",
@@ -962,9 +963,86 @@
 		"popup": {
 			"switch": "切換立繪",
 			"apply": "套用",
+			"save": "儲存",
 			"cancel": "取消",
 			"inUse": "使用中",
 			"add": "新增立繪"
+		},
+		"mods": {
+			"switch": "啟用 Mod",
+			"guide": "說明",
+			"offState": "Mod 已關閉",
+			"onState": "Mod 已開啟",
+			"helpOff": "關閉：所有立繪和紀念大廳一鍵還原為原版",
+			"helpOn": "開啟：重新套用已設定的 Mod",
+			"helpKept": "Mod 保留在 Mod 倉庫中",
+			"helpGame": "僅在遊戲關閉時可用",
+			"helpFolders": "遊戲資料夾：{folders}",
+			"installNamed": "{server}（{folder}）",
+			"explainOnce": "此說明不再顯示",
+			"builtWhat": "保留已產生的 Mod，開啟時直接還原",
+			"builtSize": "佔用空間：{size}，可能很大",
+			"builtClear": "清除已產生的 Mod",
+			"builtCleared": "已清除已產生的 Mod",
+			"originalsSize": "關閉用的原版備份：{size}",
+			"scanOff": "未檢查其他 Mod",
+			"allowCheck": "允許檢查",
+			"scan": {
+				"title": "檢查遊戲檔案",
+				"checked": {
+					"label": "檢查內容",
+					"items": "每個立繪和紀念大廳檔案的開頭和結尾",
+					"why": "找出 Mod 倉庫外的 Mod、被修復或更新還原的檔案、無原版備份的檔案"
+				},
+				"never": {
+					"label": "不會進行",
+					"items": "讀取完整檔案、向本機以外傳送任何內容"
+				},
+				"note": "拒絕則以上檢查保持關閉，可在設定中變更",
+				"no": "不允許",
+				"yes": "允許"
+			},
+			"notSwitched": "未切換：{n}",
+			"sourceMissing": "已不在 Mod 倉庫中：{n}",
+			"retry": "重試",
+			"details": "詳情",
+			"offTitle": "關閉 Mod",
+			"onTitle": "開啟 Mod",
+			"toAdd": "先加入 Mod 倉庫：{n}",
+			"stuck": "維持不變，無原版備份：{n}",
+			"size": "總大小：{size}",
+			"selected": "已選：{n}",
+			"result": "完成：{done}，失敗：{failed}",
+			"saved": "已儲存，開啟 Mod 後生效",
+			"untrackedTitle": "未加入倉庫的 Mod",
+			"untrackedHint": "未加入則在遊戲更新、驗證檔案後遺失",
+			"untrackedAdd": "加入 Mod 倉庫",
+			"addTurnOn": "加入並開啟 Mod",
+			"dontAsk": "不再詢問",
+			"copy": {
+				"kept": "已保留",
+				"backup": "備份",
+				"elsewhere": "其他資料夾",
+				"none": "無原版備份"
+			},
+			"overwritten": "已被覆蓋",
+			"damaged": "已損壞",
+			"overwrittenTitle": "原版檔案已被覆蓋",
+			"overwrittenNone": "已無原版備份",
+			"addFirst": "修復前先加入 Mod 倉庫",
+			"lastCopy": "遊戲仍在使用的檔案的唯一副本",
+			"mayNotStart": "遊戲可能無法啟動",
+			"repairSteam": "Steam：內容 - 已安裝的檔案 - 驗證遊戲檔案的完整性",
+			"repairGame": "遊戲內：復原resource，可能不會替換 Mod",
+			"repairThen": "然後重新開啟本工具",
+			"driftTitle": "Mod 已還原為原版",
+			"driftWhy": "遊戲檔案已驗證、修復或更新",
+			"driftApply": "套用 Mod 設定",
+			"driftKeep": "保持現狀",
+			"stillOverwritten": "仍被覆蓋：{n}"
+		},
+		"switch": {
+			"configured": "已設定"
 		},
 		"field": {
 			"file": "檔案",
@@ -975,7 +1053,8 @@
 			"folder": "資料夾",
 			"date": "日期",
 			"modFile": "Mod 檔案",
-			"source": "來源"
+			"source": "來源",
+			"copy": "原版備份"
 		},
 		"type": {
 			"recruit": "已實裝",
@@ -998,7 +1077,8 @@
 				"title": "找不到遊戲資料夾",
 				"hint": "自動偵測，或選擇遊戲資料夾"
 			},
-			"openSettings": "開啟設定"
+			"openSettings": "開啟設定",
+			"closed": "已關閉"
 		},
 		"loading": {
 			"now": "Now Loading",
@@ -1052,10 +1132,19 @@
 			"mod_target_mismatch": "這個 Mod 不適用於此變體",
 			"mod_update_failed": "無法更新 Mod",
 			"original_invalid": "保留的原版檔案已損毀：{file}",
-			"original_unavailable": "沒有可還原的原版檔案，請先在啟動器中驗證遊戲檔案",
+			"original_unavailable": "已無原版備份",
 			"source_unsupported": "不支援的來源",
 			"variant_incompatible": "兩者結構不同，無法互換",
-			"variant_not_found": "找不到這個變體"
+			"variant_not_found": "找不到這個變體",
+			"steam_busy": "Steam 正在更新或驗證遊戲",
+			"classic_open": "請先關閉經典介面",
+			"entry_changed": "遊戲檔案已變更，請重新檢查",
+			"folder_changed": "遊戲資料夾已變更，請重試",
+			"state_changed": "已在其他地方切換，請重新確認",
+			"profiles_unreadable": "無法讀取 Mod 設定：{file}",
+			"not_enough_space": "空間不足：需要 {need}，可用 {free}",
+			"mod_last_copy": "遊戲仍在使用的檔案的唯一副本：{file}",
+			"scan_off": "檔案檢查已關閉"
 		},
 		"drop": {
 			"hint": "拖入 Mod 檔案以新增"
@@ -1070,13 +1159,32 @@
 			"restarting": "即將重新啟動以完成更新",
 			"page": "前往下載頁面"
 		},
+		"classic": {
+			"hint": "將在經典介面中開啟，顯示在本視窗上方",
+			"opening": "正在開啟經典介面",
+			"front": "移到最前",
+			"opened": "經典介面已開啟",
+			"autoApply": "關閉後自動套用",
+			"queued": "經典介面關閉後套用",
+			"notApplied": "未套用"
+		},
+		"quit": {
+			"title": "通知",
+			"ask": "是否結束？"
+		},
+		"tray": {
+			"working": "處理中 {done}/{total}",
+			"drift": "已還原為原版：{n}",
+			"quit": "結束"
+		},
 		"settings": {
 			"title": "設定",
 			"tab": {
 				"general": "一般",
 				"sound": "音量",
 				"l2d": "L2D",
-				"folders": "資料夾"
+				"folders": "資料夾",
+				"mods": "Mod"
 			},
 			"language": "語言",
 			"cache": {
@@ -1095,7 +1203,21 @@
 			"classic": {
 				"label": "更多設定",
 				"hint": "經典介面中的 Spine 工具、ADB 等",
-				"open": "開啟"
+				"open": "開啟",
+				"ask": "開啟前詢問"
+			},
+			"mods": {
+				"shown": "在主畫面顯示",
+				"scan": "檔案檢查",
+				"tray": {
+					"win": "系統匣圖示",
+					"mac": "選單列圖示"
+				},
+				"files": "遊戲檔案",
+				"check": "檢查",
+				"clean": "未發現變更",
+				"folders": "遊戲資料夾",
+				"forget": "從列表移除"
 			},
 			"voice": "語音",
 			"mute": "靜音",

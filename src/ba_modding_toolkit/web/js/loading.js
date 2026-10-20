@@ -170,8 +170,10 @@ export async function scene(fn, { opaque = false } = {}) {
   return result;
 }
 
-// wait(promise): the indicator over the current screen once the wait passes WAIT_AFTER; resolves with the result
-export async function wait(promise) {
+// wait(promise, {label, cap}): the indicator over the current screen once the wait passes WAIT_AFTER; resolves with
+// the result. label: what the indicator says to assistive technology (the page's "loading" by default); cap: how long
+// the indicator stays at most (a wait known to take longer than HARD_CAP, such as the classic UI's start)
+export async function wait(promise, { label: text = null, cap = HARD_CAP } = {}) {
   if (covering()) return promise; // a scene covers it already
   const my = ++gen;
   let settled = false;
@@ -179,11 +181,13 @@ export async function wait(promise) {
   // being committed in that same frame
   const timer = setTimeout(() => requestAnimationFrame(() => {
     if (my !== gen || settled || active()) return;
-    decorate(open("indicator"));
+    const o = open("indicator");
+    if (text) o.el.setAttribute("aria-label", text);
+    decorate(o);
   }), WAIT_AFTER);
   let failed = false, error = null, timedOut = false, result;
   try {
-    result = await Promise.race([promise, sleep(HARD_CAP).then(() => { timedOut = true; })]);
+    result = await Promise.race([promise, sleep(cap).then(() => { timedOut = true; })]);
   } catch (err) {
     failed = true;
     error = err;

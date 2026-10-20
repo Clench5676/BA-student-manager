@@ -23,6 +23,7 @@ from ba_modding_toolkit.gameassets import service, unity
 from ba_modding_toolkit.gameassets.discovery import (
     bundle_paths, group_bundles, is_pointer_texture, is_prefab, is_texture, resource_version,
 )
+from ba_modding_toolkit.gameassets.layouts import export_layout, subtree
 from ba_modding_toolkit.gameassets.spine import atlas_pages, extract_spine
 from ba_modding_toolkit.searching import get_search_dirs
 
@@ -220,6 +221,117 @@ class _Object:
         return self._data
 
 
+def _fake_prefab(nodes: dict[int, tuple[str, int]], behaviours: list[tuple[int, int, str, dict]],
+                 inactive: tuple[int, ...] = ()) -> SimpleNamespace:
+    """A prefab environment: nodes by GameObject path id as (name, parent's path id or 0), each with its Transform
+    at path id + 1000; behaviours as (path id, node, script class, serialized fields)."""
+    objects, transforms = [], {}
+    for gid, (name, parent) in nodes.items():
+        objects.append(_Object("GameObject", gid, "CAB-ui", data=SimpleNamespace(
+            m_Name=name, m_IsActive=gid not in inactive)))
+        transforms[gid] = SimpleNamespace(
+            m_GameObject=SimpleNamespace(path_id=gid), m_LocalRotation=SimpleNamespace(z=0.0, w=1.0),
+            m_LocalPosition=SimpleNamespace(x=0.0, y=0.0), m_LocalScale=SimpleNamespace(x=1.0, y=1.0),
+            m_Father=SimpleNamespace(path_id=parent and parent + 1000), m_Children=[])
+    for gid, (name, parent) in nodes.items():
+        if parent:
+            transforms[parent].m_Children.append(SimpleNamespace(read=lambda t=transforms[gid]: t))
+        objects.append(_Object("Transform", gid + 1000, "CAB-ui", data=transforms[gid]))
+    scripts = {}
+    for pid, gid, cls, fields in behaviours:
+        objects.append(_Object("MonoBehaviour", pid, "CAB-ui", tree={
+            "m_GameObject": {"m_FileID": 0, "m_PathID": gid}, "m_Enabled": 1,
+            "m_Script": {"m_FileID": 0, "m_PathID": scripts.setdefault(cls, 2000 + len(scripts))},
+            "m_Name": "", **fields}))
+    objects += [_Object("MonoScript", pid, "CAB-ui", data=SimpleNamespace(m_ClassName=cls))
+                for cls, pid in scripts.items()]
+    return SimpleNamespace(objects=objects)
+
+
+def _without_states(node: dict) -> dict:
+    """A layout without the state controllers' "states", the export format before layout-v2."""
+    result = dict(node, widgets=[{k: v for k, v in w.items() if k != "states"} for w in node["widgets"]])
+    if "children" in node:
+        result["children"] = [_without_states(child) for child in node["children"]]
+    return result
+
+
+def _pointer(pid: int, fid: int = 0) -> dict:
+    return {"m_FileID": fid, "m_PathID": pid}
+
+
+def test_layout_exports_state_controller_nodes():
+    """The game's buttons have no NGUI button colours: a locked or disabled button is a node of its own that a
+    controller shows instead of the normal one (the lobby's bottom menu: Able, and Disable with the icon tinted
+    #797979). The export names each controller field's node by its path below the controller's node."""
+    nodes = {1: ("Root", 0), 2: ("Craft", 1), 3: ("Label", 2), 4: ("Able", 2), 5: ("Disable", 2), 6: ("Icon", 5),
+             7: ("Lock", 5), 8: ("BlockEntry", 2), 9: ("Other", 1), 10: ("Entry", 1), 11: ("Locked", 10),
+             12: ("Cover", 11)}
+    grey = 121 / 255
+    behaviours = [
+        (100, 2, "OpenConditionButtonController", {
+            "contentType": 7, "prohibitionType": 0, "Enable": _pointer(4), "Disable": _pointer(5),
+            "Prohibited": _pointer(8), "CallCheckInEnable": 0, "PrefsKeyPrefix": ""}),
+        (101, 6, "UISprite", {"mSpriteName": "Common_Icon_Craft", "mAtlas": _pointer(0), "mType": 0, "mFlip": 0,
+                              "mWidth": 120, "mHeight": 120, "mColor": {"r": grey, "g": grey, "b": grey, "a": 1.0}}),
+        # a component pointer resolves to its node, also when the component is read after the controller; a node
+        # outside the controller's, an external pointer and an unset one give None
+        (102, 10, "ButtonActivator", {"activeObject": _pointer(12), "inactiveObject": _pointer(9),
+                                      "button": _pointer(103), "contentsLockObject": _pointer(0)}),
+        (103, 10, "MXButton", {"PlaySound": 1, "onClick": [], "label": _pointer(0)}),
+        (104, 1, "UIButtonEnableSwitch", {"enableButton": _pointer(1004), "disableButton": _pointer(5, fid=1)}),
+    ]
+    tree = export_layout(_fake_prefab(nodes, behaviours, inactive=(5, 8)), "Root", {})
+    assert json.loads(json.dumps(tree)) == tree
+    craft = subtree(tree, "Craft")
+    assert craft["widgets"] == [{"cls": "OpenConditionButtonController",
+                                 "states": {"Enable": "Able", "Disable": "Disable", "Prohibited": "BlockEntry"}}]
+    disabled = subtree(craft, craft["widgets"][0]["states"]["Disable"])
+    assert not disabled["active"] and subtree(craft, "Able")["active"]
+    icon = subtree(disabled, "Icon")["widgets"][0]
+    assert (icon["sprite"], icon["color"]) == ("Common_Icon_Craft", "#797979/1.00")
+    activator, button = subtree(tree, "Entry")["widgets"]
+    assert activator["states"] == {"activeObject": "Locked/Cover", "inactiveObject": None, "button": "",
+                                   "contentsLockObject": None}
+    assert button == {"cls": "MXButton"}
+    assert tree["widgets"][0]["states"] == {"enableButton": "Craft/Able", "disableButton": None}
+    assert _without_states(tree)["widgets"] == [{"cls": "UIButtonEnableSwitch"}]
+
+
+def test_layout_cache_key_carries_the_export_format(tmp_path, monkeypatch):
+    """A layout cached in the format before the state controllers ("layout/") is exported again under its new key;
+    the old entry and every other cached entry stay."""
+    game = GameAssets([tmp_path], AssetCache(root=tmp_path / "cache", allowed=True))
+    version = game.resource_version
+    stale = json.dumps({"name": "Root", "widgets": [{"cls": "OpenConditionButtonController"}]}).encode()
+    game.cache.put(service._SCHEMA + "layout/Root", stale, version=version)
+    game.cache.put(service._SCHEMA + "atlases", b"{}", version=version)
+    fresh = {"name": "Root", "active": True, "widgets": [{"cls": "OpenConditionButtonController", "states": {
+        "Enable": "Able", "Disable": "Disable", "Prohibited": None}}]}
+    exports = []
+
+    @contextmanager
+    def open_fake(path):
+        yield SimpleNamespace(objects=[])
+
+    def export(env, root, names):
+        exports.append(root)
+        return fresh
+
+    monkeypatch.setattr(service, "open_bundle", open_fake)
+    monkeypatch.setattr(service, "export_layout", export)
+    monkeypatch.setattr(GameAssets, "_prefab_bundle", lambda self, root: tmp_path / "prefab.bundle")
+    monkeypatch.setattr(GameAssets, "_index", lambda self, key, build, **kwargs: {})
+    monkeypatch.setattr(GameAssets, "_atlas_index", lambda self: {"names": {}})
+    monkeypatch.setattr(GameAssets, "_texture_index", lambda self: {"names": {}})
+    assert game.layout("Root") == fresh and exports == ["Root"]
+    # a new memory cache: what it finds is on disk
+    warm = GameAssets([tmp_path], AssetCache(root=tmp_path / "cache", allowed=True))
+    assert warm.layout("Root", "") == fresh and exports == ["Root"]
+    assert warm.cache.get(service._SCHEMA + "layout/Root", version=version) == stale
+    assert warm.cache.get(service._SCHEMA + "atlases", version=version) == b"{}"
+
+
 def test_external_atlas_crop_orientation_and_decode_once(tmp_path, monkeypatch):
     original, relocated = tmp_path / "original", tmp_path / "relocated"
     for directory in (original, relocated):
@@ -362,6 +474,11 @@ def test_loading_screen_prefab_hints():
     assert service.PREFAB_HINTS["UILoading"].startswith("prologgroup-assets-_mx-resources-ui-")
     assert is_prefab(Path(service.PREFAB_HINTS["UILoading"]))
     assert is_prefab(Path(service.PREFAB_HINTS["UIRepeater"]))
+
+
+def test_lobby_prefab_hint():
+    # the lobby's bottom menu (the greyed navigation's look) is read without the scan of every prefab bundle
+    assert is_prefab(Path(service.PREFAB_HINTS["UILobby"]))
 
 
 def test_unknown_names_raise_asset_not_found(tmp_path):
@@ -533,7 +650,8 @@ def test_real_layouts_match_prototype(real_game, root, subpath, filename):
     assert layout["name"] == (subpath.rsplit("/", 1)[-1] if subpath else root)
     prototype = PROTOTYPE / "research-v4/layouts" / (filename + ".json")
     if prototype.is_file():
-        assert layout == json.loads(prototype.read_text())
+        # the saved layouts predate the state controllers' "states" (test_layout_exports_state_controller_nodes)
+        assert _without_states(layout) == json.loads(prototype.read_text())
     assert json.loads(json.dumps(layout)) == layout
     with pytest.raises(AssetNotFound):
         real_game.layout(root, "does-not-exist")
@@ -617,3 +735,22 @@ def test_real_detail_layout_places_the_portrait(real_game):
     content = next(c for c in detail["children"] if c["name"] == "Inventory_ListControl")
     node = next(c for c in content["children"] if c["name"] == "CharacterPos")
     assert len(node["pos"]) == 2 and node["scale"][0] == node["scale"][1] > 0
+
+
+@real_install
+def test_real_lobby_menu_disabled_look(real_game):
+    """The lobby's bottom menu, where the greyed navigation takes the game's disabled look from: each entry with an
+    open condition swaps Able for Disable, the same icon tinted #797979 beside a lock; the label is outside both."""
+    assert real_game._prefab_bundle("UILobby").name == service.PREFAB_HINTS["UILobby"]
+    grid = real_game.layout("UILobby", "Front/Bottom/Menu/BG/Grid")
+    for name in ("Cafe", "Craft", "Shop", "Gacha"):
+        entry = subtree(grid, name)
+        controller = next(w for w in entry["widgets"] if w["cls"] == "OpenConditionButtonController")
+        assert (controller["states"]["Enable"], controller["states"]["Disable"]) == ("Able", "Disable"), name
+        able, disabled = subtree(entry, "Able"), subtree(entry, "Disable")
+        assert able["active"] and not disabled["active"]
+        normal = next(w for w in able["widgets"] if "sprite" in w)
+        icon = subtree(disabled, "Icon")["widgets"][0]
+        assert (icon["sprite"], icon["color"], normal["color"]) == (normal["sprite"], "#797979/1.00", "#ffffff/1.00")
+        assert subtree(disabled, "Lock")["widgets"][0]["sprite"] == "Common_Icon_Lock"
+        assert "text" in subtree(entry, "Label")["widgets"][0]

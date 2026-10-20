@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 18 18">
+  <!-- Menu bar template icon, drawn from assets/eligma.png: the gem's hexagon as a 1.6 pt band and its
+       four-point star, 1.5 pt clear of the band. Black on transparent; scripts/tray_icons.py builds
+       menubar.pdf and menubar@2x.png from this file. -->
+  <path fill="#000" fill-rule="evenodd" d="M3.136,4.233L11.223,0.757L16.454,7.796L14.86,13.781L6.792,17.255L1.535,10.178ZM4.479,5.397L10.693,2.727L14.709,8.13L13.514,12.618L7.322,15.285L3.281,9.846ZM10.194,4.572C9.896,7.152 10.655,8.94 12.471,9.936C10.4,9.884 8.845,11.048 7.806,13.428C8.104,10.848 7.345,9.06 5.529,8.064C7.6,8.116 9.155,6.952 10.194,4.572Z"/>
+</svg>

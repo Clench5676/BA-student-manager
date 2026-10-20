@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+  <!-- Windows tray icon, drawn from assets/eligma.png: the gem's hexagon in its pink and its four-point
+       star, 2 units clear of the edge. scripts/tray_icons.py renders it at 16, 20, 24 and 32 px into
+       tray.ico. -->
+  <path fill="#d45ed0" d="M2.669,3.666L10.021,0.507L14.776,6.905L13.327,12.346L5.993,15.505L1.213,9.071Z"/>
+  <path fill="#fff" d="M9.357,2.968C8.806,6.058 9.669,8.09 11.946,9.064C9.488,8.761 7.72,10.084 6.643,13.032C7.194,9.942 6.331,7.91 4.054,6.936C6.512,7.239 8.28,5.916 9.357,2.968Z"/>
+</svg>

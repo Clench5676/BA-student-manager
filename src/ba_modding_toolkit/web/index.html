@@ -44,6 +44,8 @@
       <header class="topbar">
         <button class="back" aria-label="back"><i class="icon-back"></i></button>
         <h1 class="title"></h1>
+        <!-- the Enable Mods switch, its label and its square "?" (js/mod-switch.js); not on the no-game screen -->
+        <div class="mod-switch" id="mod-switch" hidden></div>
         <!-- the game's top bar option button, at the right end -->
         <i class="top-line"></i>
         <button class="top-option" id="top-option" aria-label="settings"><i></i></button>
@@ -61,6 +63,9 @@
       <div class="consent-host settings-host" id="settings" hidden></div>
       <!-- the student list's display settings (filter and sort) -->
       <div class="consent-host settings-host" id="display" hidden></div>
+      <!-- the shared popups on the stage (js/popup.js), over the settings: list prompts, and message popups over them -->
+      <div class="popup-host stage-host" id="prompt" hidden></div>
+      <div class="popup-host stage-host" id="dialog" hidden></div>
       <div class="toast" id="toast" hidden></div>
     </div>
   </div>

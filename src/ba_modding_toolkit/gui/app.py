@@ -21,6 +21,17 @@ from .windows import SettingsDialog, FileListWindow
 from .tabs import *
 
 
+def _activate_this_app() -> None:
+    """macOS: make this process the active app. On macOS 14 and later the web UI yields its activation to this
+    process first (webui/classic.py CocoaOps), which an activation without IgnoringOtherApps needs."""
+    try:
+        import AppKit
+
+        AppKit.NSRunningApplication.currentApplication().activateWithOptions_(AppKit.NSApplicationActivateAllWindows)
+    except Exception:  # PyObjC missing or AppKit refusing: Tk's own lift and focus_force still apply
+        pass
+
+
 @dataclass
 class Tabs:
     """所有功能 Tab 的注册表，支持 app.tabs.<名称> 属性访问
@@ -172,6 +183,27 @@ class App(tb.Frame, ConfigMixin):
         lang_path = locales_dir / f"{language}.json"
         if not lang_path.exists():
             self.logger.log(t("log.config.language_missing", language=language))
+
+    def place_window(self, x: int, y: int, w: int, h: int) -> None:
+        """Move and size the window: the web UI's placement over its own window (Tk coordinates, macOS)."""
+        self.master.geometry(f"{w}x{h}+{x}+{y}")
+
+    def raise_window(self) -> None:
+        """Show the window over the others with the focus: the web UI's hand-off. Kept on top for 300 ms only, so
+        the user can bring the web UI back over it."""
+        root = self.master
+        root.deiconify()
+        root.attributes("-alpha", 1.0)
+        root.lift()
+        root.attributes("-topmost", True)
+        if sys.platform == "darwin":
+            _activate_this_app()
+
+        def release() -> None:
+            root.attributes("-topmost", False)
+            root.focus_force()
+
+        root.after(300, release)
 
     def open_settings_dialog(self):
         """打开高级设置对话框"""

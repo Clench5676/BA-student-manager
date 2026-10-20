@@ -5,14 +5,19 @@ import * as Consent from "./consent.js";
 import * as Cursor from "./cursor.js";
 import * as Detail from "./detail.js";
 import * as Loading from "./loading.js";
+import * as ModSwitch from "./mod-switch.js";
 import * as NGUI from "./ngui.js";
+import * as Popup from "./popup.js";
+import * as Prompts from "./prompts.js";
 import * as Roster from "./roster.js";
 import * as Settings from "./settings.js";
 import * as Update from "./update.js";
-import { on, rpc } from "./api.js";
-import { T, setStrings } from "./i18n.js";
+import { on, rpc, spinePrefix } from "./api.js";
+import { L, T, setStrings } from "./i18n.js";
 import { neighbour, visit } from "./roster-order.js";
 import { renderNav, setTitle } from "./nav.js";
+import { confirmQuit, quitKey } from "./quit.js";
+import { forget } from "./thumbs.js";
 import { $, fitStage, toast } from "./util.js";
 
 let info = null, rosterData = null, rosterStale = true;
@@ -35,10 +40,72 @@ const ctx = {
 
 async function roster() {
   if (!rosterData || rosterStale) {
+    const before = rosterData;
     rosterData = await rpc("roster.list");
     rosterStale = false;
+    forgetReplaced(before, rosterData);
   }
   return rosterData;
+}
+
+// the portraits whose game files carry something else than before (the classic UI closed, a job that stopped midway:
+// library.changed without its cores): their thumbnails are rendered again
+function forgetReplaced(before, after) {
+  if (!before) return;
+  const was = new Map(before.families.flatMap((f) => f.variants.map((v) => [v.key, v.replaced ?? null])));
+  for (const f of after.families) {
+    for (const v of f.variants) if (v.spr && was.has(v.key) && was.get(v.key) !== (v.replaced ?? null)) forget(spinePrefix("spr", v.spr));
+  }
+}
+
+// an entry's variant named as the roster names it (entries of cores the catalog does not map carry their shipped
+// names, else their core); resolves once the roster's data is in
+async function variantNames() {
+  const data = await roster().catch(() => rosterData);
+  const byKey = new Map((data?.families || []).flatMap((f) => f.variants.map((v) => [v.key, v])));
+  return (entry) => {
+    const v = byKey.get(entry?.variant);
+    return (v && L(v.names)?.full) || L(entry?.names)?.full || entry?.variant || entry?.core || "";
+  };
+}
+
+// --- library.changed: a writer job switched game files ({cores, kinds}), or anything may have changed (no data: the
+// classic UI closed, a job stopped midway, the mod list changed). The roster is read again, the thumbnails of those
+// cores are forgotten (a mod and the official file share one /asset/spine/<kind>/<core> URL; the prefix covers the
+// <core>@<id> bases of other installs too) and the detail screen reloads what it shows of them ---
+let heldChange, changeTimer = null, changeRoute = 0;
+function libraryChanged(data) {
+  const change = data && Array.isArray(data.cores) ? { cores: data.cores } : null;
+  if (change && !change.cores.length) return; // a job that switched nothing the page shows (a prune, a judging)
+  for (const core of change?.cores || []) forget(spinePrefix(/_spr$/i.test(core) ? "spr" : "lobby", core));
+  ctx.invalidateRoster();
+  heldChange = heldChange === undefined ? change : heldChange === null || change === null ? null
+    : { cores: [...new Set([...heldChange.cores, ...change.cores])] };
+  changeRoute = routeToken;
+  clearTimeout(changeTimer);
+  changeTimer = setTimeout(applyChange, 150); // the events of one job come together
+}
+async function applyChange() {
+  const change = heldChange;
+  heldChange = undefined;
+  if (!$("screen-detail").hidden) { Detail.filesChanged(change); return; }
+  if ($("screen-roster").hidden) return;
+  // the list is built again once no popup is open, unless a route came meanwhile (it reads the list itself)
+  await Popup.whenIdle();
+  if (changeRoute === routeToken && !$("screen-roster").hidden) route();
+}
+
+// the window back in front after 30 s or more: the game files are checked again (only with the scan consent)
+let hiddenAt = 0;
+function watchFront() {
+  const away = () => { hiddenAt ||= Date.now(); };
+  const back = () => {
+    if (hiddenAt && Date.now() - hiddenAt >= 30000 && ModSwitch.current()?.scan === true) rpc("mods.scan").catch(() => {});
+    hiddenAt = 0;
+  };
+  addEventListener("blur", away);
+  addEventListener("focus", back);
+  document.addEventListener("visibilitychange", () => (document.hidden ? away() : back()));
 }
 
 // the visit the detail screen records (ui.visit) goes into the roster's data too, so "Recently Viewed" has it on the
@@ -66,6 +133,23 @@ function message(title, hint, actions = []) {
     return b;
   }));
 }
+
+// the quit prompt (quit.js): the student list's back button and Escape on the list. In the app's window the quit
+// closes it; in browser mode the server stops once it has answered, and the page says so
+function askQuit() {
+  return confirmQuit({
+    message: Popup.message, rpc, T, toast, native: !!info?.native,
+    closed: () => {
+      $("stage").classList.add("closed");
+      message(T("app.closed"));
+    },
+  });
+}
+addEventListener("keydown", (ev) => {
+  if (!quitKey(ev, { byId: (id) => document.getElementById(id), covering: Loading.covering() })) return;
+  ev.preventDefault();
+  askQuit();
+});
 
 // without a game folder the game's UI cannot be drawn: plain buttons to find or choose one
 function noGame() {
@@ -115,7 +199,7 @@ async function route() {
         Detail.hide();
         showScreen("roster");
         stepCards = null;
-        setTitle(T("top.students"), null);
+        setTitle(T("top.students"), askQuit);
       };
       const open = async (covered) => {
         const data = await roster();
@@ -157,10 +241,26 @@ async function boot() {
   // the page starts behind the loading screen: the game's UI is read, then the first screen is built
   await Loading.scene(start, { opaque: true });
   if (!info?.gameFound) return;
-  // the consent popup only once the first screen is revealed
-  if (info.consent !== true) await Consent.show($("consent"), info.cacheDir, info.native);
-  // released builds look for a newer release once per launch (development runs do not)
-  if (info.compiled) Update.check($("consent"));
+  // the start popups only once the first screen is revealed
+  await Popup.sequence(startPopups());
+}
+
+// The start popups, one at a time and in this order, each only when it has something to show (mod-switch.js
+// startDue); each step resolves once its popup has closed (docs/web-ui.md, "Start sequence"):
+//   - the asset consent;
+//   - the scan consent, while it is unanswered and a game folder is known;
+//   - the update: released builds look for a newer release once per launch (development runs do not);
+//   - the prompts of mods back to official and of mods outside the library, once the start scan is in (at most
+//     10 s; a later scan shows them once no other popup is open), only with the scan consent
+function startPopups() {
+  const due = (name) => ModSwitch.startDue(name, { info, state: ModSwitch.current() });
+  return [
+    ["consent", () => due("consent") && Consent.show($("consent"), info.cacheDir, info.native)],
+    ["scan", () => due("scan") && Consent.scan($("consent"))],
+    ["update", () => due("update") && Update.check($("consent"))],
+    ["drift", () => Prompts.start("drift", info)],
+    ["untracked", () => Prompts.start("untracked", info)],
+  ];
 }
 
 async function start() {
@@ -179,15 +279,24 @@ async function start() {
   on("config.changed", () => { if (!info.gameFound) { location.reload(); return; } stepCards = null; ctx.invalidateRoster(); route(); });
   on("app.busy", () => toast(T("error.busy"), { kind: "error" }));
   await document.fonts.ready;
+  // the bottom bar: its greyed entries hand over to the classic UI (with or without a game folder), their prompt
+  // following the pref classicPrompt
+  const navOptions = { game: !!info.gameFound, prefs: () => ctx.prefs, setPrefs: (prefs) => { ctx.prefs = prefs; } };
   if (!info.gameFound) {
-    renderNav(0);
+    renderNav(0, navOptions);
     noGame();
+    ModSwitch.listenTray(); // the tray still switches the known installs
     return;
   }
   await NGUI.init();
   // the game's pointer and touch effect, read from the game in the background (the system cursor until then)
   Cursor.init();
-  renderNav(0);
+  renderNav(0, navOptions);
+  // the Enable Mods switch in the top bar, and what the writer jobs switched
+  await ModSwitch.init({ names: variantNames }).catch((err) => console.error("mod switch", err));
+  Prompts.init({ names: variantNames });
+  on("library.changed", libraryChanged);
+  watchFront();
   // files dropped on the window are added to the library
   on("drop", async ({ paths }) => {
     try {

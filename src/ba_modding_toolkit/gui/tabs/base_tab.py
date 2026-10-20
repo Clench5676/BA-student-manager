@@ -1,8 +1,8 @@
 # gui/base_tab.py
 
 import ttkbootstrap as tb
-import threading
 from typing import Callable, TYPE_CHECKING
+from ..control import busy
 if TYPE_CHECKING:
     from ..app import App
 
@@ -18,6 +18,5 @@ class TabFrame(tb.Frame):
         raise NotImplementedError("子类必须实现 create_widgets 方法")
 
     def run_in_thread(self, target: Callable, *args):
-        thread = threading.Thread(target=target, args=args)
-        thread.daemon = True
-        thread.start()
+        # counted while it runs: the web UI never switches the tab under a running task (gui/control.py)
+        busy.start_thread(target, *args)

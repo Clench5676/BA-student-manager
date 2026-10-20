@@ -865,7 +865,8 @@
 			"pack": "资源打包",
 			"extract": "资源提取",
 			"adb": "ADB 推送",
-			"tools": "工具"
+			"tools": "工具",
+			"classic": "{label} - 经典界面"
 		},
 		"roster": {
 			"title": "学生名单",
@@ -962,9 +963,86 @@
 		"popup": {
 			"switch": "切换立绘",
 			"apply": "应用",
+			"save": "保存",
 			"cancel": "取消",
 			"inUse": "使用中",
 			"add": "添加立绘"
+		},
+		"mods": {
+			"switch": "启用 Mod",
+			"guide": "说明",
+			"offState": "Mod 已关闭",
+			"onState": "Mod 已开启",
+			"helpOff": "关闭：所有立绘和记忆大厅一键恢复原版",
+			"helpOn": "开启：重新应用已配置的 Mod",
+			"helpKept": "Mod 保留在 Mod 仓库中",
+			"helpGame": "仅在游戏关闭时可用",
+			"helpFolders": "游戏目录：{folders}",
+			"installNamed": "{server}（{folder}）",
+			"explainOnce": "此说明不再显示",
+			"builtWhat": "保留已生成的 Mod，开启时直接恢复",
+			"builtSize": "占用空间：{size}，可能很大",
+			"builtClear": "清除已生成的 Mod",
+			"builtCleared": "已清除已生成的 Mod",
+			"originalsSize": "关闭用的原版备份：{size}",
+			"scanOff": "未检查其他 Mod",
+			"allowCheck": "允许检查",
+			"scan": {
+				"title": "检查游戏文件",
+				"checked": {
+					"label": "检查内容",
+					"items": "每个立绘和记忆大厅文件的开头和结尾",
+					"why": "找出 Mod 仓库外的 Mod、被修复或更新还原的文件、无原版备份的文件"
+				},
+				"never": {
+					"label": "不会进行",
+					"items": "读取完整文件、向本机以外发送任何内容"
+				},
+				"note": "拒绝则以上检查保持关闭，可在设置中更改",
+				"no": "不允许",
+				"yes": "允许"
+			},
+			"notSwitched": "未切换：{n}",
+			"sourceMissing": "已不在 Mod 仓库中：{n}",
+			"retry": "重试",
+			"details": "详情",
+			"offTitle": "关闭 Mod",
+			"onTitle": "开启 Mod",
+			"toAdd": "先加入 Mod 仓库：{n}",
+			"stuck": "保持不变，无原版备份：{n}",
+			"size": "总大小：{size}",
+			"selected": "已选：{n}",
+			"result": "完成：{done}，失败：{failed}",
+			"saved": "已保存，开启 Mod 后生效",
+			"untrackedTitle": "未加入仓库的 Mod",
+			"untrackedHint": "未加入则在游戏更新、校验文件后丢失",
+			"untrackedAdd": "加入 Mod 仓库",
+			"addTurnOn": "加入并开启 Mod",
+			"dontAsk": "不再询问",
+			"copy": {
+				"kept": "已保留",
+				"backup": "备份",
+				"elsewhere": "其他目录",
+				"none": "无原版备份"
+			},
+			"overwritten": "已被覆盖",
+			"damaged": "已损坏",
+			"overwrittenTitle": "原版文件已被覆盖",
+			"overwrittenNone": "已无原版备份",
+			"addFirst": "修复前先加入 Mod 仓库",
+			"lastCopy": "游戏仍在使用的文件的唯一副本",
+			"mayNotStart": "游戏可能无法启动",
+			"repairSteam": "Steam：属性 - 已安装文件 - 验证游戏文件的完整性",
+			"repairGame": "游戏内：资源修复，可能不会替换 Mod",
+			"repairThen": "然后重新打开本工具",
+			"driftTitle": "Mod 已恢复为原版",
+			"driftWhy": "游戏文件已校验、修复或更新",
+			"driftApply": "应用 Mod 配置",
+			"driftKeep": "保持现状",
+			"stillOverwritten": "仍被覆盖：{n}"
+		},
+		"switch": {
+			"configured": "已设置"
 		},
 		"field": {
 			"file": "文件",
@@ -975,7 +1053,8 @@
 			"folder": "文件夹",
 			"date": "日期",
 			"modFile": "Mod 文件",
-			"source": "来源"
+			"source": "来源",
+			"copy": "原版备份"
 		},
 		"type": {
 			"recruit": "已实装",
@@ -998,7 +1077,8 @@
 				"title": "未找到游戏目录",
 				"hint": "自动检测或手动选择游戏目录"
 			},
-			"openSettings": "打开设置"
+			"openSettings": "打开设置",
+			"closed": "已关闭"
 		},
 		"loading": {
 			"now": "Now Loading",
@@ -1052,10 +1132,19 @@
 			"mod_target_mismatch": "这个 Mod 不适用于此变种",
 			"mod_update_failed": "更新 Mod 失败",
 			"original_invalid": "保留的原版文件已损坏：{file}",
-			"original_unavailable": "没有可用的原版文件，请先用游戏启动器校验文件",
+			"original_unavailable": "已无原版备份",
 			"source_unsupported": "不支持的来源",
 			"variant_incompatible": "两者结构不同，无法互换",
-			"variant_not_found": "找不到这个变种"
+			"variant_not_found": "找不到这个变种",
+			"steam_busy": "Steam 正在更新或校验游戏",
+			"classic_open": "请先关闭经典界面",
+			"entry_changed": "游戏文件已变化，请重新检查",
+			"folder_changed": "游戏目录已变更，请重试",
+			"state_changed": "已在别处切换，请重新确认",
+			"profiles_unreadable": "无法读取 Mod 设置：{file}",
+			"not_enough_space": "空间不足：需要 {need}，可用 {free}",
+			"mod_last_copy": "游戏仍在使用的文件的唯一副本：{file}",
+			"scan_off": "文件检查已关闭"
 		},
 		"drop": {
 			"hint": "拖入 Mod 文件以添加"
@@ -1070,13 +1159,32 @@
 			"restarting": "即将重启以完成更新",
 			"page": "前往下载页"
 		},
+		"classic": {
+			"hint": "将在经典界面中打开，显示在本窗口上方",
+			"opening": "正在打开经典界面",
+			"front": "切到前台",
+			"opened": "经典界面已打开",
+			"autoApply": "关闭后自动应用",
+			"queued": "经典界面关闭后应用",
+			"notApplied": "未应用"
+		},
+		"quit": {
+			"title": "提示",
+			"ask": "是否退出？"
+		},
+		"tray": {
+			"working": "处理中 {done}/{total}",
+			"drift": "已恢复原版：{n}",
+			"quit": "退出"
+		},
 		"settings": {
 			"title": "设置",
 			"tab": {
 				"general": "通用",
 				"sound": "音量",
 				"l2d": "L2D",
-				"folders": "目录"
+				"folders": "目录",
+				"mods": "Mod"
 			},
 			"language": "语言",
 			"cache": {
@@ -1095,7 +1203,21 @@
 			"classic": {
 				"label": "更多设置",
 				"hint": "在经典界面中设置 Spine 工具、ADB 等",
-				"open": "打开"
+				"open": "打开",
+				"ask": "打开前询问"
+			},
+			"mods": {
+				"shown": "在主界面显示",
+				"scan": "文件检查",
+				"tray": {
+					"win": "托盘图标",
+					"mac": "菜单栏图标"
+				},
+				"files": "游戏文件",
+				"check": "检查",
+				"clean": "未发现变化",
+				"folders": "游戏目录",
+				"forget": "从列表移除"
 			},
 			"voice": "语音",
 			"mute": "静音",

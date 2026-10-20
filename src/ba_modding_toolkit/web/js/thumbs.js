@@ -192,10 +192,12 @@ export function prioritise(base) {
   queue.sort((a, b) => (b.base === base) - (a.base === base));
 }
 
-// drop cached thumbnails of skeletons whose files changed (after applying or updating a mod)
+// drop cached thumbnails of skeletons whose files changed (after applying or updating a mod, or a library.changed
+// event, whose cores are lower case while the catalog's keep the game's case): any case matches
 export function forget(prefix = "") {
+  const want = prefix.toLowerCase();
   for (const [key, p] of cache) {
-    if (!key.startsWith(prefix)) continue;
+    if (!key.toLowerCase().startsWith(want)) continue;
     p.then((url) => url && URL.revokeObjectURL(url));
     cache.delete(key);
   }
