@@ -220,6 +220,23 @@ def test_compatibility_uses_the_new_current_official_files_after_a_game_update(s
     assert json.loads(base64.b64decode(report["official"]["skeletons"]["test_spr.skel"]["data"])) == data["official"]
 
 
+def test_missing_mod_atlas_uses_its_dated_official_copy_for_compatibility(serialized):
+    env, register = serialized
+    old_atlas = "page.png\nsize: 16,16\nIntro_A/Intro_A\n bounds: 2,2,4,4\n"
+    current_atlas = old_atlas.replace("2,2,4,4", "8,8,4,4")
+    register(env.original, {"atlases": {"test.atlas": current_atlas}, "textures": {"page": [16, 16]}})
+    kept = register(game_bundle(env.library.root / "originals", date="2025-01-01", payload=b"old official"),
+                    {"atlases": {"test.atlas": old_atlas}, "textures": {"page": [16, 16]}})
+    source = register(make_mod(kept, env.tmp / "input"),
+                      {"skeletons": {"test.skel": "4.2.33"}, "textures": {"page": [8, 8]}})
+    before = {path: path.read_bytes() for path in (source, kept, env.original)}
+    entry, = env.library.add([source])
+    report = env.library.compatibility(entry.id)
+    assert report["mod"]["atlases"] == {"test.atlas": old_atlas}
+    assert report["atlasLayout"] == ["test.atlas"] and report["remappable"]
+    assert all(path.read_bytes() == content for path, content in before.items())
+
+
 def test_add_and_compatibility_never_convert_or_rewrite_a_skeleton(serialized, monkeypatch):
     env, register = serialized
     data = fixture("mismatched_skeleton")

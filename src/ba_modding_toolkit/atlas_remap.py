@@ -14,6 +14,14 @@ from .models import ContNameTypeKey, Patch
 from .spine import get_skel_version
 
 
+class RemapError(ValueError):
+    """A remap failure with locale parameters, including the offending asset."""
+
+    def __init__(self, code: str, **params):
+        super().__init__(f"{code}: {params}")
+        self.code, self.params = code, params
+
+
 def texture_key(name: str) -> str:
     return name.replace("\\", "/").rsplit("/", 1)[-1].lower().removesuffix(".png")
 
@@ -49,55 +57,75 @@ class Page:
 @dataclass
 class Atlas:
     pages: dict[str, Page] = field(default_factory=dict)
-    regions: dict[tuple[str, int], Region] = field(default_factory=dict)
+    regions: dict[tuple[str, str, int], Region] = field(default_factory=dict)
+    file: str = field(default="—", compare=False)
 
 
-def parse_atlas(text: str | bytes) -> Atlas:
+def parse_atlas(text: str | bytes, file: str = "—") -> Atlas:
     """Read legacy xy/size/orig/offset and modern bounds/offsets syntax."""
     if isinstance(text, bytes):
-        text = text.decode("utf-8-sig")
-    atlas = Atlas()
+        try:
+            text = text.decode("utf-8-sig")
+        except UnicodeError as error:
+            raise RemapError("atlas_remap_property", file=file, page="—", region="—",
+                             field="UTF-8", value="—") from error
+    atlas = Atlas(file=file)
     page = None
     name = None
     props = {}
     page_start = True
 
+    def invalid(key: str, value: str) -> RemapError:
+        return RemapError("atlas_remap_property", file=file, page=page.name if page else "—",
+                          region=name or "—", field=key, value=value)
+
     def numbers(key: str, default: tuple) -> tuple:
-        return tuple(int(v.strip()) for v in props[key].split(",")) if key in props else default
+        if key not in props:
+            return default
+        try:
+            values = tuple(int(v.strip()) for v in props[key].split(","))
+        except ValueError as error:
+            raise invalid(key, props[key]) from error
+        if len(values) != len(default):
+            raise invalid(key, props[key])
+        return values
 
     def flush() -> None:
         if name is None:
             return
         bounds = numbers("bounds", numbers("xy", (0, 0)) + numbers("size", (0, 0)))
         offsets = numbers("offsets", numbers("offset", (0, 0)) + numbers("orig", bounds[2:]))
-        if len(bounds) != 4 or len(offsets) != 4:
-            raise ValueError("Invalid atlas bounds or offsets")
         rotation = props.get("rotate", "false").lower()
         degrees = {"true": 90, "false": 0}.get(rotation)
         if degrees is None:
-            degrees = int(rotation) % 360
+            try:
+                degrees = int(rotation) % 360
+            except ValueError as error:
+                raise invalid("rotate", rotation) from error
         if degrees not in (0, 90, 180, 270):
-            raise ValueError("Unsupported atlas rotation")
-        region = Region(name, int(props.get("index", -1)), page.name, bounds[:2], bounds[2:],
+            raise invalid("rotate", rotation)
+        index, = numbers("index", (-1,))
+        region = Region(name, index, page.name, bounds[:2], bounds[2:],
                         offsets[2:], offsets[:2], degrees)
         if min(*region.size, *region.original) <= 0 or min(*region.xy, *region.offset) < 0:
-            raise ValueError("Invalid atlas region dimensions")
+            raise invalid("bounds/offsets", f"{bounds}/{offsets}")
         if any(o + s > original for o, s, original in zip(region.offset, region.size, region.original)):
-            raise ValueError("Atlas trim exceeds original size")
-        if region.key in atlas.regions:
-            raise ValueError("Ambiguous atlas region index")
-        atlas.regions[region.key] = region
+            raise invalid("offsets/orig", f"{offsets}/{region.size}")
+        key = (region.page, *region.key)
+        if key in atlas.regions:
+            raise RemapError("atlas_remap_region_ambiguous", file=file, region=region.label, pages=region.page)
+        atlas.regions[key] = region
 
-    for raw in text.lstrip("\ufeff").splitlines():
+    for line_number, raw in enumerate(text.lstrip("\ufeff").splitlines(), 1):
         line = raw.strip()
         if not line:
             flush()
             name, props, page_start = None, {}, True
         elif page_start:
             if ":" in line:
-                raise ValueError("Missing atlas page")
+                raise RemapError("atlas_remap_structure", file=file, line=line_number, value=line)
             if line in atlas.pages:
-                raise ValueError("Duplicate atlas page")
+                raise RemapError("atlas_remap_page_ambiguous", file=file, page=line)
             page = Page(line)
             atlas.pages[line] = page
             page_start = False
@@ -109,16 +137,19 @@ def parse_atlas(text: str | bytes) -> Atlas:
             if name is not None:
                 props[key] = value
             elif key == "size":
-                page.size = tuple(int(v.strip()) for v in value.split(","))
+                try:
+                    page.size = tuple(int(v.strip()) for v in value.split(","))
+                except ValueError as error:
+                    raise invalid(key, value) from error
                 if len(page.size) != 2 or min(page.size) <= 0:
-                    raise ValueError("Invalid atlas page size")
+                    raise invalid(key, value)
             elif key == "pma":
                 page.pma = value.lower() == "true"
             elif key == "format":
                 page.format = value
     flush()
     if not atlas.pages:
-        raise ValueError("Empty atlas")
+        raise RemapError("atlas_remap_structure", file=file, line=1, value="—")
     return atlas
 
 
@@ -143,20 +174,24 @@ def layout_changes(old: dict[str, bytes], new: dict[str, bytes]) -> list[str]:
     for name, data in new.items():
         if name not in pairs:
             continue
-        left, right = parse_atlas(old[pairs[name]]), parse_atlas(data)
+        left, right = parse_atlas(old[pairs[name]], pairs[name]), parse_atlas(data, name)
         if left != right:
             changes.append(name)
     return sorted(changes)
 
 
-def _box(region: Region, page: Page, image: Image.Image) -> tuple[int, int, int, int]:
+def _box(region: Region, page: Page, image: Image.Image, file: str = "—") -> tuple[int, int, int, int]:
     width, height = region.size[::-1] if region.degrees % 180 else region.size
     declared = page.size if all(page.size) else image.size
     sx, sy = image.width / declared[0], image.height / declared[1]
     x, y = region.xy
     box = round(x * sx), round(y * sy), round((x + width) * sx), round((y + height) * sy)
-    if box[0] < 0 or box[1] < 0 or box[2] > image.width or box[3] > image.height or box[0] >= box[2] or box[1] >= box[3]:
-        raise ValueError("Atlas region is outside its texture")
+    if box[0] < 0 or box[1] < 0 or box[2] > image.width or box[3] > image.height:
+        raise RemapError("atlas_remap_bounds", file=file, region=region.label, page=page.name,
+                         width=image.width, height=image.height)
+    if box[0] >= box[2] or box[1] >= box[3]:
+        raise RemapError("atlas_remap_property", file=file, page=page.name, region=region.label,
+                         field="bounds", value=str(box))
     return box
 
 
@@ -193,22 +228,71 @@ def _resize(image: Image.Image, size: tuple[int, int], box: tuple, pma: bool) ->
     return Image.merge("RGBA", (*channels, resized_alpha.convert("L")))
 
 
+def _pair_regions(old: Atlas, new: Atlas) -> dict[tuple[str, str, int], Region]:
+    """Unique names can move pages; repeated names are identified by page order."""
+    result = {}
+    old_order = {page: i for i, page in enumerate(old.pages)}
+    new_order = {page: i for i, page in enumerate(new.pages)}
+    sources, targets = {}, {}
+    for region in old.regions.values():
+        sources.setdefault(region.key, []).append(region)
+    for key, region in new.regions.items():
+        targets.setdefault(region.key, []).append((key, region))
+    for identity in targets:
+        left, right = list(sources.get(identity, [])), list(targets[identity])
+        if len(left) == len(right) == 1:
+            result[right[0][0]] = left[0]
+            continue
+        for key, target in right[:]:
+            source = next((r for r in left if old_order[r.page] == new_order[target.page]), None)
+            if source is not None:
+                result[key] = source
+                left.remove(source)
+                right.remove((key, target))
+        if left and right:
+            if len(left) == len(right) == 1:
+                result[right[0][0]] = left[0]
+            else:
+                raise RemapError("atlas_remap_region_ambiguous", file=old.file, region=left[0].label,
+                                 pages=", ".join(r.page for r in left))
+    return result
+
+
+def _page_image(atlas: Atlas, page: str, images: dict[str, Image.Image]) -> Image.Image:
+    image = images.get(texture_key(page))
+    if image is None:
+        raise RemapError("atlas_remap_page_missing", file=atlas.file, page=page)
+    return image if image.mode == "RGBA" else image.convert("RGBA")
+
+
 def remap_pages(old: Atlas, new: Atlas, mod_pages: dict[str, Image.Image],
                 official_pages: dict[str, Image.Image]) -> tuple[dict[str, Image.Image], dict]:
     """Return new page pixels and names of moved, official-only and dropped regions."""
-    output = {name: official_pages[texture_key(name)].convert("RGBA").copy() for name in new.pages}
+    for atlas, images in ((old, mod_pages), (new, official_pages)):
+        keys = set()
+        for page in atlas.pages:
+            key = texture_key(page)
+            if key in keys:
+                raise RemapError("atlas_remap_page_ambiguous", file=atlas.file, page=page)
+            keys.add(key)
+            image = _page_image(atlas, page, images)
+            for region in atlas.regions.values():
+                if region.page == page:
+                    _box(region, atlas.pages[page], image, atlas.file)
+    pairs = _pair_regions(old, new)
+    output = {name: _page_image(new, name, official_pages).copy() for name in new.pages}
     moved, added = [], []
     for key, target in new.regions.items():
         target_page = new.pages[target.page]
         destination = output[target.page]
-        box = _box(target, target_page, destination)
-        source = old.regions.get(key)
+        box = _box(target, target_page, destination, new.file)
+        source = pairs.get(key)
         if source is None:
             added.append(target.label)
             continue
         source_page = old.pages[source.page]
-        image = mod_pages[texture_key(source.page)].convert("RGBA")
-        cut = _rotate(image.crop(_box(source, source_page, image)), -source.degrees)
+        image = _page_image(old, source.page, mod_pages)
+        cut = _rotate(image.crop(_box(source, source_page, image, old.file)), -source.degrees)
         # Work in the untrimmed coordinate space; offsets are measured from the bottom left.
         # Keep the source's physical resolution until the target crop is resampled.
         sx, sy = cut.width / source.size[0], cut.height / source.size[1]
@@ -225,8 +309,9 @@ def remap_pages(old: Atlas, new: Atlas, mod_pages: dict[str, Image.Image],
         cut = _alpha(cut, source_page.pma, target_page.pma)
         destination.paste(_rotate(cut, target.degrees), box[:2])
         moved.append(target.label)
+    matched = {(region.page, *region.key) for region in pairs.values()}
     return output, {"moved": sorted(moved), "added": sorted(added),
-                    "dropped": sorted(region.label for key, region in old.regions.items() if key not in new.regions)}
+                    "dropped": sorted(region.label for key, region in old.regions.items() if key not in matched)}
 
 
 @dataclass
@@ -243,7 +328,7 @@ def read_inputs(paths: list[Path]) -> Inputs:
         devmode.check_read(path)
         bundle = Bundle.load(path)
         if bundle is None:
-            raise ValueError("Invalid bundle")
+            raise RemapError("bundle_invalid", file=path.name)
         for obj in bundle.env.objects:
             if obj.type.name not in ("TextAsset", "Texture2D"):
                 continue
@@ -252,15 +337,19 @@ def read_inputs(paths: list[Path]) -> Inputs:
             if obj.type.name == "Texture2D":
                 key = texture_key(name)
                 if key in result.textures:
-                    raise ValueError("Ambiguous texture page")
-                result.textures[key] = data.image.convert("RGBA")
+                    raise RemapError("atlas_remap_page_ambiguous", file=path.name, page=name)
+                try:
+                    result.textures[key] = data.image.convert("RGBA")
+                except (ValueError, EOFError, OSError) as error:
+                    raise RemapError("atlas_remap_invalid", file=f"{path.name} - {name}",
+                                     reason=str(error)) from error
                 result.keys[key] = ContNameTypeKey(obj.container, name, "Texture2D")
             elif name.lower().endswith((".atlas", ".skel")):
                 raw = data.m_Script
                 raw = raw if isinstance(raw, bytes) else raw.encode("utf-8", "surrogateescape")
                 collection = result.atlases if name.lower().endswith(".atlas") else result.skeletons
                 if name in collection:
-                    raise ValueError("Ambiguous Spine asset")
+                    raise RemapError("atlas_remap_asset_ambiguous", file=path.name, name=name)
                 collection[name] = raw
     return result
 
@@ -295,24 +384,26 @@ def skeleton_warnings(old: dict[str, bytes], new: dict[str, bytes]) -> list[dict
 def prepare_patch(mod: Inputs, official: Inputs) -> tuple[Patch, dict]:
     pairs = pair_atlases(mod.atlases, official.atlases)
     if not pairs:
-        raise ValueError("No matching atlases in the mod")
+        raise RemapError("atlas_remap_atlas_missing", file=", ".join(official.atlases) or "*.atlas")
     patch = {}
     report = {"moved": [], "added": [], "dropped": [], "warnings": skeleton_warnings(mod.skeletons, official.skeletons)}
     current_pages = dict(official.textures)
     for name, text in official.atlases.items():
-        target = parse_atlas(text)
+        target = parse_atlas(text, name)
         if name not in pairs:
             report["added"].extend(r.label for r in target.regions.values())
             continue
-        source = parse_atlas(mod.atlases[pairs[name]])
+        source = parse_atlas(mod.atlases[pairs[name]], pairs[name])
         pages, summary = remap_pages(source, target, mod.textures, current_pages)
         for page, image in pages.items():
             key = texture_key(page)
             current_pages[key] = image
+            if key not in official.keys:
+                raise RemapError("atlas_remap_page_missing", file=name, page=page)
             patch[official.keys[key]] = image
         for key in ("moved", "added", "dropped"):
-            report[key].extend(f"{name}: {region}" for region in summary[key])
+            report[key].extend(f"{name} - {region}" for region in summary[key])
     for name in mod.atlases.keys() - set(pairs.values()):
-        report["dropped"].extend(f"{name}: {r.label}" for r in parse_atlas(mod.atlases[name]).regions.values())
+        report["dropped"].extend(f"{name} - {r.label}" for r in parse_atlas(mod.atlases[name], name).regions.values())
     report["partial"] = bool(report["warnings"])
     return patch, report

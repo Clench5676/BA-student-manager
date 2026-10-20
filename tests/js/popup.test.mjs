@@ -39,7 +39,11 @@ class El {
   getAttribute(k) { return this.attrs[k] ?? null; }
   removeAttribute(k) { delete this.attrs[k]; }
   addEventListener(type, fn) { (this.listeners[type] ||= []).push(fn); }
-  click() { for (const fn of this.listeners.click || []) fn({ type: "click", target: this, currentTarget: this }); }
+  click() {
+    let result;
+    for (const fn of this.listeners.click || []) result = fn({ type: "click", target: this, currentTarget: this });
+    return result;
+  }
   focus() { document.activeElement = this; }
   querySelector(selector) { return walk(this).find((e) => selector.startsWith(".")
     ? e.className.split(" ").includes(selector.slice(1)) : e.tagName === selector.toUpperCase()) || null; }
@@ -190,6 +194,58 @@ test("Escape goes to the topmost open popup only, and to none under one that mus
   assert.equal(closed.length, 2);
   a.remove();
   b.remove();
+});
+
+test("scrollable findings wrap long paths and unbroken names inside the frame, keeping actions outside", async () => {
+  const lines = ["CH0261_home.skel - rig differs", "Intro_Shoulder_L/".repeat(90), "x".repeat(180),
+    { text: "Region_".repeat(100), button: { label: "Details", fn: () => { details++; } } }];
+  let details = 0;
+  const pending = Popup.message({ title: "Compatibility", lines, ok: "Remap", cancel: "Cancel", scroll: true });
+  const ok = await drawn(dialog, "ok");
+  const area = walk(dialog).find((el) => el.className === "popup-cards");
+  const inner = area.children[0];
+  assert.ok(parseFloat(inner.style.height) > parseFloat(area.style.height));
+  const rows = walk(inner).filter((el) => /^Lines\/Row_\d+$/.test(el.dataset.path));
+  assert.equal(rows.length, lines.length);
+  for (const row of rows) {
+    const width = parseFloat(row.style.width), fs = parseFloat(row.style.fontSize);
+    assert.ok(row.textContent.split("\n").every((line) => line.length * fs * 0.6 <= width + 1), row.dataset.path);
+  }
+  assert.ok(rows[1].textContent.includes("\n") && rows[2].textContent.includes("\n"));
+  assert.ok(parseFloat(ok.style.top) >= parseFloat(area.style.top) + parseFloat(area.style.height));
+  action(dialog, "line3").click();
+  assert.equal(details, 1);
+  assert.ok(action(dialog, "cancel"));
+  ok.click();
+  assert.deepEqual(await pending, { button: "ok", checked: null });
+});
+
+test("compatibility details scroll the complete list and return to the same Remap and Cancel actions", async () => {
+  const Compatibility = await import("../../src/ba_modding_toolkit/web/js/mod-compatibility.js");
+  const names = Array.from({ length: 80 }, (_, i) => `Intro_Shoulder_L/Intro_Shoulder_L_${i}`);
+  const input = (animations) => ({ atlases: {}, textures: {}, skeletons: { "CH0261_home.skel": {
+    version: "4.2.33", data: Buffer.from(JSON.stringify({ bones: [{ name: "root" }], animations })).toString("base64"),
+  } } });
+  let remapped = 0;
+  const pending = Compatibility.show({ official: input(Object.fromEntries(names.map((name) => [name, {}]))),
+    mod: input({}), remappable: true }, { onRemap: () => { remapped++; } });
+  const remap = await drawn(dialog, "ok"), cancel = action(dialog, "cancel");
+  assert.equal(remap.getAttribute("aria-label"), english.remap.action);
+  const detail = action(dialog, "line0");
+  assert.equal(detail.getAttribute("aria-label"), english.info.details);
+  const viewing = detail.click();
+  await until(() => dialog.children.length === 2 && actionsIn(dialog).filter((el) => el.dataset.action === "ok").length === 2);
+  const full = dialog.children.at(-1), area = walk(full).find((el) => el.className === "popup-cards");
+  assert.ok(parseFloat(area.children[0].style.height) > parseFloat(area.style.height));
+  const text = walk(full).map((el) => el.textContent).join("\n");
+  for (const name of names) assert.ok(text.replaceAll("\n", "").includes(name));
+  assert.equal(remapped, 0);
+  action(full, "ok").click();
+  await viewing;
+  assert.ok(remap.isConnected && cancel.isConnected);
+  remap.click();
+  await pending;
+  assert.equal(remapped, 1);
 });
 
 test("a message resolves with the button and the checkbox however it closes", async () => {
@@ -832,8 +888,9 @@ test("each mod card exposes a read-only compatibility check for its own mod", as
     await Detail.renderPopup();
     const check = walk(switchHost).find((el) => el.getAttribute("aria-label") === english.compatibility.check);
     assert.ok(check);
-    check.click();
+    const checking = check.click();
     (await drawn(dialog, "ok")).click();
+    await checking;
     await until(() => checks === 1 && dialog.hidden);
     switchHost.hidden = true;
   }

@@ -754,10 +754,13 @@ class ModLibrary:
         core = core_of(next(iter(files)))
         targets = self._index(pin).get(core, []) if pin else []
         originals = {}
+        official_paths = []
         unavailable = not targets
         for target in targets:
             try:
-                originals[target] = integrity.inspect(self._official_for(target, pin))
+                original = self._official_for(target, pin)
+                official_paths.append(original)
+                originals[target] = integrity.inspect(original)
             except ServiceError as error:
                 if error.code not in ("original_unavailable", "original_invalid"):
                     raise
@@ -772,6 +775,12 @@ class ModLibrary:
         for target, contents in originals.items():
             if part_of(target.name) not in parts:
                 effective.merge(contents)
+        try:
+            source_atlases = self._remap_source_atlases(list(files.values()), selected.atlases, official.atlases,
+                                                       official_paths)
+        except atlas_remap.RemapError:
+            source_atlases = selected.atlases
+        selected.atlases = source_atlases
         effective.merge(selected)
         missing = integrity.missing_parts(effective, official)
         if missing:
@@ -3377,6 +3386,34 @@ class ModLibrary:
 
     # --- working on mods ---
 
+    def _remap_source_atlases(self, paths: list[Path], selected: dict[str, bytes],
+                             official: dict[str, bytes], available: list[Path] | None = None) -> dict[str, bytes]:
+        """Fill absent source atlases only from verified official copies of the mod's date."""
+        missing = official.keys() - atlas_remap.pair_atlases(selected, official).keys()
+        if not missing:
+            return selected
+        core = core_of(paths[0].name)
+        dates = {date_of(path.name) for path in paths} - {""}
+        fallback = {}
+        candidates = {name: self.root / "originals" / name for name in self._originals()}
+        candidates.update({path.name: path for path in available or ()})
+        for name, path in sorted(candidates.items()):
+            if core_of(name) != core or date_of(name) not in dates:
+                continue
+            if not self._is_official(path):
+                raise ServiceError("original_invalid", file=name)
+            for asset, text in integrity.inspect(path).atlases.items():
+                if asset in fallback and fallback[asset] != text:
+                    raise atlas_remap.RemapError("atlas_remap_asset_ambiguous", file=name, name=asset)
+                fallback[asset] = text
+        pairs = atlas_remap.pair_atlases(fallback, {name: official[name] for name in missing})
+        result = dict(selected)
+        result.update({name: fallback[source] for name, source in pairs.items()})
+        if not result:
+            raise atlas_remap.RemapError("atlas_remap_source_missing", file=", ".join(sorted(missing)),
+                                         date=", ".join(sorted(dates)) or "—")
+        return result
+
     @_serialized
     @_mod_writer
     def remap(self, mod_id: str, log: LogFunc = no_log,
@@ -3392,10 +3429,16 @@ class ModLibrary:
             output = Path(temporary)
             originals = self._stage_official(targets, output / "official", pin)
             try:
-                patch, report = atlas_remap.prepare_patch(atlas_remap.read_inputs(paths),
-                                                         atlas_remap.read_inputs(list(originals.values())))
-            except (ValueError, KeyError, EOFError) as error:
-                raise ServiceError("atlas_remap_invalid", id=mod_id) from error
+                mod = atlas_remap.read_inputs(paths)
+                official = atlas_remap.read_inputs(list(originals.values()))
+                mod.atlases = self._remap_source_atlases(paths, mod.atlases, official.atlases,
+                                                        list(originals.values()))
+                patch, report = atlas_remap.prepare_patch(mod, official)
+            except atlas_remap.RemapError as error:
+                raise ServiceError(error.code, **error.params) from error
+            except (ValueError, KeyError, EOFError, OSError) as error:
+                raise ServiceError("atlas_remap_invalid", file=", ".join(path.name for path in paths),
+                                   reason=str(error)) from error
             generated = {}
             for i, (target, original) in enumerate(originals.items(), 1):
                 if progress:

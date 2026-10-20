@@ -2,6 +2,7 @@
 
 import json
 import struct
+from pathlib import Path
 
 import pytest
 from PIL import Image
@@ -114,6 +115,59 @@ def test_page_density_and_original_size_scaling(degrees):
     output, _ = remap.remap_pages(remap.parse_atlas(atlas_text(old)), remap.parse_atlas(atlas_text(new, True)),
                                  pack(old, art, 2), pack(new, expected, 2))
     assert_pages(output, pack(new, expected, 2))
+
+
+def test_half_size_fixture_path_names_duplicates_and_per_axis_page_scales():
+    fixture = Path(__file__).parent / "fixtures" / "lobby" / "half-size-paths.atlas"
+    old = remap.parse_atlas(fixture.read_bytes(), fixture.name)
+    path = "Intro_Shoulder_L/Intro_Shoulder_L"
+    assert len(old.pages) == 3 and len(old.regions) == 4
+    assert len([r for r in old.regions.values() if r.name == path]) == 3
+    mod = {"ch0261_home": Image.open(fixture.with_suffix(".png")).convert("RGBA"),
+           "ch0261_home2": Image.new("RGBA", (10, 3)),
+           "ch0261_home3": Image.new("RGBA", (4, 4))}
+    mod["ch0261_home2"].paste("green", (1, 1, 3, 2))
+    mod["ch0261_home3"].paste("magenta", (1, 1, 3, 3))
+    new = [(f"current{i}.png", (16, 16), [(path, -1, (4, 4), (4, 4), (4, 4), (0, 0), 0)]) for i in range(3)]
+    new[0][2].append(("Intro_R_leg_01", -1, (10, 10), (4, 4), (4, 4), (0, 0), 0))
+    official = {f"current{i}": Image.new("RGBA", (16, 16), "blue") for i in range(3)}
+    output, report = remap.remap_pages(old, remap.parse_atlas(atlas_text(new)), mod, official)
+    for i, color in enumerate(("red", "green", "magenta")):
+        assert output[f"current{i}.png"].crop((4, 4, 8, 8)).tobytes() == Image.new("RGBA", (4, 4), color).tobytes()
+    assert output["current0.png"].getpixel((10, 10)) == (255, 255, 0, 255)
+    assert report == {"moved": ["Intro_R_leg_01", path, path, path], "added": [], "dropped": []}
+
+
+@pytest.mark.parametrize("change,code", [("rotation", "property"), ("duplicate", "region_ambiguous"),
+                                        ("bounds", "bounds"), ("page", "page_missing")])
+def test_remap_errors_identify_atlas_region_or_page(change, code):
+    text = "page.png\nsize: 8,8\nIntro_A/Intro_A\n bounds: 2,2,4,4\n rotate: 0\n"
+    if change == "rotation":
+        text = text.replace("rotate: 0", "rotate: 45")
+    elif change == "duplicate":
+        text += "Intro_A/Intro_A\n bounds: 2,2,4,4\n"
+    elif change == "bounds":
+        text = text.replace("2,2,4,4", "7,7,4,4")
+    with pytest.raises(remap.RemapError) as caught:
+        atlas = remap.parse_atlas(text, "CH0261_home.atlas")
+        remap.remap_pages(atlas, atlas, {} if change == "page" else {"page": Image.new("RGBA", (4, 4))},
+                          {"page": Image.new("RGBA", (8, 8))})
+    assert caught.value.code == "atlas_remap_" + code
+    assert caught.value.params["file"] == "CH0261_home.atlas"
+    assert "page.png" in str(caught.value.params)
+    if change != "page":
+        assert caught.value.params["region"] == "Intro_A/Intro_A"
+
+
+def test_duplicate_names_without_a_unique_page_order_match_are_ambiguous():
+    region = ("same/path", -1, (0, 0), (2, 2), (2, 2), (0, 0), 0)
+    old = [(f"old{i}.png", (8, 8), [region]) for i in range(2)]
+    new = [(f"new{i}.png", (8, 8), [] if i < 2 else [region]) for i in range(3)]
+    with pytest.raises(remap.RemapError, match="atlas_remap_region_ambiguous") as caught:
+        remap.remap_pages(remap.parse_atlas(atlas_text(old), "mod.atlas"), remap.parse_atlas(atlas_text(new)),
+                          {f"old{i}": Image.new("RGBA", (8, 8)) for i in range(2)},
+                          {f"new{i}": Image.new("RGBA", (8, 8)) for i in range(3)})
+    assert caught.value.params == {"file": "mod.atlas", "region": "same/path", "pages": "old0.png, old1.png"}
 
 
 @pytest.mark.parametrize("source_pma,target_pma,colour,expected", [
@@ -305,18 +359,74 @@ def test_library_remap_keeps_installed_official_copy_and_original_mod(setup_libr
     assert result.to_json()["mod"]["id"] == result.mod.id
 
 
-def test_library_remap_refuses_missing_own_atlas_without_storing(setup_library, monkeypatch):
+def test_library_remap_refuses_missing_dated_atlas_without_storing(setup_library, monkeypatch):
     env = setup_library
     env.original.unlink()
     pages = [("page.png", (8, 8), [("part", -1, (1, 1), (2, 2), (2, 2), (0, 0), 0)])]
     current = _official_name(write_bundle(env.original, {"test.atlas": atlas_text(pages)}, {"page": Image.new("RGBA", (8, 8))}))
-    source = write_bundle(env.tmp / "upload" / current.name, {}, {"page": Image.new("RGBA", (8, 8), "red")})
+    source = write_bundle(env.tmp / "upload" / current.name.replace("2026-01-01", "2025-01-01"), {},
+                          {"page": Image.new("RGBA", (8, 8), "red")})
     entry, = env.library.add([source])
     from ba_modding_toolkit.errors import ServiceError
-    with pytest.raises(ServiceError, match="atlas_remap_invalid"):
+    with pytest.raises(ServiceError, match="atlas_remap_source_missing") as caught:
         env.library.remap(entry.id)
+    assert caught.value.params == {"file": "test.atlas", "date": "2025-01-01"}
     assert [mod.id for mod in env.library.mods()] == [entry.id]
     assert not (entry.file.parent / "previous").exists()
+
+
+def test_library_remap_missing_atlas_can_use_verified_current_copy_of_same_date(setup_library, monkeypatch):
+    from ba_modding_toolkit.library import integrity
+
+    env = setup_library
+    env.original.unlink()
+    pages = [("page.png", (8, 8), [("part/path", -1, (2, 2), (4, 4), (4, 4), (0, 0), 0)])]
+    current = _official_name(write_bundle(env.original, {"test.atlas": atlas_text(pages)},
+                                          {"page": Image.new("RGBA", (8, 8), "blue")}))
+    source = write_bundle(env.tmp / "upload" / current.name, {}, {"page": Image.new("RGBA", (4, 4), "red")})
+    entry, = env.library.add([source])
+    monkeypatch.setattr(integrity, "inspect", lambda path: integrity.Contents(atlases=remap.read_inputs([path]).atlases))
+    result = env.library.remap(entry.id)
+    built = remap.read_inputs([result.mod.file])
+    assert built.textures["page"].getpixel((2, 2)) == (255, 0, 0, 255)
+    assert not result.report["partial"]
+    assert current.read_bytes() != result.mod.file.read_bytes()
+
+
+@pytest.mark.parametrize("date", ["2025-01-01", "2026-01-01"])
+def test_library_remap_uses_only_kept_atlas_of_mod_date(setup_library, monkeypatch, date):
+    from ba_modding_toolkit.library import integrity
+
+    env = setup_library
+    env.original.unlink()
+    region = ("Intro_Shoulder_L/Intro_Shoulder_L", -1, (2, 2), (4, 4), (4, 4), (0, 0), 0)
+    old = [("page.png", (16, 16), [region])]
+    new = [("page.png", (16, 16), [(region[0], -1, (10, 10), *region[3:])])]
+    current = _official_name(write_bundle(env.original, {"test.atlas": atlas_text(new)},
+                                          {"page": Image.new("RGBA", (16, 16), "blue")}))
+    dated_name = current.name.replace("2026-01-01", "2025-01-01")
+    kept = _official_name(write_bundle(env.library.root / "originals" / dated_name,
+                                       {"test.atlas": atlas_text(old)}, {"page": Image.new("RGBA", (16, 16))}))
+    source = write_bundle(env.tmp / "upload" / dated_name, {}, {"page": Image.new("RGBA", (8, 8), "red")},
+                          b'3.8.99 modified rig')
+    entry, = env.library.add([source])
+    if date != "2025-01-01":
+        kept.rename(kept.with_name(kept.name.replace("2025-01-01", date)))
+    monkeypatch.setattr(integrity, "inspect", lambda path: integrity.Contents(atlases=remap.read_inputs([path]).atlases))
+    before = current.read_bytes(), entry.file.read_bytes()
+    if date != "2025-01-01":
+        from ba_modding_toolkit.errors import ServiceError
+        with pytest.raises(ServiceError, match="atlas_remap_source_missing"):
+            env.library.remap(entry.id)
+        assert len(env.library.mods()) == 1
+    else:
+        result = env.library.remap(entry.id)
+        built = remap.read_inputs([result.mod.file])
+        assert built.textures["page"].getpixel((10, 10)) == (255, 0, 0, 255)
+        assert built.textures["page"].getpixel((2, 2)) == (0, 0, 255, 255)
+        assert result.report["partial"] and result.report["warnings"]
+        assert built.atlases == {"test.atlas": atlas_text(new).encode()}
+    assert before == (current.read_bytes(), entry.file.read_bytes())
 
 
 def test_multiple_atlases_can_repaint_a_shared_page():
