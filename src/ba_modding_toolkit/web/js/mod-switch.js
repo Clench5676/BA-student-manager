@@ -219,6 +219,10 @@ export async function init(options = {}) {
   await refresh();
 }
 
+// the drift prompt (prompts.js), which the tray's Back to Official opens
+let driftPrompt = null;
+export function setDriftPrompt(fn) { driftPrompt = fn; }
+
 // the top bar: the switch (ON and OFF, the game's filter segments), its label, the square "?"
 function build() {
   host.innerHTML = "";
@@ -327,6 +331,15 @@ async function run(params) {
   } finally {
     inFlight = false;
   }
+}
+
+// turn(params): a toggle asked for by another control (the untracked prompt's Add and Turn On Mods): the first
+// toggle's explanation first, as from any place (decision 3)
+export async function turn(params) {
+  const s = state || (await refresh());
+  if (!s) return;
+  if (!s.explained && !explainedHere && !(await explain({ enabled: !params.enabled }))) return;
+  await run(params);
 }
 
 // a toggle's end: a toast, or the result popup when entries were adopted, failed, stuck or left

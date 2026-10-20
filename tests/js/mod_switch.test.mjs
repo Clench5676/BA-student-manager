@@ -400,3 +400,90 @@ test("the classic modal queues the refused write only when its box is ticked, on
   await until(() => dialog.hidden, "closed");
   assert.equal(queued(), 2, "unticked: nothing queued");
 });
+
+// --- item 1's prompts (prompts.js) ---
+
+const P = await import("../../src/ba_modding_toolkit/web/js/prompts.js");
+const GLOBAL = "/games/BlueArchive", JAPAN = "/games/Japan";
+const gameFile = (core, extra = {}) => ({ file: `${GLOBAL}/${core}.bundle`, core, kind: /_spr$/.test(core) ? "spr" : "lobby", applied: "unknown", crc: "fixed",
+  original: false, date: "", size: 100, copy: "kept", restorable: true, official: false, ...extra });
+const entry = (core, state, extra = {}) => ({
+  install: GLOBAL, core, variant: core.replace(/_spr$|_home.*$/, ""), names: null, kind: /_spr$/.test(core) ? "spr" : "lobby", source: "unknown",
+  configured: null, state, overwritten: false, fixed: true, size: 100, files: [gameFile(core)], dismissed: false, ...extra,
+});
+
+test("which entries each prompt lists: drift while mods are on, untracked and changed, the rest apart", () => {
+  const all = [entry("airi_spr", "reset"), entry("airi_home", "updated"), entry("hina_spr", "untracked"), entry("mika_spr", "changed", { configured: "mod:x" }),
+    entry("yuzu_spr", "damaged"), entry("aris_spr", "pending", { overwritten: true }), entry("noa_spr", "ok"), entry("kei_spr", "reset", { dismissed: true })];
+  const keys = (list) => list.map((e) => e.core);
+  const drift = P.promptEntries(all, "drift");
+  assert.deepEqual(keys(drift.listed), ["airi_spr", "airi_home"]);
+  assert.deepEqual(keys(drift.apart), ["aris_spr"], "stuck: no repair brought it back");
+  assert.deepEqual(keys(P.promptEntries(all, "drift", { dismissed: true }).listed), ["airi_spr", "airi_home", "kei_spr"], "Settings' Check");
+  assert.deepEqual(P.promptEntries(all, "drift", { enabled: false }).listed, [], "mods off: official files are the intent");
+  const untracked = P.promptEntries(all, "untracked");
+  assert.deepEqual(keys(untracked.listed), ["hina_spr", "mika_spr"]);
+  assert.deepEqual(keys(untracked.apart), ["yuzu_spr"], "damaged: never added");
+  // something new to show: an entry not shown in this state yet
+  const shown = new Set([`${GLOBAL}|airi_spr|reset`]);
+  assert.equal(P.fresh([entry("airi_spr", "reset")], shown), false);
+  assert.equal(P.fresh([entry("airi_spr", "updated")], shown), true);
+});
+
+test("a prompt's cards: the name, the kind and install chips, No Official Copy, and what cannot be ticked", () => {
+  const two = base({ installs: [install(GLOBAL, "Global"), install(JAPAN, "Japan", { id: "0123abcd4567" })] });
+  const nameOf = (e) => ({ airi: "Airi", hina: "Hina" })[e.variant] || e.variant;
+  const c = P.card(entry("airi_spr", "untracked"), { state: base(), nameOf });
+  assert.deepEqual([c.key, c.label, c.chips, c.disabled, c.size], [`${GLOBAL}|airi_spr`, "Airi", [S("tab.portrait")], false, 100]);
+  // two installs: the install chip; an alternate lobby core: its suffix after the kind
+  const j = P.card(entry("hina_home_gl", "untracked", { install: JAPAN, overwritten: true }), { state: two, nameOf });
+  assert.deepEqual(j.chips, [`${S("tab.lobby")} gl`, "Japan", S("mods.copy.none")]);
+  assert.equal(j.badge.text, S("mods.copy.none"));
+  // damaged: listed apart, never ticked, drawn dim
+  const d = P.card(entry("yuzu_spr", "damaged"), { state: base(), nameOf });
+  assert.deepEqual([d.disabled, d.dim, d.size, d.badge.text], [true, true, 0, S("mods.damaged")]);
+  // another install's card draws that install's own files (<core>@<id>), the current one's its plain core
+  assert.equal(P.entryBase(entry("hina_home_gl", "untracked", { install: JAPAN }), two), "/asset/spine/lobby/hina_home_gl@0123abcd4567/skeleton");
+  assert.equal(P.entryBase(entry("airi_spr", "untracked"), two), "/asset/spine/spr/airi_spr/skeleton");
+  // the details: file, size, CRC state and where an official copy is
+  const det = P.details(entry("airi_spr", "untracked", { files: [gameFile("airi_spr", { copy: "backup", size: 2 * 1048576 })] }));
+  assert.equal(det.title, S("tab.portrait"));
+  assert.deepEqual(det.fields, [[S("field.file"), "airi_spr.bundle"], [S("field.size"), "2.0 MB"], [S("field.crc"), S("crc.fixed")], [S("field.copy"), S("mods.copy.backup")]]);
+  assert.equal(P.details(entry("yuzu_spr", "damaged")).repair, true);
+  assert.equal(P.copyText(entry("x_spr", "untracked", { files: [gameFile("x_spr", { copy: null, restorable: false })] })), S("mods.copy.none"));
+  assert.equal(P.copyText(entry("x_spr", "untracked", { files: [gameFile("x_spr", { copy: "elsewhere" })] })), S("mods.copy.elsewhere"));
+  // the footer: the ticked cards and their size
+  const items = [P.card(entry("a_spr", "untracked", { size: 1048576 }), {}), P.card(entry("b_spr", "untracked", { size: 1048576 }), {})];
+  assert.equal(P.footer(items, new Set([items[0].key]), ", "), "Selected: 1, Total size: 1.0 MB");
+});
+
+test("the untracked prompt's buttons: add the ticked cards, Don't Ask Again dismisses the others, Later adds nothing", () => {
+  const items = [P.card(entry("a_spr", "untracked"), {}), P.card(entry("b_spr", "untracked"), {}), P.card(entry("c_spr", "damaged"), {})];
+  const ticked = new Set([items[0].key]);
+  const a = { install: GLOBAL, core: "a_spr" }, b = { install: GLOBAL, core: "b_spr" };
+  assert.deepEqual(P.untrackedOutcome("add", items, ticked, false), { adopt: [a], dismiss: [], turnOn: false });
+  assert.deepEqual(P.untrackedOutcome("add", items, ticked, true), { adopt: [a], dismiss: [b], turnOn: false });
+  assert.deepEqual(P.untrackedOutcome("addTurnOn", items, ticked, false), { adopt: [a], dismiss: [], turnOn: true });
+  assert.deepEqual(P.untrackedOutcome("later", items, ticked, false), { adopt: [], dismiss: [], turnOn: false });
+  assert.deepEqual(P.untrackedOutcome("later", items, ticked, true), { adopt: [], dismiss: [a, b], turnOn: false }, "the damaged entry is never dismissed");
+});
+
+test("Apply Mod Configuration's result names the entries skipped because their files changed", () => {
+  assert.deepEqual(P.driftSummary({ done: [{}], failed: [], skipped: [], stuck: [] }), { toast: S("job.done") });
+  const nameOf = (e) => e.variant;
+  const r = P.driftSummary({
+    done: [{}], stuck: [],
+    failed: [{ entry: { core: "airi_spr", variant: "Airi", kind: "spr" }, code: "game_file_locked", params: {} }],
+    skipped: [{ install: GLOBAL, core: "hina_home", variant: "Hina", kind: "lobby", why: "changed" }, { core: "x_spr", why: "missing" }],
+  }, nameOf);
+  assert.equal(r.title, S("mods.driftTitle"));
+  assert.deepEqual(r.lines, ["Done: 1, failed: 2", `Airi, Portrait - ${S("error.game_file_locked")}`, `Hina, Memorial Lobby - ${S("error.entry_changed")}`]);
+});
+
+test("an overwritten entry's message: Add First until its mod is in the library, then the repair lines", () => {
+  assert.equal(P.overwrittenKind([gameFile("airi_spr", { applied: "unknown" })]), "addFirst");
+  assert.equal(P.overwrittenKind([gameFile("airi_spr", { applied: "mod:abc" }), gameFile("airi_spr", { applied: "mod:abc", official: true })]), "overwritten");
+  assert.equal(P.overwrittenKind([gameFile("airi_spr", { applied: "mod:abc" }), gameFile("airi_spr", { applied: "unknown" })]), "addFirst");
+  assert.equal(P.overwrittenKind([]), "addFirst");
+});
+

@@ -8,6 +8,7 @@ import * as Loading from "./loading.js";
 import * as ModSwitch from "./mod-switch.js";
 import * as NGUI from "./ngui.js";
 import * as Popup from "./popup.js";
+import * as Prompts from "./prompts.js";
 import * as Roster from "./roster.js";
 import * as Settings from "./settings.js";
 import * as Update from "./update.js";
@@ -249,13 +250,16 @@ async function boot() {
 //   - the asset consent;
 //   - the scan consent, while it is unanswered and a game folder is known;
 //   - the update: released builds look for a newer release once per launch (development runs do not);
-//   - (the prompts of mods outside the library and of mods back to official come after these, with the start scan)
+//   - the prompts of mods back to official and of mods outside the library, once the start scan is in (at most
+//     10 s; a later scan shows them once no other popup is open), only with the scan consent
 function startPopups() {
   const due = (name) => ModSwitch.startDue(name, { info, state: ModSwitch.current() });
   return [
     ["consent", () => due("consent") && Consent.show($("consent"), info.cacheDir, info.native)],
     ["scan", () => due("scan") && Consent.scan($("consent"))],
     ["update", () => due("update") && Update.check($("consent"))],
+    ["drift", () => Prompts.start("drift", info)],
+    ["untracked", () => Prompts.start("untracked", info)],
   ];
 }
 
@@ -289,6 +293,7 @@ async function start() {
   renderNav(0, navOptions);
   // the Enable Mods switch in the top bar, and what the writer jobs switched
   await ModSwitch.init({ names: variantNames }).catch((err) => console.error("mod switch", err));
+  Prompts.init({ names: variantNames });
   on("library.changed", libraryChanged);
   watchFront();
   // files dropped on the window are added to the library

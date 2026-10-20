@@ -6,6 +6,7 @@
 // covers. Whether the classic UI asks before it opens is a General row, under More Settings.
 import * as ModSwitch from "./mod-switch.js";
 import * as NGUI from "./ngui.js";
+import * as Prompts from "./prompts.js";
 import { rpc, waitJob } from "./api.js";
 import { T, platform } from "./i18n.js";
 import { $, DOT, S, clone, glyphsOf, hitButton, toast, wrapPath } from "./util.js";
@@ -127,12 +128,17 @@ function filesValue(m) {
   return parts.length ? parts.join(ModSwitch.listSep()) : T("settings.mods.clean");
 }
 
-// Settings' Check: a scan with the dismissed entries listed again (the prompts follow it)
+// Settings' Check: a scan with the dismissed entries listed again, then the drift and untracked prompts over the
+// settings
 async function checkFiles() {
   const result = await ModSwitch.check();
   if (!result) return;
   const m = ModSwitch.current() || {};
-  if (!m.drift && !m.untracked && !m.damaged) toast(T("settings.mods.clean"));
+  render();
+  if (!m.drift && !m.untracked && !m.damaged) { toast(T("settings.mods.clean")); return; }
+  const entries = await rpc("mods.entries").catch(() => []);
+  await Prompts.show("drift", { entries, dismissed: true });
+  await Prompts.show("untracked", { entries, dismissed: true });
   render();
 }
 
