@@ -610,12 +610,13 @@ export class Effects {
       pt.anim = anim;
       for (let i = 0; i < 3; i++) pt.pos[i] += (pt.vel[i] + anim[i]) * speedMod * dt;
       // its speed (simulation units a second: colour by speed) and the point its trail leaves once it is
-      // minVertexDistance from the last one; points older than the trail's lifetime go
+      // minVertexDistance from the last one; points older than the trail's lifetime go. A particle that stayed put
+      // until all of them went starts its trail again where it is, as at its birth.
       pt.speed = Math.hypot(pt.vel[0] + anim[0], pt.vel[1] + anim[1], pt.vel[2] + anim[2]) * Math.abs(speedMod);
       if (pt.trail) {
-        const at = this.trailPoint(s, pt), last = pt.trail[pt.trail.length - 1].p;
+        const at = this.trailPoint(s, pt), last = pt.trail[pt.trail.length - 1]?.p;
         const unit = world || (mod.trail.world && !world) ? WORLD : 1;
-        if (Math.hypot(at[0] - last[0], at[1] - last[1], at[2] - last[2]) >= mod.trail.minDist * unit) pt.trail.push({ p: at, t: pt.age });
+        if (!last || Math.hypot(at[0] - last[0], at[1] - last[1], at[2] - last[2]) >= mod.trail.minDist * unit) pt.trail.push({ p: at, t: pt.age });
         while (pt.trail.length && pt.age - pt.trail[0].t > pt.trailLife) pt.trail.shift();
       }
       if (mod.rotation) { // angular velocity in radians per second

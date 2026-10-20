@@ -620,6 +620,25 @@ test("trails: points every min vertex distance, living their share of the partic
   assert.equal(P.trailGeometry(fx, effects([sys()]).systems[0]).count, 0);
 });
 
+test("a particle that stays put until its trail's points have all gone starts the trail again where it is", () => {
+  const trail = { ratio: 1, life: 0.1, minDist: 1, texMode: 0, world: 0, die: 1, sizeWidth: 1, sizeLife: 0, inherit: 1,
+    color: { col: [1, 1, 1, 1] }, width: { k: 1 }, colorTrail: { col: [1, 1, 1, 1] } };
+  const def = sys({ main: { loop: 0, speed: 0, life: 4, color: { col: [1, 1, 1, 1] }, size: [1] }, shape: null, modules: { trail },
+    emission: { bursts: [{ t: 0, n: 1, cycles: 1, interval: 1, p: 1 }] }, trailMaterial: "dirt", trailQueue: 2950 });
+  const fx = effects([def]);
+  const s = fx.systems[0];
+  fx.update(0.016);
+  const pt = s.particles[0];
+  // standing still for longer than the trail's 0.4 s: its first point goes, a new one is left where it stands
+  run(fx, 1, 0.05);
+  assert.ok(pt.trail.length <= 1 && pt.trail.every((v) => v.p.every((c, i) => Math.abs(c - pt.pos[i]) < 1e-9)));
+  assert.equal(P.trailGeometry(fx, s, { linear: false }).count, 0, "no ribbon without a length");
+  // moving again (10 units a second): a point every unit from there
+  pt.vel = [0, 0, 10];
+  run(fx, 0.3, 0.05);
+  assert.ok(pt.trail.length >= 3, `${pt.trail.length} points`);
+});
+
 // --- particles-gl.js: drawing into a player's context and freeing it -------------------------------------------------
 
 class FakeGL {}
