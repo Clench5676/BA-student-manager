@@ -6,6 +6,7 @@ import * as Cursor from "./cursor.js";
 import * as Detail from "./detail.js";
 import * as Loading from "./loading.js";
 import * as NGUI from "./ngui.js";
+import * as Popup from "./popup.js";
 import * as Roster from "./roster.js";
 import * as Settings from "./settings.js";
 import * as Update from "./update.js";
@@ -157,10 +158,19 @@ async function boot() {
   // the page starts behind the loading screen: the game's UI is read, then the first screen is built
   await Loading.scene(start, { opaque: true });
   if (!info?.gameFound) return;
-  // the consent popup only once the first screen is revealed
-  if (info.consent !== true) await Consent.show($("consent"), info.cacheDir, info.native);
-  // released builds look for a newer release once per launch (development runs do not)
-  if (info.compiled) Update.check($("consent"));
+  // the start popups only once the first screen is revealed
+  await Popup.sequence(startPopups());
+}
+
+// The start popups, one at a time and in this order, each only when it has something to show; each step resolves
+// once its popup has closed (docs/web-ui.md, "Start sequence"):
+//   - the asset consent;
+//   - the update: released builds look for a newer release once per launch (development runs do not).
+function startPopups() {
+  return [
+    ["consent", () => info.consent !== true && Consent.show($("consent"), info.cacheDir, info.native)],
+    ["update", () => info.compiled && Update.check($("consent"))],
+  ];
 }
 
 async function start() {
