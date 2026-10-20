@@ -120,7 +120,10 @@ def evaluate(curve: Mapping[str, Any], t: float) -> float:
 def clip_curves(clip: Mapping[str, Any]) -> dict:
     """A built AnimationClip's bindings with their curves: {"length", "bindings": [{"path" (CRC-32 below the Animator),
     "type" (class id), "attr", "custom", "script" (the MonoScript pointer of a behaviour property), "pptr",
-    "curves": [curve per component]}]}; object-reference (pptr) curves are left without curves."""
+    "curves": [curve per component]}]}. The streamed, dense and constant curves follow the bindings in order, each
+    binding taking one curve per component; an object-reference (pptr) binding takes its one too (its values index
+    the clip's pptrCurveMapping: the 12 lobby clips with one, Shun's intro glow among them, hold that many curves),
+    and is left without curves."""
     mc = clip.get("m_MuscleClip") or {}
     data = (mc.get("m_Clip") or {}).get("data") or {}
     s = data.get("m_StreamedClip") or {}
@@ -142,7 +145,7 @@ def clip_curves(clip: Mapping[str, Any]) -> dict:
                  "custom": int(b.get("customType", 0)), "script": b.get("script") or {}, "pptr": pptr}
         if not pptr:
             entry["curves"] = curves[index:index + size]
-            index += size
+        index += size
         out.append(entry)
     length = float(mc.get("m_StopTime", 0.0)) - float(mc.get("m_StartTime", 0.0))
     return {"length": _r(max(0.0, length), 6), "bindings": out}

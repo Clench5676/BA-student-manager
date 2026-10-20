@@ -63,12 +63,13 @@ def test_streamed_clip_keys_and_their_cubic_segments():
 
 
 def test_clip_curves_bind_streamed_dense_and_constant_curves_in_order():
-    # 2 streamed, 1 dense, 4 constant curves: the sprite's alpha, the volume's weight, then a transform's position
-    # (3 curves), its scale's z... in binding order
+    # 2 streamed, 1 dense, 6 constant curves: the sprite's alpha, the volume's weight, the sprite's object curve (its
+    # pptrCurveMapping index), the quad's activity, then a transform's position (3 curves), a material colour... in
+    # binding order, as Unity counts them (every binding takes its components' curves, an object curve one)
     clip = {"m_MuscleClip": {"m_StartTime": 0.0, "m_StopTime": 5.3, "m_Clip": {"data": {
         "m_StreamedClip": {"data": words(SHIROKO), "curveCount": 2},
-        "m_DenseClip": {"m_FrameCount": 2, "m_CurveCount": 1, "m_SampleRate": 30.0, "m_BeginTime": 0.0, "m_SampleArray": [7.0, 9.0]},
-        "m_ConstantClip": {"data": [-115.0, 388.0, 0.0, 1.0]}}}},
+        "m_DenseClip": {"m_FrameCount": 2, "m_CurveCount": 1, "m_SampleRate": 30.0, "m_BeginTime": 0.0, "m_SampleArray": [0.0, 0.0]},
+        "m_ConstantClip": {"data": [1.0, -115.0, 388.0, 0.0, 0.5]}}}},
         "m_ClipBindingConstant": {"genericBindings": [
             {"path": intro.crc("Glow"), "attribute": intro.crc("m_Color.a"), "typeID": 212, "customType": 0, "isPPtrCurve": 0},
             {"path": intro.crc("PPV/PPV_C"), "attribute": intro.crc("weight"), "typeID": 114, "customType": 0, "isPPtrCurve": 0},
@@ -80,10 +81,10 @@ def test_clip_curves_bind_streamed_dense_and_constant_curves_in_order():
     assert out["length"] == 5.3
     b = out["bindings"]
     assert "s" in b[0]["curves"][0] and "s" in b[1]["curves"][0]
-    assert "curves" not in b[2]  # an object curve takes no float curve
-    assert b[3]["curves"] == [{"d": [0.0, 30.0, [7.0, 9.0]]}]
+    assert "curves" not in b[2]  # an object curve: its slot (the dense one) is not a float curve of anyone's
+    assert b[3]["curves"] == [{"k": 1.0}]
     assert b[4]["curves"] == [{"k": -115.0}, {"k": 388.0}, {"k": 0.0}]
-    assert b[5]["curves"] == [{"k": 1.0}]
+    assert b[5]["curves"] == [{"k": 0.5}]
     # a material binding: the low 28 bits of the name's CRC-32, its component in the top 4 (4 + r g b a)
     assert intro.material_attribute(0x4DAF8B71) == ("_Color", 0)
     assert intro.material_attribute((intro.crc("_Color0") & 0x0FFFFFFF) | (7 << 28)) == ("_Color0", 3)
@@ -448,6 +449,10 @@ def test_real_intros(real_game):
     nonomi = real_game.lobby_info("nonomi_home")
     assert len(nonomi["intro"]["control"]) == 2
     assert any(s.get("rest") == 0 and s.get("gate") for s in nonomi["fx"]["systems"])
+    # Shun's glow: its clip's object curve (the sprite) sits before its colour's red, green and blue, which stay white
+    # (they took the curve after theirs, red 0: a cyan glow)
+    props = [p for p in real_game.lobby_info("shun_home")["intro"]["props"] if p["on"] == "sprite" and p["attr"] == "color"]
+    assert {p["k"]: intro.evaluate(p["c"], 0.0) for p in props if p["k"] < 3} == {0: 1.0, 1: 1.0, 2: 1.0}
     # an intro sound decodes from memory like the clips' sounds
     clip = shiroko["sounds"][it["sounds"][0]["id"]]["clips"][0]
     assert real_game.lobby_sound("shiroko_home", clip)[:4] == b"RIFF"
