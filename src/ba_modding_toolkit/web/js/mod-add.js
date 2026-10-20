@@ -38,7 +38,7 @@ export async function add(paths = null, currentVariant = null) {
         await Loading.task(async (update) => waitJob(await rpc("actions.update", { mod: mod.id }), update));
         context.changed?.();
         await Compatibility.check(mod.id, mod.label);
-      } });
+      }, onRemap: () => Compatibility.remap(mod.id, () => context.changed?.(), mod.label) });
   }
   const installedIds = new Set(installed.map((m) => m.id));
   const visibleAdded = added.filter((mod) => !from || destination(mod) !== from || installedIds.has(mod.id) || failures.has(mod.id));

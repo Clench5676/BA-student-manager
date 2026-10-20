@@ -17,18 +17,20 @@ let sequence = 0;
 async function harness(locale = "en-US", button = "cancel") {
   const strings = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${locale}.json`, import.meta.url), "utf8")).webui;
   const calls = [], popups = [];
-  let nextReport = report();
+  let nextReport = report(), rebuilt = null;
+  const comparisons = [];
   globalThis.compatibilityDeps = {
     language: () => locale,
     T: (key, vars = {}) => key.split(".").reduce((o, k) => o?.[k], strings)?.replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? "") || key,
     rpc: async (method, params) => { calls.push([method, params]); return method; },
-    waitJob: async () => nextReport,
+    waitJob: async (id) => id === "actions.remap" ? rebuilt : nextReport,
     Loading: { task: (fn) => fn(() => {}) },
     Popup: { message: async (options) => { popups.push(options); return { button }; } },
+    Compare: { show: async (...args) => comparisons.push(args) },
   };
-  const code = `const { T, language, rpc, waitJob, Loading, Popup } = globalThis.compatibilityDeps;\n${source.replace(/^import .*;$/gm, "")}\n// ${sequence++}`;
+  const code = `const { T, language, rpc, waitJob, Loading, Popup, Compare } = globalThis.compatibilityDeps;\n${source.replace(/^import .*;$/gm, "")}\n// ${sequence++}`;
   const mod = await import(`data:text/javascript;base64,${Buffer.from(code).toString("base64")}`);
-  return { mod, calls, popups, use: (value) => { nextReport = value; } };
+  return { mod, calls, popups, comparisons, use: (value) => { nextReport = value; }, build: (value) => { rebuilt = value; } };
 }
 
 test("the mismatched skeleton names missing animations, slots, attachments and bone counts", async () => {
@@ -120,5 +122,62 @@ test("all five locales show compatibility findings and actions with no unresolve
     assert.ok(popup.lines.every((line) => !/[{}]/.test(line) && !line.startsWith("compatibility.")));
     assert.ok(popup.lines.includes(JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${locale}.json`, import.meta.url), "utf8")).webui.compatibility.authorHint));
     assert.notEqual(popup.ok, "act.update");
+  }
+});
+
+test("changed bones with the same count and mesh UVs with the same names are reported", async () => {
+  const { mod } = await harness();
+  const r = report(), skeleton = structuredClone(fixture.official);
+  skeleton.bones[1].x = 10;
+  r.mod = inputs(skeleton);
+  assert.ok(mod.compare(r).issues.some(({ key }) => key === "rig"));
+  const mesh = { type: "mesh", uvs: [0, 0, 1, 0, 1, 1], vertices: [0, 0, 10, 0, 10, 10], triangles: [0, 1, 2] };
+  skeleton.skins[0].attachments.face.smile = mesh;
+  r.official = inputs(skeleton);
+  for (const mutation of [
+    (m) => { m.uvs[0] = 0.25; },
+    (m) => { m.vertices[0] = 5; },
+    (m) => { m.uvs.push(0, 1); m.vertices.push(0, 10); },
+  ]) {
+    const changed = structuredClone(skeleton);
+    mutation(changed.skins[0].attachments.face.smile);
+    r.mod = inputs(changed);
+    assert.ok(mod.compare(r).issues.some(({ key }) => key === "geometry"));
+    assert.equal(mod.compare(r).author, true);
+  }
+});
+
+test("atlas layout findings expose Remap and dismissing stays read-only", async () => {
+  const h = await harness(), r = report();
+  r.atlasLayout = ["test.atlas"]; r.remappable = true;
+  h.use(r);
+  await h.mod.check("layout-mod", "Example");
+  assert.deepEqual(h.calls, [["actions.compatibility", { mod: "layout-mod" }]]);
+  assert.equal(h.mod.canRemap("layout-mod"), true);
+  assert.equal(h.mod.canRemap("another"), false);
+  assert.ok(h.popups[0].lines.includes("test.atlas, atlas layout differs"));
+  assert.equal(h.popups[0].ok, "Remap to current version");
+  r.remappable = false;
+  await h.mod.check("layout-mod");
+  assert.equal(h.mod.canRemap("layout-mod"), false);
+});
+
+test("Remap creates a new mod, reports a partial fix and opens the source comparison", async () => {
+  for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"]) {
+    const h = await harness(locale, "ok"), r = report();
+    r.atlasLayout = ["test.atlas"]; r.remappable = true; r.outdated = true;
+    const built = { mod: { id: "new-mod", label: "Repacked" }, compare: { mod_id: "new-mod", assets: [] },
+      report: { partial: true, moved: ["body"], added: ["halo"], dropped: ["old"],
+        warnings: [{ key: "rig", name: "test.skel" }, { key: "version", name: "test.skel" }] } };
+    h.use(r); h.build(built);
+    let changed;
+    await h.mod.check("old-mod", "Painted", () => assert.fail("Update is not used"), (result) => { changed = result; });
+    assert.equal(changed, built);
+    assert.deepEqual(h.calls.map(([method]) => method), ["actions.compatibility", "actions.remap"]);
+    assert.deepEqual(h.comparisons, [[built.compare, "Painted - Repacked", "dialog"]]);
+    const popup = h.popups[1];
+    assert.ok(popup.lines.every((line) => !/[{}]/.test(line) && !line.startsWith("remap.")));
+    assert.ok(popup.lines.some((line) => line.includes("old")));
+    assert.equal(popup.lines.filter((line) => line.includes("test.skel")).length, 2);
   }
 });

@@ -1175,7 +1175,8 @@
 			"mod_target_ambiguous": "Conflicting Mod targets: {file}",
 			"mod_platform_unknown": "Build target unavailable: {file}",
 			"mod_platform_mismatch": "{file}, build target {platform}, required {expected}",
-			"mod_parts_missing": "Incomplete Mod, missing files: {files}"
+			"mod_parts_missing": "Incomplete Mod, missing files: {files}",
+			"atlas_remap_invalid": "Cannot remap: atlas or page data is missing, invalid or ambiguous"
 		},
 		"drop": {
 			"hint": "Drop mod files to add them"
@@ -1342,7 +1343,20 @@
 			"textureSize": "{name}, texture: {mod}, official {official}",
 			"updateHint": "Update: port assets to current official bundles, Spine conversion may be required",
 			"authorHint": "Mod adapted to the current version required",
-			"crcHint": "CRC fix changes checksums only"
+			"crcHint": "CRC fix changes checksums only",
+			"atlasLayout": "{name}, atlas layout differs",
+			"geometry": "{name}, attachment or mesh geometry differs",
+			"rig": "{name}, bone structure differs"
+		},
+		"remap": {
+			"action": "Remap to current version",
+			"name": "{name} (remapped)",
+			"done": "Textures remapped",
+			"partial": "Textures remapped, partial fix",
+			"counts": "Remapped: {moved}, official: {added}, dropped: {dropped}",
+			"dropped": "Dropped regions: {names}",
+			"rig": "{name}, skeleton data differs, attachments or meshes may remain misaligned",
+			"version": "{name}, Spine versions differ, skeleton conversion required"
 		}
 	}
 }

@@ -162,7 +162,7 @@ def _changed_of(result: Any) -> dict[str, list[str]]:
         return {"cores": cores, "kinds": kinds}
     mod = getattr(result, "mod", None)
     if mod is not None and getattr(mod, "core", None):
-        return {"cores": [mod.core], "kinds": [mod.kind]}
+        return {"cores": [mod.core], "kinds": [mod.kind], **({"mods": True} if hasattr(result, "report") else {})}
     return {"cores": [], "kinds": []}
 
 

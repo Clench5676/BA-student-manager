@@ -1175,7 +1175,8 @@
 			"mod_target_ambiguous": "Mod 内含相互冲突的目标：{file}",
 			"mod_platform_unknown": "无法识别构建平台：{file}",
 			"mod_platform_mismatch": "{file}，构建平台 {platform}，需要 {expected}",
-			"mod_parts_missing": "Mod 文件不完整，缺少：{files}"
+			"mod_parts_missing": "Mod 文件不完整，缺少：{files}",
+			"atlas_remap_invalid": "无法重排：图集或页面数据缺失、无效或存在歧义"
 		},
 		"drop": {
 			"hint": "拖入 Mod 文件以添加"
@@ -1342,7 +1343,20 @@
 			"textureSize": "{name}，贴图尺寸：{mod}，原版 {official}",
 			"updateHint": "更新：移植到当前原版文件，可能需要转换 Spine 版本",
 			"authorHint": "需要适配当前版本的 Mod",
-			"crcHint": "CRC 修正仅调整校验值"
+			"crcHint": "CRC 修正仅调整校验值",
+			"atlasLayout": "{name}，图集布局不同",
+			"geometry": "{name}，附件或网格几何不同",
+			"rig": "{name}，骨骼结构不同"
+		},
+		"remap": {
+			"action": "按当前版本重排贴图",
+			"name": "{name}（已重排）",
+			"done": "贴图已重排",
+			"partial": "贴图已重排，部分修复",
+			"counts": "已重排：{moved}，使用原版：{added}，已移除：{dropped}",
+			"dropped": "已移除区域：{names}",
+			"rig": "{name}，骨骼数据不同，附件或网格仍可能错位",
+			"version": "{name}，Spine 版本不同，需要转换骨骼"
 		}
 	}
 }

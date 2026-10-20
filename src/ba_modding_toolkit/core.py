@@ -579,6 +579,7 @@ def process_mod_update(
     match_strategy: MatchStrategy = 'path_id',
     anim_check: AnimCheckOptions | None = None,
     log: LogFunc = no_log,
+    prepared_patch: Patch | None = None,
 ) -> ModUpdateResult:
     """
     自动化Mod更新流程 (N-to-N)。
@@ -607,7 +608,7 @@ def process_mod_update(
     try:
         # 1. 提取资源 (Extraction)
         log(f'\n--- {t("log.section.extracting_patches")} ---')
-        patches: Patch = {}
+        patches: Patch = dict(prepared_patch or {})
         skel_conflicts: list[SkelVersionConflict] = []
 
         for src in source_paths:
@@ -642,6 +643,8 @@ def process_mod_update(
                 continue
             
             result = tgt_bundle.apply_patch(patches, match_strategy, anim_check)
+            if prepared_patch is not None and result.matched_count != len(patches):
+                return ModUpdateResult(False, t("webui.error.atlas_remap_invalid"), [])
             total_matched += result.matched_count
 
             # 汇总动画差异

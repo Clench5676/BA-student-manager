@@ -15,6 +15,7 @@ import { previewError } from "./preview-error.js";
 import * as Loading from "./loading.js";
 import * as ModAdd from "./mod-add.js";
 import * as Compatibility from "./mod-compatibility.js";
+import { show as showCompare } from "./mod-compare.js";
 import * as Lobby from "./lobby.js";
 import * as Visual from "./visual-mode.js";
 import { QUEUEABLE, current as modsState, entryLabel, refused } from "./mod-switch.js";
@@ -284,7 +285,7 @@ function screenTree() {
   // row 2: four actions on what the shown tab's game files carry. Title and icon centred as a group on the card's
   // slanted midline.
   const isMod = !!sk && c.kind === "mod";
-  const actions = [["SkillData_EX", "compatibility.check", "compare", isMod && !busy], ["SkillData_EX (1)", "act.update", "update", isMod && !busy],
+  const actions = [["SkillData_EX", "compatibility.check", "compare", isMod && !busy], ["SkillData_EX (1)", isMod && Compatibility.canRemap(c.id) ? "remap.action" : "act.update", "update", isMod && !busy],
     ["SkillData_EX (2)", "act.extract", "extract", !busy], ["SkillData_EX (3)", "act.compare", "compare", isMod && !busy]];
   // the row's white section spans x 58..1320 (Bg_W2 at 689, 1262 wide); cards keep the first card's 37-unit margins
   const ROW_L = 58 + 37, ROW_R = 1320 - 37, GAP = 6, CW = (ROW_R - ROW_L - 3 * GAP) / 4;
@@ -503,7 +504,8 @@ function hits(view, leftHost, rightHost) {
   add(rightHost, `${INFO}/Detail_Btn`, showDetails, T("info.details"));
   const act = (card, fn, title) => add(rightHost, `${INFO}/Skill/${card}/Bg`, fn, title);
   act("SkillData_EX", () => runCompatibility(), T("compatibility.check"));
-  act("SkillData_EX (1)", () => runUpdate(), T("act.update"));
+  act("SkillData_EX (1)", () => Compatibility.canRemap(shownMod()?.id) ? runRemap(shownMod()) : runUpdate(),
+    T(Compatibility.canRemap(shownMod()?.id) ? "remap.action" : "act.update"));
   act("SkillData_EX (2)", () => runExtract(), T("act.extract"));
   act("SkillData_EX (3)", () => runCompare(), T("act.compare"));
   add(leftHost, "LeftInfo/CharInfo/Char_Target/Pin/Pin_On/Bg", toggleFav, T("fav.label"));
@@ -614,7 +616,17 @@ function runUpdate() {
 async function runCompatibility() {
   const c = shownMod(), kind = switchKind();
   if (!c || busy) return;
-  await call(() => Compatibility.check(c.id, c.label, () => { forget(spinePrefix("mod", c.id)); return reload([kind]); }));
+  await call(() => Compatibility.check(c.id, c.label, () => { forget(spinePrefix("mod", c.id)); return reload([kind]); },
+    remapped));
+  if (open) await renderScreen();
+}
+async function remapped() {
+  ctx.invalidateRoster();
+  await reload();
+}
+async function runRemap(c) {
+  if (!c || busy) return;
+  await call(() => Compatibility.remap(c.id, remapped, c.label));
 }
 function runExtract() {
   const c = shownMod();
@@ -1035,8 +1047,13 @@ async function drawPopup(scroll = 0) {
         fields: [[T("field.file"), baseName(file)], [T("field.size"), sizeText(size)], [T("field.status"), T(status[0]), status[1] && `${status[1]}/1.00`],
           [T("field.crc"), crc ? T(crc[0]) : "—", crc?.[1] && `${crc[1]}/1.00`]],
         actions: [[T(platform === "mac" ? "open.mac" : "open.win"), () => reveal(file)],
-          ...(c.kind === "mod" ? [[T("compatibility.check"), () => call(() => Compatibility.check(c.id, c.label,
-            () => { forget(spinePrefix("mod", c.id)); return reload([kind]); }))]] : []),
+          ...(c.kind === "mod" ? [[T("compatibility.check"), async () => {
+            let rebuilt = false;
+            await call(() => Compatibility.check(c.id, c.label,
+              () => { forget(spinePrefix("mod", c.id)); return reload([kind]); },
+              () => { rebuilt = true; return remapped(); }));
+            if (open && !rebuilt) await renderPopup();
+          }], ...(Compatibility.canRemap(c.id) ? [[T("remap.action"), () => runRemap(c)]] : [])] : []),
           c.kind === "mod"
             ? [T("btn.delete"), async () => {
               if (!(await removeMod(c.id))) return;
@@ -1146,28 +1163,6 @@ async function openPicker(scroll = 0) {
       };
     },
   });
-}
-
-// compare: what the mod changes against the game's official file, on the popup frame
-async function showCompare(result) {
-  const host = $("popup");
-  const t = popupFrame(T("act.compare"), 1900, 1180);
-  const popup = find(t, "Popup");
-  const rows = (result.assets || []).filter((d) => d.status !== "same").slice(0, 12);
-  const color = { changed: "#d9822b", added: "#1f9a52", removed: "#c0392b" };
-  if (!rows.length) popup.children.push(node("None", [0, 120], [label(T("compare.none"), 44, "#2d4664/1.00", 1600, 60, { depth: 8 })]));
-  rows.forEach((d, i) => {
-    const y = 400 - i * 64;
-    popup.children.push(node(`R_${i}`, [-820, y], [label(`${d.type} - ${d.name}`, 38, "#2d4664/1.00", 1300, 50, { pivot: 3, depth: 8, ellipsis: true })]),
-      node(`S_${i}`, [820, y], [label(T(`compare.${d.status}`), 38, `${color[d.status] || "#2d4664"}/1.00`, 300, 50, { pivot: 5, depth: 8 })]));
-  });
-  host.hidden = false;
-  const next = document.createElement("div");
-  const view = await NGUI.render(t, next, { scale: S, origin: [960, 540], z: 10 });
-  const done = () => { host.hidden = true; host.innerHTML = ""; };
-  hitNode(next, view, "Center/Popup/Base/BG/Btn_Close", done, { name: T("display.close"), action: "close" });
-  closable(view, host, done);
-  host.replaceChildren(...next.childNodes);
 }
 
 // --- the alias editor (the nameplate's pencil): the user's own aliases of the student on the popup frame, one input

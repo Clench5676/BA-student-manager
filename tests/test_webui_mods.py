@@ -1192,3 +1192,25 @@ def test_add_rpc_adopts_installed_content_and_refreshes_the_snapshot(env, backgr
     assert len(result["added"]) == 1 and len(env.s.library.mods()) == 1
     assert env.s.library.state("test").applied == f"mod:{result['added'][0]['id']}"
     assert env.s.mods_state()["configured"] == 1
+
+
+def test_remap_rpc_pins_the_install_and_publishes_a_new_library_mod(env, monkeypatch):
+    from dataclasses import replace
+    from ba_modding_toolkit.library.models import CompareResult, RemapResult
+
+    entry = env.add(env.spr)
+    rebuilt = replace(entry, id="repacked", label="Repacked")
+    result = RemapResult(rebuilt, {"partial": False}, CompareResult(rebuilt.id, []))
+    calls = []
+
+    def remap(mod, log=None, progress=None, pin=None):
+        calls.append((mod, pin))
+        return result
+
+    monkeypatch.setattr(env.s.library, "remap", remap)
+    job = env.job("actions.remap", mod=entry.id)
+    assert job.state == "done" and job.writes == "library"
+    assert job.result == result.to_json()
+    assert calls == [(entry.id, env.s.library.current_pin())]
+    from ba_modding_toolkit.webui.services import _changed_of
+    assert _changed_of(result) == {"cores": [entry.core], "kinds": [entry.kind], "mods": True}

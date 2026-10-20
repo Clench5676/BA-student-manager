@@ -6,7 +6,7 @@ const source = readFileSync(new URL("../../src/ba_modding_toolkit/web/js/mod-add
 const flat = (o, p = "", out = {}) => { for (const [k, v] of Object.entries(o)) { if (v && typeof v === "object") flat(v, `${p}${k}.`, out); else out[`${p}${k}`] = v; } return out; };
 let seq = 0;
 async function harness({ locale = "en-US", added = [], button = "cancel", error = null, cancelled = false,
-  compatibilityUpdate = false,
+  compatibilityUpdate = false, compatibilityRemap = false,
   name = ({ variant }) => ({ base: "Mutsuki", dress: "Mutsuki (Dress)" })[variant] || variant } = {}) {
   const strings = flat(JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${locale}.json`, import.meta.url), "utf8")));
   const log = [], progress = [];
@@ -19,8 +19,13 @@ async function harness({ locale = "en-US", added = [], button = "cancel", error 
     toast: (text) => log.push(["toast", text]),
     Compatibility: {
       compare: (report) => ({ issues: report.issues || [] }),
-      show: async (report, options) => { log.push(["compatibility", report, options]); if (compatibilityUpdate) await options.onUpdate(); },
+      show: async (report, options) => {
+        log.push(["compatibility", report, options]);
+        if (compatibilityUpdate) await options.onUpdate();
+        if (compatibilityRemap) await options.onRemap();
+      },
       check: async (...args) => log.push(["checked", ...args]),
+      remap: async (id, changed, label) => { log.push(["remap", id, label]); await changed(); },
     },
   };
   globalThis.modAddDeps = d;
@@ -363,4 +368,14 @@ test("drop callers accept report objects for new mods, duplicates and adoption w
     assert.equal(invalidations, 1);
     assert.equal(refreshes, 1);
   }
+});
+
+test("an added mod's layout finding can create a remapped copy through the shared action", async () => {
+  const mod = { ...portrait, id: "old", label: "Painted" };
+  const checked = { issues: [{ key: "atlasLayout" }], remappable: true };
+  const h = await harness({ added: { added: [mod], compatibility: { old: checked } }, compatibilityRemap: true });
+  await h.mod.add(["mod.bundle"], "base");
+  assert.deepEqual(h.log.filter(([key]) => key === "remap"), [["remap", "old", "Painted"]]);
+  assert.equal(h.log.filter(([key]) => key === "changed").length, 2);
+  assert.ok(!h.log.some(([key, method]) => key === "rpc" && method === "actions.update"));
 });

@@ -712,6 +712,13 @@ def build_api(s: Services) -> RpcRegistry:
     def actions_compare(mod: str) -> Any:
         return s.library.compare(mod)
 
+    @rpc.method("actions.remap")
+    def actions_remap(mod: str) -> str:
+        library = s.library
+        pin = s._current_pin(library)
+        return s.submit("remap", lambda log, progress: library.remap(mod, log=log, progress=progress, pin=pin),
+                        writes="library", library=library)
+
     @rpc.method("actions.compatibility")
     def actions_compatibility(mod: str) -> str:
         library = s.library

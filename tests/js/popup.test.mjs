@@ -909,3 +909,34 @@ test("a long folder in the file-details summary does not resize the current valu
   assert.ok(widget(after, "V_0").fontSize >= 28, "a wrapped path respects its size floor");
   assert.ok(widget(after, "V_0").text.includes("\n"));
 });
+
+test("an atlas mismatch offers Remap on the mod card and opens the original-to-new comparison", async () => {
+  setStrings("en-US", Object.fromEntries(strings(english)));
+  await modsEnabled(false);
+  const fam = previewFamily();
+  Detail.setupPreviewTest(fam, "spr");
+  const inputs = { skeletons: {}, atlases: {}, textures: {} };
+  const checked = { official: inputs, mod: inputs, atlasLayout: ["test.atlas"], remappable: true };
+  const built = { mod: { id: "remapped", label: "Painted (remapped)" },
+    report: { moved: ["face"], added: ["new"], dropped: ["old"], warnings: [], partial: false },
+    compare: { mod_id: "remapped", assets: [{ type: "Texture2D", name: "page", status: "changed" }] } };
+  const remaps = [];
+  handlers.set("actions.compatibility", () => ({ result: "check-remap" }));
+  handlers.set("actions.remap", (params) => { remaps.push(params); return { result: "remap-job" }; });
+  handlers.set("actions.update", () => assert.fail("layout repair uses Remap"));
+  handlers.set("jobs.get", ({ id }) => ({ result: { state: "done", result: id === "check-remap" ? checked : built } }));
+  handlers.set("family.get", () => ({ result: structuredClone(fam) }));
+  await Detail.renderPopup();
+  walk(switchHost).find((el) => el.getAttribute("aria-label") === english.compatibility.check).click();
+  (await drawn(dialog, "cancel")).click();
+  await until(() => walk(switchHost).some((el) => el.getAttribute("aria-label") === english.remap.action));
+  assert.deepEqual(remaps, []);
+  walk(switchHost).find((el) => el.getAttribute("aria-label") === english.remap.action).click();
+  (await drawn(dialog, "ok")).click();
+  await until(() => walk(dialog).some((el) => el.textContent === "Texture2D - page"));
+  assert.deepEqual(remaps, [{ mod: "p" }]);
+  assert.ok(walk(dialog).some((el) => el.textContent.includes("Painted (remapped)")));
+  press("Escape");
+  await until(() => dialog.hidden);
+  switchHost.hidden = true;
+});
