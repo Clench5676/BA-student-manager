@@ -1106,6 +1106,7 @@
 			"update_checksum_mismatch": "The update failed its checksum",
 			"update_unavailable": "This release has no build for this device",
 			"update_unsupported": "This build cannot update itself",
+			"update_restart_failed": "Could not restart for the update",
 			"lines_unavailable": "Lines are not available right now",
 			"busy": "Wait for the current task to finish",
 			"library_target_not_empty": "The folder already holds mod library files: {path}",

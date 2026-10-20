@@ -26,9 +26,9 @@ class El {
   setAttribute(k, v) { this.attrs[k] = String(v); }
   getAttribute(k) { return this.attrs[k] ?? null; }
   addEventListener(type, fn) { (this.listeners[type] ||= []).push(fn); }
-  click() { for (const fn of this.listeners.click || []) fn({ type: "click" }); }
+  click() { for (const fn of this.listeners.click || []) fn({ type: "click", target: this, currentTarget: this }); }
   focus() { document.activeElement = this; }
-  querySelector() { return null; }
+  querySelector(selector) { return walk(this).find((e) => selector.startsWith(".") && e.className.split(" ").includes(selector.slice(1))) || null; }
   // a canvas: text is measured at 0.6 of its size per character
   getContext() { return { font: "", drawImage() {}, fillRect() {}, measureText(s) { return { width: s.length * 0.6 * parseFloat(/([\d.]+)px/.exec(this.font)?.[1] || 10) }; } }; }
   toBlob(fn) { fn(new Blob()); }
@@ -62,6 +62,7 @@ function press(key, extra = {}) {
 }
 const host = (id) => { const h = body.appendChild(new El()); h.id = id; h.hidden = true; return h; };
 const dialog = host("dialog"), prompt = host("prompt"), consent = host("consent");
+const settings = host("settings"), toast = host("toast");
 
 // --- the server: a small atlas index (the progress and button sprites only), the popup
 // frame's prefab, the update check ---
@@ -83,6 +84,13 @@ const SORT = n("UIPopup_Sort", [0, 0], [], [n("Center", [0, 0], [], [
     n("Normal", [0, 0]),
   ]),
 ])]);
+// The settings test uses General only; the tabs and popup frame retain their real paths.
+const OPTIONS = structuredClone(SORT);
+OPTIONS.name = "UIPopup_Option_PC";
+OPTIONS.children[0].children[1].children.push(
+  n("TabBg", [0, 0], [], [n("Grid", [0, 0])]),
+  n("Game", [0, 0], [], ["Tab_On", "Tab_Off"].map((name) => n(name, [0, 0], [], [n("Label_Locale", [0, 0], [lbl()])]))),
+);
 let update = null; // what app.checkUpdate answers
 const calls = [];
 const requests = [], handlers = new Map();
@@ -96,9 +104,10 @@ globalThis.fetch = async (url, opts = {}) => {
     return reply({ result: method === "app.checkUpdate" ? update : null, params });
   }
   if (url === "/asset/ui/atlases.json") return reply({ Common: Object.fromEntries(
-    ["Common_Bg_Raius10px", "Common_Btn_BG"].map((name) => [name, { width: 8, height: 8 }])) });
+    ["Common_Bg_Raius10px", "Common_Btn_BG", "Common_Popup_Bg"].map((name) => [name, { width: 8, height: 8 }])) });
   if (url === "/asset/ui/textures.json") return reply({});
   if (url === "/asset/ui/layout/UIPopup_Sort.json") return reply(SORT);
+  if (url === "/asset/ui/layout/UIPopup_Option_PC.json") return reply(OPTIONS);
   return reply(null, false); // the other prefabs are optional
 };
 
@@ -108,10 +117,13 @@ console.warn = (...args) => { if (!String(args[0]).startsWith("popup layout")) w
 
 const Popup = await import("../../src/ba_modding_toolkit/web/js/popup.js");
 const Update = await import("../../src/ba_modding_toolkit/web/js/update.js");
+const { S } = await import("../../src/ba_modding_toolkit/web/js/util.js");
 const { setStrings } = await import("../../src/ba_modding_toolkit/web/js/i18n.js");
 const english = JSON.parse(readFileSync(new URL("../../src/ba_modding_toolkit/locales/en-US.json", import.meta.url))).webui;
-setStrings("en-US", Object.fromEntries(["update", "error"].flatMap((group) =>
-  Object.entries(english[group]).map(([key, value]) => [`webui.${group}.${key}`, value]))));
+function strings(value, prefix = "webui") {
+  return Object.entries(value).flatMap(([key, text]) => typeof text === "object" ? strings(text, `${prefix}.${key}`) : [[`${prefix}.${key}`, text]]);
+}
+setStrings("en-US", Object.fromEntries(strings(english)));
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 const actionsIn = (root) => walk(root).filter((e) => e.dataset?.action);
@@ -383,6 +395,18 @@ test("update progress stays in NGUI, blocks buttons and Escape, and completion w
   const fill = await progress(50, 100, 50);
   assert.equal(parseFloat(fill.style.width) / parseFloat(part("Progress").style.width), 0.5);
   assert.ok(fill.style.backgroundImage, "the bar uses a rendered, tinted sprite");
+  const bounds = (el) => {
+    const top = parseFloat(el.style.top), height = parseFloat(el.style.height);
+    return { top, height, bottom: top + height };
+  };
+  const bar = bounds(part("Progress")), status = bounds(part("Status")), frame = bounds(part("Base/BG"));
+  assert.ok(bar.top - status.bottom >= 6 * S, "the status has a gap above the bar");
+  for (const name of ["Btn_Ok", "Btn_Cancel"]) {
+    const button = bounds(part(`Btn/${name}/BG (1)`));
+    assert.ok(Math.abs(button.height - 177 * S) < 0.01, "check the prefab's full button background height");
+    assert.ok(button.top - bar.bottom >= 12 * S, "the full button background clears the progress bar");
+    assert.ok(button.bottom < frame.bottom, "the buttons stay within the 1500x820 frame");
+  }
   await progress(200, 100, 100);
   await progress(-10, 100, 0);
   // In-flight progress renders cannot replace the ready state after completion.
@@ -459,7 +483,7 @@ test("only Restart installs, and every install refusal stays ready for another a
   let answer;
   handlers.set("app.installUpdate", () => new Promise((resolve) => { answer = resolve; }));
   const done = Update.check(consent);
-  for (const code of ["classic_open", "busy", "update_unavailable", "update_unsupported"]) {
+  for (const code of ["classic_open", "busy", "update_unavailable", "update_unsupported", "update_restart_failed"]) {
     answer = null;
     (await drawn(consent, "restart")).click();
     await until(() => answer);
@@ -474,18 +498,114 @@ test("only Restart installs, and every install refusal stays ready for another a
     assert.equal(action(consent, "restart").getAttribute("aria-label"), "Restart");
     assert.equal(consent.hidden, false);
   }
-  assert.equal(calls.slice(start).filter((m) => m === "app.installUpdate").length, 4);
+  assert.equal(calls.slice(start).filter((m) => m === "app.installUpdate").length, 5);
   assert.equal(calls.slice(start).includes("app.update"), false);
   assert.ok(requests.filter((r) => r.method === "app.installUpdate").every((r) => r.params.file === update.file));
   action(consent, "later").click();
   assert.equal(await done, "update");
+  handlers.clear();
+});
 
+test("Restart recovers to ready when installUpdate succeeds but the page is still alive", async (t) => {
+  const timers = [], realTimeout = setTimeout;
+  t.mock.method(globalThis, "setTimeout", (fn, ms, ...args) => {
+    if (ms === 3000) { timers.push(fn); return 0; }
+    return realTimeout(fn, ms, ...args);
+  });
+  update = { ...available, downloaded: true, file: "/session/verified.dmg" };
   handlers.set("app.installUpdate", () => ({ result: null }));
   const restarted = Update.check(consent);
   (await drawn(consent, "restart")).click();
-  await until(() => part("Status")?.textContent === english.update.restarting);
+  await until(() => timers.length);
+  assert.equal(part("Status").textContent, english.update.restarting);
   assert.equal(await state(restarted), "pending", "the app closes on successful install; startup cannot advance under it");
-  consent.hidden = true; // stand in for the window closing
+  assert.ok(action(consent, "restart").disabled);
+  timers.shift()();
+  await until(() => part("Status")?.textContent === english.error.update_restart_failed);
+  assert.equal(action(consent, "restart").disabled, false);
+  assert.equal(action(consent, "later").disabled, false);
+  assert.equal(await state(restarted), "pending");
+  handlers.set("app.installUpdate", () => ({ error: { code: "busy" } }));
+  action(consent, "restart").click();
+  await until(() => part("Status")?.textContent === english.error.busy);
+  assert.equal(action(consent, "restart").disabled, false);
+  press("Escape");
+  assert.equal(await restarted, "update");
+  handlers.clear();
+});
+
+test("concurrent checks share one request and popup through download and dismissal, per host", async () => {
+  let answer;
+  const start = calls.length;
+  handlers.set("app.checkUpdate", () => new Promise((resolve) => { answer = resolve; }));
+  handlers.set("app.update", () => ({ result: "single-download" }));
+  handlers.set("jobs.get", () => ({ result: { state: "running" } }));
+  const first = Update.check(consent), second = Update.check(consent);
+  assert.equal(second, first, "the host is reserved before the check finishes");
+  await until(() => answer);
+  assert.equal(calls.slice(start).filter((m) => m === "app.checkUpdate").length, 1);
+  answer({ result: available });
+  (await drawn(consent, "update")).click();
+  await until(() => calls.slice(start).includes("jobs.get"));
+  const locked = action(consent, "update");
+  assert.equal(Update.check(consent, { ...available, version: "9.0.0" }), first);
+  await tick();
+  assert.equal(action(consent, "update"), locked, "a late result cannot replace the locked popup");
+  press("Escape");
+  assert.equal(consent.hidden, false);
+  assert.equal(await state(first), "pending");
+  // Another host has its own popup and promise.
+  const other = host("other-update"), independent = Update.check(other, available);
+  assert.notEqual(independent, first);
+  (await drawn(other, "later")).click();
+  assert.equal(await independent, "later");
+  other.remove();
+  events.emit("job.done", { id: "single-download", result: { file: "/session/single.dmg" } });
+  await drawn(consent, "restart");
+  assert.equal(Update.check(consent), first);
+  action(consent, "later").click();
+  assert.deepEqual(await Promise.all([first, second]), ["later", "later"]);
+  const again = Update.check(consent, available);
+  assert.notEqual(again, first, "a closed popup releases the host");
+  (await drawn(consent, "later")).click();
+  assert.equal(await again, "later");
+  handlers.clear();
+});
+
+test("Settings disables Check for Updates while pending and uses the shared popup check", async () => {
+  const Settings = await import("../../src/ba_modding_toolkit/web/js/settings.js");
+  handlers.set("settings.get", () => ({ result: {
+    version: "1.0.0", language: "en-US", languages: [["en-US", "English"]].map(([code, name]) => ({ code, name })),
+    cacheDir: "/test/cache", native: true,
+  } }));
+  handlers.set("mods.state", () => ({ result: {} }));
+  let answer;
+  handlers.set("app.checkUpdate", () => new Promise((resolve) => { answer = resolve; }));
+  const checkButton = () => walk(settings).find((e) => e.tagName === "BUTTON" && e.title === english.settings.update.check);
+  await Settings.open();
+  const start = calls.length, button = checkButton();
+  assert.ok(button);
+  button.click();
+  assert.equal(button.disabled, true, "disabled synchronously, before any RPC or redraw");
+  button.click(); // even a stale or programmatic second click cannot start another check
+  await until(() => answer);
+  assert.equal(checkButton(), undefined, "a pending redraw has no enabled check hit area");
+  assert.equal(calls.slice(start).filter((m) => m === "app.checkUpdate").length, 1);
+  answer({ result: null });
+  await until(() => checkButton());
+  assert.equal(toast.textContent, english.settings.update.none);
+  // A later check is allowed; its popup owns the same host and startup shares its promise.
+  answer = null;
+  checkButton().click();
+  await until(() => answer);
+  const shared = Update.check(consent);
+  answer({ result: available });
+  await drawn(consent, "update");
+  assert.equal(settings.hidden, true);
+  assert.equal(calls.slice(start).filter((m) => m === "app.checkUpdate").length, 2);
+  assert.equal(Update.check(consent), shared);
+  press("Escape");
+  assert.equal(await shared, "later");
   handlers.clear();
 });
 

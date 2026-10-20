@@ -157,15 +157,15 @@ def _run_window(s: Services, server: Server, debug: bool) -> None:
             logger.exception("drag and drop is unavailable")
 
     def on_closing() -> bool:
-        # a job may be writing into the game folder: keep the window until it is done
-        if s.jobs.busy():
-            s.events.publish("app.busy")
-            return False
-        return True
+        return s.on_closing()
+
+    def on_closed() -> None:
+        s.on_closed()
 
     window.events.initialized += on_initialized
     window.events.loaded += on_loaded
     window.events.closing += on_closing
+    window.events.closed += on_closed
     storage = s.data_dir / "webview"  # never next to the program in a compiled build: data_dir follows EXE_DIR rules
     try:
         # the tray starts on a thread of its own once the GUI loop runs

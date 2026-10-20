@@ -8,13 +8,23 @@ import { T } from "./i18n.js";
 import { S, clone } from "./util.js";
 
 const { node, sprite, label, find } = NGUI;
+const checks = new WeakMap();
+const RESTART_WAIT = 3000;
 
 // resolves with what closed the popup: "later" (Later or Escape), "page" (the download page opened) or "update" (a
 // failed update, once dismissed). A successful retry clears that failure; Restart quits the app on success.
 // null without a newer release, offline or when the popup cannot be drawn. Settings may pass its check's result.
-export async function check(host, info) {
-  try { if (info === undefined) info = await rpc("app.checkUpdate"); } catch { return null; } // offline: say nothing
-  return info ? show(host, info) : null;
+export function check(host, info, { onCheck, onError } = {}) {
+  if (checks.has(host)) return checks.get(host);
+  // Reserve the host before asking the server, including checks that have not drawn their popup yet.
+  const done = Promise.resolve().then(async () => {
+    try { if (info === undefined) info = await rpc("app.checkUpdate"); }
+    catch (err) { onError?.(err); return null; } // startup stays quiet when offline
+    onCheck?.(info);
+    return info ? show(host, info) : null;
+  }).finally(() => checks.delete(host));
+  checks.set(host, done);
+  return done;
 }
 
 function show(host, info) {
@@ -60,7 +70,7 @@ async function draw(host, info, resolve) {
   find(title, "Line").widgets[0].w_ = NGUI.glyphWidth(tf.text, tf.fs) + 14;
   find(bg, "Btn_Close").active = false;
   const btn = find(popup, "Btn");
-  btn.pos = [0, -250];
+  btn.pos = [0, -274];
   const installable = info.installable;
   find(btn, "Btn_Cancel/Label_Locale").widgets[0].text = T("update.later");
   find(t, "BlackBg/BlackBgClickArea").widgets.find((w) => "sprite" in w).color = "#000000/0.65";
@@ -132,7 +142,12 @@ async function draw(host, info, resolve) {
       await render();
       if (installing) {
         await rpc("app.installUpdate", { file });
-        return; // the app quits and starts again as the new version
+        await new Promise((resolve) => setTimeout(resolve, RESTART_WAIT));
+        // A successful quit destroys this page. If it is still here, allow dismissal and another Restart.
+        phase = "ready";
+        error = T("error.update_restart_failed");
+        await render();
+        return;
       }
       const result = await waitJob(await rpc("app.update"), (p) => {
         const next = p.total > 0 ? Math.max(0, Math.min(100, Math.floor(p.current / p.total * 100))) : 0;

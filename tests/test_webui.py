@@ -607,8 +607,14 @@ def update_env(services, tmp_path, monkeypatch):
         return path, "verified-md5"
 
     monkeypatch.setattr(updater, "download", download)
-    monkeypatch.setattr(updater, "install", lambda path, md5: env.installs.append((path, md5)))
-    services.window = SimpleNamespace(destroy=lambda: env.quits.append(True))
+    monkeypatch.setattr(updater, "prepare_install", lambda path, md5: lambda: env.installs.append((path, md5)))
+
+    def destroy():
+        if services.on_closing():
+            env.quits.append(True)
+            services.on_closed()
+
+    services.window = SimpleNamespace(destroy=destroy)
     return env
 
 
@@ -717,7 +723,7 @@ def test_install_update_refusals_keep_the_download_for_retry(app, services, upda
     retained = services.update_file
     gate = threading.Event()
     job = None
-    install = updater.install
+    prepare = updater.prepare_install
     if code == "classic_open":
         monkeypatch.setattr(services, "classic_open", lambda: True)
     elif code == "busy":
@@ -727,7 +733,7 @@ def test_install_update_refusals_keep_the_download_for_retry(app, services, upda
     else:
         def unsupported(path, md5):
             raise ServiceError("update_unsupported")
-        monkeypatch.setattr(updater, "install", unsupported)
+        monkeypatch.setattr(updater, "prepare_install", unsupported)
     try:
         assert rpc(app, "app.installUpdate", file=file)["error"]["code"] == code
         assert services.update_file == retained
@@ -736,12 +742,113 @@ def test_install_update_refusals_keep_the_download_for_retry(app, services, upda
     finally:
         gate.set()
     monkeypatch.setattr(services, "classic_open", lambda: False)
-    monkeypatch.setattr(updater, "install", install)
+    monkeypatch.setattr(updater, "prepare_install", prepare)
     if job:
         assert services.jobs.wait(job, 5)
     assert rpc(app, "app.installUpdate", file=str(retained[0])) == {"result": None}
     assert update_env.installs == [(retained[0], retained[1])]
     assert update_env.quits == [True]
+
+
+@pytest.mark.parametrize("closing_event", [True, False])
+def test_install_update_reserves_admission_until_native_closed_and_starts_only_one_helper(
+        app, services, update_env, monkeypatch, closing_event):
+    from ba_modding_toolkit import updater
+
+    rpc(app, "app.checkUpdate")
+    file = download_update(app, services)
+    destroying, finish = threading.Event(), threading.Event()
+    answer = {}
+
+    def destroy():
+        destroying.set()
+        assert finish.wait(5)
+        # Some native backends skip closing on destroy(), but all signal closed once the window is gone.
+        def closed():
+            if closing_event:
+                assert services.on_closing() is True
+            assert update_env.installs == []
+            update_env.quits.append(True)
+            services.on_closed()
+
+        closer = threading.Thread(target=closed)
+        closer.start()
+        closer.join(5)
+        assert not closer.is_alive()
+
+    def install(path, md5):
+        assert update_env.quits == [True]  # launch only after a confirmed native close
+        with pytest.raises(ServiceError, match="busy"):
+            services.jobs.submit("writer", lambda log, progress: None, writes="game")
+        update_env.installs.append((path, md5))
+
+    monkeypatch.setattr(services.window, "destroy", destroy)
+    monkeypatch.setattr(updater, "prepare_install", lambda path, md5: lambda: install(path, md5))
+    installer = threading.Thread(target=lambda: answer.update(rpc(app, "app.installUpdate", file=file)))
+    installer.start()
+    try:
+        assert destroying.wait(5)
+        assert update_env.installs == update_env.quits == []
+        # The tray and the classic queue use guarded service submissions; direct library writers use jobs.submit.
+        with services.classic.starting():
+            with pytest.raises(ServiceError, match="busy"):
+                services.submit("mods.toggle", lambda log, progress: None, writes="game")
+        with pytest.raises(ServiceError, match="busy"):
+            services.jobs.submit("library.adopt", lambda log, progress: None, writes="library")
+        assert rpc(app, "app.openClassic")["error"]["code"] == "busy"
+        assert rpc(app, "app.installUpdate", file=file)["error"]["code"] == "busy"
+    finally:
+        finish.set()
+        installer.join(5)
+    assert not installer.is_alive()
+    assert answer == {"result": None}
+    assert update_env.installs == [(Path(file), "verified-md5")]
+    assert update_env.quits == [True]
+    # A page watchdog may enable Restart again if the window survives; neither request nor callback spawns twice.
+    assert rpc(app, "app.installUpdate", file=file)["error"]["code"] == "busy"
+    assert services.on_closing() is True
+    services.on_closed()
+    assert len(update_env.installs) == 1
+    with pytest.raises(ServiceError, match="busy"):
+        services.jobs.submit("writer", lambda log, progress: None, writes="game")
+
+
+@pytest.mark.parametrize("refusal", ["silent", "accepted", "exception", "classic_open"])
+def test_install_update_never_launches_a_helper_for_a_refused_native_close_and_releases_admission(
+        app, services, update_env, monkeypatch, refusal):
+    from ba_modding_toolkit.webui import services as services_module
+
+    monkeypatch.setattr(services_module, "UPDATE_QUIT_WAIT", 0.01)
+    rpc(app, "app.checkUpdate")
+    file = download_update(app, services)
+    destroy = services.window.destroy
+
+    def refuse():
+        assert update_env.installs == []
+        if refusal == "exception":
+            raise ServiceError("update_restart_failed")
+        if refusal == "classic_open":
+            monkeypatch.setattr(services, "classic_open", lambda: True)
+            assert services.on_closing() is False
+        if refusal == "accepted":
+            assert services.on_closing() is True
+
+    monkeypatch.setattr(services.window, "destroy", refuse)
+    code = "classic_open" if refusal == "classic_open" else "update_restart_failed"
+    assert rpc(app, "app.installUpdate", file=file)["error"]["code"] == code
+    assert update_env.installs == update_env.quits == []
+    assert services.update_installing is False
+    assert services.update_file[0] == Path(file)
+    writer = services.jobs.submit("writer", lambda log, progress: None, writes="game")
+    assert services.jobs.wait(writer, 5)
+    # A delayed closing callback after cancellation cannot launch the old pending helper.
+    monkeypatch.setattr(services, "classic_open", lambda: False)
+    assert services.on_closing() is True
+    services.on_closed()
+    assert update_env.installs == []
+    monkeypatch.setattr(services.window, "destroy", destroy)
+    assert rpc(app, "app.installUpdate", file=file) == {"result": None}
+    assert update_env.installs == [(Path(file), "verified-md5")]
 
 
 def test_settings_change_waits_for_the_running_job(services):
@@ -814,7 +921,7 @@ def test_the_window_leaves_the_pointer_and_text_selection_to_the_page(monkeypatc
 
     def create_window(title, url, **options):
         created.update(options)
-        return SimpleNamespace(events=SimpleNamespace(initialized=Hook(), loaded=Hook(), closing=Hook()))
+        return SimpleNamespace(events=SimpleNamespace(initialized=Hook(), loaded=Hook(), closing=Hook(), closed=Hook()))
 
     monkeypatch.setitem(sys.modules, "webview", SimpleNamespace(create_window=create_window,
                                                                 start=lambda **options: started.update(options)))
@@ -849,7 +956,7 @@ def test_the_close_button_waits_only_for_a_writer_job(services, monkeypatch, tmp
 
     def create_window(title, url, **options):
         return SimpleNamespace(events=SimpleNamespace(initialized=Hook("initialized"), loaded=Hook("loaded"),
-                                                      closing=Hook("closing")))
+                                                      closing=Hook("closing"), closed=Hook("closed")))
 
     monkeypatch.setitem(sys.modules, "webview", SimpleNamespace(create_window=create_window, start=lambda **o: None))
     main._run_window(services, SimpleNamespace(url="http://127.0.0.1:1/"), False)

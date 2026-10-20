@@ -117,7 +117,7 @@ def build_api(s: Services) -> RpcRegistry:
         # a game writer job stops at its next write once a classic window is open (a toggle half done): no new window
         # until it ended; an open one is only raised
         def may_start() -> None:
-            if s.jobs.busy("game"):
+            if s.update_installing or s.jobs.busy("game"):
                 raise ServiceError("busy")
 
         return s.classic.open(tab, may_start=may_start)
@@ -190,14 +190,7 @@ def build_api(s: Services) -> RpcRegistry:
             raise ServiceError("update_unsupported")
         if downloaded is None or Path(file) != downloaded[0] or not downloaded[0].is_file():
             raise ServiceError("update_unavailable")
-        if s.classic_open():
-            # a classic window runs the build being replaced: the Windows helper could not move it, the macOS
-            # helper would remove the app bundle under it
-            raise ServiceError("classic_open")
-        if s.jobs.busy():
-            raise ServiceError("busy")
-        updater.install(downloaded[0], downloaded[1])
-        s.window.destroy()
+        s.install_update(downloaded[0], downloaded[1])
 
     # --- settings (the popup behind the top bar's settings button) ---
 

@@ -20,6 +20,7 @@ const CONTENT = { x: 209, top: 375, w: 1576, h: 854 }; // the panel's inner list
 const ROW_W = 1552;
 
 let layout = null, prefs = null, tab = "general", scroll = 0, onChange = null, token = 0;
+let checkingUpdate = false;
 
 const errorText = (err) => T(`error.${err.code || "internal"}`, err.params || {});
 async function call(fn) {
@@ -251,7 +252,7 @@ function rows() {
     add(valueRow("Cache", 0, T("settings.cache.label"), p.consent ? T("cacheTo", { path: p.cacheDir }) : `${T("settings.cache.off")} - ${p.cacheDir}`, [
       [T("settings.cache.change"), browse("cacheDir", p.cacheDir), p.native],
       [T("settings.cache.clear"), async () => { if (await call(() => rpc("settings.clearCache")) !== null) toast(T("settings.cache.cleared")); }, !!p.consent]]));
-    add(valueRow("Version", 0, T("settings.version"), (p.version || "").replace(/-dev$/, ""), [[T("settings.update.check"), checkUpdate]]));
+    add(valueRow("Version", 0, T("settings.version"), (p.version || "").replace(/-dev$/, ""), [[T("settings.update.check"), checkUpdate, !checkingUpdate]]));
     add(valueRow("Classic", 0, T("settings.classic.label"), T("settings.classic.hint"), [[T("settings.classic.open"), () => call(() => rpc("app.openClassic", { tab: "settings" }))]]));
     // the bottom bar's hand-off prompt (decision 6): Don't Ask Again turns it off, this turns it back on
     add(radioRow("ClassicAsk", 0, T("settings.classic.ask"), [[true, T("settings.post.on")], [false, T("settings.post.off")]],
@@ -311,15 +312,22 @@ function rows() {
   return { rows: out, height: -y };
 }
 
-async function checkUpdate() {
+async function checkUpdate(event) {
+  if (checkingUpdate) return;
+  checkingUpdate = true;
+  event.currentTarget.disabled = true;
   try {
-    const info = await rpc("app.checkUpdate");
-    if (!info) { toast(T("settings.update.none")); return; }
-    close();
+    await render();
     const { check } = await import("./update.js");
-    check($("consent"), info);
+    await check($("consent"), undefined, {
+      onCheck: (info) => { if (info) close(); else toast(T("settings.update.none")); },
+      onError: (err) => toast(errorText(err), { kind: "error" }),
+    });
   } catch (err) {
     toast(errorText(err), { kind: "error" });
+  } finally {
+    checkingUpdate = false;
+    if (!$("settings").hidden) render();
   }
 }
 

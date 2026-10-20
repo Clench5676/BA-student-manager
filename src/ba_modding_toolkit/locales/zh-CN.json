@@ -1106,6 +1106,7 @@
 			"update_checksum_mismatch": "更新文件校验失败",
 			"update_unavailable": "此版本没有适用于本机的安装包",
 			"update_unsupported": "当前版本不支持在线更新",
+			"update_restart_failed": "无法重启以完成更新",
 			"lines_unavailable": "暂时读不到台词",
 			"busy": "请等当前任务完成",
 			"library_target_not_empty": "目标文件夹里已有 Mod 仓库的文件：{path}",

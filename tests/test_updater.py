@@ -216,8 +216,9 @@ def test_install_rejects_changed_or_unverified_downloads_before_spawning(
 
 
 @pytest.mark.parametrize("system", ["darwin", "win32"])
+@pytest.mark.parametrize("deferred", [False, True])
 def test_install_handoff_preserves_paths_and_hides_windows_console(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, system: str,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, system: str, deferred: bool,
 ) -> None:
     folder = tmp_path / "Möds 100% %PATH% !keep!"
     folder.mkdir()
@@ -233,7 +234,12 @@ def test_install_handoff_preserves_paths_and_hides_windows_console(
     monkeypatch.setattr(updater.tempfile, "mkstemp", lambda **kw: make_temp(dir=folder, **kw))
     calls = []
     monkeypatch.setattr(updater.subprocess, "Popen", lambda *a, **kw: calls.append((a, kw)))
-    updater.install(downloaded, updater.md5_of(downloaded).upper())
+    if deferred:
+        launch = updater.prepare_install(downloaded, updater.md5_of(downloaded).upper())
+        assert calls == []  # preparing a restart never starts a helper before the native window closes
+        launch()
+    else:
+        updater.install(downloaded, updater.md5_of(downloaded).upper())
     args, kwargs = calls[0]
     if system == "darwin":
         assert args[0][0] == "/bin/sh" and kwargs["start_new_session"]
