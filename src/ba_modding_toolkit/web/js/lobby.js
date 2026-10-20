@@ -17,11 +17,15 @@
 // (lobby-stage.js): Wakamo's fire over her lobby's scenery, under her.
 // Each skeleton's idle starts the clips the game's does (Shigure's train, snow, clouds, stars), some of them at random
 // times (lobby-sync.js), and the clips' sound keys play the game's sounds at the voice volume.
+// The skeletons draw with the game's materials (skeleton-materials.js: the multiply, noise and glitch pages, slot
+// blend modes as the materials give them, no dark colour) and keep the bones the prefab pins (skeleton-pins.js).
 import { spineFiles } from "./api.js";
 import * as Linear from "./linear.js";
+import * as Materials from "./skeleton-materials.js";
 import * as Particles from "./particles-gl.js";
 import * as SlotColours from "./slot-colours.js";
 import * as Stage from "./lobby-stage.js";
+import * as Pins from "./skeleton-pins.js";
 import * as Touch from "./lobby-touch.js";
 import * as Sync from "./lobby-sync.js";
 
@@ -126,6 +130,7 @@ function poser(l) {
       e.trackTime = time;
     }
     if (tracks.length) { st.update(0); st.apply(sk); }
+    Pins.pin(sk, l.name, current?.info?.pins); // the bones the prefab pins, as the players draw them
     sk.updateWorldTransform(spine.Physics.reset); // physics at rest, as a new skeleton's: no state from the last pose
     return sk;
   };
@@ -449,6 +454,7 @@ function measure(loaded) {
   const sk = new spine.Skeleton(data), idle = idleOf(data, main);
   sk.setToSetupPose();
   if (idle) { const st = new spine.AnimationState(new spine.AnimationStateData(data)); st.setAnimation(0, idle, true); st.update(0); st.apply(sk); }
+  Pins.pin(sk, main.name, info?.pins);
   sk.updateWorldTransform(spine.Physics.update);
   const bone = sk.findBone("Touch_Point") || sk.findBone("Touch_Eye");
   const pat = info?.drags?.find((d) => d.kind === "pat")?.rect;
@@ -648,6 +654,7 @@ function makePlayer(host, layer, onReady, onError = () => {}, fx = null, share =
     // dragged bones follow the pointer
     updateWorldTransform: (p, delta) => {
       p.bamtSounds?.tick();
+      Pins.apply(p, current?.info?.pins);
       Touch.apply(p, delta);
       p.skeleton.updateWorldTransform(spine.Physics.update);
     },
@@ -660,6 +667,7 @@ function makePlayer(host, layer, onReady, onError = () => {}, fx = null, share =
         Linear.setPost(player, current?.info?.post);
         Linear.setScreen(player, layerViewport(game(), layer));
         Linear.setCurves(player, SlotColours.curvesOf(layer)); // the slot colours as each page's shader takes them
+        Materials.attach(player, layer, { screen: () => layerViewport(game(), layer), base: base(current.core) });
       }
       if (layer.skin) try { player.skeleton.setSkinByName(layer.skin); player.skeleton.setSlotsToSetupPose(); } catch { /* the default skin */ }
       // the idle, and with it the clips it starts (its sync clips, the rest of its pool), as the game's OnEnable
@@ -744,7 +752,8 @@ export async function show(core, host, variant) {
     if (my !== token || !layers.length) return null;
     current.info = info;
     setView(game(), true); // the first frames are already in the game's framing
-    const fx = (current.fx = info?.fx?.systems?.length ? Particles.create(info.fx, { base: base(core), bone: boneOf }) : null);
+    const fx = (current.fx = info?.fx?.systems?.length || info?.fx?.renderers?.length
+      ? Particles.create(info.fx, { base: base(core), bone: boneOf }) : null);
     // every layer drawn with the bottom one's context (share), or each with its own
     const build = async (share) => (await Promise.all(layers.map((layer) => new Promise((resolve) => {
       players.push(makePlayer(viewHost, layer, (player) => resolve({ ...layer, player }), () => resolve(null), fx,
@@ -788,6 +797,7 @@ export async function show(core, host, variant) {
 function dropPlayers() {
   for (const p of players) {
     current?.fx?.detach(p); // the particles' programs, buffers and textures in its context
+    Materials.detach(p); // its page programs and textures, the batcher's own methods
     Linear.detach(p); // its framebuffer and program: spine's dispose only frees spine's own objects
     p.dispose();
     p.parent?.remove(); // its layer's element
@@ -897,6 +907,8 @@ function boneOf(skeleton, name) {
 }
 // for checks: the particle effects' live particles, systems, loaded textures, GL contexts and time per frame
 export const effects = (opts) => current?.fx?.stats(opts) || null;
+// for checks: the layers' players, bottom first
+export const layerPlayers = () => players.filter((p) => p.bamtLayer);
 
 // --- random idle clips (SpineCharacter.idleBaseRandomClipPool): blinks, ear twitches, expression changes, each
 // after a random wait; held back while a dialogue or a drag runs. Without them the newer lobbies never blink. ---

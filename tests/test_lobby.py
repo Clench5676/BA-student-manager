@@ -221,7 +221,9 @@ def test_prefab_layout_drags_touches_and_anchors():
     layers = {l["name"]: l for l in info["layers"]}
     assert layers["Test_home"] == {"name": "Test_home", "x": 0.0, "y": -962.0, "scale": 1.0, "active": True,
                                    "order": 0, "queue": 3000, "pages": {}, "shaders": {}, "z": 0.0, "index": 0,
-                                   "skin": None, "animation": None}
+                                   "skin": None, "animation": None,
+                                   # without its data asset: no page of its own, no blend materials, no dark colour
+                                   "materials": {"pages": {}, "blend": {}, "scale": 0.01, "tintBlack": False}}
     assert layers["Test_bg"]["order"] == -1 and layers["Test_bg"]["animation"] == "Idle_01"
     assert layers["Test_scene"]["active"] is False  # an inactive GameObject on the path
     pat, eye = info["drags"]

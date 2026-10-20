@@ -38,6 +38,7 @@ PROGRAMS = {
     "DSFX/FX_SHADER_AlwaysView_Add": "alwaysViewAdd",
     "DSFX/FX_SHADER_Matcap_0": "matcap",
     "FX/General Unlit VertexColor": "vertexColor",
+    "FX/FX_SHADER_Lobby_Order": "lobbyOrder",  # the lens-dirt and light quads (meshfx.py)
 }
 # ParticleSystemVertexStream -> component count, for packing custom vertex streams into TEXCOORD0..n as Unity does
 _STREAM_SIZE = {4: 2, 5: 2, 6: 2, 7: 2, 8: 1, 9: 1, 10: 3, 11: 1, 12: 1, 13: 2, 14: 3, 15: 1, 16: 3, 17: 1, 18: 3,
@@ -395,6 +396,29 @@ def _mesh_choice(ids: list[tuple[str, float]], distribution: int) -> dict:
     return out
 
 
+def anchor_of(n: dict, by_go: Mapping[int, dict], skeleton_of_go: Callable[[int], str | None],
+              data_scale: Callable[[str], float]) -> tuple[dict | None, list[dict]]:
+    """Where a prefab node (lobby.read_prefab) is placed: the nearest SkeletonUtilityBone above (or on) it, when it
+    follows its bone (Follow), as {"skeleton", "bone", "go" (the skeleton GameObject's matrix), "ds" (its data
+    scale)}, else None; and the nodes below that bone down to the node itself, top first (with no bone: up to the
+    root, or up to an Override bone)."""
+    chain, cur, anchor = [], n, None
+    while cur is not None:
+        utility = cur["first"].get("SkeletonUtilityBone")
+        if utility is not None:
+            skel_go = cur
+            while skel_go is not None and "SkeletonAnimation" not in skel_go["first"]:
+                skel_go = by_go.get(skel_go["parent"])
+            skeleton = skeleton_of_go(skel_go["go"]) if skel_go else None
+            if skeleton and utility.get("mode", 0) == 0:
+                anchor = {"skeleton": skeleton, "bone": utility.get("boneName") or cur["name"],
+                          "go": rounded(skel_go["m3"]), "ds": _r(data_scale(skeleton), 6)}
+            break
+        chain.append(cur)
+        cur = by_go.get(cur["parent"])
+    return anchor, chain[::-1]
+
+
 def build(nodes: list[dict], skeleton_of_go: Callable[[int], str | None], data_scale: Callable[[str], float],
           resolve: Callable[[str, int, dict], Any] | None) -> dict:
     """The particle systems of a prefab walk (lobby.read_prefab nodes, in hierarchy order), with their place: under a
@@ -448,23 +472,9 @@ def build(nodes: list[dict], skeleton_of_go: Callable[[int], str | None], data_s
         # Unity world units added to its distance from the camera when transparents of the same queue are sorted back
         # to front: above 0 it draws earlier (behind), below 0 later (Hibiki's river surface 50, her bokeh -10)
         item["fudge"] = _r(rend.get("m_SortingFudge", 0.0)) if rend else 0.0
-        # the anchor: the nearest SkeletonUtilityBone above (or on) the system, and the skeleton it follows
-        chain, cur, anchor = [], n, None
-        while cur is not None:
-            utility = cur["first"].get("SkeletonUtilityBone")
-            if utility is not None:
-                skel_go = cur
-                while skel_go is not None and "SkeletonAnimation" not in skel_go["first"]:
-                    skel_go = by_go.get(skel_go["parent"])
-                skeleton = skeleton_of_go(skel_go["go"]) if skel_go else None
-                if skeleton and utility.get("mode", 0) == 0:
-                    anchor = {"skeleton": skeleton, "bone": utility.get("boneName") or cur["name"],
-                              "go": rounded(skel_go["m3"]), "ds": _r(data_scale(skeleton), 6)}
-                break
-            chain.append(cur)
-            cur = by_go.get(cur["parent"])
+        anchor, chain = anchor_of(n, by_go, skeleton_of_go, data_scale)
         rel = IDENTITY
-        for c in reversed(chain):
+        for c in chain:
             rel = mul(rel, c["local3"])
         item.update(name=n["name"], path=n["path"], anchor=anchor, rel=rounded(rel), static=rounded(n["m3"]),
                     ls=_vec(n["t"].get("m_LocalScale"), 1.0), z=_r(n["m3"][11]))

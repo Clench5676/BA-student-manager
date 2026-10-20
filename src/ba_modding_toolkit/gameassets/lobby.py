@@ -20,7 +20,7 @@ import re
 from collections.abc import Callable, Iterable
 from typing import Any
 
-from . import particles
+from . import meshfx, particles, pins, spine_materials
 
 # the game's 16:9 view around the prefab root (the UI's 2960-unit NGUI width, util.js S = 1920 / 2960)
 GAME_VIEW = {"x": -1480.0, "y": -832.5, "w": 2960.0, "h": 1665.0}
@@ -283,11 +283,13 @@ def read_prefab(kinds: dict[int, str], tree: Callable[[int], dict], scripts: dic
                 skeletons: Iterable[str], clips: Clips,
                 profile: Callable[[int, dict], list[dict] | None] | None = None,
                 resolve: Callable[[str, int, dict], tuple[str, Any] | None] | None = None) -> dict | None:
-    """The lobby's layout, touch boxes, post-processing and particle effects from one prefab bundle: kinds maps
-    path ids to object types, tree reads a typetree, scripts maps MonoScript path ids to class names,
-    profile(volume path id, sharedProfile pointer) gives a volume profile's component typetrees, resolve(kind,
-    owner path id, pointer) reads a material ("material") or mesh ("mesh") in another bundle as (id, data)
-    (particles.build). None when the root is missing or places none of the skeletons."""
+    """The lobby's layout, touch boxes, post-processing, particle and mesh effects, the materials its skeletons are
+    drawn with and the bones it pins, from one prefab bundle: kinds maps path ids to object types, tree reads a
+    typetree, scripts maps MonoScript path ids to class names, profile(volume path id, sharedProfile pointer) gives a
+    volume profile's component typetrees, resolve(kind, owner path id, pointer) reads a material ("material"), mesh
+    ("mesh"), animator controller ("animator") or skeleton data asset ("skeleton", "pages") in another bundle as (id,
+    data) (particles.build, meshfx.build, spine_materials.layer). None when the root is missing or places none of the
+    skeletons."""
     wanted = {s.lower(): s for s in skeletons}
     top = next((pid for pid, kind in kinds.items() if kind in _TRANSFORMS and not tree(pid)["m_Father"]["m_PathID"]
                 and tree(tree(pid)["m_GameObject"]["m_PathID"])["m_Name"].lower() == root.lower()), None)
@@ -302,7 +304,8 @@ def read_prefab(kinds: dict[int, str], tree: Callable[[int], dict], scripts: dic
             if kind == "MonoBehaviour":
                 t = tree(pid)
                 out.append((scripts.get(t.get("m_Script", {}).get("m_PathID"), "?"), pid, t))
-            elif kind in ("BoxCollider", "MeshRenderer", "ParticleSystem", "ParticleSystemRenderer"):
+            elif kind in ("BoxCollider", "MeshRenderer", "MeshFilter", "Animator", "ParticleSystem",
+                          "ParticleSystemRenderer"):
                 out.append((kind, pid, tree(pid)))
         return out
 
@@ -352,6 +355,7 @@ def read_prefab(kinds: dict[int, str], tree: Callable[[int], dict], scripts: dic
                 "order": renderer.get("m_SortingOrder", 0), "queue": min(pages.values(), default=3000), "pages": pages,
                 "shaders": shaders, "z": particles.rounded(n["m3"])[11], "index": len(layers),
                 "skin": sa.get("initialSkinName") or None, "animation": sa.get("_animationName") or None,
+                **spine_materials.layer(resolve, pid, sa),
             })
     if not layers:
         return None
@@ -434,10 +438,21 @@ def read_prefab(kinds: dict[int, str], tree: Callable[[int], dict], scripts: dic
     main = next((d["skeleton"] for d in drags if d["kind"] == "pat"), None) or next(
         (d["skeleton"] for d in drags), None) or next((t["skeleton"] for t in touches), None) or container
     sa_go = {n["go"]: skeleton_of_sa.get(n["pids"].get("SkeletonAnimation", 0)) for n in nodes}
-    fx = particles.build(nodes, lambda go: sa_go.get(go), lambda skel: clips.scales.get(skel, _DATA_SCALE), resolve)
+    scale_of = lambda skel: clips.scales.get(skel, _DATA_SCALE)  # noqa: E731
+    fx = particles.build(nodes, lambda go: sa_go.get(go), scale_of, resolve)
+    # the plain mesh renderers and their Animators, drawn and sorted with the particle systems (meshfx.py)
+    meshes = meshfx.build(nodes, lambda go: sa_go.get(go), scale_of, resolve)
+    for key in ("materials", "textures", "meshes"):
+        fx[key].update(meshes[key])
+    if meshes["renderers"]:
+        fx.update(renderers=meshes["renderers"], clips=meshes["clips"])
+    fx["textures"].update(spine_materials.textures(layers))  # the page shaders' own textures
     return {"prefab": tree(tree(top)["m_GameObject"]["m_PathID"])["m_Name"], "main": main, "layers": layers,
             "drags": drags, "touches": touches, "randomIdle": random_idle, "idle": idle, "idles": idles,
-            "dialog": dialog, "post": post_processing(volumes), "fx": fx}
+            "dialog": dialog, "post": post_processing(volumes), "fx": fx,
+            # the Override bones no enabled drag moves stay where the prefab put them (pins.py)
+            "pins": pins.pins(nodes, lambda go: sa_go.get(go), scale_of,
+                              [(d["skeleton"], d["bone"]) for d in drags if d["enabled"]])}
 
 
 def lobby_info(skeletons: Iterable[str], clips: Clips, prefab: dict | None, sounds: dict | None = None) -> dict:
@@ -446,7 +461,7 @@ def lobby_info(skeletons: Iterable[str], clips: Clips, prefab: dict | None, soun
     events by id (sound_event)."""
     if prefab is None:
         prefab = {"prefab": None, "main": None, "drags": [], "touches": [], "randomIdle": {}, "idle": {}, "idles": {},
-                  "dialog": {}, "post": {},
+                  "dialog": {}, "post": {}, "pins": [],
                   "layers": [{"name": s, **STANDARD, "active": True, "order": 0, "queue": 3000, "pages": {},
                               "shaders": {}, "z": 0.0, "index": i, "skin": None, "animation": None}
                              for i, s in enumerate(dict.fromkeys(skeletons))],
