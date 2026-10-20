@@ -218,15 +218,16 @@ function screenTree() {
     if (!enabled) widget(t, `${base}/Tab_Off/Label`).color = "#ffffff/0.35";
     at(t, `${base}/Tab_On`).active = id === tab;
     at(t, `${base}/Tab_Off`).active = id !== tab;
+    const dot = find(t, `${base}/${id === "portrait" ? "Dot" : id === "lobby" ? "Dot (1)" : "Dot (2)"}`);
+    if (dot) dot.active = hasFresh(v, id === "portrait" ? "spr" : id);
   }
   // the separator on a tab's right edge goes when either neighbour is active
   if (tab !== "portrait") { const l = find(t, "RightInfo/Target/Active/CharacterTab/Tab_1/Tab_Off/Line"); if (l) l.active = tab !== "lobby"; }
   { const l = find(t, "RightInfo/Target/Active/CharacterTab/Tab_2/Tab_Off/Line (1)"); if (l) l.active = tab === "portrait"; }
   // the active tab's corners a little rounder than the prefab's 5 px sprite
-  for (const [tb, dot] of [["Tab_1", "Dot"], ["Tab_2", "Dot (1)"], ["Tab_3", "Dot (2)"]]) {
+  for (const tb of ["Tab_1", "Tab_2", "Tab_3"]) {
     Object.assign(widget(t, `RightInfo/Target/Active/CharacterTab/${tb}/Tab_On/BG`), { sprite: "Common_Bg_Raius10px", h_: 132 });
     at(t, `RightInfo/Target/Active/CharacterTab/${tb}/Tab_On/BG`).pos[1] = -4;
-    off(t, `RightInfo/Target/Active/CharacterTab/${tb}/${dot}`); // "new" dots mean nothing here
   }
 
   // row 1: portrait information
@@ -966,7 +967,7 @@ function disposePortrait() {
 // While mods are off the popup saves the choice instead of writing it (popupMode): it starts on the configured source,
 // whose card carries "Set", and its button reads Save. On an overwritten kind its cards are greyed (switch-sources.js):
 // a click on one opens the entry's Add First or Overwritten message instead of choosing it.
-let popupSeg = 0, popupKind = "spr", popupStart = null;
+let popupSeg = 0, popupKind = "spr", popupStart = null, switchPopupPage = null;
 const modsOn = () => modsState()?.enabled !== false;
 const SET_BADGE = () => ({ text: T("switch.configured"), color: "#8de4ff", ink: "#314665" });
 const GREYED_BADGE = () => ({ text: T("mods.overwritten"), color: "#9aa3ad", ink: "#ffffff" });
@@ -991,13 +992,13 @@ async function drawPopup(scroll = 0) {
     tools: { segs: ["seg.all", "seg.recruit", "seg.noRecruit"], seg: popupSeg, onSeg: (i) => { popupSeg = i; renderPopup(); }, sortKey: "sort.default" },
     onSelect: (key, s) => {
       const c = candidates(v, kind).find((x) => x.key === key);
+      if (c?.kind === "mod") markSeen([c.mod], s);
       if (c?.greyed) {
         // never the choice: the entry whose files are overwritten says what can be done
         overwrittenMessage(c.kind === "variant" ? c.variant : v, kind).then((added) => (added ? reload().then(() => renderPopup(s)) : null));
         return;
       }
       pending = key;
-      if (c?.kind === "mod" && c.mod.fresh) rpc("mods.seen", { id: c.id }).then(() => { c.mod.fresh = false; }).catch(() => {});
       renderPopup(s);
     },
     onOk: () => closePopup(true), onClose: () => closePopup(false),
@@ -1026,14 +1027,40 @@ async function drawPopup(scroll = 0) {
     },
   });
 }
-function openPopup(kind = "spr") {
+async function openPopup(kind = "spr") {
+  const family = fam, v = variant();
+  switchPopupPage = pageToken;
   popupKind = kind;
   popupStart = popupMode(fam, variant(), kind, modsOn()).start;
   pending = popupStart;
   popupSeg = 0;
-  renderPopup();
+  const mods = candidates(variant(), kind).filter((c) => c.kind === "mod").map((c) => c.mod);
+  try {
+    await drawPopup();
+    if (open && fam === family && variant() === v && popupKind === kind && !$("popup").hidden) await markSeen(mods);
+  } catch (err) { renderFailed(err); }
+}
+
+const seeing = new Set();
+async function markSeen(mods, scroll = 0) {
+  const ids = [...new Set(mods.filter((m) => m.fresh && !seeing.has(m.id)).map((m) => m.id))];
+  if (!ids.length) return;
+  ids.forEach((id) => seeing.add(id));
+  try {
+    await rpc("mods.seen", { ids });
+    for (const v of fam.variants) {
+      for (const m of v.modList || []) if (ids.includes(m.id)) m.fresh = false;
+      v.fresh = hasFresh(v);
+    }
+    ctx.invalidateRoster();
+    // The save may finish after the switch closed and another popup took its host.
+    if (open) await Promise.all([renderScreen(), renderChips(),
+      switchPopupPage === pageToken && !$("popup").hidden ? renderPopup(scroll) : null]);
+  } catch (err) { console.error("Mark mods seen failed", err); }
+  finally { ids.forEach((id) => seeing.delete(id)); }
 }
 function closePopup(apply) {
+  switchPopupPage = null;
   $("popup").hidden = true;
   $("popup").innerHTML = "";
   const chosen = candidates(variant(), popupKind).find((c) => c.key === pending);
@@ -1805,6 +1832,7 @@ export function hide() {
   leavePage();
   pageToken += 1;
   open = false;
+  switchPopupPage = null;
   begin();
   batch = null;
   leftToken += 1;

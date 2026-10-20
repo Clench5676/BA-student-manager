@@ -49,6 +49,32 @@ def test_visits_of_both_instances_are_merged(tmp_path):
     assert UiState(path).recent() == ["hoshino", "ch0241", "shiroko"]
 
 
+def test_seen_mods_persist_and_merge_between_instances(tmp_path):
+    path = tmp_path / "webui.json"
+    a, b = UiState(path), UiState(path)
+    assert a.seen_mods() == set()
+    a.mark_mods_seen(["portrait", "portrait"])
+    b.mark_mods_seen(["lobby"])
+    a.visit("student")
+    assert a.seen_mods() == b.seen_mods() == UiState(path).seen_mods() == {"portrait", "lobby"}
+    assert json.loads(path.read_text()) == {"seen_mods": ["lobby", "portrait"], "recent": ["student"]}
+    snapshot = a.seen_mods()
+    snapshot.clear()
+    assert a.seen_mods() == {"portrait", "lobby"}
+
+
+@pytest.mark.parametrize("stored", [None, {}, "mod", [None, 1, {}, "", "kept", "kept"]])
+def test_seen_mods_ignore_malformed_state(tmp_path, stored):
+    path = tmp_path / "webui.json"
+    path.write_text(json.dumps({"seen_mods": stored, "prefs": {"voice_volume": 20}}))
+    state = UiState(path)
+    expected = {"kept"} if isinstance(stored, list) else set()
+    assert state.seen_mods() == expected
+    state.mark_mods_seen(["new"])
+    assert UiState(path).seen_mods() == expected | {"new"}
+    assert state.get("voice_volume") == 20
+
+
 def test_an_unreadable_file_keeps_what_is_known(tmp_path):
     path = tmp_path / "webui.json"
     state = UiState(path)

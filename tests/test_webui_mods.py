@@ -1122,6 +1122,23 @@ def test_add_rpc_reports_duplicate_content(env):
     assert second.result["duplicates"] == first.result["added"]
 
 
+def test_seen_rpc_writes_only_ui_state_and_preserves_seen_duplicates(env, monkeypatch):
+    path = make_mod(env.spr, env.tmp / "picker")
+    mod, = rpc(env.app, "mods.add", paths=[str(path)])["result"]["added"]
+    library = env.s.library
+    before = {p.relative_to(library.root): p.read_bytes() for p in library.root.rglob("*") if p.is_file()}
+    monkeypatch.setattr(library, "mark_seen", lambda *args: pytest.fail("UI state must not write the library"))
+    env.drain()
+    assert rpc(env.app, "mods.seen", ids=[mod["id"]]) == {"result": None}
+    assert UiState(env.data / "webui.json").seen_mods() == {mod["id"]}
+    assert events_named(env.drain(), "library.changed") == [{"cores": [], "kinds": [], "mods": True}]
+    after = {p.relative_to(library.root): p.read_bytes() for p in library.root.rglob("*") if p.is_file()}
+    assert after == before
+    duplicate = rpc(env.app, "mods.add", paths=[str(path)])["result"]
+    assert duplicate["added"] == [] and duplicate["duplicates"][0]["id"] == mod["id"]
+    assert env.s.state.seen_mods() == {mod["id"]}
+
+
 @pytest.mark.parametrize("background", [False, True])
 def test_add_rpc_adopts_installed_content_and_refreshes_the_snapshot(env, background):
     path = make_mod(env.spr, env.tmp / "picker", fixed=True)

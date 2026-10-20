@@ -290,6 +290,39 @@ def test_library_counts_and_configured_sources_reach_roster_and_family(app, serv
     assert v["mods"] == 0 and v["modCounts"] == {"spr": 0, "lobby": 0}
 
 
+def test_mod_marks_follow_ui_state_per_mod_and_survive_restart(app, services, monkeypatch):
+    mods = [FakeMod("portrait", "hoshino", fresh=False), FakeMod("lobby", "hoshino", kind="lobby")]
+    monkeypatch.setattr(services.library, "mods", lambda: mods)
+
+    def marks():
+        roster = rpc(app, "roster.list")["result"]["families"][0]["variants"][0]
+        variant = rpc(app, "family.get", key="hoshino")["result"]["variants"][0]
+        assert roster["fresh"] == variant["fresh"]
+        return roster["fresh"], {m["id"]: m["fresh"] for m in variant["modList"]}
+
+    assert marks() == (True, {"portrait": True, "lobby": True})
+    rpc(app, "ui.visit", variant="hoshino")
+    assert marks() == (True, {"portrait": True, "lobby": True})
+    assert rpc(app, "mods.seen", id="portrait") == {"result": None}
+    assert marks() == (True, {"portrait": False, "lobby": True})
+    assert rpc(app, "mods.seen", ids=["lobby", "portrait", "lobby"]) == {"result": None}
+    services.state = UiState(services.state.path)
+    assert marks() == (False, {"portrait": False, "lobby": False})
+    assert services.state.seen_mods() == {"portrait", "lobby"}
+    assert [m.fresh for m in mods] == [False, True], "the UI never changes the library's flags"
+    mods.append(FakeMod("new", "hoshino"))
+    assert marks() == (True, {"portrait": False, "lobby": False, "new": True})
+    mods.pop()
+    assert marks()[0] is False
+
+
+@pytest.mark.parametrize("params", [{}, {"id": ""}, {"id": 1}, {"ids": "mod"}, {"ids": [1]},
+                                        {"ids": [""]}, {"id": "mod", "ids": ["mod"]}])
+def test_mods_seen_rejects_invalid_ids(app, services, params):
+    assert rpc(app, "mods.seen", **params)["error"]["code"] == "bad_params"
+    assert services.state.seen_mods() == set()
+
+
 def test_roster_and_family_carry_the_aliases_the_search_matches(app, services):
     services.catalog.f.aliases = ["\u5c0f\u661f"]
     services.catalog.v.aliases = ["\u5c0f\u661f\uff08x\uff09"]

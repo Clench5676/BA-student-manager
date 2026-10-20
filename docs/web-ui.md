@@ -784,7 +784,8 @@ stops the server (the page shows Closed); with `--serve` it gives `native_unavai
 | `mods.add {paths, background = false}` / `mods.pick {background = false}` | `{added, duplicates, installed}`; with `background`, a library writer job id (`mods.pick` opens the native file dialog); identity is core plus SHA-1, independent of filenames |
 | `mods.removalInfo {id}` | `{name, used}` for the deletion confirmation, including configured and applied entries in every install |
 | `mods.remove {id, confirm = false}` | library writer job id; result `{done, failed, dropped, cores, kinds}`; deletes the source, stored files and references, then restores game entries to Official or their saved source; refused writes keep the new configuration and an unfinished entry |
-| `mods.rename {id, label}`, `mods.seen {id}` | |
+| `mods.rename {id, label}` | |
+| `mods.seen {id}` or `{ids}` | stores seen mod IDs in `webui.json`, without writing the library; roster and family fresh flags come from this state |
 | `mods.state` | `{installs: [{id, key, server, folder, label, distinct, named}], current, enabled, shown, available, reason, reasonParams, scan, explained, configured, pending, stuck, left, unfinished: {pending, left, stuck}, drift, untracked, damaged, sourceMissing, queued, scanned, tray, traySupported, busy, progress}` from the snapshot (above); `id` is the first 12 hex digits of the install key's SHA-1 (used in URLs), `named` tells a folder the settings name from a recorded one; `busy` while a toggle is queued or running or writes are queued for the classic window; `progress` is `{done, total}` of a running toggle |
 | `mods.sizes {kind}` | `{builtSize}` for `kind: "built"` or `{originalsSize}` for `kind: "originals"`, bytes measured on demand for the visible row or help; no size walks in `mods.state` |
 | `mods.toggle {enabled, expect}` | job id (`mods.toggle`): the switch over every known install, also Retry; `busy` while another toggle is queued or running, `classic_open` at submit; the job's refusals `state_changed`, `folder_changed`, `game_running`, `game_status_unavailable`, `steam_busy`, `classic_open`, `not_enough_space` |
@@ -1116,6 +1117,12 @@ or the classic UI is open, no drift while mods are off, nothing dismissed (see M
   Already in use without a job. Row 2's
   update and compare act on the mod the shown tab's files carry. The 3D tab's card has nothing to switch to yet
   (library): no chevron, and a click opens nothing.
+
+- **New mod marks**: unseen mods mark their own variant chip, their kind's detail tab and the roster card (any
+  variant when merged). A visit or a tab change keeps the marks. Opening a switch popup marks all mods it offers
+  as seen, including other variants' portrait mods; opening a mod card also marks that mod. Other kinds keep their
+  marks. Seen IDs live in `webui.json`, through `mods.seen`, independently of the library's legacy fresh flags.
+  Mods without a seen ID start new; adding an existing duplicate keeps its seen state.
 
 - **Aliases** (the pencil after the name on the nameplate, the game's name edit icon `Cafe_Icon_NameEdit`): the
   user's own aliases of the student, which the roster search matches (several, at most 8 of up to 24 characters;

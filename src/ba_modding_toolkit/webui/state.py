@@ -1,7 +1,7 @@
-"""Small UI state kept between launches: the asset consent, recently opened variants, the user's own aliases of the
-students and the web UI's own preferences (voice volume, the mod library folder, the scan consent, the mod switch's
-and the classic hand-off's flags, the data directory's id). Kept apart from config.toml, which the classic GUI
-rewrites with only its own keys.
+"""Small UI state kept between launches: the asset consent, recently opened variants, seen mods, the user's own
+aliases of the students and the web UI's own preferences (voice volume, the mod library folder, the scan consent,
+the mod switch's and the classic hand-off's flags, the data directory's id). Kept apart from config.toml, which the
+classic GUI rewrites with only its own keys.
 
 Several app instances may share one data folder: every change is applied to the file as it is at that moment (read
 again under a lock the instances share), so one instance never erases what another wrote, and reads pick up the
@@ -104,6 +104,11 @@ def _recent_of(data: dict[str, Any]) -> list[str]:
     return [v for v in value if isinstance(v, str)] if isinstance(value, list) else []
 
 
+def _seen_mods_of(data: dict[str, Any]) -> set[str]:
+    value = data.get("seen_mods")
+    return {v for v in value if isinstance(v, str) and v} if isinstance(value, list) else set()
+
+
 class UiState:
     def __init__(self, path: Path):
         self.path = Path(path)
@@ -183,6 +188,13 @@ class UiState:
             data["recent"] = [variant_key, *recent][:RECENT_MAX]
 
         self._update(change)
+
+    def seen_mods(self) -> set[str]:
+        return _seen_mods_of(self._current())
+
+    def mark_mods_seen(self, ids: list[str]) -> None:
+        """Remember opened mods without changing the shared mod library."""
+        self._update(lambda data: data.__setitem__("seen_mods", sorted(_seen_mods_of(data).union(ids))))
 
     # --- the user's own aliases, by family key ---
 

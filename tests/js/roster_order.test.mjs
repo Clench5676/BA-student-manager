@@ -32,6 +32,19 @@ const label = (x) => x?.["zh-CN"] ?? x?.en;
 const keys = (list) => list.map((c) => c.key);
 const view = (extra = {}) => ({ ...normalizeView(DEFAULT_VIEW), ...extra });
 
+test("roster cards keep unseen mod marks per variant and across a merged family until all are seen", () => {
+  const d = data(), variants = d.families[0].variants;
+  variants[0].fresh = true; variants[1].fresh = true;
+  const marks = (merged) => order(d, view({ merged }), { label }).filter((c) => c.family === "hoshino").map((c) => !!c.fresh);
+  assert.deepEqual(marks(false), [true, true, false]);
+  assert.deepEqual(marks(true), [true]);
+  variants[0].fresh = false;
+  assert.deepEqual(marks(true), [true]);
+  variants[1].fresh = false;
+  assert.deepEqual(marks(false), [false, false, false]);
+  assert.deepEqual(marks(true), [false]);
+});
+
 test("separate library counts sum across a family and the matched variant keeps its configured preview", () => {
   const d = { families: [{ key: "f", base: { en: "Family" }, variants: [
     v("a", { mods: 3, modCounts: { spr: 3, lobby: 0 }, configured: { spr: "mod:a" } }),
