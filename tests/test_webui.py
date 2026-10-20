@@ -260,7 +260,7 @@ def test_rpc_errors_are_codes(app):
 def test_roster_and_family(app, services):
     roster = rpc(app, "roster.list")["result"]
     v = roster["families"][0]["variants"][0]
-    assert v["key"] == "hoshino" and v["mods"] == 1 and v["fresh"] is True
+    assert v["key"] == "hoshino" and v["mods"] == 1 and v["fresh"] is False
     assert v["added"] == "2026-10-01T08:00:00+00:00"  # the newest own mod, for the "recently added" sort
     assert v["replaced"] == "variant:hoshino_swimsuit"
     assert v["bg"] == "/asset/art/bg/BG_Test_Collection"
@@ -271,7 +271,7 @@ def test_roster_and_family(app, services):
     assert fam["variants"][0]["playable"] is True and fam["variants"][0]["recruitable"] is False
     assert fam["variants"][0]["favorite"] is True
     assert fam["variants"][0]["state"] == {"applied": "official", "crc": "ok"}
-    assert fam["variants"][0]["modList"] == [{"id": "m1", "target": "hoshino", "fresh": True}]
+    assert fam["variants"][0]["modList"] == [{"id": "m1", "target": "hoshino", "fresh": False}]
     assert fam["version"] == "rv1"  # the install the parts come from
 
 
@@ -294,37 +294,117 @@ def test_library_counts_and_configured_sources_reach_roster_and_family(app, serv
     assert v["mods"] == 0 and v["modCounts"] == {"spr": 0, "lobby": 0}
 
 
+def mod_marks(app):
+    roster = rpc(app, "roster.list")["result"]["families"][0]["variants"][0]
+    variant = rpc(app, "family.get", key="hoshino")["result"]["variants"][0]
+    assert roster["fresh"] == variant["fresh"]
+    return roster["fresh"], {m["id"]: m["fresh"] for m in variant["modList"]}
+
+
+@pytest.mark.parametrize("first", ["roster.list", "family.get"])
+def test_mod_marks_first_run_baselines_the_whole_library(app, services, monkeypatch, first):
+    mods = [FakeMod("portrait", "hoshino"), FakeMod("lobby", "hoshino", kind="lobby"),
+            FakeMod("other", "another-student")]
+    monkeypatch.setattr(services._library, "mods", lambda: mods)
+    services.state.set("voice_volume", 20)  # an older UI state, without seen_mods
+    params = {"key": "hoshino"} if first == "family.get" else {}
+    assert "result" in rpc(app, first, **params)
+    assert mod_marks(app) == (False, {"portrait": False, "lobby": False})
+    assert UiState(services.state.path).seen_mods() == {m.id for m in mods}
+    assert services.state.get("voice_volume") == 20
+    assert all(m.fresh for m in mods), "the baseline must not change the shared library's flags"
+
+
+@pytest.mark.parametrize("reset", ["file", "key"])
+def test_mod_marks_reset_baselines_again_then_only_new_additions_get_dots(app, services, monkeypatch, reset):
+    services.state.mark_mods_seen([])
+    mods = [FakeMod("old", "hoshino")]
+    monkeypatch.setattr(services._library, "mods", lambda: mods)
+    assert mod_marks(app) == (True, {"old": True})
+    if reset == "file":
+        services.state.path.unlink()
+    else:
+        services.state.path.write_text('{"prefs": {"voice_volume": 20}}', encoding="utf-8")
+    assert mod_marks(app) == (False, {"old": False})
+    assert UiState(services.state.path).seen_mods() == {"old"}
+    mods.append(FakeMod("new", "hoshino"))
+    assert mod_marks(app) == (True, {"old": False, "new": True})
+
+
+@pytest.mark.parametrize("seen", [[], ["m1"]])
+def test_mod_marks_update_preserves_existing_seen_state_and_pending_dots(app, services, monkeypatch, seen):
+    services.state.mark_mods_seen(seen)
+    mods = [FakeMod("m1", "hoshino"), FakeMod("pending", "hoshino", kind="lobby")]
+    monkeypatch.setattr(services._library, "mods", lambda: mods)
+    expected = (True, {"m1": "m1" not in seen, "pending": True})
+    assert mod_marks(app) == expected
+    before = services.state.path.read_bytes()
+    updated = Services(services.settings, services.data_dir, state=UiState(services.state.path), cache=object(),
+                       game=FakeGame(), catalog=services.catalog, library=services._library)
+    updated._game.resource_version = "rv2"
+    try:
+        updated_app = WebApp(build_api(updated), updated.events, token="tok")
+        assert mod_marks(updated_app) == expected
+        assert updated.state.seen_mods() == set(seen)
+        assert services.state.path.read_bytes() == before
+        mods.append(FakeMod("new", "hoshino"))
+        assert mod_marks(updated_app) == (True, {**expected[1], "new": True})
+    finally:
+        updated.close()
+
+
+@pytest.mark.parametrize("failure", ["json", "field", "read"])
+def test_mod_marks_unreadable_state_shows_no_dots(app, services, monkeypatch, failure):
+    library = services.library  # baseline m1 before adding a new mod
+    mods = [*library.mods(), FakeMod("new", "hoshino")]
+    monkeypatch.setattr(library, "mods", lambda: mods)
+    assert mod_marks(app) == (True, {"m1": False, "new": True})
+    path = services.state.path
+    before = path.read_bytes()
+    with monkeypatch.context() as patch:
+        if failure == "read":
+            real_read = Path.read_text
+
+            def read(self, *args, **kwargs):
+                if self == path:
+                    raise PermissionError("State cannot be read")
+                return real_read(self, *args, **kwargs)
+
+            patch.setattr(Path, "read_text", read)
+        else:
+            path.write_text("{not json" if failure == "json" else '{"seen_mods": {}}', encoding="utf-8")
+        unreadable = path.read_bytes()
+        assert mod_marks(app) == (False, {"m1": False, "new": False})
+        assert path.read_bytes() == unreadable
+    path.write_bytes(before)
+    assert mod_marks(app) == (True, {"m1": False, "new": True})
+
+
 def test_mod_marks_follow_ui_state_per_mod_and_survive_restart(app, services, monkeypatch):
+    services.state.mark_mods_seen([])  # an existing baseline, before these two mods were added
     mods = [FakeMod("portrait", "hoshino", fresh=False), FakeMod("lobby", "hoshino", kind="lobby")]
     monkeypatch.setattr(services.library, "mods", lambda: mods)
-
-    def marks():
-        roster = rpc(app, "roster.list")["result"]["families"][0]["variants"][0]
-        variant = rpc(app, "family.get", key="hoshino")["result"]["variants"][0]
-        assert roster["fresh"] == variant["fresh"]
-        return roster["fresh"], {m["id"]: m["fresh"] for m in variant["modList"]}
-
-    assert marks() == (True, {"portrait": True, "lobby": True})
+    assert mod_marks(app) == (True, {"portrait": True, "lobby": True})
     rpc(app, "ui.visit", variant="hoshino")
-    assert marks() == (True, {"portrait": True, "lobby": True})
+    assert mod_marks(app) == (True, {"portrait": True, "lobby": True})
     assert rpc(app, "mods.seen", id="portrait") == {"result": None}
-    assert marks() == (True, {"portrait": False, "lobby": True})
+    assert mod_marks(app) == (True, {"portrait": False, "lobby": True})
     assert rpc(app, "mods.seen", ids=["lobby", "portrait", "lobby"]) == {"result": None}
     services.state = UiState(services.state.path)
-    assert marks() == (False, {"portrait": False, "lobby": False})
+    assert mod_marks(app) == (False, {"portrait": False, "lobby": False})
     assert services.state.seen_mods() == {"portrait", "lobby"}
     assert [m.fresh for m in mods] == [False, True], "the UI never changes the library's flags"
     mods.append(FakeMod("new", "hoshino"))
-    assert marks() == (True, {"portrait": False, "lobby": False, "new": True})
+    assert mod_marks(app) == (True, {"portrait": False, "lobby": False, "new": True})
     mods.pop()
-    assert marks()[0] is False
+    assert mod_marks(app)[0] is False
 
 
 @pytest.mark.parametrize("params", [{}, {"id": ""}, {"id": 1}, {"ids": "mod"}, {"ids": [1]},
                                         {"ids": [""]}, {"id": "mod", "ids": ["mod"]}])
 def test_mods_seen_rejects_invalid_ids(app, services, params):
     assert rpc(app, "mods.seen", **params)["error"]["code"] == "bad_params"
-    assert services.state.seen_mods() == set()
+    assert services.state.seen_mods() is None
 
 
 def test_roster_and_family_carry_the_aliases_the_search_matches(app, services):
@@ -649,6 +729,9 @@ def test_a_new_library_prunes_its_kept_originals_once(tmp_path, monkeypatch):
     class Library:
         def __init__(self, *args, **kwargs):
             pass
+
+        def mods(self):
+            return []
 
         def prune(self):
             pruned.append(self)

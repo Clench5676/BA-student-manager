@@ -52,7 +52,7 @@ def test_visits_of_both_instances_are_merged(tmp_path):
 def test_seen_mods_persist_and_merge_between_instances(tmp_path):
     path = tmp_path / "webui.json"
     a, b = UiState(path), UiState(path)
-    assert a.seen_mods() == set()
+    assert a.seen_mods() is None
     a.mark_mods_seen(["portrait", "portrait"])
     b.mark_mods_seen(["lobby"])
     a.visit("student")
@@ -69,10 +69,96 @@ def test_seen_mods_ignore_malformed_state(tmp_path, stored):
     path.write_text(json.dumps({"seen_mods": stored, "prefs": {"voice_volume": 20}}))
     state = UiState(path)
     expected = {"kept"} if isinstance(stored, list) else set()
-    assert state.seen_mods() == expected
+    assert state.seen_mods() is None
     state.mark_mods_seen(["new"])
     assert UiState(path).seen_mods() == expected | {"new"}
     assert state.get("voice_volume") == 20
+
+
+@pytest.mark.parametrize("existing", [False, True])
+@pytest.mark.parametrize("ids", [[], ["portrait", "lobby"]])
+def test_seen_mods_baseline_is_saved_once_and_keeps_other_state(tmp_path, existing, ids):
+    path = tmp_path / "webui.json"
+    state = UiState(path)
+    if existing:
+        state.set("voice_volume", 20)
+        state.visit("student")
+    assert state.seen_mods(lambda: ids) == set(ids)
+    before = path.read_bytes()
+
+    def unexpected_baseline():
+        pytest.fail("An existing seen list must survive an update, including an empty list")
+
+    assert UiState(path).seen_mods(unexpected_baseline) == set(ids)
+    assert path.read_bytes() == before
+    assert json.loads(before)["seen_mods"] == sorted(ids)
+    if existing:
+        assert state.get("voice_volume") == 20 and state.recent() == ["student"]
+
+
+def test_seen_mods_baseline_rechecks_another_instances_write(tmp_path):
+    path = tmp_path / "webui.json"
+    first, other = UiState(path), UiState(path)
+
+    def snapshot():
+        other.mark_mods_seen(["opened"])
+        return ["old"]
+
+    assert first.seen_mods(snapshot) == {"opened"}
+    assert UiState(path).seen_mods() == {"opened"}
+
+
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize("failure", ["json", "root", "encoding", "read", "lock"])
+def test_seen_mods_unreadable_state_suppresses_marks_without_repair(tmp_path, monkeypatch, cached, failure):
+    path = tmp_path / "webui.json"
+    state = UiState(path)
+    if cached:
+        state.mark_mods_seen(["old"])
+    if failure == "json":
+        path.write_text("{not json", encoding="utf-8")
+    elif failure == "root":
+        path.write_text("[]", encoding="utf-8")
+    elif failure == "encoding":
+        path.write_bytes(b"\xff")
+    else:
+        path.write_text('{"seen_mods": ["old"]}', encoding="utf-8")
+        if failure == "read":
+            real_read = Path.read_text
+
+            def read(self, *args, **kwargs):
+                if self == path:
+                    raise PermissionError("State cannot be read")
+                return real_read(self, *args, **kwargs)
+
+            monkeypatch.setattr(Path, "read_text", read)
+        else:
+            def locked(*args):
+                raise OSError("State cannot be locked")
+
+            monkeypatch.setattr("ba_modding_toolkit.webui.state._file_lock", locked)
+    before = path.read_bytes()
+
+    def unexpected_baseline():
+        pytest.fail("Unreadable state must not be replaced by a baseline")
+
+    assert state.seen_mods(unexpected_baseline) is None
+    assert state.seen_mods() is None
+    assert path.read_bytes() == before
+
+
+def test_seen_mods_failed_baseline_write_is_unknown_and_can_be_retried(tmp_path, monkeypatch):
+    path = tmp_path / "webui.json"
+    state = UiState(path)
+
+    def unwritable(*args):
+        raise PermissionError("State cannot be replaced")
+
+    with monkeypatch.context() as patch:
+        patch.setattr("ba_modding_toolkit.webui.state._replace", unwritable)
+        assert state.seen_mods(lambda: ["old"]) is None
+    assert not path.exists() and not list(tmp_path.glob("*.tmp"))
+    assert state.seen_mods(lambda: ["old"]) == {"old"}
 
 
 def test_an_unreadable_file_keeps_what_is_known(tmp_path):

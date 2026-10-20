@@ -276,6 +276,9 @@ class _Library:
     def __init__(self):
         self.added = []
 
+    def mods(self):
+        return []
+
     def add_and_apply(self, paths):
         from ba_modding_toolkit.library.models import AddResult
 

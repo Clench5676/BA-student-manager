@@ -361,7 +361,7 @@ def build_api(s: Services) -> RpcRegistry:
 
     # --- students ---
 
-    def variant_json(v: Any, mods: dict[str, list], favorites: set[str], recent: list[str], seen: set[str],
+    def variant_json(v: Any, mods: dict[str, list], favorites: set[str], recent: list[str], seen: set[str] | None,
                      modified: dict[str, str] | None = None) -> dict[str, Any]:
         own = mods.get(v.key, [])
         return {
@@ -371,7 +371,8 @@ def build_api(s: Services) -> RpcRegistry:
             "order": v.order, "spr": v.spr, "lobby": v.lobby, "date": v.date, "model": v.model,
             "spineCategory": getattr(v, "spine_category", None),
             "bg": _url_bg(v.bg), "portrait": _url_portrait(v.portrait),
-            "favorite": v.key in favorites, "mods": len(own), "fresh": any(m.id not in seen for m in own),
+            "favorite": v.key in favorites, "mods": len(own),
+            "fresh": seen is not None and any(m.id not in seen for m in own),
             "modCounts": {kind: sum(m.kind == kind for m in own) for kind in ("spr", "lobby")},
             "configured": configured_of(v.key),
             # when the newest of its own mods was added (ISO), for the roster's "recently added" sort
@@ -442,7 +443,8 @@ def build_api(s: Services) -> RpcRegistry:
         for v in f.variants:
             item = variant_json(v, mods, favorites, recent, seen)
             item["state"] = to_json(s.library.state(v.key))
-            item["modList"] = [{**to_json(m), "fresh": m.id not in seen} for m in mods.get(v.key, [])]
+            item["modList"] = [{**to_json(m), "fresh": seen is not None and m.id not in seen}
+                               for m in mods.get(v.key, [])]
             item["modelFiles"] = model_files(v.model)
             variants.append(item)
         # the game's resource version tells installs apart (another game folder or file source): the page then reads

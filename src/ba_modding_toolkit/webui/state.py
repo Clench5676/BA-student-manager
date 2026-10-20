@@ -104,9 +104,11 @@ def _recent_of(data: dict[str, Any]) -> list[str]:
     return [v for v in value if isinstance(v, str)] if isinstance(value, list) else []
 
 
-def _seen_mods_of(data: dict[str, Any]) -> set[str]:
+def _seen_mods_of(data: dict[str, Any]) -> set[str] | None:
     value = data.get("seen_mods")
-    return {v for v in value if isinstance(v, str) and v} if isinstance(value, list) else set()
+    if not isinstance(value, list) or any(not isinstance(v, str) or not v for v in value):
+        return None
+    return set(value)
 
 
 class UiState:
@@ -125,12 +127,19 @@ class UiState:
             return None
         return st.st_mtime_ns, st.st_size
 
-    def _read(self) -> dict[str, Any] | None:
-        """The file's content now; None when it is missing or unreadable."""
+    def _read(self, *, strict: bool = False) -> dict[str, Any] | None:
+        """The file's content now; None when missing or unreadable. Strict reads use {} for missing and raise
+        for unreadable content."""
         try:
             data = json.loads(self.path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return {} if strict else None
         except (OSError, ValueError):
+            if strict:
+                raise
             return None
+        if strict and not isinstance(data, dict):
+            raise ValueError("UI state must be an object")
         return data if isinstance(data, dict) else None
 
     def _current(self) -> dict[str, Any]:
@@ -158,17 +167,21 @@ class UiState:
             if data is None:
                 data = copy.deepcopy(self._data)
             change(data)
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            fd, name = tempfile.mkstemp(prefix=f".{self.path.name}.", suffix=".tmp", dir=self.path.parent)
-            try:
-                with os.fdopen(fd, "w", encoding="utf-8") as out:
-                    out.write(json.dumps(data, ensure_ascii=False, indent=1))
-                _replace(name, self.path)
-            except BaseException:
-                with contextlib.suppress(OSError):
-                    os.unlink(name)
-                raise
-            self._data, self._seen = data, self._signature()
+            self._write(data)
+
+    def _write(self, data: dict[str, Any]) -> None:
+        """Replace the state atomically while both state locks are held."""
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        fd, name = tempfile.mkstemp(prefix=f".{self.path.name}.", suffix=".tmp", dir=self.path.parent)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as out:
+                out.write(json.dumps(data, ensure_ascii=False, indent=1))
+            _replace(name, self.path)
+        except BaseException:
+            with contextlib.suppress(OSError):
+                os.unlink(name)
+            raise
+        self._data, self._seen = data, self._signature()
 
     @property
     def consent(self) -> bool | None:
@@ -189,12 +202,34 @@ class UiState:
 
         self._update(change)
 
-    def seen_mods(self) -> set[str]:
-        return _seen_mods_of(self._current())
+    def seen_mods(self, baseline: Callable[[], list[str]] | None = None) -> set[str] | None:
+        """Seen ids, or None when unknown. Only a missing key gets the library's baseline, never an existing list.
+        Read strictly: stale or unreadable state must not turn every mod into a new one."""
+        try:
+            with self._lock, _file_lock(self._lock_path):
+                data = self._read(strict=True)
+                if "seen_mods" in data or baseline is None:
+                    return _seen_mods_of(data)
+            # The library has its own lock: take its snapshot without holding either state lock.
+            ids = baseline()
+            with self._lock, _file_lock(self._lock_path):
+                data = self._read(strict=True)
+                if "seen_mods" not in data:
+                    data["seen_mods"] = sorted(set(ids))
+                    self._write(data)
+                return _seen_mods_of(data)
+        except (OSError, ValueError):
+            logger.warning("cannot read seen mods from %s", self.path, exc_info=True)
+            return None
 
     def mark_mods_seen(self, ids: list[str]) -> None:
         """Remember opened mods without changing the shared mod library."""
-        self._update(lambda data: data.__setitem__("seen_mods", sorted(_seen_mods_of(data).union(ids))))
+        def change(data: dict[str, Any]) -> None:
+            value = data.get("seen_mods")
+            seen = {v for v in value if isinstance(v, str) and v} if isinstance(value, list) else set()
+            data["seen_mods"] = sorted(seen.union(ids))
+
+        self._update(change)
 
     # --- the user's own aliases, by family key ---
 

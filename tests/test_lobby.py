@@ -547,6 +547,9 @@ class _FxGame(_Game):
 
 
 class _Library:
+    def mods(self):
+        return []
+
     def live_bundles(self, core, pin=None):
         raise ServiceError("game_file_not_found", variant=core)
 
