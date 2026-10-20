@@ -5,8 +5,40 @@ from __future__ import annotations
 import threading
 import time
 
+import pytest
+
+from ba_modding_toolkit.i18n import I18n
+from ba_modding_toolkit.webui import jobs as jobs_module
 from ba_modding_toolkit.webui.events import EventBus
 from ba_modding_toolkit.webui.jobs import JobRunner
+
+
+@pytest.mark.parametrize("language", ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"])
+def test_progress_keeps_action_labels_and_names_an_empty_callback(monkeypatch, language):
+    translate = I18n(language).t
+    monkeypatch.setattr(jobs_module, "t", translate)
+    events = EventBus()
+    seen = events.subscribe()
+    jobs = JobRunner(events)
+    named = translate("webui.progress.apply", name="portrait.bundle")
+    try:
+        def run(log, progress):
+            progress(1, 1)
+            progress(2, 2, named)
+
+        jid = jobs.submit("apply", run, writes="game")
+        assert jobs.wait(jid, 5)
+        reports = []
+        while not seen.empty():
+            event, data = seen.get_nowait()
+            if event == "job.progress":
+                reports.append(data)
+        assert [report["label"] for report in reports] == [
+            translate("webui.progress.process", name=translate("webui.progress.mods")), named]
+        assert jobs.get(jid).to_json()["progress"] == reports[-1]
+        assert reports[-1] == {"id": jid, "current": 2, "total": 2, "label": named}
+    finally:
+        jobs.shutdown()
 
 
 def wait_for(cond, timeout=5.0):

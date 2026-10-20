@@ -17,28 +17,37 @@ const layoutReport = () => { const r = report(); r.mod.atlases["test.atlas"] = a
 let sequence = 0;
 async function harness(locale = "en-US", button = "cancel", accept = false) {
   const strings = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${locale}.json`, import.meta.url), "utf8")).webui;
-  const calls = [], popups = [], comparisons = [], covers = [];
+  const calls = [], popups = [], comparisons = [], covers = [], labels = [], progress = [];
   let nextReport = report(), rebuilt = null, held = false, covered = false;
+  let taskActive = false;
   const saved = { mod: { id: "new-mod", repaired_from: "old-mod" } };
   globalThis.compatibilityDeps = {
     language: () => locale,
     T: (key, vars = {}) => key.split(".").reduce((o, k) => o?.[k], strings)?.replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? "") || key,
     rpc: async (method, params) => {
       calls.push([method, params]);
-      if (["actions.remap", "actions.acceptRemap"].includes(method)) assert.ok(held && covered);
+      if (["actions.remap", "actions.acceptRemap"].includes(method)) assert.ok(held && covered && taskActive);
       return method;
     },
-    waitJob: async (id) => id === "actions.remap" ? rebuilt : id === "actions.acceptRemap" ? saved : nextReport,
-    Loading: { task: (fn) => fn(() => {}),
+    waitJob: async (id, update) => {
+      assert.equal(typeof update, "function");
+      update({ current: 1, total: 1, label: id });
+      return id === "actions.remap" ? rebuilt : id === "actions.acceptRemap" ? saved : nextReport;
+    },
+    Loading: { task: async (fn, options) => {
+        labels.push(options.label); taskActive = true;
+        try { return await fn((value) => progress.push(value)); } finally { taskActive = false; }
+      },
       hold: async (fn, opts) => { assert.equal(opts.all, true); held = true; try { return await fn(); } finally { held = false; } },
       scene: async (fn) => { covered = true; covers.push(true); try { return await fn(); } finally { covered = false; } },
     },
-    Popup: { message: async (options) => { assert.equal(held, false); popups.push(options); return { button }; } },
-    Compare: { show: async (...args) => { assert.equal(held, false); comparisons.push(args); return accept; } },
+    Popup: { message: async (options) => { assert.ok(!held && !covered && !taskActive); popups.push(options); return { button }; } },
+    Compare: { show: async (...args) => { assert.ok(!held && !covered && !taskActive); comparisons.push(args); return accept; } },
   };
   const code = `const { T, language, rpc, waitJob, Loading, Popup, Compare } = globalThis.compatibilityDeps;\n${source.replace(/^import .*;$/gm, "")}\n// ${sequence++}`;
   const mod = await import(`data:text/javascript;base64,${Buffer.from(code).toString("base64")}`);
-  return { mod, calls, popups, comparisons, covers, strings, saved, use: (value) => { nextReport = value; }, build: (value) => { rebuilt = value; } };
+  return { mod, calls, popups, comparisons, covers, labels, progress, strings, saved,
+    use: (value) => { nextReport = value; }, build: (value) => { rebuilt = value; } };
 }
 
 test("valid custom skeletons, old bundle dates and patch versions do not report drawing failures", async () => {
@@ -118,6 +127,9 @@ test("repair previews ask first in every locale; only Accept saves and refreshes
     await h.mod.check("old-mod", "Painted", (result) => { assert.equal(result, h.saved); changed++; });
     assert.equal(changed, Number(accept));
     assert.deepEqual(h.calls.map(([method]) => method), ["actions.compatibility", "actions.remap", ...(accept ? ["actions.acceptRemap"] : []), "actions.discardRemap"]);
+    assert.deepEqual(h.labels, ["compatibility", "remap", ...(accept ? ["repair"] : [])]
+      .map((action) => h.strings.progress[action].replace("{name}", "Painted")));
+    assert.deepEqual(h.progress.map(({ label }) => label), h.calls.slice(0, -1).map(([method]) => method));
     const [data, title, host, options] = h.comparisons[0];
     assert.deepEqual(data.pages, preview.pages);
     assert.equal(title, "Painted"); assert.equal(host, "dialog");
@@ -131,6 +143,16 @@ test("repair previews ask first in every locale; only Accept saves and refreshes
       assert.equal(h.mod.canRemap("old-mod"), false);
       assert.equal(h.mod.canRemap("new-mod"), false);
     }
+  }
+});
+
+test("checks and repair progress use the localized target fallback without a label", async () => {
+  for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"]) {
+    const h = await harness(locale, "ok", true);
+    h.use(layoutReport()); h.build(prepared());
+    await h.mod.check("old-mod");
+    assert.deepEqual(h.labels, ["compatibility", "remap", "repair"]
+      .map((action) => h.strings.progress[action].replace("{name}", h.strings.progress.mods)));
   }
 });
 

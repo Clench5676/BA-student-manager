@@ -1108,6 +1108,22 @@
 			"slow": "Still loading",
 			"plain": "Loading"
 		},
+		"progress": {
+			"add": "Adding: {name}",
+			"process": "Processing: {name}",
+			"apply": "Applying: {name}",
+			"restore": "Restoring: {name}",
+			"repair": "Repairing: {name}",
+			"remap": "Remapping textures: {name}",
+			"delete": "Deleting: {name}",
+			"extract": "Extracting: {name}",
+			"compatibility": "Checking compatibility: {name}",
+			"download": "Downloading: {name}",
+			"check": "Checking game files",
+			"clear": "Clearing Mod cache",
+			"mods": "Mods",
+			"count": "{label} ({current}/{total})"
+		},
 		"job": {
 			"running": "Working",
 			"done": "Done",

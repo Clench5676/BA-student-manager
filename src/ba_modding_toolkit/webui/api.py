@@ -18,7 +18,7 @@ from typing import Any
 
 from .. import devmode, globallines, updater
 from ..errors import ServiceError
-from ..i18n import get_locale_dir, i18n_manager, offered_languages
+from ..i18n import get_locale_dir, i18n_manager, offered_languages, t
 from ..kivo import clip_id
 from ..library.storage import trailing_bytes
 from ..naming import parse_filename
@@ -199,7 +199,8 @@ def build_api(s: Services) -> RpcRegistry:
             if downloaded is not None:
                 return {"file": str(downloaded[0])}
             dest = Path(tempfile.mkdtemp(prefix="bamt-update-"))
-            path, md5 = updater.download(info, dest, progress)
+            path, md5 = updater.download(info, dest, lambda current, total, name: progress(
+                current, total, t("webui.progress.download", name=name)))
             s.update_file = (path, md5, info.version)  # what installUpdate may swap in, for this release only
             return {"file": str(path)}
 

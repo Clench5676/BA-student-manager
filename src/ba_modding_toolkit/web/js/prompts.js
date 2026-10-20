@@ -327,9 +327,10 @@ async function applyDrift(entries) {
     ModSwitch.refused(err, "mods.restoreDrift", params);
     return;
   }
-  toast(T("job.running"), { sticky: true });
+  const running = T("progress.apply", { name: T("progress.mods") });
+  toast(running, { sticky: true });
   try {
-    const job = waitJob(id, (p) => toast(T("tray.working", { done: p.current, total: p.total }), { sticky: true }));
+    const job = waitJob(id, (p) => toast(Loading.progressText(p, running), { sticky: true }));
     Loading.wait(job).catch(() => {});
     const result = await job;
     const summary = driftSummary(result, await names().catch(() => undefined));
@@ -372,9 +373,10 @@ export async function adopt(entries) {
     toast(ModSwitch.errorText(err.code, err.params), { kind: "error" });
     return false;
   }
-  toast(T("job.running"), { sticky: true });
+  const running = T("progress.add", { name: T("progress.mods") });
+  toast(running, { sticky: true });
   try {
-    const job = waitJob(id, (p) => toast(T("tray.working", { done: p.current, total: p.total }), { sticky: true }));
+    const job = waitJob(id, (p) => toast(Loading.progressText(p, running), { sticky: true }));
     Loading.wait(job).catch(() => {});
     const result = await job;
     const failed = [...(result?.failed || []), ...(result?.skipped || []).map((s) => ({ entry: s, code: "entry_changed" }))];

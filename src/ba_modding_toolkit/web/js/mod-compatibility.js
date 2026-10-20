@@ -127,7 +127,9 @@ export async function show(report, { label = "", onRemap } = {}) {
 }
 
 export async function remap(id, onRemapped = () => {}, label = "") {
-  const result = await Loading.hold(() => Loading.scene(() => rpc("actions.remap", { mod: id }).then((job) => waitJob(job))), { all: true });
+  const result = await Loading.hold(() => Loading.scene(() => Loading.task(
+    async (update) => waitJob(await rpc("actions.remap", { mod: id }), update),
+    { label: T("progress.remap", { name: label || T("progress.mods") }) })), { all: true });
   if (result.unchanged) {
     reports.set(id, { ...reports.get(id), remappable: false });
     await Popup.message({ title: T("remap.action"), lines: [T("remap.unneeded")], ok: T("picker.ok") });
@@ -143,13 +145,13 @@ export async function remap(id, onRemapped = () => {}, label = "") {
       lines, partial: report.partial, accept: T("remap.accept"), discard: T("remap.discard"),
     });
     if (!accepted) return null;
-    const saved = await Loading.hold(() => Loading.scene(async () => {
-      const saved = await waitJob(await rpc("actions.acceptRemap", { preview: result.preview }));
+    const saved = await Loading.hold(() => Loading.scene(() => Loading.task(async (update) => {
+      const saved = await waitJob(await rpc("actions.acceptRemap", { preview: result.preview }), update);
       reports.set(id, { ...reports.get(id), remappable: false, repaired_id: saved.mod.id });
       reports.set(saved.mod.id, { remappable: false, repaired_from: id });
       await onRemapped(saved);
       return saved;
-    }), { all: true });
+    }, { label: T("progress.repair", { name: label || T("progress.mods") }) })), { all: true });
     return saved;
   } finally {
     await rpc("actions.discardRemap", { preview: result.preview });
@@ -157,7 +159,8 @@ export async function remap(id, onRemapped = () => {}, label = "") {
 }
 
 export async function check(id, label = "", onRemapped = () => {}) {
-  const report = await Loading.task(async (update) => waitJob(await rpc("actions.compatibility", { mod: id }), update));
+  const report = await Loading.task(async (update) => waitJob(await rpc("actions.compatibility", { mod: id }), update),
+    { label: T("progress.compatibility", { name: label || T("progress.mods") }) });
   reports.set(id, { ...report, remappable: compare(report).remap });
   return show(report, { label, onRemap: () => remap(id, onRemapped, label) });
 }

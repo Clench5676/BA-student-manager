@@ -48,10 +48,13 @@ class El {
   }
 }
 
-async function harness({ translated = true, render = "ready", decoded = true, boot = false, consent = true, uiCached = false, infoReady = true } = {}) {
+async function harness({ locale = "en-US", translated = true, render = "ready", decoded = true, boot = false, consent = true, uiCached = false, infoReady = true } = {}) {
   const stage = new El(), sprites = deferred(), timers = new Map(), assets = [];
   let now = 0, timerId = 0;
   let localized = translated;
+  const strings = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${locale}.json`, import.meta.url), "utf8")).webui;
+  const T = (key, vars = {}) => localized ? (key.split(".").reduce((o, k) => o?.[k], strings) || key)
+    .replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? "") : key;
   const initial = boot ? stage.appendChild(new El()) : null;
   if (initial) {
     initial.id = "loading-boot"; initial.className = `loading full on${consent && uiCached ? "" : " neutral"}`;
@@ -64,7 +67,7 @@ async function harness({ translated = true, render = "ready", decoded = true, bo
     performance: { now: () => now }, getComputedStyle: () => ({ opacity: "1" }),
     setTimeout: (fn, ms) => { const id = ++timerId; timers.set(id, { at: now + ms, fn }); return id; },
     clearTimeout: (id) => timers.delete(id), requestAnimationFrame: (fn) => fn(),
-    T: (key) => localized ? ({ "loading.now": "Now Loading", "loading.plain": "Loading", "app.loading": "Reading game files" }[key] || key) : key, S: 1, toast() {},
+    T, S: 1, toast() {},
     NGUI: { find: () => null, init: () => { assets.push("indexes"); return sprites.promise; }, layout: async (name) => { assets.push(name); return {}; }, decoded: async () => decoded, render: async (tree, host) => {
       if (render === "reject") throw new Error("Missing atlas");
       if (render === "empty") return;
@@ -82,7 +85,7 @@ async function harness({ translated = true, render = "ready", decoded = true, bo
     for (const [id, timer] of [...timers]) if (timer.at <= now) { timers.delete(id); timer.fn(); }
     await flush();
   };
-  return { loading, stage, sprites, advance, initial, assets, translate: () => { localized = true; loading.relabel(); } };
+  return { loading, stage, sprites, advance, initial, assets, T, translate: () => { localized = true; loading.relabel(); } };
 }
 
 for (const mode of ["wait", "scene"]) test(`writer progress survives ${mode} navigation and the sprite upgrade`, async () => {
@@ -90,7 +93,7 @@ for (const mode of ["wait", "scene"]) test(`writer progress survives ${mode} nav
   let progress;
   const job = h.loading.task(async (update) => { progress = update; await writer.promise; });
   const indicator = h.stage.children[0], detail = indicator.querySelector(".loading-progress");
-  progress({ label: "first.bundle", current: 1, total: 3 });
+  progress({ label: "Applying: first.bundle", current: 1, total: 3 });
   const navigation = mode === "wait" ? h.loading.wait(page.promise) : h.loading.scene(async (covered) => { await covered; return page.promise; });
   await h.advance(300);
   assert.equal(h.stage.children.length, 2);
@@ -98,11 +101,11 @@ for (const mode of ["wait", "scene"]) test(`writer progress survives ${mode} nav
   await h.advance(500); await h.advance(300); await navigation;
   assert.equal(indicator.isConnected, true);
   assert.equal(indicator.classList.contains("out"), false);
-  progress({ label: "second.bundle", current: 2, total: 3 });
-  assert.equal(detail.textContent, "second.bundle 2/3");
+  progress({ label: "Applying: second.bundle", current: 2, total: 3 });
+  assert.equal(detail.textContent, "Applying: second.bundle (2/3)");
   h.sprites.resolve(); await flush();
   assert.ok(indicator.querySelector(".loading-repeater"));
-  assert.equal(detail.textContent, "second.bundle 2/3");
+  assert.equal(detail.textContent, "Applying: second.bundle (2/3)");
   writer.resolve(); await flush(); await h.advance(300); await job;
   assert.equal(h.stage.children.length, 0);
 });
@@ -132,8 +135,8 @@ test("a slow scene stays covered and cannot end writer progress", async () => {
   const navigation = h.loading.scene(() => page.promise);
   await flush(); await h.advance(15000); await h.advance(300);
   assert.equal(h.loading.covering(), true, "a slow scene never reveals partial content");
-  progress({ label: "third.bundle", current: 3, total: 3 });
-  assert.equal(indicator.querySelector(".loading-progress").textContent, "third.bundle 3/3");
+  progress({ label: "Applying: third.bundle", current: 3, total: 3 });
+  assert.equal(indicator.querySelector(".loading-progress").textContent, "Applying: third.bundle (3/3)");
   assert.equal(indicator.classList.contains("out"), false);
   writer.reject(new Error("upload refused")); await flush(); await h.advance(300); await rejected;
   assert.equal(h.loading.covering(), true);
@@ -161,6 +164,47 @@ test("writer progress keeps Loading in the right corner", () => {
   assert.match(css, /\.loading-progress \{[^}]*left: 84px/);
 });
 
+for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"]) test(`action labels and counts in ${locale}`, async () => {
+  const h = await harness({ locale, consent: false }), work = deferred();
+  let update;
+  const label = h.T("progress.repair", { name: "portrait.bundle" });
+  const pending = h.loading.task((report) => { update = report; return work.promise; }, { label });
+  const indicator = h.stage.children[0], detail = indicator.querySelector(".loading-progress");
+  assert.equal(detail.textContent, label, "the initial label names the action before any callback");
+  assert.equal(indicator.attrs["aria-label"], label);
+  update({ label: "", current: 0, total: 2 });
+  assert.equal(detail.textContent, h.T("progress.count", { label, current: 0, total: 2 }));
+  for (const action of ["add", "process", "apply", "restore", "repair", "remap", "delete", "extract", "compatibility", "download"]) {
+    const named = h.T(`progress.${action}`, { name: "portrait.bundle" });
+    assert.ok(named.includes("portrait.bundle") && !named.includes("progress."));
+    update({ label: named, current: 1, total: 2 });
+    const counted = h.T("progress.count", { label: named, current: 1, total: 2 });
+    assert.equal(detail.textContent, counted);
+    assert.equal(indicator.attrs["aria-label"], counted);
+    update({ label: named, current: 7, total: 0 });
+    assert.equal(detail.textContent, named, "unknown totals have no fraction");
+  }
+  for (const action of ["check", "clear"]) {
+    const text = h.T(`progress.${action}`);
+    assert.equal(h.loading.progressText({}, text), text);
+    assert.equal(h.loading.progressText({ current: 1, total: 2 }, text), h.T("progress.count", { label: text, current: 1, total: 2 }));
+  }
+  const generic = h.T("progress.process", { name: h.T("progress.mods") });
+  assert.equal(h.loading.progressText(), generic);
+  assert.equal(h.loading.progressText({ label: "", total: 0 }), generic);
+  work.resolve(); await flush(); await h.advance(300); await pending;
+});
+
+test("locale arrival relabels task progress and its accessible label", async () => {
+  const h = await harness({ translated: false, consent: false }), work = deferred();
+  const pending = h.loading.task(() => work.promise);
+  h.translate();
+  const indicator = h.stage.children[0];
+  assert.equal(indicator.querySelector(".loading-progress").textContent, "Processing: Mods");
+  assert.equal(indicator.attrs["aria-label"], "Processing: Mods");
+  work.resolve(); await flush(); await h.advance(300); await pending;
+});
+
 test("the initial cover measures the fallback and sprite portions through reveal", async () => {
   const h = await harness(), page = deferred();
   const boot = h.loading.scene(() => page.promise, { opaque: true });
@@ -180,7 +224,7 @@ for (const mode of ["scene", "wait", "task"]) test(`${mode} stays neutral until 
   assert.equal(fallback.querySelector("span").textContent, "Loading");
   assert.equal(fallback.children.filter((el) => el.tagName === "i").length, 0);
   assert.equal(indicator.classList.contains("neutral"), true);
-  assert.equal(indicator.attrs["aria-label"], mode === "task" ? "popup.add" : "Reading game files");
+  assert.equal(indicator.attrs["aria-label"], mode === "task" ? "Processing: Mods" : "Reading game files");
   h.sprites.resolve(); await flush();
   assert.ok(indicator.querySelector(".loading-repeater"));
   assert.equal(indicator.querySelector(".loading-plain"), null);

@@ -19,8 +19,9 @@ from ba_modding_toolkit.bundle import Bundle
 from ba_modding_toolkit.catalog.models import CoreMap
 from ba_modding_toolkit.config import Settings
 from ba_modding_toolkit.errors import ServiceError
+from ba_modding_toolkit.i18n import I18n
 from ba_modding_toolkit.library import ModLibrary
-from ba_modding_toolkit.library import safety, storage
+from ba_modding_toolkit.library import safety, service, storage
 from ba_modding_toolkit.models import AssetType, FilePair, ModUpdateResult
 from ba_modding_toolkit.naming import parse_filename
 from ba_modding_toolkit.searching import get_search_dirs
@@ -111,6 +112,42 @@ def expect_error(code, action):
         action()
     assert caught.value.code == code
     json.dumps(caught.value.to_json())
+
+
+@pytest.mark.parametrize("language", ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"])
+def test_add_apply_and_restore_progress_name_the_phase(setup_library, monkeypatch, language):
+    env = setup_library
+    translate = I18n(language).t
+    monkeypatch.setattr(service, "t", translate)
+    progress = []
+    source = make_mod(env.original, env.tmp / "upload", fixed=True)
+    monkeypatch.setattr(env.settings, "crc_needed", lambda path: True)
+    result = env.library.add_and_apply([source], progress=lambda *args: progress.append(args))
+    assert result.applied and not result.failed
+    assert progress[:2] == [(i, 1, translate("webui.progress.add", name=source.name)) for i in (0, 1)]
+    assert progress[-1] == (1, 1, translate("webui.progress.apply", name=env.original.name))
+    progress.clear()
+    env.library.restore("test", progress=lambda *args: progress.append(args))
+    assert progress == [(1, 1, translate("webui.progress.restore", name=env.original.name))]
+
+
+def test_direct_install_build_progress_names_processing(setup_library, monkeypatch):
+    env = setup_library
+    translate = I18n("en-US").t
+    monkeypatch.setattr(service, "t", translate)
+    source = make_mod(env.original, env.tmp / "upload")
+    entry, = env.library.add([source])
+    execute = mod_install.execute_mod_install
+
+    def report(*args, **kwargs):
+        kwargs["progress_callback"](0, 1, "test_spr")
+        return execute(*args, **kwargs)
+
+    monkeypatch.setattr(mod_install, "execute_mod_install", report)
+    progress = []
+    env.library.apply("test", f"mod:{entry.id}", progress=lambda *args: progress.append(args))
+    assert (0, 1, "Processing: test_spr") in progress
+    assert progress[-1] == (1, 1, f"Applying: {env.original.name}")
 
 
 @pytest.mark.parametrize("kind", ["spr", "lobby"])
@@ -985,7 +1022,9 @@ def test_update_uses_official_baseline_preserves_previous_and_reports_unchanged(
         result.write_bytes(header_bundle(b"updated!"))
         return ModUpdateResult(True, "updated", [FilePair(result, targets[0])])
     monkeypatch.setattr(core, "process_mod_update", update)
-    result = env.library.update(entry.id)
+    progress = []
+    result = env.library.update(entry.id, progress=lambda *args: progress.append(args))
+    assert progress == [(1, 1, service.t("webui.progress.repair", name=env.original.name))]
     assert result.unchanged is False
     assert result.previous[0].read_bytes() == old_bytes
     assert result.previous[0].is_relative_to(entry.file.parent / "previous")

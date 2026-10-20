@@ -705,7 +705,7 @@ class ModLibrary:
         targets = {}
         for i, source in enumerate(map(Path, paths)):
             if progress:
-                progress(i, len(paths), source.name)
+                progress(i, len(paths), t("webui.progress.add", name=source.name))
             name = source.name.removesuffix(".backup") if source.name.endswith(".bundle.backup") else source.name
             parsed = parse_filename(name)
             kind = kind_of_file(name)
@@ -750,7 +750,8 @@ class ModLibrary:
             if self._recognize_installed(entry.id, signature_):
                 added.installed.append(entry)
         if progress:
-            progress(len(paths), len(paths), paths[-1].name if paths else "")
+            progress(len(paths), len(paths), t("webui.progress.add",
+                                              name=paths[-1].name if paths else t("webui.progress.mods")))
         return added
 
     def _check_group(self, files: dict[str, Path], pin: Pin | None, *, compatibility: bool = True) -> dict:
@@ -2049,7 +2050,8 @@ class ModLibrary:
                         written.append(target)
                         log(f"Installed {target.name}")
                         if progress:
-                            progress(i, len(changed), target.name)
+                            progress(i, len(changed), t("webui.progress.restore" if source == "official"
+                                                        else "webui.progress.apply", name=target.name))
                     saving_state = True
                     self._applied.update(records())
                     self._save()
@@ -2122,7 +2124,9 @@ class ModLibrary:
             staged_groups, work / "output", self.settings.asset_types(),
             self.settings.save_options(self.settings.crc_needed(targets[0])),
             self.settings.spine_options(), anim_check=self.settings.anim_check_options(),
-            create_backup=False, log=log, progress_callback=progress)
+            create_backup=False, log=log, progress_callback=(
+                lambda current, total, name: progress(current, total, t("webui.progress.process", name=name))
+            ) if progress else None)
         logger.info("Mod apply build and CRC: %.3f s", time.perf_counter() - started)
         if result.failed_groups:
             raise ServiceError("mod_apply_failed", id=record["id"])
@@ -2227,7 +2231,7 @@ class ModLibrary:
 
     @_serialized
     def restore(self, variant_key: str, log: LogFunc = no_log, kind: Kind | None = "spr",
-                pin: Pin | None = None) -> ApplyResult:
+                pin: Pin | None = None, progress: ProgressCallback | None = None) -> ApplyResult:
         """Restore one kind to official bytes and drop its configuration; None restores portrait and lobby. Files that
         are official already are not written (only recorded)."""
         pin = self._current(pin)
@@ -2237,7 +2241,7 @@ class ModLibrary:
             raise ServiceError("game_file_not_found", variant=variant_key)
         try:
             replacements = {path: self._official_for(path, pin) for path in targets}
-            files = self._commit(replacements, "official", log, pin=pin, prune=False)
+            files = self._commit(replacements, "official", log, progress=progress, pin=pin, prune=False)
             kinds = {kind_of_file(path.name): core_of(path.name) for path in targets}
             self._configure(pin, variant_key, kinds, None)
         finally:
@@ -2856,7 +2860,7 @@ class ModLibrary:
                 cores.add(core)
                 kinds.add(self._kind(core, pin) or "spr")
             if progress:
-                progress(i, len(wanted), core)
+                progress(i, len(wanted), t("webui.progress.add", name=core))
         return AdoptResult(added, failed, skipped, sorted(cores), sorted(kinds))
 
     def _check_space(self, need: int) -> None:
@@ -3140,7 +3144,7 @@ class ModLibrary:
                     self._save_outcomes(outcomes)
                 outcomes, unsaved, saved_at = {}, 0, time.monotonic()
             if progress:
-                progress(i, len(plan), core)
+                progress(i, len(plan), t("webui.progress.apply" if enabled else "webui.progress.restore", name=core))
         with self._lock:
             self._prune_quietly()
         with _errors("toggle"):
@@ -3481,7 +3485,7 @@ class ModLibrary:
             generated = {}
             for i, (target, original) in enumerate(originals.items(), 1):
                 if progress:
-                    progress(i, len(targets), target.name)
+                    progress(i, len(targets), t("webui.progress.remap", name=target.name))
                 bundle = Bundle.load(original)
                 if bundle is None:
                     raise ServiceError("bundle_invalid", file=original.name)
@@ -3578,7 +3582,7 @@ class ModLibrary:
             all_unchanged = True
             for i, target in enumerate(targets, 1):
                 if progress:
-                    progress(i, len(targets), target.name)
+                    progress(i, len(targets), t("webui.progress.repair", name=target.name))
                 result = core.process_mod_update(
                     paths, [self._official_for(target, pin)], output, self.settings.asset_types(),
                     self.settings.save_options(self.settings.crc_needed(target)), self.settings.spine_options(),

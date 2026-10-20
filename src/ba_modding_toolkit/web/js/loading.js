@@ -52,15 +52,21 @@ export function relabel() {
     label(o.el);
     const text = o.ind.querySelector(".loading-fallback span") || o.ind.querySelector(".loading-plain span");
     if (text) text.textContent = indicatorText(o);
+    o.relabelProgress?.();
   }
 }
 
 export const active = () => !!overlay && !overlay.closing;
 export const covering = () => active() && overlay.mode === "full";
 
+export function progressText({ label = "", current = 0, total = 0 } = {}, fallback = T("progress.process", { name: T("progress.mods") })) {
+  const text = label || fallback;
+  return total > 0 ? T("progress.count", { label: text, current, total }) : text;
+}
+
 // A writer task stays visible until it settles. Progress survives the sprite upgrade and
 // belongs to this task only, so a late callback cannot change a newer task's indicator.
-export async function task(run) {
+export async function task(run, { label = null } = {}) {
   const my = ++writerGen;
   const o = writerOverlay && !writerOverlay.closing ? writerOverlay : open("indicator", false, true);
   o.el.classList.add("with-progress");
@@ -69,17 +75,21 @@ export async function task(run) {
   o.progress?.remove();
   o.progress = detail;
   o.el.appendChild(detail);
-  const update = ({ label: text = T("popup.add"), current = 0, total = 0 } = {}) => {
+  let latest = {};
+  const update = (value = latest) => {
     if (my !== writerGen || o !== writerOverlay) return;
-    detail.textContent = total ? `${text} ${current}/${total}` : text;
+    latest = value;
+    detail.textContent = progressText(value, label || undefined);
     o.el.setAttribute("aria-label", detail.textContent);
   };
+  o.relabelProgress = () => update();
   update();
   decorate(o);
   try { return await run(update); }
   finally {
     detail.remove();
     if (my === writerGen && o === writerOverlay && !o.closing) {
+      o.relabelProgress = null;
       await close(o);
     }
   }

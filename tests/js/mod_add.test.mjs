@@ -14,7 +14,7 @@ async function harness({ locale = "en-US", added = [], button = "cancel", error 
     T: (key, vars = {}) => (strings[`webui.${key}`] || key).replace(/\{(\w+)\}/g, (_, k) => vars[k] || ""),
     rpc: async (...args) => { log.push(["rpc", ...args]); return cancelled ? [] : "j1"; },
     waitJob: async (id, update) => { update({ current: 1, total: 2, label: "dress_home.bundle" }); if (error) throw error; return added; },
-    Loading: { task: async (run) => { log.push(["loading"]); try { return await run((p) => progress.push(p)); } finally { log.push(["closed"]); } } },
+    Loading: { task: async (run, options) => { log.push(["loading", options]); try { return await run((p) => progress.push(p)); } finally { log.push(["closed"]); } } },
     Popup: { message: async (opts) => { log.push(["popup", opts]); return { button }; } },
     toast: (text) => log.push(["toast", text]),
     Compatibility: {
@@ -58,6 +58,20 @@ test("a failed automatic switch remains visible on the current variant in all fi
     const strings = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${locale}.json`, import.meta.url), "utf8")).webui;
     assert.deepEqual(popup.lines, [strings.add.applyFailed.replace("{reason}", strings.error.game_running)]);
     assert.ok(!h.log.some(([k]) => k === "toast"));
+  }
+});
+
+test("adding keeps its initial action label without starting a repair in all locales", async () => {
+  for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"]) {
+    const mod = { ...portrait, id: "m1", label: "Painted" };
+    const added = { added: [mod], compatibility: { m1: { issues: ["outdated"] } } };
+    const h = await harness({ locale, added, compatibilityUpdate: true });
+    await h.mod.add(["mod.bundle"], "base");
+    const strings = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${locale}.json`, import.meta.url), "utf8")).webui.progress;
+    assert.deepEqual(h.log.filter(([k]) => k === "loading").map(([, options]) => options.label), [
+      strings.add.replace("{name}", strings.mods)]);
+    assert.ok(!h.log.some(([key]) => ["compatibility", "checked", "remap"].includes(key)));
+    assert.deepEqual(h.log.filter(([key]) => key === "rpc").map(([, method]) => method), ["mods.add"]);
   }
 });
 
