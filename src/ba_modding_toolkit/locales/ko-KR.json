@@ -1174,7 +1174,17 @@
 			"mod_platform_unknown": "빌드 대상 확인 불가: {file}",
 			"mod_platform_mismatch": "{file}, 빌드 대상 {platform}, 필요한 대상 {expected}",
 			"mod_parts_missing": "Mod 파일 불완전, 누락: {files}",
-			"atlas_remap_invalid": "재배치 불가: 아틀라스 또는 페이지 데이터 누락, 오류 또는 중복"
+			"atlas_remap_invalid": "재배치 불가: {file} - {reason}",
+			"atlas_remap_target_mismatch": "재배치 불가: {file} - 일치 에셋 {matched}/{expected}",
+			"atlas_remap_property": "재배치 불가: {file} - 잘못된 {field}: {value} (페이지: {page}, 영역: {region})",
+			"atlas_remap_structure": "재배치 불가: {file} - {line}행의 잘못된 아틀라스 구조: {value}",
+			"atlas_remap_page_ambiguous": "재배치 불가: {file} - 모호한 페이지: {page}",
+			"atlas_remap_region_ambiguous": "재배치 불가: {file} - 모호한 영역: {region} (페이지: {pages})",
+			"atlas_remap_bounds": "재배치 불가: {file} - 영역 {region}이 페이지 {page} 범위 초과 ({width} × {height})",
+			"atlas_remap_page_missing": "재배치 불가: {file} - 페이지 텍스처 없음: {page}",
+			"atlas_remap_asset_ambiguous": "재배치 불가: {file} - 모호한 에셋: {name}",
+			"atlas_remap_atlas_missing": "재배치 불가: {file} - 일치하는 Mod 아틀라스 없음",
+			"atlas_remap_source_missing": "재배치 불가: {file} - Mod 아틀라스 없음, {date} 공식 아틀라스 보관본 없음"
 		},
 		"drop": {
 			"hint": "모드 파일을 끌어다 놓아 추가"
@@ -1320,6 +1330,7 @@
 			"applyFailed": "추가됨, 전환 실패: {reason}"
 		},
 		"compatibility": {
+			"more": "{names}, +{n}",
 			"check": "호환성 확인",
 			"matches": "확인한 항목에 차이 없음",
 			"unavailable": "현재 공식 파일 없음, 비교 미완료",

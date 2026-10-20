@@ -1,0 +1,20 @@
+CH0261_home.png
+size: 16,16
+filter: Linear,Linear
+Intro_R_leg_01
+  bounds: 2,2,4,4
+Intro_Shoulder_L/Intro_Shoulder_L
+  bounds: 8,8,4,4
+
+CH0261_home2.png
+size: 20,12
+filter: Linear,Linear
+Intro_Shoulder_L/Intro_Shoulder_L
+  rotate: 90
+  bounds: 2,4,4,4
+
+CH0261_home3.png
+size: 8,8
+filter: Linear,Linear
+Intro_Shoulder_L/Intro_Shoulder_L
+  bounds: 2,2,4,4

@@ -1174,7 +1174,17 @@
 			"mod_platform_unknown": "无法识别构建平台：{file}",
 			"mod_platform_mismatch": "{file}，构建平台 {platform}，需要 {expected}",
 			"mod_parts_missing": "Mod 文件不完整，缺少：{files}",
-			"atlas_remap_invalid": "无法重排：图集或页面数据缺失、无效或存在歧义"
+			"atlas_remap_invalid": "无法重排：{file} - {reason}",
+			"atlas_remap_target_mismatch": "无法重排：{file} - 匹配资源 {matched}/{expected}",
+			"atlas_remap_property": "无法重排：{file} - {field} 无效：{value}（页面：{page}，区域：{region}）",
+			"atlas_remap_structure": "无法重排：{file} - 第 {line} 行图集结构无效：{value}",
+			"atlas_remap_page_ambiguous": "无法重排：{file} - 页面存在歧义：{page}",
+			"atlas_remap_region_ambiguous": "无法重排：{file} - 区域存在歧义：{region}（页面：{pages}）",
+			"atlas_remap_bounds": "无法重排：{file} - 区域 {region} 超出页面 {page}（{width} × {height}）",
+			"atlas_remap_page_missing": "无法重排：{file} - 页面缺少贴图：{page}",
+			"atlas_remap_asset_ambiguous": "无法重排：{file} - 资源存在歧义：{name}",
+			"atlas_remap_atlas_missing": "无法重排：{file} - 缺少匹配的 Mod 图集",
+			"atlas_remap_source_missing": "无法重排：{file} - Mod 缺少图集，未保留 {date} 的原版图集"
 		},
 		"drop": {
 			"hint": "拖入 Mod 文件以添加"
@@ -1320,6 +1330,7 @@
 			"applyFailed": "已添加，切换失败：{reason}"
 		},
 		"compatibility": {
+			"more": "{names}、+{n}",
 			"check": "检查兼容性",
 			"matches": "已检查项目未发现差异",
 			"unavailable": "缺少当前原版文件，对比不完整",

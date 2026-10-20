@@ -196,7 +196,8 @@ input[type="text"], input[type="search"], textarea { cursor: text; }
 .plain-popup { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 1000px; padding: 48px 60px 52px;
   display: flex; flex-direction: column; align-items: center; gap: 22px; border-radius: 14px; background: #f4fcfe; color: #2d4664; text-align: center; }
 .plain-popup h2 { font: var(--w) 48px/1.2 var(--font); }
-.plain-popup p { font: var(--w) 32px/1.4 var(--font); color: #2d4664; }
+.plain-popup p { font: var(--w) 32px/1.4 var(--font); color: #2d4664; max-width: 100%; overflow-wrap: anywhere; }
+.plain-message-lines { width: 100%; max-height: 520px; overflow-y: auto; overflow-x: hidden; }
 .plain-line-button { margin-left: 20px; padding: 8px 22px; border-radius: 8px; background: #8de4ff; color: #314665; font: var(--w) 26px/1 var(--font); }
 .plain-check { display: flex; align-items: center; gap: 16px; font: var(--w) 30px/1 var(--font); color: #484e52; }
 .plain-check::before { content: ""; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 8px;

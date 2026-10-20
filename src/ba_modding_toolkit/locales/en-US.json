@@ -1174,7 +1174,17 @@
 			"mod_platform_unknown": "Build target unavailable: {file}",
 			"mod_platform_mismatch": "{file}, build target {platform}, required {expected}",
 			"mod_parts_missing": "Incomplete Mod, missing files: {files}",
-			"atlas_remap_invalid": "Cannot remap: atlas or page data is missing, invalid or ambiguous"
+			"atlas_remap_invalid": "Cannot remap: {file} - {reason}",
+			"atlas_remap_target_mismatch": "Cannot remap: {file} - matched assets {matched}/{expected}",
+			"atlas_remap_property": "Cannot remap: {file} - invalid {field}: {value} (page {page}, region {region})",
+			"atlas_remap_structure": "Cannot remap: {file} - invalid atlas structure at line {line}: {value}",
+			"atlas_remap_page_ambiguous": "Cannot remap: {file} - ambiguous page {page}",
+			"atlas_remap_region_ambiguous": "Cannot remap: {file} - ambiguous region {region} (pages: {pages})",
+			"atlas_remap_bounds": "Cannot remap: {file} - region {region} outside page {page} ({width} × {height})",
+			"atlas_remap_page_missing": "Cannot remap: {file} - missing texture for page {page}",
+			"atlas_remap_asset_ambiguous": "Cannot remap: {file} - ambiguous asset {name}",
+			"atlas_remap_atlas_missing": "Cannot remap: {file} - no matching Mod atlas",
+			"atlas_remap_source_missing": "Cannot remap: {file} - Mod atlas missing, no kept official atlas for {date}"
 		},
 		"drop": {
 			"hint": "Drop mod files to add them"
@@ -1320,6 +1330,7 @@
 			"applyFailed": "Added, switch failed: {reason}"
 		},
 		"compatibility": {
+			"more": "{names}, +{n}",
 			"check": "Check Compatibility",
 			"matches": "No differences found in the checked data",
 			"unavailable": "Current official files unavailable, comparison incomplete",

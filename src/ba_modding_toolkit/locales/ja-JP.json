@@ -1174,7 +1174,17 @@
 			"mod_platform_unknown": "ビルド対象を取得不可：{file}",
 			"mod_platform_mismatch": "{file}、ビルド対象 {platform}、必要な対象 {expected}",
 			"mod_parts_missing": "Mod ファイル不足：{files}",
-			"atlas_remap_invalid": "再配置不可：アトラスまたはページデータの不足、無効、重複"
+			"atlas_remap_invalid": "再配置不可：{file} - {reason}",
+			"atlas_remap_target_mismatch": "再配置不可：{file} - 一致アセット {matched}/{expected}",
+			"atlas_remap_property": "再配置不可：{file} - {field} が無効：{value}（ページ：{page}、領域：{region}）",
+			"atlas_remap_structure": "再配置不可：{file} - {line} 行目のアトラス構造が無効：{value}",
+			"atlas_remap_page_ambiguous": "再配置不可：{file} - ページを特定できません：{page}",
+			"atlas_remap_region_ambiguous": "再配置不可：{file} - 領域を特定できません：{region}（ページ：{pages}）",
+			"atlas_remap_bounds": "再配置不可：{file} - 領域 {region} がページ {page} の範囲外（{width} × {height}）",
+			"atlas_remap_page_missing": "再配置不可：{file} - ページのテクスチャなし：{page}",
+			"atlas_remap_asset_ambiguous": "再配置不可：{file} - アセットを特定できません：{name}",
+			"atlas_remap_atlas_missing": "再配置不可：{file} - 対応する Mod アトラスなし",
+			"atlas_remap_source_missing": "再配置不可：{file} - Mod のアトラスなし、{date} の公式アトラスの保管なし"
 		},
 		"drop": {
 			"hint": "MODファイルをドロップして追加"
@@ -1320,6 +1330,7 @@
 			"applyFailed": "追加済み、切り替え失敗：{reason}"
 		},
 		"compatibility": {
+			"more": "{names}、+{n}",
 			"check": "互換性を確認",
 			"matches": "確認項目に差異なし",
 			"unavailable": "現在の公式ファイルなし、比較は未完了",

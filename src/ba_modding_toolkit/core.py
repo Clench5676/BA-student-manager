@@ -644,7 +644,8 @@ def process_mod_update(
             
             result = tgt_bundle.apply_patch(patches, match_strategy, anim_check)
             if prepared_patch is not None and result.matched_count != len(patches):
-                return ModUpdateResult(False, t("webui.error.atlas_remap_invalid"), [])
+                return ModUpdateResult(False, t("webui.error.atlas_remap_target_mismatch", file=tgt.name,
+                                                matched=result.matched_count, expected=len(patches)), [])
             total_matched += result.matched_count
 
             # 汇总动画差异

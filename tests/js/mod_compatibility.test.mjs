@@ -181,3 +181,29 @@ test("Remap creates a new mod, reports a partial fix and opens the source compar
     assert.equal(popup.lines.filter((line) => line.includes("test.skel")).length, 2);
   }
 });
+
+test("long name lists show three names and a count, with complete scrollable details in every locale", async () => {
+  for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"]) {
+    const h = await harness(locale), r = report();
+    const skeleton = structuredClone(fixture.official);
+    const names = Array.from({ length: 50 }, (_, i) => `Intro_Shoulder_L/Intro_Shoulder_L_${String(i).padStart(2, "0")}`);
+    skeleton.animations = Object.fromEntries(names.map((name) => [name, {}]));
+    r.official = inputs(skeleton);
+    r.mod = inputs({ ...skeleton, animations: {} });
+    r.remappable = true;
+    await h.mod.show(r, { onRemap: () => assert.fail("dismissed") });
+    const popup = h.popups[0], row = popup.lines.find((line) => line.button);
+    assert.equal(popup.scroll, true);
+    assert.ok(row.text.includes(names[0]) && row.text.includes(names[2]) && row.text.includes("+47"));
+    assert.ok(!row.text.includes(names[3]));
+    if (locale === "zh-CN") {
+      assert.equal(row.button.label, "\u8be6\u60c5");
+      assert.ok(popup.lines.every((line) => !/,(?!\s)/.test(typeof line === "string" ? line : line.text)));
+    }
+    await row.button.fn();
+    assert.equal(h.popups[1].scroll, true);
+    for (const name of names) assert.ok(h.popups[1].lines[0].includes(name));
+    assert.ok(popup.cancel && popup.ok);
+    assert.equal(h.calls.length, 0);
+  }
+});

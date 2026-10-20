@@ -9,6 +9,7 @@ const key = (name) => name.replaceAll("\\", "/").split("/").at(-1).toLowerCase()
 const names = (items) => items.map((item) => item.name);
 const difference = (a, b) => [...new Set(a)].filter((name) => !b.includes(name)).sort();
 const joined = (items) => items.join(/^(zh|ja)/i.test(language()) ? "、" : ", ") || "—";
+const shortList = (items) => items.length > 3 ? T("compatibility.more", { names: joined(items.slice(0, 3)), n: items.length - 3 }) : joined(items);
 const reports = new Map();
 export const canRemap = (id) => reports.get(id)?.remappable === true;
 const geometry = (attachment) => JSON.stringify(Object.fromEntries(["type", "path", "vertexCount", "worldVerticesLength",
@@ -54,8 +55,9 @@ export function readSkeleton(input, runtime = globalThis.spine) {
       [`${data.slots[entry.slotIndex].name}/${entry.name}`, geometry(entry.attachment)]))) };
 }
 
-export function compare(report, runtime = globalThis.spine) {
-  const issues = [], add = (key, params = {}) => issues.push({ key, params });
+export function compare(report, runtime = globalThis.spine, summarize = false) {
+  const issues = [], add = (key, params = {}, detail = null) => issues.push({ key, params, ...(detail ? { detail } : {}) });
+  const list = summarize ? shortList : joined;
   const official = report.official, mod = report.mod;
   if (report.unavailable) add("unavailable");
   if (report.outdated) add("outdated");
@@ -69,7 +71,8 @@ export function compare(report, runtime = globalThis.spine) {
     for (const [field, a, b] of [["animations", names(left.animations), names(right.animations)],
       ["slots", names(left.slots), names(right.slots)], ["attachments", left.attachments, right.attachments]]) {
       const removed = difference(b, a), added = difference(a, b);
-      if (removed.length || added.length) add(field, { name, missing: joined(removed), added: joined(added) });
+      if (removed.length || added.length) add(field, { name, missing: list(removed), added: list(added) },
+        summarize ? { name, missing: joined(removed), added: joined(added) } : null);
     }
     if (left.bones.length !== right.bones.length) add("bones", { name, mod: left.bones.length, official: right.bones.length });
     else if (boneGeometry(left.bones) !== boneGeometry(right.bones)) add("rig", { name });
@@ -86,7 +89,8 @@ export function compare(report, runtime = globalThis.spine) {
   const leftPages = pages(mod), rightPages = pages(official);
   const leftNames = leftPages.map((p) => p.name), rightNames = rightPages.map((p) => p.name);
   const missing = difference(rightNames, leftNames), added = difference(leftNames, rightNames);
-  if (missing.length || added.length) add("pages", { missing: joined(missing), added: joined(added) });
+  if (missing.length || added.length) add("pages", { missing: list(missing), added: list(added) },
+    summarize ? { missing: joined(missing), added: joined(added) } : null);
   for (const page of leftPages) {
     const size = mod.textures[key(page.name)];
     const expected = official.textures[key(page.name)];
@@ -103,13 +107,18 @@ export function compare(report, runtime = globalThis.spine) {
 }
 
 export async function show(report, { label = "", onUpdate, onRemap } = {}) {
-  const result = compare(report);
-  const lines = result.issues.map(({ key, params }) => T(`compatibility.${key}`, params));
+  const result = compare(report, globalThis.spine, true);
+  const lines = result.issues.map(({ key, params, detail }) => {
+    const text = T(`compatibility.${key}`, params), full = detail ? T(`compatibility.${key}`, detail) : text;
+    return text === full ? text : { text, button: { label: T("info.details"), fn: () =>
+      Popup.message({ title: T("info.details"), lines: [full], scroll: true, ok: T("picker.ok") }) } };
+  });
   if (!lines.length) lines.push(T("compatibility.matches"));
   if (result.update && !result.remap) lines.push(T("compatibility.updateHint"));
   if (result.author) lines.push(T("compatibility.authorHint"));
   if (result.update || result.author || result.remap || result.issues.some(({ key }) => key === "unreadable")) lines.push(T("compatibility.crcHint"));
   const response = await Popup.message({ title: T("compatibility.check"), lines: [...(label ? [label] : []), ...lines],
+    scroll: true,
     ok: T(result.remap && onRemap ? "remap.action" : result.update && onUpdate ? "act.update" : "picker.ok"),
     cancel: ((result.remap && onRemap) || (result.update && onUpdate)) ? T("popup.cancel") : null });
   if (response.button === "ok") {
@@ -122,6 +131,7 @@ export async function remap(id, onRemapped = () => {}, label = "") {
   const result = await Loading.task(async (update) => waitJob(await rpc("actions.remap", { mod: id }), update));
   const report = result.report;
   await Popup.message({ title: T(report.partial ? "remap.partial" : "remap.done"),
+    scroll: true,
     lines: [T("remap.counts", { moved: report.moved.length, added: report.added.length, dropped: report.dropped.length }),
       ...(report.dropped.length ? [T("remap.dropped", { names: joined(report.dropped) })] : []),
       ...report.warnings.map(({ key, name }) => T(`remap.${key}`, { name }))], ok: T("picker.ok") });
