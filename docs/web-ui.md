@@ -1106,9 +1106,10 @@ detail screen, and in Settings' Mods tab.
 - **Settings' Mods tab** (second, after General; `UIPopup_Option_PC`'s tab column has five separators): Enable Mods
   (On / Off, the same switch with the same rules, its square "?" and red dot after the title; faded while busy or
   unavailable); Show on Main Screens (`modSwitchShown`); File Check (On opens the scan consent popup, Off withdraws
-  the consent); Tray Icon or Menu Bar Icon (`tray`, only in the app window where the system has one); Game Files
-  (what the last check found, or "File check off" with Check greyed; Check scans with the dismissed entries listed
-  again); Game Folders (each known install's label and path; a recorded one the settings do not name has Remove from
+  the consent); Tray Icon or Menu Bar Icon (`tray`, only in the app window where the system has one); Game File
+  Drift Check (what the last check found, "No drift found", or "File check off" with Check greyed; Check scans with
+  the dismissed entries listed again; its square "?" explains configuration drift, one line for each finding the row
+  shows: Back to Official, Mods Not in the Library, Damaged); Game Folders (each known install's label and path; a recorded one the settings do not name has Remove from
   List, `mods.forget`). The tab follows `mods.state` while it is open. Ask Before Opening (`classicPrompt`) is a
   General row, under More Settings.
 - **The classic modal** (`classicModal`, decision 5): a write the open classic window refuses (`classic_open` from

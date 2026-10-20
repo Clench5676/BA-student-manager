@@ -1210,9 +1210,16 @@
 					"win": "Tray Icon",
 					"mac": "Menu Bar Icon"
 				},
-				"files": "Game Files",
+				"files": "Game File Drift Check",
 				"check": "Check",
-				"clean": "No changes found",
+				"clean": "No drift found",
+				"driftHelp": {
+					"title": "Configuration Drift",
+					"what": "Game files that no longer match the mod configuration",
+					"reset": "Back to Official: configured mods undone by a game update or repair, can be applied again",
+					"untracked": "Mods Not in the Library: mods put into the game outside the mod library, can be added to it",
+					"damaged": "Damaged: game files damaged, repair the game"
+				},
 				"folders": "Game Folders",
 				"forget": "Remove from List"
 			},

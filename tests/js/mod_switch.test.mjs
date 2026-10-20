@@ -575,3 +575,9 @@ test("the tray's Back to Official opens the drift prompt: two buttons and no way
   await MS.trayOpen({ view: "drift" });
   assert.equal(toastEl.textContent, S("settings.mods.clean"));
 });
+
+test("the Game Files row's \"?\": what configuration drift is, one line per finding the row shows", async () => {
+  const Settings = await import("../../src/ba_modding_toolkit/web/js/settings.js");
+  assert.deepEqual(Settings.driftLines(), ["what", "reset", "untracked", "damaged"].map((k) => S(`settings.mods.driftHelp.${k}`)));
+  assert.ok(Settings.driftLines().every((line) => line && !line.startsWith("settings.")), "every line has its text");
+});
