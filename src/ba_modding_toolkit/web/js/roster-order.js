@@ -4,6 +4,7 @@
 //   order(data, view, opts)   -> the same cards in one list
 //   neighbour(list, full, at, delta) -> the card before or after the shown variant (or family, merged)
 //   visit(data, key)          the recently viewed order after a visit, in the roster's data
+import { studentName } from "./names.js";
 
 export const SORTS = ["recent", "added", "name", "mods", "default"];
 // the direction each sort reads in by default; the order button flips it
@@ -60,11 +61,11 @@ export const terms = (query) => String(query ?? "").split(/\s+/).map(fold).filte
 const haystacks = new WeakMap();
 function haystack(v, f) {
   let h = haystacks.get(v);
-  if (h === undefined || h.custom !== f?.custom) {
-    const parts = [v.key, v.fileId, ...(v.aliases || []), ...(f?.aliases || []), ...(f?.custom || [])];
+  if (h === undefined || h.custom !== f?.custom || h.modNames !== v.modNames) {
+    const parts = [v.key, v.fileId, ...(v.aliases || []), ...(f?.aliases || []), ...(f?.custom || []), ...(v.modNames || [])];
     for (const n of Object.values(v.names || {})) parts.push(n?.full);
     for (const n of Object.values(f?.base || {})) parts.push(n);
-    h = { custom: f?.custom, text: parts.filter((p) => typeof p === "string" && p).map(fold).join("\u0000") };
+    h = { custom: f?.custom, modNames: v.modNames, text: parts.filter((p) => typeof p === "string" && p).map(fold).join("\u0000") };
     haystacks.set(v, h);
   }
   return h.text;
@@ -103,7 +104,7 @@ function cards(data, view, words, label) {
       const card = {
         ...vs[0], ...(hit ? { key: hit.key, spr: hit.spr, portrait: hit.portrait, names: hit.names,
           configured: hit.configured, state: hit.state, spineCategory: hit.spineCategory } : {}),
-        name: label(f.base) ?? f.key, family: f.key, n: n++, matched: !!hit,
+        name: studentName(f, label(f.base) ?? f.key), family: f.key, n: n++, matched: !!hit,
         recruit: vs.some((v) => v.recruitable), mods: vs.reduce((s, v) => s + (v.mods || 0), 0),
         modCounts: Object.fromEntries(["spr", "lobby"].map((kind) => [kind, vs.reduce((s, v) => s + (v.modCounts?.[kind] || 0), 0)])),
         favorite: vs.some((v) => v.favorite), fresh: vs.some((v) => v.fresh),
@@ -114,7 +115,7 @@ function cards(data, view, words, label) {
       list.push(card);
     } else {
       for (const v of vs) {
-        list.push({ ...v, name: label(v.names)?.full ?? v.key, family: f.key, n: n++, matched: matches(v, f, words),
+        list.push({ ...v, name: studentName(f, label(v.names)?.full ?? v.key), family: f.key, n: n++, matched: matches(v, f, words),
           recruit: !!v.recruitable, recent: v.recent ?? Infinity, added: time(v.added) });
       }
     }

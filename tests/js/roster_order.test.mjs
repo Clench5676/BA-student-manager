@@ -259,8 +259,41 @@ test("the user's own aliases of a family find all of its variants, and an edit i
   hoshino.custom = ["\u5c0f\u661f"];
   assert.deepEqual(find("\u5927\u53d4"), []);
   assert.deepEqual(find("\u5c0f\u661f"), ["hoshino_swimsuit", "hoshino", "np0045"]);
-  // never shown on the cards
-  assert.ok(order(d, view(), { label, query: "\u5c0f\u661f" }).every((c) => !c.name.includes("\u5c0f\u661f")));
+  assert.ok(order(d, view(), { label, query: "\u5c0f\u661f" }).every((c) => c.name === "\u5c0f\u661f"));
+});
+
+test("the first own alias names variant and merged cards, drives name order and clears immediately", () => {
+  const d = { families: [
+    { key: "a", base: { en: "Alpha" }, custom: [null, "", "Zulu", "Other alias"], variants: [v("a"), v("dress")] },
+    { key: "b", base: { en: "Beta" }, variants: [v("b")] },
+  ] };
+  const collator = new Intl.Collator("en", { numeric: true });
+  for (const merged of [false, true]) {
+    const find = (query = "", orderBy = "asc") => order(d, view({ merged, sort: "name", order: orderBy }), { label, collator, query });
+    assert.deepEqual(find().map((c) => c.name), merged ? ["Beta", "Zulu"] : ["b", "Zulu", "Zulu"]);
+    assert.equal(find("Other alias")[0].name, "Zulu");
+    assert.equal(find("Alpha")[0].name, "Zulu", "the original family name still matches");
+    assert.equal(find("dress")[0].name, "Zulu", "the variant id still matches");
+    assert.equal(find("", "desc")[0].name, "Zulu");
+  }
+  d.families[0].custom = [];
+  assert.deepEqual(order(d, view({ merged: true, sort: "name", order: "asc" }), { label, collator }).map((c) => c.name), ["Alpha", "Beta"]);
+  assert.deepEqual(order(d, view(), { label, query: "Zulu" }), []);
+  assert.equal(order(d, view(), { label, query: "dress" })[0].name, "dress");
+});
+
+test("mod aliases, original cores and file names find their variant and merged card after edits", () => {
+  const d = data(), variant = d.families[0].variants[1];
+  variant.modNames = ["Painted <summer>", "hoshino_swimsuit_spr", "2026-10-01_hoshino_swimsuit.bundle"];
+  for (const merged of [false, true]) for (const query of ["painted", "hoshino swimsuit spr", "2026-10-01_hoshino_swimsuit.bundle"]) {
+    assert.deepEqual(keys(order(d, view({ merged }), { label, query })), [variant.key]);
+  }
+  variant.modNames = ["Evening", ...variant.modNames.slice(1)];
+  assert.deepEqual(keys(order(d, view(), { label, query: "painted" })), []);
+  assert.deepEqual(keys(order(d, view(), { label, query: "evening" })), [variant.key]);
+  variant.modNames = variant.modNames.slice(1);
+  assert.deepEqual(keys(order(d, view(), { label, query: "evening" })), []);
+  assert.deepEqual(keys(order(d, view(), { label, query: "hoshino swimsuit spr" })), [variant.key]);
 });
 
 test("merged, a family is one card shown by its first variant or the first one the search found", () => {
