@@ -8,16 +8,25 @@ export class RpcError extends Error {
   }
 }
 
-export async function rpc(method, params = {}) {
-  const res = await fetch("/api/rpc", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ method, params }),
-  });
-  if (!res.ok) throw new RpcError("internal", { error: `HTTP ${res.status}` });
-  const body = await res.json();
-  if (body.error) throw new RpcError(body.error.code, body.error.params || {});
-  return body.result;
+// timeout (ms) is opt-in: a read can wait on a writer's library lock for as long as an apply runs
+export async function rpc(method, params = {}, { timeout = 0 } = {}) {
+  const controller = new AbortController();
+  const timer = timeout > 0 ? setTimeout(() => controller.abort(), timeout) : null;
+  try {
+    const res = await fetch("/api/rpc", {
+      signal: controller.signal,
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ method, params }),
+    });
+    if (!res.ok) throw new RpcError("internal", { error: `HTTP ${res.status}` });
+    const body = await res.json();
+    if (body.error) throw new RpcError(body.error.code, body.error.params || {});
+    return body.result;
+  } catch (err) {
+    if (err instanceof RpcError) throw err;
+    throw new RpcError("internal", { error: String(err) });
+  } finally { clearTimeout(timer); }
 }
 
 const listeners = new Map();
@@ -55,23 +64,40 @@ function connect() {
 
 // a job's end as a promise (resolves with the result, rejects with RpcError). Events can arrive before this
 // subscribes, or be lost while the event stream reconnects, so the job's state is also polled.
-export function waitJob(id, onProgress) {
+export function waitJob(id, onProgress, { pollEvery = 1500, maxErrors = 3, timeout = 30 * 60 * 1000 } = {}) {
   return new Promise((resolve, reject) => {
-    let settled = false;
-    const finish = (fn, value) => { if (settled) return; settled = true; offs.forEach((f) => f()); fn(value); };
-    const offs = [
-      on("job.progress", (d) => { if (d.id === id) onProgress?.(d); }),
-      on("job.done", (d) => { if (d.id === id) finish(resolve, d.result); }),
-      on("job.failed", (d) => { if (d.id === id) finish(reject, new RpcError(d.code, d.params)); }),
-    ];
+    let settled = false, timer, deadline, errors = 0;
+    const offs = [];
+    const finish = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      clearTimeout(deadline);
+      offs.forEach((f) => f());
+      fn(value);
+    };
+    const failed = (error) => finish(reject, error);
+    try {
+      offs.push(
+        on("job.progress", (d) => { if (d.id === id) onProgress?.(d); }),
+        on("job.done", (d) => { if (d.id === id) finish(resolve, d.result); }),
+        on("job.failed", (d) => { if (d.id === id) failed(new RpcError(d.code, d.params)); }),
+        on("server.closing", () => failed(new RpcError("internal", { error: "Server closed" }))),
+      );
+    } catch (err) { failed(err); return; }
+    deadline = setTimeout(() => failed(new RpcError("internal", { error: "Job wait timed out" })), timeout);
     const poll = async () => {
       if (settled) return;
       try {
-        const job = await rpc("jobs.get", { id });
+        const job = await rpc("jobs.get", { id }, { timeout: 15000 });
+        errors = 0;
         if (job.state === "done") return finish(resolve, job.result);
-        if (job.state === "failed") return finish(reject, new RpcError(job.error?.code || "internal", job.error?.params || {}));
-      } catch { /* try again */ }
-      setTimeout(poll, 1500);
+        if (job.state === "failed") return failed(new RpcError(job.error?.code || "internal", job.error?.params || {}));
+        if (job.state !== "queued" && job.state !== "running") return failed(new RpcError("internal", { error: `Job ${job.state}` }));
+      } catch (err) {
+        if (err.code === "job_not_found" || ++errors >= maxErrors) return failed(err);
+      }
+      if (!settled) timer = setTimeout(poll, pollEvery);
     };
     poll();
   });

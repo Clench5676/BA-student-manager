@@ -187,7 +187,7 @@ export async function wait(promise, { label: text = null, cap = HARD_CAP } = {})
   }), WAIT_AFTER);
   let failed = false, error = null, timedOut = false, result;
   try {
-    result = await Promise.race([promise, sleep(cap).then(() => { timedOut = true; })]);
+    result = cap === null ? await promise : await Promise.race([promise, sleep(cap).then(() => { timedOut = true; })]);
   } catch (err) {
     failed = true;
     error = err;
@@ -202,4 +202,27 @@ export async function wait(promise, { label: text = null, cap = HARD_CAP } = {})
   }
   if (failed) throw error;
   return result;
+}
+
+// A write holds input from submission through the final reload. Back always remains available; leaving the page
+// releases its hold while the job keeps reporting its end. Unlike a scene's soft cap, this never ends the work.
+const holds = new Set(), wired = new WeakSet();
+export const held = () => holds.size > 0;
+export async function hold(work, { until = null } = {}) {
+  const el = stage(), key = {};
+  holds.add(key);
+  if (!wired.has(el)) {
+    const block = (ev) => {
+      if (!held() || ev.target.closest?.(".topbar .back")) return;
+      ev.preventDefault();
+      ev.stopImmediatePropagation();
+    };
+    for (const event of ["pointerdown", "click", "keydown"]) el.addEventListener(event, block, true);
+    wired.add(el);
+  }
+  const release = () => holds.delete(key);
+  const task = Promise.resolve().then(work);
+  const visible = until ? Promise.race([task, until.then(release)]) : task;
+  wait(visible, { cap: null }).catch(() => {});
+  try { return await task; } finally { release(); }
 }

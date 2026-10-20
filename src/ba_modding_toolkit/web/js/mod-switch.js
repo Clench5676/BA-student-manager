@@ -325,16 +325,13 @@ async function explain(s) {
 async function run(params) {
   if (inFlight) { toast(T("error.busy"), { kind: "error" }); return; }
   inFlight = true;
-  let id;
   try {
-    id = await rpc("mods.toggle", params);
+    await Loading.hold(async () => {
+      const id = await rpc("mods.toggle", params, { timeout: 30000 });
+      await follow(id, params, "mods.toggle");
+    });
   } catch (err) {
-    inFlight = false;
     refused(err, "mods.toggle", params);
-    return;
-  }
-  try {
-    await follow(id, params, "mods.toggle");
   } finally {
     inFlight = false;
   }
@@ -346,7 +343,6 @@ async function follow(id, params, method) {
   toast(T("job.running"), { sticky: true });
   try {
     const job = waitJob(id, (p) => toast(T("tray.working", { done: p.current, total: p.total }), { sticky: true }));
-    Loading.wait(job).catch(() => {});
     await finished(await job);
   } catch (err) {
     refused(err, method, params);

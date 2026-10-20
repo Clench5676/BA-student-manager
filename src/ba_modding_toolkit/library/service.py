@@ -1699,6 +1699,8 @@ class ModLibrary:
                     if not targets:
                         raise ServiceError("game_file_not_found", variant=variant_key)
                     cores = [core_of(targets[0].name)]
+                    if record["kind"] == "lobby" and core_of(record["files"][0]) != cores[0]:
+                        raise ServiceError("mod_target_mismatch", id=record["id"], variant=variant_key)
                     if not on:
                         return self._defer(pin, variant_key, {record["kind"]: cores[0]}, source)
                     if core_of(record["files"][0]) == cores[0]:

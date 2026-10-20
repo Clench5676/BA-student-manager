@@ -13,6 +13,7 @@ from typing import Any, Callable
 
 from ..errors import ServiceError
 from .events import EventBus
+from .rpc import to_json
 
 logger = logging.getLogger(__name__)
 
@@ -138,25 +139,32 @@ class JobRunner:
             if drop:
                 logger.info("job %s (%s) dropped at shutdown", job.id, job.kind)
                 continue
-            self._execute(job)
-            for fn in list(self._listeners):
-                try:
-                    fn(job)
-                except Exception:
-                    logger.exception("job listener failed")
-            with self._idle:
-                job.finished = True
-                self._idle.notify_all()
+            try:
+                self._execute(job)
+                for fn in list(self._listeners):
+                    try:
+                        fn(job)
+                    except BaseException:
+                        logger.exception("job listener failed")
+            finally:
+                with self._idle:
+                    job.finished = True
+                    self._idle.notify_all()
 
     def _execute(self, job: Job) -> None:
-        events = self._events
+        def publish(event: str, data: Any) -> None:
+            try:
+                self._events.publish(event, data)
+            except Exception:
+                logger.exception("job event %s failed", event)
+
         pending: list[str] = []
         last_flush = [time.monotonic()]
         last_progress = [0.0]
 
         def flush() -> None:
             if pending:
-                events.publish("job.log", {"id": job.id, "lines": list(pending)})
+                publish("job.log", {"id": job.id, "lines": list(pending)})
                 pending.clear()
             last_flush[0] = time.monotonic()
 
@@ -172,25 +180,25 @@ class JobRunner:
             if current < total and now - last_progress[0] < PROGRESS_SECONDS:
                 return
             last_progress[0] = now
-            events.publish("job.progress", {"id": job.id, "current": current, "total": total, "label": label})
+            publish("job.progress", {"id": job.id, "current": current, "total": total, "label": label})
 
         job.state = "running"
-        events.publish("job.started", {"id": job.id, "kind": job.kind})
+        publish("job.started", {"id": job.id, "kind": job.kind})
         try:
             result = job.fn(log=log, progress=progress, **job.params)
-            job.result = result.to_json() if hasattr(result, "to_json") else result
+            job.result = to_json(result)
             job.state = "done"
             flush()
-            events.publish("job.done", {"id": job.id, "kind": job.kind, "result": job.result})
+            publish("job.done", {"id": job.id, "kind": job.kind, "result": job.result})
         except ServiceError as e:
             job.error = e.to_json()
             job.state = "failed"
             flush()
-            events.publish("job.failed", {"id": job.id, "kind": job.kind, **job.error})
-        except Exception as e:  # report and keep the worker alive
+            publish("job.failed", {"id": job.id, "kind": job.kind, **job.error})
+        except BaseException as e:  # report and keep the worker alive
             logger.exception("job %s (%s) failed", job.id, job.kind)
             job.error = {"code": "internal", "params": {"error": f"{type(e).__name__}: {e}"}}
             job.log.append(traceback.format_exc())
             job.state = "failed"
             flush()
-            events.publish("job.failed", {"id": job.id, "kind": job.kind, **job.error})
+            publish("job.failed", {"id": job.id, "kind": job.kind, **job.error})

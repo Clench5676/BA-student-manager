@@ -21,6 +21,7 @@
 // blend modes as the materials give them, no dark colour) and keep the bones the prefab pins (skeleton-pins.js).
 // Entered, the lobby plays its intro timeline (lobby-intro.js) from the first frame it is on screen: a tap or a
 // dialogue skips it, and with the setting off the lobby starts as the intro leaves it.
+import { latestLoad, loadPlayer } from "./spine-load.js";
 import { spineFiles } from "./api.js";
 import * as Linear from "./linear.js";
 import * as Materials from "./skeleton-materials.js";
@@ -628,12 +629,12 @@ export function stillRect(canvasW, canvasH) {
 }
 
 // share: the lobby's bottom player, whose context this one draws with (lobby-stage.js), or null
-function makePlayer(host, layer, onReady, onError = () => {}, fx = null, share = null) {
+function makePlayer(host, layer, fx, share, signal) {
   const div = document.createElement("div");
   div.className = "lobby-layer";
   if (layer.introOnly) { div.style.visibility = "hidden"; div.classList.add("lobby-off"); }
   host.appendChild(div);
-  return Stage.make(share, () => new spine.SpinePlayer(div, {
+  return loadPlayer((config) => Stage.make(share, () => new spine.SpinePlayer(div, config)), {
     skeleton: `${layer.spine}.skel`, atlas: layer.atlas || `${layer.spine}.atlas`, animation: undefined,
     premultipliedAlpha: false, alpha: true, backgroundColor: "#00000000", showControls: false, showLoading: false,
     preserveDrawingBuffer: true, defaultMix: current?.info?.defaultMix?.[layer.name] ?? 0.2,
@@ -686,10 +687,8 @@ function makePlayer(host, layer, onReady, onError = () => {}, fx = null, share =
       const idle = idleOf(player.skeleton.data, layer);
       if (idle) soundsOf(player, player.animationState.setAnimation(0, idle, true), clipOf(player, idle));
       for (const name of idleClips(current?.info, layer.name, idle, (n) => clipOf(player, n))) playClip(player, name);
-      onReady(player);
     },
-    error: (_p, message) => { console.error(message); onError(); },
-  }));
+  }, { signal });
 }
 
 // A loaded player in linear light like the game (linear.js), with the game camera's post-processing (the prefab's
@@ -758,9 +757,13 @@ function feather(view) {
 }
 
 // show(core, host) -> Promise<meta> (frame, sequences); resolves once every layer is in and framed
-export async function show(core, host, variant) {
+const lobbyLoads = latestLoad(), playerLoads = new WeakMap();
+export function show(core, host, variant) {
   if (current?.core === core && players.length) return current.ready;
-  hide(host);
+  return lobbyLoads.run((signal) => showNow(core, host, variant, signal));
+}
+async function showNow(core, host, variant, signal) {
+  clearView(host);
   const my = ++token;
   host.innerHTML = '<canvas class="lobby-extend" hidden></canvas><div class="lobby-view"></div><canvas class="lobby-fade"></canvas><div class="lobby-frost"></div><div class="lobby-subtitle" hidden></div>';
   const ext = host.querySelector(".lobby-extend"), viewHost = host.querySelector(".lobby-view"), fade = host.querySelector(".lobby-fade");
@@ -770,27 +773,31 @@ export async function show(core, host, variant) {
   talkIndex = -1;
   current.ready = (async () => {
     const { info, layers } = await layersOf(core);
-    if (my !== token || !layers.length) return null;
+    if (signal.aborted || my !== token) return null;
+    if (!layers.length) throw new Error("No lobby skeletons found");
     current.info = info;
     setView(game(), true); // the first frames are already in the game's framing
     const fx = (current.fx = info?.fx?.systems?.length || info?.fx?.renderers?.length || info?.fx?.sprites?.length
       ? Particles.create(info.fx, { base: base(core), bone: boneOf }) : null);
     // every layer drawn with the bottom one's context (share), or each with its own
-    const build = async (share) => (await Promise.all(layers.map((layer) => new Promise((resolve) => {
-      players.push(makePlayer(viewHost, layer, (player) => resolve({ ...layer, player }), () => resolve(null), fx,
-        share ? players[0] : null));
-    })))).filter(Boolean);
+    const errors = [];
+    const build = async (share) => (await Promise.all(layers.map(async (layer) => {
+      const load = makePlayer(viewHost, layer, fx, share ? players[0] : null, signal);
+      if (load.player) { players.push(load.player); playerLoads.set(load.player, load); }
+      try { return await load.ready ? { ...layer, player: load.player } : null; }
+      catch (err) { errors.push(err); return null; }
+    }))).filter(Boolean);
     let all = await build(layers.length > 1);
-    if (my !== token) return null;
+    if (signal.aborted || my !== token) return null;
     // the bottom skeleton did not load (a broken mod): the others cannot draw with its context
     if (layers.length > 1 && all.length && all[0].player !== players[0]) {
       dropPlayers();
       all = await build(false);
-      if (my !== token) return null;
+      if (signal.aborted || my !== token) return null;
     }
     // the lobby as it rests: without the scenes only its intro shows
     const loaded = all.filter((l) => !l.introOnly);
-    if (!loaded.length) return null;
+    if (!loaded.length) throw errors[0] || new Error("No lobby skeletons loaded");
     Stage.install(all.map((l) => l.player), fx);
     for (const l of all) if (Stage.hostOf(l.player)) lightUp(l.player); // the guests, with their host loaded
     current.meta = measure(loaded);
@@ -828,22 +835,33 @@ export async function show(core, host, variant) {
     setTimeout(() => { if (measuresClips() && my === token) measureClips(); }, 400);
     return current.meta;
   })();
-  return current.ready;
+  try { return await current.ready; }
+  catch (err) { if (my === token) clearView(host); throw err; }
 }
 
 // the lobby's players and what each holds on the GPU, gone
 function dropPlayers() {
-  for (const p of players) {
-    current?.fx?.detach(p); // the particles' programs, buffers and textures in its context
-    Materials.detach(p); // its page programs and textures, the batcher's own methods
-    Linear.detach(p); // its framebuffer and program: spine's dispose only frees spine's own objects
-    p.dispose();
-    p.parent?.remove(); // its layer's element
+  for (const p of players) p.stopRendering?.();
+  // Guests release their resources before the shared context's owner.
+  for (const p of [...players].reverse()) {
+    try {
+      current?.fx?.detach(p);
+      Materials.detach(p);
+      Linear.detach(p);
+    } catch (err) { console.error(err); }
+    finally {
+      try { playerLoads.get(p)?.dispose(); } catch (err) { console.error(err); }
+      p.parent?.remove();
+    }
   }
   players = [];
 }
 
 export function hide(host) {
+  lobbyLoads.cancel();
+  clearView(host);
+}
+function clearView(host) {
   token += 1;
   Touch.detach();
   Touch.setup(null);
