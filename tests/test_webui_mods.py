@@ -531,6 +531,39 @@ def test_the_queue_drops_what_no_longer_holds(env):
     assert events_named(env.drain(), "classic.queueDone") == []
 
 
+def test_the_queue_runs_when_the_scan_it_waits_for_is_dropped_with_the_consent(env):
+    s = env.s
+    s.set_scan_consent(True)
+    assert s.scanner.wait_idle(5)
+    env.orphan()
+    queue(env, "mods.toggle", {"enabled": False, "expect": True})
+    gate = threading.Event()
+    real = s.scanner._scan
+
+    def slow(cancel, dismissed):
+        gate.wait(5)
+        return real(cancel, dismissed)
+
+    s.scanner._scan = slow
+    try:
+        s.scanner.request()  # a scan runs
+        assert wait_for(lambda: s.scanner.running)
+        env.processes.table.clear()  # the classic window closes
+        env.drain()
+        s.after_classic()  # the queue waits for the scan after the one running
+        assert events_named(env.drain(), "classic.queueDone") == []
+        # the consent withdrawn: the scans asked for are dropped, the one the queue waited for too; the queue runs
+        assert rpc(env.app, "mods.consent", granted=False)["result"] == {}
+        done = events_named(env.drain(), "classic.queueDone")
+        assert done and len(done[0]["submitted"]) == 1 and done[0]["dropped"] == []
+    finally:
+        gate.set()
+    assert s.scanner.wait_idle(5)
+    assert wait_for(lambda: not s.jobs.busy())
+    assert events_named(env.drain(), "classic.queueDone") == []  # it ran once
+    assert rpc(env.app, "mods.state")["result"]["enabled"] is False
+
+
 def test_a_queued_apply_survives_a_change_to_the_other_install(env):
     mod = env.add(env.spr)
     s = env.s

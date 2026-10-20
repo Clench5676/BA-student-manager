@@ -427,6 +427,8 @@ class Services:
         else:
             self.scanner.clear()
             self.snapshot.clear_entries()
+            # the scan the classic queue waits for is dropped with the other requests: the queue runs now
+            self._release_queue()
         self.publish_state()
 
     def request_scan(self, dismissed: bool = False) -> int | None:
@@ -444,10 +446,18 @@ class Services:
             self.snapshot.set_entries(list(result.entries), _now())
             self.events.publish("library.scanned", {"counts": result.counts})
             self.publish_state()
-        ticket = self._queue_ticket
-        if ticket is not None and served >= ticket:
+        self._release_queue(served)
+
+    def _release_queue(self, served: int | None = None) -> None:
+        """Run the classic queue once the scan it waits for is done (``served``, the last request a scan attempt
+        served), or at once (``None``: that scan will not run, the scan consent was withdrawn). Only one caller takes
+        the ticket."""
+        with self._lock:
+            ticket = self._queue_ticket
+            if ticket is None or (served is not None and served < ticket):
+                return
             self._queue_ticket = None
-            self.run_queue()
+        self.run_queue()
 
     # --- jobs ---
 
@@ -639,7 +649,10 @@ class Services:
         if ticket is None:
             self.run_queue()
         else:
-            self._queue_ticket = ticket
+            with self._lock:
+                self._queue_ticket = ticket
+            if self.scanner.served() >= ticket:  # served (or dropped) before the ticket was kept
+                self._release_queue(self.scanner.served())
         self.publish_state()
 
     def run_queue(self) -> Any:
