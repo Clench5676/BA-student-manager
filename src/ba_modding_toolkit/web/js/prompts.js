@@ -96,8 +96,10 @@ export const sizeText = (bytes) => ModSwitch.sizeText(bytes);
 // card(entry, {state, nameOf, kind}): one card of a prompt, for popup.js listPopup (its thumbnail is added by the page):
 //   the variant's name, the kind and install chips (the install only when more than one is known), "No Official Copy"
 //   on an overwritten entry; damaged and stuck entries cannot be ticked and are drawn dim with their state
-export function card(entry, { state = null, nameOf = (e) => e?.variant || e?.core || "", which = "untracked" } = {}) {
+export function card(entry, { state = null, nameOf = (e) => e?.variant || e?.core || "", which = "untracked", sep = ModSwitch.listSep() } = {}) {
   const name = nameOf(entry) || entry?.variant || entry?.core || "";
+  // a variant's portrait and lobby are two cards: the kind follows the name
+  const label = `${name}${sep}${kindLabel(entry)}`;
   const installs = state?.installs || [];
   const chips = [kindLabel(entry)];
   if (installs.length > 1) chips.push(installOf(state, entry.install)?.label || entry.install);
@@ -107,7 +109,7 @@ export function card(entry, { state = null, nameOf = (e) => e?.variant || e?.cor
     : entry.overwritten ? { text: which === "drift" ? T("mods.overwritten") : T("mods.copy.none"), color: "#9aa3ad", ink: "#ffffff" }
       : null;
   return {
-    key: entryKey(entry), label: name, full: name, kind: entry.kind, size: apart ? 0 : entry.size || 0, chips,
+    key: entryKey(entry), label, full: name, kind: entry.kind, size: apart ? 0 : entry.size || 0, chips,
     disabled: apart, dim: apart, badge, entry,
   };
 }
@@ -116,7 +118,9 @@ export function card(entry, { state = null, nameOf = (e) => e?.variant || e?.cor
 // Details button opens its repair lines
 export function details(entry, { which = "untracked" } = {}) {
   const files = entry?.files || [];
-  const shown = files.filter((f) => !f.official);
+  // the files not official (an entry back to official: all of them)
+  const modded = files.filter((f) => !f.official);
+  const shown = modded.length ? modded : files;
   const name = (shown[0] || files[0])?.file?.split(/[\\/]/).pop() || entry?.core || "-";
   const more = shown.length > 1 ? ` +${shown.length - 1}` : "";
   const size = shown.reduce((n, f) => n + (f.size || 0), 0);
@@ -126,10 +130,11 @@ export function details(entry, { which = "untracked" } = {}) {
   return { title: kindLabel(entry), fields, repair };
 }
 
-// the footer of a prompt: the ticked cards and their total size
-export function footer(items, selection, sep = ModSwitch.listSep()) {
+// the footer of a prompt: the ticked cards and, for what Add to Library copies, their total size
+export function footer(items, selection, { sep = ModSwitch.listSep(), size = true } = {}) {
   const ticked = items.filter((it) => selection.has(it.key));
-  return `${T("mods.selected", { n: ticked.length })}${sep}${T("mods.size", { size: sizeText(Popup.sizeOf(items, selection)) })}`;
+  const count = T("mods.selected", { n: ticked.length });
+  return size ? `${count}${sep}${T("mods.size", { size: sizeText(Popup.sizeOf(items, selection)) })}` : count;
 }
 
 // what the untracked prompt's buttons do: add the ticked cards (and, with Add and Turn On Mods, turn mods on after);
@@ -264,7 +269,7 @@ function listPrompt({ title, items, buttons, hint, check, closable, which }) {
     };
     const draw = (scroll = 0) => Popup.listPopup({
       host, title, items, selected: [...selection], multi: true, focus, keepScroll: scroll, hint,
-      footer: footer(items, selection), check,
+      footer: footer(items, selection, { size: which === "untracked" }), check,
       buttons: buttons.map((b) => ({ ...b, fn: () => (b.greyed ? toast(b.why || "", { kind: "error" }) : done(b.action)) })),
       onClose: closable ? () => done("later") : null,
       onSelect: (key, s) => { focus = key; selection = Popup.toggled(selection, items, key); draw(s); },

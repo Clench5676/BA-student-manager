@@ -436,7 +436,8 @@ test("a prompt's cards: the name, the kind and install chips, No Official Copy, 
   const two = base({ installs: [install(GLOBAL, "Global"), install(JAPAN, "Japan", { id: "0123abcd4567" })] });
   const nameOf = (e) => ({ airi: "Airi", hina: "Hina" })[e.variant] || e.variant;
   const c = P.card(entry("airi_spr", "untracked"), { state: base(), nameOf });
-  assert.deepEqual([c.key, c.label, c.chips, c.disabled, c.size], [`${GLOBAL}|airi_spr`, "Airi", [S("tab.portrait")], false, 100]);
+  assert.deepEqual([c.key, c.label, c.full, c.chips, c.disabled, c.size], [`${GLOBAL}|airi_spr`, `Airi, ${S("tab.portrait")}`, "Airi", [S("tab.portrait")], false, 100]);
+  assert.equal(P.card(entry("hina_home", "reset"), { nameOf, sep: "、" }).label, `Hina、${S("tab.lobby")}`, "a portrait and a lobby are told apart");
   // two installs: the install chip; an alternate lobby core: its suffix after the kind
   const j = P.card(entry("hina_home_gl", "untracked", { install: JAPAN, overwritten: true }), { state: two, nameOf });
   assert.deepEqual(j.chips, [`${S("tab.lobby")} gl`, "Japan", S("mods.copy.none")]);
@@ -456,7 +457,11 @@ test("a prompt's cards: the name, the kind and install chips, No Official Copy, 
   assert.equal(P.copyText(entry("x_spr", "untracked", { files: [gameFile("x_spr", { copy: "elsewhere" })] })), S("mods.copy.elsewhere"));
   // the footer: the ticked cards and their size
   const items = [P.card(entry("a_spr", "untracked", { size: 1048576 }), {}), P.card(entry("b_spr", "untracked", { size: 1048576 }), {})];
-  assert.equal(P.footer(items, new Set([items[0].key]), ", "), "Selected: 1, Total size: 1.0 MB");
+  assert.equal(P.footer(items, new Set([items[0].key]), { sep: ", " }), "Selected: 1, Total size: 1.0 MB");
+  assert.equal(P.footer(items, new Set([items[0].key]), { size: false }), "Selected: 1", "the drift prompt copies nothing");
+  // an entry back to official: its official files, with their size
+  const reset = P.details(entry("airi_spr", "reset", { files: [gameFile("airi_spr", { official: true, applied: "official", size: 1048576 })] }));
+  assert.deepEqual(reset.fields.slice(0, 2), [[S("field.file"), "airi_spr.bundle"], [S("field.size"), "1.0 MB"]]);
 });
 
 test("the untracked prompt's buttons: add the ticked cards, Don't Ask Again dismisses the others, Later adds nothing", () => {
