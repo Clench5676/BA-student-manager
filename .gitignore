@@ -29,6 +29,7 @@ __pycache__/
 build/
 dist/
 prototype/
+research/
 *.pyc
 *.pyo
 *.pyd
