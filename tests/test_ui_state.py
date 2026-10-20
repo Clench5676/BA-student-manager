@@ -3,6 +3,7 @@ then, so no instance erases another's keys."""
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import threading
@@ -11,7 +12,7 @@ from pathlib import Path
 import pytest
 
 import ba_modding_toolkit
-from ba_modding_toolkit.webui.state import ALIAS_LENGTH, ALIAS_MAX, UiState, _replace
+from ba_modding_toolkit.webui.state import ALIAS_LENGTH, ALIAS_MAX, FLAGS, UiState, _replace, data_path
 
 
 def test_instances_keep_each_others_keys(tmp_path):
@@ -200,3 +201,30 @@ def test_processes_writing_at_once_lose_nothing(tmp_path):
     state = UiState(path)
     assert all(state.get(f"{p}{i}") == i for p in "abc" for i in range(40))
     assert len(state.recent()) == 50  # RECENT_MAX of the 120 visits
+
+
+def test_a_copied_data_directory_gets_its_own_id_and_a_moved_one_keeps_it(tmp_path):
+    first = tmp_path / "first"
+    original = UiState(first / "webui.json").data_id(first)
+    assert UiState(first / "webui.json").data_id(first) == original
+    copy = tmp_path / "copy"
+    shutil.copytree(first, copy)
+    copied = UiState(copy / "webui.json").data_id(copy)
+    assert copied != original and UiState(copy / "webui.json").get("data_path") == data_path(copy)
+    assert UiState(first / "webui.json").data_id(first) == original
+    moved = tmp_path / "moved"
+    first.rename(moved)
+    assert UiState(moved / "webui.json").data_id(moved) == original
+    assert UiState(moved / "webui.json").get("data_path") == data_path(moved)
+
+
+def test_the_switch_flags_and_the_scan_consent_have_their_defaults(tmp_path):
+    state = UiState(tmp_path / "webui.json")
+    assert {key: state.flag(key) for key in FLAGS} == {"mod_switch_shown": True, "tray": False,
+                                                        "classic_prompt": True, "mods_explained": False}
+    assert state.scan_consent is None
+    state.set("scan_consent", False)
+    state.set("tray", "yes")  # not a boolean: the default
+    assert state.scan_consent is False and state.flag("tray") is False
+    # reading them writes nothing: the constructor and the getters never add preferences
+    assert json.loads((tmp_path / "webui.json").read_text())["prefs"] == {"scan_consent": False, "tray": "yes"}

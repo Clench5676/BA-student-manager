@@ -1,6 +1,7 @@
 // Tests for web/js/switch-sources.js (what the detail screen's switch cards offer and what the game shows), run by
 // tests/test_switch_sources.py with Node's test runner: node --test tests/js/switch_sources.test.mjs
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 import { appliedKey, appliedOf, candidates, coreOf, partsOf, sourceOf, switchKindOf } from "../../src/ba_modding_toolkit/web/js/switch-sources.js";
@@ -81,4 +82,23 @@ test("the switch card's kind per tab: none on the 3D tab, whose card stays inert
   assert.equal(switchKindOf("portrait"), "spr");
   assert.equal(switchKindOf("lobby"), "lobby");
   assert.equal(switchKindOf("model"), null);
+});
+
+test("what the game shows follows the library's source rule, part by part", () => {
+  const url = new URL("../data/source_rule_cases.json", import.meta.url);
+  const { cases } = JSON.parse(readFileSync(url, "utf-8"));
+  assert.ok(cases.some((c) => c.parts.some((p) => p.applied === "unknown" && p.crc === "ok")));
+  for (const c of cases) {
+    const v = { state: { files: c.parts.map((p) => ({ ...p, kind: "spr", file: "/game/x.bundle" })) } };
+    assert.equal(appliedOf(v), c.carried, c.name);
+  }
+});
+
+test("a part's official verdict wins over its applied source; without one, its applied decides", () => {
+  // a mod's part it left official, recorded under the mod, and a file of another size than the official one
+  const left = { state: { files: [part("spr", "mod:a", { official: true }), part("spr", "official", { official: true })] } };
+  assert.equal(appliedOf(left), "official");
+  const other = { state: { files: [part("spr", "unknown", { crc: "ok", official: false })] } };
+  assert.equal(appliedKey(other), "unknown");
+  assert.equal(appliedOf({ state: { files: [part("spr", "mod:a")] } }), "mod:a"); // an older server: no verdict
 });

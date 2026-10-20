@@ -865,7 +865,8 @@
 			"pack": "アセットパック",
 			"extract": "アセット抽出",
 			"adb": "ADBプッシュ",
-			"tools": "ツール"
+			"tools": "ツール",
+			"classic": "{label} - クラシック画面"
 		},
 		"roster": {
 			"title": "生徒リスト",
@@ -962,9 +963,85 @@
 		"popup": {
 			"switch": "立ち絵切り替え",
 			"apply": "適用",
+			"save": "保存",
 			"cancel": "キャンセル",
 			"inUse": "使用中",
 			"add": "立ち絵追加"
+		},
+		"mods": {
+			"switch": "MODを有効化",
+			"guide": "ご案内",
+			"offState": "MOD OFF",
+			"onState": "MOD ON",
+			"helpOff": "OFF：すべての立ち絵とメモリアルロビーを一括でオリジナルに",
+			"helpOn": "ON：設定済みのMODを再適用",
+			"helpKept": "MODはMODライブラリに保管",
+			"helpGame": "ゲーム終了中のみ",
+			"helpFolders": "ゲームフォルダー：{folders}",
+			"installNamed": "{server}（{folder}）",
+			"explainOnce": "この説明は次回から非表示",
+			"builtWhat": "生成済みのMODを保管、ONですぐ反映",
+			"builtSize": "使用容量：{size}、大きくなる場合あり",
+			"builtClear": "生成済みMODを削除",
+			"builtCleared": "生成済みMODを削除済み",
+			"originalsSize": "OFF用のオリジナルの控え：{size}",
+			"scanOff": "他のMODは未チェック",
+			"allowCheck": "チェックを許可",
+			"scan": {
+				"title": "ゲームファイルのチェック",
+				"checked": {
+					"label": "チェック対象",
+					"items": "各立ち絵とメモリアルロビーのファイルの先頭と末尾",
+					"why": "MODライブラリ外のMOD、修復や更新で戻ったファイル、オリジナルのないファイルを検出"
+				},
+				"never": {
+					"label": "行わないこと",
+					"items": "ファイル全体の読み込み、端末外への送信"
+				},
+				"note": "拒否するとチェックはOFFのまま、設定で変更可能",
+				"no": "許可しない",
+				"yes": "許可する"
+			},
+			"notSwitched": "未切り替え：{n}",
+			"sourceMissing": "MODライブラリから削除済み：{n}",
+			"retry": "再試行",
+			"details": "詳細",
+			"offTitle": "MODをOFF",
+			"onTitle": "MODをON",
+			"toAdd": "先にMODライブラリへ追加：{n}",
+			"stuck": "そのまま、オリジナルなし：{n}",
+			"size": "合計サイズ：{size}",
+			"selected": "選択中：{n}",
+			"result": "完了：{done}、失敗：{failed}",
+			"saved": "保存済み、MOD ONで反映",
+			"untrackedTitle": "MODライブラリにないMOD",
+			"untrackedHint": "未追加ならゲーム更新、ファイル検証で消失",
+			"untrackedAdd": "MODライブラリに追加",
+			"addTurnOn": "追加してMODをON",
+			"dontAsk": "今後表示しない",
+			"copy": {
+				"kept": "保管済み",
+				"backup": "バックアップ",
+				"elsewhere": "別のフォルダー",
+				"none": "オリジナルなし"
+			},
+			"overwritten": "上書き済み",
+			"damaged": "破損",
+			"overwrittenTitle": "オリジナルファイル上書き済み",
+			"overwrittenNone": "オリジナルの控えなし",
+			"addFirst": "修復前にMODライブラリへ追加",
+			"lastCopy": "ゲームで使用中のファイルの唯一の控え",
+			"mayNotStart": "ゲームが起動しない場合あり",
+			"repairSteam": "Steam：プロパティ - インストール済みファイル - ゲームファイルの整合性を確認",
+			"repairThen": "その後このアプリを再起動",
+			"driftTitle": "オリジナルに戻ったMOD",
+			"driftWhy": "ゲームファイルの検証、修復、更新",
+			"driftApply": "MOD設定を適用",
+			"driftKeep": "現状のまま",
+			"stillOverwritten": "上書きのまま：{n}"
+		},
+		"switch": {
+			"configured": "設定済み"
 		},
 		"field": {
 			"file": "ファイル",
@@ -975,7 +1052,8 @@
 			"folder": "フォルダー",
 			"date": "日付",
 			"modFile": "MODファイル",
-			"source": "流用元"
+			"source": "流用元",
+			"copy": "オリジナルの控え"
 		},
 		"type": {
 			"recruit": "実装済み",
@@ -998,7 +1076,8 @@
 				"title": "ゲームフォルダーが見つかりません",
 				"hint": "自動検出、またはゲームフォルダーを選択"
 			},
-			"openSettings": "設定を開く"
+			"openSettings": "設定を開く",
+			"closed": "終了しました"
 		},
 		"loading": {
 			"now": "Now Loading",
@@ -1052,10 +1131,19 @@
 			"mod_target_mismatch": "このMODはこのバリエーションに対応していません",
 			"mod_update_failed": "MODの更新に失敗しました",
 			"original_invalid": "保管中のオリジナルファイルが破損しています：{file}",
-			"original_unavailable": "復元用のオリジナルファイルがないため、先にランチャーでファイルを検証してください",
+			"original_unavailable": "オリジナルの控えなし",
 			"source_unsupported": "非対応の取得元",
 			"variant_incompatible": "構造が異なるため、入れ替えできません",
-			"variant_not_found": "バリエーションが見つかりません"
+			"variant_not_found": "バリエーションが見つかりません",
+			"steam_busy": "Steamがゲームを更新または検証中です",
+			"classic_open": "先にクラシック画面を閉じてください",
+			"entry_changed": "ゲームファイル変更あり、再チェック",
+			"folder_changed": "ゲームフォルダー変更あり、再試行",
+			"state_changed": "他の場所で切り替え済み、再確認",
+			"profiles_unreadable": "MOD設定を読み込めません：{file}",
+			"not_enough_space": "空き容量不足：必要 {need}、空き {free}",
+			"mod_last_copy": "ゲームで使用中のファイルの唯一の控え：{file}",
+			"scan_off": "ファイルチェックOFF"
 		},
 		"drop": {
 			"hint": "MODファイルをドロップして追加"
@@ -1070,13 +1158,32 @@
 			"restarting": "アップデートを完了するため再起動します",
 			"page": "ダウンロードページへ"
 		},
+		"classic": {
+			"hint": "クラシック画面で開く、この画面の手前に表示",
+			"opening": "クラシック画面を起動中",
+			"front": "前面に表示",
+			"opened": "クラシック画面を表示中",
+			"autoApply": "閉じたら自動で適用",
+			"queued": "クラシック画面を閉じた後に適用",
+			"notApplied": "未適用"
+		},
+		"quit": {
+			"title": "アラート",
+			"ask": "終了しますか？"
+		},
+		"tray": {
+			"working": "処理中 {done}/{total}",
+			"drift": "オリジナルに戻ったMOD：{n}",
+			"quit": "終了"
+		},
 		"settings": {
 			"title": "設定",
 			"tab": {
 				"general": "一般",
 				"sound": "音量",
 				"l2d": "L2D",
-				"folders": "フォルダー"
+				"folders": "フォルダー",
+				"mods": "MOD"
 			},
 			"language": "言語",
 			"cache": {
@@ -1095,7 +1202,21 @@
 			"classic": {
 				"label": "その他の設定",
 				"hint": "Spineツール、ADBなどはクラシック画面で",
-				"open": "開く"
+				"open": "開く",
+				"ask": "開く前に確認"
+			},
+			"mods": {
+				"shown": "メイン画面に表示",
+				"scan": "ファイルチェック",
+				"tray": {
+					"win": "タスクトレイアイコン",
+					"mac": "メニューバーアイコン"
+				},
+				"files": "ゲームファイル",
+				"check": "チェック",
+				"clean": "変更なし",
+				"folders": "ゲームフォルダー",
+				"forget": "リストから外す"
 			},
 			"voice": "ボイス",
 			"mute": "ミュート",
