@@ -117,9 +117,10 @@ async function prepare({ gen, ended }, inPlace, work) {
 // Deferred sprites, thumbnails and decoded backgrounds all belong to the reveal barrier.
 let screenPics = [], exprPics = [], chipPics = [];
 const picturesReady = (pictures, ...roots) => {
-  const elements = roots.flatMap((root) => [root, ...root.querySelectorAll("*")]);
+  // roots may be missing (a part not drawn) and descendants may lack a style (e.g. text holders): skip both
+  const elements = roots.filter(Boolean).flatMap((root) => [root, ...(root.querySelectorAll?.("*") || [])]);
   return Promise.allSettled(pictures).then(() => {
-    for (const el of elements) if (el.style.transition) el.style.transition = "none";
+    for (const el of elements) if (el?.style?.transition) el.style.transition = "none";
     return NGUI.decoded(elements, HARD_CAP);
   });
 };
