@@ -587,10 +587,11 @@ export function create(fx, { base, bone, load = loadImage } = {}) {
 
   return {
     effects, sprites,
-    // players: the lobby's skeleton players in stacking order, each with its layer (bamtLayer: order, queue, pages, z)
-    // and drawn in the parts of its pages' queues (skeleton-parts.js). steps: those parts in the order they draw, each
-    // {owner, order, queue, z} with the player that draws it (lobby-stage.js: all of them by the bottom player when
-    // they share its context); by default each player's own parts, player after player. A system draws after the last
+    // players: the lobby's skeleton players in stacking order, each with its layer (bamtLayer: sortingLayer, order,
+    // queue, pages, z) and drawn in the parts of its pages' queues (skeleton-parts.js). steps: those parts in the
+    // order they draw, each {owner, sortingLayer, order, queue, z} with the player that draws it (lobby-stage.js
+    // install, which always passes them: all of them by the bottom player when they share its context); without
+    // them (the tests' single players) each player's own parts, player after player. A system draws after the last
     // step that sorts before it, in its owner's context (between(owner, k) after the owner's k-th step), or before the
     // first one, in the bottom player's.
     layers(players, steps = players.flatMap((p) => queuesOf(p.bamtLayer).map((queue) => ({ ...p.bamtLayer, owner: p, queue })))) {

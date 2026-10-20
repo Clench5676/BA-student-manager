@@ -5,7 +5,14 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 const P = await import("../../src/ba_modding_toolkit/web/js/particles.js");
-const { Effects, value, colorAt, shapePoint, geometry, vertexColor, slotOf, drawOrder, STRIDE, WORLD, IDENTITY } = P;
+const { Effects, value, colorAt, shapePoint, geometry, vertexColor, drawOrder, STRIDE, WORLD, IDENTITY } = P;
+// where a system draws among stacked skeletons, each drawing its own parts (particles-gl.js layers by default): after
+// the last part of any layer that sorts before it ({layer, part}), else before the first layer's first (part -1)
+function slotOf(def, layers) {
+  const parts = layers.flatMap((l, layer) => P.queuesOf(l).map((queue, part) => ({ ...l, queue, layer, part })));
+  const at = P.lastBefore(def, parts);
+  return at < 0 ? { layer: 0, part: -1 } : { layer: parts[at].layer, part: parts[at].part };
+}
 
 const near = (a, b, eps = 1e-6, what = "") => assert.ok(Math.abs(a - b) <= eps, `${what} ${a} != ${b}`);
 // a seeded 0..1 source, so every run emits the same particles
@@ -929,8 +936,15 @@ test("a skeleton draws one part per queue of its pages, each with its own slots,
   const slots = [["sky", on("Kisaki_4")], ["mist", on("Kisaki_2")], ["clip", clip], ["body", on("Kisaki")], ["river", on("Kisaki_3")],
     ["empty", null]].map(([name, attachment]) => ({ name, attachment }));
   const skeleton = { drawOrder: slots };
+  // every part in turn, as lobby-stage.js draws a skeleton's steps
+  const inParts = (ps, draw, between = () => {}) => {
+    for (let k = 0; k < ps.count; k++) {
+      Parts.drawPart(skeleton, ps, k, () => draw(k));
+      if (k < ps.count - 1) between(k);
+    }
+  };
   const log = [];
-  Parts.drawInParts(skeleton, parts, (k) => log.push([k, slots.filter((s) => s.attachment).map((s) => s.name)]), (k) => log.push(["between", k]));
+  inParts(parts, (k) => log.push([k, slots.filter((s) => s.attachment).map((s) => s.name)]), (k) => log.push(["between", k]));
   assert.deepEqual(log, [
     [0, ["sky", "clip", "river"]], ["between", 0],
     [1, ["clip", "body"]], ["between", 1],
@@ -940,9 +954,9 @@ test("a skeleton draws one part per queue of its pages, each with its own slots,
   assert.equal(slots[2].attachment, clip, "every attachment is given back");
   // one part: a single draw, nothing emptied
   const one = [];
-  Parts.drawInParts(skeleton, Parts.partsOf({ queue: 3000 }), (k) => one.push([k, slots.filter((s) => s.attachment).length]), () => one.push("between"));
+  inParts(Parts.partsOf({ queue: 3000 }), (k) => one.push([k, slots.filter((s) => s.attachment).length]), () => one.push("between"));
   assert.deepEqual(one, [[0, 5]]);
   // a draw that throws still gives the attachments back
-  assert.throws(() => Parts.drawInParts(skeleton, parts, () => { throw new Error("lost context"); }));
+  assert.throws(() => inParts(parts, () => { throw new Error("lost context"); }));
   assert.deepEqual(slots.map((s) => !!s.attachment), [true, true, true, true, true, false]);
 });

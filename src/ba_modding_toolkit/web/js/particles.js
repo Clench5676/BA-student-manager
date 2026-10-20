@@ -931,8 +931,9 @@ export function compareKeys(ka, kb) {
 }
 const before = (a, b) => compareKeys(sortKey(a), sortKey(b)) <= 0;
 
-// The index of the last of a lobby's skeleton parts (steps: each with order, queue and z, in the order they draw)
-// that sorts before the system, after which it draws (a tie puts it after); -1 before them all
+// The index of the last of a lobby's skeleton parts (steps: each with sortingLayer, order, queue and z, in the order
+// they draw) that sorts before the system, after which it draws (a tie puts it after); -1 before them all. Hibiki's
+// river surface (queue 3000) draws after her lobby's background page (2900), before her own (3050).
 export function lastBefore(def, steps) {
   let at = -1;
   steps.forEach((step, i) => { if (before(step, def)) at = i; });
@@ -945,17 +946,6 @@ export function lastBefore(def, steps) {
 export function queuesOf(layer) {
   const queues = [...new Set(Object.values(layer?.pages || {}))].sort((a, b) => a - b);
   return queues.length ? queues : [layer?.queue ?? 3000];
-}
-
-// Where a system draws among the lobby's skeletons. layers: the skeleton players' layers in their stacking order (each
-// with sortingLayer, order, queue, pages and z), each drawn in the parts of queuesOf. The system draws in the context of the last
-// layer with a part that sorts before it, after that part ({layer, part}), or before the first layer's first part
-// (part -1); a tie puts it after. Hibiki's river surface (queue 3000) draws after her lobby's background page (2900),
-// before her own (3050).
-export function slotOf(def, layers) {
-  const parts = layers.flatMap((l, layer) => queuesOf(l).map((queue, part) => ({ ...l, queue, layer, part })));
-  const at = lastBefore(def, parts);
-  return at < 0 ? { layer: 0, part: -1 } : { layer: parts[at].layer, part: parts[at].part };
 }
 
 // systems in drawing order: sorting layer, order in layer, queue, back to front (with the sorting fudge), then the

@@ -42,12 +42,3 @@ export function drawPart(skeleton, parts, k, draw) {
     for (const [slot, attachment] of emptied) slot.attachment = attachment;
   }
 }
-
-// draw(part) for every part in turn (drawPart); between(part) after each part but the last
-export function drawInParts(skeleton, parts, draw, between = () => {}) {
-  if (!(parts?.count > 1)) { draw(0); return; }
-  for (let k = 0; k < parts.count; k++) {
-    drawPart(skeleton, parts, k, () => draw(k));
-    if (k < parts.count - 1) between(k);
-  }
-}
