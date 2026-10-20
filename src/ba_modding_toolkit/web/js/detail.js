@@ -546,6 +546,7 @@ async function job(method, params, { onDone, after = reload } = {}) {
       } catch (err) {
         if (page === pageToken && open && err?.code === "original_unavailable" && QUEUEABLE.includes(method)) {
           toast("");
+          // Refusal messages, Add First and its adoption result use the popup stack, exempt from the hold.
           await overwrittenMessage(variant(), params.kind || "spr");
         } else if (QUEUEABLE.includes(method)) await refused(err, method, params);
         else toast(errorText(err), { kind: "error", sticky: false });
@@ -1544,14 +1545,14 @@ async function reload() {
 // lobby does when the shown variant's files of that kind changed. It waits while a popup or a fullscreen view is
 // open, while the screen changes and while this screen's own job runs (whose reload comes first). ---
 let heldChange; // undefined: nothing waiting; null: anything may have changed; {cores}: those lower-case cores
-let reloadingChanged = false;
+let reloadingChanged = null;
 const mergeChange = (a, b) => (a === null || b === null ? null : a === undefined ? b : { cores: [...new Set([...a.cores, ...b.cores])] });
 const lower = (core) => String(core || "").toLowerCase();
 // a variant's game files of a kind as the screen judged them: they changed when this differs
 const filesSig = (v, kind) => JSON.stringify(v ? partsOf(v, kind).map((f) => [f.file, f.applied, f.crc, f.size, f.date, f.mtime, f.official]) : null);
 const quiet = () => !fullscreen && !Visual.isOpen() && !popupOpen() && !changing() && !Loading.covering();
 
-// filesChanged({cores} | null): main.js's library.changed handler, while the screen is open
+// filesChanged({cores} | null): resolves after queued changes have refreshed and drawn, or the screen is left
 export function filesChanged(change = null) {
   if (!open || !fam) return;
   if (change) {
@@ -1559,15 +1560,22 @@ export function filesChanged(change = null) {
     if (!fam.variants.some((v) => cores.has(lower(v.spr)) || cores.has(lower(v.lobby)))) return;
   }
   heldChange = mergeChange(heldChange, change && { cores: change.cores.map(lower) });
-  resumeChanged();
+  return resumeChanged();
 }
 function resumeChanged() {
-  if (heldChange === undefined || busy || reloadingChanged || !open) return;
-  reloadingChanged = true;
-  reloadChanged().catch((err) => console.error("reload after a switch", err)).finally(() => {
-    reloadingChanged = false;
+  if (reloadingChanged) return reloadingChanged;
+  if (heldChange === undefined || !open) return;
+  reloadingChanged = (async () => {
+    while (open && heldChange !== undefined) {
+      while (open && (busy || !quiet())) await sleep(250);
+      if (!open) return;
+      await reloadChanged();
+    }
+  })().catch((err) => console.error("reload after a switch", err)).finally(() => {
+    reloadingChanged = null;
     resumeChanged();
   });
+  return reloadingChanged;
 }
 async function reloadChanged() {
   while (open && !quiet()) await sleep(250);

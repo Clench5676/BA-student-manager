@@ -7,6 +7,7 @@
 // work goes on. wait(promise) shows the indicator alone over the current screen, for a wait inside it. There is one
 // overlay at a time; a newer call takes over the one on screen instead of flashing a new one.
 import * as NGUI from "./ngui.js";
+import * as Popup from "./popup.js";
 import { T } from "./i18n.js";
 import { S, toast } from "./util.js";
 
@@ -213,7 +214,7 @@ export async function hold(work, { until = null } = {}) {
   holds.add(key);
   if (!wired.has(el)) {
     const block = (ev) => {
-      if (!held() || ev.target.closest?.(".topbar .back")) return;
+      if (!held() || ev.target.closest?.(".topbar .back") || Popup.allowsInput(ev)) return;
       ev.preventDefault();
       ev.stopImmediatePropagation();
     };

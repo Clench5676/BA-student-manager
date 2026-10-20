@@ -182,6 +182,8 @@ let state = null;
 let explainedHere = false; // the explanation was shown in this page (mods.state follows a moment later)
 let inFlight = false; // a toggle (or Retry) this page started runs
 let names = async () => (e) => e?.variant || e?.core || ""; // main.js gives the variants' names (the roster's data)
+let refreshPage = async () => {}; // main.js resolves this once the visible page has refreshed and drawn
+const REFRESH_CAP = 15000;
 let host = null, els = null;
 const listeners = new Set();
 let lastSignature = "";
@@ -210,9 +212,10 @@ export async function refresh() {
   return state;
 }
 
-// init({names}): the top bar's switch and the events; names() resolves with a function naming an entry's variant
+// init({names, refreshPage}): the top bar's switch and the events; names() names an entry's variant
 export async function init(options = {}) {
   if (options.names) names = options.names;
+  if (options.refreshPage) refreshPage = options.refreshPage;
   host = $("mod-switch");
   if (host && !els) build();
   on("mods.state", update);
@@ -326,10 +329,18 @@ async function run(params) {
   if (inFlight) { toast(T("error.busy"), { kind: "error" }); return; }
   inFlight = true;
   try {
-    await Loading.hold(async () => {
+    const result = await Loading.hold(async () => {
       const id = await rpc("mods.toggle", params, { timeout: 30000 });
-      await follow(id, params, "mods.toggle");
+      const result = await toggleJob(id);
+      // Flush the delayed library.changed refresh before input resumes or a result popup can defer it.
+      let timer;
+      try {
+        await Promise.race([Promise.resolve().then(refreshPage), new Promise((resolve) => { timer = setTimeout(resolve, REFRESH_CAP); })]);
+      } catch (err) { console.error("refresh after a switch", err); }
+      finally { clearTimeout(timer); }
+      return result;
     });
+    await finished(result);
   } catch (err) {
     refused(err, "mods.toggle", params);
   } finally {
@@ -340,13 +351,16 @@ async function run(params) {
 // a toggle job followed to its end: the indicator, "Working 12/40", then the toast or the result popup. method: the
 // call a classic_open refusal may queue (the tray's toggle has none: the tray never queues)
 async function follow(id, params, method) {
-  toast(T("job.running"), { sticky: true });
   try {
-    const job = waitJob(id, (p) => toast(T("tray.working", { done: p.current, total: p.total }), { sticky: true }));
-    await finished(await job);
+    await finished(await toggleJob(id));
   } catch (err) {
     refused(err, method, params);
   }
+}
+
+function toggleJob(id) {
+  toast(T("job.running"), { sticky: true });
+  return waitJob(id, (p) => toast(T("tray.working", { done: p.current, total: p.total }), { sticky: true }));
 }
 
 // turn(params): a toggle asked for by another control (the untracked prompt's Add and Turn On Mods): the first

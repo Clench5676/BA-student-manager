@@ -52,6 +52,14 @@ export function top() { prune(); return stack.at(-1) || null; }
 // any popup open: the stack, or a host of the other popups (the consent and update popups, the settings, the display
 // settings)
 export const anyOpen = () => !!top() || !!document.querySelector(".popup-host:not([hidden]), .consent-host:not([hidden])");
+// Holds leave every open popup usable, including stack entries with their own hosts and the consent layers.
+// Escape belongs to the popup even when focus is still on the control that opened it.
+export function allowsInput(ev) {
+  prune();
+  return (ev.key === "Escape" && anyOpen())
+    || stack.some((e) => (e.el || e.host).contains(ev.target))
+    || !!ev.target.closest?.(".popup-host:not([hidden]), .consent-host:not([hidden])");
+}
 // resolves once no popup is open (the start prompts that come later wait for this)
 export function whenIdle(every = 200) {
   return new Promise((resolve) => { const check = () => (anyOpen() ? setTimeout(check, every) : resolve()); check(); });

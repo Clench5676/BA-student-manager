@@ -88,11 +88,20 @@ function libraryChanged(data) {
 async function applyChange() {
   const change = heldChange;
   heldChange = undefined;
-  if (!$("screen-detail").hidden) { Detail.filesChanged(change); return; }
+  if (change === undefined) return;
+  const my = changeRoute;
+  if (!$("screen-detail").hidden) return Detail.filesChanged(change);
   if ($("screen-roster").hidden) return;
   // the list is built again once no popup is open, unless a route came meanwhile (it reads the list itself)
   await Popup.whenIdle();
-  if (changeRoute === routeToken && !$("screen-roster").hidden) route();
+  if (my === routeToken && !$("screen-roster").hidden) await route();
+}
+
+// A completed toggle refreshes directly, even if its event has not arrived or is still being coalesced.
+async function refreshAfterToggle() {
+  libraryChanged(null);
+  clearTimeout(changeTimer);
+  await applyChange();
 }
 
 // the window back in front after 30 s or more: the game files are checked again (only with the scan consent)
@@ -297,7 +306,7 @@ async function start() {
   Cursor.init();
   renderNav(0, navOptions);
   // the Enable Mods switch in the top bar, and what the writer jobs switched
-  await ModSwitch.init({ names: variantNames }).catch((err) => console.error("mod switch", err));
+  await ModSwitch.init({ names: variantNames, refreshPage: refreshAfterToggle }).catch((err) => console.error("mod switch", err));
   Prompts.init({ names: variantNames });
   on("library.changed", libraryChanged);
   watchFront();
