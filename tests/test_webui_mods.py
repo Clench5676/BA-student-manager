@@ -445,6 +445,7 @@ def test_adding_mods_already_in_use_runs_while_the_game_runs(env, monkeypatch):
     job = env.job("mods.adopt", entries=[{"install": entry["install"], "core": entry["core"]}])
     assert job.state == "done", job.error
     assert len(job.result["added"]) == 1 and job.result["failed"] == []
+    assert env.s.state.seen_mods() == set(), "adopted mods are new after the baseline"
     assert events_named(env.drain(), "library.changed")[-1] == {"cores": ["test_spr"], "kinds": ["spr"]}
     assert rpc(env.app, "mods.adopt", entries=[{"core": 1}])["error"]["code"] == "bad_params"
 
@@ -1127,6 +1128,48 @@ def test_add_rpc_reports_duplicate_content(env):
     assert second.result["duplicates"] == first.result["added"]
 
 
+@pytest.mark.parametrize("method", ["add", "background", "adopt", "toggle", "remap"])
+def test_first_add_baselines_existing_mods_before_storing_new_ones(env, monkeypatch, method):
+    old = env.add(env.spr)
+    env.s.close(wait=5)
+    path = env.data / "webui.json"
+    stored = json.loads(path.read_text(encoding="utf-8"))
+    stored.pop("seen_mods")  # simulate an update from before the dots feature
+    path.write_text(json.dumps(stored), encoding="utf-8")
+    env.s, env.app = env.services()
+    source = make_mod(env.spr, env.tmp / "picker", payload=b"new mod", fixed=True)
+    if method == "background":
+        job = env.job("mods.add", paths=[str(source)], background=True)
+        assert job.state == "done", job.error
+        assert len(job.result["added"]) == 1
+    elif method == "add":
+        result = rpc(env.app, "mods.add", paths=[str(source)])["result"]
+        assert len(result["added"]) == 1
+    elif method in ("adopt", "toggle"):
+        env.spr.write_bytes(source.read_bytes())
+        if method == "adopt":
+            job = env.job("mods.adopt", entries=[{"install": env.key(), "core": "test_spr"}])
+        else:
+            env.s.state.set("scan_consent", True)
+            job = env.job("mods.toggle", enabled=False, expect=True)
+        assert job.state == "done", job.error
+    else:
+        from ba_modding_toolkit.library.models import CompareResult, RemapResult
+
+        def remap(library, mod, log=None, progress=None, pin=None):
+            # Use synthetic output instead of rebuilding Unity assets; retain the real library write.
+            rebuilt, = library.add([source])
+            return RemapResult(rebuilt, {}, CompareResult(rebuilt.id, []))
+
+        monkeypatch.setattr("ba_modding_toolkit.library.ModLibrary.remap", remap)
+        job = env.job("actions.remap", mod=old.id)
+        assert job.state == "done", job.error
+    mods = env.s.library.mods()
+    assert len(mods) == 2 and old.id in {m.id for m in mods}
+    assert env.s.state.seen_mods() == {old.id}
+    assert UiState(path).seen_mods() == {old.id}
+
+
 def test_seen_rpc_writes_only_ui_state_and_preserves_seen_duplicates(env, monkeypatch):
     path = make_mod(env.spr, env.tmp / "picker")
     mod, = rpc(env.app, "mods.add", paths=[str(path)])["result"]["added"]
@@ -1157,6 +1200,7 @@ def test_add_rpc_uses_the_normal_switch_for_both_kinds_and_respects_mods_off(env
     params = {"paths": [str(path) for path in sources], "background": background}
     result = env.job("mods.add", **params).result if background else rpc(env.app, "mods.add", **params)["result"]
     assert len(result["added"]) == 2 and not result["failed"]
+    assert env.s.state.seen_mods() == set(), "both add modes establish an empty baseline before adding"
     assert result["applied" if enabled else "configured"] == result["added"]
     for entry in result["added"]:
         assert env.s.library.configured("test")[entry["kind"]] == f"mod:{entry['id']}"
@@ -1190,6 +1234,7 @@ def test_add_rpc_adopts_installed_content_and_refreshes_the_snapshot(env, backgr
         result = rpc(env.app, "mods.add", paths=[str(path)])["result"]
     assert result["installed"] == result["added"]
     assert len(result["added"]) == 1 and len(env.s.library.mods()) == 1
+    assert env.s.state.seen_mods() == set(), "an installed mod added after the baseline remains new"
     assert env.s.library.state("test").applied == f"mod:{result['added'][0]['id']}"
     assert env.s.mods_state()["configured"] == 1
 
