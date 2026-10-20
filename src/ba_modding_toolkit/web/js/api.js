@@ -68,6 +68,7 @@ export function waitJob(id, onProgress) {
       if (settled) return;
       try {
         const job = await rpc("jobs.get", { id });
+        if (job.progress) onProgress?.(job.progress);
         if (job.state === "done") return finish(resolve, job.result);
         if (job.state === "failed") return finish(reject, new RpcError(job.error?.code || "internal", job.error?.params || {}));
       } catch { /* try again */ }

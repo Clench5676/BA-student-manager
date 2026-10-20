@@ -126,3 +126,51 @@ def test_withdrawn_consent_drops_what_was_requested():
     assert scanner.wait_idle(5)
     assert len(fake.calls) == 1 and fake.done[0][0] is None
     scanner.stop()
+
+
+def test_scoped_requests_coalesce_and_full_requests_take_precedence():
+    calls = []
+    gate = threading.Event()
+
+    def scan(cancel, dismissed, cores=None):
+        calls.append(cores)
+        gate.wait(5)
+        return SimpleNamespace(stale=False, entries=[], counts={})
+
+    scanner = Scanner(scan, allowed=lambda: True)
+    try:
+        scanner.request(cores={'a_spr'})
+        assert wait_for(lambda: len(calls) == 1)
+        scanner.request(cores={'b_spr'})
+        scanner.request(cores={'c_home'})
+        gate.set()
+        assert scanner.wait_idle(5)
+        assert calls == [{'a_spr'}, {'b_spr', 'c_home'}]
+        gate.clear()
+        scanner.request(cores={'d_spr'})
+        assert wait_for(lambda: len(calls) == 3)
+        scanner.request(cores={'e_spr'})
+        scanner.request()
+        scanner.request(cores={'f_home'})
+        gate.set()
+        assert scanner.wait_idle(5)
+        assert calls[3] is None
+    finally:
+        gate.set()
+        scanner.stop()
+
+
+def test_a_dismissed_request_widens_the_scan_to_everything():
+    calls = []
+
+    def scan(cancel, dismissed, cores=None):
+        calls.append((dismissed, cores))
+        return SimpleNamespace(stale=False, entries=[], counts={})
+
+    scanner = Scanner(scan, allowed=lambda: True)
+    try:
+        scanner.request(cores={'a_spr'}, dismissed=True)
+        assert scanner.wait_idle(5)
+        assert calls == [(True, None)]
+    finally:
+        scanner.stop()

@@ -12,6 +12,7 @@ import * as Prompts from "./prompts.js";
 import * as Roster from "./roster.js";
 import * as Settings from "./settings.js";
 import * as Update from "./update.js";
+import * as ModAdd from "./mod-add.js";
 import { on, rpc, spinePrefix } from "./api.js";
 import { L, T, setStrings } from "./i18n.js";
 import { neighbour, visit } from "./roster-order.js";
@@ -76,7 +77,7 @@ async function variantNames() {
 let heldChange, changeTimer = null, changeRoute = 0;
 function libraryChanged(data) {
   const change = data && Array.isArray(data.cores) ? { cores: data.cores } : null;
-  if (change && !change.cores.length) return; // a job that switched nothing the page shows (a prune, a judging)
+  if (change && !change.cores.length && !data.mods) return;
   for (const core of change?.cores || []) forget(spinePrefix(/_spr$/i.test(core) ? "spr" : "lobby", core));
   ctx.invalidateRoster();
   heldChange = heldChange === undefined ? change : heldChange === null || change === null ? null
@@ -295,13 +296,17 @@ async function start() {
   // the Enable Mods switch in the top bar, and what the writer jobs switched
   await ModSwitch.init({ names: variantNames }).catch((err) => console.error("mod switch", err));
   Prompts.init({ names: variantNames });
+  ModAdd.init({ names: variantNames, changed: ctx.invalidateRoster, go: (key) => {
+    const family = rosterData?.families.find((f) => f.variants.some((v) => v.key === key));
+    if (family) ctx.go(family.key, key);
+  } });
   on("library.changed", libraryChanged);
   watchFront();
   // files dropped on the window are added to the library
   on("drop", async ({ paths }) => {
     try {
-      const added = await rpc("mods.add", { paths });
-      toast(added.length ? `${T("popup.add")} ${added.length}` : T("drop.hint"));
+      const added = await ModAdd.add(paths);
+      if (!added.length) toast(T("drop.hint"));
       ctx.invalidateRoster();
       route();
     } catch (err) {

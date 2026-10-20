@@ -126,7 +126,7 @@ class Env:
 
 
 @pytest.fixture
-def env(tmp_path, monkeypatch):
+def env(tmp_path, monkeypatch, header_only_bundles):
     from ba_modding_toolkit.i18n import i18n_manager
 
     monkeypatch.setattr(i18n_manager, "lang", "en-US")  # the install labels' language
@@ -865,3 +865,66 @@ def test_a_second_start_brings_the_first_window_to_the_front_and_exits(tmp_path,
         webui_main.main(["--serve"])  # a dev server refuses to start
     assert exit_.value.code == 1 and raised == [tmp_path]
     held.release()
+
+
+def test_background_add_is_a_writer_with_durable_file_progress_and_no_game_rescan(env, monkeypatch):
+    path = make_mod(env.spr, env.tmp / 'picker')
+    env.s.library
+    assert env.s.jobs.wait(env.s._prune_job, 5)
+    assert env.s.scanner.wait_idle(5)
+    monkeypatch.setattr(env.s.scanner, 'request', lambda **kw: pytest.fail('an import must not rescan game files'))
+    job = env.job('mods.add', paths=[str(path)], background=True)
+    assert job.state == 'done' and job.writes == 'library'
+    assert [(m['target'], m['kind']) for m in job.result] == [('test', 'spr')]
+    assert job.to_json()['progress'] == {'id': job.id, 'current': 1, 'total': 1, 'label': path.name}
+    changed = events_named(env.drain(), 'library.changed')
+    assert changed[-1] == {'cores': [], 'kinds': [], 'mods': True}
+
+
+def test_switch_rescans_only_changed_cores_and_preserves_other_snapshot_entries(env, monkeypatch):
+    env.s.set_scan_consent(True)
+    assert env.s.scanner.wait_idle(5)
+    other = game_bundle(env.game, 'other_spr')
+    keep = other.with_name(other.name + '.backup')
+    keep.write_bytes(other.read_bytes())
+    other.write_bytes(header_bundle(b'outside mod') + b'crc!')
+    env.s.request_scan()
+    assert env.s.scanner.wait_idle(5)
+    before = {(e.install, e.core): e for e in env.s.snapshot.entries()}
+    assert (env.key(), 'other_spr') in before
+    scopes = []
+    scan = env.s.library.scan
+
+    def measured(*args, **kwargs):
+        scopes.append(kwargs.get('cores'))
+        return scan(*args, **kwargs)
+
+    monkeypatch.setattr(env.s.library, 'scan', measured)
+    mod = env.add(env.spr)
+    job = env.job('actions.apply', variant='test', source=f'mod:{mod.id}')
+    assert job.state == 'done'
+    assert env.s.scanner.wait_idle(5)
+    assert scopes == [{'test_spr'}]
+    after = {(e.install, e.core): e for e in env.s.snapshot.entries()}
+    assert after[(env.key(), 'other_spr')] == before[(env.key(), 'other_spr')]
+    assert after[(env.key(), 'test_spr')].configured == f'mod:{mod.id}'
+
+
+def test_unchanged_apply_rescans_only_the_variants_cores(env, monkeypatch):
+    env.s.set_scan_consent(True)
+    assert env.s.scanner.wait_idle(5)
+    mod = env.add(env.spr)
+    assert env.job('actions.apply', variant='test', source=f'mod:{mod.id}').state == 'done'
+    assert env.s.scanner.wait_idle(5)
+    scopes = []
+    scan = env.s.library.scan
+
+    def measured(*args, **kwargs):
+        scopes.append(kwargs.get('cores'))
+        return scan(*args, **kwargs)
+
+    monkeypatch.setattr(env.s.library, 'scan', measured)
+    job = env.job('actions.apply', variant='test', source=f'mod:{mod.id}')
+    assert job.state == 'done' and job.result['unchanged']
+    assert env.s.scanner.wait_idle(5)
+    assert scopes == [{'test_spr'}]

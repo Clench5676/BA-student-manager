@@ -11,6 +11,7 @@
 // portrait) prepares every part off screen and swaps all of them in one frame (the commit barrier below).
 import * as NGUI from "./ngui.js";
 import * as Loading from "./loading.js";
+import * as ModAdd from "./mod-add.js";
 import * as Lobby from "./lobby.js";
 import * as Visual from "./visual-mode.js";
 import { QUEUEABLE, current as modsState, entryLabel, refused } from "./mod-switch.js";
@@ -518,7 +519,7 @@ async function toggleFav() {
   renderAll();
 }
 async function addMods() {
-  const added = await call(() => rpc("mods.pick"));
+  const added = await call(() => ModAdd.add());
   if (added?.length) { await reload(); ctx.invalidateRoster(); }
 }
 
@@ -528,12 +529,12 @@ async function addMods() {
 async function job(method, params, { onDone, after = reload } = {}) {
   if (busy) { toast(T("error.busy"), { kind: "error" }); return false; }
   busy = true;
-  let ok = false;
+  let ok = false, result = null;
   renderScreen();
   toast(T("job.running"), { sticky: true });
   try {
     const id = await rpc(method, params);
-    const result = await waitJob(id, (p) => toast(`${T("job.running")} ${p.current}/${p.total}`, { sticky: true }));
+    result = await waitJob(id, (p) => toast(`${T("job.running")} ${p.current}/${p.total}`, { sticky: true }));
     toast(result?.deferred ? T("mods.saved") : T("job.done"));
     ok = true;
     await onDone?.(result);
@@ -546,7 +547,7 @@ async function job(method, params, { onDone, after = reload } = {}) {
     else toast(errorText(err), { kind: "error", sticky: false });
   } finally {
     busy = false;
-    await after(ok);
+    await after(ok, result);
   }
   // game files that changed while the job ran (another job before it, the tray): read again once its own reload is in
   resumeChanged();
@@ -579,11 +580,18 @@ async function runCompare() {
 async function applyCandidate(key, kind = "spr") {
   const v = variant();
   await job("actions.apply", { variant: v.key, source: sourceOf(key), kind }, {
-    onDone: () => { forget(kind === "lobby" ? spineBase("lobby", v.lobby) : spineBase("spr", v.spr)); },
+    onDone: (result) => {
+      if (result?.files?.length) forget(kind === "lobby" ? spineBase("lobby", v.lobby) : spineBase("spr", v.spr));
+    },
     // the applied portrait or lobby swaps in with the rest of the screen; the old one shows until then
-    after: (ok) => {
+    after: async (ok, result) => {
       if (!ok) return reload();
       ctx.invalidateRoster();
+      if (result?.unchanged) {
+        const data = await call(() => rpc("family.get", { key: fam.key }));
+        if (data) fam = data;
+        return renderAll();
+      }
       if (kind === "lobby") {
         // lobby.js keeps a lobby by its core: read the game files again, under a still of the old one
         lobbyStale = true;

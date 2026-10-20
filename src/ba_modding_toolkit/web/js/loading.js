@@ -46,6 +46,34 @@ export function relabel() {
 export const active = () => !!overlay && !overlay.closing;
 export const covering = () => active() && overlay.mode === "full";
 
+// A writer task stays visible until it settles. Progress survives the sprite upgrade and
+// belongs to this task only, so a late callback cannot change a newer screen's indicator.
+export async function task(run) {
+  const my = ++gen;
+  const o = active() ? overlay : open("indicator");
+  o.el.classList.add("with-progress");
+  const detail = document.createElement("div");
+  detail.className = "loading-progress";
+  o.progress?.remove();
+  o.progress = detail;
+  o.el.appendChild(detail);
+  const update = ({ label: text = T("popup.add"), current = 0, total = 0 } = {}) => {
+    if (my !== gen || o !== overlay) return;
+    detail.textContent = total ? `${text} ${current}/${total}` : text;
+    o.el.setAttribute("aria-label", detail.textContent);
+  };
+  update();
+  decorate(o);
+  try { return await run(update); }
+  finally {
+    detail.remove();
+    if (my === gen && o === overlay && !o.closing) {
+      o.el.classList.remove("with-progress");
+      await close(o);
+    }
+  }
+}
+
 // --- the overlay ---
 
 const nowLoading = () => { const s = T("loading.now"); return s === "loading.now" ? "" : s; };

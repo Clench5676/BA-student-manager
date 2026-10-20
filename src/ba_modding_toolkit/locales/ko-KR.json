@@ -1141,7 +1141,9 @@
 			"profiles_unreadable": "모드 설정을 읽을 수 없음: {file}",
 			"not_enough_space": "공간 부족: 필요 {need}, 여유 {free}",
 			"mod_last_copy": "게임에서 사용 중인 파일의 유일한 사본: {file}",
-			"scan_off": "파일 검사 꺼짐"
+			"scan_off": "파일 검사 꺼짐",
+			"mod_target_unknown": "Mod의 대상 학생 및 버전을 확인할 수 없습니다: {file}",
+			"mod_target_ambiguous": "Mod 대상 충돌: {file}"
 		},
 		"drop": {
 			"hint": "모드 파일을 끌어다 놓아 추가"
@@ -1270,6 +1272,12 @@
 			"added": "추가됨",
 			"removed": "삭제됨",
 			"none": "게임 파일과 같음"
+		},
+		"add": {
+			"belongs": "{name}의 Mod 추가 완료",
+			"part": "{name}, {kind}, 추가 완료",
+			"go": "이동",
+			"stay": "현재 화면 유지"
 		}
 	}
 }

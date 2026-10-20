@@ -1141,7 +1141,9 @@
 			"profiles_unreadable": "无法读取 Mod 设置：{file}",
 			"not_enough_space": "空间不足：需要 {need}，可用 {free}",
 			"mod_last_copy": "游戏仍在使用的文件的唯一副本：{file}",
-			"scan_off": "文件检查已关闭"
+			"scan_off": "文件检查已关闭",
+			"mod_target_unknown": "无法识别该 Mod 所属的学生及版本：{file}",
+			"mod_target_ambiguous": "Mod 内含相互冲突的目标：{file}"
 		},
 		"drop": {
 			"hint": "拖入 Mod 文件以添加"
@@ -1270,6 +1272,12 @@
 			"added": "新增",
 			"removed": "移除",
 			"none": "与游戏文件相同"
+		},
+		"add": {
+			"belongs": "该 Mod 属于 {name}，已添加",
+			"part": "{name}，{kind}，已添加",
+			"go": "前往",
+			"stay": "留在此处"
 		}
 	}
 }

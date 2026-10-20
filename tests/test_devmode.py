@@ -475,6 +475,7 @@ def _switch_env(game_dir: Path, data: Path, monkeypatch):
     from ba_modding_toolkit.bundle import Bundle
     from ba_modding_toolkit.library import ModLibrary, safety
 
+    monkeypatch.setattr("ba_modding_toolkit.library.identity.content_cores", lambda path: set())
     official = _header_bundle(b"official")
     name = ("assets-_mx-spinecharacters-test_spr-_mxdependency-2026-01-01_003_assets_all_"
             f"{utils.CRCUtils.compute_crc32(official)}.bundle")

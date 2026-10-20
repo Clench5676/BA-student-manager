@@ -220,7 +220,7 @@ class World:
 
 
 @pytest.fixture
-def world(tmp_path, monkeypatch):
+def world(tmp_path, monkeypatch, header_only_bundles):
     monkeypatch.setattr(safety, "check_game_not_running", lambda: None)
     monkeypatch.setattr(Bundle, "check_need_crc", lambda *args, **kwargs: False)
     return World(tmp_path)
@@ -552,7 +552,7 @@ def test_an_off_keeps_built_copies_and_on_writes_them_back_without_the_installer
     assert built["source"] == f"mod:{mod.id}" and list(built["parts"]) == [world.spr.name]  # the modded part only
     assert built["parts"][world.spr.name]["mod_file"] is None
     assert (world.root / "built" / f"{sha1}.bundle").read_bytes() == rebuilt
-    assert world.library.status()["builtSize"] == len(rebuilt)
+    assert world.library.status()["builtSize"] == sum(p.stat().st_size for p in (world.root / "built").rglob("*.bundle"))
     no_installer(monkeypatch)
     world.toggle(True)
     assert world.spr.read_bytes() == rebuilt and atlas.read_bytes() == header_bundle(b"skeleton")
@@ -586,7 +586,7 @@ def test_a_built_copy_whose_bytes_changed_is_dropped_and_rebuilt(world, monkeypa
     world.library.apply("test", f"mod:{mod.id}")
     rebuilt = world.spr.read_bytes()
     world.toggle(False)
-    copy, = (world.root / "built").iterdir()
+    copy, = (world.root / "built").glob("*.bundle")
     copy.write_bytes(b"damaged copy")
     world.toggle(True)
     assert world.spr.read_bytes() == rebuilt
@@ -610,7 +610,7 @@ def test_clear_built_mods_keeps_keys_of_mod_files(world, monkeypatch):
     world.toggle(True)
     assert lobby.read_bytes() == home.file.read_bytes()
     status = world.library.status()
-    assert status["builtSize"] == 0 and status["originalsSize"] > 0
+    assert status["builtSize"] > 0 and status["originalsSize"] > 0  # the rebuilt portrait is reusable
 
 
 def test_clear_built_mods_keeps_another_instances_copy_in_progress(world, monkeypatch):
@@ -620,7 +620,7 @@ def test_clear_built_mods_keeps_another_instances_copy_in_progress(world, monkey
     world.toggle(False)
     directory = world.root / "built"
     (directory / "unreferenced.bundle").write_bytes(b"unreferenced")
-    freed = sum(path.stat().st_size for path in directory.glob("*.bundle"))
+    freed = sum(path.stat().st_size for path in directory.rglob("*.bundle"))
     temporary = directory / ".library-in-progress"
     temporary.write_bytes(b"copy in progress")
     stale = directory / ".library-abandoned"
@@ -2069,7 +2069,7 @@ def test_two_installs_share_one_built_file_until_both_drop_it(world, monkeypatch
     world.library.apply("test", f"mod:{mod.id}")
     world.library.apply("test", f"mod:{mod.id}", pin=pin_of(world, folder))
     world.toggle(False)
-    built = list((world.root / "built").iterdir())
+    built = list((world.root / "built").glob("*.bundle"))
     assert len(built) == 1
     world.toggle(True)
     world.library.restore("test")  # the first install's configuration goes
@@ -2159,7 +2159,7 @@ def test_a_built_key_keeps_its_file_when_another_instance_drops_the_last_referen
     assert world.folder()["built"] == {}
     if when == "before_recovery":
         assert world.folder(folder)["built"] == {}
-        assert not list(built.parent.iterdir())
+        assert not list(built.parent.glob("*.bundle"))
     else:
         assert world.folder(folder)["built"]["test_spr"]["parts"][world.spr.name] == part
         assert built.read_bytes() == expected
@@ -2170,7 +2170,7 @@ def test_a_game_update_drops_the_built_copy_and_on_rebuilds(world, monkeypatch):
     rebuilding_installer(monkeypatch)
     world.library.apply("test", f"mod:{mod.id}")
     world.toggle(False)
-    copy, = (world.root / "built").iterdir()
+    copy, = (world.root / "built").glob("*.bundle")
     successor = game_update(world.spr)
     world.reload()
     world.library.prune()
@@ -2187,7 +2187,7 @@ def test_a_game_update_keeps_a_built_file_another_install_still_uses(world, monk
     world.library.apply("test", f"mod:{mod.id}")
     world.library.apply("test", f"mod:{mod.id}", pin=pin_of(world, folder))
     world.toggle(False)
-    copy, = (world.root / "built").iterdir()
+    copy, = (world.root / "built").glob("*.bundle")
     game_update(world.spr)
     world.reload()
     world.library.prune()
@@ -2205,7 +2205,7 @@ def test_a_built_copy_goes_with_a_configuration_the_scan_drops(world, monkeypatc
     rebuilding_installer(monkeypatch)
     world.library.apply("test", f"mod:{mod.id}")
     world.toggle(False)
-    copy, = (world.root / "built").iterdir()
+    copy, = (world.root / "built").glob("*.bundle")
     data = json.loads((world.root / "state.json").read_text())
     data["mods"] = []
     (world.root / "state.json").write_text(json.dumps(data))
@@ -2221,7 +2221,7 @@ def test_a_built_copy_goes_with_a_configuration_the_scan_takes_over(world, monke
     world.library.apply("test", f"mod:{first.id}")
     world.toggle(False)
     world.toggle(True)  # written back from its built copy, which stays
-    copy, = (world.root / "built").iterdir()
+    copy, = (world.root / "built").glob("*.bundle")
     # an alpha.3 instance, which keeps no built copies, wrote the other mod after
     world.spr.write_bytes(second.file.read_bytes())
     path, stat = world.root / "state.json", world.spr.stat()
@@ -2240,14 +2240,14 @@ def test_a_replaced_built_copy_leaves_no_file_behind(world, monkeypatch):
     rebuilding_installer(monkeypatch)
     world.library.apply("test", f"mod:{mod.id}")
     stale = world.root / "built" / f"{'0' * 40}.bundle"
-    stale.parent.mkdir(parents=True)
+    stale.parent.mkdir(parents=True, exist_ok=True)
     stale.write_bytes(b"an earlier build")
     world.library.profiles.update(lambda data: data["folders"][world.key()]["built"].update(
         test_spr={"source": f"mod:{mod.id}", "inputs": [], "parts": {world.spr.name: {"sha1": "0" * 40,
                                                                                       "mod_file": None}}}))
     world.toggle(False)  # the Off keeps the bytes it found, replacing the key
     assert world.folder()["built"]["test_spr"]["parts"][world.spr.name]["sha1"] != "0" * 40
-    assert not stale.exists() and len(list((world.root / "built").iterdir())) == 1
+    assert not stale.exists() and len(list((world.root / "built").glob("*.bundle"))) == 1
 
 
 def test_adopting_over_a_kept_built_copy_leaves_no_file_behind(world, monkeypatch):
@@ -2257,7 +2257,7 @@ def test_adopting_over_a_kept_built_copy_leaves_no_file_behind(world, monkeypatc
     world.library.apply("test", f"mod:{mod.id}")
     world.toggle(False)
     world.toggle(True)
-    copy, = (world.root / "built").iterdir()
+    copy, = (world.root / "built").glob("*.bundle")
     outside_mod(world.spr)  # another tool's mod over it
     world.library.adopt([{"install": world.key(), "core": "test_spr"}])
     assert world.folder()["configured"]["test_spr"]["source"] != f"mod:{mod.id}"
@@ -2271,7 +2271,7 @@ def test_a_key_kept_as_mod_files_never_holds_a_built_file(world, monkeypatch):
     rebuilding_installer(monkeypatch)
     world.library.apply("test", f"mod:{mod.id}")
     world.toggle(False)
-    copy, = (world.root / "built").iterdir()
+    copy, = (world.root / "built").glob("*.bundle")
     world.spr.write_bytes(copy.read_bytes())  # the same bytes written back from outside
     world.reload()
     world.library.adopt([{"install": world.key(), "core": "test_spr"}])

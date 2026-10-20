@@ -106,6 +106,26 @@ class Catalog:
         with self._lock:
             return copy.deepcopy(self._get()[2].get(core.lower()))
 
+    def variant_for_asset_core(self, core: str) -> Variant | None:
+        """Resolve internal Spine names too: assets can retain a dev name or character ID while their installed
+        bundle uses the variant's file ID. Direct file IDs take precedence over shared dev aliases."""
+        with self._lock:
+            _, variants, cores = self._get()
+            lower = core.lower()
+            if lower in cores:
+                return copy.deepcopy(cores[lower])
+            suffix = next((s for s in sorted(("_spr", *HOME_SUFFIXES), key=len, reverse=True)
+                           if lower.endswith(s)), None)
+            if suffix is None:
+                return None
+            stem = lower[:-len(suffix)]
+            entries, _, _ = self._metadata()
+            if stem in entries:
+                return copy.deepcopy(variants.get(stem))
+            matches = [variants[key] for key, entry in entries.items() if key in variants
+                       and stem in (alias.lower() for alias in entry.get("core_aliases", []))]
+            return copy.deepcopy(matches[0]) if len(matches) == 1 else None
+
     def core_map(self, spr_cores: Iterable[str], lobby_cores: Iterable[str]) -> CoreMap:
         """Map an install's portrait and memorial lobby cores to variant keys by the roster's own rules, for any
         install (the snapshot maps only the current one's). A portrait core's key is the core less "_spr"; a lobby

@@ -334,6 +334,11 @@ input[type="text"], input[type="search"], textarea { cursor: text; }
 .loading-plain { position: absolute; right: 84px; bottom: 44px; display: flex; align-items: flex-end; gap: 9px; color: #fff;
   font: var(--w) 44px/1 var(--font); letter-spacing: 1px; text-shadow: 0 2px 4px rgba(10, 30, 60, .6); }
 .loading-plain span { margin-right: 4px; }
+.loading.indicator.with-progress .loading-plain { right: auto; left: 84px; }
+.loading.indicator.with-progress .loading-ind { transform: translateX(-1280px); background: none; }
+.loading-progress { position: absolute; left: 84px; bottom: 132px; max-width: 1000px; padding: 8px 16px;
+  color: #fff; background: rgba(10, 24, 44, .8); border-radius: 8px; font-size: 26px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; pointer-events: none; }
 .loading-plain i { width: 11px; height: 11px; margin-bottom: 5px; border-radius: 50%; background: #fff; animation: ld-dot0 1.1667s ease-in-out infinite; }
 .loading-plain i:nth-of-type(2) { animation-name: ld-dot1; }
 .loading-plain i:nth-of-type(3) { animation-name: ld-dot2; }

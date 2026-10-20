@@ -142,6 +142,8 @@ def _now() -> str:
 
 def _changed_of(result: Any) -> dict[str, list[str]]:
     """``library.changed``'s data for a job's result: the cores and kinds it switched or added."""
+    if isinstance(result, list) and any(isinstance(m, dict) and "target" in m for m in result):
+        return {"cores": [], "kinds": [], "mods": True}
     cores, kinds = getattr(result, "cores", None), getattr(result, "kinds", None)
     if cores is not None and kinds is not None:
         return {"cores": sorted(cores), "kinds": sorted(kinds)}
@@ -440,12 +442,27 @@ class Services:
     def request_scan(self, dismissed: bool = False) -> int | None:
         return self.scanner.request(dismissed)
 
-    def _scan(self, cancel: Callable[[], bool], dismissed: bool) -> Any:
+    def _scan(self, cancel: Callable[[], bool], dismissed: bool, cores: set[str] | None = None) -> Any:
         """One scan over every known install, on the scanner's thread. The start scan waits for the prune job."""
         if self._prune_job is not None:
             self.jobs.wait(self._prune_job, PRUNE_WAIT)
         library = self.library
-        return library.scan(library.installs(), cancel, include_dismissed=dismissed)
+        start = time.perf_counter()
+        result = library.scan(library.installs(), cancel, include_dismissed=dismissed, cores=cores)
+        if cores is not None and not result.stale:
+            from dataclasses import replace
+
+            entries = [e for e in self.snapshot.entries() if e.core not in cores] + list(result.entries)
+            counts = {}
+            for entry in entries:
+                count = counts.setdefault(entry.install, {})
+                name = "stuck" if entry.state == "pending" and entry.overwritten else entry.state
+                count[name] = count.get(name, 0) + 1
+                if entry.configured:
+                    count["configured"] = count.get("configured", 0) + 1
+            result = replace(result, entries=entries, counts=counts)
+        logger.debug("Scanned %s cores in %.3f s", "all" if cores is None else len(cores), time.perf_counter() - start)
+        return result
 
     def _scanned(self, result: Any, served: int) -> None:
         if result is not None:
@@ -502,8 +519,21 @@ class Services:
         self.refresh_status(library)
         # a failed job may have switched some entries (a toggle stopped midway): everything is read again
         self.events.publish("library.changed", None if failed else _changed_of(result))
-        if kind not in ("library.prune", "library.judge"):  # a scan follows those already (the start, a poll)
-            self.scanner.request()
+        if kind not in ("library.prune", "library.judge", "mods.add"):
+            changed = _changed_of(result)
+            cores = set(changed["cores"]) if not failed and kind in ("apply", "restore") else None
+            variant = getattr(result, "variant", None)
+            if cores is not None and not cores and variant:
+                # nothing written (unchanged or deferred): only the configuration of the variant's cores changed
+                try:
+                    cores = library.variant_cores(variant)
+                except Exception:
+                    logger.exception("variant cores not read")
+                    cores = None
+            if self.scanner.running:
+                cores = None  # a preceding scan may become stale while this job writes
+            # Without a complete snapshot a full scan still establishes the initial state.
+            self.scanner.request(cores=cores if cores and self.snapshot.scanned() else None)
 
     def _job_finished(self, job: Any) -> None:
         # the end of a writer job: mods.state again, with the job no longer busy (a toggle's end)

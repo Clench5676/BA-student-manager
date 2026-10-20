@@ -9,12 +9,12 @@ import os
 import shutil
 import tempfile
 import threading
+import zlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from ..bundle import Bundle
-from ..utils import CRCUtils
 
 logger = logging.getLogger(__name__)
 
@@ -79,9 +79,12 @@ class Fingerprints:
             cached = self._values.get(path)
         if cached and cached[0] == signature:
             return cached[1]
+        sha1, crc = hashlib.sha1(), 0
         with path.open("rb") as stream:
-            sha1 = hashlib.file_digest(stream, "sha1").hexdigest()
-        value = Fingerprint(sha1, CRCUtils.compute_crc32(path), Bundle.get_trailing_bytes(path), stat.st_size)
+            while block := stream.read(1024 * 1024):
+                sha1.update(block)
+                crc = zlib.crc32(block, crc)
+        value = Fingerprint(sha1.hexdigest(), crc, Bundle.get_trailing_bytes(path), stat.st_size)
         with self._lock:
             self._values[path] = (signature, value)
         return value

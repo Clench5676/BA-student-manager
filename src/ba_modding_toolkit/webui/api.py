@@ -493,22 +493,29 @@ def build_api(s: Services) -> RpcRegistry:
     # --- mods ---
 
     @rpc.method("mods.add")
-    def mods_add(paths: list[str]) -> list[Any]:
+    def mods_add(paths: list[str], background: bool = False) -> Any:
         # dev mode: refused before the library is built (ModLibrary.add checks again)
         for p in paths:
             devmode.check_read(Path(p))
+        if background:
+            library = s.library
+
+            def add(log: Any, progress: Any) -> list[dict]:
+                return [entry.to_json() for entry in library.add([Path(p) for p in paths], progress=progress)]
+
+            return s.submit("mods.add", add, writes="library", library=library)
         added = s.library.add([Path(p) for p in paths])
-        s.events.publish("library.changed")
+        s.events.publish("library.changed", {"cores": [], "kinds": [], "mods": True})
         return added
 
     @rpc.method("mods.pick")
-    def mods_pick() -> list[Any]:
+    def mods_pick(background: bool = False) -> Any:
         if s.window is None:
             raise ServiceError("native_unavailable")
         from .native import pick_files
 
         paths = pick_files(s.window, ("Bundle (*.bundle;*.backup)",))
-        return mods_add([str(p) for p in paths]) if paths else []
+        return mods_add([str(p) for p in paths], background) if paths else []
 
     @rpc.method("mods.remove")
     def mods_remove(id: str, confirm: bool = False) -> dict[str, Any]:
