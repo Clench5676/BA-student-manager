@@ -33,6 +33,8 @@ class El {
     }
   }
   querySelectorAll(selector) {
+    if (selector === ".lobby-view .lobby-layer:not(.lobby-off) canvas") return walk(this)
+      .filter((n) => n.classList.contains("lobby-layer") && !n.classList.contains("lobby-off")).flatMap((n) => n.querySelectorAll("canvas"));
     const match = (n) => selector === "*" ? true : selector.startsWith(".") ? n.classList.contains(selector.slice(1)) : n.tagName === selector.toUpperCase();
     return walk(this).slice(1).filter(match);
   }
@@ -48,7 +50,9 @@ class El {
     return { font: "", measureText(s) {
       const fs = parseFloat(/([\d.]+)px/.exec(this.font)?.[1] || 10);
       return { width: [...s].reduce((w, c) => w + (/[\u2e80-\u9fff\u3000-\u303f\uff00-\uffef\uac00-\ud7af]/.test(c) ? fs : fs / 2), 0) };
-    }, drawImage() {}, fillRect() {}, clearRect() {} };
+    }, drawImage() {}, fillRect() {}, clearRect() {}, getImageData(_x, _y, width, height) {
+      return { width, height, data: new Uint8ClampedArray(Array.from({ length: width * height }, () => [20, 40, 60, 255]).flat()) };
+    } };
   }
   toBlob(fn) { fn(new Blob()); }
 }
@@ -89,7 +93,26 @@ globalThis.Image = class {
   }
 };
 const playerRequests = [], previewPlayers = [];
-globalThis.spine = { Vector2: class {}, Physics: { update: 1 }, SpinePlayer: class {
+class RegionAttachment {
+  region = {}; color = { a: 1 };
+  computeWorldVertices(_slot, vertices) { vertices.set([-4000, -2000, 4000, -2000, 4000, 3000, -4000, 3000]); }
+}
+class Skeleton {
+  constructor(data) {
+    this.data = data; this.color = { a: 1 };
+    this.drawOrder = [{ getAttachment: () => new RegionAttachment(), bone: { active: true }, data: { blendMode: 0 }, color: { a: 1 } }];
+  }
+  setToSetupPose() {} updateWorldTransform() {} findBone() { return null; }
+}
+class AnimationState {
+  constructor(data) { this.data = data; }
+  setAnimation(_track, name) { return this.entry = { animation: { name } }; }
+  setEmptyAnimation() { return this.setAnimation(0, "<empty>"); }
+  getCurrent() { return this.entry; }
+  update() {} apply() {} clearTracks() { this.entry = null; }
+}
+globalThis.spine = { Vector2: class {}, Physics: { update: 1 }, RegionAttachment, MeshAttachment: class {}, Skeleton,
+  AnimationState, AnimationStateData: class { constructor(data) { this.skeletonData = data; } }, BlendMode: { Normal: 0 }, SpinePlayer: class {
   constructor(el, config) {
     assert.equal(config.premultipliedAlpha, false, "portraits and thumbnails retain the 0.2.0 PMA flag");
     playerRequests.push(config.skeleton);
@@ -106,6 +129,12 @@ globalThis.spine = { Vector2: class {}, Physics: { update: 1 }, SpinePlayer: cla
       getBounds: (offset, size) => { Object.assign(offset, { x: 0, y: 0 }); Object.assign(size, { x: 800, y: 1600 }); },
     };
     this.animationState = { setAnimation: () => ({ animation: {} }), setEmptyAnimation: () => ({ animation: {} }), addEmptyAnimation() {}, clearTracks() {}, apply() {} };
+    if (playerMode === "lobby-ready" && el.className === "lobby-layer") {
+      this.skeleton.data.findBone = () => null;
+      this.skeleton = new Skeleton(this.skeleton.data);
+      this.animationState = new AnimationState({ skeletonData: this.skeleton.data });
+      this.canvas = el.appendChild(new El("canvas"));
+    }
     this.setViewport = () => {};
     if (el.className === "thumb-player") {
       thumbnailPlayers.push(this);
@@ -138,6 +167,7 @@ function add(path, root = list) {
 const INFO = "RightInfo/Target/Active/1_NormalInfo", PLATE = "LeftInfo/CharInfo/Char_Target";
 for (const path of ["BG", "CharacterPos", "Arrow_L/Left", "Arrow_R/Right", "RightInfo/Target/Active/Bg",
   `${INFO}/Title_Bg/Label_Locale`, `${INFO}/Detail_Btn/Label_Locale`, `${INFO}/Equip`]) add(path);
+add("BG").widgets = [{ texture: "Detail_Background", w_: 2960, h_: 1665, color: "#ffffff/1.00" }];
 for (const tab of ["Tab_1", "Tab_2", "Tab_3"]) for (const state of ["Tab_On", "Tab_Off"]) {
   add(`RightInfo/Target/Active/CharacterTab/${tab}/${state}/Label`);
   add(`RightInfo/Target/Active/CharacterTab/${tab}/${state}/BG`);
@@ -181,6 +211,7 @@ const saveAlias = async ({ id, label }) => {
 };
 let renameReply = saveAlias;
 const textureReplies = [], layoutReplies = [], rpcRequests = [], assetRequests = [];
+const textures = { Detail_Background: "/asset/ui/texture/Detail_Background.png" };
 globalThis.fetch = async (url, opts = {}) => {
   if (url === "/api/rpc") {
     const request = JSON.parse(opts.body), { method } = request;
@@ -200,8 +231,8 @@ globalThis.fetch = async (url, opts = {}) => {
     return reply(atlas, indexMode === "error" ? 500 : 200);
   }
   if (url === "/asset/ui/textures.json") {
-    if (optionalPending) return new Promise((resolve) => textureReplies.push(() => resolve(reply({}))));
-    return reply({});
+    if (optionalPending) return new Promise((resolve) => textureReplies.push(() => resolve(reply(textures))));
+    return reply(textures);
   }
   if (url === "/asset/ui/layout/UICharacterDetail.json") {
     if (layoutMode === "pending") return new Promise((resolve) => layoutReplies.push(() => resolve(reply(detail))));
@@ -1053,4 +1084,40 @@ test("the detail portrait resumes focus and rebuilds after a hidden context loss
     p.canvas.dispatchEvent(new Event("webglcontextrestored")); await flush();
     assert.equal(previewPlayers.length, count + 1, "a disposed portrait cannot restart again");
   } finally { document.hidden = false; Detail.hide(); await flush(); t.mock.timers.reset(); }
+});
+
+for (const background of ["/asset/art/bg/Original_Collection", null]) test(`the portrait switch uses ${background ? "the student's" : "the prefab's"} original artwork under its bust`, async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    family = modFamily(); family.variants[0].bg = background;
+    await showPortrait(t);
+    const bust = walk(hosts.ngui).find((e) => e.dataset.path?.endsWith("Normal/Bust"));
+    assert.equal(bust.style.backgroundImage, `url("${background || textures.Detail_Background}")`);
+    assert.equal(bust.style.backgroundSize, "cover");
+    assert.equal(bust.children.length, 1, "the portrait thumbnail draws above the card artwork");
+    assert.ok(bust.children[0].style.maskImage.includes("#000 70%"));
+    const screen = walk(hosts["ngui-bg"]).find((e) => e.dataset.path?.endsWith("/BG"));
+    assert.equal(screen.style.backgroundImage, bust.style.backgroundImage, "the detail screen and card share the same original image");
+  } finally { Detail.hide(); await flush(); t.mock.timers.reset(); }
+});
+
+for (const core of ["ibuki_home", "arona_workpage_daytime", "np0032_npc"]) test(`the ${core} switch continues its still's colours through the text area`, async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    errors.length = 0; warnings.length = 0; lobbyMode = "ready"; playerMode = "lobby-ready";
+    family = modFamily("lobby");
+    const v = family.variants[0];
+    v.bg = "/asset/art/bg/Portrait_Only";
+    if (core !== "ibuki_home") { v.key = `special:${core}`; v.spr = null; v.lobby = core; }
+    const showing = Detail.show(context, family, v.key); await flush(); await finish(t, showing);
+    if (tabButton(2)) { const switching = tabButton(2).click(); await flush(); await finish(t, switching); }
+    const bust = walk(hosts.ngui).find((e) => e.dataset.path?.endsWith("Normal/Bust"));
+    assert.ok(bust.children[0].style.backgroundImage?.startsWith('url("blob:'), "a generated lobby still fills the thumbnail");
+    assert.ok(bust.style.backgroundImage?.includes("rgb(20.000, 40.000, 60.000)"), `the text area takes the still's edge colours: ${errors.flat().join(" ")}`);
+    assert.ok(bust.style.backgroundImage.includes("rgb(239.000, 243.000, 247.000) 100%"));
+    assert.ok(!bust.style.backgroundImage.includes("Portrait_Only"));
+    const text = walk(hosts.ngui).find((e) => e.className === "switch-text");
+    assert.equal(text.style.color, "#000000");
+    assert.ok(!warnings.some((args) => args[0] === "Switch card colours unavailable"));
+  } finally { Detail.hide(); lobbyMode = "pending"; playerMode = "ready"; await flush(); t.mock.timers.reset(); }
 });

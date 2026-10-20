@@ -230,7 +230,7 @@ const TEXTURES = {
 const clipped = (name, pos, url, win, img, opts = {}) => node(name, pos, [{ clipImage: url, w_: win.w, h_: win.h, pivot: 4, depth: opts.depth ?? 9,
   incline: 10, radius: win.r ?? 20, color: opts.color ?? "#ffffff/1.00", tint: opts.tint, imgSize: "100% 100%", imgPosition: "0 0",
   imgLeft: `${(win.w / 2 + img.dx - img.w / 2) * S}px`, imgTop: `${(win.h / 2 - img.dy - img.h / 2) * S}px`, imgWidth: `${img.w * S}px`, imgHeight: `${img.h * S}px`,
-  imgMask: opts.mask }]);
+  imgMask: opts.mask, imgEdge: opts.edge }]);
 
 // --- row 4 geometry ---
 const ROW4_Y = -552;                       // centre of row 4's visible part (Bg_W4: top -436, 234 tall, shadow below)
@@ -372,7 +372,7 @@ function screenTree() {
         { depth: 10, mask: "linear-gradient(90deg, #000 70%, transparent 98%)" })
       // wider than the window's slanted left edge; the lobby fades out before the labels so their contrast is known
       : clipped("Bust", [1, 6], tab === "model" ? modelShot : lobbyShot, win, { dx: -383 + 216, dy: 0, w: 450, h: 253 },
-        { depth: 10, mask: `linear-gradient(90deg, transparent 0, #000 10%, #000 70%, transparent ${tab === "model" ? 96 : 82}%)` }));
+        { depth: 10, edge: 0.7, mask: `linear-gradient(90deg, transparent 0, #000 10%, #000 70%, transparent ${tab === "model" ? 96 : 82}%)` }));
   // the wrapper holds an enabled (cyan) and a disabled (grey) body and label: the enabled ones while the tab has
   // something to add and switch to (switchKind), else the disabled ones
   const keep = switchKind() ? 1 : 2;
@@ -529,7 +529,8 @@ function addSwitchText(host, view) {
   host.appendChild(box);
   const bust = view.nodes.get(`Inventory_ListControl/${INFO}/Weapon/Equip_1/UIEquipmentCard/Btn_Target/Normal/Bust`);
   const { signal } = thumbnailWork;
-  if (switchKind() && bust?.els[0]) return colourSwitchCard(bust.els[0], box, bust.node.widgets[0], NGUI.load, { signal })
+  const background = variant().bg || layouts.textures[widget(layouts.list, "BG").texture];
+  if (switchKind() && bust?.els[0]) return colourSwitchCard(bust.els[0], box, bust.node.widgets[0], NGUI.load, { signal, kind: tab, background })
     .catch((err) => { if (!signal.aborted) console.warn("Switch card colours unavailable", err); });
 }
 
