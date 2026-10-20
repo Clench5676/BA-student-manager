@@ -1291,6 +1291,7 @@
 			"none": "Same as the game file"
 		},
 		"add": {
+			"done": "Added",
 			"belongs": "Mod for {name} added",
 			"part": "{name}, {kind}, added",
 			"go": "Go to",

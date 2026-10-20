@@ -538,7 +538,7 @@ async function toggleFav() {
 }
 async function addMods() {
   const page = pageToken, address = location.hash;
-  const added = await call(() => ModAdd.add());
+  const added = await call(() => ModAdd.add(null, variant().key));
   if (added?.length) {
     ctx.invalidateRoster();
     if (page === pageToken && open && location.hash === address) await reload();
@@ -1783,6 +1783,9 @@ export async function show(context, familyData, key, { inPlace = false } = {}) {
 
 // a route to a student failed (main.js): a key step waiting for that screen goes on at once
 export function stepFailed() { arrived(); }
+
+// The variant actually shown, including the fallback for a family-only or unavailable-variant route.
+export const currentVariant = () => open && fam ? variant().key : null;
 
 // leaving the screen: stop the players, drop any change being prepared
 export function hide() {

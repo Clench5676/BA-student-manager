@@ -1291,6 +1291,7 @@
 			"none": "게임 파일과 같음"
 		},
 		"add": {
+			"done": "추가 완료",
 			"belongs": "{name}의 Mod 추가 완료",
 			"part": "{name}, {kind}, 추가 완료",
 			"go": "이동",

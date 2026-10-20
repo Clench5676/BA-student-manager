@@ -83,18 +83,22 @@ test("a completed add reloads only the page that opened its picker", async () =>
     const calls = [];
     const env = {
       ctx: { invalidateRoster: () => calls.push("roster") }, reload: async () => calls.push("reload"),
-      call: (fn) => fn(), location: { hash: "#/student/base/base" },
+      call: (fn) => fn(), location: { hash: "#/student/base/base" }, variant: () => ({ key: "base" }),
     };
-    const h = new Function("env", `const { ctx, reload, call, location } = env;
+    const h = new Function("env", `const { ctx, reload, call, location, variant } = env;
       let pageToken = 1, open = true;
-      const ModAdd = { add: async () => {
+      const ModAdd = { add: async (paths, key) => {
+        env.check(paths, key);
         if ("${move}" === "go") location.hash = "#/student/base/dress";
         if ("${move}" === "left") open = false;
         if ("${move}" === "newPage") pageToken++;
         return [{ target: "dress" }];
       } };
       ${addSource}
-      return { addMods };`)(env);
+      return { addMods };`)({ ...env, check: (paths, key) => {
+        assert.equal(paths, null);
+        assert.equal(key, "base", "the selected variant is captured before the picker or job runs");
+      } });
     await h.addMods();
     assert.deepEqual(calls, move === "stay" ? ["roster", "reload"] : ["roster"]);
   }

@@ -330,7 +330,7 @@ async function start() {
   // files dropped on the window are added to the library
   on("drop", async ({ paths }) => {
     try {
-      const added = await ModAdd.add(paths);
+      const added = await ModAdd.add(paths, Detail.currentVariant());
       if (!added.length) toast(T("drop.hint"));
       ctx.invalidateRoster();
       route();

@@ -1291,6 +1291,7 @@
 			"none": "与游戏文件相同"
 		},
 		"add": {
+			"done": "已添加",
 			"belongs": "该 Mod 属于 {name}，已添加",
 			"part": "{name}，{kind}，已添加",
 			"go": "前往",

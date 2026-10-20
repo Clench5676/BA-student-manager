@@ -59,3 +59,14 @@ test("a fitted label's box is at least as wide as the width it was fitted to", (
   fitLabel(wide, "OK", 64, 40, 420);
   assert.equal(wide.w_, 600);
 });
+
+test("add confirmations preserve comma adjacency through fitting and wrapping", () => {
+  document.documentElement.lang = "zh-CN";
+  const text = "\u8be5 Mod \u5c5e\u4e8e \u7231\u4e3d\u4e1d\uff08\u5973\u4ec6\uff09\uff0c\u5df2\u6dfb\u52a0";
+  for (const width of [1460, 700, 450, 300]) {
+    const fitted = fitText(text, 52, 44, width, 4).text;
+    assert.equal(fitted.replace(/\s/g, ""), text.replace(/\s/g, ""));
+    assert.ok(fitted.includes("\uff09\uff0c"));
+    assert.ok(!/[ \t]\uff0c|\uff0c[ \t]/.test(fitted));
+  }
+});

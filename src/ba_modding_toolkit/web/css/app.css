@@ -46,6 +46,9 @@ input[type="text"], input[type="search"], textarea { cursor: text; }
 .screen { position: absolute; inset: 0; }
 .screen[hidden] { display: none; }
 
+/* The shipped font's full-width brackets and commas have blank half-em advances that look like added spaces. */
+.popup-layer:lang(zh-CN) { font-feature-settings: "halt"; }
+
 /* --- top bar (Common_Top_Menu_Bg 9-slice, left 310 keeps the triangle pattern) --- */
 .topbar {
   position: absolute; left: 0; top: 0; width: 100%; height: 64px; display: flex; align-items: center; z-index: 1000;
