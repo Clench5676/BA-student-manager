@@ -179,6 +179,7 @@ globalThis.fetch = async (url, opts = {}) => {
     rpcRequests.push(request);
     if (method === "mods.seen") return reply(await seenReply(request.params));
     if (method === "mods.rename") return reply(await renameReply(request.params));
+    if (method === "aliases.set") return reply({ result: request.params.aliases.map((s) => s.trim()).filter(Boolean) });
     return reply({ result: method === "family.get" ? family : method === "mods.state" ? { enabled: modsEnabled } : null });
   }
   assetRequests.push(url);
@@ -447,14 +448,14 @@ for (const core of ["arona_workpage_daytime", "np0032_npc"]) for (const category
     assert.deepEqual(rpcRequests.filter((r) => r.method === "mods.seen").at(-1).params, { ids: ["special-day"] });
     assert.equal(tabDot(2), undefined); assert.equal(chipDot(v.key), undefined);
     const part = (path) => walk(hosts.popup).find((el) => el.dataset.path === path);
-    assert.equal(part("Details/Name").textContent, "Painted L2D - Repaired");
+    assert.equal(part("Details/Name").getAttribute("aria-label"), "Painted L2D - Repaired");
     assert.equal(part("Card_m:special-day/Tag/Text").textContent, "Repaired");
     assert.ok(walk(hosts.popup).some((el) => el.dataset.action === "alias:details"));
     await walk(hosts.popup).find((el) => el.dataset.action === "alias:m:special-day").click(); await flush();
     assert.equal(aliasInput().value, "Painted L2D - Repaired");
     aliasInput().value = "Evening L2D";
     await finish(t, aliasKey(aliasInput()));
-    assert.equal(part("Details/Name").textContent, "Evening L2D");
+    assert.equal(part("Details/Name").getAttribute("aria-label"), "Evening L2D");
     assert.equal(part("Card_m:special-day/Tag/Text").textContent, "Repaired");
     assert.equal(part("Details/Chip_0/Text/Text").textContent, "Repaired");
     assert.ok(!walk(hosts.popup).some((el) => el.getAttribute("aria-label") === "Remap to current version"));
@@ -590,6 +591,46 @@ const aliasKey = (input, extra = {}) => {
 };
 const aliasInput = () => hosts.dialog.querySelector(".alias-input");
 const currentCell = () => walk(hosts.ngui).find((el) => el.dataset.path?.endsWith(`${INFO}/Status/Label_Life/Data_Widget/Data`) && el.style.fontSize);
+
+test("student aliases lead the existing name band, keep the variant's original, and update on save and clear in every locale", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    for (const lang of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"]) {
+      const ui = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${lang}.json`, import.meta.url), "utf8"));
+      setStrings(lang, flat(ui));
+      family = modFamily(); family.custom = ["My <Ibuki> & friend", "Search nickname"];
+      const original = "Ibuki (Dress) ".repeat(10);
+      family.variants[0].names = { en: { full: original, short: "Dress" } };
+      await showPortrait(t);
+      const part = (name) => walk(hosts.ngui).find((el) => el.dataset.path?.endsWith(`${PLATE}/${name}`) && el.style.fontSize);
+      const main = part("Label_Name"), secondary = part("Label_OriginalName");
+      assert.equal(main.getAttribute("aria-label"), family.custom[0]);
+      assert.equal(secondary.getAttribute("aria-label"), original);
+      assert.ok(parseFloat(main.style.fontSize) > parseFloat(secondary.style.fontSize));
+      const a = NGUI.rect(main), b = NGUI.rect(secondary);
+      assert.ok(a[1] + a[3] <= b[1], "the two name lines do not overlap");
+      assert.equal(secondary.children[0].style.textOverflow, "ellipsis");
+      const pencil = () => walk(hosts.ngui).find((el) => el.tagName === "BUTTON" && el.getAttribute("aria-label")?.startsWith(ui.webui.alias.title));
+      assert.ok(pencil().getAttribute("aria-label").includes("Search nickname"));
+      await pencil().click(); await flush();
+      hosts.popup.querySelectorAll(".alias-input")[0].value = "Changed name";
+      const invalidated = invalidations;
+      await walk(hosts.popup).find((el) => el.dataset.action === "ok").click(); await flush();
+      assert.equal(part("Label_Name").getAttribute("aria-label"), "Changed name");
+      assert.equal(invalidations, invalidated + 1, "roster will reload aliases and name order");
+      await pencil().click(); await flush();
+      for (const input of hosts.popup.querySelectorAll(".alias-input")) input.value = "";
+      await walk(hosts.popup).find((el) => el.dataset.action === "ok").click(); await flush();
+      assert.equal(part("Label_Name").getAttribute("aria-label"), original);
+      assert.equal(part("Label_OriginalName"), undefined);
+      Detail.hide();
+    }
+  } finally {
+    Detail.hide(); t.mock.timers.reset();
+    setStrings("en-US", flat(JSON.parse(readFileSync(new URL("../../src/ba_modding_toolkit/locales/en-US.json", import.meta.url), "utf8"))));
+  }
+});
+
 test("mod aliases save and clear from the current value and both switch pencils in every locale", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   try {
@@ -598,6 +639,8 @@ test("mod aliases save and clear from the current value and both switch pencils 
       setStrings(lang, flat(ui));
       for (const kind of ["spr", "lobby"]) {
         family = modFamily(kind);
+        const core = kind === "spr" ? "ibuki_spr" : "ibuki_home";
+        Object.assign(family.variants[0].modList[0], { core, file: `/mods/test/${core}.bundle` });
         delete family.variants[0][kind === "spr" ? "lobby" : "spr"];
         await showPortrait(t);
         const pencil = walk(hosts.ngui).find((e) => e.dataset.part?.endsWith("/ModAliasBtn"));
@@ -612,19 +655,25 @@ test("mod aliases save and clear from the current value and both switch pencils 
         await finish(t, aliasKey(input));
         assert.equal(hosts.dialog.hidden, true);
         assert.equal(currentCell().getAttribute("aria-label"), input.value);
+        const original = walk(hosts.ngui).find((e) => e.dataset.path?.endsWith("Data_Widget/OriginalName"));
+        assert.equal(original.getAttribute("aria-label"), core);
+        assert.ok(parseFloat(original.style.fontSize) < parseFloat(currentCell().style.fontSize));
         assert.deepEqual(rpcRequests.findLast((r) => r.method === "mods.rename").params, { id: "test", label: input.value });
         await switchButton().click(); await flush();
         const card = walk(hosts.popup).find((e) => e.dataset.action === "alias:m:test");
         const details = walk(hosts.popup).find((e) => e.dataset.action === "alias:details");
         assert.ok(card && details, `${lang} ${kind}: both names have pencils`);
         assert.equal(walk(hosts.popup).filter((e) => e.dataset.action?.startsWith("alias:")).length, 2, "official names have no pencil");
-        assert.equal(walk(hosts.popup).find((e) => e.dataset.path === "Details/Name").textContent, input.value);
+        assert.equal(walk(hosts.popup).find((e) => e.dataset.path === "Details/Name").getAttribute("aria-label"), input.value);
+        assert.equal(walk(hosts.popup).find((e) => e.dataset.path === "Details/OriginalName").getAttribute("aria-label"), core);
         await card.click(); await flush();
         assert.equal(aliasInput().value, input.value);
         aliasInput().value = "";
         await finish(t, aliasKey(aliasInput()));
         assert.equal(currentCell().getAttribute("aria-label"), "test");
-        assert.equal(walk(hosts.popup).find((e) => e.dataset.path === "Details/Name").textContent, "test");
+        assert.ok(!walk(hosts.ngui).some((e) => e.dataset.path?.endsWith("Data_Widget/OriginalName")));
+        assert.equal(walk(hosts.popup).find((e) => e.dataset.path === "Details/Name").getAttribute("aria-label"), "test");
+        assert.ok(!walk(hosts.popup).some((e) => e.dataset.path === "Details/OriginalName"));
         await walk(hosts.popup).find((e) => e.dataset.action === "alias:details").click(); await flush();
         assert.equal(aliasInput().value, "");
         await walk(hosts.dialog).find((e) => e.dataset.action === "cancel").click();
@@ -644,13 +693,14 @@ test("an alias on another variant's mod replaces the entire display name", async
   try {
     family = modFamily();
     const mod = family.variants[0].modList[0];
-    Object.assign(mod, { alias: "Only alias", label: "Original name", target: "dress" });
+    Object.assign(mod, { alias: "Only alias", label: "Original name", core: "ibuki_dress_spr", target: "dress" });
     family.variants.push({ key: "dress", spr: "ibuki_dress_spr", names: { en: { full: "Ibuki Dress", short: "Dress" } }, modList: [] });
     await showPortrait(t);
     await switchButton().click(); await flush();
     const texts = walk(hosts.popup).filter((e) => e.style.fontSize).map((e) => e.textContent || e.children[0]?.textContent);
     assert.ok(texts.includes("Only alias"));
     assert.ok(!texts.some((s) => s?.includes("Dress - Only alias") || s?.includes("Original name")));
+    assert.equal(walk(hosts.popup).find((e) => e.dataset.path === "Details/OriginalName").getAttribute("aria-label"), "ibuki_dress_spr");
     assert.equal(currentCell().getAttribute("aria-label"), "Only alias");
     assert.ok(!walk(hosts["ngui-chips"]).some((e) => e.dataset.path?.endsWith("/ModAliasBtn")), "variant chips show student names");
   } finally { Detail.hide(); t.mock.timers.reset(); }
@@ -675,7 +725,7 @@ test("repaired names and own aliases keep a separate repair tag in every locale"
         assert.equal(currentCell().getAttribute("aria-label"), name);
         await switchButton().click(); await flush();
         const part = (path) => walk(hosts.popup).find((el) => el.dataset.path === path);
-        assert.equal(part("Details/Name").textContent, name);
+        assert.equal(part("Details/Name").getAttribute("aria-label"), name);
         assert.equal(part("Details/Chip_0/Text/Text").textContent, ui.webui.remap.repaired);
         assert.equal(part("Card_m:fixed/Tag/Text").textContent, ui.webui.remap.repaired);
         assert.equal(part("Card_m:fixed/Using/Text").textContent, enabled ? ui.webui.popup.inUse : ui.webui.switch.configured);

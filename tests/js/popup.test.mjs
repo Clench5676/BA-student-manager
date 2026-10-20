@@ -1107,6 +1107,41 @@ test("switch popup fields fit a long file independently in portrait and lobby de
   } finally { prompt.hidden = true; setStrings("en-US", Object.fromEntries(strings(english))); }
 });
 
+test("long mod aliases and original file names share the switch detail name band in every locale", async () => {
+  const NGUI = await import("../../src/ba_modding_toolkit/web/js/ngui.js");
+  try {
+    for (const lang of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"]) {
+      const ui = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${lang}.json`, import.meta.url))).webui;
+      setStrings(lang, Object.fromEntries(strings(ui)));
+      const alias = "Painted <summer> & colors ".repeat(8), original = "ibuki_dress_spr".repeat(16) + ".bundle";
+      await Popup.listPopup({ host: prompt, title: ui.info.title.portrait,
+        items: [{ key: "m", kind: "mod", label: alias, full: alias, original, nameEdit: { label: ui.modAlias.title, fn() {} } }],
+        selected: "m", details: () => ({ title: ui.info.title.portrait, fields: [], actions: [] }) });
+      const part = (name) => walk(prompt).find((el) => el.dataset.path === `Details/${name}`);
+      const main = part("Name"), secondary = part("OriginalName");
+      assert.equal(main.getAttribute("aria-label"), alias);
+      assert.equal(secondary.getAttribute("aria-label"), original);
+      assert.ok(parseFloat(main.style.fontSize) > parseFloat(secondary.style.fontSize));
+      for (const el of [main, secondary]) assert.equal(el.children[0].style.textOverflow, "ellipsis");
+      const a = NGUI.rect(main), b = NGUI.rect(secondary), chip = NGUI.rect(part("Chip_0"));
+      assert.ok(a[1] + a[3] <= b[1], `${lang}: name lines do not overlap`);
+      assert.ok(b[1] + b[3] <= chip[1], `${lang}: original name stays above chips`);
+    }
+  } finally { prompt.hidden = true; setStrings("en-US", Object.fromEntries(strings(english))); }
+});
+
+test("file details keep a smaller original name below the mod alias, including file-name fallback", () => {
+  for (const mod of [{ alias: "My paint", core: "ibuki_spr" }, { alias: "My paint", file: "C:\\mods\\ibuki_spr.bundle" }]) {
+    const { tree } = Detail.detailsBody({ fields: [[english.info.current, mod.alias, mod]], rows: [] });
+    const value = tree.children.find((n) => n.name === "V_0"), original = tree.children.find((n) => n.name === "Original_0");
+    assert.equal(value.widgets[0].ariaLabel, mod.alias);
+    assert.equal(original.widgets[0].ariaLabel, mod.core || "ibuki_spr.bundle");
+    assert.ok(value.widgets[0].fontSize > original.widgets[0].fontSize);
+    assert.ok(value.pos[1] - value.widgets[0].h_ / 2 > original.pos[1] + original.widgets[0].h_ / 2);
+    assert.equal(original.widgets[0].ellipsis, true);
+  }
+});
+
 test("a long folder in the file-details summary does not resize the current value or labels", () => {
   const fields = [[english.field.folder, "/game"], [english.info.current, "ibuki_spr"]];
   const before = Detail.detailsBody({ fields, rows: [] }).tree;

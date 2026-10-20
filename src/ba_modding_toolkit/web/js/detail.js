@@ -28,6 +28,7 @@ import { L, T, language, platform } from "./i18n.js";
 import { forget, idleAnimation, prioritise, thumb } from "./thumbs.js";
 import { portraitViewport } from "./portrait-view.js";
 import { colourSwitchCard } from "./switch-card.js";
+import { customAliases as aliasesOf, modOriginalName, studentName } from "./names.js";
 import { setTitle } from "./nav.js";
 import { KEYS, deltaOf, pacer, typing } from "./step-keys.js";
 import { FRAME_Y, closable, hit as hitNode, listPopup, message, popupFrame, scrollArea } from "./popup.js";
@@ -134,9 +135,9 @@ async function settleThumbs() {
 const fullName = (v) => L(v.names)?.full ?? v.key;
 const shortName = (v) => L(v.names)?.short ?? v.key;
 // the user's own aliases of the student (family.get's custom; webui/state.py keeps the same limits): the roster search
-// finds the student by them, and the nameplate shows them small after the name
+// finds the student by all of them; the first one is the nameplate's main name
 const ALIAS_MAX = 8, ALIAS_LENGTH = 24;
-const customAliases = () => (Array.isArray(fam?.custom) ? fam.custom.filter((a) => typeof a === "string" && a) : []);
+const customAliases = () => aliasesOf(fam);
 const aliasList = () => customAliases().join(/^(zh|ja)/.test(language()) ? "\u3001" : ", ");
 const variant = () => fam.variants.find((v) => v.key === variantKey) || fam.variants[0];
 const familyMods = () => fam.variants.flatMap((v) => v.modList || []);
@@ -272,9 +273,17 @@ function screenTree() {
     const dataNode = at(t, `${INFO}/Status/${name_}/${dataPath.split("/")[0]}`);
     dataNode.pos[0] = right ? rightCap : leftCap;
     // Fit each value independently; the compact rows use an ellipsis once this value reaches the size floor.
-    const fit = fitText(String(value), 42, 28, rooms[i], 1);
-    text(t, `${INFO}/Status/${name_}/${dataPath}`, fit.text, { w_: rooms[i], fontSize: fit.fs, ellipsis: true, ariaLabel: String(value), ...(color ? { color: `${color}/1.00` } : {}) });
-    if (i === 0 && editingMod) dataNode.children.push(node("ModAliasBtn", [Math.min(glyphsOf(String(value), fit.fs), rooms[i]) + 32, 0],
+    const original = i === 0 && editingMod?.mod.alias ? modOriginalName(editingMod.mod) : "";
+    const fit = fitText(String(value), original ? 34 : 42, 28, rooms[i], 1);
+    text(t, `${INFO}/Status/${name_}/${dataPath}`, fit.text, { w_: rooms[i], fontSize: fit.fs, ellipsis: true, ariaLabel: String(value), ...(original ? { h_: 42 } : {}), ...(color ? { color: `${color}/1.00` } : {}) });
+    if (original) {
+      const main = at(t, `${INFO}/Status/${name_}/${dataPath}`);
+      main.pos[1] += 15;
+      const secondary = fitText(original, 24, 20, rooms[i], 1);
+      dataNode.children.push(node("OriginalName", [main.pos[0], main.pos[1] - 38],
+        [label(secondary.text, secondary.fs, "#2d4664/0.65", rooms[i], 28, { pivot: 3, depth: 22, ellipsis: true, ariaLabel: original })]));
+    }
+    if (i === 0 && editingMod) dataNode.children.push(node("ModAliasBtn", [Math.min(glyphsOf(String(value), fit.fs), rooms[i]) + 32, original ? 15 : 0],
       [sprite("Cafe_Icon_NameEdit", 46, 46, { type: 0, depth: 22, color: "#2d4664/1.00" })]));
     const pot = find(t, `${INFO}/Status/${name_}/Data_Widget/Potential_Widget`);
     if (pot) pot.active = false;
@@ -386,11 +395,18 @@ function screenTree() {
     lblNode.pos = isOn ? [26, -1] : [62, 4];
     widget(t, `${base}/Bg`).w_ = 36 + 17 + 10 + tw + 30;
   }
-  // the name leaves room for the alias pencil after it
-  const nm = fitText(fullName(v), 64, 44, PLATE_RIGHT - 110 - PENCIL - 24);
-  text(t, `${np}/Label_Name`, nm.text, { w_: 800, fontSize: nm.fs });
-  at(t, `${np}/Label_Name`).pos = [110, 288];
-  aliasPlate(at(t, np), 110 + glyphsOf(nm.text, nm.fs));
+  // Both names share the existing dark band, leaving room for the pencil after the main name.
+  const original = fullName(v), shown = studentName(fam, original), aliased = customAliases().length > 0;
+  const room = PLATE_RIGHT - 110 - PENCIL - 48;
+  const nm = fitText(shown, aliased ? 54 : 64, 44, room, 1), nameY = aliased ? 310 : 288;
+  text(t, `${np}/Label_Name`, nm.text, { w_: room, h_: aliased ? 64 : 76, fontSize: nm.fs, ellipsis: true, ariaLabel: shown });
+  at(t, `${np}/Label_Name`).pos = [110, nameY];
+  if (aliased) {
+    const secondary = fitText(original, 28, 24, room, 1);
+    at(t, np).children.push(node("Label_OriginalName", [110, 258],
+      [label(secondary.text, secondary.fs, "#ffffff/0.62", room, 36, { pivot: 3, depth: 22, ellipsis: true, ariaLabel: original })]));
+  }
+  aliasPlate(at(t, np), 110 + Math.min(glyphsOf(nm.text, nm.fs), room), nameY);
   // the dark plate keeps its bottom edge and loses the level row; the game's shard texture is clipped to it
   widget(t, `${np}/BG`).h_ = 120;
   off(t, `${np}/BG/Deco`);
@@ -417,21 +433,11 @@ function screenTree() {
   return t;
 }
 
-// after the name on the dark plate: the user's own aliases, small and dim, then the pencil of the game's input popup
-// (UIPopup_Input's Cafe_Icon_NameEdit) that opens their editor. Where the name leaves too little room, the pencil
-// alone; its accessible name includes the aliases.
+// The game's input-popup pencil opens the alias editor; its accessible name includes every saved alias.
 const PLATE_RIGHT = 925; // the plate's right edge at the name's height, less a margin
 const PENCIL = 46;
-function aliasPlate(np, nameEnd) {
-  const list = aliasList();
-  let x = nameEnd + 24;
-  const room = PLATE_RIGHT - PENCIL - 24 - x;
-  if (list && room >= 120) {
-    const fs = 36, w = Math.min(glyphsOf(list, fs) + 4, room);
-    np.children.push(node("Label_Alias", [x, 279], [label(list, fs, "#ffffff/0.62", w, 50, { pivot: 3, depth: 22, ellipsis: true })]));
-    x += w;
-  }
-  np.children.push(node("Char_AliasBtn", [Math.min(x + 24 + PENCIL / 2, PLATE_RIGHT - PENCIL / 2), 287],
+function aliasPlate(np, nameEnd, y) {
+  np.children.push(node("Char_AliasBtn", [Math.min(nameEnd + 24 + PENCIL / 2, PLATE_RIGHT - PENCIL / 2), y],
     [sprite("Cafe_Icon_NameEdit", PENCIL, PENCIL, { type: 0, depth: 22, color: "#ffffff/0.85" })]));
 }
 
@@ -525,8 +531,8 @@ function hits(view, leftHost, rightHost) {
   add(leftHost, "LeftInfo/CharInfo/Char_Target/Pin/Pin_On/Bg", toggleFav, T("fav.label"));
   add(leftHost, "LeftInfo/CharInfo/Char_Target/Pin/Pin_Off/Bg", toggleFav, T("fav.label"));
   add(leftHost, "LeftInfo/CharInfo/Char_Target/Char_CVCollectionBtn", copyName, baseName(gameFile(variant(), tabKind())));
-  // the aliases after the name and the pencil open the alias editor
-  const aliasEls = ["Label_Alias", "Char_AliasBtn"].map((n) => view.nodes.get(`Inventory_ListControl/LeftInfo/CharInfo/Char_Target/${n}`)?.els[0]).filter(Boolean);
+  // The pencil opens the editor beside the displayed name.
+  const aliasEls = ["Char_AliasBtn"].map((n) => view.nodes.get(`Inventory_ListControl/LeftInfo/CharInfo/Char_Target/${n}`)?.els[0]).filter(Boolean);
   if (aliasEls.length) {
     const boxes = aliasEls.map(rect), pad = 14;
     const l = Math.min(...boxes.map((b) => b[0])) - pad, tp = Math.min(...boxes.map((b) => b[1])) - pad;
@@ -1061,6 +1067,7 @@ async function drawPopup(scroll = 0) {
     key: c.key, kind: c.kind, recruit: c.kind !== "mod" && c.recruit,
     label: candidateLabel(c, v),
     full: c.kind === "mod" ? c.label : fullName(c.variant),
+    original: c.mod?.alias ? modOriginalName(c.mod) : "",
     nameEdit: c.kind === "mod" ? { label: T("modAlias.title"), fn: (s = scroll) => editModName(c.mod,
       () => switchPopupPage === pageToken && !$("popup").hidden ? renderPopup(s) : null) } : null,
     thumb: thumb(baseOf(c, kind), "card", null, kind === "lobby", specialFraming(v)), big: () => thumb(baseOf(c, kind), "bust", null, kind === "lobby", specialFraming(v)),
@@ -1346,7 +1353,8 @@ function detailsBody({ fields, rows }) {
   // summary: captions, then values that wrap (paths), never cut; on the game's light stats box
   const capW = Math.max(...fields.map(([k]) => advanceOf(k, 38))) + 40, room = W - 80 - capW;
   const values = fields.map(([, v, mod]) => wrapPath(String(v), 38, 28, room - (mod ? 70 : 0), 3));
-  const rowHs = values.map((f) => Math.max(72, f.lines * f.fs * 1.25 + 22));
+  const originals = fields.map(([, , mod]) => mod?.alias ? modOriginalName(mod) : "");
+  const rowHs = values.map((f, i) => Math.max(72, f.lines * f.fs * 1.25 + 22 + (originals[i] ? 42 : 0)));
   const boxH = rowHs.reduce((a, h) => a + h, 0) + 20;
   const TOP = 12; // air under the scrolling area's top edge
   kids.push(node("Summary", [W / 2, -TOP - boxH / 2], [sprite("Common_Bg_Raius10px", W - 6, boxH, { depth: 5, color: "#ecf5f9/1.00" })], [
@@ -1354,10 +1362,15 @@ function detailsBody({ fields, rows }) {
   ]));
   let y = -TOP - 10;
   fields.forEach(([k, v, mod], i) => {
-    const h = rowHs[i], cy = y - h / 2, f = values[i];
+    const h = rowHs[i], cy = y - h / 2, f = values[i], nameY = cy + (originals[i] ? 21 : 0);
     kids.push(node(`F_${i}`, [40, cy], [label(k, 38, "#2d4664/1.00", capW, 50, { pivot: 3, depth: 8 })]));
-    kids.push(node(`V_${i}`, [40 + capW, cy], [label(f.text, f.fs, "#000000/1.00", room + 20 - (mod ? 70 : 0), f.lines * f.fs * 1.25 + 8, { pivot: 3, depth: 8, ariaLabel: String(v) })]));
-    if (mod) kids.push(node(`Edit_${i}`, [40 + capW + Math.min(glyphsOf(f.text, f.fs), room - 70) + 32, cy],
+    kids.push(node(`V_${i}`, [40 + capW, nameY], [label(f.text, f.fs, "#000000/1.00", room + 20 - (mod ? 70 : 0), f.lines * f.fs * 1.25 + 8, { pivot: 3, depth: 8, ariaLabel: String(v) })]));
+    if (originals[i]) {
+      const secondary = fitText(originals[i], 28, 24, room - 70, 1);
+      kids.push(node(`Original_${i}`, [40 + capW, y - h + 26],
+        [label(secondary.text, secondary.fs, "#2d4664/0.65", room - 70, 36, { pivot: 3, depth: 8, ellipsis: true, ariaLabel: originals[i] })]));
+    }
+    if (mod) kids.push(node(`Edit_${i}`, [40 + capW + Math.min(glyphsOf(f.text, f.fs), room - 70) + 32, nameY],
       [sprite("Cafe_Icon_NameEdit", 46, 46, { type: 0, depth: 9, color: "#2d4664/1.00" })]));
     if (i < fields.length - 1) kids.push(node(`L_${i}`, [W / 2, y - h], [sprite("Common_Line_Dot", W - 60, 4, { type: 2, depth: 7, color: "#c0c9d4/1.00" })]));
     y -= h;

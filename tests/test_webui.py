@@ -276,6 +276,21 @@ def test_roster_and_family(app, services):
     assert fam["version"] == "rv1"  # the install the parts come from
 
 
+def test_mod_search_keeps_alias_core_and_file_names_in_roster_and_family(app, services, monkeypatch):
+    mod = FakeMod("p1", "hoshino")
+    mod.alias = mod.label = "Painted <summer>"
+    mod.core = "hoshino_swimsuit_spr"
+    mod.file = Path("mods/p1/2026-10-01_hoshino_swimsuit_spr.bundle")
+    monkeypatch.setattr(services.library, "mods", lambda: [mod])
+    for alias in ("Painted <summer>", "Evening", ""):
+        mod.alias = alias
+        mod.label = alias or mod.core
+        for result in (rpc(app, "roster.list")["result"]["families"][0],
+                       rpc(app, "family.get", key="hoshino")["result"]):
+            assert result["variants"][0]["modNames"] == list(dict.fromkeys(
+                name for name in (alias, mod.core, mod.file.name) if name))
+
+
 def test_library_counts_and_configured_sources_reach_roster_and_family(app, services, monkeypatch):
     mods = [FakeMod(f"p{i}", "hoshino") for i in range(3)] + [FakeMod("l1", "hoshino", kind="lobby")]
     monkeypatch.setattr(services.library, "mods", lambda: mods)

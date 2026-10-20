@@ -371,6 +371,9 @@ def build_api(s: Services) -> RpcRegistry:
             "spineCategory": getattr(v, "spine_category", None),
             "bg": _url_bg(v.bg), "portrait": _url_portrait(v.portrait),
             "favorite": v.key in favorites, "mods": len({getattr(m, "repaired_from", "") or m.id for m in own}),
+            "modNames": list(dict.fromkeys(name for m in own for name in (
+                getattr(m, "alias", ""), getattr(m, "label", ""), getattr(m, "core", ""),
+                Path(getattr(m, "file", "")).name) if name)),
             "fresh": seen is not None and any(m.user_added and m.id not in seen for m in own),
             "modCounts": {kind: len({getattr(m, "repaired_from", "") or m.id for m in own if m.kind == kind})
                           for kind in ("spr", "lobby")},

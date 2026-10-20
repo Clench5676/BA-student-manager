@@ -395,9 +395,16 @@ function detailsTree(it, title, fields, actions) {
       node("Line", [1, 4], [sprite("Common_Line_Raius20px", w - 54, 438, { incline: 10, depth: 8, color: "#ffffff/1.00" })]),
     ]),
   ];
-  const nameFit = fitText(it.full, 52, 36, w - 60 - (it.nameEdit ? 70 : 0)), nameX = cx - (it.nameEdit ? 35 : 0);
-  kids.push(node("Name", [nameX, b.t - 610], [label(nameFit.text, nameFit.fs, "#2d4664/1.00", w - 40 - (it.nameEdit ? 70 : 0), 60 * nameFit.lines, { depth: 8 })]));
-  if (it.nameEdit) kids.push(node("EditName", [Math.min(nameX + glyphsOf(nameFit.text, nameFit.fs) / 2 + 32, b.r - 42), b.t - 610],
+  const nameRoom = w - 60 - (it.nameEdit ? 70 : 0), nameX = cx - (it.nameEdit ? 35 : 0), nameY = b.t - (it.original ? 590 : 610);
+  const nameFit = fitText(it.full, it.original ? 46 : 52, 36, nameRoom, it.original ? 1 : 2);
+  kids.push(node("Name", [nameX, nameY], [label(nameFit.text, nameFit.fs, "#2d4664/1.00", nameRoom, it.original ? 58 : 60 * nameFit.lines,
+    { depth: 8, ellipsis: !!it.original, ariaLabel: it.full })]));
+  if (it.original) {
+    const secondary = fitText(it.original, 28, 24, w - 60, 1);
+    kids.push(node("OriginalName", [cx, b.t - 638], [label(secondary.text, secondary.fs, "#2d4664/0.65", w - 60, 34,
+      { depth: 8, ellipsis: true, ariaLabel: it.original })]));
+  }
+  if (it.nameEdit) kids.push(node("EditName", [Math.min(nameX + Math.min(glyphsOf(nameFit.text, nameFit.fs), nameRoom) / 2 + 32, b.r - 42), nameY],
     [sprite("Cafe_Icon_NameEdit", 46, 46, { type: 0, depth: 9, color: "#2d4664/1.00" })]));
   const using = it.inUseText || (it.inUse ? T("popup.inUse") : null);
   const chips = it.chips || [it.tag?.text || (it.recruit ? T("type.recruit") : it.kind === "mod" ? T("type.added") : T("type.noRecruit")), ...(using ? [using] : [])];
@@ -437,7 +444,8 @@ function detailsTree(it, title, fields, actions) {
 
 // a list popup in host (an element or its id). Redrawn by the caller on every change (a card picked, a segment):
 //   items: [{key, label, full, thumb, big, recruit, kind, inUse, inUseText, fav, isNew, size, disabled, dim, badge: {text, color,
-//           ink}, tag: {text, color, ink}, chips, nameEdit: {label, fn(scroll)}}]; disabled: cannot be ticked (with multi); dim: the darkened look
+//           ink}, tag: {text, color, ink}, chips, original, nameEdit: {label, fn(scroll)}}]; original: secondary name in the detail band;
+//           disabled: cannot be ticked (with multi); dim: the darkened look
 //   inUseText: a saved source's caption in the detail chip, independent of whether its files are in use
 //   selected: the chosen key; with multi, the ticked keys (selectable(items) ticks all), focus: the card whose details
 //             show (by default the first ticked one)
