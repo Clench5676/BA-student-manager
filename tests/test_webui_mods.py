@@ -23,7 +23,9 @@ from ba_modding_toolkit.library.profiles import Profiles
 from ba_modding_toolkit.naming import parse_filename
 from ba_modding_toolkit.utils import CRCUtils
 from ba_modding_toolkit.webui import classic as cl
+from ba_modding_toolkit.webui import main as webui_main
 from ba_modding_toolkit.webui.api import build_api
+from ba_modding_toolkit.webui.instance import InstanceLock, raise_running, read_info
 from ba_modding_toolkit.webui.server import WebApp
 from ba_modding_toolkit.webui.services import Services
 from ba_modding_toolkit.webui.state import UiState, data_path
@@ -69,7 +71,7 @@ class Env:
                      classic_options={"processes": self.processes, "popen": self.popen, "ready_timeout": 5.0,
                                       "poll_timeout": 0.2, "command": lambda tab: ["tool", "--classic", "--control"]})
         app = WebApp(build_api(s), s.events, assets=s.asset, token="tok", consent=lambda: s.state.consent,
-                     classic=s.classic.wsgi)
+                     classic=s.classic.wsgi, raise_window=s.raise_window)
         self.made.append(s)
         return s, app
 
@@ -613,7 +615,7 @@ def test_open_classic_always_asks_for_the_classic_gui(env, monkeypatch):
     assert rpc(app, "classic.front")["result"] == {"raised": False}
 
 
-# --- quitting ---
+# --- quitting and the single instance ---
 
 def test_app_quit(env):
     destroyed = []
@@ -632,3 +634,38 @@ def test_app_quit(env):
     s.window, s.quit_handle = None, stopped.set
     assert "error" not in rpc(app, "app.quit") and not stopped.is_set()
     assert stopped.wait(5)
+
+
+def test_one_instance_per_data_directory(tmp_path):
+    first = InstanceLock(tmp_path)
+    assert first.acquire()
+    assert not InstanceLock(tmp_path).acquire()
+    raised = []
+    app = WebApp(None, None, raise_window=lambda: raised.append(True), raise_token="secret", token="tok")
+    first.publish(4321, "secret")
+    assert read_info(tmp_path)["port"] == 4321
+    assert raise_running(tmp_path, opener=WsgiOpener(app)) and raised == [True]
+    # a wrong token is refused
+    InstanceLock(tmp_path).publish(4321, "wrong")
+    assert not raise_running(tmp_path, opener=WsgiOpener(app))
+    first.publish(4321, "secret")
+    first.release()
+    assert not (tmp_path / "instance.json").exists()
+    assert InstanceLock(tmp_path).acquire()
+
+
+def test_a_second_start_brings_the_first_window_to_the_front_and_exits(tmp_path, monkeypatch):
+    held = InstanceLock(tmp_path)
+    assert held.acquire()
+    held.publish(4321, "secret")
+    raised = []
+    monkeypatch.setattr(webui_main, "EXE_DIR", tmp_path)
+    monkeypatch.setattr(webui_main, "raise_running", lambda data_dir: raised.append(data_dir) or True)
+    monkeypatch.setattr(webui_main, "build", lambda *a, **k: pytest.fail("started a second instance"))
+    with pytest.raises(SystemExit) as exit_:
+        webui_main.main([])
+    assert exit_.value.code == 0 and raised == [tmp_path]
+    with pytest.raises(SystemExit) as exit_:
+        webui_main.main(["--serve"])  # a dev server refuses to start
+    assert exit_.value.code == 1 and raised == [tmp_path]
+    held.release()
