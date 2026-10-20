@@ -7,10 +7,10 @@
 #
 # Requires uv (https://docs.astral.sh/uv/); Nuitka downloads its C compiler on first use.
 # Usage, from the repository root:
-#   powershell -ExecutionPolicy Bypass -File scripts\build_windows.ps1 [-Target All|Gui|Cli] [-Python 3.12.11] [-NuitkaVersion 4.3]
+#   powershell -ExecutionPolicy Bypass -File scripts\build_windows.ps1 [-Target All|Gui|Cli] [-Python 3.12] [-NuitkaVersion 4.3]
 
 param(
-    [string]$Python = "3.12.11",
+    [string]$Python = "3.12",
     [string]$NuitkaVersion = "4.3",
     [ValidateSet("All", "Gui", "Cli")]
     [string]$Target = "All"

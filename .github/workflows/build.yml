@@ -4,6 +4,11 @@ name: build executable file
 on:
   workflow_dispatch:
     inputs:
+      python-version:
+        description: 'Python version (default: latest 3.12 patch)'
+        type: string
+        required: false
+        default: '3.12'
       release:
         description: Upload assets to an existing release
         type: boolean
@@ -20,6 +25,8 @@ permissions:
 jobs:
   build-windows:
     runs-on: windows-latest
+    env:
+      PYTHON_VERSION: ${{ inputs.python-version || '3.12' }}
 
     steps:
       - name: Checkout Code
@@ -30,8 +37,9 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12.11'
+          python-version: ${{ env.PYTHON_VERSION }}
           architecture: 'x64'
+          check-latest: true
 
       - name: Check Release Tag
         if: inputs.release
@@ -53,7 +61,7 @@ jobs:
           version: "latest"
 
       - name: Build Executable with Nuitka
-        run: ./scripts/build_windows.ps1 -Target Gui
+        run: ./scripts/build_windows.ps1 -Target Gui -Python "$env:PYTHON_VERSION"
 
       - name: Upload Artifact
         if: ${{ !inputs.release }}

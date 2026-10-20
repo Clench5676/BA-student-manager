@@ -59,6 +59,20 @@ def test_release_tag_rejects_missing_or_wrong_commit(release_run, monkeypatch, m
 
 
 @pytest.mark.skipif(PWSH is None, reason="PowerShell is not installed")
+@pytest.mark.parametrize("python", [None, "3.12.10"])
+def test_windows_build_python_default_and_override(tmp_path, python):
+    script = (ROOT / "scripts" / "build_windows.ps1").read_text()
+    harness = tmp_path / "parameters.ps1"
+    harness.write_text(script[:script.index('$ErrorActionPreference')] + 'Write-Output $Python\n')
+    args = [PWSH, "-NoProfile", "-NonInteractive", "-File", str(harness)]
+    if python is not None:
+        args += ["-Python", python]
+    result = subprocess.run(args, cwd=tmp_path, capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout.strip() == (python or "3.12")
+
+
+@pytest.mark.skipif(PWSH is None, reason="PowerShell is not installed")
 @pytest.mark.parametrize("target,kinds", [("Gui", [""]), ("Cli", ["-cli"]), ("All", ["", "-cli"])])
 def test_windows_build_packages_selected_targets(tmp_path, target, kinds):
     # Run the build and packaging section with a compiler stub, bypassing dependency setup and downloads.
