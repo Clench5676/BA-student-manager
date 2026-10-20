@@ -29,16 +29,17 @@ test("another install's entry reads its own files through <core>@<id>, under the
 });
 
 test("forget drops the thumbnails under a prefix in any case (library.changed names cores in lower case)", async () => {
+  const base = (kind, key) => spineBase(kind, key).replace("/skeleton", `/${"a".repeat(64)}/skeleton`);
   const el = () => ({ style: {}, className: "", appendChild() {}, remove() {} });
   globalThis.document = { body: el(), createElement: el };
   globalThis.URL.revokeObjectURL = () => {};
   const Thumbs = await import("../../src/ba_modding_toolkit/web/js/thumbs.js");
   // a thumbnail being rendered (here a player that never loads) is kept: asking again gives the same promise
   globalThis.spine = { SpinePlayer: class {} };
-  const a = Thumbs.thumb(spineBase("spr", "CH0164_spr"), "card");
-  const other = Thumbs.thumb(spineBase("spr", "CH0099_spr"), "card");
-  assert.equal(Thumbs.thumb(spineBase("spr", "CH0164_spr"), "card"), a);
+  const a = Thumbs.thumb(base("spr", "CH0164_spr"), "card");
+  const other = Thumbs.thumb(base("spr", "CH0099_spr"), "card");
+  assert.equal(Thumbs.thumb(base("spr", "CH0164_spr"), "card"), a);
   Thumbs.forget(spinePrefix("spr", "ch0164_spr"));
-  assert.notEqual(Thumbs.thumb(spineBase("spr", "CH0164_spr"), "card"), a, "forgotten: asked again");
-  assert.equal(Thumbs.thumb(spineBase("spr", "CH0099_spr"), "card"), other, "another core's stays");
+  assert.notEqual(Thumbs.thumb(base("spr", "CH0164_spr"), "card"), a, "forgotten: asked again");
+  assert.equal(Thumbs.thumb(base("spr", "CH0099_spr"), "card"), other, "another core's stays");
 });

@@ -23,7 +23,7 @@ from .discovery import (
 )
 from .errors import AssetNotFound
 from .layouts import export_layout, subtree
-from .spine import extract_spine, png_bytes
+from .spine import extract_spine, png_bytes, spine_stamps
 from .unity import find_object, object_record, open_bundle, reference, ref_key
 
 logger = logging.getLogger(__name__)
@@ -394,18 +394,14 @@ class GameAssets:
         if not bundles:
             raise AssetNotFound("spine")
         paths = list(dict.fromkeys(Path(path).resolve() for path in bundles))
-        stamps = []
-        for path in paths:
-            try:
-                stat = path.stat()
-            except FileNotFoundError:
-                raise AssetNotFound(str(path)) from None
-            stamps.append((str(path), stat.st_size, stat.st_mtime_ns))
+        stamps = spine_stamps(paths)
         key = "spine/" + json.dumps(stamps)
         with self._lock(key):
             value = self.cache.get(_SCHEMA + key, version=self.resource_version, disk=False)
             if value is None:
                 value = extract_spine(paths)
+                if spine_stamps(paths) != stamps:
+                    raise AssetNotFound("spine changed during extraction")
                 self.cache.put(_SCHEMA + key, value, version=self.resource_version,
                                disk=False, size=sum(len(data) for data in value.values()))
             return dict(value)
@@ -493,7 +489,7 @@ class GameAssets:
             bundles = self.spine_cores("lobby")[core.lower()]
         except KeyError:
             raise AssetNotFound(("lobby", core)) from None
-        stamps = [(path.name, path.stat().st_size, path.stat().st_mtime_ns) for path in bundles if path.exists()]
+        stamps = spine_stamps(bundles)
 
         def build() -> bytes:
             skeletons, behaviours, trees, keys = [], [], {}, {}
@@ -660,7 +656,7 @@ class GameAssets:
                 if not data:
                     raise AssetNotFound(("lobby-sound", core, clip_id))
                 return data
-        return self._cached("lobby-sound/" + clip_id, build, disk=False)
+        return self._cached("lobby-sound/" + json.dumps([clip_id, spine_stamps([Path(bundle)])]), build, disk=False)
 
     def lobby_fx_texture(self, core: str, tex_id: str) -> bytes:
         """A texture of a lobby's particle effects as PNG (memory only): only ids the lobby's info lists."""
@@ -678,7 +674,7 @@ class GameAssets:
                 if obj is None:
                     raise AssetNotFound(("lobby-fx", core, tex_id))
                 return png_bytes(obj.read().image)
-        return self._cached("lobby-fx/" + tex_id, build, disk=False)
+        return self._cached("lobby-fx/" + json.dumps([tex_id, spine_stamps([Path(bundle)])]), build, disk=False)
 
 
 # Unity's built-in meshes live in "Library/unity default resources", outside the bundles; the lobbies' effect quads

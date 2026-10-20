@@ -741,8 +741,8 @@ async function modsEnabled(enabled) {
 
 test("detail variant candidates preview official assets independently of the source's live mod", () => {
   const fam = previewFamily(), source = fam.variants[1];
-  assert.equal(Detail.baseOf({ kind: "variant", core: source.spr, variant: source }), "/asset/spine/official/b_spr/skeleton");
-  assert.equal(Detail.baseOf({ kind: "self", core: fam.variants[0].spr }), "/asset/spine/spr/a_spr/skeleton");
+  assert.equal(Detail.baseOf({ kind: "variant", core: source.spr, variant: source }), "/asset/spine/official-spr/b_spr/skeleton");
+  assert.equal(Detail.baseOf({ kind: "self", core: fam.variants[0].spr }), "/asset/spine/official-spr/a_spr/skeleton");
 });
 
 test("Update reloads a configured portrait or lobby rebuilt under the same mod id while mods are off", async () => {
@@ -755,7 +755,7 @@ test("Update reloads a configured portrait or lobby rebuilt under the same mod i
     handlers.set("family.get", () => ({ result: structuredClone(fam) }));
     Thumbs.forgotten.length = 0;
     assert.equal(await Detail.runUpdate(), true);
-    assert.deepEqual(Thumbs.forgotten, [`/asset/spine/mod/${id}/skeleton`]);
+    assert.deepEqual(Thumbs.forgotten, [`/asset/spine/mod/${id}`]);
     assert.equal(draws.length, 1, `${kind} reloads even when family.get has no changed source key or game file`);
     if (kind === "spr") {
       assert.equal(draws[0].mainPlayer, null);

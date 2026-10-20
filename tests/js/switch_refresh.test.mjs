@@ -19,7 +19,7 @@ async function apply(result, kind, { changedConfiguration = false } = {}) {
   const enabled = !result.deferred;
   const ctx = {
     variant: () => ctx.fam.variants[0], sourceOf: (key) => key, ctx: { invalidateRoster: () => calls.push("roster") },
-    forget: () => calls.push("forget"), spineBase: (kind, core) => `${kind}/${core}`,
+    forget: () => calls.push("forget"), spinePrefix: (kind, core) => `${kind}/${core}`,
     call: (fn) => fn(), rpc: async () => ({ key: "family", variants: [next] }),
     renderAll: async () => calls.push("cards"), renderLeft: async () => calls.push("left"),
     previewChanged, modsOn: () => enabled, previewEnabled: enabled, tabKind: () => kind,
@@ -55,7 +55,7 @@ test("saving a different source while mods are off refreshes the configured prev
 test("changed game files still invalidate thumbnails and refresh the shown preview", async () => {
   for (const kind of ["spr", "lobby"]) {
     const { calls, ctx } = await apply({ files: ["changed.bundle"], unchanged: false }, kind);
-    assert.deepEqual(calls, ["forget", "roster", "cards", "left"]);
+    assert.deepEqual(calls, ["forget", "forget", "roster", "cards", "left"]);
     if (kind === "lobby") assert.equal(ctx.lobbyStale, true);
     else assert.equal(ctx.mainPlayer, null);
   }

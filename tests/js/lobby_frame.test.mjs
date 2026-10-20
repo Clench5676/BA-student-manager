@@ -9,22 +9,26 @@ const Linear = await import("../../src/ba_modding_toolkit/web/js/linear.js");
 
 test("a configured lobby reads every art layer from the library preview and keeps the game's layout", async () => {
   const before = globalThis.fetch, requests = [];
+  const artRevision = "a".repeat(64), layoutRevision = "b".repeat(64);
   const info = { layers: [{ name: "hero_home", active: true, x: 10, y: -20, scale: 1, order: 0, index: 0 }] };
   globalThis.fetch = async (url) => {
     requests.push(url);
+    if (url.endsWith("manifest.json")) return { ok: true, json: async () => ({ revision: url.includes("/mod/") ? artRevision : layoutRevision }) };
     return { ok: true, json: async () => url.endsWith("lobby.json") ? info : ["hero_home.skel", "hero_home.atlas"] };
   };
   try {
     const modded = await Lobby.layersOf("hero_home", "configured");
-    assert.deepEqual(requests, ["/asset/spine/mod/configured/files.json", "/asset/spine/lobby/hero_home/lobby.json"]);
-    assert.equal(modded.layers[0].spine, "/asset/spine/mod/configured/hero_home");
-    assert.equal(modded.layers[0].atlas, "/asset/spine/mod/configured/hero_home.atlas");
+    assert.deepEqual(requests, ["/asset/spine/mod/configured/manifest.json", "/asset/spine/lobby/hero_home/manifest.json",
+      `/asset/spine/mod/configured/${artRevision}/files.json`, `/asset/spine/lobby/hero_home/${layoutRevision}/lobby.json`]);
+    assert.equal(modded.layers[0].spine, `/asset/spine/mod/configured/${artRevision}/hero_home`);
+    assert.equal(modded.layers[0].atlas, `/asset/spine/mod/configured/${artRevision}/hero_home.atlas`);
     assert.equal(modded.layers[0].x, 10);
     assert.equal(modded.info, info);
     requests.length = 0;
     const official = await Lobby.layersOf("hero_home");
-    assert.equal(requests[0], "/asset/spine/lobby/hero_home/files.json");
-    assert.equal(official.layers[0].spine, "/asset/spine/lobby/hero_home/hero_home");
+    assert.deepEqual(requests, ["/asset/spine/lobby/hero_home/manifest.json",
+      `/asset/spine/lobby/hero_home/${layoutRevision}/files.json`, `/asset/spine/lobby/hero_home/${layoutRevision}/lobby.json`]);
+    assert.equal(official.layers[0].spine, `/asset/spine/lobby/hero_home/${layoutRevision}/hero_home`);
   } finally { globalThis.fetch = before; }
 });
 

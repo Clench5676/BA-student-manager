@@ -95,7 +95,7 @@ export function previewBase(v, kind = "spr", enabled = true, variants = []) {
   const key = previewKey(v, kind, enabled);
   if (key.startsWith("m:")) return spineBase("mod", key.slice(2));
   const source = key.startsWith("v:") ? variants.find((o) => o.key === key.slice(2)) : v;
-  return spineBase(source && key.startsWith("v:") ? "official" : kind, coreOf(source || v, kind));
+  return spineBase(`official-${kind}`, coreOf(source || v, kind));
 }
 
 // how the switch popup works (decision 2). With mods on it starts on what the game shows, and Apply writes the choice.

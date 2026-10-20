@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from io import BytesIO
 from pathlib import Path
 
@@ -11,10 +13,29 @@ from .errors import AssetNotFound
 from .unity import open_bundle
 
 
-def png_bytes(image: Image.Image) -> bytes:
-    """Encode an image as PNG bytes without creating a file."""
+def spine_stamps(bundles: list[Path]) -> list[tuple[str, int, int, int]]:
+    """Ordered file versions, including replacements that preserve size and mtime."""
+    stamps = []
+    for path in dict.fromkeys(Path(path).resolve() for path in bundles):
+        try:
+            stat = path.stat()
+        except FileNotFoundError:
+            raise AssetNotFound(str(path)) from None
+        stamps.append((str(path), stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns))
+    if not stamps:
+        raise AssetNotFound("spine")
+    return stamps
+
+
+def spine_revision(bundles: list[Path]) -> str:
+    """A URL segment identifying one ordered composition of bundle versions."""
+    return hashlib.sha256(json.dumps(spine_stamps(bundles)).encode()).hexdigest()
+
+
+def png_bytes(image: Image.Image, level: int | None = None) -> bytes:
+    """Encode an image as PNG bytes without creating a file. ``level``: zlib level (default Pillow's 6)."""
     buffer = BytesIO()
-    image.save(buffer, format="PNG")
+    image.save(buffer, format="PNG", **({} if level is None else {"compress_level": level}))
     return buffer.getvalue()
 
 
@@ -50,7 +71,9 @@ def extract_spine(bundles: list[Path]) -> dict[str, bytes]:
                         result[data.m_Name] = data.m_Script.encode("utf-8", "surrogateescape")
                 elif obj.type.name == "Texture2D":
                     data = obj.read()
-                    textures[data.m_Name] = png_bytes(data.image.convert("RGBA"))
+                    # served from the same machine and held in memory only: level 1 encodes a lobby's large pages
+                    # several times faster than the default and the larger bytes cost nothing on loopback
+                    textures[data.m_Name] = png_bytes(data.image.convert("RGBA"), level=1)
     for name, data in textures.items():
         result[name if name.lower().endswith(".png") else name + ".png"] = data
     # Some bundles use a different case, a .png suffix, or a directory prefix

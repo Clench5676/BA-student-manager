@@ -1500,28 +1500,61 @@ class ModLibrary:
         return out
 
     @_serialized
-    def official_bundles(self, core_name: str, pin: Pin | None = None) -> list[Path]:
-        """The official parts of a core, resolved as for a variant source in apply."""
+    def official_bundles(self, core: str, pin: Pin | None = None) -> list[Path]:
+        """Verified official parts of a core, including kept originals of overwritten game files.
+
+        Resolve the whole set or fail: a live mod part must never fill a missing official part.
+        """
         pin = self._current(pin)
-        paths = self._index(pin).get(core_name.lower(), [])
+        paths = self._spine_parts(core, pin)
         if not paths:
-            raise ServiceError("game_file_not_found", variant=core_name)
+            raise ServiceError("game_file_not_found", variant=core)
         return [self._official_for(path, pin) for path in paths]
+
+    def _spine_parts(self, core: str, pin: Pin) -> list[Path]:
+        """The bundle files of a core that hold its Spine skeleton, atlas and pages (the category of its kind), in
+        the order the game folder lists them. Other files that share the core name add nothing to a preview."""
+        core = core.lower()
+        paths = self._index(pin).get(core, [])
+        kind = kind_of(core)
+        if kind is None:
+            return list(paths)
+        category = "spinelobbies" if kind == "lobby" else "spinecharacters"
+        return [path for path in paths if parse_filename(path.name).category == category]
+
+    @_serialized
+    def live_bundles(self, core: str, pin: Pin | None = None) -> list[Path]:
+        """The game files of a core with the parts that carry a mod last.
+
+        Files merge by name, the last one winning (``GameAssets.spine_files_from``). A mod preview merges the mod's
+        parts after the official ones; the game folder lists parts by file name, so a part left official could come
+        after an applied mod part and win a texture it shares by name: the mod's atlas drawn over the official
+        texture. Putting every part that is not official last gives the game files the preview's order. Judged by
+        the cheap rule (headers, never whole files).
+        """
+        pin = self._current(pin)
+        paths = self._spine_parts(core, pin)
+        if not paths:
+            raise ServiceError("game_file_not_found", variant=core)
+        view = self._view([pin], "family")
+        kind = kind_of(core) or "spr"
+        parts = [view.part(path, pin, kind) for path in paths]
+        return [part.path for part in sorted(parts, key=lambda part: not part.official)]
 
     @_serialized
     def preview_bundles(self, mod_id: str, pin: Pin | None = None) -> list[Path]:
         """Return missing official parts followed by the mod's overriding parts.
 
         Parts match by prefix and resource type, independent of date and CRC. The official parts come from the mod's
-        own core in the given install (the current one), judged cheaply. Pass this order to
+        own core in the given install (the current one), verified by content. Pass this order to
         ``GameAssets.spine_files_from`` so mod assets win.
         """
-        return self._preview(self._record(mod_id), self._current(pin), full=False)
+        return self._preview(self._record(mod_id), self._current(pin), full=True)
 
     def _preview(self, record: dict[str, Any], pin: Pin, full: bool) -> list[Path]:
         paths = self._paths(record)
         replaced = {part_of(path.name) for path in paths}
-        others = [self._official_for(path, pin, full) for path in self._index(pin).get(core_of(paths[0].name), [])
+        others = [self._official_for(path, pin, full) for path in self._spine_parts(core_of(paths[0].name), pin)
                   if part_of(path.name) not in replaced]
         return others + paths
 

@@ -192,7 +192,7 @@ test("previews keep both configured kinds while the game files are official", ()
   }
   v.configured.spr = "variant:hoshino_swimsuit";
   assert.equal(previewKey(v, "spr", false), "v:hoshino_swimsuit");
-  assert.equal(previewBase(v, "spr", false, fam.variants), "/asset/spine/official/hoshino_swimsuit_spr/skeleton");
+  assert.equal(previewBase(v, "spr", false, fam.variants), "/asset/spine/official-spr/hoshino_swimsuit_spr/skeleton");
   assert.equal(previewBase(v, "spr", true, fam.variants), "/asset/spine/spr/hoshino_spr/skeleton");
 });
 
@@ -201,7 +201,7 @@ test("a configured variant previews its official copy even when its live files s
   v.configured = { spr: `variant:${source.key}` };
   source.state.files = [part("spr", "mod:leftover", { official: false, restorable: true })];
   assert.equal(appliedKey(source), "m:leftover");
-  assert.equal(previewBase(v, "spr", false, fam.variants), "/asset/spine/official/hoshino_swimsuit_spr/skeleton");
+  assert.equal(previewBase(v, "spr", false, fam.variants), "/asset/spine/official-spr/hoshino_swimsuit_spr/skeleton");
   assert.equal(previewBase(source, "spr", true, fam.variants), "/asset/spine/spr/hoshino_swimsuit_spr/skeleton");
 });
 
@@ -217,6 +217,18 @@ test("off previews use the configuration even if an unswitched game file still c
   }
   delete v.configured;
   assert.equal(previewKey(v, "spr", false), "self");
+});
+
+test("off previews of the own source use verified originals for both kinds despite leftover live mods", () => {
+  const fam = family(), v = fam.variants[0];
+  for (const [kind, core] of [["spr", v.spr], ["lobby", v.lobby]]) {
+    v.state.files = [part(kind, "mod:leftover", { official: false })];
+    for (const source of [null, "official", "unknown"]) {
+      v.configured = { [kind]: source };
+      assert.equal(previewBase(v, kind, false, fam.variants), `/asset/spine/official-${kind}/${core}/skeleton`);
+      assert.equal(previewBase(v, kind, true, fam.variants), `/asset/spine/${kind}/${core}/skeleton`);
+    }
+  }
 });
 
 test("a saved or removed configuration refreshes the preview without any change to the game files", () => {

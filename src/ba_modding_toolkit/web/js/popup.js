@@ -525,6 +525,21 @@ export async function listPopup({
   const area = inner.parentElement;
   host.replaceChildren(...next.childNodes);
   area.scrollTop = scrollTop;
+  // the thumbnails render in the order they were asked for: the cards in view go first, again as the list scrolls
+  const bumpShown = () => {
+    const row = LP.pitch[1] * S, first = Math.floor(area.scrollTop / row), last = Math.floor((area.scrollTop + visH) / row);
+    for (let i = items.length - 1; i >= 0; i--) {
+      const at = Math.floor(i / COLS6);
+      if (at >= first && at <= last) items[i].thumb?.bump?.();
+    }
+  };
+  bumpShown();
+  let waiting = false;
+  area.addEventListener("scroll", () => {
+    if (waiting) return;
+    waiting = true;
+    setTimeout(() => { waiting = false; bumpShown(); }, 120);
+  });
 }
 
 // --- the message popup ---

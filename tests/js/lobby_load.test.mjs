@@ -6,16 +6,19 @@ import { latestLoad, loadPlayer } from "../../src/ba_modding_toolkit/web/js/spin
 
 const source = readFileSync(new URL("../../src/ba_modding_toolkit/web/js/lobby.js", import.meta.url), "utf8");
 const loading = source.slice(source.indexOf("const lobbyLoads ="), source.indexOf("// the input trace"))
-  .replaceAll("export function", "function");
+  .replaceAll("export function", "function").replaceAll("export async function", "async function");
 const tick = () => new Promise(setImmediate);
 const noop = () => {};
 const layers = async (core, mod) => ({ info: null, layers: [{ name: "main", spine: `${core}:${mod || "live"}` }] });
 
-function harness(layersOf = layers) {
+function harness(layersOf = layers, resolveSources = null) {
   const created = [], calls = [];
+  const revisions = new Map();
   const host = { innerHTML: "", classList: { remove: noop }, querySelector: () => ({}) };
   const env = {
     latestLoad, layersOf, STAGE: { w: 1920, h: 1080 }, EXT_W: 480, EXT_H: 270,
+    sourcesOf: resolveSources || (async (core, mod) => ({ artBase: `${core}:${mod || "live"}:${revisions.get(mod || core) || "a"}`,
+      base: `${core}:layout` })),
     makePlayer(_host, layer, _fx, _share, signal) {
       return loadPlayer((config) => {
         const p = { config, name: layer.spine, disposed: false, parent: { remove: noop },
@@ -38,7 +41,7 @@ function harness(layersOf = layers) {
     let extendTimer, chain, subtitleTimer;
     ${loading}
     return { show, hide, current: () => current };`)(env);
-  return { ...h, host, created, calls };
+  return { ...h, host, created, calls, revisions };
 }
 
 test("configured lobby source changes cancel old players, including a switch back before the next load starts", async () => {
@@ -84,6 +87,65 @@ test("late configured lobby metadata cannot resurrect a hidden view", async () =
   assert.equal(h.created.length, 0);
 });
 
+test("a changed manifest revision reloads the same lobby source and frees its old player first", async () => {
+  for (const mod of [null, "configured"]) {
+    const h = harness();
+    try {
+      const first = h.show("hero_home", h.host, "hero", { mod });
+      await tick();
+      h.created[0].config.success(h.created[0]);
+      await first;
+      h.revisions.set(mod || "hero_home", "b");
+      const next = h.show("hero_home", h.host, "hero", { mod });
+      await tick();
+      assert.equal(h.created.length, 2);
+      assert.equal(h.created[0].disposed, true);
+      assert.ok(h.current().artBase.endsWith(":b"));
+      h.created[1].config.success(h.created[1]);
+      assert.ok(await next);
+    } finally { h.hide(h.host); }
+  }
+});
+
+test("late manifests cannot revive a hidden lobby or overtake a newer source", async () => {
+  const pending = new Map();
+  const h = harness(layers, (_core, mod) => new Promise((resolve) => pending.set(mod, resolve)));
+  const bases = (name) => ({ artBase: `${name}/`, base: "layout/" });
+  try {
+    const hidden = h.show("hero_home", h.host, "hero", { mod: "hidden" });
+    await tick();
+    h.hide(h.host);
+    assert.equal(await hidden, null);
+    pending.get("hidden")(bases("hidden"));
+    await tick();
+    assert.equal(h.created.length, 0);
+
+    const old = h.show("hero_home", h.host, "hero", { mod: "old" });
+    await tick();
+    const next = h.show("hero_home", h.host, "hero", { mod: "next" });
+    assert.equal(await old, null);
+    await tick();
+    pending.get("next")(bases("next"));
+    await tick();
+    pending.get("old")(bases("old"));
+    await tick();
+    assert.equal(h.current().mod, "next");
+    assert.equal(h.created.length, 1);
+    h.created[0].config.success(h.created[0]);
+    assert.ok(await next);
+
+    const waiting = h.show("hero_home", h.host, "hero", { mod: "waiting" });
+    assert.equal(h.current(), null, "changing source clears the disposed view before waiting for its manifest");
+    assert.equal(h.created[0].disposed, true);
+    await tick();
+    h.hide(h.host);
+    assert.equal(await waiting, null, "hiding ends the manifest wait without a response");
+    pending.get("waiting")(bases("waiting"));
+    await tick();
+    assert.equal(h.current(), null);
+  } finally { h.hide(h.host); }
+});
+
 test("a configured lobby with no skeletons or a failed player rejects and allows a later source", async () => {
   const h = harness((core, mod) => mod === "empty" ? { info: null, layers: [] } : layers(core, mod));
   try {
@@ -99,4 +161,30 @@ test("a configured lobby with no skeletons or a failed player rejects and allows
     h.created[1].config.success(h.created[1]);
     assert.ok(await recovered);
   } finally { h.hide(h.host); }
+});
+
+test("zoom limits are cached by both the configured art revision and the live layout revision", () => {
+  const start = source.indexOf("function measureClips()");
+  const code = source.slice(start, source.indexOf("// the layers' setup-pose bounds", start));
+  const measured = [];
+  const env = {
+    game: () => ({}), outerOf: (rect) => rect, union: () => ({}), rectOf: () => ({}), reclamp: noop,
+    performance, SLICE_MS: 8, setTimeout: (fn) => fn(),
+    measureSafe: function* (loaded) { measured.push(loaded[0]); return { whole: {} }; },
+  };
+  const measure = new Function("env", `const { ${Object.keys(env).join(", ")} } = env;
+    const safeRects = new Map(); let current;
+    ${code}
+    return (artBase, base) => {
+      current = { artBase, base, loaded: [artBase], meta: { full: {} } };
+      measureClips();
+      return current.meta;
+    };`)(env);
+  assert.ok(measure("mod-a/first/", "layout/first/").safe);
+  assert.ok(measure("mod-b/first/", "layout/first/").safe);
+  assert.ok(measure("mod-b/second/", "layout/first/").safe);
+  assert.ok(measure("mod-b/second/", "layout/second/").safe);
+  assert.equal(measured.length, 4, "changing either source measures its own limits");
+  assert.ok(measure("mod-a/first/", "layout/first/").safe);
+  assert.equal(measured.length, 4, "revisiting the same two sources reuses their limits");
 });

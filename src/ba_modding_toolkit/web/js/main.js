@@ -72,14 +72,18 @@ async function variantNames() {
 
 // --- library.changed: a writer job switched game files ({cores, kinds}), or anything may have changed (no data: the
 // classic UI closed, a job stopped midway, the mod list changed). The roster is read again, the thumbnails of those
-// cores are forgotten (a mod and the official file share one /asset/spine/<kind>/<core> URL; the prefix covers the
-// <core>@<id> bases of other installs too) and the detail screen reloads what it shows of them ---
+// cores are forgotten (both live and official sources, including other installs' bases) and the detail screen
+// reloads what it shows of them ---
 let heldChange, changeTimer = null, changeRoute = 0;
 function libraryChanged(data) {
   // An import changes the mod list without changing game files.
   const change = data && !data.mods && Array.isArray(data.cores) ? { cores: data.cores } : null;
   if (change && !change.cores.length) return;
-  for (const core of change?.cores || []) forget(spinePrefix(/_spr$/i.test(core) ? "spr" : "lobby", core));
+  for (const core of change?.cores || []) {
+    const kind = /_spr$/i.test(core) ? "spr" : "lobby";
+    forget(spinePrefix(kind, core));
+    forget(spinePrefix(`official-${kind}`, core));
+  }
   ctx.invalidateRoster();
   heldChange = heldChange === undefined ? change : heldChange === null || change === null ? null
     : { cores: [...new Set([...heldChange.cores, ...change.cores])] };

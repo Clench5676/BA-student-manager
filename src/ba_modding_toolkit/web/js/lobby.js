@@ -22,7 +22,8 @@
 // Entered, the lobby plays its intro timeline (lobby-intro.js) from the first frame it is on screen: a tap or a
 // dialogue skips it, and with the setting off the lobby starts as the intro leaves it.
 import { latestLoad, loadPlayer } from "./spine-load.js";
-import { spineFiles } from "./api.js";
+import { spineBase, spineAssetBase } from "./api.js";
+import { lobbyIdle } from "./rest-pose.js";
 import * as Linear from "./linear.js";
 import * as Materials from "./skeleton-materials.js";
 import * as Particles from "./particles-gl.js";
@@ -50,19 +51,26 @@ let lines = {}, muted = false, volume = 0.8, lineOf = (l) => l?.["zh-CN"] || "";
 let introOn = true; // the intro setting (setIntro): off shows the lobby as its intro leaves it
 const listeners = new Set();
 
-const base = (core) => `/asset/spine/lobby/${encodeURIComponent(core)}/`;
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const isBg = (n) => /background|_bg\b|bg_/i.test(n);
 const game = () => (current?.info?.view ? { ...current.info.view } : { ...GAME });
 
+async function sourcesOf(core, mod) {
+  const art = spineAssetBase(spineBase(mod ? "mod" : "lobby", mod || core));
+  const layout = mod ? spineAssetBase(spineBase("lobby", core)) : art;
+  const dir = (base) => base?.slice(0, base.lastIndexOf("/") + 1) || null;
+  const [artBase, base] = await Promise.all([art, layout]);
+  return { artBase: dir(artBase), base: dir(base) };
+}
+
 // the layers of a lobby in the prefab's draw order with its offsets and scales; skeletons the prefab keeps inactive
 // (talk-only scenes) are left out. Without prefab data every skeleton sits at the standard place, backgrounds first.
-export async function layersOf(core, mod = null) {
-  const kind = mod ? "mod" : "lobby", key = mod || core;
-  const artBase = `/asset/spine/${kind}/${encodeURIComponent(key)}/`;
+export async function layersOf(core, mod = null, sources = null) {
+  const { artBase, base } = sources || await sourcesOf(core, mod);
+  if (!artBase) return { info: null, layers: [] };
   const [files, info] = await Promise.all([
-    fetch(spineFiles(kind, key)).then((r) => (r.ok ? r.json() : [])),
-    fetch(`${base(core)}lobby.json`).then((r) => (r.ok ? r.json() : null)).catch(() => null),
+    fetch(`${artBase}files.json`).then((r) => (r.ok ? r.json() : [])),
+    base ? fetch(`${base}lobby.json`).then((r) => (r.ok ? r.json() : null)).catch(() => null) : null,
   ]);
   const atlasOf = pairAtlases(files), skels = [...atlasOf.keys()];
   const ok = (n) => atlasOf.has(n);
@@ -98,16 +106,9 @@ export function pairAtlases(files) {
 
 // voice clip names as Kivo keys them: "Images/sound/Hoshino_MemorialLobby_3_1.ogg" -> "hoshino_memoriallobby_3_1"
 const clipId = (name) => name.toLowerCase().replace(/\\/g, "/").split("/").pop().replace(/\.(ogg|wav|mp3)$/, "").replace(/_new$/, "");
-// the looping idle: the SpineCharacter's idle clip, else Idle_01, else the prefab's start animation, else the first
-// other animation (Dummy last); never an intro (Hasumi_home's prefab starts "Start_Idle", which must not loop). A
-// skeleton with intros only gets none: Shigure's Shigure_00 and Shigure_01, the scenes of her lobby's intro timeline,
-// parked beside the scene, rest in their setup pose as spine-unity leaves them when the timeline's clip ends (looped,
-// Shigure_00's train crossed the bottom of the view in front of her).
+// the looping idle (rest-pose.js, which the thumbnails choose with too)
 export function idleOf(data, layer, info = current?.info) {
-  const ok = (n) => n && !/^start_/i.test(n) && data.findAnimation(n);
-  return [info?.idle?.[layer.name], "Idle_01", layer.animation].find(ok)
-    || data.animations.find((a) => ok(a.name) && a.name !== "Dummy")?.name
-    || data.animations.find((a) => ok(a.name))?.name || null;
+  return lobbyIdle(data, { idle: info?.idle?.[layer.name], animation: layer.animation });
 }
 // the clips a skeleton's idle starts besides itself (SpineBase.PlayBaseClip plays every clip of the SpineCharacter's
 // idle pool, each with its sync clips): the idle's sync clips and the rest of its pool, when the idle is the pool's
@@ -246,7 +247,7 @@ const BAND = 24;          // cells inside each side of P that are checked: a sce
 const CLIP_STEP = 0.1;    // s between the poses sampled from a clip
 const SLICE_MS = 8;       // the measurement runs in slices of the main thread, after the lobby is shown
 const DRAG_CLIP = /^(Pat|Look|Pinch|HandFollow|Touch)(End)?_\d+_M$/;
-const safeRects = new Map(); // lobby (core and skeleton hashes) -> safe rect, for the session
+const safeRects = new Map(); // lobby art and layout revisions -> safe rect, for the session
 
 // The poses to check, [layer index, tracks]: every clip the lobby plays (its dialogues, the drag clips and their ends,
 // the clips the idle starts, the random idle clips and the clips they chain to) every CLIP_STEP, on its own track over
@@ -340,7 +341,7 @@ function outerOf(edge, full, sparse) {
 function measureClips() {
   const c = current, m = c?.meta;
   if (!m || m.sparse || m.safe || c.measuring || !c.loaded) return;
-  const key = `${c.core}|${c.loaded.map((l) => `${l.name}:${l.player.skeleton.data.hash || ""}`).join(",")}`;
+  const key = `${c.artBase}|${c.base}`;
   const done = (rect) => {
     if (current !== c) return;
     c.measuring = false;
@@ -703,7 +704,7 @@ function lightUp(player) {
   Linear.setPost(player, current?.info?.post);
   Linear.setScreen(player, layerViewport(game(), layer));
   Linear.setCurves(player, SlotColours.curvesOf(layer));
-  Materials.attach(player, layer, { screen: () => layerViewport(game(), layer), base: base(current.core) });
+  Materials.attach(player, layer, { screen: () => layerViewport(game(), layer), base: current.base });
 }
 
 // --- fallback only (art that does not cover the view): edge pixels stretched outwards and blurred ---
@@ -759,28 +760,39 @@ function feather(view) {
 }
 
 // show(core, host) -> Promise<meta> (frame, sequences); resolves once every layer is in and framed
-const lobbyLoads = latestLoad(), playerLoads = new WeakMap();
+const lobbyLoads = latestLoad(), sourceLoads = latestLoad(), playerLoads = new WeakMap();
 export function show(core, host, variant, { mod = null } = {}) {
-  if (current?.core === core && current.mod === mod && !current.signal.aborted && players.length) return current.ready;
-  return lobbyLoads.run((signal) => showNow(core, host, variant, mod, signal));
+  if (current && (current.core !== core || current.mod !== mod)) {
+    lobbyLoads.cancel();
+    clearView(host);
+  }
+  return sourceLoads.run(async (sourceSignal) => {
+    const sources = await sourcesOf(core, mod).catch(() => ({ artBase: null, base: null }));
+    if (sourceSignal.aborted) return null;
+    if (sources.artBase && current?.artBase === sources.artBase && current.base === sources.base
+        && !current.signal.aborted && players.length) return current.ready;
+    return lobbyLoads.run((signal) => sourceSignal.aborted ? null : showNow(core, host, variant, mod, sources, signal));
+  });
 }
-async function showNow(core, host, variant, mod, signal) {
+async function showNow(core, host, variant, mod, sources, signal) {
   clearView(host);
+  if (!sources.artBase) return null;
+  const { base } = sources;
   const my = ++token;
   host.innerHTML = '<canvas class="lobby-extend" hidden></canvas><div class="lobby-view"></div><canvas class="lobby-fade"></canvas><div class="lobby-frost"></div><div class="lobby-subtitle" hidden></div>';
   const ext = host.querySelector(".lobby-extend"), viewHost = host.querySelector(".lobby-view"), fade = host.querySelector(".lobby-fade");
   ext.width = EXT_W; ext.height = EXT_H;
   fade.width = STAGE.w; fade.height = STAGE.h;
-  current = { core, mod, variant, host, signal, info: null, meta: null, view: null, target: null, viewAt: null };
+  current = { core, mod, ...sources, variant, host, signal, info: null, meta: null, view: null, target: null, viewAt: null };
   talkIndex = -1;
   current.ready = (async () => {
-    const { info, layers } = await layersOf(core, mod);
+    const { info, layers } = await layersOf(core, mod, sources);
     if (signal.aborted || my !== token) return null;
     if (!layers.length) throw new Error("No lobby skeletons found");
     current.info = info;
     setView(game(), true); // the first frames are already in the game's framing
     const fx = (current.fx = info?.fx?.systems?.length || info?.fx?.renderers?.length || info?.fx?.sprites?.length
-      ? Particles.create(info.fx, { base: base(core), bone: boneOf }) : null);
+      ? Particles.create(info.fx, { base, bone: boneOf }) : null);
     // every layer drawn with the bottom one's context (share), or each with its own
     const errors = [];
     const build = async (share) => (await Promise.all(layers.map(async (layer) => {
@@ -860,6 +872,7 @@ function dropPlayers() {
 }
 
 export function hide(host) {
+  sourceLoads.cancel();
   lobbyLoads.cancel();
   clearView(host);
 }
@@ -1174,7 +1187,7 @@ const Sfx = {
   urls: new Map(), playing: new Set(), log: [],
   load(clip) {
     if (!this.urls.has(clip) && current) {
-      this.urls.set(clip, fetch(`${base(current.core)}sfx_${encodeURIComponent(clip)}.wav`)
+      this.urls.set(clip, fetch(`${current.base}sfx_${encodeURIComponent(clip)}.wav`)
         .then((r) => (r.ok ? r.blob() : null)).then((b) => (b ? URL.createObjectURL(b) : null)).catch(() => null));
     }
     return this.urls.get(clip) || Promise.resolve(null);

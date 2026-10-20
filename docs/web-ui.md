@@ -427,6 +427,7 @@ class ModLibrary:
     def restore(self, variant_key, log, kind="spr", pin=None) -> ApplyResult
     def would_write(self, variant_key, source, kind="spr", pin=None) -> bool   # for the classic window's rule
     def preview_bundles(self, mod_id: str, pin=None) -> list[Path]
+    def official_bundles(self, core: str, pin=None) -> list[Path]  # verified originals, whole core or unavailable
     def prune(self) -> list[Path]                        # kept originals deleted (see below)
     def update(self, mod_id: str, log, progress) -> UpdateResult   # rebuild against the current game file
     def extract(self, target: str, out_dir: Path, log) -> Path     # target "variant:<key>" or "mod:<id>"
@@ -805,6 +806,8 @@ HTTP endpoints outside `/api/rpc`, each with its own token, never the session to
 | `/asset/ui/layout/<root>.json?path=<subpath>` | light |
 | `/asset/art/bg/<name>`, `/asset/art/portrait/<name>.png` | heavy |
 | `/asset/spine/spr/<core>/<file>`, `/asset/spine/lobby/<core>/<file>`, `/asset/spine/mod/<id>/<file>` (`skeleton.skel` and `skeleton.atlas` stand for the skeleton named like the core, a mod's own core for a mod, else the only one) | heavy |
+| `/asset/spine/official-spr/<core>/<file>`, `/asset/spine/official-lobby/<core>/<file>`: verified official skeletons, atlases and pages, from kept originals when the game files are overwritten | heavy |
+| `/asset/spine/<kind>/<key>/manifest.json`: the revision of the selected ordered bundle set; `/asset/spine/<kind>/<key>/<revision>/<file>` serves only that revision, including relative atlas page paths | heavy |
 | `/asset/spine/spr/<core>@<id>/<file>`, `/asset/spine/lobby/<core>@<id>/<file>`: the core in another known install, `<id>` from `mods.state.installs` (in the path, so the skeleton's own relative files follow it), read through a GameAssets over that install's folders, made on first use and dropped with the services rebuild; an unknown id is `404` | heavy |
 | `/asset/spine/lobby/<core>/lobby.json` (prefab layout, touch boxes, clips, idle pools, sound events, post-processing, particle and mesh effects and sprites, page materials, pinned bones, the intro timeline (`gameassets/intro.py`); no skeleton is extracted) | heavy |
 | `/asset/spine/lobby/<core>/fx_<id>.png` (a particle, mesh, sprite or page shader texture the lobby's `fx.textures` lists) | heavy |
@@ -817,6 +820,43 @@ shared offscreen WebGL context, and kept as in-memory blob URLs. They are framed
 slots, halos left out; without a part named like one, the face-sized parts the expression animations switch, as
 many NPC portraits name their face slot `0`, `00` or `defalt`), sized by its width held between 170 and 400
 skeleton units, never by the skeleton's bounds; the bounds stand in only where no face is found.
+
+`detail.js` resolves the `official` card and `variant:<key>` cards through `official-spr` / `official-lobby` for the
+candidate's core; `mod:<id>` uses `mod` and the mod's own core. `popup.js` receives these thumbnail promises and adds
+no file selection. `ModLibrary.official_bundles` resolves every part through `_official_for`: verified kept original,
+verified game file, verified `.backup`, or a verified copy elsewhere. Missing official data fails the whole preview
+with 404 and `thumbs.js` returns null, leaving the existing plain card. Mod previews overlay the mod's parts on
+verified missing official parts, matching parts by prefix and resource type; they never fall back to live mod data.
+
+`spineAssetBase` resolves the manifest for every load, before the thumbnail cache lookup. The revision includes the
+ordered resolved paths, sizes, nanosecond modification and change times, covering an atomic replacement that
+preserves size and modification time. It sits in the directory shared by the skeleton, atlas and every texture page.
+`Services.asset` checks the revision before and after extraction and rejects a source change during the request;
+`GameAssets.spine_files_from` uses the same file versions and rejects changes during extraction. Thumbnails are
+cached by resolved base, frame and expression, so correctness does not depend on change events or `forget`.
+
+Files of a core merge by name, the last bundle winning. A mod preview lists the official parts first and the mod's
+last; the game folder lists parts by file name, so an official part could come after an applied mod part and win a
+texture both carry (the mod's atlas drawn over the official page). `ModLibrary.live_bundles(core)` gives the live
+`spr` and `lobby` sources the preview's order, the parts that are not official last (cheap judgement); a core the
+library does not know keeps the game's order. Official and preview parts are limited to the core's Spine category
+(`spinecharacters`, `spinelobbies`).
+
+`thumbs.js` rests a still in the pose its skeleton settles into: a portrait in `idleAnimation`, a memorial lobby
+(`thumb(base, frame, expr, true)`) in `lobbyIdle` (`rest-pose.js`), which `lobby.js` `idleOf` uses too. The tracks are
+cleared before the idle is set, as the player starts the skeleton's first animation (a lobby's intro) and a new one would
+mix in from it. A load also takes the other frame of a card (`card` and `bust`), so the big picture of a card is not a
+second load; the promise of a thumbnail has `bump()`, which `popup.js` calls for the cards in view (again on scroll),
+and the roster asks for its rows in view first. Pictures stay in memory only, keyed by the resolved base (the revision
+the files carry), frame and expression; `spineAssetBase` shares one answer between overlapping requests.
+
+The main portrait resolves its current candidate in the same way. The main memorial lobby uses live `lobby` files,
+or the configured `mod` art while mods are off. Its metadata and effect/audio requests keep the live lobby's
+revision; its art layers and pages use the art source's revision. Player reuse and measured art limits require both
+revisions to match. Pending manifest waits cancel on a newer request or leaving the view, and serialized player
+loads keep their cancellation and timeout handling. Lobby effect/audio caches include their source bundle versions. The roster uses
+collection art when present and live `spr` thumbnails otherwise; entry cards use live files of their named install.
+These thumbnail paths also resolve a manifest before caching.
 
 ## Front end
 
@@ -1128,9 +1168,9 @@ detail screen, and in Settings' Mods tab.
   (`classic.front`). When the queue has run (`classic.queueDone`), one popup ("Not Applied") lists the dropped calls
   with their error strings, and a queued toggle shows its result as above.
 - **What a writer job switched** (`library.changed {cores, kinds}`, `main.js`): the roster is read again (rebuilt at
-  once when it shows, once no popup is open), the thumbnails under `spinePrefix(kind, core)` are forgotten (a mod
-  and the official file share one `/asset/spine/<kind>/<core>` URL; the prefix also covers the `<core>@<id>` bases
-  of other installs, and `thumbs.js forget` matches any case, the cores coming in lower case), and the detail screen
+  once when it shows, once no popup is open), the thumbnails under the live and official `spinePrefix(kind, core)`
+  paths are forgotten (including the `<core>@<id>` bases of other installs; `thumbs.js forget` matches any case,
+  the cores coming in lower case), and the detail screen
   reloads (`Detail.filesChanged`). It reads the family again and, when the shown variant's files of the shown kind
   changed, reloads the portrait or the lobby the way an applied one is (under a still of the old one). It waits
   while a popup or a fullscreen view is open, while the screen changes, and while its own job runs (whose reload

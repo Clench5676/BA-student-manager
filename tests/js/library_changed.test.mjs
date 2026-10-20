@@ -38,7 +38,7 @@ test("coalescing an add with a switch still refreshes the mod list and evicts th
     for (const change of addFirst ? [add, apply] : [apply, add]) h.libraryChanged(change);
     await h.applyChange();
     assert.deepEqual(h.refreshed, [null]);
-    assert.deepEqual(h.forgotten, ["spr/dress_spr"]);
+    assert.deepEqual(h.forgotten, ["spr/dress_spr", "official-spr/dress_spr"]);
   }
 });
 

@@ -263,6 +263,117 @@ def test_preview_keeps_preload_parts_before_mod_overrides(setup_library):
     assert env.library.preview_bundles(entry.id) == [preload, entry.file]
 
 
+@pytest.mark.parametrize("core,kind", [("test_spr", "spr"), ("test_home_gl", "lobby"), ("other_spr", "spr")])
+def test_official_preview_uses_kept_parts_and_is_unavailable_without_them(setup_library, monkeypatch, core, kind):
+    from ba_modding_toolkit.gameassets import AssetCache, GameAssets
+    from ba_modding_toolkit.webui.services import Services
+
+    env = setup_library
+    env.original.unlink()
+    targets = [game_bundle(env.game_dir, core, part=part, payload=b"official")
+               for part in ("textassets", "textures")]
+    expected = targets[0].read_bytes()
+    game = GameAssets([env.game_dir], AssetCache(root=env.tmp / "cache", allowed=False))
+    reads = []
+
+    def extract(paths):
+        reads.append(paths)
+        files = {}
+        for path in paths:
+            if parse_filename(path.name).res_type == "textassets":
+                files.update({f"{core}.skel": path.read_bytes(), f"{core}.atlas": path.read_bytes()})
+            else:
+                files["Pages/portrait.png"] = path.read_bytes()
+        return files
+
+    monkeypatch.setattr("ba_modding_toolkit.gameassets.service.extract_spine", extract)
+    services = Services(env.settings, env.tmp / "ui", game=game, catalog=env.catalog, library=env.library)
+    prefix = f"spine/official-{kind}/{core}"
+    try:
+        before = json.loads(services.asset(f"{prefix}/manifest.json", {}).body)["revision"]
+        assert services.asset(f"{prefix}/{before}/skeleton.skel", {}).body == expected
+        entry, = env.library.add([make_mod(targets[0], env.tmp / "input", payload=b"modified")])
+        variant = "other" if core == "other_spr" else "test"
+        env.library.apply(variant, f"mod:{entry.id}", kind=kind)
+        kept = env.root / "originals" / targets[0].name
+        assert targets[0].read_bytes() != expected
+        assert env.library.official_bundles(core) == [kept, targets[1]]
+        after = json.loads(services.asset(f"{prefix}/manifest.json", {}).body)["revision"]
+        assert after != before
+        for name in ("skeleton.skel", "skeleton.atlas", "Pages/portrait.png"):
+            assert services.asset(f"{prefix}/{after}/{name}", {}).body == expected
+        assert reads[-1] == [kept, targets[1]]
+        assert services.asset(f"spine/mod/{entry.id}/skeleton.skel", {}).body == entry.file.read_bytes()
+        with pytest.raises(KeyError):
+            services.asset(f"{prefix}/{before}/Pages/portrait.png", {})
+        kept.unlink()
+        expect_error("original_unavailable", lambda: env.library.official_bundles(core))
+        expect_error("original_unavailable", lambda: services.asset(f"{prefix}/manifest.json", {}))
+        expect_error("original_unavailable", lambda: services.asset(f"{prefix}/{after}/Pages/portrait.png", {}))
+    finally:
+        services.close()
+
+
+def test_live_bundles_put_the_parts_that_carry_a_mod_last(setup_library):
+    env = setup_library
+    # file names list the text assets before the textures: a mod over the first would be merged under the official
+    # texture, which wins a name both carry (the mod's atlas drawn over the official page)
+    targets = [game_bundle(env.game_dir, "test_home_gl", part=part, payload=b"official")
+               for part in ("textassets", "textures")]
+    other = game_bundle(env.game_dir, "test_home_gl", part="textures", payload=b"other", date="2026-02-02")
+    stray = env.game_dir / other.name.replace("-spinelobbies-", "-characters-")
+    other.rename(stray)  # same core, another category: no Spine files
+    assert sorted(targets) == targets  # the order the game folder lists them
+    assert env.library.live_bundles("test_home_gl") == targets
+    entry, = env.library.add([make_mod(targets[0], env.tmp / "input", payload=b"modified")])
+    env.library.apply("test", f"mod:{entry.id}", kind="lobby")
+    assert env.library.live_bundles("TEST_HOME_GL") == [targets[1], targets[0]]
+    assert env.library.live_bundles("test_home_gl") == env.library.live_bundles("test_home_gl")
+    # the preview of the mod and the official parts leave the other category out too
+    assert stray not in env.library.official_bundles("test_home_gl")
+    assert stray not in env.library.preview_bundles(entry.id)
+    expect_error("game_file_not_found", lambda: env.library.live_bundles("absent_home"))
+
+
+def test_live_spine_files_merge_in_the_previews_order(setup_library, monkeypatch):
+    from ba_modding_toolkit.gameassets import AssetCache, GameAssets
+    from ba_modding_toolkit.webui.services import Services
+
+    env = setup_library
+    targets = [game_bundle(env.game_dir, "test_home_gl", part=part, payload=b"official")
+               for part in ("textassets", "textures")]
+    game = GameAssets([env.game_dir], AssetCache(root=env.tmp / "cache", allowed=False))
+    reads = []
+
+    def extract(paths):
+        reads.append(paths)
+        return {"test_home_gl.skel": b"skeleton", "test_home_gl.atlas": b"atlas"}
+
+    monkeypatch.setattr("ba_modding_toolkit.gameassets.service.extract_spine", extract)
+    services = Services(env.settings, env.tmp / "ui", game=game, catalog=env.catalog, library=env.library)
+    try:
+        for name in ("manifest.json", "skeleton.skel"):
+            services.asset(f"spine/lobby/test_home_gl/{name}", {})
+        entry, = env.library.add([make_mod(targets[0], env.tmp / "input", payload=b"modified")])
+        env.library.apply("test", f"mod:{entry.id}", kind="lobby")
+        revision = json.loads(services.asset("spine/lobby/test_home_gl/manifest.json", {}).body)["revision"]
+        services.asset(f"spine/lobby/test_home_gl/{revision}/skeleton.skel", {})
+        # the applied part goes after the official one, whatever the file names say
+        assert reads[-1] == [targets[1], targets[0]]
+        assert reads[0] == targets
+    finally:
+        services.close()
+
+
+def test_partial_mod_preview_rejects_same_size_live_mod_as_official_fallback(setup_library):
+    env = setup_library
+    texture = game_bundle(env.game_dir, part="textures")
+    entry, = env.library.add([make_mod(texture, env.tmp / "input")])
+    # An external overwrite has a valid header and official size, but no original exists.
+    env.original.write_bytes(header_bundle(b"modified"))
+    expect_error("original_unavailable", lambda: env.library.preview_bundles(entry.id))
+
+
 def test_legacy_single_file_record_can_apply_and_reset_other_parts(setup_library):
     env = setup_library
     mod_id = "a" * 32
