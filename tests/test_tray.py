@@ -351,3 +351,47 @@ def test_appkit_loads_the_pdf_as_a_vector_template_image():
     assert image is not None and image.isTemplate()
     assert tuple(image.size()) == (18, 18)
     assert [rep.className() for rep in image.representations()] == ["NSPDFImageRep"]
+
+
+# --- the app window's wiring ---
+
+class Hook:
+    def __iadd__(self, handler):
+        return self
+
+
+def run_window(monkeypatch, tmp_path, supported):
+    from types import SimpleNamespace
+
+    from ba_modding_toolkit.webui import main
+
+    window = SimpleNamespace(events=SimpleNamespace(initialized=Hook(), loaded=Hook(), closing=Hook()))
+    started, closed = {}, []
+    monkeypatch.setitem(sys.modules, "webview", SimpleNamespace(create_window=lambda *a, **k: window,
+                                                                start=lambda **options: started.update(options)))
+    monkeypatch.setattr(Tray, "supported", staticmethod(lambda platform=sys.platform: supported))
+    monkeypatch.setattr(Tray, "close", lambda self: closed.append(self))
+    services = FakeServices()
+    services.window, services.data_dir, services.tray_supported = None, tmp_path, None
+    try:
+        main._run_window(services, SimpleNamespace(url="http://127.0.0.1:1/"), False)
+    finally:
+        services.jobs.shutdown(wait=5)
+    return services, window, started, closed
+
+
+def test_the_app_window_starts_the_tray_with_the_gui_loop_and_removes_it_after(monkeypatch, tmp_path):
+    services, window, started, closed = run_window(monkeypatch, tmp_path, supported=True)
+    assert services.tray_supported is True
+    assert len(closed) == 1
+    tray = closed[0]
+    assert started["func"] == tray.start and started["args"] == (window,)
+    # it follows mods.state from before the window opens
+    services.events.publish("mods.state", snapshot(enabled=False))
+    assert tray.snapshot()["enabled"] is False
+
+
+def test_without_a_tray_the_window_starts_alone(monkeypatch, tmp_path):
+    services, _, started, closed = run_window(monkeypatch, tmp_path, supported=False)
+    assert services.tray_supported is False
+    assert started["func"] is None and started["args"] is None and closed == []

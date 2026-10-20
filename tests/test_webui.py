@@ -657,6 +657,9 @@ def test_the_window_leaves_the_pointer_and_text_selection_to_the_page(monkeypatc
 
     monkeypatch.setitem(sys.modules, "webview", SimpleNamespace(create_window=create_window,
                                                                 start=lambda **options: started.update(options)))
+    from ba_modding_toolkit.webui.tray import Tray
+
+    monkeypatch.setattr(Tray, "supported", staticmethod(lambda platform=sys.platform: False))  # tests/test_tray.py
     main._run_window(SimpleNamespace(window=None, data_dir=tmp_path), SimpleNamespace(url="http://127.0.0.1:1/"), False)
     assert created["text_select"] is True
     assert started["private_mode"] is True

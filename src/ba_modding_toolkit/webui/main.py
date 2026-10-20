@@ -130,6 +130,7 @@ def _run_window(s: Services, server: Server, debug: bool) -> None:
     import webview
 
     from .native import WEBVIEW2_URL, renderer_supported, watch_drops
+    from .tray import Tray
 
     # text_select stays True: with False (pywebview's default) pywebview appends "body { user-select: none; cursor:
     # default }" to the page, which replaces the game's pointer with the system arrow on everything but the buttons.
@@ -137,6 +138,11 @@ def _run_window(s: Services, server: Server, debug: bool) -> None:
     window = webview.create_window(t("ui.app_title"), server.url, width=1600, height=900, min_size=(960, 540),
                                    background_color="#0d2a4c", text_select=True)
     s.window = window
+    # the tray or menu bar icon, shown while the preference "tray" is on; it goes with the window (decision 7)
+    tray = Tray(s) if Tray.supported() else None
+    s.tray_supported = tray is not None
+    if tray is not None:
+        tray.attach()
 
     def on_initialized(renderer: str) -> bool:
         if renderer_supported(renderer):
@@ -161,7 +167,13 @@ def _run_window(s: Services, server: Server, debug: bool) -> None:
     window.events.loaded += on_loaded
     window.events.closing += on_closing
     storage = s.data_dir / "webview"  # never next to the program in a compiled build: data_dir follows EXE_DIR rules
-    webview.start(debug=debug, private_mode=True, storage_path=str(storage))
+    try:
+        # the tray starts on a thread of its own once the GUI loop runs
+        webview.start(func=tray.start if tray is not None else None, args=(window,) if tray is not None else None,
+                      debug=debug, private_mode=True, storage_path=str(storage))
+    finally:
+        if tray is not None:
+            tray.close()  # on the main thread once the loop ended: the icon goes with the window
 
 
 if __name__ == "__main__":
