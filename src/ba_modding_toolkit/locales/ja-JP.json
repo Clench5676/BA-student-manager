@@ -1113,6 +1113,11 @@
 				"on": "ON",
 				"off": "OFF"
 			},
+			"intro": {
+				"label": "開始演出",
+				"on": "ON",
+				"off": "OFF"
+			},
 			"server": {
 				"label": "サーバー",
 				"global": "グローバル版",

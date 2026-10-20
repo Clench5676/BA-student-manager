@@ -93,6 +93,14 @@ def test_post_processing_setting_is_on_by_default_and_persists(app, tmp_path):
     assert rpc(app, "settings.set", key="lobbyPost", value=1)["result"]["lobbyPost"] is True
 
 
+def test_intro_setting_is_on_by_default_and_persists(app, tmp_path):
+    # the memorial lobby's intro plays when the lobby is entered unless it is turned off
+    assert rpc(app, "settings.get")["result"]["lobbyIntro"] is True
+    assert rpc(app, "settings.set", key="lobbyIntro", value=False)["result"]["lobbyIntro"] is False
+    assert UiState(tmp_path / "webui.json").get("lobby_intro") is False
+    assert rpc(app, "settings.set", key="lobbyIntro", value=True)["result"]["lobbyIntro"] is True
+
+
 def test_input_trace_is_logged_only_when_started_with_debug(app, services, caplog):
     caplog.set_level(logging.INFO, logger="ba_modding_toolkit.webui.trace")
     events = [{"k": "down", "pt": "mouse", "b": 0, "bs": 1}, {"k": "wheel", "dy": 4.5, "act": "pan"}]
