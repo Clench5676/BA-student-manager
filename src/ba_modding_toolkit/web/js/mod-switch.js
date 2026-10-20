@@ -130,7 +130,7 @@ export function resultSummary(result, nameOf) {
   if (list("stuck").length) lines.push(T("mods.stuck", { n: list("stuck").length }));
   const failures = [
     ...list("failed").map((f) => `${entryLabel(f.entry, nameOf)} - ${errorText(f.code, f.params)}`),
-    ...list("left").map((e) => `${entryLabel(e, nameOf)} - ${errorText(e.code || "library_io_error")}`),
+    ...list("left").map((e) => `${entryLabel(e, nameOf)} - ${errorText(e.code || "library_io_error", e.params)}`),
   ];
   lines.push(...failures.slice(0, MAX_LISTED));
   if (failures.length > MAX_LISTED) lines.push(`+${failures.length - MAX_LISTED}`);

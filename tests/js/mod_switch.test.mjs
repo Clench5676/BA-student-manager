@@ -233,7 +233,7 @@ test("a toggle's end: a toast, or the result popup naming each failed entry with
     enabled: false, done: [{}, {}, {}], adopted: [{ variant: "airi" }],
     failed: [{ entry: { install: "/g", core: "airi_spr", variant: "airi", kind: "spr" }, code: "game_file_locked", params: {} },
       { entry: { install: "/g", core: "ch0251_home", variant: "ch0251", kind: "lobby" }, code: "not_enough_space", params: { need: 3 * 1048576, free: 1048576 } }],
-    stuck: [{ variant: "ch0251" }], left: [{ install: "/g", core: "zz_spr", variant: "zz", kind: "spr", code: "library_io_error" }],
+    stuck: [{ variant: "ch0251" }], left: [{ install: "/g", core: "zz_spr", variant: "zz", kind: "spr", code: "not_enough_space", params: { need: 2 * 1048576, free: 1048576 } }],
   }, names);
   assert.equal(r.title, S("mods.offState"));
   assert.deepEqual(r.lines, [
@@ -242,7 +242,7 @@ test("a toggle's end: a toast, or the result popup naming each failed entry with
     "Left as is, no official copy: 1",
     `Airi, Portrait - ${S("error.game_file_locked")}`,
     "Airi (Band), Memorial Lobby - Not enough space: 3.0 MB needed, 1.0 MB free",
-    "zz, Portrait - Could not write to the mod library: ",
+    "zz, Portrait - Not enough space: 2.0 MB needed, 1.0 MB free",
   ]);
   // many failures: the first ones named, the rest counted
   const many = MS.resultSummary({ enabled: true, failed: Array.from({ length: 9 }, (_, i) => ({ entry: { core: `c${i}_spr`, variant: `c${i}` }, code: "game_file_locked" })) });

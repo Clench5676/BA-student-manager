@@ -2641,7 +2641,7 @@ class ModLibrary:
                         self._check_space(sum(part.size for part in entry.parts if part.carried == "unknown"))
                     mod_id = self._adopt_one(pin, core)
                 except ServiceError as error:
-                    outcome["left"] = {**item, "code": error.code}
+                    outcome["left"] = {**item, "code": error.code, "params": error.to_json()["params"]}
                     return outcome, "left", item
                 outcome["adopted"] = {**item, "mod": mod_id}
                 view = self._view(pins, "full")
