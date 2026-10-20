@@ -13,7 +13,9 @@ import * as NGUI from "./ngui.js";
 import * as Loading from "./loading.js";
 import * as Lobby from "./lobby.js";
 import * as Visual from "./visual-mode.js";
-import { rpc, spineBase, waitJob } from "./api.js";
+import { QUEUEABLE, refused } from "./mod-switch.js";
+import { anyOpen as popupOpen } from "./popup.js";
+import { rpc, spineBase, spinePrefix, waitJob } from "./api.js";
 import { L, T, language, platform } from "./i18n.js";
 import { forget, idleAnimation, prioritise, thumb } from "./thumbs.js";
 import { portraitViewport } from "./portrait-view.js";
@@ -519,7 +521,9 @@ async function addMods() {
   if (added?.length) { await reload(); ctx.invalidateRoster(); }
 }
 
-// a job with a sticky progress line; the family is re-read afterwards (after(ok) instead, when given)
+// a job with a sticky progress line; the family is re-read afterwards (after(ok) instead, when given). A switch the
+// classic UI's open window refuses opens the classic modal, which can queue it (mod-switch.js); an apply while mods
+// are off only saves the choice (deferred).
 async function job(method, params, { onDone, after = reload } = {}) {
   if (busy) { toast(T("error.busy"), { kind: "error" }); return false; }
   busy = true;
@@ -529,15 +533,18 @@ async function job(method, params, { onDone, after = reload } = {}) {
   try {
     const id = await rpc(method, params);
     const result = await waitJob(id, (p) => toast(`${T("job.running")} ${p.current}/${p.total}`, { sticky: true }));
-    toast(T("job.done"));
+    toast(result?.deferred ? T("mods.saved") : T("job.done"));
     ok = true;
     await onDone?.(result);
   } catch (err) {
-    toast(errorText(err), { kind: "error", sticky: false });
+    if (QUEUEABLE.includes(method)) refused(err, method, params);
+    else toast(errorText(err), { kind: "error", sticky: false });
   } finally {
     busy = false;
     await after(ok);
   }
+  // game files that changed while the job ran (another job before it, the tray): read again once its own reload is in
+  resumeChanged();
   return ok;
 }
 // the mod the shown tab's game files carry (row 2's update and compare act on it), or null
@@ -1450,6 +1457,76 @@ async function reload() {
   await renderAll();
 }
 
+// --- game files switched elsewhere: the Enable Mods switch, the tray, a queued write, the classic UI closing
+// (library.changed, main.js). The family is read again, and the left side reloads the way an applied portrait or
+// lobby does when the shown variant's files of that kind changed. It waits while a popup or a fullscreen view is
+// open, while the screen changes and while this screen's own job runs (whose reload comes first). ---
+let heldChange; // undefined: nothing waiting; null: anything may have changed; {cores}: those lower-case cores
+let reloadingChanged = false;
+const mergeChange = (a, b) => (a === null || b === null ? null : a === undefined ? b : { cores: [...new Set([...a.cores, ...b.cores])] });
+const lower = (core) => String(core || "").toLowerCase();
+// a variant's game files of a kind as the screen judged them: they changed when this differs
+const filesSig = (v, kind) => JSON.stringify(v ? partsOf(v, kind).map((f) => [f.file, f.applied, f.crc, f.size, f.date, f.mtime, f.official]) : null);
+const quiet = () => !fullscreen && !Visual.isOpen() && !popupOpen() && !changing() && !Loading.covering();
+
+// filesChanged({cores} | null): main.js's library.changed handler, while the screen is open
+export function filesChanged(change = null) {
+  if (!open || !fam) return;
+  if (change) {
+    const cores = new Set(change.cores.map(lower));
+    if (!fam.variants.some((v) => cores.has(lower(v.spr)) || cores.has(lower(v.lobby)))) return;
+  }
+  heldChange = mergeChange(heldChange, change && { cores: change.cores.map(lower) });
+  resumeChanged();
+}
+function resumeChanged() {
+  if (heldChange === undefined || busy || reloadingChanged || !open) return;
+  reloadingChanged = true;
+  reloadChanged().catch((err) => console.error("reload after a switch", err)).finally(() => {
+    reloadingChanged = false;
+    resumeChanged();
+  });
+}
+async function reloadChanged() {
+  while (open && !quiet()) await sleep(250);
+  if (!open || busy || heldChange === undefined) return;
+  heldChange = undefined;
+  const key = fam.key;
+  const data = await rpc("family.get", { key }).catch(() => null);
+  if (!data || !open || fam?.key !== key || busy) return;
+  if (JSON.stringify(data) === JSON.stringify(fam)) return;
+  // the thumbnails of every core of the family whose files changed (a mod and the official file share one URL)
+  const changed = { spr: false, lobby: false };
+  for (const v of data.variants) {
+    const was = fam.variants.find((x) => x.key === v.key);
+    for (const kind of ["spr", "lobby"]) {
+      if (filesSig(was, kind) === filesSig(v, kind)) continue;
+      const core = kind === "spr" ? v.spr : v.lobby;
+      if (core) forget(spinePrefix(kind, core));
+      if (v.key === variantKey) changed[kind] = true;
+    }
+  }
+  ctx.invalidateRoster();
+  // the shown portrait or lobby is read again from the game files, under a still of the old one
+  if (changed.lobby) {
+    lobbyStale = true;
+    lobbyShot = null;
+    lobbySeq = null;
+    lobbyAll = false;
+    if (shownLeft === "lobby") shownKey = null;
+  }
+  if (changed.spr) {
+    expression = "00";
+    clearTimeout(blinkTimer);
+    mainPlayer = null;
+  }
+  const left = (changed.spr && tab === "portrait") || (changed.lobby && tab === "lobby");
+  await changeInPlace(async () => {
+    fam = data;
+    await Promise.all([renderAll(), left ? renderLeft() : null]);
+  });
+}
+
 async function ensureLayouts() {
   if (layouts) return;
   // the popups' prefabs (popup.js) with the screen's, so its popups draw their frame at once
@@ -1585,6 +1662,7 @@ export function hide() {
   for (const part of LEFT) { $(part).hidden = true; $(part).classList.remove("pending", "leaving"); }
   for (const id of ["popup", "picker"]) { $(id).hidden = true; $(id).innerHTML = ""; }
   keySteps.clear();
+  heldChange = undefined; // the next show reads the family anyway
   arrived();
 }
 

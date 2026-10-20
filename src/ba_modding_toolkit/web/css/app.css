@@ -68,6 +68,43 @@ input[type="text"], input[type="search"], textarea { cursor: text; }
 .top-option:hover i { background-color: #2a63c5; }
 .top-line { position: absolute; right: 118px; top: 16px; width: 3px; height: 32px; background: #dde8f1; transform: skewX(-10deg); }
 
+/* the Enable Mods switch after the title (js/mod-switch.js): two of the roster filter's segments (UICharacterCollection
+   FilterBtn: Common_Filter_Tab_Type1 and its flipped twin, 9-sliced and inclined 10 degrees like NGUI draws them, at
+   40/104 of their size), ON pressed in the Support segment's blue and OFF in the All segment's navy; its label; the
+   square "?" (Btn_Information: Common_Btn_Information in #2c4564 over a white square) */
+.mod-switch { display: flex; align-items: center; gap: 12px; margin-left: 32px; height: 64px; }
+.mod-switch[hidden] { display: none; }
+.ms-toggle { position: relative; display: flex; height: 40px; filter: drop-shadow(0 1px 2px rgba(30, 60, 100, .3)); }
+.ms-seg { position: relative; display: grid; place-items: center; min-width: 82px; height: 40px; padding: 0 14px; }
+.ms-seg::before { content: ""; position: absolute; inset: 0; opacity: .95; border-style: solid; border-width: 4.2px 1.9px 6.5px 5.8px;
+  border-image: url("/asset/ui/sprite/Common/Common_Filter_Tab_Type1.png") 11 5 17 15 fill stretch; transform: skewX(-10deg); }
+.ms-seg.ms-off::before { transform: skewX(-10deg) scaleX(-1); }
+.ms-seg b { position: relative; font: var(--w) 24px/1 var(--font); letter-spacing: .5px; white-space: nowrap; margin-top: -3px; }
+.ms-seg.ms-on b { color: #006bff; }
+.ms-seg.ms-off b { color: #1d2a38; }
+/* the pressed segment: Common_Filter_Tab_Type1_Pressed (324 x 99 at +2.6, no shadow) in the segment's colour */
+.ms-toggle.is-on .ms-on::before, .ms-toggle:not(.is-on) .ms-off::before {
+  inset: 0 .8px 2px .8px; opacity: 1; border: 0; border-image: none; background: #0664eb;
+  -webkit-mask-box-image-source: url("/asset/ui/sprite/Common/Common_Filter_Tab_Type1_Pressed.png");
+  -webkit-mask-box-image-slice: 11 1 12 13 fill; -webkit-mask-box-image-width: 4.2px .4px 4.6px 5px;
+  -webkit-mask-box-image-repeat: stretch; }
+.ms-toggle:not(.is-on) .ms-off::before { background: #153757; }
+.ms-toggle.is-on .ms-on b, .ms-toggle:not(.is-on) .ms-off b { color: #ffffff; margin-top: -1px; }
+/* busy: dimmed at the loading indicator's pace; unavailable: greyed, the reason as its tooltip */
+.ms-toggle.busy { animation: ms-busy 1.1667s ease-in-out infinite; }
+@keyframes ms-busy { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
+.ms-toggle.unavailable { filter: grayscale(1); opacity: .55; }
+.ms-dot { position: absolute; right: -10px; top: -8px; width: 24px; height: 22px; pointer-events: none;
+  background: url("/asset/ui/sprite/Common/Common_Icon_Reddot2.png") center / contain no-repeat; }
+.ms-dot[hidden] { display: none; }
+.ms-label { font: var(--w) 26px/1 var(--font); color: var(--navy-text); white-space: nowrap; letter-spacing: .5px; }
+.ms-help { position: relative; width: 40px; height: 40px; }
+.ms-help::before { content: ""; position: absolute; left: 5px; top: 2.2px; width: 28px; height: 28px; background: #ffffff; }
+.ms-help i { position: absolute; inset: 0 .5px; background-color: #2c4564;
+  -webkit-mask: url("/asset/ui/sprite/Common/Common_Btn_Information.png") center / contain no-repeat;
+  mask: url("/asset/ui/sprite/Common/Common_Btn_Information.png") center / contain no-repeat; }
+.ms-help:hover i { background-color: #2a63c5; }
+
 /* --- bottom navigation, pressed down to the bottom edge; icons only peek over the bar --- */
 .nav { position: absolute; left: 0; right: 0; bottom: 0; height: 104px; z-index: 1000; }
 .nav-bar {
@@ -107,13 +144,16 @@ input[type="text"], input[type="search"], textarea { cursor: text; }
 .roster-search.pending { opacity: 0; }
 /* keyboard focus (never shown for the pointer): a ring in the game's selection blue; a roster card's ring hugs its
    portrait frame, inside the list's clip */
-.hit:focus-visible, .card-hit:focus-visible, .nav-item:focus-visible, .top-option:focus-visible, .back:focus-visible {
+.hit:focus-visible, .card-hit:focus-visible, .nav-item:focus-visible, .top-option:focus-visible, .back:focus-visible,
+.ms-toggle:focus-visible, .ms-help:focus-visible {
   outline: 4px solid #2fa6f0; outline-offset: 2px; border-radius: 10px; }
 .card-row .card-hit:focus-visible { outline: 5px solid #2fa6f0; outline-offset: -3px; border-radius: 12px;
   box-shadow: inset 0 0 0 7px rgba(255, 255, 255, .7), 0 0 14px rgba(47, 166, 240, .55); }
 .roster-empty { position: absolute; inset: 0; pointer-events: none; }
 .consent-host { position: absolute; inset: 0; z-index: 2000; }
 .consent-host[hidden] { display: none; }
+/* the scan consent opened from Settings or the switch's help: over the settings and the message popups */
+#consent.over { z-index: 2700; }
 
 /* settings: the rows scroll inside the popup's white panel */
 .settings-host { z-index: 2500; }

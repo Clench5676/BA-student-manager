@@ -988,10 +988,13 @@ optional, so a popup still works without them.
   button when `onClose` is `null`. The cards' buttons are in the page in the list's order.
 
 **Start sequence** (`main.js`, `Popup.sequence`). Once the first screen is revealed the start popups come one at a
-time, in order, each only when it has something to show: the asset consent, then the update popup (released builds
-only). `Update.check` resolves when its popup closes: `later` (Later or Escape), `page` (the download page opened),
-`update` once an update has failed (one that works restarts the app), `null` with no newer release or offline. A step
-that fails is logged and the next one comes. Later tracks add their popups to `startPopups()` in their place.
+time, in order, each only when it has something to show (`mod-switch.js startDue`): the asset consent, the scan
+consent (while it is unanswered and a game folder is known; see Enable Mods switch), then the update popup (released
+builds only). `Update.check` resolves when its popup closes: `later` (Later or Escape), `page` (the download page
+opened), `update` once an update has failed (one that works restarts the app), `null` with no newer release or
+offline. A step that fails is logged and the next one comes. The prompts of mods back to official and of mods outside
+the library come last, after the start scan: `startDue` already says when they are due (only with the scan consent,
+never while the game runs, Steam is busy or the classic UI is open, no drift while mods are off, nothing dismissed).
 
 - **Switch Portrait, Switch Memorial Lobby** (the switch card of the Portrait and Memorial Lobby tabs; the add button
   beside it adds mods of either kind): what the game can show for that kind (`switch-sources.js`, tested in Node):
@@ -1017,6 +1020,85 @@ that fails is logged and the next one comes. Later tracks add their popups to `s
 - **Details** (the Portrait, Memorial Lobby and 3D Model info bars' button): the shown tab's game files. The folder,
   what they carry and, for a mod, its file and the variant it was made for; then one row per bundle with its size,
   date, CRC state and what it carries. The frame fits its content and scrolls past the stage's height.
+
+### Enable Mods switch
+
+One kill switch for every game folder (`mod-switch.js`; the pure parts tested in Node from `tests/test_mod_switch.py`).
+It never changes the configuration: Off puts every portrait and memorial lobby of every known install back to
+official, On writes the configured sources again (see library). It is in the top bar of the student list and the
+detail screen, and in Settings' Mods tab.
+
+- **The top bar** (`#mod-switch`, after the title): the switch, its label and the square "?". All CSS on the game's
+  sprites, like the rest of the top bar. The atlases have no two-state switch sprite (`toggle|switch|onoff` find
+  none), so the switch is two of the student list filter's segments (UICharacterCollection `FilterBtn`:
+  `Common_Filter_Tab_Type1` and its flipped twin, 9-sliced and inclined 10 degrees as NGUI draws them, at 40/104 of
+  their size): ON pressed in the Support segment's blue (`#0664eb`), OFF pressed in the All segment's navy
+  (`#153757`), on the pressed sprite `Common_Filter_Tab_Type1_Pressed`. The words are `settings.post.on` and `.off`
+  (the game's On / Off). The "?" is the student list's own square info button (`Btn_Information`:
+  `Common_Btn_Information` in `#2c4564` over a white square), its tooltip and name the game's "Guide". The label is
+  fitted from 26 down to 20 stage px. It slides out with the top bar in fullscreen views, and is not on the no-game
+  screen.
+- **States** (`view(mods.state)`): on; off; busy while a toggle is queued or running or writes wait for the classic
+  window (dimmed at the loading indicator's pace); unavailable, greyed with the reason as its tooltip (the game
+  running or its state unknown, Steam busy, the classic window open, no game folder known, unreadable mod settings);
+  the red dot (`Common_Icon_Reddot2`) while entries were not switched or were left as is. It is a `button` with
+  `role="switch"` and `aria-checked`; Space and Enter toggle. Settings' Show on Main Screens Off hides it from the top
+  bar (nothing replaces it), and so does having no current install (Settings keeps it).
+- **A click** (`click(from)`, the same rules from the top bar and Settings): busy, a toast (`error.busy`), or the
+  classic modal with its box ticked when writes wait for the classic window; unavailable, the reason as a toast; the
+  first toggle ever, the explanation; the classic window open, the classic modal; otherwise `mods.toggle {enabled:
+  !current, expect: current}` at once, with the corner indicator and "Working 12/40". The explanation (title and
+  button Turn Off Mods or Turn On Mods, the help's first four lines, "Built mods kept for instant On" and "Not shown
+  again", and Cancel) shows once: closing it in any way calls `mods.explained`, and only its button toggles. The end
+  is a toast ("Mods off", "Mods on"), or, when entries were added to the library first, failed, were left as is or
+  their adoption failed, a result popup: "Added to the library first: n", "Done: x, failed: y", "Left as is, no
+  official copy: n", then each failed entry ("Airi, Portrait - ..."), the first six named and the rest counted.
+  `state_changed` (switched elsewhere first) is a toast, and the switch redraws from `mods.state`.
+- **The "?" help** (message popup, title Enable Mods): the four lines of what Off and On do; "Game folders: ..." with
+  the install labels when more than one game folder is known; "Built mods kept for instant On"; "Disk use: x, can
+  grow large", with Clear Built Mods while there are some (`mods.clearBuilt`, then "Built mods cleared"); "Official
+  copies for Off: x" (kept originals, which cannot be cleared); without the scan consent "Other mods not checked"
+  with Allow Check, which opens the scan consent popup and grants nothing itself; "Not switched: n" with Retry (the
+  same toggle again) for pending and left entries; "Left as is, no official copy: n" with Details, the Overwritten
+  message (the entries, known from the last scan with the scan consent, "No official copy left" and the repair lines
+  of `repairs.js`: Steam's verify for an install in a Steam library, then "Then start this app again"; where no
+  repair is known, "Mods stay in the mod library"; never a repair button); "Gone from the library: n". The counts are
+  the services': the last scan's with the scan consent, the unfinished list's by why without it.
+- **The scan consent popup** (`consent.js scan`, built like the asset consent): Check Game Files; Checked: the start
+  and the end of each portrait and memorial lobby file, to find mods outside the library, files reset by a repair or
+  an update and files with no official copy; Never: reading whole files, sending anything off this device; the note
+  that declining keeps those checks off and Settings changes it; Don't Allow and Allow (`mods.consent`). It must be
+  answered (Escape and the backdrop do nothing), declining does not quit, and opened from Settings or the help it
+  shows over them (`#consent.over`).
+- **Settings' Mods tab** (second, after General; `UIPopup_Option_PC`'s tab column has five separators): Enable Mods
+  (On / Off, the same switch with the same rules, its square "?" and red dot after the title; faded while busy or
+  unavailable); Show on Main Screens (`modSwitchShown`); File Check (On opens the scan consent popup, Off withdraws
+  the consent); Tray Icon or Menu Bar Icon (`tray`, only in the app window where the system has one); Game Files
+  (what the last check found, or "File check off" with Check greyed; Check scans with the dismissed entries listed
+  again); Game Folders (each known install's label and path; a recorded one the settings do not name has Remove from
+  List, `mods.forget`). The tab follows `mods.state` while it is open. Ask Before Opening (`classicPrompt`) is a
+  General row, under More Settings.
+- **The classic modal** (`classicModal`, decision 5): a write the open classic window refuses (`classic_open` from
+  the switch, Retry, or the detail screen's apply and restore, at submit or from the job) opens "Classic UI Open",
+  "Close the classic UI first", the box "Apply automatically once it closes" (unticked), Bring to Front and Confirm.
+  Any way of closing follows the box: ticked, the call is queued (`classic.queue`, "Applies once the classic UI
+  closes"); unticked, nothing. Opened on writes already queued (a click on the busy switch), the box starts ticked,
+  and unticked the queue is emptied (`classic.clearQueue`). Bring to Front raises the classic window
+  (`classic.front`). When the queue has run (`classic.queueDone`), one popup ("Not Applied") lists the dropped calls
+  with their error strings, and a queued toggle shows its result as above.
+- **What a writer job switched** (`library.changed {cores, kinds}`, `main.js`): the roster is read again (rebuilt at
+  once when it shows, once no popup is open), the thumbnails under `spinePrefix(kind, core)` are forgotten (a mod
+  and the official file share one `/asset/spine/<kind>/<core>` URL; the prefix also covers the `<core>@<id>` bases
+  of other installs, and `thumbs.js forget` matches any case, the cores coming in lower case), and the detail screen
+  reloads (`Detail.filesChanged`). It reads the family again and, when the shown variant's files of the shown kind
+  changed, reloads the portrait or the lobby the way an applied one is (under a still of the old one). It waits
+  while a popup or a fullscreen view is open, while the screen changes, and while its own job runs (whose reload
+  comes first, so the same change is not read twice). Without cores (the classic window closed, a job stopped
+  midway, the mod list changed) the screen compares what it shows with the family read again, and the roster forgets
+  the portraits whose Replaced flag changed. A job that switched nothing (a prune) changes nothing on the page.
+- **The window back in front** after 30 s or more asks for a scan (`mods.scan`, only with the scan consent), so a
+  Steam check or a repair made meanwhile is found.
+- **While mods are off** an apply only saves the choice: the toast says "Saved, applied when mods are on".
 
 ### Loading screen
 
@@ -1387,6 +1469,9 @@ it (decision 7); browser and serve mode have none.
   `game_paths.find_game_dirs`).
 - `webui` through its WSGI app, without a window; the tray's menu and controller with fake services, never with a
   status item or a `NotifyIcon`.
+- The front end's pure parts in Node (`tests/js/*.test.mjs`, each run from its `tests/test_*.py`), the shared popups
+  and the Enable Mods switch on a stand-in DOM with the en-US strings (`mod_switch.test.mjs`, `repairs.test.mjs`,
+  `spine_base.test.mjs` among them).
 
 ## Lobby lines
 

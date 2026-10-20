@@ -80,6 +80,9 @@ export function waitJob(id, onProgress) {
 // asset URLs
 export const spriteUrl = (atlas, name) => `/asset/ui/sprite/${encodeURIComponent(atlas)}/${encodeURIComponent(name)}.png`;
 export const textureUrl = (name) => `/asset/ui/texture/${encodeURIComponent(name)}.png`;
+// what every skeleton URL of a core starts with, whatever the file: the library.changed handler forgets the
+// thumbnails under it once the core's game files were switched (a mod and the official file share one URL)
+export const spinePrefix = (kind, key) => `/asset/spine/${kind}/${encodeURIComponent(key)}`;
 // a skeleton's base path: <base>.skel and <base>.atlas; the atlas pages resolve next to them
-export const spineBase = (kind, key) => `/asset/spine/${kind}/${encodeURIComponent(key)}/skeleton`;
+export const spineBase = (kind, key) => `${spinePrefix(kind, key)}/skeleton`;
 export const spineFiles = (kind, key) => `/asset/spine/${kind}/${encodeURIComponent(key)}/files.json`;
