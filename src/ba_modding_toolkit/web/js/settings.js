@@ -1,14 +1,19 @@
 // Settings, on the game's PC options popup (UIPopup_Option_PC): tabs on the left, the white panel on the right with
 // the game's option rows: radio rows (UIPopup_Option_Toggle), the sound slider row (UIPopup_Option_SoundToggle), and
 // folder rows built from the same pieces (title with its tag, dotted line, the value, the popup's light-blue buttons).
+// The Mods tab (second, after General) holds the Enable Mods switch with its square "?", where the switch shows, the
+// file check (the scan consent), the tray icon, Settings' Check of the game files, the game folders the switch covers
+// and whether the classic UI asks before it opens.
+import * as ModSwitch from "./mod-switch.js";
 import * as NGUI from "./ngui.js";
-import { rpc } from "./api.js";
+import { rpc, waitJob } from "./api.js";
 import { T, platform } from "./i18n.js";
-import { $, S, clone, glyphsOf, hitButton, toast, wrapPath } from "./util.js";
+import { $, DOT, S, clone, glyphsOf, hitButton, toast, wrapPath } from "./util.js";
 
 const { node, sprite, label, find, rect } = NGUI;
 const fitText = (...a) => NGUI.fitText(...a);
-const TABS = ["general", "sound", "l2d", "folders"];
+// UIPopup_Option_PC's tab column has five separators (TabBg/Grid Line_1 to Line_5)
+const TABS = ["general", "mods", "sound", "l2d", "folders"];
 const CONTENT = { x: 209, top: 375, w: 1576, h: 854 }; // the panel's inner list area (List/BG), units
 const ROW_W = 1552;
 
@@ -46,21 +51,89 @@ function rowBase(name, y, h, title) {
 }
 
 // radio options in a row (the game's On / Off toggles, as many as needed): [value, text, the text's language if it is
-// not the page's]
-function radioRow(name, y, title, options, selected, onPick) {
+// not the page's]; dim: the options drawn faded (a switch that is busy or unavailable; a click still answers why)
+function radioRow(name, y, title, options, selected, onPick, { dim = false, tip = "" } = {}) {
   const h = 240, row = rowBase(name, y, h, title), hits = [];
   const pitch = Math.min(508, 1400 / options.length);
   options.forEach(([value, text, lang], i) => {
     const x = -689 + i * pitch, on = value === selected;
     const f = fitText(text, 48, 34, pitch - 110, 2, lang);
+    const alpha = dim ? (on ? "0.55" : "0.35") : on ? "1.00" : "0.71";
     row.children.push(node(`Opt_${i}`, [x, -h / 2 + 65.5], [], [
-      node("BG", [0, 0], [sprite("Common_Btn_Radio_BG", 60, 60, { type: 0, depth: 25 })]),
-      ...(on ? [node("On", [0, 0], [sprite("Common_Btn_Radio_On", 60, 60, { type: 0, depth: 26 })])] : []),
-      node("Label", [49, -5], [label(f.text, f.fs, `#2c4663/${on ? "1.00" : "0.71"}`, pitch - 90, 50, { pivot: 3, depth: 26, lang })]),
+      node("BG", [0, 0], [sprite("Common_Btn_Radio_BG", 60, 60, { type: 0, depth: 25, ...(dim ? { color: "#ffffff/0.55" } : {}) })]),
+      ...(on ? [node("On", [0, 0], [sprite("Common_Btn_Radio_On", 60, 60, { type: 0, depth: 26, ...(dim ? { color: "#ffffff/0.55" } : {}) })])] : []),
+      node("Label", [49, -5], [label(f.text, f.fs, `#2c4663/${alpha}`, pitch - 90, 50, { pivot: 3, depth: 26, lang })]),
     ]));
-    hits.push({ path: `${name}/Opt_${i}/BG`, w: pitch - 20, fn: () => onPick(value), title: text });
+    hits.push({ path: `${name}/Opt_${i}/BG`, w: pitch - 20, fn: () => onPick(value), title: tip || text });
   });
   return { tree: row, h, hits };
+}
+
+// the On / Off options of the Mods tab's rows (the game's words, settings.post.*)
+const ON_OFF = () => [[true, T("settings.post.on")], [false, T("settings.post.off")]];
+
+// the square "?" after a row's title (UICharacterCollection's Btn_Information: the game's Common_Btn_Information in
+// the title's navy over a white square), with the red dot when entries were not switched
+function helpAfterTitle(row, title, dot) {
+  const t = fitText(title, 50, 40, 900);
+  const x = -718.5 + glyphsOf(t.text, t.fs) + 70, y = row.h / 2 - 55;
+  row.tree.children.push(node("Help", [x, y], [sprite("Common_Square_Bg", 50, 50, { depth: 22, color: "#ffffff/1.00" })], [
+    node("Sprite", [2, -7], [sprite("Common_Btn_Information", 70, 72, { type: 0, depth: 23, color: "#2c4564/1.00" })]),
+    ...(dot ? [DOT([40, 30], 30)] : []),
+  ]));
+  row.hits.push({ path: `${row.tree.name}/Help`, fn: () => ModSwitch.openHelp(), title: T("mods.guide"), pad: 14 });
+  return row;
+}
+
+// one line per game folder the switch covers: its install label and its path; a folder recorded by another data
+// directory or named by these settings before can be taken off the list (Remove from List)
+function foldersRow(name, y, title, installs) {
+  const room = 1440 - 320;
+  const items = installs.map((item) => {
+    const f = wrapPath(`${item.label} - ${item.folder}`, 38, 30, room, 3);
+    return { item, f, h: Math.max(f.fs * 1.3 * f.lines, 112) };
+  });
+  const blockH = items.reduce((a, it) => a + it.h + 16, 0) || 112;
+  const h = 130 + blockH + 14, row = rowBase(name, y, h, title), hits = [];
+  let top = h / 2 - 130;
+  if (!items.length) row.children.push(node("Value", [-718, top - 56], [label(T("error.game_not_found"), 38, "#2d4664/1.00", room, 60, { pivot: 3, depth: 8 })]));
+  items.forEach(({ item, f, h: ih }, i) => {
+    const midY = top - ih / 2;
+    row.children.push(node(`Value_${i}`, [-718, midY], [label(f.text, f.fs, "#2d4664/1.00", room, f.fs * 1.3 * f.lines + 10, { pivot: 3, depth: 8 })]));
+    if (!item.named) {
+      row.children.push(buttonNode(`Btn_${i}`, 550, midY, T("settings.mods.forget"), { w: 300 }));
+      hits.push({ path: `${name}/Btn_${i}`, fn: () => forget(item), title: T("settings.mods.forget") });
+    }
+    top -= ih + 16;
+  });
+  return { tree: row, h, hits };
+}
+
+// Remove from List: the job that takes a recorded folder off this data directory's list; no game file is touched
+async function forget(item) {
+  const id = await call(() => rpc("mods.forget", { install: item.key }));
+  if (!id) return;
+  try { await waitJob(id); toast(T("settings.saved")); } catch (err) { toast(errorText(err), { kind: "error" }); }
+  ModSwitch.refresh();
+}
+
+// the Game Files row's value: the file check off, or what the last check found
+function filesValue(m) {
+  if (m.scan !== true) return T("error.scan_off");
+  const parts = [];
+  if (m.drift) parts.push(T("tray.drift", { n: m.drift }));
+  if (m.untracked) parts.push(T("mods.untrackedTitle"));
+  if (m.damaged) parts.push(T("mods.damaged"));
+  return parts.length ? parts.join(ModSwitch.listSep()) : T("settings.mods.clean");
+}
+
+// Settings' Check: a scan with the dismissed entries listed again (the prompts follow it)
+async function checkFiles() {
+  const result = await ModSwitch.check();
+  if (!result) return;
+  const m = ModSwitch.current() || {};
+  if (!m.drift && !m.untracked && !m.damaged) toast(T("settings.mods.clean"));
+  render();
 }
 
 // a value with one or two buttons on the right (folders, version, cache); long values wrap, never cut
@@ -162,6 +235,29 @@ function rows() {
       [T("settings.cache.clear"), async () => { if (await call(() => rpc("settings.clearCache")) !== null) toast(T("settings.cache.cleared")); }, !!p.consent]]));
     add(valueRow("Version", 0, T("settings.version"), (p.version || "").replace(/-dev$/, ""), [[T("settings.update.check"), checkUpdate]]));
     add(valueRow("Classic", 0, T("settings.classic.label"), T("settings.classic.hint"), [[T("settings.classic.open"), () => call(() => rpc("app.openClassic", { tab: "settings" }))]]));
+  } else if (tab === "mods") {
+    const m = ModSwitch.current() || {};
+    const v = ModSwitch.view(m, { place: "settings" });
+    // the same kill switch as the top bar's, with the same rules (the first toggle's explanation, the reasons, the
+    // classic modal): picking the other option is a click on the switch
+    const sw = radioRow("Switch", 0, T("mods.switch"), ON_OFF(), v.on, (value) => { if (value !== v.on) ModSwitch.click("settings"); },
+      { dim: v.busy || v.unavailable, tip: v.unavailable ? ModSwitch.reasonText(m) : "" });
+    add(helpAfterTitle(sw, T("mods.switch"), v.dot));
+    add(radioRow("Shown", 0, T("settings.mods.shown"), ON_OFF(), p.modSwitchShown !== false, (value) => set("modSwitchShown", value)));
+    // the scan consent: On asks for it in its popup, Off withdraws it
+    add(radioRow("Scan", 0, T("settings.mods.scan"), ON_OFF(), m.scan === true, (value) => {
+      if (value === (m.scan === true)) return;
+      if (value) ModSwitch.askScan().then(() => render());
+      else call(() => rpc("mods.consent", { granted: false })).then(() => ModSwitch.refresh()).then(() => render());
+    }));
+    // the tray or menu bar icon, only in the app window where the system has one
+    if (p.native && p.traySupported) {
+      add(radioRow("Tray", 0, T(platform === "mac" ? "settings.mods.tray.mac" : "settings.mods.tray.win"), ON_OFF(), !!p.tray, (value) => set("tray", value)));
+    }
+    add(valueRow("Files", 0, T("settings.mods.files"), filesValue(m), [[T("settings.mods.check"), checkFiles, m.scan === true]]));
+    add(foldersRow("Folders", 0, T("settings.mods.folders"), m.installs || []));
+    // the hand-off prompt (decision 6): General has no room left for it (its rows scroll already)
+    add(radioRow("Ask", 0, T("settings.classic.ask"), ON_OFF(), p.classicPrompt !== false, (value) => set("classicPrompt", value)));
   } else if (tab === "sound") {
     add(sliderRow("Voice", 0, T("settings.voice"), p.voiceVolume, p.voiceMuted));
   } else if (tab === "l2d") {
@@ -274,8 +370,8 @@ async function render() {
     for (const hit of r.hits) {
       const el = rv.nodes.get(`Rows/${hit.path}`)?.els[0];
       if (!el) continue;
-      const [l, t, w, h] = rect(el);
-      hitButton(inner, [l, t, hit.w ? hit.w * S : w, h], hit.fn, hit.title, 3050);
+      const [l, t, w, h] = rect(el), pad = (hit.pad || 0) * S;
+      hitButton(inner, [l - pad, t - pad, (hit.w ? hit.w * S : w) + 2 * pad, h + 2 * pad], hit.fn, hit.title, 3050);
     }
     if (r.slider) wireSlider(inner, rv, { ...r.slider, path: `Rows/${r.slider.path}`, label: r.slider.label && `Rows/${r.slider.label}` });
   }
@@ -291,15 +387,25 @@ function close() {
   host.innerHTML = "";
 }
 
+// the Mods tab follows the switch's state (mods.state: a toggle elsewhere, the game starting, the file check)
+let following = false;
+function follow() {
+  if (following) return;
+  following = true;
+  ModSwitch.onChange(() => { if (!$("settings").hidden && tab === "mods") render(); });
+}
+
 // open(onChange): onChange(key, prefs) after a setting was saved
 export async function open(changed) {
   onChange = changed;
+  follow();
   if (!layout) {
     const popup = await NGUI.layout("UIPopup_Option_PC");
     layout = { popup, slider: find(popup, "Center/Popup/List/Sound_Setting/Sound_Scroll View/Grid_2/Master/Type_3") };
   }
   prefs = await call(() => rpc("settings.get"));
   if (!prefs) return;
+  if (!ModSwitch.current()) await ModSwitch.refresh();
   $("settings").hidden = false;
   await render();
 }
