@@ -210,8 +210,8 @@ input[type="text"], input[type="search"], textarea { cursor: text; }
 /* switch-portrait card: the game's weapon card has no text slot */
 .switch-text { position: absolute; z-index: 40; display: flex; flex-direction: column; justify-content: center; gap: 6px; padding-bottom: 5px; color: #2d4664; pointer-events: none; }
 .switch-text b { font: var(--w) var(--title-size, 30px)/1.15 var(--font); }
-.switch-text span { font: var(--w) var(--sub-size, 21px)/1.2 var(--font); color: #5b6f86; }
-.switch-go { position: absolute; right: 6px; top: 50%; width: 22px; height: 34px; margin-top: -17px; background-color: #9fb0c2; transform: scaleX(-.6);
+.switch-text span { font: var(--w) var(--sub-size, 21px)/1.2 var(--font); }
+.switch-go { position: absolute; right: 6px; top: 50%; width: 22px; height: 34px; margin-top: -17px; background-color: currentColor; transform: scaleX(-.6);
   -webkit-mask: url("/asset/ui/sprite/Common/Cafe_Icon_Arrow.png") center / contain no-repeat; mask: url("/asset/ui/sprite/Common/Cafe_Icon_Arrow.png") center / contain no-repeat; }
 
 /* expression strip clip; unfolded it scrolls and drags */
