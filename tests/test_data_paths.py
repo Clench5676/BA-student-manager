@@ -3,13 +3,15 @@
 import json
 import os
 import sys
+import time
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 import toml
 
-from ba_modding_toolkit import config, data_paths, devmode, utils
+from ba_modding_toolkit import config, data_paths, devmode, filelock, utils
 from ba_modding_toolkit.data_paths import APP_DIR_NAME, OLD_APP_DIR_NAME, migrate_data_dir
 from ba_modding_toolkit.webui.instance import InstanceLock
 
@@ -63,6 +65,102 @@ def test_rename_failure_uses_old_then_retries(folders, monkeypatch, caplog):
     assert "using the old folder for this run" in caplog.text
     monkeypatch.setattr(Path, "rename", rename)
     assert migrate_data_dir(old.parent) == new
+
+
+def test_legacy_lock_is_held_during_process_checks_and_rename(folders, monkeypatch):
+    old, new = folders
+    (old / "instance.lock").touch()
+    rename = Path.rename
+    checked = []
+
+    def check_processes():
+        folder = old if old.exists() else new
+        contender = InstanceLock(folder)
+        try:
+            assert not contender.acquire()
+        finally:
+            contender.release()
+        checked.append(folder)
+        return False
+
+    def guarded_rename(path, target):
+        if path == old:
+            contender = InstanceLock(old)
+            try:
+                assert not contender.acquire()
+            finally:
+                contender.release()
+        return rename(path, target)
+
+    monkeypatch.setattr(data_paths, "_standalone_classic_in_use", check_processes)
+    monkeypatch.setattr(Path, "rename", guarded_rename)
+    selected = migrate_data_dir(old.parent)
+    # Windows may refuse to rename a folder with an open lock file; either result must release the probe.
+    assert selected in (old, new) if os.name == "nt" else selected == new
+    assert checked == ([old] if selected == old else [old, new])
+    assert (selected / data_paths._PENDING).exists() is (selected == old)
+    instance, contender = InstanceLock(selected), InstanceLock(selected)
+    try:
+        assert instance.acquire() and instance.held
+        assert not contender.acquire()
+    finally:
+        instance.release()
+        contender.release()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Uses POSIX locks to exercise the Windows API branches")
+def test_windows_rename_failure_releases_probe_for_normal_instance_lock(folders, monkeypatch):
+    import fcntl
+    from ba_modding_toolkit.webui import instance as instance_module
+
+    old, new = folders
+    (old / "instance.lock").touch()
+    calls = []
+
+    def locking(fd, mode, size):
+        assert size == 1 and os.lseek(fd, 0, os.SEEK_CUR) == 0
+        calls.append(mode)
+        assert mode in (1, 2)  # only non-blocking acquisition and unlock are allowed
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB if mode == 1 else fcntl.LOCK_UN)
+
+    monkeypatch.setitem(sys.modules, "msvcrt", SimpleNamespace(LK_NBLCK=1, LK_UNLCK=2, locking=locking))
+    windows_os = SimpleNamespace(**(vars(os) | {"name": "nt"}))
+    for module in (data_paths, filelock, instance_module):
+        monkeypatch.setattr(module, "os", windows_os)
+    rename = Path.rename
+
+    def denied(path, target):
+        if path == old:
+            contender = InstanceLock(old)
+            try:
+                assert not contender.acquire()
+            finally:
+                contender.release()
+            raise PermissionError("open lock file prevents folder rename")
+        return rename(path, target)
+
+    monkeypatch.setattr(Path, "rename", denied)
+    assert migrate_data_dir(old.parent) == old
+    assert old.exists() and not new.exists() and (old / data_paths._PENDING).exists()
+    instance, contender = InstanceLock(old), InstanceLock(old)
+    try:
+        assert instance.acquire() and instance.held
+        assert not contender.acquire()
+    finally:
+        instance.release()
+        contender.release()
+    assert 2 in calls
+    # Also cover a Windows file system that permits the rename: the normal lock must use the moved file.
+    monkeypatch.setattr(Path, "rename", rename)
+    assert migrate_data_dir(old.parent) == new
+    assert not (new / data_paths._PENDING).exists()
+    instance, contender = InstanceLock(new), InstanceLock(new)
+    try:
+        assert instance.acquire() and instance.held
+        assert not contender.acquire()
+    finally:
+        instance.release()
+        contender.release()
 
 
 def test_override_never_inspects_default_folders(folders, tmp_path, monkeypatch):
@@ -156,6 +254,115 @@ def test_interrupted_rewrite_never_stops_the_start_and_is_retried(folders, monke
     assert migrate_data_dir(old.parent) == new
     assert not (new / data_paths._PENDING).exists()
     assert toml.loads((new / "config.toml").read_text())["AppSettings"]["output_dir"] == str(new / "output")
+
+
+@pytest.mark.parametrize("lock_name", ["state.json.lock", "profiles.json.lock"])
+def test_busy_external_library_does_not_block_start_and_is_retried(folders, tmp_path, monkeypatch, lock_name):
+    old, new = folders
+    library = tmp_path / "external-library"
+    library.mkdir()
+    (old / "webui.json").write_text(json.dumps({"prefs": {"library_dir": str(library)}}))
+    (old / "config.toml").write_text(toml.dumps({"AppSettings": {"output_dir": str(old / "output")}}))
+    content = json.dumps({"path": str(old / "game")})
+    for name in ("state.json", "profiles.json", "profiles.json.prev", "profiles.json.bad"):
+        (library / name).write_text(content)
+    (old / "library").mkdir()
+    (old / "library/state.json").write_text(content)
+    attempted = []
+
+    @contextmanager
+    def bounded_lock(path, *, timeout=None):
+        # Reject an unbounded call before it can hang this regression test.
+        assert timeout is not None and 0 <= timeout <= 0.5
+        attempted.append(path)
+        with filelock.file_lock(path, timeout=timeout):
+            yield
+
+    with filelock.file_lock(library / lock_name):
+        monkeypatch.setattr(data_paths, "file_lock", bounded_lock)
+        started = time.monotonic()
+        assert migrate_data_dir(old.parent) == new
+        assert time.monotonic() - started < 2
+    assert library / lock_name in attempted
+    assert (new / data_paths._PENDING).exists()
+    assert toml.loads((new / "config.toml").read_text())["AppSettings"]["output_dir"] == str(new / "output")
+    assert json.loads((new / "library/state.json").read_text()) == {"path": str(new / "game")}
+    for name in ("state.json", "profiles.json", "profiles.json.prev", "profiles.json.bad"):
+        assert (library / name).read_text() == content
+    assert migrate_data_dir(old.parent) == new
+    assert not (new / data_paths._PENDING).exists()
+    for name in ("state.json", "profiles.json", "profiles.json.prev", "profiles.json.bad"):
+        assert json.loads((library / name).read_text()) == {"path": str(new / "game")}
+
+
+@pytest.mark.parametrize("unavailable", ["missing", "unreadable"])
+def test_unavailable_configured_library_keeps_journal_until_it_returns(folders, tmp_path, monkeypatch, unavailable):
+    old, new = folders
+    library, disconnected = tmp_path / "external-library", tmp_path / "disconnected"
+    library.mkdir()
+    content = json.dumps({"path": str(old / "game")})
+    for name in ("state.json", "profiles.json", "profiles.json.prev", "profiles.json.bad"):
+        (library / name).write_text(content)
+    (old / "webui.json").write_text(json.dumps({"prefs": {"library_dir": str(library)}}))
+    is_dir = Path.is_dir
+
+    def unreadable(path):
+        if path == library:
+            raise PermissionError("drive is unreadable")
+        return is_dir(path)
+
+    with monkeypatch.context() as m:
+        if unavailable == "missing":
+            library.rename(disconnected)
+        else:
+            m.setattr(Path, "is_dir", unreadable)
+        assert migrate_data_dir(old.parent) == new
+    assert (new / data_paths._PENDING).exists()
+    if unavailable == "missing":
+        assert not library.exists()  # migration must not recreate a disconnected library
+        disconnected.rename(library)
+    for name in ("state.json", "profiles.json", "profiles.json.prev", "profiles.json.bad"):
+        assert (library / name).read_text() == content
+    assert migrate_data_dir(old.parent) == new
+    assert not (new / data_paths._PENDING).exists()
+    for name in ("state.json", "profiles.json", "profiles.json.prev", "profiles.json.bad"):
+        assert json.loads((library / name).read_text()) == {"path": str(new / "game")}
+
+
+def test_unwritable_library_lock_keeps_journal_and_is_retried(folders):
+    old, new = folders
+    library = old / "library"
+    library.mkdir()
+    content = json.dumps({"path": str(old / "game")})
+    (library / "state.json").write_text(content)
+    # A directory at the lock path makes opening it fail on every platform, including elevated test runs.
+    (library / "state.json.lock").mkdir()
+    assert migrate_data_dir(old.parent) == new
+    assert (new / data_paths._PENDING).exists()
+    assert (new / "library/state.json").read_text() == content
+    (new / "library/state.json.lock").rmdir()
+    assert migrate_data_dir(old.parent) == new
+    assert not (new / data_paths._PENDING).exists()
+    assert json.loads((new / "library/state.json").read_text()) == {"path": str(new / "game")}
+
+
+def test_busy_migration_lock_does_not_block_start(folders, monkeypatch):
+    old, new = folders
+    lock = old.parent / f".{APP_DIR_NAME}.migration.lock"
+
+    @contextmanager
+    def bounded_lock(path, *, timeout=None):
+        assert timeout is not None and 0 <= timeout <= 0.5
+        with filelock.file_lock(path, timeout=timeout):
+            yield
+
+    with filelock.file_lock(lock):
+        monkeypatch.setattr(data_paths, "file_lock", bounded_lock)
+        started = time.monotonic()
+        assert migrate_data_dir(old.parent) == old
+        assert time.monotonic() - started < 2
+    assert old.exists() and not new.exists()
+    assert migrate_data_dir(old.parent) == new
 
 
 def test_path_key_conflict_preserves_both_records(folders):
@@ -357,3 +564,23 @@ def test_an_unreadable_process_list_keeps_the_old_folder_for_this_run(folders, m
     monkeypatch.setattr(data_paths, "_legacy_in_use", unknown)
     assert migrate_data_dir(old.parent) == old
     assert old.exists() and not new.exists()
+
+
+@pytest.mark.parametrize("scan_error", [False, True])
+def test_legacy_probe_is_released_when_process_checks_refuse_migration(folders, monkeypatch, scan_error):
+    old, new = folders
+    (old / "instance.lock").touch()
+
+    def check_processes():
+        if scan_error:
+            raise OSError("cannot inspect classic app processes")
+        return True
+
+    monkeypatch.setattr(data_paths, "_standalone_classic_in_use", check_processes)
+    assert migrate_data_dir(old.parent) == old
+    assert old.exists() and not new.exists() and (old / data_paths._PENDING).exists()
+    instance = InstanceLock(old)
+    try:
+        assert instance.acquire() and instance.held
+    finally:
+        instance.release()

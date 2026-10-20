@@ -9,7 +9,8 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from contextlib import nullcontext
+from collections.abc import Iterator
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +22,7 @@ from .filelock import file_lock
 APP_DIR_NAME = "bluearchive-modding-patching-tool"
 OLD_APP_DIR_NAME = "BA-Modding-Toolkit"
 _PENDING = ".data-folder-migration.json"
+_LOCK_TIMEOUT = 0.1
 _reported_pairs: set[Path] = set()
 logger = logging.getLogger(__name__)
 
@@ -50,34 +52,33 @@ def _standalone_classic_in_use() -> bool:
     return False
 
 
-def _legacy_in_use(folder: Path) -> bool:
-    """Probe the existing lock without creating it; also check a classic child left by an exited web UI."""
+@contextmanager
+def _legacy_in_use(folder: Path) -> Iterator[bool]:
+    """Hold the existing lock through the caller's work; also check classic processes without creating a lock file."""
     try:
         handle = (folder / "instance.lock").open("r+b")
     except FileNotFoundError:
         handle = None
-    if handle is not None:
-        with handle:
+    with handle if handle is not None else nullcontext():
+        if handle is not None:
             try:
                 if os.name == "nt":
                     import msvcrt
 
                     msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
-                    handle.seek(0)
-                    msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
                 else:
                     import fcntl
 
                     fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
             except OSError:
-                return True
-    from .webui.classic import SYSTEM_PROCESSES, read_classic_json
+                yield True
+                return
+        from .webui.classic import SYSTEM_PROCESSES, read_classic_json
 
-    found = read_classic_json(folder)
-    proc = found[1] if found else None
-    return bool(proc and SYSTEM_PROCESSES.alive(proc.pid)
-                and SYSTEM_PROCESSES.created(proc.pid) == proc.created) or _standalone_classic_in_use()
+        found = read_classic_json(folder)
+        proc = found[1] if found else None
+        yield bool(proc and SYSTEM_PROCESSES.alive(proc.pid)
+                   and SYSTEM_PROCESSES.created(proc.pid) == proc.created) or _standalone_classic_in_use()
 
 
 def _rebase(value: Any, old: Path, new: Path) -> Any:
@@ -128,7 +129,7 @@ def _rewrite_file(path: Path, old: Path, new: Path) -> Any:
     return changed
 
 
-def _rewrite_paths(old: Path, new: Path) -> None:
+def _rewrite_paths(old: Path, new: Path) -> bool:
     _rewrite_file(new / "config.toml", old, new)
     state = _rewrite_file(new / "webui.json", old, new)
     _rewrite_file(new / "classic.json", old, new)
@@ -136,16 +137,27 @@ def _rewrite_paths(old: Path, new: Path) -> None:
     # historical output, never loaded as settings. ADB manifests contain remote paths and relative local paths.
     prefs = state.get("prefs") if isinstance(state, dict) else None
     chosen = prefs.get("library_dir") if isinstance(prefs, dict) else None
+    configured = Path(chosen) if isinstance(chosen, str) and chosen else None
     libraries = {new / "library"}
-    if isinstance(chosen, str) and chosen:
-        libraries.add(Path(chosen))
+    if configured is not None:
+        libraries.add(configured)
+    complete = True
     for library in libraries:
         devmode.check_read(library)
-        with file_lock(library / "state.json.lock") if library.is_dir() else nullcontext():
-            _rewrite_file(library / "state.json", old, new)
-        with file_lock(library / "profiles.json.lock") if library.is_dir() else nullcontext():
-            for name in ("profiles.json", "profiles.json.prev", "profiles.json.bad"):
-                _rewrite_file(library / name, old, new)
+        try:
+            if not library.is_dir():
+                if library == configured:
+                    raise FileNotFoundError(f"Configured library is unavailable: {library}")
+                continue
+            with file_lock(library / "state.json.lock", timeout=_LOCK_TIMEOUT), \
+                    file_lock(library / "profiles.json.lock", timeout=_LOCK_TIMEOUT):
+                _rewrite_file(library / "state.json", old, new)
+                for name in ("profiles.json", "profiles.json.prev", "profiles.json.bad"):
+                    _rewrite_file(library / name, old, new)
+        except (OSError, ValueError) as error:
+            complete = False
+            logger.warning("Could not migrate library paths in %s; will retry at next start: %s", library, error)
+    return complete
 
 
 def migrate_data_dir(parent: Path, override: Path | None = None) -> Path:
@@ -163,40 +175,48 @@ def migrate_data_dir(parent: Path, override: Path | None = None) -> Path:
     devmode.check_read(new)
     if not old.exists() and not (new / _PENDING).exists():
         return new
-    parent.mkdir(parents=True, exist_ok=True)
     # nothing here stops the start (a GUI app has nowhere to show why): every refusal keeps a folder for this run
-    with file_lock(parent / f".{APP_DIR_NAME}.migration.lock"):
-        if old.exists() and new.exists():
-            if new not in _reported_pairs:
-                logger.warning("Both data folders exist; using %s and leaving %s untouched", new, old)
-                _reported_pairs.add(new)
-        elif old.exists():
-            # an older version still running keeps its folder, and this run uses it too: the two never split, the
-            # single-instance lock there hands over to the running app, and the next start migrates
-            try:
-                busy = _legacy_in_use(old)
-            except OSError as error:
-                logger.warning("Cannot check whether the old data folder is in use; using it for this run: %s", error)
-                return old
-            if busy:
-                logger.warning("The old data folder is in use; using it for this run: %s", old)
-                return old
-            try:
+    try:
+        parent.mkdir(parents=True, exist_ok=True)
+        with file_lock(parent / f".{APP_DIR_NAME}.migration.lock", timeout=_LOCK_TIMEOUT):
+            if old.exists() and new.exists():
+                if new not in _reported_pairs:
+                    logger.warning("Both data folders exist; using %s and leaving %s untouched", new, old)
+                    _reported_pairs.add(new)
+            elif old.exists():
+                # an older version still running keeps its folder, and this run uses it too: the two never split, the
+                # single-instance lock there hands over to the running app, and the next start migrates
                 _atomic_text(old / _PENDING, json.dumps({"old": str(old), "new": str(new)}))
-                migrate_cache_dir(old / "cache", new / "cache")
-                old.rename(new)
-            except OSError as error:
-                logger.warning("Could not rename %s to %s; using the old folder for this run: %s", old, new, error)
-                return old
-        if (new / _PENDING).exists():
-            try:
-                if _legacy_in_use(new):
-                    raise OSError("the migrated folder is in use")
-                _rewrite_paths(old, new)
-                (new / _PENDING).unlink()
-            except (OSError, ValueError) as error:
-                # the journal stays, so the next start tries again
-                logger.warning("Could not finish migrating paths in %s; will retry at next start: %s", new, error)
+                try:
+                    with _legacy_in_use(old) as busy:
+                        if busy:
+                            logger.warning("The old data folder is in use; using it for this run: %s", old)
+                            return old
+                        try:
+                            migrate_cache_dir(old / "cache", new / "cache")
+                            old.rename(new)
+                        except OSError as error:
+                            logger.warning("Could not rename %s to %s; using the old folder for this run: %s",
+                                           old, new, error)
+                            return old
+                except OSError as error:
+                    logger.warning("Cannot check whether the old data folder is in use; using it for this run: %s",
+                                   error)
+                    return old
+            if (new / _PENDING).exists():
+                try:
+                    with _legacy_in_use(new) as busy:
+                        if busy:
+                            raise OSError("the migrated folder is in use")
+                        if _rewrite_paths(old, new):
+                            (new / _PENDING).unlink()
+                except (OSError, ValueError) as error:
+                    # the journal stays, so the next start tries again
+                    logger.warning("Could not finish migrating paths in %s; will retry at next start: %s", new, error)
+    except OSError as error:
+        folder = old if old.exists() and not new.exists() else new
+        logger.warning("Could not migrate the data folder; using %s for this run: %s", folder, error)
+        return folder
     return new
 
 
