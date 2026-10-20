@@ -743,6 +743,7 @@ def test_a_new_library_prunes_its_kept_originals_once(tmp_path, monkeypatch):
     monkeypatch.setattr("ba_modding_toolkit.library.ModLibrary", Library)
     s = Services(Settings(tmp_path / "config.toml"), tmp_path, state=UiState(tmp_path / "webui.json"),
                  cache=object(), game=FakeGame(), catalog=FakeCatalog())
+    s.state.set("scan_consent", True)
     try:
         library = s.library
         assert s.library is library
@@ -757,8 +758,7 @@ def test_a_new_library_prunes_its_kept_originals_once(tmp_path, monkeypatch):
 @pytest.mark.parametrize("enabled", [True, False])
 def test_startup_maintenance_waits_for_reveal_and_respects_the_preference(services, monkeypatch, enabled):
     calls, finished = [], threading.Event()
-    services.state.set("startup_checks", enabled)
-    services.state.set("scan_consent", True)
+    services.state.set("scan_consent", enabled)
     monkeypatch.setattr(services, "start_watch", lambda: None)
     monkeypatch.setattr(services.scanner, "request", lambda *args: calls.append("scan"))
     monkeypatch.setattr(services.library, "prune", lambda: calls.append("prune") or [])
@@ -783,24 +783,51 @@ def test_startup_maintenance_waits_for_reveal_and_respects_the_preference(servic
         assert services.timings.snapshot()["library.prune"]["count"] == 1
     else:
         assert calls == [] and services._prune_job is None
-        # A deliberate Settings check remains available with automatic checks off.
-        services.request_scan(dismissed=True)
-        assert services.jobs.wait(services._prune_job, 5)
-        assert services.jobs.get(services._prune_job).state == "done"
-        assert sorted(calls) == ["prune", "scan"]
+        assert services.request_scan(dismissed=True) is None
     services.ready()
-    assert sorted(calls) == ["prune", "scan"]
+    assert sorted(calls) == (["prune", "scan"] if enabled else [])
 
 
 def test_startup_preferences_round_trip_and_update_info(app, services):
     prefs = rpc(app, "settings.get")["result"]
-    assert prefs["startupChecks"] is True and prefs["startupUpdate"] is True
-    for key in ("startupChecks", "startupUpdate"):
-        assert rpc(app, "settings.set", key=key, value=False)["result"][key] is False
+    assert "startupChecks" not in prefs and prefs["startupUpdate"] is True
+    assert rpc(app, "settings.set", key="startupUpdate", value=False)["result"]["startupUpdate"] is False
+    assert rpc(app, "settings.set", key="startupChecks", value=False)["error"]["code"] == "bad_params"
     saved = UiState(services.data_dir / "webui.json")
-    assert saved.flag("startup_checks") is False and saved.flag("startup_update") is False
+    assert saved.flag("startup_update") is False
     assert rpc(app, "app.info")["result"]["startupUpdate"] is False
-    assert rpc(app, "app.info")["result"]["startupChecks"] is False
+    assert "startupChecks" not in rpc(app, "app.info")["result"]
+
+
+def test_app_info_reports_only_consented_current_ui_cache(app, services, tmp_path):
+    from ba_modding_toolkit.gameassets import AssetCache
+
+    cache = services._cache = AssetCache(root=tmp_path / "cache", allowed=True)
+    cache.put("ui", b"cached", version="old")
+    services.state.set_consent(True)
+    assert rpc(app, "app.info")["result"]["uiCached"] is False
+    cache.put("ui", b"cached", version=services.game.resource_version)
+    assert rpc(app, "app.info")["result"]["uiCached"] is True
+    services.set_consent(False)
+    assert rpc(app, "app.info")["result"]["uiCached"] is False
+
+
+def test_initial_html_selects_the_cached_loading_style_before_any_rpc(app, services, tmp_path):
+    from ba_modding_toolkit.gameassets import AssetCache
+
+    app.ui_cached = services.ui_cached
+    services._cache = cache = AssetCache(root=tmp_path / "cache", allowed=True)
+    cache.put("ui", b"cached", version=services.game.resource_version)
+    body = call(app, "/index.html")[2]
+    assert b'class="loading full on neutral"' in body
+    assert b'class="loading-fallback"' not in body
+    services.state.set_consent(True)
+    body = call(app, "/index.html")[2]
+    assert b'class="loading full on"' in body
+    assert b'class="loading-fallback"' in body
+    assert b'class="loading-plain"' not in body
+    cache.clear()
+    assert b'class="loading full on neutral"' in call(app, "/index.html")[2]
 
 
 def test_startup_timings_are_bounded_named_and_recorded_in_seconds(app, services, monkeypatch):

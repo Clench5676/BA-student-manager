@@ -25,14 +25,19 @@ const stage = () => document.getElementById("stage");
 let overlay = null, gen = 0, closeSeq = 0;
 let writerOverlay = null, writerGen = 0;
 let repeater = null, geometry = null;
+const initialCover = document.getElementById("loading-boot");
+let styled = !!initialCover && !initialCover.classList.contains("neutral"), assetsAllowed = styled;
 let firstLoading = null;
 export const timings = () => firstLoading || {};
 
 // --- setup ---
 
-// after app.info: the backdrop colour from the game's prefab (black without a game)
+// Before asset consent, covers use only system text and a neutral backdrop.
 export function init(info) {
-  if (!info?.gameFound) return;
+  assetsAllowed = info?.consent === true && !!info?.gameFound;
+  styled = assetsAllowed && (styled || info.uiCached === true);
+  for (const o of [overlay, writerOverlay]) if (o && !o.done) decorate(o);
+  if (!assetsAllowed || !info?.gameFound) return;
   NGUI.layout("UILoading").then((tree) => {
     const back = NGUI.find(tree, "BlackBG")?.widgets.find((w) => "color" in w)?.color;
     geometry = { back: back ? back.split("/")[0] : "#000000" };
@@ -45,8 +50,8 @@ export function relabel() {
   for (const o of [overlay, writerOverlay]) {
     if (!o) continue;
     label(o.el);
-    const text = o.el.querySelector(".loading-fallback span");
-    if (text) text.textContent = nowLoading();
+    const text = o.ind.querySelector(".loading-fallback span") || o.ind.querySelector(".loading-plain span");
+    if (text) text.textContent = indicatorText(o);
   }
 }
 
@@ -83,6 +88,7 @@ export async function task(run) {
 // --- the overlay ---
 
 const nowLoading = () => { const s = T("loading.now"); return s === "loading.now" ? "" : s; };
+const indicatorText = (o) => o.plain ? (T("loading.plain") === "loading.plain" ? "" : T("loading.plain")) : nowLoading();
 function label(el) {
   const s = T("app.loading");
   if (s !== "app.loading") el.setAttribute("aria-label", s);
@@ -93,7 +99,7 @@ function open(mode, opaque = false, writer = false) {
   const boot = writer ? null : document.getElementById("loading-boot");
   const el = opaque && boot ? boot : document.createElement("div");
   el.removeAttribute("id");
-  el.className = `loading ${mode}`;
+  el.className = `loading ${mode}${styled ? "" : " neutral"}`;
   el.setAttribute("role", "status");
   label(el);
   if (!el.querySelector(".loading-ind")) el.innerHTML = '<div class="loading-back"></div><div class="loading-ind" aria-hidden="true"></div>';
@@ -101,7 +107,7 @@ function open(mode, opaque = false, writer = false) {
   if (!el.isConnected) stage().appendChild(el);
   if (boot && el !== boot) boot.remove();
   const o = { el, mode, ind: el.querySelector(".loading-ind"), back: el.querySelector(".loading-back"),
-    shownAt: performance.now(), closing: false, done: false, sprites: false, boot: opaque && !writer };
+    shownAt: performance.now(), closing: false, done: false, sprites: false, plain: !styled, boot: opaque && !writer };
   if (opaque) el.classList.add("on");
   else { void el.offsetWidth; el.classList.add("on"); } // fade in from the first frame
   if (writer) writerOverlay = o;
@@ -154,11 +160,12 @@ function close(o) {
   });
 }
 
-// --- the indicator: the same corner animation before and after UIRepeater's atlases are ready ---
+// --- the indicator: neutral until consent and a decoded UIRepeater, stylized on subsequent covers ---
 
-function fallback(host) {
-  host.innerHTML = '<div class="loading-fallback"><span></span><i></i><i></i><i></i></div>';
-  host.querySelector("span").textContent = nowLoading();
+function fallback(o) {
+  o.ind.innerHTML = o.plain ? '<div class="loading-plain"><span></span></div>' :
+    '<div class="loading-fallback"><span></span><i></i><i></i><i></i></div>';
+  o.ind.querySelector("span").textContent = indicatorText(o);
 }
 
 function repeaterTree() {
@@ -167,7 +174,7 @@ function repeaterTree() {
 }
 
 async function upgrade(o) {
-  if (o.sprites) return;
+  if (!assetsAllowed || o.sprites) return;
   o.sprites = true;
   const tree = await repeaterTree();
   if (!tree || (o !== overlay && o !== writerOverlay)) { o.sprites = false; return; }
@@ -176,20 +183,29 @@ async function upgrade(o) {
   // the corner widget is anchored to the screen: moved down to the stage's bottom edge
   await NGUI.render(tree, next, { scale: S, origin: [960, 540], shift: { "UIRepeater/Widget": [0, -(STAGE_UNITS_H - 1440) / 2] } });
   const decoded = await NGUI.decoded(next, HARD_CAP);
-  if (o !== overlay && o !== writerOverlay) return;
+  if (!assetsAllowed || (o !== overlay && o !== writerOverlay)) { o.sprites = false; return; }
   const widgets = [...next.querySelectorAll(".ngui")];
   // NGUI keeps hit geometry after image failures; it must not replace the fallback with empty widgets.
   if (!decoded || !widgets.length || widgets.some((el) => !el.style.backgroundImage && !el.textContent)) { o.sprites = false; return; }
   o.ind.replaceChildren(next);
+  styled = true;
+  o.plain = false;
+  o.el.classList.remove("neutral");
   o.spritesAt ??= performance.now();
 }
 
 // once the screen is black and the work goes on: the indicator in the corner, nothing in the middle
 function decorate(o) {
-  if (!o.ind.firstChild) fallback(o.ind);
+  if (o.plain === styled) {
+    o.plain = !styled;
+    o.sprites = false;
+    if (o.plain) o.el.classList.add("neutral");
+    else o.el.classList.remove("neutral");
+    fallback(o);
+  } else if (!o.ind.firstChild) fallback(o);
   else {
-    const text = o.ind.querySelector(".loading-fallback span");
-    if (text) text.textContent = nowLoading();
+    const text = o.ind.querySelector("span");
+    if (text) text.textContent = indicatorText(o);
   }
   upgrade(o).catch(() => { o.sprites = false; });
 }

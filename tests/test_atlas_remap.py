@@ -102,7 +102,7 @@ def test_repack_positions_rotations_trims_indices_and_page_changes(repacked):
                                       pack(old, art), pack(new, official_art))
     assert_pages(output, pack(new, expected_art))
     assert report == {"moved": ["body", "face", "frame [0]", "frame [1]", "trim"],
-                      "added": ["added"], "dropped": ["removed"]}
+                      "added": ["added"], "dropped": ["removed"], "upscaled": []}
 
 
 @pytest.mark.parametrize("degrees", [0, 90, 180, 270])
@@ -132,10 +132,43 @@ def test_half_size_fixture_path_names_duplicates_and_per_axis_page_scales():
     new[0][2].append(("Intro_R_leg_01", -1, (10, 10), (4, 4), (4, 4), (0, 0), 0))
     official = {f"current{i}": Image.new("RGBA", (16, 16), "blue") for i in range(3)}
     output, report = remap.remap_pages(old, remap.parse_atlas(atlas_text(new)), mod, official)
-    for i, color in enumerate(("red", "green", "magenta")):
-        assert output[f"current{i}.png"].crop((4, 4, 8, 8)).tobytes() == Image.new("RGBA", (4, 4), color).tobytes()
-    assert output["current0.png"].getpixel((10, 10)) == (255, 255, 0, 255)
-    assert report == {"moved": ["Intro_R_leg_01", path, path, path], "added": [], "dropped": []}
+    for i, (page, box) in enumerate((("ch0261_home", (8, 8, 12, 12)),
+                                    ("ch0261_home2", (2, 4, 6, 8)), ("ch0261_home3", (2, 2, 6, 6)))):
+        scaled = mod[page].resize(old.pages[next(n for n in old.pages if remap.texture_key(n) == page)].size,
+                                  Image.Resampling.LANCZOS)
+        expected = scaled.crop(box)
+        if i == 1:
+            expected = expected.transpose(Image.Transpose.ROTATE_270)
+        assert output[f"current{i}.png"].crop((4, 4, 8, 8)).tobytes() == expected.tobytes()
+    assert output["current0.png"].crop((10, 10, 14, 14)).tobytes() == mod["ch0261_home"].resize(
+        (16, 16), Image.Resampling.LANCZOS).crop((2, 2, 6, 6)).tobytes()
+    assert report == {"moved": ["Intro_R_leg_01", path, path, path], "added": [], "dropped": [],
+                      "upscaled": [{"page": name, "w": p.size[0], "h": p.size[1]} for name, p in old.pages.items()]}
+
+
+@pytest.mark.parametrize("pma", [False, True])
+def test_undersized_pages_are_resized_before_regions_are_placed(pma):
+    source = [("mod.png", (16, 12), [("part", -1, (2, 2), (4, 6), (4, 6), (0, 0), 0)])]
+    target = [("official.png", (20, 16), [("part", -1, (10, 4), (4, 6), (4, 6), (0, 0), 90)])]
+    image = pattern((8, 6), 29)
+    original = image.tobytes()
+    official = pattern((10, 8), 13)
+    output, report = remap.remap_pages(remap.parse_atlas(atlas_text(source, pma=pma)),
+        remap.parse_atlas(atlas_text(target, pma=pma)), {"mod": image}, {"official": official})
+    if pma:
+        scaled = Image.frombytes("RGBA", (16, 12), Image.frombytes("RGBa", image.size, image.tobytes())
+                                 .resize((16, 12), Image.Resampling.LANCZOS).tobytes())
+        expected = Image.frombytes("RGBA", (20, 16), Image.frombytes("RGBa", official.size, official.tobytes())
+                                   .resize((20, 16), Image.Resampling.LANCZOS).tobytes())
+    else:
+        scaled = image.resize((16, 12), Image.Resampling.LANCZOS)
+        expected = official.resize((20, 16), Image.Resampling.LANCZOS)
+    expected.paste(scaled.crop((2, 2, 6, 8)).transpose(Image.Transpose.ROTATE_90), (10, 4))
+    assert output["official.png"].size == (20, 16)
+    assert output["official.png"].tobytes() == expected.tobytes()
+    assert image.size == (8, 6) and image.tobytes() == original
+    assert report["upscaled"] == [{"page": "mod.png", "w": 16, "h": 12},
+                                  {"page": "official.png", "w": 20, "h": 16}]
 
 
 @pytest.mark.parametrize("change,code", [("rotation", "property"), ("duplicate", "region_ambiguous"),

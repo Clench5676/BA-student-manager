@@ -133,6 +133,7 @@ export async function remap(id, onRemapped = () => {}, label = "") {
   await Popup.message({ title: T(report.partial ? "remap.partial" : "remap.done"),
     scroll: true,
     lines: [T("remap.counts", { moved: report.moved.length, added: report.added.length, dropped: report.dropped.length }),
+      ...new Set((report.upscaled || []).map(({ w, h }) => T("remap.upscaled", { w, h }))),
       ...(report.dropped.length ? [T("remap.dropped", { names: joined(report.dropped) })] : []),
       ...report.warnings.map(({ key, name }) => T(`remap.${key}`, { name }))], ok: T("picker.ok") });
   await onRemapped(result);

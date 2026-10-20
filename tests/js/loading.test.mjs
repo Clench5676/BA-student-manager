@@ -26,10 +26,10 @@ class El {
     this.replaceChildren();
     if (html.includes('class="loading-back"')) {
       for (const name of ["loading-back", "loading-ind"]) { const el = new El(); el.className = name; this.appendChild(el); }
-    } else if (html.includes('class="loading-fallback"')) {
-      const fallback = new El(); fallback.className = "loading-fallback"; this.appendChild(fallback);
+    } else if (html.includes('class="loading-fallback"') || html.includes('class="loading-plain"')) {
+      const fallback = new El(); fallback.className = html.includes('class="loading-plain"') ? "loading-plain" : "loading-fallback"; this.appendChild(fallback);
       const span = new El(); span.tagName = "span"; fallback.appendChild(span);
-      for (let i = 0; i < 3; i++) { const dot = new El(); dot.tagName = "i"; fallback.appendChild(dot); }
+      for (let i = 0; i < (fallback.className === "loading-plain" ? 0 : 3); i++) { const dot = new El(); dot.tagName = "i"; fallback.appendChild(dot); }
     }
   }
   querySelectorAll(selector) { return this.children.flatMap((el) => [...(selector === ".ngui" && el.classList.contains("ngui") ? [el] : []), ...el.querySelectorAll(selector)]); }
@@ -48,23 +48,24 @@ class El {
   }
 }
 
-async function harness({ translated = true, render = "ready", decoded = true, boot = false } = {}) {
-  const stage = new El(), sprites = deferred(), timers = new Map();
+async function harness({ translated = true, render = "ready", decoded = true, boot = false, consent = true, uiCached = false, infoReady = true } = {}) {
+  const stage = new El(), sprites = deferred(), timers = new Map(), assets = [];
   let now = 0, timerId = 0;
   let localized = translated;
   const initial = boot ? stage.appendChild(new El()) : null;
   if (initial) {
-    initial.id = "loading-boot"; initial.className = "loading full on";
+    initial.id = "loading-boot"; initial.className = `loading full on${consent && uiCached ? "" : " neutral"}`;
     initial.innerHTML = '<div class="loading-back"></div><div class="loading-ind"></div>';
-    initial.querySelector(".loading-ind").innerHTML = '<div class="loading-fallback"><span></span><i></i><i></i><i></i></div>';
+    initial.querySelector(".loading-ind").innerHTML = consent && uiCached ?
+      '<div class="loading-fallback"><span></span><i></i><i></i><i></i></div>' : '<div class="loading-plain"><span></span></div>';
   }
   const d = {
     document: { createElement: () => new El(), getElementById: (id) => id === "stage" ? stage : id === "loading-boot" && initial?.isConnected && initial.id ? initial : null },
     performance: { now: () => now }, getComputedStyle: () => ({ opacity: "1" }),
     setTimeout: (fn, ms) => { const id = ++timerId; timers.set(id, { at: now + ms, fn }); return id; },
     clearTimeout: (id) => timers.delete(id), requestAnimationFrame: (fn) => fn(),
-    T: (key) => localized ? ({ "loading.now": "Now Loading", "app.loading": "Reading game files" }[key] || key) : key, S: 1, toast() {},
-    NGUI: { init: () => sprites.promise, layout: async () => ({}), decoded: async () => decoded, render: async (tree, host) => {
+    T: (key) => localized ? ({ "loading.now": "Now Loading", "loading.plain": "Loading", "app.loading": "Reading game files" }[key] || key) : key, S: 1, toast() {},
+    NGUI: { find: () => null, init: () => { assets.push("indexes"); return sprites.promise; }, layout: async (name) => { assets.push(name); return {}; }, decoded: async () => decoded, render: async (tree, host) => {
       if (render === "reject") throw new Error("Missing atlas");
       if (render === "empty") return;
       const el = new El(); el.className = "ngui";
@@ -75,12 +76,13 @@ async function harness({ translated = true, render = "ready", decoded = true, bo
   globalThis.loadingDeps = d;
   const code = `const {document,performance,setTimeout,clearTimeout,requestAnimationFrame,getComputedStyle,NGUI,T,S,toast} = globalThis.loadingDeps;\n${source.replace(/^import .*;$/gm, "")}\n// ${seq++}`;
   const loading = await import(`data:text/javascript;base64,${Buffer.from(code).toString("base64")}`);
+  if (infoReady) loading.init({ consent, uiCached, gameFound: true });
   const advance = async (ms) => {
     now += ms;
     for (const [id, timer] of [...timers]) if (timer.at <= now) { timers.delete(id); timer.fn(); }
     await flush();
   };
-  return { loading, stage, sprites, advance, initial, translate: () => { localized = true; loading.relabel(); } };
+  return { loading, stage, sprites, advance, initial, assets, translate: () => { localized = true; loading.relabel(); } };
 }
 
 for (const mode of ["wait", "scene"]) test(`writer progress survives ${mode} navigation and the sprite upgrade`, async () => {
@@ -169,57 +171,124 @@ test("the initial cover measures the fallback and sprite portions through reveal
   assert.deepEqual(h.loading.timings(), { "fallback-loading": 200, "sprite-loading": 1000 });
 });
 
-for (const mode of ["scene", "wait", "task"]) test(`${mode} uses the animated fallback while game assets are pending`, async () => {
+for (const mode of ["scene", "wait", "task"]) test(`${mode} stays neutral until consented UI assets decode`, async () => {
   const h = await harness(), work = deferred();
   const pending = mode === "scene" ? h.loading.scene(() => work.promise) : mode === "wait" ? h.loading.wait(work.promise) : h.loading.task(() => work.promise);
   await h.advance(300);
-  const indicator = h.stage.children[0], fallback = indicator.querySelector(".loading-fallback");
+  const indicator = h.stage.children[0], fallback = indicator.querySelector(".loading-plain");
   assert.ok(fallback);
-  assert.equal(fallback.querySelector("span").textContent, "Now Loading");
-  assert.equal(fallback.children.filter((el) => el.tagName === "i").length, 3);
-  assert.equal(indicator.querySelector(".loading-plain"), null);
+  assert.equal(fallback.querySelector("span").textContent, "Loading");
+  assert.equal(fallback.children.filter((el) => el.tagName === "i").length, 0);
+  assert.equal(indicator.classList.contains("neutral"), true);
   assert.equal(indicator.attrs["aria-label"], mode === "task" ? "popup.add" : "Reading game files");
   h.sprites.resolve(); await flush();
   assert.ok(indicator.querySelector(".loading-repeater"));
-  assert.equal(indicator.querySelector(".loading-fallback"), null);
+  assert.equal(indicator.querySelector(".loading-plain"), null);
+  assert.equal(indicator.classList.contains("neutral"), false);
   work.resolve(); await flush(); await h.advance(500); await h.advance(300); await pending;
 });
 
-for (const failure of ["indexes", "reject", "empty", "blank", "decode"]) test(`the fallback stays visible after ${failure} asset failure`, async () => {
+for (const failure of ["indexes", "reject", "empty", "blank", "decode"]) test(`the neutral indicator stays visible after ${failure} asset failure`, async () => {
   const h = await harness({ render: ["indexes", "decode"].includes(failure) ? "ready" : failure, decoded: failure !== "decode" }), work = deferred();
   const pending = h.loading.scene(() => work.promise);
   await flush();
-  const fallback = h.stage.children[0].querySelector(".loading-fallback");
+  const fallback = h.stage.children[0].querySelector(".loading-plain");
   if (failure === "indexes") h.sprites.reject(new Error("No game assets")); else h.sprites.resolve();
   await flush();
-  assert.equal(h.stage.children[0].querySelector(".loading-fallback"), fallback);
-  assert.equal(fallback.querySelector("span").textContent, "Now Loading");
+  assert.equal(h.stage.children[0].querySelector(".loading-plain"), fallback);
+  assert.equal(fallback.querySelector("span").textContent, "Loading");
   assert.equal(h.stage.children[0].querySelector(".loading-repeater"), null);
   work.resolve(); await flush(); await h.advance(300); await pending;
 });
 
-test("boot adopts the styled fallback and relabels it when locale strings arrive", async () => {
+test("boot adopts the neutral indicator and relabels it when locale strings arrive", async () => {
   const h = await harness({ boot: true, translated: false }), work = deferred();
-  const fallback = h.initial.querySelector(".loading-fallback");
+  const fallback = h.initial.querySelector(".loading-plain");
   const pending = h.loading.scene(() => work.promise, { opaque: true });
   await flush();
   assert.equal(h.stage.children.length, 1);
-  assert.equal(h.initial.querySelector(".loading-fallback"), fallback, "adoption keeps the dot animations running");
+  assert.equal(h.initial.querySelector(".loading-plain"), fallback, "adoption keeps the neutral indicator");
   assert.equal(fallback.querySelector("span").textContent, "");
   h.translate();
-  assert.equal(fallback.querySelector("span").textContent, "Now Loading");
+  assert.equal(fallback.querySelector("span").textContent, "Loading");
   assert.equal(h.initial.attrs["aria-label"], "Reading game files");
   work.resolve(); await flush(); await h.advance(300); await pending;
 });
 
-test("the initial document and asset-free style use the corner animation before modules and atlases load", () => {
+test("the initial document uses a neutral system style before modules and locale strings arrive", () => {
   const html = readFileSync(new URL("../../src/ba_modding_toolkit/web/index.html", import.meta.url), "utf8");
   const css = readFileSync(new URL("../../src/ba_modding_toolkit/web/css/app.css", import.meta.url), "utf8");
-  assert.match(html, /id="loading-boot"[\s\S]*?class="loading-fallback"><span><\/span><i><\/i><i><\/i><i><\/i>/);
+  assert.match(html, /class="loading full on neutral" id="loading-boot"/);
+  assert.match(html, /id="loading-boot"[\s\S]*?class="loading-plain"><span><\/span>/);
+  assert.match(css, /\.loading-plain \{[^}]*system-ui, sans-serif/);
+  assert.match(css, /\.loading\.neutral \.loading-back \{[^}]*#f4f4f4/);
   assert.match(css, /\.loading-fallback \{[^}]*bottom: 44px[^}]*color: #8de4ff[^}]*"RHR"[^}]*text-stroke: 1px #fff/);
-  assert.match(css, /\.loading-fallback span \{[^}]*animation: ld-text \.8333s/);
-  assert.match(css, /\.loading-fallback i \{[^}]*animation: ld-dot0 1\.1667s/);
-  for (const n of [1, 2]) assert.ok(css.includes(`.loading-fallback i:nth-of-type(${n + 1}) { animation-name: ld-dot${n}; }`));
-  assert.match(css, /prefers-reduced-motion[^}]*\.loading-fallback span, \.loading-fallback i \{ animation: none/);
-  assert.doesNotMatch(css, /loading-plain/);
+});
+
+for (const mode of ["scene", "wait", "task"]) test(`${mode} reads no loading game assets without consent, then upgrades when consent is granted`, async () => {
+  const h = await harness({ consent: false }), work = deferred();
+  h.sprites.resolve();
+  const pending = mode === "scene" ? h.loading.scene(() => work.promise) : mode === "wait" ? h.loading.wait(work.promise) : h.loading.task(() => work.promise);
+  await h.advance(300);
+  const indicator = h.stage.children[0];
+  assert.ok(indicator.querySelector(".loading-plain"));
+  assert.deepEqual(h.assets, [], "no game layout, indexes or sprites requested");
+  assert.equal(indicator.querySelector(".loading-fallback"), null);
+  assert.equal(indicator.querySelector(".loading-repeater"), null);
+  work.resolve(); await flush(); await h.advance(500); await h.advance(300); await pending;
+});
+
+for (const mode of ["scene", "wait", "task"]) test(`${mode} uses the stylized indicator on every cover after assets are cached`, async () => {
+  const h = await harness({ consent: false }), first = deferred();
+  const boot = h.loading.scene(() => first.promise);
+  await flush();
+  h.sprites.resolve(); await flush();
+  assert.ok(h.stage.children[0].querySelector(".loading-plain"), "in-memory UI alone is not consent");
+  h.loading.init({ consent: true, gameFound: true }); await flush();
+  assert.ok(h.stage.children[0].querySelector(".loading-repeater"), "consent upgrades the existing cover");
+  first.resolve(); await flush(); await h.advance(300); await boot;
+  const work = deferred();
+  const pending = mode === "scene" ? h.loading.scene(() => work.promise) : mode === "wait" ? h.loading.wait(work.promise) : h.loading.task(() => work.promise);
+  await h.advance(300);
+  const indicator = h.stage.children[0];
+  assert.equal(indicator.querySelector(".loading-plain"), null);
+  assert.equal(indicator.classList.contains("neutral"), false);
+  assert.ok(indicator.querySelector(".loading-repeater"));
+  work.resolve(); await flush(); await h.advance(500); await h.advance(300); await pending;
+});
+
+for (const mode of ["scene", "wait", "task"]) test(`${mode} starts stylized with an existing consented cache`, async () => {
+  const h = await harness({ uiCached: true }), work = deferred();
+  const pending = mode === "scene" ? h.loading.scene(() => work.promise) : mode === "wait" ? h.loading.wait(work.promise) : h.loading.task(() => work.promise);
+  await h.advance(300);
+  const indicator = h.stage.children[0];
+  assert.ok(indicator.querySelector(".loading-fallback"), "stylized while cached sprites decode");
+  assert.equal(indicator.classList.contains("neutral"), false);
+  h.sprites.resolve(); await flush();
+  assert.ok(indicator.querySelector(".loading-repeater"));
+  work.resolve(); await flush(); await h.advance(500); await h.advance(300); await pending;
+});
+
+test("withdrawn consent keeps a late sprite reply out of the neutral cover", async () => {
+  const h = await harness({ uiCached: true }), work = deferred();
+  const pending = h.loading.scene(() => work.promise);
+  await flush();
+  h.loading.init({ consent: false, gameFound: true, uiCached: true });
+  h.sprites.resolve(); await flush();
+  const indicator = h.stage.children[0];
+  assert.ok(indicator.querySelector(".loading-plain"));
+  assert.ok(indicator.classList.contains("neutral"));
+  assert.equal(indicator.querySelector(".loading-repeater"), null);
+  work.resolve(); await flush(); await h.advance(300); await pending;
+});
+
+test("a cached boot stays stylized before app.info arrives", async () => {
+  const h = await harness({ boot: true, uiCached: true, infoReady: false }), work = deferred();
+  const pending = h.loading.scene(() => work.promise, { opaque: true });
+  await flush();
+  assert.ok(h.initial.querySelector(".loading-fallback"));
+  assert.equal(h.initial.classList.contains("neutral"), false);
+  h.sprites.resolve(); await flush();
+  assert.ok(h.initial.querySelector(".loading-repeater"));
+  work.resolve(); await flush(); await h.advance(300); await pending;
 });

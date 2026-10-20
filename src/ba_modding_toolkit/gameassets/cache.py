@@ -66,6 +66,16 @@ class AssetCache:
         safe_version = version if is_digest else hashlib.sha1(version.encode()).hexdigest()
         return self.root / safe_version / (hashlib.sha256(key.encode()).hexdigest() + ".cache")
 
+    def has_disk_entries(self, version: str) -> bool:
+        """Whether this resource version has any consented light assets on disk."""
+        with self._lock:
+            if not self._allowed:
+                return False
+            try:
+                return any(path.is_file() for path in self._path(version, "").parent.glob("*.cache"))
+            except OSError:
+                return False
+
     def get(self, key: str, *, version: str | None = None, disk: bool = True) -> Any | None:
         """Return an entry, promoting it to most recently used, or ``None``."""
         version = self.resource_version if version is None else version

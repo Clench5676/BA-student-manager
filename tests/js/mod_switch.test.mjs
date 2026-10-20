@@ -32,7 +32,7 @@ class El {
   set innerHTML(text) {
     for (const c of [...this.children]) c.remove();
     this.parts = {};
-    for (const key of text.includes("loading-back") ? [".loading-back", ".loading-ind"] : text.includes("loading-fallback") ? ["span"] : []) {
+    for (const key of text.includes("loading-back") ? [".loading-back", ".loading-ind"] : /loading-(fallback|plain)/.test(text) ? ["span"] : []) {
       this.parts[key] = this.appendChild(new El());
     }
   }
@@ -315,7 +315,6 @@ test("the start prompts: their order, the scan consent, and no prompt from the s
   const due = (state, entries = [], info = { consent: true, compiled: false }) => MS.START.filter((name) => MS.startDue(name, { info, state, entries }));
   assert.deepEqual(due(base({ scan: null }), [], { consent: null, compiled: true }), ["consent", "scan", "update"]);
   assert.deepEqual(due(base({ scan: null, installs: [] })), [], "no game folder known: no scan consent");
-  assert.deepEqual(due(base({ scan: null }), [], { consent: true, startupChecks: false }), [], "no automatic file check when disabled");
   assert.deepEqual(due(base({ scan: false })), [], "answered: not asked again");
   const reset = { install: "/g", core: "airi_spr", state: "reset" }, untracked = { install: "/g", core: "ch0251_spr", state: "untracked" };
   assert.deepEqual(due(base(), [reset, untracked]), ["drift", "untracked"]);
@@ -490,7 +489,7 @@ test("the help fits its opening lines together in every locale, with and without
 test("Settings combines scan consent and automatic checks, preserving the consent popup from Off", async () => {
   const Settings = await import("../../src/ba_modding_toolkit/web/js/settings.js");
   const NGUI = await import("../../src/ba_modding_toolkit/web/js/ngui.js");
-  let prefs = { ...answers["settings.get"], native: true, startupChecks: true, gameDirs: { global: "/game" },
+  let prefs = { ...answers["settings.get"], native: true, gameDirs: { global: "/game" },
     fileSource: "windows_global", libraryDir: "/library", outputDir: "/output" };
   let state = base({ scan: false });
   answers["settings.get"] = () => prefs;
@@ -507,34 +506,37 @@ test("Settings combines scan consent and automatic checks, preserving the consen
     const [l, t] = NGUI.rect(bg);
     return walk(settingsHost).find((e) => e.tagName === "BUTTON" && e.style.left === `${l}px` && e.style.top === `${t}px`);
   };
-  await until(() => selected(0), "Off selected");
+  await until(() => selected(1), "Off selected");
+  assert.ok(!hasPath("Rows/Scan/Opt_2/BG"), "the file check has exactly two radio options");
   assert.ok(!hasPath("Rows/StartupChecks/Title"));
   assert.ok(!hasPath("Rows/Folders/Title"));
   assert.equal(button(S("settings.mods.check")), undefined, "Check disabled without consent");
   const before = called("mods.consent").length;
-  button(S("settings.mods.manual")).click();
-  await drawn(consent, "ok");
-  assert.equal(called("mods.consent").length, before, "picking Manual grants nothing");
-  assert.equal(prefs.startupChecks, false, "automatic requests disabled before consent is granted");
-  action(consent, "cancel").click();
-  await until(() => consent.hidden && selected(0), "declined, still Off");
-  button(S("settings.mods.manual")).click();
-  (await drawn(consent, "ok")).click();
-  await until(() => selected(1), "Manual selected");
-  assert.equal(prefs.startupChecks, false);
-  assert.ok(button(S("settings.mods.check")), "Check available with manual consent");
-  button(S("settings.mods.atStartup")).click();
-  await until(() => selected(2), "At Startup selected");
-  assert.equal(prefs.startupChecks, true);
-  assert.equal(consent.hidden, true, "consent already granted");
   scanButton(0).click();
-  await until(() => selected(0), "Off withdraws consent");
-  assert.equal(state.scan, false);
-  button(S("settings.mods.atStartup")).click();
+  await drawn(consent, "ok");
+  assert.equal(called("mods.consent").length, before, "picking On grants nothing");
+  action(consent, "cancel").click();
+  await until(() => consent.hidden && selected(1), "declined, still Off");
+  scanButton(0).click();
   (await drawn(consent, "ok")).click();
-  await until(() => selected(2), "Off to At Startup also requires consent");
+  await until(() => selected(0), "On selected");
+  assert.ok(button(S("settings.mods.check")), "manual Check available while On");
+  const granted = called("mods.consent").length;
+  scanButton(0).click();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(called("mods.consent").length, granted, "selecting On again changes nothing");
+  assert.equal(consent.hidden, true, "consent already granted");
+  scanButton(1).click();
+  await until(() => selected(1), "Off withdraws consent");
+  assert.equal(state.scan, false);
+  assert.equal(button(S("settings.mods.check")), undefined);
+  scanButton(0).click();
+  (await drawn(consent, "ok")).click();
+  await until(() => selected(0), "Off to On also requires consent");
   button(S("settings.tab.general")).click();
-  await until(() => !!button(S("settings.classic.ask")) || walk(settingsHost).some((e) => e.textContent === S("settings.classic.ask")), "classic confirmation title");
+  await until(() => hasPath("Rows/ClassicAsk/Title"), "classic confirmation title");
+  const title = walk(settingsHost).find((e) => e.dataset.path === "Rows/ClassicAsk/Title");
+  assert.equal(title.textContent.replaceAll("\n", " "), S("settings.classic.ask"));
   button(S("settings.tab.folders")).click();
   await until(() => hasPath("Rows/Output/Title"), "folder rows");
   assert.equal(walk(settingsHost).filter((e) => e.tagName === "BUTTON" && e.getAttribute("aria-label") === S("settings.change")).length, 3);

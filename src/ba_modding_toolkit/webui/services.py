@@ -325,9 +325,9 @@ class Services:
                 # kept originals the game no longer needs (verified in the launcher, replaced by a game update) are
                 # deleted once per library, on the job worker so no apply runs meanwhile; the judging of the
                 # unfinished list follows it
-                if self._startup_ready and self.state.flag("startup_checks"):
+                if self._startup_ready and self.scan_allowed():
                     self._start_prune(built)
-        if built is not None and self._startup_ready and self.state.flag("startup_checks"):
+        if built is not None and self._startup_ready and self.scan_allowed():
             self.request_scan()  # the start scan (with scan consent), after the prune job
         return library
 
@@ -451,6 +451,16 @@ class Services:
         if self._cache is not None:
             self._cache.allowed = granted
 
+    def ui_cached(self, version: str | None = None) -> bool:
+        """Whether consented light UI assets already exist for the current install."""
+        if self.state.consent is not True:
+            return False
+        if version is None:
+            if not self.game_found():
+                return False
+            version = self.game.resource_version
+        return bool(getattr(self.cache, "has_disk_entries", lambda _: False)(version))
+
     # --- the scan consent and the scan ---
 
     def scan_allowed(self) -> bool:
@@ -458,7 +468,7 @@ class Services:
         return self.state.scan_consent is True
 
     def set_scan_consent(self, granted: bool) -> None:
-        """Save consent; granted, automatic mode requests a scan; withdrawn, scans stop and the entries empty."""
+        """Save consent; granted, request a scan; withdrawn, scans stop and the entries empty."""
         self.state.set("scan_consent", bool(granted))
         if granted:
             self.request_scan()
@@ -469,16 +479,9 @@ class Services:
             self._release_queue()
         self.publish_state()
 
-    def set_startup_checks(self, enabled: bool) -> None:
-        """Save the automatic file check preference; Manual drops outstanding automatic checks."""
-        self.state.set("startup_checks", enabled)
-        if not enabled:
-            self.scanner.clear()
-            self._release_queue()
-
     def request_scan(self, dismissed: bool = False, *, cores: set[str] | None = None) -> int | None:
-        """Settings' Check is explicit; all other requests require automatic checks as well as consent."""
-        if not dismissed and not self.state.flag("startup_checks"):
+        """Every check requires consent; Settings' Check also lists dismissed entries again."""
+        if not self.scan_allowed():
             return None
         if dismissed and self.scan_allowed():
             with self._lock:
@@ -521,7 +524,7 @@ class Services:
 
     def _release_queue(self, served: int | None = None) -> None:
         """Run the classic queue once the scan it waits for is done (``served``, the last request a scan attempt
-        served), or at once (``None``: consent was withdrawn or checks became manual). Only one caller takes
+        served), or at once (``None``: consent was withdrawn). Only one caller takes
         the ticket."""
         with self._lock:
             ticket = self._queue_ticket
@@ -536,7 +539,7 @@ class Services:
                **params: Any) -> str:
         """Submit a job. A writer job (``writes``: "game" or "library") ends on the worker with the library's
         judging of the unfinished list, a new ``mods.state`` snapshot, ``library.changed {cores, kinds}`` and a scan
-        (with consent and automatic checks); ``library`` is the library it works through, captured at submit."""
+        (with scan consent); ``library`` is the library it works through, captured at submit."""
         if writes is None:
             return self.jobs.submit(kind, fn, **params)
 
@@ -737,8 +740,8 @@ class Services:
         self.after_classic()
 
     def after_classic(self) -> None:
-        """The classic tabs may have changed game files: the page reads them again, a scan runs with consent in automatic
-        mode, then the queued writes."""
+        """The classic tabs may have changed game files: the page reads them again, a scan runs with consent,
+        then the queued writes."""
         self.events.publish("library.changed")
         ticket = self.request_scan()
         if ticket is None:
@@ -972,7 +975,7 @@ class Services:
             library = self.library
             requested = False
             with self._lock:
-                if self._prune_job is None and self.state.flag("startup_checks"):
+                if self._prune_job is None and self.scan_allowed():
                     self._start_prune(library)
                     requested = True
             if requested:

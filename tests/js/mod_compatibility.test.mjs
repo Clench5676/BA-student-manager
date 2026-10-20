@@ -168,6 +168,7 @@ test("Remap creates a new mod, reports a partial fix and opens the source compar
     r.atlasLayout = ["test.atlas"]; r.remappable = true; r.outdated = true;
     const built = { mod: { id: "new-mod", label: "Repacked" }, compare: { mod_id: "new-mod", assets: [] },
       report: { partial: true, moved: ["body"], added: ["halo"], dropped: ["old"],
+        upscaled: [{ page: "one", w: 4096, h: 4096 }, { page: "two", w: 4096, h: 4096 }],
         warnings: [{ key: "rig", name: "test.skel" }, { key: "version", name: "test.skel" }] } };
     h.use(r); h.build(built);
     let changed;
@@ -179,6 +180,7 @@ test("Remap creates a new mod, reports a partial fix and opens the source compar
     assert.ok(popup.lines.every((line) => !/[{}]/.test(line) && !line.startsWith("remap.")));
     assert.ok(popup.lines.some((line) => line.includes("old")));
     assert.equal(popup.lines.filter((line) => line.includes("test.skel")).length, 2);
+    assert.equal(popup.lines.filter((line) => line.includes("4096 × 4096")).length, 1);
   }
 });
 

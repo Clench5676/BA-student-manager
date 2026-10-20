@@ -317,6 +317,13 @@ input[type="text"], input[type="search"], textarea { cursor: text; }
 .loading-ind, .loading-repeater { position: absolute; inset: 0; pointer-events: none; }
 /* indicator mode: a shade under the corner, so the letters read over the nav bar */
 .loading.indicator .loading-ind { background: radial-gradient(ellipse 680px 240px at 100% 100%, rgba(10, 24, 44, .8) 0%, rgba(10, 24, 44, .55) 50%, rgba(10, 24, 44, 0) 100%); }
+.loading.neutral .loading-back { background: #f4f4f4 !important; }
+.loading.neutral .loading-ind { background: none; }
+.loading.neutral { font-family: system-ui, sans-serif; }
+.loading.neutral .loading-progress { color: #444; background: #f4f4f4; border-radius: 0; }
+.loading-plain { position: absolute; right: 84px; bottom: 44px; padding: 10px 16px;
+  color: #444; background: #f4f4f4; font: 24px/1.4 system-ui, sans-serif; }
+.loading.neutral .loading-progress { color: #444; background: #f4f4f4; font-family: system-ui, sans-serif; }
 
 /* the game's clip "UIAni_Repeat 1" (legacy, 60 fps, loop of 140 frames = two equal halves of 70): the dots hop
    20 units (12.97 px) one after another; Arona and her halo squeeze to nothing and back, the halos swapping at the
@@ -336,7 +343,7 @@ input[type="text"], input[type="search"], textarea { cursor: text; }
 .loading-ind [data-path$="/Arona/Halo"] { animation: ld-turn 1.1667s ease-in-out infinite, ld-halo 2.3333s step-end infinite; }
 .loading-ind [data-path$="/Arona/Halo_2"] { animation: ld-turn 1.1667s ease-in-out infinite, ld-halo2 2.3333s step-end infinite; }
 .loading-ind [data-path*="/Loading/"] { animation: ld-text .8333s ease-in-out infinite; }
-/* Asset-free corner indicator: the bundled rounded font, the game's blue/white palette and the same clip timings. */
+/* Once UI assets are ready, the corner keeps its style while a new repeater is rendered. */
 .loading-fallback { position: absolute; right: 84px; bottom: 44px; display: flex; align-items: flex-end; gap: 9px; color: #8de4ff;
   font: italic var(--w) 44px/1 "RHR", sans-serif; letter-spacing: 1px; transform: skewX(-10deg);
   -webkit-text-stroke: 1px #fff; text-shadow: 0 3px 0 #2c445c, 2px 0 0 #2c445c, -2px 0 0 #2c445c; }

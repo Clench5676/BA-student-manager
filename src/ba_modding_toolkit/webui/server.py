@@ -54,13 +54,15 @@ class WebApp:
                  static_dir: Path = WEB_DIR, token: str | None = None,
                  consent: Callable[[], bool | None] = lambda: None,
                  classic: Callable[[dict, Callable], Iterable[bytes]] | None = None,
-                 raise_window: Callable[[], Any] | None = None, raise_token: str | None = None):
+                 raise_window: Callable[[], Any] | None = None, raise_token: str | None = None,
+                 ui_cached: Callable[[], bool] = lambda: False):
         self.rpc = rpc
         self.events = events
         self.assets = assets
         self.static_dir = Path(static_dir).resolve()
         self.token = token or secrets.token_urlsafe(24)
         self.consent = consent
+        self.ui_cached = ui_cached
         self.classic = classic  # ClassicWindow.wsgi
         self.raise_window = raise_window
         self.raise_token = raise_token or secrets.token_urlsafe(24)
@@ -190,7 +192,12 @@ class WebApp:
         if not file.is_file():
             return self._text(start_response, "404 Not Found", "not found")
         mime = MIME.get(file.suffix.lower()) or mimetypes.guess_type(file.name)[0] or "application/octet-stream"
-        return self._respond(start_response, "200 OK", file.read_bytes(), mime, [("Cache-Control", "no-cache")])
+        body = file.read_bytes()
+        if rel == "index.html" and self.ui_cached():
+            body = body.replace(b'class="loading full on neutral"', b'class="loading full on"')
+            body = body.replace(b'<div class="loading-plain"><span></span></div>',
+                                b'<div class="loading-fallback"><span></span><i></i><i></i><i></i></div>')
+        return self._respond(start_response, "200 OK", body, mime, [("Cache-Control", "no-cache")])
 
     # --- responses ---
 

@@ -748,20 +748,16 @@ The services hold what the Enable Mods switch, the prompts and the classic hand-
   only with the scan consent: one scan at a time, requests made meanwhile served by one scan after it, `cancel()` on a
   game folder change or a library move (the result is dropped). A stale result (the library wrote while the files
   were read) is scanned again once while no writer job runs, else dropped: the scan after that job replaces it. The
-  start scan waits for the `library.prune` job. Startup prune and scan begin after the first screen reveals and can
-  be disabled with Settings' Check Game Files set to Manual. Off disables scans by withdrawing consent. Manual keeps
-  scan consent but only
-  Settings' Check prunes and requests a scan explicitly.
-  In At Startup mode, scans also run after a game folder change, after every
-  writer job, when the game stops or Steam turns idle (the game watch), after a classic window closed, when the
-  consent is granted, on Settings' Check (`mods.scan {dismissed: true}`, which lists dismissed entries again) and
-  whenever the page asks (`mods.scan`, the window back in front after 30 s). These automatic requests do nothing
-  in Manual mode. Switching to Manual cancels outstanding scans and releases the classic queue; withdrawing consent
-  stops scans and empties the entries.
+  start scan waits for the `library.prune` job. Startup prune and scan begin after the first screen reveals,
+  while Check for Drift and Untracked Mods at Start is On. Off withdraws consent, cancels outstanding scans,
+  releases the classic queue and empties the entries. With consent, scans also run after a game folder change,
+  after every writer job, when the game stops or Steam turns idle (the game watch), after a classic window closed,
+  when consent is granted, on Settings' Check (`mods.scan {dismissed: true}`, which lists dismissed entries again)
+  and whenever the page asks (`mods.scan`, the window back in front after 30 s).
 - **Another data directory** sharing the library: at each poll the game watch asks `profiles_seen()`, which reads
   `profiles.json` again only when its size or date changed (under its file lock, never the library lock). When the
   shared intent or the `unfinished` counts changed, the snapshot follows, `mods.state` is published, an automatic
-  scan is requested in At Startup mode and `library.judge` judges the `unfinished` list, so the red dot and Retry follow with or without scan
+  scan is requested with scan consent and `library.judge` judges the `unfinished` list, so the red dot and Retry follow with or without scan
   consent.
 - **The classic queue.** While a classic window is open, `actions.apply`, `actions.restore` (when it would write),
   `mods.toggle` and `mods.restoreDrift` are refused at submit with `classic_open`; the toggle and Apply Mod
@@ -792,7 +788,7 @@ stops the server (the page shows Closed); with `--serve` it gives `native_unavai
 
 | Method | Result |
 |---|---|
-| `app.info` | version, language, platform, game found, resource version, consent (`null`, `true`, `false`), paths, `debug` (started with `--debug`) |
+| `app.info` | version, language, platform, game found, resource version, consent (`null`, `true`, `false`), `uiCached` (consented light assets on disk for the current resource version), paths, `debug` (started with `--debug`) |
 | `app.consent {granted}` | records the choice; `false` closes the app |
 | `app.quit` | closes the window; `busy` while a writer job runs; in browser mode answers, then stops the server; `native_unavailable` with `--serve` |
 | `app.openClassic {tab}` | `{started}`: starts the classic window on a tab (`settings`: its settings) and waits for it (30 s at most), or brings the open one to the front, with the tab unless a classic task runs; a window an earlier instance left is only raised; `classic_failed {exit_code}` when the child exits or stays silent first; `busy` instead of a new window while a job writing the game folder is queued or running |
@@ -802,7 +798,7 @@ stops the server (the page shows Closed); with `--serve` it gives `native_unavai
 | `classic.clearQueue` | `{}` |
 | `i18n.strings {lang}` | `{key: text}` for `webui.*` |
 | `roster.list` | families with variants, mod counts, fresh flags, favourites, recent order, `added` (when the newest own mod was added), `aliases` per family and per variant (matched by the search, never shown), `custom` per family (the user's own aliases); without scan consent Replaced comes from the library's records only |
-| `settings.get` / `settings.set {key, value}` | the settings popup's values; key `roster` keeps the student list's view (merge, segment filters, sort, order, filter groups; `webui/state.py roster_view`); `lobbyZoom` is `{mode, custom}` in `settings.get`, set by keys `lobbyZoom` (`game`, `art`, `unlocked`, `custom`) and `lobbyZoomCustom` (1.0 to 4.0 game views across, kept in 0.1 steps); `lobbyPost` and `lobbyIntro` (the lobby's post-processing and its intro, on by default); the booleans `modSwitchShown` (the switch on the main screens), `tray` (the tray or menu bar icon) and `classicPrompt` (the hand-off prompt); `startupChecks` selects automatic file checks (Manual when false and consent is granted); `settings.get` adds `traySupported` |
+| `settings.get` / `settings.set {key, value}` | the settings popup's values; key `roster` keeps the student list's view (merge, segment filters, sort, order, filter groups; `webui/state.py roster_view`); `lobbyZoom` is `{mode, custom}` in `settings.get`, set by keys `lobbyZoom` (`game`, `art`, `unlocked`, `custom`) and `lobbyZoomCustom` (1.0 to 4.0 game views across, kept in 0.1 steps); `lobbyPost` and `lobbyIntro` (the lobby's post-processing and its intro, on by default); the booleans `modSwitchShown` (the switch on the main screens), `tray` (the tray or menu bar icon) and `classicPrompt` (the hand-off prompt); `settings.get` adds `traySupported` |
 | `family.get {key}` | a family with its variants (and `aliases` and `custom`, as in `roster.list`), mods and each variant's state, judged cheaply (`copy`, `restorable` and `official` per file; Needs Fix only from the record of the switch that wrote the file); `configured {spr, lobby}` per variant (the sources of its primary cores); `modelFiles` per variant (the 3D model's prefab bundles, newest first, `fixed` or `ok` from the header) and `version` (the game's resource version, so a switched install reloads the screen); `modList` by the variant the current catalog gives each mod's core |
 | `lobby.warm` | builds the memorial lobby prefab index and the index of every bundle's CABs (the particle effects' materials, textures and meshes) in the background (once per game); the detail screen calls it for a variant with a lobby |
 | `lobby.lines {variant, talks, lang}` | `{clip: {lang: text, voice}}`: zh-CN from Kivo, ja from Kivo else the Global server, en, zh-TW, ko and th from the Global server (read only for a `lang` other than zh-CN, left out when its table is not in within 3 s); `talks` (`{animation: [clip ids]}` from the skeleton) places the Global rows on the clips; `lines_unavailable` when neither source can be read |
@@ -818,9 +814,9 @@ stops the server (the page shows Closed); with `--serve` it gives `native_unavai
 | `mods.state` | `{installs: [{id, key, server, folder, label, distinct, named}], current, enabled, shown, available, reason, reasonParams, scan, explained, configured, pending, stuck, left, unfinished: {pending, left, stuck}, drift, untracked, damaged, sourceMissing, queued, scanned, tray, traySupported, busy, progress}` from the snapshot (above); `id` is the first 12 hex digits of the install key's SHA-1 (used in URLs), `named` tells a folder the settings name from a recorded one; `busy` while a toggle is queued or running or writes are queued for the classic window; `progress` is `{done, total}` of a running toggle |
 | `mods.sizes {kind}` | `{builtSize}` for `kind: "built"` or `{originalsSize}` for `kind: "originals"`, bytes measured on demand; Settings requests only the Mod Cache size; no size walks in `mods.state` |
 | `mods.toggle {enabled, expect}` | job id (`mods.toggle`): the switch over every known install, also Retry; `busy` while another toggle is queued or running, `classic_open` at submit; the job's refusals `state_changed`, `folder_changed`, `game_running`, `game_status_unavailable`, `steam_busy`, `classic_open`, `not_enough_space` |
-| `mods.consent {granted}` | `{}`; saves `scan_consent`; granting requests a scan in At Startup mode, Manual waits for Check; withdrawing stops the scans and empties the entries |
+| `mods.consent {granted}` | `{}`; saves `scan_consent`; granting enables startup checks and requests a scan immediately; withdrawing stops the scans and empties the entries |
 | `mods.explained` | `{}`; sets `mods_explained` (the first toggle's explanation was shown) |
-| `mods.scan {dismissed = false}` | `{requested: bool}`; the result comes as `library.scanned`; `scan_off` without scan consent; Manual returns `false` for automatic requests, `dismissed: true` is Settings' explicit Check |
+| `mods.scan {dismissed = false}` | `{requested: bool}`; the result comes as `library.scanned`; `scan_off` without scan consent; `dismissed: true` is Settings' explicit Check |
 | `mods.entries` | the last scan's entries (`{install, core, variant, names, kind, source, configured, state, overwritten, fixed, size, files, dismissed}`), updated by every writer job's result until the next scan; empty without scan consent |
 | `mods.adopt {entries}` | job id (`library.adopt`): Add to Library for `[{install, core}]`, allowed while the game runs and while a classic window is open; `not_enough_space` |
 | `mods.restoreDrift {entries}` | job id (`mods.restore`): Apply Mod Configuration; `classic_open` at submit |
@@ -830,6 +826,7 @@ stops the server (the page shows Closed); with `--serve` it gives `native_unavai
 | `actions.apply {variant, source, kind}` / `actions.restore {variant, kind}` | job id; switches what the current install shows, `kind` `spr` (default) or `lobby` (see library); the result has `deferred` while mods are off (configured, not written); `classic_open` at submit only when a game file would be written, `folder_changed` when the current install changed before the job ran, `steam_busy` from the write, `game_not_found` without a current install |
 | `actions.update {mod}` / `actions.extract {target}` | job id |
 | `actions.compare {mod}` | per-asset differences |
+| `actions.remap {mod}` | writer job; creates a new mod against current official bundles, preserving the source; result `{mod, report, compare}`; `report.upscaled` lists `{atlas, page, w, h}` for pages enlarged before remapping |
 | `os.reveal {path}` | |
 | `app.checkUpdate` | the newest release above this version, or `null`; `downloaded` and `file` (path or `null`) report a verified file still present for that version in this session |
 | `app.update` / `app.installUpdate {file}` | job id (download and MD5 check, result `{file}`; reuses the verified file for the same version) / swap in the build and quit after Restart; `classic_open` while any classic window is open (never queued) |
@@ -837,6 +834,15 @@ stops the server (the page shows Closed); with `--serve` it gives `native_unavai
 HTTP endpoints outside `/api/rpc`, each with its own token, never the session token: `GET /api/classic/control` and
 `POST /api/classic/report` (the classic child's one-time token, see Classic window) and `POST /api/instance/raise`
 (the raise token of `instance.json`).
+
+### Atlas remap
+
+`atlas_remap.py` reconstructs current official atlas pages from matching mod regions. When either physical page
+axis is smaller than its atlas declaration, the whole page is enlarged to at least the declared dimensions with
+Pillow's LANCZOS filter before any region is cropped or placed. Larger pages retain their resolution; no dependency
+is added. This also normalizes undersized official destination pages, so the result uses the official declared
+size. Rotations, trim offsets and premultiplied alpha remain part of region placement. `mod-compatibility.js` adds
+"Textures upscaled to {w} × {h}" to the result for each distinct enlarged size (`remap.upscaled` in all five locales).
 
 ## Asset routes
 
@@ -1107,10 +1113,9 @@ optional, so a popup still works without them.
 **Start sequence** (`main.js`, `Popup.sequence`). Once the first screen is revealed the start popups come one at a
 time, in order, each only when it has something to show (`mod-switch.js startDue`): the asset consent, the scan
 consent (while it is unanswered and a game folder is known; see Enable Mods switch), then the update popup (released
-builds only). Check Game Files set to Manual disables the startup scan consent, scan-result wait and maintenance;
-Off withdraws scan consent. The stored `startupChecks` preference defaults to on, while file checks require consent.
-Check for Updates at Startup defaults to on and disables the automatic update check when off. Manual Settings checks
-remain available with the corresponding consent. `Update.check` resolves when its popup closes: `later` (Later or Escape), `page` (the download page
+builds only). File checks require scan consent: On checks at every start, Off withdraws consent and stops scans.
+The drift row's Check remains available while On. Check for Updates at Startup defaults to on and disables the
+automatic update check when off. Manual Settings update checks remain available. `Update.check` resolves when its popup closes: `later` (Later or Escape), `page` (the download page
 opened), `update` when a failed update is dismissed, `null` with no newer release, offline or if drawing fails.
 Download progress and errors stay in the popup; its buttons and Escape are blocked during download. A verified
 download shows Download Complete with Later / Restart. Later keeps it for this session; the next check for that
@@ -1225,15 +1230,16 @@ detail screen, and in Settings' Mods tab.
   unavailable); Show on Main Screens (`modSwitchShown`); Mod Cache (mods rebuilt for the current game version and
   kept for instant re-enabling; size requested with `mods.sizes {kind: "built"}` when the row is drawn, loading text
   while waiting, Clear enabled for a nonzero size; `mods.clearBuilt`, then "Mod cache cleared" and the size measured
-  again); Check Game Files (Off withdraws consent, Manual grants consent and scans only from the drift row's Check,
-  At Startup grants consent and scans at every start plus the automatic triggers described above). Either enabled
-  option opens the consent popup when switching from Off; declining leaves Off selected. The two stored preferences
-  remain `scan_consent` and `startup_checks` (`startupChecks` over RPC); Tray Icon or Menu Bar Icon (`tray`, only in
+  again); Check for Drift and Untracked Mods at Start (the standard two-option On / Off radio row). On opens the
+  consent popup before enabling checks, then scans immediately, at every start and on the automatic triggers
+  described above; declining leaves Off selected. Off withdraws consent and stops scans. `scan_consent` is the sole
+  stored preference. Legacy `startup_checks` is removed on load: At Startup stays On, Manual becomes Off because it
+  did not authorize automatic checks, and unanswered consent stays unanswered. Tray Icon or Menu Bar Icon (`tray`, only in
   the app window where the system has one); Game File Drift Check (what the last check found, "No drift found", or
   "File check off" with Check greyed; Check scans with the dismissed entries listed again; its square "?" gives one
   definition: configuration drift means the game files do not match the mod configuration). There is no Game Folders
-  row in this tab. The tab follows `mods.state` while it is open. Confirm Before Opening Classic UI (`classicPrompt`)
-  is a General row, under More Settings. The Folders tab's game folder, Mod Library and Output Folder rows use Change
+  row in this tab. The tab follows `mods.state` while it is open. Ask Before Opening Unmigrated Features (`classicPrompt`)
+  is a General row, under More Settings. The Folders tab's game folder, Mod Library and Classic Tools Output Folder rows use Change
   for their folder pickers.
 - **The classic modal** (`classicModal`, decision 5): a write the open classic window refuses (`classic_open` from
   the switch, Retry, or the detail screen's apply and restore, at submit or from the job) opens "Classic UI Open",
@@ -1253,7 +1259,7 @@ detail screen, and in Settings' Mods tab.
   comes first, so the same change is not read twice). Without cores (the classic window closed, a job stopped
   midway, the mod list changed) the screen compares what it shows with the family read again, and the roster forgets
   the portraits whose Replaced flag changed. A job that switched nothing (a prune) changes nothing on the page.
-- **The window back in front** after 30 s or more asks for a scan (`mods.scan`, only with consent and At Startup mode), so a
+- **The window back in front** after 30 s or more asks for a scan (`mods.scan`, only with scan consent), so a
   Steam check or a repair made meanwhile is found.
 - **While mods are off** an apply only saves the choice: the switch popup reads Save and starts on the configured
   source, and the toast says "Saved, applied when mods are on".
@@ -1302,10 +1308,12 @@ overwritten entry need none (the detail screen judges its files cheaply).
 `loading.js` draws the game's own loading screen: UILoading's black backdrop with nothing in the middle (the game
 shows an illustration there; the tool does not) and UIRepeater in the bottom-right corner ("Now Loading", the
 hopping dots and Arona turning round, animated in `app.css` from the keyframes of the clip `UIAni_Repeat 1`; its
-UIAudioPlay is never played). Before the atlases are in, or without a game, the same corner indicator uses the
-bundled rounded font and blue/white palette, with the same text breathing and hopping-dot animations. The initial
-document includes its animated dots before modules or locale strings arrive. Sprite or decode failures retain this
-styled fallback. All web controls use accessible names and descriptions; none creates a hover tooltip.
+UIAudioPlay is never played). Before asset consent and a ready UI cache, covers use neutral system text, a grey
+background and no game layouts, sprites or fonts. The server selects the initial document's style from consent and
+the current resource version's disk cache, so a cached launch is stylized before modules or RPC replies arrive.
+`app.info.uiCached` reports the same cache state. A cold cache upgrades after consent and successful
+UIRepeater decode; later covers always use the stylized indicator. While cached sprites decode, or if a later
+sprite/decode fails, the bundled rounded font and blue/white palette preserve the breathing text and hopping dots. All web controls use accessible names and descriptions; none creates a hover tooltip.
 
 - `scene(fn)` covers startup, roster/detail navigation, student steps and detail tabs: a fade to black (150 ms),
   then, while the work goes on, the indicator. It warns after 15 s and stays covered until preparation settles or

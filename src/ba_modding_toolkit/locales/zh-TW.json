@@ -1105,7 +1105,8 @@
 		},
 		"loading": {
 			"now": "Now Loading",
-			"slow": "仍在載入"
+			"slow": "仍在載入",
+			"plain": "載入中"
 		},
 		"job": {
 			"running": "處理中",
@@ -1253,12 +1254,12 @@
 				"label": "更多設定",
 				"hint": "經典介面中的 Spine 工具、ADB 等",
 				"open": "開啟",
-				"ask": "開啟經典介面前確認"
+				"ask": "開啟未遷移功能前詢問"
 			},
 			"mods": {
 				"clear": "清除",
 				"shown": "在主畫面顯示",
-				"scan": "檢查遊戲檔案",
+				"scan": "啟動前檢查設定漂移、未收錄 Mod 檔案",
 				"tray": {
 					"win": "系統匣圖示",
 					"mac": "選單列圖示"
@@ -1269,9 +1270,7 @@
 				"driftHelp": {
 					"title": "設定漂移",
 					"what": "設定漂移是指遊戲檔案與 Mod 設定不一致。"
-				},
-				"manual": "手動",
-				"atStartup": "啟動時"
+				}
 			},
 			"voice": "語音",
 			"mute": "靜音",
@@ -1301,7 +1300,7 @@
 			},
 			"gameDir": "遊戲資料夾",
 			"library": "Mod 倉庫",
-			"output": "輸出資料夾",
+			"output": "經典工具輸出目錄",
 			"detect": "自動偵測",
 			"notSet": "未設定",
 			"saved": "已儲存",
@@ -1361,7 +1360,8 @@
 			"counts": "已重排：{moved}，使用原版：{added}，已移除：{dropped}",
 			"dropped": "已移除區域：{names}",
 			"rig": "{name}，骨骼資料不同，附件或網格仍可能錯位",
-			"version": "{name}，Spine 版本不同，需要轉換骨骼"
+			"version": "{name}，Spine 版本不同，需要轉換骨骼",
+			"upscaled": "貼圖已放大至 {w} × {h}"
 		}
 	}
 }

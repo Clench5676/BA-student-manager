@@ -122,7 +122,7 @@ async function refreshAfterToggle() {
   await applyChange();
 }
 
-// the window back in front after 30 s or more: the server checks again with consent and automatic checks enabled
+// the window back in front after 30 s or more: the server checks again with scan consent
 let hiddenAt = 0;
 function watchFront() {
   const away = () => { hiddenAt ||= Date.now(); };
@@ -274,7 +274,11 @@ async function boot() {
 function startPopups() {
   const due = (name) => ModSwitch.startDue(name, { info, state: ModSwitch.current() });
   return [
-    ["consent", () => due("consent") && Consent.show($("consent"), info.cacheDir, info.native)],
+    ["consent", async () => {
+      if (!due("consent")) return;
+      info.consent = await Consent.show($("consent"), info.cacheDir, info.native);
+      Loading.init(info);
+    }],
     ["scan", () => due("scan") && Consent.scan($("consent"))],
     ["update", () => due("update") && Update.check($("consent"))],
     ["drift", () => Prompts.start("drift", info)],

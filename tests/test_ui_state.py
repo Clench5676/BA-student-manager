@@ -334,10 +334,26 @@ def test_the_switch_flags_and_the_scan_consent_have_their_defaults(tmp_path):
     state = UiState(tmp_path / "webui.json")
     assert {key: state.flag(key) for key in FLAGS} == {"mod_switch_shown": True, "tray": False,
                                                         "classic_prompt": True, "mods_explained": False,
-                                                        "startup_checks": True, "startup_update": True}
+                                                        "startup_update": True}
     assert state.scan_consent is None
     state.set("scan_consent", False)
     state.set("tray", "yes")  # not a boolean: the default
     assert state.scan_consent is False and state.flag("tray") is False
     # reading them writes nothing: the constructor and the getters never add preferences
     assert json.loads((tmp_path / "webui.json").read_text())["prefs"] == {"scan_consent": False, "tray": "yes"}
+
+
+@pytest.mark.parametrize("startup", [True, False])
+@pytest.mark.parametrize("consent", [True, False, None])
+def test_legacy_file_check_modes_migrate_without_granting_automatic_consent(tmp_path, startup, consent):
+    path = tmp_path / "webui.json"
+    path.write_text(json.dumps({"prefs": {"scan_consent": consent, "startup_checks": startup, "tray": True}}))
+    state = UiState(path)
+    expected = False if consent is True and not startup else consent
+    assert state.scan_consent is expected
+    assert state.get("startup_checks") is None
+    assert json.loads(path.read_text())["prefs"] == {"scan_consent": expected, "tray": True}
+    # Reopening does not rewrite the migrated state.
+    before = path.stat().st_mtime_ns
+    assert UiState(path).scan_consent is expected
+    assert path.stat().st_mtime_ns == before

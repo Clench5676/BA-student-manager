@@ -204,7 +204,6 @@ function scanned() {
 // a step of the start sequence (main.js): the drift prompt, then the untracked prompt, each only when due
 export async function start(which, info) {
   try {
-    if (info?.startupChecks === false) return;
     await scanned();
     const s = await ModSwitch.refresh();
     const entries = s?.scan === true ? await rpc("mods.entries").catch(() => []) : [];

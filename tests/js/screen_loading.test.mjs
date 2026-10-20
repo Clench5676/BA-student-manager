@@ -76,14 +76,19 @@ test("Back takes over a pending student RPC without a late student reveal", asyn
   assert.equal(h.covered(), false);
 });
 
-test("disabling startup checks skips scan waits and leaves later manual-scan prompts enabled", async () => {
+test("startup scan prompts follow current consent without a separate startup mode", async () => {
   const prompts = readFileSync(new URL("../../src/ba_modding_toolkit/web/js/prompts.js", import.meta.url), "utf8");
   const start = prompts.slice(prompts.indexOf("export async function start("), prompts.indexOf("async function later("))
     .replace("export async function", "async function");
   const calls = [];
-  const h = new Function("scanned", `let started = false; ${start} return { start, started: () => started };`)(() => calls.push("scan"));
-  await h.start("drift", { startupChecks: false });
-  await h.start("untracked", { startupChecks: false });
-  assert.deepEqual(calls, []);
+  const deps = {
+    scanned: async () => calls.push("wait"),
+    ModSwitch: { refresh: async () => ({ scan: false }), startDue: () => false },
+    rpc: () => assert.fail("Off must not fetch entries"), show: () => assert.fail("Off has no prompt"),
+  };
+  const h = new Function("deps", `let { scanned, ModSwitch, rpc, show } = deps; let started = false; ${start} return { start, started: () => started };`)(deps);
+  await h.start("drift", {});
+  await h.start("untracked", {});
+  assert.deepEqual(calls, ["wait", "wait"]);
   assert.equal(h.started(), true);
 });

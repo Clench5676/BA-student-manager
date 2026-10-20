@@ -91,6 +91,20 @@ def test_cache_accounts_decoded_images_and_versions(tmp_path):
     assert cache.get("same-key", version="two") == b"b"
 
 
+def test_disk_cache_presence_requires_consent_and_the_current_resource_version(tmp_path):
+    cache = AssetCache(root=tmp_path / "cache", allowed=True)
+    cache.put("light", b"ui", version="old")
+    cache.put("heavy", b"portrait", version="current", disk=False)
+    assert not cache.has_disk_entries("current")
+    cache.put("light", b"ui", version="current")
+    assert cache.has_disk_entries("current")
+    cache.allowed = False
+    assert not cache.has_disk_entries("current")
+    cache.allowed = True
+    cache.clear()
+    assert not cache.has_disk_entries("current")
+
+
 def test_resource_version_catalog_and_listing(tmp_path):
     resources = tmp_path / "Resource"
     dirs = [resources / "GameData/Windows", resources / "Preload/Windows"]

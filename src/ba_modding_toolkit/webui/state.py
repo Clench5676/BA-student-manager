@@ -118,7 +118,15 @@ class UiState:
         self._lock = threading.RLock()
         self._data: dict[str, Any] = {}
         self._seen: tuple[int, int] | None = None  # the file's (mtime, size) when it was last read or written
-        self._current()
+        prefs = self._current().get("prefs")
+        # Manual consent did not authorize automatic checks. Migrate it to Off without opting the user in.
+        if isinstance(prefs, dict) and "startup_checks" in prefs:
+            def migrate(data: dict[str, Any]) -> None:
+                prefs = data.get("prefs", {})
+                if prefs.pop("startup_checks", None) is False and prefs.get("scan_consent") is True:
+                    prefs["scan_consent"] = False
+
+            self._update(migrate)
 
     def _signature(self) -> tuple[int, int] | None:
         try:
@@ -327,7 +335,7 @@ class UiState:
 # Boolean preferences and their defaults: the Enable Mods switch shown on the main screens, the tray or menu bar icon,
 # the hand-off prompt before the classic UI opens, and whether the first toggle's explanation was shown
 FLAGS = {"mod_switch_shown": True, "tray": False, "classic_prompt": True, "mods_explained": False,
-         "startup_checks": True, "startup_update": True}
+         "startup_update": True}
 DATA_ID_LENGTH = 12  # hex digits
 
 

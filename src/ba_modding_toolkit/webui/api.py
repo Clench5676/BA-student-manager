@@ -77,7 +77,7 @@ def _url_portrait(name: str | None) -> str | None:
 
 # settings.set keys of the boolean preferences (webui/state.py FLAGS)
 FLAG_KEYS = {"modSwitchShown": "mod_switch_shown", "tray": "tray", "classicPrompt": "classic_prompt",
-             "startupChecks": "startup_checks", "startupUpdate": "startup_update"}
+             "startupUpdate": "startup_update"}
 
 
 def build_api(s: Services) -> RpcRegistry:
@@ -88,13 +88,15 @@ def build_api(s: Services) -> RpcRegistry:
     @rpc.method("app.info")
     def app_info() -> dict[str, Any]:
         found = s.game_found()
+        version = resource_version() if found else None
         return {
             "version": get_version_info().get("version"),
             "language": i18n_manager.lang,
             "platform": sys.platform,
             "gameFound": found,
-            "resourceVersion": resource_version() if found else None,
+            "resourceVersion": version,
             "consent": s.state.consent,
+            "uiCached": found and s.ui_cached(version),
             "cacheDir": str(s.cache_dir()),
             "dataDir": str(s.data_dir),
             "native": s.window is not None,
@@ -102,7 +104,6 @@ def build_api(s: Services) -> RpcRegistry:
             "mute": s.mute,
             "debug": s.debug,
             "startupUpdate": s.state.flag("startup_update"),
-            "startupChecks": s.state.flag("startup_checks"),
         }
 
     def resource_version() -> str:
@@ -250,7 +251,7 @@ def build_api(s: Services) -> RpcRegistry:
             # the Enable Mods switch on the main screens, the tray or menu bar icon, the hand-off prompt
             "modSwitchShown": s.state.flag("mod_switch_shown"), "tray": s.state.flag("tray"),
             "classicPrompt": s.state.flag("classic_prompt"), "traySupported": s.tray_supported,
-            "startupChecks": s.state.flag("startup_checks"), "startupUpdate": s.state.flag("startup_update"),
+            "startupUpdate": s.state.flag("startup_update"),
         }
 
     @rpc.method("settings.set")
@@ -309,10 +310,7 @@ def build_api(s: Services) -> RpcRegistry:
         elif key in FLAG_KEYS:
             if not isinstance(value, bool):
                 raise ServiceError("bad_params", key=key)
-            if key == "startupChecks":
-                s.set_startup_checks(value)
-            else:
-                s.state.set(FLAG_KEYS[key], value)
+            s.state.set(FLAG_KEYS[key], value)
             s.publish_state()
         else:
             raise ServiceError("bad_params", key=key)

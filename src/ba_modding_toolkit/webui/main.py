@@ -31,6 +31,7 @@ def build(port: int = 0, services: Services | None = None, token: str | None = N
         if lang and lang != i18n_manager.lang:
             i18n_manager.set_language(lang)  # the language chosen in either GUI
         app = WebApp(build_api(s), s.events, assets=s.asset, consent=lambda: s.state.consent, token=token,
+                     ui_cached=s.ui_cached,
                      classic=s.classic.wsgi, raise_window=s.raise_window)
         s.log_secrets.update((app.token, app.raise_token))
         server = Server(app, port)

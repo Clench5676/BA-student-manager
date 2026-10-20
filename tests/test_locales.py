@@ -85,3 +85,16 @@ def test_no_middle_dot_separators(code):
 def test_language_names_itself(code):
     name = load(code)["webui"]["languageName"]
     assert name and (code == REFERENCE or name != load(REFERENCE)["webui"]["languageName"])
+
+
+def test_simplified_chinese_drift_spelling():
+    assert all("\u98d8\u79fb" not in text for text in flatten(load("zh-CN")).values())
+
+
+@pytest.mark.parametrize("code", [REFERENCE, *TRANSLATIONS])
+def test_refined_settings_and_remap_labels(code):
+    ui = load(code)["webui"]
+    assert "manual" not in ui["settings"]["mods"]
+    assert "atStartup" not in ui["settings"]["mods"]
+    assert placeholders(ui["remap"]["upscaled"]) == ["h", "w"]
+    assert ui["loading"]["plain"] != ui["loading"]["now"]

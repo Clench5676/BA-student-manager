@@ -1105,7 +1105,8 @@
 		},
 		"loading": {
 			"now": "Now Loading",
-			"slow": "Still loading"
+			"slow": "Still loading",
+			"plain": "Loading"
 		},
 		"job": {
 			"running": "Working",
@@ -1253,12 +1254,12 @@
 				"label": "More Settings",
 				"hint": "Spine tools, ADB and more in the classic UI",
 				"open": "Open",
-				"ask": "Confirm Before Opening Classic UI"
+				"ask": "Ask Before Opening Unmigrated Features"
 			},
 			"mods": {
 				"clear": "Clear",
 				"shown": "Show on Main Screens",
-				"scan": "Check Game Files",
+				"scan": "Check for Drift and Untracked Mods at Start",
 				"tray": {
 					"win": "Tray Icon",
 					"mac": "Menu Bar Icon"
@@ -1269,9 +1270,7 @@
 				"driftHelp": {
 					"title": "Configuration Drift",
 					"what": "Configuration drift means the game files do not match the mod configuration."
-				},
-				"manual": "Manual",
-				"atStartup": "At Startup"
+				}
 			},
 			"voice": "Voice",
 			"mute": "Mute",
@@ -1301,7 +1300,7 @@
 			},
 			"gameDir": "Game Folder",
 			"library": "Mod Library",
-			"output": "Output Folder",
+			"output": "Classic Tools Output Folder",
 			"detect": "Detect",
 			"notSet": "Not set",
 			"saved": "Saved",
@@ -1361,7 +1360,8 @@
 			"counts": "Remapped: {moved}, official: {added}, dropped: {dropped}",
 			"dropped": "Dropped regions: {names}",
 			"rig": "{name}, skeleton data differs, attachments or meshes may remain misaligned",
-			"version": "{name}, Spine versions differ, skeleton conversion required"
+			"version": "{name}, Spine versions differ, skeleton conversion required",
+			"upscaled": "Textures upscaled to {w} × {h}"
 		}
 	}
 }

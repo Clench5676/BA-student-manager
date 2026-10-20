@@ -2,7 +2,7 @@
 // the game's option rows: radio rows (UIPopup_Option_Toggle), the sound slider row (UIPopup_Option_SoundToggle), and
 // folder rows built from the same pieces (title with its tag, dotted line, the value, the popup's light-blue buttons).
 // The Mods tab (second, after General) holds the Enable Mods switch with its square "?", where the switch shows, the
-// file check mode, the tray icon, Settings' Check of the game files, plus the size and cleanup of the mod cache.
+// startup file checks, the tray icon, Settings' Check of the game files, plus the size and cleanup of the mod cache.
 // Whether the classic UI asks before it opens is a General row,
 // under More Settings.
 import * as ModSwitch from "./mod-switch.js";
@@ -31,8 +31,8 @@ async function call(fn) {
 // --- rows ---
 
 function titleNode(text, y = 65) {
-  const f = fitText(text, 50, 40, 900);
-  return node("Title", [-718.5, y], [label(f.text, f.fs, "#506e8e/1.00", 1100, 76, { pivot: 3, depth: 8 })], [
+  const f = fitText(text, 50, 40, 1400, 1);
+  return node("Title", [-718.5, y], [label(f.text, f.fs, "#506e8e/1.00", 1440, 76, { pivot: 3, depth: 8 })], [
     node("TagDeco", [-13, 5.2], [sprite("Common_Square_Bg", 6, 45, { depth: 9, color: "#5cd3ff/1.00" })]),
   ]);
 }
@@ -240,16 +240,11 @@ function rows({ builtSize = null, sizeError = null } = {}) {
     add(valueRow("Built", 0, T("mods.cache"), sizeError || (builtSize == null ? T("job.running") :
       ModSwitch.sizeText(builtSize)), [
       [T("settings.mods.clear"), async () => { if (await ModSwitch.clearBuilt()) render(); }, builtSize > 0]]));
-    // Off withdraws consent; either enabled mode asks for it before checking any files.
-    const scanMode = m.scan === true ? (p.startupChecks === false ? "manual" : "startup") : "off";
-    add(radioRow("Scan", 0, T("settings.mods.scan"), [["off", T("settings.post.off")],
-      ["manual", T("settings.mods.manual")], ["startup", T("settings.mods.atStartup")]], scanMode, async (value) => {
-      if (value === scanMode) return;
-      if (value === "off") await call(() => rpc("mods.consent", { granted: false }));
-      else {
-        if (!await set("startupChecks", value === "startup")) return;
-        if (m.scan !== true) await ModSwitch.askScan();
-      }
+    // On requires consent and checks at every start; Off withdraws consent.
+    add(radioRow("Scan", 0, T("settings.mods.scan"), ON_OFF(), m.scan === true, async (value) => {
+      if (value === (m.scan === true)) return;
+      if (value) await ModSwitch.askScan();
+      else await call(() => rpc("mods.consent", { granted: false }));
       await ModSwitch.refresh();
       render();
     }));

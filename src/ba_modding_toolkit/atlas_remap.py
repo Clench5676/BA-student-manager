@@ -268,6 +268,8 @@ def _page_image(atlas: Atlas, page: str, images: dict[str, Image.Image]) -> Imag
 def remap_pages(old: Atlas, new: Atlas, mod_pages: dict[str, Image.Image],
                 official_pages: dict[str, Image.Image]) -> tuple[dict[str, Image.Image], dict]:
     """Return new page pixels and names of moved, official-only and dropped regions."""
+    mod_pages, official_pages = dict(mod_pages), dict(official_pages)
+    upscaled = []
     for atlas, images in ((old, mod_pages), (new, official_pages)):
         keys = set()
         for page in atlas.pages:
@@ -276,6 +278,17 @@ def remap_pages(old: Atlas, new: Atlas, mod_pages: dict[str, Image.Image],
                 raise RemapError("atlas_remap_page_ambiguous", file=atlas.file, page=page)
             keys.add(key)
             image = _page_image(atlas, page, images)
+            declared = atlas.pages[page].size
+            size = max(image.width, declared[0]), max(image.height, declared[1])
+            if image.size != size:
+                # Resize the whole page before cropping, including pixels around region edges.
+                if atlas.pages[page].pma:
+                    image = Image.frombytes("RGBA", size, Image.frombytes("RGBa", image.size, image.tobytes())
+                                            .resize(size, Image.Resampling.LANCZOS).tobytes())
+                else:
+                    image = image.resize(size, Image.Resampling.LANCZOS)
+                images[key] = image
+                upscaled.append({"page": page, "w": size[0], "h": size[1]})
             for region in atlas.regions.values():
                 if region.page == page:
                     _box(region, atlas.pages[page], image, atlas.file)
@@ -310,7 +323,7 @@ def remap_pages(old: Atlas, new: Atlas, mod_pages: dict[str, Image.Image],
         destination.paste(_rotate(cut, target.degrees), box[:2])
         moved.append(target.label)
     matched = {(region.page, *region.key) for region in pairs.values()}
-    return output, {"moved": sorted(moved), "added": sorted(added),
+    return output, {"moved": sorted(moved), "added": sorted(added), "upscaled": upscaled,
                     "dropped": sorted(region.label for key, region in old.regions.items() if key not in matched)}
 
 
@@ -386,7 +399,8 @@ def prepare_patch(mod: Inputs, official: Inputs) -> tuple[Patch, dict]:
     if not pairs:
         raise RemapError("atlas_remap_atlas_missing", file=", ".join(official.atlases) or "*.atlas")
     patch = {}
-    report = {"moved": [], "added": [], "dropped": [], "warnings": skeleton_warnings(mod.skeletons, official.skeletons)}
+    report = {"moved": [], "added": [], "dropped": [], "upscaled": [],
+              "warnings": skeleton_warnings(mod.skeletons, official.skeletons)}
     current_pages = dict(official.textures)
     for name, text in official.atlases.items():
         target = parse_atlas(text, name)
@@ -395,6 +409,7 @@ def prepare_patch(mod: Inputs, official: Inputs) -> tuple[Patch, dict]:
             continue
         source = parse_atlas(mod.atlases[pairs[name]], pairs[name])
         pages, summary = remap_pages(source, target, mod.textures, current_pages)
+        report["upscaled"].extend({"atlas": name, **page} for page in summary["upscaled"])
         for page, image in pages.items():
             key = texture_key(page)
             current_pages[key] = image
