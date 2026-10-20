@@ -2042,6 +2042,10 @@ def test_a_game_update_keeps_a_built_file_another_install_still_uses(world, monk
     world.library.prune()
     assert "test_spr" not in world.folder()["built"] and world.folder(folder)["built"]["test_spr"]
     assert copy.exists()
+    game_update(folder / world.spr.name)  # the last key that uses it goes, and the file with it
+    world.reload()
+    world.library.prune()
+    assert world.folder(folder)["built"] == {} and not copy.exists()
 
 
 def test_a_built_copy_goes_with_a_configuration_the_scan_drops(world, monkeypatch):
@@ -2106,6 +2110,21 @@ def test_adopting_over_a_kept_built_copy_leaves_no_file_behind(world, monkeypatc
     outside_mod(world.spr)  # another tool's mod over it
     world.library.adopt([{"install": world.key(), "core": "test_spr"}])
     assert world.folder()["configured"]["test_spr"]["source"] != f"mod:{mod.id}"
+    assert not copy.exists()
+
+
+def test_a_key_kept_as_mod_files_never_holds_a_built_file(world, monkeypatch):
+    """A part kept as a file of its mod reads mods/<id>/, never built/: the same bytes there are no reference."""
+    world.consent = True
+    mod = world.add(world.spr, fixed=True)
+    rebuilding_installer(monkeypatch)
+    world.library.apply("test", f"mod:{mod.id}")
+    world.toggle(False)
+    copy, = (world.root / "built").iterdir()
+    world.spr.write_bytes(copy.read_bytes())  # the same bytes written back from outside
+    world.reload()
+    world.library.adopt([{"install": world.key(), "core": "test_spr"}])
+    assert world.folder()["built"]["test_spr"]["parts"][world.spr.name]["mod_file"]
     assert not copy.exists()
 
 

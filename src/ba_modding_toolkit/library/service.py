@@ -1926,9 +1926,10 @@ class ModLibrary:
     def _delete_built_files(self, keys: list[dict], data: dict | None) -> None:
         if not keys:
             return
+        # a part kept as a file of its mod reads mods/<id>/, so only the others hold their built/ file
         referenced = {part.get("sha1") for folder in ((data or {}).get("folders") or {}).values()
                       for key in (folder.get("built") or {}).values()
-                      for part in (key.get("parts") or {}).values()}
+                      for part in (key.get("parts") or {}).values() if not part.get("mod_file")}
         for key in keys:
             for part in (key.get("parts") or {}).values():
                 sha1 = part.get("sha1")
