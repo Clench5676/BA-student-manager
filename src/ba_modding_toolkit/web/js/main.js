@@ -285,6 +285,7 @@ async function start() {
   if (!info.gameFound) {
     renderNav(0, navOptions);
     noGame();
+    ModSwitch.listenTray(); // the tray still switches the known installs
     return;
   }
   await NGUI.init();

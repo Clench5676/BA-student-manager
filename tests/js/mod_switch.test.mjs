@@ -60,7 +60,7 @@ function press(key) {
   return ev;
 }
 const host = (id) => { const h = body.appendChild(new El()); h.id = id; h.hidden = true; return h; };
-const dialog = host("dialog"), consent = host("consent"), toastEl = host("toast"), stage = host("stage");
+const dialog = host("dialog"), consent = host("consent"), toastEl = host("toast"), stage = host("stage"), prompt = host("prompt");
 stage.hidden = false;
 const switchHost = host("mod-switch");
 
@@ -100,10 +100,12 @@ globalThis.fetch = async (url, opts = {}) => {
   if (url === "/asset/ui/layout/UIPopup_Sort.json") return reply(SORT);
   return reply(null, false);
 };
-// the event stream: the page subscribes, nothing is sent
-globalThis.EventSource = class { constructor() { this.listeners = {}; } addEventListener(type, fn) { this.listeners[type] = fn; } };
+// the event stream: the page subscribes; emit() sends an event as the server would
+const streams = [];
+globalThis.EventSource = class { constructor() { this.listeners = {}; streams.push(this); } addEventListener(type, fn) { this.listeners[type] = fn; } };
+const emit = (type, data) => { for (const stream of streams) stream.listeners[type]?.({ data: JSON.stringify(data) }); };
 const warn = console.warn;
-console.warn = (...args) => { if (!String(args[0]).startsWith("popup layout")) warn(...args); };
+console.warn = (...args) => { if (!/^(popup layout|thumbnail failed)/.test(String(args[0]))) warn(...args); };
 
 // the en-US strings, as i18n.strings gives them (webui.* keys)
 const flat = (o, p = "", out = {}) => { for (const [k, v] of Object.entries(o)) { if (v && typeof v === "object") flat(v, `${p}${k}.`, out); else out[`${p}${k}`] = v; } return out; };
@@ -487,3 +489,82 @@ test("an overwritten entry's message: Add First until its mod is in the library,
   assert.equal(P.overwrittenKind([]), "addFirst");
 });
 
+// --- the tray's events: the window comes to the front, and the page shows what follows ---
+
+test("the tray's first toggle explains once, and the explanation's button submits the tray's toggle", async () => {
+  // a page that has not explained anything yet (the explanation is once per place it shows)
+  const Fresh = await import("../../src/ba_modding_toolkit/web/js/mod-switch.js?tray");
+  answers["mods.state"] = base({ explained: false, enabled: true });
+  answers["mods.toggle"] = "job-tray-1";
+  jobs["job-tray-1"] = { state: "done", result: { enabled: false, done: [], adopted: [], failed: [], stuck: [], left: [] } };
+  const before = called("mods.toggle").length;
+  const shown = Fresh.trayOpen({ view: "explain", enabled: false, expect: true });
+  await drawn(dialog, "ok");
+  assert.equal(labels(dialog).includes(S("mods.offTitle")), true, "Turn Off Mods");
+  action(dialog, "ok").click();
+  await shown;
+  assert.deepEqual(called("mods.toggle").slice(before), [{ enabled: false, expect: true }]);
+  await until(() => toastEl.textContent === S("mods.offState"), "the toast");
+  // closed any other way: shown, and nothing toggled
+  const Other = await import("../../src/ba_modding_toolkit/web/js/mod-switch.js?tray-cancel");
+  const explained = called("mods.explained").length;
+  const cancelled = Other.trayOpen({ view: "explain", enabled: false, expect: true });
+  await drawn(dialog, "cancel");
+  action(dialog, "cancel").click();
+  await cancelled;
+  assert.equal(called("mods.explained").length, explained + 1);
+  assert.equal(called("mods.toggle").length, before + 1);
+});
+
+test("the tray's refusal shows as the page's own, and its toggle is followed to its result", async () => {
+  await MS.trayOpen({ view: "error", code: "game_running", params: {} });
+  assert.equal(toastEl.textContent, S("error.game_running"));
+  // classic_open from the tray: the tray never queues, so no classic modal
+  await MS.trayOpen({ view: "error", code: "classic_open", params: {} });
+  assert.equal(toastEl.textContent, S("error.classic_open"));
+  assert.equal(dialog.hidden, true);
+  jobs["job-tray-2"] = { state: "done", result: { enabled: true, done: [{}], adopted: [], failed: [], stuck: [], left: [] } };
+  emit("tray.toggle", { job: "job-tray-2", enabled: true, expect: false });
+  await until(() => toastEl.textContent === S("mods.onState"), "the end toast");
+  // a result with failed entries: the result popup
+  jobs["job-tray-3"] = { state: "done", result: { enabled: false, done: [], adopted: [], stuck: [], left: [],
+    failed: [{ entry: { core: "airi_spr", variant: "airi", kind: "spr" }, code: "game_file_locked", params: {} }] } };
+  const followed = MS.trayToggle({ job: "job-tray-3", enabled: false, expect: true });
+  await drawn(dialog, "ok");
+  action(dialog, "ok").click();
+  await followed;
+  // a toggle job that failed (switched elsewhere first): its toast
+  jobs["job-tray-4"] = { state: "failed", error: { code: "state_changed", params: {} } };
+  await MS.trayToggle({ job: "job-tray-4", enabled: true, expect: false });
+  assert.equal(toastEl.textContent, S("error.state_changed"));
+});
+
+test("the tray's Back to Official opens the drift prompt: two buttons and no way out but them", async () => {
+  P.init({ names: async () => (e) => ({ airi: "Airi", hina: "Hina" })[e.variant] || e.variant });
+  answers["mods.state"] = base();
+  await MS.refresh();
+  answers["mods.entries"] = [entry("airi_spr", "reset", { configured: "mod:a" }), entry("hina_home", "updated", { configured: "mod:b" }), entry("noa_spr", "untracked")];
+  answers["mods.restoreDrift"] = "job-drift";
+  jobs["job-drift"] = { state: "done", result: { done: [{ install: GLOBAL, core: "airi_spr" }], failed: [], skipped: [], stuck: [] } };
+  const opened = MS.trayOpen({ view: "drift" });
+  await drawn(prompt, "apply");
+  assert.ok(action(prompt, "keep"), "Keep as Is");
+  assert.equal(action(prompt, "close"), undefined, "no close button");
+  assert.ok(press("Escape").defaultPrevented, "Escape does nothing");
+  assert.equal(prompt.hidden, false);
+  const cards = () => walk(prompt).filter((e) => e.dataset?.key);
+  assert.deepEqual(cards().map((c) => [c.dataset.key, c.getAttribute("aria-checked")]), [[`${GLOBAL}|airi_spr`, "true"], [`${GLOBAL}|hina_home`, "true"]]);
+  cards().find((c) => c.dataset.key === `${GLOBAL}|hina_home`).click();
+  await until(() => cards().find((c) => c.dataset.key === `${GLOBAL}|hina_home`)?.getAttribute("aria-checked") === "false", "unticked");
+  action(prompt, "apply").click();
+  await opened;
+  await until(() => called("mods.restoreDrift").length === 1, "mods.restoreDrift");
+  assert.deepEqual(called("mods.restoreDrift")[0], { entries: [{ install: GLOBAL, core: "airi_spr", state: "reset" }] });
+  assert.deepEqual(called("mods.dismiss").at(-1), { kind: "drift", entries: [{ install: GLOBAL, core: "hina_home", state: "updated" }] });
+  assert.equal(prompt.hidden, true);
+  await until(() => toastEl.textContent === S("job.done"), "the end toast");
+  // nothing back to official any more: the tray's item was stale, the page says so
+  answers["mods.entries"] = [];
+  await MS.trayOpen({ view: "drift" });
+  assert.equal(toastEl.textContent, S("settings.mods.clean"));
+});

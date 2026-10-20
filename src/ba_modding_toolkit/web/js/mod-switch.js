@@ -216,7 +216,18 @@ export async function init(options = {}) {
   if (host && !els) build();
   on("mods.state", update);
   on("classic.queueDone", queueDone);
+  listenTray();
   await refresh();
+}
+
+// the tray's events (webui/tray.py), also on the no-game screen: the tray switches the known installs without one
+let trayHeard = false;
+export function listenTray() {
+  if (trayHeard) return;
+  trayHeard = true;
+  on("tray.open", (data) => { trayOpen(data).catch((err) => console.error("tray", err)); });
+  on("tray.toggle", (data) => { trayToggle(data).catch((err) => console.error("tray", err)); });
+  if (!state) refresh();
 }
 
 // the drift prompt (prompts.js), which the tray's Back to Official opens
@@ -321,15 +332,23 @@ async function run(params) {
     refused(err, "mods.toggle", params);
     return;
   }
+  try {
+    await follow(id, params, "mods.toggle");
+  } finally {
+    inFlight = false;
+  }
+}
+
+// a toggle job followed to its end: the indicator, "Working 12/40", then the toast or the result popup. method: the
+// call a classic_open refusal may queue (the tray's toggle has none: the tray never queues)
+async function follow(id, params, method) {
   toast(T("job.running"), { sticky: true });
   try {
     const job = waitJob(id, (p) => toast(T("tray.working", { done: p.current, total: p.total }), { sticky: true }));
     Loading.wait(job).catch(() => {});
     await finished(await job);
   } catch (err) {
-    refused(err, "mods.toggle", params);
-  } finally {
-    inFlight = false;
+    refused(err, method, params);
   }
 }
 
@@ -340,6 +359,32 @@ export async function turn(params) {
   if (!s) return;
   if (!s.explained && !explainedHere && !(await explain({ enabled: !params.enabled }))) return;
   await run(params);
+}
+
+// --- the tray: it brings the window to the front, and the page shows what follows ---
+
+// tray.open {view, ...}: "explain", the first toggle's explanation from the tray, whose button submits the toggle the
+// tray asked for ({enabled, expect}); "error", the tray's toggle refused at submit ({code, params}), shown as for the
+// page's own toggle (the tray never queues for the classic window); "drift", the drift prompt
+export async function trayOpen(data = {}) {
+  const view = data?.view;
+  if (view === "explain") {
+    const params = { enabled: !!data.enabled, expect: !!data.expect };
+    if (explainedHere || state?.explained || (await explain({ enabled: !params.enabled }))) await run(params);
+    return;
+  }
+  if (view === "error") {
+    refused({ code: data.code || "internal", params: data.params || {} });
+    return;
+  }
+  if (view === "drift") await driftPrompt?.();
+}
+
+// tray.toggle {job, enabled, expect}: the tray submitted the toggle; the page follows it as its own (progress, the end
+// toast, the result popup)
+export async function trayToggle(data = {}) {
+  if (!data?.job) return;
+  await follow(data.job, { enabled: !!data.enabled, expect: !!data.expect }, null);
 }
 
 // a toggle's end: a toast, or the result popup when entries were adopted, failed, stuck or left
