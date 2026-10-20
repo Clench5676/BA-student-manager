@@ -166,7 +166,7 @@ test("an unchanged preview says no repair needed and creates no comparison or mo
 });
 
 test("persisted repair markers suppress both original and repaired actions after a fresh check", async () => {
-  for (const marker of [{ repaired_from: "original" }, { repaired_id: "repaired" }]) {
+  for (const marker of [{ repaired_from: "original" }, { repaired_id: "repaired" }, { repaired_from: "legacy-remap:orphan" }]) {
     const h = await harness(), r = { ...mixedReport(), ...marker };
     h.use(r); await h.mod.check("stored");
     assert.equal(h.mod.canRemap("stored"), false);

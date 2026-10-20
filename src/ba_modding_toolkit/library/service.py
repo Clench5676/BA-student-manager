@@ -42,6 +42,7 @@ from .judge import (
     CRC_STATES, LIBRARY_SOURCES, carried_of, classify, core_of, crc_state, date_of, distinguishing_folders,
     install_key, install_root, kind_of, kind_of_file, leaves, now, part_of, says_official, seconds,
 )
+from .migrations import LEGACY_REMAP, legacy_remapped
 from .models import (
     AddResult, AdoptResult, ApplyResult, AssetDifference, CompareResult, DeleteResult, EntryState, GameFileState, Kind,
     ModEntry, Pin, RemapResult, ScanResult, ToggleResult, UpdateResult, VariantState,
@@ -515,7 +516,9 @@ class ModLibrary:
         self._remap_previews: dict[str, dict] = {}
         self._favorites: set[str] = set()
         self._applied: dict[str, dict[str, Any]] = {}
-        self._base: tuple[dict, set, dict] = ({}, set(), {})  # the state as last read or written, for merges
+        self._migrations: set[str] = set()
+        self._migration_pending = False
+        self._base: tuple[dict, set, dict, set] = ({}, set(), {}, set())  # the state as last read or written, for merges
         self._version = 0  # bumped by every change of _applied, so a scan can tell it is stale
         self._pruned_cores: set[str] = set()
         # per install key: (folders' signature, index, its files, generation); file name -> lower-case core
@@ -540,7 +543,7 @@ class ModLibrary:
 
     # --- state.json ---
 
-    def _parse_state(self, data: Any) -> tuple[dict, set, dict]:
+    def _parse_state(self, data: Any) -> tuple[dict, set, dict, set]:
         if not isinstance(data, dict) or data.get("version") != 1:
             raise ValueError("not a version 1 library state")
         records = {}
@@ -563,7 +566,8 @@ class ModLibrary:
             if isinstance(path, str) and isinstance(record, dict)
             and isinstance(record.get("source"), str) and isinstance(record.get("sha1"), str)
         }
-        return records, favorites, applied
+        migrations = {key for key in data.get("migrations", []) if isinstance(key, str)}
+        return records, favorites, applied, migrations
 
     def _load(self) -> None:
         self._seen = self._state_signature()
@@ -574,8 +578,14 @@ class ModLibrary:
         except (OSError, ValueError, TypeError, KeyError, AttributeError):
             logger.warning("Ignoring unreadable library state", exc_info=True)
             return
-        self._records, self._favorites, self._applied = state
+        self._records, self._favorites, self._applied, self._migrations = state
         self._base = copy.deepcopy(state)
+        self._migration_pending = LEGACY_REMAP not in self._migrations
+        if self._migration_pending:
+            try:
+                self._save()
+            except OSError:
+                logger.warning("Could not migrate legacy remapped mods", exc_info=True)
 
     def _state_signature(self) -> tuple[int, int] | None:
         try:
@@ -589,22 +599,28 @@ class ModLibrary:
         it (its size or date changed), keeping this instance's own changes not saved yet."""
         self._recover_pending()
         if self._state_signature() == self._seen:
+            if self._migration_pending:
+                self._save()
             return
         with file_lock(self.root / "state.json.lock"):
             signature_ = self._state_signature()
             try:
                 disk = self._parse_state(json.loads((self.root / "state.json").read_text(encoding="utf-8")))
             except FileNotFoundError:
-                disk = ({}, set(), {})
+                disk = ({}, set(), {}, set())
             except (OSError, ValueError, TypeError, KeyError, AttributeError):
                 self._seen = signature_
                 return
-        base, mine = self._base, (self._records, self._favorites, self._applied)
+        base, mine = self._base, (self._records, self._favorites, self._applied, self._migrations)
         self._records = _merge(base[0], mine[0], disk[0])
         self._favorites = (set(disk[1]) | (mine[1] - base[1])) - (base[1] - mine[1])
         self._applied = _merge(base[2], mine[2], disk[2])
+        self._migrations = mine[3] | disk[3]
         self._base, self._seen = copy.deepcopy(disk), signature_
         self._version += 1
+        self._migration_pending = LEGACY_REMAP not in self._migrations
+        if self._migration_pending:
+            self._save()
 
     def _save(self) -> None:
         """Write state.json, merged with what another instance sharing the library wrote since this one last read
@@ -612,12 +628,12 @@ class ModLibrary:
         written or dropped, favourites toggled) applied to the file as it is now, under a lock both share. The
         merged state becomes this instance's only once it is written."""
         path = self.root / "state.json"
-        mine = (self._records, self._favorites, self._applied)
+        mine = (self._records, self._favorites, self._applied, self._migrations)
         with file_lock(self.root / "state.json.lock"):
             try:
                 disk = self._parse_state(json.loads(path.read_text(encoding="utf-8")))
             except FileNotFoundError:
-                disk = ({}, set(), {})
+                disk = ({}, set(), {}, set())
             except (OSError, ValueError, TypeError, KeyError, AttributeError):
                 disk = None
             if disk is None:
@@ -627,11 +643,14 @@ class ModLibrary:
                 records = _merge(base[0], mine[0], disk[0])
                 applied = _merge(base[2], mine[2], disk[2])
                 favorites = (set(disk[1]) | (mine[1] - base[1])) - (base[1] - mine[1])
-                merged = (records, favorites, applied)
+                merged = (records, favorites, applied, mine[3] | disk[3])
+            if LEGACY_REMAP not in merged[3]:
+                merged = (legacy_remapped(merged[0]), merged[1], merged[2], merged[3] | {LEGACY_REMAP})
             atomic_json(path, {"version": 1, "mods": list(merged[0].values()),
-                               "favorites": sorted(merged[1]), "applied": merged[2]})
+                               "favorites": sorted(merged[1]), "applied": merged[2], "migrations": sorted(merged[3])})
             self._seen = self._state_signature()
-        self._records, self._favorites, self._applied = merged[0], merged[1], merged[2]
+        self._records, self._favorites, self._applied, self._migrations = merged
+        self._migration_pending = False
         self._base = copy.deepcopy(merged)
         self._version += 1
 
