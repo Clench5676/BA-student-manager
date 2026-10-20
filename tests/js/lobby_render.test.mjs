@@ -181,6 +181,17 @@ test("a mesh renderer follows its bone and its looping clip", () => {
   assert.equal(meshes.stats()[0].triangles, 2);
 });
 
+test("a mesh renderer on its bone's own GameObject sits on the bone", () => {
+  const bone = { a: 0, b: -1, c: 1, d: 0, worldX: 30, worldY: 40 };
+  const fx = quadFx({ clips: [] });
+  fx.renderers[0].chain = [];
+  const meshes = new Mesh.Meshes(fx, { bone: () => bone });
+  // the skeleton GameObject times the bone: the unit quad turned 90 degrees, at (30, -962 + 40)
+  const g = meshes.geometry(meshes.items[0]), xs = [], ys = [];
+  for (let k = 0; k < g.count; k++) { xs.push(g.data[k * STRIDE]); ys.push(g.data[k * STRIDE + 1]); }
+  nearAll([Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)], [29.5, 30.5, -922.5, -921.5], 1e-9, "bounds");
+});
+
 test("a mesh's vertex colours reach the shader as stored", () => {
   // a grey mesh colour: 0.5 to 8 bits, not decoded from sRGB (0.214)
   const fx = quadFx({ clips: [] });

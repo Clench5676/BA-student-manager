@@ -11,7 +11,7 @@
 // A mesh's vertex colours reach the shader as stored: Unity converts no Mesh.colors to linear light (only a particle
 // renderer's, with Apply Active Color Space), and the programs these renderers use (FX_SHADER_Lobby_Order,
 // FX_SHADER_Additive_0, FX_SHADER_AlphaBlend_Add_Distort_0) pass COLOR0 on unchanged (mov o2, v3).
-import { STRIDE, mul, vertexColor } from "./particles.js";
+import { IDENTITY, STRIDE, mul, vertexColor } from "./particles.js";
 import { toLinear } from "./touch-fx.js";
 
 // Unity's built-in Quad (unity default resources): a unit square facing the camera, UV (0, 0) at the bottom left
@@ -111,8 +111,9 @@ export class Meshes {
       const a = def.anchor;
       let W = def.static;
       if (a) {
+        // on the bone's own GameObject (no chain below it) a renderer sits on the bone itself
         const b = this.bone(a.skeleton, a.bone);
-        if (b && rel) W = mul(a.go, mul([b.a, b.b, 0, b.worldX * a.ds, b.c, b.d, 0, b.worldY * a.ds, 0, 0, 1, 0], rel));
+        if (b) W = mul(a.go, mul([b.a, b.b, 0, b.worldX * a.ds, b.c, b.d, 0, b.worldY * a.ds, 0, 0, 1, 0], rel || IDENTITY));
       } else if (rel) W = rel;
       s.W = W;
       s.uniforms = props.has(i) ? this.uniforms(def, props.get(i)) : null;
