@@ -913,7 +913,7 @@ click does; `nav.js` draws them.
   Without a game folder the no-game screen shows the navigation too, with the icon in grey at half brightness and the
   label in the settings' disabled grey (`#9aa3ad`, `plain`).
 - **The hand-off prompt** (decision 6). A click, Enter or Space on a greyed entry opens the prompt on the shared
-  message popup: the entry's label as its title, "Opens in the classic UI, over this window" (`classic.hint`), the
+  message popup: the entry's label as its title, "Not migrated yet, opens in the classic UI" (`classic.hint`), the
   checkbox Don't Ask Again (`mods.dontAsk`, unticked), Cancel and Open. It shows on every click. Open with the box
   ticked turns the pref `classicPrompt` off (`settings.set`) before the hand-off; Cancel, Escape, the backdrop and
   the close button save nothing. With the pref off a click hands over at once. Settings' General tab turns it back

@@ -1160,7 +1160,7 @@
 			"page": "Open Download Page"
 		},
 		"classic": {
-			"hint": "Opens in the classic UI, over this window",
+			"hint": "Not migrated yet, opens in the classic UI",
 			"opening": "Opening the classic UI",
 			"front": "Bring to Front",
 			"opened": "Classic UI Open",
