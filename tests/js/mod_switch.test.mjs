@@ -243,20 +243,19 @@ test("every locale gives the help and first toggle two separate opening lines", 
   } finally { I18n.setStrings("en-US", strings); }
 });
 
-test("the help's lines: game folders, only the originals' size, the file check, Retry and Details", () => {
+test("the help's lines: game folders, actual storage costs, the file check, Retry and Details", () => {
   const texts = (s, sizes) => MS.helpLines(s, sizes).map((l) => l.text);
   const buttons = (s) => MS.helpLines(s).filter((l) => l.button).map((l) => [l.button.id, l.button.label]);
-  // two opening lines, then the disk use introduction straight before the originals' size
-  assert.deepEqual(texts(base()).slice(0, 4), [S("mods.helpOn"), S("mods.helpOff"), S("mods.helpSpace"), "Official copies for Off: 0 MB"]);
+  assert.deepEqual(texts(base()).slice(0, 3), [S("mods.helpOn"), S("mods.helpOff"), S("mods.helpStorage")]);
   assert.ok(!texts(base()).some((t) => t.startsWith("Game folders")));
   assert.ok(!texts(base()).some((t) => t.startsWith("Disk use:")));
-  assert.ok(texts(base(), { originalsSize: 3 * 1048576 }).includes("Official copies for Off: 3.0 MB"));
+  assert.ok(!texts(base(), { originalsSize: 3 * 1048576 }).some((t) => t.includes("Official copies for Off")));
   assert.deepEqual(buttons(base()), []);
   assert.deepEqual(buttons(base({ builtSize: 5 * 1073741824 })), []);
   // two game folders: their install labels, with the language's separator
   const two = base({ installs: [install("/a/BlueArchive", "Global (BlueArchive)"), install("/b/Steam", "Global (Steam)")] });
   assert.ok(texts(two).includes("Game folders: Global (BlueArchive), Global (Steam)"));
-  assert.equal(texts(two)[4], "Game folders: Global (BlueArchive), Global (Steam)", "after the originals' size");
+  assert.equal(texts(two)[3], "Game folders: Global (BlueArchive), Global (Steam)", "after the storage explanation");
   assert.equal(MS.helpLines(two, { sep: "、" }).find((l) => l.text.startsWith("Game folders")).text, "Game folders: Global (BlueArchive)、Global (Steam)");
   // Retry for the entries not switched (pending and left), Details for those left as is (stuck), never a Retry for them
   const counts = base({ pending: 2, left: 1, stuck: 3, sourceMissing: 1 });
@@ -387,38 +386,21 @@ test("the top bar's switch follows mods.state, and the first toggle explains onc
   assert.equal(switchHost.hidden, true);
 });
 
-test("state refresh and the first explanation never request sizes; help fetches fresh originals with loading", async () => {
+test("state refresh, the first explanation and help never measure logical originals as extra space", async () => {
   assert.deepEqual(called("mods.sizes"), []);
   answers["mods.state"] = base();
   await MS.refresh();
+  for (let i = 0; i < 2; i++) {
+    const opened = MS.openHelp();
+    await drawn(dialog, "close");
+    assert.ok(walk(dialog).some((e) => e.textContent === S("mods.helpStorage")));
+    assert.ok(!walk(dialog).some((e) => e.textContent.includes("Official copies for Off")));
+    assert.ok(!labels(dialog).includes(S("mods.builtClear")));
+    assert.equal(Loading.active(), false);
+    action(dialog, "close").click();
+    await opened;
+  }
   assert.deepEqual(called("mods.sizes"), []);
-  const pending = deferred();
-  answers["mods.sizes"] = () => pending.promise;
-  const first = MS.openHelp();
-  await new Promise((resolve) => setTimeout(resolve, 350));
-  assert.equal(Loading.active(), true, "a slow folder measurement shows the loading indicator");
-  assert.equal(dialog.hidden, true, "no stale size is shown while waiting");
-  assert.deepEqual(called("mods.sizes"), [{ kind: "originals" }]);
-  pending.resolve({ originalsSize: 3 * 1048576 });
-  await drawn(dialog, "close");
-  assert.ok(walk(dialog).some((e) => e.textContent === "Official copies for Off: 3.0 MB"));
-  assert.ok(!walk(dialog).some((e) => e.textContent.startsWith("Disk use:")));
-  assert.ok(!labels(dialog).includes(S("mods.builtClear")));
-  action(dialog, "close").click();
-  await first;
-  await new Promise((resolve) => setTimeout(resolve, 850));
-  answers["mods.sizes"] = { originalsSize: 4 * 1048576 };
-  const second = MS.openHelp();
-  await drawn(dialog, "close");
-  assert.ok(walk(dialog).some((e) => e.textContent === "Official copies for Off: 4.0 MB"));
-  assert.deepEqual(called("mods.sizes").at(-1), { kind: "originals" });
-  assert.equal(called("mods.sizes").length, 2, "each opening measures again");
-  action(dialog, "close").click();
-  await second;
-  answers["mods.sizes"] = { error: { code: "internal", params: { error: "size failed" } } };
-  await MS.openHelp();
-  assert.equal(dialog.hidden, true);
-  assert.equal(toastEl.textContent, MS.errorText("internal", { error: "size failed" }));
 });
 
 test("Settings measures built mods only when its Mods row is drawn, and remeasures after cleanup", async () => {

@@ -39,6 +39,18 @@ def expect_error(code, action):
     return caught.value
 
 
+@pytest.fixture(params=[False, True])
+def original_cloning(request, monkeypatch):
+    def clone(source, target):
+        if not request.param:
+            return False
+        shutil.copy2(source, target)
+        return True
+
+    monkeypatch.setattr(storage, "_clone", clone)
+    return request.param
+
+
 # --- profiles.json ---
 
 def test_profiles_round_trip_keeps_unknown_keys(tmp_path):
@@ -363,7 +375,7 @@ def keep_backup(path: Path, data: bytes = OFFICIAL) -> Path:
     return backup
 
 
-def test_untracked_mods_are_adopted_before_an_off_and_come_back_on(world):
+def test_untracked_mods_are_adopted_before_an_off_and_come_back_on(world, original_cloning):
     world.consent = True
     keep_backup(world.spr)
     data = outside_mod(world.spr)
@@ -372,7 +384,10 @@ def test_untracked_mods_are_adopted_before_an_off_and_come_back_on(world):
     assert entry.files[0].copy == "backup"
     result = world.toggle(False)
     assert [item["core"] for item in result.adopted] == ["test_spr"]
-    assert world.spr.read_bytes() == OFFICIAL and world.original(world.spr).read_bytes() == OFFICIAL
+    assert world.spr.read_bytes() == OFFICIAL
+    assert world.original(world.spr).exists() == original_cloning
+    if original_cloning:
+        assert world.original(world.spr).read_bytes() == OFFICIAL
     mod, = world.library.mods()
     assert mod.file.read_bytes() == data and mod.core == "test_spr" and mod.target == "test"
     assert world.folder()["configured"]["test_spr"]["source"] == f"mod:{mod.id}"
@@ -1142,7 +1157,7 @@ def test_another_data_directory_only_hides_an_install_it_does_not_name(world):
     expect_error("bad_params", lambda: world.library.forget(world.key()))  # A's settings name it
 
 
-def test_a_forget_by_the_last_data_directory_naming_it_drops_the_record(world):
+def test_a_forget_by_the_last_data_directory_naming_it_drops_the_record(world, original_cloning):
     mod = world.add(world.spr)
     world.library.apply("test", f"mod:{mod.id}")
     world.toggle(False)
@@ -1158,7 +1173,7 @@ def test_a_forget_by_the_last_data_directory_naming_it_drops_the_record(world):
     world.library.forget(old)
     assert old not in world.profiles()["folders"]
     assert json.loads((world.root / "state.json").read_text())["applied"]  # the history stays
-    assert world.original(world.spr).exists()  # and so do the kept originals; no game file is touched
+    assert world.original(world.spr).exists() == original_cloning  # forget preserves any retained clone
     assert world.spr.read_bytes() == OFFICIAL
 
 
@@ -1627,6 +1642,8 @@ def test_an_overwritten_entry_switched_to_what_it_carries_records_it_as_not_offi
 
 def lock_game_file(monkeypatch, path: Path) -> None:
     real = service.atomic_copy
+    clone = service.atomic_clone
+    move = service.verified_move
 
     def copy(source, target):
         if Path(target) == path:
@@ -1635,40 +1652,59 @@ def lock_game_file(monkeypatch, path: Path) -> None:
 
     monkeypatch.setattr(service, "atomic_copy", copy)
 
+    def clone_locked(source, target):
+        if Path(target) == path:
+            raise PermissionError(13, "Locked", str(target))
+        return clone(source, target)
 
-def test_a_failed_apply_releases_the_original_it_kept_with_no_read(world, monkeypatch):
+    def move_locked(source, target, sha1):
+        if path in (Path(source), Path(target)):
+            raise PermissionError(13, "Locked", str(target))
+        return move(source, target, sha1)
+
+    monkeypatch.setattr(service, "atomic_clone", clone_locked)
+    monkeypatch.setattr(service, "verified_move", move_locked)
+
+
+def test_a_failed_apply_releases_the_original_it_kept_with_no_read(world, monkeypatch, original_cloning):
     mod = world.add(world.spr, fixed=True)
     lock_game_file(monkeypatch, world.spr)
     expect_error("game_file_locked", lambda: world.library.apply("test", f"mod:{mod.id}"))
     assert not world.original(world.spr).exists()
+    assert world.spr.read_bytes() == OFFICIAL
     assert world.library.configured("test")["spr"] is None
 
 
-def test_a_failed_on_of_a_configured_entry_keeps_its_original(world, monkeypatch):
+def test_a_failed_on_of_a_configured_entry_keeps_its_original(world, monkeypatch, original_cloning):
     mod = world.add(world.spr, fixed=True)
     world.library.apply("test", f"mod:{mod.id}")
     world.toggle(False)
-    assert world.original(world.spr).exists()  # kept while configured
+    assert world.original(world.spr).exists() == original_cloning
+    assert world.spr.read_bytes() == OFFICIAL
     lock_game_file(monkeypatch, world.spr)
     result = world.toggle(True)
     assert result.failed[0]["code"] == "game_file_locked"
-    assert world.original(world.spr).exists()
+    assert world.original(world.spr).exists() == original_cloning
+    assert world.spr.read_bytes() == OFFICIAL
     assert world.unfinished() == [{"install": world.key(), "core": "test_spr", "why": "pending"}]
 
 
-def test_kept_originals_of_configured_entries_survive_an_off_and_go_with_the_configuration(world, monkeypatch):
+def test_configured_originals_stay_available_after_off_and_release_with_configuration(world, monkeypatch,
+                                                                                     original_cloning):
     mod = world.add(world.spr, fixed=True)
     world.library.apply("test", f"mod:{mod.id}")
     world.toggle(False)
     world.reload()
     world.library.prune()
-    assert world.original(world.spr).exists()
+    assert world.original(world.spr).exists() == original_cloning
+    assert world.spr.read_bytes() == OFFICIAL
     forbid_full_reads(monkeypatch, world.game)
     world.library.prune()  # judged by stat: no read
     monkeypatch.undo()
     monkeypatch.setattr(safety, "check_game_not_running", lambda: None)
     world.library.restore("test")
     assert not world.original(world.spr).exists()
+    assert world.spr.read_bytes() == OFFICIAL
 
 
 def test_a_part_the_configured_source_leaves_official_releases_its_original(world):
@@ -2463,11 +2499,11 @@ def test_entries_of_cores_the_current_catalog_does_not_map_carry_shipped_names(w
 
 
 def test_the_lock_order_is_kept_across_threads(world, monkeypatch):
-    """The library lock, then mods.lock, state.json.lock and profiles.json.lock: no thread takes an earlier one while
-    holding a later one, and none holds profiles.json.lock while it asks the scan consent."""
+    """The library lock, transactions.lock, mods.lock, state.json.lock and profiles.json.lock stay in order;
+    no thread holds profiles.json.lock while it asks the scan consent."""
     from ba_modding_toolkit import filelock
     from ba_modding_toolkit.library import profiles as profiles_module
-    order = {"mods.lock": 1.5, "state.json.lock": 2, "profiles.json.lock": 3}
+    order = {"transactions.lock": 1.25, "mods.lock": 1.5, "state.json.lock": 2, "profiles.json.lock": 3}
     held = threading.local()
     violations: list[str] = []
     real_lock = filelock.file_lock
@@ -2480,13 +2516,13 @@ def test_the_lock_order_is_kept_across_threads(world, monkeypatch):
     import contextlib
 
     @contextlib.contextmanager
-    def tracked(path):
+    def tracked(path, **kwargs):
         rank = order.get(Path(path).name, 9)
         if any(level > rank for level in stack()):
             violations.append(f"{Path(path).name} after {stack()}")
         stack().append(rank)
         try:
-            with real_lock(path):
+            with real_lock(path, **kwargs):
                 yield
         finally:
             stack().pop()

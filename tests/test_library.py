@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
@@ -619,7 +620,8 @@ def test_install_rolls_back_when_state_cannot_be_saved(setup_library, monkeypatc
     assert reload_library(env).state("test").applied == "official"
 
 
-def test_multi_part_install_rolls_back_every_part_on_write_failure(setup_library, monkeypatch):
+@pytest.mark.parametrize("cloning", [False, True])
+def test_multi_part_install_rolls_back_every_part_on_write_failure(setup_library, monkeypatch, cloning):
     env = setup_library
     atlas = game_bundle(env.game_dir, part="002", payload=b"atlas")
     targets = [atlas, env.original]
@@ -627,7 +629,9 @@ def test_multi_part_install_rolls_back_every_part_on_write_failure(setup_library
     entry, = env.library.add([make_mod(path, env.tmp / "input", payload=b"mod " + path.name.encode())
                               for path in targets])
     from ba_modding_toolkit.library import service
+    monkeypatch.setattr(storage, "_clone", lambda source, target: bool(shutil.copyfile(source, target)) if cloning else False)
     original_copy = service.atomic_copy
+    original_clone, original_move = service.atomic_clone, service.verified_move
     written = []
     def copy(source, target):
         if target == env.original:
@@ -638,9 +642,23 @@ def test_multi_part_install_rolls_back_every_part_on_write_failure(setup_library
         original_copy(source, target)
         if target in targets:
             written.append(target)
+
+    def clone(source, target):
+        result = original_clone(source, target)
+        if result and target in targets:
+            written.append(target)
+        return result
+
+    def move(source, target, sha1):
+        original_move(source, target, sha1)
+        if target in targets:
+            written.append(target)
+
     monkeypatch.setattr(service, "atomic_copy", copy)
+    monkeypatch.setattr(service, "atomic_clone", clone)
+    monkeypatch.setattr(service, "verified_move", move)
     expect_error("game_file_locked", lambda: env.library.apply("test", f"mod:{entry.id}"))
-    assert written == [atlas, atlas]
+    assert written == ([atlas, atlas] if cloning else [atlas, env.original, atlas])
     assert {path: path.read_bytes() for path in targets} == before
     assert reload_library(env).state("test").applied == "official"
     # rolled back to official: the kept copies are released
@@ -1256,7 +1274,11 @@ def test_prune_keeps_copies_it_cannot_verify(setup_library, case):
         assert library.prune() == [] and backup.exists()
 
 
-def test_a_copy_shared_by_two_installs_is_kept_until_both_are_official(setup_library):
+@pytest.mark.parametrize("clone_unavailable", [False, True])
+def test_a_copy_shared_by_two_installs_is_kept_until_both_are_official(setup_library, monkeypatch,
+                                                                   clone_unavailable):
+    if clone_unavailable:
+        monkeypatch.setattr(storage, "_clone", lambda *args: False)
     env = setup_library
     official = env.original.read_bytes()
     second = env.tmp / "second_game" / env.original.name
@@ -1325,7 +1347,10 @@ def test_a_copy_is_released_when_another_folder_was_verified_in_its_launcher(set
     assert not backup.exists()
 
 
-def test_a_copy_is_kept_while_another_folder_cannot_be_seen(setup_library):
+@pytest.mark.parametrize("clone_unavailable", [False, True])
+def test_a_copy_is_kept_while_another_folder_cannot_be_seen(setup_library, monkeypatch, clone_unavailable):
+    if clone_unavailable:
+        monkeypatch.setattr(storage, "_clone", lambda *args: False)
     env = setup_library
     official = env.original.read_bytes()
     second = second_install(env)
@@ -1793,3 +1818,349 @@ def test_unchanged_apply_restamps_identical_bytes_and_confirmation_finds_their_u
     assert env.library.apply("test", source).unchanged
     assert env.library.state("test").applied == source
     assert reload_library(env).state("test").applied == source
+
+
+# --- originals share blocks or move, with a durable record before either game path changes ---
+
+class InterruptedWrite(BaseException):
+    """A process exit, bypassing the ordinary exception rollback."""
+
+
+@pytest.mark.parametrize("cloning", [False, True])
+def test_original_moves_or_clones_and_restores_without_a_byte_copy(setup_library, monkeypatch, cloning):
+    from ba_modding_toolkit.library import service
+    env = setup_library
+    official = env.original.read_bytes()
+    inode = env.original.stat().st_ino
+    entry, = env.library.add([make_mod(env.original, env.tmp / "input", fixed=True)])
+    clones = []
+
+    def clone(source, target):
+        if not cloning:
+            return False
+        clones.append((source, target))
+        shutil.copyfile(source, target)  # stand-in for a native clone on any test filesystem
+        return True
+
+    monkeypatch.setattr(storage, "_clone", clone)
+    copy = service.atomic_copy
+    original = env.library._original_path(env.original)
+
+    def no_original_copy(source, target):
+        assert target != original
+        assert not (source == original and target == env.original)
+        return copy(source, target)
+
+    monkeypatch.setattr(service, "atomic_copy", no_original_copy)
+    env.library.apply("test", f"mod:{entry.id}")
+    assert original.read_bytes() == official
+    if not cloning:
+        assert original.stat().st_ino == inode
+    env.library.restore("test")
+    assert env.original.read_bytes() == official
+    assert not original.exists()
+    if not cloning:
+        assert env.original.stat().st_ino == inode
+    else:
+        assert len(clones) >= 2
+    assert not list((env.root / "transactions").glob("*/journal.json"))
+    assert reload_library(env).state("test").applied == "official"
+
+
+@pytest.mark.parametrize("point", ["journal", "copied", "kept", "prepared", "first_part", "saved"])
+def test_crash_recovers_every_part_and_the_previous_records(setup_library, monkeypatch, point):
+    from ba_modding_toolkit.library import service
+    env = setup_library
+    atlas = game_bundle(env.game_dir, part="002", payload=b"atlas")
+    before = {path: path.read_bytes() for path in (atlas, env.original)}
+    entry, = env.library.add([make_mod(path, env.tmp / "input", fixed=True) for path in before])
+    monkeypatch.setattr(storage, "_clone", lambda *args: False)
+    move, copy, save = service.verified_move, service.atomic_copy, service.atomic_json
+    replace, verify = storage.os.replace, storage.verify_file
+    interrupted = False
+
+    def crash():
+        nonlocal interrupted
+        if not interrupted:
+            interrupted = True
+            raise InterruptedWrite()
+
+    def moving(source, target, sha1):
+        move(source, target, sha1)
+        if point == "kept" and target.parent == env.root / "originals":
+            crash()
+
+    def copying(source, target):
+        copy(source, target)
+        if point == "first_part" and target == atlas:
+            crash()
+
+    def saving(path, data):
+        if point == "saved" and path.name == "journal.json" and data["phase"] == "committed":
+            crash()
+        save(path, data)
+        if path.name == "journal.json" and ((point == "journal" and data["phase"] == "preparing")
+                                            or (point == "prepared" and data["phase"] == "writing")):
+            crash()
+
+    def replacing(source, target):
+        if point == "copied" and source in before and target.parent == env.root / "originals":
+            import errno
+            raise OSError(errno.EXDEV, "Different volumes")
+        return replace(source, target)
+
+    def verifying(path, sha1):
+        verify(path, sha1)
+        if point == "copied" and path.parent == env.root / "originals":
+            crash()
+
+    monkeypatch.setattr(service, "verified_move", moving)
+    monkeypatch.setattr(service, "atomic_copy", copying)
+    monkeypatch.setattr(service, "atomic_json", saving)
+    monkeypatch.setattr(storage.os, "replace", replacing)
+    monkeypatch.setattr(storage, "verify_file", verifying)
+    with pytest.raises(InterruptedWrite):
+        env.library.apply("test", f"mod:{entry.id}")
+    journals = list((env.root / "transactions").glob("*/journal.json"))
+    assert len(journals) == 1
+    assert json.loads(journals[0].read_text())["phase"] != "committed"
+    if point == "kept":
+        assert not atlas.exists()
+        assert env.library._original_path(atlas).read_bytes() == before[atlas]
+    recovered = reload_library(env)
+    assert {path: path.read_bytes() for path in before} == before
+    assert recovered.state("test").applied == "official"
+    assert all(str(path.resolve()) not in recovered._applied for path in before)
+    assert not list((env.root / "transactions").glob("*/journal.json"))
+
+
+@pytest.mark.parametrize("published", [False, True])
+def test_commit_marker_failure_keeps_recoverable_files_and_state(setup_library, monkeypatch, published):
+    from ba_modding_toolkit.library import service
+    env = setup_library
+    official = env.original.read_bytes()
+    entry, = env.library.add([make_mod(env.original, env.tmp / "input", fixed=True)])
+    monkeypatch.setattr(storage, "_clone", lambda *args: False)
+    save = service.atomic_json
+
+    def saving(path, data):
+        if path.name == "journal.json" and data["phase"] == "committed":
+            if published:
+                save(path, data)
+            raise OSError(5, "Commit flush failed", str(path))
+        save(path, data)
+
+    monkeypatch.setattr(service, "atomic_json", saving)
+    expect_error("library_io_error", lambda: env.library.apply("test", f"mod:{entry.id}"))
+    assert env.original.read_bytes() == entry.file.read_bytes()
+    assert env.library._original_path(env.original).read_bytes() == official
+    monkeypatch.setattr(service, "atomic_json", save)
+    recovered = reload_library(env)
+    assert recovered.state("test").applied == (f"mod:{entry.id}" if published else "official")
+    assert env.original.read_bytes() == (entry.file.read_bytes() if published else official)
+    assert not list((env.root / "transactions").glob("*/journal.json"))
+
+
+def test_a_state_flush_failure_after_publication_rolls_back_its_records(setup_library, monkeypatch):
+    from ba_modding_toolkit.library import service
+    env = setup_library
+    official = env.original.read_bytes()
+    entry, = env.library.add([make_mod(env.original, env.tmp / "input", fixed=True)])
+    save = service.atomic_json
+    failed = False
+
+    def saving(path, data):
+        nonlocal failed
+        save(path, data)
+        if path.name == "state.json" and not failed:
+            failed = True
+            raise OSError(5, "State flush failed", str(path))
+
+    monkeypatch.setattr(service, "atomic_json", saving)
+    expect_error("library_io_error", lambda: env.library.apply("test", f"mod:{entry.id}"))
+    assert env.original.read_bytes() == official
+    assert json.loads((env.root / "state.json").read_text())["applied"] == {}
+    assert reload_library(env).state("test").applied == "official"
+
+
+def test_recovery_follows_a_relocated_library(setup_library, monkeypatch):
+    from ba_modding_toolkit.library import service
+    env = setup_library
+    official = env.original.read_bytes()
+    entry, = env.library.add([make_mod(env.original, env.tmp / "input", fixed=True)])
+    monkeypatch.setattr(storage, "_clone", lambda *args: False)
+    move = service.verified_move
+
+    def moving(source, target, sha1):
+        move(source, target, sha1)
+        raise InterruptedWrite()
+
+    monkeypatch.setattr(service, "verified_move", moving)
+    with pytest.raises(InterruptedWrite):
+        env.library.apply("test", f"mod:{entry.id}")
+    destination = env.tmp / "relocated-library"
+    env.root.rename(destination)
+    monkeypatch.setattr(service, "verified_move", move)
+    recovered = ModLibrary(destination, env.catalog, object(), env.settings)
+    assert env.original.read_bytes() == official
+    assert recovered.state("test").applied == "official"
+    assert not list((destination / "transactions").glob("*/journal.json"))
+
+
+@pytest.mark.parametrize("crash_again", [False, True])
+def test_crash_during_restore_returns_original_to_library_before_rolling_back_mod(setup_library, monkeypatch,
+                                                                                crash_again):
+    from ba_modding_toolkit.library import service
+    env = setup_library
+    official = env.original.read_bytes()
+    entry, = env.library.add([make_mod(env.original, env.tmp / "input", fixed=True)])
+    monkeypatch.setattr(storage, "_clone", lambda *args: False)
+    env.library.apply("test", f"mod:{entry.id}")
+    modded = env.original.read_bytes()
+    original = env.library._original_path(env.original)
+    move = service.verified_move
+    interruptions = 0
+
+    def moving(source, target, sha1):
+        nonlocal interruptions
+        move(source, target, sha1)
+        if source == original and target == env.original and interruptions == 0:
+            interruptions += 1
+            raise InterruptedWrite()
+        if crash_again and source == env.original and target == original and interruptions == 1:
+            interruptions += 1
+            raise InterruptedWrite()
+
+    monkeypatch.setattr(service, "verified_move", moving)
+    with pytest.raises(InterruptedWrite):
+        env.library.restore("test")
+    assert not original.exists() and env.original.read_bytes() == official
+    if crash_again:
+        with pytest.raises(InterruptedWrite):
+            reload_library(env)
+        assert original.read_bytes() == official and not env.original.exists()
+    recovered = reload_library(env)
+    assert original.read_bytes() == official
+    assert env.original.read_bytes() == modded
+    assert recovered.state("test").applied == f"mod:{entry.id}"
+    recovered.restore("test")
+    assert env.original.read_bytes() == official and not original.exists()
+
+
+def test_recovery_repeats_game_and_caller_checks_before_restoring_missing_file(setup_library, monkeypatch):
+    from ba_modding_toolkit.library import service
+    env = setup_library
+    official = env.original.read_bytes()
+    entry, = env.library.add([make_mod(env.original, env.tmp / "input", fixed=True)])
+    monkeypatch.setattr(storage, "_clone", lambda *args: False)
+    move = service.verified_move
+
+    def moving(source, target, sha1):
+        move(source, target, sha1)
+        raise InterruptedWrite()
+
+    monkeypatch.setattr(service, "verified_move", moving)
+    with pytest.raises(InterruptedWrite):
+        env.library.apply("test", f"mod:{entry.id}")
+    monkeypatch.setattr(service, "verified_move", move)
+
+    def running():
+        raise ServiceError("game_running")
+
+    monkeypatch.setattr(safety, "check_game_not_running", running)
+    recovered = reload_library(env)
+    expect_error("game_running", lambda: recovered.state("test"))
+    assert not env.original.exists()
+    assert env.library._original_path(env.original).read_bytes() == official
+    monkeypatch.setattr(safety, "check_game_not_running", lambda: None)
+
+    def steam(folder):
+        raise ServiceError("steam_busy")
+
+    monkeypatch.setattr(safety, "check_steam_idle", steam)
+    expect_error("steam_busy", lambda: recovered.state("test"))
+    assert not env.original.exists()
+    monkeypatch.setattr(safety, "check_steam_idle", lambda folder: None)
+    mode = env.game_dir.stat().st_mode & 0o777
+    env.game_dir.chmod(0o555)
+    try:
+        expect_error("game_file_locked", lambda: recovered.state("test"))
+        assert not env.original.exists()
+    finally:
+        env.game_dir.chmod(mode)
+
+    def classic(pin):
+        raise ServiceError("classic_open")
+
+    recovered._write_check = classic
+    expect_error("classic_open", lambda: recovered.state("test"))
+    assert not env.original.exists()
+    recovered._write_check = None
+    assert recovered.state("test").applied == "official"
+    assert env.original.read_bytes() == official
+
+
+def test_prune_waits_for_the_shared_transaction_lock(setup_library, monkeypatch):
+    from contextlib import contextmanager
+    from ba_modding_toolkit.library import service
+    env = setup_library
+    entry, = env.library.add([make_mod(env.original, env.tmp / "input", fixed=True)])
+    env.library.apply("test", f"mod:{entry.id}")
+    env.library.restore("test")
+    original = env.library._original_path(env.original)
+    shutil.copyfile(env.original, original)
+    attempted = threading.Event()
+    lock = service.file_lock
+
+    @contextmanager
+    def tracked(path, **kwargs):
+        if path.name == "transactions.lock":
+            attempted.set()
+        with lock(path, **kwargs):
+            yield
+
+    monkeypatch.setattr(service, "file_lock", tracked)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        with lock(env.root / "transactions.lock"):
+            result = pool.submit(env.library.prune)
+            assert attempted.wait(5)
+            assert not result.done()
+            assert original.read_bytes() == env.original.read_bytes()
+        assert result.result(timeout=5) == [original]
+
+
+def test_recovery_keeps_an_external_change_and_the_only_official_original(setup_library, monkeypatch):
+    env = setup_library
+    official = env.original.read_bytes()
+    entry, = env.library.add([make_mod(env.original, env.tmp / "input", fixed=True)])
+    monkeypatch.setattr(storage, "_clone", lambda *args: False)
+
+    def log(message):
+        if message.startswith("Installed "):
+            raise InterruptedWrite()
+
+    with pytest.raises(InterruptedWrite):
+        env.library.apply("test", f"mod:{entry.id}", log=log)
+    external = header_bundle(b"outside change after interruption")
+    env.original.write_bytes(external)
+    recovered = reload_library(env)
+    expect_error("entry_changed", lambda: recovered.state("test"))
+    assert env.original.read_bytes() == external
+    assert env.library._original_path(env.original).read_bytes() == official
+    assert len(list((env.root / "transactions").glob("*/journal.json"))) == 1
+
+
+def test_off_and_on_with_no_clone_rekeep_the_moved_original(setup_library, monkeypatch):
+    env = setup_library
+    official = env.original.read_bytes()
+    entry, = env.library.add([make_mod(env.original, env.tmp / "input", fixed=True)])
+    monkeypatch.setattr(storage, "_clone", lambda *args: False)
+    source = f"mod:{entry.id}"
+    env.library.apply("test", source)
+    original = env.library._original_path(env.original)
+    for _ in range(2):
+        assert not env.library.toggle(False, expect=True).failed
+        assert env.original.read_bytes() == official and not original.exists()
+        assert not env.library.toggle(True, expect=False).failed
+        assert original.read_bytes() == official
+        assert env.library.state("test").applied == source

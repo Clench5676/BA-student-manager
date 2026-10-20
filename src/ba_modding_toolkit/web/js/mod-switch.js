@@ -90,15 +90,13 @@ export function explanation(state) {
   return { title: action, lines: [...basics(), T("mods.explainOnce")], ok: action };
 }
 
-// helpLines(state, {originalsSize}): the "?" help's lines, [{text, button: {id, label}}]. Buttons: allow
+// helpLines(state): the "?" help's lines, [{text, button: {id, label}}]. Buttons: allow
 // (Allow Check: opens the scan consent popup, grants nothing itself), retry (pending and left entries), details
 // (stuck entries: the Overwritten message, never a Retry)
-export function helpLines(state, { originalsSize = 0, sep = listSep() } = {}) {
+export function helpLines(state, { sep = listSep() } = {}) {
   const s = state || {};
   const lines = basics().map((text) => ({ text }));
-  // only the kept originals are extra space needed by the switch
-  lines.push({ text: T("mods.helpSpace") });
-  lines.push({ text: T("mods.originalsSize", { size: sizeText(originalsSize) }) });
+  lines.push({ text: T("mods.helpStorage") });
   const installs = s.installs || [];
   if (installs.length > 1) lines.push({ text: T("mods.helpFolders", { folders: installs.map((i) => i.label).join(sep) }) });
   if (s.scan !== true) lines.push({ text: T("mods.scanOff"), button: { id: "allow", label: T("mods.allowCheck") } });
@@ -465,15 +463,12 @@ async function queueDone({ submitted = [], dropped = [] } = {}) {
 export async function openHelp() {
   const s = state || (await refresh());
   if (!s) return;
-  let sizes;
-  try { sizes = await Loading.wait(rpc("mods.sizes", { kind: "originals" }), { cap: null }); }
-  catch (err) { toast(errorText(err.code, err.params), { kind: "error" }); return; }
   const act = {
     allow: ({ close }) => { close(null); askScan(); },
     retry: ({ close }) => { close(null); run(retryParams(state || s)); },
     details: () => overwritten(),
   };
-  const lines = helpLines(state || s, sizes).map((l) => (l.button ? { text: l.text, button: { label: l.button.label, fn: act[l.button.id] } } : l.text));
+  const lines = helpLines(state || s).map((l) => (l.button ? { text: l.text, button: { label: l.button.label, fn: act[l.button.id] } } : l.text));
   await Popup.message({ title: T("mods.switch"), lines, width: 2100 });
 }
 
