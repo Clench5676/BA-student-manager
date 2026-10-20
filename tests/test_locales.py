@@ -98,6 +98,17 @@ def test_settings_uses_configuration_drift():
 
 
 @pytest.mark.parametrize("code", [REFERENCE, *TRANSLATIONS])
+def test_special_assets_are_labelled_l2d(code):
+    special = load(code)["webui"]["special"]
+    assert special["background"] == "L2D"
+    assert "L2D" in special["add"] and "L2D" in special["switch"]
+    if code == "en-US":
+        assert (special["add"], special["switch"]) == ("Add L2D", "Switch L2D")
+    if code == "zh-CN":
+        assert (special["add"], special["switch"]) == ("\u6dfb\u52a0 L2D", "\u5207\u6362 L2D")
+
+
+@pytest.mark.parametrize("code", [REFERENCE, *TRANSLATIONS])
 def test_refined_settings_and_remap_labels(code):
     ui = load(code)["webui"]
     assert "manual" not in ui["settings"]["mods"]

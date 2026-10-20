@@ -1,3 +1,6 @@
+import { previewLifecycle, previewTimer } from "./preview-lifecycle.js";
+import { applyAtlasAlpha } from "./spine-alpha.js";
+
 // One view load at a time. A newer request cancels the old one and waits for its cleanup before starting.
 export function latestLoad() {
   let tail = Promise.resolve(), active = null;
@@ -22,23 +25,48 @@ export function latestLoad() {
 
 // The runtime does not await success hooks. Settle on hook errors, cancellation, disposal and missing callbacks too.
 // Each player owns its atlas and textures; a cancelled player's hooks never touch the next view's state.
-export function loadPlayer(create, config, { signal, timeout = 15000, onError } = {}) {
-  let player, settled = false, disposed = false, failed = false, timer, resolve, reject;
+export function loadPlayer(create, config, { signal, timeout = 15000, onError, onResume, onRecover } = {}) {
+  let player, settled = false, disposed = false, failed = false, cancelTimer, resolve, reject;
   const ready = new Promise((ok, fail) => { resolve = ok; reject = fail; });
   const finish = (error = null) => {
     if (settled) return;
     settled = true;
-    clearTimeout(timer);
+    cancelTimer?.();
     if (error) reject(error); else resolve(disposed ? null : player);
   };
   const dispose = () => {
     if (disposed) return;
     disposed = true;
     signal?.removeEventListener("abort", dispose);
+    lifecycle.dispose();
     try { player?.dispose(); } catch (err) { console.error(err); } finally { finish(); }
   };
+  const lifecycle = previewLifecycle({
+    suspend: () => player?.stopRendering?.(),
+    resume: () => {
+      if (disposed || failed) return;
+      player?.time?.update?.();
+      if (player?.time) player.time.delta = 0;
+      const render = onResume?.() !== false;
+      if (render && player?.stopRequestAnimationFrame) {
+        // Let the old queued frame observe stopRendering before starting a single fresh loop.
+        (globalThis.requestAnimationFrame || queueMicrotask)(() => {
+          if (!disposed && !failed && lifecycle.active() && player.stopRequestAnimationFrame) player.startRendering?.();
+        });
+      }
+    },
+    recover: () => {
+      if (disposed || failed || signal?.aborted) return;
+      if (onRecover) onRecover();
+      else fail(new Error("Spine context recovery unavailable"), "context recovery");
+    },
+  });
   const fail = (error, step = "load") => {
     if (failed || disposed || signal?.aborted) return;
+    if (lifecycle.recovering() || (!lifecycle.active() && ["render", "frame", "draw", "update", "updateWorldTransform"].includes(step))) {
+      lifecycle.invalidate();
+      return;
+    }
     failed = true;
     const cause = error instanceof Error ? error : new Error(String(error));
     cause.url ||= config.skeleton;
@@ -56,7 +84,7 @@ export function loadPlayer(create, config, { signal, timeout = 15000, onError } 
   try {
     const hooks = Object.fromEntries(["frame", "update", "draw", "updateWorldTransform"].filter((key) => config[key])
       .map((key) => [key, (...args) => {
-        if (disposed || failed || signal?.aborted) return;
+        if (disposed || failed || signal?.aborted || !lifecycle.active()) return;
         try { return config[key](...args); } catch (err) { fail(err, key); }
       }]));
     player = create({
@@ -64,14 +92,16 @@ export function loadPlayer(create, config, { signal, timeout = 15000, onError } 
       success: (p) => {
         if (disposed || failed || signal?.aborted) return;
         // Start synchronously: the runtime uses track 0 as soon as this callback returns.
-        try { Promise.resolve(config.success?.(p, () => !disposed && !failed && !signal?.aborted))
+        try { applyAtlasAlpha(p); Promise.resolve(config.success?.(p, () => !disposed && !failed && !signal?.aborted))
           .then(() => finish(), (err) => fail(err, "setup")); } catch (err) { fail(err, "setup"); }
       },
       error: (_p, message) => fail(message, settled ? "render" : "load"),
     });
+    lifecycle.watch(player?.canvas);
+    if (!lifecycle.active()) player?.stopRendering?.();
     signal?.addEventListener("abort", dispose, { once: true });
     if (disposed) player?.dispose(); // a synchronous constructor callback failed
-    if (!settled) timer = setTimeout(() => fail(new Error("Spine load timed out"), "load timeout"), timeout);
+    if (!settled) cancelTimer = previewTimer(() => fail(new Error("Spine load timed out"), "load timeout"), timeout);
   } catch (err) { fail(err, "construct"); }
-  return { player, ready, dispose };
+  return { player, ready, dispose, active: lifecycle.active };
 }

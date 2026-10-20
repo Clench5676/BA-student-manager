@@ -1,7 +1,10 @@
 // Thumbnails rendered in the page from the portrait skeletons: faces for the expression cards, busts for the switch
 // card and the roster, cards for the popups. One hidden Spine player at a time (one WebGL context); results are
 // in-memory blob URLs, never written anywhere.
-import { withTimeout } from "./async.js";
+import { artBounds, settle } from "./lobby-health.js";
+import { specialView } from "./special-view.js";
+import { withPreviewTimeout as withTimeout } from "./async.js";
+import { applyAtlasAlpha } from "./spine-alpha.js";
 
 import { spineAssetBase, forgetSpineAssets } from "./api.js";
 import { lobbyIdle } from "./rest-pose.js";
@@ -25,7 +28,7 @@ export function idleAnimation(data) {
 }
 
 const cache = new Map();   // key -> Promise<url>
-const queue = [];          // { base, frame, expr, lobby, resolve, reject }
+const queue = [];          // { base, frame, expr, lobby, framing, resolve, reject }
 let running = false;
 let host = null;
 
@@ -109,7 +112,11 @@ export function thumbFrame(found, bounds, frame, aspect) {
   return { x: cx - w / 2, y: cy - h / 2, width: w, height: h };
 }
 
-function viewFor(p, frame, aspect) {
+function viewFor(p, frame, aspect, framing) {
+  if (framing) {
+    const r = specialView(artBounds(p.skeleton), framing, aspect);
+    return { x: r.x, y: r.y, width: r.w, height: r.h, padLeft: 0, padRight: 0, padTop: 0, padBottom: 0, transitionTime: 0, animations: {} };
+  }
   const offset = new spine.Vector2(), size = new spine.Vector2();
   p.skeleton.getBounds(offset, size, []);
   const rect = thumbFrame(faceBox(p.skeleton), { x: offset.x, y: offset.y, w: size.x, h: size.y }, frame, aspect);
@@ -128,14 +135,14 @@ function loadPlayer(base, el) {
       premultipliedAlpha: false, alpha: true, backgroundColor: "#00000000",
       showControls: false, showLoading: false, preserveDrawingBuffer: true,
       viewport: { padLeft: 0, padRight: 0, padTop: 0, padBottom: 0, transitionTime: 0 },
-      success: (player) => resolve(player),
+      success: (player) => { applyAtlasAlpha(player); resolve(player); },
       error: (_p, message) => { reject(new Error(message)); },
     });
     el.player = p;
   });
 }
 
-async function capture(player, el, frame, expr, lobby = false) {
+async function capture(player, el, frame, expr, lobby = false, framing = null) {
   const [w, h] = FRAMES[frame];
   el.style.width = `${w}px`;
   el.style.height = `${h}px`;
@@ -146,18 +153,19 @@ async function capture(player, el, frame, expr, lobby = false) {
   const idle = lobby ? lobbyIdle(data) : idleAnimation(data);
   state.clearTracks();
   player.skeleton.setToSetupPose();
-  const entry = idle ? state.setAnimation(0, idle, true) : state.setEmptyAnimation(0, 0);
+  let entry = idle ? state.setAnimation(0, idle, true) : state.setEmptyAnimation(0, 0);
+  if (framing) { settle(player, { name: "thumbnail" }, null, () => {}); entry = state.getCurrent(0); }
   if (expr && player.skeleton.data.findAnimation(expr)) state.setAnimation(1, expr, true);
   state.apply(player.skeleton);
   player.skeleton.updateWorldTransform(spine.Physics.update);
-  player.config.viewport = viewFor(player, frame, w / h);
+  player.config.viewport = viewFor(player, frame, w / h, framing);
   player.setViewport(entry.animation);
   await frames(3);
   const canvas = el.querySelector("canvas");
   return new Promise((resolve) => canvas.toBlob((b) => resolve(b ? URL.createObjectURL(b) : null)));
 }
 
-const keyOf = (base, frame, expr) => `${base}|${frame}|${expr || ""}`;
+const keyOf = (base, frame, expr, lobby = false, framing = null) => `${base}|${frame}|${expr || ""}|${lobby}|${framing || ""}`;
 
 async function pump() {
   if (running) return;
@@ -175,7 +183,7 @@ async function pump() {
       try {
         const player = await withTimeout(loadPlayer(base, el), 15000, `Thumbnail ${base}`);
         for (const q of batch) {
-          try { q.resolve(await withTimeout(capture(player, el, q.frame, q.expr, q.lobby), 15000, `Thumbnail capture ${base}`)); } catch (err) { q.reject(err); }
+          try { q.resolve(await withTimeout(capture(player, el, q.frame, q.expr, q.lobby, q.framing), 15000, `Thumbnail capture ${base}`)); } catch (err) { q.reject(err); }
         }
         await companions(player, el, base, batch);
       } catch (err) {
@@ -195,11 +203,11 @@ async function pump() {
 // costs nothing, the frame is loaded when it is asked for.
 async function companions(player, el, base, batch) {
   for (const frame of new Set(batch.map((q) => COMPANION[q.frame]).filter(Boolean))) {
-    const key = keyOf(base, frame, null);
-    const waiting = queue.find((q) => q.base === base && q.frame === frame && !q.expr);
+    const key = keyOf(base, frame, null, batch[0].lobby, batch[0].framing);
+    const waiting = queue.find((q) => q.base === base && q.frame === frame && !q.expr && q.lobby === batch[0].lobby && q.framing === batch[0].framing);
     if (cache.has(key) && !waiting) continue;
     let url = null;
-    try { url = await withTimeout(capture(player, el, frame, null, batch[0].lobby), 15000, `Thumbnail companion ${base}`); } catch { /* loaded when asked for */ }
+    try { url = await withTimeout(capture(player, el, frame, null, batch[0].lobby, batch[0].framing), 15000, `Thumbnail companion ${base}`); } catch { /* loaded when asked for */ }
     if (!url) continue;
     if (waiting && queue.includes(waiting)) { queue.splice(queue.indexOf(waiting), 1); waiting.resolve(url); }
     else if (!cache.has(key)) cache.set(key, Promise.resolve(url));
@@ -208,9 +216,10 @@ async function companions(player, el, base, batch) {
 }
 
 // thumb(base, "bust") -> Promise<blob url | null>; expr picks an expression for "face"; lobby: a memorial lobby's
-// skeleton, which rests in its lobby idle (rest-pose.js). The promise has bump(): render this one before the rest of the
+// skeleton, which rests in its lobby idle (rest-pose.js); framing: a special slot's character or scene fit.
+// The promise has bump(): render this one before the rest of the
 // queue (a card that scrolled into view).
-export function thumb(base, frame = "bust", expr = null, lobby = false) {
+export function thumb(base, frame = "bust", expr = null, lobby = false, framing = null) {
   if (!base) return Promise.resolve(null);
   if (!/\/[a-f0-9]{64}\/skeleton$/.test(base)) {
     // the revision the files carry now is part of the key: a picture made before a switch is never reused after it,
@@ -218,7 +227,7 @@ export function thumb(base, frame = "bust", expr = null, lobby = false) {
     let inner = null, first = false;
     const outer = spineAssetBase(base).then(async (resolved) => {
       for (let attempt = 0; resolved && attempt < 2; attempt++) {
-        inner = thumb(resolved, frame, expr, lobby);
+        inner = thumb(resolved, frame, expr, lobby, framing);
         if (first) inner.bump?.(); // asked to go first before the files were resolved
         const url = await inner;
         if (url || attempt) return url;
@@ -233,11 +242,11 @@ export function thumb(base, frame = "bust", expr = null, lobby = false) {
     outer.bump = () => { first = true; inner?.bump?.(); };
     return outer;
   }
-  const key = keyOf(base, frame, expr);
+  const key = keyOf(base, frame, expr, lobby, framing);
   if (!cache.has(key)) {
     let item;
     const pending = new Promise((resolve, reject) => {
-      item = { base, frame, expr, lobby, resolve, reject };
+      item = { base, frame, expr, lobby, framing, resolve, reject };
       queue.push(item);
       pump();
     }).catch((err) => {

@@ -1,5 +1,5 @@
 // Talks to the Python side: POST /api/rpc for calls, /api/events (Server-Sent Events) for jobs, drops and changes.
-import { withTimeout } from "./async.js";
+import { withPreviewTimeout as withTimeout } from "./async.js";
 
 export class RpcError extends Error {
   constructor(code, params = {}) {

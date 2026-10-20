@@ -792,9 +792,9 @@
 			"night": "밤",
 			"task": "임무",
 			"cafe": "카페",
-			"background": "배경",
-			"add": "배경 추가",
-			"switch": "배경 변경"
+			"background": "L2D",
+			"add": "L2D 추가",
+			"switch": "L2D 변경"
 		},
 		"top": {
 			"students": "학생"

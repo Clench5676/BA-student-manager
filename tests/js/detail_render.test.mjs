@@ -58,10 +58,13 @@ const hosts = Object.fromEntries(["stage", "screen-detail", "ngui", "ngui-bg", "
   "popup", "picker", "dialog", "prompt", "consent", "toast", "fs-exit"].map((id) => {
   const el = body.appendChild(new El()); el.id = id; el.hidden = /popup|picker|dialog|prompt|consent/.test(id); return [id, el];
 }));
-globalThis.document = { body, documentElement: new El("html"), activeElement: body,
+const documentEvents = new EventTarget();
+globalThis.window = new EventTarget();
+globalThis.document = { hidden: false, hasFocus: () => true, body, documentElement: new El("html"), activeElement: body,
   createElement: (tag) => new El(tag), createDocumentFragment: () => new El("fragment"), getElementById: (id) => hosts[id],
   querySelector: (s) => s === ".topbar .title" ? title : s === ".topbar .back" ? back : null,
-  querySelectorAll: () => [], addEventListener() {} };
+  querySelectorAll: () => [], addEventListener: (...args) => documentEvents.addEventListener(...args),
+  removeEventListener: (...args) => documentEvents.removeEventListener(...args) };
 Object.defineProperty(globalThis, "navigator", { value: { platform: "Mac" }, configurable: true });
 globalThis.location = { hash: "#/student/ibuki/ibuki" };
 globalThis.addEventListener = () => {};
@@ -84,11 +87,15 @@ globalThis.Image = class {
     return decodeMode === "pending" ? new Promise((resolve) => pendingDecodes.push(resolve)) : Promise.resolve();
   }
 };
-const playerRequests = [];
+const playerRequests = [], previewPlayers = [];
 globalThis.spine = { Physics: { update: 1 }, SpinePlayer: class {
   constructor(el, config) {
     playerRequests.push(config.skeleton);
-    this.dispose = () => {}; this.config = config;
+    this.dispose = () => { this.disposed = true; }; this.config = config;
+    this.canvas = new EventTarget(); this.stopRequestAnimationFrame = false;
+    this.stopRendering = () => { this.stopRequestAnimationFrame = true; };
+    this.startRendering = () => { this.stopRequestAnimationFrame = false; };
+    if (el.className !== "thumb-player") previewPlayers.push(this);
     const animations = ["Idle_01", "00", "01"].map((name) => ({ name }));
     this.skeleton = { data: { animations, findAnimation(name) {
       if (playerMode === "broken") throw new Error("Mod skeleton setup failed");
@@ -401,13 +408,13 @@ test("a lobby switch stays covered until its failed preview settles and can retr
   } finally { Detail.hide(); t.mock.timers.reset(); }
 });
 
-test("a special background waits for preview failure and keeps controls and unseen dots", async (t) => {
+for (const core of ["arona_workpage_daytime", "np0032_npc"]) for (const category of ["spinebackground", null]) test(`a special L2D ${core} keeps its labels, aliases, repair tags and unseen dots with category ${category}`, async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   try {
     errors.length = 0; lobbyMode = "pending";
-    const v = { key: "special:arona_workpage_daytime", spr: null, lobby: "arona_workpage_daytime", spineCategory: "spinebackground",
+    const v = { key: `special:${core}`, spr: null, lobby: core, spineCategory: category,
       names: { en: { full: "Arona - Work Page - Daytime", short: "Work Page - Daytime" } },
-      modList: [{ id: "special-day", target: "special:arona_workpage_daytime", core: "arona_workpage_daytime", kind: "lobby", label: "Day", fresh: true }],
+      modList: [{ id: "special-day", target: `special:${core}`, core, kind: "lobby", label: "Day", alias: "Painted L2D - Repaired", repaired_from: "original-special", fresh: true }],
       state: { files: [{ kind: "lobby", applied: "mod:special-day", official: false, restorable: true, crc: "fixed" }] } };
     family = { key: "arona", version: "special", variants: [modFamily().variants[0], v] };
     const start = playerRequests.length, fetchStart = assetRequests.length, rpcStart = rpcRequests.length;
@@ -417,17 +424,20 @@ test("a special background waits for preview failure and keeps controls and unse
     assert.equal(ready, false, "a pending background cannot release the loading cover early");
     await finish(t, showing);
     assert.equal(Detail.currentVariant(), v.key, "the requested background stays selected alongside a portrait variant");
-    assert.equal(switchButton().getAttribute("aria-label"), "Switch Background");
+    assert.equal(switchButton().getAttribute("aria-label"), "Switch L2D");
     assert.ok(switchButton().listeners.click.length);
+    for (const path of [`${INFO}/Title_Bg/Label_Locale`, "RightInfo/Target/Active/CharacterTab/Tab_2/Tab_On/Label"]) {
+      assert.ok(walk(hosts.ngui).some((e) => e.dataset.path?.endsWith(path) && walk(e).some((n) => n.textContent === "L2D")), `${path} uses the L2D label`);
+    }
     const add = walk(hosts.ngui).find((e) => e.dataset.part === `${INFO}/Weapon/Btn_Up_Wrapper/Btn_Up/BG (1)`);
-    assert.equal(add.getAttribute("aria-label"), "Add Background");
+    assert.equal(add.getAttribute("aria-label"), "Add L2D");
     assert.ok(add.listeners.click.length);
     assert.ok(!walk(hosts.ngui).some((e) => e.dataset.part?.endsWith("Tab_1/Tab_Off/Label")), "there is no portrait tab hit target");
-    assert.ok(assetRequests.slice(fetchStart).some((url) => url.includes("/lobby/arona_workpage_daytime/")));
+    assert.ok(assetRequests.slice(fetchStart).some((url) => url.includes(`/lobby/${core}/`)));
     assert.ok(!playerRequests.slice(start).some((url) => url.includes("/spr/")), "no missing portrait player is started");
     assert.equal(hosts.lobby.querySelector(".lobby-unavailable")?.textContent, "Preview unavailable");
     assert.ok(!hosts.lobby.classList.contains("pending"));
-    assert.equal(switchButton().getAttribute("aria-label"), "Switch Background");
+    assert.equal(switchButton().getAttribute("aria-label"), "Switch L2D");
     assert.ok(switchButton().listeners.click.length, "apply and restore still have a switch card");
     assert.ok(!rpcRequests.slice(rpcStart).some((r) => r.method === "lobby.lines"));
     assert.ok(tabDot(2)); assert.ok(chipDot(v.key));
@@ -435,6 +445,18 @@ test("a special background waits for preview failure and keeps controls and unse
     await switchButton().click(); await flush();
     assert.deepEqual(rpcRequests.filter((r) => r.method === "mods.seen").at(-1).params, { ids: ["special-day"] });
     assert.equal(tabDot(2), undefined); assert.equal(chipDot(v.key), undefined);
+    const part = (path) => walk(hosts.popup).find((el) => el.dataset.path === path);
+    assert.equal(part("Details/Name").textContent, "Painted L2D - Repaired");
+    assert.equal(part("Card_m:special-day/Tag/Text").textContent, "Repaired");
+    assert.ok(walk(hosts.popup).some((el) => el.dataset.action === "alias:details"));
+    await walk(hosts.popup).find((el) => el.dataset.action === "alias:m:special-day").click(); await flush();
+    assert.equal(aliasInput().value, "Painted L2D - Repaired");
+    aliasInput().value = "Evening L2D";
+    await finish(t, aliasKey(aliasInput()));
+    assert.equal(part("Details/Name").textContent, "Evening L2D");
+    assert.equal(part("Card_m:special-day/Tag/Text").textContent, "Repaired");
+    assert.equal(part("Details/Chip_0/Text/Text").textContent, "Repaired");
+    assert.ok(!walk(hosts.popup).some((el) => el.getAttribute("aria-label") === "Remap to current version"));
     await closeSwitch();
     back.onclick(); assert.equal(location.hash, "#/roster");
   } finally { Detail.hide(); t.mock.timers.reset(); }
@@ -849,4 +871,28 @@ test("the 3D tab dot only follows mods of its own kind", async (t) => {
     assert.equal(tabDot(1), undefined); assert.equal(tabDot(2), undefined);
     assert.ok(tabDot(3)); assert.ok(chipDot("ibuki"));
   } finally { Detail.hide(); t.mock.timers.reset(); }
+});
+
+test("the detail portrait resumes focus and rebuilds after a hidden context loss", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    errors.length = 0; family = modFamily(); playerMode = "ready";
+    await showPortrait(t);
+    const p = previewPlayers.at(-1), count = previewPlayers.length;
+    const failStart = rpcRequests.filter((r) => r.method === "preview.failed").length;
+    window.dispatchEvent(new Event("blur")); assert.equal(p.stopRequestAnimationFrame, true);
+    t.mock.timers.tick(60000); await flush();
+    window.dispatchEvent(new Event("focus")); await flush(); assert.equal(p.stopRequestAnimationFrame, false);
+    const lost = new Event("webglcontextlost", { cancelable: true }); p.canvas.dispatchEvent(lost);
+    assert.equal(lost.defaultPrevented, true);
+    document.hidden = true; documentEvents.dispatchEvent(new Event("visibilitychange"));
+    p.config.error(p, "Context lost"); p.canvas.dispatchEvent(new Event("webglcontextrestored"));
+    await flush(); assert.equal(previewPlayers.length, count, "no GPU rebuild while the page is hidden");
+    document.hidden = false; documentEvents.dispatchEvent(new Event("visibilitychange")); await flush();
+    assert.equal(previewPlayers.length, count + 1); assert.equal(p.disposed, true);
+    assert.equal(previewPlayers.at(-1).config.skeleton, p.config.skeleton);
+    assert.equal(rpcRequests.filter((r) => r.method === "preview.failed").length, failStart);
+    p.canvas.dispatchEvent(new Event("webglcontextrestored")); await flush();
+    assert.equal(previewPlayers.length, count + 1, "a disposed portrait cannot restart again");
+  } finally { document.hidden = false; Detail.hide(); t.mock.timers.reset(); }
 });

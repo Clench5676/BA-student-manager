@@ -44,13 +44,13 @@ function harness(layersOf = layers, resolveSources = null) {
     Materials: { detach: noop }, Touch: { setup: noop, detach: noop }, Idle: { start: noop, stop: noop },
     toWorld: noop, zoomAt: noop, panBy: noop, playClip: noop, clearClip: noop, next: noop,
     viewTarget: noop, setViewTarget: noop, endTalk: noop, Sfx: { clear: noop }, stop: noop,
-    setTimeout: noop,
+    setTimeout: noop, reveal: () => calls.push("reveal"),
   };
   const h = new Function("env", `let { ${Object.keys(env).join(", ")} } = env;
     let current = null, players = [], token = 0, talkIndex = -1, mode = "left", wantTouch = false;
     let extendTimer, chain, subtitleTimer;
     ${loading}
-    return { show, hide, current: () => current };`)(env);
+    return { show, hide, recoverView, current: () => current };`)(env);
   return { ...h, host, created, calls, revisions, failures };
 }
 
@@ -268,4 +268,25 @@ test("zoom limits are cached by both the configured art revision and the live la
   assert.equal(measured.length, 4, "changing either source measures its own limits");
   assert.ok(measure("mod-a/first/", "layout/first/").safe);
   assert.equal(measured.length, 4, "revisiting the same two sources reuses their limits");
+});
+
+for (const framing of [null, "character", "scene"]) test(`context recovery rebuilds the complete lobby with framing ${framing}`, async () => {
+  const h = harness(async () => ({ info: null, layers: [
+    { name: "bg", spine: "/art/revision/bg" }, { name: "hero", spine: "/art/revision/hero" },
+  ] }));
+  try {
+    const showing = h.show("np0032_npc", h.host, "special:np0032_npc", { mod: "configured", framing });
+    await tick(); h.created.forEach((p) => p.config.success(p)); await showing;
+    const old = h.current(); old.revealed = true;
+    h.recoverView(old); h.recoverView(old); await tick();
+    assert.equal(h.created.length, 4, "root and guests rebuild only once");
+    assert.ok(h.created.slice(0, 2).every((p) => p.disposed));
+    assert.equal(h.current().framing, framing); assert.equal(h.current().mod, "configured");
+    assert.equal(h.current().artBase, old.artBase); assert.equal(h.current().base, old.base);
+    assert.ok(h.calls.indexOf("dispose /art/revision/hero") < h.calls.indexOf("dispose /art/revision/bg"));
+    h.created.slice(2).forEach((p) => p.config.success(p)); await tick();
+    assert.deepEqual(h.calls.filter((c) => c === "reveal"), ["reveal"]);
+    assert.equal(h.failures.length, 0);
+    h.hide(h.host); h.recoverView(old); await tick(); assert.equal(h.created.length, 4);
+  } finally { h.hide(h.host); }
 });

@@ -792,9 +792,9 @@
 			"night": "夜晚",
 			"task": "任務",
 			"cafe": "咖啡廳",
-			"background": "背景",
-			"add": "新增背景",
-			"switch": "切換背景"
+			"background": "L2D",
+			"add": "新增 L2D",
+			"switch": "切換 L2D"
 		},
 		"top": {
 			"students": "學生"

@@ -4,18 +4,19 @@ import { test } from "node:test";
 import { overlaps, worldBounds } from "../../src/ba_modding_toolkit/web/js/lobby-health.js";
 
 const source = readFileSync(new URL("../../src/ba_modding_toolkit/web/js/lobby.js", import.meta.url), "utf8");
-const code = source.slice(source.indexOf("export function reveal()"), source.indexOf("// the intro setting:"))
+const code = source.slice(source.indexOf("export function reveal("), source.indexOf("// the intro setting:"))
   .replace("export function", "function");
 function harness(mode = "left") {
   let now = 1, pixels = true;
-  const errors = [], timers = new Map(), document = { hidden: false };
+  const errors = [], recovered = [], timers = new Map(), document = { hidden: false, focused: true, hasFocus() { return this.focused; } };
   const p = { canvas: { width: 1920, height: 1080 }, stopRequestAnimationFrame: true,
     bamtLayer: { x: 0, y: 0, scale: 1 }, skeleton: {},
     startRendering() { this.stopRequestAnimationFrame = false; this.started = true; } };
   const c = { host: { hidden: false }, signal: { aborted: false }, artBase: "/art/revision/", base: "/layout/revision/",
     view: { x: 0, y: 0, w: 100, h: 100 }, all: [{ player: p }], drawnAt: now };
   const env = {
-    current: c, players: [p], document, mode, talk: null, performance: { now: () => now }, overlaps, worldBounds,
+    current: c, players: [p], document, mode, talk: null, playerLoads: new WeakMap(),
+    recoverView: (view) => recovered.push(view), performance: { now: () => now }, overlaps, worldBounds,
     artBounds: () => ({ x0: 0, y0: 0, x1: 100, y1: 100 }),
     rectOf: (v) => ({ x0: v.x, y0: v.y, x1: v.x + v.w, y1: v.y + v.h }),
     Stage: { hostOf: () => null, shown: () => true }, Linear: { hasPixels: () => pixels },
@@ -23,7 +24,7 @@ function harness(mode = "left") {
     failView: (err, host, url, step) => errors.push({ err, host, url, step }),
   };
   const reveal = new Function("env", `let { ${Object.keys(env).join(", ")} } = env; ${code}; return reveal;`)(env);
-  return { c, p, document, errors, reveal, setPixels: (value) => { pixels = value; },
+  return { c, p, document, errors, recovered, reveal, setPixels: (value) => { pixels = value; },
     tick(frames = true) {
       now += 5000;
       if (frames) c.drawnAt = now;
@@ -43,10 +44,9 @@ test("revealing a tab restarts its stopped root player and defers drawing checks
   assert.equal(h.c.pixelsChecked, true);
 });
 
-for (const failure of ["frames", "size", "context", "pixels", "bounds"]) test(`a visible lobby with no ${failure} reports a cause instead of remaining empty`, () => {
+for (const failure of ["frames", "size", "pixels", "bounds"]) test(`a visible lobby with no ${failure} reports a cause instead of remaining empty`, () => {
   const h = harness(); h.reveal();
   if (failure === "size") h.p.canvas.width = 0;
-  if (failure === "context") h.p.context = { gl: { isContextLost: () => true } };
   if (failure === "pixels") h.setPixels(false);
   if (failure === "bounds") h.p.bamtLayer.x = 1e6;
   h.tick(failure !== "frames");
@@ -75,5 +75,21 @@ test("a cancelled view's watchdog cannot fail a replacement", () => {
 test("an intentional fullscreen pan past the artwork keeps its empty camera space", () => {
   const h = harness("full"); h.reveal();
   h.c.userFramed = true; h.p.bamtLayer.x = 1e6; h.setPixels(false); h.tick();
+  assert.equal(h.errors.length, 0);
+});
+
+test("a lost context requests recovery instead of reporting unavailable", () => {
+  const h = harness(); h.reveal();
+  h.p.context = { gl: { isContextLost: () => true } };
+  h.tick(false);
+  assert.equal(h.errors.length, 0);
+  assert.deepEqual(h.recovered, [h.c]);
+});
+
+test("a blurred window defers frame, intro and off-camera checks", () => {
+  const h = harness(); h.reveal(); h.document.focused = false;
+  h.c.intro = { pending: () => true, state: () => ({ started: false, t: 0 }) };
+  h.p.bamtLayer.x = 1e6; h.setPixels(false);
+  for (let i = 0; i < 5; i++) h.tick(false);
   assert.equal(h.errors.length, 0);
 });

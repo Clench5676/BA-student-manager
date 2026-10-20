@@ -792,9 +792,9 @@
 			"night": "Night",
 			"task": "Tasks",
 			"cafe": "Cafe",
-			"background": "Background",
-			"add": "Add Background",
-			"switch": "Switch Background"
+			"background": "L2D",
+			"add": "Add L2D",
+			"switch": "Switch L2D"
 		},
 		"top": {
 			"students": "Students"

@@ -8,9 +8,10 @@
 // into the game files (switch-sources.js, actions.apply).
 // A change inside the screen (another variant, a tab, an applied portrait) prepares its parts behind the loading
 // cover and swaps them in one frame (the commit barrier below), after previews and visible images settle.
+import { isSpecial, specialFraming } from "./special-view.js";
 import * as NGUI from "./ngui.js";
 import { latestLoad, loadPlayer } from "./spine-load.js";
-import { withTimeout } from "./async.js";
+import { withPreviewTimeout as withTimeout } from "./async.js";
 import { previewError } from "./preview-error.js";
 import * as Loading from "./loading.js";
 import * as ModAdd from "./mod-add.js";
@@ -230,7 +231,7 @@ function screenTree() {
   const tabs = [["Tab_1", "tab.portrait", "portrait", !!v.spr], ["Tab_2", "tab.lobby", "lobby", hasLobby(v)], ["Tab_3", "tab.model", "model", hasModel(v)]];
   for (const [node_, key, id, enabled] of tabs) {
     const base = `RightInfo/Target/Active/CharacterTab/${node_}`;
-    const label = T(v.spineCategory && id === "lobby" ? "special.background" : key);
+    const label = T(isSpecial(v) && id === "lobby" ? "special.background" : key);
     for (const state of ["Tab_On", "Tab_Off"]) text(t, `${base}/${state}/Label`, label, { w_: 400, fontSize: fitText(label, 52, 36, 360).fs });
     if (!enabled) widget(t, `${base}/Tab_Off/Label`).color = "#ffffff/0.35";
     at(t, `${base}/Tab_On`).active = id === tab;
@@ -248,7 +249,7 @@ function screenTree() {
   }
 
   // row 1: portrait information
-  text(t, `${INFO}/Title_Bg/Label_Locale`, T(v.spineCategory && tab === "lobby" ? "special.background" : `info.title.${tab}`), { w_: 600 });
+  text(t, `${INFO}/Title_Bg/Label_Locale`, T(isSpecial(v) && tab === "lobby" ? "special.background" : `info.title.${tab}`), { w_: 600 });
   text(t, `${INFO}/Detail_Btn/Label_Locale`, T("info.details"));
   const crcState = crcOf(v, kind);
   const crc = crcState === "fixed" ? ["crc.fixed", "#1f9a52"] : crcState === "needs_fix" ? ["crc.needed", "#d9822b"] : ["crc.original", "#000000"];
@@ -321,7 +322,7 @@ function screenTree() {
   }
   // row 3: portrait box, the switch card (the game's light weapon card), add portrait. The box's body spans
   // -96..95 around its centre (its slanted right edge ends lower down a few units further left); the title sits at -8.
-  const boxTitle = fitIn(T(v.spineCategory && tab === "lobby" ? "special.background" : `row.box.${tab}`), 48, 42, 160);
+  const boxTitle = fitIn(T(isSpecial(v) && tab === "lobby" ? "special.background" : `row.box.${tab}`), 48, 42, 160);
   text(t, `${INFO}/Weapon/WeaponType/Label_WeaponType`, boxTitle.text, { fontSize: boxTitle.fs, w_: 200, h_: 60 * boxTitle.lines });
   at(t, `${INFO}/Weapon/WeaponType/Label_WeaponType`).pos = [-8, -2];
   off(t, `${INFO}/Weapon/WeaponType/Icon`);
@@ -345,7 +346,7 @@ function screenTree() {
   // something to add and switch to (switchKind), else the disabled ones
   const keep = switchKind() ? 1 : 2;
   let bodies = 0, labels = 0;
-  const add = fitIn(T(v.spineCategory && tab === "lobby" ? "special.add" : `row.add.${tab}`), 52, 30, 160, 3); // the cyan body is 205 wide, slanted
+  const add = fitIn(T(isSpecial(v) && tab === "lobby" ? "special.add" : `row.add.${tab}`), 52, 30, 160, 3); // the cyan body is 205 wide, slanted
   for (const k of at(t, `${INFO}/Weapon/Btn_Up_Wrapper/Btn_Up`).children) {
     if (k.name === "BG (1)") { bodies += 1; if (bodies !== keep) k.active = false; }
     if (k.name === "Label_Locale") { labels += 1; if (labels !== keep) k.active = false; else Object.assign(k.widgets[0], { text: add.text, fontSize: add.fs, w_: 200, h_: 160 }); }
@@ -484,7 +485,7 @@ function addSwitchText(host, view) {
   const textW = w * 0.42 - 44; // the chevron sits in the last 44 px
   Object.assign(box.style, { left: `${l + w * 0.5}px`, top: `${t}px`, width: `${w * 0.42}px`, height: `${h * 0.94}px`, paddingRight: "44px" });
   const sub = tab === "lobby" ? lobbyLabel(variant()) : tab === "model" ? T("model.original") : candidateLabel(current());
-  const title = T(variant().spineCategory && tab === "lobby" ? "special.switch" : `row.switch.${tab}`);
+  const title = T(isSpecial(variant()) && tab === "lobby" ? "special.switch" : `row.switch.${tab}`);
   const tf = fitText(title, 46, 34, textW / S), sf = fitText(sub, 32, 24, textW / S);
   box.style.setProperty("--title-size", `${NGUI.fontSizeFor(title, tf.fs) * S}px`);
   box.style.setProperty("--sub-size", `${NGUI.fontSizeFor(sub, sf.fs) * S}px`);
@@ -509,8 +510,8 @@ function hits(view, leftHost, rightHost) {
   // the switch card puts another source on the game files of the shown tab (the 3D tab has none to offer yet)
   const sk = switchKind();
   if (sk) {
-    add(rightHost, `${INFO}/Weapon/Equip_1/UIEquipmentCard/Btn_Target/Normal/Card_Bg`, () => openPopup(sk), T(variant().spineCategory && sk === "lobby" ? "special.switch" : `row.switch.${tab}`));
-    add(rightHost, `${INFO}/Weapon/Btn_Up_Wrapper/Btn_Up/BG (1)`, addMods, T(variant().spineCategory && sk === "lobby" ? "special.add" : `row.add.${tab}`));
+    add(rightHost, `${INFO}/Weapon/Equip_1/UIEquipmentCard/Btn_Target/Normal/Card_Bg`, () => openPopup(sk), T(isSpecial(variant()) && sk === "lobby" ? "special.switch" : `row.switch.${tab}`));
+    add(rightHost, `${INFO}/Weapon/Btn_Up_Wrapper/Btn_Up/BG (1)`, addMods, T(isSpecial(variant()) && sk === "lobby" ? "special.add" : `row.add.${tab}`));
   }
   add(rightHost, `${INFO}/Status/Btn_Up_Wrapper/Btn_Up/BG (1)`, () => reveal(gameFile(variant(), tabKind())), T(platform === "mac" ? "open.mac" : "open.win"));
   add(rightHost, `${INFO}/Detail_Btn`, showDetails, T("info.details"));
@@ -540,7 +541,7 @@ function hits(view, leftHost, rightHost) {
   if (tab === "lobby") add(leftHost, "LeftInfo/CharInfo/Char_Target/Char_PlayBtn", togglePlayAll, T(Lobby.playingAll() ? "lobby.stop" : "lobby.playAll"));
   const v = variant();
   [["Tab_1", "portrait", !!v.spr], ["Tab_2", "lobby", hasLobby(v)], ["Tab_3", "model", hasModel(v)]].forEach(([n, id, ok]) => {
-    if (ok && id !== tab) add(rightHost, `RightInfo/Target/Active/CharacterTab/${n}/Tab_Off/Label`, () => showTab(id), T(v.spineCategory && id === "lobby" ? "special.background" : `tab.${id}`));
+    if (ok && id !== tab) add(rightHost, `RightInfo/Target/Active/CharacterTab/${n}/Tab_Off/Label`, () => showTab(id), T(isSpecial(v) && id === "lobby" ? "special.background" : `tab.${id}`));
   });
 }
 
@@ -986,7 +987,18 @@ async function showSpine(base, my, signal) {
             retire(previous);
           });
         },
-      }, { signal });
+      }, { signal,
+        onRecover: () => {
+          if (open && !signal.aborted && my === spineToken) loadSpine(base).catch((err) => renderFailed(err, base));
+        },
+        onError: (err) => {
+          if (signal.aborted || my !== spineToken) return;
+          clearTimeout(blinkTimer); mainPlayer = null;
+          layer.querySelector(".spine-player-error")?.remove();
+          retire([layer]);
+          renderFailed(err, base);
+        },
+      });
       layer.player = load.player;
       await load.ready;
     }, { signal });
@@ -1046,7 +1058,7 @@ async function drawPopup(scroll = 0) {
     full: c.kind === "mod" ? c.label : fullName(c.variant),
     nameEdit: c.kind === "mod" ? { label: T("modAlias.title"), fn: (s = scroll) => editModName(c.mod,
       () => switchPopupPage === pageToken && !$("popup").hidden ? renderPopup(s) : null) } : null,
-    thumb: thumb(baseOf(c, kind), "card", null, kind === "lobby"), big: () => thumb(baseOf(c, kind), "bust", null, kind === "lobby"),
+    thumb: thumb(baseOf(c, kind), "card", null, kind === "lobby", specialFraming(v)), big: () => thumb(baseOf(c, kind), "bust", null, kind === "lobby", specialFraming(v)),
     inUse: c.key === inUseKey, fav: c.fav, isNew: c.kind === "mod" && c.mod.fresh, src: c,
     inUseText: mode.set && c.key === mode.set ? T("switch.configured") : null,
     dim: c.greyed,
@@ -1056,7 +1068,7 @@ async function drawPopup(scroll = 0) {
     .filter((it) => popupSeg === 0 || (popupSeg === 1) === !!it.recruit)
     .sort((a, b) => (b.fav ? 1 : 0) - (a.fav ? 1 : 0));
   await listPopup({
-    hostId: "popup", title: T(v.spineCategory ? "special.switch" : kind === "lobby" ? "row.switch.lobby" : "popup.switch"), okText: T(mode.button), items, selected: pending, keepScroll: scroll,
+    hostId: "popup", title: T(isSpecial(v) ? "special.switch" : kind === "lobby" ? "row.switch.lobby" : "popup.switch"), okText: T(mode.button), items, selected: pending, keepScroll: scroll,
     tools: { segs: ["seg.all", "seg.recruit", "seg.noRecruit"], seg: popupSeg, onSeg: (i) => { popupSeg = i; renderPopup(); }, sortKey: "sort.default" },
     onSelect: (key, s) => {
       const c = candidates(v, kind).find((x) => x.key === key);
@@ -1078,7 +1090,7 @@ async function drawPopup(scroll = 0) {
       const crcState = c.key === appliedKey(v, kind) ? crcOf(v, kind) : null;
       const crc = crcState === "fixed" ? ["crc.fixed", "#1f9a52"] : crcState === "needs_fix" ? ["crc.needed", "#d9822b"] : crcState === "ok" ? ["crc.original", ""] : null;
       return {
-        title: T(v.spineCategory ? "special.background" : kind === "lobby" ? "info.title.lobby" : "info.title.portrait"),
+        title: T(isSpecial(v) ? "special.background" : kind === "lobby" ? "info.title.lobby" : "info.title.portrait"),
         fields: [[T("field.file"), baseName(file)], [T("field.size"), sizeText(size)], [T("field.status"), T(status[0]), status[1] && `${status[1]}/1.00`],
           [T("field.crc"), crc ? T(crc[0]) : "—", crc?.[1] && `${crc[1]}/1.00`]],
         actions: [[T(platform === "mac" ? "open.mac" : "open.win"), () => reveal(file)],
@@ -1177,7 +1189,7 @@ async function openPicker(scroll = 0) {
   pickerSel = pickerSel || variantKey;
   const items = fam.variants.filter(hasAsset).sort(byRank).map((o) => ({
     key: o.key, kind: o.recruitable ? "playable" : "other", recruit: o.recruitable, label: shortName(o), full: fullName(o),
-    thumb: thumb(variantBase(o, primaryKind(o)), "card", null, !o.spr), big: () => thumb(variantBase(o, primaryKind(o)), "bust", null, !o.spr),
+    thumb: thumb(variantBase(o, primaryKind(o)), "card", null, !o.spr, specialFraming(o)), big: () => thumb(variantBase(o, primaryKind(o)), "bust", null, !o.spr, specialFraming(o)),
     inUse: o.key === variantKey, fav: isFav(o), isNew: hasFresh(o), src: o,
   })).filter((it) => pickerSeg === 0 || (pickerSeg === 1) === it.recruit);
   await listPopup({
@@ -1189,9 +1201,9 @@ async function openPicker(scroll = 0) {
     details: (it) => {
       const o = it.src, kind = primaryKind(o), file = gameFile(o, kind);
       return {
-        title: T(o.spineCategory ? "special.background" : "info.title.portrait"),
+        title: T(isSpecial(o) ? "special.background" : "info.title.portrait"),
         fields: [[T("field.file"), coreOf(o, kind)], [T("info.gameFile"), o.date || "—"], [T("info.status"), T(appliedKey(o, kind) === "self" ? "status.original" : "status.replaced")],
-          [T(o.spineCategory ? "special.background" : "tab.lobby"), T(o.lobby ? "model.has" : "model.none")]],
+          [T(isSpecial(o) ? "special.background" : "tab.lobby"), T(o.lobby ? "model.has" : "model.none")]],
         actions: [[T(platform === "mac" ? "open.mac" : "open.win"), () => reveal(file)],
           [T("btn.extract"), () => { $("picker").hidden = true; job("actions.extract", { target: `variant:${o.key}` }, { name: fullName(o), onDone: (r) => reveal(r?.folder) }); }]],
       };
@@ -1320,7 +1332,7 @@ function detailsInfo() {
     const crc = crcLabel(p.crc);
     return [baseName(p.file), sizeText(p.size), p.date || "—", [crc[0], crc[1]], kind === "model" ? null : carriedLabel(p.applied)];
   });
-  return { title: T(v.spineCategory && tab === "lobby" ? "special.background" : `info.title.${tab}`), fields, rows, reveal: first };
+  return { title: T(isSpecial(v) && tab === "lobby" ? "special.background" : `info.title.${tab}`), fields, rows, reveal: first };
 }
 // the summary box and the file table, laid out from the top left of the scrolling area (units); returns the tree
 // and its height
@@ -1522,7 +1534,7 @@ async function showLobby(v, my, alive = () => true) {
   lobbyFrom = fam.version;
   lobbyStale = false;
   const c = current("lobby");
-  const options = { mod: !modsOn() && c.kind === "mod" ? c.id : null };
+  const options = { framing: specialFraming(v), mod: !modsOn() && c.kind === "mod" ? c.id : null };
   let m = await Lobby.show(v.lobby, $("lobby"), v.key, options);
   if (!still()) return;
   // A cancelled attempt is not a ready preview. The newest detail render owns one fresh attempt.
@@ -1534,7 +1546,7 @@ async function showLobby(v, my, alive = () => true) {
   // the voice clips of each talk animation, and Kivo's voices; nothing in another language stands in for a missing one
   const key = LINE_LANG[language()] || "en";
   const talks = Object.fromEntries(m.sequences.map((sq) => [sq.anim, sq.cues.map((c) => c.clip)]));
-  const lines = (v.spineCategory ? Promise.resolve({}) : rpc("lobby.lines", { variant: v.key, talks, lang: key })).then((table) => {
+  const lines = (isSpecial(v) ? Promise.resolve({}) : rpc("lobby.lines", { variant: v.key, talks, lang: key })).then((table) => {
     if (!still()) return null;
     Lobby.setLines(table, (l) => l?.[key] || "");
     return renderExpressions();

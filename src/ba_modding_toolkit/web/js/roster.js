@@ -10,6 +10,7 @@
 // (the game's pins) come first in each group. Grouped, each character shows its first variant (or the first one the
 // search found). The view is kept across launches (settings key "roster"), the search for the session. Only the rows
 // near the view are rendered; the list scrolls with the wheel, by dragging and with the scrollbar.
+import { specialFraming } from "./special-view.js";
 import * as NGUI from "./ngui.js";
 import * as Display from "./display.js";
 import * as Loading from "./loading.js";
@@ -270,9 +271,9 @@ function cardTree(e) {
 const portraitOf = (e) => {
   const kind = primaryKind(e), variants = data.families.find((f) => f.key === e.family)?.variants || [];
   if (modsState()?.enabled === false && configuredKey(e, kind)) {
-    return thumb(previewBase(e, kind, false, variants), "roster", null, kind === "lobby");
+    return thumb(previewBase(e, kind, false, variants), "roster", null, kind === "lobby", specialFraming(e));
   }
-  return e.portrait || (hasAsset(e) ? thumb(spineBase(kind, kind === "spr" ? e.spr : e.lobby), "roster", null, kind === "lobby") : null);
+  return e.portrait || (hasAsset(e) ? thumb(spineBase(kind, kind === "spr" ? e.spr : e.lobby), "roster", null, kind === "lobby", specialFraming(e)) : null);
 };
 
 // --- rows near the view ---
