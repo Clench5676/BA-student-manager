@@ -10,10 +10,11 @@ import * as Popup from "./popup.js";
 import * as Roster from "./roster.js";
 import * as Settings from "./settings.js";
 import * as Update from "./update.js";
-import { on, rpc } from "./api.js";
+import { on, rpc, spinePrefix } from "./api.js";
 import { T, setStrings } from "./i18n.js";
 import { neighbour, visit } from "./roster-order.js";
 import { renderNav, setTitle } from "./nav.js";
+import { forget } from "./thumbs.js";
 import { $, fitStage, toast } from "./util.js";
 
 let info = null, rosterData = null, rosterStale = true;
@@ -36,10 +37,48 @@ const ctx = {
 
 async function roster() {
   if (!rosterData || rosterStale) {
+    const before = rosterData;
     rosterData = await rpc("roster.list");
     rosterStale = false;
+    forgetReplaced(before, rosterData);
   }
   return rosterData;
+}
+
+// the portraits whose game files carry something else than before (the classic UI closed, a job that stopped midway:
+// library.changed without its cores): their thumbnails are rendered again
+function forgetReplaced(before, after) {
+  if (!before) return;
+  const was = new Map(before.families.flatMap((f) => f.variants.map((v) => [v.key, v.replaced ?? null])));
+  for (const f of after.families) {
+    for (const v of f.variants) if (v.spr && was.has(v.key) && was.get(v.key) !== (v.replaced ?? null)) forget(spinePrefix("spr", v.spr));
+  }
+}
+
+// --- library.changed: a writer job switched game files ({cores, kinds}), or anything may have changed (no data: the
+// classic UI closed, a job stopped midway, the mod list changed). The roster is read again, the thumbnails of those
+// cores are forgotten (a mod and the official file share one /asset/spine/<kind>/<core> URL; the prefix covers the
+// <core>@<id> bases of other installs too) and the detail screen reloads what it shows of them ---
+let heldChange, changeTimer = null, changeRoute = 0;
+function libraryChanged(data) {
+  const change = data && Array.isArray(data.cores) ? { cores: data.cores } : null;
+  if (change && !change.cores.length) return; // a job that switched nothing the page shows (a prune, a judging)
+  for (const core of change?.cores || []) forget(spinePrefix(/_spr$/i.test(core) ? "spr" : "lobby", core));
+  ctx.invalidateRoster();
+  heldChange = heldChange === undefined ? change : heldChange === null || change === null ? null
+    : { cores: [...new Set([...heldChange.cores, ...change.cores])] };
+  changeRoute = routeToken;
+  clearTimeout(changeTimer);
+  changeTimer = setTimeout(applyChange, 150); // the events of one job come together
+}
+async function applyChange() {
+  const change = heldChange;
+  heldChange = undefined;
+  if (!$("screen-detail").hidden) { Detail.filesChanged(change); return; }
+  if ($("screen-roster").hidden) return;
+  // the list is built again once no popup is open, unless a route came meanwhile (it reads the list itself)
+  await Popup.whenIdle();
+  if (changeRoute === routeToken && !$("screen-roster").hidden) route();
 }
 
 // the visit the detail screen records (ui.visit) goes into the roster's data too, so "Recently Viewed" has it on the
@@ -198,6 +237,8 @@ async function start() {
   // the game's pointer and touch effect, read from the game in the background (the system cursor until then)
   Cursor.init();
   renderNav(0);
+  // what the writer jobs switched
+  on("library.changed", libraryChanged);
   // files dropped on the window are added to the library
   on("drop", async ({ paths }) => {
     try {
