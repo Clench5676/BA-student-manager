@@ -4,6 +4,7 @@ import ttkbootstrap as tb
 from tkinter import messagebox
 from threading import Event
 from ...i18n import t
+from ..control import busy
 
 
 class StoppableDialog(tb.Toplevel):
@@ -44,4 +45,15 @@ class StoppableDialog(tb.Toplevel):
         Args:
             running: True 表示任务开始，False 表示任务结束
         """
+        # reported to the web UI with the tab threads' count (gui/control.py)
+        if running != self._task_running:
+            busy.add(1 if running else -1)
         self._task_running = running
+
+    def destroy(self):
+        # closed while its task still ran: a later set_task_running(False) may never come (after() on a destroyed
+        # window), so the count drops here
+        if self._task_running:
+            self._task_running = False
+            busy.add(-1)
+        super().destroy()
