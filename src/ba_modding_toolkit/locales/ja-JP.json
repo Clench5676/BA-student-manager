@@ -1056,7 +1056,7 @@
 		"type": {
 			"recruit": "実装済み",
 			"noRecruit": "未実装",
-			"added": "追加した立ち絵"
+			"added": "MOD"
 		},
 		"btn": {
 			"open": "Finderで表示",

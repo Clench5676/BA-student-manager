@@ -1056,7 +1056,7 @@
 		"type": {
 			"recruit": "실장",
 			"noRecruit": "미실장",
-			"added": "직접 추가"
+			"added": "모드"
 		},
 		"btn": {
 			"open": "Finder에서 보기",

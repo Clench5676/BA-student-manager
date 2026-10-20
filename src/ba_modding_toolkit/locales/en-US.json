@@ -1056,7 +1056,7 @@
 		"type": {
 			"recruit": "Playable",
 			"noRecruit": "NPC",
-			"added": "Added"
+			"added": "Mod"
 		},
 		"btn": {
 			"open": "Show in Finder",
