@@ -107,6 +107,13 @@ const SORT = n("UIPopup_Sort", [0, 0], [], [n("Center", [0, 0], [], [
     n("Normal", [0, 0]),
   ]),
 ])]);
+// A synthetic prefab pattern with a top-right pivot and fixed-size parent anchors.
+for (const button of SORT.children[0].children[1].children.find((c) => c.name === "Btn").children) {
+  button.children.find((c) => c.name === "BG (1)").children.push(n("Corner", [-50, -20], [
+    spr("Common_Btn_Normal_B_C_Pt", 126, 70, { type: 0, pivot: 2,
+      anchors: { leftAnchor: [1, -130], rightAnchor: [1, -4], bottomAnchor: [1, -76], topAnchor: [1, -6] } }),
+  ]));
+}
 // The settings test uses General only; the tabs and popup frame retain their real paths.
 const OPTIONS = structuredClone(SORT);
 OPTIONS.name = "UIPopup_Option_PC";
@@ -127,7 +134,7 @@ globalThis.fetch = async (url, opts = {}) => {
     return reply({ result: method === "app.checkUpdate" ? update : null, params });
   }
   if (url === "/asset/ui/atlases.json") return reply({ Common: Object.fromEntries(
-    ["Common_Bg_Raius10px", "Common_Btn_BG", "Common_Popup_Bg"].map((name) => [name, { width: 8, height: 8 }])) });
+    ["Common_Bg_Raius10px", "Common_Btn_BG", "Common_Popup_Bg", "Common_Btn_Normal_B_C_Pt"].map((name) => [name, { width: 8, height: 8 }])) });
   if (url === "/asset/ui/textures.json") return reply({});
   if (url === "/asset/ui/layout/UIPopup_Sort.json") return reply(SORT);
   if (url === "/asset/ui/layout/UIPopup_Option_PC.json") return reply(OPTIONS);
@@ -470,6 +477,32 @@ test("a list popup with several cards ticked, its buttons and no way out but the
   assert.deepEqual(pressed, ["add", "later"]);
   action(prompt, "check").click();
   prompt.hidden = true;
+});
+
+test("switch detail actions retain the prefab pattern at every button width and keep their hit areas", async () => {
+  const near = (a, b) => assert.ok(Math.abs(a - b) < 0.02, `${a} != ${b}`);
+  for (const count of [1, 2, 3, 4]) {
+    let clicked = -1;
+    await Popup.listPopup({ host: prompt, title: "Portrait", items: [items[0]], selected: items[0].key,
+      details: () => ({ title: "Portrait", fields: [], actions: Array.from({ length: count }, (_, i) =>
+        [i ? "Check compatibility" : "Show in Finder", () => { clicked = i; }]) }) });
+    for (let i = 0; i < count; i++) {
+      const path = `Details/Act_${i}/Body`, findPart = (p) => walk(prompt).find((e) => e.dataset.path === p);
+      const body = findPart(path), corner = findPart(`${path}/Corner`), box = (el) =>
+        ["left", "top", "width", "height"].map((key) => parseFloat(el.style[key]));
+      const [x, y, w, h] = box(body), [dx, dy, dw, dh] = box(corner), k = 120 / 177 * S;
+      near(x + w - dx - dw, 4 * k);
+      near(dy - y, 6 * k);
+      near(dw, 126 * k);
+      near(dh, 70 * k);
+      const button = walk(prompt).find((e) => e.tagName === "BUTTON" && e.style.left === `${x}px` && e.style.top === `${y}px`);
+      assert.ok(button);
+      assert.deepEqual(box(button), box(body));
+      button.click();
+      assert.equal(clicked, i);
+    }
+    prompt.hidden = true;
+  }
 });
 
 test("Update.check resolves when its popup closes, not when it is drawn", async () => {

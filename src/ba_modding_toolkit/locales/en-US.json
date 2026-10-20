@@ -1271,7 +1271,6 @@
 			},
 			"mods": {
 				"clear": "Clear",
-				"shown": "Show on Main Screens",
 				"scan": "Check for Configuration Drift and Untracked Mods at Start",
 				"tray": {
 					"win": "Tray Icon",

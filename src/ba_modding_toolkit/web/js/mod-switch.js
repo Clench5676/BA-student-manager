@@ -39,8 +39,8 @@ export function errorText(code, params = {}) {
   return T(`error.${code || "internal"}`, p);
 }
 
-// view(state, {place}): how the switch draws from mods.state. place "top" (the top bar) hides it when Settings turned
-// it off (decision 15) or there is no current install (the roster and the detail screen are not available then);
+// view(state, {place}): how the switch draws from mods.state. place "top" (the top bar) hides it without a current
+// install (the roster and the detail screen are not available then);
 // "settings" always shows it.
 //   on: mods are enabled; busy: a toggle queued or running, or writes queued for the classic window (dimmed);
 //   unavailable: greyed, with reason (game_running, game_status_unavailable, steam_busy, classic_open,
@@ -52,7 +52,7 @@ export function view(state, { place = "top" } = {}) {
   const unavailable = !busy && state.available === false;
   const counts = (state.pending || 0) + (state.stuck || 0) + (state.left || 0);
   return {
-    hidden: place === "top" && (state.shown === false || !state.current),
+    hidden: place === "top" && !state.current,
     on: state.enabled !== false,
     busy,
     unavailable,
@@ -186,7 +186,7 @@ export const current = () => state;
 export function onChange(fn) { listeners.add(fn); return () => listeners.delete(fn); }
 
 // the parts of mods.state the switch and Settings draw
-const signature = (s) => JSON.stringify(s && [s.enabled, s.shown, s.available, s.reason, s.busy, s.queued > 0, s.scan,
+const signature = (s) => JSON.stringify(s && [s.enabled, s.available, s.reason, s.busy, s.queued > 0, s.scan,
   s.explained, s.pending, s.stuck, s.left, s.sourceMissing, s.drift, s.untracked,
   s.damaged, s.tray, s.current, (s.installs || []).map((i) => [i.key, i.label, i.named])]);
 

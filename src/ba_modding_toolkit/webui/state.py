@@ -119,11 +119,13 @@ class UiState:
         self._seen: tuple[int, int] | None = None  # the file's (mtime, size) when it was last read or written
         prefs = self._current().get("prefs")
         # Manual consent did not authorize automatic checks. Migrate it to Off without opting the user in.
-        if isinstance(prefs, dict) and "startup_checks" in prefs:
+        if isinstance(prefs, dict) and any(key in prefs for key in ("startup_checks", "mod_switch_shown")):
             def migrate(data: dict[str, Any]) -> None:
                 prefs = data.get("prefs", {})
                 if prefs.pop("startup_checks", None) is False and prefs.get("scan_consent") is True:
                     prefs["scan_consent"] = False
+                # The main screens always keep the switch.
+                prefs.pop("mod_switch_shown", None)
 
             self._update(migrate)
 
@@ -331,9 +333,9 @@ class UiState:
         return made[0]
 
 
-# Boolean preferences and their defaults: the Enable Mods switch shown on the main screens, the tray or menu bar icon,
+# Boolean preferences and their defaults: the tray or menu bar icon,
 # the hand-off prompt before the classic UI opens, and whether the first toggle's explanation was shown
-FLAGS = {"mod_switch_shown": True, "tray": False, "classic_prompt": True, "mods_explained": False,
+FLAGS = {"tray": False, "classic_prompt": True, "mods_explained": False,
          "startup_update": True}
 DATA_ID_LENGTH = 12  # hex digits
 

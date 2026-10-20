@@ -1,0 +1,35 @@
+// Button patterns are separate NGUI widgets: their anchors, pivot and size follow the body, not its caption.
+const PIVX = [0, 0.5, 1, 0, 0.5, 1, 0, 0.5, 1];
+const PIVY = [1, 1, 1, 0.5, 0.5, 0.5, 0, 0, 0];
+
+export function resizeButton(body, width = null, height = null) {
+  const bg = body.widgets.find((w) => "sprite" in w && "w_" in w);
+  if (!bg) return body;
+  const oldW = bg.w_, oldH = bg.h_, pivot = bg.pivot ?? 4;
+  bg.w_ = width ?? oldW;
+  bg.h_ = height ?? oldH;
+  for (const child of body.children || []) {
+    for (const w of child.widgets) {
+      if (!/^Common_Btn_.*_Pt$/.test(w.sprite || "")) continue;
+      const anchors = w.anchors || {}, p = w.pivot ?? 4;
+      const axis = (i, size, old, bp, cp, lo, hi) => {
+        const scale = child.scale[i], span = w[size] * scale;
+        const start = -bp * bg[size], end = start + bg[size];
+        const edge = (key) => anchors[key] ? start + (end - start) * anchors[key][0] + anchors[key][1] : null;
+        let a = edge(lo), b = edge(hi);
+        if (a == null && b == null) {
+          // Unanchored patterns retain the prefab's distance from the right/top edge on resize.
+          child.pos[i] += (bg[size] - old) * (1 - bp);
+          return;
+        }
+        if (a == null) a = b - span;
+        if (b == null) b = a + span;
+        child.pos[i] = a + (b - a) * cp;
+        w[size] = (b - a) / scale;
+      };
+      axis(0, "w_", oldW, PIVX[pivot], PIVX[p], "leftAnchor", "rightAnchor");
+      axis(1, "h_", oldH, PIVY[pivot], PIVY[p], "bottomAnchor", "topAnchor");
+    }
+  }
+  return body;
+}

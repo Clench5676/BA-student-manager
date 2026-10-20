@@ -10,6 +10,7 @@
 // cover and swaps them in one frame (the commit barrier below), after previews and visible images settle.
 import { isSpecial, specialFraming } from "./special-view.js";
 import * as NGUI from "./ngui.js";
+import { resizeButton } from "./button-layout.js";
 import { latestLoad, loadPlayer } from "./spine-load.js";
 import { withPreviewTimeout as withTimeout } from "./async.js";
 import { previewError } from "./preview-error.js";
@@ -316,6 +317,7 @@ function screenTree() {
   off(t, `${up}/Lock`, `${up}/Dot`);
   widget(t, `${up}/BG (1)`).color = "#dbeef5/1.00";
   for (const k of at(t, `${up}/BG (1)`).children) k.widgets[0].sprite = "Common_Btn_Normal_B_C_Pt";
+  resizeButton(at(t, `${up}/BG (1)`));
   const openText = fitText(T(platform === "mac" ? "open.mac" : "open.win"), 32, 26, 140);
   text(t, `${up}/Label_Locale`, openText.text, { fontSize: openText.fs, w_: 160, h_: 40 * openText.lines, color: "#2d5164/1.00" });
   at(t, `${up}/Label_Locale`).pos = [-1.4 - (openText.lines > 1 ? 36 : 46) * TAN10, openText.lines > 1 ? -36 : -46];
@@ -332,7 +334,7 @@ function screenTree() {
   actions.forEach(([card], i) => {
     const base = `${INFO}/Skill/${card}`, bg = at(t, `${base}/Bg`);
     at(t, base).pos[0] = ROW_L + CW / 2 + i * (CW + GAP) - 202 - bg.pos[0];
-    bg.widgets[0].w_ = CW;
+    resizeButton(bg, CW);
     find(t, `${base}/Bg/Bg_Line`).widgets[0].w_ = CW - 10;
   });
   off(t, `${INFO}/Skill/Btn_Up_Wrapper`); // the install button, removed for now
@@ -379,7 +381,7 @@ function screenTree() {
   let bodies = 0, labels = 0;
   const add = fitIn(T(isSpecial(v) && tab === "lobby" ? "special.add" : `row.add.${tab}`), 52, 30, 160, 3); // the cyan body is 205 wide, slanted
   for (const k of at(t, `${INFO}/Weapon/Btn_Up_Wrapper/Btn_Up`).children) {
-    if (k.name === "BG (1)") { bodies += 1; if (bodies !== keep) k.active = false; }
+    if (k.name === "BG (1)") { resizeButton(k); bodies += 1; if (bodies !== keep) k.active = false; }
     if (k.name === "Label_Locale") { labels += 1; if (labels !== keep) k.active = false; else Object.assign(k.widgets[0], { text: add.text, fontSize: add.fs, w_: 200, h_: 160 }); }
     if (k.name === "Bg" || k.name === "Lock" || k.name === "Dot") k.active = false;
   }

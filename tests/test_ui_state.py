@@ -332,7 +332,7 @@ def test_a_copied_data_directory_gets_its_own_id_and_a_moved_one_keeps_it(tmp_pa
 
 def test_the_switch_flags_and_the_scan_consent_have_their_defaults(tmp_path):
     state = UiState(tmp_path / "webui.json")
-    assert {key: state.flag(key) for key in FLAGS} == {"mod_switch_shown": True, "tray": False,
+    assert {key: state.flag(key) for key in FLAGS} == {"tray": False,
                                                         "classic_prompt": True, "mods_explained": False,
                                                         "startup_update": True}
     assert state.scan_consent is None
@@ -343,11 +343,28 @@ def test_the_switch_flags_and_the_scan_consent_have_their_defaults(tmp_path):
     assert json.loads((tmp_path / "webui.json").read_text())["prefs"] == {"scan_consent": False, "tray": "yes"}
 
 
+@pytest.mark.parametrize("shown", [True, False, None, "no"])
+def test_legacy_switch_visibility_is_dropped_without_changing_other_state(tmp_path, shown):
+    path = tmp_path / "webui.json"
+    data = {"consent": True, "recent": ["student"],
+            "prefs": {"mod_switch_shown": shown, "tray": True, "scan_consent": None}}
+    path.write_text(json.dumps(data))
+    state = UiState(path)
+    assert state.get("mod_switch_shown") is None
+    assert "mod_switch_shown" not in FLAGS
+    del data["prefs"]["mod_switch_shown"]
+    assert json.loads(path.read_text()) == data
+    before = path.stat().st_mtime_ns
+    assert UiState(path).get("tray") is True
+    assert path.stat().st_mtime_ns == before
+
+
 @pytest.mark.parametrize("startup", [True, False])
 @pytest.mark.parametrize("consent", [True, False, None])
 def test_legacy_file_check_modes_migrate_without_granting_automatic_consent(tmp_path, startup, consent):
     path = tmp_path / "webui.json"
-    path.write_text(json.dumps({"prefs": {"scan_consent": consent, "startup_checks": startup, "tray": True}}))
+    path.write_text(json.dumps({"prefs": {"scan_consent": consent, "startup_checks": startup,
+                                          "mod_switch_shown": False, "tray": True}}))
     state = UiState(path)
     expected = False if consent is True and not startup else consent
     assert state.scan_consent is expected

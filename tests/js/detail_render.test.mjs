@@ -160,6 +160,8 @@ for (const stat of ["Label_Life", "Label_Attact", "Label_Defense", "Label_Healin
 for (const button of ["Status", "Weapon"]) for (const path of ["BG (1)/Corner", "Label_Locale"]) add(`${INFO}/${button}/Btn_Up_Wrapper/Btn_Up/${path}`);
 for (const card of ["SkillData_EX", "SkillData_EX (1)", "SkillData_EX (2)", "SkillData_EX (3)"]) {
   for (const path of ["Bg/Bg_Line", "Normal/Label_SkillType", "Normal/SkillIconBg/Texture"]) add(`${INFO}/Skill/${card}/${path}`);
+  add(`${INFO}/Skill/${card}/Bg/Corner`).widgets = [{ sprite: "Common_Btn_Normal_B_C_Pt", w_: 20, h_: 10, pivot: 2,
+    anchors: { leftAnchor: [1, -23], rightAnchor: [1, -3], bottomAnchor: [1, -14], topAnchor: [1, -4] } }];
 }
 for (const path of ["BG/BG (1)", "Line/Line", "Label_WeaponType"]) add(`${INFO}/Weapon/WeaponType/${path}`);
 for (const path of ["Card_Bg/Deco", "Card_Level"]) add(`${INFO}/Weapon/Equip_1/UIEquipmentCard/Btn_Target/Normal/${path}`);
@@ -1053,4 +1055,23 @@ test("the detail portrait resumes focus and rebuilds after a hidden context loss
     p.canvas.dispatchEvent(new Event("webglcontextrestored")); await flush();
     assert.equal(previewPlayers.length, count + 1, "a disposed portrait cannot restart again");
   } finally { document.hidden = false; Detail.hide(); await flush(); t.mock.timers.reset(); }
+});
+
+test("detail action patterns follow their resized bodies", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    family = modFamily();
+    await showPortrait(t);
+    const part = (path) => walk(hosts.ngui).find((e) => e.dataset.path?.endsWith(path));
+    const near = (a, b) => assert.ok(Math.abs(a - b) < 0.02, `${a} != ${b}`);
+    const scale = 1920 / 2960;
+    for (const card of ["SkillData_EX", "SkillData_EX (1)", "SkillData_EX (2)", "SkillData_EX (3)"]) {
+      const base = `${INFO}/Skill/${card}/Bg`, body = part(base), corner = part(`${base}/Corner`);
+      const num = (el, key) => parseFloat(el.style[key]);
+      near(num(body, "left") + num(body, "width") - num(corner, "left") - num(corner, "width"), 3 * scale);
+      near(num(corner, "top") - num(body, "top"), 4 * scale);
+      near(num(corner, "width"), 20 * scale);
+      near(num(corner, "height"), 10 * scale);
+    }
+  } finally { Detail.hide(); await flush(); t.mock.timers.reset(); }
 });

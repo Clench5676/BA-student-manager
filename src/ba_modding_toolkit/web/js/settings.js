@@ -237,7 +237,6 @@ function rows({ builtSize = null, sizeError = null } = {}) {
     const sw = radioRow("Switch", 0, T("mods.switch"), ON_OFF(), v.on, (value) => { if (value !== v.on) ModSwitch.click("settings"); },
       { dim: v.busy || v.unavailable, description: v.unavailable ? ModSwitch.reasonText(m) : "" });
     add(helpAfterTitle(sw, T("mods.switch"), v.dot));
-    add(radioRow("Shown", 0, T("settings.mods.shown"), ON_OFF(), p.modSwitchShown !== false, (value) => set("modSwitchShown", value)));
     add(valueRow("Built", 0, T("mods.cache"), sizeError || (builtSize == null ? T("job.running") :
       ModSwitch.sizeText(builtSize)), [
       [T("settings.mods.clear"), async () => { if (await ModSwitch.clearBuilt()) render(); }, builtSize > 0]]));

@@ -152,7 +152,7 @@ def events_named(events, name):
 
 # --- mods.state ---
 
-STATE_KEYS = {"installs", "current", "enabled", "shown", "available", "reason", "scan", "explained", "configured",
+STATE_KEYS = {"installs", "current", "enabled", "available", "reason", "scan", "explained", "configured",
               "pending", "stuck", "left", "unfinished", "drift", "untracked", "damaged", "sourceMissing",
               "queued", "scanned", "tray", "traySupported", "busy", "progress"}
 
@@ -164,8 +164,8 @@ def test_mods_state_has_its_shape_and_answers_while_the_library_lock_is_held(env
     assert state["installs"] == [{"id": pin.id, "key": env.key(), "server": "global", "folder": str(pin.root),
                                   "named": True, "label": "Global", "distinct": None}]
     assert (state["current"], state["enabled"], state["available"], state["reason"]) == (env.key(), True, True, None)
-    assert (state["scan"], state["shown"], state["explained"], state["busy"], state["queued"]) == (
-        None, True, False, False, 0)
+    assert (state["scan"], state["explained"], state["busy"], state["queued"]) == (
+        None, False, False, 0)
     assert state["unfinished"] == {"pending": 0, "left": 0, "stuck": 0}
     # answered from the snapshot: another thread holding the library lock does not hold it up
     library, held, release = env.s.library, threading.Event(), threading.Event()
@@ -294,13 +294,16 @@ def test_the_scan_consent_and_the_preferences(env):
     assert rpc(app, "mods.state")["result"]["scan"] is True
     assert "error" not in rpc(app, "mods.explained")
     assert rpc(app, "mods.state")["result"]["explained"] is True
-    for key, pref in (("modSwitchShown", "mod_switch_shown"), ("tray", "tray"), ("classicPrompt", "classic_prompt")):
+    for key, pref in (("tray", "tray"), ("classicPrompt", "classic_prompt")):
         before = rpc(app, "settings.get")["result"][key]
         after = rpc(app, "settings.set", key=key, value=not before)["result"][key]
         assert after is (not before) and s.state.get(pref) is (not before)
         assert rpc(app, "settings.set", key=key, value="yes")["error"]["code"] == "bad_params"
     assert rpc(app, "settings.get")["result"]["traySupported"] is False
-    assert rpc(app, "mods.state")["result"]["shown"] is False
+    assert "modSwitchShown" not in rpc(app, "settings.get")["result"]
+    assert "shown" not in rpc(app, "mods.state")["result"]
+    assert rpc(app, "settings.set", key="modSwitchShown", value=False)["error"]["code"] == "bad_params"
+    assert s.state.get("mod_switch_shown") is None
     assert "error" not in rpc(app, "mods.consent", granted=False)
     assert library._scan_allowed() is False and rpc(app, "mods.state")["result"]["scan"] is False
     assert rpc(app, "mods.consent", granted="yes")["error"]["code"] == "bad_params"

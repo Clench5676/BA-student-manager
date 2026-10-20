@@ -902,7 +902,6 @@ class Services:
             "installs": installs,
             "current": status.get("current"),
             "enabled": status.get("enabled", True),
-            "shown": self.state.flag("mod_switch_shown"),
             "available": reason is None,
             "reason": reason,
             "reasonParams": params,

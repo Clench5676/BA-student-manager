@@ -798,7 +798,7 @@ stops the server (the page shows Closed); with `--serve` it gives `native_unavai
 | `classic.clearQueue` | `{}` |
 | `i18n.strings {lang}` | `{key: text}` for `webui.*` |
 | `roster.list` | families with variants, mod counts, fresh flags, favourites, recent order, `added` (when the newest own mod was added), `aliases` per family and per variant (matched by the search, never shown), `custom` per family (the user's own aliases); without scan consent Replaced comes from the library's records only |
-| `settings.get` / `settings.set {key, value}` | the settings popup's values; key `roster` keeps the student list's view (merge, segment filters, sort, order, filter groups; `webui/state.py roster_view`); `lobbyZoom` is `{mode, custom}` in `settings.get`, set by keys `lobbyZoom` (`game`, `art`, `unlocked`, `custom`) and `lobbyZoomCustom` (1.0 to 4.0 game views across, kept in 0.1 steps); `lobbyPost` and `lobbyIntro` (the lobby's post-processing and its intro, on by default); the booleans `modSwitchShown` (the switch on the main screens), `tray` (the tray or menu bar icon) and `classicPrompt` (the hand-off prompt); `settings.get` adds `traySupported` |
+| `settings.get` / `settings.set {key, value}` | the settings popup's values; key `roster` keeps the student list's view (merge, segment filters, sort, order, filter groups; `webui/state.py roster_view`); `lobbyZoom` is `{mode, custom}` in `settings.get`, set by keys `lobbyZoom` (`game`, `art`, `unlocked`, `custom`) and `lobbyZoomCustom` (1.0 to 4.0 game views across, kept in 0.1 steps); `lobbyPost` and `lobbyIntro` (the lobby's post-processing and its intro, on by default); the booleans `tray` (the tray or menu bar icon) and `classicPrompt` (the hand-off prompt); `settings.get` adds `traySupported` |
 | `family.get {key}` | a family with its variants (and `aliases` and `custom`, as in `roster.list`), mods and each variant's state, judged cheaply (`copy`, `restorable` and `official` per file; Needs Fix only from the record of the switch that wrote the file); `configured {spr, lobby}` per variant (the sources of its primary cores); `modelFiles` per variant (the 3D model's prefab bundles, newest first, `fixed` or `ok` from the header) and `version` (the game's resource version, so a switched install reloads the screen); `modList` by the variant the current catalog gives each mod's core |
 | `lobby.warm` | builds the memorial lobby prefab index and the index of every bundle's CABs (the particle effects' materials, textures and meshes) in the background (once per game); the detail screen calls it for a variant with a lobby |
 | `lobby.lines {variant, talks, lang}` | `{clip: {lang: text, voice}}`: zh-CN from Kivo, ja from Kivo else the Global server, en, zh-TW, ko and th from the Global server (read only for a `lang` other than zh-CN, left out when its table is not in within 3 s); `talks` (`{animation: [clip ids]}` from the skeleton) places the Global rows on the clips; `lines_unavailable` when neither source can be read |
@@ -811,7 +811,7 @@ stops the server (the page shows Closed); with `--serve` it gives `native_unavai
 | `mods.remove {id, confirm = false}` | library writer job id; result `{done, failed, dropped, cores, kinds}`; deletes the source, stored files and references, then restores game entries to Official or their saved source; refused writes keep the new configuration and an unfinished entry |
 | `mods.rename {id, label}` | |
 | `mods.seen {id}` or `{ids}` | stores seen mod IDs in `webui.json`, without writing the library; roster and family fresh flags come from this state |
-| `mods.state` | `{installs: [{id, key, server, folder, label, distinct, named}], current, enabled, shown, available, reason, reasonParams, scan, explained, configured, pending, stuck, left, unfinished: {pending, left, stuck}, drift, untracked, damaged, sourceMissing, queued, scanned, tray, traySupported, busy, progress}` from the snapshot (above); `id` is the first 12 hex digits of the install key's SHA-1 (used in URLs), `named` tells a folder the settings name from a recorded one; `busy` while a toggle is queued or running or writes are queued for the classic window; `progress` is `{done, total}` of a running toggle |
+| `mods.state` | `{installs: [{id, key, server, folder, label, distinct, named}], current, enabled, available, reason, reasonParams, scan, explained, configured, pending, stuck, left, unfinished: {pending, left, stuck}, drift, untracked, damaged, sourceMissing, queued, scanned, tray, traySupported, busy, progress}` from the snapshot (above); `id` is the first 12 hex digits of the install key's SHA-1 (used in URLs), `named` tells a folder the settings name from a recorded one; `busy` while a toggle is queued or running or writes are queued for the classic window; `progress` is `{done, total}` of a running toggle |
 | `mods.sizes {kind}` | `{builtSize}` for `kind: "built"` or `{originalsSize}` for `kind: "originals"`, bytes measured on demand; Settings requests only the Mod Cache size; no size walks in `mods.state` |
 | `mods.toggle {enabled, expect}` | job id (`mods.toggle`): the switch over every known install, also Retry; `busy` while another toggle is queued or running, `classic_open` at submit; the job's refusals `state_changed`, `folder_changed`, `game_running`, `game_status_unavailable`, `steam_busy`, `classic_open`, `not_enough_space` |
 | `mods.consent {granted}` | `{}`; saves `scan_consent`; granting enables startup checks and requests a scan immediately; withdrawing stops the scans and empties the entries |
@@ -1206,8 +1206,8 @@ detail screen, and in Settings' Mods tab.
   window (dimmed at the loading indicator's pace); unavailable, greyed with the reason as its accessible description (the game
   running or its state unknown, Steam busy, the classic window open, no game folder known, unreadable mod settings);
   the red dot (`Common_Icon_Reddot2`) while entries were not switched or were left as is. It is a `button` with
-  `role="switch"` and `aria-checked`; Space and Enter toggle. Settings' Show on Main Screens Off hides it from the top
-  bar (nothing replaces it), and so does having no current install (Settings keeps it).
+  `role="switch"` and `aria-checked`; Space and Enter toggle. It always appears on the main
+  screens with a current install (Settings keeps it without one).
 - **A click** (`click(from)`, the same rules from the top bar and Settings): busy, a toast (`error.busy`), or the
   classic modal with its box ticked when writes wait for the classic window; unavailable, the reason as a toast; the
   first toggle ever, the explanation; the classic window open, the classic modal; otherwise `mods.toggle {enabled:
@@ -1238,7 +1238,7 @@ detail screen, and in Settings' Mods tab.
   (`#consent.over`).
 - **Settings' Mods tab** (second, after General; `UIPopup_Option_PC`'s tab column has five separators): Enable Mods
   (On / Off, the same switch with the same rules, its square "?" and red dot after the title; faded while busy or
-  unavailable); Show on Main Screens (`modSwitchShown`); Mod Cache (mods rebuilt for the current game version and
+  unavailable); Mod Cache (mods rebuilt for the current game version and
   kept for instant re-enabling; size requested with `mods.sizes {kind: "built"}` when the row is drawn, loading text
   while waiting, Clear enabled for a nonzero size; `mods.clearBuilt`, then "Mod cache cleared" and the size measured
   again); Tray Icon or Menu Bar Icon (`tray`, only in the app window where the system has one); Check for Configuration

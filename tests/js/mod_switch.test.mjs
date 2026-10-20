@@ -170,7 +170,7 @@ function deferred() { let resolve; const promise = new Promise((r) => { resolve 
 // a mods.state as the services answer it
 const install = (key, label, extra = {}) => ({ id: key.slice(-4), key, server: "global", folder: key, label, named: true, ...extra });
 const base = (over = {}) => ({
-  installs: [install("/games/BlueArchive", "Global")], current: "/games/BlueArchive", enabled: true, shown: true,
+  installs: [install("/games/BlueArchive", "Global")], current: "/games/BlueArchive", enabled: true,
   available: true, reason: null, reasonParams: {}, scan: true, explained: true, configured: 2, pending: 0, stuck: 0,
   left: 0, unfinished: { pending: 0, left: 0, stuck: 0 }, drift: 0, untracked: 0, damaged: 0, sourceMissing: 0,
   queued: 0, scanned: null, tray: false, traySupported: false, busy: false, progress: null,
@@ -196,8 +196,8 @@ test("the switch's view from mods.state: on, off, busy, unavailable with its rea
   assert.equal(MS.view(base()).dot, false);
   for (const k of ["pending", "stuck", "left"]) assert.equal(MS.view(base({ [k]: 1 })).dot, true, k);
   assert.equal(MS.view(base({ scan: false, pending: 0, left: 1, unfinished: { pending: 0, left: 1, stuck: 0 } })).dot, true);
-  // hidden on the main screens when Settings turned it off (nothing replaces it), and without a current install
-  assert.equal(MS.view(base({ shown: false })).hidden, true);
+  // Legacy visibility values cannot hide the switch; only the absence of a current install does.
+  assert.equal(MS.view(base({ shown: false })).hidden, false);
   assert.equal(MS.view(base({ current: null })).hidden, true);
   assert.equal(MS.view(base({ shown: false }), { place: "settings" }).hidden, false, "Settings keeps the switch");
   assert.equal(MS.view(null).hidden, true);
@@ -382,10 +382,10 @@ test("the top bar's switch follows mods.state, and the first toggle explains onc
   MS.click("top");
   assert.equal(toastEl.textContent, S("error.game_running"));
   assert.equal(called("mods.toggle").length, 1);
-  // hidden on the main screens (Settings' Show on Main Screens off)
+  // An older state response cannot hide the main switch.
   answers["mods.state"] = base({ shown: false });
   await MS.refresh();
-  assert.equal(switchHost.hidden, true);
+  assert.equal(switchHost.hidden, false);
   assert.equal(toggle.getAttribute("aria-description"), null);
   assert.ok(walk(switchHost).every((e) => !e.title && !e.getAttribute("title")));
 });
@@ -524,6 +524,7 @@ test("Settings combines scan consent and automatic checks, preserving the consen
   assert.ok(!hasPath("Rows/StartupChecks/Title"));
   assert.ok(!hasPath("Rows/Folders/Title"));
   const rowPaths = walk(settingsHost).map((e) => e.dataset.path).filter((p) => /^Rows\/[^/]+$/.test(p));
+  assert.ok(!rowPaths.includes("Rows/Shown"), "visibility is no longer a preference");
   assert.ok(rowPaths.includes("Rows/Tray"), "the tray row is shown on supported systems");
   assert.equal(rowPaths[rowPaths.indexOf("Rows/Scan") + 1], "Rows/Files", "startup checks sit directly above manual Check");
   assert.ok(button(S("settings.mods.check")), "manual Check available without consent");

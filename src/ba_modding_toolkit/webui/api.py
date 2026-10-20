@@ -76,7 +76,7 @@ def _url_portrait(name: str | None) -> str | None:
 
 
 # settings.set keys of the boolean preferences (webui/state.py FLAGS)
-FLAG_KEYS = {"modSwitchShown": "mod_switch_shown", "tray": "tray", "classicPrompt": "classic_prompt",
+FLAG_KEYS = {"tray": "tray", "classicPrompt": "classic_prompt",
              "startupUpdate": "startup_update"}
 
 
@@ -249,8 +249,8 @@ def build_api(s: Services) -> RpcRegistry:
             "consent": s.state.consent, "cacheDir": str(s.cache_dir()),
             "version": get_version_info().get("version"), "native": s.window is not None,
             "logPath": str(s.log_path),
-            # the Enable Mods switch on the main screens, the tray or menu bar icon, the hand-off prompt
-            "modSwitchShown": s.state.flag("mod_switch_shown"), "tray": s.state.flag("tray"),
+            # the tray or menu bar icon, the hand-off prompt
+            "tray": s.state.flag("tray"),
             "classicPrompt": s.state.flag("classic_prompt"), "traySupported": s.tray_supported,
             "startupUpdate": s.state.flag("startup_update"),
         }

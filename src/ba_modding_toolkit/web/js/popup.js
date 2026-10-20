@@ -10,6 +10,7 @@
 // answered with a button takes Escape and does nothing with it, so nothing under it acts either.
 // The pure parts (the stack, the selection, the start sequence) are tested in Node (tests/js/popup.test.mjs).
 import * as NGUI from "./ngui.js";
+import { resizeButton } from "./button-layout.js";
 import { T } from "./i18n.js";
 import { DOT, RECRUIT, S, TAN10, advanceOf, clone, glyphsOf, hitButton, markedLabel, wrapPath } from "./util.js";
 
@@ -145,6 +146,7 @@ export function popupFrame(title, w, h, { ok = null, cancel = null, close = true
   btn.pos = [0, FRAME_Y - h / 2 + 122];
   for (const [name, caption] of [["Btn_Ok", ok], ["Btn_Cancel", cancel]]) {
     const b = find(btn, name);
+    resizeButton(find(b, "BG (1)"));
     b.active = !!caption;
     if (!(ok && cancel)) b.pos = [0, b.pos[1]];
     if (caption) NGUI.fitLabel(find(b, "Label_Locale").widgets[0], caption, 64, 40, 420);
@@ -325,6 +327,7 @@ function listFrame(title, buttons, closeButton) {
   const k = buttons.length > 2 ? 0.8 : 1, bw = BTN_W * k, gap = 24, right = LP.ok.x + BTN_W / 2;
   btn.children = buttons.map((b, i) => {
     const n = clone(b.primary ? ok : cancel);
+    resizeButton(find(n, "BG (1)"));
     n.name = `Btn_${i}`;
     n.active = true;
     n.scale = [k, k];
@@ -434,8 +437,16 @@ function detailsTree(it, title, fields, actions) {
   });
   actions.forEach(([caption], i) => {
     const bw = (w - 60) / actions.length, x = b.l + 30 + bw / 2 + i * bw, f = fitText(caption, 40, 26, bw - 60);
-    kids.push(node(`Act_${i}`, [x, b.b + 70], [sprite("Common_Btn_BG", bw - 14, 120, { depth: 6, color: "#dbeef5/1.00", incline: 10 })], [
-      node("Pt", [50, -2], [sprite("Common_Btn_Normal_B_C_Pt", 126, 70, { type: 0, depth: 7, color: "#ffffff/0.80" })]),
+    const body = clone(find(layouts.sortPopup, "Center/Popup/Btn/Btn_Cancel/BG (1)"));
+    const bg = body.widgets.find((w) => "sprite" in w), k = 120 / bg.h_;
+    body.name = "Body";
+    body.pos = [0, 0];
+    body.scale = [k, k];
+    resizeButton(body, (bw - 14) / k);
+    Object.assign(bg, { depth: 6, color: "#dbeef5/1.00" });
+    for (const child of body.children || []) for (const w of child.widgets) if ("w_" in w) w.depth = 7;
+    kids.push(node(`Act_${i}`, [x, b.b + 70], [], [
+      body,
       node("Label", [0, 6], [label(f.text, f.fs, "#2d5164/1.00", bw - 40, 60 * f.lines, { depth: 8 })]),
     ]));
   });
@@ -534,7 +545,7 @@ export async function listPopup({
     const d = details(sel);
     const dv = await NGUI.render(detailsTree(sel, d.title, d.fields, d.actions), next, { scale: S, origin: [960, 540], z: 20 });
     if (sel.nameEdit) hit(next, dv, "Details/EditName", () => sel.nameEdit.fn(inner.parentElement.scrollTop), { name: sel.nameEdit.label, action: "alias:details" });
-    d.actions.forEach(([caption, fn], i) => { if (fn) hit(next, dv, `Details/Act_${i}`, fn, { name: caption }); });
+    d.actions.forEach(([caption, fn], i) => { if (fn) hit(next, dv, `Details/Act_${i}/Body`, fn, { name: caption }); });
   }
   if (tokens.get(host) !== my || host.hidden) return;
   const area = inner.parentElement;
