@@ -38,6 +38,10 @@ PROGRAMS = {
     "DSFX/FX_SHADER_AlwaysView_Add": "alwaysViewAdd",
     "DSFX/FX_SHADER_Matcap_0": "matcap",
     "FX/General Unlit VertexColor": "vertexColor",
+    "FX/FX_SHADER_Lobby_Order": "lobbyOrder",  # the lens-dirt and light quads (meshfx.py)
+    # Unity's built-in sprite and mobile particle shaders: the intro's flash and fade sprites (intro.sprite)
+    "Sprites/Default": "sprite",
+    "Mobile/Particles/Additive": "particleAdd",
 }
 # ParticleSystemVertexStream -> component count, for packing custom vertex streams into TEXCOORD0..n as Unity does
 _STREAM_SIZE = {4: 2, 5: 2, 6: 2, 7: 2, 8: 1, 9: 1, 10: 3, 11: 1, 12: 1, 13: 2, 14: 3, 15: 1, 16: 3, 17: 1, 18: 3,
@@ -164,7 +168,11 @@ def _shape(m: Mapping[str, Any]) -> dict | None:
         "arcMode": arc.get("mode", 0) if isinstance(arc, Mapping) else 0,
         "arcSpread": _r(arc.get("spread", 0.0)) if isinstance(arc, Mapping) else 0.0,
         "arcSpeed": curve(arc.get("speed"), 1.0) if isinstance(arc, Mapping) else 1.0,
+        # an edge spreads its particles along its length by the radius's mode (random, loop, ping-pong or burst
+        # spread), spread and speed, as an arc does around the arc with its own
         "radiusMode": radius.get("mode", 0) if isinstance(radius, Mapping) else 0,
+        "radiusSpread": _r(radius.get("spread", 0.0)) if isinstance(radius, Mapping) else 0.0,
+        "radiusSpeed": curve(radius.get("speed"), 1.0) if isinstance(radius, Mapping) else 1.0,
         "pos": _vec(m.get("m_Position")), "rot": _vec(m.get("m_Rotation")), "scale": _vec(m.get("m_Scale"), 1.0),
         "randomDir": _r(m.get("randomDirectionAmount", 0.0)), "spherical": _r(m.get("sphericalDirectionAmount", 0.0)),
         "randomPos": _r(m.get("randomPositionAmount", 0.0)), "align": 1 if m.get("alignToDirection") else 0,
@@ -200,6 +208,13 @@ def _modules(ps: Mapping[str, Any]) -> dict:
     m = ps.get("ColorModule") or {}
     if m.get("enabled"):
         out["color"] = gradient(m.get("gradient"))
+    m = ps.get("ColorBySpeedModule") or {}
+    if m.get("enabled"):
+        # the gradient over the particle's speed between range x and y (CH0318's dust fades out towards 7 and 8 units
+        # a second)
+        rng = m.get("range") or {}
+        out["colorBySpeed"] = {"color": gradient(m.get("gradient")),
+                               "range": [_r(rng.get("x", 0.0)), _r(rng.get("y", 1.0))]}
     m = ps.get("VelocityModule") or {}
     if m.get("enabled"):
         out["velocity"] = {k: curve(m.get(k)) for k in ("x", "y", "z", "orbitalX", "orbitalY", "orbitalZ",
@@ -238,6 +253,20 @@ def _modules(ps: Mapping[str, Any]) -> dict:
             else:
                 custom.append(None)
         out["custom"] = custom
+    m = ps.get("TrailModule") or {}
+    if m.get("enabled") and m.get("mode", 0) == 0:
+        # a trail behind each particle (Particles mode; Ribbon mode is used by no lobby): the points it leaves every
+        # minVertexDistance, each living lifetime x its particle's lifetime, drawn with the renderer's second material
+        out["trail"] = {
+            "ratio": _r(m.get("ratio", 1.0)), "life": curve(m.get("lifetime"), 1.0),
+            "minDist": _r(m.get("minVertexDistance", 0.2)), "texMode": m.get("textureMode", 0),
+            "world": 1 if m.get("worldSpace") else 0, "die": 1 if m.get("dieWithParticles", True) else 0,
+            "sizeWidth": 1 if m.get("sizeAffectsWidth", True) else 0,
+            "sizeLife": 1 if m.get("sizeAffectsLifetime") else 0,
+            "inherit": 1 if m.get("inheritParticleColor", True) else 0,
+            "color": gradient(m.get("colorOverLifetime")), "width": curve(m.get("widthOverTrail"), 1.0),
+            "colorTrail": gradient(m.get("colorOverTrail")),
+        }
     return out
 
 
@@ -292,6 +321,10 @@ def _renderer(r: Mapping[str, Any]) -> dict:
         "lengthScale": _r(r.get("m_LengthScale", 2.0)), "velocityScale": _r(r.get("m_VelocityScale", 0.0)),
         "pivot": _vec(r.get("m_Pivot")), "flip": _vec(r.get("m_Flip")), "streams": _streams(r),
         "rotateWithStretch": 1 if r.get("m_RotateWithStretchDirection", True) else 0,
+        # Apply Active Color Space: in the game's linear colour space Unity converts the particle colours from gamma
+        # to linear before they reach the vertex stream; with it off (116 systems in 30 lobbies: Michiru's, Nodoka's)
+        # the shader gets them as stored
+        "colorSpace": 1 if r.get("m_ApplyActiveColorSpace", True) else 0,
     }
 
 
@@ -395,40 +428,120 @@ def _mesh_choice(ids: list[tuple[str, float]], distribution: int) -> dict:
     return out
 
 
+def anchor_of(n: dict, by_go: Mapping[int, dict], skeleton_of_go: Callable[[int], str | None],
+              data_scale: Callable[[str], float]) -> tuple[dict | None, list[dict]]:
+    """Where a prefab node (lobby.read_prefab) is placed: the nearest SkeletonUtilityBone above (or on) it, when it
+    follows its bone (Follow), as {"skeleton", "bone", "go" (the skeleton GameObject's matrix), "ds" (its data
+    scale)}, else None; and the nodes below that bone down to the node itself, top first (with no bone: up to the
+    root, or up to an Override bone)."""
+    chain, cur, anchor = [], n, None
+    while cur is not None:
+        utility = cur["first"].get("SkeletonUtilityBone")
+        if utility is not None:
+            skel_go = cur
+            while skel_go is not None and "SkeletonAnimation" not in skel_go["first"]:
+                skel_go = by_go.get(skel_go["parent"])
+            skeleton = skeleton_of_go(skel_go["go"]) if skel_go else None
+            if skeleton and utility.get("mode", 0) == 0:
+                anchor = {"skeleton": skeleton, "bone": utility.get("boneName") or cur["name"],
+                          "go": rounded(skel_go["m3"]), "ds": _r(data_scale(skeleton), 6)}
+            break
+        chain.append(cur)
+        cur = by_go.get(cur["parent"])
+    return anchor, chain[::-1]
+
+
+# the lobby script that switches GameObjects on and off by Spine events (ch0217's fish and bubbles; the player reads
+# the events, particles.js spineEvent)
+TOGGLE_SCRIPT = "SpineEventToggleObjects"
+
+
+def toggle_groups(nodes: list[dict], skeleton_of_go: Callable[[int], str | None]
+                  ) -> tuple[list[dict], dict[int, list[list[int]]]]:
+    """The prefab's SpineEventToggleObjects components: each one listens to the Spine events of the skeleton on its
+    GameObject (or the nearest one above) and sets toggleObjects[event int] active on "EnableObject", inactive on
+    "DisableObject". CH0217_home's Idle_01 switches fish 0 on at 5 s and off at 13.3 s, fish 1 at 23.3 to 30 s and
+    the bubbles 5 and 6 twice, its BG_Loop_00_R fish 2 and 3, Talk_04_M bubble 4: seven indices, the seven entries of
+    its list. Returns the groups, {"skeleton", "on": the objects' own activity in the prefab, 1 or 0}, and for each
+    listed GameObject its [group, index] pairs."""
+    by_go = {n["go"]: n for n in nodes}
+    groups: list[dict] = []
+    listed: dict[int, list[list[int]]] = {}
+    for n in nodes:
+        for cls, _, tree in n.get("all", ()):
+            if cls != TOGGLE_SCRIPT:
+                continue
+            cur, skeleton = n, None
+            while cur is not None and skeleton is None:
+                skeleton = skeleton_of_go(cur["go"])
+                cur = by_go.get(cur["parent"])
+            on = []
+            for i, pointer in enumerate(tree.get("toggleObjects") or []):
+                target = by_go.get((pointer or {}).get("m_PathID", 0))
+                on.append(1 if target is not None and target.get("own", target["active"]) else 0)
+                if target is not None:
+                    listed.setdefault(target["go"], []).append([len(groups), i])
+            groups.append({"skeleton": skeleton, "on": on})
+    return groups, listed
+
+
 def build(nodes: list[dict], skeleton_of_go: Callable[[int], str | None], data_scale: Callable[[str], float],
-          resolve: Callable[[str, int, dict], Any] | None) -> dict:
+          resolve: Callable[[str, int, dict], Any] | None, gates: Iterable[int] = ()) -> dict:
     """The particle systems of a prefab walk (lobby.read_prefab nodes, in hierarchy order), with their place: under a
     SkeletonUtilityBone (Follow) the bone GameObject moves with the bone, so a system there is anchored on that bone
     of its skeleton ("anchor") and placed by the transforms below it ("rel", Unity units of the bone GameObject);
     every system also keeps its place in the prefab's own pose ("static", NGUI units around the prefab root).
     resolve(kind, owner path id, pointer) reads the materials ("material") and meshes ("mesh") the renderers point
-    at; without it no system has a material."""
+    at; without it no system has a material. Systems below a GameObject a SpineEventToggleObjects switches
+    (toggle_groups) are kept even while it is off, with the [group, index] pairs above them ("toggle"): they play
+    while every one is on. gates: GameObjects the lobby's intro switches on (intro.py): a system off at rest is kept
+    when only they (and toggles) keep it off ("rest" 0). Each system has its GameObject as "_go" (for the intro, which
+    lobby.read_prefab removes)."""
     systems, materials, textures, meshes = [], {}, {}, {}
     index_of_ps: dict[int, int] = {}
     pending_subs: list[tuple[int, list[tuple[int, int, int, float]]]] = []
     by_go = {n["go"]: n for n in nodes}
+    gates = set(gates)
+    groups, listed = toggle_groups(nodes, skeleton_of_go)
     for n in nodes:
         ps = n["first"].get("ParticleSystem")
-        if ps is None or not n["active"]:
+        if ps is None:
+            continue
+        # active, or inactive only by GameObjects a toggle switches and GameObjects the intro switches on (gated: off
+        # at rest)
+        switched, cur, off, gated = [], n, False, False
+        while cur is not None:
+            if cur["go"] in listed:
+                switched += listed[cur["go"]]
+            elif not cur.get("own", cur["active"]):
+                if cur["go"] in gates:
+                    gated = True
+                else:
+                    off = True
+            cur = by_go.get(cur["parent"])
+        if off or (not n["active"] and not switched and not gated):
             continue
         ps_pid = n["pids"]["ParticleSystem"]
         rend = n["first"].get("ParticleSystemRenderer") or {}
         rend_pid = n["pids"].get("ParticleSystemRenderer", 0)
         item = system(ps, rend)
-        mat_id = None
-        if resolve is not None and rend and rend.get("m_Enabled", 0) and item["renderer"]["mode"] != 5:
-            pointers = rend.get("m_Materials") or []
-            if pointers and pointers[0].get("m_PathID"):
-                found = resolve("material", rend_pid, pointers[0])
-                if found:
-                    mat_id, mat = found
-                    if mat.get("program"):
-                        materials[mat_id] = mat
-                        for tex in mat.get("tex", {}).values():
-                            if "id" in tex:
-                                textures[tex["id"]] = {k: v for k, v in tex.items() if k != "st"}
-                    else:
-                        mat_id = None
+
+        def drawn_with(pointer: dict | None) -> str | None:
+            # a material the player ports (its id), with its textures
+            if not (pointer or {}).get("m_PathID"):
+                return None
+            found = resolve("material", rend_pid, pointer)
+            if not found or not found[1].get("program"):
+                return None
+            materials[found[0]] = found[1]
+            for tex in found[1].get("tex", {}).values():
+                if "id" in tex:
+                    textures[tex["id"]] = {k: v for k, v in tex.items() if k != "st"}
+            return found[0]
+        mat_id = trail_id = None
+        pointers = (rend.get("m_Materials") or []) if resolve is not None and rend and rend.get("m_Enabled", 0) else []
+        if pointers and item["renderer"]["mode"] != 5:
+            mat_id = drawn_with(pointers[0])
             if mat_id and item["renderer"]["mode"] == 4:
                 ids = []
                 for slot, weight in _MESH_SLOTS:
@@ -441,33 +554,34 @@ def build(nodes: list[dict], skeleton_of_go: Callable[[int], str | None], data_s
                     item["renderer"].update(_mesh_choice(ids, rend.get("m_MeshDistribution", 0)))
                 else:
                     mat_id = None
+        if "trail" in item["modules"]:
+            # the trails are the renderer's second submesh, with its second material and sorted by that one's queue
+            # (CH0172's oil drops at 3100, their dirt trails at 2950); even a renderer that draws no particles has them
+            trail_id = drawn_with(pointers[1]) if len(pointers) > 1 else None
+            if trail_id:
+                item.update(trailMaterial=trail_id, trailQueue=materials[trail_id]["queue"])
+            else:
+                del item["modules"]["trail"]
         item["material"] = mat_id
         item["queue"] = materials[mat_id]["queue"] if mat_id else 3000
         item["order"] = int(rend.get("m_SortingOrder", 0)) if rend else 0
-        item["layer"] = int(rend.get("m_SortingLayerID", 0)) if rend else 0
+        # the sorting layer's value (m_SortingLayer; m_SortingLayerID is its id), which Unity sorts by before the order:
+        # Default is 0, and every renderer of the one other layer the game uses (id 896108637: Aru's and Iori's dust,
+        # 941 renderers of the effect bundles) has 2, so it draws over everything on Default
+        item["sortingLayer"] = int(rend.get("m_SortingLayer", 0)) if rend else 0
         # Unity world units added to its distance from the camera when transparents of the same queue are sorted back
         # to front: above 0 it draws earlier (behind), below 0 later (Hibiki's river surface 50, her bokeh -10)
         item["fudge"] = _r(rend.get("m_SortingFudge", 0.0)) if rend else 0.0
-        # the anchor: the nearest SkeletonUtilityBone above (or on) the system, and the skeleton it follows
-        chain, cur, anchor = [], n, None
-        while cur is not None:
-            utility = cur["first"].get("SkeletonUtilityBone")
-            if utility is not None:
-                skel_go = cur
-                while skel_go is not None and "SkeletonAnimation" not in skel_go["first"]:
-                    skel_go = by_go.get(skel_go["parent"])
-                skeleton = skeleton_of_go(skel_go["go"]) if skel_go else None
-                if skeleton and utility.get("mode", 0) == 0:
-                    anchor = {"skeleton": skeleton, "bone": utility.get("boneName") or cur["name"],
-                              "go": rounded(skel_go["m3"]), "ds": _r(data_scale(skeleton), 6)}
-                break
-            chain.append(cur)
-            cur = by_go.get(cur["parent"])
+        anchor, chain = anchor_of(n, by_go, skeleton_of_go, data_scale)
         rel = IDENTITY
-        for c in reversed(chain):
+        for c in chain:
             rel = mul(rel, c["local3"])
         item.update(name=n["name"], path=n["path"], anchor=anchor, rel=rounded(rel), static=rounded(n["m3"]),
-                    ls=_vec(n["t"].get("m_LocalScale"), 1.0), z=_r(n["m3"][11]))
+                    ls=_vec(n["t"].get("m_LocalScale"), 1.0), z=_r(n["m3"][11]), _go=n["go"])
+        if switched:
+            item["toggle"] = switched
+        if gated:
+            item["rest"] = 0  # off until the intro switches it on
         index_of_ps[ps_pid] = len(systems)
         systems.append(item)
         subs = sub_emitters(ps)
@@ -483,7 +597,7 @@ def build(nodes: list[dict], skeleton_of_go: Callable[[int], str | None], data_s
         if resolved:
             systems[i]["subs"] = resolved
     # what the player keeps: systems that draw, and the systems that spawn them
-    keep = [bool(s["material"]) for s in systems]
+    keep = [bool(s["material"] or s.get("trailMaterial")) for s in systems]
     for _ in range(4):
         for i, s in enumerate(systems):
             if not keep[i] and any(keep[e["system"]] for e in s.get("subs", [])):
@@ -498,4 +612,5 @@ def build(nodes: list[dict], skeleton_of_go: Callable[[int], str | None], data_s
             s["subs"] = [{**e, "system": remap[e["system"]]} for e in s["subs"] if e["system"] in remap]
     used_meshes = {m for s in out for m in s["renderer"].get("meshes", [s["renderer"].get("mesh")])}
     return {"systems": out, "materials": materials, "textures": textures,
-            "meshes": {k: v for k, v in meshes.items() if k in used_meshes}}
+            "meshes": {k: v for k, v in meshes.items() if k in used_meshes},
+            "toggles": groups if any("toggle" in s for s in out) else []}

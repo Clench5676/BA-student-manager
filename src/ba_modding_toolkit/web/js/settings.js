@@ -174,6 +174,9 @@ function rows() {
     // the game's PP option: the lobby's post-processing volumes (colour grading, chromatic aberration, Panini)
     add(radioRow("Post", 0, T("settings.post.label"), [[true, T("settings.post.on")], [false, T("settings.post.off")]],
       p.lobbyPost !== false, (v) => set("lobbyPost", v)));
+    // the memorial lobby's intro when it is entered (off: the lobby as the intro leaves it)
+    add(radioRow("Intro", 0, T("settings.intro.label"), [[true, T("settings.intro.on")], [false, T("settings.intro.off")]],
+      p.lobbyIntro !== false, (v) => set("lobbyIntro", v)));
   } else {
     const region = p.fileSource === "windows_japan" ? "japan" : "global";
     add(radioRow("Server", 0, T("settings.server.label"), [["windows_global", T("settings.server.global")], ["windows_japan", T("settings.server.japan")]],

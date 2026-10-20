@@ -1,11 +1,15 @@
 // Draws a memorial lobby's particle effects (particles.js) inside its skeleton players, in linear light like them:
-// each system goes into the WebGL2 context of the layer it sorts after (or before the bottom one), blended into that
-// player's linear framebuffer (linear.js) between the frame's clear and the skeleton, between two parts of the
-// skeleton (one per render queue of its atlas pages, skeleton-parts.js) or after the skeleton. The
-// shaders port the game's compiled DSFX programs; their textures come from the lobby's own route (fx_<id>.png, memory
-// only) and are sampled as sRGB where the game imports them so. Without linear light (no WebGL2) nothing is drawn.
+// each system, and apart from it its trails, goes into the WebGL2 context of the player that draws the skeleton part
+// it sorts after (or before the bottom one), blended into that player's linear framebuffer (linear.js) between the
+// frame's clear and the skeleton, between two skeleton parts (one per render queue of a skeleton's atlas pages,
+// skeleton-parts.js; every skeleton's parts of a lobby in the bottom player's context, lobby-stage.js) or after the
+// last one. The shaders port the game's compiled DSFX programs; their textures come from the lobby's own route
+// (fx_<id>.png, memory only) and are sampled as sRGB where the game imports them so. The prefab's plain mesh renderers
+// (mesh-fx.js: lens dirt, light quads, water and cloud meshes) draw with the same programs, sorted with the systems.
+// Without linear light (no WebGL2) nothing is drawn.
 import * as Linear from "./linear.js";
-import { Effects, STRIDE, drawOrder, geometry, queuesOf, slotOf } from "./particles.js";
+import { Meshes } from "./mesh-fx.js";
+import { Effects, STRIDE, drawOrder, geometry, lastBefore, queuesOf, spriteGeometry, trailGeometry } from "./particles.js";
 import { toLinear } from "./touch-fx.js";
 
 const VS_HEAD = `#version 300 es
@@ -268,6 +272,29 @@ void main() {
   },
   // FX/General Unlit VertexColor (the material's blend)
   vertexColor: { tex: [], floats: [], colors: [], src: "void main() { o = v_col; }" },
+  // FX/FX_SHADER_Lobby_Order (One One): the lens-dirt and light quads (mesh-fx.js); the texture times _Color0 and the
+  // vertex colour, its alpha never read
+  lobbyOrder: {
+    tex: ["_TextureSample0"], floats: [], colors: ["_Color0"],
+    src: `void main() {
+  vec4 t = texture(_TextureSample0, v_t0.xy * _TextureSample0_ST.xy + _TextureSample0_ST.zw);
+  o = vec4(t.rgb * _Color0.rgb * v_col.rgb, 1.0);
+}`,
+  },
+  // Unity's Sprites/Default (One OneMinusSrcAlpha): the sprite's texture times the renderer's colour and the material's,
+  // premultiplied; the intro's flash and fade sprites
+  sprite: {
+    tex: ["_MainTex"], floats: [], colors: ["_Color"],
+    src: `void main() {
+  vec4 c = texture(_MainTex, v_t0.xy * _MainTex_ST.xy + _MainTex_ST.zw) * v_col * _Color;
+  o = vec4(c.rgb * c.a, c.a);
+}`,
+  },
+  // Unity's Mobile/Particles/Additive (SrcAlpha One): the texture times the vertex colour
+  particleAdd: {
+    tex: ["_MainTex"], floats: [], colors: [],
+    src: "void main() { o = texture(_MainTex, v_t0.xy * _MainTex_ST.xy + _MainTex_ST.zw) * v_col; }",
+  },
 };
 
 // a program's own vertex outputs past TEXCOORD0..2 (v_t3...), which its fragment program reads
@@ -441,6 +468,11 @@ function mat4(a, b) {
 // in its draw hook (after the skeleton, before linear.js copies the frame out). dispose() frees it all.
 export function create(fx, { base, bone, load = loadImage } = {}) {
   const effects = new Effects(fx, { bone });
+  const plain = new Meshes(fx, { bone }); // the mesh renderers, drawn like the systems
+  // the prefab's sprites (fx.sprites: the intro's flash and fade), drawn like a system with one quad; lobby-intro.js
+  // shows them (visible), colours (color) and moves (M) them
+  const sprites = (fx?.sprites || []).map((def, i) => ({ def, index: 2e6 + i, sprite: true, visible: def.rest !== 0,
+    color: def.color, M: def.static }));
   const images = new Map(); // texture id -> HTMLImageElement once loaded (null while loading)
   const contexts = new Map(); // player -> Context
   const restorables = new Map(); // player -> what its context calls once restored after a loss
@@ -493,10 +525,10 @@ export function create(fx, { base, bone, load = loadImage } = {}) {
     const gl = ctx.gl, F = FACTOR(gl), proj = projection(player, layer);
     gl.bindVertexArray(ctx.vao);
     gl.enable(gl.BLEND);
-    for (const s of list) {
-      const mat = materials[s.def.material];
+    for (const { s, trail } of list) {
+      const mat = materials[trail ? s.def.trailMaterial : s.def.material];
       const prog = mat && ctx.program(mat.program);
-      if (!prog || !s.particles.length) continue;
+      if (!prog || (s.sprite ? !s.visible || !(s.color[3] > 0) : !(s.mesh || s.particles.length))) continue;
       // every texture of the program loaded (or a default)
       const texs = [];
       let ready = true;
@@ -507,7 +539,8 @@ export function create(fx, { base, bone, load = loadImage } = {}) {
         texs.push([name, tex, meta.st || [1, 1, 0, 0]]);
       }
       if (!ready) continue;
-      const geo = geometry(effects, s, { meshes, linear: true });
+      const geo = s.sprite ? spriteGeometry(s.def, s.M, s.color) : s.mesh ? plain.geometry(s, { meshes })
+        : trail ? trailGeometry(effects, s, { linear: true }) : geometry(effects, s, { meshes, linear: true });
       if (!geo.count) continue;
       ctx.upload(geo.data);
       gl.useProgram(prog.prog);
@@ -522,9 +555,12 @@ export function create(fx, { base, bone, load = loadImage } = {}) {
       });
       for (const f of PROGRAMS[mat.program].floats) if (L[f]) gl.uniform1f(L[f], mat.floats?.[f] ?? 0);
       for (const c of PROGRAMS[mat.program].colors) {
-        // Color properties reach the shader in linear light (HDR above 1 by a 2.2 power), alpha as stored
-        const v = mat.colors?.[c] || [1, 1, 1, 1];
-        if (L[c]) gl.uniform4f(L[c], toLinear(v[0]), toLinear(v[1]), toLinear(v[2]), v[3]);
+        // Color properties reach the shader in linear light (HDR above 1 by a 2.2 power), alpha as stored; the
+        // intro animates some (s.colors, the renderer's property block), a mesh's animated ones as mesh-fx.js works
+        // them out
+        const v = s.colors?.[c] || mat.colors?.[c] || [1, 1, 1, 1], u = s.uniforms?.[c];
+        if (L[c] && u) gl.uniform4f(L[c], u[0], u[1], u[2], u[3]);
+        else if (L[c]) gl.uniform4f(L[c], toLinear(v[0]), toLinear(v[1]), toLinear(v[2]), v[3]);
       }
       for (const c of PROGRAMS[mat.program].vectors || []) {
         const v = mat.colors?.[c] || [1, 1, 0, 0];
@@ -550,24 +586,39 @@ export function create(fx, { base, bone, load = loadImage } = {}) {
   }
 
   return {
-    effects,
-    // players: the lobby's skeleton players in stacking order, each with its layer (bamtLayer: order, queue, pages, z)
-    // and drawn in the parts of its pages' queues (skeleton-parts.js)
-    layers(players) {
+    effects, sprites,
+    // players: the lobby's skeleton players in stacking order, each with its layer (bamtLayer: sortingLayer, order,
+    // queue, pages, z) and drawn in the parts of its pages' queues (skeleton-parts.js). steps: those parts in the
+    // order they draw, each {owner, sortingLayer, order, queue, z} with the player that draws it (lobby-stage.js
+    // install, which always passes them: all of them by the bottom player when they share its context); without
+    // them (the tests' single players) each player's own parts, player after player. A system draws after the last
+    // step that sorts before it, in its owner's context (between(owner, k) after the owner's k-th step), or before the
+    // first one, in the bottom player's.
+    layers(players, steps = players.flatMap((p) => queuesOf(p.bamtLayer).map((queue) => ({ ...p.bamtLayer, owner: p, queue })))) {
       bottom = players[0] || null;
-      slots = new Map(players.map((p) => [p, { below: [], after: queuesOf(p.bamtLayer).map(() => []) }]));
-      for (const s of drawOrder(effects.systems)) {
-        if (!s.def.material && !s.def.subs) continue;
-        const { layer, part } = slotOf(s.def, players.map((p) => p.bamtLayer || {}));
-        const slot = slots.get(players[layer]);
-        if (slot) (part < 0 ? slot.below : slot.after[part]).push(s);
+      slots = new Map(players.map((p) => [p, { below: [], after: [] }]));
+      const at = steps.map((step) => {
+        const slot = slots.get(step.owner);
+        return slot ? slot.after[slot.after.push([]) - 1] : null;
+      });
+      // what draws: each system's particles and, with the trail module, its trails, which sort by their own
+      // material's queue (one renderer, two submeshes: the particles first), the mesh renderers and the sprites
+      const draws = [];
+      for (const s of effects.systems) {
+        if (s.def.material || s.def.subs) draws.push({ s, trail: false, def: s.def, index: s.index });
+        if (s.def.trailMaterial) draws.push({ s, trail: true, def: { ...s.def, queue: s.def.trailQueue ?? 3000 }, index: s.index });
+      }
+      for (const s of [...plain.items, ...sprites]) if (s.def.material) draws.push({ s, trail: false, def: s.def, index: s.index });
+      for (const d of drawOrder(draws)) {
+        const i = lastBefore(d.def, steps);
+        (i < 0 ? slots.get(bottom)?.below : at[i])?.push(d);
       }
     },
     // before the player's skeleton (the bottom player also advances the simulation)
     below(player, dt) {
       if (disposed) return;
       timed(() => {
-        if (player === bottom) { effects.update(dt); cpu.frames++; }
+        if (player === bottom) { effects.update(dt); plain.update(dt); cpu.frames++; }
         draw(player, slots.get(player)?.below);
       });
     },
@@ -580,6 +631,8 @@ export function create(fx, { base, bone, load = loadImage } = {}) {
       const list = slots.get(player)?.after;
       if (list) between(player, list.length - 1);
     },
+    // a Spine event of a skeleton's animation state: SpineEventToggleObjects switches systems on and off by it
+    spineEvent: (skeleton, name, index) => !disposed && effects.spineEvent(skeleton, name, index),
     // free one player's GL objects (before it is disposed)
     detach: release,
     dispose() {
@@ -592,8 +645,10 @@ export function create(fx, { base, bone, load = loadImage } = {}) {
     },
     // for checks: live particles, systems, textures loaded, GL contexts in use and the main-thread time the effects
     // took per frame (simulation, geometry and draw calls) since the last reset
-    stats: ({ reset = false } = {}) => {
-      const out = { particles: effects.count(), systems: effects.systems.length, textures: [...images.values()].filter(Boolean).length,
+    stats: ({ reset = false, meshes: detail = false } = {}) => {
+      const out = { particles: effects.count(), systems: effects.systems.length,
+        meshes: detail ? plain.stats({ meshes }) : plain.items.length,
+        textures: [...images.values()].filter(Boolean).length,
         contexts: contexts.size, frames: cpu.frames, msPerFrame: cpu.frames ? +(cpu.ms / cpu.frames).toFixed(3) : 0 };
       if (reset) cpu.ms = cpu.frames = 0;
       return out;

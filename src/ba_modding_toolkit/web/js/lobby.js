@@ -9,18 +9,28 @@
 // The edge extension (border pixels stretched outwards and blurred) is only a fallback for mods whose art does not
 // cover the view. Fullscreen zooms out as far as the zoom-out setting allows (zoomBounds); past the painted art
 // (Unlocked, Custom) it shows what the game's lobby camera clears to, black, through the lobby's grade with PP on.
-// The prefab's particle systems (bokeh, dust, glints, Michiru's sparkler) are simulated and drawn into the layers'
-// own frames by particles-gl.js, in their sorting order relative to the skeletons and following the bones they hang on.
+// The prefab's particle systems (bokeh, dust, glints, Michiru's sparkler) are simulated and drawn into the lobby's
+// frame by particles-gl.js, in their sorting order relative to the skeletons and following the bones they hang on.
 // A skeleton whose atlas pages sit in several render queues draws in one part per queue (skeleton-parts.js), the
-// effects that sort between two of them in between: Hibiki's river surface over the river, under her.
+// effects that sort between two of them in between: Hibiki's river surface over the river, under her. The skeletons
+// of one lobby all draw in the bottom one's context, their parts and the effects interleaved in the game's order
+// (lobby-stage.js): Wakamo's fire over her lobby's scenery, under her.
 // Each skeleton's idle starts the clips the game's does (Shigure's train, snow, clouds, stars), some of them at random
 // times (lobby-sync.js), and the clips' sound keys play the game's sounds at the voice volume.
+// The skeletons draw with the game's materials (skeleton-materials.js: the multiply, noise and glitch pages, slot
+// blend modes as the materials give them, no dark colour) and keep the bones the prefab pins (skeleton-pins.js).
+// Entered, the lobby plays its intro timeline (lobby-intro.js) from the first frame it is on screen: a tap or a
+// dialogue skips it, and with the setting off the lobby starts as the intro leaves it.
 import { spineFiles } from "./api.js";
 import * as Linear from "./linear.js";
+import * as Materials from "./skeleton-materials.js";
 import * as Particles from "./particles-gl.js";
-import * as Parts from "./skeleton-parts.js";
+import * as SlotColours from "./slot-colours.js";
+import * as Stage from "./lobby-stage.js";
+import * as Pins from "./skeleton-pins.js";
 import * as Touch from "./lobby-touch.js";
 import * as Sync from "./lobby-sync.js";
+import * as Intro from "./lobby-intro.js";
 
 const STAGE = { w: 1920, h: 1080 };
 const GAME = { x: -1480, y: -832.5, w: 2960, h: 1665 };  // lobby.json "view": the game's 16:9 view in NGUI units
@@ -36,6 +46,7 @@ let players = [], current = null, mode = "left", extendTimer = null, chain = nul
 let zoomMode = "art", zoomCustom = ZOOM_CUSTOM; // the zoom-out setting (setZoomLimit)
 let talk = null, talkIndex = -1, cueTimers = [], audios = [], subtitleTimer = null;
 let lines = {}, muted = false, volume = 0.8, lineOf = (l) => l?.["zh-CN"] || "";
+let introOn = true; // the intro setting (setIntro): off shows the lobby as its intro leaves it
 const listeners = new Set();
 
 const base = (core) => `/asset/spine/lobby/${encodeURIComponent(core)}/`;
@@ -52,8 +63,10 @@ async function layersOf(core) {
   ]);
   const atlasOf = pairAtlases(files), skels = [...atlasOf.keys()];
   const ok = (n) => atlasOf.has(n);
-  // equal sorting orders (akari_home before akari_bg in the prefab): background-named skeletons first
-  let list = (info?.layers || []).filter((l) => l.active && ok(l.name))
+  // equal sorting orders (akari_home before akari_bg in the prefab): background-named skeletons first; the scenes only
+  // the intro shows (Akari's, Aru's) are loaded too, hidden until it shows them (introOnly)
+  let list = (info?.layers || []).filter((l) => (l.active || l.intro) && ok(l.name))
+    .map((l) => ({ ...l, introOnly: !l.active }))
     .sort((a, b) => a.order - b.order || isBg(b.name) - isBg(a.name) || a.index - b.index);
   if (!list.length) {
     list = skels.sort((a, b) => isBg(b) - isBg(a) || a.localeCompare(b))
@@ -123,6 +136,7 @@ function poser(l) {
       e.trackTime = time;
     }
     if (tracks.length) { st.update(0); st.apply(sk); }
+    Pins.pin(sk, l.name, current?.info?.pins); // the bones the prefab pins, as the players draw them
     sk.updateWorldTransform(spine.Physics.reset); // physics at rest, as a new skeleton's: no state from the last pose
     return sk;
   };
@@ -446,6 +460,7 @@ function measure(loaded) {
   const sk = new spine.Skeleton(data), idle = idleOf(data, main);
   sk.setToSetupPose();
   if (idle) { const st = new spine.AnimationState(new spine.AnimationStateData(data)); st.setAnimation(0, idle, true); st.update(0); st.apply(sk); }
+  Pins.pin(sk, main.name, info?.pins);
   sk.updateWorldTransform(spine.Physics.update);
   const bone = sk.findBone("Touch_Point") || sk.findBone("Touch_Eye");
   const pat = info?.drags?.find((d) => d.kind === "pat")?.rect;
@@ -492,6 +507,8 @@ export function frame(m) {
   if (m !== "full") Touch.detach();
   else if (wantTouch) Touch.attach(current.host);
 }
+// a player's canvas on screen (not a layer the intro keeps hidden)
+const shown = (p) => !!p.canvas && !p.parent?.classList.contains("lobby-off");
 function crossfade() {
   const fade = current.host?.querySelector(".lobby-fade");
   if (!fade) return;
@@ -499,7 +516,7 @@ function crossfade() {
   g.clearRect(0, 0, fade.width, fade.height);
   const ext = current.host.querySelector(".lobby-extend");
   if (ext && !ext.hidden) g.drawImage(ext, 0, 0, fade.width, fade.height);
-  for (const p of players) if (p.canvas) g.drawImage(p.canvas, 0, 0, fade.width, fade.height);
+  for (const p of players) if (shown(p)) g.drawImage(p.canvas, 0, 0, fade.width, fade.height);
   fade.style.transition = "none";
   fade.style.opacity = "1";
   void getComputedStyle(fade).opacity; // start the fade from 1 in this frame, together with the UI slide
@@ -610,18 +627,23 @@ export function stillRect(canvasW, canvasH) {
   return { x: ((x - v.x) / v.w) * canvasW, y: ((v.y + v.h - top) / v.h) * canvasH, w: (w / v.w) * canvasW, h: (h / v.h) * canvasH };
 }
 
-function makePlayer(host, layer, onReady, onError = () => {}, fx = null) {
+// share: the lobby's bottom player, whose context this one draws with (lobby-stage.js), or null
+function makePlayer(host, layer, onReady, onError = () => {}, fx = null, share = null) {
   const div = document.createElement("div");
   div.className = "lobby-layer";
+  if (layer.introOnly) { div.style.visibility = "hidden"; div.classList.add("lobby-off"); }
   host.appendChild(div);
-  return new spine.SpinePlayer(div, {
+  return Stage.make(share, () => new spine.SpinePlayer(div, {
     skeleton: `${layer.spine}.skel`, atlas: layer.atlas || `${layer.spine}.atlas`, animation: undefined,
     premultipliedAlpha: false, alpha: true, backgroundColor: "#00000000", showControls: false, showLoading: false,
     preserveDrawingBuffer: true, defaultMix: current?.info?.defaultMix?.[layer.name] ?? 0.2,
     viewport: layerViewport(game(), layer),
-    // every frame: the random-timing clips that are due (before the animation update, as the game's coroutines run
-    // before the next Update), the shared view, no spine-player viewport transitions of its own
+    // every frame: the frames of the players drawn with this one's context (lobby-stage.js), the random-timing clips
+    // that are due (before the animation update, as the game's coroutines run before the next Update), the shared
+    // view, no spine-player viewport transitions of its own
     frame: (p, delta) => {
+      current?.intro?.frame(p, delta); // the intro's clock and state, its Spine clips (lobby-intro.js)
+      Stage.frame(p);
       p.bamtRuns?.tick(delta);
       const v = viewNow();
       if (v) { p.currentViewport = layerViewport(v, layer); p.previousViewport = null; }
@@ -642,44 +664,45 @@ function makePlayer(host, layer, onReady, onError = () => {}, fx = null) {
     // dragged bones follow the pointer
     updateWorldTransform: (p, delta) => {
       p.bamtSounds?.tick();
+      Pins.apply(p, current?.info?.pins);
       Touch.apply(p, delta);
       p.skeleton.updateWorldTransform(spine.Physics.update);
     },
     success: (player) => {
       player.bamtLayer = layer;
-      drawInParts(player, Parts.partsOf(layer), fx);
-      // the game camera's post-processing (the prefab's volumes) goes with the linear-light pass, placed in the
-      // camera's view whatever the player shows
-      if (Linear.attach(player)) {
-        Linear.setPost(player, current?.info?.post);
-        Linear.setScreen(player, layerViewport(game(), layer));
-      }
+      clocked(player);
+      Stage.ready(player);
+      if (layer.introOnly) Stage.setShown(player, false); // a scene only the intro shows
+      // linear light; a player drawn with another's context once every player is in (show)
+      if (!Stage.hostOf(player)) lightUp(player);
       if (layer.skin) try { player.skeleton.setSkinByName(layer.skin); player.skeleton.setSlotsToSetupPose(); } catch { /* the default skin */ }
       // the idle, and with it the clips it starts (its sync clips, the rest of its pool), as the game's OnEnable
       player.bamtSounds = new Sync.SoundKeys(sfx);
       player.bamtRuns = new Sync.Runs(player.animationState, { clip: (name) => clipOf(player, name),
         duration: (name) => player.skeleton.data.findAnimation(name)?.duration || 0,
         onEntry: (entry, c) => soundsOf(player, entry, c) });
+      // its Spine events reach the particle effects, which some switch on and off (SpineEventToggleObjects)
+      if (fx) player.animationState.addListener({ event: (_entry, e) => fx.spineEvent(layer.name, e.data.name, e.intValue) });
       const idle = idleOf(player.skeleton.data, layer);
       if (idle) soundsOf(player, player.animationState.setAnimation(0, idle, true), clipOf(player, idle));
       for (const name of idleClips(current?.info, layer.name, idle, (n) => clipOf(player, n))) playClip(player, name);
       onReady(player);
     },
     error: (_p, message) => { console.error(message); onError(); },
-  });
+  }));
 }
 
-// The skeleton in the parts of its pages' render queues (skeleton-parts.js), in place of spine-player's one draw;
-// before the next part, the effects that sort after this one, for which spine's batch is flushed and begun again
-function drawInParts(player, parts, fx) {
-  if (!(parts.count > 1)) return;
-  const renderer = player.sceneRenderer, draw = renderer.drawSkeleton.bind(renderer);
-  renderer.drawSkeleton = (skeleton, ...args) => Parts.drawInParts(skeleton, parts, () => draw(skeleton, ...args), (part) => {
-    if (!fx?.drawsAfter(player, part)) return;
-    renderer.end();
-    fx.between(player, part);
-    renderer.begin();
-  });
+// A loaded player in linear light like the game (linear.js), with the game camera's post-processing (the prefab's
+// volumes) placed in the camera's view whatever the player shows, the slot colours as each page's shader takes them
+// and the game's page materials. A player drawn with another's context (lobby-stage.js) gets it only with that one in
+// linear light, whose pass it shares.
+function lightUp(player) {
+  const layer = player.bamtLayer;
+  if (!Linear.attach(player, Stage.hostOf(player))) return;
+  Linear.setPost(player, current?.info?.post);
+  Linear.setScreen(player, layerViewport(game(), layer));
+  Linear.setCurves(player, SlotColours.curvesOf(layer));
+  Materials.attach(player, layer, { screen: () => layerViewport(game(), layer), base: base(current.core) });
 }
 
 // --- fallback only (art that does not cover the view): edge pixels stretched outwards and blurred ---
@@ -695,7 +718,7 @@ function drawExtension(canvas, view) {
   const src = document.createElement("canvas");
   src.width = EXT_W; src.height = EXT_H;
   const sg = src.getContext("2d");
-  for (const p of players) if (p.canvas) sg.drawImage(p.canvas, 0, 0, EXT_W, EXT_H);
+  for (const p of players) if (shown(p)) sg.drawImage(p.canvas, 0, 0, EXT_W, EXT_H);
   const r = rectOnStage(view, EXT_W, EXT_H);
   const L0 = Math.max(0, Math.ceil(r.l)), R0 = Math.min(EXT_W, Math.floor(r.r)), T0 = Math.max(0, Math.ceil(r.t)), B0 = Math.min(EXT_H, Math.floor(r.b));
   g.clearRect(0, 0, EXT_W, EXT_H);
@@ -750,17 +773,31 @@ export async function show(core, host, variant) {
     if (my !== token || !layers.length) return null;
     current.info = info;
     setView(game(), true); // the first frames are already in the game's framing
-    const fx = (current.fx = info?.fx?.systems?.length ? Particles.create(info.fx, { base: base(core), bone: boneOf }) : null);
-    const loaded = (await Promise.all(layers.map((layer) => new Promise((resolve) => {
-      players.push(makePlayer(viewHost, layer, (player) => resolve({ ...layer, player }), () => resolve(null), fx));
+    const fx = (current.fx = info?.fx?.systems?.length || info?.fx?.renderers?.length || info?.fx?.sprites?.length
+      ? Particles.create(info.fx, { base: base(core), bone: boneOf }) : null);
+    // every layer drawn with the bottom one's context (share), or each with its own
+    const build = async (share) => (await Promise.all(layers.map((layer) => new Promise((resolve) => {
+      players.push(makePlayer(viewHost, layer, (player) => resolve({ ...layer, player }), () => resolve(null), fx,
+        share ? players[0] : null));
     })))).filter(Boolean);
-    if (my !== token || !loaded.length) return null;
-    fx?.layers(loaded.map((l) => l.player));
+    let all = await build(layers.length > 1);
+    if (my !== token) return null;
+    // the bottom skeleton did not load (a broken mod): the others cannot draw with its context
+    if (layers.length > 1 && all.length && all[0].player !== players[0]) {
+      dropPlayers();
+      all = await build(false);
+      if (my !== token) return null;
+    }
+    // the lobby as it rests: without the scenes only its intro shows
+    const loaded = all.filter((l) => !l.introOnly);
+    if (!loaded.length) return null;
+    Stage.install(all.map((l) => l.player), fx);
+    for (const l of all) if (Stage.hostOf(l.player)) lightUp(l.player); // the guests, with their host loaded
     current.meta = measure(loaded);
     current.loaded = loaded;
     // the bottom layer over the camera's clear colour (graded with PP on); sparse art keeps the page behind it, for
     // the edge extension
-    Linear.setClear(loaded[0].player, !current.meta.sparse);
+    Linear.setClear(Stage.hostOf(loaded[0].player) || loaded[0].player, !current.meta.sparse);
     setView(viewOf(current.meta), true);
     feather(current.view);
     const main = loaded.find((l) => l.name === current.meta.main)?.player;
@@ -773,6 +810,20 @@ export async function show(core, host, variant) {
     Idle.start(loaded.map((l) => l.player));
     if (mode === "full" && wantTouch) Touch.attach(host);
     openEdge();
+    // the intro, from the first frame the lobby is revealed on screen (reveal); with the setting off, its end at once
+    if (info?.intro) {
+      const c = current;
+      c.intro = Intro.create(info.intro, {
+        layers: all, fx, post: info.post, host, bone: boneOf, sfx: (id, set) => Sfx.play(id, set),
+        screen: (p) => Linear.setScreen(p, layerViewport(game(), p.bamtLayer)),
+        // one target for the skeletons drawn with the bottom player's context: its clear stays
+        clear: (p, on) => Linear.setClear(Stage.hostOf(p) || p, on && !c.meta.sparse),
+        show: (p, on) => Stage.setShown(p, on),
+        visible: () => !!c.revealed && (host.checkVisibility ? host.checkVisibility({ opacityProperty: true }) : !host.hidden),
+      });
+      if (!introOn) c.intro.skip();
+      else if (!muted && volume > 0) for (const s of info.intro.sounds || []) Sfx.prefetch(s.id); // in time for it
+    }
     // with Full Art or Unlocked: the limits over every clip, once the screen is up
     setTimeout(() => { if (measuresClips() && my === token) measureClips(); }, 400);
     return current.meta;
@@ -780,18 +831,26 @@ export async function show(core, host, variant) {
   return current.ready;
 }
 
+// the lobby's players and what each holds on the GPU, gone
+function dropPlayers() {
+  for (const p of players) {
+    current?.fx?.detach(p); // the particles' programs, buffers and textures in its context
+    Materials.detach(p); // its page programs and textures, the batcher's own methods
+    Linear.detach(p); // its framebuffer and program: spine's dispose only frees spine's own objects
+    p.dispose();
+    p.parent?.remove(); // its layer's element
+  }
+  players = [];
+}
+
 export function hide(host) {
   token += 1;
   Touch.detach();
   Touch.setup(null);
   Idle.stop();
-  for (const p of players) {
-    current?.fx?.detach(p); // the particles' programs, buffers and textures in its context
-    Linear.detach(p); // its framebuffer and program: spine's dispose only frees spine's own objects
-    p.dispose();
-  }
+  current?.intro?.dispose(); // its sounds, its depth of field's targets
+  dropPlayers();
   current?.fx?.dispose();
-  players = [];
   current = null;
   clearInterval(extendTimer);
   chain = null;
@@ -803,6 +862,49 @@ export function hide(host) {
 
 // the input trace of the fullscreen interaction (lobby-touch.js): sink(events) gets batches, null turns it off
 export const setTrace = (sink) => Touch.setTrace(sink);
+
+// --- the intro (lobby-intro.js) ---
+// the lobby is on screen (the detail screen has committed it): its intro starts with the next frame it is visible
+export function reveal() {
+  if (current) current.revealed = true;
+}
+// the intro setting: on plays it when the lobby is entered, off shows the lobby as the intro leaves it (Shiroko's holds
+// its last frame); a lobby shown now keeps what it does
+export function setIntro(on) {
+  introOn = on !== false;
+}
+// resolves once the lobby's intro has ended, been skipped or is not there (the switch card's still waits for it)
+export function introDone() {
+  const c = current;
+  return c?.ready ? c.ready.then(() => c.intro?.done()) : Promise.resolve();
+}
+export const skipIntro = () => current?.intro?.skip();
+export const introPending = () => !!current?.intro?.pending();
+// for checks: the intro's time and state
+export const introState = () => current?.intro?.state() || null;
+// for checks: every player's frame advances by a fixed `dt` seconds (0 holds the lobby still), or by the real time
+// again (null); advance(dt) gives each player one frame of dt
+let fixedDt = null;
+const stepDt = new Map();
+export function setClock(dt) {
+  fixedDt = dt == null ? null : Math.max(0, Number(dt) || 0);
+  for (const p of players) clocked(p);
+}
+// a player on the checks' clock (a lobby shown after setClock too)
+function clocked(p) {
+  if (fixedDt == null || !p.time || p.time.bamtUpdate) return;
+  const update = p.time.update.bind(p.time);
+  p.time.bamtUpdate = update;
+  p.time.update = () => {
+    update();
+    if (fixedDt == null) return;
+    p.time.delta = stepDt.has(p) ? stepDt.get(p) : fixedDt;
+    stepDt.delete(p);
+  };
+}
+export function advance(dt) {
+  for (const p of players) stepDt.set(p, Math.max(0, Number(dt) || 0));
+}
 
 // fullscreen interaction on or off (lobby-touch.js); it only runs in the fullscreen framing
 export function interactive(on) {
@@ -887,6 +989,8 @@ function boneOf(skeleton, name) {
 }
 // for checks: the particle effects' live particles, systems, loaded textures, GL contexts and time per frame
 export const effects = (opts) => current?.fx?.stats(opts) || null;
+// for checks: the layers' players, bottom first
+export const layerPlayers = () => players.filter((p) => p.bamtLayer);
 
 // --- random idle clips (SpineCharacter.idleBaseRandomClipPool): blinks, ear twitches, expression changes, each
 // after a random wait; held back while a dialogue or a drag runs. Without them the newer lobbies never blink. ---
@@ -935,6 +1039,7 @@ const Idle = {
 export function play(anim, { fromChain = false } = {}) {
   const m = current?.meta;
   if (!m) return null;
+  current.intro?.skip(); // a dialogue comes after the intro, as a tap that skips it
   if (!fromChain) chain = null;
   const i = m.sequences.findIndex((s) => s.anim === anim), seq = m.sequences[i], p = mainPlayer();
   if (!seq || !p?.animationState) return null;
@@ -1057,22 +1162,24 @@ const Sfx = {
   prefetch(id) {
     for (const clip of current?.info?.sounds?.[id]?.clips || []) this.load(clip);
   },
-  play(id) {
+  // also: the set the audio joins while it plays (the intro's, which a skip stops)
+  play(id, also = null) {
     const ev = current?.info?.sounds?.[id];
     this.log.push({ event: id, name: ev?.name || null, at: Math.round(performance.now()) });
     if (this.log.length > 40) this.log.shift();
     if (!ev?.clips?.length || muted || !(volume > 0)) return;
     const clip = ev.clips[Math.floor(Math.random() * ev.clips.length)], my = token;
     this.load(clip).then((url) => {
-      if (!url || my !== token || muted) return;
+      if (!url || my !== token || muted || also?.closed) return; // a skipped intro's sound still loading never plays
       const a = new Audio(url);
       a.bamtVolume = ev.volume ?? 1;
       a.volume = clamp(a.bamtVolume * volume, 0, 1);
       a.preservesPitch = a.webkitPreservesPitch = a.mozPreservesPitch = false;
       a.defaultPlaybackRate = a.playbackRate = ev.pitch || 1;
       this.playing.add(a);
-      a.onended = () => this.playing.delete(a);
-      a.play().catch(() => this.playing.delete(a));
+      also?.add(a);
+      a.onended = () => { this.playing.delete(a); also?.delete(a); };
+      a.play().catch(() => { this.playing.delete(a); also?.delete(a); });
     });
   },
   follow() { for (const a of this.playing) a.volume = clamp(a.bamtVolume * volume, 0, 1); }, // a new voice volume

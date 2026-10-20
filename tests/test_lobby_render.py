@@ -1,0 +1,275 @@
+"""The memorial lobbies' skeleton materials (spine_materials.py), plain mesh renderers and their Animators (meshfx.py)
+and pinned bones (pins.py), from plain typetrees; their front end in Node; and, on an official game folder, what the
+lobbies carry."""
+
+from __future__ import annotations
+
+import os
+import shutil
+import subprocess
+import zlib
+from pathlib import Path
+
+import pytest
+
+from ba_modding_toolkit.gameassets import meshfx, particles, pins, spine_materials
+from ba_modding_toolkit.gameassets.model import DecodedClip
+
+GAME_DIR = Path(os.environ.get("BAMT_TEST_GAME_DIR") or "/nonexistent/bamt-real-game")
+NODE = shutil.which("node")
+
+
+@pytest.mark.skipif(NODE is None, reason="Node.js is not installed")
+def test_front_end_in_node():
+    tests = Path(__file__).parent / "js" / "lobby_render.test.mjs"
+    result = subprocess.run([NODE, "--test", str(tests)], capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+# --- prefab nodes as lobby.read_prefab walks them -------------------------------------------------------------------
+
+def node(go: int, name: str, parent: int = 0, pos=(0.0, 0.0, 0.0), scale=(1.0, 1.0, 1.0), active=True, **comps) -> dict:
+    t = {"m_LocalPosition": dict(zip("xyz", pos)), "m_LocalRotation": {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0},
+         "m_LocalScale": dict(zip("xyz", scale))}
+    pids = {cls: go * 10 + i for i, cls in enumerate(comps)}
+    return {"go": go, "name": name, "parent": parent, "active": active, "t": t, "local3": particles.trs(t),
+            "first": dict(comps), "pids": pids, "path": name}
+
+
+def walk(nodes: list[dict]) -> list[dict]:
+    by = {n["go"]: n for n in nodes}
+    for n in nodes:
+        parent = by.get(n["parent"])
+        n["m3"] = particles.mul(parent["m3"], n["local3"]) if parent else n["local3"]
+        n["path"] = f"{parent['path']}/{n['name']}" if parent else n["name"]
+    return nodes
+
+
+def lens_prefab() -> list[dict]:
+    """A skeleton at (0, -962) x 100 with a bone GameObject (Follow), a lens-dirt quad below it under an Animator, and
+    a light quad off the prefab root."""
+    return walk([
+        node(1, "LobbyTest"),
+        node(2, "Test_home", 1, pos=(0.0, -962.0, 0.0), scale=(100.0, 100.0, 100.0), SkeletonAnimation={}),
+        node(3, "All_Layer", 2, SkeletonUtilityBone={"boneName": "All_Layer", "mode": 0}),
+        node(4, "LensDirt", 3, Animator={"m_Enabled": 1, "m_Controller": {"m_FileID": 1, "m_PathID": 77}}),
+        node(5, "LensDirt_01", 4, pos=(10.0, 14.0, 0.0), scale=(14.0, 13.5, 13.5),
+             MeshRenderer={"m_Enabled": 1, "m_SortingOrder": 0, "m_Materials": [{"m_FileID": 1, "m_PathID": 50}]},
+             MeshFilter={"m_Mesh": {"m_FileID": 3, "m_PathID": 10210}}),
+        node(6, "Quad_1", 1, pos=(-1404.0, -121.0, 0.0), scale=(1827.0, 3160.0, 30.0),
+             MeshRenderer={"m_Enabled": 1, "m_Materials": [{"m_FileID": 1, "m_PathID": 51}]},
+             MeshFilter={"m_Mesh": {"m_FileID": 3, "m_PathID": 10210}}),
+        node(7, "Off", 1, active=False, MeshRenderer={"m_Enabled": 1, "m_Materials": [{"m_FileID": 1, "m_PathID": 51}]},
+             MeshFilter={"m_Mesh": {"m_FileID": 3, "m_PathID": 10210}}),
+    ])
+
+
+def lens_material(colors: dict) -> dict:
+    return {"shader": "FX/FX_SHADER_Lobby_Order", "program": particles.program("FX/FX_SHADER_Lobby_Order"), "src": 1, "dst": 1,
+            "queue": 2950, "cull": 2, "floats": {}, "colors": colors,
+            "tex": {"_TextureSample0": {"id": "cab-t_1", "name": "Lensdirt", "w": 4, "h": 4, "st": [1.0, 1.0, 0.0, 0.0]}}}
+
+
+def binding(path: str, type_id: int, attribute: int, custom: int = 0) -> dict:
+    return {"path": zlib.crc32(path.encode()) & 0xFFFFFFFF, "typeID": type_id, "attribute": attribute, "customType": custom,
+            "isPPtrCurve": 0}
+
+
+def material_attribute(prop: str, channel: int, rgba: bool) -> int:
+    return (zlib.crc32(prop.encode()) & 0x0FFFFFFF) | (channel << 28) | (int(rgba) << 30)
+
+
+def test_mesh_renderers_and_their_animator():
+    nodes = lens_prefab()
+    decoded = DecodedClip(2.0, [0.0, 1.0, 2.0], {0: [14.0, 28.0, 14.0], 1: [13.5, 27.0, 13.5], 2: [13.5], 3: [0.5, 1.0, 0.5],
+                                                 4: [0.25], 5: [0.0], 6: [1.0]})
+    bindings = [binding("LensDirt_01", 4, 3),  # scale: 3 curves
+                binding("LensDirt_01", 23, material_attribute("_Color0", 0, True), 22),  # material _Color0.r
+                binding("LensDirt_01", 23, material_attribute("_Color0", 1, False), 22),  # material _Color0.y
+                binding("Missing", 4, 1, 0),  # a path below the Animator that is not there: 3 curves left out
+                ]
+    materials = {50: ("cab-m_50", lens_material({"_Color0": [1.0, 1.0, 1.0, 0.0]})), 51: ("cab-m_51", lens_material({}))}
+
+    def resolve(kind: str, owner: int, pointer: dict):
+        if kind == "material":
+            return materials.get(pointer["m_PathID"])
+        if kind == "mesh":
+            return ("quad", None) if pointer["m_PathID"] == 10210 else None
+        if kind == "animator":
+            return ("cab-c_77", {"decoded": decoded, "bindings": bindings, "loop": True})
+        return None
+
+    out = meshfx.build(nodes, lambda go: "Test_home" if go == 2 else None, lambda skel: 0.01, resolve)
+    lens, light = out["renderers"]
+    assert lens["mesh"] == "quad" and lens["material"] == "cab-m_50" and lens["queue"] == 2950
+    # under the bone GameObject: anchored on the bone, placed by the transforms below it
+    assert lens["anchor"] == {"skeleton": "Test_home", "bone": "All_Layer", "go": particles.rounded(nodes[1]["m3"]), "ds": 0.01}
+    assert [c["node"] for c in lens["chain"]] == [3, 4] and lens["chain"][1]["s"] == [14.0, 13.5, 13.5]
+    # off the root: no anchor, the chain from the root; the inactive quad is left out
+    assert light["anchor"] is None and [c["node"] for c in light["chain"]] == [0, 5]
+    assert set(out["materials"]) == {"cab-m_50", "cab-m_51"} and out["textures"] == {"cab-t_1": {"id": "cab-t_1", "name": "Lensdirt", "w": 4, "h": 4}}
+    assert out["meshes"] == {}  # the built-in Quad is built by the front end
+    (clip,) = out["clips"]
+    assert (clip["duration"], clip["rate"], clip["loop"]) == (2.0, 1.0, 1)
+    scale, red, y = clip["tracks"]
+    assert scale == {"node": 4, "attr": "s", "v": [[14.0, 13.5, 13.5], [28.0, 27.0, 13.5], [14.0, 13.5, 13.5]]}
+    assert red == {"renderer": 0, "prop": "_Color0", "ch": 0, "rgba": 1, "v": [0.5, 1.0, 0.5]}
+    assert y == {"renderer": 0, "prop": "_Color0", "ch": 1, "rgba": 0, "v": [0.25]}
+    assert meshfx.material_property(material_attribute("_Color0", 3, True), ["_Color", "_Color0"]) == ("_Color0", 3, 1)
+    assert meshfx.material_property(1234, ["_Color"]) is None
+    # nothing to resolve with: nothing drawn
+    assert meshfx.build(nodes, lambda go: None, lambda skel: 0.01, None)["renderers"] == []
+
+
+# --- the official game folder -----------------------------------------------------------------------------------------
+
+@pytest.fixture(scope="module")
+def real_game(tmp_path_factory):
+    if not GAME_DIR.is_dir():
+        pytest.skip("No local game install")
+    from ba_modding_toolkit.gameassets import AssetCache, GameAssets
+    from ba_modding_toolkit.searching import get_search_dirs
+    root = tmp_path_factory.mktemp("lobby-render") / "cache"
+    return GameAssets(get_search_dirs(GAME_DIR), AssetCache(root=root, allowed=False))
+
+
+@pytest.mark.skipif(not GAME_DIR.is_dir(), reason="No local game install")
+def test_real_lobby_mesh_renderers(real_game):
+    counts = {"akane_home": 4, "eimi_home": 2, "karin_home": 2, "shiroko_home": 2, "sumire_home": 2, "shun_home": 4,
+              "hanako_home": 1, "maki_home": 2, "utaha_home": 1}
+    for core, n in counts.items():
+        fx = real_game.lobby_info(core)["fx"]
+        assert len(fx["renderers"]) == n, core
+        for r in fx["renderers"]:
+            mat = fx["materials"][r["material"]]
+            assert mat["program"] in {"lobbyOrder", "additive", "distort"} and (r["mesh"] == "quad" or r["mesh"] in fx["meshes"])
+    akane = real_game.lobby_info("akane_home")["fx"]
+    # the lens dirt and its light between her page (2800) and the light shafts over everything (3100)
+    assert sorted((r["path"].rsplit("/", 2)[-2], r["name"], r["queue"]) for r in akane["renderers"]) == [
+        ("LensDirt", "LensDirt_02", 2950), ("LensDirt", "Quad_2", 2950), ("Quad_f", "Quad_1", 3100), ("Quad_f", "Quad_2", 3100)]
+    tracks = [t for c in akane["clips"] for t in c["tracks"]]
+    assert {t.get("attr") or t["prop"] for t in tracks} == {"s", "_Color0"} and all(len(c["tracks"][0]["v"]) == 201 for c in akane["clips"])
+    hanako = real_game.lobby_info("hanako_home")["fx"]["renderers"][0]
+    assert hanako["name"] == "water" and hanako["anchor"]["bone"] == "All_Layer"
+
+
+# --- skeleton materials ---------------------------------------------------------------------------------------------
+
+def form(name: str, src: dict, dst: dict, src_a: dict | None = None, dst_a: dict | None = None, props=()) -> dict:
+    """A shader's parsed form as the resolver keeps it: one pass, its blend factors fixed or naming a property."""
+    blend = {"srcBlend": src, "destBlend": dst, "srcBlendAlpha": src_a or src, "destBlendAlpha": dst_a or dst}
+    return {"m_Name": name, "m_PropInfo": {"m_Props": list(props)}, "m_SubShaders": [{"m_Passes": [{"m_State": {"rtBlend0": blend}}]}]}
+
+
+def fixed(v: int) -> dict:
+    return {"val": float(v), "name": "<noninit>"}
+
+
+def test_page_material_blend_and_values():
+    props = [{"m_Name": "_Color", "m_Type": 0, "m_DefValue[0]": 1.0, "m_DefValue[1]": 1.0, "m_DefValue[2]": 1.0, "m_DefValue[3]": 1.0},
+             {"m_Name": "_MainTex", "m_Type": 4, "m_DefTexture": {"m_DefaultName": "black"}},
+             {"m_Name": "_NoiseTex", "m_Type": 4, "m_DefTexture": {"m_DefaultName": "gray"}},
+             {"m_Name": "_PixelNoisePower", "m_Type": 2, "m_DefValue[0]": 0.001}]
+    # the multiply shader's factors are fixed: a stray "<noninit>" float on the material (Hina's page) is not read
+    tree = {"m_ValidKeywords": ["_STRAIGHT_ALPHA_INPUT"], "m_SavedProperties": {"m_Floats": [["<noninit>", 0.0]], "m_Colors": []}}
+    mat = spine_materials.material("Spine/Blend Modes/Skeleton PMA Multiply", form("m", fixed(2), fixed(10), props=props), tree, {})
+    assert (mat["program"], mat["src"], mat["dst"], mat["srcA"], mat["dstA"], mat["straight"]) == ("pma", 2, 10, 2, 10, 1)
+    assert mat["colors"]["_Color"] == [1.0, 1.0, 1.0, 1.0]
+    # the page itself is never a material texture; another slot names the shader's default, or its texture
+    assert "_MainTex" not in mat["tex"] and mat["tex"]["_NoiseTex"] == {"default": "gray"}
+    noise = {"id": "cab-n_1", "name": "FX_TEX_Noise", "w": 128, "h": 128, "filter": 1, "mips": 0, "wrap": [1, 1], "srgb": 1}
+    tree = {"m_SavedProperties": {"m_Floats": [["_SrcBlend", 1.0], ["_DstBlend", 10.0], ["_PixelNoisePower", 5.0]]}}
+    named = form("n", {"val": 0.0, "name": "_SrcBlend"}, {"val": 0.0, "name": "_DstBlend"}, props=props)
+    mat = spine_materials.material("Spine/Skeleton MX Standard - NoiseFlowAnimation", named, tree, {"_NoiseTex": noise})
+    assert (mat["program"], mat["src"], mat["dst"], mat["straight"]) == ("noiseFlow", 1, 10, 0)
+    assert mat["floats"]["_PixelNoisePower"] == 5.0 and mat["tex"]["_NoiseTex"] == noise
+    # the shaders spine-player draws as the game does have no program
+    assert spine_materials.program("Spine/Skeleton") is None and spine_materials.program("Spine/Skeleton MX Standard") is None
+
+
+def test_skeleton_pages_and_blend_mode_materials():
+    multiply = {"program": "pma", "tex": {}}
+    plain = {"program": None, "tex": {}}
+    noise = {"program": "noiseFlow", "tex": {"_NoiseTex": {"id": "cab-n_1", "w": 4, "h": 4}}}
+    found = {7: ("Hina_home3", multiply)}
+    entry = lambda page, pid: {"pageName": page, "material": {"m_FileID": 0, "m_PathID": pid}}  # noqa: E731
+    out = spine_materials.skeleton(
+        [("Hina_home", plain), ("Hina_home3", multiply), ("Water", noise)],
+        {"requiresBlendModeMaterials": 1, "applyAdditiveMaterial": 0, "multiplyMaterials": [entry("Hina_home3.png", 7)],
+         "screenMaterials": [entry("Hina_home.png", 0)], "additiveMaterials": [entry("Hina_home.png", 7)]},
+        lambda pointer: found.get(pointer["m_PathID"]), 0.01)
+    # only the pages a ported program draws; replacement lists by page, a null reference as None, additive slots keep
+    # their page's material without applyAdditiveMaterial
+    assert out["pages"] == {"Hina_home3": multiply, "Water": noise}
+    assert out["blend"] == {"multiply": {"Hina_home3": multiply}, "screen": {"Hina_home": None}}
+    assert out["scale"] == 0.01
+    # without requiresBlendModeMaterials the lists are never applied (ch0163, Hiyori: their screen slots draw Normal)
+    off = spine_materials.skeleton([], {"requiresBlendModeMaterials": 0, "screenMaterials": [entry("A.png", 7)]},
+                                   lambda pointer: found.get(pointer["m_PathID"]))
+    assert off["blend"] == {}
+    layers = [{"materials": out}, {"materials": {"pages": {}, "blend": {}}}, {}]
+    assert spine_materials.textures(layers) == {"cab-n_1": {"id": "cab-n_1", "w": 4, "h": 4}}
+    sa = {"skeletonDataAsset": {"m_FileID": 0, "m_PathID": 9}, "tintBlack": 0}
+    assert spine_materials.layer(lambda kind, owner, pointer: ("x", out) if kind == "skeleton" else None, 1, sa) == {
+        "materials": {"pages": out["pages"], "blend": out["blend"], "scale": 0.01, "tintBlack": False}}
+    assert spine_materials.layer(None, 1, sa)["materials"] == {"pages": {}, "blend": {}, "scale": 0.01, "tintBlack": False}
+
+
+@pytest.mark.skipif(not GAME_DIR.is_dir(), reason="No local game install")
+def test_real_lobby_page_materials(real_game):
+    layer = lambda core: next(l for l in real_game.lobby_info(core)["layers"] if l["active"])  # noqa: E731
+    # Aru's third page multiplies (its material's shader), whatever its slots say
+    aru = layer("aru_home")["materials"]
+    assert aru["pages"]["Aru_home3"]["program"] == "pma"
+    assert (aru["pages"]["Aru_home3"]["src"], aru["pages"]["Aru_home3"]["dst"]) == (2, 10) and aru["blend"] == {}
+    # ch0163, Hiyori and airi0 (whose prefab names airi_home's skeleton data) have no blend mode materials: their
+    # screen slots keep their page's material
+    for core in ("ch0163_home", "hiyori_home", "airi0_home"):
+        assert layer(core)["materials"]["blend"] == {} and layer(core)["materials"]["pages"] == {}
+    # Hina's multiply slots take her multiply page's material
+    hina = layer("hina_home")["materials"]
+    assert hina["blend"]["multiply"]["Hina_home3"]["program"] == "pma" and hina["blend"]["multiply"]["Hina_home3"]["src"] == 2
+    # the noise pages, with their noise textures served like the particles' (memory only)
+    for core, pages in (("ch0319_home", {"CH0319_home_3"}), ("ch0326_home", {"CH0326_home_2"}),
+                        ("ch0355_home", {"CH0355_home_4", "CH0355_home_5"})):
+        info = real_game.lobby_info(core)
+        mats = layer(core)["materials"]
+        assert set(mats["pages"]) == pages and {m["program"] for m in mats["pages"].values()} == {"noiseFlow"}
+        tex = next(iter(mats["pages"].values()))["tex"]["_NoiseTex"]
+        assert tex["id"] in info["fx"]["textures"]
+        assert real_game.lobby_fx_texture(core, tex["id"])[:8] == b"\x89PNG\r\n\x1a\n"
+    ch0310 = layer("ch0310_home")["materials"]["pages"]["CH0310_home_3"]
+    assert ch0310["program"] == "portraitNoise" and ch0310["floats"]["_GlitchFreq"] == pytest.approx(0.98)
+    # no lobby renderer writes the dark colour
+    assert not any(l["materials"]["tintBlack"] for core in ("ch0205_home", "neru_home") for l in real_game.lobby_info(core)["layers"])
+
+
+# --- pinned bones -----------------------------------------------------------------------------------------------------
+
+def test_pinned_bones():
+    nodes = walk([
+        node(1, "LobbyTest"),
+        node(2, "Hihumi_home", 1, scale=(100.0, 100.0, 100.0), SkeletonAnimation={}),
+        node(3, "PC_Layer", 2, SkeletonUtilityBone={"boneName": "PC_Layer", "mode": 0}),
+        node(4, "Hip", 3, pos=(2.1883392, 6.5090837, 0.0),
+             SkeletonUtilityBone={"boneName": "Hip", "mode": 1, "position": 1, "rotation": 0, "scale": 0, "overrideAlpha": 1.0}),
+        node(5, "Touch_Point", 4, pos=(1.0, 2.0, 0.0), SkeletonUtilityBone={"boneName": "Touch_Point", "mode": 1, "position": 1}),
+        node(6, "Head", 4, scale=(2.0, 3.0, 1.0),
+             SkeletonUtilityBone={"boneName": "", "mode": 1, "position": 0, "rotation": 1, "scale": 1, "overrideAlpha": 0.5}),
+        node(7, "Off", 4, active=False, SkeletonUtilityBone={"boneName": "Off", "mode": 1, "position": 1}),
+    ])
+    nodes[5]["t"]["m_LocalRotation"] = {"x": 0.0, "y": 0.0, "z": 0.7071068, "w": 0.7071068}
+    out = pins.pins(nodes, lambda go: "Hihumi_home" if go == 2 else None, lambda skel: 0.01, [("Hihumi_home", "Touch_Point")])
+    # the Hip in skeleton units; the dragged bone, the Follow bone and the inactive one are not pinned; a bone without
+    # a name is its GameObject's
+    assert out == [{"skeleton": "Hihumi_home", "bone": "Hip", "alpha": 1.0, "x": 218.834, "y": 650.908},
+                   {"skeleton": "Hihumi_home", "bone": "Head", "alpha": 0.5, "rotation": 90.0, "scaleX": 2.0, "scaleY": 3.0}]
+
+
+@pytest.mark.skipif(not GAME_DIR.is_dir(), reason="No local game install")
+def test_real_lobby_pins(real_game):
+    # the bones no drag moves stay where the prefab put them
+    assert real_game.lobby_info("hihumi_home")["pins"] == [
+        {"skeleton": "Hihumi_home", "bone": "Hip", "alpha": 1.0, "x": 218.834, "y": 650.908}]
+    assert real_game.lobby_info("ch0242_home")["pins"] == [
+        {"skeleton": "CH0242_home", "bone": "cheek_02", "alpha": 1.0, "x": 195.11, "y": -392.786}]

@@ -8,7 +8,8 @@ at runtime and never shipped with the program.
 
 - Screens: consent popup, student roster, student detail (Portrait, Memorial Lobby and 3D tabs), the
   switch popups (portrait, memorial lobby) and the variant picker. The lobby is framed and touched like the game (its prefab data,
-  `lobby.json`) and plays its dialogue with Kivo's voices and the lines in the UI language (Kivo's Chinese and
+  `lobby.json`), plays its intro timeline when it is entered (a tap skips it; the settings' L2D tab turns it off) and
+  plays its dialogue with Kivo's voices and the lines in the UI language (Kivo's Chinese and
   Japanese, the Global server's official English and the others); the 3D tab shows the variant's chibi, exported
   from the install, and is disabled only for variants without one.
 - Nav entries without a new screen yet open the classic Tk GUI on that tab (`bamt --tab <name>`).
@@ -142,8 +143,10 @@ class GameAssets:
     def spine_files(self, kind: str, core: str) -> dict[str, bytes]        # file name -> bytes (.skel, .atlas, pages)
     def spine_files_from(self, bundles: list[Path]) -> dict[str, bytes]    # the same, for a mod's bundle files
     def lobby_info(self, core: str) -> dict                    # a lobby's layers, touch boxes, clips, idle pools,
-                                                               # sound events, post-processing (lobby.py) and
-                                                               # particle effects (particles.py)
+                                                               # sound events, post-processing (lobby.py), particle
+                                                               # and mesh effects (particles.py, meshfx.py), page
+                                                               # materials (spine_materials.py), pins (pins.py) and
+                                                               # intro (intro.py)
     def lobby_fx_texture(self, core: str, tex_id: str) -> bytes # a texture lobby_info's "fx" lists, as PNG
     def lobby_sound(self, core: str, clip_id: str) -> bytes   # a clip lobby_info's "sounds" lists, decoded to WAV
     def model_cores(self) -> set[str]                          # dev names with a chibi (character-<dev>-_mxload-*)
@@ -445,7 +448,7 @@ library).
 | `app.openClassic {tab}` | starts the classic GUI on a tab |
 | `i18n.strings {lang}` | `{key: text}` for `webui.*` |
 | `roster.list` | families with variants, mod counts, fresh flags, favourites, recent order, `added` (when the newest own mod was added), `aliases` per family and per variant (matched by the search, never shown), `custom` per family (the user's own aliases) |
-| `settings.get` / `settings.set {key, value}` | the settings popup's values; key `roster` keeps the student list's view (merge, segment filters, sort, order, filter groups; `webui/state.py roster_view`); `lobbyZoom` is `{mode, custom}` in `settings.get`, set by keys `lobbyZoom` (`game`, `art`, `unlocked`, `custom`) and `lobbyZoomCustom` (1.0 to 4.0 game views across, kept in 0.1 steps) |
+| `settings.get` / `settings.set {key, value}` | the settings popup's values; key `roster` keeps the student list's view (merge, segment filters, sort, order, filter groups; `webui/state.py roster_view`); `lobbyZoom` is `{mode, custom}` in `settings.get`, set by keys `lobbyZoom` (`game`, `art`, `unlocked`, `custom`) and `lobbyZoomCustom` (1.0 to 4.0 game views across, kept in 0.1 steps); `lobbyPost` and `lobbyIntro` (the lobby's post-processing and its intro, on by default) |
 | `family.get {key}` | a family with its variants (and `aliases` and `custom`, as in `roster.list`), mods and each variant's state; `modelFiles` per variant (the 3D model's prefab bundles, newest first) and `version` (the game's resource version, so a switched install reloads the screen) |
 | `lobby.warm` | builds the memorial lobby prefab index and the index of every bundle's CABs (the particle effects' materials, textures and meshes) in the background (once per game); the detail screen calls it for a variant with a lobby |
 | `lobby.lines {variant, talks, lang}` | `{clip: {lang: text, voice}}`: zh-CN from Kivo, ja from Kivo else the Global server, en, zh-TW, ko and th from the Global server (read only for a `lang` other than zh-CN, left out when its table is not in within 3 s); `talks` (`{animation: [clip ids]}` from the skeleton) places the Global rows on the clips; `lines_unavailable` when neither source can be read |
@@ -470,8 +473,8 @@ library).
 | `/asset/ui/layout/<root>.json?path=<subpath>` | light |
 | `/asset/art/bg/<name>`, `/asset/art/portrait/<name>.png` | heavy |
 | `/asset/spine/spr/<core>/<file>`, `/asset/spine/lobby/<core>/<file>`, `/asset/spine/mod/<id>/<file>` (`skeleton.skel` and `skeleton.atlas` stand for the skeleton named like the core, a mod's own core for a mod, else the only one) | heavy |
-| `/asset/spine/lobby/<core>/lobby.json` (prefab layout, touch boxes, clips, idle pools, sound events, post-processing, particle effects; no skeleton is extracted) | heavy |
-| `/asset/spine/lobby/<core>/fx_<id>.png` (a particle texture the lobby's `fx.textures` lists) | heavy |
+| `/asset/spine/lobby/<core>/lobby.json` (prefab layout, touch boxes, clips, idle pools, sound events, post-processing, particle and mesh effects and sprites, page materials, pinned bones, the intro timeline (`gameassets/intro.py`); no skeleton is extracted) | heavy |
+| `/asset/spine/lobby/<core>/fx_<id>.png` (a particle, mesh, sprite or page shader texture the lobby's `fx.textures` lists) | heavy |
 | `/asset/spine/lobby/<core>/sfx_<id>.wav` (a sound clip the lobby's `sounds` list, decoded in memory) | heavy |
 | `/asset/model/<variant>.glb` (the variant's chibi, `model/gltf-binary`) | heavy |
 | `/asset/voice/<variant>/<clip>` (a lobby voice relayed from Kivo) | heavy |
@@ -667,11 +670,26 @@ in `pointer-textures`); without a game the system cursor stays and there is no e
 
 - **Linear light** (`linear.js`). The game renders in Unity's linear colour space (PlayerSettings
   `m_ActiveColorSpace` 1) with sRGB atlas textures, so its blending happens in linear light: an additive glow over a
-  bright scene adds little, a soft veil over a dark one adds more. Each lobby player samples its atlas pages as sRGB,
-  blends into an sRGB framebuffer and copies the result to its canvas, encoded again; slot colours are converted the
-  way spine-unity's shader converts its vertex colours (an additive slot at alpha 0.42 adds 0.15 of its texture).
+  bright scene adds little, a soft veil over a dark one adds more. Each lobby player samples its atlas pages as sRGB
+  and blends into an sRGB framebuffer (a lobby's skeletons all into the bottom player's, below), which is copied to
+  the canvas, encoded again; slot colours reach each atlas page's shader (lobby.json layer `shaders`) as that shader
+  takes them (`slot-colours.js`, read from the compiled vertex programs): spine-unity's `Spine/Skeleton` decodes them
+  to linear with UnityCG's cubic fit of the sRGB curve (an additive slot at alpha 0.42 adds 0.15 of its texture), the
+  game's own `Spine/Skeleton MX Standard`, on the pages of 97 lobbies, uses them as they are (0.42), and `Spine/Skeleton
+  MX Portrait Noise` (CH0310's game screen) reads only their alpha.
   Without WebGL2 the player draws in plain sRGB values as before. Drawn in sRGB values, glows such as Kurumi's photo
   booth light or Niko's window washed the scene out to white.
+- **Draw order** (`lobby-stage.js`, `skeleton-parts.js`). spine-unity gives each submesh of a skeleton the material
+  of its atlas page, and Unity sorts every submesh and particle renderer by sorting order, render queue, then back to
+  front, whichever renderer it belongs to. A skeleton whose pages sit in several queues (the scenery at 2900, the
+  character at 3050) draws in one part per queue, and the parts of all of a lobby's skeletons and its effects draw in
+  that one order: the other skeletons' players are made with the bottom player's WebGL context, which runs their
+  frames and draws everything into its framebuffer. Three lobbies need it: their second skeleton, the intro's scene
+  parked beside the lobby, has pages below and above the character's, and their effects sort between them (Wakamo's
+  fire at 3000 under her at 3050, Yuuka (Track)'s dust at 2950 and Shigure's bokeh at 3002 under them). With one
+  canvas per skeleton those effects drew over the character with the parked scene. Equal keys keep the prefab's
+  stacking order (Unity breaks them by the distance from the camera to each renderer's bounds). A lobby whose bottom
+  skeleton does not load draws each skeleton on its own canvas.
 - **Post-processing.** The lobby is drawn by the PC client's main Camera (level1 `Persistent/Camera`: perspective,
   10-degree field of view, HDR), whose culling mask has the lobby's layer 12 and whose URP volume mask has layers 17
   and 30. Every lobby prefab carries global URP volumes on layer 30 (`PPV` at weight 1; `PPV_C`, a flash, and
@@ -686,7 +704,8 @@ in `pointer-textures`); without a game the system cursor stays and there is no e
   32-step LUT; checked against PostProcessPass, UberPost, LutBuilderLdr and ColorUtils.PrepareLiftGammaGain): Panini,
   the three-sample chromatic aberration, then post exposure, the clamp to 0..1 and the LUT's steps (contrast in LogC,
   colour filter, lift / gamma / gain, hue, saturation), in linear light; the LUT's own 32-step interpolation is not
-  modelled. A layer is post-processed on its own (7 lobbies have more than one).
+  modelled. A lobby's skeletons are post-processed together, once, as the camera's target is (7 lobbies have more
+  than one).
   Panini and the aberration are placed in the game's screen (the camera's 16:9 view), not in the canvas: the left
   view and a zoomed or panned fullscreen view show them where the game draws them on the art, magnified with it.
   Placed in the canvas, Michiru's left view had a 7.7 px fringe at its left edge, near the middle of the game's
@@ -722,11 +741,21 @@ in `pointer-textures`); without a game the system cursor stays and there is no e
     background glows (one particle each, 60 a second, living 1 and 5 s; ch0177 and ch0356 have the same river) went
     missing for a frame at every replacement, its bottom-left corner blinking dark once a second, and Utaha's star (one
     particle, two a second, living 1 s) was off a third of the time; 63 systems in 39 lobbies had such gaps (60 fps,
-    4 x 120 s); the shapes sphere, hemisphere,
+    4 x 120 s); emission over distance (particles per Unity world unit the system's origin moves: CH0292's
+    headlights, 9 systems); the shapes sphere, hemisphere,
     cone, box (volume, shell, edge), circle, edge, rectangle and donut
-    with arc, thickness and their own transform; velocity over lifetime (linear, orbital, radial, speed modifier),
-    limit velocity (dampen), force, colour, size and rotation over lifetime, texture sheet animation (start frame and
-    frame over time as fractions of the sheet), custom data and birth and death sub-emitters. Curves are evaluated as
+    with arc, thickness and their own transform, the arc's and an edge's mode (an edge takes the radius's): loop and
+    ping-pong over the system's time, snapped to the spread, and burst spread, the particles emitted together evenly
+    (Hibiki's ten bokeh edges; CH0069's and CH0294's halos have a spread too, 0.12, and how burst spread takes it is
+    neither in the game's data nor in its compiled code, so they are placed at random as before); velocity over
+    lifetime (linear, orbital, radial, speed modifier),
+    limit velocity (dampen), force, colour, size and rotation over lifetime, colour by speed (CH0318's dust), texture
+    sheet animation (start frame and
+    frame over time as fractions of the sheet), custom data, birth and death sub-emitters and trails in particle mode
+    (CH0172's oil drops: a point every minimum vertex distance, living the lifetime's share of the particle's life, a
+    particle that stays put until all of them have gone starting again where it is). Systems below GameObjects a
+    SpineEventToggleObjects lists (CH0217's fish and bubbles, 13 systems) play while the skeleton's EnableObject and
+    DisableObject events have them on, from their start as GameObject.SetActive starts them. Curves are evaluated as
     Unity's are, a segment with a Constant (infinite) tangent holding its left key's value: the water drops of
     misaki_home and ch0095_home keep still, then jump between speeds. Billboards (view or
     local alignment, max size a fraction of the game's view height), stretched billboards and meshes (the particle
@@ -737,10 +766,15 @@ in `pointer-textures`); without a game the system cursor stays and there is no e
     Mask, Distort, Step, Step_MXChar and Step_Distort variants, AlphaBlend_Add_Distort_1a and
     AlphaBlend_Add_Double_Distort_1a, AlphaBlend_2_Roz, AlwaysView_Add, Matcap with the meshes' normals, General
     Unlit VertexColor) with each material's blend, in linear
-    light: textures sampled as sRGB where the game imports them so, vertex colours as 8-bit sRGB decoded, Color
-    properties decoded (above 1 by a 2.2 power), Vector properties as stored. Each system draws in the context of the
-    skeleton layer it sorts after (sorting order, then render queue, then back to front), between that layer's clear
-    and its skeleton or after it. The textures come from the game files on request and stay in memory.
+    light: textures sampled as sRGB where the game imports them so, vertex colours as 8-bit sRGB decoded (as stored
+    where the renderer's Apply Active Color Space is off: 116 systems in 30 lobbies, Nodoka's star and meteors,
+    Michiru's fireworks), Color properties decoded (above 1 by a 2.2 power), Vector properties as stored. Particles
+    sorted by distance or by depth (CH0069, CH0294, CH0172) draw the farthest first. Each system draws after the
+    skeleton part it sorts after (sorting layer, its value: the game's one layer besides Default stores 2, 7 systems in
+    5 lobbies over every skeleton; then sorting order, render queue and back to front with its sorting fudge; see Draw
+    order), or before the first one; its trails are a second submesh with the renderer's second material, sorted by
+    that one's queue (CH0172's dirt trails at 2950 under her page, the drops at 3100 over it). The textures come from
+    the game files on request and stay in memory.
   - The two *_1a shaders (ch0188's and ch0356's water splashes, ch0334's boosters) are UV distortions like Distort:
     their one pass samples only their own main, mask and distortion textures (no grab pass, no camera opaque
     texture), so nothing behind them is read. They also port their vertex programs, which route the particle's
@@ -748,9 +782,10 @@ in `pointer-textures`); without a game the system cursor stays and there is no e
     1 and 2 add to a UV's tiling and offset, and to the distortion power); the Double variant takes two distortions
     from the red and green channels of one texture, each with its own tiling, scroll and power, and its keywords
     (_Tex_Main_Distort, _Tex_Mask_Distort: Off, R, G, RG) say which shift the main and the mask UV.
-  - Not reproduced: noise, collision, trails, lights, inherit velocity, rate over distance and the by-speed modules
-    (each in one lobby at most, or none); limit velocity's drag; sorting layers other than the default; Animators and
-    scripts that move or switch systems during a talk (a system plays as the prefab leaves it); mesh and sprite emitter
+  - Not reproduced: noise, collision, lights, inherit velocity, size and rotation by speed (no system a lobby draws
+    uses them); limit velocity's drag (CH0318's dust, too slow for it to tell); Animators and scripts that move or
+    switch systems during a talk (a system plays as the prefab leaves it; the mesh renderers' Animators, the Spine
+    event toggles and the intro's timeline are played); mesh and sprite emitter
     shapes (emitted from the shape's origin); the materials' culling (most DSFX materials cull back faces: in Unity a
     locally aligned billboard or a mesh turned away from the camera is not drawn; here every face is, as the
     mirrored transforms of ch0058's splashes and ch0334's stretched sparks would need Unity's own handling first). The
@@ -761,6 +796,55 @@ in `pointer-textures`); without a game the system cursor stays and there is no e
     the first frame compiles each shader once. Everything is freed with the lobby (`particles-gl.js` detach and
     dispose), and made again on the next frame once a lost WebGL context is restored (a restorable of each player's
     context, as linear.js has). Without WebGL2 nothing is drawn.
+- **Mesh effects** (`gameassets/meshfx.py`, `mesh-fx.js`). Nine prefabs carry plain MeshRenderers with effect shaders:
+  lens dirt and light quads (FX/FX_SHADER_Lobby_Order, One One: the texture times `_Color0` and the vertex colour,
+  ported from its compiled program; DSFX/FX_SHADER_Additive_0) in Akane's, Eimi's, Karin's, Shiroko's, Sumire's and
+  Shun's lobbies, Hanako's water surface, Maki's drifting dust and Utaha's window glow
+  (DSFX/FX_SHADER_AlphaBlend_Add_Distort_0), 20 renderers. All but Hanako's mesh are Unity's built-in Quad (unity
+  default resources, path id 10210; its vertices, UVs and triangles are built in), white where a mesh has no vertex
+  colours and as stored where it has them (Unity converts no mesh colours to linear light, and the three programs pass
+  COLOR0 on unchanged). They are placed like the particle systems (on the bone of a SkeletonUtilityBone in Follow mode,
+  through the transforms below it, or on the bone itself for one on the bone's own GameObject; else from the prefab
+  root), sorted with them and the skeletons' atlas pages (Akane's lens dirt at 2950 over her page at 2800, the light
+  shafts at 3100), and drawn by `particles-gl.js` with the particle programs. Back faces are culled as the material
+  says, front faces being clockwise on screen and a mirrored transform turning that round, as Unity does. Four lobbies
+  loop them with an Animator: the controller's default state plays one clip (`fx.clips`, sampled at its own rate and
+  looped), which scales, moves and turns the quads (Euler curves in their rotation order) and animates their materials'
+  colours: a Color channel (`.r`, bit 30 of the binding's attribute set) is converted to linear light like the
+  material's colours, a Vector channel (`.x`, as Shiroko's lens dirt animates its `_Color0`) is not.
+- **Skeleton materials** (`gameassets/spine_materials.py`, `skeleton-materials.js`). spine-unity draws each submesh
+  with its atlas page's material, so a page's shader decides how its slots draw, whatever their blend mode:
+  - Aru's third page uses Spine/Blend Modes/Skeleton PMA Multiply (Blend DstColor OneMinusSrcAlpha): its Normal
+    slots multiply. Hina's multiply light takes the same shader from her blend mode materials.
+  - CH0319's, CH0326's and CH0355's water and river pages use Spine/Skeleton MX Standard - NoiseFlowAnimation: the
+    page's UV shifts by (2 noise - 1) x `_PixelNoisePower` x 0.001 x the vertex alpha, the noise scrolling at
+    `_PixelNoiseSpeed`, inside a square of a plane taken from the vertex position (less `_CenterX` / `Y` in Unity
+    units, times 0.01, turned by `_Rotate`, skewed and bent toward a vanishing line by `_SlopeForward` and
+    `_SlopeSide`), the vertex colour as stored (no conversion to linear light).
+  - CH0310's game screen (its intro only) uses Spine/Skeleton MX Portrait Noise: two passes draw alternate horizontal
+    bands of the game's screen (sin(v x 900 + time) at or above 0, at or below), each shifted by `_GlitchOffset`
+    of the camera's clip space on the frames a hash of the time passes `_GlitchFreq` (about one in fifty), the page
+    times 0.72 x a scrolling scan line texture plus `_PortraitNoiseTint`.
+  - Slot blend modes reach the screen only through materials: with `requiresBlendModeMaterials` set,
+    BlendModeMaterials gives Multiply and Screen slots (Additive ones with `applyAdditiveMaterial`) the replacement
+    material listed for their page; without it (all but 4 of the lobbies' 288 skeleton data assets) they keep their page's material and
+    draw as Normal. ch0163's light_01, Hiyori's R_eye_ligth_02 and airi0's FX_Light_01 (airi0_home's LobbyAiri
+    prefab names airi_home's skeleton data, which has none) drew as Screen; spine-player's Screen on straight alpha
+    textures also ignored their alpha (a hard-edged patch over Hiyori's iris). A page that a mode's list does not
+    name gets no replacement material (the list is matched by page name), as an entry left empty does; both draw as
+    spine-player draws. An Additive slot always adds (its premultiplied vertex colour has alpha 0).
+  - The dark colour (two-colour tint) is never drawn: `tintBlack` is off in every lobby's SkeletonAnimation and no
+    lobby page shader reads it (their vertex programs take position, UV and one colour). CH0205's wing and Neru's
+    halo key one, black.
+  The ported programs are taken from their D3D11 bytecode and run in spine-player's batch: a draw switches to the
+  page's program and blend (flushing the batch), feeding it the game's vertex colour (premultiplied, alpha 0 for an
+  additive slot) from linear.js's tinted one.
+- **Pinned bones** (`gameassets/pins.py`, `skeleton-pins.js`). A SkeletonUtilityBone in Override mode sets its bone
+  from its GameObject after the animation, every frame. The drag targets (lobby-touch.js) are such bones; two others
+  nothing moves, so the bone stays where the prefab put it: Hihumi's Hip at (218.8, 650.9), 12.7 units below the
+  skeleton's own (its driver, SpineCharacterGyro, is switched off and rests there too), and with it her whole scene;
+  CH0242's cheek_02, whose PinchEnd_01_M keys only what the pin leaves alone. The zoom-out limits and the head-pat
+  point are measured with the pins.
 - **Intro scenes.** Three prefabs keep four skeletons of their intro timeline (a PlayableDirector with Spine Animation
   State tracks) parked beside the scene: Shigure's Shigure_00 and Shigure_01 at x -4500 and 4500, CH0184_00 and
   Wakamo_Scene_0. Their clip assets are on track -1 (only the timeline plays them). Shigure's timeline (an Animation

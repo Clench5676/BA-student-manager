@@ -676,10 +676,28 @@ class GameAssets:
         return self._cached("lobby-fx/" + tex_id, build, disk=False)
 
 
+# Unity's built-in meshes live in "Library/unity default resources", outside the bundles; the lobbies' effect quads
+# use its Quad
+_BUILTIN_QUAD = ("library/unity default resources", 10210)
+
+
+def _builtin_quad(owner: Any, pointer: dict | None) -> tuple[str, None] | None:
+    """("quad", None) for a pointer to Unity's built-in Quad mesh, else None."""
+    fid, pid = (pointer or {}).get("m_FileID", 0), (pointer or {}).get("m_PathID", 0)
+    try:
+        path = owner.assets_file.externals[fid - 1].path if owner is not None and fid > 0 else ""
+    except (AttributeError, IndexError):
+        return None
+    return ("quad", None) if (str(path).lower(), pid) == _BUILTIN_QUAD else None
+
+
 class _FxResolver:
     """Reads what a lobby's renderers point at, for lobby.read_prefab: a particle material as (id, particles.material)
-    with its textures (particles.texture), a mesh as (id, particles.mesh), and the render queue of a skeleton's atlas
-    pages ("pages": a SkeletonDataAsset, or one Material) as (id, {texture name: queue}). Ids are "<cab>_<path id>"."""
+    with its textures (particles.texture), a mesh as (id, particles.mesh) (Unity's built-in Quad as ("quad", None)),
+    the render queue of a skeleton's atlas pages ("pages": a SkeletonDataAsset, or one Material) as (id, {texture
+    name: queue}), or their shaders' names ("shaders") as (id, {texture name: shader name}), the materials a skeleton
+    is drawn with ("skeleton": a SkeletonDataAsset) as (id, spine_materials.skeleton) and an Animator's controller
+    ("animator") as (id, {"decoded", "bindings", "loop"}) of its default state's clip. Ids are "<cab>_<path id>"."""
 
     def __init__(self, graph: Any, objects: dict[int, Any], shader_forms: dict):
         self.graph, self.objects, self.forms = graph, objects, shader_forms
@@ -693,7 +711,7 @@ class _FxResolver:
         own = self.objects.get(owner)
         obj = g.deref(own, pointer) if own is not None else None
         if obj is None:
-            return None
+            return _builtin_quad(own, pointer) if kind == "mesh" else None
         oid = f"{obj.assets_file.name.lower()}_{obj.path_id}"
         if (kind, oid) in self.done:
             return self.done[(kind, oid)]
@@ -705,18 +723,60 @@ class _FxResolver:
                 data = read_mesh(obj.read())
                 tris = [t for sub in data.triangles for t in sub]
                 out = (oid, particles.mesh(data.vertices, data.uv0, data.normals, tris, data.colors))
-            elif kind == "pages" and obj.type.name in ("MonoBehaviour", "Material"):
-                out = (oid, self._pages(obj))
+            elif kind in ("pages", "shaders") and obj.type.name in ("MonoBehaviour", "Material"):
+                out = (oid, self._pages(obj, kind))
+            elif kind == "skeleton" and obj.type.name == "MonoBehaviour":
+                out = (oid, self._skeleton(obj))
+            elif kind == "animator" and obj.type.name == "AnimatorController":
+                out = self._animator(obj, oid)
+            elif kind == "timeline" and obj.type.name == "MonoBehaviour":
+                from . import intro
+                out = (oid, intro.read_timeline(g, obj, sound=self._sound))
+            elif kind == "sprite" and obj.type.name == "Sprite":
+                out = (oid, self._sprite(obj))
         except Exception:  # an unreadable object: the system is left out
             logger.debug("Cannot read lobby particle %s %s", kind, oid, exc_info=True)
             out = None
         self.done[(kind, oid)] = out
         return out
 
-    def _pages(self, obj: Any) -> dict[str, int]:
+    def _sound(self, asset: Any, data: dict) -> dict | None:
+        """A TimeLineAudioController's AudioData as a sound event (lobby.sound_event), with its id: the asset's."""
+        def clip_id(pointer: dict) -> str | None:
+            if not pointer.get("m_PathID"):
+                return None
+            cab, pid = reference(asset, pointer)
+            return f"{cab.lower()}_{pid}"
+        event = lobby.sound_event({"m_Name": "Intro", "AudioData": data}, clip_id)
+        return {**event, "id": f"{asset.assets_file.name.lower()}_{asset.path_id}"} if event else None
+
+    def _sprite(self, obj: Any) -> dict | None:
+        """A Sprite as intro.sprite draws it: its texture (particles.texture), its rect in the texture's pixels, its
+        size in units (rect / pixels per unit) and its pivot (0 to 1). The pixels are read when served."""
+        from . import particles
+
+        g = self.graph
+        st = g.tree(obj)
+        rd = st.get("m_RD") or {}
+        tex = g.deref(obj, rd.get("texture"))
+        if tex is None or tex.type.name != "Texture2D":
+            return None
+        tex_id = f"{tex.assets_file.name.lower()}_{tex.path_id}"
+        info = particles.texture(g.tree(tex), tex_id)
+        g.trees.pop((tex.assets_file.name.lower(), tex.path_id), None)
+        r, tr = st.get("m_Rect") or {}, rd.get("textureRect") or {}
+        ppu = float(st.get("m_PixelsToUnits") or 100.0) or 100.0
+        pivot = st.get("m_Pivot") or {}
+        return {"tex": info, "rect": [float(tr.get(k, 0.0)) for k in ("x", "y", "width", "height")],
+                "size": [float(r.get("width", 0.0)) / ppu, float(r.get("height", 0.0)) / ppu],
+                "pivot": [float(pivot.get("x", 0.5)), float(pivot.get("y", 0.5))]}
+
+    def _pages(self, obj: Any, kind: str = "pages") -> dict[str, Any]:
         """{texture name: render queue} of a SkeletonDataAsset's atlas pages, as spine-unity draws them: each page with
         the material its SpineAtlasAsset lists for it (matched by the material's main texture name, which is the page's
-        file name without its extension). For a Material, its own page. The textures' pixels are never read."""
+        file name without its extension). For a Material, its own page. With kind "shaders", {texture name: the name
+        of the material's shader} instead (a page without a shader is left out). The textures' pixels are never
+        read."""
         g = self.graph
         materials = [obj]
         if obj.type.name == "MonoBehaviour":
@@ -724,7 +784,7 @@ class _FxResolver:
             for atlas in (g.deref(obj, p) for p in g.tree(obj).get("atlasAssets") or []):
                 if atlas is not None:
                     materials += [g.deref(atlas, p) for p in g.tree(atlas).get("materials") or []]
-        out: dict[str, int] = {}
+        out: dict[str, Any] = {}
         for mat in materials:
             if mat is None or mat.type.name != "Material":
                 continue
@@ -733,7 +793,10 @@ class _FxResolver:
             tex = g.deref(mat, (envs.get("_MainTex") or {}).get("m_Texture"))
             name = tex.peek_name() if tex is not None else None
             if name:
-                out.setdefault(name, self._state(mat, tree)[2]["queue"])
+                shader, _, state = self._state(mat, tree)
+                value = shader if kind == "shaders" else state["queue"]
+                if value is not None:
+                    out.setdefault(name, value)
         return out
 
     def _state(self, obj: Any, tree: dict) -> tuple[str | None, dict | None, dict]:
@@ -780,4 +843,73 @@ class _FxResolver:
             if tex is not None and tex.type.name == "Texture2D":
                 textures[prop] = particles.texture(g.tree(tex), f"{tex.assets_file.name.lower()}_{tex.path_id}")
                 g.trees.pop((tex.assets_file.name.lower(), tex.path_id), None)  # its pixels are read when served
-        return particles.material(name, tree, state, form["m_PropInfo"].get("m_Props", []) if form else (), textures)
+        out = particles.material(name, tree, state, form["m_PropInfo"].get("m_Props", []) if form else (), textures)
+        out["cull"] = state.get("cull", 2)  # back faces are culled (2), front faces (1) or none (0): meshfx.py's meshes
+        return out
+
+    def _skeleton(self, obj: Any) -> dict:
+        """The materials of a SkeletonDataAsset's atlas pages and its blend mode replacement materials
+        (spine_materials.skeleton). Only the pages a ported shader draws read their other textures' settings; no
+        pixels are read."""
+        from . import spine_materials
+
+        g = self.graph
+        tree = g.tree(obj)
+        mats = []
+        for atlas in (g.deref(obj, p) for p in tree.get("atlasAssets") or []):
+            if atlas is not None:
+                for mat in (g.deref(atlas, p) for p in g.tree(atlas).get("materials") or []):
+                    if mat is not None and mat.type.name == "Material":
+                        mats.append(self._spine_material(mat))
+
+        def replacement(pointer: dict) -> tuple[str | None, dict] | None:
+            mat = g.deref(obj, pointer)
+            return self._spine_material(mat) if mat is not None and mat.type.name == "Material" else None
+        return spine_materials.skeleton(mats, tree.get("blendModeMaterials") or {}, replacement, tree.get("scale") or 0.01)
+
+    def _spine_material(self, mat: Any) -> tuple[str | None, dict]:
+        from . import particles, spine_materials
+
+        g = self.graph
+        tree = g.tree(mat)
+        name, form, _ = self._state(mat, tree)
+        envs = dict((tree.get("m_SavedProperties") or {}).get("m_TexEnvs", []))
+        main = g.deref(mat, (envs.get("_MainTex") or {}).get("m_Texture"))
+        textures = {}
+        for prop, env in envs.items() if spine_materials.program(name) else ():
+            tex = g.deref(mat, env.get("m_Texture")) if prop != "_MainTex" else None
+            if tex is not None and tex.type.name == "Texture2D":
+                textures[prop] = particles.texture(g.tree(tex), f"{tex.assets_file.name.lower()}_{tex.path_id}")
+                g.trees.pop((tex.assets_file.name.lower(), tex.path_id), None)
+        return (main.peek_name() if main is not None else None), spine_materials.material(name, form, tree, textures)
+
+    def _animator(self, controller: Any, oid: str) -> tuple[str, dict] | None:
+        """The clip an AnimatorController's first layer plays in its default state (the lobbies' controllers have one
+        state, looping one clip), decoded (model.decode_clip) with its bindings."""
+        from .model import decode_clip
+
+        g = self.graph
+        tree = g.tree(controller)
+        clips = [g.deref(controller, p) for p in tree.get("m_AnimationClips") or []]
+        machine = ((tree.get("m_Controller") or {}).get("m_StateMachineArray") or [{}])[0]
+        machine = machine.get("data", machine)
+        states = machine.get("m_StateConstantArray") or []
+        clip = None
+        if states:
+            state = states[min(int(machine.get("m_DefaultState", 0)), len(states) - 1)]
+            state = state.get("data", state)
+            for blend in state.get("m_BlendTreeConstantArray") or []:
+                for node in (blend.get("data", blend).get("m_NodeArray") or []):
+                    node = node.get("data", node)
+                    index = node.get("m_ClipID", -1)
+                    if 0 <= index < len(clips) and clips[index] is not None:
+                        clip = clips[index]
+                        break
+                if clip is not None:
+                    break
+        if clip is None or clip.type.name != "AnimationClip":
+            return None
+        ct = g.tree(clip)
+        bindings = (ct.get("m_ClipBindingConstant") or {}).get("genericBindings", [])
+        loop = bool((ct.get("m_MuscleClip") or {}).get("m_LoopTime", True))
+        return oid, {"decoded": decode_clip(ct), "bindings": bindings, "loop": loop}

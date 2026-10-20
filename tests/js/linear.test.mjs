@@ -242,3 +242,69 @@ test("only the layer drawn over the camera's clear colour is made opaque, with P
   Linear.detach(bottom);
   Linear.detach(top);
 });
+
+test("a player drawn with another one's context only gets its pages and blending; its own frames clear the host's framebuffer", () => {
+  const gl = fakeGL(), host = player(gl), guest = player(gl);
+  Linear.attach(host);
+  const hostObjects = new Set(gl.live);
+  assert.equal(Linear.attach(guest, host), true);
+  assert.deepEqual([...gl.live].filter((o) => !hostObjects.has(o)), [], "no framebuffer, program or triangle of its own");
+  assert.equal(guest.restorables.length, 0);
+  assert.ok(Object.prototype.hasOwnProperty.call(guest.page, "update"), "its page is kept sRGB");
+  assert.notEqual(guest.sceneRenderer.batcher.setBlendMode, Batcher.prototype.setBlendMode, "additive slots add colour only");
+  assert.equal(Linear.active(guest), true);
+  // before the host has drawn a frame there is no framebuffer to clear into: nothing is bound
+  const binds = (fn) => {
+    const from = gl.calls.length;
+    fn();
+    return gl.calls.slice(from).filter(([name]) => name === "bindFramebuffer").map((c) => c[2]);
+  };
+  assert.deepEqual(binds(() => { Linear.begin(guest); Linear.end(guest); }), []);
+  Linear.begin(host);
+  Linear.end(host);
+  const fbo = [...gl.live].find((o) => o.kind === "Framebuffer");
+  // a frame of its own: into the host's framebuffer, then the binding it found (none) back; no pass of its own
+  const from = gl.calls.length;
+  assert.deepEqual(binds(() => { Linear.begin(guest); Linear.end(guest); }), [fbo, null]);
+  assert.equal(gl.calls.slice(from).filter(([name]) => name === "drawArrays" || name === "useProgram").length, 0);
+  Linear.detach(guest);
+  assert.ok(!Object.prototype.hasOwnProperty.call(guest.page, "update"));
+  assert.deepEqual([...gl.live].filter((o) => !hostObjects.has(o)), []);
+  Linear.detach(host);
+  assert.equal(gl.live.size, 0);
+});
+
+test("a guest goes into linear light only with its host, and leaves it with its host", () => {
+  const gl = fakeGL(), host = player(gl), guest = player(gl);
+  // its host not in linear light (not attached, or its program failed): the guest draws plain sRGB values like it
+  assert.equal(Linear.attach(guest, host), false);
+  assert.equal(Linear.active(guest), false);
+  assert.ok(!Object.prototype.hasOwnProperty.call(guest.page, "update"), "its page as it came");
+  assert.equal(guest.sceneRenderer.batcher.setBlendMode, Batcher.prototype.setBlendMode);
+  assert.equal(Linear.attach(host), true);
+  assert.equal(Linear.attach(guest, host), true);
+  // no sRGB render target for the host: both draw plain again, their pages uploaded as they came
+  gl.checkFramebufferStatus = () => "FRAMEBUFFER_UNSUPPORTED";
+  const updated = guest.page.updated || 0;
+  Linear.begin(host);
+  assert.equal(Linear.active(host), false);
+  assert.equal(Linear.active(guest), false);
+  assert.equal(guest.page.updated, updated + 1);
+  Linear.detach(guest);
+  Linear.detach(host);
+});
+
+test("a tint is taken once until it is given back", () => {
+  const gl = fakeGL(), p = player(gl);
+  const grey = { r: 0.5, g: 0.5, b: 0.5, a: 1, set(r, g, b, a) { Object.assign(this, { r, g, b, a }); } };
+  p.skeleton.drawOrder = [{ color: grey, data: { blendMode: 0 }, getAttachment: () => null }];
+  Linear.attach(p);
+  Linear.tint(p);
+  Linear.tint(p); // a second tint before untint (another player's draw) does not decode twice
+  close(grey.r, Math.pow((0.5 + 0.055) / 1.055, 2.4));
+  Linear.untint(p);
+  assert.equal(grey.r, 0.5);
+  Linear.untint(p);
+  assert.equal(grey.r, 0.5);
+  Linear.detach(p);
+});

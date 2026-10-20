@@ -24,8 +24,10 @@ void main() { gl_Position = vec4(p, 0.0, 1.0); }`;
 //   contrast in LogC around ACEScc mid grey, the colour filter, lift / gamma / gain, the hue shift, saturation.
 //   The other LUT stages (white balance, split toning, channel mixer, shadows / midtones / highlights, curves) are at
 //   their defaults in every lobby and leave the colour as it is. The LUT's 32-step interpolation is not modelled.
-// A layer above another one is post-processed on its own (one canvas per layer); the colour steps are affine but for
-// gamma, and the shifts are sub-pixel where characters stand, so the composite is the game's within a hair.
+// A lobby's skeletons all draw into the bottom player's framebuffer (lobby-stage.js), post-processed once as the game's
+// camera target is. Only where they cannot (one canvas per layer) is a layer above another one post-processed on its
+// own; the colour steps are affine but for gamma, and the shifts are sub-pixel where characters stand, so that
+// composite is the game's within a hair.
 // Panini and the aberration are placed in the game's screen, the camera's 16:9 view G (screen: G on the canvas, in
 // canvas uv), never in the canvas's own: the left view and a zoomed or panned fullscreen view show the game's picture
 // with its shifts where the game puts them on the art, magnified with it. Past G's edge (a view zoomed out beyond it)
@@ -162,17 +164,24 @@ function pagesOf(player) {
   return out;
 }
 
-// switch a loaded player to linear light; false (and nothing changed) without WebGL2
-export function attach(player) {
+// switch a loaded player to linear light; false (and nothing changed) without WebGL2. host: the player whose context
+// and framebuffer it draws into (lobby-stage.js: every skeleton of a lobby in the bottom player's), which does the
+// pass; such a guest only gets its pages decoded and its blending, and a frame of its own clears into the host's
+// framebuffer (which the host clears again before drawing), never the host's canvas. A guest goes into linear light
+// only with its host in it: drawn into a plain canvas, its sRGB pages and decoded colours would come out too dark.
+export function attach(player, host = null) {
   const gl = player?.context?.gl;
   if (!gl || typeof WebGL2RenderingContext === "undefined" || !(gl instanceof WebGL2RenderingContext) || states.has(player)) return false;
+  const hs = host ? states.get(host) : null;
+  if (host && !hs?.on) return false;
   let st;
   try {
-    st = { gl, res: compile(gl), on: true, pages: [] };
+    st = { gl, res: host ? null : compile(gl), on: true, pages: [], host, guests: new Set() };
   } catch (err) {
     console.warn("linear light unavailable", err);
     return false;
   }
+  hs?.guests.add(player);
   for (const texture of pagesOf(player)) {
     srgbPage(gl, texture);
     // a lost and restored context uploads the page again: keep it sRGB
@@ -182,8 +191,10 @@ export function attach(player) {
     st.pages.push([texture, own]);
   }
   // the program and the framebuffer are rebuilt after a context loss (spine restores its own objects first)
-  st.restorable = { restore: () => { try { st.res = compile(gl); } catch { st.on = false; } } };
-  player.context.addRestorable?.(st.restorable);
+  if (!host) {
+    st.restorable = { restore: () => { try { st.res = compile(gl); } catch { st.on = false; } } };
+    player.context.addRestorable?.(st.restorable);
+  }
   // additive slots add colour, not coverage
   const batcher = player.sceneRenderer?.batcher, table = spine.PolygonBatcher?.blendModesGL;
   if (batcher && table) {
@@ -210,8 +221,9 @@ export function detach(player) {
   const st = states.get(player);
   if (!st) return;
   states.delete(player);
+  states.get(st.host)?.guests.delete(player);
   st.on = false;
-  if (st.saved) untint(st);
+  if (st.saved) restoreTint(st);
   const { gl } = st;
   if (st.bound && !gl.isContextLost()) gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   st.bound = false;
@@ -220,7 +232,7 @@ export function detach(player) {
     else texture.update = own;
   }
   if (st.batcher) delete st.batcher.setBlendMode;
-  player.context?.removeRestorable?.(st.restorable);
+  if (st.restorable) player.context?.removeRestorable?.(st.restorable);
   release(gl, st.res);
   st.res = null;
 }
@@ -229,6 +241,15 @@ export function detach(player) {
 export function begin(player) {
   const st = states.get(player);
   if (!st?.on) return;
+  if (st.host) {
+    // a guest's own frame: its clear goes into the host's framebuffer, which the host clears again before drawing
+    const hs = states.get(st.host), gl = st.gl;
+    if (!hs?.on || !hs.res?.w || gl.isContextLost()) return;
+    st.prev = gl.getParameter(gl.FRAMEBUFFER_BINDING);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, hs.res.fbo);
+    st.bound = true;
+    return;
+  }
   const { gl, res } = st, w = gl.drawingBufferWidth, h = gl.drawingBufferHeight;
   if (!w || !h || gl.isContextLost()) { st.bound = false; return; }
   if (w !== res.w || h !== res.h) {
@@ -243,10 +264,14 @@ export function begin(player) {
     gl.bindFramebuffer(gl.FRAMEBUFFER, res.fbo);
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, res.tex, 0);
     if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
-      // no sRGB render target: back to plain drawing, the pages as they came
+      // no sRGB render target: back to plain drawing, the pages as they came, its guests' too (they draw into it)
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       st.on = false;
-      for (const texture of pagesOf(player)) texture.update(texture.useMipMaps);
+      for (const p of [player, ...st.guests]) {
+        const ps = states.get(p);
+        if (ps) ps.on = false;
+        for (const texture of pagesOf(p)) texture.update(texture.useMipMaps);
+      }
       return;
     }
     res.w = w;
@@ -257,15 +282,24 @@ export function begin(player) {
 }
 
 // the slot colours as the game's shader sees them: spine-unity hands its shader premultiplied vertex colours and,
-// in linear colour space, converts them from gamma to linear (PMAGammaToTargetSpace). A tint is decoded; an additive
-// slot carries alpha 0 there, so its colour times its alpha is decoded as a whole: a glow at alpha 0.42 adds 0.15 of
-// its texture, not 0.42. In the player's update hook (after the animation, before drawing); end() puts them back.
+// in linear colour space, spine-unity's own shaders convert them from gamma to linear (PMAGammaToTargetSpace). A tint
+// is decoded; an additive slot carries alpha 0 there, so its colour times its alpha is decoded as a whole: a glow at
+// alpha 0.42 adds 0.15 of its texture, not 0.42. Each page's shader decodes with its own curve, or not at all
+// (slot-colours.js: setCurves). In the player's update hook (after the animation, before drawing); end() puts them
+// back.
 const dec = (c) => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
 export let vertexColours = true; // for checks
 export const setVertexColours = (on) => { vertexColours = !!on; };
+// curveOf(attachment) -> the decoding curve of the shader that draws it (null: every slot decoded with the sRGB curve)
+export function setCurves(player, curveOf) {
+  const st = states.get(player);
+  if (st) st.curveOf = curveOf || null;
+}
+// A player drawn by another one (lobby-stage.js) is tinted around that draw and given its colours back with untint().
+// Tinted already (not given them back yet): nothing more.
 export function tint(player) {
   const st = states.get(player);
-  if (!st?.on || !vertexColours || !player.skeleton) return;
+  if (!st?.on || !vertexColours || !player.skeleton || st.saved) return;
   const saved = (st.saved = []), additive = spine.BlendMode.Additive;
   for (const slot of player.skeleton.drawOrder) {
     const c = slot.color, att = slot.getAttachment(), ac = att?.color;
@@ -274,16 +308,22 @@ export function tint(player) {
     saved.push([c, c.r, c.g, c.b, c.a, white ? null : ac, ac?.r, ac?.g, ac?.b, ac?.a]);
     let [r, g, b, a] = [c.r, c.g, c.b, c.a];
     if (!white) { r *= ac.r; g *= ac.g; b *= ac.b; a *= ac.a; ac.set(1, 1, 1, 1); }
-    if (slot.data.blendMode === additive) c.set(dec(r * a), dec(g * a), dec(b * a), 1);
-    else c.set(dec(r), dec(g), dec(b), a);
+    const curve = st.curveOf?.(att) || dec;
+    if (slot.data.blendMode === additive) c.set(curve(r * a), curve(g * a), curve(b * a), 1);
+    else c.set(curve(r), curve(g), curve(b), a);
   }
 }
-function untint(st) {
+function restoreTint(st) {
   for (const [c, r, g, b, a, ac, ar, ag, ab, aa] of st.saved || []) {
     c.set(r, g, b, a);
     if (ac) ac.set(ar, ag, ab, aa);
   }
   st.saved = null;
+}
+// the slot colours tint() changed, back as they were
+export function untint(player) {
+  const st = states.get(player);
+  if (st?.saved) restoreTint(st);
 }
 
 // --- the game camera's post-processing ---
@@ -341,6 +381,12 @@ export function setScreen(player, view) {
   const st = states.get(player);
   if (st) st.screen = view?.width > 0 && view?.height > 0 ? { x: view.x, y: view.y, w: view.width, h: view.height } : null;
 }
+// a pass over the frame in linear light before the post-processing's colour steps: fn(gl, texture, width, height,
+// screen) returns the texture to grade instead (falsy: the frame as it is); null removes it (lobby-dof.js)
+export function setPrepass(player, fn) {
+  const st = states.get(player);
+  if (st) st.prepass = fn || null;
+}
 // true for the bottom layer: drawn over the camera's clear colour (black, graded with the rest), opaque
 export function setClear(player, on) {
   const st = states.get(player);
@@ -360,19 +406,28 @@ export function screenOnCanvas(screen, camera) {
 // in the player's draw hook, after the skeleton: the linear framebuffer, encoded, onto the canvas
 export function end(player) {
   const st = states.get(player);
-  if (st?.saved) untint(st);
+  if (st?.saved) restoreTint(st);
+  if (st?.host) {
+    // a guest's own frame: the binding it found back
+    if (st.bound && !st.gl.isContextLost()) st.gl.bindFramebuffer(st.gl.FRAMEBUFFER, st.prev || null);
+    st.bound = false;
+    st.prev = null;
+    return;
+  }
   if (!st?.on || !st.bound) return;
   const { gl, res } = st, w = res.w, h = res.h;
   st.bound = false;
+  const screen = screenOnCanvas(st.screen, player.sceneRenderer?.camera);
+  // a pass before the colour steps (the intro's depth of field, lobby-dof.js), with the post-processing on
+  const src = (postOn && st.prepass?.(gl, res.tex, w, h, screen)) || res.tex;
   gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   gl.disable(gl.BLEND);
   gl.useProgram(res.prog);
   gl.activeTexture(gl.TEXTURE0);
-  gl.bindTexture(gl.TEXTURE_2D, res.tex);
+  gl.bindTexture(gl.TEXTURE_2D, src);
   const u = res.u;
   gl.uniform1i(u.t, 0);
   gl.uniform2f(u.size, w, h);
-  const screen = screenOnCanvas(st.screen, player.sceneRenderer?.camera);
   gl.uniform4f(u.screen, ...screen);
   gl.uniform1f(u.clear, st.clear ? 1 : 0);
   // Panini's extents: the game screen's aspect, the canvas's when the canvas is the screen
