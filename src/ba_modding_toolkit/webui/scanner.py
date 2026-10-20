@@ -41,6 +41,7 @@ class Scanner:
         self._cores: set[str] | None = None
         self._generation = 0  # bumped by cancel(): a scan of an older generation is dropped
         self._running = False
+        self._invalidated = False
         self._stopped = False
         self._thread: threading.Thread | None = None
 
@@ -84,6 +85,12 @@ class Scanner:
     def running(self) -> bool:
         with self._cond:
             return self._running
+
+    @property
+    def invalidated(self) -> bool:
+        """A stale scan still needs replacing, even if its attempt already finished."""
+        with self._cond:
+            return self._invalidated
 
     def served(self) -> int:
         """The number of the last request a finished attempt served."""
@@ -160,7 +167,12 @@ class Scanner:
                 logger.debug("scan cancelled")
                 return None
             if result is None or not getattr(result, "stale", False):
+                if result is not None:
+                    with self._cond:
+                        self._invalidated = False
                 return result
+            with self._cond:
+                self._invalidated = True
             if attempt == 1 and not self._writer_busy():
                 logger.debug("scan stale, scanning again")
                 continue

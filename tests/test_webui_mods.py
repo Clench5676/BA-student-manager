@@ -881,6 +881,83 @@ def test_background_add_is_a_writer_with_durable_file_progress_and_no_game_resca
     assert changed[-1] == {'cores': [], 'kinds': [], 'mods': True}
 
 
+@pytest.mark.parametrize('scan_finishes_first', [True, False])
+def test_background_add_replaces_a_scan_it_invalidates(env, monkeypatch, scan_finishes_first):
+    from ba_modding_toolkit.library.service import _View
+
+    env.s.set_scan_consent(True)
+    assert env.s.scanner.wait_idle(5)
+    entered, release, dropped = (threading.Event() for _ in range(3))
+    entries = _View.entries
+    scans = []
+
+    def blocked(view, pins, cancel=None, cores=None):
+        scans.append(cores)
+        if len(scans) == 1:
+            entered.set()
+            assert release.wait(5)
+        return entries(view, pins, cancel, cores)
+
+    monkeypatch.setattr(_View, 'entries', blocked)
+    scanned = env.s.scanner._on_done
+
+    def completed(result, served):
+        scanned(result, served)
+        if result is None:
+            dropped.set()
+
+    monkeypatch.setattr(env.s.scanner, '_on_done', completed)
+    add = env.s.library.add
+
+    def overlapping(paths, progress=None):
+        result = add(paths, progress)
+        if scan_finishes_first:
+            release.set()
+            assert dropped.wait(5)  # the stale scan is already gone while add is still busy
+        return result
+
+    monkeypatch.setattr(env.s.library, 'add', overlapping)
+    env.s.request_scan()
+    assert entered.wait(5)
+    try:
+        path = make_mod(env.spr, env.tmp / 'picker')
+        job = env.job('mods.add', paths=[str(path)], background=True)
+        assert job.state == 'done'
+    finally:
+        release.set()
+    assert env.s.scanner.wait_idle(5)
+    assert len(scans) >= 2 and scans[-1] is None
+    assert env.s.snapshot.scanned() and not env.s.scanner.invalidated
+
+
+def test_apply_rescans_other_cores_changed_by_global_pruning(env, monkeypatch):
+    other = game_bundle(env.game, 'other_spr')
+    env.s.set_scan_consent(True)
+    assert env.s.scanner.wait_idle(5)
+    mod_b = env.add(other)
+    assert env.job('actions.apply', variant='other', source=f'mod:{mod_b.id}').state == 'done'
+    assert env.s.scanner.wait_idle(5)
+    before = {e.core: e for e in env.s.snapshot.entries()}
+    assert before['other_spr'].state == 'ok'
+    other.unlink()
+    game_bundle(env.game, 'other_spr', date='2026-02-01', payload=b'updated official')
+    scopes = []
+    scan = env.s.library.scan
+
+    def measured(*args, **kwargs):
+        scopes.append(kwargs.get('cores'))
+        return scan(*args, **kwargs)
+
+    monkeypatch.setattr(env.s.library, 'scan', measured)
+    mod_a = env.add(env.spr)
+    assert env.job('actions.apply', variant='test', source=f'mod:{mod_a.id}').state == 'done'
+    assert env.s.scanner.wait_idle(5)
+    assert scopes == [{'test_spr', 'other_spr'}]
+    after = {e.core: e for e in env.s.snapshot.entries()}
+    assert after['other_spr'].state == 'updated'
+    assert after['test_spr'].configured == f'mod:{mod_a.id}'
+
+
 def test_switch_rescans_only_changed_cores_and_preserves_other_snapshot_entries(env, monkeypatch):
     env.s.set_scan_consent(True)
     assert env.s.scanner.wait_idle(5)

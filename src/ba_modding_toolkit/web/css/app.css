@@ -334,6 +334,7 @@ input[type="text"], input[type="search"], textarea { cursor: text; }
 .loading-plain { position: absolute; right: 84px; bottom: 44px; display: flex; align-items: flex-end; gap: 9px; color: #fff;
   font: var(--w) 44px/1 var(--font); letter-spacing: 1px; text-shadow: 0 2px 4px rgba(10, 30, 60, .6); }
 .loading-plain span { margin-right: 4px; }
+.loading.with-progress { z-index: 1501; }
 .loading.indicator.with-progress .loading-plain { right: auto; left: 84px; }
 .loading.indicator.with-progress .loading-ind { transform: translateX(-1280px); background: none; }
 .loading-progress { position: absolute; left: 84px; bottom: 132px; max-width: 1000px; padding: 8px 16px;

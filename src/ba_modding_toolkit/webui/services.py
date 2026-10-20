@@ -519,7 +519,9 @@ class Services:
         self.refresh_status(library)
         # a failed job may have switched some entries (a toggle stopped midway): everything is read again
         self.events.publish("library.changed", None if failed else _changed_of(result))
-        if kind not in ("library.prune", "library.judge", "mods.add"):
+        replace_scan = self.scanner.running or self.scanner.invalidated
+        pruned = library.take_pruned_cores() if library is not None else set()
+        if kind not in ("library.prune", "library.judge") and (kind != "mods.add" or replace_scan or pruned):
             changed = _changed_of(result)
             cores = set(changed["cores"]) if not failed and kind in ("apply", "restore") else None
             variant = getattr(result, "variant", None)
@@ -530,7 +532,9 @@ class Services:
                 except Exception:
                     logger.exception("variant cores not read")
                     cores = None
-            if self.scanner.running:
+            if cores is not None:
+                cores.update(pruned)
+            if replace_scan:
                 cores = None  # a preceding scan may become stale while this job writes
             # Without a complete snapshot a full scan still establishes the initial state.
             self.scanner.request(cores=cores if cores and self.snapshot.scanned() else None)

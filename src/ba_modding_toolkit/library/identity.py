@@ -26,16 +26,22 @@ def content_cores(path: Path) -> set[str]:
             names.add(name)
         if obj.container:
             names.add(obj.container)
-    cores = set()
+    names = {name.replace("\\", "/").lower() for name in names}
+    container_kinds: dict[str, set[str]] = {}
     for name in names:
-        normalized = name.replace("\\", "/")
+        kind = "home" if "spinelobbies/" in name else "spr" if "spinecharacters/" in name else None
+        if kind and name.endswith((".skel", ".atlas")):
+            container_kinds.setdefault(Path(name).stem, set()).add(kind)
+    cores = set()
+    for normalized in names:
         found = CORE.findall(normalized)
         cores.update(match.lower() for match in found)
         if not found and normalized.lower().endswith((".skel", ".atlas")):
             stem = Path(normalized).stem.lower()
             if re.fullmatch(r"[a-z][a-z0-9_]*", stem):
-                kind = "home" if "spinelobbies/" in normalized.lower() or kind_of(parse_filename(path.name).core) == "lobby" else "spr"
-                cores.add(f"{stem}_{kind}")
+                kinds = container_kinds.get(stem) or {
+                    "home" if kind_of(parse_filename(path.name).core) == "lobby" else "spr"}
+                cores.update(f"{stem}_{kind}" for kind in kinds)
     return cores
 
 
@@ -55,12 +61,11 @@ def identify(path: Path, name: str, catalog) -> tuple[str, str, str]:
     if not targets:
         if declared is None or kind_of(parsed.core) is None:
             raise ServiceError("mod_target_unknown", file=path)
-        return name, declared.key, kind_of(parsed.core)
-    target, kind = targets.pop()
-    if declared is not None and (declared.key, kind_of(parsed.core)) == (target, kind):
-        return name, target, kind
-    variant = resolved[0][1]
-    core = (variant.spr if kind == "spr" else variant.lobby) or resolved[0][0]
+        target, kind, variant = declared.key, kind_of(parsed.core), declared
+    else:
+        target, kind = targets.pop()
+        variant = resolved[0][1]
+    core = (variant.spr if kind == "spr" else variant.lobby) or (resolved[0][0] if resolved else parsed.core)
     category = "spinecharacters" if kind == "spr" else "spinelobbies"
     prefix = parsed.prefix.replace(f"-{parsed.core}-", f"-{core}-", 1)
     if parsed.category:

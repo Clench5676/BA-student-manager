@@ -56,6 +56,36 @@ def test_dress_lobby_overrules_base_filename_and_uses_installed_core(catalog, tm
     assert parse_filename(name).date == parse_filename(source.name).date
 
 
+@pytest.mark.parametrize('category, filename_core, core, kind', [
+    ('SpineCharacters', 'mutsuki_home', 'ch0246_spr', 'spr'),
+    ('SpineLobbies', 'mutsuki_spr', 'mutsuki_dress_home', 'lobby'),
+])
+def test_container_kind_overrules_upload_name_and_bare_object_names(
+        catalog, tmp_path, monkeypatch, category, filename_core, core, kind):
+    source = game_bundle(tmp_path, filename_core)
+    objects(monkeypatch, ['CH0246.skel', 'CH0246.atlas'],
+            [f'Assets/_MX/{category}/CH0246/CH0246.skel'])
+    assert content_cores(source) == {f'ch0246_{"spr" if kind == "spr" else "home"}'}
+    name, target, detected_kind = identify(source, source.name, catalog)
+    assert (parse_filename(name).core, target, detected_kind) == (core, 'ch0246', kind)
+
+
+@pytest.mark.parametrize('names', [['CH0246_home.atlas'], ['generic_mesh']])
+def test_matching_variant_alias_is_canonicalized_and_can_be_applied(setup_library, catalog, monkeypatch, names):
+    env = setup_library
+    env.library.catalog = catalog
+    original = game_bundle(env.game_dir, 'mutsuki_dress_home')
+    source = game_bundle(env.tmp / 'upload', 'ch0246_home')
+    source.write_bytes(original.read_bytes() + b'lobby mod')
+    with monkeypatch.context() as patch:
+        objects(patch, names)
+        patch.setattr('ba_modding_toolkit.library.identity.content_cores', content_cores)
+        entry, = env.library.add([source])
+    assert (entry.core, entry.target, entry.kind) == ('mutsuki_dress_home', 'ch0246', 'lobby')
+    env.library.apply('ch0246', f'mod:{entry.id}', kind='lobby')
+    assert original.read_bytes() == source.read_bytes()
+
+
 def test_aliases_and_character_ids_resolve_to_the_same_student(catalog):
     assert catalog.variant_for_asset_core('mutsuki_dress_home').key == 'ch0246'
     assert catalog.variant_for_asset_core('CH0246_home').key == 'ch0246'
@@ -68,6 +98,14 @@ def test_filename_only_part_uses_catalog_and_keeps_original_spelling(catalog, tm
     source = game_bundle(tmp_path, 'shun_home')
     objects(monkeypatch, ['generic_mesh'])
     assert identify(source, source.name, catalog) == (source.name, 'shun', 'lobby')
+
+
+def test_filename_only_alias_without_an_installed_kind_keeps_its_declared_core(tmp_path, monkeypatch):
+    source = game_bundle(tmp_path, 'ch0246_home')
+    variant = FakeVariant('ch0246', 'ch0246_spr')
+    catalog = SimpleNamespace(variant_for_core=lambda core: variant)
+    objects(monkeypatch, ['generic_mesh'])
+    assert identify(source, source.name, catalog) == (source.name, 'ch0246', 'lobby')
 
 
 @pytest.mark.parametrize('names, code', [
