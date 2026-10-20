@@ -1,4 +1,4 @@
-"""Offline student catalog filtered by the user's installed portrait skeletons."""
+"""Offline roster filtered by installed portraits and special Spine slots."""
 
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ from ..naming import parse_filename
 from ._data import base_rank, csv_entry, read_character_map
 from ._names import BASE_SHORT, LANGUAGES, cn_aliases, cn_base, cn_words, csv_bases, csv_names, name_head
 from .models import CoreMap, Family, Variant
+from .special import SPECIAL_PREFIX, describe
 
 __all__ = ["Catalog", "CoreMap", "Family", "Variant"]
 DEFAULT_DATA = Path(__file__).parent / "data" / "catalog.json"
@@ -81,7 +82,7 @@ class Catalog:
             self._snapshot = snapshot
 
     def families(self) -> list[Family]:
-        """Return families with at least one installed portrait skeleton, sorted by key."""
+        """Return families with installed portraits or special Spine slots, sorted by key."""
         with self._lock:
             return copy.deepcopy(list(self._get()[0].values()))
 
@@ -119,6 +120,8 @@ class Catalog:
             if suffix is None:
                 return None
             stem = lower[:-len(suffix)]
+            if stem in cores and cores[stem].spine_category:
+                return copy.deepcopy(cores[stem])
             entries, _, _ = self._metadata()
             if stem in entries:
                 return copy.deepcopy(variants.get(stem))
@@ -126,21 +129,25 @@ class Catalog:
                        and stem in (alias.lower() for alias in entry.get("core_aliases", []))]
             return copy.deepcopy(matches[0]) if len(matches) == 1 else None
 
-    def core_map(self, spr_cores: Iterable[str], lobby_cores: Iterable[str]) -> CoreMap:
+    def core_map(self, spr_cores: Iterable[str], lobby_cores: Iterable[str],
+                 special_cores: Iterable[str] = ()) -> CoreMap:
         """Map an install's portrait and memorial lobby cores to variant keys by the roster's own rules, for any
         install (the snapshot maps only the current one's). A portrait core's key is the core less "_spr"; a lobby
         core belongs to the installed variant whose key or core alias plus a lobby suffix names it, a direct file-id
         match first. A lobby core with no portrait of its variant in that install takes the variant the data names
         for it the same way, else the core less its suffix. Each call works on a copy of the kept parse, so one
-        install's unknown portrait keys never enter another install's map."""
+        install's unknown portrait keys never enter another install's map. Backgrounds, nonstandard Spine cores
+        and explicit special_cores use separate special:<core> keys."""
         portraits, lobbies = list(spr_cores), list(lobby_cores)
         with self._lock:
             entries, students, added = self._metadata()
             shipped = set(entries)
-            keys, homes, _aliases = self._map(entries, students, added, portraits, lobbies)
+            keys, homes, _aliases = self._map(entries, students, added, portraits, lobbies, set(special_cores))
         spr = {keys[core.lower()]: core for core in sorted(portraits)}
         lobby = {key: cores[0] for key, cores in homes.items() if cores}
         names = {key: entries[key]["names"] for key in set(keys.values()) if key in shipped}
+        names.update({key: describe(core, entries, students)[2] for core, key in keys.items()
+                      if key.startswith(SPECIAL_PREFIX)})
         return CoreMap(keys, spr, lobby, names)
 
     def _get(self) -> tuple[dict[str, Family], dict[str, Variant], dict[str, Variant]]:
@@ -210,13 +217,15 @@ class Catalog:
             raise ServiceError("catalog_data_invalid", path=str(self.data)) from exc
 
     @staticmethod
-    def _map(entries: dict, students: dict, added: set[str], portraits: list[str], lobbies: list[str]
+    def _map(entries: dict, students: dict, added: set[str], portraits: list[str], lobbies: list[str],
+             special_cores: set[str] | None = None
              ) -> tuple[dict[str, str], dict[str, list[str]], dict[str, list[str]]]:
         """The roster's core rules on one install's core names: {lower-case core: variant key}, each key's lobby
         cores in the install (the primary one first) and each portrait key's aliases (its key, then the core aliases
         the rule kept). Unknown portrait keys are added to ``entries``, ``students`` and ``added``, as the roster
         lists them, in the order the alias rule reads them."""
-        lobby_names = {core.lower(): core for core in lobbies}
+        special_cores = {core.lower() for core in special_cores or ()}
+        lobby_names = {core.lower(): core for core in lobbies if core.lower() not in special_cores}
         keys: dict[str, str] = {}
         homes_of: dict[str, list[str]] = {}
         aliases_of: dict[str, list[str]] = {}
@@ -262,6 +271,11 @@ class Catalog:
             lobby_only.setdefault(key, []).append((stem != key, HOME_SUFFIXES.index(suffix), core))
         for key, found in lobby_only.items():
             homes_of.setdefault(key, []).extend(core for *_, core in sorted(found))
+        for core in lobbies:
+            lower = core.lower()
+            if lower in special_cores or not lower.endswith(HOME_SUFFIXES):
+                key = SPECIAL_PREFIX + lower
+                keys[lower], homes_of[key] = key, [core]
         return keys, homes_of, aliases_of
 
     def _build(self, parsed: tuple[dict, dict, set[str]] | None = None
@@ -278,7 +292,9 @@ class Catalog:
             logger.warning("No collection portraits found; recruitable follows the shipped release flags")
         models = getattr(self.game, "model_cores", set)()
         # the same mapping core_map gives any install, run on the core lists fetched once for this build
-        keys, homes_of, aliases_of = self._map(entries, students, added, list(portraits), list(lobbies))
+        special_cores = {core for core, paths in lobbies.items() if paths and
+                         parse_filename(paths[0].name).category != "spinelobbies"}
+        keys, homes_of, aliases_of = self._map(entries, students, added, list(portraits), list(lobbies), special_cores)
         families, variants, cores = {}, {}, {}
         for core, paths in sorted(portraits.items()):
             key = keys[core.lower()]
@@ -304,7 +320,18 @@ class Catalog:
                               aliases=list(entry.get("aliases", [])))
             family.variants.append(variant)
             variants[key] = variant
-        # the roster resolves the cores of installed portrait variants only
+        for core, paths in sorted(lobbies.items()):
+            key = keys.get(core.lower(), "")
+            if not key.startswith(SPECIAL_PREFIX):
+                continue
+            family_key, base, names = describe(core, entries, students)
+            family = families.setdefault(family_key, Family(family_key, base, None, []))
+            dates = [parse_filename(path.name).date for path in paths]
+            category = parse_filename(paths[0].name).category if paths else "spinebackground"
+            variant = Variant(key, core, family_key, names, False, len(family.variants), None, core, None, None,
+                              max(filter(None, dates), default=None), spine_category=category)
+            family.variants.append(variant)
+            variants[key] = variant
         cores = {lower: variants[key] for lower, key in keys.items() if key in variants}
         for family in families.values():
             # recruitable here first, then playable on another server, then story and NPC variants

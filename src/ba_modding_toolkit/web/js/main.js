@@ -16,6 +16,7 @@ import * as ModAdd from "./mod-add.js";
 import { on, rpc, spinePrefix } from "./api.js";
 import { L, T, setStrings } from "./i18n.js";
 import { neighbour, visit } from "./roster-order.js";
+import { hasAsset, primaryKind } from "./switch-sources.js";
 import { renderNav, setTitle } from "./nav.js";
 import { confirmQuit, quitKey } from "./quit.js";
 import { forget } from "./thumbs.js";
@@ -55,7 +56,10 @@ function forgetReplaced(before, after) {
   if (!before) return;
   const was = new Map(before.families.flatMap((f) => f.variants.map((v) => [v.key, v.replaced ?? null])));
   for (const f of after.families) {
-    for (const v of f.variants) if (v.spr && was.has(v.key) && was.get(v.key) !== (v.replaced ?? null)) forget(spinePrefix("spr", v.spr));
+    for (const v of f.variants) if (hasAsset(v) && was.has(v.key) && was.get(v.key) !== (v.replaced ?? null)) {
+      const kind = primaryKind(v);
+      forget(spinePrefix(kind, kind === "spr" ? v.spr : v.lobby));
+    }
   }
 }
 
@@ -80,9 +84,11 @@ function libraryChanged(data) {
   const change = data && !data.mods && Array.isArray(data.cores) ? { cores: data.cores } : null;
   if (change && !change.cores.length) return;
   for (const core of change?.cores || []) {
-    const kind = /_spr$/i.test(core) ? "spr" : "lobby";
-    forget(spinePrefix(kind, core));
-    forget(spinePrefix(`official-${kind}`, core));
+    const kinds = data.kinds?.length ? data.kinds : [/_spr$/i.test(core) ? "spr" : "lobby"];
+    for (const kind of kinds) {
+      forget(spinePrefix(kind, core));
+      forget(spinePrefix(`official-${kind}`, core));
+    }
   }
   ctx.invalidateRoster();
   heldChange = heldChange === undefined ? change : heldChange === null || change === null ? null
@@ -124,10 +130,10 @@ function watchFront() {
 }
 
 // the visit the detail screen records (ui.visit) goes into the roster's data too, so "Recently Viewed" has it on the
-// way back; the variant is the one the detail screen shows for the link (one with a portrait)
+// way back; the variant is the one the detail screen shows for the link
 function visited(fam, key) {
   const vs = fam?.variants || [];
-  const shown = vs.some((v) => v.key === key && v.spr) ? key : (vs.find((v) => v.spr) || vs[0])?.key;
+  const shown = vs.some((v) => v.key === key && hasAsset(v)) ? key : (vs.find(hasAsset) || vs[0])?.key;
   if (rosterData && shown) visit(rosterData, shown);
 }
 

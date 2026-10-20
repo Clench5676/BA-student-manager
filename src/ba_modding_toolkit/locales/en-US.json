@@ -782,6 +782,20 @@
 		}
 	},
 	"webui": {
+		"special": {
+			"title": "Special",
+			"arona": "Arona",
+			"plana": "Plana",
+			"aoi": "Aoi",
+			"workpage": "Work Page",
+			"daytime": "Daytime",
+			"night": "Night",
+			"task": "Tasks",
+			"cafe": "Cafe",
+			"background": "Background",
+			"add": "Add Background",
+			"switch": "Switch Background"
+		},
 		"top": {
 			"students": "Students"
 		},

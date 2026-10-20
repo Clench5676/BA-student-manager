@@ -782,6 +782,20 @@
 		}
 	},
 	"webui": {
+		"special": {
+			"title": "特殊",
+			"arona": "アロナ",
+			"plana": "プラナ",
+			"aoi": "アオイ",
+			"workpage": "お仕事画面",
+			"daytime": "昼",
+			"night": "夜",
+			"task": "任務",
+			"cafe": "カフェ",
+			"background": "背景",
+			"add": "背景追加",
+			"switch": "背景切り替え"
+		},
 		"top": {
 			"students": "生徒"
 		},

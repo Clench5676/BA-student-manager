@@ -18,7 +18,7 @@ import { countNodes, countText, iconsOf } from "./mod-counts.js";
 import { rpc, spineBase } from "./api.js";
 import { L, T, language } from "./i18n.js";
 import { thumb } from "./thumbs.js";
-import { configuredKey, previewBase } from "./switch-sources.js";
+import { configuredKey, hasAsset, previewBase, primaryKind } from "./switch-sources.js";
 import { $, RECRUIT, S, advanceOf, clone, glyphsOf } from "./util.js";
 import { DEFAULT_VIEW, SORTS, arrange, filtering, normalizeView, order as orderOf } from "./roster-order.js";
 
@@ -268,11 +268,11 @@ function cardTree(e) {
 }
 
 const portraitOf = (e) => {
-  if (e.spr && modsState()?.enabled === false && configuredKey(e)) {
-    const variants = data.families.find((f) => f.key === e.family)?.variants || [];
-    return thumb(previewBase(e, "spr", false, variants), "roster");
+  const kind = primaryKind(e), variants = data.families.find((f) => f.key === e.family)?.variants || [];
+  if (modsState()?.enabled === false && configuredKey(e, kind)) {
+    return thumb(previewBase(e, kind, false, variants), "roster", null, kind === "lobby");
   }
-  return e.portrait || (e.spr ? thumb(spineBase("spr", e.spr), "roster") : null);
+  return e.portrait || (hasAsset(e) ? thumb(spineBase(kind, kind === "spr" ? e.spr : e.lobby), "roster", null, kind === "lobby") : null);
 };
 
 // --- rows near the view ---
@@ -305,7 +305,7 @@ async function renderRow(host, rowKey) {
     const name = it.e.mods > 0 ? `${it.e.name} - ${countText(it.e.modCounts, T)}` : it.e.name;
     hit.title = name;
     hit.setAttribute("aria-label", name);
-    if (it.e.spr) hit.addEventListener("click", () => { if (!ctx.dragged) location.hash = `#/student/${encodeURIComponent(it.e.family)}/${encodeURIComponent(it.e.key)}`; });
+    if (hasAsset(it.e)) hit.addEventListener("click", () => { if (!ctx.dragged) location.hash = `#/student/${encodeURIComponent(it.e.family)}/${encodeURIComponent(it.e.key)}`; });
     else hit.disabled = true;
     row.appendChild(hit);
     jobs.push(NGUI.render(t, row, { scale: S, origin: ORIGIN, z: 100, textures: tex ? { Char_Portrait: tex } : {} }));

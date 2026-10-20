@@ -360,7 +360,7 @@ class Catalog:
     def family(self, key: str) -> Family
     def variant(self, key: str) -> Variant
     def variant_for_core(self, core: str) -> Variant | None    # "ch0241_spr" or "ch0241_home" -> Variant
-    def core_map(self, spr_cores, lobby_cores) -> CoreMap       # any install's cores -> variant keys
+    def core_map(self, spr_cores, lobby_cores, special_cores=()) -> CoreMap  # any install's cores -> variant keys
     def reload(self) -> None                                    # parse the data again, rebuild the snapshot
 ```
 
@@ -372,6 +372,30 @@ its suffix. `CoreMap` also gives each key's portrait core and primary lobby core
 keys the data has (the cards of a core the current catalog does not map). The shipped data and the character map are
 parsed once and kept; every build and every map works on a copy, so one install's unknown portrait keys never enter
 another's, and `reload()` parses both again, keeping the old parse and snapshot when the data is invalid.
+
+Special Spine slots use `special:<lower-case core>` keys and the lobby workflow. Discovery accepts named
+`spinebackground` bundles and nonstandard cores in `spinelobbies` and `spinecharacters`; shared `_mxcommon` bundles
+are excluded. The category is retained on the variant (`spineCategory` in RPC data), including backgrounds whose
+cores happen to end in `_home` or `_spr`. They stay separate from student portraits and memorial lobbies. Import,
+apply, restore, configuration, the global toggle and entry scans all classify these files by category as well as
+core. Parts still match by prefix and resource type, so an older mod keeps its target category.
+
+Repository naming evidence: `naming.py` already lists `assets-_mx-spinebackground-` among common mod prefixes;
+the reported `arona_workpage_daytime` filename uses that category and the existing dated, numbered-part syntax.
+The shipped catalog and character-map-derived metadata identify `arona` as Arona, `np0035` as Plana, and `np0032`
+as Aoi (the Traditional Chinese name in the report refers to Aoi). Background prefixes `arona`, `plana` and `aoi`
+join those families even when the install has no portrait for them. Character file IDs and aliases use the same
+metadata. Other scenes share the Special family. Known role tokens (workpage, daytime, night, task, cafe) have
+locale labels; unknown names retain their exact core. The repository ships student metadata, not a complete
+game bundle-name inventory, so background discovery uses the category instead of a fixed scene-name allowlist.
+
+Roster cards, chips, the picker, search results and arrow navigation include these lobby-only variants. Their
+thumbnails and layered previews use the existing revisioned Spine routes. Container paths under
+`SpineBackground/<core>/` identify the owning scene even when its skeleton layers have unrelated student or
+background names; conflicting scene containers are refused. Texture-only or stripped parts can use the declared
+installed slot. Missing skeletons, ambiguous atlases or unsupported scene layouts leave a plain card and the
+apply/restore controls available. Student dialogue lookup is skipped for special slots. Actual scene framing,
+animation and game rendering still require checking an isolated game install.
 
 Sources: the character map CSV the app already downloads (`BA-Characters-Internal-ID.csv`, one row per file id, with
 student id, names and skins in several languages), the curated data file shipped in the package (names,
@@ -851,7 +875,7 @@ last; the game folder lists parts by file name, so an official part could come a
 texture both carry (the mod's atlas drawn over the official page). `ModLibrary.live_bundles(core)` gives the live
 `spr` and `lobby` sources the preview's order, the parts that are not official last (cheap judgement); a core the
 library does not know keeps the game's order. Official and preview parts are limited to the core's Spine category
-(`spinecharacters`, `spinelobbies`).
+(`spinecharacters`, `spinelobbies`, `spinebackground`).
 
 `thumbs.js` rests a still in the pose its skeleton settles into: a portrait in `idleAnimation`, a memorial lobby
 (`thumb(base, frame, expr, true)`) in `lobbyIdle` (`rest-pose.js`), which `lobby.js` `idleOf` uses too. The tracks are

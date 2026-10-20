@@ -26,6 +26,7 @@ class Variant:
     schale_id: int | None = None  # the game's character id (SchaleDB's student id), for the Global server's lines
     # names the roster search matches but the UI never shows (the CN server's zh-CN wording)
     aliases: list[str] = field(default_factory=list)
+    spine_category: str | None = None  # a special slot's original bundle category
 
     def to_json(self) -> dict:
         """Return an independent JSON-ready record for RPC responses."""

@@ -782,6 +782,20 @@
 		}
 	},
 	"webui": {
+		"special": {
+			"title": "특수",
+			"arona": "아로나",
+			"plana": "프라나",
+			"aoi": "아오이",
+			"workpage": "업무 화면",
+			"daytime": "낮",
+			"night": "밤",
+			"task": "임무",
+			"cafe": "카페",
+			"background": "배경",
+			"add": "배경 추가",
+			"switch": "배경 변경"
+		},
 		"top": {
 			"students": "학생"
 		},

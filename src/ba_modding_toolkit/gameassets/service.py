@@ -17,6 +17,7 @@ from PIL import Image
 
 from .. import devmode
 from ..errors import ServiceError
+from ..naming import spine_kind
 from .cache import AssetCache
 from . import lobby
 from .discovery import (
@@ -430,15 +431,15 @@ class GameAssets:
 
     def spine_cores(self, kind: str) -> dict[str, list[Path]]:
         """Group portrait or lobby bundle parts by parsed Spine core."""
-        categories = {"spr": "spinecharacters", "lobby": "spinelobbies"}
+        categories = {"spr": ("spinecharacters",), "lobby": ("spinelobbies", "spinebackground", "spinecharacters")}
         if kind not in categories:
             raise AssetNotFound(kind)
         # shared bundles of the category (e.g. "_mxcommon-.asset") are not skeletons
-        valid = (lambda core: core.endswith("_spr")) if kind == "spr" else (lambda core: True)
         groups = self._index("spine-cores/" + kind, lambda: {
             core: [str(path) for path in paths]
-            for core, paths in group_bundles(self._paths(), categories[kind]).items()
-            if re.fullmatch(r"[a-z0-9_]+", core) and valid(core)
+            for category in categories[kind]
+            for core, paths in group_bundles(self._paths(), category).items()
+            if spine_kind(core, category) == kind
         }, disk=False)
         return {core: [Path(path) for path in paths] for core, paths in groups.items()}
 

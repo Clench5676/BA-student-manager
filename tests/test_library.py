@@ -47,7 +47,7 @@ class FakeCatalog:
     def families(self):
         return [SimpleNamespace(key="test", variants=list(self.variants.values()))]
 
-    def core_map(self, spr_cores, lobby_cores):
+    def core_map(self, spr_cores, lobby_cores, special_cores=()):
         """Any install's cores by the variants' cores; another core by the plain rule (the core less its suffix)."""
         keys, spr, lobby = {}, {}, {}
         for core in [*spr_cores, *lobby_cores]:
@@ -63,10 +63,10 @@ def header_bundle(payload=b"official"):
     return header + (len(header) + 8 + len(payload)).to_bytes(8, "big") + payload
 
 
-def game_bundle(directory, core_name="test_spr", part="003", date="2026-01-01", payload=b"official"):
+def game_bundle(directory, core_name="test_spr", part="003", date="2026-01-01", payload=b"official", category=None):
     directory.mkdir(parents=True, exist_ok=True)
     data = header_bundle(payload)
-    category = "spinecharacters" if core_name.endswith("_spr") else "spinelobbies"
+    category = category or ("spinecharacters" if core_name.endswith("_spr") else "spinelobbies")
     suffix = f"{date}_{part}" if part.isdigit() else f"{part}-{date}"
     name = f"assets-_mx-{category}-{core_name}-_mxdependency-{suffix}_assets_all_{CRCUtils.compute_crc32(data)}.bundle"
     path = directory / name

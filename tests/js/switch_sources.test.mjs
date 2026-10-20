@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 import {
-  appliedKey, appliedOf, candidates, configuredKey, coreOf, overwrittenOf, partsOf, popupMode, previewBase, previewChanged, previewKey, sourceOf, switchKindOf,
+  appliedKey, appliedOf, availableTab, candidates, configuredKey, coreOf, hasAsset, overwrittenOf, partsOf, popupMode, primaryKind, previewBase, previewChanged, previewKey, sourceOf, switchKindOf,
 } from "../../src/ba_modding_toolkit/web/js/switch-sources.js";
 
 const part = (kind, applied, extra = {}) => ({ file: `/game/${kind}-${applied}.bundle`, kind, applied, crc: "ok", ...extra });
@@ -24,6 +24,27 @@ const family = () => ({
     { key: "np0045", spr: "np0045_spr", lobby: null, state: { files: [part("spr", "official")] }, modList: [] },
     { key: "hoshino_shared", spr: "hoshino_shared_spr", lobby: "hoshino_home", state: { files: [] }, modList: [] },
   ],
+});
+
+test("special slots open their lobby tab and switch only mods for their own core", () => {
+  const day = { key: "special:arona_workpage_daytime", spr: null, lobby: "arona_workpage_daytime", spineCategory: "spinebackground",
+    state: { files: [part("lobby", "official")] }, configured: { lobby: "mod:day" } };
+  const night = { ...day, key: "special:arona_workpage_night", lobby: "arona_workpage_night" };
+  day.modList = [{ ...mod("day", day.key, "lobby"), core: day.lobby }];
+  night.modList = [{ ...mod("night", night.key, "lobby"), core: night.lobby }];
+  const fam = { variants: [day, night, ...family().variants] };
+  assert.ok(hasAsset(day));
+  assert.equal(primaryKind(day), "lobby");
+  for (const tab of ["portrait", "model", "lobby"]) assert.equal(availableTab(day, tab), "lobby");
+  assert.equal(availableTab(fam.variants[2], "portrait"), "portrait");
+  assert.equal(availableTab(fam.variants[4], "lobby"), "portrait");
+  assert.deepEqual(candidates(fam, day, "lobby").map((c) => c.key), ["self", "m:day"]);
+  assert.equal(previewBase(day, "lobby", true), "/asset/spine/lobby/arona_workpage_daytime/skeleton");
+  assert.equal(previewBase(day, "lobby", false), "/asset/spine/mod/day/skeleton");
+  assert.deepEqual(popupMode(fam, day, "lobby", false), { start: "m:day", button: "popup.save", set: "m:day" });
+  day.state.files = [part("lobby", "mod:day")];
+  assert.equal(popupMode(fam, day, "lobby", true).start, "m:day");
+  assert.equal(sourceOf("self"), "official");
 });
 
 test("candidates of the portrait: own, own mods, other variants, their mods", () => {

@@ -103,13 +103,14 @@ function cards(data, view, words, label) {
       const hit = words.length ? vs.find((v) => matches(v, f, words)) : vs[0];
       const recent = Math.min(...vs.map((v) => (v.recent ?? Infinity)));
       const card = {
-        ...vs[0], ...(hit ? { key: hit.key, spr: hit.spr, portrait: hit.portrait, names: hit.names, configured: hit.configured } : {}),
+        ...vs[0], ...(hit ? { key: hit.key, spr: hit.spr, portrait: hit.portrait, names: hit.names,
+          configured: hit.configured, state: hit.state, spineCategory: hit.spineCategory } : {}),
         name: label(f.base) ?? f.key, family: f.key, n: n++, matched: !!hit,
         recruit: vs.some((v) => v.recruitable), mods: vs.reduce((s, v) => s + (v.mods || 0), 0),
         modCounts: Object.fromEntries(["spr", "lobby"].map((kind) => [kind, vs.reduce((s, v) => s + (v.modCounts?.[kind] || 0), 0)])),
         favorite: vs.some((v) => v.favorite), fresh: vs.some((v) => v.fresh),
         replaced: vs.find((v) => v.replaced)?.replaced || null,
-        lobby: vs.find((v) => v.lobby)?.lobby || null, model: vs.find((v) => v.model)?.model || null,
+        lobby: hit?.spineCategory ? hit.lobby : vs.find((v) => v.lobby)?.lobby || null, model: vs.find((v) => v.model)?.model || null,
         playable: vs.some((v) => v.playable),
         recent, added: Math.max(...vs.map((v) => time(v.added))),
       };
@@ -172,7 +173,7 @@ export function visit(data, key) {
 // the list hides (another chip of the family, a deep link) steps to the nearest listed card after or before its place
 // in full (the unfiltered order, or a function making it). Null when there is nowhere else to go.
 export function neighbour(list, full, at, delta) {
-  const usable = list.filter((c) => c.spr);
+  const usable = list.filter((c) => c.spr || c.lobby);
   if (!usable.length) return null;
   const id = (c) => (at.merged ? c.family : c.key);
   const here = at.merged ? at.family : at.variant;

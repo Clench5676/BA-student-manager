@@ -24,7 +24,6 @@ from UnityPy.helpers.ResourceReader import get_resource_data
 
 from .. import core, devmode, mod_install
 from ..bundle import Bundle
-from ..catalog import HOME_SUFFIXES
 from ..catalog.models import CoreMap
 from ..errors import ServiceError
 from ..filelock import file_lock
@@ -37,7 +36,7 @@ from . import safety
 from .identity import identify
 from .judge import (
     CRC_STATES, LIBRARY_SOURCES, carried_of, classify, core_of, crc_state, date_of, distinguishing_folders,
-    install_key, install_root, kind_of, leaves, now, part_of, says_official, seconds,
+    install_key, install_root, kind_of, kind_of_file, leaves, now, part_of, says_official, seconds,
 )
 from .models import (
     AddResult, AdoptResult, ApplyResult, AssetDifference, CompareResult, DeleteResult, EntryState, GameFileState, Kind,
@@ -376,7 +375,7 @@ class _View:
     # --- one entry ---
 
     def entry(self, pin: Pin, core: str) -> _Entry:
-        kind = kind_of(core) or "spr"
+        kind = self.library._kind(core, pin) or "spr"
         files = self.indexes[pin.key].get(core, [])
         parts = [self.part(path, pin, kind) for path in files]
         folder = self.folder(pin.key)
@@ -432,11 +431,11 @@ class _View:
     def cores(self, pin: Pin) -> set[str]:
         """Every core of an install the judgement covers: the portrait and lobby cores of its index, the configured
         ones and the ones the library recorded files of."""
-        cores = {core for core in self.indexes[pin.key] if kind_of(core)}
+        cores = {core for core in self.indexes[pin.key] if self.library._kind(core, pin)}
         cores.update(self.folder(pin.key).get("configured") or {})
         for folder in pin.dirs:
             cores.update(core_of(path.name) for path, _record in self.by_folder.get(folder, [])
-                         if kind_of(core_of(path.name)))
+                         if kind_of_file(path.name))
         return cores
 
     def entries(self, pins: list[Pin], cancel: Callable[[], bool] | None = None,
@@ -697,8 +696,7 @@ class ModLibrary:
                 progress(i, len(paths), source.name)
             name = source.name.removesuffix(".backup") if source.name.endswith(".bundle.backup") else source.name
             parsed = parse_filename(name)
-            kind: Kind | None = "spr" if parsed.core.lower().endswith("_spr") else (
-                "lobby" if parsed.core.lower().endswith(HOME_SUFFIXES) else None)
+            kind = kind_of_file(name)
             if not name.endswith(".bundle"):
                 raise ServiceError("mod_unsupported", file=source)
             if not parsed.prefix or not parsed.crc or kind is None:
@@ -768,7 +766,7 @@ class ModLibrary:
         if existing is not None:
             return existing, False
         core_name = parse_filename(paths[0].name).core
-        kind = kind_of(core_name)
+        kind = kind_of_file(paths[0].name)
         if kind is None:
             raise ServiceError("mod_unsupported", file=paths[0])
         key = self._core_map(pin).key(core_name) or core_name.lower()
@@ -889,7 +887,7 @@ class ModLibrary:
         self._prune_quietly()
         return DeleteResult(done, failed, [{"install": key, "core": core} for key, core in sorted(affected)],
                             sorted({core for _, core in affected}),
-                            sorted({kind_of(core) or "spr" for _, core in affected}))
+                            [record["kind"]] if affected else [])
 
     def _in_use(self, mod_id: str) -> list[Path]:
         """The game files still carrying the mod: stats and tails first, then SHA-1 when their stamp changed.
@@ -1112,6 +1110,20 @@ class ModLibrary:
         self._indexes[pin.key] = (signature_, index, files, self._generation)
         return index
 
+    def _kind(self, core: str, pin: Pin) -> str | None:
+        """Use the bundle category for special slots, including files removed by an update."""
+        paths = self._index(pin).get(core.lower(), [])
+        if paths:
+            return next((kind for path in paths if (kind := kind_of_file(path.name))), None)
+        for name in self._applied:
+            path = Path(name)
+            if path.parent in pin.dirs and core_of(path.name) == core.lower():
+                return kind_of_file(path.name)
+        for record in self._records.values():
+            if core_of(record["files"][0]) == core.lower():
+                return record["kind"]
+        return kind_of(core)
+
     def _built_for(self, pin: Pin) -> int:
         """Which build of the install's index the caches built on it belong to."""
         self._index(pin)
@@ -1124,12 +1136,14 @@ class ModLibrary:
         cached = self._maps.get(pin.key)
         if cached and cached[0] == built_for:
             return cached[1]
-        named = {core: parse_filename(paths[0].name).core for core, paths in index.items()}
-        spr = [named[core] for core in index if core.endswith("_spr")]
-        lobby = [named[core] for core in index if core.endswith(HOME_SUFFIXES)]
+        slots = [parse_filename(paths[0].name) for core in index if (paths := self._spine_parts(core, pin))]
+        spr = [slot.core for slot in slots if kind_of(slot.core, slot.category) == "spr"]
+        lobby = [slot.core for slot in slots if kind_of(slot.core, slot.category) == "lobby"]
+        special = [slot.core for slot in slots if kind_of(slot.core, slot.category) == "lobby" and
+                   slot.category in ("spinebackground", "spinecharacters")]
         build = getattr(self.catalog, "core_map", None)
         if build is not None:
-            mapped = build(spr, lobby)
+            mapped = build(spr, lobby, special_cores=special) if special else build(spr, lobby)
         else:  # a catalog without core maps: the current catalog's own answers
             keys, spr_of, lobby_of = {}, {}, {}
             for core in [*spr, *lobby]:
@@ -1301,7 +1315,7 @@ class ModLibrary:
         if record and fingerprint.sha1 == record.get("sha1"):
             if record.get("removed"):
                 return False
-            if view.source_exists(record.get("source", ""), pin.key, kind_of(core_of(target.name)) or "spr"):
+            if view.source_exists(record.get("source", ""), pin.key, kind_of_file(target.name) or "spr"):
                 return False
         elif fingerprint.trailing is None:
             return False
@@ -1578,9 +1592,9 @@ class ModLibrary:
 
     @_serialized
     def modified(self, pin: Pin | None = None) -> dict[str, str]:
-        """Variants whose portrait files are not official, from cheap checks only (no hashing): the library's own
-        records while the file is unchanged since it wrote it (a part a record says official adds nothing), and,
-        with scan consent, the header of every other portrait file (trailing bytes, or not the official size of its
+        """Variants whose portrait or special slot files are not official, from cheap checks only (no hashing): the
+        library's own records while the file is unchanged since it wrote it (a part a record says official adds nothing),
+        and, with scan consent, the header of every other slot file (trailing bytes, or not the official size of its
         name). Returns {variant key: source}, the source being "mod:<id>", "variant:<key>" or "unknown"."""
         pin = self.current_pin() if pin is None else pin
         if pin is None:
@@ -1589,15 +1603,13 @@ class ModLibrary:
         view = self._view([pin], "scan" if allowed else "recorded")
         out: dict[str, str] = {}
         for core, paths in view.indexes[pin.key].items():
-            if not core.endswith("_spr"):
-                continue
             variant = self.catalog.variant_for_core(core)
-            if variant is None:
+            if variant is None or (not core.endswith("_spr") and not getattr(variant, "spine_category", None)):
                 continue
             sources = set()
             for path in paths:
                 try:
-                    part = view.part(path, pin, "spr")
+                    part = view.part(path, pin, self._kind(core, pin) or "spr")
                 except (_Unread, OSError):
                     continue
                 if not part.official and part.carried != "damaged":
@@ -1623,11 +1635,7 @@ class ModLibrary:
         the order the game folder lists them. Other files that share the core name add nothing to a preview."""
         core = core.lower()
         paths = self._index(pin).get(core, [])
-        kind = kind_of(core)
-        if kind is None:
-            return list(paths)
-        category = "spinelobbies" if kind == "lobby" else "spinecharacters"
-        return [path for path in paths if parse_filename(path.name).category == category]
+        return [path for path in paths if kind_of_file(path.name)]
 
     @_serialized
     def live_bundles(self, core: str, pin: Pin | None = None) -> list[Path]:
@@ -1644,7 +1652,7 @@ class ModLibrary:
         if not paths:
             raise ServiceError("game_file_not_found", variant=core)
         view = self._view([pin], "family")
-        kind = kind_of(core) or "spr"
+        kind = self._kind(core, pin) or "spr"
         parts = [view.part(path, pin, kind) for path in paths]
         return [part.path for part in sorted(parts, key=lambda part: not part.official)]
 
@@ -1967,7 +1975,7 @@ class ModLibrary:
         try:
             replacements = {path: self._official_for(path, pin) for path in targets}
             files = self._commit(replacements, "official", log, pin=pin, prune=False)
-            kinds = {kind_of(core_of(path.name)): core_of(path.name) for path in targets}
+            kinds = {kind_of_file(path.name): core_of(path.name) for path in targets}
             self._configure(pin, variant_key, kinds, None)
         finally:
             self._prune_quietly()
@@ -1984,7 +1992,7 @@ class ModLibrary:
             return on
         view = self._view([pin], "family")
         for path in self._game_files(variant_key, kind, pin):
-            part = view.part(path, pin, kind_of(core_of(path.name)) or "spr")
+            part = view.part(path, pin, kind_of_file(path.name) or "spr")
             if not part.official:
                 return True
         return False
@@ -1997,7 +2005,7 @@ class ModLibrary:
         targets = self._index(pin).get(core, [])
         if not targets:
             raise ServiceError("game_file_not_found", variant=core)
-        kind = kind_of(core) or "spr"
+        kind = self._kind(core, pin) or "spr"
         with tempfile.TemporaryDirectory(prefix=devmode.LIBRARY_STAGING_PREFIX) as temporary:
             work = Path(temporary)
             build_keys: dict[Path, str] = {}
@@ -2173,7 +2181,7 @@ class ModLibrary:
             replaced = {part_of(name) for name in record["files"]}
             return sorted(path.name for path in index.get(own, []) if part_of(path.name) not in replaced)
         if source.startswith("variant:"):
-            other = self._core_map(pin).core(source[8:], kind_of(core) or "spr")
+            other = self._core_map(pin).core(source[8:], self._kind(core, pin) or "spr")
             return sorted(path.name for path in index.get(other.lower(), [])) if other else []
         return []
 
@@ -2416,10 +2424,10 @@ class ModLibrary:
         for folder in pin.dirs:
             for path, record in view.by_folder.get(folder, []):
                 core = core_of(path.name)
-                if kind_of(core):
+                if kind_of_file(path.name):
                     by_core.setdefault(core, []).append((path, record))
         for core, records in sorted(by_core.items()):
-            kind = kind_of(core)
+            kind = self._kind(core, pin)
             parts = []
             for path in view.indexes[pin.key].get(core, []):
                 if str(path.resolve()) in view.applied:
@@ -2583,7 +2591,7 @@ class ModLibrary:
                     continue
                 added.append(self._entry(self._records[mod_id]))
                 cores.add(core)
-                kinds.add(kind_of(core) or "spr")
+                kinds.add(self._kind(core, pin) or "spr")
             if progress:
                 progress(i, len(wanted), core)
         return AdoptResult(added, failed, skipped, sorted(cores), sorted(kinds))
@@ -2728,7 +2736,7 @@ class ModLibrary:
         seen: set[tuple[str, str]] = set()
 
         def add(pin: Pin, core: str) -> None:
-            if (pin.key, core) not in seen and kind_of(core):
+            if (pin.key, core) not in seen and self._kind(core, pin):
                 seen.add((pin.key, core))
                 plan.append((pin, core))
 
@@ -2760,7 +2768,7 @@ class ModLibrary:
             cores = set(folder.get("configured") or {})
             root = Path(key)
             cores.update(core_of(Path(path).name) for path in self._applied
-                         if Path(path).is_relative_to(root) and kind_of(core_of(Path(path).name)))
+                         if Path(path).is_relative_to(root) and kind_of_file(Path(path).name))
             items.extend({"install": key, "core": core, "why": "pending"} for core in sorted(cores))
         return items
 
@@ -2849,7 +2857,7 @@ class ModLibrary:
                         outcome, why, entry = self._reach(pin, core, enabled, allowed, listed.get((pin.key, core)),
                                                           drift is not None, log)
                 except ServiceError as error:
-                    item = {"install": pin.key, "core": core, "kind": kind_of(core) or "spr",
+                    item = {"install": pin.key, "core": core, "kind": self._kind(core, pin) or "spr",
                             "variant": self._core_map(pin).key(core) or core}
                     result["failed"].append({"entry": item, "code": error.code, "params": error.to_json()["params"]})
                     outcomes[(pin.key, core)] = "pending"
