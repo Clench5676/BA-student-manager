@@ -26,6 +26,7 @@ import subprocess
 import sys
 import threading
 import time
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import Any, Callable, Iterable, Iterator, Mapping, Protocol, Sequence
@@ -734,7 +735,7 @@ class ClassicWindow:
 
     ``origin`` is the web UI server's origin (a string or a callable), ``publish`` the event bus's ``publish``,
     ``native`` the window operations (``native_ops(window)``). ``on_change`` runs after every change of ``status()``
-    and ``on_closed(code)`` after ``classic.closed``, outside every lock of this class.
+    and ``on_closed(code)`` after ``classic.closed``, outside the state lock.
     """
 
     def __init__(self, data_dir: Path, *, origin: str | Callable[[], str],
@@ -799,10 +800,17 @@ class ClassicWindow:
 
     # --- open ---
 
-    def open(self, tab: str | None = None) -> dict[str, bool]:
+    @contextmanager
+    def starting(self) -> Iterator[None]:
+        """Serialize game-writer checks and submission with a new classic child's registration."""
+        with self._start_lock:
+            yield
+
+    def open(self, tab: str | None = None, may_start: Callable[[], None] | None = None) -> dict[str, bool]:
         """``app.openClassic``: start the classic window on ``tab`` (``"settings"``: its settings), or bring the open
         one to the front, on that tab unless a classic task runs. Waits for the new window's ``ready`` (at most
-        ``READY_TIMEOUT``); ``classic_failed {exit_code}`` when it exits or stays silent before."""
+        ``READY_TIMEOUT``); ``classic_failed {exit_code}`` when it exits or stays silent before. ``may_start`` can
+        refuse a new child under ``starting()``, before it is registered; an open window is still raised."""
         check_classic_tab(tab)
         with self._start_lock:
             child = self._live()
@@ -811,6 +819,8 @@ class ClassicWindow:
                 if orphan is not None:
                     self._native_call(self.native.raise_process, orphan)
                     return {"started": False}
+                if may_start is not None:
+                    may_start()
                 child = self._start(tab)
                 started = True
             else:

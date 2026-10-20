@@ -690,6 +690,124 @@ def test_the_classic_window_waits_for_a_job_writing_the_game_folder(env):
     assert wait_for(lambda: not s.jobs.busy())
     env.popens[0].exit(0)
     assert wait_for(lambda: not rpc(app, "app.classic")["result"]["open"])
+    env.orphan()
+    hold.clear()
+    job = s.submit("slow", lambda log, progress: hold.wait(5), writes="game")
+    try:
+        assert s.jobs.busy("game")
+        assert rpc(app, "app.openClassic", tab="tools")["result"] == {"started": False}
+        assert len(env.popens) == 1
+    finally:
+        hold.set()
+    assert s.jobs.wait(job, 10)
+
+
+def test_a_toggle_cannot_start_between_the_classic_busy_check_and_child_registration(env, monkeypatch):
+    mod = env.add(env.spr)
+    assert env.job("actions.apply", variant="test", source=f"mod:{mod.id}").state == "done"
+    s, app = env.s, env.app
+    library = s.library
+    before = library.profiles.path.read_bytes()
+    checked, contended, opened = threading.Event(), threading.Event(), threading.Event()
+    opening, toggling = {}, {}
+    busy, start_lock, write_check = s.jobs.busy, s.classic._start_lock, library._write_check
+
+    def busy_check(writes=None):
+        result = busy(writes)
+        if writes == "game" and threading.current_thread() is opener:
+            assert result is False
+            checked.set()
+            assert contended.wait(5)
+        return result
+
+    class StartLock:
+        def __enter__(self):
+            if threading.current_thread() is submitter:
+                contended.set()  # a guarded submit waits for the child to be registered
+            return start_lock.__enter__()
+
+        def __exit__(self, *exc):
+            return start_lock.__exit__(*exc)
+
+    def before_write(pin):
+        contended.set()  # an unguarded submit reached the write after saving its intent
+        assert opened.wait(5)
+        write_check(pin)
+
+    def open_classic():
+        try:
+            opening.update(rpc(app, "app.openClassic", tab="crc_tool"))
+        finally:
+            opened.set()
+
+    opener = threading.Thread(target=open_classic)
+    submitter = threading.Thread(target=lambda: toggling.update(rpc(app, "mods.toggle", enabled=False, expect=True)))
+    monkeypatch.setattr(s.jobs, "busy", busy_check)
+    monkeypatch.setattr(s.classic, "_start_lock", StartLock())
+    monkeypatch.setattr(library, "_write_check", before_write)
+    opener.start()
+    try:
+        assert checked.wait(5)
+        submitter.start()
+        opener.join(5)
+        submitter.join(5)
+        assert not opener.is_alive() and not submitter.is_alive()
+    finally:
+        contended.set()
+        opened.set()
+        opener.join(5)
+        if submitter.ident is not None:
+            submitter.join(5)
+
+    if "error" in toggling:
+        assert toggling["error"]["code"] == "classic_open"
+        assert library.profiles.path.read_bytes() == before
+        assert env.spr.read_bytes() == mod.file.read_bytes()
+        assert opening["result"] == {"started": True}
+    else:
+        assert s.jobs.wait(toggling["result"], 10)
+        job = s.jobs.get(toggling["result"])
+        assert job.state == "done", job.error
+        assert opening["error"]["code"] == "busy"
+        assert env.popens == []
+
+
+@pytest.mark.parametrize("method", ["mods.toggle", "mods.restoreDrift", "actions.apply", "actions.restore"])
+def test_game_writers_answer_while_the_classic_window_waits_for_ready(env, monkeypatch, method):
+    mod = env.add(env.spr)
+    assert env.job("actions.apply", variant="test", source=f"mod:{mod.id}").state == "done"
+    waiting, release, answered = threading.Event(), threading.Event(), threading.Event()
+    opening, submitting = {}, {}
+    await_ready = env.s.classic._await_ready
+
+    def wait_for_ready(child):
+        waiting.set()
+        assert release.wait(10)
+        await_ready(child)
+
+    def submit():
+        params = {"mods.toggle": {"enabled": False, "expect": True}, "mods.restoreDrift": {"entries": []},
+                  "actions.apply": {"variant": "test", "source": f"mod:{mod.id}"},
+                  "actions.restore": {"variant": "test"}}[method]
+        submitting.update(rpc(env.app, method, **params))
+        answered.set()
+
+    monkeypatch.setattr(env.s.classic, "_await_ready", wait_for_ready)
+    opener = threading.Thread(target=lambda: opening.update(rpc(env.app, "app.openClassic", tab="crc_tool")))
+    submitter = threading.Thread(target=submit)
+    opener.start()
+    try:
+        assert waiting.wait(5)
+        submitter.start()
+        assert answered.wait(5)
+        assert submitting["error"]["code"] == "classic_open"
+    finally:
+        release.set()
+        opener.join(5)
+        if submitter.ident is not None:
+            submitter.join(5)
+    assert not opener.is_alive() and not submitter.is_alive()
+    assert opening["result"] == {"started": True}
 
 
 # --- quitting and the single instance ---

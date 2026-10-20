@@ -539,9 +539,6 @@ class Services:
         starts, before the intent is saved)."""
         if not isinstance(enabled, bool) or not isinstance(expect, bool):
             raise ServiceError("bad_params", key="enabled")
-        if self.jobs.active("mods.toggle"):
-            raise ServiceError("busy")
-        self.check_classic()
         library = self.library
         pins = library.installs()
 
@@ -549,7 +546,11 @@ class Services:
             self.check_classic()
             return library.toggle(enabled, expect, pins, log=log, progress=self._progress(progress))
 
-        job = self.submit("mods.toggle", run, writes="game", library=library)
+        with self.classic.starting():
+            if self.jobs.active("mods.toggle"):
+                raise ServiceError("busy")
+            self.check_classic()
+            job = self.submit("mods.toggle", run, writes="game", library=library)
         self.publish_state()
         return job
 
@@ -557,7 +558,6 @@ class Services:
         """``mods.restoreDrift``: Apply Mod Configuration of the given entries, pinned at submit."""
         if not isinstance(entries, list) or not all(isinstance(item, dict) for item in entries):
             raise ServiceError("bad_params", key="entries")
-        self.check_classic()
         library = self.library
         pins = library.installs()
 
@@ -565,7 +565,9 @@ class Services:
             self.check_classic()
             return library.restore_drift(entries, pins, log=log, progress=self._progress(progress))
 
-        return self.submit("mods.restore", run, writes="game", library=library)
+        with self.classic.starting():
+            self.check_classic()
+            return self.submit("mods.restore", run, writes="game", library=library)
 
     def submit_apply(self, variant: str, source: str, kind: str = "spr") -> str:
         """``actions.apply``: one entry of the current install, pinned at submit. ``classic_open`` only when it would
@@ -574,14 +576,15 @@ class Services:
             raise ServiceError("bad_params", kind=kind)
         library = self.library
         pin = self._current_pin(library)
-        if self.classic_open() and library.would_write(variant, source, kind, pin=pin):
-            raise ServiceError("classic_open")
 
         def run(log: Any, progress: Any) -> Any:
             self._check_pin(library, pin)
             return library.apply(variant, source, log=log, progress=progress, kind=kind, pin=pin)
 
-        return self.submit("apply", run, writes="game", library=library)
+        with self.classic.starting():
+            if self.classic_open() and library.would_write(variant, source, kind, pin=pin):
+                raise ServiceError("classic_open")
+            return self.submit("apply", run, writes="game", library=library)
 
     def submit_restore(self, variant: str, kind: str = "spr") -> str:
         """``actions.restore``: back to official, pinned at submit. A restore that writes nothing (the files are
@@ -591,14 +594,15 @@ class Services:
             raise ServiceError("bad_params", kind=kind)
         library = self.library
         pin = self._current_pin(library)
-        if self.classic_open() and library.would_write(variant, "official", kind, pin=pin):
-            raise ServiceError("classic_open")
 
         def run(log: Any, progress: Any) -> Any:
             self._check_pin(library, pin)
             return library.restore(variant, log=log, kind=kind, pin=pin)
 
-        return self.submit("restore", run, writes="game", library=library)
+        with self.classic.starting():
+            if self.classic_open() and library.would_write(variant, "official", kind, pin=pin):
+                raise ServiceError("classic_open")
+            return self.submit("restore", run, writes="game", library=library)
 
     def submit_call(self, method: str, params: dict[str, Any]) -> str:
         """Submit one of the calls the classic queue holds, as its normal job."""

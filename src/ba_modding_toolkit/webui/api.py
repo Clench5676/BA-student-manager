@@ -116,9 +116,11 @@ def build_api(s: Services) -> RpcRegistry:
     def app_open_classic(tab: str | None = None) -> dict[str, bool]:
         # a game writer job stops at its next write once a classic window is open (a toggle half done): no new window
         # until it ended; an open one is only raised
-        if s.jobs.busy("game") and not s.classic_open():
-            raise ServiceError("busy")
-        return s.classic.open(tab)
+        def may_start() -> None:
+            if s.jobs.busy("game"):
+                raise ServiceError("busy")
+
+        return s.classic.open(tab, may_start=may_start)
 
     @rpc.method("app.classic")
     def app_classic() -> dict[str, Any]:

@@ -1500,13 +1500,17 @@ Settings' More Settings, hand over to the classic Tk GUI (`webui/classic.py`, it
 runs in a process of its own on both systems: Tk (Aqua) and pywebview (Cocoa) both need the main thread on macOS, and a
 crash in a classic tab never takes the web UI with it.
 
-- **One window per data directory.** `ClassicWindow.open(tab)` (`app.openClassic`) starts the program again
+- **One window per data directory.** `ClassicWindow.open(tab, may_start)` (`app.openClassic`) starts the program again
   (`system.classic_command(tab, control=True)`: `--classic --control`, then `--tab <name>` or `--settings`) and waits
   up to 30 s for its `ready`; an exit or silence before that is `classic_failed {exit_code}` (`null` when it stayed
   silent; a late `ready` is still taken, and the window then shows itself). With a window open, a click sends the tab
   and a raise; while a classic task runs (`busy`), only the raise, so a running task's tab is never switched. A window
   left by an earlier instance (below) is only raised. No window starts while a job writing the game folder is queued
-  or running (`busy`): that job would stop at its next write with `classic_open`, a toggle half done.
+  or running (`busy`): that job would stop at its next write with `classic_open`, a toggle half done. The busy check
+  (`may_start`) and child registration share `ClassicWindow.starting()` with each game writer's classic check and
+  job submission: either the writer is pending first and the new window is refused with `busy`, or the child is
+  registered first and the writer is checked against the open window before submission. The lock is released before
+  waiting for `ready`; raising this instance's window or an orphan never runs `may_start`.
 - **The channel** is the web UI's own HTTP server, not stdio (the Windows build is onefile without a console):
   `BAMT_CLASSIC_URL` (the server's origin) and `BAMT_CLASSIC_TOKEN` (one-time, random) go to the child, which takes
   them out of its environment at once. It long-polls `GET /api/classic/control` (25 s) for its lines (`place x y w h`,
