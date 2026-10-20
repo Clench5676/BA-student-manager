@@ -33,8 +33,10 @@ at runtime and never shipped with the program.
   ko). Japanese and Korean name the mod library as `settings.library` does (MODライブラリ, 모드 라이브러리). Japanese
   errors that ask for an action keep the polite form (`error.game_running`, `error.classic_open`); other Japanese
   strings are fragments. Repair advice is text only: `error.original_unavailable` says that no official copy is
-  left, and `mods.repairSteam` gives Steam's menu path in each Steam client's words, followed by `mods.repairThen`;
-  the in-game repair line comes once that route is confirmed on each server.
+  left, and `mods.repairSteam` gives Steam's menu path in each Steam client's words (the settled repair); then
+  `mods.repairGame` names the game's own Restore Resources in the game's words as another option, never promised
+  ("may not replace mods": whether it replaces a CRC-fixed mod is not verified on either server), followed by
+  `mods.repairThen`.
 - The first start takes the system language (`i18n.match_language`): Traditional Chinese (zh-Hant, zh-TW, zh-HK,
   zh-MO) zh-TW, other Chinese zh-CN, Japanese ja-JP, Korean ko-KR, the rest en-US. Without the language's file (a
   build that leaves it out), Traditional Chinese gets the whole zh-CN screen, the others en-US. `BAMT_LANG`
@@ -469,7 +471,8 @@ What a switch replaces is always kept:
 - **A file changed outside the library** (another tool, the classic GUI, a manual copy), or the bytes of a source the
   library no longer has, is added to the library as a new mod of its core before it is overwritten; a part set
   already in the library is not stored twice. Each file a write reaches is judged in full here (its SHA-1 against the
-  library's record, then its CRC32), so a mod another tool installed without the CRC fix is kept too.
+  library's record, never its size and date, then its CRC32; the write hashes every target anyway, so this reads
+  nothing more), so a mod another tool installed without the CRC fix, or with the file's date put back, is kept too.
 
 Every write goes through `_commit`: resource path checks, the game not running and Steam not updating or verifying
 the install, the files lockable, atomic replacement, and a rollback of every written part when one fails (the mods it
@@ -491,6 +494,10 @@ every known install; it reads no game file's contents. An original stays:
   another tool's mod with this original as its only official copy;
 - while a file of its name the library wrote to elsewhere may need it, judged by stat; a folder that cannot be seen
   (an unmounted drive) is judged by its record.
+
+These rules cover the installs this data directory removed from its list too: in a library shared with a data
+directory that still names such an install, both prune alike, so removing an install from the list never changes what
+the prune keeps.
 
 Once its name is gone from every known install, a game update superseded it when each of its records' folders holds
 a later-dated file of the same part (prefix and resource type): it is deleted. An original no record places, or one
@@ -528,7 +535,12 @@ entry carrying a library source to official. An On switches every configured ent
 back to it. The intent and the entries to reach are saved first, so a crash leaves them listed (the red dot and
 Retry, without a scan). Each entry is judged again when it is reached, with its configuration read again: a part the
 library can show unchanged by size and date (or the last bytes of a CRC-fixed file) carries its record's source, and
-every other part is read in full there. An outside change is adopted by an Off and never overwritten by an On.
+every other part is read in full there. An outside change is adopted by an Off and never overwritten by an On. What
+the full read finds is kept in the records, so the cheap judgement agrees from then on: a file whose bytes are the
+record's under a new date (a backup tool, `touch`) has its date stamped again, and a file the cheap rule takes for
+official (no trailing bytes, the official size) whose bytes were changed outside the library is remembered as such
+by its size and date (`outside`, dropped by the next write there). Without that, the next scan would list the first
+in the untracked prompt again, and the second in the drift prompt at every start for Apply Mod Configuration to skip.
 Refusals before anything is written: `folder_changed`, `state_changed` (another place switched first), the game
 running, Steam busy, and `not_enough_space` (what an Off copies, with 512 MiB to spare); a running game, Steam busy or
 changed folders stop a job midway, the rest stays listed. Overwritten entries (no official copy anywhere) are left as
@@ -707,7 +719,8 @@ The services hold what the Enable Mods switch, the prompts and the classic hand-
   call (`classic.queue`) with its pins and the size and date of its entries' files. Once the classic window closed (its
   watcher thread, or the game watch for one an earlier instance left), the page is told to read everything again,
   a scan runs (with scan consent), then `ClassicQueue.run` submits each call that still holds as its normal job and
-  `classic.queueDone` lists the dropped ones.
+  `classic.queueDone` lists the dropped ones. The queue waits for the scan it asked for by its number; when the
+  consent is withdrawn meanwhile, that scan is dropped with the others and the queue runs at once.
 
 ## One instance per data directory
 
@@ -993,8 +1006,9 @@ consent (while it is unanswered and a game folder is known; see Enable Mods swit
 builds only). `Update.check` resolves when its popup closes: `later` (Later or Escape), `page` (the download page
 opened), `update` once an update has failed (one that works restarts the app), `null` with no newer release or
 offline. A step that fails is logged and the next one comes. The prompts of mods back to official and of mods outside
-the library come last, after the start scan: `startDue` already says when they are due (only with the scan consent,
-never while the game runs, Steam is busy or the classic UI is open, no drift while mods are off, nothing dismissed).
+the library come last, once the start scan is in (at most 10 s; one that comes later shows them once no other popup
+is open), each when `startDue` says it is due: only with the scan consent, never while the game runs, Steam is busy
+or the classic UI is open, no drift while mods are off, nothing dismissed (see Mods already in use).
 
 - **Switch Portrait, Switch Memorial Lobby** (the switch card of the Portrait and Memorial Lobby tabs; the add button
   beside it adds mods of either kind): what the game can show for that kind (`switch-sources.js`, tested in Node):
@@ -1004,8 +1018,19 @@ never while the game runs, Steam is busy or the classic UI is open, no drift whi
   still takes `variant:<key>` and other variants' mods for the lobby). Cards are framed on the face of each skeleton
   (a lobby's main skeleton, named like its core), "In Use" marks what the game shows now. Apply writes the choice
   into the game files (`actions.apply` with the tab's kind), then the portrait or the lobby is read again from them,
-  under a still of the old one. Row 2's update and compare act on the mod the shown tab's files carry. The 3D tab's
-  card has nothing to switch to yet (library): no chevron, and a click opens nothing.
+  under a still of the old one. A lobby popup offers only the lobby mods of its own core (a mod of an alternate core,
+  `_home_gl`, is switched by the Enable Mods switch only). While mods are off nothing is written (decision 2): the
+  popup starts on the configured source (the own files when none), that card carries "Set" (`switch.configured`),
+  apart from In Use, its button reads Save, and saving only configures the choice ("Saved, applied when mods are on").
+  On an overwritten kind (a file that is not official with no official copy anywhere, `restorable` false) every card
+  but the one in use is greyed (the roster's not-owned dim, its picture in grey, "Overwritten" where In Use goes), and
+  so is another variant's card whose files of that kind are overwritten: a greyed card is never chosen, and a click on
+  it opens the entry's Add First or Overwritten message (see Mods already in use), as does `original_unavailable`
+  from an apply or a restore. Remove, in a mod's details, warns first when the mod is the last copy of a file the game
+  still carries (`mod_last_copy`, mods off, no official copy anywhere): "Only copy of a file still in the game", "No
+  official copy left" and "The game may not start", Cancel and Remove (`mods.remove {id, confirm: true}`). Row 2's
+  update and compare act on the mod the shown tab's files carry. The 3D tab's card has nothing to switch to yet
+  (library): no chevron, and a click opens nothing.
 
 - **Aliases** (the pencil after the name on the nameplate, the game's name edit icon `Cafe_Icon_NameEdit`): the
   user's own aliases of the student, which the roster search matches (several, at most 8 of up to 24 characters;
@@ -1061,9 +1086,8 @@ detail screen, and in Settings' Mods tab.
   with Allow Check, which opens the scan consent popup and grants nothing itself; "Not switched: n" with Retry (the
   same toggle again) for pending and left entries; "Left as is, no official copy: n" with Details, the Overwritten
   message (the entries, known from the last scan with the scan consent, "No official copy left" and the repair lines
-  of `repairs.js`: Steam's verify for an install in a Steam library, then "Then start this app again"; where no
-  repair is known, "Mods stay in the mod library"; never a repair button); "Gone from the library: n". The counts are
-  the services': the last scan's with the scan consent, the unfinished list's by why without it.
+  of `repairs.js`, see Mods already in use; never a repair button); "Gone from the library: n". The counts are the
+  services': the last scan's with the scan consent, the unfinished list's by why without it.
 - **The scan consent popup** (`consent.js scan`, built like the asset consent): Check Game Files; Checked: the start
   and the end of each portrait and memorial lobby file, to find mods outside the library, files reset by a repair or
   an update and files with no official copy; Never: reading whole files, sending anything off this device; the note
@@ -1098,7 +1122,47 @@ detail screen, and in Settings' Mods tab.
   the portraits whose Replaced flag changed. A job that switched nothing (a prune) changes nothing on the page.
 - **The window back in front** after 30 s or more asks for a scan (`mods.scan`, only with the scan consent), so a
   Steam check or a repair made meanwhile is found.
-- **While mods are off** an apply only saves the choice: the toast says "Saved, applied when mods are on".
+- **While mods are off** an apply only saves the choice: the switch popup reads Save and starts on the configured
+  source, and the toast says "Saved, applied when mods are on".
+- **The tray's events** (see Tray): `tray.toggle` is followed like the page's own toggle, `tray.open` shows the first
+  toggle's explanation (its button submits the tray's toggle), the tray's refusal as a toast (the tray never queues
+  for the classic window) or the drift prompt. The page listens for them on the no-game screen too.
+
+### Mods already in use
+
+Item 1's prompts and messages (`prompts.js`; the pure parts tested in Node from `tests/test_mod_switch.py`). The
+lists come from the last scan (`mods.entries`), so the prompts exist only with the scan consent; the messages of an
+overwritten entry need none (the detail screen judges its files cheaply).
+
+- **Mods Not in the Library** (`#prompt`): the `untracked` entries and the configured `changed` ones of every known
+  install, every card ticked. A card: the entry's own install's picture (`spineBase(kind, core, id)`, so a card of
+  another install never shows the current install's file of the same name), the variant's name, the kind chip (an
+  alternate lobby core adds its suffix, "Memorial Lobby gl"), the install chip when more than one install is known,
+  and "No Official Copy" on an overwritten entry; its details: File, Size, CRC state and Official Copy (Kept, Backup,
+  Other Folder, No Official Copy). The footer counts the ticked cards and their size, the hint says they are lost to a
+  game update or file check unless added. Add to Library (`mods.adopt`), with mods off also Add and Turn On Mods (then
+  the toggle, with the first toggle's explanation), and Later (also the close button, the backdrop and Escape); Don't
+  Ask Again dismisses the cards not added (`mods.dismiss untracked`). Damaged entries are listed apart, dim and never
+  ticked, their Details giving the repair lines.
+- **Mods Back to Official** (while mods are on): the `reset` and `updated` entries, every card ticked, with the install
+  chip; entries still overwritten are listed apart ("Still overwritten: n", their Details the repair lines). Exactly
+  two buttons (decision 16) and no way out but them (no close button; Escape and the backdrop do nothing): Apply Mod
+  Configuration sends the ticked cards (`mods.restoreDrift`) and keeps the others as they are, Keep as Is keeps them
+  all (`mods.dismiss drift`). Apply is greyed with the reason while the game runs or Steam is busy; while the classic
+  UI is open it opens the classic modal. Its result is a toast, or a popup naming the failed entries and those skipped
+  because their files changed since the scan ("Game files changed, check again").
+- **When they show.** At the start (see Popups, "Start sequence"); after a later scan (the window back in front, the
+  classic window closed, a game folder change) once no other popup is open, when the scan found entries the prompt
+  has not shown in that state; after Settings' Check, with the dismissed entries again; and the drift prompt from the
+  tray's Back to Official. Never while the game runs, Steam is busy or the classic UI is open.
+- **Add First** (an overwritten entry whose mod is not in the library: no library source carries its non-official
+  parts): Official File Overwritten, "No official copy left", "Add before any repair", Add to Library (adopts that
+  entry) and Cancel. It names no repair: a repair would replace the only copy of the mod.
+- **Overwritten** (once its mod is in the library): Official File Overwritten, "No official copy left" and the repair
+  lines of its install (`repairs.js`): for an install in a Steam library Steam's verify (Properties - Installed Files -
+  Verify integrity of game files), the settled repair; then, as another option and never promised, the game's own
+  Restore Resources ("may not replace mods": whether it replaces a CRC-fixed mod is not verified); then "Then start
+  this app again". The app never starts a repair (decision 9).
 
 ### Loading screen
 
@@ -1469,9 +1533,9 @@ it (decision 7); browser and serve mode have none.
   `game_paths.find_game_dirs`).
 - `webui` through its WSGI app, without a window; the tray's menu and controller with fake services, never with a
   status item or a `NotifyIcon`.
-- The front end's pure parts in Node (`tests/js/*.test.mjs`, each run from its `tests/test_*.py`), the shared popups
-  and the Enable Mods switch on a stand-in DOM with the en-US strings (`mod_switch.test.mjs`, `repairs.test.mjs`,
-  `spine_base.test.mjs` among them).
+- The front end's pure parts in Node (`tests/js/*.test.mjs`, each run from its `tests/test_*.py`), the shared popups,
+  the Enable Mods switch, item 1's prompts and the tray's events on a stand-in DOM with the en-US strings
+  (`mod_switch.test.mjs`, `repairs.test.mjs`, `spine_base.test.mjs` among them).
 
 ## Lobby lines
 
