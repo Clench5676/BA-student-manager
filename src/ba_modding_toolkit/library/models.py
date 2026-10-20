@@ -44,6 +44,35 @@ class ModEntry(JsonResult):
     core: str = ""  # the lower-case core of its files (a lobby mod belongs to one lobby core)
 
 
+class AddResult(list[ModEntry]):
+    """New entries, with matched library entries and sources recognized in game files."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.duplicates: list[ModEntry] = []
+        self.installed: list[ModEntry] = []
+
+    @property
+    def added(self) -> list[ModEntry]:
+        return list(self)
+
+    def to_json(self) -> dict[str, Any]:
+        return {"added": [entry.to_json() for entry in self],
+                "duplicates": [entry.to_json() for entry in self.duplicates],
+                "installed": [entry.to_json() for entry in self.installed]}
+
+
+@dataclass(frozen=True)
+class DeleteResult(JsonResult):
+    """Deleted sources and any game entries still awaiting their configured source."""
+
+    done: list[dict]
+    failed: list[dict]
+    dropped: list[dict]
+    cores: list[str]
+    kinds: list[str]
+
+
 CopyKind = Literal["game", "kept", "backup", "elsewhere"]
 
 

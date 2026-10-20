@@ -331,7 +331,7 @@ async function start() {
   on("drop", async ({ paths }) => {
     try {
       const added = await ModAdd.add(paths, Detail.currentVariant());
-      if (!added.length) toast(T("drop.hint"));
+      if (!(added?.length || added?.added?.length || added?.duplicates?.length || added?.installed?.length)) toast(T("drop.hint"));
       ctx.invalidateRoster();
       route();
     } catch (err) {

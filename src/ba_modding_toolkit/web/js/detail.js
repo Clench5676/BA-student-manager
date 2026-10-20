@@ -536,7 +536,7 @@ async function toggleFav() {
 async function addMods() {
   const page = pageToken, address = location.hash;
   const added = await call(() => ModAdd.add(null, variant().key));
-  if (added?.length) {
+  if (added?.length || added?.added?.length || added?.installed?.length) {
     ctx.invalidateRoster();
     if (page === pageToken && open && location.hash === address) await reload();
   }
@@ -611,6 +611,7 @@ async function runCompare() {
 // keeps what it replaces (an official file until it is official again, a mod in the library)
 async function applyCandidate(key, kind = "spr") {
   const v = variant();
+  if (modsOn() && key === appliedKey(v, kind)) { toast(T("mods.alreadyInUse")); return; }
   await job("actions.apply", { variant: v.key, source: sourceOf(key), kind }, {
     onDone: (result) => {
       if (result?.files?.length) {
@@ -1011,7 +1012,7 @@ async function drawPopup(scroll = 0) {
           [T("field.crc"), crc ? T(crc[0]) : "—", crc?.[1] && `${crc[1]}/1.00`]],
         actions: [[T(platform === "mac" ? "open.mac" : "open.win"), () => reveal(file)],
           c.kind === "mod"
-            ? [T("btn.remove"), async () => {
+            ? [T("btn.delete"), async () => {
               if (!(await removeMod(c.id))) return;
               await reload();
               ctx.invalidateRoster();
@@ -1035,26 +1036,25 @@ function closePopup(apply) {
   $("popup").innerHTML = "";
   const chosen = candidates(variant(), popupKind).find((c) => c.key === pending);
   // only a choice other than the start (what the game shows; while mods are off, the configured source)
-  if (apply && chosen && !chosen.greyed && pending !== popupStart) applyCandidate(pending, popupKind);
+  if (apply && chosen && !chosen.greyed) {
+    if (pending === popupStart) toast(T(modsOn() ? "mods.alreadyInUse" : "switch.configured"));
+    else applyCandidate(pending, popupKind);
+  }
 }
 
-// Remove (the switch popup's details): a mod that is the last copy of a file the game still carries (mods off, no
-// official copy anywhere) asks first: the game may not start (decision 12)
+// The confirmation is read again when opened, so configurations in other installs are included.
 async function removeMod(id) {
   try {
-    await rpc("mods.remove", { id });
-    return true;
-  } catch (err) {
-    if (err.code !== "mod_last_copy") { toast(errorText(err), { kind: "error" }); return false; }
-  }
-  const r = await message({
-    title: T("btn.remove"), lines: [T("mods.lastCopy"), T("mods.overwrittenNone"), T("mods.mayNotStart")],
-    ok: T("btn.remove"), cancel: T("popup.cancel"),
-  });
-  if (r.button !== "ok") return false;
-  try {
-    await rpc("mods.remove", { id, confirm: true });
-    return true;
+    const info = await rpc("mods.removalInfo", { id });
+    const r = await message({
+      title: T("btn.delete"),
+      lines: [T("mods.deleteConfirm", { name: info.name }), ...(info.used ? [T("mods.deleteRestore")] : [])],
+      ok: T("btn.delete"), cancel: T("popup.cancel"),
+    });
+    if (r.button !== "ok") return false;
+    return await job("mods.remove", { id, confirm: true }, {
+      onDone: (result) => { if (result?.failed?.length) toast(T("mods.deletePending")); },
+    });
   } catch (err) {
     toast(errorText(err), { kind: "error" });
     return false;

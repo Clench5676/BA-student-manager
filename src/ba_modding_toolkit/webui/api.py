@@ -500,12 +500,17 @@ def build_api(s: Services) -> RpcRegistry:
         if background:
             library = s.library
 
-            def add(log: Any, progress: Any) -> list[dict]:
-                return [entry.to_json() for entry in library.add([Path(p) for p in paths], progress=progress)]
+            def add(log: Any, progress: Any) -> Any:
+                return library.add([Path(p) for p in paths], progress=progress)
 
             return s.submit("mods.add", add, writes="library", library=library)
-        added = s.library.add([Path(p) for p in paths])
+        library = s.library
+        added = library.add([Path(p) for p in paths])
         s.events.publish("library.changed", {"cores": [], "kinds": [], "mods": True})
+        if getattr(added, "installed", None):
+            s.refresh_status(library)
+            s.publish_state()
+            s.request_scan()
         return added
 
     @rpc.method("mods.pick")
@@ -517,16 +522,16 @@ def build_api(s: Services) -> RpcRegistry:
         paths = pick_files(s.window, ("Bundle (*.bundle;*.backup)",))
         return mods_add([str(p) for p in paths], background) if paths else []
 
+    @rpc.method("mods.removalInfo")
+    def mods_removal_info(id: str) -> dict[str, Any]:
+        return s.library.removal_info(id)
+
     @rpc.method("mods.remove")
-    def mods_remove(id: str, confirm: bool = False) -> dict[str, Any]:
-        """``mod_last_copy {file}`` with mods off when the mod is the last copy of a file the game still carries and
-        ``confirm`` is not set; ``mod_in_use`` / ``mod_in_use_elsewhere`` as before."""
+    def mods_remove(id: str, confirm: bool = False) -> str:
+        """Delete a library source as one writer job; game write refusals remain in its result and drift."""
         library = s.library
-        library.remove(id, confirm=bool(confirm))
-        s.events.publish("library.changed")
-        s.refresh_status(library)
-        s.publish_state()
-        return {}
+        return s.submit("mods.remove", lambda log, progress: library.remove(id, confirm=bool(confirm), log=log),
+                        writes="library", library=library)
 
     @rpc.method("mods.rename")
     def mods_rename(id: str, label: str) -> None:

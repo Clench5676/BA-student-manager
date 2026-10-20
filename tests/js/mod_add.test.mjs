@@ -35,11 +35,13 @@ test("same-variant adds confirm briefly for maid, dress, swimsuit and base varia
   ]) {
     for (const paths of [null, ["mod.bundle"]]) {
       const mod = { target: key.toUpperCase(), family, core, kind: core.endsWith("HOME") ? "lobby" : "spr" };
-      const h = await harness({ added: [mod] });
-      assert.deepEqual(await h.mod.add(paths, ` ${key} `), [mod]);
-      assert.deepEqual(h.log.at(-1), ["toast", "Added"]);
-      assert.equal(h.log.filter(([k]) => k === "changed").length, 1);
-      assert.ok(!h.log.some(([k]) => k === "popup" || k === "go"));
+      for (const report of [[mod], { added: [mod], duplicates: [], installed: [] }]) {
+        const h = await harness({ added: report });
+        assert.deepEqual(await h.mod.add(paths, ` ${key} `), report);
+        assert.deepEqual(h.log.at(-1), ["toast", "Added"]);
+        assert.equal(h.log.filter(([k]) => k === "changed").length, 1);
+        assert.ok(!h.log.some(([k]) => k === "popup" || k === "go"));
+      }
     }
   }
 });
@@ -174,11 +176,155 @@ test("all five locales name both parts without missing keys or placeholders", as
   }
 });
 
-test("cancelled picker, duplicates and rejected uploads show no success popup", async () => {
-  for (const args of [{ cancelled: true }, { added: [] }, { error: new Error("unknown target") }]) {
+test("cancelled picker, empty reports and rejected uploads show no success popup", async () => {
+  for (const args of [{ cancelled: true }, { added: [] }, { added: { added: [], duplicates: [], installed: [] } },
+    { error: new Error("unknown target") }]) {
     const h = await harness(args);
     if (args.error) await assert.rejects(h.mod.add(), /unknown target/); else await h.mod.add();
     assert.ok(!h.log.some(([k]) => k === "popup" || k === "changed" || k === "go"));
     if (!args.cancelled) assert.ok(h.log.some(([k]) => k === "closed"));
+  }
+});
+
+test("duplicate popup names the stored mod and offers Go to or OK in every locale", async () => {
+  const duplicate = { ...portrait, id: "m1", label: "My portrait" };
+  for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"]) {
+    const report = { added: [], duplicates: [duplicate], installed: [] };
+    const h = await harness({ locale, added: report, button: "ok" });
+    assert.deepEqual(await h.mod.add(["renamed.bundle"]), report);
+    const opts = h.log.find(([k]) => k === "popup")[1];
+    assert.ok(opts.lines[0].includes("My portrait"));
+    assert.ok(!/[{}]/.test(opts.lines[0]));
+    assert.ok(!h.log.some(([k]) => k === "changed"));
+    assert.deepEqual(h.log.at(-1), ["go", "base"]);
+    const strings = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${locale}.json`, import.meta.url), "utf8")).webui;
+    assert.equal(opts.lines[0], strings.add.duplicate.replace("{name}", duplicate.label));
+    assert.equal(opts.cancel, strings.picker.ok);
+  }
+});
+
+test("adopted game files are reported as installed, and mixed duplicate destinations remain navigable", async () => {
+  const added = { ...portrait, id: "m1", label: "Portrait" }, duplicate = { ...lobby, id: "m2", label: "Lobby" };
+  const h = await harness({ added: { added: [added], duplicates: [duplicate], installed: [added] } });
+  await h.mod.add();
+  const opts = h.log.find(([k]) => k === "popup")[1];
+  assert.match(opts.lines[0].text, /Recognized as an installed Mod/);
+  assert.match(opts.lines[1].text, /Already in the Mod Library: Lobby/);
+  opts.lines[1].button.fn({ close() {} });
+  assert.deepEqual(h.log.at(-1), ["go", "dress"]);
+  assert.equal(h.log.filter(([k]) => k === "changed").length, 1);
+});
+
+test("duplicates on the current canonical variant show OK without navigation in every locale", async () => {
+  const duplicate = { ...portrait, target: " BASE ", id: "m1", label: " My portrait \n" };
+  for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"]) {
+    const h = await harness({ locale, added: { added: [], duplicates: [duplicate], installed: [] }, button: "ok" });
+    await h.mod.add(null, "base");
+    const opts = h.log.find(([k]) => k === "popup")[1];
+    const strings = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${locale}.json`, import.meta.url), "utf8")).webui;
+    assert.deepEqual(opts.lines, [strings.add.duplicate.replace("{name}", "My portrait")]);
+    assert.equal(opts.ok, strings.picker.ok);
+    assert.equal(opts.cancel, null);
+    assert.ok(!h.log.some(([k]) => ["go", "toast", "changed"].includes(k)));
+  }
+});
+
+test("adoption on the selected variant reports installation and refreshes even for an existing duplicate", async () => {
+  const installed = { ...portrait, id: "m1", label: "My portrait" };
+  for (const duplicate of [false, true]) {
+    const report = { added: duplicate ? [] : [installed], duplicates: duplicate ? [installed] : [], installed: [installed] };
+    const h = await harness({ added: report, button: "ok" });
+    assert.deepEqual(await h.mod.add(null, "BASE"), report);
+    const opts = h.log.find(([k]) => k === "popup")[1];
+    assert.deepEqual(opts.lines, [(duplicate ? "Already in the Mod Library: My portrait\n" : "") + "Recognized as an installed Mod"]);
+    assert.equal(opts.ok, "Confirm");
+    assert.equal(opts.cancel, null);
+    assert.equal(h.log.filter(([k]) => k === "changed").length, 1);
+    assert.ok(!h.log.some(([k]) => k === "go" || k === "toast"));
+  }
+});
+
+test("one report combines special results, toasts plain local adds and navigates only to other variants", async () => {
+  const plain = { ...portrait, id: "plain" }, installed = { ...portrait, id: "installed" };
+  const elsewhere = { ...lobby, id: "elsewhere" };
+  const localDuplicate = { ...portrait, id: "local", label: "Local" };
+  const remoteDuplicate = { target: " CH0200 ", kind: "spr", id: "remote", label: "Remote" };
+  const report = { added: [plain, installed, elsewhere], duplicates: [localDuplicate, remoteDuplicate], installed: [installed] };
+  for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"]) {
+    const h = await harness({ locale, added: report, button: "ok" });
+    await h.mod.add(["mods.bundle"], " base ");
+    const strings = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${locale}.json`, import.meta.url), "utf8")).webui;
+    const popups = h.log.filter(([k]) => k === "popup");
+    assert.equal(popups.length, 1);
+    const opts = popups[0][1];
+    assert.deepEqual(opts.lines.map((row) => typeof row === "string" ? row : row.text), [
+      strings.add.installed, strings.add.belongs.replace("{name}", "Mutsuki (Dress)"),
+      strings.add.duplicate.replace("{name}", "Local"), strings.add.duplicate.replace("{name}", "Remote"),
+    ]);
+    assert.equal(typeof opts.lines[0], "string");
+    assert.equal(typeof opts.lines[2], "string");
+    assert.deepEqual(h.log.filter(([k]) => k === "toast"), [["toast", strings.add.done]]);
+    assert.deepEqual(h.log.at(-1), ["go", "dress"]);
+    for (const [index, target] of [[1, "dress"], [3, "ch0200"]]) {
+      const closed = [];
+      assert.equal(opts.lines[index].button.label, strings.add.go);
+      opts.lines[index].button.fn({ close: (value) => closed.push(value) });
+      assert.deepEqual(closed, ["cancel"]);
+      assert.deepEqual(h.log.at(-1), ["go", target]);
+    }
+  }
+});
+
+test("the footer skips a duplicate on the current variant when another result can be opened", async () => {
+  const report = { added: [], duplicates: [
+    { ...portrait, id: "current", label: "Current" }, { ...lobby, id: "other", label: "Other" },
+  ], installed: [] };
+  const h = await harness({ added: report, button: "ok" });
+  await h.mod.add(null, "base");
+  const opts = h.log.find(([k]) => k === "popup")[1];
+  assert.equal(typeof opts.lines[0], "string");
+  assert.ok(opts.lines[1].button);
+  assert.deepEqual(h.log.at(-1), ["go", "dress"]);
+});
+
+test("picker callers pass the selected variant and refresh new entries or adoption without revisiting a departed page", async () => {
+  const detail = readFileSync(new URL("../../src/ba_modding_toolkit/web/js/detail.js", import.meta.url), "utf8");
+  const add = detail.slice(detail.indexOf("async function addMods("), detail.indexOf("// a job with a sticky"));
+  const entry = { ...portrait, id: "m1" };
+  for (const [report, changed] of [[[], false], [null, false], [[entry], true],
+    [{ added: [entry], duplicates: [], installed: [] }, true],
+    [{ added: [], duplicates: [entry], installed: [] }, false],
+    [{ added: [], duplicates: [entry], installed: [entry] }, true]]) {
+    for (const navigate of [false, true]) {
+      let refreshes = 0, invalidations = 0;
+      const env = { pageToken: 1, open: true, location: { hash: "#current" }, variant: () => ({ key: "ch0200" }),
+        call: (fn) => fn(), ctx: { invalidateRoster: () => { invalidations++; } }, reload: async () => { refreshes++; },
+        ModAdd: { add: async (...args) => {
+          assert.deepEqual(args, [null, "ch0200"]);
+          if (navigate) env.location.hash = "#other";
+          return report;
+        } },
+      };
+      await new Function("env", `const { ${Object.keys(env).join(", ")} } = env; ${add}; return addMods();`)(env);
+      assert.equal(invalidations, Number(changed));
+      assert.equal(refreshes, Number(changed && !navigate));
+    }
+  }
+});
+
+test("drop callers accept report objects for new mods, duplicates and adoption without an empty-drop hint", async () => {
+  const main = readFileSync(new URL("../../src/ba_modding_toolkit/web/js/main.js", import.meta.url), "utf8");
+  const drop = main.slice(main.indexOf('  on("drop",'), main.indexOf('  $("top-option").addEventListener'));
+  for (const report of [{ added: [portrait] }, { duplicates: [portrait] }, { installed: [portrait] }]) {
+    let handler, refreshes = 0, invalidations = 0;
+    const env = { on: (_name, fn) => { handler = fn; }, Detail: { currentVariant: () => "base" },
+      ctx: { invalidateRoster: () => { invalidations++; } }, route: () => { refreshes++; },
+      toast: () => assert.fail("a successful drop has no hint or error"), T: (key) => key,
+      ModAdd: { add: async (...args) => { assert.deepEqual(args, [["mod.bundle"], "base"]); return report; } },
+    };
+    new Function("env", `const { ${Object.keys(env).join(", ")} } = env; ${drop}`)(env);
+    await handler({ paths: ["mod.bundle"] });
+    assert.equal(invalidations, 1);
+    assert.equal(refreshes, 1);
   }
 });

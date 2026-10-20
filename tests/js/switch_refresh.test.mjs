@@ -22,7 +22,7 @@ async function apply(result, kind, { changedConfiguration = false } = {}) {
     forget: () => calls.push("forget"), spinePrefix: (kind, core) => `${kind}/${core}`,
     call: (fn) => fn(), readFamily: async () => ({ key: "family", variants: [next] }),
     renderAll: async () => calls.push("cards"), renderLeft: async () => calls.push("left"),
-    previewChanged, modsOn: () => enabled, previewEnabled: enabled, tabKind: () => kind,
+    appliedKey: () => "mod:old", previewChanged, modsOn: () => enabled, previewEnabled: enabled, tabKind: () => kind,
     changeInPlace: (fn) => fn(),
     clearTimeout() {}, open: true, fam: { key: "family", variants: [v] }, variantKey: v.key, shownLeft: kind,
     expression: "00", blinkTimer: null, mainPlayer: {},

@@ -40,8 +40,8 @@ from .judge import (
     install_key, install_root, kind_of, leaves, now, part_of, says_official, seconds,
 )
 from .models import (
-    AdoptResult, ApplyResult, AssetDifference, CompareResult, EntryState, GameFileState, Kind, ModEntry, Pin,
-    ScanResult, ToggleResult, UpdateResult, VariantState,
+    AddResult, AdoptResult, ApplyResult, AssetDifference, CompareResult, DeleteResult, EntryState, GameFileState, Kind,
+    ModEntry, Pin, ScanResult, ToggleResult, UpdateResult, VariantState,
 )
 from .profiles import Profiles
 from .safety import check_resource_path
@@ -79,6 +79,22 @@ def _serialized(method: Callable) -> Callable:
         with self._lock, _errors(method.__name__):
             self._refresh_state()
             return method(self, *args, **kwargs)
+    return call
+
+
+def _mod_writer(method: Callable) -> Callable:
+    """Serialize source additions and deletions across instances, before state and profiles locks."""
+    @wraps(method)
+    def call(self: ModLibrary, *args: Any, **kwargs: Any) -> Any:
+        if self._writing_mods:
+            return method(self, *args, **kwargs)
+        with file_lock(self.root / "mods.lock"):
+            self._writing_mods = True
+            try:
+                self._refresh_state()
+                return method(self, *args, **kwargs)
+            finally:
+                self._writing_mods = False
     return call
 
 
@@ -487,6 +503,7 @@ class ModLibrary:
         self._write_check = write_check
         self._lock = threading.RLock()
         self._hashes = Fingerprints()
+        self._writing_mods = False
         self._records: dict[str, dict[str, Any]] = {}
         self._favorites: set[str] = set()
         self._applied: dict[str, dict[str, Any]] = {}
@@ -506,6 +523,7 @@ class ModLibrary:
         with self._lock:
             try:
                 self._lookup_records()
+                self._known()
             except ServiceError as error:
                 logger.warning("Mod configuration not looked up: %s", error.code)
             except Exception:  # the library still works without it; the next build tries again
@@ -624,7 +642,8 @@ class ModLibrary:
     def _paths(self, record: dict[str, Any]) -> list[Path]:
         directory = self.root / "mods" / record["id"]
         paths = [directory / name for name in record["files"]]
-        if any(not path.resolve().is_relative_to(directory.resolve()) for path in paths):
+        if not directory.resolve().is_relative_to(self.root) or any(
+                not path.resolve().is_relative_to(directory.resolve()) for path in paths):
             raise ServiceError("mod_unsupported", file=paths[0])
         return paths
 
@@ -647,19 +666,30 @@ class ModLibrary:
         return [self._entry(record) for record in self._records.values()]
 
     @_serialized
-    def add(self, paths: list[Path], progress: ProgressCallback | None = None) -> list[ModEntry]:
+    @_mod_writer
+    def add(self, paths: list[Path], progress: ProgressCallback | None = None) -> AddResult:
         """Store one mod per core and date, deduplicating complete bundle sets. In dev mode (devmode) only files
         inside the dev roots are taken."""
         for path in paths:
             devmode.check_read(path)
         return self._add(paths, progress)
 
-    def _known(self) -> dict[frozenset, str]:
-        return {frozenset((path.name, self._hashes.get(path).sha1) for path in self._paths(record)): record["id"]
-                for record in self._records.values()}
+    def _identity(self, files: dict[str, Path]) -> frozenset:
+        return frozenset((core_of(name), self._hashes.get(path).sha1) for name, path in files.items())
 
-    def _add(self, paths: list[Path], progress: ProgressCallback | None = None) -> list[ModEntry]:
-        known = set(self._known())
+    def _known(self) -> dict[frozenset, str]:
+        known = {}
+        for record in self._records.values():
+            identity = self._identity({path.name: path for path in self._paths(record)})
+            if identity in known:
+                logger.warning("Duplicate library mods: %s (%s), %s (%s)", known[identity],
+                               self._records[known[identity]]["label"], record["id"], record["label"])
+            else:
+                known[identity] = record["id"]
+        return known
+
+    def _add(self, paths: list[Path], progress: ProgressCallback | None = None) -> AddResult:
+        known = self._known()
         groups: dict[tuple[str, str], dict[str, Path]] = {}
         targets = {}
         for i, source in enumerate(map(Path, paths)):
@@ -669,8 +699,15 @@ class ModLibrary:
             parsed = parse_filename(name)
             kind: Kind | None = "spr" if parsed.core.lower().endswith("_spr") else (
                 "lobby" if parsed.core.lower().endswith(HOME_SUFFIXES) else None)
-            if not name.endswith(".bundle") or not parsed.prefix or not parsed.crc or kind is None:
+            if not name.endswith(".bundle"):
                 raise ServiceError("mod_unsupported", file=source)
+            if not parsed.prefix or not parsed.crc or kind is None:
+                fingerprint = self._hashes.get(source).sha1
+                matches = [path.name for record in self._records.values() for path in self._paths(record)
+                           if self._hashes.get(path).sha1 == fingerprint]
+                if len({core_of(name) for name in matches}) != 1:
+                    raise ServiceError("mod_unsupported", file=source)
+                name = matches[0]
             name, target, kind = identify(source, name, self.catalog)
             parsed = parse_filename(name)
             targets[parsed.core.lower()] = (target, kind)
@@ -679,17 +716,25 @@ class ModLibrary:
                 raise ServiceError("mod_unsupported", file=source)
             group[name] = source
 
-        added = []
+        added = AddResult()
         for group in groups.values():
-            signature_ = frozenset((name, self._hashes.get(source).sha1) for name, source in group.items())
+            signature_ = self._identity(group)
             if signature_ in known:
+                entry = self._entry(self._records[known[signature_]])
+                if entry not in added and entry not in added.duplicates:
+                    added.duplicates.append(entry)
+                if self._recognize_installed(entry.id, signature_):
+                    added.installed.append(entry)
                 continue
             names = sorted(group)
             parsed = parse_filename(names[0])
             target, kind = targets[parsed.core.lower()]
             record = self._store(group, parsed.core, target, kind)
-            known.add(signature_)
-            added.append(self._entry(record))
+            known[signature_] = record["id"]
+            entry = self._entry(record)
+            added.append(entry)
+            if self._recognize_installed(entry.id, signature_):
+                added.installed.append(entry)
         if progress:
             progress(len(paths), len(paths), paths[-1].name if paths else "")
         return added
@@ -712,12 +757,13 @@ class ModLibrary:
             raise
         return record
 
+    @_mod_writer
     def _add_group(self, paths: list[Path], label: str, pin: Pin) -> tuple[str, bool]:
         """Store the parts of one core as one mod, whatever their dates, keyed by the variant key the install's own
         core map gives the core (a core the current catalog does not map is stored too). Returns the id of the mod
         and whether it was created: a part set already in the library is not stored twice."""
         files = {path.name: path for path in paths}
-        signature_ = frozenset((name, self._hashes.get(path).sha1) for name, path in files.items())
+        signature_ = self._identity(files)
         existing = self._known().get(signature_)
         if existing is not None:
             return existing, False
@@ -728,46 +774,84 @@ class ModLibrary:
         key = self._core_map(pin).key(core_name) or core_name.lower()
         return self._store(files, core_name, key, kind)["id"], True
 
-    @_serialized
-    def remove(self, mod_id: str, confirm: bool = False) -> None:
-        """Remove a stored mod while retaining restore copies and applied history.
+    def _recognize_installed(self, mod_id: str, identity: frozenset) -> bool:
+        """Adopt exact outside content without writing any game files."""
+        core = core_of(self._records[mod_id]["files"][0])
+        matched = False
+        for pin in self.installs():
+            entry = self._view(self._view_pins(pin), "full").entry(pin, core)
+            if entry.state not in ("untracked", "changed"):
+                continue
+            if self._matches_installed(identity, entry):
+                try:
+                    self._adopt_one(pin, core, mod_id=mod_id)
+                except ServiceError as error:
+                    if error.code != "entry_changed":
+                        raise
+                else:
+                    matched = True
+        return matched
 
-        A mod a game file still carries (unchanged since the library put it there) is refused while mods are on:
-        ``mod_in_use`` names the file in the current game folder, ``mod_in_use_elsewhere`` the other game folder
-        (``folder``) where it is in use, to be switched there first. In a folder the switch does not cover (not a
-        known game folder) it is refused in any state. While mods are off removing is allowed: every configuration
-        naming the mod is dropped; when a game file still carries it with no official copy anywhere, the mod is the
-        last copy of that file and ``mod_last_copy`` asks for ``confirm`` first. The records of the files that still
-        carry it are marked removed, so the next Off reverts them and nothing adopts them again.
-        """
-        record = self._record(mod_id)
-        config = self.profiles.read()
-        on = profiles_mod.enabled(config)
-        pins = self.installs()
-        current = self.current_pin()
-        in_use = self._in_use(mod_id)
-        known = {folder for pin in pins for folder in pin.dirs}
-        outside = [path for path in in_use if path.parent not in known]
-        if outside:
-            raise ServiceError("mod_in_use_elsewhere", id=mod_id, file=outside[0], folder=_game_folder(outside[0]))
-        if in_use and on:
-            here = [path for path in in_use if current and path.parent in current.dirs]
-            if here:
-                raise ServiceError("mod_in_use", id=mod_id, file=here[0])
-            # not limited to this game folder: removed, the mod would be left only in the other folder's game files,
-            # lost to a check in its launcher or a game update there
-            raise ServiceError("mod_in_use_elsewhere", id=mod_id, file=in_use[0], folder=_game_folder(in_use[0]))
-        if in_use and not confirm:
-            view = self._view(pins, "family", config)
-            for path in in_use:
-                pin = next(pin for pin in pins if path.parent in pin.dirs)
-                part = _Part(path, 0, 0, f"mod:{mod_id}", False, True, False, None, "ok", None)
-                if view.copy_of(part, pin) is None:
-                    raise ServiceError("mod_last_copy", id=mod_id, file=path)
+    def _matches_installed(self, identity: frozenset, entry: _Entry) -> bool:
+        files = {part.path.name: part.path for part in entry.parts}
+        modified = {part.path.name: part.path for part in entry.parts if not part.official}
+        return bool(modified) and self._identity(modified) <= identity <= self._identity(files)
+
+    @_serialized
+    def removal_info(self, mod_id: str) -> dict:
+        """The confirmation's name and whether any configuration or applied record uses this source."""
         source = f"mod:{mod_id}"
+        used = any(entry.get("source") == source
+                   for folder in ((self.profiles.read() or {}).get("folders") or {}).values()
+                   for entry in folder["configured"].values()) or bool(self._in_use(mod_id))
+        return {"name": self._record(mod_id)["label"], "used": used}
+
+    @_serialized
+    @_mod_writer
+    def remove(self, mod_id: str, confirm: bool = False, log: LogFunc = no_log) -> DeleteResult:
+        """Delete a source and its library references, then restore affected game entries through the normal writer.
+        Refused game writes leave the new configuration and an unfinished entry for Retry."""
+        record = self._record(mod_id)
+        directory = self.root / "mods" / mod_id
+        self._paths(record)  # refuse a stored directory or file that resolves outside the library
+        source = f"mod:{mod_id}"
+        pins = self._all_pins()
+        for name, applied in self._applied.items():
+            if applied.get("source") == source and not any(Path(name).parent in pin.dirs for pin in pins):
+                folder = _game_folder(Path(name))
+                if devmode.allows_read(folder):
+                    pin = self._pin(folder, self.settings.server_region() if self.settings else "global")
+                    if pin is not None:
+                        pins.append(pin)
+        by_key = {pin.key: pin for pin in pins}
+        affected = set()
+        for name, applied in self._applied.items():
+            if applied.get("source") == source:
+                path = Path(name)
+                affected.update((pin.key, core_of(path.name)) for pin in pins if path.parent in pin.dirs)
+        keys: list[dict] = []
+
+        def change(data: dict) -> None:
+            affected.update(_drop_source(data, source, keys))
+            for folder in data["folders"].values():
+                for entries in folder["dismissed"].values():
+                    if isinstance(entries, dict):
+                        entries.pop(core_of(record["files"][0]), None)
+            for key, core in affected:
+                folder = data["folders"].get(key)
+                if folder:
+                    folder["updated"].pop(core, None)
+                    for entries in folder["dismissed"].values():
+                        if isinstance(entries, dict):
+                            entries.pop(core, None)
+            data["unfinished"] = [item for item in data["unfinished"]
+                                  if (item["install"], item["core"]) not in affected]
+
         old_applied = copy.deepcopy(self._applied)
-        for path in in_use:
-            self._applied[str(path)]["removed"] = True
+        for applied in self._applied.values():
+            if applied.get("source") == source:
+                applied.update(source="removed", removed=True)
+                applied.pop("build", None)
         del self._records[mod_id]
         try:
             self._save()
@@ -775,22 +859,41 @@ class ModLibrary:
             self._records[mod_id] = record
             self._applied = old_applied
             raise
-        shutil.rmtree(self.root / "mods" / mod_id, ignore_errors=True)
-        dropped: list[tuple[str, str]] = []
-        keys: list[dict] = []
-
-        def change(data: dict) -> bool:
-            dropped.extend(_drop_source(data, source, keys))
-            return bool(dropped or keys)
-
-        self._update_profiles(change, after=lambda data: self._delete_built_files(keys, data))
-        if dropped:
-            logger.info("Removed mod %s from %d configured entries", mod_id, len(dropped))
+        try:
+            self._update_profiles(change, after=lambda data: self._delete_built_files(keys, data))
+        except Exception:
+            self._records[mod_id] = record
+            self._applied = old_applied
+            self._save()
+            raise
+        shutil.rmtree(directory)
+        done, failed, outcomes = [], [], {}
+        for key, core in sorted(affected):
+            pin = by_key.get(key)
+            if pin is None:
+                continue
+            config = ((self.profiles.read() or {}).get("folders") or {}).get(key, {})
+            configured = config.get("configured", {}).get(core)
+            target = configured["source"] if configured and profiles_mod.enabled(self.profiles.read()) else "official"
+            item = {"install": key, "core": core}
+            try:
+                with _errors("restore"):
+                    self._switch(pin, core, target, log)
+                done.append(item)
+                outcomes[key, core] = None
+            except ServiceError as error:
+                failed.append({"entry": item, "code": error.code, "params": error.to_json()["params"]})
+                outcomes[key, core] = "stuck" if error.code == "original_unavailable" else "pending"
+                logger.info("Deleted mod %s; restore of %s in %s deferred: %s", mod_id, core, key, error.code)
+        self._save_outcomes(outcomes)
         self._prune_quietly()
+        return DeleteResult(done, failed, [{"install": key, "core": core} for key, core in sorted(affected)],
+                            sorted({core for _, core in affected}),
+                            sorted({kind_of(core) or "spr" for _, core in affected}))
 
     def _in_use(self, mod_id: str) -> list[Path]:
-        """The game files that still carry the mod, in any game folder the library wrote to, by the cheap judgement
-        of the library's own records (nothing is hashed). A part the mod left official carries nothing of it."""
+        """The game files still carrying the mod: stats and tails first, then SHA-1 when their stamp changed.
+        A part the mod left official carries nothing of it."""
         paths = []
         for name, record in self._applied.items():
             if record.get("source") != f"mod:{mod_id}" or record.get("removed"):
@@ -803,7 +906,7 @@ class ModLibrary:
                 matched = record.get("size") == stat.st_size and (
                     record.get("mtime") == stat.st_mtime_ns
                     or (bool(record.get("tail")) and read_tail(path) == record["tail"]))
-                if not matched:
+                if not matched and self._hashes.get(path).sha1 != record.get("sha1"):
                     continue
                 flag = record.get("official")
                 if not isinstance(flag, bool):
@@ -1284,6 +1387,8 @@ class ModLibrary:
                     target.name, {str(target.resolve())}, pins):
                 continue
             with contextlib.suppress(OSError):
+                if not original.resolve().is_relative_to(self.root):
+                    continue
                 original.unlink()
                 logger.info("Released the original of %s kept by a failed write", target.name)
 
@@ -1300,6 +1405,8 @@ class ModLibrary:
         library shared with a data directory that names such an install keeps the same originals here as there, so
         removing an install from the list never changes what the prune keeps."""
         directory = self.root / "originals"
+        if not directory.resolve().is_relative_to(self.root):
+            return []
         try:
             config = self.profiles.read()
         except ServiceError:
@@ -1792,6 +1899,13 @@ class ModLibrary:
                     if not on:
                         return self._defer(pin, variant_key, {record["kind"]: cores[0]}, source)
                     if core_of(record["files"][0]) == cores[0]:
+                        view = self._view([pin], "full")
+                        entry = view.entry(pin, cores[0])
+                        identity = self._identity({path.name: path for path in self._paths(record)})
+                        if entry.carried == source and self._matches_installed(identity, entry):
+                            self._note_judged(view, entry)
+                            self._configure(pin, variant_key, {record["kind"]: cores[0]}, source)
+                            return ApplyResult(variant_key, source, [], unchanged=True)
                         replacements = self._cached_build(self._paths(record), targets, pin,
                             lambda: self._install_direct(record, targets, work, log, progress, pin), build_keys)
                     elif target_variant != variant_key:
@@ -2095,8 +2209,10 @@ class ModLibrary:
                 sha1 = part.get("sha1")
                 if part.get("mod_file") or not sha1 or sha1 in referenced:
                     continue
-                with contextlib.suppress(OSError):
-                    (self.root / "built" / f"{sha1}.bundle").unlink()
+                path = self.root / "built" / f"{sha1}.bundle"
+                if path.resolve().is_relative_to(self.root) and path.parent == self.root / "built":
+                    with contextlib.suppress(OSError):
+                        path.unlink()
 
     @_serialized
     def clear_built(self) -> int:
@@ -2482,7 +2598,8 @@ class ModLibrary:
         if need + SPACE_MARGIN > free:
             raise ServiceError("not_enough_space", need=need, free=free)
 
-    def _adopt_one(self, pin: Pin, core: str) -> str:
+    @_mod_writer
+    def _adopt_one(self, pin: Pin, core: str, mod_id: str | None = None) -> str:
         """Adopt one entry, under the library lock: its files read in full (they are copied anyway). Rolled back as a
         whole on failure; a mod already in the library stays as it was."""
         view = self._view([pin, *[p for p in self.installs() if p.key != pin.key]], "full")
@@ -2493,8 +2610,18 @@ class ModLibrary:
         if not nonofficial:
             raise ServiceError("entry_changed", core=core)
         old_applied = copy.deepcopy(self._applied)
-        mod_id, created = self._add_group([part.path for part in nonofficial],
-                                          parse_filename(nonofficial[0].path.name).core, pin)
+        if mod_id is None:
+            mod_id = next((record["id"] for record in self._records.values()
+                           if self._matches_installed(self._identity({path.name: path for path in self._paths(record)}),
+                                                      entry)), None)
+        if mod_id is None:
+            mod_id, created = self._add_group([part.path for part in nonofficial],
+                                              parse_filename(nonofficial[0].path.name).core, pin)
+        else:
+            record = self._record(mod_id)
+            if not self._matches_installed(self._identity({path.name: path for path in self._paths(record)}), entry):
+                raise ServiceError("entry_changed", core=core)
+            created = False
         source = f"mod:{mod_id}"
         try:
             for part in nonofficial:
@@ -3169,6 +3296,8 @@ def _drop_source(data: dict, source: str, keys: list[dict]) -> list[tuple[str, s
             dropped.append((key, core))
         for core in [core for core, entry in folder["built"].items() if entry.get("source") == source]:
             keys.append(folder["built"].pop(core))
+            if (key, core) not in dropped:
+                dropped.append((key, core))
     return dropped
 
 

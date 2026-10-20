@@ -23,21 +23,34 @@ export async function add(paths = null, currentVariant = null) {
   const from = variantKey(currentVariant);
   const id = await rpc(paths ? "mods.add" : "mods.pick", { ...(paths ? { paths } : {}), background: true });
   if (Array.isArray(id)) return id; // the native picker was cancelled
-  const added = await Loading.task((update) => waitJob(id, update));
-  if (!added?.length) return added;
-  context.changed?.();
-  const elsewhere = added.filter((mod) => !from || destination(mod) !== from);
-  if (!elsewhere.length) { toast(T("add.done")); return added; }
+  const report = await Loading.task((update) => waitJob(id, update));
+  const added = Array.isArray(report) ? report : report?.added || [];
+  const duplicates = report?.duplicates || [], installed = report?.installed || [];
+  if (!added.length && !duplicates.length) return report;
+  if (added.length || installed.length) context.changed?.();
+  const installedIds = new Set(installed.map((m) => m.id));
+  const visibleAdded = added.filter((mod) => !from || destination(mod) !== from || installedIds.has(mod.id));
+  if (visibleAdded.length < added.length) toast(T("add.done"));
+  if (!visibleAdded.length && !duplicates.length) return report;
   const name = await context.names();
   const go = (mod) => context.go(destination(mod));
-  const rows = resultLines(elsewhere, name);
-  const multiple = new Set(elsewhere.map(destination)).size > 1;
+  const elsewhere = added.filter((mod) => !from || destination(mod) !== from);
+  const addedLines = new Map(resultLines(elsewhere, name).map(({ mod, text }) => [mod, text]));
+  const rows = [
+    ...visibleAdded.map((mod) => ({ mod, text: [addedLines.get(mod), installedIds.has(mod.id) ? T("add.installed") : null]
+      .filter(Boolean).join("\n") })),
+    ...duplicates.map((mod) => ({ mod, text: T("add.duplicate", { name: mod.label.trim() })
+      + (installedIds.has(mod.id) ? `\n${T("add.installed")}` : "") })),
+  ];
+  const destinations = rows.filter(({ mod }) => !from || destination(mod) !== from);
+  const multiple = new Set(rows.map(({ mod }) => destination(mod))).size > 1;
   const result = await Popup.message({ title: T("popup.add"),
-    lines: rows.map(({ mod, text }) => multiple ? { text, button: {
+    lines: rows.map(({ mod, text }) => multiple && (!from || destination(mod) !== from) ? { text, button: {
       label: T("add.go"), fn: ({ close }) => { close("cancel"); go(mod); },
     } } : text),
-    ok: T("add.go"), cancel: T("add.stay"),
+    ok: T(destinations.length ? "add.go" : "picker.ok"),
+    cancel: destinations.length ? T(duplicates.length && !added.length ? "picker.ok" : "add.stay") : null,
   });
-  if (result.button === "ok") go(elsewhere[0]);
-  return added;
+  if (result.button === "ok" && destinations.length) go(destinations[0].mod);
+  return report;
 }

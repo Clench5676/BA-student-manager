@@ -968,7 +968,7 @@ def test_background_add_is_a_writer_with_durable_file_progress_and_no_game_resca
     monkeypatch.setattr(env.s.scanner, 'request', lambda **kw: pytest.fail('an import must not rescan game files'))
     job = env.job('mods.add', paths=[str(path)], background=True)
     assert job.state == 'done' and job.writes == 'library'
-    assert [(m['target'], m['kind']) for m in job.result] == [('test', 'spr')]
+    assert [(m['target'], m['kind']) for m in job.result['added']] == [('test', 'spr')]
     assert job.to_json()['progress'] == {'id': job.id, 'current': 1, 'total': 1, 'label': path.name}
     changed = events_named(env.drain(), 'library.changed')
     assert changed[-1] == {'cores': [], 'kinds': [], 'mods': True}
@@ -1098,3 +1098,39 @@ def test_unchanged_apply_rescans_only_the_variants_cores(env, monkeypatch):
     assert job.state == 'done' and job.result['unchanged']
     assert env.s.scanner.wait_idle(5)
     assert scopes == [{'test_spr'}]
+
+
+def test_delete_rpc_is_a_library_writer_and_keeps_drift_when_classic_is_open(env):
+    mod = env.add(env.spr)
+    assert env.job("actions.apply", variant="test", source=f"mod:{mod.id}").state == "done"
+    env.s.library._write_check = lambda pin: (_ for _ in ()).throw(ServiceError("classic_open"))
+    info = rpc(env.app, "mods.removalInfo", id=mod.id)["result"]
+    assert info == {"name": mod.label, "used": True}
+    job = env.job("mods.remove", id=mod.id, confirm=True)
+    assert job.state == "done" and job.writes == "library"
+    assert job.result["failed"][0]["code"] == "classic_open"
+    assert env.s.library.mods() == [] and not mod.file.exists()
+    assert env.s.library.configured("test")["spr"] is None
+    assert env.s.mods_state()["unfinished"]["pending"] == 1
+
+
+def test_add_rpc_reports_duplicate_content(env):
+    path = make_mod(env.spr, env.tmp / "picker")
+    first = env.job("mods.add", paths=[str(path)], background=True)
+    second = env.job("mods.add", paths=[str(path)], background=True)
+    assert second.result["added"] == []
+    assert second.result["duplicates"] == first.result["added"]
+
+
+@pytest.mark.parametrize("background", [False, True])
+def test_add_rpc_adopts_installed_content_and_refreshes_the_snapshot(env, background):
+    path = make_mod(env.spr, env.tmp / "picker", fixed=True)
+    env.spr.write_bytes(path.read_bytes())
+    if background:
+        result = env.job("mods.add", paths=[str(path)], background=True).result
+    else:
+        result = rpc(env.app, "mods.add", paths=[str(path)])["result"]
+    assert result["installed"] == result["added"]
+    assert len(result["added"]) == 1 and len(env.s.library.mods()) == 1
+    assert env.s.library.state("test").applied == f"mod:{result['added'][0]['id']}"
+    assert env.s.mods_state()["configured"] == 1
