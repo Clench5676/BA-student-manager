@@ -9,6 +9,12 @@ config.toml
 /.webui.json.*.tmp
 /input-trace.log
 /webview/
+/classic.json
+/classic.json.*.tmp
+/classic.log
+/instance.lock
+/instance.json
+/.instance.json.*.tmp
 
 locales/
 src/ba_modding_toolkit/locales/tmp/
