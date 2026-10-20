@@ -1175,7 +1175,8 @@
 			"mod_target_ambiguous": "Modの対象が競合しています：{file}",
 			"mod_platform_unknown": "ビルド対象を取得不可：{file}",
 			"mod_platform_mismatch": "{file}、ビルド対象 {platform}、必要な対象 {expected}",
-			"mod_parts_missing": "Mod ファイル不足：{files}"
+			"mod_parts_missing": "Mod ファイル不足：{files}",
+			"atlas_remap_invalid": "再配置不可：アトラスまたはページデータの不足、無効、重複"
 		},
 		"drop": {
 			"hint": "MODファイルをドロップして追加"
@@ -1342,7 +1343,20 @@
 			"textureSize": "{name}、テクスチャ：{mod}、公式 {official}",
 			"updateHint": "更新：現在の公式ファイルへ移植、Spine バージョン変換が必要な場合あり",
 			"authorHint": "現在のバージョンに対応した Mod が必要",
-			"crcHint": "CRC 修正はチェックサムのみ変更"
+			"crcHint": "CRC 修正はチェックサムのみ変更",
+			"atlasLayout": "{name}、アトラス配置が相違",
+			"geometry": "{name}、アタッチメントまたはメッシュ形状が相違",
+			"rig": "{name}、ボーン構造が相違"
+		},
+		"remap": {
+			"action": "現行版に合わせて再配置",
+			"name": "{name}（再配置済み）",
+			"done": "テクスチャ再配置完了",
+			"partial": "再配置完了、一部修復",
+			"counts": "再配置：{moved}、公式画像：{added}、削除：{dropped}",
+			"dropped": "削除した領域：{names}",
+			"rig": "{name}、スケルトンデータが異なるためアタッチメントやメッシュにずれの可能性",
+			"version": "{name}、Spine バージョンが異なるためスケルトン変換が必要"
 		}
 	}
 }

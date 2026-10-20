@@ -22,11 +22,12 @@ from typing import TYPE_CHECKING, Any, Callable, Iterator
 
 from UnityPy.helpers.ResourceReader import get_resource_data
 
-from .. import core, devmode, mod_install
+from .. import atlas_remap, core, devmode, mod_install
 from ..bundle import Bundle
 from ..catalog.models import CoreMap
 from ..errors import ServiceError
 from ..filelock import file_lock
+from ..i18n import t
 from ..models import AssetType, LogFunc, ProgressCallback
 from ..naming import parse_filename
 from ..searching import SEARCH_DIR_SUFFIXES, get_search_dirs
@@ -40,7 +41,7 @@ from .judge import (
 )
 from .models import (
     AddResult, AdoptResult, ApplyResult, AssetDifference, CompareResult, DeleteResult, EntryState, GameFileState, Kind,
-    ModEntry, Pin, ScanResult, ToggleResult, UpdateResult, VariantState,
+    ModEntry, Pin, RemapResult, ScanResult, ToggleResult, UpdateResult, VariantState,
 )
 from .profiles import Profiles
 from .safety import check_resource_path
@@ -786,9 +787,16 @@ class ModLibrary:
                         names.update({name: path.name for name in contents.files})
                         names.update({name + ".png": path.name for name in contents.textures})
             raise ServiceError("mod_parts_missing", files=", ".join(sorted({names.get(name, name) for name in missing})))
-        return {"official": official.spine(), "mod": effective.spine(), "unavailable": unavailable,
+        report = {"official": official.spine(), "mod": effective.spine(), "unavailable": unavailable,
                 "outdated": bool(targets) and set(files) != {path.name for path in targets
                     if part_of(path.name) in parts}}
+        try:
+            report["atlasLayout"] = atlas_remap.layout_changes(effective.atlases, official.atlases)
+            report["remappable"] = bool(report["atlasLayout"]) and not unavailable and bool(
+                atlas_remap.pair_atlases(selected.atlases, official.atlases))
+        except (ValueError, UnicodeError):
+            report["atlasLayout"], report["remappable"] = [], False
+        return report
 
     @_serialized
     def compatibility(self, mod_id: str, pin: Pin | None = None) -> dict:
@@ -3370,6 +3378,49 @@ class ModLibrary:
     # --- working on mods ---
 
     @_serialized
+    @_mod_writer
+    def remap(self, mod_id: str, log: LogFunc = no_log,
+              progress: ProgressCallback | None = None, pin: Pin | None = None) -> RemapResult:
+        """Create a separate mod with current official rig assets and repacked painted pages."""
+        pin = self._current(pin)
+        record = self._record(mod_id)
+        paths = self._paths(record)
+        targets = self._spine_parts(core_of(paths[0].name), pin)
+        if not targets:
+            raise ServiceError("game_file_not_found", variant=record["target"])
+        with tempfile.TemporaryDirectory(prefix=devmode.LIBRARY_STAGING_PREFIX + "remap-") as temporary:
+            output = Path(temporary)
+            originals = self._stage_official(targets, output / "official", pin)
+            try:
+                patch, report = atlas_remap.prepare_patch(atlas_remap.read_inputs(paths),
+                                                         atlas_remap.read_inputs(list(originals.values())))
+            except (ValueError, KeyError, EOFError) as error:
+                raise ServiceError("atlas_remap_invalid", id=mod_id) from error
+            generated = {}
+            for i, (target, original) in enumerate(originals.items(), 1):
+                if progress:
+                    progress(i, len(targets), target.name)
+                bundle = Bundle.load(original)
+                if bundle is None:
+                    raise ServiceError("bundle_invalid", file=original.name)
+                keys = bundle.get_asset_keys("cont_name_type")
+                local_patch = {key: value for key, value in patch.items() if key in keys}
+                if local_patch:
+                    result = core.process_mod_update([], [original], output, {"Texture2D"},
+                        self.settings.save_options(self.settings.crc_needed(target)),
+                        match_strategy="cont_name_type", log=log, prepared_patch=local_patch)
+                    if not result.success or len(result.file_pairs) != 1:
+                        raise ServiceError("mod_update_failed", id=mod_id)
+                else:
+                    atomic_copy(original, output / target.name)
+                generated[target.name] = output / target.name
+            # Compute the review before storing, so a failed comparison leaves no incomplete entry.
+            comparison = self._compare_paths(mod_id, list(generated.values()), paths)
+            stored = self._store(generated, t("webui.remap.name", name=record["label"]),
+                                 record["target"], record["kind"])
+        return RemapResult(self._entry(stored), report, replace(comparison, mod_id=stored["id"]))
+
+    @_serialized
     def update(self, mod_id: str, log: LogFunc = no_log,
                progress: ProgressCallback | None = None, pin: Pin | None = None) -> UpdateResult:
         """Rebuild a mod against current official bundles and retain its old files. Its built copies go: they hold
@@ -3487,9 +3538,13 @@ class ModLibrary:
         pin = self._current(pin)
         record = self._record(mod_id)
         targets = self._plan_targets(self._plan(record, no_log, pin))
+        baseline = [self._official_for(path, pin) for path in targets]
+        return self._compare_paths(mod_id, self._paths(record), baseline)
+
+    def _compare_paths(self, mod_id: str, paths: list[Path], baseline: list[Path]) -> CompareResult:
         try:
-            mod = self._asset_hashes(self._paths(record))
-            official = self._asset_hashes([self._official_for(path, pin) for path in targets])
+            mod = self._asset_hashes(paths)
+            official = self._asset_hashes(baseline)
         except (ValueError, EOFError) as error:
             raise ServiceError("bundle_invalid", id=mod_id) from error
         differences = []

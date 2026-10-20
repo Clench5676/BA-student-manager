@@ -290,3 +290,20 @@ def test_adding_without_an_install_keeps_the_mod_and_reports_the_refused_switch(
     assert len(report) == 1
     assert report.compatibility[report[0].id]["unavailable"]
     assert report.failed[0]["code"] == "game_not_found"
+
+
+def test_atlas_positions_rotations_and_trim_changes_offer_remapping(serialized):
+    env, register = serialized
+    old = "page.png\nsize: 64,64\npart\n  rotate: false\n  xy: 0,0\n  size: 4,8\n  orig: 6,10\n  offset: 1,1\n  index: -1\n"
+    new = "page.png\nsize: 64,64\npart\n  rotate: 90\n  bounds: 20,20,4,8\n  offsets: 1,1,6,10\n  index: -1\n"
+    register(env.original, {"atlases": {"test.atlas": new}, "textures": {"page": [64, 64]}})
+    source = register(make_mod(env.original, env.tmp / "input"),
+        {"atlases": {"test.atlas": old}, "textures": {"page": [64, 64]}})
+    entry, = env.library.add([source])
+    report = env.library.compatibility(entry.id)
+    assert report["atlasLayout"] == ["test.atlas"] and report["remappable"]
+    register(source, {"atlases": {"test.atlas": new}, "textures": {"page": [64, 64]}})
+    # Inspecting an equal atlas is insensitive to line indentation and syntax spelling.
+    from ba_modding_toolkit.atlas_remap import layout_changes
+    equivalent = old.replace("rotate: false", "rotate: 0")
+    assert layout_changes({"test.atlas": old.encode()}, {"test.atlas": equivalent.encode()}) == []

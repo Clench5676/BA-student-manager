@@ -1175,7 +1175,8 @@
 			"mod_target_ambiguous": "Mod 대상 충돌: {file}",
 			"mod_platform_unknown": "빌드 대상 확인 불가: {file}",
 			"mod_platform_mismatch": "{file}, 빌드 대상 {platform}, 필요한 대상 {expected}",
-			"mod_parts_missing": "Mod 파일 불완전, 누락: {files}"
+			"mod_parts_missing": "Mod 파일 불완전, 누락: {files}",
+			"atlas_remap_invalid": "재배치 불가: 아틀라스 또는 페이지 데이터 누락, 오류 또는 중복"
 		},
 		"drop": {
 			"hint": "모드 파일을 끌어다 놓아 추가"
@@ -1342,7 +1343,20 @@
 			"textureSize": "{name}, 텍스처: {mod}, 공식 {official}",
 			"updateHint": "업데이트: 현재 공식 파일로 이식, Spine 버전 변환이 필요할 수 있음",
 			"authorHint": "현재 버전에 맞게 수정된 Mod 필요",
-			"crcHint": "CRC 수정은 체크섬만 변경"
+			"crcHint": "CRC 수정은 체크섬만 변경",
+			"atlasLayout": "{name}, 아틀라스 배치 다름",
+			"geometry": "{name}, 어태치먼트 또는 메시 형상 다름",
+			"rig": "{name}, 본 구조 다름"
+		},
+		"remap": {
+			"action": "현재 버전에 맞춰 재배치",
+			"name": "{name} (재배치 완료)",
+			"done": "텍스처 재배치 완료",
+			"partial": "텍스처 재배치 완료, 부분 수정",
+			"counts": "재배치: {moved}, 공식 이미지: {added}, 제거: {dropped}",
+			"dropped": "제거된 영역: {names}",
+			"rig": "{name}, 스켈레톤 데이터 차이로 어태치먼트 또는 메시 위치 오류 가능",
+			"version": "{name}, Spine 버전 차이로 스켈레톤 변환 필요"
 		}
 	}
 }

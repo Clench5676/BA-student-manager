@@ -159,6 +159,19 @@ class CompareResult(JsonResult):
 
 
 @dataclass(frozen=True)
+class RemapResult(JsonResult):
+    """A separately stored repaint, its region report and comparison with the source mod."""
+
+    mod: ModEntry
+    report: dict
+    compare: CompareResult
+
+    @property
+    def added(self) -> list[ModEntry]:
+        return [self.mod]
+
+
+@dataclass(frozen=True)
 class Pin(JsonResult):
     """A game folder the library works on, fixed for one call or job: its install key (the install root, resolved),
     its resource folders and its server."""
