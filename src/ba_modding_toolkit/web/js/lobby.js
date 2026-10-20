@@ -24,6 +24,7 @@
 import { latestLoad, loadPlayer } from "./spine-load.js";
 import { spineBase, spineAssetBase } from "./api.js";
 import { lobbyIdle } from "./rest-pose.js";
+import { withTimeout } from "./async.js";
 import * as Linear from "./linear.js";
 import * as Materials from "./skeleton-materials.js";
 import * as Particles from "./particles-gl.js";
@@ -68,9 +69,13 @@ async function sourcesOf(core, mod) {
 export async function layersOf(core, mod = null, sources = null) {
   const { artBase, base } = sources || await sourcesOf(core, mod);
   if (!artBase) return { info: null, layers: [] };
+  const read = (url) => withTimeout(fetch(url).then((r) => {
+    if (!r.ok) throw new Error(`${url}: HTTP ${r.status}`);
+    return r.json();
+  }), 15000, url);
   const [files, info] = await Promise.all([
-    fetch(`${artBase}files.json`).then((r) => (r.ok ? r.json() : [])),
-    base ? fetch(`${base}lobby.json`).then((r) => (r.ok ? r.json() : null)).catch(() => null) : null,
+    read(`${artBase}files.json`),
+    base ? read(`${base}lobby.json`).catch((err) => { console.error("Lobby metadata failed", err); return null; }) : null,
   ]);
   const atlasOf = pairAtlases(files), skels = [...atlasOf.keys()];
   const ok = (n) => atlasOf.has(n);
@@ -673,23 +678,28 @@ function makePlayer(host, layer, fx, share, signal) {
       p.skeleton.updateWorldTransform(spine.Physics.update);
     },
     success: (player) => {
-      player.bamtLayer = layer;
-      clocked(player);
-      Stage.ready(player);
-      if (layer.introOnly) Stage.setShown(player, false); // a scene only the intro shows
-      // linear light; a player drawn with another's context once every player is in (show)
-      if (!Stage.hostOf(player)) lightUp(player);
-      if (layer.skin) try { player.skeleton.setSkinByName(layer.skin); player.skeleton.setSlotsToSetupPose(); } catch { /* the default skin */ }
-      // the idle, and with it the clips it starts (its sync clips, the rest of its pool), as the game's OnEnable
-      player.bamtSounds = new Sync.SoundKeys(sfx);
-      player.bamtRuns = new Sync.Runs(player.animationState, { clip: (name) => clipOf(player, name),
-        duration: (name) => player.skeleton.data.findAnimation(name)?.duration || 0,
-        onEntry: (entry, c) => soundsOf(player, entry, c) });
-      // its Spine events reach the particle effects, which some switch on and off (SpineEventToggleObjects)
-      if (fx) player.animationState.addListener({ event: (_entry, e) => fx.spineEvent(layer.name, e.data.name, e.intValue) });
-      const idle = idleOf(player.skeleton.data, layer);
-      if (idle) soundsOf(player, player.animationState.setAnimation(0, idle, true), clipOf(player, idle));
-      for (const name of idleClips(current?.info, layer.name, idle, (n) => clipOf(player, n))) playClip(player, name);
+      try {
+        player.bamtLayer = layer;
+        clocked(player);
+        Stage.ready(player);
+        if (layer.introOnly) Stage.setShown(player, false); // a scene only the intro shows
+        // linear light; a player drawn with another's context once every player is in (show)
+        if (!Stage.hostOf(player)) lightUp(player);
+        if (layer.skin) try { player.skeleton.setSkinByName(layer.skin); player.skeleton.setSlotsToSetupPose(); } catch { /* the default skin */ }
+        // the idle, and with it the clips it starts (its sync clips, the rest of its pool), as the game's OnEnable
+        player.bamtSounds = new Sync.SoundKeys(sfx);
+        player.bamtRuns = new Sync.Runs(player.animationState, { clip: (name) => clipOf(player, name),
+          duration: (name) => player.skeleton.data.findAnimation(name)?.duration || 0,
+          onEntry: (entry, c) => soundsOf(player, entry, c) });
+        // its Spine events reach the particle effects, which some switch on and off (SpineEventToggleObjects)
+        if (fx) player.animationState.addListener({ event: (_entry, e) => fx.spineEvent(layer.name, e.data.name, e.intValue) });
+        const idle = idleOf(player.skeleton.data, layer);
+        if (idle) soundsOf(player, player.animationState.setAnimation(0, idle, true), clipOf(player, idle));
+        for (const name of idleClips(current?.info, layer.name, idle, (n) => clipOf(player, n))) playClip(player, name);
+      } catch (err) {
+        console.error("Lobby player setup failed", layer.name, err);
+        throw err;
+      }
     },
   }, { signal });
 }
@@ -767,7 +777,7 @@ export function show(core, host, variant, { mod = null } = {}) {
     clearView(host);
   }
   return sourceLoads.run(async (sourceSignal) => {
-    const sources = await sourcesOf(core, mod).catch(() => ({ artBase: null, base: null }));
+    const sources = await sourcesOf(core, mod);
     if (sourceSignal.aborted) return null;
     if (sources.artBase && current?.artBase === sources.artBase && current.base === sources.base
         && !current.signal.aborted && players.length) return current.ready;

@@ -28,18 +28,27 @@ test("another install's entry reads its own files through <core>@<id>, under the
   assert.notEqual(spineBase("spr", "CH0164_spr", "a1b2c3d4e5f6"), spineBase("spr", "CH0164_spr"));
 });
 
-test("forget drops the thumbnails under a prefix in any case (library.changed names cores in lower case)", async () => {
+test("forget drops the thumbnails under a prefix in any case (library.changed names cores in lower case)", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
   const base = (kind, key) => spineBase(kind, key).replace("/skeleton", `/${"a".repeat(64)}/skeleton`);
   const el = () => ({ style: {}, className: "", appendChild() {}, remove() {} });
   globalThis.document = { body: el(), createElement: el };
   globalThis.URL.revokeObjectURL = () => {};
   const Thumbs = await import("../../src/ba_modding_toolkit/web/js/thumbs.js");
   // a thumbnail being rendered (here a player that never loads) is kept: asking again gives the same promise
-  globalThis.spine = { SpinePlayer: class {} };
+  globalThis.spine = { SpinePlayer: class { dispose() {} } };
   const a = Thumbs.thumb(base("spr", "CH0164_spr"), "card");
   const other = Thumbs.thumb(base("spr", "CH0099_spr"), "card");
   assert.equal(Thumbs.thumb(base("spr", "CH0164_spr"), "card"), a);
   Thumbs.forget(spinePrefix("spr", "ch0164_spr"));
   assert.notEqual(Thumbs.thumb(base("spr", "CH0164_spr"), "card"), a, "forgotten: asked again");
   assert.equal(Thumbs.thumb(base("spr", "CH0099_spr"), "card"), other, "another core's stays");
+  const warn = console.warn;
+  console.warn = () => {};
+  try {
+    // A missing callback settles each request and releases the one-player queue for the next base.
+    for (let i = 0; i < 3; i++) { t.mock.timers.tick(15000); await new Promise(setImmediate); }
+    assert.equal(await a, null);
+    assert.equal(await other, null);
+  } finally { console.warn = warn; t.mock.timers.reset(); }
 });

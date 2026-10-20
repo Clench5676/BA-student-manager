@@ -20,7 +20,7 @@ async function apply(result, kind, { changedConfiguration = false } = {}) {
   const ctx = {
     variant: () => ctx.fam.variants[0], sourceOf: (key) => key, ctx: { invalidateRoster: () => calls.push("roster") },
     forget: () => calls.push("forget"), spinePrefix: (kind, core) => `${kind}/${core}`,
-    call: (fn) => fn(), rpc: async () => ({ key: "family", variants: [next] }),
+    call: (fn) => fn(), readFamily: async () => ({ key: "family", variants: [next] }),
     renderAll: async () => calls.push("cards"), renderLeft: async () => calls.push("left"),
     previewChanged, modsOn: () => enabled, previewEnabled: enabled, tabKind: () => kind,
     changeInPlace: (fn) => fn(),

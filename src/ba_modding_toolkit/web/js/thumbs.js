@@ -1,6 +1,7 @@
 // Thumbnails rendered in the page from the portrait skeletons: faces for the expression cards, busts for the switch
 // card and the roster, cards for the popups. One hidden Spine player at a time (one WebGL context); results are
 // in-memory blob URLs, never written anywhere.
+import { withTimeout } from "./async.js";
 
 import { spineAssetBase, forgetSpineAssets } from "./api.js";
 import { lobbyIdle } from "./rest-pose.js";
@@ -172,15 +173,15 @@ async function pump() {
       Object.assign(el.style, { width: `${w}px`, height: `${h}px` });
       hostEl().appendChild(el);
       try {
-        const player = await loadPlayer(base, el);
+        const player = await withTimeout(loadPlayer(base, el), 15000, `Thumbnail ${base}`);
         for (const q of batch) {
-          try { q.resolve(await capture(player, el, q.frame, q.expr, q.lobby)); } catch (err) { q.reject(err); }
+          try { q.resolve(await withTimeout(capture(player, el, q.frame, q.expr, q.lobby), 15000, `Thumbnail capture ${base}`)); } catch (err) { q.reject(err); }
         }
         await companions(player, el, base, batch);
       } catch (err) {
         for (const q of batch) q.reject(err);
       } finally {
-        el.player?.dispose();
+        try { el.player?.dispose(); } catch (err) { console.error("Thumbnail dispose failed", base, err); }
         el.remove();
       }
     }
@@ -198,7 +199,7 @@ async function companions(player, el, base, batch) {
     const waiting = queue.find((q) => q.base === base && q.frame === frame && !q.expr);
     if (cache.has(key) && !waiting) continue;
     let url = null;
-    try { url = await capture(player, el, frame, null, batch[0].lobby); } catch { /* loaded when asked for */ }
+    try { url = await withTimeout(capture(player, el, frame, null, batch[0].lobby), 15000, `Thumbnail companion ${base}`); } catch { /* loaded when asked for */ }
     if (!url) continue;
     if (waiting && queue.includes(waiting)) { queue.splice(queue.indexOf(waiting), 1); waiting.resolve(url); }
     else if (!cache.has(key)) cache.set(key, Promise.resolve(url));

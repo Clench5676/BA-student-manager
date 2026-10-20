@@ -300,3 +300,36 @@ test("revision rejection retries once even if the files keep switching", async (
   }
   assert.ok(await thumb(base, "face", "01"), "a later redraw can recover after both rejected attempts");
 });
+
+test("a stalled manifest expires and a later load can ask afresh", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const fetch = globalThis.fetch, base = spineBase("spr", "stalled_spr");
+  try {
+    globalThis.fetch = () => new Promise(() => {});
+    const failed = assert.rejects(spineAssetBase(base), /Spine manifest .*: timed out/);
+    t.mock.timers.tick(15000); await failed;
+    globalThis.fetch = fetch;
+    set(base, "a");
+    assert.equal(await spineAssetBase(base), base.replace("/skeleton", `/${"a".repeat(64)}/skeleton`));
+  } finally { globalThis.fetch = fetch; t.mock.timers.reset(); }
+});
+
+test("a stalled companion capture releases the thumbnail queue for another core", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const create = document.createElement, base = spineBase("spr", "companion_spr"), next = spineBase("spr", "after_companion_spr");
+  let encodes = 0;
+  try {
+    document.createElement = () => ({ ...el(), querySelector: () => ({ toBlob(done) {
+      if (++encodes !== 2) done({});
+    } }) });
+    set(base, "a"); set(next, "b");
+    assert.ok(await thumb(base, "card"));
+    await new Promise(setImmediate);
+    assert.equal(encodes, 2, "the shared bust capture has started and never calls back");
+    const later = thumb(next, "face", "00");
+    await new Promise(setImmediate);
+    t.mock.timers.tick(15000);
+    assert.ok(await later, "the next core renders after the stalled capture's deadline");
+    await new Promise(setImmediate);
+  } finally { document.createElement = create; t.mock.timers.reset(); }
+});

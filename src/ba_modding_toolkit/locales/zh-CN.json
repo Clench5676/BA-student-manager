@@ -830,6 +830,9 @@
 				"model": "动作"
 			}
 		},
+		"detail": {
+			"failed": "预览不可用"
+		},
 		"lobby": {
 			"original": "原版",
 			"fullscreen": "全屏",

@@ -1,4 +1,5 @@
 // Talks to the Python side: POST /api/rpc for calls, /api/events (Server-Sent Events) for jobs, drops and changes.
+import { withTimeout } from "./async.js";
 
 export class RpcError extends Error {
   constructor(code, params = {}) {
@@ -132,11 +133,11 @@ export function spineAssetBase(base) {
   if (!base || /\/[a-f0-9]{64}\/skeleton$/.test(base)) return Promise.resolve(base);
   const dir = base.slice(0, base.lastIndexOf("/"));
   if (!resolving.has(dir)) {
-    const asking = fetch(`${dir}/manifest.json`, { cache: "no-store" }).then(async (res) => {
+    const asking = withTimeout(fetch(`${dir}/manifest.json`, { cache: "no-store" }).then(async (res) => {
       if (!res.ok) return null;
       const { revision } = await res.json();
       return /^[a-f0-9]{64}$/.test(revision) ? `${dir}/${revision}/skeleton` : null;
-    }).finally(() => { if (resolving.get(dir) === asking) resolving.delete(dir); });
+    }), 15000, `Spine manifest ${dir}`).finally(() => { if (resolving.get(dir) === asking) resolving.delete(dir); });
     resolving.set(dir, asking);
   }
   return resolving.get(dir);

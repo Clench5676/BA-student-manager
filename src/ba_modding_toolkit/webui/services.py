@@ -515,6 +515,7 @@ class Services:
         return self.jobs.submit(kind, run, writes=writes, **params)
 
     def _after_writer(self, library: Any, kind: str, result: Any, failed: bool) -> None:
+        started = time.perf_counter()
         library = library if library is not None else self._library
         if library is not None and kind != "library.judge":
             try:
@@ -549,6 +550,7 @@ class Services:
                 cores = None  # a preceding scan may become stale while this job writes
             # Without a complete snapshot a full scan still establishes the initial state.
             self.scanner.request(cores=cores if cores and self.snapshot.scanned() else None)
+        logger.info("Writer %s follow-up and scan request: %.3f s", kind, time.perf_counter() - started)
 
     def _job_finished(self, job: Any) -> None:
         # the end of a writer job: mods.state again, with the job no longer busy (a toggle's end)

@@ -830,6 +830,9 @@
 				"model": "Motion"
 			}
 		},
+		"detail": {
+			"failed": "Preview unavailable"
+		},
 		"lobby": {
 			"original": "Original",
 			"fullscreen": "Fullscreen",
