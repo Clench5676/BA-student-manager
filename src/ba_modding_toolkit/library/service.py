@@ -1217,9 +1217,9 @@ class ModLibrary:
 
     def _needed_elsewhere(self, name: str, mine: set[str], pins: list[Pin]) -> bool:
         """Whether another file needs the kept original of a name: a file of that name the library wrote to outside
-        ``mine`` (resolved paths), judged by _needs_original, or a file of that name in a known install outside
-        ``mine`` the library never wrote (it may be another tool's mod, with this original its only official
-        copy)."""
+        ``mine`` (resolved paths), judged by _needs_original, or a file of that name in one of ``pins`` outside
+        ``mine`` the library never wrote (it may be another tool's mod, with this original its only official copy).
+        ``pins`` holds the installs this data directory removed from its list too (_all_pins)."""
         for other, record in self._applied.items():
             if other not in mine and Path(other).name == name and self._needs_original(Path(other), record):
                 return True
@@ -1273,7 +1273,11 @@ class ModLibrary:
         known install is deleted when a game update superseded it (a later-dated file of the same part in the folder
         of each of its gone records). Then the records of superseded gone files are dropped (with the entry's
         ``updated`` marker when the library wrote non-official bytes there), and the built copies whose names are
-        gone."""
+        gone.
+
+        What it keeps is decided over the installs this data directory removed from its list too (``guarded``): a
+        library shared with a data directory that names such an install keeps the same originals here as there, so
+        removing an install from the list never changes what the prune keeps."""
         directory = self.root / "originals"
         try:
             config = self.profiles.read()
@@ -1282,13 +1286,13 @@ class ModLibrary:
         pins = self.installs()
         guarded = self._all_pins()
         listed = {path.name for path in directory.glob("*.bundle")} if directory.is_dir() else set()
-        view = _View(self, pins, config, "recorded")
+        view = _View(self, guarded, config, "recorded")
         view.originals = {name: size for name, size in view.originals.items()}  # as listed at the start
         present: dict[str, list[Path]] = {}
         for names in view.names.values():
             for name, path in names.items():
                 present.setdefault(name, []).append(path)
-        known_dirs = {folder: pin for pin in pins for folder in pin.dirs}
+        known_dirs = {folder: pin for pin in guarded for folder in pin.dirs}
         released: list[Path] = []
         for name in sorted(listed):
             original = directory / name
@@ -1298,14 +1302,14 @@ class ModLibrary:
                     continue
                 if not all(self._unchanged_official(path) for path in files):
                     continue
-                if self._needed_elsewhere(name, {str(path.resolve()) for path in files}, pins):
+                if self._needed_elsewhere(name, {str(path.resolve()) for path in files}, guarded):
                     continue
             else:
                 gone = [Path(path) for path in self._applied if Path(path).name == name
                         and Path(path).parent in known_dirs and not Path(path).exists()]
                 if not gone or not all(view.successor(known_dirs[path.parent], path) for path in gone):
                     continue
-                if self._needed_elsewhere(name, {str(path) for path in gone}, pins):
+                if self._needed_elsewhere(name, {str(path) for path in gone}, guarded):
                     continue
             try:
                 original.unlink()

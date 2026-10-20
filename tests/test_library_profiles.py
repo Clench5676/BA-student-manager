@@ -2465,3 +2465,26 @@ def test_an_outside_change_the_cheap_rule_takes_for_official_is_remembered_once_
     assert [item["core"] for item in result.adopted] == ["test_spr"]
     record = json.loads((world.root / "state.json").read_text())["applied"][str(world.spr.resolve())]
     assert "outside" not in record and world.spr.read_bytes() == OFFICIAL
+
+
+def test_an_install_hidden_here_keeps_the_originals_its_files_need(world):
+    # X (world.game) is named by A; B names Y and removed X from its list. Both hold a file of one name, and only Y
+    # was written by the library.
+    other = world.tmp / "y-game"
+    other.mkdir()
+    shutil.copyfile(world.spr, other / world.spr.name)
+    mod = world.add(world.spr, fixed=True)
+    world.library.dismiss("untracked", [{"install": world.key(), "core": "test_spr"}])  # X's record, named by A
+    b = second_directory(world, other)
+    b.apply("test", f"mod:{mod.id}")  # the original is kept for Y
+    b.forget(world.key())
+    assert world.folder()["hidden"] == ["B"]
+    assert world.key() not in [pin.key for pin in b.installs()]
+    game_update(other / world.spr.name)  # Y updates: the name is gone from B's installs
+    assert b.prune() == []
+    assert world.original(world.spr).exists()  # X still holds the name without a record: maybe another tool's mod
+    world.library.prune()
+    assert world.original(world.spr).exists()  # the same answer where X is named
+    game_update(world.spr)  # X updates too
+    b.prune()
+    assert not world.original(world.spr).exists()
