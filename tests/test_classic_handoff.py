@@ -645,6 +645,7 @@ def test_ready_place_raise_and_classic_json(tmp_path, system_tabs):
         popen = h.popens[0]
         assert popen.cmd == ["tool", "--classic", "--control", "--tab", "crc_tool"]
         env = popen.kw["env"]
+        assert env["BAMT_DATA_DIR"] == str(tmp_path.resolve())
         assert env[cl.ENV_URL] == "http://127.0.0.1:9" and env["PYTHONIOENCODING"] == "utf-8"
         assert len(env[cl.ENV_TOKEN]) >= 24 and cl.ENV_TOKEN not in os.environ
         assert popen.kw["stderr"] is subprocess.STDOUT and popen.kw["stdin"] is subprocess.DEVNULL

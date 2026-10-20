@@ -75,9 +75,9 @@ def test_cache_dir_unchanged_without_override(monkeypatch, tmp_path):
     monkeypatch.delenv("LOCALAPPDATA", raising=False)
     monkeypatch.delenv("XDG_CACHE_HOME", raising=False)
     expected = {
-        "win32": tmp_path / "AppData" / "Local" / "BA-Modding-Toolkit" / "cache",
-        "darwin": tmp_path / "Library" / "Application Support" / "BA-Modding-Toolkit" / "cache",
-    }.get(sys.platform, tmp_path / ".cache" / "BA-Modding-Toolkit")
+        "win32": tmp_path / "AppData" / "Local" / "bluearchive-modding-patching-tool" / "cache",
+        "darwin": tmp_path / "Library" / "Application Support" / "bluearchive-modding-patching-tool" / "cache",
+    }.get(sys.platform, tmp_path / ".cache" / "bluearchive-modding-patching-tool")
     assert config.user_cache_dir() == expected
 
 

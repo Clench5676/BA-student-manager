@@ -60,6 +60,10 @@ Drop mod files onto the window to add them to your mod library.
   memorial lobbies, voices and backgrounds are never stored. Clear the cache in Settings at any time.
 - Memorial lobby lines and voices are read on demand from [Kivo](https://kivo.wiki) and kept in memory only.
 
+On macOS, user data is stored in `~/Library/Application Support/bluearchive-modding-patching-tool`;
+Windows builds keep data next to the executable.
+The old `BA-Modding-Toolkit` user folder is renamed automatically on first start, once the older app is closed.
+
 ## Classic tools
 
 Every tool of the original toolkit is one click away in the bottom bar (or `--classic` to open the classic window):

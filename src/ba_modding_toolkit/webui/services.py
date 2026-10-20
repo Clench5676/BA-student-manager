@@ -14,6 +14,7 @@ from typing import Any, Callable
 
 from .. import devmode
 from ..config import APP_DIR_NAME, Settings, user_cache_dir
+from ..data_paths import OLD_APP_DIR_NAME, migrate_cache_dir
 from ..globallines import GlobalLines
 from ..kivo import Kivo
 from ..errors import ServiceError
@@ -309,10 +310,14 @@ class Services:
         return library
 
     def cache_dir(self) -> Path:
-        """Where light game UI assets are cached: a BA-Modding-Toolkit/cache folder inside the folder the user chose,
+        """Where light game UI assets are cached: a bluearchive-modding-patching-tool/cache folder inside the chosen folder,
         else the default user cache folder. Always a folder of its own, so clearing it never touches anything else."""
         chosen = self.state.get("cache_parent")
-        return Path(chosen) / APP_DIR_NAME / "cache" if chosen else user_cache_dir()
+        if not chosen:
+            return user_cache_dir()
+        parent = Path(chosen)
+        devmode.check_read(parent)
+        return migrate_cache_dir(parent / OLD_APP_DIR_NAME / "cache", parent / APP_DIR_NAME / "cache")
 
     def set_cache_parent(self, parent: Path) -> Path:
         """Cache in another folder; the old cache is removed (it is rebuilt from the game files on demand)."""
@@ -328,7 +333,7 @@ class Services:
                 if self._cache is not None:
                     self._cache.clear()  # removes the old cache folder only
                     self._cache.root = new
-                elif old.is_dir() and old.name == "cache" and old.parent.name == APP_DIR_NAME:
+                elif old.is_dir() and old.name == "cache" and old.parent.name in (APP_DIR_NAME, OLD_APP_DIR_NAME):
                     shutil.rmtree(old, ignore_errors=True)
         return new
 

@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import logging
 import os
-import sys
 import threading
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,12 +16,12 @@ from typing import Any, Callable
 import toml
 
 from . import devmode, utils
+from .data_paths import APP_DIR_NAME, default_cache_dir
 from .models import AnimCheckOptions, SaveOptions, SkelConvertOptions
 from .naming import CharacterInternalIDMap
 from .utils import EXE_DIR, get_BA_path, parse_hex_bytes
 
 CONFIG_FILE = EXE_DIR / "config.toml"
-APP_DIR_NAME = "BA-Modding-Toolkit"
 
 logger = logging.getLogger(__name__)
 _ignored_game_dirs: set[str] = set()  # dev mode: game folders outside the dev roots, logged once each
@@ -290,12 +289,4 @@ def user_cache_dir() -> Path:
 
     With ``BAMT_DATA_DIR`` (devmode) the cache is ``<BAMT_DATA_DIR>/cache``, never the released app's.
     """
-    if utils.DATA_DIR_OVERRIDE is not None:
-        return utils.DATA_DIR_OVERRIDE / "cache"
-    if sys.platform == "win32":
-        base = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
-        return base / APP_DIR_NAME / "cache"
-    if sys.platform == "darwin":
-        return Path.home() / "Library" / "Application Support" / APP_DIR_NAME / "cache"
-    base = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache")
-    return base / APP_DIR_NAME
+    return default_cache_dir(utils.DATA_DIR_OVERRIDE, utils.EXE_DIR)
