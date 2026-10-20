@@ -8,8 +8,8 @@ particle systems: under a SkeletonUtilityBone (Follow) they move with the bone. 
 Animator: its controller's default state plays one clip, which scales, moves and turns the quads and animates their
 material colours.
 
-A renderer is {"name", "path", "material", "mesh" ("quad" or a lobby.json fx.meshes id), "queue", "order", "layer",
-"z", "anchor", "chain", "static"}: drawn like a particle system with that material, sorted with the systems and the
+A renderer is {"name", "path", "material", "mesh" ("quad" or a lobby.json fx.meshes id), "queue", "sortingLayer",
+"order", "layer" (the sorting layer's id), "z", "anchor", "chain", "static"}: drawn like a particle system with that material, sorted with the systems and the
 skeletons' atlas pages, placed by its anchor's bone (as particles.anchor_of) times the transforms in "chain" (each
 {"node", "p", "q", "s"}: local position, rotation quaternion and scale), or by "static" without an anchor (then the
 chain runs from the prefab root). A clip is {"duration", "rate", "loop", "tracks"}, a track one of
@@ -149,7 +149,9 @@ def build(nodes: list[dict], skeleton_of_go: Callable[[int], str | None], data_s
         renderer_of[i] = (len(out["renderers"]), sorted(set(material.get("floats", {})) | set(material.get("colors", {}))))
         out["renderers"].append({
             "name": n["name"], "path": n["path"], "material": mat_id, "mesh": mesh_id, "queue": material.get("queue", 3000),
-            "order": int(mr.get("m_SortingOrder", 0)), "layer": int(mr.get("m_SortingLayerID", 0)),
+            # the sorting layer's value (particles.build "sortingLayer"), which Unity sorts by first; its id
+            "sortingLayer": int(mr.get("m_SortingLayer", 0)), "order": int(mr.get("m_SortingOrder", 0)),
+            "layer": int(mr.get("m_SortingLayerID", 0)),
             "z": _r(n["m3"][11]), "anchor": anchor, "static": particles.rounded(n["m3"]),
             "chain": [{"node": index_of[c["go"]], **_trs(c["t"])} for c in chain]})
     if not out["renderers"]:

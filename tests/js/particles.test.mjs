@@ -461,6 +461,165 @@ test("the sorting fudge pushes a system back (above 0) or forward (below 0) amon
   assert.deepEqual(slotOf({ order: 0, queue: 3000, z: 0, fudge: -5 }, [layer]), { layer: 0, part: 1 });
 });
 
+test("a system on a later sorting layer draws over every skeleton on Default, whatever its order and queue", () => {
+  // aru_home's dust (layer value 2, queue 3000) over Aru's pages (3000) and her scene skeleton
+  const aru = { sortingLayer: 0, order: 0, queue: 3000, pages: { a: 3000, b: 3100 }, z: 0 };
+  const scene = { order: 1, queue: 3200, z: 0 };
+  assert.deepEqual(slotOf({ sortingLayer: 2, order: -5, queue: 2000, z: 0 }, [aru, scene]), { layer: 1, part: 0 });
+  assert.deepEqual(slotOf({ order: -5, queue: 2000, z: 0 }, [aru, scene]), { layer: 0, part: -1 }, "on Default: below");
+  const systems = [{ def: { sortingLayer: 2, order: -1, queue: 2900, z: 0 }, index: 0 }, { def: { order: 3, queue: 3100, z: 0 }, index: 1 }];
+  assert.deepEqual(drawOrder(systems).map((s) => s.index), [1, 0]);
+});
+
+test("Apply Active Color Space off: the vertex colours reach the shader as stored, not decoded from sRGB", () => {
+  const fx = effects([sys({ emission: { bursts: [{ t: 0, n: 1, cycles: 1, interval: 1, p: 1 }] }, main: { color: { col: [0.5, 0.25, 1, 0.5] } } }),
+    sys({ emission: { bursts: [{ t: 0, n: 1, cycles: 1, interval: 1, p: 1 }] }, main: { color: { col: [0.5, 0.25, 1, 0.5] } },
+      renderer: { colorSpace: 0 } })]);
+  fx.update(0.016);
+  const colour = (s) => Array.from(geometry(fx, s, { linear: true }).data.subarray(14, 18));
+  const [on, off] = fx.systems.map(colour);
+  near(on[0], vertexColor([0.5], true)[0], 1e-6, "converted");
+  assert.ok(on[0] < 0.25 && on[3] === off[3]);
+  assert.deepEqual(off.map((c) => +c.toFixed(4)), vertexColor([0.5, 0.25, 1, 0.5], false).map((c) => +c.toFixed(4)));
+  // outside linear light nothing is decoded either way
+  near(Array.from(geometry(fx, fx.systems[0], { linear: false }).data.subarray(14, 15))[0], 128 / 255, 1e-6);
+});
+
+test("SpineEventToggleObjects: a system below a toggled GameObject plays from its start while it is on", () => {
+  const burst = { bursts: [{ t: 0, n: 2, cycles: 1, interval: 1, p: 1 }] };
+  const fish = sys({ name: "bubble", emission: burst, toggle: [[0, 1]], subs: [{ type: 0, system: 2, inherit: 0, p: 1 }] });
+  const always = sys({ name: "loop", emission: burst });
+  const trail = sys({ name: "trail", isSub: 1, emission: { rate: 10, bursts: [] }, toggle: [[0, 1]] });
+  const fx = new Effects({ systems: [fish, always, trail], toggles: [{ skeleton: "CH0217_home", on: [0, 0] }] },
+    { seed: 7, random: lcg(3) });
+  const [s, loop, sub] = fx.systems;
+  run(fx, 0.5);
+  assert.equal(s.live, false);
+  assert.equal(s.particles.length, 0, "inactive in the prefab: nothing until its event");
+  assert.equal(loop.particles.length, 2);
+  // other events, another skeleton's, an index outside the list: nothing changes
+  assert.equal(fx.spineEvent("CH0217_home", "Talk", 1), false);
+  assert.equal(fx.spineEvent("Other_home", "EnableObject", 1), false);
+  assert.equal(fx.spineEvent("CH0217_home", "EnableObject", 7), false);
+  assert.equal(fx.spineEvent("CH0217_home", "EnableObject", 0), false, "an object no system hangs below");
+  assert.equal(fx.spineEvent("CH0217_home", "EnableObject", 1), true);
+  fx.update(0.016);
+  assert.equal(s.particles.length, 2, "its burst at 0 fires on the first step");
+  assert.equal(sub.instances.length, 2, "and its birth sub-emitter runs");
+  run(fx, 0.5);
+  const kept = s.particles.slice();
+  assert.equal(fx.spineEvent("CH0217_home", "EnableObject", 1), false, "already active: SetActive does nothing");
+  assert.equal(s.particles[0], kept[0]);
+  assert.equal(fx.spineEvent("CH0217_home", "DisableObject", 1), true);
+  assert.equal(s.particles.length + sub.particles.length + sub.instances.length, 0, "gone at once");
+  assert.ok(kept.every((pt) => pt.dead));
+  run(fx, 0.5);
+  assert.equal(s.particles.length, 0);
+  assert.equal(loop.particles.length, 4, "the others play on (a burst a loop)");
+  // switched on again: from the start, prewarmed where it prewarms
+  s.def.main.prewarm = 1;
+  s.def.emission = { rate: 4, bursts: [] };
+  fx.spineEvent("CH0217_home", "EnableObject", 1);
+  assert.equal(s.particles.length, 4, "one duration of 4 a second, simulated at once");
+});
+
+test("arc and edge modes: loop and ping-pong over the system's time, burst spread evenly, snapped to the spread", () => {
+  assert.equal(P.along(0, 0, 1, 0.3, 1, null), null, "random: the shape draws");
+  near(P.along(1, 0, 1, 0.3, 1, null), 0.3);
+  near(P.along(1, 0, 2, 0.3, 1, null), 0.6, 1e-9, "at the mode's speed");
+  near(P.along(2, 0, 1, 0.75, 1, null), 0.5, 1e-9, "ping-pong on its way back");
+  assert.deepEqual([0, 1, 2, 3].map((i) => P.along(3, 0, 1, 0, 1, { i, n: 4 })), [0, 0.25, 0.5, 0.75]);
+  near(P.along(3, 0.12, 1, 0, 1, { i: 1, n: 5 }), 0.24, 1e-9, "0.2 snapped to the nearest multiple of 0.12");
+  // CH0069's halo: one burst of 5 on a cone's rim, burst spread round the full arc; Hibiki's bokeh: bursts on an
+  // edge spread by the radius's mode
+  const halo = sys({ emission: { bursts: [{ t: 0, n: 4, cycles: 1, interval: 1, p: 1 }] },
+    shape: { type: 4, radius: 2, thickness: 0, angle: 0, arc: 360, arcMode: 3, arcSpread: 0, arcSpeed: 1, pos: [0, 0, 0],
+      rot: [0, 0, 0], scale: [1, 1, 1], randomDir: 0, spherical: 0, randomPos: 0 } });
+  const edge = sys({ emission: { bursts: [{ t: 0, n: 2, cycles: 1, interval: 1, p: 1 }] },
+    shape: { type: 12, radius: 3, thickness: 1, arc: 360, arcMode: 0, radiusMode: 3, radiusSpread: 0, radiusSpeed: 1,
+      pos: [0, 0, 0], rot: [0, 0, 0], scale: [1, 1, 1], randomDir: 0, spherical: 0, randomPos: 0 } });
+  const fx = effects([halo, edge]);
+  fx.update(0.016);
+  const angles = fx.systems[0].particles.map((pt) => Math.round((Math.atan2(pt.pos[1], pt.pos[0]) * 180) / Math.PI));
+  assert.deepEqual(angles, [0, 90, 180, -90]);
+  assert.deepEqual(fx.systems[1].particles.map((pt) => +pt.pos[0].toFixed(6)), [-3, 0], "from one end, evenly");
+  assert.equal(shapePoint({ type: 12, radius: 4, arc: 360 }, () => 0.5, 0.9, 0.25).p[0], -2, "an edge takes the edge position");
+});
+
+test("rate over distance: particles per world unit the system's origin moves", () => {
+  let x = 0;
+  const bone = () => ({ a: 1, b: 0, c: 0, d: 1, worldX: x, worldY: 0 });
+  const anchor = { skeleton: "Car_home", bone: "car", go: IDENTITY, ds: 1 };
+  const fx = effects([sys({ anchor, emission: { rate: 0, dist: 8, bursts: [] } })], { bone });
+  fx.update(0.016);
+  assert.equal(fx.systems[0].particles.length, 0, "standing still: none");
+  x = WORLD / 2;
+  fx.update(0.016);
+  assert.equal(fx.systems[0].particles.length, 4, "half a world unit at 8 a unit");
+  x = WORLD / 2 + WORLD / 8; // an eighth of a unit more: one more particle
+  fx.update(0.016);
+  assert.equal(fx.systems[0].particles.length, 5);
+});
+
+test("colour by speed: the gradient at the particle's travel speed within its range", () => {
+  const fade = { g: { c: [[0, 1, 1, 1], [1, 1, 1, 1]], a: [[0, 1], [1, 0]], fixed: 0 } };
+  const fx = effects([sys({ main: { speed: 1 }, shape: null, emission: { bursts: [{ t: 0, n: 1, cycles: 1, interval: 1, p: 1 }] },
+    modules: { colorBySpeed: { color: fade, range: [0, 4] }, velocity: { x: 0, y: 0, z: 2, speed: 0.5 } } })]);
+  run(fx, 0.2);
+  const s = fx.systems[0], pt = s.particles[0];
+  near(pt.speed, 1.5, 1e-9, "(1 + 2) x the speed modifier 0.5");
+  near(fx.current(s, pt).color[3], 1 - 1.5 / 4, 1e-9);
+});
+
+test("sort by distance or depth: the farthest particles first", () => {
+  const fx = effects([sys({ emission: { rate: 10 }, renderer: { sort: 4 } })]);
+  run(fx, 1);
+  const s = fx.systems[0];
+  s.particles.forEach((p, i) => { p.pos[2] = i % 3; p.color = [p.pos[2] / 2, 0, 0, 1]; });
+  const reds = [];
+  const g = geometry(fx, s, { linear: false });
+  for (let v = 0; v < g.count; v += 6) reds.push(g.data[v * STRIDE + 14]);
+  assert.ok(reds.every((r, i) => i === 0 || r <= reds[i - 1]), "z 2, then 1, then 0");
+  assert.equal(reds[0], 1);
+});
+
+test("trails: points every min vertex distance, living their share of the particle's life, a ribbon behind it", () => {
+  const white = { col: [1, 1, 1, 1] };
+  const trail = { ratio: 1, life: 0.5, minDist: 1, texMode: 0, world: 0, die: 1, sizeWidth: 1, sizeLife: 0, inherit: 1,
+    color: { col: [1, 0.5, 1, 1] }, width: { c: [[0, 1, 0, 0], [1, 0, 0, 0]], k: 0.5 }, colorTrail: { g: { c: [[0, 1, 1, 1], [1, 1, 1, 1]], a: [[0, 1], [1, 0]], fixed: 0 } } };
+  const def = sys({ main: { loop: 0, speed: 10, life: 2, color: white, size: [2] }, shape: null, modules: { trail },
+    emission: { bursts: [{ t: 0, n: 1, cycles: 1, interval: 1, p: 1 }] }, trailMaterial: "dirt", trailQueue: 2950 });
+  const fx = effects([def]);
+  const s = fx.systems[0];
+  fx.update(0.016);
+  const pt = s.particles[0];
+  assert.equal(pt.trail.length, 1, "its first point where it is born");
+  run(fx, 0.5, 0.05);
+  // 10 units a second along +z: a point every unit, kept for half its 2 s life
+  assert.ok(pt.trail.length >= 5 && pt.trail.length <= 6, `${pt.trail.length} points`);
+  run(fx, 1, 0.05);
+  const ages = pt.trail.map((v) => pt.age - v.t);
+  assert.ok(Math.max(...ages) <= 1 + 1e-9 && pt.trail.length >= 9, "older than 1 s: gone");
+  // seen from the camera along z the ribbon has no length: turn the system so it runs along x
+  s.def.static = [0, 0, 1, 0, 0, 1, 0, 0, -1, 0, 0, 0];
+  fx.place();
+  const g = P.trailGeometry(fx, s, { linear: false });
+  // two triangles a segment, from the particle through its points (one it has just left at its place counts once)
+  const head = pt.trail[pt.trail.length - 1].p, fresh = Math.hypot(...head.map((v, i) => v - pt.pos[i])) < 1e-9;
+  assert.equal(g.count, 6 * (pt.trail.length - (fresh ? 1 : 0)));
+  const at = (v, k) => g.data[v * STRIDE + k];
+  // at the particle: u 0, the full width (0.5 x its size 2), the trail colour times the particle's
+  near(at(0, 2), 0, 1e-9, "u");
+  near(Math.abs(at(0, 1) - at(1, 1)), 1, 1e-6, "width");
+  assert.deepEqual([at(0, 14), at(0, 15), at(0, 16), at(0, 17)].map((c) => +c.toFixed(3)), [1, 0.502, 1, 1]);
+  // at the end: u 1, no width, faded out
+  const last = g.count - 2;
+  near(at(last, 2), 1, 1e-9);
+  near(at(last, 17), 0, 1e-9);
+  // without the module, or without particles, nothing
+  assert.equal(P.trailGeometry(fx, effects([sys()]).systems[0]).count, 0);
+});
+
 // --- particles-gl.js: drawing into a player's context and freeing it -------------------------------------------------
 
 class FakeGL {}
@@ -695,6 +854,39 @@ test("the effects between two parts of a skeleton draw only there", async () => 
   effects.detach(p);
   effects.dispose();
   assert.equal(effects.drawsAfter(p, 0), false, "nothing after the dispose");
+  Linear.detach(p);
+});
+
+test("a system's trails draw with their own material where its queue sorts them", async () => {
+  // CH0172: oil drops at 3100 over the character (3000), their dirt trails at 2950 between the background and her
+  const gl = fakeGL(), p = player(gl, { name: "CH0172_home", x: 0, y: -962, scale: 1, order: 0, queue: 2900,
+    pages: { CH0172_home: 3000, CH0172_home_2: 2900 }, z: 0 });
+  Linear.attach(p);
+  const white = { _Texture: { default: "white", st: [1, 1, 0, 0] } };
+  const trail = { ratio: 1, life: 1, minDist: 0.1, texMode: 0, world: 0, die: 1, sizeWidth: 1, sizeLife: 0, inherit: 1,
+    color: { col: [1, 1, 1, 1] }, width: 0.5, colorTrail: { col: [1, 1, 1, 1] } };
+  const fx = {
+    // flying along x (their +z turned to the screen's x)
+    systems: [sys({ material: "drop", queue: 3100, trailMaterial: "dirt", trailQueue: 2950, main: { speed: 100 }, modules: { trail },
+      emission: { rate: 50 }, static: [0, 0, 1, 0, 0, 1, 0, 0, -1, 0, 0, 0] })],
+    materials: { drop: { program: "additive", src: 1, dst: 1, queue: 3100, tex: white, floats: {}, colors: {} },
+      dirt: { program: "alphaBlend", src: 5, dst: 10, queue: 2950, tex: white, floats: { _Multiply: 1 }, colors: {} } },
+    textures: {}, meshes: {},
+  };
+  const effects = GL.create(fx, { base: "/x/", bone: () => null, load: async () => ({}) });
+  effects.layers([p]);
+  assert.equal(effects.drawsAfter(p, 0), true, "the trails after the background page");
+  Linear.begin(p);
+  const calls = (fn) => { const from = gl.calls.length; fn(); return gl.calls.slice(from); };
+  effects.below(p, 0.1);
+  const mid = calls(() => effects.between(p, 0)), top = calls(() => effects.above(p));
+  const blends = (list) => list.filter(([name]) => name === "blendFuncSeparate").map((c) => c.slice(1, 3));
+  assert.equal(mid.filter(([name]) => name === "drawArrays").length, 1);
+  assert.deepEqual(blends(mid), [["SRC_ALPHA", "ONE_MINUS_SRC_ALPHA"]], "the trail material's blend");
+  assert.deepEqual(blends(top), [["ONE", "ONE"]], "the drops' own, over her");
+  Linear.end(p);
+  effects.detach(p);
+  effects.dispose();
   Linear.detach(p);
 });
 

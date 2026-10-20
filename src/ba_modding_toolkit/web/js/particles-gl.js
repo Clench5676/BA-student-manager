@@ -1,15 +1,15 @@
 // Draws a memorial lobby's particle effects (particles.js) inside its skeleton players, in linear light like them:
-// each system goes into the WebGL2 context of the player that draws the skeleton part it sorts after (or before the
-// bottom one), blended into that player's linear framebuffer (linear.js) between the frame's clear and the skeleton,
-// between two skeleton parts (one per render queue of a skeleton's atlas pages, skeleton-parts.js; every skeleton's
-// parts of a lobby in the bottom player's context, lobby-stage.js) or after the last one. The
-// shaders port the game's compiled DSFX programs; their textures come from the lobby's own route (fx_<id>.png, memory
-// only) and are sampled as sRGB where the game imports them so. The prefab's plain mesh renderers (mesh-fx.js: lens
-// dirt, light quads, water and cloud meshes) draw with the same programs, sorted with the systems. Without linear light
-// (no WebGL2) nothing is drawn.
+// each system, and apart from it its trails, goes into the WebGL2 context of the player that draws the skeleton part
+// it sorts after (or before the bottom one), blended into that player's linear framebuffer (linear.js) between the
+// frame's clear and the skeleton, between two skeleton parts (one per render queue of a skeleton's atlas pages,
+// skeleton-parts.js; every skeleton's parts of a lobby in the bottom player's context, lobby-stage.js) or after the
+// last one. The shaders port the game's compiled DSFX programs; their textures come from the lobby's own route
+// (fx_<id>.png, memory only) and are sampled as sRGB where the game imports them so. The prefab's plain mesh renderers
+// (mesh-fx.js: lens dirt, light quads, water and cloud meshes) draw with the same programs, sorted with the systems.
+// Without linear light (no WebGL2) nothing is drawn.
 import * as Linear from "./linear.js";
 import { Meshes } from "./mesh-fx.js";
-import { Effects, STRIDE, drawOrder, geometry, lastBefore, queuesOf } from "./particles.js";
+import { Effects, STRIDE, drawOrder, geometry, lastBefore, queuesOf, trailGeometry } from "./particles.js";
 import { toLinear } from "./touch-fx.js";
 
 const VS_HEAD = `#version 300 es
@@ -507,8 +507,8 @@ export function create(fx, { base, bone, load = loadImage } = {}) {
     const gl = ctx.gl, F = FACTOR(gl), proj = projection(player, layer);
     gl.bindVertexArray(ctx.vao);
     gl.enable(gl.BLEND);
-    for (const s of list) {
-      const mat = materials[s.def.material];
+    for (const { s, trail } of list) {
+      const mat = materials[trail ? s.def.trailMaterial : s.def.material];
       const prog = mat && ctx.program(mat.program);
       if (!prog || !(s.mesh || s.particles.length)) continue;
       // every texture of the program loaded (or a default)
@@ -521,7 +521,8 @@ export function create(fx, { base, bone, load = loadImage } = {}) {
         texs.push([name, tex, meta.st || [1, 1, 0, 0]]);
       }
       if (!ready) continue;
-      const geo = s.mesh ? plain.geometry(s, { meshes }) : geometry(effects, s, { meshes, linear: true });
+      const geo = s.mesh ? plain.geometry(s, { meshes })
+        : trail ? trailGeometry(effects, s, { linear: true }) : geometry(effects, s, { meshes, linear: true });
       if (!geo.count) continue;
       ctx.upload(geo.data);
       gl.useProgram(prog.prog);
@@ -580,10 +581,17 @@ export function create(fx, { base, bone, load = loadImage } = {}) {
         const slot = slots.get(step.owner);
         return slot ? slot.after[slot.after.push([]) - 1] : null;
       });
-      for (const s of drawOrder([...effects.systems, ...plain.items])) {
-        if (!s.def.material && !s.def.subs) continue;
-        const i = lastBefore(s.def, steps);
-        (i < 0 ? slots.get(bottom)?.below : at[i])?.push(s);
+      // what draws: each system's particles and, with the trail module, its trails, which sort by their own
+      // material's queue (one renderer, two submeshes: the particles first), and the mesh renderers
+      const draws = [];
+      for (const s of effects.systems) {
+        if (s.def.material || s.def.subs) draws.push({ s, trail: false, def: s.def, index: s.index });
+        if (s.def.trailMaterial) draws.push({ s, trail: true, def: { ...s.def, queue: s.def.trailQueue ?? 3000 }, index: s.index });
+      }
+      for (const s of plain.items) if (s.def.material) draws.push({ s, trail: false, def: s.def, index: s.index });
+      for (const d of drawOrder(draws)) {
+        const i = lastBefore(d.def, steps);
+        (i < 0 ? slots.get(bottom)?.below : at[i])?.push(d);
       }
     },
     // before the player's skeleton (the bottom player also advances the simulation)
@@ -603,6 +611,8 @@ export function create(fx, { base, bone, load = loadImage } = {}) {
       const list = slots.get(player)?.after;
       if (list) between(player, list.length - 1);
     },
+    // a Spine event of a skeleton's animation state: SpineEventToggleObjects switches systems on and off by it
+    spineEvent: (skeleton, name, index) => !disposed && effects.spineEvent(skeleton, name, index),
     // free one player's GL objects (before it is disposed)
     detach: release,
     dispose() {

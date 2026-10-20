@@ -15,26 +15,24 @@
 // keeps one context per skeleton, stacked (lobby.js), each drawing its own parts.
 import * as Linear from "./linear.js";
 import * as Parts from "./skeleton-parts.js";
-import { queuesOf, sortKey } from "./particles.js";
+import { compareKeys, queuesOf, sortKey } from "./particles.js";
 
 const hosts = new WeakMap(); // guest player -> the player whose context it draws with
 const own = new WeakMap(); // player -> its renderer's own drawSkeleton
 const plans = new WeakMap(); // player -> what it draws: {steps, fx, guests}, and for checks the players
 let interleave = true, latest = null; // for checks: the order mode, and the host installed last (a WeakRef)
 
-// The order of a lobby's skeleton parts. layers: the players' layers (order, queue, pages, z) in stacking order; each
-// draws in the parts of queuesOf, one per render queue of its pages, lowest first. Returns [{layer, part, order, queue,
-// z}]: merged (one target), all of them as Unity sorts transparent submeshes, by sorting order, render queue, then back
-// to front (particles.js sortKey), equal keys in stacking order; else layer after layer, as stacked canvases draw them.
+// The order of a lobby's skeleton parts. layers: the players' layers (sortingLayer, order, queue, pages, z) in stacking
+// order; each draws in the parts of queuesOf, one per render queue of its pages, lowest first. Returns [{layer, part,
+// sortingLayer, order, queue, z}]: merged (one target), all of them as Unity sorts transparent submeshes, by sorting
+// layer, sorting order, render queue, then back to front (particles.js sortKey), equal keys in stacking order; else
+// layer after layer, as stacked canvases draw them.
 export function order(layers, merged = true) {
   const out = layers.flatMap((l, layer) => queuesOf(l).map((queue, part) => ({
-    layer, part, order: l?.order || 0, queue, z: l?.z || 0,
+    layer, part, sortingLayer: l?.sortingLayer || 0, order: l?.order || 0, queue, z: l?.z || 0,
   })));
   if (!merged) return out;
-  return out.sort((a, b) => {
-    const ka = sortKey(a), kb = sortKey(b);
-    return ka[0] - kb[0] || ka[1] - kb[1] || ka[2] - kb[2] || a.layer - b.layer || a.part - b.part;
-  });
+  return out.sort((a, b) => compareKeys(sortKey(a), sortKey(b)) || a.layer - b.layer || a.part - b.part);
 }
 
 // create() makes a spine-player; with a host (the lobby's bottom player), one that draws with the host's WebGL context:

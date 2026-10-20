@@ -318,11 +318,12 @@ def read_prefab(kinds: dict[int, str], tree: Callable[[int], dict], scripts: dic
         m = _mul(m, _local(t))
         local3 = particles.trs(t)
         m3 = particles.mul(m3, local3)  # the full 3D transform, for the particle systems
-        active = active and bool(tree(go).get("m_IsActive", 1))
+        own = bool(tree(go).get("m_IsActive", 1))
+        active = active and own
         comps = components(go)
         name = tree(go)["m_Name"]
         path = f"{path}/{name}" if path else name
-        nodes.append({"go": go, "name": name, "m": m, "active": active, "all": comps,
+        nodes.append({"go": go, "name": name, "m": m, "active": active, "own": own, "all": comps,
                       "first": {cls: c for cls, _, c in reversed(comps)},
                       "pids": {cls: pid for cls, pid, _ in reversed(comps)},
                       "parent": parent, "path": path, "t": t, "local3": local3, "m3": m3})
@@ -352,7 +353,8 @@ def read_prefab(kinds: dict[int, str], tree: Callable[[int], dict], scripts: dic
                 # NGUI units per skeleton unit: the GameObject's world scale times SkeletonDataAsset.scale
                 "scale": _r(math.hypot(n["m"][0], n["m"][1]) * clips.scales.get(name, _DATA_SCALE), 5),
                 "active": n["active"] and bool(sa.get("m_Enabled", 1)) and bool(renderer.get("m_Enabled", True)),
-                "order": renderer.get("m_SortingOrder", 0), "queue": min(pages.values(), default=3000), "pages": pages,
+                "sortingLayer": renderer.get("m_SortingLayer", 0), "order": renderer.get("m_SortingOrder", 0),
+                "queue": min(pages.values(), default=3000), "pages": pages,
                 "shaders": shaders, "z": particles.rounded(n["m3"])[11], "index": len(layers),
                 "skin": sa.get("initialSkinName") or None, "animation": sa.get("_animationName") or None,
                 **spine_materials.layer(resolve, pid, sa),
@@ -462,9 +464,9 @@ def lobby_info(skeletons: Iterable[str], clips: Clips, prefab: dict | None, soun
     if prefab is None:
         prefab = {"prefab": None, "main": None, "drags": [], "touches": [], "randomIdle": {}, "idle": {}, "idles": {},
                   "dialog": {}, "post": {}, "pins": [],
-                  "layers": [{"name": s, **STANDARD, "active": True, "order": 0, "queue": 3000, "pages": {},
-                              "shaders": {}, "z": 0.0, "index": i, "skin": None, "animation": None}
+                  "layers": [{"name": s, **STANDARD, "active": True, "sortingLayer": 0, "order": 0, "queue": 3000,
+                              "pages": {}, "shaders": {}, "z": 0.0, "index": i, "skin": None, "animation": None}
                              for i, s in enumerate(dict.fromkeys(skeletons))],
-                  "fx": {"systems": [], "materials": {}, "textures": {}, "meshes": {}}}
+                  "fx": {"systems": [], "materials": {}, "textures": {}, "meshes": {}, "toggles": []}}
     return {"view": dict(GAME_VIEW), **prefab, "defaultMix": dict(clips.mixes), "clips": clips.clips,
             "sounds": dict(sounds or {})}
