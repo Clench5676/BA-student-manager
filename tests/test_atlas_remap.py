@@ -17,7 +17,7 @@ from ba_modding_toolkit.i18n import I18n, t
 from ba_modding_toolkit.models import ContNameTypeKey, SaveOptions
 from ba_modding_toolkit.utils import CRCUtils
 
-from test_library import setup_library
+from test_library import reload_library, setup_library
 
 
 def atlas_text(pages, modern=False, pma=False):
@@ -378,6 +378,8 @@ def test_library_remap_keeps_installed_official_copy_and_original_mod(setup_libr
     preview = env.library.remap(entry.id)
     result = env.library.accept_remap(preview["preview"])
     assert result.mod.id != entry.id
+    assert entry.user_added and not result.mod.user_added
+    assert not next(m for m in reload_library(env).mods() if m.id == result.mod.id).user_added
     assert result.mod.label == entry.label
     assert len(env.library.mods()) == 2
     assert result.mod.date == "2026-01-01"
@@ -577,11 +579,17 @@ def test_remap_review_and_discard_leave_no_mod_files_or_metadata(repair_review):
         env.library.accept_remap(preview["preview"])
 
 
-def test_accept_stores_reviewed_bytes_once_and_persists_both_markers(repair_review):
+@pytest.mark.parametrize("legacy", [False, True])
+def test_accept_stores_reviewed_bytes_once_and_persists_both_markers(repair_review, legacy):
     from ba_modding_toolkit.errors import ServiceError
     from ba_modding_toolkit.library import ModLibrary
 
     env, entry, current, source = repair_review
+    if legacy:
+        env.library._records[entry.id].pop("user_added")
+        env.library._save()
+        env.library = reload_library(env)
+        entry, = env.library.mods()
     before = {path: path.read_bytes() for path in (entry.file, current, source)}
     preview = env.library.remap(entry.id)
     reviewed = dict(env.library._remap_previews[preview["preview"]]["files"])
@@ -601,6 +609,8 @@ def test_accept_stores_reviewed_bytes_once_and_persists_both_markers(repair_revi
     assert len(mods) == 2
     assert mods[entry.id].repaired_id == result.mod.id
     assert mods[result.mod.id].repaired_from == entry.id
+    assert mods[entry.id].user_added is (not legacy)
+    assert not result.mod.user_added and not mods[result.mod.id].user_added
     for mod_id in mods:
         with pytest.raises(ServiceError, match="entry_changed"):
             reloaded.remap(mod_id)

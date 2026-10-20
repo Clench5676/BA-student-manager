@@ -102,6 +102,7 @@ class FakeMod:
     fresh: bool = True
     added: str = "2026-10-01T08:00:00+00:00"
     kind: str = "spr"
+    user_added: bool = True
 
     def to_json(self):
         return {"id": self.id, "target": self.target, "fresh": self.fresh}
@@ -302,17 +303,34 @@ def mod_marks(app):
 
 
 @pytest.mark.parametrize("first", ["roster.list", "family.get"])
-def test_mod_marks_first_run_baselines_the_whole_library(app, services, monkeypatch, first):
+@pytest.mark.parametrize("state", ["missing", "older"])
+def test_mod_marks_first_run_baselines_the_whole_library(app, services, monkeypatch, first, state):
     mods = [FakeMod("portrait", "hoshino"), FakeMod("lobby", "hoshino", kind="lobby"),
-            FakeMod("other", "another-student")]
+            *[FakeMod(f"other-{i}", f"student-{i}", user_added=i % 2 == 0) for i in range(80)]]
     monkeypatch.setattr(services._library, "mods", lambda: mods)
-    services.state.set("voice_volume", 20)  # an older UI state, without seen_mods
+    if state == "older":
+        services.state.set("voice_volume", 20)  # an older UI state, without seen_mods
+    else:
+        services.state.path.unlink(missing_ok=True)
     params = {"key": "hoshino"} if first == "family.get" else {}
     assert "result" in rpc(app, first, **params)
     assert mod_marks(app) == (False, {"portrait": False, "lobby": False})
     assert UiState(services.state.path).seen_mods() == {m.id for m in mods}
-    assert services.state.get("voice_volume") == 20
+    if state == "older":
+        assert services.state.get("voice_volume") == 20
     assert all(m.fresh for m in mods), "the baseline must not change the shared library's flags"
+
+
+def test_mod_marks_only_explicit_adds_after_the_baseline(app, services, monkeypatch):
+    services.state.mark_mods_seen(["baseline"])
+    mods = [FakeMod("baseline", "hoshino"), FakeMod("upload", "hoshino", fresh=False),
+            *[FakeMod(origin, "hoshino", user_added=False) for origin in ("legacy", "adopted", "kept", "remapped")]]
+    monkeypatch.setattr(services._library, "mods", lambda: mods)
+    expected = {m.id: m.id == "upload" for m in mods}
+    assert mod_marks(app) == (True, expected)
+    assert rpc(app, "mods.seen", id="upload") == {"result": None}
+    services.state = UiState(services.state.path)
+    assert mod_marks(app) == (False, dict.fromkeys(expected, False))
 
 
 @pytest.mark.parametrize("reset", ["file", "key"])
@@ -1389,9 +1407,12 @@ def test_the_close_button_waits_only_for_a_writer_job(services, monkeypatch, tmp
     gate.set()
 
 
-def test_original_and_repaired_versions_share_roster_and_band_counts(app, services, monkeypatch):
+@pytest.mark.parametrize("unread", [False, True])
+def test_original_and_repaired_versions_share_roster_and_band_counts(app, services, monkeypatch, unread):
     originals = [FakeMod("portrait", "hoshino"), FakeMod("lobby", "hoshino", kind="lobby")]
-    repaired = [FakeMod("portrait-fixed", "hoshino"), FakeMod("lobby-fixed", "hoshino", kind="lobby")]
+    repaired = [FakeMod("portrait-fixed", "hoshino", user_added=False),
+                FakeMod("lobby-fixed", "hoshino", kind="lobby", user_added=False)]
+    services.state.mark_mods_seen([] if unread else [mod.id for mod in originals])
     for original, fixed in zip(originals, repaired):
         original.repaired_id = fixed.id
         fixed.repaired_from = original.id
@@ -1403,3 +1424,7 @@ def test_original_and_repaired_versions_share_roster_and_band_counts(app, servic
             variant = family["variants"][0]
             assert variant["mods"] == 2
             assert variant["modCounts"] == {"spr": 1, "lobby": 1}
+            assert variant["fresh"] is (unread and any(mod.user_added for mod in mods))
+            if method == "family.get":
+                assert {mod["id"]: mod["fresh"] for mod in variant["modList"]} == {
+                    mod.id: unread and mod.user_added for mod in mods}

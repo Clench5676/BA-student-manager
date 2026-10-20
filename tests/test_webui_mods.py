@@ -15,6 +15,7 @@ import pytest
 
 from ba_modding_toolkit.bundle import Bundle
 from ba_modding_toolkit.config import Settings
+from ba_modding_toolkit.data_paths import APP_DIR_NAME, OLD_APP_DIR_NAME, migrate_data_dir
 from ba_modding_toolkit.errors import ServiceError
 from ba_modding_toolkit.gui import control as ctl
 from ba_modding_toolkit.library import safety
@@ -510,7 +511,9 @@ def test_adding_mods_already_in_use_runs_while_the_game_runs(env, monkeypatch):
     job = env.job("mods.adopt", entries=[{"install": entry["install"], "core": entry["core"]}])
     assert job.state == "done", job.error
     assert len(job.result["added"]) == 1 and job.result["failed"] == []
-    assert env.s.state.seen_mods() == set(), "adopted mods are new after the baseline"
+    assert env.s.state.seen_mods() == set()
+    assert job.result["added"][0]["user_added"] is False, "scan adoption must not create a new-mod dot"
+    assert not env.s.library.mods()[0].user_added
     assert events_named(env.drain(), "library.changed")[-1] == {"cores": ["test_spr"], "kinds": ["spr"]}
     assert rpc(env.app, "mods.adopt", entries=[{"core": 1}])["error"]["code"] == "bad_params"
 
@@ -1224,7 +1227,7 @@ def test_first_add_baselines_existing_mods_before_storing_new_ones(env, monkeypa
 
         def accept_remap(library, preview):
             # Use synthetic output instead of rebuilding Unity assets; retain the real library write.
-            rebuilt, = library.add([source])
+            rebuilt = library._entry(library._store({source.name: source}, "Repacked", "test", "spr"))
             return RemapResult(rebuilt, {}, CompareResult(rebuilt.id, []))
 
         monkeypatch.setattr("ba_modding_toolkit.library.ModLibrary.accept_remap", accept_remap)
@@ -1234,6 +1237,44 @@ def test_first_add_baselines_existing_mods_before_storing_new_ones(env, monkeypa
     assert len(mods) == 2 and old.id in {m.id for m in mods}
     assert env.s.state.seen_mods() == {old.id}
     assert UiState(path).seen_mods() == {old.id}
+    new, = [m for m in mods if m.id != old.id]
+    assert new.user_added is (method in ("add", "background"))
+
+
+@pytest.mark.parametrize("state", ["missing", "older"])
+def test_migrated_legacy_library_is_baselined_before_new_adds(env, state):
+    parent = env.tmp / "app-data"
+    old = parent / OLD_APP_DIR_NAME
+    legacy, _ = env.services(data=old)
+    ids = set()
+    for i in range(20):
+        mod, = legacy.library.add([make_mod(env.spr, env.tmp / "legacy-input", payload=f"old-{i}".encode())])
+        ids.add(mod.id)
+    legacy.close(wait=5)
+    library_state = old / "library" / "state.json"
+    stored = json.loads(library_state.read_text(encoding="utf-8"))
+    for record in stored["mods"]:
+        record.pop("user_added")
+    library_state.write_text(json.dumps(stored), encoding="utf-8")
+    path = old / "webui.json"
+    if state == "missing":
+        path.unlink()
+    else:
+        stored = json.loads(path.read_text(encoding="utf-8"))
+        stored.pop("seen_mods")
+        path.write_text(json.dumps(stored), encoding="utf-8")
+    migrated = migrate_data_dir(parent)
+    assert migrated == parent / APP_DIR_NAME and not old.exists()
+    env.s, env.app = env.services(data=migrated)
+    mods = env.s.library.mods()
+    assert {m.id for m in mods} == ids
+    assert all(not m.user_added for m in mods)
+    assert UiState(migrated / "webui.json").seen_mods() == ids
+    source = make_mod(env.spr, env.tmp / "new-input", payload=b"added after takeover")
+    result = rpc(env.app, "mods.add", paths=[str(source)])["result"]
+    new, = result["added"]
+    assert new["user_added"] and new["id"] not in env.s.state.seen_mods()
+    assert env.s.state.seen_mods() == ids
 
 
 def test_seen_rpc_writes_only_ui_state_and_preserves_seen_duplicates(env, monkeypatch):
@@ -1266,6 +1307,7 @@ def test_add_rpc_uses_the_normal_switch_for_both_kinds_and_respects_mods_off(env
     params = {"paths": [str(path) for path in sources], "background": background}
     result = env.job("mods.add", **params).result if background else rpc(env.app, "mods.add", **params)["result"]
     assert len(result["added"]) == 2 and not result["failed"]
+    assert all(m["user_added"] for m in result["added"])
     assert env.s.state.seen_mods() == set(), "both add modes establish an empty baseline before adding"
     assert result["applied" if enabled else "configured"] == result["added"]
     for entry in result["added"]:

@@ -370,7 +370,7 @@ def build_api(s: Services) -> RpcRegistry:
             "spineCategory": getattr(v, "spine_category", None),
             "bg": _url_bg(v.bg), "portrait": _url_portrait(v.portrait),
             "favorite": v.key in favorites, "mods": len({getattr(m, "repaired_from", "") or m.id for m in own}),
-            "fresh": seen is not None and any(m.id not in seen for m in own),
+            "fresh": seen is not None and any(m.user_added and m.id not in seen for m in own),
             "modCounts": {kind: len({getattr(m, "repaired_from", "") or m.id for m in own if m.kind == kind})
                           for kind in ("spr", "lobby")},
             "configured": configured_of(v.key),
@@ -442,7 +442,7 @@ def build_api(s: Services) -> RpcRegistry:
         for v in f.variants:
             item = variant_json(v, mods, favorites, recent, seen)
             item["state"] = to_json(s.library.state(v.key))
-            item["modList"] = [{**to_json(m), "fresh": seen is not None and m.id not in seen}
+            item["modList"] = [{**to_json(m), "fresh": seen is not None and m.user_added and m.id not in seen}
                                for m in mods.get(v.key, [])]
             item["modelFiles"] = model_files(v.model)
             variants.append(item)

@@ -370,8 +370,8 @@ function listCard(it, x, y, selected) {
   }
   if (it.fav) kids.push(node("Pin", corner(w / 2 - 38, -h / 2 + 36), [sprite("Common_Btn_Pin_01", 54, 54, { type: 0, depth: 26 })]));
   if (it.recruit) kids.push(node("Recruit", corner(-w / 2 + 34, -h / 2 + 40), [sprite(RECRUIT.sprite, 62 / RECRUIT.ratio, 62, { atlas: RECRUIT.atlas, type: 0, depth: 26 })]));
-  // the new dot goes once the card is picked (it has been seen); the check takes the corner
-  if (it.isNew && !selected) kids.push(DOT(corner(w / 2 - 4, h / 2 - 6), 34));
+  // In-use mods already have a badge; a picked card's check takes the corner.
+  if (it.isNew && !it.inUse && !selected) kids.push(DOT(corner(w / 2 - 4, h / 2 - 6), 34));
   if (selected) kids.push(node("Select", [1, 4], [sprite("Card_Ability_Select_Line", w + 4, h - 8, { incline: 10, depth: 20 })],
     [node("Check", [w / 2 - 28 + (h / 2 - 30) * TAN10, h / 2 - 30], [sprite("Card_Ability_Select_Line_Icon", 66, 65, { type: 0, depth: 21 })])]));
   return node(`Card_${it.key}`, [x, y], [sprite("Common_Btn_BG", w, h, { incline: 10, depth: 7, color: "#ffffff/1.00" })], kids);
