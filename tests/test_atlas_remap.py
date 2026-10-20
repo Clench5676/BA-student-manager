@@ -383,7 +383,11 @@ def test_library_remap_keeps_installed_official_copy_and_original_mod(setup_libr
     assert result.mod.id != entry.id
     assert entry.user_added and not result.mod.user_added
     assert not next(m for m in reload_library(env).mods() if m.id == result.mod.id).user_added
-    assert result.mod.label == entry.label
+    assert result.mod.label == t("webui.remap.name", name=entry.label)
+    assert env.library._records[result.mod.id]["repaired_from"] == entry.id
+    env.library.rename(entry.id, "My painting")
+    assert env.library._entry(env.library._records[result.mod.id]).label == t("webui.remap.name", name="My painting")
+    env.library.rename(entry.id, "")
     assert len(env.library.mods()) == 2
     assert result.mod.date == "2026-01-01"
     assert not result.report["partial"]
@@ -601,7 +605,7 @@ def test_accept_stores_reviewed_bytes_once_and_persists_both_markers(repair_revi
     result = env.library.accept_remap(preview["preview"])
     assert {path.name: path.read_bytes() for path in result.mod.file.parent.glob("*.bundle")} == reviewed
     assert result.mod.repaired_from == entry.id
-    assert result.mod.label == entry.label
+    assert result.mod.label == t("webui.remap.name", name=entry.label)
     assert all(path.read_bytes() == data for path, data in before.items())
     with pytest.raises(ServiceError, match="entry_changed"):
         env.library.accept_remap(preview["preview"])
@@ -628,6 +632,41 @@ def test_accept_stores_reviewed_bytes_once_and_persists_both_markers(repair_revi
     with pytest.raises(ServiceError, match="entry_changed"):
         reloaded.remap(entry.id)
 
+
+
+@pytest.mark.parametrize("language", ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"])
+def test_accept_keeps_alias_names_and_repair_metadata_together(repair_review, monkeypatch, language):
+    from ba_modding_toolkit.errors import ServiceError
+
+    env, entry, current, source = repair_review
+    translate = I18n(language).t
+    monkeypatch.setattr("ba_modding_toolkit.library.service.t", translate)
+    before = {path: (path.read_bytes(), path.stat().st_mtime_ns) for path in (entry.file, current, source)}
+    env.library.rename(entry.id, "Before review")
+    preview = env.library.remap(entry.id)
+    env.library.rename(entry.id, "Reviewed painting")
+    result = env.library.accept_remap(preview["preview"])
+    expected = translate("webui.remap.name", name="Reviewed painting")
+    assert result.mod.label == expected
+    assert result.mod.alias == "" and result.mod.repaired_from == entry.id
+    assert not result.mod.user_added
+    library = reload_library(env)
+    mods = {mod.id: mod for mod in library.mods()}
+    assert mods[entry.id].alias == "Reviewed painting"
+    assert mods[entry.id].user_added and mods[entry.id].repaired_id == result.mod.id
+    assert mods[result.mod.id] == result.mod
+    assert len({mod.repaired_from or mod.id for mod in mods.values()}) == 1
+    assert library.rename(result.mod.id, "Own alias").label == "Own alias"
+    assert library.rename(result.mod.id, "").label == expected
+    library.rename(entry.id, "Updated painting")
+    assert next(mod for mod in library.mods() if mod.id == result.mod.id).label == translate(
+        "webui.remap.name", name="Updated painting")
+    for mod_id in mods:
+        with pytest.raises(ServiceError, match="entry_changed"):
+            library.remap(mod_id)
+    assert all((path.read_bytes(), path.stat().st_mtime_ns) == stamp for path, stamp in before.items())
+    library.remove(entry.id)
+    assert reload_library(env).mods()[0].label == expected
 
 
 def test_accept_refuses_changed_or_removed_original_and_expired_preview(repair_review):

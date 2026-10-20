@@ -981,6 +981,10 @@
 			"add": "添加别名",
 			"remove": "删除"
 		},
+		"modAlias": {
+			"title": "Mod 别名",
+			"hint": "回车保存，留空清除"
+		},
 		"fold": {
 			"label": "收起"
 		},
@@ -1371,7 +1375,7 @@
 		},
 		"remap": {
 			"action": "按当前版本重排贴图",
-			"name": "{name}（已重排）",
+			"name": "{name} - 修复版",
 			"done": "贴图已重排",
 			"partial": "贴图已重排，部分修复",
 			"counts": "已重排：{moved}，使用原版：{added}，已移除：{dropped}",

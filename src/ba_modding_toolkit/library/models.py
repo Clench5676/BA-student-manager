@@ -45,6 +45,7 @@ class ModEntry(JsonResult):
     repaired_from: str = ""
     repaired_id: str = ""
     user_added: bool = False  # explicit add, rather than adoption, recovery or re-filing
+    alias: str = ""
 
 
 class AddResult(list[ModEntry]):

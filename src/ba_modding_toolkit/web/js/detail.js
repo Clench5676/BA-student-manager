@@ -14,6 +14,7 @@ import { withTimeout } from "./async.js";
 import { previewError } from "./preview-error.js";
 import * as Loading from "./loading.js";
 import * as ModAdd from "./mod-add.js";
+import * as ModAlias from "./mod-alias.js";
 import * as Compatibility from "./mod-compatibility.js";
 import { show as showCompare } from "./mod-compare.js";
 import * as Lobby from "./lobby.js";
@@ -141,7 +142,7 @@ const isFav = (v) => !!v.favorite;
 const hasLobby = (v) => !!v.lobby;
 const hasModel = (v) => !!v.model;
 const hasFresh = (v, kind = null) => (v.modList || []).some((m) => m.fresh && (!kind || m.kind === kind));
-const modLabel = (m) => `${m.label || m.file?.split(/[\\/]/).pop() || m.id}${m.repaired_from ? ` - ${T("remap.repaired")}` : ""}`;
+const modLabel = (m) => m.alias || m.label || m.file?.split(/[\\/]/).pop() || m.id;
 const repairedId = (c) => c?.mod?.repaired_id && familyMods().some((m) => m.id === c.mod.repaired_id) ? c.mod.repaired_id : null;
 const repairAction = (c) => repairedId(c) ? "remap.go" : Compatibility.canRemap(c?.id, c?.mod) ? "remap.action" : "act.update";
 // a candidate's skeleton: a mod's preview (its parts over the official ones), else the variant's own portrait or lobby
@@ -172,7 +173,7 @@ const variantBase = (v, kind = "spr") => previewBase(v, kind, modsOn(), fam.vari
 // The configured portrait or lobby while mods are off; otherwise what the game files carry.
 const current = (kind = "spr") => candidates(variant(), kind).find((c) => c.key === shownSource(variant(), kind)) || candidates(variant(), kind)[0];
 // a candidate's name on the cards: another variant's mod with that variant's name first
-const candidateLabel = (c, v = variant()) => (c.kind === "mod" && c.origin && c.origin.key !== v.key ? `${shortName(c.origin)} - ${c.label}` : c.label);
+const candidateLabel = (c, v = variant()) => (c.kind === "mod" && !c.mod.alias && c.origin && c.origin.key !== v.key ? `${shortName(c.origin)} - ${c.label}` : c.label);
 // The lobby's preview source as a label: the original, a mod's or another variant's name, or "replaced".
 function lobbyLabel(v) {
   const key = shownSource(v, "lobby");
@@ -261,6 +262,8 @@ function screenTree() {
     const right = name_ === "Label_Attact" || name_ === "Label_Healing";
     return (right ? 1240 - 773 - rightCap : 773 - 293 - leftCap) - 24;
   });
+  const editingMod = shownMod();
+  if (editingMod) rooms[0] -= 62;
   stats.forEach(([name_, caption, dataPath, value, color], i) => {
     text(t, `${INFO}/Status/${name_}`, T(caption), { w_: 300 });
     const right = name_ === "Label_Attact" || name_ === "Label_Healing";
@@ -269,6 +272,8 @@ function screenTree() {
     // Fit each value independently; the compact rows use an ellipsis once this value reaches the size floor.
     const fit = fitText(String(value), 42, 28, rooms[i], 1);
     text(t, `${INFO}/Status/${name_}/${dataPath}`, fit.text, { w_: rooms[i], fontSize: fit.fs, ellipsis: true, ariaLabel: String(value), ...(color ? { color: `${color}/1.00` } : {}) });
+    if (i === 0 && editingMod) dataNode.children.push(node("ModAliasBtn", [Math.min(glyphsOf(String(value), fit.fs), rooms[i]) + 32, 0],
+      [sprite("Cafe_Icon_NameEdit", 46, 46, { type: 0, depth: 22, color: "#2d4664/1.00" })]));
     const pot = find(t, `${INFO}/Status/${name_}/Data_Widget/Potential_Widget`);
     if (pot) pot.active = false;
   });
@@ -504,6 +509,7 @@ function hits(view, leftHost, rightHost) {
   }
   add(rightHost, `${INFO}/Status/Btn_Up_Wrapper/Btn_Up/BG (1)`, () => reveal(gameFile(variant(), tabKind())), T(platform === "mac" ? "open.mac" : "open.win"));
   add(rightHost, `${INFO}/Detail_Btn`, showDetails, T("info.details"));
+  if (shownMod()) add(rightHost, `${INFO}/Status/Label_Life/Data_Widget/ModAliasBtn`, () => editModName(shownMod().mod), T("modAlias.title"));
   const act = (card, fn, name) => add(rightHost, `${INFO}/Skill/${card}/Bg`, fn, name);
   act("SkillData_EX", () => runCompatibility(), T("compatibility.check"));
   act("SkillData_EX (1)", () => repairedId(shownMod()) ? jumpRepaired(shownMod()) : Compatibility.canRemap(shownMod()?.id, shownMod()?.mod) ? runRemap(shownMod()) : runUpdate(),
@@ -545,6 +551,15 @@ async function reveal(path) { if (path) await call(() => rpc("os.reveal", { path
 async function copyName() {
   const name = baseName(gameFile(variant(), tabKind()));
   try { await navigator.clipboard.writeText(name); toast(name); } catch { toast(name); }
+}
+function editModName(mod, redraw = null) {
+  const page = pageToken;
+  return ModAlias.open({ mod, onSaved: async () => {
+    ctx.invalidateRoster();
+    if (!open || page !== pageToken) return;
+    await reload();
+    if (open && page === pageToken) await redraw?.();
+  } });
 }
 async function toggleFav() {
   const v = variant();
@@ -1024,11 +1039,14 @@ async function drawPopup(scroll = 0) {
     key: c.key, kind: c.kind, recruit: c.kind !== "mod" && c.recruit,
     label: candidateLabel(c, v),
     full: c.kind === "mod" ? c.label : fullName(c.variant),
+    nameEdit: c.kind === "mod" ? { label: T("modAlias.title"), fn: (s = scroll) => editModName(c.mod,
+      () => switchPopupPage === pageToken && !$("popup").hidden ? renderPopup(s) : null) } : null,
     thumb: thumb(baseOf(c, kind), "card", null, kind === "lobby"), big: () => thumb(baseOf(c, kind), "bust", null, kind === "lobby"),
     inUse: c.key === inUseKey, fav: c.fav, isNew: c.kind === "mod" && c.mod.fresh, src: c,
     inUseText: mode.set && c.key === mode.set ? T("switch.configured") : null,
     dim: c.greyed,
     badge: c.greyed ? GREYED_BADGE() : mode.set && c.key === mode.set ? SET_BADGE() : null,
+    tag: c.mod?.repaired_from ? { text: T("remap.repaired"), color: "#d7eaf4", ink: "#2d4664" } : null,
   }))
     .filter((it) => popupSeg === 0 || (popupSeg === 1) === !!it.recruit)
     .sort((a, b) => (b.fav ? 1 : 0) - (a.fav ? 1 : 0));
@@ -1288,7 +1306,7 @@ function detailsInfo() {
   const first = parts[0]?.file || null;
   const folder = first ? first.replace(/[\\/][^\\/]*$/, "") : "—";
   const applied = kind === "model" ? "official" : appliedOf(v, kind);
-  const fields = [[T("field.folder"), folder], [T("info.current"), tab === "portrait" ? current().label : tab === "lobby" ? lobbyLabel(v) : T("model.original")]];
+  const fields = [[T("field.folder"), folder], [T("info.current"), tab === "portrait" ? current().label : tab === "lobby" ? lobbyLabel(v) : T("model.original"), shownMod()?.mod]];
   const mod = applied.startsWith("mod:") ? familyMods().find((m) => m.id === applied.slice(4)) : null;
   const from = mod ? fam.variants.find((o) => o.key === mod.target) : applied.startsWith("variant:") ? fam.variants.find((o) => o.key === applied.slice(8)) : null;
   if (mod) fields.push([T("field.modFile"), mod.file || "—"]);
@@ -1305,7 +1323,7 @@ function detailsBody({ fields, rows }) {
   const W = DT.r - DT.l, kids = [];
   // summary: captions, then values that wrap (paths), never cut; on the game's light stats box
   const capW = Math.max(...fields.map(([k]) => advanceOf(k, 38))) + 40, room = W - 80 - capW;
-  const values = fields.map(([, v]) => wrapPath(String(v), 38, 28, room, 3));
+  const values = fields.map(([, v, mod]) => wrapPath(String(v), 38, 28, room - (mod ? 70 : 0), 3));
   const rowHs = values.map((f) => Math.max(72, f.lines * f.fs * 1.25 + 22));
   const boxH = rowHs.reduce((a, h) => a + h, 0) + 20;
   const TOP = 12; // air under the scrolling area's top edge
@@ -1313,10 +1331,12 @@ function detailsBody({ fields, rows }) {
     node("Line", [0, 0], [sprite("Common_Line_Raius10px", W, boxH + 6, { depth: 4, color: "#c0c9d4/1.00" })]),
   ]));
   let y = -TOP - 10;
-  fields.forEach(([k, v], i) => {
+  fields.forEach(([k, v, mod], i) => {
     const h = rowHs[i], cy = y - h / 2, f = values[i];
     kids.push(node(`F_${i}`, [40, cy], [label(k, 38, "#2d4664/1.00", capW, 50, { pivot: 3, depth: 8 })]));
-    kids.push(node(`V_${i}`, [40 + capW, cy], [label(f.text, f.fs, "#000000/1.00", room + 20, f.lines * f.fs * 1.25 + 8, { pivot: 3, depth: 8, ariaLabel: String(v) })]));
+    kids.push(node(`V_${i}`, [40 + capW, cy], [label(f.text, f.fs, "#000000/1.00", room + 20 - (mod ? 70 : 0), f.lines * f.fs * 1.25 + 8, { pivot: 3, depth: 8, ariaLabel: String(v) })]));
+    if (mod) kids.push(node(`Edit_${i}`, [40 + capW + Math.min(glyphsOf(f.text, f.fs), room - 70) + 32, cy],
+      [sprite("Cafe_Icon_NameEdit", 46, 46, { type: 0, depth: 9, color: "#2d4664/1.00" })]));
     if (i < fields.length - 1) kids.push(node(`L_${i}`, [W / 2, y - h], [sprite("Common_Line_Dot", W - 60, 4, { type: 2, depth: 7, color: "#c0c9d4/1.00" })]));
     y -= h;
   });
@@ -1360,7 +1380,10 @@ async function showDetails() {
   if (info.reveal) hit("Center/Popup/Btn/Btn_Cancel/BG (1)", () => reveal(info.reveal), T(platform === "mac" ? "open.mac" : "open.win"), "cancel");
   closable(view, host, done);
   const inner = scrollArea(next, [960 + DT.l * S, 540 - top * S, (DT.r - DT.l) * S, (top - bottom) * S], body.height * S);
-  await NGUI.render(body.tree, inner, { scale: S, origin: [0, 0], z: 20 });
+  const bodyView = await NGUI.render(body.tree, inner, { scale: S, origin: [0, 0], z: 20 });
+  info.fields.forEach(([, , mod], i) => {
+    if (mod) hitNode(inner, bodyView, `Details/Edit_${i}`, () => editModName(mod, () => !host.hidden ? showDetails() : null), { name: T("modAlias.title") });
+  });
   if (host.hidden) return;
   host.replaceChildren(...next.childNodes);
 }
@@ -1797,6 +1820,7 @@ addEventListener("blur", () => keySteps.release());
 // ready (the panels, preview, visible thumbnails and decoded images). In place (another
 // variant or family while the screen is shown), the shown screen stays until then and every part swaps in one frame.
 export async function show(context, familyData, key, { inPlace = false } = {}) {
+  ModAlias.close();
   leavePage();
   pageToken += 1;
   leftPage = new Promise((resolve) => { leavePage = resolve; });
@@ -1851,6 +1875,7 @@ export const currentVariant = () => open && fam ? variant().key : null;
 
 // leaving the screen: stop the players, drop any change being prepared
 export function hide() {
+  ModAlias.close();
   leavePage();
   pageToken += 1;
   open = false;

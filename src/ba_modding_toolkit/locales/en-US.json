@@ -981,6 +981,10 @@
 			"add": "Add Alias",
 			"remove": "Remove"
 		},
+		"modAlias": {
+			"title": "Mod Alias",
+			"hint": "Enter to save, empty to clear"
+		},
 		"fold": {
 			"label": "Collapse"
 		},
@@ -1371,7 +1375,7 @@
 		},
 		"remap": {
 			"action": "Remap to current version",
-			"name": "{name} (remapped)",
+			"name": "{name} - Repaired",
 			"done": "Textures remapped",
 			"partial": "Textures remapped, partial fix",
 			"counts": "Remapped: {moved}, official: {added}, dropped: {dropped}",

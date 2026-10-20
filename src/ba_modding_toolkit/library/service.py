@@ -15,6 +15,7 @@ import shutil
 import tempfile
 import threading
 import time
+import unicodedata
 import uuid
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
@@ -665,11 +666,23 @@ class ModLibrary:
     def _entry(self, record: dict[str, Any]) -> ModEntry:
         paths = self._paths(record)
         parsed = parse_filename(paths[0].name)
-        return ModEntry(record["id"], paths[0], record["label"], self._target_of(record), record["kind"],
+        return ModEntry(record["id"], paths[0], self._label(record), self._target_of(record), record["kind"],
                         record["added"], not record["seen"], sum(p.stat().st_size for p in paths),
                         parsed.date, parsed.crc, parsed.core.lower(),
                         repaired_from=record.get("repaired_from", ""), repaired_id=record.get("repaired_id", ""),
-                        user_added=record.get("user_added") is True)
+                        user_added=record.get("user_added") is True, alias=record.get("alias", ""))
+
+    def _label(self, record: dict[str, Any], seen: frozenset[str] = frozenset()) -> str:
+        """Resolve internal aliases and repaired names without touching bundle names or bytes."""
+        alias = record.get("alias")
+        if isinstance(alias, str) and alias:
+            return alias
+        source = record.get("repaired_from")
+        if isinstance(source, str) and source and source not in seen:
+            parent = self._records.get(source)
+            name = self._label(parent, seen | {record["id"]}) if parent else record["label"]
+            return t("webui.remap.name", name=name)
+        return record["label"]
 
     @_serialized
     def mods(self) -> list[ModEntry]:
@@ -918,7 +931,7 @@ class ModLibrary:
         used = any(entry.get("source") == source
                    for folder in ((self.profiles.read() or {}).get("folders") or {}).values()
                    for entry in folder["configured"].values()) or bool(self._in_use(mod_id))
-        return {"name": self._record(mod_id)["label"], "used": used}
+        return {"name": self._label(self._record(mod_id)), "used": used}
 
     @_serialized
     @_mod_writer
@@ -1041,16 +1054,29 @@ class ModLibrary:
                     None)
 
     @_serialized
-    def rename(self, mod_id: str, label: str) -> None:
-        """Change a mod's display label."""
+    def rename(self, mod_id: str, label: str) -> ModEntry:
+        """Set or clear a metadata-only alias, retaining the default name."""
+        if not isinstance(label, str):
+            raise ServiceError("bad_params", key="label")
+        alias = " ".join("".join(ch for ch in unicodedata.normalize("NFC", label)
+                                 if ch.isspace() or not unicodedata.category(ch).startswith("C")).split())
+        if len(alias) > 120:
+            raise ServiceError("bad_params", key="label")
         record = self._record(mod_id)
-        old = record["label"]
-        record["label"] = label
+        old = record.get("alias")
+        if alias:
+            record["alias"] = alias
+        else:
+            record.pop("alias", None)
         try:
             self._save()
         except OSError:
-            record["label"] = old
+            if old is None:
+                record.pop("alias", None)
+            else:
+                record["alias"] = old
             raise
+        return self._entry(self._record(mod_id))
 
     @_serialized
     def mark_seen(self, mod_id: str) -> None:
@@ -3557,7 +3583,7 @@ class ModLibrary:
                 path = Path(temporary) / name
                 path.write_bytes(data)
                 files[name] = path
-            stored = self._store(files, record["label"], record["target"], record["kind"], repaired_from=record["id"])
+            stored = self._store(files, self._label(record), record["target"], record["kind"], repaired_from=record["id"])
         self._remap_previews.pop(preview, None)
         return RemapResult(self._entry(stored), prepared["report"],
                            replace(prepared["compare"], mod_id=stored["id"]))

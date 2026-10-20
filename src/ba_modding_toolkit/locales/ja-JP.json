@@ -981,6 +981,10 @@
 			"add": "別名を追加",
 			"remove": "削除"
 		},
+		"modAlias": {
+			"title": "Mod の別名",
+			"hint": "Enter で保存、空欄で解除"
+		},
 		"fold": {
 			"label": "折りたたむ"
 		},
@@ -1371,7 +1375,7 @@
 		},
 		"remap": {
 			"action": "現行版に合わせて再配置",
-			"name": "{name}（再配置済み）",
+			"name": "{name} - 修復版",
 			"done": "テクスチャ再配置完了",
 			"partial": "再配置完了、一部修復",
 			"counts": "再配置：{moved}、公式画像：{added}、削除：{dropped}",

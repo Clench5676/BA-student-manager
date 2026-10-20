@@ -513,6 +513,72 @@ def test_state_round_trip_seen_labels_favorites_and_removal(setup_library):
     expect_error("mod_not_found", lambda: library.mark_seen(entry.id))
 
 
+@pytest.mark.parametrize("kind", ["spr", "lobby"])
+def test_mod_alias_is_metadata_only_and_empty_restores_default(setup_library, kind):
+    env = setup_library
+    target = env.original if kind == "spr" else game_bundle(env.game_dir, "test_home_gl")
+    source = make_mod(target, env.tmp / "input")
+    entry, = env.library.add([source])
+    env.library.apply("test", f"mod:{entry.id}", kind=kind)
+    before = {path: (path.read_bytes(), path.stat().st_mtime_ns) for path in (target, source, entry.file)}
+    files = set(env.root.rglob("*.bundle"))
+    profiles = (env.root / "profiles.json").read_bytes()
+    saved = env.library.rename(entry.id, "  ../Cafe\u0301\n <paint>\u200b  ")
+    assert (env.root / "profiles.json").read_bytes() == profiles
+    assert saved.alias == saved.label == "../Caf\u00e9 <paint>"
+    record, = json.loads((env.root / "state.json").read_text())["mods"]
+    assert record["label"] == entry.label
+    assert record["alias"] == saved.alias
+    library = reload_library(env)
+    assert library.mods()[0] == saved
+    assert library.removal_info(entry.id)["name"] == saved.alias
+    assert library.add([source]).duplicates[0].alias == saved.alias
+    profiles = (env.root / "profiles.json").read_bytes()
+    cleared = library.rename(entry.id, " \n\t ")
+    assert (env.root / "profiles.json").read_bytes() == profiles
+    assert cleared.alias == "" and cleared.label == entry.label
+    assert reload_library(env).mods()[0] == cleared
+    assert "alias" not in json.loads((env.root / "state.json").read_text())["mods"][0]
+    assert set(env.root.rglob("*.bundle")) == files
+    assert all((path.read_bytes(), path.stat().st_mtime_ns) == stamp for path, stamp in before.items())
+
+
+@pytest.mark.parametrize("label", [None, 42, [], "x" * 121])
+def test_mod_alias_rejects_invalid_input_without_saving(setup_library, label):
+    env = setup_library
+    entry, = env.library.add([make_mod(env.original, env.tmp / "input")])
+    before = (env.root / "state.json").read_bytes()
+    expect_error("bad_params", lambda: env.library.rename(entry.id, label))
+    assert (env.root / "state.json").read_bytes() == before
+    assert env.library.mods() == [entry]
+
+
+@pytest.mark.parametrize("language", ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"])
+def test_repaired_default_name_tracks_original_alias_and_has_its_own_override(setup_library, monkeypatch, language):
+    from ba_modding_toolkit.i18n import I18n
+
+    env = setup_library
+    translate = I18n(language).t
+    monkeypatch.setattr("ba_modding_toolkit.library.service.t", translate)
+    entry, = env.library.add([make_mod(env.original, env.tmp / "input")])
+    env.library.rename(entry.id, "Original alias")
+    source = make_mod(env.original, env.tmp / "repaired", payload=b"repaired")
+    stored = env.library._store({source.name: source}, "Original alias", entry.target, entry.kind,
+                                repaired_from=entry.id)
+    repaired_id = stored["id"]
+    label = lambda: next(m.label for m in reload_library(env).mods() if m.id == repaired_id)
+    assert label() == translate("webui.remap.name", name="Original alias")
+    env.library.rename(entry.id, "Changed alias")
+    assert label() == translate("webui.remap.name", name="Changed alias")
+    env.library.rename(repaired_id, "Own alias")
+    env.library.rename(entry.id, "")
+    assert label() == "Own alias"
+    env.library.rename(repaired_id, "")
+    assert label() == translate("webui.remap.name", name=entry.label)
+    env.library.remove(entry.id)
+    assert label() == translate("webui.remap.name", name="Original alias")
+
+
 @pytest.mark.parametrize("contents", ["{broken", "[]", "null", '{"version":1,"mods":null}',
                                        '{"version":1,"mods":[{}]}'])
 def test_corrupt_state_is_tolerated(setup_library, contents):

@@ -157,12 +157,20 @@ const atlas = { Common: Object.fromEntries([...new Set([
 const reply = (data, status = 200) => ({ ok: status === 200, status, json: async () => data });
 let family, indexMode = "ready", layoutMode = "ready", lobbyMode = "pending", optionalPending = false, modsEnabled = true;
 let seenReply = async () => ({ result: null });
+const saveAlias = async ({ id, label }) => {
+  const mod = family.variants.flatMap((v) => v.modList || []).find((m) => m.id === id);
+  mod.defaultLabel ||= mod.label;
+  mod.alias = label.trim(); mod.label = mod.alias || mod.defaultLabel;
+  return { result: mod };
+};
+let renameReply = saveAlias;
 const textureReplies = [], layoutReplies = [], rpcRequests = [], assetRequests = [];
 globalThis.fetch = async (url, opts = {}) => {
   if (url === "/api/rpc") {
     const request = JSON.parse(opts.body), { method } = request;
     rpcRequests.push(request);
     if (method === "mods.seen") return reply(await seenReply(request.params));
+    if (method === "mods.rename") return reply(await renameReply(request.params));
     return reply({ result: method === "family.get" ? family : method === "mods.state" ? { enabled: modsEnabled } : null });
   }
   assetRequests.push(url);
@@ -214,6 +222,8 @@ const Detail = await import("../../src/ba_modding_toolkit/web/js/detail.js");
 const NGUI = await import("../../src/ba_modding_toolkit/web/js/ngui.js");
 const Loading = await import("../../src/ba_modding_toolkit/web/js/loading.js");
 const ModSwitch = await import("../../src/ba_modding_toolkit/web/js/mod-switch.js");
+const ModAlias = await import("../../src/ba_modding_toolkit/web/js/mod-alias.js");
+const Popup = await import("../../src/ba_modding_toolkit/web/js/popup.js");
 let invalidations = 0;
 const context = { prefs: {}, info: {}, invalidateRoster() { invalidations++; }, step() {}, go() {} };
 function modFamily(kind = "spr", id = "test") {
@@ -549,6 +559,161 @@ test("long portrait and lobby names only resize their own info cell in every loc
     Detail.hide(); t.mock.timers.reset();
     setStrings("en-US", flat(JSON.parse(readFileSync(new URL("../../src/ba_modding_toolkit/locales/en-US.json", import.meta.url), "utf8"))));
   }
+});
+
+const aliasKey = (input, extra = {}) => {
+  const ev = { key: "Enter", preventDefault() {}, ...extra };
+  return Promise.all(input.listeners.keydown.map((fn) => fn(ev)));
+};
+const aliasInput = () => hosts.dialog.querySelector(".alias-input");
+const currentCell = () => walk(hosts.ngui).find((el) => el.dataset.path?.endsWith(`${INFO}/Status/Label_Life/Data_Widget/Data`) && el.style.fontSize);
+test("mod aliases save and clear from the current value and both switch pencils in every locale", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    for (const lang of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"]) {
+      const ui = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${lang}.json`, import.meta.url), "utf8"));
+      setStrings(lang, flat(ui));
+      for (const kind of ["spr", "lobby"]) {
+        family = modFamily(kind);
+        delete family.variants[0][kind === "spr" ? "lobby" : "spr"];
+        await showPortrait(t);
+        const pencil = walk(hosts.ngui).find((e) => e.dataset.part?.endsWith("/ModAliasBtn"));
+        assert.equal(pencil.getAttribute("aria-label"), ui.webui.modAlias.title);
+        await pencil.click(); await flush();
+        const input = aliasInput(), start = rpcRequests.length;
+        assert.equal(input.value, "");
+        input.value = "Alias <paint> & colors";
+        await aliasKey(input, { isComposing: true });
+        await aliasKey(input, { keyCode: 229 });
+        assert.equal(rpcRequests.length, start, "input method confirmation cannot save");
+        await finish(t, aliasKey(input));
+        assert.equal(hosts.dialog.hidden, true);
+        assert.equal(currentCell().getAttribute("aria-label"), input.value);
+        assert.deepEqual(rpcRequests.findLast((r) => r.method === "mods.rename").params, { id: "test", label: input.value });
+        await switchButton().click(); await flush();
+        const card = walk(hosts.popup).find((e) => e.dataset.action === "alias:m:test");
+        const details = walk(hosts.popup).find((e) => e.dataset.action === "alias:details");
+        assert.ok(card && details, `${lang} ${kind}: both names have pencils`);
+        assert.equal(walk(hosts.popup).filter((e) => e.dataset.action?.startsWith("alias:")).length, 2, "official names have no pencil");
+        assert.equal(walk(hosts.popup).find((e) => e.dataset.path === "Details/Name").textContent, input.value);
+        await card.click(); await flush();
+        assert.equal(aliasInput().value, input.value);
+        aliasInput().value = "";
+        await finish(t, aliasKey(aliasInput()));
+        assert.equal(currentCell().getAttribute("aria-label"), "test");
+        assert.equal(walk(hosts.popup).find((e) => e.dataset.path === "Details/Name").textContent, "test");
+        await walk(hosts.popup).find((e) => e.dataset.action === "alias:details").click(); await flush();
+        assert.equal(aliasInput().value, "");
+        await walk(hosts.dialog).find((e) => e.dataset.action === "cancel").click();
+        assert.equal(hosts.popup.hidden, false, "cancel keeps the source picker open");
+        await closeSwitch();
+        Detail.hide();
+      }
+    }
+  } finally {
+    Detail.hide(); t.mock.timers.reset();
+    setStrings("en-US", flat(JSON.parse(readFileSync(new URL("../../src/ba_modding_toolkit/locales/en-US.json", import.meta.url), "utf8"))));
+  }
+});
+
+test("an alias on another variant's mod replaces the entire display name", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    family = modFamily();
+    const mod = family.variants[0].modList[0];
+    Object.assign(mod, { alias: "Only alias", label: "Original name", target: "dress" });
+    family.variants.push({ key: "dress", spr: "ibuki_dress_spr", names: { en: { full: "Ibuki Dress", short: "Dress" } }, modList: [] });
+    await showPortrait(t);
+    await switchButton().click(); await flush();
+    const texts = walk(hosts.popup).filter((e) => e.style.fontSize).map((e) => e.textContent || e.children[0]?.textContent);
+    assert.ok(texts.includes("Only alias"));
+    assert.ok(!texts.some((s) => s?.includes("Dress - Only alias") || s?.includes("Original name")));
+    assert.equal(currentCell().getAttribute("aria-label"), "Only alias");
+    assert.ok(!walk(hosts["ngui-chips"]).some((e) => e.dataset.path?.endsWith("/ModAliasBtn")), "variant chips show student names");
+  } finally { Detail.hide(); t.mock.timers.reset(); }
+});
+
+test("repaired names and own aliases keep a separate repair tag in every locale", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    for (const lang of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"]) {
+      const ui = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${lang}.json`, import.meta.url), "utf8"));
+      setStrings(lang, flat(ui));
+      for (const enabled of [true, false]) for (const alias of ["", "Own alias"]) {
+        modsEnabled = enabled;
+        await ModSwitch.refresh();
+        family = modFamily("spr", "fixed");
+        const v = family.variants[0], mod = v.modList[0];
+        const name = alias || ui.webui.remap.name.replace("{name}", "Painted");
+        Object.assign(mod, { alias, label: name, repaired_from: "original" });
+        v.modList.push({ id: "original", target: v.key, kind: "spr", alias: "Painted", label: "Painted", repaired_id: mod.id });
+        v.configured = { spr: "mod:fixed" };
+        await showPortrait(t);
+        assert.equal(currentCell().getAttribute("aria-label"), name);
+        await switchButton().click(); await flush();
+        const part = (path) => walk(hosts.popup).find((el) => el.dataset.path === path);
+        assert.equal(part("Details/Name").textContent, name);
+        assert.equal(part("Details/Chip_0/Text/Text").textContent, ui.webui.remap.repaired);
+        assert.equal(part("Card_m:fixed/Tag/Text").textContent, ui.webui.remap.repaired);
+        assert.equal(part("Card_m:fixed/Using/Text").textContent, enabled ? ui.webui.popup.inUse : ui.webui.switch.configured);
+        assert.ok(walk(hosts.popup).some((el) => el.dataset.action === "alias:m:fixed"));
+        assert.ok(!walk(hosts.popup).some((el) => el.getAttribute("aria-label") === ui.webui.remap.action));
+        await closeSwitch();
+        Detail.hide();
+      }
+    }
+  } finally {
+    modsEnabled = true;
+    await ModSwitch.refresh();
+    Detail.hide(); t.mock.timers.reset();
+    setStrings("en-US", flat(JSON.parse(readFileSync(new URL("../../src/ba_modding_toolkit/locales/en-US.json", import.meta.url), "utf8"))));
+  }
+});
+
+test("cancel, close, backdrop and Escape discard an alias draft without saving", async () => {
+  const start = rpcRequests.length;
+  for (const how of ["cancel", "close", "backdrop", "escape"]) {
+    await ModAlias.open({ mod: { id: "test", alias: "Saved alias" }, onSaved: () => assert.fail("cancel cannot save") });
+    aliasInput().value = "Draft";
+    if (how === "escape") Popup.onKey({ key: "Escape", preventDefault() {} });
+    else if (how === "backdrop") await walk(hosts.dialog).find((e) => e.dataset.path === "Center/BlackBg/BlackBgClickArea").click();
+    else await walk(hosts.dialog).find((e) => e.dataset.action === how).click();
+    assert.equal(hosts.dialog.hidden, true);
+  }
+  assert.equal(rpcRequests.length, start);
+});
+
+test("failed alias saves keep the draft, and repeated Enter submits once", async () => {
+  let saved = null, resolve;
+  try {
+    renameReply = async () => ({ error: { code: "library_io_error", params: {} } });
+    await ModAlias.open({ mod: { id: "test", alias: "Saved alias" }, onSaved: (m) => { saved = m; } });
+    const input = aliasInput(); input.value = "Retry alias";
+    await aliasKey(input);
+    assert.equal(hosts.dialog.hidden, false);
+    assert.equal(input.value, "Retry alias");
+    assert.equal(input.disabled, false);
+    assert.equal(saved, null);
+    renameReply = () => new Promise((r) => { resolve = r; });
+    const start = rpcRequests.length, pending = aliasKey(input);
+    await aliasKey(input);
+    assert.equal(rpcRequests.length - start, 1);
+    resolve({ result: { id: "test", alias: input.value } });
+    await pending;
+    assert.equal(saved.alias, "Retry alias");
+    assert.equal(hosts.dialog.hidden, true);
+  } finally { ModAlias.close(); renameReply = saveAlias; }
+});
+
+test("leaving detail closes the mod alias editor", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    family = modFamily(); await showPortrait(t);
+    await walk(hosts.ngui).find((e) => e.dataset.part?.endsWith("/ModAliasBtn")).click();
+    assert.ok(aliasInput());
+    Detail.hide();
+    assert.equal(hosts.dialog.hidden, true);
+  } finally { Detail.hide(); t.mock.timers.reset(); }
 });
 
 test("new mod dots survive visits and tab changes, then clear for the switch's offered mods", async (t) => {

@@ -981,6 +981,10 @@
 			"add": "별명 추가",
 			"remove": "삭제"
 		},
+		"modAlias": {
+			"title": "Mod 별칭",
+			"hint": "Enter로 저장, 빈칸으로 해제"
+		},
 		"fold": {
 			"label": "접기"
 		},
@@ -1371,7 +1375,7 @@
 		},
 		"remap": {
 			"action": "현재 버전에 맞춰 재배치",
-			"name": "{name} (재배치 완료)",
+			"name": "{name} - 수정 버전",
 			"done": "텍스처 재배치 완료",
 			"partial": "텍스처 재배치 완료, 부분 수정",
 			"counts": "재배치: {moved}, 공식 이미지: {added}, 제거: {dropped}",
