@@ -1197,7 +1197,8 @@
 			"atlas_remap_page_missing": "Cannot remap: {file} - missing texture for page {page}",
 			"atlas_remap_asset_ambiguous": "Cannot remap: {file} - ambiguous asset {name}",
 			"atlas_remap_atlas_missing": "Cannot remap: {file} - no matching Mod atlas",
-			"atlas_remap_source_missing": "Cannot remap: {file} - Mod atlas missing, no kept official atlas for {date}"
+			"atlas_remap_source_missing": "Cannot remap: {file} - Mod atlas missing, no kept official atlas for {date}",
+			"atlas_remap_regions_missing": "Cannot update automatically, missing Mod regions: {names}"
 		},
 		"drop": {
 			"hint": "Drop mod files to add them"
@@ -1363,14 +1364,17 @@
 			"atlasLayout": "{name}, atlas layout differs",
 			"geometry": "{name}, attachment or mesh geometry differs",
 			"rig": "{name}, bone structure differs",
-			"regions": "Missing atlas regions: {names}"
+			"regions": "Missing atlas regions: {names}",
+			"runtimeVersion": "{name}, Spine {version}, runtime {runtime}",
+			"missingAnimations": "{name}, required animations missing: {names}",
+			"ported": "Assets ported to current bundles"
 		},
 		"remap": {
-			"action": "Remap to current version",
+			"action": "Update",
 			"name": "{name} - Repaired",
 			"done": "Textures remapped",
 			"partial": "Textures remapped, partial fix",
-			"counts": "Remapped: {moved}, official: {added}, dropped: {dropped}",
+			"counts": "Remapped: {moved}, omitted: {dropped}",
 			"dropped": "Dropped regions: {names}",
 			"rig": "{name}, skeleton data differs, attachments or meshes may remain misaligned",
 			"version": "{name}, Spine versions differ, skeleton conversion required",
@@ -1383,7 +1387,8 @@
 			"preview": "Repair preview",
 			"original": "Original",
 			"after": "Repaired",
-			"previewUnavailable": "Preview unavailable"
+			"previewUnavailable": "Preview unavailable",
+			"unpainted": "Unpainted unused regions: {names}"
 		}
 	}
 }

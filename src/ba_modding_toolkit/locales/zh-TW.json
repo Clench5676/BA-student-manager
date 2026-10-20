@@ -1197,7 +1197,8 @@
 			"atlas_remap_page_missing": "無法重排：{file} - 頁面缺少貼圖：{page}",
 			"atlas_remap_asset_ambiguous": "無法重排：{file} - 資源有歧義：{name}",
 			"atlas_remap_atlas_missing": "無法重排：{file} - 缺少相符的 Mod 圖集",
-			"atlas_remap_source_missing": "無法重排：{file} - Mod 缺少圖集，未保留 {date} 的原版圖集"
+			"atlas_remap_source_missing": "無法重排：{file} - Mod 缺少圖集，未保留 {date} 的原版圖集",
+			"atlas_remap_regions_missing": "無法自動修復，Mod 缺少區域：{names}"
 		},
 		"drop": {
 			"hint": "拖入 Mod 檔案以新增"
@@ -1363,14 +1364,17 @@
 			"atlasLayout": "{name}，圖集配置不同",
 			"geometry": "{name}，附件或網格幾何不同",
 			"rig": "{name}，骨骼結構不同",
-			"regions": "缺少圖集區域：{names}"
+			"regions": "缺少圖集區域：{names}",
+			"runtimeVersion": "{name}，Spine {version}，執行階段 {runtime}",
+			"missingAnimations": "{name}，缺少必要動畫：{names}",
+			"ported": "資源已移植至目前資源包"
 		},
 		"remap": {
-			"action": "依目前版本重排貼圖",
+			"action": "更新",
 			"name": "{name} - 修復版",
 			"done": "貼圖已重排",
 			"partial": "貼圖已重排，部分修復",
-			"counts": "已重排：{moved}，使用原版：{added}，已移除：{dropped}",
+			"counts": "已重排：{moved}，未使用：{dropped}",
 			"dropped": "已移除區域：{names}",
 			"rig": "{name}，骨骼資料不同，附件或網格仍可能錯位",
 			"version": "{name}，Spine 版本不同，需要轉換骨骼",
@@ -1383,7 +1387,8 @@
 			"preview": "修復預覽",
 			"original": "原始",
 			"after": "修復後",
-			"previewUnavailable": "預覽不可用"
+			"previewUnavailable": "預覽不可用",
+			"unpainted": "未使用的留空區域：{names}"
 		}
 	}
 }

@@ -1197,7 +1197,8 @@
 			"atlas_remap_page_missing": "再配置不可：{file} - ページのテクスチャなし：{page}",
 			"atlas_remap_asset_ambiguous": "再配置不可：{file} - アセットを特定できません：{name}",
 			"atlas_remap_atlas_missing": "再配置不可：{file} - 対応する Mod アトラスなし",
-			"atlas_remap_source_missing": "再配置不可：{file} - Mod のアトラスなし、{date} の公式アトラスの保管なし"
+			"atlas_remap_source_missing": "再配置不可：{file} - Mod のアトラスなし、{date} の公式アトラスの保管なし",
+			"atlas_remap_regions_missing": "自動修復不可、Mod の不足領域：{names}"
 		},
 		"drop": {
 			"hint": "MODファイルをドロップして追加"
@@ -1363,14 +1364,17 @@
 			"atlasLayout": "{name}、アトラス配置が相違",
 			"geometry": "{name}、アタッチメントまたはメッシュ形状が相違",
 			"rig": "{name}、ボーン構造が相違",
-			"regions": "アトラス領域不足：{names}"
+			"regions": "アトラス領域不足：{names}",
+			"runtimeVersion": "{name}、Spine {version}、ランタイム {runtime}",
+			"missingAnimations": "{name}、必須アニメーション不足：{names}",
+			"ported": "現在のバンドルにアセットを移植済み"
 		},
 		"remap": {
-			"action": "現行版に合わせて再配置",
+			"action": "更新",
 			"name": "{name} - 修復版",
 			"done": "テクスチャ再配置完了",
 			"partial": "再配置完了、一部修復",
-			"counts": "再配置：{moved}、公式画像：{added}、削除：{dropped}",
+			"counts": "再配置：{moved}、未使用：{dropped}",
 			"dropped": "削除した領域：{names}",
 			"rig": "{name}、スケルトンデータが異なるためアタッチメントやメッシュにずれの可能性",
 			"version": "{name}、Spine バージョンが異なるためスケルトン変換が必要",
@@ -1383,7 +1387,8 @@
 			"preview": "修復プレビュー",
 			"original": "元の Mod",
 			"after": "修復後",
-			"previewUnavailable": "プレビューを表示できません"
+			"previewUnavailable": "プレビューを表示できません",
+			"unpainted": "未使用の空白領域：{names}"
 		}
 	}
 }

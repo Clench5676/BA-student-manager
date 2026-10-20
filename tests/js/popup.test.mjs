@@ -977,11 +977,13 @@ test("detail variant candidates preview official assets independently of the sou
 
 test("Update reloads a configured portrait or lobby rebuilt under the same mod id while mods are off", async () => {
   await modsEnabled(false);
+  const inputs = { skeletons: {}, atlases: {}, textures: {} };
+  handlers.set("actions.compatibility", () => ({ result: "compatibility" }));
   for (const [kind, id] of [["spr", "p"], ["lobby", "l"]]) {
     const fam = previewFamily(), draws = [];
     Detail.setupPreviewTest(fam, kind, async () => draws.push(Detail.previewTestState()));
     handlers.set("actions.update", (params) => { assert.deepEqual(params, { mod: id }); return { result: "rebuild" }; });
-    handlers.set("jobs.get", () => ({ result: { state: "done", result: {} } }));
+    handlers.set("jobs.get", ({ id }) => ({ result: { state: "done", result: id === "compatibility" ? { official: inputs, mod: inputs } : {} } }));
     handlers.set("family.get", () => ({ result: structuredClone(fam) }));
     Thumbs.forgotten.length = 0;
     assert.equal(await Detail.runUpdate(), true);
@@ -1204,5 +1206,38 @@ test("repair comparison uses separate in-memory players and disposes both on clo
     press("Escape");
     assert.equal(await pending, false);
     assert.ok(created.every((player) => player.disposed));
+  } finally { globalThis.spine = previous; }
+});
+
+test("the single Update action checks fresh inputs and routes a mixed page mismatch to review", async () => {
+  setStrings("en-US", Object.fromEntries(strings(english)));
+  await modsEnabled(false);
+  const previous = globalThis.spine;
+  globalThis.spine = { TextureAtlas: class {
+    pages = [{ name: "page.png", width: 64, height: 64 }];
+    regions = [];
+  } };
+  try {
+    const fam = previewFamily();
+    Detail.setupPreviewTest(fam, "spr");
+    await Detail.renderPopup();
+    assert.equal(walk(switchHost).filter((el) => el.getAttribute("aria-label") === english.act.update).length, 1);
+    const inputs = { skeletons: {}, atlases: { "test.atlas": "page.png\nsize: 64,64\n" }, textures: { page: [64, 32] } };
+    const built = { preview: "unified-review", pages: [], compare: { assets: [] },
+      report: { moved: ["part"], added: [], dropped: [], warnings: [], partial: false } };
+    const methods = [];
+    handlers.set("actions.compatibility", () => { methods.push("check"); return { result: "unified-check" }; });
+    handlers.set("actions.update", () => assert.fail("remap must not run the classic port"));
+    handlers.set("actions.remap", () => { methods.push("remap"); return { result: "unified-remap" }; });
+    handlers.set("actions.acceptRemap", () => assert.fail("Discard must not store a result"));
+    handlers.set("actions.discardRemap", () => { methods.push("discard"); return { result: null }; });
+    handlers.set("jobs.get", ({ id }) => ({ result: { state: "done", result: id === "unified-check"
+      ? { official: inputs, mod: inputs, remappable: true } : built } }));
+    const updating = Detail.runUpdate();
+    await drawn(dialog, "ok");
+    action(dialog, "cancel").click();
+    await updating;
+    assert.deepEqual(methods, ["check", "remap", "discard"]);
+    switchHost.hidden = true;
   } finally { globalThis.spine = previous; }
 });

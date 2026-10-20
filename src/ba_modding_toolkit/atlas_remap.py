@@ -158,7 +158,7 @@ def pair_atlases(old: dict, new: dict) -> dict[str, str]:
     result = {}
     remaining = set(old)
     for target in new:
-        matches = [source for source in remaining if texture_key(source) == texture_key(target)]
+        matches = [source for source in remaining if Path(texture_key(source)).stem == Path(texture_key(target)).stem]
         if len(matches) == 1:
             result[target] = matches[0]
             remaining.remove(matches[0])
@@ -219,6 +219,15 @@ def layout_changes(old: dict[str, bytes], new: dict[str, bytes], regions: set[st
         if layout(left) != layout(right):
             changes.append(name)
     return sorted(changes)
+
+
+def page_size_mismatch(atlases: dict[str, bytes], textures: dict[str, tuple[int, int]]) -> bool:
+    for name, data in atlases.items():
+        for page in parse_atlas(data, name).pages.values():
+            size = textures.get(texture_key(page.name))
+            if size is None or not all(page.size) or size[0] * page.size[1] != size[1] * page.size[0]:
+                return True
+    return False
 
 
 def _box(region: Region, page: Page, image: Image.Image, file: str = "—") -> tuple[int, int, int, int]:
@@ -307,8 +316,8 @@ def _page_image(atlas: Atlas, page: str, images: dict[str, Image.Image]) -> Imag
 
 
 def remap_pages(old: Atlas, new: Atlas, mod_pages: dict[str, Image.Image],
-                official_pages: dict[str, Image.Image]) -> tuple[dict[str, Image.Image], dict]:
-    """Return new page pixels and names of moved, official-only and dropped regions."""
+                official_pages: dict[str, Image.Image], required: set[str] | None = None) -> tuple[dict[str, Image.Image], dict]:
+    """Move only painted pixels onto transparent pages; refuse unavailable required regions."""
     mod_pages, official_pages = dict(mod_pages), dict(official_pages)
     upscaled = []
     for atlas, images in ((old, mod_pages), (new, official_pages)):
@@ -318,12 +327,16 @@ def remap_pages(old: Atlas, new: Atlas, mod_pages: dict[str, Image.Image],
             if key in keys:
                 raise RemapError("atlas_remap_page_ambiguous", file=atlas.file, page=page)
             keys.add(key)
+            if atlas is old and key not in images:
+                continue
             image = _page_image(atlas, page, images)
             declared = atlas.pages[page].size
             size = max(image.width, declared[0]), max(image.height, declared[1])
             if image.size != size:
                 # Resize the whole page before cropping, including pixels around region edges.
-                if atlas.pages[page].pma:
+                if atlas is new:
+                    image = Image.new("RGBA", size)
+                elif atlas.pages[page].pma:
                     image = Image.frombytes("RGBA", size, Image.frombytes("RGBa", image.size, image.tobytes())
                                             .resize(size, Image.Resampling.LANCZOS).tobytes())
                 else:
@@ -334,14 +347,20 @@ def remap_pages(old: Atlas, new: Atlas, mod_pages: dict[str, Image.Image],
                 if region.page == page:
                     _box(region, atlas.pages[page], image, atlas.file)
     pairs = _pair_regions(old, new)
-    output = {name: _page_image(new, name, official_pages).copy() for name in new.pages}
+    needed = required if required is not None else {r.name for r in new.regions.values()}
+    available = {target.name for key, target in new.regions.items() if key in pairs
+                 and texture_key(pairs[key].page) in mod_pages}
+    missing = needed - available
+    if missing:
+        raise RemapError("atlas_remap_regions_missing", names=", ".join(sorted(missing)))
+    output = {name: Image.new("RGBA", _page_image(new, name, official_pages).size) for name in new.pages}
     moved, added = [], []
     for key, target in new.regions.items():
         target_page = new.pages[target.page]
         destination = output[target.page]
         box = _box(target, target_page, destination, new.file)
         source = pairs.get(key)
-        if source is None:
+        if source is None or texture_key(source.page) not in mod_pages:
             added.append(target.label)
             continue
         source_page = old.pages[source.page]
@@ -391,8 +410,6 @@ def read_inputs(paths: list[Path]) -> Inputs:
             name = data.m_Name
             if obj.type.name == "Texture2D":
                 key = texture_key(name)
-                if key in result.textures:
-                    raise RemapError("atlas_remap_page_ambiguous", file=path.name, page=name)
                 try:
                     result.textures[key] = data.image.convert("RGBA")
                 except (ValueError, EOFError, OSError) as error:
@@ -403,8 +420,6 @@ def read_inputs(paths: list[Path]) -> Inputs:
                 raw = data.m_Script
                 raw = raw if isinstance(raw, bytes) else raw.encode("utf-8", "surrogateescape")
                 collection = result.atlases if name.lower().endswith(".atlas") else result.skeletons
-                if name in collection:
-                    raise RemapError("atlas_remap_asset_ambiguous", file=path.name, name=name)
                 collection[name] = raw
     return result
 
@@ -440,30 +455,43 @@ def prepare_patch(mod: Inputs, official: Inputs) -> tuple[Patch, dict]:
     pairs = pair_atlases(mod.atlases, official.atlases)
     if not pairs:
         raise RemapError("atlas_remap_atlas_missing", file=", ".join(official.atlases) or "*.atlas")
-    patch = {}
     report = {"moved": [], "added": [], "dropped": [], "upscaled": [],
-              "warnings": skeleton_warnings(mod.skeletons, official.skeletons)}
-    current_pages = dict(official.textures)
+              "warnings": []}
+    current_pages = {name: Image.new("RGBA", image.size) for name, image in official.textures.items()}
+    patch = {official.keys[name]: image for name, image in current_pages.items() if name in official.keys}
+    skeleton_pairs = pair_atlases(official.skeletons, official.atlases)
     for name, text in official.atlases.items():
         target = parse_atlas(text, name)
+        skeleton = official.skeletons.get(skeleton_pairs.get(name, ""))
+        required = skeleton_regions({name: skeleton}) if skeleton is not None else None
         if name not in pairs:
-            report["added"].extend(r.label for r in target.regions.values())
-            continue
+            raise RemapError("atlas_remap_regions_missing", names=", ".join(sorted(
+                required if required is not None else {r.name for r in target.regions.values()})))
         source = parse_atlas(mod.atlases[pairs[name]], pairs[name])
-        pages, summary = remap_pages(source, target, mod.textures, current_pages)
+        if skeleton is not None and required is None:
+            # Without a binary attachment reader, require every source and target region.
+            required = {r.name for atlas in (source, target) for r in atlas.regions.values()}
+        pages, summary = remap_pages(source, target, mod.textures, official.textures, required)
         report["upscaled"].extend({"atlas": name, **page} for page in summary["upscaled"])
         for page, image in pages.items():
             key = texture_key(page)
-            current_pages[key] = image
+            # Several atlases can share a page. Copy only their rectangles, including transparent pixels.
             if key not in official.keys:
                 raise RemapError("atlas_remap_page_missing", file=name, page=page)
-            patch[official.keys[key]] = image
+            destination = current_pages[key]
+            if destination.size != image.size:
+                destination = current_pages[key] = destination.resize(image.size, Image.Resampling.LANCZOS)
+            for region in target.regions.values():
+                if region.page == page:
+                    box = _box(region, target.pages[page], image, target.file)
+                    destination.paste(image.crop(box), box[:2])
+            patch[official.keys[key]] = destination
         for key in ("moved", "added", "dropped"):
             report[key].extend(f"{name} - {region}" for region in summary[key])
     for name in mod.atlases.keys() - set(pairs.values()):
         report["dropped"].extend(f"{name} - {r.label}" for r in parse_atlas(mod.atlases[name], name).regions.values())
     report["partial"] = bool(report["warnings"])
-    report["unchanged"] = not report["moved"] or (
+    report["unchanged"] = (
         set(current_pages) == set(mod.textures) and all(
             image.size == mod.textures[key].size and image.tobytes() == mod.textures[key].tobytes()
             for key, image in current_pages.items()))

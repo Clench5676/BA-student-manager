@@ -771,14 +771,12 @@ class ModLibrary:
         selected, official, effective = integrity.Contents(), integrity.Contents(), integrity.Contents()
         sources = {name: integrity.inspect(path) for name, path in files.items()}
         core = core_of(next(iter(files)))
-        targets = self._index(pin).get(core, []) if pin else []
+        targets = self._spine_parts(core, pin) if pin else []
         originals = {}
-        official_paths = []
         unavailable = not targets
         for target in targets:
             try:
                 original = self._official_for(target, pin)
-                official_paths.append(original)
                 originals[target] = integrity.inspect(original)
             except ServiceError as error:
                 if error.code not in ("original_unavailable", "original_invalid"):
@@ -794,19 +792,13 @@ class ModLibrary:
         for target, contents in originals.items():
             if part_of(target.name) not in parts:
                 effective.merge(contents)
-        if compatibility:
-            try:
-                selected.atlases = self._remap_source_atlases(list(files.values()), selected.atlases, official.atlases,
-                                                             official_paths)
-            except atlas_remap.RemapError:
-                pass
-        else:
+        if not compatibility:
             # Import validates dependencies only; absent text parts use the current official assets.
             paired = atlas_remap.pair_atlases(selected.atlases, official.atlases)
             selected.atlases = {**{name: data for name, data in official.atlases.items() if name not in paired},
                                **selected.atlases}
         effective.merge(selected)
-        missing = integrity.missing_parts(effective, official)
+        missing = integrity.missing_parts(effective, official) if not compatibility else set()
         if missing:
             # Name omitted files from the selected folders, without importing them.
             names = dict(effective.reference_names)
@@ -826,12 +818,12 @@ class ModLibrary:
                 "outdated": bool(targets) and set(files) != {path.name for path in targets
                     if part_of(path.name) in parts}}
         try:
-            report["atlasLayout"] = atlas_remap.layout_changes(effective.atlases, official.atlases,
-                                                               atlas_remap.skeleton_regions(effective.skeletons))
-            report["remappable"] = bool(report["atlasLayout"]) and not unavailable and bool(
-                atlas_remap.pair_atlases(selected.atlases, official.atlases))
+            mixed = {name: data for name, data in effective.atlases.items() if name not in selected.atlases
+                     and any(integrity.texture_key(page) in selected.textures
+                             for page in atlas_remap.parse_atlas(data, name).pages)}
+            report["remappable"] = not unavailable and bool(mixed) and atlas_remap.page_size_mismatch(mixed, effective.textures)
         except (ValueError, UnicodeError):
-            report["atlasLayout"], report["remappable"] = [], False
+            report["remappable"] = False
         return report
 
     @_serialized
@@ -3490,17 +3482,29 @@ class ModLibrary:
                 mod = atlas_remap.read_inputs(paths)
                 official = atlas_remap.read_inputs(list(originals.values()))
 
-                def overlay(selected, current) -> dict:
-                    paired = atlas_remap.pair_atlases(selected, current)
-                    return {**{name: data for name, data in current.items() if name not in paired}, **selected}
-
-                original_view = replace(mod, atlases=overlay(mod.atlases, official.atlases),
-                                        skeletons=overlay(mod.skeletons, official.skeletons),
-                                        textures={**official.textures, **mod.textures})
-                mod.skeletons = original_view.skeletons
-                mod.atlases = self._remap_source_atlases(paths, mod.atlases, official.atlases,
-                                                        list(originals.values()))
-                patch, report = atlas_remap.prepare_patch(mod, official)
+                replaced = {part_of(path.name) for path in paths}
+                others = [original for target, original in originals.items() if part_of(target.name) not in replaced]
+                original_view = atlas_remap.read_inputs(others + paths)
+                mixed = {name: data for name, data in original_view.atlases.items() if name not in mod.atlases
+                         and any(atlas_remap.texture_key(page) in mod.textures
+                                 for page in atlas_remap.parse_atlas(data, name).pages)}
+                if not mixed or not atlas_remap.page_size_mismatch(
+                        mixed, {name: image.size for name, image in original_view.textures.items()}):
+                    return {"unchanged": True}
+                mod.atlases = {**mod.atlases, **self._remap_source_atlases(paths, {}, mixed, list(originals.values()))}
+                target_inputs = replace(official, atlases=original_view.atlases, skeletons=original_view.skeletons)
+                patch, report = atlas_remap.prepare_patch(mod, target_inputs)
+                # Preserve the winning mod skeleton and atlas when porting the texture patch.
+                text_patch = {}
+                for path in paths:
+                    bundle = Bundle.load(path)
+                    extracted, _ = bundle.extract_patch({"TextAsset"}, "cont_name_type")
+                    text_patch.update(extracted)
+                target_keys = set().union(*(Bundle.load(path).get_asset_keys("cont_name_type") for path in originals.values()))
+                if text_patch.keys() - target_keys:
+                    raise atlas_remap.RemapError("atlas_remap_target_mismatch", file=paths[0].name,
+                                                 matched=len(text_patch.keys() & target_keys), expected=len(text_patch))
+                patch.update(text_patch)
             except atlas_remap.RemapError as error:
                 raise ServiceError(error.code, **error.params) from error
             except (ValueError, KeyError, EOFError, OSError) as error:
@@ -3517,6 +3521,8 @@ class ModLibrary:
                     raise ServiceError("bundle_invalid", file=original.name)
                 keys = bundle.get_asset_keys("cont_name_type")
                 local_patch = {key: value for key, value in patch.items() if key in keys}
+                local_patch.update({key: patch[official.keys[atlas_remap.texture_key(key.name)]]
+                                    for key in keys if key.type == "Texture2D"})
                 if local_patch:
                     result = core.process_mod_update([], [original], output, {"Texture2D"},
                         self.settings.save_options(self.settings.crc_needed(target)),

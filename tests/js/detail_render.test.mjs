@@ -680,7 +680,7 @@ test("repaired names and own aliases keep a separate repair tag in every locale"
         assert.equal(part("Card_m:fixed/Tag/Text").textContent, ui.webui.remap.repaired);
         assert.equal(part("Card_m:fixed/Using/Text").textContent, enabled ? ui.webui.popup.inUse : ui.webui.switch.configured);
         assert.ok(walk(hosts.popup).some((el) => el.dataset.action === "alias:m:fixed"));
-        assert.ok(!walk(hosts.popup).some((el) => el.getAttribute("aria-label") === ui.webui.remap.action));
+        assert.equal(walk(hosts.popup).filter((el) => el.getAttribute("aria-label") === ui.webui.act.update).length, 1);
         await closeSwitch();
         Detail.hide();
       }

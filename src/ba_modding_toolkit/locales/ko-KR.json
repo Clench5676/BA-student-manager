@@ -1197,7 +1197,8 @@
 			"atlas_remap_page_missing": "재배치 불가: {file} - 페이지 텍스처 없음: {page}",
 			"atlas_remap_asset_ambiguous": "재배치 불가: {file} - 모호한 에셋: {name}",
 			"atlas_remap_atlas_missing": "재배치 불가: {file} - 일치하는 Mod 아틀라스 없음",
-			"atlas_remap_source_missing": "재배치 불가: {file} - Mod 아틀라스 없음, {date} 공식 아틀라스 보관본 없음"
+			"atlas_remap_source_missing": "재배치 불가: {file} - Mod 아틀라스 없음, {date} 공식 아틀라스 보관본 없음",
+			"atlas_remap_regions_missing": "자동 복구 불가, Mod 영역 누락: {names}"
 		},
 		"drop": {
 			"hint": "모드 파일을 끌어다 놓아 추가"
@@ -1363,14 +1364,17 @@
 			"atlasLayout": "{name}, 아틀라스 배치 다름",
 			"geometry": "{name}, 어태치먼트 또는 메시 형상 다름",
 			"rig": "{name}, 본 구조 다름",
-			"regions": "아틀라스 영역 누락: {names}"
+			"regions": "아틀라스 영역 누락: {names}",
+			"runtimeVersion": "{name}, Spine {version}, 런타임 {runtime}",
+			"missingAnimations": "{name}, 필수 애니메이션 누락: {names}",
+			"ported": "현재 번들로 에셋 이식 완료"
 		},
 		"remap": {
-			"action": "현재 버전에 맞춰 재배치",
+			"action": "업데이트",
 			"name": "{name} - 수정 버전",
 			"done": "텍스처 재배치 완료",
 			"partial": "텍스처 재배치 완료, 부분 수정",
-			"counts": "재배치: {moved}, 공식 이미지: {added}, 제거: {dropped}",
+			"counts": "재배치: {moved}, 미사용: {dropped}",
 			"dropped": "제거된 영역: {names}",
 			"rig": "{name}, 스켈레톤 데이터 차이로 어태치먼트 또는 메시 위치 오류 가능",
 			"version": "{name}, Spine 버전 차이로 스켈레톤 변환 필요",
@@ -1383,7 +1387,8 @@
 			"preview": "복구 미리보기",
 			"original": "원본",
 			"after": "복구 후",
-			"previewUnavailable": "미리보기 불가"
+			"previewUnavailable": "미리보기 불가",
+			"unpainted": "미사용 빈 영역: {names}"
 		}
 	}
 }
