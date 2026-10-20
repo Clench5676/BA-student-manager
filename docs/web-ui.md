@@ -667,14 +667,25 @@ in `pointer-textures`); without a game the system cursor stays and there is no e
 
 - **Linear light** (`linear.js`). The game renders in Unity's linear colour space (PlayerSettings
   `m_ActiveColorSpace` 1) with sRGB atlas textures, so its blending happens in linear light: an additive glow over a
-  bright scene adds little, a soft veil over a dark one adds more. Each lobby player samples its atlas pages as sRGB,
-  blends into an sRGB framebuffer and copies the result to its canvas, encoded again; slot colours reach each atlas
-  page's shader (lobby.json layer `shaders`) as that shader takes them (`slot-colours.js`, read from the compiled
-  vertex programs): spine-unity's `Spine/Skeleton` decodes them to linear with UnityCG's cubic fit of the sRGB curve (an
-  additive slot at alpha 0.42 adds 0.15 of its texture), the game's own `Spine/Skeleton MX Standard`, on the pages of
-  97 lobbies, uses them as they are (0.42).
+  bright scene adds little, a soft veil over a dark one adds more. Each lobby player samples its atlas pages as sRGB
+  and blends into an sRGB framebuffer (a lobby's skeletons all into the bottom player's, below), which is copied to
+  the canvas, encoded again; slot colours reach each atlas page's shader (lobby.json layer `shaders`) as that shader
+  takes them (`slot-colours.js`, read from the compiled vertex programs): spine-unity's `Spine/Skeleton` decodes them
+  to linear with UnityCG's cubic fit of the sRGB curve (an additive slot at alpha 0.42 adds 0.15 of its texture), the
+  game's own `Spine/Skeleton MX Standard`, on the pages of 97 lobbies, uses them as they are (0.42).
   Without WebGL2 the player draws in plain sRGB values as before. Drawn in sRGB values, glows such as Kurumi's photo
   booth light or Niko's window washed the scene out to white.
+- **Draw order** (`lobby-stage.js`, `skeleton-parts.js`). spine-unity gives each submesh of a skeleton the material
+  of its atlas page, and Unity sorts every submesh and particle renderer by sorting order, render queue, then back to
+  front, whichever renderer it belongs to. A skeleton whose pages sit in several queues (the scenery at 2900, the
+  character at 3050) draws in one part per queue, and the parts of all of a lobby's skeletons and its effects draw in
+  that one order: the other skeletons' players are made with the bottom player's WebGL context, which runs their
+  frames and draws everything into its framebuffer. Three lobbies need it: their second skeleton, the intro's scene
+  parked beside the lobby, has pages below and above the character's, and their effects sort between them (Wakamo's
+  fire at 3000 under her at 3050, Yuuka (Track)'s dust at 2950 and Shigure's bokeh at 3002 under them). With one
+  canvas per skeleton those effects drew over the character with the parked scene. Equal keys keep the prefab's
+  stacking order (Unity breaks them by the distance from the camera to each renderer's bounds). A lobby whose bottom
+  skeleton does not load draws each skeleton on its own canvas.
 - **Post-processing.** The lobby is drawn by the PC client's main Camera (level1 `Persistent/Camera`: perspective,
   10-degree field of view, HDR), whose culling mask has the lobby's layer 12 and whose URP volume mask has layers 17
   and 30. Every lobby prefab carries global URP volumes on layer 30 (`PPV` at weight 1; `PPV_C`, a flash, and
@@ -689,7 +700,8 @@ in `pointer-textures`); without a game the system cursor stays and there is no e
   32-step LUT; checked against PostProcessPass, UberPost, LutBuilderLdr and ColorUtils.PrepareLiftGammaGain): Panini,
   the three-sample chromatic aberration, then post exposure, the clamp to 0..1 and the LUT's steps (contrast in LogC,
   colour filter, lift / gamma / gain, hue, saturation), in linear light; the LUT's own 32-step interpolation is not
-  modelled. A layer is post-processed on its own (7 lobbies have more than one).
+  modelled. A lobby's skeletons are post-processed together, once, as the camera's target is (7 lobbies have more
+  than one).
   Panini and the aberration are placed in the game's screen (the camera's 16:9 view), not in the canvas: the left
   view and a zoomed or panned fullscreen view show them where the game draws them on the art, magnified with it.
   Placed in the canvas, Michiru's left view had a 7.7 px fringe at its left edge, near the middle of the game's
@@ -741,9 +753,9 @@ in `pointer-textures`); without a game the system cursor stays and there is no e
     AlphaBlend_Add_Double_Distort_1a, AlphaBlend_2_Roz, AlwaysView_Add, Matcap with the meshes' normals, General
     Unlit VertexColor) with each material's blend, in linear
     light: textures sampled as sRGB where the game imports them so, vertex colours as 8-bit sRGB decoded, Color
-    properties decoded (above 1 by a 2.2 power), Vector properties as stored. Each system draws in the context of the
-    skeleton layer it sorts after (sorting order, then render queue, then back to front), between that layer's clear
-    and its skeleton or after it. The textures come from the game files on request and stay in memory.
+    properties decoded (above 1 by a 2.2 power), Vector properties as stored. Each system draws after the skeleton
+    part it sorts after (sorting order, then render queue, then back to front with its sorting fudge; see Draw order),
+    or before the first one. The textures come from the game files on request and stay in memory.
   - The two *_1a shaders (ch0188's and ch0356's water splashes, ch0334's boosters) are UV distortions like Distort:
     their one pass samples only their own main, mask and distortion textures (no grab pass, no camera opaque
     texture), so nothing behind them is read. They also port their vertex programs, which route the particle's
