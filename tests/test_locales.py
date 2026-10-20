@@ -125,3 +125,10 @@ def test_scan_consent_replacement_keys(code):
     assert set(mods["scan"]) == {"title", "will", "willNot", "note", "no", "yes"}
     for section in ("will", "willNot"):
         assert set(mods["scan"][section]) == {"label", "items"}
+
+
+@pytest.mark.parametrize("code", [REFERENCE, *TRANSLATIONS])
+def test_update_and_remap_use_one_localized_action(code):
+    ui = load(code)["webui"]
+    assert ui["remap"]["action"] == ui["act"]["update"]
+    assert placeholders(ui["error"]["atlas_remap_regions_missing"]) == ["names"]

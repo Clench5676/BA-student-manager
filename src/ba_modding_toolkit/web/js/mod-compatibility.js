@@ -31,7 +31,7 @@ export function readSkeleton(input, runtime = globalThis.spine) {
       for (const skin of skins) for (const entries of Object.values(skin || {})) for (const [name, attachment] of Object.entries(entries)) {
         if (!["boundingbox", "path", "point", "clipping"].includes(attachment.type)) use(attachment.path || name, attachment.sequence);
       }
-      return { regions: [...regions] };
+      return { regions: [...regions], animations: Object.keys(data.animations || {}) };
     }
   }
   if (!runtime || (!json && !input.version?.startsWith("4.2."))) throw new Error("Unsupported skeleton version");
@@ -46,9 +46,9 @@ export function readSkeleton(input, runtime = globalThis.spine) {
       if (type === "Region" || type === "Mesh") use(path || name, sequence);
       return create(`${type}Attachment`, name);
     }]));
-  json ? new runtime.SkeletonJson(loader).readSkeletonData(json)
+  const data = json ? new runtime.SkeletonJson(loader).readSkeletonData(json)
     : new runtime.SkeletonBinary(loader).readSkeletonData(bytes);
-  return { regions: [...regions] };
+  return { regions: [...regions], animations: data.animations.map((animation) => animation.name) };
 }
 
 export function compare(report, runtime = globalThis.spine, summarize = false) {
@@ -56,13 +56,23 @@ export function compare(report, runtime = globalThis.spine, summarize = false) {
   const list = summarize ? shortList : joined;
   const official = report.official, mod = report.mod;
   if (report.unavailable) add("unavailable");
+  const stem = (name) => key(name).replace(/\.(skel|atlas)$/i, "");
   const uses = [];
   for (const [name, source] of Object.entries(mod.skeletons)) {
-    const target = official.skeletons[name];
+    const target = official.skeletons[name] || Object.entries(official.skeletons).find(([other]) => stem(other) === stem(name))?.[1]
+      || (Object.keys(mod.skeletons).length === 1 && Object.keys(official.skeletons).length === 1 ? Object.values(official.skeletons)[0] : null);
     if (target && source.version?.split(".").slice(0, 2).join(".") !== target.version?.split(".").slice(0, 2).join("."))
-      add("version", { name, mod: source.version || "?", official: target.version || "?" });
-    try { uses.push({ name, regions: readSkeleton(source, runtime).regions }); }
-    catch { add("unreadable", { name }); }
+      add("runtimeVersion", { name, version: source.version || "?", runtime: target.version || "?" });
+    try {
+      const data = readSkeleton(source, runtime);
+      uses.push({ name, regions: data.regions });
+      if (target) {
+        let required;
+        try { required = readSkeleton(target, runtime).animations; } catch { add("unavailable"); }
+        const missing = required?.filter((animation) => !data.animations.includes(animation)) || [];
+        if (missing.length) add("missingAnimations", { name, names: list(missing) }, summarize ? { name, names: joined(missing) } : null);
+      }
+    } catch { add("unreadable", { name }); }
   }
   if (!Object.keys(mod.skeletons).length && Object.keys(official.skeletons).length)
     add("skeletons", { name: joined(Object.keys(official.skeletons)) });
@@ -73,38 +83,25 @@ export function compare(report, runtime = globalThis.spine, summarize = false) {
       return { name, ...atlas };
     } catch { add("atlasUnreadable", { name }); return { name, pages: [], regions: [] }; }
   });
-  const left = atlases(mod), right = atlases(official);
-  const stem = (name) => key(name).replace(/\.(skel|atlas)$/i, "");
+  const left = atlases(mod);
   const unpaired = left.filter((a) => !uses.some((s) => stem(s.name) === stem(a.name)));
   const unnamed = uses.filter((s) => !left.some((a) => stem(s.name) === stem(a.name)));
-  const used = new Map(left.map((a) => [a, new Set()])), missing = [];
+  const missing = [];
   for (const skeleton of uses) {
     const atlas = left.find((a) => stem(a.name) === stem(skeleton.name))
       || (left.length === 1 ? left[0] : unpaired.length === 1 && unnamed.length === 1 ? unpaired[0] : null);
     for (const path of skeleton.regions) {
-      if (atlas) used.get(atlas).add(path);
       if (!atlas?.regions.some((r) => r.name === path)) missing.push(path);
     }
   }
   if (missing.length) add("regions", { names: list(missing) }, summarize ? { names: joined(missing) } : null);
   for (const atlas of left) for (const page of atlas.pages) {
-    if (!page.regions.some((r) => used.get(atlas).has(r.name))) continue;
     const size = mod.textures[key(page.name)];
     if (!size || !page.width || !page.height || size[0] * page.height !== size[1] * page.width)
       add("atlasSize", { name: page.name, atlas: `${page.width} × ${page.height}`, texture: size?.join(" × ") || "—" });
   }
-  const rect = (r) => [key(r.page.name), r.index, r.degrees, r.x / r.page.width, r.y / r.page.height,
-    r.width / r.page.width, r.height / r.page.height, r.offsetX / r.originalWidth, r.offsetY / r.originalHeight,
-    r.width / r.originalWidth, r.height / r.originalHeight];
-  for (const atlas of right) {
-    const source = left.find((a) => key(a.name) === key(atlas.name)) || (left.length === 1 && right.length === 1 ? left[0] : null);
-    if (!source) continue;
-    const layout = (a, path) => JSON.stringify(a.regions.filter((r) => r.name === path).map(rect).sort());
-    if ([...used.get(source)].some((path) => atlas.regions.some((r) => r.name === path) && layout(source, path) !== layout(atlas, path)))
-      add("atlasLayout", { name: atlas.name });
-  }
-  return { issues, author: issues.some(({ key }) => !["atlasLayout", "unavailable"].includes(key)),
-    remap: eligible(report) && report.remappable === true && issues.some(({ key }) => ["atlasLayout", "regions", "atlasSize"].includes(key)) };
+  return { issues, author: issues.some(({ key }) => key !== "unavailable"),
+    remap: eligible(report) && report.remappable === true && issues.some(({ key }) => ["regions", "atlasSize"].includes(key)) };
 }
 
 export async function show(report, { label = "", onRemap } = {}) {
@@ -136,8 +133,9 @@ export async function remap(id, onRemapped = () => {}, label = "") {
     return result;
   }
   const report = result.report;
-  const lines = [T("remap.counts", { moved: report.moved.length, added: report.added.length, dropped: report.dropped.length }),
+  const lines = [T("remap.counts", { moved: report.moved.length, dropped: report.dropped.length }),
     ...new Set((report.upscaled || []).map(({ w, h }) => T("remap.upscaled", { w, h }))),
+    ...(report.added.length ? [T("remap.unpainted", { names: joined(report.added) })] : []),
     ...(report.dropped.length ? [T("remap.dropped", { names: joined(report.dropped) })] : []),
     ...report.warnings.map(({ key, name }) => T(`remap.${key}`, { name }))];
   try {
@@ -158,9 +156,14 @@ export async function remap(id, onRemapped = () => {}, label = "") {
   }
 }
 
-export async function check(id, label = "", onRemapped = () => {}) {
+export async function inspect(id, label = "") {
   const report = await Loading.task(async (update) => waitJob(await rpc("actions.compatibility", { mod: id }), update),
     { label: T("progress.compatibility", { name: label || T("progress.mods") }) });
   reports.set(id, { ...report, remappable: compare(report).remap });
+  return report;
+}
+
+export async function check(id, label = "", onRemapped = () => {}) {
+  const report = await inspect(id, label);
   return show(report, { label, onRemap: () => remap(id, onRemapped, label) });
 }

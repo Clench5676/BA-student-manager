@@ -146,7 +146,7 @@ const hasModel = (v) => !!v.model;
 const hasFresh = (v, kind = null) => (v.modList || []).some((m) => m.fresh && (!kind || m.kind === kind));
 const modLabel = (m) => m.alias || m.label || m.file?.split(/[\\/]/).pop() || m.id;
 const repairedId = (c) => c?.mod?.repaired_id && familyMods().some((m) => m.id === c.mod.repaired_id) ? c.mod.repaired_id : null;
-const repairAction = (c) => repairedId(c) ? "remap.go" : Compatibility.canRemap(c?.id, c?.mod) ? "remap.action" : "act.update";
+const repairAction = (c) => repairedId(c) ? "remap.go" : "act.update";
 // a candidate's skeleton: a mod's preview (its parts over the official ones), else the variant's own portrait or lobby
 const baseOf = (c, kind = "spr") => (c.kind === "mod" ? spineBase("mod", c.id) : spineBase(`official-${kind}`, c.core));
 // The installed portrait comes from the current game files; with mods off, preview the configured source.
@@ -518,7 +518,7 @@ function hits(view, leftHost, rightHost) {
   if (shownMod()) add(rightHost, `${INFO}/Status/Label_Life/Data_Widget/ModAliasBtn`, () => editModName(shownMod().mod), T("modAlias.title"));
   const act = (card, fn, name) => add(rightHost, `${INFO}/Skill/${card}/Bg`, fn, name);
   act("SkillData_EX", () => runCompatibility(), T("compatibility.check"));
-  act("SkillData_EX (1)", () => repairedId(shownMod()) ? jumpRepaired(shownMod()) : Compatibility.canRemap(shownMod()?.id, shownMod()?.mod) ? runRemap(shownMod()) : runUpdate(),
+  act("SkillData_EX (1)", () => repairedId(shownMod()) ? jumpRepaired(shownMod()) : runUpdate(),
     T(repairAction(shownMod())));
   act("SkillData_EX (2)", () => runExtract(), T("act.extract"));
   act("SkillData_EX (3)", () => runCompare(), T("act.compare"));
@@ -631,12 +631,16 @@ function shownMod() {
   const sk = switchKind(), c = sk && current(sk);
   return c?.kind === "mod" ? c : null;
 }
-function runUpdate() {
-  const c = shownMod(), kind = switchKind();
+async function runUpdate(c = shownMod()) {
+  const kind = switchKind();
   if (!c || busy) return;
+  if (Compatibility.eligible(c.mod)) {
+    if (!await call(() => Compatibility.inspect(c.id, c.label))) return false;
+    if (Compatibility.canRemap(c.id, c.mod)) return runRemap(c);
+  }
   return job("actions.update", { mod: c.id }, {
     name: c.label,
-    onDone: () => { forget(spinePrefix("mod", c.id)); },
+    onDone: (result) => { forget(spinePrefix("mod", c.id)); toast(T(result?.unchanged ? "remap.unneeded" : "compatibility.ported")); },
     after: (ok) => reload(ok ? [kind] : []),
   });
 }
@@ -649,6 +653,7 @@ async function runCompatibility() {
 async function remapped() {
   ctx.invalidateRoster();
   await reload();
+  toast(T("remap.done"));
 }
 async function runRemap(c) {
   if (!c || busy || !Compatibility.eligible(c.mod)) return;
@@ -1098,7 +1103,7 @@ async function drawPopup(scroll = 0) {
             let rebuilt = false;
             await call(() => Compatibility.check(c.id, c.label, () => { rebuilt = true; return remapped(); }));
             if (open && !rebuilt) await renderPopup();
-          }], ...(repairedId(c) ? [[T("remap.go"), () => jumpRepaired(c)]] : Compatibility.canRemap(c.id, c.mod) ? [[T("remap.action"), () => runRemap(c)]] : [])] : []),
+          }], ...(repairedId(c) ? [[T("remap.go"), () => jumpRepaired(c)]] : [[T("act.update"), () => runUpdate(c)]])] : []),
           c.kind === "mod"
             ? [T("btn.delete"), async () => {
               if (!(await removeMod(c.id))) return;

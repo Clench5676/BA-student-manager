@@ -220,7 +220,8 @@ def test_compatibility_uses_the_new_current_official_files_after_a_game_update(s
     assert json.loads(base64.b64decode(report["official"]["skeletons"]["test_spr.skel"]["data"])) == data["official"]
 
 
-def test_missing_mod_atlas_uses_its_dated_official_copy_for_compatibility(serialized):
+@pytest.mark.parametrize("size,remappable", [([8, 8], False), ([8, 4], True)])
+def test_compatibility_keeps_the_live_atlas_and_checks_page_proportions(serialized, size, remappable):
     env, register = serialized
     old_atlas = "page.png\nsize: 16,16\nIntro_A/Intro_A\n bounds: 2,2,4,4\n"
     current_atlas = old_atlas.replace("2,2,4,4", "8,8,4,4")
@@ -228,12 +229,14 @@ def test_missing_mod_atlas_uses_its_dated_official_copy_for_compatibility(serial
     kept = register(game_bundle(env.library.root / "originals", date="2025-01-01", payload=b"old official"),
                     {"atlases": {"test.atlas": old_atlas}, "textures": {"page": [16, 16]}})
     source = register(make_mod(kept, env.tmp / "input"),
-                      {"skeletons": {"test.skel": "4.2.33"}, "textures": {"page": [8, 8]}})
+                      {"skeletons": {"test.skel": "4.2.33"}, "textures": {"page": size}})
+    register(game_bundle(env.game_dir, part="textassets", payload=b"official text"),
+             {"atlases": {"test.atlas": current_atlas}})
     before = {path: path.read_bytes() for path in (source, kept, env.original)}
     entry, = env.library.add([source])
     report = env.library.compatibility(entry.id)
-    assert report["mod"]["atlases"] == {"test.atlas": old_atlas}
-    assert report["atlasLayout"] == ["test.atlas"] and report["remappable"]
+    assert report["mod"]["atlases"] == {"test.atlas": current_atlas}
+    assert report["remappable"] is remappable
     assert all(path.read_bytes() == content for path, content in before.items())
 
 
@@ -309,7 +312,7 @@ def test_adding_without_an_install_keeps_the_mod_and_reports_the_refused_switch(
     assert report.failed[0]["code"] == "game_not_found"
 
 
-def test_atlas_positions_rotations_and_trim_changes_offer_remapping(serialized):
+def test_self_contained_atlas_positions_rotations_and_trims_are_not_official_drift(serialized):
     env, register = serialized
     old = "page.png\nsize: 64,64\npart\n  rotate: false\n  xy: 0,0\n  size: 4,8\n  orig: 6,10\n  offset: 1,1\n  index: -1\n"
     new = "page.png\nsize: 64,64\npart\n  rotate: 90\n  bounds: 20,20,4,8\n  offsets: 1,1,6,10\n  index: -1\n"
@@ -318,7 +321,7 @@ def test_atlas_positions_rotations_and_trim_changes_offer_remapping(serialized):
         {"atlases": {"test.atlas": old}, "textures": {"page": [64, 64]}})
     entry, = env.library.add([source])
     report = env.library.compatibility(entry.id)
-    assert report["atlasLayout"] == ["test.atlas"] and report["remappable"]
+    assert not report["remappable"]
     register(source, {"atlases": {"test.atlas": new}, "textures": {"page": [64, 64]}})
     # Inspecting an equal atlas is insensitive to line indentation and syntax spelling.
     from ba_modding_toolkit.atlas_remap import layout_changes

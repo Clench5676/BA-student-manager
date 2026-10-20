@@ -14,6 +14,7 @@ from UnityPy.streams import EndianBinaryWriter
 from ba_modding_toolkit import atlas_remap as remap, core
 from ba_modding_toolkit.bundle import Bundle
 from ba_modding_toolkit.i18n import I18n, t
+from ba_modding_toolkit.library.integrity import inspect as inspect_bundle
 from ba_modding_toolkit.models import ContNameTypeKey, SaveOptions
 from ba_modding_toolkit.utils import CRCUtils
 
@@ -68,7 +69,8 @@ def repacked():
         ("trim", -1, (1, 10), (3, 2), (7, 6), (2, 1), 0),
         ("frame", 0, (12, 10), (3, 2), (3, 2), (0, 0), 270),
         ("frame", 1, (18, 10), (3, 2), (3, 2), (0, 0), 180),
-        ("removed", -1, (25, 10), (2, 2), (2, 2), (0, 0), 0)])]
+        ("removed", -1, (25, 10), (2, 2), (2, 2), (0, 0), 0),
+        ("added", -1, (30, 15), (4, 3), (4, 3), (0, 0), 0)])]
     new = [("current.png", (32, 40), [
         ("body", -1, (20, 1), (5, 3), (5, 3), (0, 0), 90),
         ("face", -1, (1, 1), (3, 5), (3, 5), (0, 0), 0),
@@ -85,7 +87,7 @@ def repacked():
     art[("trim", -1)] = trim
     official_art = {key: Image.new("RGBA", size, (10, 20, 30, 255)) for key, size in sizes.items()}
     official_art[("added", -1)] = pattern((4, 3), 230)
-    expected_art = {**art, ("added", -1): official_art[("added", -1)]}
+    expected_art = art
     return old, new, art, official_art, expected_art
 
 
@@ -101,8 +103,8 @@ def test_repack_positions_rotations_trims_indices_and_page_changes(repacked):
     output, report = remap.remap_pages(remap.parse_atlas(atlas_text(old)), remap.parse_atlas(atlas_text(new, True)),
                                       pack(old, art), pack(new, official_art))
     assert_pages(output, pack(new, expected_art))
-    assert report == {"moved": ["body", "face", "frame [0]", "frame [1]", "trim"],
-                      "added": ["added"], "dropped": ["removed"], "upscaled": []}
+    assert report == {"moved": ["added", "body", "face", "frame [0]", "frame [1]", "trim"],
+                      "added": [], "dropped": ["removed"], "upscaled": []}
 
 
 @pytest.mark.parametrize("degrees", [0, 90, 180, 270])
@@ -158,11 +160,10 @@ def test_undersized_pages_are_resized_before_regions_are_placed(pma):
     if pma:
         scaled = Image.frombytes("RGBA", (16, 12), Image.frombytes("RGBa", image.size, image.tobytes())
                                  .resize((16, 12), Image.Resampling.LANCZOS).tobytes())
-        expected = Image.frombytes("RGBA", (20, 16), Image.frombytes("RGBa", official.size, official.tobytes())
-                                   .resize((20, 16), Image.Resampling.LANCZOS).tobytes())
+        expected = Image.new("RGBA", (20, 16))
     else:
         scaled = image.resize((16, 12), Image.Resampling.LANCZOS)
-        expected = official.resize((20, 16), Image.Resampling.LANCZOS)
+        expected = Image.new("RGBA", (20, 16))
     expected.paste(scaled.crop((2, 2, 6, 8)).transpose(Image.Transpose.ROTATE_90), (10, 4))
     assert output["official.png"].size == (20, 16)
     assert output["official.png"].tobytes() == expected.tobytes()
@@ -172,7 +173,7 @@ def test_undersized_pages_are_resized_before_regions_are_placed(pma):
 
 
 @pytest.mark.parametrize("change,code", [("rotation", "property"), ("duplicate", "region_ambiguous"),
-                                        ("bounds", "bounds"), ("page", "page_missing")])
+                                        ("bounds", "bounds"), ("page", "regions_missing")])
 def test_remap_errors_identify_atlas_region_or_page(change, code):
     text = "page.png\nsize: 8,8\nIntro_A/Intro_A\n bounds: 2,2,4,4\n rotate: 0\n"
     if change == "rotation":
@@ -186,6 +187,9 @@ def test_remap_errors_identify_atlas_region_or_page(change, code):
         remap.remap_pages(atlas, atlas, {} if change == "page" else {"page": Image.new("RGBA", (4, 4))},
                           {"page": Image.new("RGBA", (8, 8))})
     assert caught.value.code == "atlas_remap_" + code
+    if change == "page":
+        assert caught.value.params == {"names": "Intro_A/Intro_A"}
+        return
     assert caught.value.params["file"] == "CH0261_home.atlas"
     assert "page.png" in str(caught.value.params)
     if change != "page":
@@ -347,7 +351,7 @@ def test_unity_bundle_round_trip_uses_update_crc_and_official_rig(tmp_path, repa
     assert_pages({name + ".png": image for name, image in actual.textures.items()}, expected)
     assert actual.atlases == remap.read_inputs([official]).atlases
     assert actual.skeletons == remap.read_inputs([official]).skeletons
-    assert report["partial"] and {w["key"] for w in report["warnings"]} == {"version", "rig"}
+    assert not report["partial"] and not report["warnings"]
     assert (mod.read_bytes(), official.read_bytes()) == before
     assert all(obj.read().m_TextureFormat == texture_format for obj in Bundle.load(built).env.objects if obj.type.name == "Texture2D")
 
@@ -359,47 +363,33 @@ def _official_name(path):
     return renamed
 
 
+def split_official(path):
+    inputs = remap.read_inputs([path])
+    name = path.name.replace("2026-01-01_003", "textassets-2026-01-01")
+    _official_name(write_bundle(path.with_name(name), inputs.atlases, {},
+                               inputs.skeletons.get("test.skel")))
+    return _official_name(write_bundle(path, {}, inputs.textures, skeleton=None))
+
+
 @pytest.mark.parametrize("official_source", ["kept", "backup"])
-def test_library_remap_keeps_installed_official_copy_and_original_mod(setup_library, repacked, monkeypatch, official_source):
+def test_self_contained_mod_does_not_remap_to_official_layout(setup_library, repacked, official_source):
     env = setup_library
-    old, new, art, official_art, expected_art = repacked
+    old, new, art, official_art, _ = repacked
     env.original.unlink()
-    current = _official_name(write_bundle(env.original, {"test.atlas": atlas_text(new, True)}, pack(new, official_art)))
+    current = _official_name(write_bundle(env.original, {"test.atlas": atlas_text(new)}, pack(new, official_art)))
     source = write_bundle(env.tmp / "upload" / current.name.replace("2026-01-01", "2025-01-01"),
                           {"test.atlas": atlas_text(old)}, pack(old, art))
     entry, = env.library.add([source])
-    # Simulate the old mod being installed, with the verified current official copy kept by the library.
     kept = env.library._original_path(current) if official_source == "kept" else current.with_name(current.name + ".backup")
     kept.parent.mkdir(parents=True, exist_ok=True)
     kept.write_bytes(current.read_bytes())
     current.write_bytes(source.read_bytes())
     before = {path: path.read_bytes() for path in (current, kept, entry.file)}
-    monkeypatch.setattr(env.settings, "crc_needed", lambda path: True)
-    progress = []
-    preview = env.library.remap(entry.id, progress=lambda *args: progress.append(args))
-    assert progress == [(1, 1, t("webui.progress.remap", name=current.name))]
-    assert [mod.id for mod in env.library.mods()] == [entry.id]
-    result = env.library.accept_remap(preview["preview"])
-    assert result.mod.id != entry.id
-    assert entry.user_added and not result.mod.user_added
-    assert not next(m for m in reload_library(env).mods() if m.id == result.mod.id).user_added
-    assert result.mod.label == t("webui.remap.name", name=entry.label)
-    assert env.library._records[result.mod.id]["repaired_from"] == entry.id
-    env.library.rename(entry.id, "My painting")
-    assert env.library._entry(env.library._records[result.mod.id]).label == t("webui.remap.name", name="My painting")
-    env.library.rename(entry.id, "")
-    assert len(env.library.mods()) == 2
-    assert result.mod.date == "2026-01-01"
-    assert not result.report["partial"]
-    built = remap.read_inputs([result.mod.file])
-    assert_pages({name + ".png": image for name, image in built.textures.items()}, pack(new, expected_art))
-    assert built.atlases == remap.read_inputs([kept]).atlases
-    assert built.skeletons == remap.read_inputs([kept]).skeletons
-    assert CRCUtils.compute_crc32(result.mod.file.read_bytes()) == int(current.stem.rsplit("_", 1)[1])
+    assert not env.library.compatibility(entry.id)["remappable"]
+    assert env.library.remap(entry.id) == {"unchanged": True}
+    assert not env.library._remap_previews
+    assert len(env.library.mods()) == 1
     assert all(path.read_bytes() == content for path, content in before.items())
-    assert result.compare.mod_id == result.mod.id
-    assert any(asset.status == "changed" and asset.name == "test.atlas" for asset in result.compare.assets)
-    assert result.to_json()["mod"]["id"] == result.mod.id
 
 
 def test_library_remap_refuses_missing_dated_atlas_without_storing(setup_library, monkeypatch):
@@ -407,8 +397,9 @@ def test_library_remap_refuses_missing_dated_atlas_without_storing(setup_library
     env.original.unlink()
     pages = [("page.png", (8, 8), [("part", -1, (1, 1), (2, 2), (2, 2), (0, 0), 0)])]
     current = _official_name(write_bundle(env.original, {"test.atlas": atlas_text(pages)}, {"page": Image.new("RGBA", (8, 8))}))
+    current = split_official(current)
     source = write_bundle(env.tmp / "upload" / current.name.replace("2026-01-01", "2025-01-01"), {},
-                          {"page": Image.new("RGBA", (8, 8), "red")})
+                          {"page": Image.new("RGBA", (8, 4), "red")})
     entry, = env.library.add([source])
     from ba_modding_toolkit.errors import ServiceError
     with pytest.raises(ServiceError, match="atlas_remap_source_missing") as caught:
@@ -426,12 +417,12 @@ def test_library_remap_missing_atlas_can_use_verified_current_copy_of_same_date(
     pages = [("page.png", (8, 8), [("part/path", -1, (2, 2), (4, 4), (4, 4), (0, 0), 0)])]
     current = _official_name(write_bundle(env.original, {"test.atlas": atlas_text(pages)},
                                           {"page": Image.new("RGBA", (8, 8), "blue")}))
+    current = split_official(current)
     source = write_bundle(env.tmp / "upload" / current.name, {}, {"page": Image.new("RGBA", (4, 4), "red")})
     entry, = env.library.add([source])
     monkeypatch.setattr(integrity, "inspect", lambda path: integrity.Contents(atlases=remap.read_inputs([path]).atlases))
     preview = env.library.remap(entry.id)
     assert preview["unchanged"]
-    assert not preview["report"]["moved"]
     assert [mod.id for mod in env.library.mods()] == [entry.id]
     assert not env.library._remap_previews
 
@@ -447,10 +438,11 @@ def test_library_remap_uses_only_kept_atlas_of_mod_date(setup_library, monkeypat
     new = [("page.png", (16, 16), [(region[0], -1, (10, 10), *region[3:])])]
     current = _official_name(write_bundle(env.original, {"test.atlas": atlas_text(new)},
                                           {"page": Image.new("RGBA", (16, 16), "blue")}))
+    current = split_official(current)
     dated_name = current.name.replace("2026-01-01", "2025-01-01")
     kept = _official_name(write_bundle(env.library.root / "originals" / dated_name,
                                        {"test.atlas": atlas_text(old)}, {"page": Image.new("RGBA", (16, 16))}))
-    source = write_bundle(env.tmp / "upload" / dated_name, {}, {"page": Image.new("RGBA", (8, 8), "red")},
+    source = write_bundle(env.tmp / "upload" / dated_name, {}, {"page": Image.new("RGBA", (8, 4), "red")},
                           b'3.8.99 modified rig')
     entry, = env.library.add([source])
     if date != "2025-01-01":
@@ -466,10 +458,10 @@ def test_library_remap_uses_only_kept_atlas_of_mod_date(setup_library, monkeypat
         preview = env.library.remap(entry.id)
         assert preview["drawings"]["original"][0]["atlas"] == atlas_text(new)
         result = env.library.accept_remap(preview["preview"])
-        built = remap.read_inputs([result.mod.file])
+        built = remap.read_inputs(sorted(result.mod.file.parent.glob("*.bundle")))
         assert built.textures["page"].getpixel((10, 10)) == (255, 0, 0, 255)
-        assert built.textures["page"].getpixel((2, 2)) == (0, 0, 255, 255)
-        assert result.report["partial"] and result.report["warnings"]
+        assert built.textures["page"].getpixel((2, 2)) == (0, 0, 0, 0)
+        assert not result.report["partial"] and not result.report["warnings"]
         assert built.atlases == {"test.atlas": atlas_text(new).encode()}
     assert before == (current.read_bytes(), entry.file.read_bytes())
 
@@ -487,7 +479,7 @@ def test_multiple_atlases_can_repaint_a_shared_page():
     patch, _ = remap.prepare_patch(mod, official)
     assert patch["page"].getpixel((1, 1)) == (255, 0, 0, 255)
     assert patch["page"].getpixel((8, 8)) == (0, 255, 0, 255)
-    assert patch["page"].getpixel((4, 4)) == (0, 0, 255, 255)
+    assert patch["page"].getpixel((4, 4)) == (0, 0, 0, 0)
 
 
 def test_new_and_removed_whole_atlases_are_reported():
@@ -496,7 +488,7 @@ def test_new_and_removed_whole_atlases_are_reported():
                                {"shared.atlas": text, "added.atlas": text, "extra.atlas": text}) == ["added.atlas", "extra.atlas", "removed.atlas"]
 
 
-def test_library_remaps_split_bundles_and_keeps_official_text_part(setup_library, repacked):
+def test_self_contained_split_bundles_do_not_use_official_layout(setup_library, repacked):
     env = setup_library
     old, new, art, official_art, expected_art = repacked
     env.original.unlink()
@@ -508,15 +500,11 @@ def test_library_remaps_split_bundles_and_keeps_official_text_part(setup_library
                write_bundle(env.tmp / "upload" / texture_target.name.replace("2026-01-01", "2025-01-01"),
                             {}, pack(old, art), skeleton=None)]
     entry, = env.library.add(sources)
-    preview = env.library.remap(entry.id)
-    result = env.library.accept_remap(preview["preview"])
-    stored = sorted(result.mod.file.parent.glob("*.bundle"))
-    assert {path.name for path in stored} == {text_target.name, texture_target.name}
-    assert (result.mod.file.parent / text_target.name).read_bytes() == text_target.read_bytes()
-    built = remap.read_inputs(stored)
-    assert_pages({name + ".png": image for name, image in built.textures.items()}, pack(new, expected_art))
-    assert built.atlases == {"test.atlas": atlas_text(new, True).encode()}
-    assert len(env.library.mods()) == 2
+    before = {path: path.read_bytes() for path in [text_target, texture_target, *env.library._paths(env.library._records[entry.id])]}
+    assert not env.library.compatibility(entry.id)["remappable"]
+    assert env.library.remap(entry.id)["unchanged"]
+    assert len(env.library.mods()) == 1
+    assert all(path.read_bytes() == data for path, data in before.items())
 
 
 @pytest.mark.parametrize("language", ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"])
@@ -548,13 +536,19 @@ def test_unscaled_trim_crop_preserves_hidden_colour_channels():
 
 
 @pytest.fixture
-def repair_review(setup_library, repacked):
+def repair_review(setup_library, monkeypatch):
+    monkeypatch.setattr("ba_modding_toolkit.library.integrity.inspect", inspect_bundle)
     env = setup_library
-    old, new, art, official_art, _ = repacked
     env.original.unlink()
-    current = _official_name(write_bundle(env.original, {"test.atlas": atlas_text(new)}, pack(new, official_art)))
-    source = write_bundle(env.tmp / "upload" / current.name.replace("2026-01-01", "2025-01-01"),
-                          {"test.atlas": atlas_text(old)}, pack(old, art))
+    old = [("page.png", (16, 16), [("part", -1, (1, 1), (4, 4), (4, 4), (0, 0), 0)])]
+    new = [("page.png", (16, 16), [("part", -1, (8, 8), (4, 4), (4, 4), (0, 0), 0)])]
+    skeleton = json.dumps({"skeleton": {"spine": "4.2.33"}, "bones": [{"name": "root"}],
+                          "skins": [{"name": "default", "attachments": {"slot": {"part": {}}}}]}).encode()
+    current = split_official(_official_name(write_bundle(env.original, {"test.atlas": atlas_text(new)},
+                                          {"page": Image.new("RGBA", (16, 16), "blue")}, skeleton)))
+    dated = current.name.replace("2026-01-01", "2025-01-01")
+    _official_name(write_bundle(env.library.root / "originals" / dated, {"test.atlas": atlas_text(old)}, {}, skeleton))
+    source = write_bundle(env.tmp / "upload" / dated, {}, {"page": Image.new("RGBA", (16, 8), "red")}, skeleton=None)
     entry, = env.library.add([source])
     return env, entry, current, source
 
@@ -570,7 +564,7 @@ def test_remap_review_and_discard_leave_no_mod_files_or_metadata(repair_review):
     assert [mod.id for mod in env.library.mods()] == [entry.id]
     assert set(preview) == {"preview", "report", "compare", "pages", "drawings"}
     assert preview["drawings"]["original"][0]["json"]
-    assert preview["drawings"]["original"][0]["atlas"] == remap.read_inputs([entry.file]).atlases["test.atlas"].decode()
+    assert preview["drawings"]["original"][0]["atlas"] == remap.read_inputs(env.library.preview_bundles(entry.id)).atlases["test.atlas"].decode()
     for page in preview["pages"]:
         for side in ("original", "repaired"):
             if page[side]:
@@ -703,7 +697,7 @@ def test_unchanged_pages_never_build_or_store_a_mod(setup_library, monkeypatch):
     before = (env.library.root / "state.json").read_bytes(), entry.file.read_bytes()
     monkeypatch.setattr(core, "process_mod_update", lambda *a, **kw: pytest.fail("no build for equal pages"))
     result = env.library.remap(entry.id)
-    assert result["unchanged"] and result["report"]["moved"]
+    assert result["unchanged"]
     assert not env.library._remap_previews
     assert len(env.library.mods()) == 1
     assert before == ((env.library.root / "state.json").read_bytes(), entry.file.read_bytes())
@@ -757,3 +751,85 @@ def test_source_changed_during_remapping_never_becomes_an_acceptable_preview(rep
         env.library.remap(entry.id)
     assert not env.library._remap_previews
     assert len(env.library.mods()) == 1
+
+
+@pytest.mark.parametrize("missing", ["source_region", "source_page", "target_region"])
+def test_required_regions_refuse_before_building_or_creating_anything(repair_review, monkeypatch, missing):
+    from ba_modding_toolkit.errors import ServiceError
+
+    env, entry, current, _ = repair_review
+    kept = next(path for path in (env.library.root / "originals").glob("*.bundle") if "2025-01-01" in path.name)
+    inputs = remap.read_inputs([kept])
+    text = inputs.atlases["test.atlas"].decode()
+    if missing == "source_region":
+        text = text.replace("\npart\n", "\nother\n")
+    elif missing == "source_page":
+        text = text.replace("page.png", "absent.png")
+    else:
+        text_path = next(path for path in env.game_dir.glob("*.bundle") if "textassets" in path.name)
+        live = remap.read_inputs([text_path])
+        _official_name(write_bundle(text_path, {"test.atlas": live.atlases["test.atlas"].replace(b"\npart\n", b"\nother\n")},
+                                    {}, live.skeletons["test.skel"]))
+    kept.unlink()
+    _official_name(write_bundle(kept, {"test.atlas": text}, {}, inputs.skeletons["test.skel"]))
+    before = {path: path.read_bytes() for path in env.tmp.rglob("*") if path.is_file()}
+    monkeypatch.setattr(core, "process_mod_update", lambda *a, **kw: pytest.fail("missing art must never build"))
+    with pytest.raises(ServiceError, match="atlas_remap_regions_missing") as caught:
+        env.library.remap(entry.id)
+    assert caught.value.params == {"names": "part"}
+    assert {path: path.read_bytes() for path in env.tmp.rglob("*") if path.is_file()} == before
+    assert not env.library._remap_previews
+    assert [mod.id for mod in env.library.mods()] == [entry.id]
+
+
+@pytest.mark.parametrize("official_source", ["kept", "backup"])
+def test_mixed_origin_remap_uses_mod_pixels_only_and_keeps_winning_rig(repair_review, monkeypatch, official_source):
+    env, entry, current, _ = repair_review
+    skeleton = json.dumps({"skeleton": {"spine": "4.2.33"}, "bones": [{"name": "custom"}],
+                          "skins": [{"attachments": {"slot": {"part": {}}}}]}).encode()
+    write_bundle(entry.file, {}, {"page": Image.new("RGBA", (16, 8), "red")}, skeleton)
+    kept = env.library._original_path(current) if official_source == "kept" else current.with_name(current.name + ".backup")
+    kept.parent.mkdir(parents=True, exist_ok=True)
+    kept.write_bytes(current.read_bytes())
+    current.write_bytes(entry.file.read_bytes())
+    before = {path: path.read_bytes() for path in (current, kept, entry.file)}
+    report = env.library.compatibility(entry.id)
+    assert report["remappable"]
+    monkeypatch.setattr(env.settings, "crc_needed", lambda path: True)
+    preview = env.library.remap(entry.id)
+    result = env.library.accept_remap(preview["preview"])
+    paths = sorted(result.mod.file.parent.glob("*.bundle"))
+    built = remap.read_inputs(paths)
+    assert built.skeletons == {"test.skel": skeleton}
+    assert set(built.textures["page"].getdata()) == {(255, 0, 0, 255), (0, 0, 0, 0)}
+    assert built.textures["page"].getpixel((8, 8)) == (255, 0, 0, 255)
+    assert built.textures["page"].getpixel((1, 1)) == (0, 0, 0, 0)
+    assert all(CRCUtils.compute_crc32(path.read_bytes()) == int(path.stem.rsplit("_", 1)[1]) for path in paths)
+    assert all(path.read_bytes() == data for path, data in before.items())
+    assert len(env.library.mods()) == 2
+
+
+def test_unused_official_region_is_transparent_and_used_removed_region_is_refused(repacked):
+    old, new, art, official_art, _ = repacked
+    source = remap.parse_atlas(atlas_text(old))
+    target = remap.parse_atlas(atlas_text(new))
+    source.regions = {key: region for key, region in source.regions.items() if region.name != "added"}
+    pages, report = remap.remap_pages(source, target, pack(old, art), pack(new, official_art), {"body"})
+    assert pages["extra.png"].getpixel((8, 8)) == (0, 0, 0, 0)
+    assert report["added"] == ["added"] and report["dropped"] == ["removed"]
+    for required in ({"body", "added"}, {"removed"}):
+        with pytest.raises(remap.RemapError, match="atlas_remap_regions_missing") as caught:
+            remap.remap_pages(source, target, pack(old, art), pack(new, official_art), required)
+        assert caught.value.params["names"] in {"added", "removed"}
+
+
+def test_merged_inputs_take_the_last_bundle_assets(tmp_path):
+    first = write_bundle(tmp_path / "first.bundle", {"test.atlas": "first"},
+                         {"page": Image.new("RGBA", (8, 8), "blue")}, b"first")
+    second = write_bundle(tmp_path / "second.bundle", {"test.atlas": "second"},
+                          {"page": Image.new("RGBA", (4, 4), "red")}, b"second")
+    merged = remap.read_inputs([first, second])
+    assert merged.atlases == {"test.atlas": b"second"}
+    assert merged.skeletons == {"test.skel": b"second"}
+    assert merged.textures["page"].size == (4, 4)
+    assert merged.textures["page"].getpixel((0, 0)) == (255, 0, 0, 255)

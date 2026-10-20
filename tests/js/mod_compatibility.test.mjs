@@ -13,7 +13,7 @@ const encoded = (data) => ({ version: data.skeleton.spine, data: Buffer.from(JSO
 const atlas = (x = 1, name = "smile", size = 64) => `page.png\nsize: ${size},${size}\n${name}\n bounds: ${x},1,8,8\n`;
 const inputs = (data = fixture.official) => ({ skeletons: { "test.skel": encoded(data) }, atlases: { "test.atlas": atlas() }, textures: { page: [64, 64] } });
 const report = () => ({ official: inputs(), mod: inputs(), remappable: true });
-const layoutReport = () => { const r = report(); r.mod.atlases["test.atlas"] = atlas(20); return r; };
+const mixedReport = () => { const r = report(); r.mod.textures.page = [64, 32]; return r; };
 let sequence = 0;
 async function harness(locale = "en-US", button = "cancel", accept = false) {
   const strings = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${locale}.json`, import.meta.url), "utf8")).webui;
@@ -54,7 +54,9 @@ test("valid custom skeletons, old bundle dates and patch versions do not report 
   const { mod } = await harness();
   const r = report();
   r.outdated = true;
-  r.mod = inputs(fixture.mod);
+  const custom = structuredClone(fixture.mod);
+  custom.animations = fixture.official.animations;
+  r.mod = inputs(custom);
   r.mod.atlases["test.atlas"] = atlas(1, "coat");
   r.mod.skeletons["test.skel"].version = "4.2.120";
   assert.deepEqual(mod.compare(r).issues, []);
@@ -73,19 +75,18 @@ test("binary and JSON readers identify the actual attachment paths without textu
   assert.deepEqual(mod.readSkeleton(encoded(data)).regions, ["face/paint"]);
 });
 
-test("only used region rectangles, missing regions and nonuniform page scales are findings", async () => {
+test("only live missing regions, nonuniform page scales and cross-origin layouts are findings", async () => {
   const { mod } = await harness();
   const r = report();
   r.mod.textures.page = [32, 32];
   r.mod.atlases["test.atlas"] += "unused\n bounds: 40,40,2,2\n";
-  r.atlasLayout = ["test.atlas"];
   assert.deepEqual(mod.compare(r).issues, []);
   r.mod.textures.page = [32, 24];
   assert.deepEqual(mod.compare(r).issues.map((i) => i.key), ["atlasSize"]);
   r.mod = inputs();
   r.mod.atlases["test.atlas"] = atlas(1, "unused");
-  assert.deepEqual(mod.compare(r).issues.map((i) => i.key), ["regions", "atlasLayout"]);
-  assert.deepEqual(mod.compare(layoutReport()).issues.map((i) => i.key), ["atlasLayout"]);
+  assert.deepEqual(mod.compare(r).issues.map((i) => i.key), ["regions"]);
+  assert.deepEqual(mod.compare(mixedReport()).issues.map((i) => i.key), ["atlasSize"]);
   r.mod.atlases["test.atlas"] = atlas().replace("64,64", "128,128").replace("1,1,8,8", "2,2,16,16");
   r.mod.textures.page = [128, 128];
   assert.deepEqual(mod.compare(r).issues, []);
@@ -108,8 +109,8 @@ test("the card's on-demand check is read only and never offers an in-place Updat
   assert.equal(h.mod.canRemap("old-mod"), false);
 });
 
-test("dismissing a layout report never prepares a repair", async () => {
-  const h = await harness(); h.use(layoutReport());
+test("dismissing a mixed-origin size report never prepares a repair", async () => {
+  const h = await harness(); h.use(mixedReport());
   await h.mod.check("old-mod");
   assert.equal(h.mod.canRemap("old-mod"), true);
   assert.deepEqual(h.calls, [["actions.compatibility", { mod: "old-mod" }]]);
@@ -122,7 +123,7 @@ const prepared = () => ({ preview: "review", pages: [{ name: "page", original: "
 test("repair previews ask first in every locale; only Accept saves and refreshes", async () => {
   for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"]) for (const accept of [false, true]) {
     const h = await harness(locale, "ok", accept), preview = prepared();
-    h.build(preview); h.use(layoutReport());
+    h.build(preview); h.use(mixedReport());
     let changed = 0;
     await h.mod.check("old-mod", "Painted", (result) => { assert.equal(result, h.saved); changed++; });
     assert.equal(changed, Number(accept));
@@ -149,7 +150,7 @@ test("repair previews ask first in every locale; only Accept saves and refreshes
 test("checks and repair progress use the localized target fallback without a label", async () => {
   for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"]) {
     const h = await harness(locale, "ok", true);
-    h.use(layoutReport()); h.build(prepared());
+    h.use(mixedReport()); h.build(prepared());
     await h.mod.check("old-mod");
     assert.deepEqual(h.labels, ["compatibility", "remap", "repair"]
       .map((action) => h.strings.progress[action].replace("{name}", h.strings.progress.mods)));
@@ -166,7 +167,7 @@ test("an unchanged preview says no repair needed and creates no comparison or mo
 
 test("persisted repair markers suppress both original and repaired actions after a fresh check", async () => {
   for (const marker of [{ repaired_from: "original" }, { repaired_id: "repaired" }]) {
-    const h = await harness(), r = { ...layoutReport(), ...marker };
+    const h = await harness(), r = { ...mixedReport(), ...marker };
     h.use(r); await h.mod.check("stored");
     assert.equal(h.mod.canRemap("stored"), false);
     assert.equal(h.mod.compare(r).remap, false);
@@ -204,4 +205,28 @@ test("region references belong to their skeleton's atlas even when names repeat 
   assert.deepEqual(mod.compare(r).issues, []);
   r.mod.atlases["other.atlas"] = r.mod.atlases["other.atlas"].replace("coat\n bounds: 1,1,8,8\n", "");
   assert.ok(mod.compare(r).issues.some(({ key, params }) => key === "regions" && params.names === "coat"));
+});
+
+test("custom atlas layouts are valid while missing runtime animations and versions are findings", async () => {
+  const { mod } = await harness(), r = report();
+  r.mod.atlases["test.atlas"] = atlas(20);
+  r.atlasLayout = ["test.atlas"];
+  assert.deepEqual(mod.compare(r).issues, []);
+  assert.equal(mod.compare(r).remap, false);
+  const data = structuredClone(fixture.official);
+  delete data.animations.Talk_01;
+  r.mod.skeletons["test.skel"] = encoded(data);
+  assert.deepEqual(mod.compare(r).issues.map(({ key }) => key), ["missingAnimations"]);
+  assert.equal(mod.compare(r).issues[0].params.names, "Talk_01");
+  data.skeleton.spine = "4.1.99";
+  r.mod.skeletons["test.skel"] = encoded(data);
+  assert.ok(mod.compare(r).issues.some(({ key }) => key === "runtimeVersion"));
+});
+
+test("every live atlas page needs a texture even without an active attachment", async () => {
+  const { mod } = await harness(), r = report();
+  r.mod.atlases["test.atlas"] += "\nmissing.png\nsize: 32,32\nunused\n bounds: 1,1,4,4\n";
+  const result = mod.compare(r);
+  assert.deepEqual(result.issues.map(({ key }) => key), ["atlasSize"]);
+  assert.equal(result.issues[0].params.name, "missing.png");
 });
