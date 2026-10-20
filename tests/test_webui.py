@@ -1472,3 +1472,32 @@ def test_original_and_repaired_versions_share_roster_and_band_counts(app, servic
             if method == "family.get":
                 assert {mod["id"]: mod["fresh"] for mod in variant["modList"]} == {
                     mod.id: unread and mod.user_added for mod in mods}
+
+
+@pytest.mark.parametrize("orphan", [False, True])
+def test_migrated_020_library_supplies_repair_labels_markers_and_counts(app, services, monkeypatch, tmp_path, orphan):
+    from ba_modding_toolkit.library import ModLibrary
+    from test_legacy_remap import legacy_record, write_legacy_state
+    from test_library import FakeCatalog as LibraryCatalog, FakeVariant as LibraryVariant
+
+    root = tmp_path / "legacy-library"
+    original = legacy_record(root, 1, "hoshino_spr", core="hoshino_spr", target="hoshino")
+    repaired = legacy_record(root, 2, "hoshino_spr (remapped)", core="hoshino_spr", target="hoshino",
+                             date="2026-10-01", parts=("002", "003"))
+    original["alias"] = "My painting"
+    write_legacy_state(root, [repaired] if orphan else [original, repaired])
+    library = ModLibrary(root, LibraryCatalog(LibraryVariant("hoshino", "hoshino_spr")))
+    monkeypatch.setattr(services.library, "mods", library.mods)
+    for method, params in (("roster.list", {}), ("family.get", {"key": "hoshino"})):
+        result = rpc(app, method, **params)["result"]
+        family = result["families"][0] if method == "roster.list" else result
+        variant = family["variants"][0]
+        assert variant["mods"] == 1 and variant["modCounts"] == {"spr": 1, "lobby": 0}
+        if method == "family.get":
+            mods = {mod["id"]: mod for mod in variant["modList"]}
+            fixed = mods[repaired["id"]]
+            assert fixed["label"] == I18n().t("webui.remap.name", name="hoshino_spr" if orphan else "My painting")
+            assert fixed["repaired_from"]
+            if not orphan:
+                assert fixed["repaired_from"] == original["id"]
+                assert mods[original["id"]]["repaired_id"] == repaired["id"]
