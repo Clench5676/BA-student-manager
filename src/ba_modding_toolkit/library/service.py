@@ -55,6 +55,7 @@ logger = logging.getLogger(__name__)
 
 SPACE_MARGIN = 512 * 1024 * 1024  # left free on the library's volume by an Off and an adoption
 SAVE_EVERY = (10, 2.0)  # a toggle saves its unfinished list every 10 entries or 2 s
+BUILT_TEMP_MAX_AGE = 60 * 60  # seconds before an abandoned built copy can be cleared
 # a toggle's refusals that stop it: every later write would fail the same way
 STOPPING = ("game_running", "game_status_unavailable", "steam_busy", "folder_changed", "classic_open")
 
@@ -1886,12 +1887,16 @@ class ModLibrary:
 
         self._update_profiles(change, after=lambda data: self._delete_built_files(replaced, data))
         # another instance may have dropped the last reference before the new key was saved
+        recovered = False
         for part in entry.parts:
             kept = parts.get(part.path.name)
             if kept is not None and kept["mod_file"] is None:
                 built = self.root / "built" / f"{kept['sha1']}.bundle"
                 if not built.exists():
                     atomic_copy(part.path, built)
+                    recovered = True
+        if recovered:
+            self._update_profiles(lambda data: False, after=lambda data: self._delete_built_files([key], data))
 
     def _inputs(self, pin: Pin, core: str, source: str) -> list[str]:
         """The other game files a build of a source reads: an adapted mod's official parts of its own core, another
@@ -1946,9 +1951,9 @@ class ModLibrary:
 
     @_serialized
     def clear_built(self) -> int:
-        """Clear Built Mods: delete built/*.bundle and every built key with a part kept there. Keys whose parts are
-        all files of their mod stay: they use no disk. The kept originals stay (Off needs them). Returns the bytes
-        freed."""
+        """Clear Built Mods: delete built/*.bundle, stale temporaries and every built key with a part kept there.
+        Keys whose parts are all files of their mod stay: they use no disk. The kept originals stay (Off needs
+        them). Returns the bytes freed."""
         directory = self.root / "built"
         freed = _folder_size(directory)
 
@@ -1962,11 +1967,17 @@ class ModLibrary:
             return changed
 
         def after(data: dict) -> None:
+            nonlocal freed
             for path in directory.glob("*.bundle"):
                 with contextlib.suppress(OSError):
                     path.unlink()
-            with contextlib.suppress(OSError):
-                directory.rmdir()
+            cutoff = time.time() - BUILT_TEMP_MAX_AGE
+            for path in directory.glob(".library-*"):
+                with contextlib.suppress(OSError):
+                    stat = path.stat()
+                    if stat.st_mtime <= cutoff:
+                        path.unlink()
+                        freed += stat.st_size
 
         self._update_profiles(change, after=after)
         return freed

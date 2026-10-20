@@ -602,7 +602,8 @@ def test_clear_built_mods_keeps_keys_of_mod_files(world, monkeypatch):
     world.toggle(False)
     assert set(world.folder()["built"]) == {"test_spr", "test_home"}
     freed = world.library.clear_built()
-    assert freed > 0 and not (world.root / "built").exists()
+    assert freed > 0 and (world.root / "built").is_dir()
+    assert not list((world.root / "built").glob("*.bundle"))
     assert set(world.folder()["built"]) == {"test_home"}  # all its parts are files of its mod
     no_installer(monkeypatch)
     rebuilding_installer(monkeypatch, only=world.spr.name)
@@ -622,8 +623,15 @@ def test_clear_built_mods_keeps_another_instances_copy_in_progress(world, monkey
     freed = sum(path.stat().st_size for path in directory.glob("*.bundle"))
     temporary = directory / ".library-in-progress"
     temporary.write_bytes(b"copy in progress")
+    stale = directory / ".library-abandoned"
+    stale.write_bytes(b"abandoned copy")
+    stamp = time.time()
+    os.utime(temporary, (stamp, stamp))
+    os.utime(stale, (stamp - 3601, stamp - 3601))
+    monkeypatch.setattr(service.time, "time", lambda: stamp)
     assert world.library.status()["builtSize"] == freed
 
+    freed += stale.stat().st_size
     assert world.library.clear_built() == freed
     assert list(directory.iterdir()) == [temporary]
     assert temporary.read_bytes() == b"copy in progress"
@@ -2072,7 +2080,7 @@ def test_two_installs_share_one_built_file_until_both_drop_it(world, monkeypatch
 
 
 @pytest.mark.parametrize("clear", [False, True])
-@pytest.mark.parametrize("when", ["before_save", "after_unlock"])
+@pytest.mark.parametrize("when", ["before_save", "after_unlock", "before_recovery"])
 def test_a_built_key_keeps_its_file_when_another_instance_drops_the_last_reference(world, monkeypatch, clear, when):
     folder = japan(world)
     pin = pin_of(world, folder)
@@ -2094,7 +2102,7 @@ def test_a_built_key_keeps_its_file_when_another_instance_drops_the_last_referen
         else:
             world.library._drop_built(first)
 
-    if when == "before_save":
+    if when != "after_unlock":
         update = other._update_profiles
         lock = profiles_module.file_lock
         copy = service.atomic_copy
@@ -2115,10 +2123,14 @@ def test_a_built_key_keeps_its_file_when_another_instance_drops_the_last_referen
             assert not held
             assert target == built and not built.exists()
             assert world.folder(folder)["built"]["test_spr"]["parts"][world.spr.name] == part
+            if when == "before_recovery":
+                world.library.clear_built()
+                assert world.folder(folder)["built"] == {}
             copied.append(target)
             return copy(source, target)
 
         def meanwhile(change, after=None):
+            monkeypatch.setattr(other, "_update_profiles", update)
             # B has reused the existing file, but has not saved its key yet.
             assert built.exists() and world.folder(folder)["built"] == {}
             drop()
@@ -2145,9 +2157,12 @@ def test_a_built_key_keeps_its_file_when_another_instance_drops_the_last_referen
         drop()
 
     assert world.folder()["built"] == {}
-    assert world.folder(folder)["built"]["test_spr"]["parts"][world.spr.name] == part
-    assert built.exists()
-    assert built.read_bytes() == expected
+    if when == "before_recovery":
+        assert world.folder(folder)["built"] == {}
+        assert not list(built.parent.iterdir())
+    else:
+        assert world.folder(folder)["built"]["test_spr"]["parts"][world.spr.name] == part
+        assert built.read_bytes() == expected
 
 
 def test_a_game_update_drops_the_built_copy_and_on_rebuilds(world, monkeypatch):

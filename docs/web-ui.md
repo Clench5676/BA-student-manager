@@ -558,8 +558,9 @@ in the install. A game update, a changed or dropped configuration, a mod's updat
 Built Mods drop them; a built file goes once no install's key references it. Deletions, including Clear Built Mods,
 run under `profiles.json.lock` against the configuration just saved. Bundle copies run outside that lock: after a
 new key is saved and the lock released, any missing files are copied again from the still-modded game files. Later
-deletions respect the saved key; Clear Built Mods can remove its files and drops the key too. Clear deletes only
-`built/*.bundle`, leaving `.library-` temporary files from copies in progress, and removes `built/` only when empty.
+deletions respect the saved key; recovery copies are checked again under the lock and deleted if no key references
+them. Clear deletes `built/*.bundle` and `.library-` temporaries at least an hour old, counts both in the bytes freed,
+leaves fresher temporaries alone, and keeps `built/` in place.
 Built copies and kept originals hold game portraits and lobbies inside the library: restore copies of what the user's
 own switch wrote, never read to draw the UI, and their disk use can grow large (the switch's help shows both sizes;
 only built copies can be cleared).
