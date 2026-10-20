@@ -1471,6 +1471,15 @@ class ModLibrary:
         return out
 
     @_serialized
+    def official_bundles(self, core_name: str, pin: Pin | None = None) -> list[Path]:
+        """The official parts of a core, resolved as for a variant source in apply."""
+        pin = self._current(pin)
+        paths = self._index(pin).get(core_name.lower(), [])
+        if not paths:
+            raise ServiceError("game_file_not_found", variant=core_name)
+        return [self._official_for(path, pin) for path in paths]
+
+    @_serialized
     def preview_bundles(self, mod_id: str, pin: Pin | None = None) -> list[Path]:
         """Return missing official parts followed by the mod's overriding parts.
 

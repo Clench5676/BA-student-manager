@@ -119,8 +119,8 @@ const hasLobby = (v) => !!v.lobby;
 const hasModel = (v) => !!v.model;
 const hasFresh = (v, kind = null) => (v.modList || []).some((m) => m.fresh && (!kind || m.kind === kind));
 const modLabel = (m) => m.label || m.file?.split(/[\\/]/).pop() || m.id;
-// a candidate's skeleton: a mod's preview (its parts over the official ones), else the variant's own portrait or lobby
-const baseOf = (c, kind = "spr") => (c.kind === "mod" ? spineBase("mod", c.id) : spineBase(kind === "lobby" ? "lobby" : "spr", c.core));
+// a candidate's skeleton: a mod's preview, another variant's official copy, else the own game files
+const baseOf = (c, kind = "spr") => (c.kind === "mod" ? spineBase("mod", c.id) : spineBase(c.kind === "variant" ? "official" : kind, c.core));
 
 // what the switch card of a kind offers (switch-sources.js), with the names and marks the cards show: the variant's
 // own portrait or lobby and its added ones, then for the portrait the other variants' ones and their added ones
@@ -527,7 +527,7 @@ async function addMods() {
 // a job with a sticky progress line; the family is re-read afterwards (after(ok) instead, when given). A switch the
 // classic UI's open window refuses opens the classic modal, which can queue it (mod-switch.js); an apply while mods
 // are off only saves the choice (deferred).
-async function job(method, params, { onDone, after = reload } = {}) {
+async function job(method, params, { onDone, after = () => reload() } = {}) {
   if (busy) { toast(T("error.busy"), { kind: "error" }); return false; }
   busy = true;
   let ok = false;
@@ -560,9 +560,12 @@ function shownMod() {
   return c?.kind === "mod" ? c : null;
 }
 function runUpdate() {
-  const c = shownMod();
+  const c = shownMod(), kind = switchKind();
   if (!c || busy) return;
-  job("actions.update", { mod: c.id }, { onDone: () => { forget(spineBase("mod", c.id)); } });
+  return job("actions.update", { mod: c.id }, {
+    onDone: () => { forget(spineBase("mod", c.id)); },
+    after: (ok) => reload(ok ? [kind] : []),
+  });
 }
 function runExtract() {
   const c = shownMod();
@@ -928,8 +931,9 @@ async function renderPopup(scroll = 0) {
     full: c.kind === "mod" ? c.label : fullName(c.variant),
     thumb: thumb(baseOf(c, kind), "card"), big: () => thumb(baseOf(c, kind), "bust"),
     inUse: c.key === inUseKey, fav: c.fav, isNew: c.kind === "mod" && c.mod.fresh, src: c,
+    inUseText: mode.set && c.key === mode.set ? T("switch.configured") : null,
     dim: c.greyed,
-    badge: c.greyed ? GREYED_BADGE() : mode.set && c.key === mode.set && c.key !== inUseKey ? SET_BADGE() : null,
+    badge: c.greyed ? GREYED_BADGE() : mode.set && c.key === mode.set ? SET_BADGE() : null,
   }))
     .filter((it) => popupSeg === 0 || (popupSeg === 1) === !!it.recruit)
     .sort((a, b) => (b.fav ? 1 : 0) - (a.fav ? 1 : 0));
@@ -1510,16 +1514,17 @@ async function stillAfterFullscreen() {
   if (M ? modelShot : lobbyShot) renderScreen();
 }
 
-async function reload() {
+async function reload(refresh = []) {
   const data = await call(() => rpc("family.get", { key: fam.key }));
   const next = data?.variants.find((v) => v.key === variantKey) || data?.variants[0];
-  const changed = data ? ["spr", "lobby"].filter((kind) => previewChanged(variant(), next, kind, previewEnabled, modsOn())) : [];
+  const changed = new Set(refresh);
+  if (data) for (const kind of ["spr", "lobby"]) if (previewChanged(variant(), next, kind, previewEnabled, modsOn())) changed.add(kind);
   if (data) fam = data;
   for (const kind of changed) resetPreview(kind);
-  await Promise.all([renderAll(), changed.includes(tabKind()) ? renderLeft() : null]);
+  await Promise.all([renderAll(), changed.has(tabKind()) ? renderLeft() : null]);
 }
 
-// A source changed: discard the cached player or still, also when only a saved configuration changed.
+// A source changed or was rebuilt: discard the cached player or still, also when only a saved configuration changed.
 function resetPreview(kind) {
   if (kind === "lobby") {
     lobbyStale = true;

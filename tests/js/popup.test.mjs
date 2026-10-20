@@ -1,8 +1,9 @@
 // Tests for web/js/popup.js (the shared popups: the stack Escape goes to, the message popup, the list popup with
-// several cards ticked, the start sequence) and web/js/update.js (resolves when its popup closes), on a small stand-in
+// several cards ticked, the start sequence), web/js/update.js and detail.js's preview actions, on a small stand-in
 // DOM. Run by tests/test_popup.py with Node's test runner: node --test tests/js/popup.test.mjs
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { register } from "node:module";
 import { test } from "node:test";
 
 // --- a stand-in DOM: elements in a tree, ids, clicks, the focus and the window's key listeners ---
@@ -547,4 +548,127 @@ test("portrait and memorial lobby mods share the localized Mod chip under the na
       prompt.hidden = true;
     }
   }
+});
+
+// Exercise the detail actions with the real RPC/job and popup code. The loader exposes its private actions only
+// to this test and replaces thumbnail rendering; panel/player drawing is observed through the setup callback.
+const DETAIL = new URL("../../src/ba_modding_toolkit/web/js/detail.js", import.meta.url).href;
+const THUMBS = new URL("../../src/ba_modding_toolkit/web/js/thumbs.js", import.meta.url).href;
+const detailTest = `
+export { baseOf, renderPopup, runUpdate };
+export function setupPreviewTest(data, kind, onLeft = async () => {}) {
+  fam = data; variantKey = data.variants[0].key; ctx = { invalidateRoster() {} };
+  open = true; busy = false; tab = kind === "lobby" ? "lobby" : "portrait";
+  popupKind = kind; popupSeg = 0; pending = shownSource(variant(), kind); previewEnabled = modsOn();
+  expression = "03"; mainPlayer = { cached: true }; lobbyShot = "cached";
+  lobbySeq = "talk"; lobbyAll = true; lobbyStale = false; shownLeft = tab; shownKey = "cached";
+  renderScreen = renderChips = renderExpressions = async () => {};
+  renderLeft = onLeft;
+}
+export const previewTestState = () => ({ expression, mainPlayer, lobbyShot, lobbySeq, lobbyAll, lobbyStale, shownKey });
+`;
+const thumbsTest = `
+export const forgotten = [];
+export const forget = (base) => forgotten.push(base);
+export const thumb = async () => null;
+export const idleAnimation = () => null;
+export const prioritise = () => {};
+`;
+register(`data:text/javascript,${encodeURIComponent(`
+export async function load(url, ctx, next) {
+  if (url === ${JSON.stringify(THUMBS)}) return { format: "module", shortCircuit: true, source: ${JSON.stringify(thumbsTest)} };
+  const result = await next(url, ctx);
+  if (url === ${JSON.stringify(DETAIL)}) {
+    const source = typeof result.source === "string" ? result.source : new TextDecoder().decode(result.source);
+    return { ...result, source: source + ${JSON.stringify(detailTest)} };
+  }
+  return result;
+}`)}`);
+const Detail = await import(DETAIL);
+const Mods = await import("../../src/ba_modding_toolkit/web/js/mod-switch.js");
+const Thumbs = await import(THUMBS);
+const switchHost = host("popup");
+const previewFamily = () => ({ key: "a", version: "rv1", variants: [
+  { key: "a", spr: "a_spr", lobby: "a_home", configured: { spr: "mod:p", lobby: "mod:l" },
+    state: { files: ["spr", "lobby"].map((kind) => ({ kind, file: `/game/${kind}.bundle`, applied: "official", official: true, crc: "ok" })) },
+    modList: [{ id: "p", target: "a", kind: "spr", label: "Portrait mod" }, { id: "l", target: "a", kind: "lobby", label: "Lobby mod" }] },
+  { key: "b", spr: "b_spr", state: { files: [{ kind: "spr", applied: "mod:leftover", official: false }] }, modList: [] },
+] });
+async function modsEnabled(enabled) {
+  handlers.set("mods.state", () => ({ result: { enabled } }));
+  await Mods.refresh();
+}
+
+test("detail variant candidates preview official assets independently of the source's live mod", () => {
+  const fam = previewFamily(), source = fam.variants[1];
+  assert.equal(Detail.baseOf({ kind: "variant", core: source.spr, variant: source }), "/asset/spine/official/b_spr/skeleton");
+  assert.equal(Detail.baseOf({ kind: "self", core: fam.variants[0].spr }), "/asset/spine/spr/a_spr/skeleton");
+});
+
+test("Update reloads a configured portrait or lobby rebuilt under the same mod id while mods are off", async () => {
+  await modsEnabled(false);
+  for (const [kind, id] of [["spr", "p"], ["lobby", "l"]]) {
+    const fam = previewFamily(), draws = [];
+    Detail.setupPreviewTest(fam, kind, async () => draws.push(Detail.previewTestState()));
+    handlers.set("actions.update", (params) => { assert.deepEqual(params, { mod: id }); return { result: "rebuild" }; });
+    handlers.set("jobs.get", () => ({ result: { state: "done", result: {} } }));
+    handlers.set("family.get", () => ({ result: structuredClone(fam) }));
+    Thumbs.forgotten.length = 0;
+    assert.equal(await Detail.runUpdate(), true);
+    assert.deepEqual(Thumbs.forgotten, [`/asset/spine/mod/${id}/skeleton`]);
+    assert.equal(draws.length, 1, `${kind} reloads even when family.get has no changed source key or game file`);
+    if (kind === "spr") {
+      assert.equal(draws[0].mainPlayer, null);
+      assert.equal(draws[0].expression, "00");
+      assert.equal(draws[0].lobbyShot, "cached", "the other preview stays cached");
+    } else {
+      assert.equal(draws[0].lobbyStale, true);
+      assert.equal(draws[0].lobbyShot, null);
+      assert.equal(draws[0].lobbySeq, null);
+      assert.equal(draws[0].lobbyAll, false);
+      assert.equal(draws[0].shownKey, null);
+      assert.deepEqual(draws[0].mainPlayer, { cached: true }, "the portrait stays cached");
+    }
+    Detail.setupPreviewTest(fam, kind, async () => assert.fail("a failed update must keep the player"));
+    handlers.set("jobs.get", () => ({ result: { state: "failed", error: { code: "internal" } } }));
+    Thumbs.forgotten.length = 0;
+    assert.equal(await Detail.runUpdate(), false);
+    assert.deepEqual(Thumbs.forgotten, []);
+    assert.deepEqual(Detail.previewTestState().mainPlayer, { cached: true });
+    assert.equal(Detail.previewTestState().lobbyShot, "cached");
+  }
+});
+
+test("configured switch cards and detail chips say Set while mods are off, and In Use when on", async () => {
+  for (const lang of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"]) {
+    const ui = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${lang}.json`, import.meta.url))).webui;
+    setStrings(lang, Object.fromEntries(["type", "popup", "switch"].flatMap((group) =>
+      Object.entries(ui[group]).map(([key, value]) => [`webui.${group}.${key}`, value]))));
+    for (const [kind, source] of [["spr", "mod:p"], ["lobby", "mod:l"], ["spr", "variant:b"]]) {
+      for (const enabled of [false, true]) {
+        await modsEnabled(enabled);
+        const fam = previewFamily();
+        fam.variants[0].configured[kind] = source;
+        if (enabled) Object.assign(fam.variants[0].state.files.find((f) => f.kind === kind), { applied: source, official: false });
+        Detail.setupPreviewTest(fam, kind);
+        await Detail.renderPopup();
+        const captions = walk(switchHost).map((el) => el.textContent);
+        const caption = enabled ? ui.popup.inUse : ui.switch.configured;
+        assert.equal(captions.filter((c) => c === caption).length, !enabled && source.startsWith("mod:") ? 3 : 2,
+          `${lang} ${kind} ${source}: card, chip and configured status`);
+        if (source.startsWith("mod:")) assert.ok(captions.includes(ui.type.added));
+        assert.ok(!captions.includes(enabled ? ui.switch.configured : ui.popup.inUse));
+        switchHost.hidden = true;
+      }
+    }
+  }
+});
+
+test("a saved source's detail chip keeps its caption independently of In Use", async () => {
+  const ui = JSON.parse(readFileSync(new URL("../../src/ba_modding_toolkit/locales/en-US.json", import.meta.url))).webui;
+  await Popup.listPopup({ host: prompt, title: "Portrait", items: [{ key: "m", kind: "mod", label: "Saved mod", full: "Saved mod",
+    inUse: false, inUseText: ui.switch.configured, badge: { text: ui.switch.configured, color: "#8de4ff" } }],
+    selected: "m", details: () => ({ title: "Portrait", fields: [], actions: [] }) });
+  assert.equal(walk(prompt).filter((el) => el.textContent === ui.switch.configured).length, 2, "card badge and detail chip");
+  prompt.hidden = true;
 });

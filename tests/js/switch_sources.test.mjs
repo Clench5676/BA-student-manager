@@ -178,7 +178,7 @@ test("while mods are off: Save, starting on the configured card, chipped Set", (
   assert.equal(configuredKey({}, "spr"), null);
 });
 
-test("previews and the In Use marker keep both configured kinds while the game files are official", () => {
+test("previews keep both configured kinds while the game files are official", () => {
   const fam = family(), v = fam.variants[0];
   v.configured = { spr: "mod:p1", lobby: "mod:l1" };
   v.state.files = [part("spr", "official"), part("lobby", "official")];
@@ -188,12 +188,21 @@ test("previews and the In Use marker keep both configured kinds while the game f
     assert.equal(appliedKey(v, kind), "self", "file status remains independent of the preview");
     assert.equal(previewKey(v, kind, true), "self", "turning mods on follows the carried source again");
     const marked = candidates(fam, v, kind).filter((c) => c.key === previewKey(v, kind, false));
-    assert.deepEqual(marked.map((c) => c.key), [`m:${id}`], "only the configured card is in use");
+    assert.deepEqual(marked.map((c) => c.key), [`m:${id}`], "only the configured card matches the preview");
   }
   v.configured.spr = "variant:hoshino_swimsuit";
   assert.equal(previewKey(v, "spr", false), "v:hoshino_swimsuit");
-  assert.equal(previewBase(v, "spr", false, fam.variants), "/asset/spine/spr/hoshino_swimsuit_spr/skeleton");
+  assert.equal(previewBase(v, "spr", false, fam.variants), "/asset/spine/official/hoshino_swimsuit_spr/skeleton");
   assert.equal(previewBase(v, "spr", true, fam.variants), "/asset/spine/spr/hoshino_spr/skeleton");
+});
+
+test("a configured variant previews its official copy even when its live files still carry a mod", () => {
+  const fam = family(), [v, source] = fam.variants;
+  v.configured = { spr: `variant:${source.key}` };
+  source.state.files = [part("spr", "mod:leftover", { official: false, restorable: true })];
+  assert.equal(appliedKey(source), "m:leftover");
+  assert.equal(previewBase(v, "spr", false, fam.variants), "/asset/spine/official/hoshino_swimsuit_spr/skeleton");
+  assert.equal(previewBase(source, "spr", true, fam.variants), "/asset/spine/spr/hoshino_swimsuit_spr/skeleton");
 });
 
 test("off previews use the configuration even if an unswitched game file still carries a different mod", () => {

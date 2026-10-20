@@ -1011,6 +1011,8 @@ class Services:
                 pass
         if kind in ("spr", "lobby"):
             files = game.spine_files(kind, core)
+        elif kind == "official":
+            files = game.spine_files_from(self.library.official_bundles(core))
         elif kind == "mod":
             bundles = self.library.preview_bundles(key)
             files = game.spine_files_from(bundles)

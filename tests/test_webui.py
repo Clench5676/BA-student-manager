@@ -415,6 +415,32 @@ def test_mod_skeleton_is_the_one_named_by_the_mods_core(app, services, monkeypat
     assert call(app, "/asset/spine/mod/m1/skeleton.atlas")[2] == b"main atlas"
 
 
+def test_official_skeleton_route_reads_the_librarys_official_parts(app, services, monkeypatch, tmp_path):
+    bundle = tmp_path / "official.bundle"
+    requested = []
+
+    def official_bundles(core_name):
+        requested.append(core_name)
+        return [bundle]
+
+    def spine_files_from(bundles):
+        assert bundles == [bundle]
+        return {"hoshino_spr.skel": b"official skel", "hoshino_spr.atlas": b"official atlas",
+                "hoshino_spr.png": b"official png"}
+
+    monkeypatch.setattr(services.library, "official_bundles", official_bundles, raising=False)
+    monkeypatch.setattr(services.game, "spine_files_from", spine_files_from, raising=False)
+    for name, expected in [("skeleton.skel", b"official skel"), ("skeleton.atlas", b"official atlas"),
+                           ("hoshino_spr.png", b"official png")]:
+        status, headers, body = call(app, f"/asset/spine/official/hoshino_spr/{name}")
+        assert status == "200 OK" and body == expected
+        assert headers["Cache-Control"] == "no-store"
+    assert requested == ["hoshino_spr"] * 3
+    assert json.loads(call(app, "/asset/spine/official/hoshino_spr/files.json")[2]) == [
+        "hoshino_spr.atlas", "hoshino_spr.png", "hoshino_spr.skel"]
+    assert call(app, "/asset/spine/spr/hoshino_spr/skeleton.skel")[2] == b"skel"
+
+
 def test_a_new_library_prunes_its_kept_originals_once(tmp_path, monkeypatch):
     pruned = []
 

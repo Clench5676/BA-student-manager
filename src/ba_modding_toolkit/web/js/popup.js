@@ -386,7 +386,8 @@ function detailsTree(it, title, fields, actions) {
   ];
   const nameFit = fitText(it.full, 52, 36, w - 60);
   kids.push(node("Name", [cx, b.t - 610], [label(nameFit.text, nameFit.fs, "#2d4664/1.00", w - 40, 60 * nameFit.lines, { depth: 8 })]));
-  const chips = it.chips || [it.recruit ? T("type.recruit") : it.kind === "mod" ? T("type.added") : T("type.noRecruit"), ...(it.inUse ? [T("popup.inUse")] : [])];
+  const using = it.inUseText || (it.inUse ? T("popup.inUse") : null);
+  const chips = it.chips || [it.recruit ? T("type.recruit") : it.kind === "mod" ? T("type.added") : T("type.noRecruit"), ...(using ? [using] : [])];
   const dark = !it.chips && it.recruit; // the recruit chip: dark, with the recruit mark
   chips.forEach((c, i) => {
     const cw = 250, x = cx + (i - (chips.length - 1) / 2) * (cw + 16);
@@ -422,8 +423,9 @@ function detailsTree(it, title, fields, actions) {
 }
 
 // a list popup in host (an element or its id). Redrawn by the caller on every change (a card picked, a segment):
-//   items: [{key, label, full, thumb, big, recruit, kind, inUse, fav, isNew, size, disabled, dim, badge: {text, color,
+//   items: [{key, label, full, thumb, big, recruit, kind, inUse, inUseText, fav, isNew, size, disabled, dim, badge: {text, color,
 //           ink}, chips}]; disabled: cannot be ticked (with multi); dim: the darkened look
+//   inUseText: a saved source's caption in the detail chip, independent of whether its files are in use
 //   selected: the chosen key; with multi, the ticked keys (selectable(items) ticks all), focus: the card whose details
 //             show (by default the first ticked one)
 //   onSelect(key, scroll): a card was clicked (the caller ticks it, toggled(), or chooses it, and draws the popup again)

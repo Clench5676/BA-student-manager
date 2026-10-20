@@ -759,6 +759,22 @@ def test_variant_swap_uses_official_source_and_keeps_target_original(setup_libra
     assert env.original.read_bytes() == original_bytes
 
 
+@pytest.mark.parametrize("core_name", ["other_spr", "test_home_gl"])
+def test_official_preview_uses_kept_parts_while_a_mod_remains_in_game(setup_library, core_name):
+    env = setup_library
+    source = game_bundle(env.game_dir, core_name, payload=b"official source")
+    official = source.read_bytes()
+    entry, = env.library.add([make_mod(source, env.tmp / "input")])
+    kind = "spr" if core_name.endswith("_spr") else "lobby"
+    env.library.apply(entry.target, f"mod:{entry.id}", kind=kind)
+    live = source.read_bytes()
+    bundles = env.library.official_bundles(core_name)
+    assert bundles == [env.root / "originals" / source.name]
+    assert bundles[0].read_bytes() == official
+    assert source.read_bytes() == live != official
+    expect_error("game_file_not_found", lambda: env.library.official_bundles("missing_spr"))
+
+
 @pytest.mark.parametrize("source_type", ["variant", "mod"])
 def test_variant_swap_rejects_incompatible_texture_page_counts(setup_library, monkeypatch, source_type):
     env = setup_library
