@@ -830,6 +830,9 @@
 				"model": "모션"
 			}
 		},
+		"detail": {
+			"failed": "미리 보기 사용 불가"
+		},
 		"lobby": {
 			"original": "원본",
 			"fullscreen": "전체 화면",

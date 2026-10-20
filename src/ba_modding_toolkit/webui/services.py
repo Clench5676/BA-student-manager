@@ -487,6 +487,7 @@ class Services:
         return self.jobs.submit(kind, run, writes=writes, **params)
 
     def _after_writer(self, library: Any, kind: str, result: Any, failed: bool) -> None:
+        started = time.perf_counter()
         library = library if library is not None else self._library
         if library is not None and kind != "library.judge":
             try:
@@ -504,6 +505,7 @@ class Services:
         self.events.publish("library.changed", None if failed else _changed_of(result))
         if kind not in ("library.prune", "library.judge"):  # a scan follows those already (the start, a poll)
             self.scanner.request()
+        logger.info("Writer %s follow-up and scan request: %.3f s", kind, time.perf_counter() - started)
 
     def _job_finished(self, job: Any) -> None:
         # the end of a writer job: mods.state again, with the job no longer busy (a toggle's end)

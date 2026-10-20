@@ -1,6 +1,7 @@
 // Thumbnails rendered in the page from the portrait skeletons: faces for the expression cards, busts for the switch
 // card and the roster, cards for the popups. One hidden Spine player at a time (one WebGL context); results are
 // in-memory blob URLs, never written anywhere.
+import { withTimeout } from "./async.js";
 
 const FRAMES = {
   // [width, height] of the rendered picture in CSS px
@@ -159,14 +160,14 @@ async function pump() {
       Object.assign(el.style, { width: `${w}px`, height: `${h}px` });
       hostEl().appendChild(el);
       try {
-        const player = await loadPlayer(base, el);
+        const player = await withTimeout(loadPlayer(base, el), 15000, `Thumbnail ${base}`);
         for (const q of batch) {
-          try { q.resolve(await capture(player, el, q.frame, q.expr)); } catch (err) { q.reject(err); }
+          try { q.resolve(await withTimeout(capture(player, el, q.frame, q.expr), 15000, `Thumbnail capture ${base}`)); } catch (err) { q.reject(err); }
         }
       } catch (err) {
         for (const q of batch) q.reject(err);
       } finally {
-        el.player?.dispose();
+        try { el.player?.dispose(); } catch (err) { console.error("Thumbnail dispose failed", base, err); }
         el.remove();
       }
     }

@@ -5,6 +5,7 @@ import io
 import json
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -393,6 +394,32 @@ def test_mod_skeleton_is_the_one_named_by_the_mods_core(app, services, monkeypat
         "Hoshino_home_bg.skel": b"bg", "Hoshino_home_bg.atlas": b"bg atlas"}, raising=False)
     assert call(app, "/asset/spine/mod/m1/skeleton.skel")[2] == b"main"
     assert call(app, "/asset/spine/mod/m1/skeleton.atlas")[2] == b"main atlas"
+
+
+@pytest.mark.parametrize("kind,core", [("spr", "hoshino_spr"), ("lobby", "hoshino_home")])
+def test_current_mod_and_ui_routes_do_not_wait_for_library_preview(app, services, monkeypatch, kind, core):
+    entered, release = threading.Event(), threading.Event()
+
+    def preview(mod_id):
+        entered.set()
+        assert release.wait(5), "Test did not release the preview"
+        raise ServiceError("original_unavailable", file="missing original")
+
+    monkeypatch.setattr(services.library, "preview_bundles", preview, raising=False)
+    monkeypatch.setattr(services.library, "state", lambda key: {
+        "files": [{"kind": kind, "applied": "mod:m1", "official": False, "restorable": False}]})
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        pending = pool.submit(call, app, "/asset/spine/mod/m1/skeleton.skel")
+        try:
+            assert entered.wait(1)
+            for path in (f"/asset/spine/{kind}/{core}/skeleton.skel", "/asset/ui/atlases.json",
+                         "/asset/ui/sprite/Common/Common_Icon_Back.png"):
+                assert pool.submit(call, app, path).result(timeout=1)[0] == "200 OK"
+            data = pool.submit(rpc, app, "family.get", key="hoshino").result(timeout=1)
+            assert data["result"]["variants"][0]["state"]["files"][0]["applied"] == "mod:m1"
+        finally:
+            release.set()
+        assert pending.result(timeout=1)[0] == "404 Not Found"
 
 
 def test_a_new_library_prunes_its_kept_originals_once(tmp_path, monkeypatch):

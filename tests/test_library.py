@@ -112,6 +112,38 @@ def expect_error(code, action):
     json.dumps(caught.value.to_json())
 
 
+@pytest.mark.parametrize("kind", ["spr", "lobby"])
+def test_apply_already_crc_fixed_mod_copies_without_unity_rebuild(setup_library, monkeypatch, kind):
+    env = setup_library
+    target = env.original if kind == "spr" else game_bundle(env.game_dir, "test_home_gl", part="textures")
+    mod = make_mod(target, env.tmp / "fixed", fixed=True)
+    entry = env.library.add([mod])[0]
+    monkeypatch.setattr(env.settings, "crc_needed", lambda path: True)
+
+    def no_rebuild(*args, **kwargs):
+        pytest.fail("A verified CRC-fixed mod must not be loaded or recompressed")
+
+    monkeypatch.setattr(Bundle, "load", no_rebuild)
+    result = env.library.apply("test", f"mod:{entry.id}", kind=kind)
+    assert result.files == [target]
+    assert target.read_bytes() == mod.read_bytes()
+    assert next(part for part in env.library.state("test").files if part.file == target).applied == f"mod:{entry.id}"
+
+
+def test_crc_skip_checks_actual_bytes_and_valid_header(setup_library, monkeypatch):
+    env = setup_library
+    monkeypatch.setattr(env.settings, "crc_needed", lambda path: True)
+    fixed = make_mod(env.original, env.tmp / "fixed", fixed=True)
+    unfixed = make_mod(env.original, env.tmp / "unfixed")
+    assert not env.library._needs_crc_fix(fixed, env.original)
+    assert env.library._needs_crc_fix(unfixed, env.original)
+    # A CRC suffix alone, or a CRC collision on truncated bytes, cannot authorize the fast path.
+    fixed.write_bytes(fixed.read_bytes()[:-1])
+    assert env.library._needs_crc_fix(fixed, env.original)
+    fixed.write_bytes(CRCUtils.apply_crc_fix(b"invalid header", int(parse_filename(fixed.name).crc)))
+    assert env.library._needs_crc_fix(fixed, env.original)
+
+
 def test_add_deduplicates_preserves_filename_and_detects_targets(setup_library):
     env = setup_library
     mod = make_mod(env.original, env.tmp / "input")

@@ -830,6 +830,9 @@
 				"model": "動作"
 			}
 		},
+		"detail": {
+			"failed": "預覽無法使用"
+		},
 		"lobby": {
 			"original": "原版",
 			"fullscreen": "全螢幕",

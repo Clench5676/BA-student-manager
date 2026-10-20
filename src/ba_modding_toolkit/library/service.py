@@ -1650,17 +1650,20 @@ class ModLibrary:
 
     def _install_direct(self, record: dict[str, Any], targets: list[Path], work: Path, log: LogFunc,
                         progress: ProgressCallback | None, pin: Pin) -> dict[Path, Path]:
+        started = time.perf_counter()
         groups = self._plan(record, log, pin)
         allowed = set(targets)
         planned = self._plan_targets(groups)
         if any(path not in allowed for path in planned):
             raise ServiceError("game_file_outside_resources", file=next(p for p in planned if p not in allowed))
         staged = self._stage_official(targets, work / "targets", pin)
+        logger.info("Mod apply plan and stage: %.3f s", time.perf_counter() - started)
+        started = time.perf_counter()
         # Execute only against temporary copies. The classic installer may
         # copy directly or rebuild; all real game writes go through _commit.
         staged_groups = [replace(group, files=[replace(file,
             existing_path=staged.get(file.existing_path),
-            need_crc_fix=self.settings.crc_needed(file.existing_path)
+            need_crc_fix=self._needs_crc_fix(file.mod_path, file.existing_path)
             if file.existing_path else False) for file in group.files],
             target_paths=[staged[path] for path in group.target_paths]) for group in groups]
         result = mod_install.execute_mod_install(
@@ -1668,9 +1671,18 @@ class ModLibrary:
             self.settings.save_options(self.settings.crc_needed(targets[0])),
             self.settings.spine_options(), anim_check=self.settings.anim_check_options(),
             create_backup=False, log=log, progress_callback=progress)
+        logger.info("Mod apply build and CRC: %.3f s", time.perf_counter() - started)
         if result.failed_groups:
             raise ServiceError("mod_apply_failed", id=record["id"])
         return staged
+
+    def _needs_crc_fix(self, source: Path, target: Path) -> bool:
+        if not self.settings.crc_needed(target):
+            return False
+        expected = parse_filename(target.name).crc
+        fingerprint = self._hashes.get(source)
+        # Already fixed mods can be copied without loading and recompressing their textures with UnityPy.
+        return fingerprint.trailing is None or not expected or fingerprint.crc != int(expected)
 
     @_serialized
     def apply(self, variant_key: str, source: str, log: LogFunc = no_log, progress: ProgressCallback | None = None,
@@ -1686,6 +1698,7 @@ class ModLibrary:
             return self.restore(variant_key, log, kind, pin=pin)
         pin = self._current(pin)
         on = profiles_mod.enabled(self.profiles.read())
+        started = time.perf_counter()
         try:
             with tempfile.TemporaryDirectory(prefix=devmode.LIBRARY_STAGING_PREFIX) as temporary:
                 work = Path(temporary)
@@ -1730,13 +1743,18 @@ class ModLibrary:
                         return self._defer(pin, variant_key, kinds, source)
                 else:
                     raise ServiceError("source_unsupported", source=source)
+                prepared = time.perf_counter()
                 files = self._commit(replacements, source, log, progress, pin, prune=False)
                 self._configure(pin, variant_key, kinds, source)
                 for core in kinds.values():
                     self._clear_marker(pin, core)
+                logger.info("Mod apply copy and record: %.3f s", time.perf_counter() - prepared)
                 return ApplyResult(variant_key, source, files, unchanged=not files)
         finally:
+            pruning = time.perf_counter()
             self._prune_quietly()
+            logger.info("Mod apply prune: %.3f s; total: %.3f s", time.perf_counter() - pruning,
+                        time.perf_counter() - started)
 
     def _defer(self, pin: Pin, variant_key: str, kinds: dict[str, str], source: str) -> ApplyResult:
         """While mods are off: configure the source without writing, applied when mods are on."""

@@ -7,6 +7,7 @@
 // Depth becomes z-index; NGUI y points up, the stage's y points down.
 import { spriteUrl } from "./api.js";
 import { decodeAll, imageUrls } from "./image-decode.js";
+import { withTimeout } from "./async.js";
 
 const PIVX = [0, 0.5, 1, 0, 0.5, 1, 0, 0.5, 1];
 const PIVY = [0, 0, 0, 0.5, 0.5, 0.5, 1, 1, 1]; // fraction of the height above the pivot
@@ -45,31 +46,39 @@ export function textWidth(str, fs) {
 }
 
 let index = null, textures = null, initDone = null;
+let atlasDone = null, texturesDone = null;
 const images = new Map(), tints = new Map();
 
 // the atlas and texture indexes, fetched once however many callers wait for them (the loading screen asks first)
 export function init() {
   initDone ||= Promise.all([
-    fetch("/asset/ui/atlases.json").then((r) => (r.ok ? r.json() : {})),
-    fetch("/asset/ui/textures.json").then((r) => (r.ok ? r.json() : {})),
-  ]).then(([a, t]) => { [index, textures] = [a, t]; }, (err) => { initDone = null; throw err; });
+    atlasDone = assetIndex("/asset/ui/atlases.json").then((a) => { index = a; }),
+    texturesDone = assetIndex("/asset/ui/textures.json").then((t) => { textures = t; }),
+  ]).catch((err) => { initDone = null; throw err; });
   return initDone;
+}
+
+function assetIndex(url) {
+  return withTimeout(fetch(url).then((r) => {
+    if (!r.ok) throw new Error(`${url}: HTTP ${r.status}`);
+    return r.json();
+  }), 15000, url);
 }
 
 export function load(url) {
   if (!images.has(url)) {
-    images.set(url, new Promise((resolve, reject) => {
+    images.set(url, withTimeout(new Promise((resolve, reject) => {
       const img = new Image();
       img.onload = () => resolve(img);
-      img.onerror = () => { images.delete(url); reject(new Error(url)); };
+      img.onerror = () => reject(new Error(url));
       img.src = url;
-    }));
+    }), 15000, url).catch((err) => { images.delete(url); throw err; }));
   }
   return images.get(url);
 }
 
 // canvases become in-memory blob URLs (never written anywhere)
-const canvasUrl = (c) => new Promise((resolve) => c.toBlob((b) => resolve(b ? URL.createObjectURL(b) : c.toDataURL())));
+const canvasUrl = (c) => withTimeout(new Promise((resolve) => c.toBlob((b) => resolve(b ? URL.createObjectURL(b) : c.toDataURL()))), 15000, "UI image encoding");
 
 // multiply the image by the tint colour, keeping its alpha (alpha of the tint is applied as opacity)
 export async function tinted(url, hex) {
@@ -87,7 +96,7 @@ export async function tinted(url, hex) {
       g.globalCompositeOperation = "destination-in";
       g.drawImage(img, 0, 0);
       return canvasUrl(c);
-    }));
+    }).catch((err) => { tints.delete(key); throw err; }));
   }
   return tints.get(key);
 }
@@ -118,7 +127,7 @@ function slicedImage(url, b, wpx, hpx, bs) {
         }
       }
       return canvasUrl(c);
-    }));
+    }).catch((err) => { baked.delete(key); throw err; }));
   }
   return baked.get(key);
 }
@@ -149,7 +158,7 @@ function downscaled(url, wpx, hpx) {
       g.imageSmoothingQuality = "high";
       g.drawImage(src, 0, 0, tw, th);
       return canvasUrl(c);
-    }));
+    }).catch((err) => { scaled.delete(key); throw err; }));
   }
   return scaled.get(key);
 }
@@ -162,17 +171,21 @@ const colorOf = (c) => {
 // opts: scale (stage px per unit), origin [x, y] (stage px of the root's origin),
 //       on / off (node names or paths to force), shift { name|path: [dx, dy] units },
 //       texts { name|path: text }, textures { name|path: url }, textureNames { texture name: url },
-//       styles { name|path: css }, rootPath (prefix used in paths), z (z-index offset)
-// Resolves with { nodes, scale, origin, pictures }: pictures are the clipImage pictures still being made (thumbnails),
-// each a promise settled once it is in.
+//       styles { name|path: css }, rootPath (prefix used in paths), z (z-index offset), deferImages (fill in later)
+// Resolves with { nodes, scale, origin, pictures }: pictures are thumbnails and deferred images still being made,
+// each a promise settled once it is in or has failed.
 export async function render(tree, host, opts = {}) {
-  await init();
+  const ready = init();
+  const spritesReady = atlasDone, textureReady = texturesDone;
+  if (opts.deferImages) ready.catch((err) => console.error("NGUI index failed", err));
+  else await ready;
   const S = opts.scale ?? 1920 / 2960;
   const [ox, oy] = opts.origin ?? [960, 540];
   const on = new Set(opts.on || []), off = new Set(opts.off || []);
   const pick = (map, name, path) => (map ? map[path] ?? map[name] : undefined);
   const nodes = new Map();
   const jobs = [], post = [], pictures = [];
+  const failed = (p, err) => console.error("NGUI image failed", p, err);
 
   function walk(n, px, py, sx, sy, alpha, path) {
     const p = path ? `${path}/${n.name}` : n.name;
@@ -235,7 +248,7 @@ export async function render(tree, host, opts = {}) {
           pic.style.backgroundImage = `url("${u}")`;
           if (performance.now() - t0 < 50) pic.style.transition = "none";
           pic.style.opacity = "1";
-        }).catch(() => {});
+        }).catch((err) => failed(p, err));
         if (typeof src === "string") jobs.push(done);
         else pictures.push(done);
       }
@@ -262,9 +275,13 @@ export async function render(tree, host, opts = {}) {
       }
     } else if ("sprite" in w) {
       if (w.sprite === "Common_Empty") return null;
-      const atlas = w.atlas || "Common", meta = index?.[atlas]?.[w.sprite];
-      if (!meta) return null;
-      jobs.push(tinted(spriteUrl(atlas, w.sprite), col.hex).then((url) => {
+      const atlas = w.atlas || "Common";
+      // Keep the geometry for hit targets even when the atlas is missing or a sprite cannot load.
+      if (opts.deferImages) el.style.backgroundColor = col.hex;
+      jobs.push(spritesReady.then(async () => {
+        const meta = index?.[atlas]?.[w.sprite];
+        if (!meta) throw new Error(`Missing sprite ${atlas}/${w.sprite}`);
+        const url = await tinted(spriteUrl(atlas, w.sprite), col.hex);
         const b = [meta.borderTop, meta.borderRight, meta.borderBottom, meta.borderLeft].map((v) => v || 0);
         // like NGUI, shrink borders that overlap (e.g. 30 + 30 on a 55 px sprite) so the centre survives
         const fitB = (i, j, size) => {
@@ -285,17 +302,18 @@ export async function render(tree, host, opts = {}) {
           });
         }
         return null;
-      }).catch(() => {}));
+      }).then(() => { el.style.backgroundColor = ""; }).catch((err) => failed(p, err)));
     } else {
       el.dataset.tex = w.texture;
       const override = pick(opts.textures, n.name, p) ?? opts.textureNames?.[w.texture];
-      const src = override || textures?.[w.texture] || null;
+      const src = override || (opts.deferImages ? textureReady.then(() => textures?.[w.texture]) : textures?.[w.texture]) || null;
       if (!src) return null;
-      const done = Promise.resolve(src).then((u) => (override ? u : tinted(u, col.hex)))
+      const done = Promise.resolve(src).then((u) => (!u || override ? u : tinted(u, col.hex)))
         .then((url) => (!url || url.startsWith("data:image/svg") ? url : downscaled(url, ww * S, hh * S))).then((url) => {
           if (url) Object.assign(el.style, { backgroundImage: `url("${url}")`, backgroundSize: "100% 100%", backgroundRepeat: "no-repeat" });
-        }).catch(() => {});
+        }).catch((err) => failed(p, err));
       if (typeof src === "string") jobs.push(done); // a pending thumbnail fills in later
+      else pictures.push(done);
     }
     const css = pick(opts.styles, n.name, p);
     if (css) post.push([el, css]); // applied after the images are in, so it can override them
@@ -304,7 +322,8 @@ export async function render(tree, host, opts = {}) {
   }
 
   walk(tree, 0, 0, 1, 1, 1, opts.rootPath || "");
-  await Promise.all(jobs);
+  if (opts.deferImages) pictures.push(...jobs);
+  else await Promise.all(jobs);
   for (const [el, css] of post) el.style.cssText += css;
   return { nodes, scale: S, origin: [ox, oy], pictures };
 }
@@ -334,10 +353,11 @@ const layouts = new Map();
 export function layout(name) {
   if (!layouts.has(name)) {
     const [root, sub] = name.split(".");
-    layouts.set(name, fetch(`/asset/ui/layout/${encodeURIComponent(root)}.json`).then((r) => {
+    layouts.set(name, withTimeout(fetch(`/asset/ui/layout/${encodeURIComponent(root)}.json`).then((r) => {
       if (!r.ok) throw new Error(`layout ${root}: HTTP ${r.status}`);
       return r.json();
-    }).then((tree) => (sub ? findNamed(tree, sub) : tree)));
+    }).then((tree) => (sub ? findNamed(tree, sub) : tree)), 15000, `Layout ${name}`)
+      .catch((err) => { layouts.delete(name); throw err; }));
   }
   return layouts.get(name);
 }

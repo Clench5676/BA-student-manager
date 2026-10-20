@@ -6,10 +6,11 @@
 // one). Added portraits and lobbies belong to the variant whose game file they replace (mod.target); added portraits
 // can be worn by the other variants of the family, lobbies are not offered to them. Switching writes the chosen one
 // into the game files (switch-sources.js, actions.apply).
-// The screen is shown only when it is ready: the panels, the left side's first frame (portrait, lobby or model) and,
-// within a short soft cap, the visible thumbnails. A change inside the screen (another variant, a tab, an applied
-// portrait) prepares every part off screen and swaps all of them in one frame (the commit barrier below).
+// The panels are usable while slow previews and images fill in. A change inside the screen (another variant, a tab,
+// an applied portrait) prepares its parts off screen and swaps the ready ones in one frame (the commit barrier
+// below), with a short soft cap on previews and visible thumbnails.
 import * as NGUI from "./ngui.js";
+import { withTimeout } from "./async.js";
 import * as Loading from "./loading.js";
 import * as Lobby from "./lobby.js";
 import * as Visual from "./visual-mode.js";
@@ -57,8 +58,13 @@ let renderToken = 0, exprToken = 0, chipToken = 0, spineToken = 0, leftToken = 0
 const HARD_CAP = 15000;  // a part that never comes is given up on: whatever there is shows
 const THUMBS_CAP = 1200; // visible thumbnails still being rendered after this fill in after the reveal
 const LINES_CAP = 1500;  // the lobby's lines from Kivo (a network call) likewise
+const LEFT_CAP = 1200;  // a slow preview leaves its place empty while the panels become usable
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const frames = (n) => new Promise((resolve) => { const step = () => (--n > 0 ? requestAnimationFrame(step) : resolve()); requestAnimationFrame(step); });
+function renderFailed(err) {
+  console.error("Detail render failed", err);
+  if (open) toast(T("detail.failed"), { kind: "error" });
+}
 
 // Every visible swap goes through commit(): at once, or, while an in-place change is prepared, queued and applied
 // together with every other part of that change in one frame. A later re-render (a face card, play all) is at once.
@@ -86,9 +92,9 @@ async function prepare({ gen, ended }, inPlace, work) {
   const queued = inPlace ? [] : null;
   batch = queued;
   try {
-    await Promise.race([Promise.resolve().then(work), ended, sleep(HARD_CAP)]);
+    await withTimeout(Promise.race([Promise.resolve().then(work), ended]), HARD_CAP, "Detail preparation");
   } catch (err) {
-    console.error(err);
+    renderFailed(err);
   }
   if (gen !== showGen) return false;
   if (queued) {
@@ -120,6 +126,10 @@ const hasFresh = (v, kind = null) => (v.modList || []).some((m) => m.fresh && (!
 const modLabel = (m) => m.label || m.file?.split(/[\\/]/).pop() || m.id;
 // a candidate's skeleton: a mod's preview (its parts over the official ones), else the variant's own portrait or lobby
 const baseOf = (c, kind = "spr") => (c.kind === "mod" ? spineBase("mod", c.id) : spineBase(kind === "lobby" ? "lobby" : "spr", c.core));
+// The in-use portrait is already complete in the game files, including adapted mods. A library preview may need
+// unavailable official parts and takes the writer lock; neither is needed to draw what was installed.
+const currentBase = () => spineBase("spr", variant().spr);
+const readFamily = (key) => withTimeout(rpc("family.get", { key }), HARD_CAP, "family.get");
 
 // what the switch card of a kind offers (switch-sources.js), with the names and marks the cards show: the variant's
 // own portrait or lobby and its added ones, then for the portrait the other variants' ones and their added ones
@@ -301,7 +311,7 @@ function screenTree() {
   at(t, `${card}/Normal`).children.push(
     ...(deco ? [clipped("DecoClip", [1, 6], deco, win, { dx: 30.8 - 1, dy: 7.5 - 6, w: 820, h: 198 }, { depth: 9 })] : []),
     tab === "portrait"
-      ? clipped("Bust", [1, 6], thumb(baseOf(c), "bust"), win, { dx: -383 + 202 - 40, dy: -67.5, w: 404, h: 404 },
+      ? clipped("Bust", [1, 6], thumb(currentBase(), "bust"), win, { dx: -383 + 202 - 40, dy: -67.5, w: 404, h: 404 },
         { depth: 10, mask: "linear-gradient(90deg, #000 70%, transparent 98%)" })
       // wider than the window's slanted left edge, and faded at both ends so no hard picture edge shows
       : clipped("Bust", [1, 6], tab === "model" ? modelShot : lobbyShot, win, { dx: -383 + 216, dy: 0, w: 450, h: 253 }, { depth: 10, mask: "linear-gradient(90deg, transparent 0, #000 10%, #000 70%, transparent 96%)" }));
@@ -398,7 +408,8 @@ function aliasPlate(np, nameEnd) {
     [sprite("Cafe_Icon_NameEdit", PENCIL, PENCIL, { type: 0, depth: 22, color: "#ffffff/0.85" })]));
 }
 
-async function renderScreen() {
+function renderScreen() { return drawScreen().catch(renderFailed); }
+async function drawScreen() {
   const my = ++renderToken, gen = showGen, shown = tab;
   const ok = () => showable("screen", my, renderToken, gen);
   const host = $("ngui"), bgHost = $("ngui-bg");
@@ -413,13 +424,13 @@ async function renderScreen() {
   next.innerHTML = '<div class="side left"></div><div class="side right"></div>';
   const [leftHost, rightHost] = next.children;
   const [lv, rv] = await Promise.all([
-    NGUI.render(left, leftHost, { scale: S, origin: ORIGIN, textureNames: TEXTURES }),
-    NGUI.render(right, rightHost, { scale: S, origin: ORIGIN, textureNames: TEXTURES }),
+    NGUI.render(left, leftHost, { scale: S, origin: ORIGIN, textureNames: TEXTURES, deferImages: true }),
+    NGUI.render(right, rightHost, { scale: S, origin: ORIGIN, textureNames: TEXTURES, deferImages: true }),
   ]);
   const frag = document.createDocumentFragment();
-  await NGUI.render(bgNode, frag, { scale: S, origin: ORIGIN, rootPath: "Inventory_ListControl", textures: { BG: v.bg || undefined } });
+  const bg = await NGUI.render(bgNode, frag, { scale: S, origin: ORIGIN, rootPath: "Inventory_ListControl", textures: { BG: v.bg || undefined }, deferImages: true });
   if (!ok()) return;
-  if (my === renderToken) screenPics = [...lv.pictures, ...rv.pictures];
+  if (my === renderToken) screenPics = [...lv.pictures, ...rv.pictures, ...bg.pictures];
   const view = { nodes: new Map([...lv.nodes, ...rv.nodes]) };
   addSwitchText(rightHost, view);
   hits(view, leftHost, rightHost);
@@ -503,7 +514,11 @@ function hits(view, leftHost, rightHost) {
 
 // --- actions ---
 async function call(fn) {
-  try { return await fn(); } catch (err) { toast(errorText(err), { kind: "error" }); return null; }
+  try { return await fn(); } catch (err) {
+    console.error("Detail action failed", err);
+    toast(err.code ? errorText(err) : T("detail.failed"), { kind: "error" });
+    return null;
+  }
 }
 async function reveal(path) { if (path) await call(() => rpc("os.reveal", { path })); }
 async function copyName() {
@@ -598,7 +613,7 @@ async function applyCandidate(key, kind = "spr") {
       }
       if (!open) return null; // the screen was left meanwhile: the next show reads the family again
       return changeInPlace(async () => {
-        const data = await call(() => rpc("family.get", { key: fam.key }));
+        const data = await call(() => readFamily(fam.key));
         if (data) fam = data;
         await Promise.all([renderAll(), renderLeft()]);
       });
@@ -657,7 +672,8 @@ function chipNode(name, pos, w, caption, active, swapped, mark, fresh = false) {
   if (fresh) kids.push(DOT([w / 2 - 4 + 36 * TAN10, 34], 30));
   return node(name, pos, [body], kids);
 }
-async function renderChips() {
+function renderChips() { return drawChips().catch(renderFailed); }
+async function drawChips() {
   const my = ++chipToken, gen = showGen;
   const ok = () => showable("chips", my, chipToken, gen);
   const host = $("ngui-chips");
@@ -671,7 +687,7 @@ async function renderChips() {
       : chipNode("Chip_more", [x, y], w, T("chips.more", { n: more }), false, false, false);
   }));
   const next = document.createDocumentFragment();
-  const view = await NGUI.render(tree, next, { scale: S, origin: ORIGIN, z: 20 });
+  const view = await NGUI.render(tree, next, { scale: S, origin: ORIGIN, z: 20, deferImages: true });
   if (!ok()) return; // a newer render took over
   for (const [path, entry] of view.nodes) {
     const m = /\/Chip_([^/]*)$/.exec(path);
@@ -717,7 +733,7 @@ function row4Items() {
     });
   }
   if (tab === "model") return modelActions.map((a) => ({ key: a, caption: T(`model.action.${a}`), title: T(`model.action.${a}`) }));
-  const base = baseOf(current());
+  const base = currentBase();
   const names = mainPlayer?.skeleton ? mainPlayer.skeleton.data.animations.map((a) => a.name).filter((n) => /^\d{2}$/.test(n)).sort() : [];
   return (names.length ? names : ["00"]).map((e) => ({ key: e, thumb: thumb(base, "face", e) }));
 }
@@ -748,7 +764,8 @@ Lobby.onTalk((anim, all) => {
   if (button) renderScreen();
 });
 
-async function renderExpressions() {
+function renderExpressions() { return drawExpressions().catch(renderFailed); }
+async function drawExpressions() {
   const my = ++exprToken, gen = showGen;
   const ok = () => showable("expr", my, exprToken, gen);
   const host = $("ngui-expr");
@@ -784,7 +801,7 @@ async function renderExpressions() {
   clip.appendChild(track);
   const origin = [ORIGIN[0] - cl, ORIGIN[1] - ct];
   await Promise.all(cards.map(async (cd) => {
-    const view = await NGUI.render(cd.tree, track, { scale: S, origin, z: cd.z || 30, textureNames: TEXTURES });
+    const view = await NGUI.render(cd.tree, track, { scale: S, origin, z: cd.z || 30, textureNames: TEXTURES, deferImages: true });
     pics.push(...view.pictures);
     const body = view.nodes.get(cd.tree.name)?.els[0];
     if (!body || (cd.pile && cd.tree.name !== "Pile_0")) return;
@@ -849,49 +866,60 @@ function loadSpine(base) {
     }
   };
   return new Promise((resolve) => {
-    layer.done = resolve; // settled by disposePortrait() too
-    layer.player = new spine.SpinePlayer(layer, {
-      // the idle is set in success(): some NPC skeletons have no Idle_01, and spine-player fails on a missing one
-      skeleton: `${base}.skel`, atlas: `${base}.atlas`, animation: undefined,
-      premultipliedAlpha: false, alpha: true, backgroundColor: "#00000000",
-      showControls: false, showLoading: false, preserveDrawingBuffer: true,
-      // framed like the game (portrait-view.js), never on the skeleton's bounds; no viewport transition:
-      // spine-player starts it from an undefined viewport and draws nothing meanwhile
-      viewport: detailViewport(),
-      // the visual mode (visual-mode.js) frames it while it is open
-      frame: (p) => Visual.frame(p),
-      success: async (player) => {
-        // before the first await: once this returns, spine-player frames the view on track 0's animation and plays.
-        // With nothing on track 0 it would pause (no face, no blink): a skeleton without an idle gets an empty
-        // animation there that never ends, so it keeps its setup pose and the faces on tracks 1-2 still play.
-        const idle = idleAnimation(player.skeleton.data);
-        if (idle) player.animationState.setAnimation(0, idle, true);
-        else player.animationState.setEmptyAnimation(0, 0).trackEnd = Number.MAX_VALUE;
-        if (my !== spineToken) { resolve(); return; } // a newer portrait took over; it retires this layer
-        mainPlayer = player;
-        applyExpression();
-        scheduleBlink(player);
-        await renderExpressions(); // the faces come from this skeleton
-        await frames(2);           // its first frame is on the canvas
-        commit(() => {
-          if (my !== spineToken) return;
-          layer.classList.remove("fading");
-          retire(previous);
-        });
-        resolve();
-      },
-      error: (player, message) => {
-        console.error(message);
-        toast(T("error.internal", { error: message }), { kind: "error" });
-        // spine-player's own error box (black, with the message) never shows: the toast says it
-        layer.querySelector(".spine-player-error")?.remove();
-        if (my === spineToken) {
-          if (mainPlayer === player) { clearTimeout(blinkTimer); mainPlayer = null; } // it broke after it was shown
-          commit(() => { if (my === spineToken) retire([...previous, layer]); });
-        }
-        resolve();
-      },
-    });
+    let timer;
+    const done = () => { clearTimeout(timer); resolve(); };
+    const failed = (player, err) => {
+      renderFailed(err);
+      layer.querySelector(".spine-player-error")?.remove();
+      if (my === spineToken) {
+        if (mainPlayer === player) { clearTimeout(blinkTimer); mainPlayer = null; }
+        commit(() => { if (my === spineToken) retire([...previous, layer]); });
+      }
+      done();
+    };
+    timer = setTimeout(() => failed(layer.player, new Error(`Portrait ${base}: timed out`)), HARD_CAP);
+    layer.done = done; // settled by disposePortrait() too
+    try {
+      layer.player = new spine.SpinePlayer(layer, {
+        // the idle is set in success(): some NPC skeletons have no Idle_01, and spine-player fails on a missing one
+        skeleton: `${base}.skel`, atlas: `${base}.atlas`, animation: undefined,
+        premultipliedAlpha: false, alpha: true, backgroundColor: "#00000000",
+        showControls: false, showLoading: false, preserveDrawingBuffer: true,
+        // framed like the game (portrait-view.js), never on the skeleton's bounds; no viewport transition:
+        // spine-player starts it from an undefined viewport and draws nothing meanwhile
+        viewport: detailViewport(),
+        // the visual mode (visual-mode.js) frames it while it is open
+        frame: (p) => Visual.frame(p),
+        success: async (player) => {
+          try {
+            // before the first await: once this returns, spine-player frames the view on track 0's animation and plays.
+            // With nothing on track 0 it would pause (no face, no blink): a skeleton without an idle gets an empty
+            // animation there that never ends, so it keeps its setup pose and the faces on tracks 1-2 still play.
+            const idle = idleAnimation(player.skeleton.data);
+            if (idle) player.animationState.setAnimation(0, idle, true);
+            else player.animationState.setEmptyAnimation(0, 0).trackEnd = Number.MAX_VALUE;
+            if (my !== spineToken || layer.retired) return; // a newer portrait took over; it retires this layer
+            mainPlayer = player;
+            applyExpression();
+            scheduleBlink(player);
+            await renderExpressions(); // the faces come from this skeleton
+            await frames(2);           // its first frame is on the canvas
+            commit(() => {
+              if (my !== spineToken) return;
+              layer.classList.remove("fading");
+              retire(previous);
+            });
+          } catch (err) {
+            failed(player, err);
+          } finally {
+            done();
+          }
+        },
+        error: (player, message) => failed(player, new Error(message)),
+      });
+    } catch (err) {
+      failed(null, err);
+    }
   });
 }
 // the detail screen's portrait framing: the skeleton's origin on CharacterPos
@@ -928,7 +956,8 @@ let popupSeg = 0, popupKind = "spr", popupStart = null;
 const modsOn = () => modsState()?.enabled !== false;
 const SET_BADGE = () => ({ text: T("switch.configured"), color: "#8de4ff", ink: "#314665" });
 const GREYED_BADGE = () => ({ text: T("mods.overwritten"), color: "#9aa3ad", ink: "#ffffff" });
-async function renderPopup(scroll = 0) {
+function renderPopup(scroll = 0) { return drawPopup(scroll).catch(renderFailed); }
+async function drawPopup(scroll = 0) {
   const v = variant(), kind = popupKind, inUseKey = appliedKey(v, kind);
   const mode = popupMode(fam, v, kind, modsOn());
   const items = candidates(v, kind).map((c) => ({
@@ -1294,8 +1323,8 @@ function showTab(id) {
   return changeInPlace(() => Promise.all([renderAll(), renderLeft()]));
 }
 
-// renderLeft() -> Promise, resolved once the tab's part has drawn its first frame (the lobby also its still and
-// lines, the model its still). The part loads laid out but transparent (.pending: a hidden canvas has no size) and is
+// renderLeft() -> Promise, resolved once the tab's part has drawn its first frame, or at the soft cap while it loads
+// further. The part loads laid out but transparent (.pending: a hidden canvas has no size) and is
 // committed with the rest of the screen; the part it replaces fades out and is freed. The lobby and the model are
 // single players: when the shown one is replaced by another variant's, a still of it holds the place meanwhile.
 const LEFT = ["portrait", "lobby", "model"];
@@ -1315,10 +1344,10 @@ function renderLeft() {
   }
   const swap = same && key !== shownKey ? freezeLeft(want) : null;
   // a newer left side or hide() came first: nothing is started
-  const ready = Promise.resolve(swap).then(() => (my !== leftToken ? null
-    : want === "portrait" ? (mainPlayer ? null : loadSpine(baseOf(current())))
-      : want === "lobby" ? showLobby(v, my) : showModel(v, my)));
-  return ready.then(() => commit(() => {
+  const ready = withTimeout(Promise.resolve(swap).then(() => (my !== leftToken ? null
+    : want === "portrait" ? (mainPlayer ? null : loadSpine(currentBase()))
+      : want === "lobby" ? showLobby(v, my) : showModel(v, my))), HARD_CAP, `Detail ${want}`).catch(renderFailed);
+  const shown = ready.then(() => commit(() => {
     if (my !== leftToken) return;
     el.hidden = false;
     el.classList.remove("pending", "leaving");
@@ -1328,6 +1357,7 @@ function renderLeft() {
     if (want === "lobby") Lobby.reveal(); // on screen: its intro starts
     for (const part of LEFT) if (part !== want) retireLeft(part, my);
   }));
+  return Promise.race([shown, sleep(LEFT_CAP)]);
 }
 // a part no longer shown: faded out, then freed (unless a newer change wants it again)
 function retireLeft(part, my) {
@@ -1381,7 +1411,8 @@ async function showLobby(v, my) {
   lobbyFrom = fam.version;
   lobbyStale = false;
   const m = await Lobby.show(v.lobby, $("lobby"), v.key);
-  if (!m || !still()) return;
+  if (!still()) return;
+  if (!m) throw new Error(`Lobby ${v.lobby}: no preview`);
   if (fullscreen) { Lobby.frame("full"); Lobby.interactive(true); }
   // the lines in the UI language only (Kivo's Chinese and Japanese, the Global server's English and the others), on
   // the voice clips of each talk animation, and Kivo's voices; nothing in another language stands in for a missing one
@@ -1391,7 +1422,7 @@ async function showLobby(v, my) {
     if (!still()) return null;
     Lobby.setLines(table, (l) => l?.[key] || "");
     return renderExpressions();
-  }).catch(() => { if (still()) Lobby.setLines({}, null); });
+  }).catch((err) => { console.error("Lobby lines failed", err); if (still()) Lobby.setLines({}, null); });
   // the still is taken in the left framing, once the players have drawn a few frames of it; while the intro plays (its
   // flash and scenes are not the lobby at rest), once it has ended
   await frames(4);
@@ -1400,8 +1431,8 @@ async function showLobby(v, my) {
     Lobby.introDone().then(() => frames(4)).then(() => {
       if (!still() || lobbyShot || fullscreen) return;
       lobbyShot = snapshotLobby();
-      if (lobbyShot) renderScreen();
-    });
+      if (lobbyShot) return renderScreen();
+    }).catch(renderFailed);
   } else if (!lobbyShot && !fullscreen) lobbyShot = snapshotLobby();
   await Promise.all([renderScreen(), renderExpressions(), Promise.race([lines, sleep(LINES_CAP)])]);
 }
@@ -1518,7 +1549,7 @@ async function stillAfterFullscreen() {
 }
 
 async function reload() {
-  const data = await call(() => rpc("family.get", { key: fam.key }));
+  const data = await call(() => readFamily(fam.key));
   if (data) fam = data;
   await renderAll();
 }
@@ -1558,7 +1589,7 @@ async function reloadChanged() {
   if (!open || busy || heldChange === undefined) return;
   heldChange = undefined;
   const key = fam.key;
-  const data = await rpc("family.get", { key }).catch(() => null);
+  const data = await readFamily(key).catch(renderFailed);
   if (!data || !open || fam?.key !== key || busy) return;
   if (JSON.stringify(data) === JSON.stringify(fam)) return;
   // the thumbnails of every core of the family whose files changed (a mod and the official file share one URL)
@@ -1595,13 +1626,20 @@ async function reloadChanged() {
 
 async function ensureLayouts() {
   if (layouts) return;
-  // the popups' prefabs (popup.js) with the screen's, so its popups draw their frame at once
-  const [detail, textures] = await Promise.all([
-    NGUI.layout("UICharacterDetail"), fetch("/asset/ui/textures.json").then((r) => (r.ok ? r.json() : {})), popupsReady(),
-  ]);
+  // Popup frames and decoration textures are optional for drawing the panels.
+  popupsReady().catch(renderFailed);
+  const textures = withTimeout(fetch("/asset/ui/textures.json").then((r) => {
+    if (!r.ok) throw new Error(`UI textures: HTTP ${r.status}`);
+    return r.json();
+  }), HARD_CAP, "UI textures").catch((err) => { renderFailed(err); return {}; });
+  const detail = await NGUI.layout("UICharacterDetail");
   // the portrait's visual mode: fetched now, waited for once its button is pressed
   const visual = NGUI.layout("UICharacterVisualMode").catch(() => null);
-  layouts = { list: find(detail, "Inventory_ListControl"), textures, visual };
+  const loaded = layouts = { list: find(detail, "Inventory_ListControl"), textures: {}, visual };
+  textures.then((data) => {
+    loaded.textures = data;
+    if (open && fam && layouts === loaded && Object.keys(data).length) return renderScreen();
+  }).catch(renderFailed);
 }
 
 // the voice volume and mute (development runs started with --mute stay silent), the zoom-out limit and the
@@ -1662,7 +1700,7 @@ addEventListener("keyup", (ev) => { if (KEYS[ev.key]) keySteps.release(KEYS[ev.k
 addEventListener("blur", () => keySteps.release());
 
 // show(context, familyData, variantKey, {inPlace}): open the detail screen on a variant; resolves once the screen is
-// ready (the panels, the left side's first frame, the visible thumbnails within THUMBS_CAP). In place (another
+// ready (the panels, the preview and visible thumbnails within their soft caps). In place (another
 // variant or family while the screen is shown), the shown screen stays until then and every part swaps in one frame.
 export async function show(context, familyData, key, { inPlace = false } = {}) {
   ctx = context;

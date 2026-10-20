@@ -22,6 +22,7 @@
 // Entered, the lobby plays its intro timeline (lobby-intro.js) from the first frame it is on screen: a tap or a
 // dialogue skips it, and with the setting off the lobby starts as the intro leaves it.
 import { spineFiles } from "./api.js";
+import { withTimeout } from "./async.js";
 import * as Linear from "./linear.js";
 import * as Materials from "./skeleton-materials.js";
 import * as Particles from "./particles-gl.js";
@@ -57,9 +58,13 @@ const game = () => (current?.info?.view ? { ...current.info.view } : { ...GAME }
 // the layers of a lobby in the prefab's draw order with its offsets and scales; skeletons the prefab keeps inactive
 // (talk-only scenes) are left out. Without prefab data every skeleton sits at the standard place, backgrounds first.
 async function layersOf(core) {
+  const read = (url) => withTimeout(fetch(url).then((r) => {
+    if (!r.ok) throw new Error(`${url}: HTTP ${r.status}`);
+    return r.json();
+  }), 15000, url);
   const [files, info] = await Promise.all([
-    fetch(spineFiles("lobby", core)).then((r) => (r.ok ? r.json() : [])),
-    fetch(`${base(core)}lobby.json`).then((r) => (r.ok ? r.json() : null)).catch(() => null),
+    read(spineFiles("lobby", core)),
+    read(`${base(core)}lobby.json`).catch((err) => { console.error("Lobby metadata failed", err); return null; }),
   ]);
   const atlasOf = pairAtlases(files), skels = [...atlasOf.keys()];
   const ok = (n) => atlasOf.has(n);
@@ -669,24 +674,29 @@ function makePlayer(host, layer, onReady, onError = () => {}, fx = null, share =
       p.skeleton.updateWorldTransform(spine.Physics.update);
     },
     success: (player) => {
-      player.bamtLayer = layer;
-      clocked(player);
-      Stage.ready(player);
-      if (layer.introOnly) Stage.setShown(player, false); // a scene only the intro shows
-      // linear light; a player drawn with another's context once every player is in (show)
-      if (!Stage.hostOf(player)) lightUp(player);
-      if (layer.skin) try { player.skeleton.setSkinByName(layer.skin); player.skeleton.setSlotsToSetupPose(); } catch { /* the default skin */ }
-      // the idle, and with it the clips it starts (its sync clips, the rest of its pool), as the game's OnEnable
-      player.bamtSounds = new Sync.SoundKeys(sfx);
-      player.bamtRuns = new Sync.Runs(player.animationState, { clip: (name) => clipOf(player, name),
-        duration: (name) => player.skeleton.data.findAnimation(name)?.duration || 0,
-        onEntry: (entry, c) => soundsOf(player, entry, c) });
-      // its Spine events reach the particle effects, which some switch on and off (SpineEventToggleObjects)
-      if (fx) player.animationState.addListener({ event: (_entry, e) => fx.spineEvent(layer.name, e.data.name, e.intValue) });
-      const idle = idleOf(player.skeleton.data, layer);
-      if (idle) soundsOf(player, player.animationState.setAnimation(0, idle, true), clipOf(player, idle));
-      for (const name of idleClips(current?.info, layer.name, idle, (n) => clipOf(player, n))) playClip(player, name);
-      onReady(player);
+      try {
+        player.bamtLayer = layer;
+        clocked(player);
+        Stage.ready(player);
+        if (layer.introOnly) Stage.setShown(player, false); // a scene only the intro shows
+        // linear light; a player drawn with another's context once every player is in (show)
+        if (!Stage.hostOf(player)) lightUp(player);
+        if (layer.skin) try { player.skeleton.setSkinByName(layer.skin); player.skeleton.setSlotsToSetupPose(); } catch { /* the default skin */ }
+        // the idle, and with it the clips it starts (its sync clips, the rest of its pool), as the game's OnEnable
+        player.bamtSounds = new Sync.SoundKeys(sfx);
+        player.bamtRuns = new Sync.Runs(player.animationState, { clip: (name) => clipOf(player, name),
+          duration: (name) => player.skeleton.data.findAnimation(name)?.duration || 0,
+          onEntry: (entry, c) => soundsOf(player, entry, c) });
+        // its Spine events reach the particle effects, which some switch on and off (SpineEventToggleObjects)
+        if (fx) player.animationState.addListener({ event: (_entry, e) => fx.spineEvent(layer.name, e.data.name, e.intValue) });
+        const idle = idleOf(player.skeleton.data, layer);
+        if (idle) soundsOf(player, player.animationState.setAnimation(0, idle, true), clipOf(player, idle));
+        for (const name of idleClips(current?.info, layer.name, idle, (n) => clipOf(player, n))) playClip(player, name);
+        onReady(player);
+      } catch (err) {
+        console.error("Lobby player setup failed", layer.name, err);
+        onError();
+      }
     },
     error: (_p, message) => { console.error(message); onError(); },
   }));
@@ -776,10 +786,10 @@ export async function show(core, host, variant) {
     const fx = (current.fx = info?.fx?.systems?.length || info?.fx?.renderers?.length || info?.fx?.sprites?.length
       ? Particles.create(info.fx, { base: base(core), bone: boneOf }) : null);
     // every layer drawn with the bottom one's context (share), or each with its own
-    const build = async (share) => (await Promise.all(layers.map((layer) => new Promise((resolve) => {
+    const build = async (share) => (await Promise.all(layers.map((layer) => withTimeout(new Promise((resolve) => {
       players.push(makePlayer(viewHost, layer, (player) => resolve({ ...layer, player }), () => resolve(null), fx,
         share ? players[0] : null));
-    })))).filter(Boolean);
+    }), 15000, `Lobby layer ${layer.name}`).catch((err) => { console.error(err); return null; })))).filter(Boolean);
     let all = await build(layers.length > 1);
     if (my !== token) return null;
     // the bottom skeleton did not load (a broken mod): the others cannot draw with its context
