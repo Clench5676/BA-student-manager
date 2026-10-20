@@ -982,6 +982,22 @@ def test_roster_view_is_kept_across_launches(app, services, tmp_path):
     assert roster_view(UiState(tmp_path / "webui.json").get("roster")) == saved
 
 
+@pytest.mark.parametrize("kind", [["student"], ["npc"], ["student", "npc"]])
+@pytest.mark.parametrize("recruit", ["all", "yes", "no"])
+def test_saved_roster_type_filter_is_dropped_on_load_and_save(app, services, tmp_path, kind, recruit):
+    kept = {"merged": True, "mods": "none", "recruit": recruit, "sort": "name", "order": "desc",
+            "filters": {"favorite": ["no"], "portrait": ["replaced"]}}
+    legacy = {**kept, "filters": {**kept["filters"], "kind": kind}}
+    services.state.set("roster", legacy)
+    services.state.set("voice_volume", 35)
+    services.state = UiState(tmp_path / "webui.json")
+    assert rpc(app, "settings.get")["result"]["roster"] == kept
+    assert rpc(app, "settings.set", key="roster", value=legacy)["result"]["roster"] == kept
+    reloaded = UiState(tmp_path / "webui.json")
+    assert reloaded.get("roster") == kept
+    assert reloaded.get("voice_volume") == 35
+
+
 def test_settings_offer_the_languages_with_a_locale_file(app, services, tmp_path, monkeypatch):
     from ba_modding_toolkit.i18n import i18n_manager
     from ba_modding_toolkit.webui import api as webui_api

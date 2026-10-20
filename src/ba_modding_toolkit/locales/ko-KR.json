@@ -926,11 +926,6 @@
 			"close": "닫기",
 			"fav": {
 				"off": "미등록"
-			},
-			"kind": {
-				"title": "종류",
-				"student": "학생",
-				"npc": "기타"
 			}
 		},
 		"band": {

@@ -142,12 +142,45 @@ test("name sort uses the collator of the UI language", () => {
 
 test("segment and display filters narrow the cards", () => {
   assert.deepEqual(keys(order(data(), view({ recruit: "no" }), { label })), ["citizen_borot2", "np0045"]);
-  assert.deepEqual(keys(order(data(), view({ mods: "none", filters: { kind: ["npc"] } }), { label })), ["citizen_borot2", "np0045"]);
   assert.deepEqual(keys(order(data(), view({ filters: { portrait: ["replaced"] } }), { label })), ["citizen_borot2"]);
   assert.deepEqual(keys(order(data(), view({ filters: { lobby: ["yes"] } }), { label })), ["hoshino"]);
   assert.deepEqual(keys(order(data(), view({ filters: { favorite: ["no"], model: ["yes"] } }), { label })), []);
   // both options of a group: no narrowing
   assert.equal(order(data(), view({ filters: { favorite: ["yes", "no"] } }), { label }).length, 5);
+});
+
+test("retired type selections cannot hide cards or conflict with release filters after loading a saved view", () => {
+  const d = data();
+  d.families[0].variants.push(v("not_on_global", { playable: true, recruitable: false }));
+  assert.equal(Object.hasOwn(FILTERS, "kind"), false);
+  for (const merged of [false, true]) {
+    const expected = merged
+      ? { all: ["hoshino", "aru", "citizen_borot2"], yes: ["hoshino", "aru"], no: ["citizen_borot2"] }
+      : { all: ["hoshino", "hoshino_swimsuit", "np0045", "not_on_global", "aru", "citizen_borot2"],
+        yes: ["hoshino", "hoshino_swimsuit", "aru"], no: ["np0045", "not_on_global", "citizen_borot2"] };
+    for (const kind of [["student"], ["npc"], ["student", "npc"]]) {
+      for (const recruit of ["all", "yes", "no"]) {
+        const saved = { merged, recruit, sort: "default", order: "asc", filters: { kind } };
+        const loaded = normalizeView(saved);
+        assert.deepEqual(loaded.filters, {});
+        assert.equal(filtering(saved.filters), false);
+        const listed = order(d, loaded, { label, unfiltered: true });
+        // Mod bands and favorites have their own order; compare membership in catalog order.
+        const actual = order(d, loaded, { label }).sort((a, b) => a.n - b.n);
+        assert.deepEqual(keys(actual), expected[recruit]);
+        assert.deepEqual(keys(listed.sort((a, b) => a.n - b.n)), expected.all);
+        assert.deepEqual(saved.filters, { kind });
+      }
+    }
+  }
+});
+
+test("migrating a type selection preserves the other display and segment filters", () => {
+  const loaded = normalizeView({ merged: false, mods: "none", recruit: "no", sort: "name", order: "asc",
+    filters: { kind: ["student"], portrait: ["replaced"], favorite: ["no"] } });
+  assert.deepEqual(loaded.filters, { favorite: ["no"], portrait: ["replaced"] });
+  assert.equal(filtering(loaded.filters), true);
+  assert.deepEqual(keys(order(data(), loaded, { label })), ["citizen_borot2"]);
 });
 
 test("the search folds case, width, kana and separators across name languages and file ids", () => {
