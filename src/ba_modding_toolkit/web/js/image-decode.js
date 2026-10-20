@@ -24,10 +24,16 @@ export function imageUrls(elements) {
 
 // decodeAll(urls, decode, cap) -> resolves with true once decode(url) has settled for every URL (one that fails counts
 // as done: the element shows what it can, as before), or with false after cap ms, whichever comes first
-export function decodeAll(urls, decode, cap = Infinity) {
+export function decodeAll(urls, decode, cap = Infinity, { signal } = {}) {
   const all = Promise.all(urls.map((url) => Promise.resolve().then(() => decode(url)).catch(() => {}))).then(() => true);
-  if (!Number.isFinite(cap)) return all;
+  if (!Number.isFinite(cap) && !signal) return all;
   let timer = 0;
-  const late = new Promise((resolve) => { timer = setTimeout(resolve, Math.max(0, cap), false); });
-  return Promise.race([all, late]).finally(() => clearTimeout(timer));
+  let cancel;
+  const late = new Promise((resolve) => {
+    cancel = () => { clearTimeout(timer); resolve(false); };
+    if (signal?.aborted) { cancel(); return; }
+    signal?.addEventListener("abort", cancel, { once: true });
+    if (Number.isFinite(cap)) timer = setTimeout(resolve, Math.max(0, cap), false);
+  });
+  return Promise.race([all, late]).finally(() => { clearTimeout(timer); signal?.removeEventListener("abort", cancel); });
 }

@@ -204,6 +204,7 @@ async function route() {
       // leaving the list: its cards as shown are the arrows' order
       if (!stepCards && rosterData && !$("screen-roster").hidden) stepCards = Roster.order(rosterData);
       Roster.invalidate();
+      Roster.hide();
       const inPlace = !$("screen-detail").hidden;
       await Loading.hold(() => Loading.scene(async (covered) => {
         const fam = await rpc("family.get", { key: parts[1] });

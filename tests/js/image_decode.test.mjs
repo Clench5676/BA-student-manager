@@ -54,3 +54,14 @@ test("decodeAll without pictures resolves at once, and without a cap waits as lo
   assert.equal(await decodeAll([], () => Promise.resolve(), 0), true);
   assert.equal(await decodeAll(["a"], () => new Promise((resolve) => setTimeout(resolve, 20))), true);
 });
+
+test("navigation cancels pending decode deadlines before mock timers are reset", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    const controller = new AbortController();
+    const pending = decodeAll(["late"], () => new Promise(() => {}), 15000, { signal: controller.signal });
+    controller.abort();
+    assert.equal(await pending, false);
+    t.mock.timers.tick(60000);
+  } finally { t.mock.timers.reset(); }
+});

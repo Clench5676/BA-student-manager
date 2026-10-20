@@ -129,12 +129,12 @@ export function forgetSpineAssets(prefix = "") {
   for (const dir of resolving.keys()) if (dir.toLowerCase().startsWith(want)) resolving.delete(dir);
 }
 
-export function spineAssetBase(base) {
+export function spineAssetBase(base, { signal } = {}) {
   if (!base || /\/[a-f0-9]{64}\/skeleton$/.test(base)) return Promise.resolve(base);
   const dir = base.slice(0, base.lastIndexOf("/"));
-  if (!resolving.has(dir)) {
+  if (signal || !resolving.has(dir)) {
     const url = `${dir}/manifest.json`;
-    const asking = withTimeout(fetch(url, { cache: "no-store" }).then(async (res) => {
+    const asking = withTimeout(fetch(url, { cache: "no-store", ...(signal ? { signal } : {}) }).then(async (res) => {
       if (!res.ok) {
         const error = new Error(`HTTP ${res.status}`);
         if (res.status !== 404) throw error;
@@ -148,12 +148,14 @@ export function spineAssetBase(base) {
       const revision = manifest?.revision;
       if (typeof revision !== "string" || !/^[a-f0-9]{64}$/.test(revision)) throw new Error(`HTTP ${res.status}: invalid revision`);
       return `${dir}/${revision}/skeleton`;
-    }), 15000, `Spine manifest ${url}`).catch((cause) => {
+    }), 15000, `Spine manifest ${url}`, { signal }).catch((cause) => {
       const error = new Error(`Spine manifest ${url}: ${cause?.message || String(cause)}`, { cause });
       error.url = url;
       error.step = "manifest";
       throw error;
     }).finally(() => { if (resolving.get(dir) === asking) resolving.delete(dir); });
+    // A scoped reader owns its cancellation; it must not cancel an unrelated reader of the same directory.
+    if (signal) return asking;
     resolving.set(dir, asking);
   }
   return resolving.get(dir);

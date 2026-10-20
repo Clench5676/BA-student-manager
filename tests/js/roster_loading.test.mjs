@@ -25,6 +25,7 @@ function harness(kind = "spr") {
       spr: kind === "spr" ? "spr" : null, lobby: kind === "lobby" ? "arona_workpage_daytime" : null } }] }];
   }));
   const env = {
+    thumbnailWork: { signal: { aborted: false } },
     document: { createElement: () => new El() }, rows, rendered: new Map(), dom: { scrollHost: host }, hasAsset,
     CLIP_BOTTOM: 100, PITCH: 50, S: 1, ORIGIN: [0, 0], view: { scroll: 0 }, clipTop: () => 0, ctx: {},
     cardTree: (e) => e, portraitOf: (e) => `portrait-${e.key}`,
@@ -38,7 +39,7 @@ function harness(kind = "spr") {
   const api = new Function("env", `const { ${Object.keys(env).join(", ")} } = env;
     ${rowsCode}
     return { syncRows };`)(env);
-  return { ...api, requested, pictures, renders, host, rows };
+  return { ...api, requested, pictures, renders, host, rows, signal: env.thumbnailWork.signal };
 }
 
 test("roster cards keep their full accessible name and counts without a hover title", async () => {
@@ -52,6 +53,15 @@ test("roster cards keep their full accessible name and counts without a hover ti
   assert.equal(card.attrs.title, undefined);
   for (const key of [0, 1]) { h.renders.get(key).resolve(); h.pictures.get(key).resolve(); }
   await pending;
+});
+
+test("leaving the roster cancels overscan queued behind the visible rows", async () => {
+  const h = harness();
+  const pending = h.syncRows();
+  h.signal.aborted = true;
+  for (const key of [0, 1]) { h.renders.get(key).resolve(); h.pictures.get(key).resolve(); }
+  await pending; await flush();
+  assert.deepEqual(h.requested, [0, 1]);
 });
 
 for (const kind of ["spr", "lobby"]) test(`the first screenful waits for every ${kind} picture before overscan is requested`, async () => {

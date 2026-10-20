@@ -25,7 +25,7 @@ import * as Prompts from "./prompts.js";
 import { anyOpen as popupOpen } from "./popup.js";
 import { rpc, spineBase, spinePrefix, loadSpineAssets, waitJob } from "./api.js";
 import { L, T, language, platform } from "./i18n.js";
-import { forget, idleAnimation, prioritise, thumb } from "./thumbs.js";
+import { forget, idleAnimation, prioritise, thumbnailScope } from "./thumbs.js";
 import { portraitViewport } from "./portrait-view.js";
 import { colourSwitchCard } from "./switch-card.js";
 import { customAliases as aliasesOf, modOriginalName, studentName } from "./names.js";
@@ -65,6 +65,7 @@ let renderToken = 0, exprToken = 0, chipToken = 0, spineToken = 0, leftToken = 0
 
 // --- readiness ---
 const HARD_CAP = 15000;  // individual failed assets settle with an error before the screen is revealed
+const THUMBS_CAP = 3000; // one shared allowance for optional pictures, which keep filling in afterwards
 const LINES_CAP = 1500;  // the lobby's lines from Kivo (a network call) likewise
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const frames = (n) => new Promise((resolve) => { const step = () => (--n > 0 ? requestAnimationFrame(step) : resolve()); requestAnimationFrame(step); });
@@ -89,8 +90,16 @@ let open = false, pageToken = 0;
 let leftPage = Promise.resolve(), leavePage = () => {};
 // a generation of the screen: a newer show, tab change or hide ends the wait of the one before
 let showGen = 0, endWait = () => {};
+let thumbnailWork = thumbnailScope();
+let thumbnailWait = Promise.resolve(), releaseThumbnails = () => {};
+const thumb = (...args) => thumbnailWork.thumb(...args);
 function begin() {
   endWait();
+  thumbnailWork.cancel();
+  thumbnailWork = thumbnailScope();
+  screenPics = exprPics = chipPics = screenThumbs = exprThumbs = chipThumbs = [];
+  const done = new Promise((resolve) => { releaseThumbnails = resolve; });
+  thumbnailWait = open ? withTimeout(done, THUMBS_CAP, "Detail thumbnails", { signal: thumbnailWork.signal }).catch(() => {}) : Promise.resolve();
   const gen = ++showGen;
   return { gen, ended: new Promise((resolve) => { endWait = resolve; }) };
 }
@@ -106,6 +115,7 @@ async function prepare({ gen, ended }, inPlace, work) {
     if (gen === showGen) renderFailed(err);
   }
   if (gen !== showGen) return false;
+  releaseThumbnails();
   if (queued) {
     await new Promise(requestAnimationFrame);
     if (gen !== showGen) return false;
@@ -114,22 +124,33 @@ async function prepare({ gen, ended }, inPlace, work) {
   }
   return true;
 }
-// Deferred sprites, thumbnails and decoded backgrounds all belong to the reveal barrier.
+// Panels and decoded backgrounds are required; generated thumbnails have one short shared reveal allowance.
 let screenPics = [], exprPics = [], chipPics = [];
+let screenThumbs = [], exprThumbs = [], chipThumbs = [];
 const picturesReady = (pictures, ...roots) => {
+  const { signal } = thumbnailWork;
   // roots may be missing (a part not drawn) and descendants may lack a style (e.g. text holders): skip both
-  const elements = roots.filter(Boolean).flatMap((root) => [root, ...(root.querySelectorAll?.("*") || [])]);
+  const elements = roots.filter(Boolean).flatMap((root) => [root, ...(root.querySelectorAll?.("*") || [])]).filter((el) => !el.dataset?.thumbnail);
   return Promise.allSettled(pictures).then(() => {
+    if (signal.aborted) return;
     for (const el of elements) if (el?.style?.transition) el.style.transition = "none";
-    return NGUI.decoded(elements, HARD_CAP);
+    return NGUI.decoded(elements, HARD_CAP, null, { signal });
   });
 };
-async function settleThumbs() {
+async function settlePictures(read, signal) {
   let before;
   do {
-    before = [screenPics, exprPics, chipPics];
+    before = read();
     await Promise.allSettled(before.flat());
-  } while (before[0] !== screenPics || before[1] !== exprPics || before[2] !== chipPics);
+  } while (!signal.aborted && before.some((part, i) => part !== read()[i]));
+}
+async function settleThumbs() {
+  const { signal } = thumbnailWork;
+  const release = releaseThumbnails;
+  await Promise.all([
+    settlePictures(() => [screenPics, exprPics, chipPics], signal),
+    Promise.race([settlePictures(() => [screenThumbs, exprThumbs, chipThumbs], signal).then(release), thumbnailWait]),
+  ]);
 }
 
 // --- names, candidates, state ---
@@ -466,7 +487,10 @@ async function drawScreen() {
   if (!ok()) return;
   const view = { nodes: new Map([...lv.nodes, ...rv.nodes]) };
   const cardReady = addSwitchText(rightHost, view);
-  if (my === renderToken) screenPics = [picturesReady([...lv.pictures, ...rv.pictures, ...bg.pictures, cardReady], leftHost, rightHost, frag)];
+  if (my === renderToken) {
+    screenPics = [picturesReady([...lv.images, ...rv.images, ...bg.images], leftHost, rightHost, frag)];
+    screenThumbs = [picturesReady([...lv.thumbnails, ...rv.thumbnails, ...bg.thumbnails, cardReady], leftHost, rightHost, frag)];
+  }
   hits(view, leftHost, rightHost);
   commit(() => {
     if (!ok()) return;
@@ -504,8 +528,9 @@ function addSwitchText(host, view) {
   box.append(b, span, ...(switchKind() ? [go] : []));
   host.appendChild(box);
   const bust = view.nodes.get(`Inventory_ListControl/${INFO}/Weapon/Equip_1/UIEquipmentCard/Btn_Target/Normal/Bust`);
-  if (switchKind() && bust?.els[0]) return colourSwitchCard(bust.els[0], box, bust.node.widgets[0], NGUI.load)
-    .catch((err) => console.warn("Switch card colours unavailable", err));
+  const { signal } = thumbnailWork;
+  if (switchKind() && bust?.els[0]) return colourSwitchCard(bust.els[0], box, bust.node.widgets[0], NGUI.load, { signal })
+    .catch((err) => { if (!signal.aborted) console.warn("Switch card colours unavailable", err); });
 }
 
 function hits(view, leftHost, rightHost) {
@@ -781,7 +806,10 @@ async function drawChips() {
   }));
   const next = document.createDocumentFragment();
   const view = await NGUI.render(tree, next, { scale: S, origin: ORIGIN, z: 20, deferImages: true });
-  if (my === chipToken) chipPics = [picturesReady(view.pictures, next)];
+  if (my === chipToken) {
+    chipPics = [picturesReady(view.images, next)];
+    chipThumbs = [picturesReady(view.thumbnails, next)];
+  }
   if (!ok()) return; // a newer render took over
   for (const [path, entry] of view.nodes) {
     const m = /\/Chip_([^/]*)$/.exec(path);
@@ -829,7 +857,8 @@ function row4Items() {
   if (tab === "model") return modelActions.map((a) => ({ key: a, caption: T(`model.action.${a}`) }));
   const base = currentBase();
   const names = mainPlayer?.skeleton ? mainPlayer.skeleton.data.animations.map((a) => a.name).filter((n) => /^\d{2}$/.test(n)).sort() : [];
-  return (names.length ? names : ["00"]).map((e) => ({ key: e, thumb: thumb(base, "face", e) }));
+  const request = thumbnailWork.thumb;
+  return (names.length ? names : ["00"]).map((e) => ({ key: e, thumb: () => request(base, "face", e) }));
 }
 const row4Selected = () => (tab === "lobby" ? lobbySeq : tab === "model" ? modelAction : expression);
 function row4Pick(key) {
@@ -863,8 +892,9 @@ async function drawExpressions() {
   const my = ++exprToken, gen = showGen;
   const ok = () => showable("expr", my, exprToken, gen);
   const host = $("ngui-expr");
-  const list = row4Items(), sel = row4Selected(), unfolded = expanded, pics = [];
-  const cardOf = (it, x, extra = {}) => stripCard(`Item_${it.key}`, x, { thumb: it.thumb, body: it.body, placeholder: it.placeholder, caption: it.caption, selected: it.key === sel, ...extra });
+  const list = row4Items(), sel = row4Selected(), unfolded = expanded, pics = [], thumbs = [];
+  const picture = (it) => typeof it.thumb === "function" ? it.thumb() : it.thumb;
+  const cardOf = (it, x, extra = {}) => stripCard(`Item_${it.key}`, x, { thumb: picture(it), body: it.body, placeholder: it.placeholder, caption: it.caption, selected: it.key === sel, ...extra });
   const cards = [];
   if (unfolded || list.length <= 4) {
     list.forEach((it, i) => cards.push({ tree: cardOf(it, COLS[0] + i * PITCH), item: it }));
@@ -880,7 +910,7 @@ async function drawExpressions() {
     const pw = 178, right = BTN_COL[1];
     cards.push({ tree: stripCard("Pile_2", right - pw / 2, { w: pw, h: CARD.h - 24, tone: "#dfe8ef" }), pile: true, z: 100 });
     cards.push({ tree: stripCard("Pile_1", right - pw / 2 - 14, { w: pw, h: CARD.h - 12, tone: "#eef4f8" }), pile: true, z: 140 });
-    cards.push({ tree: stripCard("Pile_0", right - pw / 2 - 28, { w: pw, thumb: rest[0].thumb, dim: !!rest[0].thumb, caption: `+${rest.length}`, tone: rest[0].thumb ? "#ffffff" : "#d3dee8" }), pile: true, z: 180 });
+    cards.push({ tree: stripCard("Pile_0", right - pw / 2 - 28, { w: pw, thumb: picture(rest[0]), dim: !!rest[0].thumb, caption: `+${rest.length}`, tone: rest[0].thumb ? "#ffffff" : "#d3dee8" }), pile: true, z: 180 });
   }
   // clip: the row's height, from the box's slanted right edge to the row's inner right edge
   const Lx = 300, Rx = 1316, TOPU = -436, BOTU = -670;
@@ -896,7 +926,8 @@ async function drawExpressions() {
   const origin = [ORIGIN[0] - cl, ORIGIN[1] - ct];
   await Promise.all(cards.map(async (cd) => {
     const view = await NGUI.render(cd.tree, track, { scale: S, origin, z: cd.z || 30, textureNames: TEXTURES, deferImages: true });
-    pics.push(...view.pictures);
+    pics.push(...view.images);
+    thumbs.push(...view.thumbnails);
     const body = view.nodes.get(cd.tree.name)?.els[0];
     if (!body || (cd.pile && cd.tree.name !== "Pile_0")) return;
     hitButton(track, rect(body), () => {
@@ -907,7 +938,10 @@ async function drawExpressions() {
     }, cd.item?.body || cd.item?.caption || "", 260);
   }));
   if (!ok()) return; // a newer render took over (e.g. the tab changed while faces were rendering)
-  if (my === exprToken) exprPics = [picturesReady(pics, clip)];
+  if (my === exprToken) {
+    exprPics = [picturesReady(pics, clip)];
+    exprThumbs = [picturesReady(thumbs, clip)];
+  }
   if (unfolded) {
     clip.classList.add("expanded");
     track.style.width = `${(COLS[0] + list.length * PITCH + CARD.w / 2 + 24 - Lx) * S}px`;
@@ -1062,6 +1096,7 @@ const SET_BADGE = () => ({ text: T("switch.configured"), color: "#8de4ff", ink: 
 const GREYED_BADGE = () => ({ text: T("mods.overwritten"), color: "#9aa3ad", ink: "#ffffff" });
 function renderPopup(scroll = 0) { return drawPopup(scroll).catch(renderFailed); }
 async function drawPopup(scroll = 0) {
+  const thumb = thumbnailWork.thumb;
   const v = variant(), kind = popupKind, inUseKey = shownSource(v, kind);
   const mode = popupMode(fam, v, kind, modsOn());
   const items = candidates(v, kind).map((c) => ({
@@ -1199,6 +1234,7 @@ function overwrittenMessage(v, kind = "spr") {
 // variant picker: every variant of the family in the same list layout
 let pickerSeg = 0;
 async function openPicker(scroll = 0) {
+  const thumb = thumbnailWork.thumb;
   pickerSel = pickerSel || variantKey;
   const items = fam.variants.filter(hasAsset).sort(byRank).map((o) => ({
     key: o.key, kind: o.recruitable ? "playable" : "other", recruit: o.recruitable, label: shortName(o), full: fullName(o),
@@ -1853,7 +1889,7 @@ addEventListener("keyup", (ev) => { if (KEYS[ev.key]) keySteps.release(KEYS[ev.k
 addEventListener("blur", () => keySteps.release());
 
 // show(context, familyData, variantKey, {inPlace}): open the detail screen on a variant; resolves once the screen is
-// ready (the panels, preview, visible thumbnails and decoded images). In place (another
+// ready (the panels, preview and decoded images, with a short allowance for thumbnails). In place (another
 // variant or family while the screen is shown), the shown screen stays until then and every part swaps in one frame.
 export async function show(context, familyData, key, { inPlace = false } = {}) {
   ModAlias.close();

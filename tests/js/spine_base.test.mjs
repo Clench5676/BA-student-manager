@@ -46,9 +46,10 @@ test("forget drops the thumbnails under a prefix in any case (library.changed na
   const warn = console.warn;
   console.warn = () => {};
   try {
+    await new Promise(setImmediate); // start the first queued player before advancing its deadline
     // A missing callback settles each request and releases the one-player queue for the next base.
     for (let i = 0; i < 3; i++) { t.mock.timers.tick(15000); await new Promise(setImmediate); }
     assert.equal(await a, null);
     assert.equal(await other, null);
-  } finally { console.warn = warn; t.mock.timers.reset(); }
+  } finally { console.warn = warn; await new Promise(setImmediate); t.mock.timers.reset(); }
 });

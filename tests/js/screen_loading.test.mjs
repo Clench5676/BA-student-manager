@@ -30,7 +30,7 @@ function harness(initial = "roster") {
       show: async (_ctx, _family, _key, options) => { details.push(options); await preview.promise; },
       hide: () => events.push("hide-detail"), stepFailed() {},
     },
-    Roster: { invalidate() {}, order: () => [], show: async () => { events.push("build-roster"); await rows.promise; } },
+    Roster: { invalidate() {}, hide: () => events.push("hide-roster"), order: () => [], show: async () => { events.push("build-roster"); await rows.promise; } },
     noGame() {}, toast() {},
   };
   const route = new Function("env", `let { ${Object.keys(env).join(", ")} } = env; ${code} return route;`)(env);
@@ -41,6 +41,7 @@ for (const initial of ["roster", "detail"]) test(`${initial} to student stays co
   const h = harness(initial);
   const route = h.route();
   await flush(); assert.equal(h.covered(), true);
+  assert.ok(h.events.includes("hide-roster"), "abandon list thumbnails before the detail work starts");
   assert.equal(h.details.length, 0, "the family has not arrived");
   h.family.resolve({ key: "ibuki" }); await flush();
   assert.deepEqual(h.details, [{ inPlace: initial === "detail" }]);

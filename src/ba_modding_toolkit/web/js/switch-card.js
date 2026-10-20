@@ -61,10 +61,11 @@ export function cardColours(rows) {
   return { color, backing, alpha, backgroundImage };
 }
 
-export async function colourSwitchCard(picture, text, widget, load) {
-  const url = await withTimeout(Promise.resolve(widget.clipImage), 15000, "Switch card picture");
+export async function colourSwitchCard(picture, text, widget, load, { signal } = {}) {
+  const url = await withTimeout(Promise.resolve(widget.clipImage), widget.clipImage?.thumbnail ? Infinity : 15000, "Switch card picture", { signal });
   if (!url) return;
-  const image = await load(url), canvas = document.createElement("canvas");
+  const image = await withTimeout(load(url, { signal }), 15000, "Switch card colours", { signal }), canvas = document.createElement("canvas");
+  if (signal?.aborted) return;
   canvas.width = 64; canvas.height = 24;
   const g = canvas.getContext("2d"), height = parseFloat(picture.style.height);
   // Match the visible vertical crop of the upright picture, rather than sampling outside the card's window.

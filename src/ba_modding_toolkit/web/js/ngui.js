@@ -75,7 +75,19 @@ function assetIndex(url) {
   }), 15000, url);
 }
 
-export function load(url) {
+export function load(url, { signal } = {}) {
+  if (signal) {
+    const img = new Image();
+    const pending = new Promise((resolve, reject) => {
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error(url));
+      if (!signal.aborted) img.src = url;
+    });
+    return withTimeout(pending, 15000, url, { signal }).finally(() => {
+      img.onload = img.onerror = null;
+      if (signal.aborted) img.removeAttribute?.("src");
+    });
+  }
   if (!images.has(url)) {
     images.set(url, withTimeout(new Promise((resolve, reject) => {
       const img = new Image();
@@ -182,8 +194,7 @@ const colorOf = (c) => {
 //       on / off (node names or paths to force), shift { name|path: [dx, dy] units },
 //       texts { name|path: text }, textures { name|path: url }, textureNames { texture name: url },
 //       styles { name|path: css }, rootPath (prefix used in paths), z (z-index offset), deferImages (fill in later)
-// Resolves with { nodes, scale, origin, pictures }: pictures are thumbnails and deferred images still being made,
-// each a promise settled once it is in or has failed.
+// pictures includes all deferred work; images and thumbnails let a screen give optional thumbnails a shorter wait.
 export async function render(tree, host, opts = {}) {
   const ready = init();
   const spritesReady = atlasDone, textureReady = texturesDone;
@@ -194,7 +205,7 @@ export async function render(tree, host, opts = {}) {
   const on = new Set(opts.on || []), off = new Set(opts.off || []);
   const pick = (map, name, path) => (map ? map[path] ?? map[name] : undefined);
   const nodes = new Map();
-  const jobs = [], post = [], pictures = [];
+  const jobs = [], post = [], pictures = [], thumbnails = [];
   const failed = (p, err) => console.error("NGUI image failed", p, err);
 
   function walk(n, px, py, sx, sy, alpha, path) {
@@ -249,16 +260,18 @@ export async function render(tree, host, opts = {}) {
       });
       const src = w.clipImage;
       if (src) {
+        if (src.thumbnail) pic.dataset.thumbnail = "true";
         // a URL, or a promise of one (a thumbnail being rendered): thumbnails fill in when ready, render() does not
         // wait. One that comes in after the first frames fades in instead of popping.
         const t0 = performance.now();
         Object.assign(pic.style, { opacity: "0", transition: "opacity .25s ease" });
-        const done = withTimeout(Promise.resolve(src), 15000, `UI picture ${p}`).then((u) => (u && w.tint ? tinted(u, w.tint) : u)).then((u) => {
-          if (!u) return;
+        const done = withTimeout(Promise.resolve(src).then((u) => (u && w.tint ? tinted(u, w.tint) : u)), src.thumbnail ? Infinity : 15000, `UI picture ${p}`, { signal: src.signal || opts.signal }).then((u) => {
+          if (!u || src.signal?.aborted || opts.signal?.aborted) return;
           pic.style.backgroundImage = `url("${u}")`;
           if (performance.now() - t0 < 50) pic.style.transition = "none";
           pic.style.opacity = "1";
-        }).catch((err) => failed(p, err));
+        }).catch((err) => { if (!src.signal?.aborted && !opts.signal?.aborted) failed(p, err); });
+        if (src.thumbnail) thumbnails.push(done);
         if (typeof src === "string") jobs.push(done);
         else pictures.push(done);
       }
@@ -323,10 +336,12 @@ export async function render(tree, host, opts = {}) {
       const override = pick(opts.textures, n.name, p) ?? opts.textureNames?.[w.texture];
       const src = override || (opts.deferImages ? textureReady.then(() => textures?.[w.texture]) : textures?.[w.texture]) || null;
       if (!src) return null;
-      const done = withTimeout(Promise.resolve(src), 15000, `UI picture ${p}`).then((u) => (!u || override ? u : tinted(u, col.hex)))
-        .then((url) => (!url || url.startsWith("data:image/svg") ? url : downscaled(url, ww * S, hh * S))).then((url) => {
-          if (url) Object.assign(el.style, { backgroundImage: `url("${url}")`, backgroundSize: "100% 100%", backgroundRepeat: "no-repeat" });
-        }).catch((err) => failed(p, err));
+      if (src.thumbnail) el.dataset.thumbnail = "true";
+      const done = withTimeout(Promise.resolve(src).then((u) => (!u || override ? u : tinted(u, col.hex)))
+        .then((url) => (!url || src.thumbnail || url.startsWith("data:image/svg") ? url : downscaled(url, ww * S, hh * S))), src.thumbnail ? Infinity : 15000, `UI picture ${p}`, { signal: src.signal || opts.signal }).then((url) => {
+          if (url && !src.signal?.aborted && !opts.signal?.aborted) Object.assign(el.style, { backgroundImage: `url("${url}")`, backgroundSize: "100% 100%", backgroundRepeat: "no-repeat" });
+        }).catch((err) => { if (!src.signal?.aborted && !opts.signal?.aborted) failed(p, err); });
+      if (src.thumbnail) thumbnails.push(done);
       if (typeof src === "string") jobs.push(done); // a pending thumbnail fills in later
       else pictures.push(done);
     }
@@ -340,7 +355,7 @@ export async function render(tree, host, opts = {}) {
   if (opts.deferImages) pictures.push(...jobs);
   else await Promise.all(jobs);
   for (const [el, css] of post) el.style.cssText += css;
-  return { nodes, scale: S, origin: [ox, oy], pictures };
+  return { nodes, scale: S, origin: [ox, oy], pictures, images: pictures.filter((p) => !thumbnails.includes(p)), thumbnails };
 }
 
 // find a subtree by path ("A/B/C", relative to the given node)
@@ -384,13 +399,13 @@ export const rect = (el) => ["left", "top", "width", "height"].map((k) => parseF
 // screen about to show (see image-decode.js); resolves after cap ms at the latest. A picture still being made (a
 // thumbnail) has no background yet and fills in later as before. shown: an element whose pictures are on screen now,
 // so decoded already; they are left out (a Chromium decode() takes a frame or two even then).
-export function decoded(root, cap, shown = null) {
+export function decoded(root, cap, shown = null, { signal } = {}) {
   const onScreen = shown?.isConnected && shown.getClientRects().length ? imageUrls(shown.querySelectorAll("*")) : [];
   const skip = new Set(onScreen);
   const elements = Array.isArray(root) ? root : [root, ...root.querySelectorAll("*")];
   const urls = imageUrls(elements).filter((url) => !skip.has(url));
   const decode = (url) => { const img = new Image(); img.src = url; return img.decode(); };
-  return decodeAll(urls, decode, cap);
+  return decodeAll(urls, decode, cap, { signal });
 }
 
 // a plain node, for building widgets by hand: node("Name", [x, y], [widget], [children])

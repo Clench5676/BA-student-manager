@@ -18,7 +18,7 @@ import { current as modsState } from "./mod-switch.js";
 import { countNodes, countText, iconsOf } from "./mod-counts.js";
 import { rpc, spineBase } from "./api.js";
 import { L, T, language } from "./i18n.js";
-import { thumb } from "./thumbs.js";
+import { prioritise, thumbnailScope } from "./thumbs.js";
 import { configuredKey, hasAsset, previewBase, primaryKind } from "./switch-sources.js";
 import { $, RECRUIT, S, advanceOf, clone, glyphsOf } from "./util.js";
 import { DEFAULT_VIEW, SORTS, arrange, filtering, normalizeView, order as orderOf } from "./roster-order.js";
@@ -46,6 +46,7 @@ let layouts = null, data = null, ctx = null, items = [], rows = new Map(), conte
 let countIcons = null;
 let dom = {}; // the list's live elements: clip, scroll host (the newest, maybe still built), scrollbar, empty list
 let building = false; // a frame is being built: the search box's keystrokes wait for it
+let thumbnailWork = thumbnailScope();
 
 const listTop = () => (searching ? SEARCH_LIST_TOP : PAPER_TOP);
 const clipTop = () => ORIGIN[1] - listTop() * S;
@@ -269,6 +270,7 @@ function cardTree(e) {
 }
 
 const portraitOf = (e) => {
+  const thumb = thumbnailWork.thumb;
   const kind = primaryKind(e), variants = data.families.find((f) => f.key === e.family)?.variants || [];
   if (modsState()?.enabled === false && configuredKey(e, kind)) {
     return thumb(previewBase(e, kind, false, variants), "roster", null, kind === "lobby", specialFraming(e));
@@ -318,6 +320,7 @@ async function renderRow(host, rowKey) {
 
 // the rows near the view are rendered, the others dropped; resolves once the new ones are in
 function syncRows() {
+  const { signal } = thumbnailWork;
   const host = dom.scrollHost;
   const viewH = CLIP_BOTTOM - clipTop();
   const lo = clipTop() + view.scroll - viewH, hi = clipTop() + view.scroll + viewH * 2;
@@ -331,7 +334,7 @@ function syncRows() {
   const ready = Promise.all(visible.map((key) => rendered.get(key)?.ready || renderRow(host, key)));
   // Queue overscan only after the visible portraits; it never extends the reveal barrier.
   ready.then(() => {
-    if (host !== dom.scrollHost) return;
+    if (signal.aborted || host !== dom.scrollHost) return;
     for (const key of order) if (!rendered.has(key)) renderRow(host, key).catch(console.error);
   }).catch(console.error);
   return ready;
@@ -623,6 +626,8 @@ function warm() {
 // built and its pictures decoded: the caller builds it behind the screen still shown and then shows it, so its first
 // frame is complete.
 export async function show(context, rosterData) {
+  if (thumbnailWork.signal.aborted) thumbnailWork = thumbnailScope();
+  prioritise(null);
   ctx = context;
   await NGUI.init();
   countIcons ||= iconsOf(NGUI.atlasIndex());
@@ -640,4 +645,9 @@ export async function show(context, rosterData) {
     await NGUI.decoded($("roster"), DECODE_CAP); // the list as it was: its pictures again
   }
   warm();
+}
+
+export function hide() {
+  thumbnailWork.cancel();
+  dirty = true;
 }

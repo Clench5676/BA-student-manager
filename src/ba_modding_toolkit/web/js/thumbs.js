@@ -4,6 +4,8 @@
 import { artBounds, settle } from "./lobby-health.js";
 import { specialView } from "./special-view.js";
 import { withPreviewTimeout as withTimeout } from "./async.js";
+import { loadPlayer as spinePlayer } from "./spine-load.js";
+import { previewTimer } from "./preview-lifecycle.js";
 
 import { spineAssetBase, forgetSpineAssets } from "./api.js";
 import { lobbyIdle } from "./rest-pose.js";
@@ -26,9 +28,10 @@ export function idleAnimation(data) {
   return data.animations.find((a) => /^idle/i.test(a.name))?.name || null;
 }
 
-const cache = new Map();   // key -> Promise<url>
-const queue = [];          // { base, frame, expr, lobby, framing, resolve, reject }
-let running = false;
+const cache = new Map();   // key -> cached picture or a request with its consumers
+const queue = [];
+const scopes = new Set();
+let running = false, active = null, preferred = "";
 let host = null;
 
 function hostEl() {
@@ -122,26 +125,29 @@ function viewFor(p, frame, aspect, framing) {
   return { ...rect, padLeft: 0, padRight: 0, padTop: 0, padBottom: 0, transitionTime: 0, animations: {} };
 }
 
-const frames = (n) => new Promise((resolve) => {
-  const step = () => (n-- <= 0 ? resolve() : requestAnimationFrame(step));
-  requestAnimationFrame(step);
+const frames = (n, signal) => new Promise((resolve) => {
+  let frame;
+  const finish = () => {
+    globalThis.cancelAnimationFrame?.(frame);
+    signal.removeEventListener("abort", finish);
+    resolve();
+  };
+  const step = () => (n-- <= 0 || signal.aborted ? finish() : (frame = requestAnimationFrame(step)));
+  signal.addEventListener("abort", finish, { once: true });
+  frame = requestAnimationFrame(step);
 });
 
-function loadPlayer(base, el) {
-  return new Promise((resolve, reject) => {
-    const p = new spine.SpinePlayer(el, {
-      skeleton: `${base}.skel`, atlas: `${base}.atlas`, animation: undefined, // capture() sets the idle (some NPCs have no Idle_01)
-      premultipliedAlpha: false, alpha: true, backgroundColor: "#00000000",
-      showControls: false, showLoading: false, preserveDrawingBuffer: true,
-      viewport: { padLeft: 0, padRight: 0, padTop: 0, padBottom: 0, transitionTime: 0 },
-      success: (player) => resolve(player),
-      error: (_p, message) => { reject(new Error(message)); },
-    });
-    el.player = p;
-  });
+function loadPlayer(base, el, signal, onError) {
+  return spinePlayer((config) => new spine.SpinePlayer(el, config), {
+    skeleton: `${base}.skel`, atlas: `${base}.atlas`, animation: undefined,
+    premultipliedAlpha: false, alpha: true, backgroundColor: "#00000000",
+    showControls: false, showLoading: false, preserveDrawingBuffer: true,
+    // capture() supplies the actual frame. Do not sample the first animation's bounds a hundred times first.
+    viewport: { x: 0, y: 0, width: 1, height: 1, padLeft: 0, padRight: 0, padTop: 0, padBottom: 0, transitionTime: 0, animations: {} },
+  }, { signal, onError });
 }
 
-async function capture(player, el, frame, expr, lobby = false, framing = null) {
+async function capture(player, el, frame, expr, lobby, framing, signal) {
   const [w, h] = FRAMES[frame];
   el.style.width = `${w}px`;
   el.style.height = `${h}px`;
@@ -159,104 +165,191 @@ async function capture(player, el, frame, expr, lobby = false, framing = null) {
   player.skeleton.updateWorldTransform(spine.Physics.update);
   player.config.viewport = viewFor(player, frame, w / h, framing);
   player.setViewport(entry.animation);
-  await frames(3);
+  await frames(3, signal);
+  if (signal.aborted) return null;
   const canvas = el.querySelector("canvas");
-  return new Promise((resolve) => canvas.toBlob((b) => resolve(b ? URL.createObjectURL(b) : null)));
+  return new Promise((resolve) => canvas.toBlob((b) => resolve(b && !signal.aborted ? URL.createObjectURL(b) : null)));
 }
 
 const keyOf = (base, frame, expr, lobby = false, framing = null) => `${base}|${frame}|${expr || ""}|${lobby}|${framing || ""}`;
+
+// Consumers share a render, but cancelling one view must not cancel another view's use of it.
+function subscribe(item, signal) {
+  if (!signal && item.promise) return item.promise;
+  let client;
+  const promise = new Promise((resolve) => {
+    const finish = (url) => {
+      signal?.removeEventListener("abort", cancel);
+      item.clients.delete(client);
+      resolve(url);
+    };
+    const cancel = () => {
+      finish(null);
+      if (!item.settled && !item.clients.size) {
+        complete(item, null);
+        if (active?.base === item.base && !queue.some((q) => q.base === item.base && !q.settled)) active.controller.abort();
+      }
+    };
+    client = finish;
+    if (signal?.aborted) { cancel(); return; }
+    if (item.settled) { resolve(item.url); return; }
+    item.clients.add(client);
+    signal?.addEventListener("abort", cancel, { once: true });
+  });
+  promise.bump = () => bump(item);
+  promise.thumbnail = true;
+  promise.signal = signal;
+  promise.failure = () => item.error;
+  if (!signal) item.promise = promise;
+  return promise;
+}
+
+function complete(item, url, error = null) {
+  if (item.settled) { if (url) URL.revokeObjectURL(url); return; }
+  item.settled = true;
+  item.url = url;
+  item.error = error;
+  const at = queue.indexOf(item);
+  if (at >= 0) queue.splice(at, 1);
+  if (!url && cache.get(item.key) === item) cache.delete(item.key);
+  if (error) console.warn("thumbnail failed", item.base, error);
+  for (const done of [...item.clients]) done(url);
+  if (url && item.forgotten) URL.revokeObjectURL(url);
+}
 
 async function pump() {
   if (running) return;
   running = true;
   try {
     while (queue.length) {
-      const base = queue[0].base;
-      const batch = queue.filter((q) => q.base === base);
-      for (const q of batch) queue.splice(queue.indexOf(q), 1);
+      const first = queue[0], base = first.base, controller = new AbortController(), { signal } = controller;
+      active = { base, controller, items: new Set(queue.filter((q) => q.base === base)) };
       const el = document.createElement("div");
       el.className = "thumb-player";
-      const [w, h] = FRAMES[batch[0].frame];
+      const [w, h] = FRAMES[queue[0].frame];
       Object.assign(el.style, { width: `${w}px`, height: `${h}px` });
       hostEl().appendChild(el);
+      // One skeleton gets one budget, including all its captures. A broken encoder cannot cost 15 s per face.
+      const cancel = previewTimer(() => controller.abort(new Error(`Thumbnail ${base}: timed out`)), 15000);
+      let load;
       try {
-        const player = await withTimeout(loadPlayer(base, el), 15000, `Thumbnail ${base}`);
-        for (const q of batch) {
-          try { q.resolve(await withTimeout(capture(player, el, q.frame, q.expr, q.lobby, q.framing), 15000, `Thumbnail capture ${base}`)); } catch (err) { q.reject(err); }
+        load = loadPlayer(base, el, signal, (err) => controller.abort(err));
+        const player = await load.ready;
+        if (!player || signal.aborted) {
+          for (const q of active.items) complete(q, null, signal.reason?.name === "AbortError" ? null : signal.reason);
+          continue;
         }
-        await companions(player, el, base, batch);
+        const batch = [];
+        let q = first.settled ? queue.find((q) => q.base === base) : first;
+        while (!signal.aborted && q && !q.settled) {
+          const url = await withTimeout(capture(player, el, q.frame, q.expr, q.lobby, q.framing, signal), 3000, `Thumbnail capture ${base}`, { signal });
+          batch.push(q);
+          complete(q, url);
+          // Let a visible card's bump take effect before the next capture.
+          await Promise.resolve();
+          q = queue[0]?.base === base ? queue[0] : null;
+        }
+        if (!signal.aborted) await companions(player, el, base, batch, signal);
       } catch (err) {
-        for (const q of batch) q.reject(err);
+        for (const q of active.items) complete(q, null, signal.aborted && signal.reason?.name === "AbortError" ? null : err);
       } finally {
-        try { el.player?.dispose(); } catch (err) { console.error("Thumbnail dispose failed", base, err); }
+        cancel();
+        controller.abort();
+        load?.dispose();
         el.remove();
+        active = null;
       }
     }
-  } finally {
-    running = false;
-  }
+  } finally { running = false; }
 }
 
-// the other frame of a card, taken while the skeleton and its textures are loaded: asking for the big picture of a
-// card later does not load them again. A request already queued for it is answered from this load; a failure here
-// costs nothing, the frame is loaded when it is asked for.
-async function companions(player, el, base, batch) {
-  for (const frame of new Set(batch.map((q) => COMPANION[q.frame]).filter(Boolean))) {
-    const key = keyOf(base, frame, null, batch[0].lobby, batch[0].framing);
-    const waiting = queue.find((q) => q.base === base && q.frame === frame && !q.expr && q.lobby === batch[0].lobby && q.framing === batch[0].framing);
-    if (cache.has(key) && !waiting) continue;
-    let url = null;
-    try { url = await withTimeout(capture(player, el, frame, null, batch[0].lobby, batch[0].framing), 15000, `Thumbnail companion ${base}`); } catch { /* loaded when asked for */ }
+// Take the other frame while the skeleton is loaded, unless visible work for another skeleton is waiting.
+async function companions(player, el, base, batch, signal) {
+  for (const q of batch) {
+    const frame = COMPANION[q.frame];
+    if (!frame || queue.length) continue;
+    const key = keyOf(base, frame, null, q.lobby, q.framing);
+    if (cache.has(key)) continue;
+    const url = await withTimeout(capture(player, el, frame, null, q.lobby, q.framing, signal), 3000, `Thumbnail companion ${base}`, { signal });
     if (!url) continue;
-    if (waiting && queue.includes(waiting)) { queue.splice(queue.indexOf(waiting), 1); waiting.resolve(url); }
-    else if (!cache.has(key)) cache.set(key, Promise.resolve(url));
-    else URL.revokeObjectURL(url);
+    const waiting = cache.get(key);
+    if (waiting && !waiting.settled) complete(waiting, url);
+    else if (waiting) URL.revokeObjectURL(url);
+    else cache.set(key, { key, base, frame, lobby: q.lobby, framing: q.framing, url, settled: true, clients: new Set() });
   }
 }
 
-// thumb(base, "bust") -> Promise<blob url | null>; expr picks an expression for "face"; lobby: a memorial lobby's
-// skeleton, which rests in its lobby idle (rest-pose.js); framing: a special slot's character or scene fit.
-// The promise has bump(): render this one before the rest of the
-// queue (a card that scrolled into view).
+// A detail generation shares each manifest answer until it changes. Re-entering the page revalidates the source;
+// cancelling also stops manifest deadlines, queued renders and the active player when nobody else needs it.
+export function thumbnailScope() {
+  const controller = new AbortController(), manifests = new Map();
+  scopes.add(manifests);
+  return {
+    signal: controller.signal,
+    thumb: (base, frame = "bust", expr = null, lobby = false, framing = null) => request(base, frame, expr, lobby, framing, { signal: controller.signal, manifests }),
+    cancel: () => {
+      controller.abort(); manifests.clear();
+      scopes.delete(manifests);
+      if (active && !queue.some((q) => q.base === active.base)) active.controller.abort();
+    },
+  };
+}
+
+// thumb(base, frame) -> Promise<blob url | null>; expr selects a face, lobby selects its idle, framing a special fit.
+// bump() puts a visible card before queued work. Scopes add cancellation and share the source's manifest.
 export function thumb(base, frame = "bust", expr = null, lobby = false, framing = null) {
-  if (!base) return Promise.resolve(null);
+  return request(base, frame, expr, lobby, framing);
+}
+
+function request(base, frame = "bust", expr = null, lobby = false, framing = null, { signal, manifests } = {}) {
+  if (!base || signal?.aborted) return Promise.resolve(null);
   if (!/\/[a-f0-9]{64}\/skeleton$/.test(base)) {
-    // the revision the files carry now is part of the key: a picture made before a switch is never reused after it,
-    // and one made again for the same files comes from memory
+    const resolveBase = () => {
+      if (!manifests) return spineAssetBase(base);
+      if (!manifests.has(base)) {
+        const asking = spineAssetBase(base, { signal }).catch((err) => { if (manifests.get(base) === asking) manifests.delete(base); throw err; });
+        manifests.set(base, asking);
+      }
+      return manifests.get(base);
+    };
+    const refreshBase = async (resolved) => {
+      if (manifests) {
+        const previous = manifests.get(base);
+        if (previous && await previous !== resolved) return previous;
+        // Faces rejected together must join the first refresh, rather than invalidating each other's requests.
+        if (manifests.get(base) === previous) manifests.delete(base);
+      } else forgetSpineAssets(base.slice(0, base.lastIndexOf("/")));
+      return resolveBase();
+    };
     let inner = null, first = false;
-    const outer = spineAssetBase(base).then(async (resolved) => {
-      for (let attempt = 0; resolved && attempt < 2; attempt++) {
-        inner = thumb(resolved, frame, expr, lobby, framing);
-        if (first) inner.bump?.(); // asked to go first before the files were resolved
+    const outer = resolveBase().then(async (resolved) => {
+      for (let attempt = 0; resolved && !signal?.aborted && attempt < 2; attempt++) {
+        inner = request(resolved, frame, expr, lobby, framing, { signal });
+        if (first) inner.bump?.();
         const url = await inner;
-        if (url || attempt) return url;
-        // A switch after the manifest can reject the revision's assets. Ask afresh and try the new files once.
-        forgetSpineAssets(base.slice(0, base.lastIndexOf("/")));
-        const fresh = await spineAssetBase(base);
+        if (signal?.aborted || url || attempt) return url;
+        if (!/status 404|HTTP 404/.test(String(inner.failure?.()))) return null;
+        const fresh = await refreshBase(resolved);
         if (fresh === resolved) return null;
         resolved = fresh;
       }
       return null;
-    }).catch((err) => { console.warn("thumbnail failed", base, err); return null; });
+    }).catch((err) => { if (!signal?.aborted) console.warn("thumbnail failed", base, err); return null; });
     outer.bump = () => { first = true; inner?.bump?.(); };
+    outer.thumbnail = true;
+    outer.signal = signal;
     return outer;
   }
   const key = keyOf(base, frame, expr, lobby, framing);
   if (!cache.has(key)) {
-    let item;
-    const pending = new Promise((resolve, reject) => {
-      item = { base, frame, expr, lobby, framing, resolve, reject };
-      queue.push(item);
-      pump();
-    }).catch((err) => {
-      console.warn("thumbnail failed", base, err);
-      if (cache.get(key) === pending) cache.delete(key);
-      return null;
-    });
-    pending.bump = () => bump(item);
-    cache.set(key, pending);
+    const item = { key, base, frame, expr, lobby, framing, clients: new Set(), settled: false };
+    cache.set(key, item);
+    queue.push(item);
+    if (active?.base === base && !active.controller.signal.aborted) active.items.add(item);
+    if (preferred) queue.sort((a, b) => b.base.startsWith(preferred) - a.base.startsWith(preferred));
+    queueMicrotask(pump);
   }
-  return cache.get(key);
+  return subscribe(cache.get(key), signal);
 }
 
 function bump(item) {
@@ -264,20 +357,21 @@ function bump(item) {
   if (at > 0) queue.unshift(...queue.splice(at, 1));
 }
 
-// render the requested ones of a skeleton first (e.g. the faces of the portrait being shown)
+// Remember the preference before asynchronous manifests have populated the queue.
 export function prioritise(base) {
-  const prefix = base?.slice(0, base.lastIndexOf("/")) || "";
-  queue.sort((a, b) => b.base.startsWith(prefix) - a.base.startsWith(prefix));
+  preferred = base ? `${base.slice(0, base.lastIndexOf("/"))}/` : "";
+  queue.sort((a, b) => b.base.startsWith(preferred) - a.base.startsWith(preferred));
 }
 
-// drop cached thumbnails of skeletons whose files changed (after applying or updating a mod, or a library.changed
-// event, whose cores are lower case while the catalog's keep the game's case): any case matches
+// Drop cached pictures of changed files; comparisons ignore the catalog's core spelling.
 export function forget(prefix = "") {
   forgetSpineAssets(prefix);
   const want = prefix.toLowerCase();
-  for (const [key, p] of cache) {
+  for (const manifests of scopes) for (const base of manifests.keys()) if (base.toLowerCase().startsWith(want)) manifests.delete(base);
+  for (const [key, item] of cache) {
     if (!key.toLowerCase().startsWith(want)) continue;
-    p.then((url) => url && URL.revokeObjectURL(url));
+    if (item.url) URL.revokeObjectURL(item.url);
+    else item.forgotten = true;
     cache.delete(key);
   }
 }

@@ -941,6 +941,10 @@ const thumbsTest = `
 export const forgotten = [];
 export const forget = (base) => forgotten.push(base);
 export const thumb = async () => null;
+export function thumbnailScope() {
+  const controller = new AbortController();
+  return { signal: controller.signal, thumb, cancel: () => controller.abort() };
+}
 export const idleAnimation = () => null;
 export const prioritise = () => {};
 `;

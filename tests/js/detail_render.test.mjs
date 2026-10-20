@@ -74,7 +74,8 @@ globalThis.getComputedStyle = () => ({ opacity: "1" });
 
 const imageRequests = [], pendingImages = [];
 let imageMode = "ready", playerMode = "ready", portraitRevision = "a", portraitStatus = 200;
-let decodeMode = "ready";
+let decodeMode = "ready", thumbMode = "pending", portraitExpressions = ["00", "01"];
+const thumbnailPlayers = [], pendingThumbnails = [];
 const pendingDecodes = [], pendingPlayers = [];
 globalThis.Image = class {
   naturalWidth = 8; naturalHeight = 8;
@@ -88,7 +89,7 @@ globalThis.Image = class {
   }
 };
 const playerRequests = [], previewPlayers = [];
-globalThis.spine = { Physics: { update: 1 }, SpinePlayer: class {
+globalThis.spine = { Vector2: class {}, Physics: { update: 1 }, SpinePlayer: class {
   constructor(el, config) {
     assert.equal(config.premultipliedAlpha, false, "portraits and thumbnails retain the 0.2.0 PMA flag");
     playerRequests.push(config.skeleton);
@@ -97,14 +98,21 @@ globalThis.spine = { Physics: { update: 1 }, SpinePlayer: class {
     this.stopRendering = () => { this.stopRequestAnimationFrame = true; };
     this.startRendering = () => { this.stopRequestAnimationFrame = false; };
     if (el.className !== "thumb-player") previewPlayers.push(this);
-    const animations = ["Idle_01", "00", "01"].map((name) => ({ name }));
+    const animations = ["Idle_01", ...portraitExpressions].map((name) => ({ name, timelines: [] }));
     this.skeleton = { data: { animations, findAnimation(name) {
       if (playerMode === "broken") throw new Error("Mod skeleton setup failed");
       return animations.find((a) => a.name === name);
-    } } };
-    this.animationState = { setAnimation() {}, setEmptyAnimation: () => ({}), addEmptyAnimation() {} };
-    // Thumbnails deliberately never call back: a stuck mod preview must not block the panels or other bases.
-    if (el.className !== "thumb-player" && playerMode !== "pending") {
+    } }, slots: [], setToSetupPose() {}, updateWorldTransform() {},
+      getBounds: (offset, size) => { Object.assign(offset, { x: 0, y: 0 }); Object.assign(size, { x: 800, y: 1600 }); },
+    };
+    this.animationState = { setAnimation: () => ({ animation: {} }), setEmptyAnimation: () => ({ animation: {} }), addEmptyAnimation() {}, clearTracks() {}, apply() {} };
+    this.setViewport = () => {};
+    if (el.className === "thumb-player") {
+      thumbnailPlayers.push(this);
+      el.appendChild(new El("canvas"));
+      const done = () => config.success(this);
+      if (thumbMode === "ready") queueMicrotask(done); else pendingThumbnails.push(done);
+    } else if (playerMode !== "pending") {
       if (playerMode === "stale") {
         playerMode = "ready"; portraitRevision = "b";
         queueMicrotask(() => config.error(this, `Couldn't load binary ${config.skeleton}: status 404`));
@@ -271,7 +279,7 @@ test("a failed detail layout cannot prevent the installed portrait from loading"
     assert.ok(playerRequests.slice(start).some((url) => url.includes("/spr/ibuki_spr/")));
     assert.ok(errors.some((args) => args.some((err) => String(err).includes("layout UICharacterDetail: HTTP 500"))));
     assert.ok(!hosts.portrait.classList.contains("pending"));
-  } finally { Detail.hide(); layoutMode = "ready"; t.mock.timers.reset(); }
+  } finally { Detail.hide(); layoutMode = "ready"; await flush(); t.mock.timers.reset(); }
 });
 
 test("the installed portrait starts while the detail layout is pending", async (t) => {
@@ -285,10 +293,10 @@ test("the installed portrait starts while the detail layout is pending", async (
     layoutReplies.splice(0).forEach((resolve) => resolve()); layoutMode = "ready"; await flush();
     t.mock.timers.tick(1300); await flush(); await finish(t, showing);
     assert.ok(switchButton(), "panels finish when the layout arrives");
-  } finally { Detail.hide(); layoutMode = "ready"; t.mock.timers.reset(); }
+  } finally { Detail.hide(); layoutMode = "ready"; await flush(); t.mock.timers.reset(); }
 });
 
-test("detail waits for UI images and settles broken thumbnails before reveal", async (t) => {
+test("detail waits for UI images and bounds optional thumbnails before reveal", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   try {
     imageMode = "pending"; optionalPending = true; family = modFamily();
@@ -310,7 +318,71 @@ test("detail waits for UI images and settles broken thumbnails before reveal", a
     assert.ok(recovered.style.backgroundImage, "a fresh render retries failed sprites");
     assert.equal(recovered.style.backgroundColor, "");
     back.onclick(); assert.equal(location.hash, "#/roster");
-  } finally { Detail.hide(); t.mock.timers.reset(); imageMode = "ready"; optionalPending = false; }
+  } finally { Detail.hide(); await flush(); t.mock.timers.reset(); imageMode = "ready"; optionalPending = false; }
+});
+
+test("one three-second thumbnail allowance covers the switch bust, expressions and pile, which fill after reveal", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    family = modFamily(); family.variants[0].spr = "late_spr";
+    portraitExpressions = ["00", "01", "02", "03", "04", "05"];
+    imageMode = "ready";
+    let ready = false;
+    const showing = Detail.show(context, family, "ibuki").then(() => { ready = true; });
+    await flush();
+    const pictures = walk(body).filter((e) => e.dataset.thumbnail === "true");
+    assert.equal(walk(hosts["ngui-expr"]).filter((e) => /^(Item_\d+|Pile_0)\/Thumb$/.test(e.dataset.path || "")).length, 4);
+    assert.ok(pictures.length >= 5, "the bust and four visible expression pictures have placeholders");
+    assert.ok(pictures.every((e) => !e.style.backgroundImage));
+    t.mock.timers.tick(2999); await flush();
+    assert.equal(ready, false);
+    t.mock.timers.tick(1); await flush(); await showing;
+    assert.equal(ready, true, "the thumbnail groups share one deadline");
+    thumbMode = "ready";
+    pendingThumbnails.splice(0).forEach((done) => done()); await flush(); await flush();
+    assert.ok(pictures.every((e) => e.style.backgroundImage), "late pictures fill the original placeholders");
+  } finally {
+    Detail.hide(); thumbMode = "pending"; portraitExpressions = ["00", "01"];
+    await flush(); t.mock.timers.reset();
+  }
+});
+
+test("leaving after an early reveal cancels thumbnail players, deadlines and late DOM writes", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    family = modFamily(); family.variants[0].spr = "cancelled_spr";
+    const start = thumbnailPlayers.length;
+    const showing = Detail.show(context, family, "ibuki"); await flush();
+    t.mock.timers.tick(3000); await flush(); await showing;
+    const pictures = walk(body).filter((e) => e.dataset.thumbnail === "true");
+    Detail.hide();
+    assert.ok(thumbnailPlayers.slice(start).every((p) => p.disposed));
+    const count = thumbnailPlayers.length;
+    pendingThumbnails.splice(0).forEach((done) => done()); await flush();
+    t.mock.timers.tick(60000); await flush();
+    assert.equal(thumbnailPlayers.length, count, "cancelled queued work cannot start another player");
+    assert.ok(pictures.every((e) => !e.style.backgroundImage));
+  } finally { Detail.hide(); await flush(); t.mock.timers.reset(); }
+});
+
+test("NGUI keeps a queued thumbnail beyond fifteen seconds and cancels abandoned pictures", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const controller = new AbortController();
+  let finish, abandoned;
+  try {
+    const host = new El();
+    const pending = Object.assign(new Promise((resolve) => { finish = resolve; }), { thumbnail: true, signal: controller.signal });
+    const gone = Object.assign(new Promise((resolve) => { abandoned = resolve; }), { thumbnail: true, signal: controller.signal });
+    const view = await NGUI.render(NGUI.node("Late", [0, 0], [{ clipImage: pending, w_: 10, h_: 10 }]), host);
+    const cancelledHost = new El();
+    const cancelled = await NGUI.render(NGUI.node("Gone", [0, 0], [{ clipImage: gone, w_: 10, h_: 10 }]), cancelledHost);
+    t.mock.timers.tick(20000); await flush();
+    finish("blob:late"); await Promise.all(view.pictures);
+    assert.equal(walk(host).find((e) => e.dataset.thumbnail).style.backgroundImage, 'url("blob:late")');
+    controller.abort(); await Promise.all(cancelled.pictures);
+    abandoned("blob:abandoned"); await flush();
+    assert.ok(!walk(cancelledHost).find((e) => e.dataset.thumbnail).style.backgroundImage);
+  } finally { controller.abort(); await flush(); t.mock.timers.reset(); }
 });
 
 test("the first detail reveal waits for its preview and decoded background", async (t) => {
@@ -331,8 +403,43 @@ test("the first detail reveal waits for its preview and decoded background", asy
   } finally {
     playerMode = decodeMode = "ready";
     pendingDecodes.splice(0).forEach((done) => done());
-    Detail.hide(); t.mock.timers.reset();
+    Detail.hide(); await flush(); t.mock.timers.reset();
   }
+});
+
+test("slow main content still holds the reveal after the thumbnail allowance has expired", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    family = modFamily(); family.variants[0].spr = "slow_main_spr";
+    playerMode = decodeMode = "pending";
+    let ready = false;
+    const showing = Detail.show(context, family, "ibuki").then(() => { ready = true; });
+    await flush(); t.mock.timers.tick(5000); await flush();
+    assert.equal(ready, false, "the main portrait must still be ready");
+    playerMode = "ready"; pendingPlayers.splice(0).forEach((done) => done()); await flush();
+    assert.equal(ready, false, "decoded panel backgrounds remain required");
+    decodeMode = "ready"; pendingDecodes.splice(0).forEach((done) => done()); await flush();
+    assert.equal(ready, true, "finishing main content does not start another three-second wait");
+    await showing;
+  } finally {
+    playerMode = decodeMode = "ready";
+    pendingPlayers.splice(0).forEach((done) => done()); pendingDecodes.splice(0).forEach((done) => done());
+    Detail.hide(); await flush(); t.mock.timers.reset();
+  }
+});
+
+test("abandoning thumbnail colour sampling cancels its image deadline and permits a later load", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const controller = new AbortController();
+  try {
+    imageMode = "pending";
+    const pending = NGUI.load("blob:cancel-colours", { signal: controller.signal });
+    const cancelled = assert.rejects(pending, { name: "AbortError" });
+    controller.abort(); await cancelled;
+    t.mock.timers.tick(60000); await flush();
+    imageMode = "ready";
+    assert.ok(await NGUI.load("blob:cancel-colours", { signal: new AbortController().signal }));
+  } finally { controller.abort(); imageMode = "ready"; await flush(); t.mock.timers.reset(); }
 });
 
 test("a mod portrait setup exception is observed, settled and reported", async (t) => {
@@ -345,7 +452,7 @@ test("a mod portrait setup exception is observed, settled and reported", async (
     assert.ok(errors.some((a) => a.some((e) => String(e).includes("Mod skeleton setup failed"))));
     assert.equal(hosts.toast.textContent, "Preview unavailable");
     assert.ok(!hosts.portrait.classList.contains("pending"));
-  } finally { Detail.hide(); t.mock.timers.reset(); playerMode = "ready"; }
+  } finally { Detail.hide(); await flush(); t.mock.timers.reset(); playerMode = "ready"; }
 });
 
 test("the main portrait retries a rejected live revision after a cold load", async (t) => {
@@ -360,7 +467,7 @@ test("the main portrait retries a rejected live revision after a cold load", asy
     assert.ok(live.some((url) => url.includes(`/${"b".repeat(64)}/`)));
     assert.ok(!errors.some((args) => args[0] === "Detail render failed"), errors.map(String).join("\n"));
     assert.ok(warnings.some((args) => args[0] === "Spine source changed during load"));
-  } finally { Detail.hide(); playerMode = "ready"; portraitRevision = "a"; t.mock.timers.reset(); }
+  } finally { Detail.hide(); playerMode = "ready"; portraitRevision = "a"; await flush(); t.mock.timers.reset(); }
 });
 
 for (const status of [404, 500]) test(`the main portrait logs the cause of a failed manifest (${status})`, async (t) => {
@@ -373,7 +480,7 @@ for (const status of [404, 500]) test(`the main portrait logs the cause of a fai
     assert.ok(errors.some((args) => args.includes("/asset/spine/spr/ibuki_spr/skeleton")), "the console names the current source");
     assert.ok([...errors, ...warnings].some((args) => args.some((value) => String(value).includes(`HTTP ${status}`))));
     assert.ok(switchButton(), "the panels stay usable");
-  } finally { Detail.hide(); portraitStatus = 200; t.mock.timers.reset(); }
+  } finally { Detail.hide(); portraitStatus = 200; await flush(); t.mock.timers.reset(); }
 });
 
 test("a lobby switch stays covered until its failed preview settles and can retry", async (t) => {
@@ -407,7 +514,7 @@ test("a lobby switch stays covered until its failed preview settles and can retr
       "showing the lobby tab again asks for a new source after failure");
     t.mock.timers.tick(16000); await flush();
     back.onclick(); assert.equal(location.hash, "#/roster");
-  } finally { Detail.hide(); t.mock.timers.reset(); }
+  } finally { Detail.hide(); await flush(); t.mock.timers.reset(); }
 });
 
 for (const core of ["arona_workpage_daytime", "np0032_npc"]) for (const category of ["spinebackground", null]) test(`a special L2D ${core} keeps its labels, aliases, repair tags and unseen dots with category ${category}`, async (t) => {
@@ -461,7 +568,7 @@ for (const core of ["arona_workpage_daytime", "np0032_npc"]) for (const category
     assert.ok(!walk(hosts.popup).some((el) => el.getAttribute("aria-label") === "Remap to current version"));
     await closeSwitch();
     back.onclick(); assert.equal(location.hash, "#/roster");
-  } finally { Detail.hide(); t.mock.timers.reset(); }
+  } finally { Detail.hide(); await flush(); t.mock.timers.reset(); }
 });
 
 test("NGUI logs missing atlas metadata and keeps placeholder geometry for controls", async () => {
@@ -500,7 +607,7 @@ for (const mode of ["pending", "error", "empty", "partial", "invalid"]) test(`pa
     const retry = await Renderer.render(node("Panel"), new El(), { deferImages: true });
     await Promise.all(retry.pictures);
     assert.ok(retry.nodes.get("Panel").els[0].style.backgroundImage);
-  } finally { indexMode = "ready"; t.mock.timers.reset(); }
+  } finally { indexMode = "ready"; await flush(); t.mock.timers.reset(); }
 });
 
 for (const configured of ["mod:configured", "variant:dress"]) test(`mods off keeps the configured portrait source ${configured}`, async (t) => {
@@ -521,7 +628,7 @@ for (const configured of ["mod:configured", "variant:dress"]) test(`mods off kee
     assert.ok(requested.some((url) => url.includes(source)), source);
     assert.ok(requested.every((url) => !url.includes("/spr/ibuki_spr/")), "current official files do not replace the configured preview");
     assert.ok(requested.every((url) => url.includes(`/${"a".repeat(64)}/`)), "all players use revisioned assets");
-  } finally { Detail.hide(); modsEnabled = true; await ModSwitch.refresh(); t.mock.timers.reset(); }
+  } finally { Detail.hide(); modsEnabled = true; await ModSwitch.refresh(); await flush(); t.mock.timers.reset(); }
 });
 
 test("NGUI image callbacks have a deadline and a later request can retry", async (t) => {
@@ -533,7 +640,7 @@ test("NGUI image callbacks have a deadline and a later request can retry", async
     imageMode = "ready";
     assert.ok(await NGUI.load("/asset/ui/stuck.png"));
     pendingImages.splice(0).forEach((img) => img.onload?.());
-  } finally { imageMode = "ready"; t.mock.timers.reset(); }
+  } finally { imageMode = "ready"; await flush(); t.mock.timers.reset(); }
 });
 
 test("long portrait and lobby names only resize their own info cell in every locale", async (t) => {
@@ -580,7 +687,7 @@ test("long portrait and lobby names only resize their own info cell in every loc
       }
     }
   } finally {
-    Detail.hide(); t.mock.timers.reset();
+    Detail.hide(); await flush(); t.mock.timers.reset();
     setStrings("en-US", flat(JSON.parse(readFileSync(new URL("../../src/ba_modding_toolkit/locales/en-US.json", import.meta.url), "utf8"))));
   }
 });
@@ -626,7 +733,7 @@ test("student aliases lead the existing name band, keep the variant's original, 
       Detail.hide();
     }
   } finally {
-    Detail.hide(); t.mock.timers.reset();
+    Detail.hide(); await flush(); t.mock.timers.reset();
     setStrings("en-US", flat(JSON.parse(readFileSync(new URL("../../src/ba_modding_toolkit/locales/en-US.json", import.meta.url), "utf8"))));
   }
 });
@@ -683,7 +790,7 @@ test("mod aliases save and clear from the current value and both switch pencils 
       }
     }
   } finally {
-    Detail.hide(); t.mock.timers.reset();
+    Detail.hide(); await flush(); t.mock.timers.reset();
     setStrings("en-US", flat(JSON.parse(readFileSync(new URL("../../src/ba_modding_toolkit/locales/en-US.json", import.meta.url), "utf8"))));
   }
 });
@@ -703,7 +810,7 @@ test("an alias on another variant's mod replaces the entire display name", async
     assert.equal(walk(hosts.popup).find((e) => e.dataset.path === "Details/OriginalName").getAttribute("aria-label"), "ibuki_dress_spr");
     assert.equal(currentCell().getAttribute("aria-label"), "Only alias");
     assert.ok(!walk(hosts["ngui-chips"]).some((e) => e.dataset.path?.endsWith("/ModAliasBtn")), "variant chips show student names");
-  } finally { Detail.hide(); t.mock.timers.reset(); }
+  } finally { Detail.hide(); await flush(); t.mock.timers.reset(); }
 });
 
 test("repaired names and own aliases keep a separate repair tag in every locale", async (t) => {
@@ -738,7 +845,7 @@ test("repaired names and own aliases keep a separate repair tag in every locale"
   } finally {
     modsEnabled = true;
     await ModSwitch.refresh();
-    Detail.hide(); t.mock.timers.reset();
+    Detail.hide(); await flush(); t.mock.timers.reset();
     setStrings("en-US", flat(JSON.parse(readFileSync(new URL("../../src/ba_modding_toolkit/locales/en-US.json", import.meta.url), "utf8"))));
   }
 });
@@ -786,7 +893,7 @@ test("leaving detail closes the mod alias editor", async (t) => {
     assert.ok(aliasInput());
     Detail.hide();
     assert.equal(hosts.dialog.hidden, true);
-  } finally { Detail.hide(); t.mock.timers.reset(); }
+  } finally { Detail.hide(); await flush(); t.mock.timers.reset(); }
 });
 
 test("new mod dots survive visits and tab changes, then clear for the switch's offered mods", async (t) => {
@@ -826,7 +933,7 @@ test("new mod dots survive visits and tab changes, then clear for the switch's o
     const again = switchButton().click(); await flush(); await again;
     assert.equal(rpcRequests.filter((r) => r.method === "mods.seen").length, before, "seen mods need no further state writes");
     await closeSwitch();
-  } finally { Detail.hide(); t.mock.timers.reset(); }
+  } finally { Detail.hide(); await flush(); t.mock.timers.reset(); }
 });
 
 for (const kind of ["spr", "lobby"]) test(`an auto-applied ${kind} mod has no card dot when another source is picked`, async (t) => {
@@ -847,7 +954,7 @@ for (const kind of ["spr", "lobby"]) test(`an auto-applied ${kind} mod has no ca
     assert.equal(walk(hosts.popup).find((e) => e.dataset.path?.endsWith("Card_m:test/Dot")), undefined);
     assert.ok(tabDot(tab)); assert.ok(chipDot("ibuki"), "card rendering leaves the unread marks intact");
     await closeSwitch();
-  } finally { Detail.hide(); seenReply = async () => ({ result: null }); t.mock.timers.reset(); }
+  } finally { Detail.hide(); seenReply = async () => ({ result: null }); await flush(); t.mock.timers.reset(); }
 });
 
 test("a failed seen write keeps the dots and can be retried by opening the mod card", async (t) => {
@@ -864,7 +971,7 @@ test("a failed seen write keeps the dots and can be retried by opening the mod c
     await card.click(); await flush();
     assert.equal(tabDot(1), undefined); assert.equal(chipDot("ibuki"), undefined);
     await closeSwitch();
-  } finally { Detail.hide(); seenReply = async () => ({ result: null }); t.mock.timers.reset(); }
+  } finally { Detail.hide(); seenReply = async () => ({ result: null }); await flush(); t.mock.timers.reset(); }
 });
 
 for (const after of ["closed", "aliases", "reopened", "left"]) test(`a delayed seen save respects a switch that was ${after}`, async (t) => {
@@ -909,7 +1016,7 @@ for (const after of ["closed", "aliases", "reopened", "left"]) test(`a delayed s
       assert.equal(hosts.popup.children.length, 0);
     }
     if (after !== "left") { assert.equal(tabDot(1), undefined); assert.equal(chipDot("ibuki"), undefined); }
-  } finally { finish?.({ result: null }); Detail.hide(); seenReply = async () => ({ result: null }); t.mock.timers.reset(); }
+  } finally { finish?.({ result: null }); Detail.hide(); seenReply = async () => ({ result: null }); await flush(); t.mock.timers.reset(); }
 });
 
 test("the 3D tab dot only follows mods of its own kind", async (t) => {
@@ -921,7 +1028,7 @@ test("the 3D tab dot only follows mods of its own kind", async (t) => {
     await showPortrait(t);
     assert.equal(tabDot(1), undefined); assert.equal(tabDot(2), undefined);
     assert.ok(tabDot(3)); assert.ok(chipDot("ibuki"));
-  } finally { Detail.hide(); t.mock.timers.reset(); }
+  } finally { Detail.hide(); await flush(); t.mock.timers.reset(); }
 });
 
 test("the detail portrait resumes focus and rebuilds after a hidden context loss", async (t) => {
@@ -945,5 +1052,5 @@ test("the detail portrait resumes focus and rebuilds after a hidden context loss
     assert.equal(rpcRequests.filter((r) => r.method === "preview.failed").length, failStart);
     p.canvas.dispatchEvent(new Event("webglcontextrestored")); await flush();
     assert.equal(previewPlayers.length, count + 1, "a disposed portrait cannot restart again");
-  } finally { document.hidden = false; Detail.hide(); t.mock.timers.reset(); }
+  } finally { document.hidden = false; Detail.hide(); await flush(); t.mock.timers.reset(); }
 });
