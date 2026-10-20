@@ -257,12 +257,19 @@ export function begin(player) {
 }
 
 // the slot colours as the game's shader sees them: spine-unity hands its shader premultiplied vertex colours and,
-// in linear colour space, converts them from gamma to linear (PMAGammaToTargetSpace). A tint is decoded; an additive
-// slot carries alpha 0 there, so its colour times its alpha is decoded as a whole: a glow at alpha 0.42 adds 0.15 of
-// its texture, not 0.42. In the player's update hook (after the animation, before drawing); end() puts them back.
+// in linear colour space, spine-unity's own shaders convert them from gamma to linear (PMAGammaToTargetSpace). A tint
+// is decoded; an additive slot carries alpha 0 there, so its colour times its alpha is decoded as a whole: a glow at
+// alpha 0.42 adds 0.15 of its texture, not 0.42. Each page's shader decodes with its own curve, or not at all
+// (slot-colours.js: setCurves). In the player's update hook (after the animation, before drawing); end() puts them
+// back.
 const dec = (c) => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
 export let vertexColours = true; // for checks
 export const setVertexColours = (on) => { vertexColours = !!on; };
+// curveOf(attachment) -> the decoding curve of the shader that draws it (null: every slot decoded with the sRGB curve)
+export function setCurves(player, curveOf) {
+  const st = states.get(player);
+  if (st) st.curveOf = curveOf || null;
+}
 export function tint(player) {
   const st = states.get(player);
   if (!st?.on || !vertexColours || !player.skeleton) return;
@@ -274,8 +281,9 @@ export function tint(player) {
     saved.push([c, c.r, c.g, c.b, c.a, white ? null : ac, ac?.r, ac?.g, ac?.b, ac?.a]);
     let [r, g, b, a] = [c.r, c.g, c.b, c.a];
     if (!white) { r *= ac.r; g *= ac.g; b *= ac.b; a *= ac.a; ac.set(1, 1, 1, 1); }
-    if (slot.data.blendMode === additive) c.set(dec(r * a), dec(g * a), dec(b * a), 1);
-    else c.set(dec(r), dec(g), dec(b), a);
+    const curve = st.curveOf?.(att) || dec;
+    if (slot.data.blendMode === additive) c.set(curve(r * a), curve(g * a), curve(b * a), 1);
+    else c.set(curve(r), curve(g), curve(b), a);
   }
 }
 function untint(st) {

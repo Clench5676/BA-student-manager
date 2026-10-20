@@ -175,23 +175,25 @@ def _kind(go: str, bone: str | None) -> str:
 
 
 def _pages(resolve: Callable[[str, int, dict], tuple[str, Any] | None] | None, sa_pid: int, sa: dict,
-           renderer_pid: int, renderer: dict) -> dict[str, int]:
+           renderer_pid: int, renderer: dict, kind: str = "pages") -> dict[str, Any]:
     """The render queue of each atlas page of a skeleton, {texture name: queue}. spine-unity gives each submesh the
     material of its page, and Unity sorts every submesh by its own material's queue: a skeleton whose pages sit in
     several queues (the background page at 2900, the character's at 3050) is drawn in as many steps, in queue order,
     and a particle system that sorts between two of them draws between them (Hibiki's river surface over the river,
-    under her). Read from the skeleton data's atlas assets, else from the materials the prefab's renderer keeps."""
+    under her). Read from the skeleton data's atlas assets, else from the materials the prefab's renderer keeps.
+    With kind "shaders", the name of each page's shader instead, {texture name: shader}: the shaders take the slot
+    colours differently (slot-colours.js)."""
     if resolve is None:
         return {}
     pointer = sa.get("skeletonDataAsset") or {}
-    found = resolve("pages", sa_pid, pointer) if pointer.get("m_PathID") else None
+    found = resolve(kind, sa_pid, pointer) if pointer.get("m_PathID") else None
     if found and found[1]:
         return dict(found[1])
-    out: dict[str, int] = {}
+    out: dict[str, Any] = {}
     for mat in renderer.get("m_Materials") or []:
-        found = resolve("pages", renderer_pid, mat) if mat.get("m_PathID") else None
-        for page, queue in (found[1] if found else {}).items():
-            out.setdefault(page, queue)
+        found = resolve(kind, renderer_pid, mat) if mat.get("m_PathID") else None
+        for page, value in (found[1] if found else {}).items():
+            out.setdefault(page, value)
     return out
 
 
@@ -341,13 +343,14 @@ def read_prefab(kinds: dict[int, str], tree: Callable[[int], dict], scripts: dic
             skeleton_of_sa[pid] = name
             renderer = n["first"].get("MeshRenderer", {})
             pages = _pages(resolve, pid, sa, n["pids"].get("MeshRenderer", 0), renderer)
+            shaders = _pages(resolve, pid, sa, n["pids"].get("MeshRenderer", 0), renderer, "shaders")
             layers.append({
                 "name": name, "x": _r(n["m"][4]), "y": _r(n["m"][5]),
                 # NGUI units per skeleton unit: the GameObject's world scale times SkeletonDataAsset.scale
                 "scale": _r(math.hypot(n["m"][0], n["m"][1]) * clips.scales.get(name, _DATA_SCALE), 5),
                 "active": n["active"] and bool(sa.get("m_Enabled", 1)) and bool(renderer.get("m_Enabled", True)),
                 "order": renderer.get("m_SortingOrder", 0), "queue": min(pages.values(), default=3000), "pages": pages,
-                "z": particles.rounded(n["m3"])[11], "index": len(layers),
+                "shaders": shaders, "z": particles.rounded(n["m3"])[11], "index": len(layers),
                 "skin": sa.get("initialSkinName") or None, "animation": sa.get("_animationName") or None,
             })
     if not layers:
@@ -444,8 +447,8 @@ def lobby_info(skeletons: Iterable[str], clips: Clips, prefab: dict | None, soun
     if prefab is None:
         prefab = {"prefab": None, "main": None, "drags": [], "touches": [], "randomIdle": {}, "idle": {}, "idles": {},
                   "dialog": {}, "post": {},
-                  "layers": [{"name": s, **STANDARD, "active": True, "order": 0, "queue": 3000, "pages": {}, "z": 0.0,
-                              "index": i, "skin": None, "animation": None}
+                  "layers": [{"name": s, **STANDARD, "active": True, "order": 0, "queue": 3000, "pages": {},
+                              "shaders": {}, "z": 0.0, "index": i, "skin": None, "animation": None}
                              for i, s in enumerate(dict.fromkeys(skeletons))],
                   "fx": {"systems": [], "materials": {}, "textures": {}, "meshes": {}}}
     return {"view": dict(GAME_VIEW), **prefab, "defaultMix": dict(clips.mixes), "clips": clips.clips,

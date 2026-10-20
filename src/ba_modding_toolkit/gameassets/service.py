@@ -679,7 +679,8 @@ class GameAssets:
 class _FxResolver:
     """Reads what a lobby's renderers point at, for lobby.read_prefab: a particle material as (id, particles.material)
     with its textures (particles.texture), a mesh as (id, particles.mesh), and the render queue of a skeleton's atlas
-    pages ("pages": a SkeletonDataAsset, or one Material) as (id, {texture name: queue}). Ids are "<cab>_<path id>"."""
+    pages ("pages": a SkeletonDataAsset, or one Material) as (id, {texture name: queue}), or their shaders' names
+    ("shaders") as (id, {texture name: shader name}). Ids are "<cab>_<path id>"."""
 
     def __init__(self, graph: Any, objects: dict[int, Any], shader_forms: dict):
         self.graph, self.objects, self.forms = graph, objects, shader_forms
@@ -705,18 +706,20 @@ class _FxResolver:
                 data = read_mesh(obj.read())
                 tris = [t for sub in data.triangles for t in sub]
                 out = (oid, particles.mesh(data.vertices, data.uv0, data.normals, tris, data.colors))
-            elif kind == "pages" and obj.type.name in ("MonoBehaviour", "Material"):
-                out = (oid, self._pages(obj))
+            elif kind in ("pages", "shaders") and obj.type.name in ("MonoBehaviour", "Material"):
+                out = (oid, self._pages(obj, kind))
         except Exception:  # an unreadable object: the system is left out
             logger.debug("Cannot read lobby particle %s %s", kind, oid, exc_info=True)
             out = None
         self.done[(kind, oid)] = out
         return out
 
-    def _pages(self, obj: Any) -> dict[str, int]:
+    def _pages(self, obj: Any, kind: str = "pages") -> dict[str, Any]:
         """{texture name: render queue} of a SkeletonDataAsset's atlas pages, as spine-unity draws them: each page with
         the material its SpineAtlasAsset lists for it (matched by the material's main texture name, which is the page's
-        file name without its extension). For a Material, its own page. The textures' pixels are never read."""
+        file name without its extension). For a Material, its own page. With kind "shaders", {texture name: the name
+        of the material's shader} instead (a page without a shader is left out). The textures' pixels are never
+        read."""
         g = self.graph
         materials = [obj]
         if obj.type.name == "MonoBehaviour":
@@ -724,7 +727,7 @@ class _FxResolver:
             for atlas in (g.deref(obj, p) for p in g.tree(obj).get("atlasAssets") or []):
                 if atlas is not None:
                     materials += [g.deref(atlas, p) for p in g.tree(atlas).get("materials") or []]
-        out: dict[str, int] = {}
+        out: dict[str, Any] = {}
         for mat in materials:
             if mat is None or mat.type.name != "Material":
                 continue
@@ -733,7 +736,10 @@ class _FxResolver:
             tex = g.deref(mat, (envs.get("_MainTex") or {}).get("m_Texture"))
             name = tex.peek_name() if tex is not None else None
             if name:
-                out.setdefault(name, self._state(mat, tree)[2]["queue"])
+                shader, _, state = self._state(mat, tree)
+                value = shader if kind == "shaders" else state["queue"]
+                if value is not None:
+                    out.setdefault(name, value)
         return out
 
     def _state(self, obj: Any, tree: dict) -> tuple[str | None, dict | None, dict]:

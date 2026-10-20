@@ -668,8 +668,10 @@ in `pointer-textures`); without a game the system cursor stays and there is no e
 - **Linear light** (`linear.js`). The game renders in Unity's linear colour space (PlayerSettings
   `m_ActiveColorSpace` 1) with sRGB atlas textures, so its blending happens in linear light: an additive glow over a
   bright scene adds little, a soft veil over a dark one adds more. Each lobby player samples its atlas pages as sRGB,
-  blends into an sRGB framebuffer and copies the result to its canvas, encoded again; slot colours are converted the
-  way spine-unity's shader converts its vertex colours (an additive slot at alpha 0.42 adds 0.15 of its texture).
+  blends into an sRGB framebuffer and copies the result to its canvas, encoded again; slot colours reach each atlas
+  page's shader (lobby.json layer `shaders`) as that shader takes them (`slot-colours.js`, read from the compiled
+  vertex programs): spine-unity's `Spine/Skeleton` decodes them to linear (an additive slot at alpha 0.42 adds 0.15 of
+  its texture), the game's own `Spine/Skeleton MX Standard`, on the pages of 97 lobbies, uses them as they are (0.42).
   Without WebGL2 the player draws in plain sRGB values as before. Drawn in sRGB values, glows such as Kurumi's photo
   booth light or Niko's window washed the scene out to white.
 - **Post-processing.** The lobby is drawn by the PC client's main Camera (level1 `Persistent/Camera`: perspective,
