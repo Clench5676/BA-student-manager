@@ -16,12 +16,13 @@
 // Each skeleton's idle starts the clips the game's does (Shigure's train, snow, clouds, stars), some of them at random
 // times (lobby-sync.js), and the clips' sound keys play the game's sounds at the voice volume.
 // The skeletons draw with the game's materials (skeleton-materials.js: the multiply, noise and glitch pages, slot
-// blend modes as the materials give them, no dark colour).
+// blend modes as the materials give them, no dark colour) and keep the bones the prefab pins (skeleton-pins.js).
 import { spineFiles } from "./api.js";
 import * as Linear from "./linear.js";
 import * as Materials from "./skeleton-materials.js";
 import * as Particles from "./particles-gl.js";
 import * as Parts from "./skeleton-parts.js";
+import * as Pins from "./skeleton-pins.js";
 import * as Touch from "./lobby-touch.js";
 import * as Sync from "./lobby-sync.js";
 
@@ -126,6 +127,7 @@ function poser(l) {
       e.trackTime = time;
     }
     if (tracks.length) { st.update(0); st.apply(sk); }
+    Pins.pin(sk, l.name, current?.info?.pins); // the bones the prefab pins, as the players draw them
     sk.updateWorldTransform(spine.Physics.reset); // physics at rest, as a new skeleton's: no state from the last pose
     return sk;
   };
@@ -449,6 +451,7 @@ function measure(loaded) {
   const sk = new spine.Skeleton(data), idle = idleOf(data, main);
   sk.setToSetupPose();
   if (idle) { const st = new spine.AnimationState(new spine.AnimationStateData(data)); st.setAnimation(0, idle, true); st.update(0); st.apply(sk); }
+  Pins.pin(sk, main.name, info?.pins);
   sk.updateWorldTransform(spine.Physics.update);
   const bone = sk.findBone("Touch_Point") || sk.findBone("Touch_Eye");
   const pat = info?.drags?.find((d) => d.kind === "pat")?.rect;
@@ -645,6 +648,7 @@ function makePlayer(host, layer, onReady, onError = () => {}, fx = null) {
     // dragged bones follow the pointer
     updateWorldTransform: (p, delta) => {
       p.bamtSounds?.tick();
+      Pins.apply(p, current?.info?.pins);
       Touch.apply(p, delta);
       p.skeleton.updateWorldTransform(spine.Physics.update);
     },

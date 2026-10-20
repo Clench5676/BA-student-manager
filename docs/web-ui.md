@@ -143,8 +143,8 @@ class GameAssets:
     def spine_files_from(self, bundles: list[Path]) -> dict[str, bytes]    # the same, for a mod's bundle files
     def lobby_info(self, core: str) -> dict                    # a lobby's layers, touch boxes, clips, idle pools,
                                                                # sound events, post-processing (lobby.py), particle
-                                                               # and mesh effects (particles.py, meshfx.py) and page
-                                                               # materials (spine_materials.py)
+                                                               # and mesh effects (particles.py, meshfx.py), page
+                                                               # materials (spine_materials.py), pins (pins.py)
     def lobby_fx_texture(self, core: str, tex_id: str) -> bytes # a texture lobby_info's "fx" lists, as PNG
     def lobby_sound(self, core: str, clip_id: str) -> bytes   # a clip lobby_info's "sounds" lists, decoded to WAV
     def model_cores(self) -> set[str]                          # dev names with a chibi (character-<dev>-_mxload-*)
@@ -471,7 +471,7 @@ library).
 | `/asset/ui/layout/<root>.json?path=<subpath>` | light |
 | `/asset/art/bg/<name>`, `/asset/art/portrait/<name>.png` | heavy |
 | `/asset/spine/spr/<core>/<file>`, `/asset/spine/lobby/<core>/<file>`, `/asset/spine/mod/<id>/<file>` (`skeleton.skel` and `skeleton.atlas` stand for the skeleton named like the core, a mod's own core for a mod, else the only one) | heavy |
-| `/asset/spine/lobby/<core>/lobby.json` (prefab layout, touch boxes, clips, idle pools, sound events, post-processing, particle and mesh effects, page materials; no skeleton is extracted) | heavy |
+| `/asset/spine/lobby/<core>/lobby.json` (prefab layout, touch boxes, clips, idle pools, sound events, post-processing, particle and mesh effects, page materials, pinned bones; no skeleton is extracted) | heavy |
 | `/asset/spine/lobby/<core>/fx_<id>.png` (a particle, mesh or page shader texture the lobby's `fx.textures` lists) | heavy |
 | `/asset/spine/lobby/<core>/sfx_<id>.wav` (a sound clip the lobby's `sounds` list, decoded in memory) | heavy |
 | `/asset/model/<variant>.glb` (the variant's chibi, `model/gltf-binary`) | heavy |
@@ -803,6 +803,12 @@ in `pointer-textures`); without a game the system cursor stays and there is no e
   The ported programs are taken from their D3D11 bytecode and run in spine-player's batch: a draw switches to the
   page's program and blend (flushing the batch), feeding it the game's vertex colour (premultiplied, alpha 0 for an
   additive slot) from linear.js's tinted one.
+- **Pinned bones** (`gameassets/pins.py`, `skeleton-pins.js`). A SkeletonUtilityBone in Override mode sets its bone
+  from its GameObject after the animation, every frame. The drag targets (lobby-touch.js) are such bones; two others
+  nothing moves, so the bone stays where the prefab put it: Hihumi's Hip at (218.8, 650.9), 12.7 units below the
+  skeleton's own (its driver, SpineCharacterGyro, is switched off and rests there too), and with it her whole scene;
+  CH0242's cheek_02, whose PinchEnd_01_M keys only what the pin leaves alone. The zoom-out limits and the head-pat
+  point are measured with the pins.
 - **Intro scenes.** Three prefabs keep four skeletons of their intro timeline (a PlayableDirector with Spine Animation
   State tracks) parked beside the scene: Shigure's Shigure_00 and Shigure_01 at x -4500 and 4500, CH0184_00 and
   Wakamo_Scene_0. Their clip assets are on track -1 (only the timeline plays them). Shigure's timeline (an Animation

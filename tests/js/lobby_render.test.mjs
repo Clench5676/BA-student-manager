@@ -1,5 +1,6 @@
-// Tests for the lobby's mesh renderers (web/js/mesh-fx.js and their drawing in particles-gl.js) and the skeletons' game
-// materials (web/js/skeleton-materials.js), against recording stand-ins for WebGL2 and spine-player. Run by tests/test_lobby_render.py with Node's test runner.
+// Tests for the lobby's mesh renderers (web/js/mesh-fx.js and their drawing in particles-gl.js), the skeletons' game
+// materials (web/js/skeleton-materials.js) and pinned bones (web/js/skeleton-pins.js), against recording stand-ins for
+// WebGL2 and spine-player. Run by tests/test_lobby_render.py with Node's test runner.
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
@@ -354,4 +355,27 @@ test("a skeleton without prefab data keeps spine-player's drawing", () => {
   assert.equal(M.attach(p, p.bamtLayer), false);
   assert.deepEqual(p.frame().filter(([k]) => k === "mode").map(([, m]) => m), [3]);
   Linear.detach(p);
+});
+
+// --- skeleton-pins.js -----------------------------------------------------------------------------------------------
+
+const Pins = await import("../../src/ba_modding_toolkit/web/js/skeleton-pins.js");
+
+test("pinned bones keep their prefab place after the animation", () => {
+  const bones = { Hip: { x: 221.7, y: 663.6, rotation: 10, scaleX: 1, scaleY: 1 }, cheek: { x: 0, y: 0, rotation: 350, scaleX: 2, scaleY: 2 } };
+  const sk = { findBone: (n) => bones[n] || null };
+  const pins = [{ skeleton: "Hihumi_home", bone: "Hip", alpha: 1, x: 218.834, y: 650.908 },
+    { skeleton: "Hihumi_home", bone: "cheek", alpha: 0.5, rotation: 10, scaleX: 1, scaleY: 1 },
+    { skeleton: "Other", bone: "Hip", alpha: 1, x: 0, y: 0 }, { skeleton: "Hihumi_home", bone: "missing", alpha: 1, x: 0, y: 0 }];
+  Pins.apply({ skeleton: sk, bamtLayer: { name: "Hihumi_home" } }, pins);
+  assert.deepEqual([bones.Hip.x, bones.Hip.y, bones.Hip.rotation], [218.834, 650.908, 10]);
+  // lerped by overrideAlpha, the rotation the short way round (350 -> 10 through 0)
+  near(bones.cheek.rotation, 360, 1e-9);
+  assert.deepEqual([bones.cheek.scaleX, bones.cheek.scaleY, bones.cheek.x], [1.5, 1.5, 0]);
+  assert.equal(Pins.lerpAngle(10, 350, 0.5), 0);
+  Pins.show(false);
+  bones.Hip.x = 1;
+  Pins.apply({ skeleton: sk, bamtLayer: { name: "Hihumi_home" } }, pins);
+  assert.equal(bones.Hip.x, 1);
+  Pins.show(true);
 });

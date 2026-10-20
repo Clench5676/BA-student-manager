@@ -1,6 +1,6 @@
-"""The memorial lobbies' plain mesh renderers and their Animators (meshfx.py) and skeleton materials
-(spine_materials.py), from plain typetrees; their front end in Node; and, on an official game folder, what the lobbies
-carry."""
+"""The memorial lobbies' skeleton materials (spine_materials.py), plain mesh renderers and their Animators (meshfx.py)
+and pinned bones (pins.py), from plain typetrees; their front end in Node; and, on an official game folder, what the
+lobbies carry."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from ba_modding_toolkit.gameassets import meshfx, particles, spine_materials
+from ba_modding_toolkit.gameassets import meshfx, particles, pins, spine_materials
 from ba_modding_toolkit.gameassets.model import DecodedClip
 
 GAME_DIR = Path(os.environ.get("BAMT_TEST_GAME_DIR") or "/nonexistent/bamt-real-game")
@@ -241,3 +241,34 @@ def test_real_lobby_page_materials(real_game):
     assert ch0310["program"] == "portraitNoise" and ch0310["floats"]["_GlitchFreq"] == pytest.approx(0.98)
     # no lobby renderer writes the dark colour
     assert not any(l["materials"]["tintBlack"] for core in ("ch0205_home", "neru_home") for l in real_game.lobby_info(core)["layers"])
+
+
+# --- pinned bones -----------------------------------------------------------------------------------------------------
+
+def test_pinned_bones():
+    nodes = walk([
+        node(1, "LobbyTest"),
+        node(2, "Hihumi_home", 1, scale=(100.0, 100.0, 100.0), SkeletonAnimation={}),
+        node(3, "PC_Layer", 2, SkeletonUtilityBone={"boneName": "PC_Layer", "mode": 0}),
+        node(4, "Hip", 3, pos=(2.1883392, 6.5090837, 0.0),
+             SkeletonUtilityBone={"boneName": "Hip", "mode": 1, "position": 1, "rotation": 0, "scale": 0, "overrideAlpha": 1.0}),
+        node(5, "Touch_Point", 4, pos=(1.0, 2.0, 0.0), SkeletonUtilityBone={"boneName": "Touch_Point", "mode": 1, "position": 1}),
+        node(6, "Head", 4, scale=(2.0, 3.0, 1.0),
+             SkeletonUtilityBone={"boneName": "", "mode": 1, "position": 0, "rotation": 1, "scale": 1, "overrideAlpha": 0.5}),
+        node(7, "Off", 4, active=False, SkeletonUtilityBone={"boneName": "Off", "mode": 1, "position": 1}),
+    ])
+    nodes[5]["t"]["m_LocalRotation"] = {"x": 0.0, "y": 0.0, "z": 0.7071068, "w": 0.7071068}
+    out = pins.pins(nodes, lambda go: "Hihumi_home" if go == 2 else None, lambda skel: 0.01, [("Hihumi_home", "Touch_Point")])
+    # the Hip in skeleton units; the dragged bone, the Follow bone and the inactive one are not pinned; a bone without
+    # a name is its GameObject's
+    assert out == [{"skeleton": "Hihumi_home", "bone": "Hip", "alpha": 1.0, "x": 218.834, "y": 650.908},
+                   {"skeleton": "Hihumi_home", "bone": "Head", "alpha": 0.5, "rotation": 90.0, "scaleX": 2.0, "scaleY": 3.0}]
+
+
+@pytest.mark.skipif(not GAME_DIR.is_dir(), reason="No local game install")
+def test_real_lobby_pins(real_game):
+    # the bones no drag moves stay where the prefab put them
+    assert real_game.lobby_info("hihumi_home")["pins"] == [
+        {"skeleton": "Hihumi_home", "bone": "Hip", "alpha": 1.0, "x": 218.834, "y": 650.908}]
+    assert real_game.lobby_info("ch0242_home")["pins"] == [
+        {"skeleton": "CH0242_home", "bone": "cheek_02", "alpha": 1.0, "x": 195.11, "y": -392.786}]
