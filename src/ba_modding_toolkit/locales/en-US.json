@@ -1033,6 +1033,7 @@
 			"lastCopy": "Only copy of a file still in the game",
 			"mayNotStart": "The game may not start",
 			"repairSteam": "Steam: Properties - Installed Files - Verify integrity of game files",
+			"repairGame": "In the game: Restore Resources, may not replace mods",
 			"repairThen": "Then start this app again",
 			"driftTitle": "Mods Back to Official",
 			"driftWhy": "Game files verified, repaired or updated",

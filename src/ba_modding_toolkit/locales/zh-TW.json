@@ -1033,6 +1033,7 @@
 			"lastCopy": "遊戲仍在使用的檔案的唯一副本",
 			"mayNotStart": "遊戲可能無法啟動",
 			"repairSteam": "Steam：內容 - 已安裝的檔案 - 驗證遊戲檔案的完整性",
+			"repairGame": "遊戲內：復原resource，可能不會替換 Mod",
 			"repairThen": "然後重新開啟本工具",
 			"driftTitle": "Mod 已還原為原版",
 			"driftWhy": "遊戲檔案已驗證、修復或更新",

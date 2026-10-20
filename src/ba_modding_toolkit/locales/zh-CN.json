@@ -1033,6 +1033,7 @@
 			"lastCopy": "游戏仍在使用的文件的唯一副本",
 			"mayNotStart": "游戏可能无法启动",
 			"repairSteam": "Steam：属性 - 已安装文件 - 验证游戏文件的完整性",
+			"repairGame": "游戏内：资源修复，可能不会替换 Mod",
 			"repairThen": "然后重新打开本工具",
 			"driftTitle": "Mod 已恢复为原版",
 			"driftWhy": "游戏文件已校验、修复或更新",

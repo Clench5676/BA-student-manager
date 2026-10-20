@@ -1033,6 +1033,7 @@
 			"lastCopy": "게임에서 사용 중인 파일의 유일한 사본",
 			"mayNotStart": "게임이 실행되지 않을 수 있음",
 			"repairSteam": "Steam: 속성 - 설치된 파일 - 게임 파일 무결성 확인",
+			"repairGame": "게임 내: 리소스 복원, 모드가 교체되지 않을 수 있음",
 			"repairThen": "이후 이 앱을 다시 실행",
 			"driftTitle": "모드가 원본으로 돌아감",
 			"driftWhy": "게임 파일 검사, 복원, 업데이트",
