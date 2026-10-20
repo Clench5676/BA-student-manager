@@ -772,8 +772,7 @@ class ModLibrary:
             dropped.extend(_drop_source(data, source, keys))
             return bool(dropped or keys)
 
-        data = self._update_profiles(change)
-        self._delete_built_files(keys, data)
+        self._update_profiles(change, after=lambda data: self._delete_built_files(keys, data))
         if dropped:
             logger.info("Removed mod %s from %d configured entries", mod_id, len(dropped))
         self._prune_quietly()
@@ -1369,7 +1368,7 @@ class ModLibrary:
                             changed = True
                 return changed
 
-            self._delete_built_files(dropped, self._update_profiles(change))
+            self._update_profiles(change, after=lambda data: self._delete_built_files(dropped, data))
         return released
 
     def _unchanged_official(self, path: Path) -> bool:
@@ -1885,7 +1884,17 @@ class ModLibrary:
                 replaced.append(built[entry.core])
             built[entry.core] = key
 
-        self._delete_built_files(replaced, self._update_profiles(change))
+        def after(data: dict) -> None:
+            # another instance may have dropped the last reference since the first exists check
+            for part in entry.parts:
+                kept = parts.get(part.path.name)
+                if kept is not None and kept["mod_file"] is None:
+                    built = self.root / "built" / f"{kept['sha1']}.bundle"
+                    if not built.exists():
+                        atomic_copy(part.path, built)
+            self._delete_built_files(replaced, data)
+
+        self._update_profiles(change, after=after)
 
     def _inputs(self, pin: Pin, core: str, source: str) -> list[str]:
         """The other game files a build of a source reads: an adapted mod's official parts of its own core, another
@@ -1920,10 +1929,10 @@ class ModLibrary:
                 dropped.append(folder["built"].pop(core))
             return bool(dropped)
 
-        data = self._update_profiles(change)
-        self._delete_built_files(dropped, data)
+        self._update_profiles(change, after=lambda data: self._delete_built_files(dropped, data))
 
     def _delete_built_files(self, keys: list[dict], data: dict | None) -> None:
+        """Delete dropped keys' files no key references, under the profiles lock, against the saved configuration."""
         if not keys:
             return
         # a part kept as a file of its mod reads mods/<id>/, so only the others hold their built/ file
@@ -1954,15 +1963,15 @@ class ModLibrary:
                         changed = True
             return changed
 
-        self._update_profiles(change)
-        shutil.rmtree(directory, ignore_errors=True)
+        self._update_profiles(change, after=lambda data: shutil.rmtree(directory, ignore_errors=True))
         return freed
 
     # --- the configuration ---
 
-    def _update_profiles(self, change: Callable[[dict], Any]) -> Any:
-        """One change of profiles.json (the change never calls into the library). Returns what the change returned
-        when it is not a bool, else the configuration as written."""
+    def _update_profiles(self, change: Callable[[dict], Any], after: Callable[[dict], Any] | None = None) -> Any:
+        """One change of profiles.json, then ``after`` under its lock. Neither callback calls into Profiles or the
+        library's public methods. Returns what the change returned when it is not a bool, else the configuration
+        as written."""
         result: list[Any] = []
 
         def wrapped(data: dict) -> Any:
@@ -1970,7 +1979,7 @@ class ModLibrary:
             result.append(value)
             return value
 
-        data = self.profiles.update(wrapped)
+        data = self.profiles.update(wrapped, after=after)
         value = result[0] if result else None
         return data if value is None or isinstance(value, bool) else value
 
@@ -2017,8 +2026,7 @@ class ModLibrary:
                     dropped_keys.append(folder["built"].pop(core))
             return changed
 
-        data = self._update_profiles(change)
-        self._delete_built_files(dropped_keys, data)
+        self._update_profiles(change, after=lambda data: self._delete_built_files(dropped_keys, data))
 
     def _new_folder(self, data: dict, pin: Pin, named: bool) -> dict:
         folder = data["folders"][pin.key] = {"server": pin.server, "named_by": {}, "hidden": [], "configured": {},
@@ -2252,7 +2260,7 @@ class ModLibrary:
                     changed = True
             return changed
 
-        self._delete_built_files(dropped, self._update_profiles(change))
+        self._update_profiles(change, after=lambda data: self._delete_built_files(dropped, data))
 
     # --- adopting mods already in use ---
 
@@ -2354,7 +2362,7 @@ class ModLibrary:
                     replaced.append(folder["built"][core])
                 folder["built"][core] = built
 
-            data = self._update_profiles(change)
+            self._update_profiles(change, after=lambda data: self._delete_built_files(replaced, data))
         except Exception:
             self._applied = old_applied
             with contextlib.suppress(OSError):
@@ -2362,7 +2370,6 @@ class ModLibrary:
             if created:
                 self._drop_mods([mod_id])
             raise
-        self._delete_built_files(replaced, data)
         logger.info("Added %s of %s to the library as mod %s", core, pin.key, mod_id)
         return mod_id
 
@@ -2831,8 +2838,7 @@ class ModLibrary:
             data["unfinished"] = [item for item in data["unfinished"] if item["install"] != install]
             return True
 
-        data = self._update_profiles(change)
-        self._delete_built_files(dropped, data)
+        self._update_profiles(change, after=lambda data: self._delete_built_files(dropped, data))
 
     # --- working on mods ---
 

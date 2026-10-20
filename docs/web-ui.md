@@ -555,9 +555,12 @@ install without a CRC fix), else a copy in `library/built/<sha1>.bundle`. On, Re
 them back with one copy per part (no installer, no UnityPy), byte for byte, while they fit: built for that source,
 every part's name and every file name the build read (an adapted mod's official parts, another variant's files) still
 in the install. A game update, a changed or dropped configuration, a mod's update or removal, a Forget and Clear
-Built Mods drop them; a built file goes once no install's key references it. Built copies and kept originals hold
-game portraits and lobbies inside the library: restore copies of what the user's own switch wrote, never read to draw
-the UI, and their disk use can grow large (the switch's help shows both sizes; only built copies can be cleared).
+Built Mods drop them; a built file goes once no install's key references it. Deletions, including Clear Built Mods,
+run under `profiles.json.lock` against the configuration just saved. A new key's files are checked and any missing
+copies made again under the same lock, so another data directory dropping its last reference cannot leave the new
+key without its files. Built copies and kept originals hold game portraits and lobbies inside the library: restore
+copies of what the user's own switch wrote, never read to draw the UI, and their disk use can grow large (the
+switch's help shows both sizes; only built copies can be cleared).
 
 **What reads game files.** The scan consent (`scan_allowed`, asked at each use) covers every read the app makes on
 its own of files the library did not write: the scan (the start and the end of each portrait and memorial lobby file;

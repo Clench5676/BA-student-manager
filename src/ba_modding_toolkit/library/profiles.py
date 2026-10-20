@@ -163,17 +163,22 @@ class Profiles:
         """Whether a configuration exists (profiles.json or its .prev)."""
         return self.path.exists() or self.prev.exists()
 
-    def update(self, change: Callable[[dict[str, Any]], Any]) -> dict[str, Any]:
+    def update(self, change: Callable[[dict[str, Any]], Any],
+               after: Callable[[dict[str, Any]], Any] | None = None) -> dict[str, Any]:
         """Apply one change to the file's current contents, read again under the shared lock, and write it back
         (unknown keys and folders kept, the last good file kept as .prev first). ``change`` gets the normalized
-        configuration to change in place, and returns False to write nothing. It never calls into the library, and
-        update is never nested. Returns the configuration as written (or as read, when nothing was written)."""
+        configuration to change in place, and returns False to write nothing. ``after`` gets the configuration as
+        written (or as read, when nothing was written), still under the lock. Neither callback calls into Profiles
+        or the library's public methods. Returns the configuration as written (or as read)."""
         with self._lock, file_lock(self.lock_path):
             current, bad = self._load()
             data = normalized(current)
             if change(data) is False:
                 self._data, self._seen = (normalized(current) if current is not None else None), self._signatures()
-                return self._data if self._data is not None else data
+                data = self._data if self._data is not None else normalized(current)
+                if after is not None:
+                    after(data)
+                return data
             self.root.mkdir(parents=True, exist_ok=True)
             if bad:
                 # keep what could not be read for the user; .prev is the last good file already
@@ -183,6 +188,8 @@ class Profiles:
                 self._copy(self.path, self.prev)
             self._write(data)
             self._data, self._seen = data, self._signatures()
+            if after is not None:
+                after(data)
             return data
 
     def _copy(self, source: Path, target: Path) -> None:

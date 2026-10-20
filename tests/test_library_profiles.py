@@ -8,6 +8,7 @@ import os
 import shutil
 import threading
 import time
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -18,6 +19,7 @@ from ba_modding_toolkit.bundle import Bundle
 from ba_modding_toolkit.config import Settings
 from ba_modding_toolkit.errors import ServiceError
 from ba_modding_toolkit.library import ModLibrary, safety, service, storage
+from ba_modding_toolkit.library import profiles as profiles_module
 from ba_modding_toolkit.library.judge import carried_of, classify, install_key, install_root, leaves
 from ba_modding_toolkit.library.profiles import Profiles
 from ba_modding_toolkit.models import FilePair, ModUpdateResult
@@ -119,8 +121,44 @@ def test_a_failed_write_keeps_the_file_as_it_was(tmp_path, monkeypatch):
 
 def test_a_change_may_write_nothing(tmp_path):
     profiles = Profiles(tmp_path)
-    profiles.update(lambda data: False)
+    seen = []
+    data = profiles.update(lambda data: False, after=seen.append)
+    assert seen == [data]
+    assert profiles.read() is None
     assert not (tmp_path / "profiles.json").exists()
+
+
+@pytest.mark.parametrize("write", [False, True])
+def test_profiles_after_runs_under_the_lock_with_the_stored_configuration(tmp_path, monkeypatch, write):
+    profiles = Profiles(tmp_path)
+    profiles.update(lambda data: data.update(enabled=False))
+    lock = profiles_module.file_lock
+    held = False
+    seen = []
+
+    @contextmanager
+    def tracked(path):
+        nonlocal held
+        with lock(path):
+            held = True
+            try:
+                yield
+            finally:
+                held = False
+
+    def change(data):
+        data["enabled"] = True
+        return None if write else False
+
+    def after(data):
+        assert held
+        assert data == json.loads(profiles.path.read_text())
+        assert data["enabled"] is write
+        seen.append(data)
+
+    monkeypatch.setattr(profiles_module, "file_lock", tracked)
+    data = profiles.update(change, after=after)
+    assert seen == [data]
 
 
 def test_reading_no_configuration_touches_nothing(tmp_path):
@@ -443,7 +481,7 @@ def test_a_failed_adoption_is_rolled_back(world, monkeypatch):
     outside_mod(world.spr)
     real = Profiles.update
 
-    def fail(self, change):
+    def fail(self, change, after=None):
         raise PermissionError(13, "Read-only", "profiles.json")
 
     monkeypatch.setattr(Profiles, "update", fail)
@@ -988,10 +1026,10 @@ def test_the_judging_drops_nothing_when_another_instance_switched_meanwhile(worl
     assert len(world.unfinished()) == len(files)
     real = Profiles.update
 
-    def meanwhile(self, change):
+    def meanwhile(self, change, after=None):
         # another instance saves a new intent between the judging and its update
         real(Profiles(world.root), lambda data: data.update(enabled=True, toggled="later"))
-        return real(self, change)
+        return real(self, change, after=after)
 
     monkeypatch.setattr(Profiles, "update", meanwhile)
     assert world.library.judge_unfinished() == 0
@@ -2012,6 +2050,61 @@ def test_two_installs_share_one_built_file_until_both_drop_it(world, monkeypatch
     world.library.restore("test", pin=pin_of(world, folder))
     assert not built[0].exists()
     assert second.read_bytes() == OFFICIAL
+
+
+@pytest.mark.parametrize("clear", [False, True])
+@pytest.mark.parametrize("when", ["before_save", "after_unlock"])
+def test_a_built_key_keeps_its_file_when_another_instance_drops_the_last_reference(world, monkeypatch, clear, when):
+    folder = japan(world)
+    pin = pin_of(world, folder)
+    mod = world.add(world.spr, fixed=True)
+    rebuilding_installer(monkeypatch)
+    world.library.apply("test", f"mod:{mod.id}")
+    other = world.build("B")
+    other.apply("test", f"mod:{mod.id}", pin=pin)
+    first = world.library.current_pin()
+    world.library._make_built(first, world.library._view([first], "full").entry(first, "test_spr"))
+    part = world.folder()["built"]["test_spr"]["parts"][world.spr.name]
+    built = world.root / "built" / f"{part['sha1']}.bundle"
+    expected = built.read_bytes()
+    entry = other._view([pin], "full").entry(pin, "test_spr")
+
+    def drop():
+        if clear:
+            world.library.clear_built()
+        else:
+            world.library._drop_built(first)
+
+    if when == "before_save":
+        update = other._update_profiles
+
+        def meanwhile(change, after=None):
+            # B has reused the existing file, but has not saved its key yet.
+            assert built.exists() and world.folder(folder)["built"] == {}
+            drop()
+            assert not built.exists()
+            return update(change) if after is None else update(change, after=after)
+
+        monkeypatch.setattr(other, "_update_profiles", meanwhile)
+        other._make_built(pin, entry)
+    else:
+        lock = profiles_module.file_lock
+
+        @contextmanager
+        def meanwhile(path):
+            with lock(path):
+                yield
+            # B saves as soon as A releases the shared lock, before A returns from its update.
+            monkeypatch.setattr(profiles_module, "file_lock", lock)
+            other._make_built(pin, entry)
+
+        monkeypatch.setattr(profiles_module, "file_lock", meanwhile)
+        drop()
+
+    assert world.folder()["built"] == {}
+    assert world.folder(folder)["built"]["test_spr"]["parts"][world.spr.name] == part
+    assert built.exists()
+    assert built.read_bytes() == expected
 
 
 def test_a_game_update_drops_the_built_copy_and_on_rebuilds(world, monkeypatch):
