@@ -141,6 +141,19 @@ input[type="text"], input[type="search"], textarea { cursor: text; }
 #prompt { z-index: 2550; }
 #dialog { z-index: 2600; }
 .popup-layer { position: absolute; inset: 0; z-index: 0; outline: none; }
+/* a message popup without the game's frame (no game folder): a plain box on the popup's dark backdrop */
+.plain-popup-back { position: absolute; inset: 0; background: rgba(0, 0, 0, .6); }
+.plain-popup { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 1000px; padding: 48px 60px 52px;
+  display: flex; flex-direction: column; align-items: center; gap: 22px; border-radius: 14px; background: #f4fcfe; color: #2d4664; text-align: center; }
+.plain-popup h2 { font: var(--w) 48px/1.2 var(--font); }
+.plain-popup p { font: var(--w) 32px/1.4 var(--font); color: #2d4664; }
+.plain-line-button { margin-left: 20px; padding: 8px 22px; border-radius: 8px; background: #8de4ff; color: #314665; font: var(--w) 26px/1 var(--font); }
+.plain-check { display: flex; align-items: center; gap: 16px; font: var(--w) 30px/1 var(--font); color: #484e52; }
+.plain-check::before { content: ""; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 8px;
+  border: 3px solid #96b6c2; background: #e4f3f8; color: #fff; font: 700 28px/1 sans-serif; }
+.plain-check[aria-checked="true"]::before { content: "\2713"; background: #2a63c5; border-color: #2a63c5; }
+.plain-popup .message-actions { margin-top: 10px; }
+.plain-popup .message-button:focus-visible, .plain-check:focus-visible, .plain-line-button:focus-visible { outline: 4px solid #2fa6f0; outline-offset: 2px; }
 .hit { position: absolute; background: transparent; cursor: var(--cursor-press); }
 
 /* switch-portrait card: the game's weapon card has no text slot */

@@ -916,7 +916,11 @@ optional, so a popup still works without them.
   It resolves once it closes, however it closes, with `{button, checked}`: `button` is `ok`, `cancel`, or `null` for
   the close button, the backdrop and Escape; `checked` is the checkbox's state at that moment. `close: false` draws no
   close button, and the backdrop and Escape do nothing. The popup takes the keyboard focus while it is open (Enter
-  presses nothing under it) and gives it back.
+  presses nothing under it) and gives it back. `confirmKeys` (none by default; the quit prompt's Enter and Space)
+  press OK while the popup is in front and holds the focus itself; a focused button takes its own key, and a held
+  key's repeat, a modifier or an input method composing press nothing. Without the frame's prefab (no game folder)
+  the same message is drawn plain: a light box on the dark backdrop with the title, the lines, the checkbox and the
+  buttons, marked and answered the same way.
 - **`listPopup({...})`**: the frame laid out like the game's quick formation edit, the selection's details on the
   left, the cards in a framed list on the right, the buttons under it. The student list's tools over the cards are
   optional (`tools`); without them a hint and a footer show in their place. One card chosen (`selected`), or several

@@ -187,6 +187,40 @@ test("messages stack: Escape closes the one in front, the line buttons act", asy
   assert.equal(dialog.hidden, true);
 });
 
+test("confirm keys press OK while the popup is in front and holds the focus; none by default", async () => {
+  const keyOn = (layer, target, key, extra = {}) => {
+    const ev = { key, target, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }, ...extra };
+    for (const fn of layer.listeners.keydown || []) fn(ev);
+    return ev;
+  };
+  // the quit prompt: Enter and Space, as the PC client binds its popups' confirm
+  const quit = Popup.message({ title: "Notice", lines: ["Quit?"], ok: "Confirm", cancel: "Cancel", confirmKeys: ["Enter", " "] });
+  await drawn(dialog, "ok");
+  const layer = dialog.children.at(-1);
+  assert.equal(keyOn(layer, action(dialog, "cancel"), "Enter").defaultPrevented, false, "a focused button takes its own key");
+  for (const extra of [{ repeat: true }, { isComposing: true }, { keyCode: 229 }, { ctrlKey: true }, { defaultPrevented: true }]) {
+    keyOn(layer, layer, "Enter", extra);
+  }
+  keyOn(layer, layer, "a");
+  assert.equal(await state(quit), "pending");
+  // another message in front: the keys are its own
+  const front = Popup.message({ title: "Remove", lines: ["The game may not start"], ok: "Remove" });
+  await tick();
+  assert.equal(keyOn(layer, layer, "Enter").defaultPrevented, false);
+  press("Escape");
+  await front;
+  assert.ok(keyOn(layer, layer, " ").defaultPrevented);
+  assert.deepEqual(await quit, { button: "ok", checked: null });
+  // without confirmKeys, Enter presses nothing
+  const plain = Popup.message({ title: "Remove", lines: ["The game may not start"], ok: "Remove", cancel: "Cancel" });
+  await drawn(dialog, "ok");
+  const l2 = dialog.children.at(-1);
+  assert.equal(keyOn(l2, l2, "Enter").defaultPrevented, false);
+  assert.equal(await state(plain), "pending");
+  action(dialog, "cancel").click();
+  await plain;
+});
+
 test("a message that must be answered has no close button and ignores Escape", async () => {
   const p = Popup.message({ title: "Mods Back to Official", lines: ["Game files verified, repaired or updated"], ok: "Apply Mod Configuration", cancel: "Keep as Is", close: false });
   await drawn(dialog, "ok");
