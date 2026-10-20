@@ -235,21 +235,47 @@ export class Effects {
     this.time = 0;
     this.serial = 0;
     this.started = false;
+    // a system off at rest (rest 0: only the lobby's intro switches it on, lobby-intro.js) does not play
     this.systems = (this.fx.systems || []).map((def, index) => ({
       def, index, particles: [], instances: [], W: def.static, M: def.static, Minv: invert(def.static),
-      playing: !def.isSub && def.playOnAwake !== 0, done: false,
+      playing: !def.isSub && def.playOnAwake !== 0 && def.rest !== 0, done: false,
       delay: Math.max(0, value(def.main.delay, 0, rnd(this.seed, index))), clock: newClock(def.emission?.bursts || []),
     }));
   }
 
-  // every system's matrices for this frame (bones move them)
+  // The system plays again from its start (its GameObject switched on: Play On Awake, or an intro's control clip),
+  // `pre` seconds in: prewarmed as at the start, then simulated that far (ParticleControlPlayable's Simulate)
+  restart(s, pre = 0) {
+    this.stop(s);
+    const main = s.def.main, D = main.duration;
+    s.playing = true;
+    s.done = false;
+    s.clock = newClock(s.def.emission?.bursts || []);
+    s.delay = Math.max(0, value(main.delay, 0, this.random()));
+    if (main.prewarm && main.loop) for (let t = 0; t < D - EPS; t += PREWARM_STEP) this.step(s, Math.min(PREWARM_STEP, D - t), true);
+    for (let t = 0; t < pre - EPS; t += PREWARM_STEP) this.step(s, Math.min(PREWARM_STEP, pre - t) * (s.speed ?? main.speedScale ?? 1), false);
+  }
+
+  // the system stops and its particles go, its sub-emitters' too (its GameObject switched off)
+  stop(s) {
+    s.playing = false;
+    s.particles = [];
+    s.instances = [];
+    for (const e of s.def.subs || []) {
+      const sub = this.systems[e.system];
+      if (sub) { sub.particles = []; sub.instances = []; }
+    }
+  }
+
+  // every system's matrices for this frame (bones move them; the intro's animated transforms give a system its own
+  // static, rel or skeleton matrix: s.static, s.rel, s.go)
   place() {
     for (const s of this.systems) {
       const a = s.def.anchor;
-      let W = s.def.static;
+      let W = s.static || s.def.static;
       if (a) {
         const b = this.bone(a.skeleton, a.bone);
-        if (b) W = mul(a.go, mul([b.a, b.b, 0, b.worldX * a.ds, b.c, b.d, 0, b.worldY * a.ds, 0, 0, 1, 0], s.def.rel));
+        if (b) W = mul(s.go || a.go, mul([b.a, b.b, 0, b.worldX * a.ds, b.c, b.d, 0, b.worldY * a.ds, 0, 0, 1, 0], s.rel || s.def.rel));
       }
       s.W = W;
       s.M = scaled(W, s.def);
@@ -271,7 +297,7 @@ export class Effects {
       }
     }
     this.time += dt;
-    for (const s of this.systems) this.step(s, dt * (s.def.main.speedScale ?? 1), false);
+    for (const s of this.systems) this.step(s, dt * (s.speed ?? s.def.main.speedScale ?? 1), false);
   }
 
   // One step, in Unity's order: the particles whose life ends within it die first, then it emits (into the places they
@@ -355,7 +381,7 @@ export class Effects {
       ? [value(main.rotation[0], u, r(R.rotX)), value(main.rotation[1], u, r(R.rotY)), value(main.rotation[2], u, r(R.rot))]
       : [0, 0, value(main.rotation[0], u, r(R.rot))];
     if (flip < 0) for (let i = 0; i < 3; i++) rot[i] = -rot[i];
-    let color = colorAt(main.color, u, r(R.color));
+    let color = colorAt(s.startColor || main.color, u, r(R.color)); // the intro can animate the start colour
     // the emission point and direction in the system's space
     let p = [0, 0, 0], d = [0, 0, 1];
     const sh = def.shape;
@@ -694,6 +720,25 @@ export function geometry(fxs, s, { meshes = {}, linear = true } = {}) {
     }
   }
   return { data: data.subarray(0, o), count: o / STRIDE };
+}
+
+// A sprite's quad (lobby.json fx.sprites: a SpriteRenderer, intro.py sprite): its rect around the pivot, in the
+// GameObject's units, through its matrix M; the sprite's UVs (flipped as the renderer says) in TEXCOORD0 and its
+// colour as the renderer's vertex colour (decoded from sRGB in linear light, like a particle's).
+export function spriteGeometry(def, M, color, { linear = true } = {}) {
+  const [x0, y0, x1, y1] = def.quad, [u0, v0, u1, v1] = def.uv, c = vertexColor(color, linear);
+  const fu = def.flip?.[0], fv = def.flip?.[1], data = new Float32Array(6 * STRIDE);
+  let o = 0;
+  for (const q of QUAD) {
+    const lx = q[2] ? x1 : x0, ly = q[3] ? y1 : y0, p = apply(M, lx, ly, 0);
+    data[o++] = p[0]; data[o++] = p[1];
+    data[o] = (fu ? !q[2] : q[2]) ? u1 : u0;
+    data[o + 1] = (fv ? !q[3] : q[3]) ? v1 : v0;
+    o += 12;
+    data[o++] = c[0]; data[o++] = c[1]; data[o++] = c[2]; data[o++] = c[3];
+    data[o++] = FACING[0]; data[o++] = FACING[1]; data[o++] = FACING[2];
+  }
+  return { data, count: 6 };
 }
 
 // --- draw order -----------------------------------------------------------------------------------------------------

@@ -1550,6 +1550,7 @@ function renderLeft() {
     shownLeft = want;
     shownKey = key;
     unfreezeLeft();
+    if (want === "lobby") Lobby.reveal(); // on screen: its intro starts
     for (const part of LEFT) if (part !== want) retireLeft(part, my);
   }));
 }
@@ -1571,7 +1572,7 @@ function retireLeft(part, my) {
 // keeps no drawing buffer: it is copied in an animation frame, after the model's own loop has drawn into it.
 async function freezeLeft(part) {
   const host = $(part);
-  const sources = [...host.querySelectorAll(part === "lobby" ? ".lobby-view canvas" : "canvas.model-view")];
+  const sources = [...host.querySelectorAll(part === "lobby" ? ".lobby-view .lobby-layer:not(.lobby-off) canvas" : "canvas.model-view")];
   if (!sources.length) return;
   if (part === "model") await new Promise(requestAnimationFrame);
   const box = document.createElement("div");
@@ -1616,10 +1617,17 @@ async function showLobby(v, my) {
     Lobby.setLines(table, (l) => l?.[key] || "");
     return renderExpressions();
   }).catch(() => { if (still()) Lobby.setLines({}, null); });
-  // the still is taken in the left framing, once the players have drawn a few frames of it
+  // the still is taken in the left framing, once the players have drawn a few frames of it; while the intro plays (its
+  // flash and scenes are not the lobby at rest), once it has ended
   await frames(4);
   if (!still()) return;
-  if (!lobbyShot && !fullscreen) lobbyShot = snapshotLobby();
+  if (Lobby.introPending()) {
+    Lobby.introDone().then(() => frames(4)).then(() => {
+      if (!still() || lobbyShot || fullscreen) return;
+      lobbyShot = snapshotLobby();
+      if (lobbyShot) renderScreen();
+    });
+  } else if (!lobbyShot && !fullscreen) lobbyShot = snapshotLobby();
   await Promise.all([renderScreen(), renderExpressions(), Promise.race([lines, sleep(LINES_CAP)])]);
 }
 // the 3D chibi: loaded, its shaders compiled and its first frame drawn; the actions fill row 4 and a still of it goes
@@ -1653,7 +1661,7 @@ function hideModel() {
 // a still of the lobby for the switch card, framed on the face: lobby.js picks the crop inside the left view, which
 // lies inside the lobby's painted area, so the still is opaque everywhere and the card's mask fades it out softly
 function snapshotLobby() {
-  const canvases = [...$("lobby").querySelectorAll(".lobby-view canvas")];
+  const canvases = [...$("lobby").querySelectorAll(".lobby-view .lobby-layer:not(.lobby-off) canvas")];
   if (!canvases.length) return null;
   const W = canvases[0].width, H = canvases[0].height;
   const r = Lobby.stillRect(W, H) || { x: W * 0.1, y: H * 0.16, w: W * 0.5, h: W * 0.5 * (253 / 450) };
@@ -1724,8 +1732,9 @@ async function stillAfterFullscreen() {
   const wanted = () => open && !fullscreen && tab === part && variantKey === key && (part === "lobby"
     ? !lobbyShot && !!Lobby.meta() : part === "model" && !modelShot && !!$("model").querySelector(".model-view.ready"));
   if (!wanted()) return;
-  // the lobby draws the left view within a few frames; the model glides there
+  // the lobby draws the left view within a few frames (after its intro); the model glides there
   const M = part === "model" ? await ModelLib() : null;
+  if (!M) await Lobby.introDone();
   await (M ? M.settled() : frames(4));
   if (!wanted()) return;
   if (M) modelShot = M.snapshot();
@@ -1756,6 +1765,7 @@ export function applyPrefs(prefs) {
   Lobby.setVolume((prefs?.voiceVolume ?? 80) / 100, ctx?.info?.mute || prefs?.voiceMuted);
   Lobby.setZoomLimit(prefs?.lobbyZoom);
   Lobby.setPostProcessing(prefs?.lobbyPost !== false);
+  Lobby.setIntro(prefs?.lobbyIntro !== false);
   // started with --debug: the fullscreen lobby's pointer, wheel and gesture events go to the app's log
   Lobby.setTrace(ctx?.info?.debug ? (events) => rpc("debug.trace", { events }).catch(() => {}) : null);
 }

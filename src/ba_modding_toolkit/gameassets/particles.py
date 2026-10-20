@@ -38,6 +38,9 @@ PROGRAMS = {
     "DSFX/FX_SHADER_AlwaysView_Add": "alwaysViewAdd",
     "DSFX/FX_SHADER_Matcap_0": "matcap",
     "FX/General Unlit VertexColor": "vertexColor",
+    # Unity's built-in sprite and mobile particle shaders: the intro's flash and fade sprites (intro.sprite)
+    "Sprites/Default": "sprite",
+    "Mobile/Particles/Additive": "particleAdd",
 }
 # ParticleSystemVertexStream -> component count, for packing custom vertex streams into TEXCOORD0..n as Unity does
 _STREAM_SIZE = {4: 2, 5: 2, 6: 2, 7: 2, 8: 1, 9: 1, 10: 3, 11: 1, 12: 1, 13: 2, 14: 3, 15: 1, 16: 3, 17: 1, 18: 3,
@@ -396,20 +399,31 @@ def _mesh_choice(ids: list[tuple[str, float]], distribution: int) -> dict:
 
 
 def build(nodes: list[dict], skeleton_of_go: Callable[[int], str | None], data_scale: Callable[[str], float],
-          resolve: Callable[[str, int, dict], Any] | None) -> dict:
+          resolve: Callable[[str, int, dict], Any] | None, gates: Iterable[int] = ()) -> dict:
     """The particle systems of a prefab walk (lobby.read_prefab nodes, in hierarchy order), with their place: under a
     SkeletonUtilityBone (Follow) the bone GameObject moves with the bone, so a system there is anchored on that bone
     of its skeleton ("anchor") and placed by the transforms below it ("rel", Unity units of the bone GameObject);
     every system also keeps its place in the prefab's own pose ("static", NGUI units around the prefab root).
     resolve(kind, owner path id, pointer) reads the materials ("material") and meshes ("mesh") the renderers point
-    at; without it no system has a material."""
+    at; without it no system has a material. gates: GameObjects the lobby's intro switches on (intro.py): a system
+    off at rest is kept when only they keep it off ("rest" 0). Each system has its GameObject as "_go" (for the
+    intro, which lobby.read_prefab removes)."""
     systems, materials, textures, meshes = [], {}, {}, {}
     index_of_ps: dict[int, int] = {}
     pending_subs: list[tuple[int, list[tuple[int, int, int, float]]]] = []
     by_go = {n["go"]: n for n in nodes}
+    gates = set(gates)
+
+    def reachable(n: dict) -> bool:
+        while n is not None:
+            if not n.get("own", True) and n["go"] not in gates:
+                return False
+            n = by_go.get(n["parent"])
+        return True
+
     for n in nodes:
         ps = n["first"].get("ParticleSystem")
-        if ps is None or not n["active"]:
+        if ps is None or not (n["active"] or (gates and reachable(n))):
             continue
         ps_pid = n["pids"]["ParticleSystem"]
         rend = n["first"].get("ParticleSystemRenderer") or {}
@@ -467,7 +481,9 @@ def build(nodes: list[dict], skeleton_of_go: Callable[[int], str | None], data_s
         for c in reversed(chain):
             rel = mul(rel, c["local3"])
         item.update(name=n["name"], path=n["path"], anchor=anchor, rel=rounded(rel), static=rounded(n["m3"]),
-                    ls=_vec(n["t"].get("m_LocalScale"), 1.0), z=_r(n["m3"][11]))
+                    ls=_vec(n["t"].get("m_LocalScale"), 1.0), z=_r(n["m3"][11]), _go=n["go"])
+        if not n["active"]:
+            item["rest"] = 0  # off until the intro switches it on
         index_of_ps[ps_pid] = len(systems)
         systems.append(item)
         subs = sub_emitters(ps)

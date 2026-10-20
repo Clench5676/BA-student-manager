@@ -15,12 +15,15 @@
 // effects that sort between two of them in between: Hibiki's river surface over the river, under her.
 // Each skeleton's idle starts the clips the game's does (Shigure's train, snow, clouds, stars), some of them at random
 // times (lobby-sync.js), and the clips' sound keys play the game's sounds at the voice volume.
+// Entered, the lobby plays its intro timeline (lobby-intro.js) from the first frame it is on screen: a tap or a
+// dialogue skips it, and with the setting off the lobby starts as the intro leaves it.
 import { spineFiles } from "./api.js";
 import * as Linear from "./linear.js";
 import * as Particles from "./particles-gl.js";
 import * as Parts from "./skeleton-parts.js";
 import * as Touch from "./lobby-touch.js";
 import * as Sync from "./lobby-sync.js";
+import * as Intro from "./lobby-intro.js";
 
 const STAGE = { w: 1920, h: 1080 };
 const GAME = { x: -1480, y: -832.5, w: 2960, h: 1665 };  // lobby.json "view": the game's 16:9 view in NGUI units
@@ -36,6 +39,7 @@ let players = [], current = null, mode = "left", extendTimer = null, chain = nul
 let zoomMode = "art", zoomCustom = ZOOM_CUSTOM; // the zoom-out setting (setZoomLimit)
 let talk = null, talkIndex = -1, cueTimers = [], audios = [], subtitleTimer = null;
 let lines = {}, muted = false, volume = 0.8, lineOf = (l) => l?.["zh-CN"] || "";
+let introOn = true; // the intro setting (setIntro): off shows the lobby as its intro leaves it
 const listeners = new Set();
 
 const base = (core) => `/asset/spine/lobby/${encodeURIComponent(core)}/`;
@@ -52,8 +56,10 @@ async function layersOf(core) {
   ]);
   const atlasOf = pairAtlases(files), skels = [...atlasOf.keys()];
   const ok = (n) => atlasOf.has(n);
-  // equal sorting orders (akari_home before akari_bg in the prefab): background-named skeletons first
-  let list = (info?.layers || []).filter((l) => l.active && ok(l.name))
+  // equal sorting orders (akari_home before akari_bg in the prefab): background-named skeletons first; the scenes only
+  // the intro shows (Akari's, Aru's) are loaded too, hidden until it shows them (introOnly)
+  let list = (info?.layers || []).filter((l) => (l.active || l.intro) && ok(l.name))
+    .map((l) => ({ ...l, introOnly: !l.active }))
     .sort((a, b) => a.order - b.order || isBg(b.name) - isBg(a.name) || a.index - b.index);
   if (!list.length) {
     list = skels.sort((a, b) => isBg(b) - isBg(a) || a.localeCompare(b))
@@ -492,6 +498,8 @@ export function frame(m) {
   if (m !== "full") Touch.detach();
   else if (wantTouch) Touch.attach(current.host);
 }
+// a player's canvas on screen (not a layer the intro keeps hidden)
+const shown = (p) => !!p.canvas && !p.parent?.classList.contains("lobby-off");
 function crossfade() {
   const fade = current.host?.querySelector(".lobby-fade");
   if (!fade) return;
@@ -499,7 +507,7 @@ function crossfade() {
   g.clearRect(0, 0, fade.width, fade.height);
   const ext = current.host.querySelector(".lobby-extend");
   if (ext && !ext.hidden) g.drawImage(ext, 0, 0, fade.width, fade.height);
-  for (const p of players) if (p.canvas) g.drawImage(p.canvas, 0, 0, fade.width, fade.height);
+  for (const p of players) if (shown(p)) g.drawImage(p.canvas, 0, 0, fade.width, fade.height);
   fade.style.transition = "none";
   fade.style.opacity = "1";
   void getComputedStyle(fade).opacity; // start the fade from 1 in this frame, together with the UI slide
@@ -613,6 +621,7 @@ export function stillRect(canvasW, canvasH) {
 function makePlayer(host, layer, onReady, onError = () => {}, fx = null) {
   const div = document.createElement("div");
   div.className = "lobby-layer";
+  if (layer.introOnly) { div.style.visibility = "hidden"; div.classList.add("lobby-off"); }
   host.appendChild(div);
   return new spine.SpinePlayer(div, {
     skeleton: `${layer.spine}.skel`, atlas: layer.atlas || `${layer.spine}.atlas`, animation: undefined,
@@ -622,6 +631,7 @@ function makePlayer(host, layer, onReady, onError = () => {}, fx = null) {
     // every frame: the random-timing clips that are due (before the animation update, as the game's coroutines run
     // before the next Update), the shared view, no spine-player viewport transitions of its own
     frame: (p, delta) => {
+      current?.intro?.frame(p, delta); // the intro's clock and state, its Spine clips (lobby-intro.js)
       p.bamtRuns?.tick(delta);
       const v = viewNow();
       if (v) { p.currentViewport = layerViewport(v, layer); p.previousViewport = null; }
@@ -647,6 +657,7 @@ function makePlayer(host, layer, onReady, onError = () => {}, fx = null) {
     },
     success: (player) => {
       player.bamtLayer = layer;
+      clocked(player);
       drawInParts(player, Parts.partsOf(layer), fx);
       // the game camera's post-processing (the prefab's volumes) goes with the linear-light pass, placed in the
       // camera's view whatever the player shows
@@ -695,7 +706,7 @@ function drawExtension(canvas, view) {
   const src = document.createElement("canvas");
   src.width = EXT_W; src.height = EXT_H;
   const sg = src.getContext("2d");
-  for (const p of players) if (p.canvas) sg.drawImage(p.canvas, 0, 0, EXT_W, EXT_H);
+  for (const p of players) if (shown(p)) sg.drawImage(p.canvas, 0, 0, EXT_W, EXT_H);
   const r = rectOnStage(view, EXT_W, EXT_H);
   const L0 = Math.max(0, Math.ceil(r.l)), R0 = Math.min(EXT_W, Math.floor(r.r)), T0 = Math.max(0, Math.ceil(r.t)), B0 = Math.min(EXT_H, Math.floor(r.b));
   g.clearRect(0, 0, EXT_W, EXT_H);
@@ -750,12 +761,15 @@ export async function show(core, host, variant) {
     if (my !== token || !layers.length) return null;
     current.info = info;
     setView(game(), true); // the first frames are already in the game's framing
-    const fx = (current.fx = info?.fx?.systems?.length ? Particles.create(info.fx, { base: base(core), bone: boneOf }) : null);
-    const loaded = (await Promise.all(layers.map((layer) => new Promise((resolve) => {
+    const fx = (current.fx = info?.fx?.systems?.length || info?.fx?.sprites?.length
+      ? Particles.create(info.fx, { base: base(core), bone: boneOf }) : null);
+    const all = (await Promise.all(layers.map((layer) => new Promise((resolve) => {
       players.push(makePlayer(viewHost, layer, (player) => resolve({ ...layer, player }), () => resolve(null), fx));
     })))).filter(Boolean);
+    // the lobby as it rests: without the scenes only its intro shows
+    const loaded = all.filter((l) => !l.introOnly);
     if (my !== token || !loaded.length) return null;
-    fx?.layers(loaded.map((l) => l.player));
+    fx?.layers(all.map((l) => l.player));
     current.meta = measure(loaded);
     current.loaded = loaded;
     // the bottom layer over the camera's clear colour (graded with PP on); sparse art keeps the page behind it, for
@@ -773,6 +787,18 @@ export async function show(core, host, variant) {
     Idle.start(loaded.map((l) => l.player));
     if (mode === "full" && wantTouch) Touch.attach(host);
     openEdge();
+    // the intro, from the first frame the lobby is revealed on screen (reveal); with the setting off, its end at once
+    if (info?.intro) {
+      const c = current;
+      c.intro = Intro.create(info.intro, {
+        layers: all, fx, post: info.post, host, bone: boneOf, sfx: (id, set) => Sfx.play(id, set),
+        screen: (p) => Linear.setScreen(p, layerViewport(game(), p.bamtLayer)),
+        clear: (p, on) => Linear.setClear(p, on && !c.meta.sparse),
+        visible: () => !!c.revealed && (host.checkVisibility ? host.checkVisibility({ opacityProperty: true }) : !host.hidden),
+      });
+      if (!introOn) c.intro.skip();
+      else if (!muted && volume > 0) for (const s of info.intro.sounds || []) Sfx.prefetch(s.id); // in time for it
+    }
     // with Full Art or Unlocked: the limits over every clip, once the screen is up
     setTimeout(() => { if (measuresClips() && my === token) measureClips(); }, 400);
     return current.meta;
@@ -785,6 +811,7 @@ export function hide(host) {
   Touch.detach();
   Touch.setup(null);
   Idle.stop();
+  current?.intro?.dispose(); // its sounds, its depth of field's targets
   for (const p of players) {
     current?.fx?.detach(p); // the particles' programs, buffers and textures in its context
     Linear.detach(p); // its framebuffer and program: spine's dispose only frees spine's own objects
@@ -803,6 +830,49 @@ export function hide(host) {
 
 // the input trace of the fullscreen interaction (lobby-touch.js): sink(events) gets batches, null turns it off
 export const setTrace = (sink) => Touch.setTrace(sink);
+
+// --- the intro (lobby-intro.js) ---
+// the lobby is on screen (the detail screen has committed it): its intro starts with the next frame it is visible
+export function reveal() {
+  if (current) current.revealed = true;
+}
+// the intro setting: on plays it when the lobby is entered, off shows the lobby as the intro leaves it (Shiroko's holds
+// its last frame); a lobby shown now keeps what it does
+export function setIntro(on) {
+  introOn = on !== false;
+}
+// resolves once the lobby's intro has ended, been skipped or is not there (the switch card's still waits for it)
+export function introDone() {
+  const c = current;
+  return c?.ready ? c.ready.then(() => c.intro?.done()) : Promise.resolve();
+}
+export const skipIntro = () => current?.intro?.skip();
+export const introPending = () => !!current?.intro?.pending();
+// for checks: the intro's time and state
+export const introState = () => current?.intro?.state() || null;
+// for checks: every player's frame advances by a fixed `dt` seconds (0 holds the lobby still), or by the real time
+// again (null); advance(dt) gives each player one frame of dt
+let fixedDt = null;
+const stepDt = new Map();
+export function setClock(dt) {
+  fixedDt = dt == null ? null : Math.max(0, Number(dt) || 0);
+  for (const p of players) clocked(p);
+}
+// a player on the checks' clock (a lobby shown after setClock too)
+function clocked(p) {
+  if (fixedDt == null || !p.time || p.time.bamtUpdate) return;
+  const update = p.time.update.bind(p.time);
+  p.time.bamtUpdate = update;
+  p.time.update = () => {
+    update();
+    if (fixedDt == null) return;
+    p.time.delta = stepDt.has(p) ? stepDt.get(p) : fixedDt;
+    stepDt.delete(p);
+  };
+}
+export function advance(dt) {
+  for (const p of players) stepDt.set(p, Math.max(0, Number(dt) || 0));
+}
 
 // fullscreen interaction on or off (lobby-touch.js); it only runs in the fullscreen framing
 export function interactive(on) {
@@ -935,6 +1005,7 @@ const Idle = {
 export function play(anim, { fromChain = false } = {}) {
   const m = current?.meta;
   if (!m) return null;
+  current.intro?.skip(); // a dialogue comes after the intro, as a tap that skips it
   if (!fromChain) chain = null;
   const i = m.sequences.findIndex((s) => s.anim === anim), seq = m.sequences[i], p = mainPlayer();
   if (!seq || !p?.animationState) return null;
@@ -1057,22 +1128,24 @@ const Sfx = {
   prefetch(id) {
     for (const clip of current?.info?.sounds?.[id]?.clips || []) this.load(clip);
   },
-  play(id) {
+  // also: the set the audio joins while it plays (the intro's, which a skip stops)
+  play(id, also = null) {
     const ev = current?.info?.sounds?.[id];
     this.log.push({ event: id, name: ev?.name || null, at: Math.round(performance.now()) });
     if (this.log.length > 40) this.log.shift();
     if (!ev?.clips?.length || muted || !(volume > 0)) return;
     const clip = ev.clips[Math.floor(Math.random() * ev.clips.length)], my = token;
     this.load(clip).then((url) => {
-      if (!url || my !== token || muted) return;
+      if (!url || my !== token || muted || also?.closed) return; // a skipped intro's sound still loading never plays
       const a = new Audio(url);
       a.bamtVolume = ev.volume ?? 1;
       a.volume = clamp(a.bamtVolume * volume, 0, 1);
       a.preservesPitch = a.webkitPreservesPitch = a.mozPreservesPitch = false;
       a.defaultPlaybackRate = a.playbackRate = ev.pitch || 1;
       this.playing.add(a);
-      a.onended = () => this.playing.delete(a);
-      a.play().catch(() => this.playing.delete(a));
+      also?.add(a);
+      a.onended = () => { this.playing.delete(a); also?.delete(a); };
+      a.play().catch(() => { this.playing.delete(a); also?.delete(a); });
     });
   },
   follow() { for (const a of this.playing) a.volume = clamp(a.bamtVolume * volume, 0, 1); }, // a new voice volume
