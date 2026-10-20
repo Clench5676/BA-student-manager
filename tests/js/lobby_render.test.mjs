@@ -270,8 +270,8 @@ test("a material per draw: a replacement for the slot's blend mode on its page, 
   assert.equal(M.materialOf(mats, "Page3", spine.BlendMode.Normal), multiply);
   assert.equal(M.materialOf(mats, "Page1", spine.BlendMode.Normal), null);
   assert.equal(M.materialOf(mats, "Page1", spine.BlendMode.Multiply).tag, "p1");
-  // a page the list does not name takes the list's first material (one shader for the mode)
-  assert.equal(M.materialOf(mats, "Page2", spine.BlendMode.Multiply).tag, "p1");
+  // a page the list does not name gets no material from it, as spine-unity matches the list by page name
+  assert.equal(M.materialOf(mats, "Page2", spine.BlendMode.Multiply), null);
   // a replacement the game leaves empty: spine-player's own drawing
   assert.equal(M.materialOf(mats, "Page1", spine.BlendMode.Screen), null);
   assert.equal(M.materialOf(null, "Page1", spine.BlendMode.Normal), null);

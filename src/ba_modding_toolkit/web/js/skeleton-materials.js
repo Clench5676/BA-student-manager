@@ -232,15 +232,14 @@ export function fallbackModes(materials) {
   return out;
 }
 
-// the material a draw takes: a replacement material for its slot's blend mode on its page (a null replacement, a
-// reference the game leaves empty: spine-player's own drawing), else its page's own when a ported program draws it
+// the material a draw takes: a replacement material for its slot's blend mode on its page, else its page's own when a
+// ported program draws it. BlendModeMaterials.CloneAtlasRegionWithMaterial takes the list's entry whose pageName is
+// the page's and gives a page the list does not name no material, as a null reference does: both draw as
+// spine-player's own (in today's lobbies every Multiply slot with a list is on a page it names: Hina's on Hina_home3)
 export function materialOf(materials, page, mode) {
   const name = MODE[mode];
   const by = name && materials?.blend?.[name];
-  if (by) {
-    const m = page in by ? by[page] : Object.values(by)[0];
-    return m || null;
-  }
+  if (by) return by[page] || null;
   return materials?.pages?.[page] || null;
 }
 

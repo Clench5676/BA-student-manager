@@ -829,8 +829,9 @@ in `pointer-textures`); without a game the system cursor stays and there is no e
     BlendModeMaterials gives Multiply and Screen slots (Additive ones with `applyAdditiveMaterial`) the replacement
     material listed for their page; without it (all but 4 of the lobbies' 288 skeleton data assets) they keep their page's material and
     draw as Normal. ch0163's light_01 and Hiyori's R_eye_ligth_02 drew as Screen; spine-player's Screen on straight
-    alpha textures also ignored their alpha (a hard-edged patch over Hiyori's iris). An Additive slot always adds
-    (its premultiplied vertex colour has alpha 0).
+    alpha textures also ignored their alpha (a hard-edged patch over Hiyori's iris). A page that a mode's list does not
+    name gets no replacement material (the list is matched by page name), as an entry left empty does; both draw as
+    spine-player draws. An Additive slot always adds (its premultiplied vertex colour has alpha 0).
   - The dark colour (two-colour tint) is never drawn: `tintBlack` is off in every lobby's SkeletonAnimation and no
     lobby page shader reads it (their vertex programs take position, UV and one colour). CH0205's wing and Neru's
     halo key one, black.
