@@ -83,8 +83,8 @@ $Common = @(
     "--include-data-dir=$Addons=Addons",
     "--include-data-dir=$ArchspecCpu=archspec/cpu"
 )
-# GitHub runners run out of compiler heap on the largest generated C files when they compile in parallel
-if ($env:GITHUB_ACTIONS -eq "true") { $Common += "--low-memory" }
+# MSVC's cl runs out of heap space on the generated UnityPy classes on GitHub runners; clang-cl copes
+if ($env:GITHUB_ACTIONS -eq "true") { $Common += "--clang", "--low-memory" }
 
 $Files = @()
 try {
