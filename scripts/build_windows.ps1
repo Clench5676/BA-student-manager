@@ -7,11 +7,13 @@
 #
 # Requires uv (https://docs.astral.sh/uv/); Nuitka downloads its C compiler on first use.
 # Usage, from the repository root:
-#   powershell -ExecutionPolicy Bypass -File scripts\build_windows.ps1 [-Python 3.12.11] [-NuitkaVersion 4.3]
+#   powershell -ExecutionPolicy Bypass -File scripts\build_windows.ps1 [-Target All|Gui|Cli] [-Python 3.12.11] [-NuitkaVersion 4.3]
 
 param(
     [string]$Python = "3.12.11",
-    [string]$NuitkaVersion = "4.3"
+    [string]$NuitkaVersion = "4.3",
+    [ValidateSet("All", "Gui", "Cli")]
+    [string]$Target = "All"
 )
 
 $ErrorActionPreference = "Stop"
@@ -82,36 +84,43 @@ $Common = @(
     "--include-data-dir=$ArchspecCpu=archspec/cpu"
 )
 
+$Files = @()
 try {
     # --- GUI: the web UI, with the classic GUI behind --classic ---
-    Push-Location src
-    & $Py -m nuitka @Common `
-        --python-flag=-m `
-        --enable-plugins=tk-inter `
-        --include-data-dir=ba_modding_toolkit/assets=ba_modding_toolkit/assets `
-        --include-data-dir=ba_modding_toolkit/locales=ba_modding_toolkit/locales `
-        --include-data-dir=ba_modding_toolkit/web=ba_modding_toolkit/web `
-        --include-data-dir=ba_modding_toolkit/catalog/data=ba_modding_toolkit/catalog/data `
-        --windows-icon-from-ico=ba_modding_toolkit/assets/eligma.ico `
-        --windows-console-mode=disable `
-        --product-name="Blue Archive Modding and Patching Tool" `
-        --file-description="Blue Archive Modding and Patching Tool" `
-        --output-filename=$Gui `
-        ba_modding_toolkit
-    if ($LASTEXITCODE -ne 0) { throw "the GUI build failed" }
-    Pop-Location
+    if ($Target -in @("All", "Gui")) {
+        Push-Location src
+        & $Py -m nuitka @Common `
+            --python-flag=-m `
+            --enable-plugins=tk-inter `
+            --include-data-dir=ba_modding_toolkit/assets=ba_modding_toolkit/assets `
+            --include-data-dir=ba_modding_toolkit/locales=ba_modding_toolkit/locales `
+            --include-data-dir=ba_modding_toolkit/web=ba_modding_toolkit/web `
+            --include-data-dir=ba_modding_toolkit/catalog/data=ba_modding_toolkit/catalog/data `
+            --windows-icon-from-ico=ba_modding_toolkit/assets/eligma.ico `
+            --windows-console-mode=disable `
+            --product-name="Blue Archive Modding and Patching Tool" `
+            --file-description="Blue Archive Modding and Patching Tool" `
+            --output-filename=$Gui `
+            ba_modding_toolkit
+        if ($LASTEXITCODE -ne 0) { throw "the GUI build failed" }
+        Pop-Location
+        $Files += $Gui
+    }
 
     # --- CLI ---
-    & $Py -m nuitka @Common `
-        --include-data-dir=src/ba_modding_toolkit/assets=ba_modding_toolkit/assets `
-        --include-data-dir=src/ba_modding_toolkit/locales=ba_modding_toolkit/locales `
-        --windows-icon-from-ico=src/ba_modding_toolkit/assets/eligma.ico `
-        --windows-console-mode=force `
-        --product-name="Blue Archive Modding and Patching Tool CLI" `
-        --file-description="Blue Archive Modding and Patching Tool - Command Line Interface" `
-        --output-filename=$Cli `
-        src/ba_modding_toolkit/cli/__main__.py
-    if ($LASTEXITCODE -ne 0) { throw "the CLI build failed" }
+    if ($Target -in @("All", "Cli")) {
+        & $Py -m nuitka @Common `
+            --include-data-dir=src/ba_modding_toolkit/assets=ba_modding_toolkit/assets `
+            --include-data-dir=src/ba_modding_toolkit/locales=ba_modding_toolkit/locales `
+            --windows-icon-from-ico=src/ba_modding_toolkit/assets/eligma.ico `
+            --windows-console-mode=force `
+            --product-name="Blue Archive Modding and Patching Tool CLI" `
+            --file-description="Blue Archive Modding and Patching Tool - Command Line Interface" `
+            --output-filename=$Cli `
+            src/ba_modding_toolkit/cli/__main__.py
+        if ($LASTEXITCODE -ne 0) { throw "the CLI build failed" }
+        $Files += $Cli
+    }
 }
 finally {
     if ((Get-Location).Path -ne $Root) { Pop-Location }
@@ -119,7 +128,7 @@ finally {
 }
 
 # --- Builds and their MD5 files ("<hash>  <file name>") ---
-foreach ($File in @($Gui, $Cli)) {
+foreach ($File in $Files) {
     Copy-Item -Force (Join-Path $Build $File) (Join-Path $Dist $File)
     $Hash = (Get-FileHash -Algorithm MD5 (Join-Path $Dist $File)).Hash.ToLower()
     [IO.File]::WriteAllText((Join-Path $Dist "$File.md5"), "$Hash  $File`n")
