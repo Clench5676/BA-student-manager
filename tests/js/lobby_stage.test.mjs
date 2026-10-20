@@ -275,6 +275,48 @@ test("skeletons with contexts of their own each draw their own parts, stacked", 
   assert.ok(!log.some((l) => l.startsWith("frame")));
 });
 
+test("a scene only the intro shows draws nothing while hidden, and the effects on at rest keep their places", async () => {
+  // Aru's lobby: her skeleton and the intro's scene, both at 3000, her bokeh at 3000 and her dust over everything
+  const ARU = {
+    layers: [{ name: "Aru_home", order: 0, queue: 3000, pages: { Aru_home: 3000 }, z: 0 },
+      { name: "Aru_scene", order: 0, queue: 3000, pages: { Aru_scene: 3000 }, z: 0 }],
+    systems: [["Bokeh_00", 0, 3000, 0, 0], ["dust_00", 1, 3000, 0, 0]],
+  };
+  const slots = [[["her", "Aru_home"]], [["room", "Aru_scene"]]];
+  const shown = (log) => log.filter((l) => l.startsWith("draw"));
+  for (const share of [true, false]) {
+    const log = [], players = [];
+    ARU.layers.forEach((layer, i) => {
+      players.push(Stage.make(share && i ? players[0] : null, () => makePlayer(layer.name, layer, slots[i], log)));
+    });
+    for (const p of players) Stage.ready(p);
+    Stage.setShown(players[1], false);
+    const fx = effectsOf(ARU);
+    Stage.install(players, fx);
+    const [home, scene] = players;
+    if (share) {
+      // one target: the scene's parts are left out while it is hidden, the effects drawn where they were
+      log.length = 0;
+      frame(home);
+      assert.deepEqual(shown(log), ["draw Aru_home: her"], "the scene's room is not drawn");
+      // both effects after the last part, whichever skeleton it is: over her, as without the scene
+      assert.equal(fx.drawsAfter(home, 1), true);
+      Stage.setShown(scene, true);
+      log.length = 0;
+      frame(home);
+      assert.deepEqual(shown(log), ["draw Aru_home: her", "draw Aru_scene: room"], "shown by the intro");
+    } else {
+      // canvases of their own: the effects stay in hers, never in the hidden scene's
+      assert.equal(fx.drawsAfter(home, 0), true);
+      assert.equal(fx.drawsAfter(scene, 0), false);
+      log.length = 0;
+      frame(scene);
+      assert.deepEqual(shown(log), [], "the hidden scene draws nothing");
+    }
+    fx.dispose();
+  }
+});
+
 test("the guests' slot colours are tinted for linear light around the host's draw, and given back", () => {
   const { players } = lobby(SHIGURE, [[["a", "Shigure_home"]], [["b", "Shigure_00"]], [["c", "Shigure_01"]]], null);
   const [host, guest] = players;

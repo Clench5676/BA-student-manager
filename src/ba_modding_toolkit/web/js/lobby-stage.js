@@ -118,7 +118,10 @@ export function install(players, fx) {
   const parts = layers.map((l) => Parts.partsOf(l));
   const steps = order(layers, merged && interleave)
     .map((s) => ({ ...s, player: players[s.layer], owner: merged ? host : players[s.layer], parts: parts[s.layer] }));
-  fx?.layers(players, steps);
+  // the effects go after the parts they sort after. In one target a hidden scene's parts draw nothing and the rest
+  // keep their order; on canvases of their own no effect goes after a scene the intro keeps hidden (its canvas hides
+  // with it): the effects on at rest keep the places they have without the scenes
+  fx?.layers(players, merged ? steps : steps.filter((s) => !hidden.has(s.player)));
   for (const p of players) {
     if (hosts.has(p) && merged) continue;
     ready(p);
