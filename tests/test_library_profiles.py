@@ -2488,3 +2488,32 @@ def test_an_install_hidden_here_keeps_the_originals_its_files_need(world):
     game_update(world.spr)  # X updates too
     b.prune()
     assert not world.original(world.spr).exists()
+
+
+def test_alpha3_records_of_a_lobby_whose_mod_left_a_part_official_and_a_game_update_give_updated(world):
+    # a re-texture: the mod changed one part of the lobby; the library recorded the other part under it too
+    world.consent = True
+    parts = [game_bundle(world.game, "test_home", part=part, payload=part.encode() * 3) for part in ("002", "003")]
+    mod, = world.library.add([make_mod(parts[0], world.tmp / "pack", payload=b"lobbymod", fixed=True)])
+    world.library.apply("test", f"mod:{mod.id}", kind="lobby")
+    as_alpha3(world)
+    game_update(parts[0], payload=b"updated lobby part")  # the modded part renamed; the other part still official
+    world.reload()  # the first alpha.4 start: the present part carries the mod's source with official bytes
+    assert world.folder()["configured"]["test_home"]["source"] == f"mod:{mod.id}"  # from the gone record
+    world.library.prune()
+    assert "test_home" in world.folder()["updated"]
+    assert world.entries()[(world.key(), "test_home")].state == "updated"
+
+
+def test_with_scan_consent_an_off_still_reaches_the_entries_it_has_records_of(world):
+    world.consent = True
+    mod = world.add(world.spr, fixed=True)
+    world.library.apply("test", f"mod:{mod.id}")
+    world.library.restore("test")  # recorded official, nothing configured; the kept original is released
+    keep_backup(world.spr)  # the other tool's backup of the official file
+    world.spr.write_bytes(header_bundle(b"outside!"))  # another tool, unfixed, the official size
+    assert (world.key(), "test_spr") not in world.entries()  # the pass calls it official: no entry of its own
+    result = world.toggle(False)  # the plan holds every recorded entry too: reached, judged in full, adopted
+    assert [item["core"] for item in result.adopted] == ["test_spr"]
+    assert world.spr.read_bytes() == OFFICIAL
+    assert any(m.file.read_bytes() == header_bundle(b"outside!") for m in world.library.mods())
