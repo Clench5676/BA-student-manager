@@ -142,8 +142,8 @@ class GameAssets:
     def spine_files(self, kind: str, core: str) -> dict[str, bytes]        # file name -> bytes (.skel, .atlas, pages)
     def spine_files_from(self, bundles: list[Path]) -> dict[str, bytes]    # the same, for a mod's bundle files
     def lobby_info(self, core: str) -> dict                    # a lobby's layers, touch boxes, clips, idle pools,
-                                                               # sound events, post-processing (lobby.py) and
-                                                               # particle effects (particles.py)
+                                                               # sound events, post-processing (lobby.py), particle
+                                                               # and mesh effects (particles.py, meshfx.py)
     def lobby_fx_texture(self, core: str, tex_id: str) -> bytes # a texture lobby_info's "fx" lists, as PNG
     def lobby_sound(self, core: str, clip_id: str) -> bytes   # a clip lobby_info's "sounds" lists, decoded to WAV
     def model_cores(self) -> set[str]                          # dev names with a chibi (character-<dev>-_mxload-*)
@@ -470,8 +470,8 @@ library).
 | `/asset/ui/layout/<root>.json?path=<subpath>` | light |
 | `/asset/art/bg/<name>`, `/asset/art/portrait/<name>.png` | heavy |
 | `/asset/spine/spr/<core>/<file>`, `/asset/spine/lobby/<core>/<file>`, `/asset/spine/mod/<id>/<file>` (`skeleton.skel` and `skeleton.atlas` stand for the skeleton named like the core, a mod's own core for a mod, else the only one) | heavy |
-| `/asset/spine/lobby/<core>/lobby.json` (prefab layout, touch boxes, clips, idle pools, sound events, post-processing, particle effects; no skeleton is extracted) | heavy |
-| `/asset/spine/lobby/<core>/fx_<id>.png` (a particle texture the lobby's `fx.textures` lists) | heavy |
+| `/asset/spine/lobby/<core>/lobby.json` (prefab layout, touch boxes, clips, idle pools, sound events, post-processing, particle and mesh effects; no skeleton is extracted) | heavy |
+| `/asset/spine/lobby/<core>/fx_<id>.png` (a particle or mesh texture the lobby's `fx.textures` lists) | heavy |
 | `/asset/spine/lobby/<core>/sfx_<id>.wav` (a sound clip the lobby's `sounds` list, decoded in memory) | heavy |
 | `/asset/model/<variant>.glb` (the variant's chibi, `model/gltf-binary`) | heavy |
 | `/asset/voice/<variant>/<clip>` (a lobby voice relayed from Kivo) | heavy |
@@ -750,7 +750,8 @@ in `pointer-textures`); without a game the system cursor stays and there is no e
     (_Tex_Main_Distort, _Tex_Mask_Distort: Off, R, G, RG) say which shift the main and the mask UV.
   - Not reproduced: noise, collision, trails, lights, inherit velocity, rate over distance and the by-speed modules
     (each in one lobby at most, or none); limit velocity's drag; sorting layers other than the default; Animators and
-    scripts that move or switch systems during a talk (a system plays as the prefab leaves it); mesh and sprite emitter
+    scripts that move or switch systems during a talk (a system plays as the prefab leaves it; the mesh renderers'
+    Animators are played, mesh-fx.js); mesh and sprite emitter
     shapes (emitted from the shape's origin); the materials' culling (most DSFX materials cull back faces: in Unity a
     locally aligned billboard or a mesh turned away from the camera is not drawn; here every face is, as the
     mirrored transforms of ch0058's splashes and ch0334's stretched sparks would need Unity's own handling first). The
@@ -761,6 +762,21 @@ in `pointer-textures`); without a game the system cursor stays and there is no e
     the first frame compiles each shader once. Everything is freed with the lobby (`particles-gl.js` detach and
     dispose), and made again on the next frame once a lost WebGL context is restored (a restorable of each player's
     context, as linear.js has). Without WebGL2 nothing is drawn.
+- **Mesh effects** (`gameassets/meshfx.py`, `mesh-fx.js`). Nine prefabs carry plain MeshRenderers with effect shaders:
+  lens dirt and light quads (FX/FX_SHADER_Lobby_Order, One One: the texture times `_Color0` and the vertex colour,
+  ported from its compiled program; DSFX/FX_SHADER_Additive_0) in Akane's, Eimi's, Karin's, Shiroko's, Sumire's and
+  Shun's lobbies, Hanako's water surface, Maki's drifting dust and Utaha's window glow
+  (DSFX/FX_SHADER_AlphaBlend_Add_Distort_0), 20 renderers. All but Hanako's mesh are Unity's built-in Quad (unity
+  default resources, path id 10210; its vertices, UVs and triangles are built in), white where a mesh has no vertex
+  colours. They are placed like the particle systems (on the bone of a SkeletonUtilityBone in Follow mode, through the
+  transforms below it; else from the prefab root), sorted with them and the skeletons' atlas pages (Akane's lens dirt
+  at 2950 over her page at 2800, the light shafts at 3100), and drawn by `particles-gl.js` with the particle
+  programs. Back faces are culled as the material says, front faces being clockwise on screen and a mirrored
+  transform turning that round, as Unity does. Four lobbies loop them with an Animator: the controller's default
+  state plays one clip (`fx.clips`, sampled at its own rate and looped), which scales, moves and turns the quads
+  (Euler curves in their rotation order) and animates their materials' colours: a Color channel (`.r`, bit 30 of the
+  binding's attribute set) is converted to linear light like the material's colours, a Vector channel (`.x`, as
+  Shiroko's lens dirt animates its `_Color0`) is not.
 - **Intro scenes.** Three prefabs keep four skeletons of their intro timeline (a PlayableDirector with Spine Animation
   State tracks) parked beside the scene: Shigure's Shigure_00 and Shigure_01 at x -4500 and 4500, CH0184_00 and
   Wakamo_Scene_0. Their clip assets are on track -1 (only the timeline plays them). Shigure's timeline (an Animation

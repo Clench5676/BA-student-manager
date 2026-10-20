@@ -676,10 +676,27 @@ class GameAssets:
         return self._cached("lobby-fx/" + tex_id, build, disk=False)
 
 
+# Unity's built-in meshes live in "Library/unity default resources", outside the bundles; the lobbies' effect quads
+# use its Quad
+_BUILTIN_QUAD = ("library/unity default resources", 10210)
+
+
+def _builtin_quad(owner: Any, pointer: dict | None) -> tuple[str, None] | None:
+    """("quad", None) for a pointer to Unity's built-in Quad mesh, else None."""
+    fid, pid = (pointer or {}).get("m_FileID", 0), (pointer or {}).get("m_PathID", 0)
+    try:
+        path = owner.assets_file.externals[fid - 1].path if owner is not None and fid > 0 else ""
+    except (AttributeError, IndexError):
+        return None
+    return ("quad", None) if (str(path).lower(), pid) == _BUILTIN_QUAD else None
+
+
 class _FxResolver:
     """Reads what a lobby's renderers point at, for lobby.read_prefab: a particle material as (id, particles.material)
-    with its textures (particles.texture), a mesh as (id, particles.mesh), and the render queue of a skeleton's atlas
-    pages ("pages": a SkeletonDataAsset, or one Material) as (id, {texture name: queue}). Ids are "<cab>_<path id>"."""
+    with its textures (particles.texture), a mesh as (id, particles.mesh) (Unity's built-in Quad as ("quad", None)),
+    the render queue of a skeleton's atlas pages ("pages": a SkeletonDataAsset, or one Material) as (id, {texture
+    name: queue}) and an Animator's controller ("animator") as (id, {"decoded", "bindings", "loop"}) of its default
+    state's clip. Ids are "<cab>_<path id>"."""
 
     def __init__(self, graph: Any, objects: dict[int, Any], shader_forms: dict):
         self.graph, self.objects, self.forms = graph, objects, shader_forms
@@ -693,7 +710,7 @@ class _FxResolver:
         own = self.objects.get(owner)
         obj = g.deref(own, pointer) if own is not None else None
         if obj is None:
-            return None
+            return _builtin_quad(own, pointer) if kind == "mesh" else None
         oid = f"{obj.assets_file.name.lower()}_{obj.path_id}"
         if (kind, oid) in self.done:
             return self.done[(kind, oid)]
@@ -707,6 +724,8 @@ class _FxResolver:
                 out = (oid, particles.mesh(data.vertices, data.uv0, data.normals, tris, data.colors))
             elif kind == "pages" and obj.type.name in ("MonoBehaviour", "Material"):
                 out = (oid, self._pages(obj))
+            elif kind == "animator" and obj.type.name == "AnimatorController":
+                out = self._animator(obj, oid)
         except Exception:  # an unreadable object: the system is left out
             logger.debug("Cannot read lobby particle %s %s", kind, oid, exc_info=True)
             out = None
@@ -780,4 +799,37 @@ class _FxResolver:
             if tex is not None and tex.type.name == "Texture2D":
                 textures[prop] = particles.texture(g.tree(tex), f"{tex.assets_file.name.lower()}_{tex.path_id}")
                 g.trees.pop((tex.assets_file.name.lower(), tex.path_id), None)  # its pixels are read when served
-        return particles.material(name, tree, state, form["m_PropInfo"].get("m_Props", []) if form else (), textures)
+        out = particles.material(name, tree, state, form["m_PropInfo"].get("m_Props", []) if form else (), textures)
+        out["cull"] = state.get("cull", 2)  # back faces are culled (2), front faces (1) or none (0): meshfx.py's meshes
+        return out
+
+    def _animator(self, controller: Any, oid: str) -> tuple[str, dict] | None:
+        """The clip an AnimatorController's first layer plays in its default state (the lobbies' controllers have one
+        state, looping one clip), decoded (model.decode_clip) with its bindings."""
+        from .model import decode_clip
+
+        g = self.graph
+        tree = g.tree(controller)
+        clips = [g.deref(controller, p) for p in tree.get("m_AnimationClips") or []]
+        machine = ((tree.get("m_Controller") or {}).get("m_StateMachineArray") or [{}])[0]
+        machine = machine.get("data", machine)
+        states = machine.get("m_StateConstantArray") or []
+        clip = None
+        if states:
+            state = states[min(int(machine.get("m_DefaultState", 0)), len(states) - 1)]
+            state = state.get("data", state)
+            for blend in state.get("m_BlendTreeConstantArray") or []:
+                for node in (blend.get("data", blend).get("m_NodeArray") or []):
+                    node = node.get("data", node)
+                    index = node.get("m_ClipID", -1)
+                    if 0 <= index < len(clips) and clips[index] is not None:
+                        clip = clips[index]
+                        break
+                if clip is not None:
+                    break
+        if clip is None or clip.type.name != "AnimationClip":
+            return None
+        ct = g.tree(clip)
+        bindings = (ct.get("m_ClipBindingConstant") or {}).get("genericBindings", [])
+        loop = bool((ct.get("m_MuscleClip") or {}).get("m_LoopTime", True))
+        return oid, {"decoded": decode_clip(ct), "bindings": bindings, "loop": loop}

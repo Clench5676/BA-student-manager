@@ -750,7 +750,8 @@ export async function show(core, host, variant) {
     if (my !== token || !layers.length) return null;
     current.info = info;
     setView(game(), true); // the first frames are already in the game's framing
-    const fx = (current.fx = info?.fx?.systems?.length ? Particles.create(info.fx, { base: base(core), bone: boneOf }) : null);
+    const fx = (current.fx = info?.fx?.systems?.length || info?.fx?.renderers?.length
+      ? Particles.create(info.fx, { base: base(core), bone: boneOf }) : null);
     const loaded = (await Promise.all(layers.map((layer) => new Promise((resolve) => {
       players.push(makePlayer(viewHost, layer, (player) => resolve({ ...layer, player }), () => resolve(null), fx));
     })))).filter(Boolean);

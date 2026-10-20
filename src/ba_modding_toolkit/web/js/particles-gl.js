@@ -3,8 +3,11 @@
 // player's linear framebuffer (linear.js) between the frame's clear and the skeleton, between two parts of the
 // skeleton (one per render queue of its atlas pages, skeleton-parts.js) or after the skeleton. The
 // shaders port the game's compiled DSFX programs; their textures come from the lobby's own route (fx_<id>.png, memory
-// only) and are sampled as sRGB where the game imports them so. Without linear light (no WebGL2) nothing is drawn.
+// only) and are sampled as sRGB where the game imports them so. The prefab's plain mesh renderers (mesh-fx.js: lens
+// dirt, light quads, water and cloud meshes) draw with the same programs, sorted with the systems. Without linear light
+// (no WebGL2) nothing is drawn.
 import * as Linear from "./linear.js";
+import { Meshes } from "./mesh-fx.js";
 import { Effects, STRIDE, drawOrder, geometry, queuesOf, slotOf } from "./particles.js";
 import { toLinear } from "./touch-fx.js";
 
@@ -268,6 +271,15 @@ void main() {
   },
   // FX/General Unlit VertexColor (the material's blend)
   vertexColor: { tex: [], floats: [], colors: [], src: "void main() { o = v_col; }" },
+  // FX/FX_SHADER_Lobby_Order (One One): the lens-dirt and light quads (mesh-fx.js); the texture times _Color0 and the
+  // vertex colour, its alpha never read
+  lobbyOrder: {
+    tex: ["_TextureSample0"], floats: [], colors: ["_Color0"],
+    src: `void main() {
+  vec4 t = texture(_TextureSample0, v_t0.xy * _TextureSample0_ST.xy + _TextureSample0_ST.zw);
+  o = vec4(t.rgb * _Color0.rgb * v_col.rgb, 1.0);
+}`,
+  },
 };
 
 // a program's own vertex outputs past TEXCOORD0..2 (v_t3...), which its fragment program reads
@@ -441,6 +453,7 @@ function mat4(a, b) {
 // in its draw hook (after the skeleton, before linear.js copies the frame out). dispose() frees it all.
 export function create(fx, { base, bone, load = loadImage } = {}) {
   const effects = new Effects(fx, { bone });
+  const plain = new Meshes(fx, { bone }); // the mesh renderers, drawn like the systems
   const images = new Map(); // texture id -> HTMLImageElement once loaded (null while loading)
   const contexts = new Map(); // player -> Context
   const restorables = new Map(); // player -> what its context calls once restored after a loss
@@ -496,7 +509,7 @@ export function create(fx, { base, bone, load = loadImage } = {}) {
     for (const s of list) {
       const mat = materials[s.def.material];
       const prog = mat && ctx.program(mat.program);
-      if (!prog || !s.particles.length) continue;
+      if (!prog || !(s.mesh || s.particles.length)) continue;
       // every texture of the program loaded (or a default)
       const texs = [];
       let ready = true;
@@ -507,7 +520,7 @@ export function create(fx, { base, bone, load = loadImage } = {}) {
         texs.push([name, tex, meta.st || [1, 1, 0, 0]]);
       }
       if (!ready) continue;
-      const geo = geometry(effects, s, { meshes, linear: true });
+      const geo = s.mesh ? plain.geometry(s, { meshes }) : geometry(effects, s, { meshes, linear: true });
       if (!geo.count) continue;
       ctx.upload(geo.data);
       gl.useProgram(prog.prog);
@@ -522,9 +535,11 @@ export function create(fx, { base, bone, load = loadImage } = {}) {
       });
       for (const f of PROGRAMS[mat.program].floats) if (L[f]) gl.uniform1f(L[f], mat.floats?.[f] ?? 0);
       for (const c of PROGRAMS[mat.program].colors) {
-        // Color properties reach the shader in linear light (HDR above 1 by a 2.2 power), alpha as stored
-        const v = mat.colors?.[c] || [1, 1, 1, 1];
-        if (L[c]) gl.uniform4f(L[c], toLinear(v[0]), toLinear(v[1]), toLinear(v[2]), v[3]);
+        // Color properties reach the shader in linear light (HDR above 1 by a 2.2 power), alpha as stored; a mesh's
+        // animated ones as mesh-fx.js works them out
+        const v = mat.colors?.[c] || [1, 1, 1, 1], u = s.uniforms?.[c];
+        if (L[c] && u) gl.uniform4f(L[c], u[0], u[1], u[2], u[3]);
+        else if (L[c]) gl.uniform4f(L[c], toLinear(v[0]), toLinear(v[1]), toLinear(v[2]), v[3]);
       }
       for (const c of PROGRAMS[mat.program].vectors || []) {
         const v = mat.colors?.[c] || [1, 1, 0, 0];
@@ -556,7 +571,7 @@ export function create(fx, { base, bone, load = loadImage } = {}) {
     layers(players) {
       bottom = players[0] || null;
       slots = new Map(players.map((p) => [p, { below: [], after: queuesOf(p.bamtLayer).map(() => []) }]));
-      for (const s of drawOrder(effects.systems)) {
+      for (const s of drawOrder([...effects.systems, ...plain.items])) {
         if (!s.def.material && !s.def.subs) continue;
         const { layer, part } = slotOf(s.def, players.map((p) => p.bamtLayer || {}));
         const slot = slots.get(players[layer]);
@@ -567,7 +582,7 @@ export function create(fx, { base, bone, load = loadImage } = {}) {
     below(player, dt) {
       if (disposed) return;
       timed(() => {
-        if (player === bottom) { effects.update(dt); cpu.frames++; }
+        if (player === bottom) { effects.update(dt); plain.update(dt); cpu.frames++; }
         draw(player, slots.get(player)?.below);
       });
     },
@@ -592,8 +607,10 @@ export function create(fx, { base, bone, load = loadImage } = {}) {
     },
     // for checks: live particles, systems, textures loaded, GL contexts in use and the main-thread time the effects
     // took per frame (simulation, geometry and draw calls) since the last reset
-    stats: ({ reset = false } = {}) => {
-      const out = { particles: effects.count(), systems: effects.systems.length, textures: [...images.values()].filter(Boolean).length,
+    stats: ({ reset = false, meshes: detail = false } = {}) => {
+      const out = { particles: effects.count(), systems: effects.systems.length,
+        meshes: detail ? plain.stats({ meshes }) : plain.items.length,
+        textures: [...images.values()].filter(Boolean).length,
         contexts: contexts.size, frames: cpu.frames, msPerFrame: cpu.frames ? +(cpu.ms / cpu.frames).toFixed(3) : 0 };
       if (reset) cpu.ms = cpu.frames = 0;
       return out;
