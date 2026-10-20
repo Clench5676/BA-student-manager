@@ -2,14 +2,14 @@
 // the game's option rows: radio rows (UIPopup_Option_Toggle), the sound slider row (UIPopup_Option_SoundToggle), and
 // folder rows built from the same pieces (title with its tag, dotted line, the value, the popup's light-blue buttons).
 // The Mods tab (second, after General) holds the Enable Mods switch with its square "?", where the switch shows, the
-// file check (the scan consent), the tray icon, Settings' Check of the game files and the game folders the switch
-// covers, plus the size and cleanup of built mods. Whether the classic UI asks before it opens is a General row,
+// file check mode, the tray icon, Settings' Check of the game files, plus the size and cleanup of the mod cache.
+// Whether the classic UI asks before it opens is a General row,
 // under More Settings.
 import * as ModSwitch from "./mod-switch.js";
 import * as NGUI from "./ngui.js";
 import * as Popup from "./popup.js";
 import * as Prompts from "./prompts.js";
-import { rpc, waitJob } from "./api.js";
+import { rpc } from "./api.js";
 import { T, platform } from "./i18n.js";
 import { $, DOT, S, clone, glyphsOf, hitButton, toast, wrapPath } from "./util.js";
 
@@ -90,38 +90,6 @@ function helpAfterTitle(row, title, dot, open = () => ModSwitch.openHelp()) {
   return row;
 }
 
-// one line per game folder the switch covers: its install label and its path; a folder recorded by another data
-// directory or named by these settings before can be taken off the list (Remove from List)
-function foldersRow(name, y, title, installs) {
-  const room = 1440 - 320;
-  const items = installs.map((item) => {
-    const f = wrapPath(`${item.label} - ${item.folder}`, 38, 30, room, 3);
-    return { item, f, h: Math.max(f.fs * 1.3 * f.lines, 112) };
-  });
-  const blockH = items.reduce((a, it) => a + it.h + 16, 0) || 112;
-  const h = 130 + blockH + 14, row = rowBase(name, y, h, title), hits = [];
-  let top = h / 2 - 130;
-  if (!items.length) row.children.push(node("Value", [-718, top - 56], [label(T("error.game_not_found"), 38, "#2d4664/1.00", room, 60, { pivot: 3, depth: 8 })]));
-  items.forEach(({ item, f, h: ih }, i) => {
-    const midY = top - ih / 2;
-    row.children.push(node(`Value_${i}`, [-718, midY], [label(f.text, f.fs, "#2d4664/1.00", room, f.fs * 1.3 * f.lines + 10, { pivot: 3, depth: 8 })]));
-    if (!item.named) {
-      row.children.push(buttonNode(`Btn_${i}`, 550, midY, T("settings.mods.forget"), { w: 300 }));
-      hits.push({ path: `${name}/Btn_${i}`, fn: () => forget(item), title: T("settings.mods.forget") });
-    }
-    top -= ih + 16;
-  });
-  return { tree: row, h, hits };
-}
-
-// Remove from List: the job that takes a recorded folder off this data directory's list; no game file is touched
-async function forget(item) {
-  const id = await call(() => rpc("mods.forget", { install: item.key }));
-  if (!id) return;
-  try { await waitJob(id); toast(T("settings.saved")); } catch (err) { toast(errorText(err), { kind: "error" }); }
-  ModSwitch.refresh();
-}
-
 // the Game Files row's value: the file check off, or what the last check found
 function filesValue(m) {
   if (m.scan !== true) return T("error.scan_off");
@@ -132,10 +100,9 @@ function filesValue(m) {
   return parts.length ? parts.join(ModSwitch.listSep()) : T("settings.mods.clean");
 }
 
-// the Game Files row's "?": what configuration drift is, line by line for what the row reports (Back to Official, Mods
-// Not in the Library, Damaged)
+// the Game Files row's "?": what configuration drift is
 export function driftLines() {
-  return ["what", "reset", "untracked", "damaged"].map((k) => T(`settings.mods.driftHelp.${k}`));
+  return [T("settings.mods.driftHelp.what")];
 }
 
 function driftHelp() {
@@ -270,23 +237,28 @@ function rows({ builtSize = null, sizeError = null } = {}) {
       { dim: v.busy || v.unavailable, tip: v.unavailable ? ModSwitch.reasonText(m) : "" });
     add(helpAfterTitle(sw, T("mods.switch"), v.dot));
     add(radioRow("Shown", 0, T("settings.mods.shown"), ON_OFF(), p.modSwitchShown !== false, (value) => set("modSwitchShown", value)));
-    add(valueRow("Built", 0, T("mods.builtClear"), sizeError || (builtSize == null ? T("loading.now") :
-      T("mods.builtSize", { size: ModSwitch.sizeText(builtSize) })), [
+    add(valueRow("Built", 0, T("mods.cache"), sizeError || (builtSize == null ? T("loading.now") :
+      ModSwitch.sizeText(builtSize)), [
       [T("settings.mods.clear"), async () => { if (await ModSwitch.clearBuilt()) render(); }, builtSize > 0]]));
-    // the scan consent: On asks for it in its popup, Off withdraws it
-    add(radioRow("Scan", 0, T("settings.mods.scan"), ON_OFF(), m.scan === true, (value) => {
-      if (value === (m.scan === true)) return;
-      if (value) ModSwitch.askScan().then(() => render());
-      else call(() => rpc("mods.consent", { granted: false })).then(() => ModSwitch.refresh()).then(() => render());
+    // Off withdraws consent; either enabled mode asks for it before checking any files.
+    const scanMode = m.scan === true ? (p.startupChecks === false ? "manual" : "startup") : "off";
+    add(radioRow("Scan", 0, T("settings.mods.scan"), [["off", T("settings.post.off")],
+      ["manual", T("settings.mods.manual")], ["startup", T("settings.mods.atStartup")]], scanMode, async (value) => {
+      if (value === scanMode) return;
+      if (value === "off") await call(() => rpc("mods.consent", { granted: false }));
+      else {
+        if (!await set("startupChecks", value === "startup")) return;
+        if (m.scan !== true) await ModSwitch.askScan();
+      }
+      await ModSwitch.refresh();
+      render();
     }));
-    add(radioRow("StartupChecks", 0, T("settings.mods.startup"), ON_OFF(), p.startupChecks !== false, (v) => set("startupChecks", v)));
     // the tray or menu bar icon, only in the app window where the system has one
     if (p.native && p.traySupported) {
       add(radioRow("Tray", 0, T(platform === "mac" ? "settings.mods.tray.mac" : "settings.mods.tray.win"), ON_OFF(), !!p.tray, (value) => set("tray", value)));
     }
     add(helpAfterTitle(valueRow("Files", 0, T("settings.mods.files"), filesValue(m), [[T("settings.mods.check"), checkFiles, m.scan === true]]),
       T("settings.mods.files"), false, driftHelp));
-    add(foldersRow("Folders", 0, T("settings.mods.folders"), m.installs || []));
   } else if (tab === "sound") {
     add(sliderRow("Voice", 0, T("settings.voice"), p.voiceVolume, p.voiceMuted));
   } else if (tab === "l2d") {
@@ -313,9 +285,9 @@ function rows({ builtSize = null, sizeError = null } = {}) {
         if (found?.length) set(`gameDir.${region}`, found[0]);
         else if (found) toast(T("app.noGame.title"), { kind: "error" });
       }],
-      [T("settings.browse"), browse(`gameDir.${region}`, dir), p.native]]));
-    add(valueRow("Library", 0, T("settings.library"), p.libraryDir, [[open, reveal(p.libraryDir)], [T("settings.browse"), browse("libraryDir", p.libraryDir), p.native]]));
-    add(valueRow("Output", 0, T("settings.output"), p.outputDir, [[open, reveal(p.outputDir)], [T("settings.browse"), browse("outputDir", p.outputDir), p.native]]));
+      [T("settings.change"), browse(`gameDir.${region}`, dir), p.native]]));
+    add(valueRow("Library", 0, T("settings.library"), p.libraryDir, [[open, reveal(p.libraryDir)], [T("settings.change"), browse("libraryDir", p.libraryDir), p.native]]));
+    add(valueRow("Output", 0, T("settings.output"), p.outputDir, [[open, reveal(p.outputDir)], [T("settings.change"), browse("outputDir", p.outputDir), p.native]]));
   }
   return { rows: out, height: -y };
 }
@@ -365,6 +337,7 @@ async function set(key, value) {
   toast(T("settings.saved"));
   onChange?.(key, next);
   render();
+  return next;
 }
 
 // --- slider dragging: the thumb follows the pointer (and the value label, if any), the value is saved on release.

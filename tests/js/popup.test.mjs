@@ -155,6 +155,21 @@ async function until(fn) {
   assert.fail("popup did not reach the expected state");
 }
 const part = (name) => walk(consent).find((e) => e.dataset.path === `Center/Popup/${name}`);
+
+test("fitting message lines together keeps the size floor and all text when extra wrapping is needed", async () => {
+  const NGUI = await import("../../src/ba_modding_toolkit/web/js/ngui.js");
+  const text = "A long explanation ".repeat(15).trim();
+  const opened = Popup.message({ title: "Help", lines: ["On", text], width: 700, fitTogether: [0, 1] });
+  await drawn(dialog, "close");
+  const lines = [0, 1].map((i) => walk(dialog).find((e) => e.dataset.path === `Center/Popup/Lines/Line_${i}`));
+  const size = `${(NGUI.fontSizeFor(text, 44) * S).toFixed(2)}px`;
+  assert.equal(lines[0].style.fontSize, size);
+  assert.equal(lines[1].style.fontSize, size);
+  assert.ok(lines[1].textContent.split("\n").length > 4);
+  assert.equal(lines[1].textContent.replaceAll("\n", " "), text);
+  action(dialog, "close").click();
+  await opened;
+});
 const available = { current: "0.1.0-alpha.3", version: "0.1.0-beta", installable: true, downloaded: false, file: null };
 
 test("Escape goes to the topmost open popup only, and to none under one that must be answered", () => {

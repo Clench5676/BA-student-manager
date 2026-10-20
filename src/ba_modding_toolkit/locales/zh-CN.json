@@ -999,13 +999,9 @@
 			"onState": "Mod 已开启",
 			"helpOn": "开启时，所有立绘和记忆大厅应用已配置的 Mod；",
 			"helpOff": "关闭时，所有立绘和记忆大厅恢复原版（如原版已被覆盖，则无效），Mod 将保留在 Mod 仓库中。切换该开关前必须关闭游戏。",
-			"helpStorage": "额外空间：Mod、已生成的 Mod、回退副本",
 			"helpFolders": "游戏目录：{folders}",
 			"installNamed": "{server}（{folder}）",
 			"explainOnce": "此说明不再显示",
-			"builtSize": "占用空间：{size}",
-			"builtClear": "清除已生成的 Mod",
-			"builtCleared": "已清除已生成的 Mod",
 			"scanOff": "未检查其他 Mod",
 			"allowCheck": "允许检查",
 			"scan": {
@@ -1064,7 +1060,9 @@
 			"deleteConfirm": "删除 {name}？",
 			"deleteRestore": "使用中的条目将恢复原版或之前的配置",
 			"alreadyInUse": "已在使用",
-			"deletePending": "Mod 已删除，部分游戏文件待还原"
+			"deletePending": "Mod 已删除，部分游戏文件待还原",
+			"cache": "Mod 缓存",
+			"cacheCleared": "Mod 缓存已清除"
 		},
 		"switch": {
 			"configured": "已设置"
@@ -1245,13 +1243,12 @@
 				"label": "更多设置",
 				"hint": "在经典界面中设置 Spine 工具、ADB 等",
 				"open": "打开",
-				"ask": "打开前询问"
+				"ask": "打开经典界面前确认"
 			},
 			"mods": {
-				"startup": "启动时检查文件",
 				"clear": "清除",
 				"shown": "在主界面显示",
-				"scan": "文件检查",
+				"scan": "检查游戏文件",
 				"tray": {
 					"win": "托盘图标",
 					"mac": "菜单栏图标"
@@ -1261,13 +1258,10 @@
 				"clean": "未发现漂移",
 				"driftHelp": {
 					"title": "配置漂移",
-					"what": "游戏文件与 Mod 配置不一致",
-					"reset": "已恢复原版：已配置的 Mod 被游戏更新或资源修复还原，可重新应用 Mod 配置",
-					"untracked": "未加入仓库的 Mod：在 Mod 仓库外放入游戏的 Mod，可加入 Mod 仓库",
-					"damaged": "已损坏：游戏文件已损坏，需修复游戏"
+					"what": "配置漂移是指游戏文件与 Mod 配置不一致。"
 				},
-				"folders": "游戏目录",
-				"forget": "从列表移除"
+				"manual": "手动",
+				"atStartup": "启动时"
 			},
 			"voice": "语音",
 			"mute": "静音",
@@ -1298,11 +1292,11 @@
 			"gameDir": "游戏目录",
 			"library": "Mod 仓库",
 			"output": "输出目录",
-			"browse": "浏览",
 			"detect": "自动检测",
 			"notSet": "未设置",
 			"saved": "已保存",
-			"button": "设置"
+			"button": "设置",
+			"change": "更改"
 		},
 		"cacheTo": "缓存到 {path}",
 		"languageName": "简体中文",

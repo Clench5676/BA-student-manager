@@ -473,7 +473,7 @@ class ModLibrary:
     def adopt(self, entries, pins=None, log, progress, cancel) -> AdoptResult             # Add to Library
     def dismiss(self, kind: "drift" | "untracked", entries) -> None                        # Keep as Is, Don't Ask Again
     def forget(self, install: str) -> None                                                 # Remove from List
-    def clear_built(self) -> int                                                           # Clear Built Mods
+    def clear_built(self) -> int                                                           # Clear Mod Cache
     def judge_unfinished(self) -> int; def intent(self) -> dict; def status(self) -> dict
 ```
 
@@ -590,16 +590,16 @@ bytes it wrote there, whole: a file of the mod in `mods/<id>/` when one holds th
 install without a CRC fix), else a copy in `library/built/<sha1>.bundle`. On, Retry and Apply Mod Configuration write
 them back with one copy per part (no installer, no UnityPy), byte for byte, while they fit: built for that source,
 every part's name and every file name the build read (an adapted mod's official parts, another variant's files) still
-in the install. A game update, a changed or dropped configuration, a mod's update or removal, a Forget and Clear
-Built Mods drop them; a built file goes once no install's key references it. Deletions, including Clear Built Mods,
+in the install. A game update, a changed or dropped configuration, a mod's update or removal, a Forget and Mod Cache cleanup
+drop them; a built file goes once no install's key references it. Deletions, including Mod Cache cleanup,
 run under `profiles.json.lock` against the configuration just saved. Bundle copies run outside that lock: after a
 new key is saved and the lock released, any missing files are copied again from the still-modded game files. Later
 deletions respect the saved key; recovery copies are checked again under the lock and deleted if no key references
 them. Clear deletes `built/*.bundle` and `.library-` temporaries at least an hour old, counts both in the bytes freed,
 leaves fresher temporaries alone, and keeps `built/` in place.
 Built copies and kept originals hold game portraits and lobbies inside the library: restore copies of what the user's
-own switch wrote, never read to draw the UI, and their disk use can grow large (the switch's help shows kept originals;
-Settings shows built copies and can clear them). Sizes are measured only when the respective UI opens.
+own switch wrote, never read to draw the UI, and their disk use can grow large. Settings shows the Mod Cache size
+and can clear it; kept originals remain available for Off. Sizes are measured on demand.
 
 **What reads game files.** The scan consent (`scan_allowed`, asked at each use) covers every read the app makes on
 its own of files the library did not write: the scan (the start and the end of each portrait and memorial lobby file;
@@ -749,16 +749,19 @@ The services hold what the Enable Mods switch, the prompts and the classic hand-
   game folder change or a library move (the result is dropped). A stale result (the library wrote while the files
   were read) is scanned again once while no writer job runs, else dropped: the scan after that job replaces it. The
   start scan waits for the `library.prune` job. Startup prune and scan begin after the first screen reveals and can
-  be disabled with Settings' Check Files at Startup. Settings' Check still prunes and requests a scan explicitly.
-  Scans also run after a game folder change, after every
+  be disabled with Settings' Check Game Files set to Manual. Off disables scans by withdrawing consent. Manual keeps
+  scan consent but only
+  Settings' Check prunes and requests a scan explicitly.
+  In At Startup mode, scans also run after a game folder change, after every
   writer job, when the game stops or Steam turns idle (the game watch), after a classic window closed, when the
   consent is granted, on Settings' Check (`mods.scan {dismissed: true}`, which lists dismissed entries again) and
-  whenever the page asks (`mods.scan`, the window back in front after 30 s). Withdrawing the consent stops them and
-  empties the entries.
+  whenever the page asks (`mods.scan`, the window back in front after 30 s). These automatic requests do nothing
+  in Manual mode. Switching to Manual cancels outstanding scans and releases the classic queue; withdrawing consent
+  stops scans and empties the entries.
 - **Another data directory** sharing the library: at each poll the game watch asks `profiles_seen()`, which reads
   `profiles.json` again only when its size or date changed (under its file lock, never the library lock). When the
-  shared intent or the `unfinished` counts changed, the snapshot follows, `mods.state` is published, a scan is
-  requested and `library.judge` judges the `unfinished` list, so the red dot and Retry follow with or without scan
+  shared intent or the `unfinished` counts changed, the snapshot follows, `mods.state` is published, an automatic
+  scan is requested in At Startup mode and `library.judge` judges the `unfinished` list, so the red dot and Retry follow with or without scan
   consent.
 - **The classic queue.** While a classic window is open, `actions.apply`, `actions.restore` (when it would write),
   `mods.toggle` and `mods.restoreDrift` are refused at submit with `classic_open`; the toggle and Apply Mod
@@ -799,7 +802,7 @@ stops the server (the page shows Closed); with `--serve` it gives `native_unavai
 | `classic.clearQueue` | `{}` |
 | `i18n.strings {lang}` | `{key: text}` for `webui.*` |
 | `roster.list` | families with variants, mod counts, fresh flags, favourites, recent order, `added` (when the newest own mod was added), `aliases` per family and per variant (matched by the search, never shown), `custom` per family (the user's own aliases); without scan consent Replaced comes from the library's records only |
-| `settings.get` / `settings.set {key, value}` | the settings popup's values; key `roster` keeps the student list's view (merge, segment filters, sort, order, filter groups; `webui/state.py roster_view`); `lobbyZoom` is `{mode, custom}` in `settings.get`, set by keys `lobbyZoom` (`game`, `art`, `unlocked`, `custom`) and `lobbyZoomCustom` (1.0 to 4.0 game views across, kept in 0.1 steps); `lobbyPost` and `lobbyIntro` (the lobby's post-processing and its intro, on by default); the booleans `modSwitchShown` (the switch on the main screens), `tray` (the tray or menu bar icon) and `classicPrompt` (the hand-off prompt); `settings.get` adds `traySupported` |
+| `settings.get` / `settings.set {key, value}` | the settings popup's values; key `roster` keeps the student list's view (merge, segment filters, sort, order, filter groups; `webui/state.py roster_view`); `lobbyZoom` is `{mode, custom}` in `settings.get`, set by keys `lobbyZoom` (`game`, `art`, `unlocked`, `custom`) and `lobbyZoomCustom` (1.0 to 4.0 game views across, kept in 0.1 steps); `lobbyPost` and `lobbyIntro` (the lobby's post-processing and its intro, on by default); the booleans `modSwitchShown` (the switch on the main screens), `tray` (the tray or menu bar icon) and `classicPrompt` (the hand-off prompt); `startupChecks` selects automatic file checks (Manual when false and consent is granted); `settings.get` adds `traySupported` |
 | `family.get {key}` | a family with its variants (and `aliases` and `custom`, as in `roster.list`), mods and each variant's state, judged cheaply (`copy`, `restorable` and `official` per file; Needs Fix only from the record of the switch that wrote the file); `configured {spr, lobby}` per variant (the sources of its primary cores); `modelFiles` per variant (the 3D model's prefab bundles, newest first, `fixed` or `ok` from the header) and `version` (the game's resource version, so a switched install reloads the screen); `modList` by the variant the current catalog gives each mod's core |
 | `lobby.warm` | builds the memorial lobby prefab index and the index of every bundle's CABs (the particle effects' materials, textures and meshes) in the background (once per game); the detail screen calls it for a variant with a lobby |
 | `lobby.lines {variant, talks, lang}` | `{clip: {lang: text, voice}}`: zh-CN from Kivo, ja from Kivo else the Global server, en, zh-TW, ko and th from the Global server (read only for a `lang` other than zh-CN, left out when its table is not in within 3 s); `talks` (`{animation: [clip ids]}` from the skeleton) places the Global rows on the clips; `lines_unavailable` when neither source can be read |
@@ -813,11 +816,11 @@ stops the server (the page shows Closed); with `--serve` it gives `native_unavai
 | `mods.rename {id, label}` | |
 | `mods.seen {id}` or `{ids}` | stores seen mod IDs in `webui.json`, without writing the library; roster and family fresh flags come from this state |
 | `mods.state` | `{installs: [{id, key, server, folder, label, distinct, named}], current, enabled, shown, available, reason, reasonParams, scan, explained, configured, pending, stuck, left, unfinished: {pending, left, stuck}, drift, untracked, damaged, sourceMissing, queued, scanned, tray, traySupported, busy, progress}` from the snapshot (above); `id` is the first 12 hex digits of the install key's SHA-1 (used in URLs), `named` tells a folder the settings name from a recorded one; `busy` while a toggle is queued or running or writes are queued for the classic window; `progress` is `{done, total}` of a running toggle |
-| `mods.sizes {kind}` | `{builtSize}` for `kind: "built"` or `{originalsSize}` for `kind: "originals"`, bytes measured on demand for the visible row or help; no size walks in `mods.state` |
+| `mods.sizes {kind}` | `{builtSize}` for `kind: "built"` or `{originalsSize}` for `kind: "originals"`, bytes measured on demand; Settings requests only the Mod Cache size; no size walks in `mods.state` |
 | `mods.toggle {enabled, expect}` | job id (`mods.toggle`): the switch over every known install, also Retry; `busy` while another toggle is queued or running, `classic_open` at submit; the job's refusals `state_changed`, `folder_changed`, `game_running`, `game_status_unavailable`, `steam_busy`, `classic_open`, `not_enough_space` |
-| `mods.consent {granted}` | `{}`; saves `scan_consent`; granting requests a scan, withdrawing stops the scans and empties the entries |
+| `mods.consent {granted}` | `{}`; saves `scan_consent`; granting requests a scan in At Startup mode, Manual waits for Check; withdrawing stops the scans and empties the entries |
 | `mods.explained` | `{}`; sets `mods_explained` (the first toggle's explanation was shown) |
-| `mods.scan {dismissed = false}` | `{requested: true}`; the result comes as `library.scanned`; `scan_off` without scan consent |
+| `mods.scan {dismissed = false}` | `{requested: bool}`; the result comes as `library.scanned`; `scan_off` without scan consent; Manual returns `false` for automatic requests, `dismissed: true` is Settings' explicit Check |
 | `mods.entries` | the last scan's entries (`{install, core, variant, names, kind, source, configured, state, overwritten, fixed, size, files, dismissed}`), updated by every writer job's result until the next scan; empty without scan consent |
 | `mods.adopt {entries}` | job id (`library.adopt`): Add to Library for `[{install, core}]`, allowed while the game runs and while a classic window is open; `not_enough_space` |
 | `mods.restoreDrift {entries}` | job id (`mods.restore`): Apply Mod Configuration; `classic_open` at submit |
@@ -1009,7 +1012,7 @@ click does; `nav.js` draws them.
   checkbox Don't Ask Again (`mods.dontAsk`, unticked), Cancel and Open. It shows on every click. Open with the box
   ticked turns the pref `classicPrompt` off (`settings.set`) before the hand-off; Cancel, Escape, the backdrop and
   the close button save nothing. With the pref off a click hands over at once. Settings' General tab turns it back
-  on: the row Ask Before Opening (On / Off) under More Settings (the General tab's rows scroll, so it has room).
+  on: the row Confirm Before Opening Classic UI (On / Off) under More Settings (the General tab's rows scroll, so it has room).
   More Settings itself opens the classic UI without a prompt. Without a game folder the classic UI still works, and
   the prompt is drawn plain (Popups).
 - **The hand-off.** `app.openClassic {tab}`, with the corner indicator labelled "Opening the classic UI" until the
@@ -1104,9 +1107,10 @@ optional, so a popup still works without them.
 **Start sequence** (`main.js`, `Popup.sequence`). Once the first screen is revealed the start popups come one at a
 time, in order, each only when it has something to show (`mod-switch.js startDue`): the asset consent, the scan
 consent (while it is unanswered and a game folder is known; see Enable Mods switch), then the update popup (released
-builds only). Check Files at Startup disables the startup scan consent and scan-result wait as well as maintenance;
-Check for Updates at Startup disables the automatic update check. Both preferences default to on and keep the manual
-Settings checks available. `Update.check` resolves when its popup closes: `later` (Later or Escape), `page` (the download page
+builds only). Check Game Files set to Manual disables the startup scan consent, scan-result wait and maintenance;
+Off withdraws scan consent. The stored `startupChecks` preference defaults to on, while file checks require consent.
+Check for Updates at Startup defaults to on and disables the automatic update check when off. Manual Settings checks
+remain available with the corresponding consent. `Update.check` resolves when its popup closes: `later` (Later or Escape), `page` (the download page
 opened), `update` when a failed update is dismissed, `null` with no newer release, offline or if drawing fails.
 Download progress and errors stay in the popup; its buttons and Escape are blocked during download. A verified
 download shows Download Complete with Later / Restart. Later keeps it for this session; the next check for that
@@ -1201,9 +1205,10 @@ detail screen, and in Settings' Mods tab.
   `state_changed` (switched elsewhere first) is a toast, and the switch redraws from `mods.state`.
 - **The "?" help** (message popup, title Enable Mods): two opening lines (`mods.helpOn`, `mods.helpOff`): On applies
   configured mods to all portraits and memorial lobbies; Off restores official files where available and keeps mods
-  in the library; close the game before toggling. Each opening requests `mods.sizes {kind: "originals"}`, with the
-  loading indicator while waiting. The disk use line (`mods.helpSpace`) leads straight to "Official copies for Off: x"
-  (kept originals, which cannot be cleared); "Game folders: ..." with the install labels when more than one game folder is known; without the scan consent "Other mods not checked"
+  in the library; close the game before toggling. Both opening lines use the smaller of their fitted font sizes,
+  at least the popup's minimum (44 units, or 40 with action rows), and wrap together at that size; the first toggle's
+  explanation uses the same fitting. No storage explanation or size request appears in the help. "Game folders: ..."
+  shows the install labels when more than one game folder is known; without scan consent "Other mods not checked"
   with Allow Check, which opens the scan consent popup and grants nothing itself; "Not switched: n" with Retry (the
   same toggle again) for pending and left entries; "Left as is, no official copy: n" with Details, the Overwritten
   message (the entries, known from the last scan with the scan consent, "No official copy left" and the repair lines
@@ -1217,15 +1222,19 @@ detail screen, and in Settings' Mods tab.
   shows over them (`#consent.over`).
 - **Settings' Mods tab** (second, after General; `UIPopup_Option_PC`'s tab column has five separators): Enable Mods
   (On / Off, the same switch with the same rules, its square "?" and red dot after the title; faded while busy or
-  unavailable); Show on Main Screens (`modSwitchShown`); Clear Built Mods (size requested with `mods.sizes {kind: "built"}`
-  when the row is drawn, loading text while waiting, Clear enabled for a nonzero size; `mods.clearBuilt`, then
-  "Built mods cleared" and the size measured again); File Check (On opens the scan consent popup, Off withdraws
-  the consent); Tray Icon or Menu Bar Icon (`tray`, only in the app window where the system has one); Game File
-  Drift Check (what the last check found, "No drift found", or "File check off" with Check greyed; Check scans with
-  the dismissed entries listed again; its square "?" explains configuration drift, one line for each finding the row
-  shows: Back to Official, Mods Not in the Library, Damaged); Game Folders (each known install's label and path; a recorded one the settings do not name has Remove from
-  List, `mods.forget`). The tab follows `mods.state` while it is open. Ask Before Opening (`classicPrompt`) is a
-  General row, under More Settings.
+  unavailable); Show on Main Screens (`modSwitchShown`); Mod Cache (mods rebuilt for the current game version and
+  kept for instant re-enabling; size requested with `mods.sizes {kind: "built"}` when the row is drawn, loading text
+  while waiting, Clear enabled for a nonzero size; `mods.clearBuilt`, then "Mod cache cleared" and the size measured
+  again); Check Game Files (Off withdraws consent, Manual grants consent and scans only from the drift row's Check,
+  At Startup grants consent and scans at every start plus the automatic triggers described above). Either enabled
+  option opens the consent popup when switching from Off; declining leaves Off selected. The two stored preferences
+  remain `scan_consent` and `startup_checks` (`startupChecks` over RPC); Tray Icon or Menu Bar Icon (`tray`, only in
+  the app window where the system has one); Game File Drift Check (what the last check found, "No drift found", or
+  "File check off" with Check greyed; Check scans with the dismissed entries listed again; its square "?" gives one
+  definition: configuration drift means the game files do not match the mod configuration). There is no Game Folders
+  row in this tab. The tab follows `mods.state` while it is open. Confirm Before Opening Classic UI (`classicPrompt`)
+  is a General row, under More Settings. The Folders tab's game folder, Mod Library and Output Folder rows use Change
+  for their folder pickers.
 - **The classic modal** (`classicModal`, decision 5): a write the open classic window refuses (`classic_open` from
   the switch, Retry, or the detail screen's apply and restore, at submit or from the job) opens "Classic UI Open",
   "Close the classic UI first", the box "Apply automatically once it closes" (unticked), Bring to Front and Confirm.
@@ -1244,7 +1253,7 @@ detail screen, and in Settings' Mods tab.
   comes first, so the same change is not read twice). Without cores (the classic window closed, a job stopped
   midway, the mod list changed) the screen compares what it shows with the family read again, and the roster forgets
   the portraits whose Replaced flag changed. A job that switched nothing (a prune) changes nothing on the page.
-- **The window back in front** after 30 s or more asks for a scan (`mods.scan`, only with the scan consent), so a
+- **The window back in front** after 30 s or more asks for a scan (`mods.scan`, only with consent and At Startup mode), so a
   Steam check or a repair made meanwhile is found.
 - **While mods are off** an apply only saves the choice: the switch popup reads Save and starts on the configured
   source, and the toast says "Saved, applied when mods are on".
