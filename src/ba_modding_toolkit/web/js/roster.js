@@ -310,7 +310,10 @@ async function renderRow(host, rowKey) {
     row.appendChild(hit);
     jobs.push(NGUI.render(t, row, { scale: S, origin: ORIGIN, z: 100, textures: tex ? { Char_Portrait: tex } : {} }));
   }
-  await Promise.all(jobs);
+  row.ready = Promise.all(jobs).then(async (views) => {
+    await Promise.all(views.flatMap((v) => v.pictures));
+  });
+  await row.ready;
 }
 
 // the rows near the view are rendered, the others dropped; resolves once the new ones are in
@@ -324,9 +327,14 @@ function syncRows() {
   // the thumbnails render in the order they are asked for: the rows in view first, then below, then above
   const shown = clipTop() + view.scroll, rank = (r) => (r.top + PITCH * S >= shown && r.top <= shown + viewH ? 0 : r.top > shown ? 1 : 2);
   const order = [...wanted].sort((a, b) => rank(rows.get(a)) - rank(rows.get(b)) || rows.get(a).top - rows.get(b).top);
-  const jobs = [];
-  for (const key of order) if (!rendered.has(key)) jobs.push(renderRow(host, key));
-  return Promise.all(jobs);
+  const visible = order.filter((key) => rank(rows.get(key)) === 0);
+  const ready = Promise.all(visible.map((key) => rendered.get(key)?.ready || renderRow(host, key)));
+  // Queue overscan only after the visible portraits; it never extends the reveal barrier.
+  ready.then(() => {
+    if (host !== dom.scrollHost) return;
+    for (const key of order) if (!rendered.has(key)) renderRow(host, key).catch(console.error);
+  }).catch(console.error);
+  return ready;
 }
 
 function maxScroll() { return Math.max(0, contentH - (CLIP_BOTTOM - clipTop())); }
@@ -362,13 +370,10 @@ async function renderEmpty(host) {
   host.replaceChildren(...(await emptyPicture()).childNodes);
 }
 
-// a change of the cards inside the frame waits this long for the visible rows before it swaps in anyway
-const ROWS_CAP = 250;
-// then this long, at most, for the pictures it draws to be decoded (NGUI.decoded): a list that shows again after the
+// The pictures are decoded too: a list that shows again after the
 // detail screen has them all in its first frame (WebKit let go of them while it was hidden), not its cards undimmed
 // and without their frames until they come back
-const DECODE_CAP = 1000;
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const DECODE_CAP = 15000; // only a failed image decode may release the barrier without a picture
 let listToken = 0;
 
 // the cards again for the current view (a search keystroke): the frame stays; the new rows are built off screen and
@@ -381,7 +386,7 @@ async function relist() {
   dom.scrollHost = scrollHost;
   rendered = new Map();
   const empty = emptyPicture();
-  await Promise.race([Promise.all([applyScroll(), empty]), sleep(ROWS_CAP)]);
+  await Promise.all([applyScroll(), empty]);
   if (my !== listToken || dom.scrollHost !== scrollHost) return;
   await NGUI.decoded(scrollHost, DECODE_CAP, dom.clip);
   if (my !== listToken || dom.scrollHost !== scrollHost) return;
@@ -580,13 +585,12 @@ async function buildFrame(my) {
   hit([lay.sort, TOOL_Y, lay.sortW, 116], openDisplay, T("display.title")).addEventListener("pointerenter", () => Display.warm());
   hit([lay.order, TOOL_Y, 243, 116], flipOrder, T(view.order === "desc" ? "roster.desc" : "roster.asc"));
 
-  // the cards: the rows in view get a moment to come in before the swap
+  // The visible cards and their portraits finish behind the loading cover.
   rendered = new Map();
   dom = { clip, scrollHost, bar, empty };
   items = layoutItems();
   const box = searching ? renderSearch(next) : Promise.resolve();
-  await Promise.race([Promise.all([applyScroll(), renderEmpty(empty), box]), sleep(ROWS_CAP)]);
-  await box;
+  await Promise.all([applyScroll(), renderEmpty(empty), box]);
   if (my !== frameToken) return;
   await NGUI.decoded(next, DECODE_CAP, host);
   if (my !== frameToken) return;

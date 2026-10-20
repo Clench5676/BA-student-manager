@@ -1126,6 +1126,8 @@ def test_seen_rpc_writes_only_ui_state_and_preserves_seen_duplicates(env, monkey
     path = make_mod(env.spr, env.tmp / "picker")
     mod, = rpc(env.app, "mods.add", paths=[str(path)])["result"]["added"]
     library = env.s.library
+    # Startup pruning publishes its own change event; settle it before isolating the seen RPC.
+    assert env.s.jobs.wait(env.s._prune_job, 10)
     before = {p.relative_to(library.root): p.read_bytes() for p in library.root.rglob("*") if p.is_file()}
     monkeypatch.setattr(library, "mark_seen", lambda *args: pytest.fail("UI state must not write the library"))
     env.drain()

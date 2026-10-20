@@ -17,7 +17,7 @@ const FADE_BLACK = 150;         // a scene first fades to black; work done by th
 const FADE_OUT = 300;
 const WAIT_AFTER = 300;         // indicator mode: a shorter wait shows nothing
 const WAIT_MIN = 500;           // once shown, the indicator stays at least this long
-const HARD_CAP = 15000;         // after this, whatever there is is revealed
+const HARD_CAP = 15000;         // warn about a slow scene; only its work or cancellation can reveal it
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const stage = () => document.getElementById("stage");
@@ -25,6 +25,8 @@ const stage = () => document.getElementById("stage");
 let overlay = null, gen = 0, closeSeq = 0;
 let writerOverlay = null, writerGen = 0;
 let repeater = null, geometry = null;
+let firstLoading = null;
+export const timings = () => firstLoading || {};
 
 // --- setup ---
 
@@ -99,7 +101,7 @@ function open(mode, opaque = false, writer = false) {
   if (!el.isConnected) stage().appendChild(el);
   if (boot && el !== boot) boot.remove();
   const o = { el, mode, ind: el.querySelector(".loading-ind"), back: el.querySelector(".loading-back"),
-    shownAt: performance.now(), closing: false, done: false, sprites: false };
+    shownAt: performance.now(), closing: false, done: false, sprites: false, boot: opaque && !writer };
   if (opaque) el.classList.add("on");
   else { void el.offsetWidth; el.classList.add("on"); } // fade in from the first frame
   if (writer) writerOverlay = o;
@@ -142,6 +144,10 @@ function close(o) {
   o.el.classList.add("out");
   return sleep(FADE_OUT).then(() => {
     if (!o.closing || o.closeId !== id) return; // taken over while fading out
+    if (o.boot && !firstLoading) {
+      const end = performance.now(), styled = o.styledAt ?? end;
+      firstLoading = { "plain-loading": styled - o.shownAt, "styled-loading": end - styled };
+    }
     o.el.remove();
     if (overlay === o) overlay = null;
     if (writerOverlay === o) writerOverlay = null;
@@ -169,36 +175,40 @@ async function upgrade(o) {
   next.className = "loading-repeater";
   // the corner widget is anchored to the screen: moved down to the stage's bottom edge
   await NGUI.render(tree, next, { scale: S, origin: [960, 540], shift: { "UIRepeater/Widget": [0, -(STAGE_UNITS_H - 1440) / 2] } });
+  await NGUI.decoded(next, HARD_CAP);
   if (o !== overlay && o !== writerOverlay) return;
   if (!next.querySelector(".ngui")) { o.sprites = false; return; } // the sprites are not in this install's atlases
   o.ind.replaceChildren(next);
+  o.styledAt ??= performance.now();
 }
 
 // once the screen is black and the work goes on: the indicator in the corner, nothing in the middle
 function decorate(o) {
   if (!o.ind.firstChild) plain(o.ind);
-  upgrade(o);
+  upgrade(o).catch(() => { o.sprites = false; });
 }
 
 // --- modes ---
 
 // scene(fn, {opaque}): fn(covered) runs at once; covered resolves when the screen is black, so fn can switch screens
 // behind it. Resolves with fn's result once the overlay is gone (or handed to a newer call).
-export async function scene(fn, { opaque = false } = {}) {
+export async function scene(fn, { opaque = false, until = null } = {}) {
   const my = ++gen;
   const o = cover(opaque);
   const covered = whenOpaque(o);
-  let failed = false, error = null, timedOut = false, result;
+  let failed = false, error = null, result;
+  const timer = setTimeout(() => { if (my === gen && !o.done) toast(T("loading.slow")); }, HARD_CAP);
   covered.then(() => { if (my === gen && !o.done) decorate(o); });
   try {
-    result = await Promise.race([Promise.resolve().then(() => fn(covered)), sleep(HARD_CAP).then(() => { timedOut = true; })]);
+    const work = Promise.resolve().then(() => fn(covered));
+    result = await (until ? Promise.race([work, until]) : work);
   } catch (err) {
     failed = true;
     error = err;
   }
+  clearTimeout(timer);
   if (my === gen) {
     o.done = true;
-    if (timedOut) toast(T("loading.slow"));
     if (o === overlay && !o.closing) await close(o);
   }
   if (failed) throw error;
@@ -240,7 +250,7 @@ export async function wait(promise, { label: text = null, cap = HARD_CAP } = {})
 }
 
 // A write holds input from submission through the final reload. Back always remains available; leaving the page
-// releases its hold while the job keeps reporting its end. Unlike a scene's soft cap, this never ends the work.
+// releases its hold while the job keeps reporting its end. This never ends the work.
 const holds = new Set(), wired = new WeakSet();
 export const held = () => holds.size > 0;
 export async function hold(work, { until = null } = {}) {

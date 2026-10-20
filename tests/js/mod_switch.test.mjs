@@ -316,6 +316,7 @@ test("the start prompts: their order, the scan consent, and no prompt from the s
   const due = (state, entries = [], info = { consent: true, compiled: false }) => MS.START.filter((name) => MS.startDue(name, { info, state, entries }));
   assert.deepEqual(due(base({ scan: null }), [], { consent: null, compiled: true }), ["consent", "scan", "update"]);
   assert.deepEqual(due(base({ scan: null, installs: [] })), [], "no game folder known: no scan consent");
+  assert.deepEqual(due(base({ scan: null }), [], { consent: true, startupChecks: false }), [], "no automatic file check when disabled");
   assert.deepEqual(due(base({ scan: false })), [], "answered: not asked again");
   const reset = { install: "/g", core: "airi_spr", state: "reset" }, untracked = { install: "/g", core: "ch0251_spr", state: "untracked" };
   assert.deepEqual(due(base(), [reset, untracked]), ["drift", "untracked"]);
@@ -865,15 +866,15 @@ test("the toggle flushes the event delay and awaits the visible detail or roster
 
 test("main refreshes on external Enable Mods changes and keeps the awaited local toggle refresh", async () => {
   const main = readFileSync(new URL("../../src/ba_modding_toolkit/web/js/main.js", import.meta.url), "utf8");
-  const setup = main.slice(main.indexOf("  await ModSwitch.init("), main.indexOf("  Prompts.init("));
+  const setup = main.slice(main.indexOf('  await timed("mod-state"'), main.indexOf("  Prompts.init("));
   let listener, options, changes = 0;
   const names = async () => {}, refresh = async () => {};
   const ModSwitch = {
     init: async (opts) => { options = opts; }, current: () => ({ enabled: true }),
     onChange: (fn) => { listener = fn; },
   };
-  await new Function("ModSwitch", "variantNames", "refreshAfterToggle", "libraryChanged", `return (async () => { ${setup} })();`)(
-    ModSwitch, names, refresh, (data) => { assert.equal(data, null); changes++; });
+  await new Function("ModSwitch", "variantNames", "refreshAfterToggle", "libraryChanged", "timed", `return (async () => { ${setup} })();`)(
+    ModSwitch, names, refresh, (data) => { assert.equal(data, null); changes++; }, (_phase, work) => work());
   assert.equal(options.names, names);
   assert.equal(options.refreshPage, refresh);
   listener({ enabled: true, busy: true });
@@ -883,6 +884,12 @@ test("main refreshes on external Enable Mods changes and keeps the awaited local
   assert.equal(changes, 1, "one refresh for the switch flipping, independent of file changes");
   listener({ enabled: true });
   assert.equal(changes, 2);
+});
+
+test("the startup update check can be disabled for compiled releases", () => {
+  assert.equal(MS.startDue("update", { info: { compiled: true, startupUpdate: false } }), false);
+  assert.equal(MS.startDue("update", { info: { compiled: true, startupUpdate: true } }), true);
+  assert.equal(MS.startDue("update", { info: { compiled: false, startupUpdate: true } }), false);
 });
 
 test("detail refresh callers await changes queued while an earlier refresh is drawing", async () => {

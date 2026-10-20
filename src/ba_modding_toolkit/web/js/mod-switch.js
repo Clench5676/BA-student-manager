@@ -154,8 +154,8 @@ export function startDue(name, { info = {}, state = null, entries = [] } = {}) {
   const open = (e) => !e.dismissed;
   switch (name) {
     case "consent": return info.consent !== true;
-    case "scan": return !!state && state.scan == null && (state.installs || []).length > 0;
-    case "update": return !!info.compiled;
+    case "scan": return info.startupChecks !== false && !!state && state.scan == null && (state.installs || []).length > 0;
+    case "update": return !!info.compiled && info.startupUpdate !== false;
     case "drift": return scanned && state.enabled !== false && entries.some((e) => open(e) && ["reset", "updated"].includes(e.state));
     case "untracked": return scanned && entries.some((e) => open(e) && ["untracked", "changed"].includes(e.state));
     default: return false;

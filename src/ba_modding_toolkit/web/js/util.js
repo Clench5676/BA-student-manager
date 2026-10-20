@@ -87,7 +87,8 @@ export function toast(message, { kind = "info", sticky = false } = {}) {
   el.className = `toast ${kind}`;
   el.hidden = !message;
   clearTimeout(toastTimer);
-  if (message && !sticky) toastTimer = setTimeout(() => { el.hidden = true; }, 3200);
+  toastTimer = null;
+  if (message && !sticky) toastTimer = setTimeout(() => { toastTimer = null; el.hidden = true; }, 3200);
 }
 
 export const fitStage = () => document.getElementById("stage").style.setProperty("--scale", Math.min(innerWidth / 1920, innerHeight / 1080));

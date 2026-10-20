@@ -55,7 +55,7 @@ async function harness() {
     setTimeout: (fn, ms) => { const id = ++timerId; timers.set(id, { at: now + ms, fn }); return id; },
     clearTimeout: (id) => timers.delete(id), requestAnimationFrame: (fn) => fn(),
     T: (key) => key, S: 1, toast() {},
-    NGUI: { init: () => sprites.promise, layout: async () => ({}), render: async (tree, host) => {
+    NGUI: { init: () => sprites.promise, layout: async () => ({}), decoded: async () => {}, render: async (tree, host) => {
       const el = new El(); el.className = "ngui"; host.appendChild(el);
     } },
   };
@@ -107,17 +107,51 @@ test("a writer finishing cannot close a running scene, and its late progress is 
   assert.equal(h.stage.children.length, 0);
 });
 
-test("a timed out page cannot end writer progress, and a failed writer closes its own indicator", async () => {
+test("a slow scene stays covered and cannot end writer progress", async () => {
   const h = await harness(), writer = deferred();
   let progress;
   const job = h.loading.task(async (update) => { progress = update; await writer.promise; });
   const rejected = assert.rejects(job, /upload refused/);
   const indicator = h.stage.children[0];
-  const navigation = h.loading.scene(() => new Promise(() => {}));
-  await flush(); await h.advance(15000); await h.advance(300); await navigation;
+  const page = deferred();
+  const navigation = h.loading.scene(() => page.promise);
+  await flush(); await h.advance(15000); await h.advance(300);
+  assert.equal(h.loading.covering(), true, "a slow scene never reveals partial content");
   progress({ label: "third.bundle", current: 3, total: 3 });
   assert.equal(indicator.querySelector(".loading-progress").textContent, "third.bundle 3/3");
   assert.equal(indicator.classList.contains("out"), false);
   writer.reject(new Error("upload refused")); await flush(); await h.advance(300); await rejected;
+  assert.equal(h.loading.covering(), true);
+  page.resolve(); await flush(); await h.advance(300); await navigation;
   assert.equal(h.stage.children.length, 0);
+});
+
+
+test("a cancelled scene hands its cover to the newer navigation", async () => {
+  const h = await harness(), cancelled = deferred(), next = deferred();
+  const first = h.loading.scene(() => new Promise(() => {}), { until: cancelled.promise });
+  await flush();
+  const second = h.loading.scene(() => next.promise);
+  cancelled.resolve(); await flush(); await first;
+  assert.equal(h.loading.covering(), true);
+  assert.equal(h.stage.children.length, 1);
+  next.resolve(); await flush(); await h.advance(300); await second;
+  assert.equal(h.stage.children.length, 0);
+});
+
+test("writer progress keeps Loading in the right corner", () => {
+  const css = readFileSync(new URL("../../src/ba_modding_toolkit/web/css/app.css", import.meta.url), "utf8");
+  assert.match(css, /\.loading-plain \{[^}]*right: 84px/);
+  assert.doesNotMatch(css, /with-progress \.loading-(?:plain|ind)\s*\{/);
+  assert.match(css, /\.loading-progress \{[^}]*left: 84px/);
+});
+
+test("the initial cover measures the plain and game-styled portions through reveal", async () => {
+  const h = await harness(), page = deferred();
+  const boot = h.loading.scene(() => page.promise, { opaque: true });
+  await flush(); await h.advance(200);
+  h.sprites.resolve(); await flush();
+  await h.advance(700);
+  page.resolve(); await flush(); await h.advance(300); await boot;
+  assert.deepEqual(h.loading.timings(), { "plain-loading": 200, "styled-loading": 1000 });
 });

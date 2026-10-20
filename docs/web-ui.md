@@ -748,7 +748,9 @@ The services hold what the Enable Mods switch, the prompts and the classic hand-
   only with the scan consent: one scan at a time, requests made meanwhile served by one scan after it, `cancel()` on a
   game folder change or a library move (the result is dropped). A stale result (the library wrote while the files
   were read) is scanned again once while no writer job runs, else dropped: the scan after that job replaces it. The
-  start scan waits for the `library.prune` job. Scans run at the start, after a game folder change, after every
+  start scan waits for the `library.prune` job. Startup prune and scan begin after the first screen reveals and can
+  be disabled with Settings' Check Files at Startup. Settings' Check still prunes and requests a scan explicitly.
+  Scans also run after a game folder change, after every
   writer job, when the game stops or Steam turns idle (the game watch), after a classic window closed, when the
   consent is granted, on Settings' Check (`mods.scan {dismissed: true}`, which lists dismissed entries again) and
   whenever the page asks (`mods.scan`, the window back in front after 30 s). Withdrawing the consent stops them and
@@ -938,13 +940,14 @@ ported.
   back without a new `roster.list`.
 - The detail screen's arrows step through the cards as the list showed them when it was left, in its order, wrapping
   round; a variant the list hides (another chip, a deep link) steps from its place in the whole list.
-- Back from the detail screen, the list is built behind it and the screens change once every picture the list draws
-  is decoded (`NGUI.decoded`, at most 1 s, the indicator alone after 300 ms; the URL and waiting logic is
+- Back from the detail screen, the list is built behind the loading cover. The visible rows finish their portraits,
+  frames and panels before reveal; rows outside the viewport are queued after the visible ones. The first build
+  waits the same way. Pictures are decoded too (`NGUI.decoded`, a 15 s failed-decode deadline; the URL and waiting logic is
   `image-decode.js`, tested in Node from `tests/test_image_decode.py`). WebKit lets go of the
   blob images a hidden screen draws (the sliced and tinted sprites `ngui.js` bakes): without the wait it painted the
   list's first frames (about 100 to 200 ms) with the portraits only, without the frame, the card frames and the
   dimming of the cards without mods. A rebuild inside the list (filters, sort, search) waits the same way for the
-  pictures the list does not show yet. A portrait thumbnail still being rendered fills in later, as before.
+  pictures the list does not show yet.
 - The left and right arrow keys step like the arrows, as in the PC client: its key mapping
   (`Assets/_MX/AddressableAsset/KeyMapping/PCKeyMappingSO.asset`) binds UICharacterDetail's `Arrow_L/Left` to
   `UI_KeyMapping_Common_ArrowLeft_isUsed` (LeftArrow) and `Arrow_R/Right` to `UI_KeyMapping_Common_ArrowRight_isUsed`
@@ -1101,7 +1104,9 @@ optional, so a popup still works without them.
 **Start sequence** (`main.js`, `Popup.sequence`). Once the first screen is revealed the start popups come one at a
 time, in order, each only when it has something to show (`mod-switch.js startDue`): the asset consent, the scan
 consent (while it is unanswered and a game folder is known; see Enable Mods switch), then the update popup (released
-builds only). `Update.check` resolves when its popup closes: `later` (Later or Escape), `page` (the download page
+builds only). Check Files at Startup disables the startup scan consent and scan-result wait as well as maintenance;
+Check for Updates at Startup disables the automatic update check. Both preferences default to on and keep the manual
+Settings checks available. `Update.check` resolves when its popup closes: `later` (Later or Escape), `page` (the download page
 opened), `update` when a failed update is dismissed, `null` with no newer release, offline or if drawing fails.
 Download progress and errors stay in the popup; its buttons and Escape are blocked during download. A verified
 download shows Download Complete with Later / Restart. Later keeps it for this session; the next check for that
@@ -1291,18 +1296,22 @@ hopping dots and Arona turning round, animated in `app.css` from the keyframes o
 UIAudioPlay is never played). Before the atlases are in, or without a game, a plain stand-in in the page font shows
 instead.
 
-- `scene(fn)` covers the start, a detail screen opened from another screen or a deep link, and the roster's first
-  build: a fade to black (150 ms), then, while the work goes on, the indicator; work done within the fade only fades back. `wait(promise)` shows the indicator alone over the
-  screen after 300 ms (at least 500 ms), for changes inside it and for the way back to the roster. Both give up after
-  15 s, reveal what there is and say so. One overlay at a time: a newer call takes over the one on screen.
+- `scene(fn)` covers startup, roster/detail navigation, student steps and detail tabs: a fade to black (150 ms),
+  then, while the work goes on, the indicator. It warns after 15 s and stays covered until preparation settles or
+  navigation supersedes it; individual asset loaders have failure deadlines. The reveal fades out over 300 ms.
+  `wait(promise)` shows the indicator alone over the screen after 300 ms (at least 500 ms) for other waits; its default
+  cap is 15 s. One page overlay at a time: a newer call takes over the one on screen.
   `wait(promise, {label, cap})` names the wait for assistive technology (the classic UI's start: "Opening the classic
   UI") and stays up to `cap` instead (32 s for that start, which `app.openClassic` waits up to 30 s for).
 - The detail screen resolves `show()` only when it is ready: the panels, the left side's first frame (the portrait,
-  or the lobby with its still, or the 3D model with its shaders compiled) and, within 1.2 s, the visible thumbnails;
+  or the lobby with its still, or the 3D model with its shaders compiled), visible thumbnails and decoded UI images;
   the lobby's lines from Kivo get 1.5 s. A change inside the screen (a variant chip, the arrows, a tab, an
   applied portrait) renders every part off screen and swaps them in one frame. The left side loads laid out but
-  transparent; when a lobby or a model replaces another one, a still of the old one holds its place meanwhile.
+  transparent; old layers and stills are retired while covered, without a second fade during reveal.
+- Writer tasks own a separate indicator and lifetime. Loading stays bottom-right in both styles; only the action
+  label and x/n progress use the bottom-left corner.
 - The start popups (the consent popup first) come after the first screen is revealed (Popups, "Start sequence").
+- Startup phase durations are recorded in the session log and `app.timings`; see [the beta loading report](startup-loading.md).
 
 ### Pointer and touch effect
 

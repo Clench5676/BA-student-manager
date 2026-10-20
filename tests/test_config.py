@@ -90,6 +90,22 @@ def test_a_missing_key_still_runs_its_default(tmp_path: Path, monkeypatch):
     assert s.get("file_source") == "windows_global"
 
 
+@pytest.mark.parametrize("found", [None, "global", "japan"])
+def test_each_install_is_detected_at_most_once_per_settings_load(tmp_path, monkeypatch, found):
+    calls = []
+
+    def detect(region):
+        calls.append(region)
+        return f"/games/{region}" if region == found else None
+
+    monkeypatch.setattr("ba_modding_toolkit.config.get_BA_path", detect)
+    settings = Settings(tmp_path / "config.toml")
+    assert calls == ["global", "japan"]
+    assert settings.get("file_source") == ("windows_japan" if found == "japan" else "windows_global")
+    settings.load()
+    assert calls == ["global", "japan", "global", "japan"]
+
+
 def test_field_kinds():
     assert Field("G", True).kind is bool and Field("G", 4).kind is int and Field("G", "x").kind is str
     assert Field("G", lambda: "x", str).kind is str

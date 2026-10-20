@@ -21,6 +21,7 @@ from ba_modding_toolkit.webui.jobs import JobRunner
 from ba_modding_toolkit.webui.server import WebApp
 from ba_modding_toolkit.webui.services import Services
 from ba_modding_toolkit.webui.state import ALIAS_LENGTH, ALIAS_MAX, UiState, roster_view
+from ba_modding_toolkit.webui.timing import Timings
 
 
 @dataclass
@@ -181,6 +182,9 @@ class FakeLibrary:
 
     def prune(self):
         return []
+
+    def take_pruned_cores(self):
+        return set()
 
 
 @pytest.fixture
@@ -665,6 +669,69 @@ def test_a_new_library_prunes_its_kept_originals_once(tmp_path, monkeypatch):
         assert pruned == [library]
     finally:
         s.close()
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+def test_startup_maintenance_waits_for_reveal_and_respects_the_preference(services, monkeypatch, enabled):
+    calls, finished = [], threading.Event()
+    services.state.set("startup_checks", enabled)
+    services.state.set("scan_consent", True)
+    monkeypatch.setattr(services, "start_watch", lambda: None)
+    monkeypatch.setattr(services.scanner, "request", lambda *args: calls.append("scan"))
+    monkeypatch.setattr(services.library, "prune", lambda: calls.append("prune") or [])
+    warm = services._warm
+
+    def warmed():
+        try:
+            warm()
+        finally:
+            finished.set()
+
+    monkeypatch.setattr(services, "_warm", warmed)
+    services.start()
+    assert services.library is not None
+    assert calls == [] and services._prune_job is None
+    services.ready()
+    assert finished.wait(5)
+    if enabled:
+        assert services.jobs.wait(services._prune_job, 5)
+        assert services.jobs.get(services._prune_job).state == "done"
+        assert sorted(calls) == ["prune", "scan"]
+        assert services.timings.snapshot()["library.prune"]["count"] == 1
+    else:
+        assert calls == [] and services._prune_job is None
+        # A deliberate Settings check remains available with automatic checks off.
+        services.request_scan(dismissed=True)
+        assert services.jobs.wait(services._prune_job, 5)
+        assert services.jobs.get(services._prune_job).state == "done"
+        assert sorted(calls) == ["prune", "scan"]
+    services.ready()
+    assert sorted(calls) == ["prune", "scan"]
+
+
+def test_startup_preferences_round_trip_and_update_info(app, services):
+    prefs = rpc(app, "settings.get")["result"]
+    assert prefs["startupChecks"] is True and prefs["startupUpdate"] is True
+    for key in ("startupChecks", "startupUpdate"):
+        assert rpc(app, "settings.set", key=key, value=False)["result"][key] is False
+    saved = UiState(services.data_dir / "webui.json")
+    assert saved.flag("startup_checks") is False and saved.flag("startup_update") is False
+    assert rpc(app, "app.info")["result"]["startupUpdate"] is False
+    assert rpc(app, "app.info")["result"]["startupChecks"] is False
+
+
+def test_startup_timings_are_bounded_named_and_recorded_in_seconds(app, services, monkeypatch):
+    ready = []
+    monkeypatch.setattr(services, "ready", lambda: ready.append(True))
+    assert rpc(app, "app.ready", timings={"boot": 1250, "fonts": 20, "plain-loading": 50,
+                                         "styled-loading": 1200, "private/path": 1, "settings": True,
+                                         "info": -1, "strings": float("nan"), "mod-state": float("inf")}) == {"result": None}
+    assert ready == [True]
+    assert rpc(app, "app.timings")["result"] == services.timings.snapshot()
+    measured = {key: value for key, value in services.timings.snapshot().items() if key.startswith("page.")}
+    assert measured == {"page." + key: {"seconds": seconds, "count": 1} for key, seconds in
+                        {"boot": 1.25, "fonts": .02, "plain-loading": .05, "styled-loading": 1.2}.items()}
+    assert rpc(app, "app.ready", timings=[])["error"]["code"] == "bad_params"
 
 
 def test_lobby_warm_builds_the_prefab_index_once_per_game(app, services, monkeypatch):
@@ -1172,7 +1239,7 @@ def test_the_window_leaves_the_pointer_and_text_selection_to_the_page(monkeypatc
     from ba_modding_toolkit.webui.tray import Tray
 
     monkeypatch.setattr(Tray, "supported", staticmethod(lambda platform=sys.platform: False))  # tests/test_tray.py
-    main._run_window(SimpleNamespace(window=None, data_dir=tmp_path), SimpleNamespace(url="http://127.0.0.1:1/"), False)
+    main._run_window(SimpleNamespace(window=None, data_dir=tmp_path, timings=Timings()), SimpleNamespace(url="http://127.0.0.1:1/"), False)
     assert created["text_select"] is True
     assert started["private_mode"] is True
 

@@ -291,7 +291,8 @@ class UiState:
 
 # Boolean preferences and their defaults: the Enable Mods switch shown on the main screens, the tray or menu bar icon,
 # the hand-off prompt before the classic UI opens, and whether the first toggle's explanation was shown
-FLAGS = {"mod_switch_shown": True, "tray": False, "classic_prompt": True, "mods_explained": False}
+FLAGS = {"mod_switch_shown": True, "tray": False, "classic_prompt": True, "mods_explained": False,
+         "startup_checks": True, "startup_update": True}
 DATA_ID_LENGTH = 12  # hex digits
 
 

@@ -1,6 +1,6 @@
 // Boot and routing: #/roster (the student list) and #/student/<family>/<variant> (the detail screen). The game's
 // loading screen covers the start and every change of screen until the new one is ready; a change inside the detail
-// screen (a variant chip, the arrows) keeps the old screen until the new one swaps in, with the indicator alone.
+// screen (a variant chip, the arrows) is covered too, through its first complete frame.
 import * as Consent from "./consent.js";
 import * as Cursor from "./cursor.js";
 import * as Detail from "./detail.js";
@@ -23,6 +23,12 @@ import { forget } from "./thumbs.js";
 import { $, fitStage, toast } from "./util.js";
 
 let info = null, rosterData = null, rosterStale = true;
+const startup = {};
+async function timed(phase, work) {
+  const began = performance.now();
+  try { return await work(); }
+  finally { startup[phase] = performance.now() - began; }
+}
 // the roster's cards as the list showed them when it was left (its filters, search and sort): the detail screen's
 // arrows step through these, so visits and edits on the way do not reshuffle them; taken afresh once the roster shows
 let stepCards = null;
@@ -187,7 +193,7 @@ function noGame() {
   ]);
 }
 
-let routeToken = 0, rosterBuilt = false, endRoute = () => {};
+let routeToken = 0, endRoute = () => {};
 async function route() {
   endRoute();
   const ended = new Promise((resolve) => { endRoute = resolve; });
@@ -198,25 +204,15 @@ async function route() {
       // leaving the list: its cards as shown are the arrows' order
       if (!stepCards && rosterData && !$("screen-roster").hidden) stepCards = Roster.order(rosterData);
       Roster.invalidate();
-      if (!$("screen-detail").hidden && !Loading.covering()) {
-        // in place: the shown screen stays until every part of the new one is ready, then all of it swaps at once
-        await Loading.hold(async () => {
-          const fam = await rpc("family.get", { key: parts[1] });
-          if (my !== routeToken) return;
-          visited(fam, parts[2]);
-          await Detail.show(ctx, fam, parts[2], { inPlace: true });
-        }, { until: ended });
-      } else {
-        // from another screen, a deep link or the start: behind the loading screen
-        await Loading.scene(async (covered) => {
-          const fam = await rpc("family.get", { key: parts[1] });
-          await covered;
-          if (my !== routeToken) return; // a later navigation took over
-          showScreen("detail");
-          visited(fam, parts[2]);
-          await Detail.show(ctx, fam, parts[2]);
-        });
-      }
+      const inPlace = !$("screen-detail").hidden;
+      await Loading.hold(() => Loading.scene(async (covered) => {
+        const fam = await rpc("family.get", { key: parts[1] });
+        await covered;
+        if (my !== routeToken) return; // a later navigation took over
+        showScreen("detail");
+        visited(fam, parts[2]);
+        await Detail.show(ctx, fam, parts[2], { inPlace });
+      }, { until: ended }), { until: ended });
     } else {
       const reveal = () => {
         Detail.hide();
@@ -224,13 +220,13 @@ async function route() {
         stepCards = null;
         setTitle(T("top.students"), askQuit);
       };
-      // Back must not wait for a family or roster RPC blocked by the writer's library lock.
-      if (!$("screen-detail").hidden) reveal();
       const open = async (covered) => {
-        const data = await roster();
         await covered;
         if (my !== routeToken) return;
-        // the list is built, its pictures decoded, behind the screen shown; then the screens change in one frame
+        // Release the detail input and players before a roster RPC can wait on a writer's library lock.
+        Detail.hide();
+        const data = await roster();
+        if (my !== routeToken) return;
         try {
           await Roster.show(ctx, data);
         } catch (err) {
@@ -239,12 +235,8 @@ async function route() {
         }
         if (my !== routeToken) return;
         reveal();
-        rosterBuilt = true;
       };
-      // the roster's first build is covered too; afterwards the screen shown stays until the list is ready (with the
-      // indicator alone if that takes a while)
-      if (!rosterBuilt || Loading.covering()) await Loading.scene(open);
-      else await Loading.wait(open(null));
+      await Loading.scene(open, { until: ended });
     }
   } catch (err) {
     console.error(err);
@@ -264,8 +256,10 @@ async function boot() {
   fitStage();
   addEventListener("resize", fitStage);
   // the page starts behind the loading screen: the game's UI is read, then the first screen is built
-  await Loading.scene(start, { opaque: true });
+  await timed("boot", () => Loading.scene(start, { opaque: true }));
+  rpc("app.ready", { timings: { ...startup, ...Loading.timings() } }).catch(console.error);
   if (!info?.gameFound) return;
+  Cursor.init();
   // the start popups only once the first screen is revealed
   await Popup.sequence(startPopups());
 }
@@ -289,12 +283,15 @@ function startPopups() {
 }
 
 async function start() {
-  info = await rpc("app.info");
+  const prefs = timed("settings", () => rpc("settings.get").catch(() => null));
+  info = await timed("info", () => rpc("app.info"));
   ctx.info = info;
   Loading.init(info); // the loading screen's backdrop from the game's prefab
-  ctx.prefs = await rpc("settings.get").catch(() => null);
+  const ui = info.gameFound ? timed("ui-indexes", () => NGUI.init()) : Promise.resolve();
+  ui.catch(() => {}); // observed below after the strings and fonts
+  ctx.prefs = await prefs;
   Roster.init(ctx.prefs?.roster);
-  setStrings(info.language, await rpc("i18n.strings", { lang: info.language }));
+  setStrings(info.language, await timed("strings", () => rpc("i18n.strings", { lang: info.language })));
   Loading.relabel();
   document.title = T("top.students");
   document.querySelector(".topbar .back").setAttribute("aria-label", T("a11y.back"));
@@ -303,7 +300,7 @@ async function start() {
   // subscribed before the no-game screen too, so choosing the game folder elsewhere reaches the page
   on("config.changed", () => { if (!info.gameFound) { location.reload(); return; } stepCards = null; ctx.invalidateRoster(); route(); });
   on("app.busy", () => toast(T("error.busy"), { kind: "error" }));
-  await document.fonts.ready;
+  await timed("fonts", () => document.fonts.ready);
   // the bottom bar: its greyed entries hand over to the classic UI (with or without a game folder), their prompt
   // following the pref classicPrompt
   const navOptions = { game: !!info.gameFound, prefs: () => ctx.prefs, setPrefs: (prefs) => { ctx.prefs = prefs; } };
@@ -313,12 +310,10 @@ async function start() {
     ModSwitch.listenTray(); // the tray still switches the known installs
     return;
   }
-  await NGUI.init();
-  // the game's pointer and touch effect, read from the game in the background (the system cursor until then)
-  Cursor.init();
+  await ui;
   renderNav(0, navOptions);
   // the Enable Mods switch in the top bar, and what the writer jobs switched
-  await ModSwitch.init({ names: variantNames, refreshPage: refreshAfterToggle }).catch((err) => console.error("mod switch", err));
+  await timed("mod-state", () => ModSwitch.init({ names: variantNames, refreshPage: refreshAfterToggle }).catch((err) => console.error("mod switch", err)));
   let enabled = ModSwitch.current()?.enabled !== false;
   ModSwitch.onChange((state) => {
     const next = state.enabled !== false;
@@ -350,7 +345,7 @@ async function start() {
     if (key === "fileSource" || key.startsWith("gameDir") || key === "libraryDir") { stepCards = null; ctx.invalidateRoster(); route(); }
   }));
   addEventListener("hashchange", route);
-  await route();
+  await timed("first-screen", route);
 }
 
 boot().catch((err) => {

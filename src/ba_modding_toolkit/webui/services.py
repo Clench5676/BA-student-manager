@@ -26,6 +26,7 @@ from .classic import QUEUE_METHODS, ClassicQueue, ClassicWindow, NativeOps, Queu
 from .events import EventBus
 from .jobs import JobRunner
 from .scanner import Scanner
+from .timing import Timings
 from .server import MIME, AssetResponse
 from .state import UiState
 from .strings import install_label, ui_strings
@@ -199,13 +200,16 @@ class Services:
                  cache: Any = None, game: Any = None, catalog: Any = None, library: Any = None,
                  classic_options: dict[str, Any] | None = None):
         devmode.check_read(data_dir)
-        self.settings = settings or Settings()
+        self.timings = Timings()
+        with self.timings.measure("settings.load-detect"):
+            self.settings = settings or Settings()
         self.data_dir = Path(data_dir)
         self.log_path = self.data_dir / "webui.log"
         self.log_secrets: set[str] = set()
         self.events = events or EventBus()
         self.jobs = jobs or JobRunner(self.events)
-        self.state = state or UiState(self.data_dir / "webui.json")
+        with self.timings.measure("settings.ui-state"):
+            self.state = state or UiState(self.data_dir / "webui.json")
         self.window: Any = None  # the pywebview window, when there is one (see native.py)
         self.update_info: Any = None  # the last update check's result
         self.update_file: tuple[Path, str, str] | None = None  # verified path, MD5 and release version, for this session
@@ -225,6 +229,7 @@ class Services:
         self._injected = {k for k, v in (("game", game), ("catalog", catalog), ("library", library)) if v is not None}
         self._other_games: dict[str, Any] = {}  # other installs' GameAssets by install key, for <core>@<id> URLs
         self._prune_job: str | None = None
+        self._startup_ready = True  # start() defers maintenance until the page reports its first reveal
         self._profiles_signature: Any = None
         self._intent_seen: tuple = ()
         self._queue_ticket: int | None = None  # the scan after a classic window closed: the queue runs after it
@@ -257,7 +262,8 @@ class Services:
         self._refresh_if_idle()
         with self._lock:
             if self._game is None:
-                dirs = self.settings.resource_dirs()
+                with self.timings.measure("game.detect"):
+                    dirs = self.settings.resource_dirs()
                 if not dirs:
                     raise ServiceError("game_not_found")
                 self._game = self._make_game(dirs)
@@ -289,8 +295,9 @@ class Services:
 
                 csv = Path(self.settings.get("bacii_map_path"))
                 # recruitable follows the server of the selected game folder
-                self._catalog = Catalog(self.game if self.game_found() else None, csv if csv.exists() else None,
-                                        server=self.settings.server_region())
+                with self.timings.measure("catalog.open"):
+                    self._catalog = Catalog(self.game if self.game_found() else None, csv if csv.exists() else None,
+                                            server=self.settings.server_region())
             return self._catalog
 
     @property
@@ -305,19 +312,26 @@ class Services:
 
                 devmode.check_read(self.library_dir())
                 game = self.game if self.game_found() else None
-                built = self._library = ModLibrary(
-                    self.library_dir(), self.catalog, game, self.settings, scan_allowed=self.scan_allowed,
-                    data_id=self.state.data_id(self.data_dir), write_check=self._write_check)
+                with self.timings.measure("library.open"):
+                    built = self._library = ModLibrary(
+                        self.library_dir(), self.catalog, game, self.settings, scan_allowed=self.scan_allowed,
+                        data_id=self.state.data_id(self.data_dir), write_check=self._write_check)
                 # kept originals the game no longer needs (verified in the launcher, replaced by a game update) are
                 # deleted once per library, on the job worker so no apply runs meanwhile; the judging of the
                 # unfinished list follows it
-                self._prune_job = self.submit("library.prune",
-                                              lambda log, progress: [str(p) for p in built.prune()],
-                                              writes="library", library=built)
+                if self._startup_ready and self.state.flag("startup_checks"):
+                    self._start_prune(built)
             library = self._library
-        if built is not None:
+        if built is not None and self._startup_ready and self.state.flag("startup_checks"):
             self.scanner.request()  # the start scan (with scan consent), after the prune job
         return library
+
+    def _start_prune(self, library: Any) -> None:
+        def prune(log: Any, progress: Any) -> list[str]:
+            with self.timings.measure("library.prune"):
+                return [str(p) for p in library.prune()]
+
+        self._prune_job = self.submit("library.prune", prune, writes="library", library=library)
 
     def cache_dir(self) -> Path:
         """Where light game UI assets are cached: a bluearchive-modding-patching-tool/cache folder inside the chosen folder,
@@ -452,15 +466,21 @@ class Services:
         self.publish_state()
 
     def request_scan(self, dismissed: bool = False) -> int | None:
+        if dismissed and self.scan_allowed():
+            with self._lock:
+                if not self.jobs.busy():
+                    self._start_prune(self.library)
         return self.scanner.request(dismissed)
 
     def _scan(self, cancel: Callable[[], bool], dismissed: bool, cores: set[str] | None = None) -> Any:
         """One scan over every known install, on the scanner's thread. The start scan waits for the prune job."""
         if self._prune_job is not None:
-            self.jobs.wait(self._prune_job, PRUNE_WAIT)
+            with self.timings.measure("scan.prune-wait"):
+                self.jobs.wait(self._prune_job, PRUNE_WAIT)
         library = self.library
         start = time.perf_counter()
-        result = library.scan(library.installs(), cancel, include_dismissed=dismissed, cores=cores)
+        with self.timings.measure("scan.files"):
+            result = library.scan(library.installs(), cancel, include_dismissed=dismissed, cores=cores)
         if cores is not None and not result.stale:
             from dataclasses import replace
 
@@ -919,14 +939,32 @@ class Services:
     # --- the game watch, the window and quitting ---
 
     def start(self) -> None:
-        """What the running app adds to the services: the game watch, and the library built in the background so
-        the start sequence (prune, judging, scan) runs at once."""
+        """Start the watch; library maintenance waits for the first screen to be revealed."""
+        self._startup_ready = False
         self.start_watch()
+
+    def ready(self) -> None:
+        """The page revealed its first screen. Start optional checks once, away from the UI request."""
+        with self._lock:
+            if self._startup_ready:
+                return
+            self._startup_ready = True
         threading.Thread(target=self._warm, name="bamt-library", daemon=True).start()
 
     def _warm(self) -> None:
-        if self.refresh_status() is not None:
-            self.publish_state()
+        try:
+            library = self.library
+            requested = False
+            with self._lock:
+                if self._prune_job is None and self.state.flag("startup_checks"):
+                    self._start_prune(library)
+                    requested = True
+            if requested:
+                self.scanner.request()
+            if self.refresh_status() is not None:
+                self.publish_state()
+        except Exception:
+            logger.exception("startup maintenance failed")
 
     def start_watch(self, run: bool = True) -> None:
         """Make the game watch and (``run``) start its thread; without, ``watch.poll()`` checks once."""
@@ -1072,15 +1110,18 @@ class Services:
         game = self.game
         if parts == ["atlases.json"]:
             # Revalidate the bundle inventory on reload, including after a cache clear or a partial download.
-            return _json(game.atlases(), light=False)
+            with self.timings.measure("ui.atlases"):
+                return _json(game.atlases(), light=False)
         if parts == ["textures.json"]:
-            return _json({name: f"/asset/ui/texture/{name}.png" for name in game.textures()}, light=True)
+            with self.timings.measure("ui.textures"):
+                return _json({name: f"/asset/ui/texture/{name}.png" for name in game.textures()}, light=True)
         if len(parts) == 3 and parts[0] == "sprite":
             return AssetResponse(game.sprite_png(parts[1], _stem(parts[2])), "image/png", light=True)
         if len(parts) == 2 and parts[0] == "texture":
             return AssetResponse(game.texture_png(_stem(parts[1])), "image/png", light=True)
         if len(parts) == 2 and parts[0] == "layout":
-            return _json(game.layout(_stem(parts[1]), query.get("path", "")), light=True)
+            with self.timings.measure("ui.layouts"):
+                return _json(game.layout(_stem(parts[1]), query.get("path", "")), light=True)
         raise KeyError("/".join(parts))
 
     def _install_game(self, install_id: str) -> Any:

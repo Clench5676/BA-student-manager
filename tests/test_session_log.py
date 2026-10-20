@@ -9,6 +9,7 @@ import pytest
 from ba_modding_toolkit.errors import ServiceError
 from ba_modding_toolkit.webui.api import build_api
 from ba_modding_toolkit.webui.session_log import LOG_BYTES, RedactingFormatter, redact, tail
+from ba_modding_toolkit.webui.timing import Timings
 
 
 def test_log_rpc_returns_the_last_500_lines_in_order_and_redacts_secrets(tmp_path):
@@ -18,7 +19,7 @@ def test_log_rpc_returns_the_last_500_lines_in_order_and_redacts_secrets(tmp_pat
     lines += [f"URL http://127.0.0.1/?t={quote(secret, safe='')}",
               f"unexpected failure: {secret}", "Authorization: Bearer abcdef", "password='hidden value'"]
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    services = SimpleNamespace(log_path=path, log_secrets={secret})
+    services = SimpleNamespace(log_path=path, log_secrets={secret}, timings=Timings())
     result = build_api(services).call("app.log", {})["result"]
     assert result["path"] == str(path)
     text = result["text"]
