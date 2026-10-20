@@ -2047,9 +2047,18 @@ def test_crash_during_restore_returns_original_to_library_before_rolling_back_mo
     assert env.original.read_bytes() == official and not original.exists()
 
 
-def test_recovery_repeats_game_and_caller_checks_before_restoring_missing_file(setup_library, monkeypatch):
+@pytest.mark.parametrize("dev_sandbox", [False, True], ids=["normal", "dev-sandbox"])
+def test_recovery_repeats_game_and_caller_checks_before_restoring_missing_file(setup_library, monkeypatch,
+                                                                            dev_sandbox):
     from ba_modding_toolkit.library import service
     env = setup_library
+    # Writable dev sandboxes deliberately skip the running-game check.
+    if dev_sandbox:
+        monkeypatch.setenv("BAMT_DEV_ROOTS", str(env.tmp))
+        monkeypatch.setenv("BAMT_DEV_WRITABLE", str(env.tmp))
+    else:
+        monkeypatch.delenv("BAMT_DEV_ROOTS", raising=False)
+        monkeypatch.delenv("BAMT_DEV_WRITABLE", raising=False)
     official = env.original.read_bytes()
     entry, = env.library.add([make_mod(env.original, env.tmp / "input", fixed=True)])
     monkeypatch.setattr(storage, "_clone", lambda *args: False)
@@ -2068,19 +2077,21 @@ def test_recovery_repeats_game_and_caller_checks_before_restoring_missing_file(s
         raise ServiceError("game_running")
 
     monkeypatch.setattr(safety, "check_game_not_running", running)
-    recovered = reload_library(env)
-    expect_error("game_running", lambda: recovered.state("test"))
-    assert not env.original.exists()
-    assert env.library._original_path(env.original).read_bytes() == official
-    monkeypatch.setattr(safety, "check_game_not_running", lambda: None)
 
     def steam(folder):
         raise ServiceError("steam_busy")
 
+    # Keep constructor recovery pending even when the running-game check is skipped.
     monkeypatch.setattr(safety, "check_steam_idle", steam)
+    recovered = reload_library(env)
     expect_error("steam_busy", lambda: recovered.state("test"))
     assert not env.original.exists()
+    assert env.library._original_path(env.original).read_bytes() == official
     monkeypatch.setattr(safety, "check_steam_idle", lambda folder: None)
+    if not dev_sandbox:
+        expect_error("game_running", lambda: recovered.state("test"))
+        assert not env.original.exists()
+        monkeypatch.setattr(safety, "check_game_not_running", lambda: None)
     mode = env.game_dir.stat().st_mode & 0o777
     env.game_dir.chmod(0o555)
     try:
