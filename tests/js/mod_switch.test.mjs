@@ -8,7 +8,7 @@ import { test } from "node:test";
 // --- a stand-in DOM: elements in a tree, ids, clicks, the focus and the window's key listeners ---
 class El {
   constructor(tag = "div") {
-    Object.assign(this, { tagName: tag.toUpperCase(), children: [], parentNode: null, style: {}, dataset: {}, attrs: {}, listeners: {} });
+    Object.assign(this, { tagName: tag.toUpperCase(), children: [], parentNode: null, style: {}, dataset: {}, attrs: {}, listeners: {}, captureListeners: {} });
     Object.assign(this, { hidden: false, className: "", textContent: "", id: "", font: "", tabIndex: 0, title: "", scrollWidth: 0 });
     const self = this;
     this.classList = {
@@ -29,16 +29,39 @@ class El {
     this.parentNode.children = this.parentNode.children.filter((c) => c !== this);
     this.parentNode = null;
   }
-  set innerHTML(_) { for (const c of [...this.children]) c.remove(); }
+  set innerHTML(text) {
+    for (const c of [...this.children]) c.remove();
+    this.parts = {};
+    for (const key of text.includes("loading-back") ? [".loading-back", ".loading-ind"] : text.includes("loading-plain") ? ["span"] : []) {
+      this.parts[key] = this.appendChild(new El());
+    }
+  }
+  get firstChild() { return this.children[0]; }
   contains(node) { for (let n = node; n; n = n.parentNode) if (n === this) return true; return false; }
   get isConnected() { return document.body.contains(this); }
   setAttribute(k, v) { this.attrs[k] = String(v); }
   getAttribute(k) { return this.attrs[k] ?? null; }
   removeAttribute(k) { delete this.attrs[k]; if (k === "title") this.title = ""; }
-  addEventListener(type, fn) { (this.listeners[type] ||= []).push(fn); }
-  click() { for (const fn of this.listeners.click || []) fn({ type: "click" }); }
+  closest(selector) {
+    for (let n = this; n; n = n.parentNode) {
+      if (selector === ".topbar .back" && n.classList.contains("back") && n.parentNode?.classList.contains("topbar")) return n;
+      if (selector.includes(":not([hidden])") && !n.hidden && ["popup-host", "consent-host"].some((c) => n.classList.contains(c))) return n;
+    }
+    return null;
+  }
+  addEventListener(type, fn, capture = false) { ((capture ? this.captureListeners : this.listeners)[type] ||= []).push(fn); }
+  dispatch(type, extra = {}) {
+    const ev = { type, target: this, defaultPrevented: false, stopped: false,
+      preventDefault() { this.defaultPrevented = true; }, stopImmediatePropagation() { this.stopped = true; }, ...extra };
+    const path = []; for (let n = this; n; n = n.parentNode) path.push(n);
+    for (const node of [...path].reverse()) for (const fn of node.captureListeners[type] || []) { fn(ev); if (ev.stopped) return ev; }
+    for (const node of path) for (const fn of node.listeners[type] || []) { fn(ev); if (ev.stopped) return ev; }
+    if (type === "keydown") for (const fn of keyListeners) fn(ev);
+    return ev;
+  }
+  click() { return this.dispatch("click"); }
   focus() { document.activeElement = this; }
-  querySelector() { return null; }
+  querySelector(key) { return this.parts?.[key] || null; }
   getContext() { return { font: "", measureText(s) { return { width: s.length * 0.6 * parseFloat(/([\d.]+)px/.exec(this.font)?.[1] || 10) }; } }; }
 }
 const body = new El("body");
@@ -54,14 +77,11 @@ const keyListeners = [];
 globalThis.addEventListener = (type, fn) => { if (type === "keydown") keyListeners.push(fn); };
 globalThis.removeEventListener = () => {};
 globalThis.requestAnimationFrame = (fn) => setTimeout(fn, 0);
-function press(key) {
-  const ev = { key, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } };
-  for (const fn of keyListeners) fn(ev);
-  return ev;
-}
-const host = (id) => { const h = body.appendChild(new El()); h.id = id; h.hidden = true; return h; };
-const dialog = host("dialog"), consent = host("consent"), toastEl = host("toast"), stage = host("stage"), prompt = host("prompt");
-stage.hidden = false;
+function press(key, target = document.activeElement) { return target.dispatch("keydown", { key }); }
+const stage = body.appendChild(new El()); stage.id = "stage";
+const host = (id) => { const h = stage.appendChild(new El()); h.id = id; h.hidden = true; return h; };
+const dialog = host("dialog"), consent = host("consent"), toastEl = host("toast"), prompt = host("prompt");
+dialog.className = prompt.className = "popup-host"; consent.className = "consent-host";
 const switchHost = host("mod-switch");
 
 // --- the server: the popup frame's prefab, the RPC calls (recorded with their params) and the jobs ---
@@ -116,6 +136,7 @@ I18n.setStrings("en-US", strings);
 const S = (key) => strings[`webui.${key}`];
 
 const MS = await import("../../src/ba_modding_toolkit/web/js/mod-switch.js");
+const Loading = await import("../../src/ba_modding_toolkit/web/js/loading.js");
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 const actionsIn = (root) => walk(root).filter((e) => e.dataset?.action);
@@ -130,6 +151,7 @@ async function until(fn, what) {
 }
 const called = (method) => calls.filter(([m]) => m === method).map(([, p]) => p);
 const labels = (root) => walk(root).map((e) => e.attrs?.["aria-label"]).filter(Boolean);
+function deferred() { let resolve; const promise = new Promise((r) => { resolve = r; }); return { promise, resolve }; }
 
 // a mods.state as the services answer it
 const install = (key, label, extra = {}) => ({ id: key.slice(-4), key, server: "global", folder: key, label, named: true, ...extra });
@@ -580,4 +602,176 @@ test("the Game Files row's \"?\": what configuration drift is, one line per find
   const Settings = await import("../../src/ba_modding_toolkit/web/js/settings.js");
   assert.deepEqual(Settings.driftLines(), ["what", "reset", "untracked", "damaged"].map((k) => S(`settings.mods.driftHelp.${k}`)));
   assert.ok(Settings.driftLines().every((line) => line && !line.startsWith("settings.")), "every line has its text");
+});
+
+test("held refusal prompts accept Overwritten, Add First and its result, and scan consent", async () => {
+  answers["mods.state"] = base();
+  await MS.refresh();
+  let held = Loading.hold(() => P.overwritten({ name: "Airi", core: "airi_spr", files: [gameFile("airi_spr", { applied: "mod:a" })] }));
+  await drawn(dialog, "ok");
+  assert.equal(Loading.held(), true);
+  assert.equal(action(dialog, "ok").click().stopped, false, "Overwritten can be answered inside the hold");
+  assert.equal(await held, false);
+
+  answers["mods.adopt"] = "job-held-adopt";
+  jobs["job-held-adopt"] = { state: "done", result: { added: [], failed: [{ entry: { variant: "airi", core: "airi_spr" }, code: "game_file_locked" }] } };
+  held = Loading.hold(() => P.overwritten({ name: "Airi", core: "airi_spr", files: [gameFile("airi_spr")] }));
+  await drawn(dialog, "cancel");
+  assert.equal(action(dialog, "ok").click().stopped, false, "Add First can submit adoption");
+  await drawn(dialog, "ok");
+  assert.equal(action(dialog, "cancel"), undefined, "the adoption result has only OK");
+  assert.equal(Loading.held(), true);
+  assert.equal(press("Escape", stage).stopped, false, "the follow-up result receives Escape from the page");
+  assert.equal(await held, false);
+  assert.equal(Loading.held(), false);
+
+  const Consent = await import("../../src/ba_modding_toolkit/web/js/consent.js");
+  held = Loading.hold(() => Consent.scan(consent));
+  await drawn(consent, "ok");
+  assert.equal(press("Escape", stage).stopped, false);
+  assert.equal(consent.hidden, false, "consent still requires a button");
+  assert.equal(action(consent, "ok").click().stopped, false);
+  assert.equal(await held, true);
+  assert.equal(Loading.held(), false);
+});
+
+test("a toggle holds page input through the refresh and drawing, then shows an answerable result", async () => {
+  const fetched = deferred(), drawnPage = deferred(), started = deferred();
+  answers["mods.state"] = base();
+  answers["mods.toggle"] = "job-refresh";
+  jobs["job-refresh"] = { state: "done", result: { enabled: false, failed: [{ entry: { variant: "airi", core: "airi_spr" }, code: "game_file_locked" }] } };
+  await MS.init({ refreshPage: async () => { started.resolve(); await fetched.promise; await drawnPage.promise; } });
+  const chooser = stage.appendChild(new El("button"));
+  let opened = 0; chooser.addEventListener("click", () => { opened++; });
+  const toggled = MS.turn({ enabled: false, expect: true });
+  assert.equal(Loading.held(), true, "held from submission");
+  try {
+    await started.promise;
+    assert.equal(dialog.hidden, true, "the result cannot defer the refresh");
+    for (const type of ["pointerdown", "click", "keydown"]) {
+      assert.ok(chooser.dispatch(type, { key: "Enter" }).defaultPrevented, `${type} while the page is stale`);
+    }
+    fetched.resolve();
+    await tick();
+    assert.equal(Loading.held(), true, "RPC completion still waits for drawing");
+    assert.equal(opened, 0);
+    drawnPage.resolve();
+    await drawn(dialog, "ok");
+    assert.equal(Loading.held(), false, "the result is outside the hold");
+    assert.equal(action(dialog, "ok").click().stopped, false);
+    await toggled;
+    assert.equal(dialog.hidden, true);
+    chooser.click();
+    assert.equal(opened, 1);
+
+    // Escape also closes the result when focus has remained on the page.
+    const again = MS.turn({ enabled: false, expect: true });
+    await drawn(dialog, "ok");
+    assert.ok(press("Escape", chooser).defaultPrevented);
+    await again;
+    assert.equal(dialog.hidden, true);
+  } finally {
+    fetched.resolve(); drawnPage.resolve();
+    action(dialog, "ok")?.click();
+    await toggled;
+    chooser.remove();
+    await MS.init({ refreshPage: async () => {} });
+  }
+});
+
+test("a failed or stalled page refresh releases the toggle hold within its bound", async (t) => {
+  answers["mods.state"] = base();
+  answers["mods.toggle"] = "job-refresh-failed";
+  jobs["job-refresh-failed"] = { state: "done", result: { enabled: true } };
+  const errors = [];
+  t.mock.method(console, "error", (...args) => errors.push(args));
+  await MS.init({ refreshPage: async () => { throw new Error("refresh failed"); } });
+  await MS.turn({ enabled: true, expect: false });
+  assert.equal(Loading.held(), false);
+  assert.equal(toastEl.textContent, S("mods.onState"));
+  assert.match(String(errors[0]), /refresh failed/);
+
+  const started = deferred();
+  await MS.init({ refreshPage: () => { started.resolve(); return new Promise(() => {}); } });
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    const toggled = MS.turn({ enabled: true, expect: false });
+    await started.promise;
+    assert.equal(Loading.held(), true);
+    t.mock.timers.tick(14999);
+    await new Promise(setImmediate);
+    assert.equal(Loading.held(), true, "the bound has not expired");
+    t.mock.timers.tick(1);
+    await toggled;
+    assert.equal(Loading.held(), false);
+    assert.equal(toastEl.textContent, S("mods.onState"));
+    // The in-flight guard was released too: another toggle can complete.
+    await MS.init({ refreshPage: async () => {} });
+    await MS.turn({ enabled: true, expect: false });
+    assert.equal(Loading.held(), false);
+  } finally {
+    t.mock.timers.reset();
+    await MS.init({ refreshPage: async () => {} });
+  }
+});
+
+test("the toggle flushes the event delay and awaits the visible detail or roster redraw", async () => {
+  const main = readFileSync(new URL("../../src/ba_modding_toolkit/web/js/main.js", import.meta.url), "utf8");
+  const changed = main.slice(main.indexOf("let heldChange,"), main.indexOf("// the window back in front"));
+  assert.match(main, /refreshPage: refreshAfterToggle/, "the switch uses the awaited refresh");
+  for (const screen of ["detail", "roster"]) {
+    const ready = deferred();
+    let refreshed = false, invalidated = 0, settled = false;
+    const timers = new Set();
+    const env = {
+      $: (id) => ({ hidden: id !== `screen-${screen}` }),
+      ctx: { invalidateRoster: () => { invalidated++; } },
+      forget() {}, spinePrefix() {},
+      Detail: { filesChanged: async () => { refreshed = true; await ready.promise; } },
+      Popup: { whenIdle: async () => {} },
+      route: async () => { refreshed = true; await ready.promise; },
+      setTimeout: (fn) => { timers.add(fn); return fn; }, clearTimeout: (fn) => timers.delete(fn),
+    };
+    const h = new Function("env", `let { ${Object.keys(env).join(", ")} } = env; let routeToken = 1;
+      ${changed}
+      return { libraryChanged, refreshAfterToggle };`)(env);
+    h.libraryChanged({ cores: ["airi_spr"] });
+    assert.equal(refreshed, false, "the event is coalesced for 150 ms");
+    const refresh = h.refreshAfterToggle().then(() => { settled = true; });
+    await tick();
+    assert.equal(timers.size, 0, "the pending delay is flushed");
+    assert.equal(invalidated, 2, "also refreshes if the event has not arrived");
+    assert.equal(refreshed, true);
+    assert.equal(settled, false, `${screen} is still drawing`);
+    ready.resolve();
+    await refresh;
+    assert.equal(settled, true);
+  }
+});
+
+test("detail refresh callers await changes queued while an earlier refresh is drawing", async () => {
+  const detail = readFileSync(new URL("../../src/ba_modding_toolkit/web/js/detail.js", import.meta.url), "utf8");
+  const changed = detail.slice(detail.indexOf("let heldChange;"), detail.indexOf("async function reloadChanged()")).replace("export function", "function");
+  const first = deferred(), second = deferred();
+  let reads = 0, settled = false;
+  const env = {
+    popupOpen: () => false, Visual: { isOpen: () => false }, changing: () => false, Loading: { covering: () => false },
+    sleep: tick,
+  };
+  const h = new Function("env", `let { ${Object.keys(env).join(", ")} } = env;
+    let open = true, busy = false, fullscreen = false, fam = { variants: [{ spr: "airi_spr" }] };
+    ${changed}
+    async function reloadChanged() { heldChange = undefined; await env.draw(); }
+    return { filesChanged };`)({ ...env, draw: () => (++reads === 1 ? first.promise : second.promise) });
+  const a = h.filesChanged(null);
+  const b = h.filesChanged({ cores: ["airi_spr"] });
+  assert.equal(a, b, "both callers follow the same refresh queue");
+  b.then(() => { settled = true; });
+  first.resolve();
+  await tick();
+  assert.equal(reads, 2);
+  assert.equal(settled, false);
+  second.resolve();
+  await Promise.all([a, b]);
+  assert.equal(settled, true);
 });

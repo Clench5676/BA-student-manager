@@ -25,6 +25,7 @@ from ..utils import get_version_info
 from . import strings
 from .rpc import RpcRegistry, to_json
 from .services import Services
+from .session_log import tail
 from .state import ALIAS_LENGTH, ALIAS_MAX, LOBBY_ZOOM_MODES, alias_key, alias_text, is_number, lobby_zoom, roster_view
 from .system import reveal
 
@@ -99,6 +100,10 @@ def build_api(s: Services) -> RpcRegistry:
             "mute": s.mute,
             "debug": s.debug,
         }
+
+    @rpc.method("app.log")
+    def app_log() -> dict[str, str]:
+        return {"path": str(s.log_path), "text": tail(s.log_path, s.log_secrets)}
 
     @rpc.method("app.consent")
     def app_consent(granted: bool) -> None:
@@ -216,6 +221,7 @@ def build_api(s: Services) -> RpcRegistry:
             "roster": roster_view(s.state.get("roster")),
             "consent": s.state.consent, "cacheDir": str(s.cache_dir()),
             "version": get_version_info().get("version"), "native": s.window is not None,
+            "logPath": str(s.log_path),
             # the Enable Mods switch on the main screens, the tray or menu bar icon, the hand-off prompt
             "modSwitchShown": s.state.flag("mod_switch_shown"), "tray": s.state.flag("tray"),
             "classicPrompt": s.state.flag("classic_prompt"), "traySupported": s.tray_supported,

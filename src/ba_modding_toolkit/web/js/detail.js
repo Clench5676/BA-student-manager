@@ -10,6 +10,7 @@
 // within a short soft cap, the visible thumbnails. A change inside the screen (another variant, a tab, an applied
 // portrait) prepares every part off screen and swaps all of them in one frame (the commit barrier below).
 import * as NGUI from "./ngui.js";
+import { latestLoad, loadPlayer } from "./spine-load.js";
 import * as Loading from "./loading.js";
 import * as Lobby from "./lobby.js";
 import * as Visual from "./visual-mode.js";
@@ -71,7 +72,8 @@ const applied = { screen: 0, chips: 0, expr: 0 };
 const showable = (part, my, latest, gen) => open && (my === latest || (!!batch && gen === showGen && my > applied[part]));
 // the screen is shown (from show() until hide()): what a show, a tab change or a job started for it starts nothing
 // once it is hidden (the left side's players least of all)
-let open = false;
+let open = false, pageToken = 0;
+let leftPage = Promise.resolve(), leavePage = () => {};
 // a generation of the screen: a newer show, tab change or hide ends the wait of the one before
 let showGen = 0, endWait = () => {};
 function begin() {
@@ -89,6 +91,7 @@ async function prepare({ gen, ended }, inPlace, work) {
     await Promise.race([Promise.resolve().then(work), ended, sleep(HARD_CAP)]);
   } catch (err) {
     console.error(err);
+    if (gen === showGen) toast(errorText(err), { kind: "error" });
   }
   if (gen !== showGen) return false;
   if (queued) {
@@ -153,7 +156,7 @@ function lobbyLabel(v) {
 const gameFile = (v = variant(), kind = "spr") => partsOf(v, kind)[0]?.file || null;
 const baseName = (path) => (path ? path.split(/[\\/]/).pop() : "—");
 const sizeText = (bytes) => (!bytes ? "—" : bytes < 1048576 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1048576).toFixed(1)} MB`);
-const errorText = (err) => T(`error.${err.code}`, err.params || {});
+const errorText = (err) => T(`error.${err?.code || "internal"}`, err?.params || { error: String(err) });
 
 // white glyphs for the action cards (the game shows skill icons there), a folder for the file manager button
 const GLYPHS = {
@@ -528,29 +531,39 @@ async function addMods() {
 async function job(method, params, { onDone, after = reload } = {}) {
   if (busy) { toast(T("error.busy"), { kind: "error" }); return false; }
   busy = true;
+  const page = pageToken;
   let ok = false;
-  renderScreen();
-  toast(T("job.running"), { sticky: true });
   try {
-    const id = await rpc(method, params);
-    const result = await waitJob(id, (p) => toast(`${T("job.running")} ${p.current}/${p.total}`, { sticky: true }));
-    toast(result?.deferred ? T("mods.saved") : T("job.done"));
-    ok = true;
-    await onDone?.(result);
+    return await Loading.hold(async () => {
+      try {
+        await renderScreen();
+        toast(T("job.running"), { sticky: true });
+        const id = await rpc(method, params, { timeout: 30000 });
+        const result = await waitJob(id, (p) => toast(`${T("job.running")} ${p.current}/${p.total}`, { sticky: true }));
+        toast(result?.deferred ? T("mods.saved") : T("job.done"));
+        await onDone?.(result);
+        ok = true;
+      } catch (err) {
+        if (page === pageToken && open && err?.code === "original_unavailable" && QUEUEABLE.includes(method)) {
+          toast("");
+          // Refusal messages, Add First and its adoption result use the popup stack, exempt from the hold.
+          await overwrittenMessage(variant(), params.kind || "spr");
+        } else if (QUEUEABLE.includes(method)) await refused(err, method, params);
+        else toast(errorText(err), { kind: "error", sticky: false });
+      }
+      if (page === pageToken && open) await after(ok);
+      return ok;
+    }, { until: leftPage });
   } catch (err) {
-    // no official copy left: the Add First or Overwritten message of that entry, not a toast
-    if (err?.code === "original_unavailable" && (method === "actions.apply" || method === "actions.restore")) {
-      toast("");
-      overwrittenMessage(variant(), params.kind || "spr");
-    } else if (QUEUEABLE.includes(method)) refused(err, method, params);
-    else toast(errorText(err), { kind: "error", sticky: false });
+    toast(errorText(err), { kind: "error", sticky: false });
+    return false;
   } finally {
     busy = false;
-    await after(ok);
+    if (page === pageToken && open) {
+      try { await renderScreen(); } catch (err) { toast(errorText(err), { kind: "error" }); }
+    }
+    resumeChanged();
   }
-  // game files that changed while the job ran (another job before it, the tray): read again once its own reload is in
-  resumeChanged();
-  return ok;
 }
 // the mod the shown tab's game files carry (row 2's update and compare act on it), or null
 function shownMod() {
@@ -829,8 +842,12 @@ function enableDrag(clip, track) {
 // faces (also on an error, after the toast). The new layer stays transparent until committed; then it fades in over
 // the old one, which goes. A portrait that cannot be shown takes the old one away too: the left side stays empty
 // rather than showing another variant under this one's name.
+const portraitLoads = latestLoad();
 function loadSpine(base) {
   const my = ++spineToken;
+  return portraitLoads.run((signal) => showSpine(base, my, signal));
+}
+async function showSpine(base, my, signal) {
   const host = $("portrait");
   const layer = document.createElement("div");
   layer.className = host.children.length || batch ? "layer fading" : "layer";
@@ -845,12 +862,11 @@ function loadSpine(base) {
       old.retired = true;
       old.classList.add("fading");
       // disposePortrait() may have freed it meanwhile (a quick second step)
-      setTimeout(() => { if (old.isConnected) { old.player?.dispose(); old.remove(); } }, 400);
+      setTimeout(() => { if (old.isConnected) { old.load?.dispose(); old.remove(); } }, 400);
     }
   };
-  return new Promise((resolve) => {
-    layer.done = resolve; // settled by disposePortrait() too
-    layer.player = new spine.SpinePlayer(layer, {
+  try {
+    const load = layer.load = loadPlayer((config) => new spine.SpinePlayer(layer, config), {
       // the idle is set in success(): some NPC skeletons have no Idle_01, and spine-player fails on a missing one
       skeleton: `${base}.skel`, atlas: `${base}.atlas`, animation: undefined,
       premultipliedAlpha: false, alpha: true, backgroundColor: "#00000000",
@@ -860,39 +876,38 @@ function loadSpine(base) {
       viewport: detailViewport(),
       // the visual mode (visual-mode.js) frames it while it is open
       frame: (p) => Visual.frame(p),
-      success: async (player) => {
+      success: async (player, live) => {
         // before the first await: once this returns, spine-player frames the view on track 0's animation and plays.
         // With nothing on track 0 it would pause (no face, no blink): a skeleton without an idle gets an empty
         // animation there that never ends, so it keeps its setup pose and the faces on tracks 1-2 still play.
         const idle = idleAnimation(player.skeleton.data);
         if (idle) player.animationState.setAnimation(0, idle, true);
         else player.animationState.setEmptyAnimation(0, 0).trackEnd = Number.MAX_VALUE;
-        if (my !== spineToken) { resolve(); return; } // a newer portrait took over; it retires this layer
+        if (my !== spineToken || !live()) return; // a newer portrait took over; it retires this layer
         mainPlayer = player;
         applyExpression();
         scheduleBlink(player);
         await renderExpressions(); // the faces come from this skeleton
         await frames(2);           // its first frame is on the canvas
         commit(() => {
-          if (my !== spineToken) return;
+          if (my !== spineToken || !live()) return;
           layer.classList.remove("fading");
           retire(previous);
         });
-        resolve();
       },
-      error: (player, message) => {
-        console.error(message);
-        toast(T("error.internal", { error: message }), { kind: "error" });
-        // spine-player's own error box (black, with the message) never shows: the toast says it
-        layer.querySelector(".spine-player-error")?.remove();
-        if (my === spineToken) {
-          if (mainPlayer === player) { clearTimeout(blinkTimer); mainPlayer = null; } // it broke after it was shown
-          commit(() => { if (my === spineToken) retire([...previous, layer]); });
-        }
-        resolve();
-      },
-    });
-  });
+    }, { signal });
+    layer.player = load.player;
+    await load.ready;
+  } catch (err) {
+    console.error(err);
+    toast(errorText(err), { kind: "error" });
+    // spine-player's own error box (black, with the message) never shows: the toast says it
+    layer.querySelector(".spine-player-error")?.remove();
+    if (my === spineToken) {
+      if (mainPlayer === layer.player) { clearTimeout(blinkTimer); mainPlayer = null; } // it broke after it was shown
+      commit(() => { if (my === spineToken) retire([...previous, layer]); });
+    }
+  }
 }
 // the detail screen's portrait framing: the skeleton's origin on CharacterPos
 const detailViewport = () => portraitViewport(layouts && find(layouts.list, "CharacterPos"), { origin: ORIGIN, s: S, box: PORTRAIT_BOX });
@@ -912,7 +927,8 @@ function applyExpression() {
 function disposePortrait() {
   clearTimeout(blinkTimer);
   spineToken += 1;
-  for (const l of $("portrait").querySelectorAll(".layer")) { l.player?.dispose(); l.done?.(); l.remove(); }
+  portraitLoads.cancel();
+  for (const l of $("portrait").querySelectorAll(".layer")) { l.load?.dispose(); l.remove(); }
   mainPlayer = null;
 }
 
@@ -1274,10 +1290,10 @@ async function renderAll() {
 // loading indicator after a moment
 function changeInPlace(work) {
   const g = begin();
-  return Loading.wait(prepare(g, true, async () => {
+  return Loading.hold(() => prepare(g, true, async () => {
     await work();
     await settleThumbs();
-  })).then((ready) => {
+  }), { until: g.ended }).then((ready) => {
     // it may have taken over a show (a tab clicked while a step loads): the screen is on that student now
     if (ready && fam) arrived(fam.key, askedKey);
     return ready;
@@ -1286,6 +1302,7 @@ function changeInPlace(work) {
 
 // tabs: the left side shows the portrait, the memorial lobby or the 3D model
 function showTab(id) {
+  if (busy || Loading.held()) return;
   tab = id;
   expanded = false;
   exprScroll = 0;
@@ -1528,14 +1545,14 @@ async function reload() {
 // lobby does when the shown variant's files of that kind changed. It waits while a popup or a fullscreen view is
 // open, while the screen changes and while this screen's own job runs (whose reload comes first). ---
 let heldChange; // undefined: nothing waiting; null: anything may have changed; {cores}: those lower-case cores
-let reloadingChanged = false;
+let reloadingChanged = null;
 const mergeChange = (a, b) => (a === null || b === null ? null : a === undefined ? b : { cores: [...new Set([...a.cores, ...b.cores])] });
 const lower = (core) => String(core || "").toLowerCase();
 // a variant's game files of a kind as the screen judged them: they changed when this differs
 const filesSig = (v, kind) => JSON.stringify(v ? partsOf(v, kind).map((f) => [f.file, f.applied, f.crc, f.size, f.date, f.mtime, f.official]) : null);
 const quiet = () => !fullscreen && !Visual.isOpen() && !popupOpen() && !changing() && !Loading.covering();
 
-// filesChanged({cores} | null): main.js's library.changed handler, while the screen is open
+// filesChanged({cores} | null): resolves after queued changes have refreshed and drawn, or the screen is left
 export function filesChanged(change = null) {
   if (!open || !fam) return;
   if (change) {
@@ -1543,15 +1560,22 @@ export function filesChanged(change = null) {
     if (!fam.variants.some((v) => cores.has(lower(v.spr)) || cores.has(lower(v.lobby)))) return;
   }
   heldChange = mergeChange(heldChange, change && { cores: change.cores.map(lower) });
-  resumeChanged();
+  return resumeChanged();
 }
 function resumeChanged() {
-  if (heldChange === undefined || busy || reloadingChanged || !open) return;
-  reloadingChanged = true;
-  reloadChanged().catch((err) => console.error("reload after a switch", err)).finally(() => {
-    reloadingChanged = false;
+  if (reloadingChanged) return reloadingChanged;
+  if (heldChange === undefined || !open) return;
+  reloadingChanged = (async () => {
+    while (open && heldChange !== undefined) {
+      while (open && (busy || !quiet())) await sleep(250);
+      if (!open) return;
+      await reloadChanged();
+    }
+  })().catch((err) => console.error("reload after a switch", err)).finally(() => {
+    reloadingChanged = null;
     resumeChanged();
   });
+  return reloadingChanged;
 }
 async function reloadChanged() {
   while (open && !quiet()) await sleep(250);
@@ -1621,7 +1645,7 @@ export function applyPrefs(prefs) {
 // follows and starts no load it would drop. The keys are the screen's own: not while a text field or an input method
 // has them, under a popup (the screen's, the settings, the consent or update dialog), in a fullscreen view (the lobby,
 // the 3D model, the portrait's visual mode), during a job or another change of the screen, or behind the loading screen.
-const blocked = () => !open || !fam || fullscreen || Visual.isOpen() || busy || Loading.covering() || $("screen-detail").hidden
+const blocked = () => !open || !fam || fullscreen || Visual.isOpen() || busy || Loading.held() || Loading.covering() || $("screen-detail").hidden
   || !!document.querySelector(".popup-host:not([hidden]), .consent-host:not([hidden])");
 const changing = () => !!batch; // an in-place change is being prepared (a step, a chip, a tab, an applied portrait)
 // the address, as main.js routes it: what the arrows asked for
@@ -1665,6 +1689,9 @@ addEventListener("blur", () => keySteps.release());
 // ready (the panels, the left side's first frame, the visible thumbnails within THUMBS_CAP). In place (another
 // variant or family while the screen is shown), the shown screen stays until then and every part swaps in one frame.
 export async function show(context, familyData, key, { inPlace = false } = {}) {
+  leavePage();
+  pageToken += 1;
+  leftPage = new Promise((resolve) => { leavePage = resolve; });
   ctx = context;
   applyPrefs(ctx.prefs);
   open = true;
@@ -1713,6 +1740,8 @@ export function stepFailed() { arrived(); }
 
 // leaving the screen: stop the players, drop any change being prepared
 export function hide() {
+  leavePage();
+  pageToken += 1;
   open = false;
   begin();
   batch = null;

@@ -1196,6 +1196,12 @@
 				"change": "변경"
 			},
 			"version": "버전",
+			"log": {
+				"label": "로그",
+				"open": "열기",
+				"copy": "복사",
+				"copied": "복사됨"
+			},
 			"update": {
 				"check": "업데이트 확인",
 				"none": "최신 버전"

@@ -198,6 +198,8 @@ class Services:
         devmode.check_read(data_dir)
         self.settings = settings or Settings()
         self.data_dir = Path(data_dir)
+        self.log_path = self.data_dir / "webui.log"
+        self.log_secrets: set[str] = set()
         self.events = events or EventBus()
         self.jobs = jobs or JobRunner(self.events)
         self.state = state or UiState(self.data_dir / "webui.json")

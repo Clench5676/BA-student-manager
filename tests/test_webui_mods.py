@@ -865,3 +865,47 @@ def test_a_second_start_brings_the_first_window_to_the_front_and_exits(tmp_path,
         webui_main.main(["--serve"])  # a dev server refuses to start
     assert exit_.value.code == 1 and raised == [tmp_path]
     held.release()
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+def test_a_lobby_from_another_core_fails_and_the_next_switch_still_runs(env, enabled):
+    base = game_bundle(env.game, "test_home", payload=b"base lobby")
+    env.catalog.variants["dress"] = FakeVariant("dress", "dress_spr", "dress_home")
+    dress = game_bundle(env.game, "dress_home", payload=b"dress lobby")
+    mod = env.add(dress)
+    before = base.read_bytes(), dress.read_bytes()
+    if not enabled:
+        assert env.job("mods.toggle", enabled=False, expect=True).state == "done"
+    job = env.job("actions.apply", variant="test", source=f"mod:{mod.id}", kind="lobby")
+    assert job.state == "failed" and job.error["code"] == "mod_target_mismatch"
+    assert rpc(env.app, "jobs.get", id=job.id)["result"]["state"] == "failed"
+    assert not env.s.jobs.busy()
+    assert not rpc(env.app, "mods.state")["result"]["busy"]
+    assert (base.read_bytes(), dress.read_bytes()) == before
+    assert not env.s.library.configured("test")["lobby"]
+    # A different worker thread can acquire the library lock after failure.
+    assert env.job("actions.restore", variant="test", kind="lobby").state == "done"
+    assert env.job("actions.apply", variant="dress", source=f"mod:{mod.id}", kind="lobby").state == "done"
+
+
+@pytest.mark.parametrize("failure", ["result", "exception"])
+def test_failed_build_finishes_the_apply_and_releases_its_locks(env, monkeypatch, failure):
+    from ba_modding_toolkit import mod_install
+
+    mod = env.add(env.spr)
+    original = env.spr.read_bytes()
+    execute = mod_install.execute_mod_install
+
+    def fail(*args, **kwargs):
+        if failure == "exception":
+            raise RuntimeError("build failed")
+        return SimpleNamespace(failed_groups=["mismatched bundle"])
+
+    monkeypatch.setattr(mod_install, "execute_mod_install", fail)
+    job = env.job("actions.apply", variant="test", source=f"mod:{mod.id}")
+    assert job.state == "failed"
+    assert job.error["code"] in ("mod_apply_failed", "library_operation_failed")
+    assert env.spr.read_bytes() == original and not env.s.jobs.busy()
+    monkeypatch.setattr(mod_install, "execute_mod_install", execute)
+    assert env.job("actions.apply", variant="test", source=f"mod:{mod.id}").state == "done"
+    assert env.job("actions.restore", variant="test").state == "done"

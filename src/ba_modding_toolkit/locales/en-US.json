@@ -1196,6 +1196,12 @@
 				"change": "Change"
 			},
 			"version": "Version",
+			"log": {
+				"label": "Log",
+				"open": "Open",
+				"copy": "Copy",
+				"copied": "Copied"
+			},
 			"update": {
 				"check": "Check for Updates",
 				"none": "Up to date"

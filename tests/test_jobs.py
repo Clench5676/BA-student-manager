@@ -66,3 +66,63 @@ def test_a_pending_job_is_never_forgotten():
     gate.set()
     assert jobs.wait(others[-1], 5)
     jobs.shutdown()
+
+
+def test_failures_in_run_result_or_listeners_always_finish_and_release_the_worker():
+    from ba_modding_toolkit.errors import ServiceError
+
+    events = EventBus()
+    seen = events.subscribe()
+    jobs = JobRunner(events)
+
+    class BadResult:
+        def to_json(self):
+            raise ValueError("bad result")
+
+    def crash(error):
+        def run(log, progress):
+            log("building")
+            progress(1, 1)
+            raise error
+        return run
+
+    def listener(job):
+        raise RuntimeError("listener failed")
+
+    jobs.listen(listener)
+    try:
+        for fn, code in ((crash(ServiceError("mod_apply_failed")), "mod_apply_failed"),
+                         (crash(RuntimeError("build failed")), "internal"),
+                         (crash(SystemExit("builder exited")), "internal"),
+                         (lambda log, progress: BadResult(), "internal")):
+            jid = jobs.submit("apply", fn, writes="game")
+            assert jobs.wait(jid, 5)
+            job = jobs.get(jid)
+            assert job.state == "failed" and job.error["code"] == code
+            assert job.finished and not jobs.busy()
+        next_id = jobs.submit("restore", lambda log, progress: "restored", writes="game")
+        assert jobs.wait(next_id, 5)
+        assert jobs.get(next_id).result == "restored"
+        messages = []
+        while not seen.empty():
+            messages.append(seen.get_nowait())
+        assert len([d for e, d in messages if e == "job.failed"]) == 4
+    finally:
+        jobs.shutdown()
+
+
+def test_event_delivery_failure_cannot_kill_the_job_worker():
+    class BrokenEvents(EventBus):
+        def publish(self, event, data=None):
+            raise RuntimeError("event delivery failed")
+
+    jobs = JobRunner(BrokenEvents())
+    try:
+        jid = jobs.submit("apply", lambda log, progress: log("applied"), writes="game")
+        assert jobs.wait(jid, 5)
+        assert jobs.get(jid).state == "done" and not jobs.busy()
+        next_id = jobs.submit("restore", lambda log, progress: "ok", writes="game")
+        assert jobs.wait(next_id, 5)
+        assert jobs.get(next_id).result == "ok"
+    finally:
+        jobs.shutdown()

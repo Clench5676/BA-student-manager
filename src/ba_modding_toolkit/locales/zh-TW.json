@@ -1196,6 +1196,12 @@
 				"change": "變更"
 			},
 			"version": "版本",
+			"log": {
+				"label": "日誌",
+				"open": "開啟",
+				"copy": "複製",
+				"copied": "已複製"
+			},
 			"update": {
 				"check": "檢查更新",
 				"none": "已是最新版本"

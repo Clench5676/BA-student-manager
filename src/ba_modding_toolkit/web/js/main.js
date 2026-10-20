@@ -88,11 +88,20 @@ function libraryChanged(data) {
 async function applyChange() {
   const change = heldChange;
   heldChange = undefined;
-  if (!$("screen-detail").hidden) { Detail.filesChanged(change); return; }
+  if (change === undefined) return;
+  const my = changeRoute;
+  if (!$("screen-detail").hidden) return Detail.filesChanged(change);
   if ($("screen-roster").hidden) return;
   // the list is built again once no popup is open, unless a route came meanwhile (it reads the list itself)
   await Popup.whenIdle();
-  if (changeRoute === routeToken && !$("screen-roster").hidden) route();
+  if (my === routeToken && !$("screen-roster").hidden) await route();
+}
+
+// A completed toggle refreshes directly, even if its event has not arrived or is still being coalesced.
+async function refreshAfterToggle() {
+  libraryChanged(null);
+  clearTimeout(changeTimer);
+  await applyChange();
 }
 
 // the window back in front after 30 s or more: the game files are checked again (only with the scan consent)
@@ -166,8 +175,10 @@ function noGame() {
   ]);
 }
 
-let routeToken = 0, rosterBuilt = false;
+let routeToken = 0, rosterBuilt = false, endRoute = () => {};
 async function route() {
+  endRoute();
+  const ended = new Promise((resolve) => { endRoute = resolve; });
   const my = ++routeToken;
   const parts = location.hash.replace(/^#\/?/, "").split("/").map(decodeURIComponent);
   try {
@@ -177,12 +188,12 @@ async function route() {
       Roster.invalidate();
       if (!$("screen-detail").hidden && !Loading.covering()) {
         // in place: the shown screen stays until every part of the new one is ready, then all of it swaps at once
-        await Loading.wait((async () => {
+        await Loading.hold(async () => {
           const fam = await rpc("family.get", { key: parts[1] });
           if (my !== routeToken) return;
           visited(fam, parts[2]);
           await Detail.show(ctx, fam, parts[2], { inPlace: true });
-        })());
+        }, { until: ended });
       } else {
         // from another screen, a deep link or the start: behind the loading screen
         await Loading.scene(async (covered) => {
@@ -201,6 +212,8 @@ async function route() {
         stepCards = null;
         setTitle(T("top.students"), askQuit);
       };
+      // Back must not wait for a family or roster RPC blocked by the writer's library lock.
+      if (!$("screen-detail").hidden) reveal();
       const open = async (covered) => {
         const data = await roster();
         await covered;
@@ -293,7 +306,7 @@ async function start() {
   Cursor.init();
   renderNav(0, navOptions);
   // the Enable Mods switch in the top bar, and what the writer jobs switched
-  await ModSwitch.init({ names: variantNames }).catch((err) => console.error("mod switch", err));
+  await ModSwitch.init({ names: variantNames, refreshPage: refreshAfterToggle }).catch((err) => console.error("mod switch", err));
   Prompts.init({ names: variantNames });
   on("library.changed", libraryChanged);
   watchFront();
