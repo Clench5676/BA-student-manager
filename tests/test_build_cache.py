@@ -32,7 +32,7 @@ def test_reapply_reuses_only_a_referenced_build_after_restart(setup_library, mon
     env.library.apply('test', f'mod:{mod.id}')
     built = env.original.read_bytes()
     assert not (env.root / 'built').exists()
-    assert env.library.status()['builtSize'] == 0
+    assert env.library.sizes('built')['builtSize'] == 0
     assert env.library.apply('test', f'mod:{mod.id}').unchanged
     assert calls == [mod.id, mod.id]  # no configured instant-On copy yet
     env.library.toggle(False, True)
@@ -43,9 +43,9 @@ def test_reapply_reuses_only_a_referenced_build_after_restart(setup_library, mon
     calls = builder(env, monkeypatch)
     assert env.library.apply('test', f'mod:{mod.id}').unchanged
     assert calls == []
-    assert env.library.status()['builtSize'] == kept.stat().st_size
+    assert env.library.sizes('built')['builtSize'] == kept.stat().st_size
     assert env.library.clear_built() == len(built)
-    assert env.library.status()['builtSize'] == 0
+    assert env.library.sizes('built')['builtSize'] == 0
     env.library.apply('test', f'mod:{mod.id}')
     assert calls == [mod.id]
     assert not list((env.root / 'built').iterdir())
@@ -61,11 +61,11 @@ def test_restore_removes_the_only_retained_build_and_reapply_rebuilds(setup_libr
     env.library.apply('test', f'mod:{mod.id}', kind=kind)
     env.library.toggle(False, True)
     env.library.toggle(True, False)
-    assert env.library.status()['builtSize'] > 0
+    assert env.library.sizes('built')['builtSize'] > 0
     env.library.restore('test', kind=kind)
     assert target.read_bytes() == official
     assert not list((env.root / 'built').rglob('*.bundle'))
-    assert env.library.status()['builtSize'] == 0
+    assert env.library.sizes('built')['builtSize'] == 0
     env.library = reload_library(env)
     calls = builder(env, monkeypatch)
     env.library.apply('test', f'mod:{mod.id}', kind=kind)
@@ -89,7 +89,7 @@ def test_refused_apply_leaves_no_persistent_build(setup_library, monkeypatch, ki
         env.library.apply('test', f'mod:{mod.id}', kind=kind)
     assert calls == [mod.id] and target.read_bytes() == official
     assert not (env.root / 'built').exists()
-    assert env.library.status()['builtSize'] == 0
+    assert env.library.sizes('built')['builtSize'] == 0
 
 
 @pytest.mark.parametrize('change', ['source', 'options', 'copy', 'version', 'target'])

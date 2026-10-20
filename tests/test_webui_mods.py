@@ -151,8 +151,8 @@ def events_named(events, name):
 # --- mods.state ---
 
 STATE_KEYS = {"installs", "current", "enabled", "shown", "available", "reason", "scan", "explained", "configured",
-              "pending", "stuck", "left", "unfinished", "drift", "untracked", "damaged", "sourceMissing", "builtSize",
-              "originalsSize", "queued", "scanned", "tray", "traySupported", "busy", "progress"}
+              "pending", "stuck", "left", "unfinished", "drift", "untracked", "damaged", "sourceMissing",
+              "queued", "scanned", "tray", "traySupported", "busy", "progress"}
 
 
 def test_mods_state_has_its_shape_and_answers_while_the_library_lock_is_held(env):
@@ -183,6 +183,55 @@ def test_mods_state_has_its_shape_and_answers_while_the_library_lock_is_held(env
     release.set()
     holder.join(5)
     assert answer.get("result", {}).get("current") == env.key()
+
+
+def test_mods_state_and_status_refresh_never_compute_sizes(env, monkeypatch):
+    def no_sizes(directory):
+        pytest.fail(f"State refresh measured storage: {directory}")
+
+    monkeypatch.setattr("ba_modding_toolkit.library.service._folder_size", no_sizes)
+    status = env.s.refresh_status()
+    assert status is not None
+    assert "builtSize" not in status and "originalsSize" not in status
+    state = rpc(env.app, "mods.state")["result"]
+    assert "builtSize" not in state and "originalsSize" not in state
+    env.s.publish_state()
+    assert events_named(env.drain(), "mods.state")
+
+
+@pytest.mark.parametrize("kind", ["built", "originals"])
+def test_mods_sizes_counts_only_the_requested_folder_on_demand(env, monkeypatch, kind):
+    from ba_modding_toolkit.library import service
+
+    root = env.s.library.root
+    for folder, payload in (("built", b"generated"), ("originals", b"official")):
+        directory = root / folder
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / "first.bundle").write_bytes(payload)
+        (directory / "second.bundle").write_bytes(payload)
+        (directory / ".library-in-progress").write_bytes(b"unfinished")
+    measured, folder_size = [], service._folder_size
+
+    def measure(directory):
+        measured.append(directory)
+        return folder_size(directory)
+
+    monkeypatch.setattr(service, "_folder_size", measure)
+    expected = 2 * len(b"generated" if kind == "built" else b"official")
+    assert rpc(env.app, "mods.sizes", kind=kind)["result"] == {f"{kind}Size": expected}
+    assert measured == [root / kind]
+    (root / kind / "first.bundle").unlink()
+    assert rpc(env.app, "mods.sizes", kind=kind)["result"] == {f"{kind}Size": expected // 2}
+
+
+@pytest.mark.parametrize("kind", ["../built", "other", None, [], {}])
+def test_mods_sizes_rejects_unknown_folders(env, kind):
+    assert rpc(env.app, "mods.sizes", kind=kind)["error"]["code"] == "bad_params"
+
+
+def test_mods_sizes_without_stored_bundles(env):
+    for kind in ("built", "originals"):
+        assert rpc(env.app, "mods.sizes", kind=kind)["result"] == {f"{kind}Size": 0}
 
 
 def test_the_reasons_of_an_unavailable_switch(env, monkeypatch):

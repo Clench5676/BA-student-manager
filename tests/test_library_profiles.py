@@ -552,7 +552,7 @@ def test_an_off_keeps_built_copies_and_on_writes_them_back_without_the_installer
     assert built["source"] == f"mod:{mod.id}" and list(built["parts"]) == [world.spr.name]  # the modded part only
     assert built["parts"][world.spr.name]["mod_file"] is None
     assert (world.root / "built" / f"{sha1}.bundle").read_bytes() == rebuilt
-    assert world.library.status()["builtSize"] == len(rebuilt)
+    assert world.library.sizes("built")["builtSize"] == len(rebuilt)
     no_installer(monkeypatch)
     world.toggle(True)
     assert world.spr.read_bytes() == rebuilt and atlas.read_bytes() == header_bundle(b"skeleton")
@@ -609,8 +609,8 @@ def test_clear_built_mods_keeps_keys_of_mod_files(world, monkeypatch):
     rebuilding_installer(monkeypatch, only=world.spr.name)
     world.toggle(True)
     assert lobby.read_bytes() == home.file.read_bytes()
-    status = world.library.status()
-    assert status["builtSize"] == 0 and status["originalsSize"] > 0
+    assert world.library.sizes("built")["builtSize"] == 0
+    assert world.library.sizes("originals")["originalsSize"] > 0
 
 
 def test_clear_built_mods_keeps_another_instances_copy_in_progress(world, monkeypatch):
@@ -629,14 +629,14 @@ def test_clear_built_mods_keeps_another_instances_copy_in_progress(world, monkey
     os.utime(temporary, (stamp, stamp))
     os.utime(stale, (stamp - 3601, stamp - 3601))
     monkeypatch.setattr(service.time, "time", lambda: stamp)
-    assert world.library.status()["builtSize"] == freed
+    assert world.library.sizes("built")["builtSize"] == freed
 
     freed += stale.stat().st_size
     assert world.library.clear_built() == freed
     assert list(directory.iterdir()) == [temporary]
     assert temporary.read_bytes() == b"copy in progress"
     assert world.folder()["built"] == {}
-    assert world.library.status()["builtSize"] == 0
+    assert world.library.sizes("built")["builtSize"] == 0
 
 
 # --- the record lookup at build: the install's own record, a moved install's, or a migration ---

@@ -792,7 +792,7 @@ class Services:
     # --- the mods.state snapshot ---
 
     def refresh_status(self, library: Any = None) -> dict[str, Any] | None:
-        """Read the library's status into the snapshot (names, stats and profiles.json only, never the library
+        """Read the library's status into the snapshot (names and profiles.json only, never the library
         lock)."""
         try:
             library = library if library is not None else self.library
@@ -877,8 +877,6 @@ class Services:
             "untracked": count(lambda e: e.state in ("untracked", "changed") and not e.dismissed),
             "damaged": count(lambda e: e.state == "damaged"),
             "sourceMissing": count(lambda e: e.state == "source_missing"),
-            "builtSize": status.get("builtSize", 0),
-            "originalsSize": status.get("originalsSize", 0),
             "queued": len(self.queue),
             "scanned": self.snapshot.scanned() if consent is True else None,
             "tray": self.state.flag("tray"),

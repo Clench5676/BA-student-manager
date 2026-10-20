@@ -1,6 +1,6 @@
 // The Enable Mods switch (docs/web-ui.md, "Enable Mods switch"): one switch for every game folder, in the top bar
 // (#mod-switch) and in Settings' Mods tab. A click turns mods off or on at once (mods.toggle); the first toggle from
-// any place explains it once; the square "?" opens the help, with the disk use of built mods, Retry and the file check.
+// any place explains it once; the square "?" opens the help, with the disk use of backups, Retry and the file check.
 // A write refused while the classic UI is open opens the classic modal, which can queue it until the window closes.
 // The pure parts (the view from mods.state, the click, the help's lines, the result, the start prompts, the classic
 // modal's outcome) are tested in Node (tests/js/mod_switch.test.mjs).
@@ -82,7 +82,7 @@ export const retryParams = (state) => ({ enabled: state?.enabled !== false, expe
 export const reasonText = (state) => (state?.reason ? errorText(state.reason, state.reasonParams) : "");
 
 // the help's opening text, which the first toggle's explanation repeats
-export const basics = () => [T("mods.help")];
+export const basics = () => [T("mods.helpOn"), T("mods.helpOff")];
 
 // the first toggle's explanation: {title, lines, ok}; the box closes with Cancel too, and only ok toggles
 export function explanation(state) {
@@ -90,17 +90,15 @@ export function explanation(state) {
   return { title: action, lines: [...basics(), T("mods.explainOnce")], ok: action };
 }
 
-// helpLines(state): the "?" help's lines, [{text, button: {id, label}}]. Buttons: clear (Clear Built Mods), allow
+// helpLines(state, {originalsSize}): the "?" help's lines, [{text, button: {id, label}}]. Buttons: allow
 // (Allow Check: opens the scan consent popup, grants nothing itself), retry (pending and left entries), details
 // (stuck entries: the Overwritten message, never a Retry)
-export function helpLines(state, { sep = listSep() } = {}) {
+export function helpLines(state, { originalsSize = 0, sep = listSep() } = {}) {
   const s = state || {};
   const lines = basics().map((text) => ({ text }));
-  // the disk use line leads straight into the two sizes
+  // only the kept originals are extra space needed by the switch
   lines.push({ text: T("mods.helpSpace") });
-  lines.push({ text: T("mods.builtSize", { size: sizeText(s.builtSize) }),
-    ...(s.builtSize > 0 ? { button: { id: "clear", label: T("mods.builtClear") } } : {}) });
-  lines.push({ text: T("mods.originalsSize", { size: sizeText(s.originalsSize) }) });
+  lines.push({ text: T("mods.originalsSize", { size: sizeText(originalsSize) }) });
   const installs = s.installs || [];
   if (installs.length > 1) lines.push({ text: T("mods.helpFolders", { folders: installs.map((i) => i.label).join(sep) }) });
   if (s.scan !== true) lines.push({ text: T("mods.scanOff"), button: { id: "allow", label: T("mods.allowCheck") } });
@@ -194,7 +192,7 @@ export function onChange(fn) { listeners.add(fn); return () => listeners.delete(
 
 // the parts of mods.state the switch and Settings draw
 const signature = (s) => JSON.stringify(s && [s.enabled, s.shown, s.available, s.reason, s.busy, s.queued > 0, s.scan,
-  s.explained, s.pending, s.stuck, s.left, s.sourceMissing, s.builtSize, s.originalsSize, s.drift, s.untracked,
+  s.explained, s.pending, s.stuck, s.left, s.sourceMissing, s.drift, s.untracked,
   s.damaged, s.tray, s.current, (s.installs || []).map((i) => [i.key, i.label, i.named])]);
 
 function update(next) {
@@ -467,26 +465,30 @@ async function queueDone({ submitted = [], dropped = [] } = {}) {
 export async function openHelp() {
   const s = state || (await refresh());
   if (!s) return;
+  let sizes;
+  try { sizes = await Loading.wait(rpc("mods.sizes", { kind: "originals" }), { cap: null }); }
+  catch (err) { toast(errorText(err.code, err.params), { kind: "error" }); return; }
   const act = {
-    clear: ({ close }) => { close(null); clearBuilt(); },
     allow: ({ close }) => { close(null); askScan(); },
     retry: ({ close }) => { close(null); run(retryParams(state || s)); },
     details: () => overwritten(),
   };
-  const lines = helpLines(s).map((l) => (l.button ? { text: l.text, button: { label: l.button.label, fn: act[l.button.id] } } : l.text));
+  const lines = helpLines(state || s, sizes).map((l) => (l.button ? { text: l.text, button: { label: l.button.label, fn: act[l.button.id] } } : l.text));
   await Popup.message({ title: T("mods.switch"), lines, width: 2100 });
 }
 
-// Clear Built Mods (decision 11): a library job; kept originals stay, Off needs them
-async function clearBuilt() {
+// Settings' Clear Built Mods (decision 11): a library job; kept originals stay, Off needs them
+export async function clearBuilt() {
   try {
     const id = await rpc("mods.clearBuilt");
     const job = waitJob(id);
     Loading.wait(job).catch(() => {});
     await job;
     toast(T("mods.builtCleared"));
+    return true;
   } catch (err) {
     toast(errorText(err.code, err.params), { kind: "error" });
+    return false;
   }
 }
 

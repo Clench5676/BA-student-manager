@@ -606,6 +606,10 @@ def build_api(s: Services) -> RpcRegistry:
         s.publish_state()
         return {}
 
+    @rpc.method("mods.sizes")
+    def mods_sizes(kind: str) -> dict[str, int]:
+        return s.library.sizes(kind)
+
     @rpc.method("mods.clearBuilt")
     def mods_clear_built() -> str:
         library = s.library
