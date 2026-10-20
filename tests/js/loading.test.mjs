@@ -110,6 +110,45 @@ for (const mode of ["wait", "scene"]) test(`writer progress survives ${mode} nav
   assert.equal(h.stage.children.length, 0);
 });
 
+test("automatic popup readiness includes independent writer progress and navigation", async () => {
+  const h = await harness(), writer = deferred(), page = deferred();
+  assert.equal(h.loading.busy(), false);
+  const job = h.loading.task(() => writer.promise);
+  assert.equal(h.loading.active(), false, "writer progress has a separate lifetime");
+  assert.equal(h.loading.busy(), true);
+  const navigation = h.loading.scene(() => page.promise);
+  page.resolve(); await flush(); await h.advance(300); await navigation;
+  assert.equal(h.loading.busy(), true, "navigation cannot release the writer's blocker");
+  writer.resolve(); await flush(); await h.advance(300); await job;
+  assert.equal(h.loading.busy(), false);
+});
+
+test("automatic popups wait for work before its indicator appears and after its display cap", async () => {
+  const h = await harness(), work = deferred();
+  const waiting = h.loading.wait(work.promise, { cap: 1000 });
+  assert.equal(h.loading.active(), false, "the indicator's initial delay");
+  assert.equal(h.loading.busy(), true);
+  await h.advance(300);
+  assert.equal(h.loading.active(), true);
+  await h.advance(1000); await waiting;
+  await h.advance(300);
+  assert.equal(h.loading.active(), false, "the indicator has reached its display cap");
+  assert.equal(h.loading.busy(), true, "the job continues past that cap");
+  work.resolve(); await flush();
+  assert.equal(h.loading.busy(), false);
+});
+
+test("a newer writer finishing does not release an older job's automatic popup blocker", async () => {
+  const h = await harness(), first = deferred(), second = deferred();
+  const older = h.loading.task(() => first.promise);
+  const newer = h.loading.task(() => second.promise);
+  second.resolve(); await flush(); await h.advance(300); await newer;
+  assert.equal(h.loading.active(), false);
+  assert.equal(h.loading.busy(), true);
+  first.resolve(); await older;
+  assert.equal(h.loading.busy(), false);
+});
+
 test("a writer finishing cannot close a running scene, and its late progress is ignored", async () => {
   const h = await harness(), writer = deferred(), page = deferred();
   let progress;

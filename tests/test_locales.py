@@ -104,3 +104,13 @@ def test_refined_settings_and_remap_labels(code):
     assert "atStartup" not in ui["settings"]["mods"]
     assert placeholders(ui["remap"]["upscaled"]) == ["h", "w"]
     assert ui["loading"]["plain"] != ui["loading"]["now"]
+
+
+@pytest.mark.parametrize("code", [REFERENCE, *TRANSLATIONS])
+def test_scan_consent_replacement_keys(code):
+    mods = load(code)["webui"]["mods"]
+    assert "scanOff" not in mods
+    assert "allowCheck" not in mods
+    assert set(mods["scan"]) == {"title", "will", "willNot", "note", "no", "yes"}
+    for section in ("will", "willNot"):
+        assert set(mods["scan"][section]) == {"label", "items"}

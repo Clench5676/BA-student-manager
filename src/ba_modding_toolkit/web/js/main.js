@@ -261,14 +261,21 @@ async function boot() {
   if (!info?.gameFound) return;
   Cursor.init();
   // the start popups only once the first screen is revealed
-  await Popup.sequence(startPopups());
+  const popups = Popup.sequence(startPopups());
+  // The network check never holds the start sequence or a screen. Keep a late offer until the UI is free.
+  if (ModSwitch.startDue("update", { info })) {
+    Update.check($("consent"), undefined, { beforeShow: async () => {
+      await popups;
+      await Popup.whenIdle(200, () => Loading.busy() || ModSwitch.current()?.busy);
+    } }).catch((err) => console.error("update check", err));
+  }
+  await popups;
 }
 
 // The start popups, one at a time and in this order, each only when it has something to show (mod-switch.js
 // startDue); each step resolves once its popup has closed (docs/web-ui.md, "Start sequence"):
 //   - the asset consent;
 //   - the scan consent, while it is unanswered and a game folder is known;
-//   - the update: released builds look for a newer release once per launch (development runs do not);
 //   - the prompts of mods back to official and of mods outside the library, once the start scan is in (at most
 //     10 s; a later scan shows them once no other popup is open), only with the scan consent
 function startPopups() {
@@ -280,7 +287,6 @@ function startPopups() {
       Loading.init(info);
     }],
     ["scan", () => due("scan") && Consent.scan($("consent"))],
-    ["update", () => due("update") && Update.check($("consent"))],
     ["drift", () => Prompts.start("drift", info)],
     ["untracked", () => Prompts.start("untracked", info)],
   ];

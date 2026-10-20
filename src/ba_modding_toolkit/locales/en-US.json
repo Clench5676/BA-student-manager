@@ -1006,18 +1006,15 @@
 			"helpFolders": "Game folders: {folders}",
 			"installNamed": "{server} ({folder})",
 			"explainOnce": "Not shown again",
-			"scanOff": "Other mods not checked",
-			"allowCheck": "Allow Check",
 			"scan": {
 				"title": "Check Game Files",
-				"checked": {
-					"label": "Checked",
-					"items": "Start and end of each portrait and memorial lobby file",
-					"why": "Finds mods outside the library, files reset by a repair or update, files with no official copy"
+				"will": {
+					"label": "This app will",
+					"items": "Check whether each applied game file matches the configuration, find mods outside the mod library and files with no official backup"
 				},
-				"never": {
-					"label": "Never",
-					"items": "Reading whole files, sending anything off this device"
+				"willNot": {
+					"label": "This app will not",
+					"items": "Read whole files or file contents, or send anything off this device"
 				},
 				"note": "Declined: those checks stay off, change in Settings",
 				"no": "Don't Allow",

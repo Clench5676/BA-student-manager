@@ -1,6 +1,6 @@
 // The Enable Mods switch (docs/web-ui.md, "Enable Mods switch"): one switch for every game folder, in the top bar
 // (#mod-switch) and in Settings' Mods tab. A click turns mods off or on at once (mods.toggle); the first toggle from
-// any place explains it once; the square "?" opens the help, with Retry and the file check.
+// any place explains it once; the square "?" opens the help, with Retry and Details.
 // A write refused while the classic UI is open opens the classic modal, which can queue it until the window closes.
 // The pure parts (the view from mods.state, the click, the help's lines, the result, the start prompts, the classic
 // modal's outcome) are tested in Node (tests/js/mod_switch.test.mjs).
@@ -90,15 +90,13 @@ export function explanation(state) {
   return { title: action, lines: [...basics(), T("mods.explainOnce")], ok: action };
 }
 
-// helpLines(state): the "?" help's lines, [{text, button: {id, label}}]. Buttons: allow
-// (Allow Check: opens the scan consent popup, grants nothing itself), retry (pending and left entries), details
+// helpLines(state): the "?" help's lines, [{text, button: {id, label}}]. Buttons: retry (pending and left entries), details
 // (stuck entries: the Overwritten message, never a Retry)
 export function helpLines(state, { sep = listSep() } = {}) {
   const s = state || {};
   const lines = basics().map((text) => ({ text }));
   const installs = s.installs || [];
   if (installs.length > 1) lines.push({ text: T("mods.helpFolders", { folders: installs.map((i) => i.label).join(sep) }) });
-  if (s.scan !== true) lines.push({ text: T("mods.scanOff"), button: { id: "allow", label: T("mods.allowCheck") } });
   const notSwitched = (s.pending || 0) + (s.left || 0);
   if (notSwitched > 0) lines.push({ text: T("mods.notSwitched", { n: notSwitched }), button: { id: "retry", label: T("mods.retry") } });
   if (s.stuck > 0) lines.push({ text: T("mods.stuck", { n: s.stuck }), button: { id: "details", label: T("mods.details") } });
@@ -311,7 +309,7 @@ export async function click(from = "top") {
 // the first toggle: the explanation once (decision 3); closing it in any way counts as shown, only its button toggles
 async function explain(s) {
   const e = explanation(s);
-  const r = await Popup.message({ title: e.title, lines: e.lines, ok: e.ok, cancel: T("popup.cancel"), width: 2100, fitTogether: [0, 1] });
+  const r = await Popup.message({ title: e.title, lines: e.lines, ok: e.ok, cancel: T("popup.cancel"), width: 2100, fitTogether: [0, 1], plain: true });
   explainedHere = true;
   rpc("mods.explained").catch(() => {});
   return r.button === "ok";
@@ -462,12 +460,11 @@ export async function openHelp() {
   const s = state || (await refresh());
   if (!s) return;
   const act = {
-    allow: ({ close }) => { close(null); askScan(); },
     retry: ({ close }) => { close(null); run(retryParams(state || s)); },
     details: () => overwritten(),
   };
   const lines = helpLines(state || s).map((l) => (l.button ? { text: l.text, button: { label: l.button.label, fn: act[l.button.id] } } : l.text));
-  await Popup.message({ title: T("mods.switch"), lines, width: 2100, fitTogether: [0, 1] });
+  await Popup.message({ title: T("mods.switch"), lines, width: 2100, fitTogether: [0, 1], plain: true });
 }
 
 // Settings' mod cache cleanup (decision 11): a library job; kept originals stay, Off needs them
@@ -483,7 +480,7 @@ export async function clearBuilt() {
   }
 }
 
-// the scan consent popup, over whatever is open (Settings' Check Game Files, the help's Allow Check); the consent is given
+// the scan consent popup, over Settings' Check Game Files; the consent is given
 // there, never by the button that opened it
 export function askScan() {
   return Consent.scan($("consent"), { over: true }).then((granted) => { refresh(); return granted; });

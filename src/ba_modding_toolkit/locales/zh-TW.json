@@ -1006,18 +1006,15 @@
 			"helpFolders": "遊戲資料夾：{folders}",
 			"installNamed": "{server}（{folder}）",
 			"explainOnce": "此說明不再顯示",
-			"scanOff": "未檢查其他 Mod",
-			"allowCheck": "允許檢查",
 			"scan": {
 				"title": "檢查遊戲檔案",
-				"checked": {
-					"label": "檢查內容",
-					"items": "每個立繪和紀念大廳檔案的開頭和結尾",
-					"why": "找出 Mod 倉庫外的 Mod、被修復或更新還原的檔案、無原版備份的檔案"
+				"will": {
+					"label": "本程式會",
+					"items": "檢查每個遊戲內已套用檔案是否與設定相同，找出 Mod 倉庫外的 Mod、原版無備份的檔案"
 				},
-				"never": {
-					"label": "不會進行",
-					"items": "讀取完整檔案、向本機以外傳送任何內容"
+				"willNot": {
+					"label": "本程式不會",
+					"items": "讀取完整檔案、檔案內容，或向本機以外傳送任何內容"
 				},
 				"note": "拒絕則以上檢查保持關閉，可在設定中變更",
 				"no": "不允許",

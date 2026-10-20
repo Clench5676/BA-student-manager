@@ -60,9 +60,9 @@ export function allowsInput(ev) {
     || stack.some((e) => (e.el || e.host).contains(ev.target))
     || !!ev.target.closest?.(".popup-host:not([hidden]), .consent-host:not([hidden])");
 }
-// resolves once no popup is open (the start prompts that come later wait for this)
-export function whenIdle(every = 200) {
-  return new Promise((resolve) => { const check = () => (anyOpen() ? setTimeout(check, every) : resolve()); check(); });
+// resolves once no popup is open and the caller's work has finished (late prompts and update offers)
+export function whenIdle(every = 200, blocked = () => false) {
+  return new Promise((resolve) => { const check = () => (anyOpen() || blocked() ? setTimeout(check, every) : resolve()); check(); });
 }
 
 // Escape goes to the topmost popup; not while an input method composes (keyCode 229 is the key that ends a conversion
@@ -559,6 +559,7 @@ const MSG = { title: 150, gap: 28, rowMin: 104, check: 150, buttons: 236, none: 
 //   lines: text, or {text, button: {label, fn}} for a line with a small button at its end (fn({close}), where
 //          close(button) closes the popup); with such a line every line shows as a row of the game's light box
 //   fitTogether: line indices fitted at one shared size, using the smallest fit within the popup's size floor
+//   plain: left-aligned lines without a box or separators, including lines with a button at the right
 //   ok, cancel: the buttons' labels (either may be left out); check: {label, checked}
 //   close: false for a popup that must be answered with a button (no close button; the backdrop and Escape do nothing)
 //   confirmKeys: keys that press OK while the popup is in front and holds the focus itself (a focused button takes its
@@ -578,7 +579,7 @@ export function confirmKey(ev, keys) {
 }
 
 // the message without the game's prefab: a plain box on a dark backdrop, the same buttons, marked the same way
-function plainMessage(layer, { title, lines, ok, cancel, state, dismissable, scroll }, finish) {
+function plainMessage(layer, { title, lines, ok, cancel, state, dismissable, scroll, plain }, finish) {
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const button = (caption, fn, action, cls = "message-button") => {
     const b = el("button", cls, caption);
@@ -594,7 +595,12 @@ function plainMessage(layer, { title, lines, ok, cancel, state, dismissable, scr
   const content = scroll ? box.appendChild(el("div", "plain-message-lines")) : box;
   lines.map((l) => (typeof l === "string" ? { text: l } : l)).forEach((r, i) => {
     const p = el("p", "", r.text);
-    if (r.button) p.appendChild(button(r.button.label, () => r.button.fn?.({ close: finish }), `line${i}`, "plain-line-button"));
+    if (plain) Object.assign(p.style, { textAlign: "left", display: "flex", alignItems: "center", gap: "20px" });
+    if (r.button) {
+      const b = button(r.button.label, () => r.button.fn?.({ close: finish }), `line${i}`, "plain-line-button");
+      if (plain) Object.assign(b.style, { marginLeft: "auto", flexShrink: "0" });
+      p.appendChild(b);
+    }
     content.appendChild(p);
   });
   if (state) {
@@ -618,14 +624,14 @@ function messageText(text, max, min, room) {
   return wrapPath(text, min, min, room, Infinity);
 }
 
-function messageLines(lines, w, fitTogether) {
+function messageLines(lines, w, fitTogether, plain) {
   const rows = lines.map((l) => (typeof l === "string" ? { text: l } : l));
-  const boxed = rows.some((r) => r.button);
+  const boxed = !plain && rows.some((r) => r.button);
   const min = boxed ? 40 : 44, max = boxed ? 44 : 52;
   const fitted = rows.map((r) => {
     const bf = r.button ? fitText(r.button.label, 40, 28, 340) : null;
     const bw = bf ? Math.max(230, glyphsOf(bf.text, bf.fs) + 90) : 0;
-    const room = boxed ? w - 280 - (bw ? bw + 30 : 0) : w - 240;
+    const room = w - (boxed ? 280 : 240) - (bw ? bw + 30 : 0);
     return { r, bf, bw, room, f: messageText(r.text, max, min, room) };
   });
   const group = fitTogether.map((i) => fitted[i]).filter(Boolean);
@@ -636,40 +642,37 @@ function messageLines(lines, w, fitTogether) {
   }
   const out = [];
   let y = 0;
-  if (!boxed) {
-    fitted.forEach(({ r, f }, i) => {
-      const h = f.lines * f.fs * 1.3 + 8;
-      out.push(node(`Line_${i}`, [0, y - h / 2], [label(f.text, f.fs, `${r.color || "#2d4664"}/1.00`, w - 200, h, { depth: 8 })]));
-      y -= h + 16;
-    });
-    return { tree: node("Lines", [0, 0], [], out), height: -y - 16, buttons: [] };
-  }
   // rows on the game's light stats box: text at the left, the line's button at the right
   const boxW = w - 200, buttons = [];
-  const sized = fitted.map((s) => ({ ...s, h: Math.max(MSG.rowMin, s.f.lines * s.f.fs * 1.3 + 30) }));
+  const sized = fitted.map((s) => ({ ...s, h: boxed ? Math.max(MSG.rowMin, s.f.lines * s.f.fs * 1.3 + 30)
+    : Math.max(s.bf ? 92 : 0, s.f.lines * s.f.fs * 1.3 + 8) }));
   const boxH = sized.reduce((a, s) => a + s.h, 0) + 16;
-  out.push(node("Box", [0, -boxH / 2], [sprite("Common_Bg_Raius10px", boxW, boxH, { depth: 5, color: "#ecf5f9/1.00" })], [
-    node("Line", [0, 0], [sprite("Common_Line_Raius10px", boxW + 6, boxH + 6, { depth: 4, color: "#c0c9d4/1.00" })]),
-  ]));
-  y = -8;
-  sized.forEach(({ r, f, bf, bw, h }, i) => {
+  if (boxed) {
+    out.push(node("Box", [0, -boxH / 2], [sprite("Common_Bg_Raius10px", boxW, boxH, { depth: 5, color: "#ecf5f9/1.00" })], [
+      node("Line", [0, 0], [sprite("Common_Line_Raius10px", boxW + 6, boxH + 6, { depth: 4, color: "#c0c9d4/1.00" })]),
+    ]));
+    y = -8;
+  }
+  sized.forEach(({ r, f, bf, bw, h, room }, i) => {
     const cy = y - h / 2;
-    out.push(node(`Row_${i}`, [-boxW / 2 + 40, cy], [label(f.text, f.fs, `${r.color || "#2d4664"}/1.00`, boxW - 80 - (bw ? bw + 30 : 0), f.lines * f.fs * 1.3 + 8, { pivot: 3, depth: 8 })]));
+    const left = boxed || plain;
+    out.push(node(`${boxed ? "Row" : "Line"}_${i}`, [left ? -w / 2 + (boxed ? 140 : 120) : 0, cy],
+      [label(f.text, f.fs, `${r.color || "#2d4664"}/1.00`, left ? room : w - 200, f.lines * f.fs * 1.3 + 8, { pivot: left ? 3 : 4, depth: 8 })]));
     if (bf) {
       // the small light-blue button of the consent popup's Change
-      out.push(node(`Btn_${i}`, [boxW / 2 - 30 - bw / 2, cy], [sprite("Common_Btn_BG", bw, 92, { incline: 10, depth: 8, color: "#8de4ff/1.00" })], [
+      out.push(node(`Btn_${i}`, [w / 2 - (boxed ? 130 : 120) - bw / 2, cy], [sprite("Common_Btn_BG", bw, 92, { incline: 10, depth: 8, color: "#8de4ff/1.00" })], [
         node("Deco", [bw / 2 - 70, 8], [sprite("Common_Btn_Normal_B_S_Pt", 140, 92, { type: 0, depth: 9, color: "#ffffff/1.00" })]),
         node("Label", [0, 3], [label(bf.text, bf.fs, "#314665/1.00", bw - 30, 80, { depth: 10 })]),
       ]));
       buttons.push([i, r.button]);
     }
-    if (i < sized.length - 1) out.push(node(`Dot_${i}`, [0, y - h], [sprite("Common_Line_Dot", boxW - 60, 4, { type: 2, depth: 7, color: "#c0c9d4/1.00" })]));
-    y -= h;
+    if (boxed && i < sized.length - 1) out.push(node(`Dot_${i}`, [0, y - h], [sprite("Common_Line_Dot", boxW - 60, 4, { type: 2, depth: 7, color: "#c0c9d4/1.00" })]));
+    y -= h + (boxed ? 0 : 16);
   });
-  return { tree: node("Lines", [0, 0], [], out), height: boxH, buttons };
+  return { tree: node("Lines", [0, 0], [], out), height: boxed ? boxH : Math.max(0, -y - 16), buttons };
 }
 
-async function showMessage({ title = "", lines = [], ok = null, cancel = null, check = null, host: hostArg = "dialog", width = 1700, close: dismissable = true, confirmKeys = null, fitTogether = [], scroll = false }, resolve) {
+async function showMessage({ title = "", lines = [], ok = null, cancel = null, check = null, host: hostArg = "dialog", width = 1700, close: dismissable = true, confirmKeys = null, fitTogether = [], scroll = false, plain = false }, resolve) {
   const host = hostOf(hostArg);
   const layer = document.createElement("div");
   layer.className = "popup-layer";
@@ -703,12 +706,12 @@ async function showMessage({ title = "", lines = [], ok = null, cancel = null, c
   } catch (err) {
     console.warn("message popup without the game's frame", err);
     if (ended) return;
-    plainMessage(layer, { title, lines, ok, cancel, state, dismissable, scroll }, finish);
+    plainMessage(layer, { title, lines, ok, cancel, state, dismissable, scroll, plain }, finish);
     layer.focus?.({ preventScroll: true });
     return;
   }
   try {
-    const body = messageLines(lines, width, fitTogether);
+    const body = messageLines(lines, width, fitTogether, plain);
     const hasButtons = !!(ok || cancel);
     const need = MSG.title + body.height + (state ? MSG.check : 0) + MSG.gap + (hasButtons ? MSG.buttons : MSG.none);
     const h = Math.min(scroll ? 1400 : Infinity, Math.max(MSG.minH, need));

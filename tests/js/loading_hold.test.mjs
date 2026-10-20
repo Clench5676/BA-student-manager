@@ -3,7 +3,12 @@ import { test } from "node:test";
 
 class El {
   children = []; style = {}; listeners = {}; className = ""; isConnected = true; hidden = false; parentNode = null;
-  classList = { add() {}, remove() {}, replace() {} };
+  classList = {
+    add: (...names) => { this.className = [...new Set([...this.className.split(" "), ...names])].join(" ").trim(); },
+    remove: (...names) => { this.className = this.className.split(" ").filter((n) => !names.includes(n)).join(" "); },
+    replace: (a, b) => { this.classList.remove(a); this.classList.add(b); },
+    contains: (name) => this.className.split(" ").includes(name),
+  };
   addEventListener(type, fn) { this.listeners[type] = fn; }
   setAttribute() {}
   removeAttribute() {}
@@ -103,7 +108,7 @@ test("Escape reaches the top popup while focus remains on the held page", async 
   } finally { work.resolve(); await done; }
 });
 
-test("leaving releases input at once without ending or swallowing the job", async () => {
+test("leaving releases input but automatic popups still wait for the job after navigation", async () => {
   const job = deferred(), left = deferred();
   let completed = false;
   const done = Loading.hold(async () => { await job.promise; completed = true; return "reported"; }, { until: left.promise });
@@ -111,8 +116,13 @@ test("leaving releases input at once without ending or swallowing the job", asyn
   await new Promise(setImmediate);
   assert.equal(Loading.held(), false);
   assert.equal(completed, false);
+  globalThis.getComputedStyle = () => ({ opacity: "1" });
+  await Loading.scene(async () => {});
+  assert.equal(Loading.active(), false);
+  assert.equal(Loading.busy(), true, "the released hold's job still blocks an update offer");
   job.resolve();
   assert.equal(await done, "reported");
+  assert.equal(Loading.busy(), false);
 });
 
 test("overlapping holds and thrown work release exactly their own input hold", async () => {
@@ -134,6 +144,8 @@ test("a repair cover blocks Back, popup clicks and Escape until success or failu
     const done = Loading.hold(() => Loading.scene(async () => { await job.promise; if (fail) throw new Error("repair failed"); }), { all: true });
     await new Promise((resolve) => setTimeout(resolve, 0));
     assert.equal(Loading.covering(), true);
+    assert.equal(stage.classList.contains("input-held"), true);
+    assert.equal(Loading.busy(), true);
     for (const [target, key] of [[back, undefined], [popup, undefined], [popup, "Escape"]]) {
       const ev = event(target, key);
       stage.listeners[key ? "keydown" : "click"](ev);
@@ -143,5 +155,7 @@ test("a repair cover blocks Back, popup clicks and Escape until success or failu
     if (fail) await assert.rejects(done, /repair failed/); else await done;
     assert.equal(Loading.held(), false);
     assert.equal(Loading.covering(), false);
+    assert.equal(stage.classList.contains("input-held"), false);
+    assert.equal(Loading.busy(), false);
   }
 });

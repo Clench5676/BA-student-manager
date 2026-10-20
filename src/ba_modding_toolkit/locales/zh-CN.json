@@ -1006,18 +1006,15 @@
 			"helpFolders": "游戏目录：{folders}",
 			"installNamed": "{server}（{folder}）",
 			"explainOnce": "此说明不再显示",
-			"scanOff": "未检查其他 Mod",
-			"allowCheck": "允许检查",
 			"scan": {
 				"title": "检查游戏文件",
-				"checked": {
-					"label": "检查内容",
-					"items": "每个立绘和记忆大厅文件的开头和结尾",
-					"why": "找出 Mod 仓库外的 Mod、被修复或更新还原的文件、无原版备份的文件"
+				"will": {
+					"label": "本程序会",
+					"items": "检查每个游戏内已应用文件是否和配置相同，找出 Mod 仓库外的 Mod、原版无备份的文件"
 				},
-				"never": {
-					"label": "不会进行",
-					"items": "读取完整文件、向本机以外发送任何内容"
+				"willNot": {
+					"label": "本程序不会",
+					"items": "读取完整文件、文件内容，或者向本机以外发送任何内容"
 				},
 				"note": "拒绝则以上检查保持关闭，可在设置中更改",
 				"no": "不允许",
