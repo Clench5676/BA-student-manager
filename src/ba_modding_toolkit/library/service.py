@@ -664,7 +664,7 @@ class ModLibrary:
         parsed = parse_filename(paths[0].name)
         return ModEntry(record["id"], paths[0], record["label"], self._target_of(record), record["kind"],
                         record["added"], not record["seen"], sum(p.stat().st_size for p in paths),
-                        parsed.date, parsed.crc, parsed.core.lower())
+                        parsed.date, parsed.crc, parsed.core.lower(), record.get("user_added") is True)
 
     @_serialized
     def mods(self) -> list[ModEntry]:
@@ -737,7 +737,7 @@ class ModLibrary:
             names = sorted(group)
             parsed = parse_filename(names[0])
             target, kind = targets[parsed.core.lower()]
-            record = self._store(group, parsed.core, target, kind)
+            record = self._store(group, parsed.core, target, kind, user_added=True)
             known[signature_] = record["id"]
             entry = self._entry(record)
             added.append(entry)
@@ -828,13 +828,15 @@ class ModLibrary:
                 (added.configured if result.deferred else added.applied).append(entry)
         return added
 
-    def _store(self, files: dict[str, Path], label: str, target: str, kind: str) -> dict[str, Any]:
+    def _store(self, files: dict[str, Path], label: str, target: str, kind: str,
+               *, user_added: bool = False) -> dict[str, Any]:
         """Copy a mod's files into the library and record it; nothing is left behind on failure."""
         names = sorted(files)
         mod_id = uuid.uuid4().hex
         directory = self.root / "mods" / mod_id
         record = {"id": mod_id, "files": names, "label": label, "target": target,
-                  "kind": kind, "added": datetime.now(timezone.utc).isoformat(), "seen": False}
+                  "kind": kind, "added": datetime.now(timezone.utc).isoformat(), "seen": False,
+                  "user_added": user_added}
         try:
             for name in names:
                 atomic_copy(files[name], directory / name)

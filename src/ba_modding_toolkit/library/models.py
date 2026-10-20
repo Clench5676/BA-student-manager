@@ -42,6 +42,7 @@ class ModEntry(JsonResult):
     date: str
     crc: str
     core: str = ""  # the lower-case core of its files (a lobby mod belongs to one lobby core)
+    user_added: bool = False  # explicit add, rather than adoption, recovery or re-filing
 
 
 class AddResult(list[ModEntry]):

@@ -155,6 +155,7 @@ def test_add_deduplicates_preserves_filename_and_detects_targets(setup_library):
     assert entry.file.read_bytes() == mod.read_bytes()
     assert (entry.target, entry.kind, entry.fresh, entry.date) == ("test", "spr", True, "2026-01-01")
     assert entry.added.endswith("+00:00")
+    assert entry.user_added and reload_library(env).mods()[0].user_added
     assert env.library.add([mod]) == []
     lobby = game_bundle(env.tmp / "lobby", "test_home_gl", payload=b"lobby")
     assert env.library.add([lobby])[0].kind == "lobby"
@@ -965,9 +966,16 @@ def test_variant_swap_rejects_incompatible_texture_page_counts(setup_library, mo
     assert not (env.root / "originals").exists()
 
 
-def test_update_uses_official_baseline_preserves_previous_and_reports_unchanged(setup_library, monkeypatch):
+@pytest.mark.parametrize("legacy", [False, True])
+def test_update_uses_official_baseline_preserves_previous_and_reports_unchanged(setup_library, monkeypatch, legacy):
     env = setup_library
     entry = env.library.add([make_mod(env.original, env.tmp / "input")])[0]
+    if legacy:
+        env.library._records[entry.id].pop("user_added")
+        env.library._save()
+        env.library = reload_library(env)
+        entry, = env.library.mods()
+        assert not entry.user_added, "legacy records must not acquire a new-mod dot during repair"
     old_bytes = entry.file.read_bytes()
     env.library.apply("test", f"mod:{entry.id}")
     calls = []
@@ -982,6 +990,7 @@ def test_update_uses_official_baseline_preserves_previous_and_reports_unchanged(
     assert result.previous[0].read_bytes() == old_bytes
     assert result.previous[0].is_relative_to(entry.file.parent / "previous")
     assert result.mod.file.read_bytes() == header_bundle(b"updated!")
+    assert result.mod.id == entry.id and result.mod.user_added == entry.user_added
     assert calls == [[env.root / "originals" / env.original.name]]
     assert reload_library(env).mods()[0] == result.mod
     assert env.library.update(entry.id).unchanged
@@ -1495,6 +1504,7 @@ def test_switching_keeps_a_file_changed_outside_the_library_as_a_mod(setup_libra
     kept, = [entry for entry in env.library.mods() if entry.id != first.id]
     assert kept.file.name == env.original.name and kept.file.read_bytes() == external
     assert (kept.kind, kept.target, kept.fresh) == ("spr", "test", True)
+    assert not kept.user_added
     assert [m.id for m in reload_library(env).mods()] == [first.id, kept.id]
     # switching back puts it in the game again
     env.library.apply("test", f"mod:{kept.id}")

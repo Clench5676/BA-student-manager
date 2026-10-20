@@ -17,7 +17,7 @@ from ba_modding_toolkit.i18n import I18n, t
 from ba_modding_toolkit.models import ContNameTypeKey, SaveOptions
 from ba_modding_toolkit.utils import CRCUtils
 
-from test_library import setup_library
+from test_library import reload_library, setup_library
 
 
 def atlas_text(pages, modern=False, pma=False):
@@ -377,6 +377,8 @@ def test_library_remap_keeps_installed_official_copy_and_original_mod(setup_libr
     monkeypatch.setattr(env.settings, "crc_needed", lambda path: True)
     result = env.library.remap(entry.id)
     assert result.mod.id != entry.id
+    assert entry.user_added and not result.mod.user_added
+    assert not next(m for m in reload_library(env).mods() if m.id == result.mod.id).user_added
     assert result.mod.label == t("webui.remap.name", name=entry.label)
     assert len(env.library.mods()) == 2
     assert result.mod.date == "2026-01-01"

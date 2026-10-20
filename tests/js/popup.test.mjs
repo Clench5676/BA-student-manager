@@ -784,6 +784,25 @@ test("the log popup preserves literal text, opens at the bottom and Copy leaves 
   assert.equal(dialog.hidden, true);
 });
 
+test("new card dots hide for in-use and selected mods independently", async () => {
+  const items = [
+    { key: "current", label: "In use", inUse: true, isNew: true },
+    { key: "pending", label: "Pending", isNew: true },
+    { key: "other", label: "Other", isNew: true },
+    { key: "seen", label: "Seen" },
+  ];
+  for (const selected of ["current", "pending", "other"]) {
+    await Popup.listPopup({ host: prompt, title: "Portrait", items, selected });
+    const hasDot = (key) => walk(prompt).some((el) => el.dataset.path?.endsWith(`Card_${key}/Dot`));
+    assert.equal(hasDot("current"), false, "an auto-applied mod stays unmarked after another card is picked");
+    assert.equal(hasDot("pending"), selected !== "pending");
+    assert.equal(hasDot("other"), selected !== "other");
+    assert.equal(hasDot("seen"), false);
+    assert.ok(items[0].isNew, "rendering must not consume the tab or roster mark");
+  }
+  prompt.hidden = true;
+});
+
 test("portrait and memorial lobby mods share the localized Mod chip under the name", async () => {
   for (const lang of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"]) {
     const ui = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${lang}.json`, import.meta.url))).webui;

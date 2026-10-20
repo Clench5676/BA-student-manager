@@ -591,6 +591,27 @@ test("new mod dots survive visits and tab changes, then clear for the switch's o
   } finally { Detail.hide(); t.mock.timers.reset(); }
 });
 
+for (const kind of ["spr", "lobby"]) test(`an auto-applied ${kind} mod has no card dot when another source is picked`, async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    family = modFamily(kind); family.variants[0].modList[0].fresh = true;
+    await showPortrait(t);
+    const tab = kind === "lobby" ? 2 : 1;
+    if (tab === 2) {
+      const switching = tabButton(tab).click(); await flush(); await finish(t, switching);
+    }
+    assert.ok(tabDot(tab)); assert.ok(chipDot("ibuki"));
+    seenReply = async () => ({ error: { code: "internal" } });
+    const popup = switchButton().click(); await flush(); await popup;
+    const own = walk(hosts.popup).find((e) => e.dataset.key === "self");
+    assert.ok(own); await own.click(); await flush();
+    assert.ok(walk(hosts.popup).some((e) => e.dataset.path?.endsWith("Card_m:test/Using")));
+    assert.equal(walk(hosts.popup).find((e) => e.dataset.path?.endsWith("Card_m:test/Dot")), undefined);
+    assert.ok(tabDot(tab)); assert.ok(chipDot("ibuki"), "card rendering leaves the unread marks intact");
+    await closeSwitch();
+  } finally { Detail.hide(); seenReply = async () => ({ result: null }); t.mock.timers.reset(); }
+});
+
 test("a failed seen write keeps the dots and can be retried by opening the mod card", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   try {
