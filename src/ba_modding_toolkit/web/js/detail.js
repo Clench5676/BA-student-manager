@@ -266,7 +266,7 @@ function screenTree() {
     dataNode.pos[0] = right ? rightCap : leftCap;
     // Fit each value independently; the compact rows use an ellipsis once this value reaches the size floor.
     const fit = fitText(String(value), 42, 28, rooms[i], 1);
-    text(t, `${INFO}/Status/${name_}/${dataPath}`, fit.text, { w_: rooms[i], fontSize: fit.fs, ellipsis: true, title: String(value), ...(color ? { color: `${color}/1.00` } : {}) });
+    text(t, `${INFO}/Status/${name_}/${dataPath}`, fit.text, { w_: rooms[i], fontSize: fit.fs, ellipsis: true, ariaLabel: String(value), ...(color ? { color: `${color}/1.00` } : {}) });
     const pot = find(t, `${INFO}/Status/${name_}/Data_Widget/Potential_Widget`);
     if (pot) pot.active = false;
   });
@@ -409,7 +409,7 @@ function screenTree() {
 
 // after the name on the dark plate: the user's own aliases, small and dim, then the pencil of the game's input popup
 // (UIPopup_Input's Cafe_Icon_NameEdit) that opens their editor. Where the name leaves too little room, the pencil
-// alone (its tooltip lists them).
+// alone; its accessible name includes the aliases.
 const PLATE_RIGHT = 925; // the plate's right edge at the name's height, less a margin
 const PENCIL = 46;
 function aliasPlate(np, nameEnd) {
@@ -490,9 +490,9 @@ function addSwitchText(host, view) {
 
 function hits(view, leftHost, rightHost) {
   // each button names its part, so the focus finds it again in the next render
-  const add = (host, path, fn, title) => {
+  const add = (host, path, fn, name) => {
     const el = view.nodes.get(`Inventory_ListControl/${path}`)?.els[0];
-    if (el) hitButton(host, rect(el), fn, title).dataset.part = path;
+    if (el) hitButton(host, rect(el), fn, name).dataset.part = path;
   };
   // the switch card puts another source on the game files of the shown tab (the 3D tab has none to offer yet)
   const sk = switchKind();
@@ -502,7 +502,7 @@ function hits(view, leftHost, rightHost) {
   }
   add(rightHost, `${INFO}/Status/Btn_Up_Wrapper/Btn_Up/BG (1)`, () => reveal(gameFile(variant(), tabKind())), T(platform === "mac" ? "open.mac" : "open.win"));
   add(rightHost, `${INFO}/Detail_Btn`, showDetails, T("info.details"));
-  const act = (card, fn, title) => add(rightHost, `${INFO}/Skill/${card}/Bg`, fn, title);
+  const act = (card, fn, name) => add(rightHost, `${INFO}/Skill/${card}/Bg`, fn, name);
   act("SkillData_EX", () => runCompatibility(), T("compatibility.check"));
   act("SkillData_EX (1)", () => Compatibility.canRemap(shownMod()?.id) ? runRemap(shownMod()) : runUpdate(),
     T(Compatibility.canRemap(shownMod()?.id) ? "remap.action" : "act.update"));
@@ -511,7 +511,7 @@ function hits(view, leftHost, rightHost) {
   add(leftHost, "LeftInfo/CharInfo/Char_Target/Pin/Pin_On/Bg", toggleFav, T("fav.label"));
   add(leftHost, "LeftInfo/CharInfo/Char_Target/Pin/Pin_Off/Bg", toggleFav, T("fav.label"));
   add(leftHost, "LeftInfo/CharInfo/Char_Target/Char_CVCollectionBtn", copyName, baseName(gameFile(variant(), tabKind())));
-  // the aliases after the name and the pencil open the alias editor; the tooltip lists them
+  // the aliases after the name and the pencil open the alias editor
   const aliasEls = ["Label_Alias", "Char_AliasBtn"].map((n) => view.nodes.get(`Inventory_ListControl/LeftInfo/CharInfo/Char_Target/${n}`)?.els[0]).filter(Boolean);
   if (aliasEls.length) {
     const boxes = aliasEls.map(rect), pad = 14;
@@ -778,10 +778,10 @@ function row4Items() {
     // the dialogue's lines in the UI language, else a numbered placeholder
     return (Lobby.meta()?.sequences || []).map((sq) => {
       const text = Lobby.textOf(sq).join(" "), none = T("lobby.dialogue", { n: sq.n });
-      return text ? { key: sq.anim, body: text, title: text } : { key: sq.anim, body: none, placeholder: true, title: none };
+      return text ? { key: sq.anim, body: text } : { key: sq.anim, body: none, placeholder: true };
     });
   }
-  if (tab === "model") return modelActions.map((a) => ({ key: a, caption: T(`model.action.${a}`), title: T(`model.action.${a}`) }));
+  if (tab === "model") return modelActions.map((a) => ({ key: a, caption: T(`model.action.${a}`) }));
   const base = currentBase();
   const names = mainPlayer?.skeleton ? mainPlayer.skeleton.data.animations.map((a) => a.name).filter((n) => /^\d{2}$/.test(n)).sort() : [];
   return (names.length ? names : ["00"]).map((e) => ({ key: e, thumb: thumb(base, "face", e) }));
@@ -859,7 +859,7 @@ async function drawExpressions() {
       if (cd.item) { row4Pick(cd.item.key); keepScroll(); renderExpressions(); }
       if (cd.pile) { expanded = true; exprScroll = 0; renderExpressions(); }
       if (cd.fold) { expanded = false; renderExpressions(); }
-    }, cd.item?.title || "", 260);
+    }, cd.item?.body || cd.item?.caption || "", 260);
   }));
   if (!ok()) return; // a newer render took over (e.g. the tab changed while faces were rendering)
   if (my === exprToken) exprPics = [picturesReady(pics, clip)];
@@ -1305,7 +1305,7 @@ function detailsBody({ fields, rows }) {
   fields.forEach(([k, v], i) => {
     const h = rowHs[i], cy = y - h / 2, f = values[i];
     kids.push(node(`F_${i}`, [40, cy], [label(k, 38, "#2d4664/1.00", capW, 50, { pivot: 3, depth: 8 })]));
-    kids.push(node(`V_${i}`, [40 + capW, cy], [label(f.text, f.fs, "#000000/1.00", room + 20, f.lines * f.fs * 1.25 + 8, { pivot: 3, depth: 8, title: String(v) })]));
+    kids.push(node(`V_${i}`, [40 + capW, cy], [label(f.text, f.fs, "#000000/1.00", room + 20, f.lines * f.fs * 1.25 + 8, { pivot: 3, depth: 8, ariaLabel: String(v) })]));
     if (i < fields.length - 1) kids.push(node(`L_${i}`, [W / 2, y - h], [sprite("Common_Line_Dot", W - 60, 4, { type: 2, depth: 7, color: "#c0c9d4/1.00" })]));
     y -= h;
   });

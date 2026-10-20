@@ -112,7 +112,7 @@ def build_api(s: Services) -> RpcRegistry:
     @rpc.method("app.ready")
     def app_ready(timings: dict[str, Any] | None = None) -> None:
         phases = {"boot", "info", "settings", "strings", "fonts", "ui-indexes", "mod-state", "first-screen",
-                  "plain-loading", "styled-loading"}
+                  "fallback-loading", "sprite-loading"}
         if timings is not None:
             if not isinstance(timings, dict):
                 raise ServiceError("bad_params", key="timings")

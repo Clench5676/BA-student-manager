@@ -258,7 +258,6 @@ function build() {
   toggle.setAttribute("aria-labelledby", label.id);
   const help = document.createElement("button");
   help.className = "ms-help";
-  help.title = T("mods.guide");
   help.setAttribute("aria-label", T("mods.guide"));
   help.appendChild(document.createElement("i"));
   toggle.addEventListener("click", () => click("top"));
@@ -286,8 +285,7 @@ function render() {
   toggle.classList.toggle("unavailable", v.unavailable);
   toggle.setAttribute("aria-checked", String(v.on));
   toggle.setAttribute("aria-disabled", String(v.busy || v.unavailable));
-  // the reason as the tooltip of a greyed switch (and its description for assistive technology)
-  if (v.unavailable) toggle.title = reasonText(state); else toggle.removeAttribute("title");
+  if (v.unavailable) toggle.setAttribute("aria-description", reasonText(state)); else toggle.removeAttribute("aria-description");
   dot.hidden = !v.dot;
 }
 

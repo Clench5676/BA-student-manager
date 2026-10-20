@@ -6,7 +6,7 @@ import { test } from "node:test";
 class El {
   constructor(tag = "div") {
     Object.assign(this, { tagName: tag.toUpperCase(), children: [], parentNode: null, style: { setProperty(k, v) { this[k] = v; } },
-      dataset: {}, listeners: {}, className: "", hidden: false, textContent: "", id: "", width: 8, height: 8 });
+      dataset: {}, attrs: {}, listeners: {}, className: "", hidden: false, textContent: "", id: "", width: 8, height: 8 });
     this.classList = {
       contains: (c) => this.className.split(" ").includes(c),
       add: (...cs) => { this.className = [...new Set([...this.className.split(" "), ...cs])].join(" "); },
@@ -39,8 +39,9 @@ class El {
   querySelector(s) { return this.querySelectorAll(s)[0] || null; }
   addEventListener(type, fn) { (this.listeners[type] ||= []).push(fn); }
   removeEventListener() {}
-  setAttribute() {}
-  removeAttribute() {}
+  setAttribute(k, v) { this.attrs[k] = String(v); }
+  getAttribute(k) { return this.attrs[k] ?? null; }
+  removeAttribute(k) { delete this.attrs[k]; }
   focus() { document.activeElement = this; }
   click() { return Promise.all((this.listeners.click || []).map((f) => f({ type: "click" }))); }
   getContext() {
@@ -369,7 +370,7 @@ test("a lobby switch stays covered until its failed preview settles and can retr
     await finish(t, switching);
     assert.equal(Loading.covering(), false);
     assert.ok(switchButton(), "the new panel commits even though Lobby.show is pending");
-    assert.equal(switchButton().title, "Switch Memorial Lobby");
+    assert.equal(switchButton().getAttribute("aria-label"), "Switch Memorial Lobby");
     t.mock.timers.tick(16000); await flush();
     assert.ok(errors.some((a) => a.some((e) => String(e).includes("Detail lobby: timed out"))));
     assert.equal(hosts.lobby.querySelector(".lobby-unavailable")?.textContent, "Preview unavailable");
@@ -406,17 +407,17 @@ test("a special background waits for preview failure and keeps controls and unse
     assert.equal(ready, false, "a pending background cannot release the loading cover early");
     await finish(t, showing);
     assert.equal(Detail.currentVariant(), v.key, "the requested background stays selected alongside a portrait variant");
-    assert.equal(switchButton().title, "Switch Background");
+    assert.equal(switchButton().getAttribute("aria-label"), "Switch Background");
     assert.ok(switchButton().listeners.click.length);
     const add = walk(hosts.ngui).find((e) => e.dataset.part === `${INFO}/Weapon/Btn_Up_Wrapper/Btn_Up/BG (1)`);
-    assert.equal(add.title, "Add Background");
+    assert.equal(add.getAttribute("aria-label"), "Add Background");
     assert.ok(add.listeners.click.length);
     assert.ok(!walk(hosts.ngui).some((e) => e.dataset.part?.endsWith("Tab_1/Tab_Off/Label")), "there is no portrait tab hit target");
     assert.ok(assetRequests.slice(fetchStart).some((url) => url.includes("/lobby/arona_workpage_daytime/")));
     assert.ok(!playerRequests.slice(start).some((url) => url.includes("/spr/")), "no missing portrait player is started");
     assert.equal(hosts.lobby.querySelector(".lobby-unavailable")?.textContent, "Preview unavailable");
     assert.ok(!hosts.lobby.classList.contains("pending"));
-    assert.equal(switchButton().title, "Switch Background");
+    assert.equal(switchButton().getAttribute("aria-label"), "Switch Background");
     assert.ok(switchButton().listeners.click.length, "apply and restore still have a switch card");
     assert.ok(!rpcRequests.slice(rpcStart).some((r) => r.method === "lobby.lines"));
     assert.ok(tabDot(2)); assert.ok(chipDot(v.key));
@@ -525,14 +526,15 @@ test("long portrait and lobby names only resize their own info cell in every loc
           }
           const cells = paths.map(cell);
           assert.ok(cells.every(Boolean), `${lang} ${kind}: all four value cells render`);
-          assert.equal(cells[0].title, name);
-          assert.equal(cells[0].style.pointerEvents, "auto", "the full value can be hovered");
+          assert.equal(cells[0].getAttribute("aria-label"), name);
+          assert.equal(cells[0].title, undefined);
+          assert.equal(cells[0].style.pointerEvents, "none", "labels never intercept hover");
           assert.equal(cells[0].children[0].style.textOverflow, "ellipsis");
           assert.equal(cells[0].children[0].textContent, name, "the complete value is retained");
           assert.ok(parseFloat(cells[0].style.fontSize) >= parseFloat(size(name, 28)));
           if (name.length > 100) assert.equal(cells[0].style.fontSize, size(name, 28));
           const labels = paths.map((path) => cell(path.split("/")[0]).style.fontSize);
-          snapshots.push({ current: cells[0].style.fontSize, others: cells.slice(1).map((el) => [el.title, el.style.fontSize]), labels });
+          snapshots.push({ current: cells[0].style.fontSize, others: cells.slice(1).map((el) => [el.getAttribute("aria-label"), el.style.fontSize]), labels });
           Detail.hide();
         }
         assert.ok(parseFloat(snapshots[1].current) < parseFloat(snapshots[0].current), `${lang} ${kind}: the long name fits on its own`);
@@ -623,7 +625,7 @@ for (const after of ["closed", "aliases", "reopened", "left"]) test(`a delayed s
     await closeSwitch();
     let input;
     if (after === "aliases") {
-      const pencil = walk(hosts.ngui).find((e) => e.title === "Aliases");
+      const pencil = walk(hosts.ngui).find((e) => e.getAttribute("aria-label") === "Aliases");
       assert.ok(pencil);
       await pencil.click(); await flush();
       input = hosts.popup.querySelector(".alias-input");

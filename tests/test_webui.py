@@ -723,14 +723,14 @@ def test_startup_preferences_round_trip_and_update_info(app, services):
 def test_startup_timings_are_bounded_named_and_recorded_in_seconds(app, services, monkeypatch):
     ready = []
     monkeypatch.setattr(services, "ready", lambda: ready.append(True))
-    assert rpc(app, "app.ready", timings={"boot": 1250, "fonts": 20, "plain-loading": 50,
-                                         "styled-loading": 1200, "private/path": 1, "settings": True,
+    assert rpc(app, "app.ready", timings={"boot": 1250, "fonts": 20, "fallback-loading": 50,
+                                         "sprite-loading": 1200, "private/path": 1, "settings": True,
                                          "info": -1, "strings": float("nan"), "mod-state": float("inf")}) == {"result": None}
     assert ready == [True]
     assert rpc(app, "app.timings")["result"] == services.timings.snapshot()
     measured = {key: value for key, value in services.timings.snapshot().items() if key.startswith("page.")}
     assert measured == {"page." + key: {"seconds": seconds, "count": 1} for key, seconds in
-                        {"boot": 1.25, "fonts": .02, "plain-loading": .05, "styled-loading": 1.2}.items()}
+                        {"boot": 1.25, "fonts": .02, "fallback-loading": .05, "sprite-loading": 1.2}.items()}
     assert rpc(app, "app.ready", timings=[])["error"]["code"] == "bad_params"
 
 

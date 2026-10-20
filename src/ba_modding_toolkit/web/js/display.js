@@ -132,9 +132,9 @@ function clipToFrame(view, frame) {
 }
 
 const stagePx = ([x, y]) => [960 + x * S, 540 - y * S];
-function hitAt(host, [x, y], [w, h], fn, title) {
+function hitAt(host, [x, y], [w, h], fn, name) {
   const [l, t] = stagePx([x - w / 2, y + h / 2]);
-  return hitButton(host, [l, t, w * S, h * S], fn, title, Z + 200);
+  return hitButton(host, [l, t, w * S, h * S], fn, name, Z + 200);
 }
 
 async function render() {

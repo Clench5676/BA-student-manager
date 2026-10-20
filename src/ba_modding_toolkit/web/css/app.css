@@ -93,7 +93,7 @@ input[type="text"], input[type="search"], textarea { cursor: text; }
   -webkit-mask-box-image-repeat: stretch; }
 .ms-toggle:not(.is-on) .ms-off::before { background: #153757; }
 .ms-toggle.is-on .ms-on b, .ms-toggle:not(.is-on) .ms-off b { color: #ffffff; margin-top: -1px; }
-/* busy: dimmed at the loading indicator's pace; unavailable: greyed, the reason as its tooltip */
+/* busy: dimmed at the loading indicator's pace; unavailable: greyed */
 .ms-toggle.busy { animation: ms-busy 1.1667s ease-in-out infinite; }
 @keyframes ms-busy { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
 .ms-toggle.unavailable { filter: grayscale(1); opacity: .55; }
@@ -335,19 +335,21 @@ input[type="text"], input[type="search"], textarea { cursor: text; }
 .loading-ind [data-path$="/Arona/Halo"] { animation: ld-turn 1.1667s ease-in-out infinite, ld-halo 2.3333s step-end infinite; }
 .loading-ind [data-path$="/Arona/Halo_2"] { animation: ld-turn 1.1667s ease-in-out infinite, ld-halo2 2.3333s step-end infinite; }
 .loading-ind [data-path*="/Loading/"] { animation: ld-text .8333s ease-in-out infinite; }
-/* plain stand-in (before the atlases are in, or without a game): the page font and three dots */
-.loading-plain { position: absolute; right: 84px; bottom: 44px; display: flex; align-items: flex-end; gap: 9px; color: #fff;
-  font: var(--w) 44px/1 var(--font); letter-spacing: 1px; text-shadow: 0 2px 4px rgba(10, 30, 60, .6); }
-.loading-plain span { margin-right: 4px; }
+/* Asset-free corner indicator: the bundled rounded font, the game's blue/white palette and the same clip timings. */
+.loading-fallback { position: absolute; right: 84px; bottom: 44px; display: flex; align-items: flex-end; gap: 9px; color: #8de4ff;
+  font: italic var(--w) 44px/1 "RHR", sans-serif; letter-spacing: 1px; transform: skewX(-10deg);
+  -webkit-text-stroke: 1px #fff; text-shadow: 0 3px 0 #2c445c, 2px 0 0 #2c445c, -2px 0 0 #2c445c; }
+.loading-fallback span { margin-right: 4px; animation: ld-text .8333s ease-in-out infinite; }
 .loading.with-progress { z-index: 1501; }
 .loading-progress { position: absolute; left: 84px; bottom: 132px; max-width: 1000px; padding: 8px 16px;
   color: #fff; background: rgba(10, 24, 44, .8); border-radius: 8px; font-size: 26px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; pointer-events: none; }
-.loading-plain i { width: 11px; height: 11px; margin-bottom: 5px; border-radius: 50%; background: #fff; animation: ld-dot0 1.1667s ease-in-out infinite; }
-.loading-plain i:nth-of-type(2) { animation-name: ld-dot1; }
-.loading-plain i:nth-of-type(3) { animation-name: ld-dot2; }
+.loading-fallback i { width: 11px; height: 11px; margin-bottom: 5px; border-radius: 50%; background: #8de4ff;
+  box-shadow: 0 0 0 1px #fff, 0 3px 0 2px #2c445c; animation: ld-dot0 1.1667s ease-in-out infinite; }
+.loading-fallback i:nth-of-type(2) { animation-name: ld-dot1; }
+.loading-fallback i:nth-of-type(3) { animation-name: ld-dot2; }
 @media (prefers-reduced-motion: reduce) {
-  .loading-ind .ngui, .loading-plain i { animation: none !important; }
+  .loading-ind .ngui, .loading-fallback span, .loading-fallback i { animation: none !important; }
 }
 
 /* the detail screen's left side loads laid out but transparent (a hidden canvas has no size); the part it replaces,

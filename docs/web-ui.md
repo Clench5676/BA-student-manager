@@ -1161,7 +1161,7 @@ or the classic UI is open, no drift while mods are off, nothing dismissed (see M
   one; OK keeps the rows as edited, Cancel, the close button, the backdrop or Escape drop the changes. Nothing
   happens on Enter or Escape while an input method is composing (`isComposing`, or `keyCode` 229, which WebKit sends
   for the key that ends a conversion). The nameplate shows them after the name, small and dim, where the name leaves
-  room; the pencil's tooltip lists them. They are text everywhere (labels, the tooltip), never markup.
+  room; the pencil's accessible name includes them. They are text everywhere, never markup.
 
 - **Details** (the Portrait, Memorial Lobby and 3D Model info bars' button): the shown tab's game files. The folder,
   what they carry and, for a mod, its file and the variant it was made for; then one row per bundle with its size,
@@ -1181,11 +1181,11 @@ detail screen, and in Settings' Mods tab.
   their size): ON pressed in the Support segment's blue (`#0664eb`), OFF pressed in the All segment's navy
   (`#153757`), on the pressed sprite `Common_Filter_Tab_Type1_Pressed`. The words are `settings.post.on` and `.off`
   (the game's On / Off). The "?" is the student list's own square info button (`Btn_Information`:
-  `Common_Btn_Information` in `#2c4564` over a white square), its tooltip and name the game's "Guide". The label is
+  `Common_Btn_Information` in `#2c4564` over a white square), its accessible name the game's "Guide". The label is
   fitted from 26 down to 20 stage px. It slides out with the top bar in fullscreen views, and is not on the no-game
   screen.
 - **States** (`view(mods.state)`): on; off; busy while a toggle is queued or running or writes wait for the classic
-  window (dimmed at the loading indicator's pace); unavailable, greyed with the reason as its tooltip (the game
+  window (dimmed at the loading indicator's pace); unavailable, greyed with the reason as its accessible description (the game
   running or its state unknown, Steam busy, the classic window open, no game folder known, unreadable mod settings);
   the red dot (`Common_Icon_Reddot2`) while entries were not switched or were left as is. It is a `button` with
   `role="switch"` and `aria-checked`; Space and Enter toggle. Settings' Show on Main Screens Off hides it from the top
@@ -1293,8 +1293,10 @@ overwritten entry need none (the detail screen judges its files cheaply).
 `loading.js` draws the game's own loading screen: UILoading's black backdrop with nothing in the middle (the game
 shows an illustration there; the tool does not) and UIRepeater in the bottom-right corner ("Now Loading", the
 hopping dots and Arona turning round, animated in `app.css` from the keyframes of the clip `UIAni_Repeat 1`; its
-UIAudioPlay is never played). Before the atlases are in, or without a game, a plain stand-in in the page font shows
-instead.
+UIAudioPlay is never played). Before the atlases are in, or without a game, the same corner indicator uses the
+bundled rounded font and blue/white palette, with the same text breathing and hopping-dot animations. The initial
+document includes its animated dots before modules or locale strings arrive. Sprite or decode failures retain this
+styled fallback. All web controls use accessible names and descriptions; none creates a hover tooltip.
 
 - `scene(fn)` covers startup, roster/detail navigation, student steps and detail tabs: a fade to black (150 ms),
   then, while the work goes on, the indicator. It warns after 15 s and stays covered until preparation settles or

@@ -40,12 +40,12 @@ export function init(info) {
   }).catch(() => {});
 }
 
-// the strings are in: the overlay's label and the plain indicator's text
+// the strings are in: the overlay's label and the fallback indicator's text
 export function relabel() {
   for (const o of [overlay, writerOverlay]) {
     if (!o) continue;
     label(o.el);
-    const text = o.el.querySelector(".loading-plain span");
+    const text = o.el.querySelector(".loading-fallback span");
     if (text) text.textContent = nowLoading();
   }
 }
@@ -96,7 +96,7 @@ function open(mode, opaque = false, writer = false) {
   el.className = `loading ${mode}`;
   el.setAttribute("role", "status");
   label(el);
-  el.innerHTML = '<div class="loading-back"></div><div class="loading-ind"></div>';
+  if (!el.querySelector(".loading-ind")) el.innerHTML = '<div class="loading-back"></div><div class="loading-ind" aria-hidden="true"></div>';
   if (geometry) el.querySelector(".loading-back").style.background = geometry.back;
   if (!el.isConnected) stage().appendChild(el);
   if (boot && el !== boot) boot.remove();
@@ -145,8 +145,8 @@ function close(o) {
   return sleep(FADE_OUT).then(() => {
     if (!o.closing || o.closeId !== id) return; // taken over while fading out
     if (o.boot && !firstLoading) {
-      const end = performance.now(), styled = o.styledAt ?? end;
-      firstLoading = { "plain-loading": styled - o.shownAt, "styled-loading": end - styled };
+      const end = performance.now(), sprites = o.spritesAt ?? end;
+      firstLoading = { "fallback-loading": sprites - o.shownAt, "sprite-loading": end - sprites };
     }
     o.el.remove();
     if (overlay === o) overlay = null;
@@ -154,10 +154,10 @@ function close(o) {
   });
 }
 
-// --- the indicator: UIRepeater drawn by ngui.js once the atlases are in; until then (or without a game) plain ---
+// --- the indicator: the same corner animation before and after UIRepeater's atlases are ready ---
 
-function plain(host) {
-  host.innerHTML = '<div class="loading-plain"><span></span><i></i><i></i><i></i></div>';
+function fallback(host) {
+  host.innerHTML = '<div class="loading-fallback"><span></span><i></i><i></i><i></i></div>';
   host.querySelector("span").textContent = nowLoading();
 }
 
@@ -175,16 +175,22 @@ async function upgrade(o) {
   next.className = "loading-repeater";
   // the corner widget is anchored to the screen: moved down to the stage's bottom edge
   await NGUI.render(tree, next, { scale: S, origin: [960, 540], shift: { "UIRepeater/Widget": [0, -(STAGE_UNITS_H - 1440) / 2] } });
-  await NGUI.decoded(next, HARD_CAP);
+  const decoded = await NGUI.decoded(next, HARD_CAP);
   if (o !== overlay && o !== writerOverlay) return;
-  if (!next.querySelector(".ngui")) { o.sprites = false; return; } // the sprites are not in this install's atlases
+  const widgets = [...next.querySelectorAll(".ngui")];
+  // NGUI keeps hit geometry after image failures; it must not replace the fallback with empty widgets.
+  if (!decoded || !widgets.length || widgets.some((el) => !el.style.backgroundImage && !el.textContent)) { o.sprites = false; return; }
   o.ind.replaceChildren(next);
-  o.styledAt ??= performance.now();
+  o.spritesAt ??= performance.now();
 }
 
 // once the screen is black and the work goes on: the indicator in the corner, nothing in the middle
 function decorate(o) {
-  if (!o.ind.firstChild) plain(o.ind);
+  if (!o.ind.firstChild) fallback(o.ind);
+  else {
+    const text = o.ind.querySelector(".loading-fallback span");
+    if (text) text.textContent = nowLoading();
+  }
   upgrade(o).catch(() => { o.sprites = false; });
 }
 

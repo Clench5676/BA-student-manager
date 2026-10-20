@@ -1,8 +1,9 @@
 # Beta startup and transition report
 
-The two loading styles belong to one web cover. The plain indicator is the fallback while the game UI indexes,
-UIRepeater layout and images are being prepared (`web/js/loading.js:169`). The game-styled indicator replaces it
-inside that cover. Native window initialization and server startup happen before the page can display either.
+One styled loading indicator belongs to the web cover. While the game UI indexes, UIRepeater layout and images
+are being prepared, the asset-free version uses the bundled rounded font, game colours and corner placement, and
+the same text and dot animations. Ready game sprites replace it inside that cover; failures keep the fallback.
+Native window initialization and server startup happen before the page can display the cover.
 The native window now uses the same black background as the cover.
 
 No app launch or user data was used for this work. Real cold/warm startup durations and a speedup percentage remain
@@ -21,9 +22,9 @@ elapsed time. Concurrent and nested phases overlap, so their durations must not 
 | Fonts and translated strings | `page.fonts`, `page.strings` | Before first reveal; font timing measures the browser's remaining readiness wait |
 | Roster/detail data and first screen | `roster.data`, `detail.data`, `page.mod-state`, `page.first-screen` | Includes visible portrait readiness, image decoding and the route's reveal |
 | Page RPCs and total boot | `page.settings`, `page.info`, `page.boot` | Settings/info overlap; UI indexes overlap strings/fonts |
-| Plain and game-styled cover | `page.plain-loading`, `page.styled-loading` | From JS cover adoption to completed reveal; excludes native startup and initial module loading |
+| Asset-free and sprite cover | `page.fallback-loading`, `page.sprite-loading` | From JS cover adoption to completed reveal; excludes native startup and initial module loading |
 
-The deterministic loading harness verifies a 0.200 s plain portion and a 1.000 s styled portion, including reveal.
+The deterministic loading harness verifies a 0.200 s fallback portion and a 1.000 s sprite portion, including reveal.
 These are simulated clock intervals validating the instrumentation, not measured application performance.
 
 Root causes and changes:

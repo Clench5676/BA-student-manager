@@ -597,7 +597,7 @@ test("Settings disables Check for Updates while pending and uses the shared popu
   handlers.set("mods.state", () => ({ result: {} }));
   let answer;
   handlers.set("app.checkUpdate", () => new Promise((resolve) => { answer = resolve; }));
-  const checkButton = () => walk(settings).find((e) => e.tagName === "BUTTON" && e.title === english.settings.update.check);
+  const checkButton = () => walk(settings).find((e) => e.tagName === "BUTTON" && e.getAttribute("aria-label") === english.settings.update.check);
   await Settings.open();
   const start = calls.length, button = checkButton();
   assert.ok(button);
@@ -886,8 +886,9 @@ test("switch popup fields fit a long file independently in portrait and lobby de
           await Popup.listPopup({ host: prompt, title: ui.info.title[kind], items: [{ key: "m", kind: "mod", label: "Mod", full: "Mod" }],
             selected: "m", details: () => ({ title: ui.info.title[kind], fields, actions: [] }) });
           const cells = fields.map((_, i) => field("V", i));
-          assert.equal(cells[0].title, file);
-          assert.equal(cells[0].style.pointerEvents, "auto");
+          assert.equal(cells[0].getAttribute("aria-label"), file);
+          assert.equal(cells[0].title, undefined);
+          assert.equal(cells[0].style.pointerEvents, "none");
           if (file.length > 50) assert.ok(cells[0].textContent.includes("\n"), "a long file wraps inside its own row");
           snapshots.push({ values: cells.slice(1).map((el) => [el.textContent, el.style.fontSize]),
             labels: fields.map((_, i) => field("F", i).style.fontSize) });
@@ -905,7 +906,8 @@ test("a long folder in the file-details summary does not resize the current valu
   const after = Detail.detailsBody({ fields, rows: [] }).tree;
   const widget = (tree, name) => tree.children.find((n) => n.name === name).widgets[0];
   for (const name of ["F_0", "F_1", "V_1"]) assert.deepEqual(widget(after, name), widget(before, name));
-  assert.equal(widget(after, "V_0").title, fields[0][1]);
+  assert.equal(widget(after, "V_0").ariaLabel, fields[0][1]);
+  assert.equal(widget(after, "V_0").title, undefined);
   assert.ok(widget(after, "V_0").fontSize >= 28, "a wrapped path respects its size floor");
   assert.ok(widget(after, "V_0").text.includes("\n"));
 });

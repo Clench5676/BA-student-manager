@@ -189,7 +189,7 @@ async function renderBg(pc, bg) {
 // one layer per button, so each slides on its own; the corners are anchored to the screen's edges
 async function renderButtons(pc, strings) {
   const groups = {}, made = [];
-  const titles = { Btn_Back: strings.back, Btn_HideUI: strings.hide, Btn_ShowUI: strings.show, Btn_RefreshPos: strings.reset };
+  const labels = { Btn_Back: strings.back, Btn_HideUI: strings.hide, Btn_ShowUI: strings.show, Btn_RefreshPos: strings.reset };
   for (const [corner, names] of CORNERS) {
     const c = NGUI.find(pc, corner);
     if (!c) continue;
@@ -203,7 +203,7 @@ async function renderButtons(pc, strings) {
       made.push(NGUI.render(tree, el, { scale: S, origin: CENTRE, rootPath: "Inventory_ListControl_PC", texts: { Label_Locale_Reset: strings.reset } }));
       if (HIT[name]) {
         const [w, h, dy] = HIT[name], x = CENTRE[0] + (at[0] + n.pos[0]) * S, y = CENTRE[1] - (at[1] + n.pos[1] + dy) * S;
-        hitButton(el, [x - (w * S) / 2, y - (h * S) / 2, w * S, h * S], (e) => { e.stopPropagation(); press(name); }, titles[name]);
+        hitButton(el, [x - (w * S) / 2, y - (h * S) / 2, w * S, h * S], (e) => { e.stopPropagation(); press(name); }, labels[name]);
       }
       groups[name] = el;
     }

@@ -9,8 +9,8 @@ const deferred = () => { let resolve; const promise = new Promise((r) => { resol
 const flush = async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); };
 
 class El {
-  children = []; dataset = {}; style = {};
-  setAttribute() {}
+  children = []; dataset = {}; style = {}; attrs = {};
+  setAttribute(k, v) { this.attrs[k] = v; }
   addEventListener() {}
   appendChild(el) { this.children.push(el); }
   insertBefore(el, before) { this.children.splice(before ? this.children.indexOf(before) : this.children.length, 0, el); }
@@ -27,7 +27,8 @@ function harness(kind = "spr") {
   const env = {
     document: { createElement: () => new El() }, rows, rendered: new Map(), dom: { scrollHost: host }, hasAsset,
     CLIP_BOTTOM: 100, PITCH: 50, S: 1, ORIGIN: [0, 0], view: { scroll: 0 }, clipTop: () => 0, ctx: {},
-    cardTree: (e) => e, portraitOf: (e) => `portrait-${e.key}`, countText: () => "", T: (key) => key,
+    cardTree: (e) => e, portraitOf: (e) => `portrait-${e.key}`,
+    countText: () => "Portraits: 1, Memorial lobbies: 1", T: (key) => key,
     NGUI: { render: async (tree) => {
       requested.push(tree.key);
       await renders.get(tree.key).promise;
@@ -37,8 +38,21 @@ function harness(kind = "spr") {
   const api = new Function("env", `const { ${Object.keys(env).join(", ")} } = env;
     ${rowsCode}
     return { syncRows };`)(env);
-  return { ...api, requested, pictures, renders };
+  return { ...api, requested, pictures, renders, host, rows };
 }
+
+test("roster cards keep their full accessible name and counts without a hover title", async () => {
+  const h = harness();
+  h.rows.get(0).items[0].e.mods = 2;
+  h.rows.get(0).items[0].e.modCounts = { spr: 1, lobby: 1 };
+  const pending = h.syncRows();
+  const card = h.host.children[0].children[0];
+  assert.equal(card.attrs["aria-label"], "Student 0 - Portraits: 1, Memorial lobbies: 1");
+  assert.equal(card.title, undefined);
+  assert.equal(card.attrs.title, undefined);
+  for (const key of [0, 1]) { h.renders.get(key).resolve(); h.pictures.get(key).resolve(); }
+  await pending;
+});
 
 for (const kind of ["spr", "lobby"]) test(`the first screenful waits for every ${kind} picture before overscan is requested`, async () => {
   const h = harness(kind);

@@ -275,7 +275,7 @@ export async function render(tree, host, opts = {}) {
         paddingBottom: `${(fontSizeFor(text, w.fontSize || 40) * sy * S * (isLatin(text) ? LATIN_LIFT : GLYPH_LIFT) * 2).toFixed(2)}px`,
       });
       if (w.lang) el.lang = w.lang; // text in another language than the page's draws with its fonts (app.css)
-      if (w.title) { el.title = w.title; el.style.pointerEvents = "auto"; }
+      if (w.ariaLabel) el.setAttribute("aria-label", w.ariaLabel);
       if (w.ellipsis) {
         const span = document.createElement("span");
         Object.assign(span.style, { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100%" });

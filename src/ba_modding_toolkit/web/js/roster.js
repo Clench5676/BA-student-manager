@@ -303,7 +303,6 @@ async function renderRow(host, rowKey) {
     const [sx, sy] = [ORIGIN[0] + it.x * S, ORIGIN[1] - it.y * S];
     Object.assign(hit.style, { left: `${sx - 218 * S}px`, top: `${sy - 245 * S}px`, width: `${436 * S}px`, height: `${490 * S}px` });
     const name = it.e.mods > 0 ? `${it.e.name} - ${countText(it.e.modCounts, T)}` : it.e.name;
-    hit.title = name;
     hit.setAttribute("aria-label", name);
     if (hasAsset(it.e)) hit.addEventListener("click", () => { if (!ctx.dragged) location.hash = `#/student/${encodeURIComponent(it.e.family)}/${encodeURIComponent(it.e.key)}`; });
     else hit.disabled = true;
@@ -447,7 +446,7 @@ async function renderSearch(host) {
   const close = document.createElement("button");
   close.className = "card-hit";
   Object.assign(close.style, { left: `${ORIGIN[0] + (512 - 55) * S}px`, top: `${ORIGIN[1] - (258 + 55) * S}px`, width: `${110 * S}px`, height: `${110 * S}px`, zIndex: 330 });
-  close.title = T("display.close");
+  close.setAttribute("aria-label", T("display.close"));
   close.addEventListener("click", closeSearch);
   host.appendChild(close);
 }
@@ -566,11 +565,11 @@ async function buildFrame(my) {
   });
 
   // hit areas for the header controls (TopMenu sits at y 720 in SeletControl's units)
-  const hit = ([ux, uy, w, h], fn, title) => {
+  const hit = ([ux, uy, w, h], fn, name) => {
     const b = document.createElement("button");
     b.className = "card-hit";
     Object.assign(b.style, { left: `${ORIGIN[0] + (ux - w / 2) * S}px`, top: `${ORIGIN[1] - (uy + h / 2) * S}px`, width: `${w * S}px`, height: `${h * S}px` });
-    if (title) b.title = title;
+    if (name) b.setAttribute("aria-label", name);
     b.addEventListener("click", fn);
     next.appendChild(b);
     return b;

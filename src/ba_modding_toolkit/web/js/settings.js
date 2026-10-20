@@ -56,7 +56,7 @@ function rowBase(name, y, h, title) {
 
 // radio options in a row (the game's On / Off toggles, as many as needed): [value, text, the text's language if it is
 // not the page's]; dim: the options drawn faded (a switch that is busy or unavailable; a click still answers why)
-function radioRow(name, y, title, options, selected, onPick, { dim = false, tip = "" } = {}) {
+function radioRow(name, y, title, options, selected, onPick, { dim = false, description = "" } = {}) {
   const h = 240, row = rowBase(name, y, h, title), hits = [];
   const pitch = Math.min(508, 1400 / options.length);
   options.forEach(([value, text, lang], i) => {
@@ -68,7 +68,7 @@ function radioRow(name, y, title, options, selected, onPick, { dim = false, tip 
       ...(on ? [node("On", [0, 0], [sprite("Common_Btn_Radio_On", 60, 60, { type: 0, depth: 26, ...(dim ? { color: "#ffffff/0.55" } : {}) })])] : []),
       node("Label", [49, -5], [label(f.text, f.fs, `#2c4663/${alpha}`, pitch - 90, 50, { pivot: 3, depth: 26, lang })]),
     ]));
-    hits.push({ path: `${name}/Opt_${i}/BG`, w: pitch - 20, fn: () => onPick(value), title: tip || text });
+    hits.push({ path: `${name}/Opt_${i}/BG`, w: pitch - 20, fn: () => onPick(value), name: text, description });
   });
   return { tree: row, h, hits };
 }
@@ -86,7 +86,7 @@ function helpAfterTitle(row, title, dot, open = () => ModSwitch.openHelp()) {
     node("Sprite", [2, -7], [sprite("Common_Btn_Information", 70, 72, { type: 0, depth: 23, color: "#2c4564/1.00" })]),
     ...(dot ? [DOT([40, 30], 30)] : []),
   ]));
-  row.hits.push({ path: `${row.tree.name}/Help`, fn: open, title: T("mods.guide"), pad: 14 });
+  row.hits.push({ path: `${row.tree.name}/Help`, fn: open, name: T("mods.guide"), pad: 14 });
   return row;
 }
 
@@ -107,7 +107,7 @@ function foldersRow(name, y, title, installs) {
     row.children.push(node(`Value_${i}`, [-718, midY], [label(f.text, f.fs, "#2d4664/1.00", room, f.fs * 1.3 * f.lines + 10, { pivot: 3, depth: 8 })]));
     if (!item.named) {
       row.children.push(buttonNode(`Btn_${i}`, 550, midY, T("settings.mods.forget"), { w: 300 }));
-      hits.push({ path: `${name}/Btn_${i}`, fn: () => forget(item), title: T("settings.mods.forget") });
+      hits.push({ path: `${name}/Btn_${i}`, fn: () => forget(item), name: T("settings.mods.forget") });
     }
     top -= ih + 16;
   });
@@ -167,7 +167,7 @@ function valueRow(name, y, title, value, buttons) {
   buttons.forEach(([caption, fn, enabled = true], i) => {
     const x = 700 - (buttons.length - 1 - i) * 320 - 150;
     row.children.push(buttonNode(`Btn_${i}`, x, midY, caption, { enabled }));
-    if (enabled) hits.push({ path: `${name}/Btn_${i}`, fn, title: caption });
+    if (enabled) hits.push({ path: `${name}/Btn_${i}`, fn, name: caption });
   });
   return { tree: row, h, hits };
 }
@@ -188,7 +188,7 @@ function sliderRow(name, y, title, value, muted) {
   const mute = find(t, "Label_Mute");
   Object.assign(mute.widgets[0], { text: T("settings.mute"), fontSize: fitText(T("settings.mute"), 50, 34, 180).fs });
   find(mute, "Icon").active = !!muted;
-  return { tree: t, h: 172, hits: [{ path: `${name}/Label_Mute/Bg`, fn: () => set("voiceMuted", !muted), title: T("settings.mute") }],
+  return { tree: t, h: 172, hits: [{ path: `${name}/Label_Mute/Bg`, fn: () => set("voiceMuted", !muted), name: T("settings.mute") }],
     slider: { path: `${name}/SlideBg`, value: value / 100, steps: 100, set: (f) => set("voiceVolume", Math.round(f * 100)) } };
 }
 
@@ -267,10 +267,10 @@ function rows({ builtSize = null, sizeError = null } = {}) {
     // the same kill switch as the top bar's, with the same rules (the first toggle's explanation, the reasons, the
     // classic modal): picking the other option is a click on the switch
     const sw = radioRow("Switch", 0, T("mods.switch"), ON_OFF(), v.on, (value) => { if (value !== v.on) ModSwitch.click("settings"); },
-      { dim: v.busy || v.unavailable, tip: v.unavailable ? ModSwitch.reasonText(m) : "" });
+      { dim: v.busy || v.unavailable, description: v.unavailable ? ModSwitch.reasonText(m) : "" });
     add(helpAfterTitle(sw, T("mods.switch"), v.dot));
     add(radioRow("Shown", 0, T("settings.mods.shown"), ON_OFF(), p.modSwitchShown !== false, (value) => set("modSwitchShown", value)));
-    add(valueRow("Built", 0, T("mods.builtClear"), sizeError || (builtSize == null ? T("loading.now") :
+    add(valueRow("Built", 0, T("mods.builtClear"), sizeError || (builtSize == null ? T("job.running") :
       T("mods.builtSize", { size: ModSwitch.sizeText(builtSize) })), [
       [T("settings.mods.clear"), async () => { if (await ModSwitch.clearBuilt()) render(); }, builtSize > 0]]));
     // the scan consent: On asks for it in its popup, Off withdraws it
@@ -401,7 +401,7 @@ async function render({ builtSize = null, sizeError = null } = {}) {
   const next = document.createElement("div");
   const view = await NGUI.render(frameTree(), next, { scale: S, origin: [960, 540], z: 3000 });
   const close_ = view.nodes.get("Center/Popup/Base/BG/Btn_Close")?.els[0];
-  if (close_) hitButton(next, rect(close_), close, "", 3100);
+  if (close_) hitButton(next, rect(close_), close, T("display.close"), 3100);
   TABS.forEach((id) => {
     const el = view.nodes.get(`Center/Popup/Tab_${id}/Tab_Off/Label_Locale`)?.els[0];
     if (el && id !== tab) {
@@ -428,7 +428,8 @@ async function render({ builtSize = null, sizeError = null } = {}) {
       const el = rv.nodes.get(`Rows/${hit.path}`)?.els[0];
       if (!el) continue;
       const [l, t, w, h] = rect(el), pad = (hit.pad || 0) * S;
-      hitButton(inner, [l - pad, t - pad, (hit.w ? hit.w * S : w) + 2 * pad, h + 2 * pad], hit.fn, hit.title, 3050);
+      const b = hitButton(inner, [l - pad, t - pad, (hit.w ? hit.w * S : w) + 2 * pad, h + 2 * pad], hit.fn, hit.name, 3050);
+      if (hit.description) b.setAttribute("aria-description", hit.description);
     }
     if (r.slider) wireSlider(inner, rv, { ...r.slider, path: `Rows/${r.slider.path}`, label: r.slider.label && `Rows/${r.slider.label}` });
   }

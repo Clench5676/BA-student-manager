@@ -51,10 +51,10 @@ export function wrapPath(path, fsMax, fsMin, maxW, maxLines = 3) {
 }
 
 // an invisible button over a rendered widget
-export function hitButton(host, [l, t, w, h], fn, title, z = 50) {
+export function hitButton(host, [l, t, w, h], fn, name, z = 50) {
   const b = document.createElement("button");
   b.className = "hit";
-  if (title) b.title = title;
+  if (name) b.setAttribute("aria-label", name);
   Object.assign(b.style, { left: `${l}px`, top: `${t}px`, width: `${w}px`, height: `${h}px`, zIndex: z });
   b.addEventListener("click", fn);
   host.appendChild(b);

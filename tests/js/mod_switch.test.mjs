@@ -32,7 +32,7 @@ class El {
   set innerHTML(text) {
     for (const c of [...this.children]) c.remove();
     this.parts = {};
-    for (const key of text.includes("loading-back") ? [".loading-back", ".loading-ind"] : text.includes("loading-plain") ? ["span"] : []) {
+    for (const key of text.includes("loading-back") ? [".loading-back", ".loading-ind"] : text.includes("loading-fallback") ? ["span"] : []) {
       this.parts[key] = this.appendChild(new El());
     }
   }
@@ -372,11 +372,12 @@ test("the top bar's switch follows mods.state, and the first toggle explains onc
   assert.deepEqual(called("mods.toggle")[0], { enabled: false, expect: true });
   assert.equal(dialog.hidden, true, "no explanation the second time");
   await until(() => toastEl.textContent === S("mods.offState"), "the toast");
-  // greyed with its reason as the tooltip; a click says why and submits nothing
+  // greyed with an accessible reason; a click says why and submits nothing
   answers["mods.state"] = base({ available: false, reason: "game_running" });
   await MS.refresh();
   assert.ok(toggle.classList.contains("unavailable"));
-  assert.equal(toggle.title, S("error.game_running"));
+  assert.equal(toggle.title, "");
+  assert.equal(toggle.getAttribute("aria-description"), S("error.game_running"));
   MS.click("top");
   assert.equal(toastEl.textContent, S("error.game_running"));
   assert.equal(called("mods.toggle").length, 1);
@@ -384,6 +385,8 @@ test("the top bar's switch follows mods.state, and the first toggle explains onc
   answers["mods.state"] = base({ shown: false });
   await MS.refresh();
   assert.equal(switchHost.hidden, true);
+  assert.equal(toggle.getAttribute("aria-description"), null);
+  assert.ok(walk(switchHost).every((e) => !e.title && !e.getAttribute("title")));
 });
 
 test("state refresh, the first explanation and help never measure logical originals as extra space", async () => {
@@ -410,14 +413,14 @@ test("Settings measures built mods only when its Mods row is drawn, and remeasur
   const count = called("mods.sizes").length;
   await Settings.open();
   assert.equal(called("mods.sizes").length, count, "General does not measure mods");
-  const button = (title) => walk(settingsHost).find((e) => e.tagName === "BUTTON" && e.title === title);
+  const button = (name) => walk(settingsHost).find((e) => e.tagName === "BUTTON" && e.getAttribute("aria-label") === name);
   const hasText = (text) => walk(settingsHost).some((e) => e.textContent === text);
   const pending = deferred();
   answers["mods.sizes"] = () => pending.promise;
   button(S("settings.tab.mods")).click();
   await until(() => called("mods.sizes").length === count + 1, "built size request");
   assert.deepEqual(called("mods.sizes").at(-1), { kind: "built" });
-  assert.ok(hasText(S("loading.now")));
+  assert.ok(hasText(S("job.running")));
   assert.equal(button(S("settings.mods.clear")), undefined, "cleanup disabled while measuring");
   pending.resolve({ builtSize: 2 * 1048576 });
   await until(() => !!button(S("settings.mods.clear")), "cleanup button");
@@ -450,7 +453,7 @@ test("Settings measures built mods only when its Mods row is drawn, and remeasur
   button(S("settings.tab.mods")).click();
   await until(() => hasText(MS.errorText(error.code, error.params)), "size error");
   assert.equal(button(S("settings.mods.clear")), undefined);
-  walk(settingsHost).find((e) => e.tagName === "BUTTON" && !e.title).click();
+  button(S("display.close")).click();
   assert.equal(settingsHost.hidden, true);
   answers["mods.sizes"] = ({ kind }) => ({ [`${kind}Size`]: 0 });
 });

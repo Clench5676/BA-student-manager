@@ -112,11 +112,10 @@ export function nodeRect(view, path) {
 }
 // an invisible button over a rendered node; name: its accessible name (the caption it covers), action: what it does
 // (data-action, for checks)
-export function hit(host, view, path, fn, { name = "", action = "", z = 80, title = "" } = {}) {
+export function hit(host, view, path, fn, { name = "", action = "", z = 80 } = {}) {
   const r = nodeRect(view, path);
   if (!r) return null;
-  const b = hitButton(host, r, fn, title, z);
-  if (name) b.setAttribute("aria-label", name);
+  const b = hitButton(host, r, fn, name, z);
   if (action) b.dataset.action = action;
   return b;
 }
@@ -416,7 +415,7 @@ function detailsTree(it, title, fields, actions) {
   fields.forEach(([k, v, color], i) => {
     const rowH = rowHs[i], y = top - rowH / 2, x0 = b.l + 50, f = values[i];
     kids.push(node(`F_${i}`, [x0, y], [label(k, 38, "#2d4664/1.00", capW, 50, { pivot: 3, depth: 8 })]));
-    kids.push(node(`V_${i}`, [x0 + capW, y], [label(f.text, f.fs, color || "#000000/1.00", room + 20, f.lines * f.fs * 1.25 + 8, { pivot: 3, depth: 8, title: String(v) })]));
+    kids.push(node(`V_${i}`, [x0 + capW, y], [label(f.text, f.fs, color || "#000000/1.00", room + 20, f.lines * f.fs * 1.25 + 8, { pivot: 3, depth: 8, ariaLabel: String(v) })]));
     if (i < fields.length - 1) kids.push(node(`L_${i}`, [cx, y - rowH / 2], [sprite("Common_Line_Dot", w - 100, 4, { type: 2, depth: 7, color: "#c0c9d4/1.00" })]));
     top -= rowH;
   });
@@ -519,7 +518,7 @@ export async function listPopup({
   if (sel && details) {
     const d = details(sel);
     const dv = await NGUI.render(detailsTree(sel, d.title, d.fields, d.actions), next, { scale: S, origin: [960, 540], z: 20 });
-    d.actions.forEach(([caption, fn], i) => { if (fn) hit(next, dv, `Details/Act_${i}`, fn, { name: caption, title: caption }); });
+    d.actions.forEach(([caption, fn], i) => { if (fn) hit(next, dv, `Details/Act_${i}`, fn, { name: caption }); });
   }
   if (tokens.get(host) !== my || host.hidden) return;
   const area = inner.parentElement;

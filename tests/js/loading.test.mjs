@@ -26,11 +26,13 @@ class El {
     this.replaceChildren();
     if (html.includes('class="loading-back"')) {
       for (const name of ["loading-back", "loading-ind"]) { const el = new El(); el.className = name; this.appendChild(el); }
-    } else if (html.includes('class="loading-plain"')) {
-      const plain = new El(); plain.className = "loading-plain"; this.appendChild(plain);
-      const span = new El(); span.tagName = "span"; plain.appendChild(span);
+    } else if (html.includes('class="loading-fallback"')) {
+      const fallback = new El(); fallback.className = "loading-fallback"; this.appendChild(fallback);
+      const span = new El(); span.tagName = "span"; fallback.appendChild(span);
+      for (let i = 0; i < 3; i++) { const dot = new El(); dot.tagName = "i"; fallback.appendChild(dot); }
     }
   }
+  querySelectorAll(selector) { return this.children.flatMap((el) => [...(selector === ".ngui" && el.classList.contains("ngui") ? [el] : []), ...el.querySelectorAll(selector)]); }
   setAttribute(k, v) { this.attrs[k] = v; }
   removeAttribute(k) { delete this.attrs[k]; }
   querySelector(selector) {
@@ -46,17 +48,28 @@ class El {
   }
 }
 
-async function harness() {
+async function harness({ translated = true, render = "ready", decoded = true, boot = false } = {}) {
   const stage = new El(), sprites = deferred(), timers = new Map();
   let now = 0, timerId = 0;
+  let localized = translated;
+  const initial = boot ? stage.appendChild(new El()) : null;
+  if (initial) {
+    initial.id = "loading-boot"; initial.className = "loading full on";
+    initial.innerHTML = '<div class="loading-back"></div><div class="loading-ind"></div>';
+    initial.querySelector(".loading-ind").innerHTML = '<div class="loading-fallback"><span></span><i></i><i></i><i></i></div>';
+  }
   const d = {
-    document: { createElement: () => new El(), getElementById: (id) => id === "stage" ? stage : null },
+    document: { createElement: () => new El(), getElementById: (id) => id === "stage" ? stage : id === "loading-boot" && initial?.isConnected && initial.id ? initial : null },
     performance: { now: () => now }, getComputedStyle: () => ({ opacity: "1" }),
     setTimeout: (fn, ms) => { const id = ++timerId; timers.set(id, { at: now + ms, fn }); return id; },
     clearTimeout: (id) => timers.delete(id), requestAnimationFrame: (fn) => fn(),
-    T: (key) => key, S: 1, toast() {},
-    NGUI: { init: () => sprites.promise, layout: async () => ({}), decoded: async () => {}, render: async (tree, host) => {
-      const el = new El(); el.className = "ngui"; host.appendChild(el);
+    T: (key) => localized ? ({ "loading.now": "Now Loading", "app.loading": "Reading game files" }[key] || key) : key, S: 1, toast() {},
+    NGUI: { init: () => sprites.promise, layout: async () => ({}), decoded: async () => decoded, render: async (tree, host) => {
+      if (render === "reject") throw new Error("Missing atlas");
+      if (render === "empty") return;
+      const el = new El(); el.className = "ngui";
+      if (render === "ready") el.style.backgroundImage = 'url("sprite.png")';
+      host.appendChild(el);
     } },
   };
   globalThis.loadingDeps = d;
@@ -67,7 +80,7 @@ async function harness() {
     for (const [id, timer] of [...timers]) if (timer.at <= now) { timers.delete(id); timer.fn(); }
     await flush();
   };
-  return { loading, stage, sprites, advance };
+  return { loading, stage, sprites, advance, initial, translate: () => { localized = true; loading.relabel(); } };
 }
 
 for (const mode of ["wait", "scene"]) test(`writer progress survives ${mode} navigation and the sprite upgrade`, async () => {
@@ -141,17 +154,72 @@ test("a cancelled scene hands its cover to the newer navigation", async () => {
 
 test("writer progress keeps Loading in the right corner", () => {
   const css = readFileSync(new URL("../../src/ba_modding_toolkit/web/css/app.css", import.meta.url), "utf8");
-  assert.match(css, /\.loading-plain \{[^}]*right: 84px/);
-  assert.doesNotMatch(css, /with-progress \.loading-(?:plain|ind)\s*\{/);
+  assert.match(css, /\.loading-fallback \{[^}]*right: 84px/);
+  assert.doesNotMatch(css, /with-progress \.loading-(?:fallback|ind)\s*\{/);
   assert.match(css, /\.loading-progress \{[^}]*left: 84px/);
 });
 
-test("the initial cover measures the plain and game-styled portions through reveal", async () => {
+test("the initial cover measures the fallback and sprite portions through reveal", async () => {
   const h = await harness(), page = deferred();
   const boot = h.loading.scene(() => page.promise, { opaque: true });
   await flush(); await h.advance(200);
   h.sprites.resolve(); await flush();
   await h.advance(700);
   page.resolve(); await flush(); await h.advance(300); await boot;
-  assert.deepEqual(h.loading.timings(), { "plain-loading": 200, "styled-loading": 1000 });
+  assert.deepEqual(h.loading.timings(), { "fallback-loading": 200, "sprite-loading": 1000 });
+});
+
+for (const mode of ["scene", "wait", "task"]) test(`${mode} uses the animated fallback while game assets are pending`, async () => {
+  const h = await harness(), work = deferred();
+  const pending = mode === "scene" ? h.loading.scene(() => work.promise) : mode === "wait" ? h.loading.wait(work.promise) : h.loading.task(() => work.promise);
+  await h.advance(300);
+  const indicator = h.stage.children[0], fallback = indicator.querySelector(".loading-fallback");
+  assert.ok(fallback);
+  assert.equal(fallback.querySelector("span").textContent, "Now Loading");
+  assert.equal(fallback.children.filter((el) => el.tagName === "i").length, 3);
+  assert.equal(indicator.querySelector(".loading-plain"), null);
+  assert.equal(indicator.attrs["aria-label"], mode === "task" ? "popup.add" : "Reading game files");
+  h.sprites.resolve(); await flush();
+  assert.ok(indicator.querySelector(".loading-repeater"));
+  assert.equal(indicator.querySelector(".loading-fallback"), null);
+  work.resolve(); await flush(); await h.advance(500); await h.advance(300); await pending;
+});
+
+for (const failure of ["indexes", "reject", "empty", "blank", "decode"]) test(`the fallback stays visible after ${failure} asset failure`, async () => {
+  const h = await harness({ render: ["indexes", "decode"].includes(failure) ? "ready" : failure, decoded: failure !== "decode" }), work = deferred();
+  const pending = h.loading.scene(() => work.promise);
+  await flush();
+  const fallback = h.stage.children[0].querySelector(".loading-fallback");
+  if (failure === "indexes") h.sprites.reject(new Error("No game assets")); else h.sprites.resolve();
+  await flush();
+  assert.equal(h.stage.children[0].querySelector(".loading-fallback"), fallback);
+  assert.equal(fallback.querySelector("span").textContent, "Now Loading");
+  assert.equal(h.stage.children[0].querySelector(".loading-repeater"), null);
+  work.resolve(); await flush(); await h.advance(300); await pending;
+});
+
+test("boot adopts the styled fallback and relabels it when locale strings arrive", async () => {
+  const h = await harness({ boot: true, translated: false }), work = deferred();
+  const fallback = h.initial.querySelector(".loading-fallback");
+  const pending = h.loading.scene(() => work.promise, { opaque: true });
+  await flush();
+  assert.equal(h.stage.children.length, 1);
+  assert.equal(h.initial.querySelector(".loading-fallback"), fallback, "adoption keeps the dot animations running");
+  assert.equal(fallback.querySelector("span").textContent, "");
+  h.translate();
+  assert.equal(fallback.querySelector("span").textContent, "Now Loading");
+  assert.equal(h.initial.attrs["aria-label"], "Reading game files");
+  work.resolve(); await flush(); await h.advance(300); await pending;
+});
+
+test("the initial document and asset-free style use the corner animation before modules and atlases load", () => {
+  const html = readFileSync(new URL("../../src/ba_modding_toolkit/web/index.html", import.meta.url), "utf8");
+  const css = readFileSync(new URL("../../src/ba_modding_toolkit/web/css/app.css", import.meta.url), "utf8");
+  assert.match(html, /id="loading-boot"[\s\S]*?class="loading-fallback"><span><\/span><i><\/i><i><\/i><i><\/i>/);
+  assert.match(css, /\.loading-fallback \{[^}]*bottom: 44px[^}]*color: #8de4ff[^}]*"RHR"[^}]*text-stroke: 1px #fff/);
+  assert.match(css, /\.loading-fallback span \{[^}]*animation: ld-text \.8333s/);
+  assert.match(css, /\.loading-fallback i \{[^}]*animation: ld-dot0 1\.1667s/);
+  for (const n of [1, 2]) assert.ok(css.includes(`.loading-fallback i:nth-of-type(${n + 1}) { animation-name: ld-dot${n}; }`));
+  assert.match(css, /prefers-reduced-motion[^}]*\.loading-fallback span, \.loading-fallback i \{ animation: none/);
+  assert.doesNotMatch(css, /loading-plain/);
 });
