@@ -66,12 +66,8 @@ export function cardColours(rows, edge = 0.4) {
 
 export async function colourSwitchCard(picture, text, widget, load, { signal, kind = "lobby", background } = {}) {
   if (signal?.aborted) return;
-  if (kind === "portrait") {
-    if (background) Object.assign(picture.style, {
-      backgroundImage: `url(${JSON.stringify(background)})`, backgroundSize: "cover", backgroundPosition: "center", backgroundRepeat: "no-repeat",
-    });
-    return;
-  }
+  // the portrait card keeps the prefab's own look: no background picture and no fade
+  if (kind === "portrait") return;
   if (kind !== "lobby") return;
   const url = await withTimeout(Promise.resolve(widget.clipImage), widget.clipImage?.thumbnail ? Infinity : 15000, "Switch card picture", { signal });
   if (!url) return;

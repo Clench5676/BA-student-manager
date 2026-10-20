@@ -1107,18 +1107,16 @@ test("detail action patterns follow their resized bodies", async (t) => {
   } finally { Detail.hide(); await flush(); t.mock.timers.reset(); }
 });
 
-for (const background of ["/asset/art/bg/Original_Collection", null]) test(`the portrait switch uses ${background ? "the student's" : "the prefab's"} original artwork under its bust`, async (t) => {
+for (const background of ["/asset/art/bg/Original_Collection", null]) test(`the portrait switch keeps the prefab card without ${background ? "the student's" : "the prefab's"} artwork under its bust`, async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   try {
     family = modFamily(); family.variants[0].bg = background;
     await showPortrait(t);
     const bust = walk(hosts.ngui).find((e) => e.dataset.path?.endsWith("Normal/Bust"));
-    assert.equal(bust.style.backgroundImage, `url("${background || textures.Detail_Background}")`);
-    assert.equal(bust.style.backgroundSize, "cover");
+    assert.ok(!bust.style.backgroundImage, "no background picture on the portrait card");
     assert.equal(bust.children.length, 1, "the portrait thumbnail draws above the card artwork");
     assert.ok(bust.children[0].style.maskImage.includes("#000 70%"));
     const screen = walk(hosts["ngui-bg"]).find((e) => e.dataset.path?.endsWith("/BG"));
-    assert.equal(screen.style.backgroundImage, bust.style.backgroundImage, "the detail screen and card share the same original image");
   } finally { Detail.hide(); await flush(); t.mock.timers.reset(); }
 });
 

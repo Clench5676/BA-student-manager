@@ -125,13 +125,12 @@ for (const [kind, top, height] of [["lobby", -26, 253], ["special L2D", -26, 253
   });
 }
 
-test("portrait artwork appears behind the thumbnail without waiting for or sampling it", async () => {
+test("the portrait card keeps the prefab's look: no background picture, no sampling", async () => {
   const thumbnail = { style: { backgroundImage: 'url("blob:bust")' } };
   const picture = { style: {}, children: [thumbnail] }, text = { style: { color: "#2d4664" } };
-  const load = () => assert.fail("portrait colours must not replace its original background");
+  const load = () => assert.fail("the portrait card samples nothing");
   await colourSwitchCard(picture, text, { clipImage: new Promise(() => {}) }, load, { kind: "portrait", background: "/original.png" });
-  assert.equal(picture.style.backgroundImage, 'url("/original.png")');
-  assert.equal(picture.style.backgroundSize, "cover");
+  assert.equal(picture.style.backgroundImage, undefined);
   assert.equal(thumbnail.style.backgroundImage, 'url("blob:bust")');
   assert.equal(text.style.color, "#2d4664");
 });
