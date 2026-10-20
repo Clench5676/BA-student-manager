@@ -700,13 +700,13 @@ export function geometry(fxs, s, { meshes = {}, linear = true } = {}) {
 
 // --- draw order -----------------------------------------------------------------------------------------------------
 
-// Unity draws transparent renderers by sorting layer, order in layer, render queue, then back to front: by the
-// distance from the camera plus, for a particle renderer, its sorting fudge (Unity world units). The key's last part
-// is that distance in lobby units, negated (the farther draws first).
-const sortKey = (x) => [x.order || 0, x.queue ?? 3000, -((x.z || 0) + (x.fudge || 0) * WORLD)];
+// Unity draws transparent renderers by sorting layer (its value: Default 0, the game's one other layer 2), order in
+// layer, render queue, then back to front: by the distance from the camera plus, for a particle renderer, its sorting
+// fudge (Unity world units). The key's last part is that distance in lobby units, negated (the farther draws first).
+const sortKey = (x) => [x.sortingLayer || 0, x.order || 0, x.queue ?? 3000, -((x.z || 0) + (x.fudge || 0) * WORLD)];
 const before = (a, b) => {
   const ka = sortKey(a), kb = sortKey(b);
-  for (let i = 0; i < 3; i++) if (ka[i] !== kb[i]) return ka[i] < kb[i];
+  for (let i = 0; i < ka.length; i++) if (ka[i] !== kb[i]) return ka[i] < kb[i];
   return true;
 };
 
@@ -719,7 +719,7 @@ export function queuesOf(layer) {
 }
 
 // Where a system draws among the lobby's skeletons. layers: the skeleton players' layers in their stacking order (each
-// with order, queue, pages and z), each drawn in the parts of queuesOf. The system draws in the context of the last
+// with sortingLayer, order, queue, pages and z), each drawn in the parts of queuesOf. The system draws in the context of the last
 // layer with a part that sorts before it, after that part ({layer, part}), or before the first layer's first part
 // (part -1); a tie puts it after. Hibiki's river surface (queue 3000) draws after her lobby's background page (2900),
 // before her own (3050).
@@ -729,10 +729,11 @@ export function slotOf(def, layers) {
   return slot;
 }
 
-// systems in drawing order: order in layer, queue, back to front (with the sorting fudge), then the prefab's order
+// systems in drawing order: sorting layer, order in layer, queue, back to front (with the sorting fudge), then the
+// prefab's order
 export function drawOrder(systems) {
   return systems.slice().sort((a, b) => {
     const ka = sortKey(a.def), kb = sortKey(b.def);
-    return ka[0] - kb[0] || ka[1] - kb[1] || ka[2] - kb[2] || a.index - b.index;
+    return ka[0] - kb[0] || ka[1] - kb[1] || ka[2] - kb[2] || ka[3] - kb[3] || a.index - b.index;
   });
 }

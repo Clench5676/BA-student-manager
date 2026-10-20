@@ -461,6 +461,16 @@ test("the sorting fudge pushes a system back (above 0) or forward (below 0) amon
   assert.deepEqual(slotOf({ order: 0, queue: 3000, z: 0, fudge: -5 }, [layer]), { layer: 0, part: 1 });
 });
 
+test("a system on a later sorting layer draws over every skeleton on Default, whatever its order and queue", () => {
+  // aru_home's dust (layer value 2, queue 3000) over Aru's pages (3000) and her scene skeleton
+  const aru = { sortingLayer: 0, order: 0, queue: 3000, pages: { a: 3000, b: 3100 }, z: 0 };
+  const scene = { order: 1, queue: 3200, z: 0 };
+  assert.deepEqual(slotOf({ sortingLayer: 2, order: -5, queue: 2000, z: 0 }, [aru, scene]), { layer: 1, part: 0 });
+  assert.deepEqual(slotOf({ order: -5, queue: 2000, z: 0 }, [aru, scene]), { layer: 0, part: -1 }, "on Default: below");
+  const systems = [{ def: { sortingLayer: 2, order: -1, queue: 2900, z: 0 }, index: 0 }, { def: { order: 3, queue: 3100, z: 0 }, index: 1 }];
+  assert.deepEqual(drawOrder(systems).map((s) => s.index), [1, 0]);
+});
+
 test("Apply Active Color Space off: the vertex colours reach the shader as stored, not decoded from sRGB", () => {
   const fx = effects([sys({ emission: { bursts: [{ t: 0, n: 1, cycles: 1, interval: 1, p: 1 }] }, main: { color: { col: [0.5, 0.25, 1, 0.5] } } }),
     sys({ emission: { bursts: [{ t: 0, n: 1, cycles: 1, interval: 1, p: 1 }] }, main: { color: { col: [0.5, 0.25, 1, 0.5] } },

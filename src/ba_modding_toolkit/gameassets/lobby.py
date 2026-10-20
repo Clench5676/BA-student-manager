@@ -346,7 +346,8 @@ def read_prefab(kinds: dict[int, str], tree: Callable[[int], dict], scripts: dic
                 # NGUI units per skeleton unit: the GameObject's world scale times SkeletonDataAsset.scale
                 "scale": _r(math.hypot(n["m"][0], n["m"][1]) * clips.scales.get(name, _DATA_SCALE), 5),
                 "active": n["active"] and bool(sa.get("m_Enabled", 1)) and bool(renderer.get("m_Enabled", True)),
-                "order": renderer.get("m_SortingOrder", 0), "queue": min(pages.values(), default=3000), "pages": pages,
+                "sortingLayer": renderer.get("m_SortingLayer", 0), "order": renderer.get("m_SortingOrder", 0),
+                "queue": min(pages.values(), default=3000), "pages": pages,
                 "z": particles.rounded(n["m3"])[11], "index": len(layers),
                 "skin": sa.get("initialSkinName") or None, "animation": sa.get("_animationName") or None,
             })
@@ -444,8 +445,8 @@ def lobby_info(skeletons: Iterable[str], clips: Clips, prefab: dict | None, soun
     if prefab is None:
         prefab = {"prefab": None, "main": None, "drags": [], "touches": [], "randomIdle": {}, "idle": {}, "idles": {},
                   "dialog": {}, "post": {},
-                  "layers": [{"name": s, **STANDARD, "active": True, "order": 0, "queue": 3000, "pages": {}, "z": 0.0,
-                              "index": i, "skin": None, "animation": None}
+                  "layers": [{"name": s, **STANDARD, "active": True, "sortingLayer": 0, "order": 0, "queue": 3000,
+                              "pages": {}, "z": 0.0, "index": i, "skin": None, "animation": None}
                              for i, s in enumerate(dict.fromkeys(skeletons))],
                   "fx": {"systems": [], "materials": {}, "textures": {}, "meshes": {}}}
     return {"view": dict(GAME_VIEW), **prefab, "defaultMix": dict(clips.mixes), "clips": clips.clips,

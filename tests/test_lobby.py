@@ -220,8 +220,8 @@ def test_prefab_layout_drags_touches_and_anchors():
     assert info["prefab"] == "LobbyTest" and info["main"] == "Test_home"
     layers = {l["name"]: l for l in info["layers"]}
     assert layers["Test_home"] == {"name": "Test_home", "x": 0.0, "y": -962.0, "scale": 1.0, "active": True,
-                                   "order": 0, "queue": 3000, "pages": {}, "z": 0.0, "index": 0, "skin": None,
-                                   "animation": None}
+                                   "sortingLayer": 0, "order": 0, "queue": 3000, "pages": {}, "z": 0.0, "index": 0,
+                                   "skin": None, "animation": None}
     assert layers["Test_bg"]["order"] == -1 and layers["Test_bg"]["animation"] == "Idle_01"
     assert layers["Test_scene"]["active"] is False  # an inactive GameObject on the path
     pat, eye = info["drags"]
@@ -342,9 +342,11 @@ def particle_system(rate: float = 5.0, subs=()) -> dict:
                                           for kind, pid in subs]}}
 
 
-def particle_renderer(material: int, order: int = 0, mode: int = 0, fudge: float = 0.0) -> dict:
-    return {"m_Enabled": 1, "m_RenderMode": mode, "m_SortingOrder": order, "m_SortingLayerID": 0,
-            "m_Materials": [ref(material, 2)] if material else [], "m_Mesh": ref(0), "m_SortingFudge": fudge}
+def particle_renderer(material: int, order: int = 0, mode: int = 0, fudge: float = 0.0, layer: int = 0) -> dict:
+    # layer: the sorting layer's value (the game's one other layer than Default has id 896108637 and value 2)
+    return {"m_Enabled": 1, "m_RenderMode": mode, "m_SortingOrder": order, "m_SortingLayerID": 896108637 if layer else 0,
+            "m_SortingLayer": layer, "m_Materials": [ref(material, 2)] if material else [], "m_Mesh": ref(0),
+            "m_SortingFudge": fudge}
 
 
 def test_prefab_particle_systems():
@@ -363,7 +365,7 @@ def test_prefab_particle_systems():
     # its birth sub-emitter, drawn with another material
     p.node(23, "Spark", father=22)
     p.add(23, 2301, "ParticleSystem", particle_system(rate=0.0))
-    p.add(23, 2302, "ParticleSystemRenderer", particle_renderer(62, order=1))
+    p.add(23, 2302, "ParticleSystemRenderer", particle_renderer(62, order=1, layer=2))
     # dust over the whole scene, in the prefab's own pose; a group parent without a material is left out, an inactive
     # system too
     p.node(24, "Dust", father=1, pos=(100.0, 50.0))
@@ -411,6 +413,8 @@ def test_prefab_particle_systems():
     assert loop["static"][3] == 150.0 and loop["static"][7] == -762.0
     assert (loop["material"], loop["queue"], loop["order"], loop["fudge"]) == ("cab-fx_61", 3100, 1, 50.0)
     assert spark["fudge"] == 0.0
+    # the sorting layer by its value, which Unity sorts by first: the skeletons are on Default
+    assert (loop["sortingLayer"], spark["sortingLayer"], home["sortingLayer"]) == (0, 2, 0)
     assert loop["subs"] == [{"type": 0, "system": 1, "inherit": 0, "p": 1.0}] and spark["isSub"] == 1
     assert spark["anchor"]["bone"] == "FX_Hand" and spark["material"] == "cab-fx_62"
     assert set(fx["materials"]) == {"cab-fx_61", "cab-fx_62"}
