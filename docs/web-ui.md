@@ -93,7 +93,7 @@ src/ba_modding_toolkit/
   gameassets/    UI atlases, UI textures, prefab layouts, collection art and Spine skeletons from the install
   catalog/       students (families) and their variants, names in zh-CN, zh-TW, en, ja and ko
   library/       the user's portrait and lobby mods: add, remove, apply, restore, update, extract, compare
-  webui/         server, RPC, events, jobs, pywebview window, entry point
+  webui/         server, RPC, events, jobs, pywebview window, tray icon, entry point
   web/           static front end, no build step, plain ES modules
 ```
 
@@ -662,6 +662,7 @@ Events on `/api/events`:
 | `library.changed` | `{cores, kinds}` after every writer job (empty lists for a job that switched nothing the page shows); without data (read everything again) after a failed writer job, a library move, a classic window closing, and the mod list's own changes |
 | `classic.opened` / `classic.ready` / `classic.closed` | `{pid}` / `{pid, tab}` / `{code}` (see Classic window); `classic.closed {code: null}` for a window an earlier instance left |
 | `classic.queueDone` | `{submitted: [{method, params, entries, job}], dropped: [{method, params, entries, error}]}` once the writes queued for the classic window ran |
+| `tray.toggle` / `tray.open` | `{job, enabled, expect}` / `{view, ...}`: the tray submitted a toggle, or brought the window up on a view (see Tray) |
 | `config.changed`, `app.busy` | `{}` |
 
 ## Mods state, scan and the classic queue
@@ -1321,6 +1322,62 @@ crash in a classic tab never takes the web UI with it.
   entry whose own install changed, or is no longer the current one for `actions.apply` and `actions.restore`
   (`folder_changed`), or whose files changed (`entry_changed`); a refused submit with its own error.
 
+## Tray
+
+The tray icon (Windows) or menu bar icon (macOS) of the app window (`webui/tray.py`), shown while the preference
+`tray` is on (Settings' Mods tab, `settings.set tray`; off by default). `settings.get` and `mods.state` say
+`traySupported` only in the app window on those two systems. Closing the window quits the app, and the icon goes with
+it (decision 7); browser and serve mode have none.
+
+- **The menu**, rebuilt from the last `mods.state` each time it opens (`tray_menu(snapshot, strings)`, pure):
+  - **Enable Mods**, one item for every known install, with no install name (decision 1), checked while mods are on.
+    Greyed, it has a second, disabled line: the `reason` (`error.game_running`, `error.game_status_unavailable`,
+    `error.steam_busy`, `error.classic_open`, `error.game_not_found`, `error.profiles_unreadable`), else, while a
+    toggle runs or writes wait for the classic window, `tray.working` (Working 12/40) or `job.running`. The tray never
+    queues for the classic window.
+  - **Back to Official: n** (`tray.drift`) while the last scan found drift (with scan consent).
+  - A separator, **Open** (`settings.classic.open`) and **Quit** (`tray.quit`).
+- **Clicks.** macOS: either click opens the menu. Windows: a left click (or double click) opens the window, a right
+  click the menu; Open is in bold.
+- **Tooltip**: the app title, then Mods on or Mods off (`mods.onState`, `mods.offState`), or Working 12/40 while a
+  toggle runs.
+- **Enable Mods** submits `mods.toggle {enabled: !enabled, expect: enabled}` at once, an Off adopting first like every
+  Off (decision 4). The window comes to the front instead on the first toggle ever (`explained` false: the
+  explanation, whose button toggles), and afterwards on a refusal (`not_enough_space` included) or a result with
+  failed, stuck or left entries. **Back to Official** opens the window on the drift prompt. **Quit** follows
+  `app.quit`; while a writer job runs, the window comes to the front with the busy toast (`app.busy`).
+- **What the page is told:**
+
+  | Event | Data | The page |
+  |---|---|---|
+  | `tray.toggle` | `{job, enabled, expect}` | follows the job as its own toggle (`waitJob`): progress, end toast, result popup |
+  | `tray.open` | `{view: "explain", enabled, expect}` | shows the first toggle's explanation; its button submits `mods.toggle {enabled, expect}` |
+  | `tray.open` | `{view: "error", code, params}` | shows the refusal as for its own toggle |
+  | `tray.open` | `{view: "drift"}` | opens the drift prompt |
+
+- **Never blocking the UI thread.** The menu and the tooltip read only the last `mods.state` the tray kept: it
+  observes the event bus (`EventBus.observe`, called on the publishing thread and not counted as a page, so the game
+  watch's fast polling still follows pages and the shown icon only). Opening the menu pokes the game watch, whose
+  answer the next opening shows. Every click runs on a thread of its own: submitting the toggle may build the library.
+- **macOS** (`CocoaTray`). An `NSStatusItem` on pywebview's own `NSApplication` loop (PyObjC comes with pywebview),
+  made, changed and removed on the main thread only (`AppHelper.callAfter`); `menuNeedsUpdate:` rebuilds the `NSMenu`.
+  The image is `assets/tray/menubar.pdf`, a vector template image of 18 pt that the menu bar tints for light, dark and
+  highlighted bars, with `menubar@2x.png` (36 px) as the fallback. It is removed on the main thread once
+  `webview.start` returns. rumps and pystray are not used: each runs a loop of its own.
+- **Windows** (`WinFormsTray`). A `NotifyIcon` and its `ContextMenuStrip` made on pywebview's WinForms thread
+  (`window.native.Invoke`), else on an STA thread with its own `ApplicationContext`; the strip's `Opening` rebuilds
+  the items. `tray.ico` is loaded at the small icon size (`SystemInformation.SmallIconSize`), so Windows takes the
+  frame drawn for the display scale. The icon is hidden and disposed of when the form closes, so Windows keeps no dead
+  icon. Windows 11 puts a new icon in the overflow until the user pins it.
+- **The icons** (`assets/tray`, the project's own art from `assets/eligma.png`, never a game asset). `menubar.svg`
+  (18 x 18 pt, black on transparent: the gem's hexagon as a 1.6 pt band and its four-point star 1.5 pt clear of it,
+  nothing thinner than 1.5 pt) and `tray.svg` (the colour icon: the hexagon in the gem's pink and the white star, 2
+  px clear of the edge at 16 px) are the sources. `scripts/tray_icons.py` builds `menubar.pdf`, `menubar@2x.png` and
+  `tray.ico` (32-bit frames rendered for 16, 20, 24 and 32 px) with Pillow only; `--check` reports built files that
+  no longer match their SVGs (also a test), and `--preview sheet.png` renders the menu bar icon at 16, 18 and 22 pt,
+  1x and 2x, on a light and a dark menu bar (through AppKit on macOS) and the tray frames on a light and a dark
+  taskbar. The build scripts need no change: `assets/` is already included.
+
 ## Tests
 
 - `config`, `catalog` and `library` with fixtures and temporary folders (`library`: a fake game folder of
@@ -1328,7 +1385,8 @@ crash in a classic tab never takes the web UI with it.
   install).
 - `gameassets` and end-to-end checks against a real install; skipped unless one is found (`BAMT_TEST_GAME_DIR`, or
   `game_paths.find_game_dirs`).
-- `webui` through its WSGI app, without a window.
+- `webui` through its WSGI app, without a window; the tray's menu and controller with fake services, never with a
+  status item or a `NotifyIcon`.
 
 ## Lobby lines
 
