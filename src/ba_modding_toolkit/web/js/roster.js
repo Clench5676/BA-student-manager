@@ -305,8 +305,11 @@ function syncRows() {
   const wanted = new Set();
   for (const [key, r] of rows) if (r.top + PITCH * S >= lo && r.top <= hi) wanted.add(key);
   for (const [key, el] of rendered) if (!wanted.has(key)) { el.remove(); rendered.delete(key); }
+  // the thumbnails render in the order they are asked for: the rows in view first, then below, then above
+  const shown = clipTop() + view.scroll, rank = (r) => (r.top + PITCH * S >= shown && r.top <= shown + viewH ? 0 : r.top > shown ? 1 : 2);
+  const order = [...wanted].sort((a, b) => rank(rows.get(a)) - rank(rows.get(b)) || rows.get(a).top - rows.get(b).top);
   const jobs = [];
-  for (const key of wanted) if (!rendered.has(key)) jobs.push(renderRow(host, key));
+  for (const key of order) if (!rendered.has(key)) jobs.push(renderRow(host, key));
   return Promise.all(jobs);
 }
 

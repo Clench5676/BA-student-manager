@@ -115,6 +115,7 @@ class FakeLibrary:
         self.enabled = True
         self.writes = True  # what would_write answers
         self.toggled = []
+        self.live = {}  # core -> the game files in the order live_bundles answers; others are not known
 
     def mods(self):
         return [FakeMod("m1", "hoshino")]
@@ -146,6 +147,11 @@ class FakeLibrary:
 
     def would_write(self, variant_key, source, kind="spr", pin=None):
         return self.writes
+
+    def live_bundles(self, core, pin=None):
+        if core not in self.live:
+            raise ServiceError("game_file_not_found", variant=core)
+        return self.live[core]
 
     def installs(self):
         return list(self.pins)
@@ -393,6 +399,63 @@ def test_mod_skeleton_is_the_one_named_by_the_mods_core(app, services, monkeypat
         "Hoshino_home_bg.skel": b"bg", "Hoshino_home_bg.atlas": b"bg atlas"}, raising=False)
     assert call(app, "/asset/spine/mod/m1/skeleton.skel")[2] == b"main"
     assert call(app, "/asset/spine/mod/m1/skeleton.atlas")[2] == b"main atlas"
+
+
+@pytest.mark.parametrize("kind", ["spr", "lobby", "mod", "official-spr", "official-lobby"])
+def test_spine_revision_routes_reject_switched_files(app, services, monkeypatch, tmp_path, kind):
+    bundle = _bundle(tmp_path, "assets-_mx-spinecharacters-hoshino_spr-_mxdependency-2026-01-01_assets_all")
+    monkeypatch.setattr(services.game, "spine_cores", lambda kind: {"hoshino_spr": [bundle]}, raising=False)
+    monkeypatch.setattr(services.game, "spine_files_from", lambda paths: {
+        "hoshino_spr.skel": paths[0].read_bytes(), "hoshino_spr.atlas": paths[0].read_bytes(),
+        "Pages/portrait.png": paths[0].read_bytes()}, raising=False)
+    monkeypatch.setattr(services.game, "lobby_info", lambda core: {"content": bundle.read_bytes().hex()}, raising=False)
+    monkeypatch.setattr(services.library, "preview_bundles", lambda mod: [bundle], raising=False)
+    monkeypatch.setattr(services.library, "official_bundles", lambda core, pin=None: [bundle], raising=False)
+    prefix = f"/asset/spine/{kind}/hoshino_spr"
+    before = json.loads(call(app, prefix + "/manifest.json")[2])["revision"]
+    expected = bundle.read_bytes()
+    assert call(app, f"{prefix}/{before}/skeleton.skel")[2] == expected
+    bundle.write_bytes(expected + b"changed")
+    for name in ("skeleton.skel", "skeleton.atlas", "Pages/portrait.png", "files.json", "lobby.json"):
+        assert call(app, f"{prefix}/{before}/{name}")[0] == "404 Not Found"
+    after = json.loads(call(app, prefix + "/manifest.json")[2])["revision"]
+    assert after != before
+    for name in ("skeleton.skel", "skeleton.atlas", "Pages/portrait.png"):
+        status, headers, body = call(app, f"{prefix}/{after}/{name}")
+        assert status == "200 OK" and body == bundle.read_bytes()
+        assert headers["Cache-Control"] == "no-store"
+    if kind == "lobby":
+        assert json.loads(call(app, f"{prefix}/{after}/lobby.json")[2])["content"] == bundle.read_bytes().hex()
+
+
+@pytest.mark.parametrize("kind", ["spr", "lobby"])
+def test_live_spine_files_are_read_in_the_librarys_order(app, services, monkeypatch, tmp_path, kind):
+    name = "hoshino_spr" if kind == "spr" else "hoshino_home"
+    official = _bundle(tmp_path, "assets-_mx-spinelobbies-b-_mxdependency-2026-01-01_assets_all")
+    mod = _bundle(tmp_path, "assets-_mx-spinelobbies-a-_mxdependency-2026-01-01_assets_all", b"x")
+    monkeypatch.setattr(services.game, "spine_cores", lambda k: {name: [mod, official]}, raising=False)
+    seen = []
+    monkeypatch.setattr(services.game, "spine_files_from", lambda paths: seen.append(list(paths)) or {
+        f"{name}.skel": b"skeleton"}, raising=False)
+    # a library that knows nothing of the core: the game's own order
+    first = json.loads(call(app, f"/asset/spine/{kind}/{name}/manifest.json")[2])["revision"]
+    assert call(app, f"/asset/spine/{kind}/{name}/{first}/skeleton.skel")[0] == "200 OK"
+    assert seen[-1] == [mod, official]
+    # the library puts the part that carries a mod last: the revision and the files follow that order
+    services.library.live[name] = [official, mod]
+    second = json.loads(call(app, f"/asset/spine/{kind}/{name}/manifest.json")[2])["revision"]
+    assert second != first
+    assert call(app, f"/asset/spine/{kind}/{name}/{second}/skeleton.skel")[0] == "200 OK"
+    assert seen[-1] == [official, mod]
+
+
+def test_missing_official_spine_returns_404(app, services, monkeypatch):
+    def missing(core, pin=None):
+        raise ServiceError("original_unavailable", file=core)
+
+    monkeypatch.setattr(services.library, "official_bundles", missing, raising=False)
+    for name in ("manifest.json", "skeleton.skel", "skeleton.atlas", "portrait.png"):
+        assert call(app, f"/asset/spine/official-spr/hoshino_spr/{name}")[0] == "404 Not Found"
 
 
 def test_a_new_library_prunes_its_kept_originals_once(tmp_path, monkeypatch):

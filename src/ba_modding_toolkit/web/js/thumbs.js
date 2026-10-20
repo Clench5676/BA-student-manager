@@ -2,13 +2,19 @@
 // card and the roster, cards for the popups. One hidden Spine player at a time (one WebGL context); results are
 // in-memory blob URLs, never written anywhere.
 
+import { spineAssetBase } from "./api.js";
+import { lobbyIdle } from "./rest-pose.js";
+
 const FRAMES = {
-  // [width, height] of the rendered picture in CSS px
+  // [width, height] of the rendered picture in CSS px: about what the cards show (a list card's window is 234 x 200
+  // units, 150 CSS px wide on a 1920 px screen, so 384 px covers a 2x display and up to a 2560 px screen), never more
   face: [320, 277],
   bust: [480, 480],
-  card: [480, 440],
+  card: [384, 352],
   roster: [404, 456],
 };
+// the frame a card's other use shows: the list card and the big picture of the same skeleton are drawn in one load
+const COMPANION = { card: "bust", bust: "card" };
 
 // the looping idle of a portrait skeleton: Idle_01, else its first idle-like animation; null when it has none (a few
 // NPC portraits only carry the "00" face), which leaves the setup pose under the face
@@ -18,7 +24,7 @@ export function idleAnimation(data) {
 }
 
 const cache = new Map();   // key -> Promise<url>
-const queue = [];          // { base, frame, expr, resolve, reject }
+const queue = [];          // { base, frame, expr, lobby, resolve, reject }
 let running = false;
 let host = null;
 
@@ -128,13 +134,18 @@ function loadPlayer(base, el) {
   });
 }
 
-async function capture(player, el, frame, expr) {
+async function capture(player, el, frame, expr, lobby = false) {
   const [w, h] = FRAMES[frame];
   el.style.width = `${w}px`;
   el.style.height = `${h}px`;
-  const state = player.animationState, idle = idleAnimation(player.skeleton.data);
+  const state = player.animationState, data = player.skeleton.data;
+  // the pose a still shows is the one the skeleton settles into: a lobby's idle as the lobby player chooses it, a
+  // portrait's idle. The player starts the skeleton's first animation (a lobby's is its intro, Start_Idle_*), and an
+  // animation set on top of it would mix in from it: the first frames would show the intro's first frame, mostly.
+  const idle = lobby ? lobbyIdle(data) : idleAnimation(data);
+  state.clearTracks();
+  player.skeleton.setToSetupPose();
   const entry = idle ? state.setAnimation(0, idle, true) : state.setEmptyAnimation(0, 0);
-  state.clearTrack(1);
   if (expr && player.skeleton.data.findAnimation(expr)) state.setAnimation(1, expr, true);
   state.apply(player.skeleton);
   player.skeleton.updateWorldTransform(spine.Physics.update);
@@ -144,6 +155,8 @@ async function capture(player, el, frame, expr) {
   const canvas = el.querySelector("canvas");
   return new Promise((resolve) => canvas.toBlob((b) => resolve(b ? URL.createObjectURL(b) : null)));
 }
+
+const keyOf = (base, frame, expr) => `${base}|${frame}|${expr || ""}`;
 
 async function pump() {
   if (running) return;
@@ -161,8 +174,9 @@ async function pump() {
       try {
         const player = await loadPlayer(base, el);
         for (const q of batch) {
-          try { q.resolve(await capture(player, el, q.frame, q.expr)); } catch (err) { q.reject(err); }
+          try { q.resolve(await capture(player, el, q.frame, q.expr, q.lobby)); } catch (err) { q.reject(err); }
         }
+        await companions(player, el, base, batch);
       } catch (err) {
         for (const q of batch) q.reject(err);
       } finally {
@@ -175,21 +189,67 @@ async function pump() {
   }
 }
 
-// thumb(base, "bust") -> Promise<blob url | null>; expr picks an expression for "face"
-export function thumb(base, frame = "bust", expr = null) {
-  const key = `${base}|${frame}|${expr || ""}`;
+// the other frame of a card, taken while the skeleton and its textures are loaded: asking for the big picture of a
+// card later does not load them again. A request already queued for it is answered from this load; a failure here
+// costs nothing, the frame is loaded when it is asked for.
+async function companions(player, el, base, batch) {
+  for (const frame of new Set(batch.map((q) => COMPANION[q.frame]).filter(Boolean))) {
+    const key = keyOf(base, frame, null);
+    const waiting = queue.find((q) => q.base === base && q.frame === frame && !q.expr);
+    if (cache.has(key) && !waiting) continue;
+    let url = null;
+    try { url = await capture(player, el, frame, null, batch[0].lobby); } catch { /* loaded when asked for */ }
+    if (!url) continue;
+    if (waiting && queue.includes(waiting)) { queue.splice(queue.indexOf(waiting), 1); waiting.resolve(url); }
+    else if (!cache.has(key)) cache.set(key, Promise.resolve(url));
+    else URL.revokeObjectURL(url);
+  }
+}
+
+// thumb(base, "bust") -> Promise<blob url | null>; expr picks an expression for "face"; lobby: a memorial lobby's
+// skeleton, which rests in its lobby idle (rest-pose.js). The promise has bump(): render this one before the rest of the
+// queue (a card that scrolled into view).
+export function thumb(base, frame = "bust", expr = null, lobby = false) {
+  if (!base) return Promise.resolve(null);
+  if (!/\/[a-f0-9]{64}\/skeleton$/.test(base)) {
+    // the revision the files carry now is part of the key: a picture made before a switch is never reused after it,
+    // and one made again for the same files comes from memory
+    let inner = null, first = false;
+    const outer = spineAssetBase(base).then((resolved) => {
+      inner = thumb(resolved, frame, expr, lobby);
+      if (first) inner.bump?.(); // asked to go first before the files were resolved
+      return inner;
+    }).catch((err) => { console.warn("thumbnail failed", base, err); return null; });
+    outer.bump = () => { first = true; inner?.bump?.(); };
+    return outer;
+  }
+  const key = keyOf(base, frame, expr);
   if (!cache.has(key)) {
-    cache.set(key, new Promise((resolve, reject) => {
-      queue.push({ base, frame, expr, resolve, reject });
+    let item;
+    const pending = new Promise((resolve, reject) => {
+      item = { base, frame, expr, lobby, resolve, reject };
+      queue.push(item);
       pump();
-    }).catch((err) => { console.warn("thumbnail failed", base, err); cache.delete(key); return null; }));
+    }).catch((err) => {
+      console.warn("thumbnail failed", base, err);
+      if (cache.get(key) === pending) cache.delete(key);
+      return null;
+    });
+    pending.bump = () => bump(item);
+    cache.set(key, pending);
   }
   return cache.get(key);
 }
 
+function bump(item) {
+  const at = queue.indexOf(item);
+  if (at > 0) queue.unshift(...queue.splice(at, 1));
+}
+
 // render the requested ones of a skeleton first (e.g. the faces of the portrait being shown)
 export function prioritise(base) {
-  queue.sort((a, b) => (b.base === base) - (a.base === base));
+  const prefix = base?.slice(0, base.lastIndexOf("/")) || "";
+  queue.sort((a, b) => b.base.startsWith(prefix) - a.base.startsWith(prefix));
 }
 
 // drop cached thumbnails of skeletons whose files changed (after applying or updating a mod, or a library.changed

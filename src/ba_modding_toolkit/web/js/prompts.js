@@ -250,8 +250,8 @@ export async function show(which, { entries = null, dismissed = false, force = f
 async function cardsOf(entries, state, which) {
   const nameOf = await names().catch(() => undefined);
   return entries.map((e) => {
-    const base = entryBase(e, state);
-    return { ...card(e, { state, nameOf, which }), thumb: thumb(base, "card"), big: () => thumb(base, "bust") };
+    const base = entryBase(e, state), lobby = e?.kind === "lobby";
+    return { ...card(e, { state, nameOf, which }), thumb: thumb(base, "card", null, lobby), big: () => thumb(base, "bust", null, lobby) };
   });
 }
 

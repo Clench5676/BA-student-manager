@@ -538,6 +538,41 @@ def test_mod_spine_cache_invalidates_without_disk_writes(tmp_path, monkeypatch):
         game.spine_files_from([tmp_path / "absent.bundle"])
 
 
+def test_spine_cache_tracks_same_size_replacements_with_preserved_mtime(tmp_path, monkeypatch):
+    from ba_modding_toolkit.gameassets.spine import spine_revision
+
+    path = tmp_path / "mod.bundle"
+    path.write_bytes(b"before")
+    game = GameAssets([tmp_path], AssetCache(root=tmp_path / "cache", allowed=False))
+    monkeypatch.setattr(service, "extract_spine", lambda paths: {"test.skel": paths[0].read_bytes()})
+    first = spine_revision([path])
+    assert game.spine_files_from([path])["test.skel"] == b"before"
+    stamp = path.stat()
+    replacement = tmp_path / "replacement.bundle"
+    replacement.write_bytes(b"after!")
+    os.utime(replacement, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
+    replacement.replace(path)
+    assert spine_revision([path]) != first
+    assert game.spine_files_from([path])["test.skel"] == b"after!"
+
+
+def test_spine_change_during_extraction_is_never_cached(tmp_path, monkeypatch):
+    path = tmp_path / "mod.bundle"
+    path.write_bytes(b"before")
+    game = GameAssets([tmp_path], AssetCache(root=tmp_path / "cache", allowed=False))
+
+    def extract(paths):
+        data = paths[0].read_bytes()
+        paths[0].write_bytes(b"after!")
+        return {"test.skel": data}
+
+    monkeypatch.setattr(service, "extract_spine", extract)
+    with pytest.raises(AssetNotFound):
+        game.spine_files_from([path])
+    monkeypatch.setattr(service, "extract_spine", lambda paths: {"test.skel": paths[0].read_bytes()})
+    assert game.spine_files_from([path])["test.skel"] == b"after!"
+
+
 @pytest.mark.parametrize("library_dir,game_dir", [("a-library", "z-game"), ("z-library", "a-game")])
 @pytest.mark.parametrize("texture_only", [False, True])
 def test_spine_mod_overrides_win_independent_of_paths_and_cache_order(

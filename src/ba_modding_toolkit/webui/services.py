@@ -936,6 +936,8 @@ class Services:
                 return AssetResponse(data, mime, light=False)
             if parts[1] == "portrait":
                 return AssetResponse(self.game.collection_portrait(_stem(parts[2])), "image/png", light=False)
+        if kind == "spine" and len(parts) >= 5:
+            return self._spine_asset(parts[1], parts[2], "/".join(parts[4:]), revision=parts[3])
         if kind == "spine" and len(parts) == 4:
             return self._spine_asset(parts[1], parts[2], parts[3])
         if kind == "model" and len(parts) == 2 and parts[1].endswith(".glb"):
@@ -981,9 +983,45 @@ class Services:
                 game = self._other_games[pin.key] = self._make_game(list(pin.dirs), private=True)
             return game
 
-    def _spine_asset(self, kind: str, key: str, name: str) -> AssetResponse:
+    def _spine_bundles(self, kind: str, key: str) -> list[Path]:
+        core, pin, game = key, None, self.game
+        if "@" in key and kind != "mod":
+            core, _, install_id = key.rpartition("@")
+            game = self._install_game(install_id)
+            pin = next(p for p in self.library.installs() if p.id == install_id)
+        if kind.startswith("official-") and kind[9:] in ("spr", "lobby"):
+            return self.library.official_bundles(core, pin=pin)
+        if kind in ("spr", "lobby"):
+            try:
+                # the game files with the mod-carrying parts last, the order a mod preview merges in
+                return self.library.live_bundles(core, pin=pin)
+            except (ServiceError, OSError):
+                return game.spine_cores(kind)[core.lower()]
+        if kind == "mod":
+            return self.library.preview_bundles(key)
+        raise KeyError(kind)
+
+    def _spine_asset(self, kind: str, key: str, name: str, revision: str | None = None) -> AssetResponse:
+        from ..gameassets.spine import spine_revision
+
+        bundles = None
+        if name == "manifest.json" or revision is not None or kind.startswith("official-"):
+            bundles = self._spine_bundles(kind, key)
+            current = spine_revision(bundles)
+            if revision is not None and revision != current:
+                raise KeyError(revision)
+            if name == "manifest.json":
+                return _json({"revision": current}, light=False)
+        response = self._spine_file(kind, key, name, bundles)
+        # A switch between the skeleton and page requests must fail the load, never mix revisions. Also reject
+        # changes during extraction, before any bytes from the changed composition reach the player.
+        if bundles is not None and (spine_revision(bundles) != current or self._spine_bundles(kind, key) != bundles):
+            raise KeyError(key)
+        return response
+
+    def _spine_file(self, kind: str, key: str, name: str, bundles: list[Path] | None = None) -> AssetResponse:
         game, core = self.game, key
-        if kind in ("spr", "lobby") and "@" in key:
+        if kind in ("spr", "lobby", "official-spr", "official-lobby") and "@" in key:
             # <core>@<id>: the core in another known install (its id in mods.state.installs)
             core, _, install_id = key.rpartition("@")
             game = self._install_game(install_id)
@@ -1009,10 +1047,12 @@ class Services:
                 return AssetResponse(game.lobby_sound(core, name[4:-4]), "audio/wav", light=False)
             except AssetNotFound:
                 pass
-        if kind in ("spr", "lobby"):
-            files = game.spine_files(kind, core)
+        if kind.startswith("official-"):
+            files = game.spine_files_from(bundles)
+        elif kind in ("spr", "lobby"):
+            files = game.spine_files_from(bundles) if bundles is not None else game.spine_files(kind, core)
         elif kind == "mod":
-            bundles = self.library.preview_bundles(key)
+            bundles = bundles if bundles is not None else self.library.preview_bundles(key)
             files = game.spine_files_from(bundles)
             # the mod's own core names its skeleton (a lobby has more than one: the character and its background)
             core = parse_filename(bundles[-1].name).core

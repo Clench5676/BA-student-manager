@@ -16,7 +16,7 @@ import * as Visual from "./visual-mode.js";
 import { QUEUEABLE, current as modsState, entryLabel, refused } from "./mod-switch.js";
 import * as Prompts from "./prompts.js";
 import { anyOpen as popupOpen } from "./popup.js";
-import { rpc, spineBase, spinePrefix, waitJob } from "./api.js";
+import { rpc, spineBase, spinePrefix, spineAssetBase, waitJob } from "./api.js";
 import { L, T, language, platform } from "./i18n.js";
 import { forget, idleAnimation, prioritise, thumb } from "./thumbs.js";
 import { portraitViewport } from "./portrait-view.js";
@@ -119,7 +119,7 @@ const hasModel = (v) => !!v.model;
 const hasFresh = (v, kind = null) => (v.modList || []).some((m) => m.fresh && (!kind || m.kind === kind));
 const modLabel = (m) => m.label || m.file?.split(/[\\/]/).pop() || m.id;
 // a candidate's skeleton: a mod's preview (its parts over the official ones), else the variant's own portrait or lobby
-const baseOf = (c, kind = "spr") => (c.kind === "mod" ? spineBase("mod", c.id) : spineBase(kind === "lobby" ? "lobby" : "spr", c.core));
+const baseOf = (c, kind = "spr") => (c.kind === "mod" ? spineBase("mod", c.id) : spineBase(`official-${kind}`, c.core));
 
 // what the switch card of a kind offers (switch-sources.js), with the names and marks the cards show: the variant's
 // own portrait or lobby and its added ones, then for the portrait the other variants' ones and their added ones
@@ -560,7 +560,7 @@ function shownMod() {
 function runUpdate() {
   const c = shownMod();
   if (!c || busy) return;
-  job("actions.update", { mod: c.id }, { onDone: () => { forget(spineBase("mod", c.id)); } });
+  job("actions.update", { mod: c.id }, { onDone: () => { forget(spinePrefix("mod", c.id)); } });
 }
 function runExtract() {
   const c = shownMod();
@@ -579,7 +579,11 @@ async function runCompare() {
 async function applyCandidate(key, kind = "spr") {
   const v = variant();
   await job("actions.apply", { variant: v.key, source: sourceOf(key), kind }, {
-    onDone: () => { forget(kind === "lobby" ? spineBase("lobby", v.lobby) : spineBase("spr", v.spr)); },
+    onDone: () => {
+      const core = kind === "lobby" ? v.lobby : v.spr;
+      forget(spinePrefix(kind, core));
+      forget(spinePrefix(`official-${kind}`, core));
+    },
     // the applied portrait or lobby swaps in with the rest of the screen; the old one shows until then
     after: (ok) => {
       if (!ok) return reload();
@@ -829,7 +833,7 @@ function enableDrag(clip, track) {
 // faces (also on an error, after the toast). The new layer stays transparent until committed; then it fades in over
 // the old one, which goes. A portrait that cannot be shown takes the old one away too: the left side stays empty
 // rather than showing another variant under this one's name.
-function loadSpine(base) {
+async function loadSpine(base) {
   const my = ++spineToken;
   const host = $("portrait");
   const layer = document.createElement("div");
@@ -848,6 +852,12 @@ function loadSpine(base) {
       setTimeout(() => { if (old.isConnected) { old.player?.dispose(); old.remove(); } }, 400);
     }
   };
+  base = await spineAssetBase(base).catch(() => null);
+  if (my !== spineToken) { layer.remove(); return; }
+  if (!base) {
+    commit(() => { if (my === spineToken) retire([...previous, layer]); });
+    return;
+  }
   return new Promise((resolve) => {
     layer.done = resolve; // settled by disposePortrait() too
     layer.player = new spine.SpinePlayer(layer, {
@@ -935,7 +945,7 @@ async function renderPopup(scroll = 0) {
     key: c.key, kind: c.kind, recruit: c.kind !== "mod" && c.recruit,
     label: candidateLabel(c, v),
     full: c.kind === "mod" ? c.label : fullName(c.variant),
-    thumb: thumb(baseOf(c, kind), "card"), big: () => thumb(baseOf(c, kind), "bust"),
+    thumb: thumb(baseOf(c, kind), "card", null, kind === "lobby"), big: () => thumb(baseOf(c, kind), "bust", null, kind === "lobby"),
     inUse: c.key === inUseKey, fav: c.fav, isNew: c.kind === "mod" && c.mod.fresh, src: c,
     dim: c.greyed,
     badge: c.greyed ? GREYED_BADGE() : mode.set && c.key === mode.set && c.key !== inUseKey ? SET_BADGE() : null,
@@ -1033,7 +1043,7 @@ async function openPicker(scroll = 0) {
   pickerSel = pickerSel || variantKey;
   const items = fam.variants.filter((o) => o.spr).sort(byRank).map((o) => ({
     key: o.key, kind: o.recruitable ? "playable" : "other", recruit: o.recruitable, label: shortName(o), full: fullName(o),
-    thumb: thumb(spineBase("spr", o.spr), "card"), big: () => thumb(spineBase("spr", o.spr), "bust"),
+    thumb: thumb(spineBase("official-spr", o.spr), "card"), big: () => thumb(spineBase("official-spr", o.spr), "bust"),
     inUse: o.key === variantKey, fav: isFav(o), isNew: hasFresh(o), src: o,
   })).filter((it) => pickerSeg === 0 || (pickerSeg === 1) === it.recruit);
   await listPopup({
@@ -1561,14 +1571,14 @@ async function reloadChanged() {
   const data = await rpc("family.get", { key }).catch(() => null);
   if (!data || !open || fam?.key !== key || busy) return;
   if (JSON.stringify(data) === JSON.stringify(fam)) return;
-  // the thumbnails of every core of the family whose files changed (a mod and the official file share one URL)
+  // the thumbnails of every core of the family whose files changed
   const changed = { spr: false, lobby: false };
   for (const v of data.variants) {
     const was = fam.variants.find((x) => x.key === v.key);
     for (const kind of ["spr", "lobby"]) {
       if (filesSig(was, kind) === filesSig(v, kind)) continue;
       const core = kind === "spr" ? v.spr : v.lobby;
-      if (core) forget(spinePrefix(kind, core));
+      if (core) { forget(spinePrefix(kind, core)); forget(spinePrefix(`official-${kind}`, core)); }
       if (v.key === variantKey) changed[kind] = true;
     }
   }
