@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 import {
-  appliedKey, appliedOf, candidates, configuredKey, coreOf, partsOf, popupMode, sourceOf, switchKindOf,
+  appliedKey, appliedOf, candidates, configuredKey, coreOf, overwrittenOf, partsOf, popupMode, sourceOf, switchKindOf,
 } from "../../src/ba_modding_toolkit/web/js/switch-sources.js";
 
 const part = (kind, applied, extra = {}) => ({ file: `/game/${kind}-${applied}.bundle`, kind, applied, crc: "ok", ...extra });
@@ -105,7 +105,57 @@ test("a part's official verdict wins over its applied source; without one, its a
   assert.equal(appliedOf({ state: { files: [part("spr", "mod:a")] } }), "mod:a"); // an older server: no verdict
 });
 
-// --- the popup while mods are off ---
+// --- overwritten kinds, alternate lobby cores and the popup while mods are off ---
+
+// a part of another tool's mod with no official copy anywhere (family.get: restorable false)
+const overwrittenPart = (kind) => part(kind, "unknown", { official: false, copy: null, restorable: false });
+
+test("candidates carry restorable; on an overwritten kind every card but the one in use is greyed", () => {
+  const fam = family();
+  for (const c of candidates(fam, fam.variants[0], "spr")) {
+    assert.equal(c.restorable, true, c.key);
+    assert.equal(c.greyed, false, c.key);
+  }
+  // hoshino's portrait overwritten by a mod outside the library: nothing in use among the cards, all greyed
+  fam.variants[0].state.files = [overwrittenPart("spr")];
+  assert.equal(overwrittenOf(fam.variants[0], "spr"), true);
+  assert.ok(candidates(fam, fam.variants[0], "spr").every((c) => c.greyed));
+  assert.equal(candidates(fam, fam.variants[0], "spr")[0].restorable, false);
+  // adopted: the library's mod is in use; it stays, the others are greyed
+  fam.variants[0].state.files = [part("spr", "mod:p1", { official: false, copy: null, restorable: false })];
+  const list = candidates(fam, fam.variants[0], "spr");
+  assert.deepEqual(list.filter((c) => !c.greyed).map((c) => c.key), ["m:p1"]);
+  // the popup never starts on a greyed card: on the one in use
+  assert.equal(popupMode(fam, fam.variants[0], "spr", true).start, "m:p1");
+  assert.equal(popupMode(fam, fam.variants[0], "spr", false).start, "m:p1");
+  // the lobby is not overwritten: its cards are not greyed
+  assert.ok(candidates(fam, fam.variants[0], "lobby").every((c) => !c.greyed));
+});
+
+test("another variant's card is greyed on every other popup when its files of that kind are overwritten", () => {
+  const fam = family();
+  fam.variants[2].state.files = [overwrittenPart("spr")]; // np0045's portrait: no official copy to adapt from
+  for (const v of [fam.variants[0], fam.variants[1]]) {
+    const card = candidates(fam, v, "spr").find((c) => c.key === "v:np0045");
+    assert.equal(card.greyed, true, v.key);
+    assert.equal(card.restorable, false, v.key);
+    assert.ok(candidates(fam, v, "spr").filter((c) => c.key !== "v:np0045").every((c) => !c.greyed), v.key);
+  }
+  // a part that is not official but has an official copy (kept, a backup, another folder) greys nothing
+  fam.variants[2].state.files = [part("spr", "unknown", { official: false, copy: "backup", restorable: true })];
+  assert.equal(candidates(fam, fam.variants[0], "spr").find((c) => c.key === "v:np0045").greyed, false);
+  // a part without restorable (an older server) is never taken for overwritten
+  assert.equal(overwrittenOf({ state: { files: [part("spr", "unknown")] } }, "spr"), false);
+});
+
+test("a lobby popup lists only the lobby mods of its own core", () => {
+  const fam = family();
+  fam.variants[0].modList.push(
+    { ...mod("gl", "hoshino", "lobby"), core: "hoshino_home_gl" },
+    { ...mod("own", "hoshino", "lobby"), core: "hoshino_home" });
+  const keys = candidates(fam, fam.variants[0], "lobby").map((c) => c.key);
+  assert.deepEqual(keys, ["self", "m:l1", "m:own"], "a mod without core is matched by its target, an alternate core's is not offered");
+});
 
 test("while mods are off: Save, starting on the configured card, chipped Set", () => {
   const fam = family();

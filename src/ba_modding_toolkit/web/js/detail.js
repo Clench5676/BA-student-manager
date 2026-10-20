@@ -13,7 +13,8 @@ import * as NGUI from "./ngui.js";
 import * as Loading from "./loading.js";
 import * as Lobby from "./lobby.js";
 import * as Visual from "./visual-mode.js";
-import { QUEUEABLE, current as modsState, refused } from "./mod-switch.js";
+import { QUEUEABLE, current as modsState, entryLabel, refused } from "./mod-switch.js";
+import * as Prompts from "./prompts.js";
 import { anyOpen as popupOpen } from "./popup.js";
 import { rpc, spineBase, spinePrefix, waitJob } from "./api.js";
 import { L, T, language, platform } from "./i18n.js";
@@ -537,7 +538,11 @@ async function job(method, params, { onDone, after = reload } = {}) {
     ok = true;
     await onDone?.(result);
   } catch (err) {
-    if (QUEUEABLE.includes(method)) refused(err, method, params);
+    // no official copy left: the Add First or Overwritten message of that entry, not a toast
+    if (err?.code === "original_unavailable" && (method === "actions.apply" || method === "actions.restore")) {
+      toast("");
+      overwrittenMessage(variant(), params.kind || "spr");
+    } else if (QUEUEABLE.includes(method)) refused(err, method, params);
     else toast(errorText(err), { kind: "error", sticky: false });
   } finally {
     busy = false;
@@ -917,10 +922,12 @@ function disposePortrait() {
 // switch portrait or memorial lobby: the variant's own skeleton and added ones, then the other variants' portraits;
 // OK writes the chosen one into the game files (applyCandidate)
 // While mods are off the popup saves the choice instead of writing it (popupMode): it starts on the configured source,
-// whose card carries "Set", and its button reads Save.
+// whose card carries "Set", and its button reads Save. On an overwritten kind its cards are greyed (switch-sources.js):
+// a click on one opens the entry's Add First or Overwritten message instead of choosing it.
 let popupSeg = 0, popupKind = "spr", popupStart = null;
 const modsOn = () => modsState()?.enabled !== false;
 const SET_BADGE = () => ({ text: T("switch.configured"), color: "#8de4ff", ink: "#314665" });
+const GREYED_BADGE = () => ({ text: T("mods.overwritten"), color: "#9aa3ad", ink: "#ffffff" });
 async function renderPopup(scroll = 0) {
   const v = variant(), kind = popupKind, inUseKey = appliedKey(v, kind);
   const mode = popupMode(fam, v, kind, modsOn());
@@ -930,7 +937,8 @@ async function renderPopup(scroll = 0) {
     full: c.kind === "mod" ? c.label : fullName(c.variant),
     thumb: thumb(baseOf(c, kind), "card"), big: () => thumb(baseOf(c, kind), "bust"),
     inUse: c.key === inUseKey, fav: c.fav, isNew: c.kind === "mod" && c.mod.fresh, src: c,
-    badge: mode.set && c.key === mode.set && c.key !== inUseKey ? SET_BADGE() : null,
+    dim: c.greyed,
+    badge: c.greyed ? GREYED_BADGE() : mode.set && c.key === mode.set && c.key !== inUseKey ? SET_BADGE() : null,
   }))
     .filter((it) => popupSeg === 0 || (popupSeg === 1) === !!it.recruit)
     .sort((a, b) => (b.fav ? 1 : 0) - (a.fav ? 1 : 0));
@@ -938,8 +946,13 @@ async function renderPopup(scroll = 0) {
     hostId: "popup", title: T(kind === "lobby" ? "row.switch.lobby" : "popup.switch"), okText: T(mode.button), items, selected: pending, keepScroll: scroll,
     tools: { segs: ["seg.all", "seg.recruit", "seg.noRecruit"], seg: popupSeg, onSeg: (i) => { popupSeg = i; renderPopup(); }, sortKey: "sort.default" },
     onSelect: (key, s) => {
-      pending = key;
       const c = candidates(v, kind).find((x) => x.key === key);
+      if (c?.greyed) {
+        // never the choice: the entry whose files are overwritten says what can be done
+        overwrittenMessage(c.kind === "variant" ? c.variant : v, kind).then((added) => (added ? reload().then(() => renderPopup(s)) : null));
+        return;
+      }
+      pending = key;
       if (c?.kind === "mod" && c.mod.fresh) rpc("mods.seen", { id: c.id }).then(() => { c.mod.fresh = false; }).catch(() => {});
       renderPopup(s);
     },
@@ -981,7 +994,14 @@ function closePopup(apply) {
   $("popup").innerHTML = "";
   const chosen = candidates(variant(), popupKind).find((c) => c.key === pending);
   // only a choice other than the start (what the game shows; while mods are off, the configured source)
-  if (apply && chosen && pending !== popupStart) applyCandidate(pending, popupKind);
+  if (apply && chosen && !chosen.greyed && pending !== popupStart) applyCandidate(pending, popupKind);
+}
+
+// the Add First or Overwritten message of a variant's files of a kind (prompts.js); resolves with true once its mod
+// was added to the library
+function overwrittenMessage(v, kind = "spr") {
+  const core = kind === "lobby" ? v.lobby : v.spr;
+  return Prompts.overwritten({ name: entryLabel({ core, kind }, () => fullName(v)), core, files: partsOf(v, kind) });
 }
 
 // variant picker: every variant of the family in the same list layout
