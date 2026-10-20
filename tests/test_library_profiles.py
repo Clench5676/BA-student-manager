@@ -2428,3 +2428,40 @@ def test_a_write_judges_what_it_replaces_by_its_sha1_not_its_size_and_date(world
     # the write compared the sha1 it computed anyway with the record: the outside bytes are kept as a mod
     assert any(m.file.read_bytes() == header_bundle(b"another!") for m in world.library.mods())
     assert len(world.library.mods()) == 2
+
+
+def test_a_new_date_on_the_same_bytes_is_stamped_once_a_switch_reaches_them(world):
+    world.consent = True
+    mod = world.add(world.spr, payload=b"longer unfixed mod")  # another size than the official file, no tail
+    world.library.apply("test", f"mod:{mod.id}")
+    later = world.spr.stat().st_mtime_ns + 5_000_000_000
+    os.utime(world.spr, ns=(later, later))  # the same bytes, a new date (a backup tool, touch)
+    assert world.entries()[(world.key(), "test_spr")].state == "changed"
+    result = world.library.toggle(True, True)  # a Retry of the On: the full judgement finds the record's sha1
+    assert result.done == [] and result.skipped == [] and result.adopted == []
+    record = json.loads((world.root / "state.json").read_text())["applied"][str(world.spr.resolve())]
+    assert record["mtime"] == later
+    assert world.entries()[(world.key(), "test_spr")].state == "ok"  # the prompt does not come back at every start
+    world.reload()
+    assert world.entries()[(world.key(), "test_spr")].state == "ok"
+
+
+def test_an_outside_change_the_cheap_rule_takes_for_official_is_remembered_once_reached(world):
+    world.consent = True
+    mod = world.add(world.spr, fixed=True)
+    world.library.apply("test", f"mod:{mod.id}")
+    world.spr.write_bytes(header_bundle(b"outside!"))  # no CRC fix, no trailing bytes, the official size
+    assert world.entries()[(world.key(), "test_spr")].state == "reset"  # judged cheaply: official again
+    result = world.library.restore_drift([{"install": world.key(), "core": "test_spr", "state": "reset"}])
+    assert [item["why"] for item in result.skipped] == ["changed"]  # reached: changed outside, left as it is
+    assert world.spr.read_bytes() == header_bundle(b"outside!")
+    # from then on the cheap judgement agrees, with no read: an outside change (the untracked prompt), never again a
+    # drift prompt that Apply Mod Configuration skips
+    assert world.entries()[(world.key(), "test_spr")].state == "changed"
+    world.reload()
+    assert world.entries()[(world.key(), "test_spr")].state == "changed"
+    assert world.library.state("test").files[0].applied == "unknown"
+    result = world.toggle(False)  # the Off adopts it, then reverts the file; the next write drops the verdict
+    assert [item["core"] for item in result.adopted] == ["test_spr"]
+    record = json.loads((world.root / "state.json").read_text())["applied"][str(world.spr.resolve())]
+    assert "outside" not in record and world.spr.read_bytes() == OFFICIAL

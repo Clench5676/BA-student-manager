@@ -280,6 +280,9 @@ class _View:
             return _Part(path, size, mtime, carried, flag, True, False, None if trailing is ... else trailing,
                          crc, record, restamp)
         official = self.official_now(path, size, trailing)
+        if official and self.allow != "full" and _outside(record, size, mtime):
+            # a full judgement found these very bytes changed outside the library: the cheap rule cannot tell
+            official = False
         return _Part(path, size, mtime, "official" if official else "unknown", official, False, record is not None,
                      trailing, "fixed" if trailing else "ok", record)
 
@@ -431,6 +434,13 @@ class _View:
                 if entry.configured or entry.state != "ok" or entry.overwritten:
                     out.append(entry)
         return out
+
+
+def _outside(record: dict | None, size: int, mtime: int) -> bool:
+    """Whether a record remembers the full judgement's verdict on the file as it is now (``outside``: its size and
+    modification time when a switch found it changed outside the library, though the cheap rule calls it official)."""
+    mark = (record or {}).get("outside")
+    return isinstance(mark, list) and len(mark) == 2 and mark[0] == size and mark[1] == mtime
 
 
 def signature(parts: list[_Part]) -> list[tuple[str, int, int]]:
@@ -2602,6 +2612,7 @@ class ModLibrary:
         pins = self._view_pins(pin)
         view = self._view(pins, "full")
         entry = view.entry(pin, core)
+        self._note_judged(view, entry)
         item = entry.item()
         outcome: dict[str, Any] = {}
         if entry.state == "source_missing":
@@ -2671,6 +2682,39 @@ class ModLibrary:
         outcome["done"] = item
         return outcome, None, item
 
+    def _note_judged(self, view: _View, entry: _Entry) -> None:
+        """What a judgement found that the records keep, so the cheap judgement agrees with it from then on: the new
+        date of a file whose bytes are the record's (its sha1 at write strength, its last bytes cheaply), and, at
+        write strength, a file the cheap rule calls official whose bytes were changed outside the library (``outside``,
+        its size and date; dropped by the next write there)."""
+        changed = False
+        for part in entry.parts:
+            record = self._applied.get(str(part.path.resolve())) if part.record is not None else None
+            if record is None:
+                continue
+            if part.restamp is not None:
+                if record.get("mtime") != part.restamp or "outside" in record:
+                    logger.info("Same bytes, new date: %s", part.path.name)
+                    record["mtime"] = part.restamp
+                    record.pop("outside", None)
+                    changed = True
+                continue
+            if view.allow != "full" or part.matched or part.carried != "unknown" or part.trailing != 0:
+                continue
+            expected = view.official_size(part.path.name)
+            if expected is not None and expected != part.size:
+                continue  # the cheap rule finds it already: another size than the official file
+            mark = [part.size, part.mtime]
+            if record.get("outside") != mark:
+                logger.info("Changed outside the library, though it looks official: %s", part.path.name)
+                record["outside"] = mark
+                changed = True
+        if changed:
+            try:
+                self._save()
+            except OSError:
+                logger.warning("Could not save what a judgement found", exc_info=True)
+
     def judge_unfinished(self) -> int:
         """Judge the unfinished list's entries again from what the library recorded (stat, header and last bytes of
         its own writes; no scan consent needed), and drop those that need nothing more (the leaving rule). Only the
@@ -2697,6 +2741,7 @@ class ModLibrary:
                     entry = view.entry(pin, item["core"])
                 except (OSError, _Unread):
                     continue
+                self._note_judged(view, entry)
                 if leaves(entry.state, enabled):
                     leaving.add((item["install"], item["core"]))
             if not leaving:
