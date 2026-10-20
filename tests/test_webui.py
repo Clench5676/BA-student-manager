@@ -364,7 +364,9 @@ def test_another_installs_skeleton_is_read_from_its_own_files(app, services, mon
     made = []
 
     class OtherGame(FakeGame):
-        def __init__(self, dirs):
+        def __init__(self, dirs, private=False):
+            # never the shared cache: it is keyed by the resource version, which two installs may share
+            assert private
             made.append(dirs)
 
         def spine_files(self, kind, core):

@@ -252,9 +252,14 @@ class Services:
                 self._game = self._make_game(dirs)
             return self._game
 
-    def _make_game(self, dirs: list[Path]) -> Any:
-        from ..gameassets import GameAssets
+    def _make_game(self, dirs: list[Path], *, private: bool = False) -> Any:
+        from ..gameassets import AssetCache, GameAssets
 
+        if private:
+            # another install's files: a memory-only cache of its own, since the shared one is keyed by the game's
+            # resource version and its indexes hold bundle paths, so two installs at one version would read each
+            # other's bundles
+            return GameAssets(dirs, AssetCache(allowed=False, max_bytes=128 * 1024 * 1024, root=self.cache_dir()))
         return GameAssets(dirs, self.cache)
 
     def game_found(self) -> bool:
@@ -968,7 +973,7 @@ class Services:
         with self._lock:
             game = self._other_games.get(pin.key)
             if game is None:
-                game = self._other_games[pin.key] = self._make_game(list(pin.dirs))
+                game = self._other_games[pin.key] = self._make_game(list(pin.dirs), private=True)
             return game
 
     def _spine_asset(self, kind: str, key: str, name: str) -> AssetResponse:
