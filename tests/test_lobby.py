@@ -687,11 +687,13 @@ def test_real_lobby_particle_modules(real_game):
     dust = [s for s in real_game.lobby_info("ch0318_home")["fx"]["systems"] if "colorBySpeed" in s["modules"]]
     assert sorted(s["modules"]["colorBySpeed"]["range"][1] for s in dust) == [7.0, 8.0]
     assert sum(s["emission"]["dist"] > 0 for s in real_game.lobby_info("ch0292_home")["fx"]["systems"]) == 9
-    # Hibiki's bokeh: bursts spread along their edges; CH0069's halo: five spread round its arc
+    # Hibiki's bokeh: bursts spread along their edges; CH0069's halo: bursts of five in burst spread mode with a
+    # spread of 0.12 (placed at random: how the two go together is not known)
     hibiki = real_game.lobby_info("hibiki_home")["fx"]["systems"]
     assert sum(s["shape"]["type"] == 12 and s["shape"]["radiusMode"] == 3 for s in hibiki if s["shape"]) == 10
     halo = next(s for s in real_game.lobby_info("ch0069_home")["fx"]["systems"] if (s["shape"] or {}).get("arcMode") == 3)
-    assert halo["emission"]["bursts"][0]["n"] == 5.0 and halo["renderer"]["sort"] == 1
+    assert halo["emission"]["bursts"][0]["n"] == 5.0 and halo["shape"]["arcSpread"] == 0.12
+    assert halo["renderer"]["sort"] == 1
 
 
 @pytest.mark.skipif(not GAME_DIR.is_dir(), reason="No local game install")

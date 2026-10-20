@@ -170,17 +170,16 @@ const shell = (r, thickness, dims) => Math.pow(1 - thickness + thickness * r, 1 
 
 // Where around an arc, or along an edge, a particle is emitted (0..1), by the shape's mode for it
 // (ParticleSystemShapeMultiModeValue): loop (1) and ping-pong (2) go round over the system's time at the mode's speed,
-// burst spread (3) spreads the particles emitted together evenly (batch: the particle's index i of n), and a spread
-// above 0 keeps them to multiples of it. Random (0): null, the shape draws a random value.
+// a spread above 0 keeping them to multiples of it; burst spread (3) without a spread spreads the particles emitted
+// together evenly (batch: the particle's index i of n). Random (0): null, the shape draws a random value. How burst
+// spread and a spread above 0 go together (CH0069's and CH0294's halos: 0.12) is neither in the game's data nor in
+// its compiled code: those keep the random value too.
 export function along(mode, spread, speed, time, duration, batch, u = 0) {
-  let t;
-  if (mode === 1 || mode === 2) {
-    const k = ((time / duration) * (value(speed, u, 0) || 1)) % 1;
-    t = mode === 2 ? 1 - Math.abs(1 - 2 * k) : k;
-  } else if (mode === 3) t = batch && batch.n > 0 ? batch.i / batch.n : 0;
-  else return null;
-  if (spread > 0) t = Math.round(t / spread) * spread;
-  return t;
+  if (mode === 3) return spread > 0 ? null : batch && batch.n > 0 ? batch.i / batch.n : 0;
+  if (mode !== 1 && mode !== 2) return null;
+  const k = ((time / duration) * (value(speed, u, 0) || 1)) % 1;
+  const t = mode === 2 ? 1 - Math.abs(1 - 2 * k) : k;
+  return spread > 0 ? Math.round(t / spread) * spread : t;
 }
 
 // an emission point and direction in the shape's space (Unity's ParticleSystemShapeType), before the shape's own

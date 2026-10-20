@@ -523,13 +523,15 @@ test("SpineEventToggleObjects: a system below a toggled GameObject plays from it
   assert.equal(s.particles.length, 4, "one duration of 4 a second, simulated at once");
 });
 
-test("arc and edge modes: loop and ping-pong over the system's time, burst spread evenly, snapped to the spread", () => {
+test("arc and edge modes: loop and ping-pong over the system's time, snapped to the spread, burst spread evenly", () => {
   assert.equal(P.along(0, 0, 1, 0.3, 1, null), null, "random: the shape draws");
   near(P.along(1, 0, 1, 0.3, 1, null), 0.3);
   near(P.along(1, 0, 2, 0.3, 1, null), 0.6, 1e-9, "at the mode's speed");
   near(P.along(2, 0, 1, 0.75, 1, null), 0.5, 1e-9, "ping-pong on its way back");
   assert.deepEqual([0, 1, 2, 3].map((i) => P.along(3, 0, 1, 0, 1, { i, n: 4 })), [0, 0.25, 0.5, 0.75]);
-  near(P.along(3, 0.12, 1, 0, 1, { i: 1, n: 5 }), 0.24, 1e-9, "0.2 snapped to the nearest multiple of 0.12");
+  near(P.along(1, 0.25, 1, 0.3, 1, null), 0.25, 1e-9, "0.3 snapped to the nearest multiple of 0.25");
+  // burst spread with a spread (CH0069's and CH0294's halos: 0.12): how the two go together is unknown, so random
+  assert.equal(P.along(3, 0.12, 1, 0, 1, { i: 1, n: 5 }), null);
   // CH0069's halo: one burst of 5 on a cone's rim, burst spread round the full arc; Hibiki's bokeh: bursts on an
   // edge spread by the radius's mode
   const halo = sys({ emission: { bursts: [{ t: 0, n: 4, cycles: 1, interval: 1, p: 1 }] },
