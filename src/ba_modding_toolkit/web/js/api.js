@@ -96,6 +96,11 @@ export const spineFiles = (kind, key) => `/asset/spine/${kind}/${encodeURICompon
 // Requests for one directory that overlap (a card and its big picture, the same skeleton asked for twice) share one
 // answer; a request after it settled asks again.
 const resolving = new Map();
+export function forgetSpineAssets(prefix = "") {
+  const want = prefix.toLowerCase();
+  for (const dir of resolving.keys()) if (dir.toLowerCase().startsWith(want)) resolving.delete(dir);
+}
+
 export function spineAssetBase(base) {
   if (!base || /\/[a-f0-9]{64}\/skeleton$/.test(base)) return Promise.resolve(base);
   const dir = base.slice(0, base.lastIndexOf("/"));
@@ -104,7 +109,7 @@ export function spineAssetBase(base) {
       if (!res.ok) return null;
       const { revision } = await res.json();
       return /^[a-f0-9]{64}$/.test(revision) ? `${dir}/${revision}/skeleton` : null;
-    }).finally(() => resolving.delete(dir));
+    }).finally(() => { if (resolving.get(dir) === asking) resolving.delete(dir); });
     resolving.set(dir, asking);
   }
   return resolving.get(dir);

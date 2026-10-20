@@ -2,7 +2,7 @@
 // card and the roster, cards for the popups. One hidden Spine player at a time (one WebGL context); results are
 // in-memory blob URLs, never written anywhere.
 
-import { spineAssetBase } from "./api.js";
+import { spineAssetBase, forgetSpineAssets } from "./api.js";
 import { lobbyIdle } from "./rest-pose.js";
 
 const FRAMES = {
@@ -215,10 +215,19 @@ export function thumb(base, frame = "bust", expr = null, lobby = false) {
     // the revision the files carry now is part of the key: a picture made before a switch is never reused after it,
     // and one made again for the same files comes from memory
     let inner = null, first = false;
-    const outer = spineAssetBase(base).then((resolved) => {
-      inner = thumb(resolved, frame, expr, lobby);
-      if (first) inner.bump?.(); // asked to go first before the files were resolved
-      return inner;
+    const outer = spineAssetBase(base).then(async (resolved) => {
+      for (let attempt = 0; resolved && attempt < 2; attempt++) {
+        inner = thumb(resolved, frame, expr, lobby);
+        if (first) inner.bump?.(); // asked to go first before the files were resolved
+        const url = await inner;
+        if (url || attempt) return url;
+        // A switch after the manifest can reject the revision's assets. Ask afresh and try the new files once.
+        forgetSpineAssets(base.slice(0, base.lastIndexOf("/")));
+        const fresh = await spineAssetBase(base);
+        if (fresh === resolved) return null;
+        resolved = fresh;
+      }
+      return null;
     }).catch((err) => { console.warn("thumbnail failed", base, err); return null; });
     outer.bump = () => { first = true; inner?.bump?.(); };
     return outer;
@@ -255,6 +264,7 @@ export function prioritise(base) {
 // drop cached thumbnails of skeletons whose files changed (after applying or updating a mod, or a library.changed
 // event, whose cores are lower case while the catalog's keep the game's case): any case matches
 export function forget(prefix = "") {
+  forgetSpineAssets(prefix);
   const want = prefix.toLowerCase();
   for (const [key, p] of cache) {
     if (!key.toLowerCase().startsWith(want)) continue;

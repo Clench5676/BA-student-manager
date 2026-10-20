@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { spineBase, spineAssetBase } from "../../src/ba_modding_toolkit/web/js/api.js";
+import { spineBase, spinePrefix, spineAssetBase } from "../../src/ba_modding_toolkit/web/js/api.js";
 import { thumb, forget } from "../../src/ba_modding_toolkit/web/js/thumbs.js";
 
 const revisions = new Map();
@@ -196,4 +196,107 @@ test("overlapping manifest requests for one directory share one answer", async (
   assert.equal(requests.length, before + 1);
   await spineAssetBase(base);
   assert.equal(requests.length, before + 2, "a later request asks again: the files may have changed");
+});
+
+test("forget invalidates delayed manifests by core without old completions deleting their replacements", async () => {
+  const base = spineBase("spr", "Delayed_spr");
+  const install = spineBase("spr", "Delayed_spr", "other-install");
+  const other = spineBase("spr", "unrelated_spr");
+  const fetch = globalThis.fetch, waiting = [];
+  globalThis.fetch = (url) => new Promise((resolve) => waiting.push({ url, resolve }));
+  const answer = (i, revision) => waiting[i].resolve({ ok: true, json: async () => ({ revision: revision.repeat(64) }) });
+  try {
+    const before = spineAssetBase(base), installBefore = spineAssetBase(install), unrelated = spineAssetBase(other);
+    forget(spinePrefix("spr", "DELAYED_SPR"));
+    const after = spineAssetBase(base), installAfter = spineAssetBase(install);
+    assert.equal(waiting.length, 5, "both installs get fresh requests after the change");
+    assert.equal(spineAssetBase(other), unrelated, "an unrelated core still shares its pending request");
+    answer(0, "a");
+    await before;
+    assert.equal(spineAssetBase(base), after, "the old response cannot remove the new pending request");
+    answer(1, "a");
+    await installBefore;
+    assert.equal(spineAssetBase(install), installAfter);
+    answer(2, "c");
+    answer(3, "b");
+    answer(4, "b");
+    const [current, installed] = await Promise.all([after, installAfter, unrelated]);
+    assert.equal(current, base.replace("/skeleton", `/${"b".repeat(64)}/skeleton`));
+    assert.equal(installed, install.replace("/skeleton", `/${"b".repeat(64)}/skeleton`));
+    const pending = spineAssetBase(base);
+    forget();
+    const fresh = spineAssetBase(base);
+    assert.notEqual(fresh, pending, "forget without a prefix invalidates every pending manifest");
+    answer(5, "b");
+    answer(6, "c");
+    await Promise.all([pending, fresh]);
+  } finally {
+    for (const { resolve } of waiting) resolve({ ok: false });
+    forget();
+    globalThis.fetch = fetch;
+  }
+});
+
+test("a thumbnail with a delayed old manifest recovers after a switch without a redraw", async () => {
+  const base = spineBase("spr", "switch_spr"), manifest = base.replace(/skeleton$/, "manifest.json");
+  set(base, "a");
+  const fetch = globalThis.fetch, Player = globalThis.spine.SpinePlayer;
+  const count = loaded.length, start = requests.length, disposed = [];
+  let release, asked, delay = true;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const asking = new Promise((resolve) => { asked = resolve; });
+  globalThis.fetch = async (url, options) => {
+    const res = await fetch(url, options);
+    if (url !== manifest || !delay) return res;
+    delay = false;
+    return { ...res, json: async () => { asked(); await gate; return res.json(); } };
+  };
+  globalThis.spine.SpinePlayer = class extends Player {
+    constructor(el, config) {
+      const stale = !config.skeleton.includes(`/${revisions.get(manifest)}/`);
+      super(el, stale ? { ...config, success: (player) => config.error(player, `Couldn't load binary ${config.skeleton}: status 404`) } : config);
+    }
+    dispose() { disposed.push(this.config.skeleton); super.dispose(); }
+  };
+  try {
+    const before = thumb(base, "card");
+    await asking;
+    set(base, "b");
+    forget(spinePrefix("spr", "SWITCH_SPR"));
+    const after = thumb(base, "card");
+    assert.equal(requests.length, start + 2, "the thumbnail after the switch does not join the delayed manifest");
+    release();
+    const [oldPicture, newPicture] = await Promise.all([before, after]);
+    assert.ok(newPicture);
+    assert.equal(oldPicture, newPicture, "the old load also recovers with the current revision");
+    assert.equal(loaded.length, count + 2, "one rejected old player and one shared current player");
+    assert.equal(requests.length, start + 3, "the rejected load asks for a fresh manifest once");
+    assert.ok(disposed.some((skeleton) => skeleton.includes(`/${"a".repeat(64)}/`)), "the rejected player is disposed");
+    assert.equal(await thumb(base, "card"), newPicture, "the recovered picture is cached under its current revision");
+  } finally {
+    release();
+    globalThis.fetch = fetch;
+    globalThis.spine.SpinePlayer = Player;
+  }
+});
+
+test("revision rejection retries once even if the files keep switching", async () => {
+  const base = spineBase("spr", "retry_spr");
+  set(base, "a");
+  const Player = globalThis.spine.SpinePlayer, count = loaded.length, start = requests.length;
+  let failures = 0;
+  globalThis.spine.SpinePlayer = class extends Player {
+    constructor(el, config) {
+      set(base, ++failures === 1 ? "b" : "c");
+      super(el, { ...config, success: (player) => config.error(player, `Couldn't load texture atlas ${config.atlas}: status 404`) });
+    }
+  };
+  try {
+    assert.equal(await thumb(base, "face", "01"), null);
+    assert.equal(loaded.length, count + 2, "the second rejection ends this thumbnail request");
+    assert.equal(requests.length, start + 2, "there is only one manifest refresh");
+  } finally {
+    globalThis.spine.SpinePlayer = Player;
+  }
+  assert.ok(await thumb(base, "face", "01"), "a later redraw can recover after both rejected attempts");
 });
