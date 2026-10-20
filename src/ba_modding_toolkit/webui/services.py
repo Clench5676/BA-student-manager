@@ -325,7 +325,7 @@ class Services:
                     self._start_prune(built)
             library = self._library
         if built is not None and self._startup_ready and self.state.flag("startup_checks"):
-            self.scanner.request()  # the start scan (with scan consent), after the prune job
+            self.request_scan()  # the start scan (with scan consent), after the prune job
         return library
 
     def _start_prune(self, library: Any) -> None:
@@ -429,7 +429,7 @@ class Services:
         # the known installs may be others now: a running scan is of the old ones
         self.scanner.cancel()
         self.refresh_status()
-        self.scanner.request()
+        self.request_scan()
         self.publish_state()
 
     def _refresh_if_idle(self) -> None:
@@ -455,11 +455,10 @@ class Services:
         return self.state.scan_consent is True
 
     def set_scan_consent(self, granted: bool) -> None:
-        """The scan consent popup's answer, or Settings' File Check: granted, a scan runs; withdrawn, scans stop and
-        the entries empty."""
+        """Save consent; granted, automatic mode requests a scan; withdrawn, scans stop and the entries empty."""
         self.state.set("scan_consent", bool(granted))
         if granted:
-            self.scanner.request()
+            self.request_scan()
         else:
             self.scanner.clear()
             self.snapshot.clear_entries()
@@ -467,12 +466,24 @@ class Services:
             self._release_queue()
         self.publish_state()
 
-    def request_scan(self, dismissed: bool = False) -> int | None:
+    def set_startup_checks(self, enabled: bool) -> None:
+        """Save the automatic file check preference; Manual drops outstanding automatic checks."""
+        self.state.set("startup_checks", enabled)
+        if not enabled:
+            self.scanner.clear()
+            self._release_queue()
+
+    def request_scan(self, dismissed: bool = False, *, cores: set[str] | None = None) -> int | None:
+        """Settings' Check is explicit; all other requests require automatic checks as well as consent."""
+        if not dismissed and not self.state.flag("startup_checks"):
+            return None
         if dismissed and self.scan_allowed():
             with self._lock:
                 if not self.jobs.busy():
                     self._start_prune(self.library)
-        return self.scanner.request(dismissed)
+        if dismissed:
+            return self.scanner.request(True)
+        return self.scanner.request(cores=cores) if cores is not None else self.scanner.request()
 
     def _scan(self, cancel: Callable[[], bool], dismissed: bool, cores: set[str] | None = None) -> Any:
         """One scan over every known install, on the scanner's thread. The start scan waits for the prune job."""
@@ -507,7 +518,7 @@ class Services:
 
     def _release_queue(self, served: int | None = None) -> None:
         """Run the classic queue once the scan it waits for is done (``served``, the last request a scan attempt
-        served), or at once (``None``: that scan will not run, the scan consent was withdrawn). Only one caller takes
+        served), or at once (``None``: consent was withdrawn or checks became manual). Only one caller takes
         the ticket."""
         with self._lock:
             ticket = self._queue_ticket
@@ -522,7 +533,7 @@ class Services:
                **params: Any) -> str:
         """Submit a job. A writer job (``writes``: "game" or "library") ends on the worker with the library's
         judging of the unfinished list, a new ``mods.state`` snapshot, ``library.changed {cores, kinds}`` and a scan
-        (with scan consent); ``library`` is the library it works through, captured at submit."""
+        (with consent and automatic checks); ``library`` is the library it works through, captured at submit."""
         if writes is None:
             return self.jobs.submit(kind, fn, **params)
 
@@ -573,7 +584,7 @@ class Services:
             if replace_scan:
                 cores = None  # a preceding scan may become stale while this job writes
             # Without a complete snapshot a full scan still establishes the initial state.
-            self.scanner.request(cores=cores if cores and self.snapshot.scanned() else None)
+            self.request_scan(cores=cores if cores and self.snapshot.scanned() else None)
         logger.info("Writer %s follow-up and scan request: %.3f s", kind, time.perf_counter() - started)
 
     def _job_finished(self, job: Any) -> None:
@@ -723,10 +734,10 @@ class Services:
         self.after_classic()
 
     def after_classic(self) -> None:
-        """The classic tabs may have changed game files: the page reads them again, a scan runs (with scan consent),
-        then the queued writes."""
+        """The classic tabs may have changed game files: the page reads them again, a scan runs with consent in automatic
+        mode, then the queued writes."""
         self.events.publish("library.changed")
-        ticket = self.scanner.request()
+        ticket = self.request_scan()
         if ticket is None:
             self.run_queue()
         else:
@@ -857,7 +868,7 @@ class Services:
         if _intent_key(status) == self._intent_seen:
             return False
         self.refresh_status(library)
-        self.scanner.request()
+        self.request_scan()
         self.submit_judge()
         return True
 
@@ -962,7 +973,7 @@ class Services:
                     self._start_prune(library)
                     requested = True
             if requested:
-                self.scanner.request()
+                self.request_scan()
             if self.refresh_status() is not None:
                 self.publish_state()
         except Exception:
@@ -978,7 +989,7 @@ class Services:
             installs=lambda: [item["folder"] for item in (self.snapshot.status() or {}).get("installs") or []],
             find_classic=self.classic.orphan, profiles_seen=self.profiles_seen,
             on_change=lambda state: self.publish_state(), publish=self.events.publish,
-            request_scan=self.scanner.request, active=lambda: self.events.listeners() > 0 or self.tray_shown,
+            request_scan=self.request_scan, active=lambda: self.events.listeners() > 0 or self.tray_shown,
             own_classic=self._own_classic, on_classic_closed=self._orphan_closed)
         if run:
             self.watch.start()

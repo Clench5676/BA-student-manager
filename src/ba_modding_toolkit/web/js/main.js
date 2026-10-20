@@ -122,7 +122,7 @@ async function refreshAfterToggle() {
   await applyChange();
 }
 
-// the window back in front after 30 s or more: the game files are checked again (only with the scan consent)
+// the window back in front after 30 s or more: the server checks again with consent and automatic checks enabled
 let hiddenAt = 0;
 function watchFront() {
   const away = () => { hiddenAt ||= Date.now(); };
@@ -189,7 +189,7 @@ function noGame() {
       const found = await rpc("settings.detectGame", { region: "global" }).catch(() => []);
       if (found.length) setDir(found[0]); else toast(T("app.noGame.title"), { kind: "error" });
     }],
-    ...(info?.native ? [[T("settings.browse"), async () => { const p = await rpc("settings.pickFolder", {}).catch(() => null); if (p) setDir(p); }]] : []),
+    ...(info?.native ? [[T("settings.change"), async () => { const p = await rpc("settings.pickFolder", {}).catch(() => null); if (p) setDir(p); }]] : []),
   ]);
 }
 

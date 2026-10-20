@@ -144,9 +144,9 @@ function section(name, top, titleText, items, tone, w = 1740) {
 
 // scan(host, {over}): the scan consent popup ("Check Game Files"): what is checked and what for, what never happens,
 // and that declining keeps those checks off (Settings changes it). Resolves with the choice once a button is pressed:
-// Allow saves the consent and starts a scan, Don't Allow saves the refusal; unlike the asset consent, declining does
+// Allow saves consent and scans in automatic mode; Manual waits for Check. Don't Allow saves the refusal; declining does
 // not quit. It must be answered: Escape and the backdrop do nothing. over: drawn over the settings and the message
-// popups (opened from Settings' File Check or the switch's help).
+// popups (opened from Settings' Check Game Files or the switch's help).
 export function scan(host, { over = false } = {}) {
   return new Promise((resolve) => { drawScan(host, over, resolve).catch((err) => { console.error("scan consent", err); finishScan(host); resolve(null); }); });
 }

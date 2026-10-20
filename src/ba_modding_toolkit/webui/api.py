@@ -309,7 +309,10 @@ def build_api(s: Services) -> RpcRegistry:
         elif key in FLAG_KEYS:
             if not isinstance(value, bool):
                 raise ServiceError("bad_params", key=key)
-            s.state.set(FLAG_KEYS[key], value)
+            if key == "startupChecks":
+                s.set_startup_checks(value)
+            else:
+                s.state.set(FLAG_KEYS[key], value)
             s.publish_state()
         else:
             raise ServiceError("bad_params", key=key)
@@ -620,9 +623,9 @@ def build_api(s: Services) -> RpcRegistry:
     def mods_scan(dismissed: bool = False) -> dict[str, bool]:
         """Request a scan (``dismissed``: Settings' Check, which lists dismissed entries again); the result comes as
         ``library.scanned``. ``scan_off`` without the scan consent."""
-        if s.request_scan(bool(dismissed)) is None:
+        if not s.scan_allowed():
             raise ServiceError("scan_off")
-        return {"requested": True}
+        return {"requested": s.request_scan(bool(dismissed)) is not None}
 
     @rpc.method("mods.entries")
     def mods_entries() -> list[Any]:

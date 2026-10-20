@@ -999,13 +999,9 @@
 			"onState": "Mods on",
 			"helpOn": "When on, the configured mods are applied to all portraits and memorial lobbies;",
 			"helpOff": "When off, all portraits and memorial lobbies return to official (no effect where the official files were overwritten), and mods stay in the mod library. Close the game before toggling this switch.",
-			"helpStorage": "Extra space: mods, built mods, fallback copies",
 			"helpFolders": "Game folders: {folders}",
 			"installNamed": "{server} ({folder})",
 			"explainOnce": "Not shown again",
-			"builtSize": "Disk use: {size}",
-			"builtClear": "Clear Built Mods",
-			"builtCleared": "Built mods cleared",
 			"scanOff": "Other mods not checked",
 			"allowCheck": "Allow Check",
 			"scan": {
@@ -1064,7 +1060,9 @@
 			"deleteConfirm": "Delete {name}?",
 			"deleteRestore": "Entries using it go back to official or their previous setting",
 			"alreadyInUse": "Already in use",
-			"deletePending": "Mod deleted, some game files still await restoration"
+			"deletePending": "Mod deleted, some game files still await restoration",
+			"cache": "Mod Cache",
+			"cacheCleared": "Mod cache cleared"
 		},
 		"switch": {
 			"configured": "Set"
@@ -1245,13 +1243,12 @@
 				"label": "More Settings",
 				"hint": "Spine tools, ADB and more in the classic UI",
 				"open": "Open",
-				"ask": "Ask Before Opening"
+				"ask": "Confirm Before Opening Classic UI"
 			},
 			"mods": {
-				"startup": "Check Files at Startup",
 				"clear": "Clear",
 				"shown": "Show on Main Screens",
-				"scan": "File Check",
+				"scan": "Check Game Files",
 				"tray": {
 					"win": "Tray Icon",
 					"mac": "Menu Bar Icon"
@@ -1261,13 +1258,10 @@
 				"clean": "No drift found",
 				"driftHelp": {
 					"title": "Configuration Drift",
-					"what": "Game files that no longer match the mod configuration",
-					"reset": "Back to Official: configured mods undone by a game update or repair, can be applied again",
-					"untracked": "Mods Not in the Library: mods put into the game outside the mod library, can be added to it",
-					"damaged": "Damaged: game files damaged, repair the game"
+					"what": "Configuration drift means the game files do not match the mod configuration."
 				},
-				"folders": "Game Folders",
-				"forget": "Remove from List"
+				"manual": "Manual",
+				"atStartup": "At Startup"
 			},
 			"voice": "Voice",
 			"mute": "Mute",
@@ -1298,11 +1292,11 @@
 			"gameDir": "Game Folder",
 			"library": "Mod Library",
 			"output": "Output Folder",
-			"browse": "Browse",
 			"detect": "Detect",
 			"notSet": "Not set",
 			"saved": "Saved",
-			"button": "Settings"
+			"button": "Settings",
+			"change": "Change"
 		},
 		"cacheTo": "Cached in {path}",
 		"languageName": "English",

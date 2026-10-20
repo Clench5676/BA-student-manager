@@ -999,13 +999,9 @@
 			"onState": "MOD ON",
 			"helpOn": "ONにすると、すべての立ち絵とメモリアルロビーに設定済みのMODが適用されます。",
 			"helpOff": "OFFにすると、すべての立ち絵とメモリアルロビーがオリジナルに戻ります（オリジナルが上書きされている場合は無効）。MODはMODライブラリに保管されます。このスイッチを切り替える前にゲームを終了してください。",
-			"helpStorage": "追加容量：MOD、生成済みMOD、代替コピー",
 			"helpFolders": "ゲームフォルダー：{folders}",
 			"installNamed": "{server}（{folder}）",
 			"explainOnce": "この説明は次回から非表示",
-			"builtSize": "使用容量：{size}",
-			"builtClear": "生成済みMODを削除",
-			"builtCleared": "生成済みMODを削除済み",
 			"scanOff": "他のMODは未チェック",
 			"allowCheck": "チェックを許可",
 			"scan": {
@@ -1064,7 +1060,9 @@
 			"deleteConfirm": "{name}を削除しますか？",
 			"deleteRestore": "使用中の項目はオリジナルまたは以前の設定に戻ります",
 			"alreadyInUse": "使用中",
-			"deletePending": "MOD削除済み、一部のゲームファイルは復元待ち"
+			"deletePending": "MOD削除済み、一部のゲームファイルは復元待ち",
+			"cache": "MODキャッシュ",
+			"cacheCleared": "MODキャッシュをクリアしました"
 		},
 		"switch": {
 			"configured": "設定済み"
@@ -1245,13 +1243,12 @@
 				"label": "その他の設定",
 				"hint": "Spineツール、ADBなどはクラシック画面で",
 				"open": "開く",
-				"ask": "開く前に確認"
+				"ask": "クラシックUIを開く前に確認"
 			},
 			"mods": {
-				"startup": "起動時にファイルを確認",
 				"clear": "クリア",
 				"shown": "メイン画面に表示",
-				"scan": "ファイルチェック",
+				"scan": "ゲームファイルの確認",
 				"tray": {
 					"win": "タスクトレイアイコン",
 					"mac": "メニューバーアイコン"
@@ -1261,13 +1258,10 @@
 				"clean": "ずれなし",
 				"driftHelp": {
 					"title": "設定のずれ",
-					"what": "ゲームファイルとMOD設定が一致しない状態",
-					"reset": "オリジナルに戻ったMOD：設定済みのMODがゲームの更新や修復で元に戻った状態、MOD設定を再適用可能",
-					"untracked": "MODライブラリにないMOD：MODライブラリ外からゲームに入れたMOD、MODライブラリに追加可能",
-					"damaged": "破損：ゲームファイルが破損、ゲームの修復が必要"
+					"what": "設定のずれとは、ゲームファイルとMOD設定が一致しない状態のことです。"
 				},
-				"folders": "ゲームフォルダー",
-				"forget": "リストから外す"
+				"manual": "手動",
+				"atStartup": "起動時"
 			},
 			"voice": "ボイス",
 			"mute": "ミュート",
@@ -1298,11 +1292,11 @@
 			"gameDir": "ゲームフォルダー",
 			"library": "MODライブラリ",
 			"output": "出力フォルダー",
-			"browse": "参照",
 			"detect": "自動検出",
 			"notSet": "未設定",
 			"saved": "保存しました",
-			"button": "設定"
+			"button": "設定",
+			"change": "変更"
 		},
 		"cacheTo": "キャッシュ先：{path}",
 		"languageName": "日本語",

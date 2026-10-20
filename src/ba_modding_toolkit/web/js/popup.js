@@ -550,6 +550,7 @@ const MSG = { title: 150, gap: 28, rowMin: 104, check: 150, buttons: 236, none: 
 // checkbox's state then (null without one).
 //   lines: text, or {text, button: {label, fn}} for a line with a small button at its end (fn({close}), where
 //          close(button) closes the popup); with such a line every line shows as a row of the game's light box
+//   fitTogether: line indices fitted at one shared size, using the smallest fit within the popup's size floor
 //   ok, cancel: the buttons' labels (either may be left out); check: {label, checked}
 //   close: false for a popup that must be answered with a button (no close button; the backdrop and Escape do nothing)
 //   confirmKeys: keys that press OK while the popup is in front and holds the focus itself (a focused button takes its
@@ -601,15 +602,26 @@ function plainMessage(layer, { title, lines, ok, cancel, state, dismissable }, f
   layer.replaceChildren(back, box);
 }
 
-function messageLines(lines, w) {
+function messageLines(lines, w, fitTogether) {
   const rows = lines.map((l) => (typeof l === "string" ? { text: l } : l));
   const boxed = rows.some((r) => r.button);
+  const min = boxed ? 40 : 44, max = boxed ? 44 : 52;
+  const fitted = rows.map((r) => {
+    const bf = r.button ? fitText(r.button.label, 40, 28, 340) : null;
+    const bw = bf ? Math.max(230, glyphsOf(bf.text, bf.fs) + 90) : 0;
+    const room = boxed ? w - 280 - (bw ? bw + 30 : 0) : w - 240;
+    return { r, bf, bw, room, f: fitText(r.text, max, min, room, 4) };
+  });
+  const group = fitTogether.map((i) => fitted[i]).filter(Boolean);
+  if (group.length) {
+    const fs = Math.max(min, Math.min(...group.map(({ f }) => f.fs)));
+    // Rewrap at the shared size; extra lines keep the popup's minimum instead of shrinking below it.
+    for (const s of group) s.f = wrapPath(s.r.text, fs, fs, s.room, 4);
+  }
   const out = [];
   let y = 0;
   if (!boxed) {
-    rows.forEach((r, i) => {
-      // a long line wraps near the popup's own size rather than shrinking to fit one line
-      const f = fitText(r.text, 52, 44, w - 240, 4);
+    fitted.forEach(({ r, f }, i) => {
       const h = f.lines * f.fs * 1.3 + 8;
       out.push(node(`Line_${i}`, [0, y - h / 2], [label(f.text, f.fs, `${r.color || "#2d4664"}/1.00`, w - 200, h, { depth: 8 })]));
       y -= h + 16;
@@ -618,12 +630,7 @@ function messageLines(lines, w) {
   }
   // rows on the game's light stats box: text at the left, the line's button at the right
   const boxW = w - 200, buttons = [];
-  const sized = rows.map((r) => {
-    const bf = r.button ? fitText(r.button.label, 40, 28, 340) : null;
-    const bw = bf ? Math.max(230, glyphsOf(bf.text, bf.fs) + 90) : 0;
-    const f = fitText(r.text, 44, 40, boxW - 80 - (bw ? bw + 30 : 0), 4);
-    return { r, f, bf, bw, h: Math.max(MSG.rowMin, f.lines * f.fs * 1.3 + 30) };
-  });
+  const sized = fitted.map((s) => ({ ...s, h: Math.max(MSG.rowMin, s.f.lines * s.f.fs * 1.3 + 30) }));
   const boxH = sized.reduce((a, s) => a + s.h, 0) + 16;
   out.push(node("Box", [0, -boxH / 2], [sprite("Common_Bg_Raius10px", boxW, boxH, { depth: 5, color: "#ecf5f9/1.00" })], [
     node("Line", [0, 0], [sprite("Common_Line_Raius10px", boxW + 6, boxH + 6, { depth: 4, color: "#c0c9d4/1.00" })]),
@@ -646,7 +653,7 @@ function messageLines(lines, w) {
   return { tree: node("Lines", [0, 0], [], out), height: boxH, buttons };
 }
 
-async function showMessage({ title = "", lines = [], ok = null, cancel = null, check = null, host: hostArg = "dialog", width = 1700, close: dismissable = true, confirmKeys = null }, resolve) {
+async function showMessage({ title = "", lines = [], ok = null, cancel = null, check = null, host: hostArg = "dialog", width = 1700, close: dismissable = true, confirmKeys = null, fitTogether = [] }, resolve) {
   const host = hostOf(hostArg);
   const layer = document.createElement("div");
   layer.className = "popup-layer";
@@ -685,7 +692,7 @@ async function showMessage({ title = "", lines = [], ok = null, cancel = null, c
     return;
   }
   try {
-    const body = messageLines(lines, width);
+    const body = messageLines(lines, width, fitTogether);
     const hasButtons = !!(ok || cancel);
     const need = MSG.title + body.height + (state ? MSG.check : 0) + MSG.gap + (hasButtons ? MSG.buttons : MSG.none);
     const h = Math.max(MSG.minH, need);

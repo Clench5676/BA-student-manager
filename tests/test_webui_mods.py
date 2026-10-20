@@ -314,6 +314,67 @@ def test_the_start_scan_lists_a_mod_outside_the_library(env):
     assert rpc(env.app, "mods.state")["result"]["untracked"] == 1
 
 
+def test_manual_checks_only_scan_from_settings_check_and_survive_restart(env, monkeypatch):
+    s, app = env.s, env.app
+    assert rpc(app, "settings.set", key="startupChecks", value=False)["result"]["startupChecks"] is False
+    requests = []
+    request = s.scanner.request
+
+    def requested(*args, **kwargs):
+        requests.append((args, kwargs))
+        return request(*args, **kwargs)
+
+    monkeypatch.setattr(s.scanner, "request", requested)
+    assert rpc(app, "mods.consent", granted=True)["result"] == {}
+    assert s.scan_allowed() is True
+    assert requests == [], "granting manual consent must not start a scan"
+    assert rpc(app, "mods.scan")["result"] == {"requested": False}, "window focus is an automatic request"
+    mod = env.add(env.spr)
+    assert env.job("actions.apply", variant="test", source=f"mod:{mod.id}").state == "done"
+    s.after_classic()
+    s.reload_game()
+    s.start_watch(run=False)
+    s.watch._request_scan()
+    assert requests == [], "writes, classic close, folder changes and game watch stay manual"
+    restarted, restarted_app = env.services()
+    monkeypatch.setattr(restarted.scanner, "request", lambda *args, **kwargs: requests.append((args, kwargs)))
+    assert restarted.library is not None
+    assert rpc(restarted_app, "settings.get")["result"]["startupChecks"] is False
+    assert rpc(restarted_app, "mods.state")["result"]["scan"] is True
+    assert requests == [], "manual consent persists without a startup scan"
+    assert rpc(app, "mods.scan", dismissed=True)["result"] == {"requested": True}
+    assert s.scanner.wait_idle(5)
+    assert requests == [((True,), {})]
+    assert rpc(app, "mods.state")["result"]["scanned"] is not None
+    assert rpc(app, "mods.consent", granted=False)["result"] == {}
+    assert rpc(app, "mods.scan", dismissed=True)["error"]["code"] == "scan_off"
+
+
+def test_switching_to_manual_cancels_pending_scans_and_releases_the_classic_queue(env, monkeypatch):
+    s = env.s
+    assert s.library is not None
+    s.state.set("scan_consent", True)
+    started, release = threading.Event(), threading.Event()
+
+    def scan(cancel, dismissed):
+        started.set()
+        assert release.wait(5)
+        return SimpleNamespace(stale=False, entries=[], counts={})
+
+    monkeypatch.setattr(s.scanner, "_scan", scan)
+    queues = []
+    monkeypatch.setattr(s, "run_queue", lambda: queues.append(True))
+    try:
+        s._queue_ticket = s.request_scan()
+        assert started.wait(5)
+        assert rpc(env.app, "settings.set", key="startupChecks", value=False)["result"]["startupChecks"] is False
+        assert queues == [True]
+    finally:
+        release.set()
+        assert s.scanner.wait_idle(5)
+    assert s.snapshot.scanned() is None, "the cancelled automatic result must be dropped"
+
+
 # --- installs ---
 
 def test_two_installs_of_one_server_are_labelled_by_their_folders(env):

@@ -243,10 +243,10 @@ test("every locale gives the help and first toggle two separate opening lines", 
   } finally { I18n.setStrings("en-US", strings); }
 });
 
-test("the help's lines: game folders, actual storage costs, the file check, Retry and Details", () => {
+test("the help's lines: game folders, the file check, Retry and Details", () => {
   const texts = (s, sizes) => MS.helpLines(s, sizes).map((l) => l.text);
   const buttons = (s) => MS.helpLines(s).filter((l) => l.button).map((l) => [l.button.id, l.button.label]);
-  assert.deepEqual(texts(base()).slice(0, 3), [S("mods.helpOn"), S("mods.helpOff"), S("mods.helpStorage")]);
+  assert.deepEqual(texts(base()), [S("mods.helpOn"), S("mods.helpOff")]);
   assert.ok(!texts(base()).some((t) => t.startsWith("Game folders")));
   assert.ok(!texts(base()).some((t) => t.startsWith("Disk use:")));
   assert.ok(!texts(base(), { originalsSize: 3 * 1048576 }).some((t) => t.includes("Official copies for Off")));
@@ -255,7 +255,7 @@ test("the help's lines: game folders, actual storage costs, the file check, Retr
   // two game folders: their install labels, with the language's separator
   const two = base({ installs: [install("/a/BlueArchive", "Global (BlueArchive)"), install("/b/Steam", "Global (Steam)")] });
   assert.ok(texts(two).includes("Game folders: Global (BlueArchive), Global (Steam)"));
-  assert.equal(texts(two)[3], "Game folders: Global (BlueArchive), Global (Steam)", "after the storage explanation");
+  assert.equal(texts(two)[2], "Game folders: Global (BlueArchive), Global (Steam)", "after the opening text");
   assert.equal(MS.helpLines(two, { sep: "、" }).find((l) => l.text.startsWith("Game folders")).text, "Game folders: Global (BlueArchive)、Global (Steam)");
   // Retry for the entries not switched (pending and left), Details for those left as is (stuck), never a Retry for them
   const counts = base({ pending: 2, left: 1, stuck: 3, sourceMissing: 1 });
@@ -396,9 +396,9 @@ test("state refresh, the first explanation and help never measure logical origin
   for (let i = 0; i < 2; i++) {
     const opened = MS.openHelp();
     await drawn(dialog, "close");
-    assert.ok(walk(dialog).some((e) => e.textContent === S("mods.helpStorage")));
+    assert.ok(walk(dialog).some((e) => e.textContent.replaceAll("\n", " ") === S("mods.helpOn")));
     assert.ok(!walk(dialog).some((e) => e.textContent.includes("Official copies for Off")));
-    assert.ok(!labels(dialog).includes(S("mods.builtClear")));
+    assert.ok(!labels(dialog).includes(S("mods.cache")));
     assert.equal(Loading.active(), false);
     action(dialog, "close").click();
     await opened;
@@ -421,21 +421,22 @@ test("Settings measures built mods only when its Mods row is drawn, and remeasur
   await until(() => called("mods.sizes").length === count + 1, "built size request");
   assert.deepEqual(called("mods.sizes").at(-1), { kind: "built" });
   assert.ok(hasText(S("job.running")));
+  assert.ok(!hasText(S("loading.now")), "Now Loading belongs to the shared indicator");
   assert.equal(button(S("settings.mods.clear")), undefined, "cleanup disabled while measuring");
   pending.resolve({ builtSize: 2 * 1048576 });
   await until(() => !!button(S("settings.mods.clear")), "cleanup button");
-  assert.ok(hasText(S("mods.builtClear")));
-  assert.ok(hasText("Disk use: 2.0 MB"));
+  assert.ok(hasText(S("mods.cache")));
+  assert.ok(hasText("2.0 MB"));
   assert.equal(called("mods.sizes").length, count + 1, "drawing the fetched size does not fetch again");
   answers["mods.clearBuilt"] = "clear-built";
   jobs["clear-built"] = { state: "done", result: { freed: 2 * 1048576 } };
   answers["mods.sizes"] = { builtSize: 0 };
   button(S("settings.mods.clear")).click();
-  await until(() => hasText("Disk use: 0 MB"), "size after cleanup");
+  await until(() => hasText("0 MB"), "size after cleanup");
   assert.equal(called("mods.clearBuilt").length, 1);
   assert.equal(called("mods.sizes").length, count + 2);
   assert.equal(button(S("settings.mods.clear")), undefined, "cleanup disabled when empty");
-  assert.equal(toastEl.textContent, S("mods.builtCleared"));
+  assert.equal(toastEl.textContent, S("mods.cacheCleared"));
   button(S("settings.tab.general")).click();
   await until(() => !!button(S("settings.tab.mods")), "General tab");
   assert.equal(called("mods.sizes").length, count + 2);
@@ -447,7 +448,7 @@ test("Settings measures built mods only when its Mods row is drawn, and remeasur
   await until(() => !!button(S("settings.tab.mods")), "General before the reply");
   stale.resolve({ builtSize: 9 * 1048576 });
   await tick(); await tick();
-  assert.ok(!hasText(S("mods.builtClear")), "late reply cannot restore the old tab");
+  assert.ok(!hasText(S("mods.cache")), "late reply cannot restore the old tab");
   const error = { code: "internal", params: { error: "size failed" } };
   answers["mods.sizes"] = { error };
   button(S("settings.tab.mods")).click();
@@ -456,6 +457,93 @@ test("Settings measures built mods only when its Mods row is drawn, and remeasur
   button(S("display.close")).click();
   assert.equal(settingsHost.hidden, true);
   answers["mods.sizes"] = ({ kind }) => ({ [`${kind}Size`]: 0 });
+});
+
+test("the help fits its opening lines together in every locale, with and without action rows", async () => {
+  const NGUI = await import("../../src/ba_modding_toolkit/web/js/ngui.js");
+  const { S: scale } = await import("../../src/ba_modding_toolkit/web/js/util.js");
+  try {
+    for (const lang of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"]) {
+      const ui = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${lang}.json`, import.meta.url))).webui;
+      I18n.setStrings(lang, flat({ webui: ui }));
+      for (const scan of [true, false]) {
+        answers["mods.state"] = base({ scan });
+        await MS.refresh();
+        const opened = MS.openHelp();
+        await drawn(dialog, "close");
+        const prefix = scan ? "Line" : "Row", min = scan ? 44 : 40, max = scan ? 52 : 44;
+        const texts = [ui.mods.helpOn, ui.mods.helpOff];
+        const fs = Math.max(min, Math.min(...texts.map((text) => NGUI.fitText(text, max, min, scan ? 1860 : 1820, 4).fs)));
+        const lines = texts.map((_, i) => walk(dialog).find((e) => e.dataset.path === `Center/Popup/Lines/${prefix}_${i}`));
+        assert.equal(lines[0].style.fontSize, lines[1].style.fontSize, `${lang}, scan=${scan}`);
+        for (let i = 0; i < 2; i++) {
+          assert.equal(lines[i].style.fontSize, `${(NGUI.fontSizeFor(texts[i], fs) * scale).toFixed(2)}px`);
+          assert.equal(lines[i].textContent.replaceAll("\n", " ").replaceAll(" ", ""), texts[i].replaceAll(" ", ""));
+        }
+        action(dialog, "close").click();
+        await opened;
+      }
+    }
+  } finally { I18n.setStrings("en-US", strings); }
+});
+
+test("Settings combines scan consent and automatic checks, preserving the consent popup from Off", async () => {
+  const Settings = await import("../../src/ba_modding_toolkit/web/js/settings.js");
+  const NGUI = await import("../../src/ba_modding_toolkit/web/js/ngui.js");
+  let prefs = { ...answers["settings.get"], native: true, startupChecks: true, gameDirs: { global: "/game" },
+    fileSource: "windows_global", libraryDir: "/library", outputDir: "/output" };
+  let state = base({ scan: false });
+  answers["settings.get"] = () => prefs;
+  answers["settings.set"] = ({ key, value }) => (prefs = { ...prefs, [key]: value });
+  answers["mods.state"] = () => state;
+  answers["mods.consent"] = ({ granted }) => { state = { ...state, scan: granted }; return {}; };
+  await MS.refresh();
+  await Settings.open();
+  const button = (name) => walk(settingsHost).find((e) => e.tagName === "BUTTON" && e.getAttribute("aria-label") === name);
+  const hasPath = (path) => walk(settingsHost).some((e) => e.dataset.path === path);
+  const selected = (i) => hasPath(`Rows/Scan/Opt_${i}/On`);
+  const scanButton = (i) => {
+    const bg = walk(settingsHost).find((e) => e.dataset.path === `Rows/Scan/Opt_${i}/BG`);
+    const [l, t] = NGUI.rect(bg);
+    return walk(settingsHost).find((e) => e.tagName === "BUTTON" && e.style.left === `${l}px` && e.style.top === `${t}px`);
+  };
+  await until(() => selected(0), "Off selected");
+  assert.ok(!hasPath("Rows/StartupChecks/Title"));
+  assert.ok(!hasPath("Rows/Folders/Title"));
+  assert.equal(button(S("settings.mods.check")), undefined, "Check disabled without consent");
+  const before = called("mods.consent").length;
+  button(S("settings.mods.manual")).click();
+  await drawn(consent, "ok");
+  assert.equal(called("mods.consent").length, before, "picking Manual grants nothing");
+  assert.equal(prefs.startupChecks, false, "automatic requests disabled before consent is granted");
+  action(consent, "cancel").click();
+  await until(() => consent.hidden && selected(0), "declined, still Off");
+  button(S("settings.mods.manual")).click();
+  (await drawn(consent, "ok")).click();
+  await until(() => selected(1), "Manual selected");
+  assert.equal(prefs.startupChecks, false);
+  assert.ok(button(S("settings.mods.check")), "Check available with manual consent");
+  button(S("settings.mods.atStartup")).click();
+  await until(() => selected(2), "At Startup selected");
+  assert.equal(prefs.startupChecks, true);
+  assert.equal(consent.hidden, true, "consent already granted");
+  scanButton(0).click();
+  await until(() => selected(0), "Off withdraws consent");
+  assert.equal(state.scan, false);
+  button(S("settings.mods.atStartup")).click();
+  (await drawn(consent, "ok")).click();
+  await until(() => selected(2), "Off to At Startup also requires consent");
+  button(S("settings.tab.general")).click();
+  await until(() => !!button(S("settings.classic.ask")) || walk(settingsHost).some((e) => e.textContent === S("settings.classic.ask")), "classic confirmation title");
+  button(S("settings.tab.folders")).click();
+  await until(() => hasPath("Rows/Output/Title"), "folder rows");
+  assert.equal(walk(settingsHost).filter((e) => e.tagName === "BUTTON" && e.getAttribute("aria-label") === S("settings.change")).length, 3);
+  assert.ok(walk(settingsHost).every((e) => !e.title && !e.getAttribute("title")));
+  button(S("display.close")).click();
+  assert.equal(settingsHost.hidden, true);
+  answers["settings.get"] = prefs;
+  delete answers["settings.set"];
+  delete answers["mods.consent"];
 });
 
 test("the help's Allow Check opens the scan consent popup and grants nothing itself", async () => {
@@ -698,10 +786,17 @@ test("the tray's Back to Official opens the drift prompt: two buttons and no way
   assert.equal(toastEl.textContent, S("settings.mods.clean"));
 });
 
-test("the Game Files row's \"?\": what configuration drift is, one line per finding the row shows", async () => {
+test("the Game Files row's \"?\": one definition of configuration drift", async () => {
   const Settings = await import("../../src/ba_modding_toolkit/web/js/settings.js");
-  assert.deepEqual(Settings.driftLines(), ["what", "reset", "untracked", "damaged"].map((k) => S(`settings.mods.driftHelp.${k}`)));
-  assert.ok(Settings.driftLines().every((line) => line && !line.startsWith("settings.")), "every line has its text");
+  try {
+    for (const lang of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"]) {
+      const ui = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${lang}.json`, import.meta.url))).webui;
+      I18n.setStrings(lang, flat({ webui: ui }));
+      assert.deepEqual(Settings.driftLines(), [ui.settings.mods.driftHelp.what]);
+      assert.equal(Settings.driftLines()[0].includes("\n"), false);
+      assert.deepEqual(Object.keys(ui.settings.mods.driftHelp), ["title", "what"]);
+    }
+  } finally { I18n.setStrings("en-US", strings); }
 });
 
 test("held refusal prompts accept Overwritten, Add First and its result, and scan consent", async () => {

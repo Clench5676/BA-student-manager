@@ -54,7 +54,10 @@ Added locale keys, in all five locale files (shown with their RPC/UI keys):
 | Key | en-US | zh-CN |
 | --- | --- | --- |
 | `settings.update.startup` | Check for Updates at Startup | 启动时检查更新 |
-| `settings.mods.startup` | Check Files at Startup | 启动时检查文件 |
+| `settings.mods.scan` | Check Game Files | 检查游戏文件 |
+
+The file check control now combines scan consent and startup checks as Off / Manual / At Startup; see
+`docs/web-ui.md`, Enable Mods switch.
 
 Validation:
 
