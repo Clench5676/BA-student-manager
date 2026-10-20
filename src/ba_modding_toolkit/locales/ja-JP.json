@@ -1106,6 +1106,7 @@
 			"update_checksum_mismatch": "アップデートのチェックサムが一致しません",
 			"update_unavailable": "このリリースにはこの端末向けのビルドがありません",
 			"update_unsupported": "このビルドは自動アップデートに非対応です",
+			"update_restart_failed": "更新のための再起動に失敗",
 			"lines_unavailable": "現在セリフを読み込めません",
 			"busy": "現在のタスクの完了をお待ちください",
 			"library_target_not_empty": "このフォルダーにはすでにMODライブラリのファイルがあります：{path}",

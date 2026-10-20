@@ -280,6 +280,11 @@ del "%~f0"
 
 def install(downloaded: Path, expected_md5: str) -> None:
     """Recheck the MD5 retained from ``download``, then start the swap helper; the caller must quit."""
+    prepare_install(downloaded, expected_md5)()
+
+
+def prepare_install(downloaded: Path, expected_md5: str) -> Callable[[], None]:
+    """Validate and write the swap helper, returning its launch for a confirmed native close."""
     target = install_target()
     if not is_compiled() or target is None:
         raise ServiceError("update_unsupported")
@@ -297,8 +302,12 @@ def install(downloaded: Path, expected_md5: str) -> None:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(macos_script(downloaded, target, pid))
         os.chmod(name, 0o755)
-        subprocess.Popen(["/bin/sh", name], start_new_session=True, stdin=subprocess.DEVNULL,
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+        def launch() -> None:
+            subprocess.Popen(["/bin/sh", name], start_new_session=True, stdin=subprocess.DEVNULL,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+        return launch
     elif sys.platform == "win32":
         fd, name = tempfile.mkstemp(prefix="bamt-update-", suffix=".cmd")
         with os.fdopen(fd, "w", encoding="ascii") as f:
@@ -313,6 +322,10 @@ def install(downloaded: Path, expected_md5: str) -> None:
         cmd = env.get("COMSPEC", "cmd.exe")
         command = f'"{cmd}" /d /v:off /s /c ""%BAMT_UPDATE_SCRIPT%""'
         hidden = 0x00000200 | 0x08000000  # CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW
-        subprocess.Popen(command, env=env, creationflags=hidden, close_fds=True)
+
+        def launch() -> None:
+            subprocess.Popen(command, env=env, creationflags=hidden, close_fds=True)
+
+        return launch
     else:
         raise ServiceError("update_unsupported")

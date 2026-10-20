@@ -1106,6 +1106,7 @@
 			"update_checksum_mismatch": "업데이트 파일 검증 실패",
 			"update_unavailable": "이 버전에는 이 기기용 빌드가 없음",
 			"update_unsupported": "이 빌드는 자동 업데이트를 지원하지 않음",
+			"update_restart_failed": "업데이트를 위한 재시작 실패",
 			"lines_unavailable": "지금은 대사를 불러올 수 없음",
 			"busy": "진행 중인 작업이 끝날 때까지 기다려 주세요",
 			"library_target_not_empty": "폴더에 이미 모드 라이브러리 파일이 있음: {path}",

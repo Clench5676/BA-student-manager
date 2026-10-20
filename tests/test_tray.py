@@ -365,7 +365,7 @@ def run_window(monkeypatch, tmp_path, supported):
 
     from ba_modding_toolkit.webui import main
 
-    window = SimpleNamespace(events=SimpleNamespace(initialized=Hook(), loaded=Hook(), closing=Hook()))
+    window = SimpleNamespace(events=SimpleNamespace(initialized=Hook(), loaded=Hook(), closing=Hook(), closed=Hook()))
     started, closed = {}, []
     monkeypatch.setitem(sys.modules, "webview", SimpleNamespace(create_window=lambda *a, **k: window,
                                                                 start=lambda **options: started.update(options)))

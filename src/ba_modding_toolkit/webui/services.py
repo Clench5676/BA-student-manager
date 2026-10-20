@@ -8,11 +8,12 @@ import shutil
 import threading
 import time
 import webbrowser
+from concurrent.futures import Future, TimeoutError as FutureTimeout
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-from .. import devmode
+from .. import devmode, updater
 from ..config import APP_DIR_NAME, Settings, user_cache_dir
 from ..data_paths import OLD_APP_DIR_NAME, migrate_cache_dir
 from ..globallines import GlobalLines
@@ -33,6 +34,7 @@ logger = logging.getLogger(__name__)
 
 PRUNE_WAIT = 120.0  # seconds the start scan waits for the library.prune job submitted with the library
 PROGRESS_PUBLISH = 0.25  # seconds between two mods.state events while a toggle reports its progress
+UPDATE_QUIT_WAIT = 3.0  # seconds for the native window to close for an update
 # the library's files and folders a library move takes along; the lock files are made again where needed
 LIBRARY_ITEMS = ("mods", "originals", "built", "state.json", "profiles.json", "profiles.json.prev",
                  "profiles.json.bad")
@@ -202,6 +204,8 @@ class Services:
         self.window: Any = None  # the pywebview window, when there is one (see native.py)
         self.update_info: Any = None  # the last update check's result
         self.update_file: tuple[Path, str, str] | None = None  # verified path, MD5 and release version, for this session
+        self.update_installing = False
+        self._pending_update: tuple[Callable[[], None], Future] | None = None
         self.kivo = Kivo()
         self.global_lines = GlobalLines()
         self.mute = False  # development: never play voices
@@ -927,6 +931,75 @@ class Services:
             threading.Timer(0.3, self.quit_handle).start()
             return
         raise ServiceError("native_unavailable")
+
+    def install_update(self, path: Path, md5: str) -> None:
+        """Reserve writer and classic admission until the native window closes or refuses the update."""
+        done: Future = Future()
+        with self.classic.starting():
+            if self.update_installing:
+                raise ServiceError("busy")
+            if self.classic_open():
+                raise ServiceError("classic_open")
+            self.jobs.reserve_quit()
+            try:
+                launch = updater.prepare_install(path, md5)
+            except Exception:
+                self.jobs.cancel_quit()
+                raise
+            self.update_installing = True
+            self._pending_update = (launch, done)
+        try:
+            # destroy() may dispatch closing on another thread, or return without closing the window.
+            self.window.destroy()
+            try:
+                done.result(timeout=UPDATE_QUIT_WAIT)
+            except FutureTimeout:
+                with self.classic.starting():
+                    if not done.done():
+                        self._cancel_update(ServiceError("update_restart_failed"))
+                done.result()
+        except Exception:
+            with self.classic.starting():
+                if self._pending_update is not None and self._pending_update[1] is done:
+                    self._cancel_update(ServiceError("update_restart_failed"))
+            raise
+
+    def _cancel_update(self, error: Exception) -> None:
+        """Called under classic.starting(); a refused quit retains the verified download for retry."""
+        pending, self._pending_update = self._pending_update, None
+        self.update_installing = False
+        self.jobs.cancel_quit()
+        if pending is not None:
+            pending[1].set_exception(error)
+
+    def on_closing(self) -> bool:
+        """The native closing handler: refuse quitting while a writer or a classic window holds the update."""
+        with self.classic.starting():
+            if self.jobs.busy():
+                if self._pending_update is not None:
+                    self._cancel_update(ServiceError("busy"))
+                self.events.publish("app.busy")
+                return False
+            if self._pending_update is not None and self.classic_open():
+                self._cancel_update(ServiceError("classic_open"))
+                return False
+            return True
+
+    def on_closed(self) -> None:
+        """Launch a prepared helper once the window is gone, including backends that skip closing on destroy()."""
+        with self.classic.starting():
+            pending = self._pending_update
+            if pending is None:
+                return
+            try:
+                pending[0]()
+            except Exception as error:
+                self._cancel_update(error)
+                logger.exception("update helper failed to start")
+                return
+            self._pending_update = None
+            # Keep admission closed and the install latch set until exit: repeated requests cannot spawn helpers.
+            pending[1].set_result(None)
 
     # --- /asset/... ---
 

@@ -58,6 +58,7 @@ class JobRunner:
         self._ids = itertools.count(1)
         self._lock = threading.Lock()
         self._closing = False
+        self._quit_reserved = False
         self._idle = threading.Condition(self._lock)
         self._listeners: list[Callable[[Job], Any]] = []
         self._thread = threading.Thread(target=self._run, name="bamt-jobs", daemon=True)
@@ -69,6 +70,8 @@ class JobRunner:
             raise ValueError(f"unknown writes {writes!r}")
         job = Job(id=f"j{next(self._ids)}", kind=kind, params=params, fn=fn, writes=writes)
         with self._lock:
+            if writes and self._quit_reserved:
+                raise ServiceError("busy")
             self._jobs[job.id] = job
             self._order.append(job.id)
             while len(self._order) > self._keep:
@@ -95,6 +98,18 @@ class JobRunner:
         """Whether a writer job (one writing ``writes``, when given) is queued or running."""
         with self._lock:
             return any(j.writes and (writes is None or j.writes == writes) and j.pending for j in self._jobs.values())
+
+    def reserve_quit(self) -> None:
+        """Refuse new writers atomically with checking that no writer is pending."""
+        with self._lock:
+            if self._quit_reserved or any(j.writes and j.pending for j in self._jobs.values()):
+                raise ServiceError("busy")
+            self._quit_reserved = True
+
+    def cancel_quit(self) -> None:
+        """Allow writers again after a refused update quit."""
+        with self._lock:
+            self._quit_reserved = False
 
     def active(self, *kinds: str) -> bool:
         """Whether a job of one of these kinds is queued or running."""

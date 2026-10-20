@@ -1106,6 +1106,7 @@
 			"update_checksum_mismatch": "更新檔案的檢查碼不符",
 			"update_unavailable": "此版本沒有適用於本機的安裝檔",
 			"update_unsupported": "此版本無法自動更新",
+			"update_restart_failed": "無法重新啟動以完成更新",
 			"lines_unavailable": "暫時無法讀取台詞",
 			"busy": "請等候目前的任務完成",
 			"library_target_not_empty": "資料夾中已有 Mod 倉庫的檔案：{path}",
