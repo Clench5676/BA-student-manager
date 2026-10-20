@@ -1331,7 +1331,7 @@
 		"compatibility": {
 			"more": "{names}, +{n}",
 			"check": "Check Compatibility",
-			"matches": "No differences found in the checked data",
+			"matches": "No drawing issues found",
 			"unavailable": "Current official files unavailable, comparison incomplete",
 			"outdated": "Bundle from another game version",
 			"skeletons": "Skeleton names differ: {name}",
@@ -1350,7 +1350,8 @@
 			"crcHint": "CRC fix changes checksums only",
 			"atlasLayout": "{name}, atlas layout differs",
 			"geometry": "{name}, attachment or mesh geometry differs",
-			"rig": "{name}, bone structure differs"
+			"rig": "{name}, bone structure differs",
+			"regions": "Missing atlas regions: {names}"
 		},
 		"remap": {
 			"action": "Remap to current version",
@@ -1361,7 +1362,16 @@
 			"dropped": "Dropped regions: {names}",
 			"rig": "{name}, skeleton data differs, attachments or meshes may remain misaligned",
 			"version": "{name}, Spine versions differ, skeleton conversion required",
-			"upscaled": "Textures upscaled to {w} × {h}"
+			"upscaled": "Textures upscaled to {w} × {h}",
+			"repaired": "Repaired",
+			"go": "View repaired Mod",
+			"unneeded": "No repair needed",
+			"accept": "Accept",
+			"discard": "Discard",
+			"preview": "Repair preview",
+			"original": "Original",
+			"after": "Repaired",
+			"previewUnavailable": "Preview unavailable"
 		}
 	}
 }

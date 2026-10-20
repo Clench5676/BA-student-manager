@@ -124,3 +124,24 @@ test("overlapping holds and thrown work release exactly their own input hold", a
   await done;
   assert.equal(Loading.held(), false);
 });
+
+test("a repair cover blocks Back, popup clicks and Escape until success or failure", async () => {
+  globalThis.getComputedStyle = () => ({ opacity: "1" });
+  for (const fail of [false, true]) {
+    const job = deferred();
+    const back = new El(); back.back = true;
+    const popup = new El(); popup.className = "popup-host";
+    const done = Loading.hold(() => Loading.scene(async () => { await job.promise; if (fail) throw new Error("repair failed"); }), { all: true });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(Loading.covering(), true);
+    for (const [target, key] of [[back, undefined], [popup, undefined], [popup, "Escape"]]) {
+      const ev = event(target, key);
+      stage.listeners[key ? "keydown" : "click"](ev);
+      assert.ok(ev.prevented && ev.stopped);
+    }
+    job.resolve();
+    if (fail) await assert.rejects(done, /repair failed/); else await done;
+    assert.equal(Loading.held(), false);
+    assert.equal(Loading.covering(), false);
+  }
+});

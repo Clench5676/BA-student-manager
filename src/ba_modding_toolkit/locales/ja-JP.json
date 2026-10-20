@@ -1331,7 +1331,7 @@
 		"compatibility": {
 			"more": "{names}、+{n}",
 			"check": "互換性を確認",
-			"matches": "確認項目に差異なし",
+			"matches": "描画の問題なし",
 			"unavailable": "現在の公式ファイルなし、比較は未完了",
 			"outdated": "別のゲームバージョンの Bundle",
 			"skeletons": "スケルトン名の差異：{name}",
@@ -1350,7 +1350,8 @@
 			"crcHint": "CRC 修正はチェックサムのみ変更",
 			"atlasLayout": "{name}、アトラス配置が相違",
 			"geometry": "{name}、アタッチメントまたはメッシュ形状が相違",
-			"rig": "{name}、ボーン構造が相違"
+			"rig": "{name}、ボーン構造が相違",
+			"regions": "アトラス領域不足：{names}"
 		},
 		"remap": {
 			"action": "現行版に合わせて再配置",
@@ -1361,7 +1362,16 @@
 			"dropped": "削除した領域：{names}",
 			"rig": "{name}、スケルトンデータが異なるためアタッチメントやメッシュにずれの可能性",
 			"version": "{name}、Spine バージョンが異なるためスケルトン変換が必要",
-			"upscaled": "テクスチャを {w} × {h} に拡大"
+			"upscaled": "テクスチャを {w} × {h} に拡大",
+			"repaired": "修復済み",
+			"go": "修復済み Mod を表示",
+			"unneeded": "修復不要",
+			"accept": "適用",
+			"discard": "破棄",
+			"preview": "修復プレビュー",
+			"original": "元の Mod",
+			"after": "修復後",
+			"previewUnavailable": "プレビューを表示できません"
 		}
 	}
 }

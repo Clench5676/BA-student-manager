@@ -37,21 +37,15 @@ async function harness({ locale = "en-US", added = [], button = "cancel", error 
 }
 const portrait = { target: "base", kind: "spr" }, lobby = { target: "dress", kind: "lobby" };
 
-test("add reports compatibility findings and updates only after the report's Update action", async () => {
-  const mod = { ...portrait, id: "m1", label: "Example" };
-  const checked = { issues: [{ key: "bones" }] };
-  const added = { added: [mod], compatibility: { m1: checked } };
-  for (const compatibilityUpdate of [false, true]) {
-    const h = await harness({ added, compatibilityUpdate });
-    await h.mod.add(["mod.bundle"], "base");
-    assert.equal(h.log.filter(([k]) => k === "compatibility").length, 1);
-    assert.deepEqual(h.log.filter(([k, method]) => k === "rpc" && method === "actions.update"),
-      compatibilityUpdate ? [["rpc", "actions.update", { mod: "m1" }]] : []);
-    assert.equal(h.log.some(([k]) => k === "checked"), compatibilityUpdate);
+test("picker and drop imports never run compatibility, even with legacy findings", async () => {
+  for (const paths of [null, ["mod.bundle"]]) {
+    const mod = { ...portrait, id: "m1", label: "Example" };
+    const h = await harness({ added: { added: [mod], compatibility: { m1: { issues: [{ key: "bones" }], remappable: true } } },
+      compatibilityUpdate: true, compatibilityRemap: true });
+    await h.mod.add(paths, "base");
+    assert.ok(!h.log.some(([key]) => ["compatibility", "checked", "remap"].includes(key)));
+    assert.deepEqual(h.log.filter(([key]) => key === "rpc"), [["rpc", paths ? "mods.add" : "mods.pick", { ...(paths ? { paths } : {}), background: true }]]);
   }
-  const h = await harness({ added: { ...added, compatibility: { m1: { issues: [] } } } });
-  await h.mod.add(null, "base");
-  assert.ok(!h.log.some(([k]) => k === "compatibility"));
 });
 
 test("a failed automatic switch remains visible on the current variant in all five locales", async () => {
@@ -368,14 +362,4 @@ test("drop callers accept report objects for new mods, duplicates and adoption w
     assert.equal(invalidations, 1);
     assert.equal(refreshes, 1);
   }
-});
-
-test("an added mod's layout finding can create a remapped copy through the shared action", async () => {
-  const mod = { ...portrait, id: "old", label: "Painted" };
-  const checked = { issues: [{ key: "atlasLayout" }], remappable: true };
-  const h = await harness({ added: { added: [mod], compatibility: { old: checked } }, compatibilityRemap: true });
-  await h.mod.add(["mod.bundle"], "base");
-  assert.deepEqual(h.log.filter(([key]) => key === "remap"), [["remap", "old", "Painted"]]);
-  assert.equal(h.log.filter(([key]) => key === "changed").length, 2);
-  assert.ok(!h.log.some(([key, method]) => key === "rpc" && method === "actions.update"));
 });

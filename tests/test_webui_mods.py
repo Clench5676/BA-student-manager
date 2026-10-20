@@ -1194,7 +1194,7 @@ def test_add_rpc_reports_duplicate_content(env):
     assert second.result["duplicates"] == first.result["added"]
 
 
-@pytest.mark.parametrize("method", ["add", "background", "adopt", "toggle", "remap"])
+@pytest.mark.parametrize("method", ["add", "background", "adopt", "toggle", "acceptRemap"])
 def test_first_add_baselines_existing_mods_before_storing_new_ones(env, monkeypatch, method):
     old = env.add(env.spr)
     env.s.close(wait=5)
@@ -1222,13 +1222,13 @@ def test_first_add_baselines_existing_mods_before_storing_new_ones(env, monkeypa
     else:
         from ba_modding_toolkit.library.models import CompareResult, RemapResult
 
-        def remap(library, mod, log=None, progress=None, pin=None):
+        def accept_remap(library, preview):
             # Use synthetic output instead of rebuilding Unity assets; retain the real library write.
             rebuilt, = library.add([source])
             return RemapResult(rebuilt, {}, CompareResult(rebuilt.id, []))
 
-        monkeypatch.setattr("ba_modding_toolkit.library.ModLibrary.remap", remap)
-        job = env.job("actions.remap", mod=old.id)
+        monkeypatch.setattr("ba_modding_toolkit.library.ModLibrary.accept_remap", accept_remap)
+        job = env.job("actions.acceptRemap", preview="review")
         assert job.state == "done", job.error
     mods = env.s.library.mods()
     assert len(mods) == 2 and old.id in {m.id for m in mods}
@@ -1305,7 +1305,7 @@ def test_add_rpc_adopts_installed_content_and_refreshes_the_snapshot(env, backgr
     assert env.s.mods_state()["configured"] == 1
 
 
-def test_remap_rpc_pins_the_install_and_publishes_a_new_library_mod(env, monkeypatch):
+def test_remap_rpc_is_read_only_and_accept_publishes_a_new_library_mod(env, monkeypatch):
     from dataclasses import replace
     from ba_modding_toolkit.library.models import CompareResult, RemapResult
 
@@ -1316,12 +1316,16 @@ def test_remap_rpc_pins_the_install_and_publishes_a_new_library_mod(env, monkeyp
 
     def remap(mod, log=None, progress=None, pin=None):
         calls.append((mod, pin))
-        return result
+        return {"preview": "review", "report": result.report}
 
     monkeypatch.setattr(env.s.library, "remap", remap)
     job = env.job("actions.remap", mod=entry.id)
+    assert job.state == "done" and job.writes is None
+    assert job.result == {"preview": "review", "report": result.report}
+    assert calls == [(entry.id, env.s.library.current_pin())]
+    monkeypatch.setattr(env.s.library, "accept_remap", lambda preview: result if preview == "review" else None)
+    job = env.job("actions.acceptRemap", preview="review")
     assert job.state == "done" and job.writes == "library"
     assert job.result == result.to_json()
-    assert calls == [(entry.id, env.s.library.current_pin())]
     from ba_modding_toolkit.webui.services import _changed_of
     assert _changed_of(result) == {"cores": [entry.core], "kinds": [entry.kind], "mods": True}

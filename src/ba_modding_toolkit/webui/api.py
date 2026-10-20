@@ -369,9 +369,10 @@ def build_api(s: Services) -> RpcRegistry:
             "order": v.order, "spr": v.spr, "lobby": v.lobby, "date": v.date, "model": v.model,
             "spineCategory": getattr(v, "spine_category", None),
             "bg": _url_bg(v.bg), "portrait": _url_portrait(v.portrait),
-            "favorite": v.key in favorites, "mods": len(own),
+            "favorite": v.key in favorites, "mods": len({getattr(m, "repaired_from", "") or m.id for m in own}),
             "fresh": seen is not None and any(m.id not in seen for m in own),
-            "modCounts": {kind: sum(m.kind == kind for m in own) for kind in ("spr", "lobby")},
+            "modCounts": {kind: len({getattr(m, "repaired_from", "") or m.id for m in own if m.kind == kind})
+                          for kind in ("spr", "lobby")},
             "configured": configured_of(v.key),
             # when the newest of its own mods was added (ISO), for the roster's "recently added" sort
             "added": max((m.added for m in own if getattr(m, "added", None)), default=None),
@@ -719,8 +720,17 @@ def build_api(s: Services) -> RpcRegistry:
     def actions_remap(mod: str) -> str:
         library = s.library
         pin = s._current_pin(library)
-        return s.submit("remap", lambda log, progress: library.remap(mod, log=log, progress=progress, pin=pin),
+        return s.submit("remap", lambda log, progress: library.remap(mod, log=log, progress=progress, pin=pin))
+
+    @rpc.method("actions.acceptRemap")
+    def actions_accept_remap(preview: str) -> str:
+        library = s.library
+        return s.submit("remap.accept", lambda log, progress: library.accept_remap(preview),
                         writes="library", library=library)
+
+    @rpc.method("actions.discardRemap")
+    def actions_discard_remap(preview: str) -> None:
+        s.library.discard_remap(preview)
 
     @rpc.method("actions.compatibility")
     def actions_compatibility(mod: str) -> str:

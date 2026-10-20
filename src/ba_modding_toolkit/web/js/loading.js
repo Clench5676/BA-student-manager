@@ -271,23 +271,28 @@ export async function wait(promise, { label: text = null, cap = HARD_CAP } = {})
   return result;
 }
 
-// A write holds input from submission through the final reload. Back always remains available; leaving the page
-// releases its hold while the job keeps reporting its end. This never ends the work.
+// A write holds input from submission through the final reload. Default holds leave Back and popups available;
+// all blocks them too. Leaving the page releases its hold while the job keeps reporting its end.
 const holds = new Set(), wired = new WeakSet();
 export const held = () => holds.size > 0;
-export async function hold(work, { until = null } = {}) {
-  const el = stage(), key = {};
+export async function hold(work, { until = null, all = false } = {}) {
+  const el = stage(), key = { all };
   holds.add(key);
+  if (all) el.classList.add("input-held");
   if (!wired.has(el)) {
     const block = (ev) => {
-      if (!held() || ev.target.closest?.(".topbar .back") || Popup.allowsInput(ev)) return;
+      if (!held() || (![...holds].some((hold) => hold.all)
+        && (ev.target.closest?.(".topbar .back") || Popup.allowsInput(ev)))) return;
       ev.preventDefault();
       ev.stopImmediatePropagation();
     };
     for (const event of ["pointerdown", "click", "keydown"]) el.addEventListener(event, block, true);
     wired.add(el);
   }
-  const release = () => holds.delete(key);
+  const release = () => {
+    holds.delete(key);
+    if (![...holds].some((hold) => hold.all)) el.classList.remove("input-held");
+  };
   const task = Promise.resolve().then(work);
   const visible = until ? Promise.race([task, until.then(release)]) : task;
   wait(visible, { cap: null }).catch(() => {});

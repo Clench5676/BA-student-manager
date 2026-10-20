@@ -1331,7 +1331,7 @@
 		"compatibility": {
 			"more": "{names}, +{n}",
 			"check": "호환성 확인",
-			"matches": "확인한 항목에 차이 없음",
+			"matches": "표시 문제 없음",
 			"unavailable": "현재 공식 파일 없음, 비교 미완료",
 			"outdated": "다른 게임 버전의 Bundle",
 			"skeletons": "스켈레톤 이름 불일치: {name}",
@@ -1350,7 +1350,8 @@
 			"crcHint": "CRC 수정은 체크섬만 변경",
 			"atlasLayout": "{name}, 아틀라스 배치 다름",
 			"geometry": "{name}, 어태치먼트 또는 메시 형상 다름",
-			"rig": "{name}, 본 구조 다름"
+			"rig": "{name}, 본 구조 다름",
+			"regions": "아틀라스 영역 누락: {names}"
 		},
 		"remap": {
 			"action": "현재 버전에 맞춰 재배치",
@@ -1361,7 +1362,16 @@
 			"dropped": "제거된 영역: {names}",
 			"rig": "{name}, 스켈레톤 데이터 차이로 어태치먼트 또는 메시 위치 오류 가능",
 			"version": "{name}, Spine 버전 차이로 스켈레톤 변환 필요",
-			"upscaled": "텍스처를 {w} × {h}(으)로 확대"
+			"upscaled": "텍스처를 {w} × {h}(으)로 확대",
+			"repaired": "복구됨",
+			"go": "복구된 Mod 보기",
+			"unneeded": "복구 불필요",
+			"accept": "수락",
+			"discard": "폐기",
+			"preview": "복구 미리보기",
+			"original": "원본",
+			"after": "복구 후",
+			"previewUnavailable": "미리보기 불가"
 		}
 	}
 }

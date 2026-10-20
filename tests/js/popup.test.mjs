@@ -264,12 +264,13 @@ test("shared message sizes and scrolling preserve complete paths with and withou
 test("compatibility details scroll the complete list and return to the same Remap and Cancel actions", async () => {
   const Compatibility = await import("../../src/ba_modding_toolkit/web/js/mod-compatibility.js");
   const names = Array.from({ length: 80 }, (_, i) => `Intro_Shoulder_L/Intro_Shoulder_L_${i}`);
-  const input = (animations) => ({ atlases: {}, textures: {}, skeletons: { "CH0261_home.skel": {
-    version: "4.2.33", data: Buffer.from(JSON.stringify({ bones: [{ name: "root" }], animations })).toString("base64"),
+  const input = (paths) => ({ atlases: {}, textures: {}, skeletons: { "CH0261_home.skel": {
+    version: "4.2.33", data: Buffer.from(JSON.stringify({ bones: [{ name: "root" }],
+      skins: { default: { face: Object.fromEntries(paths.map((name) => [name, { width: 2, height: 2 }])) } } })).toString("base64"),
   } } });
   let remapped = 0;
-  const pending = Compatibility.show({ official: input(Object.fromEntries(names.map((name) => [name, {}]))),
-    mod: input({}), remappable: true }, { onRemap: () => { remapped++; } });
+  const pending = Compatibility.show({ official: input([]), mod: input(names), remappable: true },
+    { onRemap: () => { remapped++; } });
   const remap = await drawn(dialog, "ok"), cancel = action(dialog, "cancel");
   assert.equal(remap.getAttribute("aria-label"), english.remap.action);
   const detail = action(dialog, "line0");
@@ -815,7 +816,7 @@ export function setupPreviewTest(data, kind, onLeft = async () => {}) {
   renderScreen = renderChips = renderExpressions = async () => {};
   renderLeft = onLeft;
 }
-export const previewTestState = () => ({ expression, mainPlayer, lobbyShot, lobbySeq, lobbyAll, lobbyStale, shownKey });
+export const previewTestState = () => ({ expression, mainPlayer, lobbyShot, lobbySeq, lobbyAll, lobbyStale, shownKey, pending });
 `;
 const thumbsTest = `
 export const forgotten = [];
@@ -889,30 +890,18 @@ test("Update reloads a configured portrait or lobby rebuilt under the same mod i
   }
 });
 
-test("compatibility Update refreshes the configured preview under the same mod id", async () => {
+test("a compatibility check never updates an existing mod even when its bundle date differs", async () => {
   setStrings("en-US", Object.fromEntries(strings(english)));
   await modsEnabled(false);
-  for (const [kind, id] of [["spr", "p"], ["lobby", "l"]]) {
-    const fam = previewFamily(), draws = [];
-    Detail.setupPreviewTest(fam, kind, async () => draws.push(Detail.previewTestState()));
-    let updated = false, checks = 0;
-    const inputs = { skeletons: {}, atlases: {}, textures: {} };
-    handlers.set("actions.compatibility", (params) => { assert.deepEqual(params, { mod: id }); checks++; return { result: "compatibility" }; });
-    handlers.set("actions.update", (params) => { assert.deepEqual(params, { mod: id }); updated = true; return { result: "rebuild" }; });
-    handlers.set("jobs.get", ({ id }) => ({ result: { state: "done", result: id === "compatibility"
-      ? { official: inputs, mod: inputs, outdated: !updated } : {} } }));
-    handlers.set("family.get", () => ({ result: structuredClone(fam) }));
-    Thumbs.forgotten.length = 0;
-    const done = Detail.runCompatibility();
-    (await drawn(dialog, "ok")).click();
-    await until(() => checks === 2 && walk(dialog).some((e) => e.textContent === english.compatibility.matches));
-    (await drawn(dialog, "ok")).click();
-    await done;
-    assert.equal(updated, true);
-    assert.deepEqual(Thumbs.forgotten, [`/asset/spine/mod/${id}`]);
-    assert.equal(draws.length, 1);
-    assert.equal(kind === "spr" ? draws[0].mainPlayer : draws[0].lobbyShot, null);
-  }
+  const fam = previewFamily();
+  Detail.setupPreviewTest(fam, "spr");
+  const inputs = { skeletons: {}, atlases: {}, textures: {} };
+  handlers.set("actions.compatibility", () => ({ result: "compatibility" }));
+  handlers.set("actions.update", () => assert.fail("compatibility cannot overwrite the mod"));
+  handlers.set("jobs.get", () => ({ result: { state: "done", result: { official: inputs, mod: inputs, outdated: true } } }));
+  const done = Detail.runCompatibility();
+  (await drawn(dialog, "ok")).click();
+  await done;
 });
 
 test("each mod card exposes a read-only compatibility check for its own mod", async () => {
@@ -1010,33 +999,91 @@ test("a long folder in the file-details summary does not resize the current valu
   assert.ok(widget(after, "V_0").text.includes("\n"));
 });
 
-test("an atlas mismatch offers Remap on the mod card and opens the original-to-new comparison", async () => {
+test("repair review displays both pages and warnings; Accept alone stores the repaired mod", async () => {
+  setStrings("en-US", Object.fromEntries(strings(english)));
+  const Compatibility = await import("../../src/ba_modding_toolkit/web/js/mod-compatibility.js");
+  globalThis.getComputedStyle = () => ({ opacity: "1" });
+  globalThis.requestAnimationFrame = (fn) => setTimeout(fn, 0);
+  const built = { preview: "review", pages: [{ name: "page", original: "data:image/png;base64,YQ==", repaired: "data:image/png;base64,Yg==" }],
+    report: { moved: ["face"], added: ["new"], dropped: ["old"], warnings: [{ key: "rig", name: "test.skel" }], partial: true },
+    compare: { assets: [{ type: "Texture2D", name: "page", status: "changed" }] } };
+  let saved = 0, discarded = 0, refreshed = 0;
+  handlers.set("actions.remap", () => ({ result: "remap-job" }));
+  handlers.set("actions.acceptRemap", () => { saved++; return { result: "accept-job" }; });
+  handlers.set("actions.discardRemap", () => { discarded++; return { result: null }; });
+  handlers.set("jobs.get", ({ id }) => ({ result: { state: "done", result: id === "remap-job" ? built : { mod: { id: "fixed" } } } }));
+  for (const accept of [false, true]) {
+    const done = Compatibility.remap("original", () => { refreshed++; }, "Painted");
+    const ok = await drawn(dialog, "ok");
+    assert.equal(saved, 0);
+    const images = walk(dialog).filter((el) => el.tagName === "IMG");
+    assert.deepEqual(images.map((el) => el.src), [built.pages[0].original, built.pages[0].repaired]);
+    assert.ok(walk(dialog).some((el) => el.textContent === english.remap.partial));
+    assert.ok(walk(dialog).some((el) => el.textContent.includes("test.skel")));
+    assert.equal(ok.getAttribute("aria-label"), english.remap.accept);
+    assert.equal(action(dialog, "cancel").getAttribute("aria-label"), english.remap.discard);
+    (accept ? ok : action(dialog, "cancel")).click();
+    await done;
+    assert.equal(saved, Number(accept));
+    assert.equal(refreshed, Number(accept));
+  }
+  assert.equal(discarded, 2);
+});
+
+test("repaired names carry their localized tag and originals jump to their repaired card", async () => {
   setStrings("en-US", Object.fromEntries(strings(english)));
   await modsEnabled(false);
-  const fam = previewFamily();
+  const fam = previewFamily(), mods = fam.variants[0].modList;
+  mods[0].repaired_id = "fixed";
+  mods.push({ ...mods[0], id: "fixed", repaired_from: mods[0].id, repaired_id: "" });
   Detail.setupPreviewTest(fam, "spr");
-  const inputs = { skeletons: {}, atlases: {}, textures: {} };
-  const checked = { official: inputs, mod: inputs, atlasLayout: ["test.atlas"], remappable: true };
-  const built = { mod: { id: "remapped", label: "Painted (remapped)" },
-    report: { moved: ["face"], added: ["new"], dropped: ["old"], warnings: [], partial: false },
-    compare: { mod_id: "remapped", assets: [{ type: "Texture2D", name: "page", status: "changed" }] } };
-  const remaps = [];
-  handlers.set("actions.compatibility", () => ({ result: "check-remap" }));
-  handlers.set("actions.remap", (params) => { remaps.push(params); return { result: "remap-job" }; });
-  handlers.set("actions.update", () => assert.fail("layout repair uses Remap"));
-  handlers.set("jobs.get", ({ id }) => ({ result: { state: "done", result: id === "check-remap" ? checked : built } }));
-  handlers.set("family.get", () => ({ result: structuredClone(fam) }));
   await Detail.renderPopup();
-  walk(switchHost).find((el) => el.getAttribute("aria-label") === english.compatibility.check).click();
-  (await drawn(dialog, "cancel")).click();
-  await until(() => walk(switchHost).some((el) => el.getAttribute("aria-label") === english.remap.action));
-  assert.deepEqual(remaps, []);
-  walk(switchHost).find((el) => el.getAttribute("aria-label") === english.remap.action).click();
-  (await drawn(dialog, "ok")).click();
-  await until(() => walk(dialog).some((el) => el.textContent === "Texture2D - page"));
-  assert.deepEqual(remaps, [{ mod: "p" }]);
-  assert.ok(walk(dialog).some((el) => el.textContent.includes("Painted (remapped)")));
-  press("Escape");
-  await until(() => dialog.hidden);
+  assert.ok(walk(switchHost).some((el) => el.textContent.includes(english.remap.repaired)));
+  const jump = walk(switchHost).find((el) => el.getAttribute("aria-label") === english.remap.go);
+  assert.ok(jump);
+  assert.ok(!walk(switchHost).some((el) => el.getAttribute("aria-label") === english.remap.action));
+  await jump.click();
+  assert.equal(Detail.previewTestState().pending, "m:fixed");
+  assert.ok(walk(switchHost).some((el) => el.textContent.includes(english.remap.repaired)));
   switchHost.hidden = true;
+});
+
+test("repair comparison uses separate in-memory players and disposes both on close", async () => {
+  const Compare = await import("../../src/ba_modding_toolkit/web/js/mod-compare.js");
+  const previous = globalThis.spine, created = [];
+  globalThis.spine = {
+    Downloader: class { rawDataUris = {}; },
+    TextureAtlas: class { pages = [{ name: "page.png" }]; },
+    SpinePlayer: class {
+      constructor(host, config) {
+        this.host = host; this.config = config; this.disposed = false;
+        this.skeleton = { data: { animations: [{ name: "Idle_01" }] } };
+        this.animationState = { setAnimation() {} };
+        created.push(this);
+        queueMicrotask(() => config.success(this));
+      }
+      dispose() { this.disposed = true; }
+    },
+  };
+  const original = { name: "test.skel", json: true, skeleton: Buffer.from('\ufeff{"bones":[{"name":"root"}]}').toString("base64"), atlas: "original page data" };
+  const repaired = { ...original, atlas: "repaired page data" };
+  try {
+    const pending = Compare.show({ pages: [{ name: "page", original: "original pixels", repaired: "repaired pixels" }],
+      drawings: { original: [original], repaired: [repaired] } }, "Painted", "dialog",
+    { lines: [], accept: english.remap.accept, discard: english.remap.discard });
+    await drawn(dialog, "cancel");
+    assert.equal(created.length, 2);
+    assert.notEqual(created[0].host.parentNode, created[1].host.parentNode);
+    for (const [i, player] of created.entries()) {
+      let text, json;
+      player.config.downloader.downloadText("skeleton.atlas", (value) => { text = value; });
+      player.config.downloader.downloadJson("skeleton.json", (value) => { json = value; }, assert.fail);
+      assert.equal(text, i ? repaired.atlas : original.atlas);
+      assert.equal(json.bones[0].name, "root");
+      assert.equal(player.config.rawDataURIs["page.png"], i ? "repaired pixels" : "original pixels");
+    }
+    press("Escape");
+    assert.equal(await pending, false);
+    assert.ok(created.every((player) => player.disposed));
+  } finally { globalThis.spine = previous; }
 });
