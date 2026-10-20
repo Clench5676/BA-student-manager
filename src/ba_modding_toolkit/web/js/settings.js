@@ -90,7 +90,7 @@ function helpAfterTitle(row, title, dot, open = () => ModSwitch.openHelp()) {
   return row;
 }
 
-// the Game Files row's value: the file check off, or what the last check found
+// the Configuration Drift Check row's value: the file check off, or what the last check found
 function filesValue(m) {
   if (m.scan !== true) return T("error.scan_off");
   const parts = [];
@@ -100,7 +100,7 @@ function filesValue(m) {
   return parts.length ? parts.join(ModSwitch.listSep()) : T("settings.mods.clean");
 }
 
-// the Game Files row's "?": what configuration drift is
+// the Configuration Drift Check row's "?": what configuration drift is
 export function driftLines() {
   return [T("settings.mods.driftHelp.what")];
 }
@@ -109,9 +109,10 @@ function driftHelp() {
   return Popup.message({ title: T("settings.mods.driftHelp.title"), lines: driftLines(), ok: T("picker.ok"), width: 2100 });
 }
 
-// Settings' Check: a scan with the dismissed entries listed again, then the drift and untracked prompts over the
-// settings
+// Settings' Check: ask for missing consent, then scan with the dismissed entries listed again and show the drift
+// and untracked prompts over the settings
 async function checkFiles() {
+  if (ModSwitch.current()?.scan !== true && !await ModSwitch.askScan()) return;
   const result = await ModSwitch.check();
   if (!result) return;
   const m = ModSwitch.current() || {};
@@ -240,6 +241,10 @@ function rows({ builtSize = null, sizeError = null } = {}) {
     add(valueRow("Built", 0, T("mods.cache"), sizeError || (builtSize == null ? T("job.running") :
       ModSwitch.sizeText(builtSize)), [
       [T("settings.mods.clear"), async () => { if (await ModSwitch.clearBuilt()) render(); }, builtSize > 0]]));
+    // the tray or menu bar icon, only in the app window where the system has one
+    if (p.native && p.traySupported) {
+      add(radioRow("Tray", 0, T(platform === "mac" ? "settings.mods.tray.mac" : "settings.mods.tray.win"), ON_OFF(), !!p.tray, (value) => set("tray", value)));
+    }
     // On requires consent and checks at every start; Off withdraws consent.
     add(radioRow("Scan", 0, T("settings.mods.scan"), ON_OFF(), m.scan === true, async (value) => {
       if (value === (m.scan === true)) return;
@@ -248,11 +253,7 @@ function rows({ builtSize = null, sizeError = null } = {}) {
       await ModSwitch.refresh();
       render();
     }));
-    // the tray or menu bar icon, only in the app window where the system has one
-    if (p.native && p.traySupported) {
-      add(radioRow("Tray", 0, T(platform === "mac" ? "settings.mods.tray.mac" : "settings.mods.tray.win"), ON_OFF(), !!p.tray, (value) => set("tray", value)));
-    }
-    add(helpAfterTitle(valueRow("Files", 0, T("settings.mods.files"), filesValue(m), [[T("settings.mods.check"), checkFiles, m.scan === true]]),
+    add(helpAfterTitle(valueRow("Files", 0, T("settings.mods.files"), filesValue(m), [[T("settings.mods.check"), checkFiles]]),
       T("settings.mods.files"), false, driftHelp));
   } else if (tab === "sound") {
     add(sliderRow("Voice", 0, T("settings.voice"), p.voiceVolume, p.voiceMuted));

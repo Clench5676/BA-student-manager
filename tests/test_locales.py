@@ -91,6 +91,12 @@ def test_simplified_chinese_drift_spelling():
     assert all("\u98d8\u79fb" not in text for text in flatten(load("zh-CN")).values())
 
 
+def test_settings_uses_configuration_drift():
+    mods = load(REFERENCE)["webui"]["settings"]["mods"]
+    assert mods["files"] == "Configuration Drift Check"
+    assert mods["scan"] == "Check for Configuration Drift and Untracked Mods at Start"
+
+
 @pytest.mark.parametrize("code", [REFERENCE, *TRANSLATIONS])
 def test_refined_settings_and_remap_labels(code):
     ui = load(code)["webui"]

@@ -1259,12 +1259,12 @@
 			"mods": {
 				"clear": "Clear",
 				"shown": "Show on Main Screens",
-				"scan": "Check for Drift and Untracked Mods at Start",
+				"scan": "Check for Configuration Drift and Untracked Mods at Start",
 				"tray": {
 					"win": "Tray Icon",
 					"mac": "Menu Bar Icon"
 				},
-				"files": "Game File Drift Check",
+				"files": "Configuration Drift Check",
 				"check": "Check",
 				"clean": "No drift found",
 				"driftHelp": {

@@ -749,8 +749,8 @@ The services hold what the Enable Mods switch, the prompts and the classic hand-
   game folder change or a library move (the result is dropped). A stale result (the library wrote while the files
   were read) is scanned again once while no writer job runs, else dropped: the scan after that job replaces it. The
   start scan waits for the `library.prune` job. Startup prune and scan begin after the first screen reveals,
-  while Check for Drift and Untracked Mods at Start is On. Off withdraws consent, cancels outstanding scans,
-  releases the classic queue and empties the entries. With consent, scans also run after a game folder change,
+  while Check for Configuration Drift and Untracked Mods at Start is On. Off withdraws consent, cancels outstanding
+  scans, releases the classic queue and empties the entries. With consent, scans also run after a game folder change,
   after every writer job, when the game stops or Steam turns idle (the game watch), after a classic window closed,
   when consent is granted, on Settings' Check (`mods.scan {dismissed: true}`, which lists dismissed entries again)
   and whenever the page asks (`mods.scan`, the window back in front after 30 s).
@@ -1114,8 +1114,10 @@ optional, so a popup still works without them.
 time, in order, each only when it has something to show (`mod-switch.js startDue`): the asset consent, the scan
 consent (while it is unanswered and a game folder is known; see Enable Mods switch), then the update popup (released
 builds only). File checks require scan consent: On checks at every start, Off withdraws consent and stops scans.
-The drift row's Check remains available while On. Check for Updates at Startup defaults to on and disables the
-automatic update check when off. Manual Settings update checks remain available. `Update.check` resolves when its popup closes: `later` (Later or Escape), `page` (the download page
+The Configuration Drift Check row's Check remains available while Off too: missing consent opens the scan consent
+popup first, then Allow continues the manual check; declining cancels it. Check for Updates at Startup defaults to
+on and disables the automatic update check when off. Manual Settings update checks remain available. `Update.check`
+resolves when its popup closes: `later` (Later or Escape), `page` (the download page
 opened), `update` when a failed update is dismissed, `null` with no newer release, offline or if drawing fails.
 Download progress and errors stay in the popup; its buttons and Escape are blocked during download. A verified
 download shows Download Complete with Later / Restart. Later keeps it for this session; the next check for that
@@ -1230,14 +1232,16 @@ detail screen, and in Settings' Mods tab.
   unavailable); Show on Main Screens (`modSwitchShown`); Mod Cache (mods rebuilt for the current game version and
   kept for instant re-enabling; size requested with `mods.sizes {kind: "built"}` when the row is drawn, loading text
   while waiting, Clear enabled for a nonzero size; `mods.clearBuilt`, then "Mod cache cleared" and the size measured
-  again); Check for Drift and Untracked Mods at Start (the standard two-option On / Off radio row). On opens the
-  consent popup before enabling checks, then scans immediately, at every start and on the automatic triggers
-  described above; declining leaves Off selected. Off withdraws consent and stops scans. `scan_consent` is the sole
-  stored preference. Legacy `startup_checks` is removed on load: At Startup stays On, Manual becomes Off because it
-  did not authorize automatic checks, and unanswered consent stays unanswered. Tray Icon or Menu Bar Icon (`tray`, only in
-  the app window where the system has one); Game File Drift Check (what the last check found, "No drift found", or
-  "File check off" with Check greyed; Check scans with the dismissed entries listed again; its square "?" gives one
-  definition: configuration drift means the game files do not match the mod configuration). There is no Game Folders
+  again); Tray Icon or Menu Bar Icon (`tray`, only in the app window where the system has one); Check for Configuration
+  Drift and Untracked Mods at Start (the standard two-option On / Off radio row), directly above Configuration Drift
+  Check. On opens the consent popup before enabling checks, then scans immediately, at every start and on the automatic
+  triggers described above; declining leaves Off selected. Off withdraws consent and stops scans. `scan_consent` is the
+  sole stored preference. Legacy `startup_checks` is removed on load: At Startup stays On, Manual becomes Off because it
+  did not authorize automatic checks, and unanswered consent stays unanswered. Configuration Drift Check shows what the
+  last check found, "No drift found", or "File check off". Its Check button stays available with automatic checks Off:
+  without consent it opens the scan consent popup first, then Allow continues the manual check (and enables automatic
+  checks); declining cancels it. Check scans with the dismissed entries listed again; its square "?" gives one
+  definition: configuration drift means the game files do not match the mod configuration. There is no Game Folders
   row in this tab. The tab follows `mods.state` while it is open. Ask Before Opening Unmigrated Features (`classicPrompt`)
   is a General row, under More Settings. The Folders tab's game folder, Mod Library and Classic Tools Output Folder rows use Change
   for their folder pickers.

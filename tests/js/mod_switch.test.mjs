@@ -489,7 +489,7 @@ test("the help fits its opening lines together in every locale, with and without
 test("Settings combines scan consent and automatic checks, preserving the consent popup from Off", async () => {
   const Settings = await import("../../src/ba_modding_toolkit/web/js/settings.js");
   const NGUI = await import("../../src/ba_modding_toolkit/web/js/ngui.js");
-  let prefs = { ...answers["settings.get"], native: true, gameDirs: { global: "/game" },
+  let prefs = { ...answers["settings.get"], native: true, traySupported: true, gameDirs: { global: "/game" },
     fileSource: "windows_global", libraryDir: "/library", outputDir: "/output" };
   let state = base({ scan: false });
   answers["settings.get"] = () => prefs;
@@ -510,7 +510,10 @@ test("Settings combines scan consent and automatic checks, preserving the consen
   assert.ok(!hasPath("Rows/Scan/Opt_2/BG"), "the file check has exactly two radio options");
   assert.ok(!hasPath("Rows/StartupChecks/Title"));
   assert.ok(!hasPath("Rows/Folders/Title"));
-  assert.equal(button(S("settings.mods.check")), undefined, "Check disabled without consent");
+  const rowPaths = walk(settingsHost).map((e) => e.dataset.path).filter((p) => /^Rows\/[^/]+$/.test(p));
+  assert.ok(rowPaths.includes("Rows/Tray"), "the tray row is shown on supported systems");
+  assert.equal(rowPaths[rowPaths.indexOf("Rows/Scan") + 1], "Rows/Files", "startup checks sit directly above manual Check");
+  assert.ok(button(S("settings.mods.check")), "manual Check available without consent");
   const before = called("mods.consent").length;
   scanButton(0).click();
   await drawn(consent, "ok");
@@ -529,7 +532,7 @@ test("Settings combines scan consent and automatic checks, preserving the consen
   scanButton(1).click();
   await until(() => selected(1), "Off withdraws consent");
   assert.equal(state.scan, false);
-  assert.equal(button(S("settings.mods.check")), undefined);
+  assert.ok(button(S("settings.mods.check")), "manual Check remains available after withdrawing consent");
   scanButton(0).click();
   (await drawn(consent, "ok")).click();
   await until(() => selected(0), "Off to On also requires consent");
@@ -546,6 +549,68 @@ test("Settings combines scan consent and automatic checks, preserving the consen
   answers["settings.get"] = prefs;
   delete answers["settings.set"];
   delete answers["mods.consent"];
+});
+
+test("Settings' manual Check asks for missing consent, stops on refusal, and checks after Allow", async () => {
+  const Settings = await import("../../src/ba_modding_toolkit/web/js/settings.js");
+  const saved = { ...answers };
+  let state;
+  answers["mods.state"] = () => state;
+  answers["mods.consent"] = ({ granted }) => { state = { ...state, scan: granted }; return {}; };
+  answers["mods.scan"] = () => { assert.equal(state.scan, true, "consent must be saved before scanning"); return { requested: true }; };
+  const button = (name) => walk(settingsHost).find((e) => e.tagName === "BUTTON" && e.getAttribute("aria-label") === name);
+  const selected = (i) => walk(settingsHost).some((e) => e.dataset.path === `Rows/Scan/Opt_${i}/On`);
+  try {
+    for (const scan of [false, null]) {
+      state = base({ scan });
+      answers["settings.get"] = { ...saved["settings.get"], native: false, traySupported: false };
+      await MS.refresh();
+      await Settings.open();
+      button(S("settings.tab.mods"))?.click();
+      await until(() => selected(1), "automatic checks Off");
+      const rowPaths = walk(settingsHost).map((e) => e.dataset.path).filter((p) => /^Rows\/[^/]+$/.test(p));
+      assert.ok(!rowPaths.includes("Rows/Tray"));
+      assert.equal(rowPaths[rowPaths.indexOf("Rows/Scan") + 1], "Rows/Files");
+      const scans = called("mods.scan").length, grants = called("mods.consent").length;
+      button(S("settings.mods.check")).click();
+      await drawn(consent, "ok");
+      assert.ok(consent.classList.contains("over"), "consent appears over Settings");
+      assert.equal(settingsHost.hidden, false);
+      assert.equal(called("mods.consent").length, grants, "Check grants nothing itself");
+      assert.equal(called("mods.scan").length, scans, "no scan before consent");
+      action(consent, "cancel").click();
+      await until(() => consent.hidden && MS.current().scan === false && selected(1), "refusal keeps checks Off");
+      await tick();
+      assert.equal(called("mods.scan").length, scans, "refusing cancels the manual Check");
+      button(S("settings.mods.check")).click();
+      await drawn(consent, "ok");
+      assert.equal(called("mods.scan").length, scans);
+      toastEl.textContent = "";
+      action(consent, "ok").click();
+      await until(() => called("mods.scan").length === scans + 1, "manual Check after Allow");
+      assert.deepEqual(called("mods.consent").at(-1), { granted: true });
+      assert.deepEqual(called("mods.scan").at(-1), { dismissed: true }, "manual Check includes dismissed entries");
+      assert.equal(toastEl.textContent, "", "waits for the scan result");
+      emit("library.scanned", { entries: [] });
+      await until(() => toastEl.textContent === S("settings.mods.clean") && selected(0), "scan result and On selected");
+      assert.equal(settingsHost.hidden, false);
+      const granted = called("mods.consent").length;
+      toastEl.textContent = "";
+      button(S("settings.mods.check")).click();
+      await until(() => called("mods.scan").length === scans + 2, "manual Check with existing consent");
+      assert.equal(consent.hidden, true, "existing consent needs no popup");
+      assert.equal(called("mods.consent").length, granted);
+      assert.deepEqual(called("mods.scan").at(-1), { dismissed: true });
+      emit("library.scanned", { entries: [] });
+      await until(() => toastEl.textContent === S("settings.mods.clean"), "existing consent scan result");
+      button(S("display.close")).click();
+    }
+  } finally {
+    emit("library.scanned", { entries: [] });
+    if (!settingsHost.hidden) button(S("display.close"))?.click();
+    for (const key of Object.keys(answers)) delete answers[key];
+    Object.assign(answers, saved);
+  }
 });
 
 test("the help's Allow Check opens the scan consent popup and grants nothing itself", async () => {
