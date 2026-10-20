@@ -26,6 +26,7 @@ import { rpc, spineBase, spinePrefix, loadSpineAssets, waitJob } from "./api.js"
 import { L, T, language, platform } from "./i18n.js";
 import { forget, idleAnimation, prioritise, thumb } from "./thumbs.js";
 import { portraitViewport } from "./portrait-view.js";
+import { colourSwitchCard } from "./switch-card.js";
 import { setTitle } from "./nav.js";
 import { KEYS, deltaOf, pacer, typing } from "./step-keys.js";
 import { FRAME_Y, closable, hit as hitNode, listPopup, message, popupFrame, scrollArea } from "./popup.js";
@@ -337,8 +338,9 @@ function screenTree() {
     tab === "portrait"
       ? clipped("Bust", [1, 6], thumb(currentBase(), "bust"), win, { dx: -383 + 202 - 40, dy: -67.5, w: 404, h: 404 },
         { depth: 10, mask: "linear-gradient(90deg, #000 70%, transparent 98%)" })
-      // wider than the window's slanted left edge, and faded at both ends so no hard picture edge shows
-      : clipped("Bust", [1, 6], tab === "model" ? modelShot : lobbyShot, win, { dx: -383 + 216, dy: 0, w: 450, h: 253 }, { depth: 10, mask: "linear-gradient(90deg, transparent 0, #000 10%, #000 70%, transparent 96%)" }));
+      // wider than the window's slanted left edge; the lobby fades out before the labels so their contrast is known
+      : clipped("Bust", [1, 6], tab === "model" ? modelShot : lobbyShot, win, { dx: -383 + 216, dy: 0, w: 450, h: 253 },
+        { depth: 10, mask: `linear-gradient(90deg, transparent 0, #000 10%, #000 70%, transparent ${tab === "model" ? 96 : 82}%)` }));
   // the wrapper holds an enabled (cyan) and a disabled (grey) body and label: the enabled ones while the tab has
   // something to add and switch to (switchKind), else the disabled ones
   const keep = switchKind() ? 1 : 2;
@@ -454,9 +456,9 @@ async function drawScreen() {
   const frag = document.createDocumentFragment();
   const bg = await NGUI.render(bgNode, frag, { scale: S, origin: ORIGIN, rootPath: "Inventory_ListControl", textures: { BG: v.bg || undefined }, deferImages: true });
   if (!ok()) return;
-  if (my === renderToken) screenPics = [picturesReady([...lv.pictures, ...rv.pictures, ...bg.pictures], leftHost, rightHost, frag)];
   const view = { nodes: new Map([...lv.nodes, ...rv.nodes]) };
-  addSwitchText(rightHost, view);
+  const cardReady = addSwitchText(rightHost, view);
+  if (my === renderToken) screenPics = [picturesReady([...lv.pictures, ...rv.pictures, ...bg.pictures, cardReady], leftHost, rightHost, frag)];
   hits(view, leftHost, rightHost);
   commit(() => {
     if (!ok()) return;
@@ -493,6 +495,9 @@ function addSwitchText(host, view) {
   // the chevron only where the card opens a popup: the 3D card has nothing to switch to and stays inert (hits)
   box.append(b, span, ...(switchKind() ? [go] : []));
   host.appendChild(box);
+  const bust = view.nodes.get(`Inventory_ListControl/${INFO}/Weapon/Equip_1/UIEquipmentCard/Btn_Target/Normal/Bust`);
+  if (switchKind() && bust?.els[0]) return colourSwitchCard(bust.els[0], box, bust.node.widgets[0], NGUI.load)
+    .catch((err) => console.warn("Switch card colours unavailable", err));
 }
 
 function hits(view, leftHost, rightHost) {
