@@ -83,6 +83,9 @@ export const textureUrl = (name) => `/asset/ui/texture/${encodeURIComponent(name
 // what every skeleton URL of a core starts with, whatever the file: the library.changed handler forgets the
 // thumbnails under it once the core's game files were switched (a mod and the official file share one URL)
 export const spinePrefix = (kind, key) => `/asset/spine/${kind}/${encodeURIComponent(key)}`;
-// a skeleton's base path: <base>.skel and <base>.atlas; the atlas pages resolve next to them
-export const spineBase = (kind, key) => `${spinePrefix(kind, key)}/skeleton`;
+// a skeleton's base path: <base>.skel and <base>.atlas; the atlas pages resolve next to them. install: the id of
+// another known install (mods.state.installs[].id), whose own files the core segment <core>@<id> reads (an entry card
+// of that install); none for the current install's. The id is in the path, not a query: the player fetches every
+// file relative to the base.
+export const spineBase = (kind, key, install = null) => `${spinePrefix(kind, key)}${install ? `@${encodeURIComponent(install)}` : ""}/skeleton`;
 export const spineFiles = (kind, key) => `/asset/spine/${kind}/${encodeURIComponent(key)}/files.json`;
