@@ -18,6 +18,13 @@ NATIVE_COMM = "/Applications/Blue Archive.app/Contents/MacOS/Blue Archive"
 OWN_COMM = "/Applications/Blue Archive Modding and Patching Tool.app/Contents/MacOS/Blue-Archive-Modding-and-Patching-Tool"
 
 
+@pytest.fixture(autouse=True)
+def outside_dev_mode(monkeypatch):
+    """The checks as a user's run makes them: dev mode skips the game and Steam checks for its writable folders."""
+    for name in ("BAMT_DEV_ROOTS", "BAMT_DEV_WRITABLE"):
+        monkeypatch.delenv(name, raising=False)
+
+
 def expect_error(code, action):
     with pytest.raises(ServiceError) as caught:
         action()
