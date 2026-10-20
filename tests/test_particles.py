@@ -226,17 +226,51 @@ def test_mesh_renderer_meshes():
     assert ("mesh", 0) not in asked
 
 
-def test_colour_by_speed_and_edge_modes():
-    """CH0318's dust takes a colour by its speed; Hibiki's bokeh spread along an edge by the radius's mode."""
+def test_trails_colour_by_speed_and_edge_modes():
+    """CH0172's oil drops leave trails (Particles mode) drawn with the renderer's second material; CH0318's dust takes
+    a colour by its speed; Hibiki's bokeh spread along an edge by the radius's mode."""
     ps = {
+        "TrailModule": {"enabled": 1, "mode": 0, "ratio": 1.0, "lifetime": mm(0, 1.0), "minVertexDistance": 0.1,
+                        "textureMode": 0, "worldSpace": 0, "dieWithParticles": 1, "sizeAffectsWidth": 1,
+                        "sizeAffectsLifetime": 0, "inheritParticleColor": 1,
+                        "colorOverLifetime": {"minMaxState": 0, "maxColor": color(1, 0.6, 0)},
+                        "widthOverTrail": mm(0, 0.5),
+                        "colorOverTrail": {"minMaxState": 1, "maxGradient": unity_gradient([(0, (1, 1, 1)), (1, (1, 1, 1))],
+                                                                                            [(0, 1.0), (1, 0.0)])}},
         "ColorBySpeedModule": {"enabled": 1, "range": {"x": 0.0, "y": 7.0},
                                "gradient": {"minMaxState": 0, "maxColor": color(1, 1, 1, 0.5)}},
         "ShapeModule": {"enabled": 1, "type": 12, "radius": {"value": 2.5, "mode": 3, "spread": 0.25, "speed": mm(0, 5.0)},
                         "arc": {"value": 360.0, "mode": 0, "spread": 0.0, "speed": mm(0, 1.0)}},
     }
     s = particles.system(ps, {})
+    trail = s["modules"]["trail"]
+    assert (trail["ratio"], trail["life"], trail["minDist"], trail["world"], trail["width"]) == (1.0, 1.0, 0.1, 0, 0.5)
+    assert trail["color"] == {"col": [1.0, 0.6, 0.0, 1.0]} and trail["colorTrail"]["g"]["a"] == [[0.0, 1.0], [1.0, 0.0]]
     assert s["modules"]["colorBySpeed"] == {"color": {"col": [1.0, 1.0, 1.0, 0.5]}, "range": [0.0, 7.0]}
     assert (s["shape"]["radiusMode"], s["shape"]["radiusSpread"], s["shape"]["radiusSpeed"]) == (3, 0.25, 5.0)
+    # Ribbon mode is not ported: no trail
+    assert "trail" not in particles.system({"TrailModule": {**ps["TrailModule"], "mode": 1}}, {})["modules"]
+
+    def node(go, materials, mode=0):
+        rend = {"m_Enabled": 1, "m_RenderMode": mode, "m_Materials": [{"m_FileID": 2, "m_PathID": m} for m in materials]}
+        return {"go": go, "name": f"Oil_{go}", "path": f"Oil_{go}", "active": True, "parent": 0,
+                "first": {"ParticleSystem": {"TrailModule": ps["TrailModule"]}, "ParticleSystemRenderer": rend},
+                "pids": {"ParticleSystem": go * 10, "ParticleSystemRenderer": go * 10 + 1},
+                "t": {"m_LocalScale": {"x": 1.0, "y": 1.0, "z": 1.0}}, "local3": particles.IDENTITY, "m3": particles.IDENTITY}
+    found = {7: ("cab-fx_7", {"program": "additive", "queue": 3100, "tex": {}}),
+             8: ("cab-fx_8", {"program": "additive", "queue": 2950, "tex": {}}),
+             9: ("cab-fx_9", {"program": None, "queue": 3000, "tex": {}})}
+    resolve = lambda kind, owner, pointer: found.get(pointer["m_PathID"]) if kind == "material" else None  # noqa: E731
+    # the drops at 3100 and their trails at 2950; trails only (render mode None); a trail material not ported: no
+    # trail; no second material: no trail
+    fx = particles.build([node(1, [7, 8]), node(2, [7, 8], mode=5), node(3, [7, 9]), node(4, [7])], lambda go: None,
+                         lambda skel: 1.0, resolve)
+    oil = {s["name"]: s for s in fx["systems"]}
+    assert (oil["Oil_1"]["material"], oil["Oil_1"]["trailMaterial"], oil["Oil_1"]["trailQueue"]) == ("cab-fx_7", "cab-fx_8", 2950)
+    assert oil["Oil_2"]["material"] is None and oil["Oil_2"]["trailMaterial"] == "cab-fx_8"
+    assert "trail" not in oil["Oil_3"]["modules"] and "trailMaterial" not in oil["Oil_3"]
+    assert "trail" not in oil["Oil_4"]["modules"]
+    assert set(fx["materials"]) == {"cab-fx_7", "cab-fx_8"}
 
 
 def test_mesh():

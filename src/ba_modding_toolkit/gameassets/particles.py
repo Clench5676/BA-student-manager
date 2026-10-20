@@ -249,6 +249,20 @@ def _modules(ps: Mapping[str, Any]) -> dict:
             else:
                 custom.append(None)
         out["custom"] = custom
+    m = ps.get("TrailModule") or {}
+    if m.get("enabled") and m.get("mode", 0) == 0:
+        # a trail behind each particle (Particles mode; Ribbon mode is used by no lobby): the points it leaves every
+        # minVertexDistance, each living lifetime x its particle's lifetime, drawn with the renderer's second material
+        out["trail"] = {
+            "ratio": _r(m.get("ratio", 1.0)), "life": curve(m.get("lifetime"), 1.0),
+            "minDist": _r(m.get("minVertexDistance", 0.2)), "texMode": m.get("textureMode", 0),
+            "world": 1 if m.get("worldSpace") else 0, "die": 1 if m.get("dieWithParticles", True) else 0,
+            "sizeWidth": 1 if m.get("sizeAffectsWidth", True) else 0,
+            "sizeLife": 1 if m.get("sizeAffectsLifetime") else 0,
+            "inherit": 1 if m.get("inheritParticleColor", True) else 0,
+            "color": gradient(m.get("colorOverLifetime")), "width": curve(m.get("widthOverTrail"), 1.0),
+            "colorTrail": gradient(m.get("colorOverTrail")),
+        }
     return out
 
 
@@ -477,20 +491,23 @@ def build(nodes: list[dict], skeleton_of_go: Callable[[int], str | None], data_s
         rend = n["first"].get("ParticleSystemRenderer") or {}
         rend_pid = n["pids"].get("ParticleSystemRenderer", 0)
         item = system(ps, rend)
-        mat_id = None
-        if resolve is not None and rend and rend.get("m_Enabled", 0) and item["renderer"]["mode"] != 5:
-            pointers = rend.get("m_Materials") or []
-            if pointers and pointers[0].get("m_PathID"):
-                found = resolve("material", rend_pid, pointers[0])
-                if found:
-                    mat_id, mat = found
-                    if mat.get("program"):
-                        materials[mat_id] = mat
-                        for tex in mat.get("tex", {}).values():
-                            if "id" in tex:
-                                textures[tex["id"]] = {k: v for k, v in tex.items() if k != "st"}
-                    else:
-                        mat_id = None
+
+        def drawn_with(pointer: dict | None) -> str | None:
+            # a material the player ports (its id), with its textures
+            if not (pointer or {}).get("m_PathID"):
+                return None
+            found = resolve("material", rend_pid, pointer)
+            if not found or not found[1].get("program"):
+                return None
+            materials[found[0]] = found[1]
+            for tex in found[1].get("tex", {}).values():
+                if "id" in tex:
+                    textures[tex["id"]] = {k: v for k, v in tex.items() if k != "st"}
+            return found[0]
+        mat_id = trail_id = None
+        pointers = (rend.get("m_Materials") or []) if resolve is not None and rend and rend.get("m_Enabled", 0) else []
+        if pointers and item["renderer"]["mode"] != 5:
+            mat_id = drawn_with(pointers[0])
             if mat_id and item["renderer"]["mode"] == 4:
                 ids = []
                 for slot, weight in _MESH_SLOTS:
@@ -503,6 +520,14 @@ def build(nodes: list[dict], skeleton_of_go: Callable[[int], str | None], data_s
                     item["renderer"].update(_mesh_choice(ids, rend.get("m_MeshDistribution", 0)))
                 else:
                     mat_id = None
+        if "trail" in item["modules"]:
+            # the trails are the renderer's second submesh, with its second material and sorted by that one's queue
+            # (CH0172's oil drops at 3100, their dirt trails at 2950); even a renderer that draws no particles has them
+            trail_id = drawn_with(pointers[1]) if len(pointers) > 1 else None
+            if trail_id:
+                item.update(trailMaterial=trail_id, trailQueue=materials[trail_id]["queue"])
+            else:
+                del item["modules"]["trail"]
         item["material"] = mat_id
         item["queue"] = materials[mat_id]["queue"] if mat_id else 3000
         item["order"] = int(rend.get("m_SortingOrder", 0)) if rend else 0
@@ -550,7 +575,7 @@ def build(nodes: list[dict], skeleton_of_go: Callable[[int], str | None], data_s
         if resolved:
             systems[i]["subs"] = resolved
     # what the player keeps: systems that draw, and the systems that spawn them
-    keep = [bool(s["material"]) for s in systems]
+    keep = [bool(s["material"] or s.get("trailMaterial")) for s in systems]
     for _ in range(4):
         for i, s in enumerate(systems):
             if not keep[i] and any(keep[e["system"]] for e in s.get("subs", [])):

@@ -651,6 +651,9 @@ def test_real_lobby_particle_colour_space_layers_and_toggles(real_game):
 
 @pytest.mark.skipif(not GAME_DIR.is_dir(), reason="No local game install")
 def test_real_lobby_particle_modules(real_game):
+    # CH0172's oil drops leave dirt trails, with the renderers' second material (queue 2950, under the character)
+    oil = [s for s in real_game.lobby_info("ch0172_home")["fx"]["systems"] if "trail" in s["modules"]]
+    assert len(oil) == 6 and {s["trailQueue"] for s in oil} == {2950} and all(s["material"] for s in oil)
     # CH0318's dust fades by its speed; CH0292's headlights emit by the distance they move
     dust = [s for s in real_game.lobby_info("ch0318_home")["fx"]["systems"] if "colorBySpeed" in s["modules"]]
     assert sorted(s["modules"]["colorBySpeed"]["range"][1] for s in dust) == [7.0, 8.0]

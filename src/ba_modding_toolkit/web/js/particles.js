@@ -15,12 +15,12 @@
 // edge modes, radius thickness, position, rotation, scale, random and spherical direction), velocity over lifetime
 // (linear, orbital with offset, radial, speed modifier), limit velocity (dampen), force over lifetime, colour, size
 // and rotation over lifetime, colour by speed, texture sheet animation (grid: whole sheet or one row), custom data
-// (vectors, colours) and sub-emitters (birth, death); a mesh particle draws one of its renderer's meshes (up to
-// four, picked per particle) and takes its vertex colours. Systems below GameObjects the lobby's
-// SpineEventToggleObjects switches (CH0217's fish bubbles) play while the skeleton's Spine events have them on
-// (spineEvent). Not simulated: noise, collision, triggers, lights, trails, inherit velocity, size and rotation by
-// speed and external forces (no system a lobby draws uses them but CH0172's trails) and limit velocity's drag
-// (CH0318's dust, too slow for it to tell); a system keeps drawing without them.
+// (vectors, colours), sub-emitters (birth, death) and trails (particle mode: trailGeometry); a mesh particle draws
+// one of its renderer's meshes (up to four, picked per particle) and takes its vertex colours. Systems below
+// GameObjects the lobby's SpineEventToggleObjects switches (CH0217's fish bubbles) play while the skeleton's Spine
+// events have them on (spineEvent). Not simulated: noise, collision, triggers, lights, inherit velocity, size and
+// rotation by speed and external forces (no system a lobby draws uses them) and limit velocity's drag (CH0318's
+// dust, too slow for it to tell); a system keeps drawing without them.
 
 import { toLinear } from "./touch-fx.js";
 
@@ -102,7 +102,7 @@ const R = { life: 0, speed: 1, size: 2, sizeY: 3, sizeZ: 4, rotX: 5, rotY: 6, ro
   sizeLife: 10, rotLife: 11, velX: 12, velY: 13, velZ: 14, orbit: 15, radial: 16, speedMod: 17, limit: 18,
   forceX: 19, forceY: 20, forceZ: 21, frame: 22, start: 23, row: 24, flipU: 25, flipV: 26, flipRot: 27, custom: 28,
   mesh: 36, burst: 38, sub: 39, shape: 40, // shape: the first of the values the shape draws, one after another
-  colorSpeed: 90 };
+  colorSpeed: 90, trail: 91, trailLife: 92, trailColor: 93, trailWidth: 94, trailColorTrail: 95 };
 
 // --- 3 x 4 affine matrices (row-major) ------------------------------------------------------------------------------
 
@@ -484,6 +484,12 @@ export class Effects {
     }
     const pt = { seed, age: 0, life, size, rot, flip, color, pos: p, vel, anim: [0, 0, 0], speed: 0, u, cur: null,
       dead: false, share: share === undefined ? null : Math.max(0, share) };
+    // the trail module's share of the particles get a trail, its first point where they are born
+    const tr = def.modules?.trail;
+    if (tr && rnd(seed, R.trail) < (tr.ratio ?? 1)) {
+      pt.trailLife = Math.max(1e-3, value(tr.life, u, rnd(seed, R.trailLife)) * life);
+      pt.trail = [{ p: this.trailPoint(s, pt), t: 0 }];
+    }
     s.particles.push(pt);
     for (const e of def.subs || []) {
       const sub = this.systems[e.system];
@@ -577,8 +583,15 @@ export class Effects {
       }
       pt.anim = anim;
       for (let i = 0; i < 3; i++) pt.pos[i] += (pt.vel[i] + anim[i]) * speedMod * dt;
-      // its speed (simulation units a second: colour by speed)
+      // its speed (simulation units a second: colour by speed) and the point its trail leaves once it is
+      // minVertexDistance from the last one; points older than the trail's lifetime go
       pt.speed = Math.hypot(pt.vel[0] + anim[0], pt.vel[1] + anim[1], pt.vel[2] + anim[2]) * Math.abs(speedMod);
+      if (pt.trail) {
+        const at = this.trailPoint(s, pt), last = pt.trail[pt.trail.length - 1].p;
+        const unit = world || (mod.trail.world && !world) ? WORLD : 1;
+        if (Math.hypot(at[0] - last[0], at[1] - last[1], at[2] - last[2]) >= mod.trail.minDist * unit) pt.trail.push({ p: at, t: pt.age });
+        while (pt.trail.length && pt.age - pt.trail[0].t > pt.trailLife) pt.trail.shift();
+      }
       if (mod.rotation) { // angular velocity in radians per second
         const w = mod.rotation;
         if (w.sep) {
@@ -590,6 +603,13 @@ export class Effects {
       alive.push(pt);
     }
     s.particles = alive;
+  }
+
+  // where a particle's trail leaves a point: in the simulation space, so a local system's trails move with it, or
+  // in lobby units with the trail's World Space on (they stay behind)
+  trailPoint(s, pt) {
+    const p = pt.pos;
+    return s.def.modules.trail.world && s.def.main.space !== 1 ? apply(s.M, p[0], p[1], p[2]) : p.slice();
   }
 
   die(s, pt) {
@@ -791,6 +811,63 @@ export function geometry(fxs, s, { meshes = {}, linear = true } = {}) {
       const lx = (q[0] * w + px) * fx3, ly = (q[1] * h + py) * fy3;
       const rx = lx * cz - ly * sn, ry = lx * sn + ly * cz;
       push(centre[0] + X[0] * rx + Y[0] * ry, centre[1] + X[1] * rx + Y[1] * ry, q[2], q[3]);
+    }
+  }
+  return { data: data.subarray(0, o), count: o / STRIDE };
+}
+
+// One system's trails for this frame (the trail module; the renderer's second submesh, drawn with its trail material),
+// in geometry()'s vertex layout: for each particle with a trail, a ribbon facing the camera from the particle back
+// through the points it left. Along it (u: 0 at the particle, 1 at the trail's end, the texture stretched once over
+// the length) the width is widthOverTrail times the particle's size (Size affects Width), the colour colorOverTrail
+// times colorOverLifetime at the particle's age, times the particle's colour (Inherit Particle Color). The trail's UV
+// is TEXCOORD0.xy, whatever the renderer's custom streams say.
+let trailScratch = new Float32Array(0);
+export function trailGeometry(fxs, s, { linear = true } = {}) {
+  const def = s.def, tr = def.modules?.trail, world = def.main.space === 1;
+  const empty = { data: new Float32Array(0), count: 0 };
+  if (!tr || !s.particles.length) return empty;
+  const decode = linear && def.renderer.colorSpace !== 0, M = s.M, sx = colLen(M, 0), lobby = world || tr.world;
+  let need = 0;
+  for (const pt of s.particles) if (pt.trail) need += pt.trail.length * 6 * STRIDE;
+  if (!need) return empty;
+  if (trailScratch.length < need) trailScratch = new Float32Array(Math.max(need, trailScratch.length * 2, 4096));
+  const data = trailScratch;
+  let o = 0;
+  const push = (p, u, v, col) => {
+    data[o++] = p[0]; data[o++] = p[1];
+    data[o] = u; data[o + 1] = v;
+    for (let k = 2; k < 12; k++) data[o + k] = 0;
+    o += 12;
+    data[o++] = col[0]; data[o++] = col[1]; data[o++] = col[2]; data[o++] = col[3];
+    data[o++] = FACING[0]; data[o++] = FACING[1]; data[o++] = FACING[2];
+  };
+  for (const pt of s.particles) {
+    if (!pt.trail) continue;
+    // the particle in lobby units, then its points (in the simulation space or, World Space, lobby units: trailPoint)
+    const pts = [world ? pt.pos : apply(M, pt.pos[0], pt.pos[1], pt.pos[2])];
+    for (let i = pt.trail.length - 1; i >= 0; i--) {
+      const at = pt.trail[i].p, p = lobby ? at : apply(M, at[0], at[1], at[2]), q = pts[pts.length - 1];
+      if (Math.hypot(p[0] - q[0], p[1] - q[1]) > 1e-6) pts.push(p);
+    }
+    if (pts.length < 2) continue;
+    const len = [0];
+    for (let i = 1; i < pts.length; i++) len.push(len[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+    const total = len[len.length - 1], cur = fxs.current(s, pt), r = (k) => rnd(pt.seed, k);
+    const life = colorAt(tr.color, pt.age / pt.life, r(R.trailColor)), base = tr.inherit ? cur.color : [1, 1, 1, 1];
+    const size = (tr.sizeWidth ? cur.size[0] : 1) * sx;
+    const corners = pts.map((p, i) => {
+      const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)];
+      const dx = a[0] - b[0], dy = a[1] - b[1], dl = Math.hypot(dx, dy) || 1, u = len[i] / total;
+      const half = (value(tr.width, u, r(R.trailWidth)) * size) / 2, nx = (-dy / dl) * half, ny = (dx / dl) * half;
+      const c = colorAt(tr.colorTrail, u, r(R.trailColorTrail));
+      const col = vertexColor([life[0] * c[0] * base[0], life[1] * c[1] * base[1], life[2] * c[2] * base[2], life[3] * c[3] * base[3]], decode);
+      return { l: [p[0] + nx, p[1] + ny], r: [p[0] - nx, p[1] - ny], u, col };
+    });
+    for (let i = 0; i + 1 < corners.length; i++) {
+      const a = corners[i], b = corners[i + 1];
+      push(a.l, a.u, 1, a.col); push(a.r, a.u, 0, a.col); push(b.r, b.u, 0, b.col);
+      push(b.r, b.u, 0, b.col); push(b.l, b.u, 1, b.col); push(a.l, a.u, 1, a.col);
     }
   }
   return { data: data.subarray(0, o), count: o / STRIDE };

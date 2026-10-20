@@ -583,6 +583,42 @@ test("sort by distance or depth: the farthest particles first", () => {
   assert.equal(reds[0], 1);
 });
 
+test("trails: points every min vertex distance, living their share of the particle's life, a ribbon behind it", () => {
+  const white = { col: [1, 1, 1, 1] };
+  const trail = { ratio: 1, life: 0.5, minDist: 1, texMode: 0, world: 0, die: 1, sizeWidth: 1, sizeLife: 0, inherit: 1,
+    color: { col: [1, 0.5, 1, 1] }, width: { c: [[0, 1, 0, 0], [1, 0, 0, 0]], k: 0.5 }, colorTrail: { g: { c: [[0, 1, 1, 1], [1, 1, 1, 1]], a: [[0, 1], [1, 0]], fixed: 0 } } };
+  const def = sys({ main: { loop: 0, speed: 10, life: 2, color: white, size: [2] }, shape: null, modules: { trail },
+    emission: { bursts: [{ t: 0, n: 1, cycles: 1, interval: 1, p: 1 }] }, trailMaterial: "dirt", trailQueue: 2950 });
+  const fx = effects([def]);
+  const s = fx.systems[0];
+  fx.update(0.016);
+  const pt = s.particles[0];
+  assert.equal(pt.trail.length, 1, "its first point where it is born");
+  run(fx, 0.5, 0.05);
+  // 10 units a second along +z: a point every unit, kept for half its 2 s life
+  assert.ok(pt.trail.length >= 5 && pt.trail.length <= 6, `${pt.trail.length} points`);
+  run(fx, 1, 0.05);
+  const ages = pt.trail.map((v) => pt.age - v.t);
+  assert.ok(Math.max(...ages) <= 1 + 1e-9 && pt.trail.length >= 9, "older than 1 s: gone");
+  // seen from the camera along z the ribbon has no length: turn the system so it runs along x
+  s.def.static = [0, 0, 1, 0, 0, 1, 0, 0, -1, 0, 0, 0];
+  fx.place();
+  const g = P.trailGeometry(fx, s, { linear: false });
+  // two triangles a segment, from the particle through its points (one it has just left at its place counts once)
+  const head = pt.trail[pt.trail.length - 1].p, fresh = Math.hypot(...head.map((v, i) => v - pt.pos[i])) < 1e-9;
+  assert.equal(g.count, 6 * (pt.trail.length - (fresh ? 1 : 0)));
+  const at = (v, k) => g.data[v * STRIDE + k];
+  // at the particle: u 0, the full width (0.5 x its size 2), the trail colour times the particle's
+  near(at(0, 2), 0, 1e-9, "u");
+  near(Math.abs(at(0, 1) - at(1, 1)), 1, 1e-6, "width");
+  assert.deepEqual([at(0, 14), at(0, 15), at(0, 16), at(0, 17)].map((c) => +c.toFixed(3)), [1, 0.502, 1, 1]);
+  // at the end: u 1, no width, faded out
+  const last = g.count - 2;
+  near(at(last, 2), 1, 1e-9);
+  near(at(last, 17), 0, 1e-9);
+  // without the module, or without particles, nothing
+  assert.equal(P.trailGeometry(fx, effects([sys()]).systems[0]).count, 0);
+});
 
 // --- particles-gl.js: drawing into a player's context and freeing it -------------------------------------------------
 
@@ -818,6 +854,39 @@ test("the effects between two parts of a skeleton draw only there", async () => 
   effects.detach(p);
   effects.dispose();
   assert.equal(effects.drawsAfter(p, 0), false, "nothing after the dispose");
+  Linear.detach(p);
+});
+
+test("a system's trails draw with their own material where its queue sorts them", async () => {
+  // CH0172: oil drops at 3100 over the character (3000), their dirt trails at 2950 between the background and her
+  const gl = fakeGL(), p = player(gl, { name: "CH0172_home", x: 0, y: -962, scale: 1, order: 0, queue: 2900,
+    pages: { CH0172_home: 3000, CH0172_home_2: 2900 }, z: 0 });
+  Linear.attach(p);
+  const white = { _Texture: { default: "white", st: [1, 1, 0, 0] } };
+  const trail = { ratio: 1, life: 1, minDist: 0.1, texMode: 0, world: 0, die: 1, sizeWidth: 1, sizeLife: 0, inherit: 1,
+    color: { col: [1, 1, 1, 1] }, width: 0.5, colorTrail: { col: [1, 1, 1, 1] } };
+  const fx = {
+    // flying along x (their +z turned to the screen's x)
+    systems: [sys({ material: "drop", queue: 3100, trailMaterial: "dirt", trailQueue: 2950, main: { speed: 100 }, modules: { trail },
+      emission: { rate: 50 }, static: [0, 0, 1, 0, 0, 1, 0, 0, -1, 0, 0, 0] })],
+    materials: { drop: { program: "additive", src: 1, dst: 1, queue: 3100, tex: white, floats: {}, colors: {} },
+      dirt: { program: "alphaBlend", src: 5, dst: 10, queue: 2950, tex: white, floats: { _Multiply: 1 }, colors: {} } },
+    textures: {}, meshes: {},
+  };
+  const effects = GL.create(fx, { base: "/x/", bone: () => null, load: async () => ({}) });
+  effects.layers([p]);
+  assert.equal(effects.drawsAfter(p, 0), true, "the trails after the background page");
+  Linear.begin(p);
+  const calls = (fn) => { const from = gl.calls.length; fn(); return gl.calls.slice(from); };
+  effects.below(p, 0.1);
+  const mid = calls(() => effects.between(p, 0)), top = calls(() => effects.above(p));
+  const blends = (list) => list.filter(([name]) => name === "blendFuncSeparate").map((c) => c.slice(1, 3));
+  assert.equal(mid.filter(([name]) => name === "drawArrays").length, 1);
+  assert.deepEqual(blends(mid), [["SRC_ALPHA", "ONE_MINUS_SRC_ALPHA"]], "the trail material's blend");
+  assert.deepEqual(blends(top), [["ONE", "ONE"]], "the drops' own, over her");
+  Linear.end(p);
+  effects.detach(p);
+  effects.dispose();
   Linear.detach(p);
 });
 

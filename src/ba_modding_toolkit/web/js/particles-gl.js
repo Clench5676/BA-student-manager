@@ -1,11 +1,12 @@
 // Draws a memorial lobby's particle effects (particles.js) inside its skeleton players, in linear light like them:
-// each system goes into the WebGL2 context of the layer it sorts after (or before the bottom one), blended into that
-// player's linear framebuffer (linear.js) between the frame's clear and the skeleton, between two parts of the
-// skeleton (one per render queue of its atlas pages, skeleton-parts.js) or after the skeleton. The
-// shaders port the game's compiled DSFX programs; their textures come from the lobby's own route (fx_<id>.png, memory
-// only) and are sampled as sRGB where the game imports them so. Without linear light (no WebGL2) nothing is drawn.
+// each system, and apart from it its trails, goes into the WebGL2 context of the layer it sorts after (or before the
+// bottom one), blended into that player's linear framebuffer (linear.js) between the frame's clear and the skeleton,
+// between two parts of the skeleton (one per render queue of its atlas pages, skeleton-parts.js) or after the
+// skeleton. The shaders port the game's compiled DSFX programs; their textures come from the lobby's own route
+// (fx_<id>.png, memory only) and are sampled as sRGB where the game imports them so. Without linear light (no WebGL2)
+// nothing is drawn.
 import * as Linear from "./linear.js";
-import { Effects, STRIDE, drawOrder, geometry, queuesOf, slotOf } from "./particles.js";
+import { Effects, STRIDE, drawOrder, geometry, queuesOf, slotOf, trailGeometry } from "./particles.js";
 import { toLinear } from "./touch-fx.js";
 
 const VS_HEAD = `#version 300 es
@@ -493,8 +494,8 @@ export function create(fx, { base, bone, load = loadImage } = {}) {
     const gl = ctx.gl, F = FACTOR(gl), proj = projection(player, layer);
     gl.bindVertexArray(ctx.vao);
     gl.enable(gl.BLEND);
-    for (const s of list) {
-      const mat = materials[s.def.material];
+    for (const { s, trail } of list) {
+      const mat = materials[trail ? s.def.trailMaterial : s.def.material];
       const prog = mat && ctx.program(mat.program);
       if (!prog || !s.particles.length) continue;
       // every texture of the program loaded (or a default)
@@ -507,7 +508,7 @@ export function create(fx, { base, bone, load = loadImage } = {}) {
         texs.push([name, tex, meta.st || [1, 1, 0, 0]]);
       }
       if (!ready) continue;
-      const geo = geometry(effects, s, { meshes, linear: true });
+      const geo = trail ? trailGeometry(effects, s, { linear: true }) : geometry(effects, s, { meshes, linear: true });
       if (!geo.count) continue;
       ctx.upload(geo.data);
       gl.useProgram(prog.prog);
@@ -556,11 +557,17 @@ export function create(fx, { base, bone, load = loadImage } = {}) {
     layers(players) {
       bottom = players[0] || null;
       slots = new Map(players.map((p) => [p, { below: [], after: queuesOf(p.bamtLayer).map(() => []) }]));
-      for (const s of drawOrder(effects.systems)) {
-        if (!s.def.material && !s.def.subs) continue;
-        const { layer, part } = slotOf(s.def, players.map((p) => p.bamtLayer || {}));
+      // what draws: each system's particles and, with the trail module, its trails, which sort by their own
+      // material's queue (one renderer, two submeshes: the particles first)
+      const draws = [];
+      for (const s of effects.systems) {
+        if (s.def.material || s.def.subs) draws.push({ s, trail: false, def: s.def, index: s.index });
+        if (s.def.trailMaterial) draws.push({ s, trail: true, def: { ...s.def, queue: s.def.trailQueue ?? 3000 }, index: s.index });
+      }
+      for (const d of drawOrder(draws)) {
+        const { layer, part } = slotOf(d.def, players.map((p) => p.bamtLayer || {}));
         const slot = slots.get(players[layer]);
-        if (slot) (part < 0 ? slot.below : slot.after[part]).push(s);
+        if (slot) (part < 0 ? slot.below : slot.after[part]).push(d);
       }
     },
     // before the player's skeleton (the bottom player also advances the simulation)
