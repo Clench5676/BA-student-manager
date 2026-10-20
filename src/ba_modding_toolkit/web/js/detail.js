@@ -19,6 +19,7 @@ import { forget, idleAnimation, prioritise, thumb } from "./thumbs.js";
 import { portraitViewport } from "./portrait-view.js";
 import { setTitle } from "./nav.js";
 import { KEYS, deltaOf, pacer, typing } from "./step-keys.js";
+import { FRAME_Y, closable, hit as hitNode, listPopup, popupFrame, ready as popupsReady, scrollArea } from "./popup.js";
 import { appliedKey as keyOf, appliedOf, candidates as listSources, partsOf, sourceOf, switchKindOf } from "./switch-sources.js";
 import {
   $, DOT, RECRUIT, S, TAN10, advanceOf, at, clone, glyphsOf, hitButton, markedLabel, off, text, toast, widget, wrapPath,
@@ -903,273 +904,12 @@ function disposePortrait() {
   mainPlayer = null;
 }
 
-// --- popups on the game's popup frame (UIPopup_Sort), laid out like the game's quick formation edit: the selection's
-// details on the left, a framed list with the student list's tools on the right, the confirm button under it ---
-const LP = {
-  frame: { w: 2860, h: 1520 },                  // Common_Popup_Bg, stretched to almost the whole screen
-  left: { l: -1370, r: -520, t: 600, b: -690 }, // details panel
-  list: { l: -480, r: 1370, t: 600, b: -470 },  // list panel (light blue frame)
-  ok: { x: 1150, y: -600, w: 440, h: 160 },     // confirm
-  card: { w: 250, h: 226, bar: 68 },            // card body (Common_Btn_BG) and its name bar
-  pitch: [284, 350],
-};
-const COLS6 = 6;
-
-// a click on a popup's backdrop or Escape closes it, as the game's PopupClose does; its body takes the clicks that
-// miss its controls
-let closeTop = null;
-function closable(view, close) {
-  const back = view.nodes.get("Center/BlackBg/BlackBgClickArea")?.els[0];
-  if (back) { back.style.pointerEvents = "auto"; back.addEventListener("click", close); }
-  const body = view.nodes.get("Center/Popup/Base/BG")?.els[0];
-  if (body) body.style.pointerEvents = "auto";
-  closeTop = close;
-}
-addEventListener("keydown", (ev) => {
-  // Escape while an input method composes (an alias being typed) cancels the composition, not the popup
-  if (ev.isComposing || ev.keyCode === 229) return;
-  if (ev.key !== "Escape" || !closeTop || ($("popup").hidden && $("picker").hidden)) return;
-  ev.preventDefault();
-  closeTop();
-});
-
-function toolbar(right, y, { segs = null, sortKey = "sort.default", active = 0 } = {}) {
-  const menu = find(layouts.collection, "SeletControl/TopMenu");
-  const kids = [];
-  let x = right;
-  const order = clone(find(menu, "OrderBtn"));
-  order.pos = [x - 243 / 2 + 45.1, y];
-  x -= 243 + 16;
-  const sort = clone(find(menu, "SortBtn"));
-  const sortW = 420;
-  const body = find(sort, "Btn_Normal");
-  const shrink = 622 - sortW;
-  body.widgets.find((w) => "sprite" in w).w_ = sortW;
-  for (const m of ["FilterMarker_Off", "FilterMarker_On"]) {
-    const n = find(body, m);
-    n.pos[0] += shrink / 2;
-    find(n, "Icon").pos[0] -= shrink;
-    find(n, "Filter_02").widgets[0].w_ -= shrink;
-  }
-  find(body, "Icon").pos[0] -= shrink / 2;
-  find(body, "Type_1").active = false;
-  const type2 = find(body, "Type_2");
-  type2.active = true;
-  const st = fitText(T(sortKey), 56, 36, sortW - 150);
-  Object.assign(find(type2, "Text").widgets[0], { text: st.text, fontSize: st.fs, w_: sortW - 120 });
-  find(type2, "Text").pos[0] = 30;
-  sort.pos = [x - sortW / 2 + 83, y];
-  x -= sortW + 16;
-  const search = clone(find(menu, "SearchBtn"));
-  search.pos = [x - 150 / 2 - 89, y];
-  x -= 150 + 16;
-  kids.push(order, sort, search);
-  let segBox = null;
-  if (segs) {
-    const filter = clone(find(menu, "FilterBtn"));
-    const segW = 230, sx = segW / 328;
-    filter.scale = [sx, 1];
-    [["All", segs[0]], ["Main", segs[1]], ["Support", segs[2]]].forEach(([k, key], i) => {
-      const seg = find(filter, k);
-      for (const state of seg.children) {
-        for (const c of state.children || []) {
-          const tex = c.widgets.find((w) => "texture" in w);
-          if (tex) {
-            const f = fitText(T(key), 44, 26, segW - 30);
-            c.widgets = [label(f.text, f.fs, tex.color, (segW - 20) / sx, 60, { depth: 9 })];
-          }
-        }
-        state.active = (state.name === "Btn_Pressed") === (i === active);
-      }
-    });
-    filter.pos = [x - 3 * segW + 123 * sx + 164 * sx - 6, y + 50.2];
-    segBox = { right: x, segW, y };
-    kids.push(filter);
-  }
-  return { tree: node("Toolbar", [0, 0], [], kids), segBox };
-}
-
-function listFrame(title, okText) {
-  const t = clone(find(layouts.sortPopup, "Center"));
-  const popup = find(t, "Popup");
-  popup.children = popup.children.filter((c) => ["Base", "Btn"].includes(c.name));
-  const bg = find(popup, "Base/BG");
-  Object.assign(bg.widgets[0], { w_: LP.frame.w, h_: LP.frame.h });
-  const top = LP.frame.h / 2;
-  find(bg, "Texture_Top").pos = [-LP.frame.w / 2 + 248, top - 66];
-  const titleNode = find(bg, "Label_Title_Locale");
-  const titleFit = fitText(title, 72, 52, 1300);
-  Object.assign(titleNode.widgets[0], { text: titleFit.text, fontSize: titleFit.fs, w_: 1400 });
-  titleNode.pos = [0, top - 64];
-  find(titleNode, "Line").widgets[0].w_ = glyphsOf(titleFit.text, titleFit.fs) + 14;
-  find(bg, "Btn_Close").pos = [LP.frame.w / 2 - 90, top - 60];
-  // confirm: the popup's OK button, moved under the list like the game's quick edit
-  const btn = find(popup, "Btn");
-  find(btn, "Btn_Cancel").active = false;
-  const ok = find(btn, "Btn_Ok");
-  btn.pos = [0, 0];
-  ok.pos = [LP.ok.x, LP.ok.y];
-  const okFit = fitText(okText, 72, 48, 360);
-  Object.assign(find(ok, "Label_Locale").widgets[0], { text: okFit.text, fontSize: okFit.fs });
-  find(t, "BlackBg/BlackBgClickArea").widgets.find((w) => "sprite" in w).color = "#000000/0.60";
-  const panel = (name, b, tone) => node(name, [(b.l + b.r) / 2, (b.t + b.b) / 2], [sprite("Common_Bg_Raius10px", b.r - b.l, b.t - b.b, { depth: 3, color: tone })]);
-  popup.children.push(
-    panel("LeftPanel", LP.left, "#ffffff/0.00"),
-    panel("ListPanel", LP.list, "#d7eaf4/1.00"),
-    node("ListPaper", [(LP.list.l + LP.list.r) / 2, (LP.list.t - 150 + LP.list.b + 16) / 2],
-      [sprite("Common_Bg_Raius10px", LP.list.r - LP.list.l - 32, LP.list.t - 150 - LP.list.b - 16, { depth: 4, color: "#f4fcfe/1.00" })]));
-  return t;
-}
-
-// one card of the list: the game's card body, the picture clipped to its window, a name bar under it
-function listCard(it, x, y, selected) {
-  const { w, h, bar } = LP.card;
-  const kids = [
-    node("Thumb", [1, 4], [{ clipImage: it.thumb, w_: w - 16, h_: h - 26, pivot: 4, depth: 8, incline: 10, radius: 18, color: "#ffffff/1.00", imgSize: "cover", imgPosition: "center 30%" }]),
-    node("Line", [1, 4], [sprite("Common_Line_Raius20px", w - 12, h - 18, { incline: 10, depth: 9, color: "#ffffff/1.00" })]),
-  ];
-  const lbl = markedLabel(it.label, { fs: 34, fsMin: 24, color: "#ffffff/1.00", maxW: w - 56, mark: false, maxLines: 2 });
-  const barH = Math.max(bar, 22 + lbl.lines * lbl.fs * 1.2), barY = -h / 2 - 10 - barH / 2;
-  kids.push(node("Bar", [barY * TAN10 + 4, barY], [sprite("Common_Bg_Raius10px", w - 22, barH, { incline: 10, depth: 8, color: "#2c4564/1.00" })], [node("Name", [0, 0], [], lbl.nodes)]));
-  const corner = (dx, dy) => [dx + dy * TAN10, dy]; // a point inside the slanted card
-  if (it.inUse) kids.push(node("Using", corner(-w / 2 + 70, h / 2 - 30), [sprite("Common_Bg_Raius10px", 116, 42, { depth: 26, color: "#ffbc11/1.00", incline: 10 })],
-    [node("Text", [0, 0], [label(T("popup.inUse"), fitText(T("popup.inUse"), 26, 18, 100).fs, "#3a2a00/1.00", 112, 40, { depth: 27 })])]));
-  if (it.fav) kids.push(node("Pin", corner(w / 2 - 38, -h / 2 + 36), [sprite("Common_Btn_Pin_01", 54, 54, { type: 0, depth: 26 })]));
-  if (it.recruit) kids.push(node("Recruit", corner(-w / 2 + 34, -h / 2 + 40), [sprite(RECRUIT.sprite, 62 / RECRUIT.ratio, 62, { atlas: RECRUIT.atlas, type: 0, depth: 26 })]));
-  // the new dot goes once the card is picked (it has been seen); the check takes the corner
-  if (it.isNew && !selected) kids.push(DOT(corner(w / 2 - 4, h / 2 - 6), 34));
-  if (selected) kids.push(node("Select", [1, 4], [sprite("Card_Ability_Select_Line", w + 4, h - 8, { incline: 10, depth: 20 })],
-    [node("Check", [w / 2 - 28 + (h / 2 - 30) * TAN10, h / 2 - 30], [sprite("Card_Ability_Select_Line_Icon", 66, 65, { type: 0, depth: 21 })])]));
-  return node(`Card_${it.key}`, [x, y], [sprite("Common_Btn_BG", w, h, { incline: 10, depth: 7, color: "#ffffff/1.00" })], kids);
-}
-
-// the details panel: title bar, the picture, name, kind chips, fields, actions
-function detailsTree(it, title, fields, actions) {
-  const b = LP.left, cx = (b.l + b.r) / 2, w = b.r - b.l;
-  const kids = [
-    node("Title_Bg", [cx, b.t - 40], [sprite("Common_Bg_Raius10px", w - 20, 73, { depth: 5, color: "#2d4c72/1.00", incline: 10 })], [
-      node("Deco", [-(w - 20) / 2 + 30, 0], [sprite("Common_BGDeco", 68, 72, { depth: 6, color: "#2a5886/1.00", type: 0 })]),
-      node("Deco (1)", [(w - 20) / 2 - 30, 0], [sprite("Common_BGDeco", 68, 72, { depth: 6, color: "#2a5886/1.00", flip: 3, type: 0 })]),
-      node("Label", [0, 0], [label(title, fitText(title, 46, 32, w - 140).fs, "#ffffff/1.00", w - 140, 50, { depth: 7 })]),
-    ]),
-    node("Picture", [cx, b.t - 330], [sprite("Common_Btn_BG", w - 40, 460, { incline: 10, depth: 6, color: "#ffffff/1.00" })], [
-      node("Thumb", [1, 4], [{ clipImage: typeof it.big === "function" ? it.big() : it.big, w_: w - 60, h_: 430, pivot: 4, depth: 7, incline: 10, radius: 22, color: "#ffffff/1.00", imgSize: "cover", imgPosition: "center 18%" }]),
-      node("Line", [1, 4], [sprite("Common_Line_Raius20px", w - 54, 438, { incline: 10, depth: 8, color: "#ffffff/1.00" })]),
-    ]),
-  ];
-  const nameFit = fitText(it.full, 52, 36, w - 60);
-  kids.push(node("Name", [cx, b.t - 610], [label(nameFit.text, nameFit.fs, "#2d4664/1.00", w - 40, 60 * nameFit.lines, { depth: 8 })]));
-  const chips = [it.recruit ? T("type.recruit") : it.kind === "mod" ? T("type.added") : T("type.noRecruit"), ...(it.inUse ? [T("popup.inUse")] : [])];
-  chips.forEach((c, i) => {
-    const cw = 250, x = cx + (i - (chips.length - 1) / 2) * (cw + 16);
-    kids.push(node(`Chip_${i}`, [x, b.t - 690], [sprite("Common_Bg_Raius10px", cw, 60, { incline: 10, depth: 6, color: i === 0 && it.recruit ? "#2c4564/1.00" : "#ffffff/1.00" })], [
-      node("Line", [0, 0], [sprite("Common_Line_Raius10px", cw, 60, { incline: 10, depth: 7, color: "#c0c9d4/1.00" })]),
-      node("Text", [0, 0], [], markedLabel(c, { fs: 32, fsMin: 24, color: i === 0 && it.recruit ? "#ffffff/1.00" : "#2c4564/1.00", maxW: cw - 30, mark: i === 0 && it.recruit, depth: 8 }).nodes),
-    ]));
-  });
-  // fields, on the game's light stats box; long values (file names) wrap, never cut
-  const capW = Math.max(...fields.map(([k]) => advanceOf(k, 38))) + 30, room = w - 120 - capW;
-  const values = fields.map(([, v]) => wrapPath(String(v), 38, 26, room, 3));
-  const rowHs = values.map((f) => Math.max(64, f.lines * f.fs * 1.25 + 16));
-  const boxT = b.t - 750, boxH = rowHs.reduce((a, h) => a + h, 0) + 24;
-  kids.push(node("Fields", [cx, boxT - boxH / 2], [sprite("Common_Bg_Raius10px", w - 40, boxH, { depth: 5, color: "#ecf5f9/1.00" })], [
-    node("Line", [0, 0], [sprite("Common_Line_Raius10px", w - 34, boxH + 6, { depth: 4, color: "#c0c9d4/1.00" })]),
-  ]));
-  let top = boxT - 12;
-  fields.forEach(([k, , color], i) => {
-    const rowH = rowHs[i], y = top - rowH / 2, x0 = b.l + 50, f = values[i];
-    kids.push(node(`F_${i}`, [x0, y], [label(k, 38, "#2d4664/1.00", capW, 50, { pivot: 3, depth: 8 })]));
-    kids.push(node(`V_${i}`, [x0 + capW, y], [label(f.text, f.fs, color || "#000000/1.00", room + 20, f.lines * f.fs * 1.25 + 8, { pivot: 3, depth: 8 })]));
-    if (i < fields.length - 1) kids.push(node(`L_${i}`, [cx, y - rowH / 2], [sprite("Common_Line_Dot", w - 100, 4, { type: 2, depth: 7, color: "#c0c9d4/1.00" })]));
-    top -= rowH;
-  });
-  actions.forEach(([caption], i) => {
-    const bw = (w - 60) / actions.length, x = b.l + 30 + bw / 2 + i * bw, f = fitText(caption, 40, 26, bw - 60);
-    kids.push(node(`Act_${i}`, [x, b.b + 70], [sprite("Common_Btn_BG", bw - 14, 120, { depth: 6, color: "#dbeef5/1.00", incline: 10 })], [
-      node("Pt", [50, -2], [sprite("Common_Btn_Normal_B_C_Pt", 126, 70, { type: 0, depth: 7, color: "#ffffff/0.80" })]),
-      node("Label", [0, 6], [label(f.text, f.fs, "#2d5164/1.00", bw - 40, 60 * f.lines, { depth: 8 })]),
-    ]));
-  });
-  return node("Details", [0, 0], [], kids);
-}
-
-// a scrolling card area with the game list's scrollbar colours
-function scrollArea(host, [l, t, w, h], contentH) {
-  const area = document.createElement("div");
-  area.className = "popup-cards";
-  Object.assign(area.style, { left: `${l}px`, top: `${t}px`, width: `${w}px`, height: `${h}px` });
-  const inner = document.createElement("div");
-  inner.className = "popup-cards-inner";
-  inner.style.height = `${contentH}px`;
-  area.appendChild(inner);
-  host.appendChild(area);
-  if (contentH > h + 1) {
-    const bar = document.createElement("div");
-    bar.className = "scrollbar";
-    Object.assign(bar.style, { left: `${l + w + 8}px`, top: `${t + 6}px`, height: `${h - 12}px` });
-    const th = document.createElement("i");
-    th.style.height = `${(h - 12) * (h / contentH)}px`;
-    th.style.top = "0";
-    bar.appendChild(th);
-    host.appendChild(bar);
-    area.addEventListener("scroll", () => { th.style.top = `${(h - 12 - parseFloat(th.style.height)) * area.scrollTop / (contentH - h)}px`; });
-  }
-  return inner;
-}
-
-// renders a list popup; items: { key, label, full, thumb, big, recruit, kind, inUse, fav, isNew }
-async function listPopup({ hostId, title, okText, items, selected, onSelect, onOk, onClose, segs, seg = 0, onSeg, sortKey, details, keepScroll: scrollTop = 0 }) {
-  const my = ++popupToken;
-  const host = $(hostId);
-  host.hidden = false;
-  const next = document.createElement("div");
-  const view = await NGUI.render(listFrame(title, okText), next, { scale: S, origin: [960, 540] });
-  const hit = (path, fn) => { const el = view.nodes.get(path)?.els[0]; if (el) hitButton(next, rect(el), fn, "", 80); };
-  hit("Center/Popup/Btn/Btn_Ok/BG (1)", onOk);
-  hit("Center/Popup/Base/BG/Btn_Close", onClose);
-  closable(view, onClose);
-  const tb = toolbar(LP.list.r - 24, LP.list.t - 76, { segs, sortKey, active: seg });
-  await NGUI.render(tb.tree, next, { scale: S, origin: [960, 540], z: 20 });
-  if (tb.segBox && onSeg) {
-    const { right, segW, y } = tb.segBox;
-    for (let i = 0; i < 3; i++) {
-      const ux = right - (3 - i) * segW + segW / 2 - 6, uy = y + 50.2 - 50;
-      hitButton(next, [960 + (ux - segW / 2) * S, 540 - (uy + 52) * S, segW * S, 104 * S], () => onSeg(i), T(segs[i]), 80);
-    }
-  }
-  const top = LP.list.t - 166, bottom = LP.list.b + 24;
-  const [aL, aT] = [960 + (LP.list.l + 16) * S, 540 - top * S];
-  const rows = Math.ceil(items.length / COLS6);
-  const contentH = (rows * LP.pitch[1] + 20) * S, visH = (top - bottom) * S;
-  const inner = scrollArea(next, [aL, aT, (LP.list.r - LP.list.l - 32) * S, visH], contentH);
-  const origin = [960 - aL, 540 - aT];
-  // centre the grid on its ink: slanted cards lean right at the top (+h/2 tan10) and left under the name bar
-  const leanL = (LP.card.h / 2 + 10 + LP.card.bar) * TAN10, leanR = (LP.card.h / 2) * TAN10;
-  const inkW = (COLS6 - 1) * LP.pitch[0] + LP.card.w + leanL + leanR, areaW = LP.list.r - LP.list.l - 32 - 30;
-  const x0 = LP.list.l + 16 + (areaW - inkW) / 2 + leanL + LP.card.w / 2;
-  await Promise.all(items.map(async (it, i) => {
-    const x = x0 + (i % COLS6) * LP.pitch[0], y = top - 30 - LP.card.h / 2 - Math.floor(i / COLS6) * LP.pitch[1];
-    await NGUI.render(listCard(it, x, y, it.key === selected), inner, { scale: S, origin, z: 30 });
-    const [sx, sy] = [origin[0] + x * S, origin[1] - y * S];
-    hitButton(inner, [sx - LP.card.w / 2 * S, sy - LP.card.h / 2 * S, LP.card.w * S, (LP.card.h + 90) * S], () => onSelect(it.key, inner.parentElement.scrollTop), it.full, 60);
-  }));
-  const sel = items.find((it) => it.key === selected) || items[0];
-  if (sel) {
-    const d = details(sel);
-    const dv = await NGUI.render(detailsTree(sel, d.title, d.fields, d.actions), next, { scale: S, origin: [960, 540], z: 20 });
-    d.actions.forEach(([, fn], i) => {
-      const el = dv.nodes.get(`Details/Act_${i}`)?.els[0];
-      if (el && fn) hitButton(next, rect(el), fn, d.actions[i][0], 80);
-    });
-  }
-  if (my !== popupToken || host.hidden) return;
-  host.replaceChildren(...next.childNodes);
-  host.querySelector(".popup-cards").scrollTop = scrollTop;
-}
+// --- the detail screen's popups, on the shared popup module (popup.js): the list popups (switch portrait or memorial
+// lobby, the variant picker) and the frame (compare, aliases, details); Escape and the backdrop close them ---
 
 // switch portrait or memorial lobby: the variant's own skeleton and added ones, then the other variants' portraits;
 // OK writes the chosen one into the game files (applyCandidate)
-let popupSeg = 0, popupToken = 0, popupKind = "spr";
+let popupSeg = 0, popupKind = "spr";
 async function renderPopup(scroll = 0) {
   const v = variant(), kind = popupKind, inUseKey = appliedKey(v, kind);
   const items = candidates(v, kind).map((c) => ({
@@ -1183,7 +923,7 @@ async function renderPopup(scroll = 0) {
     .sort((a, b) => (b.fav ? 1 : 0) - (a.fav ? 1 : 0));
   await listPopup({
     hostId: "popup", title: T(kind === "lobby" ? "row.switch.lobby" : "popup.switch"), okText: T("popup.apply"), items, selected: pending, keepScroll: scroll,
-    segs: ["seg.all", "seg.recruit", "seg.noRecruit"], seg: popupSeg, onSeg: (i) => { popupSeg = i; renderPopup(); }, sortKey: "sort.default",
+    tools: { segs: ["seg.all", "seg.recruit", "seg.noRecruit"], seg: popupSeg, onSeg: (i) => { popupSeg = i; renderPopup(); }, sortKey: "sort.default" },
     onSelect: (key, s) => {
       pending = key;
       const c = candidates(v, kind).find((x) => x.key === key);
@@ -1234,7 +974,7 @@ async function openPicker(scroll = 0) {
   })).filter((it) => pickerSeg === 0 || (pickerSeg === 1) === it.recruit);
   await listPopup({
     hostId: "picker", title: T("picker.title"), okText: T("picker.ok"), items, selected: pickerSel, keepScroll: scroll,
-    segs: ["seg.all", "seg.recruit", "seg.noRecruit"], seg: pickerSeg, onSeg: (i) => { pickerSeg = i; openPicker(); }, sortKey: "sort.release",
+    tools: { segs: ["seg.all", "seg.recruit", "seg.noRecruit"], seg: pickerSeg, onSeg: (i) => { pickerSeg = i; openPicker(); }, sortKey: "sort.release" },
     onSelect: (key, s) => { pickerSel = key; openPicker(s); },
     onOk: () => { $("picker").hidden = true; const k = pickerSel; pickerSel = null; ctx.go(fam.key, k); },
     onClose: () => { $("picker").hidden = true; pickerSel = null; },
@@ -1249,34 +989,6 @@ async function openPicker(scroll = 0) {
       };
     },
   });
-}
-
-// the game's popup frame (UIPopup_Sort) at a size: backdrop, title, close button and, when given, its Cancel and OK
-// buttons with these labels near the bottom edge. The frame's centre sits 12 units under the stage's (Base -20, BG +8).
-const FRAME_Y = -12;
-function popupFrame(title, w, h, { ok = null, cancel = null } = {}) {
-  const t = clone(find(layouts.sortPopup, "Center"));
-  const popup = find(t, "Popup");
-  popup.children = popup.children.filter((c) => ["Base", "Btn"].includes(c.name));
-  const bg = find(popup, "Base/BG");
-  Object.assign(bg.widgets[0], { w_: w, h_: h });
-  find(bg, "Texture_Top").pos = [-w / 2 + 248, h / 2 - 66];
-  const titleNode = find(bg, "Label_Title_Locale");
-  const tf = fitText(title, 72, 52, 1300);
-  Object.assign(titleNode.widgets[0], { text: tf.text, fontSize: tf.fs, w_: 1400 });
-  titleNode.pos = [0, h / 2 - 64];
-  find(titleNode, "Line").widgets[0].w_ = glyphsOf(tf.text, tf.fs) + 14;
-  find(bg, "Btn_Close").pos = [w / 2 - 90, h / 2 - 60];
-  const btn = find(popup, "Btn");
-  btn.active = !!(ok || cancel);
-  btn.pos = [0, FRAME_Y - h / 2 + 122];
-  for (const [name, caption] of [["Btn_Ok", ok], ["Btn_Cancel", cancel]]) {
-    const b = find(btn, name);
-    b.active = !!caption;
-    if (caption) NGUI.fitLabel(find(b, "Label_Locale").widgets[0], caption, 64, 40, 420);
-  }
-  find(t, "BlackBg/BlackBgClickArea").widgets.find((w) => "sprite" in w).color = "#000000/0.60";
-  return t;
 }
 
 // compare: what the mod changes against the game's official file, on the popup frame
@@ -1295,10 +1007,9 @@ async function showCompare(result) {
   host.hidden = false;
   const next = document.createElement("div");
   const view = await NGUI.render(t, next, { scale: S, origin: [960, 540], z: 10 });
-  const close = view.nodes.get("Center/Popup/Base/BG/Btn_Close")?.els[0];
   const done = () => { host.hidden = true; host.innerHTML = ""; };
-  if (close) hitButton(next, rect(close), done, "", 80);
-  closable(view, done);
+  hitNode(next, view, "Center/Popup/Base/BG/Btn_Close", done, { name: T("display.close"), action: "close" });
+  closable(view, host, done);
   host.replaceChildren(...next.childNodes);
 }
 
@@ -1386,11 +1097,11 @@ async function openAliases(draft = customAliases(), focusAt = null, family = fam
       add ? T("alias.add") : T("alias.remove"), 86);
     if (add) b.tabIndex = -1;
   });
-  const hit = (path, fn) => { const el = view.nodes.get(path)?.els[0]; if (el) hitButton(next, rect(el), fn, "", 80); };
-  hit("Center/Popup/Btn/Btn_Ok/BG (1)", keep);
-  hit("Center/Popup/Btn/Btn_Cancel/BG (1)", close);
-  hit("Center/Popup/Base/BG/Btn_Close", close);
-  closable(view, close);
+  const hit = (path, fn, name, action) => hitNode(next, view, path, fn, { name, action });
+  hit("Center/Popup/Btn/Btn_Ok/BG (1)", keep, T("picker.ok"), "ok");
+  hit("Center/Popup/Btn/Btn_Cancel/BG (1)", close, T("popup.cancel"), "cancel");
+  hit("Center/Popup/Base/BG/Btn_Close", close, T("display.close"), "close");
+  closable(view, host, close);
   host.replaceChildren(...next.childNodes);
   const target = inputs[focusAt ?? inputs.length - 1] || inputs[inputs.length - 1];
   target?.focus();
@@ -1480,11 +1191,11 @@ async function showDetails() {
   const next = document.createElement("div");
   const view = await NGUI.render(t, next, { scale: S, origin: [960, 540], z: 10 });
   const done = () => { host.hidden = true; host.innerHTML = ""; };
-  const hit = (path, fn, title = "") => { const el = view.nodes.get(path)?.els[0]; if (el) hitButton(next, rect(el), fn, title, 80); };
-  hit("Center/Popup/Base/BG/Btn_Close", done);
-  hit("Center/Popup/Btn/Btn_Ok/BG (1)", done);
-  hit("Center/Popup/Btn/Btn_Cancel/BG (1)", () => reveal(info.reveal));
-  closable(view, done);
+  const hit = (path, fn, name, action) => hitNode(next, view, path, fn, { name, action });
+  hit("Center/Popup/Base/BG/Btn_Close", done, T("display.close"), "close");
+  hit("Center/Popup/Btn/Btn_Ok/BG (1)", done, T("picker.ok"), "ok");
+  if (info.reveal) hit("Center/Popup/Btn/Btn_Cancel/BG (1)", () => reveal(info.reveal), T(platform === "mac" ? "open.mac" : "open.win"), "cancel");
+  closable(view, host, done);
   const inner = scrollArea(next, [960 + DT.l * S, 540 - top * S, (DT.r - DT.l) * S, (top - bottom) * S], body.height * S);
   await NGUI.render(body.tree, inner, { scale: S, origin: [0, 0], z: 20 });
   if (host.hidden) return;
@@ -1741,13 +1452,13 @@ async function reload() {
 
 async function ensureLayouts() {
   if (layouts) return;
-  const [detail, collection, sortPopup, textures] = await Promise.all([
-    NGUI.layout("UICharacterDetail"), NGUI.layout("UICharacterCollection"), NGUI.layout("UIPopup_Sort"),
-    fetch("/asset/ui/textures.json").then((r) => (r.ok ? r.json() : {})),
+  // the popups' prefabs (popup.js) with the screen's, so its popups draw their frame at once
+  const [detail, textures] = await Promise.all([
+    NGUI.layout("UICharacterDetail"), fetch("/asset/ui/textures.json").then((r) => (r.ok ? r.json() : {})), popupsReady(),
   ]);
   // the portrait's visual mode: fetched now, waited for once its button is pressed
   const visual = NGUI.layout("UICharacterVisualMode").catch(() => null);
-  layouts = { list: find(detail, "Inventory_ListControl"), collection, sortPopup, textures, visual };
+  layouts = { list: find(detail, "Inventory_ListControl"), textures, visual };
 }
 
 // the voice volume and mute (development runs started with --mute stay silent), the zoom-out limit and the
