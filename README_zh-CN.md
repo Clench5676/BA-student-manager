@@ -58,6 +58,9 @@
 - 经你同意后，只缓存轻量界面素材（图标、按钮、边框），存放在用户目录。立绘、记忆大厅、语音和背景从不保存。可随时在设置中清除缓存。
 - 记忆大厅台词与语音按需从[基沃托斯古书馆（Kivo）](https://kivo.wiki)读取，只保留在内存中。
 
+macOS 用户数据保存在 `~/Library/Application Support/bluearchive-modding-patching-tool`；Windows 版本将数据保存在可执行文件旁。
+首次启动时会自动重命名旧的 `BA-Modding-Toolkit` 用户文件夹，请先退出旧版应用。
+
 ## 经典工具
 
 原工具箱的全部功能都在底部导航栏中，一键打开（也可用 `--classic` 打开经典窗口）：

@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Callable, Literal, ParamSpec, TypeVar
 
 from . import devmode
+from .data_paths import migrate_data_dir
 from .game_paths import find_game_dirs
 
 
@@ -227,7 +228,7 @@ def _get_exe_dir(override: Path | None = None) -> Path:
     """Return the directory for config and user data.
 
     A macOS .app usually lives somewhere read-only (/Applications, a mounted DMG,
-    App Translocation), so app bundles use ~/Library/Application Support/BA-Modding-Toolkit
+    App Translocation), so app bundles use ~/Library/Application Support/bluearchive-modding-patching-tool
     instead and copy the Addons bundled in the app (character ID map etc.) there on first launch.
     Windows onefile builds copy their bundled Addons next to the original executable instead.
 
@@ -240,7 +241,7 @@ def _get_exe_dir(override: Path | None = None) -> Path:
         override.mkdir(parents=True, exist_ok=True)
         return override
     if getattr(__compiled__, "macos_bundle_mode", False):
-        data_dir = override or Path.home() / "Library" / "Application Support" / "BA-Modding-Toolkit"
+        data_dir = override if override is not None else migrate_data_dir(Path.home() / "Library" / "Application Support")
         bundled_addons = Path(sys.executable).parent / "Addons"
     else:
         data_dir = override or Path(__compiled__.containing_dir).resolve()

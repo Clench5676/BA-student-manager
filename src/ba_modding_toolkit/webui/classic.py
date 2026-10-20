@@ -847,6 +847,7 @@ class ClassicWindow:
     def _start(self, tab: str | None) -> _Child:
         token = secrets.token_urlsafe(24)
         env = os.environ.copy()
+        env["BAMT_DATA_DIR"] = str(self.data_dir.resolve())
         env[ENV_URL] = self._origin().rstrip("/")
         env[ENV_TOKEN] = token
         env["PYTHONIOENCODING"] = "utf-8"

@@ -119,8 +119,11 @@ Imports only go one way: `webui` → `library` → `catalog` → `gameassets` �
   - *Heavy*: collection backgrounds and portraits, Spine skeletons, lobbies and their data, 3D models, voices,
     anything from a character bundle. Memory only, never written to disk, served with `Cache-Control: no-store`.
 - **Disk cache.** `user_cache_dir()/<resource_version>/...`, where `user_cache_dir()` is
-  `%LOCALAPPDATA%\BA-Modding-Toolkit\cache` on Windows, `~/Library/Application Support/BA-Modding-Toolkit/cache` on
-  macOS and `$XDG_CACHE_HOME/BA-Modding-Toolkit` (or `~/.cache/...`) elsewhere. It can be cleared from the UI.
+  `%LOCALAPPDATA%\bluearchive-modding-patching-tool\cache` on Windows,
+  `~/Library/Application Support/bluearchive-modding-patching-tool/cache` on macOS and
+  `$XDG_CACHE_HOME/bluearchive-modding-patching-tool` (or `~/.cache/...`) elsewhere. It can be cleared from the UI.
+  The old `BA-Modding-Toolkit` user folder is renamed automatically on first start; obsolete caches are rebuilt.
+  Close older app windows first, then use the new version: an old build started afterward can recreate its old folder.
 - **Resource version.** SHA-1 of `Catalog/Windows/catalog_Windows.hash` when present, else of the sorted
   `(name, size)` listing of the resource folders. The cache key; a game update starts a new cache folder.
 - **User data.** The mod library and UI state live in `utils.EXE_DIR` (the portable data directory the app already

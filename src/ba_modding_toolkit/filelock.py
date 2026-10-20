@@ -6,6 +6,7 @@ file the instances share (``file_lock``), and the new contents replace the file 
 from __future__ import annotations
 
 import contextlib
+import errno
 import logging
 import os
 import time
@@ -16,22 +17,47 @@ logger = logging.getLogger(__name__)
 
 
 @contextlib.contextmanager
-def file_lock(path: Path) -> Iterator[None]:
+def file_lock(path: Path, *, timeout: float | None = None) -> Iterator[None]:
     """An exclusive lock on a lock file, shared with the other processes using it (fcntl.flock, msvcrt.locking on
-    Windows). Without a lock file (an unwritable folder) the change goes ahead unlocked; writing then fails as before."""
+    Windows). Without a lock file (an unwritable folder) the change goes ahead unlocked; writing then fails as before.
+    With a timeout, opening failures raise and contention raises TimeoutError when the bounded wait expires."""
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         handle = open(path, "a+b")  # noqa: SIM115 - held for the lock's lifetime
     except OSError:
+        if timeout is not None:
+            raise
         logger.warning("cannot lock %s", path, exc_info=True)
         yield
         return
     with handle:
+        if timeout is not None:
+            deadline = time.monotonic() + timeout
+            while True:
+                try:
+                    if os.name == "nt":
+                        import msvcrt
+
+                        handle.seek(0)
+                        msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                    else:
+                        import fcntl
+
+                        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except OSError as error:
+                    if error.errno not in (errno.EACCES, errno.EAGAIN, errno.EDEADLK):
+                        raise
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise TimeoutError(f"Timed out locking {path}") from error
+                    time.sleep(min(0.05, remaining))
         if os.name == "nt":
             import msvcrt
 
-            handle.seek(0)
-            msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)  # retries for 10 s, then raises
+            if timeout is None:
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)  # retries for 10 s, then raises
             try:
                 yield
             finally:
@@ -40,7 +66,8 @@ def file_lock(path: Path) -> Iterator[None]:
         else:
             import fcntl
 
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            if timeout is None:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
             try:
                 yield
             finally:

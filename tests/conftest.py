@@ -22,6 +22,15 @@ from ba_modding_toolkit.utils import LogFunc, no_log
 ASSETS_DIR = Path(__file__).parent / "assets"
 
 
+@pytest.fixture(autouse=True)
+def _isolated_user_folders(tmp_path, monkeypatch):
+    """Cache migration tests and ordinary cache users must never inspect the real user folders."""
+    home = tmp_path / "home"
+    monkeypatch.setattr(Path, "home", lambda: home)
+    monkeypatch.setenv("LOCALAPPDATA", str(home / "AppData" / "Local"))
+    monkeypatch.setenv("XDG_CACHE_HOME", str(home / ".cache"))
+
+
 @pytest.fixture(autouse=True, scope="session")
 def _no_game_detection():
     """Tests never look for the user's game install: settings without game folders find none, instead of

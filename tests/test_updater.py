@@ -290,7 +290,7 @@ def test_compiled_addons_are_copied_once_and_existing_maps_are_preserved(
     monkeypatch.setattr(utils, "__file__", str(extracted / "ba_modding_toolkit" / "utils.py"))
     monkeypatch.setattr(sys, "executable", str(extracted / "Tool" if macos else portable / "Tool.exe"))
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
-    expected_dir = tmp_path / "Library" / "Application Support" / "BA-Modding-Toolkit" if macos else portable
+    expected_dir = tmp_path / "Library" / "Application Support" / "bluearchive-modding-patching-tool" if macos else portable
     assert utils._get_exe_dir() == expected_dir
     assert (expected_dir / "Addons" / csv).read_text() == "bundled map"
     assert (expected_dir / "Addons" / license_name).read_text() == "CC BY-SA 4.0"
