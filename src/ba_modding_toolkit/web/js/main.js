@@ -307,6 +307,13 @@ async function start() {
   renderNav(0, navOptions);
   // the Enable Mods switch in the top bar, and what the writer jobs switched
   await ModSwitch.init({ names: variantNames, refreshPage: refreshAfterToggle }).catch((err) => console.error("mod switch", err));
+  let enabled = ModSwitch.current()?.enabled !== false;
+  ModSwitch.onChange((state) => {
+    const next = state.enabled !== false;
+    if (next === enabled) return;
+    enabled = next;
+    libraryChanged(null);
+  });
   Prompts.init({ names: variantNames });
   on("library.changed", libraryChanged);
   watchFront();

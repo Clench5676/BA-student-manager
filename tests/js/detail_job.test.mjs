@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 const source = readFileSync(new URL("../../src/ba_modding_toolkit/web/js/detail.js", import.meta.url), "utf8");
-const jobSource = source.slice(source.indexOf("async function job("), source.indexOf("// the mod the shown tab"));
+const jobSource = source.slice(source.indexOf("async function job("), source.indexOf("function shownMod()"));
 function harness(overrides = {}) {
   const messages = [], calls = [];
   let released = false, end;
@@ -50,4 +50,11 @@ test("a second switch is refused; leaving during the job still reports its end w
   assert.equal(after, 0);
   assert.equal(h.busy(), false);
   assert.ok(h.messages.includes("job.done"));
+});
+
+test("the default job reload does not pass its success flag as a list of preview kinds", async () => {
+  const reloads = [];
+  const h = harness({ reload: (...args) => { reloads.push(args); } });
+  assert.equal(await h.job("actions.apply", {}), true);
+  assert.deepEqual(reloads, [[]]);
 });

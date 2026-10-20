@@ -2,6 +2,7 @@
 // lobby ("lobby"): pure functions of the family that family.get returns, tested in Node
 // (tests/js/switch_sources.test.mjs). Switching writes the chosen source into the game's files (actions.apply); the
 // library keeps what it replaces (docs/web-ui.md, library).
+import { spineBase } from "./api.js";
 
 // what the switch card of a detail tab switches: the portrait ("spr") or the memorial lobby ("lobby"); null on the 3D
 // tab ("model"), whose card has nothing to switch to (the library keeps no 3D mods): no chevron, no popup
@@ -84,10 +85,23 @@ export function configuredKey(v, kind = "spr") {
   return null;
 }
 
+// The previews keep the configured source while mods are off. The file table and write guards
+// still use appliedOf/appliedKey: those describe the bytes in the game folder.
+export const previewKey = (v, kind = "spr", enabled = true) => (enabled ? appliedKey(v, kind) : configuredKey(v, kind) || "self");
+export const previewChanged = (before, after, kind, beforeEnabled, enabled) => !before || !after || beforeEnabled !== enabled
+  || previewKey(before, kind, beforeEnabled) !== previewKey(after, kind, enabled);
+export function previewBase(v, kind = "spr", enabled = true, variants = []) {
+  if (enabled) return spineBase(kind, coreOf(v, kind));
+  const key = previewKey(v, kind, enabled);
+  if (key.startsWith("m:")) return spineBase("mod", key.slice(2));
+  const source = key.startsWith("v:") ? variants.find((o) => o.key === key.slice(2)) : v;
+  return spineBase(source && key.startsWith("v:") ? "official" : kind, coreOf(source || v, kind));
+}
+
 // how the switch popup works (decision 2). With mods on it starts on what the game shows, and Apply writes the choice.
 // While mods are off nothing is written: it starts on the configured source (the own files when none), Save only
-// configures the choice (it applies when mods are on), and the configured card carries the "Set" chip, apart from In
-// Use. A greyed start falls back to the card in use. The popup applies only a choice other than its start.
+// configures the choice (it applies when mods are on), and the configured card carries the "Set" chip.
+// A greyed start falls back to the card in use. The popup applies only a choice other than its start.
 //   {start, button: "popup.apply" | "popup.save", set: the configured key while off, else null}
 export function popupMode(fam, v, kind = "spr", enabled = true) {
   const inUse = appliedKey(v, kind);

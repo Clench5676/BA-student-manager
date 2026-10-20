@@ -57,9 +57,11 @@ const game = () => (current?.info?.view ? { ...current.info.view } : { ...GAME }
 
 // the layers of a lobby in the prefab's draw order with its offsets and scales; skeletons the prefab keeps inactive
 // (talk-only scenes) are left out. Without prefab data every skeleton sits at the standard place, backgrounds first.
-async function layersOf(core) {
+export async function layersOf(core, mod = null) {
+  const kind = mod ? "mod" : "lobby", key = mod || core;
+  const artBase = `/asset/spine/${kind}/${encodeURIComponent(key)}/`;
   const [files, info] = await Promise.all([
-    fetch(spineFiles("lobby", core)).then((r) => (r.ok ? r.json() : [])),
+    fetch(spineFiles(kind, key)).then((r) => (r.ok ? r.json() : [])),
     fetch(`${base(core)}lobby.json`).then((r) => (r.ok ? r.json() : null)).catch(() => null),
   ]);
   const atlasOf = pairAtlases(files), skels = [...atlasOf.keys()];
@@ -73,8 +75,8 @@ async function layersOf(core) {
     list = skels.sort((a, b) => isBg(b) - isBg(a) || a.localeCompare(b))
       .map((name, index) => ({ name, x: 0, y: -962, scale: 1, index, skin: null, animation: null }));
   }
-  return { info, layers: list.map((l) => ({ ...l, spine: `${base(core)}${encodeURIComponent(l.name)}`,
-    atlas: `${base(core)}${encodeURIComponent(atlasOf.get(l.name))}.atlas` })) };
+  return { info, layers: list.map((l) => ({ ...l, spine: `${artBase}${encodeURIComponent(l.name)}`,
+    atlas: `${artBase}${encodeURIComponent(atlasOf.get(l.name))}.atlas` })) };
 }
 // skeleton name -> atlas name for a lobby's files: the atlas of the same name, else of the same name in another case
 // (Juri: juri_home.skel, Juri_home.atlas), else the one atlas left for the one skeleton left (CH9996_home.skel with
@@ -758,21 +760,21 @@ function feather(view) {
 
 // show(core, host) -> Promise<meta> (frame, sequences); resolves once every layer is in and framed
 const lobbyLoads = latestLoad(), playerLoads = new WeakMap();
-export function show(core, host, variant) {
-  if (current?.core === core && players.length) return current.ready;
-  return lobbyLoads.run((signal) => showNow(core, host, variant, signal));
+export function show(core, host, variant, { mod = null } = {}) {
+  if (current?.core === core && current.mod === mod && !current.signal.aborted && players.length) return current.ready;
+  return lobbyLoads.run((signal) => showNow(core, host, variant, mod, signal));
 }
-async function showNow(core, host, variant, signal) {
+async function showNow(core, host, variant, mod, signal) {
   clearView(host);
   const my = ++token;
   host.innerHTML = '<canvas class="lobby-extend" hidden></canvas><div class="lobby-view"></div><canvas class="lobby-fade"></canvas><div class="lobby-frost"></div><div class="lobby-subtitle" hidden></div>';
   const ext = host.querySelector(".lobby-extend"), viewHost = host.querySelector(".lobby-view"), fade = host.querySelector(".lobby-fade");
   ext.width = EXT_W; ext.height = EXT_H;
   fade.width = STAGE.w; fade.height = STAGE.h;
-  current = { core, variant, host, info: null, meta: null, view: null, target: null, viewAt: null };
+  current = { core, mod, variant, host, signal, info: null, meta: null, view: null, target: null, viewAt: null };
   talkIndex = -1;
   current.ready = (async () => {
-    const { info, layers } = await layersOf(core);
+    const { info, layers } = await layersOf(core, mod);
     if (signal.aborted || my !== token) return null;
     if (!layers.length) throw new Error("No lobby skeletons found");
     current.info = info;

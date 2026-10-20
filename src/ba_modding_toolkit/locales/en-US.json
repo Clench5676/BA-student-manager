@@ -912,7 +912,9 @@
 			}
 		},
 		"band": {
-			"mods": "Mod × {n}",
+			"modCounts": "Portraits: {portraits}, Memorial lobbies: {lobbies}",
+			"portrait": "Portrait",
+			"lobby": "Lobby",
 			"replaced": "Replaced"
 		},
 		"bar": {
@@ -1056,7 +1058,7 @@
 		"type": {
 			"recruit": "Playable",
 			"noRecruit": "NPC",
-			"added": "Added"
+			"added": "Mod"
 		},
 		"btn": {
 			"open": "Show in Finder",

@@ -912,7 +912,9 @@
 			}
 		},
 		"band": {
-			"mods": "모드 × {n}",
+			"modCounts": "일러스트: {portraits}, 메모리얼 로비: {lobbies}",
+			"portrait": "일러스트",
+			"lobby": "로비",
 			"replaced": "교체됨"
 		},
 		"bar": {
@@ -1056,7 +1058,7 @@
 		"type": {
 			"recruit": "실장",
 			"noRecruit": "미실장",
-			"added": "직접 추가"
+			"added": "모드"
 		},
 		"btn": {
 			"open": "Finder에서 보기",

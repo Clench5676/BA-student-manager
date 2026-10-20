@@ -103,9 +103,10 @@ function cards(data, view, words, label) {
       const hit = words.length ? vs.find((v) => matches(v, f, words)) : vs[0];
       const recent = Math.min(...vs.map((v) => (v.recent ?? Infinity)));
       const card = {
-        ...vs[0], ...(hit ? { key: hit.key, spr: hit.spr, portrait: hit.portrait, names: hit.names } : {}),
+        ...vs[0], ...(hit ? { key: hit.key, spr: hit.spr, portrait: hit.portrait, names: hit.names, configured: hit.configured } : {}),
         name: label(f.base) ?? f.key, family: f.key, n: n++, matched: !!hit,
         recruit: vs.some((v) => v.recruitable), mods: vs.reduce((s, v) => s + (v.mods || 0), 0),
+        modCounts: Object.fromEntries(["spr", "lobby"].map((kind) => [kind, vs.reduce((s, v) => s + (v.modCounts?.[kind] || 0), 0)])),
         favorite: vs.some((v) => v.favorite), fresh: vs.some((v) => v.fresh),
         replaced: vs.find((v) => v.replaced)?.replaced || null,
         lobby: vs.find((v) => v.lobby)?.lobby || null, model: vs.find((v) => v.model)?.model || null,

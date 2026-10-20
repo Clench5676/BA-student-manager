@@ -45,6 +45,7 @@ export function textWidth(str, fs) {
 }
 
 let index = null, textures = null, initDone = null;
+export const atlasIndex = () => index || {};
 const images = new Map(), tints = new Map();
 
 // the atlas and texture indexes, fetched once however many callers wait for them (the loading screen asks first)

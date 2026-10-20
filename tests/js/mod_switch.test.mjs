@@ -749,6 +749,28 @@ test("the toggle flushes the event delay and awaits the visible detail or roster
   }
 });
 
+test("main refreshes on external Enable Mods changes and keeps the awaited local toggle refresh", async () => {
+  const main = readFileSync(new URL("../../src/ba_modding_toolkit/web/js/main.js", import.meta.url), "utf8");
+  const setup = main.slice(main.indexOf("  await ModSwitch.init("), main.indexOf("  Prompts.init("));
+  let listener, options, changes = 0;
+  const names = async () => {}, refresh = async () => {};
+  const ModSwitch = {
+    init: async (opts) => { options = opts; }, current: () => ({ enabled: true }),
+    onChange: (fn) => { listener = fn; },
+  };
+  await new Function("ModSwitch", "variantNames", "refreshAfterToggle", "libraryChanged", `return (async () => { ${setup} })();`)(
+    ModSwitch, names, refresh, (data) => { assert.equal(data, null); changes++; });
+  assert.equal(options.names, names);
+  assert.equal(options.refreshPage, refresh);
+  listener({ enabled: true, busy: true });
+  assert.equal(changes, 0);
+  listener({ enabled: false });
+  listener({ enabled: false, busy: false });
+  assert.equal(changes, 1, "one refresh for the switch flipping, independent of file changes");
+  listener({ enabled: true });
+  assert.equal(changes, 2);
+});
+
 test("detail refresh callers await changes queued while an earlier refresh is drawing", async () => {
   const detail = readFileSync(new URL("../../src/ba_modding_toolkit/web/js/detail.js", import.meta.url), "utf8");
   const changed = detail.slice(detail.indexOf("let heldChange;"), detail.indexOf("async function reloadChanged()")).replace("export function", "function");

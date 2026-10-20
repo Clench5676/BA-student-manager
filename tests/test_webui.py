@@ -99,6 +99,7 @@ class FakeMod:
     target: str
     fresh: bool = True
     added: str = "2026-10-01T08:00:00+00:00"
+    kind: str = "spr"
 
     def to_json(self):
         return {"id": self.id, "target": self.target, "fresh": self.fresh}
@@ -263,6 +264,25 @@ def test_roster_and_family(app, services):
     assert fam["version"] == "rv1"  # the install the parts come from
 
 
+def test_library_counts_and_configured_sources_reach_roster_and_family(app, services, monkeypatch):
+    mods = [FakeMod(f"p{i}", "hoshino") for i in range(3)] + [FakeMod("l1", "hoshino", kind="lobby")]
+    monkeypatch.setattr(services.library, "mods", lambda: mods)
+    configured = {"spr": "mod:p1", "lobby": "mod:l1"}
+    monkeypatch.setattr(services.library, "configured", lambda key: configured)
+    for enabled in (True, False):
+        services.library.enabled = enabled
+        roster = rpc(app, "roster.list")["result"]["families"][0]
+        family = rpc(app, "family.get", key="hoshino")["result"]
+        for data in (roster, family):
+            v = data["variants"][0]
+            assert v["mods"] == 4
+            assert v["modCounts"] == {"spr": 3, "lobby": 1}
+            assert v["configured"] == configured
+    monkeypatch.setattr(services.library, "mods", lambda: [])
+    v = rpc(app, "roster.list")["result"]["families"][0]["variants"][0]
+    assert v["mods"] == 0 and v["modCounts"] == {"spr": 0, "lobby": 0}
+
+
 def test_roster_and_family_carry_the_aliases_the_search_matches(app, services):
     services.catalog.f.aliases = ["\u5c0f\u661f"]
     services.catalog.v.aliases = ["\u5c0f\u661f\uff08x\uff09"]
@@ -393,6 +413,32 @@ def test_mod_skeleton_is_the_one_named_by_the_mods_core(app, services, monkeypat
         "Hoshino_home_bg.skel": b"bg", "Hoshino_home_bg.atlas": b"bg atlas"}, raising=False)
     assert call(app, "/asset/spine/mod/m1/skeleton.skel")[2] == b"main"
     assert call(app, "/asset/spine/mod/m1/skeleton.atlas")[2] == b"main atlas"
+
+
+def test_official_skeleton_route_reads_the_librarys_official_parts(app, services, monkeypatch, tmp_path):
+    bundle = tmp_path / "official.bundle"
+    requested = []
+
+    def official_bundles(core_name):
+        requested.append(core_name)
+        return [bundle]
+
+    def spine_files_from(bundles):
+        assert bundles == [bundle]
+        return {"hoshino_spr.skel": b"official skel", "hoshino_spr.atlas": b"official atlas",
+                "hoshino_spr.png": b"official png"}
+
+    monkeypatch.setattr(services.library, "official_bundles", official_bundles, raising=False)
+    monkeypatch.setattr(services.game, "spine_files_from", spine_files_from, raising=False)
+    for name, expected in [("skeleton.skel", b"official skel"), ("skeleton.atlas", b"official atlas"),
+                           ("hoshino_spr.png", b"official png")]:
+        status, headers, body = call(app, f"/asset/spine/official/hoshino_spr/{name}")
+        assert status == "200 OK" and body == expected
+        assert headers["Cache-Control"] == "no-store"
+    assert requested == ["hoshino_spr"] * 3
+    assert json.loads(call(app, "/asset/spine/official/hoshino_spr/files.json")[2]) == [
+        "hoshino_spr.atlas", "hoshino_spr.png", "hoshino_spr.skel"]
+    assert call(app, "/asset/spine/spr/hoshino_spr/skeleton.skel")[2] == b"skel"
 
 
 def test_a_new_library_prunes_its_kept_originals_once(tmp_path, monkeypatch):

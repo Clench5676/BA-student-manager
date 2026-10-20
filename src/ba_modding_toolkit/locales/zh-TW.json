@@ -912,7 +912,9 @@
 			}
 		},
 		"band": {
-			"mods": "Mod × {n}",
+			"modCounts": "立繪：{portraits}、紀念大廳：{lobbies}",
+			"portrait": "立繪",
+			"lobby": "大廳",
 			"replaced": "已替換"
 		},
 		"bar": {
@@ -1056,7 +1058,7 @@
 		"type": {
 			"recruit": "已實裝",
 			"noRecruit": "未實裝",
-			"added": "新增的立繪"
+			"added": "Mod"
 		},
 		"btn": {
 			"open": "在 Finder 中顯示",

@@ -32,6 +32,20 @@ const label = (x) => x?.["zh-CN"] ?? x?.en;
 const keys = (list) => list.map((c) => c.key);
 const view = (extra = {}) => ({ ...normalizeView(DEFAULT_VIEW), ...extra });
 
+test("separate library counts sum across a family and the matched variant keeps its configured preview", () => {
+  const d = { families: [{ key: "f", base: { en: "Family" }, variants: [
+    v("a", { mods: 3, modCounts: { spr: 3, lobby: 0 }, configured: { spr: "mod:a" } }),
+    v("b", { mods: 1, modCounts: { spr: 0, lobby: 1 }, configured: { spr: "mod:b" } }),
+  ] }] };
+  const separate = order(d, view(), { label });
+  assert.deepEqual(separate.map((c) => c.modCounts), [{ spr: 3, lobby: 0 }, { spr: 0, lobby: 1 }]);
+  const merged = order(d, view({ merged: true }), { label, query: "b" })[0];
+  assert.equal(merged.key, "b");
+  assert.equal(merged.mods, 4);
+  assert.deepEqual(merged.modCounts, { spr: 3, lobby: 1 });
+  assert.deepEqual(merged.configured, { spr: "mod:b" });
+});
+
 test("the view is normalised like the server does", () => {
   assert.deepEqual(normalizeView(null), { merged: false, mods: "all", recruit: "all", sort: "recent", order: "desc", filters: {} });
   const n = normalizeView({ merged: true, mods: "x", sort: "name", filters: { lobby: ["no", "maybe"], kind: [], bogus: ["yes"] } });
