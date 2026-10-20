@@ -1,9 +1,18 @@
 name: build CLI executable file
 
-# Releases are built locally (scripts/build_macos.sh, scripts/build_windows.ps1) and published with
-# scripts/release.sh; this workflow only builds on demand.
+# Releases are created locally with scripts/release.sh.
 on:
-  workflow_dispatch: # Manual
+  workflow_dispatch:
+    inputs:
+      release:
+        description: Upload assets to an existing release
+        type: boolean
+        default: false
+      tag:
+        description: 'Release tag (default: pyproject.toml version, e.g. 0.1.0-beta.1, no v)'
+        type: string
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -15,92 +24,50 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: '3.12.11'
           architecture: 'x64'
-          cache: 'pip'
+
+      - name: Check Release Tag
+        if: inputs.release
+        id: release
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: python scripts/check_release_tag.py
+
+      - name: Check Release Exists
+        if: inputs.release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: gh release view "$env:RELEASE_TAG"
 
       - name: Setup uv
         uses: astral-sh/setup-uv@v4
         with:
           version: "latest"
 
-      - name: Install Dependencies
-        run: uv export --no-hashes -o requirements.txt && pip install -r requirements.txt
-
-      # 从 pyproject.toml 提取版本号并生成 _version.py 文件
-      - name: Extract Version and Generate Meta
-        id: get_version
-        run: uv run scripts/extract_version.py
-
       - name: Build CLI Executable with Nuitka
-        uses: Nuitka/Nuitka-Action@main
-        with:
-          nuitka-version: main
-          script-name: src/ba_modding_toolkit/cli/__main__.py
-          mode: onefile
+        run: ./scripts/build_windows.ps1 -Target Cli
 
-          # 元数据
-          windows-icon-from-ico: src/ba_modding_toolkit/assets/eligma.ico
-          product-name: "Blue Archive Modding and Patching Tool CLI"
-          product-version: ${{ steps.get_version.outputs.file_version }}
-          file-version: ${{ steps.get_version.outputs.file_version }}
-          file-description: "Blue Archive Modding and Patching Tool - Command Line Interface"
-          company-name: "Agent-0808"
-          copyright: "Copyright ©2025-2026 Agent-0808. Licensed under GPLv3."
-          trademarks: "Blue Archive ©NEXON Games Co., Ltd. & Yostar, Inc. This tool is unofficial and not endorsed by them."
-
-          clang: true
-          low-memory: true
-          # lto: "no"
-          # jobs: 1
-          include-package: |
-            ba_modding_toolkit
-            UnityPy.resources
-          # 包含依赖包的数据文件
-          include-package-data: |
-            ba_modding_toolkit
-            UnityPy
-            archspec
-          # 包含资源目录
-          include-data-dir: |
-            src/ba_modding_toolkit/assets=ba_modding_toolkit/assets
-            src/ba_modding_toolkit/locales=ba_modding_toolkit/locales
-          # CLI 版本需要控制台模式
-          windows-console-mode: force
-          output-dir: build
-          output-file: "BAMT-CLI.exe"
-          assume-yes-for-downloads: true
-
-      # 整理发布文件夹
-      - name: Prepare Release Directory
-        run: |
-          New-Item -ItemType Directory -Path "publish-cli" -Force
-          Copy-Item -Path "build/BAMT-CLI.exe" -Destination "publish-cli/"-Recurse
-        shell: powershell
-
-      # 上传 Artifact
       - name: Upload Artifact
+        if: ${{ !inputs.release }}
         uses: actions/upload-artifact@v4
         with:
           name: BAMT-CLI-Windows-Build
-          path: publish-cli/
+          path: dist/
+          if-no-files-found: error
 
-      # 打包成 Zip
-      - name: Zip Release Asset (When Trigger With Tag)
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Upload Release Assets
+        if: inputs.release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
         run: |
-          $tag_name = "${{ github.ref_name }}"
-          cd publish-cli
-          Compress-Archive -Path * -DestinationPath "../BAMT-CLI-$tag_name.zip"
-        shell: powershell
-
-      # 上传 Zip
-      - name: Upload Release Asset (When Trigger With Tag)
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v1
-        with:
-          files: BAMT-CLI-${{ github.ref_name }}.zip
+          $Assets = (Get-ChildItem -Path dist/*.exe, dist/*.exe.md5).FullName
+          gh release upload "$env:RELEASE_TAG" --clobber @Assets
