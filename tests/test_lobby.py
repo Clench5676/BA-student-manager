@@ -415,6 +415,7 @@ def test_prefab_particle_systems():
     assert spark["fudge"] == 0.0
     # the sorting layer by its value, which Unity sorts by first: the skeletons are on Default
     assert (loop["sortingLayer"], spark["sortingLayer"], home["sortingLayer"]) == (0, 2, 0)
+    assert "toggle" not in loop and fx["toggles"] == []
     assert loop["subs"] == [{"type": 0, "system": 1, "inherit": 0, "p": 1.0}] and spark["isSub"] == 1
     assert spark["anchor"]["bone"] == "FX_Hand" and spark["material"] == "cab-fx_62"
     assert set(fx["materials"]) == {"cab-fx_61", "cab-fx_62"}
@@ -422,6 +423,45 @@ def test_prefab_particle_systems():
     assert ("material", 2502, 0) not in asked and not any(owner == 2602 for _, owner, _ in asked)
     # without a resolver nothing draws
     assert build_prefab().read("LobbyTest", SKELETONS, core_clips())["fx"]["systems"] == []
+
+
+TOGGLE = 5009
+SCRIPTS[TOGGLE] = "SpineEventToggleObjects"
+
+
+def test_prefab_systems_switched_by_spine_events():
+    # CH0217's SpineEventToggleObjects on the character's skeleton lists fish GameObjects the prefab keeps inactive;
+    # the skeleton's EnableObject / DisableObject events switch them by their index in the list
+    p = build_prefab()
+    p.node(30, "FX_Fish_0", father=3, active=0)
+    p.node(31, "bubble", father=30)
+    p.add(31, 3101, "ParticleSystem", particle_system())
+    p.add(31, 3102, "ParticleSystemRenderer", particle_renderer(61))
+    p.node(32, "FX_Fish_1", father=3)
+    p.node(33, "bubble", father=32)
+    p.add(33, 3301, "ParticleSystem", particle_system())
+    p.add(33, 3302, "ParticleSystemRenderer", particle_renderer(61))
+    # inactive below a toggled GameObject by another one: never shown
+    p.node(34, "Off", father=30, active=0)
+    p.add(34, 3401, "ParticleSystem", particle_system())
+    p.add(34, 3402, "ParticleSystemRenderer", particle_renderer(61))
+    # a toggled GameObject below an inactive one that no event switches: never shown either
+    p.node(35, "Intro", father=3, active=0)
+    p.node(36, "FX_Fish_2", father=35)
+    p.add(36, 3601, "ParticleSystem", particle_system())
+    p.add(36, 3602, "ParticleSystemRenderer", particle_renderer(61))
+    p.mb(3, 304, TOGGLE, toggleObjects=[ref(30), ref(32), ref(36)])
+    materials = {61: ("cab-fx_61", {"program": "additive", "queue": 3000, "tex": {}})}
+    resolve = lambda kind, owner, pointer: materials.get(pointer["m_PathID"]) if kind == "material" else None  # noqa: E731
+    fx = p.read("LobbyTest", SKELETONS, core_clips(), resolve)["fx"]
+    assert fx["toggles"] == [{"skeleton": "Test_home", "on": [0, 1, 1]}]
+    assert [(s["path"].split("/", 2)[-1], s.get("toggle")) for s in fx["systems"]] == [
+        ("Test_home/FX_Fish_0/bubble", [[0, 0]]), ("Test_home/FX_Fish_1/bubble", [[0, 1]])]
+    # without a toggle component an inactive GameObject keeps its systems out
+    del p.objects[304]
+    p.objects[3][1]["m_Component"] = [c for c in p.objects[3][1]["m_Component"] if c["component"]["m_PathID"] != 304]
+    fx = p.read("LobbyTest", SKELETONS, core_clips(), resolve)["fx"]
+    assert [s["path"].split("/", 2)[-1] for s in fx["systems"]] == ["Test_home/FX_Fish_1/bubble"] and fx["toggles"] == []
 
 
 def test_lobby_info_with_and_without_prefab():
@@ -435,7 +475,7 @@ def test_lobby_info_with_and_without_prefab():
     assert bare["idles"] == {} and bare["sounds"] == {} and info["sounds"] == {}
     sounds = {"cab-a_1": {"name": "S", "volume": 0.7, "pitch": 1.0, "clips": ["cab-b_2"]}}
     assert lobby.lobby_info(SKELETONS, clips, None, sounds)["sounds"] == sounds
-    assert bare["fx"] == {"systems": [], "materials": {}, "textures": {}, "meshes": {}}
+    assert bare["fx"] == {"systems": [], "materials": {}, "textures": {}, "meshes": {}, "toggles": []}
     assert [(l["name"], l["x"], l["y"], l["scale"], l["active"]) for l in bare["layers"]] == [
         ("A_home", 0.0, -962.0, 1.0, True), ("A_bg", 0.0, -962.0, 1.0, True)]
 
@@ -590,6 +630,23 @@ def test_real_lobby_particles(real_game, monkeypatch):
         real_game.lobby_fx_texture("ch0187_home", tex_id + "0")
     # game art: kept in memory only
     assert any("lobby-fx/" in key for key, _ in puts) and not any(disk for key, disk in puts if "lobby-fx/" in key)
+
+
+@pytest.mark.skipif(not GAME_DIR.is_dir(), reason="No local game install")
+def test_real_lobby_particle_colour_space_layers_and_toggles(real_game):
+    # Nodoka's star and meteors keep their colours as stored (Apply Active Color Space off), her other system not
+    nodoka = real_game.lobby_info("nodoka_home")["fx"]["systems"]
+    assert len(nodoka) == 10 and sum(s["renderer"]["colorSpace"] == 0 for s in nodoka) == 9
+    # Aru's dust is on the game's other sorting layer (value 2): over her skeletons, which are on Default
+    aru = real_game.lobby_info("aru_home")
+    assert sorted(s["name"] for s in aru["fx"]["systems"] if s["sortingLayer"] == 2) == ["dust_00", "dust_02"]
+    assert {layer["sortingLayer"] for layer in aru["layers"]} == {0}
+    # CH0217: the character's Spine events switch seven GameObjects, all off in the prefab: the fish's bubbles (0 to
+    # 3, from Idle_01 and BG_Loop_00_R) and the bubbles from her mouth (4 to 6, Talk_04_M and Idle_01)
+    fx = real_game.lobby_info("ch0217_home")["fx"]
+    assert fx["toggles"] == [{"skeleton": "CH0217_home", "on": [0] * 7}]
+    assert {i for s in fx["systems"] for _, i in s.get("toggle", [])} == set(range(7))
+    assert all("_Fish/" in s["path"] or "_Bubble/" in s["path"] for s in fx["systems"] if s.get("toggle"))
 
 
 @pytest.mark.skipif(not GAME_DIR.is_dir(), reason="No local game install")

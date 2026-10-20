@@ -485,6 +485,44 @@ test("Apply Active Color Space off: the vertex colours reach the shader as store
   near(Array.from(geometry(fx, fx.systems[0], { linear: false }).data.subarray(14, 15))[0], 128 / 255, 1e-6);
 });
 
+test("SpineEventToggleObjects: a system below a toggled GameObject plays from its start while it is on", () => {
+  const burst = { bursts: [{ t: 0, n: 2, cycles: 1, interval: 1, p: 1 }] };
+  const fish = sys({ name: "bubble", emission: burst, toggle: [[0, 1]], subs: [{ type: 0, system: 2, inherit: 0, p: 1 }] });
+  const always = sys({ name: "loop", emission: burst });
+  const trail = sys({ name: "trail", isSub: 1, emission: { rate: 10, bursts: [] }, toggle: [[0, 1]] });
+  const fx = new Effects({ systems: [fish, always, trail], toggles: [{ skeleton: "CH0217_home", on: [0, 0] }] },
+    { seed: 7, random: lcg(3) });
+  const [s, loop, sub] = fx.systems;
+  run(fx, 0.5);
+  assert.equal(s.live, false);
+  assert.equal(s.particles.length, 0, "inactive in the prefab: nothing until its event");
+  assert.equal(loop.particles.length, 2);
+  // other events, another skeleton's, an index outside the list: nothing changes
+  assert.equal(fx.spineEvent("CH0217_home", "Talk", 1), false);
+  assert.equal(fx.spineEvent("Other_home", "EnableObject", 1), false);
+  assert.equal(fx.spineEvent("CH0217_home", "EnableObject", 7), false);
+  assert.equal(fx.spineEvent("CH0217_home", "EnableObject", 0), false, "an object no system hangs below");
+  assert.equal(fx.spineEvent("CH0217_home", "EnableObject", 1), true);
+  fx.update(0.016);
+  assert.equal(s.particles.length, 2, "its burst at 0 fires on the first step");
+  assert.equal(sub.instances.length, 2, "and its birth sub-emitter runs");
+  run(fx, 0.5);
+  const kept = s.particles.slice();
+  assert.equal(fx.spineEvent("CH0217_home", "EnableObject", 1), false, "already active: SetActive does nothing");
+  assert.equal(s.particles[0], kept[0]);
+  assert.equal(fx.spineEvent("CH0217_home", "DisableObject", 1), true);
+  assert.equal(s.particles.length + sub.particles.length + sub.instances.length, 0, "gone at once");
+  assert.ok(kept.every((pt) => pt.dead));
+  run(fx, 0.5);
+  assert.equal(s.particles.length, 0);
+  assert.equal(loop.particles.length, 4, "the others play on (a burst a loop)");
+  // switched on again: from the start, prewarmed where it prewarms
+  s.def.main.prewarm = 1;
+  s.def.emission = { rate: 4, bursts: [] };
+  fx.spineEvent("CH0217_home", "EnableObject", 1);
+  assert.equal(s.particles.length, 4, "one duration of 4 a second, simulated at once");
+});
+
 // --- particles-gl.js: drawing into a player's context and freeing it -------------------------------------------------
 
 class FakeGL {}

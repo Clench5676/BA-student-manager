@@ -399,6 +399,40 @@ def _mesh_choice(ids: list[tuple[str, float]], distribution: int) -> dict:
     return out
 
 
+# the lobby script that switches GameObjects on and off by Spine events (ch0217's fish and bubbles; the player reads
+# the events, particles.js spineEvent)
+TOGGLE_SCRIPT = "SpineEventToggleObjects"
+
+
+def toggle_groups(nodes: list[dict], skeleton_of_go: Callable[[int], str | None]
+                  ) -> tuple[list[dict], dict[int, list[list[int]]]]:
+    """The prefab's SpineEventToggleObjects components: each one listens to the Spine events of the skeleton on its
+    GameObject (or the nearest one above) and sets toggleObjects[event int] active on "EnableObject", inactive on
+    "DisableObject". CH0217_home's Idle_01 switches fish 0 on at 5 s and off at 13.3 s, fish 1 at 23.3 to 30 s and
+    the bubbles 5 and 6 twice, its BG_Loop_00_R fish 2 and 3, Talk_04_M bubble 4: seven indices, the seven entries of
+    its list. Returns the groups, {"skeleton", "on": the objects' own activity in the prefab, 1 or 0}, and for each
+    listed GameObject its [group, index] pairs."""
+    by_go = {n["go"]: n for n in nodes}
+    groups: list[dict] = []
+    listed: dict[int, list[list[int]]] = {}
+    for n in nodes:
+        for cls, _, tree in n.get("all", ()):
+            if cls != TOGGLE_SCRIPT:
+                continue
+            cur, skeleton = n, None
+            while cur is not None and skeleton is None:
+                skeleton = skeleton_of_go(cur["go"])
+                cur = by_go.get(cur["parent"])
+            on = []
+            for i, pointer in enumerate(tree.get("toggleObjects") or []):
+                target = by_go.get((pointer or {}).get("m_PathID", 0))
+                on.append(1 if target is not None and target.get("own", target["active"]) else 0)
+                if target is not None:
+                    listed.setdefault(target["go"], []).append([len(groups), i])
+            groups.append({"skeleton": skeleton, "on": on})
+    return groups, listed
+
+
 def build(nodes: list[dict], skeleton_of_go: Callable[[int], str | None], data_scale: Callable[[str], float],
           resolve: Callable[[str, int, dict], Any] | None) -> dict:
     """The particle systems of a prefab walk (lobby.read_prefab nodes, in hierarchy order), with their place: under a
@@ -406,14 +440,27 @@ def build(nodes: list[dict], skeleton_of_go: Callable[[int], str | None], data_s
     of its skeleton ("anchor") and placed by the transforms below it ("rel", Unity units of the bone GameObject);
     every system also keeps its place in the prefab's own pose ("static", NGUI units around the prefab root).
     resolve(kind, owner path id, pointer) reads the materials ("material") and meshes ("mesh") the renderers point
-    at; without it no system has a material."""
+    at; without it no system has a material. Systems below a GameObject a SpineEventToggleObjects switches
+    (toggle_groups) are kept even while it is off, with the [group, index] pairs above them ("toggle"): they play
+    while every one is on."""
     systems, materials, textures, meshes = [], {}, {}, {}
     index_of_ps: dict[int, int] = {}
     pending_subs: list[tuple[int, list[tuple[int, int, int, float]]]] = []
     by_go = {n["go"]: n for n in nodes}
+    groups, listed = toggle_groups(nodes, skeleton_of_go)
     for n in nodes:
         ps = n["first"].get("ParticleSystem")
-        if ps is None or not n["active"]:
+        if ps is None:
+            continue
+        # active, or inactive only by GameObjects a toggle switches
+        switched, cur, off = [], n, False
+        while cur is not None:
+            if cur["go"] in listed:
+                switched += listed[cur["go"]]
+            elif not cur.get("own", cur["active"]):
+                off = True
+            cur = by_go.get(cur["parent"])
+        if off or (not n["active"] and not switched):
             continue
         ps_pid = n["pids"]["ParticleSystem"]
         rend = n["first"].get("ParticleSystemRenderer") or {}
@@ -475,6 +522,8 @@ def build(nodes: list[dict], skeleton_of_go: Callable[[int], str | None], data_s
             rel = mul(rel, c["local3"])
         item.update(name=n["name"], path=n["path"], anchor=anchor, rel=rounded(rel), static=rounded(n["m3"]),
                     ls=_vec(n["t"].get("m_LocalScale"), 1.0), z=_r(n["m3"][11]))
+        if switched:
+            item["toggle"] = switched
         index_of_ps[ps_pid] = len(systems)
         systems.append(item)
         subs = sub_emitters(ps)
@@ -505,4 +554,5 @@ def build(nodes: list[dict], skeleton_of_go: Callable[[int], str | None], data_s
             s["subs"] = [{**e, "system": remap[e["system"]]} for e in s["subs"] if e["system"] in remap]
     used_meshes = {m for s in out for m in s["renderer"].get("meshes", [s["renderer"].get("mesh")])}
     return {"systems": out, "materials": materials, "textures": textures,
-            "meshes": {k: v for k, v in meshes.items() if k in used_meshes}}
+            "meshes": {k: v for k, v in meshes.items() if k in used_meshes},
+            "toggles": groups if any("toggle" in s for s in out) else []}

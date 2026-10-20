@@ -313,11 +313,12 @@ def read_prefab(kinds: dict[int, str], tree: Callable[[int], dict], scripts: dic
         m = _mul(m, _local(t))
         local3 = particles.trs(t)
         m3 = particles.mul(m3, local3)  # the full 3D transform, for the particle systems
-        active = active and bool(tree(go).get("m_IsActive", 1))
+        own = bool(tree(go).get("m_IsActive", 1))
+        active = active and own
         comps = components(go)
         name = tree(go)["m_Name"]
         path = f"{path}/{name}" if path else name
-        nodes.append({"go": go, "name": name, "m": m, "active": active, "all": comps,
+        nodes.append({"go": go, "name": name, "m": m, "active": active, "own": own, "all": comps,
                       "first": {cls: c for cls, _, c in reversed(comps)},
                       "pids": {cls: pid for cls, pid, _ in reversed(comps)},
                       "parent": parent, "path": path, "t": t, "local3": local3, "m3": m3})
@@ -448,6 +449,6 @@ def lobby_info(skeletons: Iterable[str], clips: Clips, prefab: dict | None, soun
                   "layers": [{"name": s, **STANDARD, "active": True, "sortingLayer": 0, "order": 0, "queue": 3000,
                               "pages": {}, "z": 0.0, "index": i, "skin": None, "animation": None}
                              for i, s in enumerate(dict.fromkeys(skeletons))],
-                  "fx": {"systems": [], "materials": {}, "textures": {}, "meshes": {}}}
+                  "fx": {"systems": [], "materials": {}, "textures": {}, "meshes": {}, "toggles": []}}
     return {"view": dict(GAME_VIEW), **prefab, "defaultMix": dict(clips.mixes), "clips": clips.clips,
             "sounds": dict(sounds or {})}

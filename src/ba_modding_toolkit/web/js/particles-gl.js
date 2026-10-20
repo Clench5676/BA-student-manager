@@ -580,6 +580,8 @@ export function create(fx, { base, bone, load = loadImage } = {}) {
       const list = slots.get(player)?.after;
       if (list) between(player, list.length - 1);
     },
+    // a Spine event of a skeleton's animation state: SpineEventToggleObjects switches systems on and off by it
+    spineEvent: (skeleton, name, index) => !disposed && effects.spineEvent(skeleton, name, index),
     // free one player's GL objects (before it is disposed)
     detach: release,
     dispose() {

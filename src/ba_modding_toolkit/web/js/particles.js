@@ -16,7 +16,8 @@
 // radial, speed modifier), limit velocity (dampen), force over lifetime, colour, size and rotation over lifetime,
 // texture sheet animation (grid: whole sheet or one row), custom data (vectors, colours) and sub-emitters (birth,
 // death); a mesh particle draws one of its renderer's meshes (up to four, picked per particle) and takes its vertex
-// colours. Not simulated: noise, collision, triggers, lights,
+// colours. Systems below GameObjects the lobby's SpineEventToggleObjects switches (CH0217's fish bubbles) play while
+// the skeleton's Spine events have them on (spineEvent). Not simulated: noise, collision, triggers, lights,
 // trails, inherit velocity, rate over distance, limit velocity's drag, the by-speed modules and external forces (none
 // is used by more than one lobby); a system keeps drawing without them.
 
@@ -235,11 +236,64 @@ export class Effects {
     this.time = 0;
     this.serial = 0;
     this.started = false;
-    this.systems = (this.fx.systems || []).map((def, index) => ({
-      def, index, particles: [], instances: [], W: def.static, M: def.static, Minv: invert(def.static),
-      playing: !def.isSub && def.playOnAwake !== 0, done: false,
-      delay: Math.max(0, value(def.main.delay, 0, rnd(this.seed, index))), clock: newClock(def.emission?.bursts || []),
-    }));
+    // the SpineEventToggleObjects groups (lobby.json fx.toggles): whether each listed GameObject is active now
+    this.toggles = (this.fx.toggles || []).map((g) => ({ skeleton: g.skeleton, on: (g.on || []).map((v) => !!v) }));
+    this.systems = (this.fx.systems || []).map((def, index) => {
+      const s = { def, index, particles: [], instances: [], W: def.static, M: def.static, Minv: invert(def.static) };
+      s.live = this.live(def);
+      this.reset(s);
+      return s;
+    });
+  }
+
+  // whether a system's GameObject is active: every toggled GameObject above it is on
+  live(def) {
+    return (def.toggle || []).every(([g, i]) => this.toggles[g]?.on[i] ?? false);
+  }
+
+  // a system as Unity starts it when its GameObject becomes active (Play On Awake) or the lobby opens: no particles,
+  // its clock at 0, a new start delay
+  reset(s) {
+    s.particles = [];
+    s.instances = [];
+    s.playing = s.live && !s.def.isSub && s.def.playOnAwake !== 0;
+    s.done = false;
+    s.delay = Math.max(0, value(s.def.main.delay, 0, rnd(this.seed, s.index + this.serial)));
+    s.clock = newClock(s.def.emission?.bursts || []);
+  }
+
+  // a prewarmed looping system simulates one duration first, exactly (a loop shorter than a step, or not a whole
+  // number of them, ends on a shorter step)
+  prewarm(s) {
+    const D = s.def.main.duration;
+    if (!s.playing || !s.def.main.prewarm || !s.def.main.loop) return;
+    for (let t = 0; t < D - EPS; t += PREWARM_STEP) this.step(s, Math.min(PREWARM_STEP, D - t), true);
+  }
+
+  // A Spine event of a skeleton's animation state (lobby.js forwards them): "EnableObject" and "DisableObject" set the
+  // GameObject of that index in the skeleton's toggle groups active or inactive, as the game's SpineEventToggleObjects
+  // does. A system whose GameObject becomes active plays again from its start (prewarmed where it prewarms); one that
+  // becomes inactive stops, its particles and the sub-emitters they drive gone at once. Setting an object to the state
+  // it has does nothing (GameObject.SetActive). Returns whether any system changed.
+  spineEvent(skeleton, name, index) {
+    const on = name === "EnableObject" ? true : name === "DisableObject" ? false : null;
+    if (on === null) return false;
+    let changed = false;
+    this.toggles.forEach((g) => {
+      if (g.skeleton !== skeleton || !(index >= 0 && index < g.on.length) || g.on[index] === on) return;
+      g.on[index] = on;
+      for (const s of this.systems) {
+        const live = this.live(s.def);
+        if (live === s.live) continue;
+        s.live = live;
+        changed = true;
+        for (const pt of s.particles) pt.dead = true;
+        this.reset(s);
+        if (live && this.started) this.prewarm(s);
+      }
+    });
+    if (changed) for (const s of this.systems) s.instances = s.instances.filter((inst) => !inst.parent.dead);
+    return changed;
   }
 
   // every system's matrices for this frame (bones move them)
@@ -257,21 +311,16 @@ export class Effects {
     }
   }
 
-  // advance every system by dt seconds; prewarmed systems first simulate one duration, exactly (a loop shorter than
-  // a step, or not a whole number of them, ends on a shorter step)
+  // advance every system by dt seconds; prewarmed systems first simulate one duration (prewarm)
   update(dt) {
     dt = Math.max(0, Math.min(MAX_DT, dt || 0));
     this.place();
     if (!this.started) {
       this.started = true;
-      for (const s of this.systems) {
-        const D = s.def.main.duration;
-        if (!s.playing || !s.def.main.prewarm || !s.def.main.loop) continue;
-        for (let t = 0; t < D - EPS; t += PREWARM_STEP) this.step(s, Math.min(PREWARM_STEP, D - t), true);
-      }
+      for (const s of this.systems) this.prewarm(s);
     }
     this.time += dt;
-    for (const s of this.systems) this.step(s, dt * (s.def.main.speedScale ?? 1), false);
+    for (const s of this.systems) if (s.live) this.step(s, dt * (s.def.main.speedScale ?? 1), false);
   }
 
   // One step, in Unity's order: the particles whose life ends within it die first, then it emits (into the places they
@@ -402,7 +451,7 @@ export class Effects {
     s.particles.push(pt);
     for (const e of def.subs || []) {
       const sub = this.systems[e.system];
-      if (e.type === 0 && sub && rnd(seed, R.sub) < (e.p ?? 1)) {
+      if (e.type === 0 && sub?.live && rnd(seed, R.sub) < (e.p ?? 1)) {
         sub.instances.push({ parent: pt, system: s, inherit: e.inherit, clock: newClock(sub.def.emission?.bursts || []) });
       }
     }
@@ -509,7 +558,7 @@ export class Effects {
     pt.dead = true;
     for (const e of s.def.subs || []) {
       const sub = this.systems[e.system];
-      if (e.type !== 2 || !sub || rnd(pt.seed, R.sub) >= (e.p ?? 1)) continue;
+      if (e.type !== 2 || !sub?.live || rnd(pt.seed, R.sub) >= (e.p ?? 1)) continue;
       // a death sub-emitter: its bursts at the particle's last place, all at once
       const inst = { parent: pt, system: s, inherit: e.inherit, clock: newClock([]) };
       for (const b of sub.def.emission?.bursts || []) {

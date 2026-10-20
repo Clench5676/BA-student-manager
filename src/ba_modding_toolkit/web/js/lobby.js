@@ -660,6 +660,8 @@ function makePlayer(host, layer, onReady, onError = () => {}, fx = null) {
       player.bamtRuns = new Sync.Runs(player.animationState, { clip: (name) => clipOf(player, name),
         duration: (name) => player.skeleton.data.findAnimation(name)?.duration || 0,
         onEntry: (entry, c) => soundsOf(player, entry, c) });
+      // its Spine events reach the particle effects, which some switch on and off (SpineEventToggleObjects)
+      if (fx) player.animationState.addListener({ event: (_entry, e) => fx.spineEvent(layer.name, e.data.name, e.intValue) });
       const idle = idleOf(player.skeleton.data, layer);
       if (idle) soundsOf(player, player.animationState.setAnimation(0, idle, true), clipOf(player, idle));
       for (const name of idleClips(current?.info, layer.name, idle, (n) => clipOf(player, n))) playClip(player, name);
