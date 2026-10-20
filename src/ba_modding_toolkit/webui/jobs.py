@@ -91,10 +91,10 @@ class JobRunner:
             raise ServiceError("job_not_found", id=job_id)
         return job
 
-    def busy(self) -> bool:
-        """Whether a writer job is queued or running."""
+    def busy(self, writes: str | None = None) -> bool:
+        """Whether a writer job (one writing ``writes``, when given) is queued or running."""
         with self._lock:
-            return any(j.writes and j.pending for j in self._jobs.values())
+            return any(j.writes and (writes is None or j.writes == writes) and j.pending for j in self._jobs.values())
 
     def active(self, *kinds: str) -> bool:
         """Whether a job of one of these kinds is queued or running."""

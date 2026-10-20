@@ -23,10 +23,11 @@ def test_only_writer_jobs_make_the_runner_busy():
     reading = jobs.submit("extract", lambda log, progress: gate.wait(5))
     assert wait_for(lambda: jobs.get(reading).state == "running")
     assert not jobs.busy() and jobs.active("extract")
-    for kind, writes in (("library.prune", "library"), ("update", "library"), ("library.clearBuilt", "library"),
-                         ("mods.toggle", "game")):
+    for kind, writes in (("library.prune", "library"), ("update", "library"), ("library.clearBuilt", "library")):
         jobs.submit(kind, lambda log, progress: None, writes=writes)
-    assert jobs.busy() and jobs.active("mods.toggle")
+    assert jobs.busy() and jobs.busy("library") and not jobs.busy("game")
+    jobs.submit("mods.toggle", lambda log, progress: None, writes="game")
+    assert jobs.busy("game") and jobs.active("mods.toggle")
     gate.set()
     assert wait_for(lambda: not jobs.busy())
     jobs.shutdown()

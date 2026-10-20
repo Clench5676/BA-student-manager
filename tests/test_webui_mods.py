@@ -648,6 +648,31 @@ def test_open_classic_always_asks_for_the_classic_gui(env, monkeypatch):
     assert rpc(app, "classic.front")["result"] == {"raised": False}
 
 
+def test_the_classic_window_waits_for_a_job_writing_the_game_folder(env):
+    """A classic window started under a toggle would stop it at its next write (classic_open), the switch half done:
+    refused with busy while a game writer job is queued or running. A library writer never holds it back, and an open
+    window is still raised."""
+    app, s = env.app, env.s
+    gate = threading.Event()
+    s.submit("slow", lambda log, progress: gate.wait(5), writes="game")
+    toggle = rpc(app, "mods.toggle", enabled=False, expect=True)["result"]  # queued behind it
+    assert rpc(app, "app.openClassic", tab="crc_tool")["error"]["code"] == "busy"
+    gate.set()
+    assert s.jobs.wait(toggle, 10)
+    assert s.jobs.get(toggle).state == "done", s.jobs.get(toggle).error
+    assert env.popens == []
+    hold = threading.Event()
+    s.submit("slow", lambda log, progress: hold.wait(5), writes="library")
+    assert rpc(app, "app.openClassic", tab="crc_tool")["result"] == {"started": True}
+    s.submit("slow", lambda log, progress: hold.wait(5), writes="game")
+    assert rpc(app, "app.openClassic", tab="tools")["result"] == {"started": False}
+    assert len(env.popens) == 1
+    hold.set()
+    assert wait_for(lambda: not s.jobs.busy())
+    env.popens[0].exit(0)
+    assert wait_for(lambda: not rpc(app, "app.classic")["result"]["open"])
+
+
 # --- quitting and the single instance ---
 
 def test_app_quit(env):

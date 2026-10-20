@@ -748,7 +748,7 @@ stops the server (the page shows Closed); with `--serve` it gives `native_unavai
 | `app.info` | version, language, platform, game found, resource version, consent (`null`, `true`, `false`), paths, `debug` (started with `--debug`) |
 | `app.consent {granted}` | records the choice; `false` closes the app |
 | `app.quit` | closes the window; `busy` while a writer job runs; in browser mode answers, then stops the server; `native_unavailable` with `--serve` |
-| `app.openClassic {tab}` | `{started}`: starts the classic window on a tab (`settings`: its settings) and waits for it (30 s at most), or brings the open one to the front, with the tab unless a classic task runs; a window an earlier instance left is only raised; `classic_failed {exit_code}` when the child exits or stays silent first |
+| `app.openClassic {tab}` | `{started}`: starts the classic window on a tab (`settings`: its settings) and waits for it (30 s at most), or brings the open one to the front, with the tab unless a classic task runs; a window an earlier instance left is only raised; `classic_failed {exit_code}` when the child exits or stays silent first; `busy` instead of a new window while a job writing the game folder is queued or running |
 | `app.classic` | `{open, ready, busy, pid, orphan, queued}` (`orphan`: found through `classic.json`) |
 | `classic.front` | `{raised}`: the classic modal's Bring to Front (never starts a window) |
 | `classic.queue {method, params}` | `{queued}`: keeps one of `actions.apply`, `actions.restore`, `mods.toggle`, `mods.restoreDrift` for when the classic window closes |
@@ -915,8 +915,8 @@ click does; `nav.js` draws them.
   More Settings itself opens the classic UI without a prompt. Without a game folder the classic UI still works, and
   the prompt is drawn plain (Popups).
 - **The hand-off.** `app.openClassic {tab}`, with the corner indicator labelled "Opening the classic UI" until the
-  classic window is up (Loading screen); `classic_failed` and other refusals show as a toast. One hand-off at a time:
-  a click while one is under way does nothing.
+  classic window is up (Loading screen); `classic_failed` and other refusals (`busy` while a job writes the game
+  folder) show as a toast. One hand-off at a time: a click while one is under way does nothing.
 
 ### Portrait
 
@@ -1505,7 +1505,8 @@ crash in a classic tab never takes the web UI with it.
   up to 30 s for its `ready`; an exit or silence before that is `classic_failed {exit_code}` (`null` when it stayed
   silent; a late `ready` is still taken, and the window then shows itself). With a window open, a click sends the tab
   and a raise; while a classic task runs (`busy`), only the raise, so a running task's tab is never switched. A window
-  left by an earlier instance (below) is only raised.
+  left by an earlier instance (below) is only raised. No window starts while a job writing the game folder is queued
+  or running (`busy`): that job would stop at its next write with `classic_open`, a toggle half done.
 - **The channel** is the web UI's own HTTP server, not stdio (the Windows build is onefile without a console):
   `BAMT_CLASSIC_URL` (the server's origin) and `BAMT_CLASSIC_TOKEN` (one-time, random) go to the child, which takes
   them out of its environment at once. It long-polls `GET /api/classic/control` (25 s) for its lines (`place x y w h`,
