@@ -1,5 +1,5 @@
-// Tests for the lobby's mesh renderers (web/js/mesh-fx.js and their drawing in particles-gl.js), against recording
-// stand-ins for WebGL2 and spine-player. Run by tests/test_lobby_render.py with Node's test runner.
+// Tests for the lobby's mesh renderers (web/js/mesh-fx.js and their drawing in particles-gl.js) and the skeletons' game
+// materials (web/js/skeleton-materials.js), against recording stand-ins for WebGL2 and spine-player. Run by tests/test_lobby_render.py with Node's test runner.
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
@@ -228,5 +228,130 @@ test("mesh renderers draw with the effects, sorted with them, with their animate
   assert.ok(GL.fragmentSource("lobbyOrder").includes("t.rgb * _Color0.rgb * v_col.rgb, 1.0"));
   effects.detach(p);
   effects.dispose();
+  Linear.detach(p);
+});
+
+// --- skeleton-materials.js ------------------------------------------------------------------------------------------
+
+const M = await import("../../src/ba_modding_toolkit/web/js/skeleton-materials.js");
+// linear.js attached, with the blend modes the batch is set to in the player's log
+function attachLinear(p) {
+  const ok = Linear.attach(p), batcher = p.sceneRenderer.batcher, set = batcher.setBlendMode;
+  batcher.setBlendMode = function (mode, pma) { p.log.push(["mode", mode]); return set.call(this, mode, pma); };
+  return ok;
+}
+const multiply = { program: "pma", src: 2, dst: 10, srcA: 2, dstA: 10, straight: 1, floats: {}, colors: { _Color: [1, 1, 1, 1] }, tex: {} };
+
+test("a material per draw: a replacement for the slot's blend mode on its page, else the page's own", () => {
+  const mats = { pages: { Page3: multiply }, blend: { multiply: { Page1: { ...multiply, tag: "p1" } }, screen: { Page1: null } } };
+  assert.equal(M.materialOf(mats, "Page3", spine.BlendMode.Normal), multiply);
+  assert.equal(M.materialOf(mats, "Page1", spine.BlendMode.Normal), null);
+  assert.equal(M.materialOf(mats, "Page1", spine.BlendMode.Multiply).tag, "p1");
+  // a page the list does not name takes the list's first material (one shader for the mode)
+  assert.equal(M.materialOf(mats, "Page2", spine.BlendMode.Multiply).tag, "p1");
+  // a replacement the game leaves empty: spine-player's own drawing
+  assert.equal(M.materialOf(mats, "Page1", spine.BlendMode.Screen), null);
+  assert.equal(M.materialOf(null, "Page1", spine.BlendMode.Normal), null);
+});
+
+test("Multiply and Screen slots without replacement materials draw as Normal", () => {
+  // screen falls back; multiply keeps its mode (its list names a page); additive always adds
+  assert.deepEqual([...M.fallbackModes({ blend: { multiply: { Page1: null } } })], [spine.BlendMode.Screen]);
+  assert.deepEqual([...M.fallbackModes({ blend: {} })].sort(), [spine.BlendMode.Multiply, spine.BlendMode.Screen]);
+  assert.deepEqual([...M.fallbackModes({ blend: { multiply: {}, screen: {} } })], []);
+});
+
+test("the glitch frames: a hash of the time against _GlitchFreq, the second pass on 3 x the time", () => {
+  const frac = (x) => x - Math.floor(x);
+  for (const t of [0.5, 1.25, 7.75, 100.1]) {
+    assert.equal(M.glitch(t, 0, 0.98), frac(Math.sin(t * 91.2228) * 43758.5) >= 0.98);
+    assert.equal(M.glitch(t, 1, 0.98), frac(Math.sin(3 * t * 91.2228) * 43758.5) >= 0.98);
+  }
+  // about 2 % of the frames at the lobby's 0.98
+  let n = 0;
+  for (let i = 0; i < 6000; i++) n += M.glitch(i / 60, 0, 0.98) ? 1 : 0;
+  assert.ok(n > 60 && n < 180, `${n} glitch frames`);
+});
+
+test("the programs read what the game's compiled programs read", () => {
+  // every program takes spine-player's four vertex attributes and declares the uniforms the hooks set
+  const noise = M.PROGRAMS.noiseFlow.src, portrait = M.PROGRAMS.portraitNoise.src;
+  for (const name of ["_CenterX", "_Rotate", "_SkewedX", "_SlopeForward", "_SlopeSide", "_NoiseTexTillingX", "_PixelNoiseSpeedY", "_PixelNoisePower"]) {
+    assert.ok(noise.includes(name), name);
+  }
+  // the noise shift: (2 noise - 1) x power x 0.001 x the vertex alpha, inside the projected square only
+  assert.ok(/\(2\.0 \* n \* m - 1\.0\) \* _PixelNoisePower \* 0\.001 \* col\.a \* m/.test(noise));
+  // MX programs take the vertex colour as stored, Spine/Skeleton's convert it to linear light
+  assert.ok(noise.includes("vertexColour(false)") && M.PROGRAMS.pma.src.includes("vertexColour(true)"));
+  // the glitch: two passes on opposite bands, the scan line texture's red and green, the tint
+  assert.equal(M.PROGRAMS.portraitNoise.passes, 2);
+  assert.ok(portrait.includes("u_pass < 0.5 ? band : -band") && portrait.includes("0.17008, 0.57216, 0.05776"));
+});
+
+test("ported pages draw with their programs and blends; dark colours and fallen-back blends as the game draws them", async () => {
+  const gl = fakeGL();
+  const portrait = { program: "portraitNoise", src: 1, dst: 10, srcA: 1, dstA: 10, straight: 0,
+    floats: { _GlitchFreq: 0.98, _GlitchOffset: 0.005, _GlitchThickness: 900, _ScanLineSpeed: 0.15 },
+    colors: { _Color: [1, 1, 1, 1], _Black: [0, 0, 0, 0], _PortraitNoiseTint: [0.5, 0.5, 0.5, 0] },
+    tex: { _PortraitNoiseTex: { id: "cab-s_1", w: 32, h: 32, filter: 1, mips: 0, wrap: [0, 0], srgb: 0 } } };
+  const layer = { name: "Aru_home", materials: { pages: { Page3: multiply, Page4: portrait }, blend: {}, scale: 0.01, tintBlack: false } };
+  const p = player(gl, [["body", 0, "Page1"], ["shade", 0, "Page3", { r: 1, g: 0, b: 0, a: 1 }], ["light", 3, "Page1"],
+    ["glow", 1, "Page3"], ["screen", 0, "Page4"], ["hair", 0, "Page1"]], layer);
+  assert.equal(M.attach(p, layer), false, "linear light first");
+  assert.ok(attachLinear(p));
+  const loads = [];
+  assert.ok(M.attach(p, layer, { screen: () => ({ x: -100, y: -50, width: 200, height: 100 }), base: "/lobby/x/", load: async (url) => { loads.push(url); return {}; } }));
+  assert.deepEqual(loads, ["/lobby/x/fx_cab-s_1.png"], "the material's own textures, from the lobby's route");
+  await new Promise((r) => setTimeout(r, 0));
+  const from = gl.calls.length;
+  const log = p.frame();
+  const calls = gl.calls.slice(from);
+  // spine-player's shader for its own pages (the fallen-back screen slot too); the multiply page's program, and again
+  // for the additive slot on it (its vertex alpha 0); the glitch page in two passes; spine-player's shader again
+  assert.deepEqual(log.filter(([k]) => k === "flush" || k === "pass").map((e) => e.slice(1)), [
+    ["spine", "Page1"], ["pma", "Page3"], ["spine", "Page1"], ["pma", "Page3"], ["portraitNoise"], ["portraitNoise", "Page4"], ["spine", "Page1"]]);
+  const blends = calls.filter(([n]) => n === "blendFuncSeparate").map((c) => c.slice(1));
+  assert.ok(blends.some((b) => b.join() === "DST_COLOR,ONE_MINUS_SRC_ALPHA,DST_COLOR,ONE_MINUS_SRC_ALPHA"), "the multiply shader's blend (DstColor for alpha reads the destination's alpha)");
+  const set = (name) => calls.filter((c) => c[1]?.uniform === name).map((c) => c[2]);
+  assert.deepEqual(set("u_additive"), [0, 1, 0, 0], "the additive slot's program run sees alpha 0");
+  assert.deepEqual(set("u_pass"), [0, 0, 0, 1]);
+  near(set("_PortraitNoiseTint")[0], Math.pow((0.5 + 0.055) / 1.055, 2.4), 1e-9, "a Color in linear light");
+  // the dark colour is never drawn, and it is back after the draw
+  assert.ok(log.filter(([k]) => k === "dark").every(([, , d]) => d === null));
+  assert.deepEqual(p.skeleton.slots[1].darkColor, { r: 1, g: 0, b: 0, a: 1 });
+  // the screen slot without screen materials draws as Normal (its own blend mode untouched)
+  const modes = log.filter(([k]) => k === "mode").map(([, m]) => m);
+  assert.ok(!modes.includes(spine.BlendMode.Screen) && modes.includes(spine.BlendMode.Additive), `the batch's blend modes ${modes}`);
+  assert.equal(p.skeleton.data.slots[2].blendMode, spine.BlendMode.Screen);
+  assert.deepEqual(M.stats()[0].normal, ["light"]);
+  // a lost context has freed the scan line texture: it is made again from the image in memory
+  const uploads = () => gl.calls.filter(([n, , , format]) => n === "texImage2D" && format === "RGBA8").length;
+  assert.equal(uploads(), 1, "linear (not sRGB) as the game imports it");
+  gl.live.clear(); // every object goes with the context
+  for (const r of p.context.restorables) r.restore();
+  p.frame();
+  assert.equal(uploads(), 2);
+  // for checks: spine-player alone
+  M.show(false);
+  const plain = p.frame();
+  assert.deepEqual(plain.filter(([k]) => k === "flush").map((e) => e[1]), ["spine", "spine", "spine", "spine", "spine", "spine"]);
+  assert.deepEqual(plain.filter(([k]) => k === "mode").map(([, m]) => m).filter((m) => m === spine.BlendMode.Screen), [spine.BlendMode.Screen]);
+  M.show(true);
+  // detach: spine-player's methods, the blend modes, and no GL object left
+  const programs = calls.filter(([n]) => n === "createProgram").length;
+  M.detach(p);
+  for (const k of ["draw", "flush", "begin"]) assert.ok(!Object.prototype.hasOwnProperty.call(p.sceneRenderer.batcher, k), k);
+  assert.ok(Object.prototype.hasOwnProperty.call(p.sceneRenderer.batcher, "setBlendMode"), "linear.js's own again");
+  assert.equal(gl.calls.filter(([n]) => n === "deleteProgram").length >= programs, true);
+  Linear.detach(p);
+  assert.equal(gl.live.size, 0);
+  assert.deepEqual(M.stats(), []);
+});
+
+test("a skeleton without prefab data keeps spine-player's drawing", () => {
+  const gl = fakeGL(), p = player(gl, [["light", 3, "Page1"]], { name: "Mod_home" });
+  attachLinear(p);
+  assert.equal(M.attach(p, p.bamtLayer), false);
+  assert.deepEqual(p.frame().filter(([k]) => k === "mode").map(([, m]) => m), [3]);
   Linear.detach(p);
 });

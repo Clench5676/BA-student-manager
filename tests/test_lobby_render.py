@@ -1,5 +1,6 @@
-"""The memorial lobbies' plain mesh renderers and their Animators (meshfx.py), from plain typetrees; their front end in
-Node; and, on an official game folder, what the lobbies carry."""
+"""The memorial lobbies' plain mesh renderers and their Animators (meshfx.py) and skeleton materials
+(spine_materials.py), from plain typetrees; their front end in Node; and, on an official game folder, what the lobbies
+carry."""
 
 from __future__ import annotations
 
@@ -11,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from ba_modding_toolkit.gameassets import meshfx, particles
+from ba_modding_toolkit.gameassets import meshfx, particles, spine_materials
 from ba_modding_toolkit.gameassets.model import DecodedClip
 
 GAME_DIR = Path(os.environ.get("BAMT_TEST_GAME_DIR") or "/nonexistent/bamt-real-game")
@@ -150,3 +151,93 @@ def test_real_lobby_mesh_renderers(real_game):
     assert {t.get("attr") or t["prop"] for t in tracks} == {"s", "_Color0"} and all(len(c["tracks"][0]["v"]) == 201 for c in akane["clips"])
     hanako = real_game.lobby_info("hanako_home")["fx"]["renderers"][0]
     assert hanako["name"] == "water" and hanako["anchor"]["bone"] == "All_Layer"
+
+
+# --- skeleton materials ---------------------------------------------------------------------------------------------
+
+def form(name: str, src: dict, dst: dict, src_a: dict | None = None, dst_a: dict | None = None, props=()) -> dict:
+    """A shader's parsed form as the resolver keeps it: one pass, its blend factors fixed or naming a property."""
+    blend = {"srcBlend": src, "destBlend": dst, "srcBlendAlpha": src_a or src, "destBlendAlpha": dst_a or dst}
+    return {"m_Name": name, "m_PropInfo": {"m_Props": list(props)}, "m_SubShaders": [{"m_Passes": [{"m_State": {"rtBlend0": blend}}]}]}
+
+
+def fixed(v: int) -> dict:
+    return {"val": float(v), "name": "<noninit>"}
+
+
+def test_page_material_blend_and_values():
+    props = [{"m_Name": "_Color", "m_Type": 0, "m_DefValue[0]": 1.0, "m_DefValue[1]": 1.0, "m_DefValue[2]": 1.0, "m_DefValue[3]": 1.0},
+             {"m_Name": "_MainTex", "m_Type": 4, "m_DefTexture": {"m_DefaultName": "black"}},
+             {"m_Name": "_NoiseTex", "m_Type": 4, "m_DefTexture": {"m_DefaultName": "gray"}},
+             {"m_Name": "_PixelNoisePower", "m_Type": 2, "m_DefValue[0]": 0.001}]
+    # the multiply shader's factors are fixed: a stray "<noninit>" float on the material (Hina's page) is not read
+    tree = {"m_ValidKeywords": ["_STRAIGHT_ALPHA_INPUT"], "m_SavedProperties": {"m_Floats": [["<noninit>", 0.0]], "m_Colors": []}}
+    mat = spine_materials.material("Spine/Blend Modes/Skeleton PMA Multiply", form("m", fixed(2), fixed(10), props=props), tree, {})
+    assert (mat["program"], mat["src"], mat["dst"], mat["srcA"], mat["dstA"], mat["straight"]) == ("pma", 2, 10, 2, 10, 1)
+    assert mat["colors"]["_Color"] == [1.0, 1.0, 1.0, 1.0]
+    # the page itself is never a material texture; another slot names the shader's default, or its texture
+    assert "_MainTex" not in mat["tex"] and mat["tex"]["_NoiseTex"] == {"default": "gray"}
+    noise = {"id": "cab-n_1", "name": "FX_TEX_Noise", "w": 128, "h": 128, "filter": 1, "mips": 0, "wrap": [1, 1], "srgb": 1}
+    tree = {"m_SavedProperties": {"m_Floats": [["_SrcBlend", 1.0], ["_DstBlend", 10.0], ["_PixelNoisePower", 5.0]]}}
+    named = form("n", {"val": 0.0, "name": "_SrcBlend"}, {"val": 0.0, "name": "_DstBlend"}, props=props)
+    mat = spine_materials.material("Spine/Skeleton MX Standard - NoiseFlowAnimation", named, tree, {"_NoiseTex": noise})
+    assert (mat["program"], mat["src"], mat["dst"], mat["straight"]) == ("noiseFlow", 1, 10, 0)
+    assert mat["floats"]["_PixelNoisePower"] == 5.0 and mat["tex"]["_NoiseTex"] == noise
+    # the shaders spine-player draws as the game does have no program
+    assert spine_materials.program("Spine/Skeleton") is None and spine_materials.program("Spine/Skeleton MX Standard") is None
+
+
+def test_skeleton_pages_and_blend_mode_materials():
+    multiply = {"program": "pma", "tex": {}}
+    plain = {"program": None, "tex": {}}
+    noise = {"program": "noiseFlow", "tex": {"_NoiseTex": {"id": "cab-n_1", "w": 4, "h": 4}}}
+    found = {7: ("Hina_home3", multiply)}
+    entry = lambda page, pid: {"pageName": page, "material": {"m_FileID": 0, "m_PathID": pid}}  # noqa: E731
+    out = spine_materials.skeleton(
+        [("Hina_home", plain), ("Hina_home3", multiply), ("Water", noise)],
+        {"requiresBlendModeMaterials": 1, "applyAdditiveMaterial": 0, "multiplyMaterials": [entry("Hina_home3.png", 7)],
+         "screenMaterials": [entry("Hina_home.png", 0)], "additiveMaterials": [entry("Hina_home.png", 7)]},
+        lambda pointer: found.get(pointer["m_PathID"]), 0.01)
+    # only the pages a ported program draws; replacement lists by page, a null reference as None, additive slots keep
+    # their page's material without applyAdditiveMaterial
+    assert out["pages"] == {"Hina_home3": multiply, "Water": noise}
+    assert out["blend"] == {"multiply": {"Hina_home3": multiply}, "screen": {"Hina_home": None}}
+    assert out["scale"] == 0.01
+    # without requiresBlendModeMaterials the lists are never applied (ch0163, Hiyori: their screen slots draw Normal)
+    off = spine_materials.skeleton([], {"requiresBlendModeMaterials": 0, "screenMaterials": [entry("A.png", 7)]},
+                                   lambda pointer: found.get(pointer["m_PathID"]))
+    assert off["blend"] == {}
+    layers = [{"materials": out}, {"materials": {"pages": {}, "blend": {}}}, {}]
+    assert spine_materials.textures(layers) == {"cab-n_1": {"id": "cab-n_1", "w": 4, "h": 4}}
+    sa = {"skeletonDataAsset": {"m_FileID": 0, "m_PathID": 9}, "tintBlack": 0}
+    assert spine_materials.layer(lambda kind, owner, pointer: ("x", out) if kind == "skeleton" else None, 1, sa) == {
+        "materials": {"pages": out["pages"], "blend": out["blend"], "scale": 0.01, "tintBlack": False}}
+    assert spine_materials.layer(None, 1, sa)["materials"] == {"pages": {}, "blend": {}, "scale": 0.01, "tintBlack": False}
+
+
+@pytest.mark.skipif(not GAME_DIR.is_dir(), reason="No local game install")
+def test_real_lobby_page_materials(real_game):
+    layer = lambda core: next(l for l in real_game.lobby_info(core)["layers"] if l["active"])  # noqa: E731
+    # Aru's third page multiplies (its material's shader), whatever its slots say
+    aru = layer("aru_home")["materials"]
+    assert aru["pages"]["Aru_home3"]["program"] == "pma"
+    assert (aru["pages"]["Aru_home3"]["src"], aru["pages"]["Aru_home3"]["dst"]) == (2, 10) and aru["blend"] == {}
+    # ch0163 and Hiyori have no blend mode materials: their screen slots keep their page's material
+    for core in ("ch0163_home", "hiyori_home"):
+        assert layer(core)["materials"]["blend"] == {} and layer(core)["materials"]["pages"] == {}
+    # Hina's multiply slots take her multiply page's material
+    hina = layer("hina_home")["materials"]
+    assert hina["blend"]["multiply"]["Hina_home3"]["program"] == "pma" and hina["blend"]["multiply"]["Hina_home3"]["src"] == 2
+    # the noise pages, with their noise textures served like the particles' (memory only)
+    for core, pages in (("ch0319_home", {"CH0319_home_3"}), ("ch0326_home", {"CH0326_home_2"}),
+                        ("ch0355_home", {"CH0355_home_4", "CH0355_home_5"})):
+        info = real_game.lobby_info(core)
+        mats = layer(core)["materials"]
+        assert set(mats["pages"]) == pages and {m["program"] for m in mats["pages"].values()} == {"noiseFlow"}
+        tex = next(iter(mats["pages"].values()))["tex"]["_NoiseTex"]
+        assert tex["id"] in info["fx"]["textures"]
+        assert real_game.lobby_fx_texture(core, tex["id"])[:8] == b"\x89PNG\r\n\x1a\n"
+    ch0310 = layer("ch0310_home")["materials"]["pages"]["CH0310_home_3"]
+    assert ch0310["program"] == "portraitNoise" and ch0310["floats"]["_GlitchFreq"] == pytest.approx(0.98)
+    # no lobby renderer writes the dark colour
+    assert not any(l["materials"]["tintBlack"] for core in ("ch0205_home", "neru_home") for l in real_game.lobby_info(core)["layers"])

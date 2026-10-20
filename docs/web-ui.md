@@ -143,7 +143,8 @@ class GameAssets:
     def spine_files_from(self, bundles: list[Path]) -> dict[str, bytes]    # the same, for a mod's bundle files
     def lobby_info(self, core: str) -> dict                    # a lobby's layers, touch boxes, clips, idle pools,
                                                                # sound events, post-processing (lobby.py), particle
-                                                               # and mesh effects (particles.py, meshfx.py)
+                                                               # and mesh effects (particles.py, meshfx.py) and page
+                                                               # materials (spine_materials.py)
     def lobby_fx_texture(self, core: str, tex_id: str) -> bytes # a texture lobby_info's "fx" lists, as PNG
     def lobby_sound(self, core: str, clip_id: str) -> bytes   # a clip lobby_info's "sounds" lists, decoded to WAV
     def model_cores(self) -> set[str]                          # dev names with a chibi (character-<dev>-_mxload-*)
@@ -470,8 +471,8 @@ library).
 | `/asset/ui/layout/<root>.json?path=<subpath>` | light |
 | `/asset/art/bg/<name>`, `/asset/art/portrait/<name>.png` | heavy |
 | `/asset/spine/spr/<core>/<file>`, `/asset/spine/lobby/<core>/<file>`, `/asset/spine/mod/<id>/<file>` (`skeleton.skel` and `skeleton.atlas` stand for the skeleton named like the core, a mod's own core for a mod, else the only one) | heavy |
-| `/asset/spine/lobby/<core>/lobby.json` (prefab layout, touch boxes, clips, idle pools, sound events, post-processing, particle and mesh effects; no skeleton is extracted) | heavy |
-| `/asset/spine/lobby/<core>/fx_<id>.png` (a particle or mesh texture the lobby's `fx.textures` lists) | heavy |
+| `/asset/spine/lobby/<core>/lobby.json` (prefab layout, touch boxes, clips, idle pools, sound events, post-processing, particle and mesh effects, page materials; no skeleton is extracted) | heavy |
+| `/asset/spine/lobby/<core>/fx_<id>.png` (a particle, mesh or page shader texture the lobby's `fx.textures` lists) | heavy |
 | `/asset/spine/lobby/<core>/sfx_<id>.wav` (a sound clip the lobby's `sounds` list, decoded in memory) | heavy |
 | `/asset/model/<variant>.glb` (the variant's chibi, `model/gltf-binary`) | heavy |
 | `/asset/voice/<variant>/<clip>` (a lobby voice relayed from Kivo) | heavy |
@@ -777,6 +778,31 @@ in `pointer-textures`); without a game the system cursor stays and there is no e
   (Euler curves in their rotation order) and animates their materials' colours: a Color channel (`.r`, bit 30 of the
   binding's attribute set) is converted to linear light like the material's colours, a Vector channel (`.x`, as
   Shiroko's lens dirt animates its `_Color0`) is not.
+- **Skeleton materials** (`gameassets/spine_materials.py`, `skeleton-materials.js`). spine-unity draws each submesh
+  with its atlas page's material, so a page's shader decides how its slots draw, whatever their blend mode:
+  - Aru's third page uses Spine/Blend Modes/Skeleton PMA Multiply (Blend DstColor OneMinusSrcAlpha): its Normal
+    slots multiply. Hina's multiply light takes the same shader from her blend mode materials.
+  - CH0319's, CH0326's and CH0355's water and river pages use Spine/Skeleton MX Standard - NoiseFlowAnimation: the
+    page's UV shifts by (2 noise - 1) x `_PixelNoisePower` x 0.001 x the vertex alpha, the noise scrolling at
+    `_PixelNoiseSpeed`, inside a square of a plane taken from the vertex position (less `_CenterX` / `Y` in Unity
+    units, times 0.01, turned by `_Rotate`, skewed and bent toward a vanishing line by `_SlopeForward` and
+    `_SlopeSide`), the vertex colour as stored (no conversion to linear light).
+  - CH0310's game screen (its intro only) uses Spine/Skeleton MX Portrait Noise: two passes draw alternate horizontal
+    bands of the game's screen (sin(v x 900 + time) at or above 0, at or below), each shifted by `_GlitchOffset`
+    of the camera's clip space on the frames a hash of the time passes `_GlitchFreq` (about one in fifty), the page
+    times 0.72 x a scrolling scan line texture plus `_PortraitNoiseTint`.
+  - Slot blend modes reach the screen only through materials: with `requiresBlendModeMaterials` set,
+    BlendModeMaterials gives Multiply and Screen slots (Additive ones with `applyAdditiveMaterial`) the replacement
+    material listed for their page; without it (all but 4 of the lobbies' 288 skeleton data assets) they keep their page's material and
+    draw as Normal. ch0163's light_01 and Hiyori's R_eye_ligth_02 drew as Screen; spine-player's Screen on straight
+    alpha textures also ignored their alpha (a hard-edged patch over Hiyori's iris). An Additive slot always adds
+    (its premultiplied vertex colour has alpha 0).
+  - The dark colour (two-colour tint) is never drawn: `tintBlack` is off in every lobby's SkeletonAnimation and no
+    lobby page shader reads it (their vertex programs take position, UV and one colour). CH0205's wing and Neru's
+    halo key one, black.
+  The ported programs are taken from their D3D11 bytecode and run in spine-player's batch: a draw switches to the
+  page's program and blend (flushing the batch), feeding it the game's vertex colour (premultiplied, alpha 0 for an
+  additive slot) from linear.js's tinted one.
 - **Intro scenes.** Three prefabs keep four skeletons of their intro timeline (a PlayableDirector with Spine Animation
   State tracks) parked beside the scene: Shigure's Shigure_00 and Shigure_01 at x -4500 and 4500, CH0184_00 and
   Wakamo_Scene_0. Their clip assets are on track -1 (only the timeline plays them). Shigure's timeline (an Animation

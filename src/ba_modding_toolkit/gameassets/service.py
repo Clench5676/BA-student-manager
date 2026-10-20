@@ -695,8 +695,9 @@ class _FxResolver:
     """Reads what a lobby's renderers point at, for lobby.read_prefab: a particle material as (id, particles.material)
     with its textures (particles.texture), a mesh as (id, particles.mesh) (Unity's built-in Quad as ("quad", None)),
     the render queue of a skeleton's atlas pages ("pages": a SkeletonDataAsset, or one Material) as (id, {texture
-    name: queue}) and an Animator's controller ("animator") as (id, {"decoded", "bindings", "loop"}) of its default
-    state's clip. Ids are "<cab>_<path id>"."""
+    name: queue}), the materials a skeleton is drawn with ("skeleton": a SkeletonDataAsset) as (id,
+    spine_materials.skeleton) and an Animator's controller ("animator") as (id, {"decoded", "bindings", "loop"}) of
+    its default state's clip. Ids are "<cab>_<path id>"."""
 
     def __init__(self, graph: Any, objects: dict[int, Any], shader_forms: dict):
         self.graph, self.objects, self.forms = graph, objects, shader_forms
@@ -724,6 +725,8 @@ class _FxResolver:
                 out = (oid, particles.mesh(data.vertices, data.uv0, data.normals, tris, data.colors))
             elif kind == "pages" and obj.type.name in ("MonoBehaviour", "Material"):
                 out = (oid, self._pages(obj))
+            elif kind == "skeleton" and obj.type.name == "MonoBehaviour":
+                out = (oid, self._skeleton(obj))
             elif kind == "animator" and obj.type.name == "AnimatorController":
                 out = self._animator(obj, oid)
         except Exception:  # an unreadable object: the system is left out
@@ -802,6 +805,42 @@ class _FxResolver:
         out = particles.material(name, tree, state, form["m_PropInfo"].get("m_Props", []) if form else (), textures)
         out["cull"] = state.get("cull", 2)  # back faces are culled (2), front faces (1) or none (0): meshfx.py's meshes
         return out
+
+    def _skeleton(self, obj: Any) -> dict:
+        """The materials of a SkeletonDataAsset's atlas pages and its blend mode replacement materials
+        (spine_materials.skeleton). Only the pages a ported shader draws read their other textures' settings; no
+        pixels are read."""
+        from . import spine_materials
+
+        g = self.graph
+        tree = g.tree(obj)
+        mats = []
+        for atlas in (g.deref(obj, p) for p in tree.get("atlasAssets") or []):
+            if atlas is not None:
+                for mat in (g.deref(atlas, p) for p in g.tree(atlas).get("materials") or []):
+                    if mat is not None and mat.type.name == "Material":
+                        mats.append(self._spine_material(mat))
+
+        def replacement(pointer: dict) -> tuple[str | None, dict] | None:
+            mat = g.deref(obj, pointer)
+            return self._spine_material(mat) if mat is not None and mat.type.name == "Material" else None
+        return spine_materials.skeleton(mats, tree.get("blendModeMaterials") or {}, replacement, tree.get("scale") or 0.01)
+
+    def _spine_material(self, mat: Any) -> tuple[str | None, dict]:
+        from . import particles, spine_materials
+
+        g = self.graph
+        tree = g.tree(mat)
+        name, form, _ = self._state(mat, tree)
+        envs = dict((tree.get("m_SavedProperties") or {}).get("m_TexEnvs", []))
+        main = g.deref(mat, (envs.get("_MainTex") or {}).get("m_Texture"))
+        textures = {}
+        for prop, env in envs.items() if spine_materials.program(name) else ():
+            tex = g.deref(mat, env.get("m_Texture")) if prop != "_MainTex" else None
+            if tex is not None and tex.type.name == "Texture2D":
+                textures[prop] = particles.texture(g.tree(tex), f"{tex.assets_file.name.lower()}_{tex.path_id}")
+                g.trees.pop((tex.assets_file.name.lower(), tex.path_id), None)
+        return (main.peek_name() if main is not None else None), spine_materials.material(name, form, tree, textures)
 
     def _animator(self, controller: Any, oid: str) -> tuple[str, dict] | None:
         """The clip an AnimatorController's first layer plays in its default state (the lobbies' controllers have one

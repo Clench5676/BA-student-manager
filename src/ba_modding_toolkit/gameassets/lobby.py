@@ -20,7 +20,7 @@ import re
 from collections.abc import Callable, Iterable
 from typing import Any
 
-from . import meshfx, particles
+from . import meshfx, particles, spine_materials
 
 # the game's 16:9 view around the prefab root (the UI's 2960-unit NGUI width, util.js S = 1920 / 2960)
 GAME_VIEW = {"x": -1480.0, "y": -832.5, "w": 2960.0, "h": 1665.0}
@@ -281,12 +281,13 @@ def read_prefab(kinds: dict[int, str], tree: Callable[[int], dict], scripts: dic
                 skeletons: Iterable[str], clips: Clips,
                 profile: Callable[[int, dict], list[dict] | None] | None = None,
                 resolve: Callable[[str, int, dict], tuple[str, Any] | None] | None = None) -> dict | None:
-    """The lobby's layout, touch boxes, post-processing and particle and mesh effects from one prefab bundle: kinds
-    maps path ids to object types, tree reads a typetree, scripts maps MonoScript path ids to class names,
-    profile(volume path id, sharedProfile pointer) gives a volume profile's component typetrees, resolve(kind, owner
-    path id, pointer) reads a material ("material"), mesh ("mesh"), animator controller ("animator") or skeleton data
-    asset ("pages") in another bundle as (id, data) (particles.build, meshfx.build). None when the root is missing or
-    places none of the skeletons."""
+    """The lobby's layout, touch boxes, post-processing, particle and mesh effects and the materials its skeletons are
+    drawn with, from one prefab bundle: kinds maps path ids to object types, tree reads a typetree, scripts maps
+    MonoScript path ids to class names, profile(volume path id, sharedProfile pointer) gives a volume profile's
+    component typetrees, resolve(kind, owner path id, pointer) reads a material ("material"), mesh ("mesh"), animator
+    controller ("animator") or skeleton data asset ("skeleton", "pages") in another bundle as (id, data)
+    (particles.build, meshfx.build, spine_materials.layer). None when the root is missing or places none of the
+    skeletons."""
     wanted = {s.lower(): s for s in skeletons}
     top = next((pid for pid, kind in kinds.items() if kind in _TRANSFORMS and not tree(pid)["m_Father"]["m_PathID"]
                 and tree(tree(pid)["m_GameObject"]["m_PathID"])["m_Name"].lower() == root.lower()), None)
@@ -351,6 +352,7 @@ def read_prefab(kinds: dict[int, str], tree: Callable[[int], dict], scripts: dic
                 "order": renderer.get("m_SortingOrder", 0), "queue": min(pages.values(), default=3000), "pages": pages,
                 "z": particles.rounded(n["m3"])[11], "index": len(layers),
                 "skin": sa.get("initialSkinName") or None, "animation": sa.get("_animationName") or None,
+                **spine_materials.layer(resolve, pid, sa),
             })
     if not layers:
         return None
@@ -441,6 +443,7 @@ def read_prefab(kinds: dict[int, str], tree: Callable[[int], dict], scripts: dic
         fx[key].update(meshes[key])
     if meshes["renderers"]:
         fx.update(renderers=meshes["renderers"], clips=meshes["clips"])
+    fx["textures"].update(spine_materials.textures(layers))  # the page shaders' own textures
     return {"prefab": tree(tree(top)["m_GameObject"]["m_PathID"])["m_Name"], "main": main, "layers": layers,
             "drags": drags, "touches": touches, "randomIdle": random_idle, "idle": idle, "idles": idles,
             "dialog": dialog, "post": post_processing(volumes), "fx": fx}

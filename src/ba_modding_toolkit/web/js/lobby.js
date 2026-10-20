@@ -15,8 +15,11 @@
 // effects that sort between two of them in between: Hibiki's river surface over the river, under her.
 // Each skeleton's idle starts the clips the game's does (Shigure's train, snow, clouds, stars), some of them at random
 // times (lobby-sync.js), and the clips' sound keys play the game's sounds at the voice volume.
+// The skeletons draw with the game's materials (skeleton-materials.js: the multiply, noise and glitch pages, slot
+// blend modes as the materials give them, no dark colour).
 import { spineFiles } from "./api.js";
 import * as Linear from "./linear.js";
+import * as Materials from "./skeleton-materials.js";
 import * as Particles from "./particles-gl.js";
 import * as Parts from "./skeleton-parts.js";
 import * as Touch from "./lobby-touch.js";
@@ -653,6 +656,7 @@ function makePlayer(host, layer, onReady, onError = () => {}, fx = null) {
       if (Linear.attach(player)) {
         Linear.setPost(player, current?.info?.post);
         Linear.setScreen(player, layerViewport(game(), layer));
+        Materials.attach(player, layer, { screen: () => layerViewport(game(), layer), base: base(current.core) });
       }
       if (layer.skin) try { player.skeleton.setSkinByName(layer.skin); player.skeleton.setSlotsToSetupPose(); } catch { /* the default skin */ }
       // the idle, and with it the clips it starts (its sync clips, the rest of its pool), as the game's OnEnable
@@ -788,6 +792,7 @@ export function hide(host) {
   Idle.stop();
   for (const p of players) {
     current?.fx?.detach(p); // the particles' programs, buffers and textures in its context
+    Materials.detach(p); // its page programs and textures, the batcher's own methods
     Linear.detach(p); // its framebuffer and program: spine's dispose only frees spine's own objects
     p.dispose();
   }
@@ -888,6 +893,8 @@ function boneOf(skeleton, name) {
 }
 // for checks: the particle effects' live particles, systems, loaded textures, GL contexts and time per frame
 export const effects = (opts) => current?.fx?.stats(opts) || null;
+// for checks: the layers' players, bottom first
+export const layerPlayers = () => players.filter((p) => p.bamtLayer);
 
 // --- random idle clips (SpineCharacter.idleBaseRandomClipPool): blinks, ear twitches, expression changes, each
 // after a random wait; held back while a dialogue or a drag runs. Without them the newer lobbies never blink. ---
