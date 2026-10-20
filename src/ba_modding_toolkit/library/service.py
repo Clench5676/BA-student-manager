@@ -1351,6 +1351,7 @@ class ModLibrary:
                 markers = {}
         if markers or built_drops:
             stamp = now()
+            dropped: list[dict] = []
 
             def change(data: dict) -> bool:
                 changed = False
@@ -1363,11 +1364,12 @@ class ModLibrary:
                 for key, cores in built_drops.items():
                     folder = data["folders"].get(key)
                     for core in cores:
-                        if folder and folder["built"].pop(core, None) is not None:
+                        if folder and core in folder["built"]:
+                            dropped.append(folder["built"].pop(core))
                             changed = True
                 return changed
 
-            self._update_profiles(change)
+            self._delete_built_files(dropped, self._update_profiles(change))
         return released
 
     def _unchanged_official(self, path: Path) -> bool:
@@ -1875,11 +1877,15 @@ class ModLibrary:
             return
         inputs = self._inputs(pin, entry.core, source)
         key = {"source": source, "inputs": inputs, "parts": parts}
+        replaced: list[dict] = []
 
         def change(data: dict) -> None:
-            self._folder(data, pin)["built"][entry.core] = key
+            built = self._folder(data, pin)["built"]
+            if entry.core in built:
+                replaced.append(built[entry.core])
+            built[entry.core] = key
 
-        self._update_profiles(change)
+        self._delete_built_files(replaced, self._update_profiles(change))
 
     def _inputs(self, pin: Pin, core: str, source: str) -> list[str]:
         """The other game files a build of a source reads: an adapted mod's official parts of its own core, another
@@ -2217,6 +2223,7 @@ class ModLibrary:
         if not takeovers and not missing:
             return
         stamp = now()
+        dropped: list[dict] = []
 
         def change(data: dict) -> bool:
             changed = False
@@ -2229,7 +2236,8 @@ class ModLibrary:
                 logger.info("Configured %s in %s with %s (taken over)", entry.core, entry.pin.key, entry.takeover)
                 folder["configured"][entry.core] = {"variant": entry.variant, "kind": entry.kind,
                                                     "source": entry.takeover, "since": stamp}
-                folder["built"].pop(entry.core, None)
+                if entry.core in folder["built"]:
+                    dropped.append(folder["built"].pop(entry.core))
                 changed = True
             for entry in missing:
                 folder = data["folders"].get(entry.pin.key)
@@ -2238,11 +2246,12 @@ class ModLibrary:
                                 entry.pin.key, entry.configured)
                     del folder["configured"][entry.core]
                     folder["updated"].pop(entry.core, None)
-                    folder["built"].pop(entry.core, None)
+                    if entry.core in folder["built"]:
+                        dropped.append(folder["built"].pop(entry.core))
                     changed = True
             return changed
 
-        self._update_profiles(change)
+        self._delete_built_files(dropped, self._update_profiles(change))
 
     # --- adopting mods already in use ---
 
@@ -2333,15 +2342,18 @@ class ModLibrary:
                                for part in nonofficial}}
             variant = entry.variant
             named = any(other.key == pin.key for other in self._named_pins())
+            replaced: list[dict] = []
 
             def change(data: dict) -> None:
                 folder = data["folders"].get(pin.key) or self._new_folder(data, pin, named)
                 folder["configured"][core] = {"variant": variant, "kind": entry.kind, "source": source,
                                               "since": stamp}
                 folder["updated"].pop(core, None)
+                if core in folder["built"]:
+                    replaced.append(folder["built"][core])
                 folder["built"][core] = built
 
-            self._update_profiles(change)
+            data = self._update_profiles(change)
         except Exception:
             self._applied = old_applied
             with contextlib.suppress(OSError):
@@ -2349,6 +2361,7 @@ class ModLibrary:
             if created:
                 self._drop_mods([mod_id])
             raise
+        self._delete_built_files(replaced, data)
         logger.info("Added %s of %s to the library as mod %s", core, pin.key, mod_id)
         return mod_id
 

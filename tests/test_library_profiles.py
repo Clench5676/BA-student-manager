@@ -2023,10 +2023,90 @@ def test_a_game_update_drops_the_built_copy_and_on_rebuilds(world, monkeypatch):
     successor = game_update(world.spr)
     world.reload()
     world.library.prune()
-    assert "test_spr" not in world.folder()["built"]
+    assert "test_spr" not in world.folder()["built"] and not copy.exists()
     monkeypatch.setattr(mod_install, "_asset_match", lambda sources, candidates, log: (candidates, ""))
     world.toggle(True)
     assert successor.read_bytes() != header_bundle(b"updated!")
+
+
+def test_a_game_update_keeps_a_built_file_another_install_still_uses(world, monkeypatch):
+    folder = japan(world)
+    mod = world.add(world.spr, fixed=True)
+    rebuilding_installer(monkeypatch)
+    world.library.apply("test", f"mod:{mod.id}")
+    world.library.apply("test", f"mod:{mod.id}", pin=pin_of(world, folder))
+    world.toggle(False)
+    copy, = (world.root / "built").iterdir()
+    game_update(world.spr)
+    world.reload()
+    world.library.prune()
+    assert "test_spr" not in world.folder()["built"] and world.folder(folder)["built"]["test_spr"]
+    assert copy.exists()
+
+
+def test_a_built_copy_goes_with_a_configuration_the_scan_drops(world, monkeypatch):
+    world.consent = True
+    mod = world.add(world.spr, fixed=True)
+    rebuilding_installer(monkeypatch)
+    world.library.apply("test", f"mod:{mod.id}")
+    world.toggle(False)
+    copy, = (world.root / "built").iterdir()
+    data = json.loads((world.root / "state.json").read_text())
+    data["mods"] = []
+    (world.root / "state.json").write_text(json.dumps(data))
+    world.reload()
+    assert world.entries()[(world.key(), "test_spr")].state == "source_missing"
+    assert world.folder()["built"] == {} and not copy.exists()
+
+
+def test_a_built_copy_goes_with_a_configuration_the_scan_takes_over(world, monkeypatch):
+    world.consent = True
+    first, second = world.add(world.spr, fixed=True), world.add(world.spr, b"second!!", fixed=True, where="b")
+    rebuilding_installer(monkeypatch)
+    world.library.apply("test", f"mod:{first.id}")
+    world.toggle(False)
+    world.toggle(True)  # written back from its built copy, which stays
+    copy, = (world.root / "built").iterdir()
+    # an alpha.3 instance, which keeps no built copies, wrote the other mod after
+    world.spr.write_bytes(second.file.read_bytes())
+    path, stat = world.root / "state.json", world.spr.stat()
+    data = json.loads(path.read_text())
+    data["applied"][str(world.spr.resolve())].update(
+        source=f"mod:{second.id}", sha1=storage.Fingerprints().get(world.spr).sha1, size=stat.st_size,
+        mtime=stat.st_mtime_ns, at="2100-01-01T00:00:00+00:00")
+    path.write_text(json.dumps(data))
+    world.reload()
+    assert world.entries()[(world.key(), "test_spr")].configured == f"mod:{second.id}"
+    assert "test_spr" not in world.folder()["built"] and not copy.exists()
+
+
+def test_a_replaced_built_copy_leaves_no_file_behind(world, monkeypatch):
+    mod = world.add(world.spr, fixed=True)
+    rebuilding_installer(monkeypatch)
+    world.library.apply("test", f"mod:{mod.id}")
+    stale = world.root / "built" / f"{'0' * 40}.bundle"
+    stale.parent.mkdir(parents=True)
+    stale.write_bytes(b"an earlier build")
+    world.library.profiles.update(lambda data: data["folders"][world.key()]["built"].update(
+        test_spr={"source": f"mod:{mod.id}", "inputs": [], "parts": {world.spr.name: {"sha1": "0" * 40,
+                                                                                      "mod_file": None}}}))
+    world.toggle(False)  # the Off keeps the bytes it found, replacing the key
+    assert world.folder()["built"]["test_spr"]["parts"][world.spr.name]["sha1"] != "0" * 40
+    assert not stale.exists() and len(list((world.root / "built").iterdir())) == 1
+
+
+def test_adopting_over_a_kept_built_copy_leaves_no_file_behind(world, monkeypatch):
+    world.consent = True
+    mod = world.add(world.spr, fixed=True)
+    rebuilding_installer(monkeypatch)
+    world.library.apply("test", f"mod:{mod.id}")
+    world.toggle(False)
+    world.toggle(True)
+    copy, = (world.root / "built").iterdir()
+    outside_mod(world.spr)  # another tool's mod over it
+    world.library.adopt([{"install": world.key(), "core": "test_spr"}])
+    assert world.folder()["configured"]["test_spr"]["source"] != f"mod:{mod.id}"
+    assert not copy.exists()
 
 
 def test_a_variant_entry_whose_source_files_changed_is_rebuilt(world, monkeypatch):
