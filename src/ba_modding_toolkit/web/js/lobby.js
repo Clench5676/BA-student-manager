@@ -19,6 +19,7 @@ import { spineFiles } from "./api.js";
 import * as Linear from "./linear.js";
 import * as Particles from "./particles-gl.js";
 import * as Parts from "./skeleton-parts.js";
+import * as SlotColours from "./slot-colours.js";
 import * as Touch from "./lobby-touch.js";
 import * as Sync from "./lobby-sync.js";
 
@@ -653,6 +654,7 @@ function makePlayer(host, layer, onReady, onError = () => {}, fx = null) {
       if (Linear.attach(player)) {
         Linear.setPost(player, current?.info?.post);
         Linear.setScreen(player, layerViewport(game(), layer));
+        Linear.setCurves(player, SlotColours.curvesOf(layer)); // the slot colours as each page's shader takes them
       }
       if (layer.skin) try { player.skeleton.setSkinByName(layer.skin); player.skeleton.setSlotsToSetupPose(); } catch { /* the default skin */ }
       // the idle, and with it the clips it starts (its sync clips, the rest of its pool), as the game's OnEnable

@@ -220,8 +220,8 @@ def test_prefab_layout_drags_touches_and_anchors():
     assert info["prefab"] == "LobbyTest" and info["main"] == "Test_home"
     layers = {l["name"]: l for l in info["layers"]}
     assert layers["Test_home"] == {"name": "Test_home", "x": 0.0, "y": -962.0, "scale": 1.0, "active": True,
-                                   "order": 0, "queue": 3000, "pages": {}, "z": 0.0, "index": 0, "skin": None,
-                                   "animation": None}
+                                   "order": 0, "queue": 3000, "pages": {}, "shaders": {}, "z": 0.0, "index": 0,
+                                   "skin": None, "animation": None}
     assert layers["Test_bg"]["order"] == -1 and layers["Test_bg"]["animation"] == "Idle_01"
     assert layers["Test_scene"]["active"] is False  # an inactive GameObject on the path
     pat, eye = info["drags"]
@@ -418,6 +418,30 @@ def test_prefab_particle_systems():
     assert ("material", 2502, 0) not in asked and not any(owner == 2602 for _, owner, _ in asked)
     # without a resolver nothing draws
     assert build_prefab().read("LobbyTest", SKELETONS, core_clips())["fx"]["systems"] == []
+
+
+def test_prefab_page_shaders():
+    # each atlas page's shader by the page's name (the shaders take the slot colours differently), read like the
+    # queues: from the skeleton data's atlas assets, else from the materials the renderer keeps
+    p = build_prefab()
+    p.objects[402][1]["m_Materials"] = [ref(64, 2)]
+    shaders = {(301, 9001): ("cab-core_9001", {"Test_home": "Spine/Skeleton MX Standard", "Test_home2": "Spine/Skeleton"}),
+               (402, 64): ("cab-sk_64", {"Test_bg": "Spine/Skeleton MX Standard"})}
+    asked = []
+
+    def resolve(kind, owner, pointer):
+        asked.append((kind, owner, pointer["m_PathID"]))
+        return shaders.get((owner, pointer["m_PathID"])) if kind == "shaders" else None
+
+    layers = {l["name"]: l for l in p.read("LobbyTest", SKELETONS, core_clips(), resolve)["layers"]}
+    assert layers["Test_home"]["shaders"] == {"Test_home": "Spine/Skeleton MX Standard", "Test_home2": "Spine/Skeleton"}
+    assert layers["Test_bg"]["shaders"] == {"Test_bg": "Spine/Skeleton MX Standard"}
+    assert ("shaders", 301, 9001) in asked and ("shaders", 401, 9002) in asked and ("shaders", 402, 64) in asked
+    # the queues are asked for on their own
+    assert layers["Test_home"]["pages"] == {} and layers["Test_home"]["queue"] == 3000
+    # without a resolver (or without prefab data) no page has a shader: every slot colour is decoded
+    assert all(l["shaders"] == {} for l in build_prefab().read("LobbyTest", SKELETONS, core_clips())["layers"])
+    assert lobby.lobby_info(["A_home"], lobby.Clips([], []), None)["layers"][0]["shaders"] == {}
 
 
 def test_lobby_info_with_and_without_prefab():
