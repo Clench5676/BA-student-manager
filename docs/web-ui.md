@@ -740,11 +740,21 @@ in `pointer-textures`); without a game the system cursor stays and there is no e
     background glows (one particle each, 60 a second, living 1 and 5 s; ch0177 and ch0356 have the same river) went
     missing for a frame at every replacement, its bottom-left corner blinking dark once a second, and Utaha's star (one
     particle, two a second, living 1 s) was off a third of the time; 63 systems in 39 lobbies had such gaps (60 fps,
-    4 x 120 s); the shapes sphere, hemisphere,
+    4 x 120 s); emission over distance (particles per Unity world unit the system's origin moves: CH0292's
+    headlights, 9 systems); the shapes sphere, hemisphere,
     cone, box (volume, shell, edge), circle, edge, rectangle and donut
-    with arc, thickness and their own transform; velocity over lifetime (linear, orbital, radial, speed modifier),
-    limit velocity (dampen), force, colour, size and rotation over lifetime, texture sheet animation (start frame and
-    frame over time as fractions of the sheet), custom data and birth and death sub-emitters. Curves are evaluated as
+    with arc, thickness and their own transform, the arc's and an edge's mode (an edge takes the radius's): loop and
+    ping-pong over the system's time, snapped to the spread, and burst spread, the particles emitted together evenly
+    (Hibiki's ten bokeh edges; CH0069's and CH0294's halos have a spread too, 0.12, and how burst spread takes it is
+    neither in the game's data nor in its compiled code, so they are placed at random as before); velocity over
+    lifetime (linear, orbital, radial, speed modifier),
+    limit velocity (dampen), force, colour, size and rotation over lifetime, colour by speed (CH0318's dust), texture
+    sheet animation (start frame and
+    frame over time as fractions of the sheet), custom data, birth and death sub-emitters and trails in particle mode
+    (CH0172's oil drops: a point every minimum vertex distance, living the lifetime's share of the particle's life, a
+    particle that stays put until all of them have gone starting again where it is). Systems below GameObjects a
+    SpineEventToggleObjects lists (CH0217's fish and bubbles, 13 systems) play while the skeleton's EnableObject and
+    DisableObject events have them on, from their start as GameObject.SetActive starts them. Curves are evaluated as
     Unity's are, a segment with a Constant (infinite) tangent holding its left key's value: the water drops of
     misaki_home and ch0095_home keep still, then jump between speeds. Billboards (view or
     local alignment, max size a fraction of the game's view height), stretched billboards and meshes (the particle
@@ -755,10 +765,15 @@ in `pointer-textures`); without a game the system cursor stays and there is no e
     Mask, Distort, Step, Step_MXChar and Step_Distort variants, AlphaBlend_Add_Distort_1a and
     AlphaBlend_Add_Double_Distort_1a, AlphaBlend_2_Roz, AlwaysView_Add, Matcap with the meshes' normals, General
     Unlit VertexColor) with each material's blend, in linear
-    light: textures sampled as sRGB where the game imports them so, vertex colours as 8-bit sRGB decoded, Color
-    properties decoded (above 1 by a 2.2 power), Vector properties as stored. Each system draws after the skeleton
-    part it sorts after (sorting order, then render queue, then back to front with its sorting fudge; see Draw order),
-    or before the first one. The textures come from the game files on request and stay in memory.
+    light: textures sampled as sRGB where the game imports them so, vertex colours as 8-bit sRGB decoded (as stored
+    where the renderer's Apply Active Color Space is off: 116 systems in 30 lobbies, Nodoka's star and meteors,
+    Michiru's fireworks), Color properties decoded (above 1 by a 2.2 power), Vector properties as stored. Particles
+    sorted by distance or by depth (CH0069, CH0294, CH0172) draw the farthest first. Each system draws after the
+    skeleton part it sorts after (sorting layer, its value: the game's one layer besides Default stores 2, 7 systems in
+    5 lobbies over every skeleton; then sorting order, render queue and back to front with its sorting fudge; see Draw
+    order), or before the first one; its trails are a second submesh with the renderer's second material, sorted by
+    that one's queue (CH0172's dirt trails at 2950 under her page, the drops at 3100 over it). The textures come from
+    the game files on request and stay in memory.
   - The two *_1a shaders (ch0188's and ch0356's water splashes, ch0334's boosters) are UV distortions like Distort:
     their one pass samples only their own main, mask and distortion textures (no grab pass, no camera opaque
     texture), so nothing behind them is read. They also port their vertex programs, which route the particle's
@@ -766,10 +781,10 @@ in `pointer-textures`); without a game the system cursor stays and there is no e
     1 and 2 add to a UV's tiling and offset, and to the distortion power); the Double variant takes two distortions
     from the red and green channels of one texture, each with its own tiling, scroll and power, and its keywords
     (_Tex_Main_Distort, _Tex_Mask_Distort: Off, R, G, RG) say which shift the main and the mask UV.
-  - Not reproduced: noise, collision, trails, lights, inherit velocity, rate over distance and the by-speed modules
-    (each in one lobby at most, or none); limit velocity's drag; sorting layers other than the default; Animators and
-    scripts that move or switch systems during a talk (a system plays as the prefab leaves it; the mesh renderers'
-    Animators are played, mesh-fx.js); mesh and sprite emitter
+  - Not reproduced: noise, collision, lights, inherit velocity, size and rotation by speed (no system a lobby draws
+    uses them); limit velocity's drag (CH0318's dust, too slow for it to tell); Animators and scripts that move or
+    switch systems during a talk (a system plays as the prefab leaves it; the mesh renderers' Animators, the Spine
+    event toggles and the intro's timeline are played); mesh and sprite emitter
     shapes (emitted from the shape's origin); the materials' culling (most DSFX materials cull back faces: in Unity a
     locally aligned billboard or a mesh turned away from the camera is not drawn; here every face is, as the
     mirrored transforms of ch0058's splashes and ch0334's stretched sparks would need Unity's own handling first). The
