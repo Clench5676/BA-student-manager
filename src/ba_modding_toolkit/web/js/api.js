@@ -149,7 +149,10 @@ export function spineAssetBase(base) {
       if (typeof revision !== "string" || !/^[a-f0-9]{64}$/.test(revision)) throw new Error(`HTTP ${res.status}: invalid revision`);
       return `${dir}/${revision}/skeleton`;
     }), 15000, `Spine manifest ${url}`).catch((cause) => {
-      throw new Error(`Spine manifest ${url}: ${cause?.message || String(cause)}`, { cause });
+      const error = new Error(`Spine manifest ${url}: ${cause?.message || String(cause)}`, { cause });
+      error.url = url;
+      error.step = "manifest";
+      throw error;
     }).finally(() => { if (resolving.get(dir) === asking) resolving.delete(dir); });
     resolving.set(dir, asking);
   }

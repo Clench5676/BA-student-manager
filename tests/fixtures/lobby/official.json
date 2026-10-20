@@ -1,0 +1,7 @@
+{
+  "skeleton": {"spine": "4.2.33", "x": -1480, "y": 0, "width": 2960, "height": 1665},
+  "bones": [{"name": "root"}, {"name": "Touch_Point", "parent": "root", "y": 1000}],
+  "slots": [{"name": "art", "bone": "root", "attachment": "hero"}],
+  "skins": [{"name": "default", "attachments": {"art": {"hero": {"width": 2960, "height": 1665, "y": 962}}}}],
+  "animations": {"Idle_01": {"bones": {"root": {"rotate": [{"value": 0}, {"time": 2, "value": 0}]}}}}
+}

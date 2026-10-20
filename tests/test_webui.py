@@ -383,6 +383,17 @@ def test_asset_routes(app):
     assert call(app, "/asset/spine/spr/hoshino_spr/other.png")[0] == "404 Not Found"
 
 
+def test_preview_failures_are_logged_in_release_sessions(app, services, caplog):
+    services.debug = False
+    result = rpc(app, "preview.failed", url="/asset/spine/lobby/shun_home/revision/home.skel",
+                 step="draw", error="Unsupported lobby Spine version: 3.8.75\n" + "x" * 9000)
+    assert result == {"result": None}
+    assert "shun_home/revision/home.skel" in caplog.text
+    assert '"step": "draw"' in caplog.text
+    assert "Unsupported lobby Spine version: 3.8.75\\n" in caplog.text
+    assert len(caplog.records[-1].message) < 8500
+
+
 def test_another_installs_skeleton_is_read_from_its_own_files(app, services, monkeypatch, tmp_path):
     from ba_modding_toolkit.library.models import Pin
 

@@ -60,3 +60,19 @@ test("changed game files still invalidate thumbnails and refresh the shown previ
     else assert.equal(ctx.mainPlayer, null);
   }
 });
+
+test("a lobby source event reloads the manifest even if a repack kept every family field unchanged", async () => {
+  const calls = [], v = { key: "shun", lobby: "shun_home" };
+  const ctx = {
+    open: true, quiet: () => true, busy: false, heldChange: { cores: ["shun_home"] },
+    fam: { key: "shun", variants: [v] }, variantKey: "shun", variant: () => v,
+    readFamily: async () => ({ key: "shun", variants: [v] }), renderFailed: assert.fail,
+    previewEnabled: true, modsOn: () => true, lower: (s) => String(s || "").toLowerCase(),
+    filesSig: () => "unchanged", previewChanged: () => false, tab: "lobby",
+    ctx: { invalidateRoster: () => calls.push("roster") }, resetPreview: (kind) => calls.push(kind),
+    changeInPlace: (fn) => fn(), renderAll: async () => calls.push("panels"), renderLeft: async () => calls.push("preview"),
+  };
+  vm.createContext(ctx);
+  await vm.runInContext(`${functionSource("async function reloadChanged")}; reloadChanged();`, ctx);
+  assert.deepEqual(calls, ["roster", "lobby", "panels", "preview"]);
+});

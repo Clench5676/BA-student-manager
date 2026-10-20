@@ -3,20 +3,30 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { latestLoad, loadPlayer } from "../../src/ba_modding_toolkit/web/js/spine-load.js";
+import { withTimeout } from "../../src/ba_modding_toolkit/web/js/async.js";
+import { atStep } from "../../src/ba_modding_toolkit/web/js/preview-error.js";
+import { validRect } from "../../src/ba_modding_toolkit/web/js/lobby-health.js";
 
 const source = readFileSync(new URL("../../src/ba_modding_toolkit/web/js/lobby.js", import.meta.url), "utf8");
 const loading = source.slice(source.indexOf("const lobbyLoads ="), source.indexOf("// the input trace"))
   .replaceAll("export function", "function").replaceAll("export async function", "async function");
 const tick = () => new Promise(setImmediate);
 const noop = () => {};
+const meta = { main: "main", sparse: false, left: { x: 0, y: 0, w: 1920, h: 1080 }, full: { x: 0, y: 0, w: 1920, h: 1080 } };
 const layers = async (core, mod) => ({ info: null, layers: [{ name: "main", spine: `${core}:${mod || "live"}` }] });
 
 function harness(layersOf = layers, resolveSources = null) {
   const created = [], calls = [];
   const revisions = new Map();
-  const host = { innerHTML: "", classList: { remove: noop }, querySelector: () => ({}) };
+  const failures = [];
+  const host = { innerHTML: "", classList: { remove: noop }, querySelector: () => ({}), appendChild(el) { this.message = el; } };
   const env = {
-    latestLoad, layersOf, STAGE: { w: 1920, h: 1080 }, EXT_W: 480, EXT_H: 270,
+    latestLoad, layersOf, withTimeout, atStep, validRect,
+    rectOf: (v) => ({ x0: v.x, y0: v.y, x1: v.x + v.w, y1: v.y + v.h }),
+    spineBase: (kind, core) => `/asset/spine/${kind}/${core}/skeleton`,
+    previewError: (...args) => failures.push(args), T: () => "Preview unavailable",
+    document: { createElement: () => ({ setAttribute: noop }) },
+    STAGE: { w: 1920, h: 1080 }, EXT_W: 480, EXT_H: 270,
     sourcesOf: resolveSources || (async (core, mod) => ({ artBase: `${core}:${mod || "live"}:${revisions.get(mod || core) || "a"}`,
       base: `${core}:layout` })),
     makePlayer(_host, layer, _fx, _share, signal) {
@@ -29,7 +39,7 @@ function harness(layersOf = layers, resolveSources = null) {
       }, {}, { signal });
     },
     setView: noop, game: () => ({}), viewOf: () => ({}), feather: noop, lightUp: noop, openEdge: noop,
-    measure: () => ({ main: "main", sparse: false }), measuresClips: () => false,
+    measure: () => structuredClone(meta), measuresClips: () => false,
     Stage: { install: noop, hostOf: () => null }, Linear: { setClear: noop, detach: noop },
     Materials: { detach: noop }, Touch: { setup: noop, detach: noop }, Idle: { start: noop, stop: noop },
     toWorld: noop, zoomAt: noop, panBy: noop, playClip: noop, clearClip: noop, next: noop,
@@ -41,7 +51,7 @@ function harness(layersOf = layers, resolveSources = null) {
     let extendTimer, chain, subtitleTimer;
     ${loading}
     return { show, hide, current: () => current };`)(env);
-  return { ...h, host, created, calls, revisions };
+  return { ...h, host, created, calls, revisions, failures };
 }
 
 test("configured lobby source changes cancel old players, including a switch back before the next load starts", async () => {
@@ -56,7 +66,7 @@ test("configured lobby source changes cancel old players, including a switch bac
     assert.deepEqual(h.calls, ["create hero_home:a", "dispose hero_home:a", "create hero_home:a"]);
     old.config.success(old);
     h.created[1].config.success(h.created[1]);
-    assert.deepEqual(await Promise.all([first, skipped, latest]), [null, null, { main: "main", sparse: false }]);
+    assert.deepEqual(await Promise.all([first, skipped, latest]), [null, null, meta]);
     assert.equal(await h.show("hero_home", h.host, "hero", { mod: "a" }), h.current().meta);
     assert.equal(h.created.length, 2, "the live source is reused");
 
@@ -161,6 +171,77 @@ test("a configured lobby with no skeletons or a failed player rejects and allows
     h.created[1].config.success(h.created[1]);
     assert.ok(await recovered);
   } finally { h.hide(h.host); }
+});
+
+test("a repeated show while the same source loads replaces the aborted work instead of caching its null result", async () => {
+  const h = harness();
+  try {
+    const first = h.show("shun_home", h.host, "shun"); await tick();
+    const next = h.show("shun_home", h.host, "shun"); await tick();
+    assert.equal(await first, null);
+    assert.equal(h.created[0].disposed, true);
+    h.created[1].config.success(h.created[1]);
+    assert.deepEqual(await next, meta);
+    assert.equal(h.failures.length, 0, "a superseded owner does not flash an error over its replacement");
+  } finally { h.hide(h.host); }
+});
+
+test("a stale revision during a player load retries the whole composition once", async () => {
+  const h = harness();
+  try {
+    const shown = h.show("shun_home", h.host, "shun"); await tick();
+    h.revisions.set("shun_home", "b");
+    h.created[0].config.error(h.created[0], "404 stale atlas page"); await tick();
+    assert.equal(h.created[0].disposed, true);
+    assert.ok(h.current().artBase.endsWith(":b"));
+    h.created[1].config.success(h.created[1]);
+    assert.deepEqual(await shown, meta);
+    assert.equal(h.failures.length, 0);
+  } finally { h.hide(h.host); }
+});
+
+test("one failed layer cannot be silently omitted from an otherwise ready lobby", async () => {
+  const h = harness(async () => ({ info: null, layers: [{ name: "bg", spine: "/rev/bg" }, { name: "home", spine: "/rev/home" }] }));
+  try {
+    const failed = assert.rejects(h.show("shun_home", h.host, "shun"), /missing page/); await tick();
+    h.created[0].config.success(h.created[0]);
+    h.created[1].config.error(h.created[1], "missing page");
+    await failed;
+    assert.equal(h.host.message.textContent, "Preview unavailable");
+    assert.equal(h.failures[0][0].url, "/rev/home.skel");
+    assert.ok(h.created.every((p) => p.disposed));
+  } finally { h.hide(h.host); }
+});
+
+test("the complete lobby deadline reports failure, disposes players, and permits a later retry", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const h = harness();
+  try {
+    const failed = assert.rejects(h.show("shun_home", h.host, "shun"), /timed out/); await tick();
+    const old = h.created[0];
+    t.mock.timers.tick(15000); await failed;
+    assert.equal(h.host.message.textContent, "Preview unavailable");
+    assert.equal(old.disposed, true);
+    old.config.success(old);
+    assert.equal(h.current(), null);
+    const next = h.show("shun_home", h.host, "shun"); await tick();
+    h.created.at(-1).config.success(h.created.at(-1));
+    assert.deepEqual(await next, meta);
+  } finally { h.hide(h.host); t.mock.timers.reset(); }
+});
+
+test("a manifest that answers after the total deadline cannot start a discarded lobby", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let finish;
+  const h = harness(layers, () => new Promise((resolve) => { finish = resolve; }));
+  try {
+    const failed = assert.rejects(h.show("shun_home", h.host, "shun"), /timed out/); await tick();
+    t.mock.timers.tick(15000); await failed;
+    finish({ artBase: "/late/", base: "/late/" }); await tick();
+    assert.equal(h.created.length, 0);
+    assert.equal(h.current(), null);
+    assert.equal(h.host.message.textContent, "Preview unavailable");
+  } finally { h.hide(h.host); t.mock.timers.reset(); }
 });
 
 test("zoom limits are cached by both the configured art revision and the live layout revision", () => {

@@ -22,9 +22,12 @@
 // Entered, the lobby plays its intro timeline (lobby-intro.js) from the first frame it is on screen: a tap or a
 // dialogue skips it, and with the setting off the lobby starts as the intro leaves it.
 import { latestLoad, loadPlayer } from "./spine-load.js";
-import { spineBase, spineAssetBase } from "./api.js";
+import { forgetSpineAssets, spineBase, spineAssetBase } from "./api.js";
 import { lobbyIdle } from "./rest-pose.js";
 import { withTimeout } from "./async.js";
+import { atStep, previewError } from "./preview-error.js";
+import { T } from "./i18n.js";
+import { artBounds, containingView, overlaps, resumeRest, settle, validRect, worldBounds } from "./lobby-health.js";
 import * as Linear from "./linear.js";
 import * as Materials from "./skeleton-materials.js";
 import * as Particles from "./particles-gl.js";
@@ -54,11 +57,19 @@ const listeners = new Set();
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const isBg = (n) => /background|_bg\b|bg_/i.test(n);
-const game = () => (current?.info?.view ? { ...current.info.view } : { ...GAME });
+const game = () => {
+  const v = current?.info?.view || GAME;
+  if (![v.x, v.y, v.w, v.h].every(Number.isFinite) || v.w <= 0 || v.h <= 0 || v.w > GAME.w * 16 || v.h > GAME.h * 16)
+    throw new Error("Invalid lobby camera view");
+  return { ...v };
+};
 
-async function sourcesOf(core, mod) {
-  const art = spineAssetBase(spineBase(mod ? "mod" : "lobby", mod || core));
-  const layout = mod ? spineAssetBase(spineBase("lobby", core)) : art;
+async function sourcesOf(core, mod, refresh = false) {
+  const artSource = spineBase(mod ? "mod" : "lobby", mod || core), layoutSource = spineBase("lobby", core);
+  // A shown tab must not inherit a manifest request that belonged to a cancelled or previous source.
+  if (refresh) for (const source of new Set([artSource, layoutSource])) forgetSpineAssets(source.slice(0, source.lastIndexOf("/")));
+  const art = spineAssetBase(artSource);
+  const layout = mod ? spineAssetBase(layoutSource) : art;
   const dir = (base) => base?.slice(0, base.lastIndexOf("/") + 1) || null;
   const [artBase, base] = await Promise.all([art, layout]);
   return { artBase: dir(artBase), base: dir(base) };
@@ -68,28 +79,41 @@ async function sourcesOf(core, mod) {
 // (talk-only scenes) are left out. Without prefab data every skeleton sits at the standard place, backgrounds first.
 export async function layersOf(core, mod = null, sources = null) {
   const { artBase, base } = sources || await sourcesOf(core, mod);
-  if (!artBase) return { info: null, layers: [] };
+  if (!artBase) throw new Error(`Lobby source unavailable: ${core}`);
   const read = (url) => withTimeout(fetch(url).then((r) => {
     if (!r.ok) throw new Error(`${url}: HTTP ${r.status}`);
     return r.json();
-  }), 15000, url);
+  }), 15000, url).catch((err) => { throw atStep(err, url, "metadata"); });
   const [files, info] = await Promise.all([
     read(`${artBase}files.json`),
-    base ? read(`${base}lobby.json`).catch((err) => { console.error("Lobby metadata failed", err); return null; }) : null,
+    base ? read(`${base}lobby.json`) : null,
   ]);
+  if (!Array.isArray(files) || files.some((f) => typeof f !== "string")) throw new Error("Invalid lobby file list");
   const atlasOf = pairAtlases(files), skels = [...atlasOf.keys()];
-  const ok = (n) => atlasOf.has(n);
+  const match = (n) => skels.find((s) => s.toLowerCase() === n.toLowerCase());
+  const defaults = (name, index) => ({ name, file: name, x: 0, y: -962, scale: 1, index, skin: null, animation: null });
+  const unpaired = files.filter((f) => f.endsWith(".skel") && !atlasOf.has(f.slice(0, -5)));
+  if (unpaired.length) throw new Error(`No unambiguous lobby atlas: ${unpaired.join(", ")}`);
   // equal sorting orders (akari_home before akari_bg in the prefab): background-named skeletons first; the scenes only
   // the intro shows (Akari's, Aru's) are loaded too, hidden until it shows them (introOnly)
-  let list = (info?.layers || []).filter((l) => (l.active || l.intro) && ok(l.name))
-    .map((l) => ({ ...l, introOnly: !l.active }))
+  let list = (info?.layers || []).filter((l) => (l.active || l.intro) && match(l.name))
+    .map((l) => ({ ...l, file: match(l.name), introOnly: !l.active }))
     .sort((a, b) => a.order - b.order || isBg(b.name) - isBg(a.name) || a.index - b.index);
   if (!list.length) {
     list = skels.sort((a, b) => isBg(b) - isBg(a) || a.localeCompare(b))
-      .map((name, index) => ({ name, x: 0, y: -962, scale: 1, index, skin: null, animation: null }));
+      .map(defaults);
+  } else {
+    // Repacked mods can rename or add their character while retaining the official background.
+    const known = new Set((info?.layers || []).map((l) => match(l.name)));
+    const added = skels.filter((s) => !known.has(s));
+    const missing = (info?.layers || []).filter((l) => l.active && !match(l.name));
+    if (missing.length && !added.length) throw new Error(`Missing lobby layers: ${missing.map((l) => l.name).join(", ")}`);
+    list.push(...added.map(defaults));
   }
-  return { info, layers: list.map((l) => ({ ...l, spine: `${artBase}${encodeURIComponent(l.name)}`,
-    atlas: `${artBase}${encodeURIComponent(atlasOf.get(l.name))}.atlas` })) };
+  for (const l of list) if (![l.x, l.y, l.scale].every(Number.isFinite) || l.scale <= 0)
+    throw new Error(`Invalid lobby layer transform: ${l.name}`);
+  return { info, layers: list.map((l) => ({ ...l, spine: `${artBase}${encodeURIComponent(l.file)}`,
+    atlas: `${artBase}${encodeURIComponent(atlasOf.get(l.file))}.atlas` })) };
 }
 // skeleton name -> atlas name for a lobby's files: the atlas of the same name, else of the same name in another case
 // (Juri: juri_home.skel, Juri_home.atlas), else the one atlas left for the one skeleton left (CH9996_home.skel with
@@ -113,6 +137,7 @@ export function pairAtlases(files) {
 const clipId = (name) => name.toLowerCase().replace(/\\/g, "/").split("/").pop().replace(/\.(ogg|wav|mp3)$/, "").replace(/_new$/, "");
 // the looping idle (rest-pose.js, which the thumbnails choose with too)
 export function idleOf(data, layer, info = current?.info) {
+  if (layer.rest) return layer.rest.name;
   return lobbyIdle(data, { idle: info?.idle?.[layer.name], animation: layer.animation });
 }
 // the clips a skeleton's idle starts besides itself (SpineBase.PlayBaseClip plays every clip of the SpineCharacter's
@@ -145,7 +170,7 @@ function poser(l) {
       e.trackTime = time;
     }
     if (tracks.length) { st.update(0); st.apply(sk); }
-    Pins.pin(sk, l.name, current?.info?.pins); // the bones the prefab pins, as the players draw them
+    Pins.pin(sk, l.name, l.ignorePins ? null : current?.info?.pins); // the bones the prefab pins, as the players draw them
     sk.updateWorldTransform(spine.Physics.reset); // physics at rest, as a new skeleton's: no state from the last pose
     return sk;
   };
@@ -222,7 +247,7 @@ function paintedRect(loaded, G) {
   for (let k = 0; k < SAMPLES; k++) {
     cur.fill(0);
     for (const [l, pose, anim] of posers) {
-      const time = anim ? (l.player.skeleton.data.findAnimation(anim).duration * k) / SAMPLES : 0;
+      const time = anim ? (l.rest?.time || 0) + (l.player.skeleton.data.findAnimation(anim).duration * k) / SAMPLES : 0;
       paint(grid, l, pose(anim ? [[0, anim, time, true]] : []), [[cur, all]]);
     }
     for (let i = 0; i < acc.length; i++) { acc[i] &= cur[i]; any[i] |= cur[i]; }
@@ -381,15 +406,13 @@ function measureClips() {
 function boundsRect(loaded) {
   const out = { x0: Infinity, x1: -Infinity, y0: Infinity, y1: -Infinity };
   for (const l of loaded) {
-    const sk = new spine.Skeleton(l.player.skeleton.data), o = new spine.Vector2(), s = new spine.Vector2();
-    sk.setToSetupPose();
-    sk.updateWorldTransform(spine.Physics.update);
-    sk.getBounds(o, s, []);
-    if (!Number.isFinite(o.x) || !s.x) continue;
-    out.x0 = Math.min(out.x0, l.x + o.x * l.scale); out.x1 = Math.max(out.x1, l.x + (o.x + s.x) * l.scale);
-    out.y0 = Math.min(out.y0, l.y + o.y * l.scale); out.y1 = Math.max(out.y1, l.y + (o.y + s.y) * l.scale);
+    const r = worldBounds(l.rest?.bounds || artBounds(l.player.skeleton), l);
+    if (!r) continue;
+    out.x0 = Math.min(out.x0, r.x0); out.x1 = Math.max(out.x1, r.x1);
+    out.y0 = Math.min(out.y0, r.y0); out.y1 = Math.max(out.y1, r.y1);
   }
-  return Number.isFinite(out.x0) ? out : { x0: GAME.x, x1: GAME.x + GAME.w, y0: GAME.y, y1: GAME.y + GAME.h };
+  if (!validRect(out)) throw new Error("No drawable lobby bounds");
+  return out;
 }
 
 // --- views: {x, y, w, h} in NGUI units, y up ---
@@ -468,14 +491,17 @@ function measure(loaded) {
   // the head-pat point in the idle pose (Touch_Point, else the prefab's pat box, else the top third of the view)
   const sk = new spine.Skeleton(data), idle = idleOf(data, main);
   sk.setToSetupPose();
-  if (idle) { const st = new spine.AnimationState(new spine.AnimationStateData(data)); st.setAnimation(0, idle, true); st.update(0); st.apply(sk); }
-  Pins.pin(sk, main.name, info?.pins);
+  if (main.skin) { sk.setSkinByName(main.skin); sk.setSlotsToSetupPose(); }
+  if (idle) { const st = new spine.AnimationState(new spine.AnimationStateData(data)); st.setAnimation(0, idle, true).trackTime = main.rest?.time || 0; st.update(0); st.apply(sk); }
+  Pins.pin(sk, main.name, main.ignorePins ? null : info?.pins);
   sk.updateWorldTransform(spine.Physics.update);
   const bone = sk.findBone("Touch_Point") || sk.findBone("Touch_Eye");
   const pat = info?.drags?.find((d) => d.kind === "pat")?.rect;
-  const touch = bone ? { x: main.x + bone.worldX * main.scale, y: main.y + bone.worldY * main.scale }
+  let touch = bone ? { x: main.x + bone.worldX * main.scale, y: main.y + bone.worldY * main.scale }
     : pat ? { x: (pat[0] + pat[2]) / 2, y: (pat[1] + pat[3]) / 2 } : { x: 0, y: G.y + G.h * 0.66 };
-  const full = sparse ? G : fit(painted, G.w, G.x + G.w / 2, G.y + G.h / 2);
+  const full = sparse ? (overlaps(edge, rectOf(G)) ? G : containingView(edge)) : fit(painted, G.w, G.x + G.w / 2, G.y + G.h / 2);
+  if (!Number.isFinite(touch.x) || !Number.isFinite(touch.y) || touch.x < edge.x0 || touch.x > edge.x1 || touch.y < edge.y0 || touch.y > edge.y1)
+    touch = { x: (edge.x0 + edge.x1) / 2, y: edge.y0 + (edge.y1 - edge.y0) * 0.66 };
   const sequences = data.animations
     .map((a) => /^Talk_(\d+)_M$/.exec(a.name))
     .filter(Boolean)
@@ -509,6 +535,7 @@ function measure(loaded) {
 export function frame(m) {
   const changed = m !== mode;
   mode = m;
+  if (current && m === "left") current.userFramed = false;
   if (!current?.meta) return;
   if (changed) crossfade();
   setView(viewOf(current.meta), true);
@@ -563,6 +590,7 @@ function clampView(v) {
 }
 export function zoomAt(factor, sx, sy) {
   if (mode !== "full" || !current?.meta || !(factor > 0)) return;
+  current.userFramed = true;
   const T = current.target, full = current.meta.full;
   const fx = sx / STAGE.w, fy = 1 - sy / STAGE.h, ux = T.x + fx * T.w, uy = T.y + fy * T.h;
   const w = clamp(T.w / factor, full.w / ZOOM_IN, Math.max(full.w, widest(bounds()))), h = (w * 9) / 16;
@@ -600,6 +628,7 @@ function reclamp() {
 // pan by a stage-pixel drag (content follows the pointer); only moves while zoomed in
 export function panBy(dx, dy) {
   if (mode !== "full" || !current?.meta) return;
+  current.userFramed = true;
   const T = current.target;
   setView(clampView({ x: T.x - (dx / STAGE.w) * T.w, y: T.y + (dy / STAGE.h) * T.h, w: T.w, h: T.h }), false);
 }
@@ -608,10 +637,12 @@ export function panBy(dx, dy) {
 const viewTarget = () => current?.target || null;
 function setViewTarget(v) {
   if (mode !== "full" || !current?.meta || !v) return;
+  current.userFramed = true;
   setView(clampView(v), false);
 }
 export function resetZoom() {
   if (!current?.meta) return;
+  current.userFramed = false;
   setView(viewOf(current.meta), true);
   feather(current.view);
 }
@@ -652,6 +683,8 @@ function makePlayer(host, layer, fx, share, signal) {
     // view, no spine-player viewport transitions of its own
     frame: (p, delta) => {
       current?.intro?.frame(p, delta); // the intro's clock and state, its Spine clips (lobby-intro.js)
+      // A timeline may finish by emptying track 0. Its idle must resume once that mix has ended.
+      if (!current?.intro?.pending() && !talk) resumeRest(p, layer);
       Stage.frame(p);
       p.bamtRuns?.tick(delta);
       const v = viewNow();
@@ -668,12 +701,13 @@ function makePlayer(host, layer, fx, share, signal) {
     draw: (p) => {
       fx?.above(p);
       Linear.end(p);
+      if (current && !Stage.hostOf(p)) current.drawnAt = performance.now();
     },
     // after the animation, before the world transform: the sound keys its track entries have reached, and the
     // dragged bones follow the pointer
     updateWorldTransform: (p, delta) => {
       p.bamtSounds?.tick();
-      Pins.apply(p, current?.info?.pins);
+      Pins.apply(p, layer.ignorePins ? null : current?.info?.pins);
       Touch.apply(p, delta);
       p.skeleton.updateWorldTransform(spine.Physics.update);
     },
@@ -693,15 +727,20 @@ function makePlayer(host, layer, fx, share, signal) {
           onEntry: (entry, c) => soundsOf(player, entry, c) });
         // its Spine events reach the particle effects, which some switch on and off (SpineEventToggleObjects)
         if (fx) player.animationState.addListener({ event: (_entry, e) => fx.spineEvent(layer.name, e.data.name, e.intValue) });
-        const idle = idleOf(player.skeleton.data, layer);
-        if (idle) soundsOf(player, player.animationState.setAnimation(0, idle, true), clipOf(player, idle));
-        for (const name of idleClips(current?.info, layer.name, idle, (n) => clipOf(player, n))) playClip(player, name);
+        const idle = settle(player, layer, current?.info, Pins.pin);
+        if (idle) soundsOf(player, player.animationState.getCurrent(0), clipOf(player, idle));
+        for (const name of idleClips(current?.info, layer.name, idle, (n) => clipOf(player, n)))
+          if (clipOf(player, name).track !== 0) playClip(player, name);
       } catch (err) {
         console.error("Lobby player setup failed", layer.name, err);
         throw err;
       }
     },
-  }, { signal });
+  }, { signal, onError: (err) => {
+    if (!current || signal.aborted) return;
+    current.error = err;
+    if (current.meta) failView(err, current.host, `${layer.spine}.skel`, "render");
+  } });
 }
 
 // A loaded player in linear light like the game (linear.js), with the game camera's post-processing (the prefab's
@@ -772,21 +811,48 @@ function feather(view) {
 // show(core, host) -> Promise<meta> (frame, sequences); resolves once every layer is in and framed
 const lobbyLoads = latestLoad(), sourceLoads = latestLoad(), playerLoads = new WeakMap();
 export function show(core, host, variant, { mod = null } = {}) {
-  if (current && (current.core !== core || current.mod !== mod)) {
+  if (current && (current.core !== core || current.mod !== mod || !current.meta)) {
     lobbyLoads.cancel();
     clearView(host);
   }
   return sourceLoads.run(async (sourceSignal) => {
-    const sources = await sourcesOf(core, mod);
-    if (sourceSignal.aborted) return null;
-    if (sources.artBase && current?.artBase === sources.artBase && current.base === sources.base
-        && !current.signal.aborted && players.length) return current.ready;
-    return lobbyLoads.run((signal) => sourceSignal.aborted ? null : showNow(core, host, variant, mod, sources, signal));
+    let stopped = false;
+    const url = spineBase(mod ? "mod" : "lobby", mod || core);
+    const abort = () => lobbyLoads.cancel();
+    sourceSignal.addEventListener("abort", abort, { once: true });
+    const run = async () => {
+      let sources = await sourcesOf(core, mod, true);
+      for (let attempt = 0; ; attempt++) {
+        if (stopped || sourceSignal.aborted) return null;
+        if (!sources.artBase) throw atStep(new Error("Lobby source unavailable"), url.replace(/skeleton$/, "manifest.json"), "manifest");
+        if (current?.meta && current.artBase === sources.artBase && current.base === sources.base
+            && current.host === host && !current.signal.aborted && players.length && !current.error) return current.ready;
+        try {
+          return await lobbyLoads.run((signal) => showNow(core, host, variant, mod, sources, signal));
+        } catch (err) {
+          if (sourceSignal.aborted || attempt) throw err;
+          const fresh = await sourcesOf(core, mod, true);
+          if (stopped || sourceSignal.aborted) return null;
+          if (fresh.artBase === sources.artBase && fresh.base === sources.base) throw err;
+          console.warn("Lobby source changed during load", url, err);
+          sources = fresh;
+        }
+      }
+    };
+    try { return await withTimeout(run(), 15000, "Detail lobby"); }
+    catch (err) {
+      stopped = true;
+      if (!sourceSignal.aborted) {
+        lobbyLoads.cancel();
+        failView(err, host, url, "load");
+      }
+      throw err;
+    } finally { sourceSignal.removeEventListener("abort", abort); }
   });
 }
 async function showNow(core, host, variant, mod, sources, signal) {
   clearView(host);
-  if (!sources.artBase) return null;
+  if (!sources.artBase) throw new Error("Lobby source unavailable");
   const { base } = sources;
   const my = ++token;
   host.innerHTML = '<canvas class="lobby-extend" hidden></canvas><div class="lobby-view"></div><canvas class="lobby-fade"></canvas><div class="lobby-frost"></div><div class="lobby-subtitle" hidden></div>';
@@ -804,28 +870,24 @@ async function showNow(core, host, variant, mod, sources, signal) {
     const fx = (current.fx = info?.fx?.systems?.length || info?.fx?.renderers?.length || info?.fx?.sprites?.length
       ? Particles.create(info.fx, { base, bone: boneOf }) : null);
     // every layer drawn with the bottom one's context (share), or each with its own
-    const errors = [];
     const build = async (share) => (await Promise.all(layers.map(async (layer) => {
       const load = makePlayer(viewHost, layer, fx, share ? players[0] : null, signal);
       if (load.player) { players.push(load.player); playerLoads.set(load.player, load); }
       try { return await load.ready ? { ...layer, player: load.player } : null; }
-      catch (err) { errors.push(err); return null; }
+      catch (err) { throw atStep(err, `${layer.spine}.skel`, "player"); }
     }))).filter(Boolean);
-    let all = await build(layers.length > 1);
+    const all = await build(layers.length > 1);
     if (signal.aborted || my !== token) return null;
-    // the bottom skeleton did not load (a broken mod): the others cannot draw with its context
-    if (layers.length > 1 && all.length && all[0].player !== players[0]) {
-      dropPlayers();
-      all = await build(false);
-      if (signal.aborted || my !== token) return null;
-    }
     // the lobby as it rests: without the scenes only its intro shows
     const loaded = all.filter((l) => !l.introOnly);
-    if (!loaded.length) throw errors[0] || new Error("No lobby skeletons loaded");
+    if (!loaded.length) throw new Error("No lobby skeletons loaded");
+    if (current.error) throw current.error;
     Stage.install(all.map((l) => l.player), fx);
     for (const l of all) if (Stage.hostOf(l.player)) lightUp(l.player); // the guests, with their host loaded
     current.meta = measure(loaded);
+    for (const v of [current.meta.left, current.meta.full]) if (!validRect(rectOf(v))) throw new Error("Invalid lobby framing");
     current.loaded = loaded;
+    current.all = all;
     // the bottom layer over the camera's clear colour (graded with PP on); sparse art keeps the page behind it, for
     // the edge extension
     Linear.setClear(Stage.hostOf(loaded[0].player) || loaded[0].player, !current.meta.sparse);
@@ -843,6 +905,8 @@ async function showNow(core, host, variant, mod, sources, signal) {
     openEdge();
     // the intro, from the first frame the lobby is revealed on screen (reveal); with the setting off, its end at once
     if (info?.intro) {
+      if (!Number.isFinite(info.intro.duration) || info.intro.duration < 0 || info.intro.duration > 300)
+        throw new Error("Invalid lobby intro duration");
       const c = current;
       c.intro = Intro.create(info.intro, {
         layers: all, fx, post: info.post, host, bone: boneOf, sfx: (id, set) => Sfx.play(id, set),
@@ -860,7 +924,22 @@ async function showNow(core, host, variant, mod, sources, signal) {
     return current.meta;
   })();
   try { return await current.ready; }
-  catch (err) { if (my === token) clearView(host); throw err; }
+  catch (err) { if (my === token) clearView(host); throw atStep(err, `${sources.artBase}files.json`, "compose"); }
+}
+
+function failView(err, host, url, step) {
+  previewError(err, url, step);
+  clearView(host);
+  const message = document.createElement("div");
+  message.className = "lobby-unavailable";
+  message.setAttribute("role", "status");
+  message.textContent = T("detail.failed");
+  host.appendChild(message);
+}
+export function unavailable(err, host, url, step = "detail") {
+  sourceLoads.cancel();
+  lobbyLoads.cancel();
+  failView(err, host, url, step);
 }
 
 // the lobby's players and what each holds on the GPU, gone
@@ -888,6 +967,7 @@ export function hide(host) {
 }
 function clearView(host) {
   token += 1;
+  clearTimeout(current?.watchdog);
   Touch.detach();
   Touch.setup(null);
   Idle.stop();
@@ -909,7 +989,45 @@ export const setTrace = (sink) => Touch.setTrace(sink);
 // --- the intro (lobby-intro.js) ---
 // the lobby is on screen (the detail screen has committed it): its intro starts with the next frame it is visible
 export function reveal() {
-  if (current) current.revealed = true;
+  const c = current;
+  if (!c) return;
+  c.revealed = true;
+  // A player first laid out under a hidden tab must get a frame with the visible canvas's size.
+  for (const p of players) if (!Stage.hostOf(p) && p.stopRequestAnimationFrame) p.startRendering?.();
+  clearTimeout(c.watchdog);
+  const check = () => {
+    if (current !== c || c.signal.aborted) return;
+    const visible = !document.hidden && (c.host.checkVisibility ? c.host.checkVisibility() : !c.host.hidden);
+    if (visible) {
+      const roots = players.filter((p) => !Stage.hostOf(p));
+      const err = roots.find((p) => p.error || p.disposed || p.context?.gl?.isContextLost());
+      const sized = roots.some((p) => p.canvas?.width > 0 && p.canvas?.height > 0);
+      if (err || !sized || !c.drawnAt || performance.now() - c.drawnAt > 4000) {
+        failView(new Error(err ? "Lobby renderer stopped or lost its context" : "Lobby produced no visible frames"), c.host, `${c.artBase}files.json`, "draw watchdog");
+        return;
+      }
+      if (c.intro?.pending()) {
+        const state = c.intro.state();
+        if (!state.started || !Number.isFinite(state.t) || c.introTime === state.t) {
+          failView(new Error("Lobby intro is not advancing after reveal"), c.host, `${c.base}lobby.json`, "intro watchdog");
+          return;
+        }
+        c.introTime = state.t;
+      }
+      if (!c.intro?.pending() && !talk && !(mode === "full" && c.userFramed)) {
+        try {
+          const visibleArt = c.all.some((l) => Stage.shown(l.player) && overlaps(worldBounds(artBounds(l.player.skeleton), l.player.bamtLayer), rectOf(c.view)));
+          if (!visibleArt) throw new Error("No lobby art intersects the camera");
+          if (!c.pixelsChecked) {
+            if (!roots.some((p) => Linear.hasPixels(p))) throw new Error("Lobby render target is empty");
+            c.pixelsChecked = true;
+          }
+        } catch (err) { failView(err, c.host, `${c.artBase}files.json`, "draw bounds"); return; }
+      }
+    }
+    c.watchdog = setTimeout(check, 5000);
+  };
+  c.watchdog = setTimeout(check, 5000);
 }
 // the intro setting: on plays it when the lobby is entered, off shows the lobby as the intro leaves it (Shiroko's holds
 // its last frame); a lobby shown now keeps what it does

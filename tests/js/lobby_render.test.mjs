@@ -119,6 +119,26 @@ function player(gl, slots, layer) {
 }
 
 const Linear = await import("../../src/ba_modding_toolkit/web/js/linear.js");
+
+test("empty ungraded targets are detected even when the final pass adds an opaque clear colour", () => {
+  const gl = fakeGL(), p = player(gl, [], {});
+  p.canvas = { width: 64, height: 32 };
+  assert.equal(Linear.attach(p), true);
+  try {
+    Linear.begin(p);
+    Linear.setClear(p, true);
+    let binding = { previous: true }, sampled;
+    gl.getParameter = () => binding;
+    gl.bindFramebuffer = (_target, fbo) => { binding = fbo; };
+    gl.readPixels = (_x, _y, _w, _h, _format, _type, pixels) => { sampled = binding; pixels.fill(0); };
+    const previous = binding;
+    assert.equal(Linear.hasPixels(p), false);
+    assert.notEqual(sampled, previous, "the art target is sampled before the opaque camera background");
+    assert.equal(binding, previous, "the caller's framebuffer is restored");
+    gl.readPixels = (_x, _y, _w, _h, _format, _type, pixels) => { pixels[3] = 255; };
+    assert.equal(Linear.hasPixels(p), true, "opaque black art is still drawable art");
+  } finally { Linear.detach(p); }
+});
 const Mesh = await import("../../src/ba_modding_toolkit/web/js/mesh-fx.js");
 const GL = await import("../../src/ba_modding_toolkit/web/js/particles-gl.js");
 const { STRIDE, IDENTITY } = await import("../../src/ba_modding_toolkit/web/js/particles.js");

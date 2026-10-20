@@ -91,3 +91,21 @@ test("a timed-out async success and disposed frames cannot use freed textures", 
   finish();
   load.dispose(); // disposal is idempotent
 });
+
+test("runtime errors and hook exceptions after readiness notify the owner with URL and step", async () => {
+  for (const step of ["render", "frame", "draw", "update", "updateWorldTransform"]) {
+    const r = runtime(), errors = [];
+    const hooks = step === "render" ? {} : { [step]() { throw new Error("Late failure"); } };
+    const load = loadPlayer(r.create, { skeleton: "/revision/shun_home.skel", ...hooks }, { onError: (err) => errors.push(err) });
+    load.player.config.success(load.player);
+    await load.ready;
+    if (step === "render") load.player.config.error(load.player, "Late failure");
+    else load.player.config[step](load.player);
+    load.player.config.error(load.player, "Duplicate failure");
+    await tick();
+    assert.equal(errors.length, 1);
+    assert.equal(errors[0].url, "/revision/shun_home.skel");
+    assert.equal(errors[0].step, step);
+    assert.equal(load.player.disposed, true);
+  }
+});

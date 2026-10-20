@@ -246,6 +246,8 @@ input[type="text"], input[type="search"], textarea { cursor: text; }
    layer draws that black itself, graded with PP on (linear.js), so this shows only without WebGL2 */
 .stage.fullscreen .lobby.open-edge { background: #000; }
 .lobby-view, .lobby-layer { position: absolute; inset: 0; }
+.lobby-unavailable { position: absolute; left: 120px; top: 450px; width: 720px; text-align: center; color: #607689; font-size: 28px; }
+.stage.fullscreen .lobby-unavailable { left: 50%; top: 50%; transform: translate(-50%, -50%); }
 .lobby-extend { position: absolute; inset: 0; width: 100%; height: 100%; filter: blur(26px) saturate(1.05); transform: scale(1.08); }
 .lobby-extend[hidden] { display: none; }
 /* the previous framing, faded out over the new one when switching between the left view and fullscreen */
