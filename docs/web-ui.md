@@ -1551,7 +1551,8 @@ crash in a classic tab never takes the web UI with it.
   that follows it, submits each item as its normal job, in order, and lists the dropped ones: a toggle whose `expect`
   is no longer the stored intent (`state_changed`) or whose pins are not the known installs (`folder_changed`); an
   entry whose own install changed, or is no longer the current one for `actions.apply` and `actions.restore`
-  (`folder_changed`), or whose files changed (`entry_changed`); a refused submit with its own error.
+  (`folder_changed`), or whose files changed (`entry_changed`); a refused submit with its own error; an item that
+  cannot be checked (a toggle's stored intent under unreadable mod settings) with that error (`profiles_unreadable`).
 
 ## Tray
 

@@ -531,6 +531,25 @@ def test_the_queue_drops_what_no_longer_holds(env):
     assert events_named(env.drain(), "classic.queueDone") == []
 
 
+def test_the_queue_reports_a_toggle_it_cannot_check_against_unreadable_mod_settings(env):
+    mod = env.add(env.spr)
+    s = env.s
+    env.orphan()
+    queue(env, "mods.toggle", {"enabled": False, "expect": True})
+    queue(env, "actions.apply", {"variant": "test", "source": f"mod:{mod.id}"})
+    root = s.library_dir()
+    (root / "profiles.json").write_text("{broken")
+    (root / "profiles.json.prev").write_text("[]")
+    env.processes.table.clear()
+    env.drain()
+    s.after_classic()
+    done = events_named(env.drain(), "classic.queueDone")[0]
+    assert [(d["method"], d["error"]["code"]) for d in done["dropped"]] == [("mods.toggle", "profiles_unreadable")]
+    assert [item["method"] for item in done["submitted"]] == ["actions.apply"]
+    assert s.jobs.wait(done["submitted"][0]["job"], 10)
+    assert rpc(env.app, "mods.state")["result"]["queued"] == 0
+
+
 def test_the_queue_runs_when_the_scan_it_waits_for_is_dropped_with_the_consent(env):
     s = env.s
     s.set_scan_consent(True)

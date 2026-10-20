@@ -1049,6 +1049,27 @@ def test_a_queued_apply_survives_a_change_to_the_other_install(tmp_path):
         assert [d.code for d in run.dropped] == ["folder_changed"] and host.submitted == []
 
 
+class Unreadable(Host):
+    """A host whose mod settings cannot be read: the stored intent raises, as library.intent() does."""
+
+    def intent(self):
+        raise ServiceError("profiles_unreadable", file="profiles.json")
+
+
+def test_an_unreadable_intent_drops_the_toggle_with_its_error_and_runs_the_rest(tmp_path):
+    f = tmp_path / "a.bundle"
+    f.write_bytes(b"x")
+    q = cl.ClassicQueue()
+    q.add(toggle(False, True), intent=True)
+    q.add(apply_call((A, "hoshino_spr"), f))
+    host = Unreadable()
+    run = q.run(host)
+    assert [m for m, _ in host.submitted] == ["actions.apply"] and len(q) == 0
+    assert [d.to_json()["error"] for d in run.dropped] == [{"code": "profiles_unreadable",
+                                                            "params": {"file": "profiles.json"}}]
+    assert run.dropped[0].call.toggle
+
+
 def test_a_refused_submit_is_listed_and_quitting_drops_the_queue(tmp_path):
     f = tmp_path / "a.bundle"
     f.write_bytes(b"x")

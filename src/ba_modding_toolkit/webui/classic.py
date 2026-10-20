@@ -1273,35 +1273,42 @@ class ClassicQueue:
         still hold, in order. Dropped: a toggle whose ``expect`` is not the stored intent (``state_changed``) or whose
         pins are not the known installs (``folder_changed``); an entry whose install changed (``folder_changed``: only
         its own install counts, and the current one for an action on the current install) or whose files changed
-        (``entry_changed``)."""
+        (``entry_changed``). An item the host cannot check (``profiles_unreadable`` from the stored intent) is dropped
+        with that error, like a refused submit; the others still run."""
         out = QueueRun()
         for call in self.take():
-            if call.toggle:
-                if call.params.get("expect") != host.intent():
-                    out.dropped.append(Dropped(call, "state_changed"))
-                elif dict(call.pins) != dict(host.pins()):
-                    out.dropped.append(Dropped(call, "folder_changed"))
-                else:
-                    self._submit(host, call, out)
-                continue
-            pins, current = host.pins(), host.current()
-            keep: list[EntryKey] = []
-            for entry in call.entries:
-                install = entry[0]
-                one = call.narrowed([entry])
-                if install not in pins or pins.get(install) != call.pins.get(install) or \
-                        (call.current and current != install):
-                    out.dropped.append(Dropped(one, "folder_changed"))
-                    continue
-                files = call.files.get(entry, {})
-                if dict(self._stat(list(files))) != dict(files):
-                    out.dropped.append(Dropped(one, "entry_changed"))
-                    continue
-                keep.append(entry)
-            rest = call.narrowed(keep)
-            if rest is not None:
-                self._submit(host, rest, out)
+            try:
+                self._run_one(host, call, out)
+            except ServiceError as e:  # raised by a check before anything of this call was listed
+                out.dropped.append(Dropped(call, e.code, e.params))
         return out
+
+    def _run_one(self, host: QueueHost, call: QueuedCall, out: QueueRun) -> None:
+        if call.toggle:
+            if call.params.get("expect") != host.intent():
+                out.dropped.append(Dropped(call, "state_changed"))
+            elif dict(call.pins) != dict(host.pins()):
+                out.dropped.append(Dropped(call, "folder_changed"))
+            else:
+                self._submit(host, call, out)
+            return
+        pins, current = host.pins(), host.current()
+        keep: list[EntryKey] = []
+        for entry in call.entries:
+            install = entry[0]
+            one = call.narrowed([entry])
+            if install not in pins or pins.get(install) != call.pins.get(install) or \
+                    (call.current and current != install):
+                out.dropped.append(Dropped(one, "folder_changed"))
+                continue
+            files = call.files.get(entry, {})
+            if dict(self._stat(list(files))) != dict(files):
+                out.dropped.append(Dropped(one, "entry_changed"))
+                continue
+            keep.append(entry)
+        rest = call.narrowed(keep)
+        if rest is not None:
+            self._submit(host, rest, out)
 
     @staticmethod
     def _submit(host: QueueHost, call: QueuedCall, out: QueueRun) -> None:
