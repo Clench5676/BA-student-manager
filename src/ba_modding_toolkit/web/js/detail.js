@@ -22,7 +22,7 @@ import { forget, idleAnimation, prioritise, thumb } from "./thumbs.js";
 import { portraitViewport } from "./portrait-view.js";
 import { setTitle } from "./nav.js";
 import { KEYS, deltaOf, pacer, typing } from "./step-keys.js";
-import { FRAME_Y, closable, hit as hitNode, listPopup, popupFrame, ready as popupsReady, scrollArea } from "./popup.js";
+import { FRAME_Y, closable, hit as hitNode, listPopup, message, popupFrame, ready as popupsReady, scrollArea } from "./popup.js";
 import { appliedKey as keyOf, appliedOf, candidates as listSources, partsOf, popupMode, sourceOf, switchKindOf } from "./switch-sources.js";
 import {
   $, DOT, RECRUIT, S, TAN10, advanceOf, at, clone, glyphsOf, hitButton, markedLabel, off, text, toast, widget, wrapPath,
@@ -971,7 +971,7 @@ async function renderPopup(scroll = 0) {
         actions: [[T(platform === "mac" ? "open.mac" : "open.win"), () => reveal(file)],
           c.kind === "mod"
             ? [T("btn.remove"), async () => {
-              try { await rpc("mods.remove", { id: c.id }); } catch (err) { toast(errorText(err), { kind: "error" }); return; }
+              if (!(await removeMod(c.id))) return;
               await reload();
               ctx.invalidateRoster();
               if (pending === c.key) pending = popupMode(fam, variant(), kind, modsOn()).start;
@@ -995,6 +995,29 @@ function closePopup(apply) {
   const chosen = candidates(variant(), popupKind).find((c) => c.key === pending);
   // only a choice other than the start (what the game shows; while mods are off, the configured source)
   if (apply && chosen && !chosen.greyed && pending !== popupStart) applyCandidate(pending, popupKind);
+}
+
+// Remove (the switch popup's details): a mod that is the last copy of a file the game still carries (mods off, no
+// official copy anywhere) asks first: the game may not start (decision 12)
+async function removeMod(id) {
+  try {
+    await rpc("mods.remove", { id });
+    return true;
+  } catch (err) {
+    if (err.code !== "mod_last_copy") { toast(errorText(err), { kind: "error" }); return false; }
+  }
+  const r = await message({
+    title: T("btn.remove"), lines: [T("mods.lastCopy"), T("mods.overwrittenNone"), T("mods.mayNotStart")],
+    ok: T("btn.remove"), cancel: T("popup.cancel"),
+  });
+  if (r.button !== "ok") return false;
+  try {
+    await rpc("mods.remove", { id, confirm: true });
+    return true;
+  } catch (err) {
+    toast(errorText(err), { kind: "error" });
+    return false;
+  }
 }
 
 // the Add First or Overwritten message of a variant's files of a kind (prompts.js); resolves with true once its mod
