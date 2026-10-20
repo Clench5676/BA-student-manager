@@ -2801,6 +2801,9 @@ def test_delete_clears_configured_sources_built_keys_and_dismissals(world):
 
 @pytest.mark.parametrize("code", ["game_running", "steam_busy", "classic_open", "game_file_locked"])
 def test_delete_keeps_configuration_changes_when_restore_is_refused(world, monkeypatch, code):
+    # outside dev mode (devmode): inside BAMT_DEV_WRITABLE a game folder is written without the game check
+    monkeypatch.delenv("BAMT_DEV_ROOTS", raising=False)
+    monkeypatch.delenv("BAMT_DEV_WRITABLE", raising=False)
     mod = world.add(world.spr)
     world.library.apply("test", f"mod:{mod.id}")
     installed = world.spr.read_bytes()
