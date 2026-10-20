@@ -2412,3 +2412,19 @@ def test_real_bundles_off_on_drift_and_adoption(tmp_path, monkeypatch):
     library.toggle(True, False)
     assert (other / texture_file.name).read_bytes() == applied
     assert texture_file.read_bytes() == applied
+
+
+# --- what a write replaces, what a switch finds, and installs another data directory hides ---
+
+def test_a_write_judges_what_it_replaces_by_its_sha1_not_its_size_and_date(world):
+    mod = world.add(world.spr)  # no CRC fix: the official size
+    world.library.apply("test", f"mod:{mod.id}")
+    stat = world.spr.stat()
+    world.spr.write_bytes(header_bundle(b"another!"))  # another tool: the same size...
+    os.utime(world.spr, ns=(stat.st_atime_ns, stat.st_mtime_ns))  # ...and the date put back
+    assert world.library.state("test").files[0].applied == f"mod:{mod.id}"  # judged cheaply, still the library's
+    world.library.restore("test")
+    assert world.spr.read_bytes() == OFFICIAL
+    # the write compared the sha1 it computed anyway with the record: the outside bytes are kept as a mod
+    assert any(m.file.read_bytes() == header_bundle(b"another!") for m in world.library.mods())
+    assert len(world.library.mods()) == 2

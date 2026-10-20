@@ -1142,12 +1142,12 @@ class ModLibrary:
         return the ids of the mods it created. Each target is judged in full: official files go to originals/
         (_keep_original), files carrying a library source stay where they are, and a file changed outside the
         library (another tool, a manual copy), or the bytes of a source the library no longer has, is kept. A part
-        of a mod the user removed is never kept."""
+        of a mod the user removed is never kept. At write strength a target's sha1 is compared with its record, never
+        its size and date: _write has hashed every target already, so this reads nothing more."""
         view = self._view([pin], "full")
         keep: dict[str, list[Path]] = {}
         for target in targets:
-            part = view.part(target, pin, kind_of(core_of(target.name)) or "spr")
-            if part.carried == "unknown":
+            if self._replaced_unkept(target, pin, view):
                 keep.setdefault(core_of(target.name), []).append(target)
         created = []
         for paths in keep.values():
@@ -1156,6 +1156,22 @@ class ModLibrary:
             if new:
                 created.append(mod_id)
         return created
+
+    def _replaced_unkept(self, target: Path, pin: Pin, view: _View) -> bool:
+        """Whether a game file about to be replaced holds bytes kept nowhere else, by the full judgement: a target
+        whose sha1 equals its record carries the record's source, and is kept only when that source is gone from the
+        library (never a removed mod's part) and the target is not official; any other target is kept when it is not
+        official. A file whose header cannot be read is never kept."""
+        fingerprint = self._hashes.get(target)
+        record = self._applied.get(str(target.resolve()))
+        if record and fingerprint.sha1 == record.get("sha1"):
+            if record.get("removed"):
+                return False
+            if view.source_exists(record.get("source", ""), pin.key, kind_of(core_of(target.name)) or "spr"):
+                return False
+        elif fingerprint.trailing is None:
+            return False
+        return not self._is_official(target)
 
     def _drop_mods(self, mod_ids: list[str]) -> None:
         """Forget mods _keep_replaced added for a replacement that was rolled back (their files are in the game
