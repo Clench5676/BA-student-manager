@@ -584,7 +584,7 @@ function messageLines(lines, w) {
   let y = 0;
   if (!boxed) {
     rows.forEach((r, i) => {
-      const f = fitText(r.text, 52, 40, w - 240, 3);
+      const f = fitText(r.text, 52, 40, w - 240, 4);
       const h = f.lines * f.fs * 1.3 + 8;
       out.push(node(`Line_${i}`, [0, y - h / 2], [label(f.text, f.fs, `${r.color || "#2d4664"}/1.00`, w - 200, h, { depth: 8 })]));
       y -= h + 16;
@@ -596,7 +596,7 @@ function messageLines(lines, w) {
   const sized = rows.map((r) => {
     const bf = r.button ? fitText(r.button.label, 40, 28, 340) : null;
     const bw = bf ? Math.max(230, glyphsOf(bf.text, bf.fs) + 90) : 0;
-    const f = fitText(r.text, 44, 32, boxW - 80 - (bw ? bw + 30 : 0), 3);
+    const f = fitText(r.text, 44, 32, boxW - 80 - (bw ? bw + 30 : 0), 4);
     return { r, f, bf, bw, h: Math.max(MSG.rowMin, f.lines * f.fs * 1.3 + 30) };
   });
   const boxH = sized.reduce((a, s) => a + s.h, 0) + 16;

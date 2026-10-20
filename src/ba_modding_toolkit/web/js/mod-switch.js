@@ -81,13 +81,13 @@ export const retryParams = (state) => ({ enabled: state?.enabled !== false, expe
 // the reason a greyed switch shows
 export const reasonText = (state) => (state?.reason ? errorText(state.reason, state.reasonParams) : "");
 
-// the help's first four lines, which the first toggle's explanation repeats
-export const basics = () => [T("mods.helpOff"), T("mods.helpOn"), T("mods.helpKept"), T("mods.helpGame")];
+// the help's opening text, which the first toggle's explanation repeats
+export const basics = () => [T("mods.help")];
 
 // the first toggle's explanation: {title, lines, ok}; the box closes with Cancel too, and only ok toggles
 export function explanation(state) {
   const action = T(state?.enabled === false ? "mods.onTitle" : "mods.offTitle");
-  return { title: action, lines: [...basics(), T("mods.builtWhat"), T("mods.explainOnce")], ok: action };
+  return { title: action, lines: [...basics(), T("mods.explainOnce")], ok: action };
 }
 
 // helpLines(state): the "?" help's lines, [{text, button: {id, label}}]. Buttons: clear (Clear Built Mods), allow
@@ -96,12 +96,13 @@ export function explanation(state) {
 export function helpLines(state, { sep = listSep() } = {}) {
   const s = state || {};
   const lines = basics().map((text) => ({ text }));
-  const installs = s.installs || [];
-  if (installs.length > 1) lines.push({ text: T("mods.helpFolders", { folders: installs.map((i) => i.label).join(sep) }) });
-  lines.push({ text: T("mods.builtWhat") });
+  // the disk use line leads straight into the two sizes
+  lines.push({ text: T("mods.helpSpace") });
   lines.push({ text: T("mods.builtSize", { size: sizeText(s.builtSize) }),
     ...(s.builtSize > 0 ? { button: { id: "clear", label: T("mods.builtClear") } } : {}) });
   lines.push({ text: T("mods.originalsSize", { size: sizeText(s.originalsSize) }) });
+  const installs = s.installs || [];
+  if (installs.length > 1) lines.push({ text: T("mods.helpFolders", { folders: installs.map((i) => i.label).join(sep) }) });
   if (s.scan !== true) lines.push({ text: T("mods.scanOff"), button: { id: "allow", label: T("mods.allowCheck") } });
   const notSwitched = (s.pending || 0) + (s.left || 0);
   if (notSwitched > 0) lines.push({ text: T("mods.notSwitched", { n: notSwitched }), button: { id: "retry", label: T("mods.retry") } });

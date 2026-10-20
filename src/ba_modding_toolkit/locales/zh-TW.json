@@ -973,15 +973,12 @@
 			"guide": "說明",
 			"offState": "Mod 已關閉",
 			"onState": "Mod 已開啟",
-			"helpOff": "關閉：所有立繪和紀念大廳一鍵還原為原版",
-			"helpOn": "開啟：重新套用已設定的 Mod",
-			"helpKept": "Mod 保留在 Mod 倉庫中",
-			"helpGame": "僅在遊戲關閉時可用",
+			"help": "關閉時，所有立繪和紀念大廳還原為原版（如原版已被覆蓋，則無效）；開啟後，將套用已設定的 Mod，Mod 將保留在 Mod 倉庫中。此選項僅在遊戲關閉時可用。",
+			"helpSpace": "若使用此功能，可能會佔用額外儲存空間，以下為估算：",
 			"helpFolders": "遊戲資料夾：{folders}",
 			"installNamed": "{server}（{folder}）",
 			"explainOnce": "此說明不再顯示",
-			"builtWhat": "保留已產生的 Mod，開啟時直接還原",
-			"builtSize": "佔用空間：{size}，可能很大",
+			"builtSize": "佔用空間：{size}",
 			"builtClear": "清除已產生的 Mod",
 			"builtCleared": "已清除已產生的 Mod",
 			"originalsSize": "關閉用的原版備份：{size}",
@@ -1162,7 +1159,7 @@
 			"page": "前往下載頁面"
 		},
 		"classic": {
-			"hint": "將在經典介面中開啟，顯示在本視窗上方",
+			"hint": "此功能尚未遷移，將在經典介面中開啟",
 			"opening": "正在開啟經典介面",
 			"front": "移到最前",
 			"opened": "經典介面已開啟",
@@ -1215,9 +1212,16 @@
 					"win": "系統匣圖示",
 					"mac": "選單列圖示"
 				},
-				"files": "遊戲檔案",
+				"files": "遊戲檔案設定漂移檢測",
 				"check": "檢查",
-				"clean": "未發現變更",
+				"clean": "未發現漂移",
+				"driftHelp": {
+					"title": "設定漂移",
+					"what": "遊戲檔案與 Mod 設定不一致",
+					"reset": "已還原為原版：已設定的 Mod 被遊戲更新或資源修復還原，可重新套用 Mod 設定",
+					"untracked": "未加入倉庫的 Mod：在 Mod 倉庫外放入遊戲的 Mod，可加入 Mod 倉庫",
+					"damaged": "已損壞：遊戲檔案已損壞，需修復遊戲"
+				},
 				"folders": "遊戲資料夾",
 				"forget": "從列表移除"
 			},

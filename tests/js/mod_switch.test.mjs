@@ -183,11 +183,11 @@ test("a click: the reason, busy, the classic modal, the first toggle's explanati
   assert.deepEqual(MS.retryParams(base({ enabled: false })), { enabled: false, expect: false });
 });
 
-test("the first toggle's explanation: the help's first lines, built mods kept, not shown again", () => {
+test("the first toggle's explanation: the help's opening text, not shown again", () => {
   const off = MS.explanation(base());
   assert.equal(off.title, S("mods.offTitle"));
   assert.equal(off.ok, S("mods.offTitle"));
-  assert.deepEqual(off.lines, [S("mods.helpOff"), S("mods.helpOn"), S("mods.helpKept"), S("mods.helpGame"), S("mods.builtWhat"), S("mods.explainOnce")]);
+  assert.deepEqual(off.lines, [S("mods.help"), S("mods.explainOnce")]);
   assert.equal(MS.explanation(base({ enabled: false })).ok, S("mods.onTitle"));
 });
 
@@ -195,16 +195,18 @@ test("the help's lines: game folders, built mods and their size, the file check,
   const texts = (s) => MS.helpLines(s).map((l) => l.text);
   const buttons = (s) => MS.helpLines(s).filter((l) => l.button).map((l) => [l.button.id, l.button.label]);
   // one game folder: no folders line; built mods with their size, and their Clear only when there are some
-  assert.deepEqual(texts(base()).slice(0, 4), [S("mods.helpOff"), S("mods.helpOn"), S("mods.helpKept"), S("mods.helpGame")]);
+  // the opening text, then the disk use line straight before the two sizes
+  assert.deepEqual(texts(base()).slice(0, 4), [S("mods.help"), S("mods.helpSpace"), "Disk use: 0 MB", "Official copies for Off: 0 MB"]);
   assert.ok(!texts(base()).some((t) => t.startsWith("Game folders")));
-  assert.ok(texts(base()).includes("Disk use: 0 MB, can grow large"));
+  assert.ok(texts(base()).includes("Disk use: 0 MB"));
   assert.ok(texts(base({ originalsSize: 3 * 1048576 })).includes("Official copies for Off: 3.0 MB"));
   assert.deepEqual(buttons(base()), []);
   assert.deepEqual(buttons(base({ builtSize: 5 * 1073741824 })), [["clear", S("mods.builtClear")]]);
-  assert.ok(texts(base({ builtSize: 5 * 1073741824 })).includes("Disk use: 5.00 GB, can grow large"));
+  assert.ok(texts(base({ builtSize: 5 * 1073741824 })).includes("Disk use: 5.00 GB"));
   // two game folders: their install labels, with the language's separator
   const two = base({ installs: [install("/a/BlueArchive", "Global (BlueArchive)"), install("/b/Steam", "Global (Steam)")] });
   assert.ok(texts(two).includes("Game folders: Global (BlueArchive), Global (Steam)"));
+  assert.equal(texts(two)[4], "Game folders: Global (BlueArchive), Global (Steam)", "after the sizes");
   assert.equal(MS.helpLines(two, { sep: "、" }).find((l) => l.text.startsWith("Game folders")).text, "Game folders: Global (BlueArchive)、Global (Steam)");
   // Retry for the entries not switched (pending and left), Details for those left as is (stuck), never a Retry for them
   const counts = base({ pending: 2, left: 1, stuck: 3, sourceMissing: 1 });
@@ -572,4 +574,10 @@ test("the tray's Back to Official opens the drift prompt: two buttons and no way
   answers["mods.entries"] = [];
   await MS.trayOpen({ view: "drift" });
   assert.equal(toastEl.textContent, S("settings.mods.clean"));
+});
+
+test("the Game Files row's \"?\": what configuration drift is, one line per finding the row shows", async () => {
+  const Settings = await import("../../src/ba_modding_toolkit/web/js/settings.js");
+  assert.deepEqual(Settings.driftLines(), ["what", "reset", "untracked", "damaged"].map((k) => S(`settings.mods.driftHelp.${k}`)));
+  assert.ok(Settings.driftLines().every((line) => line && !line.startsWith("settings.")), "every line has its text");
 });

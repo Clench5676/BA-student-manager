@@ -6,6 +6,7 @@
 // covers. Whether the classic UI asks before it opens is a General row, under More Settings.
 import * as ModSwitch from "./mod-switch.js";
 import * as NGUI from "./ngui.js";
+import * as Popup from "./popup.js";
 import * as Prompts from "./prompts.js";
 import { rpc, waitJob } from "./api.js";
 import { T, platform } from "./i18n.js";
@@ -74,15 +75,16 @@ function radioRow(name, y, title, options, selected, onPick, { dim = false, tip 
 const ON_OFF = () => [[true, T("settings.post.on")], [false, T("settings.post.off")]];
 
 // the square "?" after a row's title (UICharacterCollection's Btn_Information: the game's Common_Btn_Information in
-// the title's navy over a white square), with the red dot when entries were not switched
-function helpAfterTitle(row, title, dot) {
+// the title's navy over a white square), with the red dot when entries were not switched; it opens the Enable Mods
+// help unless ``open`` names another
+function helpAfterTitle(row, title, dot, open = () => ModSwitch.openHelp()) {
   const t = fitText(title, 50, 40, 900);
   const x = -718.5 + glyphsOf(t.text, t.fs) + 70, y = row.h / 2 - 55;
   row.tree.children.push(node("Help", [x, y], [sprite("Common_Square_Bg", 50, 50, { depth: 22, color: "#ffffff/1.00" })], [
     node("Sprite", [2, -7], [sprite("Common_Btn_Information", 70, 72, { type: 0, depth: 23, color: "#2c4564/1.00" })]),
     ...(dot ? [DOT([40, 30], 30)] : []),
   ]));
-  row.hits.push({ path: `${row.tree.name}/Help`, fn: () => ModSwitch.openHelp(), title: T("mods.guide"), pad: 14 });
+  row.hits.push({ path: `${row.tree.name}/Help`, fn: open, title: T("mods.guide"), pad: 14 });
   return row;
 }
 
@@ -126,6 +128,16 @@ function filesValue(m) {
   if (m.untracked) parts.push(T("mods.untrackedTitle"));
   if (m.damaged) parts.push(T("mods.damaged"));
   return parts.length ? parts.join(ModSwitch.listSep()) : T("settings.mods.clean");
+}
+
+// the Game Files row's "?": what configuration drift is, line by line for what the row reports (Back to Official, Mods
+// Not in the Library, Damaged)
+export function driftLines() {
+  return ["what", "reset", "untracked", "damaged"].map((k) => T(`settings.mods.driftHelp.${k}`));
+}
+
+function driftHelp() {
+  return Popup.message({ title: T("settings.mods.driftHelp.title"), lines: driftLines(), ok: T("picker.ok"), width: 2100 });
 }
 
 // Settings' Check: a scan with the dismissed entries listed again, then the drift and untracked prompts over the
@@ -263,7 +275,8 @@ function rows() {
     if (p.native && p.traySupported) {
       add(radioRow("Tray", 0, T(platform === "mac" ? "settings.mods.tray.mac" : "settings.mods.tray.win"), ON_OFF(), !!p.tray, (value) => set("tray", value)));
     }
-    add(valueRow("Files", 0, T("settings.mods.files"), filesValue(m), [[T("settings.mods.check"), checkFiles, m.scan === true]]));
+    add(helpAfterTitle(valueRow("Files", 0, T("settings.mods.files"), filesValue(m), [[T("settings.mods.check"), checkFiles, m.scan === true]]),
+      T("settings.mods.files"), false, driftHelp));
     add(foldersRow("Folders", 0, T("settings.mods.folders"), m.installs || []));
   } else if (tab === "sound") {
     add(sliderRow("Voice", 0, T("settings.voice"), p.voiceVolume, p.voiceMuted));

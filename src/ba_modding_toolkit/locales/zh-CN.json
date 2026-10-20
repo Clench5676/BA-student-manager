@@ -973,15 +973,12 @@
 			"guide": "说明",
 			"offState": "Mod 已关闭",
 			"onState": "Mod 已开启",
-			"helpOff": "关闭：所有立绘和记忆大厅一键恢复原版",
-			"helpOn": "开启：重新应用已配置的 Mod",
-			"helpKept": "Mod 保留在 Mod 仓库中",
-			"helpGame": "仅在游戏关闭时可用",
+			"help": "关闭时，所有立绘和记忆大厅恢复原版（如原版已被覆盖，则无效）；开启后，将应用已配置的 Mod，Mod 将保留在 Mod 仓库中。该选项仅在游戏关闭时可用。",
+			"helpSpace": "若使用该功能，可能会占用额外存储空间，以下为估算：",
 			"helpFolders": "游戏目录：{folders}",
 			"installNamed": "{server}（{folder}）",
 			"explainOnce": "此说明不再显示",
-			"builtWhat": "保留已生成的 Mod，开启时直接恢复",
-			"builtSize": "占用空间：{size}，可能很大",
+			"builtSize": "占用空间：{size}",
 			"builtClear": "清除已生成的 Mod",
 			"builtCleared": "已清除已生成的 Mod",
 			"originalsSize": "关闭用的原版备份：{size}",
@@ -1162,7 +1159,7 @@
 			"page": "前往下载页"
 		},
 		"classic": {
-			"hint": "将在经典界面中打开，显示在本窗口上方",
+			"hint": "该功能尚未迁移，将在经典界面中打开",
 			"opening": "正在打开经典界面",
 			"front": "切到前台",
 			"opened": "经典界面已打开",
@@ -1215,9 +1212,16 @@
 					"win": "托盘图标",
 					"mac": "菜单栏图标"
 				},
-				"files": "游戏文件",
+				"files": "游戏文件配置漂移检测",
 				"check": "检查",
-				"clean": "未发现变化",
+				"clean": "未发现漂移",
+				"driftHelp": {
+					"title": "配置漂移",
+					"what": "游戏文件与 Mod 配置不一致",
+					"reset": "已恢复原版：已配置的 Mod 被游戏更新或资源修复还原，可重新应用 Mod 配置",
+					"untracked": "未加入仓库的 Mod：在 Mod 仓库外放入游戏的 Mod，可加入 Mod 仓库",
+					"damaged": "已损坏：游戏文件已损坏，需修复游戏"
+				},
 				"folders": "游戏目录",
 				"forget": "从列表移除"
 			},

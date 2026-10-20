@@ -913,7 +913,7 @@ click does; `nav.js` draws them.
   Without a game folder the no-game screen shows the navigation too, with the icon in grey at half brightness and the
   label in the settings' disabled grey (`#9aa3ad`, `plain`).
 - **The hand-off prompt** (decision 6). A click, Enter or Space on a greyed entry opens the prompt on the shared
-  message popup: the entry's label as its title, "Opens in the classic UI, over this window" (`classic.hint`), the
+  message popup: the entry's label as its title, "Not migrated yet, opens in the classic UI" (`classic.hint`), the
   checkbox Don't Ask Again (`mods.dontAsk`, unticked), Cancel and Open. It shows on every click. Open with the box
   ticked turns the pref `classicPrompt` off (`settings.set`) before the hand-off; Cancel, Escape, the backdrop and
   the close button save nothing. With the pref off a click hands over at once. Settings' General tab turns it back
@@ -1086,16 +1086,16 @@ detail screen, and in Settings' Mods tab.
   classic modal with its box ticked when writes wait for the classic window; unavailable, the reason as a toast; the
   first toggle ever, the explanation; the classic window open, the classic modal; otherwise `mods.toggle {enabled:
   !current, expect: current}` at once, with the corner indicator and "Working 12/40". The explanation (title and
-  button Turn Off Mods or Turn On Mods, the help's first four lines, "Built mods kept for instant On" and "Not shown
-  again", and Cancel) shows once: closing it in any way calls `mods.explained`, and only its button toggles. The end
+  button Turn Off Mods or Turn On Mods, the help's opening text and "Not shown again", and Cancel) shows once: closing it in any way calls `mods.explained`, and only its button toggles. The end
   is a toast ("Mods off", "Mods on"), or, when entries were added to the library first, failed, were left as is or
   their adoption failed, a result popup: "Added to the library first: n", "Done: x, failed: y", "Left as is, no
   official copy: n", then each failed entry ("Airi, Portrait - ..."), the first six named and the rest counted.
   `state_changed` (switched elsewhere first) is a toast, and the switch redraws from `mods.state`.
-- **The "?" help** (message popup, title Enable Mods): the four lines of what Off and On do; "Game folders: ..." with
-  the install labels when more than one game folder is known; "Built mods kept for instant On"; "Disk use: x, can
-  grow large", with Clear Built Mods while there are some (`mods.clearBuilt`, then "Built mods cleared"); "Official
-  copies for Off: x" (kept originals, which cannot be cleared); without the scan consent "Other mods not checked"
+- **The "?" help** (message popup, title Enable Mods): the opening text (what Off and On do, that the mods stay in
+  the library, only while the game is closed; `mods.help`, wrapped over up to four lines); the disk use line
+  (`mods.helpSpace`) straight before the two sizes: "Disk use: x", with Clear Built Mods while there are some
+  (`mods.clearBuilt`, then "Built mods cleared"), and "Official copies for Off: x" (kept originals, which cannot be
+  cleared); "Game folders: ..." with the install labels when more than one game folder is known; without the scan consent "Other mods not checked"
   with Allow Check, which opens the scan consent popup and grants nothing itself; "Not switched: n" with Retry (the
   same toggle again) for pending and left entries; "Left as is, no official copy: n" with Details, the Overwritten
   message (the entries, known from the last scan with the scan consent, "No official copy left" and the repair lines
@@ -1110,9 +1110,10 @@ detail screen, and in Settings' Mods tab.
 - **Settings' Mods tab** (second, after General; `UIPopup_Option_PC`'s tab column has five separators): Enable Mods
   (On / Off, the same switch with the same rules, its square "?" and red dot after the title; faded while busy or
   unavailable); Show on Main Screens (`modSwitchShown`); File Check (On opens the scan consent popup, Off withdraws
-  the consent); Tray Icon or Menu Bar Icon (`tray`, only in the app window where the system has one); Game Files
-  (what the last check found, or "File check off" with Check greyed; Check scans with the dismissed entries listed
-  again); Game Folders (each known install's label and path; a recorded one the settings do not name has Remove from
+  the consent); Tray Icon or Menu Bar Icon (`tray`, only in the app window where the system has one); Game File
+  Drift Check (what the last check found, "No drift found", or "File check off" with Check greyed; Check scans with
+  the dismissed entries listed again; its square "?" explains configuration drift, one line for each finding the row
+  shows: Back to Official, Mods Not in the Library, Damaged); Game Folders (each known install's label and path; a recorded one the settings do not name has Remove from
   List, `mods.forget`). The tab follows `mods.state` while it is open. Ask Before Opening (`classicPrompt`) is a
   General row, under More Settings.
 - **The classic modal** (`classicModal`, decision 5): a write the open classic window refuses (`classic_open` from

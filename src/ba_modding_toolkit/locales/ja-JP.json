@@ -973,15 +973,12 @@
 			"guide": "ご案内",
 			"offState": "MOD OFF",
 			"onState": "MOD ON",
-			"helpOff": "OFF：すべての立ち絵とメモリアルロビーを一括でオリジナルに",
-			"helpOn": "ON：設定済みのMODを再適用",
-			"helpKept": "MODはMODライブラリに保管",
-			"helpGame": "ゲーム終了中のみ",
+			"help": "OFFにすると、すべての立ち絵とメモリアルロビーがオリジナルに戻ります（オリジナルが上書きされている場合は無効）。ONにすると、設定済みのMODが適用され、MODはMODライブラリに保管されます。ゲーム終了中のみ使用できます。",
+			"helpSpace": "この機能を使うと追加の容量を使用する場合があります。以下は推定値：",
 			"helpFolders": "ゲームフォルダー：{folders}",
 			"installNamed": "{server}（{folder}）",
 			"explainOnce": "この説明は次回から非表示",
-			"builtWhat": "生成済みのMODを保管、ONですぐ反映",
-			"builtSize": "使用容量：{size}、大きくなる場合あり",
+			"builtSize": "使用容量：{size}",
 			"builtClear": "生成済みMODを削除",
 			"builtCleared": "生成済みMODを削除済み",
 			"originalsSize": "OFF用のオリジナルの控え：{size}",
@@ -1162,7 +1159,7 @@
 			"page": "ダウンロードページへ"
 		},
 		"classic": {
-			"hint": "クラシック画面で開く、この画面の手前に表示",
+			"hint": "未移行の機能、クラシック画面で開く",
 			"opening": "クラシック画面を起動中",
 			"front": "前面に表示",
 			"opened": "クラシック画面を表示中",
@@ -1215,9 +1212,16 @@
 					"win": "タスクトレイアイコン",
 					"mac": "メニューバーアイコン"
 				},
-				"files": "ゲームファイル",
+				"files": "ゲームファイルの設定ずれチェック",
 				"check": "チェック",
-				"clean": "変更なし",
+				"clean": "ずれなし",
+				"driftHelp": {
+					"title": "設定のずれ",
+					"what": "ゲームファイルとMOD設定が一致しない状態",
+					"reset": "オリジナルに戻ったMOD：設定済みのMODがゲームの更新や修復で元に戻った状態、MOD設定を再適用可能",
+					"untracked": "MODライブラリにないMOD：MODライブラリ外からゲームに入れたMOD、MODライブラリに追加可能",
+					"damaged": "破損：ゲームファイルが破損、ゲームの修復が必要"
+				},
 				"folders": "ゲームフォルダー",
 				"forget": "リストから外す"
 			},
