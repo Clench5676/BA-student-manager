@@ -126,6 +126,9 @@ def test_modules_and_main():
     assert mods["velocity"]["orbitalX"] == 0.5 and mods["velocity"]["speed"] == 0.12 and mods["velocity"]["world"] == 1
     assert mods["sheet"]["x"] == 2 and mods["sheet"]["start"] == 0.25
     assert s["renderer"]["sort"] == 2 and s["renderer"]["streams"] == {"uv": [0, 2], "uv2": [2, 2], "c1": [4, 4], "c2": [8, 4]}
+    # Apply Active Color Space: on unless the renderer turns it off (then the colours reach the shader as stored)
+    assert s["renderer"]["colorSpace"] == 1 and particles.system({}, {})["renderer"]["colorSpace"] == 1
+    assert particles.system({}, {"m_ApplyActiveColorSpace": False})["renderer"]["colorSpace"] == 0
     # a renderer without custom streams has only the UV, a mesh shape is emitted from its origin
     assert particles.system({}, {})["renderer"]["streams"] == {"uv": [0, 2]}
     assert particles.system({"ShapeModule": {"enabled": 1, "type": 6}}, {})["shape"]["unsupported"] == 1

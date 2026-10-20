@@ -292,6 +292,10 @@ def _renderer(r: Mapping[str, Any]) -> dict:
         "lengthScale": _r(r.get("m_LengthScale", 2.0)), "velocityScale": _r(r.get("m_VelocityScale", 0.0)),
         "pivot": _vec(r.get("m_Pivot")), "flip": _vec(r.get("m_Flip")), "streams": _streams(r),
         "rotateWithStretch": 1 if r.get("m_RotateWithStretchDirection", True) else 0,
+        # Apply Active Color Space: in the game's linear colour space Unity converts the particle colours from gamma
+        # to linear before they reach the vertex stream; with it off (116 systems in 30 lobbies: Michiru's, Nodoka's)
+        # the shader gets them as stored
+        "colorSpace": 1 if r.get("m_ApplyActiveColorSpace", True) else 0,
     }
 
 

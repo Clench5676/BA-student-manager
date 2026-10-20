@@ -611,11 +611,13 @@ export function meshIndex(rend, seed) {
 }
 
 // One system's triangles for this frame: {data: Float32Array (STRIDE floats per vertex), count: vertices}, in a
-// buffer the next call reuses. meshes: lobby.json fx.meshes; linear: decode the colours from sRGB. Positions are
-// lobby units (z dropped: the camera is orthographic).
+// buffer the next call reuses. meshes: lobby.json fx.meshes; linear: drawn in linear light, where Unity decodes the
+// colours from sRGB unless the renderer's Apply Active Color Space is off (colorSpace 0: the colours as stored).
+// Positions are lobby units (z dropped: the camera is orthographic).
 let scratch = new Float32Array(0);
 export function geometry(fxs, s, { meshes = {}, linear = true } = {}) {
   const def = s.def, rend = def.renderer, world = def.main.space === 1;
+  const decode = linear && rend.colorSpace !== 0;
   const list = rend.mode === 4 ? (rend.meshes || [rend.mesh]).map((id) => meshes[id]) : null;
   if (!s.particles.length || (list && !list.every(Boolean))) return { data: new Float32Array(0), count: 0 };
   const M = s.M, streams = rend.streams || { uv: [0, 2] };
@@ -631,7 +633,7 @@ export function geometry(fxs, s, { meshes = {}, linear = true } = {}) {
   else if (rend.sort === 3) order = order.slice().sort((a, b) => b.age - a.age);
   for (const pt of order) {
     const mesh = list && list[meshIndex(rend, pt.seed)];
-    const cur = fxs.current(s, pt), c = vertexColor(cur.color, linear), tc = texcoords(streams, cur.custom);
+    const cur = fxs.current(s, pt), c = vertexColor(cur.color, decode), tc = texcoords(streams, cur.custom);
     const centre = world ? pt.pos : apply(M, pt.pos[0], pt.pos[1], pt.pos[2]);
     const fu = rend.flip && rnd(pt.seed, R.flipU) < rend.flip[0], fv = rend.flip && rnd(pt.seed, R.flipV) < rend.flip[1];
     // the sheet tile's UV rectangle (frame 0 is the top-left tile; UV (0, 0) is the bottom-left corner)
@@ -661,7 +663,7 @@ export function geometry(fxs, s, { meshes = {}, linear = true } = {}) {
       for (const idx of mesh.i) {
         const p = applyDir(T, mesh.v[idx * 3], mesh.v[idx * 3 + 1], mesh.v[idx * 3 + 2]);
         const n = mesh.n ? norm(applyDir(turn, mesh.n[idx * 3], mesh.n[idx * 3 + 1], mesh.n[idx * 3 + 2])) : FACING;
-        const col = mc ? vertexColor([pc[0] * mc[idx * 4], pc[1] * mc[idx * 4 + 1], pc[2] * mc[idx * 4 + 2], pc[3] * mc[idx * 4 + 3]], linear) : c;
+        const col = mc ? vertexColor([pc[0] * mc[idx * 4], pc[1] * mc[idx * 4 + 1], pc[2] * mc[idx * 4 + 2], pc[3] * mc[idx * 4 + 3]], decode) : c;
         push(centre[0] + p[0], centre[1] + p[1], mesh.uv ? mesh.uv[idx * 2] : 0, mesh.uv ? mesh.uv[idx * 2 + 1] : 0, n, col);
       }
       continue;

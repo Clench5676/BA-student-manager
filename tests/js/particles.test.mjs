@@ -461,6 +461,20 @@ test("the sorting fudge pushes a system back (above 0) or forward (below 0) amon
   assert.deepEqual(slotOf({ order: 0, queue: 3000, z: 0, fudge: -5 }, [layer]), { layer: 0, part: 1 });
 });
 
+test("Apply Active Color Space off: the vertex colours reach the shader as stored, not decoded from sRGB", () => {
+  const fx = effects([sys({ emission: { bursts: [{ t: 0, n: 1, cycles: 1, interval: 1, p: 1 }] }, main: { color: { col: [0.5, 0.25, 1, 0.5] } } }),
+    sys({ emission: { bursts: [{ t: 0, n: 1, cycles: 1, interval: 1, p: 1 }] }, main: { color: { col: [0.5, 0.25, 1, 0.5] } },
+      renderer: { colorSpace: 0 } })]);
+  fx.update(0.016);
+  const colour = (s) => Array.from(geometry(fx, s, { linear: true }).data.subarray(14, 18));
+  const [on, off] = fx.systems.map(colour);
+  near(on[0], vertexColor([0.5], true)[0], 1e-6, "converted");
+  assert.ok(on[0] < 0.25 && on[3] === off[3]);
+  assert.deepEqual(off.map((c) => +c.toFixed(4)), vertexColor([0.5, 0.25, 1, 0.5], false).map((c) => +c.toFixed(4)));
+  // outside linear light nothing is decoded either way
+  near(Array.from(geometry(fx, fx.systems[0], { linear: false }).data.subarray(14, 15))[0], 128 / 255, 1e-6);
+});
+
 // --- particles-gl.js: drawing into a player's context and freeing it -------------------------------------------------
 
 class FakeGL {}
