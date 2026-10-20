@@ -183,6 +183,7 @@ def build_api(s: Services) -> RpcRegistry:
             "lobbyZoom": lobby_zoom(s.state.get("lobby_zoom"), s.state.get("lobby_zoom_custom"),
                                     s.state.get("lobby_zoom_out")),
             "lobbyPost": bool(s.state.get("lobby_post", True)),
+            "lobbyIntro": bool(s.state.get("lobby_intro", True)),
             "roster": roster_view(s.state.get("roster")),
             "consent": s.state.consent, "cacheDir": str(s.cache_dir()),
             "version": get_version_info().get("version"), "native": s.window is not None,
@@ -237,6 +238,8 @@ def build_api(s: Services) -> RpcRegistry:
             s.state.set("lobby_zoom_custom", lobby_zoom(None, value)["custom"])
         elif key == "lobbyPost":
             s.state.set("lobby_post", bool(value))
+        elif key == "lobbyIntro":
+            s.state.set("lobby_intro", bool(value))
         elif key == "roster":
             s.state.set("roster", roster_view(value))
         else:

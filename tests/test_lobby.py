@@ -665,7 +665,9 @@ def test_real_lobby_particle_colour_space_layers_and_toggles(real_game):
     assert len(nodoka) == 10 and sum(s["renderer"]["colorSpace"] == 0 for s in nodoka) == 9
     # Aru's dust is on the game's other sorting layer (value 2): over her skeletons, which are on Default
     aru = real_game.lobby_info("aru_home")
-    assert sorted(s["name"] for s in aru["fx"]["systems"] if s["sortingLayer"] == 2) == ["dust_00", "dust_02"]
+    assert sorted(s["name"] for s in aru["fx"]["systems"] if s["sortingLayer"] == 2) == ["dust_00", "dust_01", "dust_02"]
+    # dust_01 shows only during the intro
+    assert [s["name"] for s in aru["fx"]["systems"] if s.get("rest") == 0] == ["dust_01"]
     assert {layer["sortingLayer"] for layer in aru["layers"]} == {0}
     # CH0217: the character's Spine events switch seven GameObjects, all off in the prefab: the fish's bubbles (0 to
     # 3, from Idle_01 and BG_Loop_00_R) and the bubbles from her mouth (4 to 6, Talk_04_M and Idle_01)
@@ -679,7 +681,8 @@ def test_real_lobby_particle_colour_space_layers_and_toggles(real_game):
 def test_real_lobby_particle_modules(real_game):
     # CH0172's oil drops leave dirt trails, with the renderers' second material (queue 2950, under the character)
     oil = [s for s in real_game.lobby_info("ch0172_home")["fx"]["systems"] if "trail" in s["modules"]]
-    assert len(oil) == 6 and {s["trailQueue"] for s in oil} == {2950} and all(s["material"] for s in oil)
+    rest = [s for s in oil if s.get("rest") != 0]  # the others play during the intro only
+    assert len(rest) == 6 and {s["trailQueue"] for s in oil} == {2950} and all(s["material"] for s in oil)
     # CH0318's dust fades by its speed; CH0292's headlights emit by the distance they move
     dust = [s for s in real_game.lobby_info("ch0318_home")["fx"]["systems"] if "colorBySpeed" in s["modules"]]
     assert sorted(s["modules"]["colorBySpeed"]["range"][1] for s in dust) == [7.0, 8.0]

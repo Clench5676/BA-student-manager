@@ -20,6 +20,7 @@ import { compareKeys, queuesOf, sortKey } from "./particles.js";
 const hosts = new WeakMap(); // guest player -> the player whose context it draws with
 const own = new WeakMap(); // player -> its renderer's own drawSkeleton
 const plans = new WeakMap(); // player -> what it draws: {steps, fx, guests}, and for checks the players
+const hidden = new WeakSet(); // players not drawn now: the scenes only a lobby's intro shows (lobby-intro.js)
 let interleave = true, latest = null; // for checks: the order mode, and the host installed last (a WeakRef)
 
 // The order of a lobby's skeleton parts. layers: the players' layers (sortingLayer, order, queue, pages, z) in stacking
@@ -61,6 +62,25 @@ export function make(host, create) {
 
 // the player whose context a player draws with, or null
 export const hostOf = (player) => hosts.get(player) || null;
+
+// a player's element on the page: hidden, and left out of the stills and fades taken of the lobby's canvases
+// (lobby-off), or shown again
+function showElement(player, on) {
+  const el = player?.parent || player?.dom?.parentElement;
+  if (!el) return;
+  el.style.visibility = on ? "" : "hidden";
+  el.classList.toggle("lobby-off", !on);
+}
+// A player shown or hidden (a scene only the intro shows). Drawn by a host, its parts are left out of the host's
+// frame, where the rest of the lobby and the effects keep their order; on a canvas of its own, its element is hidden.
+// The host's element always shows: it carries the whole lobby.
+export function setShown(player, on) {
+  if (!player) return;
+  if (on) hidden.delete(player);
+  else hidden.add(player);
+  if (!plans.get(player)?.guests.length) showElement(player, on);
+}
+export const shown = (player) => !hidden.has(player);
 
 // A player is loaded (its success hook, before its first frame). A guest stops drawing and running on its own: its
 // renderer draws nothing when its own frame asks, its frame loop stops (the host runs its frames) and a window resize
@@ -105,6 +125,7 @@ export function install(players, fx) {
     const guests = merged && p === host ? players.slice(1) : [];
     plans.set(p, { steps: steps.filter((s) => s.owner === p), fx, guests, players });
   }
+  if (merged) showElement(host, true);
   latest = typeof WeakRef === "undefined" ? null : new WeakRef(host);
 }
 
@@ -142,13 +163,13 @@ export function frame(player) {
 function draw(player, skeleton, args) {
   const plan = plans.get(player), steps = plan?.steps || [];
   const base = player.sceneRenderer;
-  if (steps.length <= 1 && !plan?.guests.length) { own.get(player)(skeleton, ...args); return; }
+  if (steps.length <= 1 && !plan?.guests.length) { if (!hidden.has(player)) own.get(player)(skeleton, ...args); return; }
   for (const g of plan.guests) Linear.tint(g);
   let open = base;
   try {
     steps.forEach((step, i) => {
       const p = step.player, renderer = p.sceneRenderer, drawSkeleton = own.get(p);
-      if (p.skeleton && renderer && drawSkeleton && !p.disposed && !p.error) {
+      if (p.skeleton && renderer && drawSkeleton && !p.disposed && !p.error && !hidden.has(p)) {
         if (open !== renderer) {
           open?.end();
           renderer.begin();

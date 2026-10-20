@@ -8,7 +8,8 @@ at runtime and never shipped with the program.
 
 - Screens: consent popup, student roster, student detail (Portrait, Memorial Lobby and 3D tabs), the
   switch popups (portrait, memorial lobby) and the variant picker. The lobby is framed and touched like the game (its prefab data,
-  `lobby.json`) and plays its dialogue with Kivo's voices and the lines in the UI language (Kivo's Chinese and
+  `lobby.json`), plays its intro timeline when it is entered (a tap skips it; the settings' L2D tab turns it off) and
+  plays its dialogue with Kivo's voices and the lines in the UI language (Kivo's Chinese and
   Japanese, the Global server's official English and the others); the 3D tab shows the variant's chibi, exported
   from the install, and is disabled only for variants without one.
 - Nav entries without a new screen yet open the classic Tk GUI on that tab (`bamt --tab <name>`).
@@ -144,7 +145,8 @@ class GameAssets:
     def lobby_info(self, core: str) -> dict                    # a lobby's layers, touch boxes, clips, idle pools,
                                                                # sound events, post-processing (lobby.py), particle
                                                                # and mesh effects (particles.py, meshfx.py), page
-                                                               # materials (spine_materials.py), pins (pins.py)
+                                                               # materials (spine_materials.py), pins (pins.py) and
+                                                               # intro (intro.py)
     def lobby_fx_texture(self, core: str, tex_id: str) -> bytes # a texture lobby_info's "fx" lists, as PNG
     def lobby_sound(self, core: str, clip_id: str) -> bytes   # a clip lobby_info's "sounds" lists, decoded to WAV
     def model_cores(self) -> set[str]                          # dev names with a chibi (character-<dev>-_mxload-*)
@@ -446,7 +448,7 @@ library).
 | `app.openClassic {tab}` | starts the classic GUI on a tab |
 | `i18n.strings {lang}` | `{key: text}` for `webui.*` |
 | `roster.list` | families with variants, mod counts, fresh flags, favourites, recent order, `added` (when the newest own mod was added), `aliases` per family and per variant (matched by the search, never shown), `custom` per family (the user's own aliases) |
-| `settings.get` / `settings.set {key, value}` | the settings popup's values; key `roster` keeps the student list's view (merge, segment filters, sort, order, filter groups; `webui/state.py roster_view`); `lobbyZoom` is `{mode, custom}` in `settings.get`, set by keys `lobbyZoom` (`game`, `art`, `unlocked`, `custom`) and `lobbyZoomCustom` (1.0 to 4.0 game views across, kept in 0.1 steps) |
+| `settings.get` / `settings.set {key, value}` | the settings popup's values; key `roster` keeps the student list's view (merge, segment filters, sort, order, filter groups; `webui/state.py roster_view`); `lobbyZoom` is `{mode, custom}` in `settings.get`, set by keys `lobbyZoom` (`game`, `art`, `unlocked`, `custom`) and `lobbyZoomCustom` (1.0 to 4.0 game views across, kept in 0.1 steps); `lobbyPost` and `lobbyIntro` (the lobby's post-processing and its intro, on by default) |
 | `family.get {key}` | a family with its variants (and `aliases` and `custom`, as in `roster.list`), mods and each variant's state; `modelFiles` per variant (the 3D model's prefab bundles, newest first) and `version` (the game's resource version, so a switched install reloads the screen) |
 | `lobby.warm` | builds the memorial lobby prefab index and the index of every bundle's CABs (the particle effects' materials, textures and meshes) in the background (once per game); the detail screen calls it for a variant with a lobby |
 | `lobby.lines {variant, talks, lang}` | `{clip: {lang: text, voice}}`: zh-CN from Kivo, ja from Kivo else the Global server, en, zh-TW, ko and th from the Global server (read only for a `lang` other than zh-CN, left out when its table is not in within 3 s); `talks` (`{animation: [clip ids]}` from the skeleton) places the Global rows on the clips; `lines_unavailable` when neither source can be read |
@@ -471,8 +473,8 @@ library).
 | `/asset/ui/layout/<root>.json?path=<subpath>` | light |
 | `/asset/art/bg/<name>`, `/asset/art/portrait/<name>.png` | heavy |
 | `/asset/spine/spr/<core>/<file>`, `/asset/spine/lobby/<core>/<file>`, `/asset/spine/mod/<id>/<file>` (`skeleton.skel` and `skeleton.atlas` stand for the skeleton named like the core, a mod's own core for a mod, else the only one) | heavy |
-| `/asset/spine/lobby/<core>/lobby.json` (prefab layout, touch boxes, clips, idle pools, sound events, post-processing, particle and mesh effects, page materials, pinned bones; no skeleton is extracted) | heavy |
-| `/asset/spine/lobby/<core>/fx_<id>.png` (a particle, mesh or page shader texture the lobby's `fx.textures` lists) | heavy |
+| `/asset/spine/lobby/<core>/lobby.json` (prefab layout, touch boxes, clips, idle pools, sound events, post-processing, particle and mesh effects and sprites, page materials, pinned bones, the intro timeline (`gameassets/intro.py`); no skeleton is extracted) | heavy |
+| `/asset/spine/lobby/<core>/fx_<id>.png` (a particle, mesh, sprite or page shader texture the lobby's `fx.textures` lists) | heavy |
 | `/asset/spine/lobby/<core>/sfx_<id>.wav` (a sound clip the lobby's `sounds` list, decoded in memory) | heavy |
 | `/asset/model/<variant>.glb` (the variant's chibi, `model/gltf-binary`) | heavy |
 | `/asset/voice/<variant>/<clip>` (a lobby voice relayed from Kivo) | heavy |

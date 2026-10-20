@@ -9,7 +9,7 @@
 // Without linear light (no WebGL2) nothing is drawn.
 import * as Linear from "./linear.js";
 import { Meshes } from "./mesh-fx.js";
-import { Effects, STRIDE, drawOrder, geometry, lastBefore, queuesOf, trailGeometry } from "./particles.js";
+import { Effects, STRIDE, drawOrder, geometry, lastBefore, queuesOf, spriteGeometry, trailGeometry } from "./particles.js";
 import { toLinear } from "./touch-fx.js";
 
 const VS_HEAD = `#version 300 es
@@ -281,6 +281,20 @@ void main() {
   o = vec4(t.rgb * _Color0.rgb * v_col.rgb, 1.0);
 }`,
   },
+  // Unity's Sprites/Default (One OneMinusSrcAlpha): the sprite's texture times the renderer's colour and the material's,
+  // premultiplied; the intro's flash and fade sprites
+  sprite: {
+    tex: ["_MainTex"], floats: [], colors: ["_Color"],
+    src: `void main() {
+  vec4 c = texture(_MainTex, v_t0.xy * _MainTex_ST.xy + _MainTex_ST.zw) * v_col * _Color;
+  o = vec4(c.rgb * c.a, c.a);
+}`,
+  },
+  // Unity's Mobile/Particles/Additive (SrcAlpha One): the texture times the vertex colour
+  particleAdd: {
+    tex: ["_MainTex"], floats: [], colors: [],
+    src: "void main() { o = texture(_MainTex, v_t0.xy * _MainTex_ST.xy + _MainTex_ST.zw) * v_col; }",
+  },
 };
 
 // a program's own vertex outputs past TEXCOORD0..2 (v_t3...), which its fragment program reads
@@ -455,6 +469,10 @@ function mat4(a, b) {
 export function create(fx, { base, bone, load = loadImage } = {}) {
   const effects = new Effects(fx, { bone });
   const plain = new Meshes(fx, { bone }); // the mesh renderers, drawn like the systems
+  // the prefab's sprites (fx.sprites: the intro's flash and fade), drawn like a system with one quad; lobby-intro.js
+  // shows them (visible), colours (color) and moves (M) them
+  const sprites = (fx?.sprites || []).map((def, i) => ({ def, index: 2e6 + i, sprite: true, visible: def.rest !== 0,
+    color: def.color, M: def.static }));
   const images = new Map(); // texture id -> HTMLImageElement once loaded (null while loading)
   const contexts = new Map(); // player -> Context
   const restorables = new Map(); // player -> what its context calls once restored after a loss
@@ -510,7 +528,7 @@ export function create(fx, { base, bone, load = loadImage } = {}) {
     for (const { s, trail } of list) {
       const mat = materials[trail ? s.def.trailMaterial : s.def.material];
       const prog = mat && ctx.program(mat.program);
-      if (!prog || !(s.mesh || s.particles.length)) continue;
+      if (!prog || (s.sprite ? !s.visible || !(s.color[3] > 0) : !(s.mesh || s.particles.length))) continue;
       // every texture of the program loaded (or a default)
       const texs = [];
       let ready = true;
@@ -521,7 +539,7 @@ export function create(fx, { base, bone, load = loadImage } = {}) {
         texs.push([name, tex, meta.st || [1, 1, 0, 0]]);
       }
       if (!ready) continue;
-      const geo = s.mesh ? plain.geometry(s, { meshes })
+      const geo = s.sprite ? spriteGeometry(s.def, s.M, s.color) : s.mesh ? plain.geometry(s, { meshes })
         : trail ? trailGeometry(effects, s, { linear: true }) : geometry(effects, s, { meshes, linear: true });
       if (!geo.count) continue;
       ctx.upload(geo.data);
@@ -537,9 +555,10 @@ export function create(fx, { base, bone, load = loadImage } = {}) {
       });
       for (const f of PROGRAMS[mat.program].floats) if (L[f]) gl.uniform1f(L[f], mat.floats?.[f] ?? 0);
       for (const c of PROGRAMS[mat.program].colors) {
-        // Color properties reach the shader in linear light (HDR above 1 by a 2.2 power), alpha as stored; a mesh's
-        // animated ones as mesh-fx.js works them out
-        const v = mat.colors?.[c] || [1, 1, 1, 1], u = s.uniforms?.[c];
+        // Color properties reach the shader in linear light (HDR above 1 by a 2.2 power), alpha as stored; the
+        // intro animates some (s.colors, the renderer's property block), a mesh's animated ones as mesh-fx.js works
+        // them out
+        const v = s.colors?.[c] || mat.colors?.[c] || [1, 1, 1, 1], u = s.uniforms?.[c];
         if (L[c] && u) gl.uniform4f(L[c], u[0], u[1], u[2], u[3]);
         else if (L[c]) gl.uniform4f(L[c], toLinear(v[0]), toLinear(v[1]), toLinear(v[2]), v[3]);
       }
@@ -567,7 +586,7 @@ export function create(fx, { base, bone, load = loadImage } = {}) {
   }
 
   return {
-    effects,
+    effects, sprites,
     // players: the lobby's skeleton players in stacking order, each with its layer (bamtLayer: order, queue, pages, z)
     // and drawn in the parts of its pages' queues (skeleton-parts.js). steps: those parts in the order they draw, each
     // {owner, order, queue, z} with the player that draws it (lobby-stage.js: all of them by the bottom player when
@@ -582,13 +601,13 @@ export function create(fx, { base, bone, load = loadImage } = {}) {
         return slot ? slot.after[slot.after.push([]) - 1] : null;
       });
       // what draws: each system's particles and, with the trail module, its trails, which sort by their own
-      // material's queue (one renderer, two submeshes: the particles first), and the mesh renderers
+      // material's queue (one renderer, two submeshes: the particles first), the mesh renderers and the sprites
       const draws = [];
       for (const s of effects.systems) {
         if (s.def.material || s.def.subs) draws.push({ s, trail: false, def: s.def, index: s.index });
         if (s.def.trailMaterial) draws.push({ s, trail: true, def: { ...s.def, queue: s.def.trailQueue ?? 3000 }, index: s.index });
       }
-      for (const s of plain.items) if (s.def.material) draws.push({ s, trail: false, def: s.def, index: s.index });
+      for (const s of [...plain.items, ...sprites]) if (s.def.material) draws.push({ s, trail: false, def: s.def, index: s.index });
       for (const d of drawOrder(draws)) {
         const i = lastBefore(d.def, steps);
         (i < 0 ? slots.get(bottom)?.below : at[i])?.push(d);

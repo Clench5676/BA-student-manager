@@ -66,9 +66,11 @@ def test_real_lobbies_whose_skeletons_interleave(real_game, core):
     info = real_game.lobby_info(core)
     active = [layer for layer in info["layers"] if layer["active"]]
     assert [(layer["name"], layer["order"], layer["pages"]) for layer in active] == layers
-    assert {(s["name"], s["order"], s["queue"], s["fudge"]) for s in info["fx"]["systems"]} == systems
+    # the systems on at rest (the others play during the intro only)
+    rest = [s for s in info["fx"]["systems"] if s.get("rest") != 0]
+    assert {(s["name"], s["order"], s["queue"], s["fudge"]) for s in rest} == systems
     # effects of order 0 sort between two pages of the bottom skeleton (the character's page above them) and above a
     # page of the second skeleton: one canvas per skeleton cannot draw that
     bottom, second = (list(layer["pages"].values()) for layer in active[:2])
-    between = [s for s in info["fx"]["systems"] if s["order"] == 0 and min(bottom) < s["queue"] < max(bottom)]
+    between = [s for s in rest if s["order"] == 0 and min(bottom) < s["queue"] < max(bottom)]
     assert between and all(s["queue"] > min(second) for s in between)

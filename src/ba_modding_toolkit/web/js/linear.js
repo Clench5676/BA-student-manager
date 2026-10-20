@@ -372,6 +372,12 @@ export function setScreen(player, view) {
   const st = states.get(player);
   if (st) st.screen = view?.width > 0 && view?.height > 0 ? { x: view.x, y: view.y, w: view.width, h: view.height } : null;
 }
+// a pass over the frame in linear light before the post-processing's colour steps: fn(gl, texture, width, height,
+// screen) returns the texture to grade instead (falsy: the frame as it is); null removes it (lobby-dof.js)
+export function setPrepass(player, fn) {
+  const st = states.get(player);
+  if (st) st.prepass = fn || null;
+}
 // true for the bottom layer: drawn over the camera's clear colour (black, graded with the rest), opaque
 export function setClear(player, on) {
   const st = states.get(player);
@@ -402,15 +408,17 @@ export function end(player) {
   if (!st?.on || !st.bound) return;
   const { gl, res } = st, w = res.w, h = res.h;
   st.bound = false;
+  const screen = screenOnCanvas(st.screen, player.sceneRenderer?.camera);
+  // a pass before the colour steps (the intro's depth of field, lobby-dof.js), with the post-processing on
+  const src = (postOn && st.prepass?.(gl, res.tex, w, h, screen)) || res.tex;
   gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   gl.disable(gl.BLEND);
   gl.useProgram(res.prog);
   gl.activeTexture(gl.TEXTURE0);
-  gl.bindTexture(gl.TEXTURE_2D, res.tex);
+  gl.bindTexture(gl.TEXTURE_2D, src);
   const u = res.u;
   gl.uniform1i(u.t, 0);
   gl.uniform2f(u.size, w, h);
-  const screen = screenOnCanvas(st.screen, player.sceneRenderer?.camera);
   gl.uniform4f(u.screen, ...screen);
   gl.uniform1f(u.clear, st.clear ? 1 : 0);
   // Panini's extents: the game screen's aspect, the canvas's when the canvas is the screen

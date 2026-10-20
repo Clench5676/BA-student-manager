@@ -729,11 +729,47 @@ class _FxResolver:
                 out = (oid, self._skeleton(obj))
             elif kind == "animator" and obj.type.name == "AnimatorController":
                 out = self._animator(obj, oid)
+            elif kind == "timeline" and obj.type.name == "MonoBehaviour":
+                from . import intro
+                out = (oid, intro.read_timeline(g, obj, sound=self._sound))
+            elif kind == "sprite" and obj.type.name == "Sprite":
+                out = (oid, self._sprite(obj))
         except Exception:  # an unreadable object: the system is left out
             logger.debug("Cannot read lobby particle %s %s", kind, oid, exc_info=True)
             out = None
         self.done[(kind, oid)] = out
         return out
+
+    def _sound(self, asset: Any, data: dict) -> dict | None:
+        """A TimeLineAudioController's AudioData as a sound event (lobby.sound_event), with its id: the asset's."""
+        def clip_id(pointer: dict) -> str | None:
+            if not pointer.get("m_PathID"):
+                return None
+            cab, pid = reference(asset, pointer)
+            return f"{cab.lower()}_{pid}"
+        event = lobby.sound_event({"m_Name": "Intro", "AudioData": data}, clip_id)
+        return {**event, "id": f"{asset.assets_file.name.lower()}_{asset.path_id}"} if event else None
+
+    def _sprite(self, obj: Any) -> dict | None:
+        """A Sprite as intro.sprite draws it: its texture (particles.texture), its rect in the texture's pixels, its
+        size in units (rect / pixels per unit) and its pivot (0 to 1). The pixels are read when served."""
+        from . import particles
+
+        g = self.graph
+        st = g.tree(obj)
+        rd = st.get("m_RD") or {}
+        tex = g.deref(obj, rd.get("texture"))
+        if tex is None or tex.type.name != "Texture2D":
+            return None
+        tex_id = f"{tex.assets_file.name.lower()}_{tex.path_id}"
+        info = particles.texture(g.tree(tex), tex_id)
+        g.trees.pop((tex.assets_file.name.lower(), tex.path_id), None)
+        r, tr = st.get("m_Rect") or {}, rd.get("textureRect") or {}
+        ppu = float(st.get("m_PixelsToUnits") or 100.0) or 100.0
+        pivot = st.get("m_Pivot") or {}
+        return {"tex": info, "rect": [float(tr.get(k, 0.0)) for k in ("x", "y", "width", "height")],
+                "size": [float(r.get("width", 0.0)) / ppu, float(r.get("height", 0.0)) / ppu],
+                "pivot": [float(pivot.get("x", 0.5)), float(pivot.get("y", 0.5))]}
 
     def _pages(self, obj: Any, kind: str = "pages") -> dict[str, Any]:
         """{texture name: render queue} of a SkeletonDataAsset's atlas pages, as spine-unity draws them: each page with

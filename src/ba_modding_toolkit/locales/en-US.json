@@ -1113,6 +1113,11 @@
 				"on": "On",
 				"off": "Off"
 			},
+			"intro": {
+				"label": "Intro",
+				"on": "On",
+				"off": "Off"
+			},
 			"server": {
 				"label": "Server",
 				"global": "Global",
