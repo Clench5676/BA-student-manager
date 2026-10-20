@@ -104,9 +104,16 @@ class FakeMod:
 
 
 class FakeLibrary:
-    def __init__(self):
+    """The library calls of the web UI's handlers, with plain answers; ``pins`` are its known installs, the first
+    one current."""
+
+    def __init__(self, pins=()):
         self.favs = set()
         self.applied = []
+        self.pins = list(pins)
+        self.enabled = True
+        self.writes = True  # what would_write answers
+        self.toggled = []
 
     def mods(self):
         return [FakeMod("m1", "hoshino")]
@@ -120,14 +127,51 @@ class FakeLibrary:
     def set_favorite(self, key, on):
         (self.favs.add if on else self.favs.discard)(key)
 
-    def state(self, key):
+    def state(self, key, pin=None):
         return {"applied": "official", "crc": "ok"}
 
-    def apply(self, variant_key, source, log, progress):
+    def configured(self, key, pin=None):
+        return {"spr": None, "lobby": None}
+
+    def apply(self, variant_key, source, log, progress, kind="spr", pin=None):
         log("applying")
         progress(1, 1, variant_key)
         self.applied.append((variant_key, source))
         return {"applied": source}
+
+    def restore(self, variant_key, log, kind="spr", pin=None):
+        self.applied.append((variant_key, "official"))
+        return {"applied": "official"}
+
+    def would_write(self, variant_key, source, kind="spr", pin=None):
+        return self.writes
+
+    def installs(self):
+        return list(self.pins)
+
+    def current_pin(self):
+        return self.pins[0] if self.pins else None
+
+    def intent(self):
+        return {"enabled": self.enabled, "toggled": None, "unfinished": {"pending": 0, "left": 0, "stuck": 0}}
+
+    def status(self):
+        current = self.current_pin()
+        return {"installs": [{"id": p.id, "key": p.key, "server": p.server, "folder": str(p.root), "named": True,
+                              "distinct": None} for p in self.pins],
+                "current": current.key if current else None, "builtSize": 0, "originalsSize": 0, "reason": None,
+                "configured": 0, **self.intent()}
+
+    def toggle(self, enabled, expect, pins=None, log=None, progress=None, cancel=None):
+        self.toggled.append((enabled, expect, pins))
+        self.enabled = enabled
+        return {"enabled": enabled}
+
+    def judge_unfinished(self):
+        return 0
+
+    def prune(self):
+        return []
 
 
 @pytest.fixture
@@ -270,9 +314,10 @@ def test_family_lists_the_model_prefab_bundles(app, services, monkeypatch, tmp_p
                         raising=False)
     services.catalog.v.model = "hoshino_original"
     files = rpc(app, "family.get", key="hoshino")["result"]["variants"][0]["modelFiles"]
-    # newest first, each with the date and CRC state the info panel shows (the library's rules)
+    # newest first, each with the date and CRC state the info panel shows, judged from the header only (decision 27):
+    # no switch writes model bundles, so a name whose CRC does not match without trailing bytes shows ok
     assert [(Path(f["file"]), f["date"], f["crc"], f["kind"]) for f in files] == [
-        (broken, "2025-08-01", "needs_fix", "model"), (new, "2025-07-25", "fixed", "model"), (old, "2024-11-18", "ok", "model")]
+        (broken, "2025-08-01", "ok", "model"), (new, "2025-07-25", "fixed", "model"), (old, "2024-11-18", "ok", "model")]
     assert files[2]["size"] == old.stat().st_size
     services.catalog.v.model = None
     assert rpc(app, "family.get", key="hoshino")["result"]["variants"][0]["modelFiles"] == []
@@ -310,6 +355,32 @@ def test_asset_routes(app):
     assert call(app, "/asset/spine/spr/hoshino_spr/other.png")[0] == "404 Not Found"
 
 
+def test_another_installs_skeleton_is_read_from_its_own_files(app, services, monkeypatch, tmp_path):
+    from ba_modding_toolkit.library.models import Pin
+
+    current = Pin("/games/global", tmp_path / "global", (tmp_path / "global",), "global")
+    other = Pin("/games/japan", tmp_path / "japan", (tmp_path / "japan",), "japan")
+    services.library.pins = [current, other]
+    made = []
+
+    class OtherGame(FakeGame):
+        def __init__(self, dirs):
+            made.append(dirs)
+
+        def spine_files(self, kind, core):
+            return {f"{core}.skel": b"japan skel"}
+
+    monkeypatch.setattr(services, "_make_game", OtherGame)
+    # the core in another install: that install's own files, its GameAssets made once
+    assert json.loads(call(app, f"/asset/spine/spr/hoshino_spr@{other.id}/files.json")[2]) == ["hoshino_spr.skel"]
+    assert call(app, f"/asset/spine/spr/hoshino_spr@{other.id}/skeleton.skel")[2] == b"japan skel"
+    assert made == [[tmp_path / "japan"]]
+    # the same path without the id, or with the current install's: the current install's files
+    assert call(app, "/asset/spine/spr/hoshino_spr/skeleton.skel")[2] == b"skel"
+    assert call(app, f"/asset/spine/spr/hoshino_spr@{current.id}/skeleton.skel")[2] == b"skel"
+    assert call(app, "/asset/spine/spr/hoshino_spr@000000000000/files.json")[0] == "404 Not Found"
+
+
 def test_mod_skeleton_is_the_one_named_by_the_mods_core(app, services, monkeypatch):
     # a memorial lobby mod holds the character's skeleton and its background's
     bundle = Path("assets-_mx-spinelobbies-hoshino_home-_mxdependency-2026-01-01_assets_all_1.bundle")
@@ -325,12 +396,15 @@ def test_a_new_library_prunes_its_kept_originals_once(tmp_path, monkeypatch):
     pruned = []
 
     class Library:
-        def __init__(self, *args):
+        def __init__(self, *args, **kwargs):
             pass
 
         def prune(self):
             pruned.append(self)
             return [tmp_path / "originals" / "a.bundle"]
+
+        def judge_unfinished(self):
+            return 0
 
     monkeypatch.setattr("ba_modding_toolkit.library.ModLibrary", Library)
     s = Services(Settings(tmp_path / "config.toml"), tmp_path, state=UiState(tmp_path / "webui.json"),
@@ -512,7 +586,7 @@ def test_install_update_needs_the_window_and_the_verified_download(app, services
 def test_settings_change_waits_for_the_running_job(services):
     gate = threading.Event()
     library = services.library
-    job = services.jobs.submit("slow", lambda log, progress: gate.wait(5))
+    job = services.jobs.submit("slow", lambda log, progress: gate.wait(5), writes="library")
     deadline = time.monotonic() + 5
     while not services.jobs.busy() and time.monotonic() < deadline:
         time.sleep(0.01)
@@ -561,16 +635,6 @@ def test_program_command_in_a_compiled_build(monkeypatch, tmp_path):
     assert system.program_command() == [str(exe.resolve())]
 
 
-def test_open_classic_always_asks_for_the_classic_gui(monkeypatch):
-    from ba_modding_toolkit.webui import system
-    calls = []
-    monkeypatch.setattr(system, "program_command", lambda: ["tool"])
-    monkeypatch.setattr(system.subprocess, "Popen", lambda cmd, **kw: calls.append(cmd))
-    system.open_classic()
-    system.open_classic("settings")
-    assert calls == [["tool", "--classic"], ["tool", "--classic", "--settings"]]
-
-
 def test_the_window_leaves_the_pointer_and_text_selection_to_the_page(monkeypatch, tmp_path):
     """pywebview's text_select=False (its default) appends "body { user-select: none; cursor: default }" to the page,
     after app.css: the game's pointer (web/js/cursor.js) then shows only on buttons, the system arrow everywhere else.
@@ -601,3 +665,33 @@ def test_the_window_leaves_the_pointer_and_text_selection_to_the_page(monkeypatc
     body = " ".join(re.findall(r"^body\s*\{([^}]*)\}", css, re.M))
     for declaration in ("cursor: var(--cursor)", "-webkit-user-select: none", " user-select: none"):
         assert declaration in body
+
+
+def test_the_close_button_waits_only_for_a_writer_job(services, monkeypatch, tmp_path):
+    import sys
+    from types import SimpleNamespace
+
+    from ba_modding_toolkit.webui import main
+
+    handlers = {}
+
+    class Hook:
+        def __init__(self, name):
+            self.name = name
+
+        def __iadd__(self, handler):
+            handlers[self.name] = handler
+            return self
+
+    def create_window(title, url, **options):
+        return SimpleNamespace(events=SimpleNamespace(initialized=Hook("initialized"), loaded=Hook("loaded"),
+                                                      closing=Hook("closing")))
+
+    monkeypatch.setitem(sys.modules, "webview", SimpleNamespace(create_window=create_window, start=lambda **o: None))
+    main._run_window(services, SimpleNamespace(url="http://127.0.0.1:1/"), False)
+    gate = threading.Event()
+    services.jobs.submit("extract", lambda log, progress: gate.wait(5))  # read-only: the window may close
+    assert handlers["closing"]() is True
+    services.jobs.submit("library.adopt", lambda log, progress: gate.wait(5), writes="library")
+    assert handlers["closing"]() is False
+    gate.set()

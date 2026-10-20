@@ -45,3 +45,22 @@ class Family:
     def to_json(self) -> dict:
         """Return an independent JSON-ready record for RPC responses."""
         return asdict(self)
+
+
+@dataclass(frozen=True)
+class CoreMap:
+    """How one install's portrait and memorial lobby cores map to variant keys (Catalog.core_map): the same rules as
+    the roster's, run on that install's core names, so a core gets the same key in every install."""
+
+    keys: dict[str, str]  # lower-case core -> variant key
+    spr: dict[str, str]  # variant key -> its portrait core in the install, as named there
+    lobby: dict[str, str]  # variant key -> its primary memorial lobby core in the install, as named there
+    names: dict[str, dict[str, dict[str, str]]]  # variant key -> the shipped names, for the keys the data has
+
+    def key(self, core: str) -> str | None:
+        """The variant key of a portrait or lobby core, ignoring letter case; None for a core of neither kind."""
+        return self.keys.get(core.lower())
+
+    def core(self, key: str, kind: str) -> str | None:
+        """A variant's portrait core ("spr") or primary lobby core ("lobby") in the install."""
+        return (self.spr if kind == "spr" else self.lobby).get(key.lower())

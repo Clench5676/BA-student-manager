@@ -13,6 +13,17 @@ from .unity import reference, ref_key
 
 logger = logging.getLogger(__name__)
 
+# The game's buttons (MXButton) carry no NGUI UIButtonColor colours, and no prefab has a UIButton or UIButtonColor:
+# a disabled or locked button is a node of its own (its sprites tinted, often with a lock) that one of these
+# controllers shows in place of the normal one. Exported as "states": each field's node, as a path relative to the
+# controller's node ("" for the node itself; None when unset, in another file or outside the controller's node).
+STATE_FIELDS = {
+    "OpenConditionButtonController": ("Enable", "Disable", "Prohibited"),
+    "UIButtonEnableSwitch": ("enableButton", "disableButton"),
+    "MXDualStateButton": ("NormalButton", "DisabledButton"),
+    "ButtonActivator": ("activeObject", "inactiveObject", "button", "contentsLockObject"),
+}
+
 
 def _widget(obj: ObjectReader, tree: dict, names: dict[str, str], scripts: dict) -> dict:
     script = tree.get("m_Script", {})
@@ -57,14 +68,18 @@ def export_layout(env: Environment, root: str, names: dict[str, str]) -> dict:
     """Return a prefab root with ordered children and rounded widget transforms."""
     objects = list(env.objects)
     gos, transforms, scripts, components = {}, {}, {}, {}
+    owners = {}  # path id of a GameObject, Transform or MonoBehaviour -> its GameObject's path id
     for obj in objects:
         if obj.type.name == "GameObject":
             gos[obj.path_id] = obj.read()
+            owners[obj.path_id] = obj.path_id
         elif obj.type.name in ("Transform", "RectTransform"):
             transform = obj.read()
             transforms[transform.m_GameObject.path_id] = transform
+            owners[obj.path_id] = transform.m_GameObject.path_id
         elif obj.type.name == "MonoScript":
             scripts[obj.path_id] = obj.read().m_ClassName
+    controllers = []
     for obj in objects:
         if obj.type.name != "MonoBehaviour":
             continue
@@ -74,7 +89,27 @@ def export_layout(env: Environment, root: str, names: dict[str, str]) -> dict:
             logger.debug("Cannot read prefab component %s", obj.path_id, exc_info=True)
             continue
         gid = tree.get("m_GameObject", {}).get("m_PathID")
-        components.setdefault(gid, []).append(_widget(obj, tree, names, scripts))
+        owners[obj.path_id] = gid
+        widget = _widget(obj, tree, names, scripts)
+        components.setdefault(gid, []).append(widget)
+        if widget["cls"] in STATE_FIELDS:
+            controllers.append((gid, widget, tree))
+    parents = {gid: owners.get(transform.m_Father.path_id) for gid, transform in transforms.items()
+               if transform.m_Father.path_id}
+
+    def relative(base: int, pointer: dict) -> str | None:
+        """The path from node `base` down to the node a pointer names, or None outside it or unset."""
+        if pointer.get("m_FileID") or not pointer.get("m_PathID"):
+            return None
+        gid, parts = owners.get(pointer["m_PathID"]), []
+        while gid in gos and gid != base:
+            parts.append(gos[gid].m_Name)
+            gid = parents.get(gid)
+        return "/".join(reversed(parts)) if gid == base else None
+
+    # References are resolved once every component is read: a controller may name a component read after it.
+    for gid, widget, tree in controllers:
+        widget["states"] = {field: relative(gid, tree.get(field) or {}) for field in STATE_FIELDS[widget["cls"]]}
 
     def node(gid: int) -> dict:
         game_object, transform = gos[gid], transforms[gid]

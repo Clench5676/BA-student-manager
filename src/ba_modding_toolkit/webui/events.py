@@ -40,6 +40,11 @@ class EventBus:
             self._subscribers.append(q)
         return q
 
+    def listeners(self) -> int:
+        """How many pages are connected to /api/events."""
+        with self._lock:
+            return len(self._subscribers)
+
     def unsubscribe(self, q: queue.Queue) -> None:
         with self._lock:
             if q in self._subscribers:

@@ -26,6 +26,15 @@ at runtime and never shipped with the program.
 - Wording: game concepts take the official server's words (the Global client's Traditional Chinese and Korean, the JP
   server's Japanese, the Global English); Simplified Chinese follows Kivo's community wording. Words the game never
   uses follow each language's community and the UI text separators (Korean: half-width brackets and ", ").
+- The Enable Mods switch, the scan consent, the mod prompts, the classic hand-off, the quit prompt, the tray menu and
+  Settings' Mods tab take their strings from `webui.mods.*`, `switch.*`, `classic.*`, `quit.*`, `tray.*`,
+  `settings.mods.*` and `error.*`, in every language. Install labels (`mods.installNamed`) keep the folder name as it
+  is; `mods.helpFolders` joins them with the language's list separator (`、` in zh-CN, zh-TW and ja, `, ` in en and
+  ko). Japanese and Korean name the mod library as `settings.library` does (MODライブラリ, 모드 라이브러리). Japanese
+  errors that ask for an action keep the polite form (`error.game_running`, `error.classic_open`); other Japanese
+  strings are fragments. Repair advice is text only: `error.original_unavailable` says that no official copy is
+  left, and `mods.repairSteam` gives Steam's menu path in each Steam client's words, followed by `mods.repairThen`;
+  the in-game repair line comes once that route is confirmed on each server.
 - The first start takes the system language (`i18n.match_language`): Traditional Chinese (zh-Hant, zh-TW, zh-HK,
   zh-MO) zh-TW, other Chinese zh-CN, Japanese ja-JP, Korean ko-KR, the rest en-US. Without the language's file (a
   build that leaves it out), Traditional Chinese gets the whole zh-CN screen, the others en-US. `BAMT_LANG`
@@ -65,6 +74,8 @@ pywebview window (main thread) ── HTTP ──> WebServer (threaded WSGI, 127
                                               /api/rpc       calls, JSON in and out
                                               /api/events    Server-Sent Events
                                               /asset/...     game assets read from the install
+                                              /api/classic/* the classic window's channel (its own token)
+                                              /api/instance/raise  a second start (the raise token)
 ```
 
 The front end only speaks HTTP and SSE, never the pywebview `js_api`. So it runs in any browser during development
@@ -271,6 +282,30 @@ swimsuit does in the screenshots; the tool plays Formation_Idle only).
 `prototype/research-v4/tools/layout.py`: `{name, active, pos[x, y], scale[x, y], rotZ, widgets[], children?}` with
 the widget fields documented there; atlas and texture references are resolved to names.
 
+**Button states.** The game's buttons (`MXButton`) carry no NGUI button colours: no prefab has a `UIButton` or
+`UIButtonColor`, so there is no `disabledColor`, `hover` or `pressed` to read. A disabled or locked button is a node of
+its own that a controller shows instead of the normal one, and its look is in that node's widgets. The layout gives
+these controllers a `states` object, each field's node as a path below the controller's node (what `subtree` and
+`?path=` take; `""` is the node itself, `null` an unset field):
+
+| Controller | Fields |
+|---|---|
+| `OpenConditionButtonController` | `Enable`, `Disable`, `Prohibited` |
+| `UIButtonEnableSwitch` | `enableButton`, `disableButton` |
+| `MXDualStateButton` | `NormalButton`, `DisabledButton` |
+| `ButtonActivator` | `activeObject`, `inactiveObject`, `button`, `contentsLockObject` |
+
+The lobby's bottom menu (`UILobby`, `Front/Bottom/Menu/BG/Grid/<entry>`, a prefab hint) holds the game's disabled look
+for the greyed navigation. An entry with an open condition (Cafe, Academy, Craft, Shop, Gacha) shows `Able`, the icon
+sprite untinted (`#ffffff`), or `Disable`, the same sprite at `#797979` with `Common_Icon_Lock` over it; Student,
+Formation and Social have the same `Disable` node without a controller. The label is the entry's own child, outside
+both, and the prefab gives it no disabled colour (`#2d4664` or `#2c4564` in both states). Checked on every prefab of
+the 2026-10 resource version: 421 controllers and 1124 references, each inside its controller's node and unambiguous
+by name.
+
+Cached layouts carry the export's format in their key (`layout-v2/<root>`, `_LAYOUT` in `service.py`). A change to
+the export raises it, so layouts cached before are exported again and no other cached asset is dropped.
+
 ## catalog
 
 ```python
@@ -309,7 +344,18 @@ class Catalog:
     def family(self, key: str) -> Family
     def variant(self, key: str) -> Variant
     def variant_for_core(self, core: str) -> Variant | None    # "ch0241_spr" or "ch0241_home" -> Variant
+    def core_map(self, spr_cores, lobby_cores) -> CoreMap       # any install's cores -> variant keys
+    def reload(self) -> None                                    # parse the data again, rebuild the snapshot
 ```
+
+`core_map` runs the roster's own core rules on another install's core names, so the library keys a core the same way
+in every game folder: a portrait core's key is the core less `_spr`; a lobby core belongs to the installed variant
+whose key or core alias plus `_home`, `_home_gl` or `_home_teen` names it, a direct file-id match first; a lobby core
+whose variant has no portrait in that install takes the variant the data names for it the same way, else the core less
+its suffix. `CoreMap` also gives each key's portrait core and primary lobby core there, and the shipped names of the
+keys the data has (the cards of a core the current catalog does not map). The shipped data and the character map are
+parsed once and kept; every build and every map works on a copy, so one install's unknown portrait keys never enter
+another's, and `reload()` parses both again, keeping the old parse and snapshot when the data is invalid.
 
 Sources: the character map CSV the app already downloads (`BA-Characters-Internal-ID.csv`, one row per file id, with
 student id, names and skins in several languages), the curated data file shipped in the package (names,
@@ -352,25 +398,42 @@ of their family.
 
 ```python
 class ModLibrary:
-    def __init__(self, root: Path, catalog: Catalog, game: GameAssets, settings: Settings): ...
+    def __init__(self, root: Path, catalog: Catalog, game: GameAssets | None, settings: Settings, *,
+                 scan_allowed: Callable[[], bool] = lambda: False, data_id: str = "local",
+                 write_check: Callable[[Pin], None] | None = None): ...   # write_check: the caller's own refusal
+                                                   # right before game files are written (the web UI: classic_open)
     def mods(self) -> list[ModEntry]               # id, file, label, target (variant key), kind ("spr" | "lobby"),
-                                                   # added, fresh, size, date, crc
+                                                   # added, fresh, size, date, crc, core (lower case)
     def add(self, paths: list[Path]) -> list[ModEntry]   # copies into the library; target from the file name's core
                                                          # (portrait "_spr", lobby "_home", "_home_gl", "_home_teen")
-    def remove(self, mod_id: str) -> None                # refused while a game folder shows it (see below)
+    def remove(self, mod_id: str, confirm=False) -> None # refused while a game folder shows it (see below)
     def rename(self, mod_id: str, label: str) -> None
     def mark_seen(self, mod_id: str) -> None
     def favorites(self) -> set[str]; def set_favorite(self, variant_key: str, on: bool) -> None
-    def state(self, variant_key: str) -> VariantState    # game files, applied ("official" | "mod:<id>" |
-                                                         # "variant:<key>" | "unknown"), crc ("ok" | "fixed" |
-                                                         # "needs_fix"), backup available
-    def apply(self, variant_key: str, source: str, log, progress, kind="spr") -> ApplyResult
-                                                         # source as in state.applied; kind "spr" | "lobby"
-    def restore(self, variant_key: str, log, kind="spr") -> ApplyResult
+    def state(self, variant_key: str, pin=None) -> VariantState   # game files, applied ("official" | "mod:<id>" |
+                                                         # "variant:<key>" | "removed" | "unknown"), crc ("ok" |
+                                                         # "fixed" | "needs_fix"), copy, restorable, official
+    def configured(self, variant_key: str, pin=None) -> {"spr": source | None, "lobby": source | None}
+    def modified(self, pin=None) -> dict[str, str]       # the roster's Replaced flags (portraits)
+    def apply(self, variant_key, source, log, progress, kind="spr", pin=None) -> ApplyResult   # also deferred
+    def restore(self, variant_key, log, kind="spr", pin=None) -> ApplyResult
+    def would_write(self, variant_key, source, kind="spr", pin=None) -> bool   # for the classic window's rule
+    def preview_bundles(self, mod_id: str, pin=None) -> list[Path]
     def prune(self) -> list[Path]                        # kept originals deleted (see below)
     def update(self, mod_id: str, log, progress) -> UpdateResult   # rebuild against the current game file
     def extract(self, target: str, out_dir: Path, log) -> Path     # target "variant:<key>" or "mod:<id>"
     def compare(self, mod_id: str) -> CompareResult                # per-asset differences vs the game file
+    # the Enable Mods switch and mods already in use, over every known game folder
+    def installs(self) -> list[Pin]; def current_pin(self) -> Pin | None
+    def toggle(self, enabled, expect, pins=None, log, progress, cancel) -> ToggleResult   # also Retry
+    def restore_drift(self, entries, pins=None, log, progress, cancel) -> ToggleResult    # Apply Mod Configuration
+    def scan(self, pins=None, cancel=None, include_dismissed=False) -> ScanResult         # needs the scan consent
+    def entries(self, pins=None, include_dismissed=False) -> list[EntryState]
+    def adopt(self, entries, pins=None, log, progress, cancel) -> AdoptResult             # Add to Library
+    def dismiss(self, kind: "drift" | "untracked", entries) -> None                        # Keep as Is, Don't Ask Again
+    def forget(self, install: str) -> None                                                 # Remove from List
+    def clear_built(self) -> int                                                           # Clear Built Mods
+    def judge_unfinished(self) -> int; def intent(self) -> dict; def status(self) -> dict
 ```
 
 **Switching** is what the detail screen's switch cards do (Switch Portrait, Switch Memorial Lobby): `apply` writes
@@ -378,46 +441,212 @@ the chosen source into the variant's game files of that kind, so the game itself
 files (`official`, the same as `restore`), a mod (`mod:<id>`; one made for another variant of the family is adapted
 to this variant's files), or another variant's official files (`variant:<key>`, adapted). A mod replaces every part
 of its kind as a unit: parts it has no file for go back to official. The portrait and the lobby are switched apart.
+A mod is installed directly when its core is the target's core; a lobby mod belongs to one lobby core. The variant a
+mod belongs to is the one the current catalog gives its core, else the target stored when it was added.
+
+**Game folders.** Every call that reads or writes game files works on a `Pin` (an install key, its resource folders
+and its server), taken from the settings at the call, or given by the caller (the web UI's jobs pin what they saw at
+submit and are refused with `folder_changed` when the folders changed meanwhile). An install key is the install root
+of the setting (a setting naming a resource folder maps to the folder above it). The known installs, the ones the
+switch covers, are the Global and Japan folders the settings name, whatever the file source (ADB mode included),
+then every install with a configuration record whose folder exists. Without a current install (ADB mode, the folder
+missing) the switch still works over the others.
 
 What a switch replaces is always kept:
 
-- **An official file** is copied to `originals/<file name>` the first time it is replaced (copied once, checked by
-  the CRC in its name, never from a modded file: `original_unavailable` then, and nothing is written). Restoring
-  copies it back, also after several mods (the classic GUI's single `.backup` is overwritten by the second
-  install). The copy is deleted once the game file is verified official again: byte for byte the kept copy and
-  official by its CRC, after a restore, after a mod that leaves that part official, or after the game's launcher
-  verified the files. Not while a file of that name in another game folder sharing the library is not official
-  (still modded, by the library or by another tool since). That file decides, not the library's record of it, which
-  is stale once the file changed or is gone from a folder still there (an install moved, a game update); only a file
-  whose folder cannot be seen at all (an unmounted drive) is judged by its record.
-- **A mod** stays in the library (`mods/<id>/`): switching away never touches it, and `remove` refuses one a game
-  folder still shows (a game file is unchanged since the library put it there), so switch first: `mod_in_use` in the
-  current game folder, else `mod_in_use_elsewhere` with that game folder (`folder`). Another game folder counts too:
-  removed, the mod would be left only in that folder's game files, lost to a check in its launcher or a game update.
+- **An official file** is copied to `originals/<file name>` the first time it is replaced. The official copy is, in
+  this order: the original already kept, the game file itself, its `.backup` beside it (the classic GUI's, judged by
+  its name without `.backup`; the library never writes or deletes `.backup` files), or a file of its name in another
+  game folder; at write time each is checked by the CRC32 of its whole content against the CRC in its name, so a
+  modded file is never kept (`original_unavailable` then, and nothing is written). Restoring copies it back.
+- **A mod** stays in the library (`mods/<id>/`). While mods are on, `remove` refuses one a game folder still shows
+  (unchanged since the library put it there): `mod_in_use` in the current game folder, else `mod_in_use_elsewhere`
+  with that folder; in a folder the switch does not cover, in any state. While mods are off removing is allowed: every
+  configuration naming it is dropped, and when a game file still carries it with no official copy anywhere,
+  `mod_last_copy` asks first (`confirm`); the records of those files are marked removed, so nothing adopts them again
+  and the next Off reverts them.
 - **Another variant's files** are only read, and can be adapted again.
-- **A file changed outside the library** (another tool, the classic GUI, a manual copy; `applied` is `unknown`), or a
-  mod removed from the library while it was applied (before `remove` refused that), is added to the library as a
-  new mod (labelled with its core, marked new) before it is overwritten; a file already in the library is not stored
-  twice. Without an official copy to keep it is never overwritten (`original_unavailable`).
+- **A file changed outside the library** (another tool, the classic GUI, a manual copy), or the bytes of a source the
+  library no longer has, is added to the library as a new mod of its core before it is overwritten; a part set
+  already in the library is not stored twice. Each file a write reaches is judged in full here (its SHA-1 against the
+  library's record, then its CRC32), so a mod another tool installed without the CRC fix is kept too.
 
-Every write goes through `_commit`: resource path checks, the game not running, the files lockable, atomic
-replacement, and a rollback of every written part when one fails (the mods it had just kept are dropped again once
-every part is back). After every switch, whatever its outcome, and once per library in the web UI (a
-`library.prune` job), `prune` deletes the copies no longer needed: those whose game file is verified official again,
-and those a game update made useless. File names carry the date and CRC, so an update leaves the old copy without a
-game file; it is deleted when the library's own record places the old file in the current game folder and that
-folder now holds the same part (prefix and resource type) dated after it, verified official. A copy no record places,
-one another game folder still needs (as above), one with only an older file of its part (a downgrade, an old copy of
-the folder put back) or one whose new file is not official is kept.
+Every write goes through `_commit`: resource path checks, the game not running and Steam not updating or verifying
+the install, the files lockable, atomic replacement, and a rollback of every written part when one fails (the mods it
+had just kept are dropped again once every part is back, and the originals it had just kept from the game files are
+released). The records of `state.json` say for each file what was written there: the source, its SHA-1, size and
+date, whether the bytes are official (`official`, compared with the official copy), the write time (`at`), the last 8
+bytes when there are trailing bytes (`tail`) and the CRC state (`crc`). Older builds keep these keys in records they
+do not rewrite.
+
+**Kept originals and the prune.** After every switch, at the end of every bulk job, and once per library in the web
+UI (a `library.prune` job), `prune` decides about every kept original from names, file stats and records only, over
+every known install; it reads no game file's contents. An original stays:
+
+- while a configured entry may write non-official bytes over its file (so turning mods off and on copies nothing);
+- while any known install holds a file of its name that is not unchanged since the library wrote official bytes there.
+  An official file the library did not write (verified in Steam or by the game, restored by another tool) keeps it
+  until the library next writes or records official bytes there: a restore that finds the file official writes
+  nothing, records it and releases the original. A file of its name the library never wrote keeps it too: it may be
+  another tool's mod with this original as its only official copy;
+- while a file of its name the library wrote to elsewhere may need it, judged by stat; a folder that cannot be seen
+  (an unmounted drive) is judged by its record.
+
+Once its name is gone from every known install, a game update superseded it when each of its records' folders holds
+a later-dated file of the same part (prefix and resource type): it is deleted. An original no record places, or one
+with only an older file of its part (a downgrade), stays. The records of superseded files are dropped once no
+original of their name is kept, leaving the entry's `updated` marker when the library had written non-official bytes
+there. When unsure, an original stays: the cost is disk space, counted in the switch's help ("Official copies for
+Off").
+
+**Configuration (`profiles.json`).** Older builds rewrite `state.json` with their own keys only, so the configuration
+lives beside it in a file of its own: the Enable Mods switch (`enabled`, one intent for every known install; missing
+means on), its last change (`toggled`), the entries not switched yet (`unfinished`, each `pending`, `left` or
+`stuck`), and per install key its server, the data directories naming it or hiding it (`named_by`, `hidden`), the
+configured source per core (`configured`), the `updated` markers, the built copies (`built`) and the dismissed prompts
+(`dismissed`, files by name, size and date). The user's switch popup sets and drops configured sources; the switch
+never changes them. Every change is applied to the file as it is, under `profiles.json.lock`, unknown keys kept, the
+last good file kept as `profiles.json.prev` (read instead of an unreadable file, which is kept as
+`profiles.json.bad`); with neither readable the switch is unavailable (`profiles_unreadable`) and nothing is written.
+At each build the library finds each named install's record: its own, a moved install's (the one record of that
+server whose folder is gone while its parent exists; its files' records follow by size and date, or with scan consent
+by size and last bytes), else one migrated from what the library already wrote there, so existing users keep their
+mods through the first Off.
+
+**Entries.** One game core of a variant in one install (a portrait, or one memorial lobby core: `_home`, `_home_gl`
+and `_home_teen` are entries of their own), keyed by the variant key `Catalog.core_map` gives the core in its own
+install. What its files carry comes from their non-official parts only (`tests/data/source_rule_cases.json`, shared
+with the detail screen). Its state, first match wins: `damaged` (a header that cannot be read), `missing` (configured,
+no files), `untracked` / `changed` (files the library did not write, without / with a configuration), `source_missing`
+(a configured source gone from the library: listed once, then dropped), a take-over (a newer library write than the
+configuration, written by another instance: configured with it), `updated` / `reset` (mods on, a configured entry a
+game update renamed or a Steam check or repair put back, in whole or in part), `ok`, else `pending`.
+
+**The Enable Mods switch** (`toggle`). An Off adopts the mods it finds first (Add to Library: one mod per entry of its
+non-official parts, every part recorded, the entry configured with it), keeps the built copies, then switches every
+entry carrying a library source to official. An On switches every configured entry that does not carry its source
+back to it. The intent and the entries to reach are saved first, so a crash leaves them listed (the red dot and
+Retry, without a scan). Each entry is judged again when it is reached, with its configuration read again: a part the
+library can show unchanged by size and date (or the last bytes of a CRC-fixed file) carries its record's source, and
+every other part is read in full there. An outside change is adopted by an Off and never overwritten by an On.
+Refusals before anything is written: `folder_changed`, `state_changed` (another place switched first), the game
+running, Steam busy, and `not_enough_space` (what an Off copies, with 512 MiB to spare); a running game, Steam busy or
+changed folders stop a job midway, the rest stays listed. Overwritten entries (no official copy anywhere) are left as
+they are (`stuck`); the app never repairs game files, it names the repair to run.
+
+**Built copies.** Before an Off reverts an entry that carries its configured source, the library keeps the exact
+bytes it wrote there, whole: a file of the mod in `mods/<id>/` when one holds them (every adopted part, every direct
+install without a CRC fix), else a copy in `library/built/<sha1>.bundle`. On, Retry and Apply Mod Configuration write
+them back with one copy per part (no installer, no UnityPy), byte for byte, while they fit: built for that source,
+every part's name and every file name the build read (an adapted mod's official parts, another variant's files) still
+in the install. A game update, a changed or dropped configuration, a mod's update or removal, a Forget and Clear
+Built Mods drop them; a built file goes once no install's key references it. Built copies and kept originals hold
+game portraits and lobbies inside the library: restore copies of what the user's own switch wrote, never read to draw
+the UI, and their disk use can grow large (the switch's help shows both sizes; only built copies can be cleared).
+
+**What reads game files.** The scan consent (`scan_allowed`, asked at each use) covers every read the app makes on
+its own of files the library did not write: the scan (the start and the end of each portrait and memorial lobby file;
+headers and the last bytes of recorded files, never a whole file), an Off's own pass, the roster's Replaced mark for
+mods outside the library, and a moved install's re-keying by last bytes. Without it `scan` refuses with `scan_off`, an
+Off reverts what the library wrote or configured and adopts the changed files it meets on the way (other mods are not
+checked), and the roster's Replaced mark shows only what the library wrote. Needing no consent: names and stats, the
+library's own writes and folders, the files a switch or the user's own action reaches (read in full), and the
+family the detail screen shows, judged cheaply (size, date, header; Needs Fix only from the record of the switch that
+wrote the file, so it survives a restart). Nothing hashes a game file outside switching.
+
+**Several instances and data directories.** Two instances sharing a library merge `state.json` on every save (each
+one's records added, changed or removed, game file records written or dropped, favourites toggled) and read the
+other's writes before judging. An alpha.3 instance still rewrites the whole file: its save replaces what an alpha.4
+instance wrote since the alpha.3 one read it, and the records it writes itself lose the newer keys (they then count as
+an older build's, which the library handles). It never opens `profiles.json`. A data directory removing an
+install from its list (Remove from List, `forget`) drops its record only when no other data directory names it;
+otherwise it only hides the install there, and a toggle there lists that install's entries as not switched for the
+data directory that names it.
 
 The 3D model has no switch: the library keeps no 3D mods. It would take a `model` kind (`character-<dev>-_mxload-*`
 prefab bundles, whose meshes, textures and clips sit in other bundles found by CAB), its detection in `add`, game
 files matched by bundle name rather than by core, a preview through `GameAssets.model_glb(overrides=...)`, and no
 variant swap (chibis do not share meshes and bones).
 
+## Game watch
+
+### Checks before a write
+
+`library/safety.py` holds the checks every game file write makes first (`writable_game_files`). None of them reads a
+game file: the process list and Steam's manifests are not game files, so none needs the scan consent.
+
+- **Game running.** `check_game_not_running()` refuses with `game_running`, or `game_status_unavailable` when the
+  process list cannot be read. `game_processes()` lists the game's processes, never this process or its parent:
+  - Windows: the exe names of a Toolhelp snapshot (ctypes, no subprocess). `tasklist` is the fallback, run with
+    `CREATE_NO_WINDOW` so the windowed build never flashes a console window.
+  - macOS and Linux: `ps -A -ww -o pid=,comm=`, matched when the executable's file name is `BlueArchive` or
+    `Blue Archive` (`.exe` allowed), so a native build's `/Applications/Blue Archive.app/Contents/MacOS/Blue Archive`
+    matches with its spaces. Only without such a match, `ps -A -ww -o pid=,args=` for Wine and CrossOver, where the
+    process is the preloader and `BlueArchive.exe` or `Blue Archive.exe` is in its arguments as a path's last part.
+    `BlueArchiveTool.exe` and this program's own names never match.
+  - The JP server's launcher, which may update or repair files on its own, is not matched yet: its process name is
+    still to be found.
+- **Steam busy.** `check_steam_idle(game_folder)` refuses with `steam_busy` while the app manifest's `StateFlags` has
+  any of the bits 256 (update running), 1024 (update started), 65536 (reconfiguring), 131072 (validating), 262144
+  (adding files), 524288 (preallocating), 1048576 (downloading), 2097152 (staging), 4194304 (committing) or 8388608
+  (update stopping). `game_paths.steam_app_manifest()` finds the manifest by walking up from the folder, the install
+  root or a resource folder below it, to an ancestor `common` whose parent is `steamapps`, along the path as given and
+  then resolved, and takes `appmanifest_3557620.acf` there. No manifest (a folder outside a Steam library, the JP
+  server, a dev sandbox) means no check. The app running bit (64) is not used.
+- **The call.** `writable_game_files(paths, resource_dirs, *, game_folder=None)`: with `game_folder` (the install the
+  files belong to), Steam is checked for it after the game.
+
+### The poller
+
+`webui/gamewatch.py` greys the Enable Mods switch while a write would be refused. It polls every 3 s while
+`active()` says a page is connected to `/api/events` or the tray icon is shown, else every 15 s, and at once on
+`poke()` (the tray menu opening). Each poll checks the game once, Steam for every known install, and the classic
+window `classic.json` names. The write-time checks stay the authority; the poll only greys controls.
+
+```python
+GameWatch(installs, find_classic, profiles_seen, on_change, publish, request_scan, *, active, own_classic,
+          on_classic_closed, check_game, check_steam).start()   # a daemon thread; stop() ends it
+watch.state  # WatchState(game, steam_busy, classic) with .reason: game_running, game_status_unavailable,
+             # steam_busy (any known install), classic_open, or None, in that order
+```
+
+| Callable | Given by | What for |
+|---|---|---|
+| `installs()` | the services | the known installs' folders, read at each poll |
+| `find_classic()` | the classic hand-off (`webui/classic.py`) | the classic window `classic.json` names, or `None`; it owns the file, the identity check and the removal of a stale file |
+| `own_classic()` | the services | the pid of the classic window this instance started, which its own watcher thread reports, so the poll ignores it |
+| `profiles_seen()` | the services | whether another data directory changed `profiles.json`'s shared intent since the last poll |
+| `on_change(state)` | the services | the first poll, every change of the answer and every `profiles_seen()` yes: updates the `mods.state` snapshot and publishes `mods.state` |
+| `publish(event, data)` | the event bus | `classic.closed {code: null}` when a watched classic window ends, after `on_change`; then `on_classic_closed()` |
+| `request_scan()` | the scanner | the game stopping (from `game_running`), an install's Steam going idle, a watched classic window ending; the scanner runs it only with scan consent |
+
+A failing callable is logged and never stops the thread: an unreadable process list is `game_status_unavailable`,
+a failed Steam check is idle, and a failed classic lookup keeps the last answer.
+
 ## Jobs and events
 
-`JobRunner.submit(kind, fn, **params) -> job_id` runs `fn(log=..., progress=..., **params)` on one worker thread.
+`Services.submit(kind, fn, writes=None, library=None, **params) -> job_id` runs `fn(log=..., progress=..., **params)`
+on one worker thread (`JobRunner`). A **writer job** (`writes="game"`: it writes the game folders and the library;
+`writes="library"`: the library only) holds back the window's close button, `app.quit`, a library move and the
+services rebuild after a game folder change; a read-only job (an extract, an update download) holds back nothing.
+Every writer job ends on the worker with the library's judging of the `unfinished` list (`judge_unfinished`), a new
+`mods.state` snapshot, `library.changed {cores, kinds}` and a scan (with the scan consent).
+
+| Writes | Jobs |
+|---|---|
+| game | `apply`, `restore`, `mods.toggle`, `mods.restore` (Apply Mod Configuration) |
+| library | `library.adopt`, `library.prune`, `library.clearBuilt`, `library.forget`, `library.judge`, `update` |
+| none | `extract`, `update.download` |
+
+Every game folder write a job makes is pinned at submit: the RPC captures the library and the pins (`installs()` for
+the jobs over every known install, `current_pin()` for one entry) and passes them to the library, so a game folder
+changed meanwhile (in Settings, or the classic GUI's `config.toml`) gives `folder_changed` instead of writing another
+install. Shutdown drops the queued read-only jobs and waits only while a writer job is queued or running.
+
+Besides the front end's jobs, the web UI submits its own: `library.prune` once per library it builds (see library),
+whose last step judges the `unfinished` list, and `library.judge` when another data directory sharing the library
+changed it (below).
+
 Events on `/api/events`:
 
 | Event | Data |
@@ -428,10 +657,69 @@ Events on `/api/events`:
 | `job.done` | `{id, result}` |
 | `job.failed` | `{id, code, params}` |
 | `drop` | `{paths: [str]}` |
-| `library.changed`, `config.changed` | `{}` |
+| `mods.state` | as the `mods.state` method, on every change: a toggle's start, progress (at most every 0.25 s) and end, the end of every writer job, the game watch's answer, the classic window opened, busy and closed, the classic queue, the scan consent, the switch's settings, a game folder change, another data directory's change to `profiles.json` |
+| `library.scanned` | `{counts: {install key: {state: n, configured: n}}}` after a scan (`stuck`: a `pending` entry with no official copy) |
+| `library.changed` | `{cores, kinds}` after every writer job (empty lists for a job that switched nothing the page shows); without data (read everything again) after a failed writer job, a library move, a classic window closing, and the mod list's own changes |
+| `classic.opened` / `classic.ready` / `classic.closed` | `{pid}` / `{pid, tab}` / `{code}` (see Classic window); `classic.closed {code: null}` for a window an earlier instance left |
+| `classic.queueDone` | `{submitted: [{method, params, entries, job}], dropped: [{method, params, entries, error}]}` once the writes queued for the classic window ran |
+| `config.changed`, `app.busy` | `{}` |
 
-Besides the front end's jobs, the web UI submits one of its own: `library.prune` once per library it builds (see
-library).
+## Mods state, scan and the classic queue
+
+The services hold what the Enable Mods switch, the prompts and the classic hand-off read (`webui/services.py`):
+
+- **The snapshot** (`ModsSnapshot`). `mods.state` answers from it, never through the library lock: the library's
+  `status()` (the known installs, the current one, the shared intent, the configured count, the disk use of built
+  copies and kept originals; names, stats and `profiles.json` only), the last scan's entries and a running toggle's
+  progress. The jobs, the scanner and the game watch update it; its lock is a leaf lock. Install labels are made in
+  the UI language from `settings.server.*` and, for two installs of one server, `mods.installNamed` with the
+  folder that tells them apart. `reason`, first match: `game_not_found` (no known install at all),
+  `profiles_unreadable`, the game watch's answer (`game_running`, `game_status_unavailable`, `steam_busy`, a classic
+  window an earlier instance left), this instance's classic window (`classic_open`). With the scan consent, `pending`
+  and `stuck` count the last scan's entries; without it, they and `left` count the `unfinished` list by `why`.
+- **The library** is built without a current install too (ADB mode, the selected folder missing), from the library
+  folder, the catalog and the settings, with `scan_allowed` (the pref `scan_consent`, read at each use, so a change
+  needs no rebuild), `data_id` and `write_check`, which refuses every game file write with `classic_open` while a
+  classic window is open. That covers a restore while mods are off that the cheap judgement took for writing nothing
+  but whose full judgement finds a file changed (the classic GUI writes in place): the write itself is refused.
+- **The data directory's id.** `UiState.data_id(data_dir)` keeps `data_id` (12 hex digits) with `data_path` (the
+  data directory, resolved, case-folded on Windows) in `webui.json`, made when the services first build the library.
+  A recorded path that is another folder means a copy when that folder still exists with the same id (a new id), and
+  a move otherwise (the id kept, the new path recorded).
+- **The scanner** (`webui/scanner.py`) runs the scan on a daemon thread of its own, never on the job worker, and
+  only with the scan consent: one scan at a time, requests made meanwhile served by one scan after it, `cancel()` on a
+  game folder change or a library move (the result is dropped). A stale result (the library wrote while the files
+  were read) is scanned again once while no writer job runs, else dropped: the scan after that job replaces it. The
+  start scan waits for the `library.prune` job. Scans run at the start, after a game folder change, after every
+  writer job, when the game stops or Steam turns idle (the game watch), after a classic window closed, when the
+  consent is granted, on Settings' Check (`mods.scan {dismissed: true}`, which lists dismissed entries again) and
+  whenever the page asks (`mods.scan`, the window back in front after 30 s). Withdrawing the consent stops them and
+  empties the entries.
+- **Another data directory** sharing the library: at each poll the game watch asks `profiles_seen()`, which reads
+  `profiles.json` again only when its size or date changed (under its file lock, never the library lock). When the
+  shared intent or the `unfinished` counts changed, the snapshot follows, `mods.state` is published, a scan is
+  requested and `library.judge` judges the `unfinished` list, so the red dot and Retry follow with or without scan
+  consent.
+- **The classic queue.** While a classic window is open, `actions.apply`, `actions.restore` (when it would write),
+  `mods.toggle` and `mods.restoreDrift` are refused at submit with `classic_open`; the toggle and Apply Mod
+  Configuration check again when their job starts, before anything is saved. The classic modal queues the refused
+  call (`classic.queue`) with its pins and the size and date of its entries' files. Once the classic window closed (its
+  watcher thread, or the game watch for one an earlier instance left), the page is told to read everything again,
+  a scan runs (with scan consent), then `ClassicQueue.run` submits each call that still holds as its normal job and
+  `classic.queueDone` lists the dropped ones.
+
+## One instance per data directory
+
+`main()` takes an OS lock on `<data dir>/instance.lock` for the process lifetime (`webui/instance.py`; `flock` or
+`msvcrt.locking`, released by the system however the process ends) and names itself in `<data dir>/instance.json`
+(`{pid, port, raise_token}`). A second start finds the lock held, posts `/api/instance/raise` with the raise token
+(header `X-BAMT-Raise`, never the session token) and exits: the first instance shows and raises its window, or in
+browser mode opens its page again. With `--serve` a second start refuses with a message. A classic window outlives
+the instance that started it and is found again through `classic.json`.
+
+**Quitting.** `app.quit` (the roster's quit prompt) is refused with `busy` while a writer job is queued or running,
+the same rule as the window's close button; otherwise it closes the window, or in browser mode answers first and then
+stops the server (the page shows Closed); with `--serve` it gives `native_unavailable`.
 
 ## RPC
 
@@ -442,24 +730,45 @@ library).
 |---|---|
 | `app.info` | version, language, platform, game found, resource version, consent (`null`, `true`, `false`), paths, `debug` (started with `--debug`) |
 | `app.consent {granted}` | records the choice; `false` closes the app |
-| `app.openClassic {tab}` | starts the classic GUI on a tab |
+| `app.quit` | closes the window; `busy` while a writer job runs; in browser mode answers, then stops the server; `native_unavailable` with `--serve` |
+| `app.openClassic {tab}` | `{started}`: starts the classic window on a tab (`settings`: its settings) and waits for it (30 s at most), or brings the open one to the front, with the tab unless a classic task runs; a window an earlier instance left is only raised; `classic_failed {exit_code}` when the child exits or stays silent first |
+| `app.classic` | `{open, ready, busy, pid, orphan, queued}` (`orphan`: found through `classic.json`) |
+| `classic.front` | `{raised}`: the classic modal's Bring to Front (never starts a window) |
+| `classic.queue {method, params}` | `{queued}`: keeps one of `actions.apply`, `actions.restore`, `mods.toggle`, `mods.restoreDrift` for when the classic window closes |
+| `classic.clearQueue` | `{}` |
 | `i18n.strings {lang}` | `{key: text}` for `webui.*` |
-| `roster.list` | families with variants, mod counts, fresh flags, favourites, recent order, `added` (when the newest own mod was added), `aliases` per family and per variant (matched by the search, never shown), `custom` per family (the user's own aliases) |
-| `settings.get` / `settings.set {key, value}` | the settings popup's values; key `roster` keeps the student list's view (merge, segment filters, sort, order, filter groups; `webui/state.py roster_view`); `lobbyZoom` is `{mode, custom}` in `settings.get`, set by keys `lobbyZoom` (`game`, `art`, `unlocked`, `custom`) and `lobbyZoomCustom` (1.0 to 4.0 game views across, kept in 0.1 steps) |
-| `family.get {key}` | a family with its variants (and `aliases` and `custom`, as in `roster.list`), mods and each variant's state; `modelFiles` per variant (the 3D model's prefab bundles, newest first) and `version` (the game's resource version, so a switched install reloads the screen) |
+| `roster.list` | families with variants, mod counts, fresh flags, favourites, recent order, `added` (when the newest own mod was added), `aliases` per family and per variant (matched by the search, never shown), `custom` per family (the user's own aliases); without scan consent Replaced comes from the library's records only |
+| `settings.get` / `settings.set {key, value}` | the settings popup's values; key `roster` keeps the student list's view (merge, segment filters, sort, order, filter groups; `webui/state.py roster_view`); `lobbyZoom` is `{mode, custom}` in `settings.get`, set by keys `lobbyZoom` (`game`, `art`, `unlocked`, `custom`) and `lobbyZoomCustom` (1.0 to 4.0 game views across, kept in 0.1 steps); the booleans `modSwitchShown` (the switch on the main screens), `tray` (the tray or menu bar icon) and `classicPrompt` (the hand-off prompt); `settings.get` adds `traySupported` |
+| `family.get {key}` | a family with its variants (and `aliases` and `custom`, as in `roster.list`), mods and each variant's state, judged cheaply (`copy`, `restorable` and `official` per file; Needs Fix only from the record of the switch that wrote the file); `configured {spr, lobby}` per variant (the sources of its primary cores); `modelFiles` per variant (the 3D model's prefab bundles, newest first, `fixed` or `ok` from the header) and `version` (the game's resource version, so a switched install reloads the screen); `modList` by the variant the current catalog gives each mod's core |
 | `lobby.warm` | builds the memorial lobby prefab index and the index of every bundle's CABs (the particle effects' materials, textures and meshes) in the background (once per game); the detail screen calls it for a variant with a lobby |
 | `lobby.lines {variant, talks, lang}` | `{clip: {lang: text, voice}}`: zh-CN from Kivo, ja from Kivo else the Global server, en, zh-TW, ko and th from the Global server (read only for a `lang` other than zh-CN, left out when its table is not in within 3 s); `talks` (`{animation: [clip ids]}` from the skeleton) places the Global rows on the clips; `lines_unavailable` when neither source can be read |
 | `debug.trace {events}` | the fullscreen lobby's input events, logged (logger `ba_modding_toolkit.webui.trace`, and `input-trace.log` in the data directory) only when the app was started with `--debug`; ignored otherwise |
 | `favorites.set {variant, on}` | |
 | `aliases.set {family, aliases}` | the user's own aliases of a student as kept (`webui/state.py`: NFC, no control or format characters, whitespace runs one space, empty and repeated ones, ignoring case and width, dropped); `alias_too_long` past 24 characters, `alias_too_many` past 8, and nothing is kept then; an empty list forgets them |
 | `mods.add {paths}` / `mods.pick` | added entries (`mods.pick` opens the native file dialog) |
-| `mods.remove {id}`, `mods.rename {id, label}`, `mods.seen {id}` | `mods.remove`: `mod_in_use` while the game shows the mod, `mod_in_use_elsewhere {folder}` while another game folder does |
-| `actions.apply {variant, source, kind}` / `actions.restore {variant, kind}` | job id; switches what the game shows, `kind` `spr` (default) or `lobby` (see library) |
+| `mods.remove {id, confirm = false}` | `{}`; with mods on, `mod_in_use {file}` while the current install carries the mod, `mod_in_use_elsewhere {file, folder}` while another does; in any state `mod_in_use_elsewhere` for a folder that is not a known install; with mods off `mod_last_copy {file}` when the mod is the last copy of a file the game still carries and `confirm` is not set |
+| `mods.rename {id, label}`, `mods.seen {id}` | |
+| `mods.state` | `{installs: [{id, key, server, folder, label, distinct, named}], current, enabled, shown, available, reason, reasonParams, scan, explained, configured, pending, stuck, left, unfinished: {pending, left, stuck}, drift, untracked, damaged, sourceMissing, builtSize, originalsSize, queued, scanned, tray, traySupported, busy, progress}` from the snapshot (above); `id` is the first 12 hex digits of the install key's SHA-1 (used in URLs), `named` tells a folder the settings name from a recorded one; `busy` while a toggle is queued or running or writes are queued for the classic window; `progress` is `{done, total}` of a running toggle |
+| `mods.toggle {enabled, expect}` | job id (`mods.toggle`): the switch over every known install, also Retry; `busy` while another toggle is queued or running, `classic_open` at submit; the job's refusals `state_changed`, `folder_changed`, `game_running`, `game_status_unavailable`, `steam_busy`, `classic_open`, `not_enough_space` |
+| `mods.consent {granted}` | `{}`; saves `scan_consent`; granting requests a scan, withdrawing stops the scans and empties the entries |
+| `mods.explained` | `{}`; sets `mods_explained` (the first toggle's explanation was shown) |
+| `mods.scan {dismissed = false}` | `{requested: true}`; the result comes as `library.scanned`; `scan_off` without scan consent |
+| `mods.entries` | the last scan's entries (`{install, core, variant, names, kind, source, configured, state, overwritten, fixed, size, files, dismissed}`), updated by every writer job's result until the next scan; empty without scan consent |
+| `mods.adopt {entries}` | job id (`library.adopt`): Add to Library for `[{install, core}]`, allowed while the game runs and while a classic window is open; `not_enough_space` |
+| `mods.restoreDrift {entries}` | job id (`mods.restore`): Apply Mod Configuration; `classic_open` at submit |
+| `mods.dismiss {kind, entries}` | `{}`; `kind` `drift` (Keep as Is) or `untracked` (Don't Ask Again) |
+| `mods.clearBuilt` | job id (`library.clearBuilt`); its result `{freed}` |
+| `mods.forget {install}` | job id (`library.forget`): Remove from List; `bad_params` for an install the settings name |
+| `actions.apply {variant, source, kind}` / `actions.restore {variant, kind}` | job id; switches what the current install shows, `kind` `spr` (default) or `lobby` (see library); the result has `deferred` while mods are off (configured, not written); `classic_open` at submit only when a game file would be written, `folder_changed` when the current install changed before the job ran, `steam_busy` from the write, `game_not_found` without a current install |
 | `actions.update {mod}` / `actions.extract {target}` | job id |
 | `actions.compare {mod}` | per-asset differences |
 | `os.reveal {path}` | |
 | `app.checkUpdate` | the newest release above this version, or `null` |
-| `app.update` / `app.installUpdate {file}` | job id (download and MD5 check) / swap in the build and quit |
+| `app.update` / `app.installUpdate {file}` | job id (download and MD5 check) / swap in the build and quit; `classic_open` while any classic window is open (never queued) |
+
+HTTP endpoints outside `/api/rpc`, each with its own token, never the session token: `GET /api/classic/control` and
+`POST /api/classic/report` (the classic child's one-time token, see Classic window) and `POST /api/instance/raise`
+(the raise token of `instance.json`).
 
 ## Asset routes
 
@@ -470,6 +779,7 @@ library).
 | `/asset/ui/layout/<root>.json?path=<subpath>` | light |
 | `/asset/art/bg/<name>`, `/asset/art/portrait/<name>.png` | heavy |
 | `/asset/spine/spr/<core>/<file>`, `/asset/spine/lobby/<core>/<file>`, `/asset/spine/mod/<id>/<file>` (`skeleton.skel` and `skeleton.atlas` stand for the skeleton named like the core, a mod's own core for a mod, else the only one) | heavy |
+| `/asset/spine/spr/<core>@<id>/<file>`, `/asset/spine/lobby/<core>@<id>/<file>`: the core in another known install, `<id>` from `mods.state.installs` (in the path, so the skeleton's own relative files follow it), read through a GameAssets over that install's folders, made on first use and dropped with the services rebuild; an unknown id is `404` | heavy |
 | `/asset/spine/lobby/<core>/lobby.json` (prefab layout, touch boxes, clips, idle pools, sound events, post-processing, particle effects; no skeleton is extracted) | heavy |
 | `/asset/spine/lobby/<core>/fx_<id>.png` (a particle texture the lobby's `fx.textures` lists) | heavy |
 | `/asset/spine/lobby/<core>/sfx_<id>.wav` (a sound clip the lobby's `sounds` list, decoded in memory) | heavy |
@@ -847,6 +1157,64 @@ in `pointer-textures`); without a game the system cursor stays and there is no e
 - **Input trace.** Started with `--debug`, the page sends the fullscreen lobby's pointer, wheel and gesture events
   (moves and scrolls at most every 50 ms) and every press anywhere in the document, with its target, through
   `debug.trace`, so a trackpad problem can be reproduced once and the log sent.
+
+## Classic window
+
+The bottom-bar entries without a web screen, and Settings' More Settings, hand over to the classic Tk GUI
+(`webui/classic.py`, its child side in `gui/control.py`). It runs in a process of its own on both systems: Tk (Aqua)
+and pywebview (Cocoa) both need the main thread on macOS, and a crash in a classic tab never takes the web UI with it.
+
+- **One window per data directory.** `ClassicWindow.open(tab)` (`app.openClassic`) starts the program again
+  (`system.classic_command(tab, control=True)`: `--classic --control`, then `--tab <name>` or `--settings`) and waits
+  up to 30 s for its `ready`; an exit or silence before that is `classic_failed {exit_code}` (`null` when it stayed
+  silent; a late `ready` is still taken, and the window then shows itself). With a window open, a click sends the tab
+  and a raise; while a classic task runs (`busy`), only the raise, so a running task's tab is never switched. A window
+  left by an earlier instance (below) is only raised.
+- **The channel** is the web UI's own HTTP server, not stdio (the Windows build is onefile without a console):
+  `BAMT_CLASSIC_URL` (the server's origin) and `BAMT_CLASSIC_TOKEN` (one-time, random) go to the child, which takes
+  them out of its environment at once. It long-polls `GET /api/classic/control` (25 s) for its lines (`place x y w h`,
+  `raise`, `tab <name>`, `settings`; anything else is ignored) and posts `POST /api/classic/report`
+  (`{"type": "ready", pid, hwnd, exe}`, `{"type": "shown", tab}`, `{"type": "busy", n}`). Both take the child's token
+  in `X-BAMT-Classic` and never the session token, and the WSGI app routes `/api/classic/*` to `ClassicWindow.wsgi`
+  after its Host check. A daemon thread polls; the Tk thread drains the lines with `root.after(100)`. When the web UI
+  quits, the polls are refused, and the classic window stays open on its own.
+- **Placement.** The child starts transparent (`-alpha 0`). After `ready` the parent places it, hands the foreground
+  over, then sends `raise` (always in that order): centred on the BAMT window, inside the work area of the screen that
+  holds BAMT's centre, and shrunk to fit (the classic window is a fixed 800 x 1000). On macOS the parent reads the
+  `NSWindow` frame and the screens' visible frames on the main thread, flips them against the primary screen and sends
+  `place` in Tk's coordinates (the title bar fits too); then `yieldActivationToApplication:` (macOS 14) or an
+  activation ignoring other apps. On Windows it scales the logical size by the monitor's DPI and moves the child's
+  window itself (`SetWindowPos` on the `hwnd` from `ready`; `AllowSetForegroundWindow(ASFW_ANY)` before the raise).
+  The raise shows the window, keeps it on top for 300 ms and focuses it; the user can bring BAMT back over it. With
+  no raise 5 s after `ready`, the child shows itself.
+- **Busy.** `TabFrame.run_in_thread` and `StoppableDialog.set_task_running` count the running tasks
+  (`gui/control.py busy`); each new count is reported.
+- **Output.** The child's stdout and stderr go to `classic.log` in the data directory (rewritten at each start,
+  unbuffered, UTF-8), never to an unread pipe.
+- **Exit.** A watcher thread waits for the process and publishes `classic.closed {code}`. Should the Windows onefile
+  launcher return before the window it unpacked, the pid the child reported is followed until it ends or stops
+  polling for 60 s.
+- **`classic.json`** (`<data dir>/classic.json`, `{pid, exe, hwnd, created}`) names the open window, so an instance
+  started later still refuses game-folder writes and can raise it. It is written at `ready` and removed with
+  `classic.closed`, and by the child at its exit. `created` is the creation time the system reports, as an integer:
+  `GetProcessTimes` on Windows (FILETIME, 100 ns), `proc_pidinfo`'s `pbi_start_tvsec` on macOS (seconds), else
+  `ps -o lstart=` under `LC_ALL=C TZ=UTC0`, parsed with a fixed English table, which gives the same number whatever
+  the caller's locale and time zone; `/proc/<pid>/stat` on Linux. `find_classic()` takes the pid only while it is
+  alive with that creation time (a reused pid has a later one), runs this program's classic GUI (the exe name on
+  Windows, `--classic` in its arguments elsewhere) and is neither this process nor its parent; any other file is
+  stale and removed, so it never blocks writes. `ClassicWindow.orphan()` is that reader for a window this instance
+  did not start (GameWatch's `find_classic`).
+- **Events.** `classic.opened {pid}` (process started), `classic.ready {pid, tab}` (window up, or a tab shown),
+  `classic.closed {code}`. `ClassicWindow.status()` gives `{open, ready, busy, pid, orphan}`.
+- **The queue** (`ClassicQueue`, decision 5). While a classic window is open the web UI does not write the game
+  folder; the classic modal can queue the refused write for when it closes. In memory only: quitting drops it. At
+  most one toggle (a later one replaces it, one back to the stored intent removes it) and one action per entry (the
+  latest wins; a `mods.restoreDrift` over several entries is narrowed to the others). Each item keeps its call, the
+  pins and the size and modification time of its entries' files. `run(host)`, after `classic.closed` and the scan
+  that follows it, submits each item as its normal job, in order, and lists the dropped ones: a toggle whose `expect`
+  is no longer the stored intent (`state_changed`) or whose pins are not the known installs (`folder_changed`); an
+  entry whose own install changed, or is no longer the current one for `actions.apply` and `actions.restore`
+  (`folder_changed`), or whose files changed (`entry_changed`); a refused submit with its own error.
 
 ## Tests
 
