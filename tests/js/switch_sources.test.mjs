@@ -4,7 +4,9 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
-import { appliedKey, appliedOf, candidates, coreOf, partsOf, sourceOf, switchKindOf } from "../../src/ba_modding_toolkit/web/js/switch-sources.js";
+import {
+  appliedKey, appliedOf, candidates, configuredKey, coreOf, partsOf, popupMode, sourceOf, switchKindOf,
+} from "../../src/ba_modding_toolkit/web/js/switch-sources.js";
 
 const part = (kind, applied, extra = {}) => ({ file: `/game/${kind}-${applied}.bundle`, kind, applied, crc: "ok", ...extra });
 const mod = (id, target, kind) => ({ id, target, kind, label: id, file: `/library/mods/${id}/${id}.bundle`, fresh: false });
@@ -101,4 +103,27 @@ test("a part's official verdict wins over its applied source; without one, its a
   const other = { state: { files: [part("spr", "unknown", { crc: "ok", official: false })] } };
   assert.equal(appliedKey(other), "unknown");
   assert.equal(appliedOf({ state: { files: [part("spr", "mod:a")] } }), "mod:a"); // an older server: no verdict
+});
+
+// --- the popup while mods are off ---
+
+test("while mods are off: Save, starting on the configured card, chipped Set", () => {
+  const fam = family();
+  const v = fam.variants[0];
+  // mods on: Apply, from what the game shows
+  assert.deepEqual(popupMode(fam, v, "spr", true), { start: "self", button: "popup.apply", set: null });
+  assert.deepEqual(popupMode(fam, v, "lobby", true), { start: "m:l1", button: "popup.apply", set: null });
+  // off, with a configured mod: the files are official, the popup starts on the configured card and saves
+  v.configured = { spr: "mod:p1", lobby: "variant:hoshino_swimsuit" };
+  v.state.files = [part("spr", "official"), part("lobby", "official")];
+  assert.equal(configuredKey(v, "spr"), "m:p1");
+  assert.deepEqual(popupMode(fam, v, "spr", false), { start: "m:p1", button: "popup.save", set: "m:p1" });
+  // a configured source the popup does not offer (another variant's lobby): it starts on the own files
+  assert.equal(configuredKey(v, "lobby"), "v:hoshino_swimsuit");
+  assert.equal(popupMode(fam, v, "lobby", false).start, "self");
+  // nothing configured: the own files, and no Set chip
+  v.configured = { spr: null, lobby: null };
+  assert.deepEqual(popupMode(fam, v, "spr", false), { start: "self", button: "popup.save", set: null });
+  assert.equal(configuredKey({ configured: { spr: "official" } }, "spr"), null);
+  assert.equal(configuredKey({}, "spr"), null);
 });

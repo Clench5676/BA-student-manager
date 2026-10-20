@@ -13,7 +13,7 @@ import * as NGUI from "./ngui.js";
 import * as Loading from "./loading.js";
 import * as Lobby from "./lobby.js";
 import * as Visual from "./visual-mode.js";
-import { QUEUEABLE, refused } from "./mod-switch.js";
+import { QUEUEABLE, current as modsState, refused } from "./mod-switch.js";
 import { anyOpen as popupOpen } from "./popup.js";
 import { rpc, spineBase, spinePrefix, waitJob } from "./api.js";
 import { L, T, language, platform } from "./i18n.js";
@@ -22,7 +22,7 @@ import { portraitViewport } from "./portrait-view.js";
 import { setTitle } from "./nav.js";
 import { KEYS, deltaOf, pacer, typing } from "./step-keys.js";
 import { FRAME_Y, closable, hit as hitNode, listPopup, popupFrame, ready as popupsReady, scrollArea } from "./popup.js";
-import { appliedKey as keyOf, appliedOf, candidates as listSources, partsOf, sourceOf, switchKindOf } from "./switch-sources.js";
+import { appliedKey as keyOf, appliedOf, candidates as listSources, partsOf, popupMode, sourceOf, switchKindOf } from "./switch-sources.js";
 import {
   $, DOT, RECRUIT, S, TAN10, advanceOf, at, clone, glyphsOf, hitButton, markedLabel, off, text, toast, widget, wrapPath,
 } from "./util.js";
@@ -916,20 +916,26 @@ function disposePortrait() {
 
 // switch portrait or memorial lobby: the variant's own skeleton and added ones, then the other variants' portraits;
 // OK writes the chosen one into the game files (applyCandidate)
-let popupSeg = 0, popupKind = "spr";
+// While mods are off the popup saves the choice instead of writing it (popupMode): it starts on the configured source,
+// whose card carries "Set", and its button reads Save.
+let popupSeg = 0, popupKind = "spr", popupStart = null;
+const modsOn = () => modsState()?.enabled !== false;
+const SET_BADGE = () => ({ text: T("switch.configured"), color: "#8de4ff", ink: "#314665" });
 async function renderPopup(scroll = 0) {
   const v = variant(), kind = popupKind, inUseKey = appliedKey(v, kind);
+  const mode = popupMode(fam, v, kind, modsOn());
   const items = candidates(v, kind).map((c) => ({
     key: c.key, kind: c.kind, recruit: c.kind !== "mod" && c.recruit,
     label: candidateLabel(c, v),
     full: c.kind === "mod" ? c.label : fullName(c.variant),
     thumb: thumb(baseOf(c, kind), "card"), big: () => thumb(baseOf(c, kind), "bust"),
     inUse: c.key === inUseKey, fav: c.fav, isNew: c.kind === "mod" && c.mod.fresh, src: c,
+    badge: mode.set && c.key === mode.set && c.key !== inUseKey ? SET_BADGE() : null,
   }))
     .filter((it) => popupSeg === 0 || (popupSeg === 1) === !!it.recruit)
     .sort((a, b) => (b.fav ? 1 : 0) - (a.fav ? 1 : 0));
   await listPopup({
-    hostId: "popup", title: T(kind === "lobby" ? "row.switch.lobby" : "popup.switch"), okText: T("popup.apply"), items, selected: pending, keepScroll: scroll,
+    hostId: "popup", title: T(kind === "lobby" ? "row.switch.lobby" : "popup.switch"), okText: T(mode.button), items, selected: pending, keepScroll: scroll,
     tools: { segs: ["seg.all", "seg.recruit", "seg.noRecruit"], seg: popupSeg, onSeg: (i) => { popupSeg = i; renderPopup(); }, sortKey: "sort.default" },
     onSelect: (key, s) => {
       pending = key;
@@ -955,7 +961,7 @@ async function renderPopup(scroll = 0) {
               try { await rpc("mods.remove", { id: c.id }); } catch (err) { toast(errorText(err), { kind: "error" }); return; }
               await reload();
               ctx.invalidateRoster();
-              if (pending === c.key) pending = appliedKey(variant(), kind);
+              if (pending === c.key) pending = popupMode(fam, variant(), kind, modsOn()).start;
               renderPopup();
             }]
             : [T("btn.extract"), () => { closePopup(false); job("actions.extract", { target: `variant:${c.variant.key}` }, { onDone: (r) => reveal(r?.folder) }); }]],
@@ -963,11 +969,19 @@ async function renderPopup(scroll = 0) {
     },
   });
 }
-function openPopup(kind = "spr") { popupKind = kind; pending = appliedKey(variant(), kind); popupSeg = 0; renderPopup(); }
+function openPopup(kind = "spr") {
+  popupKind = kind;
+  popupStart = popupMode(fam, variant(), kind, modsOn()).start;
+  pending = popupStart;
+  popupSeg = 0;
+  renderPopup();
+}
 function closePopup(apply) {
   $("popup").hidden = true;
   $("popup").innerHTML = "";
-  if (apply && pending && pending !== appliedKey(variant(), popupKind)) applyCandidate(pending, popupKind);
+  const chosen = candidates(variant(), popupKind).find((c) => c.key === pending);
+  // only a choice other than the start (what the game shows; while mods are off, the configured source)
+  if (apply && chosen && pending !== popupStart) applyCandidate(pending, popupKind);
 }
 
 // variant picker: every variant of the family in the same list layout

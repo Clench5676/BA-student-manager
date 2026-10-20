@@ -58,3 +58,25 @@ export function candidates(fam, v, kind = "spr") {
     ...(across ? mods.filter((m) => m.target !== v.key).map(mod) : []),
   ];
 }
+
+// a configured source (family.get's configured[kind]) as a candidate key; null when the kind is not configured
+export function configuredKey(v, kind = "spr") {
+  const source = v?.configured?.[kind];
+  if (typeof source !== "string" || !source || source === "official") return null;
+  if (source.startsWith("mod:")) return `m:${source.slice(4)}`;
+  if (source.startsWith("variant:")) return `v:${source.slice(8)}`;
+  return null;
+}
+
+// how the switch popup works (decision 2). With mods on it starts on what the game shows, and Apply writes the choice.
+// While mods are off nothing is written: it starts on the configured source (the own files when none), Save only
+// configures the choice (it applies when mods are on), and the configured card carries the "Set" chip, apart from In
+// Use. The popup applies only a choice other than its start.
+//   {start, button: "popup.apply" | "popup.save", set: the configured key while off, else null}
+export function popupMode(fam, v, kind = "spr", enabled = true) {
+  const inUse = appliedKey(v, kind);
+  if (enabled) return { start: inUse, button: "popup.apply", set: null };
+  const set = configuredKey(v, kind);
+  const start = set && candidates(fam, v, kind).some((c) => c.key === set) ? set : "self";
+  return { start, button: "popup.save", set };
+}
