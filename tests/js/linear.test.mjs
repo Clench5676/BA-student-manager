@@ -274,6 +274,26 @@ test("a player drawn with another one's context only gets its pages and blending
   assert.equal(gl.live.size, 0);
 });
 
+test("a guest goes into linear light only with its host, and leaves it with its host", () => {
+  const gl = fakeGL(), host = player(gl), guest = player(gl);
+  // its host not in linear light (not attached, or its program failed): the guest draws plain sRGB values like it
+  assert.equal(Linear.attach(guest, host), false);
+  assert.equal(Linear.active(guest), false);
+  assert.ok(!Object.prototype.hasOwnProperty.call(guest.page, "update"), "its page as it came");
+  assert.equal(guest.sceneRenderer.batcher.setBlendMode, Batcher.prototype.setBlendMode);
+  assert.equal(Linear.attach(host), true);
+  assert.equal(Linear.attach(guest, host), true);
+  // no sRGB render target for the host: both draw plain again, their pages uploaded as they came
+  gl.checkFramebufferStatus = () => "FRAMEBUFFER_UNSUPPORTED";
+  const updated = guest.page.updated || 0;
+  Linear.begin(host);
+  assert.equal(Linear.active(host), false);
+  assert.equal(Linear.active(guest), false);
+  assert.equal(guest.page.updated, updated + 1);
+  Linear.detach(guest);
+  Linear.detach(host);
+});
+
 test("a tint is taken once until it is given back", () => {
   const gl = fakeGL(), p = player(gl);
   const grey = { r: 0.5, g: 0.5, b: 0.5, a: 1, set(r, g, b, a) { Object.assign(this, { r, g, b, a }); } };

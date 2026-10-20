@@ -167,17 +167,21 @@ function pagesOf(player) {
 // switch a loaded player to linear light; false (and nothing changed) without WebGL2. host: the player whose context
 // and framebuffer it draws into (lobby-stage.js: every skeleton of a lobby in the bottom player's), which does the
 // pass; such a guest only gets its pages decoded and its blending, and a frame of its own clears into the host's
-// framebuffer (which the host clears again before drawing), never the host's canvas
+// framebuffer (which the host clears again before drawing), never the host's canvas. A guest goes into linear light
+// only with its host in it: drawn into a plain canvas, its sRGB pages and decoded colours would come out too dark.
 export function attach(player, host = null) {
   const gl = player?.context?.gl;
   if (!gl || typeof WebGL2RenderingContext === "undefined" || !(gl instanceof WebGL2RenderingContext) || states.has(player)) return false;
+  const hs = host ? states.get(host) : null;
+  if (host && !hs?.on) return false;
   let st;
   try {
-    st = { gl, res: host ? null : compile(gl), on: true, pages: [], host };
+    st = { gl, res: host ? null : compile(gl), on: true, pages: [], host, guests: new Set() };
   } catch (err) {
     console.warn("linear light unavailable", err);
     return false;
   }
+  hs?.guests.add(player);
   for (const texture of pagesOf(player)) {
     srgbPage(gl, texture);
     // a lost and restored context uploads the page again: keep it sRGB
@@ -217,6 +221,7 @@ export function detach(player) {
   const st = states.get(player);
   if (!st) return;
   states.delete(player);
+  states.get(st.host)?.guests.delete(player);
   st.on = false;
   if (st.saved) restoreTint(st);
   const { gl } = st;
@@ -259,10 +264,14 @@ export function begin(player) {
     gl.bindFramebuffer(gl.FRAMEBUFFER, res.fbo);
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, res.tex, 0);
     if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
-      // no sRGB render target: back to plain drawing, the pages as they came
+      // no sRGB render target: back to plain drawing, the pages as they came, its guests' too (they draw into it)
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       st.on = false;
-      for (const texture of pagesOf(player)) texture.update(texture.useMipMaps);
+      for (const p of [player, ...st.guests]) {
+        const ps = states.get(p);
+        if (ps) ps.on = false;
+        for (const texture of pagesOf(p)) texture.update(texture.useMipMaps);
+      }
       return;
     }
     res.w = w;

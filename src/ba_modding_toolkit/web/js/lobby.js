@@ -673,14 +673,8 @@ function makePlayer(host, layer, onReady, onError = () => {}, fx = null, share =
       clocked(player);
       Stage.ready(player);
       if (layer.introOnly) Stage.setShown(player, false); // a scene only the intro shows
-      // the game camera's post-processing (the prefab's volumes) goes with the linear-light pass, placed in the
-      // camera's view whatever the player shows (a player drawn with another's context uses that one's)
-      if (Linear.attach(player, Stage.hostOf(player))) {
-        Linear.setPost(player, current?.info?.post);
-        Linear.setScreen(player, layerViewport(game(), layer));
-        Linear.setCurves(player, SlotColours.curvesOf(layer)); // the slot colours as each page's shader takes them
-        Materials.attach(player, layer, { screen: () => layerViewport(game(), layer), base: base(current.core) });
-      }
+      // linear light; a player drawn with another's context once every player is in (show)
+      if (!Stage.hostOf(player)) lightUp(player);
       if (layer.skin) try { player.skeleton.setSkinByName(layer.skin); player.skeleton.setSlotsToSetupPose(); } catch { /* the default skin */ }
       // the idle, and with it the clips it starts (its sync clips, the rest of its pool), as the game's OnEnable
       player.bamtSounds = new Sync.SoundKeys(sfx);
@@ -696,6 +690,19 @@ function makePlayer(host, layer, onReady, onError = () => {}, fx = null, share =
     },
     error: (_p, message) => { console.error(message); onError(); },
   }));
+}
+
+// A loaded player in linear light like the game (linear.js), with the game camera's post-processing (the prefab's
+// volumes) placed in the camera's view whatever the player shows, the slot colours as each page's shader takes them
+// and the game's page materials. A player drawn with another's context (lobby-stage.js) gets it only with that one in
+// linear light, whose pass it shares.
+function lightUp(player) {
+  const layer = player.bamtLayer;
+  if (!Linear.attach(player, Stage.hostOf(player))) return;
+  Linear.setPost(player, current?.info?.post);
+  Linear.setScreen(player, layerViewport(game(), layer));
+  Linear.setCurves(player, SlotColours.curvesOf(layer));
+  Materials.attach(player, layer, { screen: () => layerViewport(game(), layer), base: base(current.core) });
 }
 
 // --- fallback only (art that does not cover the view): edge pixels stretched outwards and blurred ---
@@ -785,6 +792,7 @@ export async function show(core, host, variant) {
     const loaded = all.filter((l) => !l.introOnly);
     if (!loaded.length) return null;
     Stage.install(all.map((l) => l.player), fx);
+    for (const l of all) if (Stage.hostOf(l.player)) lightUp(l.player); // the guests, with their host loaded
     current.meta = measure(loaded);
     current.loaded = loaded;
     // the bottom layer over the camera's clear colour (graded with PP on); sparse art keeps the page behind it, for
