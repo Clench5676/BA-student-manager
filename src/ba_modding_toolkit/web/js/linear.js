@@ -446,6 +446,23 @@ export function end(player) {
 
 export const active = (player) => !!states.get(player)?.on;
 
+// Inspect the ungraded target once the lobby has settled. The camera's opaque clear colour is added by the final
+// pass, so it cannot disguise a transparent atlas, a shader that discards everything, or an empty render plan.
+export function hasPixels(player) {
+  const st = states.get(player), gl = player.context?.gl;
+  if (!gl || gl.isContextLost()) return false;
+  const target = st?.on && !st.host ? st.res : null;
+  const w = target?.w || player.canvas.width, h = target?.h || player.canvas.height;
+  if (!(w > 0 && h > 0)) return false;
+  const previous = gl.getParameter(gl.FRAMEBUFFER_BINDING);
+  try {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, target?.fbo || null);
+    const pixels = new Uint8Array(w * h * 4);
+    gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+    return pixels.some((v) => v !== 0);
+  } finally { gl.bindFramebuffer(gl.FRAMEBUFFER, previous); }
+}
+
 // for checks: draw an attached player in linear light (true) or in plain sRGB values as before (false)
 export function set(player, on) {
   const st = states.get(player);

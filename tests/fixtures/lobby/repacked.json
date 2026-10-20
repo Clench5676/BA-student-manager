@@ -1,0 +1,14 @@
+{
+  "skeleton": {"spine": "4.2.99", "x": -900000000, "y": 900000000, "width": 0, "height": 0},
+  "bones": [{"name": "root", "x": 20000, "y": -30000}, {"name": "Touch_Point", "parent": "root", "x": -99999}],
+  "slots": [{"name": "art", "bone": "root"}],
+  "skins": [{"name": "default", "attachments": {"art": {"paint": {"width": 320, "height": 180}}}}],
+  "animations": {
+    "Idle_01": {},
+    "Talk_01_M": {"slots": {"art": {"attachment": [{"name": null}]}}},
+    "RestLoop": {
+      "slots": {"art": {"attachment": [{"name": "paint"}]}},
+      "bones": {"root": {"rotate": [{"value": 0}, {"time": 2, "value": 0}]}}
+    }
+  }
+}

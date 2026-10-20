@@ -12,6 +12,7 @@
 import * as NGUI from "./ngui.js";
 import { latestLoad, loadPlayer } from "./spine-load.js";
 import { withTimeout } from "./async.js";
+import { previewError } from "./preview-error.js";
 import * as Loading from "./loading.js";
 import * as ModAdd from "./mod-add.js";
 import * as Lobby from "./lobby.js";
@@ -66,6 +67,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const frames = (n) => new Promise((resolve) => { const step = () => (--n > 0 ? requestAnimationFrame(step) : resolve()); requestAnimationFrame(step); });
 function renderFailed(err, source = null) {
   console.error("Detail render failed", ...(source ? [source] : []), err);
+  previewError(err, source, "detail");
   if (open) toast(T("detail.failed"), { kind: "error" });
 }
 
@@ -1360,10 +1362,16 @@ function renderLeft() {
     el.classList.add("pending");
   }
   const swap = same && key !== shownKey ? freezeLeft(want) : null;
+  let expired = false;
   // a newer left side or hide() came first: nothing is started
-  const ready = withTimeout(Promise.resolve(swap).then(() => (my !== leftToken ? null
+  const ready = withTimeout(Promise.resolve(swap).then(() => (my !== leftToken || expired ? null
     : want === "portrait" ? (mainPlayer ? null : loadSpine(currentBase()))
-      : want === "lobby" ? showLobby(v, my) : showModel(v, my))), HARD_CAP, `Detail ${want}`).catch(renderFailed);
+      : want === "lobby" ? showLobby(v, my, () => !expired) : showModel(v, my))), want === "lobby" ? HARD_CAP + 3000 : HARD_CAP, `Detail ${want}`).catch((err) => {
+    expired = true;
+    if (my !== leftToken || !open) return;
+    if (want === "lobby") Lobby.unavailable(err, el, spineBase("lobby", v.lobby));
+    renderFailed(err);
+  });
   const shown = ready.then(() => commit(() => {
     if (my !== leftToken) return;
     el.hidden = false;
@@ -1422,14 +1430,19 @@ function unfreezeLeft(now = false) {
 const LINE_LANG = { "zh-CN": "zh-CN", "zh-TW": "zh-TW", "en-US": "en", "ja-JP": "ja", "ko-KR": "ko", "th-TH": "th" };
 // the memorial lobby: every layer in and drawn, the still for the switch card, the dialogue strip; the lines when
 // they come in time (later ones re-render the strip)
-async function showLobby(v, my) {
-  const still = () => open && my === leftToken && tab === "lobby" && variantKey === v.key;
+async function showLobby(v, my, alive = () => true) {
+  const still = () => alive() && open && my === leftToken && tab === "lobby" && variantKey === v.key;
   if (lobbyFrom !== fam.version || lobbyStale) Lobby.hide($("lobby"));
   lobbyFrom = fam.version;
   lobbyStale = false;
   const c = current("lobby");
-  const m = await Lobby.show(v.lobby, $("lobby"), v.key, { mod: !modsOn() && c.kind === "mod" ? c.id : null });
-  if (!m || !still()) return;
+  const options = { mod: !modsOn() && c.kind === "mod" ? c.id : null };
+  let m = await Lobby.show(v.lobby, $("lobby"), v.key, options);
+  if (!still()) return;
+  // A cancelled attempt is not a ready preview. The newest detail render owns one fresh attempt.
+  if (!m) m = await Lobby.show(v.lobby, $("lobby"), v.key, options);
+  if (!still()) return;
+  if (!m) throw new Error(`Lobby load superseded without a replacement: ${v.lobby}`);
   if (fullscreen) { Lobby.frame("full"); Lobby.interactive(true); }
   // the lines in the UI language only (Kivo's Chinese and Japanese, the Global server's English and the others), on
   // the voice clips of each talk animation, and Kivo's voices; nothing in another language stands in for a missing one
@@ -1630,13 +1643,16 @@ function resumeChanged() {
 async function reloadChanged() {
   while (open && !quiet()) await sleep(250);
   if (!open || busy || heldChange === undefined) return;
+  const change = heldChange;
   heldChange = undefined;
   const key = fam.key;
   const data = await readFamily(key).catch(renderFailed);
   if (!data || !open || fam?.key !== key || busy) return;
-  if (JSON.stringify(data) === JSON.stringify(fam) && previewEnabled === modsOn()) return;
+  // A repacked file can retain its size, date and family fields. A source event still revalidates its manifest.
+  const lobbyChanged = change === null || change.cores.includes(lower(variant().lobby));
+  if (JSON.stringify(data) === JSON.stringify(fam) && previewEnabled === modsOn() && !lobbyChanged) return;
   // the thumbnails of every core of the family whose files or configured preview changed
-  const changed = { spr: false, lobby: false };
+  const changed = { spr: false, lobby: lobbyChanged };
   for (const v of data.variants) {
     const was = fam.variants.find((x) => x.key === v.key);
     for (const kind of ["spr", "lobby"]) {

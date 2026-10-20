@@ -130,12 +130,14 @@ const atlas = { Common: Object.fromEntries([...new Set([
 ])].map((name) => [name, { width: 8, height: 8 }])) };
 const reply = (data, status = 200) => ({ ok: status === 200, status, json: async () => data });
 let family, indexMode = "ready", layoutMode = "ready", lobbyMode = "pending", optionalPending = false, modsEnabled = true;
-const textureReplies = [], layoutReplies = [];
+const textureReplies = [], layoutReplies = [], rpcRequests = [], assetRequests = [];
 globalThis.fetch = async (url, opts = {}) => {
   if (url === "/api/rpc") {
-    const { method } = JSON.parse(opts.body);
+    const request = JSON.parse(opts.body), { method } = request;
+    rpcRequests.push(request);
     return reply({ result: method === "family.get" ? family : method === "mods.state" ? { enabled: modsEnabled } : null });
   }
+  assetRequests.push(url);
   if (url === "/asset/ui/atlases.json") {
     assert.equal(opts.cache, "no-store", "reload must bypass an old browser-cached empty atlas index");
     if (indexMode === "pending") return new Promise(() => {});
@@ -293,6 +295,20 @@ test("an applied lobby with hanging asset routes releases the in-place render ba
     assert.equal(switchButton().title, "Switch Memorial Lobby");
     t.mock.timers.tick(16000); await flush();
     assert.ok(errors.some((a) => a.some((e) => String(e).includes("Detail lobby: timed out"))));
+    assert.equal(hosts.lobby.querySelector(".lobby-unavailable")?.textContent, "Preview unavailable");
+    assert.ok(!hosts.lobby.classList.contains("pending"));
+    assert.ok(rpcRequests.some((r) => r.method === "preview.failed" && r.params.url.includes("/lobby/ibuki_home/") && r.params.step));
+    const before = assetRequests.filter((url) => url.includes("/lobby/") && url.endsWith("manifest.json")).length;
+    const portraitTab = walk(hosts.ngui).find((e) => e.dataset.part?.endsWith("Tab_1/Tab_Off/Label"));
+    const portrait = portraitTab.click(); await flush();
+    t.mock.timers.tick(1300); await flush(); await portrait;
+    const retryTab = walk(hosts.ngui).find((e) => e.dataset.part?.endsWith("Tab_2/Tab_Off/Label"));
+    const retry = retryTab.click(); await flush();
+    for (let i = 0; i < 4; i++) { t.mock.timers.tick(1300); await flush(); }
+    await retry;
+    assert.ok(assetRequests.filter((url) => url.includes("/lobby/") && url.endsWith("manifest.json")).length > before,
+      "showing the lobby tab again asks for a new source after failure");
+    t.mock.timers.tick(16000); await flush();
     back.onclick(); assert.equal(location.hash, "#/roster");
   } finally { Detail.hide(); t.mock.timers.reset(); }
 });

@@ -22,8 +22,8 @@ export function latestLoad() {
 
 // The runtime does not await success hooks. Settle on hook errors, cancellation, disposal and missing callbacks too.
 // Each player owns its atlas and textures; a cancelled player's hooks never touch the next view's state.
-export function loadPlayer(create, config, { signal, timeout = 15000 } = {}) {
-  let player, settled = false, disposed = false, timer, resolve, reject;
+export function loadPlayer(create, config, { signal, timeout = 15000, onError } = {}) {
+  let player, settled = false, disposed = false, failed = false, timer, resolve, reject;
   const ready = new Promise((ok, fail) => { resolve = ok; reject = fail; });
   const finish = (error = null) => {
     if (settled) return;
@@ -37,27 +37,41 @@ export function loadPlayer(create, config, { signal, timeout = 15000 } = {}) {
     signal?.removeEventListener("abort", dispose);
     try { player?.dispose(); } catch (err) { console.error(err); } finally { finish(); }
   };
-  const fail = (error) => {
-    finish(error instanceof Error ? error : new Error(String(error)));
+  const fail = (error, step = "load") => {
+    if (failed || disposed || signal?.aborted) return;
+    failed = true;
+    const cause = error instanceof Error ? error : new Error(String(error));
+    cause.url ||= config.skeleton;
+    cause.step ||= step;
+    const wasReady = settled;
+    finish(cause);
+    // Render errors after success must not disappear into an already settled promise.
     // Let the runtime return from a synchronous success/error hook before freeing its GPU objects.
-    queueMicrotask(dispose);
+    queueMicrotask(() => {
+      try { if (wasReady && !signal?.aborted) onError?.(cause); }
+      finally { dispose(); }
+    });
   };
   if (signal?.aborted) { dispose(); return { ready, dispose, player: null }; }
   try {
     const hooks = Object.fromEntries(["frame", "update", "draw", "updateWorldTransform"].filter((key) => config[key])
-      .map((key) => [key, (...args) => { if (!disposed && !signal?.aborted) return config[key](...args); }]));
+      .map((key) => [key, (...args) => {
+        if (disposed || failed || signal?.aborted) return;
+        try { return config[key](...args); } catch (err) { fail(err, key); }
+      }]));
     player = create({
       ...config, ...hooks,
       success: (p) => {
-        if (disposed || signal?.aborted) return;
+        if (disposed || failed || signal?.aborted) return;
         // Start synchronously: the runtime uses track 0 as soon as this callback returns.
-        try { Promise.resolve(config.success?.(p, () => !disposed && !signal?.aborted)).then(() => finish(), fail); } catch (err) { fail(err); }
+        try { Promise.resolve(config.success?.(p, () => !disposed && !failed && !signal?.aborted))
+          .then(() => finish(), (err) => fail(err, "setup")); } catch (err) { fail(err, "setup"); }
       },
-      error: (_p, message) => { if (!disposed) fail(message); },
+      error: (_p, message) => fail(message, settled ? "render" : "load"),
     });
     signal?.addEventListener("abort", dispose, { once: true });
     if (disposed) player?.dispose(); // a synchronous constructor callback failed
-    if (!settled) timer = setTimeout(() => fail(new Error("Spine load timed out")), timeout);
-  } catch (err) { fail(err); }
+    if (!settled) timer = setTimeout(() => fail(new Error("Spine load timed out"), "load timeout"), timeout);
+  } catch (err) { fail(err, "construct"); }
   return { player, ready, dispose };
 }

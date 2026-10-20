@@ -320,6 +320,12 @@ def build_api(s: Services) -> RpcRegistry:
             line = json.dumps(event, ensure_ascii=True, separators=(",", ":"), default=str)
             trace_logger.info("%s", line[:TRACE_LINE])
 
+    @rpc.method("preview.failed")
+    def preview_failed(url: str = "", step: str = "", error: str = "") -> None:
+        """Record bounded browser preview diagnostics in release sessions too."""
+        detail = {key: str(value)[:4000] for key, value in {"url": url, "step": step, "error": error}.items()}
+        logger.warning("Preview failed: %s", json.dumps(detail, ensure_ascii=True))
+
     @rpc.method("i18n.strings")
     def i18n_strings(lang: str | None = None) -> dict[str, str]:
         return ui_strings(lang or i18n_manager.lang)
