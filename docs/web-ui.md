@@ -574,8 +574,8 @@ deletions respect the saved key; recovery copies are checked again under the loc
 them. Clear deletes `built/*.bundle` and `.library-` temporaries at least an hour old, counts both in the bytes freed,
 leaves fresher temporaries alone, and keeps `built/` in place.
 Built copies and kept originals hold game portraits and lobbies inside the library: restore copies of what the user's
-own switch wrote, never read to draw the UI, and their disk use can grow large (the switch's help shows both sizes;
-only built copies can be cleared).
+own switch wrote, never read to draw the UI, and their disk use can grow large (the switch's help shows kept originals;
+Settings shows built copies and can clear them). Sizes are measured only when the respective UI opens.
 
 **What reads game files.** The scan consent (`scan_allowed`, asked at each use) covers every read the app makes on
 its own of files the library did not write: the scan (the start and the end of each portrait and memorial lobby file;
@@ -703,8 +703,8 @@ Events on `/api/events`:
 The services hold what the Enable Mods switch, the prompts and the classic hand-off read (`webui/services.py`):
 
 - **The snapshot** (`ModsSnapshot`). `mods.state` answers from it, never through the library lock: the library's
-  `status()` (the known installs, the current one, the shared intent, the configured count, the disk use of built
-  copies and kept originals; names, stats and `profiles.json` only), the last scan's entries and a running toggle's
+  `status()` (the known installs, the current one, the shared intent and the configured count; names and
+  `profiles.json` only, without walking storage folders), the last scan's entries and a running toggle's
   progress. The jobs, the scanner and the game watch update it; its lock is a leaf lock. Install labels are made in
   the UI language from `settings.server.*` and, for two installs of one server, `mods.installNamed` with the
   folder that tells them apart. `reason`, first match: `game_not_found` (no known install at all),
@@ -783,7 +783,8 @@ stops the server (the page shows Closed); with `--serve` it gives `native_unavai
 | `mods.add {paths}` / `mods.pick` | added entries (`mods.pick` opens the native file dialog) |
 | `mods.remove {id, confirm = false}` | `{}`; with mods on, `mod_in_use {file}` while the current install carries the mod, `mod_in_use_elsewhere {file, folder}` while another does; in any state `mod_in_use_elsewhere` for a folder that is not a known install; with mods off `mod_last_copy {file}` when the mod is the last copy of a file the game still carries and `confirm` is not set |
 | `mods.rename {id, label}`, `mods.seen {id}` | |
-| `mods.state` | `{installs: [{id, key, server, folder, label, distinct, named}], current, enabled, shown, available, reason, reasonParams, scan, explained, configured, pending, stuck, left, unfinished: {pending, left, stuck}, drift, untracked, damaged, sourceMissing, builtSize, originalsSize, queued, scanned, tray, traySupported, busy, progress}` from the snapshot (above); `id` is the first 12 hex digits of the install key's SHA-1 (used in URLs), `named` tells a folder the settings name from a recorded one; `busy` while a toggle is queued or running or writes are queued for the classic window; `progress` is `{done, total}` of a running toggle |
+| `mods.state` | `{installs: [{id, key, server, folder, label, distinct, named}], current, enabled, shown, available, reason, reasonParams, scan, explained, configured, pending, stuck, left, unfinished: {pending, left, stuck}, drift, untracked, damaged, sourceMissing, queued, scanned, tray, traySupported, busy, progress}` from the snapshot (above); `id` is the first 12 hex digits of the install key's SHA-1 (used in URLs), `named` tells a folder the settings name from a recorded one; `busy` while a toggle is queued or running or writes are queued for the classic window; `progress` is `{done, total}` of a running toggle |
+| `mods.sizes {kind}` | `{builtSize}` for `kind: "built"` or `{originalsSize}` for `kind: "originals"`, bytes measured on demand for the visible row or help; no size walks in `mods.state` |
 | `mods.toggle {enabled, expect}` | job id (`mods.toggle`): the switch over every known install, also Retry; `busy` while another toggle is queued or running, `classic_open` at submit; the job's refusals `state_changed`, `folder_changed`, `game_running`, `game_status_unavailable`, `steam_busy`, `classic_open`, `not_enough_space` |
 | `mods.consent {granted}` | `{}`; saves `scan_consent`; granting requests a scan, withdrawing stops the scans and empties the entries |
 | `mods.explained` | `{}`; sets `mods_explained` (the first toggle's explanation was shown) |
@@ -1152,11 +1153,11 @@ detail screen, and in Settings' Mods tab.
   their adoption failed, a result popup: "Added to the library first: n", "Done: x, failed: y", "Left as is, no
   official copy: n", then each failed entry ("Airi, Portrait - ..."), the first six named and the rest counted.
   `state_changed` (switched elsewhere first) is a toast, and the switch redraws from `mods.state`.
-- **The "?" help** (message popup, title Enable Mods): the opening text (what Off and On do, that the mods stay in
-  the library, only while the game is closed; `mods.help`, wrapped over up to four lines); the disk use line
-  (`mods.helpSpace`) straight before the two sizes: "Disk use: x", with Clear Built Mods while there are some
-  (`mods.clearBuilt`, then "Built mods cleared"), and "Official copies for Off: x" (kept originals, which cannot be
-  cleared); "Game folders: ..." with the install labels when more than one game folder is known; without the scan consent "Other mods not checked"
+- **The "?" help** (message popup, title Enable Mods): two opening lines (`mods.helpOn`, `mods.helpOff`): On applies
+  configured mods to all portraits and memorial lobbies; Off restores official files where available and keeps mods
+  in the library; close the game before toggling. Each opening requests `mods.sizes {kind: "originals"}`, with the
+  loading indicator while waiting. The disk use line (`mods.helpSpace`) leads straight to "Official copies for Off: x"
+  (kept originals, which cannot be cleared); "Game folders: ..." with the install labels when more than one game folder is known; without the scan consent "Other mods not checked"
   with Allow Check, which opens the scan consent popup and grants nothing itself; "Not switched: n" with Retry (the
   same toggle again) for pending and left entries; "Left as is, no official copy: n" with Details, the Overwritten
   message (the entries, known from the last scan with the scan consent, "No official copy left" and the repair lines
@@ -1170,7 +1171,9 @@ detail screen, and in Settings' Mods tab.
   shows over them (`#consent.over`).
 - **Settings' Mods tab** (second, after General; `UIPopup_Option_PC`'s tab column has five separators): Enable Mods
   (On / Off, the same switch with the same rules, its square "?" and red dot after the title; faded while busy or
-  unavailable); Show on Main Screens (`modSwitchShown`); File Check (On opens the scan consent popup, Off withdraws
+  unavailable); Show on Main Screens (`modSwitchShown`); Clear Built Mods (size requested with `mods.sizes {kind: "built"}`
+  when the row is drawn, loading text while waiting, Clear enabled for a nonzero size; `mods.clearBuilt`, then
+  "Built mods cleared" and the size measured again); File Check (On opens the scan consent popup, Off withdraws
   the consent); Tray Icon or Menu Bar Icon (`tray`, only in the app window where the system has one); Game File
   Drift Check (what the last check found, "No drift found", or "File check off" with Check greyed; Check scans with
   the dismissed entries listed again; its square "?" explains configuration drift, one line for each finding the row

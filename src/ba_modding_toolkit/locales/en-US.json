@@ -983,7 +983,8 @@
 			"guide": "Guide",
 			"offState": "Mods off",
 			"onState": "Mods on",
-			"help": "When off, all portraits and memorial lobbies go back to official (no effect where the official files were overwritten); when on, the configured mods are applied and stay in the mod library. Only while the game is closed.",
+			"helpOn": "When on, the configured mods are applied to all portraits and memorial lobbies;",
+			"helpOff": "When off, all portraits and memorial lobbies return to official (no effect where the official files were overwritten), and mods stay in the mod library. Close the game before toggling this switch.",
 			"helpSpace": "Can take extra disk space, estimated below:",
 			"helpFolders": "Game folders: {folders}",
 			"installNamed": "{server} ({folder})",
@@ -1225,6 +1226,7 @@
 				"ask": "Ask Before Opening"
 			},
 			"mods": {
+				"clear": "Clear",
 				"shown": "Show on Main Screens",
 				"scan": "File Check",
 				"tray": {

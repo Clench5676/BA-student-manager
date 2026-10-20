@@ -61,7 +61,7 @@ class El {
   }
   click() { return this.dispatch("click"); }
   focus() { document.activeElement = this; }
-  querySelector(key) { return this.parts?.[key] || null; }
+  querySelector(key) { return this.parts?.[key] || (key.startsWith(".") ? walk(this).find((e) => e.classList.contains(key.slice(1))) : null); }
   getContext() { return { font: "", measureText(s) { return { width: s.length * 0.6 * parseFloat(/([\d.]+)px/.exec(this.font)?.[1] || 10) }; } }; }
 }
 const body = new El("body");
@@ -80,7 +80,7 @@ globalThis.requestAnimationFrame = (fn) => setTimeout(fn, 0);
 function press(key, target = document.activeElement) { return target.dispatch("keydown", { key }); }
 const stage = body.appendChild(new El()); stage.id = "stage";
 const host = (id) => { const h = stage.appendChild(new El()); h.id = id; h.hidden = true; return h; };
-const dialog = host("dialog"), consent = host("consent"), toastEl = host("toast"), prompt = host("prompt");
+const dialog = host("dialog"), consent = host("consent"), toastEl = host("toast"), prompt = host("prompt"), settingsHost = host("settings");
 dialog.className = prompt.className = "popup-host"; consent.className = "consent-host";
 const switchHost = host("mod-switch");
 
@@ -102,8 +102,17 @@ const SORT = n("UIPopup_Sort", [0, 0], [], [n("Center", [0, 0], [], [
     ]),
   ]),
 ])]);
+const OPTIONS = structuredClone(SORT);
+OPTIONS.name = "UIPopup_Option_PC";
+OPTIONS.children[0].children.find((e) => e.name === "Popup").children.push(
+  n("TabBg", [0, 0], [], [n("Grid", [0, 0])]),
+  n("Game", [0, 0], [], ["Tab_On", "Tab_Off"].map((name) => n(name, [0, 0], [], [n("Label_Locale", [0, 0], [lbl()])]))),
+  n("List", [0, 0], [], [n("Sound_Setting", [0, 0], [], [n("Sound_Scroll View", [0, 0], [], [
+    n("Grid_2", [0, 0], [], [n("Master", [0, 0], [], [n("Type_3", [0, 0])])]),
+  ])])]),
+);
 const calls = [];
-const answers = {}; // method -> result (or a function of params)
+const answers = { "mods.sizes": ({ kind }) => ({ [`${kind}Size`]: 0 }) }; // method -> result (or a function of params)
 const jobs = {}; // id -> {state, result, error}
 const reply = (body, ok = true) => ({ ok, status: ok ? 200 : 404, json: async () => body });
 globalThis.fetch = async (url, opts = {}) => {
@@ -112,7 +121,7 @@ globalThis.fetch = async (url, opts = {}) => {
     calls.push([method, params]);
     if (method === "jobs.get") return reply({ result: jobs[params.id] || { state: "running" } });
     const a = answers[method];
-    const result = typeof a === "function" ? a(params) : a ?? null;
+    const result = typeof a === "function" ? await a(params) : a ?? null;
     if (result && result.error) return reply({ error: result.error });
     return reply({ result });
   }
@@ -122,6 +131,7 @@ globalThis.fetch = async (url, opts = {}) => {
   ].map((name) => [name, { width: 8, height: 8 }])) });
   if (url === "/asset/ui/textures.json") return reply({});
   if (url === "/asset/ui/layout/UIPopup_Sort.json") return reply(SORT);
+  if (url === "/asset/ui/layout/UIPopup_Option_PC.json") return reply(OPTIONS);
   return reply(null, false);
 };
 // the event stream: the page subscribes; emit() sends an event as the server would
@@ -163,7 +173,7 @@ const base = (over = {}) => ({
   installs: [install("/games/BlueArchive", "Global")], current: "/games/BlueArchive", enabled: true, shown: true,
   available: true, reason: null, reasonParams: {}, scan: true, explained: true, configured: 2, pending: 0, stuck: 0,
   left: 0, unfinished: { pending: 0, left: 0, stuck: 0 }, drift: 0, untracked: 0, damaged: 0, sourceMissing: 0,
-  builtSize: 0, originalsSize: 0, queued: 0, scanned: null, tray: false, traySupported: false, busy: false, progress: null,
+  queued: 0, scanned: null, tray: false, traySupported: false, busy: false, progress: null,
   ...over,
 });
 
@@ -213,26 +223,40 @@ test("the first toggle's explanation: the help's opening text, not shown again",
   const off = MS.explanation(base());
   assert.equal(off.title, S("mods.offTitle"));
   assert.equal(off.ok, S("mods.offTitle"));
-  assert.deepEqual(off.lines, [S("mods.help"), S("mods.explainOnce")]);
+  assert.deepEqual(off.lines, [S("mods.helpOn"), S("mods.helpOff"), S("mods.explainOnce")]);
   assert.equal(MS.explanation(base({ enabled: false })).ok, S("mods.onTitle"));
 });
 
-test("the help's lines: game folders, built mods and their size, the file check, Retry and Details", () => {
-  const texts = (s) => MS.helpLines(s).map((l) => l.text);
+test("every locale gives the help and first toggle two separate opening lines", () => {
+  try {
+    for (const lang of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"]) {
+      const ui = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${lang}.json`, import.meta.url))).webui;
+      I18n.setStrings(lang, flat({ webui: ui }));
+      const opening = [ui.mods.helpOn, ui.mods.helpOff];
+      assert.ok(opening.every((s) => typeof s === "string" && s.length > 0 && !s.includes("\n")), lang);
+      assert.ok(!("help" in ui.mods), lang);
+      assert.deepEqual(MS.basics(), opening, lang);
+      assert.deepEqual(MS.helpLines(base()).slice(0, 2), opening.map((text) => ({ text })), lang);
+      for (const enabled of [true, false]) assert.deepEqual(MS.explanation(base({ enabled })).lines,
+        [...opening, ui.mods.explainOnce], lang);
+    }
+  } finally { I18n.setStrings("en-US", strings); }
+});
+
+test("the help's lines: game folders, only the originals' size, the file check, Retry and Details", () => {
+  const texts = (s, sizes) => MS.helpLines(s, sizes).map((l) => l.text);
   const buttons = (s) => MS.helpLines(s).filter((l) => l.button).map((l) => [l.button.id, l.button.label]);
-  // one game folder: no folders line; built mods with their size, and their Clear only when there are some
-  // the opening text, then the disk use line straight before the two sizes
-  assert.deepEqual(texts(base()).slice(0, 4), [S("mods.help"), S("mods.helpSpace"), "Disk use: 0 MB", "Official copies for Off: 0 MB"]);
+  // two opening lines, then the disk use introduction straight before the originals' size
+  assert.deepEqual(texts(base()).slice(0, 4), [S("mods.helpOn"), S("mods.helpOff"), S("mods.helpSpace"), "Official copies for Off: 0 MB"]);
   assert.ok(!texts(base()).some((t) => t.startsWith("Game folders")));
-  assert.ok(texts(base()).includes("Disk use: 0 MB"));
-  assert.ok(texts(base({ originalsSize: 3 * 1048576 })).includes("Official copies for Off: 3.0 MB"));
+  assert.ok(!texts(base()).some((t) => t.startsWith("Disk use:")));
+  assert.ok(texts(base(), { originalsSize: 3 * 1048576 }).includes("Official copies for Off: 3.0 MB"));
   assert.deepEqual(buttons(base()), []);
-  assert.deepEqual(buttons(base({ builtSize: 5 * 1073741824 })), [["clear", S("mods.builtClear")]]);
-  assert.ok(texts(base({ builtSize: 5 * 1073741824 })).includes("Disk use: 5.00 GB"));
+  assert.deepEqual(buttons(base({ builtSize: 5 * 1073741824 })), []);
   // two game folders: their install labels, with the language's separator
   const two = base({ installs: [install("/a/BlueArchive", "Global (BlueArchive)"), install("/b/Steam", "Global (Steam)")] });
   assert.ok(texts(two).includes("Game folders: Global (BlueArchive), Global (Steam)"));
-  assert.equal(texts(two)[4], "Game folders: Global (BlueArchive), Global (Steam)", "after the sizes");
+  assert.equal(texts(two)[4], "Game folders: Global (BlueArchive), Global (Steam)", "after the originals' size");
   assert.equal(MS.helpLines(two, { sep: "、" }).find((l) => l.text.startsWith("Game folders")).text, "Game folders: Global (BlueArchive)、Global (Steam)");
   // Retry for the entries not switched (pending and left), Details for those left as is (stuck), never a Retry for them
   const counts = base({ pending: 2, left: 1, stuck: 3, sourceMissing: 1 });
@@ -360,6 +384,92 @@ test("the top bar's switch follows mods.state, and the first toggle explains onc
   answers["mods.state"] = base({ shown: false });
   await MS.refresh();
   assert.equal(switchHost.hidden, true);
+});
+
+test("state refresh and the first explanation never request sizes; help fetches fresh originals with loading", async () => {
+  assert.deepEqual(called("mods.sizes"), []);
+  answers["mods.state"] = base();
+  await MS.refresh();
+  assert.deepEqual(called("mods.sizes"), []);
+  const pending = deferred();
+  answers["mods.sizes"] = () => pending.promise;
+  const first = MS.openHelp();
+  await new Promise((resolve) => setTimeout(resolve, 350));
+  assert.equal(Loading.active(), true, "a slow folder measurement shows the loading indicator");
+  assert.equal(dialog.hidden, true, "no stale size is shown while waiting");
+  assert.deepEqual(called("mods.sizes"), [{ kind: "originals" }]);
+  pending.resolve({ originalsSize: 3 * 1048576 });
+  await drawn(dialog, "close");
+  assert.ok(walk(dialog).some((e) => e.textContent === "Official copies for Off: 3.0 MB"));
+  assert.ok(!walk(dialog).some((e) => e.textContent.startsWith("Disk use:")));
+  assert.ok(!labels(dialog).includes(S("mods.builtClear")));
+  action(dialog, "close").click();
+  await first;
+  await new Promise((resolve) => setTimeout(resolve, 850));
+  answers["mods.sizes"] = { originalsSize: 4 * 1048576 };
+  const second = MS.openHelp();
+  await drawn(dialog, "close");
+  assert.ok(walk(dialog).some((e) => e.textContent === "Official copies for Off: 4.0 MB"));
+  assert.deepEqual(called("mods.sizes").at(-1), { kind: "originals" });
+  assert.equal(called("mods.sizes").length, 2, "each opening measures again");
+  action(dialog, "close").click();
+  await second;
+  answers["mods.sizes"] = { error: { code: "internal", params: { error: "size failed" } } };
+  await MS.openHelp();
+  assert.equal(dialog.hidden, true);
+  assert.equal(toastEl.textContent, MS.errorText("internal", { error: "size failed" }));
+});
+
+test("Settings measures built mods only when its Mods row is drawn, and remeasures after cleanup", async () => {
+  const Settings = await import("../../src/ba_modding_toolkit/web/js/settings.js");
+  answers["settings.get"] = { languages: [{ code: "en-US", name: "English" }], language: "en-US", consent: false,
+    cacheDir: "/cache", native: false, version: "1.0", logPath: "/log" };
+  const count = called("mods.sizes").length;
+  await Settings.open();
+  assert.equal(called("mods.sizes").length, count, "General does not measure mods");
+  const button = (title) => walk(settingsHost).find((e) => e.tagName === "BUTTON" && e.title === title);
+  const hasText = (text) => walk(settingsHost).some((e) => e.textContent === text);
+  const pending = deferred();
+  answers["mods.sizes"] = () => pending.promise;
+  button(S("settings.tab.mods")).click();
+  await until(() => called("mods.sizes").length === count + 1, "built size request");
+  assert.deepEqual(called("mods.sizes").at(-1), { kind: "built" });
+  assert.ok(hasText(S("loading.now")));
+  assert.equal(button(S("settings.mods.clear")), undefined, "cleanup disabled while measuring");
+  pending.resolve({ builtSize: 2 * 1048576 });
+  await until(() => !!button(S("settings.mods.clear")), "cleanup button");
+  assert.ok(hasText(S("mods.builtClear")));
+  assert.ok(hasText("Disk use: 2.0 MB"));
+  assert.equal(called("mods.sizes").length, count + 1, "drawing the fetched size does not fetch again");
+  answers["mods.clearBuilt"] = "clear-built";
+  jobs["clear-built"] = { state: "done", result: { freed: 2 * 1048576 } };
+  answers["mods.sizes"] = { builtSize: 0 };
+  button(S("settings.mods.clear")).click();
+  await until(() => hasText("Disk use: 0 MB"), "size after cleanup");
+  assert.equal(called("mods.clearBuilt").length, 1);
+  assert.equal(called("mods.sizes").length, count + 2);
+  assert.equal(button(S("settings.mods.clear")), undefined, "cleanup disabled when empty");
+  assert.equal(toastEl.textContent, S("mods.builtCleared"));
+  button(S("settings.tab.general")).click();
+  await until(() => !!button(S("settings.tab.mods")), "General tab");
+  assert.equal(called("mods.sizes").length, count + 2);
+  const stale = deferred();
+  answers["mods.sizes"] = () => stale.promise;
+  button(S("settings.tab.mods")).click();
+  await until(() => called("mods.sizes").length === count + 3, "remeasure on reopening Mods");
+  button(S("settings.tab.general")).click();
+  await until(() => !!button(S("settings.tab.mods")), "General before the reply");
+  stale.resolve({ builtSize: 9 * 1048576 });
+  await tick(); await tick();
+  assert.ok(!hasText(S("mods.builtClear")), "late reply cannot restore the old tab");
+  const error = { code: "internal", params: { error: "size failed" } };
+  answers["mods.sizes"] = { error };
+  button(S("settings.tab.mods")).click();
+  await until(() => hasText(MS.errorText(error.code, error.params)), "size error");
+  assert.equal(button(S("settings.mods.clear")), undefined);
+  walk(settingsHost).find((e) => e.tagName === "BUTTON" && !e.title).click();
+  assert.equal(settingsHost.hidden, true);
+  answers["mods.sizes"] = ({ kind }) => ({ [`${kind}Size`]: 0 });
 });
 
 test("the help's Allow Check opens the scan consent popup and grants nothing itself", async () => {

@@ -3,7 +3,8 @@
 // folder rows built from the same pieces (title with its tag, dotted line, the value, the popup's light-blue buttons).
 // The Mods tab (second, after General) holds the Enable Mods switch with its square "?", where the switch shows, the
 // file check (the scan consent), the tray icon, Settings' Check of the game files and the game folders the switch
-// covers. Whether the classic UI asks before it opens is a General row, under More Settings.
+// covers, plus the size and cleanup of built mods. Whether the classic UI asks before it opens is a General row,
+// under More Settings.
 import * as ModSwitch from "./mod-switch.js";
 import * as NGUI from "./ngui.js";
 import * as Popup from "./popup.js";
@@ -236,7 +237,7 @@ function frameTree() {
   return t;
 }
 
-function rows() {
+function rows({ builtSize = null, sizeError = null } = {}) {
   const p = prefs, out = [];
   let y = -20;
   const add = (r) => { r.tree.pos[1] = y - r.h / 2 + (r.tree.pos[1] || 0); out.push(r); y -= r.h + 24; };
@@ -268,6 +269,9 @@ function rows() {
       { dim: v.busy || v.unavailable, tip: v.unavailable ? ModSwitch.reasonText(m) : "" });
     add(helpAfterTitle(sw, T("mods.switch"), v.dot));
     add(radioRow("Shown", 0, T("settings.mods.shown"), ON_OFF(), p.modSwitchShown !== false, (value) => set("modSwitchShown", value)));
+    add(valueRow("Built", 0, T("mods.builtClear"), sizeError || (builtSize == null ? T("loading.now") :
+      T("mods.builtSize", { size: ModSwitch.sizeText(builtSize) })), [
+      [T("settings.mods.clear"), async () => { if (await ModSwitch.clearBuilt()) render(); }, builtSize > 0]]));
     // the scan consent: On asks for it in its popup, Off withdraws it
     add(radioRow("Scan", 0, T("settings.mods.scan"), ON_OFF(), m.scan === true, (value) => {
       if (value === (m.scan === true)) return;
@@ -389,7 +393,7 @@ function wireSlider(host, view, s) {
   area.addEventListener("pointerup", (e) => { if (!dragging) return; dragging = false; s.set(valueAt(e.clientX)); });
 }
 
-async function render() {
+async function render({ builtSize = null, sizeError = null } = {}) {
   const my = ++token;
   const host = $("settings");
   const next = document.createElement("div");
@@ -404,7 +408,7 @@ async function render() {
     }
   });
   // the rows scroll inside the panel's list area
-  const { rows: list, height } = rows();
+  const { rows: list, height } = rows({ builtSize, sizeError });
   const [aL, aT] = [960 + (CONTENT.x - CONTENT.w / 2) * S, 540 - CONTENT.top * S];
   const area = document.createElement("div");
   area.className = "settings-rows";
@@ -430,6 +434,15 @@ async function render() {
   host.replaceChildren(...next.childNodes);
   host.querySelector(".settings-rows").scrollTop = scroll;
   host.querySelector(".settings-rows").addEventListener("scroll", (e) => { scroll = e.target.scrollTop; });
+  if (tab === "mods" && builtSize == null && !sizeError) {
+    // Fetch after drawing the loading row; an old reply must not redraw a closed or newer tab.
+    try {
+      const sizes = await rpc("mods.sizes", { kind: "built" });
+      if (my === token && !host.hidden) await render({ builtSize: sizes.builtSize });
+    } catch (err) {
+      if (my === token && !host.hidden) await render({ sizeError: errorText(err) });
+    }
+  }
 }
 
 function close() {

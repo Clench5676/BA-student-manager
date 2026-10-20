@@ -168,7 +168,7 @@ class FakeLibrary:
         current = self.current_pin()
         return {"installs": [{"id": p.id, "key": p.key, "server": p.server, "folder": str(p.root), "named": True,
                               "distinct": None} for p in self.pins],
-                "current": current.key if current else None, "builtSize": 0, "originalsSize": 0, "reason": None,
+                "current": current.key if current else None, "reason": None,
                 "configured": 0, **self.intent()}
 
     def toggle(self, enabled, expect, pins=None, log=None, progress=None, cancel=None):

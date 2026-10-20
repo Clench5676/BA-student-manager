@@ -2553,9 +2553,9 @@ class ModLibrary:
                 "unfinished": counts}
 
     def status(self) -> dict[str, Any]:
-        """What the switch's snapshot needs from the library, from names, stats and profiles.json only: the known
-        installs, the current one, the intent, the configured count, the disk use of built copies and kept
-        originals, and ``reason`` (profiles_unreadable or None). Never takes the library lock. Each install's
+        """What the switch's snapshot needs from the library, from names and profiles.json only: the known
+        installs, the current one, the intent, the configured count, and ``reason`` (profiles_unreadable or None).
+        Never takes the library lock or walks the storage folders. Each install's
         ``distinct`` is the shortest trailing part of its path that tells it from the other installs of its server
         (for the install label, "Global (BlueArchive)"), None when it is the only one of its server."""
         pins = self.installs()
@@ -2572,7 +2572,6 @@ class ModLibrary:
             "installs": [{"id": pin.id, "key": pin.key, "server": pin.server, "folder": str(pin.root),
                           "named": pin.key in named, "distinct": distinct.get(pin.key)} for pin in pins],
             "current": current.key if current else None,
-            "builtSize": _folder_size(self.root / "built"), "originalsSize": _folder_size(self.root / "originals"),
             "reason": None,
         }
         try:
@@ -2586,6 +2585,12 @@ class ModLibrary:
         out["configured"] = sum(len(folder.get("configured") or {}) for key, folder in
                                 ((config or {}).get("folders") or {}).items() if key in keys)
         return out
+
+    def sizes(self, kind: str) -> dict[str, int]:
+        """Count stored bundles only for the size a help popup or Settings row is showing."""
+        if kind not in ("built", "originals"):
+            raise ServiceError("bad_params", key="kind")
+        return {f"{kind}Size": _folder_size(self.root / kind)}
 
     def _plan_toggle(self, enabled: bool, pins: list[Pin], config: dict | None,
                      found: list[_Entry]) -> list[tuple[Pin, str]]:
