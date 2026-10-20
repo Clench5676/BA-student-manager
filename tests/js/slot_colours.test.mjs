@@ -42,20 +42,27 @@ function player(slots) {
     skeleton: { drawOrder: slots, data: { skins: [{ getAttachments: () => slots.map((s) => ({ attachment: s.getAttachment() })) }] } } };
 }
 
-test("MX Standard and its noise flow variant take the colour as it is; other shaders decode it", () => {
+test("MX Standard and its noise flow variant take the colour as it is; spine-unity's shaders decode it with UnityCG's cubic", () => {
   const { curveOf, CURVES } = SlotColours;
   assert.equal(curveOf("Spine/Skeleton MX Standard"), CURVES.asIs);
   assert.equal(curveOf("Spine/Skeleton MX Standard - NoiseFlowAnimation"), CURVES.asIs);
-  for (const shader of ["Spine/Skeleton", "Spine/Skeleton MX Portrait", "Unknown", undefined]) assert.notEqual(curveOf(shader), CURVES.asIs);
+  assert.equal(curveOf("Spine/Skeleton"), CURVES.cubic);
+  assert.equal(curveOf("Spine/Blend Modes/Skeleton PMA Multiply"), CURVES.cubic);
+  for (const shader of ["Spine/Skeleton MX Portrait", "Unknown", undefined]) assert.equal(curveOf(shader), CURVES.exact);
   assert.equal(CURVES.asIs(0.5), 0.5);
   assert.ok(Math.abs(CURVES.exact(0.5) - 0.214041) < 1e-6);
+  // GammaToLinearSpace: white stays white, mid grey within a hair of the sRGB curve, dark tints darker
+  assert.equal(CURVES.cubic(0), 0);
+  assert.ok(Math.abs(CURVES.cubic(1) - 1) < 1e-7);
+  assert.ok(Math.abs(CURVES.cubic(0.5) - 0.214967) < 1e-6);
+  assert.ok(Math.abs(CURVES.cubic(12 / 255) - 0.002132) < 1e-6 && CURVES.exact(12 / 255) > 0.0036);
 });
 
 test("a layer's curve follows the page each attachment lies on", () => {
   const curves = SlotColours.curvesOf(LAYER), { CURVES } = SlotColours;
   assert.equal(curves(attachment("CH0229_home")), CURVES.asIs);
   assert.equal(curves(attachment("CH0229_home_2")), CURVES.asIs);
-  assert.equal(curves(attachment("Other_home")), CURVES.exact);
+  assert.equal(curves(attachment("Other_home")), CURVES.cubic);
   // a page the prefab does not list, or an attachment without a page (clipping), is decoded
   assert.equal(curves(attachment("Mod_page")), CURVES.exact);
   assert.equal(curves({}), CURVES.exact);
@@ -65,7 +72,7 @@ test("a layer's curve follows the page each attachment lies on", () => {
   assert.equal(SlotColours.curvesOf({ name: "A_home" }), null);
 });
 
-test("tint: MX Standard slots keep their gamma colour, additive ones their colour times alpha; the others are decoded", () => {
+test("tint: MX Standard slots keep their gamma colour, additive ones their colour times alpha; Spine/Skeleton's are decoded", () => {
   const grey = slot(attachment("CH0229_home"), new Color(0.5, 0.5, 0.5, 0.8));
   // Takane's aurora: green, additive, faded by its alpha timeline
   const aurora = slot(attachment("CH0229_home_2"), new Color(0.125, 0.851, 0.129, 0.42), 1);
@@ -81,8 +88,9 @@ test("tint: MX Standard slots keep their gamma colour, additive ones their colou
   close(aurora.color.rgba, [0.125 * 0.42, 0.851 * 0.42, 0.129 * 0.42, 1], "MX additive");
   close(tinted.color.rgba, [0.5, 0.82, 0.271, 0.5], "MX tinted attachment");
   close(tinted.getAttachment().color.rgba, [1, 1, 1, 1], "attachment colour folded into the slot");
-  close(other.color.rgba, [dec(0.5), dec(0.5), dec(0.5), 0.8], "standard normal");
-  close(otherAdd.color.rgba, [dec(0.42), dec(0.42), dec(0.42), 1], "standard additive");
+  const cubic = SlotColours.CURVES.cubic;
+  close(other.color.rgba, [cubic(0.5), cubic(0.5), cubic(0.5), 0.8], "standard normal");
+  close(otherAdd.color.rgba, [cubic(0.42), cubic(0.42), cubic(0.42), 1], "standard additive");
   // end() gives every slot and attachment its own colour back
   Linear.end(p);
   close(grey.color.rgba, [0.5, 0.5, 0.5, 0.8], "restored");

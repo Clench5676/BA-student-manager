@@ -83,13 +83,18 @@ def test_real_vertex_programs_match_the_curves(lobby_shaders):
         assert programs, name
         return [const in p for p in programs]
 
+    table = _table()
+    by_curve = {curve: {name for name, c in table.items() if c == curve} for curve in ("cubic", "exact", "asIs")}
     # spine-unity's own shaders decode the vertex colour with UnityCG's cubic, MX Portrait with the sRGB curve
-    assert all(has("Spine/Skeleton", CUBIC)) and all(has("Spine/Blend Modes/Skeleton PMA Multiply", CUBIC))
-    assert all(has("Spine/Skeleton MX Portrait", SRGB))
+    assert by_curve["cubic"] == {"Spine/Skeleton", "Spine/Blend Modes/Skeleton PMA Multiply"}
+    for name in by_curve["cubic"]:
+        assert all(has(name, CUBIC)) and not any(has(name, SRGB)), name
+    assert by_curve["exact"] == {"Spine/Skeleton MX Portrait"}
+    for name in by_curve["exact"]:
+        assert all(has(name, SRGB)) and not any(has(name, CUBIC)), name
     # MX Standard (97 lobbies' pages) and its noise flow variant pass the colour on as it is: no curve at all
-    as_is = {name for name, curve in _table().items() if curve == "asIs"}
-    assert as_is == {"Spine/Skeleton MX Standard", "Spine/Skeleton MX Standard - NoiseFlowAnimation"}
-    for name in as_is:
+    assert by_curve["asIs"] == {"Spine/Skeleton MX Standard", "Spine/Skeleton MX Standard - NoiseFlowAnimation"}
+    for name in by_curve["asIs"]:
         assert not any(has(name, CUBIC)) and not any(has(name, SRGB)), name
 
 
