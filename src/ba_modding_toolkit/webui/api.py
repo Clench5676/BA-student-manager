@@ -337,6 +337,8 @@ def build_api(s: Services) -> RpcRegistry:
             "order": v.order, "spr": v.spr, "lobby": v.lobby, "date": v.date, "model": v.model,
             "bg": _url_bg(v.bg), "portrait": _url_portrait(v.portrait),
             "favorite": v.key in favorites, "mods": len(own), "fresh": any(m.fresh for m in own),
+            "modCounts": {kind: sum(m.kind == kind for m in own) for kind in ("spr", "lobby")},
+            "configured": configured_of(v.key),
             # when the newest of its own mods was added (ISO), for the roster's "recently added" sort
             "added": max((m.added for m in own if getattr(m, "added", None)), default=None),
             "recent": recent.index(v.key) if v.key in recent else None,
@@ -403,7 +405,6 @@ def build_api(s: Services) -> RpcRegistry:
             item["state"] = to_json(s.library.state(v.key))
             item["modList"] = [to_json(m) for m in mods.get(v.key, [])]
             item["modelFiles"] = model_files(v.model)
-            item["configured"] = configured_of(v.key)  # the sources of its primary cores, kept whatever the switch
             variants.append(item)
         # the game's resource version tells installs apart (another game folder or file source): the page then reads
         # every part of a variant again, even under the same variant key

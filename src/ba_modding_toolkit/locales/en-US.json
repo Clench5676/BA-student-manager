@@ -912,7 +912,9 @@
 			}
 		},
 		"band": {
-			"mods": "Mod × {n}",
+			"modCounts": "Portraits: {portraits}, Memorial lobbies: {lobbies}",
+			"portrait": "Portrait",
+			"lobby": "Lobby",
 			"replaced": "Replaced"
 		},
 		"bar": {

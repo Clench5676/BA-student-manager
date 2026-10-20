@@ -533,3 +533,18 @@ test("whenIdle waits for the open popups to close", async () => {
   assert.equal(Popup.anyOpen(), false);
   h.remove();
 });
+
+test("portrait and memorial lobby mods share the localized Mod chip under the name", async () => {
+  for (const lang of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"]) {
+    const ui = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${lang}.json`, import.meta.url))).webui;
+    setStrings(lang, { "webui.type.added": ui.type.added, "webui.popup.inUse": ui.popup.inUse });
+    for (const kind of ["spr", "lobby"]) {
+      await Popup.listPopup({ host: prompt, title: kind, items: [{ key: "m", kind: "mod", label: "Library mod", full: "Library mod", inUse: true }],
+        selected: "m", okText: "OK", details: () => ({ title: kind, fields: [], actions: [] }) });
+      const captions = walk(prompt).map((el) => el.textContent);
+      assert.ok(captions.includes(ui.type.added), `${lang} ${kind}`);
+      assert.ok(captions.includes(ui.popup.inUse), `${lang} ${kind} In Use`);
+      prompt.hidden = true;
+    }
+  }
+});

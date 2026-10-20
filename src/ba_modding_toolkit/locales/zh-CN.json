@@ -912,7 +912,9 @@
 			}
 		},
 		"band": {
-			"mods": "Mod × {n}",
+			"modCounts": "立绘：{portraits}、记忆大厅：{lobbies}",
+			"portrait": "立绘",
+			"lobby": "大厅",
 			"replaced": "已替换"
 		},
 		"bar": {

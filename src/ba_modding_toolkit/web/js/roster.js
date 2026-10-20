@@ -13,9 +13,12 @@
 import * as NGUI from "./ngui.js";
 import * as Display from "./display.js";
 import * as Loading from "./loading.js";
+import { current as modsState } from "./mod-switch.js";
+import { countNodes, countText, iconsOf } from "./mod-counts.js";
 import { rpc, spineBase } from "./api.js";
 import { L, T, language } from "./i18n.js";
 import { thumb } from "./thumbs.js";
+import { configuredKey, previewBase } from "./switch-sources.js";
 import { $, RECRUIT, S, advanceOf, clone, glyphsOf } from "./util.js";
 import { DEFAULT_VIEW, SORTS, arrange, filtering, normalizeView, order as orderOf } from "./roster-order.js";
 
@@ -39,6 +42,7 @@ let query = "", searching = false, searchTimer = 0; // searchTimer: the search b
 // in the page across rebuilds, so nothing typed meanwhile is lost
 let searchEl = null;
 let layouts = null, data = null, ctx = null, items = [], rows = new Map(), contentH = 0, rendered = new Map(), dirty = true;
+let countIcons = null;
 let dom = {}; // the list's live elements: clip, scroll host (the newest, maybe still built), scrollbar, empty list
 let building = false; // a frame is being built: the search box's keystrokes wait for it
 
@@ -247,10 +251,14 @@ function cardTree(e) {
   const pin = find(t, "Btn_Pin");
   pin.active = !!e.favorite;
   find(pin, "Off").active = false;
-  // the band: the number of mods, or "replaced" when the game file wears another portrait without a mod of its own
+  // the band: portrait and memorial lobby counts, or "replaced" when no mod belongs to the variant
   const sort = find(t, "Sort");
   sort.active = e.mods > 0 || !!e.replaced;
-  find(sort, "Label_Schoolname").widgets[0].text = e.mods > 0 ? T("band.mods", { n: e.mods }) : T("band.replaced");
+  const counts = find(sort, "Label_Schoolname");
+  if (e.mods > 0) {
+    counts.widgets = [];
+    counts.children = countNodes(e.modCounts, countIcons, T);
+  } else counts.widgets[0].text = T("band.replaced");
   find(sort, "Sprite").widgets[0].w_ = 406; // cover the portrait's last pixel column
   // dimmed like the game's not-owned cards (BG_Discover is the darkening overlay); changed ones stay bright
   const dim = find(t, "BG_Discover");
@@ -259,7 +267,13 @@ function cardTree(e) {
   return t;
 }
 
-const portraitOf = (e) => e.portrait || (e.spr ? thumb(spineBase("spr", e.spr), "roster") : null);
+const portraitOf = (e) => {
+  if (e.spr && modsState()?.enabled === false && configuredKey(e)) {
+    const variants = data.families.find((f) => f.key === e.family)?.variants || [];
+    return thumb(previewBase(e, "spr", false, variants), "roster");
+  }
+  return e.portrait || (e.spr ? thumb(spineBase("spr", e.spr), "roster") : null);
+};
 
 // --- rows near the view ---
 // rows sit in the page in the list's order, and each row's buttons left to right, so the keyboard steps through the
@@ -288,7 +302,9 @@ async function renderRow(host, rowKey) {
     hit.className = "card-hit";
     const [sx, sy] = [ORIGIN[0] + it.x * S, ORIGIN[1] - it.y * S];
     Object.assign(hit.style, { left: `${sx - 218 * S}px`, top: `${sy - 245 * S}px`, width: `${436 * S}px`, height: `${490 * S}px` });
-    hit.title = it.e.name;
+    const name = it.e.mods > 0 ? `${it.e.name} - ${countText(it.e.modCounts, T)}` : it.e.name;
+    hit.title = name;
+    hit.setAttribute("aria-label", name);
     if (it.e.spr) hit.addEventListener("click", () => { if (!ctx.dragged) location.hash = `#/student/${encodeURIComponent(it.e.family)}/${encodeURIComponent(it.e.key)}`; });
     else hit.disabled = true;
     row.appendChild(hit);
@@ -601,6 +617,8 @@ function warm() {
 // frame is complete.
 export async function show(context, rosterData) {
   ctx = context;
+  await NGUI.init();
+  countIcons ||= iconsOf(NGUI.atlasIndex());
   if (!layouts) {
     const [collection, unit, checkbox] = await Promise.all([
       NGUI.layout("UICharacterCollection"), NGUI.layout("UICharacterCollectionPopulatorUnit"), NGUI.layout("UIPopup_GachaCharList.Btn_Checkbox"),

@@ -99,6 +99,7 @@ class FakeMod:
     target: str
     fresh: bool = True
     added: str = "2026-10-01T08:00:00+00:00"
+    kind: str = "spr"
 
     def to_json(self):
         return {"id": self.id, "target": self.target, "fresh": self.fresh}
@@ -261,6 +262,25 @@ def test_roster_and_family(app, services):
     assert fam["variants"][0]["state"] == {"applied": "official", "crc": "ok"}
     assert fam["variants"][0]["modList"] == [{"id": "m1", "target": "hoshino", "fresh": True}]
     assert fam["version"] == "rv1"  # the install the parts come from
+
+
+def test_library_counts_and_configured_sources_reach_roster_and_family(app, services, monkeypatch):
+    mods = [FakeMod(f"p{i}", "hoshino") for i in range(3)] + [FakeMod("l1", "hoshino", kind="lobby")]
+    monkeypatch.setattr(services.library, "mods", lambda: mods)
+    configured = {"spr": "mod:p1", "lobby": "mod:l1"}
+    monkeypatch.setattr(services.library, "configured", lambda key: configured)
+    for enabled in (True, False):
+        services.library.enabled = enabled
+        roster = rpc(app, "roster.list")["result"]["families"][0]
+        family = rpc(app, "family.get", key="hoshino")["result"]
+        for data in (roster, family):
+            v = data["variants"][0]
+            assert v["mods"] == 4
+            assert v["modCounts"] == {"spr": 3, "lobby": 1}
+            assert v["configured"] == configured
+    monkeypatch.setattr(services.library, "mods", lambda: [])
+    v = rpc(app, "roster.list")["result"]["families"][0]["variants"][0]
+    assert v["mods"] == 0 and v["modCounts"] == {"spr": 0, "lobby": 0}
 
 
 def test_roster_and_family_carry_the_aliases_the_search_matches(app, services):

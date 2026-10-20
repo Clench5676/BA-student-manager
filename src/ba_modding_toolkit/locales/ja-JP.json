@@ -912,7 +912,9 @@
 			}
 		},
 		"band": {
-			"mods": "MOD × {n}",
+			"modCounts": "立ち絵：{portraits}、メモリアルロビー：{lobbies}",
+			"portrait": "立ち絵",
+			"lobby": "ロビー",
 			"replaced": "置き換え済み"
 		},
 		"bar": {

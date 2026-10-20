@@ -23,7 +23,7 @@ import { portraitViewport } from "./portrait-view.js";
 import { setTitle } from "./nav.js";
 import { KEYS, deltaOf, pacer, typing } from "./step-keys.js";
 import { FRAME_Y, closable, hit as hitNode, listPopup, message, popupFrame, ready as popupsReady, scrollArea } from "./popup.js";
-import { appliedKey as keyOf, appliedOf, candidates as listSources, partsOf, popupMode, sourceOf, switchKindOf } from "./switch-sources.js";
+import { appliedKey as keyOf, appliedOf, candidates as listSources, partsOf, popupMode, previewBase, previewChanged, previewKey, sourceOf, switchKindOf } from "./switch-sources.js";
 import {
   $, DOT, RECRUIT, S, TAN10, advanceOf, at, clone, glyphsOf, hitButton, markedLabel, off, text, toast, widget, wrapPath,
 } from "./util.js";
@@ -45,6 +45,7 @@ const stage = () => document.getElementById("stage");
 const PORTRAIT_BOX = { left: 0, top: 0, width: 1920, height: 1080 };
 
 let ctx = null, fam = null, variantKey = null, layouts = null;
+let previewEnabled = true;
 let tab = "portrait", fullscreen = false, expression = "00", expanded = false, exprScroll = 0;
 let mainPlayer = null, blinkTimer = null, pending = null, pickerSel = null, lobbySeq = null, busy = false, lobbyShot = null;
 let modelShot = null, modelActions = [], modelAction = null;
@@ -138,14 +139,15 @@ function crcOf(v, kind = "spr") {
   return states.includes("needs_fix") ? "needs_fix" : states.includes("fixed") ? "fixed" : "ok";
 }
 const appliedKey = (v = variant(), kind = "spr") => keyOf(v, kind);
-// what the game shows on the variant's portrait or lobby, as a candidate (the own one when it carries something the
-// library did not put there)
-const current = (kind = "spr") => candidates(variant(), kind).find((c) => c.key === appliedKey(variant(), kind)) || candidates(variant(), kind)[0];
+const shownSource = (v = variant(), kind = "spr") => previewKey(v, kind, modsOn());
+const variantBase = (v, kind = "spr") => previewBase(v, kind, modsOn(), fam.variants);
+// The configured portrait or lobby while mods are off; otherwise what the game files carry.
+const current = (kind = "spr") => candidates(variant(), kind).find((c) => c.key === shownSource(variant(), kind)) || candidates(variant(), kind)[0];
 // a candidate's name on the cards: another variant's mod with that variant's name first
 const candidateLabel = (c, v = variant()) => (c.kind === "mod" && c.origin && c.origin.key !== v.key ? `${shortName(c.origin)} - ${c.label}` : c.label);
-// what the variant's lobby files carry, as a label: the original, a mod's or another variant's name, or "replaced"
+// The lobby's preview source as a label: the original, a mod's or another variant's name, or "replaced".
 function lobbyLabel(v) {
-  const key = appliedKey(v, "lobby");
+  const key = shownSource(v, "lobby");
   if (key === "self") return T("lobby.original");
   const c = candidates(v, "lobby").find((x) => x.key === key);
   return c ? candidateLabel(c, v) : T("status.replaced");
@@ -552,7 +554,7 @@ async function job(method, params, { onDone, after = reload } = {}) {
   resumeChanged();
   return ok;
 }
-// the mod the shown tab's game files carry (row 2's update and compare act on it), or null
+// The mod previewed on the shown tab (row 2's update and compare act on it), or null.
 function shownMod() {
   const sk = switchKind(), c = sk && current(sk);
   return c?.kind === "mod" ? c : null;
@@ -584,18 +586,7 @@ async function applyCandidate(key, kind = "spr") {
     after: (ok) => {
       if (!ok) return reload();
       ctx.invalidateRoster();
-      if (kind === "lobby") {
-        // lobby.js keeps a lobby by its core: read the game files again, under a still of the old one
-        lobbyStale = true;
-        lobbyShot = null;
-        lobbySeq = null;
-        lobbyAll = false;
-        if (shownLeft === "lobby") shownKey = null;
-      } else {
-        expression = "00";
-        clearTimeout(blinkTimer);
-        mainPlayer = null;
-      }
+      resetPreview(kind);
       if (!open) return null; // the screen was left meanwhile: the next show reads the family again
       return changeInPlace(async () => {
         const data = await call(() => rpc("family.get", { key: fam.key }));
@@ -667,7 +658,7 @@ async function renderChips() {
     const y = 234 - 58 - row * 84, x = 514 + (y - CENTRE_Y) * TAN10 + (col + (span - 1) / 2 - 1) * CHIP_PITCH;
     const w = CHIP_W + (span - 1) * CHIP_PITCH;
     return v
-      ? chipNode(`Chip_${v.key}`, [x, y], w, shortName(v), v.key === variantKey, appliedKey(v) !== "self", v.recruitable, hasFresh(v))
+      ? chipNode(`Chip_${v.key}`, [x, y], w, shortName(v), v.key === variantKey, shownSource(v) !== "self", v.recruitable, hasFresh(v))
       : chipNode("Chip_more", [x, y], w, T("chips.more", { n: more }), false, false, false);
   }));
   const next = document.createDocumentFragment();
@@ -929,7 +920,7 @@ const modsOn = () => modsState()?.enabled !== false;
 const SET_BADGE = () => ({ text: T("switch.configured"), color: "#8de4ff", ink: "#314665" });
 const GREYED_BADGE = () => ({ text: T("mods.overwritten"), color: "#9aa3ad", ink: "#ffffff" });
 async function renderPopup(scroll = 0) {
-  const v = variant(), kind = popupKind, inUseKey = appliedKey(v, kind);
+  const v = variant(), kind = popupKind, inUseKey = shownSource(v, kind);
   const mode = popupMode(fam, v, kind, modsOn());
   const items = candidates(v, kind).map((c) => ({
     key: c.key, kind: c.kind, recruit: c.kind !== "mod" && c.recruit,
@@ -961,8 +952,8 @@ async function renderPopup(scroll = 0) {
       const c = it.src, inUse = it.inUse;
       const file = c.kind === "mod" ? c.mod.file : gameFile(c.variant, kind);
       const size = c.kind === "mod" ? c.mod.size : partsOf(c.variant, kind).reduce((n, f) => n + (f.size || 0), 0);
-      const status = c.kind === "mod" ? (inUse ? ["status.installed", "#1f9a52"] : ["status.notInstalled", "#d9822b"]) : ["status.gameFile", ""];
-      const crcState = inUse ? crcOf(v, kind) : null;
+      const status = c.kind === "mod" ? (inUse ? [modsOn() ? "status.installed" : "switch.configured", "#1f9a52"] : ["status.notInstalled", "#d9822b"]) : ["status.gameFile", ""];
+      const crcState = c.key === appliedKey(v, kind) ? crcOf(v, kind) : null;
       const crc = crcState === "fixed" ? ["crc.fixed", "#1f9a52"] : crcState === "needs_fix" ? ["crc.needed", "#d9822b"] : crcState === "ok" ? ["crc.original", ""] : null;
       return {
         title: T(kind === "lobby" ? "info.title.lobby" : "info.title.portrait"),
@@ -1033,7 +1024,7 @@ async function openPicker(scroll = 0) {
   pickerSel = pickerSel || variantKey;
   const items = fam.variants.filter((o) => o.spr).sort(byRank).map((o) => ({
     key: o.key, kind: o.recruitable ? "playable" : "other", recruit: o.recruitable, label: shortName(o), full: fullName(o),
-    thumb: thumb(spineBase("spr", o.spr), "card"), big: () => thumb(spineBase("spr", o.spr), "bust"),
+    thumb: thumb(variantBase(o), "card"), big: () => thumb(variantBase(o), "bust"),
     inUse: o.key === variantKey, fav: isFav(o), isNew: hasFresh(o), src: o,
   })).filter((it) => pickerSeg === 0 || (pickerSeg === 1) === it.recruit);
   await listPopup({
@@ -1267,6 +1258,7 @@ async function showDetails() {
 }
 
 async function renderAll() {
+  previewEnabled = modsOn();
   await Promise.all([renderScreen(), renderChips(), renderExpressions()]);
 }
 
@@ -1301,7 +1293,7 @@ function showTab(id) {
 const LEFT = ["portrait", "lobby", "model"];
 let shownLeft = null, shownKey = null;
 // what the lobby or the model shows: the same variant of another install (game folder, file source) is another one
-const leftKey = (part, v) => (part === "lobby" ? `${v.lobby}@${fam.version}` : part === "model" ? `${v.key}@${fam.version}` : null);
+const leftKey = (part, v) => (part === "lobby" ? `${v.lobby}:${shownSource(v, "lobby")}@${fam.version}` : part === "model" ? `${v.key}@${fam.version}` : null);
 let lobbyFrom = null; // the install of the lobby in lobby.js, which keeps a lobby shown again by its core
 let lobbyStale = false; // its game files were switched: lobby.js reads them again
 function renderLeft() {
@@ -1380,7 +1372,8 @@ async function showLobby(v, my) {
   if (lobbyFrom !== fam.version || lobbyStale) Lobby.hide($("lobby"));
   lobbyFrom = fam.version;
   lobbyStale = false;
-  const m = await Lobby.show(v.lobby, $("lobby"), v.key);
+  const c = current("lobby");
+  const m = await Lobby.show(v.lobby, $("lobby"), v.key, { mod: !modsOn() && c.kind === "mod" ? c.id : null });
   if (!m || !still()) return;
   if (fullscreen) { Lobby.frame("full"); Lobby.interactive(true); }
   // the lines in the UI language only (Kivo's Chinese and Japanese, the Global server's English and the others), on
@@ -1519,8 +1512,26 @@ async function stillAfterFullscreen() {
 
 async function reload() {
   const data = await call(() => rpc("family.get", { key: fam.key }));
+  const next = data?.variants.find((v) => v.key === variantKey) || data?.variants[0];
+  const changed = data ? ["spr", "lobby"].filter((kind) => previewChanged(variant(), next, kind, previewEnabled, modsOn())) : [];
   if (data) fam = data;
-  await renderAll();
+  for (const kind of changed) resetPreview(kind);
+  await Promise.all([renderAll(), changed.includes(tabKind()) ? renderLeft() : null]);
+}
+
+// A source changed: discard the cached player or still, also when only a saved configuration changed.
+function resetPreview(kind) {
+  if (kind === "lobby") {
+    lobbyStale = true;
+    lobbyShot = null;
+    lobbySeq = null;
+    lobbyAll = false;
+    if (shownLeft === "lobby") shownKey = null;
+  } else {
+    expression = "00";
+    clearTimeout(blinkTimer);
+    mainPlayer = null;
+  }
 }
 
 // --- game files switched elsewhere: the Enable Mods switch, the tray, a queued write, the classic UI closing
@@ -1532,7 +1543,7 @@ let reloadingChanged = false;
 const mergeChange = (a, b) => (a === null || b === null ? null : a === undefined ? b : { cores: [...new Set([...a.cores, ...b.cores])] });
 const lower = (core) => String(core || "").toLowerCase();
 // a variant's game files of a kind as the screen judged them: they changed when this differs
-const filesSig = (v, kind) => JSON.stringify(v ? partsOf(v, kind).map((f) => [f.file, f.applied, f.crc, f.size, f.date, f.mtime, f.official]) : null);
+const filesSig = (v, kind) => JSON.stringify(v ? [v.configured?.[kind], partsOf(v, kind).map((f) => [f.file, f.applied, f.crc, f.size, f.date, f.mtime, f.official])] : null);
 const quiet = () => !fullscreen && !Visual.isOpen() && !popupOpen() && !changing() && !Loading.covering();
 
 // filesChanged({cores} | null): main.js's library.changed handler, while the screen is open
@@ -1560,32 +1571,20 @@ async function reloadChanged() {
   const key = fam.key;
   const data = await rpc("family.get", { key }).catch(() => null);
   if (!data || !open || fam?.key !== key || busy) return;
-  if (JSON.stringify(data) === JSON.stringify(fam)) return;
+  if (JSON.stringify(data) === JSON.stringify(fam) && previewEnabled === modsOn()) return;
   // the thumbnails of every core of the family whose files changed (a mod and the official file share one URL)
   const changed = { spr: false, lobby: false };
   for (const v of data.variants) {
     const was = fam.variants.find((x) => x.key === v.key);
     for (const kind of ["spr", "lobby"]) {
-      if (filesSig(was, kind) === filesSig(v, kind)) continue;
+      if (filesSig(was, kind) === filesSig(v, kind) && !previewChanged(was, v, kind, previewEnabled, modsOn())) continue;
       const core = kind === "spr" ? v.spr : v.lobby;
       if (core) forget(spinePrefix(kind, core));
       if (v.key === variantKey) changed[kind] = true;
     }
   }
   ctx.invalidateRoster();
-  // the shown portrait or lobby is read again from the game files, under a still of the old one
-  if (changed.lobby) {
-    lobbyStale = true;
-    lobbyShot = null;
-    lobbySeq = null;
-    lobbyAll = false;
-    if (shownLeft === "lobby") shownKey = null;
-  }
-  if (changed.spr) {
-    expression = "00";
-    clearTimeout(blinkTimer);
-    mainPlayer = null;
-  }
+  for (const kind of ["spr", "lobby"]) if (changed[kind]) resetPreview(kind);
   const left = (changed.spr && tab === "portrait") || (changed.lobby && tab === "lobby");
   await changeInPlace(async () => {
     fam = data;

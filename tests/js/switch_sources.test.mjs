@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 import {
-  appliedKey, appliedOf, candidates, configuredKey, coreOf, overwrittenOf, partsOf, popupMode, sourceOf, switchKindOf,
+  appliedKey, appliedOf, candidates, configuredKey, coreOf, overwrittenOf, partsOf, popupMode, previewBase, previewChanged, previewKey, sourceOf, switchKindOf,
 } from "../../src/ba_modding_toolkit/web/js/switch-sources.js";
 
 const part = (kind, applied, extra = {}) => ({ file: `/game/${kind}-${applied}.bundle`, kind, applied, crc: "ok", ...extra });
@@ -176,4 +176,49 @@ test("while mods are off: Save, starting on the configured card, chipped Set", (
   assert.deepEqual(popupMode(fam, v, "spr", false), { start: "self", button: "popup.save", set: null });
   assert.equal(configuredKey({ configured: { spr: "official" } }, "spr"), null);
   assert.equal(configuredKey({}, "spr"), null);
+});
+
+test("previews and the In Use marker keep both configured kinds while the game files are official", () => {
+  const fam = family(), v = fam.variants[0];
+  v.configured = { spr: "mod:p1", lobby: "mod:l1" };
+  v.state.files = [part("spr", "official"), part("lobby", "official")];
+  for (const [kind, id] of [["spr", "p1"], ["lobby", "l1"]]) {
+    assert.equal(previewKey(v, kind, false), `m:${id}`);
+    assert.equal(previewBase(v, kind, false, fam.variants), `/asset/spine/mod/${id}/skeleton`);
+    assert.equal(appliedKey(v, kind), "self", "file status remains independent of the preview");
+    assert.equal(previewKey(v, kind, true), "self", "turning mods on follows the carried source again");
+    const marked = candidates(fam, v, kind).filter((c) => c.key === previewKey(v, kind, false));
+    assert.deepEqual(marked.map((c) => c.key), [`m:${id}`], "only the configured card is in use");
+  }
+  v.configured.spr = "variant:hoshino_swimsuit";
+  assert.equal(previewKey(v, "spr", false), "v:hoshino_swimsuit");
+  assert.equal(previewBase(v, "spr", false, fam.variants), "/asset/spine/spr/hoshino_swimsuit_spr/skeleton");
+  assert.equal(previewBase(v, "spr", true, fam.variants), "/asset/spine/spr/hoshino_spr/skeleton");
+});
+
+test("off previews use the configuration even if an unswitched game file still carries a different mod", () => {
+  const v = family().variants[0];
+  v.configured = { spr: "mod:configured" };
+  v.state.files = [part("spr", "mod:carried")];
+  assert.equal(previewBase(v, "spr", false), "/asset/spine/mod/configured/skeleton");
+  assert.equal(previewKey(v, "spr", true), "m:carried");
+  for (const source of [null, "official", "unknown"]) {
+    v.configured.spr = source;
+    assert.equal(previewKey(v, "spr", false), "self");
+  }
+  delete v.configured;
+  assert.equal(previewKey(v, "spr", false), "self");
+});
+
+test("a saved or removed configuration refreshes the preview without any change to the game files", () => {
+  const before = family().variants[0];
+  before.configured = { spr: "mod:p1", lobby: "mod:l1" };
+  const after = structuredClone(before);
+  after.configured.spr = "mod:p2";
+  assert.equal(previewChanged(before, after, "spr", false, false), true);
+  assert.equal(previewChanged(before, after, "lobby", false, false), false);
+  after.configured.spr = null;
+  assert.equal(previewChanged(before, after, "spr", false, false), true, "removing the configured mod reloads the player");
+  assert.equal(previewChanged(before, before, "spr", true, false), true, "a toggle refreshes even an unswitched entry");
+  assert.equal(previewChanged(before, after, "spr", true, true), false, "with mods on the game files decide");
 });
