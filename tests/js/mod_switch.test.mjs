@@ -912,6 +912,48 @@ test("a failed or stalled page refresh releases the toggle hold within its bound
   }
 });
 
+test("scan, cache cleanup and both switch directions name their action in every locale", async () => {
+  const progress = (label) => walk(stage).some((el) => el.classList.contains("loading-progress") && el.textContent === label);
+  try {
+    await MS.init({ refreshPage: async () => {} });
+    for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"]) {
+      const table = flat(JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${locale}.json`, import.meta.url), "utf8")));
+      const ui = (key, vars = {}) => table[`webui.${key}`].replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? "");
+      I18n.setStrings(locale, table);
+      const cache = `clear-${locale}`;
+      answers["mods.clearBuilt"] = cache;
+      jobs[cache] = { state: "running" };
+      const cleared = MS.clearBuilt();
+      try { await until(() => progress(ui("progress.clear")), "cache action"); }
+      finally { jobs[cache] = { state: "done", result: { freed: 1 } }; emit("job.done", { id: cache, result: { freed: 1 } }); }
+      assert.equal(await cleared, true);
+
+      answers["mods.scan"] = { requested: true };
+      const checked = MS.check();
+      const scanResult = { entries: [], counts: {} };
+      try { await until(() => progress(ui("progress.check")), "scan action"); }
+      finally { emit("library.scanned", scanResult); }
+      assert.deepEqual(await checked, scanResult);
+
+      for (const enabled of [false, true]) {
+        answers["mods.state"] = base({ enabled: !enabled, explained: true });
+        await MS.refresh();
+        const id = `toggle-${locale}-${enabled}`, action = enabled ? "apply" : "restore";
+        const result = { enabled, done: [], failed: [], adopted: [], stuck: [], left: [] };
+        jobs[id] = { state: "running" }; answers["mods.toggle"] = id;
+        const toggled = MS.turn({ enabled, expect: !enabled });
+        try {
+          await until(() => toastEl.textContent === ui(`progress.${action}`, { name: ui("progress.mods") }), "switch action");
+          const label = ui(`progress.${action}`, { name: "test_spr" });
+          emit("job.progress", { id, label, current: 0, total: 2 });
+          assert.equal(toastEl.textContent, ui("progress.count", { label, current: 0, total: 2 }));
+        } finally { jobs[id] = { state: "done", result }; emit("job.done", { id, result }); }
+        await toggled;
+      }
+    }
+  } finally { I18n.setStrings("en-US", strings); }
+});
+
 test("the toggle flushes the event delay and awaits the visible detail or roster redraw", async () => {
   const main = readFileSync(new URL("../../src/ba_modding_toolkit/web/js/main.js", import.meta.url), "utf8");
   const changed = main.slice(main.indexOf("let heldChange,"), main.indexOf("// the window back in front"));

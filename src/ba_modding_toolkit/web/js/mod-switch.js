@@ -324,7 +324,7 @@ async function run(params) {
   try {
     const result = await Loading.hold(async () => {
       const id = await rpc("mods.toggle", params, { timeout: 30000 });
-      const result = await toggleJob(id);
+      const result = await toggleJob(id, params);
       // Flush the delayed library.changed refresh before input resumes or a result popup can defer it.
       let timer;
       try {
@@ -341,19 +341,20 @@ async function run(params) {
   }
 }
 
-// a toggle job followed to its end: the indicator, "Working 12/40", then the toast or the result popup. method: the
+// a toggle job followed to its end: the indicator, action and count, then the toast or the result popup. method: the
 // call a classic_open refusal may queue (the tray's toggle has none: the tray never queues)
 async function follow(id, params, method) {
   try {
-    await finished(await toggleJob(id));
+    await finished(await toggleJob(id, params));
   } catch (err) {
     refused(err, method, params);
   }
 }
 
-function toggleJob(id) {
-  toast(T("job.running"), { sticky: true });
-  return waitJob(id, (p) => toast(T("tray.working", { done: p.current, total: p.total }), { sticky: true }));
+function toggleJob(id, params) {
+  const running = T(params.enabled ? "progress.apply" : "progress.restore", { name: T("progress.mods") });
+  toast(running, { sticky: true });
+  return waitJob(id, (p) => toast(Loading.progressText(p, running), { sticky: true }));
 }
 
 // turn(params): a toggle asked for by another control (the untracked prompt's Add and Turn On Mods): the first
@@ -473,9 +474,7 @@ export async function openHelp() {
 export async function clearBuilt() {
   try {
     const id = await rpc("mods.clearBuilt");
-    const job = waitJob(id);
-    Loading.wait(job).catch(() => {});
-    await job;
+    await Loading.task((update) => waitJob(id, update), { label: T("progress.clear") });
     toast(T("mods.cacheCleared"));
     return true;
   } catch (err) {
@@ -515,7 +514,7 @@ export async function check() {
     toast(errorText(err.code, err.params), { kind: "error" });
     return null;
   }
-  const result = await Loading.wait(done);
+  const result = await Loading.task(() => done, { label: T("progress.check") });
   await refresh();
   return result;
 }

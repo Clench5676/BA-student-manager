@@ -563,18 +563,21 @@ async function addMods() {
 // a job with a sticky progress line; the family is re-read afterwards (after(ok, result) instead, when given).
 // A switch the classic UI's open window refuses opens the classic modal, which can queue it (mod-switch.js).
 // An apply while mods are off only saves the choice (deferred).
-async function job(method, params, { onDone, after = () => reload() } = {}) {
+async function job(method, params, { onDone, after = () => reload(), name = fullName(variant()) } = {}) {
   if (busy) { toast(T("error.busy"), { kind: "error" }); return false; }
   busy = true;
   const page = pageToken;
   let ok = false, result = null;
+  const action = ({ "actions.apply": params.source === "official" ? "restore" : "apply", "actions.restore": "restore", "actions.update": "repair",
+    "actions.extract": "extract", "mods.remove": "delete" })[method] || "process";
+  const running = T(`progress.${action}`, { name });
   try {
     return await Loading.hold(async () => {
       try {
         await renderScreen();
-        toast(T("job.running"), { sticky: true });
+        toast(running, { sticky: true });
         const id = await rpc(method, params, { timeout: 30000 });
-        result = await waitJob(id, (p) => toast(`${T("job.running")} ${p.current}/${p.total}`, { sticky: true }));
+        result = await waitJob(id, (p) => toast(Loading.progressText(p, running), { sticky: true }));
         toast(result?.deferred ? T("mods.saved") : T("job.done"));
         await onDone?.(result);
         ok = true;
@@ -609,6 +612,7 @@ function runUpdate() {
   const c = shownMod(), kind = switchKind();
   if (!c || busy) return;
   return job("actions.update", { mod: c.id }, {
+    name: c.label,
     onDone: () => { forget(spinePrefix("mod", c.id)); },
     after: (ok) => reload(ok ? [kind] : []),
   });
@@ -632,7 +636,7 @@ function runExtract() {
   const c = shownMod();
   if (busy) return;
   const target = c ? `mod:${c.id}` : `variant:${variant().key}`;
-  job("actions.extract", { target }, { onDone: (r) => reveal(r?.folder) });
+  job("actions.extract", { target }, { name: c?.label || fullName(variant()), onDone: (r) => reveal(r?.folder) });
 }
 async function runCompare() {
   const c = shownMod();
@@ -1062,7 +1066,7 @@ async function drawPopup(scroll = 0) {
               if (pending === c.key) pending = popupMode(fam, variant(), kind, modsOn()).start;
               renderPopup();
             }]
-            : [T("btn.extract"), () => { closePopup(false); job("actions.extract", { target: `variant:${c.variant.key}` }, { onDone: (r) => reveal(r?.folder) }); }]],
+            : [T("btn.extract"), () => { closePopup(false); job("actions.extract", { target: `variant:${c.variant.key}` }, { name: fullName(c.variant), onDone: (r) => reveal(r?.folder) }); }]],
       };
     },
   });
@@ -1122,6 +1126,7 @@ async function removeMod(id) {
     });
     if (r.button !== "ok") return false;
     return await job("mods.remove", { id, confirm: true }, {
+      name: info.name,
       onDone: (result) => { if (result?.failed?.length) toast(T("mods.deletePending")); },
     });
   } catch (err) {
@@ -1159,7 +1164,7 @@ async function openPicker(scroll = 0) {
         fields: [[T("field.file"), coreOf(o, kind)], [T("info.gameFile"), o.date || "—"], [T("info.status"), T(appliedKey(o, kind) === "self" ? "status.original" : "status.replaced")],
           [T(o.spineCategory ? "special.background" : "tab.lobby"), T(o.lobby ? "model.has" : "model.none")]],
         actions: [[T(platform === "mac" ? "open.mac" : "open.win"), () => reveal(file)],
-          [T("btn.extract"), () => { $("picker").hidden = true; job("actions.extract", { target: `variant:${o.key}` }, { onDone: (r) => reveal(r?.folder) }); }]],
+          [T("btn.extract"), () => { $("picker").hidden = true; job("actions.extract", { target: `variant:${o.key}` }, { name: fullName(o), onDone: (r) => reveal(r?.folder) }); }]],
       };
     },
   });

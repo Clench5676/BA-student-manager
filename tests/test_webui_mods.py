@@ -16,6 +16,7 @@ import pytest
 from ba_modding_toolkit.bundle import Bundle
 from ba_modding_toolkit.config import Settings
 from ba_modding_toolkit.errors import ServiceError
+from ba_modding_toolkit.i18n import t
 from ba_modding_toolkit.gui import control as ctl
 from ba_modding_toolkit.library import safety
 from ba_modding_toolkit.library.judge import install_key, install_root
@@ -1037,13 +1038,18 @@ def test_background_add_switches_and_rescans_with_durable_file_progress(env, mon
     job = env.job('mods.add', paths=[str(path)], background=True)
     assert job.state == 'done' and job.writes == 'game'
     assert [(m['target'], m['kind']) for m in job.result['added']] == [('test', 'spr')]
-    assert job.to_json()['progress'] == {'id': job.id, 'current': 1, 'total': 1, 'label': path.name}
+    assert job.to_json()['progress'] == {'id': job.id, 'current': 1, 'total': 1,
+                                         'label': t('webui.progress.apply', name=path.name)}
     assert job.result['applied'] == job.result['added'] and not job.result['failed']
     assert env.spr.read_bytes() == path.read_bytes()
     assert env.s.library.configured('test')['spr'] == f"mod:{job.result['added'][0]['id']}"
     assert scans
     changed = events_named(env.drain(), 'library.changed')
     assert changed[-1] == {'cores': ['test_spr'], 'kinds': ['spr'], 'mods': True}
+    restored = env.job('actions.restore', variant='test')
+    assert restored.state == 'done'
+    assert restored.to_json()['progress'] == {'id': restored.id, 'current': 1, 'total': 1,
+                                              'label': t('webui.progress.restore', name=path.name)}
 
 
 @pytest.mark.parametrize('scan_finishes_first', [True, False])

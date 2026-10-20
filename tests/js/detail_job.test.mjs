@@ -4,6 +4,8 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 const source = readFileSync(new URL("../../src/ba_modding_toolkit/web/js/detail.js", import.meta.url), "utf8");
 const jobSource = source.slice(source.indexOf("async function job("), source.indexOf("function shownMod()"));
+const loadingSource = readFileSync(new URL("../../src/ba_modding_toolkit/web/js/loading.js", import.meta.url), "utf8");
+const progressSource = loadingSource.slice(loadingSource.indexOf("export function progressText("), loadingSource.indexOf("// A writer task"));
 function harness(overrides = {}) {
   const messages = [], calls = [];
   let released = false, end;
@@ -11,7 +13,7 @@ function harness(overrides = {}) {
     toast: (s) => messages.push(s), T: (s) => s, renderScreen: async () => {},
     rpc: async () => { calls.push("submit"); return "j1"; }, waitJob: async () => ({}), reload: async () => {},
     errorText: String, QUEUEABLE: ["actions.apply", "actions.restore"], refused: (err) => messages.push(String(err)),
-    overwrittenMessage: async () => {}, variant: () => ({}), resumeChanged: () => {},
+    overwrittenMessage: async () => {}, variant: () => ({}), fullName: () => "Example", resumeChanged: () => {},
     leftPage: new Promise((resolve) => { end = resolve; }),
     Loading: { hold: async (work) => { try { return await work(); } finally { released = true; } } }, ...overrides,
   };
@@ -74,6 +76,25 @@ test("the apply result reaches the refresh while input is still held", async () 
   assert.deepEqual(seen, [result, result]);
   assert.ok(h.released());
   assert.equal(h.busy(), false);
+});
+
+test("detail actions keep the verb, target and count from progress in all locales", async () => {
+  for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"]) {
+    const strings = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${locale}.json`, import.meta.url), "utf8")).webui;
+    const T = (key, vars = {}) => key.split(".").reduce((o, k) => o[k], strings).replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? "");
+    const progressText = new Function("T", `${progressSource.replace("export ", "")}; return progressText;`)(T);
+    for (const [method, action, params = {}] of [["actions.apply", "apply"], ["actions.apply", "restore", { source: "official" }], ["actions.restore", "restore"], ["actions.update", "repair"],
+      ["actions.extract", "extract"], ["mods.remove", "delete"]]) {
+      const label = T(`progress.${action}`, { name: "portrait.bundle" });
+      const h = harness({ T, Loading: { hold: (fn) => fn(), progressText }, waitJob: async (id, update) => {
+        update({ label, current: 1, total: 3 });
+        return {};
+      } });
+      assert.equal(await h.job(method, params, { name: "Example" }), true);
+      assert.deepEqual(h.messages, [T(`progress.${action}`, { name: "Example" }),
+        T("progress.count", { label, current: 1, total: 3 }), T("job.done")]);
+    }
+  }
 });
 
 test("a completed add reloads only the page that opened its picker", async () => {

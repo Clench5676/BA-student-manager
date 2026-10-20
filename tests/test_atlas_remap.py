@@ -375,7 +375,9 @@ def test_library_remap_keeps_installed_official_copy_and_original_mod(setup_libr
     current.write_bytes(source.read_bytes())
     before = {path: path.read_bytes() for path in (current, kept, entry.file)}
     monkeypatch.setattr(env.settings, "crc_needed", lambda path: True)
-    result = env.library.remap(entry.id)
+    progress = []
+    result = env.library.remap(entry.id, progress=lambda *args: progress.append(args))
+    assert progress == [(1, 1, t("webui.progress.remap", name=current.name))]
     assert result.mod.id != entry.id
     assert result.mod.label == t("webui.remap.name", name=entry.label)
     assert len(env.library.mods()) == 2

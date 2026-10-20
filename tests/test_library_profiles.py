@@ -18,6 +18,7 @@ from ba_modding_toolkit import core, mod_install
 from ba_modding_toolkit.bundle import Bundle
 from ba_modding_toolkit.config import Settings
 from ba_modding_toolkit.errors import ServiceError
+from ba_modding_toolkit.i18n import I18n
 from ba_modding_toolkit.library import ModLibrary, safety, service, storage
 from ba_modding_toolkit.library import profiles as profiles_module
 from ba_modding_toolkit.library.judge import carried_of, classify, install_key, install_root, leaves
@@ -242,6 +243,29 @@ OFFICIAL = header_bundle(b"official")
 
 
 # --- switching and the configuration ---
+
+@pytest.mark.parametrize("language", ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"])
+def test_adoption_toggle_and_drift_progress_name_the_action(world, monkeypatch, language):
+    translate = I18n(language).t
+    monkeypatch.setattr(service, "t", translate)
+    world.consent = True
+    keep_backup(world.spr)
+    outside_mod(world.spr)
+    listed = [{"install": world.key(), "core": "test_spr"}]
+    progress = []
+    report = lambda *args: progress.append(args)
+    result = world.library.adopt(listed, progress=report)
+    assert result.added and not result.failed
+    assert progress == [(1, 1, translate("webui.progress.add", name="test_spr"))]
+    for enabled, action in [(False, "restore"), (True, "apply")]:
+        progress.clear()
+        assert not world.toggle(enabled, progress=report).failed
+        assert progress == [(1, 1, translate(f"webui.progress.{action}", name="test_spr"))]
+    world.spr.write_bytes(OFFICIAL)
+    progress.clear()
+    assert not world.library.restore_drift([{**listed[0], "state": "reset"}], progress=report).failed
+    assert progress == [(1, 1, translate("webui.progress.apply", name="test_spr"))]
+
 
 def test_apply_configures_and_restore_drops_it(world):
     mod = world.add(world.spr)

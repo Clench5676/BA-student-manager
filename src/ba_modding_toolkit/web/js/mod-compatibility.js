@@ -128,7 +128,8 @@ export async function show(report, { label = "", onUpdate, onRemap } = {}) {
 }
 
 export async function remap(id, onRemapped = () => {}, label = "") {
-  const result = await Loading.task(async (update) => waitJob(await rpc("actions.remap", { mod: id }), update));
+  const result = await Loading.task(async (update) => waitJob(await rpc("actions.remap", { mod: id }), update),
+    { label: T("progress.remap", { name: label || T("progress.mods") }) });
   const report = result.report;
   await Popup.message({ title: T(report.partial ? "remap.partial" : "remap.done"),
     scroll: true,
@@ -142,10 +143,12 @@ export async function remap(id, onRemapped = () => {}, label = "") {
 }
 
 export async function check(id, label = "", onUpdated = () => {}, onRemapped = () => {}) {
-  const report = await Loading.task(async (update) => waitJob(await rpc("actions.compatibility", { mod: id }), update));
+  const report = await Loading.task(async (update) => waitJob(await rpc("actions.compatibility", { mod: id }), update),
+    { label: T("progress.compatibility", { name: label || T("progress.mods") }) });
   reports.set(id, report);
   return show(report, { label, onUpdate: async () => {
-    await Loading.task(async (update) => waitJob(await rpc("actions.update", { mod: id }), update));
+    await Loading.task(async (update) => waitJob(await rpc("actions.update", { mod: id }), update),
+      { label: T("progress.repair", { name: label || T("progress.mods") }) });
     await onUpdated(true);
     await check(id, label, onUpdated, onRemapped);
   }, onRemap: () => remap(id, onRemapped, label) });

@@ -8,6 +8,7 @@ import pytest
 from ba_modding_toolkit.bundle import Bundle
 from ba_modding_toolkit.catalog import Catalog
 from ba_modding_toolkit.errors import ServiceError
+from ba_modding_toolkit.i18n import t
 from ba_modding_toolkit.library.identity import content_cores, identify
 from ba_modding_toolkit.naming import parse_filename
 
@@ -131,7 +132,8 @@ def test_upload_splits_kinds_and_variants_and_reports_files(setup_library, monke
     progress = []
     entries = env.library.add([portrait, lobby], lambda *p: progress.append(p))
     assert [(e.target, e.kind) for e in entries] == [('test', 'spr'), ('dress', 'lobby')]
-    assert progress == [(0, 2, portrait.name), (1, 2, lobby.name), (2, 2, lobby.name)]
+    assert progress == [(i, 2, t('webui.progress.add', name=path.name))
+                        for i, path in [(0, portrait), (1, lobby), (2, lobby)]]
 
 
 def test_unknown_part_adds_nothing_from_the_entire_upload(setup_library, monkeypatch):

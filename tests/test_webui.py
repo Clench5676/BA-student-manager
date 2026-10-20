@@ -14,7 +14,7 @@ import pytest
 
 from ba_modding_toolkit.config import Settings
 from ba_modding_toolkit.errors import ServiceError
-from ba_modding_toolkit.i18n import offered_languages
+from ba_modding_toolkit.i18n import I18n, offered_languages
 from ba_modding_toolkit.webui.api import build_api, ui_strings
 from ba_modding_toolkit.webui.events import EventBus
 from ba_modding_toolkit.webui.jobs import JobRunner
@@ -144,7 +144,7 @@ class FakeLibrary:
         self.applied.append((variant_key, source))
         return {"applied": source}
 
-    def restore(self, variant_key, log, kind="spr", pin=None):
+    def restore(self, variant_key, log, kind="spr", pin=None, progress=None):
         self.applied.append((variant_key, "official"))
         return {"applied": "official"}
 
@@ -1045,6 +1045,19 @@ def download_update(app, services):
     result = services.jobs.get(job)
     assert result.state == "done", result.error
     return result.result["file"]
+
+
+@pytest.mark.parametrize("language", ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"])
+def test_update_download_progress_names_the_action_and_asset(app, services, update_env, monkeypatch, language):
+    translate = I18n(language).t
+    monkeypatch.setattr("ba_modding_toolkit.webui.api.t", translate)
+    rpc(app, "app.checkUpdate")
+    job = rpc(app, "app.update")["result"]
+    assert services.jobs.wait(job, 5)
+    result = services.jobs.get(job)
+    assert result.state == "done", result.error
+    assert result.progress == {"id": job, "current": 8, "total": 8,
+                               "label": translate("webui.progress.download", name="1.1.0.dmg")}
 
 
 def test_update_rpc_keeps_a_verified_version_for_later_and_installs_only_on_request(app, services, update_env):

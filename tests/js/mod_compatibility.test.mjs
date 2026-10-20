@@ -16,7 +16,7 @@ const report = () => ({ official: inputs(), mod: inputs() });
 let sequence = 0;
 async function harness(locale = "en-US", button = "cancel") {
   const strings = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${locale}.json`, import.meta.url), "utf8")).webui;
-  const calls = [], popups = [];
+  const calls = [], popups = [], labels = [];
   let nextReport = report(), rebuilt = null;
   const comparisons = [];
   globalThis.compatibilityDeps = {
@@ -24,13 +24,13 @@ async function harness(locale = "en-US", button = "cancel") {
     T: (key, vars = {}) => key.split(".").reduce((o, k) => o?.[k], strings)?.replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? "") || key,
     rpc: async (method, params) => { calls.push([method, params]); return method; },
     waitJob: async (id) => id === "actions.remap" ? rebuilt : nextReport,
-    Loading: { task: (fn) => fn(() => {}) },
+    Loading: { task: (fn, options) => { labels.push(options.label); return fn(() => {}); } },
     Popup: { message: async (options) => { popups.push(options); return { button }; } },
     Compare: { show: async (...args) => comparisons.push(args) },
   };
   const code = `const { T, language, rpc, waitJob, Loading, Popup, Compare } = globalThis.compatibilityDeps;\n${source.replace(/^import .*;$/gm, "")}\n// ${sequence++}`;
   const mod = await import(`data:text/javascript;base64,${Buffer.from(code).toString("base64")}`);
-  return { mod, calls, popups, comparisons, use: (value) => { nextReport = value; }, build: (value) => { rebuilt = value; } };
+  return { mod, calls, popups, comparisons, labels, use: (value) => { nextReport = value; }, build: (value) => { rebuilt = value; } };
 }
 
 test("the mismatched skeleton names missing animations, slots, attachments and bone counts", async () => {
@@ -175,6 +175,8 @@ test("Remap creates a new mod, reports a partial fix and opens the source compar
     await h.mod.check("old-mod", "Painted", () => assert.fail("Update is not used"), (result) => { changed = result; });
     assert.equal(changed, built);
     assert.deepEqual(h.calls.map(([method]) => method), ["actions.compatibility", "actions.remap"]);
+    const strings = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${locale}.json`, import.meta.url), "utf8")).webui.progress;
+    assert.deepEqual(h.labels, [strings.compatibility.replace("{name}", "Painted"), strings.remap.replace("{name}", "Painted")]);
     assert.deepEqual(h.comparisons, [[built.compare, "Painted - Repacked", "dialog"]]);
     const popup = h.popups[1];
     assert.ok(popup.lines.every((line) => !/[{}]/.test(line) && !line.startsWith("remap.")));

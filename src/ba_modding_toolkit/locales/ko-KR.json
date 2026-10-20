@@ -1108,6 +1108,22 @@
 			"slow": "아직 불러오는 중",
 			"plain": "불러오는 중"
 		},
+		"progress": {
+			"add": "추가: {name}",
+			"process": "처리: {name}",
+			"apply": "적용: {name}",
+			"restore": "복원: {name}",
+			"repair": "복구: {name}",
+			"remap": "텍스처 재배치: {name}",
+			"delete": "삭제: {name}",
+			"extract": "추출: {name}",
+			"compatibility": "호환성 확인: {name}",
+			"download": "다운로드: {name}",
+			"check": "게임 파일 확인 중",
+			"clear": "모드 캐시 지우는 중",
+			"mods": "모드",
+			"count": "{label} ({current}/{total})"
+		},
 		"job": {
 			"running": "처리 중",
 			"done": "완료",

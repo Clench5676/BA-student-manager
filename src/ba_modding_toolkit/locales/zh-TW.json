@@ -1108,6 +1108,22 @@
 			"slow": "仍在載入",
 			"plain": "載入中"
 		},
+		"progress": {
+			"add": "新增：{name}",
+			"process": "處理：{name}",
+			"apply": "套用：{name}",
+			"restore": "還原：{name}",
+			"repair": "修復：{name}",
+			"remap": "重排貼圖：{name}",
+			"delete": "刪除：{name}",
+			"extract": "提取：{name}",
+			"compatibility": "檢查相容性：{name}",
+			"download": "下載：{name}",
+			"check": "檢查遊戲檔案",
+			"clear": "清除 Mod 快取",
+			"mods": "Mod",
+			"count": "{label}（{current}/{total}）"
+		},
 		"job": {
 			"running": "處理中",
 			"done": "完成",

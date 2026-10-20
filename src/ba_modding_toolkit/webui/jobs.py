@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from ..errors import ServiceError
+from ..i18n import t
 from .events import EventBus
 from .rpc import to_json
 
@@ -193,6 +194,7 @@ class JobRunner:
                 flush()
 
         def progress(current: int, total: int, label: str = "") -> None:
+            label = label or t("webui.progress.process", name=t("webui.progress.mods"))
             job.progress = {"id": job.id, "current": current, "total": total, "label": label}
             now = time.monotonic()
             if current < total and now - last_progress[0] < PROGRESS_SECONDS:

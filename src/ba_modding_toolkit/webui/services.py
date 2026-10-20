@@ -686,7 +686,7 @@ class Services:
 
         def run(log: Any, progress: Any) -> Any:
             self._check_pin(library, pin)
-            return library.restore(variant, log=log, kind=kind, pin=pin)
+            return library.restore(variant, log=log, kind=kind, pin=pin, progress=progress)
 
         with self.classic.starting():
             if self.classic_open() and library.would_write(variant, "official", kind, pin=pin):
