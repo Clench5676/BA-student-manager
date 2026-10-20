@@ -246,7 +246,7 @@ function cardTree(e) {
   marker.widgets[0].w_ = tw + 8;
   marker.pos = [tw / 2 - adv / 2, f.lines > 1 ? -17 - 30 : -17];
   if (e.recruit) t.children.push(node("Recruit", [left + (iconW - 8) / 2, name.pos[1] + 2], [sprite(RECRUIT.sprite, iconH / RECRUIT.ratio, iconH, { atlas: RECRUIT.atlas, type: 0, depth: 12 })]));
-  find(t, "NewIcon").active = !!e.fresh; // a newly added portrait (the game's new-item dot)
+  find(t, "NewIcon").active = !!e.fresh; // a newly added mod (the game's new-item dot)
   find(t, "CharacterWeapon").active = false;
   const pin = find(t, "Btn_Pin");
   pin.active = !!e.favorite;

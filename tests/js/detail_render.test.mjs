@@ -24,6 +24,8 @@ class El {
   after(child) { this.parentNode?.appendChild(child); }
   contains(n) { return walk(this).includes(n); }
   get isConnected() { return body.contains(this); }
+  get parentElement() { return this.parentNode; }
+  get childNodes() { return [...this.children]; }
   set innerHTML(html) {
     this.replaceChildren();
     for (const m of html.matchAll(/<(div|canvas|span|i)\b([^>]*)>/g)) {
@@ -101,8 +103,8 @@ const node = (name) => ({ name, pos: [0, 0], scale: [1, 1], active: true, widget
   { text: "text", w_: 100, h_: 100, fontSize: 40 },
 ], children: [] });
 const detail = node("UICharacterDetail"), list = node("Inventory_ListControl"); detail.children.push(list);
-function add(path) {
-  let at = list;
+function add(path, root = list) {
+  let at = root;
   for (const name of path.split("/")) {
     let child = at.children.find((n) => n.name === name);
     if (!child) at.children.push(child = node(name));
@@ -116,6 +118,18 @@ for (const path of ["BG", "CharacterPos", "Arrow_L/Left", "Arrow_R/Right", "Righ
 for (const tab of ["Tab_1", "Tab_2", "Tab_3"]) for (const state of ["Tab_On", "Tab_Off"]) {
   add(`RightInfo/Target/Active/CharacterTab/${tab}/${state}/Label`);
   add(`RightInfo/Target/Active/CharacterTab/${tab}/${state}/BG`);
+}
+for (const [tab, dot] of [["Tab_1", "Dot"], ["Tab_2", "Dot (1)"], ["Tab_3", "Dot (2)"]]) {
+  add(`RightInfo/Target/Active/CharacterTab/${tab}/${dot}`).widgets = [
+    { sprite: "Common_Icon_Reddot2", w_: 34, h_: 31, color: "#ffffff/1.00" },
+  ];
+}
+const sortPopup = node("UIPopup_Sort");
+for (const path of ["Center/BlackBg/BlackBgClickArea", "Center/Popup/Base/BG/Texture_Top",
+  "Center/Popup/Base/BG/Label_Title_Locale/Line", "Center/Popup/Base/BG/Btn_Close"]) add(path, sortPopup);
+for (const button of ["Btn_Ok", "Btn_Cancel"]) {
+  add(`Center/Popup/Btn/${button}/BG (1)`, sortPopup);
+  add(`Center/Popup/Btn/${button}/Label_Locale`, sortPopup);
 }
 for (const stat of ["Label_Life", "Label_Attact", "Label_Defense", "Label_Healing"]) {
   add(`${INFO}/Status/${stat}/Data_Widget/Data`); add(`${INFO}/Status/${stat}/Data`);
@@ -131,15 +145,17 @@ for (const path of ["BG/Deco", "Label_Name", "Char_CVCollectionBtn/Sprite", "Cha
 
 const atlas = { Common: Object.fromEntries([...new Set([
   ...[...readFileSync(new URL("../../src/ba_modding_toolkit/web/js/detail.js", import.meta.url), "utf8").matchAll(/"(Common_[A-Za-z0-9_]+)"/g)].map((m) => m[1]),
-  "Card_Select_Line_Blue", "Cafe_Icon_NameEdit",
+  "Card_Select_Line_Blue", "Cafe_Icon_NameEdit", "Common_Icon_Reddot2",
 ])].map((name) => [name, { width: 8, height: 8 }])) };
 const reply = (data, status = 200) => ({ ok: status === 200, status, json: async () => data });
 let family, indexMode = "ready", layoutMode = "ready", lobbyMode = "pending", optionalPending = false, modsEnabled = true;
+let seenReply = async () => ({ result: null });
 const textureReplies = [], layoutReplies = [], rpcRequests = [], assetRequests = [];
 globalThis.fetch = async (url, opts = {}) => {
   if (url === "/api/rpc") {
     const request = JSON.parse(opts.body), { method } = request;
     rpcRequests.push(request);
+    if (method === "mods.seen") return reply(await seenReply(request.params));
     return reply({ result: method === "family.get" ? family : method === "mods.state" ? { enabled: modsEnabled } : null });
   }
   assetRequests.push(url);
@@ -161,6 +177,8 @@ globalThis.fetch = async (url, opts = {}) => {
   }
   if (url.startsWith("/asset/ui/layout/")) {
     if (optionalPending && url.endsWith("UIPopup_Sort.json")) return new Promise(() => {});
+    if (url.endsWith("UIPopup_Sort.json")) return reply(sortPopup);
+    if (url.endsWith("UICharacterCollection.json") || url.endsWith("UIPopup_GachaCharList.Btn_Checkbox.json")) return reply(null, 404);
     return reply(node("Empty"));
   }
   if (url.startsWith("/asset/spine/") && url.endsWith("manifest.json")) {
@@ -188,13 +206,26 @@ setStrings("en-US", flat(JSON.parse(readFileSync(new URL("../../src/ba_modding_t
 const Detail = await import("../../src/ba_modding_toolkit/web/js/detail.js");
 const NGUI = await import("../../src/ba_modding_toolkit/web/js/ngui.js");
 const ModSwitch = await import("../../src/ba_modding_toolkit/web/js/mod-switch.js");
-const context = { prefs: {}, info: {}, invalidateRoster() {}, step() {}, go() {} };
+let invalidations = 0;
+const context = { prefs: {}, info: {}, invalidateRoster() { invalidations++; }, step() {}, go() {} };
 function modFamily(kind = "spr", id = "test") {
   return { key: "ibuki", version: id, variants: [{ key: "ibuki", spr: "ibuki_spr", lobby: "ibuki_home", names: { en: { full: "Ibuki", short: "Ibuki" } },
     modList: [{ id, target: "ibuki", kind, label: id }], state: { files: [{ kind, applied: `mod:${id}`, official: false, restorable: true, crc: "fixed" }] } }] };
 }
 const flush = async () => { for (let i = 0; i < 80; i++) await Promise.resolve(); };
 const switchButton = () => walk(hosts.ngui).find((e) => e.dataset.part === `${INFO}/Weapon/Equip_1/UIEquipmentCard/Btn_Target/Normal/Card_Bg`);
+const tabDot = (i) => walk(hosts.ngui).find((e) => e.dataset.path?.endsWith(`CharacterTab/Tab_${i}/${i === 1 ? "Dot" : `Dot (${i - 1})`}`));
+const chipDot = (key) => walk(hosts["ngui-chips"]).find((e) => e.dataset.path?.endsWith(`/Chip_${key}/Dot`));
+const tabButton = (i) => walk(hosts.ngui).find((e) => e.dataset.part?.endsWith(`Tab_${i}/Tab_Off/Label`));
+const closeSwitch = async () => { await walk(hosts.popup).find((e) => e.dataset.action === "close").click(); await flush(); };
+async function showPortrait(t, key = "ibuki") {
+  const showing = Detail.show(context, family, key); await flush();
+  t.mock.timers.tick(16000); await flush(); await showing;
+  if (tabButton(1)) {
+    const switching = tabButton(1).click(); await flush();
+    t.mock.timers.tick(1300); await flush(); await switching;
+  }
+}
 
 test("a failed detail layout cannot prevent the installed portrait from loading", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
@@ -467,4 +498,118 @@ test("long portrait and lobby names only resize their own info cell in every loc
     Detail.hide(); t.mock.timers.reset();
     setStrings("en-US", flat(JSON.parse(readFileSync(new URL("../../src/ba_modding_toolkit/locales/en-US.json", import.meta.url), "utf8"))));
   }
+});
+
+test("new mod dots survive visits and tab changes, then clear for the switch's offered mods", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    family = modFamily();
+    const v = family.variants[0];
+    v.model = "ibuki_model";
+    v.modList = ["spr", "lobby"].map((kind) => ({ id: kind, target: v.key, kind, fresh: true }));
+    family.variants.push({ ...v, key: "dress", spr: "dress_spr", lobby: "dress_home", modList: [
+      { id: "dress-spr", target: "dress", kind: "spr", fresh: true },
+      { id: "dress-lobby", target: "dress", kind: "lobby", fresh: true },
+    ] });
+    const start = rpcRequests.length, invalidated = invalidations;
+    await showPortrait(t);
+    assert.ok(tabDot(1)); assert.ok(tabDot(2)); assert.equal(tabDot(3), undefined);
+    assert.ok(chipDot(v.key)); assert.ok(chipDot("dress"));
+    assert.ok(rpcRequests.slice(start).every((r) => r.method !== "mods.seen"), "visiting leaves the marks alone");
+    const switching = tabButton(2).click(); await flush();
+    t.mock.timers.tick(16000); await flush(); await switching;
+    assert.ok(tabDot(1)); assert.ok(tabDot(2), "selecting a tab leaves its mods new");
+    const lobby = switchButton().click(); await flush(); await lobby;
+    assert.equal(tabDot(2), undefined); assert.ok(tabDot(1)); assert.ok(chipDot(v.key));
+    assert.deepEqual(rpcRequests.filter((r) => r.method === "mods.seen").at(-1).params, { ids: ["lobby"] });
+    assert.equal(v.modList.find((m) => m.kind === "spr").fresh, true);
+    await closeSwitch();
+    const portrait = tabButton(1).click(); await flush();
+    t.mock.timers.tick(1300); await flush(); await portrait;
+    const popup = switchButton().click(); await flush(); await popup;
+    assert.equal(tabDot(1), undefined); assert.equal(tabDot(2), undefined); assert.equal(chipDot(v.key), undefined);
+    assert.ok(chipDot("dress"), "the other variant still has an unseen lobby mod");
+    assert.deepEqual(rpcRequests.filter((r) => r.method === "mods.seen").at(-1).params, { ids: ["spr", "dress-spr"] });
+    assert.equal(family.variants[1].modList[1].fresh, true);
+    assert.equal(invalidations - invalidated, 2, "Back fetches the roster's updated marks immediately");
+    await closeSwitch();
+    const before = rpcRequests.filter((r) => r.method === "mods.seen").length;
+    const again = switchButton().click(); await flush(); await again;
+    assert.equal(rpcRequests.filter((r) => r.method === "mods.seen").length, before, "seen mods need no further state writes");
+    await closeSwitch();
+  } finally { Detail.hide(); t.mock.timers.reset(); }
+});
+
+test("a failed seen write keeps the dots and can be retried by opening the mod card", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    family = modFamily(); family.variants[0].modList[0].fresh = true;
+    await showPortrait(t);
+    seenReply = async () => ({ error: { code: "internal" } });
+    const popup = switchButton().click(); await flush(); await popup;
+    assert.ok(tabDot(1)); assert.ok(chipDot("ibuki"));
+    seenReply = async () => ({ result: null });
+    const card = walk(hosts.popup).find((e) => e.dataset.key === "m:test");
+    assert.ok(card);
+    await card.click(); await flush();
+    assert.equal(tabDot(1), undefined); assert.equal(chipDot("ibuki"), undefined);
+    await closeSwitch();
+  } finally { Detail.hide(); seenReply = async () => ({ result: null }); t.mock.timers.reset(); }
+});
+
+for (const after of ["closed", "aliases", "reopened", "left"]) test(`a delayed seen save respects a switch that was ${after}`, async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let finish;
+  try {
+    family = modFamily(); family.variants[0].modList[0].fresh = true;
+    Object.assign(family.variants[0].state.files[0], { applied: "official", official: true });
+    await showPortrait(t);
+    seenReply = () => new Promise((resolve) => { finish = resolve; });
+    const start = rpcRequests.length, invalidated = invalidations;
+    const popup = switchButton().click(); await flush();
+    assert.ok(finish, "the switch shows while its seen state is being saved");
+    assert.ok(walk(hosts.popup).some((e) => e.dataset.key === "m:test"));
+    assert.ok(walk(hosts.popup).some((e) => e.dataset.path?.endsWith("Card_m:test/Dot")));
+    assert.ok(tabDot(1));
+    await closeSwitch();
+    let input;
+    if (after === "aliases") {
+      const pencil = walk(hosts.ngui).find((e) => e.title === "Aliases");
+      assert.ok(pencil);
+      await pencil.click(); await flush();
+      input = hosts.popup.querySelector(".alias-input");
+      assert.ok(input);
+      input.value = "Draft alias";
+    } else if (after === "reopened") {
+      await switchButton().click(); await flush();
+    } else if (after === "left") Detail.hide();
+    finish({ result: null }); await popup; await flush();
+    assert.equal(invalidations - invalidated, 1);
+    assert.equal(family.variants[0].modList[0].fresh, false);
+    assert.equal(rpcRequests.slice(start).filter((r) => r.method === "mods.seen").length, 1);
+    if (after === "aliases") {
+      assert.equal(hosts.popup.querySelector(".alias-input"), input, "the alias editor keeps its unsaved input");
+      assert.equal(input.value, "Draft alias");
+    } else if (after === "reopened") {
+      assert.equal(hosts.popup.hidden, false);
+      assert.ok(walk(hosts.popup).some((e) => e.dataset.key === "m:test"));
+      assert.equal(walk(hosts.popup).find((e) => e.dataset.path?.endsWith("Card_m:test/Dot")), undefined);
+    } else {
+      assert.equal(hosts.popup.hidden, true);
+      assert.equal(hosts.popup.children.length, 0);
+    }
+    if (after !== "left") { assert.equal(tabDot(1), undefined); assert.equal(chipDot("ibuki"), undefined); }
+  } finally { finish?.({ result: null }); Detail.hide(); seenReply = async () => ({ result: null }); t.mock.timers.reset(); }
+});
+
+test("the 3D tab dot only follows mods of its own kind", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    family = modFamily("model");
+    family.variants[0].model = "ibuki_model";
+    family.variants[0].modList[0].fresh = true;
+    await showPortrait(t);
+    assert.equal(tabDot(1), undefined); assert.equal(tabDot(2), undefined);
+    assert.ok(tabDot(3)); assert.ok(chipDot("ibuki"));
+  } finally { Detail.hide(); t.mock.timers.reset(); }
 });

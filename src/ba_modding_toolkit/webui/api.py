@@ -332,7 +332,7 @@ def build_api(s: Services) -> RpcRegistry:
 
     # --- students ---
 
-    def variant_json(v: Any, mods: dict[str, list], favorites: set[str], recent: list[str],
+    def variant_json(v: Any, mods: dict[str, list], favorites: set[str], recent: list[str], seen: set[str],
                      modified: dict[str, str] | None = None) -> dict[str, Any]:
         own = mods.get(v.key, [])
         return {
@@ -342,7 +342,7 @@ def build_api(s: Services) -> RpcRegistry:
             "order": v.order, "spr": v.spr, "lobby": v.lobby, "date": v.date, "model": v.model,
             "spineCategory": getattr(v, "spine_category", None),
             "bg": _url_bg(v.bg), "portrait": _url_portrait(v.portrait),
-            "favorite": v.key in favorites, "mods": len(own), "fresh": any(m.fresh for m in own),
+            "favorite": v.key in favorites, "mods": len(own), "fresh": any(m.id not in seen for m in own),
             "modCounts": {kind: sum(m.kind == kind for m in own) for kind in ("spr", "lobby")},
             "configured": configured_of(v.key),
             # when the newest of its own mods was added (ISO), for the roster's "recently added" sort
@@ -364,11 +364,12 @@ def build_api(s: Services) -> RpcRegistry:
             raise ServiceError("game_not_found")
         mods, favorites, recent = mods_by_target(), s.library.favorites(), s.state.recent()
         modified, custom = s.library.modified(), s.state.aliases()
+        seen = s.state.seen_mods()
         families = []
         for f in s.catalog.families():
             families.append({"key": f.key, "base": f.names, "aliases": f.aliases, "custom": custom.get(f.key, []),
                              "school": f.school,
-                             "variants": [variant_json(v, mods, favorites, recent, modified) for v in f.variants]})
+                             "variants": [variant_json(v, mods, favorites, recent, seen, modified) for v in f.variants]})
         return {"families": families}
 
     def model_files(core: str | None) -> list[dict[str, Any]]:
@@ -405,11 +406,12 @@ def build_api(s: Services) -> RpcRegistry:
     def family_get(key: str) -> dict[str, Any]:
         f = s.catalog.family(key)
         mods, favorites, recent = mods_by_target(), s.library.favorites(), s.state.recent()
+        seen = s.state.seen_mods()
         variants = []
         for v in f.variants:
-            item = variant_json(v, mods, favorites, recent)
+            item = variant_json(v, mods, favorites, recent, seen)
             item["state"] = to_json(s.library.state(v.key))
-            item["modList"] = [to_json(m) for m in mods.get(v.key, [])]
+            item["modList"] = [{**to_json(m), "fresh": m.id not in seen} for m in mods.get(v.key, [])]
             item["modelFiles"] = model_files(v.model)
             variants.append(item)
         # the game's resource version tells installs apart (another game folder or file source): the page then reads
@@ -546,9 +548,15 @@ def build_api(s: Services) -> RpcRegistry:
         s.events.publish("library.changed")
 
     @rpc.method("mods.seen")
-    def mods_seen(id: str) -> None:
-        s.library.mark_seen(id)
-        s.events.publish("library.changed")
+    def mods_seen(id: str | None = None, ids: list[str] | None = None) -> None:
+        if (id is None) == (ids is None):
+            raise ServiceError("bad_params", key="ids")
+        chosen = [id] if id is not None else ids
+        if not isinstance(chosen, list) or not all(isinstance(v, str) and v for v in chosen):
+            raise ServiceError("bad_params", key="ids")
+        if chosen:
+            s.state.mark_mods_seen(chosen)
+            s.events.publish("library.changed", {"cores": [], "kinds": [], "mods": True})
 
     # --- the Enable Mods switch, mods already in use, drift ---
 
