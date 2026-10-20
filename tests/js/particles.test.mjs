@@ -523,6 +523,67 @@ test("SpineEventToggleObjects: a system below a toggled GameObject plays from it
   assert.equal(s.particles.length, 4, "one duration of 4 a second, simulated at once");
 });
 
+test("arc and edge modes: loop and ping-pong over the system's time, burst spread evenly, snapped to the spread", () => {
+  assert.equal(P.along(0, 0, 1, 0.3, 1, null), null, "random: the shape draws");
+  near(P.along(1, 0, 1, 0.3, 1, null), 0.3);
+  near(P.along(1, 0, 2, 0.3, 1, null), 0.6, 1e-9, "at the mode's speed");
+  near(P.along(2, 0, 1, 0.75, 1, null), 0.5, 1e-9, "ping-pong on its way back");
+  assert.deepEqual([0, 1, 2, 3].map((i) => P.along(3, 0, 1, 0, 1, { i, n: 4 })), [0, 0.25, 0.5, 0.75]);
+  near(P.along(3, 0.12, 1, 0, 1, { i: 1, n: 5 }), 0.24, 1e-9, "0.2 snapped to the nearest multiple of 0.12");
+  // CH0069's halo: one burst of 5 on a cone's rim, burst spread round the full arc; Hibiki's bokeh: bursts on an
+  // edge spread by the radius's mode
+  const halo = sys({ emission: { bursts: [{ t: 0, n: 4, cycles: 1, interval: 1, p: 1 }] },
+    shape: { type: 4, radius: 2, thickness: 0, angle: 0, arc: 360, arcMode: 3, arcSpread: 0, arcSpeed: 1, pos: [0, 0, 0],
+      rot: [0, 0, 0], scale: [1, 1, 1], randomDir: 0, spherical: 0, randomPos: 0 } });
+  const edge = sys({ emission: { bursts: [{ t: 0, n: 2, cycles: 1, interval: 1, p: 1 }] },
+    shape: { type: 12, radius: 3, thickness: 1, arc: 360, arcMode: 0, radiusMode: 3, radiusSpread: 0, radiusSpeed: 1,
+      pos: [0, 0, 0], rot: [0, 0, 0], scale: [1, 1, 1], randomDir: 0, spherical: 0, randomPos: 0 } });
+  const fx = effects([halo, edge]);
+  fx.update(0.016);
+  const angles = fx.systems[0].particles.map((pt) => Math.round((Math.atan2(pt.pos[1], pt.pos[0]) * 180) / Math.PI));
+  assert.deepEqual(angles, [0, 90, 180, -90]);
+  assert.deepEqual(fx.systems[1].particles.map((pt) => +pt.pos[0].toFixed(6)), [-3, 0], "from one end, evenly");
+  assert.equal(shapePoint({ type: 12, radius: 4, arc: 360 }, () => 0.5, 0.9, 0.25).p[0], -2, "an edge takes the edge position");
+});
+
+test("rate over distance: particles per world unit the system's origin moves", () => {
+  let x = 0;
+  const bone = () => ({ a: 1, b: 0, c: 0, d: 1, worldX: x, worldY: 0 });
+  const anchor = { skeleton: "Car_home", bone: "car", go: IDENTITY, ds: 1 };
+  const fx = effects([sys({ anchor, emission: { rate: 0, dist: 8, bursts: [] } })], { bone });
+  fx.update(0.016);
+  assert.equal(fx.systems[0].particles.length, 0, "standing still: none");
+  x = WORLD / 2;
+  fx.update(0.016);
+  assert.equal(fx.systems[0].particles.length, 4, "half a world unit at 8 a unit");
+  x = WORLD / 2 + WORLD / 8; // an eighth of a unit more: one more particle
+  fx.update(0.016);
+  assert.equal(fx.systems[0].particles.length, 5);
+});
+
+test("colour by speed: the gradient at the particle's travel speed within its range", () => {
+  const fade = { g: { c: [[0, 1, 1, 1], [1, 1, 1, 1]], a: [[0, 1], [1, 0]], fixed: 0 } };
+  const fx = effects([sys({ main: { speed: 1 }, shape: null, emission: { bursts: [{ t: 0, n: 1, cycles: 1, interval: 1, p: 1 }] },
+    modules: { colorBySpeed: { color: fade, range: [0, 4] }, velocity: { x: 0, y: 0, z: 2, speed: 0.5 } } })]);
+  run(fx, 0.2);
+  const s = fx.systems[0], pt = s.particles[0];
+  near(pt.speed, 1.5, 1e-9, "(1 + 2) x the speed modifier 0.5");
+  near(fx.current(s, pt).color[3], 1 - 1.5 / 4, 1e-9);
+});
+
+test("sort by distance or depth: the farthest particles first", () => {
+  const fx = effects([sys({ emission: { rate: 10 }, renderer: { sort: 4 } })]);
+  run(fx, 1);
+  const s = fx.systems[0];
+  s.particles.forEach((p, i) => { p.pos[2] = i % 3; p.color = [p.pos[2] / 2, 0, 0, 1]; });
+  const reds = [];
+  const g = geometry(fx, s, { linear: false });
+  for (let v = 0; v < g.count; v += 6) reds.push(g.data[v * STRIDE + 14]);
+  assert.ok(reds.every((r, i) => i === 0 || r <= reds[i - 1]), "z 2, then 1, then 0");
+  assert.equal(reds[0], 1);
+});
+
+
 // --- particles-gl.js: drawing into a player's context and freeing it -------------------------------------------------
 
 class FakeGL {}

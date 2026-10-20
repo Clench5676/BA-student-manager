@@ -164,7 +164,11 @@ def _shape(m: Mapping[str, Any]) -> dict | None:
         "arcMode": arc.get("mode", 0) if isinstance(arc, Mapping) else 0,
         "arcSpread": _r(arc.get("spread", 0.0)) if isinstance(arc, Mapping) else 0.0,
         "arcSpeed": curve(arc.get("speed"), 1.0) if isinstance(arc, Mapping) else 1.0,
+        # an edge spreads its particles along its length by the radius's mode (random, loop, ping-pong or burst
+        # spread), spread and speed, as an arc does around the arc with its own
         "radiusMode": radius.get("mode", 0) if isinstance(radius, Mapping) else 0,
+        "radiusSpread": _r(radius.get("spread", 0.0)) if isinstance(radius, Mapping) else 0.0,
+        "radiusSpeed": curve(radius.get("speed"), 1.0) if isinstance(radius, Mapping) else 1.0,
         "pos": _vec(m.get("m_Position")), "rot": _vec(m.get("m_Rotation")), "scale": _vec(m.get("m_Scale"), 1.0),
         "randomDir": _r(m.get("randomDirectionAmount", 0.0)), "spherical": _r(m.get("sphericalDirectionAmount", 0.0)),
         "randomPos": _r(m.get("randomPositionAmount", 0.0)), "align": 1 if m.get("alignToDirection") else 0,
@@ -200,6 +204,13 @@ def _modules(ps: Mapping[str, Any]) -> dict:
     m = ps.get("ColorModule") or {}
     if m.get("enabled"):
         out["color"] = gradient(m.get("gradient"))
+    m = ps.get("ColorBySpeedModule") or {}
+    if m.get("enabled"):
+        # the gradient over the particle's speed between range x and y (CH0318's dust fades out towards 7 and 8 units
+        # a second)
+        rng = m.get("range") or {}
+        out["colorBySpeed"] = {"color": gradient(m.get("gradient")),
+                               "range": [_r(rng.get("x", 0.0)), _r(rng.get("y", 1.0))]}
     m = ps.get("VelocityModule") or {}
     if m.get("enabled"):
         out["velocity"] = {k: curve(m.get(k)) for k in ("x", "y", "z", "orbitalX", "orbitalY", "orbitalZ",

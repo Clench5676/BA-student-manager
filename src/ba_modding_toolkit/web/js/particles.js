@@ -10,16 +10,17 @@
 //
 // Simulated, by Unity's modules: main (duration, looping, prewarm, start delay, lifetime, speed, size and rotation in
 // 1D or 3D, colour, gravity, max particles, simulation space, scaling mode, simulation speed, ring buffer: pause or
-// loop until replaced), emission (rate over time, bursts with cycles and probability), shape (sphere, hemisphere,
-// cone and cone volume, box with its shell and edges, circle, edge, rectangle, donut: arc, radius thickness,
-// position, rotation, scale, random and spherical direction), velocity over lifetime (linear, orbital with offset,
-// radial, speed modifier), limit velocity (dampen), force over lifetime, colour, size and rotation over lifetime,
-// texture sheet animation (grid: whole sheet or one row), custom data (vectors, colours) and sub-emitters (birth,
-// death); a mesh particle draws one of its renderer's meshes (up to four, picked per particle) and takes its vertex
-// colours. Systems below GameObjects the lobby's SpineEventToggleObjects switches (CH0217's fish bubbles) play while
-// the skeleton's Spine events have them on (spineEvent). Not simulated: noise, collision, triggers, lights,
-// trails, inherit velocity, rate over distance, limit velocity's drag, the by-speed modules and external forces (none
-// is used by more than one lobby); a system keeps drawing without them.
+// loop until replaced), emission (rate over time and over distance, bursts with cycles and probability), shape
+// (sphere, hemisphere, cone and cone volume, box with its shell and edges, circle, edge, rectangle, donut: arc and
+// edge modes, radius thickness, position, rotation, scale, random and spherical direction), velocity over lifetime
+// (linear, orbital with offset, radial, speed modifier), limit velocity (dampen), force over lifetime, colour, size
+// and rotation over lifetime, colour by speed, texture sheet animation (grid: whole sheet or one row), custom data
+// (vectors, colours) and sub-emitters (birth, death); a mesh particle draws one of its renderer's meshes (up to
+// four, picked per particle) and takes its vertex colours. Systems below GameObjects the lobby's
+// SpineEventToggleObjects switches (CH0217's fish bubbles) play while the skeleton's Spine events have them on
+// (spineEvent). Not simulated: noise, collision, triggers, lights, trails, inherit velocity, size and rotation by
+// speed and external forces (no system a lobby draws uses them but CH0172's trails) and limit velocity's drag
+// (CH0318's dust, too slow for it to tell); a system keeps drawing without them.
 
 import { toLinear } from "./touch-fx.js";
 
@@ -100,7 +101,8 @@ export function rnd(seed, k) {
 const R = { life: 0, speed: 1, size: 2, sizeY: 3, sizeZ: 4, rotX: 5, rotY: 6, rot: 7, color: 8, colorLife: 9,
   sizeLife: 10, rotLife: 11, velX: 12, velY: 13, velZ: 14, orbit: 15, radial: 16, speedMod: 17, limit: 18,
   forceX: 19, forceY: 20, forceZ: 21, frame: 22, start: 23, row: 24, flipU: 25, flipV: 26, flipRot: 27, custom: 28,
-  mesh: 36, burst: 38, sub: 39, shape: 40 };
+  mesh: 36, burst: 38, sub: 39, shape: 40, // shape: the first of the values the shape draws, one after another
+  colorSpeed: 90 };
 
 // --- 3 x 4 affine matrices (row-major) ------------------------------------------------------------------------------
 
@@ -166,9 +168,25 @@ const norm = (v) => { const l = Math.hypot(v[0], v[1], v[2]); return l > 1e-9 ? 
 // radius thickness: 0 emits from the surface, 1 from the whole area (2D) or volume (3D), uniformly
 const shell = (r, thickness, dims) => Math.pow(1 - thickness + thickness * r, 1 / dims);
 
+// Where around an arc, or along an edge, a particle is emitted (0..1), by the shape's mode for it
+// (ParticleSystemShapeMultiModeValue): loop (1) and ping-pong (2) go round over the system's time at the mode's speed,
+// burst spread (3) spreads the particles emitted together evenly (batch: the particle's index i of n), and a spread
+// above 0 keeps them to multiples of it. Random (0): null, the shape draws a random value.
+export function along(mode, spread, speed, time, duration, batch, u = 0) {
+  let t;
+  if (mode === 1 || mode === 2) {
+    const k = ((time / duration) * (value(speed, u, 0) || 1)) % 1;
+    t = mode === 2 ? 1 - Math.abs(1 - 2 * k) : k;
+  } else if (mode === 3) t = batch && batch.n > 0 ? batch.i / batch.n : 0;
+  else return null;
+  if (spread > 0) t = Math.round(t / spread) * spread;
+  return t;
+}
+
 // an emission point and direction in the shape's space (Unity's ParticleSystemShapeType), before the shape's own
-// position, rotation and scale; r() gives random values, arcPos (0..1) places it on the arc in loop and ping-pong modes
-export function shapePoint(shape, r, arcPos = null) {
+// position, rotation and scale; r() gives random values, arcPos (0..1) places it on the arc and edgePos (0..1) on an
+// edge where their modes say (along)
+export function shapePoint(shape, r, arcPos = null, edgePos = null) {
   const type = shape.type, rad = shape.radius, th = shape.thickness;
   const angle = (arcPos != null ? arcPos : r()) * ((shape.arc ?? 360) * Math.PI) / 180;
   switch (type) {
@@ -206,7 +224,7 @@ export function shapePoint(shape, r, arcPos = null) {
       return { p: [d[0] * k, d[1] * k, 0], d };
     }
     case 12: // single-sided edge along x, emitting along +y
-      return { p: [((arcPos != null ? arcPos : r()) * 2 - 1) * rad, 0, 0], d: [0, 1, 0] };
+      return { p: [((edgePos != null ? edgePos : r()) * 2 - 1) * rad, 0, 0], d: [0, 1, 0] };
     case 17: { // donut around z: a ring of radius rad, a tube of radius donut
       const k = shape.donut * shell(r(), th, 2), b = r() * TAU, cx = Math.cos(angle), cy = Math.sin(angle);
       const off = [cx * Math.cos(b) * k, cy * Math.cos(b) * k, Math.sin(b) * k];
@@ -223,7 +241,7 @@ export function shapePoint(shape, r, arcPos = null) {
 
 // A clock that emits: a system's own, or a birth sub-emitter's (one per parent particle). fresh: a burst at time 0
 // still fires on the first step.
-const newClock = (bursts) => ({ time: 0, acc: 0, fresh: true, bursts: bursts.map(() => 0) });
+const newClock = (bursts) => ({ time: 0, acc: 0, dacc: 0, fresh: true, bursts: bursts.map(() => 0) });
 
 // The runtime state of one lobby's effects. fx: lobby.json "fx"; bone(skeleton, bone) -> {a, b, c, d, worldX,
 // worldY} or null, read every frame; random: a 0..1 source for tests.
@@ -305,6 +323,10 @@ export class Effects {
         const b = this.bone(a.skeleton, a.bone);
         if (b) W = mul(a.go, mul([b.a, b.b, 0, b.worldX * a.ds, b.c, b.d, 0, b.worldY * a.ds, 0, 0, 1, 0], s.def.rel));
       }
+      // how far its origin moved since the last frame, in Unity world units (rate over distance)
+      const origin = [W[3], W[7], W[11]];
+      s.moved = s.origin ? Math.hypot(origin[0] - s.origin[0], origin[1] - s.origin[1], origin[2] - s.origin[2]) / WORLD : 0;
+      s.origin = origin;
       s.W = W;
       s.M = scaled(W, s.def);
       s.Minv = invert(s.M);
@@ -339,6 +361,7 @@ export class Effects {
         left -= used;
       }
       if (left > 0) this.emitSpan(s, s.clock, left, null);
+      if (!prewarm && left > 0) this.emitMoved(s, left);
       if (!s.def.main.loop && s.clock.time >= s.def.main.duration) s.done = true;
     }
     for (const inst of s.instances) this.emitSpan(s, inst.clock, dt, inst);
@@ -370,23 +393,38 @@ export class Effects {
           if (t <= from + EPS && !(clock.fresh && t <= EPS)) continue;
           if (b.p < 1 && this.random() >= b.p) continue;
           const n = Math.round(value(b.n, local / D, this.random()));
-          for (let j = 0; j < n; j++) this.emit(s, local / D, inst, end - t);
+          for (let j = 0; j < n; j++) this.emit(s, local / D, inst, end - t, { i: j, n });
         }
       }
     });
     const u = (from % D) / D, rate = value(em.rate, u, this.random());
     if (rate > 0) {
       clock.acc += rate * (to - from);
-      // the count passed a whole number clock.acc / rate before `to`
-      while (clock.acc >= 1 - rate * EPS) { clock.acc -= 1; this.emit(s, u, inst, end - to + clock.acc / rate); }
+      // the count passed a whole number clock.acc / rate before `to`, n times in this span
+      let n = 0;
+      while (clock.acc - n >= 1 - rate * EPS) n++;
+      for (let i = 0; i < n; i++) { clock.acc -= 1; this.emit(s, u, inst, end - to + clock.acc / rate, { i, n }); }
     }
     clock.time = to;
     clock.fresh = false;
   }
 
+  // rate over distance: the particles of the distance the system's origin moved this frame (Unity world units, place),
+  // spread over the step. CH0292's car headlights emit 6 to 8 a unit; at rest their bone sways 0.008 units in 10 s.
+  emitMoved(s, dt) {
+    const em = s.def.emission, D = s.def.main.duration;
+    if (!em?.dist || !(s.moved > 0)) return;
+    const u = (s.clock.time % D) / D, clock = s.clock;
+    clock.dacc = (clock.dacc || 0) + value(em.dist, u, this.random()) * s.moved;
+    const n = Math.floor(clock.dacc);
+    clock.dacc -= n;
+    for (let i = 0; i < n; i++) this.emit(s, u, null, dt * (1 - (i + 1) / n), { i, n });
+  }
+
   // a new particle at the system's normalized time u; `share`: how much of this step is left after its emission
-  // (none given: the whole step, a death sub-emitter's burst)
-  emit(s, u, inst, share) {
+  // (none given: the whole step, a death sub-emitter's burst); batch: its index i among the n emitted together
+  // (burst spread)
+  emit(s, u, inst, share, batch = null) {
     const def = s.def, main = def.main;
     if (s.particles.length >= main.max) {
       if (!main.ring || !s.particles.length) return null;
@@ -409,13 +447,11 @@ export class Effects {
     let p = [0, 0, 0], d = [0, 0, 1];
     const sh = def.shape;
     if (sh) {
-      let arcPos = null;
-      if (sh.arcMode === 1 || sh.arcMode === 2) {
-        const t = (((inst ? inst.clock.time : s.clock.time) / main.duration) * (value(sh.arcSpeed, u, 0) || 1)) % 1;
-        arcPos = sh.arcMode === 2 ? 1 - Math.abs(1 - 2 * t) : t;
-        if (sh.arcSpread > 0) arcPos = Math.round(arcPos / sh.arcSpread) * sh.arcSpread;
-      }
-      const e = shapePoint(sh, next, arcPos);
+      // around the arc by its mode; along an edge by the radius's mode (an edge has no arc)
+      const time = inst ? inst.clock.time : s.clock.time;
+      const arcPos = along(sh.arcMode, sh.arcSpread, sh.arcSpeed, time, main.duration, batch, u);
+      const edgePos = along(sh.radiusMode, sh.radiusSpread || 0, sh.radiusSpeed ?? 1, time, main.duration, batch, u);
+      const e = shapePoint(sh, next, arcPos, edgePos);
       let q = e.p, dir = e.d;
       if (sh.randomPos > 0) q = q.map((v) => v + (next() * 2 - 1) * sh.randomPos);
       if (sh.spherical > 0) { const out = norm(q); dir = norm(dir.map((v, i) => v + (out[i] - v) * sh.spherical)); }
@@ -446,8 +482,8 @@ export class Effects {
       p = apply(s.M, p[0], p[1], p[2]);
       vel = applyDir(s.M, vel[0], vel[1], vel[2]);
     }
-    const pt = { seed, age: 0, life, size, rot, flip, color, pos: p, vel, anim: [0, 0, 0], u, cur: null, dead: false,
-      share: share === undefined ? null : Math.max(0, share) };
+    const pt = { seed, age: 0, life, size, rot, flip, color, pos: p, vel, anim: [0, 0, 0], speed: 0, u, cur: null,
+      dead: false, share: share === undefined ? null : Math.max(0, share) };
     s.particles.push(pt);
     for (const e of def.subs || []) {
       const sub = this.systems[e.system];
@@ -541,6 +577,8 @@ export class Effects {
       }
       pt.anim = anim;
       for (let i = 0; i < 3; i++) pt.pos[i] += (pt.vel[i] + anim[i]) * speedMod * dt;
+      // its speed (simulation units a second: colour by speed)
+      pt.speed = Math.hypot(pt.vel[0] + anim[0], pt.vel[1] + anim[1], pt.vel[2] + anim[2]) * Math.abs(speedMod);
       if (mod.rotation) { // angular velocity in radians per second
         const w = mod.rotation;
         if (w.sep) {
@@ -563,7 +601,7 @@ export class Effects {
       const inst = { parent: pt, system: s, inherit: e.inherit, clock: newClock([]) };
       for (const b of sub.def.emission?.bursts || []) {
         const n = Math.round(value(b.n, 0, this.random())) * Math.max(1, b.cycles || 1);
-        for (let j = 0; j < n; j++) this.emit(sub, 0, inst);
+        for (let j = 0; j < n; j++) this.emit(sub, 0, inst, undefined, { i: j, n });
       }
     }
   }
@@ -581,6 +619,12 @@ export class Effects {
     let color = pt.color;
     if (mod.color) {
       const c = colorAt(mod.color, t, r(R.colorLife));
+      color = [color[0] * c[0], color[1] * c[1], color[2] * c[2], color[3] * c[3]];
+    }
+    if (mod.colorBySpeed) {
+      // the gradient at the particle's speed (Unity units a second: world units in world space) within the range
+      const [lo, hi] = mod.colorBySpeed.range, sp = pt.speed / (s.def.main.space === 1 ? WORLD : 1);
+      const c = colorAt(mod.colorBySpeed.color, hi > lo ? Math.min(1, Math.max(0, (sp - lo) / (hi - lo))) : 0, r(R.colorSpeed));
       color = [color[0] * c[0], color[1] * c[1], color[2] * c[2], color[3] * c[3]];
     }
     let frame = 0, tiles = null;
@@ -676,10 +720,15 @@ export function geometry(fxs, s, { meshes = {}, linear = true } = {}) {
   let o = 0;
   const sx = colLen(M, 0), sy = colLen(M, 1), sz = colLen(M, 2), Rm = rotationOf(M);
   const maxSize = (rend.maxSize ?? 0.5) * VIEW_H;
-  // drawn in order, the last on top: oldest in front (2) draws the youngest first, youngest in front (3) the oldest
+  // drawn in order, the last on top: oldest in front (2) draws the youngest first, youngest in front (3) the oldest;
+  // by distance (1) and by depth (4) the farthest first, by z for the orthographic camera that looks along +z
   let order = s.particles;
   if (rend.sort === 2) order = order.slice().sort((a, b) => a.age - b.age);
   else if (rend.sort === 3) order = order.slice().sort((a, b) => b.age - a.age);
+  else if (rend.sort === 1 || rend.sort === 4) {
+    const z = (pt) => (world ? pt.pos[2] : M[8] * pt.pos[0] + M[9] * pt.pos[1] + M[10] * pt.pos[2]);
+    order = order.slice().sort((a, b) => z(b) - z(a));
+  }
   for (const pt of order) {
     const mesh = list && list[meshIndex(rend, pt.seed)];
     const cur = fxs.current(s, pt), c = vertexColor(cur.color, decode), tc = texcoords(streams, cur.custom);

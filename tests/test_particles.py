@@ -226,6 +226,19 @@ def test_mesh_renderer_meshes():
     assert ("mesh", 0) not in asked
 
 
+def test_colour_by_speed_and_edge_modes():
+    """CH0318's dust takes a colour by its speed; Hibiki's bokeh spread along an edge by the radius's mode."""
+    ps = {
+        "ColorBySpeedModule": {"enabled": 1, "range": {"x": 0.0, "y": 7.0},
+                               "gradient": {"minMaxState": 0, "maxColor": color(1, 1, 1, 0.5)}},
+        "ShapeModule": {"enabled": 1, "type": 12, "radius": {"value": 2.5, "mode": 3, "spread": 0.25, "speed": mm(0, 5.0)},
+                        "arc": {"value": 360.0, "mode": 0, "spread": 0.0, "speed": mm(0, 1.0)}},
+    }
+    s = particles.system(ps, {})
+    assert s["modules"]["colorBySpeed"] == {"color": {"col": [1.0, 1.0, 1.0, 0.5]}, "range": [0.0, 7.0]}
+    assert (s["shape"]["radiusMode"], s["shape"]["radiusSpread"], s["shape"]["radiusSpeed"]) == (3, 0.25, 5.0)
+
+
 def test_mesh():
     out = particles.mesh([(0, 0, 0), (1, 0, 0), (0, 1, 0)], [(0, 0), (1, 0), (0, 1)], None, [(0, 1, 2)],
                          [(1, 1, 1, 1)] * 3)
