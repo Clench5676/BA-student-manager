@@ -69,7 +69,6 @@ ROSTER_FILTERS = {
     "portrait": ("official", "replaced"),
     "lobby": ("yes", "no"),
     "model": ("yes", "no"),
-    "kind": ("student", "npc"),
 }
 
 

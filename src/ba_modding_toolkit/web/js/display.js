@@ -24,10 +24,9 @@ const optionLabel = {
   portrait: { official: () => T("status.original"), replaced: () => T("status.replaced") },
   lobby: { yes: () => T("model.has"), no: () => T("model.none") },
   model: { yes: () => T("model.has"), no: () => T("model.none") },
-  kind: { student: () => T("display.kind.student"), npc: () => T("display.kind.npc") },
 };
 const groupTitle = { favorite: () => T("fav.label"), portrait: () => T("tab.portrait"), lobby: () => T("tab.lobby"),
-  model: () => T("tab.model"), kind: () => T("display.kind.title") };
+  model: () => T("tab.model") };
 
 const setText = (n, text, fsMax, fsMin, w) => NGUI.fitLabel(n.widgets.find((x) => "text" in x), text, fsMax, fsMin, w);
 

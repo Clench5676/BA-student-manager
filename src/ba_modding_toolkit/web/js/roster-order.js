@@ -14,7 +14,6 @@ export const FILTERS = {
   portrait: ["official", "replaced"],
   lobby: ["yes", "no"],
   model: ["yes", "no"],
-  kind: ["student", "npc"],
 };
 export const DEFAULT_VIEW = Object.freeze({ merged: false, mods: "all", recruit: "all", sort: "recent", order: "desc", filters: {} });
 
@@ -82,7 +81,6 @@ function passes(card, filters) {
       portrait: card.replaced ? "replaced" : "official",
       lobby: card.lobby ? "yes" : "no",
       model: card.model ? "yes" : "no",
-      kind: card.playable ? "student" : "npc",
     }[group];
     if (!on.includes(value)) return false;
   }
@@ -111,7 +109,6 @@ function cards(data, view, words, label) {
         favorite: vs.some((v) => v.favorite), fresh: vs.some((v) => v.fresh),
         replaced: vs.find((v) => v.replaced)?.replaced || null,
         lobby: hit?.spineCategory ? hit.lobby : vs.find((v) => v.lobby)?.lobby || null, model: vs.find((v) => v.model)?.model || null,
-        playable: vs.some((v) => v.playable),
         recent, added: Math.max(...vs.map((v) => time(v.added))),
       };
       list.push(card);

@@ -892,7 +892,7 @@
 		},
 		"roster": {
 			"title": "學生清單",
-			"merge": "合併變體",
+			"merge": "合併換皮",
 			"search": "搜尋",
 			"searchHint": "名字、別名、檔案 ID",
 			"empty": "沒有符合條件的學生",
@@ -926,11 +926,6 @@
 			"close": "關閉",
 			"fav": {
 				"off": "未加入"
-			},
-			"kind": {
-				"title": "類型",
-				"student": "學生",
-				"npc": "其他角色"
 			}
 		},
 		"band": {
@@ -1091,7 +1086,7 @@
 			"delete": "刪除"
 		},
 		"picker": {
-			"title": "選擇變體",
+			"title": "選擇換皮",
 			"ok": "確認",
 			"group": "{name} {n}"
 		},
@@ -1160,7 +1155,7 @@
 			"bundle_invalid": "不是有效的資源包：{file}",
 			"catalog_data_invalid": "角色資料已損毀",
 			"catalog_family_not_found": "找不到這名學生",
-			"catalog_variant_not_found": "找不到這個變體",
+			"catalog_variant_not_found": "找不到這個換皮",
 			"game_file_conflict": "遊戲檔案衝突：{file}",
 			"game_file_not_found": "找不到對應的遊戲檔案",
 			"game_file_outside_resources": "目標不在遊戲資料夾中：{file}",
@@ -1171,13 +1166,13 @@
 			"mod_in_use": "遊戲中正在使用，請先切換為其他",
 			"mod_in_use_elsewhere": "其他遊戲資料夾正在使用：{folder}",
 			"mod_not_found": "找不到這個 Mod",
-			"mod_target_mismatch": "這個 Mod 不適用於此變體",
+			"mod_target_mismatch": "這個 Mod 不適用於此換皮",
 			"mod_update_failed": "無法更新 Mod",
 			"original_invalid": "保留的原版檔案已損毀：{file}",
 			"original_unavailable": "已無原版備份",
 			"source_unsupported": "不支援的來源",
 			"variant_incompatible": "兩者結構不同，無法互換",
-			"variant_not_found": "找不到這個變體",
+			"variant_not_found": "找不到這個換皮",
 			"steam_busy": "Steam 正在更新或驗證遊戲",
 			"classic_open": "請先關閉經典介面",
 			"entry_changed": "遊戲檔案已變更，請重新檢查",

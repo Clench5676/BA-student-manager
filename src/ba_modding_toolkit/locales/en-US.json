@@ -926,11 +926,6 @@
 			"close": "Close",
 			"fav": {
 				"off": "Not Favorited"
-			},
-			"kind": {
-				"title": "Type",
-				"student": "Student",
-				"npc": "Others"
 			}
 		},
 		"band": {
