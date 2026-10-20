@@ -892,7 +892,7 @@
 		},
 		"roster": {
 			"title": "学生名单",
-			"merge": "合并变种",
+			"merge": "合并换皮",
 			"search": "搜索",
 			"searchHint": "名称、别名、文件 ID",
 			"empty": "无结果",
@@ -1085,7 +1085,7 @@
 			"delete": "删除"
 		},
 		"picker": {
-			"title": "选择变种",
+			"title": "选择换皮",
 			"ok": "确认",
 			"group": "{name} {n}"
 		},
@@ -1138,7 +1138,7 @@
 			"bundle_invalid": "不是有效的资源包：{file}",
 			"catalog_data_invalid": "角色数据已损坏",
 			"catalog_family_not_found": "找不到这名学生",
-			"catalog_variant_not_found": "找不到这个变种",
+			"catalog_variant_not_found": "找不到这个换皮",
 			"game_file_conflict": "游戏文件冲突：{file}",
 			"game_file_not_found": "找不到对应的游戏文件",
 			"game_file_outside_resources": "目标不在游戏目录中：{file}",
@@ -1149,13 +1149,13 @@
 			"mod_in_use": "游戏中正在使用，请先切换为其他",
 			"mod_in_use_elsewhere": "其他游戏目录中正在使用：{folder}",
 			"mod_not_found": "找不到这个 Mod",
-			"mod_target_mismatch": "这个 Mod 不适用于此变种",
+			"mod_target_mismatch": "这个 Mod 不适用于此换皮",
 			"mod_update_failed": "更新 Mod 失败",
 			"original_invalid": "保留的原版文件已损坏：{file}",
 			"original_unavailable": "已无原版备份",
 			"source_unsupported": "不支持的来源",
 			"variant_incompatible": "两者结构不同，无法互换",
-			"variant_not_found": "找不到这个变种",
+			"variant_not_found": "找不到这个换皮",
 			"steam_busy": "Steam 正在更新或校验游戏",
 			"classic_open": "请先关闭经典界面",
 			"entry_changed": "游戏文件已变化，请重新检查",
