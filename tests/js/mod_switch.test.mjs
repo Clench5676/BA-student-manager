@@ -1,0 +1,402 @@
+// Tests for web/js/mod-switch.js (the Enable Mods switch: its view from mods.state, a click, the first toggle's
+// explanation, the "?" help, the result, the classic modal, the start prompts), with the en-US strings, on a small
+// stand-in DOM. Run by tests/test_mod_switch.py with Node's test runner: node --test tests/js/mod_switch.test.mjs
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { test } from "node:test";
+
+// --- a stand-in DOM: elements in a tree, ids, clicks, the focus and the window's key listeners ---
+class El {
+  constructor(tag = "div") {
+    Object.assign(this, { tagName: tag.toUpperCase(), children: [], parentNode: null, style: {}, dataset: {}, attrs: {}, listeners: {} });
+    Object.assign(this, { hidden: false, className: "", textContent: "", id: "", font: "", tabIndex: 0, title: "", scrollWidth: 0 });
+    const self = this;
+    this.classList = {
+      set: new Set(),
+      add(...c) { c.forEach((x) => this.set.add(x)); },
+      remove(...c) { c.forEach((x) => this.set.delete(x)); },
+      toggle(c, on = !this.set.has(c)) { if (on) this.set.add(c); else this.set.delete(c); return on; },
+      contains(c) { return this.set.has(c) || self.className.split(" ").includes(c); },
+    };
+  }
+  get childNodes() { return [...this.children]; }
+  get parentElement() { return this.parentNode; }
+  appendChild(child) { child.remove?.(); child.parentNode = this; this.children.push(child); return child; }
+  append(...kids) { for (const k of kids) this.appendChild(k); }
+  replaceChildren(...kids) { for (const c of [...this.children]) c.remove(); for (const k of kids) this.appendChild(k); }
+  remove() {
+    if (!this.parentNode) return;
+    this.parentNode.children = this.parentNode.children.filter((c) => c !== this);
+    this.parentNode = null;
+  }
+  set innerHTML(_) { for (const c of [...this.children]) c.remove(); }
+  contains(node) { for (let n = node; n; n = n.parentNode) if (n === this) return true; return false; }
+  get isConnected() { return document.body.contains(this); }
+  setAttribute(k, v) { this.attrs[k] = String(v); }
+  getAttribute(k) { return this.attrs[k] ?? null; }
+  removeAttribute(k) { delete this.attrs[k]; if (k === "title") this.title = ""; }
+  addEventListener(type, fn) { (this.listeners[type] ||= []).push(fn); }
+  click() { for (const fn of this.listeners.click || []) fn({ type: "click" }); }
+  focus() { document.activeElement = this; }
+  querySelector() { return null; }
+  getContext() { return { font: "", measureText(s) { return { width: s.length * 0.6 * parseFloat(/([\d.]+)px/.exec(this.font)?.[1] || 10) }; } }; }
+}
+const body = new El("body");
+const walk = (n, out = []) => { out.push(n); for (const c of n.children) walk(c, out); return out; };
+globalThis.document = {
+  body, activeElement: body, documentElement: { lang: "en-US", appendChild() {} },
+  createElement: (tag) => new El(tag),
+  getElementById: (id) => walk(body).find((n) => n.id === id) || null,
+  querySelector: () => null,
+  addEventListener() {},
+};
+const keyListeners = [];
+globalThis.addEventListener = (type, fn) => { if (type === "keydown") keyListeners.push(fn); };
+globalThis.removeEventListener = () => {};
+globalThis.requestAnimationFrame = (fn) => setTimeout(fn, 0);
+function press(key) {
+  const ev = { key, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } };
+  for (const fn of keyListeners) fn(ev);
+  return ev;
+}
+const host = (id) => { const h = body.appendChild(new El()); h.id = id; h.hidden = true; return h; };
+const dialog = host("dialog"), consent = host("consent"), toastEl = host("toast"), stage = host("stage");
+stage.hidden = false;
+const switchHost = host("mod-switch");
+
+// --- the server: the popup frame's prefab, the RPC calls (recorded with their params) and the jobs ---
+const n = (name, pos, widgets = [], children = []) => ({ name, active: true, pos, scale: [1, 1], rotZ: 0, widgets, children });
+const spr = (name, w, h, extra = {}) => ({ sprite: name, atlas: "Common", type: 1, w_: w, h_: h, pivot: 4, depth: 5, color: "#ffffff/1.00", ...extra });
+const lbl = () => ({ cls: "UILabel", text: "text", fontSize: 72, color: "#2d4664/1.00", w_: 400, h_: 180, pivot: 4, depth: 9 });
+const SORT = n("UIPopup_Sort", [0, 0], [], [n("Center", [0, 0], [], [
+  n("BlackBg", [0, 0], [], [n("BlackBgClickArea", [0, 0], [spr("Common_Square_Bg", 2976, 2232, { color: "#000000/0.94" })])]),
+  n("Popup", [0, 0], [], [
+    n("Base", [0, -20], [], [n("BG", [0, 8], [spr("Common_Popup_Bg", 2458, 1355)], [
+      n("Texture_Top", [-977, 609], [{ texture: "Top", w_: 500, h_: 100, pivot: 4, depth: 6, color: "#ffffff/1.00" }]),
+      n("Label_Title_Locale", [0, 611], [lbl()], [n("Line", [0, -52], [spr("Common_Square_Bg", 160, 12)])]),
+      n("Btn_Close", [1144, 616], [spr("Common_Icon_Close", 60, 60, { type: 0 })]),
+    ])]),
+    n("Btn", [0, -499], [], [
+      n("Btn_Ok", [292, 0], [], [n("Label_Locale", [0, 2], [lbl()]), n("BG (1)", [0, -4], [spr("Common_Btn_BG", 496, 177)])]),
+      n("Btn_Cancel", [-292, 0], [], [n("BG (1)", [0, -4], [spr("Common_Btn_BG", 496, 177)]), n("Label_Locale", [0, 2], [lbl()])]),
+    ]),
+  ]),
+])]);
+const calls = [];
+const answers = {}; // method -> result (or a function of params)
+const jobs = {}; // id -> {state, result, error}
+const reply = (body, ok = true) => ({ ok, status: ok ? 200 : 404, json: async () => body });
+globalThis.fetch = async (url, opts = {}) => {
+  if (url === "/api/rpc") {
+    const { method, params } = JSON.parse(opts.body);
+    calls.push([method, params]);
+    if (method === "jobs.get") return reply({ result: jobs[params.id] || { state: "running" } });
+    const a = answers[method];
+    const result = typeof a === "function" ? a(params) : a ?? null;
+    if (result && result.error) return reply({ error: result.error });
+    return reply({ result });
+  }
+  if (url === "/asset/ui/atlases.json" || url === "/asset/ui/textures.json") return reply({});
+  if (url === "/asset/ui/layout/UIPopup_Sort.json") return reply(SORT);
+  return reply(null, false);
+};
+// the event stream: the page subscribes, nothing is sent
+globalThis.EventSource = class { constructor() { this.listeners = {}; } addEventListener(type, fn) { this.listeners[type] = fn; } };
+const warn = console.warn;
+console.warn = (...args) => { if (!String(args[0]).startsWith("popup layout")) warn(...args); };
+
+// the en-US strings, as i18n.strings gives them (webui.* keys)
+const flat = (o, p = "", out = {}) => { for (const [k, v] of Object.entries(o)) { if (v && typeof v === "object") flat(v, `${p}${k}.`, out); else out[`${p}${k}`] = v; } return out; };
+const strings = Object.fromEntries(Object.entries(flat(JSON.parse(readFileSync(new URL("../../src/ba_modding_toolkit/locales/en-US.json", import.meta.url), "utf8"))))
+  .filter(([k]) => k.startsWith("webui.")));
+const I18n = await import("../../src/ba_modding_toolkit/web/js/i18n.js");
+I18n.setStrings("en-US", strings);
+const S = (key) => strings[`webui.${key}`];
+
+const MS = await import("../../src/ba_modding_toolkit/web/js/mod-switch.js");
+
+const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+const actionsIn = (root) => walk(root).filter((e) => e.dataset?.action);
+const action = (root, name) => actionsIn(root).find((e) => e.dataset.action === name);
+async function drawn(root, name) {
+  for (let i = 0; i < 300; i++) { const b = action(root, name); if (b) return b; await tick(); }
+  throw new Error(`no ${name} button`);
+}
+async function until(fn, what) {
+  for (let i = 0; i < 300; i++) { if (fn()) return; await tick(); }
+  throw new Error(`never: ${what}`);
+}
+const called = (method) => calls.filter(([m]) => m === method).map(([, p]) => p);
+const labels = (root) => walk(root).map((e) => e.attrs?.["aria-label"]).filter(Boolean);
+
+// a mods.state as the services answer it
+const install = (key, label, extra = {}) => ({ id: key.slice(-4), key, server: "global", folder: key, label, named: true, ...extra });
+const base = (over = {}) => ({
+  installs: [install("/games/BlueArchive", "Global")], current: "/games/BlueArchive", enabled: true, shown: true,
+  available: true, reason: null, reasonParams: {}, scan: true, explained: true, configured: 2, pending: 0, stuck: 0,
+  left: 0, unfinished: { pending: 0, left: 0, stuck: 0 }, drift: 0, untracked: 0, damaged: 0, sourceMissing: 0,
+  builtSize: 0, originalsSize: 0, queued: 0, scanned: null, tray: false, traySupported: false, busy: false, progress: null,
+  ...over,
+});
+
+test("the switch's view from mods.state: on, off, busy, unavailable with its reason, the red dot, hidden", () => {
+  assert.equal(MS.view(base()).on, true);
+  assert.equal(MS.view(base({ enabled: false })).on, false);
+  // busy: a toggle queued or running, or writes waiting for the classic window; busy wins over unavailable
+  assert.equal(MS.view(base({ busy: true })).busy, true);
+  assert.deepEqual([MS.view(base({ busy: true, queued: 2, available: false, reason: "classic_open" }))].map((v) => [v.busy, v.unavailable]), [[true, false]]);
+  for (const reason of ["game_running", "game_status_unavailable", "steam_busy", "classic_open", "game_not_found", "profiles_unreadable"]) {
+    const v = MS.view(base({ available: false, reason }));
+    assert.equal(v.unavailable, true, reason);
+    assert.equal(v.reason, reason);
+    assert.notEqual(MS.reasonText(base({ available: false, reason, reasonParams: { file: "profiles.json" } })), `error.${reason}`);
+  }
+  assert.equal(MS.reasonText(base({ available: false, reason: "game_running" })), S("error.game_running"));
+  assert.equal(MS.reasonText(base({ available: false, reason: "profiles_unreadable", reasonParams: { file: "p.json" } })), "Unreadable mod settings: p.json");
+  // the red dot: entries not switched or left as is, as the services count them (the last scan with the scan consent,
+  // the unfinished list's counts by why without it)
+  assert.equal(MS.view(base()).dot, false);
+  for (const k of ["pending", "stuck", "left"]) assert.equal(MS.view(base({ [k]: 1 })).dot, true, k);
+  assert.equal(MS.view(base({ scan: false, pending: 0, left: 1, unfinished: { pending: 0, left: 1, stuck: 0 } })).dot, true);
+  // hidden on the main screens when Settings turned it off (nothing replaces it), and without a current install
+  assert.equal(MS.view(base({ shown: false })).hidden, true);
+  assert.equal(MS.view(base({ current: null })).hidden, true);
+  assert.equal(MS.view(base({ shown: false }), { place: "settings" }).hidden, false, "Settings keeps the switch");
+  assert.equal(MS.view(null).hidden, true);
+});
+
+test("a click: the reason, busy, the classic modal, the first toggle's explanation, else the toggle at once", () => {
+  assert.equal(MS.clickAction(base()), "toggle");
+  assert.equal(MS.clickAction(base({ explained: false })), "explain");
+  assert.equal(MS.clickAction(base({ explained: false }), true), "toggle", "explained in this page already");
+  assert.equal(MS.clickAction(base({ busy: true })), "busy");
+  assert.equal(MS.clickAction(base({ busy: true, queued: 1 })), "queued");
+  assert.equal(MS.clickAction(base({ available: false, reason: "game_running" })), "reason");
+  assert.equal(MS.clickAction(base({ available: false, reason: "steam_busy", explained: false })), "reason");
+  assert.equal(MS.clickAction(base({ available: false, reason: "classic_open" })), "classic");
+  assert.equal(MS.clickAction(base({ available: false, reason: "classic_open", explained: false })), "explain");
+  assert.deepEqual(MS.toggleParams(base()), { enabled: false, expect: true });
+  assert.deepEqual(MS.toggleParams(base({ enabled: false })), { enabled: true, expect: false });
+  assert.deepEqual(MS.retryParams(base()), { enabled: true, expect: true });
+  assert.deepEqual(MS.retryParams(base({ enabled: false })), { enabled: false, expect: false });
+});
+
+test("the first toggle's explanation: the help's first lines, built mods kept, not shown again", () => {
+  const off = MS.explanation(base());
+  assert.equal(off.title, S("mods.offTitle"));
+  assert.equal(off.ok, S("mods.offTitle"));
+  assert.deepEqual(off.lines, [S("mods.helpOff"), S("mods.helpOn"), S("mods.helpKept"), S("mods.helpGame"), S("mods.builtWhat"), S("mods.explainOnce")]);
+  assert.equal(MS.explanation(base({ enabled: false })).ok, S("mods.onTitle"));
+});
+
+test("the help's lines: game folders, built mods and their size, the file check, Retry and Details", () => {
+  const texts = (s) => MS.helpLines(s).map((l) => l.text);
+  const buttons = (s) => MS.helpLines(s).filter((l) => l.button).map((l) => [l.button.id, l.button.label]);
+  // one game folder: no folders line; built mods with their size, and their Clear only when there are some
+  assert.deepEqual(texts(base()).slice(0, 4), [S("mods.helpOff"), S("mods.helpOn"), S("mods.helpKept"), S("mods.helpGame")]);
+  assert.ok(!texts(base()).some((t) => t.startsWith("Game folders")));
+  assert.ok(texts(base()).includes("Disk use: 0 MB, can grow large"));
+  assert.ok(texts(base({ originalsSize: 3 * 1048576 })).includes("Official copies for Off: 3.0 MB"));
+  assert.deepEqual(buttons(base()), []);
+  assert.deepEqual(buttons(base({ builtSize: 5 * 1073741824 })), [["clear", S("mods.builtClear")]]);
+  assert.ok(texts(base({ builtSize: 5 * 1073741824 })).includes("Disk use: 5.00 GB, can grow large"));
+  // two game folders: their install labels, with the language's separator
+  const two = base({ installs: [install("/a/BlueArchive", "Global (BlueArchive)"), install("/b/Steam", "Global (Steam)")] });
+  assert.ok(texts(two).includes("Game folders: Global (BlueArchive), Global (Steam)"));
+  assert.equal(MS.helpLines(two, { sep: "、" }).find((l) => l.text.startsWith("Game folders")).text, "Game folders: Global (BlueArchive)、Global (Steam)");
+  // Retry for the entries not switched (pending and left), Details for those left as is (stuck), never a Retry for them
+  const counts = base({ pending: 2, left: 1, stuck: 3, sourceMissing: 1 });
+  assert.ok(texts(counts).includes("Not switched: 3"));
+  assert.ok(texts(counts).includes("Left as is, no official copy: 3"));
+  assert.ok(texts(counts).includes("Gone from the library: 1"));
+  assert.deepEqual(buttons(counts), [["retry", S("mods.retry")], ["details", S("mods.details")]]);
+  assert.deepEqual(buttons(base({ stuck: 2 })), [["details", S("mods.details")]]);
+  // without the scan consent: "Other mods not checked" with Allow Check, and the same split from the unfinished
+  // list's counts by why (the services count pending, left and stuck from it)
+  for (const scan of [null, false]) {
+    const s = base({ scan, pending: 1, left: 1, stuck: 1, unfinished: { pending: 1, left: 1, stuck: 1 } });
+    assert.ok(texts(s).includes(S("mods.scanOff")), String(scan));
+    assert.deepEqual(buttons(s), [["allow", S("mods.allowCheck")], ["retry", S("mods.retry")], ["details", S("mods.details")]]);
+    assert.ok(texts(s).includes("Not switched: 2"));
+  }
+  assert.ok(!texts(base()).includes(S("mods.scanOff")), "with the scan consent neither shows");
+  for (const l of MS.helpLines(counts)) assert.ok(!/^mods\./.test(l.text), `a string for ${l.text}`);
+});
+
+test("a toggle's end: a toast, or the result popup naming each failed entry with its error string", () => {
+  assert.deepEqual(MS.resultSummary({ enabled: false, done: [{}, {}], adopted: [], failed: [], stuck: [], left: [], skipped: [{}] }), { toast: S("mods.offState") });
+  assert.deepEqual(MS.resultSummary({ enabled: true, done: [] }), { toast: S("mods.onState") });
+  const names = (e) => ({ airi: "Airi", ch0251: "Airi (Band)" })[e.variant] || e.variant;
+  const r = MS.resultSummary({
+    enabled: false, done: [{}, {}, {}], adopted: [{ variant: "airi" }],
+    failed: [{ entry: { install: "/g", core: "airi_spr", variant: "airi", kind: "spr" }, code: "game_file_locked", params: {} },
+      { entry: { install: "/g", core: "ch0251_home", variant: "ch0251", kind: "lobby" }, code: "not_enough_space", params: { need: 3 * 1048576, free: 1048576 } }],
+    stuck: [{ variant: "ch0251" }], left: [{ install: "/g", core: "zz_spr", variant: "zz", kind: "spr", code: "library_io_error" }],
+  }, names);
+  assert.equal(r.title, S("mods.offState"));
+  assert.deepEqual(r.lines, [
+    "Added to the library first: 1",
+    "Done: 3, failed: 3",
+    "Left as is, no official copy: 1",
+    `Airi, Portrait - ${S("error.game_file_locked")}`,
+    "Airi (Band), Memorial Lobby - Not enough space: 3.0 MB needed, 1.0 MB free",
+    "zz, Portrait - Could not write to the mod library: ",
+  ]);
+  // many failures: the first ones named, the rest counted
+  const many = MS.resultSummary({ enabled: true, failed: Array.from({ length: 9 }, (_, i) => ({ entry: { core: `c${i}_spr`, variant: `c${i}` }, code: "game_file_locked" })) });
+  assert.equal(many.lines.at(-1), "+3");
+  assert.equal(many.lines[0], "Done: 0, failed: 9");
+  assert.equal(many.lines.length, 1 + 6 + 1);
+});
+
+test("the classic modal's outcome follows its box however it closes (decision 5)", () => {
+  assert.equal(MS.classicOutcome({ queued: false, checked: true }), "queue");
+  assert.equal(MS.classicOutcome({ queued: false, checked: false }), null);
+  assert.equal(MS.classicOutcome({ queued: true, checked: true }), null, "the queued writes stay");
+  assert.equal(MS.classicOutcome({ queued: true, checked: false }), "clear", "unticked: the queue is emptied");
+  assert.deepEqual(MS.QUEUEABLE, ["actions.apply", "actions.restore", "mods.toggle", "mods.restoreDrift"]);
+});
+
+test("the start prompts: their order, the scan consent, and no prompt from the scan while files may be written", () => {
+  assert.deepEqual(MS.START, ["consent", "scan", "update", "drift", "untracked"]);
+  const due = (state, entries = [], info = { consent: true, compiled: false }) => MS.START.filter((name) => MS.startDue(name, { info, state, entries }));
+  assert.deepEqual(due(base({ scan: null }), [], { consent: null, compiled: true }), ["consent", "scan", "update"]);
+  assert.deepEqual(due(base({ scan: null, installs: [] })), [], "no game folder known: no scan consent");
+  assert.deepEqual(due(base({ scan: false })), [], "answered: not asked again");
+  const reset = { install: "/g", core: "airi_spr", state: "reset" }, untracked = { install: "/g", core: "ch0251_spr", state: "untracked" };
+  assert.deepEqual(due(base(), [reset, untracked]), ["drift", "untracked"]);
+  assert.deepEqual(due(base(), [{ ...reset, state: "updated" }, { ...untracked, state: "changed" }]), ["drift", "untracked"]);
+  for (const reason of MS.PROMPT_BLOCKERS) assert.deepEqual(due(base({ available: false, reason }), [reset, untracked]), [], reason);
+  assert.deepEqual(due(base({ available: false, reason: "game_status_unavailable" }), [reset]), ["drift"]);
+  assert.deepEqual(due(base({ scan: false }), [reset, untracked]), [], "no drift or untracked prompt without the scan consent");
+  assert.deepEqual(due(base(), [{ ...reset, dismissed: true }, { ...untracked, dismissed: true }]), [], "a dismissed set does not prompt");
+  assert.deepEqual(due(base({ enabled: false }), [reset, untracked]), ["untracked"], "mods off: official files are the intent");
+});
+
+test("the prompts' buttons: Add and Turn On Mods only while off; Apply Mod Configuration and Keep as Is", () => {
+  assert.deepEqual(MS.untrackedButtons(base()), ["add", "later"]);
+  assert.deepEqual(MS.untrackedButtons(base({ enabled: false })), ["add", "addTurnOn", "later"]);
+  const a = { install: "/g", core: "airi_spr" }, b = { install: "/g", core: "ch0251_spr" }, c = { install: "/j", core: "airi_spr" };
+  assert.deepEqual(MS.driftChoice("apply", [a, b, c], ["/g|airi_spr", "/j|airi_spr"]), { restore: [a, c], dismiss: [b] });
+  assert.deepEqual(MS.driftChoice("keep", [a, b, c], ["/g|airi_spr"]), { restore: [], dismiss: [a, b, c] });
+});
+
+test("sizes and the free-space refusal's sizes", () => {
+  assert.equal(MS.sizeText(0), "0 MB");
+  assert.equal(MS.sizeText(500), "1 KB");
+  assert.equal(MS.sizeText(200 * 1024), "200 KB");
+  assert.equal(MS.sizeText(1.5 * 1048576), "1.5 MB");
+  assert.equal(MS.sizeText(2.25 * 1073741824), "2.25 GB");
+  assert.equal(MS.errorText("not_enough_space", { need: 1073741824, free: 0 }), "Not enough space: 1.00 GB needed, 0 MB free");
+  assert.equal(MS.listSep("zh-CN"), "、");
+  assert.equal(MS.listSep("ja-JP"), "、");
+  assert.equal(MS.listSep("ko-KR"), ", ");
+  assert.equal(MS.listSep("en-US"), ", ");
+});
+
+// --- the page: the top bar's switch, a click, the explanation once, the help's Allow Check, the classic modal ---
+
+test("the top bar's switch follows mods.state, and the first toggle explains once from any place", async () => {
+  answers["mods.state"] = base({ explained: false });
+  await MS.init({ names: async () => (e) => e.variant });
+  const toggle = switchHost.children.find((e) => e.className === "ms-toggle");
+  assert.equal(switchHost.hidden, false);
+  assert.equal(toggle.getAttribute("role"), "switch");
+  assert.equal(toggle.getAttribute("aria-checked"), "true");
+  assert.equal(switchHost.children.find((e) => e.className === "ms-help").getAttribute("aria-label"), S("mods.guide"));
+  // the first click (here from Settings): the explanation; closing it any way but its button toggles nothing
+  MS.click("settings");
+  await drawn(dialog, "cancel");
+  action(dialog, "cancel").click();
+  await until(() => called("mods.explained").length === 1, "mods.explained");
+  assert.equal(called("mods.toggle").length, 0);
+  // the next click (the top bar) toggles at once: the explanation came once
+  answers["mods.toggle"] = "job-1";
+  jobs["job-1"] = { state: "done", result: { enabled: false, done: [], adopted: [], failed: [], stuck: [], left: [] } };
+  toggle.click();
+  await until(() => called("mods.toggle").length === 1, "mods.toggle");
+  assert.deepEqual(called("mods.toggle")[0], { enabled: false, expect: true });
+  assert.equal(dialog.hidden, true, "no explanation the second time");
+  await until(() => toastEl.textContent === S("mods.offState"), "the toast");
+  // greyed with its reason as the tooltip; a click says why and submits nothing
+  answers["mods.state"] = base({ available: false, reason: "game_running" });
+  await MS.refresh();
+  assert.ok(toggle.classList.contains("unavailable"));
+  assert.equal(toggle.title, S("error.game_running"));
+  MS.click("top");
+  assert.equal(toastEl.textContent, S("error.game_running"));
+  assert.equal(called("mods.toggle").length, 1);
+  // hidden on the main screens (Settings' Show on Main Screens off)
+  answers["mods.state"] = base({ shown: false });
+  await MS.refresh();
+  assert.equal(switchHost.hidden, true);
+});
+
+test("the help's Allow Check opens the scan consent popup and grants nothing itself", async () => {
+  answers["mods.state"] = base({ scan: false });
+  await MS.refresh();
+  const help = MS.openHelp();
+  await until(() => labels(dialog).includes(S("mods.allowCheck")), "Allow Check");
+  const before = called("mods.consent").length;
+  walk(dialog).find((e) => e.attrs?.["aria-label"] === S("mods.allowCheck")).click();
+  await help;
+  await drawn(consent, "ok");
+  assert.equal(consent.hidden, false, "the scan consent popup");
+  assert.ok(consent.classList.contains("over"), "over the help and the settings");
+  assert.equal(called("mods.consent").length, before, "nothing granted yet");
+  assert.ok(press("Escape").defaultPrevented, "it must be answered");
+  assert.equal(consent.hidden, false);
+  action(consent, "ok").click();
+  await until(() => called("mods.consent").length === before + 1, "mods.consent");
+  assert.deepEqual(called("mods.consent").at(-1), { granted: true });
+  await until(() => consent.hidden, "closed");
+  assert.equal(consent.classList.contains("over"), false);
+  // with the consent given, the help has neither the line nor the button
+  answers["mods.state"] = base({ scan: true });
+  await MS.refresh();
+  assert.ok(!MS.helpLines(MS.current()).some((l) => l.button?.id === "allow"));
+});
+
+test("the classic modal queues the refused write only when its box is ticked, on any close", async () => {
+  const queued = () => called("classic.queue").length;
+  // unticked, closed with OK: nothing
+  let m = MS.classicModal({ method: "mods.toggle", params: { enabled: false, expect: true } });
+  await drawn(dialog, "ok");
+  action(dialog, "ok").click();
+  assert.equal(await m, null);
+  assert.equal(queued(), 0);
+  // ticked, closed with Escape: queued with its call
+  m = MS.classicModal({ method: "actions.apply", params: { variant: "airi", source: "variant:ch0251", kind: "spr" } });
+  await drawn(dialog, "check");
+  action(dialog, "check").click();
+  press("Escape");
+  assert.equal(await m, "queue");
+  await until(() => queued() === 1, "classic.queue");
+  assert.deepEqual(called("classic.queue")[0], { method: "actions.apply", params: { variant: "airi", source: "variant:ch0251", kind: "spr" } });
+  // ticked, Bring to Front: raised and queued
+  m = MS.classicModal({ method: "mods.toggle", params: { enabled: true, expect: false } });
+  await drawn(dialog, "check");
+  action(dialog, "check").click();
+  action(dialog, "cancel").click();
+  assert.equal(await m, "queue");
+  await until(() => queued() === 2 && called("classic.front").length === 1, "front and queue");
+  // opened on writes already queued (a click on the busy switch): the box ticked; unticked and closed, the queue empties
+  answers["mods.state"] = base({ busy: true, queued: 2 });
+  await MS.refresh();
+  MS.click("top");
+  await drawn(dialog, "check");
+  assert.equal(action(dialog, "check").getAttribute("aria-checked"), "true");
+  action(dialog, "check").click();
+  action(dialog, "ok").click();
+  await until(() => called("classic.clearQueue").length === 1, "classic.clearQueue");
+  // a toggle refused at submit with classic_open opens the modal instead of a toast
+  answers["mods.state"] = base();
+  await MS.refresh();
+  answers["mods.toggle"] = { error: { code: "classic_open", params: {} } };
+  MS.click("top");
+  await drawn(dialog, "check");
+  assert.equal(walk(dialog).some((e) => e.attrs?.["aria-label"] === S("classic.front")), true);
+  press("Escape");
+  await until(() => dialog.hidden, "closed");
+  assert.equal(queued(), 2, "unticked: nothing queued");
+});

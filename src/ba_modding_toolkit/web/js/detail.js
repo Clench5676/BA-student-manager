@@ -13,6 +13,7 @@ import * as NGUI from "./ngui.js";
 import * as Loading from "./loading.js";
 import * as Lobby from "./lobby.js";
 import * as Visual from "./visual-mode.js";
+import { QUEUEABLE, refused } from "./mod-switch.js";
 import { anyOpen as popupOpen } from "./popup.js";
 import { rpc, spineBase, spinePrefix, waitJob } from "./api.js";
 import { L, T, language, platform } from "./i18n.js";
@@ -520,7 +521,9 @@ async function addMods() {
   if (added?.length) { await reload(); ctx.invalidateRoster(); }
 }
 
-// a job with a sticky progress line; the family is re-read afterwards (after(ok) instead, when given)
+// a job with a sticky progress line; the family is re-read afterwards (after(ok) instead, when given). A switch the
+// classic UI's open window refuses opens the classic modal, which can queue it (mod-switch.js); an apply while mods
+// are off only saves the choice (deferred).
 async function job(method, params, { onDone, after = reload } = {}) {
   if (busy) { toast(T("error.busy"), { kind: "error" }); return false; }
   busy = true;
@@ -530,11 +533,12 @@ async function job(method, params, { onDone, after = reload } = {}) {
   try {
     const id = await rpc(method, params);
     const result = await waitJob(id, (p) => toast(`${T("job.running")} ${p.current}/${p.total}`, { sticky: true }));
-    toast(T("job.done"));
+    toast(result?.deferred ? T("mods.saved") : T("job.done"));
     ok = true;
     await onDone?.(result);
   } catch (err) {
-    toast(errorText(err), { kind: "error", sticky: false });
+    if (QUEUEABLE.includes(method)) refused(err, method, params);
+    else toast(errorText(err), { kind: "error", sticky: false });
   } finally {
     busy = false;
     await after(ok);
