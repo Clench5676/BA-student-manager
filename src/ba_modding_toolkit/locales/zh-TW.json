@@ -782,6 +782,20 @@
 		}
 	},
 	"webui": {
+		"special": {
+			"title": "特殊",
+			"arona": "彩奈",
+			"plana": "星奈",
+			"aoi": "碧",
+			"workpage": "工作大廳",
+			"daytime": "白天",
+			"night": "夜晚",
+			"task": "任務",
+			"cafe": "咖啡廳",
+			"background": "背景",
+			"add": "新增背景",
+			"switch": "切換背景"
+		},
 		"top": {
 			"students": "學生"
 		},

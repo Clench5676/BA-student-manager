@@ -46,6 +46,24 @@ test("separate library counts sum across a family and the matched variant keeps 
   assert.deepEqual(merged.configured, { spr: "mod:b" });
 });
 
+test("special backgrounds remain reachable and merged search keeps the matching scene's preview", () => {
+  const day = v("special:arona_workpage_daytime", { spr: null, lobby: "arona_workpage_daytime", spineCategory: "spinebackground",
+    names: { en: { full: "Arona - Daytime" } }, configured: { lobby: "mod:day" }, state: { files: [] } });
+  const night = { ...day, key: "special:arona_workpage_night", lobby: "arona_workpage_night",
+    names: { en: { full: "Arona - Night" } }, configured: { lobby: "mod:night" }, state: { files: [{ kind: "lobby", applied: "mod:night" }] } };
+  const d = { families: [{ key: "arona", base: { en: "Arona" }, variants: [v("arona"), day, night] }] };
+  const separate = order(d, view(), { label });
+  const next = neighbour(separate, separate, { family: "arona", variant: "arona", merged: false }, 1);
+  assert.equal(next.key, day.key);
+  const merged = order(d, view({ merged: true }), { label, query: "night" })[0];
+  assert.equal(merged.key, night.key);
+  assert.equal(merged.spr, null);
+  assert.equal(merged.lobby, night.lobby);
+  assert.equal(merged.spineCategory, "spinebackground");
+  assert.deepEqual(merged.configured, night.configured);
+  assert.deepEqual(merged.state, night.state);
+});
+
 test("the view is normalised like the server does", () => {
   assert.deepEqual(normalizeView(null), { merged: false, mods: "all", recruit: "all", sort: "recent", order: "desc", filters: {} });
   const n = normalizeView({ merged: true, mods: "x", sort: "name", filters: { lobby: ["no", "maybe"], kind: [], bogus: ["yes"] } });

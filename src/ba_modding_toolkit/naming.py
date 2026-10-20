@@ -80,6 +80,25 @@ COMMON_MOD_PREFIXES: list[str] = [
     'prologdepengroup-assets-_mx-spinecharacters-'
 ]
 
+SPINE_CATEGORIES = {"spinecharacters", "spinelobbies", "spinebackground"}
+
+
+def spine_kind(core: str, category: str | None = None) -> str | None:
+    """Classify a Spine slot, retaining special backgrounds as lobby-like units."""
+    core = core.lower()
+    category = category.lower() if category else None
+    if core == "mxcommon" or core.startswith("mxcommon_"):
+        return None
+    if category in SPINE_CATEGORIES and re.fullmatch(r"[a-z0-9][a-z0-9_]*", core):
+        return "spr" if category == "spinecharacters" and core.endswith("_spr") else "lobby"
+    if category is not None:
+        return None
+    if core.endswith("_spr"):
+        return "spr"
+    if core.endswith(("_home", "_home_gl", "_home_teen")):
+        return "lobby"
+    return None
+
 
 def get_category_prefix(core: str) -> str:
     """根据 core 后缀返回对应的搜索前缀"""

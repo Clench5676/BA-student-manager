@@ -340,6 +340,7 @@ def build_api(s: Services) -> RpcRegistry:
             "aliases": v.aliases,  # the search matches them, the page never shows them (the CN server's names)
             "recruitable": v.recruitable,  # on the selected server; playable is on some server
             "order": v.order, "spr": v.spr, "lobby": v.lobby, "date": v.date, "model": v.model,
+            "spineCategory": getattr(v, "spine_category", None),
             "bg": _url_bg(v.bg), "portrait": _url_portrait(v.portrait),
             "favorite": v.key in favorites, "mods": len(own), "fresh": any(m.fresh for m in own),
             "modCounts": {kind: sum(m.kind == kind for m in own) for kind in ("spr", "lobby")},

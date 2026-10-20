@@ -10,6 +10,12 @@ export const switchKindOf = (tab) => (tab === "lobby" ? "lobby" : tab === "portr
 
 // the core of a variant's skeleton of a kind: its portrait or its memorial lobby
 export const coreOf = (v, kind = "spr") => (kind === "lobby" ? v.lobby : v.spr) || null;
+export const hasAsset = (v) => !!(v.spr || v.lobby);
+export const primaryKind = (v) => v.spr ? "spr" : "lobby";
+export function availableTab(v, tab) {
+  if (tab === "portrait" && v.spr || tab === "lobby" && v.lobby || tab === "model" && v.model) return tab;
+  return v.spr ? "portrait" : "lobby";
+}
 
 // the game file parts of one kind ("spr" portrait, "lobby" memorial lobby, "model" the 3D chibi's prefab bundles,
 // newest first)

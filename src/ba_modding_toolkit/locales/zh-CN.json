@@ -782,6 +782,20 @@
 		}
 	},
 	"webui": {
+		"special": {
+			"title": "特殊",
+			"arona": "阿罗娜",
+			"plana": "普拉娜",
+			"aoi": "葵",
+			"workpage": "任务大厅",
+			"daytime": "白天",
+			"night": "夜晚",
+			"task": "任务",
+			"cafe": "咖啡厅",
+			"background": "背景",
+			"add": "添加背景",
+			"switch": "切换背景"
+		},
 		"top": {
 			"students": "学生"
 		},

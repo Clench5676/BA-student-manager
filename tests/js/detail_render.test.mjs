@@ -318,6 +318,37 @@ test("an applied lobby with hanging asset routes releases the in-place render ba
   } finally { Detail.hide(); t.mock.timers.reset(); }
 });
 
+test("a special background without a portrait keeps its card and controls after preview failure", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    errors.length = 0; lobbyMode = "pending";
+    const v = { key: "special:arona_workpage_daytime", spr: null, lobby: "arona_workpage_daytime", spineCategory: "spinebackground",
+      names: { en: { full: "Arona - Work Page - Daytime", short: "Work Page - Daytime" } },
+      modList: [{ id: "special-day", target: "special:arona_workpage_daytime", core: "arona_workpage_daytime", kind: "lobby", label: "Day" }],
+      state: { files: [{ kind: "lobby", applied: "mod:special-day", official: false, restorable: true, crc: "fixed" }] } };
+    family = { key: "arona", version: "special", variants: [modFamily().variants[0], v] };
+    const start = playerRequests.length, fetchStart = assetRequests.length, rpcStart = rpcRequests.length;
+    const showing = Detail.show(context, family, v.key); await flush();
+    t.mock.timers.tick(1300); await flush(); await showing;
+    assert.equal(Detail.currentVariant(), v.key, "the requested background stays selected alongside a portrait variant");
+    assert.equal(switchButton().title, "Switch Background");
+    assert.ok(switchButton().listeners.click.length);
+    const add = walk(hosts.ngui).find((e) => e.dataset.part === `${INFO}/Weapon/Btn_Up_Wrapper/Btn_Up/BG (1)`);
+    assert.equal(add.title, "Add Background");
+    assert.ok(add.listeners.click.length);
+    assert.ok(!walk(hosts.ngui).some((e) => e.dataset.part?.endsWith("Tab_1/Tab_Off/Label")), "there is no portrait tab hit target");
+    assert.ok(assetRequests.slice(fetchStart).some((url) => url.includes("/lobby/arona_workpage_daytime/")));
+    assert.ok(!playerRequests.slice(start).some((url) => url.includes("/spr/")), "no missing portrait player is started");
+    t.mock.timers.tick(16000); await flush();
+    assert.equal(hosts.lobby.querySelector(".lobby-unavailable")?.textContent, "Preview unavailable");
+    assert.ok(!hosts.lobby.classList.contains("pending"));
+    assert.equal(switchButton().title, "Switch Background");
+    assert.ok(switchButton().listeners.click.length, "apply and restore still have a switch card");
+    assert.ok(!rpcRequests.slice(rpcStart).some((r) => r.method === "lobby.lines"));
+    back.onclick(); assert.equal(location.hash, "#/roster");
+  } finally { Detail.hide(); t.mock.timers.reset(); }
+});
+
 test("NGUI logs missing atlas metadata and keeps placeholder geometry for controls", async () => {
   errors.length = 0;
   const host = new El();

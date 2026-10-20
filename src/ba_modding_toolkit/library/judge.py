@@ -13,8 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
-from ..catalog import HOME_SUFFIXES
-from ..naming import parse_filename
+from ..naming import parse_filename, spine_kind
 from ..searching import SEARCH_DIR_SUFFIXES
 
 LIBRARY_SOURCES = ("mod:", "variant:")
@@ -38,14 +37,15 @@ def seconds(value: Any) -> float | None:
         return None
 
 
-def kind_of(core: str) -> str | None:
+def kind_of(core: str, category: str | None = None) -> str | None:
     """The kind of a core: "spr" (portrait), "lobby" (memorial lobby) or None."""
-    core = core.lower()
-    if core.endswith("_spr"):
-        return "spr"
-    if core.endswith(HOME_SUFFIXES):
-        return "lobby"
-    return None
+    return spine_kind(core, category)
+
+
+def kind_of_file(name: str) -> str | None:
+    """Classify a bundle using its category as well as its core."""
+    parsed = parse_filename(name)
+    return kind_of(parsed.core, parsed.category)
 
 
 def core_of(name: str) -> str:
