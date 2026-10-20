@@ -1046,7 +1046,11 @@
 			"driftWhy": "游戏文件已校验、修复或更新",
 			"driftApply": "应用 Mod 配置",
 			"driftKeep": "保持现状",
-			"stillOverwritten": "仍被覆盖：{n}"
+			"stillOverwritten": "仍被覆盖：{n}",
+			"deleteConfirm": "删除 {name}？",
+			"deleteRestore": "使用中的条目将恢复原版或之前的配置",
+			"alreadyInUse": "已在使用",
+			"deletePending": "Mod 已删除，部分游戏文件待还原"
 		},
 		"switch": {
 			"configured": "已设置"
@@ -1071,7 +1075,7 @@
 		"btn": {
 			"open": "在访达中显示",
 			"extract": "提取",
-			"remove": "移除"
+			"delete": "删除"
 		},
 		"picker": {
 			"title": "选择变种",
@@ -1294,7 +1298,9 @@
 			"belongs": "该 Mod 属于 {name}，已添加",
 			"part": "{name}，{kind}，已添加",
 			"go": "前往",
-			"stay": "留在此处"
+			"stay": "留在此处",
+			"duplicate": "已在 Mod 仓库中：{name}",
+			"installed": "已识别为已安装的 Mod"
 		}
 	}
 }

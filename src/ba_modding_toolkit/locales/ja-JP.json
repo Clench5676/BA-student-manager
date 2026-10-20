@@ -1046,7 +1046,11 @@
 			"driftWhy": "ゲームファイルの検証、修復、更新",
 			"driftApply": "MOD設定を適用",
 			"driftKeep": "現状のまま",
-			"stillOverwritten": "上書きのまま：{n}"
+			"stillOverwritten": "上書きのまま：{n}",
+			"deleteConfirm": "{name}を削除しますか？",
+			"deleteRestore": "使用中の項目はオリジナルまたは以前の設定に戻ります",
+			"alreadyInUse": "使用中",
+			"deletePending": "MOD削除済み、一部のゲームファイルは復元待ち"
 		},
 		"switch": {
 			"configured": "設定済み"
@@ -1071,7 +1075,7 @@
 		"btn": {
 			"open": "Finderで表示",
 			"extract": "抽出",
-			"remove": "削除"
+			"delete": "削除"
 		},
 		"picker": {
 			"title": "バリエーション選択",
@@ -1294,7 +1298,9 @@
 			"belongs": "{name}のModを追加しました",
 			"part": "{name}、{kind}、追加済み",
 			"go": "移動",
-			"stay": "ここに留まる"
+			"stay": "ここに留まる",
+			"duplicate": "MODライブラリに追加済み：{name}",
+			"installed": "導入済みのMODとして認識"
 		}
 	}
 }

@@ -1046,7 +1046,11 @@
 			"driftWhy": "Game files verified, repaired or updated",
 			"driftApply": "Apply Mod Configuration",
 			"driftKeep": "Keep as Is",
-			"stillOverwritten": "Still overwritten: {n}"
+			"stillOverwritten": "Still overwritten: {n}",
+			"deleteConfirm": "Delete {name}?",
+			"deleteRestore": "Entries using it go back to official or their previous setting",
+			"alreadyInUse": "Already in use",
+			"deletePending": "Mod deleted, some game files still await restoration"
 		},
 		"switch": {
 			"configured": "Set"
@@ -1071,7 +1075,7 @@
 		"btn": {
 			"open": "Show in Finder",
 			"extract": "Extract",
-			"remove": "Remove"
+			"delete": "Delete"
 		},
 		"picker": {
 			"title": "Select Variant",
@@ -1294,7 +1298,9 @@
 			"belongs": "Mod for {name} added",
 			"part": "{name}, {kind}, added",
 			"go": "Go to",
-			"stay": "Stay here"
+			"stay": "Stay here",
+			"duplicate": "Already in the Mod Library: {name}",
+			"installed": "Recognized as an installed Mod"
 		}
 	}
 }

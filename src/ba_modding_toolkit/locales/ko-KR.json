@@ -1046,7 +1046,11 @@
 			"driftWhy": "게임 파일 검사, 복원, 업데이트",
 			"driftApply": "모드 설정 적용",
 			"driftKeep": "현재대로 유지",
-			"stillOverwritten": "여전히 덮어씀: {n}"
+			"stillOverwritten": "여전히 덮어씀: {n}",
+			"deleteConfirm": "{name} 삭제?",
+			"deleteRestore": "사용 중인 항목은 원본 또는 이전 설정으로 복원",
+			"alreadyInUse": "사용 중",
+			"deletePending": "모드 삭제 완료, 일부 게임 파일 복원 대기 중"
 		},
 		"switch": {
 			"configured": "설정됨"
@@ -1071,7 +1075,7 @@
 		"btn": {
 			"open": "Finder에서 보기",
 			"extract": "추출",
-			"remove": "제거"
+			"delete": "삭제"
 		},
 		"picker": {
 			"title": "바리에이션 선택",
@@ -1294,7 +1298,9 @@
 			"belongs": "{name}의 Mod 추가 완료",
 			"part": "{name}, {kind}, 추가 완료",
 			"go": "이동",
-			"stay": "현재 화면 유지"
+			"stay": "현재 화면 유지",
+			"duplicate": "모드 라이브러리에 이미 있음: {name}",
+			"installed": "설치된 모드로 인식됨"
 		}
 	}
 }

@@ -1046,7 +1046,11 @@
 			"driftWhy": "遊戲檔案已驗證、修復或更新",
 			"driftApply": "套用 Mod 設定",
 			"driftKeep": "保持現狀",
-			"stillOverwritten": "仍被覆蓋：{n}"
+			"stillOverwritten": "仍被覆蓋：{n}",
+			"deleteConfirm": "刪除 {name}？",
+			"deleteRestore": "使用中的項目將還原為原版或之前的設定",
+			"alreadyInUse": "使用中",
+			"deletePending": "Mod 已刪除，部分遊戲檔案待還原"
 		},
 		"switch": {
 			"configured": "已設定"
@@ -1071,7 +1075,7 @@
 		"btn": {
 			"open": "在 Finder 中顯示",
 			"extract": "提取",
-			"remove": "移除"
+			"delete": "刪除"
 		},
 		"picker": {
 			"title": "選擇變體",
@@ -1294,7 +1298,9 @@
 			"belongs": "此 Mod 屬於 {name}，已新增",
 			"part": "{name}，{kind}，已新增",
 			"go": "前往",
-			"stay": "留在此處"
+			"stay": "留在此處",
+			"duplicate": "已在 Mod 倉庫中：{name}",
+			"installed": "已識別為已安裝的 Mod"
 		}
 	}
 }

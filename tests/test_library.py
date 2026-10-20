@@ -195,7 +195,7 @@ def test_add_groups_parts_and_deduplicates_whole_mods(setup_library, parts):
 def test_add_separates_cores_dates_and_kinds(setup_library):
     env = setup_library
     sources = [env.original,
-               game_bundle(env.tmp / "input", date="2026-02-01"),
+               game_bundle(env.tmp / "input", date="2026-02-01", payload=b"newer"),
                game_bundle(env.tmp / "input", "other_spr"),
                game_bundle(env.tmp / "input", "test_home_gl")]
     entries = env.library.add(sources)
@@ -1393,35 +1393,32 @@ def test_prune_deletes_an_outdated_copy_another_folder_no_longer_needs(setup_lib
     assert "test_spr" in profiles["folders"][str(env.game_dir.resolve())]["updated"]
 
 
-def test_a_mod_the_game_shows_cannot_be_removed(setup_library):
+def test_deleting_an_applied_mod_restores_official(setup_library):
     env = setup_library
+    official = env.original.read_bytes()
     entry, = env.library.add([make_mod(env.original, env.tmp / "input")])
     env.library.apply("test", f"mod:{entry.id}")
-    expect_error("mod_in_use", lambda: env.library.remove(entry.id))
-    assert entry.file.is_file() and [m.id for m in reload_library(env).mods()] == [entry.id]
-    env.library.apply("test", "official")
-    env.library.remove(entry.id)
-    assert not entry.file.exists() and env.library.mods() == []
+    assert env.library.removal_info(entry.id) == {"name": entry.label, "used": True}
+    result = env.library.remove(entry.id)
+    assert result.failed == [] and result.done
+    assert env.original.read_bytes() == official
+    assert not entry.file.exists() and reload_library(env).mods() == []
+    assert env.library.configured("test")["spr"] is None
 
 
-def test_a_mod_in_use_in_another_game_folder_is_refused_with_that_folder(setup_library):
+def test_deleting_a_mod_restores_every_game_folder(setup_library):
     env = setup_library
+    official = env.original.read_bytes()
     second = second_install(env, "GameData/Windows")
     entry, = env.library.add([make_mod(env.original, env.tmp / "input")])
     env.settings.set("game_resource_dir", str(env.tmp / "second_game"))
     env.library.apply("test", f"mod:{entry.id}")
     use_install(env, env.original)
-    with pytest.raises(ServiceError) as caught:
-        env.library.remove(entry.id)
-    # the game folder as the settings name it, not its resource subfolder
-    assert caught.value.code == "mod_in_use_elsewhere"
-    assert caught.value.params["folder"] == (env.tmp / "second_game").resolve()
-    assert caught.value.params["file"] == second.resolve()
-    json.dumps(caught.value.to_json())
-    # in use in this game folder too: that one is named first
     env.library.apply("test", f"mod:{entry.id}")
-    expect_error("mod_in_use", lambda: env.library.remove(entry.id))
-    assert entry.file.is_file() and [m.id for m in env.library.mods()] == [entry.id]
+    result = env.library.remove(entry.id)
+    assert len(result.done) == 2 and result.failed == []
+    assert second.read_bytes() == env.original.read_bytes() == official
+    assert env.library.mods() == []
 
 
 def test_a_mod_whose_changed_part_is_official_again_can_be_removed(setup_library):
@@ -1448,17 +1445,15 @@ def test_the_in_use_refusals_have_their_messages(language):
     assert errors["mod_in_use"] and "{folder}" in errors["mod_in_use_elsewhere"]
 
 
-def test_a_mod_adapted_to_another_variant_cannot_be_removed(setup_library, monkeypatch):
+def test_deleting_a_mod_restores_an_adapted_variant(setup_library, monkeypatch):
     env = setup_library
     env.catalog.variants["other"].family = "test"
     other = game_bundle(env.game_dir, "other_spr", payload=b"other portrait")
     entry, = env.library.add([make_mod(other, env.tmp / "input")])
     swap_by_copying(monkeypatch)
     env.library.apply("test", f"mod:{entry.id}")
-    expect_error("mod_in_use", lambda: env.library.remove(entry.id))
-    # changed by another tool since: the game no longer shows it
-    env.original.write_bytes(header_bundle(b"from another tool"))
-    env.library.remove(entry.id)
+    assert env.library.remove(entry.id).failed == []
+    assert env.library.state("test").applied == "official"
     assert env.library.mods() == []
 
 
@@ -1694,3 +1689,107 @@ def test_integration_variant_swap_adapts_names_and_atlas_pages(tmp_path, monkeyp
                if parse_filename(path.name).core == cores[1])
     library.restore("test")
     assert {path: path.read_bytes() for path in game_dir.iterdir()} == originals
+
+
+def test_duplicate_add_reports_the_existing_mod_even_with_another_filename(setup_library):
+    env = setup_library
+    source = make_mod(env.original, env.tmp / "input")
+    entry, = env.library.add([source])
+    env.library.rename(entry.id, "My mod")
+    renamed = env.tmp / source.name.replace("2026-01-01_003", "2026-02-01_002")
+    renamed.write_bytes(source.read_bytes())
+    plain = env.tmp / "My renamed portrait.bundle"
+    plain.write_bytes(source.read_bytes())
+    for path in (source, renamed, plain):
+        result = reload_library(env).add([path])
+        assert result == []
+        assert [(m.id, m.label) for m in result.duplicates] == [(entry.id, "My mod")]
+        assert result.to_json()["duplicates"][0]["target"] == "test"
+    assert len(list((env.root / "mods").iterdir())) == 1
+
+
+def test_duplicate_adds_from_two_instances_are_serialized(setup_library):
+    env = setup_library
+    source = make_mod(env.original, env.tmp / "input")
+    second = reload_library(env)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(lambda lib: lib.add([source]), [env.library, second]))
+    assert sum(len(result) for result in results) == 1
+    assert sum(len(result.duplicates) for result in results) == 1
+    assert len(reload_library(env).mods()) == 1
+
+
+def test_existing_duplicate_records_are_logged_and_preserved(setup_library, caplog):
+    env = setup_library
+    entry, = env.library.add([make_mod(env.original, env.tmp / "input")])
+    data = json.loads((env.root / "state.json").read_text())
+    duplicate = dict(data["mods"][0], id="d" * 32, label="Old duplicate")
+    shutil.copytree(entry.file.parent, env.root / "mods" / duplicate["id"])
+    data["mods"].append(duplicate)
+    (env.root / "state.json").write_text(json.dumps(data))
+    assert len(reload_library(env).mods()) == 2
+    assert "Duplicate library mods" in caplog.text
+    assert entry.id in caplog.text and duplicate["id"] in caplog.text
+
+
+def test_add_recognizes_an_untracked_installed_mod_without_writing_game_files(setup_library, monkeypatch):
+    env = setup_library
+    source = make_mod(env.original, env.tmp / "input", fixed=True)
+    official = env.original.read_bytes()
+    env.original.with_suffix(".bundle.backup").write_bytes(official)
+    env.original.write_bytes(source.read_bytes())
+    before = env.original.stat()
+    monkeypatch.setattr(env.library, "_commit", lambda *a, **kw: pytest.fail("adoption must not write game files"))
+    result = env.library.add([source])
+    entry, = result
+    assert result.installed == [entry]
+    assert env.original.stat().st_mtime_ns == before.st_mtime_ns
+    assert env.original.read_bytes() == source.read_bytes()
+    assert env.library.configured("test")["spr"] == f"mod:{entry.id}"
+    assert env.library.state("test").applied == f"mod:{entry.id}"
+    assert len(env.library.mods()) == 1
+
+
+@pytest.mark.parametrize("fixed", [False, True])
+def test_add_recognizes_installed_multipart_mods_with_official_parts(setup_library, monkeypatch, fixed):
+    env = setup_library
+    skeleton = game_bundle(env.game_dir, part="002", payload=b"skeleton")
+    source = make_mod(env.original, env.tmp / "input", fixed=fixed)
+    official = env.original.read_bytes()
+    env.original.with_name(env.original.name + ".backup").write_bytes(official)
+    env.original.write_bytes(source.read_bytes())
+    before = {p: p.stat().st_mtime_ns for p in (skeleton, env.original)}
+    result = env.library.add([skeleton, source])
+    entry, = result
+    assert result.installed == [entry] and len(env.library.mods()) == 1
+    assert before == {p: p.stat().st_mtime_ns for p in before}
+    assert env.library.configured("test")["spr"] == f"mod:{entry.id}"
+    assert env.library.apply("test", f"mod:{entry.id}").unchanged
+    assert env.original.read_bytes() == source.read_bytes()
+
+
+def test_an_adopted_overwritten_mod_applies_as_unchanged_without_a_build(setup_library, monkeypatch):
+    env = setup_library
+    source = make_mod(env.original, env.tmp / "input", fixed=True)
+    env.original.write_bytes(source.read_bytes())
+    result = env.library.add([source])
+    entry, = result.installed
+    monkeypatch.setattr(env.library, "_cached_build", lambda *a, **kw: pytest.fail("already installed"))
+    before = env.original.stat().st_mtime_ns
+    assert env.library.apply("test", f"mod:{entry.id}").unchanged
+    assert env.original.stat().st_mtime_ns == before
+    assert not (env.root / "originals").exists()
+
+
+def test_unchanged_apply_restamps_identical_bytes_and_confirmation_finds_their_use(setup_library):
+    env = setup_library
+    entry, = env.library.add([make_mod(env.original, env.tmp / "input")])
+    source = f"mod:{entry.id}"
+    env.library.apply("test", source)
+    env.library.profiles.update(lambda data: data["folders"][env.library.current_pin().key]["configured"].clear())
+    stamp = env.original.stat()
+    os.utime(env.original, ns=(stamp.st_atime_ns, stamp.st_mtime_ns + 10_000_000))
+    assert env.library.removal_info(entry.id)["used"]
+    assert env.library.apply("test", source).unchanged
+    assert env.library.state("test").applied == source
+    assert reload_library(env).state("test").applied == source

@@ -462,7 +462,8 @@ def test_adopting_a_partial_lobby_stores_one_mod_and_records_every_part(world):
                      "parts": {parts[1].name: {"sha1": built["parts"][parts[1].name]["sha1"],
                                                "mod_file": parts[1].name}}}
     assert parts[1].read_bytes() == data
-    expect_error("mod_in_use", lambda: world.library.remove(mod.id))  # now in use, as any applied mod
+    assert world.library.remove(mod.id).failed == []
+    assert parts[1].read_bytes() == header_bundle(b"003" * 3)
 
 
 def test_an_adoption_that_matches_a_library_mod_configures_that_mod(world):
@@ -1108,7 +1109,9 @@ def test_an_on_reaches_removed_parts(world):
     mod = world.add(world.spr)
     world.library.apply("test", f"mod:{mod.id}")
     world.library.profiles.update(lambda data: data.update(enabled=False))  # an Off that never reached it
-    world.library.remove(mod.id)  # allowed while off: an official copy is kept
+    world.library._write_check = lambda pin: (_ for _ in ()).throw(ServiceError("classic_open"))
+    assert world.library.remove(mod.id).failed[0]["code"] == "classic_open"
+    world.library._write_check = None
     assert world.folder()["configured"] == {} and world.spr.read_bytes() != OFFICIAL
     result = world.library.toggle(True, False)  # no configuration, a part carrying the removed mod
     assert [item["core"] for item in result.done] == ["test_spr"] and world.spr.read_bytes() == OFFICIAL
@@ -1260,14 +1263,13 @@ def test_removing_a_configured_mod_no_file_carries_drops_its_configuration_and_b
     assert world.library.mods() == []
 
 
-def test_removing_the_last_copy_of_a_file_still_in_the_game_asks_first(world):
+def test_deleting_an_overwritten_mod_leaves_a_restore_pending(world):
     world.consent = True
     data = outside_mod(world.spr)  # no official copy anywhere: the Off leaves it stuck
     world.toggle(False)
     mod, = world.library.mods()
-    error = expect_error("mod_last_copy", lambda: world.library.remove(mod.id))
-    assert error.params["file"] == world.spr.resolve()
-    world.library.remove(mod.id, confirm=True)
+    result = world.library.remove(mod.id, confirm=True)
+    assert result.failed[0]["code"] == "original_unavailable"
     assert world.library.mods() == [] and world.spr.read_bytes() == data  # the game file is never touched
     applied = json.loads((world.root / "state.json").read_text())["applied"]
     assert applied[str(world.spr.resolve())]["removed"] is True
@@ -1277,25 +1279,25 @@ def test_removing_the_last_copy_of_a_file_still_in_the_game_asks_first(world):
     assert result.adopted == [] and world.library.mods() == []
 
 
-def test_a_mod_carried_in_a_folder_the_switch_does_not_cover_is_refused_in_any_state(world):
+def test_deleting_a_mod_restores_a_previously_recorded_folder(world):
     mod = world.add(world.spr)
     world.library.apply("test", f"mod:{mod.id}")
-    world.library.profiles.update(lambda data: data["folders"].clear())  # no record: not a known install
+    world.library.profiles.update(lambda data: data["folders"].clear())
     elsewhere = world.tmp / "elsewhere"
     game_bundle(elsewhere, "other_spr")
     world.settings.set("game_resource_dir", str(elsewhere))
-    world.library.profiles.update(lambda data: data.update(enabled=False))
-    error = expect_error("mod_in_use_elsewhere", lambda: world.library.remove(mod.id))
-    assert error.params["folder"] == world.game.resolve()
+    result = world.library.remove(mod.id)
+    assert result.failed == [] and world.spr.read_bytes() == OFFICIAL
 
 
-def test_with_mods_on_a_carried_mod_is_refused_where_it_is(world):
+def test_deleting_an_applied_mod_covers_every_install(world):
     folder = japan(world)
     mod = world.add(world.spr)
     world.library.apply("test", f"mod:{mod.id}", pin=pin_of(world, folder))
-    expect_error("mod_in_use_elsewhere", lambda: world.library.remove(mod.id))
     world.library.apply("test", f"mod:{mod.id}")
-    expect_error("mod_in_use", lambda: world.library.remove(mod.id))
+    result = world.library.remove(mod.id)
+    assert len(result.done) == 2 and result.failed == []
+    assert world.spr.read_bytes() == OFFICIAL
 
 
 def test_a_mod_deleted_by_hand_is_offered_for_adoption_without_a_loop(world):
@@ -2461,11 +2463,11 @@ def test_entries_of_cores_the_current_catalog_does_not_map_carry_shipped_names(w
 
 
 def test_the_lock_order_is_kept_across_threads(world, monkeypatch):
-    """The library lock, then state.json.lock, then profiles.json.lock: no thread takes an earlier one while
+    """The library lock, then mods.lock, state.json.lock and profiles.json.lock: no thread takes an earlier one while
     holding a later one, and none holds profiles.json.lock while it asks the scan consent."""
     from ba_modding_toolkit import filelock
     from ba_modding_toolkit.library import profiles as profiles_module
-    order = {"state.json.lock": 2, "profiles.json.lock": 3}
+    order = {"mods.lock": 1.5, "state.json.lock": 2, "profiles.json.lock": 3}
     held = threading.local()
     violations: list[str] = []
     real_lock = filelock.file_lock
@@ -2767,3 +2769,107 @@ def test_with_scan_consent_an_off_still_reaches_the_entries_it_has_records_of(wo
     assert [item["core"] for item in result.adopted] == ["test_spr"]
     assert world.spr.read_bytes() == OFFICIAL
     assert any(m.file.read_bytes() == header_bundle(b"outside!") for m in world.library.mods())
+
+
+def test_delete_clears_configured_sources_built_keys_and_dismissals(world):
+    mod = world.add(world.spr)
+    world.toggle(False)
+    world.library.apply("test", f"mod:{mod.id}")
+    second = game_bundle(world.game, part="002", payload=b"skeleton")
+    shared, orphan = "a" * 40, "b" * 40
+    built = world.root / "built"
+    built.mkdir(exist_ok=True)
+    for sha1 in (shared, orphan):
+        (built / f"{sha1}.bundle").write_bytes(b"built copy")
+
+    def configure(data):
+        folder = data["folders"][world.key()]
+        folder["built"] = {
+            "test_spr": {"source": f"mod:{mod.id}", "parts": {
+                world.spr.name: {"sha1": shared}, second.name: {"sha1": orphan}}},
+            "other_spr": {"source": "variant:test", "parts": {world.spr.name: {"sha1": shared}}}}
+        folder["dismissed"] = {"drift": {"test_spr": [], "other_spr": []}, "untracked": {"test_spr": []}}
+    world.library.profiles.update(configure)
+    result = world.library.remove(mod.id)
+    folder = world.folder()
+    assert result.failed == [] and folder["configured"] == {}
+    assert set(folder["built"]) == {"other_spr"}
+    assert folder["dismissed"] == {"drift": {"other_spr": []}, "untracked": {}}
+    assert (built / f"{shared}.bundle").exists() and not (built / f"{orphan}.bundle").exists()
+    assert not mod.file.parent.exists()
+
+
+@pytest.mark.parametrize("code", ["game_running", "steam_busy", "classic_open", "game_file_locked"])
+def test_delete_keeps_configuration_changes_when_restore_is_refused(world, monkeypatch, code):
+    mod = world.add(world.spr)
+    world.library.apply("test", f"mod:{mod.id}")
+    installed = world.spr.read_bytes()
+    def refuse(*args):
+        raise ServiceError(code)
+    if code == "game_running":
+        monkeypatch.setattr(safety, "check_game_not_running", refuse)
+    elif code == "steam_busy":
+        monkeypatch.setattr(safety, "check_steam_idle", refuse)
+    else:
+        world.library._write_check = refuse
+    result = world.library.remove(mod.id)
+    assert result.failed[0]["code"] == code
+    assert world.spr.read_bytes() == installed
+    assert world.library.mods() == [] and world.folder()["configured"] == {}
+    assert world.folder()["built"] == {}
+    assert world.unfinished() == [{"install": world.key(), "core": "test_spr", "why": "pending"}]
+    assert world.library._view(world.library.installs(), "full").entry(world.library.current_pin(), "test_spr").state == "pending"
+    monkeypatch.setattr(safety, "check_game_not_running", lambda: None)
+    monkeypatch.setattr(safety, "check_steam_idle", lambda *args: None)
+    world.library._write_check = None
+    assert world.library.toggle(True, True).done
+    assert world.spr.read_bytes() == OFFICIAL
+
+
+def test_delete_preserves_a_different_saved_source(world):
+    first = world.add(world.spr)
+    second = world.add(world.spr, payload=b"second mod", where="second")
+    world.library.apply("test", f"mod:{first.id}")
+    world.library._configure(world.library.current_pin(), "test", {"spr": "test_spr"}, f"mod:{second.id}")
+    assert world.library.remove(first.id).failed == []
+    assert world.spr.read_bytes() == second.file.read_bytes()
+    assert world.folder()["configured"]["test_spr"]["source"] == f"mod:{second.id}"
+
+
+def test_delete_refuses_a_mod_directory_outside_the_library(world):
+    mod = world.add(world.spr)
+    outside = world.tmp / "outside"
+    shutil.move(mod.file.parent, outside)
+    mod.file.parent.symlink_to(outside, target_is_directory=True)
+    expect_error("mod_unsupported", lambda: world.library.remove(mod.id))
+    assert (outside / mod.file.name).exists()
+
+
+def test_delete_reports_io_restore_failure_and_retains_retry(world, monkeypatch):
+    mod = world.add(world.spr)
+    world.library.apply("test", f"mod:{mod.id}")
+    def refuse(*args, **kwargs):
+        raise PermissionError(13, "Refused", str(world.spr))
+    monkeypatch.setattr(world.library, "_switch", refuse)
+    result = world.library.remove(mod.id)
+    assert result.failed[0]["code"] == "library_io_error"
+    assert world.library.mods() == [] and world.folder()["configured"] == {}
+    assert world.unfinished() == [{"install": world.key(), "core": "test_spr", "why": "pending"}]
+
+
+@pytest.mark.parametrize("file", ["state", "profiles"])
+def test_delete_metadata_write_failure_keeps_the_source_and_configuration(world, monkeypatch, file):
+    mod = world.add(world.spr)
+    world.library.apply("test", f"mod:{mod.id}")
+    before = world.spr.read_bytes()
+    def refuse(*args, **kwargs):
+        raise PermissionError(13, "Refused", str(world.root / f"{file}.json"))
+    if file == "state":
+        monkeypatch.setattr(world.library, "_save", refuse)
+    else:
+        monkeypatch.setattr(world.library.profiles, "_write", refuse)
+    expect_error("library_io_error", lambda: world.library.remove(mod.id))
+    assert world.library.mods() == [mod] and mod.file.exists()
+    assert world.folder()["configured"]["test_spr"]["source"] == f"mod:{mod.id}"
+    assert world.spr.read_bytes() == before
+    assert json.loads((world.root / "state.json").read_text())["mods"][0]["id"] == mod.id

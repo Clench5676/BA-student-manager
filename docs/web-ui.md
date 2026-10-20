@@ -780,8 +780,9 @@ stops the server (the page shows Closed); with `--serve` it gives `native_unavai
 | `debug.trace {events}` | the fullscreen lobby's input events, logged (logger `ba_modding_toolkit.webui.trace`, and `input-trace.log` in the data directory) only when the app was started with `--debug`; ignored otherwise |
 | `favorites.set {variant, on}` | |
 | `aliases.set {family, aliases}` | the user's own aliases of a student as kept (`webui/state.py`: NFC, no control or format characters, whitespace runs one space, empty and repeated ones, ignoring case and width, dropped); `alias_too_long` past 24 characters, `alias_too_many` past 8, and nothing is kept then; an empty list forgets them |
-| `mods.add {paths}` / `mods.pick` | added entries (`mods.pick` opens the native file dialog) |
-| `mods.remove {id, confirm = false}` | `{}`; with mods on, `mod_in_use {file}` while the current install carries the mod, `mod_in_use_elsewhere {file, folder}` while another does; in any state `mod_in_use_elsewhere` for a folder that is not a known install; with mods off `mod_last_copy {file}` when the mod is the last copy of a file the game still carries and `confirm` is not set |
+| `mods.add {paths, background = false}` / `mods.pick {background = false}` | `{added, duplicates, installed}`; with `background`, a library writer job id (`mods.pick` opens the native file dialog); identity is core plus SHA-1, independent of filenames |
+| `mods.removalInfo {id}` | `{name, used}` for the deletion confirmation, including configured and applied entries in every install |
+| `mods.remove {id, confirm = false}` | library writer job id; result `{done, failed, dropped, cores, kinds}`; deletes the source, stored files and references, then restores game entries to Official or their saved source; refused writes keep the new configuration and an unfinished entry |
 | `mods.rename {id, label}`, `mods.seen {id}` | |
 | `mods.state` | `{installs: [{id, key, server, folder, label, distinct, named}], current, enabled, shown, available, reason, reasonParams, scan, explained, configured, pending, stuck, left, unfinished: {pending, left, stuck}, drift, untracked, damaged, sourceMissing, builtSize, originalsSize, queued, scanned, tray, traySupported, busy, progress}` from the snapshot (above); `id` is the first 12 hex digits of the install key's SHA-1 (used in URLs), `named` tells a folder the settings name from a recorded one; `busy` while a toggle is queued or running or writes are queued for the classic window; `progress` is `{done, total}` of a running toggle |
 | `mods.toggle {enabled, expect}` | job id (`mods.toggle`): the switch over every known install, also Retry; `busy` while another toggle is queued or running, `classic_open` at submit; the job's refusals `state_changed`, `folder_changed`, `game_running`, `game_status_unavailable`, `steam_busy`, `classic_open`, `not_enough_space` |
@@ -1100,9 +1101,12 @@ or the classic UI is open, no drift while mods are off, nothing dismissed (see M
   but the one in use is greyed (the roster's not-owned dim, its picture in grey, "Overwritten" where In Use goes), and
   so is another variant's card whose files of that kind are overwritten: a greyed card is never chosen, and a click on
   it opens the entry's Add First or Overwritten message (see Mods already in use), as does `original_unavailable`
-  from an apply or a restore. Remove, in a mod's details, warns first when the mod is the last copy of a file the game
-  still carries (`mod_last_copy`, mods off, no official copy anywhere): "Only copy of a file still in the game", "No
-  official copy left" and "The game may not start", Cancel and Remove (`mods.remove {id, confirm: true}`). Row 2's
+  from an apply or a restore. Delete, in a mod's details, always confirms with the mod's name. If configured or
+  applied anywhere, it explains that those entries return to Official or their saved source. The library writer
+  deletes stored files and references, retaining built files referenced by other keys, then restores affected game
+  entries through the normal write checks. Refused restores leave the configuration changed and appear in Retry.
+  Adding duplicate content opens an Already in the Mod Library message with Go to and OK; exact outside game
+  content is adopted without reapplying it. Choosing the source already in use shows In Use without a job. Row 2's
   update and compare act on the mod the shown tab's files carry. The 3D tab's card has nothing to switch to yet
   (library): no chevron, and a click opens nothing.
 
