@@ -1,20 +1,19 @@
 // Update popup on the game's popup frame (UIPopup_Sort): the current and the new version, Later / Update.
-// Updating downloads the build for this platform, checks its MD5, then the app quits and restarts as the new version.
+// Updating downloads and verifies the build; Restart installs it only after a separate confirmation.
 // check() resolves once the popup has closed, so the start popups come one at a time (popup.js sequence).
 import * as NGUI from "./ngui.js";
 import * as Popup from "./popup.js";
 import { rpc, waitJob } from "./api.js";
 import { T } from "./i18n.js";
-import { S, clone, toast } from "./util.js";
+import { S, clone } from "./util.js";
 
 const { node, sprite, label, find } = NGUI;
 
-// resolves with what closed the popup: "later" (Later or Escape), "page" (the download page opened) or "update" (once
-// the update has failed; one that works restarts the app); null without a newer release, offline or when the popup
-// cannot be drawn
-export async function check(host) {
-  let info = null;
-  try { info = await rpc("app.checkUpdate"); } catch { return null; } // offline: say nothing
+// resolves with what closed the popup: "later" (Later or Escape), "page" (the download page opened) or "update" (a
+// failed update, once dismissed). A successful retry clears that failure; Restart quits the app on success.
+// null without a newer release, offline or when the popup cannot be drawn. Settings may pass its check's result.
+export async function check(host, info) {
+  try { if (info === undefined) info = await rpc("app.checkUpdate"); } catch { return null; } // offline: say nothing
   return info ? show(host, info) : null;
 }
 
@@ -32,15 +31,19 @@ function show(host, info) {
 async function draw(host, info, resolve) {
   host.hidden = false;
   let ended = false;
+  let phase = info.installable && info.downloaded ? "ready" : "offer";
+  let file = info.file, error = "", percent = 0, revision = 0;
+  let buttons = [];
+  const blocked = () => phase === "downloading" || phase === "installing";
   const close = (how) => {
-    if (ended) return false;
+    if (ended || blocked()) return false;
     ended = true;
     host.hidden = true;
     host.innerHTML = "";
-    if (how) resolve(how);
+    resolve(how === "later" && error ? "update" : how);
     return true;
   };
-  // on the popup stack from the start: Escape is Later, and nothing under the popup takes it
+  // on the popup stack from the start: Escape is Later unless a job or restart is in progress
   Popup.opened(host, () => close("later"));
   const sort = await NGUI.layout("UIPopup_Sort");
   if (ended) return;
@@ -59,15 +62,7 @@ async function draw(host, info, resolve) {
   const btn = find(popup, "Btn");
   btn.pos = [0, -250];
   const installable = info.installable;
-  const okText = T(installable ? "update.now" : "update.page");
   find(btn, "Btn_Cancel/Label_Locale").widgets[0].text = T("update.later");
-  find(btn, "Btn_Ok/Label_Locale").widgets[0].text = okText;
-  // one line on the slanted 496-wide body ("Open Download Page" shrinks rather than runs into the edges)
-  for (const name of ["Btn_Cancel", "Btn_Ok"]) {
-    const l = find(btn, `${name}/Label_Locale`).widgets[0];
-    const f = NGUI.fitText(l.text, 64, 34, 400, 1);
-    Object.assign(l, { text: f.text, fontSize: f.fs });
-  }
   find(t, "BlackBg/BlackBgClickArea").widgets.find((w) => "sprite" in w).color = "#000000/0.65";
   // the two versions on the game's light stats box
   const rows = [[T("update.current"), info.current.replace(/-dev$/, "")], [T("update.latest"), info.version]];
@@ -80,27 +75,78 @@ async function draw(host, info, resolve) {
     ]),
     node("Dots", [0, 0], [sprite("Common_Line_Dot", 1200, 4, { type: 2, depth: 7, color: "#c0c9d4/1.00" })]),
   ]));
-  const next = document.createElement("div");
-  const view = await NGUI.render(t, next, { scale: S, origin: [960, 540], z: 2000 });
-  if (ended) return;
-  const hit = (name, fn, caption, action) => Popup.hit(next, view, `Center/Popup/Btn/${name}/BG (1)`, fn, { name: caption, action, z: 2100 });
-  hit("Btn_Cancel", () => close("later"), T("update.later"), "later");
-  hit("Btn_Ok", async () => {
+  popup.children.push(
+    node("Status", [0, -94], [label("", 40, "#2d4664/1.00", 1250, 96, { depth: 8 })]),
+    node("Progress", [0, -160], [sprite("Common_Bg_Raius10px", 1200, 20, { depth: 5, color: "#c0c9d4/1.00" })], [
+      node("Fill", [-600, 0], [sprite("Common_Bg_Raius10px", 1200, 20, { pivot: 3, depth: 6, color: "#1f9a52/1.00" })]),
+    ]),
+  );
+
+  async function render() {
+    const rev = ++revision, locked = blocked();
+    if (locked) for (const b of buttons) b.disabled = true;
+    const tree = clone(t), body = find(tree, "Popup"), controls = find(body, "Btn");
+    const action = !installable ? "page" : phase === "ready" || phase === "installing" ? "restart" : "update";
+    const okText = T(action === "update" ? "update.now" : `update.${action}`);
+    find(controls, "Btn_Ok/Label_Locale").widgets[0].text = okText;
+    // one line on the slanted 496-wide body, shrinking long captions rather than running into the edges
+    for (const name of ["Btn_Cancel", "Btn_Ok"]) {
+      const l = find(controls, `${name}/Label_Locale`).widgets[0];
+      const f = NGUI.fitText(l.text, 64, 34, 400, 1);
+      Object.assign(l, { text: f.text, fontSize: f.fs });
+      if (locked) {
+        l.color = "#6e7c8d/1.00";
+        for (const w of find(controls, `${name}/BG (1)`).widgets) w.color = "#aab4bf/1.00";
+      }
+    }
+    const text = error || (phase === "downloading" ? T("update.downloading", { p: percent })
+      : phase === "ready" ? T("update.complete") : phase === "installing" ? T("update.restarting") : "");
+    const f = NGUI.fitText(text, 40, 30, 1250, 2);
+    Object.assign(find(body, "Status").widgets[0], { text: f.text, fontSize: f.fs, color: error ? "#c74646/1.00" : "#2d4664/1.00" });
+    const progress = find(body, "Progress");
+    progress.active = phase === "downloading";
+    find(progress, "Fill").active = percent > 0;
+    find(progress, "Fill").widgets[0].w_ = 1200 * percent / 100;
+    const next = document.createElement("div");
+    const view = await NGUI.render(tree, next, { scale: S, origin: [960, 540], z: 2000 });
+    if (ended || rev !== revision) return;
+    const hit = (name, fn, caption, action) => Popup.hit(next, view, `Center/Popup/Btn/${name}/BG (1)`, fn, { name: caption, action, z: 2100 });
+    buttons = [hit("Btn_Cancel", () => close("later"), T("update.later"), "later"),
+      hit("Btn_Ok", () => act(action), okText, action)];
+    for (const b of buttons) { b.disabled = locked; b.setAttribute("aria-disabled", String(locked)); }
+    host.replaceChildren(...next.childNodes);
+  }
+
+  async function act(action) {
+    if (ended || blocked()) return;
+    if ((action === "update" && phase !== "offer") || (action === "restart" && phase !== "ready")) return;
     if (!installable) {
       if (close("page")) rpc("app.openReleasePage").catch(() => {});
       return;
     }
-    if (!close(null)) return;
+    const installing = phase === "ready";
+    phase = installing ? "installing" : "downloading";
+    error = "";
+    percent = 0;
     try {
-      const id = await rpc("app.update");
-      const result = await waitJob(id, (p) => toast(T("update.downloading", { p: p.total ? Math.floor((p.current / p.total) * 100) : 0 }), { sticky: true }));
-      toast(T("update.restarting"), { sticky: true });
-      await rpc("app.installUpdate", { file: result.file });
-      // the app quits and starts again as the new version: nothing more to show
+      await render();
+      if (installing) {
+        await rpc("app.installUpdate", { file });
+        return; // the app quits and starts again as the new version
+      }
+      const result = await waitJob(await rpc("app.update"), (p) => {
+        const next = p.total > 0 ? Math.max(0, Math.min(100, Math.floor(p.current / p.total * 100))) : 0;
+        if (next === percent) return; // the popup is drawn again only when the number changes
+        percent = next;
+        render().catch((err) => console.error("update progress", err));
+      });
+      file = result.file;
+      phase = "ready";
     } catch (err) {
-      toast(T(`error.${err.code || "internal"}`, err.params || {}), { kind: "error" });
-      resolve("update");
+      phase = installing ? "ready" : "offer";
+      error = T(`error.${err.code || "internal"}`, err.params || {});
     }
-  }, okText, installable ? "update" : "page");
-  host.replaceChildren(...next.childNodes);
+    await render();
+  }
+  await render();
 }

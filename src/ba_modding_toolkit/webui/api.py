@@ -142,21 +142,34 @@ def build_api(s: Services) -> RpcRegistry:
 
     # --- updates ---
 
+    def downloaded_update(info: Any) -> Any:
+        downloaded = getattr(s, "update_file", None)
+        return downloaded if (info is not None and downloaded is not None
+                              and downloaded[2] == info.version and downloaded[0].is_file()) else None
+
     @rpc.method("app.checkUpdate")
     def app_check_update() -> Any:
-        s.update_info = updater.check()
-        return s.update_info
+        info = updater.check()
+        s.update_info = info
+        if info is None:
+            return None
+        downloaded = downloaded_update(info)
+        return {**info.to_json(), "downloaded": downloaded is not None,
+                "file": str(downloaded[0]) if downloaded else None}
 
     @rpc.method("app.update")
     def app_update() -> str:
         info = getattr(s, "update_info", None)
         if info is None or not info.installable:
             raise ServiceError("update_unsupported")
-        dest = Path(tempfile.mkdtemp(prefix="bamt-update-"))
 
         def download(log: Any, progress: Any) -> dict[str, str]:
+            downloaded = downloaded_update(info)
+            if downloaded is not None:
+                return {"file": str(downloaded[0])}
+            dest = Path(tempfile.mkdtemp(prefix="bamt-update-"))
             path, md5 = updater.download(info, dest, progress)
-            s.update_file = (path, md5)  # what installUpdate may swap in
+            s.update_file = (path, md5, info.version)  # what installUpdate may swap in, for this release only
             return {"file": str(path)}
 
         return s.jobs.submit("update.download", download)
@@ -172,7 +185,7 @@ def build_api(s: Services) -> RpcRegistry:
     def app_install_update(file: str) -> None:
         # only the build this session downloaded and verified, only in the app window (it has to quit to be
         # replaced), and never while a job writes into the game folder
-        downloaded = getattr(s, "update_file", None)
+        downloaded = downloaded_update(s.update_info)
         if s.window is None:
             raise ServiceError("update_unsupported")
         if downloaded is None or Path(file) != downloaded[0] or not downloaded[0].is_file():

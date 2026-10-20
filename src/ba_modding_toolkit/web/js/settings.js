@@ -304,7 +304,7 @@ async function checkUpdate() {
     if (!info) { toast(T("settings.update.none")); return; }
     close();
     const { check } = await import("./update.js");
-    check($("consent"));
+    check($("consent"), info);
   } catch (err) {
     toast(errorText(err), { kind: "error" });
   }

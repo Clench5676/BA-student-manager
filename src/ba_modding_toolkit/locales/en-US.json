@@ -1156,6 +1156,8 @@
 			"later": "Later",
 			"now": "Update",
 			"downloading": "Downloading {p}%",
+			"complete": "Download Complete",
+			"restart": "Restart",
 			"restarting": "Restarting to finish the update",
 			"page": "Open Download Page"
 		},

@@ -5,8 +5,9 @@ import io
 import json
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -583,6 +584,164 @@ def test_settings_offer_the_languages_with_a_locale_file(app, services, tmp_path
 
 def test_install_update_needs_the_window_and_the_verified_download(app, services, tmp_path):
     assert rpc(app, "app.installUpdate", file=str(tmp_path / "x.dmg"))["error"]["code"] == "update_unsupported"
+
+
+@pytest.fixture
+def update_env(services, tmp_path, monkeypatch):
+    from ba_modding_toolkit import updater
+
+    info = updater.UpdateInfo("1.1.0", "1.0.0", "", updater.Asset("app.dmg", "https://example.invalid/app.dmg", 8),
+                              updater.Asset("app.dmg.md5", "https://example.invalid/app.dmg.md5", 32), installable=True)
+    env = SimpleNamespace(info=info, downloads=[], installs=[], quits=[])
+    monkeypatch.setattr(updater, "check", lambda: env.info)
+    monkeypatch.setattr(updater.urllib.request, "urlopen", lambda *a, **kw: pytest.fail("network access"))
+    monkeypatch.setattr(updater, "_get", lambda *a, **kw: pytest.fail("network access"))
+    monkeypatch.setattr("ba_modding_toolkit.webui.api.tempfile.mkdtemp", lambda **kw: str(tmp_path / "downloads"))
+
+    def download(info, dest, progress):
+        env.downloads.append(info.version)
+        dest.mkdir(exist_ok=True)
+        path = dest / f"{info.version}.dmg"
+        path.write_bytes(b"verified")
+        progress(8, 8, path.name)
+        return path, "verified-md5"
+
+    monkeypatch.setattr(updater, "download", download)
+    monkeypatch.setattr(updater, "install", lambda path, md5: env.installs.append((path, md5)))
+    services.window = SimpleNamespace(destroy=lambda: env.quits.append(True))
+    return env
+
+
+def download_update(app, services):
+    job = rpc(app, "app.update")["result"]
+    assert services.jobs.wait(job, 5)
+    result = services.jobs.get(job)
+    assert result.state == "done", result.error
+    return result.result["file"]
+
+
+def test_update_rpc_keeps_a_verified_version_for_later_and_installs_only_on_request(app, services, update_env):
+    info = rpc(app, "app.checkUpdate")["result"]
+    assert info == {**update_env.info.to_json(), "downloaded": False, "file": None}
+    file = download_update(app, services)
+    assert services.update_file == (Path(file), "verified-md5", update_env.info.version)
+    assert update_env.installs == update_env.quits == []
+    # A new check produces a new UpdateInfo instance; its version still matches the retained download.
+    update_env.info = replace(update_env.info)
+    ready = rpc(app, "app.checkUpdate")["result"]
+    assert ready["downloaded"] is True and ready["file"] == file
+    assert download_update(app, services) == file
+    assert update_env.downloads == ["1.1.0"]
+    assert update_env.installs == update_env.quits == []
+    assert rpc(app, "app.installUpdate", file=file) == {"result": None}
+    assert update_env.installs == [(Path(file), "verified-md5")]
+    assert update_env.quits == [True]
+
+
+def test_update_rpc_never_reuses_a_download_for_another_version(app, services, update_env):
+    rpc(app, "app.checkUpdate")
+    old = download_update(app, services)
+    update_env.info = replace(update_env.info, version="1.2.0")
+    info = rpc(app, "app.checkUpdate")["result"]
+    assert info["version"] == "1.2.0" and info["downloaded"] is False and info["file"] is None
+    assert rpc(app, "app.installUpdate", file=old)["error"]["code"] == "update_unavailable"
+    new = download_update(app, services)
+    assert new != old and update_env.downloads == ["1.1.0", "1.2.0"]
+    assert rpc(app, "app.installUpdate", file=old)["error"]["code"] == "update_unavailable"
+    assert rpc(app, "app.checkUpdate")["result"]["file"] == new
+    assert update_env.installs == update_env.quits == []
+
+
+def test_update_rpc_redownloads_a_missing_file_and_handles_no_release(app, services, update_env):
+    rpc(app, "app.checkUpdate")
+    file = download_update(app, services)
+    Path(file).unlink()
+    assert rpc(app, "app.installUpdate", file=file)["error"]["code"] == "update_unavailable"
+    missing = rpc(app, "app.checkUpdate")["result"]
+    assert missing["downloaded"] is False and missing["file"] is None
+    assert download_update(app, services) == file
+    assert update_env.downloads == ["1.1.0", "1.1.0"]
+    update_env.info = replace(update_env.info, installable=False)
+    rpc(app, "app.checkUpdate")
+    assert rpc(app, "app.update")["error"]["code"] == "update_unsupported"
+    update_env.info = None
+    assert rpc(app, "app.checkUpdate") == {"result": None}
+    assert rpc(app, "app.update")["error"]["code"] == "update_unsupported"
+    assert rpc(app, "app.installUpdate", file=file)["error"]["code"] == "update_unavailable"
+
+
+def test_update_rpc_rechecks_the_cache_when_queued_downloads_run(app, services, update_env):
+    gate = threading.Event()
+    services.jobs.submit("block", lambda log, progress: gate.wait(5))
+    try:
+        rpc(app, "app.checkUpdate")
+        first = rpc(app, "app.update")["result"]
+        second = rpc(app, "app.update")["result"]
+        assert rpc(app, "app.checkUpdate")["result"]["downloaded"] is False
+        gate.set()
+        assert services.jobs.wait(first, 5) and services.jobs.wait(second, 5)
+        assert services.jobs.get(first).state == services.jobs.get(second).state == "done"
+        assert services.jobs.get(first).result == services.jobs.get(second).result
+        assert update_env.downloads == ["1.1.0"]
+    finally:
+        gate.set()
+
+
+def test_update_rpc_does_not_cache_a_failed_download_and_can_retry(app, services, update_env, monkeypatch):
+    from ba_modding_toolkit import updater
+
+    rpc(app, "app.checkUpdate")
+    download = updater.download
+
+    def fail(info, dest, progress):
+        raise ServiceError("update_checksum_mismatch", file=info.asset.name)
+
+    monkeypatch.setattr(updater, "download", fail)
+    job = rpc(app, "app.update")["result"]
+    assert services.jobs.wait(job, 5)
+    assert services.jobs.get(job).error["code"] == "update_checksum_mismatch"
+    assert services.update_file is None
+    assert rpc(app, "app.checkUpdate")["result"]["downloaded"] is False
+    assert update_env.installs == update_env.quits == []
+    monkeypatch.setattr(updater, "download", download)
+    file = download_update(app, services)
+    assert rpc(app, "app.checkUpdate")["result"]["file"] == file
+
+
+@pytest.mark.parametrize("code", ["classic_open", "busy", "update_unavailable", "update_unsupported"])
+def test_install_update_refusals_keep_the_download_for_retry(app, services, update_env, monkeypatch, code):
+    from ba_modding_toolkit import updater
+
+    rpc(app, "app.checkUpdate")
+    file = download_update(app, services)
+    retained = services.update_file
+    gate = threading.Event()
+    job = None
+    install = updater.install
+    if code == "classic_open":
+        monkeypatch.setattr(services, "classic_open", lambda: True)
+    elif code == "busy":
+        job = services.jobs.submit("writer", lambda log, progress: gate.wait(5), writes="game")
+    elif code == "update_unavailable":
+        file += ".other"
+    else:
+        def unsupported(path, md5):
+            raise ServiceError("update_unsupported")
+        monkeypatch.setattr(updater, "install", unsupported)
+    try:
+        assert rpc(app, "app.installUpdate", file=file)["error"]["code"] == code
+        assert services.update_file == retained
+        assert rpc(app, "app.checkUpdate")["result"]["downloaded"] is True
+        assert update_env.installs == update_env.quits == []
+    finally:
+        gate.set()
+    monkeypatch.setattr(services, "classic_open", lambda: False)
+    monkeypatch.setattr(updater, "install", install)
+    if job:
+        assert services.jobs.wait(job, 5)
+    assert rpc(app, "app.installUpdate", file=str(retained[0])) == {"result": None}
+    assert update_env.installs == [(retained[0], retained[1])]
+    assert update_env.quits == [True]
 
 
 def test_settings_change_waits_for_the_running_job(services):

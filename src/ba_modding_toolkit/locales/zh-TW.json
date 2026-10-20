@@ -1156,6 +1156,8 @@
 			"later": "稍後",
 			"now": "更新",
 			"downloading": "下載中 {p}%",
+			"complete": "下載完成",
+			"restart": "重新啟動",
 			"restarting": "即將重新啟動以完成更新",
 			"page": "前往下載頁面"
 		},

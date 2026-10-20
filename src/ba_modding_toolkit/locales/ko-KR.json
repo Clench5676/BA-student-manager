@@ -1156,6 +1156,8 @@
 			"later": "나중에",
 			"now": "업데이트",
 			"downloading": "다운로드 중 {p}%",
+			"complete": "다운로드 완료",
+			"restart": "재시작",
 			"restarting": "업데이트 마무리를 위해 재시작 중",
 			"page": "다운로드 페이지 열기"
 		},

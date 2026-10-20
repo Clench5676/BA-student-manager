@@ -786,8 +786,8 @@ stops the server (the page shows Closed); with `--serve` it gives `native_unavai
 | `actions.update {mod}` / `actions.extract {target}` | job id |
 | `actions.compare {mod}` | per-asset differences |
 | `os.reveal {path}` | |
-| `app.checkUpdate` | the newest release above this version, or `null` |
-| `app.update` / `app.installUpdate {file}` | job id (download and MD5 check) / swap in the build and quit; `classic_open` while any classic window is open (never queued) |
+| `app.checkUpdate` | the newest release above this version, or `null`; `downloaded` and `file` (path or `null`) report a verified file still present for that version in this session |
+| `app.update` / `app.installUpdate {file}` | job id (download and MD5 check, result `{file}`; reuses the verified file for the same version) / swap in the build and quit after Restart; `classic_open` while any classic window is open (never queued) |
 
 HTTP endpoints outside `/api/rpc`, each with its own token, never the session token: `GET /api/classic/control` and
 `POST /api/classic/report` (the classic child's one-time token, see Classic window) and `POST /api/instance/raise`
@@ -1013,8 +1013,12 @@ optional, so a popup still works without them.
 time, in order, each only when it has something to show (`mod-switch.js startDue`): the asset consent, the scan
 consent (while it is unanswered and a game folder is known; see Enable Mods switch), then the update popup (released
 builds only). `Update.check` resolves when its popup closes: `later` (Later or Escape), `page` (the download page
-opened), `update` once an update has failed (one that works restarts the app), `null` with no newer release or
-offline. A step that fails is logged and the next one comes. The prompts of mods back to official and of mods outside
+opened), `update` when a failed update is dismissed, `null` with no newer release, offline or if drawing fails.
+Download progress and errors stay in the popup; its buttons and Escape are blocked during download. A verified
+download shows Download Complete with Later / Restart. Later keeps it for this session; the next check for that
+version opens ready to restart. Only Restart installs, and a refusal stays ready with an error and a retry. A
+successful retry clears the failure, so Later / Escape then resolve as `later`. A step that fails is logged and the
+next one comes. The prompts of mods back to official and of mods outside
 the library come last, once the start scan is in (at most 10 s; one that comes later shows them once no other popup
 is open), each when `startDue` says it is due: only with the scan consent, never while the game runs, Steam is busy
 or the classic UI is open, no drift while mods are off, nothing dismissed (see Mods already in use).

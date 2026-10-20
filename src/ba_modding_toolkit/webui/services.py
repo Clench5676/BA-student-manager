@@ -200,6 +200,7 @@ class Services:
         self.state = state or UiState(self.data_dir / "webui.json")
         self.window: Any = None  # the pywebview window, when there is one (see native.py)
         self.update_info: Any = None  # the last update check's result
+        self.update_file: tuple[Path, str, str] | None = None  # verified path, MD5 and release version, for this session
         self.kivo = Kivo()
         self.global_lines = GlobalLines()
         self.mute = False  # development: never play voices

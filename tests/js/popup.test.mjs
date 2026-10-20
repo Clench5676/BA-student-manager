@@ -2,6 +2,7 @@
 // several cards ticked, the start sequence) and web/js/update.js (resolves when its popup closes), on a small stand-in
 // DOM. Run by tests/test_popup.py with Node's test runner: node --test tests/js/popup.test.mjs
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 // --- a stand-in DOM: elements in a tree, ids, clicks, the focus and the window's key listeners ---
@@ -29,8 +30,20 @@ class El {
   focus() { document.activeElement = this; }
   querySelector() { return null; }
   // a canvas: text is measured at 0.6 of its size per character
-  getContext() { return { font: "", measureText(s) { return { width: s.length * 0.6 * parseFloat(/([\d.]+)px/.exec(this.font)?.[1] || 10) }; } }; }
+  getContext() { return { font: "", drawImage() {}, fillRect() {}, measureText(s) { return { width: s.length * 0.6 * parseFloat(/([\d.]+)px/.exec(this.font)?.[1] || 10) }; } }; }
+  toBlob(fn) { fn(new Blob()); }
 }
+globalThis.Image = class {
+  naturalWidth = 8;
+  naturalHeight = 8;
+  set src(_) { queueMicrotask(() => this.onload?.()); }
+};
+let events;
+globalThis.EventSource = class {
+  constructor() { events = this; this.listeners = {}; }
+  addEventListener(type, fn) { this.listeners[type] = fn; }
+  emit(type, data) { this.listeners[type]?.({ data: JSON.stringify(data) }); }
+};
 const body = new El("body");
 const walk = (n, out = []) => { out.push(n); for (const c of n.children) walk(c, out); return out; };
 globalThis.document = {
@@ -50,7 +63,7 @@ function press(key, extra = {}) {
 const host = (id) => { const h = body.appendChild(new El()); h.id = id; h.hidden = true; return h; };
 const dialog = host("dialog"), prompt = host("prompt"), consent = host("consent");
 
-// --- the server: an empty atlas index (no sprite draws, the buttons are worked out from their nodes), the popup
+// --- the server: a small atlas index (the progress and button sprites only), the popup
 // frame's prefab, the update check ---
 const n = (name, pos, widgets = [], children = []) => ({ name, active: true, pos, scale: [1, 1], rotZ: 0, widgets, children });
 const spr = (name, w, h, extra = {}) => ({ sprite: name, atlas: "Common", type: 1, w_: w, h_: h, pivot: 4, depth: 5, color: "#ffffff/1.00", ...extra });
@@ -72,14 +85,19 @@ const SORT = n("UIPopup_Sort", [0, 0], [], [n("Center", [0, 0], [], [
 ])]);
 let update = null; // what app.checkUpdate answers
 const calls = [];
+const requests = [], handlers = new Map();
 const reply = (body, ok = true) => ({ ok, status: ok ? 200 : 404, json: async () => body });
 globalThis.fetch = async (url, opts = {}) => {
   if (url === "/api/rpc") {
     const { method, params } = JSON.parse(opts.body);
     calls.push(method);
+    requests.push({ method, params });
+    if (handlers.has(method)) return reply(await handlers.get(method)(params));
     return reply({ result: method === "app.checkUpdate" ? update : null, params });
   }
-  if (url === "/asset/ui/atlases.json" || url === "/asset/ui/textures.json") return reply({});
+  if (url === "/asset/ui/atlases.json") return reply({ Common: Object.fromEntries(
+    ["Common_Bg_Raius10px", "Common_Btn_BG"].map((name) => [name, { width: 8, height: 8 }])) });
+  if (url === "/asset/ui/textures.json") return reply({});
   if (url === "/asset/ui/layout/UIPopup_Sort.json") return reply(SORT);
   return reply(null, false); // the other prefabs are optional
 };
@@ -90,6 +108,10 @@ console.warn = (...args) => { if (!String(args[0]).startsWith("popup layout")) w
 
 const Popup = await import("../../src/ba_modding_toolkit/web/js/popup.js");
 const Update = await import("../../src/ba_modding_toolkit/web/js/update.js");
+const { setStrings } = await import("../../src/ba_modding_toolkit/web/js/i18n.js");
+const english = JSON.parse(readFileSync(new URL("../../src/ba_modding_toolkit/locales/en-US.json", import.meta.url))).webui;
+setStrings("en-US", Object.fromEntries(["update", "error"].flatMap((group) =>
+  Object.entries(english[group]).map(([key, value]) => [`webui.${group}.${key}`, value]))));
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 const actionsIn = (root) => walk(root).filter((e) => e.dataset?.action);
@@ -100,6 +122,12 @@ async function drawn(root, name) {
   throw new Error(`no ${name} button`);
 }
 const state = (promise) => Promise.race([promise.then((v) => ({ done: v })), tick().then(() => "pending")]);
+async function until(fn) {
+  for (let i = 0; i < 200; i++) { if (fn()) return; await tick(); }
+  assert.fail("popup did not reach the expected state");
+}
+const part = (name) => walk(consent).find((e) => e.dataset.path === `Center/Popup/${name}`);
+const available = { current: "0.1.0-alpha.3", version: "0.1.0-beta", installable: true, downloaded: false, file: null };
 
 test("Escape goes to the topmost open popup only, and to none under one that must be answered", () => {
   const a = body.appendChild(new El()), b = body.appendChild(new El());
@@ -322,6 +350,151 @@ test("Update.check resolves when its popup closes, not when it is drawn", async 
   (await drawn(consent, "page")).click();
   assert.equal(await page, "page");
   assert.ok(calls.includes("app.openReleasePage"));
+});
+
+test("update progress stays in NGUI, blocks buttons and Escape, and completion waits for Restart", async () => {
+  update = { ...available };
+  const start = calls.length;
+  let release;
+  handlers.set("app.update", () => new Promise((resolve) => { release = () => resolve({ result: "download" }); }));
+  handlers.set("jobs.get", () => ({ result: { state: "running" } }));
+  const done = Update.check(consent);
+  const first = await drawn(consent, "update");
+  first.click();
+  first.click();
+  await until(() => release);
+  const later = action(consent, "later"), downloading = action(consent, "update");
+  assert.ok(later.disabled && downloading.disabled);
+  assert.equal(downloading.getAttribute("aria-disabled"), "true");
+  assert.equal(part("Btn/Btn_Ok/Label_Locale").style.color, "#6e7c8d");
+  later.click();
+  downloading.click();
+  assert.ok(press("Escape").defaultPrevented);
+  assert.equal(await state(done), "pending");
+  assert.equal(consent.hidden, false);
+  release();
+  await until(() => calls.slice(start).includes("jobs.get"));
+  const progress = async (current, total, p) => {
+    events.emit("job.progress", { id: "download", current, total, label: "build.dmg" });
+    await until(() => part("Status")?.textContent === `Downloading ${p}%`);
+    return part("Progress/Fill");
+  };
+  assert.equal(await progress(20, 0, 0), undefined, "unknown total: zero, without an invalid bar width");
+  const fill = await progress(50, 100, 50);
+  assert.equal(parseFloat(fill.style.width) / parseFloat(part("Progress").style.width), 0.5);
+  assert.ok(fill.style.backgroundImage, "the bar uses a rendered, tinted sprite");
+  await progress(200, 100, 100);
+  await progress(-10, 100, 0);
+  // In-flight progress renders cannot replace the ready state after completion.
+  events.emit("job.progress", { id: "download", current: 100, total: 100 });
+  events.emit("job.done", { id: "download", result: { file: "/session/build.dmg" } });
+  await drawn(consent, "restart");
+  assert.equal(part("Status").textContent, "Download Complete");
+  assert.equal(part("Progress"), undefined);
+  assert.equal(action(consent, "restart").disabled, false);
+  assert.equal(await state(done), "pending");
+  assert.equal(calls.slice(start).filter((m) => m === "app.update").length, 1);
+  first.click();
+  await tick();
+  assert.equal(calls.slice(start).includes("app.installUpdate"), false);
+  action(consent, "later").click();
+  assert.equal(await done, "later");
+  assert.equal(calls.slice(start).includes("app.installUpdate"), false);
+
+  const ready = { ...available, downloaded: true, file: "/session/build.dmg" };
+  // Settings passes its result; startup and subsequent checks fetch it themselves.
+  for (const supplied of [true, false]) {
+    update = ready;
+    const before = calls.length;
+    const again = supplied ? Update.check(consent, ready) : Update.check(consent);
+    await drawn(consent, "restart");
+    assert.equal(part("Status").textContent, "Download Complete");
+    assert.deepEqual(calls.slice(before), supplied ? [] : ["app.checkUpdate"]);
+    press("Escape");
+    assert.equal(await again, "later");
+  }
+  handlers.clear();
+});
+
+test("download failures stay inside the popup, allow retry, and resolve only when dismissed", async () => {
+  update = { ...available };
+  handlers.set("app.update", () => ({ result: "retry" }));
+  handlers.set("jobs.get", () => ({ result: { state: "running" } }));
+  const start = calls.length;
+  const done = Update.check(consent);
+  (await drawn(consent, "update")).click();
+  await until(() => calls.slice(start).includes("jobs.get"));
+  events.emit("job.failed", { id: "retry", code: "update_checksum_mismatch" });
+  await until(() => part("Status")?.textContent === english.error.update_checksum_mismatch);
+  assert.equal(await state(done), "pending");
+  assert.equal(consent.hidden, false);
+  assert.equal(action(consent, "update").disabled, false);
+  assert.equal(action(consent, "later").disabled, false);
+  assert.equal(part("Progress"), undefined);
+  const beforeRetry = calls.length;
+  action(consent, "update").click();
+  await until(() => calls.slice(beforeRetry).includes("jobs.get"));
+  events.emit("job.done", { id: "retry", result: { file: "/session/retry.dmg" } });
+  await drawn(consent, "restart");
+  assert.equal(part("Status").textContent, "Download Complete");
+  assert.equal(calls.slice(start).filter((m) => m === "app.update").length, 2);
+  action(consent, "later").click();
+  assert.equal(await done, "later", "a successful retry clears the failure");
+
+  for (const code of ["update_download_failed", "internal"]) {
+    handlers.set("app.update", () => ({ error: code === "internal" ? {} : { code } }));
+    const failed = Update.check(consent);
+    (await drawn(consent, "update")).click();
+    await until(() => part("Status")?.textContent === english.error[code].replace(/\{\w+\}/g, ""));
+    assert.equal(await state(failed), "pending");
+    press("Escape");
+    assert.equal(await failed, "update", "the failed-update result is deferred until the popup closes");
+  }
+  handlers.clear();
+});
+
+test("only Restart installs, and every install refusal stays ready for another attempt", async () => {
+  update = { ...available, downloaded: true, file: "/session/verified.dmg" };
+  const start = calls.length;
+  let answer;
+  handlers.set("app.installUpdate", () => new Promise((resolve) => { answer = resolve; }));
+  const done = Update.check(consent);
+  for (const code of ["classic_open", "busy", "update_unavailable", "update_unsupported"]) {
+    answer = null;
+    (await drawn(consent, "restart")).click();
+    await until(() => answer);
+    assert.ok(action(consent, "restart").disabled);
+    action(consent, "restart").click();
+    action(consent, "later").click();
+    press("Escape");
+    assert.equal(await state(done), "pending");
+    answer({ error: { code } });
+    await until(() => part("Status")?.textContent === english.error[code]);
+    assert.equal(action(consent, "restart").disabled, false);
+    assert.equal(action(consent, "restart").getAttribute("aria-label"), "Restart");
+    assert.equal(consent.hidden, false);
+  }
+  assert.equal(calls.slice(start).filter((m) => m === "app.installUpdate").length, 4);
+  assert.equal(calls.slice(start).includes("app.update"), false);
+  assert.ok(requests.filter((r) => r.method === "app.installUpdate").every((r) => r.params.file === update.file));
+  action(consent, "later").click();
+  assert.equal(await done, "update");
+
+  handlers.set("app.installUpdate", () => ({ result: null }));
+  const restarted = Update.check(consent);
+  (await drawn(consent, "restart")).click();
+  await until(() => part("Status")?.textContent === english.update.restarting);
+  assert.equal(await state(restarted), "pending", "the app closes on successful install; startup cannot advance under it");
+  consent.hidden = true; // stand in for the window closing
+  handlers.clear();
+});
+
+test("every update locale has short completion and restart labels", () => {
+  for (const language of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"]) {
+    const locale = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${language}.json`, import.meta.url))).webui.update;
+    assert.deepEqual(Object.keys(locale).sort(), Object.keys(english.update).sort());
+    for (const key of ["complete", "restart"]) assert.ok(locale[key] && !/[.。!！·・]/u.test(locale[key]));
+  }
 });
 
 test("the start popups come one at a time, in order; one that fails does not stop the others", async () => {

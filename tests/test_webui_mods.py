@@ -463,7 +463,8 @@ def test_installing_an_update_is_refused_while_a_classic_window_is_open(env, tmp
     build = tmp_path / "BA-Modding-Toolkit-1.0.0-macos-arm64.dmg"
     build.write_bytes(b"dmg")
     env.s.window = SimpleNamespace(destroy=lambda: pytest.fail("quit"))
-    env.s.update_file = (build, "md5")
+    env.s.update_file = (build, "md5", "1.0.0")
+    env.s.update_info = SimpleNamespace(version="1.0.0")
     env.orphan()
     assert rpc(env.app, "app.installUpdate", file=str(build))["error"]["code"] == "classic_open"
 
