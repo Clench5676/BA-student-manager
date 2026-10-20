@@ -973,7 +973,7 @@
 			"guide": "Guide",
 			"offState": "Mods off",
 			"onState": "Mods on",
-			"helpOff": "Off: all portraits and memorial lobbies back to official at once",
+			"helpOff": "Off: all portraits and memorial lobbies back to official",
 			"helpOn": "On: your configured mods again",
 			"helpKept": "Mods stay in the mod library",
 			"helpGame": "Only while the game is closed",
