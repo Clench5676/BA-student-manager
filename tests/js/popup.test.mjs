@@ -187,6 +187,59 @@ test("messages stack: Escape closes the one in front, the line buttons act", asy
   assert.equal(dialog.hidden, true);
 });
 
+test("confirm keys press OK while the popup is in front and holds the focus; none by default", async () => {
+  const keyOn = (layer, target, key, extra = {}) => {
+    const ev = { key, target, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }, ...extra };
+    for (const fn of layer.listeners.keydown || []) fn(ev);
+    return ev;
+  };
+  // the quit prompt: Enter and Space, as the PC client binds its popups' confirm
+  const quit = Popup.message({ title: "Notice", lines: ["Quit?"], ok: "Confirm", cancel: "Cancel", confirmKeys: ["Enter", " "] });
+  await drawn(dialog, "ok");
+  const layer = dialog.children.at(-1);
+  assert.equal(keyOn(layer, action(dialog, "cancel"), "Enter").defaultPrevented, false, "a focused button takes its own key");
+  for (const extra of [{ repeat: true }, { isComposing: true }, { keyCode: 229 }, { ctrlKey: true }, { defaultPrevented: true }]) {
+    keyOn(layer, layer, "Enter", extra);
+  }
+  keyOn(layer, layer, "a");
+  assert.equal(await state(quit), "pending");
+  // another message in front: the keys are its own
+  const front = Popup.message({ title: "Remove", lines: ["The game may not start"], ok: "Remove" });
+  await tick();
+  assert.equal(keyOn(layer, layer, "Enter").defaultPrevented, false);
+  press("Escape");
+  await front;
+  assert.ok(keyOn(layer, layer, " ").defaultPrevented);
+  assert.deepEqual(await quit, { button: "ok", checked: null });
+  // without confirmKeys, Enter presses nothing
+  const plain = Popup.message({ title: "Remove", lines: ["The game may not start"], ok: "Remove", cancel: "Cancel" });
+  await drawn(dialog, "ok");
+  const l2 = dialog.children.at(-1);
+  assert.equal(keyOn(l2, l2, "Enter").defaultPrevented, false);
+  assert.equal(await state(plain), "pending");
+  action(dialog, "cancel").click();
+  await plain;
+});
+
+test("the hand-off prompt saves Don't Ask Again only with Open (decision 6)", async () => {
+  const { ITEMS, activate, handOffPrompt } = await import("../../src/ba_modding_toolkit/web/js/nav-items.js");
+  const T = (key) => key;
+  const ask = (item) => Popup.message(handOffPrompt(item, T));
+  const run = () => {
+    const log = [];
+    const done = activate(ITEMS[3], { prompt: true, ask, go: () => log.push("go"), open: async (tab) => log.push(`open ${tab}`), savePrompt: async (v) => log.push(`save ${v}`) });
+    return { log, done };
+  };
+  for (const [ticked, button, expected] of [[true, "ok", ["save false", "open mod_install"]], [false, "ok", ["open mod_install"]], [true, "cancel", []], [true, "close", []]]) {
+    const r = run();
+    const box = await drawn(dialog, "check");
+    if (ticked) box.click();
+    action(dialog, button).click();
+    await r.done;
+    assert.deepEqual(r.log, expected, `${ticked ? "ticked" : "unticked"}, ${button}`);
+  }
+});
+
 test("a message that must be answered has no close button and ignores Escape", async () => {
   const p = Popup.message({ title: "Mods Back to Official", lines: ["Game files verified, repaired or updated"], ok: "Apply Mod Configuration", cancel: "Keep as Is", close: false });
   await drawn(dialog, "ok");

@@ -520,17 +520,61 @@ export async function listPopup({
 // --- the message popup ---
 const MSG = { title: 150, gap: 28, rowMin: 104, check: 150, buttons: 236, none: 70, minH: 640 };
 
-// message({title, lines, ok, cancel, check, host, width, close}): a message on the popup frame, in host (#dialog by
-// default, over everything but the toast). Resolves once it is closed, however it is closed, with {button, checked}:
-// button "ok" or "cancel", or null for the close button, the backdrop or Escape; checked, the checkbox's state then
-// (null without one).
+// message({title, lines, ok, cancel, check, host, width, close, confirmKeys}): a message on the popup frame, in host
+// (#dialog by default, over everything but the toast). Resolves once it is closed, however it is closed, with
+// {button, checked}: button "ok" or "cancel", or null for the close button, the backdrop or Escape; checked, the
+// checkbox's state then (null without one).
 //   lines: text, or {text, button: {label, fn}} for a line with a small button at its end (fn({close}), where
 //          close(button) closes the popup); with such a line every line shows as a row of the game's light box
 //   ok, cancel: the buttons' labels (either may be left out); check: {label, checked}
 //   close: false for a popup that must be answered with a button (no close button; the backdrop and Escape do nothing)
+//   confirmKeys: keys that press OK while the popup is in front and holds the focus itself (a focused button takes its
+//                own key), as the PC client binds its popups' confirm (["Enter", " "]); none by default
 // The popup takes the keyboard focus while it is open (Enter presses nothing under it) and gives it back after.
+// Without the frame's prefab (no game folder) the same message is drawn plain.
 export function message(opts) {
   return new Promise((resolve) => { showMessage(opts, resolve); });
+}
+
+// a key that presses OK (confirmKeys): alone, not a held key's repeat, not while an input method composes
+export function confirmKey(ev, keys) {
+  if (!keys?.length || !ev || ev.defaultPrevented || ev.isComposing || ev.keyCode === 229 || ev.repeat) return false;
+  if (ev.altKey || ev.ctrlKey || ev.metaKey || ev.shiftKey) return false;
+  return keys.includes(ev.key);
+}
+
+// the message without the game's prefab: a plain box on a dark backdrop, the same buttons, marked the same way
+function plainMessage(layer, { title, lines, ok, cancel, state, dismissable }, finish) {
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+  const button = (caption, fn, action, cls = "message-button") => {
+    const b = el("button", cls, caption);
+    b.dataset.action = action;
+    b.setAttribute("aria-label", caption);
+    b.addEventListener("click", fn);
+    return b;
+  };
+  const back = el("div", "plain-popup-back");
+  if (dismissable) back.addEventListener("click", () => finish(null));
+  const box = el("div", "plain-popup");
+  box.appendChild(el("h2", "", title));
+  lines.map((l) => (typeof l === "string" ? { text: l } : l)).forEach((r, i) => {
+    const p = el("p", "", r.text);
+    if (r.button) p.appendChild(button(r.button.label, () => r.button.fn?.({ close: finish }), `line${i}`, "plain-line-button"));
+    box.appendChild(p);
+  });
+  if (state) {
+    const b = button(state.label, () => { state.checked = !state.checked; b.setAttribute("aria-checked", String(state.checked)); }, "check", "plain-check");
+    b.setAttribute("role", "checkbox");
+    b.setAttribute("aria-checked", String(state.checked));
+    box.appendChild(b);
+  }
+  if (ok || cancel) {
+    const row = el("div", "message-actions");
+    if (cancel) row.appendChild(button(cancel, () => finish("cancel"), "cancel"));
+    if (ok) row.appendChild(button(ok, () => finish("ok"), "ok"));
+    box.appendChild(row);
+  }
+  layer.replaceChildren(back, box);
 }
 
 function messageLines(lines, w) {
@@ -577,7 +621,7 @@ function messageLines(lines, w) {
   return { tree: node("Lines", [0, 0], [], out), height: boxH, buttons };
 }
 
-async function showMessage({ title = "", lines = [], ok = null, cancel = null, check = null, host: hostArg = "dialog", width = 1700, close: dismissable = true }, resolve) {
+async function showMessage({ title = "", lines = [], ok = null, cancel = null, check = null, host: hostArg = "dialog", width = 1700, close: dismissable = true, confirmKeys = null }, resolve) {
   const host = hostOf(hostArg);
   const layer = document.createElement("div");
   layer.className = "popup-layer";
@@ -598,8 +642,24 @@ async function showMessage({ title = "", lines = [], ok = null, cancel = null, c
     resolve({ button, checked: state ? state.checked : null });
   };
   opened(host, dismissable ? () => finish(null) : null, { el: layer });
+  // the confirm keys, while this popup is in front and the focus is on the popup itself
+  if (ok && confirmKeys) {
+    layer.addEventListener("keydown", (ev) => {
+      if (ev.target !== layer || top()?.el !== layer || !confirmKey(ev, confirmKeys)) return;
+      ev.preventDefault();
+      finish("ok");
+    });
+  }
   try {
     await ready();
+  } catch (err) {
+    console.warn("message popup without the game's frame", err);
+    if (ended) return;
+    plainMessage(layer, { title, lines, ok, cancel, state, dismissable }, finish);
+    layer.focus?.({ preventScroll: true });
+    return;
+  }
+  try {
     const body = messageLines(lines, width);
     const hasButtons = !!(ok || cancel);
     const need = MSG.title + body.height + (state ? MSG.check : 0) + MSG.gap + (hasButtons ? MSG.buttons : MSG.none);
