@@ -44,6 +44,7 @@ globalThis.performance ??= { now: () => Date.now() };
 const Stage = await import("../../src/ba_modding_toolkit/web/js/lobby-stage.js");
 const GL = await import("../../src/ba_modding_toolkit/web/js/particles-gl.js");
 const Linear = await import("../../src/ba_modding_toolkit/web/js/linear.js");
+const P = await import("../../src/ba_modding_toolkit/web/js/particles.js");
 
 // The layers and effects of three lobbies as lobby.json gives them (the queues of their atlas pages and of their
 // effects' materials, the effects' sorting fudge and depth): two skeletons each, the second the intro's scene parked
@@ -91,6 +92,19 @@ test("one target: every skeleton's parts sorted by sorting order and render queu
     { name: "Hoshino_home_background", order: -1, queue: 2998, pages: { a: 2998, b: 3000 } }, { name: "plain", order: 0, queue: 2950 }];
   assert.deepEqual(steps(Stage.order(hoshino), hoshino), [
     ["Hoshino_home_background", 2998], ["Hoshino_home_background", 3000], ["plain", 2950], ["Hoshino_home", 3001]]);
+});
+
+test("the sorting layer sorts the parts first, and the effects against them by every part of the key", () => {
+  // a skeleton on the game's second sorting layer (value 2) draws over one on Default whatever their orders and queues
+  const layers = [{ name: "top", sortingLayer: 2, order: -3, queue: 2000, pages: { top: 2000 }, z: 0 },
+    { name: "home", sortingLayer: 0, order: 5, queue: 3100, pages: { home: 3100, home2: 3200 }, z: 0 }];
+  const list = Stage.order(layers);
+  assert.deepEqual(steps(list, layers), [["home", 3100], ["home", 3200], ["top", 2000]]);
+  assert.deepEqual(list.map((s) => s.sortingLayer), [0, 0, 2]);
+  // an effect on Default, order 6, goes after both of her parts, before the top layer; one on layer 2 after all
+  assert.equal(P.lastBefore({ sortingLayer: 0, order: 6, queue: 1000, z: 0 }, list), 1);
+  assert.equal(P.lastBefore({ sortingLayer: 2, order: -3, queue: 2000, z: 0 }, list), 2, "a tie draws after");
+  assert.equal(P.lastBefore({ sortingLayer: 0, order: 5, queue: 3150, z: 0 }, list), 0, "between her parts");
 });
 
 // systems as particles.py exports them, with neutral defaults; drawn with a white texture
