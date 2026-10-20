@@ -871,6 +871,36 @@ The student list quits the app as the PC client's back key does in the lobby (`q
   answered, and the page shows Closed (`app.closed`) alone, without the top bar and the navigation. With `--serve`
   it is refused with `native_unavailable` (a toast).
 
+### Bottom navigation
+
+`nav-items.js` (tested in Node from `tests/test_nav_items.py`) lists the bottom bar's entries and decides what a
+click does; `nav.js` draws them.
+
+- **Greyed entries** (decisions 18 and 19). An entry is greyed exactly when it has a classic tab and no web screen
+  (`classic` and no `route`): today the eight entries after Students. A later web screen is drawn normally once its
+  entry gets a route. A greyed entry keeps the game's disabled tint and nothing else: no lock (these entries are not
+  locked, they open elsewhere), no hover change, never the active look, and no tooltip. It stays a button:
+  `aria-disabled="true"` (not `disabled`, which would swallow the click), focusable with the focus ring, and named
+  "{label} - Classic UI" (`nav.classic`) for assistive technology.
+- **The tint.** The game's buttons carry no NGUI button colours (see gameassets, "Button states"); a locked lobby entry
+  (UILobby, `Front/Bottom/Menu/BG/Grid/<entry>/Disable`) shows the same icon sprite at `#797979` under a lock, and
+  its label in its usual colour. The page reads that tint once (`/asset/ui/layout/UILobby.json?path=...`) and puts it
+  on the icon as a brightness factor (0.4745; `data-tint="game"`; the icon at half until it is read). Without that
+  prefab it takes NGUI's default disabled colour (`Color.grey`): the icon and the label at half brightness (`ngui`).
+  Without a game folder the no-game screen shows the navigation too, with the icon in grey at half brightness and the
+  label in the settings' disabled grey (`#9aa3ad`, `plain`).
+- **The hand-off prompt** (decision 6). A click, Enter or Space on a greyed entry opens the prompt on the shared
+  message popup: the entry's label as its title, "Opens in the classic UI, over this window" (`classic.hint`), the
+  checkbox Don't Ask Again (`mods.dontAsk`, unticked), Cancel and Open. It shows on every click. Open with the box
+  ticked turns the pref `classicPrompt` off (`settings.set`) before the hand-off; Cancel, Escape, the backdrop and
+  the close button save nothing. With the pref off a click hands over at once. Settings' General tab turns it back
+  on: the row Ask Before Opening (On / Off) under More Settings (the General tab's rows scroll, so it has room).
+  More Settings itself opens the classic UI without a prompt. Without a game folder the classic UI still works, and
+  the prompt is drawn plain (Popups).
+- **The hand-off.** `app.openClassic {tab}`, with the corner indicator labelled "Opening the classic UI" until the
+  classic window is up (Loading screen); `classic_failed` and other refusals show as a toast. One hand-off at a time:
+  a click while one is under way does nothing.
+
 ### Portrait
 
 The detail screen frames the portrait like the game (`portrait-view.js`): the skeleton's origin sits on
@@ -999,6 +1029,8 @@ instead.
   build: a fade to black (150 ms), then, while the work goes on, the indicator; work done within the fade only fades back. `wait(promise)` shows the indicator alone over the
   screen after 300 ms (at least 500 ms), for changes inside it and for the way back to the roster. Both give up after
   15 s, reveal what there is and say so. One overlay at a time: a newer call takes over the one on screen.
+  `wait(promise, {label, cap})` names the wait for assistive technology (the classic UI's start: "Opening the classic
+  UI") and stays up to `cap` instead (32 s for that start, which `app.openClassic` waits up to 30 s for).
 - The detail screen resolves `show()` only when it is ready: the panels, the left side's first frame (the portrait,
   or the lobby with its still, or the 3D model with its shaders compiled) and, within 1.2 s, the visible thumbnails;
   the lobby's lines from Kivo get 1.5 s. A change inside the screen (a variant chip, the arrows, a tab, an
@@ -1232,9 +1264,10 @@ in `pointer-textures`); without a game the system cursor stays and there is no e
 
 ## Classic window
 
-The bottom-bar entries without a web screen, and Settings' More Settings, hand over to the classic Tk GUI
-(`webui/classic.py`, its child side in `gui/control.py`). It runs in a process of its own on both systems: Tk (Aqua)
-and pywebview (Cocoa) both need the main thread on macOS, and a crash in a classic tab never takes the web UI with it.
+The bottom-bar entries without a web screen (greyed, through the hand-off prompt: Front end, "Bottom navigation"), and
+Settings' More Settings, hand over to the classic Tk GUI (`webui/classic.py`, its child side in `gui/control.py`). It
+runs in a process of its own on both systems: Tk (Aqua) and pywebview (Cocoa) both need the main thread on macOS, and a
+crash in a classic tab never takes the web UI with it.
 
 - **One window per data directory.** `ClassicWindow.open(tab)` (`app.openClassic`) starts the program again
   (`system.classic_command(tab, control=True)`: `--classic --control`, then `--tab <name>` or `--settings`) and waits

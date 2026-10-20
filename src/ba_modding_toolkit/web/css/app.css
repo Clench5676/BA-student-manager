@@ -79,6 +79,13 @@ input[type="text"], input[type="search"], textarea { cursor: text; }
 .nav-item { position: relative; width: 180px; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; padding-bottom: 13px; font: var(--w) 26px/1 var(--font); color: #2c3c54; letter-spacing: 1px; white-space: nowrap; }
 .nav-item .nav-icon { width: 60px; height: 54px; margin-bottom: 4px; background: center / contain no-repeat; filter: drop-shadow(0 3px 2px rgba(30, 60, 100, .2)); }
 .nav-item.active { color: #2a63c5; }
+/* entries without a web screen (nav-items.js): the game's disabled tint and nothing else (no lock, no hover change,
+   never the active look); --nav-greyed is the tint as a brightness factor, from UILobby's locked entries (their icon
+   only, data-tint "game"), NGUI's default grey (icon and label at half, "ngui"), or, without a game, a plain grey */
+.nav-item.greyed .nav-icon { filter: brightness(var(--nav-greyed, .5)) drop-shadow(0 3px 2px rgba(30, 60, 100, .2)); }
+.nav-items[data-tint="ngui"] .nav-item.greyed { color: #161e2a; }
+.nav-items[data-tint="plain"] .nav-item.greyed { color: #9aa3ad; }
+.nav-items[data-tint="plain"] .nav-item.greyed .nav-icon { filter: grayscale(1) brightness(.5) drop-shadow(0 3px 2px rgba(30, 60, 100, .2)); }
 
 /* --- roster --- */
 .ngui-host { position: absolute; inset: 0; }

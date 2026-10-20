@@ -207,15 +207,18 @@ async function start() {
   on("config.changed", () => { if (!info.gameFound) { location.reload(); return; } stepCards = null; ctx.invalidateRoster(); route(); });
   on("app.busy", () => toast(T("error.busy"), { kind: "error" }));
   await document.fonts.ready;
+  // the bottom bar: its greyed entries hand over to the classic UI (with or without a game folder), their prompt
+  // following the pref classicPrompt
+  const navOptions = { game: !!info.gameFound, prefs: () => ctx.prefs, setPrefs: (prefs) => { ctx.prefs = prefs; } };
   if (!info.gameFound) {
-    renderNav(0);
+    renderNav(0, navOptions);
     noGame();
     return;
   }
   await NGUI.init();
   // the game's pointer and touch effect, read from the game in the background (the system cursor until then)
   Cursor.init();
-  renderNav(0);
+  renderNav(0, navOptions);
   // files dropped on the window are added to the library
   on("drop", async ({ paths }) => {
     try {
