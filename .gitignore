@@ -1,12 +1,13 @@
+# --- Project: user data and outputs (the app's data directory during development) ---
 output/
 Addons/
 adb_cache/
 config.toml
-# web UI user data in the development data directory
 /library/
 /webui.json
 /webui.json.lock
 /.webui.json.*.tmp
+/webui.log
 /input-trace.log
 /webview/
 /classic.json
@@ -15,28 +16,110 @@ config.toml
 /instance.lock
 /instance.json
 /.instance.json.*.tmp
+/.data-folder-migration.json
 
-locales/
+# --- Project: local working folders ---
+prototype/
+research/
+/locales/
 src/ba_modding_toolkit/locales/tmp/
 src/ba_modding_toolkit/locales/backup/
 src/ba_modding_toolkit/locales/*TMP.json
 
-.vscode/
-.trae/
-.idea/
-__pycache__/
-
-build/
-dist/
-prototype/
-research/
-*.pyc
-*.pyo
-*.pyd
-*.egg-info/
-
+# --- Project: file types never committed ---
 *.pdn
 *.exe
 *.lnk
 *.ini
 *.txt
+
+# --- Build output (Nuitka, PyInstaller, packaging) ---
+/build/
+/dist/
+*.build/
+*.dist/
+*.onefile-build/
+compilation-report.xml
+nuitka-crash-report.xml
+*.dmg
+*.spec
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+.eggs/
+.Python
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pyre/
+.pytype/
+.tox/
+.nox/
+.hypothesis/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+*.cover
+.ipynb_checkpoints/
+
+# --- Node (tests/js) ---
+node_modules/
+npm-debug.log*
+.npm/
+.eslintcache
+
+# --- Tool versions and local overrides ---
+mise.local.toml
+.mise.local.toml
+.env
+.env.*
+!.env.example
+*.pem
+
+# --- Editors and IDEs ---
+.vscode/
+.idea/
+.trae/
+.fleet/
+.zed/
+.vs/
+.history/
+*.code-workspace
+*.sublime-project
+*.sublime-workspace
+*.swp
+*.swo
+*~
+\#*\#
+.\#*
+Session.vim
+
+# --- Parallel and generated work: extra worktrees, scratch files, merge leftovers ---
+.worktrees/
+/scratch/
+/tmp/
+.cache/
+*.orig
+*.rej
+*.bak
+*.tmp
+*.log
+
+# --- OS ---
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+$RECYCLE.BIN/
