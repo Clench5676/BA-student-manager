@@ -79,6 +79,8 @@ Every tool of the original toolkit is one click away in the bottom bar (or `--cl
 | ADB Push | Read and write game files on an Android device |
 | Tools | Mod report, "Abnormal Client" repair, mod backup, batch previews |
 
+Batch Install supports linked zoom and pan, rendered and extracted previews, Install All / Skip All, and parallel installation of groups.
+
 More in the [usage guide](https://github.com/Agent-0808/BA-Modding-Toolkit/wiki/Usage).
 
 ### Optional add-ons

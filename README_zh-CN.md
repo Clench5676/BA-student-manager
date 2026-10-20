@@ -76,6 +76,8 @@ macOS 用户数据保存在 `~/Library/Application Support/bluearchive-modding-p
 | ADB 推送 | 读写安卓设备上的游戏文件 |
 | 工具 | Mod 报告、修复「不正常的用户端」、Mod 备份、批量预览 |
 
+批量安装支持同步缩放与平移、渲染与提取预览、全部安装 / 全部跳过，以及组级并行安装。
+
 更多说明见[使用指南](https://github.com/Agent-0808/BA-Modding-Toolkit/wiki/Usage)。
 
 ### 可选扩展
