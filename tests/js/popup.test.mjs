@@ -694,7 +694,7 @@ test("portrait and memorial lobby mods share the localized Mod chip under the na
 const DETAIL = new URL("../../src/ba_modding_toolkit/web/js/detail.js", import.meta.url).href;
 const THUMBS = new URL("../../src/ba_modding_toolkit/web/js/thumbs.js", import.meta.url).href;
 const detailTest = `
-export { baseOf, renderPopup, runUpdate };
+export { baseOf, detailsBody, renderPopup, runUpdate };
 export function setupPreviewTest(data, kind, onLeft = async () => {}) {
   fam = data; variantKey = data.variants[0].key; ctx = { invalidateRoster() {} };
   open = true; busy = false; tab = kind === "lobby" ? "lobby" : "portrait";
@@ -811,4 +811,41 @@ test("a saved source's detail chip keeps its caption independently of In Use", a
     selected: "m", details: () => ({ title: "Portrait", fields: [], actions: [] }) });
   assert.equal(walk(prompt).filter((el) => el.textContent === ui.switch.configured).length, 2, "card badge and detail chip");
   prompt.hidden = true;
+});
+
+test("switch popup fields fit a long file independently in portrait and lobby details", async () => {
+  const field = (prefix, i) => walk(prompt).find((el) => el.dataset.path === `Details/${prefix}_${i}`);
+  try {
+    for (const lang of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"]) {
+      const ui = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${lang}.json`, import.meta.url))).webui;
+      setStrings(lang, Object.fromEntries(strings(ui)));
+      for (const kind of ["portrait", "lobby"]) {
+        const snapshots = [];
+        for (const file of ["ibuki_spr.bundle", `${"azusa_swimsuit_spr".repeat(4)}.bundle`]) {
+          const fields = [[ui.field.file, file], [ui.field.size, "20 MB"], [ui.field.status, ui.status.replaced], [ui.field.crc, ui.crc.fixed]];
+          await Popup.listPopup({ host: prompt, title: ui.info.title[kind], items: [{ key: "m", kind: "mod", label: "Mod", full: "Mod" }],
+            selected: "m", details: () => ({ title: ui.info.title[kind], fields, actions: [] }) });
+          const cells = fields.map((_, i) => field("V", i));
+          assert.equal(cells[0].title, file);
+          assert.equal(cells[0].style.pointerEvents, "auto");
+          if (file.length > 50) assert.ok(cells[0].textContent.includes("\n"), "a long file wraps inside its own row");
+          snapshots.push({ values: cells.slice(1).map((el) => [el.textContent, el.style.fontSize]),
+            labels: fields.map((_, i) => field("F", i).style.fontSize) });
+        }
+        assert.deepEqual(snapshots[1], snapshots[0], `${lang} ${kind}: the file does not resize the other values or labels`);
+      }
+    }
+  } finally { prompt.hidden = true; setStrings("en-US", Object.fromEntries(strings(english))); }
+});
+
+test("a long folder in the file-details summary does not resize the current value or labels", () => {
+  const fields = [[english.field.folder, "/game"], [english.info.current, "ibuki_spr"]];
+  const before = Detail.detailsBody({ fields, rows: [] }).tree;
+  fields[0][1] = `/game/${"folder/".repeat(60)}`;
+  const after = Detail.detailsBody({ fields, rows: [] }).tree;
+  const widget = (tree, name) => tree.children.find((n) => n.name === name).widgets[0];
+  for (const name of ["F_0", "F_1", "V_1"]) assert.deepEqual(widget(after, name), widget(before, name));
+  assert.equal(widget(after, "V_0").title, fields[0][1]);
+  assert.ok(widget(after, "V_0").fontSize >= 28, "a wrapped path respects its size floor");
+  assert.ok(widget(after, "V_0").text.includes("\n"));
 });

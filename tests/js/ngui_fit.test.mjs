@@ -59,3 +59,12 @@ test("a fitted label's box is at least as wide as the width it was fitted to", (
   fitLabel(wide, "OK", 64, 40, 420);
   assert.equal(wide.w_, 600);
 });
+
+test("single-line values shrink independently and stop at their size floor", () => {
+  const values = ["azusa_swimsuit_spr", "Replaced", "2024-11-18", "Fixed"];
+  const fitted = values.map((value) => fitText(value, 42, 28, 250, 1));
+  assert.ok(fitted[0].fs < 42);
+  assert.deepEqual(fitted.slice(1).map((f) => f.fs), [42, 42, 42]);
+  const full = "azusa_swimsuit_spr".repeat(20);
+  assert.deepEqual(fitText(full, 42, 28, 250, 1), { text: full, fs: 28, lines: 1 });
+});
