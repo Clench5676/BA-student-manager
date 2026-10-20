@@ -2,6 +2,7 @@
 // card and the roster, cards for the popups. One hidden Spine player at a time (one WebGL context); results are
 // in-memory blob URLs, never written anywhere.
 import { withTimeout } from "./async.js";
+import { applyAtlasAlpha } from "./spine-alpha.js";
 
 import { spineAssetBase, forgetSpineAssets } from "./api.js";
 import { lobbyIdle } from "./rest-pose.js";
@@ -128,7 +129,7 @@ function loadPlayer(base, el) {
       premultipliedAlpha: false, alpha: true, backgroundColor: "#00000000",
       showControls: false, showLoading: false, preserveDrawingBuffer: true,
       viewport: { padLeft: 0, padRight: 0, padTop: 0, padBottom: 0, transitionTime: 0 },
-      success: (player) => resolve(player),
+      success: (player) => { applyAtlasAlpha(player); resolve(player); },
       error: (_p, message) => { reject(new Error(message)); },
     });
     el.player = p;

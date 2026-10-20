@@ -391,7 +391,7 @@ test("a lobby switch stays covered until its failed preview settles and can retr
   } finally { Detail.hide(); t.mock.timers.reset(); }
 });
 
-test("a special background waits for preview failure and keeps controls and unseen dots", async (t) => {
+test("a special L2D waits for preview failure and keeps controls and unseen dots", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   try {
     errors.length = 0; lobbyMode = "pending";
@@ -407,17 +407,17 @@ test("a special background waits for preview failure and keeps controls and unse
     assert.equal(ready, false, "a pending background cannot release the loading cover early");
     await finish(t, showing);
     assert.equal(Detail.currentVariant(), v.key, "the requested background stays selected alongside a portrait variant");
-    assert.equal(switchButton().getAttribute("aria-label"), "Switch Background");
+    assert.equal(switchButton().getAttribute("aria-label"), "Switch L2D");
     assert.ok(switchButton().listeners.click.length);
     const add = walk(hosts.ngui).find((e) => e.dataset.part === `${INFO}/Weapon/Btn_Up_Wrapper/Btn_Up/BG (1)`);
-    assert.equal(add.getAttribute("aria-label"), "Add Background");
+    assert.equal(add.getAttribute("aria-label"), "Add L2D");
     assert.ok(add.listeners.click.length);
     assert.ok(!walk(hosts.ngui).some((e) => e.dataset.part?.endsWith("Tab_1/Tab_Off/Label")), "there is no portrait tab hit target");
     assert.ok(assetRequests.slice(fetchStart).some((url) => url.includes("/lobby/arona_workpage_daytime/")));
     assert.ok(!playerRequests.slice(start).some((url) => url.includes("/spr/")), "no missing portrait player is started");
     assert.equal(hosts.lobby.querySelector(".lobby-unavailable")?.textContent, "Preview unavailable");
     assert.ok(!hosts.lobby.classList.contains("pending"));
-    assert.equal(switchButton().getAttribute("aria-label"), "Switch Background");
+    assert.equal(switchButton().getAttribute("aria-label"), "Switch L2D");
     assert.ok(switchButton().listeners.click.length, "apply and restore still have a switch card");
     assert.ok(!rpcRequests.slice(rpcStart).some((r) => r.method === "lobby.lines"));
     assert.ok(tabDot(2)); assert.ok(chipDot(v.key));
