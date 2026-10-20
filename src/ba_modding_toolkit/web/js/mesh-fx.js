@@ -8,6 +8,9 @@
 // bone's world transform), times its chain of local transforms below that bone (from the prefab root without an
 // anchor), each transform as the clips leave it this frame. Most are Unity's built-in Quad; triangles the material
 // culls are dropped the way Unity culls them, front faces clockwise on screen, mirrored transforms turning that round.
+// A mesh's vertex colours reach the shader as stored: Unity converts no Mesh.colors to linear light (only a particle
+// renderer's, with Apply Active Color Space), and the programs these renderers use (FX_SHADER_Lobby_Order,
+// FX_SHADER_Additive_0, FX_SHADER_AlphaBlend_Add_Distort_0) pass COLOR0 on unchanged (mov o2, v3).
 import { STRIDE, mul, vertexColor } from "./particles.js";
 import { toLinear } from "./touch-fx.js";
 
@@ -148,7 +151,7 @@ export class Meshes {
 
   // One renderer's triangles for this frame, in particles.js geometry's vertex layout: {data, count}. meshes: lobby.json
   // fx.meshes; positions in lobby units (z dropped: the camera is orthographic), TEXCOORD0 the mesh's UV (z 0, w 1 as
-  // a two-component stream reads), the vertex colour the mesh's (decoded from sRGB) or white.
+  // a two-component stream reads), the vertex colour the mesh's (as stored, 8 bits a channel) or white.
   geometry(s, { meshes = {} } = {}) {
     const def = s.def, mesh = def.mesh === "quad" ? QUAD : meshes[def.mesh];
     if (!mesh || !shown) return { data: new Float32Array(0), count: 0 };
@@ -172,7 +175,7 @@ export class Meshes {
         data[o++] = xy[k * 2]; data[o++] = xy[k * 2 + 1];
         data[o++] = mesh.uv ? mesh.uv[k * 2] : 0; data[o++] = mesh.uv ? mesh.uv[k * 2 + 1] : 0; data[o++] = 0; data[o++] = 1;
         for (let m = 0; m < 8; m++) data[o++] = 0; // TEXCOORD1 and 2: no custom data on a mesh
-        const col = mesh.c ? vertexColor(mesh.c.slice(k * 4, k * 4 + 4), true) : [1, 1, 1, 1];
+        const col = mesh.c ? vertexColor(mesh.c.slice(k * 4, k * 4 + 4), false) : [1, 1, 1, 1];
         data[o++] = col[0]; data[o++] = col[1]; data[o++] = col[2]; data[o++] = col[3];
         data[o++] = 0; data[o++] = 0; data[o++] = -1;
       }

@@ -138,6 +138,7 @@ test("transforms, Euler angles and clip samples as Unity has them", () => {
   assert.equal(Mesh.sample([0, 1], 1, 5), 1, "held at the last sample");
 });
 
+const QUAD_V = [-0.5, -0.5, 0, 0.5, -0.5, 0, -0.5, 0.5, 0, 0.5, 0.5, 0];
 function quadFx(over = {}) {
   return {
     systems: [], textures: {}, meshes: {},
@@ -178,6 +179,16 @@ test("a mesh renderer follows its bone and its looping clip", () => {
   for (let i = 0; i < 10; i++) meshes.update(0.1);
   near(item.uniforms._Color0[0], Math.pow((0.5 + 0.055) / 1.055, 2.4), 1e-6);
   assert.equal(meshes.stats()[0].triangles, 2);
+});
+
+test("a mesh's vertex colours reach the shader as stored", () => {
+  // a grey mesh colour: 0.5 to 8 bits, not decoded from sRGB (0.214)
+  const fx = quadFx({ clips: [] });
+  const grey = { v: QUAD_V, uv: [0, 0, 1, 0, 0, 1, 1, 1], i: [0, 3, 1, 3, 0, 2], c: Array(16).fill(0.5) };
+  fx.renderers[0].mesh = "grey";
+  const meshes = new Mesh.Meshes(fx, { bone: () => ({ a: 1, b: 0, c: 0, d: 1, worldX: 0, worldY: 0 }) });
+  const c = meshes.geometry(meshes.items[0], { meshes: { grey } }).data;
+  nearAll(Array.from(c.slice(14, 18)), [128 / 255, 128 / 255, 128 / 255, 128 / 255], 1e-6, "vertex colour");
 });
 
 test("culled faces are dropped the way Unity culls them", () => {

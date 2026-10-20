@@ -802,15 +802,16 @@ in `pointer-textures`); without a game the system cursor stays and there is no e
   Shun's lobbies, Hanako's water surface, Maki's drifting dust and Utaha's window glow
   (DSFX/FX_SHADER_AlphaBlend_Add_Distort_0), 20 renderers. All but Hanako's mesh are Unity's built-in Quad (unity
   default resources, path id 10210; its vertices, UVs and triangles are built in), white where a mesh has no vertex
-  colours. They are placed like the particle systems (on the bone of a SkeletonUtilityBone in Follow mode, through the
-  transforms below it; else from the prefab root), sorted with them and the skeletons' atlas pages (Akane's lens dirt
-  at 2950 over her page at 2800, the light shafts at 3100), and drawn by `particles-gl.js` with the particle
-  programs. Back faces are culled as the material says, front faces being clockwise on screen and a mirrored
-  transform turning that round, as Unity does. Four lobbies loop them with an Animator: the controller's default
-  state plays one clip (`fx.clips`, sampled at its own rate and looped), which scales, moves and turns the quads
-  (Euler curves in their rotation order) and animates their materials' colours: a Color channel (`.r`, bit 30 of the
-  binding's attribute set) is converted to linear light like the material's colours, a Vector channel (`.x`, as
-  Shiroko's lens dirt animates its `_Color0`) is not.
+  colours and as stored where it has them (Unity converts no mesh colours to linear light, and the three programs pass
+  COLOR0 on unchanged). They are placed like the particle systems (on the bone of a SkeletonUtilityBone in Follow mode,
+  through the transforms below it; else from the prefab root), sorted with them and the skeletons' atlas pages (Akane's
+  lens dirt at 2950 over her page at 2800, the light shafts at 3100), and drawn by `particles-gl.js` with the particle
+  programs. Back faces are culled as the material says, front faces being clockwise on screen and a mirrored transform
+  turning that round, as Unity does. Four lobbies loop them with an Animator: the controller's default state plays one
+  clip (`fx.clips`, sampled at its own rate and looped), which scales, moves and turns the quads (Euler curves in their
+  rotation order) and animates their materials' colours: a Color channel (`.r`, bit 30 of the binding's attribute set)
+  is converted to linear light like the material's colours, a Vector channel (`.x`, as Shiroko's lens dirt animates its
+  `_Color0`) is not.
 - **Skeleton materials** (`gameassets/spine_materials.py`, `skeleton-materials.js`). spine-unity draws each submesh
   with its atlas page's material, so a page's shader decides how its slots draw, whatever their blend mode:
   - Aru's third page uses Spine/Blend Modes/Skeleton PMA Multiply (Blend DstColor OneMinusSrcAlpha): its Normal
