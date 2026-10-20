@@ -36,6 +36,21 @@ def _table() -> dict[str, str]:
     return dict(re.findall(r'"([^"]+)":\s*(\w+)', block))
 
 
+def _colour_read(program: bytes) -> int:
+    """The components of COLOR0 a D3D11 vertex program reads: its input signature's (ISGN) read mask, x 1 to w 8."""
+    dx = program[program.index(b"DXBC"):]
+    for i in range(struct.unpack_from("<I", dx, 28)[0]):
+        off = struct.unpack_from("<I", dx, 32 + 4 * i)[0]
+        if dx[off:off + 4] != b"ISGN":
+            continue
+        base = off + 8
+        for e in range(struct.unpack_from("<I", dx, base)[0]):
+            name_at, index, _, _, _, _, read = struct.unpack_from("<IIIIIBB", dx, base + 8 + 24 * e)
+            if dx[base + name_at:dx.index(b"\0", base + name_at)] == b"COLOR" and index == 0:
+                return read
+    return 0
+
+
 def _vertex_programs(shader) -> list[bytes]:
     """The D3D11 vertex programs of every variant of a shader's first pass (its colour pass), read in memory."""
     from UnityPy.helpers import CompressionHelper
@@ -84,7 +99,7 @@ def test_real_vertex_programs_match_the_curves(lobby_shaders):
         return [const in p for p in programs]
 
     table = _table()
-    by_curve = {curve: {name for name, c in table.items() if c == curve} for curve in ("cubic", "exact", "asIs")}
+    by_curve = {curve: {name for name, c in table.items() if c == curve} for curve in ("cubic", "exact", "asIs", "unread")}
     # spine-unity's own shaders decode the vertex colour with UnityCG's cubic, MX Portrait with the sRGB curve
     assert by_curve["cubic"] == {"Spine/Skeleton", "Spine/Blend Modes/Skeleton PMA Multiply"}
     for name in by_curve["cubic"]:
@@ -96,6 +111,11 @@ def test_real_vertex_programs_match_the_curves(lobby_shaders):
     assert by_curve["asIs"] == {"Spine/Skeleton MX Standard", "Spine/Skeleton MX Standard - NoiseFlowAnimation"}
     for name in by_curve["asIs"]:
         assert not any(has(name, CUBIC)) and not any(has(name, SRGB)), name
+        assert {_colour_read(p) for p in lobby_shaders[name]} == {0b1111}, name
+    # MX Portrait Noise (CH0310's game screen) reads only the colour's alpha (its first pass, as its second)
+    assert by_curve["unread"] == {"Spine/Skeleton MX Portrait Noise"}
+    for name in by_curve["unread"]:
+        assert lobby_shaders[name] and {_colour_read(p) for p in lobby_shaders[name]} == {0b1000}, name
 
 
 @pytest.mark.skipif(not GAME_DIR.is_dir(), reason="No local game install")
@@ -113,3 +133,11 @@ def test_real_lobby_page_shaders(tmp_path):
     # every page with a queue has its shader, named as the atlas the web UI loads names it
     for layer in (takane, *hoshino):
         assert layer["shaders"] and set(layer["shaders"]) == set(layer["pages"])
+    # the six page shaders of the game's lobbies (Aru's multiply page, Fuuka's MX Portrait, CH0310's game screen,
+    # CH0319's river besides) are all in the table: none falls back to the exact curve unread
+    used = {shader for core in ("ch0229_home", "hoshino_home", "aru_home", "fuuka_home", "ch0310_home", "ch0319_home")
+            for layer in game.lobby_info(core)["layers"] for shader in layer["shaders"].values()}
+    assert used == {"Spine/Skeleton", "Spine/Blend Modes/Skeleton PMA Multiply", "Spine/Skeleton MX Standard",
+                    "Spine/Skeleton MX Portrait", "Spine/Skeleton MX Portrait Noise",
+                    "Spine/Skeleton MX Standard - NoiseFlowAnimation"}
+    assert used <= set(_table())

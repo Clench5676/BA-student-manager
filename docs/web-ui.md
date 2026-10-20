@@ -675,7 +675,8 @@ in `pointer-textures`); without a game the system cursor stays and there is no e
   the canvas, encoded again; slot colours reach each atlas page's shader (lobby.json layer `shaders`) as that shader
   takes them (`slot-colours.js`, read from the compiled vertex programs): spine-unity's `Spine/Skeleton` decodes them
   to linear with UnityCG's cubic fit of the sRGB curve (an additive slot at alpha 0.42 adds 0.15 of its texture), the
-  game's own `Spine/Skeleton MX Standard`, on the pages of 97 lobbies, uses them as they are (0.42).
+  game's own `Spine/Skeleton MX Standard`, on the pages of 97 lobbies, uses them as they are (0.42), and `Spine/Skeleton
+  MX Portrait Noise` (CH0310's game screen) reads only their alpha.
   Without WebGL2 the player draws in plain sRGB values as before. Drawn in sRGB values, glows such as Kurumi's photo
   booth light or Niko's window washed the scene out to white.
 - **Draw order** (`lobby-stage.js`, `skeleton-parts.js`). spine-unity gives each submesh of a skeleton the material

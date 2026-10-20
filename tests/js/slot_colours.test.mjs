@@ -49,6 +49,9 @@ test("MX Standard and its noise flow variant take the colour as it is; spine-uni
   assert.equal(curveOf("Spine/Skeleton"), CURVES.cubic);
   assert.equal(curveOf("Spine/Blend Modes/Skeleton PMA Multiply"), CURVES.cubic);
   for (const shader of ["Spine/Skeleton MX Portrait", "Unknown", undefined]) assert.equal(curveOf(shader), CURVES.exact);
+  // MX Portrait Noise reads only the alpha: its tints never show
+  assert.equal(curveOf("Spine/Skeleton MX Portrait Noise"), CURVES.unread);
+  assert.equal(CURVES.unread(0.2), 1);
   assert.equal(CURVES.asIs(0.5), 0.5);
   assert.ok(Math.abs(CURVES.exact(0.5) - 0.214041) < 1e-6);
   // GammaToLinearSpace: white stays white, mid grey within a hair of the sRGB curve, dark tints darker

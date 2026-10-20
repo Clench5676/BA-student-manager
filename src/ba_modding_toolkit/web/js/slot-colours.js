@@ -11,13 +11,17 @@
 //   (mov o2, v2): their fragment program multiplies the texel, premultiplied by its own alpha, by the colour, gamma
 //   values and all. A slot at 50 % grey darkens its texture to 0.5 in linear light (188 of 255 on screen, not 128),
 //   and an additive slot at alpha 0.42 adds 0.42 of its texture (not 0.15): Takane's aurora, Yakumo's halo.
+// - Spine/Skeleton MX Portrait Noise (CH0310's game screen) reads only the colour's alpha (dcl_input v2.w, as
+//   _Color.a times it, 0 for an additive slot): its tint never shows, the slot draws white (unread); its ported
+//   program (skeleton-materials.js) takes the alpha and the additive case from there.
 // Without the page's shader (no prefab data, or one not read here) a slot is decoded with the exact curve.
 import { pageOf } from "./skeleton-parts.js";
 
 const exact = (c) => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
 const cubic = (c) => c * (c * (c * 0.305306011 + 0.682171111) + 0.012522878);
 const asIs = (c) => c;
-export const CURVES = Object.freeze({ exact, cubic, asIs });
+const unread = () => 1;
+export const CURVES = Object.freeze({ exact, cubic, asIs, unread });
 
 const BY_SHADER = Object.freeze({
   "Spine/Skeleton": cubic,
@@ -25,6 +29,7 @@ const BY_SHADER = Object.freeze({
   "Spine/Skeleton MX Portrait": exact,
   "Spine/Skeleton MX Standard": asIs,
   "Spine/Skeleton MX Standard - NoiseFlowAnimation": asIs,
+  "Spine/Skeleton MX Portrait Noise": unread,
 });
 
 // the curve a shader decodes the vertex colours with
