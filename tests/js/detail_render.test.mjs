@@ -61,7 +61,7 @@ globalThis.requestAnimationFrame = (fn) => { queueMicrotask(() => fn(performance
 globalThis.cancelAnimationFrame = () => {};
 
 const imageRequests = [], pendingImages = [];
-let imageMode = "ready", playerMode = "ready";
+let imageMode = "ready", playerMode = "ready", portraitRevision = "a", portraitStatus = 200;
 globalThis.Image = class {
   naturalWidth = 8; naturalHeight = 8;
   set src(url) {
@@ -82,7 +82,12 @@ globalThis.spine = { Physics: { update: 1 }, SpinePlayer: class {
     } } };
     this.animationState = { setAnimation() {}, setEmptyAnimation: () => ({}), addEmptyAnimation() {} };
     // Thumbnails deliberately never call back: a stuck mod preview must not block the panels or other bases.
-    if (el.className !== "thumb-player" && playerMode !== "pending") queueMicrotask(() => config.success(this));
+    if (el.className !== "thumb-player" && playerMode !== "pending") {
+      if (playerMode === "stale") {
+        playerMode = "ready"; portraitRevision = "b";
+        queueMicrotask(() => config.error(this, `Couldn't load binary ${config.skeleton}: status 404`));
+      } else queueMicrotask(() => config.success(this));
+    }
   }
 } };
 
@@ -124,29 +129,36 @@ const atlas = { Common: Object.fromEntries([...new Set([
   "Card_Select_Line_Blue", "Cafe_Icon_NameEdit",
 ])].map((name) => [name, { width: 8, height: 8 }])) };
 const reply = (data, status = 200) => ({ ok: status === 200, status, json: async () => data });
-let family, indexMode = "ready", lobbyMode = "pending", optionalPending = false, modsEnabled = true;
-const textureReplies = [];
+let family, indexMode = "ready", layoutMode = "ready", lobbyMode = "pending", optionalPending = false, modsEnabled = true;
+const textureReplies = [], layoutReplies = [];
 globalThis.fetch = async (url, opts = {}) => {
   if (url === "/api/rpc") {
     const { method } = JSON.parse(opts.body);
     return reply({ result: method === "family.get" ? family : method === "mods.state" ? { enabled: modsEnabled } : null });
   }
   if (url === "/asset/ui/atlases.json") {
+    assert.equal(opts.cache, "no-store", "reload must bypass an old browser-cached empty atlas index");
     if (indexMode === "pending") return new Promise(() => {});
+    if (indexMode === "empty") return reply({});
+    if (indexMode === "partial") return reply({ Common: { Back: { width: 8, height: 8 } } });
+    if (indexMode === "invalid") return reply({ Common: { Back: null } });
     return reply(atlas, indexMode === "error" ? 500 : 200);
   }
   if (url === "/asset/ui/textures.json") {
     if (optionalPending) return new Promise((resolve) => textureReplies.push(() => resolve(reply({}))));
     return reply({});
   }
-  if (url === "/asset/ui/layout/UICharacterDetail.json") return reply(detail);
+  if (url === "/asset/ui/layout/UICharacterDetail.json") {
+    if (layoutMode === "pending") return new Promise((resolve) => layoutReplies.push(() => resolve(reply(detail))));
+    return reply(detail, layoutMode === "error" ? 500 : 200);
+  }
   if (url.startsWith("/asset/ui/layout/")) {
     if (optionalPending && url.endsWith("UIPopup_Sort.json")) return new Promise(() => {});
     return reply(node("Empty"));
   }
   if (url.startsWith("/asset/spine/") && url.endsWith("manifest.json")) {
     if (url.includes("/lobby/") && lobbyMode === "pending") return new Promise(() => {});
-    return reply({ revision: "a".repeat(64) });
+    return reply({ revision: portraitRevision.repeat(64) }, url.includes("/spr/") ? portraitStatus : 200);
   }
   if (url.startsWith("/asset/spine/lobby/")) {
     if (lobbyMode === "pending") return new Promise(() => {});
@@ -176,6 +188,33 @@ function modFamily(kind = "spr", id = "test") {
 }
 const flush = async () => { for (let i = 0; i < 80; i++) await Promise.resolve(); };
 const switchButton = () => walk(hosts.ngui).find((e) => e.dataset.part === `${INFO}/Weapon/Equip_1/UIEquipmentCard/Btn_Target/Normal/Card_Bg`);
+
+test("a failed detail layout cannot prevent the installed portrait from loading", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    errors.length = 0; layoutMode = "error"; imageMode = "pending"; family = modFamily();
+    const start = playerRequests.length;
+    const showing = Detail.show(context, family, "ibuki"); await flush();
+    t.mock.timers.tick(1300); await flush(); await showing;
+    assert.ok(playerRequests.slice(start).some((url) => url.includes("/spr/ibuki_spr/")));
+    assert.ok(errors.some((args) => args.some((err) => String(err).includes("layout UICharacterDetail: HTTP 500"))));
+    assert.ok(!hosts.portrait.classList.contains("pending"));
+  } finally { Detail.hide(); layoutMode = "ready"; t.mock.timers.reset(); }
+});
+
+test("the installed portrait starts while the detail layout is pending", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    errors.length = 0; layoutMode = "pending"; family = modFamily();
+    const start = playerRequests.length;
+    const showing = Detail.show(context, family, "ibuki"); await flush();
+    assert.ok(layoutReplies.length, "the layout has not answered yet");
+    assert.ok(playerRequests.slice(start).some((url) => url.includes("/spr/ibuki_spr/")));
+    layoutReplies.splice(0).forEach((resolve) => resolve()); layoutMode = "ready"; await flush();
+    t.mock.timers.tick(1300); await flush(); await showing;
+    assert.ok(switchButton(), "panels finish when the layout arrives");
+  } finally { Detail.hide(); layoutMode = "ready"; t.mock.timers.reset(); }
+});
 
 test("an applied portrait draws usable panels while UI images and mod thumbnails never settle", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
@@ -210,6 +249,34 @@ test("a mod portrait setup exception is observed, settled and reported", async (
     assert.equal(hosts.toast.textContent, "Preview unavailable");
     assert.ok(!hosts.portrait.classList.contains("pending"));
   } finally { Detail.hide(); t.mock.timers.reset(); playerMode = "ready"; }
+});
+
+test("the main portrait retries a rejected live revision after a cold load", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    errors.length = 0; family = modFamily(); playerMode = "stale";
+    const start = playerRequests.length;
+    const showing = Detail.show(context, family, "ibuki"); await flush();
+    t.mock.timers.tick(1300); await flush(); await showing;
+    const live = playerRequests.slice(start).filter((url) => url.includes("/spr/ibuki_spr/"));
+    assert.ok(live.some((url) => url.includes(`/${"a".repeat(64)}/`)));
+    assert.ok(live.some((url) => url.includes(`/${"b".repeat(64)}/`)));
+    assert.ok(!errors.length, errors.map(String).join("\n"));
+    assert.ok(warnings.some((args) => args[0] === "Spine source changed during load"));
+  } finally { Detail.hide(); playerMode = "ready"; portraitRevision = "a"; t.mock.timers.reset(); }
+});
+
+for (const status of [404, 500]) test(`the main portrait logs the cause of a failed manifest (${status})`, async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    errors.length = 0; warnings.length = 0; family = modFamily(); portraitStatus = status;
+    const showing = Detail.show(context, family, "ibuki"); await flush();
+    t.mock.timers.tick(1300); await flush(); await showing;
+    assert.equal(hosts.toast.textContent, "Preview unavailable");
+    assert.ok(errors.some((args) => args.includes("/asset/spine/spr/ibuki_spr/skeleton")), "the console names the current source");
+    assert.ok([...errors, ...warnings].some((args) => args.some((value) => String(value).includes(`HTTP ${status}`))));
+    assert.ok(switchButton(), "the panels stay usable");
+  } finally { Detail.hide(); portraitStatus = 200; t.mock.timers.reset(); }
 });
 
 test("an applied lobby with hanging asset routes releases the in-place render barrier", async (t) => {
@@ -249,7 +316,7 @@ test("a lobby player setup exception settles its layer instead of hanging Lobby.
   } finally { Lobby.hide(hosts.lobby); lobbyMode = "pending"; playerMode = "ready"; }
 });
 
-for (const mode of ["pending", "error"]) test(`panels survive a ${mode} atlas index, report it and retry`, async (t) => {
+for (const mode of ["pending", "error", "empty", "partial", "invalid"]) test(`panels survive a ${mode} atlas index, report it and retry`, async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   try {
     errors.length = 0; indexMode = mode;
@@ -257,8 +324,11 @@ for (const mode of ["pending", "error"]) test(`panels survive a ${mode} atlas in
     const host = new El();
     const view = await Renderer.render(node("Panel"), host, { deferImages: true });
     assert.equal(view.nodes.get("Panel").els[0].style.backgroundColor, "#ffffff");
+    await flush();
     t.mock.timers.tick(15000); await flush(); await Promise.all(view.pictures);
-    assert.ok(errors.some((a) => a.some((e) => String(e).includes(mode === "pending" ? "timed out" : "HTTP 500"))));
+    const cause = mode === "pending" ? "timed out" : mode === "error" ? "HTTP 500"
+      : mode === "partial" ? "Missing sprite Common/Common_Bg_Raius10px" : "empty or invalid atlas index";
+    assert.ok(errors.some((a) => a.some((e) => String(e).includes(cause))));
     indexMode = "ready";
     const retry = await Renderer.render(node("Panel"), new El(), { deferImages: true });
     await Promise.all(retry.pictures);

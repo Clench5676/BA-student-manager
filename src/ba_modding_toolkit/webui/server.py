@@ -174,7 +174,7 @@ class WebApp:
         try:
             res = self.assets(path[len("/asset/"):], query)
         except (KeyError, FileNotFoundError, ServiceError) as e:
-            logger.debug("asset %s not found: %r", path, e, exc_info=isinstance(e, OSError))
+            logger.warning("asset %s not found: %r", path, e, exc_info=isinstance(e, OSError))
             return self._text(start_response, "404 Not Found", "not found")
         cache = "private, max-age=86400" if res.light and self.consent() else "no-store"
         return self._respond(start_response, "200 OK", res.body, res.mime, [("Cache-Control", cache)])

@@ -133,12 +133,47 @@ export function spineAssetBase(base) {
   if (!base || /\/[a-f0-9]{64}\/skeleton$/.test(base)) return Promise.resolve(base);
   const dir = base.slice(0, base.lastIndexOf("/"));
   if (!resolving.has(dir)) {
-    const asking = withTimeout(fetch(`${dir}/manifest.json`, { cache: "no-store" }).then(async (res) => {
-      if (!res.ok) return null;
-      const { revision } = await res.json();
-      return /^[a-f0-9]{64}$/.test(revision) ? `${dir}/${revision}/skeleton` : null;
-    }), 15000, `Spine manifest ${dir}`).finally(() => { if (resolving.get(dir) === asking) resolving.delete(dir); });
+    const url = `${dir}/manifest.json`;
+    const asking = withTimeout(fetch(url, { cache: "no-store" }).then(async (res) => {
+      if (!res.ok) {
+        const error = new Error(`HTTP ${res.status}`);
+        if (res.status !== 404) throw error;
+        console.warn(new Error(`Spine manifest ${url}: ${error.message}`, { cause: error }));
+        return null;
+      }
+      let manifest;
+      try { manifest = await res.json(); } catch (cause) {
+        throw new Error(`HTTP ${res.status}: invalid JSON`, { cause });
+      }
+      const revision = manifest?.revision;
+      if (typeof revision !== "string" || !/^[a-f0-9]{64}$/.test(revision)) throw new Error(`HTTP ${res.status}: invalid revision`);
+      return `${dir}/${revision}/skeleton`;
+    }), 15000, `Spine manifest ${url}`).catch((cause) => {
+      throw new Error(`Spine manifest ${url}: ${cause?.message || String(cause)}`, { cause });
+    }).finally(() => { if (resolving.get(dir) === asking) resolving.delete(dir); });
     resolving.set(dir, asking);
   }
   return resolving.get(dir);
+}
+
+// A cold extraction can overlap a source change after its manifest answered. Retry that composition once, with
+// the current manifest; every skeleton, atlas and page of an attempt still belongs to one revision.
+export async function loadSpineAssets(base, load, { signal } = {}) {
+  let resolved = await spineAssetBase(base);
+  for (let attempt = 0; ; attempt++) {
+    if (signal?.aborted) return null;
+    if (!resolved) throw new Error(`Spine source unavailable: ${base}`);
+    try { return await load(resolved); } catch (err) {
+      if (signal?.aborted || attempt) throw err;
+      forgetSpineAssets(base.slice(0, base.lastIndexOf("/")));
+      let fresh;
+      try { fresh = await spineAssetBase(base); } catch (cause) {
+        console.warn("Cannot refresh Spine source", base, cause);
+        throw err;
+      }
+      if (!fresh || fresh === resolved) throw err;
+      console.warn("Spine source changed during load", base, err);
+      resolved = fresh;
+    }
+  }
 }

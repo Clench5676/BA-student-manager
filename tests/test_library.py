@@ -367,32 +367,41 @@ def test_live_bundles_put_the_parts_that_carry_a_mod_last(setup_library):
     expect_error("game_file_not_found", lambda: env.library.live_bundles("absent_home"))
 
 
-def test_live_spine_files_merge_in_the_previews_order(setup_library, monkeypatch):
+@pytest.mark.parametrize("kind,core_name", [("spr", "test_spr"), ("lobby", "test_home_gl")])
+def test_live_spine_files_merge_in_the_previews_order(setup_library, monkeypatch, kind, core_name):
     from ba_modding_toolkit.gameassets import AssetCache, GameAssets
+    from ba_modding_toolkit.webui.api import build_api
     from ba_modding_toolkit.webui.services import Services
 
     env = setup_library
-    targets = [game_bundle(env.game_dir, "test_home_gl", part=part, payload=b"official")
-               for part in ("textassets", "textures")]
-    game = GameAssets([env.game_dir], AssetCache(root=env.tmp / "cache", allowed=False))
+    first = env.original if kind == "spr" else game_bundle(env.game_dir, core_name, part="textassets")
+    targets = [first, game_bundle(env.game_dir, core_name, part="textures")]
+    cache = AssetCache(root=env.tmp / "cache", allowed=True)
+    game = GameAssets([env.game_dir], cache)
     reads = []
 
     def extract(paths):
         reads.append(paths)
-        return {"test_home_gl.skel": b"skeleton", "test_home_gl.atlas": b"atlas"}
+        return {f"{core_name}.skel": b"skeleton", f"{core_name}.atlas": b"atlas",
+                "page.png": paths[-1].read_bytes()}
 
     monkeypatch.setattr("ba_modding_toolkit.gameassets.service.extract_spine", extract)
-    services = Services(env.settings, env.tmp / "ui", game=game, catalog=env.catalog, library=env.library)
+    services = Services(env.settings, env.tmp / "ui", cache=cache, game=game, catalog=env.catalog, library=env.library)
+    prefix = f"spine/{kind}/{core_name}"
     try:
         for name in ("manifest.json", "skeleton.skel"):
-            services.asset(f"spine/lobby/test_home_gl/{name}", {})
+            services.asset(f"{prefix}/{name}", {})
         entry, = env.library.add([make_mod(targets[0], env.tmp / "input", payload=b"modified")])
-        env.library.apply("test", f"mod:{entry.id}", kind="lobby")
-        revision = json.loads(services.asset("spine/lobby/test_home_gl/manifest.json", {}).body)["revision"]
-        services.asset(f"spine/lobby/test_home_gl/{revision}/skeleton.skel", {})
+        env.library.apply("test", f"mod:{entry.id}", kind=kind)
+        revision = json.loads(services.asset(f"{prefix}/manifest.json", {}).body)["revision"]
+        for clear in (False, True):
+            if clear:
+                assert build_api(services).call("settings.clearCache", {}) == {"result": None}
+            assert json.loads(services.asset(f"{prefix}/manifest.json", {}).body)["revision"] == revision
+            assert services.asset(f"{prefix}/{revision}/skeleton.skel", {}).body == b"skeleton"
+            assert services.asset(f"{prefix}/{revision}/page.png", {}).body == targets[0].read_bytes()
         # the applied part goes after the official one, whatever the file names say
-        assert reads[-1] == [targets[1], targets[0]]
-        assert reads[0] == targets
+        assert reads == [targets, [targets[1], targets[0]], [targets[1], targets[0]]]
     finally:
         services.close()
 

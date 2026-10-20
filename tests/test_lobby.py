@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from ba_modding_toolkit.config import Settings
+from ba_modding_toolkit.errors import ServiceError
 from ba_modding_toolkit.gameassets import lobby
 from ba_modding_toolkit.webui.services import Services
 from ba_modding_toolkit.webui.state import UiState
@@ -545,10 +546,15 @@ class _FxGame(_Game):
         return {"fx_page.png": b"atlas page"}
 
 
+class _Library:
+    def live_bundles(self, core, pin=None):
+        raise ServiceError("game_file_not_found", variant=core)
+
+
 def test_lobby_fx_texture_route(tmp_path):
     game = _FxGame()
     services = Services(Settings(tmp_path / "config.toml"), tmp_path, state=UiState(tmp_path / "webui.json"),
-                        cache=object(), game=game, catalog=object(), library=object())
+                        cache=object(), game=game, catalog=object(), library=_Library())
     try:
         response = services.asset("spine/lobby/ch0113_home/fx_cab-ab_-12.png", {})
         assert (response.body, response.mime, response.light) == (b"png", "image/png", False)
@@ -574,7 +580,7 @@ class _SoundGame(_Game):
 def test_lobby_sound_route(tmp_path):
     game = _SoundGame()
     services = Services(Settings(tmp_path / "config.toml"), tmp_path, state=UiState(tmp_path / "webui.json"),
-                        cache=object(), game=game, catalog=object(), library=object())
+                        cache=object(), game=game, catalog=object(), library=_Library())
     try:
         response = services.asset("spine/lobby/shigure_home/sfx_cab-sfx_655.wav", {})
         assert (response.body, response.mime, response.light) == (b"RIFF....WAVE", "audio/wav", False)

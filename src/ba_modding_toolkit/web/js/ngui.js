@@ -53,14 +53,22 @@ const images = new Map(), tints = new Map();
 // the atlas and texture indexes, fetched once however many callers wait for them (the loading screen asks first)
 export function init() {
   initDone ||= Promise.all([
-    atlasDone = assetIndex("/asset/ui/atlases.json").then((a) => { index = a; }),
+    atlasDone = assetIndex("/asset/ui/atlases.json").then((a) => {
+      const object = (v) => v && typeof v === "object" && !Array.isArray(v);
+      if (!object(a) || !Object.keys(a).length || !Object.values(a).every((sprites) => object(sprites)
+        && Object.values(sprites).every((s) => object(s) && Number.isFinite(s.width) && Number.isFinite(s.height)))
+        || !Object.values(a).some((sprites) => Object.keys(sprites).length)) {
+        throw new Error("/asset/ui/atlases.json: empty or invalid atlas index");
+      }
+      index = a;
+    }),
     texturesDone = assetIndex("/asset/ui/textures.json").then((t) => { textures = t; }),
   ]).catch((err) => { initDone = null; throw err; });
   return initDone;
 }
 
 function assetIndex(url) {
-  return withTimeout(fetch(url).then((r) => {
+  return withTimeout(fetch(url, { cache: "no-store" }).then((r) => {
     if (!r.ok) throw new Error(`${url}: HTTP ${r.status}`);
     return r.json();
   }), 15000, url);
@@ -281,7 +289,11 @@ export async function render(tree, host, opts = {}) {
       if (opts.deferImages) el.style.backgroundColor = col.hex;
       jobs.push(spritesReady.then(async () => {
         const meta = index?.[atlas]?.[w.sprite];
-        if (!meta) throw new Error(`Missing sprite ${atlas}/${w.sprite}`);
+        if (!meta) {
+          // An incomplete index must be fetched again on the next render, like a failed request.
+          if (atlasDone === spritesReady) initDone = null;
+          throw new Error(`Missing sprite ${atlas}/${w.sprite} in /asset/ui/atlases.json`);
+        }
         const url = await tinted(spriteUrl(atlas, w.sprite), col.hex);
         const b = [meta.borderTop, meta.borderRight, meta.borderBottom, meta.borderLeft].map((v) => v || 0);
         // like NGUI, shrink borders that overlap (e.g. 30 + 30 on a 55 px sprite) so the centre survives

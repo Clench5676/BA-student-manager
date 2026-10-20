@@ -17,7 +17,7 @@ globalThis.URL.revokeObjectURL = () => {};
 globalThis.fetch = async (url, options) => {
   requests.push([url, options]);
   const revision = revisions.get(url);
-  return { ok: !!revision, json: async () => ({ revision }) };
+  return { ok: !!revision, status: revision ? 200 : 404, json: async () => ({ revision }) };
 };
 globalThis.spine = {
   Vector2: class {}, Physics: { update: 0 },

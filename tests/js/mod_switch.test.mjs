@@ -116,7 +116,11 @@ globalThis.fetch = async (url, opts = {}) => {
     if (result && result.error) return reply({ error: result.error });
     return reply({ result });
   }
-  if (url === "/asset/ui/atlases.json" || url === "/asset/ui/textures.json") return reply({});
+  if (url === "/asset/ui/atlases.json") return reply({ Common: Object.fromEntries([
+    "Common_Square_Bg", "Common_Popup_Bg", "Common_Icon_Close", "Common_Btn_BG", "Common_Line_Dot",
+    "Common_Btn_Normal_B_C_Pt",
+  ].map((name) => [name, { width: 8, height: 8 }])) });
+  if (url === "/asset/ui/textures.json") return reply({});
   if (url === "/asset/ui/layout/UIPopup_Sort.json") return reply(SORT);
   return reply(null, false);
 };

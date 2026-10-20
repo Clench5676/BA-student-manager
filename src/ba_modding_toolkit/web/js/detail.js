@@ -19,7 +19,7 @@ import * as Visual from "./visual-mode.js";
 import { QUEUEABLE, current as modsState, entryLabel, refused } from "./mod-switch.js";
 import * as Prompts from "./prompts.js";
 import { anyOpen as popupOpen } from "./popup.js";
-import { rpc, spineBase, spinePrefix, spineAssetBase, waitJob } from "./api.js";
+import { rpc, spineBase, spinePrefix, loadSpineAssets, waitJob } from "./api.js";
 import { L, T, language, platform } from "./i18n.js";
 import { forget, idleAnimation, prioritise, thumb } from "./thumbs.js";
 import { portraitViewport } from "./portrait-view.js";
@@ -64,8 +64,8 @@ const LINES_CAP = 1500;  // the lobby's lines from Kivo (a network call) likewis
 const LEFT_CAP = 1200;  // a slow preview leaves its place empty while the panels become usable
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const frames = (n) => new Promise((resolve) => { const step = () => (--n > 0 ? requestAnimationFrame(step) : resolve()); requestAnimationFrame(step); });
-function renderFailed(err) {
-  console.error("Detail render failed", err);
+function renderFailed(err, source = null) {
+  console.error("Detail render failed", ...(source ? [source] : []), err);
   if (open) toast(T("detail.failed"), { kind: "error" });
 }
 
@@ -887,46 +887,46 @@ async function showSpine(base, my, signal) {
     }
   };
   try {
-    base = await spineAssetBase(base);
-    if (signal.aborted || my !== spineToken) { layer.remove(); return; }
-    if (!base) {
-      commit(() => { if (my === spineToken) retire([...previous, layer]); });
-      return;
-    }
-    const load = layer.load = loadPlayer((config) => new spine.SpinePlayer(layer, config), {
-      // the idle is set in success(): some NPC skeletons have no Idle_01, and spine-player fails on a missing one
-      skeleton: `${base}.skel`, atlas: `${base}.atlas`, animation: undefined,
-      premultipliedAlpha: false, alpha: true, backgroundColor: "#00000000",
-      showControls: false, showLoading: false, preserveDrawingBuffer: true,
-      // framed like the game (portrait-view.js), never on the skeleton's bounds; no viewport transition:
-      // spine-player starts it from an undefined viewport and draws nothing meanwhile
-      viewport: detailViewport(),
-      // the visual mode (visual-mode.js) frames it while it is open
-      frame: (p) => Visual.frame(p),
-      success: async (player, live) => {
-        // before the first await: once this returns, spine-player frames the view on track 0's animation and plays.
-        // With nothing on track 0 it would pause (no face, no blink): a skeleton without an idle gets an empty
-        // animation there that never ends, so it keeps its setup pose and the faces on tracks 1-2 still play.
-        const idle = idleAnimation(player.skeleton.data);
-        if (idle) player.animationState.setAnimation(0, idle, true);
-        else player.animationState.setEmptyAnimation(0, 0).trackEnd = Number.MAX_VALUE;
-        if (my !== spineToken || !live()) return; // a newer portrait took over; it retires this layer
-        mainPlayer = player;
-        applyExpression();
-        scheduleBlink(player);
-        await renderExpressions(); // the faces come from this skeleton
-        await frames(2);           // its first frame is on the canvas
-        commit(() => {
-          if (my !== spineToken || !live()) return;
-          layer.classList.remove("fading");
-          retire(previous);
-        });
-      },
+    await loadSpineAssets(base, async (resolved) => {
+      if (signal.aborted || my !== spineToken) { layer.remove(); return; }
+      layer.load?.dispose();
+      layer.replaceChildren();
+      const load = layer.load = loadPlayer((config) => new spine.SpinePlayer(layer, config), {
+        // the idle is set in success(): some NPC skeletons have no Idle_01, and spine-player fails on a missing one
+        skeleton: `${resolved}.skel`, atlas: `${resolved}.atlas`, animation: undefined,
+        premultipliedAlpha: false, alpha: true, backgroundColor: "#00000000",
+        showControls: false, showLoading: false, preserveDrawingBuffer: true,
+        // framed like the game (portrait-view.js), never on the skeleton's bounds; no viewport transition:
+        // spine-player starts it from an undefined viewport and draws nothing meanwhile
+        viewport: detailViewport(),
+        // the visual mode (visual-mode.js) frames it while it is open
+        frame: (p) => Visual.frame(p),
+        success: async (player, live) => {
+          // before the first await: once this returns, spine-player frames the view on track 0's animation and plays.
+          // With nothing on track 0 it would pause (no face, no blink): a skeleton without an idle gets an empty
+          // animation there that never ends, so it keeps its setup pose and the faces on tracks 1-2 still play.
+          const idle = idleAnimation(player.skeleton.data);
+          if (idle) player.animationState.setAnimation(0, idle, true);
+          else player.animationState.setEmptyAnimation(0, 0).trackEnd = Number.MAX_VALUE;
+          if (my !== spineToken || !live()) return; // a newer portrait took over; it retires this layer
+          mainPlayer = player;
+          applyExpression();
+          scheduleBlink(player);
+          await renderExpressions(); // the faces come from this skeleton
+          await frames(2);           // its first frame is on the canvas
+          commit(() => {
+            if (my !== spineToken || !live()) return;
+            layer.classList.remove("fading");
+            retire(previous);
+          });
+        },
+      }, { signal });
+      layer.player = load.player;
+      await load.ready;
     }, { signal });
-    layer.player = load.player;
-    await load.ready;
+    if (signal.aborted || my !== spineToken) layer.remove();
   } catch (err) {
-    if (!signal.aborted && my === spineToken) renderFailed(err);
+    if (!signal.aborted && my === spineToken) renderFailed(err, base);
     // spine-player's own error box (black, with the message) never shows: the toast says it
     layer.querySelector(".spine-player-error")?.remove();
     if (my === spineToken) {
@@ -1742,8 +1742,6 @@ export async function show(context, familyData, key, { inPlace = false } = {}) {
   open = true;
   askedKey = key;
   const g = begin();
-  await ensureLayouts();
-  if (g.gen !== showGen) return; // a newer show, or hide()
   const sameFamily = fam?.key === familyData.key;
   // the alias editor of another student goes (a history step while it was open)
   if (!sameFamily && $("popup").querySelector(".alias-input")) { aliasToken += 1; $("popup").hidden = true; $("popup").innerHTML = ""; }
@@ -1768,10 +1766,13 @@ export async function show(context, familyData, key, { inPlace = false } = {}) {
   // the tabs the variant has, on every show: another install may lack a part under the same variant
   if (tab === "lobby" && !hasLobby(variant())) tab = "portrait";
   if (tab === "model" && !hasModel(variant())) tab = "portrait";
+  previewEnabled = modsOn();
   rpc("ui.visit", { variant: variantKey }).catch(() => {});
-  // the left side starts at once, beside the panels
+  // The portrait uses its own assets and default framing while the UI layout is still loading or unavailable.
   const ready = await prepare(g, inPlace, async () => {
-    await Promise.all([renderAll(), renderLeft()]);
+    await Promise.all([renderLeft(), ensureLayouts().then(() => {
+      if (g.gen === showGen) return renderAll();
+    }).catch(renderFailed)]);
     await settleThumbs();
   });
   if (ready) arrived(familyData.key, key);

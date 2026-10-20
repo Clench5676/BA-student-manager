@@ -450,7 +450,7 @@ def test_official_skeleton_route_reads_the_librarys_official_parts(app, services
 
 
 @pytest.mark.parametrize("kind", ["spr", "lobby", "mod", "official-spr", "official-lobby"])
-def test_spine_revision_routes_reject_switched_files(app, services, monkeypatch, tmp_path, kind):
+def test_spine_revision_routes_reject_switched_files(app, services, monkeypatch, tmp_path, kind, caplog):
     bundle = _bundle(tmp_path, "assets-_mx-spinecharacters-hoshino_spr-_mxdependency-2026-01-01_assets_all")
     monkeypatch.setattr(services.game, "spine_cores", lambda kind: {"hoshino_spr": [bundle]}, raising=False)
     monkeypatch.setattr(services.game, "spine_files_from", lambda paths: {
@@ -468,6 +468,7 @@ def test_spine_revision_routes_reject_switched_files(app, services, monkeypatch,
         assert call(app, f"{prefix}/{before}/{name}")[0] == "404 Not Found"
     after = json.loads(call(app, prefix + "/manifest.json")[2])["revision"]
     assert after != before
+    assert "Spine revision changed" in caplog.text and before in caplog.text and after in caplog.text
     for name in ("skeleton.skel", "skeleton.atlas", "Pages/portrait.png"):
         status, headers, body = call(app, f"{prefix}/{after}/{name}")
         assert status == "200 OK" and body == bundle.read_bytes()
@@ -495,6 +496,68 @@ def test_live_spine_files_are_read_in_the_librarys_order(app, services, monkeypa
     assert second != first
     assert call(app, f"/asset/spine/{kind}/{name}/{second}/skeleton.skel")[0] == "200 OK"
     assert seen[-1] == [official, mod]
+    assert call(app, f"/asset/spine/{kind}/{name}/skeleton.skel")[0] == "200 OK"
+    assert seen[-1] == [official, mod], "legacy routes use the same composition as the manifest"
+
+
+def test_live_portrait_survives_cache_clear(app, services, monkeypatch, tmp_path):
+    from ba_modding_toolkit.gameassets import AssetCache, GameAssets
+
+    game_dir = tmp_path / "game"
+    game_dir.mkdir()
+    official = _bundle(game_dir, "assets-_mx-spinecharacters-ibuki_spr-_mxdependency-2026-01-01_001_assets_all")
+    mod = _bundle(game_dir, "assets-_mx-spinecharacters-ibuki_spr-_mxdependency-2026-01-01_000_assets_all", b"magenta")
+    cache = AssetCache(root=tmp_path / "cache", allowed=True)
+    services._cache = cache
+    services._game = GameAssets([game_dir], cache)
+    services.library.live["ibuki_spr"] = [official, mod]
+    reads = []
+    def extract(paths):
+        reads.append(list(paths))
+        return {"Ibuki_spr.skel": b"skeleton", "Ibuki_spr.atlas": b"page.png\nsize: 1,1\n",
+                "page.png": paths[-1].read_bytes()}
+    monkeypatch.setattr("ba_modding_toolkit.gameassets.service.extract_spine", extract)
+    def no_preview(*args, **kwargs):
+        pytest.fail("A current portrait must not need a mod preview or kept originals")
+    monkeypatch.setattr(services.library, "preview_bundles", no_preview, raising=False)
+    monkeypatch.setattr(services.library, "official_bundles", no_preview, raising=False)
+    prefix = "/asset/spine/spr/ibuki_spr"
+    revision = json.loads(call(app, prefix + "/manifest.json")[2])["revision"]
+    for clear in (False, True):
+        if clear:
+            assert rpc(app, "settings.clearCache") == {"result": None}
+        assert json.loads(call(app, prefix + "/manifest.json")[2])["revision"] == revision
+        for name, expected in (("skeleton.skel", b"skeleton"), ("skeleton.atlas", b"page.png\nsize: 1,1\n"),
+                               ("page.png", mod.read_bytes())):
+            status, headers, body = call(app, f"{prefix}/{revision}/{name}")
+            assert (status, body) == ("200 OK", expected)
+            assert headers["Cache-Control"] == "no-store"
+    assert reads == [[official, mod], [official, mod]], "cold extraction keeps the manifest's merge order"
+
+
+@pytest.mark.parametrize("failure, status", [
+    (ServiceError("dev_path_outside", path="refused bundle"), "404 Not Found"),
+    (OSError("unreadable live bundle"), "500 Internal Server Error"),
+])
+def test_asset_failures_log_the_request_and_cause(app, services, monkeypatch, caplog, failure, status):
+    def refused(core, pin=None):
+        raise failure
+    monkeypatch.setattr(services.library, "live_bundles", refused)
+    assert call(app, "/asset/spine/spr/ibuki_spr/manifest.json")[0] == status
+    assert str(failure) in caplog.text and "ibuki_spr/manifest.json" in caplog.text
+    if isinstance(failure, ServiceError):
+        assert failure.params["path"] in caplog.text
+
+
+def test_atlas_route_revalidates_and_reports_failure(app, services, monkeypatch, tmp_path, caplog):
+    from ba_modding_toolkit.gameassets import AssetCache, GameAssets
+
+    services.state.set_consent(True)
+    assert call(app, "/asset/ui/atlases.json")[1]["Cache-Control"] == "no-store"
+    services._game = GameAssets([tmp_path], AssetCache(root=tmp_path / "cache", allowed=True))
+    assert call(app, "/asset/ui/atlases.json")[0] == "404 Not Found"
+    assert "No UI atlas bundles" in caplog.text
+    assert not (tmp_path / "cache").exists()
 
 
 def test_missing_official_spine_returns_404(app, services, monkeypatch):

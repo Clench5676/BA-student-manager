@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
+import math
 import re
 import threading
 from collections.abc import Iterable
@@ -31,6 +33,7 @@ _SCHEMA = "gameassets-v1/"
 # The layout export's format, part of each cached layout's key: raise it whenever export_layout's output changes, so
 # layouts cached in an older format are rebuilt and no other cached asset is dropped (v2: state controllers' nodes)
 _LAYOUT = "layout-v2/"
+_ATLASES = "atlases-v2/"
 # One model export at a time in the process: an export holds the path locks of every bundle it reads
 _MODEL_LOCK = threading.Lock()
 _SPRITE_FIELDS = ("x", "y", "width", "height", "borderLeft", "borderRight", "borderTop",
@@ -121,13 +124,13 @@ class GameAssets:
             return self._indexes["paths"]
 
     def _bundle_path(self, name: str) -> Path:
-        with self._lock("bundle-names"):
-            if "bundle-names" not in self._indexes:
-                self._indexes["bundle-names"] = {path.name: path for path in self._paths()}
-            try:
-                return self._indexes["bundle-names"][name]
-            except KeyError:
-                raise AssetNotFound(name) from None
+        # Resolve in the current folders: a sandbox can acquire more bundles after the first discovery.
+        if Path(name).name == name:
+            for directory in self.resource_dirs:
+                path = directory / name
+                if path.is_file():
+                    return path
+        raise AssetNotFound(name)
 
     def _cached(self, key: str, build: Callable[[], bytes], *, disk: bool = True) -> bytes:
         with self._lock(key):
@@ -154,11 +157,62 @@ class GameAssets:
             return self._indexes[key]
 
     def _atlas_index(self) -> dict:
-        return self._index("atlases", self._scan_atlases)
+        # The catalog version alone does not describe the installed UI bundles (partial downloads and sandboxes).
+        # Keep the inventory in the key, including replacements that preserve size and modification time.
+        with self._lock("atlases"):
+            try:
+                paths = list(filter(is_atlas, bundle_paths(self.resource_dirs)))
+                if not paths:
+                    raise AssetNotFound("No UI atlas bundles in the resource folders")
+                stamps = spine_stamps(paths)
+                key = _ATLASES + hashlib.sha256(json.dumps(stamps).encode()).hexdigest()
+                if self._indexes.get("atlas-source") == key:
+                    return self._indexes["atlases"]
+                data = self.cache.get(_SCHEMA + key, version=self.resource_version)
+                value = None
+                if data is not None:
+                    try:
+                        value = json.loads(data)
+                        self._validate_atlases(value)
+                    except (ValueError, UnicodeError, TypeError, KeyError) as error:
+                        logger.warning("Rebuilding invalid UI atlas index: %s", error)
+                        value = None
+                if value is None:
+                    value = self._scan_atlases(paths)
+                    self._validate_atlases(value)
+                    if spine_stamps(list(filter(is_atlas, bundle_paths(self.resource_dirs)))) != stamps:
+                        raise AssetNotFound("UI atlas bundles changed during indexing")
+                    self.cache.put(_SCHEMA + key, json.dumps(value).encode(), version=self.resource_version)
+                self._indexes["atlases"], self._indexes["atlas-source"] = value, key
+                return value
+            except Exception as error:
+                logger.exception("Cannot build UI atlas index from %s: %r", self.resource_dirs, error)
+                raise
 
-    def _scan_atlases(self) -> dict:
-        atlases, objects, materials, names = {}, {}, {}, {}
-        for path in filter(is_atlas, self._paths()):
+    @staticmethod
+    def _validate_atlases(index: dict) -> None:
+        if not isinstance(index, dict) or not all(isinstance(index.get(key), dict)
+                                                  for key in ("sprites", "images", "names")):
+            raise ValueError("Invalid UI atlas index structure")
+        if not index["names"] or not any(index["sprites"].values()):
+            raise ValueError("UI atlas index has no sprites")
+        if set(index["names"].values()) != set(index["sprites"]):
+            raise ValueError("UI atlas index is missing atlas metadata")
+        for name, sprites in index["sprites"].items():
+            if not isinstance(sprites, dict) or not all(isinstance(sprite, dict) for sprite in sprites.values()):
+                raise ValueError(f"Invalid UI atlas metadata: {name}")
+            for sprite, rect in sprites.items():
+                if not all(isinstance(rect.get(field), (int, float)) and math.isfinite(rect[field])
+                           for field in ("x", "y", "width", "height")):
+                    raise ValueError(f"Invalid UI sprite rectangle: {name}/{sprite}")
+            record = index["images"].get(name)
+            if sprites and (not isinstance(record, dict) or not all(key in record
+                                                                   for key in ("bundle", "cab", "pid", "name"))):
+                raise ValueError(f"UI atlas {name} has sprites but no texture")
+
+    def _scan_atlases(self, paths: list[Path]) -> dict:
+        atlases, by_key, objects, materials, names = {}, {}, {}, {}, {}
+        for path in paths:
             with open_bundle(path) as env:
                 for obj in env.objects:
                     key = ref_key(obj.assets_file.name, obj.path_id)
@@ -168,6 +222,7 @@ class GameAssets:
                             name = tree["m_Name"]
                             atlases[name] = (key, tree, obj.assets_file.name,
                                              [ext.path for ext in obj.assets_file.externals])
+                            by_key[key] = atlases[name]
                             names[key] = name
                     elif obj.type.name == "Texture2D":
                         name = obj.peek_name()
@@ -179,19 +234,23 @@ class GameAssets:
                                 materials[key] = ref_key(*reference(obj, value["m_Texture"]))
         # All pointers are resolved after scanning, so external material and
         # texture CABs may appear before or after their atlas bundle.
-        by_key = {value[0]: value for value in atlases.values()}
         sprites, images = {}, {}
         for name, entry in atlases.items():
             seen = set()
             while True:
                 key, tree, cab, externals = entry
                 replacement = tree.get("mReplacement", {})
-                if not replacement.get("m_PathID") or key in seen:
+                if not replacement.get("m_PathID"):
                     break
+                if key in seen:
+                    raise AssetNotFound(f"UI atlas replacement cycle: {name}")
                 seen.add(key)
                 fid = replacement.get("m_FileID", 0)
                 target = cab if not fid else externals[fid - 1].replace("\\", "/").rsplit("/", 1)[-1]
-                entry = by_key.get(ref_key(target, replacement["m_PathID"]), entry)
+                try:
+                    entry = by_key[ref_key(target, replacement["m_PathID"])]
+                except KeyError:
+                    raise AssetNotFound(f"Missing UI atlas replacement: {name}") from None
             sprites[name] = {sprite["name"]: {field: sprite.get(field, 0) for field in _SPRITE_FIELDS}
                              for sprite in tree["mSprites"]}
             pointer = tree.get("material", {})
@@ -207,11 +266,12 @@ class GameAssets:
         return deepcopy(self._atlas_index()["sprites"])
 
     def _image(self, record: dict) -> Image.Image:
-        key = "image/" + ref_key(record["cab"], record["pid"])
+        path = self._bundle_path(record["bundle"])
+        key = "image/" + ref_key(record["cab"], record["pid"]) + json.dumps(spine_stamps([path]))
         with self._lock(key):
             image = self.cache.get(_SCHEMA + key, version=self.resource_version, disk=False)
             if image is None:
-                with open_bundle(self._bundle_path(record["bundle"])) as env:
+                with open_bundle(path) as env:
                     image = find_object(env, record).read().image
                     image.load()
                 self.cache.put(_SCHEMA + key, image, version=self.resource_version, disk=False)
@@ -219,8 +279,10 @@ class GameAssets:
 
     def sprite_png(self, atlas: str, sprite: str) -> bytes:
         """Crop a named atlas sprite and return PNG bytes."""
-        def build() -> bytes:
+        with self._lock("atlases"):
             index = self._atlas_index()
+            source = self._indexes["atlas-source"]
+        def build() -> bytes:
             try:
                 rect = index["sprites"][atlas][sprite]
                 record = index["images"][atlas]
@@ -230,8 +292,11 @@ class GameAssets:
             # NGUI's mSprites uses top-left coordinates. UnityPy has already
             # flipped the decoded Unity texture into Pillow's top-left space.
             x, y = rect["x"], rect["y"]
-            return png_bytes(image.crop((x, y, x + rect["width"], y + rect["height"])))
-        return self._cached("sprite/" + json.dumps([atlas, sprite]), build)
+            data = png_bytes(image.crop((x, y, x + rect["width"], y + rect["height"])))
+            if self._atlas_index() is not index:
+                raise AssetNotFound("UI atlas bundles changed while reading a sprite")
+            return data
+        return self._cached("sprite/" + source + json.dumps([atlas, sprite]), build)
 
     def _texture_index(self) -> dict:
         return self._index("textures", lambda: self._scan_textures(filter(is_texture, self._paths())))

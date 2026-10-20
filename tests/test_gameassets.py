@@ -154,14 +154,17 @@ def test_lazy_construction_and_missing_game(tmp_path, monkeypatch):
 
 
 def test_concurrent_index_computed_once(tmp_path, monkeypatch):
+    (tmp_path / "uis-atlas-common.bundle").touch()
     game = GameAssets([tmp_path], AssetCache(root=tmp_path / "cache"))
     barrier = threading.Barrier(8)
     calls = []
 
-    def scan():
+    def scan(paths):
         calls.append(1)
         time.sleep(0.02)
-        return {"sprites": {"Common": {"Back": {"width": 10}}}}
+        return {"sprites": {"Common": {"Back": {"x": 0, "y": 0, "width": 10, "height": 10}}},
+                "images": {"Common": {"bundle": paths[0].name, "cab": "CAB", "pid": 1, "name": "Common"}},
+                "names": {"CAB:2": "Common"}}
 
     monkeypatch.setattr(game, "_scan_atlases", scan)
 
@@ -369,6 +372,184 @@ def test_external_atlas_crop_orientation_and_decode_once(tmp_path, monkeypatch):
     assert moved.resource_version == game.resource_version
     assert Image.open(BytesIO(moved.sprite_png("Test", "left"))).getpixel((0, 0)) == (0, 0, 255, 255)
     assert loads[-1] == relocated / second.name
+
+
+@pytest.fixture(params=["", "GameData/Windows", "BlueArchive_Data/StreamingAssets/PUB/Resource/Preload/Windows"],
+                ids=["flat", "resource", "install"])
+def atlas_source(tmp_path, monkeypatch, request):
+    game_root = tmp_path / "game"
+    directory = game_root / request.param
+    directory.mkdir(parents=True)
+    catalog = game_root / "Catalog/Windows/catalog_Windows.hash"
+    catalog.parent.mkdir(parents=True)
+    catalog.write_bytes(b"unchanged catalog")
+    atlas_path, image_path = [directory / f"uis-atlas-{name}.bundle" for name in ("atlas", "image")]
+    atlas_path.write_bytes(b"atlas")
+    image_path.write_bytes(b"blue")
+    atlas = _Object("MonoBehaviour", 1, "CAB-atlas", externals=["CAB-image"], tree={
+        "m_Name": "Common", "mSprites": [{"name": "Back", "width": 1, "height": 1}],
+        "material": {"m_FileID": 1, "m_PathID": 2}})
+    material = _Object("Material", 2, "CAB-image", tree={"m_SavedProperties": {
+        "m_TexEnvs": [("_MainTex", {"m_Texture": {"m_PathID": 3}})]}})
+    loads = []
+
+    @contextmanager
+    def open_fake(path):
+        loads.append(path)
+        if path == atlas_path:
+            yield SimpleNamespace(objects=[atlas])
+        else:
+            image = Image.new("RGBA", (1, 1), path.read_text().strip())
+            texture = _Object("Texture2D", 3, "CAB-image", name="Common", data=SimpleNamespace(image=image))
+            yield SimpleNamespace(objects=[material, texture])
+
+    monkeypatch.setattr(service, "open_bundle", open_fake)
+    root = tmp_path / "cache"
+    def game():
+        return GameAssets(get_search_dirs(game_root), AssetCache(root=root, allowed=True))
+    return SimpleNamespace(game=game, directory=directory, atlas=atlas_path, image=image_path, loads=loads, root=root,
+                           atlas_object=atlas)
+
+
+def test_atlas_cache_recovers_from_missing_bundles_and_legacy_empty_index(atlas_source, caplog):
+    source = atlas_source
+    game = source.game()
+    version = game.resource_version
+    game.cache.put(service._SCHEMA + "atlases", b'{"sprites":{},"images":{},"names":{}}', version=version)
+    source.atlas.unlink()
+    source.image.unlink()
+    with pytest.raises(AssetNotFound, match="No UI atlas bundles"):
+        game.atlases()
+    assert "Cannot build UI atlas index" in caplog.text
+    # Add every UI bundle after an earlier small sandbox, without changing its catalog or service instance.
+    source.atlas.write_bytes(b"atlas")
+    source.image.write_bytes(b"blue")
+    assert "Back" in game.atlases()["Common"]
+    assert game.resource_version == version
+    source.loads.clear()
+    assert source.game().atlases() == game.atlases()
+    assert not source.loads, "a complete index survives a fresh memory cache"
+
+
+def test_partial_atlas_index_is_not_cached_and_retries_when_texture_arrives(atlas_source, caplog):
+    source = atlas_source
+    game = source.game()
+    source.image.unlink()
+    with pytest.raises(ValueError, match="no texture"):
+        game.atlases()
+    assert "no texture" in caplog.text
+    assert not source.root.exists()
+    source.image.write_bytes(b"blue")
+    assert game.atlases()["Common"]["Back"]["width"] == 1
+
+
+@pytest.mark.parametrize("pointer, cause", [(99, "Missing UI atlas replacement"), (1, "replacement cycle")])
+def test_unresolved_atlas_replacements_are_not_cached(atlas_source, pointer, cause):
+    source = atlas_source
+    source.atlas_object._tree["mReplacement"] = {"m_PathID": pointer}
+    with pytest.raises(AssetNotFound, match=cause):
+        source.game().atlases()
+    assert not source.root.exists()
+
+
+def test_empty_atlas_scan_is_not_cached(atlas_source):
+    source = atlas_source
+    source.atlas_object._tree["mSprites"] = []
+    with pytest.raises(ValueError, match="no sprites"):
+        source.game().atlases()
+    assert not source.root.exists()
+
+
+def test_atlas_cache_tracks_bundle_replacement_and_removal(atlas_source):
+    source = atlas_source
+    game = source.game()
+    version = game.resource_version
+    assert Image.open(BytesIO(game.sprite_png("Common", "Back"))).getpixel((0, 0)) == (0, 0, 255, 255)
+    stat = source.image.stat()
+    replacement = source.directory / "new-image"
+    replacement.write_bytes(b"red ")
+    os.utime(replacement, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+    replacement.replace(source.image)
+    assert game.resource_version == version
+    assert Image.open(BytesIO(game.sprite_png("Common", "Back"))).getpixel((0, 0)) == (255, 0, 0, 255)
+    source.image.unlink()
+    with pytest.raises(ValueError, match="no texture"):
+        game.atlases()
+    # A second instance sharing the disk cache must also check the current inventory.
+    with pytest.raises(ValueError, match="no texture"):
+        source.game().atlases()
+
+
+@pytest.mark.parametrize("alias_name", ["Extra", "Common"])
+def test_atlas_inventory_addition_invalidates_a_complete_index(atlas_source, monkeypatch, alias_name):
+    source = atlas_source
+    game = source.game()
+    assert set(game.atlases()) == {"Common"}
+    version = game.resource_version
+    added = source.directory / "uis-atlas-extra.bundle"
+    added.write_bytes(b"extra")
+    alias = _Object("MonoBehaviour", 1, "CAB-extra", externals=["CAB-atlas"], tree={
+        "m_Name": alias_name, "mSprites": [], "mReplacement": {"m_FileID": 1, "m_PathID": 1}})
+    original = service.open_bundle
+
+    @contextmanager
+    def open_fake(path):
+        if path == added:
+            yield SimpleNamespace(objects=[alias])
+        else:
+            with original(path) as env:
+                yield env
+
+    monkeypatch.setattr(service, "open_bundle", open_fake)
+    assert game.resource_version == version
+    assert game.atlases()[alias_name] == game.atlases()["Common"]
+    assert set(source.game().atlases()) == {"Common", alias_name}
+
+
+@pytest.mark.parametrize("failure", [OSError("unreadable bundle"), ServiceError("dev_path_outside", path="bundle")])
+def test_atlas_scan_failures_are_logged_and_not_cached(atlas_source, monkeypatch, caplog, failure):
+    source = atlas_source
+    game = source.game()
+    scan = game._scan_atlases
+    def fail(paths):
+        raise failure
+    monkeypatch.setattr(game, "_scan_atlases", fail)
+    with pytest.raises(type(failure)):
+        game.atlases()
+    assert "Cannot build UI atlas index" in caplog.text
+    assert not source.root.exists()
+    monkeypatch.setattr(game, "_scan_atlases", scan)
+    assert game.atlases()["Common"]
+
+
+def test_atlas_changes_during_scan_are_not_cached(atlas_source, monkeypatch):
+    source = atlas_source
+    game = source.game()
+    scan = game._scan_atlases
+    def change(paths):
+        result = scan(paths)
+        source.image.write_bytes(b"red ")
+        return result
+    monkeypatch.setattr(game, "_scan_atlases", change)
+    with pytest.raises(AssetNotFound, match="changed during indexing"):
+        game.atlases()
+    assert not source.root.exists()
+    monkeypatch.setattr(game, "_scan_atlases", scan)
+    assert game.atlases()["Common"]
+
+
+@pytest.mark.parametrize("data", [b"{}", b'{"sprites":{},"images":{},"names":{}}', b"broken JSON",
+                                  b'{"sprites":{"Common":{"Back":{}}},"images":{},"names":{"CAB:1":"Common"}}',
+                                  b'{"sprites":{"Common":{"Back":{}}},"images":{},"names":{"CAB:1":"Missing"}}'])
+def test_invalid_atlas_cache_entries_are_rebuilt(atlas_source, caplog, data):
+    source = atlas_source
+    expected = source.game().atlases()
+    cached, = source.root.rglob("*.cache")
+    cached.write_bytes(data)
+    source.loads.clear()
+    assert source.game().atlases() == expected
+    assert source.loads
+    assert "Rebuilding invalid UI atlas index" in caplog.text
 
 
 POINTER_BUNDLES = (

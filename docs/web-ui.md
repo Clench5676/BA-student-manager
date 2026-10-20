@@ -126,6 +126,14 @@ Imports only go one way: `webui` → `library` → `catalog` → `gameassets` �
   Close older app windows first, then use the new version: an old build started afterward can recreate its old folder.
 - **Resource version.** SHA-1 of `Catalog/Windows/catalog_Windows.hash` when present, else of the sorted
   `(name, size)` listing of the resource folders. The cache key; a game update starts a new cache folder.
+  The UI atlas index additionally keys on the current atlas bundle inventory (resolved paths, sizes, modification
+  and change times). It is rediscovered on each atlas or sprite request, so adding bundles to a partial install or
+  sandbox invalidates the index and cropped sprites even with the same catalog hash. Empty indexes, unresolved
+  atlas replacements or textures, failed reads and changes during a scan are logged and never cached. Old atlas
+  entries use a different key. The atlas JSON uses `no-store` in both the request and response; consent still
+  permits the validated index and sprite PNGs in the app's disk cache.
+  NGUI rejects empty or malformed atlas metadata and retries on a later render; a requested sprite missing from
+  an otherwise valid index also invalidates it. Failures keep the existing placeholder geometry and log the cause.
 - **User data.** The mod library and UI state live in `utils.EXE_DIR` (the portable data directory the app already
   uses for `config.toml` and `output/`). Several instances may share it: a change to the UI state (`webui.json`) is
   applied to the file as it is at that moment, read again under a lock the instances share (`webui.json.lock`), so
@@ -857,6 +865,16 @@ revisions to match. Pending manifest waits cancel on a newer request or leaving 
 loads keep their cancellation and timeout handling. Lobby effect/audio caches include their source bundle versions. The roster uses
 collection art when present and live `spr` thumbnails otherwise; entry cards use live files of their named install.
 These thumbnail paths also resolve a manifest before caching.
+
+The main portrait retries once when a rejected load has a newer manifest revision, like thumbnails. A missing or
+invalid manifest reports its URL and status or validation error in the console; the detail error also names the
+logical portrait source. Asset-route failures log the request and cause at warning level. Live routes without a
+revision use the same mod-last order as the manifest, and only an unknown library core falls back to discovery;
+read failures and dev-mode refusals propagate. Clearing the asset cache evicts extracted Spine files, while a
+reload resolves and extracts the same live composition without needing a mod preview or kept originals.
+The portrait starts independently of the detail layout, using the game's default framing while the layout loads.
+A cold layout export reads the atlas index too, so its failure must never prevent portrait requests from starting.
+Manifest network and JSON failures retain the URL and original cause; JSON errors include the response status.
 
 ## Front end
 

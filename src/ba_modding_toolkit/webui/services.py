@@ -1071,7 +1071,8 @@ class Services:
     def _ui_asset(self, parts: list[str], query: dict[str, str]) -> AssetResponse:
         game = self.game
         if parts == ["atlases.json"]:
-            return _json(game.atlases(), light=True)
+            # Revalidate the bundle inventory on reload, including after a cache clear or a partial download.
+            return _json(game.atlases(), light=False)
         if parts == ["textures.json"]:
             return _json({name: f"/asset/ui/texture/{name}.png" for name in game.textures()}, light=True)
         if len(parts) == 3 and parts[0] == "sprite":
@@ -1111,7 +1112,10 @@ class Services:
             try:
                 # the game files with the mod-carrying parts last, the order a mod preview merges in
                 return self.library.live_bundles(core, pin=pin)
-            except (ServiceError, OSError):
+            except ServiceError as error:
+                if error.code != "game_file_not_found":
+                    logger.warning("Cannot resolve live Spine bundles for %s/%s: %r", kind, key, error)
+                    raise
                 return game.spine_cores(kind)[core.lower()]
         if kind == "mod":
             return self.library.preview_bundles(key)
@@ -1125,22 +1129,23 @@ class Services:
             bundles = self._spine_bundles(kind, key)
             current = spine_revision(bundles)
             if revision is not None and revision != current:
-                raise KeyError(revision)
+                raise KeyError(f"Spine revision changed: requested {revision}, current {current}")
             if name == "manifest.json":
                 return _json({"revision": current}, light=False)
         response = self._spine_file(kind, key, name, bundles)
         # A switch between the skeleton and page requests must fail the load, never mix revisions. Also reject
         # changes during extraction, before any bytes from the changed composition reach the player.
         if bundles is not None and (spine_revision(bundles) != current or self._spine_bundles(kind, key) != bundles):
-            raise KeyError(key)
+            raise KeyError(f"Spine source changed during extraction: {kind}/{key}")
         return response
 
     def _spine_file(self, kind: str, key: str, name: str, bundles: list[Path] | None = None) -> AssetResponse:
-        game, core = self.game, key
+        game, core, pin = self.game, key, None
         if kind in ("spr", "lobby", "official-spr", "official-lobby") and "@" in key:
             # <core>@<id>: the core in another known install (its id in mods.state.installs)
             core, _, install_id = key.rpartition("@")
             game = self._install_game(install_id)
+            pin = next(p for p in self.library.installs() if p.id == install_id)
         if kind == "lobby" and name == "lobby.json":
             # the lobby's layout and interaction from its prefab and clip assets; no skeleton file has this name, and
             # it is answered without extracting (and PNG-encoding) the lobby's textures
@@ -1166,6 +1171,12 @@ class Services:
         if kind.startswith("official-"):
             files = game.spine_files_from(bundles)
         elif kind in ("spr", "lobby"):
+            if bundles is None:
+                try:
+                    bundles = self.library.live_bundles(core, pin=pin)
+                except ServiceError as error:
+                    if error.code != "game_file_not_found":
+                        raise
             files = game.spine_files_from(bundles) if bundles is not None else game.spine_files(kind, core)
         elif kind == "mod":
             bundles = bundles if bundles is not None else self.library.preview_bundles(key)
