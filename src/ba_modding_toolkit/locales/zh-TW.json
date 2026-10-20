@@ -1173,7 +1173,10 @@
 			"mod_last_copy": "遊戲仍在使用的檔案的唯一副本：{file}",
 			"scan_off": "檔案檢查已關閉",
 			"mod_target_unknown": "無法識別此 Mod 所屬的學生及版本：{file}",
-			"mod_target_ambiguous": "Mod 內含互相衝突的目標：{file}"
+			"mod_target_ambiguous": "Mod 內含互相衝突的目標：{file}",
+			"mod_platform_unknown": "無法辨識建置平台：{file}",
+			"mod_platform_mismatch": "{file}，建置平台 {platform}，需要 {expected}",
+			"mod_parts_missing": "Mod 檔案不完整，缺少：{files}"
 		},
 		"drop": {
 			"hint": "拖入 Mod 檔案以新增"
@@ -1319,7 +1322,28 @@
 			"go": "前往",
 			"stay": "留在此處",
 			"duplicate": "已在 Mod 倉庫中：{name}",
-			"installed": "已識別為已安裝的 Mod"
+			"installed": "已識別為已安裝的 Mod",
+			"applyFailed": "已新增，切換失敗：{reason}"
+		},
+		"compatibility": {
+			"check": "檢查相容性",
+			"matches": "已檢查項目未發現差異",
+			"unavailable": "缺少目前原版檔案，比對不完整",
+			"outdated": "Bundle 來自其他遊戲版本",
+			"skeletons": "骨架名稱不一致：{name}",
+			"version": "{name}，Spine {mod}，原版 {official}",
+			"unreadable": "{name}，無法讀取骨架詳情",
+			"animations": "{name}，缺少動畫：{missing}，新增：{added}",
+			"slots": "{name}，缺少插槽：{missing}，新增：{added}",
+			"attachments": "{name}，缺少附件：{missing}，新增：{added}",
+			"bones": "{name}，骨骼數：{mod}，原版 {official}",
+			"atlasUnreadable": "{name}，無法讀取圖集",
+			"pages": "缺少圖集頁面：{missing}，新增：{added}",
+			"atlasSize": "{name}，圖集尺寸：{atlas}，貼圖尺寸：{texture}",
+			"textureSize": "{name}，貼圖尺寸：{mod}，原版 {official}",
+			"updateHint": "更新：移植至目前原版檔案，可能需要轉換 Spine 版本",
+			"authorHint": "需要適配目前版本的 Mod",
+			"crcHint": "CRC 修正僅調整校驗值"
 		}
 	}
 }

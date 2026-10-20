@@ -1173,7 +1173,10 @@
 			"mod_last_copy": "게임에서 사용 중인 파일의 유일한 사본: {file}",
 			"scan_off": "파일 검사 꺼짐",
 			"mod_target_unknown": "Mod의 대상 학생 및 버전을 확인할 수 없습니다: {file}",
-			"mod_target_ambiguous": "Mod 대상 충돌: {file}"
+			"mod_target_ambiguous": "Mod 대상 충돌: {file}",
+			"mod_platform_unknown": "빌드 대상 확인 불가: {file}",
+			"mod_platform_mismatch": "{file}, 빌드 대상 {platform}, 필요한 대상 {expected}",
+			"mod_parts_missing": "Mod 파일 불완전, 누락: {files}"
 		},
 		"drop": {
 			"hint": "모드 파일을 끌어다 놓아 추가"
@@ -1319,7 +1322,28 @@
 			"go": "이동",
 			"stay": "현재 화면 유지",
 			"duplicate": "모드 라이브러리에 이미 있음: {name}",
-			"installed": "설치된 모드로 인식됨"
+			"installed": "설치된 모드로 인식됨",
+			"applyFailed": "추가됨, 전환 실패: {reason}"
+		},
+		"compatibility": {
+			"check": "호환성 확인",
+			"matches": "확인한 항목에 차이 없음",
+			"unavailable": "현재 공식 파일 없음, 비교 미완료",
+			"outdated": "다른 게임 버전의 Bundle",
+			"skeletons": "스켈레톤 이름 불일치: {name}",
+			"version": "{name}, Spine {mod}, 공식 {official}",
+			"unreadable": "{name}, 스켈레톤 세부 정보 확인 불가",
+			"animations": "{name}, 누락된 애니메이션: {missing}, 추가: {added}",
+			"slots": "{name}, 누락된 슬롯: {missing}, 추가: {added}",
+			"attachments": "{name}, 누락된 어태치먼트: {missing}, 추가: {added}",
+			"bones": "{name}, 본 수: {mod}, 공식 {official}",
+			"atlasUnreadable": "{name}, 아틀라스 읽기 불가",
+			"pages": "누락된 아틀라스 페이지: {missing}, 추가: {added}",
+			"atlasSize": "{name}, 아틀라스: {atlas}, 텍스처: {texture}",
+			"textureSize": "{name}, 텍스처: {mod}, 공식 {official}",
+			"updateHint": "업데이트: 현재 공식 파일로 이식, Spine 버전 변환이 필요할 수 있음",
+			"authorHint": "현재 버전에 맞게 수정된 Mod 필요",
+			"crcHint": "CRC 수정은 체크섬만 변경"
 		}
 	}
 }

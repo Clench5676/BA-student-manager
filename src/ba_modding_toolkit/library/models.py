@@ -51,6 +51,10 @@ class AddResult(list[ModEntry]):
         super().__init__()
         self.duplicates: list[ModEntry] = []
         self.installed: list[ModEntry] = []
+        self.applied: list[ModEntry] = []
+        self.configured: list[ModEntry] = []
+        self.failed: list[dict] = []
+        self.compatibility: dict[str, dict] = {}
 
     @property
     def added(self) -> list[ModEntry]:
@@ -59,7 +63,10 @@ class AddResult(list[ModEntry]):
     def to_json(self) -> dict[str, Any]:
         return {"added": [entry.to_json() for entry in self],
                 "duplicates": [entry.to_json() for entry in self.duplicates],
-                "installed": [entry.to_json() for entry in self.installed]}
+                "installed": [entry.to_json() for entry in self.installed],
+                "applied": [entry.to_json() for entry in self.applied],
+                "configured": [entry.to_json() for entry in self.configured],
+                "failed": self.failed, "compatibility": self.compatibility}
 
 
 @dataclass(frozen=True)

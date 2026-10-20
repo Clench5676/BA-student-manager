@@ -276,9 +276,11 @@ class _Library:
     def __init__(self):
         self.added = []
 
-    def add(self, paths):
+    def add_and_apply(self, paths):
+        from ba_modding_toolkit.library.models import AddResult
+
         self.added.append(paths)
-        return []
+        return AddResult()
 
 
 @pytest.fixture
@@ -500,7 +502,7 @@ def _switch_env(game_dir: Path, data: Path, monkeypatch):
     return SimpleNamespace(library=library, game_file=game_dir / name, official=official, mod=data / "import" / name)
 
 
-def test_a_switch_writes_a_sandbox(sandboxed, monkeypatch):
+def test_a_switch_writes_a_sandbox(sandboxed, monkeypatch, header_only_bundles):
     env = _switch_env(sandboxed.sandboxes / "game", sandboxed.root / "data", monkeypatch)
     entry = env.library.add([env.mod])[0]
     result = env.library.apply("test", f"mod:{entry.id}")
@@ -510,7 +512,7 @@ def test_a_switch_writes_a_sandbox(sandboxed, monkeypatch):
     assert env.game_file.read_bytes() == env.official
 
 
-def test_a_switch_never_writes_a_view(sandboxed, monkeypatch):
+def test_a_switch_never_writes_a_view(sandboxed, monkeypatch, header_only_bundles):
     env = _switch_env(sandboxed.view / "game", sandboxed.root / "data", monkeypatch)
     entry = env.library.add([env.mod])[0]
     expect_outside(lambda: env.library.apply("test", f"mod:{entry.id}"), env.game_file.resolve())
