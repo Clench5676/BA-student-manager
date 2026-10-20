@@ -701,12 +701,20 @@ export function geometry(fxs, s, { meshes = {}, linear = true } = {}) {
 // Unity draws transparent renderers by sorting layer, order in layer, render queue, then back to front: by the
 // distance from the camera plus, for a particle renderer, its sorting fudge (Unity world units). The key's last part
 // is that distance in lobby units, negated (the farther draws first).
-const sortKey = (x) => [x.order || 0, x.queue ?? 3000, -((x.z || 0) + (x.fudge || 0) * WORLD)];
+export const sortKey = (x) => [x.order || 0, x.queue ?? 3000, -((x.z || 0) + (x.fudge || 0) * WORLD)];
 const before = (a, b) => {
   const ka = sortKey(a), kb = sortKey(b);
   for (let i = 0; i < 3; i++) if (ka[i] !== kb[i]) return ka[i] < kb[i];
   return true;
 };
+
+// The index of the last of a lobby's skeleton parts (steps: each with order, queue and z, in the order they draw)
+// that sorts before the system, after which it draws (a tie puts it after); -1 before them all
+export function lastBefore(def, steps) {
+  let at = -1;
+  steps.forEach((step, i) => { if (before(step, def)) at = i; });
+  return at;
+}
 
 // The render queues a layer's skeleton draws in, lowest first. spine-unity gives every submesh the material of its
 // atlas page and Unity sorts each submesh by its own material's queue, so a skeleton whose pages sit in several
@@ -722,9 +730,9 @@ export function queuesOf(layer) {
 // (part -1); a tie puts it after. Hibiki's river surface (queue 3000) draws after her lobby's background page (2900),
 // before her own (3050).
 export function slotOf(def, layers) {
-  let slot = { layer: 0, part: -1 };
-  layers.forEach((l, i) => queuesOf(l).forEach((queue, part) => { if (before({ ...l, queue }, def)) slot = { layer: i, part }; }));
-  return slot;
+  const parts = layers.flatMap((l, layer) => queuesOf(l).map((queue, part) => ({ ...l, queue, layer, part })));
+  const at = lastBefore(def, parts);
+  return at < 0 ? { layer: 0, part: -1 } : { layer: parts[at].layer, part: parts[at].part };
 }
 
 // systems in drawing order: order in layer, queue, back to front (with the sorting fudge), then the prefab's order

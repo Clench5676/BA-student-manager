@@ -8,9 +8,13 @@ import { queuesOf } from "./particles.js";
 
 // an attachment's atlas page by the name the prefab gives it (the page's file name without its extension), or null
 // for an attachment without one (clipping, bounding boxes, points)
+const pageNames = new WeakMap(); // atlas page -> its name without the extension, worked out once
 export function pageOf(attachment) {
-  const name = attachment?.region?.page?.name;
-  return name ? name.replace(/\.[^./]+$/, "") : null;
+  const page = attachment?.region?.page;
+  if (!page?.name) return null;
+  let name = pageNames.get(page);
+  if (name === undefined) pageNames.set(page, (name = page.name.replace(/\.[^./]+$/, "")));
+  return name;
 }
 
 // a layer's parts: how many, and the part of a page (by name); a page the prefab does not list draws with the
@@ -22,23 +26,28 @@ export function partsOf(layer) {
   return { count: queues.length, of: (page) => byPage.get(page) ?? own };
 }
 
-// draw(part) for every part in turn, with the slots of the other parts' pages emptied for the call and given their
-// attachment back after it (a slot without a page, a clipping attachment's included, takes part in every one: its
-// clipping still applies to the slots it covers); between(part) after each part but the last
+// draw() with only part k drawn: the slots of the other parts' pages emptied for the call and given their attachment
+// back after it (a slot without a page, a clipping attachment's included, takes part in every one: its clipping still
+// applies to the slots it covers). A skeleton of one part is drawn as it is.
+export function drawPart(skeleton, parts, k, draw) {
+  if (!(parts?.count > 1)) { draw(); return; }
+  const emptied = [];
+  for (const slot of skeleton.drawOrder) {
+    const page = pageOf(slot.attachment);
+    if (page !== null && parts.of(page) !== k) { emptied.push([slot, slot.attachment]); slot.attachment = null; }
+  }
+  try {
+    draw();
+  } finally {
+    for (const [slot, attachment] of emptied) slot.attachment = attachment;
+  }
+}
+
+// draw(part) for every part in turn (drawPart); between(part) after each part but the last
 export function drawInParts(skeleton, parts, draw, between = () => {}) {
   if (!(parts?.count > 1)) { draw(0); return; }
-  const slots = skeleton.drawOrder;
-  const part = slots.map((slot) => { const page = pageOf(slot.attachment); return page === null ? -1 : parts.of(page); });
   for (let k = 0; k < parts.count; k++) {
-    const emptied = [];
-    slots.forEach((slot, i) => {
-      if (part[i] >= 0 && part[i] !== k) { emptied.push([slot, slot.attachment]); slot.attachment = null; }
-    });
-    try {
-      draw(k);
-    } finally {
-      for (const [slot, attachment] of emptied) slot.attachment = attachment;
-    }
+    drawPart(skeleton, parts, k, () => draw(k));
     if (k < parts.count - 1) between(k);
   }
 }

@@ -1,11 +1,12 @@
 // Draws a memorial lobby's particle effects (particles.js) inside its skeleton players, in linear light like them:
-// each system goes into the WebGL2 context of the layer it sorts after (or before the bottom one), blended into that
-// player's linear framebuffer (linear.js) between the frame's clear and the skeleton, between two parts of the
-// skeleton (one per render queue of its atlas pages, skeleton-parts.js) or after the skeleton. The
+// each system goes into the WebGL2 context of the player that draws the skeleton part it sorts after (or before the
+// bottom one), blended into that player's linear framebuffer (linear.js) between the frame's clear and the skeleton,
+// between two skeleton parts (one per render queue of a skeleton's atlas pages, skeleton-parts.js; every skeleton's
+// parts of a lobby in the bottom player's context, lobby-stage.js) or after the last one. The
 // shaders port the game's compiled DSFX programs; their textures come from the lobby's own route (fx_<id>.png, memory
 // only) and are sampled as sRGB where the game imports them so. Without linear light (no WebGL2) nothing is drawn.
 import * as Linear from "./linear.js";
-import { Effects, STRIDE, drawOrder, geometry, queuesOf, slotOf } from "./particles.js";
+import { Effects, STRIDE, drawOrder, geometry, lastBefore, queuesOf } from "./particles.js";
 import { toLinear } from "./touch-fx.js";
 
 const VS_HEAD = `#version 300 es
@@ -552,15 +553,22 @@ export function create(fx, { base, bone, load = loadImage } = {}) {
   return {
     effects,
     // players: the lobby's skeleton players in stacking order, each with its layer (bamtLayer: order, queue, pages, z)
-    // and drawn in the parts of its pages' queues (skeleton-parts.js)
-    layers(players) {
+    // and drawn in the parts of its pages' queues (skeleton-parts.js). steps: those parts in the order they draw, each
+    // {owner, order, queue, z} with the player that draws it (lobby-stage.js: all of them by the bottom player when
+    // they share its context); by default each player's own parts, player after player. A system draws after the last
+    // step that sorts before it, in its owner's context (between(owner, k) after the owner's k-th step), or before the
+    // first one, in the bottom player's.
+    layers(players, steps = players.flatMap((p) => queuesOf(p.bamtLayer).map((queue) => ({ ...p.bamtLayer, owner: p, queue })))) {
       bottom = players[0] || null;
-      slots = new Map(players.map((p) => [p, { below: [], after: queuesOf(p.bamtLayer).map(() => []) }]));
+      slots = new Map(players.map((p) => [p, { below: [], after: [] }]));
+      const at = steps.map((step) => {
+        const slot = slots.get(step.owner);
+        return slot ? slot.after[slot.after.push([]) - 1] : null;
+      });
       for (const s of drawOrder(effects.systems)) {
         if (!s.def.material && !s.def.subs) continue;
-        const { layer, part } = slotOf(s.def, players.map((p) => p.bamtLayer || {}));
-        const slot = slots.get(players[layer]);
-        if (slot) (part < 0 ? slot.below : slot.after[part]).push(s);
+        const i = lastBefore(s.def, steps);
+        (i < 0 ? slots.get(bottom)?.below : at[i])?.push(s);
       }
     },
     // before the player's skeleton (the bottom player also advances the simulation)

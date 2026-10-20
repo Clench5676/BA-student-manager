@@ -9,16 +9,18 @@
 // The edge extension (border pixels stretched outwards and blurred) is only a fallback for mods whose art does not
 // cover the view. Fullscreen zooms out as far as the zoom-out setting allows (zoomBounds); past the painted art
 // (Unlocked, Custom) it shows what the game's lobby camera clears to, black, through the lobby's grade with PP on.
-// The prefab's particle systems (bokeh, dust, glints, Michiru's sparkler) are simulated and drawn into the layers'
-// own frames by particles-gl.js, in their sorting order relative to the skeletons and following the bones they hang on.
+// The prefab's particle systems (bokeh, dust, glints, Michiru's sparkler) are simulated and drawn into the lobby's
+// frame by particles-gl.js, in their sorting order relative to the skeletons and following the bones they hang on.
 // A skeleton whose atlas pages sit in several render queues draws in one part per queue (skeleton-parts.js), the
-// effects that sort between two of them in between: Hibiki's river surface over the river, under her.
+// effects that sort between two of them in between: Hibiki's river surface over the river, under her. The skeletons
+// of one lobby all draw in the bottom one's context, their parts and the effects interleaved in the game's order
+// (lobby-stage.js): Wakamo's fire over her lobby's scenery, under her.
 // Each skeleton's idle starts the clips the game's does (Shigure's train, snow, clouds, stars), some of them at random
 // times (lobby-sync.js), and the clips' sound keys play the game's sounds at the voice volume.
 import { spineFiles } from "./api.js";
 import * as Linear from "./linear.js";
 import * as Particles from "./particles-gl.js";
-import * as Parts from "./skeleton-parts.js";
+import * as Stage from "./lobby-stage.js";
 import * as Touch from "./lobby-touch.js";
 import * as Sync from "./lobby-sync.js";
 
@@ -610,18 +612,21 @@ export function stillRect(canvasW, canvasH) {
   return { x: ((x - v.x) / v.w) * canvasW, y: ((v.y + v.h - top) / v.h) * canvasH, w: (w / v.w) * canvasW, h: (h / v.h) * canvasH };
 }
 
-function makePlayer(host, layer, onReady, onError = () => {}, fx = null) {
+// share: the lobby's bottom player, whose context this one draws with (lobby-stage.js), or null
+function makePlayer(host, layer, onReady, onError = () => {}, fx = null, share = null) {
   const div = document.createElement("div");
   div.className = "lobby-layer";
   host.appendChild(div);
-  return new spine.SpinePlayer(div, {
+  return Stage.make(share, () => new spine.SpinePlayer(div, {
     skeleton: `${layer.spine}.skel`, atlas: layer.atlas || `${layer.spine}.atlas`, animation: undefined,
     premultipliedAlpha: false, alpha: true, backgroundColor: "#00000000", showControls: false, showLoading: false,
     preserveDrawingBuffer: true, defaultMix: current?.info?.defaultMix?.[layer.name] ?? 0.2,
     viewport: layerViewport(game(), layer),
-    // every frame: the random-timing clips that are due (before the animation update, as the game's coroutines run
-    // before the next Update), the shared view, no spine-player viewport transitions of its own
+    // every frame: the frames of the players drawn with this one's context (lobby-stage.js), the random-timing clips
+    // that are due (before the animation update, as the game's coroutines run before the next Update), the shared
+    // view, no spine-player viewport transitions of its own
     frame: (p, delta) => {
+      Stage.frame(p);
       p.bamtRuns?.tick(delta);
       const v = viewNow();
       if (v) { p.currentViewport = layerViewport(v, layer); p.previousViewport = null; }
@@ -647,10 +652,10 @@ function makePlayer(host, layer, onReady, onError = () => {}, fx = null) {
     },
     success: (player) => {
       player.bamtLayer = layer;
-      drawInParts(player, Parts.partsOf(layer), fx);
+      Stage.ready(player);
       // the game camera's post-processing (the prefab's volumes) goes with the linear-light pass, placed in the
-      // camera's view whatever the player shows
-      if (Linear.attach(player)) {
+      // camera's view whatever the player shows (a player drawn with another's context uses that one's)
+      if (Linear.attach(player, Stage.hostOf(player))) {
         Linear.setPost(player, current?.info?.post);
         Linear.setScreen(player, layerViewport(game(), layer));
       }
@@ -666,20 +671,7 @@ function makePlayer(host, layer, onReady, onError = () => {}, fx = null) {
       onReady(player);
     },
     error: (_p, message) => { console.error(message); onError(); },
-  });
-}
-
-// The skeleton in the parts of its pages' render queues (skeleton-parts.js), in place of spine-player's one draw;
-// before the next part, the effects that sort after this one, for which spine's batch is flushed and begun again
-function drawInParts(player, parts, fx) {
-  if (!(parts.count > 1)) return;
-  const renderer = player.sceneRenderer, draw = renderer.drawSkeleton.bind(renderer);
-  renderer.drawSkeleton = (skeleton, ...args) => Parts.drawInParts(skeleton, parts, () => draw(skeleton, ...args), (part) => {
-    if (!fx?.drawsAfter(player, part)) return;
-    renderer.end();
-    fx.between(player, part);
-    renderer.begin();
-  });
+  }));
 }
 
 // --- fallback only (art that does not cover the view): edge pixels stretched outwards and blurred ---
@@ -751,11 +743,21 @@ export async function show(core, host, variant) {
     current.info = info;
     setView(game(), true); // the first frames are already in the game's framing
     const fx = (current.fx = info?.fx?.systems?.length ? Particles.create(info.fx, { base: base(core), bone: boneOf }) : null);
-    const loaded = (await Promise.all(layers.map((layer) => new Promise((resolve) => {
-      players.push(makePlayer(viewHost, layer, (player) => resolve({ ...layer, player }), () => resolve(null), fx));
+    // every layer drawn with the bottom one's context (share), or each with its own
+    const build = async (share) => (await Promise.all(layers.map((layer) => new Promise((resolve) => {
+      players.push(makePlayer(viewHost, layer, (player) => resolve({ ...layer, player }), () => resolve(null), fx,
+        share ? players[0] : null));
     })))).filter(Boolean);
-    if (my !== token || !loaded.length) return null;
-    fx?.layers(loaded.map((l) => l.player));
+    let loaded = await build(layers.length > 1);
+    if (my !== token) return null;
+    // the bottom skeleton did not load (a broken mod): the others cannot draw with its context
+    if (layers.length > 1 && loaded.length && loaded[0].player !== players[0]) {
+      dropPlayers();
+      loaded = await build(false);
+      if (my !== token) return null;
+    }
+    if (!loaded.length) return null;
+    Stage.install(loaded.map((l) => l.player), fx);
     current.meta = measure(loaded);
     current.loaded = loaded;
     // the bottom layer over the camera's clear colour (graded with PP on); sparse art keeps the page behind it, for
@@ -780,18 +782,24 @@ export async function show(core, host, variant) {
   return current.ready;
 }
 
+// the lobby's players and what each holds on the GPU, gone
+function dropPlayers() {
+  for (const p of players) {
+    current?.fx?.detach(p); // the particles' programs, buffers and textures in its context
+    Linear.detach(p); // its framebuffer and program: spine's dispose only frees spine's own objects
+    p.dispose();
+    p.parent?.remove(); // its layer's element
+  }
+  players = [];
+}
+
 export function hide(host) {
   token += 1;
   Touch.detach();
   Touch.setup(null);
   Idle.stop();
-  for (const p of players) {
-    current?.fx?.detach(p); // the particles' programs, buffers and textures in its context
-    Linear.detach(p); // its framebuffer and program: spine's dispose only frees spine's own objects
-    p.dispose();
-  }
+  dropPlayers();
   current?.fx?.dispose();
-  players = [];
   current = null;
   clearInterval(extendTimer);
   chain = null;
