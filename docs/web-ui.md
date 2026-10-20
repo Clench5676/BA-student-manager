@@ -828,8 +828,9 @@ in `pointer-textures`); without a game the system cursor stays and there is no e
   - Slot blend modes reach the screen only through materials: with `requiresBlendModeMaterials` set,
     BlendModeMaterials gives Multiply and Screen slots (Additive ones with `applyAdditiveMaterial`) the replacement
     material listed for their page; without it (all but 4 of the lobbies' 288 skeleton data assets) they keep their page's material and
-    draw as Normal. ch0163's light_01 and Hiyori's R_eye_ligth_02 drew as Screen; spine-player's Screen on straight
-    alpha textures also ignored their alpha (a hard-edged patch over Hiyori's iris). A page that a mode's list does not
+    draw as Normal. ch0163's light_01, Hiyori's R_eye_ligth_02 and airi0's FX_Light_01 (airi0_home's LobbyAiri
+    prefab names airi_home's skeleton data, which has none) drew as Screen; spine-player's Screen on straight alpha
+    textures also ignored their alpha (a hard-edged patch over Hiyori's iris). A page that a mode's list does not
     name gets no replacement material (the list is matched by page name), as an entry left empty does; both draw as
     spine-player draws. An Additive slot always adds (its premultiplied vertex colour has alpha 0).
   - The dark colour (two-colour tint) is never drawn: `tintBlack` is off in every lobby's SkeletonAnimation and no

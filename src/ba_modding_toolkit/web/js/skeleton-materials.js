@@ -7,8 +7,8 @@
 //   (premultiplied, alpha 0 for an additive slot) and with the shader's blend. The other pages keep spine-player's
 //   drawing, which is the game's Spine/Skeleton.
 // - slot blend modes: Multiply and Screen slots of a skeleton without replacement materials for that mode keep their
-//   page's material and draw as Normal (ch0163's light_01, Hiyori's R_eye_ligth_02); with them (Hina's multiply
-//   light), the replacement's shader.
+//   page's material and draw as Normal (ch0163's light_01, Hiyori's R_eye_ligth_02, airi0's FX_Light_01); with them
+//   (Hina's multiply light), the replacement's shader.
 // - the dark colour (two-colour tint) never reaches the screen: the renderer's tintBlack is off in every lobby and no
 //   lobby shader reads it (CH0205's wing and Neru's halo animate one).
 // Hooks spine-player's PolygonBatcher (the page of each draw is its texture) and SkeletonRenderer; needs linear.js.

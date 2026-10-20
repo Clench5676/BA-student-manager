@@ -222,8 +222,9 @@ def test_real_lobby_page_materials(real_game):
     aru = layer("aru_home")["materials"]
     assert aru["pages"]["Aru_home3"]["program"] == "pma"
     assert (aru["pages"]["Aru_home3"]["src"], aru["pages"]["Aru_home3"]["dst"]) == (2, 10) and aru["blend"] == {}
-    # ch0163 and Hiyori have no blend mode materials: their screen slots keep their page's material
-    for core in ("ch0163_home", "hiyori_home"):
+    # ch0163, Hiyori and airi0 (whose prefab names airi_home's skeleton data) have no blend mode materials: their
+    # screen slots keep their page's material
+    for core in ("ch0163_home", "hiyori_home", "airi0_home"):
         assert layer(core)["materials"]["blend"] == {} and layer(core)["materials"]["pages"] == {}
     # Hina's multiply slots take her multiply page's material
     hina = layer("hina_home")["materials"]

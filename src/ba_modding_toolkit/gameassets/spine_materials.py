@@ -11,7 +11,7 @@ A slot's blend mode reaches the screen only through materials: with SkeletonData
 .requiresBlendModeMaterials set, BlendModeMaterials.ApplyMaterials gives the attachments of Multiply and Screen slots
 (and Additive ones with applyAdditiveMaterial) a copy of their page with the replacement material listed for that page;
 without it, or without a list for the mode, they keep their page's material and draw as Normal (ch0163's light_01,
-Hiyori's R_eye_ligth_02). A page the list does not name gets no material, as a null reference.
+Hiyori's R_eye_ligth_02, airi0's FX_Light_01). A page the list does not name gets no material, as a null reference.
 An Additive slot always adds: the mesh generator writes its premultiplied vertex colour with
 alpha 0 (pmaVertexColors). "blend" lists the modes that have replacement materials, by page; a replacement that is not
 set (a null reference) is None.
