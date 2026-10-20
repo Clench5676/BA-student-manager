@@ -70,3 +70,12 @@ test("add confirmations preserve comma adjacency through fitting and wrapping", 
     assert.ok(!/[ \t]\uff0c|\uff0c[ \t]/.test(fitted));
   }
 });
+
+test("single-line values shrink independently and stop at their size floor", () => {
+  const values = ["azusa_swimsuit_spr", "Replaced", "2024-11-18", "Fixed"];
+  const fitted = values.map((value) => fitText(value, 42, 28, 250, 1));
+  assert.ok(fitted[0].fs < 42);
+  assert.deepEqual(fitted.slice(1).map((f) => f.fs), [42, 42, 42]);
+  const full = "azusa_swimsuit_spr".repeat(20);
+  assert.deepEqual(fitText(full, 42, 28, 250, 1), { text: full, fs: 28, lines: 1 });
+});

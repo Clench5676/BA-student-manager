@@ -239,21 +239,18 @@ function screenTree() {
   // the value column starts after the longest caption of its column
   const capW = (keys) => Math.max(...keys.map((k) => advanceOf(T(k), 42))) + 24;
   const leftCap = capW(["info.current", "info.gameFile"]), rightCap = capW(["info.status", "info.crc"]);
-  // all four values share one size: the largest at which every value fits its column, never above the captions'
   const rooms = stats.map(([name_]) => {
     const right = name_ === "Label_Attact" || name_ === "Label_Healing";
     return (right ? 1240 - 773 - rightCap : 773 - 293 - leftCap) - 24;
   });
-  let valueFs = 42;
-  while (valueFs > 28 && stats.some(([, , , value], i) => glyphsOf(String(value), valueFs) > rooms[i])) valueFs -= 2;
   stats.forEach(([name_, caption, dataPath, value, color], i) => {
     text(t, `${INFO}/Status/${name_}`, T(caption), { w_: 300 });
     const right = name_ === "Label_Attact" || name_ === "Label_Healing";
     const dataNode = at(t, `${INFO}/Status/${name_}/${dataPath.split("/")[0]}`);
     dataNode.pos[0] = right ? rightCap : leftCap;
-    // a value still too wide at the smallest shared size (a long variant name) goes on two lines
-    const fit = glyphsOf(String(value), valueFs) > rooms[i] ? fitIn(String(value), valueFs, valueFs - 4, rooms[i]) : { text: String(value), fs: valueFs };
-    text(t, `${INFO}/Status/${name_}/${dataPath}`, fit.text, { w_: rooms[i], fontSize: fit.fs, ...(color ? { color: `${color}/1.00` } : {}) });
+    // Fit each value independently; the compact rows use an ellipsis once this value reaches the size floor.
+    const fit = fitText(String(value), 42, 28, rooms[i], 1);
+    text(t, `${INFO}/Status/${name_}/${dataPath}`, fit.text, { w_: rooms[i], fontSize: fit.fs, ellipsis: true, title: String(value), ...(color ? { color: `${color}/1.00` } : {}) });
     const pot = find(t, `${INFO}/Status/${name_}/Data_Widget/Potential_Widget`);
     if (pot) pot.active = false;
   });
@@ -1258,10 +1255,10 @@ function detailsBody({ fields, rows }) {
     node("Line", [0, 0], [sprite("Common_Line_Raius10px", W, boxH + 6, { depth: 4, color: "#c0c9d4/1.00" })]),
   ]));
   let y = -TOP - 10;
-  fields.forEach(([k], i) => {
+  fields.forEach(([k, v], i) => {
     const h = rowHs[i], cy = y - h / 2, f = values[i];
     kids.push(node(`F_${i}`, [40, cy], [label(k, 38, "#2d4664/1.00", capW, 50, { pivot: 3, depth: 8 })]));
-    kids.push(node(`V_${i}`, [40 + capW, cy], [label(f.text, f.fs, "#000000/1.00", room + 20, f.lines * f.fs * 1.25 + 8, { pivot: 3, depth: 8 })]));
+    kids.push(node(`V_${i}`, [40 + capW, cy], [label(f.text, f.fs, "#000000/1.00", room + 20, f.lines * f.fs * 1.25 + 8, { pivot: 3, depth: 8, title: String(v) })]));
     if (i < fields.length - 1) kids.push(node(`L_${i}`, [W / 2, y - h], [sprite("Common_Line_Dot", W - 60, 4, { type: 2, depth: 7, color: "#c0c9d4/1.00" })]));
     y -= h;
   });

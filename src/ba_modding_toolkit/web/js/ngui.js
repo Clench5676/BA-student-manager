@@ -274,6 +274,7 @@ export async function render(tree, host, opts = {}) {
         paddingBottom: `${(fontSizeFor(text, w.fontSize || 40) * sy * S * (isLatin(text) ? LATIN_LIFT : GLYPH_LIFT) * 2).toFixed(2)}px`,
       });
       if (w.lang) el.lang = w.lang; // text in another language than the page's draws with its fonts (app.css)
+      if (w.title) { el.title = w.title; el.style.pointerEvents = "auto"; }
       if (w.ellipsis) {
         const span = document.createElement("span");
         Object.assign(span.style, { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100%" });
@@ -449,6 +450,8 @@ export function fitText(str, fsMax, fsMin, maxW, maxLines = 2, lang = null) {
 }
 function fitLines(str, fsMax, fsMin, maxW, maxLines) {
   for (let fs = fsMax; fs >= fsMin; fs -= 2) if (glyphWidth(str, fs) <= maxW) return { text: str, fs, lines: 1 };
+  // A single-line cell keeps its size floor; the caller clips or ellipsizes any remaining overflow.
+  if (maxLines === 1) return { text: str, fs: fsMin, lines: 1 };
   for (const cjkBreaks of [false, true]) {
     const tokens = tokensOf(str, cjkBreaks);
     for (let fs = fsMin; fs >= fsMin - 8; fs -= 2) {

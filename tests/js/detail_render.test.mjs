@@ -41,7 +41,12 @@ class El {
   removeAttribute() {}
   focus() { document.activeElement = this; }
   click() { return Promise.all((this.listeners.click || []).map((f) => f({ type: "click" }))); }
-  getContext() { return { measureText: (s) => ({ width: s.length * 20 }), drawImage() {}, fillRect() {}, clearRect() {} }; }
+  getContext() {
+    return { font: "", measureText(s) {
+      const fs = parseFloat(/([\d.]+)px/.exec(this.font)?.[1] || 10);
+      return { width: [...s].reduce((w, c) => w + (/[\u2e80-\u9fff\u3000-\u303f\uff00-\uffef\uac00-\ud7af]/.test(c) ? fs : fs / 2), 0) };
+    }, drawImage() {}, fillRect() {}, clearRect() {} };
+  }
   toBlob(fn) { fn(new Blob()); }
 }
 const walk = (el) => [el, ...el.children.flatMap(walk)];
@@ -367,4 +372,52 @@ test("NGUI image callbacks have a deadline and a later request can retry", async
     assert.ok(await NGUI.load("/asset/ui/stuck.png"));
     pendingImages.splice(0).forEach((img) => img.onload());
   } finally { imageMode = "ready"; t.mock.timers.reset(); }
+});
+
+test("long portrait and lobby names only resize their own info cell in every locale", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const paths = ["Label_Life/Data_Widget/Data", "Label_Attact/Data_Widget/Data", "Label_Defense/Data", "Label_Healing/Data_Widget/Data"];
+  const cell = (path) => walk(hosts.ngui).find((el) => el.dataset.path?.endsWith(`${INFO}/Status/${path}`) && el.style.fontSize);
+  const size = (str, fs) => `${(NGUI.fontSizeFor(str, fs) * 1920 / 2960).toFixed(2)}px`;
+  try {
+    for (const lang of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"]) {
+      setStrings(lang, flat(JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${lang}.json`, import.meta.url), "utf8"))));
+      for (const kind of ["spr", "lobby"]) {
+        const snapshots = [];
+        for (const name of ["ibuki_spr", "azusa_swimsuit_spr", "azusa_swimsuit_spr".repeat(20), "ibuki_spr"]) {
+          family = modFamily(kind, name);
+          const v = family.variants[0];
+          v.date = v.state.files[0].date = "2024-11-18";
+          if (kind === "spr") delete v.lobby;
+          const showing = Detail.show(context, family, "ibuki"); await flush();
+          t.mock.timers.tick(16000); await flush(); await showing;
+          const lobbyTab = kind === "lobby" && walk(hosts.ngui).find((el) => el.dataset.part?.endsWith("Tab_2/Tab_Off/Label"));
+          if (lobbyTab) {
+            const switching = lobbyTab.click(); await flush();
+            t.mock.timers.tick(16000); await flush(); await switching;
+          }
+          const cells = paths.map(cell);
+          assert.ok(cells.every(Boolean), `${lang} ${kind}: all four value cells render`);
+          assert.equal(cells[0].title, name);
+          assert.equal(cells[0].style.pointerEvents, "auto", "the full value can be hovered");
+          assert.equal(cells[0].children[0].style.textOverflow, "ellipsis");
+          assert.equal(cells[0].children[0].textContent, name, "the complete value is retained");
+          assert.ok(parseFloat(cells[0].style.fontSize) >= parseFloat(size(name, 28)));
+          if (name.length > 100) assert.equal(cells[0].style.fontSize, size(name, 28));
+          const labels = paths.map((path) => cell(path.split("/")[0]).style.fontSize);
+          snapshots.push({ current: cells[0].style.fontSize, others: cells.slice(1).map((el) => [el.title, el.style.fontSize]), labels });
+          Detail.hide();
+        }
+        assert.ok(parseFloat(snapshots[1].current) < parseFloat(snapshots[0].current), `${lang} ${kind}: the long name fits on its own`);
+        for (const snapshot of snapshots.slice(1)) {
+          assert.deepEqual(snapshot.others, snapshots[0].others, `${lang} ${kind}: status, date and CRC keep their sizes`);
+          assert.deepEqual(snapshot.labels, snapshots[0].labels, `${lang} ${kind}: labels keep their sizes`);
+        }
+        assert.equal(snapshots[3].current, snapshots[0].current, "returning to a short name restores its normal size");
+      }
+    }
+  } finally {
+    Detail.hide(); t.mock.timers.reset();
+    setStrings("en-US", flat(JSON.parse(readFileSync(new URL("../../src/ba_modding_toolkit/locales/en-US.json", import.meta.url), "utf8"))));
+  }
 });
