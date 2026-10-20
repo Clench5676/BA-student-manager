@@ -960,18 +960,23 @@ def test_failed_build_finishes_the_apply_and_releases_its_locks(env, monkeypatch
     assert env.job("actions.restore", variant="test").state == "done"
 
 
-def test_background_add_is_a_writer_with_durable_file_progress_and_no_game_rescan(env, monkeypatch):
+def test_background_add_switches_and_rescans_with_durable_file_progress(env, monkeypatch):
     path = make_mod(env.spr, env.tmp / 'picker')
     env.s.library
     assert env.s.jobs.wait(env.s._prune_job, 5)
     assert env.s.scanner.wait_idle(5)
-    monkeypatch.setattr(env.s.scanner, 'request', lambda **kw: pytest.fail('an import must not rescan game files'))
+    scans = []
+    monkeypatch.setattr(env.s.scanner, 'request', lambda **kw: scans.append(kw))
     job = env.job('mods.add', paths=[str(path)], background=True)
-    assert job.state == 'done' and job.writes == 'library'
+    assert job.state == 'done' and job.writes == 'game'
     assert [(m['target'], m['kind']) for m in job.result['added']] == [('test', 'spr')]
     assert job.to_json()['progress'] == {'id': job.id, 'current': 1, 'total': 1, 'label': path.name}
+    assert job.result['applied'] == job.result['added'] and not job.result['failed']
+    assert env.spr.read_bytes() == path.read_bytes()
+    assert env.s.library.configured('test')['spr'] == f"mod:{job.result['added'][0]['id']}"
+    assert scans
     changed = events_named(env.drain(), 'library.changed')
-    assert changed[-1] == {'cores': [], 'kinds': [], 'mods': True}
+    assert changed[-1] == {'cores': ['test_spr'], 'kinds': ['spr'], 'mods': True}
 
 
 @pytest.mark.parametrize('scan_finishes_first', [True, False])
@@ -1002,8 +1007,8 @@ def test_background_add_replaces_a_scan_it_invalidates(env, monkeypatch, scan_fi
     monkeypatch.setattr(env.s.scanner, '_on_done', completed)
     add = env.s.library.add
 
-    def overlapping(paths, progress=None):
-        result = add(paths, progress)
+    def overlapping(paths, progress=None, **kwargs):
+        result = add(paths, progress, **kwargs)
         if scan_finishes_first:
             release.set()
             assert dropped.wait(5)  # the stale scan is already gone while add is still busy
@@ -1120,6 +1125,40 @@ def test_add_rpc_reports_duplicate_content(env):
     second = env.job("mods.add", paths=[str(path)], background=True)
     assert second.result["added"] == []
     assert second.result["duplicates"] == first.result["added"]
+
+
+@pytest.mark.parametrize("background", [False, True])
+@pytest.mark.parametrize("enabled", [False, True])
+def test_add_rpc_uses_the_normal_switch_for_both_kinds_and_respects_mods_off(env, background, enabled):
+    lobby = game_bundle(env.game, "test_home", part="textassets")
+    if not enabled:
+        env.s.library.toggle(False, expect=True)
+    before = [path.read_bytes() for path in (env.spr, lobby)]
+    sources = [make_mod(path, env.tmp / "upload", payload=path.name.encode()) for path in (env.spr, lobby)]
+    params = {"paths": [str(path) for path in sources], "background": background}
+    result = env.job("mods.add", **params).result if background else rpc(env.app, "mods.add", **params)["result"]
+    assert len(result["added"]) == 2 and not result["failed"]
+    assert result["applied" if enabled else "configured"] == result["added"]
+    for entry in result["added"]:
+        assert env.s.library.configured("test")[entry["kind"]] == f"mod:{entry['id']}"
+    assert [path.read_bytes() for path in (env.spr, lobby)] == ([path.read_bytes() for path in sources] if enabled else before)
+
+
+def test_compatibility_rpc_is_a_read_only_job_and_uses_the_current_install(env, monkeypatch):
+    entry = env.add(env.spr)
+    before = entry.file.read_bytes(), env.spr.read_bytes()
+    calls = []
+    report = {"official": {}, "mod": {}, "unavailable": False, "outdated": True}
+
+    def check(mod, pin=None):
+        calls.append((mod, pin))
+        return report
+
+    monkeypatch.setattr(env.s.library, "compatibility", check)
+    job = env.job("actions.compatibility", mod=entry.id)
+    assert job.state == "done" and job.writes is None and job.result == report
+    assert calls == [(entry.id, env.s.library.current_pin())]
+    assert (entry.file.read_bytes(), env.spr.read_bytes()) == before
 
 
 @pytest.mark.parametrize("background", [False, True])

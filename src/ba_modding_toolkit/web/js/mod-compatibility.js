@@ -1,0 +1,101 @@
+// Read structural data with the same bundled Spine runtime as the preview, without creating textures or a player.
+import { T, language } from "./i18n.js";
+import { rpc, waitJob } from "./api.js";
+import * as Loading from "./loading.js";
+import * as Popup from "./popup.js";
+
+const key = (name) => name.replaceAll("\\", "/").split("/").at(-1).toLowerCase().replace(/\.png$/i, "");
+const names = (items) => items.map((item) => item.name);
+const difference = (a, b) => [...new Set(a)].filter((name) => !b.includes(name)).sort();
+const joined = (items) => items.join(/^(zh|ja)/i.test(language()) ? "、" : ", ") || "—";
+
+export function readSkeleton(input, runtime = globalThis.spine) {
+  const bytes = Uint8Array.from(atob(input.data), (c) => c.charCodeAt(0));
+  const text = new TextDecoder().decode(bytes).trim();
+  if (text.startsWith("{")) {
+    const data = JSON.parse(text);
+    if (!Array.isArray(data.bones) || !data.bones.length) throw new Error("Invalid skeleton data");
+    const skins = Array.isArray(data.skins) ? data.skins.map((skin) => skin.attachments) : Object.values(data.skins || {});
+    return { bones: data.bones, slots: data.slots || [], animations: Object.keys(data.animations || {}).map((name) => ({ name })),
+      attachments: skins.flatMap((skin) => Object.entries(skin || {}).flatMap(([slot, entries]) =>
+        Object.keys(entries).map((name) => `${slot}/${name}`))) };
+  }
+  if (!runtime || !input.version?.startsWith("4.2.")) throw new Error("Unsupported skeleton version");
+  // Geometry is irrelevant to the check. Keep actual attachment types for linked meshes and deform timelines.
+  const create = (type, name) => {
+    const attachment = new runtime[type](name);
+    if (attachment.updateRegion) attachment.updateRegion = () => {};
+    return attachment;
+  };
+  const loader = Object.fromEntries(["Region", "Mesh", "BoundingBox", "Path", "Point", "Clipping"].map((type) =>
+    [`new${type}Attachment`, (_skin, name) => create(`${type}Attachment`, name)]));
+  const data = new runtime.SkeletonBinary(loader).readSkeletonData(bytes);
+  return { bones: data.bones, slots: data.slots, animations: data.animations,
+    attachments: data.skins.flatMap((skin) => skin.getAttachments().map((entry) =>
+      `${data.slots[entry.slotIndex].name}/${entry.name}`)) };
+}
+
+export function compare(report, runtime = globalThis.spine) {
+  const issues = [], add = (key, params = {}) => issues.push({ key, params });
+  const official = report.official, mod = report.mod;
+  if (report.unavailable) add("unavailable");
+  if (report.outdated) add("outdated");
+  for (const name of new Set([...Object.keys(official.skeletons), ...Object.keys(mod.skeletons)])) {
+    const source = mod.skeletons[name], target = official.skeletons[name];
+    if (!source || !target) { add("skeletons", { name }); continue; }
+    if (source.version !== target.version) add("version", { name, mod: source.version || "?", official: target.version || "?" });
+    let left, right;
+    try { left = readSkeleton(source, runtime); right = readSkeleton(target, runtime); }
+    catch { add("unreadable", { name }); continue; }
+    for (const [field, a, b] of [["animations", names(left.animations), names(right.animations)],
+      ["slots", names(left.slots), names(right.slots)], ["attachments", left.attachments, right.attachments]]) {
+      const removed = difference(b, a), added = difference(a, b);
+      if (removed.length || added.length) add(field, { name, missing: joined(removed), added: joined(added) });
+    }
+    if (left.bones.length !== right.bones.length) add("bones", { name, mod: left.bones.length, official: right.bones.length });
+  }
+  const pages = (input) => Object.entries(input.atlases).flatMap(([name, text]) => {
+    try {
+      const pages = new runtime.TextureAtlas(text).pages;
+      if (!pages.length || text.includes("\ufffd")) throw new Error("Invalid atlas data");
+      return pages;
+    } catch { add("atlasUnreadable", { name }); return []; }
+  });
+  const leftPages = pages(mod), rightPages = pages(official);
+  const leftNames = leftPages.map((p) => p.name), rightNames = rightPages.map((p) => p.name);
+  const missing = difference(rightNames, leftNames), added = difference(leftNames, rightNames);
+  if (missing.length || added.length) add("pages", { missing: joined(missing), added: joined(added) });
+  for (const page of leftPages) {
+    const size = mod.textures[key(page.name)];
+    const expected = official.textures[key(page.name)];
+    if (!size || (page.width && page.height && (page.width !== size[0] || page.height !== size[1])))
+      add("atlasSize", { name: page.name, atlas: `${page.width} × ${page.height}`, texture: size?.join(" × ") || "—" });
+    if (size && expected && (size[0] !== expected[0] || size[1] !== expected[1]))
+      add("textureSize", { name: page.name, mod: size.join(" × "), official: expected.join(" × ") });
+  }
+  const author = issues.some(({ key }) => ["skeletons", "animations", "slots", "attachments", "bones", "pages", "atlasSize", "textureSize", "atlasUnreadable"].includes(key));
+  const update = issues.some(({ key }) => ["outdated", "version"].includes(key));
+  return { issues, author, update };
+}
+
+export async function show(report, { label = "", onUpdate } = {}) {
+  const result = compare(report);
+  const lines = result.issues.map(({ key, params }) => T(`compatibility.${key}`, params));
+  if (!lines.length) lines.push(T("compatibility.matches"));
+  if (result.update) lines.push(T("compatibility.updateHint"));
+  if (result.author) lines.push(T("compatibility.authorHint"));
+  if (result.update || result.author || result.issues.some(({ key }) => key === "unreadable")) lines.push(T("compatibility.crcHint"));
+  const response = await Popup.message({ title: T("compatibility.check"), lines: [...(label ? [label] : []), ...lines],
+    ok: T(result.update && onUpdate ? "act.update" : "picker.ok"),
+    cancel: result.update && onUpdate ? T("popup.cancel") : null });
+  if (response.button === "ok" && result.update && onUpdate) await onUpdate();
+}
+
+export async function check(id, label = "", onUpdated = () => {}) {
+  const report = await Loading.task(async (update) => waitJob(await rpc("actions.compatibility", { mod: id }), update));
+  return show(report, { label, onUpdate: async () => {
+    await Loading.task(async (update) => waitJob(await rpc("actions.update", { mod: id }), update));
+    await onUpdated();
+    await check(id, label, onUpdated);
+  } });
+}

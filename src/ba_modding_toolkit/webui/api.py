@@ -505,15 +505,20 @@ def build_api(s: Services) -> RpcRegistry:
             devmode.check_read(Path(p))
         if background:
             library = s.library
+            pin = library.current_pin()
 
             def add(log: Any, progress: Any) -> Any:
-                return library.add([Path(p) for p in paths], progress=progress)
+                if pin:
+                    s._check_pin(library, pin)
+                return library.add_and_apply([Path(p) for p in paths], progress=progress, pin=pin, log=log)
 
-            return s.submit("mods.add", add, writes="library", library=library)
+            return s.submit("mods.add", add, writes="game", library=library)
         library = s.library
-        added = library.add([Path(p) for p in paths])
-        s.events.publish("library.changed", {"cores": [], "kinds": [], "mods": True})
-        if getattr(added, "installed", None):
+        added = library.add_and_apply([Path(p) for p in paths])
+        changed = [*added.applied, *added.configured, *added.installed]
+        s.events.publish("library.changed", {"cores": sorted({m.core for m in changed}),
+                                              "kinds": sorted({m.kind for m in changed}), "mods": True})
+        if added or added.installed:
             s.refresh_status(library)
             s.publish_state()
             s.request_scan()
@@ -669,6 +674,12 @@ def build_api(s: Services) -> RpcRegistry:
     @rpc.method("actions.compare")
     def actions_compare(mod: str) -> Any:
         return s.library.compare(mod)
+
+    @rpc.method("actions.compatibility")
+    def actions_compatibility(mod: str) -> str:
+        library = s.library
+        pin = s._current_pin(library)
+        return s.submit("compatibility", lambda log, progress: library.compatibility(mod, pin=pin))
 
     @rpc.method("jobs.get")
     def jobs_get(id: str) -> dict[str, Any]:

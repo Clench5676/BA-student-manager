@@ -15,6 +15,7 @@ import { withTimeout } from "./async.js";
 import { previewError } from "./preview-error.js";
 import * as Loading from "./loading.js";
 import * as ModAdd from "./mod-add.js";
+import * as Compatibility from "./mod-compatibility.js";
 import * as Lobby from "./lobby.js";
 import * as Visual from "./visual-mode.js";
 import { QUEUEABLE, current as modsState, entryLabel, refused } from "./mod-switch.js";
@@ -271,7 +272,7 @@ function screenTree() {
   // row 2: four actions on what the shown tab's game files carry. Title and icon centred as a group on the card's
   // slanted midline.
   const isMod = !!sk && c.kind === "mod";
-  const actions = [["SkillData_EX", "act.edit", "edit", false], ["SkillData_EX (1)", "act.update", "update", isMod && !busy],
+  const actions = [["SkillData_EX", "compatibility.check", "compare", isMod && !busy], ["SkillData_EX (1)", "act.update", "update", isMod && !busy],
     ["SkillData_EX (2)", "act.extract", "extract", !busy], ["SkillData_EX (3)", "act.compare", "compare", isMod && !busy]];
   // the row's white section spans x 58..1320 (Bg_W2 at 689, 1262 wide); cards keep the first card's 37-unit margins
   const ROW_L = 58 + 37, ROW_R = 1320 - 37, GAP = 6, CW = (ROW_R - ROW_L - 3 * GAP) / 4;
@@ -489,6 +490,7 @@ function hits(view, leftHost, rightHost) {
   add(rightHost, `${INFO}/Status/Btn_Up_Wrapper/Btn_Up/BG (1)`, () => reveal(gameFile(variant(), tabKind())), T(platform === "mac" ? "open.mac" : "open.win"));
   add(rightHost, `${INFO}/Detail_Btn`, showDetails, T("info.details"));
   const act = (card, fn, title) => add(rightHost, `${INFO}/Skill/${card}/Bg`, fn, title);
+  act("SkillData_EX", () => runCompatibility(), T("compatibility.check"));
   act("SkillData_EX (1)", () => runUpdate(), T("act.update"));
   act("SkillData_EX (2)", () => runExtract(), T("act.extract"));
   act("SkillData_EX (3)", () => runCompare(), T("act.compare"));
@@ -596,6 +598,11 @@ function runUpdate() {
     onDone: () => { forget(spinePrefix("mod", c.id)); },
     after: (ok) => reload(ok ? [kind] : []),
   });
+}
+async function runCompatibility() {
+  const c = shownMod(), kind = switchKind();
+  if (!c || busy) return;
+  await call(() => Compatibility.check(c.id, c.label, () => { forget(spinePrefix("mod", c.id)); return reload([kind]); }));
 }
 function runExtract() {
   const c = shownMod();
@@ -1013,6 +1020,8 @@ async function drawPopup(scroll = 0) {
         fields: [[T("field.file"), baseName(file)], [T("field.size"), sizeText(size)], [T("field.status"), T(status[0]), status[1] && `${status[1]}/1.00`],
           [T("field.crc"), crc ? T(crc[0]) : "—", crc?.[1] && `${crc[1]}/1.00`]],
         actions: [[T(platform === "mac" ? "open.mac" : "open.win"), () => reveal(file)],
+          ...(c.kind === "mod" ? [[T("compatibility.check"), () => call(() => Compatibility.check(c.id, c.label,
+            () => { forget(spinePrefix("mod", c.id)); return reload([kind]); }))]] : []),
           c.kind === "mod"
             ? [T("btn.delete"), async () => {
               if (!(await removeMod(c.id))) return;

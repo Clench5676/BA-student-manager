@@ -1,0 +1,124 @@
+// Structural comparisons use the bundled Spine reader, synthetic assets and no WebGL or game files.
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { test } from "node:test";
+import vm from "node:vm";
+
+const context = vm.createContext({ console, TextDecoder, TextEncoder, Float32Array, Uint8Array, Uint16Array, Int16Array, Int32Array, ArrayBuffer, DataView });
+vm.runInContext(readFileSync(new URL("../../src/ba_modding_toolkit/web/vendor/spine-player-4.2.120/spine-player.min.js", import.meta.url), "utf8"), context);
+globalThis.spine = context.spine;
+const source = readFileSync(new URL("../../src/ba_modding_toolkit/web/js/mod-compatibility.js", import.meta.url), "utf8");
+const fixture = JSON.parse(readFileSync(new URL("../assets/integrity/mismatched_skeleton.json", import.meta.url), "utf8"));
+const encoded = (data) => ({ version: data.skeleton.spine, data: Buffer.from(JSON.stringify(data)).toString("base64") });
+const inputs = (data = fixture.official) => ({ skeletons: { "test.skel": encoded(data) },
+  atlases: { "test.atlas": "page.png\nsize: 64,64\nfilter: Linear,Linear\nrepeat: none\n" }, textures: { page: [64, 64] } });
+const report = () => ({ official: inputs(), mod: inputs() });
+let sequence = 0;
+async function harness(locale = "en-US", button = "cancel") {
+  const strings = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${locale}.json`, import.meta.url), "utf8")).webui;
+  const calls = [], popups = [];
+  let nextReport = report();
+  globalThis.compatibilityDeps = {
+    language: () => locale,
+    T: (key, vars = {}) => key.split(".").reduce((o, k) => o?.[k], strings)?.replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? "") || key,
+    rpc: async (method, params) => { calls.push([method, params]); return method; },
+    waitJob: async () => nextReport,
+    Loading: { task: (fn) => fn(() => {}) },
+    Popup: { message: async (options) => { popups.push(options); return { button }; } },
+  };
+  const code = `const { T, language, rpc, waitJob, Loading, Popup } = globalThis.compatibilityDeps;\n${source.replace(/^import .*;$/gm, "")}\n// ${sequence++}`;
+  const mod = await import(`data:text/javascript;base64,${Buffer.from(code).toString("base64")}`);
+  return { mod, calls, popups, use: (value) => { nextReport = value; } };
+}
+
+test("the mismatched skeleton names missing animations, slots, attachments and bone counts", async () => {
+  const { mod } = await harness();
+  const r = report(); r.mod = inputs(fixture.mod);
+  const compared = mod.compare(r);
+  assert.deepEqual(compared.issues, [
+    { key: "animations", params: { name: "test.skel", missing: "Talk_01", added: "—" } },
+    { key: "slots", params: { name: "test.skel", missing: "face", added: "body" } },
+    { key: "attachments", params: { name: "test.skel", missing: "face/smile", added: "body/coat" } },
+    { key: "bones", params: { name: "test.skel", mod: 1, official: 2 } },
+  ]);
+  assert.equal(compared.author, true);
+  assert.equal(compared.update, false);
+});
+
+test("real binary skeleton metadata agrees with JSON without loading textures", async () => {
+  const { mod } = await harness();
+  const binary = readFileSync(new URL("../assets/integrity/synthetic42.skel", import.meta.url));
+  const r = report(); r.mod.skeletons["test.skel"] = { version: "4.2.33", data: binary.toString("base64") };
+  assert.deepEqual(mod.compare(r).issues, []);
+  const parsed = mod.readSkeleton(r.mod.skeletons["test.skel"]);
+  assert.equal(parsed.bones.length, 2);
+  assert.deepEqual(Array.from(parsed.animations, (a) => a.name), ["Idle_01", "Talk_01"]);
+  assert.deepEqual(Array.from(parsed.attachments), ["face/smile"]);
+});
+
+test("legacy JSON skins, leading whitespace, extra animations and version differences are checked", async () => {
+  const { mod } = await harness();
+  const r = report(), data = structuredClone(fixture.official);
+  data.skeleton.spine = "3.8.99";
+  data.skins = { default: data.skins[0].attachments };
+  data.animations.Extra = {};
+  r.mod.skeletons["test.skel"] = { version: "3.8.99", data: Buffer.from(`\ufeff \n${JSON.stringify(data)}`).toString("base64") };
+  const result = mod.compare(r);
+  assert.deepEqual(result.issues.map((i) => i.key), ["version", "animations"]);
+  assert.equal(result.issues[1].params.added, "Extra");
+  assert.equal(result.update, true);
+});
+
+test("atlas pages, declared sizes and current official texture sizes are compared", async () => {
+  const { mod } = await harness();
+  const r = report();
+  r.mod.atlases["test.atlas"] += "\nextra.png\nsize: 16,16\nfilter: Linear,Linear\nrepeat: none\n";
+  r.mod.textures.page = [32, 32];
+  r.mod.textures.extra = [16, 16];
+  const result = mod.compare(r);
+  assert.deepEqual(result.issues.map((i) => i.key), ["pages", "atlasSize", "textureSize"]);
+  assert.equal(result.issues[0].params.added, "extra.png");
+  assert.equal(result.author, true);
+});
+
+test("unreadable skeletons, atlases and unavailable originals never report a match", async () => {
+  const { mod } = await harness();
+  for (const version of ["3.8.99", "4.2.33", null]) {
+    const r = report(); r.unavailable = true;
+    r.mod.skeletons["test.skel"] = { version, data: Buffer.from("broken").toString("base64") };
+    r.mod.atlases["test.atlas"] = "";
+    const keys = mod.compare(r).issues.map((i) => i.key);
+    assert.ok(keys.includes("unavailable") && keys.includes("unreadable") && keys.includes("atlasUnreadable"));
+  }
+  const r = report(); delete r.mod.skeletons["test.skel"];
+  assert.equal(mod.compare(r).issues[0].key, "skeletons");
+});
+
+test("on-demand checks stay read-only until Update is chosen, then compare again", async () => {
+  const h = await harness();
+  const r = report(); r.outdated = true; h.use(r);
+  await h.mod.check("m1", "Example");
+  assert.deepEqual(h.calls, [["actions.compatibility", { mod: "m1" }]]);
+  assert.equal(h.popups[0].ok, "Update");
+  let updates = 0;
+  await h.mod.show(r, { onUpdate: () => { updates++; } });
+  assert.equal(updates, 0);
+  const accepted = await harness("en-US", "ok");
+  let changed = 0;
+  accepted.use(r);
+  await accepted.mod.check("m1", "Example", () => { changed++; accepted.use(report()); });
+  assert.deepEqual(accepted.calls.map(([method]) => method), ["actions.compatibility", "actions.update", "actions.compatibility"]);
+  assert.equal(changed, 1);
+});
+
+test("all five locales show compatibility findings and actions with no unresolved text", async () => {
+  for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"]) {
+    const h = await harness(locale), r = report();
+    r.mod = inputs(fixture.mod); r.outdated = true;
+    await h.mod.show(r, { label: "Example", onUpdate() { assert.fail("dismissed"); } });
+    const popup = h.popups[0];
+    assert.ok(popup.lines.every((line) => !/[{}]/.test(line) && !line.startsWith("compatibility.")));
+    assert.ok(popup.lines.includes(JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${locale}.json`, import.meta.url), "utf8")).webui.compatibility.authorHint));
+    assert.notEqual(popup.ok, "act.update");
+  }
+});

@@ -6,6 +6,7 @@ const source = readFileSync(new URL("../../src/ba_modding_toolkit/web/js/mod-add
 const flat = (o, p = "", out = {}) => { for (const [k, v] of Object.entries(o)) { if (v && typeof v === "object") flat(v, `${p}${k}.`, out); else out[`${p}${k}`] = v; } return out; };
 let seq = 0;
 async function harness({ locale = "en-US", added = [], button = "cancel", error = null, cancelled = false,
+  compatibilityUpdate = false,
   name = ({ variant }) => ({ base: "Mutsuki", dress: "Mutsuki (Dress)" })[variant] || variant } = {}) {
   const strings = flat(JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${locale}.json`, import.meta.url), "utf8")));
   const log = [], progress = [];
@@ -16,15 +17,50 @@ async function harness({ locale = "en-US", added = [], button = "cancel", error 
     Loading: { task: async (run) => { log.push(["loading"]); try { return await run((p) => progress.push(p)); } finally { log.push(["closed"]); } } },
     Popup: { message: async (opts) => { log.push(["popup", opts]); return { button }; } },
     toast: (text) => log.push(["toast", text]),
+    Compatibility: {
+      compare: (report) => ({ issues: report.issues || [] }),
+      show: async (report, options) => { log.push(["compatibility", report, options]); if (compatibilityUpdate) await options.onUpdate(); },
+      check: async (...args) => log.push(["checked", ...args]),
+    },
   };
   globalThis.modAddDeps = d;
-  const code = `const {rpc,waitJob,T,Loading,Popup,toast} = globalThis.modAddDeps;\n${source.replace(/^import .*;$/gm, "")}\n// ${seq++}`;
+  const code = `const {rpc,waitJob,T,Loading,Popup,toast,Compatibility} = globalThis.modAddDeps;\n${source.replace(/^import .*;$/gm, "")}\n// ${seq++}`;
   const mod = await import(`data:text/javascript;base64,${Buffer.from(code).toString("base64")}`);
   mod.init({ names: async () => name,
     changed: () => log.push(["changed"]), go: (key) => log.push(["go", key]) });
   return { mod, log, progress };
 }
 const portrait = { target: "base", kind: "spr" }, lobby = { target: "dress", kind: "lobby" };
+
+test("add reports compatibility findings and updates only after the report's Update action", async () => {
+  const mod = { ...portrait, id: "m1", label: "Example" };
+  const checked = { issues: [{ key: "bones" }] };
+  const added = { added: [mod], compatibility: { m1: checked } };
+  for (const compatibilityUpdate of [false, true]) {
+    const h = await harness({ added, compatibilityUpdate });
+    await h.mod.add(["mod.bundle"], "base");
+    assert.equal(h.log.filter(([k]) => k === "compatibility").length, 1);
+    assert.deepEqual(h.log.filter(([k, method]) => k === "rpc" && method === "actions.update"),
+      compatibilityUpdate ? [["rpc", "actions.update", { mod: "m1" }]] : []);
+    assert.equal(h.log.some(([k]) => k === "checked"), compatibilityUpdate);
+  }
+  const h = await harness({ added: { ...added, compatibility: { m1: { issues: [] } } } });
+  await h.mod.add(null, "base");
+  assert.ok(!h.log.some(([k]) => k === "compatibility"));
+});
+
+test("a failed automatic switch remains visible on the current variant in all five locales", async () => {
+  for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"]) {
+    const mod = { ...portrait, id: "m1" };
+    const report = { added: [mod], failed: [{ id: "m1", code: "game_running", params: {} }] };
+    const h = await harness({ locale, added: report });
+    await h.mod.add(null, "base");
+    const popup = h.log.find(([k]) => k === "popup")[1];
+    const strings = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${locale}.json`, import.meta.url), "utf8")).webui;
+    assert.deepEqual(popup.lines, [strings.add.applyFailed.replace("{reason}", strings.error.game_running)]);
+    assert.ok(!h.log.some(([k]) => k === "toast"));
+  }
+});
 
 test("same-variant adds confirm briefly for maid, dress, swimsuit and base variants", async () => {
   for (const [key, family, core] of [

@@ -33,7 +33,7 @@ from ..naming import parse_filename
 from ..searching import SEARCH_DIR_SUFFIXES, get_search_dirs
 from ..utils import no_log
 from . import profiles as profiles_mod
-from . import safety
+from . import integrity, safety
 from .identity import identify
 from .judge import (
     CRC_STATES, LIBRARY_SOURCES, carried_of, classify, core_of, crc_state, date_of, distinguishing_folders,
@@ -667,12 +667,12 @@ class ModLibrary:
 
     @_serialized
     @_mod_writer
-    def add(self, paths: list[Path], progress: ProgressCallback | None = None) -> AddResult:
+    def add(self, paths: list[Path], progress: ProgressCallback | None = None, pin: Pin | None = None) -> AddResult:
         """Store one mod per core and date, deduplicating complete bundle sets. In dev mode (devmode) only files
         inside the dev roots are taken."""
         for path in paths:
             devmode.check_read(path)
-        return self._add(paths, progress)
+        return self._add(paths, progress, pin)
 
     def _identity(self, files: dict[str, Path]) -> frozenset:
         return frozenset((core_of(name), self._hashes.get(path).sha1) for name, path in files.items())
@@ -688,7 +688,7 @@ class ModLibrary:
                 known[identity] = record["id"]
         return known
 
-    def _add(self, paths: list[Path], progress: ProgressCallback | None = None) -> AddResult:
+    def _add(self, paths: list[Path], progress: ProgressCallback | None = None, pin: Pin | None = None) -> AddResult:
         known = self._known()
         groups: dict[tuple[str, str], dict[str, Path]] = {}
         targets = {}
@@ -716,8 +716,11 @@ class ModLibrary:
                 raise ServiceError("mod_unsupported", file=source)
             group[name] = source
 
+        # Validate every group before storing any part of this upload.
+        pin = pin or self.current_pin()
+        reports = {key: self._check_group(group, pin) for key, group in groups.items()}
         added = AddResult()
-        for group in groups.values():
+        for key, group in groups.items():
             signature_ = self._identity(group)
             if signature_ in known:
                 entry = self._entry(self._records[known[signature_]])
@@ -733,10 +736,75 @@ class ModLibrary:
             known[signature_] = record["id"]
             entry = self._entry(record)
             added.append(entry)
+            added.compatibility[entry.id] = reports[key]
             if self._recognize_installed(entry.id, signature_):
                 added.installed.append(entry)
         if progress:
             progress(len(paths), len(paths), paths[-1].name if paths else "")
+        return added
+
+    def _check_group(self, files: dict[str, Path], pin: Pin | None) -> dict:
+        selected, official, effective = integrity.Contents(), integrity.Contents(), integrity.Contents()
+        sources = {name: integrity.inspect(path) for name, path in files.items()}
+        core = core_of(next(iter(files)))
+        targets = self._index(pin).get(core, []) if pin else []
+        originals = {}
+        unavailable = not targets
+        for target in targets:
+            try:
+                originals[target] = integrity.inspect(self._official_for(target, pin))
+            except ServiceError as error:
+                if error.code not in ("original_unavailable", "original_invalid"):
+                    raise
+                unavailable = True
+        for contents in originals.values():
+            official.merge(contents)
+        expected = official.platforms or {"StandaloneWindows64"}
+        for name, contents in sources.items():
+            integrity.check_platform(contents, files[name], expected)
+            selected.merge(contents)
+        parts = {part_of(name) for name in files}
+        for target, contents in originals.items():
+            if part_of(target.name) not in parts:
+                effective.merge(contents)
+        effective.merge(selected)
+        missing = integrity.missing_parts(effective, official)
+        if missing:
+            # Name omitted files from the selected folders, without importing them.
+            names = dict(effective.reference_names)
+            for folder in {path.parent for path in files.values()}:
+                for path in sorted([*folder.glob("*.bundle"), *folder.glob("*.bundle.backup")]):
+                    if path not in files.values() and core_of(path.name) == core:
+                        try:
+                            contents = integrity.inspect(path)
+                        except ServiceError:
+                            continue
+                        names.update({name: path.name for name in contents.files})
+                        names.update({name + ".png": path.name for name in contents.textures})
+            raise ServiceError("mod_parts_missing", files=", ".join(sorted({names.get(name, name) for name in missing})))
+        return {"official": official.spine(), "mod": effective.spine(), "unavailable": unavailable,
+                "outdated": bool(targets) and set(files) != {path.name for path in targets
+                    if part_of(path.name) in parts}}
+
+    @_serialized
+    def compatibility(self, mod_id: str, pin: Pin | None = None) -> dict:
+        """Fresh official and effective Spine data, without building or rewriting a mod."""
+        record = self._record(mod_id)
+        return self._check_group({path.name: path for path in self._paths(record)}, pin or self.current_pin())
+
+    def add_and_apply(self, paths: list[Path], progress: ProgressCallback | None = None,
+                      pin: Pin | None = None, log: LogFunc = no_log) -> AddResult:
+        """The web add action: store, check, then use the same switch as a source selection."""
+        pin = pin or self.current_pin()
+        added = self.add(paths, progress, pin=pin)
+        for entry in added:
+            try:
+                result = self.apply(entry.target, f"mod:{entry.id}", kind=entry.kind, pin=pin, log=log,
+                                    progress=progress)
+            except ServiceError as error:
+                added.failed.append({"id": entry.id, **error.to_json()})
+            else:
+                (added.configured if result.deferred else added.applied).append(entry)
         return added
 
     def _store(self, files: dict[str, Path], label: str, target: str, kind: str) -> dict[str, Any]:

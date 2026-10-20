@@ -1,0 +1,16 @@
+{
+  "official": {
+    "skeleton": {"spine": "4.2.33"},
+    "bones": [{"name": "root"}, {"name": "head", "parent": "root"}],
+    "slots": [{"name": "face", "bone": "head", "attachment": "smile"}],
+    "skins": [{"name": "default", "attachments": {"face": {"smile": {"width": 32, "height": 32}}}}],
+    "animations": {"Idle_01": {}, "Talk_01": {}}
+  },
+  "mod": {
+    "skeleton": {"spine": "4.2.33"},
+    "bones": [{"name": "root"}],
+    "slots": [{"name": "body", "bone": "root", "attachment": "coat"}],
+    "skins": [{"name": "default", "attachments": {"body": {"coat": {"width": 32, "height": 32}}}}],
+    "animations": {"Idle_01": {}}
+  }
+}

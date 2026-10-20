@@ -1159,7 +1159,10 @@
 			"mod_last_copy": "ゲームで使用中のファイルの唯一の控え：{file}",
 			"scan_off": "ファイルチェックOFF",
 			"mod_target_unknown": "Modの対象生徒、バージョンを特定できません：{file}",
-			"mod_target_ambiguous": "Modの対象が競合しています：{file}"
+			"mod_target_ambiguous": "Modの対象が競合しています：{file}",
+			"mod_platform_unknown": "ビルド対象を取得不可：{file}",
+			"mod_platform_mismatch": "{file}、ビルド対象 {platform}、必要な対象 {expected}",
+			"mod_parts_missing": "Mod ファイル不足：{files}"
 		},
 		"drop": {
 			"hint": "MODファイルをドロップして追加"
@@ -1303,7 +1306,28 @@
 			"go": "移動",
 			"stay": "ここに留まる",
 			"duplicate": "MODライブラリに追加済み：{name}",
-			"installed": "導入済みのMODとして認識"
+			"installed": "導入済みのMODとして認識",
+			"applyFailed": "追加済み、切り替え失敗：{reason}"
+		},
+		"compatibility": {
+			"check": "互換性を確認",
+			"matches": "確認項目に差異なし",
+			"unavailable": "現在の公式ファイルなし、比較は未完了",
+			"outdated": "別のゲームバージョンの Bundle",
+			"skeletons": "スケルトン名の差異：{name}",
+			"version": "{name}、Spine {mod}、公式 {official}",
+			"unreadable": "{name}、スケルトン詳細を取得不可",
+			"animations": "{name}、不足するアニメーション：{missing}、追加：{added}",
+			"slots": "{name}、不足するスロット：{missing}、追加：{added}",
+			"attachments": "{name}、不足するアタッチメント：{missing}、追加：{added}",
+			"bones": "{name}、ボーン数：{mod}、公式 {official}",
+			"atlasUnreadable": "{name}、アトラスを読み込み不可",
+			"pages": "不足するアトラスページ：{missing}、追加：{added}",
+			"atlasSize": "{name}、アトラス：{atlas}、テクスチャ：{texture}",
+			"textureSize": "{name}、テクスチャ：{mod}、公式 {official}",
+			"updateHint": "更新：現在の公式ファイルへ移植、Spine バージョン変換が必要な場合あり",
+			"authorHint": "現在のバージョンに対応した Mod が必要",
+			"crcHint": "CRC 修正はチェックサムのみ変更"
 		}
 	}
 }

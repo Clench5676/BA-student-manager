@@ -147,7 +147,9 @@ def _changed_of(result: Any) -> dict[str, list[str]]:
     """``library.changed``'s data for a job's result: the cores and kinds it switched or added."""
     if hasattr(result, "duplicates") or (isinstance(result, list)
                                         and any(isinstance(m, dict) and "target" in m for m in result)):
-        return {"cores": [], "kinds": [], "mods": True}
+        switched = [*getattr(result, "applied", []), *getattr(result, "configured", []),
+                    *getattr(result, "installed", [])]
+        return {"cores": sorted({m.core for m in switched}), "kinds": sorted({m.kind for m in switched}), "mods": True}
     cores, kinds = getattr(result, "cores", None), getattr(result, "kinds", None)
     if cores is not None and kinds is not None:
         return {"cores": sorted(cores), "kinds": sorted(kinds)}
@@ -535,7 +537,7 @@ class Services:
         replace_scan = self.scanner.running or self.scanner.invalidated
         pruned = library.take_pruned_cores() if library is not None else set()
         if kind not in ("library.prune", "library.judge") and (
-                kind != "mods.add" or getattr(result, "installed", None) or replace_scan or pruned):
+                kind != "mods.add" or result or getattr(result, "installed", None) or replace_scan or pruned):
             changed = _changed_of(result)
             cores = set(changed["cores"]) if not failed and kind in ("apply", "restore") else None
             variant = getattr(result, "variant", None)

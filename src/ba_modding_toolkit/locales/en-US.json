@@ -1159,7 +1159,10 @@
 			"mod_last_copy": "Only copy of a file still in the game: {file}",
 			"scan_off": "File check off",
 			"mod_target_unknown": "No known variant found in this Mod: {file}",
-			"mod_target_ambiguous": "Conflicting Mod targets: {file}"
+			"mod_target_ambiguous": "Conflicting Mod targets: {file}",
+			"mod_platform_unknown": "Build target unavailable: {file}",
+			"mod_platform_mismatch": "{file}, build target {platform}, required {expected}",
+			"mod_parts_missing": "Incomplete Mod, missing files: {files}"
 		},
 		"drop": {
 			"hint": "Drop mod files to add them"
@@ -1303,7 +1306,28 @@
 			"go": "Go to",
 			"stay": "Stay here",
 			"duplicate": "Already in the Mod Library: {name}",
-			"installed": "Recognized as an installed Mod"
+			"installed": "Recognized as an installed Mod",
+			"applyFailed": "Added, switch failed: {reason}"
+		},
+		"compatibility": {
+			"check": "Check Compatibility",
+			"matches": "No differences found in the checked data",
+			"unavailable": "Current official files unavailable, comparison incomplete",
+			"outdated": "Bundle from another game version",
+			"skeletons": "Skeleton names differ: {name}",
+			"version": "{name}, Spine {mod}, official {official}",
+			"unreadable": "{name}, skeleton details unavailable",
+			"animations": "{name}, animations missing: {missing}, added: {added}",
+			"slots": "{name}, slots missing: {missing}, added: {added}",
+			"attachments": "{name}, attachments missing: {missing}, added: {added}",
+			"bones": "{name}, bones: {mod}, official {official}",
+			"atlasUnreadable": "{name}, atlas unreadable",
+			"pages": "Atlas pages missing: {missing}, added: {added}",
+			"atlasSize": "{name}, atlas: {atlas}, texture: {texture}",
+			"textureSize": "{name}, texture: {mod}, official {official}",
+			"updateHint": "Update: port assets to current official bundles, Spine conversion may be required",
+			"authorHint": "Mod adapted to the current version required",
+			"crcHint": "CRC fix changes checksums only"
 		}
 	}
 }

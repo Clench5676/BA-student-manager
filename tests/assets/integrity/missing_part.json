@@ -1,0 +1,1 @@
+{"platforms": ["StandaloneWindows64"], "cab": "CAB-skeleton", "references": ["archive:/CAB-textures/CAB-textures"], "atlases": {"test_home_gl.atlas": "page.png\nsize: 64,64\nformat: RGBA8888\nfilter: Linear,Linear\nrepeat: none\n"}}

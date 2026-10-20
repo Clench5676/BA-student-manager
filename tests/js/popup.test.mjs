@@ -21,15 +21,28 @@ class El {
     this.parentNode.children = this.parentNode.children.filter((c) => c !== this);
     this.parentNode = null;
   }
-  set innerHTML(_) { for (const c of [...this.children]) c.remove(); }
+  set innerHTML(html) {
+    for (const c of [...this.children]) c.remove();
+    const stack = [this];
+    for (const match of html.matchAll(/<(\/?)(\w+)(?:\s+class="([^"]*)")?[^>]*>/g)) {
+      if (match[1]) stack.pop();
+      else { const el = new El(match[2]); el.className = match[3] || ""; stack.at(-1).appendChild(el); stack.push(el); }
+    }
+  }
+  get classList() {
+    return { add: (...names) => { this.className = [...new Set([...this.className.split(" "), ...names])].join(" "); },
+      remove: (...names) => { this.className = this.className.split(" ").filter((name) => !names.includes(name)).join(" "); } };
+  }
   contains(node) { for (let n = node; n; n = n.parentNode) if (n === this) return true; return false; }
   get isConnected() { return document.body.contains(this); }
   setAttribute(k, v) { this.attrs[k] = String(v); }
   getAttribute(k) { return this.attrs[k] ?? null; }
+  removeAttribute(k) { delete this.attrs[k]; }
   addEventListener(type, fn) { (this.listeners[type] ||= []).push(fn); }
   click() { for (const fn of this.listeners.click || []) fn({ type: "click", target: this, currentTarget: this }); }
   focus() { document.activeElement = this; }
-  querySelector(selector) { return walk(this).find((e) => selector.startsWith(".") && e.className.split(" ").includes(selector.slice(1))) || null; }
+  querySelector(selector) { return walk(this).find((e) => selector.startsWith(".")
+    ? e.className.split(" ").includes(selector.slice(1)) : e.tagName === selector.toUpperCase()) || null; }
   // a canvas: text is measured at 0.6 of its size per character
   getContext() { return { font: "", drawImage() {}, fillRect() {}, measureText(s) { return { width: s.length * 0.6 * parseFloat(/([\d.]+)px/.exec(this.font)?.[1] || 10) }; } }; }
   toBlob(fn) { fn(new Blob()); }
@@ -133,12 +146,12 @@ const actionsIn = (root) => walk(root).filter((e) => e.dataset?.action);
 const action = (root, name) => actionsIn(root).find((e) => e.dataset.action === name);
 // waits until a button is drawn in root
 async function drawn(root, name) {
-  for (let i = 0; i < 200; i++) { const b = action(root, name); if (b) return b; await tick(); }
+  for (let i = 0; i < 1000; i++) { const b = action(root, name); if (b) return b; await tick(); }
   throw new Error(`no ${name} button`);
 }
 const state = (promise) => Promise.race([promise.then((v) => ({ done: v })), tick().then(() => "pending")]);
 async function until(fn) {
-  for (let i = 0; i < 200; i++) { if (fn()) return; await tick(); }
+  for (let i = 0; i < 1000; i++) { if (fn()) return; await tick(); }
   assert.fail("popup did not reach the expected state");
 }
 const part = (name) => walk(consent).find((e) => e.dataset.path === `Center/Popup/${name}`);
@@ -694,7 +707,7 @@ test("portrait and memorial lobby mods share the localized Mod chip under the na
 const DETAIL = new URL("../../src/ba_modding_toolkit/web/js/detail.js", import.meta.url).href;
 const THUMBS = new URL("../../src/ba_modding_toolkit/web/js/thumbs.js", import.meta.url).href;
 const detailTest = `
-export { baseOf, detailsBody, renderPopup, runUpdate };
+export { baseOf, detailsBody, renderPopup, runUpdate, runCompatibility };
 export function setupPreviewTest(data, kind, onLeft = async () => {}) {
   fam = data; variantKey = data.variants[0].key; ctx = { invalidateRoster() {} };
   open = true; busy = false; tab = kind === "lobby" ? "lobby" : "portrait";
@@ -776,6 +789,53 @@ test("Update reloads a configured portrait or lobby rebuilt under the same mod i
     assert.deepEqual(Thumbs.forgotten, []);
     assert.deepEqual(Detail.previewTestState().mainPlayer, { cached: true });
     assert.equal(Detail.previewTestState().lobbyShot, "cached");
+  }
+});
+
+test("compatibility Update refreshes the configured preview under the same mod id", async () => {
+  setStrings("en-US", Object.fromEntries(strings(english)));
+  await modsEnabled(false);
+  for (const [kind, id] of [["spr", "p"], ["lobby", "l"]]) {
+    const fam = previewFamily(), draws = [];
+    Detail.setupPreviewTest(fam, kind, async () => draws.push(Detail.previewTestState()));
+    let updated = false, checks = 0;
+    const inputs = { skeletons: {}, atlases: {}, textures: {} };
+    handlers.set("actions.compatibility", (params) => { assert.deepEqual(params, { mod: id }); checks++; return { result: "compatibility" }; });
+    handlers.set("actions.update", (params) => { assert.deepEqual(params, { mod: id }); updated = true; return { result: "rebuild" }; });
+    handlers.set("jobs.get", ({ id }) => ({ result: { state: "done", result: id === "compatibility"
+      ? { official: inputs, mod: inputs, outdated: !updated } : {} } }));
+    handlers.set("family.get", () => ({ result: structuredClone(fam) }));
+    Thumbs.forgotten.length = 0;
+    const done = Detail.runCompatibility();
+    (await drawn(dialog, "ok")).click();
+    await until(() => checks === 2 && walk(dialog).some((e) => e.textContent === english.compatibility.matches));
+    (await drawn(dialog, "ok")).click();
+    await done;
+    assert.equal(updated, true);
+    assert.deepEqual(Thumbs.forgotten, [`/asset/spine/mod/${id}`]);
+    assert.equal(draws.length, 1);
+    assert.equal(kind === "spr" ? draws[0].mainPlayer : draws[0].lobbyShot, null);
+  }
+});
+
+test("each mod card exposes a read-only compatibility check for its own mod", async () => {
+  setStrings("en-US", Object.fromEntries(strings(english)));
+  await modsEnabled(false);
+  for (const [kind, id] of [["spr", "p"], ["lobby", "l"]]) {
+    const fam = previewFamily();
+    Detail.setupPreviewTest(fam, kind);
+    let checks = 0;
+    handlers.set("actions.compatibility", (params) => { assert.deepEqual(params, { mod: id }); checks++; return { result: "compatibility" }; });
+    handlers.set("actions.update", () => assert.fail("a match requires no update"));
+    const inputs = { skeletons: {}, atlases: {}, textures: {} };
+    handlers.set("jobs.get", () => ({ result: { state: "done", result: { official: inputs, mod: inputs } } }));
+    await Detail.renderPopup();
+    const check = walk(switchHost).find((el) => el.getAttribute("aria-label") === english.compatibility.check);
+    assert.ok(check);
+    check.click();
+    (await drawn(dialog, "ok")).click();
+    await until(() => checks === 1 && dialog.hidden);
+    switchHost.hidden = true;
   }
 });
 
