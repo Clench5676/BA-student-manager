@@ -85,7 +85,7 @@ def make_mod(source, directory, payload=b"modded!!", fixed=False):
 
 
 @pytest.fixture
-def setup_library(tmp_path, monkeypatch):
+def setup_library(tmp_path, monkeypatch, header_only_bundles):
     game_dir = tmp_path / "game"
     original = game_bundle(game_dir)
     catalog = FakeCatalog(FakeVariant("test", "test_spr", "test_home_gl"),
@@ -288,7 +288,8 @@ def test_add_rejects_unsupported_targets(setup_library, name):
     env = setup_library
     path = env.tmp / name
     path.write_bytes(header_bundle())
-    expect_error("mod_unsupported", lambda: env.library.add([path]))
+    expect_error("mod_target_unknown" if "absent_spr" in name else "mod_unsupported",
+                 lambda: env.library.add([path]))
     assert env.library.mods() == []
 
 

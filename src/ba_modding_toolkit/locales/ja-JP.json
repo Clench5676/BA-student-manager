@@ -1144,7 +1144,9 @@
 			"profiles_unreadable": "MOD設定を読み込めません：{file}",
 			"not_enough_space": "空き容量不足：必要 {need}、空き {free}",
 			"mod_last_copy": "ゲームで使用中のファイルの唯一の控え：{file}",
-			"scan_off": "ファイルチェックOFF"
+			"scan_off": "ファイルチェックOFF",
+			"mod_target_unknown": "Modの対象生徒、バージョンを特定できません：{file}",
+			"mod_target_ambiguous": "Modの対象が競合しています：{file}"
 		},
 		"drop": {
 			"hint": "MODファイルをドロップして追加"
@@ -1279,6 +1281,12 @@
 			"added": "追加",
 			"removed": "削除",
 			"none": "ゲームファイルと同じ"
+		},
+		"add": {
+			"belongs": "{name}のModを追加しました",
+			"part": "{name}、{kind}、追加済み",
+			"go": "移動",
+			"stay": "ここに留まる"
 		}
 	}
 }

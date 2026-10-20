@@ -34,9 +34,11 @@ class Job:
     error: dict[str, Any] | None = None
     log: list[str] = field(default_factory=list)
     finished: bool = False  # it ran and its end's listeners ran too
+    progress: dict[str, Any] | None = None
 
     def to_json(self) -> dict[str, Any]:
-        return {"id": self.id, "kind": self.kind, "state": self.state, "result": self.result, "error": self.error}
+        return {"id": self.id, "kind": self.kind, "state": self.state, "result": self.result, "error": self.error,
+                "progress": self.progress}
 
     @property
     def pending(self) -> bool:
@@ -191,11 +193,12 @@ class JobRunner:
                 flush()
 
         def progress(current: int, total: int, label: str = "") -> None:
+            job.progress = {"id": job.id, "current": current, "total": total, "label": label}
             now = time.monotonic()
             if current < total and now - last_progress[0] < PROGRESS_SECONDS:
                 return
             last_progress[0] = now
-            publish("job.progress", {"id": job.id, "current": current, "total": total, "label": label})
+            publish("job.progress", job.progress)
 
         job.state = "running"
         publish("job.started", {"id": job.id, "kind": job.kind})

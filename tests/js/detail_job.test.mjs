@@ -58,3 +58,44 @@ test("the default job reload does not pass its success flag as a list of preview
   assert.equal(await h.job("actions.apply", {}), true);
   assert.deepEqual(reloads, [[]]);
 });
+
+test("the apply result reaches the refresh while input is still held", async () => {
+  const result = { files: [], unchanged: true, deferred: true };
+  const seen = [];
+  const h = harness({ waitJob: async () => result });
+  assert.equal(await h.job("actions.apply", {}, {
+    onDone: (value) => seen.push(value),
+    after: (ok, value) => {
+      assert.equal(ok, true);
+      assert.equal(h.released(), false);
+      seen.push(value);
+    },
+  }), true);
+  assert.deepEqual(seen, [result, result]);
+  assert.ok(h.released());
+  assert.equal(h.busy(), false);
+});
+
+test("a completed add reloads only the page that opened its picker", async () => {
+  const start = source.indexOf("async function addMods(");
+  const addSource = source.slice(start, source.indexOf("\n}\n", start) + 2);
+  for (const move of ["stay", "go", "left", "newPage"]) {
+    const calls = [];
+    const env = {
+      ctx: { invalidateRoster: () => calls.push("roster") }, reload: async () => calls.push("reload"),
+      call: (fn) => fn(), location: { hash: "#/student/base/base" },
+    };
+    const h = new Function("env", `const { ctx, reload, call, location } = env;
+      let pageToken = 1, open = true;
+      const ModAdd = { add: async () => {
+        if ("${move}" === "go") location.hash = "#/student/base/dress";
+        if ("${move}" === "left") open = false;
+        if ("${move}" === "newPage") pageToken++;
+        return [{ target: "dress" }];
+      } };
+      ${addSource}
+      return { addMods };`)(env);
+    await h.addMods();
+    assert.deepEqual(calls, move === "stay" ? ["roster", "reload"] : ["roster"]);
+  }
+});

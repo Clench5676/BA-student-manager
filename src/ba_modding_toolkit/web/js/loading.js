@@ -5,7 +5,8 @@
 //     app.css animates it like the game's legacy clip "UIAni_Repeat 1". Its UIAudioPlay is never played.
 // Two modes. scene(fn) covers a change of screen: a fade to black, then the indicator while the
 // work goes on. wait(promise) shows the indicator alone over the current screen, for a wait inside it. There is one
-// overlay at a time; a newer call takes over the one on screen instead of flashing a new one.
+// page overlay at a time; a newer call takes over the one on screen instead of flashing a new one.
+// Writer progress has its own indicator and lifetime, independent of page changes.
 import * as NGUI from "./ngui.js";
 import * as Popup from "./popup.js";
 import { T } from "./i18n.js";
@@ -22,6 +23,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const stage = () => document.getElementById("stage");
 
 let overlay = null, gen = 0, closeSeq = 0;
+let writerOverlay = null, writerGen = 0;
 let repeater = null, geometry = null;
 
 // --- setup ---
@@ -38,14 +40,43 @@ export function init(info) {
 
 // the strings are in: the overlay's label and the plain indicator's text
 export function relabel() {
-  if (!overlay) return;
-  label(overlay.el);
-  const text = overlay.el.querySelector(".loading-plain span");
-  if (text) text.textContent = nowLoading();
+  for (const o of [overlay, writerOverlay]) {
+    if (!o) continue;
+    label(o.el);
+    const text = o.el.querySelector(".loading-plain span");
+    if (text) text.textContent = nowLoading();
+  }
 }
 
 export const active = () => !!overlay && !overlay.closing;
 export const covering = () => active() && overlay.mode === "full";
+
+// A writer task stays visible until it settles. Progress survives the sprite upgrade and
+// belongs to this task only, so a late callback cannot change a newer task's indicator.
+export async function task(run) {
+  const my = ++writerGen;
+  const o = writerOverlay && !writerOverlay.closing ? writerOverlay : open("indicator", false, true);
+  o.el.classList.add("with-progress");
+  const detail = document.createElement("div");
+  detail.className = "loading-progress";
+  o.progress?.remove();
+  o.progress = detail;
+  o.el.appendChild(detail);
+  const update = ({ label: text = T("popup.add"), current = 0, total = 0 } = {}) => {
+    if (my !== writerGen || o !== writerOverlay) return;
+    detail.textContent = total ? `${text} ${current}/${total}` : text;
+    o.el.setAttribute("aria-label", detail.textContent);
+  };
+  update();
+  decorate(o);
+  try { return await run(update); }
+  finally {
+    detail.remove();
+    if (my === writerGen && o === writerOverlay && !o.closing) {
+      await close(o);
+    }
+  }
+}
 
 // --- the overlay ---
 
@@ -56,8 +87,8 @@ function label(el) {
 }
 
 // a new overlay; the boot one in index.html is taken when the page starts covered
-function open(mode, opaque = false) {
-  const boot = document.getElementById("loading-boot");
+function open(mode, opaque = false, writer = false) {
+  const boot = writer ? null : document.getElementById("loading-boot");
   const el = opaque && boot ? boot : document.createElement("div");
   el.removeAttribute("id");
   el.className = `loading ${mode}`;
@@ -71,7 +102,8 @@ function open(mode, opaque = false) {
     shownAt: performance.now(), closing: false, done: false, sprites: false };
   if (opaque) el.classList.add("on");
   else { void el.offsetWidth; el.classList.add("on"); } // fade in from the first frame
-  overlay = o;
+  if (writer) writerOverlay = o;
+  else overlay = o;
   return o;
 }
 
@@ -112,6 +144,7 @@ function close(o) {
     if (!o.closing || o.closeId !== id) return; // taken over while fading out
     o.el.remove();
     if (overlay === o) overlay = null;
+    if (writerOverlay === o) writerOverlay = null;
   });
 }
 
@@ -131,11 +164,12 @@ async function upgrade(o) {
   if (o.sprites) return;
   o.sprites = true;
   const tree = await repeaterTree();
-  if (!tree || o !== overlay) { o.sprites = false; return; }
+  if (!tree || (o !== overlay && o !== writerOverlay)) { o.sprites = false; return; }
   const next = document.createElement("div");
   next.className = "loading-repeater";
   // the corner widget is anchored to the screen: moved down to the stage's bottom edge
   await NGUI.render(tree, next, { scale: S, origin: [960, 540], shift: { "UIRepeater/Widget": [0, -(STAGE_UNITS_H - 1440) / 2] } });
+  if (o !== overlay && o !== writerOverlay) return;
   if (!next.querySelector(".ngui")) { o.sprites = false; return; } // the sprites are not in this install's atlases
   o.ind.replaceChildren(next);
 }

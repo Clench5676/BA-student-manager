@@ -1144,7 +1144,9 @@
 			"profiles_unreadable": "無法讀取 Mod 設定：{file}",
 			"not_enough_space": "空間不足：需要 {need}，可用 {free}",
 			"mod_last_copy": "遊戲仍在使用的檔案的唯一副本：{file}",
-			"scan_off": "檔案檢查已關閉"
+			"scan_off": "檔案檢查已關閉",
+			"mod_target_unknown": "無法識別此 Mod 所屬的學生及版本：{file}",
+			"mod_target_ambiguous": "Mod 內含互相衝突的目標：{file}"
 		},
 		"drop": {
 			"hint": "拖入 Mod 檔案以新增"
@@ -1279,6 +1281,12 @@
 			"added": "已新增",
 			"removed": "已移除",
 			"none": "與遊戲檔案相同"
+		},
+		"add": {
+			"belongs": "此 Mod 屬於 {name}，已新增",
+			"part": "{name}，{kind}，已新增",
+			"go": "前往",
+			"stay": "留在此處"
 		}
 	}
 }

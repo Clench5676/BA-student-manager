@@ -38,20 +38,26 @@ class Scanner:
         self._requested = 0  # the number of the last request
         self._served = 0  # the number of the last request a finished attempt served
         self._dismissed = False  # a pending request wants the dismissed entries too
+        self._cores: set[str] | None = None
         self._generation = 0  # bumped by cancel(): a scan of an older generation is dropped
         self._running = False
+        self._invalidated = False
         self._stopped = False
         self._thread: threading.Thread | None = None
 
     # --- requests ---
 
-    def request(self, dismissed: bool = False) -> int | None:
+    def request(self, dismissed: bool = False, *, cores: set[str] | None = None) -> int | None:
         """Ask for a scan; its number, or ``None`` without the scan consent (nothing is queued then)."""
         if not self._is_allowed():
             return None
         with self._cond:
             if self._stopped:
                 return None
+            if self._requested == self._served:
+                self._cores = cores
+            elif self._cores is not None:
+                self._cores = None if cores is None else self._cores | cores
             self._requested += 1
             self._dismissed = self._dismissed or bool(dismissed)
             number = self._requested
@@ -79,6 +85,12 @@ class Scanner:
     def running(self) -> bool:
         with self._cond:
             return self._running
+
+    @property
+    def invalidated(self) -> bool:
+        """A stale scan still needs replacing, even if its attempt already finished."""
+        with self._cond:
+            return self._invalidated
 
     def served(self) -> int:
         """The number of the last request a finished attempt served."""
@@ -111,13 +123,16 @@ class Scanner:
                 self._cond.wait_for(lambda: self._stopped or self._requested > self._served)
                 if self._stopped:
                     return
-                serving, dismissed = self._requested, self._dismissed
+                serving, dismissed, cores = self._requested, self._dismissed, self._cores
+                if dismissed:
+                    cores = None  # a scan for the dismissed entries covers everything
                 self._dismissed = False
+                self._cores = set()
                 generation = self._generation
                 self._running = True
             result = None
             try:
-                result = self._attempt(generation, dismissed)
+                result = self._attempt(generation, dismissed, cores)
             finally:
                 with self._cond:
                     self._running = False
@@ -129,7 +144,7 @@ class Scanner:
                     except Exception:
                         logger.exception("scan result handler failed")
 
-    def _attempt(self, generation: int, dismissed: bool) -> Any:
+    def _attempt(self, generation: int, dismissed: bool, cores: set[str] | None = None) -> Any:
         """One scan, again once when it is stale and no writer job runs; ``None`` when nothing is kept."""
         for attempt in (1, 2):
             if not self._is_allowed():
@@ -140,7 +155,7 @@ class Scanner:
                     return self._stopped or self._generation != generation
 
             try:
-                result = self._scan(cancelled, dismissed)
+                result = self._scan(cancelled, dismissed) if cores is None else self._scan(cancelled, dismissed, cores)
             except ServiceError as error:
                 if error.code != "scan_off":
                     logger.warning("scan failed: %s", error.code)
@@ -152,7 +167,12 @@ class Scanner:
                 logger.debug("scan cancelled")
                 return None
             if result is None or not getattr(result, "stale", False):
+                if result is not None:
+                    with self._cond:
+                        self._invalidated = False
                 return result
+            with self._cond:
+                self._invalidated = True
             if attempt == 1 and not self._writer_busy():
                 logger.debug("scan stale, scanning again")
                 continue

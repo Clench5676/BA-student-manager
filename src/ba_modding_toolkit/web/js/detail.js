@@ -12,6 +12,7 @@
 import * as NGUI from "./ngui.js";
 import { latestLoad, loadPlayer } from "./spine-load.js";
 import * as Loading from "./loading.js";
+import * as ModAdd from "./mod-add.js";
 import * as Lobby from "./lobby.js";
 import * as Visual from "./visual-mode.js";
 import { QUEUEABLE, current as modsState, entryLabel, refused } from "./mod-switch.js";
@@ -523,25 +524,29 @@ async function toggleFav() {
   renderAll();
 }
 async function addMods() {
-  const added = await call(() => rpc("mods.pick"));
-  if (added?.length) { await reload(); ctx.invalidateRoster(); }
+  const page = pageToken, address = location.hash;
+  const added = await call(() => ModAdd.add());
+  if (added?.length) {
+    ctx.invalidateRoster();
+    if (page === pageToken && open && location.hash === address) await reload();
+  }
 }
 
-// a job with a sticky progress line; the family is re-read afterwards (after(ok) instead, when given). A switch the
-// classic UI's open window refuses opens the classic modal, which can queue it (mod-switch.js); an apply while mods
-// are off only saves the choice (deferred).
+// a job with a sticky progress line; the family is re-read afterwards (after(ok, result) instead, when given).
+// A switch the classic UI's open window refuses opens the classic modal, which can queue it (mod-switch.js).
+// An apply while mods are off only saves the choice (deferred).
 async function job(method, params, { onDone, after = () => reload() } = {}) {
   if (busy) { toast(T("error.busy"), { kind: "error" }); return false; }
   busy = true;
   const page = pageToken;
-  let ok = false;
+  let ok = false, result = null;
   try {
     return await Loading.hold(async () => {
       try {
         await renderScreen();
         toast(T("job.running"), { sticky: true });
         const id = await rpc(method, params, { timeout: 30000 });
-        const result = await waitJob(id, (p) => toast(`${T("job.running")} ${p.current}/${p.total}`, { sticky: true }));
+        result = await waitJob(id, (p) => toast(`${T("job.running")} ${p.current}/${p.total}`, { sticky: true }));
         toast(result?.deferred ? T("mods.saved") : T("job.done"));
         await onDone?.(result);
         ok = true;
@@ -553,7 +558,7 @@ async function job(method, params, { onDone, after = () => reload() } = {}) {
         } else if (QUEUEABLE.includes(method)) await refused(err, method, params);
         else toast(errorText(err), { kind: "error", sticky: false });
       }
-      if (page === pageToken && open) await after(ok);
+      if (page === pageToken && open) await after(ok, result);
       return ok;
     }, { until: leftPage });
   } catch (err) {
@@ -597,11 +602,14 @@ async function runCompare() {
 async function applyCandidate(key, kind = "spr") {
   const v = variant();
   await job("actions.apply", { variant: v.key, source: sourceOf(key), kind }, {
-    onDone: () => { forget(kind === "lobby" ? spineBase("lobby", v.lobby) : spineBase("spr", v.spr)); },
+    onDone: (result) => {
+      if (result?.files?.length) forget(kind === "lobby" ? spineBase("lobby", v.lobby) : spineBase("spr", v.spr));
+    },
     // the applied portrait or lobby swaps in with the rest of the screen; the old one shows until then
-    after: (ok) => {
+    after: async (ok, result) => {
       if (!ok) return reload();
       ctx.invalidateRoster();
+      if (result?.unchanged) return reload();
       resetPreview(kind);
       if (!open) return null; // the screen was left meanwhile: the next show reads the family again
       return changeInPlace(async () => {

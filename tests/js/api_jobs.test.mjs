@@ -45,3 +45,35 @@ test("an RPC that never answers is aborted and reported as an internal error", a
   });
   await assert.rejects(rpc("actions.apply", {}, { timeout: 5 }), (e) => e.code === "internal" && /timed out/.test(e.params.error));
 });
+
+test("polling forwards durable progress after a lost event and retries transient errors", async () => {
+  const seen = [];
+  const progress = { id: "add", current: 2, total: 3, label: "dress_home.bundle" };
+  let calls = 0;
+  globalThis.fetch = async () => {
+    if (++calls === 1) throw new Error("offline");
+    return answer({ result: calls === 2 ? { state: "running", progress }
+      : { state: "done", progress: { ...progress, current: 3 }, result: ["added"] } });
+  };
+  assert.deepEqual(await waitJob("add", (p) => seen.push(p), options), ["added"]);
+  assert.deepEqual(seen, [progress, { ...progress, current: 3 }]);
+});
+
+test("a late poll cannot forward progress after the waiter has ended", async () => {
+  for (const end of ["event", "timeout", "shutdown"]) {
+    const seen = [];
+    let respond;
+    globalThis.fetch = () => new Promise((resolve) => { respond = resolve; });
+    const pending = waitJob("late", (p) => seen.push(p), { ...options, timeout: 10 });
+    if (end === "event") {
+      stream.emit("job.done", { id: "late", result: "done" });
+      assert.equal(await pending, "done");
+    } else {
+      if (end === "shutdown") stream.emit("server.closing", {});
+      await assert.rejects(pending, /internal/);
+    }
+    respond(answer({ result: { state: "running", progress: { id: "late", current: 1, total: 2 } } }));
+    await new Promise(setImmediate);
+    assert.deepEqual(seen, []);
+  }
+});

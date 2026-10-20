@@ -90,7 +90,9 @@ export function waitJob(id, onProgress, { pollEvery = 1500, maxErrors = 3, timeo
       if (settled) return;
       try {
         const job = await rpc("jobs.get", { id }, { timeout: 15000 });
+        if (settled) return;
         errors = 0;
+        if (job.progress) onProgress?.(job.progress);
         if (job.state === "done") return finish(resolve, job.result);
         if (job.state === "failed") return failed(new RpcError(job.error?.code || "internal", job.error?.params || {}));
         if (job.state !== "queued" && job.state !== "running") return failed(new RpcError("internal", { error: `Job ${job.state}` }));

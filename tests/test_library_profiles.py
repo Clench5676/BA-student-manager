@@ -220,7 +220,7 @@ class World:
 
 
 @pytest.fixture
-def world(tmp_path, monkeypatch):
+def world(tmp_path, monkeypatch, header_only_bundles):
     monkeypatch.setattr(safety, "check_game_not_running", lambda: None)
     monkeypatch.setattr(Bundle, "check_need_crc", lambda *args, **kwargs: False)
     return World(tmp_path)

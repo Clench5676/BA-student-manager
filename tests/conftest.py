@@ -255,6 +255,13 @@ EDIT_SPINE_VERSION = "3.8.75"
 RENDER_SKIP_ENV = "SKIP_SPINE_RENDER"
 
 
+@pytest.fixture
+def header_only_bundles(monkeypatch):
+    """Synthetic library fixtures have headers and payload bytes, without Unity objects.
+    Content inspection is covered separately with object and container name fixtures."""
+    monkeypatch.setattr("ba_modding_toolkit.library.identity.content_cores", lambda path: set())
+
+
 def require_render_support() -> None:
     """渲染类测试入口：无渲染能力的环境自动跳过"""
     if os.environ.get(RENDER_SKIP_ENV) == "1":

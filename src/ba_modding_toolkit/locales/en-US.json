@@ -1144,7 +1144,9 @@
 			"profiles_unreadable": "Unreadable mod settings: {file}",
 			"not_enough_space": "Not enough space: {need} needed, {free} free",
 			"mod_last_copy": "Only copy of a file still in the game: {file}",
-			"scan_off": "File check off"
+			"scan_off": "File check off",
+			"mod_target_unknown": "No known variant found in this Mod: {file}",
+			"mod_target_ambiguous": "Conflicting Mod targets: {file}"
 		},
 		"drop": {
 			"hint": "Drop mod files to add them"
@@ -1279,6 +1281,12 @@
 			"added": "Added",
 			"removed": "Removed",
 			"none": "Same as the game file"
+		},
+		"add": {
+			"belongs": "Mod for {name} added",
+			"part": "{name}, {kind}, added",
+			"go": "Go to",
+			"stay": "Stay here"
 		}
 	}
 }

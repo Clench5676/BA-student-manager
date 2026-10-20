@@ -118,9 +118,16 @@ def test_event_delivery_failure_cannot_kill_the_job_worker():
 
     jobs = JobRunner(BrokenEvents())
     try:
-        jid = jobs.submit("apply", lambda log, progress: log("applied"), writes="game")
+        def apply(log, progress):
+            log("applied")
+            progress(1, 2, "portrait.bundle")
+            progress(2, 2, "lobby.bundle")
+
+        jid = jobs.submit("apply", apply, writes="game")
         assert jobs.wait(jid, 5)
         assert jobs.get(jid).state == "done" and not jobs.busy()
+        assert jobs.get(jid).to_json()["progress"] == {
+            "id": jid, "current": 2, "total": 2, "label": "lobby.bundle"}
         next_id = jobs.submit("restore", lambda log, progress: "ok", writes="game")
         assert jobs.wait(next_id, 5)
         assert jobs.get(next_id).result == "ok"

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import copy
+import functools
 import hashlib
 import json
 import logging
@@ -33,6 +34,7 @@ from ..searching import SEARCH_DIR_SUFFIXES, get_search_dirs
 from ..utils import no_log
 from . import profiles as profiles_mod
 from . import safety
+from .identity import identify
 from .judge import (
     CRC_STATES, LIBRARY_SOURCES, carried_of, classify, core_of, crc_state, date_of, distinguishing_folders,
     install_key, install_root, kind_of, leaves, now, part_of, says_official, seconds,
@@ -421,11 +423,12 @@ class _View:
                          if kind_of(core_of(path.name)))
         return cores
 
-    def entries(self, pins: list[Pin], cancel: Callable[[], bool] | None = None) -> list[_Entry]:
+    def entries(self, pins: list[Pin], cancel: Callable[[], bool] | None = None,
+                cores: set[str] | None = None) -> list[_Entry]:
         """Every entry that is configured, not in its intended state, or overwritten."""
         out = []
         for pin in pins:
-            for core in sorted(self.cores(pin)):
+            for core in sorted(self.cores(pin) if cores is None else self.cores(pin) & cores):
                 if cancel and cancel():
                     return out
                 try:
@@ -489,6 +492,7 @@ class ModLibrary:
         self._applied: dict[str, dict[str, Any]] = {}
         self._base: tuple[dict, set, dict] = ({}, set(), {})  # the state as last read or written, for merges
         self._version = 0  # bumped by every change of _applied, so a scan can tell it is stale
+        self._pruned_cores: set[str] = set()
         # per install key: (folders' signature, index, its files, generation); file name -> lower-case core
         self._indexes: dict[str, tuple[tuple, dict[str, list[Path]], frozenset, int]] = {}
         self._cores: dict[str, str] = {}
@@ -643,28 +647,33 @@ class ModLibrary:
         return [self._entry(record) for record in self._records.values()]
 
     @_serialized
-    def add(self, paths: list[Path]) -> list[ModEntry]:
+    def add(self, paths: list[Path], progress: ProgressCallback | None = None) -> list[ModEntry]:
         """Store one mod per core and date, deduplicating complete bundle sets. In dev mode (devmode) only files
         inside the dev roots are taken."""
         for path in paths:
             devmode.check_read(path)
-        return self._add(paths)
+        return self._add(paths, progress)
 
     def _known(self) -> dict[frozenset, str]:
         return {frozenset((path.name, self._hashes.get(path).sha1) for path in self._paths(record)): record["id"]
                 for record in self._records.values()}
 
-    def _add(self, paths: list[Path]) -> list[ModEntry]:
+    def _add(self, paths: list[Path], progress: ProgressCallback | None = None) -> list[ModEntry]:
         known = set(self._known())
         groups: dict[tuple[str, str], dict[str, Path]] = {}
-        for source in map(Path, paths):
+        targets = {}
+        for i, source in enumerate(map(Path, paths)):
+            if progress:
+                progress(i, len(paths), source.name)
             name = source.name.removesuffix(".backup") if source.name.endswith(".bundle.backup") else source.name
             parsed = parse_filename(name)
             kind: Kind | None = "spr" if parsed.core.lower().endswith("_spr") else (
                 "lobby" if parsed.core.lower().endswith(HOME_SUFFIXES) else None)
-            variant = self.catalog.variant_for_core(parsed.core.lower()) if kind else None
-            if not name.endswith(".bundle") or not parsed.prefix or not parsed.crc or kind is None or variant is None:
+            if not name.endswith(".bundle") or not parsed.prefix or not parsed.crc or kind is None:
                 raise ServiceError("mod_unsupported", file=source)
+            name, target, kind = identify(source, name, self.catalog)
+            parsed = parse_filename(name)
+            targets[parsed.core.lower()] = (target, kind)
             group = groups.setdefault((parsed.core.lower(), parsed.date), {})
             if name in group and self._hashes.get(group[name]).sha1 != self._hashes.get(source).sha1:
                 raise ServiceError("mod_unsupported", file=source)
@@ -677,11 +686,12 @@ class ModLibrary:
                 continue
             names = sorted(group)
             parsed = parse_filename(names[0])
-            variant = self.catalog.variant_for_core(parsed.core.lower())
-            kind = "spr" if parsed.core.lower().endswith("_spr") else "lobby"
-            record = self._store(group, parsed.core, variant.key, kind)
+            target, kind = targets[parsed.core.lower()]
+            record = self._store(group, parsed.core, target, kind)
             known.add(signature_)
             added.append(self._entry(record))
+        if progress:
+            progress(len(paths), len(paths), paths[-1].name if paths else "")
         return added
 
     def _store(self, files: dict[str, Path], label: str, target: str, kind: str) -> dict[str, Any]:
@@ -900,6 +910,17 @@ class ModLibrary:
             return None
         dirs = tuple(directory.resolve() for directory in get_search_dirs(root))
         return Pin(key, root, dirs, folder.get("server") or "global") if dirs else None
+
+    @_serialized
+    def variant_cores(self, variant_key: str) -> set[str]:
+        """The portrait and lobby cores of a variant in every known install (lower case), for a scan of them."""
+        cores = set()
+        for pin in self.installs():
+            for kind in ("spr", "lobby"):
+                core = self._core_map(pin).core(variant_key, kind)
+                if core:
+                    cores.add(core.lower())
+        return cores
 
     def installs(self) -> list[Pin]:
         """The known installs, the ones the switch covers: the folders the settings name, then every install with a
@@ -1370,7 +1391,15 @@ class ModLibrary:
                 return changed
 
             self._update_profiles(change, after=lambda data: self._delete_built_files(dropped, data))
+        self._pruned_cores.update(core_of(Path(name).name) for name in stale)
+        self._pruned_cores.update(core for cores in built_drops.values() for core in cores)
         return released
+
+    @_serialized
+    def take_pruned_cores(self) -> set[str]:
+        """Cores changed by global pruning since the last writer's replacement scan was queued."""
+        cores, self._pruned_cores = self._pruned_cores, set()
+        return cores
 
     def _unchanged_official(self, path: Path) -> bool:
         record = self._applied.get(str(path.resolve()))
@@ -1523,14 +1552,15 @@ class ModLibrary:
         return staged
 
     def _commit(self, replacements: dict[Path, Path], source: str, log: LogFunc,
-                progress: ProgressCallback | None = None, pin: Pin | None = None, prune: bool = True) -> list[Path]:
+                progress: ProgressCallback | None = None, pin: Pin | None = None, prune: bool = True,
+                build_keys: dict[Path, str] | None = None) -> list[Path]:
         """Write prepared files over game files as one unit, keeping what they replace: the official file in
         originals/ (once), a file kept nowhere else as a library mod (_keep_replaced). Every written part is rolled
         back on failure. With ``prune``, kept originals no longer needed are deleted afterwards, whatever the
         outcome; bulk operations prune once at their end."""
         pin = self._current(pin)
         try:
-            return self._write(replacements, source, log, progress, pin)
+            return self._write(replacements, source, log, progress, pin, build_keys)
         finally:
             if prune:
                 self._prune_quietly()
@@ -1546,7 +1576,7 @@ class ModLibrary:
             yield
 
     def _write(self, replacements: dict[Path, Path], source: str, log: LogFunc,
-               progress: ProgressCallback | None, pin: Pin) -> list[Path]:
+               progress: ProgressCallback | None, pin: Pin, build_keys: dict[Path, str] | None = None) -> list[Path]:
         dirs = list(pin.dirs)
         for target, prepared in replacements.items():
             check_resource_path(target, dirs)
@@ -1568,6 +1598,8 @@ class ModLibrary:
                           "official": self._official_sha1(target, pin) == fingerprint.sha1,
                           "at": stamp, "tail": tail,
                           "crc": crc_state(fingerprint.crc, fingerprint.trailing, target.name)}
+                if build_keys and target in build_keys:
+                    record["build"] = build_keys[target]
                 previous = self._applied.get(str(target.resolve()))
                 if previous and {k: v for k, v in previous.items() if k != "at"} == {
                         k: v for k, v in record.items() if k != "at"}:
@@ -1698,6 +1730,7 @@ class ModLibrary:
         try:
             with tempfile.TemporaryDirectory(prefix=devmode.LIBRARY_STAGING_PREFIX) as temporary:
                 work = Path(temporary)
+                build_keys: dict[Path, str] = {}
                 if source.startswith("mod:"):
                     record = self._record(source[4:])
                     target_variant = self._target_of(record)
@@ -1713,10 +1746,12 @@ class ModLibrary:
                     if not on:
                         return self._defer(pin, variant_key, {record["kind"]: cores[0]}, source)
                     if core_of(record["files"][0]) == cores[0]:
-                        replacements = self._install_direct(record, targets, work, log, progress, pin)
+                        replacements = self._cached_build(self._paths(record), targets, pin,
+                            lambda: self._install_direct(record, targets, work, log, progress, pin), build_keys)
                     elif target_variant != variant_key:
-                        replacements = self._stage_adapted(self._preview(record, pin, full=True), targets,
-                                                           work / record["kind"], log, pin)
+                        sources = self._preview(record, pin, full=True)
+                        replacements = self._cached_build(sources, targets, pin,
+                            lambda: self._stage_adapted(sources, targets, work / record["kind"], log, pin), build_keys)
                     else:  # a lobby mod of another core of this variant: not offered, never written there
                         raise ServiceError("game_file_outside_resources", file=targets[0])
                     kinds = {record["kind"]: cores[0]}
@@ -1732,16 +1767,16 @@ class ModLibrary:
                             continue
                         kinds[current] = core_of(targets[0].name)
                         if on:
-                            replacements.update(self._stage_adapted(
-                                [self._official_for(path, pin) for path in sources], targets, work / current, log,
-                                pin))
+                            official = [self._official_for(path, pin) for path in sources]
+                            replacements.update(self._cached_build(official, targets, pin,
+                                lambda: self._stage_adapted(official, targets, work / current, log, pin), build_keys))
                     if not kinds:
                         raise ServiceError("game_file_not_found", variant=variant_key)
                     if not on:
                         return self._defer(pin, variant_key, kinds, source)
                 else:
                     raise ServiceError("source_unsupported", source=source)
-                files = self._commit(replacements, source, log, progress, pin, prune=False)
+                files = self._commit(replacements, source, log, progress, pin, prune=False, build_keys=build_keys)
                 self._configure(pin, variant_key, kinds, source)
                 for core in kinds.values():
                     self._clear_marker(pin, core)
@@ -1800,35 +1835,82 @@ class ModLibrary:
         kind = kind_of(core) or "spr"
         with tempfile.TemporaryDirectory(prefix=devmode.LIBRARY_STAGING_PREFIX) as temporary:
             work = Path(temporary)
+            build_keys: dict[Path, str] = {}
             replacements = None
             if source == "official":
                 replacements = {path: self._official_for(path, pin) for path in targets}
             elif use_built:
-                replacements = self._built_replacements(pin, core, source, targets)
+                replacements = self._built_replacements(pin, core, source, targets, build_keys)
             if replacements is None:
                 if source.startswith("mod:"):
                     record = self._record(source[4:])
                     if core_of(record["files"][0]) == core:
-                        replacements = self._install_direct(record, targets, work, log, progress, pin)
+                        replacements = self._cached_build(self._paths(record), targets, pin,
+                            lambda: self._install_direct(record, targets, work, log, progress, pin), build_keys)
                     else:
-                        replacements = self._stage_adapted(self._preview(record, pin, full=True), targets,
-                                                           work / kind, log, pin)
+                        sources = self._preview(record, pin, full=True)
+                        replacements = self._cached_build(sources, targets, pin,
+                            lambda: self._stage_adapted(sources, targets, work / kind, log, pin), build_keys)
                 elif source.startswith("variant:"):
                     other = self._core_map(pin).core(source[8:], kind)
                     sources = self._index(pin).get(other.lower(), []) if other else []
                     if not sources:
                         raise ServiceError("game_file_not_found", variant=source[8:])
-                    replacements = self._stage_adapted([self._official_for(path, pin) for path in sources],
-                                                       targets, work / kind, log, pin)
+                    official = [self._official_for(path, pin) for path in sources]
+                    replacements = self._cached_build(official, targets, pin,
+                        lambda: self._stage_adapted(official, targets, work / kind, log, pin), build_keys)
                 else:
                     raise ServiceError("source_unsupported", source=source)
-            files = self._commit(replacements, source, log, progress, pin, prune=False)
+            files = self._commit(replacements, source, log, progress, pin, prune=False, build_keys=build_keys)
         self._clear_marker(pin, core)
         return files
 
     # --- built copies ---
 
-    def _built_replacements(self, pin: Pin, core: str, source: str, targets: list[Path]) -> dict[Path, Path] | None:
+    def _cached_build(self, sources: list[Path], targets: list[Path], pin: Pin,
+                      build: Callable[[], dict[Path, Path]], build_keys: dict[Path, str]) -> dict[Path, Path]:
+        """Reuse only a referenced instant-On copy with the same program, inputs, official targets and options.
+        Prepared files otherwise live solely in the caller's temporary staging directory."""
+        if len({path.name for path in targets}) != len(targets):
+            return build()  # built keys identify parts by file name
+        inputs = [(path.name, self._hashes.get(path).sha1) for path in sources]
+        originals = [(path.name, self._hashes.get(self._official_for(path, pin)).sha1) for path in targets]
+        options = (sorted(self.settings.asset_types()), self.settings.save_options(self.settings.crc_needed(targets[0])),
+                   self.settings.spine_options(), self.settings.anim_check_options())
+        signature = hashlib.sha1(repr((1, _build_version(), inputs, originals, options)).encode()).hexdigest()
+        build_keys.update((target, signature) for target in targets)
+        for folder in ((self.profiles.read() or {}).get("folders") or {}).values():
+            for core, key in (folder.get("built") or {}).items():
+                configured = (folder.get("configured") or {}).get(core) or {}
+                if key.get("build") != signature or key.get("source") != configured.get("source"):
+                    continue
+                parts = key.get("parts") or {}
+                if not parts or not set(parts) <= {target.name for target in targets}:
+                    continue
+                try:
+                    replacements = {}
+                    for target in targets:
+                        part = parts.get(target.name)
+                        if part is None:
+                            replacements[target] = self._official_for(target, pin)
+                            continue
+                        kept = self.root / "built" / f"{part['sha1']}.bundle"
+                        if part.get("mod_file") and key["source"].startswith("mod:"):
+                            kept = self.root / "mods" / key["source"][4:] / part["mod_file"]
+                        if self._hashes.get(kept).sha1 != part["sha1"]:
+                            raise ValueError("Changed built copy")
+                        replacements[target] = kept
+                    logger.debug("Reused configured build %s", signature)
+                    return replacements
+                except (OSError, ValueError, KeyError, TypeError):
+                    continue
+        start = time.perf_counter()
+        replacements = build()
+        logger.debug("Built %s in %.3f s", signature, time.perf_counter() - start)
+        return replacements
+
+    def _built_replacements(self, pin: Pin, core: str, source: str, targets: list[Path],
+                            build_keys: dict[Path, str] | None = None) -> dict[Path, Path] | None:
         """The entry's built copy written back, when it still fits: built for this very source, every part's name and
         every input's name still in the install. The other parts take their official copies. A kept file whose bytes
         are not the recorded ones drops the key (the entry is rebuilt)."""
@@ -1858,6 +1940,8 @@ class ModLibrary:
                     break
                 replacements[target] = kept
         if fits:
+            if build_keys is not None and key.get("build"):
+                build_keys.update((target, key["build"]) for target in targets)
             return replacements
         self._drop_built(pin, [core])
         return None
@@ -1888,6 +1972,9 @@ class ModLibrary:
             return
         inputs = self._inputs(pin, entry.core, source)
         key = {"source": source, "inputs": inputs, "parts": parts}
+        signatures = {(part.record or {}).get("build") for part in entry.parts}
+        if len(signatures) == 1 and None not in signatures:
+            key["build"] = signatures.pop()
         replaced: list[dict] = []
 
         def change(data: dict) -> None:
@@ -2212,7 +2299,7 @@ class ModLibrary:
         return self.scan(pins, include_dismissed=include_dismissed).entries
 
     def scan(self, pins: list[Pin] | None = None, cancel: Callable[[], bool] | None = None,
-             include_dismissed: bool = False) -> ScanResult:
+             include_dismissed: bool = False, cores: set[str] | None = None) -> ScanResult:
         """The scan: the entries of every known install, judged cheaply (headers and the last bytes of recorded
         files; no file is read in full), with counts per install. Only with scan consent (``scan_off``). The records
         are copied under the library lock and the files read outside it; when the library wrote meanwhile, the
@@ -2224,7 +2311,7 @@ class ModLibrary:
             pins = list(pins) if pins is not None else self.installs()
             view = self._view(pins, "scan", snapshot=True)
             version = self._version
-        found = view.entries(pins, cancel)
+        found = view.entries(pins, cancel) if cores is None else view.entries(pins, cancel, cores)
         with self._lock, _errors("scan"):
             if self._version != version:
                 return ScanResult([], {}, stale=True)
@@ -3031,6 +3118,15 @@ def _drop_source(data: dict, source: str, keys: list[dict]) -> list[tuple[str, s
 
 def _pins_signature(pins: list[Pin]) -> list[tuple[str, tuple[str, ...]]]:
     return sorted((pin.key, tuple(str(folder) for folder in pin.dirs)) for pin in pins)
+
+
+@functools.cache
+def _build_version() -> str:
+    """The program build: a cached build is never reused across versions."""
+    from ..utils import get_version_info
+
+    info = get_version_info()
+    return f"{info.get('version')}:{info.get('commit_hash')}"
 
 
 def _folder_size(directory: Path) -> int:
