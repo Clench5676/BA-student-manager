@@ -1082,16 +1082,16 @@ detail screen, and in Settings' Mods tab.
   classic modal with its box ticked when writes wait for the classic window; unavailable, the reason as a toast; the
   first toggle ever, the explanation; the classic window open, the classic modal; otherwise `mods.toggle {enabled:
   !current, expect: current}` at once, with the corner indicator and "Working 12/40". The explanation (title and
-  button Turn Off Mods or Turn On Mods, the help's first four lines, "Built mods kept for instant On" and "Not shown
-  again", and Cancel) shows once: closing it in any way calls `mods.explained`, and only its button toggles. The end
+  button Turn Off Mods or Turn On Mods, the help's opening text and "Not shown again", and Cancel) shows once: closing it in any way calls `mods.explained`, and only its button toggles. The end
   is a toast ("Mods off", "Mods on"), or, when entries were added to the library first, failed, were left as is or
   their adoption failed, a result popup: "Added to the library first: n", "Done: x, failed: y", "Left as is, no
   official copy: n", then each failed entry ("Airi, Portrait - ..."), the first six named and the rest counted.
   `state_changed` (switched elsewhere first) is a toast, and the switch redraws from `mods.state`.
-- **The "?" help** (message popup, title Enable Mods): the four lines of what Off and On do; "Game folders: ..." with
-  the install labels when more than one game folder is known; "Built mods kept for instant On"; "Disk use: x, can
-  grow large", with Clear Built Mods while there are some (`mods.clearBuilt`, then "Built mods cleared"); "Official
-  copies for Off: x" (kept originals, which cannot be cleared); without the scan consent "Other mods not checked"
+- **The "?" help** (message popup, title Enable Mods): the opening text (what Off and On do, that the mods stay in
+  the library, only while the game is closed; `mods.help`, wrapped over up to four lines); the disk use line
+  (`mods.helpSpace`) straight before the two sizes: "Disk use: x", with Clear Built Mods while there are some
+  (`mods.clearBuilt`, then "Built mods cleared"), and "Official copies for Off: x" (kept originals, which cannot be
+  cleared); "Game folders: ..." with the install labels when more than one game folder is known; without the scan consent "Other mods not checked"
   with Allow Check, which opens the scan consent popup and grants nothing itself; "Not switched: n" with Retry (the
   same toggle again) for pending and left entries; "Left as is, no official copy: n" with Details, the Overwritten
   message (the entries, known from the last scan with the scan consent, "No official copy left" and the repair lines
