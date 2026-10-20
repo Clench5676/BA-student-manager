@@ -24,7 +24,7 @@ permissions:
 
 jobs:
   build-windows:
-    runs-on: windows-2022
+    runs-on: windows-latest
     env:
       PYTHON_VERSION: ${{ inputs.python-version || '3.12' }}
 
