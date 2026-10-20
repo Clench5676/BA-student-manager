@@ -696,3 +696,70 @@ async function showMessage({ title = "", lines = [], ok = null, cancel = null, c
     finish(null);
   }
 }
+
+// A scrollable text document on the shared popup frame. Text stays literal, selectable and in its original order.
+export function textViewer({ title, text, copy, close = T("display.close"), onCopy }) {
+  return new Promise((resolve) => {
+    const host = hostOf("dialog"), layer = document.createElement("div"), before = document.activeElement;
+    layer.className = "popup-layer";
+    layer.tabIndex = -1;
+    host.hidden = false;
+    host.appendChild(layer);
+    let ended = false;
+    const finish = () => {
+      if (ended) return;
+      ended = true;
+      layer.remove();
+      closed(host, layer);
+      if (!host.children.length) host.hidden = true;
+      if (before?.isConnected) before.focus?.({ preventScroll: true });
+      resolve();
+    };
+    opened(host, finish, { el: layer });
+    const pre = document.createElement("pre");
+    pre.className = "log-text";
+    pre.textContent = text;
+    pre.tabIndex = 0;
+    pre.setAttribute("aria-label", title);
+    const draw = async () => {
+      try {
+        await ready();
+        if (ended) return;
+        const next = document.createElement("div");
+        const view = await NGUI.render(popupFrame(title, 2458, 1400, { ok: copy, cancel: close }), next,
+          { scale: S, origin: [960, 540], z: 10 });
+        if (ended) return;
+        hit(next, view, "Center/Popup/Btn/Btn_Ok/BG (1)", onCopy, { name: copy, action: "copy" });
+        hit(next, view, "Center/Popup/Btn/Btn_Cancel/BG (1)", finish, { name: close, action: "cancel" });
+        hit(next, view, "Center/Popup/Base/BG/Btn_Close", finish, { name: close, action: "close" });
+        closable(view, host, finish, { el: layer });
+        Object.assign(pre.style, { position: "absolute", left: `${960 - 1100 * S}px`, top: `${540 - (FRAME_Y + 530) * S}px`,
+          width: `${2200 * S}px`, height: `${900 * S}px`, zIndex: 40 });
+        next.appendChild(pre);
+        layer.replaceChildren(...next.childNodes);
+      } catch (err) {
+        if (ended) return;
+        console.warn("text popup without the game's frame", err);
+        const back = document.createElement("div"), box = document.createElement("div"), heading = document.createElement("h2");
+        back.className = "plain-modal-back";
+        back.addEventListener("click", finish);
+        box.className = "plain-message log-message";
+        heading.textContent = title;
+        box.appendChild(heading);
+        box.appendChild(pre);
+        for (const [caption, fn, action] of [[copy, onCopy, "copy"], [close, finish, "close"]]) {
+          const button = document.createElement("button");
+          button.className = "message-button";
+          button.textContent = caption;
+          button.dataset.action = action;
+          button.addEventListener("click", fn);
+          box.appendChild(button);
+        }
+        layer.replaceChildren(back, box);
+      }
+      pre.scrollTop = pre.scrollHeight;
+      layer.focus?.({ preventScroll: true });
+    };
+    draw();
+  });
+}

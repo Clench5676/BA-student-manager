@@ -16,6 +16,7 @@ from .api import build_api
 from .instance import InstanceLock, raise_running
 from .server import Server, WebApp
 from .services import Services
+from .session_log import RedactingFormatter
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,7 @@ def build(port: int = 0, services: Services | None = None, token: str | None = N
         i18n_manager.set_language(lang)  # the language chosen in either GUI
     app = WebApp(build_api(s), s.events, assets=s.asset, consent=lambda: s.state.consent, token=token,
                  classic=s.classic.wsgi, raise_window=s.raise_window)
+    s.log_secrets.update((app.token, app.raise_token))
     server = Server(app, port)
     s.origin = f"http://127.0.0.1:{server.port}"  # the classic window's channel
     return s, server
@@ -96,6 +98,10 @@ def second_start(data_dir: Path, *, serve: bool) -> int:
 
 def _run(args: argparse.Namespace, instance: InstanceLock) -> None:
     s, server = build(args.port, token=args.token)
+    s.log_path.parent.mkdir(parents=True, exist_ok=True)
+    handler = logging.FileHandler(s.log_path, mode="w", encoding="utf-8")
+    handler.setFormatter(RedactingFormatter(s.log_secrets))
+    logging.getLogger().addHandler(handler)
     s.mute = args.mute
     s.debug = args.debug
     if args.debug:
@@ -124,6 +130,8 @@ def _run(args: argparse.Namespace, instance: InstanceLock) -> None:
         stop.set()
         server.stop()
         s.close()
+        logging.getLogger().removeHandler(handler)
+        handler.close()
 
 
 def _run_window(s: Services, server: Server, debug: bool) -> None:

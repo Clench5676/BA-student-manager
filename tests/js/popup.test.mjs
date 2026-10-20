@@ -533,3 +533,20 @@ test("whenIdle waits for the open popups to close", async () => {
   assert.equal(Popup.anyOpen(), false);
   h.remove();
 });
+
+test("the log popup preserves literal text, opens at the bottom and Copy leaves it open", async () => {
+  const original = Array.from({ length: 500 }, (_, i) => `${i}: <script>literal</script>`).join("\n");
+  let copied = null;
+  const done = Popup.textViewer({ title: "Log", text: original, copy: "Copy", onCopy: () => { copied = original; } });
+  await drawn(dialog, "copy");
+  const pre = walk(dialog).find((n) => n.tagName === "PRE");
+  assert.equal(pre.textContent, original);
+  assert.equal(pre.children.length, 0);
+  assert.equal(pre.scrollTop, pre.scrollHeight);
+  action(dialog, "copy").click();
+  assert.equal(copied, original);
+  assert.equal(dialog.hidden, false);
+  press("Escape");
+  await done;
+  assert.equal(dialog.hidden, true);
+});

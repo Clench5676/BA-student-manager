@@ -372,3 +372,8 @@ input[type="text"], input[type="search"], textarea { cursor: text; }
 .touch-fx[hidden] { display: none; }
 .touch-fx.shade { mix-blend-mode: multiply; }
 .touch-fx.glow { mix-blend-mode: screen; }
+
+.log-text { margin: 0; padding: 18px; overflow: auto; white-space: pre; background: #ecf5f9; color: #2d4664;
+  font: 20px/1.45 monospace; user-select: text; -webkit-user-select: text; }
+.log-message { max-width: 1550px; }
+.log-message .log-text { width: 1400px; height: 580px; margin: 24px 0; }

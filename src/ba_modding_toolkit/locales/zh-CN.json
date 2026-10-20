@@ -1195,6 +1195,12 @@
 				"change": "更改"
 			},
 			"version": "版本",
+			"log": {
+				"label": "日志",
+				"open": "打开",
+				"copy": "复制",
+				"copied": "已复制"
+			},
 			"update": {
 				"check": "检查更新",
 				"none": "已是最新版本"

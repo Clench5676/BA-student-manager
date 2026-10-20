@@ -21,7 +21,7 @@ const ROW_W = 1552;
 
 let layout = null, prefs = null, tab = "general", scroll = 0, onChange = null, token = 0;
 
-const errorText = (err) => T(`error.${err.code || "internal"}`, err.params || {});
+const errorText = (err) => T(`error.${err.code || "internal"}`, err.params || { error: String(err) });
 async function call(fn) {
   try { return await fn(); } catch (err) { toast(errorText(err), { kind: "error" }); return null; }
 }
@@ -252,6 +252,8 @@ function rows() {
       [T("settings.cache.change"), browse("cacheDir", p.cacheDir), p.native],
       [T("settings.cache.clear"), async () => { if (await call(() => rpc("settings.clearCache")) !== null) toast(T("settings.cache.cleared")); }, !!p.consent]]));
     add(valueRow("Version", 0, T("settings.version"), (p.version || "").replace(/-dev$/, ""), [[T("settings.update.check"), checkUpdate]]));
+    add(valueRow("Log", 0, T("settings.log.label"), p.logPath, [
+      [T("settings.log.open"), openLog], [open, reveal(p.logPath)]]));
     add(valueRow("Classic", 0, T("settings.classic.label"), T("settings.classic.hint"), [[T("settings.classic.open"), () => call(() => rpc("app.openClassic", { tab: "settings" }))]]));
     // the bottom bar's hand-off prompt (decision 6): Don't Ask Again turns it off, this turns it back on
     add(radioRow("ClassicAsk", 0, T("settings.classic.ask"), [[true, T("settings.post.on")], [false, T("settings.post.off")]],
@@ -309,6 +311,24 @@ function rows() {
     add(valueRow("Output", 0, T("settings.output"), p.outputDir, [[open, reveal(p.outputDir)], [T("settings.browse"), browse("outputDir", p.outputDir), p.native]]));
   }
   return { rows: out, height: -y };
+}
+
+async function openLog() {
+  const log = await call(() => rpc("app.log"));
+  if (!log) return;
+  Popup.textViewer({ title: T("settings.log.label"), text: log.text, copy: T("settings.log.copy"), onCopy: () => call(async () => {
+    if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(log.text);
+    else {
+      const input = document.createElement("textarea");
+      input.value = log.text;
+      document.body.appendChild(input);
+      try {
+        input.select();
+        if (!document.execCommand("copy")) throw new Error("Clipboard unavailable");
+      } finally { input.remove(); }
+    }
+    toast(T("settings.log.copied"));
+  }) });
 }
 
 async function checkUpdate() {
