@@ -225,9 +225,10 @@ function loadImage(url) {
 
 // the slot blend modes drawn as Normal: Multiply and Screen without replacement materials (lobby.json layer
 // materials.blend), whose slots keep their page's material. The slots keep their blend mode (the painted area still
-// leaves such lights out); only their draws change.
-export function fallbackModes(materials) {
+// leaves such lights out); only their draws change. slotBlends keeps the declared modes for an explicit NPC exception.
+export function fallbackModes(materials, slotBlends = false) {
   const out = new Set();
+  if (slotBlends) return out;
   for (const mode of [spine.BlendMode.Multiply, spine.BlendMode.Screen]) if (!(materials?.blend && MODE[mode] in materials.blend)) out.add(mode);
   return out;
 }
@@ -245,13 +246,13 @@ export function materialOf(materials, page, mode) {
 
 // switch a loaded player (linear.js attached) to its layer's materials; screen() gives the game's view in the layer's
 // skeleton units (lobby.js layerViewport), base the lobby's route for the materials' own textures
-export function attach(player, layer, { screen = () => null, base = "", load = loadImage } = {}) {
+export function attach(player, layer, { screen = () => null, base = "", load = loadImage, slotBlends = false } = {}) {
   const mats = layer?.materials;
   if (!mats || !Linear.active(player) || states.has(player)) return false;
   const gl = player.context.gl, renderer = player.sceneRenderer, batcher = renderer?.batcher, sr = renderer?.skeletonRenderer;
   if (!batcher || !sr) return false;
   const data = player.skeleton.data;
-  const fallback = fallbackModes(mats);
+  const fallback = fallbackModes(mats, slotBlends);
   const st = { gl, mats, fallback, normal: (data.slots || []).filter((slot) => fallback.has(slot.blendMode)).map((slot) => slot.name),
     pages: new Map(), shaders: new Map(), textures: new Map(), images: new Map(), mode: 0, pma: false, run: null, disposed: false };
   states.set(player, st);

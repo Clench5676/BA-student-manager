@@ -1,5 +1,4 @@
 import { previewLifecycle, previewTimer } from "./preview-lifecycle.js";
-import { applyAtlasAlpha } from "./spine-alpha.js";
 
 // One view load at a time. A newer request cancels the old one and waits for its cleanup before starting.
 export function latestLoad() {
@@ -92,7 +91,7 @@ export function loadPlayer(create, config, { signal, timeout = 15000, onError, o
       success: (p) => {
         if (disposed || failed || signal?.aborted) return;
         // Start synchronously: the runtime uses track 0 as soon as this callback returns.
-        try { applyAtlasAlpha(p); Promise.resolve(config.success?.(p, () => !disposed && !failed && !signal?.aborted))
+        try { Promise.resolve(config.success?.(p, () => !disposed && !failed && !signal?.aborted))
           .then(() => finish(), (err) => fail(err, "setup")); } catch (err) { fail(err, "setup"); }
       },
       error: (_p, message) => fail(message, settled ? "render" : "load"),

@@ -90,6 +90,7 @@ globalThis.Image = class {
 const playerRequests = [], previewPlayers = [];
 globalThis.spine = { Physics: { update: 1 }, SpinePlayer: class {
   constructor(el, config) {
+    assert.equal(config.premultipliedAlpha, false, "portraits and thumbnails retain the 0.2.0 PMA flag");
     playerRequests.push(config.skeleton);
     this.dispose = () => { this.disposed = true; }; this.config = config;
     this.canvas = new EventTarget(); this.stopRequestAnimationFrame = false;

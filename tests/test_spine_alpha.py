@@ -1,4 +1,4 @@
-"""Atlas/material alpha decisions and lossless PNG export at transparent edges."""
+"""Pin the 0.2.0 atlas and PNG export, independent of material alpha declarations."""
 
 from contextlib import contextmanager
 from io import BytesIO
@@ -7,57 +7,27 @@ from types import SimpleNamespace
 import pytest
 from PIL import Image
 
-from ba_modding_toolkit.gameassets.spine import atlas_alpha, extract_spine, material_pma
+from ba_modding_toolkit.gameassets.spine import extract_spine
 
 
-@pytest.mark.parametrize("tree,expected", [
-    ({}, None),
-    ({"m_ShaderKeywords": "_STRAIGHT_ALPHA_INPUT OTHER"}, False),
-    ({"m_ValidKeywords": ["_STRAIGHT_ALPHA_INPUT"]}, False),
-    ({"m_SavedProperties": {"m_Floats": [["_StraightAlphaInput", 0]]}}, True),
-    ({"m_SavedProperties": {"m_Floats": [["_StraightAlphaInput", 1]]}}, True),
-    ({"m_ValidKeywords": ["_STRAIGHT_ALPHA_INPUT"],
-      "m_SavedProperties": {"m_Floats": [["_StraightAlphaInput", 0]]}}, False),
-])
-def test_material_pma_uses_the_shader_keyword(tree, expected):
-    assert material_pma(tree) is expected
-
-
-@pytest.mark.parametrize("ending", ["\n", "\r\n"])
-def test_atlas_alpha_is_per_page_and_preserves_explicit_flags(ending):
-    source = ending.join([
-        "", "Pages/Aoi.PNG", "size: 2,1", "filter: Linear,Linear", "ear.png", "  xy: 0,0", "",
-        "Arona.png", "pma: false", "size: 2,1", "hair", "  xy: 0,0", "",
-        "Plana.png", "pma: true", "size: 2,1", "",
-        "Portrait.png", "size: 2,1", "",
-        "Lobby.png", "size: 2,1", "",
-    ]).encode()
-    output = atlas_alpha(source, {"aoi": True, "arona": True, "plana": False, "portrait": False})
-    assert output == source.replace(f"filter: Linear,Linear{ending}".encode(),
-                                    f"filter: Linear,Linear{ending}pma: true{ending}".encode()).replace(
-        f"Portrait.png{ending}size: 2,1{ending}".encode(),
-        f"Portrait.png{ending}size: 2,1{ending}pma: false{ending}".encode())
-    assert atlas_alpha(output, {"aoi": False, "arona": True}) == output
-    assert atlas_alpha(source, {}) == source
-
-
-@pytest.mark.parametrize("core", ["aoi_workpage", "arona_workpage_daytime", "plana_workpage", "cafe",
+@pytest.mark.parametrize("core", ["np0032_npc", "arona_workpage_daytime", "plana_workpage", "cafe",
                                   "hero_spr", "hero_home"])
-@pytest.mark.parametrize("pma", [False, True])
-def test_export_preserves_semitransparent_and_transparent_texels(tmp_path, monkeypatch, core, pma):
-    image = Image.new("RGBA", (3, 1))
-    pixels = [(100, 50, 25, 128), (0, 0, 0, 0), (220, 180, 140, 255)] if pma else [
-        (200, 100, 50, 128), (17, 91, 211, 0), (220, 180, 140, 255)]
-    image.putdata(pixels)
-    atlas = f"Pages/{core}.PNG\nsize: 3,1\nfilter: Linear,Linear\nedge\n  xy: 0,0\n"
+@pytest.mark.parametrize("atlas_pma", [None, False, True])
+@pytest.mark.parametrize("material_pma", [False, True])
+def test_export_matches_020_at_transparent_edges(tmp_path, monkeypatch, core, atlas_pma, material_pma):
+    # Bright hidden RGB and alpha 1 catch unpremultiplication, premultiplication and transparent-pixel bleed.
+    pixels = bytes([200, 100, 50, 128, 17, 91, 211, 0, 93, 171, 237, 1, 220, 180, 140, 255])
+    image = Image.frombytes("RGBA", (4, 1), pixels)
+    flag = "" if atlas_pma is None else f"pma: {str(atlas_pma).lower()}\n"
+    atlas = f"Pages/{core}.PNG\nsize: 4,1\nfilter: Linear,Linear\n{flag}edge\n  xy: 0,0\n"
     cab = SimpleNamespace(name="CAB", externals=[])
 
     def obj(kind, pid, data=None, tree=None):
         return SimpleNamespace(type=SimpleNamespace(name=kind), path_id=pid, assets_file=cab,
                                read=lambda: data, read_typetree=lambda: tree)
 
-    mat = {"m_ValidKeywords": [] if pma else ["_STRAIGHT_ALPHA_INPUT"], "m_SavedProperties": {
-        "m_Floats": [["_StraightAlphaInput", int(not pma)]],
+    mat = {"m_ValidKeywords": [] if material_pma else ["_STRAIGHT_ALPHA_INPUT"], "m_SavedProperties": {
+        "m_Floats": [["_StraightAlphaInput", int(not material_pma)]],
         "m_TexEnvs": [["_MainTex", {"m_Texture": {"m_FileID": 0, "m_PathID": 1}}]]}}
     parts = {
         "material.bundle": [obj("Material", 2, tree=mat)],
@@ -71,8 +41,11 @@ def test_export_preserves_semitransparent_and_transparent_texels(tmp_path, monke
 
     monkeypatch.setattr("ba_modding_toolkit.gameassets.spine.open_bundle", open_fake)
     files = extract_spine([tmp_path / name for name in parts])
-    assert f"pma: {str(pma).lower()}\n".encode() in files[f"{core}.atlas"]
+    assert files[f"{core}.atlas"] == atlas.encode()
     assert files[f"Pages/{core}.PNG"] == files[f"{core}.png"]
+    legacy_png = BytesIO()
+    image.save(legacy_png, format="PNG", compress_level=1)
+    assert files[f"{core}.png"] == legacy_png.getvalue()
     with Image.open(BytesIO(files[f"{core}.png"])) as exported:
-        assert list(exported.getdata()) == pixels
-    assert list(image.getdata()) == pixels
+        assert exported.tobytes() == pixels
+    assert image.tobytes() == pixels

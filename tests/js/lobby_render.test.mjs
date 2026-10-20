@@ -3,7 +3,7 @@
 // WebGL2 and spine-player. Run by tests/test_lobby_render.py with Node's test runner.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { applyAtlasAlpha } from "../../src/ba_modding_toolkit/web/js/spine-alpha.js";
+import { readFileSync } from "node:fs";
 
 const near = (a, b, eps = 1e-6, what = "") => assert.ok(Math.abs(a - b) <= eps, `${what} ${a} != ${b}`);
 const nearAll = (a, b, eps = 1e-6, what = "") => { assert.equal(a.length, b.length, what); a.forEach((v, i) => near(v, b[i], eps, `${what}[${i}]`)); };
@@ -286,7 +286,7 @@ function attachLinear(p) {
 }
 const multiply = { program: "pma", src: 2, dst: 10, srcA: 2, dstA: 10, straight: 1, floats: {}, colors: { _Color: [1, 1, 1, 1] }, tex: {} };
 
-test("page alpha composes with linear light, custom materials and fallback slot blends", () => {
+test("0.2.0 straight colours compose with linear light, custom materials and lobby fallback blends", () => {
   const gl = fakeGL(), layer = { materials: { pages: { Ported: multiply }, blend: {} } };
   const p = player(gl, [["body", 0, "PMA"], ["effect", 0, "Ported"], ["hair", 3, "PMA"], ["scene", 0, "Straight"]], layer);
   const sr = p.sceneRenderer.skeletonRenderer, b = p.sceneRenderer.batcher, recorded = [], draw = b.draw;
@@ -304,15 +304,14 @@ test("page alpha composes with linear light, custom materials and fallback slot 
   p.assetManager = { get: () => ({ pages: p.skeleton.slots.map((s) => ({
     texture: s.attachment.region.texture, pma: s.attachment.region.page.name !== "Straight.png",
   })) }) };
-  applyAtlasAlpha(p);
   attachLinear(p);
   M.attach(p, layer);
   try {
     p.frame();
     assert.deepEqual(recorded.map((r) => r.slice(0, 2)), [["spine", "PMA"], ["pma", "Ported"], ["spine", "PMA"], ["spine", "Straight"]]);
-    recorded.forEach((r, i) => nearAll(r[2].slice(2, 6), i === 0 || i === 2 ? [0.4, 0.2, 0.1, 0.5] : [0.8, 0.4, 0.2, 0.5]));
+    recorded.forEach((r) => nearAll(r[2].slice(2, 6), [0.8, 0.4, 0.2, 0.5]));
     assert.ok(!p.log.some((c) => c[0] === "mode" && c[1] === 3), "the screen slot still uses the game's fallback to normal");
-    assert.ok(gl.calls.some((c) => c[0] === "blendFuncSeparate" && c[1] === "ONE" && c[2] === "ONE_MINUS_SRC_ALPHA"));
+    assert.ok(gl.calls.some((c) => c[0] === "blendFuncSeparate" && c[1] === "SRC_ALPHA" && c[2] === "ONE_MINUS_SRC_ALPHA"));
   } finally { M.detach(p); Linear.detach(p); }
 });
 
@@ -333,6 +332,30 @@ test("Multiply and Screen slots without replacement materials draw as Normal", (
   assert.deepEqual([...M.fallbackModes({ blend: { multiply: { Page1: null } } })], [spine.BlendMode.Screen]);
   assert.deepEqual([...M.fallbackModes({ blend: {} })].sort(), [spine.BlendMode.Multiply, spine.BlendMode.Screen]);
   assert.deepEqual([...M.fallbackModes({ blend: { multiply: {}, screen: {} } })], []);
+});
+
+test("only Aoi's NPC keeps its declared glow blends through the real lobby material setup", () => {
+  const source = readFileSync(new URL("../../src/ba_modding_toolkit/web/js/lobby.js", import.meta.url), "utf8");
+  const code = source.slice(source.indexOf("function lightUp("), source.indexOf("// --- fallback only"));
+  for (const core of ["np0032_npc", "NP0032_NPC", "hero_home", "hero_spr", "np0032_spr", "np0035_npc", "arona_workpage_daytime", "plana_workpage", "cafe"]) {
+    const native = core.toLowerCase() === "np0032_npc", gl = fakeGL();
+    const layer = { name: core, materials: { pages: {}, blend: {}, tintBlack: false } };
+    const p = player(gl, [["body", 0, "Page"], ["glow_add", 1, "Page"], ["shadow", 2, "Page"], ["glow_screen", 3, "Page"], ["hair", 0, "Page"]], layer);
+    const env = { current: { core, base: "/art/" }, Linear: { ...Linear, attach: attachLinear }, Materials: M,
+      Stage: { hostOf: () => null }, SlotColours: { curvesOf: () => null }, game: () => ({}), layerViewport: () => ({}) };
+    const lightUp = new Function("env", `const { ${Object.keys(env).join(", ")} } = env; ${code}; return lightUp;`)(env);
+    const modes = p.skeleton.data.slots.map((s) => s.blendMode);
+    try {
+      lightUp(p);
+      p.frame();
+      assert.deepEqual(p.log.filter(([n]) => n === "mode").map((c) => c[1]).slice(-modes.length), native ? modes : [0, 1, 0, 0, 0], core);
+      assert.deepEqual(p.skeleton.data.slots.map((s) => s.blendMode), modes, "authored slot data is never changed");
+      assert.ok(gl.calls.some((c) => c[0] === "blendFuncSeparate" && c.slice(1).join() === "SRC_ALPHA,ONE_MINUS_SRC_ALPHA,ONE,ONE_MINUS_SRC_ALPHA"), "body edges retain straight blending");
+      assert.equal(gl.calls.some((c) => c[0] === "blendFuncSeparate" && c[2] === "ONE_MINUS_SRC_COLOR"), native, "Screen reaches GL only for Aoi");
+      assert.equal(gl.calls.some((c) => c[0] === "blendFuncSeparate" && c[1] === "DST_COLOR"), native, "Multiply reaches GL only for Aoi");
+      assert.ok(gl.calls.some((c) => c[0] === "blendFuncSeparate" && c.slice(1).join() === "SRC_ALPHA,ONE,ZERO,ONE"), "Additive still adds colour without coverage");
+    } finally { M.detach(p); Linear.detach(p); }
+  }
 });
 
 test("the glitch frames: a hash of the time against _GlitchFreq, the second pass on 3 x the time", () => {

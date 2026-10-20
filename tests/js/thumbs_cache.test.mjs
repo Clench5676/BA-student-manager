@@ -23,6 +23,7 @@ globalThis.spine = {
   Vector2: class {}, Physics: { update: 0 },
   SpinePlayer: class {
     constructor(_el, config) {
+      assert.equal(config.premultipliedAlpha, false, "thumbnail PMA matches 0.2.0");
       loaded.push(config);
       this.config = config;
       this.skeleton = {
@@ -35,7 +36,14 @@ globalThis.spine = {
         setEmptyAnimation: (track) => { posed.push(["empty", track]); return { animation: {} }; },
         clearTrack: (track) => posed.push(["clear", track]), clearTracks: () => posed.push(["clearAll"]), apply() {},
       };
-      queueMicrotask(() => config.success(this));
+      const draw = () => {}, sr = { draw, premultipliedAlpha: false }, batcher = { draw };
+      this.sceneRenderer = { skeletonRenderer: sr, batcher };
+      this.assetManager = { get: () => ({ pages: [{ texture: {}, pma: true }] }) };
+      queueMicrotask(() => {
+        config.success(this);
+        assert.equal(sr.draw, draw, "atlas PMA never patches thumbnail drawing");
+        assert.equal(batcher.draw, draw);
+      });
     }
     setViewport() {}
     dispose() {}

@@ -778,7 +778,9 @@ function lightUp(player) {
   Linear.setPost(player, current?.info?.post);
   Linear.setScreen(player, layerViewport(game(), layer));
   Linear.setCurves(player, SlotColours.curvesOf(layer));
-  Materials.attach(player, layer, { screen: () => layerViewport(game(), layer), base: current.base });
+  // Keep Aoi's authored glow blends out of the memorial lobby's fallback to Normal.
+  Materials.attach(player, layer, { screen: () => layerViewport(game(), layer), base: current.base,
+    slotBlends: current.core.toLowerCase() === "np0032_npc" });
 }
 
 // --- fallback only (art that does not cover the view): edge pixels stretched outwards and blurred ---

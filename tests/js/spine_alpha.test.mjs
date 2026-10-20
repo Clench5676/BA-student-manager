@@ -2,110 +2,72 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
-import { applyAtlasAlpha, atlasAlpha } from "../../src/ba_modding_toolkit/web/js/spine-alpha.js";
 import { loadPlayer } from "../../src/ba_modding_toolkit/web/js/spine-load.js";
 
-function runtime(pages, twoColorTint = false) {
-  const calls = [], shader = {}, vertices = [0, 0, 0.8, 0.4, 0.2, 0.5, 0, 0];
-  if (twoColorTint) vertices.push(0.2, 0.4, 0.6, 0);
-  const batcher = { shader, setBlendMode(mode, pma) { calls.push(["blend", mode, pma]); },
-    draw(tex, v) { calls.push(["draw", tex.name, Array.from(v)]); } };
-  const sr = { premultipliedAlpha: false, twoColorTint,
-    draw(b) {
-      b.setBlendMode(0, false);
-      for (const page of pages) b.draw(page.texture, new Float32Array(vertices), [0]);
-    } };
-  return { calls, vertices, config: { atlas: "asset.atlas", premultipliedAlpha: false },
-    assetManager: { get(name) { assert.equal(name, "asset.atlas"); return { pages }; } },
-    sceneRenderer: { skeletonRenderer: sr, batcher, batcherShader: shader }, dispose() {} };
-}
-const page = (name, pma) => ({ name, pma, texture: { name } });
+const read = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
 const near = (values, expected) => values.forEach((v, i) => assert.ok(Math.abs(v - expected[i]) < 1e-6));
 
-test("each asset uses its own atlas: special L2D, portraits and memorial lobbies", () => {
-  for (const name of ["aoi_workpage", "arona_workpage_daytime", "plana_workpage", "cafe", "hero_spr", "hero_home"]) {
+test("portrait and lobby loads retain 0.2.0 straight blending even when atlas pages declare PMA", async () => {
+  for (const core of ["hero_spr", "hero_home", "np0032_npc", "arona_workpage_daytime"]) {
     for (const pma of [false, true, undefined]) {
-      const pg = page(name, pma), p = runtime([pg]), sr = p.sceneRenderer.skeletonRenderer, draw = sr.draw;
-      assert.equal(atlasAlpha(p).get(pg.texture), !!pma);
-      assert.equal(applyAtlasAlpha(p), !!pma);
-      if (!pma) assert.equal(sr.draw, draw, "already-correct straight assets keep their renderer");
-      sr.draw(p.sceneRenderer.batcher);
-      assert.deepEqual(p.calls.filter((c) => c[0] === "blend").at(-1), ["blend", 0, !!pma]);
-      near(p.calls.at(-1)[2].slice(2, 6), pma ? [0.4, 0.2, 0.1, 0.5] : [0.8, 0.4, 0.2, 0.5]);
+      const draw = () => {}, batchDraw = () => {}, setBlendMode = () => {};
+      const sr = { draw, premultipliedAlpha: false }, batcher = { draw: batchDraw, setBlendMode };
+      const p = { sceneRenderer: { skeletonRenderer: sr, batcher }, dispose() {},
+        assetManager: { get: () => ({ pages: [{ texture: {}, pma }] }) } };
+      const load = loadPlayer((config) => { p.config = config; return p; }, {
+        skeleton: `${core}.skel`, atlas: `${core}.atlas`, premultipliedAlpha: false,
+        success() {
+          assert.equal(sr.draw, draw);
+          assert.equal(batcher.draw, batchDraw);
+          assert.equal(batcher.setBlendMode, setBlendMode);
+          assert.equal(sr.premultipliedAlpha, false);
+        },
+      });
+      try {
+        p.config.success(p);
+        assert.equal(await load.ready, p);
+        assert.equal(p.config.premultipliedAlpha, false);
+      } finally { load.dispose(); }
     }
   }
 });
 
-test("mixed atlas pages switch alpha independently and preserve two-colour tint and slot blend modes", () => {
-  const pages = [page("PMA", true), page("straight", false), page("PMA2", true)], p = runtime(pages, true);
-  const b = p.sceneRenderer.batcher, sr = p.sceneRenderer.skeletonRenderer;
-  sr.draw = function (batcher) {
-    for (const mode of [0, 1, 2, 3]) {
-      batcher.setBlendMode(mode, false);
-      for (const pg of pages) batcher.draw(pg.texture, new Float32Array(p.vertices), [0]);
-    }
-  };
-  applyAtlasAlpha(p);
-  const ownBlend = b.setBlendMode;
-  sr.draw(b);
-  assert.equal(b.setBlendMode, ownBlend);
-  for (let mode = 0; mode < 4; mode++) {
-    const calls = p.calls.slice(mode * 7, (mode + 1) * 7);
-    assert.deepEqual(calls.filter((c) => c[0] === "blend"), [
-      ["blend", mode, false], ["blend", mode, true], ["blend", mode, false], ["blend", mode, true]]);
-    near(calls[2][2].slice(8), [0.1, 0.2, 0.3, 1]);
-    near(calls[4][2].slice(8), [0.2, 0.4, 0.6, 0]);
-  }
+test("the memorial lobby caller selects the 0.2.0 PMA flag", () => {
+  const source = read("../../src/ba_modding_toolkit/web/js/lobby.js");
+  const code = source.slice(source.indexOf("function makePlayer("), source.indexOf("// A loaded player in linear light"));
+  const env = { document: { createElement: () => ({}) }, Stage: { make: (_share, make) => make() },
+    spine: { SpinePlayer: class { constructor(_div, config) { this.config = config; } } },
+    current: null, game: () => ({}), layerViewport: () => ({}),
+    loadPlayer: (create, config) => create(config) };
+  const make = new Function("env", `const { ${Object.keys(env).join(", ")} } = env; ${code}; return makePlayer;`)(env);
+  const p = make({ appendChild() {} }, { name: "hero_home", spine: "/hero_home" });
+  assert.equal(p.config.premultipliedAlpha, false);
 });
 
-test("ported lobby shaders keep their own vertices and blend, including hooks installed after alpha setup", () => {
-  const pg = page("PMA", true), p = runtime([pg]);
-  applyAtlasAlpha(p);
-  const b = p.sceneRenderer.batcher, draw = b.draw, blend = b.setBlendMode;
-  b.setBlendMode = function (mode, pma) { return blend.call(this, mode === 3 ? 0 : mode, pma); };
-  b.draw = function (...args) { this.shader = "ported"; return draw.apply(this, args); };
-  const hookedBlend = b.setBlendMode;
-  p.sceneRenderer.skeletonRenderer.draw(b);
-  assert.equal(b.setBlendMode, hookedBlend);
-  assert.deepEqual(p.calls.filter((c) => c[0] === "blend"), [["blend", 0, false]]);
-  near(p.calls.at(-1)[2], p.vertices);
-});
-
-test("the managed loader applies atlas alpha before the first success hook and draw", async () => {
-  const p = runtime([page("Aoi", true)]);
-  const load = loadPlayer((config) => { p.config = config; return p; }, { atlas: "asset.atlas", success(player) {
-    player.sceneRenderer.skeletonRenderer.draw(player.sceneRenderer.batcher);
-  } });
-  p.config.success(p);
-  assert.equal(await load.ready, p);
-  assert.deepEqual(p.calls.filter((c) => c[0] === "blend").at(-1), ["blend", 0, true]);
-  load.dispose();
-});
-
-test("the bundled renderer draws a known semi-transparent edge with one alpha multiplication", () => {
+test("the bundled renderer keeps 0.2.0 edge colours and declared slot blends across atlas PMA flags", () => {
   const context = vm.createContext({ console, TextDecoder, TextEncoder, Float32Array, Uint8Array, Uint16Array,
     Int16Array, Int32Array, ArrayBuffer, DataView });
-  vm.runInContext(readFileSync(new URL("../../src/ba_modding_toolkit/web/vendor/spine-player-4.2.120/spine-player.min.js", import.meta.url), "utf8"), context);
+  vm.runInContext(read("../../src/ba_modding_toolkit/web/vendor/spine-player-4.2.120/spine-player.min.js"), context);
   const S = context.spine;
-  const atlas = new S.TextureAtlas("PMA.png\nsize: 2,1\npma: true\nPMA\n  bounds: 0,0,2,1\n\nStraight.png\nsize: 2,1\npma: false\nStraight\n  bounds: 0,0,2,1\n");
-  atlas.setTextures({ get: (name) => ({ name, getImage: () => ({ width: 2, height: 1 }), setFilters() {}, setWraps() {} }) });
-  const data = new S.SkeletonJson(new S.AtlasAttachmentLoader(atlas)).readSkeletonData({
-    skeleton: { spine: "4.2.33" }, bones: [{ name: "root" }],
-    slots: ["PMA", "Straight"].map((name) => ({ name, bone: "root", attachment: name, color: "ffffff80" })),
-    skins: [{ name: "default", attachments: Object.fromEntries(["PMA", "Straight"].map((name) => [name, { [name]: { width: 2, height: 1 } }])) }],
-  });
-  const p = runtime(atlas.pages, true), sr = new S.SkeletonRenderer({}, true), sk = new S.Skeleton(data);
-  p.sceneRenderer.skeletonRenderer = sr;
-  sk.updateWorldTransform(S.Physics.update);
-  applyAtlasAlpha(p);
-  sr.draw(p.sceneRenderer.batcher, sk);
-  const calls = p.calls.filter((c) => c[0] === "draw"), a = 128 / 255;
-  near(calls[0][2].slice(2, 6), [a, a, a, a]);
-  near(calls[1][2].slice(2, 6), [1, 1, 1, a]);
-  const normal = (texel, light, pma) => texel.slice(0, 3).map((c, i) => c * light[i] * (pma ? 1 : texel[3] * light[3]));
-  const edge = [0.8, 0.4, 0.2, a], premultiplied = edge.map((v, i) => i < 3 ? v * a : v);
-  const pm = normal(premultiplied, calls[0][2].slice(2, 6), true), straight = normal(edge, calls[1][2].slice(2, 6), false);
-  near(pm, straight);
-  // The previous forced-straight draw multiplied the stored PMA texel by alpha again, darkening the outline.
-  assert.ok(normal(premultiplied, [1, 1, 1, a], false)[0] < pm[0]);
+  for (const flag of ["", "pma: true\n", "pma: false\n"]) {
+    const atlas = new S.TextureAtlas(`edge.png\nsize: 2,1\n${flag}edge\n  bounds: 0,0,2,1\n`);
+    atlas.setTextures({ get: () => ({ getImage: () => ({ width: 2, height: 1 }), setFilters() {}, setWraps() {} }) });
+    const modes = ["normal", "additive", "multiply", "screen"];
+    const data = new S.SkeletonJson(new S.AtlasAttachmentLoader(atlas)).readSkeletonData({
+      skeleton: { spine: "4.2.33" }, bones: [{ name: "root" }],
+      slots: modes.map((blend) => ({ name: blend, bone: "root", attachment: "edge", color: "ffffff80", blend })),
+      skins: [{ name: "default", attachments: Object.fromEntries(modes.map((mode) => [mode, { edge: { width: 2, height: 1 } }])) }],
+    });
+    const sr = new S.SkeletonRenderer({}, true), sk = new S.Skeleton(data), calls = [], blends = [];
+    sr.premultipliedAlpha = false;
+    sk.updateWorldTransform(S.Physics.update);
+    sr.draw({ setBlendMode: (mode, pma) => blends.push([mode, pma]),
+      draw: (_texture, vertices) => calls.push(Array.from(vertices)) }, sk);
+    assert.deepEqual(blends, modes.map((_, i) => [i, false]));
+    for (const vertices of calls) near(vertices.slice(2, 6), [1, 1, 1, 128 / 255]);
+    // A normal edge uses the same straight texture and vertex alpha as 0.2.0, regardless of page.pma.
+    const edge = [200, 100, 50, 128].map((v) => v / 255);
+    near(edge.slice(0, 3).map((c, i) => c * calls[0][i + 2] * edge[3] * calls[0][5]),
+      edge.slice(0, 3).map((c) => c * edge[3] * 128 / 255));
+  }
 });
