@@ -168,14 +168,55 @@ def pair_atlases(old: dict, new: dict) -> dict[str, str]:
     return result
 
 
-def layout_changes(old: dict[str, bytes], new: dict[str, bytes]) -> list[str]:
+def region_layout(region: Region, atlas: Atlas) -> tuple:
+    """Drawing coordinates, independent of page density and atlas spelling."""
+    width, height = atlas.pages[region.page].size
+    return (texture_key(region.page), region.degrees,
+            tuple(v / (width or 1) for v in (region.xy[0], region.size[0])),
+            tuple(v / (height or 1) for v in (region.xy[1], region.size[1])),
+            tuple(v / size for v, size in zip(region.offset, region.original)),
+            tuple(v / size for v, size in zip(region.size, region.original)))
+
+
+def skeleton_regions(skeletons: dict[str, bytes]) -> set[str] | None:
+    """Filter JSON atlases here; binary attachment paths are read by the web runtime."""
+    if not skeletons:
+        return None
+    result = set()
+    try:
+        for data in skeletons.values():
+            skins = json.loads(data).get("skins", [])
+            attachments = skins.values() if isinstance(skins, dict) else (skin.get("attachments", {}) for skin in skins)
+            for skin in attachments:
+                for slot in skin.values():
+                    for name, attachment in slot.items():
+                        if attachment.get("type") in ("boundingbox", "path", "point", "clipping"):
+                            continue
+                        path = attachment.get("path", name)
+                        sequence = attachment.get("sequence")
+                        if sequence:
+                            result.update(path + str(sequence.get("start", 1) + i).zfill(sequence.get("digits", 0))
+                                          for i in range(sequence["count"]))
+                        else:
+                            result.add(path)
+    except (ValueError, TypeError, KeyError, AttributeError):
+        return None
+    return result
+
+
+def layout_changes(old: dict[str, bytes], new: dict[str, bytes], regions: set[str] | None = None) -> list[str]:
     pairs = pair_atlases(old, new)
-    changes = list(set(old) - set(pairs.values())) + list(set(new) - pairs.keys())
+    def layout(atlas: Atlas) -> dict:
+        return {(texture_key(r.page), r.name, r.index): region_layout(r, atlas) for r in atlas.regions.values()
+                if regions is None or r.name in regions}
+
+    changes = [name for inputs, names in ((old, old.keys() - set(pairs.values())), (new, new.keys() - pairs.keys()))
+               for name in names if regions is None or layout(parse_atlas(inputs[name], name))]
     for name, data in new.items():
         if name not in pairs:
             continue
         left, right = parse_atlas(old[pairs[name]], pairs[name]), parse_atlas(data, name)
-        if left != right:
+        if layout(left) != layout(right):
             changes.append(name)
     return sorted(changes)
 
@@ -321,7 +362,8 @@ def remap_pages(old: Atlas, new: Atlas, mod_pages: dict[str, Image.Image],
         cut = _resize(full, size, crop, source_page.pma)
         cut = _alpha(cut, source_page.pma, target_page.pma)
         destination.paste(_rotate(cut, target.degrees), box[:2])
-        moved.append(target.label)
+        if region_layout(source, old) != region_layout(target, new):
+            moved.append(target.label)
     matched = {(region.page, *region.key) for region in pairs.values()}
     return output, {"moved": sorted(moved), "added": sorted(added), "upscaled": upscaled,
                     "dropped": sorted(region.label for key, region in old.regions.items() if key not in matched)}
@@ -421,4 +463,8 @@ def prepare_patch(mod: Inputs, official: Inputs) -> tuple[Patch, dict]:
     for name in mod.atlases.keys() - set(pairs.values()):
         report["dropped"].extend(f"{name} - {r.label}" for r in parse_atlas(mod.atlases[name], name).regions.values())
     report["partial"] = bool(report["warnings"])
+    report["unchanged"] = not report["moved"] or (
+        set(current_pages) == set(mod.textures) and all(
+            image.size == mod.textures[key].size and image.tobytes() == mod.textures[key].tobytes()
+            for key, image in current_pages.items()))
     return patch, report

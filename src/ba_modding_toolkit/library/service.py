@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import base64
 import contextlib
 import copy
 import functools
 import hashlib
+import io
 import json
 import logging
 import os
@@ -509,6 +511,7 @@ class ModLibrary:
         self._writing_mods = False
         self._transacting = False
         self._records: dict[str, dict[str, Any]] = {}
+        self._remap_previews: dict[str, dict] = {}
         self._favorites: set[str] = set()
         self._applied: dict[str, dict[str, Any]] = {}
         self._base: tuple[dict, set, dict] = ({}, set(), {})  # the state as last read or written, for merges
@@ -664,7 +667,8 @@ class ModLibrary:
         parsed = parse_filename(paths[0].name)
         return ModEntry(record["id"], paths[0], record["label"], self._target_of(record), record["kind"],
                         record["added"], not record["seen"], sum(p.stat().st_size for p in paths),
-                        parsed.date, parsed.crc, parsed.core.lower())
+                        parsed.date, parsed.crc, parsed.core.lower(),
+                        record.get("repaired_from", ""), record.get("repaired_id", ""))
 
     @_serialized
     def mods(self) -> list[ModEntry]:
@@ -723,7 +727,8 @@ class ModLibrary:
 
         # Validate every group before storing any part of this upload.
         pin = pin or self.current_pin()
-        reports = {key: self._check_group(group, pin) for key, group in groups.items()}
+        for group in groups.values():
+            self._check_group(group, pin, compatibility=False)
         added = AddResult()
         for key, group in groups.items():
             signature_ = self._identity(group)
@@ -741,14 +746,13 @@ class ModLibrary:
             known[signature_] = record["id"]
             entry = self._entry(record)
             added.append(entry)
-            added.compatibility[entry.id] = reports[key]
             if self._recognize_installed(entry.id, signature_):
                 added.installed.append(entry)
         if progress:
             progress(len(paths), len(paths), paths[-1].name if paths else "")
         return added
 
-    def _check_group(self, files: dict[str, Path], pin: Pin | None) -> dict:
+    def _check_group(self, files: dict[str, Path], pin: Pin | None, *, compatibility: bool = True) -> dict:
         selected, official, effective = integrity.Contents(), integrity.Contents(), integrity.Contents()
         sources = {name: integrity.inspect(path) for name, path in files.items()}
         core = core_of(next(iter(files)))
@@ -775,12 +779,17 @@ class ModLibrary:
         for target, contents in originals.items():
             if part_of(target.name) not in parts:
                 effective.merge(contents)
-        try:
-            source_atlases = self._remap_source_atlases(list(files.values()), selected.atlases, official.atlases,
-                                                       official_paths)
-        except atlas_remap.RemapError:
-            source_atlases = selected.atlases
-        selected.atlases = source_atlases
+        if compatibility:
+            try:
+                selected.atlases = self._remap_source_atlases(list(files.values()), selected.atlases, official.atlases,
+                                                             official_paths)
+            except atlas_remap.RemapError:
+                pass
+        else:
+            # Import validates dependencies only; absent text parts use the current official assets.
+            paired = atlas_remap.pair_atlases(selected.atlases, official.atlases)
+            selected.atlases = {**{name: data for name, data in official.atlases.items() if name not in paired},
+                               **selected.atlases}
         effective.merge(selected)
         missing = integrity.missing_parts(effective, official)
         if missing:
@@ -796,11 +805,14 @@ class ModLibrary:
                         names.update({name: path.name for name in contents.files})
                         names.update({name + ".png": path.name for name in contents.textures})
             raise ServiceError("mod_parts_missing", files=", ".join(sorted({names.get(name, name) for name in missing})))
+        if not compatibility:
+            return {}
         report = {"official": official.spine(), "mod": effective.spine(), "unavailable": unavailable,
                 "outdated": bool(targets) and set(files) != {path.name for path in targets
                     if part_of(path.name) in parts}}
         try:
-            report["atlasLayout"] = atlas_remap.layout_changes(effective.atlases, official.atlases)
+            report["atlasLayout"] = atlas_remap.layout_changes(effective.atlases, official.atlases,
+                                                               atlas_remap.skeleton_regions(effective.skeletons))
             report["remappable"] = bool(report["atlasLayout"]) and not unavailable and bool(
                 atlas_remap.pair_atlases(selected.atlases, official.atlases))
         except (ValueError, UnicodeError):
@@ -811,7 +823,10 @@ class ModLibrary:
     def compatibility(self, mod_id: str, pin: Pin | None = None) -> dict:
         """Fresh official and effective Spine data, without building or rewriting a mod."""
         record = self._record(mod_id)
-        return self._check_group({path.name: path for path in self._paths(record)}, pin or self.current_pin())
+        report = self._check_group({path.name: path for path in self._paths(record)}, pin or self.current_pin())
+        report["repaired_from"], report["repaired_id"] = record.get("repaired_from", ""), record.get("repaired_id", "")
+        report["remappable"] = report["remappable"] and not (report["repaired_from"] or report["repaired_id"])
+        return report
 
     def add_and_apply(self, paths: list[Path], progress: ProgressCallback | None = None,
                       pin: Pin | None = None, log: LogFunc = no_log) -> AddResult:
@@ -828,20 +843,27 @@ class ModLibrary:
                 (added.configured if result.deferred else added.applied).append(entry)
         return added
 
-    def _store(self, files: dict[str, Path], label: str, target: str, kind: str) -> dict[str, Any]:
+    def _store(self, files: dict[str, Path], label: str, target: str, kind: str,
+               *, repaired_from: str = "") -> dict[str, Any]:
         """Copy a mod's files into the library and record it; nothing is left behind on failure."""
         names = sorted(files)
         mod_id = uuid.uuid4().hex
         directory = self.root / "mods" / mod_id
         record = {"id": mod_id, "files": names, "label": label, "target": target,
                   "kind": kind, "added": datetime.now(timezone.utc).isoformat(), "seen": False}
+        if repaired_from:
+            record["repaired_from"] = repaired_from
         try:
             for name in names:
                 atomic_copy(files[name], directory / name)
             self._records[mod_id] = record
+            if repaired_from:
+                self._record(repaired_from)["repaired_id"] = mod_id
             self._save()
-        except OSError:
+        except Exception:
             self._records.pop(mod_id, None)
+            if repaired_from:
+                self._record(repaired_from).pop("repaired_id", None)
             shutil.rmtree(directory, ignore_errors=True)
             raise
         return record
@@ -3415,13 +3437,17 @@ class ModLibrary:
         return result
 
     @_serialized
-    @_mod_writer
     def remap(self, mod_id: str, log: LogFunc = no_log,
-              progress: ProgressCallback | None = None, pin: Pin | None = None) -> RemapResult:
-        """Create a separate mod with current official rig assets and repacked painted pages."""
+              progress: ProgressCallback | None = None, pin: Pin | None = None) -> dict:
+        """Prepare a review in temporary storage; only accept_remap can add it to the library."""
         pin = self._current(pin)
         record = self._record(mod_id)
+        if record.get("repaired_from") or record.get("repaired_id"):
+            raise ServiceError("entry_changed")
+        self._remap_previews = {token: preview for token, preview in self._remap_previews.items()
+                                if preview["expires"] > time.monotonic() and preview["source"] != mod_id}
         paths = self._paths(record)
+        identity = self._identity({path.name: path for path in paths})
         targets = self._spine_parts(core_of(paths[0].name), pin)
         if not targets:
             raise ServiceError("game_file_not_found", variant=record["target"])
@@ -3431,6 +3457,15 @@ class ModLibrary:
             try:
                 mod = atlas_remap.read_inputs(paths)
                 official = atlas_remap.read_inputs(list(originals.values()))
+
+                def overlay(selected, current) -> dict:
+                    paired = atlas_remap.pair_atlases(selected, current)
+                    return {**{name: data for name, data in current.items() if name not in paired}, **selected}
+
+                original_view = replace(mod, atlases=overlay(mod.atlases, official.atlases),
+                                        skeletons=overlay(mod.skeletons, official.skeletons),
+                                        textures={**official.textures, **mod.textures})
+                mod.skeletons = original_view.skeletons
                 mod.atlases = self._remap_source_atlases(paths, mod.atlases, official.atlases,
                                                         list(originals.values()))
                 patch, report = atlas_remap.prepare_patch(mod, official)
@@ -3439,6 +3474,8 @@ class ModLibrary:
             except (ValueError, KeyError, EOFError, OSError) as error:
                 raise ServiceError("atlas_remap_invalid", file=", ".join(path.name for path in paths),
                                    reason=str(error)) from error
+            if report["unchanged"]:
+                return {"unchanged": True, "report": report}
             generated = {}
             for i, (target, original) in enumerate(originals.items(), 1):
                 if progress:
@@ -3457,11 +3494,72 @@ class ModLibrary:
                 else:
                     atomic_copy(original, output / target.name)
                 generated[target.name] = output / target.name
-            # Compute the review before storing, so a failed comparison leaves no incomplete entry.
+            if identity != self._identity({path.name: path for path in paths}):
+                raise ServiceError("entry_changed")
             comparison = self._compare_paths(mod_id, list(generated.values()), paths)
-            stored = self._store(generated, t("webui.remap.name", name=record["label"]),
-                                 record["target"], record["kind"])
-        return RemapResult(self._entry(stored), report, replace(comparison, mod_id=stored["id"]))
+            repaired = atlas_remap.read_inputs(list(generated.values()))
+
+            def png(image) -> str | None:
+                if image is None:
+                    return None
+                stream = io.BytesIO()
+                image.save(stream, format="PNG")
+                return "data:image/png;base64," + base64.b64encode(stream.getvalue()).decode("ascii")
+
+            pages = [{"name": name, "original": png(original_view.textures.get(name)),
+                      "repaired": png(repaired.textures.get(name))}
+                     for name in sorted(original_view.textures.keys() | repaired.textures.keys())]
+
+            def scenes(inputs) -> list[dict]:
+                atlas_by_stem = {Path(name).stem.lower(): data for name, data in inputs.atlases.items()}
+                result = []
+                for name, data in inputs.skeletons.items():
+                    atlas = atlas_by_stem.get(Path(name).stem.lower())
+                    if atlas is None and len(inputs.atlases) == 1:
+                        atlas = next(iter(inputs.atlases.values()))
+                    if atlas is not None:
+                        result.append({"name": name, "json": data.decode("utf-8-sig", errors="replace").lstrip().startswith("{"),
+                                       "skeleton": base64.b64encode(data).decode("ascii"),
+                                       "atlas": atlas.decode("utf-8-sig")})
+                return result
+
+            drawings = {"original": scenes(original_view), "repaired": scenes(repaired)}
+            token = uuid.uuid4().hex
+            self._remap_previews[token] = {
+                "source": mod_id, "identity": identity,
+                "files": {name: path.read_bytes() for name, path in generated.items()},
+                "report": report, "compare": comparison, "expires": time.monotonic() + 3600,
+            }
+        return {"preview": token, "report": report, "compare": comparison.to_json(),
+                "pages": pages, "drawings": drawings}
+
+    @_serialized
+    @_mod_writer
+    def accept_remap(self, preview: str) -> RemapResult:
+        """Store the exact reviewed bytes once, recording both ends in the same state write."""
+        prepared = self._remap_previews.get(preview)
+        if prepared is None or prepared["expires"] <= time.monotonic():
+            self._remap_previews.pop(preview, None)
+            raise ServiceError("entry_changed")
+        record = self._record(prepared["source"])
+        if record.get("repaired_from") or record.get("repaired_id") or prepared["identity"] != self._identity(
+                {path.name: path for path in self._paths(record)}):
+            raise ServiceError("entry_changed")
+        with tempfile.TemporaryDirectory(prefix=devmode.LIBRARY_STAGING_PREFIX + "accept-") as temporary:
+            files = {}
+            for name, data in prepared["files"].items():
+                path = Path(temporary) / name
+                path.write_bytes(data)
+                files[name] = path
+            stored = self._store(files, record["label"], record["target"], record["kind"], repaired_from=record["id"])
+        self._remap_previews.pop(preview, None)
+        return RemapResult(self._entry(stored), prepared["report"],
+                           replace(prepared["compare"], mod_id=stored["id"]))
+
+    @_serialized
+    def discard_remap(self, preview: str) -> None:
+        """Drop the temporary review without changing any mod or game file."""
+        self._remap_previews.pop(preview, None)
 
     @_serialized
     def update(self, mod_id: str, log: LogFunc = no_log,

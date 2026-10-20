@@ -2,7 +2,6 @@
 import { rpc, waitJob } from "./api.js";
 import { T } from "./i18n.js";
 import { toast } from "./util.js";
-import * as Compatibility from "./mod-compatibility.js";
 import * as Loading from "./loading.js";
 import * as Popup from "./popup.js";
 
@@ -31,15 +30,6 @@ export async function add(paths = null, currentVariant = null) {
   if (added.length || installed.length) context.changed?.();
   const failures = new Map((report?.failed || []).map((failure) => [failure.id,
     T("add.applyFailed", { reason: T(`error.${failure.code}`, failure.params) })]));
-  for (const mod of added) {
-    const checked = report?.compatibility?.[mod.id];
-    if (checked && Compatibility.compare(checked).issues.length) await Compatibility.show(checked, { label: mod.label,
-      onUpdate: async () => {
-        await Loading.task(async (update) => waitJob(await rpc("actions.update", { mod: mod.id }), update));
-        context.changed?.();
-        await Compatibility.check(mod.id, mod.label);
-      }, onRemap: () => Compatibility.remap(mod.id, () => context.changed?.(), mod.label) });
-  }
   const installedIds = new Set(installed.map((m) => m.id));
   const visibleAdded = added.filter((mod) => !from || destination(mod) !== from || installedIds.has(mod.id) || failures.has(mod.id));
   if (visibleAdded.length < added.length) toast(T("add.done"));

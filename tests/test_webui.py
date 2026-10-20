@@ -1387,3 +1387,19 @@ def test_the_close_button_waits_only_for_a_writer_job(services, monkeypatch, tmp
     services.jobs.submit("library.adopt", lambda log, progress: gate.wait(5), writes="library")
     assert handlers["closing"]() is False
     gate.set()
+
+
+def test_original_and_repaired_versions_share_roster_and_band_counts(app, services, monkeypatch):
+    originals = [FakeMod("portrait", "hoshino"), FakeMod("lobby", "hoshino", kind="lobby")]
+    repaired = [FakeMod("portrait-fixed", "hoshino"), FakeMod("lobby-fixed", "hoshino", kind="lobby")]
+    for original, fixed in zip(originals, repaired):
+        original.repaired_id = fixed.id
+        fixed.repaired_from = original.id
+    for mods in (originals + repaired, repaired, originals):
+        monkeypatch.setattr(services.library, "mods", lambda: mods)
+        for method, params in (("roster.list", {}), ("family.get", {"key": "hoshino"})):
+            result = rpc(app, method, **params)["result"]
+            family = result["families"][0] if method == "roster.list" else result
+            variant = family["variants"][0]
+            assert variant["mods"] == 2
+            assert variant["modCounts"] == {"spr": 1, "lobby": 1}

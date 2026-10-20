@@ -197,7 +197,7 @@ def test_compatibility_reads_kept_official_skeleton_and_never_changes_sources(se
     before = entry.file.read_bytes()
     env.library.apply("test", f"mod:{entry.id}")
     report = env.library.compatibility(entry.id)
-    assert report == added.compatibility[entry.id]
+    assert added.compatibility == {}
     assert json.loads(base64.b64decode(report["official"]["skeletons"]["test_spr.skel"]["data"])) == data["official"]
     assert json.loads(base64.b64decode(report["mod"]["skeletons"]["test_spr.skel"]["data"])) == data["mod"]
     assert entry.file.read_bytes() == before
@@ -305,7 +305,7 @@ def test_adding_without_an_install_keeps_the_mod_and_reports_the_refused_switch(
     env.settings.set("game_resource_dir", "")
     report = env.library.add_and_apply([make_mod(env.original, env.tmp / "input")])
     assert len(report) == 1
-    assert report.compatibility[report[0].id]["unavailable"]
+    assert report.compatibility == {}
     assert report.failed[0]["code"] == "game_not_found"
 
 
@@ -324,3 +324,14 @@ def test_atlas_positions_rotations_and_trim_changes_offer_remapping(serialized):
     from ba_modding_toolkit.atlas_remap import layout_changes
     equivalent = old.replace("rotate: false", "rotate: 0")
     assert layout_changes({"test.atlas": old.encode()}, {"test.atlas": equivalent.encode()}) == []
+
+
+def test_import_validates_parts_without_running_compatibility(serialized, monkeypatch):
+    from ba_modding_toolkit import atlas_remap
+
+    env, register = serialized
+    source = register(make_mod(env.original, env.tmp / "input"))
+    monkeypatch.setattr(atlas_remap, "layout_changes", lambda *a, **kw: pytest.fail("import must not compare layouts"))
+    monkeypatch.setattr(integrity.Contents, "spine", lambda *a: pytest.fail("import must not build a compatibility report"))
+    report = env.library.add([source])
+    assert len(report) == 1 and not report.compatibility

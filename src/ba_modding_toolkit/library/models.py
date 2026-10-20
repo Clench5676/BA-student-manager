@@ -42,6 +42,8 @@ class ModEntry(JsonResult):
     date: str
     crc: str
     core: str = ""  # the lower-case core of its files (a lobby mod belongs to one lobby core)
+    repaired_from: str = ""
+    repaired_id: str = ""
 
 
 class AddResult(list[ModEntry]):

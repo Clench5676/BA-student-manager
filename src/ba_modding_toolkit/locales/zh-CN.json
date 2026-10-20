@@ -1331,7 +1331,7 @@
 		"compatibility": {
 			"more": "{names}、+{n}",
 			"check": "检查兼容性",
-			"matches": "已检查项目未发现差异",
+			"matches": "未发现绘制问题",
 			"unavailable": "缺少当前原版文件，对比不完整",
 			"outdated": "Bundle 来自其他游戏版本",
 			"skeletons": "骨骼名称不一致：{name}",
@@ -1350,7 +1350,8 @@
 			"crcHint": "CRC 修正仅调整校验值",
 			"atlasLayout": "{name}，图集布局不同",
 			"geometry": "{name}，附件或网格几何不同",
-			"rig": "{name}，骨骼结构不同"
+			"rig": "{name}，骨骼结构不同",
+			"regions": "缺少图集区域：{names}"
 		},
 		"remap": {
 			"action": "按当前版本重排贴图",
@@ -1361,7 +1362,16 @@
 			"dropped": "已移除区域：{names}",
 			"rig": "{name}，骨骼数据不同，附件或网格仍可能错位",
 			"version": "{name}，Spine 版本不同，需要转换骨骼",
-			"upscaled": "贴图已放大至 {w} × {h}"
+			"upscaled": "贴图已放大至 {w} × {h}",
+			"repaired": "已修复",
+			"go": "查看已修复 Mod",
+			"unneeded": "无需修复",
+			"accept": "接受",
+			"discard": "放弃",
+			"preview": "修复预览",
+			"original": "原始",
+			"after": "修复后",
+			"previewUnavailable": "预览不可用"
 		}
 	}
 }

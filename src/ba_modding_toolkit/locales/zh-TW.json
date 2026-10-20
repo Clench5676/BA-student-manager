@@ -1331,7 +1331,7 @@
 		"compatibility": {
 			"more": "{names}、+{n}",
 			"check": "檢查相容性",
-			"matches": "已檢查項目未發現差異",
+			"matches": "未發現繪製問題",
 			"unavailable": "缺少目前原版檔案，比對不完整",
 			"outdated": "Bundle 來自其他遊戲版本",
 			"skeletons": "骨架名稱不一致：{name}",
@@ -1350,7 +1350,8 @@
 			"crcHint": "CRC 修正僅調整校驗值",
 			"atlasLayout": "{name}，圖集配置不同",
 			"geometry": "{name}，附件或網格幾何不同",
-			"rig": "{name}，骨骼結構不同"
+			"rig": "{name}，骨骼結構不同",
+			"regions": "缺少圖集區域：{names}"
 		},
 		"remap": {
 			"action": "依目前版本重排貼圖",
@@ -1361,7 +1362,16 @@
 			"dropped": "已移除區域：{names}",
 			"rig": "{name}，骨骼資料不同，附件或網格仍可能錯位",
 			"version": "{name}，Spine 版本不同，需要轉換骨骼",
-			"upscaled": "貼圖已放大至 {w} × {h}"
+			"upscaled": "貼圖已放大至 {w} × {h}",
+			"repaired": "已修復",
+			"go": "查看已修復 Mod",
+			"unneeded": "無需修復",
+			"accept": "接受",
+			"discard": "捨棄",
+			"preview": "修復預覽",
+			"original": "原始",
+			"after": "修復後",
+			"previewUnavailable": "預覽不可用"
 		}
 	}
 }
