@@ -14,6 +14,7 @@ import { on, rpc } from "./api.js";
 import { T, setStrings } from "./i18n.js";
 import { neighbour, visit } from "./roster-order.js";
 import { renderNav, setTitle } from "./nav.js";
+import { confirmQuit, quitKey } from "./quit.js";
 import { $, fitStage, toast } from "./util.js";
 
 let info = null, rosterData = null, rosterStale = true;
@@ -68,6 +69,23 @@ function message(title, hint, actions = []) {
   }));
 }
 
+// the quit prompt (quit.js): the student list's back button and Escape on the list. In the app's window the quit
+// closes it; in browser mode the server stops once it has answered, and the page says so
+function askQuit() {
+  return confirmQuit({
+    message: Popup.message, rpc, T, toast, native: !!info?.native,
+    closed: () => {
+      $("stage").classList.add("closed");
+      message(T("app.closed"));
+    },
+  });
+}
+addEventListener("keydown", (ev) => {
+  if (!quitKey(ev, { byId: (id) => document.getElementById(id), covering: Loading.covering() })) return;
+  ev.preventDefault();
+  askQuit();
+});
+
 // without a game folder the game's UI cannot be drawn: plain buttons to find or choose one
 function noGame() {
   const setDir = async (path) => {
@@ -116,7 +134,7 @@ async function route() {
         Detail.hide();
         showScreen("roster");
         stepCards = null;
-        setTitle(T("top.students"), null);
+        setTitle(T("top.students"), askQuit);
       };
       const open = async (covered) => {
         const data = await roster();

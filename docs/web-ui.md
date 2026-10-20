@@ -845,6 +845,32 @@ ported.
   change of the screen, or behind the loading screen. A focused control of the screen (an arrow stepped with Enter)
   keeps the focus in the new screen.
 
+### Quit
+
+The student list quits the app as the PC client's back key does in the lobby (`quit.js`, its rules tested in Node from
+`tests/test_quit.py`).
+
+- **Where.** The top bar's round back button (`Common_Circle_Back_Btn` with `Common_Icon_Back`, as on the detail
+  screen) shows on the student list too, and Escape on the list does the same (decision 13). The detail screen's back
+  button still goes to the list.
+- **When Escape is left alone.** When another handler took the key (`defaultPrevented`: the search box, the display
+  settings), while an input method composes (`isComposing`, `keyCode` 229), for a held key's repeat or with a
+  modifier, while a popup host is open (`#consent`: the asset consent, scan consent and update popups; `#display`,
+  `#settings`, `#dialog`, `#prompt`, and the detail screen's `#popup` and `#picker`), behind the loading screen, and
+  on any screen but the list.
+- **The prompt.** The game's quit popup: title Notice (`quit.title`), line Quit? (`quit.ask`), Cancel and Confirm, on
+  the shared message popup. The PC client's own message popup (`UIPopup_System`) is not among the bundles the tool
+  reads (the prefab index of the 2026-10 resource version has no common message, notice or quit popup), so the
+  prompt is drawn on UIPopup_Sort's frame like the others. Escape, the backdrop and the close button cancel. Enter
+  and Space confirm while the prompt holds the focus: the PC client's key mapping (`PCKeyMappingSO`, its JSON backup
+  in the `keymapping` bundle) binds the confirm of `UIPopup_System` and `UIPopup_Sort` (`Btn_Ok`,
+  `UI_KeyMapping_Common_BtnOK01`) to Return with Space as its second key; their cancel's Escape binding is unused.
+  One prompt at a time.
+- **Confirm** calls `app.quit`. While a writer job runs it is refused with `busy` (a toast), as the window's close
+  button is. In the app's window the window closes. In browser mode (`--browser`) the server stops once it has
+  answered, and the page shows Closed (`app.closed`) alone, without the top bar and the navigation. With `--serve`
+  it is refused with `native_unavailable` (a toast).
+
 ### Portrait
 
 The detail screen frames the portrait like the game (`portrait-view.js`): the skeleton's origin sits on
