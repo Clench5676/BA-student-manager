@@ -36,7 +36,7 @@ PRUNE_WAIT = 120.0  # seconds the start scan waits for the library.prune job sub
 PROGRESS_PUBLISH = 0.25  # seconds between two mods.state events while a toggle reports its progress
 UPDATE_QUIT_WAIT = 3.0  # seconds for the native window to close for an update
 # the library's files and folders a library move takes along; the lock files are made again where needed
-LIBRARY_ITEMS = ("mods", "originals", "built", "state.json", "profiles.json", "profiles.json.prev",
+LIBRARY_ITEMS = ("mods", "originals", "built", "transactions", "state.json", "profiles.json", "profiles.json.prev",
                  "profiles.json.bad")
 
 

@@ -219,7 +219,7 @@ def check_resource_path(path: Path, resource_dirs: list[Path]) -> Path:
 
 @contextmanager
 def writable_game_files(paths: list[Path], resource_dirs: list[Path], *,
-                        game_folder: Path | None = None) -> Iterator[None]:
+                        game_folder: Path | None = None, allow_missing: bool = False) -> Iterator[None]:
     """Preflight destinations and hold POSIX advisory locks through replacement.
 
     With ``game_folder`` (the install the files belong to), Steam busy with that install refuses too.
@@ -236,6 +236,8 @@ def writable_game_files(paths: list[Path], resource_dirs: list[Path], *,
         for path in sorted(set(paths)):
             check_resource_path(path, resource_dirs)
             try:
+                if allow_missing and not path.exists() and path.parent.stat().st_mode & 0o222:
+                    continue  # a journaled rename may have left this destination absent
                 if not path.is_file() or not path.stat().st_mode & 0o222 or not path.parent.stat().st_mode & 0o222:
                     raise PermissionError(str(path))
                 if os.name == "nt":

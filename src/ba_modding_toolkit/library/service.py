@@ -45,7 +45,10 @@ from .models import (
 )
 from .profiles import Profiles
 from .safety import check_resource_path
-from .storage import Fingerprints, atomic_copy, atomic_json, read_tail, trailing_bytes
+from .storage import (
+    Fingerprints, atomic_clone, atomic_copy, atomic_json, read_tail, sync_directory, trailing_bytes,
+    verified_move, verify_file,
+)
 from .variants import adapt_variant_sources
 
 if TYPE_CHECKING:
@@ -88,7 +91,7 @@ def _mod_writer(method: Callable) -> Callable:
     def call(self: ModLibrary, *args: Any, **kwargs: Any) -> Any:
         if self._writing_mods:
             return method(self, *args, **kwargs)
-        with file_lock(self.root / "mods.lock"):
+        with self._transaction_lock(), file_lock(self.root / "mods.lock"):
             self._writing_mods = True
             try:
                 self._refresh_state()
@@ -504,6 +507,7 @@ class ModLibrary:
         self._lock = threading.RLock()
         self._hashes = Fingerprints()
         self._writing_mods = False
+        self._transacting = False
         self._records: dict[str, dict[str, Any]] = {}
         self._favorites: set[str] = set()
         self._applied: dict[str, dict[str, Any]] = {}
@@ -522,6 +526,7 @@ class ModLibrary:
         self._load()
         with self._lock:
             try:
+                self._recover_pending()
                 self._lookup_records()
                 self._known()
             except ServiceError as error:
@@ -578,6 +583,7 @@ class ModLibrary:
     def _refresh_state(self) -> None:
         """Take in what another instance sharing the library wrote to state.json since this one last read or wrote
         it (its size or date changed), keeping this instance's own changes not saved yet."""
+        self._recover_pending()
         if self._state_signature() == self._seen:
             return
         with file_lock(self.root / "state.json.lock"):
@@ -1254,14 +1260,22 @@ class ModLibrary:
                 return other
         raise ServiceError("original_unavailable", file=game_file)
 
-    def _keep_original(self, game_file: Path, pin: Pin) -> Path:
-        """Keep the official copy of a game file in originals/ before it is written; returns the copy it used."""
+    def _keep_original(self, game_file: Path, pin: Pin, *, moving: bool = False) -> Path:
+        """Keep verified official bytes, cloning where possible. A journaled write may move its own target;
+        backups and files of another install must remain available in their current locations."""
         official = self._official_for(game_file, pin)
         original = self._original_path(game_file)
         if official != original:
-            atomic_copy(official, original)
+            sha1 = self._hashes.get(official).sha1
+            if not atomic_clone(official, original):
+                if moving and official == game_file and not official.is_symlink():
+                    verified_move(official, original, sha1)
+                else:
+                    atomic_copy(official, original)
+            verify_file(original, sha1)
             if not self._is_official(original):
-                original.unlink()
+                if official.exists():
+                    original.unlink()
                 raise ServiceError("original_invalid", file=game_file)
         return official
 
@@ -1393,6 +1407,13 @@ class ModLibrary:
                 logger.info("Released the original of %s kept by a failed write", target.name)
 
     def _prune(self) -> list[Path]:
+        """Serialize deletion with writes that may still need an original for rollback."""
+        if any((self.root / "transactions").glob("*/journal.json")):
+            return []
+        with self._transaction_lock():
+            return self._prune_originals()
+
+    def _prune_originals(self) -> list[Path]:
         """Delete the kept originals no longer needed, over every known install, from names, stats and records only
         (no game file's contents are read): an original whose name is present is released once every file of that
         name is unchanged since the library wrote official bytes there; an original whose name is gone from every
@@ -1700,20 +1721,111 @@ class ModLibrary:
         outcome; bulk operations prune once at their end."""
         pin = self._current(pin)
         try:
-            return self._write(replacements, source, log, progress, pin, build_keys)
+            with self._transaction_lock():
+                return self._write(replacements, source, log, progress, pin, build_keys)
         finally:
             if prune:
                 self._prune_quietly()
 
     @contextlib.contextmanager
-    def _writable(self, paths: list[Path], pin: Pin) -> Iterator[None]:
+    def _writable(self, paths: list[Path], pin: Pin, *, recovering: bool = False) -> Iterator[None]:
         """The checks right before game files are written: the game not running, Steam not updating or verifying the
         install, the files inside its resource folders and lockable, and the caller's own check (write_check)."""
         if self._write_check is not None:
             self._write_check(pin)
         self._check_idle([pin])
-        with safety.writable_game_files(paths, list(pin.dirs)):
+        with safety.writable_game_files(paths, list(pin.dirs), allow_missing=recovering):
             yield
+
+    @contextlib.contextmanager
+    def _transaction_lock(self) -> Iterator[None]:
+        """Lock before mods, state and profiles; nested writes already hold this process lock."""
+        if self._transacting:
+            yield
+            return
+        with file_lock(self.root / "transactions.lock", timeout=10):
+            self._transacting = True
+            try:
+                self._refresh_state()
+                self._recover_transactions()
+                yield
+            finally:
+                self._transacting = False
+
+    def _recover_pending(self) -> None:
+        """Recover before indexing game files, including one moved away just before a crash."""
+        if not self._transacting and any((self.root / "transactions").glob("*/journal.json")):
+            with self._transaction_lock():
+                pass
+
+    def _recover_transactions(self) -> None:
+        for path in sorted((self.root / "transactions").glob("*/journal.json")):
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+                if data["version"] != 1 or data["phase"] not in ("preparing", "writing", "committed") \
+                        or not path.resolve().is_relative_to(self.root / "transactions"):
+                    raise ValueError("Invalid write journal")
+                if data["phase"] == "committed":
+                    shutil.rmtree(path.parent)
+                    continue
+                info = data["pin"]
+                pin = self._pin(Path(info["root"]), info["server"])
+                if pin is None or pin.key != info["key"] or list(map(str, pin.dirs)) != info["dirs"]:
+                    raise ServiceError("folder_changed")
+                targets = []
+                for i, item in enumerate(data["files"]):
+                    target, backup = Path(item["target"]), self.root / item["rollback"]
+                    check_resource_path(target, list(pin.dirs))
+                    expected = self._original_path(target) if item["official"] else path.parent / f"{i}.bundle"
+                    if backup != expected or not backup.resolve().is_relative_to(self.root):
+                        raise ValueError("Invalid rollback path")
+                    if item["restore"] and self.root / item["restore"] != self._original_path(target):
+                        raise ValueError("Invalid original path")
+                    targets.append(target)
+                with self._writable(targets, pin, recovering=True):
+                    self._rollback_write(data)
+                self._release_failed([Path(item["target"]) for item in data["files"] if item["kept_now"]], pin)
+                self._drop_mods(data["kept"])
+                shutil.rmtree(path.parent)
+                logger.info("Recovered interrupted library write %s", path.parent.name)
+            except (ValueError, TypeError, KeyError) as error:
+                raise ServiceError("library_io_error", file=path) from error
+
+    def _rollback_write(self, data: dict) -> None:
+        """Return consumed originals before restoring mods. Repeating any completed step is safe."""
+        for item in reversed(data["files"]):
+            target = Path(item["target"])
+            current = self._hashes.get(target).sha1 if target.exists() else None
+            original = self.root / item["restore"] if item["restore"] else None
+            if original is not None and not original.exists():
+                if current != item["after"]:
+                    raise ServiceError("original_unavailable", file=target)
+                verified_move(target, original, item["after"])
+                current = None
+            if current == item["before"]:
+                continue
+            if current not in (None, item["after"]):
+                raise ServiceError("entry_changed", core=core_of(target.name))
+            backup = self.root / item["rollback"]
+            verify_file(backup, item["before"])
+            if item["official"] and item["kept_now"] and not self._needed_elsewhere(
+                    target.name, {str(target.resolve())}, self._all_pins()):
+                verified_move(backup, target, item["before"])
+            elif not atomic_clone(backup, target):
+                atomic_copy(backup, target)
+            verify_file(target, item["before"])
+        # A failed state flush may already have published the new file. Merge it before undoing its records.
+        self._refresh_state()
+        for item in data["files"]:
+            key = item["target"]
+            old = data["old_applied"].get(key)
+            if old is None:
+                self._applied.pop(key, None)
+            else:
+                # A rollback copy has a new date, even though its bytes are unchanged.
+                self._applied[key] = {**old, "mtime": Path(key).stat().st_mtime_ns}
+        if self._applied != self._base[2]:
+            self._save()
 
     def _write(self, replacements: dict[Path, Path], source: str, log: LogFunc,
                progress: ProgressCallback | None, pin: Pin, build_keys: dict[Path, str] | None = None) -> list[Path]:
@@ -1724,19 +1836,21 @@ class ModLibrary:
                 raise ServiceError("bundle_invalid", file=prepared)
         changed = {target: prepared for target, prepared in replacements.items()
                    if self._hashes.get(target).sha1 != self._hashes.get(prepared).sha1}
+        fingerprints = {target: self._hashes.get(prepared) for target, prepared in replacements.items()}
+        tails = {target: read_tail(prepared) if fingerprints[target].trailing else None
+                 for target, prepared in replacements.items()}
         old_applied = dict(self._applied)
         stamp = now()
 
         def records() -> dict[str, dict[str, Any]]:
             out = {}
-            for target, prepared in replacements.items():
-                fingerprint = self._hashes.get(prepared)
+            for target in replacements:
+                fingerprint = fingerprints[target]
                 stat = target.stat()
-                tail = read_tail(prepared) if fingerprint.trailing else None
                 record = {"source": source, "sha1": fingerprint.sha1, "size": stat.st_size,
                           "mtime": stat.st_mtime_ns,
                           "official": self._official_sha1(target, pin) == fingerprint.sha1,
-                          "at": stamp, "tail": tail,
+                          "at": stamp, "tail": tails[target],
                           "crc": crc_state(fingerprint.crc, fingerprint.trailing, target.name)}
                 if build_keys and target in build_keys:
                     record["build"] = build_keys[target]
@@ -1761,27 +1875,60 @@ class ModLibrary:
         kept_now: list[Path] = []  # originals this call kept from the game file itself
         kept: list[str] = []
         restored = True
+        journal: Path | None = None
+        transaction: dict | None = None
+        saving_state = False
         try:
-            with self._writable(list(changed), pin), tempfile.TemporaryDirectory() as temporary:
-                for target in changed:
-                    existed = self._original_path(target).exists()
-                    if self._keep_original(target, pin) == target and not existed:
-                        kept_now.append(target)
+            with self._writable(list(changed), pin):
+                officials = {target: self._official_for(target, pin) for target in changed}
                 kept = self._keep_replaced(list(changed), pin)
-                rollback = {}
+                directory = self.root / "transactions" / uuid.uuid4().hex
+                directory.mkdir(parents=True)
+                sync_directory(self.root)
+                sync_directory(directory.parent)
+                journal = directory / "journal.json"
+                items = []
+                pins = self._all_pins()
                 for i, target in enumerate(changed):
                     original = self._original_path(target)
-                    if original.exists() and self._hashes.get(original).sha1 == self._hashes.get(target).sha1:
-                        rollback[target] = original  # an official file: rolled back from its kept copy
-                        continue
-                    backup = Path(temporary) / str(i)
-                    shutil.copyfile(target, backup)
-                    rollback[target] = backup
-                saving_state = False
+                    official = self._hashes.get(officials[target]).sha1 == self._hashes.get(target).sha1
+                    new_original = officials[target] == target and not original.exists()
+                    if new_original:
+                        kept_now.append(target)
+                    restore = source == "official" and changed[target] == original and not self._needed_elsewhere(
+                        target.name, {str(target.resolve())}, pins)
+                    backup = original if official else directory / f"{i}.bundle"
+                    items.append({"target": str(target.resolve()), "before": self._hashes.get(target).sha1,
+                                  "after": fingerprints[target].sha1, "official": official,
+                                  "rollback": str(backup.relative_to(self.root)),
+                                  "kept_now": new_original,
+                                  "restore": str(original.relative_to(self.root)) if restore else None})
+                transaction = {"version": 1, "phase": "preparing",
+                               "pin": {"key": pin.key, "root": str(pin.root), "dirs": list(map(str, pin.dirs)),
+                                       "server": pin.server}, "files": items, "kept": kept,
+                               "old_applied": {item["target"]: old_applied.get(item["target"]) for item in items}}
+                atomic_json(journal, transaction)
                 try:
+                    for item, target in zip(items, changed):
+                        self._keep_original(target, pin, moving=True)
+                        if not item["official"]:
+                            backup = self.root / item["rollback"]
+                            if not atomic_clone(target, backup):
+                                atomic_copy(target, backup)
+                            verify_file(backup, item["before"])
+                    transaction["phase"] = "writing"
+                    atomic_json(journal, transaction)
                     for i, (target, prepared) in enumerate(changed.items(), 1):
                         check_resource_path(target, dirs)
-                        atomic_copy(prepared, target)
+                        if source == "official" and prepared == self._original_path(target):
+                            if not atomic_clone(prepared, target):
+                                if items[i - 1]["restore"]:
+                                    verified_move(prepared, target, fingerprints[target].sha1)
+                                else:
+                                    atomic_copy(prepared, target)  # another install still needs this original
+                        else:
+                            atomic_copy(prepared, target)
+                        verify_file(target, fingerprints[target].sha1)
                         written.append(target)
                         log(f"Installed {target.name}")
                         if progress:
@@ -1791,22 +1938,29 @@ class ModLibrary:
                     self._save()
                 except Exception as error:
                     self._applied = old_applied
-                    for target in reversed(written):
-                        try:
-                            atomic_copy(rollback[target], target)
-                        except OSError:
-                            restored = False
-                            logger.exception("Could not roll back game file %s", target)
+                    try:
+                        self._rollback_write(transaction)
+                    except Exception:
+                        restored = False
+                        logger.exception("Could not roll back library write %s", journal)
                     if isinstance(error, OSError):
                         code = "library_io_error" if saving_state else "game_file_locked"
                         raise ServiceError(code, file=error.filename) from error
                     raise
+                # An uncertain commit marker stays for recovery to decide, before any originals are released.
+                restored = False
+                transaction["phase"] = "committed"
+                atomic_json(journal, transaction)
         except Exception:
             if restored:
                 # what they kept is in the game again; a part left half written keeps them
                 self._drop_mods(kept)
                 self._release_failed(kept_now, pin)
+                if journal is not None:
+                    shutil.rmtree(journal.parent)
             raise
+        if journal is not None:
+            shutil.rmtree(journal.parent)
         return written
 
     def _stage_adapted(self, sources: list[Path], targets: list[Path], directory: Path,
