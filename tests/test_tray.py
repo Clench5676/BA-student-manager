@@ -364,6 +364,7 @@ def run_window(monkeypatch, tmp_path, supported):
     from types import SimpleNamespace
 
     from ba_modding_toolkit.webui import main
+    from ba_modding_toolkit.webui.timing import Timings
 
     window = SimpleNamespace(events=SimpleNamespace(initialized=Hook(), loaded=Hook(), closing=Hook(), closed=Hook()))
     started, closed = {}, []
@@ -372,6 +373,7 @@ def run_window(monkeypatch, tmp_path, supported):
     monkeypatch.setattr(Tray, "supported", staticmethod(lambda platform=sys.platform: supported))
     monkeypatch.setattr(Tray, "close", lambda self: closed.append(self))
     services = FakeServices()
+    services.timings = Timings()
     services.window, services.data_dir, services.tray_supported = None, tmp_path, None
     try:
         main._run_window(services, SimpleNamespace(url="http://127.0.0.1:1/"), False)

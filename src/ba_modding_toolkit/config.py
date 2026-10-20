@@ -155,9 +155,23 @@ class Settings:
                 except (OSError, toml.TomlDecodeError):
                     data = {}
             values, known = {}, set()
+            detected: dict[str, str] = {}
+
+            def detect(region: str) -> str:
+                if region not in detected:
+                    detected[region] = get_BA_path(region) or ""
+                return detected[region]
+
             for key, f in FIELDS.items():
                 group = data.get(f.group, {})
-                values[key] = _coerce(key, group[key]) if key in group else _default(key)
+                if key in group:
+                    values[key] = _coerce(key, group[key])
+                elif key == "file_source":
+                    values[key] = "windows_global" if detect("global") else "windows_japan" if detect("japan") else "windows_global"
+                elif key in ("game_resource_dir", "game_resource_dir_japan"):
+                    values[key] = detect("japan" if key.endswith("japan") else "global")
+                else:
+                    values[key] = _default(key)
                 known.add((f.group, key))
             extra: dict[str, dict] = {}
             for group, entries in data.items():

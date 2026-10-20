@@ -254,6 +254,7 @@ function rows({ builtSize = null, sizeError = null } = {}) {
       [T("settings.cache.change"), browse("cacheDir", p.cacheDir), p.native],
       [T("settings.cache.clear"), async () => { if (await call(() => rpc("settings.clearCache")) !== null) toast(T("settings.cache.cleared")); }, !!p.consent]]));
     add(valueRow("Version", 0, T("settings.version"), (p.version || "").replace(/-dev$/, ""), [[T("settings.update.check"), checkUpdate, !checkingUpdate]]));
+    add(radioRow("StartupUpdate", 0, T("settings.update.startup"), ON_OFF(), p.startupUpdate !== false, (v) => set("startupUpdate", v)));
     add(valueRow("Log", 0, T("settings.log.label"), p.logPath, [
       [T("settings.log.open"), openLog], [open, reveal(p.logPath)]]));
     add(valueRow("Classic", 0, T("settings.classic.label"), T("settings.classic.hint"), [[T("settings.classic.open"), () => call(() => rpc("app.openClassic", { tab: "settings" }))]]));
@@ -278,6 +279,7 @@ function rows({ builtSize = null, sizeError = null } = {}) {
       if (value) ModSwitch.askScan().then(() => render());
       else call(() => rpc("mods.consent", { granted: false })).then(() => ModSwitch.refresh()).then(() => render());
     }));
+    add(radioRow("StartupChecks", 0, T("settings.mods.startup"), ON_OFF(), p.startupChecks !== false, (v) => set("startupChecks", v)));
     // the tray or menu bar icon, only in the app window where the system has one
     if (p.native && p.traySupported) {
       add(radioRow("Tray", 0, T(platform === "mac" ? "settings.mods.tray.mac" : "settings.mods.tray.win"), ON_OFF(), !!p.tray, (value) => set("tray", value)));

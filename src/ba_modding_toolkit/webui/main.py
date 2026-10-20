@@ -6,6 +6,7 @@ import argparse
 import logging
 import sys
 import threading
+import time
 import webbrowser
 from pathlib import Path
 
@@ -25,14 +26,15 @@ CONFIG_POLL_SECONDS = 2.0
 
 def build(port: int = 0, services: Services | None = None, token: str | None = None) -> tuple[Services, Server]:
     s = services or Services()
-    lang = s.settings.get("language")
-    if lang and lang != i18n_manager.lang:
-        i18n_manager.set_language(lang)  # the language chosen in either GUI
-    app = WebApp(build_api(s), s.events, assets=s.asset, consent=lambda: s.state.consent, token=token,
-                 classic=s.classic.wsgi, raise_window=s.raise_window)
-    s.log_secrets.update((app.token, app.raise_token))
-    server = Server(app, port)
-    s.origin = f"http://127.0.0.1:{server.port}"  # the classic window's channel
+    with s.timings.measure("server.build"):
+        lang = s.settings.get("language")
+        if lang and lang != i18n_manager.lang:
+            i18n_manager.set_language(lang)  # the language chosen in either GUI
+        app = WebApp(build_api(s), s.events, assets=s.asset, consent=lambda: s.state.consent, token=token,
+                     classic=s.classic.wsgi, raise_window=s.raise_window)
+        s.log_secrets.update((app.token, app.raise_token))
+        server = Server(app, port)
+        s.origin = f"http://127.0.0.1:{server.port}"  # the classic window's channel
     return s, server
 
 
@@ -102,11 +104,14 @@ def _run(args: argparse.Namespace, instance: InstanceLock) -> None:
     handler = logging.FileHandler(s.log_path, mode="w", encoding="utf-8")
     handler.setFormatter(RedactingFormatter(s.log_secrets))
     logging.getLogger().addHandler(handler)
+    for phase, value in s.timings.snapshot().items():
+        logger.info("Timing %s: %.3f s (%s calls before log opened)", phase, value["seconds"], value["count"])
     s.mute = args.mute
     s.debug = args.debug
     if args.debug:
         _trace_to_file(s.data_dir / "input-trace.log")
-    server.start()
+    with s.timings.measure("server.start"):
+        server.start()
     instance.publish(server.port, server.app.raise_token)
     stop = threading.Event()
     if args.browser:
@@ -135,7 +140,8 @@ def _run(args: argparse.Namespace, instance: InstanceLock) -> None:
 
 
 def _run_window(s: Services, server: Server, debug: bool) -> None:
-    import webview
+    with s.timings.measure("native.import"):
+        import webview
 
     from .native import WEBVIEW2_URL, renderer_supported, watch_drops
     from .tray import Tray
@@ -143,8 +149,9 @@ def _run_window(s: Services, server: Server, debug: bool) -> None:
     # text_select stays True: with False (pywebview's default) pywebview appends "body { user-select: none; cursor:
     # default }" to the page, which replaces the game's pointer with the system arrow on everything but the buttons.
     # The page turns off text selection itself (app.css).
-    window = webview.create_window(t("ui.app_title"), server.url, width=1600, height=900, min_size=(960, 540),
-                                   background_color="#0d2a4c", text_select=True)
+    with s.timings.measure("native.create-window"):
+        window = webview.create_window(t("ui.app_title"), server.url, width=1600, height=900, min_size=(960, 540),
+                                       background_color="#000000", text_select=True)
     s.window = window
     # the tray or menu bar icon, shown while the preference "tray" is on; it goes with the window (decision 7)
     tray = Tray(s) if Tray.supported() else None
@@ -153,12 +160,14 @@ def _run_window(s: Services, server: Server, debug: bool) -> None:
         tray.attach()
 
     def on_initialized(renderer: str) -> bool:
+        s.timings.record("native.initialize", time.perf_counter() - native_started)
         if renderer_supported(renderer):
             return True
         logger.error("unsupported web renderer %s; install WebView2 from %s", renderer, WEBVIEW2_URL)
         return False
 
     def on_loaded() -> None:
+        s.timings.record("native.document", time.perf_counter() - native_started)
         try:
             watch_drops(window, lambda paths: s.events.publish("drop", {"paths": paths}))
         except Exception:
@@ -177,6 +186,7 @@ def _run_window(s: Services, server: Server, debug: bool) -> None:
     storage = s.data_dir / "webview"  # never next to the program in a compiled build: data_dir follows EXE_DIR rules
     try:
         # the tray starts on a thread of its own once the GUI loop runs
+        native_started = time.perf_counter()
         webview.start(func=tray.start if tray is not None else None, args=(window,) if tray is not None else None,
                       debug=debug, private_mode=True, storage_path=str(storage))
     finally:

@@ -221,7 +221,8 @@ def test_a_copied_data_directory_gets_its_own_id_and_a_moved_one_keeps_it(tmp_pa
 def test_the_switch_flags_and_the_scan_consent_have_their_defaults(tmp_path):
     state = UiState(tmp_path / "webui.json")
     assert {key: state.flag(key) for key in FLAGS} == {"mod_switch_shown": True, "tray": False,
-                                                        "classic_prompt": True, "mods_explained": False}
+                                                        "classic_prompt": True, "mods_explained": False,
+                                                        "startup_checks": True, "startup_update": True}
     assert state.scan_consent is None
     state.set("scan_consent", False)
     state.set("tray", "yes")  # not a boolean: the default

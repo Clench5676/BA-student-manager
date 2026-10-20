@@ -47,6 +47,7 @@ export function textWidth(str, fs) {
 
 let index = null, textures = null, initDone = null;
 export const atlasIndex = () => index || {};
+export const textureIndex = () => textures || {};
 let atlasDone = null, texturesDone = null;
 const images = new Map(), tints = new Map();
 
@@ -252,7 +253,7 @@ export async function render(tree, host, opts = {}) {
         // wait. One that comes in after the first frames fades in instead of popping.
         const t0 = performance.now();
         Object.assign(pic.style, { opacity: "0", transition: "opacity .25s ease" });
-        const done = Promise.resolve(src).then((u) => (u && w.tint ? tinted(u, w.tint) : u)).then((u) => {
+        const done = withTimeout(Promise.resolve(src), 15000, `UI picture ${p}`).then((u) => (u && w.tint ? tinted(u, w.tint) : u)).then((u) => {
           if (!u) return;
           pic.style.backgroundImage = `url("${u}")`;
           if (performance.now() - t0 < 50) pic.style.transition = "none";
@@ -322,7 +323,7 @@ export async function render(tree, host, opts = {}) {
       const override = pick(opts.textures, n.name, p) ?? opts.textureNames?.[w.texture];
       const src = override || (opts.deferImages ? textureReady.then(() => textures?.[w.texture]) : textures?.[w.texture]) || null;
       if (!src) return null;
-      const done = Promise.resolve(src).then((u) => (!u || override ? u : tinted(u, col.hex)))
+      const done = withTimeout(Promise.resolve(src), 15000, `UI picture ${p}`).then((u) => (!u || override ? u : tinted(u, col.hex)))
         .then((url) => (!url || url.startsWith("data:image/svg") ? url : downscaled(url, ww * S, hh * S))).then((url) => {
           if (url) Object.assign(el.style, { backgroundImage: `url("${url}")`, backgroundSize: "100% 100%", backgroundRepeat: "no-repeat" });
         }).catch((err) => failed(p, err));
@@ -386,7 +387,8 @@ export const rect = (el) => ["left", "top", "width", "height"].map((k) => parseF
 export function decoded(root, cap, shown = null) {
   const onScreen = shown?.isConnected && shown.getClientRects().length ? imageUrls(shown.querySelectorAll("*")) : [];
   const skip = new Set(onScreen);
-  const urls = imageUrls([root, ...root.querySelectorAll("*")]).filter((url) => !skip.has(url));
+  const elements = Array.isArray(root) ? root : [root, ...root.querySelectorAll("*")];
+  const urls = imageUrls(elements).filter((url) => !skip.has(url));
   const decode = (url) => { const img = new Image(); img.src = url; return img.decode(); };
   return decodeAll(urls, decode, cap);
 }

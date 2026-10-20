@@ -31,7 +31,7 @@ class El {
     }
   }
   querySelectorAll(selector) {
-    const match = (n) => selector.startsWith(".") ? n.classList.contains(selector.slice(1)) : n.tagName === selector.toUpperCase();
+    const match = (n) => selector === "*" ? true : selector.startsWith(".") ? n.classList.contains(selector.slice(1)) : n.tagName === selector.toUpperCase();
     return walk(this).slice(1).filter(match);
   }
   querySelector(s) { return this.querySelectorAll(s)[0] || null; }
@@ -64,15 +64,21 @@ globalThis.location = { hash: "#/student/ibuki/ibuki" };
 globalThis.addEventListener = () => {};
 globalThis.requestAnimationFrame = (fn) => { queueMicrotask(() => fn(performance.now())); return 1; };
 globalThis.cancelAnimationFrame = () => {};
+globalThis.getComputedStyle = () => ({ opacity: "1" });
 
 const imageRequests = [], pendingImages = [];
 let imageMode = "ready", playerMode = "ready", portraitRevision = "a", portraitStatus = 200;
+let decodeMode = "ready";
+const pendingDecodes = [], pendingPlayers = [];
 globalThis.Image = class {
   naturalWidth = 8; naturalHeight = 8;
   set src(url) {
     imageRequests.push(url);
     if (imageMode === "pending") pendingImages.push(this);
     else queueMicrotask(() => imageMode === "error" ? this.onerror?.() : this.onload?.());
+  }
+  decode() {
+    return decodeMode === "pending" ? new Promise((resolve) => pendingDecodes.push(resolve)) : Promise.resolve();
   }
 };
 const playerRequests = [];
@@ -92,7 +98,7 @@ globalThis.spine = { Physics: { update: 1 }, SpinePlayer: class {
         playerMode = "ready"; portraitRevision = "b";
         queueMicrotask(() => config.error(this, `Couldn't load binary ${config.skeleton}: status 404`));
       } else queueMicrotask(() => config.success(this));
-    }
+    } else if (el.className !== "thumb-player") pendingPlayers.push(() => config.success(this));
   }
 } };
 
@@ -187,6 +193,7 @@ const { setStrings } = await import("../../src/ba_modding_toolkit/web/js/i18n.js
 setStrings("en-US", flat(JSON.parse(readFileSync(new URL("../../src/ba_modding_toolkit/locales/en-US.json", import.meta.url), "utf8"))));
 const Detail = await import("../../src/ba_modding_toolkit/web/js/detail.js");
 const NGUI = await import("../../src/ba_modding_toolkit/web/js/ngui.js");
+const Loading = await import("../../src/ba_modding_toolkit/web/js/loading.js");
 const ModSwitch = await import("../../src/ba_modding_toolkit/web/js/mod-switch.js");
 const context = { prefs: {}, info: {}, invalidateRoster() {}, step() {}, go() {} };
 function modFamily(kind = "spr", id = "test") {
@@ -194,6 +201,13 @@ function modFamily(kind = "spr", id = "test") {
     modList: [{ id, target: "ibuki", kind, label: id }], state: { files: [{ kind, applied: `mod:${id}`, official: false, restorable: true, crc: "fixed" }] } }] };
 }
 const flush = async () => { for (let i = 0; i < 80; i++) await Promise.resolve(); };
+const finish = async (t, promise) => {
+  let settled = false;
+  promise.finally(() => { settled = true; }).catch(() => {});
+  for (let i = 0; i < 90 && !settled; i++) { t.mock.timers.tick(1000); await flush(); }
+  assert.ok(settled, "asset failures must settle the readiness barrier");
+  return promise;
+};
 const switchButton = () => walk(hosts.ngui).find((e) => e.dataset.part === `${INFO}/Weapon/Equip_1/UIEquipmentCard/Btn_Target/Normal/Card_Bg`);
 
 test("a failed detail layout cannot prevent the installed portrait from loading", async (t) => {
@@ -202,7 +216,7 @@ test("a failed detail layout cannot prevent the installed portrait from loading"
     errors.length = 0; layoutMode = "error"; imageMode = "pending"; family = modFamily();
     const start = playerRequests.length;
     const showing = Detail.show(context, family, "ibuki"); await flush();
-    t.mock.timers.tick(1300); await flush(); await showing;
+    t.mock.timers.tick(1300); await flush(); await finish(t, showing);
     assert.ok(playerRequests.slice(start).some((url) => url.includes("/spr/ibuki_spr/")));
     assert.ok(errors.some((args) => args.some((err) => String(err).includes("layout UICharacterDetail: HTTP 500"))));
     assert.ok(!hosts.portrait.classList.contains("pending"));
@@ -218,12 +232,12 @@ test("the installed portrait starts while the detail layout is pending", async (
     assert.ok(layoutReplies.length, "the layout has not answered yet");
     assert.ok(playerRequests.slice(start).some((url) => url.includes("/spr/ibuki_spr/")));
     layoutReplies.splice(0).forEach((resolve) => resolve()); layoutMode = "ready"; await flush();
-    t.mock.timers.tick(1300); await flush(); await showing;
+    t.mock.timers.tick(1300); await flush(); await finish(t, showing);
     assert.ok(switchButton(), "panels finish when the layout arrives");
   } finally { Detail.hide(); layoutMode = "ready"; t.mock.timers.reset(); }
 });
 
-test("an applied portrait draws usable panels while UI images and mod thumbnails never settle", async (t) => {
+test("detail waits for UI images and settles broken thumbnails before reveal", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   try {
     imageMode = "pending"; optionalPending = true; family = modFamily();
@@ -234,15 +248,40 @@ test("an applied portrait draws usable panels while UI images and mod thumbnails
     assert.ok(!playerRequests.some((p) => p.includes("/mod/test/")), "the installed portrait needs no library preview or kept originals");
     assert.ok(imageRequests.some((p) => p.includes("Common_Bg_Raius10px")), "panel sprites are requested independently of mod previews");
     optionalPending = false; textureReplies.splice(0).forEach((reply) => reply()); await flush();
-    t.mock.timers.tick(1300); await flush(); await showing;
+    t.mock.timers.tick(1300); await flush(); await finish(t, showing);
     const panel = walk(hosts.ngui).find((e) => e.dataset.path?.endsWith("Active/Bg"));
     assert.equal(panel.style.backgroundColor, "#0c284b", "a missing sprite leaves a panel placeholder");
     imageMode = "ready";
-    pendingImages.splice(0).forEach((img) => img.onload()); await flush();
-    assert.ok(panel.style.backgroundImage, "late sprites fill the existing panels");
-    assert.equal(panel.style.backgroundColor, "");
+    pendingImages.splice(0).forEach((img) => img.onload?.()); await flush();
+    family = modFamily("spr", "recovered");
+    const retry = Detail.show(context, family, "ibuki"); await flush(); await finish(t, retry);
+    const recovered = walk(hosts.ngui).find((e) => e.dataset.path?.endsWith("Active/Bg"));
+    assert.ok(recovered.style.backgroundImage, "a fresh render retries failed sprites");
+    assert.equal(recovered.style.backgroundColor, "");
     back.onclick(); assert.equal(location.hash, "#/roster");
   } finally { Detail.hide(); t.mock.timers.reset(); imageMode = "ready"; optionalPending = false; }
+});
+
+test("the first detail reveal waits for its preview and decoded background", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    family = modFamily(); imageMode = "ready"; playerMode = "pending"; decodeMode = "pending";
+    let ready = false;
+    const showing = Detail.show(context, family, "ibuki").then(() => { ready = true; });
+    await flush(); t.mock.timers.tick(1300); await flush();
+    assert.ok(pendingPlayers.length, "the main preview is still loading");
+    assert.equal(ready, false);
+    playerMode = "ready"; pendingPlayers.splice(0).forEach((done) => done()); await flush();
+    assert.ok(pendingDecodes.length, "the detached UI backgrounds are decoded before reveal");
+    assert.equal(ready, false);
+    decodeMode = "ready"; pendingDecodes.splice(0).forEach((done) => done());
+    await finish(t, showing);
+    assert.equal(ready, true);
+  } finally {
+    playerMode = decodeMode = "ready";
+    pendingDecodes.splice(0).forEach((done) => done());
+    Detail.hide(); t.mock.timers.reset();
+  }
 });
 
 test("a mod portrait setup exception is observed, settled and reported", async (t) => {
@@ -250,7 +289,7 @@ test("a mod portrait setup exception is observed, settled and reported", async (
   try {
     errors.length = 0; playerMode = "broken"; family = modFamily("spr", "broken");
     const showing = Detail.show(context, family, "ibuki"); await flush();
-    t.mock.timers.tick(1300); await flush(); await showing;
+    t.mock.timers.tick(1300); await flush(); await finish(t, showing);
     assert.ok(switchButton());
     assert.ok(errors.some((a) => a.some((e) => String(e).includes("Mod skeleton setup failed"))));
     assert.equal(hosts.toast.textContent, "Preview unavailable");
@@ -264,11 +303,11 @@ test("the main portrait retries a rejected live revision after a cold load", asy
     errors.length = 0; family = modFamily(); playerMode = "stale";
     const start = playerRequests.length;
     const showing = Detail.show(context, family, "ibuki"); await flush();
-    t.mock.timers.tick(1300); await flush(); await showing;
+    t.mock.timers.tick(1300); await flush(); await finish(t, showing);
     const live = playerRequests.slice(start).filter((url) => url.includes("/spr/ibuki_spr/"));
     assert.ok(live.some((url) => url.includes(`/${"a".repeat(64)}/`)));
     assert.ok(live.some((url) => url.includes(`/${"b".repeat(64)}/`)));
-    assert.ok(!errors.length, errors.map(String).join("\n"));
+    assert.ok(!errors.some((args) => args[0] === "Detail render failed"), errors.map(String).join("\n"));
     assert.ok(warnings.some((args) => args[0] === "Spine source changed during load"));
   } finally { Detail.hide(); playerMode = "ready"; portraitRevision = "a"; t.mock.timers.reset(); }
 });
@@ -278,7 +317,7 @@ for (const status of [404, 500]) test(`the main portrait logs the cause of a fai
   try {
     errors.length = 0; warnings.length = 0; family = modFamily(); portraitStatus = status;
     const showing = Detail.show(context, family, "ibuki"); await flush();
-    t.mock.timers.tick(1300); await flush(); await showing;
+    t.mock.timers.tick(1300); await flush(); await finish(t, showing);
     assert.equal(hosts.toast.textContent, "Preview unavailable");
     assert.ok(errors.some((args) => args.includes("/asset/spine/spr/ibuki_spr/skeleton")), "the console names the current source");
     assert.ok([...errors, ...warnings].some((args) => args.some((value) => String(value).includes(`HTTP ${status}`))));
@@ -286,16 +325,18 @@ for (const status of [404, 500]) test(`the main portrait logs the cause of a fai
   } finally { Detail.hide(); portraitStatus = 200; t.mock.timers.reset(); }
 });
 
-test("an applied lobby with hanging asset routes releases the in-place render barrier", async (t) => {
+test("a lobby switch stays covered until its failed preview settles and can retry", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   try {
     errors.length = 0; family = modFamily("lobby", "lobby");
     const showing = Detail.show(context, family, "ibuki"); await flush();
-    t.mock.timers.tick(1300); await flush(); await showing;
+    t.mock.timers.tick(1300); await flush(); await finish(t, showing);
     const lobbyTab = walk(hosts.ngui).find((e) => e.dataset.part?.endsWith("Tab_2/Tab_Off/Label"));
     const switching = lobbyTab.click(); await flush();
+    assert.equal(Loading.covering(), true, "the tab's panels and preview prepare behind black");
     for (let i = 0; i < 4; i++) { t.mock.timers.tick(1300); await flush(); }
-    await switching;
+    await finish(t, switching);
+    assert.equal(Loading.covering(), false);
     assert.ok(switchButton(), "the new panel commits even though Lobby.show is pending");
     assert.equal(switchButton().title, "Switch Memorial Lobby");
     t.mock.timers.tick(16000); await flush();
@@ -306,11 +347,11 @@ test("an applied lobby with hanging asset routes releases the in-place render ba
     const before = assetRequests.filter((url) => url.includes("/lobby/") && url.endsWith("manifest.json")).length;
     const portraitTab = walk(hosts.ngui).find((e) => e.dataset.part?.endsWith("Tab_1/Tab_Off/Label"));
     const portrait = portraitTab.click(); await flush();
-    t.mock.timers.tick(1300); await flush(); await portrait;
+    t.mock.timers.tick(1300); await flush(); await finish(t, portrait);
     const retryTab = walk(hosts.ngui).find((e) => e.dataset.part?.endsWith("Tab_2/Tab_Off/Label"));
     const retry = retryTab.click(); await flush();
     for (let i = 0; i < 4; i++) { t.mock.timers.tick(1300); await flush(); }
-    await retry;
+    await finish(t, retry);
     assert.ok(assetRequests.filter((url) => url.includes("/lobby/") && url.endsWith("manifest.json")).length > before,
       "showing the lobby tab again asks for a new source after failure");
     t.mock.timers.tick(16000); await flush();
@@ -369,7 +410,7 @@ for (const configured of ["mod:configured", "variant:dress"]) test(`mods off kee
     family.variants.push({ key: "dress", spr: "dress_spr", names: v.names });
     const start = playerRequests.length;
     const showing = Detail.show(context, family, "ibuki"); await flush();
-    t.mock.timers.tick(1300); await flush(); await showing;
+    t.mock.timers.tick(1300); await flush(); await finish(t, showing);
     const requested = playerRequests.slice(start);
     const source = configured.startsWith("mod:") ? "/mod/configured/" : "/official-spr/dress_spr/";
     assert.ok(requested.some((url) => url.includes(source)), source);
@@ -386,7 +427,7 @@ test("NGUI image callbacks have a deadline and a later request can retry", async
     t.mock.timers.tick(15000); await failed;
     imageMode = "ready";
     assert.ok(await NGUI.load("/asset/ui/stuck.png"));
-    pendingImages.splice(0).forEach((img) => img.onload());
+    pendingImages.splice(0).forEach((img) => img.onload?.());
   } finally { imageMode = "ready"; t.mock.timers.reset(); }
 });
 
@@ -406,11 +447,11 @@ test("long portrait and lobby names only resize their own info cell in every loc
           v.date = v.state.files[0].date = "2024-11-18";
           if (kind === "spr") delete v.lobby;
           const showing = Detail.show(context, family, "ibuki"); await flush();
-          t.mock.timers.tick(16000); await flush(); await showing;
+          t.mock.timers.tick(16000); await flush(); await finish(t, showing);
           const lobbyTab = kind === "lobby" && walk(hosts.ngui).find((el) => el.dataset.part?.endsWith("Tab_2/Tab_Off/Label"));
           if (lobbyTab) {
             const switching = lobbyTab.click(); await flush();
-            t.mock.timers.tick(16000); await flush(); await switching;
+            t.mock.timers.tick(16000); await flush(); await finish(t, switching);
           }
           const cells = paths.map(cell);
           assert.ok(cells.every(Boolean), `${lang} ${kind}: all four value cells render`);

@@ -26,7 +26,7 @@ import { forget, idleAnimation, prioritise, thumb } from "./thumbs.js";
 import { portraitViewport } from "./portrait-view.js";
 import { setTitle } from "./nav.js";
 import { KEYS, deltaOf, pacer, typing } from "./step-keys.js";
-import { FRAME_Y, closable, hit as hitNode, listPopup, message, popupFrame, ready as popupsReady, scrollArea } from "./popup.js";
+import { FRAME_Y, closable, hit as hitNode, listPopup, message, popupFrame, scrollArea } from "./popup.js";
 import { appliedKey as keyOf, appliedOf, candidates as listSources, partsOf, popupMode, previewBase, previewChanged, previewKey, sourceOf, switchKindOf } from "./switch-sources.js";
 import {
   $, DOT, RECRUIT, S, TAN10, advanceOf, at, clone, glyphsOf, hitButton, markedLabel, off, text, toast, widget, wrapPath,
@@ -59,10 +59,8 @@ const ModelLib = () => (modelLib ||= import("./model.js"));
 let renderToken = 0, exprToken = 0, chipToken = 0, spineToken = 0, leftToken = 0;
 
 // --- readiness ---
-const HARD_CAP = 15000;  // a part that never comes is given up on: whatever there is shows
-const THUMBS_CAP = 1200; // visible thumbnails still being rendered after this fill in after the reveal
+const HARD_CAP = 15000;  // individual failed assets settle with an error before the screen is revealed
 const LINES_CAP = 1500;  // the lobby's lines from Kivo (a network call) likewise
-const LEFT_CAP = 1200;  // a slow preview leaves its place empty while the panels become usable
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const frames = (n) => new Promise((resolve) => { const step = () => (--n > 0 ? requestAnimationFrame(step) : resolve()); requestAnimationFrame(step); });
 function renderFailed(err, source = null) {
@@ -98,7 +96,7 @@ async function prepare({ gen, ended }, inPlace, work) {
   const queued = inPlace ? [] : null;
   batch = queued;
   try {
-    await withTimeout(Promise.race([Promise.resolve().then(work), ended]), HARD_CAP, "Detail preparation");
+    await Promise.race([Promise.resolve().then(work), ended]);
   } catch (err) {
     if (gen === showGen) renderFailed(err);
   }
@@ -111,9 +109,22 @@ async function prepare({ gen, ended }, inPlace, work) {
   }
   return true;
 }
-// the thumbnails of the latest screen and strip renders (switch card, face cards, the pile's top card)
-let screenPics = [], exprPics = [];
-const settleThumbs = () => Promise.race([Promise.allSettled([...screenPics, ...exprPics]), sleep(THUMBS_CAP)]);
+// Deferred sprites, thumbnails and decoded backgrounds all belong to the reveal barrier.
+let screenPics = [], exprPics = [], chipPics = [];
+const picturesReady = (pictures, ...roots) => {
+  const elements = roots.flatMap((root) => [root, ...root.querySelectorAll("*")]);
+  return Promise.allSettled(pictures).then(() => {
+    for (const el of elements) if (el.style.transition) el.style.transition = "none";
+    return NGUI.decoded(elements, HARD_CAP);
+  });
+};
+async function settleThumbs() {
+  let before;
+  do {
+    before = [screenPics, exprPics, chipPics];
+    await Promise.allSettled(before.flat());
+  } while (before[0] !== screenPics || before[1] !== exprPics || before[2] !== chipPics);
+}
 
 // --- names, candidates, state ---
 const fullName = (v) => L(v.names)?.full ?? v.key;
@@ -433,7 +444,7 @@ async function drawScreen() {
   const frag = document.createDocumentFragment();
   const bg = await NGUI.render(bgNode, frag, { scale: S, origin: ORIGIN, rootPath: "Inventory_ListControl", textures: { BG: v.bg || undefined }, deferImages: true });
   if (!ok()) return;
-  if (my === renderToken) screenPics = [...lv.pictures, ...rv.pictures, ...bg.pictures];
+  if (my === renderToken) screenPics = [picturesReady([...lv.pictures, ...rv.pictures, ...bg.pictures], leftHost, rightHost, frag)];
   const view = { nodes: new Map([...lv.nodes, ...rv.nodes]) };
   addSwitchText(rightHost, view);
   hits(view, leftHost, rightHost);
@@ -705,6 +716,7 @@ async function drawChips() {
   }));
   const next = document.createDocumentFragment();
   const view = await NGUI.render(tree, next, { scale: S, origin: ORIGIN, z: 20, deferImages: true });
+  if (my === chipToken) chipPics = [picturesReady(view.pictures, next)];
   if (!ok()) return; // a newer render took over
   for (const [path, entry] of view.nodes) {
     const m = /\/Chip_([^/]*)$/.exec(path);
@@ -830,7 +842,7 @@ async function drawExpressions() {
     }, cd.item?.title || "", 260);
   }));
   if (!ok()) return; // a newer render took over (e.g. the tab changed while faces were rendering)
-  if (my === exprToken) exprPics = pics;
+  if (my === exprToken) exprPics = [picturesReady(pics, clip)];
   if (unfolded) {
     clip.classList.add("expanded");
     track.style.width = `${(COLS[0] + list.length * PITCH + CARD.w / 2 + 24 - Lx) * S}px`;
@@ -881,6 +893,7 @@ async function showSpine(base, my, signal) {
     for (const old of layers) {
       if (old.retired) continue;
       old.retired = true;
+      if (Loading.covering()) { old.load?.dispose(); old.remove(); continue; }
       old.classList.add("fading");
       // disposePortrait() may have freed it meanwhile (a quick second step)
       setTimeout(() => { if (old.isConnected) { old.load?.dispose(); old.remove(); } }, 400);
@@ -916,6 +929,7 @@ async function showSpine(base, my, signal) {
           await frames(2);           // its first frame is on the canvas
           commit(() => {
             if (my !== spineToken || !live()) return;
+            if (Loading.covering()) layer.style.transition = "none";
             layer.classList.remove("fading");
             retire(previous);
           });
@@ -1314,14 +1328,17 @@ async function renderAll() {
   await Promise.all([renderScreen(), renderChips(), renderExpressions()]);
 }
 
-// an in-place change (a tab, an applied portrait): the shown screen stays until every part is ready, with the
-// loading indicator after a moment
+// A tab or applied preview changes behind the same cover as a route, with the input hold retained.
 function changeInPlace(work) {
   const g = begin();
-  return Loading.hold(() => prepare(g, true, async () => {
-    await work();
-    await settleThumbs();
-  }), { until: g.ended }).then((ready) => {
+  return Loading.hold(() => Loading.scene(async (covered) => {
+    await covered;
+    if (g.gen !== showGen) return false;
+    return prepare(g, true, async () => {
+      await work();
+      await settleThumbs();
+    });
+  }, { until: g.ended }), { until: g.ended }).then((ready) => {
     // it may have taken over a show (a tab clicked while a step loads): the screen is on that student now
     if (ready && fam) arrived(fam.key, askedKey);
     return ready;
@@ -1339,8 +1356,8 @@ function showTab(id) {
   return changeInPlace(() => Promise.all([renderAll(), renderLeft()]));
 }
 
-// renderLeft() -> Promise, resolved once the tab's part has drawn its first frame, or at the soft cap while it loads
-// further. The part loads laid out but transparent (.pending: a hidden canvas has no size) and is
+// renderLeft() resolves once the preview has drawn its first frame or failed. It loads laid out but
+// transparent (.pending: a hidden canvas has no size) and is
 // committed with the rest of the screen; the part it replaces fades out and is freed. The lobby and the model are
 // single players: when the shown one is replaced by another variant's, a still of it holds the place meanwhile.
 const LEFT = ["portrait", "lobby", "model"];
@@ -1363,10 +1380,12 @@ function renderLeft() {
   // a newer left side or hide() came first: nothing is started
   const ready = withTimeout(Promise.resolve(swap).then(() => (my !== leftToken || expired ? null
     : want === "portrait" ? (mainPlayer ? null : loadSpine(currentBase()))
-      : want === "lobby" ? showLobby(v, my, () => !expired) : showModel(v, my))), want === "lobby" ? HARD_CAP + 3000 : HARD_CAP, `Detail ${want}`).catch((err) => {
+      : want === "lobby" ? showLobby(v, my, () => !expired) : showModel(v, my, () => !expired))), want === "lobby" ? HARD_CAP + 3000 : HARD_CAP, `Detail ${want}`).catch((err) => {
     expired = true;
     if (my !== leftToken || !open) return;
     if (want === "lobby") Lobby.unavailable(err, el, spineBase("lobby", v.lobby));
+    else if (want === "portrait") disposePortrait();
+    else hideModel();
     renderFailed(err);
   });
   const shown = ready.then(() => commit(() => {
@@ -1379,7 +1398,7 @@ function renderLeft() {
     if (want === "lobby") Lobby.reveal(); // on screen: its intro starts
     for (const part of LEFT) if (part !== want) retireLeft(part, my);
   }));
-  return Promise.race([shown, sleep(LEFT_CAP)]);
+  return shown;
 }
 // a part no longer shown: faded out, then freed (unless a newer change wants it again)
 function retireLeft(part, my) {
@@ -1391,7 +1410,7 @@ function retireLeft(part, my) {
     else if (part === "lobby") Lobby.hide(el);
     else hideModel();
   };
-  if (el.hidden || el.classList.contains("pending")) { free(); return; }
+  if (Loading.covering() || el.hidden || el.classList.contains("pending")) { free(); return; }
   el.classList.add("leaving");
   setTimeout(() => { if (my === leftToken && el.classList.contains("leaving")) free(); }, 360);
 }
@@ -1417,7 +1436,7 @@ async function freezeLeft(part) {
 }
 function unfreezeLeft(now = false) {
   for (const box of document.querySelectorAll(".left-freeze:not(.leaving)")) {
-    if (now) { box.remove(); continue; }
+    if (now || Loading.covering()) { box.remove(); continue; }
     box.classList.add("leaving");
     setTimeout(() => box.remove(), 360);
   }
@@ -1465,8 +1484,8 @@ async function showLobby(v, my, alive = () => true) {
 }
 // the 3D chibi: loaded, its shaders compiled and its first frame drawn; the actions fill row 4 and a still of it goes
 // on the switch card
-async function showModel(v, my) {
-  const still = () => open && my === leftToken && tab === "model" && variantKey === v.key;
+async function showModel(v, my, alive = () => true) {
+  const still = () => alive() && open && my === leftToken && tab === "model" && variantKey === v.key;
   try {
     const M = await ModelLib();
     if (!still()) return;
@@ -1546,7 +1565,7 @@ let visualToken = 0;
 async function enterVisual() {
   if (fullscreen || !mainPlayer?.skeleton) return; // the portrait is not in yet
   const my = ++visualToken, key = variantKey;
-  const layout = await layouts.visual;
+  const layout = await (layouts.visual ||= NGUI.layout("UICharacterVisualMode").catch(() => null));
   const strings = { reset: T("visual.reset"), back: T("lobby.exit"), hide: T("visual.hide"), show: T("visual.show") };
   const parts = await Visual.prepare({ layout, bg: variant().bg, strings }).catch((err) => { console.error(err); return null; });
   if (my !== visualToken || !open || fullscreen || tab !== "portrait" || variantKey !== key || !mainPlayer?.skeleton) return;
@@ -1670,20 +1689,9 @@ async function reloadChanged() {
 
 async function ensureLayouts() {
   if (layouts) return;
-  // Popup frames and decoration textures are optional for drawing the panels.
-  popupsReady().catch(renderFailed);
-  const textures = withTimeout(fetch("/asset/ui/textures.json").then((r) => {
-    if (!r.ok) throw new Error(`UI textures: HTTP ${r.status}`);
-    return r.json();
-  }), HARD_CAP, "UI textures").catch((err) => { renderFailed(err); return {}; });
   const detail = await NGUI.layout("UICharacterDetail");
-  // the portrait's visual mode: fetched now, waited for once its button is pressed
-  const visual = NGUI.layout("UICharacterVisualMode").catch(() => null);
-  const loaded = layouts = { list: find(detail, "Inventory_ListControl"), textures: {}, visual };
-  textures.then((data) => {
-    loaded.textures = data;
-    if (open && fam && layouts === loaded && Object.keys(data).length) return renderScreen();
-  }).catch(renderFailed);
+  await NGUI.init().catch(renderFailed);
+  layouts = { list: find(detail, "Inventory_ListControl"), textures: NGUI.textureIndex(), visual: null };
 }
 
 // the voice volume and mute (development runs started with --mute stay silent), the zoom-out limit and the
@@ -1744,7 +1752,7 @@ addEventListener("keyup", (ev) => { if (KEYS[ev.key]) keySteps.release(KEYS[ev.k
 addEventListener("blur", () => keySteps.release());
 
 // show(context, familyData, variantKey, {inPlace}): open the detail screen on a variant; resolves once the screen is
-// ready (the panels, the preview and visible thumbnails within their soft caps). In place (another
+// ready (the panels, preview, visible thumbnails and decoded images). In place (another
 // variant or family while the screen is shown), the shown screen stays until then and every part swaps in one frame.
 export async function show(context, familyData, key, { inPlace = false } = {}) {
   leavePage();

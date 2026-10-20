@@ -1220,6 +1220,7 @@
 				"copied": "Copied"
 			},
 			"update": {
+				"startup": "Check for Updates at Startup",
 				"check": "Check for Updates",
 				"none": "Up to date"
 			},
@@ -1230,6 +1231,7 @@
 				"ask": "Ask Before Opening"
 			},
 			"mods": {
+				"startup": "Check Files at Startup",
 				"clear": "Clear",
 				"shown": "Show on Main Screens",
 				"scan": "File Check",

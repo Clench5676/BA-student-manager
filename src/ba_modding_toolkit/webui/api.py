@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import sys
 import tempfile
 import threading
@@ -75,7 +76,8 @@ def _url_portrait(name: str | None) -> str | None:
 
 
 # settings.set keys of the boolean preferences (webui/state.py FLAGS)
-FLAG_KEYS = {"modSwitchShown": "mod_switch_shown", "tray": "tray", "classicPrompt": "classic_prompt"}
+FLAG_KEYS = {"modSwitchShown": "mod_switch_shown", "tray": "tray", "classicPrompt": "classic_prompt",
+             "startupChecks": "startup_checks", "startupUpdate": "startup_update"}
 
 
 def build_api(s: Services) -> RpcRegistry:
@@ -91,7 +93,7 @@ def build_api(s: Services) -> RpcRegistry:
             "language": i18n_manager.lang,
             "platform": sys.platform,
             "gameFound": found,
-            "resourceVersion": s.game.resource_version if found else None,
+            "resourceVersion": resource_version() if found else None,
             "consent": s.state.consent,
             "cacheDir": str(s.cache_dir()),
             "dataDir": str(s.data_dir),
@@ -99,7 +101,30 @@ def build_api(s: Services) -> RpcRegistry:
             "compiled": updater.is_compiled(),
             "mute": s.mute,
             "debug": s.debug,
+            "startupUpdate": s.state.flag("startup_update"),
+            "startupChecks": s.state.flag("startup_checks"),
         }
+
+    def resource_version() -> str:
+        with s.timings.measure("game.resource-version"):
+            return s.game.resource_version
+
+    @rpc.method("app.ready")
+    def app_ready(timings: dict[str, Any] | None = None) -> None:
+        phases = {"boot", "info", "settings", "strings", "fonts", "ui-indexes", "mod-state", "first-screen",
+                  "plain-loading", "styled-loading"}
+        if timings is not None:
+            if not isinstance(timings, dict):
+                raise ServiceError("bad_params", key="timings")
+            for phase in phases:
+                value = timings.get(phase)
+                if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and 0 <= value <= 86400000:
+                    s.timings.record("page." + phase, value / 1000)
+        s.ready()
+
+    @rpc.method("app.timings")
+    def app_timings() -> dict[str, Any]:
+        return s.timings.snapshot()
 
     @rpc.method("app.log")
     def app_log() -> dict[str, str]:
@@ -225,6 +250,7 @@ def build_api(s: Services) -> RpcRegistry:
             # the Enable Mods switch on the main screens, the tray or menu bar icon, the hand-off prompt
             "modSwitchShown": s.state.flag("mod_switch_shown"), "tray": s.state.flag("tray"),
             "classicPrompt": s.state.flag("classic_prompt"), "traySupported": s.tray_supported,
+            "startupChecks": s.state.flag("startup_checks"), "startupUpdate": s.state.flag("startup_update"),
         }
 
     @rpc.method("settings.set")
@@ -358,6 +384,7 @@ def build_api(s: Services) -> RpcRegistry:
         return out
 
     @rpc.method("roster.list")
+    @s.timings.measure("roster.data")
     def roster_list() -> dict[str, Any]:
         if not s.game_found():
             raise ServiceError("game_not_found")
@@ -401,6 +428,7 @@ def build_api(s: Services) -> RpcRegistry:
             return {"spr": None, "lobby": None}
 
     @rpc.method("family.get")
+    @s.timings.measure("detail.data")
     def family_get(key: str) -> dict[str, Any]:
         f = s.catalog.family(key)
         mods, favorites, recent = mods_by_target(), s.library.favorites(), s.state.recent()
