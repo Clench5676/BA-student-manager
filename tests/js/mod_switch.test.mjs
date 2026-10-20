@@ -243,7 +243,7 @@ test("every locale gives the help and first toggle two separate opening lines", 
   } finally { I18n.setStrings("en-US", strings); }
 });
 
-test("the help's lines: game folders, the file check, Retry and Details", () => {
+test("the help's lines: game folders, Retry and Details, independent of scan consent", () => {
   const texts = (s, sizes) => MS.helpLines(s, sizes).map((l) => l.text);
   const buttons = (s) => MS.helpLines(s).filter((l) => l.button).map((l) => [l.button.id, l.button.label]);
   assert.deepEqual(texts(base()), [S("mods.helpOn"), S("mods.helpOff")]);
@@ -264,15 +264,13 @@ test("the help's lines: game folders, the file check, Retry and Details", () => 
   assert.ok(texts(counts).includes("Gone from the library: 1"));
   assert.deepEqual(buttons(counts), [["retry", S("mods.retry")], ["details", S("mods.details")]]);
   assert.deepEqual(buttons(base({ stuck: 2 })), [["details", S("mods.details")]]);
-  // without the scan consent: "Other mods not checked" with Allow Check, and the same split from the unfinished
-  // list's counts by why (the services count pending, left and stuck from it)
+  // Without scan consent the unfinished list supplies the same counts and actions, with no extra consent row.
   for (const scan of [null, false]) {
     const s = base({ scan, pending: 1, left: 1, stuck: 1, unfinished: { pending: 1, left: 1, stuck: 1 } });
-    assert.ok(texts(s).includes(S("mods.scanOff")), String(scan));
-    assert.deepEqual(buttons(s), [["allow", S("mods.allowCheck")], ["retry", S("mods.retry")], ["details", S("mods.details")]]);
+    assert.deepEqual(MS.helpLines(s), MS.helpLines({ ...s, scan: true }), String(scan));
+    assert.deepEqual(buttons(s), [["retry", S("mods.retry")], ["details", S("mods.details")]]);
     assert.ok(texts(s).includes("Not switched: 2"));
   }
-  assert.ok(!texts(base()).includes(S("mods.scanOff")), "with the scan consent neither shows");
   for (const l of MS.helpLines(counts)) assert.ok(!/^mods\./.test(l.text), `a string for ${l.text}`);
 });
 
@@ -347,7 +345,7 @@ test("sizes and the free-space refusal's sizes", () => {
   assert.equal(MS.listSep("en-US"), ", ");
 });
 
-// --- the page: the top bar's switch, a click, the explanation once, the help's Allow Check, the classic modal ---
+// --- the page: the top bar's switch, a click, the explanation once, the help, the classic modal ---
 
 test("the top bar's switch follows mods.state, and the first toggle explains once from any place", async () => {
   answers["mods.state"] = base({ explained: false });
@@ -360,6 +358,10 @@ test("the top bar's switch follows mods.state, and the first toggle explains onc
   // the first click (here from Settings): the explanation; closing it any way but its button toggles nothing
   MS.click("settings");
   await drawn(dialog, "cancel");
+  const explanation = walk(dialog).filter((e) => /^Center\/Popup\/Lines\/Line_\d+$/.test(e.dataset.path));
+  assert.equal(explanation.length, 3);
+  assert.ok(explanation.every((e) => e.style.textAlign === "left"));
+  assert.ok(!walk(dialog).some((e) => /Lines\/(Box|Dot_)/.test(e.dataset.path)));
   action(dialog, "cancel").click();
   await until(() => called("mods.explained").length === 1, "mods.explained");
   assert.equal(called("mods.toggle").length, 0);
@@ -465,19 +467,30 @@ test("the help fits its opening lines together in every locale, with and without
     for (const lang of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"]) {
       const ui = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${lang}.json`, import.meta.url))).webui;
       I18n.setStrings(lang, flat({ webui: ui }));
-      for (const scan of [true, false]) {
-        answers["mods.state"] = base({ scan });
+      for (const scan of [true, false, null]) for (const counts of [{}, { pending: 2, left: 1, stuck: 1 }]) {
+        answers["mods.state"] = base({ scan, ...counts });
         await MS.refresh();
         const opened = MS.openHelp();
         await drawn(dialog, "close");
-        const prefix = scan ? "Line" : "Row", min = scan ? 44 : 40, max = scan ? 52 : 44;
         const texts = [ui.mods.helpOn, ui.mods.helpOff];
-        const fs = Math.max(min, Math.min(...texts.map((text) => NGUI.fitText(text, max, min, scan ? 1860 : 1820, 4).fs)));
-        const lines = texts.map((_, i) => walk(dialog).find((e) => e.dataset.path === `Center/Popup/Lines/${prefix}_${i}`));
+        const fs = Math.max(44, Math.min(...texts.map((text) => NGUI.fitText(text, 52, 44, 1860, 4).fs)));
+        const lines = texts.map((_, i) => walk(dialog).find((e) => e.dataset.path === `Center/Popup/Lines/Line_${i}`));
         assert.equal(lines[0].style.fontSize, lines[1].style.fontSize, `${lang}, scan=${scan}`);
+        assert.ok(!walk(dialog).some((e) => /Lines\/(Box|Row_|Dot_)/.test(e.dataset.path)));
+        assert.ok(!("scanOff" in ui.mods) && !("allowCheck" in ui.mods), lang);
         for (let i = 0; i < 2; i++) {
+          assert.equal(lines[i].style.textAlign, "left");
           assert.equal(lines[i].style.fontSize, `${(NGUI.fontSizeFor(texts[i], fs) * scale).toFixed(2)}px`);
           assert.equal(lines[i].textContent.replaceAll("\n", " ").replaceAll(" ", ""), texts[i].replaceAll(" ", ""));
+        }
+        if (counts.pending) for (const [i, caption] of [[2, ui.mods.retry], [3, ui.mods.details]]) {
+          const row = walk(dialog).find((e) => e.dataset.path === `Center/Popup/Lines/Line_${i}`);
+          const button = walk(dialog).find((e) => e.dataset.path === `Center/Popup/Lines/Btn_${i}`);
+          assert.equal(row.style.textAlign, "left");
+          assert.ok(labels(dialog).includes(caption));
+          assert.ok(parseFloat(button.style.left) > parseFloat(row.style.left) + parseFloat(row.style.width));
+          const center = (e) => parseFloat(e.style.top) + parseFloat(e.style.height) / 2;
+          assert.ok(Math.abs(center(row) - center(button)) < 1, "button at the line's right end");
         }
         action(dialog, "close").click();
         await opened;
@@ -548,29 +561,30 @@ test("Settings combines scan consent and automatic checks, preserving the consen
   delete answers["mods.consent"];
 });
 
-test("the help's Allow Check opens the scan consent popup and grants nothing itself", async () => {
-  answers["mods.state"] = base({ scan: false });
-  await MS.refresh();
-  const help = MS.openHelp();
-  await until(() => labels(dialog).includes(S("mods.allowCheck")), "Allow Check");
+test("the scan consent renders the two replacement sections in every locale and grants nothing until answered", async () => {
   const before = called("mods.consent").length;
-  walk(dialog).find((e) => e.attrs?.["aria-label"] === S("mods.allowCheck")).click();
-  await help;
-  await drawn(consent, "ok");
-  assert.equal(consent.hidden, false, "the scan consent popup");
-  assert.ok(consent.classList.contains("over"), "over the help and the settings");
-  assert.equal(called("mods.consent").length, before, "nothing granted yet");
-  assert.ok(press("Escape").defaultPrevented, "it must be answered");
-  assert.equal(consent.hidden, false);
-  action(consent, "ok").click();
-  await until(() => called("mods.consent").length === before + 1, "mods.consent");
-  assert.deepEqual(called("mods.consent").at(-1), { granted: true });
-  await until(() => consent.hidden, "closed");
-  assert.equal(consent.classList.contains("over"), false);
-  // with the consent given, the help has neither the line nor the button
-  answers["mods.state"] = base({ scan: true });
-  await MS.refresh();
-  assert.ok(!MS.helpLines(MS.current()).some((l) => l.button?.id === "allow"));
+  try {
+    for (const [index, lang] of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"].entries()) {
+      const ui = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${lang}.json`, import.meta.url))).webui;
+      I18n.setStrings(lang, flat({ webui: ui }));
+      const pending = MS.askScan();
+      await drawn(consent, "ok");
+      assert.ok(consent.classList.contains("over"), "over Settings");
+      assert.equal(called("mods.consent").length, before + index, "nothing granted yet");
+      for (const [name, section] of [["Checked", ui.mods.scan.will], ["Never", ui.mods.scan.willNot]]) {
+        const part = (path) => walk(consent).find((e) => e.dataset.path === `Center/Popup/${name}/${path}`);
+        assert.equal(part("Title_Bg/Label").textContent, section.label, lang);
+        assert.equal(part("Item_0").textContent.replaceAll("\n", " ").replaceAll(" ", ""), section.items.replaceAll(" ", ""), lang);
+        assert.equal(part("Item_1"), undefined, "one item per section");
+      }
+      assert.ok(press("Escape").defaultPrevented, "it must be answered");
+      assert.equal(consent.hidden, false);
+      action(consent, "ok").click();
+      assert.equal(await pending, true);
+      assert.deepEqual(called("mods.consent").at(-1), { granted: true });
+      assert.equal(consent.classList.contains("over"), false);
+    }
+  } finally { I18n.setStrings("en-US", strings); }
 });
 
 test("the classic modal queues the refused write only when its box is ticked, on any close", async () => {

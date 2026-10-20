@@ -146,7 +146,7 @@ function section(name, top, titleText, items, tone, w = 1740) {
 // and that declining keeps those checks off (Settings changes it). Resolves with the choice once a button is pressed:
 // Allow saves consent and requests a scan. Don't Allow saves the refusal; declining does
 // not quit. It must be answered: Escape and the backdrop do nothing. over: drawn over the settings and the message
-// popups (opened from Settings' Check Game Files or the switch's help).
+// popups (opened from Settings' Check Game Files).
 export function scan(host, { over = false } = {}) {
   return new Promise((resolve) => { drawScan(host, over, resolve).catch((err) => { console.error("scan consent", err); finishScan(host); resolve(null); }); });
 }
@@ -161,8 +161,8 @@ function finishScan(host) {
 async function drawScan(host, over, resolve) {
   const sort = await NGUI.layout("UIPopup_Sort");
   const W = 1900;
-  const [checked, hc] = section("Checked", 0, T("mods.scan.checked.label"), [T("mods.scan.checked.items"), T("mods.scan.checked.why")], "#2d4c72");
-  const [never, hn] = section("Never", 0, T("mods.scan.never.label"), [T("mods.scan.never.items")], "#545454");
+  const [checked, hc] = section("Checked", 0, T("mods.scan.will.label"), [T("mods.scan.will.items")], "#2d4c72");
+  const [never, hn] = section("Never", 0, T("mods.scan.willNot.label"), [T("mods.scan.willNot.items")], "#545454");
   const note = NGUI.fitText(T("mods.scan.note"), 36, 28, 1700, 2);
   const noteH = note.lines * note.fs * 1.3;
   // the title 170, the sections with a gap, the note, the buttons 320

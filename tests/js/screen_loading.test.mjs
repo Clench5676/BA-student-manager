@@ -92,3 +92,60 @@ test("startup scan prompts follow current consent without a separate startup mod
   assert.deepEqual(calls, ["wait", "wait"]);
   assert.equal(h.started(), true);
 });
+
+function bootHarness({ compiled = true, startupUpdate = true } = {}) {
+  const first = deferred(), consent = deferred(), update = deferred();
+  const events = [], offers = [], blockers = [];
+  const host = {}, modState = { busy: false };
+  let loading = false;
+  const env = {
+    info: { gameFound: true, compiled, startupUpdate }, startup: {}, fitStage() {}, addEventListener() {},
+    timed: (_phase, work) => work(), start: () => first.promise,
+    rpc: async (method) => events.push(method), Cursor: { init: () => events.push("cursor") }, $: () => host,
+    Loading: { scene: (work) => work(), timings: () => ({}), busy: () => loading, init() {} },
+    Popup: {
+      sequence: async (steps) => { for (const [, run] of steps) await run(); },
+      whenIdle: async (_every, blocked) => { blockers.push(blocked); },
+    },
+    ModSwitch: {
+      current: () => modState,
+      startDue: (name, { info }) => name === "update" ? info.compiled && info.startupUpdate !== false : ["consent", "scan"].includes(name),
+    },
+    Consent: { show: () => { events.push("consent"); return consent.promise; }, scan: async () => events.push("scan") },
+    Prompts: { start: async (name) => events.push(name) },
+    Update: { check: (_host, _info, options) => { events.push("update-check"); offers.push(options); return update.promise; } },
+  };
+  const bootCode = source.slice(source.indexOf("async function boot("), source.indexOf("async function start()"));
+  const boot = new Function("env", `let { ${Object.keys(env).join(", ")} } = env; ${bootCode} return boot;`)(env);
+  return { boot, first, consent, update, events, offers, blockers, modState, setLoading: (v) => { loading = v; } };
+}
+
+test("startup launches its update check only after reveal and finishes while the network is still pending", async () => {
+  const h = bootHarness();
+  const boot = h.boot();
+  await flush();
+  assert.deepEqual(h.events, [], "the first screen is still covered");
+  h.first.resolve(); await flush();
+  assert.deepEqual(h.events, ["app.ready", "cursor", "consent", "update-check"]);
+  const offer = h.offers[0].beforeShow();
+  await flush();
+  assert.equal(h.blockers.length, 0, "the offer waits for the startup popups");
+  h.consent.resolve(true);
+  await boot;
+  await offer;
+  assert.deepEqual(h.events.slice(4), ["scan", "drift", "untracked"], "scan prompts never wait for the network check");
+  const blocked = h.blockers[0];
+  assert.equal(blocked(), false);
+  h.setLoading(true); assert.equal(blocked(), true);
+  h.setLoading(false); h.modState.busy = true; assert.equal(blocked(), true);
+  h.modState.busy = false; assert.equal(blocked(), false);
+  h.update.resolve();
+});
+
+for (const options of [{ compiled: false }, { startupUpdate: false }]) test(`startup skips automatic updates for ${JSON.stringify(options)}`, async () => {
+  const h = bootHarness(options);
+  h.first.resolve(); h.consent.resolve(true);
+  await h.boot();
+  assert.equal(h.offers.length, 0);
+  assert.ok(!h.events.includes("update-check"));
+});

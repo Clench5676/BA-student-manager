@@ -68,7 +68,8 @@ globalThis.document = {
   body, activeElement: body, documentElement: { lang: "en-US", appendChild() {} },
   createElement: (tag) => new El(tag),
   getElementById: (id) => walk(body).find((n) => n.id === id) || null,
-  querySelector: () => null,
+  querySelector: (selector) => selector === ".popup-host:not([hidden]), .consent-host:not([hidden])"
+    ? walk(body).find((e) => !e.hidden && ["popup-host", "consent-host"].some((cls) => e.className.split(" ").includes(cls))) || null : null,
 };
 const keyListeners = [];
 globalThis.addEventListener = (type, fn) => { if (type === "keydown") keyListeners.push(fn); };
@@ -81,6 +82,8 @@ function press(key, extra = {}) {
 const host = (id) => { const h = body.appendChild(new El()); h.id = id; h.hidden = true; return h; };
 const dialog = host("dialog"), prompt = host("prompt"), consent = host("consent");
 const settings = host("settings"), toast = host("toast");
+settings.className = "popup-host";
+consent.className = "consent-host";
 const stage = host("stage");
 stage.hidden = false;
 
@@ -173,6 +176,21 @@ test("fitting message lines together keeps the size floor and all text when extr
   assert.equal(lines[1].textContent.replaceAll("\n", " "), text);
   action(dialog, "close").click();
   await opened;
+});
+
+test("plain message line buttons keep their actions and allow closing the popup", async () => {
+  let details = 0;
+  const pending = Popup.message({ title: "Help", plain: true, lines: ["On", "Off",
+    { text: "Not switched", button: { label: "Retry", fn: ({ close }) => close("retry") } },
+    { text: "Left as is", button: { label: "Details", fn: () => { details++; } } },
+  ] });
+  await drawn(dialog, "line3");
+  action(dialog, "line3").click();
+  assert.equal(details, 1);
+  assert.equal(dialog.hidden, false);
+  action(dialog, "line2").click();
+  assert.deepEqual(await pending, { button: "retry", checked: null });
+  assert.equal(dialog.hidden, true);
 });
 const available = { current: "0.1.0-alpha.3", version: "0.1.0-beta", installable: true, downloaded: false, file: null };
 
@@ -477,6 +495,54 @@ test("Update.check resolves when its popup closes, not when it is drawn", async 
   assert.ok(calls.includes("app.openReleasePage"));
 });
 
+test("a late background update waits for every popup and job before showing on the current screen", async () => {
+  let answer, job = true;
+  handlers.set("app.checkUpdate", () => new Promise((resolve) => { answer = resolve; }));
+  const pending = Update.check(consent, undefined, { beforeShow: () => Popup.whenIdle(5, () => job) });
+  await until(() => answer);
+  const first = Popup.message({ title: "Current screen", lines: ["Details"] });
+  await drawn(dialog, "close");
+  answer({ result: available });
+  await tick();
+  assert.equal(consent.hidden, true, "a late result must not cover the current popup");
+  action(dialog, "close").click();
+  await first;
+  await tick();
+  assert.equal(consent.hidden, true, "the job still runs after that popup closes");
+  const second = Popup.message({ title: "Another screen", lines: ["Result"] });
+  await drawn(dialog, "close");
+  job = false;
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(consent.hidden, true, "recheck popups after the job finishes");
+  action(dialog, "close").click();
+  await second;
+  (await drawn(consent, "later")).click();
+  assert.equal(await pending, "later");
+  handlers.clear();
+});
+
+test("a queued update never replaces a consent popup in its own host", async () => {
+  consent.hidden = false;
+  const current = consent.appendChild(new El());
+  const pending = Update.check(consent, available, { beforeShow: () => Popup.whenIdle(5) });
+  await tick();
+  assert.equal(consent.children[0], current);
+  assert.equal(action(consent, "later"), undefined);
+  consent.hidden = true;
+  consent.innerHTML = "";
+  (await drawn(consent, "later")).click();
+  assert.equal(await pending, "later");
+});
+
+test("automatic checks with no release or an offline error do not wait for popup readiness", async () => {
+  for (const response of [{ result: null }, { error: { code: "internal" } }]) {
+    handlers.set("app.checkUpdate", () => response);
+    assert.equal(await Update.check(consent, undefined, { beforeShow: () => assert.fail("no offer to queue") }), null);
+    assert.equal(consent.hidden, true);
+  }
+  handlers.clear();
+});
+
 test("update progress stays in NGUI, blocks buttons and Escape, and completion waits for Restart", async () => {
   update = { ...available };
   const start = calls.length;
@@ -722,6 +788,32 @@ test("Settings disables Check for Updates while pending and uses the shared popu
   handlers.clear();
 });
 
+test("a manual Settings check joins an automatic offer already queued behind Settings", async () => {
+  const Settings = await import("../../src/ba_modding_toolkit/web/js/settings.js");
+  handlers.set("settings.get", () => ({ result: {
+    version: "1.0.0", language: "en-US", languages: [{ code: "en-US", name: "English" }],
+    cacheDir: "/test/cache", native: true,
+  } }));
+  handlers.set("mods.state", () => ({ result: {} }));
+  let answer;
+  handlers.set("app.checkUpdate", () => new Promise((resolve) => { answer = resolve; }));
+  const start = calls.length;
+  const automatic = Update.check(consent, undefined, { beforeShow: () => Popup.whenIdle(5) });
+  await until(() => answer);
+  await Settings.open();
+  answer({ result: available });
+  await tick();
+  assert.equal(settings.hidden, false);
+  assert.equal(consent.hidden, true);
+  walk(settings).find((e) => e.tagName === "BUTTON" && e.getAttribute("aria-label") === english.settings.update.check).click();
+  await drawn(consent, "update");
+  assert.equal(settings.hidden, true, "the joining check's onCheck still closes Settings");
+  assert.equal(calls.slice(start).filter((m) => m === "app.checkUpdate").length, 1);
+  action(consent, "later").click();
+  assert.equal(await automatic, "later");
+  handlers.clear();
+});
+
 test("every update locale has short completion and restart labels", () => {
   for (const language of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"]) {
     const locale = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${language}.json`, import.meta.url))).webui.update;
@@ -765,6 +857,14 @@ test("whenIdle waits for the open popups to close", async () => {
   assert.equal(idle, true);
   assert.equal(Popup.anyOpen(), false);
   h.remove();
+});
+
+test("whenIdle waits for caller work even without a popup", async () => {
+  let busy = true;
+  const pending = Popup.whenIdle(5, () => busy);
+  assert.equal(await state(pending), "pending");
+  busy = false;
+  await pending;
 });
 
 test("the log popup preserves literal text, opens at the bottom and Copy leaves it open", async () => {

@@ -24,6 +24,14 @@ const stage = () => document.getElementById("stage");
 
 let overlay = null, gen = 0, closeSeq = 0;
 let writerOverlay = null, writerGen = 0;
+const pending = new Set();
+function track(promise) {
+  const work = Promise.resolve(promise);
+  pending.add(work);
+  const finish = () => pending.delete(work);
+  work.then(finish, finish);
+  return work;
+}
 let repeater = null, geometry = null;
 const initialCover = document.getElementById("loading-boot");
 let styled = !!initialCover && !initialCover.classList.contains("neutral"), assetsAllowed = styled;
@@ -57,6 +65,8 @@ export function relabel() {
 
 export const active = () => !!overlay && !overlay.closing;
 export const covering = () => active() && overlay.mode === "full";
+// Automatic popups wait for page work, input holds and independent writer progress.
+export const busy = () => pending.size > 0 || active() || held() || (!!writerOverlay && !writerOverlay.closing);
 
 // A writer task stays visible until it settles. Progress survives the sprite upgrade and
 // belongs to this task only, so a late callback cannot change a newer task's indicator.
@@ -76,7 +86,7 @@ export async function task(run) {
   };
   update();
   decorate(o);
-  try { return await run(update); }
+  try { return await track(run(update)); }
   finally {
     detail.remove();
     if (my === writerGen && o === writerOverlay && !o.closing) {
@@ -241,6 +251,7 @@ export async function scene(fn, { opaque = false, until = null } = {}) {
 // the result. label: what the indicator says to assistive technology (the page's "loading" by default); cap: how long
 // the indicator stays at most (a wait known to take longer than HARD_CAP, such as the classic UI's start)
 export async function wait(promise, { label: text = null, cap = HARD_CAP } = {}) {
+  promise = track(promise);
   if (covering()) return promise; // a scene covers it already
   const my = ++gen;
   let settled = false;
@@ -288,7 +299,7 @@ export async function hold(work, { until = null } = {}) {
     wired.add(el);
   }
   const release = () => holds.delete(key);
-  const task = Promise.resolve().then(work);
+  const task = track(Promise.resolve().then(work));
   const visible = until ? Promise.race([task, until.then(release)]) : task;
   wait(visible, { cap: null }).catch(() => {});
   try { return await task; } finally { release(); }

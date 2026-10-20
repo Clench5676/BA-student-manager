@@ -1,6 +1,6 @@
 // Update popup on the game's popup frame (UIPopup_Sort): the current and the new version, Later / Update.
 // Updating downloads and verifies the build; Restart installs it only after a separate confirmation.
-// check() resolves once the popup has closed, so the start popups come one at a time (popup.js sequence).
+// check() resolves once the popup has closed; automatic checks wait for beforeShow without holding a screen.
 import * as NGUI from "./ngui.js";
 import * as Popup from "./popup.js";
 import { rpc, waitJob } from "./api.js";
@@ -14,16 +14,24 @@ const RESTART_WAIT = 3000;
 // resolves with what closed the popup: "later" (Later or Escape), "page" (the download page opened) or "update" (a
 // failed update, once dismissed). A successful retry clears that failure; Restart quits the app on success.
 // null without a newer release, offline or when the popup cannot be drawn. Settings may pass its check's result.
-export function check(host, info, { onCheck, onError } = {}) {
-  if (checks.has(host)) return checks.get(host);
+export function check(host, info, { onCheck, onError, beforeShow } = {}) {
+  const observe = (checked) => {
+    if (onCheck || onError) checked.then(onCheck, onError).catch((err) => console.error("update check", err));
+  };
+  if (checks.has(host)) {
+    const current = checks.get(host);
+    observe(current.checked);
+    return current.done;
+  }
   // Reserve the host before asking the server, including checks that have not drawn their popup yet.
-  const done = Promise.resolve().then(async () => {
-    try { if (info === undefined) info = await rpc("app.checkUpdate"); }
-    catch (err) { onError?.(err); return null; } // startup stays quiet when offline
-    onCheck?.(info);
-    return info ? show(host, info) : null;
-  }).finally(() => checks.delete(host));
-  checks.set(host, done);
+  const checked = Promise.resolve().then(() => info === undefined ? rpc("app.checkUpdate") : info);
+  observe(checked);
+  const done = checked.then(async (release) => {
+    if (!release) return null;
+    await beforeShow?.();
+    return show(host, release);
+  }, () => null).finally(() => checks.delete(host)); // automatic checks stay quiet when offline
+  checks.set(host, { checked, done });
   return done;
 }
 

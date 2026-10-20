@@ -1084,7 +1084,7 @@ optional, so a popup still works without them.
   under it acts. A popup leaves the stack by itself when its host is hidden or its layer is gone. Escape is left
   alone while an input method composes (`isComposing`, `keyCode` 229) or when a control took the key itself
   (`defaultPrevented`). `anyOpen()` tells whether any popup is up (the stack, or the consent, update, settings and
-  display hosts), and `whenIdle()` resolves once none is.
+  display hosts), and `whenIdle(every, blocked)` resolves once none is and the optional work predicate is false.
 - **Buttons.** Every button of a popup is an invisible button over the drawn one, named for assistive technology by
   the caption it covers (`aria-label`) and marked with what it does (`data-action`). When a sprite is missing from
   the atlases its button is placed from the prefab node, so the popup can still be answered.
@@ -1093,6 +1093,8 @@ optional, so a popup still works without them.
 - **`message({title, lines, ok, cancel, check, close})`** in `#dialog`: lines of text, centred; when a line carries a
   small button (`{text, button: {label, fn}}`, the consent popup's light blue Change button), every line is a row of
   the game's light stats box with its button at the right. An optional checkbox (the gacha list's) under the lines.
+  `plain: true` uses left-aligned lines without a box or separators; line buttons stay at the right, and adding one
+  preserves the text's font size and fitting rules.
   It resolves once it closes, however it closes, with `{button, checked}`: `button` is `ok`, `cancel`, or `null` for
   the close button, the backdrop and Escape; `checked` is the checkbox's state at that moment. `close: false` draws no
   close button, and the backdrop and Escape do nothing. The popup takes the keyboard focus while it is open (Enter
@@ -1112,10 +1114,15 @@ optional, so a popup still works without them.
 
 **Start sequence** (`main.js`, `Popup.sequence`). Once the first screen is revealed the start popups come one at a
 time, in order, each only when it has something to show (`mod-switch.js startDue`): the asset consent, the scan
-consent (while it is unanswered and a game folder is known; see Enable Mods switch), then the update popup (released
-builds only). File checks require scan consent: On checks at every start, Off withdraws consent and stops scans.
-The drift row's Check remains available while On. Check for Updates at Startup defaults to on and disables the
-automatic update check when off. Manual Settings update checks remain available. `Update.check` resolves when its popup closes: `later` (Later or Escape), `page` (the download page
+consent (while it is unanswered and a game folder is known; see Enable Mods switch). File checks require scan
+consent: On checks at every start, Off withdraws consent and stops scans. The drift row's Check remains available
+while On. Check for Updates at Startup defaults to on. In released builds it starts one background network check
+after the first screen is revealed, independently of the popup sequence; turning it off skips that check. A slow
+or failed check never holds startup, scan prompts or navigation. A newer release waits for the start popups to
+finish, then for any open popup (including Settings), loading work, input hold, writer progress or queued mod toggle
+to clear. Its offer can appear on any screen, including when the result arrives after startup. Manual Settings
+update checks remain available and share an in-flight automatic check and its popup; their result callbacks still
+run, so Settings closes for a newer release. `Update.check` resolves when its popup closes: `later` (Later or Escape), `page` (the download page
 opened), `update` when a failed update is dismissed, `null` with no newer release, offline or if drawing fails.
 Download progress and errors stay in the popup; its buttons and Escape are blocked during download. A verified
 download shows Download Complete with Later / Restart. Later keeps it for this session; the next check for that
@@ -1211,20 +1218,22 @@ detail screen, and in Settings' Mods tab.
 - **The "?" help** (message popup, title Enable Mods): two opening lines (`mods.helpOn`, `mods.helpOff`): On applies
   configured mods to all portraits and memorial lobbies; Off restores official files where available and keeps mods
   in the library; close the game before toggling. Both opening lines use the smaller of their fitted font sizes,
-  at least the popup's minimum (44 units, or 40 with action rows), and wrap together at that size; the first toggle's
-  explanation uses the same fitting. No storage explanation or size request appears in the help. "Game folders: ..."
-  shows the install labels when more than one game folder is known; without scan consent "Other mods not checked"
-  with Allow Check, which opens the scan consent popup and grants nothing itself; "Not switched: n" with Retry (the
+  at least the popup's minimum (44 units), and wrap together at that size; the first toggle's explanation uses the
+  same fitting. Both use plain, left-aligned lines with no box or separators, with or without scan consent or action
+  rows. No storage explanation or size request appears in the help. "Game folders: ..." shows the install labels
+  when more than one game folder is known; "Not switched: n" with Retry (the
   same toggle again) for pending and left entries; "Left as is, no official copy: n" with Details, the Overwritten
   message (the entries, known from the last scan with the scan consent, "No official copy left" and the repair lines
   of `repairs.js`, see Mods already in use; never a repair button); "Gone from the library: n". The counts are the
-  services': the last scan's with the scan consent, the unfinished list's by why without it.
-- **The scan consent popup** (`consent.js scan`, built like the asset consent): Check Game Files; Checked: the start
-  and the end of each portrait and memorial lobby file, to find mods outside the library, files reset by a repair or
-  an update and files with no official copy; Never: reading whole files, sending anything off this device; the note
+  services': the last scan's with the scan consent, the unfinished list's by why without it. Retry and Details stay
+  at their line's right end. There is no scan-off row or Allow Check button; file-check consent stays in Settings.
+- **The scan consent popup** (`consent.js scan`, built like the asset consent): Check Game Files; This app will:
+  check whether each file applied in the game matches the configuration, find mods outside the mod library and
+  files with no official backup; This app will not: read whole files or file contents, or send anything off this
+  device (`mods.scan.will.{label,items}`, `mods.scan.willNot.{label,items}`); the note
   that declining keeps those checks off and Settings changes it; Don't Allow and Allow (`mods.consent`). It must be
-  answered (Escape and the backdrop do nothing), declining does not quit, and opened from Settings or the help it
-  shows over them (`#consent.over`).
+  answered (Escape and the backdrop do nothing), declining does not quit, and opened from Settings it shows over it
+  (`#consent.over`).
 - **Settings' Mods tab** (second, after General; `UIPopup_Option_PC`'s tab column has five separators): Enable Mods
   (On / Off, the same switch with the same rules, its square "?" and red dot after the title; faded while busy or
   unavailable); Show on Main Screens (`modSwitchShown`); Mod Cache (mods rebuilt for the current game version and
