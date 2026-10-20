@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -78,12 +77,3 @@ def classic_command(tab: str | None = None, *, control: bool = False) -> list[st
         cmd += ["--tab", tab]
     return cmd
 
-
-def open_classic(tab: str | None = None) -> None:
-    """Start the classic Tk GUI in its own process, unplaced and without a control channel. The alpha.3 hand-off,
-    until the RPC uses ``webui.classic.ClassicWindow``."""
-    cmd = classic_command(tab)
-    try:
-        subprocess.Popen(cmd, creationflags=CREATE_NO_WINDOW, env=os.environ.copy())
-    except OSError as e:
-        raise ServiceError("classic_failed", error=str(e)) from e

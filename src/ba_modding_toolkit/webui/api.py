@@ -17,14 +17,16 @@ from typing import Any
 
 from .. import devmode, globallines, updater
 from ..errors import ServiceError
-from ..i18n import fallback_language, get_locale_dir, i18n_manager, offered_languages
+from ..i18n import get_locale_dir, i18n_manager, offered_languages
 from ..kivo import clip_id
+from ..library.storage import trailing_bytes
 from ..naming import parse_filename
 from ..utils import get_version_info
+from . import strings
 from .rpc import RpcRegistry, to_json
 from .services import Services
 from .state import ALIAS_LENGTH, ALIAS_MAX, LOBBY_ZOOM_MODES, alias_key, alias_text, is_number, lobby_zoom, roster_view
-from .system import open_classic, reveal
+from .system import reveal
 
 logger = logging.getLogger(__name__)
 trace_logger = logging.getLogger("ba_modding_toolkit.webui.trace")
@@ -38,24 +40,7 @@ LINES_WAIT = 3.0
 
 def ui_strings(lang: str) -> dict[str, str]:
     """The ``webui.*`` strings for a language, falling back key by key like the Python side does."""
-    fallback = fallback_language(lang)
-    out: dict[str, str] = {}
-    for code in dict.fromkeys((fallback, lang)):  # fallback first, the language itself wins
-        path = get_locale_dir() / f"{code}.json"
-        try:
-            data = json.loads(path.read_text(encoding="utf-8")).get("webui", {})
-        except (OSError, ValueError):
-            continue
-        _flatten(data, "webui", out)
-    return out
-
-
-def _flatten(node: Any, prefix: str, out: dict[str, str]) -> None:
-    if isinstance(node, dict):
-        for k, v in node.items():
-            _flatten(v, f"{prefix}.{k}", out)
-    elif isinstance(node, str):
-        out[prefix] = node
+    return strings.ui_strings(lang, get_locale_dir())
 
 
 def clip_talks(talks: Any) -> dict[str, list[str]]:
@@ -88,6 +73,10 @@ def _url_portrait(name: str | None) -> str | None:
     return f"/asset/art/portrait/{name}.png" if name else None
 
 
+# settings.set keys of the boolean preferences (webui/state.py FLAGS)
+FLAG_KEYS = {"modSwitchShown": "mod_switch_shown", "tray": "tray", "classicPrompt": "classic_prompt"}
+
+
 def build_api(s: Services) -> RpcRegistry:
     rpc = RpcRegistry()
 
@@ -117,9 +106,33 @@ def build_api(s: Services) -> RpcRegistry:
         if not granted and s.window is not None and not s.jobs.busy():
             s.window.destroy()
 
+    @rpc.method("app.quit")
+    def app_quit() -> None:
+        s.quit()
+
+    # --- the classic window (the bottom bar's entries without a web screen, Settings' More Settings) ---
+
     @rpc.method("app.openClassic")
-    def app_open_classic(tab: str | None = None) -> None:
-        open_classic(tab)
+    def app_open_classic(tab: str | None = None) -> dict[str, bool]:
+        return s.classic.open(tab)
+
+    @rpc.method("app.classic")
+    def app_classic() -> dict[str, Any]:
+        return {**s.classic.status(), "queued": len(s.queue)}
+
+    @rpc.method("classic.front")
+    def classic_front() -> dict[str, bool]:
+        """The classic modal's Bring to Front: raise the open classic window, never start one."""
+        return {"raised": s.classic.bring_to_front()}
+
+    @rpc.method("classic.queue")
+    def classic_queue(method: str, params: dict[str, Any] | None = None) -> dict[str, int]:
+        return {"queued": s.queue_call(method, params or {})}
+
+    @rpc.method("classic.clearQueue")
+    def classic_clear_queue() -> dict[str, Any]:
+        s.clear_queue()
+        return {}
 
     # --- updates ---
 
@@ -158,6 +171,10 @@ def build_api(s: Services) -> RpcRegistry:
             raise ServiceError("update_unsupported")
         if downloaded is None or Path(file) != downloaded[0] or not downloaded[0].is_file():
             raise ServiceError("update_unavailable")
+        if s.classic_open():
+            # a classic window runs the build being replaced: the Windows helper could not move it, the macOS
+            # helper would remove the app bundle under it
+            raise ServiceError("classic_open")
         if s.jobs.busy():
             raise ServiceError("busy")
         updater.install(downloaded[0], downloaded[1])
@@ -186,6 +203,9 @@ def build_api(s: Services) -> RpcRegistry:
             "roster": roster_view(s.state.get("roster")),
             "consent": s.state.consent, "cacheDir": str(s.cache_dir()),
             "version": get_version_info().get("version"), "native": s.window is not None,
+            # the Enable Mods switch on the main screens, the tray or menu bar icon, the hand-off prompt
+            "modSwitchShown": s.state.flag("mod_switch_shown"), "tray": s.state.flag("tray"),
+            "classicPrompt": s.state.flag("classic_prompt"), "traySupported": s.tray_supported,
         }
 
     @rpc.method("settings.set")
@@ -239,6 +259,11 @@ def build_api(s: Services) -> RpcRegistry:
             s.state.set("lobby_post", bool(value))
         elif key == "roster":
             s.state.set("roster", roster_view(value))
+        elif key in FLAG_KEYS:
+            if not isinstance(value, bool):
+                raise ServiceError("bad_params", key=key)
+            s.state.set(FLAG_KEYS[key], value)
+            s.publish_state()
         else:
             raise ServiceError("bad_params", key=key)
         return settings_get()
@@ -316,32 +341,35 @@ def build_api(s: Services) -> RpcRegistry:
                              "variants": [variant_json(v, mods, favorites, recent, modified) for v in f.variants]})
         return {"families": families}
 
-    fingerprints: dict[str, Any] = {}  # the bundle hash cache for model_files, made on first use
-
     def model_files(core: str | None) -> list[dict[str, Any]]:
         """A 3D chibi's prefab bundles (character-<dev>-_mxload-*), newest first, in the shape of the variant state's
-        file parts, with the CRC state by the library's rules (official, fixed by trailing bytes, or needing a fix)."""
+        file parts, judged cheaply from the header (decision 27): fixed with trailing bytes, else ok. No switch writes
+        model bundles, so none shows Needs Fix; a bundle whose header cannot be read is left out."""
         try:
             index = getattr(s.game, "_model_index", None) if core else None
             names = index().get(core.lower(), []) if index else []
         except (ServiceError, OSError):
             return []
-        if "cache" not in fingerprints:
-            from ..library.storage import Fingerprints
-
-            fingerprints["cache"] = Fingerprints()
         out = []
         for name in names:
             path = Path(name)
             parsed = parse_filename(path.name)
             try:
-                fp = fingerprints["cache"].get(path)
+                size = path.stat().st_size
             except OSError:
                 continue
-            matches = bool(parsed.crc) and fp.crc == int(parsed.crc)
-            crc = "ok" if matches and fp.trailing == 0 else "fixed" if matches and fp.trailing else "needs_fix"
-            out.append({"file": str(path), "kind": "model", "date": parsed.date, "size": fp.size, "crc": crc})
+            trailing = trailing_bytes(path)
+            if trailing is None:
+                continue
+            out.append({"file": str(path), "kind": "model", "date": parsed.date, "size": size,
+                        "crc": "fixed" if trailing else "ok"})
         return sorted(out, key=lambda part: (part["date"] or "", part["file"]), reverse=True)
+
+    def configured_of(key: str) -> dict[str, str | None]:
+        try:
+            return s.library.configured(key)
+        except ServiceError:
+            return {"spr": None, "lobby": None}
 
     @rpc.method("family.get")
     def family_get(key: str) -> dict[str, Any]:
@@ -353,6 +381,7 @@ def build_api(s: Services) -> RpcRegistry:
             item["state"] = to_json(s.library.state(v.key))
             item["modList"] = [to_json(m) for m in mods.get(v.key, [])]
             item["modelFiles"] = model_files(v.model)
+            item["configured"] = configured_of(v.key)  # the sources of its primary cores, kept whatever the switch
             variants.append(item)
         # the game's resource version tells installs apart (another game folder or file source): the page then reads
         # every part of a variant again, even under the same variant key
@@ -460,9 +489,15 @@ def build_api(s: Services) -> RpcRegistry:
         return mods_add([str(p) for p in paths]) if paths else []
 
     @rpc.method("mods.remove")
-    def mods_remove(id: str) -> None:
-        s.library.remove(id)
+    def mods_remove(id: str, confirm: bool = False) -> dict[str, Any]:
+        """``mod_last_copy {file}`` with mods off when the mod is the last copy of a file the game still carries and
+        ``confirm`` is not set; ``mod_in_use`` / ``mod_in_use_elsewhere`` as before."""
+        library = s.library
+        library.remove(id, confirm=bool(confirm))
         s.events.publish("library.changed")
+        s.refresh_status(library)
+        s.publish_state()
+        return {}
 
     @rpc.method("mods.rename")
     def mods_rename(id: str, label: str) -> None:
@@ -474,38 +509,118 @@ def build_api(s: Services) -> RpcRegistry:
         s.library.mark_seen(id)
         s.events.publish("library.changed")
 
-    # --- actions (jobs) ---
+    # --- the Enable Mods switch, mods already in use, drift ---
 
-    def after_change(result: Any) -> Any:
-        s.events.publish("library.changed")
-        return result
+    @rpc.method("mods.state")
+    def mods_state() -> dict[str, Any]:
+        """The switch's state for every place that shows it, from the snapshot (never through the library lock)."""
+        return s.mods_state()
+
+    @rpc.method("mods.toggle")
+    def mods_toggle(enabled: bool, expect: bool) -> str:
+        """Turn mods off or on in every known install (also Retry: ``expect`` equal to the current intent)."""
+        return s.submit_toggle(enabled, expect)
+
+    @rpc.method("mods.consent")
+    def mods_consent(granted: bool) -> dict[str, Any]:
+        if not isinstance(granted, bool):
+            raise ServiceError("bad_params", key="granted")
+        s.set_scan_consent(granted)
+        return {}
+
+    @rpc.method("mods.explained")
+    def mods_explained() -> dict[str, Any]:
+        s.state.set("mods_explained", True)
+        s.publish_state()
+        return {}
+
+    @rpc.method("mods.scan")
+    def mods_scan(dismissed: bool = False) -> dict[str, bool]:
+        """Request a scan (``dismissed``: Settings' Check, which lists dismissed entries again); the result comes as
+        ``library.scanned``. ``scan_off`` without the scan consent."""
+        if s.request_scan(bool(dismissed)) is None:
+            raise ServiceError("scan_off")
+        return {"requested": True}
+
+    @rpc.method("mods.entries")
+    def mods_entries() -> list[Any]:
+        """The last scan's entries, as every writer job's result updated them; none without the scan consent."""
+        return s.snapshot.entries() if s.scan_allowed() else []
+
+    def entry_list(entries: Any) -> list[dict[str, Any]]:
+        if not isinstance(entries, list) or not all(isinstance(item, dict) and isinstance(item.get("install"), str)
+                                                    and isinstance(item.get("core"), str) for item in entries):
+            raise ServiceError("bad_params", key="entries")
+        return [{"install": item["install"], "core": item["core"], **({"state": item["state"]}
+                 if isinstance(item.get("state"), str) else {})} for item in entries]
+
+    @rpc.method("mods.adopt")
+    def mods_adopt(entries: list[dict[str, Any]]) -> str:
+        """Add to Library: a library writer job, allowed while the game runs and while a classic window is open."""
+        listed = entry_list(entries)
+        library = s.library
+        pins = library.installs()
+        return s.submit("library.adopt", lambda log, progress: library.adopt(listed, pins, log=log, progress=progress),
+                        writes="library", library=library)
+
+    @rpc.method("mods.restoreDrift")
+    def mods_restore_drift(entries: list[dict[str, Any]]) -> str:
+        """The drift prompt's Apply Mod Configuration."""
+        return s.submit_restore_drift(entry_list(entries))
+
+    @rpc.method("mods.dismiss")
+    def mods_dismiss(kind: str, entries: list[dict[str, Any]]) -> dict[str, Any]:
+        """The drift prompt's Keep as Is, the untracked prompt's Don't Ask Again."""
+        listed = entry_list(entries)
+        s.library.dismiss(kind, listed)
+        s.snapshot.mark_dismissed({(item["install"], item["core"].lower()) for item in listed})
+        s.publish_state()
+        return {}
+
+    @rpc.method("mods.clearBuilt")
+    def mods_clear_built() -> str:
+        library = s.library
+        return s.submit("library.clearBuilt", lambda log, progress: {"freed": library.clear_built()},
+                        writes="library", library=library)
+
+    @rpc.method("mods.forget")
+    def mods_forget(install: str) -> str:
+        """Remove from List: a recorded install this data directory's settings no longer name; ``bad_params`` for a
+        named one."""
+        library = s.library
+        named = {item["key"] for item in library.status().get("installs", []) if item.get("named")}
+        if not isinstance(install, str) or install in named:
+            raise ServiceError("bad_params", install=install)
+        return s.submit("library.forget", lambda log, progress: library.forget(install), writes="library",
+                        library=library)
+
+    # --- actions (jobs) ---
 
     @rpc.method("actions.apply")
     def actions_apply(variant: str, source: str, kind: str = "spr") -> str:
         """Switch what the game shows: write a source into the variant's portrait ("spr") or memorial lobby ("lobby")
-        game files. The library keeps what it replaces (ModLibrary._commit)."""
-        if kind not in ("spr", "lobby"):
-            raise ServiceError("bad_params", kind=kind)
-        return s.jobs.submit("apply", lambda log, progress, **p: after_change(s.library.apply(log=log, progress=progress, **p)),
-                             variant_key=variant, source=source, kind=kind)
+        game files of the current install, pinned at submit, and configure it. The library keeps what it replaces
+        (ModLibrary._commit). While mods are off it only configures the source (``deferred``)."""
+        return s.submit_apply(variant, source, kind)
 
     @rpc.method("actions.restore")
     def actions_restore(variant: str, kind: str = "spr") -> str:
-        if kind not in ("spr", "lobby"):
-            raise ServiceError("bad_params", kind=kind)
-        return s.jobs.submit("restore", lambda log, progress, **p: after_change(s.library.restore(log=log, **p)),
-                             variant_key=variant, kind=kind)
+        return s.submit_restore(variant, kind)
 
     @rpc.method("actions.update")
     def actions_update(mod: str) -> str:
-        return s.jobs.submit("update", lambda log, progress, **p: after_change(s.library.update(log=log, progress=progress, **p)),
-                             mod_id=mod)
+        library = s.library
+        pin = s._current_pin(library)
+        return s.submit("update", lambda log, progress: library.update(mod, log=log, progress=progress, pin=pin),
+                        writes="library", library=library)
 
     @rpc.method("actions.extract")
     def actions_extract(target: str) -> str:
         out_dir = s.settings.output_subdir("extract")
-        return s.jobs.submit("extract", lambda log, progress, **p: {"folder": str(s.library.extract(log=log, **p))},
-                             target=target, out_dir=out_dir)
+        library = s.library
+        pin = library.current_pin()
+        return s.submit("extract", lambda log, progress: {
+            "folder": str(library.extract(target, out_dir, log=log, pin=pin))})
 
     @rpc.method("actions.compare")
     def actions_compare(mod: str) -> Any:

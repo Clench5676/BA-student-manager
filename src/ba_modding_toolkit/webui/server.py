@@ -1,4 +1,5 @@
-"""The local HTTP server: the static front end, /api/rpc, /api/events and /asset/... (see docs/web-ui.md)."""
+"""The local HTTP server: the static front end, /api/rpc, /api/events, /asset/... and the classic window's channel
+(/api/classic/*); see docs/web-ui.md."""
 
 from __future__ import annotations
 
@@ -44,17 +45,20 @@ AssetHandler = Callable[[str, dict[str, str]], AssetResponse]
 
 
 class WebApp:
-    """The WSGI application. Every request needs the session token and a loopback Host header."""
+    """The WSGI application. Every request needs a loopback Host header, and the session token except the classic
+    window's channel (``/api/classic/*``, the child's own one-time token)."""
 
     def __init__(self, rpc: RpcRegistry, events: EventBus, assets: AssetHandler | None = None,
                  static_dir: Path = WEB_DIR, token: str | None = None,
-                 consent: Callable[[], bool | None] = lambda: None):
+                 consent: Callable[[], bool | None] = lambda: None,
+                 classic: Callable[[dict, Callable], Iterable[bytes]] | None = None):
         self.rpc = rpc
         self.events = events
         self.assets = assets
         self.static_dir = Path(static_dir).resolve()
         self.token = token or secrets.token_urlsafe(24)
         self.consent = consent
+        self.classic = classic  # ClassicWindow.wsgi
         self.port: int | None = None  # set by serve(); the cookie name and Host check use it
 
     # --- entry ---
@@ -66,6 +70,10 @@ class WebApp:
 
         if not self._host_ok(environ):
             return self._text(start_response, "403 Forbidden", "forbidden")
+        if path.startswith("/api/classic/"):
+            if self.classic is None:
+                return self._text(start_response, "404 Not Found", "not found")
+            return self.classic(environ, start_response)
         if path == "/" and self._same(query.get("t", "")):
             # first load: remember the token in a cookie and drop it from the address
             return self._respond(start_response, "303 See Other", b"", "text/plain",

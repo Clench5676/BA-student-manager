@@ -32,6 +32,7 @@ class Job:
     result: Any = None
     error: dict[str, Any] | None = None
     log: list[str] = field(default_factory=list)
+    finished: bool = False  # it ran and its end's listeners ran too
 
     def to_json(self) -> dict[str, Any]:
         return {"id": self.id, "kind": self.kind, "state": self.state, "result": self.result, "error": self.error}
@@ -105,9 +106,10 @@ class JobRunner:
             return next((j for j in self._jobs.values() if j.state == "running"), None)
 
     def wait(self, job_id: str, timeout: float | None = None) -> bool:
-        """Wait until a job ran (done, failed or dropped); whether it did in time. An unknown job counts as done."""
+        """Wait until a job ran (done, failed or dropped) and the listeners heard its end; whether it did in time. An
+        unknown job counts as done."""
         with self._idle:
-            return self._idle.wait_for(lambda: job_id not in self._jobs or not self._jobs[job_id].pending, timeout)
+            return self._idle.wait_for(lambda: job_id not in self._jobs or self._jobs[job_id].finished, timeout)
 
     def shutdown(self, wait: float | None = None) -> None:
         """Stop: queued read-only jobs are dropped, queued writer jobs still run (quitting is refused while one is
@@ -131,19 +133,20 @@ class JobRunner:
             with self._lock:
                 drop = self._closing and not job.writes
                 if drop:
-                    job.state = "dropped"
+                    job.state, job.finished = "dropped", True
                     self._idle.notify_all()
             if drop:
                 logger.info("job %s (%s) dropped at shutdown", job.id, job.kind)
                 continue
             self._execute(job)
-            with self._idle:
-                self._idle.notify_all()
             for fn in list(self._listeners):
                 try:
                     fn(job)
                 except Exception:
                     logger.exception("job listener failed")
+            with self._idle:
+                job.finished = True
+                self._idle.notify_all()
 
     def _execute(self, job: Job) -> None:
         events = self._events

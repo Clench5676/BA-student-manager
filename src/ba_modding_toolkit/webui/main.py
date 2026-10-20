@@ -24,8 +24,11 @@ def build(port: int = 0, services: Services | None = None, token: str | None = N
     lang = s.settings.get("language")
     if lang and lang != i18n_manager.lang:
         i18n_manager.set_language(lang)  # the language chosen in either GUI
-    app = WebApp(build_api(s), s.events, assets=s.asset, consent=lambda: s.state.consent, token=token)
-    return s, Server(app, port)
+    app = WebApp(build_api(s), s.events, assets=s.asset, consent=lambda: s.state.consent, token=token,
+                 classic=s.classic.wsgi)
+    server = Server(app, port)
+    s.origin = f"http://127.0.0.1:{server.port}"  # the classic window's channel
+    return s, server
 
 
 def _watch_config(s: Services, stop: threading.Event) -> None:
@@ -72,7 +75,11 @@ def main(argv: list[str] | None = None) -> None:
         _trace_to_file(s.data_dir / "input-trace.log")
     server.start()
     stop = threading.Event()
+    if args.browser:
+        s.quit_handle = stop.set  # app.quit stops the server; the page then shows Closed
+        s.browser_url = server.url
     threading.Thread(target=_watch_config, args=(s, stop), name="bamt-config", daemon=True).start()
+    s.start()
     logger.info("web UI at %s", server.url)
 
     try:
