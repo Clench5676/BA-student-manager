@@ -22,13 +22,10 @@
 
 ## 为什么选 BMPT
 
-- **能改的学生一目了然。** 学生名单直接读取你本机的游戏：所有立绘变种、中英日韩官方名称，可招募学生有标记，收藏置顶。
-- **先预览，再进游戏。** 实时 Spine 立绘和全部差分，记忆大厅连同对话台词与语音。
-- **一键切换立绘。** 给任意变种换上 Mod 或其他服装的立绘。首次替换时自动保留官方文件，随时一键还原。
-- **解决「不正常的用户端」。** 自动修正 Mod 文件的 CRC，游戏照常登录。
-- **旧 Mod 也能用。** 把为旧版本制作的 Mod 更新到当前游戏文件。
-- **原有工具全都在。** 批量更新、批量安装、CRC 工具、资源打包与提取、ADB 推送到安卓、Mod 报告与备份。
-- **始终最新。** 自动检查新版本并在线更新。
+- **所见即所得的 Mod 管理器。** BMPT 里看到的，就是游戏里的样子。
+- **所有学生都可预览。** 包括没有抽到过的。
+- **一键切换立绘。** 替换时自动保留官方/原文件，随时一键还原。
+- **一键开关。** 一键关掉游戏中的 Mod 显示，恢复正常。
 
 支持 Steam（国际服）与日服 PC 客户端；安卓文件可通过 ADB 处理。
 
@@ -40,7 +37,6 @@
 |---|---|---|
 | Windows | `...-windows-x64.exe` | Windows 10 或 11，需要 [WebView2 运行时](https://developer.microsoft.com/microsoft-edge/webview2/)（Windows 11 已内置） |
 | macOS | `...-macos-arm64.dmg` | macOS 11 及以上，Apple 芯片 |
-| 命令行 | `...-cli-...-windows-x64.exe` | Windows 10 或 11 |
 
 每个安装包都附带 `.md5` 文件，可用于校验下载。
 
@@ -92,16 +88,6 @@ macOS 用户数据保存在 `~/Library/Application Support/bluearchive-modding-p
 
 简体中文、繁體中文、English、日本語、한국어。接下来是泰文和越南文。
 
-## 命令行
-
-```bash
-bamt-cli -h          # 全部命令
-bamt-cli update -h   # 某个命令的参数和示例
-```
-
-命令：`update`、`batch-update`、`pack`、`extract`、`crc`、`report`、`backup`、`env`。
-详见 [CLI 指南](https://github.com/Agent-0808/BA-Modding-Toolkit/wiki/CLI-Usage-&-Arguments)。
-
 ## 从源码构建
 
 需要 Python 3.12 和 [uv](https://docs.astral.sh/uv/)：
@@ -128,6 +114,7 @@ uv run pytest
 
 使用了 [UnityPy](https://github.com/K0lb3/UnityPy)、[pywebview](https://github.com/r0x0r/pywebview)、
 [Spine Runtimes](https://github.com/EsotericSoftware/spine-runtimes)（Spine Runtimes License）、
+[Three.js](https://threejs.org)（MIT）、
 [Resource Han Rounded](https://github.com/CyanoHao/Resource-Han-Rounded)（SIL OFL 1.1）、
 [Pillow](https://python-pillow.github.io/)、[SpineAtlas](https://github.com/Rin-Wood/SpineAtlas)、
 [ttkbootstrap](https://github.com/israel-dryer/ttkbootstrap)、[tkinterdnd2](https://github.com/pmgagne/tkinterdnd2)、

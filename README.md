@@ -19,17 +19,11 @@
 
 ## Why BMPT
 
-- **See every student you can mod.** The student list is built from your own game install: every portrait variant,
-  official names in Chinese, English, Japanese and Korean, recruitable students marked, favourites pinned.
-- **Preview before you play.** Live Spine portraits with every expression, memorial lobbies with their dialogue lines
-  and voices.
-- **Switch portraits in one click.** Wear a mod, or another outfit's portrait, on any variant. The official file is
-  kept the first time it is replaced, so going back is always one click away.
-- **Fix "Abnormal Client".** Modded files get their CRC corrected automatically, so the game accepts them.
-- **Bring old mods back.** Update mods made for earlier game versions to the current files.
-- **Everything else, still here.** Batch update, batch install, CRC tools, asset packing and extraction, ADB push to
-  Android, mod reports and backups.
-- **Always current.** BMPT checks for new releases and updates itself.
+- **A WYSIWYG mod manager.** What you see in BMPT is what you get in game.
+- **Every student, previewable.** Even the ones you haven't pulled yet.
+- **One-click portrait swaps.** The official or original file is backed up on replace, so rolling back is always one
+  click away.
+- **One-click mod toggle.** Flip mods off and the game is back to stock.
 
 Works with the Steam (Global) and Japanese PC clients; Android files through ADB.
 
@@ -41,7 +35,6 @@ Download the latest build from [Releases](https://github.com/Clench5676/BlueArch
 |---|---|---|
 | Windows | `...-windows-x64.exe` | Windows 10 or 11 with the [WebView2 runtime](https://developer.microsoft.com/microsoft-edge/webview2/) (built into Windows 11) |
 | macOS | `...-macos-arm64.dmg` | macOS 11 or later, Apple silicon |
-| Command line | `...-cli-...-windows-x64.exe` | Windows 10 or 11 |
 
 Each build comes with an `.md5` file to check the download.
 
@@ -98,16 +91,6 @@ their files.
 
 English, Simplified Chinese, Traditional Chinese, Japanese and Korean. Thai and Vietnamese are next.
 
-## Command line
-
-```bash
-bamt-cli -h          # all commands
-bamt-cli update -h   # one command's options and examples
-```
-
-Commands: `update`, `batch-update`, `pack`, `extract`, `crc`, `report`, `backup`, `env`.
-See the [CLI guide](https://github.com/Agent-0808/BA-Modding-Toolkit/wiki/CLI-Usage-&-Arguments).
-
 ## Build from source
 
 Python 3.12 and [uv](https://docs.astral.sh/uv/):
@@ -134,6 +117,7 @@ Character names come from [BA-characters-internal-id](https://github.com/Agent-0
 
 Built with [UnityPy](https://github.com/K0lb3/UnityPy), [pywebview](https://github.com/r0x0r/pywebview),
 [Spine Runtimes](https://github.com/EsotericSoftware/spine-runtimes) (Spine Runtimes License),
+[Three.js](https://threejs.org) (MIT),
 [Resource Han Rounded](https://github.com/CyanoHao/Resource-Han-Rounded) (SIL OFL 1.1),
 [Pillow](https://python-pillow.github.io/), [SpineAtlas](https://github.com/Rin-Wood/SpineAtlas),
 [ttkbootstrap](https://github.com/israel-dryer/ttkbootstrap), [tkinterdnd2](https://github.com/pmgagne/tkinterdnd2),
