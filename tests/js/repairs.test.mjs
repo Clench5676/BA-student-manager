@@ -24,19 +24,28 @@ test("a Steam install is one inside a Steam library's steamapps/common, whatever
   assert.equal(Repairs.isSteam(null), false);
 });
 
-test("the repair lines: Steam's verify for a Steam install, then start this app again; none elsewhere", () => {
-  assert.deepEqual(Repairs.repairLines([{ folder: STEAM }], T), [S("mods.repairSteam"), S("mods.repairThen")]);
-  assert.deepEqual(Repairs.repairLines([STEAM], T), [S("mods.repairSteam"), S("mods.repairThen")], "a path alone");
-  assert.deepEqual(Repairs.repairLines([{ folder: "D:/Games/BlueArchive" }, { folder: STEAM }], T), [S("mods.repairSteam"), S("mods.repairThen")]);
-  assert.deepEqual(Repairs.repairLines([{ folder: "D:/Games/BlueArchive" }], T), []);
-  assert.deepEqual(Repairs.repairLines([], T), []);
+test("the repair lines: Steam's verify for a Steam install, the game's Restore Resources as another option, then start this app again", () => {
+  const game = [S("mods.repairGame"), S("mods.repairThen")];
+  assert.deepEqual(Repairs.repairLines([{ folder: STEAM }], T), [S("mods.repairSteam"), ...game]);
+  assert.deepEqual(Repairs.repairLines([STEAM], T), [S("mods.repairSteam"), ...game], "a path alone");
+  assert.deepEqual(Repairs.repairLines([{ folder: "D:/Games/BlueArchive" }, { folder: STEAM }], T), [S("mods.repairSteam"), ...game]);
+  // no Steam: only the game's own check, which is never promised to replace a mod
+  assert.deepEqual(Repairs.repairLines([{ folder: "D:/Games/BlueArchive" }], T), game);
+  assert.deepEqual(Repairs.repairLines([], T), game);
+  assert.match(S("mods.repairGame"), /may not/);
 });
 
-test("the Overwritten message: the entries, no official copy left, then the repair lines or the library's line", () => {
+test("the Overwritten message: the entries, no official copy left, then the repair lines", () => {
   assert.deepEqual(Repairs.overwrittenLines({ names: ["Airi, Portrait"], installs: [{ folder: STEAM }] }, T),
-    ["Airi, Portrait", S("mods.overwrittenNone"), S("mods.repairSteam"), S("mods.repairThen")]);
-  // no verified route (decision 24): "No official copy left" and "Mods stay in the mod library"
-  assert.deepEqual(Repairs.overwrittenLines({ installs: [{ folder: "D:/Games/BlueArchive" }] }, T), [S("mods.overwrittenNone"), S("mods.helpKept")]);
+    ["Airi, Portrait", S("mods.overwrittenNone"), S("mods.repairSteam"), S("mods.repairGame"), S("mods.repairThen")]);
+  assert.deepEqual(Repairs.overwrittenLines({ installs: [{ folder: "D:/Games/BlueArchive" }] }, T),
+    [S("mods.overwrittenNone"), S("mods.repairGame"), S("mods.repairThen")]);
   // lines only: the app starts no repair (decision 9)
   for (const line of Repairs.overwrittenLines({ installs: [{ folder: STEAM }] }, T)) assert.equal(typeof line, "string");
+});
+
+test("the Add First message: no repair line until the entry is in the library", () => {
+  const lines = Repairs.addFirstLines({ names: ["Airi, Portrait"] }, T);
+  assert.deepEqual(lines, ["Airi, Portrait", S("mods.overwrittenNone"), S("mods.addFirst")]);
+  assert.ok(!lines.includes(S("mods.repairSteam")) && !lines.includes(S("mods.repairGame")));
 });
