@@ -24,6 +24,7 @@ def texture_key(name: str) -> str:
 @dataclass
 class Contents:
     platforms: set[str] = field(default_factory=set)
+    names: set[str] = field(default_factory=set)
     files: set[str] = field(default_factory=set)
     references: set[str] = field(default_factory=set)
     streams: set[str] = field(default_factory=set)
@@ -33,7 +34,7 @@ class Contents:
     textures: dict[str, tuple[int, int]] = field(default_factory=dict)
 
     def merge(self, other: Contents) -> None:
-        for key in ("platforms", "files", "references", "streams"):
+        for key in ("platforms", "names", "files", "references", "streams"):
             getattr(self, key).update(getattr(other, key))
         for key in ("skeletons", "atlases", "textures", "reference_names"):
             getattr(self, key).update(getattr(other, key))
@@ -46,13 +47,13 @@ class Contents:
                 "textures": self.textures}
 
 
-def inspect(path: Path) -> Contents:
+def inspect(path: Path, *, allow_unknown: bool = False) -> Contents:
     """Read metadata and text assets, without decoding images or following external paths."""
     devmode.check_read(path)
     bundle = Bundle.load(path)
     if bundle is None:
         raise ServiceError("bundle_invalid", file=path.name)
-    result = Contents()
+    result = Contents(names={path.name.removesuffix(".backup")})
 
     def reference(path: str) -> str:
         name = basename(path)
@@ -75,9 +76,14 @@ def inspect(path: Path) -> Contents:
             walk(child, child_name)
 
     walk(bundle.env)
-    if not result.platforms or "UnknownPlatform" in result.platforms:
+    if not allow_unknown and (not result.platforms or "UnknownPlatform" in result.platforms):
         raise ServiceError("mod_platform_unknown", file=path.name)
+    result.names.update(getattr(bundle.env, "container", {}))
     for obj in bundle.env.objects:
+        if obj.type.name == "AssetBundle":
+            data = obj.read()
+            result.names.update(filter(None, [getattr(data, "m_Name", ""),
+                getattr(data, "m_AssetBundleName", ""), *getattr(data, "m_Dependencies", [])]))
         if obj.type.name == "Texture2D":
             data = obj.read()
             result.textures[texture_key(data.m_Name)] = (data.m_Width, data.m_Height)

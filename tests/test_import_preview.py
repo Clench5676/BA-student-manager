@@ -9,9 +9,10 @@ from ba_modding_toolkit.errors import ServiceError
 from ba_modding_toolkit.gameassets import AssetCache, GameAssets
 from ba_modding_toolkit.webui.server import WebApp
 
-from test_batch_import import analyze, env
+from test_batch_import import analyze, env, batch_model_env
 from test_library import game_bundle, make_mod, setup_library
 from test_webui import call
+from test_library_model import model_env
 
 
 def preview_route(env, entry):
@@ -116,3 +117,38 @@ def test_source_preview_tokens_never_resolve_arbitrary_paths(env):
     for key in ("unknown", "..", str(env.original), "a" * 64):
         with pytest.raises(KeyError):
             env.services.batch_import.preview(key)
+
+
+@pytest.mark.parametrize('problem', ['platform', 'source', 'conflict'])
+def test_blocked_sources_still_serve_renderable_preview_assets(env, monkeypatch, problem):
+    from ba_modding_toolkit.library import integrity
+
+    source = make_mod(env.original, env.tmp / 'input')
+    inspect = integrity.inspect
+    if problem == 'conflict':
+        monkeypatch.setattr('ba_modding_toolkit.library.identity.content_cores',
+                            lambda path: {'test_spr', 'other_spr'})
+    else:
+        monkeypatch.setattr(integrity, 'inspect', lambda path, **kwargs:
+            integrity.Contents(platforms={'StandaloneOSX' if problem == 'platform' else 'UnknownPlatform'})
+            if path == source else inspect(path, **kwargs))
+    env.services._game = SimpleNamespace(spine_files_from=lambda paths: {
+        'test_spr.skel': b'preview skeleton', 'test_spr.atlas': b'page.png\n', 'page.png': b'preview pixels'})
+    entry, = analyze(env, [source])['entries']
+    assert entry['state'] == 'blocked'
+    app, prefix = preview_route(env, entry)
+    assert call(app, prefix + '/skeleton.skel')[2] == b'preview skeleton'
+    assert call(app, prefix + '/page.png')[2] == b'preview pixels'
+
+
+def test_blocked_model_source_has_an_import_preview_route(batch_model_env, monkeypatch):
+    env = batch_model_env
+    source = make_mod(env.parts[0], env.tmp / 'input')
+    monkeypatch.setattr(env.library, 'supports_kind', lambda kind: False)
+    entry, = analyze(env, [source])['entries']
+    assert entry['state'] == 'blocked' and entry['kind'] == 'model' and entry['preview']
+    seen = []
+    env.services._game = SimpleNamespace(model_glb=lambda core, **kwargs: seen.append((core, kwargs)) or b'model preview')
+    response = env.services.asset('model/hoshino.glb', {'source': 'import:' + entry['preview']['key']})
+    assert response.body == b'model preview'
+    assert seen[0][0] == 'hoshino_original' and seen[0][1]['overrides'][-1] == source

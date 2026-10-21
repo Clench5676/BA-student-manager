@@ -97,15 +97,15 @@ const catalog = { families: ["a", "b", "c", "d", "e"].map((id) => ({ key: id, cu
 async function fixture({ licensed = false, native = true, suggest } = {}) {
   body.replaceChildren(); observers.length = 0;
   const host = body.appendChild(new El()), dialog = body.appendChild(new El()); dialog.id = "dialog"; dialog.hidden = true;
-  const calls = [], analyses = [], runs = [], messages = [], answers = [], thumbs = [], scopes = [], popupStack = [];
+  const calls = [], analyses = [], runs = [], sources = [], messages = [], answers = [], thumbs = [], scopes = [], popupStack = [];
   let pickerPaths = [], pickError = null, optionsError = null, saveError = null, changed = 0;
   const call = async (method, params) => {
     calls.push({ method, params });
     if (method === "import.options") { if (optionsError) throw optionsError; return structuredClone(options); }
     if (method === "import.setOptions") { if (saveError) throw saveError; return structuredClone(params); }
     if (method === "import.pick") { if (pickError) throw pickError; return { paths: pickerPaths }; }
-    if (["import.analyze", "import.run"].includes(method)) {
-      const list = method === "import.analyze" ? analyses : runs, job = { ...deferred(), id: `job-${calls.length}`, params };
+    if (["import.analyze", "import.run", "import.setSource"].includes(method)) {
+      const list = method === "import.analyze" ? analyses : method === "import.run" ? runs : sources, job = { ...deferred(), id: `job-${calls.length}`, params };
       list.push(job); return job.id;
     }
     assert.fail(`Unexpected RPC ${method}`);
@@ -136,7 +136,7 @@ async function fixture({ licensed = false, native = true, suggest } = {}) {
     },
   };
   const page = createImportPage({ host, call, ui, popups, allowed: () => licensed, suggest,
-    jobs: (id, progress) => { const job = [...analyses, ...runs].find((job) => job.id === id); job.progress = progress; return job.promise; },
+    jobs: (id, progress) => { const job = [...analyses, ...runs, ...sources].find((job) => job.id === id); job.progress = progress; return job.promise; },
     thumbnails: () => { const scope = { cancel: () => { scope.cancelled = true; }, thumb: (...args) => { thumbs.push(args); return Promise.resolve(`blob:${args[0]}`); } }; scopes.push(scope); return scope; },
   });
   const context = { info: { native }, invalidateRoster: () => changed++ };
@@ -149,7 +149,7 @@ async function fixture({ licensed = false, native = true, suggest } = {}) {
   };
   return { page, context, host, dialog, layouts, layoutSnapshot, rendered, loaded, calls,
     holdImages: (predicate) => { const hold = { ...deferred(), predicate }; imagesHold = hold; return hold; },
-    holdRender: (predicate) => { const hold = { ...deferred(), predicate }; renderHold = hold; return hold; }, analyses, runs, messages, answers, thumbs, scopes, popupStack, action, row, phase, analyze,
+    holdRender: (predicate) => { const hold = { ...deferred(), predicate }; renderHold = hold; return hold; }, analyses, runs, sources, messages, answers, thumbs, scopes, popupStack, action, row, phase, analyze,
     changed: () => changed, picker: (paths) => { pickerPaths = paths; }, pickError: (error) => { pickError = error; },
     optionsError: (error) => { optionsError = error; }, saveError: (error) => { saveError = error; } };
 }
@@ -750,4 +750,58 @@ test("advanced popup stays hidden until its body images finish, with native fiel
     assert.equal(layer.style.visibility, "");
     assert.equal(layer.inert, false);
   } finally { hold.resolve(); await opening; }
+});
+
+
+test("unknown source opens game radio choices and reanalyzes only its entry", async () => {
+  const h = await fixture({ licensed: true });
+  const unknown = { ...entry("a", "blocked"), reason: "source_unknown", source: null,
+    target: { server: "global", platform: "windows" } };
+  await h.analyze([unknown, entry("b")]);
+  assert.match(h.host.textContent, /Unknown Source → Global PC/);
+  assert.ok(h.thumbs.some(([base]) => base.includes("/import/source-a")), "blocked source keeps its preview");
+  await h.action("source").click(); await flush(); await h.page.settled();
+  assert.match(h.dialog.textContent, /Source Server/); assert.match(h.dialog.textContent, /Source Platform/);
+  const radios = walk(h.dialog).filter((element) => element.getAttribute("role") === "radio");
+  assert.deepEqual(radios.map((element) => element.dataset.value), ["global", "japan", "android", "ios", "windows"]);
+  await radios.find((element) => element.dataset.value === "japan").click();
+  await radios.find((element) => element.dataset.value === "ios").click();
+  const accepting = h.action("ok", h.dialog).click(); await flush();
+  assert.deepEqual(h.sources[0].params, { id: "a", server: "japan", platform: "ios" });
+  assert.equal(h.action("source").disabled, true);
+  h.sources[0].resolve({ ...unknown, state: "update", reason: null,
+    source: { server: "japan", platform: "ios", detected: false } });
+  await accepting; await h.page.settled();
+  assert.equal(h.page.model.state.entries[1].id, "b"); assert.equal(h.analyses.length, 1);
+  assert.ok(h.page.model.state.checked.has("a")); assert.ok(h.page.model.state.checked.has("b"));
+  assert.match(h.host.textContent, /Japan iOS → Global PC/); assert.equal(h.dialog.hidden, true);
+});
+
+test("source selection cancellation leaves the entry untouched", async () => {
+  const h = await fixture();
+  const unknown = { ...entry("a", "blocked"), reason: "source_unknown", source: null,
+    target: { server: "global", platform: "windows" } };
+  await h.analyze([unknown]);
+  await h.action("source").click(); await flush();
+  await h.action("cancel", h.dialog).click();
+  assert.equal(h.sources.length, 0); assert.equal(h.page.model.state.entries[0], unknown);
+});
+
+test("all six locales translate source routes, choices and conversion reasons", async () => {
+  const load = (locale) => flatten(JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${locale}.json`, import.meta.url), "utf8")));
+  try {
+    for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) {
+      const strings = load(locale); setStrings(locale, strings);
+      const h = await fixture();
+      await h.analyze([{ ...entry("a", "blocked"), reason: "source_unknown", source: null,
+        target: { server: "global", platform: "windows" } }]);
+      assert.equal(h.action("source").getAttribute("aria-label"), strings["webui.import.source.choose"]);
+      await h.action("source").click(); await flush(); await h.page.settled();
+      assert.ok(h.dialog.textContent.includes(strings["webui.import.source.server"]));
+      assert.ok(h.dialog.textContent.includes(strings["webui.import.source.platform"]));
+      assert.equal(walk(h.dialog).filter((element) => element.getAttribute("role") === "radio").length, 5);
+      assert.ok(!h.dialog.textContent.includes("import.source."));
+      await h.action("cancel", h.dialog).click();
+    }
+  } finally { setStrings("en-US", load("en-US")); }
 });

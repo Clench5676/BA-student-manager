@@ -85,6 +85,21 @@ export function createImportState({ rpc, waitJob, changed = () => {}, suggest = 
       } catch (error) { fail(error); return false; }
     },
     recheck() { return analyze(retryPaths.length ? retryPaths : pathsOf(state.entries), retryRecursive); },
+    async setSource(id, server, platform) {
+      if (busy() || !state.entries.some((entry) => entry.id === id)) return false;
+      const contextAtStart = contextRevision;
+      state.phase = "analyzing"; state.error = null; resetResults(); revision++; emit();
+      try {
+        const job = await rpc("import.setSource", { id, server, platform });
+        const entry = await waitJob(job, progress);
+        state.entries = state.entries.map((item) => item.id === id ? entry : item);
+        if (eligible(entry)) state.checked.add(id); else state.checked.delete(id);
+        state.valid = contextAtStart === contextRevision;
+        state.phase = state.valid ? "idle" : "error";
+        state.error = state.valid ? null : { code: "entry_changed" };
+        state.progress = null; revision++; emit(); return state.valid;
+      } catch (error) { state.valid = false; fail(error); return false; }
+    },
     toggle(id, checked) {
       if (busy() || state.phase === "done" || !state.valid || !eligible(state.entries.find((entry) => entry.id === id))) return;
       if (checked) state.checked.add(id); else state.checked.delete(id);

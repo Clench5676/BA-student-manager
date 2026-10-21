@@ -211,6 +211,8 @@ SEARCH_DIR_SUFFIXES = [
     "Preload/Windows",
     "GameData/Android",
     "Preload/Android",
+    "GameData/iOS",
+    "Preload/iOS",
 ]
 
 def get_search_dirs(base_dir: Path) -> list[Path]:

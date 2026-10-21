@@ -1199,7 +1199,14 @@
 			"atlas_remap_asset_ambiguous": "จัดใหม่ไม่ได้: {file} - ทรัพยากรไม่ชัดเจน {name}",
 			"atlas_remap_atlas_missing": "จัดใหม่ไม่ได้: {file} - ไม่พบ Atlas ของ Mod ที่ตรงกัน",
 			"atlas_remap_source_missing": "จัดใหม่ไม่ได้: {file} - Mod ขาด Atlas, ไม่มี Atlas ต้นฉบับของ {date} ที่เก็บไว้",
-			"atlas_remap_regions_missing": "อัปเดตอัตโนมัติไม่ได้, Mod ขาดพื้นที่: {names}"
+			"atlas_remap_regions_missing": "อัปเดตอัตโนมัติไม่ได้, Mod ขาดพื้นที่: {names}",
+			"source_unknown": "ไม่ทราบเวอร์ชันต้นทาง",
+			"source_conflict": "ข้อมูลต้นทางขัดแย้ง",
+			"platform_unsupported": "ไม่รองรับแพลตฟอร์ม",
+			"target_unknown": "ไม่ทราบแพลตฟอร์มเกม",
+			"conversion_names": "ไม่พบชื่อไฟล์ที่ตรงกัน",
+			"no_matching_assets": "ไม่พบทรัพยากรที่ตรงกัน",
+			"conversion_failed": "แปลงไม่สำเร็จ"
 		},
 		"drop": {
 			"hint": "ลากไฟล์ Mod มาเพื่อเพิ่ม"
@@ -1469,7 +1476,14 @@
 				"no_target": "ไม่พบไฟล์เกมที่ตรงกัน",
 				"conflict": "เป้าหมายขัดแย้งกัน",
 				"spine_version": "เวอร์ชัน Spine ไม่เข้ากัน",
-				"unsupported": "ประเภทที่ไม่รองรับ"
+				"unsupported": "ประเภทที่ไม่รองรับ",
+				"source_unknown": "ไม่ทราบเวอร์ชันต้นทาง",
+				"source_conflict": "ข้อมูลต้นทางขัดแย้ง",
+				"platform_unsupported": "ไม่รองรับแพลตฟอร์ม",
+				"target_unknown": "ไม่ทราบแพลตฟอร์มเกม",
+				"conversion_names": "ไม่พบชื่อไฟล์ที่ตรงกัน",
+				"no_matching_assets": "ไม่พบทรัพยากรที่ตรงกัน",
+				"conversion_failed": "แปลงไม่สำเร็จ"
 			},
 			"phase": {
 				"update": "กำลังอัปเดต",
@@ -1504,6 +1518,16 @@
 				"cont_name_type": "คอนเทนเนอร์, ชื่อ, ประเภท",
 				"path_id": "Path ID",
 				"name_type": "ชื่อ, ประเภท"
+			},
+			"source": {
+				"choose": "เลือกเวอร์ชันต้นทาง",
+				"unknown": "ไม่ทราบเวอร์ชันต้นทาง",
+				"server": "เซิร์ฟเวอร์ต้นทาง",
+				"platform": "แพลตฟอร์มต้นทาง",
+				"android": "Android",
+				"ios": "iOS",
+				"windows": "PC",
+				"route": "{source} → {target}"
 			}
 		}
 	}

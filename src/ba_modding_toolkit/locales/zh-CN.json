@@ -1199,7 +1199,14 @@
 			"atlas_remap_asset_ambiguous": "无法重排：{file} - 资源存在歧义：{name}",
 			"atlas_remap_atlas_missing": "无法重排：{file} - 缺少匹配的 Mod 图集",
 			"atlas_remap_source_missing": "无法重排：{file} - Mod 缺少图集，未保留 {date} 的原版图集",
-			"atlas_remap_regions_missing": "无法自动修复，Mod 缺少区域：{names}"
+			"atlas_remap_regions_missing": "无法自动修复，Mod 缺少区域：{names}",
+			"source_unknown": "原始版本未知",
+			"source_conflict": "原始版本信息冲突",
+			"platform_unsupported": "不支持的平台",
+			"target_unknown": "游戏目录平台未知",
+			"conversion_names": "无对应文件名",
+			"no_matching_assets": "无匹配资源",
+			"conversion_failed": "转换失败"
 		},
 		"drop": {
 			"hint": "拖入 Mod 文件以添加"
@@ -1469,7 +1476,14 @@
 				"no_target": "未找到游戏文件",
 				"conflict": "目标冲突",
 				"spine_version": "Spine 版本不兼容",
-				"unsupported": "不支持的类型"
+				"unsupported": "不支持的类型",
+				"source_unknown": "原始版本未知",
+				"source_conflict": "原始版本信息冲突",
+				"platform_unsupported": "不支持的平台",
+				"target_unknown": "游戏目录平台未知",
+				"conversion_names": "无对应文件名",
+				"no_matching_assets": "无匹配资源",
+				"conversion_failed": "转换失败"
 			},
 			"phase": {
 				"update": "正在更新",
@@ -1504,6 +1518,16 @@
 				"cont_name_type": "容器、名称、类型",
 				"path_id": "Path ID",
 				"name_type": "名称、类型"
+			},
+			"source": {
+				"choose": "选择原始版本",
+				"unknown": "原始版本未知",
+				"server": "原始区服",
+				"platform": "原始平台",
+				"android": "安卓",
+				"ios": "iOS",
+				"windows": "电脑",
+				"route": "{source} → {target}"
 			}
 		}
 	}

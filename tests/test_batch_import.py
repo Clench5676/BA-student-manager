@@ -83,7 +83,7 @@ def test_entry_shapes_grouping_stable_ids_and_recursive_scan(env):
     entry, = shallow["entries"]
     assert shallow["skipped"] == 1
     assert set(entry) == {"id", "paths", "variant", "core", "kind", "files", "size", "state", "reason", "libraryId",
-                          "preview"}
+                          "preview", "source", "target"}
     assert entry["paths"] == sorted(map(str, [texture, text]))
     assert (entry["variant"], entry["core"], entry["kind"], entry["state"]) == ("test", "test_spr", "spr", "ready")
     assert entry["reason"] is None and entry["libraryId"] is None
@@ -174,7 +174,7 @@ def test_backup_upload_and_content_alias_use_library_normalization(env, monkeypa
 
 
 @pytest.mark.parametrize("problem,reason", [("unreadable", "unreadable"), ("missing", "no_target"),
-    ("platform", "conflict"), ("ambiguous", "conflict"), ("other", "no_target")])
+    ("ambiguous", "conflict"), ("other", "no_target")])
 def test_blocked_reasons_are_codes_and_failures_do_not_hide_other_entries(env, monkeypatch, problem, reason):
     source = make_mod(env.original, env.tmp / "bad")
     expected_kind = "spr"
@@ -182,10 +182,6 @@ def test_blocked_reasons_are_codes_and_failures_do_not_hide_other_entries(env, m
         source.write_bytes(b"broken")
     elif problem == "missing":
         source = game_bundle(env.tmp / "bad", "other_spr")
-    elif problem == "platform":
-        inspect = integrity.inspect
-        monkeypatch.setattr(integrity, "inspect", lambda path: integrity.Contents(platforms={"Android"})
-                            if path == source else inspect(path))
     elif problem == "ambiguous":
         monkeypatch.setattr("ba_modding_toolkit.library.identity.content_cores",
                             lambda path: {"test_spr", "other_spr"} if path == source else set())
@@ -270,9 +266,9 @@ def test_old_model_mesh_updates_when_prefab_has_a_newer_release(batch_model_env,
 def test_spine_version_blocks_without_converter_and_requests_update_with_one(env, monkeypatch):
     source = make_mod(env.original, env.tmp / "old-spine")
 
-    def inspect(path):
+    def inspect(path, **kwargs):
         version = b"3.8.75" if path == source else b"4.2.33"
-        return integrity.Contents(platforms={"StandaloneWindows64"}, skeletons={"test.skel": version},
+        return integrity.Contents(platforms={"StandaloneWindows64"}, files={"cab-test"}, skeletons={"test.skel": version},
                                   atlases={"test.atlas": b""})
 
     monkeypatch.setattr(integrity, "inspect", inspect)
@@ -290,10 +286,10 @@ def test_spine_version_blocks_without_converter_and_requests_update_with_one(env
 def test_multiple_official_spine_patch_versions_keep_the_major_minor_check(env, monkeypatch, version, state):
     source = make_mod(env.original, env.tmp / "input")
 
-    def inspect(path):
+    def inspect(path, **kwargs):
         skeletons = {"first.skel": version, "second.skel": version, "third.skel": version} if path == source else {
             "first.skel": b"4.2.33", "second.skel": b"4.2.40", "third.skel": b"4.2.9"}
-        return integrity.Contents(platforms={"StandaloneWindows64"}, skeletons=skeletons,
+        return integrity.Contents(platforms={"StandaloneWindows64"}, files={"cab-test"}, skeletons=skeletons,
                                   atlases={"first.atlas": b"", "second.atlas": b"", "third.atlas": b""})
 
     monkeypatch.setattr(integrity, "inspect", inspect)
@@ -315,10 +311,10 @@ def test_multiple_official_spine_patch_versions_keep_the_major_minor_check(env, 
 def test_incompatible_mixed_official_spine_series_do_not_convert_to_a_default_version(env, monkeypatch):
     source = make_mod(env.original, env.tmp / "input")
 
-    def inspect(path):
+    def inspect(path, **kwargs):
         skeletons = {"first.skel": b"3.8.75", "second.skel": b"3.8.75"} if path == source else {
             "first.skel": b"4.1.24", "second.skel": b"4.2.40"}
-        return integrity.Contents(platforms={"StandaloneWindows64"}, skeletons=skeletons,
+        return integrity.Contents(platforms={"StandaloneWindows64"}, files={"cab-test"}, skeletons=skeletons,
                                   atlases={"first.atlas": b"", "second.atlas": b""})
 
     monkeypatch.setattr(integrity, "inspect", inspect)

@@ -14,7 +14,8 @@ import { suggestImports } from "./import-assistants.js";
 import { createImportState, countsOf, eligible, RESOURCE_TYPES, STATES } from "./import-state.js";
 
 const KIND_KEYS = { spr: "tab.portrait", lobby: "tab.lobby", model: "tab.model", other: "import.other" };
-const REASONS = new Set(["unreadable", "no_target", "conflict", "spine_version", "unsupported"]);
+const REASONS = new Set(["unreadable", "no_target", "conflict", "spine_version", "unsupported",
+  "source_unknown", "source_conflict", "platform_unsupported", "target_unknown", "conversion_names", "no_matching_assets", "conversion_failed"]);
 const OUTCOMES = new Set(["imported", "updated", "unchanged", "failed", "skipped"]);
 const fallbackIcon = () => spriteUrl("Common", "Common_Icon_Student");
 const sizeText = (size) => size >= 1048576 ? `${(size / 1048576).toFixed(1)} MB` : `${Math.ceil((size || 0) / 1024)} KB`;
@@ -284,7 +285,7 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
 
   function renderPreview() {
     const entry = model.state.entries.find((item) => item.id === model.state.selected);
-    const key = JSON.stringify([entry?.id, entry?.libraryId, entry?.preview, model.state.results, allowed()]);
+    const key = JSON.stringify([entry?.id, entry?.libraryId, entry?.preview, entry?.source, entry?.target, model.busy(), model.state.phase, model.state.results, allowed()]);
     if (key === previewKey) return; previewKey = key;
     const next = el("div", "import-detail-content");
     if (entry) {
@@ -307,9 +308,37 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
       const banner = place(el("div", "import-name-banner"), 0, 466, 524, 120);
       paint(banner, art.banner(identity.name, T(KIND_KEYS[entry.kind] || KIND_KEYS.other)), { scale: 0.42, origin: [255, 104] });
       next.appendChild(banner);
+      if (entry.target) next.appendChild(sourceControl(entry));
     }
-    // Intentionally no empty-selection caption, description or controls under the name banner.
     dom.preview.replaceChildren(next);
+  }
+
+  function sourceLabel(source) {
+    if (!source || !source.platform) return T("import.source.unknown");
+    return `${T(`settings.server.${source.server}`)} ${T(`import.source.${source.platform}`)}`;
+  }
+  function sourceControl(entry) {
+    const group = el("div", "import-source"), summary = place(el("div"), 0, 590, 524, 50);
+    textWidget(summary, T("import.source.route", { source: sourceLabel(entry.source), target: sourceLabel(entry.target) }),
+      "empty", { scale: 0.4, origin: [262, 25] });
+    const choose = button(T("import.source.choose"), "source", { width: 250, scale: 0.34 });
+    place(choose, 137, 645, 250, 55); choose.disabled = model.busy() || model.state.phase === "done"; choose.refresh();
+    choose.addEventListener("click", () => openSource(entry).catch((error) => textWidget(dom.status, report(error)))); group.append(summary, choose); return group;
+  }
+  async function openSource(entry) {
+    if (model.busy()) return;
+    let server = entry.source?.server || entry.target.server, platform = entry.source?.platform || "android";
+    await dialog(T("import.source.choose"), { action: T("picker.ok"), cancel: T("popup.cancel"),
+      onAction: () => model.setSource(entry.id, server, platform) }, (area) => {
+      const choices = (key, values, value, change) => {
+        const title = el("div"); title.style.height = "60px"; area.appendChild(title);
+        textWidget(title, T(`import.source.${key}`), "empty", { scale: 0.5, origin: [685, 30] });
+        const group = radioOptions(area, values, value, change, { columns: values.length });
+        group.setAttribute("aria-label", T(`import.source.${key}`));
+      };
+      choices("server", ["global", "japan"].map((value) => [value, T(`settings.server.${value}`)]), server, (value) => { server = value; });
+      choices("platform", ["android", "ios", "windows"].map((value) => [value, T(`import.source.${value}`)]), platform, (value) => { platform = value; });
+    });
   }
 
   function renderRows() {

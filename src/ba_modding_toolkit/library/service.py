@@ -817,18 +817,20 @@ class ModLibrary:
         return added
 
     def _check_group(self, files: dict[str, Path], pin: Pin | None, *, compatibility: bool = True,
-                     dependencies: bool = True) -> dict:
+                     dependencies: bool = True, conversion: bool = False) -> dict:
         selected, official, effective = integrity.Contents(), integrity.Contents(), integrity.Contents()
-        sources = {name: integrity.inspect(path) for name, path in files.items()}
+        sources = {name: integrity.inspect(path, allow_unknown=True) if conversion else integrity.inspect(path)
+                   for name, path in files.items()}
         core = core_of(next(iter(files)))
         kind = kind_of_file(next(iter(files)))
         targets = (self._other_targets(files, pin) if kind == "other" else self._spine_parts(core, pin)) if pin else []
-        originals = {}
+        originals, original_paths = {}, []
         unavailable = not targets
         for target in targets:
             try:
                 original = self._official_for(target, pin)
                 originals[target] = integrity.inspect(original)
+                original_paths.append(original)
             except ServiceError as error:
                 if error.code not in ("original_unavailable", "original_invalid"):
                     raise
@@ -837,7 +839,8 @@ class ModLibrary:
             official.merge(contents)
         expected = official.platforms or {"StandaloneWindows64"}
         for name, contents in sources.items():
-            integrity.check_platform(contents, files[name], expected)
+            if not conversion:
+                integrity.check_platform(contents, files[name], expected)
             selected.merge(contents)
         parts = {part_of(name) for name in files}
         for target, contents in originals.items():
@@ -869,6 +872,10 @@ class ModLibrary:
         report = {"kind": kind, "official": official.spine(), "mod": effective.spine(), "unavailable": unavailable,
                 "outdated": bool(targets) and set(files) != {path.name for path in targets
                     if part_of(path.name) in parts}}
+        if conversion:
+            # Internal preflight metadata; ordinary compatibility RPCs remain JSON-only.
+            report["sourceContents"], report["officialContents"] = selected, official
+            report["originalPaths"] = original_paths
         try:
             mixed = {name: data for name, data in effective.atlases.items() if name not in selected.atlases
                      and any(integrity.texture_key(page) in selected.textures
@@ -888,7 +895,7 @@ class ModLibrary:
         return report
 
     @_serialized
-    def inspect_import(self, files: dict[str, Path], pin: Pin | None = None) -> dict:
+    def inspect_import(self, files: dict[str, Path], pin: Pin | None = None, *, conversion: bool = False) -> dict:
         """Preflight canonical upload names without storing or adopting anything.
 
         Use the same identities, dependency checks and installed-content judgement as add().
@@ -916,14 +923,16 @@ class ModLibrary:
             if generic:
                 entry.parts = [view.part(path, pin, "other") for path in targets]
             installed = self._matches_installed(identity, entry)
-        if duplicate or installed:
+        if (duplicate or installed) and not conversion:
             return {"identity": identity, "libraryId": duplicate, "installed": installed, "targets": targets}
-        report = self._check_group(files, pin, dependencies=False)
+        report = self._check_group(files, pin, dependencies=False, conversion=conversion)
         # Old CAB references are replaced by the rebuild. Its output goes through add()'s full preflight.
-        if not report["outdated"]:
+        if not report["outdated"] and not conversion:
             self._check_group(files, pin, compatibility=False)
-        return {"identity": identity, "libraryId": None, "installed": False, "compatibility": report,
-                "targets": targets, "originals": [self._official_for(path, pin) for path in targets] if generic else []}
+        originals = report.pop("originalPaths", []) if conversion else (
+            [self._official_for(path, pin) for path in targets] if generic else [])
+        return {"identity": identity, "libraryId": duplicate, "installed": installed, "compatibility": report,
+                "targets": targets, "originals": originals if generic else []}
 
     @_serialized
     def apply_import(self, variant_key: str, source: str, *, kind: Kind, pin: Pin,

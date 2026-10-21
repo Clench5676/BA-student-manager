@@ -8,16 +8,18 @@ import os
 import shutil
 import tempfile
 import threading
+from copy import deepcopy
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
-from .. import core, devmode
+from .. import core, devmode, mod_origin
 from ..bundle import Bundle
 from ..errors import ServiceError
 from ..gameassets.spine import spine_revision
 from ..library.identity import identify
+from ..library import integrity
 from ..library.judge import core_of, kind_of, part_of
 from ..library.storage import Fingerprints
 from ..models import SaveOptions
@@ -89,6 +91,8 @@ class Candidate:
     targets: list[Path] = field(default_factory=list)
     originals: list[Path] = field(default_factory=list)
     spine_version: str | None = None
+    source_override: dict | None = None
+    conversion: bool = False
 
 
 @dataclass
@@ -123,6 +127,7 @@ class BatchImport:
         self._library: Any = None
         self._pin: Any = None
         self._hashes = Fingerprints()
+        self._sources: dict[str, tuple[frozenset, dict]] = {}
 
     def defaults(self) -> dict:
         settings = self.services.settings
@@ -176,20 +181,17 @@ class BatchImport:
             candidates, skipped = self._collect(paths, recursive, library)
             entries, known, previews = [], set(), {}
             for i, candidate in enumerate(candidates):
+                with self._lock:
+                    override = self._sources.get(candidate.entry["id"])
+                if override and override[0] == candidate.identity:
+                    candidate.source_override = dict(override[1])
                 self._judge(candidate, library, pin, log)
                 if candidate.identity and candidate.identity in known:
                     skipped += len(candidate.entry["paths"])
                     continue
                 if candidate.identity:
                     known.add(candidate.identity)
-                if not candidate.error and candidate.entry["variant"] and candidate.entry["kind"] in ("spr", "lobby"):
-                    try:
-                        stamp = spine_revision(list(candidate.files.values()))
-                        key = hashlib.sha256(f"{revision}:{candidate.entry['id']}:{stamp}".encode()).hexdigest()
-                        previews[key] = (candidate, stamp)
-                        candidate.entry["preview"] = {"kind": "import", "key": key}
-                    except (OSError, KeyError):
-                        pass  # An unavailable source keeps its static catalog artwork.
+                self._register_preview(candidate, revision, previews)
                 entries.append(candidate)
                 progress(i + 1, len(candidates), candidate.entry["core"] or "")
             with self._lock:
@@ -199,6 +201,50 @@ class BatchImport:
             return {"entries": [c.entry for c in entries], "skipped": skipped}
 
         return self.services.submit("import.analyze", analyze)
+
+    def _register_preview(self, candidate: Candidate, revision: int, previews: dict) -> None:
+        if candidate.entry["core"] and candidate.entry["kind"] in ("spr", "lobby", "model"):
+            try:
+                stamp = spine_revision(list(candidate.files.values()))
+                key = hashlib.sha256(f"{revision}:{candidate.entry['id']}:{stamp}".encode()).hexdigest()
+                previews[key] = (candidate, stamp)
+                candidate.entry["preview"] = {"kind": "import", "key": key}
+            except (OSError, KeyError):
+                pass  # An unavailable source keeps its static catalog artwork.
+
+    def set_source(self, id: str, server: str, platform: str) -> str:
+        if not isinstance(id, str) or server not in mod_origin.SERVERS or platform not in mod_origin.PLATFORMS:
+            raise ServiceError("bad_params", key="source")
+        with self._lock:
+            if id not in self._latest:
+                raise ServiceError("bad_params", key="id")
+            candidate = self._latest[id]
+            fresh = Candidate(dict(candidate.files), deepcopy(candidate.entry), candidate.error,
+                              identity=candidate.identity,
+                              source_override={"server": server, "platform": platform, "detected": False})
+            library, pin, revision = self._library, self._pin, self._revision
+
+        def analyze(log: Any, progress: Any) -> dict:
+            if self.services.library is not library:
+                raise ServiceError("folder_changed")
+            if pin:
+                self.services._check_pin(library, pin)
+            identity = frozenset((core_of(name), self._hashes.get(path).sha1) for name, path in fresh.files.items())
+            if identity != fresh.identity:
+                raise ServiceError("entry_changed")
+            self._judge(fresh, library, pin, log)
+            previews = {}
+            self._register_preview(fresh, revision, previews)
+            with self._lock:
+                if revision != self._revision or self._latest.get(id) is not candidate:
+                    raise ServiceError("entry_changed")
+                self._latest[id] = fresh
+                self._sources[id] = (identity, dict(fresh.source_override))
+                self._previews.update(previews)
+            progress(1, 1, fresh.entry["core"] or "")
+            return fresh.entry
+
+        return self.services.submit("import.setSource", analyze)
 
     def preview(self, key: str) -> tuple[str, list[Path]]:
         """Compose an analyzed source in memory, with missing parts from the pinned official files."""
@@ -315,7 +361,8 @@ class BatchImport:
             entry = {"id": hashlib.sha256("\0".join(map(str, sources)).encode()).hexdigest(),
                      "paths": list(map(str, sources)), "variant": variant, "core": core_name or None,
                      "kind": kind, "files": file_list, "size": sum(f["size"] for f in file_list),
-                     "state": "blocked", "reason": error, "libraryId": None, "preview": None}
+                     "state": "blocked", "reason": error, "libraryId": None, "preview": None,
+                     "source": None, "target": mod_origin.target_of(self.services.settings, library.current_pin())}
             candidate = Candidate(files, entry, error)
             try:
                 candidate.identity = frozenset((core_of(name), self._hashes.get(path).sha1) for name, path in files.items())
@@ -326,31 +373,66 @@ class BatchImport:
 
     def _judge(self, candidate: Candidate, library: Any, pin: Any, log: Any = no_log) -> None:
         entry = candidate.entry
-        if candidate.error:
-            return
+        entry.update(state="blocked", reason=candidate.error, libraryId=None, source=None,
+                     target=mod_origin.target_of(self.services.settings, pin))
+        candidate.targets, candidate.originals, candidate.spine_version, candidate.conversion = [], [], None, False
         try:
-            report = library.inspect_import(candidate.files, pin=pin)
+            selected = integrity.Contents()
+            for path in candidate.files.values():
+                selected.merge(integrity.inspect(path, allow_unknown=True))
+            names = {path.name.removesuffix(".backup") for path in candidate.files.values()}
+            source, source_error = mod_origin.source_of(names, selected, integrity.Contents(), entry["target"])
+            entry["source"] = candidate.source_override or source
+            if candidate.error:
+                return
+            report = library.inspect_import(candidate.files, pin=pin, conversion=True)
             candidate.identity = report["identity"]
             live = report["targets"]
+            compatibility = report.get("compatibility")
+            official_contents = compatibility["officialContents"] if compatibility else integrity.Contents()
+            if not compatibility and pin and live:
+                try:
+                    for path in library.official_bundles(entry["core"], pin=pin):
+                        official_contents.merge(integrity.inspect(path))
+                except ServiceError:
+                    pass  # Installed uploads can be recognized without a recoverable original.
+            entry["target"] = mod_origin.target_of(self.services.settings, pin, official_contents)
+            source, source_error = mod_origin.source_of(names, selected, official_contents, entry["target"])
+            entry["source"] = candidate.source_override or source
+            if source_error in ("source_conflict", "platform_unsupported"):
+                raise ServiceError(source_error)
+            if candidate.source_override and mod_origin.platform_of(selected) not in (None, entry["source"]["platform"]):
+                raise ServiceError("source_conflict")
+            candidate.conversion = bool(entry["source"] and (
+                any(entry["source"][key] != entry["target"][key] for key in ("server", "platform"))
+                or (official_contents.platforms and selected.platforms != official_contents.platforms)
+                or mod_origin.platform_of(selected) is None))
             if len({p.name for p in live}) != len(live):
                 raise ServiceError("game_file_conflict")
             for file in entry["files"]:
                 name = next((name for name, path in candidate.files.items() if str(path) == file["path"]), "")
                 matches = [p for p in live if part_of(p.name) == part_of(name)]
                 file["target"] = matches[0].name if len(matches) == 1 else None
-            if report["libraryId"]:
+            if report["libraryId"] and not candidate.conversion:
                 entry.update(state="library", reason=None, libraryId=report["libraryId"])
                 return
-            if report["installed"]:
+            if report["installed"] and not candidate.conversion:
                 entry.update(state="installed", reason=None)
                 return
             if not pin or not live:
                 raise ServiceError("game_file_not_found")
             originals = report["originals"] if entry["kind"] == "other" else library.official_bundles(entry["core"], pin=pin)
+            if not entry["target"]["platform"]:
+                raise ServiceError("target_unknown")
+            if entry["source"] is None:
+                raise ServiceError(source_error or "source_unknown")
             if len(live) != len(originals):
                 raise ServiceError("game_file_conflict")
             baseline = dict(zip(live, originals))
             exact = set(candidate.files) <= {p.name for p in live}
+            if entry["source"]["server"] != entry["target"]["server"] and not all(
+                    any(part_of(name) == part_of(path.name) for path in live) for name in names):
+                raise ServiceError("conversion_names")
             if exact:
                 targets = [p for p in live if p.name in candidate.files]
             elif entry["kind"] == "other":
@@ -365,13 +447,17 @@ class BatchImport:
                                           [baseline[p] for p in live if parse_filename(p.name).date ==
                                            latest[parse_filename(p.name).prefix]], log)
                 targets = [p for p in live if baseline[p] in targets]
+            if candidate.conversion:
+                matched, _ = _asset_match(list(candidate.files.values()), [baseline[p] for p in targets], log)
+                targets = [p for p in targets if baseline[p] in matched]
             if not targets:
-                raise ServiceError("game_file_not_found")
+                raise ServiceError("no_matching_assets" if candidate.conversion else "game_file_not_found")
             candidate.targets, candidate.originals = targets, [baseline[p] for p in targets]
             for file in entry["files"]:
                 if file["target"] is None and len(targets) == 1:
                     file["target"] = targets[0].name
-            compatibility = report["compatibility"]
+            if not candidate.conversion:
+                library.inspect_import(candidate.files, pin=pin)
             if compatibility.get("remappable"):
                 entry.update(state="blocked", reason="conflict")
                 return
@@ -390,9 +476,11 @@ class BatchImport:
                                         not self.services.settings.spine_options().is_valid())):
                 entry.update(state="blocked", reason="spine_version")
             else:
-                entry.update(state="ready" if exact and not mismatch else "update", reason=None)
+                entry.update(state="ready" if exact and not mismatch and not candidate.conversion else "update", reason=None)
         except ServiceError as error:
-            entry.update(state="blocked", reason=blocked_reason(error))
+            entry.update(state="blocked", reason=error.code if error.code in (
+                "source_unknown", "source_conflict", "platform_unsupported", "target_unknown",
+                "conversion_names", "no_matching_assets") else blocked_reason(error))
         except (OSError, ValueError):
             entry.update(state="blocked", reason="unreadable")
 
@@ -435,7 +523,8 @@ class BatchImport:
                                                 for name, path in candidate.files.items())
                             if current != candidate.identity:
                                 raise ServiceError("entry_changed")
-                            fresh = Candidate(dict(candidate.files), dict(candidate.entry))
+                            fresh = Candidate(dict(candidate.files), dict(candidate.entry),
+                                              source_override=candidate.source_override)
                             fresh.entry["files"] = [dict(f) for f in candidate.entry["files"]]
                             self._judge(fresh, library, pin, log)
                             futures[candidate.entry["id"]] = workers.submit(
@@ -526,10 +615,11 @@ class BatchImport:
             updated = core.process_mod_update(source_paths=sources, target_paths=group,
                 output_dir=output, asset_types_to_replace=settings.asset_types(),
                 save_options=settings.save_options(settings.crc_needed(group[0])), spine_options=spine,
-                skip_unchanged=settings.options["skipUnchanged"], match_strategy=settings.options["strategy"],
+                skip_unchanged=settings.options["skipUnchanged"],
+                match_strategy="name_type" if candidate.conversion else settings.options["strategy"],
                 anim_check=settings.anim_check_options(), log=log)
             if not updated.success:
-                raise ServiceError("mod_update_failed")
+                raise ServiceError("conversion_failed" if candidate.conversion else "mod_update_failed")
             if updated.message != "all_targets_unchanged":
                 if not updated.file_pairs:
                     raise ServiceError("mod_update_failed")

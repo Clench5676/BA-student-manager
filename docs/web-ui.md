@@ -835,6 +835,71 @@ HTTP endpoints outside `/api/rpc`, each with its own token, never the session to
 `POST /api/classic/report` (the classic child's one-time token, see Classic window) and `POST /api/instance/raise`
 (the raise token of `instance.json`).
 
+### Batch import origins and conversion
+
+`import.analyze {paths, recursive}` returns a job ID; its result is `{entries, skipped}`.
+Each entry adds `source: {server, platform, detected} | null` and `target: {server, platform}`.
+Server values are `global` and `japan`, the servers supported by Settings; platforms are
+`android`, `ios` and `windows`. A target platform can be `null` when its metadata is conflicting
+or unsupported. `source: null` means that a complete source could not be established.
+
+`import.setSource {id, server, platform}` returns a read-only analysis job ID whose result is
+one replacement entry with the same ID and `source.detected: false`. It checks the upload's
+fingerprint and pinned folder again. Choices survive rechecks of unchanged bytes in this session.
+A new upload or library/folder context invalidates stale analysis as usual. The page keeps the
+choice UI in `batch-import.js`'s `sourceLabel`, `sourceControl` and `openSource` functions; only
+`renderPreview` hooks them into the detail panel. `import-layout.js` is unchanged.
+
+Origin evidence, in order:
+
+- Every serialized Unity build target is read. Android, iOS/iPhone and Windows/Windows64 map
+  to their platforms; mixed or unsupported targets have distinct blocked reasons. Explicit
+  internal Android/iOS/Windows path segments can resolve an otherwise unknown build target.
+- Bundle/container names, AssetBundle dependencies, external references, Spine and texture
+  names are inspected. `_home_gl` and `com.nexon.bluearchive` identify Global;
+  `com.Yostar JP.BlueArchive` identifies Japan (the package convention in `adb/paths.py`).
+- A CAB name has no region meaning by itself. A source's serialized CAB identities matching
+  recoverable official CABs can identify the selected install's server. Numeric resource types,
+  `textures` and a plain `_home` do not prove a server. Otherwise the user chooses the source.
+- The target uses official serialized metadata, resource folder platform names and Settings'
+  pinned install/server. Explicit official region evidence takes precedence over the setting.
+  No install discovery or user-folder search is started by origin detection.
+
+Platform/server differences produce `update`, including identical filenames. The classic
+`core.process_mod_update` extracts assets, decodes/re-encodes textures and injects into official
+bundles, preserving target Unity metadata, CABs and dependencies. Conversion uses `name_type`
+matching because platform path IDs and containers need not agree. Android and iOS are accepted
+as mobile sources/targets. Across servers, the source's original filename slots (prefix and
+resource type, ignoring release date/CRC) must match destination slots. Output passes the normal
+library platform/dependency checks before add/apply; the permissive conversion preflight is
+never used to store or apply a source directly.
+
+`Entry.preview` is registered independently of eligibility. Spine import URLs still use the
+existing memory-only routes. Models also expose the import preview bundle set through
+`/asset/model/<variant>.glb?source=import:<key>`. Missing official parts do not prevent a
+self-contained source preview. Changed bytes, a new analysis or a changed folder expire handles.
+
+New locale keys are present in all six locales. The reason keys also exist under `webui.error`
+with the same text, so both entry reasons and RPC/job failures translate consistently:
+
+| `webui.import` key | zh-CN | en-US |
+|---|---|---|
+| `source.choose` | 选择原始版本 | Choose Source |
+| `source.unknown` | 原始版本未知 | Unknown Source |
+| `source.server` | 原始区服 | Source Server |
+| `source.platform` | 原始平台 | Source Platform |
+| `source.android` | 安卓 | Android |
+| `source.ios` | iOS | iOS |
+| `source.windows` | 电脑 | PC |
+| `source.route` | `{source} → {target}` | `{source} → {target}` |
+| `reason.source_unknown` | 原始版本未知 | Unknown Source |
+| `reason.source_conflict` | 原始版本信息冲突 | Conflicting Source Metadata |
+| `reason.platform_unsupported` | 不支持的平台 | Unsupported Platform |
+| `reason.target_unknown` | 游戏目录平台未知 | Unknown Game Platform |
+| `reason.conversion_names` | 无对应文件名 | No Matching Filename |
+| `reason.no_matching_assets` | 无匹配资源 | No Matching Assets |
+| `reason.conversion_failed` | 转换失败 | Conversion Failed |
+
 ### Atlas remap
 
 `atlas_remap.py` reconstructs current official atlas pages from matching mod regions. When either physical page
