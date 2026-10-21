@@ -344,7 +344,7 @@ function screenTree() {
   // slanted midline.
   const isMod = !!sk && c.kind === "mod";
   const actions = [["SkillData_EX", "compatibility.check", "compare", isMod && !busy], ["SkillData_EX (1)", repairAction(c), "update", isMod && !busy],
-    ["SkillData_EX (2)", "act.extract", "extract", !busy], ["SkillData_EX (3)", "act.compare", "compare", isMod && !busy]];
+    ["SkillData_EX (2)", "act.extract", "extract", !busy], ["SkillData_EX (3)", "act.compare", "diff", isMod && !busy]];
   // the row's white section spans x 58..1320 (Bg_W2 at 689, 1262 wide); cards keep the first card's 37-unit margins
   const ROW_L = 58 + 37, ROW_R = 1320 - 37, GAP = 6, CW = (ROW_R - ROW_L - 3 * GAP) / 4;
   actions.forEach(([card], i) => {
@@ -370,7 +370,9 @@ function screenTree() {
     icon.children = icon.children.filter((child) => child.name === "Texture");
     const picture = widget(t, `${base}/Normal/SkillIconBg/Texture`);
     delete picture.texture;
-    Object.assign(picture, { cls: "UISprite", sprite: { compare: "School_Icon_Schedule", update: "Common_Icon_All_Download", extract: "Common_Icon_Inventory_Equip" }[glyph], atlas: "Common", type: 0, w_: 109, h_: 109, keepAspect: true });
+    const [atlas, sprite] = { compare: ["Common", "School_Icon_Schedule"], update: ["Common", "Common_Icon_All_Download"],
+      extract: ["Common", "Common_Icon_Inventory_Equip"], diff: ["Event", "Event_Icon_ClueSearch_857"] }[glyph];
+    Object.assign(picture, { cls: "UISprite", sprite, atlas, type: 0, w_: 109, h_: 109, keepAspect: true });
   }
   // row 3: portrait box, the switch card (the game's light weapon card), add portrait. The box's body spans
   // -96..95 around its centre (its slanted right edge ends lower down a few units further left); the title sits at -8.

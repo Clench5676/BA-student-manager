@@ -209,7 +209,7 @@ for (const path of ["BG/Deco", "Label_Name", "Char_CVCollectionBtn/Sprite", "Cha
 const atlas = { Common: Object.fromEntries([...new Set([
   ...[...readFileSync(new URL("../../src/ba_modding_toolkit/web/js/detail.js", import.meta.url), "utf8").matchAll(/"(Common_[A-Za-z0-9_]+)"/g)].map((m) => m[1]),
   "Card_Select_Line_Blue", "Cafe_Icon_NameEdit", "Common_Icon_Reddot2", "School_Icon_Schedule",
-])].map((name) => [name, { width: 8, height: 8 }])) };
+])].map((name) => [name, { width: 8, height: 8 }])), Event: { Event_Icon_ClueSearch_857: { width: 8, height: 8 } } };
 const reply = (data, status = 200) => ({ ok: status === 200, status, json: async () => data });
 let family, indexMode = "ready", layoutMode = "ready", lobbyMode = "pending", optionalPending = false, modsEnabled = true;
 let seenReply = async () => ({ result: null });
