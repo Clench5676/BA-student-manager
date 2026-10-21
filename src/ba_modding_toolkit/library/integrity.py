@@ -88,6 +88,10 @@ def inspect(path: Path) -> Contents:
             stream = getattr(obj.read(), "m_StreamData", None)
             if stream and stream.path:
                 result.streams.add(reference(stream.path))
+        elif obj.type.name == "AudioClip":
+            stream = getattr(obj.read(), "m_Resource", None)
+            if stream and stream.m_Source and stream.m_Size:
+                result.streams.add(reference(stream.m_Source))
         elif obj.type.name == "TextAsset":
             name = obj.peek_name() or ""
             if name.lower().endswith((".skel", ".atlas")):

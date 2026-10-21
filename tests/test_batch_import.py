@@ -22,6 +22,7 @@ from ba_modding_toolkit.webui.state import UiState
 
 from test_library import FakeVariant, game_bundle, make_mod, setup_library
 from test_library_model import model_bundle, model_env
+from test_library_other import other_env
 
 
 @pytest.fixture
@@ -128,7 +129,7 @@ def test_unknown_bundle_duplicates_are_also_silently_skipped(env):
     second = game_bundle(env.tmp / "b", "shared", category="materials")
     result = analyze(env, [first, second])
     assert result["skipped"] == 1 and len(result["entries"]) == 1
-    assert result["entries"][0]["reason"] == "unsupported"
+    assert result["entries"][0]["reason"] == "no_target"
 
 
 def test_existing_library_and_untracked_installed_states_are_read_only(env):
@@ -170,7 +171,7 @@ def test_backup_upload_and_content_alias_use_library_normalization(env, monkeypa
 
 
 @pytest.mark.parametrize("problem,reason", [("unreadable", "unreadable"), ("missing", "no_target"),
-    ("platform", "conflict"), ("ambiguous", "conflict"), ("other", "unsupported")])
+    ("platform", "conflict"), ("ambiguous", "conflict"), ("other", "no_target")])
 def test_blocked_reasons_are_codes_and_failures_do_not_hide_other_entries(env, monkeypatch, problem, reason):
     source = make_mod(env.original, env.tmp / "bad")
     expected_kind = "spr"
@@ -679,3 +680,124 @@ def test_integration_official_bundle_preflight_uses_only_copies(tmp_path, monkey
         assert not library.mods()
     finally:
         services.close()
+
+
+@pytest.fixture
+def batch_other_env(other_env, monkeypatch):
+    env = other_env
+    env.settings.set('output_dir', str(env.tmp / 'exports'))
+    env.services = Services(env.settings, env.tmp / 'app', cache=object(), game=object(),
+                            catalog=env.catalog, library=env.library)
+    env.rpc = build_api(env.services)
+    yield env
+    env.services.close()
+
+
+def test_generic_batch_multi_target_import_apply_library_and_settings_rpc(batch_other_env):
+    env = batch_other_env
+    sources = [make_mod(p, env.tmp / 'incoming', payload=f'mod {i}'.encode()) for i, p in enumerate(env.parts)]
+    entry, = analyze(env, [sources[0].parent])['entries']
+    assert entry['kind'] == 'other' and entry['variant'] is None
+    assert entry['state'] == 'ready' and entry['reason'] is None
+    assert {f['target'] for f in entry['files']} == {p.name for p in env.parts}
+    result, = run(env, [entry], backup=True)
+    assert result['outcome'] == 'imported' and result['applied']
+    mod, = env.library.mods()
+    assert mod.id == result['libraryId']
+    assert all(p.read_bytes() == (mod.file.parent / p.name).read_bytes() for p in env.parts)
+    row, = rpc(env, 'mods.other')
+    assert row['id'] == mod.id and row['selected'] and row['state'] == 'active'
+    duplicate, = analyze(env, sources)['entries']
+    assert duplicate['state'] == 'library' and duplicate['libraryId'] == mod.id
+    finish(env, rpc(env, 'actions.restore', variant=mod.target, kind='other'))
+    assert rpc(env, 'mods.other')[0]['state'] == 'official'
+    assert all(p.read_bytes() == data for p, data in env.official.items())
+    finish(env, rpc(env, 'actions.apply', variant=mod.target, source=f'mod:{mod.id}', kind='other'))
+    finish(env, rpc(env, 'mods.remove', id=mod.id, confirm=True))
+    assert rpc(env, 'mods.other') == []
+    assert all(p.read_bytes() == data for p, data in env.official.items())
+
+
+def test_generic_old_batch_uses_classic_update_then_add_and_deferred_apply(batch_other_env, monkeypatch):
+    env = batch_other_env
+    old = game_bundle(env.tmp / 'old', 'common', category='ui', part='textures', date='2025-01-01', payload=b'old mod')
+    key = ('Assets/UI/title', 'title', 'Texture2D')
+    monkeypatch.setattr(Bundle, 'load', lambda path, *args: SimpleNamespace(get_asset_keys=lambda strategy: {key}))
+    entry, = analyze(env, [old])['entries']
+    assert entry['state'] == 'update' and entry['files'][0]['target'] == env.parts[0].name
+    calls = []
+    updater(monkeypatch, calls)
+    assert not env.library.toggle(False, True).failed
+    result, = run(env, [entry], strategy='cont_name_type')
+    assert result['outcome'] == 'updated' and not result['applied']
+    assert calls[0][1]['source_paths'] == [old]
+    assert [p.name for p in calls[0][1]['target_paths']] == [env.parts[0].name]
+    assert rpc(env, 'mods.other')[0]['state'] == 'set'
+    assert not env.library.toggle(True, False).failed
+    assert env.parts[0].read_bytes() == env.library.mods()[0].file.read_bytes()
+
+
+def test_generic_installed_untracked_multi_file_batch_is_recognized(batch_other_env):
+    env = batch_other_env
+    uploads = [make_mod(p, env.tmp / 'incoming') for p in env.parts]
+    for target, source in zip(env.parts, uploads):
+        Path(str(target) + '.backup').write_bytes(env.official[target])
+        target.write_bytes(source.read_bytes())
+    entry, = analyze(env, uploads)['entries']
+    assert entry['state'] == 'installed'
+    assert not env.library.mods()
+    result = env.library.add_files('other', uploads)
+    assert result.installed == result.added
+    assert env.library.other_mods()[0]['selected']
+
+
+def test_generic_multi_prefix_updates_keep_each_patch_with_its_official_targets(batch_other_env, monkeypatch):
+    env = batch_other_env
+    sources = [game_bundle(env.tmp / 'old', 'common', category=category, part=part, date='2025-01-01', payload=b'old')
+               for category, part in [('ui', 'textures'), ('music', 'audio')]]
+    monkeypatch.setattr(Bundle, 'load', lambda path, *args: SimpleNamespace(get_asset_keys=lambda strategy: {'shared-name'}))
+    entry, = analyze(env, sources)['entries']
+    assert entry['state'] == 'update'
+    calls = []
+    updater(monkeypatch, calls)
+    result, = run(env, [entry], enableAfterImport=False, types=['ALL'])
+    assert result['outcome'] == 'updated'
+    assert len(calls) == 2
+    for _, call in calls:
+        assert len(call['source_paths']) == len(call['target_paths']) == 1
+        assert call['asset_types_to_replace'] == {'ALL'}
+        source, target = call['source_paths'][0], call['target_paths'][0]
+        from ba_modding_toolkit.naming import parse_filename
+        assert parse_filename(source.name).prefix == parse_filename(target.name).prefix
+
+
+def test_generic_old_bundle_can_split_into_multiple_current_official_files(batch_other_env, monkeypatch):
+    env = batch_other_env
+    split = game_bundle(env.game_dir, 'common', category='ui', part='materials')
+    old = game_bundle(env.tmp / 'old', 'common', category='ui', part='003', date='2025-01-01', payload=b'old')
+    monkeypatch.setattr(Bundle, 'load', lambda path, *args: SimpleNamespace(get_asset_keys=lambda strategy: {'shared-name'}))
+    entry, = analyze(env, [old])['entries']
+    assert entry['state'] == 'update'
+    calls = []
+    updater(monkeypatch, calls)
+    result, = run(env, [entry])
+    assert result['outcome'] == 'updated' and result['applied']
+    mod, = env.library.mods()
+    assert len(list(mod.file.parent.glob('*.bundle'))) == 2
+    assert set(rpc(env, 'mods.other')[0]['files']) == {env.parts[0].name, split.name}
+    assert not env.library.toggle(False, True).failed
+    assert not env.library.toggle(True, False).failed
+    assert env.parts[0].read_bytes() == (mod.file.parent / env.parts[0].name).read_bytes()
+    assert split.read_bytes() == (mod.file.parent / split.name).read_bytes()
+
+
+def test_generic_classic_queue_pins_every_target_slot(batch_other_env):
+    from ba_modding_toolkit.library.judge import core_of
+
+    env = batch_other_env
+    mod, = env.library.add_files('other', [make_mod(p, env.tmp / 'incoming') for p in env.parts])
+    count = env.services.queue_call('actions.apply', {'variant': mod.target, 'kind': 'other', 'source': f'mod:{mod.id}'})
+    assert count == 1
+    call, = env.services.queue.items()
+    assert {core for _, core in call.entries} == {core_of(p.name) for p in env.parts}
+    assert len(call.files) == len(env.parts)

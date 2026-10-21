@@ -46,7 +46,7 @@ def model_env(setup_library):
 def test_supported_model_bundle_categories(category):
     assert kind_of_file(f'assets-_mx-{category}-hoshino_original-_mxload-2026-01-01_assets_all_1.bundle') == 'model'
     assert supports_kind('model') and ModLibrary.supports_kind('model')
-    assert not supports_kind('other')
+    assert not supports_kind('unknown')
 
 
 @pytest.mark.parametrize('name', ['Echelon_Hoshino_Original', 'Hoshino_Body',

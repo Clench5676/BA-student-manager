@@ -10,7 +10,8 @@ import * as NGUI from "./ngui.js";
 import * as Popup from "./popup.js";
 import * as Prompts from "./prompts.js";
 import * as Consent from "./consent.js";
-import { rpc } from "./api.js";
+import * as OtherMods from "./settings-other.js";
+import { on, rpc } from "./api.js";
 import { T, platform } from "./i18n.js";
 import { runtimeLoaded, setSpineConsent } from "./spine-runtime.js";
 import { $, DOT, S, clone, glyphsOf, hitButton, toast, wrapPath } from "./util.js";
@@ -24,6 +25,7 @@ const ROW_W = 1552;
 
 let layout = null, prefs = null, tab = "general", scroll = 0, onChange = null, token = 0;
 let checkingUpdate = false;
+let otherMods = null, otherRequest = 0;
 
 const errorText = (err) => T(`error.${err.code || "internal"}`, err.params || { error: String(err) });
 async function call(fn) {
@@ -127,16 +129,16 @@ async function checkFiles() {
 }
 
 // a value with one or two buttons on the right (folders, version, cache); long values wrap, never cut
-function valueRow(name, y, title, value, buttons) {
-  const room = 1440 - buttons.length * 320;
+function valueRow(name, y, title, value, buttons, { below = false } = {}) {
+  const room = below ? 1440 : 1440 - buttons.length * 320;
   const f = wrapPath(value || T("settings.notSet"), 38, 30, room, 3);
   const lineH = f.fs * 1.3, blockH = Math.max(lineH * f.lines, 112);
-  const h = 130 + blockH + 30, row = rowBase(name, y, h, title), hits = [];
+  const h = 130 + blockH + 30 + (below ? 132 : 0), row = rowBase(name, y, h, title), hits = [];
   const midY = h / 2 - 130 - blockH / 2;
   row.children.push(node("Value", [-718, midY], [label(f.text, f.fs, "#2d4664/1.00", room, lineH * f.lines + 10, { pivot: 3, depth: 8 })]));
   buttons.forEach(([caption, fn, enabled = true], i) => {
     const x = 700 - (buttons.length - 1 - i) * 320 - 150;
-    row.children.push(buttonNode(`Btn_${i}`, x, midY, caption, { enabled }));
+    row.children.push(buttonNode(`Btn_${i}`, x, below ? -h / 2 + 75 : midY, caption, { enabled }));
     if (enabled) hits.push({ path: `${name}/Btn_${i}`, fn, name: caption });
   });
   return { tree: row, h, hits };
@@ -272,6 +274,12 @@ function rows({ builtSize = null, sizeError = null } = {}) {
     }));
     add(helpAfterTitle(valueRow("Files", 0, T("settings.mods.files"), filesValue(m), [[T("settings.mods.check"), checkFiles]]),
       T("settings.mods.files"), false, driftHelp));
+    if (otherMods?.length) {
+      add({ tree: rowBase("OtherMods", 0, 130, T("settings.mods.other")), h: 130, hits: [] });
+      OtherMods.rows(otherMods, valueRow, refreshOtherMods).forEach(add);
+    } else {
+      add(valueRow("OtherMods", 0, T("settings.mods.other"), T(otherMods ? "settings.mods.empty" : "job.running"), []));
+    }
   } else if (tab === "sound") {
     add(sliderRow("Voice", 0, T("settings.voice"), p.voiceVolume, p.voiceMuted));
   } else if (tab === "l2d") {
@@ -392,7 +400,11 @@ async function render({ builtSize = null, sizeError = null } = {}) {
     const el = view.nodes.get(`Center/Popup/Tab_${id}/Tab_Off/Label_Locale`)?.els[0];
     if (el && id !== tab) {
       const [l, t, w, h] = rect(el);
-      hitButton(next, [l - 60, t - 30, w + 120, h + 60], () => { tab = id; scroll = 0; render(); }, T(`settings.tab.${id}`), 3100);
+      hitButton(next, [l - 60, t - 30, w + 120, h + 60], () => {
+        tab = id; scroll = 0;
+        if (id === "mods") refreshOtherMods();
+        else render();
+      }, T(`settings.tab.${id}`), 3100);
     }
   });
   // the rows scroll inside the panel's list area
@@ -442,10 +454,18 @@ function close() {
 
 // the Mods tab follows the switch's state (mods.state: a toggle elsewhere, the game starting, the file check)
 let following = false;
+async function refreshOtherMods() {
+  const request = ++otherRequest;
+  const next = await call(() => rpc("mods.other"));
+  if (request !== otherRequest) return;
+  if (next) otherMods = next;
+  if (!$("settings").hidden && tab === "mods") await render();
+}
 function follow() {
   if (following) return;
   following = true;
-  ModSwitch.onChange(() => { if (!$("settings").hidden && tab === "mods") render(); });
+  ModSwitch.onChange(() => { if (!$("settings").hidden && tab === "mods") refreshOtherMods(); });
+  on("library.changed", () => { if (!$("settings").hidden && tab === "mods") refreshOtherMods(); });
 }
 
 // open(onChange): onChange(key, prefs) after a setting was saved
@@ -459,6 +479,8 @@ export async function open(changed) {
   prefs = await call(() => rpc("settings.get"));
   if (!prefs) return;
   if (!ModSwitch.current()) await ModSwitch.refresh();
+  otherRequest++;
+  otherMods = tab === "mods" ? await call(() => rpc("mods.other")) : null;
   $("settings").hidden = false;
   await render();
 }

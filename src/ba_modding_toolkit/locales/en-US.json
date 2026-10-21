@@ -1283,6 +1283,19 @@
 				"driftHelp": {
 					"title": "Configuration Drift",
 					"what": "Configuration drift means the game files do not match the mod configuration."
+				},
+				"other": "Other Mods",
+				"empty": "No Mods",
+				"useMod": "Use Mod",
+				"official": "Official",
+				"otherState": {
+					"official": "Official",
+					"active": "In Use",
+					"mixed": "Partial",
+					"set": "Set",
+					"changed": "Changed",
+					"missing": "Missing Files",
+					"inactive": "Not in Use"
 				}
 			},
 			"voice": "Voice",

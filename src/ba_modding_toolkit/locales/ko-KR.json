@@ -1283,6 +1283,19 @@
 				"driftHelp": {
 					"title": "설정 드리프트",
 					"what": "설정 드리프트는 게임 파일이 모드 설정과 일치하지 않는 상태를 뜻합니다."
+				},
+				"other": "공용 Mod",
+				"empty": "Mod 없음",
+				"useMod": "Mod 사용",
+				"official": "공식",
+				"otherState": {
+					"official": "공식",
+					"active": "사용 중",
+					"mixed": "일부 적용",
+					"set": "설정됨",
+					"changed": "변경됨",
+					"missing": "파일 없음",
+					"inactive": "미사용"
 				}
 			},
 			"voice": "보이스",

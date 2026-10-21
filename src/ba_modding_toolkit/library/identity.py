@@ -8,7 +8,7 @@ from pathlib import Path
 from ..bundle import Bundle
 from ..errors import ServiceError
 from ..naming import parse_filename
-from .judge import MODEL_CATEGORIES, kind_of
+from .judge import MODEL_CATEGORIES, kind_of, kind_of_file, other_target
 
 # Match complete Spine core names, including asset names followed by a page or role.
 CORE = re.compile(r"(?<![a-z0-9_])([a-z][a-z0-9_]*?_(?:spr|home(?:_gl|_teen)?))(?=$|[^a-z0-9])", re.I)
@@ -101,12 +101,14 @@ def content_cores(path: Path) -> set[str]:
 
 
 def identify(path: Path, name: str, catalog) -> tuple[str, str, str]:
-    """Return the stored filename, variant and kind. Content wins over a renamed filename;
-    conflicting content or an unknown content core refuses the whole upload."""
+    """Return the stored filename, target and kind. Character content wins over a renamed filename;
+    generic bundle slots retain their official filename identity."""
     parsed = parse_filename(name)
     resolve = getattr(catalog, "variant_for_asset_core", catalog.variant_for_core)
     resolve_model = getattr(catalog, "variant_for_model_core", catalog.variant_for_core)
     declared_kind = kind_of(parsed.core, parsed.category)
+    if declared_kind is None and kind_of_file(name) == "other":
+        return name, other_target([name]), "other"
     declared = (resolve_model if declared_kind == "model" else resolve)(parsed.core.lower())
     cores = content_cores(path)
     resolved = [(core, (resolve_model(core[6:]) if core.startswith("model:") else resolve(core)))

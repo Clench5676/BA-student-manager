@@ -27,6 +27,7 @@ export function lobbySuffix(core) {
 // the kind chip: Portrait, Memorial Lobby, or the memorial lobby of an alternate core with its suffix
 export function kindLabel(entry) {
   const kind = entry?.kind || (/_spr$/i.test(entry?.core || "") ? "spr" : "lobby");
+  if (kind === "other") return T("settings.mods.other");
   if (kind !== "lobby") return T(kind === "model" ? "tab.model" : "tab.portrait");
   const suffix = lobbySuffix(entry?.core);
   return suffix ? `${T("tab.lobby")} ${suffix}` : T("tab.lobby");
@@ -43,7 +44,7 @@ export function installId(state, key) {
 
 // a card's skeleton: the entry's core in its own install, so a card never shows the current install's file of the
 // same name
-export const entryBase = (entry, state) => entry?.kind === "model" ? null : spineBase(entry?.kind === "lobby" ? "lobby" : "spr", entry?.core, installId(state, entry?.install));
+export const entryBase = (entry, state) => ["model", "other"].includes(entry?.kind) ? null : spineBase(entry?.kind === "lobby" ? "lobby" : "spr", entry?.core, installId(state, entry?.install));
 
 // the entries a prompt lists, from the last scan (mods.entries), leaving out the dismissed ones unless asked (Settings'
 // Check lists them again):

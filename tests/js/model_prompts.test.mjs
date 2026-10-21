@@ -26,3 +26,10 @@ test("model entries retain their kind in untracked and drift prompts without req
   const reset = { ...model, state: "reset" };
   assert.deepEqual(promptEntries([reset], "drift").listed, [reset]);
 });
+
+test("generic entries retain their kind without requesting a Spine preview", () => {
+  const entry = { kind: "other", core: "other:ui", variant: "ui", install: "game", state: "untracked" };
+  assert.equal(kindLabel(entry), "Other Mods");
+  assert.equal(entryBase(entry, { current: "game" }), null);
+  assert.deepEqual(promptEntries([entry], "untracked").listed, [entry]);
+});

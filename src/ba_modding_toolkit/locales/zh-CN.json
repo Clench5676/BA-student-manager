@@ -1283,6 +1283,19 @@
 				"driftHelp": {
 					"title": "配置漂移",
 					"what": "配置漂移是指游戏文件与 Mod 配置不一致。"
+				},
+				"other": "通用 Mod",
+				"empty": "暂无 Mod",
+				"useMod": "使用 Mod",
+				"official": "原版",
+				"otherState": {
+					"official": "原版",
+					"active": "使用中",
+					"mixed": "部分启用",
+					"set": "已设置",
+					"changed": "已变更",
+					"missing": "文件缺失",
+					"inactive": "未启用"
 				}
 			},
 			"voice": "语音",

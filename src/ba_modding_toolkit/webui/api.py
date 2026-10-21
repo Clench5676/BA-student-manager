@@ -612,6 +612,10 @@ def build_api(s: Services) -> RpcRegistry:
     def mods_removal_info(id: str) -> dict[str, Any]:
         return s.library.removal_info(id)
 
+    @rpc.method("mods.other")
+    def mods_other() -> list[dict[str, Any]]:
+        return s.library.other_mods()
+
     @rpc.method("mods.remove")
     def mods_remove(id: str, confirm: bool = False) -> str:
         """Delete a library source as one writer job; game write refusals remain in its result and drift."""

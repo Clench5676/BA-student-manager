@@ -157,7 +157,8 @@ def _changed_of(result: Any) -> dict[str, list[str]]:
                 **({"mods": True} if getattr(result, "mods_changed", False) else {})}
     files = getattr(result, "files", None)
     if isinstance(files, list):
-        names = [parse_filename(Path(f).name).core.lower() for f in files if isinstance(f, (str, Path))]
+        from ..library.judge import core_of
+        names = [core_of(Path(f).name) for f in files if isinstance(f, (str, Path))]
         cores = sorted({c for c in names if c})
         from ..library.judge import kind_of_file
         kinds = sorted({kind_of_file(Path(f).name) or ("spr" if parse_filename(Path(f).name).core.endswith("_spr")
@@ -671,7 +672,7 @@ class Services:
     def submit_apply(self, variant: str, source: str, kind: str = "spr") -> str:
         """``actions.apply``: one entry of the current install, pinned at submit. ``classic_open`` only when it would
         write a game file (an apply while mods are off only changes the configuration)."""
-        if kind not in ("spr", "lobby", "model"):
+        if kind not in ("spr", "lobby", "model", "other"):
             raise ServiceError("bad_params", kind=kind)
         library = self.library
         pin = self._current_pin(library)
@@ -689,7 +690,7 @@ class Services:
         """``actions.restore``: back to official, pinned at submit. A restore that writes nothing (the files are
         official already) is allowed while a classic window is open; if it turns out to write after all (the full
         judgement finds a file changed), the write itself is refused with ``classic_open``."""
-        if kind not in ("spr", "lobby", "model"):
+        if kind not in ("spr", "lobby", "model", "other"):
             raise ServiceError("bad_params", kind=kind)
         library = self.library
         pin = self._current_pin(library)
@@ -788,7 +789,7 @@ class Services:
             count = self.queue.add(call, intent=library.intent()["enabled"])
         elif method in ("actions.apply", "actions.restore"):
             variant, kind = params.get("variant"), params.get("kind", "spr")
-            if not isinstance(variant, str) or kind not in ("spr", "lobby", "model"):
+            if not isinstance(variant, str) or kind not in ("spr", "lobby", "model", "other"):
                 raise ServiceError("bad_params", key="variant")
             clean: dict[str, Any] = {"variant": variant, "kind": kind}
             if method == "actions.apply":
@@ -796,6 +797,18 @@ class Services:
                     raise ServiceError("bad_params", key="source")
                 clean["source"] = params["source"]
             pin = self._current_pin(library)
+            if kind == "other":
+                from ..library.judge import core_of
+                states = library.state(variant, pin=pin).files
+                entries = tuple(sorted({(pin.key, core_of(f.file.name)) for f in states}))
+                if not entries:
+                    raise ServiceError("game_file_not_found", variant=variant)
+                files = {entry: stat_files([str(f.file) for f in states if core_of(f.file.name) == entry[1]])
+                         for entry in entries}
+                call = QueuedCall(method, clean, entries=entries, pins={pin.key: pin}, files=files, current=True)
+                count = self.queue.add(call)
+                self.publish_state()
+                return count
             try:
                 found = self.catalog.variant(variant)
             except KeyError as error:

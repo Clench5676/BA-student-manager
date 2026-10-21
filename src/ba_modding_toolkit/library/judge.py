@@ -8,6 +8,7 @@ official, unknown or damaged; *configured* is the source the user chose for it; 
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 from datetime import datetime, timezone
@@ -19,7 +20,7 @@ from ..searching import SEARCH_DIR_SUFFIXES
 
 LIBRARY_SOURCES = ("mod:", "variant:")
 CRC_STATES = ("ok", "fixed", "needs_fix")
-KINDS = ("spr", "lobby", "model")
+KINDS = ("spr", "lobby", "model", "other")
 MODEL_CATEGORIES = {"character", "characters", "npcs"}
 
 
@@ -56,12 +57,21 @@ def kind_of(core: str, category: str | None = None) -> str | None:
 def kind_of_file(name: str) -> str | None:
     """Classify a bundle using its category as well as its core."""
     parsed = parse_filename(name)
-    return kind_of(parsed.core, parsed.category)
+    return kind_of(parsed.core, parsed.category) or (
+        "other" if name.endswith(".bundle") and parsed.prefix and parsed.crc else None)
 
 
 def core_of(name: str) -> str:
-    """The lower-case core of a bundle file name."""
+    """The character core, or a generic file slot keyed by prefix and resource type, without date or CRC."""
+    if kind_of_file(name) == "other":
+        return "other:" + hashlib.sha256(repr(part_of(name)).encode()).hexdigest()
     return parse_filename(name).core.lower()
+
+
+def other_target(names: Iterable[str]) -> str:
+    """A bundle set's address; its individual target slots remain independently configurable."""
+    slots = sorted({core_of(name) for name in names})
+    return "other-set:" + hashlib.sha256("\0".join(slots).encode()).hexdigest()
 
 
 def part_of(name: str) -> tuple[str, str | None]:

@@ -18,7 +18,7 @@ from ..bundle import Bundle
 from ..errors import ServiceError
 from ..gameassets.spine import spine_revision
 from ..library.identity import identify
-from ..library.judge import kind_of, part_of
+from ..library.judge import core_of, kind_of, part_of
 from ..library.storage import Fingerprints
 from ..models import SaveOptions
 from ..naming import parse_filename
@@ -282,7 +282,8 @@ class BatchImport:
                 error = "unreadable"
             parsed = parse_filename(name)
             # Date separates versions; folders separate alternative mods of the same release.
-            key = (path.parent, parsed.core.lower(), parsed.date, kind, variant)
+            key = (path.parent, "", "", kind, None) if kind == "other" else (
+                path.parent, parsed.core.lower(), parsed.date, kind, variant)
             groups.setdefault(key, []).append((path, name, error))
         candidates = []
         for (_, core_name, _, kind, variant), items in groups.items():
@@ -317,7 +318,7 @@ class BatchImport:
                      "state": "blocked", "reason": error, "libraryId": None, "preview": None}
             candidate = Candidate(files, entry, error)
             try:
-                candidate.identity = frozenset((core_name, self._hashes.get(path).sha1) for path in files.values())
+                candidate.identity = frozenset((core_of(name), self._hashes.get(path).sha1) for name, path in files.items())
             except OSError:
                 pass  # The unreadable row above still reports all of its source paths.
             candidates.append(candidate)
@@ -345,13 +346,15 @@ class BatchImport:
                 return
             if not pin or not live:
                 raise ServiceError("game_file_not_found")
-            originals = library.official_bundles(entry["core"], pin=pin)
+            originals = report["originals"] if entry["kind"] == "other" else library.official_bundles(entry["core"], pin=pin)
             if len(live) != len(originals):
                 raise ServiceError("game_file_conflict")
             baseline = dict(zip(live, originals))
             exact = set(candidate.files) <= {p.name for p in live}
             if exact:
                 targets = [p for p in live if p.name in candidate.files]
+            elif entry["kind"] == "other":
+                targets = live
             else:
                 latest = max(parse_filename(p.name).date for p in live)
                 targets, _ = _asset_match(list(candidate.files.values()),
@@ -423,7 +426,7 @@ class BatchImport:
                             continue
                         # Recheck the actual inputs and current official files before launching parallel builds.
                         try:
-                            current = frozenset((parse_filename(name).core.lower(), self._hashes.get(path).sha1)
+                            current = frozenset((core_of(name), self._hashes.get(path).sha1)
                                                 for name, path in candidate.files.items())
                             if current != candidate.identity:
                                 raise ServiceError("entry_changed")
@@ -461,7 +464,7 @@ class BatchImport:
                                     item.update(libraryId=mod.id, outcome=("updated" if updated else "imported")
                                                 if added else "unchanged")
                                     result.added.extend(added)
-                                    result.cores.add(mod.core)
+                                    result.cores.update(core_of(path.name) for path in paths)
                                     result.kinds.add(mod.kind)
                                     if options["enableAfterImport"] and added:
                                         phase = "apply"
@@ -507,18 +510,28 @@ class BatchImport:
         spine = settings.spine_options()
         if candidate.spine_version:
             spine = replace(spine, target_version=candidate.spine_version)
-        updated = core.process_mod_update(source_paths=list(candidate.files.values()), target_paths=targets,
-            output_dir=output, asset_types_to_replace=settings.asset_types(),
-            save_options=settings.save_options(settings.crc_needed(targets[0])), spine_options=spine,
-            skip_unchanged=settings.options["skipUnchanged"], match_strategy=settings.options["strategy"],
-            anim_check=settings.anim_check_options(), log=log)
-        if not updated.success:
-            raise ServiceError("mod_update_failed")
-        if updated.message == "all_targets_unchanged":
+        groups = {}
+        for target in targets:
+            prefix = parse_filename(target.name).prefix if entry["kind"] == "other" else ""
+            groups.setdefault(prefix, []).append(target)
+        generated, unchanged = {}, True
+        for prefix, group in groups.items():
+            sources = [path for name, path in candidate.files.items()
+                       if not prefix or parse_filename(name).prefix == prefix]
+            updated = core.process_mod_update(source_paths=sources, target_paths=group,
+                output_dir=output, asset_types_to_replace=settings.asset_types(),
+                save_options=settings.save_options(settings.crc_needed(group[0])), spine_options=spine,
+                skip_unchanged=settings.options["skipUnchanged"], match_strategy=settings.options["strategy"],
+                anim_check=settings.anim_check_options(), log=log)
+            if not updated.success:
+                raise ServiceError("mod_update_failed")
+            if updated.message != "all_targets_unchanged":
+                if not updated.file_pairs:
+                    raise ServiceError("mod_update_failed")
+                unchanged = False
+            generated.update((pair.output.name, pair.output) for pair in updated.file_pairs)
+        if unchanged:
             return None, False, candidate
-        generated = {pair.output.name: pair.output for pair in updated.file_pairs}
-        if not generated:
-            raise ServiceError("mod_update_failed")
         # Retain unchanged official parts when the current game splits one old mod into several bundles.
         for target in targets:
             if target.name not in generated:

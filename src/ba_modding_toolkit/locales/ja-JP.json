@@ -1283,6 +1283,19 @@
 				"driftHelp": {
 					"title": "設定のずれ",
 					"what": "設定のずれとは、ゲームファイルとMOD設定が一致しない状態のことです。"
+				},
+				"other": "汎用Mod",
+				"empty": "Modなし",
+				"useMod": "Modを使用",
+				"official": "公式",
+				"otherState": {
+					"official": "公式",
+					"active": "使用中",
+					"mixed": "一部適用",
+					"set": "設定済み",
+					"changed": "変更あり",
+					"missing": "ファイルなし",
+					"inactive": "未使用"
 				}
 			},
 			"voice": "ボイス",
