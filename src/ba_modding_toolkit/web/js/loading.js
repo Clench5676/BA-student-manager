@@ -349,6 +349,7 @@ async function upgrade(o) {
   o.repeaterTree = tree;
   let progress = queueProgress(o);
   do { await progress; if (progress === o.progressWork) break; progress = o.progressWork; } while (progress);
+  if (o.closing || o.done || (o !== overlay && o !== writerOverlay)) { o.sprites = false; return; }
   o.ind.replaceChildren(next);
   styled = true;
   o.plain = false;

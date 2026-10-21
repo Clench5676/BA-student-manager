@@ -5,7 +5,7 @@ separate commits are delivered in `/tmp/v030g-3.bundle`. No application version,
 owner labels, owner install, Mods, library or settings were changed. Assets used
 for the additional checks came from the verified read-only development copy.
 
-Validation: **934 JavaScript tests passed; 2002 Python tests passed, 127 skipped**.
+Validation: **935 JavaScript tests passed; 2002 Python tests passed, 127 skipped**.
 The additional asset run passed four tests: three verified-asset checks and the
 existing gradient-metadata unit check. The three existing Python deprecation
 warnings remain. Regressions for A, C, E and F were also run against `81b79a8` and
@@ -23,7 +23,8 @@ The measured difference from the derived sprite ink line is converted from
 viewport coordinates to stage units and applied as a translation. Only then is
 the label published. The sprite indicator waits for the latest progress-label
 publication, so it cannot appear with a still-uncorrected progress label. Stale
-render attempts cannot replace a newer text update. Even the CSS fallback is
+render attempts cannot replace a newer text update. Closing an overlay also
+discards an upgrade waiting on label measurement. Even the CSS fallback is
 measured when no usable prefab label exists.
 
 Text/locale updates build and measure a replacement. Resize, stage resize and

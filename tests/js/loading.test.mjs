@@ -499,3 +499,13 @@ test("the first sprite frame waits for a connected, measured progress label", as
   assert.ok(h.stage.children[0].querySelector(".loading-repeater"));
   work.resolve(); await pending;
 });
+
+test("closing an overlay while its measured label waits cannot publish a late sprite frame", async () => {
+  const gate = deferred(), h = await harness({ prefabLabels: true, labelGate: gate }), work = deferred();
+  const pending = h.loading.hold(() => work.promise);
+  await flush(); h.sprites.resolve(); await flush();
+  const old = h.stage.children[0];
+  work.resolve(); await pending;
+  gate.resolve(); await flush(); await flush();
+  assert.equal(old.querySelector(".loading-repeater"), null);
+});
