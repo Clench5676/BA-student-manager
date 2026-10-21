@@ -1,7 +1,6 @@
 // Batch Import's artwork is cloned from runtime game layouts. Only container dimensions and data slots adapt
 // to the approved two-column screen; sprite slicing, inclines, decoration, colours and typography stay in NGUI.
 import { resizeButton } from "./button-layout.js";
-import { searchTree, sortBody, orderBody } from "./roster-widgets.js";
 import { clone } from "./util.js";
 
 const INVENTORY = "Inventory_ListControl";
@@ -12,7 +11,7 @@ const RADIO = "Center/Popup/Sort/Scroll View/Sort_Normal/Option_Normal/Grid/UISo
 export const ROW_SCALE = 0.54, ROW_WIDTH = 2208 * ROW_SCALE, ROW_HEIGHT = 348 * ROW_SCALE;
 
 export async function loadImportLayouts(ui) {
-  const names = ["UINonEquipmentInventory", "UIMailBox", "UIMailBoxContent", "UIPopup_FilterSort", "UINonEquipmentInventoryListItem", "UICharacterCollection"];
+  const names = ["UINonEquipmentInventory", "UIMailBox", "UIMailBoxContent", "UIPopup_FilterSort", "UINonEquipmentInventoryListItem"];
   return Object.fromEntries(await Promise.all(names.map(async (name) => [name, await ui.layout(name)])));
 }
 
@@ -51,13 +50,38 @@ export function importArtwork(ui, layouts) {
       }
       return t;
     },
-    // Items/ListBG/BG_Top_Widget/Label_Locale_Title; Mailbox/Right/Label_Amount supplies the counter.
-    title: (caption) => at(label(inventory(`${LIST}/BG_Top_Widget/Label_Locale_Title`), caption, 660)),
-    count: (caption) => at(label(mail("Right/Label_Amount"), caption, 500)),
-    // The roster's white search field, outline, search icon and clear icon. Resize actual sprite widgets:
+    // Anchor Items' complete header to the panel's top/right; only its title follows the left edge.
+    header(width, title, caption, filtered, ascending, searching) {
+      const t = inventory(`${LIST}/BG_Top_Widget`);
+      const panel = ui.find(layouts.UINonEquipmentInventory, LIST).widgets.find((w) => "sprite" in w);
+      t.pos[0] += width - panel.w_ / 2; t.pos[1] -= panel.h_ / 2;
+      const heading = ui.find(t, "Label_Locale_Title");
+      heading.pos[0] -= width - panel.w_;
+      label(heading, title, 660).widgets.find((w) => "text" in w).ellipsis = true;
+      const sort = ui.find(t, "SortBtn/Btn_Normal");
+      for (const name of ["FilterMarker_Off", "FilterMarker_On"]) ui.find(sort, name).active = (name === "FilterMarker_On") === filtered;
+      ui.find(sort, "Type_1").active = false; ui.find(sort, "Type_2").active = true;
+      label(ui.find(sort, "Type_2/Text"), caption).widgets.find((w) => "text" in w).ellipsis = true;
+      const order = ui.find(t, "OrderBtn/Btn_Normal");
+      ui.find(order, "Icon_down").active = !ascending; ui.find(order, "Icon_Up").active = ascending;
+      ui.find(t, "SearchBtn/Btn_Normal").active = !searching;
+      ui.find(t, "SearchBtn/Btn_Pressed").active = searching;
+      return t;
+    },
+    // Mailbox's top/right count sits immediately above the list, outside the Items header controls.
+    count: (caption) => {
+      const t = at(mail("Right/Label_Amount")), w = t.widgets.find((w) => "text" in w), height = w.h_;
+      label(t, caption, 500); Object.assign(w, { h_: height, ellipsis: true }); return t;
+    },
+    searchTop() {
+      const panel = ui.find(layouts.UINonEquipmentInventory, LIST);
+      return panel.widgets.find((w) => "sprite" in w).h_ / 2 - ["Inbox", "Inbox/SearchInfo", "Inbox/SearchInfo/SearchName", "Inbox/SearchInfo/SearchName/SearchNameArea"]
+        .reduce((y, path) => y + ui.find(panel, path).pos[1], 0);
+    },
+    // Items' white search field, outline, search icon and clear icon. Resize actual sprite widgets:
     // SearchNameArea starts with a nonvisual component in exported layouts, not its background sprite.
     search(width, searching = true) {
-      const t = at(ui.find(searchTree(layouts.UICharacterCollection), "SearchName/SearchNameArea"));
+      const t = at(inventory(`${LIST}/Inbox/SearchInfo/SearchName/SearchNameArea`));
       const body = t.widgets.find((w) => "sprite" in w), delta = width - body.w_;
       body.w_ = width;
       ui.find(t, "BG_Line").widgets.find((w) => "sprite" in w).w_ = width;
@@ -67,21 +91,14 @@ export function importArtwork(ui, layouts) {
       ui.find(t, "Btn_Close").active = searching;
       for (const c of ui.find(t, "InputField").children) {
         const w = c.widgets.find((w) => "text" in w);
+        w.text = "";
         w.w_ = searching ? w.w_ + delta : width - 60;
       }
       return t;
     },
     inputStyle(scale) {
-      const w = ui.find(layouts.UICharacterCollection, "SeletControl/CharacterSearch/SearchName/SearchNameArea/InputField/Label_Search").widgets.find((w) => "text" in w);
+      const w = ui.find(layouts.UINonEquipmentInventory, `${LIST}/Inbox/SearchInfo/SearchName/SearchNameArea/InputField/Label_Search`).widgets.find((w) => "text" in w);
       return { color: w.color.split("/")[0], caretColor: w.color.split("/")[0], fontSize: `${w.fontSize * scale}px` };
-    },
-    // The roster's sort button builder retains both funnel states, including their full-width top line.
-    stateButton(caption, active, width = 570) {
-      return at(sortBody(layouts.UICharacterCollection, ui.fitText(caption, 48, 28, width - 120, 2), width, active));
-    },
-    // The roster's order button uses the same 243 x 116 body and direction states.
-    order(ascending) {
-      return at(orderBody(layouts.UICharacterCollection, ascending));
     },
     // MailboxContent/List_01/Btn_Receive supplies every blue action; Items/Bottom/Use/UseBtn supplies Import.
     // Clone the entire disabled state, including its dark dotted B_C patterns, not just its body/label colours.

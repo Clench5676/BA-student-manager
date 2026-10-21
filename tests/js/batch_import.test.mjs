@@ -71,7 +71,6 @@ const { createImportPage, entryIdentity, catalogEntries } = await import("../../
 const { importAssistants, suggestImports } = await import("../../src/ba_modding_toolkit/web/js/import-assistants.js");
 const { importArtwork, clipButtonPatterns } = await import("../../src/ba_modding_toolkit/web/js/import-layout.js");
 const { ROW_W: OPTION_WIDTH, rowBase, radioRow } = await import("../../src/ba_modding_toolkit/web/js/settings-rows.js");
-const { searchTree, sortBody, orderBody } = await import("../../src/ba_modding_toolkit/web/js/roster-widgets.js");
 const { S } = await import("../../src/ba_modding_toolkit/web/js/util.js");
 const { createImportState } = await import("../../src/ba_modding_toolkit/web/js/import-state.js");
 const { setStrings } = await import("../../src/ba_modding_toolkit/web/js/i18n.js");
@@ -182,6 +181,7 @@ test("analyzing locks edits; mixed states default to ready/update only, with ali
 
 test("search includes all catalog names and aliases; state counts are unfiltered and sort toggles", async () => {
   const h = await fixture(); await h.analyze();
+  await h.action("searchToggle").click();
   const search = h.host.querySelector(".import-search"); search.value = "JP b";
   await search.dispatch("input", { isComposing: true }); assert.ok(h.row("a"));
   await search.dispatch("compositionend"); assert.ok(!h.row("a")); assert.ok(h.row("b"));
@@ -405,7 +405,7 @@ test("the window's native drop event goes directly to Batch Import on its route"
 const treeNodes = (tree) => [tree, ...(tree.children || []).flatMap(treeNodes)];
 test("the page clones runtime Items/Mailbox widgets and has no invented empty preview or key hint", async () => {
   const h = await fixture();
-  assert.deepEqual(h.loaded, ["UINonEquipmentInventory", "UIMailBox", "UIMailBoxContent", "UIPopup_FilterSort", "UINonEquipmentInventoryListItem", "UICharacterCollection"]);
+  assert.deepEqual(h.loaded, ["UINonEquipmentInventory", "UIMailBox", "UIMailBoxContent", "UIPopup_FilterSort", "UINonEquipmentInventoryListItem"]);
   assert.equal(h.host.querySelector(".import-detail").textContent, "");
   await h.analyze(); await h.page.openOptions(); await h.page.settled();
   assert.equal(h.dialog.querySelector("select"), null, "options use the game's radio widgets");
@@ -561,7 +561,7 @@ test("advanced boolean, choice, resource and input rows share Settings' body, ti
 });
 
 test("search and editable option fields cover the real sprite, keep text inside its frame, and put clear above the art", async () => {
-  const h = await fixture(); await h.page.openOptions(); await h.page.settled();
+  const h = await fixture(); await h.action("searchToggle").click(); await h.page.openOptions(); await h.page.settled();
   for (const wrap of [...h.host.querySelectorAll(".import-input-wrap"), ...h.dialog.querySelectorAll(".import-input-wrap")]) {
     const { tree, opts } = drawn(h, wrap), input = wrap.querySelector("input");
     const body = tree.widgets.find((w) => "sprite" in w), line = find(tree, "BG_Line").widgets.find((w) => "sprite" in w);
@@ -593,22 +593,102 @@ test("search and editable option fields cover the real sprite, keep text inside 
   await input.dispatch("keydown", { key: "Enter" }); assert.equal(document.activeElement, body);
 });
 
-test("the import toolbar uses the roster builders and scale for both filter and order states", async () => {
-  const h = await fixture(), collection = h.layouts.UICharacterCollection;
-  const search = searchTree(collection);
-  assert.equal(find(search, "SearchName/SearchNameArea").widgets.find((w) => "sprite" in w).h_, 112);
+test("the Items header retains its own control sizes, transforms and states with hit areas over its widgets", async () => {
+  const h = await fixture(), source = find(h.layouts.UINonEquipmentInventory, "Inventory_ListControl/RightCanvas/ListBG/BG_Top_Widget");
+  const header = h.host.querySelector(".import-header");
   const assertTools = () => {
-    const filter = drawn(h, h.action("filter")), order = drawn(h, h.action("order"));
-    assert.equal(filter.opts.scale, S); assert.equal(order.opts.scale, S);
-    const caption = h.action("filter").getAttribute("aria-label");
-    assert.deepEqual(filter.tree, { ...sortBody(collection, { text: caption, fs: 48 }, 570, caption !== "All (0)" && caption !== "All (5)"), pos: [0, 0] });
-    assert.deepEqual(order.tree, { ...orderBody(collection, h.action("order").getAttribute("aria-label") === "Ascending"), pos: [0, 0] });
-    closeTo(parseFloat(h.action("order").style.width), 243 * S);
-    closeTo(parseFloat(h.action("filter").style.height), 116 * S);
+    const { tree, opts } = drawn(h, header);
+    assert.equal(opts.scale, S); assert.deepEqual(tree.pos, [1272 / S - 692, 440 - 901]);
+    const expanded = h.action("searchToggle").getAttribute("aria-expanded") === "true";
+    for (const [key, path] of [["filter", "SortBtn/Btn_Normal"], ["order", "OrderBtn/Btn_Normal"], ["searchToggle", `SearchBtn/${expanded ? "Btn_Pressed" : "Btn_Normal"}`]]) {
+      const n = find(tree, path), original = find(source, path), parent = path.split("/")[0];
+      assert.deepEqual(n.widgets, original.widgets, `${key}: actual Items sprite`);
+      assert.deepEqual(n.pos, original.pos); assert.deepEqual(find(tree, parent).pos, find(source, parent).pos);
+      assert.deepEqual(find(tree, parent).scale, find(source, parent).scale);
+      const graphic = header.art.children.find((e) => e.dataset.path === `BG_Top_Widget/${path}`);
+      rectOf(h.action(key)).forEach((v, i) => closeTo(v, rectOf(graphic)[i]));
+    }
+    const ascending = h.action("order").getAttribute("aria-label") === "Ascending";
+    assert.equal(find(tree, "OrderBtn/Btn_Normal/Icon_Up").active, ascending);
+    assert.equal(find(tree, "OrderBtn/Btn_Normal/Icon_down").active, !ascending);
+    const filtered = h.action("filter").getAttribute("aria-label").startsWith("Cannot Import");
+    assert.equal(find(tree, "SortBtn/Btn_Normal/FilterMarker_On").active, filtered);
+    assert.equal(find(tree, "SortBtn/Btn_Normal/FilterMarker_Off").active, !filtered);
+    assert.equal(find(tree, "SortBtn/Btn_Normal/Type_2/Text").widgets[0].ellipsis, true);
   };
   assertTools(); await h.analyze(); await h.action("order").click(); await h.page.settled(); assertTools();
   await h.action("filter").click(); await flush(); await walk(h.dialog).find((e) => e.dataset.value === "blocked").click();
   await h.action("ok", h.dialog).click(); await h.page.settled(); assertTools();
+  const search = h.host.querySelector(".import-search"), wrap = h.host.querySelector(".import-input-wrap"), list = h.host.querySelector(".import-list");
+  assert.equal(wrap.hidden, true); closeTo(parseFloat(list.style.top), 144);
+  await h.action("searchToggle").click(); await h.page.settled(); assertTools();
+  assert.equal(wrap.hidden, false); assert.equal(document.activeElement, search); closeTo(parseFloat(list.style.top), 236);
+  search.value = "JP e"; await search.dispatch("compositionend"); assert.ok(h.row("e"));
+  await h.action("searchToggle").click(); await h.page.settled(); assertTools();
+  assert.equal(wrap.hidden, true); closeTo(parseFloat(list.style.top), 144); assert.equal(search.value, "JP e");
+  assert.deepEqual(h.layouts, h.layoutSnapshot);
+});
+
+// Include each inclined sprite's overhang; checking only the button rectangles missed earlier regressions.
+function artworkBounds(h, element, predicate = () => true) {
+  const { tree } = drawn(h, element);
+  return element.art.children.filter((e) => predicate(e.dataset.path)).map((e) => {
+    const path = e.dataset.path.split("/").slice(1).join("/"), n = path ? find(tree, path) : tree;
+    const w = n.widgets.find((w) => "sprite" in w || "text" in w || "texture" in w);
+    const [x, y, width, height] = rectOf(e), skew = Math.abs(Math.tan((w.incline || 0) * Math.PI / 180) * height / 2);
+    return [x - skew, y, x + width + skew, y + height];
+  });
+}
+
+test("empty, full, filtered and long Thai toolbars fit the header, with search and count clear of the list", async () => {
+  const english = flatten(JSON.parse(readFileSync(new URL("../../src/ba_modding_toolkit/locales/en-US.json", import.meta.url), "utf8")));
+  const thai = flatten(JSON.parse(readFileSync(new URL("../../src/ba_modding_toolkit/locales/th-TH.json", import.meta.url), "utf8")));
+  try {
+    for (const strings of [english, thai, { ...thai,
+      "webui.import.list": thai["webui.import.list"].repeat(12),
+      "webui.import.filterCount": thai["webui.import.filterCount"].repeat(12),
+      "webui.import.count": thai["webui.import.count"].repeat(12),
+    }]) {
+      setStrings(strings === english ? "en-US" : "th-TH", strings);
+      const h = await fixture();
+      const check = async () => {
+        await h.page.settled();
+        const header = h.host.querySelector(".import-header"), panel = h.host.querySelector(".import-panel");
+        const [,, width] = rectOf(panel), headerBottom = parseFloat(header.style.height);
+        for (const [l, t, r, b] of artworkBounds(h, header)) {
+          assert.ok(l >= 0 && r <= width, `header x: ${l}..${r} outside 0..${width}`);
+          assert.ok(t >= 0 && b <= headerBottom, `header y: ${t}..${b} outside 0..${headerBottom}`);
+        }
+        const title = artworkBounds(h, header, (p) => p.endsWith("Label_Locale_Title"))[0];
+        const controls = artworkBounds(h, header, (p) => !p.endsWith("Label_Locale_Title"));
+        assert.ok(title[2] < Math.min(...controls.map((r) => r[0])), "title stays left of the tools");
+        const list = h.host.querySelector(".import-list"), count = h.host.querySelector(".import-count");
+        const [cx, cy, cw, ch] = rectOf(count), [lx, ly, lw, lh] = rectOf(list);
+        closeTo(cx + cw, lx + lw); closeTo(cy + ch, ly);
+        assert.ok(cy > headerBottom); assert.ok(ly + lh < parseFloat(h.action("files").style.top));
+        const countBounds = artworkBounds(h, count)[0];
+        closeTo(countBounds[0], 0); closeTo(countBounds[1], 0); closeTo(countBounds[2], cw); closeTo(countBounds[3], ch);
+        const wrap = h.host.querySelector(".import-input-wrap");
+        if (!wrap.hidden) {
+          const [sx, sy, sw, sh] = rectOf(wrap);
+          assert.ok(sx >= 0 && sx + sw <= width); assert.ok(sy > headerBottom && sy + sh < cy);
+        }
+        for (const n of [find(drawn(h, header).tree, "Label_Locale_Title"), find(drawn(h, header).tree, "SortBtn/Btn_Normal/Type_2/Text"), drawn(h, count).tree]) {
+          const label = n.widgets.find((w) => "text" in w);
+          assert.equal(label.ellipsis, true); assert.ok(!label.text.includes("\n"));
+        }
+      };
+      await check(); await h.action("searchToggle").click(); await check();
+      await h.analyze(Array.from({ length: 150 }, (_, i) => entry(`mod-${i}`, i % 2 ? "blocked" : "ready")));
+      await check(); await h.action("order").click(); await check();
+      await h.action("filter").click(); await flush();
+      await walk(h.dialog).find((e) => e.dataset.value === "blocked").click(); await h.action("ok", h.dialog).click();
+      await check(); const search = h.host.querySelector(".import-search");
+      search.value = "missing"; await search.dispatch("input"); assert.equal(h.host.querySelectorAll(".import-row").length, 0); await check();
+      await h.host.querySelector(".import-search-clear").click(); await check();
+      await h.action("searchToggle").click(); await check();
+    }
+  } finally { setStrings("en-US", english); }
 });
 
 test("footer artwork clears the whole bottom nav and the list and dialog contents leave room for their buttons", async () => {

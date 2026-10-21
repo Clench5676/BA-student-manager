@@ -37,7 +37,7 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
   thumbnails = thumbnailScope, allowed = spineAllowed, suggest = suggestImports } = {}) {
   const model = createImportState({ rpc: call, waitJob: jobs, suggest, changed: () => context?.invalidateRoster?.() });
   let context = null, catalog = [], visible = false, root = null, scope = null, observer = null;
-  let query = "", filter = "all", ascending = true, rowsKey = null, previewKey = null, generation = 0;
+  let query = "", filter = "all", ascending = true, searchOpen = false, rowsKey = null, previewKey = null, generation = 0;
   let rows = new Map(), identities = new WeakMap(), dom = {}, dialogClose = null, countsKey = null;
   let art = null;
   const drawings = new Set();
@@ -158,28 +158,28 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
     // Items/ListBG: the two-column frame retains its paper/inbox insets, with a mail list in place of the item grid.
     const panel = place(el("div", "import-panel"), 602, 132, 1272, 704);
     paint(panel, art.panel(1272 / S, 704 / S), { origin: [636, 352] });
-    const title = place(el("div"), 26, 22, 400, 55); panel.appendChild(title);
-    textWidget(title, T("import.list"), "title", { scale: 0.5, origin: [0, 27] });
-    dom.count = place(el("div"), 372, 24, 330, 48); panel.appendChild(dom.count);
-    dom.files = button(T("import.addFiles"), "files", { width: 196 }); place(dom.files, 818, 7, 196, 65);
-    dom.folder = button(T("import.addFolder"), "folder", { width: 220 }); place(dom.folder, 1028, 7, 220, 65);
-    const toolsY = 94, toolsH = 116 * S, filterW = 570 * S, orderW = 243 * S, gap = 16 * S;
-    const searchW = 1220 - filterW - orderW - 2 * gap;
-    const search = inputControl(T("import.search"), query, { width: searchW, search: true });
+    dom.header = place(el("div", "import-header"), 0, 0, 1272, 136 * S);
+    dom.count = el("div", "import-count"); panel.append(dom.header, dom.count);
+    const search = inputControl(T("import.search"), query, { width: 1220, search: true });
     dom.search = search.input; dom.search.placeholder = T("import.search"); dom.search.enterKeyHint = "search";
-    place(search.wrap, 26, toolsY, searchW, 112 * S);
+    dom.searchWrap = place(search.wrap, 26, art.searchTop() * S, 1220, 112 * S);
     const runSearch = () => { query = dom.search.value.toLocaleLowerCase(); renderRows(); };
     dom.search.addEventListener("input", (event) => { if (!event.isComposing) runSearch(); }); dom.search.addEventListener("compositionend", runSearch);
     search.clear.addEventListener("click", () => { dom.search.value = ""; runSearch(); dom.search.focus(); });
     dom.search.addEventListener("keydown", (event) => {
       if (!event.isComposing && event.keyCode !== 229 && event.key === "Enter") dom.search.blur();
     });
-    dom.filter = place(el("button", "hit"), 26 + searchW + gap, toolsY, filterW, toolsH); dom.filter.type = "button"; dom.filter.dataset.action = "filter";
-    dom.order = place(el("button", "hit"), 26 + searchW + gap * 2 + filterW, toolsY, orderW, toolsH); dom.order.type = "button"; dom.order.dataset.action = "order";
-    panel.append(dom.files, dom.folder, search.wrap, dom.filter, dom.order);
-    dom.list = place(el("div", "import-list"), 26, 190, 1220, 426); dom.list.setAttribute("aria-label", T("import.list")); panel.appendChild(dom.list);
-    for (const [key, x, width] of [["all", 28, 180], ["none", 225, 200], ["remove", 840, 180], ["clear", 1040, 180]]) {
-      dom[key] = button(T(`import.${key}`), key, { width, scale: 0.34 }); place(dom[key], x, 629, width, 56); panel.appendChild(dom[key]);
+    for (const key of ["searchToggle", "filter", "order"]) {
+      dom[key] = el("button", "hit"); dom[key].type = "button"; dom[key].dataset.action = key;
+      dom.header.appendChild(dom[key]);
+    }
+    dom.searchToggle.setAttribute("aria-label", T("import.search"));
+    panel.appendChild(search.wrap);
+    dom.list = el("div", "import-list"); dom.list.setAttribute("aria-label", T("import.list")); panel.appendChild(dom.list);
+    layoutList();
+    for (const [key, caption, x, width] of [["files", "addFiles", 26, 196], ["folder", "addFolder", 238, 220],
+      ["all", "all", 474, 150], ["none", "none", 640, 180], ["remove", "remove", 836, 180], ["clear", "clear", 1032, 214]]) {
+      dom[key] = button(T(`import.${caption}`), key, { width, scale: 0.34 }); place(dom[key], x, 629, width, 56); panel.appendChild(dom[key]);
     }
     root.appendChild(panel);
     dom.status = place(el("div", "import-progress"), 50, 858, 800, 90); dom.status.setAttribute("role", "status"); dom.status.setAttribute("aria-live", "polite"); root.appendChild(dom.status);
@@ -194,8 +194,11 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
     root.addEventListener("click", (event) => {
       const target = event.target.closest?.("[data-action]");
       if (!target || target.disabled) return;
-      const actions = { files: () => model.pick(false), folder: pickFolder, filter: openFilter, order: () => {
-        ascending = !ascending; renderOrder(); renderRows();
+      const actions = { files: () => model.pick(false), folder: pickFolder, filter: openFilter, searchToggle: () => {
+        searchOpen = !searchOpen; layoutList(); renderToolbar();
+        if (searchOpen) dom.search.focus(); else dom.search.blur();
+      }, order: () => {
+        ascending = !ascending; renderToolbar(); renderRows();
       }, all: () => model.checkAll(true), none: () => model.checkAll(false), remove: () => model.remove(), clear: () => model.clear(),
       options: openOptions, recheck: () => model.recheck(), start: () => model.state.phase === "done" ? results() : start() };
       Promise.resolve(actions[target.dataset.action]?.()).catch((error) => { textWidget(dom.status, report(error)); });
@@ -208,12 +211,27 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
       // Browser File objects do not expose native paths; the native window drop event handles them in the app.
       else if (!context?.info?.native) textWidget(dom.status, T("error.native_unavailable"));
     });
-    host.replaceChildren(root); rowsKey = previewKey = countsKey = null; renderOrder();
+    host.replaceChildren(root); rowsKey = previewKey = countsKey = null;
   }
 
-  function renderOrder() {
+  function layoutList() {
+    const top = searchOpen ? 236 : 144;
+    dom.searchWrap.hidden = !searchOpen;
+    dom.searchToggle.setAttribute("aria-expanded", String(searchOpen));
+    place(dom.count, 996, top - 32, 250, 32);
+    place(dom.list, 26, top, 1220, 616 - top);
+  }
+  function renderToolbar() {
+    const options = filterOptions(), caption = options.find(([value]) => value === filter)?.[1] || options[0][1];
+    const key = JSON.stringify([T("import.list"), caption, filter, ascending, searchOpen]);
+    if (countsKey === key) return; countsKey = key;
+    dom.filter.setAttribute("aria-label", caption);
     dom.order.setAttribute("aria-label", T(ascending ? "roster.asc" : "roster.desc"));
-    paint(dom.order, art.order(ascending), { scale: S, origin: [243 * S / 2, 116 * S / 2] });
+    paint(dom.header, art.header(1272 / S, T("import.list"), caption, filter !== "all", ascending, searchOpen), { onRender: (view) => {
+      for (const [key, path] of [["searchToggle", `SearchBtn/${searchOpen ? "Btn_Pressed" : "Btn_Normal"}`], ["filter", "SortBtn/Btn_Normal"], ["order", "OrderBtn/Btn_Normal"]]) {
+        place(dom[key], ...Popup.nodeRect(view, `BG_Top_Widget/${path}`));
+      }
+    } });
   }
   const filterOptions = () => {
     const counts = countsOf(model.state.entries);
@@ -360,13 +378,8 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
   function render() {
     if (!visible || !root) return;
     const state = model.state, busy = model.busy(); root.dataset.phase = state.phase; root.setAttribute("aria-busy", String(busy));
-    textWidget(dom.count, T("import.count", { n: state.entries.length }), "count", { scale: 0.5, origin: [320, 24] });
-    const options = filterOptions(), caption = options.find(([value]) => value === filter)?.[1] || options[0][1];
-    const key = JSON.stringify([caption, filter]);
-    if (countsKey !== key) {
-      countsKey = key; dom.filter.setAttribute("aria-label", caption);
-      paint(dom.filter, art.stateButton(caption, filter !== "all", 570), { scale: S, origin: [570 * S / 2, 116 * S / 2] });
-    }
+    textWidget(dom.count, T("import.count", { n: state.entries.length }), "count", { scale: 0.5, origin: [250, 0] });
+    renderToolbar();
     for (const key of ["files", "folder", "options", "clear", "remove", "all", "none", "recheck"]) dom[key].disabled = busy;
     dom.clear.disabled ||= !state.entries.length; dom.remove.disabled ||= !state.selected;
     dom.recheck.disabled ||= !state.entries.length && !state.error;

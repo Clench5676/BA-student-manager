@@ -38,14 +38,27 @@ export function makeImportLayouts() {
   const panel = insert(inv, list, node("ListBG", [0, 0], [sprite("Common_Gacha_Bg", 1384, 1802)]));
   panel.children.push(node("PaperBG", [-2, -60], [sprite("Common_Bg_Raius10px", 1375, 1650)]), node("Inbox", [0, -60], [sprite("Common_Bg_Raius10px", 1339, 1620)]));
   insert(inv, `${list}/Inbox/ListEmpty/Label_Locale_EmptyMessage`, label("Label_Locale_EmptyMessage"));
-  insert(inv, `${list}/BG_Top_Widget/Label_Locale_Title`, label("Label_Locale_Title", "List", { fontSize: 62, pivot: 3 }));
-  insert(inv, `${list}/BG_Top_Widget/OrderBtn/Btn_Normal`, node("Btn_Normal", [0, 0], [sprite("Common_Bg_Raius5px_Shadow", 168, 116)], [node("Icon_down", [0, 0], [sprite("Common_Icon_Order")]), node("Icon_Up", [0, 0], [sprite("Common_Icon_Order", 99, 47, { flip: 2 })])]));
-  insert(inv, `${list}/BG_Top_Widget/SortBtn/Btn_Normal`, node("Btn_Normal", [0, 0], [sprite("Common_Bg_Raius5px_Shadow", 456, 116)], [node("Icon"), node("FilterMarker_On", [0, 0], [], [node("Icon")]), node("FilterMarker_Off", [0, 0], [], [node("Icon")]), node("Type_1"), node("Type_2", [0, 0], [], [label("Text")])]));
-  insert(inv, `${list}/Inbox/SearchInfo/SearchName/SearchNameArea`, node("SearchNameArea", [0, 0], [sprite("Common_Bg_Raius10px", 1296, 112, { pivot: 1 })], [
-    node("BG_Line", [0, -56], [sprite("Common_line_10px", 1296, 112)]), node("Icon_Search", [-586, -56], [sprite("Common_Icon_Search")]), node("Btn_Close", [588, -56], [sprite("Common_Icon_Close")]),
-    node("InputField", [0, -56], [], [label("Label_Search", "", { fontSize: 60, color: "#1f3f5f/1.00" }), label("Label_Locale_Input", "Text")]),
+  const header = insert(inv, `${list}/BG_Top_Widget`, node("BG_Top_Widget", [0, 440]));
+  const title = label("Label_Locale_Title", "List", { fontSize: 62, w_: 118, h_: 60, pivot: 3 }); title.pos = [-651.5, 390.6]; header.children.push(title);
+  header.children.push(node("OrderBtn", [582.4, 386.9], [], [node("Btn_Normal", [-8, 0], [sprite("Common_Bg_Raius5px_Shadow", 168, 116, { incline: 10 })],
+    [node("Icon_down", [11.3, 8.5], [sprite("Common_Icon_Order", 99, 47)]), node("Icon_Up", [11.3, 8.5], [sprite("Common_Icon_Order", 99, 47, { flip: 2 })])])]));
+  const markers = ["FilterMarker_Off", "FilterMarker_On"].map((name) => node(name, [-181, 26], [], [
+    node("Icon", [384, 4.5], [sprite("Common_Icon_Expend", 30, 30)]), node("Filter_01", [-43, 33], [sprite("Common_Icon_Filter_01", 86, 66, { pivot: 0 })]),
+    node("Filter_02", [-30, 33], [sprite("Common_Icon_Filter_02", 445, 6, { pivot: 0 })]),
   ]));
-  insert(mail, "Right/Label_Amount", label("Label_Amount", "200/200"));
+  const sort = node("SortBtn", [258.7, 386.9], [], [node("Btn_Normal", [0, 0], [sprite("Common_Bg_Raius5px_Shadow", 456, 116, { incline: 10 })], [
+    ...markers, node("Icon", [203, 30], [sprite("Common_Icon_Expend", 30, 30)]), node("Type_1", [16.5, 0]),
+    node("Type_2", [16.5, 0], [], [node("Text", [0, 5], [{ text: "center", fontSize: 56, w_: 336, h_: 54, pivot: 4, prefabMarker: true }])]),
+  ])]); sort.scale = [1.001, 1.001]; header.children.push(sort);
+  header.children.push(node("SearchBtn", [-36, 386], [], ["Btn_Normal", "Btn_Pressed"].map((name) => node(name, [0, 0], [sprite("Common_Bg_Raius5px_Shadow", 124, 116, { incline: 10 })], [
+    node("Icon_Search", [2, 6], [sprite("Common_Icon_Search", 64, 66)]),
+  ]))));
+  insert(inv, `${list}/Inbox/SearchInfo/SearchName/SearchNameArea`, node("SearchNameArea", [1, -20], [{ cls: "UIRect" }, sprite("Common_Bg_Raius10px", 1296, 112, { pivot: 1 })], [
+    node("BG_Line", [0, -56], [sprite("Common_line_10px", 1296, 112)]), node("Icon_Search", [-586, -56], [{ cls: "UIRect" }, sprite("Common_Icon_Search", 64, 66)]), node("Btn_Close", [588, -56], [sprite("Common_Icon_Close", 50, 50)]),
+    node("InputField", [0, -56], [], [label("Label_Search", "", { fontSize: 60, w_: 778, h_: 58, color: "#1f3f5f/1.00" }), label("Label_Locale_Input", "Text", { fontSize: 55, w_: 778, h_: 50 })]),
+  ]));
+  find(inv, `${list}/Inbox/SearchInfo`).pos = [0, 810];
+  insert(mail, "Right/Label_Amount", label("Label_Amount", "200/200", { fontSize: 54, w_: 318, h_: 64, pivot: 2 }));
   insert(mail, "Bottom/ObjectsDisplayed_Unread/Label_Locale", label("Label_Locale", "note", { pivot: 3 }));
   const receive = insert(mail, "Bottom/ObjectsDisplayed_Unread/ReceiveAll/Btn", button("Btn", false));
   receive.widgets[0].color = "#f6e94b/1.00";
@@ -65,24 +78,7 @@ export function makeImportLayouts() {
   ]));
   insert(fs, "Center/Popup/Sort/Scroll View/Sort_Normal/Option_Normal/Grid/UISortObjectListUnit/Label_Text", node("Label_Text", [0, 0], [], [node("BG", [0, 0], [sprite("Common_Btn_Radio_BG", 60, 60)]), node("On", [0, 0], [sprite("Common_Btn_Radio_On", 60, 60)], [label("Label_On")]), label("Label_On"), node("Line", [0, -87], [sprite("Common_Square_Bg", 504, 4)])]));
   const item = node("UINonEquipmentInventoryListItem", [0, 0], [], [node("Card", [0, 0], [], [node("Normal", [0, 0], [], [node("Cover_Select", [0, -0.6], [sprite("Card_Select_Line", 240, 220)])])])]);
-  const collection = node("UICharacterCollection");
-  const search = structuredClone(find(inv, `${list}/Inbox/SearchInfo/SearchName/SearchNameArea`));
-  search.widgets.unshift({ cls: "UIRect" }); // The exported layout's first component is not its white sprite.
-  find(search, "Icon_Search").widgets.unshift({ cls: "UIRect" });
-  Object.assign(find(search, "InputField/Label_Search").widgets[0], { w_: 778, h_: 58 });
-  Object.assign(find(search, "InputField/Label_Locale_Input").widgets[0], { w_: 778, h_: 50 });
-  insert(collection, "SeletControl/CharacterSearch/SearchName/SearchNameArea", search);
-  const sort = structuredClone(find(inv, `${list}/BG_Top_Widget/SortBtn/Btn_Normal`));
-  sort.widgets[0].w_ = 622;
-  for (const name of ["FilterMarker_On", "FilterMarker_Off"]) {
-    const marker = find(sort, name); marker.pos = [-264, 26];
-    find(marker, "Icon").pos = [550, 4.5];
-    marker.children.push(node("Filter_02", [-30, 33], [sprite("Common_Icon_Filter_02", 611, 6)]));
-  }
-  insert(collection, "SeletControl/TopMenu/SortBtn/Btn_Normal", sort);
-  const order = structuredClone(find(inv, `${list}/BG_Top_Widget/OrderBtn/Btn_Normal`)); order.widgets[0].w_ = 243;
-  insert(collection, "SeletControl/TopMenu/OrderBtn/Btn_Normal", order);
-  return { UINonEquipmentInventory: inv, UIMailBox: mail, UIMailBoxContent: content, UIPopup_FilterSort: fs, UINonEquipmentInventoryListItem: item, UICharacterCollection: collection };
+  return { UINonEquipmentInventory: inv, UIMailBox: mail, UIMailBoxContent: content, UIPopup_FilterSort: fs, UINonEquipmentInventoryListItem: item };
 }
 export { find };
 
