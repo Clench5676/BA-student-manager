@@ -28,6 +28,15 @@ for (const seam of [false, true]) test(`measure the painted inner edge independe
   assert.notDeepEqual(outline.insets, [meta.borderLeft, meta.borderTop, meta.borderRight, meta.borderBottom]);
 });
 
+test("compression variations inside the painted stroke do not become notches in its contour", () => {
+  const pixels = fixture(), original = frameOutline(pixels);
+  for (let y = 0; y < pixels.height; y++) for (let x = 0; x < pixels.width; x++) {
+    const i = (y * pixels.width + x) * 4 + 3;
+    if (pixels.data[i] === 255) pixels.data[i] = [255, 253, 250, 242][(Math.floor(x / 6) + Math.floor(y / 6)) % 4];
+  }
+  assert.deepEqual(frameOutline(pixels), original);
+});
+
 // Inverse of the renderer's raster cut mapping, independently interpolated.
 function unslice(value, axis) {
   const pixel = value / axis.extent * axis.size;
@@ -79,8 +88,8 @@ test("measured rounded corners cover the opening inside the outer outline at eve
       near(Math.min(...sourcePoints.map(([, y]) => y)), t); near(Math.max(...sourcePoints.map(([, y]) => y)), pixels.height - b);
       // The straight middle portion keeps the exact prefab incline; the
       // measured corners turn inward rather than reaching the bounding box.
-      const middle = sourcePoints.map((p, i) => ({ p, i })).filter(({ p }) => Math.abs(p[0] - l) < 1e-6 && p[1] > 20 && p[1] < 50);
-      assert.ok(middle.length > 2);
+      const middle = sourcePoints.map((p, i) => ({ p, i })).filter(({ p }) => Math.abs(p[0] - l) < 1e-6);
+      assert.ok(middle.length >= 2);
       const a = points[middle[0].i], c = points[middle.at(-1).i];
       near((c[0] - a[0]) / (c[1] - a[1]), -Math.tan(incline * Math.PI / 180));
       for (const q of sourcePoints) assert.ok(q[0] >= l - 1e-7 && q[0] <= pixels.width - r + 1e-7 && q[1] >= t - 1e-7 && q[1] <= pixels.height - b + 1e-7);
@@ -102,6 +111,24 @@ test("the clip follows the measured inner corner contour rather than a sharp box
   const win = innerFrame({ w_: 240, h_: 220, type: 1, incline: 10 }, meta, outline, { scale: .68 });
   assert.ok(win.clipPolygon.length > 4);
   assert.ok(!win.clipPolygon.some(([x, y]) => x === 0 && y === 0), "the outer box corner is excluded");
+});
+
+test("corner curves remove raster steps and retain the measured small radius at every render scale", () => {
+  const pixels = fixture(), outline = frameOutline(pixels), [l, t, r, b] = outline.insets;
+  for (const scale of [.34, .54, .68, .873, 1.25, 2, 4]) {
+    const win = innerFrame({ w_: 80, h_: 70, type: 0 }, meta, outline, { scale });
+    const points = win.clipPolygon.map(([x, y]) => [l + x * win.width, t + y * win.height]);
+    for (let i = 0; i < points.length; i++) {
+      const a = points[i], c = points[(i + 1) % points.length];
+      const corner = a[0] > l + 1e-6 && a[0] < pixels.width - r - 1e-6 && a[1] > t + 1e-6 && a[1] < pixels.height - b - 1e-6;
+      if (corner) assert.ok(Math.abs(c[0] - a[0]) > 1e-9 && Math.abs(c[1] - a[1]) > 1e-9, "no short axis-aligned stair in a corner");
+      const cx = a[0] < pixels.width / 2 ? l + 7 : pixels.width - r - 7;
+      const cy = a[1] < pixels.height / 2 ? t + 7 : pixels.height - b - 7;
+      if ((a[0] < l + 7 || a[0] > pixels.width - r - 7) && (a[1] < t + 7 || a[1] > pixels.height - b - 7)) {
+        assert.ok(Math.abs(Math.hypot(a[0] - cx, a[1] - cy) - 7) < 1, "the fitted radius remains within one source pixel of the measured corner");
+      }
+    }
+  }
 });
 
 test("shared nine-slice mapping emits exactly the same raster rectangles as the pre-refactor renderer", () => {
