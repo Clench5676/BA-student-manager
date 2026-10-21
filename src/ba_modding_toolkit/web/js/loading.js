@@ -3,8 +3,8 @@
 //     there (the UITexture LoadingImage); the tool leaves the middle of the screen empty.
 //   - UIRepeater: "Now Loading" letters, three hopping dots and Arona turning round, in the bottom-right corner;
 //     app.css animates it like the game's legacy clip "UIAni_Repeat 1". Its UIAudioPlay is never played.
-// Two modes. scene(fn) covers a change of screen: a fade to black, then the indicator while the
-// work goes on. wait(promise) shades the edges of the current screen for an in-page wait. There is one
+// Boot keeps its opaque cover. scene(fn) and page(fn) shade the current screen
+// while a complete destination is prepared. wait(promise) shades an in-page wait. There is one
 // page overlay at a time; a newer call takes over the one on screen instead of flashing a new one.
 // Writer progress has its own indicator and lifetime, independent of page changes.
 import { loadingLabel, loadingLetterSprites, alphaBounds } from "./ngui-label.js";
@@ -321,9 +321,13 @@ function decorate(o) {
 
 // --- modes ---
 
-// scene(fn, {opaque}): fn(covered) runs at once; covered resolves when the screen is black, so fn can switch screens
-// behind it. Resolves with fn's result once the overlay is gone (or handed to a newer call).
+// Only opaque boot waits for black. Other scenes retain the current frame while
+// callers build hidden content and publish it after their readiness barrier.
 export async function scene(fn, { opaque = false, until = null } = {}) {
+  if (!opaque) return hold(() => {
+    const work = Promise.resolve().then(() => fn(Promise.resolve()));
+    return until ? Promise.race([work, until]) : work;
+  }, { all: true, until });
   const my = ++gen;
   const o = cover(opaque);
   const covered = whenOpaque(o);
@@ -416,7 +420,7 @@ export async function hold(work, { until = null, all = false, progress = null } 
   try { return await task; } finally { release(); }
 }
 
-// In-place preview changes share the same shaded hold as writes; only route changes use scene's black cover.
+// Preview changes block every interaction through their final frame swap.
 export function page(fn, options = {}) {
-  return hold(() => fn(Promise.resolve()), options);
+  return hold(() => fn(Promise.resolve()), { all: true, ...options });
 }

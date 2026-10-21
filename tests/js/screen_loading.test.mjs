@@ -9,14 +9,14 @@ const flush = async () => { for (let i = 0; i < 30; i++) await Promise.resolve()
 
 function harness(initial = "roster") {
   const family = deferred(), preview = deferred(), rows = deferred(), rosterData = deferred();
-  const screens = Object.fromEntries(["detail", "roster", "import"].map((key) => [`screen-${key}`, { hidden: key !== initial }]));
+  const screens = Object.fromEntries(["detail", "roster", "import"].map((key) => [`screen-${key}`, { hidden: key !== initial, style: {} }]));
   const details = [], events = [];
   let covered = false, generation = 0, detailOpen = initial === "detail";
   const env = {
     location: { hash: "#/student/ibuki/ibuki", replace(hash) { this.hash = hash; events.push(`replace:${hash}`); } }, $: (key) => screens[key],
     ctx: {}, rosterData: null, stepCards: null, roster: () => rosterData.promise,
     BatchImport: { hide() {}, show: async () => { events.push("build-import"); await rows.promise; } }, renderNav() {},
-    rpc: async () => family.promise, visited() {}, setTitle() {}, T: (key) => key, askQuit() {},
+    withTimeout: (promise) => promise, rpc: async () => family.promise, visited() {}, setTitle() {}, T: (key) => key, askQuit() {},
     showScreen: (key) => { for (const [id, el] of Object.entries(screens)) el.hidden = id !== `screen-${key}`; events.push(key); },
     Loading: {
       hold: (work) => work(),
@@ -29,7 +29,7 @@ function harness(initial = "roster") {
     },
     Detail: {
       show: async (_ctx, _family, _key, options) => { detailOpen = true; details.push(options); await preview.promise; },
-      hide: () => { detailOpen = false; events.push("hide-detail"); }, stepFailed() {},
+      hide: () => { detailOpen = false; events.push("hide-detail"); }, suspend: () => { events.push("suspend-detail"); }, stepFailed() {},
       currentVariant: () => detailOpen ? "ibuki" : null,
     },
     Roster: { invalidate() {}, hide: () => events.push("hide-roster"), order: () => [], show: async () => { events.push("build-roster"); await rows.promise; } },
@@ -69,7 +69,7 @@ test("Back covers detail teardown and reveals the roster only after its rows fin
   h.location.hash = "#/roster";
   const route = h.route(); await flush();
   assert.equal(h.covered(), true);
-  assert.deepEqual(h.events, ["hide-detail"], "release the detail before a potentially blocked roster RPC");
+  assert.deepEqual(h.events, ["suspend-detail"], "release the detail before a potentially blocked roster RPC");
   h.rosterData.resolve({ families: [] }); await flush();
   assert.equal(h.covered(), true);
   assert.equal(h.screens["screen-roster"].hidden, true);
@@ -96,7 +96,7 @@ test("Batch Import releases detail previews and stays covered until its screen i
   h.location.hash = "#/import";
   const route = h.route(); await flush();
   assert.equal(h.covered(), true);
-  assert.ok(h.events.includes("hide-detail"));
+  assert.ok(h.events.includes("suspend-detail"));
   h.rosterData.resolve({ families: [] }); await flush();
   assert.ok(h.events.includes("build-import"));
   assert.equal(h.screens["screen-import"].hidden, true);
@@ -112,13 +112,13 @@ test("a failed import returns to the last student route and rebuilds its release
   h.location.hash = "#/import";
   h.rosterData.resolve({ families: [] });
   const importing = h.route(); await flush();
-  assert.ok(h.events.includes("hide-detail"));
+  assert.ok(h.events.includes("suspend-detail"));
   h.rows.reject(new Error("layout export failed")); await importing;
   assert.equal(h.location.hash, "#/student/ibuki/ibuki");
   assert.ok(h.events.includes("replace:#/student/ibuki/ibuki"));
   await h.route();
   assert.equal(h.details.length, 2, "the old detail DOM is re-entered through show, not left closed");
-  assert.deepEqual(h.details[1], { inPlace: false, kind: undefined });
+  assert.deepEqual(h.details[1], { inPlace: true, kind: undefined });
   assert.equal(h.screens["screen-detail"].hidden, false);
 });
 
@@ -206,4 +206,31 @@ for (const options of [{ compiled: false }, { startupUpdate: false }]) test(`sta
   await h.boot();
   assert.equal(h.offers.length, 0);
   assert.ok(!h.events.includes("update-check"));
+});
+
+test("roster remains visible while detail builds and only a completed detail is swapped in", async () => {
+  const h = harness("roster");
+  const route = h.route(); await flush();
+  h.family.resolve({ key: "ibuki" }); await flush();
+  assert.equal(h.screens["screen-roster"].hidden, false);
+  assert.equal(h.screens["screen-detail"].style?.visibility, "hidden");
+  assert.ok(!h.events.includes("detail"), "no visible showScreen before the first-frame barrier");
+  h.preview.resolve(); await route;
+  assert.equal(h.screens["screen-roster"].hidden, true);
+  assert.equal(h.screens["screen-detail"].hidden, false);
+  assert.equal(h.screens["screen-detail"].style.visibility, "");
+});
+
+test("cancelling a hidden detail build clears its staging state and prevents a late reveal", async () => {
+  const h = harness("roster");
+  const student = h.route(); h.family.resolve({ key: "ibuki" }); await flush();
+  assert.equal(h.screens["screen-detail"].style.visibility, "hidden");
+  h.location.hash = "#/roster";
+  const back = h.route(); await flush(); await student;
+  assert.equal(h.screens["screen-detail"].hidden, true);
+  assert.equal(h.screens["screen-detail"].style.visibility, "");
+  assert.equal(h.screens["screen-detail"].inert, false);
+  h.preview.resolve(); h.rosterData.resolve({ families: [] }); h.rows.resolve(); await back;
+  assert.equal(h.screens["screen-roster"].hidden, false);
+  assert.equal(h.screens["screen-detail"].hidden, true);
 });

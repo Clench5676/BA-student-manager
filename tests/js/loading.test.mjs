@@ -170,7 +170,7 @@ test("a writer finishing cannot close a running scene, and its late progress is 
   writer.resolve(); await flush(); await h.advance(300); await job;
   progress({ label: "late.bundle", current: 3, total: 3 });
   assert.equal(indicator.isConnected, false);
-  assert.equal(h.loading.covering(), true);
+  assert.equal(h.loading.covering(), false);
   page.resolve(); await flush(); await h.advance(300); await navigation;
   assert.equal(h.stage.children.length, 0);
 });
@@ -184,12 +184,12 @@ test("a slow scene stays covered and cannot end writer progress", async () => {
   const page = deferred();
   const navigation = h.loading.scene(() => page.promise);
   await flush(); await h.advance(15000); await h.advance(300);
-  assert.equal(h.loading.covering(), true, "a slow scene never reveals partial content");
+  assert.equal(h.loading.covering(), false, "a slow scene never reveals partial content");
   progress({ label: "Applying: third.bundle", current: 3, total: 3 });
   assert.equal(indicator.querySelector(".loading-progress").textContent, "Applying: third.bundle (3/3)");
   assert.equal(indicator.classList.contains("out"), false);
   writer.reject(new Error("upload refused")); await flush(); await h.advance(300); await rejected;
-  assert.equal(h.loading.covering(), true);
+  assert.equal(h.loading.covering(), false);
   page.resolve(); await flush(); await h.advance(300); await navigation;
   assert.equal(h.stage.children.length, 0);
 });
@@ -201,7 +201,7 @@ test("a cancelled scene hands its cover to the newer navigation", async () => {
   await flush();
   const second = h.loading.scene(() => next.promise);
   cancelled.resolve(); await flush(); await first;
-  assert.equal(h.loading.covering(), true);
+  assert.equal(h.loading.covering(), false);
   assert.equal(h.stage.children.length, 1);
   next.resolve(); await flush(); await h.advance(300); await second;
   assert.equal(h.stage.children.length, 0);
@@ -449,7 +449,7 @@ test("a route taking over a suppressed page indicator remains visible during an 
   const indicator = h.stage.children[0];
   const writing = h.loading.task(() => writer.promise); assert.equal(indicator.style.visibility, "hidden");
   const navigating = h.loading.scene(() => route.promise); await flush();
-  assert.equal(h.loading.covering(), true); assert.equal(indicator.style.visibility, "");
+  assert.equal(h.loading.covering(), false); assert.equal(indicator.style.visibility, "hidden");
   route.resolve(); work.resolve(); writer.resolve(); await flush(); await h.advance(300);
   await Promise.all([held, writing, navigating]);
 });
@@ -468,4 +468,15 @@ test("live in-page progress upgrades to the actual NGUI loading label and retain
   value = "Adding Mods 2 / 2"; h.loading.refresh(); await flush();
   assert.equal(label.textContent, value);
   work.resolve(); await done;
+});
+
+test("ordinary navigation uses the shared inner shade and blocks every interaction", async () => {
+  const h = await harness({ consent: false }), work = deferred();
+  const done = h.loading.scene(() => work.promise); await flush();
+  assert.equal(h.loading.covering(), false);
+  assert.equal(h.loading.held(), true);
+  assert.ok(h.stage.children[0].classList.contains("indicator"));
+  assert.ok(h.stage.classList.contains("input-held"));
+  work.resolve(); await flush(); await h.advance(300); await done;
+  assert.equal(h.loading.held(), false);
 });

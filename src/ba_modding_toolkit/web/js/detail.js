@@ -69,7 +69,7 @@ let renderToken = 0, exprToken = 0, chipToken = 0, spineToken = 0, leftToken = 0
 
 // --- readiness ---
 const HARD_CAP = 15000;  // individual failed assets settle with an error before the screen is revealed
-const THUMBS_CAP = 3000; // one shared allowance for optional pictures, which keep filling in afterwards
+const THUMBS_CAP = HARD_CAP; // entry pictures finish together, or cancel at the asset deadline
 const LINES_CAP = 1500;  // the lobby's lines from Kivo (a network call) likewise
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const frames = (n) => new Promise((resolve) => { const step = () => (--n > 0 ? requestAnimationFrame(step) : resolve()); requestAnimationFrame(step); });
@@ -90,7 +90,7 @@ const applied = { screen: 0, chips: 0, expr: 0 };
 const showable = (part, my, latest, gen) => open && (my === latest || (!!batch && gen === showGen && my > applied[part]));
 // the screen is shown (from show() until hide()): what a show, a tab change or a job started for it starts nothing
 // once it is hidden (the left side's players least of all)
-let open = false, pageToken = 0;
+let open = false, suspended = false, pageToken = 0;
 let leftPage = Promise.resolve(), leavePage = () => {};
 // a generation of the screen: a newer show, tab change or hide ends the wait of the one before
 let showGen = 0, endWait = () => {};
@@ -112,7 +112,8 @@ function begin() {
   thumbnailWork = thumbnailScope();
   screenPics = exprPics = chipPics = screenThumbs = exprThumbs = chipThumbs = [];
   const done = new Promise((resolve) => { releaseThumbnails = resolve; });
-  thumbnailWait = open ? withTimeout(done, THUMBS_CAP, "Detail thumbnails", { signal: thumbnailWork.signal }).catch(() => {}) : Promise.resolve();
+  const scope = thumbnailWork;
+  thumbnailWait = open ? withTimeout(done, THUMBS_CAP, "Detail thumbnails", { signal: scope.signal }).catch(() => scope.cancel()) : Promise.resolve();
   const gen = ++showGen;
   return { gen, ended: new Promise((resolve) => { endWait = resolve; }) };
 }
@@ -138,13 +139,13 @@ async function prepare({ gen, ended }, inPlace, work) {
   if (open && fam) markSeen(shownUnseen(fam, variant(), tabKind(), modsOn()));
   return true;
 }
-// Panels and decoded backgrounds are required; generated thumbnails have one short shared reveal allowance.
+// Panels, backgrounds and every entry thumbnail settle behind the same commit barrier.
 let screenPics = [], exprPics = [], chipPics = [];
 let screenThumbs = [], exprThumbs = [], chipThumbs = [];
 const picturesReady = (pictures, ...roots) => {
   const { signal } = thumbnailWork;
   // roots may be missing (a part not drawn) and descendants may lack a style (e.g. text holders): skip both
-  const elements = roots.filter(Boolean).flatMap((root) => [root, ...(root.querySelectorAll?.("*") || [])]).filter((el) => !el.dataset?.thumbnail);
+  const elements = roots.filter(Boolean).flatMap((root) => [root, ...(root.querySelectorAll?.("*") || [])]);
   return Promise.allSettled(pictures).then(() => {
     if (signal.aborted) return;
     for (const el of elements) if (el?.style?.transition) el.style.transition = "none";
@@ -1036,7 +1037,7 @@ async function showSpine(base, my, signal) {
     for (const old of layers) {
       if (old.retired) continue;
       old.retired = true;
-      if (Loading.covering()) { old.load?.dispose(); old.remove(); continue; }
+      if (batch || Loading.covering()) { old.load?.dispose(); old.remove(); continue; }
       old.classList.add("fading");
       // disposePortrait() may have freed it meanwhile (a quick second step)
       setTimeout(() => { if (old.isConnected) { old.load?.dispose(); old.remove(); } }, 400);
@@ -1091,7 +1092,7 @@ async function showSpine(base, my, signal) {
           await frames(2);           // its first frame is on the canvas
           commit(() => {
             if (my !== spineToken || !live()) return;
-            if (Loading.covering()) layer.style.transition = "none";
+            if (batch || Loading.covering()) layer.style.transition = "none";
             layer.classList.remove("fading");
             retire(previous);
           });
@@ -1613,7 +1614,7 @@ function retireLeft(part, my) {
     else if (part === "lobby") Lobby.hide(el);
     else hideModel();
   };
-  if (Loading.covering() || el.hidden || el.classList.contains("pending")) { free(); return; }
+  if (batch || Loading.covering() || el.hidden || el.classList.contains("pending")) { free(); return; }
   el.classList.add("leaving");
   setTimeout(() => { if (my === leftToken && el.classList.contains("leaving")) free(); }, 360);
 }
@@ -1639,7 +1640,7 @@ async function freezeLeft(part) {
 }
 function unfreezeLeft(now = false) {
   for (const box of document.querySelectorAll(".left-freeze:not(.leaving)")) {
-    if (now || Loading.covering()) { box.remove(); continue; }
+    if (now || batch || Loading.covering()) { box.remove(); continue; }
     box.classList.add("leaving");
     setTimeout(() => box.remove(), 360);
   }
@@ -1915,7 +1916,7 @@ async function reloadChanged() {
 
 async function ensureLayouts() {
   if (layouts) return;
-  const detail = await NGUI.layout("UICharacterDetail");
+  const detail = await withTimeout(NGUI.layout("UICharacterDetail"), HARD_CAP, "Detail layout");
   await NGUI.init().catch(renderFailed);
   layouts = { list: find(detail, "Inventory_ListControl"), textures: NGUI.textureIndex(), visual: null };
 }
@@ -1988,6 +1989,7 @@ export async function show(context, familyData, key, { inPlace = false, kind = n
   ctx = context;
   applyPrefs(ctx.prefs);
   open = true;
+  suspended = false;
   askedKey = key;
   const g = begin();
   const sameFamily = fam?.key === familyData.key;
@@ -1997,7 +1999,6 @@ export async function show(context, familyData, key, { inPlace = false, kind = n
   const sameVariant = sameFamily && variantKey === key && fam.version === familyData.version;
   fam = familyData;
   variantKey = fam.variants.some((v) => v.key === key && hasAsset(v)) ? key : (fam.variants.find(hasAsset) || fam.variants[0]).key;
-  setTitle(T("top.students"), () => { location.hash = "#/roster"; });
   if (!sameVariant) {
     expression = "00";
     expanded = false;
@@ -2016,7 +2017,8 @@ export async function show(context, familyData, key, { inPlace = false, kind = n
   previewEnabled = modsOn();
   rpc("ui.visit", { variant: variantKey }).catch(() => {});
   // The portrait uses its own assets and default framing while the UI layout is still loading or unavailable.
-  const ready = await prepare(g, inPlace, async () => {
+  const ready = await prepare(g, true, async () => {
+    commit(() => setTitle(T("top.students"), () => { location.hash = "#/roster"; }));
     await Promise.all([renderLeft(), ensureLayouts().then(() => {
       if (g.gen === showGen) return renderAll();
     }).catch(renderFailed)]);
@@ -2032,7 +2034,14 @@ export async function show(context, familyData, key, { inPlace = false, kind = n
 export function stepFailed() { arrived(); }
 
 // The variant actually shown, including the fallback for a family-only or unavailable-variant route.
-export const currentVariant = () => open && fam ? variant().key : null;
+export const currentVariant = () => (open || suspended) && fam ? variant().key : null;
+
+// Release page work before a destination waits on library locks, retaining the
+// complete current frame until that destination can replace it.
+export function suspend() {
+  ModAlias.close(); leavePage(); open = false; suspended = true;
+  begin(); batch = null; leftToken += 1; spineToken += 1;
+}
 
 // leaving the screen: stop the players, drop any change being prepared
 export function hide() {
@@ -2040,6 +2049,7 @@ export function hide() {
   leavePage();
   pageToken += 1;
   open = false;
+  suspended = false;
   switchPopupPage = null;
   begin();
   batch = null;

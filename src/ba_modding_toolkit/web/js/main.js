@@ -25,6 +25,7 @@ import { forget } from "./thumbs.js";
 import { setSpineConsent } from "./spine-runtime.js";
 import { $, fitStage } from "./util.js";
 import { studentName } from "./names.js";
+import { withTimeout } from "./async.js";
 
 let info = null, rosterData = null, rosterStale = true;
 const startup = {};
@@ -204,8 +205,13 @@ function noGame() {
 
 let routeToken = 0, endRoute = () => {};
 let shownRoute = "#/roster";
+let stagedDetail = null;
 async function route() {
   endRoute();
+  if (stagedDetail) {
+    stagedDetail.target.hidden = true; stagedDetail.target.style.visibility = ""; stagedDetail.target.inert = false;
+    stagedDetail = null;
+  }
   const ended = new Promise((resolve) => { endRoute = resolve; });
   const my = ++routeToken;
   const parts = location.hash.replace(/^#\/?/, "").split("/").map(decodeURIComponent);
@@ -217,11 +223,12 @@ async function route() {
       await Loading.scene(async (covered) => {
         await covered;
         if (my !== routeToken) return;
-        Detail.hide();
+        Detail.suspend();
         const data = await roster();
         if (my !== routeToken) return;
         await BatchImport.show(ctx, data);
         if (my !== routeToken) return;
+        Detail.hide();
         showScreen("import");
         setTitle(T("nav.import"), () => { location.hash = "#/roster"; });
       }, { until: ended });
@@ -232,12 +239,26 @@ async function route() {
       Roster.hide();
       const inPlace = !$("screen-detail").hidden && !!Detail.currentVariant();
       await Loading.hold(() => Loading.scene(async (covered) => {
-        const fam = await rpc("family.get", { key: parts[1] });
+        const fam = await withTimeout(rpc("family.get", { key: parts[1] }), 15000, "family.get");
         await covered;
         if (my !== routeToken) return; // a later navigation took over
-        showScreen("detail");
         visited(fam, parts[2]);
-        await Detail.show(ctx, fam, parts[2], { inPlace, kind: parts[3] });
+        const target = $("screen-detail"), wasHidden = target.hidden;
+        let committed = false;
+        if (wasHidden) {
+          target.hidden = false; target.style.visibility = "hidden"; target.inert = true;
+          stagedDetail = { target, token: my };
+        }
+        try {
+          await Detail.show(ctx, fam, parts[2], { inPlace, kind: parts[3] });
+          if (my !== routeToken) return;
+          showScreen("detail");
+          committed = true;
+        } finally {
+          if (stagedDetail?.token === my) {
+            target.hidden = !committed; target.style.visibility = ""; target.inert = false; stagedDetail = null;
+          }
+        }
       }, { until: ended }), { until: ended });
     } else {
       const reveal = () => {
@@ -249,8 +270,8 @@ async function route() {
       const open = async (covered) => {
         await covered;
         if (my !== routeToken) return;
-        // Release the detail input and players before a roster RPC can wait on a writer's library lock.
-        Detail.hide();
+        // Release detail page work before a roster RPC can wait on a writer's library lock.
+        Detail.suspend();
         const data = await roster();
         if (my !== routeToken) return;
         try {

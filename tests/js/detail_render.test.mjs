@@ -421,39 +421,38 @@ test("detail waits for UI images and bounds optional thumbnails before reveal", 
   } finally { Detail.hide(); await flush(); t.mock.timers.reset(); imageMode = "ready"; optionalPending = false; }
 });
 
-test("one three-second thumbnail allowance covers the switch bust, expressions and pile, which fill after reveal", async (t) => {
+test("entry cards and thumbnails publish together after every visible picture is ready", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   try {
     family = modFamily(); family.variants[0].spr = "late_spr";
     portraitExpressions = ["00", "01", "02", "03", "04", "05"];
     imageMode = "ready";
+    const previous = [...hosts.ngui.children], previousExpressions = [...hosts["ngui-expr"].children];
     let ready = false;
     const showing = Detail.show(context, family, "ibuki").then(() => { ready = true; });
-    await flush();
-    const pictures = walk(body).filter((e) => e.dataset.thumbnail === "true");
-    assert.equal(walk(hosts["ngui-expr"]).filter((e) => /^(Item_\d+|Pile_0)\/Thumb$/.test(e.dataset.path || "")).length, 4);
-    assert.ok(pictures.length >= 5, "the bust and four visible expression pictures have placeholders");
-    assert.ok(pictures.every((e) => !e.style.backgroundImage));
-    t.mock.timers.tick(2999); await flush();
-    assert.equal(ready, false);
-    t.mock.timers.tick(1); await flush(); await showing;
-    assert.equal(ready, true, "the thumbnail groups share one deadline");
-    thumbMode = "ready";
-    pendingThumbnails.splice(0).forEach((done) => done()); await flush(); await flush();
-    assert.ok(pictures.every((e) => e.style.backgroundImage), "late pictures fill the original placeholders");
+    await flush(); t.mock.timers.tick(3000); await flush();
+    assert.equal(ready, false, "the old soft thumbnail allowance cannot reveal unfinished cards");
+    assert.deepEqual(hosts.ngui.children, previous);
+    assert.deepEqual(hosts["ngui-expr"].children, previousExpressions);
+    thumbMode = "ready"; pendingThumbnails.splice(0).forEach((done) => done()); await flush();
+    await finish(t, showing);
+    const pictures = [hosts.ngui, hosts["ngui-expr"]].flatMap(walk).filter((e) => e.dataset.thumbnail === "true");
+    assert.ok(pictures.length >= 5);
+    assert.ok(pictures.every((e) => e.style.backgroundImage), "all entry pictures are present at publication");
+    assert.ok(pictures.every((e) => e.style.transition === "none"), "publication cannot start thumbnail fades");
   } finally {
     Detail.hide(); thumbMode = "pending"; portraitExpressions = ["00", "01"];
     await flush(); t.mock.timers.reset();
   }
 });
 
-test("leaving after an early reveal cancels thumbnail players, deadlines and late DOM writes", async (t) => {
+test("a bounded fallback cancels thumbnail players, deadlines and late DOM writes", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   try {
     family = modFamily(); family.variants[0].spr = "cancelled_spr";
     const start = thumbnailPlayers.length;
     const showing = Detail.show(context, family, "ibuki"); await flush();
-    t.mock.timers.tick(3000); await flush(); await showing;
+    t.mock.timers.tick(15000); await flush(); await showing;
     const pictures = walk(body).filter((e) => e.dataset.thumbnail === "true");
     Detail.hide();
     assert.ok(thumbnailPlayers.slice(start).every((p) => p.disposed));
@@ -507,7 +506,7 @@ test("the first detail reveal waits for its preview and decoded background", asy
   }
 });
 
-test("slow main content still holds the reveal after the thumbnail allowance has expired", async (t) => {
+test("main content and thumbnails share one complete reveal barrier", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   try {
     family = modFamily(); family.variants[0].spr = "slow_main_spr";
@@ -519,10 +518,13 @@ test("slow main content still holds the reveal after the thumbnail allowance has
     playerMode = "ready"; pendingPlayers.splice(0).forEach((done) => done()); await flush();
     assert.equal(ready, false, "decoded panel backgrounds remain required");
     decodeMode = "ready"; pendingDecodes.splice(0).forEach((done) => done()); await flush();
-    assert.equal(ready, true, "finishing main content does not start another three-second wait");
+    assert.equal(ready, false, "entry thumbnails are still required");
+    thumbMode = "ready"; pendingThumbnails.splice(0).forEach((done) => done()); await flush();
+    await finish(t, showing);
+    assert.equal(ready, true);
     await showing;
   } finally {
-    playerMode = decodeMode = "ready";
+    playerMode = decodeMode = "ready"; thumbMode = "pending";
     pendingPlayers.splice(0).forEach((done) => done()); pendingDecodes.splice(0).forEach((done) => done());
     Detail.hide(); await flush(); t.mock.timers.reset();
   }

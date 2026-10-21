@@ -178,7 +178,7 @@ test("detail exposes the selected variant rather than its family or the route's 
   const current = detail.match(/^export const currentVariant = .*$/m)[0].replace("export ", "");
   for (const selected of ["ch0200", "aris"]) {
     const env = { open: true, fam: { key: "aris", variants: [{ key: "aris" }, { key: "ch0200" }] }, variantKey: selected };
-    const h = new Function("env", `let { open, fam, variantKey } = env;
+    const h = new Function("env", `let { open, fam, variantKey } = env; let suspended = false;
       ${variant}\n${current}
       return { currentVariant, hide() { open = false; } };`)(env);
     assert.equal(h.currentVariant(), selected);

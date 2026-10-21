@@ -144,7 +144,7 @@ test("a repair cover blocks Back, popup clicks and Escape until success or failu
     const popup = new El(); popup.className = "popup-host";
     const done = Loading.hold(() => Loading.scene(async () => { await job.promise; if (fail) throw new Error("repair failed"); }), { all: true });
     await new Promise((resolve) => setTimeout(resolve, 0));
-    assert.equal(Loading.covering(), true);
+    assert.equal(Loading.covering(), false);
     assert.equal(stage.classList.contains("input-held"), true);
     assert.equal(Loading.busy(), true);
     for (const [target, key] of [[back, undefined], [popup, undefined], [popup, "Escape"]]) {
@@ -259,4 +259,16 @@ test("a navigation cannot leave an existing strict hold blocking pencils without
     const click = event(); stage.listeners.click(click); assert.equal(click.stopped, true);
   } finally { work.resolve(); await strict; }
   const click = event(); stage.listeners.click(click); assert.equal(click.stopped, false);
+});
+
+test("a detail preview transition blocks Back and popup input until its atomic swap", async () => {
+  const work = deferred(), back = new El(); back.back = true;
+  const popup = new El(); popup.className = "popup-host";
+  const changing = Loading.page(async () => work.promise);
+  await new Promise(setImmediate);
+  try {
+    for (const target of [back, popup, new El()]) {
+      const click = event(target); stage.listeners.click(click); assert.equal(click.stopped, true);
+    }
+  } finally { work.resolve(); await changing; }
 });
