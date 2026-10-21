@@ -1,4 +1,5 @@
 // Unified import behaviour over runtime Items, Mailbox and FilterSort prefab widgets (import-layout.js).
+import { importGroups } from "./import-groups.js";
 import * as NGUI from "./ngui.js";
 import * as Popup from "./popup.js";
 import * as Loading from "./loading.js";
@@ -40,19 +41,26 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
   let context = null, catalog = [], visible = false, root = null, scope = null;
   let query = "", filter = "all", ascending = true, searchOpen = false, rowsKey = null, previewKey = null, generation = 0;
   let rows = new Map(), identities = new WeakMap(), dom = {}, dialogClose = null, countsKey = null;
-  let art = null;
+  let art = null, merged = false;
   const drawings = new Set();
   let loadingHold = null, left = Promise.resolve(), leave = () => {};
   const waiters = new Set();
   const wake = () => { for (const resolve of waiters) resolve(); waiters.clear(); };
+  const waiting = () => drawings.size || ["analyzing", "running", "picking", "saving"].includes(model.state.phase);
+  function importProgress() {
+    const { phase, progress: p } = model.state;
+    const label = phase === "running" ? T(["update", "add", "apply"].includes(p?.phase) ? `import.phase.${p.phase}` : "job.running")
+      : T(["analyzing", "picking", "saving"].includes(phase) ? `import.${phase}` : "app.loading");
+    return p?.total > 0 ? T("import.waitProgress", { label, done: p.done || 0, total: p.total }) : label;
+  }
   function holdArtwork() {
-    if (!visible || loadingHold || (!drawings.size && model.state.phase !== "analyzing")) return;
+    if (!visible || loadingHold || !waiting()) return;
     const token = generation;
     const work = loading.hold(async () => {
-      while (visible && token === generation && (drawings.size || model.state.phase === "analyzing")) {
+      while (visible && token === generation && waiting()) {
         await new Promise((resolve) => waiters.add(resolve));
       }
-    }, { until: left, all: true });
+    }, { until: left, all: true, progress: importProgress });
     loadingHold = work;
     work.catch((error) => console.error("Import loading", error)).finally(() => {
       if (loadingHold === work) { loadingHold = null; holdArtwork(); }
@@ -180,7 +188,7 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
     dom.count = el("div", "import-count"); panel.append(dom.header, dom.count);
     const search = inputControl(T("import.search"), query, { width: 1220, search: true });
     dom.search = search.input; dom.search.placeholder = T("import.search"); dom.search.enterKeyHint = "search";
-    dom.searchWrap = place(search.wrap, 26, art.searchTop() * S, 1220, 112 * S);
+    dom.searchWrap = place(search.wrap, 26, art.searchTop() * S + 58, 1220, 112 * S);
     const runSearch = () => { query = dom.search.value.toLocaleLowerCase(); renderRows(); };
     dom.search.addEventListener("input", (event) => { if (!event.isComposing) runSearch(); }); dom.search.addEventListener("compositionend", runSearch);
     search.clear.addEventListener("click", () => { dom.search.value = ""; runSearch(); dom.search.focus(); });
@@ -193,6 +201,9 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
     }
     dom.searchToggle.setAttribute("aria-label", T("import.search"));
     panel.appendChild(search.wrap);
+    dom.merge = checkbox(T("import.merge"), merged, (checked) => { merged = checked; rowsKey = null; renderRows(); });
+    dom.merge.label.dataset.action = "merge";
+    place(dom.merge.label, 26, 90, 650, 50); panel.appendChild(dom.merge.label);
     dom.list = el("div", "import-list"); dom.list.setAttribute("aria-label", T("import.list")); panel.appendChild(dom.list);
     layoutList();
     for (const [key, caption, x, width] of [["files", "addFiles", 26, 196], ["folder", "addFolder", 238, 220],
@@ -233,7 +244,7 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
   }
 
   function layoutList() {
-    const top = searchOpen ? 236 : 144;
+    const top = searchOpen ? 294 : 202;
     dom.searchWrap.hidden = !searchOpen;
     dom.searchToggle.setAttribute("aria-expanded", String(searchOpen));
     place(dom.count, 996, top - 32 - art.rowGap(), 250, 32);
@@ -287,10 +298,11 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
   }
   function incomingBase(entry) {
     if (!["spr", "lobby"].includes(entry.kind)) return null;
-    const libraryId = entry.libraryId || model.state.results.find((result) => result.id === entry.id)?.libraryId;
+    const libraryId = model.state.results.find((result) => result.id === entry.id)?.libraryId || entry.libraryId;
     if (libraryId) return spineBase("mod", libraryId);
     return entry.preview?.kind === "import" && entry.preview.key ? spineBase("import", entry.preview.key) : null;
   }
+  const representative = (entries) => entries.find((entry) => incomingBase(entry)) || entries.find(eligible) || entries[0];
   function thumbnail(entry, { incoming = false, large = false } = {}) {
     const { variant } = identified(entry);
     const signal = scope?.signal;
@@ -299,7 +311,7 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
     const base = incoming ? incomingBase(entry)
       : key ? spineBase(kind, key) : null;
     const work = allowed() && base && scope
-      ? scope.thumb(base, large ? "bust" : "card", null, kind === "lobby", specialFraming(variant)) : Promise.resolve(null);
+      ? scope.thumb(base, large ? "bust" : "card", null, kind === "lobby", specialFraming(variant), variant?.bg) : Promise.resolve(null);
     if (large) work.bump?.();
     const source = Promise.resolve(work).then(async (url) => {
       if (url && ui.load) await ui.load(url, { signal });
@@ -366,12 +378,14 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
 
   function renderRows() {
     if (!visible || !root) return;
-    const entries = model.state.entries.filter((entry) => (filter === "all" || entry.state === filter) && identified(entry).search.includes(query));
+    const groups = importGroups(model.state.entries, merged, identified).filter((group) => group.entries.some((entry) =>
+      (filter === "all" || entry.state === filter) && identified(entry).search.includes(query)));
+    const entries = groups.map((group) => group.entries[0]);
     const collator = new Intl.Collator(language(), { numeric: true, sensitivity: "base" });
-    entries.sort((a, b) => (ascending ? 1 : -1) * collator.compare(identified(a).name, identified(b).name));
-    const key = JSON.stringify(entries);
+    groups.sort((a, b) => (ascending ? 1 : -1) * collator.compare(identified(a.entries[0]).name, identified(b.entries[0]).name));
+    const key = JSON.stringify([merged, groups]);
     if (key !== rowsKey) {
-      rowsKey = key; rows = new Map();
+      rowsKey = key; const previous = rows; rows = new Map();
       const contents = [];
       if (!entries.length) {
         const empty = place(el("div", "import-empty"), 0, 120, 1200, 180);
@@ -382,32 +396,40 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
         }
         contents.push(empty);
       }
-      for (const entry of entries) {
-        const row = el("div", "import-row"); row.dataset.entry = entry.id;
+      for (const group of groups) {
+        const entry = representative(group.entries);
+        const existing = previous.get(group.key), signature = JSON.stringify(group);
+        if (existing?.signature === signature) { rows.set(group.key, existing); contents.push(existing.row); continue; }
+        const row = existing?.row || el("div", "import-row"); row.dataset.entry = entry.id;
+        row.replaceChildren(); row.paintVersion = (row.paintVersion || 0) + 1; row.art = null;
         const name = identified(entry).name;
         const source = thumbnail(entry, { incoming: true });
         const drawing = paint(row, art.row({ name, kind: T(KIND_KEYS[entry.kind] || KIND_KEYS.other), state: T(`import.state.${entry.state}`), stateKey: entry.state,
-          meta: T("import.meta", { id: identified(entry).core, n: entry.files?.length || 0, size: sizeText(entry.size) }), note: rowNote(entry), muted: !eligible(entry) }),
+          counts: merged ? group.counts : null, badge: !merged, meta: merged ? [...new Set(group.entries.map((item) => T(`import.state.${item.state}`)))].join(", ")
+            : T("import.meta", { id: identified(entry).core, n: entry.files?.length || 0, size: sizeText(entry.size) }),
+          note: [...new Set(group.entries.map(rowNote).filter(Boolean))].join(", "), muted: !eligible(entry) }),
         { scale: ROW_SCALE, origin: [ROW_WIDTH / 2, 329 * ROW_SCALE / 2], textures: { "Icon_Arona": Promise.resolve(null) } });
         // MailboxContent/List_01 or List_02/BG_Icon/Icon_Arona is the incoming Mod's real texture slot.
         bindTexture(drawing, `${eligible(entry) ? "List_01" : "List_02"}/BG_Icon/Icon_Arona`, source, "import-thumb");
         const copy = place(el("button", "hit import-row-copy"), 0, 0, ROW_WIDTH - 72, ROW_HEIGHT - 10); copy.type = "button"; copy.setAttribute("aria-label", name);
-        row.addEventListener("click", (event) => { if (!event.target.closest?.(".import-check")) model.select(entry.id); });
-        const check = checkbox("", model.state.checked.has(entry.id), (checked) => model.toggle(entry.id, checked));
+        copy.addEventListener("click", () => model.select(entry.id));
+        const check = checkbox("", model.state.checked.has(entry.id), (checked) => model.toggleGroup(group.entries.map((item) => item.id), checked));
         check.input.setAttribute("aria-label", T("import.selectNamed", { name })); place(check.label, ROW_WIDTH - 66, 78, 50, 50);
         const selection = place(el("div", "import-selection"), 19, 8, 164, 160);
         paint(selection, art.selection(), { scale: 0.68, origin: [82, 80] });
-        row.append(selection, copy, check.label); contents.push(row); rows.set(entry.id, { row, copy, selection, input: check.input, refresh: check.refresh });
+        row.append(selection, copy, check.label); contents.push(row); rows.set(group.key, { row, copy, selection, input: check.input, refresh: check.refresh, group, signature });
       }
       dom.list.replaceChildren(...contents);
     }
-    for (const [id, row] of rows) {
+    for (const row of rows.values()) {
+      const ids = row.group.entries.map((entry) => entry.id), selectable = row.group.entries.filter(eligible);
       // Items' selection mark is kept on the thumbnail, separate from the import checkbox.
-      row.row.dataset.selected = String(model.state.selected === id);
-      row.selection.hidden = model.state.selected !== id;
-      row.copy.setAttribute("aria-pressed", String(model.state.selected === id));
-      row.input.checked = model.state.checked.has(id);
-      row.input.disabled = model.busy() || !model.state.valid || model.state.phase === "done" || !eligible(model.state.entries.find((entry) => entry.id === id));
+      row.row.dataset.selected = String(ids.includes(model.state.selected));
+      row.selection.hidden = !ids.includes(model.state.selected);
+      row.copy.setAttribute("aria-pressed", String(ids.includes(model.state.selected)));
+      row.input.checked = selectable.length > 0 && selectable.every((entry) => model.state.checked.has(entry.id));
+      row.input.indeterminate = !row.input.checked && selectable.some((entry) => model.state.checked.has(entry.id));
+      row.input.disabled = model.busy() || !model.state.valid || model.state.phase === "done" || !selectable.length;
       row.refresh();
     }
   }
@@ -417,6 +439,7 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
     const state = model.state, busy = model.busy(); root.dataset.phase = state.phase; root.setAttribute("aria-busy", String(busy));
     textWidget(dom.count, T("import.count", { n: state.entries.length }), "count", { scale: 0.5, origin: [250, 0] });
     renderToolbar();
+    dom.merge.input.disabled = busy; dom.merge.refresh();
     for (const key of ["files", "folder", "options", "clear", "remove", "all", "none", "recheck"]) dom[key].disabled = busy;
     dom.clear.disabled ||= !state.entries.length; dom.remove.disabled ||= !state.selected;
     dom.recheck.disabled ||= !state.entries.length && !state.error;
@@ -579,22 +602,32 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
   async function results() {
     await dialog(T("import.resultTitle"), {}, (area) => {
       area.classList.add("import-results");
-      for (const entry of model.state.taskEntries) {
-        const result = model.state.results.find((item) => item.id === entry.id), row = el("div", "import-result-row");
+      for (const group of importGroups(model.state.taskEntries, merged, identified)) {
+        const entry = representative(group.entries), row = el("div", "import-result-row");
+        const resultItems = group.entries.map((item) => ({ entry: item, result: model.state.results.find((result) => result.id === item.id) }));
         row.dataset.result = entry.id;
-        const outcome = T(`import.outcome.${OUTCOMES.has(result?.outcome) ? result.outcome : "failed"}`);
-        const note = result?.reason ? report(result.reason, entry) : ["imported", "updated"].includes(result?.outcome) ? T(result.applied ? "import.applied" : "import.notApplied") : "";
+        const outcomes = [...new Set(resultItems.map(({ result }) => T(`import.outcome.${OUTCOMES.has(result?.outcome) ? result.outcome : "failed"}`)))];
+        const notes = [...new Set(resultItems.map(({ entry, result }) => result?.reason ? report(result.reason, entry)
+          : ["imported", "updated", "unchanged"].includes(result?.outcome) ? T(result.applied ? "import.applied" : "import.notApplied") : "").filter(Boolean))];
         const source = thumbnail(entry, { incoming: true });
         const drawing = paint(row, art.row({ name: identified(entry).name, kind: T(KIND_KEYS[entry.kind] || KIND_KEYS.other),
-          state: T(`import.state.${entry.state}`), stateKey: entry.state, meta: outcome, note, muted: !eligible(entry) }),
+          badge: false, counts: merged ? group.counts : null, meta: outcomes.join(", "), note: notes.join(", ") }),
         { scale: 0.62, origin: [700, 104], textures: { "Icon_Arona": Promise.resolve(null) } });
-        bindTexture(drawing, `${eligible(entry) ? "List_01" : "List_02"}/BG_Icon/Icon_Arona`, source, "import-thumb");
-        area.appendChild(row);
+        bindTexture(drawing, "List_01/BG_Icon/Icon_Arona", source, "import-thumb");
+        const go = button(T("add.go"), "go", { width: 225, scale: 0.4 });
+        place(go, 1115, 86, 225, 65);
+        go.addEventListener("click", () => {
+          dialogClose?.();
+          const variant = identified(entry).variant;
+          if (entry.kind === "other" || !variant) context?.goOther?.();
+          else context?.go?.(variant.family.key, variant.key);
+        });
+        row.appendChild(go); area.appendChild(row);
       }
     });
   }
 
-  model.subscribe(() => { render(); wake(); holdArtwork(); });
+  model.subscribe(() => { render(); wake(); holdArtwork(); loading.refresh?.(); });
   return {
     model,
     async show(ctx, data) {
@@ -602,9 +635,10 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
       context = ctx; catalog = catalogEntries(data); identities = new WeakMap(); visible = true;
       const token = ++generation;
       scope?.cancel(); scope = thumbnails();
-      if (!art) { await ui.init(); art = importArtwork(ui, await loadImportLayouts(ui)); }
+      if (!art) { await ui.init(); art = importArtwork({ ...ui, translate: T }, await loadImportLayouts(ui)); }
       if (!visible || token !== generation) return;
       if (!root) build();
+      for (const row of rows.values()) row.signature = null;
       rowsKey = previewKey = null; render();
       // The page is usable while these read; a failed options read can be retried from Advanced Options or Import.
       model.loadOptions();

@@ -1,5 +1,6 @@
 // Batch Import's artwork is cloned from runtime game layouts. Only container dimensions and data slots adapt
 // to the approved two-column screen; sprite slicing, inclines, decoration, colours and typography stay in NGUI.
+import { countNodes, iconsOf } from "./mod-counts.js";
 import { resizeButton } from "./button-layout.js";
 import { clone } from "./util.js";
 
@@ -165,7 +166,7 @@ export function importArtwork(ui, layouts) {
     },
     // MailboxContent/List_01 (unread) and List_02 (muted/read): the real card, title, divider and meta slots.
     // The sender becomes the aligned kind column; TimeLimit becomes status; receipt/expiry become metadata/reason.
-    row({ name, kind, state, stateKey = "ready", meta, note = "", muted = false }) {
+    row({ name, kind, state, stateKey = "ready", meta, note = "", muted = false, counts = null, badge = true }) {
       const t = at(content(muted ? "List_02" : "List_01"));
       t.children = t.children.filter((c) => ["BG", "Deco", "Deco (1)", "Sprite", "Line", "BG_Icon", "Label_System", "Label_From",
         "Label_Locale_Received", "Label_Locale_Limit", "TimeLimit"].includes(c.name));
@@ -179,6 +180,12 @@ export function importArtwork(ui, layouts) {
       // Keep the card's title, divider and row pitch; reserve the bottom right for three fixed columns.
       const sender = ui.find(t, "Label_From"); at(sender, 110, -23); label(sender, kind, 360, 2);
       sender.widgets[0].pivot = 4;
+      if (counts) {
+        const kinds = ["spr", "lobby", "model", "other"].filter((kind) => counts[kind] > 0);
+        at(sender, 220, -23); sender.widgets = [];
+        sender.children = countNodes(counts, iconsOf(ui.atlasIndex?.()), ui.translate, { kinds, width: 800,
+          color: ui.find(t, "Label_System").widgets[0].color });
+      }
       const received = ui.find(t, "Label_Locale_Received"); received.children = []; label(received, meta, 620, 1);
       let limit = ui.find(t, "Label_Locale_Limit");
       if (!limit) { limit = content("List_01/Label_Locale_Limit"); t.children.push(limit); }
@@ -186,6 +193,7 @@ export function importArtwork(ui, layouts) {
       // TimeLimit is only present on the unread card; clone that same node for read cards as well.
       let status = ui.find(t, "TimeLimit");
       if (!status) { status = content("List_01/TimeLimit"); t.children.push(status); }
+      status.active = badge;
       at(status, 605, -23);
       ui.find(status, "Bg").widgets[0].w_ = 540;
       const tones = {
@@ -193,6 +201,7 @@ export function importArtwork(ui, layouts) {
         update: mail("Bottom/ObjectsDisplayed_Unread/ReceiveAll/Btn").widgets[0].color,
         library: content("List_02/BG").widgets[0].color,
         installed: content("List_02/Label_System").widgets[0].color,
+        done: content("List_02/Label_System").widgets[0].color,
         blocked: inventory(`${DETAIL}/Label_ExpirationDateTime/TypeBG`).widgets[0].color,
       };
       ui.find(status, "Bg").widgets[0].color = tones[stateKey] || tones.blocked;

@@ -1,5 +1,5 @@
 // Batch import's RPC contract and session state, independent of the screen and its artwork.
-export const STATES = Object.freeze(["ready", "update", "library", "installed", "blocked"]);
+export const STATES = Object.freeze(["ready", "update", "library", "installed", "blocked", "done"]);
 export const RESOURCE_TYPES = Object.freeze(["ALL", "Texture2D", "TextAsset", "Mesh", "AnimationClip"]);
 export const eligible = (entry) => entry?.state === "ready" || entry?.state === "update";
 export const pathsOf = (entries) => [...new Set(entries.flatMap((entry) => entry.paths || []))];
@@ -106,6 +106,14 @@ export function createImportState({ rpc, waitJob, changed = () => {}, suggest = 
       state.selected = id;
       revision++; emit();
     },
+    toggleGroup(ids, checked) {
+      if (busy() || state.phase === "done" || !state.valid) return;
+      for (const entry of state.entries) if (ids.includes(entry.id) && eligible(entry)) {
+        if (checked) state.checked.add(entry.id); else state.checked.delete(entry.id);
+      }
+      state.selected = state.entries.find((entry) => ids.includes(entry.id) && eligible(entry))?.id || state.selected;
+      revision++; emit();
+    },
     select(id) {
       if (!state.entries.some((entry) => entry.id === id)) return;
       state.selected = id; emit();
@@ -151,7 +159,12 @@ export function createImportState({ rpc, waitJob, changed = () => {}, suggest = 
       try {
         const id = await rpc("import.run", { ids: entries.map((entry) => entry.id), options });
         const result = await waitJob(id, progress);
-        state.results = result.results; state.phase = "done"; state.valid = false;
+        state.results = result.results;
+        const completed = new Map(state.results.filter((item) => ["imported", "updated", "unchanged"].includes(item.outcome)).map((item) => [item.id, item]));
+        state.entries = state.entries.map((entry) => completed.has(entry.id)
+          ? { ...entry, state: "done", libraryId: completed.get(entry.id).libraryId || entry.libraryId } : entry);
+        for (const id of completed.keys()) state.checked.delete(id);
+        state.phase = "done"; state.valid = false;
         state.progress = null; changed(); emit(); return true;
       } catch (error) { state.valid = false; changed(); fail(error); return false; }
     },

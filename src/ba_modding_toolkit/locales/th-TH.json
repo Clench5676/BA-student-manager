@@ -1459,12 +1459,15 @@
 			"progress": "{phase} - {done}/{total} {name}",
 			"complete": "เสร็จแล้ว: {n}, ล้มเหลว: {failed}",
 			"resultTitle": "ผลการนำเข้า",
-			"applied": "ใช้แล้ว",
-			"notApplied": "ยังไม่ได้ใช้",
+			"applied": "ตั้งเป็นแหล่งแล้ว",
+			"notApplied": "ยังไม่ตั้งเป็นแหล่ง",
 			"auto": "อัตโนมัติ",
 			"original": "ต้นฉบับ",
 			"uncompressed": "ไม่บีบอัด",
+			"merge": "รวมม็อดของนักเรียนเดียวกัน",
+			"waitProgress": "{label} {done} / {total}",
 			"state": {
+				"done": "เสร็จแล้ว",
 				"ready": "พร้อม",
 				"update": "ต้องอัปเดต",
 				"library": "มีในคลัง Mod แล้ว",
@@ -1488,7 +1491,7 @@
 			"phase": {
 				"update": "กำลังอัปเดต",
 				"add": "กำลังเพิ่มในคลัง Mod",
-				"apply": "กำลังใช้ Mod"
+				"apply": "กำลังตั้งแหล่ง"
 			},
 			"outcome": {
 				"imported": "เพิ่มในคลัง Mod แล้ว",
@@ -1499,7 +1502,7 @@
 			},
 			"options": {
 				"title": "ตัวเลือกขั้นสูง",
-				"enableAfterImport": "เปิดใช้ Mod หลังนำเข้า",
+				"enableAfterImport": "ตั้งเป็นแหล่งหลังนำเข้า",
 				"strategy": "วิธีจับคู่",
 				"types": "ประเภททรัพยากร",
 				"allTypes": "ทรัพยากรทุกประเภท",

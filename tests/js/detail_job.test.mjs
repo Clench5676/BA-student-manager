@@ -7,7 +7,7 @@ const jobSource = source.slice(source.indexOf("async function job("), source.ind
 const loadingSource = readFileSync(new URL("../../src/ba_modding_toolkit/web/js/loading.js", import.meta.url), "utf8");
 const progressSource = loadingSource.slice(loadingSource.indexOf("export function progressText("), loadingSource.indexOf("// A writer task"));
 function harness(overrides = {}) {
-  const messages = [], calls = [];
+  const messages = [], calls = [], progress = [];
   let released = false, end;
   const env = {
     toast: (s) => messages.push(s), T: (s) => s, renderScreen: async () => {},
@@ -15,13 +15,13 @@ function harness(overrides = {}) {
     errorText: String, QUEUEABLE: ["actions.apply", "actions.restore"], refused: (err) => messages.push(String(err)),
     overwrittenMessage: async () => {}, variant: () => ({}), fullName: () => "Example", resumeChanged: () => {},
     leftPage: new Promise((resolve) => { end = resolve; }),
-    Loading: { hold: async (work) => { try { return await work(); } finally { released = true; } } }, ...overrides,
+    Loading: { hold: async (work) => { try { return await work((value) => progress.push(value)); } finally { released = true; } } }, ...overrides,
   };
   const state = new Function("env", `let { ${Object.keys(env).join(", ")} } = env;
     let busy = false, open = true, pageToken = 1;
     ${jobSource}
     return { job, busy: () => busy, leave() { open = false; pageToken++; } };`)(env);
-  return { ...state, messages, calls, released: () => released, end };
+  return { ...state, messages, calls, progress, released: () => released, end };
 }
 
 test("submission, job, onDone and final reload errors release busy and allow the next switch", async () => {
@@ -79,18 +79,20 @@ test("the apply result reaches the refresh while input is still held", async () 
 });
 
 test("detail actions keep the verb, target and count from progress in all locales", async () => {
-  for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"]) {
+  for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) {
     const strings = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${locale}.json`, import.meta.url), "utf8")).webui;
     const T = (key, vars = {}) => key.split(".").reduce((o, k) => o[k], strings).replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? "");
     const progressText = new Function("T", `${progressSource.replace("export ", "")}; return progressText;`)(T);
     for (const [method, action, params = {}] of [["actions.apply", "apply"], ["actions.apply", "restore", { source: "official" }], ["actions.restore", "restore"], ["actions.update", "repair"],
       ["actions.extract", "extract"], ["mods.remove", "delete"]]) {
       const label = T(`progress.${action}`, { name: "portrait.bundle" });
-      const h = harness({ T, Loading: { hold: (fn) => fn(), progressText }, waitJob: async (id, update) => {
+      const progress = [];
+      const h = harness({ T, Loading: { hold: (fn) => fn((value) => progress.push(value)), progressText }, waitJob: async (id, update) => {
         update({ label, current: 1, total: 3 });
         return {};
       } });
       assert.equal(await h.job(method, params, { name: "Example" }), true);
+      assert.deepEqual(progress, [T(`progress.${action}`, { name: "Example" }), T("progress.count", { label, current: 1, total: 3 })]);
       assert.deepEqual(h.messages, [T(`progress.${action}`, { name: "Example" }),
         T("progress.count", { label, current: 1, total: 3 }), T("job.done")]);
     }

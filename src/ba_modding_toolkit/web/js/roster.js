@@ -10,6 +10,7 @@
 // (the game's pins) come first in each group. Grouped, each character shows its first variant (or the first one the
 // search found). The view is kept across launches (settings key "roster"), the search for the session. Only the rows
 // near the view are rendered; the list scrolls with the wheel, by dragging and with the scrollbar.
+import { clipRosterBand } from "./roster-card.js";
 import { specialFraming } from "./special-view.js";
 import * as NGUI from "./ngui.js";
 import * as Display from "./display.js";
@@ -247,7 +248,6 @@ function cardTree(e) {
     counts.widgets = [];
     counts.children = countNodes(e.modCounts, countIcons, T);
   } else counts.widgets[0].text = T("band.replaced");
-  find(sort, "Sprite").widgets[0].w_ = 406; // cover the portrait's last pixel column
   // dimmed like the game's not-owned cards (BG_Discover is the darkening overlay); changed ones stay bright
   const dim = find(t, "BG_Discover");
   dim.active = !e.mods && !e.replaced;
@@ -261,9 +261,9 @@ const portraitOf = (e) => {
   const thumb = thumbnailWork.thumb;
   const kind = primaryKind(e), variants = data.families.find((f) => f.key === e.family)?.variants || [];
   if (modsState()?.enabled === false && configuredKey(e, kind)) {
-    return thumb(previewBase(e, kind, false, variants), "roster", null, kind === "lobby", specialFraming(e));
+    return thumb(previewBase(e, kind, false, variants), "roster", null, kind === "lobby", specialFraming(e), e.bg);
   }
-  return e.portrait || (hasAsset(e) ? thumb(spineBase(kind, kind === "spr" ? e.spr : e.lobby), "roster", null, kind === "lobby", specialFraming(e)) : null);
+  return e.portrait || (hasAsset(e) ? thumb(spineBase(kind, kind === "spr" ? e.spr : e.lobby), "roster", null, kind === "lobby", specialFraming(e), e.bg) : null);
 };
 
 // --- rows near the view ---
@@ -298,7 +298,9 @@ async function renderRow(host, rowKey) {
     if (hasAsset(it.e)) hit.addEventListener("click", () => { if (!ctx.dragged) location.hash = `#/student/${encodeURIComponent(it.e.family)}/${encodeURIComponent(it.e.key)}`; });
     else hit.disabled = true;
     row.appendChild(hit);
-    jobs.push(NGUI.render(t, row, { scale: S, origin: ORIGIN, z: 100, textures: tex ? { Char_Portrait: tex } : {} }));
+    jobs.push(NGUI.render(t, row, { scale: S, origin: ORIGIN, z: 100, textures: tex ? { Char_Portrait: tex } : {} }).then(async (view) => {
+      await clipRosterBand(view, t.name); return view;
+    }));
   }
   row.ready = Promise.all(jobs).then(async (views) => {
     await Promise.all(views.flatMap((v) => v.pictures));

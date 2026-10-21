@@ -1459,12 +1459,15 @@
 			"progress": "{phase} - {done}/{total} {name}",
 			"complete": "完成：{n}，失敗：{failed}",
 			"resultTitle": "匯入結果",
-			"applied": "已套用",
-			"notApplied": "未套用",
+			"applied": "已設為來源",
+			"notApplied": "未設為來源",
 			"auto": "自動",
 			"original": "原壓縮方式",
 			"uncompressed": "不壓縮",
+			"merge": "合併同一學生 Mod",
+			"waitProgress": "{label} {done} / {total}",
 			"state": {
+				"done": "已完成",
 				"ready": "可匯入",
 				"update": "需更新",
 				"library": "已在 Mod 倉庫",
@@ -1488,7 +1491,7 @@
 			"phase": {
 				"update": "正在更新",
 				"add": "正在加入 Mod 倉庫",
-				"apply": "正在套用 Mod"
+				"apply": "設定來源"
 			},
 			"outcome": {
 				"imported": "已加入 Mod 倉庫",
@@ -1499,7 +1502,7 @@
 			},
 			"options": {
 				"title": "進階選項",
-				"enableAfterImport": "安裝後立即啟用 Mod",
+				"enableAfterImport": "匯入後設為來源",
 				"strategy": "比對策略",
 				"types": "資源類型",
 				"allTypes": "所有資源類型",

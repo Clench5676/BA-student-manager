@@ -32,7 +32,7 @@ class El {
     }
   }
   get classList() {
-    return { add: (...names) => { this.className = [...new Set([...this.className.split(" "), ...names])].join(" "); },
+    return { replace: (a, b) => { this.classList.remove(a); this.classList.add(b); }, add: (...names) => { this.className = [...new Set([...this.className.split(" "), ...names])].join(" "); },
       remove: (...names) => { this.className = this.className.split(" ").filter((name) => !names.includes(name)).join(" "); } };
   }
   contains(node) { for (let n = node; n; n = n.parentNode) if (n === this) return true; return false; }

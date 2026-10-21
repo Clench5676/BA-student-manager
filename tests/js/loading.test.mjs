@@ -33,6 +33,7 @@ class El {
     }
   }
   querySelectorAll(selector) { return this.children.flatMap((el) => [...(selector === ".ngui" && el.classList.contains("ngui") ? [el] : []), ...el.querySelectorAll(selector)]); }
+  addEventListener() {}
   setAttribute(k, v) { this.attrs[k] = v; }
   removeAttribute(k) { delete this.attrs[k]; }
   querySelector(selector) {
@@ -48,8 +49,9 @@ class El {
   }
 }
 
-async function harness({ locale = "en-US", translated = true, render = "ready", decoded = true, boot = false, consent = true, uiCached = false, infoReady = true } = {}) {
-  const stage = new El(), sprites = deferred(), timers = new Map(), assets = [];
+async function harness({ locale = "en-US", translated = true, render = "ready", decoded = true, boot = false, consent = true, uiCached = false, infoReady = true, edges = false } = {}) {
+  const stage = new El(), sprites = deferred(), timers = new Map(), assets = [], drawn = [];
+  const gradient = { name: "Bg", pos: [234, -180], scale: [1, 1], children: [], widgets: [{ sprite: "Common_Bg_Gradation_5px", color: "#032650/0.90", w_: 348, h_: 540, pivot: 1 }] };
   let now = 0, timerId = 0;
   let localized = translated;
   const strings = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${locale}.json`, import.meta.url), "utf8")).webui;
@@ -68,7 +70,8 @@ async function harness({ locale = "en-US", translated = true, render = "ready", 
     setTimeout: (fn, ms) => { const id = ++timerId; timers.set(id, { at: now + ms, fn }); return id; },
     clearTimeout: (id) => timers.delete(id), requestAnimationFrame: (fn) => fn(),
     T, S: 1, toast() {},
-    NGUI: { find: () => null, init: () => { assets.push("indexes"); return sprites.promise; }, layout: async (name) => { assets.push(name); return {}; }, decoded: async () => decoded, render: async (tree, host) => {
+    NGUI: { find: (_tree, path) => edges && path.endsWith("CharCombatStyleAniwidget/Bg") ? gradient : null, init: () => { assets.push("indexes"); return sprites.promise; }, layout: async (name) => { assets.push(name); return {}; }, decoded: async () => decoded, render: async (tree, host) => {
+      drawn.push(tree);
       if (render === "reject") throw new Error("Missing atlas");
       if (render === "empty") return;
       const el = new El(); el.className = "ngui";
@@ -85,7 +88,7 @@ async function harness({ locale = "en-US", translated = true, render = "ready", 
     for (const [id, timer] of [...timers]) if (timer.at <= now) { timers.delete(id); timer.fn(); }
     await flush();
   };
-  return { loading, stage, sprites, advance, initial, assets, T, translate: () => { localized = true; loading.relabel(); } };
+  return { loading, stage, sprites, advance, initial, assets, drawn, gradient, T, translate: () => { localized = true; loading.relabel(); } };
 }
 
 for (const mode of ["wait", "scene"]) test(`writer progress survives ${mode} navigation and the sprite upgrade`, async () => {
@@ -374,4 +377,66 @@ test("a cached boot stays stylized before app.info arrives", async () => {
   h.sprites.resolve(); await flush();
   assert.ok(h.initial.querySelector(".loading-repeater"));
   work.resolve(); await flush(); await h.advance(300); await pending;
+});
+
+test("in-page holds use the prefab gradient on every edge, Now Loading and live left progress", async () => {
+  const h = await harness({ edges: true, uiCached: true }), job = deferred(), left = deferred();
+  let text = "Analyzing 3 / 12";
+  const done = h.loading.hold(() => job.promise, { until: left.promise, all: true, progress: () => text });
+  await flush();
+  const overlay = h.stage.children[0];
+  assert.equal(h.loading.covering(), false); assert.equal(h.loading.held(), true);
+  assert.ok(overlay.classList.contains("indicator"));
+  assert.equal(overlay.querySelector(".loading-progress").textContent, text);
+  assert.ok(overlay.querySelector(".loading-fallback"));
+  const snapshot = structuredClone(h.gradient);
+  h.sprites.resolve(); await flush(); await flush();
+  const edges = h.drawn.filter((tree) => ["Bottom", "Top", "Left", "Right"].includes(tree.name));
+  assert.equal(edges.length, 4);
+  assert.ok(edges.every((tree) => tree.widgets[0].sprite === h.gradient.widgets[0].sprite && tree.widgets[0].color === h.gradient.widgets[0].color));
+  assert.deepEqual(h.gradient, snapshot, "the runtime prefab remains immutable");
+  assert.ok(overlay.querySelector(".loading-repeater"));
+  text = "Setting Sources 1 / 2"; h.loading.refresh();
+  assert.equal(overlay.querySelector(".loading-progress").textContent, text);
+  left.resolve(); await flush();
+  assert.equal(h.loading.held(), false); assert.equal(h.loading.active(), false);
+  job.resolve(); await done;
+});
+
+test("overlapping holds retain one indicator until the last task and accept action progress", async () => {
+  const h = await harness({ consent: false }), first = deferred(), second = deferred();
+  let update;
+  const older = h.loading.hold((report) => { update = report; return first.promise; });
+  await flush();
+  const newer = h.loading.hold(() => second.promise);
+  await flush(); assert.equal(h.stage.children.length, 1);
+  second.resolve(); await newer; await flush();
+  assert.equal(h.loading.held(), true); assert.equal(h.loading.active(), true);
+  update({ label: "Updating", current: 2, total: 4 });
+  assert.equal(h.stage.children[0].querySelector(".loading-progress").textContent, "Updating (2/4)");
+  first.resolve(); await older; await flush();
+  assert.equal(h.loading.held(), false); assert.equal(h.loading.active(), false);
+});
+
+test("page changes keep the current screen visible and writer progress suppresses duplicate indicators", async () => {
+  const h = await harness({ consent: false }), page = deferred(), writer = deferred();
+  const changing = h.loading.page(async (ready) => { await ready; await page.promise; });
+  await flush(); assert.equal(h.loading.covering(), false); assert.equal(h.loading.held(), true);
+  const overlay = h.stage.children[0];
+  const writing = h.loading.task(() => writer.promise, { label: "Updating" });
+  assert.equal(overlay.style.visibility, "hidden");
+  writer.resolve(); await flush(); await h.advance(300); await writing;
+  assert.equal(overlay.style.visibility, ""); assert.equal(h.loading.active(), true);
+  page.resolve(); await changing; await flush(); assert.equal(h.loading.active(), false);
+});
+
+test("a route taking over a suppressed page indicator remains visible during an independent writer", async () => {
+  const h = await harness({ consent: false }), work = deferred(), writer = deferred(), route = deferred();
+  const held = h.loading.hold(() => work.promise); await flush();
+  const indicator = h.stage.children[0];
+  const writing = h.loading.task(() => writer.promise); assert.equal(indicator.style.visibility, "hidden");
+  const navigating = h.loading.scene(() => route.promise); await flush();
+  assert.equal(h.loading.covering(), true); assert.equal(indicator.style.visibility, "");
+  route.resolve(); work.resolve(); writer.resolve(); await flush(); await h.advance(300);
+  await Promise.all([held, writing, navigating]);
 });

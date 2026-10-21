@@ -55,3 +55,13 @@ test("both counts have full localized text and the mod chip is kind neutral in a
     if (lang === "en-US") assert.equal(text, "Portraits: 3, Memorial lobbies: 1");
   }
 });
+
+test("merged import counts share the roster icons and include models and generic assets", () => {
+  const kinds = ["spr", "lobby", "model", "other"];
+  const index = { Common: Object.fromEntries(kinds.map((kind) => [COUNT_ICONS[kind], { width: 40, height: 40 }])) };
+  const nodes = countNodes({ spr: 2, lobby: 3, model: 4, other: 5 }, iconsOf(index), null, { kinds, width: 800 });
+  assert.deepEqual(nodes.map((node) => node.name), kinds);
+  assert.deepEqual(nodes.map((node) => node.children[0].widgets[0].text), ["×2", "×3", "×4", "×5"]);
+  assert.deepEqual(nodes.map((node) => node.pos[0]), [-300, -100, 100, 300]);
+  assert.deepEqual(nodes.map((node) => node.children[1].widgets[0].sprite), kinds.map((kind) => COUNT_ICONS[kind]));
+});

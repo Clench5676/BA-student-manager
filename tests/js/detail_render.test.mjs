@@ -12,6 +12,7 @@ class El {
       dataset: {}, attrs: {}, listeners: {}, className: "", hidden: false, textContent: "", id: "", width: 8, height: 8 });
     this.classList = {
       contains: (c) => this.className.split(" ").includes(c),
+      replace: (a, b) => { this.classList.remove(a); this.classList.add(b); },
       add: (...cs) => { this.className = [...new Set([...this.className.split(" "), ...cs])].join(" "); },
       remove: (...cs) => { this.className = this.className.split(" ").filter((c) => !cs.includes(c)).join(" "); },
       toggle: (c, on) => on ? this.classList.add(c) : this.classList.remove(c),
@@ -583,7 +584,8 @@ test("a lobby switch stays covered until its failed preview settles and can retr
     t.mock.timers.tick(1300); await flush(); await finish(t, showing);
     const lobbyTab = walk(hosts.ngui).find((e) => e.dataset.part?.endsWith("Tab_2/Tab_Off/Label"));
     const switching = lobbyTab.click(); await flush();
-    assert.equal(Loading.covering(), true, "the tab's panels and preview prepare behind black");
+    assert.equal(Loading.covering(), false, "in-page preview waits keep the current screen visible");
+    assert.equal(Loading.held(), true);
     for (let i = 0; i < 4; i++) { t.mock.timers.tick(1300); await flush(); }
     await finish(t, switching);
     assert.equal(Loading.covering(), false);
@@ -1215,6 +1217,7 @@ test("re-entering a torn-down lobby rebuilds its players and keeps the Portrait 
     assert.ok(playerRequests.length > requests, "the same variant gets fresh lobby players after hide");
     assert.equal(hosts.lobby.hidden, false); assert.equal(Detail.currentVariant(), "ibuki");
     const portrait = tabButton(1).click(); await flush(); await finish(t, portrait);
+    t.mock.timers.tick(360); await flush();
     assert.equal(hosts.portrait.hidden, false); assert.equal(hosts.lobby.hidden, true);
   } finally { Detail.hide(); lobbyMode = "pending"; playerMode = "ready"; await flush(); t.mock.timers.reset(); }
 });

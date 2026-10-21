@@ -148,7 +148,7 @@ function loadPlayer(base, el, signal, onError) {
   }, { signal, onError });
 }
 
-async function capture(player, el, frame, expr, lobby, framing, signal) {
+async function capture(player, el, frame, expr, lobby, framing, background, signal) {
   const [w, h] = FRAMES[frame];
   el.style.width = `${w}px`;
   el.style.height = `${h}px`;
@@ -168,11 +168,25 @@ async function capture(player, el, frame, expr, lobby, framing, signal) {
   player.setViewport(entry.animation);
   await frames(3, signal);
   if (signal.aborted) return null;
-  const canvas = el.querySelector("canvas");
+  const canvas = await collectionStill(el.querySelector("canvas"), background, signal);
   return new Promise((resolve) => canvas.toBlob((b) => resolve(b && !signal.aborted ? URL.createObjectURL(b) : null)));
 }
 
-const keyOf = (base, frame, expr, lobby = false, framing = null) => `${base}|${frame}|${expr || ""}|${lobby}|${framing || ""}`;
+// Collection portraits fill their texture with the variant background before the transparent Spine still.
+export async function collectionStill(portrait, background, signal, load = (url, options) => import("./ngui.js").then((ui) => ui.load(url, options))) {
+  if (!background) return portrait;
+  const image = await load(background, { signal });
+  if (signal?.aborted) return portrait;
+  const canvas = document.createElement("canvas");
+  canvas.width = portrait.width; canvas.height = portrait.height;
+  const g = canvas.getContext("2d"), scale = Math.max(canvas.width / image.naturalWidth, canvas.height / image.naturalHeight);
+  const width = image.naturalWidth * scale, height = image.naturalHeight * scale;
+  g.drawImage(image, (canvas.width - width) / 2, (canvas.height - height) / 2, width, height);
+  g.drawImage(portrait, 0, 0, canvas.width, canvas.height);
+  return canvas;
+}
+
+const keyOf = (base, frame, expr, lobby = false, framing = null, background = null) => `${base}|${frame}|${expr || ""}|${lobby}|${framing || ""}|${background || ""}`;
 
 // Consumers share a render, but cancelling one view must not cancel another view's use of it.
 function subscribe(item, signal) {
@@ -252,7 +266,7 @@ async function pump() {
         const batch = [];
         let q = first.settled ? queue.find((q) => q.base === base) : first;
         while (!signal.aborted && q && !q.settled) {
-          const url = await withTimeout(capture(player, el, q.frame, q.expr, q.lobby, q.framing, signal), 3000, `Thumbnail capture ${base}`, { signal });
+          const url = await withTimeout(capture(player, el, q.frame, q.expr, q.lobby, q.framing, q.background, signal), 3000, `Thumbnail capture ${base}`, { signal });
           batch.push(q);
           complete(q, url);
           // Let a visible card's bump take effect before the next capture.
@@ -278,14 +292,14 @@ async function companions(player, el, base, batch, signal) {
   for (const q of batch) {
     const frame = COMPANION[q.frame];
     if (!frame || queue.length) continue;
-    const key = keyOf(base, frame, null, q.lobby, q.framing);
+    const key = keyOf(base, frame, null, q.lobby, q.framing, q.background);
     if (cache.has(key)) continue;
-    const url = await withTimeout(capture(player, el, frame, null, q.lobby, q.framing, signal), 3000, `Thumbnail companion ${base}`, { signal });
+    const url = await withTimeout(capture(player, el, frame, null, q.lobby, q.framing, q.background, signal), 3000, `Thumbnail companion ${base}`, { signal });
     if (!url) continue;
     const waiting = cache.get(key);
     if (waiting && !waiting.settled) complete(waiting, url);
     else if (waiting) URL.revokeObjectURL(url);
-    else cache.set(key, { key, base, frame, lobby: q.lobby, framing: q.framing, url, settled: true, clients: new Set() });
+    else cache.set(key, { key, base, frame, lobby: q.lobby, framing: q.framing, background: q.background, url, settled: true, clients: new Set() });
   }
 }
 
@@ -296,7 +310,7 @@ export function thumbnailScope() {
   scopes.add(manifests);
   return {
     signal: controller.signal,
-    thumb: (base, frame = "bust", expr = null, lobby = false, framing = null) => request(base, frame, expr, lobby, framing, { signal: controller.signal, manifests }),
+    thumb: (base, frame = "bust", expr = null, lobby = false, framing = null, background = null) => request(base, frame, expr, lobby, framing, background, { signal: controller.signal, manifests }),
     cancel: () => {
       controller.abort(); manifests.clear();
       scopes.delete(manifests);
@@ -307,11 +321,11 @@ export function thumbnailScope() {
 
 // thumb(base, frame) -> Promise<blob url | null>; expr selects a face, lobby selects its idle, framing a special fit.
 // bump() puts a visible card before queued work. Scopes add cancellation and share the source's manifest.
-export function thumb(base, frame = "bust", expr = null, lobby = false, framing = null) {
-  return request(base, frame, expr, lobby, framing);
+export function thumb(base, frame = "bust", expr = null, lobby = false, framing = null, background = null) {
+  return request(base, frame, expr, lobby, framing, background);
 }
 
-function request(base, frame = "bust", expr = null, lobby = false, framing = null, { signal, manifests } = {}) {
+function request(base, frame = "bust", expr = null, lobby = false, framing = null, background = null, { signal, manifests } = {}) {
   if (!base || signal?.aborted || !spineAllowed()) return Promise.resolve(null);
   if (!/\/[a-f0-9]{64}\/skeleton$/.test(base)) {
     const resolveBase = () => {
@@ -334,7 +348,7 @@ function request(base, frame = "bust", expr = null, lobby = false, framing = nul
     let inner = null, first = false;
     const outer = resolveBase().then(async (resolved) => {
       for (let attempt = 0; resolved && !signal?.aborted && attempt < 2; attempt++) {
-        inner = request(resolved, frame, expr, lobby, framing, { signal });
+        inner = request(resolved, frame, expr, lobby, framing, background, { signal });
         if (first) inner.bump?.();
         const url = await inner;
         if (signal?.aborted || url || attempt) return url;
@@ -350,9 +364,9 @@ function request(base, frame = "bust", expr = null, lobby = false, framing = nul
     outer.signal = signal;
     return outer;
   }
-  const key = keyOf(base, frame, expr, lobby, framing);
+  const key = keyOf(base, frame, expr, lobby, framing, background);
   if (!cache.has(key)) {
-    const item = { key, base, frame, expr, lobby, framing, clients: new Set(), settled: false };
+    const item = { key, base, frame, expr, lobby, framing, background, clients: new Set(), settled: false };
     cache.set(key, item);
     queue.push(item);
     if (active?.base === base && !active.controller.signal.aborted) active.items.add(item);

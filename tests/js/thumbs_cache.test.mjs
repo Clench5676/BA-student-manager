@@ -532,3 +532,33 @@ test("cancelling a scope aborts a stalled manifest without leaving its deadline 
     t.mock.timers.tick(60000);
   } finally { scope.cancel(); await new Promise(setImmediate); globalThis.fetch = fetch; t.mock.timers.reset(); }
 });
+
+test("backgrounds participate in still cache identity and propagate to companion captures", async () => {
+  const create = document.createElement, Image = globalThis.Image, draws = [];
+  const base = spineBase("spr", "background_spr"), loadedBefore = loaded.length;
+  document.createElement = (tag) => tag === "canvas" ? {
+    getContext: () => ({ measureText: (text) => ({ width: text.length * 10 }), drawImage: (image) => draws.push(image.src || "portrait") }),
+    toBlob: (done) => done({}),
+  } : { ...el(), querySelector: () => ({ width: 384, height: 352, toBlob: (done) => done({}) }) };
+  globalThis.Image = class {
+    naturalWidth = 1600; naturalHeight = 900;
+    set src(value) { this.url = value; queueMicrotask(() => this.onload?.()); }
+    get src() { return this.url; }
+  };
+  const scope = thumbnailScope();
+  try {
+    set(base, "a");
+    const first = await scope.thumb(base, "card", null, false, null, "/bg/practice");
+    await new Promise(setImmediate);
+    assert.ok(first); assert.ok(draws.includes("/bg/practice"));
+    const before = draws.length;
+    assert.equal(await scope.thumb(base, "card", null, false, null, "/bg/practice"), first);
+    assert.equal(draws.length, before, "the same background and source reuse the composed still");
+    const bust = await scope.thumb(base, "bust", null, false, null, "/bg/practice");
+    assert.ok(bust); assert.equal(loaded.length, loadedBefore + 1, "the companion shares the background and player");
+    const other = await scope.thumb(base, "card", null, false, null, "/bg/classroom");
+    assert.ok(other && other !== first); assert.ok(draws.includes("/bg/classroom"));
+    const transparent = await scope.thumb(base, "card");
+    assert.ok(transparent && transparent !== first && transparent !== other);
+  } finally { scope.cancel(); await new Promise(setImmediate); document.createElement = create; globalThis.Image = Image; }
+});
