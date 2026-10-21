@@ -276,6 +276,60 @@ def test_conversion_failure_cannot_store_or_apply_mobile_bytes(real_metadata, mo
     assert not result['applied'] and not env.library.mods() and env.original.read_bytes() == before
 
 
+@pytest.mark.parametrize('output', [False, True])
+def test_conversion_stages_only_inside_the_pinned_library_with_dev_guards(real_metadata, monkeypatch, output):
+    from ba_modding_toolkit import devmode
+
+    env = real_metadata
+    monkeypatch.setenv(devmode.ROOTS, str(env.tmp))
+    monkeypatch.setenv(devmode.WRITABLE, str(env.tmp))
+    source = unity_bundle(env.tmp / 'mods' / 'ui_android' / env.original.name, 13,
+                          cab='CAB-mobile', payload=b'mobile mod', references=['com.nexon.bluearchive'])
+    before = source.read_bytes()
+    entry, = analyze(env, [source])['entries']
+    assert entry['state'] == 'convert'
+    seen = []
+    update = batch_import.core.process_mod_update
+
+    def convert(**kwargs):
+        seen.extend([kwargs['output_dir'], *kwargs['target_paths']])
+        return update(**kwargs)
+
+    monkeypatch.setattr(batch_import.core, 'process_mod_update', convert)
+    result, = run(env, [entry], types=['TextAsset'], output=str(env.tmp / 'output') if output else None)
+    assert result['outcome'] == 'updated' and result['applied'], result
+    assert seen and all(path.is_relative_to(env.library.root / 'staging') for path in seen)
+    assert all(not path.exists() for path in seen), 'temporary conversions are removed after import'
+    assert source.read_bytes() == before
+    assert Bundle.load(env.original).env.objects[0].read().m_Script == 'mobile mod'
+
+
+def test_system_temp_conversion_output_reproduces_the_dev_read_guard_failure(real_metadata, monkeypatch):
+    from ba_modding_toolkit import devmode
+
+    env = real_metadata
+    monkeypatch.setenv(devmode.ROOTS, str(env.tmp))
+    monkeypatch.setenv(devmode.WRITABLE, str(env.tmp))
+    source = unity_bundle(env.tmp / 'mods' / 'ui_android' / env.original.name, 13,
+                          cab='CAB-mobile', payload=b'mobile mod', references=['com.nexon.bluearchive'])
+    entry, = analyze(env, [source])['entries']
+    temporary_directory = batch_import.tempfile.TemporaryDirectory
+    staged = []
+
+    def former_staging(**kwargs):
+        # Reproduce the old location without changing or broadening any guard.
+        directory = temporary_directory(prefix=devmode.LIBRARY_STAGING_PREFIX + 'import-')
+        staged.append(Path(directory.name))
+        return directory
+
+    monkeypatch.setattr(batch_import.tempfile, 'TemporaryDirectory', former_staging)
+    result, = run(env, [entry], types=['TextAsset'], enableAfterImport=False)
+    refused = staged[0] / entry['id'] / 'output' / env.original.name
+    assert result['outcome'] == 'failed' and result['reason'] == 'dev_path_outside'
+    assert result['params'] == {'path': str(refused)}
+    assert not env.library.mods()
+
+
 def test_converted_output_still_requires_full_dependency_validation(real_metadata, monkeypatch):
     from ba_modding_toolkit.models import FilePair, ModUpdateResult
 

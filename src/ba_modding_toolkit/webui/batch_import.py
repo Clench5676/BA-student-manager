@@ -391,6 +391,7 @@ class BatchImport:
 
     def _judge(self, candidate: Candidate, library: Any, pin: Any, log: Any = no_log) -> None:
         entry = candidate.entry
+        entry.pop("params", None)
         entry.update(state="blocked", reason=candidate.error, libraryId=None, source=None,
                      target=mod_origin.target_of(self.services.settings, pin))
         candidate.targets, candidate.originals, candidate.spine_version, candidate.conversion = [], [], None, False
@@ -499,6 +500,8 @@ class BatchImport:
             entry.update(state="blocked", reason=error.code if error.code in (
                 "source_unknown", "source_conflict", "platform_unsupported", "target_unknown",
                 "conversion_names", "no_matching_assets") else blocked_reason(error))
+            if error.params:
+                entry["params"] = error.to_json()["params"]
             if error.code == "source_unknown" and candidate.source_override is None:
                 self._infer_source(candidate, library, pin, names, selected, log)
         except (OSError, ValueError):
@@ -549,7 +552,13 @@ class BatchImport:
                               "current": candidate.entry["id"], "phase": phase,
                               "step": "import.step." + (step or phase)})
 
-            with tempfile.TemporaryDirectory(prefix=devmode.LIBRARY_STAGING_PREFIX + "import-") as temporary:
+            # Converted bundles are read back by add_files. Keep both target
+            # copies and output in this library's allowed data, not system temp.
+            staging = library.root / "staging"
+            devmode.check_read(staging)
+            devmode.check_write(staging)
+            staging.mkdir(parents=True, exist_ok=True)
+            with tempfile.TemporaryDirectory(prefix="import-", dir=staging) as temporary:
                 with ThreadPoolExecutor(max_workers=options["workers"]) as workers:
                     futures = {}
                     for candidate in chosen:
@@ -581,6 +590,8 @@ class BatchImport:
                                 item["outcome"] = "unchanged"
                             elif state == "blocked":
                                 item["reason"] = candidate.entry["reason"]
+                                if candidate.entry.get("params"):
+                                    item["params"] = candidate.entry["params"]
                             else:
                                 future = futures[candidate.entry["id"]]
                                 if isinstance(future, Exception):
@@ -612,6 +623,8 @@ class BatchImport:
                                     self._complete(candidate, library, pin, mod.id)
                         except ServiceError as error:
                             item.update(outcome="failed", reason=error.code)
+                            if error.params:
+                                item["params"] = error.to_json()["params"]
                         except OSError:
                             item.update(outcome="failed", reason="library_io_error")
                         except Exception:
@@ -632,7 +645,7 @@ class BatchImport:
         if entry["state"] in ("library", "installed"):
             return None, False, candidate
         if entry["state"] == "blocked":
-            raise ServiceError(entry["reason"])
+            raise ServiceError(entry["reason"], **entry.get("params", {}))
         if entry["state"] == "ready":
             return list(candidate.files.values()), False, candidate
         phase = "convert" if candidate.conversion else "update"

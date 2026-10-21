@@ -1429,3 +1429,26 @@ test("visible ready, conversion, unknown and failed rows keep the beta type-size
   assert.equal(find(tree, "Label_Locale_Received").widgets[0].fontSize, 42);
   assert.equal(find(tree, "Label_Locale_Limit").widgets[0].ellipsis, true);
 });
+
+for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) for (const [reason, params, expected] of [
+  ["dev_path_outside", { path: "/profile/library/staging/import-abc/output/mod.bundle" }, "/profile/library/staging/import-abc/output/mod.bundle"],
+  ["mod_parts_missing", { files: "first.bundle, second.bundle" }, "first.bundle, second.bundle"],
+]) test(`result notes preserve all parameters for ${reason} in ${locale}`, async () => {
+  try {
+    setStrings(locale, flatten(JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${locale}.json`, import.meta.url), "utf8"))));
+    const h = await fixture(); await h.analyze([entry("a")]);
+    await h.action("start").click(); await flush();
+    h.runs[0].resolve({ results: [{ id: "a", outcome: "failed", reason, params }] });
+    await flush(); await h.page.results(); await h.page.settled();
+    const row = walk(h.dialog).find((el) => el.dataset.result), { tree } = drawn(h, row);
+    assert.ok(find(tree, "Label_Locale_Limit").widgets[0].text.includes(expected));
+  } finally {
+    setStrings("en-US", flatten(JSON.parse(readFileSync(new URL("../../src/ba_modding_toolkit/locales/en-US.json", import.meta.url), "utf8"))));
+  }
+});
+
+test("blocked entry notes preserve error parameters", async () => {
+  const h = await fixture(), path = "/profile/input/refused.bundle";
+  await h.analyze([{ ...entry("a", "blocked"), reason: "dev_path_outside", params: { path } }]);
+  assert.ok(find(drawn(h, h.row("a")).tree, "Label_Locale_Limit").widgets[0].text.includes(path));
+});

@@ -353,6 +353,41 @@ def updater(monkeypatch, calls, payload=b"updated mod"):
     monkeypatch.setattr(batch_import.core, "process_mod_update", update)
 
 
+@pytest.mark.parametrize("phase", ["prepare", "add", "apply", "recheck"])
+def test_entry_errors_keep_json_parameters_through_job_results(env, monkeypatch, phase):
+    source = make_mod(env.original, env.tmp / "input")
+    entry, = analyze(env, [source])["entries"]
+    params = {"path": env.tmp / "refused.bundle", "files": [Path("first.bundle"), Path("second.bundle")]}
+
+    def refuse(*args, **kwargs):
+        raise ServiceError("conversion_names" if phase == "recheck" else "dev_path_outside", **params)
+
+    if phase == "recheck":
+        monkeypatch.setattr(env.library, "inspect_import", refuse)
+    elif phase == "prepare":
+        monkeypatch.setattr(env.services.batch_import, "_prepare", refuse)
+    else:
+        monkeypatch.setattr(env.library, "add_files" if phase == "add" else "apply_import", refuse)
+    result, = run(env, [entry])
+    assert result["outcome"] == "failed"
+    assert result["params"] == {"path": str(params["path"]), "files": ["first.bundle", "second.bundle"]}
+    assert result["reason"] == ("conversion_names" if phase == "recheck" else "dev_path_outside")
+
+
+def test_rechecked_blocked_entry_keeps_error_parameters_in_skipped_result(env, monkeypatch):
+    source = make_mod(env.original, env.tmp / "input")
+
+    def refuse(*args, **kwargs):
+        raise ServiceError("conversion_names", path=source)
+
+    monkeypatch.setattr(env.library, "inspect_import", refuse)
+    entry, = analyze(env, [source])["entries"]
+    assert entry["params"] == {"path": str(source)}
+    result, = run(env, [entry])
+    assert result["outcome"] == "skipped"
+    assert result["params"] == entry["params"]
+
+
 def test_update_then_add_then_apply_forwards_every_classic_option_and_reports_events(env, monkeypatch):
     source = game_bundle(env.tmp / "old", date="2025-01-01", payload=b"old mod")
     entry, = analyze(env, [source])["entries"]

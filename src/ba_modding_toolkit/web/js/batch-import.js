@@ -76,8 +76,8 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
     });
   }
   const report = (error, entry = null) => {
-    const code = typeof error === "string" ? error : error?.code;
-    if (REASONS.has(code)) return T(`import.reason.${code}`);
+    const code = typeof error === "string" ? error : error?.code || error?.reason;
+    if (REASONS.has(code)) return T(`import.reason.${code}`, error?.params || {});
     const key = `error.${code}`, text = T(key, { file: entry?.paths?.[0] || "", ...(error?.params || {}) });
     return code && code !== "internal" && text !== key ? text : T("import.failed");
   };
@@ -198,7 +198,7 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
     if (!identities.has(entry)) identities.set(entry, entryIdentity(entry, catalog));
     return identities.get(entry);
   };
-  const rowNote = (entry) => entry.state === "blocked" && entry.reason !== "source_unknown" ? report(entry.reason, entry) : "";
+  const rowNote = (entry) => entry.state === "blocked" && entry.reason !== "source_unknown" ? report(entry, entry) : "";
 
   function build() {
     root = el("div", "import-page"); root.dataset.phase = model.state.phase;
@@ -425,7 +425,7 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
   function paragraphCopy(group, result = false) {
     const notes = result ? group.entries.map((entry) => {
       const item = model.state.results.find((item) => item.id === entry.id);
-      return item?.reason ? report(item.reason, entry) : ["imported", "updated", "unchanged"].includes(item?.outcome)
+      return item?.reason ? report(item, entry) : ["imported", "updated", "unchanged"].includes(item?.outcome)
         ? T(item.applied ? "import.applied" : "import.notApplied") : "";
     }) : group.entries.map(rowNote);
     return { ...rowCopy(group, result), route: conversionRoutes(group.entries),
@@ -647,7 +647,7 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
         const entry = representative(group.entries), row = el("div", "import-result-row");
         const resultItems = group.entries.map((item) => ({ entry: item, result: model.state.results.find((result) => result.id === item.id) }));
         row.dataset.result = entry.id;
-        const notes = [...new Set(resultItems.map(({ entry, result }) => result?.reason ? report(result.reason, entry)
+        const notes = [...new Set(resultItems.map(({ entry, result }) => result?.reason ? report(result, entry)
           : ["imported", "updated", "unchanged"].includes(result?.outcome) ? T(result.applied ? "import.applied" : "import.notApplied") : "").filter(Boolean))];
         const source = thumbnail(entry, { incoming: true });
         const drawing = paint(row, art.row({ name: identified(entry).name, ...rowCopy(group, true), textSize: resultTextSize, route: conversionRoutes(group.entries), note: notes.join(", ") }),
