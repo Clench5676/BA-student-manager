@@ -13,7 +13,8 @@ export const ROW_SCALE = 0.54, ROW_WIDTH = 2208 * ROW_SCALE, ROW_HEIGHT = 348 * 
 const rowGap = (ui, layouts) => 348 - ui.find(layouts.UIMailBoxContent, "List_01/BG").widgets.find((w) => "sprite" in w).h_;
 
 export async function loadImportLayouts(ui) {
-  const names = ["UINonEquipmentInventory", "UIMailBox", "UIMailBoxContent", "UIPopup_FilterSort", "UINonEquipmentInventoryListItem"];
+  const names = ["UINonEquipmentInventory", "UIMailBox", "UIMailBoxContent", "UIPopup_FilterSort", "UINonEquipmentInventoryListItem",
+    "UIPopup_GachaCharList.Btn_Checkbox"];
   return Object.fromEntries(await Promise.all(names.map(async (name) => [name, await ui.layout(name)])));
 }
 
@@ -124,6 +125,17 @@ export function importArtwork(ui, layouts) {
       label(captionNode, caption, width - 60, 2);
       const w = captionNode.widgets.find((w) => "text" in w), height = body.widgets.find((w) => "sprite" in w).h_ - 20;
       if (w.h_ > height) { w.fontSize *= height / w.h_; w.h_ = height; }
+      return t;
+    },
+    // UIPopup_GachaCharList.Btn_Checkbox, as the roster's variant grouping toggle: its own caption, the body sized to it.
+    toggle(caption, on) {
+      const t = at(get("UIPopup_GachaCharList.Btn_Checkbox")), text = label(ui.find(t, "Locale_Text"), caption, 460);
+      const w = text.widgets.find((w) => "text" in w);
+      t.widgets.find((w) => "sprite" in w).w_ = text.pos[0] + ui.glyphWidth(w.text, w.fontSize) + 46;
+      for (const c of t.children) if (c.name.startsWith("Type_")) {
+        c.children = c.children.filter((k) => k.name === "Check");
+        c.active = (c.name === "Type_ON") === on;
+      }
       return t;
     },
     // UIPopup_FilterSort's actual UIFilter_CheckBox, also used by the roster's display settings.

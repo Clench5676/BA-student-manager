@@ -113,7 +113,8 @@ async function fixture({ licensed = false, native = true, suggest } = {}) {
   const node = (name, pos = [0, 0], widgets = [], children = []) => ({ name, pos, widgets, children, scale: [1, 1] });
   const layouts = makeImportLayouts(), layoutSnapshot = structuredClone(layouts), rendered = [], loaded = [];
   let renderHold = null, imagesHold = null, thumbsHold = null;
-  const ui = { node, fitText: (text, fs) => ({ text, fs }), init: async () => {},
+  const label = (text, fontSize, color, w_, h_, opts = {}) => ({ text, fontSize, color, w_, h_, pivot: 4, depth: 9, ...opts });
+  const ui = { node, label, fitText: (text, fs) => ({ text, fs }), glyphWidth: (text, fs) => String(text).length * fs, init: async () => {},
     layout: async (name) => { loaded.push(name); assert.ok(layouts[name], `Unexpected layout ${name}`); return layouts[name]; },
     find, render: async (tree, host, opts) => {
       rendered.push({ tree, opts, host }); const view = await renderImportTree(tree, host, opts);
@@ -412,7 +413,8 @@ test("the window's native drop event goes directly to Batch Import on its route"
 const treeNodes = (tree) => [tree, ...(tree.children || []).flatMap(treeNodes)];
 test("the page clones runtime Items/Mailbox widgets and has no invented empty preview or key hint", async () => {
   const h = await fixture();
-  assert.deepEqual(h.loaded, ["UINonEquipmentInventory", "UIMailBox", "UIMailBoxContent", "UIPopup_FilterSort", "UINonEquipmentInventoryListItem"]);
+  assert.deepEqual(h.loaded, ["UINonEquipmentInventory", "UIMailBox", "UIMailBoxContent", "UIPopup_FilterSort", "UINonEquipmentInventoryListItem",
+    "UIPopup_GachaCharList.Btn_Checkbox"]);
   assert.equal(h.host.querySelector(".import-detail").textContent, "");
   await h.analyze(); await h.page.openOptions(); await h.page.settled();
   assert.equal(h.dialog.querySelector("select"), null, "options use the game's radio widgets");

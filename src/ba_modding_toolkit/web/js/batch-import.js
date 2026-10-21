@@ -132,6 +132,20 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
     input.addEventListener("change", () => { onChange(input.checked); refresh(); }); refresh();
     return { label, input, refresh };
   }
+  function toggle(caption, checked, onChange) {
+    const label = el("label", "import-toggle"), input = el("input", "hit"); input.type = "checkbox"; input.checked = checked;
+    const graphic = el("div", "import-check-art"); input.setAttribute("aria-label", caption);
+    label.append(graphic, input);
+    let previous = null;
+    const refresh = () => {
+      const key = String(input.checked); if (key === previous) return; previous = key;
+      const tree = art.toggle(caption, input.checked), body = tree.widgets.find((w) => "sprite" in w);
+      label.style.width = `${body.w_ * S}px`; label.style.height = `${body.h_ * S}px`;
+      paint(graphic, tree, { origin: [0, body.h_ * S / 2] });
+    };
+    input.addEventListener("change", () => { onChange(input.checked); refresh(); }); refresh();
+    return { label, input, refresh };
+  }
   // Match roster.js's native input and clear hit area to the rendered prefab labels/icons.
   function inputControl(caption, value, { type = "text", width = 650, search = false } = {}) {
     const wrap = el("div", "import-input-wrap"), input = el("input", `roster-search${search ? " import-search" : ""}`);
@@ -201,9 +215,8 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
     }
     dom.searchToggle.setAttribute("aria-label", T("import.search"));
     panel.appendChild(search.wrap);
-    dom.merge = checkbox(T("import.merge"), merged, (checked) => { merged = checked; rowsKey = null; renderRows(); });
-    dom.merge.label.dataset.action = "merge";
-    place(dom.merge.label, 26, 90, 650, 50); panel.appendChild(dom.merge.label);
+    dom.merge = toggle(T("import.merge"), merged, (checked) => { merged = checked; rowsKey = null; renderRows(); });
+    dom.merge.label.dataset.action = "merge"; panel.appendChild(dom.merge.label);
     dom.list = el("div", "import-list"); dom.list.setAttribute("aria-label", T("import.list")); panel.appendChild(dom.list);
     layoutList();
     for (const [key, caption, x, width] of [["files", "addFiles", 26, 196], ["folder", "addFolder", 238, 220],
@@ -260,6 +273,9 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
       for (const [key, path] of [["searchToggle", `SearchBtn/${searchOpen ? "Btn_Pressed" : "Btn_Normal"}`], ["filter", "SortBtn/Btn_Normal"], ["order", "OrderBtn/Btn_Normal"]]) {
         place(dom[key], ...Popup.nodeRect(view, `BG_Top_Widget/${path}`));
       }
+      // as on the roster's top menu: the toggle follows the title, ending a gap before the first tool
+      const [x, y, , h] = Popup.nodeRect(view, `BG_Top_Widget/SearchBtn/${searchOpen ? "Btn_Pressed" : "Btn_Normal"}`), style = dom.merge.label.style;
+      Object.assign(style, { left: `${x - 16 - parseFloat(style.width)}px`, top: `${y + (h - parseFloat(style.height)) / 2}px` });
     } });
   }
   const filterOptions = () => {
@@ -406,7 +422,7 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
         const source = thumbnail(entry, { incoming: true });
         const drawing = paint(row, art.row({ name, kind: T(KIND_KEYS[entry.kind] || KIND_KEYS.other), state: T(`import.state.${entry.state}`), stateKey: entry.state,
           counts: merged ? group.counts : null, badge: !merged, meta: merged ? [...new Set(group.entries.map((item) => T(`import.state.${item.state}`)))].join(", ")
-            : T("import.meta", { id: identified(entry).core, n: entry.files?.length || 0, size: sizeText(entry.size) }),
+            : T(entry.files?.length === 1 ? "import.metaOne" : "import.meta", { id: identified(entry).core, n: entry.files?.length || 0, size: sizeText(entry.size) }),
           note: [...new Set(group.entries.map(rowNote).filter(Boolean))].join(", "), muted: !eligible(entry) }),
         { scale: ROW_SCALE, origin: [ROW_WIDTH / 2, 329 * ROW_SCALE / 2], textures: { "Icon_Arona": Promise.resolve(null) } });
         // MailboxContent/List_01 or List_02/BG_Icon/Icon_Arona is the incoming Mod's real texture slot.
