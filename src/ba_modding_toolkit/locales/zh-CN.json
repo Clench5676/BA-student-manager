@@ -1458,7 +1458,7 @@
 			"confirmCount": "{state}：{n} 个",
 			"recursive": "包含子文件夹",
 			"progress": "{phase} {name}（{kind}）{index} / {total} - {step}",
-			"complete": "完成 {n}，失败 {failed}",
+			"complete": "完成：{n}，失败：{failed}",
 			"resultTitle": "导入结果",
 			"applied": "已应用",
 			"notApplied": "未应用",

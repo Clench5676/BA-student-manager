@@ -1458,7 +1458,7 @@
 			"confirmCount": "{state}：{n} 個",
 			"recursive": "包含子資料夾",
 			"progress": "{phase} {name}（{kind}）{index} / {total} - {step}",
-			"complete": "完成 {n}，失敗 {failed}",
+			"complete": "完成：{n}，失敗：{failed}",
 			"resultTitle": "匯入結果",
 			"applied": "已套用",
 			"notApplied": "未套用",

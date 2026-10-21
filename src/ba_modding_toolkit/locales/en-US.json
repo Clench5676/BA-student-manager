@@ -1458,7 +1458,7 @@
 			"confirmCount": "{state}: {n}",
 			"recursive": "Include Subfolders",
 			"progress": "{phase} {name} ({kind}) {index} / {total} - {step}",
-			"complete": "Done {n}, failed {failed}",
+			"complete": "Done: {n}, failed: {failed}",
 			"resultTitle": "Import Results",
 			"applied": "Applied",
 			"notApplied": "Not Applied",

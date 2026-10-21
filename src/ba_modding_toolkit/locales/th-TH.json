@@ -1458,7 +1458,7 @@
 			"confirmCount": "{state}: {n}",
 			"recursive": "รวมโฟลเดอร์ย่อย",
 			"progress": "{phase} {name} ({kind}) {index} / {total} - {step}",
-			"complete": "สำเร็จ {n}, ล้มเหลว {failed}",
+			"complete": "เสร็จแล้ว: {n}, ล้มเหลว: {failed}",
 			"resultTitle": "ผลการนำเข้า",
 			"applied": "ใช้แล้ว",
 			"notApplied": "ยังไม่ได้ใช้",

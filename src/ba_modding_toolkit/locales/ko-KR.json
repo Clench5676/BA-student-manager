@@ -1458,7 +1458,7 @@
 			"confirmCount": "{state}: {n}개",
 			"recursive": "하위 폴더 포함",
 			"progress": "{phase} {name} ({kind}) {index} / {total} - {step}",
-			"complete": "완료 {n}, 실패 {failed}",
+			"complete": "완료: {n}개, 실패: {failed}개",
 			"resultTitle": "가져오기 결과",
 			"applied": "적용됨",
 			"notApplied": "미적용",

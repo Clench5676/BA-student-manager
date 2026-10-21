@@ -1458,7 +1458,7 @@
 			"confirmCount": "{state}：{n}件",
 			"recursive": "サブフォルダーを含める",
 			"progress": "{phase} {name}（{kind}）{index} / {total} - {step}",
-			"complete": "完了 {n}、失敗 {failed}",
+			"complete": "完了：{n}件、失敗：{failed}件",
 			"resultTitle": "インポート結果",
 			"applied": "適用済み",
 			"notApplied": "未適用",
