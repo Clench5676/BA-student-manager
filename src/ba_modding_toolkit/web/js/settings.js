@@ -83,7 +83,7 @@ async function checkFiles() {
   if (!result) return;
   const m = ModSwitch.current() || {};
   render();
-  if (!m.drift && !m.untracked && !m.damaged) { notify(T("settings.mods.clean")); return; }
+  if (!m.drift && !m.untracked && !m.damaged) return;
   const entries = await rpc("mods.entries").catch(() => []);
   await Prompts.show("drift", { entries, dismissed: true });
   await Prompts.show("untracked", { entries, dismissed: true });
@@ -186,7 +186,7 @@ function rows({ builtSize = null, sizeError = null } = {}) {
     add(radioRow("Language", 0, T("settings.language"), p.languages.map((l) => [l.code, l.name, l.code]), p.language, (v) => set("language", v)));
     add(valueRow("Cache", 0, T("settings.cache.label"), p.consent ? T("cacheTo", { path: p.cacheDir }) : `${T("settings.cache.off")} - ${p.cacheDir}`, [
       [T("settings.cache.change"), browse("cacheDir", p.cacheDir), p.native],
-      [T("settings.cache.clear"), async () => { if (await call(() => rpc("settings.clearCache")) !== null) notify(T("settings.cache.cleared")); }, !!p.consent]]));
+      [T("settings.cache.clear"), async () => { await call(() => rpc("settings.clearCache")); }, !!p.consent]]));
     add(radioRow("Spine", 0, T(runtimeLoaded() && p.spineConsent !== true ? "settings.spine.restart" : "settings.spine.label"),
       [[true, T("spine.license.yes")], [false, T("spine.license.no")]], p.spineConsent === true, async (granted) => {
         if (granted === (prefs.spineConsent === true)) return;
@@ -289,7 +289,6 @@ async function openLog() {
         if (!document.execCommand("copy")) throw new Error("Clipboard unavailable");
       } finally { input.remove(); }
     }
-    notify(T("settings.log.copied"));
   }) });
 }
 
@@ -301,7 +300,7 @@ async function checkUpdate(event) {
     await render();
     const { check } = await import("./update.js");
     await check($("consent"), undefined, {
-      onCheck: (info) => { if (info) close(); else notify(T("settings.update.none")); },
+      onCheck: (info) => { if (info) close(); },
       onError: (err) => notify(errorText(err), { kind: "error" }),
     });
   } catch (err) {
@@ -317,7 +316,6 @@ async function set(key, value) {
   if (!next) return;
   prefs = next;
   if (key === "language") { location.reload(); return; }
-  notify(T("settings.saved"));
   onChange?.(key, next);
   render();
   return next;

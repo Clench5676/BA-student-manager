@@ -821,8 +821,7 @@ test("Settings disables Check for Updates while pending and uses the shared popu
   assert.equal(calls.slice(start).filter((m) => m === "app.checkUpdate").length, 1);
   answer({ result: null });
   await until(() => checkButton());
-  await until(() => walk(dialog).some((el) => el.textContent === english.settings.update.none));
-  (await drawn(dialog.children.at(-1), "ok")).click();
+  assert.equal(dialog.hidden, true, "no-update status stays silent");
   // A later check is allowed; its popup owns the same host and startup shares its promise.
   answer = null;
   checkButton().click();
@@ -1360,9 +1359,10 @@ test("the single Update action checks fresh inputs and routes a mixed page misma
   } finally { globalThis.spine = previous; }
 });
 
-test("former result and error notices use an answerable game message popup; the toast UI is absent", async () => {
+test("errors use an answerable game popup, plain notices stay silent and the toast UI is absent", async () => {
   setStrings("en-US", Object.fromEntries(strings(english)));
-  for (const kind of ["info", "error"]) {
+  Popup.notify("Plain success"); assert.equal(dialog.hidden, true);
+  for (const kind of ["error"]) {
     assert.equal(Popup.notify(`Review ${kind}`, { kind }), undefined, "notification delivery does not change caller return values");
     const layer = dialog.children.at(-1);
     const ok = await drawn(layer, "ok");
@@ -1396,8 +1396,7 @@ test("clean Update asks Cancel / Update and reuses the checked report; problems 
   action(dialog, "cancel").click(); assert.equal(await work, false); assert.equal(updates, 0); assert.equal(checks, 1);
   work = Detail.runUpdate(); (await drawn(dialog, "ok")).click(); assert.equal(await work, true);
   assert.equal(updates, 1); assert.equal(checks, 1);
-  // Dismiss the previous round's plain completion popups, until the confirmation correction removes them.
-  for (const layer of [...dialog.children].reverse()) action(layer, "close")?.click();
+  assert.equal(dialog.hidden, true, "successful updates finish without a confirmation popup");
   problems = true; stamp = "new-game-inputs";
   work = Detail.runUpdate(); assert.equal(await work, true);
   assert.equal(checks, 2); assert.equal(updates, 2);

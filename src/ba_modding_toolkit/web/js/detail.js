@@ -612,7 +612,7 @@ async function call(fn) {
 async function reveal(path) { if (path) await call(() => rpc("os.reveal", { path })); }
 async function copyName() {
   const name = baseName(gameFile(variant(), tabKind()));
-  try { await navigator.clipboard.writeText(name); notify(name); } catch { notify(name); }
+  try { await navigator.clipboard.writeText(name); } catch {}
 }
 function editModName(mod, redraw = null) {
   const page = pageToken;
@@ -665,7 +665,6 @@ async function job(method, params, { onDone, after = () => reload(), name = full
           await renderScreen();
           const id = await rpc(method, params, { timeout: 30000 });
           result = await waitJob(id, (p) => { const text = progress(p); update(text); });
-          notify(result?.deferred ? T("mods.saved") : T("job.done"));
           await onDone?.(result);
           ok = true;
         } catch (err) { refusal = err; }
@@ -712,7 +711,7 @@ async function runUpdate(c = shownMod()) {
   }
   return job("actions.update", { mod: c.id }, {
     name: c.label,
-    onDone: (result) => { forget(spinePrefix("mod", c.id)); notify(T(result?.unchanged ? "remap.unneeded" : "compatibility.ported")); },
+    onDone: () => { forget(spinePrefix("mod", c.id)); },
     after: (ok) => reload(ok ? [kind] : []),
   });
 }
@@ -725,7 +724,6 @@ async function runCompatibility() {
 async function remapped() {
   ctx.invalidateRoster();
   await reload();
-  notify(T("remap.done"));
 }
 async function runRemap(c) {
   if (!c || busy || !Compatibility.eligible(c.mod)) return;
@@ -754,7 +752,7 @@ async function runCompare() {
 // keeps what it replaces (an official file until it is official again, a mod in the library)
 async function applyCandidate(key, kind = "spr") {
   const v = variant();
-  if (modsOn() && key === appliedKey(v, kind)) { notify(T("mods.alreadyInUse")); return; }
+  if (modsOn() && key === appliedKey(v, kind)) return;
   await job("actions.apply", { variant: v.key, source: sourceOf(key), kind }, {
     onDone: (result) => {
       if (result?.files?.length) {
@@ -1263,10 +1261,7 @@ function closePopup(apply) {
   $("popup").innerHTML = "";
   const chosen = candidates(variant(), popupKind).find((c) => c.key === pending);
   // only a choice other than the start (what the game shows; while mods are off, the configured source)
-  if (apply && chosen && !chosen.greyed) {
-    if (pending === popupStart) notify(T(modsOn() ? "mods.alreadyInUse" : "switch.configured"));
-    else applyCandidate(pending, popupKind);
-  }
+  if (apply && chosen && !chosen.greyed && pending !== popupStart) applyCandidate(pending, popupKind);
 }
 
 // The confirmation is read again when opened, so configurations in other installs are included.
@@ -1281,7 +1276,7 @@ async function removeMod(id) {
     if (r.button !== "ok") return false;
     return await job("mods.remove", { id, confirm: true }, {
       name: info.name,
-      onDone: (result) => { if (result?.failed?.length) notify(T("mods.deletePending")); },
+      onDone: (result) => { if (result?.failed?.length) notify(T("mods.deletePending"), { kind: "error" }); },
     });
   } catch (err) {
     notify(errorText(err), { kind: "error" });

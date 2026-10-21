@@ -70,5 +70,5 @@ test("applying the source already in use shows its status without starting a job
     T: (s) => s, notify: (s) => messages.push(s), job: () => assert.fail("must not submit a job"),
   });
   await apply("m:m1", "spr");
-  assert.deepEqual(messages, ["mods.alreadyInUse"]);
+  assert.deepEqual(messages, []);
 });

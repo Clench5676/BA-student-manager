@@ -297,9 +297,9 @@ test("the help's lines: game folders, Retry and Details, independent of scan con
   for (const l of MS.helpLines(counts)) assert.ok(!/^mods\./.test(l.text), `a string for ${l.text}`);
 });
 
-test("a toggle's end: a notify, or the result popup naming each failed entry with its error string", () => {
-  assert.deepEqual(MS.resultSummary({ enabled: false, done: [{}, {}], adopted: [], failed: [], stuck: [], left: [], skipped: [{}] }), { notify: S("mods.offState") });
-  assert.deepEqual(MS.resultSummary({ enabled: true, done: [] }), { notify: S("mods.onState") });
+test("a toggle's end: silence, or the result popup naming each failed entry with its error string", () => {
+  assert.deepEqual(MS.resultSummary({ enabled: false, done: [{}, {}], adopted: [], failed: [], stuck: [], left: [], skipped: [{}] }), null);
+  assert.deepEqual(MS.resultSummary({ enabled: true, done: [] }), null);
   const names = (e) => ({ airi: "Airi", ch0251: "Airi (Band)" })[e.variant] || e.variant;
   const r = MS.resultSummary({
     enabled: false, done: [{}, {}, {}], adopted: [{ variant: "airi" }],
@@ -398,7 +398,7 @@ test("the top bar's switch follows mods.state, and the first toggle explains onc
   await until(() => called("mods.toggle").length === 1, "mods.toggle");
   assert.deepEqual(called("mods.toggle")[0], { enabled: false, expect: true });
   assert.equal(called("mods.explained").length, 1, "no explanation the second time");
-  await expectNotice(S("mods.offState"));
+  await tick(); assert.equal(dialog.hidden, true, "plain confirmations stay silent");
   // greyed with an accessible reason; a click says why and submits nothing
   answers["mods.state"] = base({ available: false, reason: "game_running" });
   await MS.refresh();
@@ -463,7 +463,7 @@ test("Settings measures built mods only when its Mods row is drawn, and remeasur
   assert.equal(called("mods.clearBuilt").length, 1);
   assert.equal(called("mods.sizes").length, count + 2);
   assert.equal(button(S("settings.mods.clear")), undefined, "cleanup disabled when empty");
-  await expectNotice(S("mods.cacheCleared"));
+  await tick(); assert.equal(dialog.hidden, true, "plain confirmations stay silent");
   button(S("settings.tab.general")).click();
   await until(() => !!button(S("settings.tab.mods")), "General tab");
   assert.equal(called("mods.sizes").length, count + 2);
@@ -631,7 +631,8 @@ test("Settings' manual Check asks for missing consent, stops on refusal, and che
       assert.deepEqual(called("mods.scan").at(-1), { dismissed: true }, "manual Check includes dismissed entries");
       assert.equal(dialog.hidden, true, "waits for the scan result");
       emit("library.scanned", { entries: [] });
-      await expectNotice(S("settings.mods.clean"));
+      await until(() => !Loading.busy(), "scan settled without a confirmation");
+      assert.equal(dialog.hidden, true);
       await until(() => selected(0), "scan result and On selected");
       assert.equal(settingsHost.hidden, false);
       const granted = called("mods.consent").length;
@@ -641,7 +642,8 @@ test("Settings' manual Check asks for missing consent, stops on refusal, and che
       assert.equal(called("mods.consent").length, granted);
       assert.deepEqual(called("mods.scan").at(-1), { dismissed: true });
       emit("library.scanned", { entries: [] });
-      await expectNotice(S("settings.mods.clean"));
+      await until(() => !Loading.busy(), "scan settled without a confirmation");
+      assert.equal(dialog.hidden, true);
       button(S("display.close")).click();
     }
   } finally {
@@ -693,7 +695,7 @@ test("the classic modal queues the refused write only when its box is ticked, on
   press("Escape");
   assert.equal(await m, "queue");
   await until(() => queued() === 1, "classic.queue");
-  await expectNotice(S("classic.queued"));
+  await tick(); assert.equal(dialog.hidden, true, "plain confirmations stay silent");
   assert.deepEqual(called("classic.queue")[0], { method: "actions.apply", params: { variant: "airi", source: "variant:ch0251", kind: "spr" } });
   // ticked, Bring to Front: raised and queued
   m = MS.classicModal({ method: "mods.toggle", params: { enabled: true, expect: false } });
@@ -702,7 +704,7 @@ test("the classic modal queues the refused write only when its box is ticked, on
   action(dialog, "cancel").click();
   assert.equal(await m, "queue");
   await until(() => queued() === 2 && called("classic.front").length === 1, "front and queue");
-  await expectNotice(S("classic.queued"));
+  await tick(); assert.equal(dialog.hidden, true, "plain confirmations stay silent");
   // opened on writes already queued (a click on the busy switch): the box ticked; unticked and closed, the queue empties
   answers["mods.state"] = base({ busy: true, queued: 2 });
   await MS.refresh();
@@ -797,7 +799,7 @@ test("the untracked prompt's buttons: add the ticked cards, Don't Ask Again dism
 });
 
 test("Apply Mod Configuration's result names the entries skipped because their files changed", () => {
-  assert.deepEqual(P.driftSummary({ done: [{}], failed: [], skipped: [], stuck: [] }), { notify: S("job.done") });
+  assert.deepEqual(P.driftSummary({ done: [{}], failed: [], skipped: [], stuck: [] }), null);
   const nameOf = (e) => e.variant;
   const r = P.driftSummary({
     done: [{}], stuck: [],
@@ -830,7 +832,7 @@ test("the tray's first toggle explains once, and the explanation's button submit
   action(dialog, "ok").click();
   await shown;
   assert.deepEqual(called("mods.toggle").slice(before), [{ enabled: false, expect: true }]);
-  await expectNotice(S("mods.offState"));
+  await tick(); assert.equal(dialog.hidden, true, "plain confirmations stay silent");
   // closed any other way: shown, and nothing toggled
   const Other = await import("../../src/ba_modding_toolkit/web/js/mod-switch.js?tray-cancel");
   const explained = called("mods.explained").length;
@@ -851,7 +853,7 @@ test("the tray's refusal shows as the page's own, and its toggle is followed to 
   assert.equal(dialog.hidden, true);
   jobs["job-tray-2"] = { state: "done", result: { enabled: true, done: [{}], adopted: [], failed: [], stuck: [], left: [] } };
   emit("tray.toggle", { job: "job-tray-2", enabled: true, expect: false });
-  await expectNotice(S("mods.onState"));
+  await tick(); assert.equal(dialog.hidden, true, "plain confirmations stay silent");
   // a result with failed entries: the result popup
   jobs["job-tray-3"] = { state: "done", result: { enabled: false, done: [], adopted: [], stuck: [], left: [],
     failed: [{ entry: { core: "airi_spr", variant: "airi", kind: "spr" }, code: "game_file_locked", params: {} }] } };
@@ -888,11 +890,12 @@ test("the tray's Back to Official opens the drift prompt: two buttons and no way
   assert.deepEqual(called("mods.restoreDrift")[0], { entries: [{ install: GLOBAL, core: "airi_spr", state: "reset" }] });
   assert.deepEqual(called("mods.dismiss").at(-1), { kind: "drift", entries: [{ install: GLOBAL, core: "hina_home", state: "updated" }] });
   assert.equal(prompt.hidden, true);
-  await expectNotice(S("job.done"));
+  await tick(); assert.equal(dialog.hidden, true, "plain confirmations stay silent");
   // nothing back to official any more: the tray's item was stale, the page says so
   answers["mods.entries"] = [];
   await MS.trayOpen({ view: "drift" });
-  await expectNotice(S("settings.mods.clean"));
+  await until(() => !Loading.busy(), "scan settled without a confirmation");
+      assert.equal(dialog.hidden, true);
 });
 
 test("the Game Files row's \"?\": one definition of configuration drift", async () => {
@@ -992,7 +995,7 @@ test("a failed or stalled page refresh releases the toggle hold within its bound
   await MS.init({ refreshPage: async () => { throw new Error("refresh failed"); } });
   await MS.turn({ enabled: true, expect: false });
   assert.equal(Loading.held(), false);
-  await expectNotice(S("mods.onState"));
+  await tick(); assert.equal(dialog.hidden, true, "plain confirmations stay silent");
   assert.match(String(errors[0]), /refresh failed/);
 
   const started = deferred();
@@ -1008,7 +1011,7 @@ test("a failed or stalled page refresh releases the toggle hold within its bound
     t.mock.timers.tick(1);
     await toggled;
     assert.equal(Loading.held(), false);
-    await expectNotice(S("mods.onState"));
+    assert.equal(dialog.hidden, true, "plain confirmations stay silent");
     // The in-flight guard was released too: another toggle can complete.
     await MS.init({ refreshPage: async () => {} });
     await MS.turn({ enabled: true, expect: false });
@@ -1056,7 +1059,7 @@ test("scan, cache cleanup and both switch directions name their action in every 
           assert.ok(progress(ui("progress.count", { label, current: 0, total: 2 })));
         } finally { jobs[id] = { state: "done", result }; emit("job.done", { id, result }); }
         await toggled;
-        await expectNotice(ui(enabled ? "mods.onState" : "mods.offState"));
+        assert.equal(dialog.hidden, true, "plain switch results stay silent");
       }
     }
   } finally { I18n.setStrings("en-US", strings); }

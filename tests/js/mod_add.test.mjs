@@ -87,7 +87,7 @@ test("same-variant adds confirm briefly for maid, dress, swimsuit and base varia
       for (const report of [[mod], { added: [mod], duplicates: [], installed: [] }]) {
         const h = await harness({ added: report });
         assert.deepEqual(await h.mod.add(paths, ` ${key} `), report);
-        assert.deepEqual(h.log.at(-1), ["notify", "Added"]);
+        assert.ok(!h.log.some(([kind]) => kind === "notify"));
         assert.equal(h.log.filter(([k]) => k === "changed").length, 1);
         assert.ok(!h.log.some(([k]) => k === "popup" || k === "go"));
       }
@@ -119,7 +119,7 @@ test("entry-shaped results use variant, while core never substitutes for the cat
   const mod = { variant: "CH0200", core: "aris_maid_spr", kind: "spr" };
   const h = await harness({ added: [mod] });
   await h.mod.add(null, "ch0200");
-  assert.deepEqual(h.log.at(-1), ["notify", "Added"]);
+  assert.ok(!h.log.some(([kind]) => kind === "notify"));
   const other = await harness({ added: [mod], button: "ok" });
   await other.mod.add(null, "aris");
   assert.deepEqual(other.log.at(-1), ["go", "ch0200"]);
@@ -132,12 +132,11 @@ test("mixed destinations only offer navigation for mods filed away from the sele
   assert.deepEqual(h.log.at(-1), ["go", "dress"]);
 });
 
-test("both kinds on the selected variant use the localized short confirmation", async () => {
+test("both kinds on the selected variant finish silently in all locales", async () => {
   for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) {
     const h = await harness({ locale, added: [portrait, { ...portrait, kind: "lobby" }] });
     await h.mod.add(null, "base");
-    const text = h.log.find(([k]) => k === "notify")[1];
-    assert.ok(text && text !== "add.done" && !/[{}]/.test(text));
+    assert.ok(!h.log.some(([kind]) => kind === "notify"));
     assert.ok(!h.log.some(([k]) => k === "popup"));
   }
 });
@@ -167,7 +166,7 @@ test("file drops use the student actually shown and refresh after either confirm
     new Function("env", `const { ${Object.keys(env).join(", ")} } = env; ${drop}`)(env);
     await handler({ paths: ["mod.bundle"] });
     assert.equal(h.log.some(([k]) => k === "popup"), shown !== "ch0200");
-    assert.equal(h.log.some(([k]) => k === "notify"), shown === "ch0200");
+    assert.equal(h.log.some(([k]) => k === "notify"), false);
     assert.equal(refreshes, 1);
     assert.equal(invalidations, 1);
   }
@@ -313,7 +312,7 @@ test("one report combines special results, toasts plain local adds and navigates
     ]);
     assert.equal(typeof opts.lines[0], "string");
     assert.equal(typeof opts.lines[2], "string");
-    assert.deepEqual(h.log.filter(([k]) => k === "notify"), [["notify", strings.add.done]]);
+    assert.deepEqual(h.log.filter(([k]) => k === "notify"), []);
     assert.deepEqual(h.log.at(-1), ["go", "dress"]);
     for (const [index, target] of [[1, "dress"], [3, "ch0200"]]) {
       const closed = [];

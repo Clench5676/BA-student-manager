@@ -118,12 +118,12 @@ export function entryLabel(entry, nameOf = (e) => e?.variant || e?.core || "", s
 
 const MAX_LISTED = 6; // failed entries a result names; the rest are counted
 
-// resultSummary(result, nameOf): what a toggle's end shows. Nothing adopted, failed, stuck or left: a message popup ("Mods
-// off" / "Mods on"); otherwise {title, lines} for a result popup, each failed entry with its error string.
+// resultSummary(result, nameOf): a silent success, or {title, lines} for adopted entries and unfinished work.
+// Each failed entry keeps its error string.
 export function resultSummary(result, nameOf) {
   const list = (k) => result?.[k] || [];
   const title = T(result?.enabled === false ? "mods.offState" : "mods.onState");
-  if (!list("adopted").length && !list("failed").length && !list("stuck").length && !list("left").length) return { notify: title };
+  if (!list("adopted").length && !list("failed").length && !list("stuck").length && !list("left").length) return null;
   const lines = [];
   if (list("adopted").length) lines.push(T("mods.toAdd", { n: list("adopted").length }));
   lines.push(T("mods.result", { done: list("done").length, failed: list("failed").length + list("left").length }));
@@ -414,11 +414,11 @@ export async function trayToggle(data = {}) {
   await follow(data.job, { enabled: !!data.enabled, expect: !!data.expect }, null);
 }
 
-// a toggle's end: a message popup, or the result popup when entries were adopted, failed, stuck or left
+// Only adopted entries, failures or unfinished work need a result popup.
 async function finished(result) {
   const nameOf = await names().catch(() => undefined);
   const summary = resultSummary(result, nameOf);
-  if (summary.notify) { notify(summary.notify); return; }
+  if (!summary) return;
   await Popup.message({ title: summary.title, lines: summary.lines, ok: T("picker.ok") });
 }
 
@@ -445,7 +445,6 @@ export async function classicModal({ method = null, params = null, queued = fals
   try {
     if (what === "queue" && method) {
       await rpc("classic.queue", { method, params: params || {} });
-      notify(T("classic.queued"));
     } else if (what === "clear") {
       await rpc("classic.clearQueue");
     }
@@ -495,7 +494,6 @@ export async function clearBuilt() {
   try {
     const id = await rpc("mods.clearBuilt");
     await Loading.task((update) => waitJob(id, update), { label: T("progress.clear") });
-    notify(T("mods.cacheCleared"));
     return true;
   } catch (err) {
     notify(errorText(err.code, err.params), { kind: "error" });

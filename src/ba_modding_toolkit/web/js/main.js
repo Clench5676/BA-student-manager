@@ -388,8 +388,7 @@ async function start() {
   on("drop", async ({ paths }) => {
     try {
       if (location.hash.replace(/\/$/, "") === "#/import") { await BatchImport.drop(paths); return; }
-      const added = await ModAdd.add(paths, Detail.currentVariant());
-      if (!(added?.length || added?.added?.length || added?.duplicates?.length || added?.installed?.length)) notify(T("drop.hint"));
+      await ModAdd.add(paths, Detail.currentVariant());
       ctx.invalidateRoster();
       route();
     } catch (err) {

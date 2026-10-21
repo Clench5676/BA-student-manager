@@ -881,8 +881,8 @@ export function textViewer({ title, text, copy, close = T("display.close"), onCo
   });
 }
 
-// Persistent results and errors share the game's existing message popup.
+// Only errors/refusals use a notification popup. Rich results call message() explicitly.
 export function notify(text, { kind = "info" } = {}) {
-  if (!text) return;
-  void message({ title: T(kind === "error" ? "job.failed" : "app.title"), lines: [text], ok: T("picker.ok") });
+  if (!text || kind !== "error") return;
+  void message({ title: T("job.failed"), lines: [text], ok: T("picker.ok") });
 }

@@ -149,13 +149,13 @@ export function untrackedOutcome(button, items, selection, dontAsk = false) {
   return { adopt, dismiss, turnOn: button === "addTurnOn" };
 }
 
-// Apply Mod Configuration's result: a message popup when everything was done; otherwise the failed entries with their error
+// Apply Mod Configuration's result: no popup when everything was done; otherwise the failed entries with their error
 // strings, and the ones skipped because their files changed since the scan (another tool, the classic UI) with
 // "Game files changed, check again"
 export function driftSummary(result, nameOf) {
   const list = (k) => result?.[k] || [];
   const skipped = list("skipped").filter((s) => ["changed", "untracked", "entry_changed"].includes(s.why));
-  if (!list("failed").length && !skipped.length && !list("stuck").length) return { notify: T("job.done") };
+  if (!list("failed").length && !skipped.length && !list("stuck").length) return null;
   const label = (e) => ModSwitch.entryLabel(e, nameOf);
   const lines = [T("mods.result", { done: list("done").length, failed: list("failed").length + skipped.length })];
   if (list("stuck").length) lines.push(T("mods.stuck", { n: list("stuck").length }));
@@ -229,14 +229,13 @@ async function later() {
 }
 
 // show(which, {entries, dismissed, force}): a prompt over the current screen. force: from Settings' Check or the tray,
-// whatever was shown before (an empty list says so with a message popup)
+// whatever was shown before (an empty list needs no popup)
 export async function show(which, { entries = null, dismissed = false, force = false } = {}) {
   if (busy) return null;
   const s = ModSwitch.current() || (await ModSwitch.refresh()) || {};
   const all = entries || (await rpc("mods.entries").catch(() => []));
   const lists = promptEntries(all, which, { dismissed, enabled: s.enabled !== false });
   if (!lists.listed.length) {
-    if (force) notify(T("settings.mods.clean"));
     return null;
   }
   for (const e of lists.listed) shown[which].add(`${entryKey(e)}|${e.state}`);
@@ -332,7 +331,7 @@ async function applyDrift(entries) {
   try {
     const result = await Loading.task((update) => waitJob(id, update), { label: running });
     const summary = driftSummary(result, await names().catch(() => undefined));
-    if (summary.notify) { notify(summary.notify); return; }
+    if (!summary) return;
     await Popup.message({ title: summary.title, lines: summary.lines, ok: T("picker.ok") });
   } catch (err) {
     ModSwitch.refused(err, "mods.restoreDrift", params);
@@ -361,7 +360,7 @@ async function untrackedPrompt(lists, s) {
   return answer.button;
 }
 
-// Add to Library: the library.adopt job (allowed while the game runs); a message popup, or a result popup for failures
+// Add to Library: the library.adopt job (allowed while the game runs), with a result popup for failures.
 export async function adopt(entries) {
   let id;
   try {
@@ -374,7 +373,7 @@ export async function adopt(entries) {
   try {
     const result = await Loading.task((update) => waitJob(id, update), { label: running });
     const failed = [...(result?.failed || []), ...(result?.skipped || []).map((s) => ({ entry: s, code: "entry_changed" }))];
-    if (!failed.length) { notify(T("job.done")); return true; }
+    if (!failed.length) return true;
     const nameOf = await names().catch(() => undefined);
     await Popup.message({
       title: T("mods.untrackedAdd"),

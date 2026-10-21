@@ -53,7 +53,7 @@ test("a second switch is refused; leaving during the job still reports its end w
   assert.equal(await job, true);
   assert.equal(after, 0);
   assert.equal(h.busy(), false);
-  assert.ok(h.messages.includes("job.done"));
+  assert.ok(!h.messages.includes("job.done"));
 });
 
 test("the default job reload does not pass its success flag as a list of preview kinds", async () => {
@@ -102,7 +102,7 @@ test("detail actions keep the verb, target and count from progress in all locale
       const subject = progressName(null, T("tab.portrait"), "Example");
       const actionKey = `progress.action${action[0].toUpperCase()}${action.slice(1)}`;
       assert.deepEqual(progress, [jobProgress({ action: actionKey, name: subject }), jobProgress({ action: actionKey, name: subject, current: 1, total: 3 })]);
-      assert.deepEqual(h.messages, [T("job.done")]);
+      assert.deepEqual(h.messages, []);
       assert.ok(progress.every((text) => !text.includes("portrait.bundle")));
     }
   }
