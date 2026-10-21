@@ -19,11 +19,11 @@ def pick_files(window: Any, file_types: Iterable[str] = (), multiple: bool = Tru
     return [Path(p) for p in result or ()]
 
 
-def pick_folder(window: Any) -> list[Path]:
+def pick_folder(window: Any, multiple: bool = True) -> list[Path]:
     """The native folder dialog, with the same cancellation shape as pick_files."""
     import webview
 
-    result = window.create_file_dialog(webview.FileDialog.FOLDER, allow_multiple=False)
+    result = window.create_file_dialog(webview.FileDialog.FOLDER, allow_multiple=multiple)
     return [Path(p) for p in result or ()]
 
 

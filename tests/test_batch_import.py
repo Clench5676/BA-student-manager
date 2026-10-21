@@ -790,7 +790,7 @@ def test_native_folder_uses_webview_dialog(monkeypatch, tmp_path):
     calls = []
     window = SimpleNamespace(create_file_dialog=lambda *args, **kwargs: calls.append((args, kwargs)) or (str(tmp_path),))
     assert native.pick_folder(window) == [tmp_path]
-    assert calls == [((marker,), {"allow_multiple": False})]
+    assert calls == [((marker,), {"allow_multiple": True})]
 
 
 GAME_DIR = Path(os.environ.get("BAMT_TEST_GAME_DIR") or "/nonexistent/bamt-real-game")
@@ -956,3 +956,16 @@ def test_generic_classic_queue_pins_every_target_slot(batch_other_env):
     call, = env.services.queue.items()
     assert {core for _, core in call.entries} == {core_of(p.name) for p in env.parts}
     assert len(call.files) == len(env.parts)
+
+
+@pytest.mark.parametrize("recursive", [False, True])
+def test_multiple_picked_folders_scan_and_deduplicate(env, monkeypatch, recursive):
+    first = make_mod(env.original, env.tmp / "first")
+    target = game_bundle(env.game_dir, "second_spr")
+    second = make_mod(target, env.tmp / "second" / "nested" if recursive else env.tmp / "second")
+    env.services.window = object()
+    monkeypatch.setattr(native, "pick_folder", lambda window: [first.parent, env.tmp / "second", first.parent])
+    picked = rpc(env, "import.pick", folder=True, recursive=recursive)
+    result = analyze(env, picked["paths"], recursive=recursive)
+    assert {path for entry in result["entries"] for path in entry["paths"]} == {str(first), str(second)}
+    assert result["skipped"] == 1
