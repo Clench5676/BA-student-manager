@@ -18,6 +18,7 @@ const FADE_OUT = 300;
 const WAIT_AFTER = 300;         // indicator mode: a shorter wait shows nothing
 const WAIT_MIN = 500;           // once shown, the indicator stays at least this long
 const HARD_CAP = 15000;         // warn about a slow scene; only its work or cancellation can reveal it
+const EDGE_LENGTH = 150, EDGE_ALPHA = 0.6; // in-page wait: the edge shade's reach (units) and its share of the prefab's alpha
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const stage = () => document.getElementById("stage");
@@ -223,7 +224,10 @@ async function shadeEdges(o) {
     const host = document.createElement("div"); host.className = "loading-edge";
     Object.assign(host.style, { left: `${x}px`, top: `${y}px`, transform: `rotate(${angle}deg)` });
     const node = structuredClone(template); node.name = name; node.pos = [0, 0]; node.active = true; node.children = [];
-    Object.assign(node.widgets[0], { w_: width / S, h_: 260, pivot: 7 });
+    // flipped: the gradient's dark side sits on the window edge and fades inwards; shorter and lighter than the prefab
+    const [hex, alpha = "1"] = node.widgets[0].color.split("/");
+    Object.assign(node.widgets[0], { w_: width / S, h_: EDGE_LENGTH, pivot: 7, flip: (node.widgets[0].flip || 0) ^ 2,
+      color: `${hex}/${(Number(alpha) * EDGE_ALPHA).toFixed(2)}` });
     await NGUI.render(node, host, { scale: S, origin: [0, 0] });
     if (o.closing || (o !== overlay && o !== writerOverlay)) return;
     o.el.appendChild(host);

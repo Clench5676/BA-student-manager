@@ -393,7 +393,8 @@ test("in-page holds use the prefab gradient on every edge, Now Loading and live 
   h.sprites.resolve(); await flush(); await flush();
   const edges = h.drawn.filter((tree) => ["Bottom", "Top", "Left", "Right"].includes(tree.name));
   assert.equal(edges.length, 4);
-  assert.ok(edges.every((tree) => tree.widgets[0].sprite === h.gradient.widgets[0].sprite && tree.widgets[0].color === h.gradient.widgets[0].color));
+  assert.ok(edges.every((tree) => tree.widgets[0].sprite === h.gradient.widgets[0].sprite && tree.widgets[0].color === "#032650/0.54"));
+  assert.ok(edges.every((tree) => tree.widgets[0].flip === 2), "the dark side faces the window edge");
   assert.deepEqual(h.gradient, snapshot, "the runtime prefab remains immutable");
   assert.ok(overlay.querySelector(".loading-repeater"));
   text = "Applying Mods 1 / 2"; h.loading.refresh();
