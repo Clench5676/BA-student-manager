@@ -30,9 +30,9 @@ import { DEFAULT_VIEW, SORTS, arrange, filtering, normalizeView, order as orderO
 const { node, sprite, label, find } = NGUI;
 const fitText = (...a) => NGUI.fitText(...a);
 
-const PANEL_TOP = 92;                      // stage y of the list frame's top edge (just under the top bar)
+const PANEL_TOP = (720 - 525) * S;          // the collection prefab's frame top, below its round back button
 const ORIGIN = [960, PANEL_TOP + 525 * S]; // ListBG is centred at y -223 and 1496 tall: top edge at +525
-const SHORTEN = 145;                       // the list frame ends above the bottom navigation
+const SHORTEN = 198;                       // the list frame ends above the bottom navigation
 const PAPER_TOP = 334.5, PAPER_BOTTOM = -223 - 66 - (1247 - SHORTEN) / 2 + SHORTEN / 2;
 // with the search box open (CharacterSearch/SearchName: top edge at 314, 112 tall) the cards start under it
 const SEARCH_LIST_TOP = 314 - 112 - 20;
