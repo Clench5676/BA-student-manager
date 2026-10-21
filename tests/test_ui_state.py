@@ -343,6 +343,27 @@ def test_the_switch_flags_and_the_scan_consent_have_their_defaults(tmp_path):
     assert json.loads((tmp_path / "webui.json").read_text())["prefs"] == {"scan_consent": False, "tray": "yes"}
 
 
+def test_spine_consent_is_unanswered_by_default_and_persists_between_instances(tmp_path):
+    path = tmp_path / "webui.json"
+    state = UiState(path)
+    assert state.spine_consent is None
+    assert not path.exists()
+    other = UiState(path)
+    state.set("spine_consent", True)
+    assert other.spine_consent is True
+    other.set("spine_consent", False)
+    assert state.spine_consent is False
+    assert UiState(path).spine_consent is False
+    assert json.loads(path.read_text())["prefs"] == {"spine_consent": False}
+
+
+@pytest.mark.parametrize("value", [None, 0, 1, "yes", [], {}])
+def test_spine_consent_never_grants_for_non_boolean_state(tmp_path, value):
+    path = tmp_path / "webui.json"
+    path.write_text(json.dumps({"prefs": {"spine_consent": value}}))
+    assert UiState(path).spine_consent is None
+
+
 @pytest.mark.parametrize("shown", [True, False, None, "no"])
 def test_legacy_switch_visibility_is_dropped_without_changing_other_state(tmp_path, shown):
     path = tmp_path / "webui.json"

@@ -228,6 +228,29 @@ def rpc(app, method, **params):
     return json.loads(body)
 
 
+def test_spine_consent_rpc_reads_and_persists_the_choice(app, services):
+    assert rpc(app, "app.spineConsent")["result"] is None
+    assert rpc(app, "app.info")["result"]["spineConsent"] is None
+    assert rpc(app, "settings.get")["result"]["spineConsent"] is None
+    for granted in (True, False):
+        assert rpc(app, "app.spineConsent", granted=granted)["result"] is granted
+        assert rpc(app, "app.spineConsent")["result"] is granted
+        assert rpc(app, "app.info")["result"]["spineConsent"] is granted
+        assert rpc(app, "settings.get")["result"]["spineConsent"] is granted
+        assert UiState(services.state.path).spine_consent is granted
+    assert services.state.consent is None
+    assert services.state.scan_consent is None
+    assert services.library.applied == []
+
+
+@pytest.mark.parametrize("granted", [None, 0, 1, "yes", [], {}])
+def test_spine_consent_rpc_rejects_non_boolean_choices(app, services, granted):
+    services.set_spine_consent(False)
+    assert rpc(app, "app.spineConsent", granted=granted)["error"] == {
+        "code": "bad_params", "params": {"key": "granted"}}
+    assert services.state.spine_consent is False
+
+
 def test_token_required(app):
     assert call(app, "/api/rpc", "POST", {"method": "app.info"}, token=None)[0] == "403 Forbidden"
     assert call(app, "/", token="wrong")[0] == "403 Forbidden"

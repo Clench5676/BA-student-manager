@@ -180,6 +180,8 @@ input[type="text"], input[type="search"], textarea { cursor: text; }
 .portrait { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; z-index: 1; }
 .portrait .layer { position: absolute; inset: 0; transition: opacity .35s ease; }
 .portrait .layer.fading { opacity: 0; }
+.portrait .portrait-static { position: absolute; left: 80px; top: 100px; width: 720px; height: 900px; object-fit: contain; }
+.lobby-unavailable button { display: block; margin: 18px auto 0; padding: 10px 24px; border: 0; border-radius: 6px; background: #128cbb; color: #fff; font: inherit; cursor: pointer; }
 .portrait .spine-player, .lobby-layer .spine-player, .thumb-player .spine-player { background: transparent !important; }
 /* the detail screen's popups cover the whole stage like the game's (top bar and navigation included), under the
    loading screen, the consent popup and settings */
@@ -204,6 +206,8 @@ input[type="text"], input[type="search"], textarea { cursor: text; }
   border: 3px solid #96b6c2; background: #e4f3f8; color: #fff; font: 700 28px/1 sans-serif; }
 .plain-check[aria-checked="true"]::before { content: "\2713"; background: #2a63c5; border-color: #2a63c5; }
 .plain-popup .message-actions { margin-top: 10px; }
+.spine-license-plain h2 { font: 600 48px/1.2 system-ui, sans-serif; }
+.spine-license-plain p, .spine-license-plain .message-button { font: 400 32px/1.4 system-ui, sans-serif; }
 .plain-popup .message-button:focus-visible, .plain-check:focus-visible, .plain-line-button:focus-visible { outline: 4px solid #2fa6f0; outline-offset: 2px; }
 .hit { position: absolute; background: transparent; cursor: var(--cursor-press); }
 

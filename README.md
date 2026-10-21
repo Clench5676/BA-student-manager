@@ -106,6 +106,25 @@ uv run pytest
 Release builds: `scripts/build_macos.sh` (macOS) and `scripts/build_windows.ps1` (Windows). How the interface works:
 [docs/web-ui.md](docs/web-ui.md).
 
+## License
+
+Blue Archive Modding and Patching Tool (hereinafter "BMPT") is licensed under the GNU General Public License,
+version 3 (the "GPLv3").
+
+The previews in BMPT use the Spine Runtimes of Esoteric Software LLC (the "Spine Runtimes"), which are licensed
+under the [Spine Runtimes License Agreement](https://esotericsoftware.com/spine-runtimes-license) and not under the
+GPLv3. Use of the Spine Runtimes requires that each user hold a valid Spine license. BMPT obtains the user's
+confirmation that such a license is held before it loads the Spine Runtimes; absent such confirmation, previews are
+limited to static images.
+
+The holders of the copyright in the code contributed to BMPT (the "BMPT Contributors") grant the following
+additional permission solely with respect to that code. Code originating from upstream projects and authored by
+persons other than the BMPT Contributors remains subject to the GPLv3 without this additional permission.
+
+> **Additional permission under GNU GPL version 3 section 7**
+>
+> If you modify this Program, or any covered work, by linking or combining it with the Spine Runtimes (or a modified version of that library), containing parts covered by the terms of the Spine Runtimes License Agreement, the licensors of this Program grant you additional permission to convey the resulting work. Corresponding Source for a non-source form of such a combination shall include the source code for the parts of the Spine Runtimes used as well as that of the covered work.
+
 ## Credits
 
 Based on [BA Modding Toolkit](https://github.com/Agent-0808/BA-Modding-Toolkit) by Agent-0808, with thanks to

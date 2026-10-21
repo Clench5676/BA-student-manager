@@ -308,6 +308,7 @@ export function detach() {
 // (SkeletonUtilityBone override), clamped to their box in the parent bone's space, and ease back to rest when let go.
 // The game's per-frame follow factors are for 60 fps; here they are frame-rate independent.
 export function apply(player, delta) {
+  // Only lobby.js players created after ensureSpine() install this frame hook.
   if (!items.length) return;
   const dt = Math.max(0, Math.min(0.1, delta || 0));
   for (const it of items) {

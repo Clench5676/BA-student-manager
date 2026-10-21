@@ -1317,7 +1317,11 @@
 			"notSet": "Not set",
 			"saved": "Saved",
 			"button": "Settings",
-			"change": "Change"
+			"change": "Change",
+			"spine": {
+				"label": "Spine License",
+				"restart": "Spine License - Withdrawal Applies After Restart"
+			}
 		},
 		"cacheTo": "Cached in {path}",
 		"languageName": "English",
@@ -1388,6 +1392,16 @@
 			"after": "Repaired",
 			"previewUnavailable": "Preview unavailable",
 			"unpainted": "Unpainted unused regions: {names}"
+		},
+		"spine": {
+			"license": {
+				"title": "Spine License",
+				"body": "Previews use the Spine Runtimes by Esoteric Software and require your own Spine license.",
+				"yes": "I Have a Spine License",
+				"no": "I Do Not Have a Spine License",
+				"required": "Spine license confirmation required",
+				"confirm": "Confirm License"
+			}
 		}
 	}
 }

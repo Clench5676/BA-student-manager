@@ -9,8 +9,10 @@ import * as ModSwitch from "./mod-switch.js";
 import * as NGUI from "./ngui.js";
 import * as Popup from "./popup.js";
 import * as Prompts from "./prompts.js";
+import * as Consent from "./consent.js";
 import { rpc } from "./api.js";
 import { T, platform } from "./i18n.js";
+import { runtimeLoaded, setSpineConsent } from "./spine-runtime.js";
 import { $, DOT, S, clone, glyphsOf, hitButton, toast, wrapPath } from "./util.js";
 
 const { node, sprite, label, find, rect } = NGUI;
@@ -221,6 +223,22 @@ function rows({ builtSize = null, sizeError = null } = {}) {
     add(valueRow("Cache", 0, T("settings.cache.label"), p.consent ? T("cacheTo", { path: p.cacheDir }) : `${T("settings.cache.off")} - ${p.cacheDir}`, [
       [T("settings.cache.change"), browse("cacheDir", p.cacheDir), p.native],
       [T("settings.cache.clear"), async () => { if (await call(() => rpc("settings.clearCache")) !== null) toast(T("settings.cache.cleared")); }, !!p.consent]]));
+    add(radioRow("Spine", 0, T(runtimeLoaded() && p.spineConsent !== true ? "settings.spine.restart" : "settings.spine.label"),
+      [[true, T("spine.license.yes")], [false, T("spine.license.no")]], p.spineConsent === true, async (granted) => {
+        if (granted === (prefs.spineConsent === true)) return;
+        if (granted) {
+          const choice = await Consent.spine($("consent"), { over: true });
+          if (choice == null) return;
+          prefs = { ...prefs, spineConsent: choice };
+        } else {
+          const choice = await call(() => rpc("app.spineConsent", { granted: false }));
+          if (choice == null) return;
+          prefs = { ...prefs, spineConsent: false };
+          setSpineConsent(false);
+        }
+        onChange?.("spineConsent", prefs);
+        render();
+      }));
     add(valueRow("Version", 0, T("settings.version"), (p.version || "").replace(/-dev$/, ""), [[T("settings.update.check"), checkUpdate, !checkingUpdate]]));
     add(radioRow("StartupUpdate", 0, T("settings.update.startup"), ON_OFF(), p.startupUpdate !== false, (v) => set("startupUpdate", v)));
     add(valueRow("Log", 0, T("settings.log.label"), p.logPath, [

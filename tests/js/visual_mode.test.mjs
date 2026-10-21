@@ -43,6 +43,9 @@ let now = 0;
 Object.defineProperty(globalThis, "performance", { value: { now: () => now }, configurable: true, writable: true });
 
 const Visual = await import("../../src/ba_modding_toolkit/web/js/visual-mode.js");
+const { setSpineConsent } = await import("../../src/ba_modding_toolkit/web/js/spine-runtime.js");
+setSpineConsent(true);
+globalThis.spine = {};
 
 // the detail screen: the parts fullscreen slides out (the two halves of the prefab's UI, the top bar, the navigation),
 // the hosts the visual mode draws into, the portrait's player in the detail framing
@@ -57,10 +60,10 @@ function screen() {
   return { stage, out, left, right, topbar, nav, bgHost, uiHost, zoom, lobbyTab, player };
 }
 // the visual mode without its prefab (no background, no buttons): the touch area and Escape
-function openVisual(s, onBack = () => {}) {
-  Visual.open({
+function openVisual(s, onBack = () => {}, alive) {
+  return Visual.open({
     parts: null, skeleton: { data: { x: -580, y: -747, width: 1161, height: 2074 } }, detail: { ...DETAIL },
-    host: s.stage, bgHost: s.bgHost, uiHost: s.uiHost, players: () => [s.player], onBack,
+    host: s.stage, bgHost: s.bgHost, uiHost: s.uiHost, players: () => [s.player], onBack, alive,
   });
 }
 // the portrait's player draws frames until the glide ends
@@ -110,12 +113,33 @@ test("a focus outside the slid-out UI stays; none comes back to a control that i
   s.stage.remove();
 });
 
-test("leaving fullscreen closes the visual mode even after the tab changed under it", () => {
+test("visual mode without confirmation opens no fullscreen controls", async () => {
+  const s = screen();
+  setSpineConsent(false);
+  try {
+    assert.equal(await openVisual(s), false);
+    assert.equal(Visual.isOpen(), false);
+    assert.equal(s.uiHost.children.length, 0);
+  } finally { setSpineConsent(true); s.stage.remove(); }
+});
+
+test("leaving while visual mode awaits the runtime cannot open stale controls", async () => {
+  const s = screen();
+  let active = true;
+  const opening = openVisual(s, () => {}, () => active);
+  active = false;
+  assert.equal(await opening, false);
+  assert.equal(Visual.isOpen(), false);
+  assert.equal(s.uiHost.children.length, 0);
+  s.stage.remove();
+});
+
+test("leaving fullscreen closes the visual mode even after the tab changed under it", async () => {
   const s = screen();
   let backs = 0;
   s.zoom.focus();
   Visual.uiOut(s.out);
-  openVisual(s, () => { backs += 1; });
+  await openVisual(s, () => { backs += 1; });
   assert.ok(Visual.isOpen());
   assert.equal(s.uiHost.hidden, false);
   assert.equal(s.uiHost.children[0].className, "visual-touch");
@@ -139,10 +163,10 @@ test("leaving fullscreen closes the visual mode even after the tab changed under
   s.stage.remove();
 });
 
-test("leaving glides the portrait back to the detail framing exactly and takes the visual mode's parts away", () => {
+test("leaving glides the portrait back to the detail framing exactly and takes the visual mode's parts away", async () => {
   const s = screen();
   Visual.uiOut(s.out);
-  openVisual(s);
+  await openVisual(s);
   drawFrames(s);
   Visual.uiBack(s.out);
   drawFrames(s, 300);

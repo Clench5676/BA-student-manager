@@ -3,6 +3,8 @@ import { T } from "./i18n.js";
 import { $, S } from "./util.js";
 import { closed as popupClosed, closable, hit as hitNode, popupFrame, ready, scrollArea } from "./popup.js";
 import { loadPlayer } from "./spine-load.js";
+import { ensureSpine } from "./spine-runtime.js";
+import { spine as confirmLicence } from "./consent.js";
 
 const { node, label, find } = NGUI;
 
@@ -100,38 +102,55 @@ export async function show(result, title = T("act.compare"), hostId = "popup", r
 }
 
 function previewPlayer(host, scene, side, pages) {
-  const unavailable = () => { host.textContent = T("remap.previewUnavailable"); };
-  try {
-    const skeleton = scene.json ? "skeleton.json" : "skeleton.skel";
-    const bytes = Uint8Array.from(atob(scene.skeleton), (c) => c.charCodeAt(0));
-    // These readers use the reviewed data directly, preserving UTF-8 names without fetching any files.
-    const downloader = new spine.Downloader();
-    downloader.downloadText = (_url, success) => success(scene.atlas);
-    downloader.downloadBinary = (_url, success) => success(bytes);
-    downloader.downloadJson = (_url, success, error) => {
-      try { success(JSON.parse(new TextDecoder().decode(bytes).trim())); } catch (err) { error(String(err)); }
-    };
-    const rawDataURIs = {};
-    for (const page of new spine.TextureAtlas(scene.atlas).pages) {
-      const key = page.name.replaceAll("\\", "/").split("/").at(-1).toLowerCase().replace(/\.png$/i, "");
-      const image = pages.find((p) => p.name === key)?.[side];
-      if (image) rawDataURIs[page.name] = image;
-    }
-    const load = loadPlayer((config) => new spine.SpinePlayer(host, config), {
-      skeleton, atlas: "skeleton.atlas", downloader, rawDataURIs,
-      premultipliedAlpha: false, alpha: true, backgroundColor: "#00000000",
-      showControls: false, showLoading: false, animation: undefined,
-      success: (p) => {
-        const idle = p.skeleton.data.animations.find((a) => /^Idle_01$/i.test(a.name)) || p.skeleton.data.animations[0];
-        if (idle) p.animationState.setAnimation(0, idle.name, true);
-        else p.animationState.setEmptyAnimation(0, 0).trackEnd = Number.MAX_VALUE;
-        p.animationState.timeScale = 0;
-      },
-    }, { onError: unavailable });
-    load.ready.catch(unavailable);
-    return load;
-  } catch {
-    unavailable();
-    return null;
-  }
+  let disposed = false, confirming = false, load = null;
+  const unavailable = () => { if (!disposed) host.textContent = T("remap.previewUnavailable"); };
+  const start = async () => {
+    try {
+      const allowed = await ensureSpine();
+      if (disposed) return;
+      if (!allowed) {
+        host.textContent = T("spine.license.required");
+        const button = document.createElement("button");
+        button.textContent = T("spine.license.confirm");
+        button.addEventListener("click", async () => {
+          if (confirming || disposed) return;
+          confirming = true;
+          try { if (await confirmLicence($("consent"), { over: true }) === true && !disposed) await start(); }
+          finally { confirming = false; }
+        });
+        host.appendChild(button);
+        return;
+      }
+      host.replaceChildren();
+      const skeleton = scene.json ? "skeleton.json" : "skeleton.skel";
+      const bytes = Uint8Array.from(atob(scene.skeleton), (c) => c.charCodeAt(0));
+      // These readers use the reviewed data directly, preserving UTF-8 names without fetching any files.
+      const downloader = new spine.Downloader();
+      downloader.downloadText = (_url, success) => success(scene.atlas);
+      downloader.downloadBinary = (_url, success) => success(bytes);
+      downloader.downloadJson = (_url, success, error) => {
+        try { success(JSON.parse(new TextDecoder().decode(bytes).trim())); } catch (err) { error(String(err)); }
+      };
+      const rawDataURIs = {};
+      for (const page of new spine.TextureAtlas(scene.atlas).pages) {
+        const key = page.name.replaceAll("\\", "/").split("/").at(-1).toLowerCase().replace(/\.png$/i, "");
+        const image = pages.find((p) => p.name === key)?.[side];
+        if (image) rawDataURIs[page.name] = image;
+      }
+      load = loadPlayer((config) => new spine.SpinePlayer(host, config), {
+        skeleton, atlas: "skeleton.atlas", downloader, rawDataURIs,
+        premultipliedAlpha: false, alpha: true, backgroundColor: "#00000000",
+        showControls: false, showLoading: false, animation: undefined,
+        success: (p) => {
+          const idle = p.skeleton.data.animations.find((a) => /^Idle_01$/i.test(a.name)) || p.skeleton.data.animations[0];
+          if (idle) p.animationState.setAnimation(0, idle.name, true);
+          else p.animationState.setEmptyAnimation(0, 0).trackEnd = Number.MAX_VALUE;
+          p.animationState.timeScale = 0;
+        },
+      }, { onError: unavailable });
+      load.ready.catch(unavailable);
+    } catch { unavailable(); }
+  };
+  start();
+  return { dispose: () => { disposed = true; load?.dispose(); } };
 }

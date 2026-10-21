@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { register } from "node:module";
 import { test } from "node:test";
+import vm from "node:vm";
 
 // --- a stand-in DOM: elements in a tree, ids, clicks, the focus and the window's key listeners ---
 class El {
@@ -149,6 +150,11 @@ const Popup = await import("../../src/ba_modding_toolkit/web/js/popup.js");
 const Update = await import("../../src/ba_modding_toolkit/web/js/update.js");
 const { S } = await import("../../src/ba_modding_toolkit/web/js/util.js");
 const { setStrings } = await import("../../src/ba_modding_toolkit/web/js/i18n.js");
+const { setSpineConsent } = await import("../../src/ba_modding_toolkit/web/js/spine-runtime.js");
+setSpineConsent(true);
+const runtime = vm.createContext({ console, TextDecoder, TextEncoder, Float32Array, Uint8Array, Uint16Array, Int16Array, Int32Array, ArrayBuffer, DataView });
+vm.runInContext(readFileSync(new URL("../../src/ba_modding_toolkit/web/vendor/spine-player-4.2.120/spine-player.min.js", import.meta.url), "utf8"), runtime);
+globalThis.spine = runtime.spine;
 const english = JSON.parse(readFileSync(new URL("../../src/ba_modding_toolkit/locales/en-US.json", import.meta.url))).webui;
 function strings(value, prefix = "webui") {
   return Object.entries(value).flatMap(([key, text]) => typeof text === "object" ? strings(text, `${prefix}.${key}`) : [[`${prefix}.${key}`, text]]);
@@ -290,7 +296,7 @@ test("compatibility details scroll the complete list and return to the same Rema
   const Compatibility = await import("../../src/ba_modding_toolkit/web/js/mod-compatibility.js");
   const names = Array.from({ length: 80 }, (_, i) => `Intro_Shoulder_L/Intro_Shoulder_L_${i}`);
   const input = (paths) => ({ atlases: {}, textures: {}, skeletons: { "CH0261_home.skel": {
-    version: "4.2.33", data: Buffer.from(JSON.stringify({ bones: [{ name: "root" }],
+    version: "4.2.33", data: Buffer.from(JSON.stringify({ bones: [{ name: "root" }], slots: [{ name: "face", bone: "root" }],
       skins: { default: { face: Object.fromEntries(paths.map((name) => [name, { width: 2, height: 2 }])) } } })).toString("base64"),
   } } });
   let remapped = 0;

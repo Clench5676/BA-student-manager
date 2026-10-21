@@ -23,6 +23,7 @@
 // dialogue skips it, and with the setting off the lobby starts as the intro leaves it.
 import { specialView } from "./special-view.js";
 import { latestLoad, loadPlayer } from "./spine-load.js";
+import { ensureSpine } from "./spine-runtime.js";
 import { forgetSpineAssets, spineBase, spineAssetBase } from "./api.js";
 import { lobbyIdle } from "./rest-pose.js";
 import { withPreviewTimeout as withTimeout } from "./async.js";
@@ -40,6 +41,7 @@ import * as Sync from "./lobby-sync.js";
 import * as Intro from "./lobby-intro.js";
 
 const STAGE = { w: 1920, h: 1080 };
+const consent = () => import("./consent.js");
 const GAME = { x: -1480, y: -832.5, w: 2960, h: 1665 };  // lobby.json "view": the game's 16:9 view in NGUI units
 const ZOOM_IN = 2;          // fullscreen zoom limit relative to the game's view (the art is about 0.5 texel per unit)
 const ZOOM_OUT_MAX = 4;     // no zoom-out limit goes past this many game views across (the custom limit's range too)
@@ -843,6 +845,14 @@ export function show(core, host, variant, { mod = null, framing = null } = {}) {
     clearView(host);
   }
   return sourceLoads.run(async (sourceSignal) => {
+    if (!(await ensureSpine())) {
+      if (!sourceSignal.aborted) {
+        clearView(host);
+        licenseRequired(host, () => show(core, host, variant, { mod, framing }));
+      }
+      return null;
+    }
+    if (sourceSignal.aborted) return null;
     let stopped = false;
     const url = spineBase(mod ? "mod" : "lobby", mod || core);
     const abort = () => lobbyLoads.cancel();
@@ -983,6 +993,22 @@ export function unavailable(err, host, url, step = "detail") {
   sourceLoads.cancel();
   lobbyLoads.cancel();
   failView(err, host, url, step);
+}
+
+export function licenseRequired(host, retry) {
+  const message = document.createElement("div");
+  message.className = "lobby-unavailable";
+  message.setAttribute("role", "status");
+  message.textContent = T("spine.license.required");
+  const confirm = document.createElement("button");
+  confirm.type = "button";
+  confirm.textContent = T("spine.license.confirm");
+  confirm.addEventListener("click", async () => {
+    const Consent = await consent();
+    if (await Consent.spine(document.getElementById("consent"), { over: true })) await retry?.();
+  });
+  message.appendChild(confirm);
+  host.appendChild(message);
 }
 
 // the lobby's players and what each holds on the GPU, gone

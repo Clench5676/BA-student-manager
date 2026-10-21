@@ -1317,7 +1317,11 @@
 			"notSet": "미설정",
 			"saved": "저장됨",
 			"button": "설정",
-			"change": "변경"
+			"change": "변경",
+			"spine": {
+				"label": "Spine 라이선스",
+				"restart": "Spine 라이선스 - 철회는 다음 시작 시 적용"
+			}
 		},
 		"cacheTo": "캐시 위치: {path}",
 		"languageName": "한국어",
@@ -1388,6 +1392,16 @@
 			"after": "복구 후",
 			"previewUnavailable": "미리보기 불가",
 			"unpainted": "미사용 빈 영역: {names}"
+		},
+		"spine": {
+			"license": {
+				"title": "Spine 라이선스",
+				"body": "미리 보기는 Esoteric Software의 Spine Runtimes 사용, 사용자 본인의 Spine 라이선스 필요",
+				"yes": "Spine 라이선스 보유",
+				"no": "Spine 라이선스 없음",
+				"required": "Spine 라이선스 확인 필요",
+				"confirm": "라이선스 확인"
+			}
 		}
 	}
 }

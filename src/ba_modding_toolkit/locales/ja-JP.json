@@ -1317,7 +1317,11 @@
 			"notSet": "未設定",
 			"saved": "保存しました",
 			"button": "設定",
-			"change": "変更"
+			"change": "変更",
+			"spine": {
+				"label": "Spine ライセンス",
+				"restart": "Spine ライセンス - 撤回は次回起動時に反映"
+			}
 		},
 		"cacheTo": "キャッシュ先：{path}",
 		"languageName": "日本語",
@@ -1388,6 +1392,16 @@
 			"after": "修復後",
 			"previewUnavailable": "プレビューを表示できません",
 			"unpainted": "未使用の空白領域：{names}"
+		},
+		"spine": {
+			"license": {
+				"title": "Spine ライセンス",
+				"body": "プレビューは Esoteric Software の Spine Runtimes を使用、利用者自身の Spine ライセンスが必要",
+				"yes": "Spine ライセンスあり",
+				"no": "Spine ライセンスなし",
+				"required": "Spine ライセンスの確認が必要",
+				"confirm": "ライセンスを確認"
+			}
 		}
 	}
 }

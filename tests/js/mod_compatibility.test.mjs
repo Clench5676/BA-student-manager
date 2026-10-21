@@ -18,10 +18,12 @@ let sequence = 0;
 async function harness(locale = "en-US", button = "cancel", accept = false) {
   const strings = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${locale}.json`, import.meta.url), "utf8")).webui;
   const calls = [], popups = [], comparisons = [], covers = [], labels = [], progress = [];
-  let nextReport = report(), rebuilt = null, held = false, covered = false;
+  let nextReport = report(), rebuilt = null, held = false, covered = false, licensed = true, confirms = 0;
   let taskActive = false;
   const saved = { mod: { id: "new-mod", repaired_from: "old-mod" } };
   globalThis.compatibilityDeps = {
+    ensureSpine: async () => licensed,
+    confirmLicence: async () => { confirms++; return licensed; },
     language: () => locale,
     T: (key, vars = {}) => key.split(".").reduce((o, k) => o?.[k], strings)?.replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? "") || key,
     rpc: async (method, params) => {
@@ -44,11 +46,25 @@ async function harness(locale = "en-US", button = "cancel", accept = false) {
     Popup: { message: async (options) => { assert.ok(!held && !covered && !taskActive); popups.push(options); return { button }; } },
     Compare: { show: async (...args) => { assert.ok(!held && !covered && !taskActive); comparisons.push(args); return accept; } },
   };
-  const code = `const { T, language, rpc, waitJob, Loading, Popup, Compare } = globalThis.compatibilityDeps;\n${source.replace(/^import .*;$/gm, "")}\n// ${sequence++}`;
+  const code = `const { T, language, rpc, waitJob, Loading, Popup, Compare, ensureSpine, confirmLicence } = globalThis.compatibilityDeps;\n${source.replace(/^import .*;$/gm, "")}\n// ${sequence++}`;
   const mod = await import(`data:text/javascript;base64,${Buffer.from(code).toString("base64")}`);
   return { mod, calls, popups, comparisons, covers, labels, progress, strings, saved,
-    use: (value) => { nextReport = value; }, build: (value) => { rebuilt = value; } };
+    use: (value) => { nextReport = value; }, build: (value) => { rebuilt = value; },
+    license: (value) => { licensed = value; }, confirms: () => confirms };
 }
+
+test("declined licence skips the runtime check and offers confirmation without blocking update inputs", async () => {
+  const h = await harness(); h.license(false);
+  await h.mod.check("old-mod");
+  assert.deepEqual(h.calls, []);
+  assert.equal(h.popups[0].lines[0], h.strings.spine.license.required);
+  assert.equal(h.popups[0].ok, h.strings.spine.license.confirm);
+  assert.equal(h.confirms(), 0);
+  h.use(mixedReport());
+  assert.ok(await h.mod.inspect("old-mod"));
+  assert.equal(h.mod.canRemap("old-mod"), false);
+  assert.deepEqual(h.calls.map(([method]) => method), ["actions.compatibility"]);
+});
 
 test("valid custom skeletons, old bundle dates and patch versions do not report drawing failures", async () => {
   const { mod } = await harness();

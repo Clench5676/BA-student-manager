@@ -140,15 +140,17 @@ export function classicOutcome({ queued = false, checked = false } = {}) {
 }
 
 // startDue(name, {info, state, entries}): whether a start popup has something to show, in the order of START
-//   consent: the asset consent until it is given; scan: the scan consent while unanswered and a game folder is known;
+//   consent: the asset consent until it is given; spine: its licence confirmation while unanswered;
+//   scan: the scan consent while unanswered and a game folder is known;
 //   update: released builds; drift and untracked: only with the scan consent, from the start scan's entries not
 //   dismissed, never while the game, Steam or the classic UI may be writing; no drift while mods are off
-export const START = ["consent", "scan", "update", "drift", "untracked"];
+export const START = ["consent", "spine", "scan", "update", "drift", "untracked"];
 export function startDue(name, { info = {}, state = null, entries = [] } = {}) {
   const scanned = state?.scan === true && !PROMPT_BLOCKERS.includes(state?.reason);
   const open = (e) => !e.dismissed;
   switch (name) {
     case "consent": return info.consent !== true;
+    case "spine": return info.spineConsent == null;
     case "scan": return !!state && state.scan == null && (state.installs || []).length > 0;
     case "update": return !!info.compiled && info.startupUpdate !== false;
     case "drift": return scanned && state.enabled !== false && entries.some((e) => open(e) && ["reset", "updated"].includes(e.state));

@@ -1,6 +1,8 @@
 // Measure the art that can actually draw, rather than the export header's bounds or a prefab's old scale.
 import { lobbyIdles } from "./rest-pose.js";
 
+// Runtime helpers run only after their preview entry awaits ensureSpine().
+
 export const validRect = (r) => r && [r.x0, r.y0, r.x1, r.y1].every(Number.isFinite) && r.x1 > r.x0 && r.y1 > r.y0;
 export const overlaps = (a, b) => validRect(a) && validRect(b) && a.x0 < b.x1 && a.x1 > b.x0 && a.y0 < b.y1 && a.y1 > b.y0;
 export function artBounds(sk) {

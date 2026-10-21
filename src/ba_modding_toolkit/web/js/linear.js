@@ -170,6 +170,7 @@ function pagesOf(player) {
 // framebuffer (which the host clears again before drawing), never the host's canvas. A guest goes into linear light
 // only with its host in it: drawn into a plain canvas, its sRGB pages and decoded colours would come out too dark.
 export function attach(player, host = null) {
+  // Callers create this player only after their preview entry awaits ensureSpine().
   const gl = player?.context?.gl;
   if (!gl || typeof WebGL2RenderingContext === "undefined" || !(gl instanceof WebGL2RenderingContext) || states.has(player)) return false;
   const hs = host ? states.get(host) : null;
