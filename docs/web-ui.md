@@ -838,6 +838,22 @@ HTTP endpoints outside `/api/rpc`, each with its own token, never the session to
 ### Batch import origins and conversion
 
 `import.analyze {paths, recursive}` returns a job ID; its result is `{entries, skipped}`.
+`Entry.state` is `ready`, `update`, `blocked`, `library`, `installed` or `done`. `done` means
+the entry imported successfully in this session; it is unchecked and cannot be selected.
+Completion survives leaving the page and re-analyzing the same unchanged inputs, including
+inputs that were rebuilt or converted. It is scoped to the library and pinned install and
+requires the imported library Mod to still exist. Pre-existing library/installed entries,
+skipped updates with no output and failed imports do not become `done`.
+
+`import.run` results use `applied: true` when that import successfully configured its Mod as
+the variant's chosen source. With `enableAfterImport`, every successful import selects its
+source, including imports whose output matches an existing library Mod. This applies to
+`spr`, `lobby`, `model` and `other`. The master switch can remain off: configuration succeeds
+immediately and the existing deferred apply writes game files when it turns on. `applied`
+does not indicate that game files changed. For several imports targeting the same variant
+and kind (or overlapping `other` slots), the last successful import in the submitted ID order
+wins. Completed rows submitted again are unchanged and do not select their sources again.
+
 Each entry adds `source: {server, platform, detected} | null` and `target: {server, platform}`.
 Server values are `global` and `japan`, the servers supported by Settings; platforms are
 `android`, `ios` and `windows`. A target platform can be `null` when its metadata is conflicting
