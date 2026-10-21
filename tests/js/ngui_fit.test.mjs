@@ -2,6 +2,9 @@
 // Run by tests/test_ngui_fit.py with Node's test runner: node --test tests/js/ngui_fit.test.mjs
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { readFile } from "node:fs/promises";
+
+const css = await readFile(new URL("../../src/ba_modding_toolkit/web/css/app.css", import.meta.url), "utf8");
 
 // a canvas that measures a CJK character (Han, kana, Hangul, full-width forms) 1 em wide and anything else half an em
 const WIDE = /[⺀-鿿　-ヿ＀-￯가-힯]/;
@@ -12,9 +15,13 @@ const ctx = {
     return { width: [...s].reduce((w, c) => w + (WIDE.test(c) ? fs : fs / 2), 0) };
   },
 };
-globalThis.document = { createElement: () => ({ getContext: () => ctx }), documentElement: { lang: "ja-JP" } };
-globalThis.getComputedStyle = () => ({ getPropertyValue: () => "" });
-const { fitLabel, fitText } = await import("../../src/ba_modding_toolkit/web/js/ngui.js");
+globalThis.document = {
+  createElement: () => ({ getContext: () => ctx, remove() {} }),
+  documentElement: { lang: "ja-JP", appendChild() {} },
+};
+globalThis.getComputedStyle = (el) => ({ getPropertyValue: () => /^th(?:-|$)/.test(el.lang)
+  ? /:lang\(th\)\s*\{\s*--font:\s*([^;]+);/.exec(css)?.[1] || "" : "" });
+const { fitLabel, fitText, fontSizeFor, textWidth } = await import("../../src/ba_modding_toolkit/web/js/ngui.js");
 
 const BAD_START = /^[、。，．：；！？）」』】〉》…‥ーぁぃぅぇぉっゃゅょゎァィゥェォッャュョヮヵヶ〜～,.!?)]/;
 const BAD_END = /[（「『【〈《(]$/;
@@ -78,4 +85,49 @@ test("single-line values shrink independently and stop at their size floor", () 
   assert.deepEqual(fitted.slice(1).map((f) => f.fs), [42, 42, 42]);
   const full = "azusa_swimsuit_spr".repeat(20);
   assert.deepEqual(fitText(full, 42, 28, 250, 1), { text: full, fs: 28, lines: 1 });
+});
+
+test("Thai uses system fonts and keeps its size when measured on a Thai or English page", () => {
+  document.documentElement.lang = "th-TH";
+  assert.equal(fontSizeFor("ล็อบบี้ความทรงจำ", 40), 40);
+  assert.equal(fontSizeFor("Mod นักเรียน", 40), 40);
+  assert.equal(fontSizeFor("Mod", 40), 44.800000000000004);
+  textWidth("ไทย", 40);
+  assert.match(ctx.font, /^500 40px "RHR Latin",/);
+  for (const family of ["Thonburi", "Sukhumvit Set", "Leelawadee UI", "Tahoma", "Noto Sans Thai"]) {
+    assert.ok(ctx.font.includes(`"${family}"`), family);
+  }
+  document.documentElement.lang = "en-US";
+  const widget = { text: "", fontSize: 40, w_: 200, lang: "th-TH" };
+  fitLabel(widget, "ไทย", 40, 32, 200);
+  assert.match(ctx.font, /Thonburi/);
+  textWidth("English", 40);
+  assert.doesNotMatch(ctx.font, /Thonburi/, "the label's language does not leak into the next measurement");
+});
+
+test("Thai wraps at word boundaries without separating vowels and tone marks", () => {
+  document.documentElement.lang = "th-TH";
+  const text = "เพิ่มล็อบบี้ความทรงจำของนักเรียน";
+  const boundaries = new Set([...new Intl.Segmenter("th", { granularity: "word" }).segment(text)].map((s) => s.index));
+  for (const width of [220, 260, 300]) {
+    const lines = assertBreaks(text, "th-TH", width);
+    let index = 0;
+    for (const line of lines.slice(0, -1)) {
+      index += line.length;
+      assert.ok(boundaries.has(index), `word boundary at ${index}: ${JSON.stringify(lines)}`);
+    }
+    assert.ok(lines.every((line) => !/^[\u0e31\u0e34-\u0e3a\u0e47-\u0e4e]/.test(line)));
+  }
+});
+
+test("without Intl.Segmenter Thai runs stay intact", () => {
+  document.documentElement.lang = "th-TH";
+  const segmenter = Intl.Segmenter;
+  try {
+    Intl.Segmenter = undefined;
+    const text = "ล็อบบี้ความทรงจำ";
+    assert.equal(fitText(text, 40, 32, 50, 4).text, text);
+  } finally {
+    Intl.Segmenter = segmenter;
+  }
 });

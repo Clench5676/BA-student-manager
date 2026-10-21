@@ -229,7 +229,7 @@ test("the first toggle's explanation: the help's opening text, not shown again",
 
 test("every locale gives the help and first toggle two separate opening lines", () => {
   try {
-    for (const lang of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"]) {
+    for (const lang of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) {
       const ui = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${lang}.json`, import.meta.url))).webui;
       I18n.setStrings(lang, flat({ webui: ui }));
       const opening = [ui.mods.helpOn, ui.mods.helpOff];
@@ -343,6 +343,7 @@ test("sizes and the free-space refusal's sizes", () => {
   assert.equal(MS.listSep("zh-CN"), "、");
   assert.equal(MS.listSep("ja-JP"), "、");
   assert.equal(MS.listSep("ko-KR"), ", ");
+  assert.equal(MS.listSep("th-TH"), ", ");
   assert.equal(MS.listSep("en-US"), ", ");
 });
 
@@ -465,7 +466,7 @@ test("the help fits its opening lines together in every locale, with and without
   const NGUI = await import("../../src/ba_modding_toolkit/web/js/ngui.js");
   const { S: scale } = await import("../../src/ba_modding_toolkit/web/js/util.js");
   try {
-    for (const lang of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"]) {
+    for (const lang of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) {
       const ui = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${lang}.json`, import.meta.url))).webui;
       I18n.setStrings(lang, flat({ webui: ui }));
       for (const scan of [true, false, null]) for (const counts of [{}, { pending: 2, left: 1, stuck: 1 }]) {
@@ -631,7 +632,7 @@ test("Settings' manual Check asks for missing consent, stops on refusal, and che
 test("the scan consent renders the two replacement sections in every locale and grants nothing until answered", async () => {
   const before = called("mods.consent").length;
   try {
-    for (const [index, lang] of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"].entries()) {
+    for (const [index, lang] of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"].entries()) {
       const ui = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${lang}.json`, import.meta.url))).webui;
       I18n.setStrings(lang, flat({ webui: ui }));
       const pending = MS.askScan();
@@ -872,7 +873,7 @@ test("the tray's Back to Official opens the drift prompt: two buttons and no way
 test("the Game Files row's \"?\": one definition of configuration drift", async () => {
   const Settings = await import("../../src/ba_modding_toolkit/web/js/settings.js");
   try {
-    for (const lang of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"]) {
+    for (const lang of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) {
       const ui = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${lang}.json`, import.meta.url))).webui;
       I18n.setStrings(lang, flat({ webui: ui }));
       assert.deepEqual(Settings.driftLines(), [ui.settings.mods.driftHelp.what]);
@@ -997,7 +998,7 @@ test("scan, cache cleanup and both switch directions name their action in every 
   const progress = (label) => walk(stage).some((el) => el.classList.contains("loading-progress") && el.textContent === label);
   try {
     await MS.init({ refreshPage: async () => {} });
-    for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"]) {
+    for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) {
       const table = flat(JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${locale}.json`, import.meta.url), "utf8")));
       const ui = (key, vars = {}) => table[`webui.${key}`].replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? "");
       I18n.setStrings(locale, table);
@@ -1046,6 +1047,7 @@ test("the toggle flushes the event delay and awaits the visible detail or roster
     const env = {
       $: (id) => ({ hidden: id !== `screen-${screen}` }),
       ctx: { invalidateRoster: () => { invalidated++; } },
+      BatchImport: { invalidate() {} },
       forget() {}, spinePrefix() {},
       Detail: { filesChanged: async () => { refreshed = true; await ready.promise; } },
       Popup: { whenIdle: async () => {} },
@@ -1164,7 +1166,7 @@ test("Spine confirmation uses the game frame after asset consent and every local
   answers["app.spineConsent"] = ({ granted }) => granted;
   Consent.init({ consent: true });
   try {
-    for (const [index, locale] of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"].entries()) {
+    for (const [index, locale] of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"].entries()) {
       const table = flat(JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${locale}.json`, import.meta.url), "utf8")));
       I18n.setStrings(locale, table);
       const text = (key) => table[`webui.spine.license.${key}`];

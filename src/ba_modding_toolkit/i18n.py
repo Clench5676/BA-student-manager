@@ -52,9 +52,9 @@ def _get_macos_language() -> str | None:
     languages = [item.strip().strip('"') for item in result.stdout.strip().strip("()").split(",")]
     return next((lang for lang in languages if lang), None)
 
-# The UI languages the app knows (the localization roadmap's M1), in the order the language choices list them. A
+# The UI languages the app knows, in the order the language choices list them. A
 # language is offered once its locale file exists.
-UI_LANGUAGES = ("zh-CN", "zh-TW", "en-US", "ja-JP", "ko-KR")
+UI_LANGUAGES = ("zh-CN", "zh-TW", "en-US", "ja-JP", "ko-KR", "th-TH")
 DEFAULT_LANGUAGE = "en-US"
 # Chinese written in Traditional characters: the script subtag, else the regions that write it
 _TRADITIONAL = ("zh-hant", "zh-tw", "zh-hk", "zh-mo")
@@ -85,8 +85,8 @@ def match_language(system_lang: str | None, available: Iterable[str]) -> str:
 
     Traditional Chinese (zh-Hant, zh-TW, zh-HK, zh-MO) takes zh-TW, else the whole zh-CN screen, which reads better
     than an English one (a whole screen, unlike a string here and there, is consistent in itself); other Chinese
-    takes zh-CN, Japanese ja-JP, Korean ko-KR; anything else, and a language whose locale file does not exist yet,
-    en-US.
+    takes zh-CN, Japanese ja-JP, Korean ko-KR, Thai th-TH; anything else, and a language whose locale file does not
+    exist yet, en-US.
     """
     available = set(available)
     tag = (system_lang or "").replace("_", "-").lower()

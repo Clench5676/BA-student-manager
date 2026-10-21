@@ -38,9 +38,10 @@ def placeholders(text: str) -> list[str]:
 
 
 def test_every_ui_language_ships():
-    """The localization roadmap's M1 is complete: every UI language has its locale file, so all are offered."""
+    """Every offered UI language, including M2's Thai, has a complete locale file."""
     assert i18n.offered_languages(LOCALES) == list(i18n.UI_LANGUAGES)
     assert set(i18n.UI_LANGUAGES) - {REFERENCE} <= set(TRANSLATIONS)
+    assert "th-TH" in TRANSLATIONS
 
 
 @pytest.mark.parametrize("code", TRANSLATIONS)

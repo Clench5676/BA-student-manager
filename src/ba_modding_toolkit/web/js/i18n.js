@@ -3,8 +3,8 @@
 let strings = {};
 let lang = "zh-CN";
 
-// the app's language -> the key used in name data ({"zh-CN", "zh-TW", "en", "ja", "ko"})
-export const NAME_LANG = { "zh-CN": "zh-CN", "zh-TW": "zh-TW", "en-US": "en", "ja-JP": "ja", "ko-KR": "ko" };
+// the app's language -> the key used in name data ({"zh-CN", "zh-TW", "en", "ja", "ko", "th"})
+export const NAME_LANG = { "zh-CN": "zh-CN", "zh-TW": "zh-TW", "en-US": "en", "ja-JP": "ja", "ko-KR": "ko", "th-TH": "th" };
 
 export function setStrings(appLang, table) {
   lang = appLang || "zh-CN";

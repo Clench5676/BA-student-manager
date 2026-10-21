@@ -995,7 +995,7 @@ def test_ui_strings_fall_back_key_by_key():
     # Traditional Chinese falls back to English, not to Simplified Chinese (i18n.fallback_language); Korean and
     # Japanese too, key by key: until its locale file ships a language shows the English strings, then its own,
     # never the Simplified Chinese ones
-    for lang in ("zh-TW", "ja-JP", "ko-KR"):
+    for lang in ("zh-TW", "ja-JP", "ko-KR", "th-TH"):
         shipped = lang in offered_languages()
         assert (ui_strings(lang)["webui.tab.lobby"] != en["webui.tab.lobby"]) is shipped, lang
         assert ui_strings(lang)["webui.tab.lobby"] != zh["webui.tab.lobby"], lang
@@ -1060,19 +1060,21 @@ def test_settings_offer_the_languages_with_a_locale_file(app, services, tmp_path
 
     locales = tmp_path / "locales"
     locales.mkdir()
-    for code, name in (("zh-CN", "简体中文"), ("en-US", "English"), ("ko-KR", "한국어")):
+    for code, name in (("zh-CN", "简体中文"), ("en-US", "English"), ("ko-KR", "한국어"), ("th-TH", "ไทย")):
         (locales / f"{code}.json").write_text(json.dumps({"webui": {"languageName": name}}), encoding="utf-8")
     monkeypatch.setattr(webui_api, "get_locale_dir", lambda: locales)
     monkeypatch.setattr(webui_api, "offered_languages", lambda: offered_languages(locales))
     monkeypatch.setattr(i18n_manager, "lang", i18n_manager.lang)  # restored after the test
     languages = rpc(app, "settings.get")["result"]["languages"]
     assert languages == [{"code": "zh-CN", "name": "简体中文"}, {"code": "en-US", "name": "English"},
-                         {"code": "ko-KR", "name": "한국어"}]
+                         {"code": "ko-KR", "name": "한국어"}, {"code": "th-TH", "name": "ไทย"}]
     # a known language without its locale file yet (zh-TW, ja-JP) cannot be chosen
     assert rpc(app, "settings.set", key="language", value="zh-TW")["error"]["code"] == "bad_params"
     monkeypatch.setattr(i18n_manager, "set_language", lambda lang: None)
     assert "error" not in rpc(app, "settings.set", key="language", value="ko-KR")
     assert services.settings.get("language") == "ko-KR"
+    assert "error" not in rpc(app, "settings.set", key="language", value="th-TH")
+    assert services.settings.get("language") == "th-TH"
 
 
 def test_install_update_needs_the_window_and_the_verified_download(app, services, tmp_path):
@@ -1119,7 +1121,7 @@ def download_update(app, services):
     return result.result["file"]
 
 
-@pytest.mark.parametrize("language", ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"])
+@pytest.mark.parametrize("language", ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"])
 def test_update_download_progress_names_the_action_and_asset(app, services, update_env, monkeypatch, language):
     translate = I18n(language).t
     monkeypatch.setattr("ba_modding_toolkit.webui.api.t", translate)

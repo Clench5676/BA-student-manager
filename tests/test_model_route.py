@@ -54,3 +54,31 @@ def test_model_route_is_never_cacheable(tmp_path):
         assert _get(app, "/asset/model/ch0242.png")[0] == "404 Not Found"
     finally:
         s.close()
+
+
+def test_model_route_uses_verified_official_or_own_mod_sources(tmp_path):
+    official = [tmp_path / 'official.bundle']
+    mod_parts = [tmp_path / 'mod.bundle']
+    calls = []
+    game = RouteGame()
+    game.model_glb = lambda core, overrides=(): calls.append((core, list(overrides))) or b'glTF'
+    library = SimpleNamespace(
+        official_bundles=lambda core: official,
+        preview_bundles=lambda mod_id: mod_parts,
+        mods=lambda: [SimpleNamespace(id='own', kind='model', target='ch0242'),
+                      SimpleNamespace(id='foreign', kind='model', target='ch0252'),
+                      SimpleNamespace(id='portrait', kind='spr', target='ch0242')],
+    )
+    s = Services(Settings(tmp_path / 'config.toml'), tmp_path, state=UiState(tmp_path / 'webui.json'),
+                 cache=object(), game=game, catalog=RouteCatalog(), library=library)
+    try:
+        assert s.asset('model/ch0242.glb', {'source': 'official'}).body == b'glTF'
+        assert calls[-1] == ('ch0242', official)
+        assert s.asset('model/ch0242.glb', {'source': 'mod:own'}).body == b'glTF'
+        assert calls[-1] == ('ch0242', mod_parts)
+        import pytest
+        for source in ['mod:foreign', 'mod:portrait', 'mod:missing', 'variant:ch0252', '../elsewhere']:
+            with pytest.raises(KeyError):
+                s.asset('model/ch0242.glb', {'source': source})
+    finally:
+        s.close()

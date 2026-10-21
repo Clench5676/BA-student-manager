@@ -153,12 +153,16 @@ def _changed_of(result: Any) -> dict[str, list[str]]:
         return {"cores": sorted({m.core for m in switched}), "kinds": sorted({m.kind for m in switched}), "mods": True}
     cores, kinds = getattr(result, "cores", None), getattr(result, "kinds", None)
     if cores is not None and kinds is not None:
-        return {"cores": sorted(cores), "kinds": sorted(kinds)}
+        return {"cores": sorted(cores), "kinds": sorted(kinds),
+                **({"mods": True} if getattr(result, "mods_changed", False) else {})}
     files = getattr(result, "files", None)
     if isinstance(files, list):
-        names = [parse_filename(Path(f).name).core.lower() for f in files if isinstance(f, (str, Path))]
+        from ..library.judge import core_of
+        names = [core_of(Path(f).name) for f in files if isinstance(f, (str, Path))]
         cores = sorted({c for c in names if c})
-        kinds = sorted({"spr" if c.endswith("_spr") else "lobby" for c in cores})
+        from ..library.judge import kind_of_file
+        kinds = sorted({kind_of_file(Path(f).name) or ("spr" if parse_filename(Path(f).name).core.endswith("_spr")
+                                                     else "lobby") for f in files if isinstance(f, (str, Path))})
         return {"cores": cores, "kinds": kinds}
     mod = getattr(result, "mod", None)
     if mod is not None and getattr(mod, "core", None):
@@ -247,6 +251,9 @@ class Services:
         self.jobs.listen(self._job_finished)
         self.watch: Any = None  # the GameWatch, once start() runs
         self.settings.on_change(self._on_settings_changed)
+        from .batch_import import BatchImport
+
+        self.batch_import = BatchImport(self)
 
     # --- lazily built services ---
 
@@ -665,7 +672,7 @@ class Services:
     def submit_apply(self, variant: str, source: str, kind: str = "spr") -> str:
         """``actions.apply``: one entry of the current install, pinned at submit. ``classic_open`` only when it would
         write a game file (an apply while mods are off only changes the configuration)."""
-        if kind not in ("spr", "lobby"):
+        if kind not in ("spr", "lobby", "model", "other"):
             raise ServiceError("bad_params", kind=kind)
         library = self.library
         pin = self._current_pin(library)
@@ -683,7 +690,7 @@ class Services:
         """``actions.restore``: back to official, pinned at submit. A restore that writes nothing (the files are
         official already) is allowed while a classic window is open; if it turns out to write after all (the full
         judgement finds a file changed), the write itself is refused with ``classic_open``."""
-        if kind not in ("spr", "lobby"):
+        if kind not in ("spr", "lobby", "model", "other"):
             raise ServiceError("bad_params", kind=kind)
         library = self.library
         pin = self._current_pin(library)
@@ -782,7 +789,7 @@ class Services:
             count = self.queue.add(call, intent=library.intent()["enabled"])
         elif method in ("actions.apply", "actions.restore"):
             variant, kind = params.get("variant"), params.get("kind", "spr")
-            if not isinstance(variant, str) or kind not in ("spr", "lobby"):
+            if not isinstance(variant, str) or kind not in ("spr", "lobby", "model", "other"):
                 raise ServiceError("bad_params", key="variant")
             clean: dict[str, Any] = {"variant": variant, "kind": kind}
             if method == "actions.apply":
@@ -790,11 +797,23 @@ class Services:
                     raise ServiceError("bad_params", key="source")
                 clean["source"] = params["source"]
             pin = self._current_pin(library)
+            if kind == "other":
+                from ..library.judge import core_of
+                states = library.state(variant, pin=pin).files
+                entries = tuple(sorted({(pin.key, core_of(f.file.name)) for f in states}))
+                if not entries:
+                    raise ServiceError("game_file_not_found", variant=variant)
+                files = {entry: stat_files([str(f.file) for f in states if core_of(f.file.name) == entry[1]])
+                         for entry in entries}
+                call = QueuedCall(method, clean, entries=entries, pins={pin.key: pin}, files=files, current=True)
+                count = self.queue.add(call)
+                self.publish_state()
+                return count
             try:
                 found = self.catalog.variant(variant)
             except KeyError as error:
                 raise ServiceError("variant_not_found", variant=variant) from error
-            core = (found.spr if kind == "spr" else found.lobby) or ""
+            core = getattr(found, kind, None) or ""
             files = [str(f.file) for f in library.state(variant, pin=pin).files if f.kind == kind]
             entry = (pin.key, core.lower())
             call = QueuedCall(method, clean, entries=(entry,), pins={pin.key: pin}, files={entry: stat_files(files)},
@@ -1121,7 +1140,20 @@ class Services:
             core = self.catalog.variant(_stem(parts[1])).model
             if not core:
                 raise KeyError(path)
-            return AssetResponse(self.game.model_glb(core), MIME[".glb"], light=False)
+            source = query.get("source", "live")
+            if source == "live":
+                data = self.game.model_glb(core)
+            elif source == "official":
+                data = self.game.model_glb(core, overrides=self.library.official_bundles(core))
+            elif source.startswith("mod:"):
+                mod_id = source[4:]
+                entry = next((mod for mod in self.library.mods() if mod.id == mod_id), None)
+                if entry is None or entry.kind != "model" or entry.target != self.catalog.variant(_stem(parts[1])).key:
+                    raise KeyError(path)
+                data = self.game.model_glb(core, overrides=self.library.preview_bundles(mod_id))
+            else:
+                raise KeyError(path)
+            return AssetResponse(data, MIME[".glb"], light=False)
         if kind == "voice" and len(parts) == 3:
             # a memorial lobby voice clip from Kivo, relayed so it is never cached
             variant = self.catalog.variant(parts[1])
@@ -1165,7 +1197,7 @@ class Services:
 
     def _spine_bundles(self, kind: str, key: str) -> list[Path]:
         core, pin, game = key, None, self.game
-        if "@" in key and kind != "mod":
+        if "@" in key and kind not in ("mod", "import"):
             core, _, install_id = key.rpartition("@")
             game = self._install_game(install_id)
             pin = next(p for p in self.library.installs() if p.id == install_id)
@@ -1182,6 +1214,8 @@ class Services:
                 return game.spine_cores(kind)[core.lower()]
         if kind == "mod":
             return self.library.preview_bundles(key)
+        if kind == "import":
+            return self.batch_import.preview(key)[1]
         raise KeyError(kind)
 
     def _spine_asset(self, kind: str, key: str, name: str, revision: str | None = None) -> AssetResponse:
@@ -1246,6 +1280,9 @@ class Services:
             files = game.spine_files_from(bundles)
             # the mod's own core names its skeleton (a lobby has more than one: the character and its background)
             core = parse_filename(bundles[-1].name).core
+        elif kind == "import":
+            core, sources = self.batch_import.preview(key)
+            files = game.spine_files_from(bundles if bundles is not None else sources)
         else:
             raise KeyError(kind)
         if name == "files.json":

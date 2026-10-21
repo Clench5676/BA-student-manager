@@ -160,3 +160,19 @@ test("an absent or failed still leaves the fallback card and text usable", async
   assert.deepEqual(picture.style, {});
   assert.deepEqual(text.style, {});
 });
+
+
+test("model switch cards use the same edge palette as lobby cards", async () => {
+  const previous = globalThis.document;
+  globalThis.document = { createElement: () => ({ width: 0, height: 0, getContext: () => ({
+    drawImage() {}, getImageData: (_x, _y, width, height) => ({ width, height,
+      data: new Uint8ClampedArray(Array.from({ length: width * height }, () => [40, 80, 120, 255]).flat()) }),
+  }) }) };
+  try {
+    const picture = { style: { height: "200", width: "766" } }, text = { style: {} };
+    await colourSwitchCard(picture, text, { clipImage: "model.png", imgTop: "0", imgHeight: "200", imgLeft: "0", imgWidth: "450" },
+      async () => ({ naturalWidth: 450, naturalHeight: 253 }), { kind: "model" });
+    assert.ok(picture.style.backgroundImage.includes("rgb(40.000, 80.000, 120.000)"));
+    assert.ok(text.style.color);
+  } finally { globalThis.document = previous; }
+});

@@ -270,15 +270,21 @@ class InstallResult:
     installed_files: list[Path] = field(default_factory=list)           # 成功组（含已安装跳过）的 mod 文件，供调用方清理列表
 
 
+def backup_file(dst: Path, create_backup: bool, log: LogFunc = no_log) -> None:
+    """Keep the classic adjacent backup, also used before a library transaction writes."""
+    if create_backup:
+        backup_path = dst.with_suffix(dst.suffix + ".backup")
+        devmode.check_write(backup_path)
+        shutil.copy2(dst, backup_path)
+        log(t("log.file.backed_up", path=backup_path))
+
+
 def _backup_and_replace(src: Path, dst: Path, create_backup: bool, log: LogFunc) -> bool:
     """备份并替换文件（.backup 后缀约定与 GUI replace_file 一致）"""
     try:
         # dev mode: game files are written only inside BAMT_DEV_WRITABLE (or the library's staging folders)
         devmode.check_write(dst)
-        if create_backup:
-            backup_path = dst.with_suffix(dst.suffix + ".backup")
-            shutil.copy2(dst, backup_path)
-            log(t("log.file.backed_up", path=backup_path))
+        backup_file(dst, create_backup, log)
         log(t("log.file.overwritten", path=dst))
         shutil.copy2(src, dst)
         return True

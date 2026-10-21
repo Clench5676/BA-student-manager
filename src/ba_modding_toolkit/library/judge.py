@@ -8,7 +8,9 @@ official, unknown or damaged; *configured* is the source the user chose for it; 
 
 from __future__ import annotations
 
+import hashlib
 import os
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
@@ -18,6 +20,13 @@ from ..searching import SEARCH_DIR_SUFFIXES
 
 LIBRARY_SOURCES = ("mod:", "variant:")
 CRC_STATES = ("ok", "fixed", "needs_fix")
+KINDS = ("spr", "lobby", "model", "other")
+MODEL_CATEGORIES = {"character", "characters", "npcs"}
+
+
+def supports_kind(kind: str) -> bool:
+    """Whether files of this kind can be stored and switched by the library."""
+    return kind in KINDS
 
 
 def now() -> str:
@@ -38,19 +47,31 @@ def seconds(value: Any) -> float | None:
 
 
 def kind_of(core: str, category: str | None = None) -> str | None:
-    """The kind of a core: "spr" (portrait), "lobby" (memorial lobby) or None."""
+    """The kind of a character asset slot, using the bundle category for 3D models."""
+    if category and category.lower() in MODEL_CATEGORIES and spine_kind(core) is None and re.fullmatch(r"[a-z0-9][a-z0-9_]*", core.lower()):
+        if core.lower() != "mxcommon" and not core.lower().startswith("mxcommon_"):
+            return "model"
     return spine_kind(core, category)
 
 
 def kind_of_file(name: str) -> str | None:
     """Classify a bundle using its category as well as its core."""
     parsed = parse_filename(name)
-    return kind_of(parsed.core, parsed.category)
+    return kind_of(parsed.core, parsed.category) or (
+        "other" if name.endswith(".bundle") and parsed.prefix and parsed.crc else None)
 
 
 def core_of(name: str) -> str:
-    """The lower-case core of a bundle file name."""
+    """The character core, or a generic file slot keyed by prefix and resource type, without date or CRC."""
+    if kind_of_file(name) == "other":
+        return "other:" + hashlib.sha256(repr(part_of(name)).encode()).hexdigest()
     return parse_filename(name).core.lower()
+
+
+def other_target(names: Iterable[str]) -> str:
+    """A bundle set's address; its individual target slots remain independently configurable."""
+    slots = sorted({core_of(name) for name in names})
+    return "other-set:" + hashlib.sha256("\0".join(slots).encode()).hexdigest()
 
 
 def part_of(name: str) -> tuple[str, str | None]:

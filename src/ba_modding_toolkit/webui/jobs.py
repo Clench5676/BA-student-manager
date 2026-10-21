@@ -193,7 +193,12 @@ class JobRunner:
             if time.monotonic() - last_flush[0] >= LOG_FLUSH_SECONDS:
                 flush()
 
-        def progress(current: int, total: int, label: str = "") -> None:
+        def progress(current: int | dict[str, Any], total: int | None = None, label: str = "") -> None:
+            if isinstance(current, dict):
+                # Batch import reports completed mods, the entry id and the active phase.
+                job.progress = {"id": job.id, **current}
+                publish("job.progress", job.progress)
+                return
             label = label or t("webui.progress.process", name=t("webui.progress.mods"))
             job.progress = {"id": job.id, "current": current, "total": total, "label": label}
             now = time.monotonic()

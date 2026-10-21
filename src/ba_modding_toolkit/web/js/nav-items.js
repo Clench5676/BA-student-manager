@@ -6,9 +6,7 @@
 
 export const ITEMS = Object.freeze([
   { label: "nav.students", icon: "Common_Icon_Student", route: "#/roster" },
-  { label: "nav.modUpdate", icon: "Common_Icon_Edit", classic: "mod_update" },
-  { label: "nav.batch", icon: "Common_Icon_IDCard", classic: "batch_update" },
-  { label: "nav.install", icon: "Common_Icon_All_Download", classic: "mod_install" },
+  { label: "nav.import", icon: "Common_Icon_All_Download", route: "#/import" },
   { label: "nav.crc", icon: "School_Icon_Schedule", classic: "crc_tool" },
   { label: "nav.pack", icon: "Common_Icon_Craft", classic: "asset_packer" },
   { label: "nav.extract", icon: "Common_Icon_Inventory_Equip", classic: "asset_extractor" },

@@ -888,7 +888,8 @@
 			"extract": "資源提取",
 			"adb": "ADB 推送",
 			"tools": "工具",
-			"classic": "{label} - 經典介面"
+			"classic": "{label} - 經典介面",
+			"import": "批次匯入"
 		},
 		"roster": {
 			"title": "學生清單",
@@ -1282,6 +1283,19 @@
 				"driftHelp": {
 					"title": "設定漂移",
 					"what": "設定漂移是指遊戲檔案與 Mod 設定不一致。"
+				},
+				"other": "通用 Mod",
+				"empty": "暫無 Mod",
+				"useMod": "使用 Mod",
+				"official": "原版",
+				"otherState": {
+					"official": "原版",
+					"active": "使用中",
+					"mixed": "部分啟用",
+					"set": "已設定",
+					"changed": "已變更",
+					"missing": "檔案遺失",
+					"inactive": "未啟用"
 				}
 			},
 			"voice": "語音",
@@ -1401,6 +1415,99 @@
 				"no": "沒有 Spine 授權",
 				"required": "Spine 授權未確認",
 				"confirm": "確認授權"
+			}
+		},
+		"import": {
+			"list": "匯入清單",
+			"count": "{n} 個 Mod",
+			"addFiles": "新增檔案",
+			"addFolder": "新增資料夾",
+			"search": "名稱、ID、檔名",
+			"filter": "匯入狀態",
+			"filterCount": "{state}（{n}）",
+			"all": "全選",
+			"none": "取消全選",
+			"remove": "移除",
+			"clear": "清空",
+			"recheck": "重新檢查",
+			"action": "匯入（{n}）",
+			"results": "檢視結果",
+			"choose": "選擇 Mod",
+			"select": "選擇",
+			"selectNamed": "選擇 {name}",
+			"meta": "{id} - {n} 個檔案，{size}",
+			"empty": "尚無 Mod",
+			"drop": "新增檔案、資料夾，或拖放至此",
+			"noMatch": "找不到 Mod",
+			"current": "目前遊戲",
+			"incoming": "待匯入 Mod",
+			"previewUnavailable": "暫無預覽",
+			"other": "其他",
+			"analyzing": "正在檢查",
+			"picking": "選擇檔案",
+			"saving": "正在儲存",
+			"failed": "匯入失敗",
+			"confirm": "確認匯入",
+			"confirmCount": "{state}：{n} 個",
+			"recursive": "包含子資料夾",
+			"progress": "{phase} - {done}/{total} {name}",
+			"complete": "完成：{n}，失敗：{failed}",
+			"resultTitle": "匯入結果",
+			"mod": "Mod",
+			"detected": "檢測狀態",
+			"resultLabel": "處理結果",
+			"applied": "已套用",
+			"notApplied": "未套用",
+			"auto": "自動",
+			"original": "原壓縮方式",
+			"uncompressed": "不壓縮",
+			"state": {
+				"ready": "可匯入",
+				"update": "需更新",
+				"library": "已在 Mod 倉庫",
+				"installed": "已安裝",
+				"blocked": "無法匯入"
+			},
+			"reason": {
+				"unreadable": "無法讀取檔案",
+				"no_target": "找不到遊戲檔案",
+				"conflict": "目標衝突",
+				"spine_version": "Spine 版本不相容",
+				"unsupported": "不支援的類型"
+			},
+			"phase": {
+				"update": "正在更新",
+				"add": "正在加入 Mod 倉庫",
+				"apply": "正在套用 Mod"
+			},
+			"outcome": {
+				"imported": "已加入 Mod 倉庫",
+				"updated": "已更新並加入 Mod 倉庫",
+				"unchanged": "無變更",
+				"failed": "失敗",
+				"skipped": "已略過"
+			},
+			"options": {
+				"title": "進階選項",
+				"enableAfterImport": "安裝後立即啟用 Mod",
+				"strategy": "比對策略",
+				"types": "資源類型",
+				"allTypes": "所有資源類型",
+				"skipUnchanged": "略過未變更",
+				"crc": "CRC 修正",
+				"compression": "壓縮方式",
+				"extraBytes": "額外位元組",
+				"backup": "建立備份",
+				"workers": "平行執行緒數",
+				"output": "輸出目錄",
+				"bytesHint": "0x 開頭為十六進位，其他為 ASCII",
+				"typesRequired": "請選擇資源類型",
+				"workersInvalid": "執行緒數至少為 1"
+			},
+			"strategy": {
+				"cont_name_type": "容器、名稱、類型",
+				"path_id": "Path ID",
+				"name_type": "名稱、類型"
 			}
 		}
 	}

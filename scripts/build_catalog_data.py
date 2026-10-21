@@ -6,6 +6,8 @@ that the character map leaves untranslated come from the curated glossary and na
 table in catalog/data/naming.json, and name_sources says whether that wording is
 official or translated. The SchaleDB folder holds students.{cn,tw,en,jp,kr}.json
 (SchaleDB data/<lang>/students.min.json); ko names are the Global server's Korean.
+Optional students.th.json updates the shipped derived Thai playable names; missing
+Thai names and story variants use English until official Thai wording is available.
 
 Simplified Chinese follows Kivo's community wording for base names and costume
 words: it is read from the character map's Kivo columns (name_kivo, skin_kivo, the
@@ -33,8 +35,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from ba_modding_toolkit.catalog._data import base_rank, csv_entry, read_character_map
 from ba_modding_toolkit.catalog._names import (
-    LANGUAGES, NAMES, NAMING, clean, cn_aliases, cn_base, cn_words, compose, csv_bases, csv_names, csv_sources,
-    given_name, name_head, short_name, usable,
+    LANGUAGES, SOURCE_LANGUAGES, NAMES, NAMING, apply_thai_names, clean, cn_aliases, cn_base, cn_words, compose,
+    csv_bases, csv_names, csv_sources, given_name, name_head, short_name, usable,
 )
 
 logger = logging.getLogger(__name__)
@@ -61,6 +63,8 @@ def load_schaledb(directory: Path) -> dict[str, dict[str, dict]]:
     """Load localized student tables keyed by the SchaleDB student id."""
     result = {}
     for lang, suffix in LANGUAGES.items():
+        if lang == "th" and not (directory / "students.th.json").exists():
+            continue
         data = read_json(directory / f"students.{suffix}.json")
         rows = data.values() if isinstance(data, dict) else data
         result[lang] = {str(row["Id"]): row for row in rows}
@@ -146,7 +150,7 @@ def build_catalog(csv_path: Path, schaledb: Path, names_path: Path | None = None
         aliases.update(CORE_ALIASES.get(key, []))
         entry["core_aliases"] = sorted(aliases - {key})
         entry["fallbacks"] = {}
-        for lang in LANGUAGES:
+        for lang in SOURCE_LANGUAGES:
             source = localized[lang].get(str(student["Id"]))
             if source and source.get("Name"):
                 full = kivo_name(row, student) if lang == "zh-CN" and kivo(row) else clean(source["Name"], lang)
@@ -210,7 +214,7 @@ def build_catalog(csv_path: Path, schaledb: Path, names_path: Path | None = None
         schale_base = matches.get(base_key)
         bases = csv_bases(row_map.get(base_key, {"file_id": base_key}))
         # zh-CN keeps Kivo's given name over SchaleDB's and the curated one
-        own = [lang for lang in LANGUAGES if lang != "zh-CN" or not kivo(row_map.get(base_key))]
+        own = [lang for lang in SOURCE_LANGUAGES if lang != "zh-CN" or not kivo(row_map.get(base_key))]
         if schale_base:
             for lang in own:
                 source = localized[lang].get(str(schale_base["Id"]), {})
@@ -245,7 +249,7 @@ def build_catalog(csv_path: Path, schaledb: Path, names_path: Path | None = None
             continue
         entry = entries[key]
         bases = students[str(entry["student_id"])]["names"]
-        for lang in LANGUAGES:
+        for lang in SOURCE_LANGUAGES:
             words = [part if lang == "zh-CN" else NAMING["glossary"][part][lang] for part in parts]
             entry["names"][lang] = compose(bases[lang], words, lang)
             entry["fallbacks"][lang] = "story_variant"
@@ -293,6 +297,7 @@ def build_catalog(csv_path: Path, schaledb: Path, names_path: Path | None = None
                 entries[key]["name_sources"][lang] = value["source"]
     for entry in entries.values():
         entry.pop("research_order", None)
+    apply_thai_names(students, entries, localized.get("th"))
     add_aliases(students, entries, row_map, matches, localized["zh-CN"], cn_words(rows))
     kinds = Counter(entry["kind"] for entry in entries.values())
     sources = Counter(source for entry in entries.values() for source in entry["name_sources"].values())

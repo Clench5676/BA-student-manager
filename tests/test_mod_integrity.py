@@ -139,6 +139,55 @@ def test_partial_mod_can_use_current_official_dependencies(serialized):
     assert texture.read_bytes() != source.read_bytes()
 
 
+@pytest.mark.parametrize('kind', ['spr', 'model'])
+def test_outdated_import_defers_stale_cab_checks_until_rebuilt_output_is_added(serialized, kind):
+    env, register = serialized
+    if kind == 'model':
+        env.original = game_bundle(env.game_dir, 'test_model', category='characters')
+        env.catalog.variants['test'].model = 'test_model'
+        env.catalog.variant_for_model_core = lambda core: env.catalog.variants['test'] if core == 'test_model' else None
+    register(env.original, {"references": ["CAB-current-shared"]})
+    source = register(game_bundle(env.tmp / "old", 'test_spr' if kind == 'spr' else 'test_model',
+                                 category='spinecharacters' if kind == 'spr' else 'characters',
+                                 date="2025-01-01", payload=b"old mod"),
+                      {"references": ["CAB-old-shared"]})
+    before = source.read_bytes(), env.original.read_bytes()
+    report = env.library.inspect_import({source.name: source})
+    assert report["compatibility"]["outdated"]
+    assert not env.library.mods()
+    assert (source.read_bytes(), env.original.read_bytes()) == before
+    # Rebuilding renames the output for the current target; stale references must then be refused.
+    stale = register(make_mod(env.original, env.tmp / "stale", payload=b"bad rebuild"),
+                     {"references": ["CAB-old-shared"]})
+    with pytest.raises(ServiceError, match="mod_parts_missing"):
+        env.library.add([stale])
+    rebuilt = register(make_mod(env.original, env.tmp / "rebuilt", payload=b"rebuilt mod"),
+                       {"references": ["CAB-current-shared"]})
+    entry, = env.library.add([rebuilt])
+    assert entry.file.read_bytes() == rebuilt.read_bytes()
+
+
+def test_current_import_still_refuses_missing_cab_dependencies(serialized):
+    env, register = serialized
+    register(env.original, {"references": ["CAB-current-shared"]})
+    source = register(make_mod(env.original, env.tmp / "input"), {"references": ["CAB-missing"]})
+    with pytest.raises(ServiceError, match="mod_parts_missing"):
+        env.library.inspect_import({source.name: source})
+
+
+@pytest.mark.parametrize('problem, code', [('platform', 'mod_platform_mismatch'),
+                                          ('unreadable', 'bundle_invalid')])
+def test_outdated_import_still_checks_source_readability_and_platform(serialized, problem, code):
+    env, register = serialized
+    source = game_bundle(env.tmp / 'old', date='2025-01-01', payload=b'old mod')
+    if problem == 'platform':
+        register(source, {'platforms': ['Android']})
+    with pytest.raises(ServiceError) as caught:
+        env.library.inspect_import({source.name: source})
+    assert caught.value.code == code
+    assert not env.library.mods()
+
+
 def test_missing_pages_are_checked_in_omitted_official_atlases_too(serialized):
     env, register = serialized
     register(env.original, {"atlases": {"test_spr.atlas": "page.png\nsize: 64,64\n"}})

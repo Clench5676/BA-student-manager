@@ -33,8 +33,8 @@ from .system import reveal
 logger = logging.getLogger(__name__)
 trace_logger = logging.getLogger("ba_modding_toolkit.webui.trace")
 TRACE_BATCH, TRACE_LINE = 100, 600  # events per debug.trace call, characters per logged event
-# UI language -> lobby lines key (globallines.COLUMNS: the Global server's en, zh-TW, ko; ja from Kivo, else Global)
-LINE_LANGS = {"zh-CN": "zh-CN", "zh-TW": "zh-TW", "en-US": "en", "ja-JP": "ja", "ko-KR": "ko"}
+# UI language -> lobby lines key (Global en, zh-TW, ko, th; ja from Kivo, else Global)
+LINE_LANGS = {"zh-CN": "zh-CN", "zh-TW": "zh-TW", "en-US": "en", "ja-JP": "ja", "ko-KR": "ko", "th-TH": "th"}
 # seconds lobby.lines waits for the Global table (a download the first time); it answers with Kivo's lines after that,
 # so a slow download never holds the page's connections (the table keeps coming in for the next lobby)
 LINES_WAIT = 3.0
@@ -545,6 +545,32 @@ def build_api(s: Services) -> RpcRegistry:
     def ui_visit(variant: str) -> None:
         s.state.visit(variant)
 
+    # --- batch import ---
+
+    @rpc.method("import.pick")
+    def import_pick(folder: bool = False, recursive: bool = False) -> dict[str, Any]:
+        return s.batch_import.pick(folder, recursive)
+
+    @rpc.method("import.analyze")
+    def import_analyze(paths: list[str], recursive: bool = False) -> str:
+        return s.batch_import.analyze(paths, recursive)
+
+    @rpc.method("import.run")
+    def import_run(ids: list[str], options: dict[str, Any]) -> str:
+        return s.batch_import.run(ids, options)
+
+    @rpc.method("import.options")
+    def import_options() -> dict[str, Any]:
+        return s.batch_import.options()
+
+    @rpc.method("import.setOptions")
+    def import_set_options(strategy: str, types: list[str], skipUnchanged: bool, crc: str,
+                           compression: str, extraBytes: str, backup: bool, workers: int,
+                           output: str | None, enableAfterImport: bool) -> dict[str, Any]:
+        return s.batch_import.set_options({"strategy": strategy, "types": types, "skipUnchanged": skipUnchanged,
+            "crc": crc, "compression": compression, "extraBytes": extraBytes, "backup": backup,
+            "workers": workers, "output": output, "enableAfterImport": enableAfterImport})
+
     # --- mods ---
 
     @rpc.method("mods.add")
@@ -585,6 +611,10 @@ def build_api(s: Services) -> RpcRegistry:
     @rpc.method("mods.removalInfo")
     def mods_removal_info(id: str) -> dict[str, Any]:
         return s.library.removal_info(id)
+
+    @rpc.method("mods.other")
+    def mods_other() -> list[dict[str, Any]]:
+        return s.library.other_mods()
 
     @rpc.method("mods.remove")
     def mods_remove(id: str, confirm: bool = False) -> str:

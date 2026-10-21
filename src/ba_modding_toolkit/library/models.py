@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-Kind = Literal["spr", "lobby"]
+Kind = Literal["spr", "lobby", "model", "other"]
 CRCStatus = Literal["ok", "fixed", "needs_fix"]
 
 

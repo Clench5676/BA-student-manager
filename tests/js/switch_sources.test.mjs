@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 import {
-  appliedKey, appliedOf, availableTab, candidates, configuredKey, coreOf, hasAsset, overwrittenOf, partsOf, popupMode, primaryKind, previewBase, previewChanged, previewKey, sourceOf, switchKindOf,
+  modelSource, modelUrl, appliedKey, appliedOf, availableTab, candidates, configuredKey, coreOf, hasAsset, overwrittenOf, partsOf, popupMode, primaryKind, previewBase, previewChanged, previewKey, sourceOf, switchKindOf,
 } from "../../src/ba_modding_toolkit/web/js/switch-sources.js";
 
 const part = (kind, applied, extra = {}) => ({ file: `/game/${kind}-${applied}.bundle`, kind, applied, crc: "ok", ...extra });
@@ -101,10 +101,10 @@ test("parts and cores of a kind", () => {
   assert.equal(coreOf(v, "lobby"), null);
 });
 
-test("the switch card's kind per tab: none on the 3D tab, whose card stays inert", () => {
+test("the switch card uses the asset kind of every tab", () => {
   assert.equal(switchKindOf("portrait"), "spr");
   assert.equal(switchKindOf("lobby"), "lobby");
-  assert.equal(switchKindOf("model"), null);
+  assert.equal(switchKindOf("model"), "model");
 });
 
 test("what the game shows follows the library's source rule, part by part", () => {
@@ -263,4 +263,28 @@ test("a saved or removed configuration refreshes the preview without any change 
   assert.equal(previewChanged(before, after, "spr", false, false), true, "removing the configured mod reloads the player");
   assert.equal(previewChanged(before, before, "spr", true, false), true, "a toggle refreshes even an unswitched entry");
   assert.equal(previewChanged(before, after, "spr", true, true), false, "with mods on the game files decide");
+});
+
+
+test("model sources stay within the variant and use the shared configured/applied rules", () => {
+  const fam = family(), v = fam.variants[0];
+  v.model = "hoshino_original";
+  v.state.files.push(part("model", "mod:model-a", { official: false, restorable: true }));
+  v.modList.push({ ...mod("model-a", v.key, "model"), core: v.model });
+  fam.variants[1].modList.push(mod("foreign", fam.variants[1].key, "model"));
+  v.modList.push({ ...mod("wrong-core", v.key, "model"), core: "alternate" });
+  assert.deepEqual(candidates(fam, v, "model").map((c) => c.key), ["self", "m:model-a"]);
+  assert.equal(coreOf(v, "model"), "hoshino_original");
+  assert.equal(appliedKey(v, "model"), "m:model-a");
+  assert.equal(modelSource(v, true), "live");
+  assert.equal(previewBase(v, "model", true), "/asset/model/hoshino.glb");
+  v.configured = { model: "mod:model-a" };
+  v.state.files = [part("model", "official")];
+  assert.equal(modelSource(v, false), "mod:model-a");
+  assert.equal(previewBase(v, "model", false), "/asset/model/hoshino.glb?source=mod%3Amodel-a");
+  assert.deepEqual(popupMode(fam, v, "model", false), { start: "m:model-a", button: "popup.save", set: "m:model-a" });
+  assert.equal(appliedKey(v, "model"), "self");
+  assert.equal(modelUrl("a/b", "official"), "/asset/model/a%2Fb.glb?source=official");
+  v.configured = {};
+  assert.equal(modelSource(v, false), "official");
 });

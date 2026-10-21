@@ -4,12 +4,11 @@
 // library keeps what it replaces (docs/web-ui.md, library).
 import { spineBase } from "./api.js";
 
-// what the switch card of a detail tab switches: the portrait ("spr") or the memorial lobby ("lobby"); null on the 3D
-// tab ("model"), whose card has nothing to switch to (the library keeps no 3D mods): no chevron, no popup
-export const switchKindOf = (tab) => (tab === "lobby" ? "lobby" : tab === "portrait" ? "spr" : null);
+// Every asset tab uses the same source selection and apply flow.
+export const switchKindOf = (tab) => ({ portrait: "spr", lobby: "lobby", model: "model" }[tab] || null);
 
 // the core of a variant's skeleton of a kind: its portrait or its memorial lobby
-export const coreOf = (v, kind = "spr") => (kind === "lobby" ? v.lobby : v.spr) || null;
+export const coreOf = (v, kind = "spr") => (kind === "model" ? v.model : kind === "lobby" ? v.lobby : v.spr) || null;
 export const hasAsset = (v) => !!(v.spr || v.lobby);
 export const primaryKind = (v) => v.spr ? "spr" : "lobby";
 export function availableTab(v, tab) {
@@ -19,7 +18,10 @@ export function availableTab(v, tab) {
 
 // the game file parts of one kind ("spr" portrait, "lobby" memorial lobby, "model" the 3D chibi's prefab bundles,
 // newest first)
-export const partsOf = (v, kind = "spr") => (kind === "model" ? v.modelFiles || [] : (v.state?.files || []).filter((f) => f.kind === kind));
+export const partsOf = (v, kind = "spr") => {
+  const parts = (v?.state?.files || []).filter((f) => f.kind === kind);
+  return kind === "model" && !parts.length ? v?.modelFiles || [] : parts;
+};
 
 // whether a game file part holds official bytes: the server's verdict (family.get's official), else, from a server
 // without it, its applied source
@@ -64,8 +66,8 @@ export const overwrittenOf = (v, kind = "spr") => partsOf(v, kind).some((f) => !
 export function candidates(fam, v, kind = "spr") {
   const own = coreOf(v, kind);
   const mods = fam.variants.flatMap((o) => o.modList || []).filter((m) => m.kind === kind)
-    .filter((m) => kind !== "lobby" || !m.core || !own || m.core === String(own).toLowerCase());
-  const across = kind !== "lobby"; // whether other variants' files and mods are offered
+    .filter((m) => kind === "spr" || !m.core || !own || m.core === String(own).toLowerCase());
+  const across = kind === "spr"; // whether other variants' files and mods are offered
   const others = across ? fam.variants.filter((o) => o.key !== v.key && coreOf(o, kind) && coreOf(o, kind) !== own) : [];
   const mod = (m) => ({ key: `m:${m.id}`, kind: "mod", id: m.id, mod: m, core: null, origin: fam.variants.find((o) => o.key === m.target) || null });
   const list = [
@@ -96,7 +98,14 @@ export function configuredKey(v, kind = "spr") {
 export const previewKey = (v, kind = "spr", enabled = true) => (enabled ? appliedKey(v, kind) : configuredKey(v, kind) || "self");
 export const previewChanged = (before, after, kind, beforeEnabled, enabled) => !before || !after || beforeEnabled !== enabled
   || previewKey(before, kind, beforeEnabled) !== previewKey(after, kind, enabled);
+export function modelSource(v, enabled = true) {
+  const key = previewKey(v, "model", enabled);
+  return enabled ? "live" : key.startsWith("m:") ? `mod:${key.slice(2)}` : "official";
+}
+export const modelUrl = (key, source = "live") => `/asset/model/${encodeURIComponent(key)}.glb${source === "live" ? "" : `?source=${encodeURIComponent(source)}`}`;
+
 export function previewBase(v, kind = "spr", enabled = true, variants = []) {
+  if (kind === "model") return modelUrl(v.key, modelSource(v, enabled));
   if (enabled) return spineBase(kind, coreOf(v, kind));
   const key = previewKey(v, kind, enabled);
   if (key.startsWith("m:")) return spineBase("mod", key.slice(2));

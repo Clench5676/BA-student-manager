@@ -1,0 +1,1514 @@
+{
+	"common": {
+		"ok": "ตกลง",
+		"cancel": "ยกเลิก",
+		"default": "ค่าเริ่มต้น",
+		"on": "เปิด",
+		"off": "ปิด",
+		"success": "สำเร็จ",
+		"error": "ข้อผิดพลาด",
+		"warning": "คำเตือน",
+		"tip": "แจ้งเตือน",
+		"3rd_party": "เครื่องมือภายนอก",
+		"processing": "กำลังประมวลผล...",
+		"fail": "ล้มเหลว",
+		"result": "ผลลัพธ์",
+		"unknown": "ไม่ทราบ",
+		"auto": "อัตโนมัติ"
+	},
+	"action": {
+		"browse": "เรียกดู",
+		"browse_file": "เลือกไฟล์...",
+		"browse_folder": "เลือกโฟลเดอร์...",
+		"select": "เลือก",
+		"open": "เปิด",
+		"download": "ดาวน์โหลด",
+		"add_files": "เพิ่มไฟล์",
+		"add_folder": "เพิ่มโฟลเดอร์",
+		"remove": "นำออก",
+		"remove_selected": "นำรายการที่เลือกออก",
+		"clear": "ล้าง",
+		"clear_list": "ล้างรายการ",
+		"replace_original": "เขียนทับ",
+		"print": "พิมพ์",
+		"start": "เริ่ม",
+		"update": "อัปเดต",
+		"pack": "แพ็ก",
+		"extract": "แยก",
+		"calculate_crc": "คำนวณ",
+		"check_crc": "ตรวจสอบ CRC",
+		"run_crc_correction": "แก้ไข",
+		"save": "บันทึก",
+		"load": "โหลด",
+		"reset": "รีเซ็ต",
+		"refresh": "รีเฟรช",
+		"filter": "ตัวกรอง",
+		"analyze": "วิเคราะห์",
+		"install": "ติดตั้ง",
+		"skip": "ข้าม",
+		"install_all": "ติดตั้งทั้งหมด",
+		"skip_all": "ข้ามทั้งหมด",
+		"open_in_explorer": "เปิดโฟลเดอร์",
+		"copy_filename": "คัดลอกชื่อไฟล์",
+		"render_preview": "เรนเดอร์ตัวอย่าง",
+		"send_to_extractor": "ส่งไปยังเครื่องมือแยกทรัพยากร",
+		"cache_to_local": "แคชไว้ในเครื่อง",
+		"detect": "ตรวจหา",
+		"clear_cache": "ล้างแคช",
+		"generate": "สร้าง",
+		"fix_all": "ซ่อมแซมทั้งหมด",
+		"start_backup": "เริ่มสำรองข้อมูล"
+	},
+	"option": {
+		"file_source": "แหล่งไฟล์",
+		"file_source_info": "แพลตฟอร์มและเซิร์ฟเวอร์ของทรัพยากรเกม\n- Windows โกลบอล (ในเครื่อง)\n- Windows ญี่ปุ่น (ในเครื่อง)\n- Android โกลบอล (ADB)\n- Android ญี่ปุ่น (ADB)",
+		"file_source_windows_global": "Windows โกลบอล (ในเครื่อง)",
+		"file_source_windows_japan": "Windows ญี่ปุ่น (ในเครื่อง)",
+		"file_source_adb_global": "Android โกลบอล (ADB)",
+		"file_source_adb_japan": "Android ญี่ปุ่น (ADB)",
+		"crc_correction": "การแก้ไข CRC",
+		"crc_correction_info": "แก้ไขค่า CRC ของไฟล์ Bundle เพื่อป้องกันข้อผิดพลาด \"ไคลเอนต์ผิดปกติ\" หลังแก้ไขไฟล์\nต้องเปิดสำหรับเวอร์ชัน Steam, ไม่จำเป็นสำหรับมือถือ\nอัตโนมัติ: ตรวจตามแพลตฟอร์มของ Bundle เป้าหมาย",
+		"extra_bytes": "ไบต์เพิ่มเติม",
+		"extra_bytes_info": "ข้อมูลที่เพิ่มก่อนแก้ไข CRC\nขึ้นต้นด้วย 0x: เลขฐานสิบหก (เช่น 0x0808), นอกเหนือจากนั้น: ข้อความ ASCII (เช่น AB), เว้นว่างเพื่อปิด",
+		"backup": "สร้างข้อมูลสำรอง",
+		"backup_info": "สำรองข้อมูลก่อนแทนที่ไฟล์",
+		"compression_method": "วิธีบีบอัด",
+		"compression_method_info": "การบีบอัดไฟล์ AssetBundle\n- LZMA: บีบอัดสูงสุด\n- LZ4: บีบอัดปานกลาง\n- Original: ตามไฟล์เป้าหมาย\n- None: ไม่บีบอัด",
+		"skip_unchanged": "ข้ามไฟล์ที่ไม่เปลี่ยนแปลง",
+		"skip_unchanged_info": "ไม่สร้างไฟล์เมื่อเนื้อหาเป้าหมายไม่เปลี่ยนแปลง",
+		"replace_texture": "Texture2D",
+		"replace_texture_info": "ไฟล์ภาพ เช่น ภาพตัวละคร, พื้นผิวโมเดล",
+		"replace_textasset": "TextAsset",
+		"replace_textasset_info": "ไฟล์ .skel และ .atlas สำหรับแอนิเมชัน Spine",
+		"replace_mesh": "Mesh",
+		"replace_mesh_info": "ไฟล์โมเดล 3D",
+		"replace_animationclip": "AnimationClip",
+		"replace_animationclip_info": "แอนิเมชันของโมเดล 3D",
+		"replace_all": "ทั้งหมด",
+		"replace_all_info": "แทนที่ทรัพยากรทุกประเภท\nฟังก์ชันทดลอง, ไม่แนะนำ",
+		"spine_conversion": "เปิดการแปลงเวอร์ชัน Spine",
+		"spine_conversion_info": "ส่วนขยายเสริม\nใช้โปรแกรมภายนอกแปลงไฟล์ .skel เป็นเวอร์ชันที่รองรับ\nต้องตั้งค่าตำแหน่งตัวแปลง Skel",
+		"spine_target_version": "เวอร์ชันเป้าหมาย",
+		"spine_target_version_info": "รูปแบบ \"A.B.C\"\nปฏิเสธไฟล์ .skel ที่เวอร์ชันไม่ตรงกัน\nแปลงเป็นเวอร์ชันนี้อัตโนมัติเมื่อตั้งค่าและเปิดใช้ตัวแปลง Skel",
+		"preview_thumbnail_size": "ขนาดภาพย่อตัวอย่าง",
+		"preview_thumbnail_size_info": "ความยาวด้านสูงสุดของภาพย่อในหน้าต่างตัวอย่าง (พิกเซล)",
+		"spine_downgrade": "เปิดการลดเวอร์ชัน Spine",
+		"spine_downgrade_info": "ส่วนขยายเสริม\nใช้โปรแกรมภายนอกส่งออกไฟล์ .skel และ .atlas สำหรับ Spine เวอร์ชันเก่า\nต้องตั้งค่าตำแหน่งตัวแปลง Skel",
+		"spine_downgrade_target_version": "เวอร์ชันเป้าหมาย",
+		"spine_downgrade_target_version_info": "รูปแบบ \"A.B.C\"",
+		"scale_atlas": "ปรับขนาดภาพ",
+		"scale_atlas_info": "ตัวเลือกขั้นสูง\nปรับขนาดภาพตามค่า scale ในไฟล์ Atlas เมื่อลดเวอร์ชัน Spine\n\nเปิด: ปรับภาพให้ตรงขนาดเพื่อนำเข้า Spine โดยตรง, อาจเสียความละเอียดและเกิดการเหลื่อม, เกมจะใช้ภาพที่ปรับขนาดแล้วด้วย\nปิด (ค่าเริ่มต้น): คงความละเอียดเดิมและให้ผลในเกมดีที่สุด, แนะนำสำหรับนำเข้าเกม, เมื่อนำเข้า Spine ต้องนำค่า scale ไปใช้กับ Transform ของกระดูกเอง เพราะขนาด attachment แบบ region ไม่เปลี่ยน\n\nตัวเลือกนี้มีผลทั้งในเกมและการนำเข้า Spine: ปิดเพื่อคงภาพในเกมและปรับ Spine เอง, เปิดเพื่อปรับขนาดภาพจริงและนำเข้า Spine โดยไม่ต้องปรับเพิ่ม\nสำหรับผู้ใช้ขั้นสูงที่นำเข้า Spine แนะนำให้ปิดการปรับขนาดและตั้งค่า scale ของกระดูกหรือชิ้นส่วนเอง",
+		"unpack_atlas": "แยก Atlas",
+		"unpack_atlas_info": "แยก Atlas เป็นเฟรม PNG\nบันทึกเฟรมในโฟลเดอร์ย่อย images/",
+		"game_dir_windows_global": "โฟลเดอร์เกม Steam (โกลบอล)",
+		"game_dir_windows_global_info": "โฟลเดอร์ติดตั้งเกม Steam (เซิร์ฟเวอร์โกลบอล)\nตรวจหาโฟลเดอร์ย่อยเหล่านี้ได้อัตโนมัติ:\n- BlueArchive_Data/StreamingAssets/PUB/Resource/GameData/Windows\n- BlueArchive_Data/StreamingAssets/PUB/Resource/Preload/Windows\n- GameData/Windows\n- Preload/Windows\nกด \"ตรวจหา\" เพื่อค้นหาอัตโนมัติ (Windows: รีจิสทรีและคลัง Steam, macOS: Wine prefixes)",
+		"game_dir_windows_japan": "โฟลเดอร์เกม PC (ญี่ปุ่น)",
+		"game_dir_windows_japan_info": "โฟลเดอร์ติดตั้งเกม PC (เซิร์ฟเวอร์ญี่ปุ่น)\nกด \"ตรวจหา\" เพื่อค้นหาอัตโนมัติ (Windows: รีจิสทรี, macOS: Wine prefixes)",
+		"game_dir_android_global": "โฟลเดอร์ Android (โกลบอล)",
+		"game_dir_android_global_info": "โฟลเดอร์ทรัพยากรเกมบน Android (เซิร์ฟเวอร์โกลบอล)\nเช่น /storage/emulated/0/Android/data/com.nexon.bluearchive/files/",
+		"game_dir_android_japan": "โฟลเดอร์ Android (ญี่ปุ่น)",
+		"game_dir_android_japan_info": "โฟลเดอร์ทรัพยากรเกมบน Android (เซิร์ฟเวอร์ญี่ปุ่น)\nเช่น /storage/emulated/0/Android/data/com.Yostar JP.BlueArchive/files/",
+		"language": "ภาษา / Language",
+		"language_info": "ภาษาของโปรแกรม\nเริ่มโปรแกรมใหม่หลังเปลี่ยนภาษา",
+		"output_dir": "โฟลเดอร์ผลลัพธ์",
+		"output_dir_info": "โฟลเดอร์สำหรับไฟล์ที่โปรแกรมสร้าง",
+		"skel_converter_path": "ตำแหน่งตัวแปลง Skel",
+		"skel_converter_path_info": "ตำแหน่งไฟล์ SpineSkeletonDataConverter.exe",
+		"spine_viewer_path": "ตำแหน่ง SpineViewerCLI",
+		"spine_viewer_path_info": "ตำแหน่งไฟล์ SpineViewerCLI.exe สำหรับเรนเดอร์ตัวอย่าง",
+		"check_animations": "ตรวจหาความต่างของแอนิเมชัน",
+		"check_animations_info": "ตรวจว่าไฟล์ .skel เป้าหมายมีแอนิเมชันที่ไม่มีในไฟล์ต้นทางหรือไม่\nต้องตั้งค่าตำแหน่ง SpineViewerCLI",
+		"mod_install_render_preview": "เรนเดอร์ตัวอย่าง",
+		"mod_install_render_preview_info": "เรนเดอร์ตัวอย่าง Spine และพื้นผิวเบื้องหลังในหน้าต่างยืนยันการติดตั้ง Mod\nปิดเพื่อแสดงเฉพาะไฟล์และทรัพยากรและเปิดหน้าต่างทันที\nต้องตั้งค่าตำแหน่ง SpineViewerCLI",
+		"match_strategy": "วิธีจับคู่",
+		"match_strategy_info": "วิธีจับคู่ทรัพยากร:\n- path_id: ตรงกันแบบเจาะจงสำหรับไฟล์เวอร์ชันเดียวกัน\n- cont_name_type: จับคู่คอนเทนเนอร์+ชื่อ+ประเภทสำหรับย้ายข้ามเวอร์ชัน (โกลบอลกับญี่ปุ่น)\n- name_type: จับคู่ชื่อ+ประเภท",
+		"enable_bleed": "Bleed",
+		"enable_bleed_info": "ใช้ Bleed กับไฟล์ภาพ\nแนะนำเมื่อภาพที่แพ็กมีขอบดำหรือขอบหยักในเกม",
+		"enable_spine38_name_fix": "เปลี่ยนชื่อไฟล์ Spine รุ่นเก่า",
+		"enable_spine38_name_fix_info": "เปลี่ยนรูปแบบชื่อไฟล์ที่ส่งออกจาก Spine รุ่นเก่าเป็นรูปแบบใหม่\nตัวอย่าง: CH0808_home2.png → CH0808_home_2.png",
+		"enable_spine_preview": "สร้างตัวอย่าง Spine",
+		"enable_spine_preview_info": "สร้างภาพตัวอย่างทรัพยากร Spine (ต้องตั้งค่าตำแหน่ง SpineViewerCLI)\n\nอาจใช้เวลานาน",
+		"extractor_render_preview": "เรนเดอร์ตัวอย่าง",
+		"extractor_render_preview_info": "เรนเดอร์ตัวอย่าง Spine หลังแยกทรัพยากร (ต้องตั้งค่าตำแหน่ง SpineViewerCLI)\nใช้ไฟล์ที่แยกแล้วโดยไม่แยกซ้ำ\n\nหากเปิดแยก Atlas ด้วย ตัวอย่างบางรายการอาจสร้างไม่สำเร็จ",
+		"report_format": "รูปแบบรายงาน",
+		"report_format_info": "รูปแบบผลลัพธ์รายงาน:\n- รายการ: หนึ่งรายการต่อบรรทัดสำหรับเรียกดูอย่างรวดเร็ว\n- ตาราง: ตาราง Markdown, แนะนำเมื่อเรนเดอร์ภาพตัวอย่าง",
+		"report_format_list": "รายการ",
+		"report_format_table": "ตาราง",
+		"report_render_preset": "คุณภาพตัวอย่าง",
+		"report_render_preset_info": "คุณภาพการเรนเดอร์ภาพตัวอย่าง\nคุณภาพสูงอาจใช้เวลานานขึ้น",
+		"report_render_preset_low": "คุณภาพต่ำ",
+		"report_render_preset_high": "คุณภาพสูง",
+		"render_characters": "เรนเดอร์ภาพตัวละคร",
+		"render_characters_info": "เรนเดอร์ตัวอย่าง Spine ในหมวด spinecharacters",
+		"render_lobbies": "เรนเดอร์ล็อบบี้ความทรงจำ",
+		"render_lobbies_info": "เรนเดอร์ตัวอย่าง Spine ในหมวด spinelobbies",
+		"render_background": "เรนเดอร์ทรัพยากร Spine อื่น",
+		"render_background_info": "เรนเดอร์ตัวอย่าง Spine ในหมวด spinebackground",
+		"max_workers": "จำนวนเธรดสูงสุด",
+		"max_workers_info": "จำนวนเธรดขนานสำหรับงานแบบกลุ่ม เช่น อัปเดตหรือเรนเดอร์ตัวอย่าง\nเพิ่มจำนวนเพื่อประมวลผลเร็วขึ้น, ใช้หน่วยความจำและ CPU มากขึ้น",
+		"character_id_map": "ตารางจับคู่ ID นักเรียน",
+		"character_id_map_info": "ตารางจับคู่ ID ภายในกับชื่อนักเรียนสำหรับแสดงชื่อของไฟล์",
+		"character_index_column": "คอลัมน์ดัชนี",
+		"character_index_column_info": "คอลัมน์ใน CSV ที่ใช้เป็นคีย์ค้นหา (ID ภายในของนักเรียน)\nรูปแบบคีย์ เช่น CH0808",
+		"character_name_field": "ชื่อนักเรียน",
+		"character_name_field_info": "ฟิลด์แสดงชื่อนักเรียน:\nfull_name: kivo.wiki (ภาษาจีน, ครบถ้วนที่สุด)\nname_cn: เซิร์ฟเวอร์จีน\nname_jp: ภาษาญี่ปุ่น\nname_tw: ภาษาจีนตัวเต็ม\nname_en: ภาษาอังกฤษ\nname_kr: ภาษาเกาหลี\n\nภาษาอังกฤษและเกาหลีมีเฉพาะชื่อนักเรียน, ภาษาญี่ปุ่น, จีนและจีนตัวเต็มมีชื่อชุดด้วย เช่น ชุดว่ายน้ำ, เมด, ส่วน kivo.wiki มีชื่อเวอร์ชัน NPC เพิ่มเติม เช่น ชุดพละ, ไม่มีอาวุธ",
+		"adb_path": "ตำแหน่ง ADB",
+		"adb_path_info": "ตำแหน่งเต็มของ adb.exe หรือ \"adb\" เพื่อใช้ PATH ของระบบ",
+		"adb_cache_dir": "โฟลเดอร์แคช",
+		"adb_cache_dir_info": "โฟลเดอร์แคชไฟล์ ADB ในเครื่อง",
+		"backup_path": "ตำแหน่งสำรองข้อมูล",
+		"backup_path_info": "โฟลเดอร์บันทึกไฟล์สำรอง"
+	},
+	"file_type": {
+		"executable": "ไฟล์โปรแกรม",
+		"all_files": "ไฟล์ทั้งหมด",
+		"bundle": "ไฟล์ AssetBundle",
+		"bundle_backup": "ข้อมูลสำรอง AssetBundle",
+		"folder": "โฟลเดอร์",
+		"skel_converter": "SpineSkeletonConverter.exe",
+		"spine_viewer": "SpineViewerCLI.exe"
+	},
+	"message": {
+		"confirm_replace_file": "เขียนทับไฟล์: {path}\n\nแนะนำให้เปิดการสำรองข้อมูล\nดำเนินการต่อหรือไม่?",
+		"confirm_replace_files": "เขียนทับ {count} ไฟล์:\n{files}",
+		"and_more_files": "...และอีก {count} ไฟล์",
+		"confirm_reset_settings": "รีเซ็ตเป็นค่าเริ่มต้นหรือไม่?",
+		"file_not_found": "ไม่พบไฟล์: {path}",
+		"file_not_selected": "ยังไม่ได้เลือกไฟล์",
+		"load_failed": "โหลดไฟล์ไม่สำเร็จ",
+		"dir_not_found": "ไม่พบโฟลเดอร์: {path}",
+		"dir_not_found_create": "ไม่มีโฟลเดอร์:\n{path}\n\nสร้างโฟลเดอร์หรือไม่?",
+		"path_invalid": "ตำแหน่งไม่ถูกต้อง: {path}",
+		"no_file_selected": "ยังไม่ได้เลือกไฟล์",
+		"no_bundle_found": "ไม่พบไฟล์ Bundle",
+		"list_empty": "รายการว่าง, เพิ่มรายการก่อน",
+		"drop_single_file": "ลากวางครั้งละหนึ่งไฟล์",
+		"missing_paths": "ตั้งค่าตำแหน่งที่จำเป็นให้ครบ",
+		"missing_asset_type": "เลือกทรัพยากรอย่างน้อยหนึ่งประเภท",
+		"process_success": "ประมวลผลสำเร็จ",
+		"process_failed": "ประมวลผลล้มเหลว: {error}",
+		"error_during_process": "ข้อผิดพลาดขณะประมวลผล:\n{error}",
+		"cannot_open_explorer": "เปิดโฟลเดอร์ไม่ได้: {error}",
+		"open_manually": "เปิดโฟลเดอร์ด้วยตนเอง: {path}",
+		"invalid_operation": "การดำเนินการไม่ถูกต้อง",
+		"execution_error": "ข้อผิดพลาดขณะดำเนินการ:\n{error}",
+		"output_dir_not_set": "ยังไม่ได้ตั้งค่าโฟลเดอร์ผลลัพธ์, ตั้งค่าในเมนูการตั้งค่าก่อน",
+		"save_success": "บันทึกไฟล์แล้ว",
+		"same_file": "ทั้งสองตำแหน่งเหมือนกัน",
+		"config": {
+			"saved": "บันทึกการตั้งค่าแล้ว",
+			"loaded": "โหลดการตั้งค่าแล้ว",
+			"save_failed": "บันทึกการตั้งค่าไม่สำเร็จ",
+			"load_failed": "โหลดการตั้งค่าไม่สำเร็จ",
+			"language_changed": "เปลี่ยนภาษาแล้ว\nบันทึกการตั้งค่าและเริ่มโปรแกรมใหม่เพื่อใช้ภาษาใหม่\nบันทึกการตั้งค่าปัจจุบันและปิดโปรแกรมตอนนี้หรือไม่?"
+		},
+		"packer": {
+			"missing_paths": "เลือก Bundle เป้าหมายและทรัพยากรที่จะแพ็ก, ระบุโฟลเดอร์ผลลัพธ์ในการตั้งค่าส่วนกลาง",
+			"load_target_bundle_failed": "โหลด Bundle เป้าหมายไม่ได้แม้ลองนำแพตช์ CRC ออกแล้ว, ตรวจว่าไฟล์เสียหายหรือไม่",
+			"no_supported_files_found": "ไม่พบไฟล์ที่รองรับ ({extensions}) ในโฟลเดอร์ที่ระบุ",
+			"no_matching_assets_to_pack": "ไม่พบทรัพยากรที่ชื่อตรงกันสำหรับแพ็ก",
+			"process_complete": "ประมวลผลเสร็จแล้ว\nแพ็กสำเร็จ {count} ไฟล์\n\nบันทึกในโฟลเดอร์ผลลัพธ์แล้ว, กด \"{button}\" เพื่อใช้การเปลี่ยนแปลง"
+		},
+		"crc": {
+			"provide_at_least_one_file": "ระบุตำแหน่งไฟล์อย่างน้อยหนึ่งไฟล์",
+			"match_no_correction_needed": "ค่า CRC ตรงกัน, ไม่ต้องแก้ไข",
+			"correction_success": "แก้ไข CRC สำเร็จ\nบันทึกไฟล์ที่แก้ไขในโฟลเดอร์ผลลัพธ์:\n{path}",
+			"correction_failed": "แก้ไข CRC ไม่สำเร็จ",
+			"file_crc32": "CRC32 ของไฟล์: {crc}",
+			"calculation_error": "คำนวณ CRC ไม่สำเร็จ:\n{error}",
+			"modified_file_crc32": "CRC32 ของไฟล์ที่แก้ไข: {crc}",
+			"original_file_crc32": "CRC32 ของไฟล์ต้นฉบับ: {crc}",
+			"match_yes": "CRC ตรงกัน: ✅ ใช่",
+			"match_no": "CRC ตรงกัน: ❌ ไม่",
+			"correction_failed_file_not_generated": "แก้ไข CRC ไม่สำเร็จ, สร้างไฟล์ \"{name}\" ไม่ได้"
+		},
+		"spine": {
+			"version_conflict_header": "ปฏิเสธไฟล์ .skel ต่อไปนี้: เวอร์ชัน Spine ไม่ตรงกับเป้าหมาย ({major_minor}.x)",
+			"version_conflict_item": "  - {name} (เวอร์ชันต้นทาง {source})",
+			"version_conflict_hint": "ตรวจสอบการตั้งค่าตัวแปลง Spine"
+		},
+		"report_open_prompt": "สร้างรายงานแล้ว\nเปิดไฟล์รายงานหรือไม่?",
+		"batch_preview_open_prompt": "เรนเดอร์แบบกลุ่มเสร็จแล้ว\nสำเร็จ {rendered} / {total} กลุ่ม, เปิดโฟลเดอร์ผลลัพธ์หรือไม่?",
+		"batch_preview": {
+			"no_category": "เลือกหมวดหมู่สำหรับเรนเดอร์อย่างน้อยหนึ่งหมวด"
+		},
+		"search": {
+			"check_file_exists": "ตรวจสอบว่ามี \"{path}\" หรือไม่",
+			"no_matching_files_in_dir": "ไม่พบไฟล์ที่ตรงกันในโฟลเดอร์ที่ระบุ",
+			"no_comparable_assets": "Mod รุ่นเก่าไม่มีทรัพยากรที่เปรียบเทียบได้",
+			"new_file_confirmed": "ยืนยันไฟล์เวอร์ชันใหม่แล้ว: {name}",
+			"no_matching_asset_found": "ไม่พบทรัพยากรที่ชื่อตรงกับ Mod รุ่นเก่าในไฟล์ที่เป็นไปได้, ระบุไฟล์เวอร์ชันใหม่ไม่ได้",
+			"found_multiple_matches": "พบไฟล์ที่ตรงกัน {count} ไฟล์",
+			"filename_parse_failed": "อ่านชื่อไฟล์ไม่สำเร็จ"
+		},
+		"extractor": {
+			"no_assets_found": "ไม่พบทรัพยากรประเภทที่ระบุที่แยกได้",
+			"extraction_complete": "แยกเสร็จแล้ว, สร้าง {count} ไฟล์"
+		},
+		"mod_update": {
+			"success": "อัปเดตสำเร็จ",
+			"no_assets_extracted": "ไม่ได้แยกทรัพยากรจากไฟล์ต้นทาง",
+			"no_targets_processed": "ไม่มีไฟล์เป้าหมายที่ประมวลผลสำเร็จ",
+			"all_targets_unchanged": "ไฟล์เป้าหมายทั้งหมดไม่เปลี่ยนแปลง, ไม่ต้องอัปเดต"
+		},
+		"mod_install": {
+			"filename_parse_failed": "อ่านชื่อไฟล์ไม่ได้: {filename}",
+			"target_conflict": "Mod หลายกลุ่มใช้ไฟล์เป้าหมายเดียวกัน: {filename}",
+			"no_game_dir": "ยังไม่ได้ตั้งค่าโฟลเดอร์ทรัพยากรเกม, วิเคราะห์ความสัมพันธ์ระหว่าง Mod กับไฟล์เกมไม่ได้",
+			"adb_unsupported": "การติดตั้ง Mod ยังไม่รองรับ ADB, เปลี่ยนเป็นแหล่งไฟล์ในเครื่อง",
+			"nothing_selected": "ยังไม่ได้เลือกกลุ่มที่จะติดตั้ง",
+			"summary": "ติดตั้งเสร็จแล้ว\nสำเร็จ: {installed} กลุ่ม\nข้าม (ติดตั้งแล้ว): {skipped} กลุ่ม\nล้มเหลว: {failed} กลุ่ม",
+			"failed_detail": "รายละเอียดข้อผิดพลาด:\n{details}"
+		},
+		"save_error": "บันทึกไฟล์ไม่สำเร็จ: {error}",
+		"replace_result": "แทนที่เสร็จแล้ว\nสำเร็จ: {success} ไฟล์, ล้มเหลว: {fail} ไฟล์",
+		"batch": {
+			"success": "ประมวลผลแบบกลุ่มเสร็จแล้ว\nสำเร็จ: {success}, ล้มเหลว: {fail}"
+		},
+		"anim_diff": {
+			"header": "Mod นี้ขาดแอนิเมชันใหม่บางส่วนที่เกมต้องใช้\nเกมอาจค้างเมื่อเล่นแอนิเมชันเหล่านี้ เช่น ในเนื้อเรื่อง\n\nตรวจสอบรายการแอนิเมชันที่ขาดในบันทึกด้านบน\nและตรวจสอบการอัปเดตที่ถูกต้องกับผู้สร้าง Mod"
+		},
+		"3rd_party": {
+			"download_guide": "ดาวน์โหลด {program} หรือไม่?\n{url}",
+			"skel_converter_not_configured": "ยังไม่ได้ตั้งค่า SpineSkeletonDataConverter\nตั้งค่าตำแหน่ง SpineSkeletonDataConverter ในการตั้งค่า",
+			"spine_viewer_required": "ยังไม่ได้ตั้งค่า SpineViewerCLI หรือตำแหน่งไม่ถูกต้อง\n\nตั้งค่าตำแหน่ง SpineViewerCLI ในการตั้งค่า"
+		},
+		"download_confirm": "ดาวน์โหลดไฟล์จาก:\n{url}\n\nบันทึกที่: {path}",
+		"game_dir": {
+			"detect_success": "พบโฟลเดอร์เกม:\n{path}",
+			"detect_failed": "ไม่พบการติดตั้ง Blue Archive, เลือกโฟลเดอร์ด้วยตนเอง"
+		},
+		"adb": {
+			"detect_success": "พบ ADB: {version}",
+			"detect_failed": "ตรวจหา ADB ไม่สำเร็จ, ตรวจสอบตำแหน่ง",
+			"not_connected": "ยังไม่ได้เชื่อมต่ออุปกรณ์ ADB",
+			"clear_cache_confirm": "ล้างแคช ADB ทั้งหมดหรือไม่?",
+			"clear_cache_done": "ล้างแคชแล้ว, เพิ่มพื้นที่ว่าง {size}",
+			"push_confirm": "ส่งไฟล์ต่อไปนี้ไปยัง Android หรือไม่?\n{files}",
+			"cache_complete": "แคชเสร็จแล้ว, สำเร็จ {success}, ล้มเหลว {fail}",
+			"no_local_files": "เลือกไฟล์ในเครื่องที่จะส่งก่อน",
+			"no_target_dir": "ระบุโฟลเดอร์เป้าหมาย",
+			"push_summary": "ส่งเสร็จแล้ว: สำเร็จ {success}, ล้มเหลว {fail}"
+		},
+		"abnormal_check": {
+			"no_mismatch": "ไม่พบค่า CRC ที่ไม่ตรงกัน",
+			"confirm_fix": "แก้ไข CRC ของ {count} ไฟล์หรือไม่?",
+			"fix_complete": "ซ่อมแซมเสร็จแล้ว"
+		},
+		"backup": {
+			"path_required": "เลือกตำแหน่งสำรองข้อมูลก่อน",
+			"clear_confirm": "มีโฟลเดอร์สำรองข้อมูลแล้ว, ล้างและสำรองใหม่หรือไม่?",
+			"open_prompt": "สำรอง Mod แล้ว {count} ไฟล์\nเปิดโฟลเดอร์สำรองข้อมูลหรือไม่?",
+			"no_mod_found": "ไม่พบไฟล์ Mod"
+		},
+		"task_running_close_confirm": "มีงานกำลังทำงาน, การปิดหน้าต่างจะหยุดงาน\n\nปิดหน้าต่างหรือไม่?"
+	},
+	"status": {
+		"ready": "พร้อม",
+		"processing": "กำลังประมวลผล",
+		"processing_detailed": "กำลังประมวลผล: {filename}",
+		"processing_batch": "กำลังประมวลผล ({current}/{total}): {filename}",
+		"batch_starting": "กำลังเริ่มอัปเดตแบบกลุ่ม",
+		"searching": "กำลังค้นหาไฟล์...",
+		"search_not_found": "ไม่พบไฟล์ที่ตรงกัน",
+		"done": "เสร็จแล้ว",
+		"failed": "ล้มเหลว",
+		"error": "ข้อผิดพลาด: {error}",
+		"loaded": "โหลด {type} แล้ว",
+		"calculation_done": "คำนวณเสร็จแล้ว",
+		"extracting": "กำลังแยกทรัพยากร...",
+		"render_progress": "กำลังเรนเดอร์ตัวอย่าง ({done}/{total})..."
+	},
+	"log": {
+		"file": {
+			"loaded": "โหลดแล้ว: {path}",
+			"selected_num": "เลือก {count} ไฟล์แล้ว",
+			"saving_bundle_prefix": "กำลังบันทึก Bundle...",
+			"compression_method": "การบีบอัด: {compression}",
+			"crc_correction": "การแก้ไข CRC: {crc_status}",
+			"saved": "บันทึกไฟล์ผลลัพธ์ที่: {path}",
+			"backed_up": "สำรองไฟล์ที่: {path}",
+			"overwritten": "เขียนทับแล้ว: {path}",
+			"backup_failed": "สร้างไฟล์สำรองไม่สำเร็จ: {error}",
+			"read_in_memory_failed": "อ่านไฟล์ \"{name}\" ในหน่วยความจำไม่ได้: {error}",
+			"load_failed": "โหลด \"{path}\" ไม่ได้ด้วยวิธีใดๆ",
+			"save_failed": "บันทึกไฟล์ที่ \"{path}\" ไม่สำเร็จ: {error}",
+			"directory_opened": "เปิดโฟลเดอร์แล้ว: {path}",
+			"added_count": "เพิ่ม {count} ไฟล์แล้ว",
+			"removed_count": "นำออก {count} ไฟล์แล้ว",
+			"list_cleared": "ล้างรายการแล้ว",
+			"downloaded": "ดาวน์โหลดแล้ว: {path}",
+			"no_files_found_in_folder": "ไม่พบไฟล์ {type} ในโฟลเดอร์นี้",
+			"no_changes_made": "ไฟล์ไม่เปลี่ยนแปลง, ไม่ได้บันทึก",
+			"not_exist": "ไม่มีไฟล์: {path}",
+			"rename": "เปลี่ยนชื่อไฟล์: [{old}] -> [{new}]"
+		},
+		"config": {
+			"reset": "รีเซ็ตเป็นค่าเริ่มต้นแล้ว",
+			"saved": "บันทึกการตั้งค่าแล้ว",
+			"save_failed": "บันทึกการตั้งค่าไม่สำเร็จ: {error}",
+			"load_failed": "โหลดไม่สำเร็จ",
+			"loaded": "โหลดการตั้งค่าแล้ว",
+			"language": "ภาษาปัจจุบัน: {language}",
+			"language_missing": "ไม่พบไฟล์ภาษา \"{language}\""
+		},
+		"spine": {
+			"skel_converter_set": "ตั้งค่าตัวแปลง Skel แล้ว: {path}",
+			"spine_viewer_set": "ตั้งค่า SpineViewerCLI แล้ว: {path}",
+			"character_map_set": "ตั้งค่าตารางจับคู่ ID นักเรียนแล้ว: {path}",
+			"skel_version_detection_failed": "ตรวจหาเวอร์ชันไฟล์ .skel ปัจจุบันไม่ได้",
+			"converting_skel": "กำลังแปลงไฟล์ .skel: {name}",
+			"version_conversion": "เวอร์ชันปัจจุบัน: {current} -> เวอร์ชันเป้าหมาย: {target}",
+			"executing_command": "กำลังเรียกคำสั่ง: {command}",
+			"skel_conversion_success": "แปลง Skel สำเร็จ",
+			"skel_conversion_failed": "แปลง Skel ไม่สำเร็จ",
+			"skel_detected": "พบไฟล์ .skel: {name}",
+			"version_mismatch_converting": "เวอร์ชัน Spine ไม่ตรงกัน (ปัจจุบัน {current}, เป้าหมาย {target}), กำลังแปลง",
+			"version_mismatch_no_convert": "เวอร์ชัน Spine ไม่ตรงกัน (ปัจจุบัน {current}, เป้าหมาย {target}), ยังไม่ได้เปิดตัวแปลง Spine",
+			"version_conflict_rejected": "เวอร์ชัน .skel ขัดแย้งกัน {count} ไฟล์, ปฏิเสธการแทนที่",
+			"converting_atlas": "กำลังแปลง Atlas: {name}",
+			"version_detected_downgrading": "พบ Spine เวอร์ชัน {version}, กำลังลดเวอร์ชัน...",
+			"atlas_downgrade_success": "ลดเวอร์ชัน Atlas สำเร็จ",
+			"legacy_rename_detected": "พบชื่อไฟล์รุ่นเก่าที่ต้องเปลี่ยน",
+			"edit_atlas": "แก้ไขไฟล์ Atlas: {filename}",
+			"unpacking_atlas": "กำลังแยก Atlas: {name}",
+			"atlas_unpack_success": "แยก Atlas สำเร็จ, บันทึกเฟรมที่: {path}",
+			"atlas_unpack_failed": "แยก Atlas ไม่สำเร็จ",
+			"querying_info": "กำลังค้นข้อมูลแอนิเมชัน: {name}",
+			"query_success": "พบ {anim_count} แอนิเมชัน, {skin_count} สกิน",
+			"query_failed": "ค้นข้อมูลแอนิเมชันไม่สำเร็จ",
+			"rendering_preview": "กำลังเรนเดอร์ตัวอย่าง: {name} (แอนิเมชัน: {anim})",
+			"render_success": "เรนเดอร์ตัวอย่างแล้ว: {path}",
+			"render_failed": "เรนเดอร์ตัวอย่างไม่สำเร็จ: {error}",
+			"render_file_not_found": "เรนเดอร์เสร็จแล้วแต่ไม่พบไฟล์ผลลัพธ์: {path}",
+			"no_skel_found": "ไม่พบไฟล์ .skel",
+			"no_animation_found": "ไม่พบแอนิเมชันที่ใช้ได้: {name}",
+			"using_first_animation": "ไม่พบ Idle_01 หรือ Dummy, ใช้แอนิเมชันแรก: {anim}",
+			"preview_complete": "เรนเดอร์ตัวอย่างเสร็จแล้ว, สร้าง {count} ไฟล์",
+			"preview_failed": "เรนเดอร์ตัวอย่างไม่สำเร็จ",
+			"anim_check_comparing": "กำลังตรวจสอบความต่างของแอนิเมชัน: {name}",
+			"anim_check_new_animations": "เป้าหมาย {name} มีแอนิเมชันที่ไม่มีในต้นทาง: {animations}",
+			"anim_check_no_diff": "แอนิเมชันของ {name} ตรงกัน",
+			"anim_check_failed": "ตรวจสอบความต่างของแอนิเมชันไม่สำเร็จ: {error}",
+			"anim_diff_title": "ไฟล์ต่อไปนี้มีแอนิเมชันใหม่ที่ไม่มีใน Mod เดิม:",
+			"anim_diff_item_count": "ขาด {count} แอนิเมชัน",
+			"anim_diff_missing_list": "รายการที่ขาด: {animations}",
+			"anim_diff_hint": "เกมอาจอัปเดตแอนิเมชัน, การใช้ Mod เก่าโดยตรงอาจทำให้เกมค้างเมื่อเล่นแอนิเมชันเหล่านี้"
+		},
+		"packer": {
+			"start_packing": "กำลังเริ่มแพ็กทรัพยากร...",
+			"pack_success_path": "แพ็กสำเร็จ, บันทึกไฟล์ที่: {path}",
+			"found_files_to_process": "พบ {count} ไฟล์ที่จะประมวลผล, กำลังสแกน Bundle และแทนที่...",
+			"no_assets_packed": "ไม่มีทรัพยากรที่แพ็กสำเร็จ",
+			"no_changes_saved": "ทรัพยากรไม่เปลี่ยนแปลง, บันทึก Bundle ต้นฉบับ: {name}",
+			"packing_complete": "แพ็กเสร็จแล้ว: สำเร็จ {success} / {total} ทรัพยากร",
+			"unmatched_files_warning": "ไฟล์ต่อไปนี้ไม่มีทรัพยากรที่ตรงกันใน Bundle",
+			"attempted_match": "ลองจับคู่: \"{key}\"",
+			"bleed_processed": "ใช้ Bleed กับภาพ {name} แล้ว",
+			"strategy_success": "ใช้ {count} ทรัพยากรด้วยวิธี {strategy}"
+		},
+		"crc": {
+			"loaded_original": "โหลดไฟล์ต้นฉบับ: {file}",
+			"loaded_modified": "โหลดไฟล์ที่แก้ไข: {file}",
+			"start_correction": "กำลังเริ่มแก้ไข CRC...",
+			"match_no_correction_needed": "ค่า CRC ตรงกัน, ไม่ต้องแก้ไข",
+			"correction_success": "แก้ไข CRC สำเร็จ",
+			"correction_failed": "แก้ไข CRC ไม่สำเร็จ",
+			"calculation_error": "คำนวณ CRC ไม่สำเร็จ: {error}",
+			"match_yes": "CRC ตรงกัน: ✅ ใช่",
+			"match_no": "CRC ตรงกัน: ❌ ไม่",
+			"file_crc32": "CRC32 ของไฟล์: {crc}",
+			"modified_file_crc32": "CRC32 ของไฟล์ที่แก้ไข: {crc}",
+			"original_file_crc32": "CRC32 ของไฟล์ต้นฉบับ: {crc}"
+		},
+		"report": {
+			"scan_start": "เริ่มสแกน",
+			"analyze_trailing": "กำลังวิเคราะห์ไบต์ท้ายไฟล์",
+			"bundle_count": "พบไฟล์ Bundle {count} ไฟล์",
+			"mod_count": "พบไฟล์ Mod {count} ไฟล์",
+			"render_preview": "กำลังเรนเดอร์ภาพตัวอย่าง",
+			"render_retry": "Mod มีทรัพยากรไม่ครบ, ลองรวมไฟล์ต้นฉบับ: {prefix}",
+			"render_count": "เรนเดอร์ตัวอย่างแล้ว {count} ภาพ",
+			"no_mod_found": "ไม่พบไฟล์ Mod",
+			"saved": "บันทึกรายงานที่: {path}",
+			"success": "สร้างรายงานสำเร็จ, {count} Mod"
+		},
+		"batch_preview": {
+			"scan_start": "เริ่มสแกนสำหรับเรนเดอร์แบบกลุ่ม",
+			"no_spine_found": "ไม่พบทรัพยากร Spine",
+			"group_count": "พบทรัพยากร Spine ที่จะเรนเดอร์ {count} กลุ่ม",
+			"render_count": "เรนเดอร์แบบกลุ่มเสร็จแล้ว: สำเร็จ {count} / {total} กลุ่ม"
+		},
+		"section": {
+			"extract_to_temp": "แยกทรัพยากรไปยังโฟลเดอร์ชั่วคราว",
+			"move_to_output": "ย้ายไฟล์ที่แยกไปยังโฟลเดอร์ผลลัพธ์",
+			"process_spine_downgrade": "ประมวลผลทรัพยากร Spine และลดเวอร์ชัน",
+			"process_atlas_unpack": "แยกภาพเฟรม Atlas",
+			"render_preview": "เรนเดอร์ภาพตัวอย่าง",
+			"applying_to_targets": "ใช้กับกลุ่มไฟล์เป้าหมาย",
+			"extracting_patches": "กำลังแยกแพตช์"
+		},
+		"compression": {
+			"original": "ต้นฉบับ",
+			"none": "ไม่มี",
+			"lzma": "LZMA",
+			"lz4": "LZ4"
+		},
+		"search": {
+			"searching_for_file_group": "กำลังค้นหาไฟล์เป้าหมายสำหรับไฟล์ต้นทาง {count} ไฟล์...",
+			"file_prefix": "คำนำหน้าชื่อไฟล์: \"{prefix}\"",
+			"file_core": "ชื่อหลักของไฟล์: \"{core}\"",
+			"found_candidates": "พบไฟล์ที่เป็นไปได้ {count} ไฟล์, กำลังตรวจสอบเนื้อหา...",
+			"source_mod_asset_count": "กลุ่มต้นทางมี {count} ทรัพยากร",
+			"checking_candidate": "กำลังตรวจสอบ: {name}",
+			"find_failed": "ค้นหาไม่สำเร็จ: {message}"
+		},
+		"extractor": {
+			"starting_extraction": "กำลังเริ่มแยกทรัพยากรจาก \"{filename}\"...",
+			"starting_extraction_num": "กำลังแยกทรัพยากรจาก {num} ไฟล์...",
+			"extraction_types": "ประเภทที่แยก: {types}",
+			"using_temp_dir": "ใช้โฟลเดอร์ชั่วคราว: {path}",
+			"skipping_unnamed": "ข้ามทรัพยากร {type} ที่ไม่มีชื่อ",
+			"extraction_failed": "แยกทรัพยากร {name} ไม่สำเร็จ: {error}",
+			"processing_file": "กำลังประมวลผล: {name}",
+			"stream_ref_dangling": "ข้ามการแยก [{name}]: ข้อมูลอ้างถึงไฟล์สตรีม (.resS) ที่ไม่มีใน Bundle, การแทนที่จะทำให้ทรัพยากรเสียหาย",
+			"stream_ref_export_unsupported": "ข้ามการส่งออก [{name}]: ยังส่งออกทรัพยากรที่อ้างอิงสตรีม .resS เป็นดัมป์ที่แพ็กใหม่ได้ไม่ได้"
+		},
+		"mod_update": {
+			"all_processes_complete": "ดำเนินการทั้งหมดเสร็จแล้ว, ประมวลผล {count} ทรัพยากร",
+			"updating": "กำลังอัปเดต...",
+			"source_files": "กลุ่มต้นทาง ({count} ไฟล์)",
+			"target_files": "กลุ่มเป้าหมาย ({count} ไฟล์)",
+			"pool_built": "สร้างชุดทรัพยากรทดแทนแล้ว {count} รายการ",
+			"target_unchanged": "เป้าหมายไม่เปลี่ยนแปลง: {name} ({count} ทรัพยากร), ข้าม",
+			"target_processed": "ประมวลผลเป้าหมายแล้ว: {name} (แทนที่ {applied} ทรัพยากร)",
+			"all_targets_unchanged": "ไฟล์เป้าหมายทั้งหมดไม่เปลี่ยนแปลง, ไม่ต้องอัปเดต"
+		},
+		"mod_install": {
+			"plan_start": "กำลังวิเคราะห์ไฟล์ Mod {count} ไฟล์...",
+			"group_info": "กลุ่ม [{core}] ({count} ไฟล์)",
+			"same_name_found": "พบไฟล์ชื่อเดียวกัน: {filename}, แทนที่โดยตรง",
+			"filter_latest_date": "พบหลายเวอร์ชันตามวันที่, ใช้ล่าสุด: {date}",
+			"update_targets": "ต้องอัปเดต, พบไฟล์เป้าหมาย {count} ไฟล์: {names}",
+			"target_conflict": "ไฟล์เป้าหมายขัดแย้งกัน: {filename}",
+			"plan_done": "วิเคราะห์เสร็จแล้ว: {total} ไฟล์ / {groups} กลุ่ม (แทนที่โดยตรง {direct}, อัปเดต {update}, ไม่พบ {not_found}, ข้อผิดพลาด {error})",
+			"execute_start": "กำลังติดตั้ง Mod {count} กลุ่ม...",
+			"execute_group": "กำลังติดตั้งกลุ่ม [{core}]...",
+			"crc_resave": "ต้องแก้ไขการชนกันของ CRC, บันทึกใหม่: {filename}",
+			"replace_failed": "แทนที่ไฟล์ไม่สำเร็จ: {path} ({error})",
+			"already_installed": "ทรัพยากรทั้งหมดในกลุ่ม [{core}] ไม่เปลี่ยนแปลง, ถือว่าติดตั้งแล้ว, ข้าม",
+			"execute_done": "ติดตั้งเสร็จแล้ว: สำเร็จ {installed} กลุ่ม / ข้าม {skipped} กลุ่ม / ล้มเหลว {failed} กลุ่ม",
+			"list_cleaned": "นำไฟล์ที่ติดตั้งแล้วออกจากรายการ {count} ไฟล์"
+		},
+		"batch": {
+			"summary": "ประมวลผลแบบกลุ่มเสร็จแล้ว\nทั้งหมด: {total}, สำเร็จ: {success}, ล้มเหลว: {fail}",
+			"start": "กำลังเริ่มประมวลผลแบบกลุ่ม...",
+			"failed_items_cnt": "ประมวลผลไม่สำเร็จ {count} ไฟล์:",
+			"failed_item": "- {filename}",
+			"process_success": "ประมวลผลสำเร็จ: {filename}",
+			"process_failed": "ประมวลผลล้มเหลว: {filename} - {message}",
+			"process_unchanged": "เนื้อหาไม่เปลี่ยนแปลง, ข้าม: {filename}",
+			"output_files_list": "รายการไฟล์ผลลัพธ์ (ทั้งหมด {count} ไฟล์):"
+		},
+		"summary": {
+			"title": "สรุปการประมวลผล",
+			"total_files": "ทั้งหมด: {count} ไฟล์",
+			"output_files": "สร้างแล้ว: {count} ไฟล์",
+			"skipped_files": "ข้ามแล้ว: {count} ไฟล์",
+			"no_changes": "ไม่เปลี่ยนแปลง"
+		},
+		"game_dir": {
+			"detected": "พบโฟลเดอร์เกม: {path}"
+		},
+		"game_dir_not_set": "ยังไม่ได้ตั้งค่าโฟลเดอร์ทรัพยากรเกม, ค้นหาไฟล์ต้นฉบับอัตโนมัติไม่ได้",
+		"file_not_found_in_dirs": "ไม่พบไฟล์ต้นฉบับ \"{filename}\" ในโฟลเดอร์ทรัพยากรที่ระบุ",
+		"file_found_in_subdir": "พบและโหลดไฟล์ต้นฉบับใน \"{subdir}\" อัตโนมัติ: {filename}",
+		"output_dir_not_set": "ยังไม่ได้ตั้งค่าโฟลเดอร์ผลลัพธ์",
+		"success_fail": "สำเร็จ: {success}, ล้มเหลว: {fail}",
+		"error_detail": "ข้อผิดพลาด: {error}",
+		"error_processing": "ข้อผิดพลาดขณะประมวลผล: {error}",
+		"process_failed": "ประมวลผลล้มเหลว: {error}",
+		"replace_original": "กด \"{button}\" เพื่อเขียนทับไฟล์ต้นฉบับ",
+		"generated_file_not_found": "การดำเนินการแจ้งว่าสำเร็จแต่ไม่พบไฟล์ที่สร้างในโฟลเดอร์ผลลัพธ์",
+		"replace_resource_failed": "แทนที่ทรัพยากร [{type}] {name} ไม่สำเร็จ: {error}",
+		"replace_applied": "แทนที่แล้ว [{type}] {name}",
+		"replace_skipped_same_content": "ข้ามการแทนที่ [{type}] {name}: เนื้อหาเหมือนต้นฉบับ",
+		"replace_companion_exists": "มีไฟล์สตรีมประกอบ {name} แล้ว, ข้ามการแนบ",
+		"replace_companion_attached": "ไฟล์ประกอบ: {names}",
+		"stream_prefix_skip": "คำนำหน้าการอ้างอิงสตรีม {src} ยาวไม่เท่าชื่อ SF เป้าหมาย {dst}, ข้ามการเขียนใหม่",
+		"platform_info": "แพลตฟอร์มเป้าหมาย: {platform} (Unity {version})",
+		"unnamed_resource": "ทรัพยากร {type} ที่ไม่มีชื่อ",
+		"adb": {
+			"cache_hit": "พบในแคช: {name}",
+			"cache_miss": "ไม่พบในแคช, กำลังดึงจากอุปกรณ์: {name}",
+			"pull_failed": "ดึงไม่สำเร็จ: {path} - {error}",
+			"push_failed": "ส่งไม่สำเร็จ: {path} - {error}",
+			"list_dir_failed": "อ่านรายการโฟลเดอร์ไม่สำเร็จ: {path} - {error}",
+			"push_start": "กำลังส่งไปยังอุปกรณ์: {name}",
+			"push_success": "ส่งสำเร็จ: {name}",
+			"cache_caching": "กำลังแคช {count} ไฟล์ไว้ในเครื่อง...",
+			"cache_delete_failed": "ลบไฟล์แคช {name} ไม่สำเร็จ: {error}",
+			"push_start_batch": "กำลังส่ง {count} ไฟล์ไปยัง {dir}"
+		},
+		"abnormal_check": {
+			"found_count": "พบไฟล์ CRC ไม่ตรงกัน {count} ไฟล์",
+			"fixing": "กำลังซ่อมแซม: {filename}",
+			"fix_success": "ซ่อมแซมสำเร็จ: {filename}",
+			"fix_failed": "ซ่อมแซมล้มเหลว: {filename}",
+			"fix_verify_failed": "ตรวจสอบผลการซ่อมแซมไม่สำเร็จ: {filename}",
+			"fix_error": "ซ่อมแซม {filename} ไม่สำเร็จ: {error}"
+		},
+		"backup": {
+			"start": "เริ่มสำรอง Mod",
+			"found_mods": "พบไฟล์ Mod {count} ไฟล์",
+			"done": "สำรองข้อมูลเสร็จแล้ว, {count} ไฟล์",
+			"companion_checking": "กำลังตรวจสอบ TextAsset ที่เกี่ยวข้อง: {filename}",
+			"companion_matched": "พบ TextAsset ที่ต้องสำรองเพิ่มเติม: {filename}"
+		}
+	},
+	"ui": {
+		"app_title": "Blue Archive Modding and Patching Tool",
+		"tabs": {
+			"mod_update": "อัปเดต Mod",
+			"batch_update": "อัปเดตแบบกลุ่ม",
+			"mod_install": "ติดตั้ง Mod",
+			"crc_tool": "เครื่องมือ CRC",
+			"asset_packer": "แพ็กทรัพยากร",
+			"asset_extractor": "แยกทรัพยากร",
+			"file_list": "รายการไฟล์",
+			"adb_push": "ส่งไฟล์ ADB",
+			"tools": "เครื่องมือ"
+		},
+		"tools": {
+			"batch_tools": "เครื่องมือแบบกลุ่ม",
+			"batch_tools_info": "ตรวจหา Mod โดยเปรียบเทียบขนาดในส่วนหัว Bundle กับขนาดไฟล์จริง, หากมีไบต์เพิ่มท้ายไฟล์จะถือว่าเป็น Mod, เครื่องมือแบบกลุ่มด้านล่างใช้วิธีนี้\n\nรับรองผลเฉพาะเวอร์ชัน Steam, เวอร์ชันอื่นใช้ Mod ได้โดยไม่ต้องแก้ไข CRC จึงอาจตรวจไม่พบ",
+			"report": {
+				"title": "สร้างรายงาน Mod",
+				"info": "สแกน Mod ทั้งหมดที่ตรวจพบในโฟลเดอร์เกม, สร้างรายงาน Markdown ตามหมวดหมู่, เลือกเรนเดอร์ตัวอย่าง Spine ได้"
+			},
+			"abnormal_check": {
+				"title": "แก้ไข \"ไคลเอนต์ผิดปกติ\"",
+				"info": "ตรวจหา Mod ที่ค่า CRC ในชื่อไฟล์ไม่ตรงกับไฟล์จริง (เกมถือว่าผิดปกติ), แก้ไขได้ในคลิกเดียว",
+				"result_list": "ผลการตรวจหา",
+				"column_filename": "ชื่อไฟล์",
+				"column_char_name": "นักเรียน",
+				"column_target_crc": "CRC เป้าหมาย",
+				"column_actual_crc": "CRC จริง"
+			},
+			"backup": {
+				"title": "สำรอง Mod",
+				"info": "คัดลอก Mod ทั้งหมดที่ตรวจพบในโฟลเดอร์เกมไปยังโฟลเดอร์สำรอง, คงโครงสร้างโฟลเดอร์เดิม"
+			},
+			"batch_preview": {
+				"title": "เรนเดอร์ตัวอย่างแบบกลุ่ม",
+				"info": "เรนเดอร์ตัวอย่าง Spine ทั้งหมดในโฟลเดอร์ทรัพยากรเกม (ภาพตัวละคร, ล็อบบี้ความทรงจำ, พื้นหลัง Spine), ไม่จำกัดเฉพาะ Mod, บันทึกในโฟลเดอร์ย่อย batch_preview ของโฟลเดอร์ผลลัพธ์",
+				"game_dir": "โฟลเดอร์ทรัพยากรเกม"
+			}
+		},
+		"settings": {
+			"title": "การตั้งค่า",
+			"button_text": "การตั้งค่า",
+			"group_save": "บันทึกการตั้งค่า",
+			"group_assets": "ตัวเลือกทรัพยากร",
+			"group_skel_converter": "ตัวแปลง Skel",
+			"group_spine_viewer": "SpineViewer",
+			"group_bacii": "ชื่อนักเรียน",
+			"group_performance": "ประสิทธิภาพ",
+			"group_app": "การตั้งค่าแอป",
+			"group_paths": "การตั้งค่าตำแหน่ง",
+			"group_adb": "การตั้งค่า ADB",
+			"adb": {
+				"device": "เลือกอุปกรณ์",
+				"detecting": "กำลังตรวจหา...",
+				"device_connected": "อุปกรณ์พร้อม",
+				"device_unauthorized": "อุปกรณ์ยังไม่ได้รับอนุญาต, อนุญาตการแก้ไขข้อบกพร่อง USB บนมือถือ",
+				"device_offline": "อุปกรณ์ออฟไลน์",
+				"cache_size": "ขนาดแคช: {size}"
+			}
+		},
+		"column": {
+			"filename": "ชื่อไฟล์",
+			"file_size": "ขนาด",
+			"modified_time": "แก้ไขล่าสุด"
+		},
+		"adb_push": {
+			"local_files": "ไฟล์ในเครื่อง",
+			"placeholder_local": "ลากไฟล์หรือโฟลเดอร์มาที่นี่...",
+			"target_dir": "โฟลเดอร์เป้าหมาย (ตำแหน่งในอุปกรณ์)",
+			"push": "ส่งไปยังอุปกรณ์"
+		},
+		"mod_update": {
+			"placeholder_old": "ลาก Mod ที่จะอัปเดตหรือย้ายมาที่นี่\nหรือเลือกด้วยปุ่มด้านล่าง",
+			"placeholder_new": "ค้นหาไฟล์ต้นฉบับอัตโนมัติเมื่อเลือกไฟล์ที่แก้ไข\nหรือลากไฟล์มาเองหรือกดเรียกดู",
+			"placeholder_batch": "ลากไฟล์หรือโฟลเดอร์มาที่นี่...",
+			"status_not_found": "ไม่พบทรัพยากรที่ตรงกัน: {message}"
+		},
+		"mod_install": {
+			"placeholder": "ลากไฟล์ Mod ที่จะติดตั้งมาที่นี่...",
+			"view_details": "ดูรายละเอียด",
+			"dialog_title": "ยืนยันการติดตั้ง Mod",
+			"likely_installed": "อาจติดตั้งแล้ว",
+			"prev_group": "◀ ก่อนหน้า",
+			"next_group": "ถัดไป ▶",
+			"preview_current": "ปัจจุบัน",
+			"preview_new": "หลังติดตั้ง",
+			"preview_none": "ยังไม่มีตัวอย่าง",
+			"sync_view": "ซิงก์มุมมอง",
+			"preview_tag_render": "[เรนเดอร์]",
+			"preview_tag_extract": "[แยก]",
+			"meta_title": "ไฟล์และทรัพยากร",
+			"confirm_install": "ติดตั้ง ({install}/{total})",
+			"action_direct_replace": "แทนที่โดยตรง",
+			"action_update": "อัปเดตแล้วแทนที่",
+			"action_not_found": "ไม่พบไฟล์ที่ตรงกัน",
+			"action_error": "ข้อผิดพลาด",
+			"action_mixed": "แบบผสม",
+			"meta_size": "{mod_size} → {existing_size}",
+			"diff_content_changed": "เนื้อหาเปลี่ยนแปลง",
+			"diff_unchanged": "ไม่เปลี่ยนแปลง",
+			"diff_missing_anims": "ขาด {count} แอนิเมชัน",
+			"diff_will_replace": "จะแทนที่",
+			"preview_rendering": "กำลังเรนเดอร์...",
+			"preview_failed": "เรนเดอร์ไม่สำเร็จ"
+		},
+		"crc_tool": {
+			"placeholder_modified": "ลาก Bundle ที่จะแก้ไข CRC มาที่นี่\nหรือเลือกด้วยปุ่มด้านล่าง",
+			"placeholder_origin": "ค้นหาไฟล์ต้นฉบับอัตโนมัติเมื่อเลือกไฟล์ที่จะแก้ไข\nหรือลากไฟล์มาเองหรือกดเรียกดู"
+		},
+		"packer": {
+			"placeholder_assets": "ลากทรัพยากรที่จะแพ็ก (.png/.skel/.atlas ฯลฯ) มาที่นี่",
+			"placeholder_bundle": "ลาก Bundle เป้าหมายมาที่นี่\nหรือเลือกด้วยปุ่มด้านล่าง"
+		},
+		"extractor": {
+			"placeholder_bundle": "ลาก Bundle ทั้งหมดที่จะแยกทรัพยากรมาที่นี่"
+		},
+		"dialog": {
+			"select": "เลือก {type}",
+			"select_file": "เลือกไฟล์",
+			"adb_browser": "ตัวเลือกไฟล์ ADB",
+			"adb_browser_dir": "ตัวเลือกโฟลเดอร์ ADB"
+		},
+		"drop_zone": {
+			"file_hint": "ลากไฟล์มาที่นี่\nหรือเลือกด้วยปุ่มด้านล่าง",
+			"folder_hint": "ลากโฟลเดอร์มาที่นี่\nหรือเลือกด้วยปุ่มด้านล่าง",
+			"searching": "กำลังค้นหา...",
+			"multiple_files_rejected": "รองรับครั้งละหนึ่งไฟล์",
+			"contains": "มี {count} ไฟล์: {types}"
+		},
+		"preview": {
+			"double_click_hint": "ดับเบิลคลิกภาพเพื่อดูขนาดเต็ม"
+		},
+		"label": {
+			"mod_file": "ไฟล์ Mod ที่จะประมวลผล",
+			"search_path": "ตำแหน่งค้นหา:",
+			"assets_to_pack": "ทรัพยากรที่จะแพ็ก",
+			"target_bundle_file": "ไฟล์ Bundle เป้าหมาย",
+			"bundles_to_extract": "Bundle ที่จะแยกทรัพยากร",
+			"original_file": "ไฟล์ต้นฉบับ",
+			"modified_file": "ไฟล์ที่จะแก้ไข",
+			"environment": "สภาพแวดล้อม",
+			"github": "GitHub",
+			"options": "ตัวเลือก",
+			"adb_cache": "แคช ADB",
+			"target_crc": "ค่า CRC เป้าหมาย",
+			"mod_info": "เกี่ยวกับการตรวจหา Mod"
+		},
+		"log_area": "บันทึก",
+		"status_label": "สถานะ: ",
+		"file_list": {
+			"window_title": "รายการไฟล์ Bundle",
+			"column": {
+				"filename": "ชื่อไฟล์",
+				"directory": "โฟลเดอร์",
+				"file_size": "ขนาด",
+				"modified_time": "เวลาแก้ไขล่าสุด",
+				"trailing_bytes": "ไบต์ท้ายไฟล์",
+				"trailing_content": "เนื้อหาท้ายไฟล์",
+				"category": "หมวดหมู่",
+				"core": "ชื่อหลัก",
+				"character": "ชื่อนักเรียน",
+				"res_type": "ประเภททรัพยากร",
+				"crc": "CRC ในชื่อไฟล์",
+				"crc_actual": "CRC จริง"
+			},
+			"analyze_label": "วิเคราะห์:",
+			"analyze_trailing": "ไบต์ท้ายไฟล์",
+			"analyze_naming": "อ่านชื่อไฟล์",
+			"analyze_crc": "ตรวจสอบ CRC",
+			"no_analyzer_selected": "เลือกการวิเคราะห์อย่างน้อยหนึ่งประเภท",
+			"scanning": "กำลังสแกน...",
+			"analyzing": "กำลังวิเคราะห์...",
+			"analyzing_progress": "กำลังวิเคราะห์... ({done}/{total}) {filename}",
+			"crc_match": "CRC ตรงกัน: ✅ ชื่อไฟล์ {expected} == ค่าจริง {actual}",
+			"crc_mismatch": "CRC ไม่ตรงกัน: ❌ ชื่อไฟล์ {expected} != ค่าจริง {actual}",
+			"crc_no_filename_crc": "ชื่อไฟล์ไม่มีค่า CRC, ค่า CRC จริง: {actual}",
+			"no_dirs_found": "ไม่พบโฟลเดอร์ค้นหาที่ใช้ได้",
+			"scan_complete": "สแกนเสร็จแล้ว",
+			"analyze_complete": "วิเคราะห์เสร็จแล้ว",
+			"filter_label": "ตัวกรอง:",
+			"select": {
+				"label": "เลือกแบบกลุ่ม",
+				"dialog_title": "เงื่อนไขการเลือกแบบกลุ่ม",
+				"column": "คอลัมน์เป้าหมาย",
+				"operator": "ตัวดำเนินการ",
+				"value": "ค่าที่จับคู่",
+				"action": "เลือก",
+				"action_filter": "เลือกและกรอง",
+				"invert": "สลับการเลือก",
+				"no_match": "ไม่พบแถวที่ตรงกัน",
+				"matched": "เลือก {count} แถวแล้ว"
+			},
+			"filter": {
+				"has_trailing": "มีไบต์ท้ายไฟล์",
+				"crc_mismatch": "CRC ไม่ตรงกัน",
+				"has_character": "มีชื่อนักเรียน",
+				"common_mod": "คำนำหน้า Mod ที่พบบ่อย"
+			},
+			"op": {
+				"contains": "มี",
+				"equals": "เท่ากับ",
+				"starts_with": "ขึ้นต้นด้วย",
+				"ends_with": "ลงท้ายด้วย",
+				"regex": "นิพจน์ทั่วไป"
+			}
+		},
+		"adb_browser": {
+			"loading": "กำลังโหลดรายการไฟล์...",
+			"error": "โหลดไม่สำเร็จ: {error}",
+			"found": "สแกนเสร็จแล้ว, พบ {count} ไฟล์"
+		},
+		"anim_diff": {
+			"title": "คำเตือนแอนิเมชันไม่ครบ"
+		}
+	},
+	"webui": {
+		"special": {
+			"title": "พิเศษ",
+			"arona": "อะโรน่า",
+			"plana": "พลาน่า",
+			"aoi": "Aoi",
+			"workpage": "หน้าภารกิจ",
+			"daytime": "กลางวัน",
+			"night": "กลางคืน",
+			"task": "ภารกิจ",
+			"cafe": "คาเฟ่",
+			"background": "L2D",
+			"add": "เพิ่ม L2D",
+			"switch": "เปลี่ยน L2D"
+		},
+		"top": {
+			"students": "นักเรียน"
+		},
+		"consent": {
+			"title": "ใช้ทรัพยากรเกม",
+			"no": "ปฏิเสธและออก",
+			"yes": "ยอมรับและแคช",
+			"cached": {
+				"label": "แคชไว้ในเครื่องนี้",
+				"items": "ไอคอน UI, ปุ่ม, กรอบ, พื้นผิว, ฟอนต์"
+			},
+			"never": {
+				"label": "ไม่แคช",
+				"items": "ภาพตัวละคร, ล็อบบี้ความทรงจำ, โมเดล 3D, เสียงพากย์, พื้นหลัง",
+				"how": "อ่านจากโฟลเดอร์เกมทุกครั้ง"
+			},
+			"note": "ทรัพยากรเป็นของเจ้าของเกม, ใช้เฉพาะในเครื่องนี้, ล้างได้ในการตั้งค่า",
+			"change": "เปลี่ยน"
+		},
+		"info": {
+			"title": {
+				"portrait": "ข้อมูลภาพตัวละคร",
+				"lobby": "ข้อมูลล็อบบี้ความทรงจำ",
+				"model": "ข้อมูลโมเดล 3D"
+			},
+			"details": "รายละเอียด",
+			"current": "ปัจจุบัน",
+			"status": "สถานะ",
+			"gameFile": "ไฟล์เกม",
+			"crc": "CRC"
+		},
+		"row": {
+			"box": {
+				"portrait": "ภาพตัวละคร",
+				"lobby": "ล็อบบี้ความทรงจำ",
+				"model": "โมเดล 3D"
+			},
+			"switch": {
+				"portrait": "เปลี่ยนภาพตัวละคร",
+				"lobby": "เปลี่ยนล็อบบี้ความทรงจำ",
+				"model": "เปลี่ยนโมเดล 3D"
+			},
+			"add": {
+				"portrait": "เพิ่มภาพตัวละคร",
+				"lobby": "เพิ่มล็อบบี้ความทรงจำ",
+				"model": "เพิ่มโมเดล 3D"
+			},
+			"four": {
+				"portrait": "สีหน้า",
+				"lobby": "บทสนทนา",
+				"model": "ท่าทาง"
+			}
+		},
+		"detail": {
+			"failed": "ไม่มีตัวอย่าง"
+		},
+		"lobby": {
+			"original": "ต้นฉบับ",
+			"fullscreen": "เต็มหน้าจอ",
+			"playAll": "เล่นบทสนทนาทั้งหมด",
+			"stop": "หยุด",
+			"exit": "ออกจากเต็มหน้าจอ",
+			"dialogue": "บทสนทนา {n}"
+		},
+		"model": {
+			"original": "ต้นฉบับ",
+			"has": "มี",
+			"none": "ไม่มี",
+			"failed": "อ่านโมเดล 3D ไม่ได้",
+			"action": {
+				"idle": "ยืนรอ",
+				"reaction": "โต้ตอบ",
+				"walk": "เดิน",
+				"victory": "ชนะ",
+				"pickup": "ยกขึ้น"
+			}
+		},
+		"visual": {
+			"reset": "รีเซ็ต",
+			"hide": "ซ่อน UI",
+			"show": "แสดง UI"
+		},
+		"nav": {
+			"students": "นักเรียน",
+			"modUpdate": "อัปเดต Mod",
+			"batch": "อัปเดตแบบกลุ่ม",
+			"install": "ติดตั้งแบบกลุ่ม",
+			"crc": "เครื่องมือ CRC",
+			"pack": "แพ็กทรัพยากร",
+			"extract": "แยกทรัพยากร",
+			"adb": "ส่งไฟล์ ADB",
+			"tools": "เครื่องมือ",
+			"classic": "{label} - UI คลาสสิก",
+			"import": "นำเข้าแบบกลุ่ม"
+		},
+		"roster": {
+			"title": "รายชื่อนักเรียน",
+			"merge": "รวมชุด",
+			"search": "ค้นหา",
+			"searchHint": "ชื่อ, นามแฝง, ID ไฟล์",
+			"empty": "ไม่พบผลลัพธ์",
+			"asc": "น้อยไปมาก",
+			"desc": "มากไปน้อย"
+		},
+		"seg": {
+			"all": "ทั้งหมด",
+			"mods": "มี Mod",
+			"noMods": "ไม่มี Mod",
+			"recruit": "เล่นได้",
+			"noRecruit": "NPC"
+		},
+		"sort": {
+			"recent": "ดูล่าสุด",
+			"added": "เพิ่มล่าสุด",
+			"name": "ชื่อ",
+			"mods": "จำนวน Mod",
+			"release": "วันที่เปิดตัว",
+			"default": "ค่าเริ่มต้น"
+		},
+		"display": {
+			"title": "การตั้งค่าการแสดงผล",
+			"tab": {
+				"filter": "ตัวกรอง",
+				"sort": "เรียงลำดับ"
+			},
+			"count": "แสดง {n}",
+			"reset": "รีเซ็ตทั้งหมด",
+			"sortBy": "เรียงตาม",
+			"close": "ปิด",
+			"fav": {
+				"off": "ยังไม่ได้เพิ่มในรายการโปรด"
+			}
+		},
+		"band": {
+			"modCounts": "ภาพตัวละคร: {portraits}, ล็อบบี้ความทรงจำ: {lobbies}",
+			"portrait": "ภาพตัวละคร",
+			"lobby": "ล็อบบี้",
+			"replaced": "แทนที่แล้ว"
+		},
+		"bar": {
+			"noMods": "ไม่มี Mod"
+		},
+		"tab": {
+			"portrait": "ภาพตัวละคร",
+			"lobby": "ล็อบบี้ความทรงจำ",
+			"model": "โมเดล 3D"
+		},
+		"status": {
+			"original": "ต้นฉบับเกม",
+			"replaced": "แทนที่แล้ว",
+			"gameFile": "ไฟล์เกม",
+			"installed": "ติดตั้งแล้ว",
+			"notInstalled": "ยังไม่ได้ติดตั้ง"
+		},
+		"crc": {
+			"original": "ไม่ต้องแก้ไข",
+			"needed": "ต้องแก้ไข",
+			"fixed": "แก้ไขแล้ว"
+		},
+		"open": {
+			"mac": "แสดงใน Finder",
+			"win": "แสดงใน File Explorer"
+		},
+		"act": {
+			"edit": "แก้ไข",
+			"update": "อัปเดต",
+			"extract": "แยก",
+			"compare": "เปรียบเทียบ"
+		},
+		"chips": {
+			"more": "เพิ่มเติม +{n}"
+		},
+		"fav": {
+			"label": "รายการโปรด",
+			"on": "เพิ่มในรายการโปรดแล้ว"
+		},
+		"alias": {
+			"title": "นามแฝง",
+			"add": "เพิ่มนามแฝง",
+			"remove": "นำออก"
+		},
+		"modAlias": {
+			"title": "นามแฝง Mod",
+			"hint": "Enter เพื่อบันทึก, เว้นว่างเพื่อล้าง"
+		},
+		"fold": {
+			"label": "ยุบ"
+		},
+		"popup": {
+			"switch": "เปลี่ยนภาพตัวละคร",
+			"apply": "ใช้",
+			"save": "บันทึก",
+			"cancel": "ยกเลิก",
+			"inUse": "ใช้งานอยู่",
+			"add": "เพิ่มภาพตัวละคร"
+		},
+		"mods": {
+			"switch": "เปิดใช้ Mod",
+			"guide": "คำแนะนำ",
+			"offState": "ปิด Mod แล้ว",
+			"onState": "เปิด Mod แล้ว",
+			"helpOn": "เปิด: ใช้ Mod ที่ตั้งค่ากับภาพตัวละครและล็อบบี้ความทรงจำทั้งหมด",
+			"helpOff": "ปิด: คืนภาพตัวละครและล็อบบี้ความทรงจำเป็นต้นฉบับ (ไม่มีผลหากต้นฉบับถูกเขียนทับ), Mod ยังคงอยู่ในคลัง Mod, ปิดเกมก่อนสลับ",
+			"helpFolders": "โฟลเดอร์เกม: {folders}",
+			"installNamed": "{server} ({folder})",
+			"explainOnce": "ไม่แสดงอีก",
+			"scan": {
+				"title": "ตรวจสอบไฟล์เกม",
+				"will": {
+					"label": "แอปนี้จะ",
+					"items": "ตรวจว่าไฟล์ที่ใช้ในเกมตรงกับการตั้งค่าหรือไม่, ค้นหา Mod นอกคลัง Mod และไฟล์ที่ไม่มีข้อมูลสำรองต้นฉบับ"
+				},
+				"willNot": {
+					"label": "แอปนี้จะไม่",
+					"items": "อ่านไฟล์ทั้งหมดหรือเนื้อหาไฟล์, ส่งข้อมูลออกจากเครื่องนี้"
+				},
+				"note": "ปฏิเสธ: ปิดการตรวจสอบเหล่านี้ไว้, เปลี่ยนได้ในการตั้งค่า",
+				"no": "ไม่อนุญาต",
+				"yes": "อนุญาต"
+			},
+			"notSwitched": "ยังไม่ได้เปลี่ยน: {n}",
+			"sourceMissing": "ไม่มีในคลังแล้ว: {n}",
+			"retry": "ลองใหม่",
+			"details": "รายละเอียด",
+			"offTitle": "ปิด Mod",
+			"onTitle": "เปิด Mod",
+			"toAdd": "เพิ่มในคลังก่อน: {n}",
+			"stuck": "คงเดิม, ไม่มีสำเนาต้นฉบับ: {n}",
+			"size": "ขนาดรวม: {size}",
+			"selected": "เลือกแล้ว: {n}",
+			"result": "เสร็จแล้ว: {done}, ล้มเหลว: {failed}",
+			"saved": "บันทึกแล้ว, มีผลเมื่อเปิด Mod",
+			"untrackedTitle": "Mod ที่ยังไม่อยู่ในคลัง",
+			"untrackedHint": "อาจสูญหายเมื่ออัปเดตเกมหรือตรวจสอบไฟล์หากไม่เพิ่มเข้าคลัง",
+			"untrackedAdd": "เพิ่มเข้าคลัง",
+			"addTurnOn": "เพิ่มและเปิด Mod",
+			"dontAsk": "ไม่ถามอีก",
+			"copy": {
+				"kept": "เก็บไว้แล้ว",
+				"backup": "สำรองข้อมูล",
+				"elsewhere": "โฟลเดอร์อื่น",
+				"none": "ไม่มีสำเนาต้นฉบับ"
+			},
+			"overwritten": "ถูกเขียนทับ",
+			"damaged": "เสียหาย",
+			"overwrittenTitle": "ไฟล์ต้นฉบับถูกเขียนทับ",
+			"overwrittenNone": "ไม่เหลือสำเนาต้นฉบับ",
+			"addFirst": "เพิ่มเข้าคลัง Mod ก่อนซ่อมแซม",
+			"lastCopy": "สำเนาเดียวของไฟล์ที่เกมยังใช้อยู่",
+			"mayNotStart": "เกมอาจเปิดไม่ได้",
+			"repairSteam": "Steam: คุณสมบัติ - ไฟล์ที่ติดตั้ง - ตรวจสอบความสมบูรณ์ของไฟล์เกม",
+			"repairGame": "ในเกม: กู้คืนทรัพยากร, อาจไม่แทนที่ Mod",
+			"repairThen": "จากนั้นเปิดแอปนี้ใหม่",
+			"driftTitle": "Mod กลับเป็นต้นฉบับแล้ว",
+			"driftWhy": "ไฟล์เกมผ่านการตรวจสอบ, ซ่อมแซมหรืออัปเดต",
+			"driftApply": "ใช้การตั้งค่า Mod",
+			"driftKeep": "คงเดิม",
+			"stillOverwritten": "ยังถูกเขียนทับ: {n}",
+			"deleteConfirm": "ลบ {name} หรือไม่?",
+			"deleteRestore": "รายการที่ใช้อยู่จะกลับเป็นต้นฉบับหรือการตั้งค่าก่อนหน้า",
+			"alreadyInUse": "ใช้งานอยู่แล้ว",
+			"deletePending": "ลบ Mod แล้ว, ไฟล์เกมบางส่วนยังรอคืนค่า",
+			"cache": "แคช Mod",
+			"cacheCleared": "ล้างแคช Mod แล้ว"
+		},
+		"switch": {
+			"configured": "ตั้งค่าแล้ว"
+		},
+		"field": {
+			"file": "ไฟล์",
+			"type": "ประเภท",
+			"size": "ขนาด",
+			"status": "สถานะ",
+			"crc": "CRC",
+			"folder": "โฟลเดอร์",
+			"date": "วันที่",
+			"modFile": "ไฟล์ Mod",
+			"source": "แหล่งที่มา",
+			"copy": "สำเนาต้นฉบับ"
+		},
+		"type": {
+			"recruit": "เล่นได้",
+			"noRecruit": "NPC",
+			"added": "Mod"
+		},
+		"btn": {
+			"open": "แสดงใน Finder",
+			"extract": "แยก",
+			"delete": "ลบ"
+		},
+		"picker": {
+			"title": "เลือกชุด",
+			"ok": "ยืนยัน",
+			"group": "{name} {n}"
+		},
+		"app": {
+			"loading": "กำลังอ่านไฟล์เกม",
+			"noGame": {
+				"title": "ไม่พบโฟลเดอร์เกม",
+				"hint": "ตรวจหาอัตโนมัติหรือเลือกโฟลเดอร์เกม"
+			},
+			"openSettings": "เปิดการตั้งค่า",
+			"closed": "ปิดแล้ว"
+		},
+		"loading": {
+			"now": "กำลังโหลด...",
+			"slow": "ยังคงโหลดอยู่",
+			"plain": "กำลังโหลด"
+		},
+		"progress": {
+			"add": "กำลังเพิ่ม: {name}",
+			"process": "กำลังประมวลผล: {name}",
+			"apply": "กำลังใช้: {name}",
+			"restore": "กำลังคืนค่า: {name}",
+			"repair": "กำลังซ่อมแซม: {name}",
+			"remap": "กำลังจัดพื้นผิวใหม่: {name}",
+			"delete": "กำลังลบ: {name}",
+			"extract": "กำลังแยก: {name}",
+			"compatibility": "กำลังตรวจสอบความเข้ากันได้: {name}",
+			"download": "กำลังดาวน์โหลด: {name}",
+			"check": "กำลังตรวจสอบไฟล์เกม",
+			"clear": "กำลังล้างแคช Mod",
+			"mods": "Mod",
+			"count": "{label} ({current}/{total})"
+		},
+		"job": {
+			"running": "กำลังประมวลผล",
+			"done": "เสร็จแล้ว",
+			"failed": "ล้มเหลว"
+		},
+		"error": {
+			"internal": "เกิดข้อผิดพลาด: {error}",
+			"game_not_found": "ไม่พบโฟลเดอร์เกม",
+			"mod_unsupported": "ไฟล์ที่ไม่รองรับ: {file}",
+			"game_file_locked": "ไฟล์เกมใช้งานอยู่, ปิดเกมก่อน",
+			"native_unavailable": "ใช้ไม่ได้ในโหมดเบราว์เซอร์",
+			"path_not_found": "ไม่พบตำแหน่ง: {path}",
+			"dev_path_outside": "อยู่นอกโฟลเดอร์พัฒนา: {path}",
+			"reveal_failed": "เปิดตัวจัดการไฟล์ไม่ได้",
+			"classic_failed": "เปิด UI คลาสสิกไม่ได้",
+			"unknown_method": "การดำเนินการที่ไม่รู้จัก: {method}",
+			"bad_params": "พารามิเตอร์ไม่ถูกต้อง",
+			"alias_too_long": "นามแฝงยาวได้สูงสุด {max} ตัวอักษร",
+			"alias_too_many": "นามแฝงได้สูงสุด {max} รายการ",
+			"job_not_found": "ไม่พบงาน",
+			"update_check_failed": "ตรวจสอบการอัปเดตไม่ได้",
+			"update_download_failed": "ดาวน์โหลดการอัปเดตไม่ได้",
+			"update_checksum_mismatch": "ค่าตรวจสอบไฟล์อัปเดตไม่ตรงกัน",
+			"update_unavailable": "เวอร์ชันนี้ไม่มีแพ็กเกจสำหรับเครื่องนี้",
+			"update_unsupported": "เวอร์ชันนี้อัปเดตตัวเองไม่ได้",
+			"update_restart_failed": "เริ่มใหม่เพื่ออัปเดตไม่ได้",
+			"lines_unavailable": "อ่านบทพูดไม่ได้ในขณะนี้",
+			"busy": "รองานปัจจุบันเสร็จก่อน",
+			"library_target_not_empty": "โฟลเดอร์มีไฟล์คลัง Mod อยู่แล้ว: {path}",
+			"library_io_error": "เขียนลงคลัง Mod ไม่ได้: {file}",
+			"asset_extraction_failed": "อ่านทรัพยากรจากไฟล์เกมไม่ได้",
+			"asset_load_failed": "อ่านไฟล์เกมไม่ได้: {path}",
+			"bundle_invalid": "Bundle ไม่ถูกต้อง: {file}",
+			"catalog_data_invalid": "ข้อมูลนักเรียนเสียหาย",
+			"catalog_family_not_found": "ไม่พบนักเรียน",
+			"catalog_variant_not_found": "ไม่พบชุด",
+			"game_file_conflict": "ไฟล์เกมขัดแย้งกัน: {file}",
+			"game_file_not_found": "ไม่พบไฟล์เกมที่ตรงกัน",
+			"game_file_outside_resources": "เป้าหมายอยู่นอกโฟลเดอร์เกม: {file}",
+			"game_running": "ปิดเกมก่อน",
+			"game_status_unavailable": "ตรวจสอบว่าเกมกำลังทำงานอยู่หรือไม่ไม่ได้",
+			"library_operation_failed": "ดำเนินการกับคลัง Mod ไม่สำเร็จ",
+			"mod_apply_failed": "ใช้ Mod ไม่สำเร็จ",
+			"mod_in_use": "ใช้อยู่ในเกม, เปลี่ยนเป็นรายการอื่นก่อน",
+			"mod_in_use_elsewhere": "ใช้อยู่ในโฟลเดอร์เกมอื่น: {folder}",
+			"mod_not_found": "ไม่พบ Mod",
+			"mod_target_mismatch": "Mod นี้ใช้กับชุดนี้ไม่ได้",
+			"mod_update_failed": "อัปเดต Mod ไม่สำเร็จ",
+			"original_invalid": "ไฟล์ต้นฉบับที่เก็บไว้เสียหาย: {file}",
+			"original_unavailable": "ไม่เหลือสำเนาต้นฉบับ",
+			"source_unsupported": "แหล่งที่มาไม่รองรับ",
+			"variant_incompatible": "โครงสร้างต่างกัน, สลับใช้กันไม่ได้",
+			"variant_not_found": "ไม่พบชุด",
+			"steam_busy": "Steam กำลังอัปเดตหรือตรวจสอบเกม",
+			"classic_open": "ปิด UI คลาสสิกก่อน",
+			"entry_changed": "ไฟล์เกมเปลี่ยนแล้ว, ตรวจสอบอีกครั้ง",
+			"folder_changed": "โฟลเดอร์เกมเปลี่ยนแล้ว, ลองใหม่",
+			"state_changed": "มีการสลับที่อื่นแล้ว, ตรวจสอบอีกครั้ง",
+			"profiles_unreadable": "อ่านการตั้งค่า Mod ไม่ได้: {file}",
+			"not_enough_space": "พื้นที่ไม่พอ: ต้องใช้ {need}, ว่าง {free}",
+			"mod_last_copy": "สำเนาเดียวของไฟล์ที่เกมยังใช้อยู่: {file}",
+			"scan_off": "ปิดการตรวจสอบไฟล์อยู่",
+			"mod_target_unknown": "ระบุนักเรียนและชุดของ Mod ไม่ได้: {file}",
+			"mod_target_ambiguous": "เป้าหมาย Mod ขัดแย้งกัน: {file}",
+			"mod_platform_unknown": "ระบุแพลตฟอร์มที่ใช้สร้างไม่ได้: {file}",
+			"mod_platform_mismatch": "{file}, แพลตฟอร์ม {platform}, ต้องใช้ {expected}",
+			"mod_parts_missing": "Mod ไม่ครบ, ขาดไฟล์: {files}",
+			"atlas_remap_invalid": "จัดใหม่ไม่ได้: {file} - {reason}",
+			"atlas_remap_target_mismatch": "จัดใหม่ไม่ได้: {file} - ทรัพยากรตรงกัน {matched}/{expected}",
+			"atlas_remap_property": "จัดใหม่ไม่ได้: {file} - {field} ไม่ถูกต้อง: {value} (หน้า {page}, พื้นที่ {region})",
+			"atlas_remap_structure": "จัดใหม่ไม่ได้: {file} - โครงสร้าง Atlas ไม่ถูกต้องที่บรรทัด {line}: {value}",
+			"atlas_remap_page_ambiguous": "จัดใหม่ไม่ได้: {file} - หน้าไม่ชัดเจน {page}",
+			"atlas_remap_region_ambiguous": "จัดใหม่ไม่ได้: {file} - พื้นที่ไม่ชัดเจน {region} (หน้า: {pages})",
+			"atlas_remap_bounds": "จัดใหม่ไม่ได้: {file} - พื้นที่ {region} เกินหน้า {page} ({width} × {height})",
+			"atlas_remap_page_missing": "จัดใหม่ไม่ได้: {file} - หน้าขาดพื้นผิว {page}",
+			"atlas_remap_asset_ambiguous": "จัดใหม่ไม่ได้: {file} - ทรัพยากรไม่ชัดเจน {name}",
+			"atlas_remap_atlas_missing": "จัดใหม่ไม่ได้: {file} - ไม่พบ Atlas ของ Mod ที่ตรงกัน",
+			"atlas_remap_source_missing": "จัดใหม่ไม่ได้: {file} - Mod ขาด Atlas, ไม่มี Atlas ต้นฉบับของ {date} ที่เก็บไว้",
+			"atlas_remap_regions_missing": "อัปเดตอัตโนมัติไม่ได้, Mod ขาดพื้นที่: {names}"
+		},
+		"drop": {
+			"hint": "ลากไฟล์ Mod มาเพื่อเพิ่ม"
+		},
+		"update": {
+			"title": "มีอัปเดต",
+			"current": "เวอร์ชันปัจจุบัน",
+			"latest": "เวอร์ชันใหม่",
+			"later": "ภายหลัง",
+			"now": "อัปเดต",
+			"downloading": "กำลังดาวน์โหลด {p}%",
+			"complete": "ดาวน์โหลดเสร็จแล้ว",
+			"restart": "เริ่มใหม่",
+			"restarting": "กำลังเริ่มใหม่เพื่ออัปเดตให้เสร็จ",
+			"page": "เปิดหน้าดาวน์โหลด"
+		},
+		"classic": {
+			"hint": "ยังไม่ได้ย้ายฟังก์ชัน, เปิดใน UI คลาสสิก",
+			"opening": "กำลังเปิด UI คลาสสิก",
+			"front": "นำมาไว้ด้านหน้า",
+			"opened": "UI คลาสสิกเปิดอยู่",
+			"autoApply": "ใช้อัตโนมัติเมื่อปิด",
+			"queued": "ใช้เมื่อปิด UI คลาสสิก",
+			"notApplied": "ยังไม่ได้ใช้"
+		},
+		"quit": {
+			"title": "แจ้งเตือน",
+			"ask": "ออกหรือไม่?"
+		},
+		"tray": {
+			"working": "กำลังประมวลผล {done}/{total}",
+			"drift": "คืนเป็นต้นฉบับแล้ว: {n}",
+			"quit": "ออก"
+		},
+		"settings": {
+			"title": "การตั้งค่า",
+			"tab": {
+				"general": "ทั่วไป",
+				"sound": "เสียง",
+				"l2d": "L2D",
+				"folders": "โฟลเดอร์",
+				"mods": "Mod"
+			},
+			"language": "ภาษา",
+			"cache": {
+				"label": "แคชทรัพยากร",
+				"on": "แคชไว้ในเครื่องนี้แล้ว",
+				"off": "ยังไม่ได้แคช",
+				"clear": "ล้างแคช",
+				"cleared": "ล้างแคชแล้ว",
+				"change": "เปลี่ยน"
+			},
+			"version": "เวอร์ชัน",
+			"log": {
+				"label": "บันทึก",
+				"open": "เปิด",
+				"copy": "คัดลอก",
+				"copied": "คัดลอกแล้ว"
+			},
+			"update": {
+				"startup": "ตรวจสอบอัปเดตเมื่อเริ่มแอป",
+				"check": "ตรวจสอบอัปเดต",
+				"none": "เป็นเวอร์ชันล่าสุดแล้ว"
+			},
+			"classic": {
+				"label": "การตั้งค่าเพิ่มเติม",
+				"hint": "เครื่องมือ Spine, ADB และอื่นๆ ใน UI คลาสสิก",
+				"open": "เปิด",
+				"ask": "ถามก่อนเปิดฟังก์ชันที่ยังไม่ได้ย้าย"
+			},
+			"mods": {
+				"clear": "ล้าง",
+				"scan": "ตรวจไฟล์ที่ไม่ตรงการตั้งค่าและ Mod นอกคลังเมื่อเริ่มแอป",
+				"tray": {
+					"win": "ไอคอนถาดระบบ",
+					"mac": "ไอคอนแถบเมนู"
+				},
+				"files": "ตรวจไฟล์ที่ไม่ตรงการตั้งค่า",
+				"check": "ตรวจสอบ",
+				"clean": "ไฟล์ตรงกับการตั้งค่า",
+				"driftHelp": {
+					"title": "ไฟล์ไม่ตรงการตั้งค่า",
+					"what": "ไฟล์เกมไม่ตรงกับการตั้งค่า Mod"
+				},
+				"other": "Mod ทั่วไป",
+				"empty": "ไม่มี Mod",
+				"useMod": "ใช้ Mod",
+				"official": "ต้นฉบับ",
+				"otherState": {
+					"official": "ต้นฉบับ",
+					"active": "ใช้งานอยู่",
+					"mixed": "ใช้งานบางส่วน",
+					"set": "ตั้งค่าแล้ว",
+					"changed": "มีการเปลี่ยนแปลง",
+					"missing": "ไม่พบไฟล์",
+					"inactive": "ไม่ได้ใช้งาน"
+				}
+			},
+			"voice": "เสียงพากย์",
+			"mute": "ปิดเสียง",
+			"zoomOut": {
+				"label": "ซูมออก",
+				"game": "มุมมองเกม",
+				"art": "ภาพเต็ม",
+				"unlocked": "ไม่จำกัด",
+				"custom": "กำหนดเอง",
+				"limit": "ขีดจำกัดที่กำหนดเอง",
+				"factor": "{v}x"
+			},
+			"post": {
+				"label": "ประมวลผลภาพ",
+				"on": "เปิด",
+				"off": "ปิด"
+			},
+			"intro": {
+				"label": "แอนิเมชันเริ่มต้น",
+				"on": "เปิด",
+				"off": "ปิด"
+			},
+			"server": {
+				"label": "เซิร์ฟเวอร์",
+				"global": "โกลบอล",
+				"japan": "ญี่ปุ่น"
+			},
+			"gameDir": "โฟลเดอร์เกม",
+			"library": "คลัง Mod",
+			"output": "โฟลเดอร์ผลลัพธ์เครื่องมือคลาสสิก",
+			"detect": "ตรวจหา",
+			"notSet": "ยังไม่ได้ตั้งค่า",
+			"saved": "บันทึกแล้ว",
+			"button": "การตั้งค่า",
+			"change": "เปลี่ยน",
+			"spine": {
+				"label": "สิทธิ์ใช้งาน Spine",
+				"restart": "สิทธิ์ใช้งาน Spine - การถอนมีผลเมื่อเริ่มใหม่"
+			}
+		},
+		"cacheTo": "แคชไว้ที่ {path}",
+		"languageName": "ไทย",
+		"a11y": {
+			"back": "กลับ"
+		},
+		"compare": {
+			"changed": "แก้ไขแล้ว",
+			"added": "เพิ่มแล้ว",
+			"removed": "นำออกแล้ว",
+			"none": "เหมือนไฟล์เกม"
+		},
+		"add": {
+			"done": "เพิ่มแล้ว",
+			"belongs": "เพิ่ม Mod ของ {name} แล้ว",
+			"part": "{name}, {kind}, เพิ่มแล้ว",
+			"go": "ไปยัง",
+			"stay": "อยู่ที่นี่",
+			"duplicate": "มีในคลัง Mod แล้ว: {name}",
+			"installed": "ระบุว่าเป็น Mod ที่ติดตั้งแล้ว",
+			"applyFailed": "เพิ่มแล้ว, เปลี่ยนไม่สำเร็จ: {reason}"
+		},
+		"compatibility": {
+			"more": "{names}, +{n}",
+			"check": "ตรวจสอบความเข้ากันได้",
+			"matches": "ไม่พบปัญหาการแสดงผล",
+			"unavailable": "ไม่มีไฟล์ต้นฉบับปัจจุบัน, เปรียบเทียบได้ไม่ครบ",
+			"outdated": "Bundle จากเกมเวอร์ชันอื่น",
+			"skeletons": "ชื่อโครงกระดูกต่างกัน: {name}",
+			"version": "{name}, Spine {mod}, ต้นฉบับ {official}",
+			"unreadable": "{name}, อ่านรายละเอียดโครงกระดูกไม่ได้",
+			"animations": "{name}, แอนิเมชันที่ขาด: {missing}, ที่เพิ่ม: {added}",
+			"slots": "{name}, สล็อตที่ขาด: {missing}, ที่เพิ่ม: {added}",
+			"attachments": "{name}, Attachment ที่ขาด: {missing}, ที่เพิ่ม: {added}",
+			"bones": "{name}, กระดูก: {mod}, ต้นฉบับ {official}",
+			"atlasUnreadable": "{name}, อ่าน Atlas ไม่ได้",
+			"pages": "หน้า Atlas ที่ขาด: {missing}, ที่เพิ่ม: {added}",
+			"atlasSize": "{name}, Atlas: {atlas}, พื้นผิว: {texture}",
+			"textureSize": "{name}, พื้นผิว: {mod}, ต้นฉบับ {official}",
+			"updateHint": "อัปเดต: ย้ายทรัพยากรไปยัง Bundle ต้นฉบับปัจจุบัน, อาจต้องแปลงเวอร์ชัน Spine",
+			"authorHint": "ต้องใช้ Mod ที่ปรับให้เข้ากับเวอร์ชันปัจจุบัน",
+			"crcHint": "การแก้ไข CRC เปลี่ยนเฉพาะค่าตรวจสอบ",
+			"atlasLayout": "{name}, การจัดวาง Atlas ต่างกัน",
+			"geometry": "{name}, รูปทรง Attachment หรือ Mesh ต่างกัน",
+			"rig": "{name}, โครงสร้างกระดูกต่างกัน",
+			"regions": "พื้นที่ Atlas ที่ขาด: {names}",
+			"runtimeVersion": "{name}, Spine {version}, รันไทม์ {runtime}",
+			"missingAnimations": "{name}, ขาดแอนิเมชันที่จำเป็น: {names}",
+			"ported": "ย้ายทรัพยากรไปยัง Bundle ปัจจุบันแล้ว"
+		},
+		"remap": {
+			"action": "อัปเดต",
+			"name": "{name} - ซ่อมแซมแล้ว",
+			"done": "จัดพื้นผิวใหม่แล้ว",
+			"partial": "จัดพื้นผิวใหม่แล้ว, ซ่อมแซมบางส่วน",
+			"counts": "จัดใหม่แล้ว: {moved}, ไม่ใช้: {dropped}",
+			"dropped": "พื้นที่ที่นำออก: {names}",
+			"rig": "{name}, ข้อมูลโครงกระดูกต่างกัน, Attachment หรือ Mesh อาจยังเหลื่อม",
+			"version": "{name}, เวอร์ชัน Spine ต่างกัน, ต้องแปลงโครงกระดูก",
+			"upscaled": "ขยายพื้นผิวเป็น {w} × {h} แล้ว",
+			"repaired": "ซ่อมแซมแล้ว",
+			"go": "ดู Mod ที่ซ่อมแซมแล้ว",
+			"unneeded": "ไม่ต้องซ่อมแซม",
+			"accept": "ยอมรับ",
+			"discard": "ทิ้ง",
+			"preview": "ตัวอย่างการซ่อมแซม",
+			"original": "ต้นฉบับ",
+			"after": "หลังซ่อมแซม",
+			"previewUnavailable": "ไม่มีตัวอย่าง",
+			"unpainted": "พื้นที่ว่างที่ไม่ได้ใช้: {names}"
+		},
+		"spine": {
+			"license": {
+				"title": "สิทธิ์ใช้งาน Spine",
+				"body": "ตัวอย่างใช้ Spine Runtimes ของ Esoteric Software, ต้องมีสิทธิ์ใช้งาน Spine ของตนเอง",
+				"yes": "มีสิทธิ์ใช้งาน Spine",
+				"no": "ไม่มีสิทธิ์ใช้งาน Spine",
+				"required": "ต้องยืนยันสิทธิ์ใช้งาน Spine",
+				"confirm": "ยืนยันสิทธิ์ใช้งาน"
+			}
+		},
+		"import": {
+			"list": "รายการนำเข้า",
+			"count": "{n} Mod",
+			"addFiles": "เพิ่มไฟล์",
+			"addFolder": "เพิ่มโฟลเดอร์",
+			"search": "ชื่อ, ID, ชื่อไฟล์",
+			"filter": "สถานะการนำเข้า",
+			"filterCount": "{state} ({n})",
+			"all": "เลือกทั้งหมด",
+			"none": "ยกเลิกการเลือกทั้งหมด",
+			"remove": "นำออก",
+			"clear": "ล้าง",
+			"recheck": "ตรวจสอบอีกครั้ง",
+			"action": "นำเข้า ({n})",
+			"results": "ดูผลลัพธ์",
+			"choose": "เลือก Mod",
+			"select": "เลือก",
+			"selectNamed": "เลือก {name}",
+			"meta": "{id} - {n} ไฟล์, {size}",
+			"empty": "ไม่มี Mod",
+			"drop": "เพิ่มไฟล์, โฟลเดอร์หรือลากมาที่นี่",
+			"noMatch": "ไม่พบ Mod ที่ตรงกัน",
+			"current": "เกมปัจจุบัน",
+			"incoming": "Mod ที่จะนำเข้า",
+			"previewUnavailable": "ไม่มีตัวอย่าง",
+			"other": "อื่นๆ",
+			"analyzing": "กำลังวิเคราะห์",
+			"picking": "กำลังเลือกไฟล์",
+			"saving": "กำลังบันทึก",
+			"failed": "นำเข้าไม่สำเร็จ",
+			"confirm": "ยืนยันการนำเข้า",
+			"confirmCount": "{state}: {n}",
+			"recursive": "รวมโฟลเดอร์ย่อย",
+			"progress": "{phase} - {done}/{total} {name}",
+			"complete": "เสร็จแล้ว: {n}, ล้มเหลว: {failed}",
+			"resultTitle": "ผลการนำเข้า",
+			"mod": "Mod",
+			"detected": "สถานะที่ตรวจพบ",
+			"resultLabel": "ผลลัพธ์",
+			"applied": "ใช้แล้ว",
+			"notApplied": "ยังไม่ได้ใช้",
+			"auto": "อัตโนมัติ",
+			"original": "ต้นฉบับ",
+			"uncompressed": "ไม่บีบอัด",
+			"state": {
+				"ready": "พร้อม",
+				"update": "ต้องอัปเดต",
+				"library": "มีในคลัง Mod แล้ว",
+				"installed": "ติดตั้งแล้ว",
+				"blocked": "นำเข้าไม่ได้"
+			},
+			"reason": {
+				"unreadable": "อ่านไฟล์ไม่ได้",
+				"no_target": "ไม่พบไฟล์เกมที่ตรงกัน",
+				"conflict": "เป้าหมายขัดแย้งกัน",
+				"spine_version": "เวอร์ชัน Spine ไม่เข้ากัน",
+				"unsupported": "ประเภทที่ไม่รองรับ"
+			},
+			"phase": {
+				"update": "กำลังอัปเดต",
+				"add": "กำลังเพิ่มในคลัง Mod",
+				"apply": "กำลังใช้ Mod"
+			},
+			"outcome": {
+				"imported": "เพิ่มในคลัง Mod แล้ว",
+				"updated": "อัปเดตและเพิ่มในคลัง Mod แล้ว",
+				"unchanged": "ไม่เปลี่ยนแปลง",
+				"failed": "ล้มเหลว",
+				"skipped": "ข้ามแล้ว"
+			},
+			"options": {
+				"title": "ตัวเลือกขั้นสูง",
+				"enableAfterImport": "เปิดใช้ Mod หลังนำเข้า",
+				"strategy": "วิธีจับคู่",
+				"types": "ประเภททรัพยากร",
+				"allTypes": "ทรัพยากรทุกประเภท",
+				"skipUnchanged": "ข้ามไฟล์ที่ไม่เปลี่ยนแปลง",
+				"crc": "การแก้ไข CRC",
+				"compression": "การบีบอัด",
+				"extraBytes": "ไบต์เพิ่มเติม",
+				"backup": "สร้างข้อมูลสำรอง",
+				"workers": "จำนวนเธรด",
+				"output": "โฟลเดอร์ผลลัพธ์",
+				"bytesHint": "ขึ้นต้นด้วย 0x: เลขฐานสิบหก, นอกเหนือจากนั้น: ASCII",
+				"typesRequired": "เลือกทรัพยากรอย่างน้อยหนึ่งประเภท",
+				"workersInvalid": "จำนวนเธรด: 1 ขึ้นไป"
+			},
+			"strategy": {
+				"cont_name_type": "คอนเทนเนอร์, ชื่อ, ประเภท",
+				"path_id": "Path ID",
+				"name_type": "ชื่อ, ประเภท"
+			}
+		}
+	}
+}

@@ -12,7 +12,7 @@ from ba_modding_toolkit.i18n import t
 from ba_modding_toolkit.library.identity import content_cores, identify
 from ba_modding_toolkit.naming import parse_filename
 
-from test_library import FakeVariant, game_bundle, setup_library
+from test_library import FakeVariant, game_bundle, make_mod, setup_library
 
 
 @pytest.fixture
@@ -157,3 +157,27 @@ def test_renamed_upload_is_stored_under_its_content_target(setup_library, monkey
     assert (entry.target, entry.kind, entry.core) == ('dress', 'lobby', 'dress_home')
     assert entry.file.read_bytes() == source.read_bytes()
     assert parse_filename(entry.file.name).core == 'dress_home'
+
+
+@pytest.mark.parametrize('apply', [False, True])
+@pytest.mark.parametrize('filename_kind, content_kind', [('spr', 'lobby'), ('lobby', 'spr')])
+def test_add_files_accepts_the_identified_kind_of_a_renamed_upload(
+        setup_library, monkeypatch, filename_kind, content_kind, apply):
+    env = setup_library
+    targets = {'spr': env.original, 'lobby': game_bundle(env.game_dir, 'test_home_gl')}
+    before = {kind: path.read_bytes() for kind, path in targets.items()}
+    source = make_mod(targets[filename_kind], env.tmp / 'upload')
+    target = targets[content_kind]
+    core = parse_filename(target.name).core
+    monkeypatch.setattr('ba_modding_toolkit.library.identity.content_cores', lambda path: {core})
+
+    added = env.library.add_files(content_kind, [source], apply=apply)
+
+    entry, = added
+    assert (entry.target, entry.kind, entry.core) == ('test', content_kind, core)
+    assert entry.file.name == target.name
+    assert entry.file.read_bytes() == source.read_bytes()
+    assert added.failed == []
+    assert added.applied == ([entry] if apply else [])
+    assert target.read_bytes() == (source.read_bytes() if apply else before[content_kind])
+    assert targets[filename_kind].read_bytes() == before[filename_kind]

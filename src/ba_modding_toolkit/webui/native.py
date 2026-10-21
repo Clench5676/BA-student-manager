@@ -19,6 +19,14 @@ def pick_files(window: Any, file_types: Iterable[str] = (), multiple: bool = Tru
     return [Path(p) for p in result or ()]
 
 
+def pick_folder(window: Any) -> list[Path]:
+    """The native folder dialog, with the same cancellation shape as pick_files."""
+    import webview
+
+    result = window.create_file_dialog(webview.FileDialog.FOLDER, allow_multiple=False)
+    return [Path(p) for p in result or ()]
+
+
 def watch_drops(window: Any, on_paths: Callable[[list[str]], None]) -> None:
     """Report the full paths of files dropped on the page. pywebview only adds the paths when the drop handler is
     registered from Python."""

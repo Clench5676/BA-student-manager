@@ -2,7 +2,9 @@
 
 Simplified Chinese follows Kivo's community wording: zh-CN names and skins come from the
 character map's Kivo columns (name_kivo, skin_kivo), and the CN server's (name_cn, skin_cn)
-only fill in where Kivo has none. The other languages use their own columns. The CN server's
+only fill in where Kivo has none. Japanese, English, Traditional Chinese and Korean use their
+own columns. Thai uses the official playable names derived from SchaleDB, with English
+fallbacks for missing names and story sprites. The CN server's
 names stay findable: they are the aliases the roster search matches (cn_words, cn_base,
 cn_name).
 """
@@ -15,8 +17,9 @@ import json
 import re
 from pathlib import Path
 
-# name language -> the character map column suffix (name_kr, skin_kr) and SchaleDB table (students.kr.json)
-LANGUAGES = {"zh-CN": "cn", "zh-TW": "tw", "en": "en", "ja": "jp", "ko": "kr"}
+# Character map languages; Thai is supplied separately by SchaleDB's Global table.
+SOURCE_LANGUAGES = {"zh-CN": "cn", "zh-TW": "tw", "en": "en", "ja": "jp", "ko": "kr"}
+LANGUAGES = {**SOURCE_LANGUAGES, "th": "th"}
 NAMING = json.loads((Path(__file__).parent / "data" / "naming.json").read_text(encoding="utf-8"))
 BASE_SHORT: dict[str, str] = NAMING["base_short"]
 SEPARATORS: dict[str, str] = NAMING["separators"]
@@ -40,7 +43,7 @@ def column(row: dict[str, str], field: str, lang: str) -> str:
 def clean(value: str, lang: str) -> str:
     """Normalize brackets, separators and the Terror asterisk without translating game wording.
 
-    Chinese and Japanese write the Terror asterisk full width (U+FF0A) and full-width brackets; English and Korean
+    Chinese and Japanese write the Terror asterisk full width (U+FF0A) and full-width brackets; English, Thai and Korean
     keep the half-width ones, Korean without a space before the bracket, as the game writes them (Azusa(Swimsuit),
     Shiroko*Terror in Hangul). A Korean middle dot joins the words of one name (Kanryou and Tsukumogami): a space takes
     its place.
@@ -49,7 +52,7 @@ def clean(value: str, lang: str) -> str:
         value = re.sub(r"\s*[\u00b7\u30fb]\s*", " ", value)
         value = re.sub(r"\s*[\uff0c\u3001]\s*|\s*,\s*", SEPARATORS[lang], value.strip())
     value = re.sub(r"[\u00b7\u30fb\uff0c\u3001]|,\s*", SEPARATORS[lang], value.strip())
-    if lang == "en":
+    if lang in ("en", "th"):
         return re.sub(r"\s*[\uff08(](.*)[\uff09)]$", r" (\1)", value)
     if lang == "ko":
         return re.sub(r"\s*[\uff08(](.*)[\uff09)]$", r"(\1)", value.replace("\uff0a", "*"))
@@ -63,9 +66,9 @@ def given_name(value: str) -> str:
 
 
 def bracketed(base: str, inner: str, lang: str) -> str:
-    """A base name with its variant words in the language's brackets: Hoshino (Swimsuit) in English, half-width
+    """A base name with its variant words in the language's brackets: a space before English and Thai brackets, half-width
     brackets with no space in Korean, full-width brackets in Chinese and Japanese."""
-    if lang == "en":
+    if lang in ("en", "th"):
         return f"{base} ({inner})"
     if lang == "ko":
         return f"{base}({inner})"
@@ -138,7 +141,7 @@ def csv_names(row: dict[str, str], bases: dict[str, str]) -> tuple[dict, dict]:
     """
     names, fallbacks = {}, {}
     story = bool(row.get("skin_cn") or row.get("skin_kivo") or remark(row))
-    for lang in LANGUAGES:
+    for lang in SOURCE_LANGUAGES:
         parts = _parts(row, lang)
         if any(origin is None for _, origin in parts):
             fallbacks[lang] = "untranslated_csv_part"
@@ -147,6 +150,8 @@ def csv_names(row: dict[str, str], bases: dict[str, str]) -> tuple[dict, dict]:
             fallbacks.setdefault(lang, "missing_csv_name")
         if story:
             fallbacks.setdefault(lang, "story_variant")
+    names["th"] = thai_fallback(names["en"])
+    fallbacks["th"] = "missing_thai_name"
     return names, fallbacks
 
 
@@ -174,7 +179,7 @@ def csv_sources(row: dict[str, str], bases: dict[str, str], fallbacks: dict[str,
     """
     entry = name_entry(row)
     sources = {}
-    for lang in LANGUAGES:
+    for lang in SOURCE_LANGUAGES:
         parts = _parts(row, lang)
         tabled = lang in entry and bases[lang] == clean(entry[lang], lang)
         if not tabled and not any(isinstance(origin, dict) and "source" in origin for _, origin in parts):
@@ -183,6 +188,7 @@ def csv_sources(row: dict[str, str], bases: dict[str, str], fallbacks: dict[str,
         origins = {entry["source"] if tabled else "official" if usable(column(row, "name", lang)) else "fallback"}
         origins.update(_origin(origin, lang) for _, origin in parts)
         sources[lang] = next(label for label in ("fallback", "translated", "official") if label in origins)
+    sources["th"] = "fallback"
     return sources
 
 
@@ -210,10 +216,44 @@ def csv_bases(row: dict[str, str]) -> dict[str, str]:
     split = given_name if has_surname(row) else str.strip
     entry = name_entry(row)
     bases = {}
-    for lang in LANGUAGES:
+    for lang in SOURCE_LANGUAGES:
         value = column(row, "name", lang)
         bases[lang] = clean(entry.get(lang) or split(value if usable(value) else fallback), lang)
+    bases["th"] = bases["en"]
     return bases
+
+
+def thai_fallback(english: dict[str, str]) -> dict[str, str]:
+    """Keep English names until official Thai wording is available; localize the base-variant label."""
+    return {"full": english["full"], "short": BASE_SHORT["th"] if english["short"] == BASE_SHORT["en"]
+            else english["short"]}
+
+
+def apply_thai_names(students: dict, variants: dict, rows: dict | None = None) -> None:
+    """Add official Global Thai playable names, otherwise explicit English fallbacks.
+
+    The shipped values are derived from SchaleDB's existing Thai student table, keyed
+    by its game character id. A build may supply a newer students.th.json. Story and
+    NPC names stay English until an official Thai name for their own sprite is known.
+    """
+    rows = NAMING["thai"]["students"] if rows is None else rows
+    rows = {str(key): row for key, row in rows.items() if re.search(r"[\u0e00-\u0e7f]", row.get("Name", ""))
+            and ("IsReleased" not in row or len(row["IsReleased"]) > 1 and row["IsReleased"][1])}
+    for student in students.values():
+        source = rows.get(str(variants[student["base"]].get("schale_id")), {})
+        personal = source.get("PersonalName", "")
+        student["names"]["th"] = clean(personal, "th") if re.search(r"[\u0e00-\u0e7f]", personal) else student["names"]["en"]
+    for entry in variants.values():
+        source = rows.get(str(entry.get("schale_id")), {}) if entry["playable"] else {}
+        if source:
+            full = clean(source["Name"], "th")
+            entry["names"]["th"] = {"full": full, "short": short_name(full, "th")}
+            entry.setdefault("name_sources", {})["th"] = "official"
+            entry.setdefault("fallbacks", {}).pop("th", None)
+        else:
+            entry["names"]["th"] = thai_fallback(entry["names"]["en"])
+            entry.setdefault("name_sources", {})["th"] = "fallback"
+            entry.setdefault("fallbacks", {})["th"] = "missing_thai_name"
 
 
 # --- aliases: the CN server's wording, which the roster search matches although zh-CN shows Kivo's ---

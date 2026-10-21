@@ -1,6 +1,7 @@
 // The real detail and NGUI modules, with mod-backed family data and stand-in browser/Spine loaders.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { register } from "node:module";
 import { test } from "node:test";
 
 class El {
@@ -270,6 +271,26 @@ const { setStrings } = await import("../../src/ba_modding_toolkit/web/js/i18n.js
 const { setSpineConsent } = await import("../../src/ba_modding_toolkit/web/js/spine-runtime.js");
 setSpineConsent(true);
 setStrings("en-US", flat(JSON.parse(readFileSync(new URL("../../src/ba_modding_toolkit/locales/en-US.json", import.meta.url), "utf8"))));
+const modelRequests = [];
+let modelPreview = null;
+globalThis.__detailModel = {
+  async show(key, host, options) {
+    modelRequests.push({ key, ...options });
+    modelPreview = options;
+    const canvas = document.createElement("canvas"); canvas.className = "model-view ready";
+    host.replaceChildren(canvas);
+    return ["idle"];
+  },
+  hide(host) { host?.replaceChildren(); }, frame() {}, settled: async () => {}, current: () => "idle", play() {},
+  snapshot: () => `blob:model-${modelPreview?.source}`,
+};
+const modelStub = `data:text/javascript,${encodeURIComponent(Object.keys(globalThis.__detailModel)
+  .map((name) => `export const ${name} = (...args) => globalThis.__detailModel.${name}(...args);`).join("\n"))}`;
+register(`data:text/javascript,${encodeURIComponent(`export async function resolve(spec, ctx, next) {
+  if (spec === "./model.js" && ctx.parentURL?.endsWith("/detail.js")) return { url: ${JSON.stringify(modelStub)}, shortCircuit: true };
+  return next(spec, ctx);
+}`)}`);
+await import(modelStub);
 const Detail = await import("../../src/ba_modding_toolkit/web/js/detail.js");
 const NGUI = await import("../../src/ba_modding_toolkit/web/js/ngui.js");
 const Loading = await import("../../src/ba_modding_toolkit/web/js/loading.js");
@@ -684,7 +705,7 @@ test("long portrait and lobby names only resize their own info cell in every loc
   const cell = (path) => walk(hosts.ngui).find((el) => el.dataset.path?.endsWith(`${INFO}/Status/${path}`) && el.style.fontSize);
   const size = (str, fs) => `${(NGUI.fontSizeFor(str, fs) * 1920 / 2960).toFixed(2)}px`;
   try {
-    for (const lang of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"]) {
+    for (const lang of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) {
       setStrings(lang, flat(JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${lang}.json`, import.meta.url), "utf8"))));
       for (const kind of ["spr", "lobby"]) {
         const snapshots = [];
@@ -737,7 +758,7 @@ const currentCell = () => walk(hosts.ngui).find((el) => el.dataset.path?.endsWit
 test("student aliases lead the existing name band, keep the variant's original, and update on save and clear in every locale", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   try {
-    for (const lang of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"]) {
+    for (const lang of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) {
       const ui = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${lang}.json`, import.meta.url), "utf8"));
       setStrings(lang, flat(ui));
       family = modFamily(); family.custom = ["My <Ibuki> & friend", "Search nickname"];
@@ -776,7 +797,7 @@ test("student aliases lead the existing name band, keep the variant's original, 
 test("mod aliases save and clear from the current value and both switch pencils in every locale", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   try {
-    for (const lang of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"]) {
+    for (const lang of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) {
       const ui = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${lang}.json`, import.meta.url), "utf8"));
       setStrings(lang, flat(ui));
       for (const kind of ["spr", "lobby"]) {
@@ -851,7 +872,7 @@ test("an alias on another variant's mod replaces the entire display name", async
 test("repaired names and own aliases keep a separate repair tag in every locale", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   try {
-    for (const lang of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"]) {
+    for (const lang of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) {
       const ui = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${lang}.json`, import.meta.url), "utf8"));
       setStrings(lang, flat(ui));
       for (const enabled of [true, false]) for (const alias of ["", "Own alias"]) {
@@ -1141,4 +1162,38 @@ for (const core of ["ibuki_home", "arona_workpage_daytime", "np0032_npc"]) test(
     assert.equal(text.style.color, "#000000");
     assert.ok(!warnings.some((args) => args[0] === "Switch card colours unavailable"));
   } finally { Detail.hide(); lobbyMode = "pending"; playerMode = "ready"; await flush(); t.mock.timers.reset(); }
+});
+
+
+for (const enabled of [true, false]) test(`model switching reuses the detail controls and previews its source with mods ${enabled ? "on" : "off"}`, async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    errors.length = 0;
+    family = modFamily("model");
+    const v = family.variants[0];
+    v.model = "ibuki_model";
+    v.configured = { model: "mod:test" };
+    v.modList[0].fresh = true;
+    if (!enabled) v.state.files = [{ kind: "model", applied: "official", official: true, restorable: true, crc: "ok" }];
+    modsEnabled = enabled; await ModSwitch.refresh();
+    await showPortrait(t);
+    const switching = tabButton(3).click();
+    for (let i = 0; i < 20; i++) { await new Promise(setImmediate); await flush(); }
+    await finish(t, switching);
+    assert.equal(modelRequests.at(-1)?.key, "ibuki", errors.map((args) => args.map(String).join(" ")).join("\n"));
+    assert.equal(modelRequests.at(-1).source, enabled ? "live" : "mod:test");
+    assert.ok(switchButton(), "the model switch opens the shared popup");
+    const add = walk(hosts.ngui).find((e) => e.dataset.part === `${INFO}/Weapon/Btn_Up_Wrapper/Btn_Up/BG (1)`);
+    assert.ok(add && add.getAttribute("aria-label") === "Add 3D Model");
+    const text = walk(hosts.ngui).find((e) => e.className === "switch-text");
+    assert.ok(text.children.some((e) => e.className === "switch-go"));
+    assert.ok(text.children.some((e) => e.innerText === "test"));
+    await switchButton().click(); await flush();
+    assert.ok(walk(hosts.popup).some((e) => e.dataset.key === "self"));
+    assert.ok(walk(hosts.popup).some((e) => e.dataset.key === "m:test"));
+    assert.equal(tabDot(3), undefined, "opening the model switch marks its offered mods seen");
+    assert.equal(v.modList[0].fresh, false);
+    assert.ok(!errors.flat().some((e) => String(e).includes("Spine source unavailable")));
+    await closeSwitch();
+  } finally { Detail.hide(); modsEnabled = true; await ModSwitch.refresh(); await flush(); t.mock.timers.reset(); }
 });

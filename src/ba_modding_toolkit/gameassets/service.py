@@ -17,7 +17,7 @@ from PIL import Image
 
 from .. import devmode
 from ..errors import ServiceError
-from ..naming import spine_kind
+from ..naming import parse_filename, spine_kind
 from .cache import AssetCache
 from . import lobby
 from .discovery import (
@@ -513,6 +513,10 @@ class GameAssets:
         except KeyError:
             raise AssetNotFound(("model", core)) from None
         overrides = list(dict.fromkeys(Path(path).resolve() for path in overrides))
+        # Prefabs are opened directly by the exporter; CAB overrides alone only replace their dependencies.
+        slots = {(parse_filename(path.name).prefix, parse_filename(path.name).res_type): path for path in overrides}
+        bundles = [slots.get((parse_filename(path.name).prefix, parse_filename(path.name).res_type), path)
+                   for path in bundles]
         stamps = []
         for path in [*bundles, *overrides]:
             try:

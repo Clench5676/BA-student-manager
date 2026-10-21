@@ -32,7 +32,7 @@ async function harness({ locale = "en-US", added = [], button = "cancel", error 
   const code = `const {rpc,waitJob,T,Loading,Popup,toast,Compatibility} = globalThis.modAddDeps;\n${source.replace(/^import .*;$/gm, "")}\n// ${seq++}`;
   const mod = await import(`data:text/javascript;base64,${Buffer.from(code).toString("base64")}`);
   mod.init({ names: async () => name,
-    changed: () => log.push(["changed"]), go: (key) => log.push(["go", key]) });
+    changed: () => log.push(["changed"]), go: (key) => log.push(["go", key]), goOther: () => log.push(["goOther"]) });
   return { mod, log, progress };
 }
 const portrait = { target: "base", kind: "spr" }, lobby = { target: "dress", kind: "lobby" };
@@ -48,8 +48,8 @@ test("picker and drop imports never run compatibility, even with legacy findings
   }
 });
 
-test("a failed automatic switch remains visible on the current variant in all five locales", async () => {
-  for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"]) {
+test("a failed automatic switch remains visible on the current variant in all six locales", async () => {
+  for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) {
     const mod = { ...portrait, id: "m1" };
     const report = { added: [mod], failed: [{ id: "m1", code: "game_running", params: {} }] };
     const h = await harness({ locale, added: report });
@@ -62,7 +62,7 @@ test("a failed automatic switch remains visible on the current variant in all fi
 });
 
 test("adding keeps its initial action label without starting a repair in all locales", async () => {
-  for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"]) {
+  for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) {
     const mod = { ...portrait, id: "m1", label: "Painted" };
     const added = { added: [mod], compatibility: { m1: { issues: ["outdated"] } } };
     const h = await harness({ locale, added, compatibilityUpdate: true });
@@ -133,7 +133,7 @@ test("mixed destinations only offer navigation for mods filed away from the sele
 });
 
 test("both kinds on the selected variant use the localized short confirmation", async () => {
-  for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"]) {
+  for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) {
     const h = await harness({ locale, added: [portrait, { ...portrait, kind: "lobby" }] });
     await h.mod.add(null, "base");
     const text = h.log.find(([k]) => k === "toast")[1];
@@ -159,6 +159,7 @@ test("file drops use the student actually shown and refresh after either confirm
     let handler, refreshes = 0, invalidations = 0;
     const env = {
       on: (name, fn) => { assert.equal(name, "drop"); handler = fn; },
+      location: { hash: "#/student/base/base" },
       ModAdd: h.mod, Detail: { currentVariant: () => shown },
       ctx: { invalidateRoster: () => { invalidations++; } }, route: () => { refreshes++; },
       toast: () => assert.fail("a successful drop does not show a hint or error"), T: (key) => key,
@@ -215,8 +216,8 @@ test("mixed kinds name both parts and each destination can be opened", async () 
   assert.deepEqual(closed, ["cancel"]); assert.deepEqual(h.log.at(-1), ["go", "dress"]);
 });
 
-test("all five locales name both parts without missing keys or placeholders", async () => {
-  for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"]) {
+test("all six locales name both parts without missing keys or placeholders", async () => {
+  for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) {
     const h = await harness({ locale, added: [portrait, lobby] });
     await h.mod.add();
     const opts = h.log.find(([k]) => k === "popup")[1];
@@ -237,7 +238,7 @@ test("cancelled picker, empty reports and rejected uploads show no success popup
 
 test("duplicate popup names the stored mod and offers Go to or OK in every locale", async () => {
   const duplicate = { ...portrait, id: "m1", label: "My portrait" };
-  for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"]) {
+  for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) {
     const report = { added: [], duplicates: [duplicate], installed: [] };
     const h = await harness({ locale, added: report, button: "ok" });
     assert.deepEqual(await h.mod.add(["renamed.bundle"]), report);
@@ -266,7 +267,7 @@ test("adopted game files are reported as installed, and mixed duplicate destinat
 
 test("duplicates on the current canonical variant show OK without navigation in every locale", async () => {
   const duplicate = { ...portrait, target: " BASE ", id: "m1", label: " My portrait \n" };
-  for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"]) {
+  for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) {
     const h = await harness({ locale, added: { added: [], duplicates: [duplicate], installed: [] }, button: "ok" });
     await h.mod.add(null, "base");
     const opts = h.log.find(([k]) => k === "popup")[1];
@@ -299,7 +300,7 @@ test("one report combines special results, toasts plain local adds and navigates
   const localDuplicate = { ...portrait, id: "local", label: "Local" };
   const remoteDuplicate = { target: " CH0200 ", kind: "spr", id: "remote", label: "Remote" };
   const report = { added: [plain, installed, elsewhere], duplicates: [localDuplicate, remoteDuplicate], installed: [installed] };
-  for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"]) {
+  for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) {
     const h = await harness({ locale, added: report, button: "ok" });
     await h.mod.add(["mods.bundle"], " base ");
     const strings = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${locale}.json`, import.meta.url), "utf8")).webui;
@@ -366,7 +367,7 @@ test("drop callers accept report objects for new mods, duplicates and adoption w
   const drop = main.slice(main.indexOf('  on("drop",'), main.indexOf('  $("top-option").addEventListener'));
   for (const report of [{ added: [portrait] }, { duplicates: [portrait] }, { installed: [portrait] }]) {
     let handler, refreshes = 0, invalidations = 0;
-    const env = { on: (_name, fn) => { handler = fn; }, Detail: { currentVariant: () => "base" },
+    const env = { on: (_name, fn) => { handler = fn; }, Detail: { currentVariant: () => "base" }, location: { hash: "#/roster" },
       ctx: { invalidateRoster: () => { invalidations++; } }, route: () => { refreshes++; },
       toast: () => assert.fail("a successful drop has no hint or error"), T: (key) => key,
       ModAdd: { add: async (...args) => { assert.deepEqual(args, [["mod.bundle"], "base"]); return report; } },
@@ -376,4 +377,68 @@ test("drop callers accept report objects for new mods, duplicates and adoption w
     assert.equal(invalidations, 1);
     assert.equal(refreshes, 1);
   }
+});
+
+test("mixed generic and character additions show labels and localized kinds in all six locales", async () => {
+  for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) {
+    const generic = { id: "ui", target: "other-set:internal-ui", kind: "other", label: " UI Pack \n" };
+    const h = await harness({ locale, added: [generic, portrait], name: (entry) => {
+      assert.notEqual(entry.kind, "other", "generic sources have their own library labels");
+      return "Mutsuki";
+    } });
+    await h.mod.add(["ui.bundle", "portrait.bundle"]);
+    const strings = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${locale}.json`, import.meta.url), "utf8")).webui;
+    const opts = h.log.find(([k]) => k === "popup")[1];
+    assert.deepEqual(opts.lines.map((row) => row.text), [
+      strings.add.part.replace("{name}", "UI Pack").replace("{kind}", strings.import.other),
+      strings.add.part.replace("{name}", "Mutsuki").replace("{kind}", strings.tab.portrait),
+    ]);
+    assert.ok(opts.lines.every((row) => !/tab\.other|other-set:|[{}]/.test(row.text)));
+    const closed = [];
+    opts.lines[0].button.fn({ close: (result) => closed.push(result) });
+    assert.deepEqual(closed, ["cancel"]);
+    assert.deepEqual(h.log.at(-1), ["goOther"]);
+    opts.lines[1].button.fn({ close() {} });
+    assert.deepEqual(h.log.at(-1), ["go", "base"]);
+  }
+});
+
+test("generic additions and duplicates share Settings as their destination", async () => {
+  const first = { id: "ui", target: "other-set:ui", kind: "other", label: "UI Pack" };
+  const second = { id: "music", target: "other-set:music", kind: "other", label: "Music Pack" };
+  for (const report of [[first], [first, second], { added: [], duplicates: [first] }]) {
+    const h = await harness({ added: report, button: "ok" });
+    await h.mod.add(["ui.bundle"], "base");
+    const opts = h.log.find(([k]) => k === "popup")[1];
+    assert.ok(opts.lines.every((line) => typeof line === "string"));
+    assert.ok(opts.lines[0].includes("UI Pack"));
+    assert.ok(!opts.lines.some((line) => /other-set:|tab\.other/.test(line)));
+    assert.deepEqual(h.log.at(-1), ["goOther"]);
+    assert.ok(!h.log.some(([k]) => k === "go"));
+  }
+});
+
+test("generic go-to opens Settings' Mods tab with the same preference updates as the settings button", async () => {
+  const main = readFileSync(new URL("../../src/ba_modding_toolkit/web/js/main.js", import.meta.url), "utf8");
+  const setup = main.slice(main.indexOf("  const settingsChanged ="), main.indexOf('  on("library.changed", libraryChanged);'));
+  const changes = [], opened = [], destinations = [];
+  let context;
+  const env = { ctx: { invalidateRoster: () => changes.push("invalidated"), go: (...args) => destinations.push(args) },
+    Detail: { applyPrefs: (prefs) => changes.push(prefs) }, variantNames: () => {}, route: () => changes.push("routed"),
+    Settings: { open: (...args) => opened.push(args) }, ModAdd: { init: (value) => { context = value; } },
+    rosterData: { families: [{ key: "mutsuki", variants: [{ key: "base" }] }] }, stepCards: {},
+  };
+  new Function("env", `let { ${Object.keys(env).join(", ")} } = env; ${setup}`)(env);
+  await context.goOther();
+  assert.equal(opened[0][1], "mods");
+  const prefs = { voiceVolume: 50 };
+  opened[0][0]("voiceVolume", prefs);
+  assert.equal(env.ctx.prefs, prefs);
+  assert.deepEqual(changes, [prefs]);
+  opened[0][0]("gameDir.global", prefs);
+  assert.deepEqual(changes, [prefs, prefs, "invalidated", "routed"]);
+  context.go("base");
+  assert.deepEqual(destinations, [["mutsuki", "base"]]);
+  const button = main.slice(main.indexOf('  $("top-option").addEventListener'), main.indexOf('  addEventListener("hashchange", route);'));
+  assert.ok(button.includes("Settings.open(settingsChanged)"));
 });

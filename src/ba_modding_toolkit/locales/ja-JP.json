@@ -888,7 +888,8 @@
 			"extract": "アセット抽出",
 			"adb": "ADBプッシュ",
 			"tools": "ツール",
-			"classic": "{label} - クラシック画面"
+			"classic": "{label} - クラシック画面",
+			"import": "一括インポート"
 		},
 		"roster": {
 			"title": "生徒リスト",
@@ -1282,6 +1283,19 @@
 				"driftHelp": {
 					"title": "設定のずれ",
 					"what": "設定のずれとは、ゲームファイルとMOD設定が一致しない状態のことです。"
+				},
+				"other": "汎用Mod",
+				"empty": "Modなし",
+				"useMod": "Modを使用",
+				"official": "公式",
+				"otherState": {
+					"official": "公式",
+					"active": "使用中",
+					"mixed": "一部適用",
+					"set": "設定済み",
+					"changed": "変更あり",
+					"missing": "ファイルなし",
+					"inactive": "未使用"
 				}
 			},
 			"voice": "ボイス",
@@ -1401,6 +1415,99 @@
 				"no": "Spine ライセンスなし",
 				"required": "Spine ライセンスの確認が必要",
 				"confirm": "ライセンスを確認"
+			}
+		},
+		"import": {
+			"list": "インポート一覧",
+			"count": "MOD {n}件",
+			"addFiles": "ファイルを追加",
+			"addFolder": "フォルダーを追加",
+			"search": "名前、ID、ファイル名",
+			"filter": "インポート状態",
+			"filterCount": "{state}（{n}）",
+			"all": "すべて選択",
+			"none": "選択を解除",
+			"remove": "一覧から削除",
+			"clear": "クリア",
+			"recheck": "再チェック",
+			"action": "インポート（{n}）",
+			"results": "結果を見る",
+			"choose": "MODを選択",
+			"select": "選択",
+			"selectNamed": "{name}を選択",
+			"meta": "{id} - {n}ファイル、{size}",
+			"empty": "MODがありません",
+			"drop": "ファイルやフォルダーを追加、またはここにドロップ",
+			"noMatch": "該当するMODがありません",
+			"current": "現在のゲーム",
+			"incoming": "インポートするMOD",
+			"previewUnavailable": "プレビューなし",
+			"other": "その他",
+			"analyzing": "チェック中",
+			"picking": "ファイルを選択",
+			"saving": "保存中",
+			"failed": "インポート失敗",
+			"confirm": "インポートを確認",
+			"confirmCount": "{state}：{n}件",
+			"recursive": "サブフォルダーを含める",
+			"progress": "{phase} - {done}/{total} {name}",
+			"complete": "完了：{n}件、失敗：{failed}件",
+			"resultTitle": "インポート結果",
+			"mod": "MOD",
+			"detected": "検出状態",
+			"resultLabel": "処理結果",
+			"applied": "適用済み",
+			"notApplied": "未適用",
+			"auto": "自動",
+			"original": "元の圧縮形式",
+			"uncompressed": "無圧縮",
+			"state": {
+				"ready": "インポート可能",
+				"update": "更新が必要",
+				"library": "ライブラリに登録済み",
+				"installed": "導入済み",
+				"blocked": "インポート不可"
+			},
+			"reason": {
+				"unreadable": "ファイルを読み込めません",
+				"no_target": "対応するゲームファイルなし",
+				"conflict": "対象が競合",
+				"spine_version": "Spineバージョン非対応",
+				"unsupported": "非対応の種類"
+			},
+			"phase": {
+				"update": "更新中",
+				"add": "ライブラリに追加中",
+				"apply": "MODを適用中"
+			},
+			"outcome": {
+				"imported": "ライブラリに追加済み",
+				"updated": "更新してライブラリに追加済み",
+				"unchanged": "変更なし",
+				"failed": "失敗",
+				"skipped": "スキップ"
+			},
+			"options": {
+				"title": "詳細オプション",
+				"enableAfterImport": "インポート後にMODを有効化",
+				"strategy": "照合方法",
+				"types": "アセットの種類",
+				"allTypes": "すべてのアセット",
+				"skipUnchanged": "変更なしをスキップ",
+				"crc": "CRC修正",
+				"compression": "圧縮形式",
+				"extraBytes": "追加バイト",
+				"backup": "バックアップを作成",
+				"workers": "スレッド数",
+				"output": "出力先フォルダー",
+				"bytesHint": "0xで始まる値は16進数、それ以外はASCII",
+				"typesRequired": "アセットの種類を選択",
+				"workersInvalid": "スレッド数：1以上"
+			},
+			"strategy": {
+				"cont_name_type": "コンテナー、名前、種類",
+				"path_id": "Path ID",
+				"name_type": "名前、種類"
 			}
 		}
 	}
