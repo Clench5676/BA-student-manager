@@ -142,7 +142,7 @@ test("detail progress identifies the target Mod's student variant and kind inste
     if (value && typeof value === "object") flat(value, `${prefix}${key}.`, out); else out[prefix + key] = value;
   } return out; };
   setStrings("en-US", flat(strings));
-  const family = { variants: [{ key: "band", names: { en: { full: "Yoshimi (Band)", short: "Band" } },
+  const family = { names: { en: "Yoshimi" }, variants: [{ key: "band", names: { en: { full: "Yoshimi (Band)", short: "Band" } },
     modList: [{ id: "m1", target: "band", kind: "lobby" }] }] };
   const h = harness({ T: translate, fam: family, variant: () => ({ key: "base" }), waitJob: async (_id, update) => {
     update({ label: "Repairing: assets-_mx-test.bundle", current: 2, total: 2 }); return {};

@@ -12,12 +12,18 @@ const flat = (data, prefix = "", out = {}) => {
 };
 for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) test(`student job identities use one bracket and omit repeated steps in ${locale}`, () => {
   setStrings(locale, flat(JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${locale}.json`, import.meta.url)))));
-  const names = { full: "Yoshimi (Band)", short: "Band" }, variant = { names: { en: names }, family: {} }, kind = T("tab.lobby");
+  const names = { full: "Yoshimi (Band)", short: "Band" }, variant = { names: { en: names }, family: { names: { en: "Yoshimi" } } }, kind = T("tab.lobby");
   const name = progressName(variant, kind);
   assert.equal(name, T("progress.subject", { name: "Yoshimi", parts: ["Band", kind].join(T("progress.comma")) }));
   assert.equal([...name.matchAll(/[（(]/g)].length, 1);
-  const base = progressName({ names: { en: { full: "Azusa", short: "Original" } } }, kind);
+  const base = progressName({ names: { en: { full: "Azusa", short: "Original" } }, family: { names: { en: "Azusa" } } }, kind);
   assert.equal(base, T("progress.subject", { name: "Azusa", parts: kind }));
+  for (const [base, full, short] of [["Shiroko", "Shiroko*Terror", "Terror"], ["Arona", "Arona - Tasks - Daytime", "Tasks - Daytime"]]) {
+    const family = { names: { en: base } }, v = { names: { en: { full, short } }, family };
+    assert.equal(progressName(v, kind), T("progress.subject", { name: base, parts: [short, kind].join(T("progress.comma")) }));
+    family.custom = ["Custom"];
+    assert.equal(progressName(v, kind), T("progress.subject", { name: "Custom", parts: [short, kind].join(T("progress.comma")) }));
+  }
   const line = jobProgress({ action: "import.phase.add", name, current: 2, total: 3, step: "import.step.add" });
   assert.ok(!line.includes(" - "));
   assert.ok(!jobProgress({ action: "progress.actionExtract", name, step: "import.step.extract" }).includes(" - "));
