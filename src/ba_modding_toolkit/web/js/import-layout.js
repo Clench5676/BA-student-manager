@@ -47,7 +47,7 @@ function selectionWidget(tree) {
 
 // Both row kinds use the inner painted edge of the exact selected prefab widget.
 // Its atlas slicing and asymmetric stroke determine size and position; the clip
-// stays sharp even where the selection sprite's own border rounds its corners.
+// follows the measured inner corner contour instead of a guessed CSS radius.
 export function selectionWindow(tree, atlas = {}, outline) {
   const frame = selectionWidget(tree), ratio = ROW_SELECTION.scale / ROW_SCALE;
   const window = innerFrame(frame.w, atlas[frame.w.atlas || "Common"]?.[frame.w.sprite] || {}, outline,
@@ -229,23 +229,9 @@ export function importArtwork(ui, layouts) {
     },
     // MailboxContent/List_01 (unread) and List_02 (muted/read): the real card, title, divider and meta slots.
     // The sender becomes the aligned kind column; TimeLimit becomes status; receipt/expiry become metadata/reason.
-    rowTextSize(rows) {
-      let size = ROW_TEXT_SIZE;
-      for (const row of rows) {
-        const tree = this.row({ ...row, textSize: ROW_TEXT_SIZE });
-        const fit = (n) => {
-          if (n.active === false) return;
-          for (const w of n.widgets || []) if ("text" in w && w.fontSize === ROW_TEXT_SIZE) {
-            size = Math.min(size, ROW_TEXT_SIZE * w.w_ / Math.max(ui.glyphWidth(w.text, ROW_TEXT_SIZE), 1));
-          }
-          for (const child of n.children || []) fit(child);
-        };
-        for (const path of ["Label_Locale_Received", "Label_From", "TimeLimit", "Platform", "Label_Locale_Limit"]) {
-          const n = ui.find(tree, path); if (n) fit(n);
-        }
-      }
-      return Math.floor(size * 10) / 10;
-    },
+    // The beta type scale is a floor. Content changes geometry, never the
+    // type size of other fields or rows (including hidden result states).
+    rowTextSize() { return ROW_TEXT_SIZE; },
     row({ name, kind, state, stateKey = "ready", meta, route = "", note = "", muted = false, counts = null, badge = true, result = false, unidentified = false, textSize = ROW_TEXT_SIZE }) {
       const t = at(content(muted ? "List_02" : "List_01"));
       t.children = t.children.filter((c) => ["BG", "Deco", "Deco (1)", "Sprite", "Line", "BG_Icon", "Label_System", "Label_From",
@@ -277,41 +263,63 @@ export function importArtwork(ui, layouts) {
       const divider = ui.find(t, "Line");
       divider.pos[0] = textLeft;
       Object.assign(divider.widgets[0], { pivot: 3, w_: 926 - textLeft });
-      const rowLabel = (n, caption, width, pivot = 0) => {
-        const w = n.widgets.find((w) => "text" in w);
-        Object.assign(w, { text: String(caption ?? ""), fontSize: textSize, w_: width, h_: textSize * 1.3,
-          pivot, ellipsis: false });
+      const wrap = (value, width) => {
+        const rows = []; let line = "";
+        for (const ch of String(value ?? "")) {
+          if (line && ui.glyphWidth(line + ch, textSize) > width) {
+            const space = line.lastIndexOf(" ") + 1;
+            rows.push(space ? line.slice(0, space) : line); line = space ? line.slice(space) : "";
+          }
+          line += ch;
+        }
+        rows.push(line); return rows.join("\n");
+      };
+      const rowLabel = (n, caption, width, pivot = 0, ellipsis = false) => {
+        const w = n.widgets.find((w) => "text" in w), value = String(caption ?? "");
+        const text = ellipsis ? value.replace(/\s*\n\s*/g, " ") : wrap(value, width);
+        Object.assign(w, { text, fontSize: textSize, w_: width, h_: textSize * 1.3 * text.split("\n").length,
+          pivot, ellipsis, ariaLabel: value });
+        return text ? text.split("\n").length : 0;
       };
       const title = ui.find(t, "Label_System"); title.pos[0] = textLeft;
       label(title, name, 926 - textLeft, 1);
-      const badgeWidth = unidentified ? Math.max(330, Math.min(850, ui.glyphWidth(state, ROW_TEXT_SIZE) + 32)) : 330;
-      const kindRight = unidentified ? 926 - badgeWidth - 28 : 550;
-      const kindWidth = unidentified ? 300 : 400;
-      const metaRight = unidentified ? kindRight - kindWidth - 28 : 120;
-      // Keep the card's title, divider and row pitch; reserve the bottom right for three fixed columns.
-      const sender = ui.find(t, "Label_From"); at(sender, kindRight - kindWidth / 2, ROW_TEXT_TOP); rowLabel(sender, kind, kindWidth, 1);
+      const badgeWidth = Math.max(330, Math.min(926 - textLeft, ui.glyphWidth(state, textSize) + 32));
+      const kindWidth = Math.max(200, Math.min(400, ui.glyphWidth(kind, textSize) + 16));
+      const secondBadge = unidentified || badge && badgeWidth + kindWidth + 56 > (926 - textLeft) * .72;
+      const kindRight = badge && !secondBadge ? Math.min(550, 910 - badgeWidth - 28) : 550;
+      const metaRight = kindRight - kindWidth - 30;
+      const sender = ui.find(t, "Label_From"); at(sender, kindRight - kindWidth / 2, ROW_TEXT_TOP);
+      let kindLines = rowLabel(sender, kind, kindWidth, 1);
       if (counts) {
         const kinds = ["spr", "lobby", "model", "other"].filter((kind) => counts[kind] > 0);
         at(sender, result ? 370 : 510, ROW_TEXT_TOP); sender.widgets = [];
         sender.children = countNodes(counts, iconsOf(ui.atlasIndex?.()), ui.translate, { kinds, width: result ? 500 : 780,
           color: ui.find(t, "Label_System").widgets[0].color, fontSize: textSize, top: true });
+        kindLines = 1;
+        for (const child of sender.children) {
+          const count = ui.find(child, "Count"), w = count.widgets[0];
+          kindLines = Math.max(kindLines, rowLabel(count, w.text, w.w_, w.pivot));
+        }
       }
-      const received = ui.find(t, "Label_Locale_Received"); received.children = []; rowLabel(received, meta, metaRight - textLeft);
+      const received = ui.find(t, "Label_Locale_Received"); received.children = [];
+      const metaLines = rowLabel(received, meta, counts ? 120 - textLeft : metaRight - textLeft);
       at(received, textLeft, ROW_TEXT_TOP);
+      let nextLine = Math.max(metaLines, kindLines);
+      const badgeLine = secondBadge && badge ? nextLine++ : 0;
       if (route) {
-        const platform = clone(received); platform.name = "Platform"; at(platform, textLeft, ROW_TEXT_TOP - 56);
-        rowLabel(platform, route, 120 - textLeft); t.children.push(platform);
+        const platform = clone(received); platform.name = "Platform"; at(platform, textLeft, ROW_TEXT_TOP - nextLine * 56);
+        nextLine += rowLabel(platform, route, 926 - textLeft); t.children.push(platform);
       }
       let limit = ui.find(t, "Label_Locale_Limit");
       if (!limit) { limit = content("List_01/Label_Locale_Limit"); t.children.push(limit); }
-      limit.children = []; at(limit, textLeft, ROW_TEXT_TOP - (route ? 112 : 56));
-      // Notes stay within the text band below the one-line metadata, kind and state.
-      rowLabel(limit, note, (route ? 900 : 120) - textLeft);
+      limit.children = []; at(limit, textLeft, ROW_TEXT_TOP - nextLine * 56);
+      rowLabel(limit, note, 926 - textLeft, 0, true);
       // TimeLimit is only present on the unread card; clone that same node for read cards as well.
       let status = ui.find(t, "TimeLimit");
       if (!status) { status = content("List_01/TimeLimit"); t.children.push(status); }
       status.active = badge;
-      at(status, unidentified ? 926 - badgeWidth / 2 : 745, ROW_TEXT_TOP);
+      at(status, secondBadge ? textLeft + badgeWidth / 2 : 910 - badgeWidth / 2,
+        ROW_TEXT_TOP - badgeLine * 56);
       ui.find(status, "Bg").widgets[0].w_ = badgeWidth;
       const tones = {
         ready: inventory(`${DETAIL}/Text_Amount`).widgets[0].color,
@@ -329,6 +337,25 @@ export function importArtwork(ui, layouts) {
       rowLabel(statusLabel, state, badgeWidth - 30, 1);
       const statusBG = ui.find(status, "Bg"); at(statusBG, 0, 4);
       Object.assign(statusBG.widgets[0], { pivot: 1, h_: statusLabel.widgets[0].h_ + 8 });
+      // Longer metadata wraps in full. Grow the prefab body downwards rather
+      // than clipping a route or shrinking the whole list. Notes remain one line.
+      let bottom = 329 / 2;
+      const include = (n, y = 0) => {
+        if (n.active === false) return;
+        y += n.pos?.[1] || 0;
+        for (const w of n.widgets || []) if (w.text) bottom = Math.max(bottom, -y + w.h_ + 16);
+        for (const child of n.children || []) include(child, y);
+      };
+      for (const path of ["Label_Locale_Received", "Label_From", "Platform", "Label_Locale_Limit", "TimeLimit"]) {
+        const n = ui.find(t, path); if (n) include(n);
+      }
+      const extra = bottom - 329 / 2;
+      if (extra > 0) for (const name of ["BG", "Sprite"]) {
+        const n = ui.find(t, name); if (!n) continue;
+        n.pos[1] -= extra / 2;
+        for (const w of n.widgets) if (w.h_) w.h_ += extra;
+      }
+      t.rowHeight = 348 + extra;
       return t;
     },
     // Items list card's Cover_Select provides the selected preview marker, independently of import selection.

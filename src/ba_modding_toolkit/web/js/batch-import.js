@@ -98,6 +98,7 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
   function paint(element, tree, { scale = S, origin = [0, 0], textures = {}, onRender = null } = {}) {
     const version = element.paintVersion = (element.paintVersion || 0) + 1;
     const next = el("div", "import-art");
+    if (tree.rowHeight) element.style.height = `${tree.rowHeight * scale}px`;
     const drawing = ui.render(tree, next, { scale, origin, textures, deferImages: true }).then((view) => {
       clipButtonPatterns(view);
       if (element.paintVersion === version) {
@@ -197,7 +198,7 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
     if (!identities.has(entry)) identities.set(entry, entryIdentity(entry, catalog));
     return identities.get(entry);
   };
-  const rowNote = (entry) => entry.state === "blocked" ? report(entry.reason, entry) : "";
+  const rowNote = (entry) => entry.state === "blocked" && entry.reason !== "source_unknown" ? report(entry.reason, entry) : "";
 
   function build() {
     root = el("div", "import-page"); root.dataset.phase = model.state.phase;
@@ -431,19 +432,12 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
       note: [...new Set(notes.filter(Boolean))].join(listSeparator()) };
   }
 
-  const sharedRowSize = () => {
-    const done = model.state.phase === "done";
-    const groups = [...importGroups(model.state.entries, merged, identified),
-      ...(done ? importGroups(model.state.taskEntries, merged, identified) : [])];
-    return art.rowTextSize(groups.flatMap((group) => [paragraphCopy(group), ...(done ? [paragraphCopy(group, true)] : [])]));
-  };
-
   function renderRows() {
     if (!visible || !root) return;
     const allGroups = importGroups(model.state.entries, merged, identified);
-    const textSize = sharedRowSize();
     const groups = allGroups.filter((group) => group.entries.some((entry) =>
       (filter === "all" || entry.state === filter) && identified(entry).search.includes(query)));
+    const textSize = art.rowTextSize(groups.map((group) => paragraphCopy(group)));
     const entries = groups.map((group) => group.entries[0]);
     const collator = new Intl.Collator(language(), { numeric: true, sensitivity: "base" });
     groups.sort((a, b) => (ascending ? 1 : -1) * collator.compare(identified(a.entries[0]).name, identified(b.entries[0]).name));
@@ -474,7 +468,7 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
         { scale: ROW_SCALE, origin: [ROW_WIDTH / 2, 329 * ROW_SCALE / 2], textures: { "Icon_Arona": Promise.resolve(null) } });
         // MailboxContent/List_01 or List_02/BG_Icon/Icon_Arona is the incoming Mod's real texture slot.
         bindTexture(drawing, `${eligible(entry) ? "List_01" : "List_02"}/BG_Icon/Icon_Arona`, source, "import-thumb");
-        const copy = place(el("button", "hit import-row-copy"), 0, 0, ROW_WIDTH - 72, ROW_HEIGHT - 10); copy.type = "button"; copy.setAttribute("aria-label", name);
+        const copy = place(el("button", "hit import-row-copy"), 0, 0, ROW_WIDTH - 72, parseFloat(row.style.height || ROW_HEIGHT) - 10); copy.type = "button"; copy.setAttribute("aria-label", name);
         copy.addEventListener("click", () => model.select(entry.id));
         const check = checkbox("", model.state.checked.has(entry.id), (checked) => model.toggleGroup(group.entries.map((item) => item.id), checked));
         check.input.setAttribute("aria-label", T("import.selectNamed", { name })); place(check.label, ROW_WIDTH - 66, ROW_CHECK_TOP, 50, 50);
@@ -647,8 +641,8 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
     await dialog(T("import.resultTitle"), {}, (area) => {
       area.classList.add("import-results");
       const groups = importGroups(model.state.taskEntries, merged, identified);
-      const textSize = sharedRowSize();
-      const resultScale = 0.62, resultTextSize = textSize * ROW_SCALE / resultScale;
+      const textSize = art.rowTextSize(groups.map((group) => paragraphCopy(group, true)));
+      const resultScale = 0.62, resultTextSize = textSize;
       for (const group of groups) {
         const entry = representative(group.entries), row = el("div", "import-result-row");
         const resultItems = group.entries.map((item) => ({ entry: item, result: model.state.results.find((result) => result.id === item.id) }));

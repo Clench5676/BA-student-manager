@@ -445,8 +445,8 @@ test("mail row columns and native checkbox/selection widgets stay aligned for ev
   const cards = h.rendered.filter(({ tree }) => ["List_01", "List_02"].includes(tree.name));
   assert.equal(cards.length, 5);
   for (const { tree } of cards) {
-    assert.deepEqual(find(tree, "Label_From").pos, [350, 20]);
-    assert.deepEqual(find(tree, "TimeLimit").pos, [745, 20]);
+    assert.equal(find(tree, "Label_From").pos[1], 20);
+    assert.ok(find(tree, "TimeLimit").pos[1] <= 20);
     assert.ok(find(tree, "Label_System").widgets[0].prefabMarker);
     assert.equal(find(tree, "Btn_Receive"), undefined, "row actions are selection, not a decorative receive button");
   }
@@ -531,7 +531,7 @@ test("analysis holds the page through generated stills and never flashes catalog
   for (const { opts } of textures) for (const source of Object.values(opts.textures)) assert.equal(await source, null);
   gate.resolve("blob:generated-still"); await h.page.settled(); await flush();
   assert.equal(image.dataset.source, "blob:generated-still");
-  assert.equal(image.firstElementChild.style.backgroundSize, "cover"); assert.equal(image.style.clipPath, "polygon(0% 0%, 100% 0%, 100% 100%, 0% 100%)");
+  assert.equal(image.firstElementChild.style.backgroundSize, "cover"); assert.ok(image.style.clipPath.startsWith("polygon(") && image.style.clipPath.split(",").length > 4);
   for (const preview of h.host.querySelectorAll(".import-preview-image")) assert.equal(preview.style.backgroundPosition, "center top");
   assert.ok(!h.holds.some((hold) => hold.active));
 });
@@ -555,7 +555,7 @@ for (const wideFrame of [false, true]) test(`list and result text clears every t
   const gapOf = (row) => {
     const image = row.querySelector(".import-thumb"), [x, y, , height] = rectOf(image);
     assert.ok((wideFrame || x >= 0) && y >= 0 && y + height <= parseFloat(row.style.height || "216"));
-    assert.equal(image.style.overflow, "hidden"); assert.equal(image.style.clipPath, "polygon(0% 0%, 100% 0%, 100% 100%, 0% 100%)");
+    assert.equal(image.style.overflow, "hidden"); assert.ok(image.style.clipPath.startsWith("polygon(") && image.style.clipPath.split(",").length > 4);
     const slot = artworkBounds(h, row, (path) => /\/BG_Icon(?:\/|$)/.test(path));
     const selection = row.querySelector(".import-selection");
     if (selection) for (const box of artworkBounds(h, selection)) {
@@ -567,8 +567,8 @@ for (const wideFrame of [false, true]) test(`list and result text clears every t
     assert.ok(gap >= 28, `thumbnail-to-text gap: ${gap.toFixed(2)} stage px`);
     const { tree, opts } = drawn(h, row);
     assert.equal(find(tree, "BG").widgets[0].w_, 2208);
-    assert.deepEqual(find(tree, "Label_From").pos, [350, 20]);
-    assert.deepEqual(find(tree, "TimeLimit").pos, [745, 20]);
+    assert.equal(find(tree, "Label_From").pos[1], 20);
+    assert.ok(find(tree, "TimeLimit").pos[1] <= 20);
     const title = text.find((box) => Math.abs(box[2] - (opts.origin[0] + 926 * opts.scale)) < 0.01);
     assert.ok(title, "the title keeps its right edge");
     if (selection) closeTo(parseFloat(row.querySelector(".import-check").style.left), 1192.32 - 66);
@@ -928,7 +928,7 @@ test("merged rows keep variant identity, count every asset kind in place, and se
   assert.equal(h.row("a"), row, "the student row survives adding more assets");
   const sender = find(drawn(h, row).tree, "Label_From");
   assert.deepEqual(sender.children.map((node) => node.name), ["spr", "lobby", "model"]);
-  assert.equal(sender.children[0].children[0].widgets[0].text, "Portrait ×2");
+  assert.equal(sender.children[0].children[0].widgets[0].text.replace(/\n/g, ""), "Portrait ×2");
   assert.ok(h.thumbs.some(([, , , , , bg]) => bg === "/bg/a.png"));
 });
 
@@ -1047,10 +1047,11 @@ test("conversion is eligible, counted separately, and routes sit below aligned m
   const graphics = h.row("a").art.children;
   const platformBox = rectOf(graphics.find((element) => element.dataset.path === "List_01/Platform"));
   const kindBox = rectOf(graphics.find((element) => element.dataset.path === "List_01/Label_From"));
-  assert.ok(platformBox[0] + platformBox[2] < kindBox[0], "route stays in the metadata column");
+  assert.ok(platformBox[1] >= kindBox[1] + kindBox[3], "route follows the entire kind block");
+  assert.ok(platformBox[0] + platformBox[2] <= drawn(h, h.row("a")).opts.origin[0] + 926 * .54, "route stays inside the row text area");
   const noteBox = rectOf(graphics.find((element) => element.dataset.path === "List_01/Label_Locale_Limit"));
   assert.ok(platformBox[1] + platformBox[3] < noteBox[1]);
-  assert.ok(noteBox[1] + noteBox[3] <= 329 * 0.54);
+  assert.ok(!find(tree, "Label_Locale_Limit").widgets[0].text || noteBox[1] + noteBox[3] <= parseFloat(h.row("a").style.height));
   assert.doesNotMatch(h.host.querySelector(".import-detail").textContent, /→/);
   assert.equal(h.action("source").disabled, false, "detected origins remain manually correctable");
   await h.action("filter").click(); await flush(); await h.page.settled();
@@ -1075,9 +1076,9 @@ for (const merged of [false, true]) test(`only conversions reserve a platform li
     else {
       assert.equal(platform, undefined);
       assert.ok(row.art.children.every((element) => !element.dataset.path.endsWith("/Platform")));
-      assert.equal(note.pos[0] + note.widgets[0].w_, 120, "the raised note stays in the metadata column");
+      assert.equal(note.pos[0] + note.widgets[0].w_, 926, "the note can use the row text band");
     }
-    assert.equal(note.pos[1], route ? -92 : -36, "notes move up into the unused platform line");
+    assert.ok(note.pos[1] <= -36 && (20 - note.pos[1]) % 56 === 0, "notes follow the wrapped metadata and route");
     const graphic = row.art.children.find((element) => element.dataset.path.endsWith("/Label_Locale_Limit"));
     closeTo(rectOf(graphic)[1], opts.origin[1] - note.pos[1] * opts.scale);
   };
@@ -1113,11 +1114,12 @@ test("row metadata, kind, badge text and checkbox share a top edge and fixed fon
         const row = h.row(id), { tree } = drawn(h, row), prefix = tree.name;
         const paths = ["Label_Locale_Received", "Label_From", "TimeLimit/Label_Locale_TimeLimit"];
         const labels = paths.map((path) => find(tree, path).widgets[0]);
-        assert.ok(labels[0].fontSize > 0 && labels[0].fontSize <= 42);
+        assert.ok(labels[0].fontSize === 42);
         assert.deepEqual(labels.map((w) => w.fontSize), Array(3).fill(labels[0].fontSize));
         const tops = paths.map((path) => rectOf(row.art.children.find((el) => el.dataset.path === `${prefix}/${path}`))[1]);
         tops.push(parseFloat(row.querySelector(".import-check").style.top));
-        tops.forEach((top) => closeTo(top, tops[0]));
+        tops.slice(0, 2).forEach((top) => closeTo(top, tops[0]));
+        assert.ok(tops.every((top) => top >= tops[0] - 1e-8));
         const divider = find(tree, "Line"), title = find(tree, "Label_System");
         assert.equal(divider.widgets[0].pivot, 3);
         assert.equal(divider.pos[0], title.pos[0]);
@@ -1149,7 +1151,7 @@ test("manual source selection is limited to unknown sources and conversion route
   h.page.model.select("a"); await h.page.settled(); assert.equal(h.action("source"), undefined);
 });
 
-for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) test(`long metadata and kinds fit one shared line in list and result rows in ${locale}`, async () => {
+for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) test(`long metadata and kinds wrap at the beta font size in list and result rows in ${locale}`, async () => {
   try {
     const strings = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${locale}.json`, import.meta.url), "utf8"));
     setStrings(locale, flatten(strings));
@@ -1177,10 +1179,10 @@ for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) tes
           for (const path of paths) {
             const w = find(tree, path).widgets[0];
             assert.equal(w.fontSize, shared); assert.equal(w.ellipsis, false);
-            assert.doesNotMatch(w.text, /\n|…/); assert.ok(String(w.text).length * w.fontSize <= w.w_ + 0.01, path);
+            assert.doesNotMatch(w.text, /…/); assert.ok(String(w.text).split("\n").every((line) => line.length * w.fontSize <= w.w_ + 0.01), path);
             boxes.push(rectOf(row.art.children.find((el) => el.dataset.path === `${tree.name}/${path}`)));
           }
-          for (let i = 1; i < boxes.length; i++) assert.ok(boxes[i - 1][0] + boxes[i - 1][2] <= boxes[i][0], "columns do not overlap");
+          for (let i = 1; i < boxes.length; i++) assert.ok(boxes[i - 1][0] + boxes[i - 1][2] <= boxes[i][0] || boxes[i - 1][1] + boxes[i - 1][3] <= boxes[i][1], "text cells do not overlap");
           const boundary = result ? parseFloat(h.action("go", row).style.left) : parseFloat(row.querySelector(".import-check").style.left);
           assert.ok(boxes.at(-1)[0] + boxes.at(-1)[2] < boundary, "text clears the action control");
         }
@@ -1188,7 +1190,7 @@ for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) tes
       const rows = walk(h.host).filter((el) => el.dataset.entry); check(rows);
       if (!merged) {
         const expected = strings.webui.import.metaOne.replace("{id}", entries[0].core).replace("{n}", "1").replace("{size}", "117.7 MB");
-        assert.equal(find(drawn(h, h.row("a")).tree, "Label_Locale_Received").widgets[0].text, expected);
+        assert.equal(find(drawn(h, h.row("a")).tree, "Label_Locale_Received").widgets[0].text.replace(/\n/g, ""), expected);
       }
       await h.action("start").click(); await flush();
       h.runs[0].resolve({ results: entries.map(({ id }) => ({ id, outcome: "imported", libraryId: `lib-${id}` })) });
@@ -1237,7 +1239,7 @@ test("portrait comparisons are vertical side by side; lobbies are landscape with
 });
 
 
-test("list and result pictures use the same sharp inner parallelogram in selected and unselected rows", async () => {
+test("list and result pictures follow the same small rounded frame contour in every selection state", async () => {
   const h = await fixture({ licensed: true });
   const frame = find(h.layouts.UINonEquipmentInventoryListItem, "Card/Normal/Cover_Select");
   Object.assign(frame.widgets[0], { w_: 246, h_: 228, incline: 12, radius: 27 });
@@ -1250,10 +1252,11 @@ test("list and result pictures use the same sharp inner parallelogram in selecte
     closeTo(height, expected.height * opts.scale);
     assert.ok(w < 246 * ROW_SELECTION.scale * opts.scale / ROW_SCALE);
     assert.ok(height < 228 * ROW_SELECTION.scale * opts.scale / ROW_SCALE);
-    assert.equal(picture.style.clipPath, "polygon(0% 0%, 100% 0%, 100% 100%, 0% 100%)");
+    assert.ok(picture.style.clipPath.startsWith("polygon(") && picture.style.clipPath.split(",").length > 4);
     closeTo(x + w / 2, opts.origin[0] + expected.x * opts.scale);
     closeTo(y + height / 2, opts.origin[1] - expected.y * opts.scale);
-    assert.equal(slot.incline, 12); assert.equal(slot.radius, 0, "the thumbnail has four sharp corners");
+    assert.equal(slot.incline, 12); assert.equal(slot.radius, 0, "the measured polygon supplies the frame rounding");
+    assert.ok(slot.clipPolygon.length > 4);
     closeTo(parseFloat(picture.style.borderRadius), slot.radius * opts.scale);
     assert.equal(picture.style.transform, "skewX(-12deg)");
     assert.equal(picture.firstElementChild.style.transform, "skewX(12deg)", "the subject remains upright");
@@ -1282,7 +1285,7 @@ test("atlas slice cuts never become the thumbnail corner radius", () => {
   const frame = { name: "Frame", active: true, pos: [0, 0], scale: [1, 1], widgets: [{ sprite: "Frame", atlas: "Items", w_: 240, h_: 220, incline: 9 }], children: [] };
   const win = selectionWindow(frame, { Items: { Frame: FRAME_META } }, frameOutline(framePixels()));
   assert.equal(win.radius, 0); assert.equal(win.incline, 9);
-  assert.equal(win.clipPolygon.length, 4);
+  assert.ok(win.clipPolygon.length > 4);
 });
 
 for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) test(`merged and result row kinds share the metadata font and top line in ${locale}`, async () => {
@@ -1304,7 +1307,8 @@ for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) tes
         for (const path of paths) assert.equal(find(tree, path).widgets[0].fontSize, find(tree, paths[0]).widgets[0].fontSize, path);
         const tops = paths.map((path) => rectOf(row.art.children.find((el) => el.dataset.path === `${tree.name}/${path}`))[1]);
         if (!result) tops.push(parseFloat(row.querySelector(".import-check").style.top));
-        tops.forEach((top) => closeTo(top, tops[0]));
+        tops.slice(0, 2).forEach((top) => closeTo(top, tops[0]));
+        assert.ok(tops.every((top) => top >= tops[0] - 1e-8));
       };
       for (const row of walk(h.host).filter((el) => el.dataset.entry)) check(row);
       await h.action("start").click(); await flush();
@@ -1341,14 +1345,14 @@ for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) tes
     for (const row of walk(ready.dialog).filter((el) => el.dataset.result)) {
       const { tree } = drawn(ready, row), paths = ["Label_Locale_Received", ...(find(tree, "Platform") ? ["Platform"] : []), "Label_Locale_Limit"];
       const list = drawn(ready, ready.row(row.dataset.result)), resultDraw = drawn(ready, row);
-      closeTo(find(list.tree, "Label_Locale_Received").widgets[0].fontSize * list.opts.scale,
-        find(tree, "Label_Locale_Received").widgets[0].fontSize * resultDraw.opts.scale);
+      assert.equal(find(list.tree, "Label_Locale_Received").widgets[0].fontSize, 42);
+      assert.equal(find(tree, "Label_Locale_Received").widgets[0].fontSize, 42);
       const labels = paths.map((p) => find(tree, p));
       const fs = labels[0].widgets[0].fontSize;
       for (const [i, n] of labels.entries()) {
         const w = n.widgets[0]; assert.equal(w.fontSize, fs); assert.equal(w.pivot, 0);
-        assert.ok(n.pos[1] - w.h_ >= -329 / 2 + 12, "text and descenders clear the card bottom");
-        if (i) assert.equal(labels[i - 1].pos[1] - n.pos[1], 56);
+        assert.ok(n.pos[1] - w.h_ >= -329 / 2 - (tree.rowHeight - 348) + 12, "text and descenders clear the card bottom");
+        if (i) assert.ok(labels[i - 1].pos[1] - n.pos[1] >= 56 && (labels[i - 1].pos[1] - n.pos[1]) % 56 === 0);
       }
     }
   } finally { setStrings("en-US", flatten(JSON.parse(readFileSync(new URL("../../src/ba_modding_toolkit/locales/en-US.json", import.meta.url))))); }
@@ -1383,8 +1387,8 @@ for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) tes
       const paragraphs = [find(tree, "Label_Locale_Received"), find(tree, "Platform"), find(tree, "Label_Locale_Limit")].filter(Boolean);
       for (const [i, n] of paragraphs.entries()) {
         const w = n.widgets[0]; assert.equal(w.fontSize, paragraphs[0].widgets[0].fontSize);
-        assert.equal(w.pivot, 0); assert.ok(n.pos[1] - w.h_ >= -329 / 2 + 12);
-        if (i) assert.equal(paragraphs[i - 1].pos[1] - n.pos[1], 56);
+        assert.equal(w.pivot, 0); assert.ok(n.pos[1] - w.h_ >= -329 / 2 - (tree.rowHeight - 348) + 12);
+        if (i) assert.ok(paragraphs[i - 1].pos[1] - n.pos[1] >= 56 && (paragraphs[i - 1].pos[1] - n.pos[1]) % 56 === 0);
       }
     }
   } finally { setStrings("en-US", flatten(JSON.parse(readFileSync(new URL("../../src/ba_modding_toolkit/locales/en-US.json", import.meta.url))))); }
@@ -1407,4 +1411,21 @@ test("nested selection widgets retain their derived picture position and draw ab
   const css = readFileSync(new URL("../../src/ba_modding_toolkit/web/css/app.css", import.meta.url), "utf8");
   const z = (name) => Number(new RegExp(`\\.${name} \\{[^}]*z-index: ([0-9]+)`).exec(css)?.[1]);
   assert.ok(z("import-selection") > z("import-art"), "the game frame covers the picture's border");
+});
+
+test("visible ready, conversion, unknown and failed rows keep the beta type-size floor", async () => {
+  for (const state of ["ready", "convert", "blocked"]) {
+    const h = await fixture();
+    const item = { ...entry("a", state), ...(state === "blocked" ? { reason: "source_unknown", source: null, target: { server: "global", platform: "windows" } } : {}) };
+    await h.analyze([item]);
+    assert.equal(find(drawn(h, h.row("a")).tree, "Label_Locale_Received").widgets[0].fontSize, 42);
+  }
+  const h = await fixture();
+  await h.analyze([{ ...entry("a"), paths: ["/fixtures/" + "long-folder/".repeat(80) + "mod.bundle"] }]);
+  await h.action("start").click(); await flush();
+  h.runs[0].resolve({ results: [{ id: "a", outcome: "failed", reason: "library_io_error" }] });
+  await flush(); await h.page.results(); await h.page.settled();
+  const row = walk(h.dialog).find((el) => el.dataset.result), { tree } = drawn(h, row);
+  assert.equal(find(tree, "Label_Locale_Received").widgets[0].fontSize, 42);
+  assert.equal(find(tree, "Label_Locale_Limit").widgets[0].ellipsis, true);
 });
