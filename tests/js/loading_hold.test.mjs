@@ -245,3 +245,18 @@ for (const entry of ["Add Mod picker", "Add Mod files", "Enable Mods"]) test(`${
   redraw.resolve(); await done;
   assert.equal(Loading.held(), false); assertInput(false);
 });
+
+test("a navigation cannot leave an existing strict hold blocking pencils without a visible overlay", async () => {
+  globalThis.getComputedStyle = () => ({ opacity: "1" });
+  const work = deferred();
+  const strict = Loading.hold(() => work.promise, { all: true });
+  await new Promise(setImmediate);
+  await Loading.scene(async () => {});
+  await new Promise((r) => setTimeout(r, 320));
+  try {
+    assert.equal(Loading.held(), true);
+    assert.equal(Loading.active(), true, "a live input lock always owns its visible shaded overlay");
+    const click = event(); stage.listeners.click(click); assert.equal(click.stopped, true);
+  } finally { work.resolve(); await strict; }
+  const click = event(); stage.listeners.click(click); assert.equal(click.stopped, false);
+});

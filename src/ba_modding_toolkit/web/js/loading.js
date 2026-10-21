@@ -212,6 +212,14 @@ function cover(opaque) {
 }
 
 function close(o) {
+  // A scene can finish while an independent detail job still owns input. Hand
+  // its cover back to the holds instead of leaving an invisible capture lock.
+  if (o === overlay && held()) {
+    o.mode = "indicator"; o.holdOwned = true; o.done = false; o.closing = false;
+    o.el.classList.replace("full", "indicator"); o.el.classList.remove("out");
+    decorate(o); refresh();
+    return Promise.resolve();
+  }
   o.closing = true; o.done = true;
   const id = ++closeSeq;
   o.closeId = id;

@@ -37,7 +37,7 @@ import { clearUnseen, hasUnseen as hasFresh, shownUnseen, switchUnseen } from ".
 import { customAliases as aliasesOf, modOriginalName, studentName } from "./names.js";
 import { setTitle } from "./nav.js";
 import { KEYS, deltaOf, pacer, typing } from "./step-keys.js";
-import { FRAME_Y, closable, hit as hitNode, listPopup, message, popupFrame, scrollArea } from "./popup.js";
+import { FRAME_Y, closable, frameReady, hit as hitNode, listPopup, message, popupFrame, scrollArea } from "./popup.js";
 import { availableTab, coreOf, hasAsset, primaryKind, appliedKey as keyOf, appliedOf, candidates as listSources, partsOf, popupMode, modelSource, previewBase, previewChanged, previewKey, sourceOf, switchKindOf } from "./switch-sources.js";
 import { $, DOT, RECRUIT, S, TAN10, advanceOf, at, clone, glyphsOf, hitButton, markedLabel, off, text, widget, wrapPath } from "./util.js";
 
@@ -589,7 +589,7 @@ function hits(view, leftHost, rightHost) {
     const l = Math.min(...boxes.map((b) => b[0])) - pad, tp = Math.min(...boxes.map((b) => b[1])) - pad;
     const r = Math.max(...boxes.map((b) => b[0] + b[2])) + pad, bt = Math.max(...boxes.map((b) => b[1] + b[3])) + pad;
     const list = aliasList();
-    hitButton(leftHost, [l, tp, r - l, bt - tp], () => openAliases(), list ? `${T("alias.title")} - ${list}` : T("alias.title"));
+    hitButton(leftHost, [l, tp, r - l, bt - tp], () => call(() => openAliases()), list ? `${T("alias.title")} - ${list}` : T("alias.title"));
   }
   // the previous or next card of the student list, within its filters and in its order
   add(leftHost, "Arrow_L/Left", () => ctx.step(-1, fam.key, variantKey));
@@ -618,12 +618,12 @@ async function copyName() {
 }
 function editModName(mod, redraw = null) {
   const page = pageToken;
-  return ModAlias.open({ mod, onSaved: async () => {
+  return call(() => ModAlias.open({ mod, onSaved: async () => {
     ctx.invalidateRoster();
     if (!open || page !== pageToken) return;
     await reload();
     if (open && page === pageToken) await redraw?.();
-  } });
+  } }));
 }
 async function toggleFav() {
   const v = variant();
@@ -1338,6 +1338,8 @@ let aliasToken = 0;
 // which keeps the focus while this one is drawn: what is typed there meanwhile goes into the new empty row
 async function openAliases(draft = customAliases(), focusAt = null, key = variantKey, carry = null) {
   const my = ++aliasToken;
+  await Loading.wait(frameReady(), { immediate: true, cap: null });
+  if (my !== aliasToken || !open || variantKey !== key) return;
   const host = $("popup");
   const names = draft.slice(0, ALIAS_MAX);
   const adding = names.length < ALIAS_MAX;

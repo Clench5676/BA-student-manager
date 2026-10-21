@@ -15,6 +15,7 @@ import * as Buttons from "./game-buttons.js";
 import { searchTree, sortBody, orderBody, pickerItems } from "./roster-widgets.js";
 import { resizeButton } from "./button-layout.js";
 import { T } from "./i18n.js";
+import { withTimeout } from "./async.js";
 import { DOT, RECRUIT, S, TAN10, advanceOf, clone, glyphsOf, hitButton, markedLabel, wrapPath } from "./util.js";
 
 const { node, sprite, label, find, rect } = NGUI;
@@ -23,11 +24,16 @@ const hostOf = (h) => (typeof h === "string" ? document.getElementById(h) : h);
 
 // --- the prefabs, read once: the frame (required), the student list's tools and the checkbox (each optional: a
 // popup without them still works) ---
-let layouts = null, loading = null;
+let layouts = null, loading = null, frameLoading = null;
+export function frameReady() {
+  return frameLoading ||= withTimeout(NGUI.layout("UIPopup_Sort"), 15000, "Popup frame")
+    .then((sortPopup) => { layouts = { ...layouts, sortPopup }; })
+    .catch((err) => { frameLoading = null; throw err; });
+}
 const optional = (name) => NGUI.layout(name).catch((err) => { console.warn("popup layout", name, err); return null; });
 export function ready() {
-  loading ||= Promise.all([NGUI.layout("UIPopup_Sort"), optional("UICharacterCollection"), optional("UIPopup_GachaCharList.Btn_Checkbox"), Buttons.ready()])
-    .then(([sortPopup, collection, checkbox]) => { layouts = { sortPopup, collection, checkbox }; }, (err) => { loading = null; throw err; });
+  loading ||= Promise.all([frameReady(), optional("UICharacterCollection"), optional("UIPopup_GachaCharList.Btn_Checkbox"), Buttons.ready()])
+    .then(([, collection, checkbox]) => { layouts = { ...layouts, collection, checkbox }; }, (err) => { loading = null; throw err; });
   return loading;
 }
 

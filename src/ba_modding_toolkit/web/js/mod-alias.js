@@ -3,7 +3,8 @@ import { notify } from "./popup.js";
 import * as NGUI from "./ngui.js";
 import { rpc } from "./api.js";
 import { T } from "./i18n.js";
-import { FRAME_Y, closed, closable, hit, popupFrame, ready } from "./popup.js";
+import { FRAME_Y, closed, closable, frameReady, hit, popupFrame } from "./popup.js";
+import * as Loading from "./loading.js";
 import { $, S } from "./util.js";
 
 let token = 0, dismiss = null;
@@ -11,7 +12,7 @@ export function close() { token += 1; dismiss?.(); }
 export async function open({ mod, onSaved }) {
   close();
   const my = ++token;
-  await ready();
+  await Loading.wait(frameReady(), { immediate: true, cap: null });
   if (my !== token) return;
   const host = $("dialog"), next = document.createElement("div");
   const tree = popupFrame(T("modAlias.title"), 1500, 680, { ok: T("popup.save"), cancel: T("popup.cancel") });
