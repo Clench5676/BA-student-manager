@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
@@ -158,4 +159,51 @@ test("a repair cover blocks Back, popup clicks and Escape until success or failu
     assert.equal(stage.classList.contains("input-held"), false);
     assert.equal(Loading.busy(), false);
   }
+});
+
+
+const detailSource = readFileSync(new URL("../../src/ba_modding_toolkit/web/js/detail.js", import.meta.url), "utf8");
+const detailJob = detailSource.slice(detailSource.indexOf("async function job("), detailSource.indexOf("function shownMod()"));
+function detailHarness(overrides = {}) {
+  const env = { Loading, notify() {}, T: (key) => key, variant: () => ({}), fullName: () => "Student", fam: {},
+    switchKind: () => "spr", progressName: () => "Student", jobProgress: () => "Repairing Student", renderScreen: async () => {},
+    rpc: async () => "job", waitJob: async () => ({}), reload: async () => {}, QUEUEABLE: [], errorText: String,
+    refused() {}, overwrittenMessage() {}, resumeChanged() {}, ...overrides };
+  return new Function("env", `const { ${Object.keys(env).join(", ")} } = env;
+    let busy = false, pageToken = 1, open = true;
+    ${detailJob}
+    return job;`)(env);
+}
+
+test("detail jobs ignore Back, nav and every other interaction until the final redraw, then restore them", async () => {
+  const work = deferred(), redraw = deferred(); let renders = 0;
+  const job = detailHarness({ waitJob: () => work.promise, renderScreen: async () => { if (++renders === 2) await redraw.promise; } });
+  const targets = ["back", "nav", "student", "variant", "tab", "mods switch", "action card", "popup trigger"].map((name) => {
+    const target = new El(); target.back = name === "back"; return target;
+  });
+  const actions = targets.map(() => 0);
+  const click = (i) => { const ev = event(targets[i]); stage.listeners.click(ev); if (!ev.stopped) actions[i]++; return ev; };
+  const done = job("actions.update", { mod: "m1" });
+  await new Promise(setImmediate);
+  assert.equal(Loading.held(), true);
+  targets.forEach((_, i) => assert.ok(click(i).stopped));
+  assert.deepEqual(actions, targets.map(() => 0));
+  for (const type of ["pointerdown", "pointerup", "pointermove", "keydown", "wheel", "touchstart", "touchmove"]) {
+    const ev = event(targets[0]); stage.listeners[type](ev); assert.ok(ev.stopped, type);
+  }
+  work.resolve({}); await new Promise(setImmediate);
+  assert.equal(Loading.held(), true, "the final redraw is still protected");
+  assert.ok(click(0).stopped); assert.ok(click(1).stopped);
+  redraw.resolve(); assert.equal(await done, true);
+  assert.equal(Loading.held(), false);
+  targets.forEach((_, i) => assert.equal(click(i).stopped, false));
+  assert.deepEqual(actions, targets.map(() => 1));
+});
+
+test("a detail write refusal opens its answerable popup only after releasing the strict hold", async () => {
+  let shown = 0;
+  const job = detailHarness({ QUEUEABLE: ["actions.apply"], waitJob: async () => { throw { code: "original_unavailable" }; },
+    overwrittenMessage: async () => { assert.equal(Loading.held(), false); shown++; } });
+  assert.equal(await job("actions.apply", { kind: "spr" }), false);
+  assert.equal(shown, 1); assert.equal(Loading.held(), false);
 });

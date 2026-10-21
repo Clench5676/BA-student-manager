@@ -646,7 +646,7 @@ async function job(method, params, { onDone, after = () => reload(), name = full
   if (busy) { notify(T("error.busy"), { kind: "error" }); return false; }
   busy = true;
   const page = pageToken;
-  let ok = false, result = null;
+  let ok = false, result = null, refusal = null;
   const action = ({ "actions.apply": params.source === "official" ? "restore" : "apply", "actions.restore": "restore", "actions.update": "repair",
     "actions.extract": "extract", "mods.remove": "delete" })[method] || "process";
   const mod = fam?.variants?.flatMap((v) => v.modList || []).find((m) => m.id === (params.mod || params.id || params.target?.replace(/^mod:/, "")));
@@ -661,29 +661,34 @@ async function job(method, params, { onDone, after = () => reload(), name = full
     return await Loading.hold(async (update) => {
       update(running);
       try {
-        await renderScreen();
-        const id = await rpc(method, params, { timeout: 30000 });
-        result = await waitJob(id, (p) => { const text = progress(p); update(text); });
-        notify(result?.deferred ? T("mods.saved") : T("job.done"));
-        await onDone?.(result);
-        ok = true;
-      } catch (err) {
-        if (page === pageToken && open && err?.code === "original_unavailable" && QUEUEABLE.includes(method)) {
-          // Refusal messages, Add First and its adoption result use the popup stack, exempt from the hold.
-          await overwrittenMessage(variant(), params.kind || "spr");
-        } else if (QUEUEABLE.includes(method)) await refused(err, method, params);
-        else notify(errorText(err), { kind: "error" });
+        try {
+          await renderScreen();
+          const id = await rpc(method, params, { timeout: 30000 });
+          result = await waitJob(id, (p) => { const text = progress(p); update(text); });
+          notify(result?.deferred ? T("mods.saved") : T("job.done"));
+          await onDone?.(result);
+          ok = true;
+        } catch (err) { refusal = err; }
+        if (page === pageToken && open) await after(ok, result);
+        return ok;
+      } finally {
+        busy = false;
+        if (page === pageToken && open) {
+          try { await renderScreen(); } catch (err) { notify(errorText(err), { kind: "error" }); }
+        }
       }
-      if (page === pageToken && open) await after(ok, result);
-      return ok;
-    }, { until: leftPage });
+    }, { all: true });
   } catch (err) {
     notify(errorText(err), { kind: "error" });
     return false;
   } finally {
     busy = false;
-    if (page === pageToken && open) {
-      try { await renderScreen(); } catch (err) { notify(errorText(err), { kind: "error" }); }
+    // Refusals can require an answer. Release the strict job lock before opening their controls.
+    if (refusal) {
+      if (page === pageToken && open && refusal.code === "original_unavailable" && QUEUEABLE.includes(method))
+        await overwrittenMessage(variant(), params.kind || "spr");
+      else if (QUEUEABLE.includes(method)) await refused(refusal, method, params);
+      else notify(errorText(refusal), { kind: "error" });
     }
     resumeChanged();
   }

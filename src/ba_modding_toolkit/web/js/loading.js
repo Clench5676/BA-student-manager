@@ -381,7 +381,7 @@ export async function hold(work, { until = null, all = false, progress = null } 
       ev.preventDefault();
       ev.stopImmediatePropagation();
     };
-    for (const event of ["pointerdown", "click", "keydown"]) el.addEventListener(event, block, true);
+    for (const event of ["pointerdown", "pointerup", "pointermove", "click", "keydown", "wheel", "touchstart", "touchmove"]) el.addEventListener(event, block, true);
     wired.add(el);
   }
   const release = () => {
