@@ -8,6 +8,13 @@ const rowsCode = source.slice(source.indexOf("async function renderRow("), sourc
 const deferred = () => { let resolve; const promise = new Promise((r) => { resolve = r; }); return { promise, resolve }; };
 const flush = async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); };
 
+test("declined licence keeps collection portraits with a configured source and mods off", () => {
+  const code = source.slice(source.indexOf("const portraitOf ="), source.indexOf("// --- rows near the view"));
+  const portraitOf = new Function("spineAllowed", `${code}\nreturn portraitOf;`)(() => false);
+  assert.equal(portraitOf({ portrait: "/asset/collection/portrait.png", configured: { spr: "mod:a" } }), "/asset/collection/portrait.png");
+  assert.equal(portraitOf({ portrait: null, configured: { lobby: "mod:a" } }), null);
+});
+
 class El {
   children = []; dataset = {}; style = {}; attrs = {};
   setAttribute(k, v) { this.attrs[k] = v; }

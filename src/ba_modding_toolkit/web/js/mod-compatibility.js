@@ -4,6 +4,8 @@ import { rpc, waitJob } from "./api.js";
 import * as Loading from "./loading.js";
 import * as Popup from "./popup.js";
 import * as Compare from "./mod-compare.js";
+import { ensureSpine } from "./spine-runtime.js";
+import { spine as confirmLicence } from "./consent.js";
 
 const key = (name) => name.replaceAll("\\", "/").split("/").at(-1).toLowerCase().replace(/\.png$/i, "");
 const joined = (items) => items.join(/^(zh|ja)/i.test(language()) ? "、" : ", ") || "—";
@@ -105,6 +107,7 @@ export function compare(report, runtime = globalThis.spine, summarize = false) {
 }
 
 export async function show(report, { label = "", onRemap } = {}) {
+  if (!await requireRuntime()) return;
   const result = compare(report, globalThis.spine, true);
   const lines = result.issues.map(({ key, params, detail }) => {
     const text = T(`compatibility.${key}`, params), full = detail ? T(`compatibility.${key}`, detail) : text;
@@ -159,11 +162,20 @@ export async function remap(id, onRemapped = () => {}, label = "") {
 export async function inspect(id, label = "") {
   const report = await Loading.task(async (update) => waitJob(await rpc("actions.compatibility", { mod: id }), update),
     { label: T("progress.compatibility", { name: label || T("progress.mods") }) });
-  reports.set(id, { ...report, remappable: compare(report).remap });
+  reports.set(id, { ...report, remappable: await ensureSpine() ? compare(report).remap : false });
   return report;
 }
 
 export async function check(id, label = "", onRemapped = () => {}) {
+  if (!await requireRuntime()) return;
   const report = await inspect(id, label);
   return show(report, { label, onRemap: () => remap(id, onRemapped, label) });
+}
+
+async function requireRuntime() {
+  if (await ensureSpine()) return true;
+  const response = await Popup.message({ title: T("spine.license.title"), lines: [T("spine.license.required")],
+    ok: T("spine.license.confirm"), cancel: T("popup.cancel") });
+  if (response.button !== "ok") return false;
+  return await confirmLicence(document.getElementById("consent"), { over: true }) === true && await ensureSpine();
 }

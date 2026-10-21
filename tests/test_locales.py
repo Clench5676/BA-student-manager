@@ -132,3 +132,13 @@ def test_update_and_remap_use_one_localized_action(code):
     ui = load(code)["webui"]
     assert ui["remap"]["action"] == ui["act"]["update"]
     assert placeholders(ui["error"]["atlas_remap_regions_missing"]) == ["names"]
+
+
+@pytest.mark.parametrize("code", [REFERENCE, *TRANSLATIONS])
+def test_spine_licence_confirmation_keys(code):
+    ui = load(code)["webui"]
+    assert set(ui["spine"]["license"]) == {"title", "body", "yes", "no", "required", "confirm"}
+    assert set(ui["settings"]["spine"]) == {"label", "restart"}
+    assert "Esoteric Software" in ui["spine"]["license"]["body"]
+    assert "Spine Runtimes" in ui["spine"]["license"]["body"]
+    assert all("\n" not in text for text in ui["spine"]["license"].values())

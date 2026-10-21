@@ -5,6 +5,7 @@ import { artBounds, settle } from "./lobby-health.js";
 import { specialView } from "./special-view.js";
 import { withPreviewTimeout as withTimeout } from "./async.js";
 import { loadPlayer as spinePlayer } from "./spine-load.js";
+import { ensureSpine, spineAllowed } from "./spine-runtime.js";
 import { previewTimer } from "./preview-lifecycle.js";
 
 import { spineAssetBase, forgetSpineAssets } from "./api.js";
@@ -222,6 +223,15 @@ async function pump() {
   running = true;
   try {
     while (queue.length) {
+      try {
+        if (!await ensureSpine()) {
+          for (const item of [...queue]) complete(item, null);
+          break;
+        }
+      } catch (err) {
+        for (const item of [...queue]) complete(item, null, err);
+        break;
+      }
       const first = queue[0], base = first.base, controller = new AbortController(), { signal } = controller;
       active = { base, controller, items: new Set(queue.filter((q) => q.base === base)) };
       const el = document.createElement("div");
@@ -302,7 +312,7 @@ export function thumb(base, frame = "bust", expr = null, lobby = false, framing 
 }
 
 function request(base, frame = "bust", expr = null, lobby = false, framing = null, { signal, manifests } = {}) {
-  if (!base || signal?.aborted) return Promise.resolve(null);
+  if (!base || signal?.aborted || !spineAllowed()) return Promise.resolve(null);
   if (!/\/[a-f0-9]{64}\/skeleton$/.test(base)) {
     const resolveBase = () => {
       if (!manifests) return spineAssetBase(base);

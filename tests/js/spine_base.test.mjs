@@ -5,6 +5,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 const { spineBase, spinePrefix } = await import("../../src/ba_modding_toolkit/web/js/api.js");
+const { setSpineConsent } = await import("../../src/ba_modding_toolkit/web/js/spine-runtime.js");
+setSpineConsent(true);
 
 test("a core's skeleton base and its prefix", () => {
   assert.equal(spineBase("spr", "CH0164_spr"), "/asset/spine/spr/CH0164_spr/skeleton");

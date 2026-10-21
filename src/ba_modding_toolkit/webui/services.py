@@ -451,6 +451,10 @@ class Services:
         if self._cache is not None:
             self._cache.allowed = granted
 
+    def set_spine_consent(self, granted: bool) -> None:
+        """Save the user's confirmation that they hold their own Spine licence."""
+        self.state.set("spine_consent", granted)
+
     def ui_cached(self, version: str | None = None) -> bool:
         """Whether consented light UI assets already exist for the current install."""
         if self.state.consent is not True:

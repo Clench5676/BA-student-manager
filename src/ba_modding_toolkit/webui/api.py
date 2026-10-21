@@ -96,6 +96,7 @@ def build_api(s: Services) -> RpcRegistry:
             "gameFound": found,
             "resourceVersion": version,
             "consent": s.state.consent,
+            "spineConsent": s.state.spine_consent,
             "uiCached": found and s.ui_cached(version),
             "cacheDir": str(s.cache_dir()),
             "dataDir": str(s.data_dir),
@@ -136,6 +137,14 @@ def build_api(s: Services) -> RpcRegistry:
         s.set_consent(bool(granted))
         if not granted and s.window is not None and not s.jobs.busy():
             s.window.destroy()
+
+    @rpc.method("app.spineConsent")
+    def app_spine_consent(granted: Any = ...) -> bool | None:
+        if granted is not ...:
+            if not isinstance(granted, bool):
+                raise ServiceError("bad_params", key="granted")
+            s.set_spine_consent(granted)
+        return s.state.spine_consent
 
     @rpc.method("app.quit")
     def app_quit() -> None:
@@ -247,6 +256,7 @@ def build_api(s: Services) -> RpcRegistry:
             "lobbyIntro": bool(s.state.get("lobby_intro", True)),
             "roster": roster_view(s.state.get("roster")),
             "consent": s.state.consent, "cacheDir": str(s.cache_dir()),
+            "spineConsent": s.state.spine_consent,
             "version": get_version_info().get("version"), "native": s.window is not None,
             "logPath": str(s.log_path),
             # the tray or menu bar icon, the hand-off prompt

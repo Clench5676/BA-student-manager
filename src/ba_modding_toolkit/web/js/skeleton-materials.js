@@ -15,6 +15,8 @@
 import * as Linear from "./linear.js";
 import { toLinear } from "./touch-fx.js";
 
+// Runtime hooks run only on players created after lobby.js awaits ensureSpine().
+
 const states = new WeakMap(), attached = new Set();
 
 // for checks: draw with the game's materials (true) or as spine-player alone does (false: the slots' own blend modes,

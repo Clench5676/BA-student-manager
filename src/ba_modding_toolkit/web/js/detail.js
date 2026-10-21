@@ -12,6 +12,8 @@ import { isSpecial, specialFraming } from "./special-view.js";
 import * as NGUI from "./ngui.js";
 import { resizeButton } from "./button-layout.js";
 import { latestLoad, loadPlayer } from "./spine-load.js";
+import { ensureSpine, spineAllowed } from "./spine-runtime.js";
+import { decodeAll } from "./image-decode.js";
 import { withPreviewTimeout as withTimeout } from "./async.js";
 import { previewError } from "./preview-error.js";
 import * as Loading from "./loading.js";
@@ -93,7 +95,15 @@ let leftPage = Promise.resolve(), leavePage = () => {};
 let showGen = 0, endWait = () => {};
 let thumbnailWork = thumbnailScope();
 let thumbnailWait = Promise.resolve(), releaseThumbnails = () => {};
-const thumb = (...args) => thumbnailWork.thumb(...args);
+const thumb = (base, ...args) => spineAllowed() ? thumbnailWork.thumb(base, ...args) : collectionPortrait(base);
+function collectionPortrait(base) {
+  for (const v of fam?.variants || []) {
+    if (!v.spr) continue;
+    if ([spineBase("spr", v.spr), spineBase("official-spr", v.spr), variantBase(v)].includes(base)
+        || (v.modList || []).some((m) => m.kind === "spr" && spineBase("mod", m.id) === base)) return v.portrait || null;
+  }
+  return null;
+}
 function begin() {
   endWait();
   thumbnailWork.cancel();
@@ -858,6 +868,7 @@ function row4Items() {
     });
   }
   if (tab === "model") return modelActions.map((a) => ({ key: a, caption: T(`model.action.${a}`) }));
+  if (!spineAllowed()) return [];
   const base = currentBase();
   const names = mainPlayer?.skeleton ? mainPlayer.skeleton.data.animations.map((a) => a.name).filter((n) => /^\d{2}$/.test(n)).sort() : [];
   const request = thumbnailWork.thumb;
@@ -983,13 +994,14 @@ function loadSpine(base) {
   return portraitLoads.run((signal) => showSpine(base, my, signal));
 }
 async function showSpine(base, my, signal) {
+  const allowed = await ensureSpine();
+  if (signal.aborted || my !== spineToken) return;
   const host = $("portrait");
   const layer = document.createElement("div");
   layer.className = host.children.length || batch ? "layer fading" : "layer";
   host.appendChild(layer);
   const previous = [...host.querySelectorAll(".layer")].filter((l) => l !== layer);
   clearTimeout(blinkTimer);
-  prioritise(base);
   // layers fade out, then their players are freed (once each: a failed portrait may retire layers already going)
   const retire = (layers) => {
     for (const old of layers) {
@@ -1001,6 +1013,26 @@ async function showSpine(base, my, signal) {
       setTimeout(() => { if (old.isConnected) { old.load?.dispose(); old.remove(); } }, 400);
     }
   };
+  if (!allowed) {
+    mainPlayer = null;
+    const portrait = variant().portrait;
+    if (portrait) {
+      const image = document.createElement("img");
+      image.className = "portrait-static";
+      image.alt = "";
+      image.src = portrait;
+      layer.appendChild(image);
+      await decodeAll([portrait], () => image.decode?.(), HARD_CAP, { signal });
+    } else Lobby.licenseRequired(layer, () => open && my === spineToken ? renderLeft() : null);
+    if (signal.aborted || my !== spineToken) { layer.remove(); return; }
+    commit(() => {
+      if (signal.aborted || my !== spineToken) return;
+      layer.classList.remove("fading");
+      retire(previous);
+    });
+    return;
+  }
+  prioritise(base);
   try {
     await loadSpineAssets(base, async (resolved) => {
       if (signal.aborted || my !== spineToken) { layer.remove(); return; }
@@ -1099,7 +1131,6 @@ const SET_BADGE = () => ({ text: T("switch.configured"), color: "#8de4ff", ink: 
 const GREYED_BADGE = () => ({ text: T("mods.overwritten"), color: "#9aa3ad", ink: "#ffffff" });
 function renderPopup(scroll = 0) { return drawPopup(scroll).catch(renderFailed); }
 async function drawPopup(scroll = 0) {
-  const thumb = thumbnailWork.thumb;
   const v = variant(), kind = popupKind, inUseKey = shownSource(v, kind);
   const mode = popupMode(fam, v, kind, modsOn());
   const items = candidates(v, kind).map((c) => ({
@@ -1237,7 +1268,6 @@ function overwrittenMessage(v, kind = "spr") {
 // variant picker: every variant of the family in the same list layout
 let pickerSeg = 0;
 async function openPicker(scroll = 0) {
-  const thumb = thumbnailWork.thumb;
   pickerSel = pickerSel || variantKey;
   const items = fam.variants.filter(hasAsset).sort(byRank).map((o) => ({
     key: o.key, kind: o.recruitable ? "playable" : "other", recruit: o.recruitable, label: shortName(o), full: fullName(o),
@@ -1588,6 +1618,14 @@ const LINE_LANG = { "zh-CN": "zh-CN", "zh-TW": "zh-TW", "en-US": "en", "ja-JP": 
 // they come in time (later ones re-render the strip)
 async function showLobby(v, my, alive = () => true) {
   const still = () => alive() && open && my === leftToken && tab === "lobby" && variantKey === v.key;
+  if (!(await ensureSpine())) {
+    if (still()) {
+      Lobby.hide($("lobby"));
+      Lobby.licenseRequired($("lobby"), () => still() ? renderLeft() : null);
+    }
+    return;
+  }
+  if (!still()) return;
   if (lobbyFrom !== fam.version || lobbyStale) Lobby.hide($("lobby"));
   lobbyFrom = fam.version;
   lobbyStale = false;
@@ -1705,16 +1743,19 @@ let visualToken = 0;
 async function enterVisual() {
   if (fullscreen || !mainPlayer?.skeleton) return; // the portrait is not in yet
   const my = ++visualToken, key = variantKey;
+  const alive = () => my === visualToken && open && !fullscreen && tab === "portrait" && variantKey === key && !!mainPlayer?.skeleton;
   const layout = await (layouts.visual ||= NGUI.layout("UICharacterVisualMode").catch(() => null));
   const strings = { reset: T("visual.reset"), back: T("lobby.exit"), hide: T("visual.hide"), show: T("visual.show") };
   const parts = await Visual.prepare({ layout, bg: variant().bg, strings }).catch((err) => { console.error(err); return null; });
-  if (my !== visualToken || !open || fullscreen || tab !== "portrait" || variantKey !== key || !mainPlayer?.skeleton) return;
-  setStage(true);
-  Visual.open({
+  if (!alive()) return;
+  if (!(await Visual.open({
     parts, skeleton: mainPlayer.skeleton, detail: detailViewport(), host: stage(), bgHost: $("visual-bg"), uiHost: $("visual-ui"),
     players: () => [...$("portrait").querySelectorAll(".layer")].map((l) => l.player).filter(Boolean),
     onBack: () => setFullscreen(false),
-  });
+    alive,
+  }))) return;
+  if (!alive()) return;
+  setStage(true);
   if (!parts) showExit(true);
 }
 // the switch card's still is taken in the left framing: when fullscreen was entered before the lobby or the model was
@@ -1958,6 +1999,7 @@ export function hide() {
   begin();
   batch = null;
   leftToken += 1;
+  visualToken += 1;
   Visual.close({ instant: true });
   if (fullscreen) setFullscreen(false);
   disposePortrait();

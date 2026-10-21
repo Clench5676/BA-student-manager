@@ -13,6 +13,7 @@
 // Input: press and drag (any button, a finger) moves the art; the mouse wheel zooms at the pointer; a trackpad pinches
 // (ctrl + wheel in Chromium and WebView2, gesture events in WebKit) and swipes; two fingers pinch.
 import * as NGUI from "./ngui.js";
+import { ensureSpine } from "./spine-runtime.js";
 import { wheelKind, wheelStep } from "./lobby-touch.js";
 import { S, clone, hitButton } from "./util.js";
 import {
@@ -50,7 +51,8 @@ export async function prepare({ layout, bg, strings }) {
 // viewport (detail) to the whole art while the prepared parts come in; without parts (no prefab) there is no
 // background and no button, and the caller gives a way out. players(): every portrait player on the stage. The glide's
 // clock starts with its first frame, as the page's own transitions do.
-export function open(o) {
+export async function open(o) {
+  if (!(await ensureSpine()) || o.alive?.() === false) return false;
   close({ instant: true });
   const parts = o.parts || null;
   const box = artBox(o.skeleton?.data, measure(o.skeleton));
@@ -80,6 +82,7 @@ export function open(o) {
     for (const [name, keys] of Object.entries(MOVING)) if (g[name]) slide(g[name], keys, false);
   }
   addEventListener("keydown", onKey);
+  return true;
 }
 
 // close(): the buttons slide out, the background fades and the portrait glides back to the detail screen's framing;

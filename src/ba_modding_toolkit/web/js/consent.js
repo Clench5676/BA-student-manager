@@ -8,9 +8,14 @@ import * as NGUI from "./ngui.js";
 import * as Popup from "./popup.js";
 import { rpc } from "./api.js";
 import { T } from "./i18n.js";
+import { setSpineConsent } from "./spine-runtime.js";
 import { S, clone, hitButton, toast, wrapPath } from "./util.js";
 
 const { node, sprite, label, find, rect } = NGUI;
+let assetsAllowed = false, spinePrompt = null;
+
+// The licence prompt uses game assets only after the asset consent.
+export function init(info) { assetsAllowed = info?.consent === true; }
 
 // resolves with the choice (true / false) once a button is pressed; native: the folder picker is available
 export async function show(host, cacheDir, native = false) {
@@ -72,6 +77,7 @@ async function draw(host, cacheDir, native, resolve) {
     if (!el) continue;
     hitButton(next, rect(el), async () => {
       await rpc("app.consent", { granted });
+      assetsAllowed = granted;
       host.hidden = true;
       host.innerHTML = "";
       resolve(granted);
@@ -89,6 +95,73 @@ async function draw(host, cacheDir, native, resolve) {
         toast(T(`error.${err.code || "internal"}`, err.params || {}), { kind: "error" });
       }
     }, T("consent.change"), 2100);
+  }
+  host.replaceChildren(...next.childNodes);
+}
+
+// Separate from the asset and file-scan consents: no Spine code is loaded by this prompt.
+export function spine(host, { over = false } = {}) {
+  if (spinePrompt) return spinePrompt;
+  spinePrompt = new Promise((resolve) => {
+    drawSpine(host, over, resolve).catch((err) => {
+      console.error("Spine consent", err);
+      finishScan(host);
+      resolve(null);
+    });
+  }).finally(() => { spinePrompt = null; });
+  return spinePrompt;
+}
+
+async function drawSpine(host, over, resolve) {
+  let choosing = false;
+  const choose = async (granted) => {
+    if (choosing) return;
+    choosing = true;
+    try { await rpc("app.spineConsent", { granted }); }
+    catch (err) { choosing = false; toast(T(`error.${err.code || "internal"}`, err.params || {}), { kind: "error" }); return; }
+    setSpineConsent(granted);
+    finishScan(host);
+    resolve(granted);
+  };
+  host.classList.toggle("over", over);
+  host.hidden = false;
+  Popup.opened(host, null);
+  const next = document.createElement("div");
+  if (!assetsAllowed) {
+    const back = document.createElement("div");
+    back.className = "plain-popup-back";
+    const box = document.createElement("div");
+    box.className = "plain-popup spine-license-plain";
+    for (const [tag, key] of [["h2", "title"], ["p", "body"]]) {
+      const el = document.createElement(tag);
+      el.textContent = T(`spine.license.${key}`);
+      box.appendChild(el);
+    }
+    const row = document.createElement("div");
+    row.className = "message-actions";
+    for (const [granted, key, action] of [[false, "no", "cancel"], [true, "yes", "ok"]]) {
+      const button = document.createElement("button");
+      button.className = "message-button";
+      button.textContent = T(`spine.license.${key}`);
+      button.setAttribute("aria-label", button.textContent);
+      button.dataset.action = action;
+      button.addEventListener("click", () => choose(granted));
+      row.appendChild(button);
+    }
+    box.appendChild(row);
+    next.appendChild(back);
+    next.appendChild(box);
+  } else {
+    const sort = await NGUI.layout("UIPopup_Sort");
+    const { tree, popup } = consentFrame(sort, T("spine.license.title"), 1900, 860, [T("spine.license.no"), T("spine.license.yes")]);
+    const body = NGUI.fitText(T("spine.license.body"), 48, 40, 1660, 3);
+    popup.children.push(node("Licence", [0, 30], [label(body.text, body.fs, "#2d4664/1.00", 1680, body.lines * body.fs * 1.3 + 8, { depth: 7 })]));
+    const view = await NGUI.render(tree, next, { scale: S, origin: [960, 540], z: 2000 });
+    for (const [name, granted, key] of [["Btn_Cancel", false, "no"], ["Btn_Ok", true, "yes"]]) {
+      Popup.hit(next, view, `Center/Popup/Btn/${name}/BG (1)`, () => choose(granted), {
+        name: T(`spine.license.${key}`), action: granted ? "ok" : "cancel", z: 2100,
+      });
+    }
   }
   host.replaceChildren(...next.childNodes);
 }
@@ -113,8 +186,9 @@ function consentFrame(sort, title, w, h, [no, yes]) {
   btn.pos = [0, -h / 2 + 160];
   for (const [name, caption] of [["Btn_Cancel", no], ["Btn_Ok", yes]]) {
     const l = find(btn, `${name}/Label_Locale`).widgets[0];
-    l.text = caption;
-    l.fontSize = NGUI.fitText(caption, 64, 40, 380).fs;
+    const fitted = NGUI.fitText(caption, 64, 40, 380);
+    l.text = fitted.text;
+    l.fontSize = fitted.fs;
   }
   find(t, "BlackBg/BlackBgClickArea").widgets.find((x) => "sprite" in x).color = "#000000/0.65";
   return { tree: t, popup };

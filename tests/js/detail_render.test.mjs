@@ -267,6 +267,8 @@ const flat = (obj, prefix = "", out = {}) => {
   return out;
 };
 const { setStrings } = await import("../../src/ba_modding_toolkit/web/js/i18n.js");
+const { setSpineConsent } = await import("../../src/ba_modding_toolkit/web/js/spine-runtime.js");
+setSpineConsent(true);
 setStrings("en-US", flat(JSON.parse(readFileSync(new URL("../../src/ba_modding_toolkit/locales/en-US.json", import.meta.url), "utf8"))));
 const Detail = await import("../../src/ba_modding_toolkit/web/js/detail.js");
 const NGUI = await import("../../src/ba_modding_toolkit/web/js/ngui.js");

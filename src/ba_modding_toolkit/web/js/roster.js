@@ -19,6 +19,7 @@ import { countNodes, countText, iconsOf } from "./mod-counts.js";
 import { rpc, spineBase } from "./api.js";
 import { L, T, language } from "./i18n.js";
 import { prioritise, thumbnailScope } from "./thumbs.js";
+import { spineAllowed } from "./spine-runtime.js";
 import { configuredKey, hasAsset, previewBase, primaryKind } from "./switch-sources.js";
 import { $, RECRUIT, S, advanceOf, clone, glyphsOf } from "./util.js";
 import { DEFAULT_VIEW, SORTS, arrange, filtering, normalizeView, order as orderOf } from "./roster-order.js";
@@ -270,6 +271,7 @@ function cardTree(e) {
 }
 
 const portraitOf = (e) => {
+  if (!spineAllowed()) return e.portrait || null;
   const thumb = thumbnailWork.thumb;
   const kind = primaryKind(e), variants = data.families.find((f) => f.key === e.family)?.variants || [];
   if (modsState()?.enabled === false && configuredKey(e, kind)) {

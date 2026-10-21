@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 import { spineBase, spinePrefix, spineAssetBase } from "../../src/ba_modding_toolkit/web/js/api.js";
 import { thumb, forget, prioritise, thumbnailScope } from "../../src/ba_modding_toolkit/web/js/thumbs.js";
+import { setSpineConsent } from "../../src/ba_modding_toolkit/web/js/spine-runtime.js";
+
+setSpineConsent(true);
 
 const revisions = new Map();
 const loaded = [], requests = [], posed = [];

@@ -1317,7 +1317,11 @@
 			"notSet": "未設定",
 			"saved": "已儲存",
 			"button": "設定",
-			"change": "變更"
+			"change": "變更",
+			"spine": {
+				"label": "Spine 授權",
+				"restart": "Spine 授權 - 撤回後下次啟動生效"
+			}
 		},
 		"cacheTo": "快取到 {path}",
 		"languageName": "繁體中文",
@@ -1388,6 +1392,16 @@
 			"after": "修復後",
 			"previewUnavailable": "預覽不可用",
 			"unpainted": "未使用的留空區域：{names}"
+		},
+		"spine": {
+			"license": {
+				"title": "Spine 授權",
+				"body": "預覽使用 Esoteric Software 的 Spine Runtimes，需要自有 Spine 授權",
+				"yes": "持有 Spine 授權",
+				"no": "沒有 Spine 授權",
+				"required": "Spine 授權未確認",
+				"confirm": "確認授權"
+			}
 		}
 	}
 }

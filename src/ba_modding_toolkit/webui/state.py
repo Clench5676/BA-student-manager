@@ -1,5 +1,5 @@
 """Small UI state kept between launches: the asset consent, recently opened variants, seen mods, the user's own
-aliases of the students and the web UI's own preferences (voice volume, the mod library folder, the scan consent,
+aliases of the students and the web UI's own preferences (voice volume, the mod library folder, scan and Spine consents,
 the mod switch's and the classic hand-off's flags, the data directory's id). Kept apart from config.toml, which the
 classic GUI rewrites with only its own keys.
 
@@ -297,6 +297,12 @@ class UiState:
         """None until the user answered the scan consent popup; then True (the game folders may be checked) or
         False."""
         value = self.get("scan_consent")
+        return value if isinstance(value, bool) else None
+
+    @property
+    def spine_consent(self) -> bool | None:
+        """None until the user confirms whether they hold their own Spine licence; only True grants use."""
+        value = self.get("spine_consent")
         return value if isinstance(value, bool) else None
 
     def data_id(self, data_dir: Path) -> str:

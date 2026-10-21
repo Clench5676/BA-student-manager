@@ -20,6 +20,7 @@ import { hasAsset, primaryKind } from "./switch-sources.js";
 import { renderNav, setTitle } from "./nav.js";
 import { confirmQuit, quitKey } from "./quit.js";
 import { forget } from "./thumbs.js";
+import { setSpineConsent } from "./spine-runtime.js";
 import { $, fitStage, toast } from "./util.js";
 
 let info = null, rosterData = null, rosterStale = true;
@@ -276,6 +277,7 @@ async function boot() {
 // The start popups, one at a time and in this order, each only when it has something to show (mod-switch.js
 // startDue); each step resolves once its popup has closed (docs/web-ui.md, "Start sequence"):
 //   - the asset consent;
+//   - the Spine licence confirmation, while unanswered;
 //   - the scan consent, while it is unanswered and a game folder is known;
 //   - the prompts of mods back to official and of mods outside the library, once the start scan is in (at most
 //     10 s; a later scan shows them once no other popup is open), only with the scan consent
@@ -287,6 +289,11 @@ function startPopups() {
       info.consent = await Consent.show($("consent"), info.cacheDir, info.native);
       Loading.init(info);
     }],
+    ["spine", async () => {
+      if (!due("spine")) return;
+      info.spineConsent = await Consent.spine($("consent"));
+      if (info.spineConsent === true) await route();
+    }],
     ["scan", () => due("scan") && Consent.scan($("consent"))],
     ["drift", () => Prompts.start("drift", info)],
     ["untracked", () => Prompts.start("untracked", info)],
@@ -297,6 +304,8 @@ async function start() {
   const prefs = timed("settings", () => rpc("settings.get").catch(() => null));
   info = await timed("info", () => rpc("app.info"));
   ctx.info = info;
+  Consent.init(info);
+  setSpineConsent(info.spineConsent);
   Loading.init(info); // the loading screen's backdrop from the game's prefab
   const ui = info.gameFound ? timed("ui-indexes", () => NGUI.init()) : Promise.resolve();
   ui.catch(() => {}); // observed below after the strings and fonts
@@ -353,7 +362,7 @@ async function start() {
   $("top-option").addEventListener("click", () => Settings.open((key, prefs) => {
     ctx.prefs = prefs;
     Detail.applyPrefs(prefs);
-    if (key === "fileSource" || key.startsWith("gameDir") || key === "libraryDir") { stepCards = null; ctx.invalidateRoster(); route(); }
+    if (key === "fileSource" || key.startsWith("gameDir") || key === "libraryDir" || key === "spineConsent") { stepCards = null; ctx.invalidateRoster(); route(); }
   }));
   addEventListener("hashchange", route);
   await timed("first-screen", route);
