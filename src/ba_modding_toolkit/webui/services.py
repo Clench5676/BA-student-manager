@@ -1248,6 +1248,21 @@ class Services:
             core, _, install_id = key.rpartition("@")
             game = self._install_game(install_id)
             pin = next(p for p in self.library.installs() if p.id == install_id)
+        if name == "framing.json":
+            from ..gameassets import AssetNotFound, lobby
+
+            if kind == "import":
+                core = self.batch_import.preview(key)[0]
+            elif kind == "mod":
+                sources = bundles if bundles is not None else self.library.preview_bundles(key)
+                core = parse_filename(sources[-1].name).core
+            try:
+                info = game.lobby_info(core)
+                layer = next((layer for layer in info["layers"] if layer["name"] == info.get("main")), None)
+                layer = layer or next(iter(info["layers"]), lobby.STANDARD)
+                return _json({"view": info["view"], "layer": {k: layer[k] for k in ("name", "x", "y", "scale") if k in layer}}, light=False)
+            except AssetNotFound:
+                return _json({"view": lobby.GAME_VIEW, "layer": lobby.STANDARD}, light=False)
         if kind == "lobby" and name == "lobby.json":
             # the lobby's layout and interaction from its prefab and clip assets; no skeleton file has this name, and
             # it is answered without extracting (and PNG-encoding) the lobby's textures

@@ -122,6 +122,8 @@ def test_source_preview_tokens_never_resolve_arbitrary_paths(env):
 @pytest.mark.parametrize('problem', ['platform', 'source', 'conflict'])
 def test_blocked_sources_still_serve_renderable_preview_assets(env, monkeypatch, problem):
     from ba_modding_toolkit.library import integrity
+    if problem == "source":
+        monkeypatch.setattr("ba_modding_toolkit.webui.batch_import._asset_match", lambda *args: ([], ""))
 
     source = make_mod(env.original, env.tmp / 'input')
     inspect = integrity.inspect
@@ -152,3 +154,20 @@ def test_blocked_model_source_has_an_import_preview_route(batch_model_env, monke
     response = env.services.asset('model/hoshino.glb', {'source': 'import:' + entry['preview']['key']})
     assert response.body == b'model preview'
     assert seen[0][0] == 'hoshino_original' and seen[0][1]['overrides'][-1] == source
+
+
+def test_import_lobby_still_route_supplies_the_identified_game_camera(env):
+    target = game_bundle(env.game_dir, "test_home_gl")
+    source = make_mod(target, env.tmp / "incoming")
+    entry, = analyze(env, [source])["entries"]
+    info = {"view": {"x": -1480, "y": -832.5, "w": 2960, "h": 1665}, "main": "test_home",
+            "layers": [{"name": "test_home", "x": 37.5, "y": -880, "scale": .72}]}
+    requested = []
+    env.services._game = SimpleNamespace(lobby_info=lambda core: requested.append(core) or info)
+    app, prefix = preview_route(env, entry)
+    status, _, manifest = call(app, prefix + "/manifest.json")
+    revision = json.loads(manifest)["revision"]
+    status, _, body = call(app, f"{prefix}/{revision}/framing.json")
+    assert status == "200 OK"
+    assert json.loads(body) == {"view": info["view"], "layer": info["layers"][0]}
+    assert requested == ["test_home_gl"]

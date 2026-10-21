@@ -9,6 +9,7 @@ import { ensureSpine, spineAllowed } from "./spine-runtime.js";
 
 import { spineAssetBase, forgetSpineAssets } from "./api.js";
 import { lobbyIdle } from "./rest-pose.js";
+import { lobbyStillViewport } from "./lobby-still.js";
 
 const FRAMES = {
   // [width, height] of the rendered picture in CSS px: about what the cards show (a list card's window is 234 x 200
@@ -116,7 +117,8 @@ export function thumbFrame(found, bounds, frame, aspect) {
   return { x: cx - w / 2, y: cy - h / 2, width: w, height: h };
 }
 
-function viewFor(p, frame, aspect, framing) {
+function viewFor(p, frame, aspect, framing, lobby = false) {
+  if (lobby && !framing) return lobbyStillViewport(p.bamtLobbyFrame, aspect);
   if (framing || frame === "landscape") {
     const r = specialView(artBounds(p.skeleton), framing || "scene", aspect);
     return { x: r.x, y: r.y, width: r.w, height: r.h, padLeft: 0, padRight: 0, padTop: 0, padBottom: 0, transitionTime: 0, animations: {} };
@@ -156,7 +158,7 @@ async function capture(player, el, frame, expr, lobby, framing, background, sign
   if (expr && player.skeleton.data.findAnimation(expr)) state.setAnimation(1, expr, true);
   state.apply(player.skeleton);
   player.skeleton.updateWorldTransform(spine.Physics.update);
-  player.config.viewport = viewFor(player, frame, w / h, framing);
+  player.config.viewport = viewFor(player, frame, w / h, framing, lobby);
   player.setViewport(entry.animation);
   let valid = false;
   // drawFrame(false) resizes and renders synchronously without scheduling a visibility-dependent RAF.
@@ -282,6 +284,17 @@ async function pump() {
         if (!player || signal.aborted) {
           for (const q of active.items) complete(q, null, signal.reason?.name === "AbortError" ? null : signal.reason);
           continue;
+        }
+        if (first.lobby && !first.framing) {
+          const url = `${base.slice(0, base.lastIndexOf("/"))}/framing.json`;
+          player.bamtLobbyFrame = await withTimeout(fetch(url, { signal }).then((r) => {
+            if (!r.ok) throw new Error(`${url}: HTTP ${r.status}`);
+            return r.json();
+          }), 15000, "Lobby still camera", { signal }).catch((err) => {
+            if (signal.aborted) throw err;
+            console.warn("Lobby still camera unavailable; using standard game placement", err);
+            return null;
+          });
         }
         const batch = [];
         let q = first.settled ? queue.find((q) => q.base === base) : first;

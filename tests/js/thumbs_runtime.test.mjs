@@ -161,3 +161,20 @@ test("a stalled inactive runtime exhausts one eight-second budget and disposes i
     assert.equal(retired.draws, draws);
   } finally { t.mock.timers.reset(); }
 });
+
+test("every memorial lobby still uses revisioned prefab framing before its first encoded draw", async () => {
+  const previous = globalThis.fetch, urls = [];
+  globalThis.fetch = async (url) => {
+    urls.push(url);
+    return { ok: true, json: async () => ({ view: { x: -1480, y: -832.5, w: 2960, h: 1665 },
+      layer: { x: 37.5, y: -880, scale: .72 } }) };
+  };
+  try {
+    assert.ok(await thumb(base("lobby_camera"), "landscape", null, true));
+    const view = players.at(-1).config.viewport;
+    assert.ok(urls[0].endsWith(`/${"a".repeat(64)}/framing.json`));
+    assert.ok(Math.abs(view.x * .72 + 37.5 + 1480) < 1e-8);
+    assert.ok(Math.abs(view.y * .72 - 880 + 832.5) < 1e-8);
+    assert.equal(view.width * .72, 2960); assert.equal(view.height * .72, 1665);
+  } finally { globalThis.fetch = previous; }
+});
