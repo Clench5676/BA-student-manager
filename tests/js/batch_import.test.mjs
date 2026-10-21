@@ -854,7 +854,7 @@ test("unknown source opens game radio choices and reanalyzes only its entry", as
   const unknown = { ...entry("a", "blocked"), reason: "source_unknown", source: null,
     target: { server: "global", platform: "windows" } };
   await h.analyze([unknown, entry("b")]);
-  assert.match(h.host.textContent, /Identify source manually/);
+  assert.match(h.host.textContent, /Unknown source, select manually/);
   assert.equal(find(drawn(h, h.row("a")).tree, "Platform"), undefined, "an unknown source is not a conversion route");
   assert.ok(h.thumbs.some(([base]) => base.includes("/import/source-a")), "blocked source keeps its preview");
   await h.action("source").click(); await flush(); await h.page.settled();
@@ -1327,12 +1327,51 @@ for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) tes
     await flush(); await ready.page.results(); await ready.page.settled();
     for (const row of walk(ready.dialog).filter((el) => el.dataset.result)) {
       const { tree } = drawn(ready, row), paths = ["Label_Locale_Received", ...(find(tree, "Platform") ? ["Platform"] : []), "Label_Locale_Limit"];
+      const list = drawn(ready, ready.row(row.dataset.result)), resultDraw = drawn(ready, row);
+      closeTo(find(list.tree, "Label_Locale_Received").widgets[0].fontSize * list.opts.scale,
+        find(tree, "Label_Locale_Received").widgets[0].fontSize * resultDraw.opts.scale);
       const labels = paths.map((p) => find(tree, p));
       const fs = labels[0].widgets[0].fontSize;
       for (const [i, n] of labels.entries()) {
         const w = n.widgets[0]; assert.equal(w.fontSize, fs); assert.equal(w.pivot, 0);
         assert.ok(n.pos[1] - w.h_ >= -329 / 2 + 12, "text and descenders clear the card bottom");
         if (i) assert.equal(labels[i - 1].pos[1] - n.pos[1], 56);
+      }
+    }
+  } finally { setStrings("en-US", flatten(JSON.parse(readFileSync(new URL("../../src/ba_modding_toolkit/locales/en-US.json", import.meta.url))))); }
+});
+
+test("source popup title labels occupy distinct prefab rows", async () => {
+  const h = await fixture();
+  await h.analyze([{ ...entry("a", "blocked"), source: null, reason: "source_unknown", target: { server: "global", platform: "windows" } }]);
+  await h.action("source").click(); await h.page.settled();
+  const titles = walk(h.dialog).filter((el) => el.style.height === "60px");
+  assert.equal(titles.length, 2);
+  const bounds = titles.map((title) => {
+    const [, y, , height] = rectOf(title.art.children[0]);
+    const siblings = title.parentNode.children, index = siblings.indexOf(title);
+    const offset = title.style.position === "relative"
+      ? siblings.slice(0, index).reduce((sum, el) => sum + (parseFloat(el.style.height) || 0), 0) : 0;
+    return { top: offset + y, bottom: offset + y + height };
+  });
+  assert.ok(bounds[0].bottom + 24 <= bounds[1].top, "Source Server and Source Platform never share a label canvas");
+});
+
+for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) test(`result paragraphs use even spacing and clear the footer in ${locale}`, async () => {
+  try {
+    setStrings(locale, flatten(JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${locale}.json`, import.meta.url)))));
+    const h = await fixture();
+    await h.analyze([{ ...entry("a", "convert", "lobby"), source: { server: "global", platform: "android" }, target: { server: "global", platform: "windows" } }, entry("b")]);
+    await h.action("start").click(); await flush();
+    h.runs[0].resolve({ results: ["a", "b"].map((id) => ({ id, outcome: "updated", libraryId: id, applied: true })) });
+    await flush(); await h.page.results(); await h.page.settled();
+    for (const row of walk(h.dialog).filter((el) => el.dataset.result)) {
+      const { tree } = drawn(h, row);
+      const paragraphs = [find(tree, "Label_Locale_Received"), find(tree, "Platform"), find(tree, "Label_Locale_Limit")].filter(Boolean);
+      for (const [i, n] of paragraphs.entries()) {
+        const w = n.widgets[0]; assert.equal(w.fontSize, paragraphs[0].widgets[0].fontSize);
+        assert.equal(w.pivot, 0); assert.ok(n.pos[1] - w.h_ >= -329 / 2 + 12);
+        if (i) assert.equal(paragraphs[i - 1].pos[1] - n.pos[1], 56);
       }
     }
   } finally { setStrings("en-US", flatten(JSON.parse(readFileSync(new URL("../../src/ba_modding_toolkit/locales/en-US.json", import.meta.url))))); }

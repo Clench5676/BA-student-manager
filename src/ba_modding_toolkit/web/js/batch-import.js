@@ -431,13 +431,17 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
       note: [...new Set(notes.filter(Boolean))].join(listSeparator()) };
   }
 
-  const sharedRowSize = (groups) => art.rowTextSize(groups.flatMap((group) =>
-    [paragraphCopy(group), ...(model.state.phase === "done" ? [paragraphCopy(group, true)] : [])]));
+  const sharedRowSize = () => {
+    const done = model.state.phase === "done";
+    const groups = [...importGroups(model.state.entries, merged, identified),
+      ...(done ? importGroups(model.state.taskEntries, merged, identified) : [])];
+    return art.rowTextSize(groups.flatMap((group) => [paragraphCopy(group), ...(done ? [paragraphCopy(group, true)] : [])]));
+  };
 
   function renderRows() {
     if (!visible || !root) return;
     const allGroups = importGroups(model.state.entries, merged, identified);
-    const textSize = sharedRowSize(allGroups);
+    const textSize = sharedRowSize();
     const groups = allGroups.filter((group) => group.entries.some((entry) =>
       (filter === "all" || entry.state === filter) && identified(entry).search.includes(query)));
     const entries = groups.map((group) => group.entries[0]);
@@ -643,7 +647,8 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
     await dialog(T("import.resultTitle"), {}, (area) => {
       area.classList.add("import-results");
       const groups = importGroups(model.state.taskEntries, merged, identified);
-      const textSize = sharedRowSize(groups);
+      const textSize = sharedRowSize();
+      const resultScale = 0.62, resultTextSize = textSize * ROW_SCALE / resultScale;
       for (const group of groups) {
         const entry = representative(group.entries), row = el("div", "import-result-row");
         const resultItems = group.entries.map((item) => ({ entry: item, result: model.state.results.find((result) => result.id === item.id) }));
@@ -651,8 +656,8 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
         const notes = [...new Set(resultItems.map(({ entry, result }) => result?.reason ? report(result.reason, entry)
           : ["imported", "updated", "unchanged"].includes(result?.outcome) ? T(result.applied ? "import.applied" : "import.notApplied") : "").filter(Boolean))];
         const source = thumbnail(entry, { incoming: true });
-        const drawing = paint(row, art.row({ name: identified(entry).name, ...rowCopy(group, true), textSize, route: conversionRoutes(group.entries), note: notes.join(", ") }),
-        { scale: 0.62, origin: [700, 104], textures: { "Icon_Arona": Promise.resolve(null) } });
+        const drawing = paint(row, art.row({ name: identified(entry).name, ...rowCopy(group, true), textSize: resultTextSize, route: conversionRoutes(group.entries), note: notes.join(", ") }),
+        { scale: resultScale, origin: [700, 104], textures: { "Icon_Arona": Promise.resolve(null) } });
         bindTexture(drawing, "List_01/BG_Icon/Icon_Arona", source, "import-thumb");
         const go = button(T("add.go"), "go", { width: 225, scale: 0.4 });
         place(go, 1115, 86, 225, 65);
