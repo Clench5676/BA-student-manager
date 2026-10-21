@@ -120,11 +120,6 @@ export function importArtwork(ui, layouts) {
       const t = at(mail("Right/Label_Amount")), w = t.widgets.find((w) => "text" in w), height = w.h_;
       label(t, caption, 500); Object.assign(w, { h_: height, pivot: 5, ellipsis: true }); return t;
     },
-    searchTop() {
-      const panel = ui.find(layouts.UINonEquipmentInventory, LIST);
-      return panel.widgets.find((w) => "sprite" in w).h_ / 2 - ["Inbox", "Inbox/SearchInfo", "Inbox/SearchInfo/SearchName", "Inbox/SearchInfo/SearchName/SearchNameArea"]
-        .reduce((y, path) => y + ui.find(panel, path).pos[1], 0);
-    },
     // Items' white search field, outline, search icon and clear icon. Resize actual sprite widgets:
     // SearchNameArea starts with a nonvisual component in exported layouts, not its background sprite.
     search(width, searching = true) {

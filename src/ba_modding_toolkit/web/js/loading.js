@@ -343,9 +343,9 @@ export async function wait(promise, { label: text = null, cap = HARD_CAP, immedi
     decorate(o);
   };
   const timer = immediate ? (Promise.resolve().then(reveal), null) : setTimeout(() => requestAnimationFrame(reveal), WAIT_AFTER);
-  let failed = false, error = null, timedOut = false, result;
+  let failed = false, error = null, result;
   try {
-    result = cap === null ? await promise : await Promise.race([promise, sleep(cap).then(() => { timedOut = true; })]);
+    result = cap === null ? await promise : await Promise.race([promise, sleep(cap)]);
   } catch (err) {
     failed = true;
     error = err;
