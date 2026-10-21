@@ -185,7 +185,11 @@ async function capture(player, el, frame, expr, lobby, framing, background, sign
     if (hasThumbnailInk(pixels)) { valid = true; break; }
   }
   if (!valid || signal.aborted) return null;
-  const canvas = await collectionStill(el.querySelector("canvas"), background, signal);
+  // Freeze the validated draw before background loading or encoding can yield to the running player.
+  const portrait = el.querySelector("canvas"), still = document.createElement("canvas");
+  still.width = portrait.width; still.height = portrait.height;
+  still.getContext("2d").drawImage(portrait, 0, 0);
+  const canvas = await collectionStill(still, background, signal);
   return new Promise((resolve) => canvas.toBlob((b) => resolve(b && !signal.aborted ? URL.createObjectURL(b) : null)));
 }
 

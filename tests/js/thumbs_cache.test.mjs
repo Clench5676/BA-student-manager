@@ -12,7 +12,8 @@ const players = new Set();
 let blobs = 0, animations = ["Idle_01"];
 const el = () => ({
   style: {}, appendChild() {}, remove() {},
-  querySelector: () => ({ toBlob: (done) => done({}) }),
+  querySelector: () => ({ width: 2, height: 1, toBlob: (done) => done({}) }),
+  getContext: () => ({ drawImage() {} }), toBlob: (done) => done({}),
 });
 globalThis.document = { body: el(), createElement: el };
 globalThis.requestAnimationFrame = (done) => queueMicrotask(() => { for (const p of players) p.config.draw(p); done(); });
@@ -336,9 +337,9 @@ test("a stalled companion capture releases the thumbnail queue for another core"
   const create = document.createElement, base = spineBase("spr", "companion_spr"), next = spineBase("spr", "after_companion_spr");
   let encodes = 0;
   try {
-    document.createElement = () => ({ ...el(), querySelector: () => ({ toBlob(done) {
+    document.createElement = () => ({ ...el(), toBlob(done) {
       if (++encodes !== 2) done({});
-    } }) });
+    } });
     set(base, "a"); set(next, "b");
     assert.ok(await thumb(base, "card"));
     await new Promise(setImmediate);
@@ -356,9 +357,9 @@ test("a bust requested during its companion capture joins that render without re
   let encodes = 0, release;
   const count = loaded.length;
   try {
-    document.createElement = () => ({ ...el(), querySelector: () => ({ toBlob(done) {
+    document.createElement = () => ({ ...el(), toBlob(done) {
       if (++encodes === 2) release = () => done({}); else done({});
-    } }) });
+    } });
     set(base, "b");
     assert.ok(await scope.thumb(base, "card"));
     await new Promise(setImmediate);
@@ -460,9 +461,9 @@ test("a stuck encoder fails the remaining expressions together and lets another 
   let encodes = 0, late;
   const before = blobs;
   try {
-    document.createElement = () => ({ ...el(), querySelector: () => ({ toBlob(done) {
+    document.createElement = () => ({ ...el(), toBlob(done) {
       if (++encodes === 1) late = done; else done({});
-    } }) });
+    } });
     set(base, "e"); set(next, "f");
     const faces = ["00", "01", "02"].map((expr) => scope.thumb(base, "face", expr));
     const healthy = scope.thumb(next, "face", "00");
@@ -591,4 +592,34 @@ test("portrait captures retry cleared frames and never cache a pale uniform squa
     mode = "ready";
     assert.ok(await thumb(base, "face"), "a later attempt can recover; blank output was never cached");
   } finally { spine.SpinePlayer = Player; }
+});
+
+test("the encoded thumbnail retains its validated portrait while the background load clears the live canvas", async () => {
+  const create = document.createElement, Image = globalThis.Image;
+  const base = spineBase("mod", "validated_background_race_spr"), encoded = [];
+  const portrait = { width: 2, height: 1, ink: true };
+  let backgroundStarted = false, finishBackground;
+  document.createElement = (tag) => tag === "canvas" ? {
+    ink: false,
+    getContext() { return { drawImage: (image) => { if ("ink" in image) this.ink = image.ink; } }; },
+    toBlob(done) { encoded.push(this.ink); done({}); },
+  } : { ...el(), querySelector: () => portrait };
+  globalThis.Image = class {
+    naturalWidth = 100; naturalHeight = 100;
+    set src(value) {
+      this.url = value; backgroundStarted = true;
+      finishBackground = () => this.onload?.();
+    }
+    get src() { return this.url; }
+  };
+  try {
+    set(base, "a");
+    const work = thumb(base, "face", null, false, null, "/bg/validated-race");
+    await new Promise(setImmediate);
+    assert.equal(backgroundStarted, true);
+    portrait.ink = false; // The renderer clears after validation, while the background remains pending.
+    finishBackground();
+    assert.ok(await work);
+    assert.deepEqual(encoded, [true], "encode the frozen validated draw, never the later blank live canvas");
+  } finally { await new Promise(setImmediate); document.createElement = create; globalThis.Image = Image; }
 });
