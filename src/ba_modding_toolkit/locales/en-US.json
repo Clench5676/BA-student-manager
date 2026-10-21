@@ -1403,7 +1403,8 @@
 			"regions": "Missing atlas regions: {names}",
 			"runtimeVersion": "{name}, Spine {version}, runtime {runtime}",
 			"missingAnimations": "{name}, required animations missing: {names}",
-			"ported": "Assets ported to current bundles"
+			"ported": "Assets ported to current bundles",
+			"forceUpdate": "Integrity checks found no problems. Are you sure you still want to force an update?"
 		},
 		"remap": {
 			"action": "Update",

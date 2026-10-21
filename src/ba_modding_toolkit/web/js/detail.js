@@ -701,9 +701,14 @@ function shownMod() {
 async function runUpdate(c = shownMod()) {
   const kind = switchKind();
   if (!c || busy) return;
-  if (Compatibility.eligible(c.mod)) {
-    if (!await call(() => Compatibility.inspect(c.id, c.label))) return false;
-    if (Compatibility.canRemap(c.id, c.mod)) return runRemap(c);
+  const page = pageToken;
+  const report = await call(() => Loading.hold(() => Compatibility.forUpdate(c.id, c.label), { all: true }));
+  if (!report || page !== pageToken || !open) return false;
+  if (Compatibility.eligible(c.mod) && Compatibility.canRemap(c.id, c.mod)) return runRemap(c);
+  if (!Compatibility.compare(report).issues.length) {
+    const answer = await message({ title: T("act.update"), lines: [T("compatibility.forceUpdate")],
+      cancel: T("popup.cancel"), ok: T("act.update") });
+    if (answer.button !== "ok" || page !== pageToken || !open) return false;
   }
   return job("actions.update", { mod: c.id }, {
     name: c.label,

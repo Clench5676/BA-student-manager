@@ -781,6 +781,11 @@ def build_api(s: Services) -> RpcRegistry:
     def actions_discard_remap(preview: str) -> None:
         s.library.discard_remap(preview)
 
+    @rpc.method("actions.compatibilityStamp")
+    def actions_compatibility_stamp(mod: str) -> str:
+        library = s.library
+        return library.compatibility_stamp(mod, pin=s._current_pin(library))
+
     @rpc.method("actions.compatibility")
     def actions_compatibility(mod: str) -> str:
         library = s.library

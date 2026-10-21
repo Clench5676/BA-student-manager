@@ -1396,3 +1396,11 @@ def test_remap_rpc_is_read_only_and_accept_publishes_a_new_library_mod(env, monk
     assert job.result == result.to_json()
     from ba_modding_toolkit.webui.services import _changed_of
     assert _changed_of(result) == {"cores": [entry.core], "kinds": [entry.kind], "mods": True}
+
+
+def test_compatibility_stamp_rpc_is_read_only_and_uses_the_current_install(env, monkeypatch):
+    entry = env.add(env.spr)
+    calls = []
+    monkeypatch.setattr(env.s.library, "compatibility_stamp", lambda mod, pin=None: calls.append((mod, pin)) or "stamp")
+    assert rpc(env.app, "actions.compatibilityStamp", mod=entry.id)["result"] == "stamp"
+    assert calls == [(entry.id, env.s.library.current_pin())]

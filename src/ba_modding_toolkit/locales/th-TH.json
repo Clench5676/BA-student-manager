@@ -1403,7 +1403,8 @@
 			"regions": "พื้นที่ Atlas ที่ขาด: {names}",
 			"runtimeVersion": "{name}, Spine {version}, รันไทม์ {runtime}",
 			"missingAnimations": "{name}, ขาดแอนิเมชันที่จำเป็น: {names}",
-			"ported": "ย้ายทรัพยากรไปยัง Bundle ปัจจุบันแล้ว"
+			"ported": "ย้ายทรัพยากรไปยัง Bundle ปัจจุบันแล้ว",
+			"forceUpdate": "ขณะนี้ไม่พบปัญหาความสมบูรณ์ คุณยังยืนยันว่าจะบังคับอัปเดตหรือไม่?"
 		},
 		"remap": {
 			"action": "อัปเดต",

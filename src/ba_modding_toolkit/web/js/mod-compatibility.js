@@ -10,7 +10,7 @@ import { spine as confirmLicence } from "./consent.js";
 const key = (name) => name.replaceAll("\\", "/").split("/").at(-1).toLowerCase().replace(/\.png$/i, "");
 const joined = (items) => items.join(/^(zh|ja)/i.test(language()) ? "、" : ", ") || "—";
 const shortList = (items) => items.length > 3 ? T("compatibility.more", { names: joined(items.slice(0, 3)), n: items.length - 3 }) : joined(items);
-const reports = new Map();
+const reports = new Map(), stamps = new Map();
 export const eligible = (mod) => mod?.kind !== "model" && !mod?.repaired_from && !mod?.repaired_id;
 export const canRemap = (id, mod = null) => eligible(mod) && eligible(reports.get(id)) && reports.get(id)?.remappable === true;
 
@@ -149,6 +149,7 @@ export async function remap(id, onRemapped = () => {}, label = "") {
     const saved = await Loading.hold(() => Loading.page(() => Loading.task(async (update) => {
       const saved = await waitJob(await rpc("actions.acceptRemap", { preview: result.preview }), update);
       reports.set(id, { ...reports.get(id), remappable: false, repaired_id: saved.mod.id });
+      stamps.delete(id); stamps.delete(saved.mod.id);
       reports.set(saved.mod.id, { remappable: false, repaired_from: id });
       await onRemapped(saved);
       return saved;
@@ -159,16 +160,29 @@ export async function remap(id, onRemapped = () => {}, label = "") {
   }
 }
 
-export async function inspect(id, label = "") {
+export async function inspect(id, label = "", stamp = null) {
+  stamp ??= await rpc("actions.compatibilityStamp", { mod: id });
   const report = await Loading.task(async (update) => waitJob(await rpc("actions.compatibility", { mod: id }), update),
     { label: T("progress.compatibility", { name: label || T("progress.mods") }) });
+  const current = await rpc("actions.compatibilityStamp", { mod: id });
+  if (current !== stamp) {
+    stamps.delete(id); reports.delete(id);
+    throw Object.assign(new Error("Compatibility inputs changed"), { code: "entry_changed" });
+  }
+  stamps.set(id, stamp);
   reports.set(id, { ...report, remappable: report.kind !== "model" && await ensureSpine() ? compare(report).remap : false });
   return report;
 }
 
+// Reuse a report only while the exact Mod, install and candidate official source files still match.
+export async function forUpdate(id, label = "") {
+  const stamp = await rpc("actions.compatibilityStamp", { mod: id });
+  return stamps.get(id) === stamp && reports.has(id) ? reports.get(id) : inspect(id, label, stamp);
+}
+
 export async function check(id, label = "", onRemapped = () => {}, mod = null) {
   if (mod?.kind !== "model" && !await requireRuntime()) return;
-  const report = await inspect(id, label);
+  const report = await Loading.hold(() => inspect(id, label), { all: true });
   return show(report, { onRemap: () => remap(id, onRemapped, label) });
 }
 

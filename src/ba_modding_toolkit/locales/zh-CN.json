@@ -1403,7 +1403,8 @@
 			"regions": "缺少图集区域：{names}",
 			"runtimeVersion": "{name}，Spine {version}，运行时 {runtime}",
 			"missingAnimations": "{name}，缺少必需动画：{names}",
-			"ported": "资源已移植到当前资源包"
+			"ported": "资源已移植到当前资源包",
+			"forceUpdate": "目前完整性无问题，是否确定仍要强制更新？"
 		},
 		"remap": {
 			"action": "更新",

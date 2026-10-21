@@ -19,7 +19,7 @@ async function harness(locale = "en-US", button = "cancel", accept = false) {
   const strings = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${locale}.json`, import.meta.url), "utf8")).webui;
   const calls = [], popups = [], comparisons = [], covers = [], labels = [], progress = [];
   let nextReport = report(), rebuilt = null, held = false, covered = false, licensed = true, confirms = 0;
-  let taskActive = false;
+  let taskActive = false, stamp = "inputs-1", afterCheck = () => {};
   const saved = { mod: { id: "new-mod", repaired_from: "old-mod" } };
   globalThis.compatibilityDeps = {
     ensureSpine: async () => licensed,
@@ -27,6 +27,7 @@ async function harness(locale = "en-US", button = "cancel", accept = false) {
     language: () => locale,
     T: (key, vars = {}) => key.split(".").reduce((o, k) => o?.[k], strings)?.replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? "") || key,
     rpc: async (method, params) => {
+      if (method === "actions.compatibilityStamp") return stamp;
       calls.push([method, params]);
       if (["actions.remap", "actions.acceptRemap"].includes(method)) assert.ok(held && covered && taskActive);
       return method;
@@ -34,6 +35,7 @@ async function harness(locale = "en-US", button = "cancel", accept = false) {
     waitJob: async (id, update) => {
       assert.equal(typeof update, "function");
       update({ current: 1, total: 1, label: id });
+      if (id === "actions.compatibility") afterCheck();
       return id === "actions.remap" ? rebuilt : id === "actions.acceptRemap" ? saved : nextReport;
     },
     Loading: { task: async (fn, options) => {
@@ -50,6 +52,7 @@ async function harness(locale = "en-US", button = "cancel", accept = false) {
   const mod = await import(`data:text/javascript;base64,${Buffer.from(code).toString("base64")}`);
   return { mod, calls, popups, comparisons, covers, labels, progress, strings, saved,
     use: (value) => { nextReport = value; }, build: (value) => { rebuilt = value; },
+    stamp: (value) => { stamp = value; }, afterCheck: (fn) => { afterCheck = fn; },
     license: (value) => { licensed = value; }, confirms: () => confirms };
 }
 
@@ -63,7 +66,7 @@ test("declined licence skips the runtime check and offers confirmation without b
   h.use(mixedReport());
   assert.ok(await h.mod.inspect("old-mod"));
   assert.equal(h.mod.canRemap("old-mod"), false);
-  assert.deepEqual(h.calls.map(([method]) => method), ["actions.compatibility"]);
+  assert.deepEqual(h.calls.filter(([method]) => method !== "actions.compatibilityStamp").map(([method]) => method), ["actions.compatibility"]);
 });
 
 test("valid custom skeletons, old bundle dates and patch versions do not report drawing failures", async () => {
@@ -271,4 +274,24 @@ test("model checks use bundle integrity without requesting the Spine runtime or 
   assert.equal(h.mod.eligible({ kind: "model" }), false);
   assert.equal(h.mod.canRemap("model-mod"), false);
   assert.ok(h.popups.some((p) => p.title === h.strings.compatibility.check));
+});
+
+
+test("Update reuses a compatibility report only for the same Mod and unchanged current input stamp", async () => {
+  const h = await harness(), count = () => h.calls.filter(([method]) => method === "actions.compatibility").length;
+  await h.mod.check("old-mod"); assert.equal(count(), 1);
+  assert.deepEqual((await h.mod.forUpdate("old-mod")).official, report().official);
+  assert.equal(count(), 1, "Check Compatibility's report is reused");
+  h.stamp("inputs-2"); h.use(mixedReport());
+  const changed = await h.mod.forUpdate("old-mod");
+  assert.ok(h.mod.compare(changed).issues.length); assert.equal(count(), 2);
+  await h.mod.forUpdate("another-mod"); assert.equal(count(), 3, "reports never cross Mod identities");
+});
+
+test("inputs changed during the check invalidate the report and refuse the update", async () => {
+  const h = await harness(); h.afterCheck(() => h.stamp("changed-during-check"));
+  await assert.rejects(h.mod.forUpdate("old-mod"), { code: "entry_changed" });
+  h.afterCheck(() => {});
+  assert.ok(await h.mod.forUpdate("old-mod"));
+  assert.equal(h.calls.filter(([method]) => method === "actions.compatibility").length, 2);
 });

@@ -1403,7 +1403,8 @@
 			"regions": "아틀라스 영역 누락: {names}",
 			"runtimeVersion": "{name}, Spine {version}, 런타임 {runtime}",
 			"missingAnimations": "{name}, 필수 애니메이션 누락: {names}",
-			"ported": "현재 번들로 에셋 이식 완료"
+			"ported": "현재 번들로 에셋 이식 완료",
+			"forceUpdate": "현재 무결성에 문제가 없습니다. 그래도 강제로 업데이트하시겠습니까?"
 		},
 		"remap": {
 			"action": "업데이트",

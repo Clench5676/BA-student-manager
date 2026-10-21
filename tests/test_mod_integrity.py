@@ -440,3 +440,22 @@ def test_import_validates_parts_without_running_compatibility(serialized, monkey
     monkeypatch.setattr(integrity.Contents, "spine", lambda *a: pytest.fail("import must not build a compatibility report"))
     report = env.library.add([source])
     assert len(report) == 1 and not report.compatibility
+
+
+def test_compatibility_stamp_tracks_current_game_and_mod_bytes_without_writing(serialized):
+    import os
+
+    env, register = serialized
+    source = register(make_mod(env.original, env.tmp / "stamp-input"))
+    entry, = env.library.add([source])
+    before = entry.file.read_bytes(), env.original.read_bytes()
+    first = env.library.compatibility_stamp(entry.id)
+    assert env.library.compatibility_stamp(entry.id) == first
+    stat = env.original.stat()
+    env.original.write_bytes(before[1])
+    os.utime(env.original, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+    changed_game = env.library.compatibility_stamp(entry.id)
+    assert changed_game != first, "same size/mtime replacement is detected through ctime"
+    entry.file.touch()
+    assert env.library.compatibility_stamp(entry.id) != changed_game
+    assert (entry.file.read_bytes(), env.original.read_bytes()) == before

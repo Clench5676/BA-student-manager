@@ -1054,12 +1054,17 @@ test("Update reloads a configured portrait or lobby rebuilt under the same mod i
   handlers.set("actions.compatibility", () => ({ result: "compatibility" }));
   for (const [kind, id] of [["spr", "p"], ["lobby", "l"]]) {
     const fam = previewFamily(), draws = [];
+    handlers.set("actions.compatibilityStamp", ({ mod }) => ({ result: `stamp-${mod}` }));
     Detail.setupPreviewTest(fam, kind, async () => draws.push(Detail.previewTestState()));
     handlers.set("actions.update", (params) => { assert.deepEqual(params, { mod: id }); return { result: "rebuild" }; });
     handlers.set("jobs.get", ({ id }) => ({ result: { state: "done", result: id === "compatibility" ? { official: inputs, mod: inputs } : {} } }));
     handlers.set("family.get", () => ({ result: structuredClone(fam) }));
     Thumbs.forgotten.length = 0;
-    assert.equal(await Detail.runUpdate(), true);
+    const updating = Detail.runUpdate();
+    (await drawn(dialog, "ok")).click();
+    assert.equal(await updating, true);
+    await new Promise(setImmediate);
+    for (const layer of [...dialog.children].reverse()) (await drawn(layer, "close")).click();
     assert.deepEqual(Thumbs.forgotten, [`/asset/spine/mod/${id}`]);
     assert.equal(draws.length, 1, `${kind} reloads even when family.get has no changed source key or game file`);
     if (kind === "spr") {
@@ -1075,9 +1080,13 @@ test("Update reloads a configured portrait or lobby rebuilt under the same mod i
       assert.deepEqual(draws[0].mainPlayer, { cached: true }, "the portrait stays cached");
     }
     Detail.setupPreviewTest(fam, kind, async () => assert.fail("a failed update must keep the player"));
+    handlers.set("actions.compatibilityStamp", () => ({ result: "failed-inputs" }));
     handlers.set("jobs.get", () => ({ result: { state: "failed", error: { code: "internal" } } }));
     Thumbs.forgotten.length = 0;
-    assert.equal(await Detail.runUpdate(), false);
+    const failed = Detail.runUpdate();
+    assert.equal(await failed, false);
+    await new Promise(setImmediate);
+    for (const layer of [...dialog.children].reverse()) (await drawn(layer, "close")).click();
     assert.deepEqual(Thumbs.forgotten, []);
     assert.deepEqual(Detail.previewTestState().mainPlayer, { cached: true });
     assert.equal(Detail.previewTestState().lobbyShot, "cached");
@@ -1334,6 +1343,7 @@ test("the single Update action checks fresh inputs and routes a mixed page misma
     const built = { preview: "unified-review", pages: [], compare: { assets: [] },
       report: { moved: ["part"], added: [], dropped: [], warnings: [], partial: false } };
     const methods = [];
+    handlers.set("actions.compatibilityStamp", () => ({ result: "mixed-review" }));
     handlers.set("actions.compatibility", () => { methods.push("check"); return { result: "unified-check" }; });
     handlers.set("actions.update", () => assert.fail("remap must not run the classic port"));
     handlers.set("actions.remap", () => { methods.push("remap"); return { result: "unified-remap" }; });
@@ -1364,4 +1374,34 @@ test("former result and error notices use an answerable game message popup; the 
   assert.doesNotMatch(readFileSync(new URL("index.html", root), "utf8"), /id="toast"|class="toast"/);
   assert.doesNotMatch(readFileSync(new URL("css/app.css", root), "utf8"), /\.toast\b/);
   assert.doesNotMatch(readFileSync(new URL("js/util.js", root), "utf8"), /export function toast\b/);
+});
+
+
+test("clean Update asks Cancel / Update and reuses the checked report; problems update without that question", async () => {
+  setStrings("en-US", Object.fromEntries(strings(english))); await modsEnabled(false);
+  const inputs = { skeletons: {}, atlases: {}, textures: {} }, fam = previewFamily();
+  let stamp = "force-current", checks = 0, updates = 0, problems = false;
+  handlers.set("actions.compatibilityStamp", () => ({ result: stamp }));
+  handlers.set("actions.compatibility", () => { checks++; return { result: "force-check" }; });
+  handlers.set("actions.update", () => { updates++; return { result: "force-update" }; });
+  handlers.set("family.get", () => ({ result: structuredClone(fam) }));
+  handlers.set("jobs.get", ({ id }) => ({ result: { state: "done", result: id === "force-check"
+    ? { official: inputs, mod: inputs, unavailable: problems } : {} } }));
+  Detail.setupPreviewTest(fam, "spr");
+  let work = Detail.runCompatibility(); (await drawn(dialog, "ok")).click(); await work;
+  assert.equal(checks, 1); assert.equal(updates, 0);
+  work = Detail.runUpdate(); await drawn(dialog, "cancel");
+  assert.ok(walk(dialog).some((el) => el.textContent.replaceAll("\n", " ") === english.compatibility.forceUpdate));
+  assert.equal(action(dialog, "ok").getAttribute("aria-label"), english.act.update);
+  action(dialog, "cancel").click(); assert.equal(await work, false); assert.equal(updates, 0); assert.equal(checks, 1);
+  work = Detail.runUpdate(); (await drawn(dialog, "ok")).click(); assert.equal(await work, true);
+  assert.equal(updates, 1); assert.equal(checks, 1);
+  // Dismiss the previous round's plain completion popups, until the confirmation correction removes them.
+  for (const layer of [...dialog.children].reverse()) action(layer, "close")?.click();
+  problems = true; stamp = "new-game-inputs";
+  work = Detail.runUpdate(); assert.equal(await work, true);
+  assert.equal(checks, 2); assert.equal(updates, 2);
+  assert.ok(!walk(dialog).some((el) => el.textContent.replaceAll("\n", " ") === english.compatibility.forceUpdate));
+  const exact = JSON.parse(readFileSync(new URL("../../src/ba_modding_toolkit/locales/zh-CN.json", import.meta.url))).webui.compatibility.forceUpdate;
+  assert.equal(exact, "\u76ee\u524d\u5b8c\u6574\u6027\u65e0\u95ee\u9898\uff0c\u662f\u5426\u786e\u5b9a\u4ecd\u8981\u5f3a\u5236\u66f4\u65b0\uff1f");
 });

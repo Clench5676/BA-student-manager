@@ -1403,7 +1403,8 @@
 			"regions": "アトラス領域不足：{names}",
 			"runtimeVersion": "{name}、Spine {version}、ランタイム {runtime}",
 			"missingAnimations": "{name}、必須アニメーション不足：{names}",
-			"ported": "現在のバンドルにアセットを移植済み"
+			"ported": "現在のバンドルにアセットを移植済み",
+			"forceUpdate": "現在、整合性に問題はありません。それでも強制更新しますか？"
 		},
 		"remap": {
 			"action": "更新",

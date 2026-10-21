@@ -897,6 +897,32 @@ class ModLibrary:
         return report
 
     @_serialized
+    def compatibility_stamp(self, mod_id: str, pin: Pin | None = None) -> str:
+        """Read-only identity of the Mod and every candidate official source used by compatibility checks."""
+        record = self._record(mod_id)
+        pin = pin or self.current_pin()
+        files = {path.name: path for path in self._paths(record)}
+        core = core_of(next(iter(files)))
+        kind = kind_of_file(next(iter(files)))
+        targets = (self._other_targets(files, pin) if kind == "other" else self._spine_parts(core, pin)) if pin else []
+        if pin and not targets and kind != "other":
+            target_core = self._core_map(pin).core(self._target_of(record), kind) or core
+            targets = self._spine_parts(target_core, pin)
+        paths = set(files.values()) | set(targets)
+        for target in targets:
+            paths.update([self._original_path(target), target.with_name(target.name + ".backup"), *self._elsewhere(target)])
+        stamps = []
+        for path in sorted(paths):
+            try:
+                stat = path.stat()
+                stamp = [stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns]
+            except FileNotFoundError:
+                stamp = None
+            stamps.append([str(path.resolve()), stamp])
+        identity = [pin.key if pin else None, self._target_of(record), record.get("repaired_from"), record.get("repaired_id"), stamps]
+        return hashlib.sha256(json.dumps(identity).encode()).hexdigest()
+
+    @_serialized
     def compatibility(self, mod_id: str, pin: Pin | None = None) -> dict:
         """Fresh official and effective Spine data, without building or rewriting a mod."""
         record = self._record(mod_id)
