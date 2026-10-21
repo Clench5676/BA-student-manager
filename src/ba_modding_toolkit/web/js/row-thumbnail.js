@@ -31,15 +31,20 @@ export function frameOutline({ width, height, data }) {
   };
   const [left, right] = edge(width, height, (x, y) => solid(x, y));
   const [top, bottom] = edge(height, width, (y, x) => solid(x, y));
-  // The four sharp inner corners must sit beneath the frame's own border.
-  // Checking every raster strip also catches a narrow or nonconvex outer edge.
+  const leftEdge = [], rightEdge = [];
   for (let y = top; y < bottom; y++) {
     let a = 0, b = width - 1;
     while (a < width && !solid(a, y)) a++;
     while (b >= 0 && !solid(b, y)) b--;
-    if (a > left || b + 1 < right) throw new Error("Selection frame cannot contain a sharp inner window");
+    const pair = band(width, (x) => solid(x, y));
+    if (!pair) throw new Error("Selection frame has an interrupted inner contour");
+    const innerLeft = Math.max(left, pair[0]), innerRight = Math.min(right, pair[1]);
+    if (innerLeft < a || innerRight > b + 1 || innerLeft >= innerRight) throw new Error("Selection frame has an invalid inner contour");
+    leftEdge.push([innerLeft, y + .5]); rightEdge.push([innerRight, y + .5]);
   }
-  return { width, height, insets: [left, top, width - right, height - bottom] };
+  const points = [[leftEdge[0][0], top], ...leftEdge, [leftEdge.at(-1)[0], bottom],
+    [rightEdge.at(-1)[0], bottom], ...rightEdge.reverse(), [rightEdge.at(-1)[0], top]];
+  return { width, height, insets: [left, top, width - right, height - bottom], points };
 }
 
 // Coordinates are in the same flattened NGUI space as the frame widget. Pixel
@@ -62,6 +67,12 @@ export function innerFrame(w, meta, outline, { x = 0, y = 0, sx = 1, sy = 1, sca
   if (flipY) [t, bo] = [height - bo, height - t];
   const tangent = Math.tan((w.incline || 0) * Math.PI / 180);
   const dx = (l + r - width) / 2, dy = (t + bo - height) / 2;
+  const clipPolygon = outline.points.map(([u, v]) => {
+    let px = mx(u), py = my(v);
+    if (flipX) px = width - px;
+    if (flipY) py = height - py;
+    return [(px - l) / (r - l), (py - t) / (bo - t)];
+  });
   return { x: centreX + dx - tangent * dy, y: centreY - dy, width: r - l, height: bo - t,
-    incline: w.incline || 0, radius: 0, clipPolygon: [[0, 0], [1, 0], [1, 1], [0, 1]] };
+    incline: w.incline || 0, radius: 0, clipPolygon };
 }

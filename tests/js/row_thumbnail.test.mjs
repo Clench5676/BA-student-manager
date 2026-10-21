@@ -54,11 +54,11 @@ function geometry(w, transform, outline) {
   return { win, points, source };
 }
 
-test("four sharp corners exactly cover the inner area and stay within the outer outline at all scales and pivots", () => {
+test("measured rounded corners cover the opening inside the outer outline at every scale and pivot", () => {
   const pixels = fixture(), outline = frameOutline(pixels), [l, t, r, b] = outline.insets;
-  // Every source raster strip occupied by the sharp window fits the frame's
+  // Every source raster strip occupied by the bounding window fits the frame's
   // filled outer silhouette. Monotone slice maps and affine shear preserve this
-  // containment for every point, including the rounded frame's four corners.
+  // containment for every point, including the measured corner transitions.
   for (let y = t; y < pixels.height - b; y++) {
     const solid = Array.from({ length: pixels.width }, (_, x) => x).filter((x) => pixels.data[(y * pixels.width + x) * 4 + 3] === 255);
     assert.ok(solid[0] <= l && solid.at(-1) + 1 >= pixels.width - r);
@@ -68,8 +68,7 @@ test("four sharp corners exactly cover the inner area and stay within the outer 
     for (const incline of [-12, 0, 10, 17]) for (const flip of [0, 1, 2, 3]) for (const [sx, sy] of [[1, 1], [.7, 1.2], [-.8, -.65]]) {
       const w = { w_: 240, h_: 220, type: 1, pivot, incline, flip, radius: 70 };
       const { win, points, source } = geometry(w, { x: 17, y: -23, sx, sy, scale }, outline);
-      assert.equal(win.radius, 0); assert.equal(win.clipPolygon.length, 4);
-      assert.deepEqual(win.clipPolygon, [[0, 0], [1, 0], [1, 1], [0, 1]]);
+      assert.equal(win.radius, 0); assert.ok(win.clipPolygon.length > 4);
       const coverWidth = win.width + Math.abs(Math.tan(incline * Math.PI / 180)) * win.height;
       for (const [x, y] of points) {
         assert.ok(Math.abs(x - win.x) <= coverWidth / 2 + 1e-7 && Math.abs(y + win.y) <= win.height / 2 + 1e-7,
@@ -78,12 +77,14 @@ test("four sharp corners exactly cover the inner area and stay within the outer 
       const sourcePoints = points.map(source);
       near(Math.min(...sourcePoints.map(([x]) => x)), l); near(Math.max(...sourcePoints.map(([x]) => x)), pixels.width - r);
       near(Math.min(...sourcePoints.map(([, y]) => y)), t); near(Math.max(...sourcePoints.map(([, y]) => y)), pixels.height - b);
-      // The two sloping sides are parallel to the prefab frame, with no curve.
-      for (const [a, c] of [[0, 3], [1, 2]]) near((points[c][0] - points[a][0]) / (points[c][1] - points[a][1]), -Math.tan(incline * Math.PI / 180));
-      for (const [a, c] of [[0, 1], [1, 2], [2, 3], [3, 0]]) for (let i = 0; i <= 16; i++) {
-        const f = i / 16, q = source([points[a][0] * (1 - f) + points[c][0] * f, points[a][1] * (1 - f) + points[c][1] * f]);
-        assert.ok(q[0] >= l - 1e-7 && q[0] <= pixels.width - r + 1e-7 && q[1] >= t - 1e-7 && q[1] <= pixels.height - b + 1e-7);
-      }
+      // The straight middle portion keeps the exact prefab incline; the
+      // measured corners turn inward rather than reaching the bounding box.
+      const middle = sourcePoints.map((p, i) => ({ p, i })).filter(({ p }) => Math.abs(p[0] - l) < 1e-6 && p[1] > 20 && p[1] < 50);
+      assert.ok(middle.length > 2);
+      const a = points[middle[0].i], c = points[middle.at(-1).i];
+      near((c[0] - a[0]) / (c[1] - a[1]), -Math.tan(incline * Math.PI / 180));
+      for (const q of sourcePoints) assert.ok(q[0] >= l - 1e-7 && q[0] <= pixels.width - r + 1e-7 && q[1] >= t - 1e-7 && q[1] <= pixels.height - b + 1e-7);
+
     }
   }
 });
@@ -93,4 +94,38 @@ test("transparent or solid sprites cannot silently supply an invented inner wind
   const data = new Uint8ClampedArray(400).fill(255);
   assert.throws(() => frameOutline({ width: 10, height: 10, data }), /no enclosed inner area/);
   assert.throws(() => innerFrame({ w_: 10, h_: 10 }, {}, null), /not ready/);
+});
+
+test("the clip follows the measured inner corner contour rather than a sharp box or atlas-cut radius", () => {
+  const pixels = fixture(), outline = frameOutline(pixels);
+  assert.ok(outline.points?.length > 4, "retain the painted corner contour");
+  const win = innerFrame({ w_: 240, h_: 220, type: 1, incline: 10 }, meta, outline, { scale: .68 });
+  assert.ok(win.clipPolygon.length > 4);
+  assert.ok(!win.clipPolygon.some(([x, y]) => x === 0 && y === 0), "the outer box corner is excluded");
+});
+
+test("shared nine-slice mapping emits exactly the same raster rectangles as the pre-refactor renderer", () => {
+  const reference = (meta, width, height, bs) => {
+    const b = [meta.borderTop, meta.borderRight, meta.borderBottom, meta.borderLeft];
+    for (const [i, j, size] of [[0, 2, meta.height], [1, 3, meta.width]]) if (b[i] + b[j] >= size) {
+      const f = (size - 1) / (b[i] + b[j]); b[i] = Math.floor(b[i] * f); b[j] = Math.floor(b[j] * f);
+    }
+    const W = Math.max(1, Math.round(width * 2)), H = Math.max(1, Math.round(height * 2));
+    let dl = b[3] * bs * 2, dr = b[1] * bs * 2, dt = b[0] * bs * 2, db = b[2] * bs * 2;
+    if (dl + dr > W) { const f = W / (dl + dr); dl *= f; dr *= f; }
+    if (dt + db > H) { const f = H / (dt + db); dt *= f; db *= f; }
+    [dl, dr, dt, db] = [dl, dr, dt, db].map(Math.round);
+    return { b, W, H, xs: [[0, b[3], 0, dl], [b[3], meta.width - b[1], dl, W - dr], [meta.width - b[1], meta.width, W - dr, W]],
+      ys: [[0, b[0], 0, dt], [b[0], meta.height - b[2], dt, H - db], [meta.height - b[2], meta.height, H - db, H]] };
+  };
+  for (const meta of [{ width: 138, height: 87, borderLeft: 69, borderRight: 69, borderTop: 42, borderBottom: 42 },
+    { width: 55, height: 55, borderLeft: 30, borderRight: 30, borderTop: 30, borderBottom: 30 },
+    { width: 200, height: 100, borderLeft: 13, borderRight: 7, borderTop: 11, borderBottom: 3 }]) {
+    for (const width of [22.3, 60, 163.2, 240, 399.91]) for (const height of [19.54, 149.6, 220.12]) for (const bs of [.2, .68, 1, 1.25]) {
+      const old = reference(meta, width, height, bs), b = spriteBorders(meta);
+      const x = sliceAxis(meta.width, b[3], b[1], width, bs), y = sliceAxis(meta.height, b[0], b[2], height, bs);
+      assert.deepEqual(b, old.b); assert.equal(x.size, old.W); assert.equal(y.size, old.H);
+      assert.deepEqual(x.spans, old.xs); assert.deepEqual(y.spans, old.ys);
+    }
+  }
 });

@@ -51,7 +51,7 @@ test("web UI sources cannot reintroduce native or custom tooltip attributes", ()
   assert.doesNotMatch(readFileSync(new URL("index.html", web), "utf8"), /\stitle\s*=|data-tooltip|role=["']tooltip/i);
 });
 
-test("NGUI renders row thumbnails with four sharp clip corners and an upright cover image", async (t) => {
+test("NGUI renders the measured rounded frame contour and an upright cover image", async (t) => {
   t.mock.method(globalThis, "fetch", async () => ({ ok: true, json: async () => ({ Common: { Test: { width: 1, height: 1 } } }) }));
   const previous = globalThis.document;
   globalThis.document = { createElement: () => new El(), documentElement: { lang: "en-US" } };
@@ -67,7 +67,8 @@ test("NGUI renders row thumbnails with four sharp clip corners and an upright co
       clipPolygon: window.clipPolygon, imgSize: "cover", imgPosition: "center", imgLeft: `${-bleed / 2}%`, imgWidth: `${100 + bleed}%` }]), host);
     const clip = host.children[0], image = clip.children[0];
     assert.equal(clip.style.borderRadius, "0.0px");
-    assert.equal(clip.style.clipPath, "polygon(0% 0%, 100% 0%, 100% 100%, 0% 100%)");
+    assert.ok(clip.style.clipPath.split(",").length > 4);
+    assert.equal(clip.style.clipPath, `polygon(${window.clipPolygon.map(([x, y]) => `${x * 100}% ${y * 100}%`).join(", ")})`);
     assert.equal(clip.style.transform, "skewX(-10deg)");
     assert.equal(image.style.transform, "skewX(10deg)");
     assert.equal(image.style.backgroundSize, "cover"); assert.equal(image.style.backgroundPosition, "center");
