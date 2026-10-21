@@ -21,7 +21,7 @@
 
 - **A WYSIWYG mod manager.** What you see in BMPT is what you get in game.
 - **Every student, previewable.** Even the ones you haven't pulled yet.
-- **One-click portrait swaps.** The official or original file is backed up on replace, so rolling back is always one
+- **One-click mod swap.** The official or original file is backed up on replace, so rolling back is always one
   click away.
 - **One-click mod toggle.** Flip mods off and the game is back to stock.
 
