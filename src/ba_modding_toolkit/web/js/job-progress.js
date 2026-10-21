@@ -3,9 +3,9 @@ import { L, T } from "./i18n.js";
 import { studentName } from "./names.js";
 
 export function progressName(variant, kind, fallback = "", family = variant?.family) {
-  const names = L(variant?.names), catalogBase = L(family?.names);
+  const names = L(variant?.names), catalogBase = L(family?.base || family?.names);
   const base = studentName(family, catalogBase || names?.full || fallback);
-  const variantName = catalogBase && names?.full !== catalogBase ? names?.short : "";
+  const variantName = catalogBase && variant?.key !== family?.key ? names?.short : "";
   const parts = [variantName, kind].filter(Boolean).join(T("progress.comma"));
   return parts ? T("progress.subject", { name: base, parts }) : base;
 }
