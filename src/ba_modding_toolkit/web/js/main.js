@@ -372,6 +372,7 @@ async function start() {
     Detail.applyPrefs(prefs);
     if (key === "fileSource" || key.startsWith("gameDir") || key === "libraryDir" || key === "spineConsent") { stepCards = null; ctx.invalidateRoster(); route(); }
   };
+  ctx.goOther = () => Settings.open(settingsChanged, "mods");
   ModAdd.init({ names: variantNames, changed: ctx.invalidateRoster, go: (key) => {
     const family = rosterData?.families.find((f) => f.variants.some((v) => v.key === key));
     if (family) ctx.go(family.key, key);

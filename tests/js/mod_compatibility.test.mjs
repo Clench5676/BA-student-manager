@@ -41,7 +41,7 @@ async function harness(locale = "en-US", button = "cancel", accept = false) {
         try { return await fn((value) => progress.push(value)); } finally { taskActive = false; }
       },
       hold: async (fn, opts) => { assert.equal(opts.all, true); held = true; try { return await fn(); } finally { held = false; } },
-      scene: async (fn) => { covered = true; covers.push(true); try { return await fn(); } finally { covered = false; } },
+      page: async (fn) => { covered = true; covers.push(true); try { return await fn(); } finally { covered = false; } },
     },
     Popup: { message: async (options) => { assert.ok(!held && !covered && !taskActive); popups.push(options); return { button }; } },
     Compare: { show: async (...args) => { assert.ok(!held && !covered && !taskActive); comparisons.push(args); return accept; } },

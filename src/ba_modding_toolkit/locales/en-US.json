@@ -1459,12 +1459,15 @@
 			"progress": "{phase} - {done}/{total} {name}",
 			"complete": "Done: {n}, failed: {failed}",
 			"resultTitle": "Import Results",
-			"applied": "Applied",
-			"notApplied": "Not Applied",
+			"applied": "Set as Source",
+			"notApplied": "Source Not Set",
 			"auto": "Auto",
 			"original": "Original",
 			"uncompressed": "Uncompressed",
+			"merge": "Group Mods by Student",
+			"waitProgress": "{label} {done} / {total}",
 			"state": {
+				"done": "Done",
 				"ready": "Ready",
 				"update": "Needs Update",
 				"library": "Already in Library",
@@ -1488,7 +1491,7 @@
 			"phase": {
 				"update": "Updating",
 				"add": "Adding to Library",
-				"apply": "Applying Mods"
+				"apply": "Setting Sources"
 			},
 			"outcome": {
 				"imported": "Added to Library",
@@ -1499,7 +1502,7 @@
 			},
 			"options": {
 				"title": "Advanced Options",
-				"enableAfterImport": "Enable Mods After Import",
+				"enableAfterImport": "Set as Source After Import",
 				"strategy": "Match Strategy",
 				"types": "Resource Types",
 				"allTypes": "All Resource Types",

@@ -127,7 +127,7 @@ export async function show(report, { label = "", onRemap } = {}) {
 }
 
 export async function remap(id, onRemapped = () => {}, label = "") {
-  const result = await Loading.hold(() => Loading.scene(() => Loading.task(
+  const result = await Loading.hold(() => Loading.page(() => Loading.task(
     async (update) => waitJob(await rpc("actions.remap", { mod: id }), update),
     { label: T("progress.remap", { name: label || T("progress.mods") }) })), { all: true });
   if (result.unchanged) {
@@ -146,7 +146,7 @@ export async function remap(id, onRemapped = () => {}, label = "") {
       lines, partial: report.partial, accept: T("remap.accept"), discard: T("remap.discard"),
     });
     if (!accepted) return null;
-    const saved = await Loading.hold(() => Loading.scene(() => Loading.task(async (update) => {
+    const saved = await Loading.hold(() => Loading.page(() => Loading.task(async (update) => {
       const saved = await waitJob(await rpc("actions.acceptRemap", { preview: result.preview }), update);
       reports.set(id, { ...reports.get(id), remappable: false, repaired_id: saved.mod.id });
       reports.set(saved.mod.id, { remappable: false, repaired_from: id });

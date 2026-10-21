@@ -297,8 +297,10 @@ input[type="text"], input[type="search"], textarea { cursor: text; }
 .loading-back { position: absolute; inset: 0; background: #000; transition: opacity .15s ease; }
 .loading.indicator .loading-back { opacity: 0; }
 .loading-ind, .loading-repeater { position: absolute; inset: 0; pointer-events: none; }
-/* indicator mode: a shade under the corner, so the letters read over the nav bar */
-.loading.indicator .loading-ind { background: radial-gradient(ellipse 680px 240px at 100% 100%, rgba(10, 24, 44, .8) 0%, rgba(10, 24, 44, .55) 50%, rgba(10, 24, 44, 0) 100%); }
+/* UICharacterDetail's gradient sprites form the shared in-page inner shade. */
+.loading-edge { position: absolute; width: 0; height: 0; pointer-events: none; z-index: 0; }
+.loading-ind, .loading-progress { z-index: 1; }
+.loading.full .loading-edge, .loading.full .loading-progress { display: none; }
 .loading.neutral .loading-back { background: #f4f4f4 !important; }
 .loading.neutral .loading-ind { background: none; }
 .loading.neutral { font-family: system-ui, sans-serif; }
@@ -332,8 +334,8 @@ input[type="text"], input[type="search"], textarea { cursor: text; }
 .loading-fallback span { margin-right: 4px; animation: ld-text .8333s ease-in-out infinite; }
 .loading.with-progress { z-index: 1501; }
 .input-held > .loading { z-index: 4000; }
-.loading-progress { position: absolute; left: 84px; bottom: 132px; max-width: 1000px; padding: 8px 16px;
-  color: #fff; background: rgba(10, 24, 44, .8); border-radius: 8px; font-size: 26px;
+.loading-progress { position: absolute; left: 84px; bottom: 44px; max-width: 1000px;
+  color: #fff; font-size: 26px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; pointer-events: none; }
 .loading-fallback i { width: 11px; height: 11px; margin-bottom: 5px; border-radius: 50%; background: #8de4ff;
   box-shadow: 0 0 0 1px #fff, 0 3px 0 2px #2c445c; animation: ld-dot0 1.1667s ease-in-out infinite; }

@@ -4,7 +4,7 @@
 //   - UIRepeater: "Now Loading" letters, three hopping dots and Arona turning round, in the bottom-right corner;
 //     app.css animates it like the game's legacy clip "UIAni_Repeat 1". Its UIAudioPlay is never played.
 // Two modes. scene(fn) covers a change of screen: a fade to black, then the indicator while the
-// work goes on. wait(promise) shows the indicator alone over the current screen, for a wait inside it. There is one
+// work goes on. wait(promise) shades the edges of the current screen for an in-page wait. There is one
 // page overlay at a time; a newer call takes over the one on screen instead of flashing a new one.
 // Writer progress has its own indicator and lifetime, independent of page changes.
 import * as NGUI from "./ngui.js";
@@ -32,7 +32,7 @@ function track(promise) {
   work.then(finish, finish);
   return work;
 }
-let repeater = null, geometry = null;
+let repeater = null, shade = null, geometry = null;
 const initialCover = document.getElementById("loading-boot");
 let styled = !!initialCover && !initialCover.classList.contains("neutral"), assetsAllowed = styled;
 let firstLoading = null;
@@ -94,7 +94,7 @@ export async function task(run, { label = null } = {}) {
   };
   o.relabelProgress = () => update();
   update();
-  decorate(o);
+  refresh(); decorate(o);
   try { return await track(run(update)); }
   finally {
     detail.remove();
@@ -132,7 +132,22 @@ function open(mode, opaque = false, writer = false) {
   else { void el.offsetWidth; el.classList.add("on"); } // fade in from the first frame
   if (writer) writerOverlay = o;
   else overlay = o;
+  if (mode === "indicator" && !writer) {
+    const detail = document.createElement("div"); detail.className = "loading-progress";
+    o.el.appendChild(detail); o.progress = detail;
+    o.relabelProgress = () => {
+      detail.textContent = [...holds].reverse().find((hold) => hold.progress)?.progress() || o.waitLabel || T("app.loading");
+      o.el.setAttribute("aria-label", detail.textContent);
+    };
+    o.relabelProgress();
+  }
+  refresh();
   return o;
+}
+
+export function refresh() {
+  for (const o of [overlay, writerOverlay]) o?.relabelProgress?.();
+  if (overlay) overlay.el.style.visibility = overlay.mode === "indicator" && writerOverlay && !writerOverlay.closing ? "hidden" : "";
 }
 
 // resolves in the first frame the overlay is fully black (the fade may start late on a busy page, so it is watched,
@@ -157,17 +172,18 @@ function cover(opaque) {
       o.mode = "full";
       o.el.classList.replace("indicator", "full");
     }
-    o.done = false;
+    o.done = false; refresh();
     return o;
   }
   return open("full", opaque);
 }
 
 function close(o) {
-  o.closing = true;
+  o.closing = true; o.done = true;
   const id = ++closeSeq;
   o.closeId = id;
   o.el.classList.add("out");
+  refresh();
   return sleep(FADE_OUT).then(() => {
     if (!o.closing || o.closeId !== id) return; // taken over while fading out
     if (o.boot && !firstLoading) {
@@ -193,6 +209,27 @@ function repeaterTree() {
   return repeater;
 }
 
+// The detail prefab's translucent gradient supplies the four window edges. CSS only positions/rotates its artwork.
+async function shadeEdges(o) {
+  if (!assetsAllowed || o.mode !== "indicator" || o.shade) return;
+  o.shade = true;
+  shade ||= NGUI.init().then(() => NGUI.layout("UICharacterDetail")).then((tree) =>
+    NGUI.find(tree, "Inventory_ListControl/LeftInfo/CharCombatStyle/CharCombatStyleAniwidget/Bg"))
+    .catch(() => { shade = null; return null; });
+  const template = await shade;
+  if (!template || o.closing || o.done || (o !== overlay && o !== writerOverlay)) { o.shade = false; return; }
+  for (const [name, width, angle, x, y] of [["Bottom", 1920, 0, 960, 1080], ["Top", 1920, 180, 960, 0],
+    ["Left", 1080, 90, 0, 540], ["Right", 1080, -90, 1920, 540]]) {
+    const host = document.createElement("div"); host.className = "loading-edge";
+    Object.assign(host.style, { left: `${x}px`, top: `${y}px`, transform: `rotate(${angle}deg)` });
+    const node = structuredClone(template); node.name = name; node.pos = [0, 0]; node.active = true; node.children = [];
+    Object.assign(node.widgets[0], { w_: width / S, h_: 260, pivot: 7 });
+    await NGUI.render(node, host, { scale: S, origin: [0, 0] });
+    if (o.closing || (o !== overlay && o !== writerOverlay)) return;
+    o.el.appendChild(host);
+  }
+}
+
 async function upgrade(o) {
   if (!assetsAllowed || o.sprites) return;
   o.sprites = true;
@@ -216,6 +253,7 @@ async function upgrade(o) {
 
 // once the screen is black and the work goes on: the indicator in the corner, nothing in the middle
 function decorate(o) {
+  shadeEdges(o).catch(() => { o.shade = false; });
   if (o.plain === styled) {
     o.plain = !styled;
     o.sprites = false;
@@ -260,19 +298,22 @@ export async function scene(fn, { opaque = false, until = null } = {}) {
 // wait(promise, {label, cap}): the indicator over the current screen once the wait passes WAIT_AFTER; resolves with
 // the result. label: what the indicator says to assistive technology (the page's "loading" by default); cap: how long
 // the indicator stays at most (a wait known to take longer than HARD_CAP, such as the classic UI's start)
-export async function wait(promise, { label: text = null, cap = HARD_CAP } = {}) {
+export async function wait(promise, { label: text = null, cap = HARD_CAP, immediate = false } = {}) {
   promise = track(promise);
   if (covering()) return promise; // a scene covers it already
   const my = ++gen;
   let settled = false;
   // opened in an animation frame: a late timer (a busy page) must not show the indicator over a change that is
   // being committed in that same frame
-  const timer = setTimeout(() => requestAnimationFrame(() => {
-    if (my !== gen || settled || active()) return;
+  const reveal = () => {
+    if (my !== gen || settled) return;
+    if (active()) { if (immediate) overlay.holdOwned = true; refresh(); return; }
     const o = open("indicator");
-    if (text) o.el.setAttribute("aria-label", text);
+    o.holdOwned = immediate;
+    o.waitLabel = text; o.relabelProgress?.();
     decorate(o);
-  }), WAIT_AFTER);
+  };
+  const timer = immediate ? (Promise.resolve().then(reveal), null) : setTimeout(() => requestAnimationFrame(reveal), WAIT_AFTER);
   let failed = false, error = null, timedOut = false, result;
   try {
     result = cap === null ? await promise : await Promise.race([promise, sleep(cap).then(() => { timedOut = true; })]);
@@ -283,10 +324,11 @@ export async function wait(promise, { label: text = null, cap = HARD_CAP } = {})
   settled = true;
   clearTimeout(timer);
   const o = overlay;
-  if (my === gen && o && !o.closing && o.mode === "indicator") {
+  if (my === gen && o && !o.closing && o.mode === "indicator" && !(o.holdOwned && held())) {
     if (timedOut) toast(T("loading.slow"));
-    const left = WAIT_MIN - (performance.now() - o.shownAt);
-    (left > 0 ? sleep(left) : Promise.resolve()).then(() => { if (my === gen && o === overlay && !o.closing) close(o); });
+    const left = immediate ? 0 : WAIT_MIN - (performance.now() - o.shownAt);
+    const finish = () => { if (my === gen && o === overlay && !o.closing) close(o); };
+    if (left > 0) sleep(left).then(finish); else finish();
   }
   if (failed) throw error;
   return result;
@@ -296,9 +338,13 @@ export async function wait(promise, { label: text = null, cap = HARD_CAP } = {})
 // all blocks them too. Leaving the page releases its hold while the job keeps reporting its end.
 const holds = new Set(), wired = new WeakSet();
 export const held = () => holds.size > 0;
-export async function hold(work, { until = null, all = false } = {}) {
-  const el = stage(), key = { all };
+export async function hold(work, { until = null, all = false, progress = null } = {}) {
+  let latest = null;
+  const el = stage(), key = { all, progress: () => latest === null ? progress?.() || T("app.loading")
+    : typeof latest === "string" ? latest : progressText(latest) };
+  const update = (value) => { latest = value; refresh(); };
   holds.add(key);
+  refresh();
   if (all) el.classList.add("input-held");
   if (!wired.has(el)) {
     const block = (ev) => {
@@ -312,10 +358,17 @@ export async function hold(work, { until = null, all = false } = {}) {
   }
   const release = () => {
     holds.delete(key);
+    refresh();
+    if (!holds.size && overlay?.holdOwned && overlay.mode === "indicator" && !overlay.closing) close(overlay);
     if (![...holds].some((hold) => hold.all)) el.classList.remove("input-held");
   };
-  const task = track(Promise.resolve().then(work));
+  const task = track(Promise.resolve().then(() => work(update)));
   const visible = until ? Promise.race([task, until.then(release)]) : task;
-  wait(visible, { cap: null }).catch(() => {});
+  wait(visible, { cap: null, immediate: true }).catch(() => {});
   try { return await task; } finally { release(); }
+}
+
+// In-place preview changes share the same shaded hold as writes; only route changes use scene's black cover.
+export function page(fn, options = {}) {
+  return hold(() => fn(Promise.resolve()), options);
 }

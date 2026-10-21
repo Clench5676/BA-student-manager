@@ -91,7 +91,7 @@ const entry = (id, state = "ready", kind = "spr") => ({ id, paths: [`/fixtures/$
   preview: ["spr", "lobby"].includes(kind) ? { kind: "import", key: `source-${id}` } : null });
 const mixed = () => [entry("a"), entry("b", "update", "lobby"), entry("c", "library"), entry("d", "installed"), entry("e", "blocked", "model")];
 const catalog = { families: ["a", "b", "c", "d", "e"].map((id) => ({ key: id, custom: id === "a" ? ["Saved Alias"] : [], variants: [{
-  key: id, fileId: `${id}_spr`, spr: `${id}_spr`, lobby: `${id}_home`, portrait: `/portrait/${id}.png`, names: { en: { full: `Student ${id}` }, ja: { full: `JP ${id}` } },
+  key: id, fileId: `${id}_spr`, spr: `${id}_spr`, lobby: `${id}_home`, portrait: `/portrait/${id}.png`, bg: `/bg/${id}.png`, names: { en: { full: `Student ${id}` }, ja: { full: `JP ${id}` } },
 }] })) };
 
 async function fixture({ licensed = false, native = true, suggest } = {}) {
@@ -144,7 +144,8 @@ async function fixture({ licensed = false, native = true, suggest } = {}) {
     jobs: (id, progress) => { const job = [...analyses, ...runs, ...sources].find((job) => job.id === id); job.progress = progress; return job.promise; },
     thumbnails: () => { const scope = { cancel: () => { scope.cancelled = true; }, thumb: (...args) => { thumbs.push(args); return thumbsHold?.promise || Promise.resolve(`blob:${args[0]}`); } }; scopes.push(scope); return scope; },
   });
-  const context = { info: { native }, invalidateRoster: () => changed++ };
+  const destinations = [];
+  const context = { info: { native }, go: (...args) => destinations.push(args), goOther: () => destinations.push("other"), invalidateRoster: () => changed++ };
   await page.show(context, catalog); await flush();
   const action = (name, parent = host) => walk(parent).find((element) => element.dataset.action === name);
   const row = (id) => walk(host).find((element) => element.dataset.entry === id);
@@ -152,7 +153,7 @@ async function fixture({ licensed = false, native = true, suggest } = {}) {
   const analyze = async (entries = mixed(), paths = entries.flatMap((entry) => entry.paths)) => {
     const adding = page.drop(paths); await flush(); analyses.at(-1).resolve({ entries, skipped: 0 }); await adding; await page.settled(); await flush(); return adding;
   };
-  return { page, context, host, dialog, layouts, layoutSnapshot, rendered, loaded, calls,
+  return { page, context, destinations, host, dialog, layouts, layoutSnapshot, rendered, loaded, calls,
     holds, holdThumbs: () => { thumbsHold = deferred(); return thumbsHold; },
     holdImages: (predicate) => { const hold = { ...deferred(), predicate }; imagesHold = hold; return hold; },
     holdRender: (predicate) => { const hold = { ...deferred(), predicate }; renderHold = hold; return hold; }, analyses, runs, sources, messages, answers, thumbs, scopes, popupStack, action, row, phase, analyze,
@@ -259,7 +260,7 @@ test("running captures IDs/options, follows job progress, survives hiding and sh
   await h.page.show(h.context, catalog); assert.equal(h.phase(), "done"); assert.equal(h.changed(), 1);
   assert.equal(h.action("start").getAttribute("aria-label"), "View Results"); assert.match(h.host.textContent, /Done: 1, failed: 1/);
   await h.page.results();
-  assert.match(h.dialog.textContent, /Added to Library/); assert.match(h.dialog.textContent, /Not Applied/);
+  assert.match(h.dialog.textContent, /Added to Library/); assert.match(h.dialog.textContent, /Source Not Set/);
   assert.match(h.dialog.textContent, /Unreadable File/);
   assert.equal(walk(h.dialog).filter((element) => element.dataset.result).length, 2);
   await h.action("ok", h.dialog).click(); assert.equal(h.dialog.hidden, true);
@@ -616,7 +617,7 @@ test("advanced boolean, choice, resource and input rows share Settings' body, ti
   await off.click(); await h.page.settled();
   assert.equal(off.getAttribute("aria-checked"), "true");
   assert.equal(walk(enable).find((element) => element.dataset.value === "true").getAttribute("aria-checked"), "false");
-  const expected = radioRow("Option_enableAfterImport", 0, "Enable Mods After Import", [[true, "On"], [false, "Off"]], false, () => {}).tree;
+  const expected = radioRow("Option_enableAfterImport", 0, "Set as Source After Import", [[true, "On"], [false, "Off"]], false, () => {}).tree;
   assert.deepEqual(drawn(h, enable).tree, expected);
   await h.action("ok", h.dialog).click();
   assert.equal(h.calls.find((call) => call.method === "import.setOptions").params.enableAfterImport, false);
@@ -682,12 +683,12 @@ test("the Items header retains its own control sizes, transforms and states with
   await h.action("filter").click(); await flush(); await walk(h.dialog).find((e) => e.dataset.value === "blocked").click();
   await h.action("ok", h.dialog).click(); await h.page.settled(); assertTools();
   const search = h.host.querySelector(".import-search"), wrap = h.host.querySelector(".import-input-wrap"), list = h.host.querySelector(".import-list");
-  assert.equal(wrap.hidden, true); closeTo(parseFloat(list.style.top), 144);
+  assert.equal(wrap.hidden, true); closeTo(parseFloat(list.style.top), 202);
   await h.action("searchToggle").click(); await h.page.settled(); assertTools();
-  assert.equal(wrap.hidden, false); assert.equal(document.activeElement, search); closeTo(parseFloat(list.style.top), 236);
+  assert.equal(wrap.hidden, false); assert.equal(document.activeElement, search); closeTo(parseFloat(list.style.top), 294);
   search.value = "JP e"; await search.dispatch("compositionend"); assert.ok(h.row("e"));
   await h.action("searchToggle").click(); await h.page.settled(); assertTools();
-  assert.equal(wrap.hidden, true); closeTo(parseFloat(list.style.top), 144); assert.equal(search.value, "JP e");
+  assert.equal(wrap.hidden, true); closeTo(parseFloat(list.style.top), 202); assert.equal(search.value, "JP e");
   assert.deepEqual(h.layouts, h.layoutSnapshot);
 });
 
@@ -866,4 +867,97 @@ test("all six locales translate source routes, choices and conversion reasons", 
       await h.action("cancel", h.dialog).click();
     }
   } finally { setStrings("en-US", load("en-US")); }
+});
+
+test("merged rows keep variant identity, count every asset kind in place, and select only eligible Mods", async () => {
+  const h = await fixture({ licensed: true });
+  const a = entry("a"), lobby = { ...entry("a-lobby", "update", "lobby"), variant: "a" };
+  const model = { ...entry("a-model", "blocked", "model"), variant: "a" };
+  const other = { ...entry("generic", "ready", "other"), variant: "a" };
+  await h.analyze([a, lobby, model, other]);
+  const merge = h.action("merge").querySelector("input"); assert.equal(merge.checked, false);
+  assert.equal(walk(h.host).filter((e) => e.dataset.entry).length, 4);
+  merge.checked = true; await merge.dispatch("change"); await h.page.settled();
+  assert.equal(walk(h.host).filter((e) => e.dataset.entry).length, 2, "generic Mods never merge into a student");
+  const row = h.row("a"), check = row.querySelector("input");
+  check.checked = false; await check.dispatch("change");
+  assert.deepEqual([...h.page.model.state.checked], ["generic"]);
+  check.checked = true; await check.dispatch("change");
+  assert.deepEqual([...h.page.model.state.checked].sort(), ["a", "a-lobby", "generic"]);
+  assert.equal(h.page.model.state.checked.has("a-model"), false);
+  const newPortrait = { ...entry("a-second"), variant: "a" };
+  const adding = h.page.drop(newPortrait.paths); await flush();
+  h.analyses.at(-1).resolve({ entries: [a, lobby, model, other, newPortrait], skipped: 0 });
+  await adding; await h.page.settled();
+  assert.equal(h.row("a"), row, "the student row survives adding more assets");
+  const sender = find(drawn(h, row).tree, "Label_From");
+  assert.deepEqual(sender.children.map((node) => node.name), ["spr", "lobby", "model"]);
+  assert.equal(sender.children[0].children[0].widgets[0].text, "Portrait ×2");
+  assert.ok(h.thumbs.some(([, , , , , bg]) => bg === "/bg/a.png"));
+});
+
+test("results omit state badges, follow the merge setting and route every student or generic Mod", async () => {
+  const h = await fixture();
+  const a = entry("a"), lobby = { ...entry("a-lobby", "update", "lobby"), variant: "a" }, other = entry("generic", "ready", "other");
+  await h.analyze([a, lobby, other]);
+  const merge = h.action("merge").querySelector("input"); merge.checked = true; await merge.dispatch("change");
+  h.answers.push({ button: "ok" }); await h.action("start").click(); await flush();
+  h.runs[0].resolve({ results: [a, lobby, other].map((entry) => ({ id: entry.id, outcome: "imported", libraryId: `lib-${entry.id}`, applied: true })) });
+  await flush(); await h.page.results(); await h.page.settled();
+  const rows = walk(h.dialog).filter((element) => element.dataset.result);
+  assert.equal(rows.length, 2); assert.match(h.dialog.textContent, /Set as Source/);
+  for (const row of rows) assert.equal(find(drawn(h, row).tree, "TimeLimit").active, false);
+  await h.action("go", rows[0]).click(); assert.deepEqual(h.destinations, [["a", "a"]]); assert.equal(h.dialog.hidden, true);
+  await h.page.results(); await h.page.settled();
+  await h.action("go", walk(h.dialog).find((row) => row.dataset.result === "generic")).click();
+  assert.deepEqual(h.destinations, [["a", "a"], "other"]);
+});
+
+test("done entries stay unchecked across navigation and backend reanalysis", async () => {
+  const h = await fixture(); await h.analyze([entry("a"), entry("b", "done")]);
+  const assertDone = (id) => {
+    assert.match(h.row(id).textContent, /Done/); const check = h.row(id).querySelector("input");
+    assert.equal(check.checked, false); assert.equal(check.disabled, true);
+    h.page.model.toggle(id, true); assert.equal(h.page.model.state.checked.has(id), false);
+  };
+  assertDone("b"); h.answers.push({ button: "ok" }); await h.action("start").click(); await flush();
+  h.runs[0].resolve({ results: [{ id: "a", outcome: "unchanged", libraryId: "lib-a", applied: false }] }); await flush(); await h.page.settled();
+  assertDone("a"); h.page.hide(); await h.page.show(h.context, catalog); assertDone("a"); assertDone("b");
+  const recheck = h.page.model.recheck(); await flush();
+  h.analyses.at(-1).resolve({ entries: [entry("a", "done"), entry("b", "done")], skipped: 0 }); await recheck; await h.page.settled();
+  assertDone("a"); assertDone("b"); assert.equal(h.page.model.state.checked.size, 0);
+});
+
+test("the shared page hold reports both analysis and import progress through artwork completion", async () => {
+  const h = await fixture(); const analyzing = h.page.drop(entry("a").paths); await flush();
+  const hold = () => h.holds.findLast((hold) => hold.active);
+  assert.equal(hold().opts.all, true); h.analyses[0].progress({ done: 3, total: 12 });
+  assert.equal(hold().opts.progress(), "Analyzing 3 / 12");
+  h.analyses[0].resolve({ entries: [entry("a")], skipped: 0 }); await analyzing; await h.page.settled(); await flush();
+  h.answers.push({ button: "ok" }); await h.action("start").click(); await flush();
+  h.runs[0].progress({ done: 1, total: 2, phase: "apply" });
+  assert.equal(hold().opts.progress(), "Setting Sources 1 / 2");
+  h.runs[0].reject({ code: "internal" }); await flush(); await h.page.settled(); await flush();
+  assert.equal(hold(), undefined);
+});
+
+test("all six locales use short completion, merge and source-configuration labels", () => {
+  for (const lang of ["zh-CN", "zh-TW", "en-US", "ja-JP", "ko-KR", "th-TH"]) {
+    const data = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${lang}.json`, import.meta.url))).webui.import;
+    for (const text of [data.state.done, data.merge, data.applied, data.notApplied]) assert.ok(text && !/[{}]/.test(text));
+    assert.deepEqual([...data.waitProgress.matchAll(/\{(\w+)\}/g)].map((m) => m[1]), ["label", "done", "total"]);
+    if (lang === "zh-CN") { assert.equal(data.state.done, "\u5df2\u5b8c\u6210"); assert.equal(data.applied, "\u5df2\u8bbe\u4e3a\u6765\u6e90"); }
+  }
+});
+
+test("re-entering recreates cancelled row stills and merged rows prefer an available rendered asset", async () => {
+  const h = await fixture({ licensed: true });
+  const model = { ...entry("a-model", "ready", "model"), variant: "a" }, portrait = entry("a");
+  await h.analyze([model, portrait]);
+  const merge = h.action("merge").querySelector("input"); merge.checked = true; await merge.dispatch("change"); await h.page.settled();
+  assert.ok(h.row("a"));
+  const count = h.thumbs.filter(([base, frame]) => base.includes("/import/source-a/") && frame === "card").length;
+  h.page.hide(); await h.page.show(h.context, catalog); await h.page.settled();
+  assert.ok(h.thumbs.filter(([base, frame]) => base.includes("/import/source-a/") && frame === "card").length > count);
+  assert.match(h.row("a").querySelector(".import-thumb").dataset.source, /source-a/);
 });

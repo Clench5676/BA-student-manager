@@ -95,7 +95,8 @@ let leftPage = Promise.resolve(), leavePage = () => {};
 let showGen = 0, endWait = () => {};
 let thumbnailWork = thumbnailScope();
 let thumbnailWait = Promise.resolve(), releaseThumbnails = () => {};
-const thumb = (base, ...args) => spineAllowed() ? thumbnailWork.thumb(base, ...args) : collectionPortrait(base);
+const thumb = (base, frame = "bust", expr = null, lobby = false, framing = null, background = variant()?.bg) => spineAllowed()
+  ? thumbnailWork.thumb(base, frame, expr, lobby, framing, frame === "face" ? null : background) : collectionPortrait(base);
 function collectionPortrait(base) {
   for (const v of fam?.variants || []) {
     if (!v.spr) continue;
@@ -647,12 +648,13 @@ async function job(method, params, { onDone, after = () => reload(), name = full
     "actions.extract": "extract", "mods.remove": "delete" })[method] || "process";
   const running = T(`progress.${action}`, { name });
   try {
-    return await Loading.hold(async () => {
+    return await Loading.hold(async (update) => {
+      update(running);
       try {
         await renderScreen();
         toast(running, { sticky: true });
         const id = await rpc(method, params, { timeout: 30000 });
-        result = await waitJob(id, (p) => toast(Loading.progressText(p, running), { sticky: true }));
+        result = await waitJob(id, (p) => { const text = Loading.progressText(p, running); update(text); toast(text, { sticky: true }); });
         toast(result?.deferred ? T("mods.saved") : T("job.done"));
         await onDone?.(result);
         ok = true;
@@ -1065,7 +1067,6 @@ async function showSpine(base, my, signal) {
           if (my !== spineToken || !live()) return; // a newer portrait took over; it retires this layer
           mainPlayer = player;
           applyExpression();
-          scheduleBlink(player);
           await renderExpressions(); // the faces come from this skeleton
           await frames(2);           // its first frame is on the canvas
           commit(() => {
@@ -1105,7 +1106,9 @@ async function showSpine(base, my, signal) {
 const detailViewport = () => portraitViewport(layouts && find(layouts.list, "CharacterPos"), { origin: ORIGIN, s: S, box: PORTRAIT_BOX });
 function scheduleBlink(player) {
   clearTimeout(blinkTimer);
+  if (expression !== "00" || mainPlayer !== player) return;
   blinkTimer = setTimeout(() => {
+    if (expression !== "00" || mainPlayer !== player) return;
     if (player.skeleton?.data.findAnimation("Eye_Close_01")) {
       player.animationState.setAnimation(2, "Eye_Close_01", false);
       player.animationState.addEmptyAnimation(2, 0.1, 0);
@@ -1114,7 +1117,10 @@ function scheduleBlink(player) {
   }, 2500 + Math.random() * 3500);
 }
 function applyExpression() {
+  clearTimeout(blinkTimer);
+  mainPlayer?.animationState.clearTrack?.(2);
   if (mainPlayer?.skeleton?.data.findAnimation(expression)) mainPlayer.animationState.setAnimation(1, expression, true);
+  if (mainPlayer) scheduleBlink(mainPlayer);
 }
 function disposePortrait() {
   clearTimeout(blinkTimer);
@@ -1147,8 +1153,8 @@ async function drawPopup(scroll = 0) {
     original: c.mod?.alias ? modOriginalName(c.mod) : "",
     nameEdit: c.kind === "mod" ? { label: T("modAlias.title"), fn: (s = scroll) => editModName(c.mod,
       () => switchPopupPage === pageToken && !$("popup").hidden ? renderPopup(s) : null) } : null,
-    thumb: kind === "model" ? (c.origin || c.variant || v).portrait : thumb(baseOf(c, kind), "card", null, kind === "lobby", specialFraming(v)),
-    big: () => kind === "model" ? (c.origin || c.variant || v).portrait : thumb(baseOf(c, kind), "bust", null, kind === "lobby", specialFraming(v)),
+    thumb: kind === "model" ? (c.origin || c.variant || v).portrait : thumb(baseOf(c, kind), "card", null, kind === "lobby", specialFraming(v), (c.origin || c.variant || v).bg),
+    big: () => kind === "model" ? (c.origin || c.variant || v).portrait : thumb(baseOf(c, kind), "bust", null, kind === "lobby", specialFraming(v), (c.origin || c.variant || v).bg),
     inUse: c.key === inUseKey, fav: c.fav, isNew: c.kind === "mod" && c.mod.fresh, src: c,
     inUseText: mode.set && c.key === mode.set ? T("switch.configured") : null,
     dim: c.greyed,
@@ -1279,7 +1285,7 @@ async function openPicker(scroll = 0) {
   pickerSel = pickerSel || variantKey;
   const items = fam.variants.filter(hasAsset).sort(byRank).map((o) => ({
     key: o.key, kind: o.recruitable ? "playable" : "other", recruit: o.recruitable, label: shortName(o), full: fullName(o),
-    thumb: thumb(variantBase(o, primaryKind(o)), "card", null, !o.spr, specialFraming(o)), big: () => thumb(variantBase(o, primaryKind(o)), "bust", null, !o.spr, specialFraming(o)),
+    thumb: thumb(variantBase(o, primaryKind(o)), "card", null, !o.spr, specialFraming(o), o.bg), big: () => thumb(variantBase(o, primaryKind(o)), "bust", null, !o.spr, specialFraming(o), o.bg),
     inUse: o.key === variantKey, fav: isFav(o), isNew: hasFresh(o), src: o,
   })).filter((it) => pickerSeg === 0 || (pickerSeg === 1) === it.recruit);
   await listPopup({
@@ -1507,17 +1513,17 @@ async function renderAll() {
   await Promise.all([renderScreen(), renderChips(), renderExpressions()]);
 }
 
-// A tab or applied preview changes behind the same cover as a route, with the input hold retained.
+// A tab or applied preview prepares under the shared in-page shade, with the input hold retained.
 function changeInPlace(work) {
   const g = begin();
-  return Loading.hold(() => Loading.scene(async (covered) => {
+  return Loading.page(async (covered) => {
     await covered;
     if (g.gen !== showGen) return false;
     return prepare(g, true, async () => {
       await work();
       await settleThumbs();
     });
-  }, { until: g.ended }), { until: g.ended }).then((ready) => {
+  }, { until: g.ended }).then((ready) => {
     // it may have taken over a show (a tab clicked while a step loads): the screen is on that student now
     if (ready && fam) arrived(fam.key, askedKey);
     return ready;

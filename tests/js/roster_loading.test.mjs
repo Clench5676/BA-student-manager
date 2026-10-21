@@ -35,7 +35,7 @@ function harness(kind = "spr") {
     thumbnailWork: { signal: { aborted: false } },
     document: { createElement: () => new El() }, rows, rendered: new Map(), dom: { scrollHost: host }, hasAsset,
     CLIP_BOTTOM: 100, PITCH: 50, S: 1, ORIGIN: [0, 0], view: { scroll: 0 }, clipTop: () => 0, ctx: {},
-    cardTree: (e) => e, portraitOf: (e) => `portrait-${e.key}`,
+    clipRosterBand: async () => {}, cardTree: (e) => e, portraitOf: (e) => `portrait-${e.key}`,
     countText: () => "Portraits: 1, Memorial lobbies: 1", T: (key) => key,
     NGUI: { render: async (tree) => {
       requested.push(tree.key);
@@ -96,4 +96,19 @@ for (const kind of ["spr", "lobby"]) test(`a repeated row sync still waits for r
   for (const key of [0, 1]) { h.renders.get(key).resolve(); h.pictures.get(key).resolve(); }
   await Promise.all([first, second]);
   assert.equal(ready, true);
+});
+
+test("roster fallback and configured-source stills receive the variant's default background", () => {
+  const code = source.slice(source.indexOf("const portraitOf ="), source.indexOf("// --- rows near the view"));
+  const requested = [], student = { key: "np0189", family: "student", spr: "np0189_spr", bg: "/bg/practice-room", portrait: null };
+  let enabled = true;
+  const env = { spineAllowed: () => true, thumbnailWork: { thumb: (...args) => requested.push(args) },
+    primaryKind: () => "spr", data: { families: [{ key: "student", variants: [student] }] },
+    modsState: () => ({ enabled }), configuredKey: () => "mod:incoming", previewBase: () => "configured-skeleton",
+    spineBase: () => "live-skeleton", specialFraming: () => null, hasAsset: () => true };
+  const portraitOf = new Function("env", `const { ${Object.keys(env).join(", ")} } = env; ${code} return portraitOf;`)(env);
+  portraitOf(student); enabled = false; portraitOf(student);
+  assert.deepEqual(requested.map((args) => [args[0], args[1], args[5]]), [
+    ["live-skeleton", "roster", "/bg/practice-room"], ["configured-skeleton", "roster", "/bg/practice-room"],
+  ]);
 });
