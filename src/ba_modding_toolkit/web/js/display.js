@@ -2,6 +2,8 @@
 // tabs on the left; on the right the filter groups (UIFilterObjectList: title with its tag, dotted line, check boxes)
 // under the list header with Reset All, or the sort keys as the game's radio buttons (UISortObjectListUnit); Cancel
 // and Confirm below. It edits a draft of the view; Confirm hands the draft back.
+import { opened, closed } from "./popup.js";
+import { scrollbar } from "./scrollbar.js";
 import * as NGUI from "./ngui.js";
 import { T } from "./i18n.js";
 import { FILTERS, NATURAL, SORTS } from "./roster-order.js";
@@ -18,6 +20,7 @@ const GROUP = { x: -1109, top: -150, pitch: 308, unitX: [165, 712, 1259, 1806], 
 const SORT = { titleY: 446.5, x: -1015, y: 330, cell: [553, 174], perLine: 4 };
 
 let layout = null, draft = null, tab = "filter", count = null, done = null, scroll = 0, token = 0;
+let sortKeys = SORTS, sortOnly = false;
 
 const optionLabel = {
   favorite: { yes: () => T("fav.on"), no: () => T("display.fav.off") },
@@ -40,6 +43,7 @@ function frameTree() {
   find(title, "Line").widgets[0].w_ = glyphsOf(tf.text, tf.fs) + 14;
   for (const [widget, id, key] of [["FilterWidget/Filter", "filter", "display.tab.filter"], ["SortWidget/Sort", "sort", "display.tab.sort"]]) {
     const n = find(popup, `Tab/${widget}`);
+    n.active = !sortOnly || id === "sort";
     for (const state of ["Tab_On", "Tab_Off"]) {
       setText(find(n, `${state}/Label_Locale`), T(key), 56, 40, 360);
       find(n, state).active = (state === "Tab_On") === (id === tab);
@@ -61,7 +65,7 @@ function frameTree() {
   lift(bar);
   setText(find(bar, "Label_Locale_UnitList"), T("display.sortBy"), 48, 36, 1600);
   const unit = find(normal, "Option_Normal/Grid/UISortObjectListUnit");
-  const options = SORTS.map((key, i) => sortUnit(unit, key, i));
+  const options = sortKeys.map((key, i) => sortUnit(unit, key, i));
   sort.children = [find(sort, "BG_List"), bar, ...options];
   find(popup, "Btn_Section/Btn_Disable").active = false;
   setText(find(popup, "Btn_Section/Btn_Ok/Label_Locale"), T("picker.ok"), 72, 48, 420);
@@ -148,7 +152,7 @@ async function render() {
   clipToFrame(view, body);
   hitAt(next, [1323, 639], [120, 120], () => finish(null), T("display.close"));
   [["filter", 474.5], ["sort", 337.7]].forEach(([id, y]) => {
-    if (id !== tab) hitAt(next, [-1143, y], [420, 136], () => { tab = id; scroll = 0; render(); }, T(`display.tab.${id}`));
+    if (id !== tab && !sortOnly) hitAt(next, [-1143, y], [420, 136], () => { tab = id; scroll = 0; render(); }, T(`display.tab.${id}`));
   });
   hitAt(next, [289, -547], [520, 180], () => finish(draft), T("picker.ok"));
   hitAt(next, [-295, -547], [520, 180], () => finish(null), T("popup.cancel"));
@@ -156,7 +160,7 @@ async function render() {
     hitAt(next, [212 + 874, 516 - 66], [454, 106], () => { draft.filters = {}; render(); }, T("display.reset"));
     await renderGroups(next);
   } else {
-    SORTS.forEach((key, i) => {
+    sortKeys.forEach((key, i) => {
       const x = 211 + SORT.x + (i % SORT.perLine) * SORT.cell[0], y = -2.5 + SORT.y - Math.floor(i / SORT.perLine) * SORT.cell[1];
       hitAt(next, [x + 200, y], [520, 150], () => {
         if (draft.sort !== key) draft = { ...draft, sort: key, order: NATURAL[key] };
@@ -197,32 +201,23 @@ async function renderGroups(host) {
       hitButton(inner, [origin[0] + (x - 130) * S, -(y + 64) * S, 520 * S, 128 * S], () => toggle(group, value), optionLabel[group][value](), Z + 60);
     });
   });
-  // the game's thin scrollbar in the list's right gutter, when the groups do not fit
-  const bar = document.createElement("div");
-  bar.className = "scrollbar display-bar";
-  Object.assign(bar.style, { left: `${l + w - 18}px`, top: `${t + 10}px`, height: `${h - 20}px`, zIndex: Z + 80 });
-  bar.appendChild(document.createElement("i"));
-  bar.hidden = contentH <= h;
-  host.appendChild(bar);
+  const bar = await scrollbar(host, [l + w - 13 - 63 * S, t + 10, 126 * S, h - 20], { z: Z + 80, className: "display-bar" });
+  bar.sync(h, contentH, scroll);
 }
 
 function syncBar(list) {
   const bar = $("display").querySelector(".display-bar");
-  if (!bar || bar.hidden) return;
-  const viewH = list.clientHeight, total = list.scrollHeight, track = viewH - 20;
-  const th = Math.max(40, track * Math.min(1, viewH / Math.max(1, total)));
-  const thumb = bar.firstChild;
-  thumb.style.height = `${th}px`;
-  thumb.style.top = `${(track - th) * (total > viewH ? list.scrollTop / (total - viewH) : 0)}px`;
+  bar?.sync(list.clientHeight, list.scrollHeight, list.scrollTop);
 }
 
 function onKey(ev) {
-  if (ev.key === "Escape") { ev.preventDefault(); finish(null); }
+  if (!ev.defaultPrevented && ev.key === "Escape") { ev.preventDefault(); finish(null); }
 }
 
 function finish(result) {
   const host = $("display");
   host.hidden = true;
+  closed(host);
   host.innerHTML = "";
   removeEventListener("keydown", onKey);
   const fn = done;
@@ -232,15 +227,19 @@ function finish(result) {
 
 // open({view, count, onDone}): view is the roster's view (sort, order, filters); count(draft) the number of cards the
 // draft shows; onDone(draft) with the confirmed draft, or null when cancelled
-export async function open({ view, count: counter, onDone }) {
+export async function open({ view, count: counter, onDone, sorts = SORTS, sortOnly: onlySort = false }) {
   await load();
+  sortKeys = sorts;
+  sortOnly = onlySort;
+  if (sortOnly) tab = "sort";
   draft = { sort: view.sort, order: view.order, filters: clone(view.filters || {}) };
   count = counter;
   done = onDone;
   scroll = 0;
   $("display").hidden = false;
+  opened($("display"), () => finish(null));
   addEventListener("keydown", onKey);
-  await render();
+  try { await render(); } catch (err) { finish(null); throw err; }
 }
 
 let loading = null;
@@ -257,13 +256,14 @@ export function warm() {
 async function drawAhead() {
   await load();
   if (!$("display").hidden) return;
-  const keep = [draft, tab, count];
+  const keep = [draft, tab, count, sortKeys, sortOnly];
+  sortKeys = SORTS; sortOnly = false;
   draft = { sort: SORTS[0], order: NATURAL[SORTS[0]], filters: {} };
   count = () => 0;
   const trees = [];
   for (const id of ["filter", "sort"]) { tab = id; trees.push(frameTree()); }
   trees.push(groupsTree());
-  [draft, tab, count] = keep;
+  [draft, tab, count, sortKeys, sortOnly] = keep;
   const scratch = document.createElement("div");
   await Promise.all(trees.map((t) => NGUI.render(t, scratch, { scale: S, origin: [960, 540] })));
 }

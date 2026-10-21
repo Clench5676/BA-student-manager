@@ -223,20 +223,29 @@ const baseName = (path) => (path ? path.split(/[\\/]/).pop() : "—");
 const sizeText = (bytes) => (!bytes ? "—" : bytes < 1048576 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1048576).toFixed(1)} MB`);
 const errorText = (err) => T(`error.${err?.code || "internal"}`, err?.params || { error: String(err) });
 
-// white glyphs for the action cards (the game shows skill icons there), a folder for the file manager button
-const GLYPHS = {
-  edit: '<path d="M11 37v-6l17-17 6 6-17 17Z" /><path d="M24 18l6 6" />',
-  update: '<path d="M33 18a13 13 0 1 0 3 11" /><path d="M34 8v10H24" />',
-  extract: '<path d="M10 22h28v16H10Z" /><path d="M24 30V8m-7 7 7-7 7 7" />',
-  compare: '<path d="M10 12h12v24H10ZM26 12h12v24H26Z" /><path d="M16 20v8M32 20v8" />',
-};
 const svg = (body) => `data:image/svg+xml,${encodeURIComponent(body)}`;
 const TEXTURES = {
-  ...Object.fromEntries(Object.entries(GLYPHS).map(([k, g]) => [`glyph:${k}`,
-    svg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" stroke="#fff" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round">${g}</svg>`)])),
   "svg:stop": svg('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><rect x="10" y="10" width="28" height="28" rx="4" fill="#2b496e"/></svg>'),
   "svg:folder": svg('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><path fill="#2d5164" d="M5 12a3 3 0 0 1 3-3h11l4 5h17a3 3 0 0 1 3 3v19a3 3 0 0 1-3 3H8a3 3 0 0 1-3-3Z"/></svg>'),
 };
+
+// SkillData_EX keeps its normal rings; the add button's complete lock state has no star requirement.
+export function actionState(card, enabled, lockTemplate = null) {
+  if (lockTemplate) {
+    const cover = clone(lockTemplate), body = find(cover, "Bg");
+    const bg = find(card, "Bg"), line = find(bg, "Bg_Line");
+    cover.name = "Lock_Cover";
+    cover.pos = [bg.pos[0] + line.pos[0], bg.pos[1] + line.pos[1]];
+    Object.assign(body.widgets[0], { w_: line.widgets[0].w_, h_: line.widgets[0].h_ });
+    card.children = card.children.filter((child) => child.name !== "Lock_Cover");
+    card.children.push(cover);
+  }
+  find(card, "Normal").active = true;
+  const lock = find(card, "Lock_Cover");
+  if (lock) lock.active = !enabled;
+  const empty = find(card, "Empty");
+  if (empty) empty.active = false;
+}
 
 // an upright texture inside a slanted body is clipped to the body (the game does this with panel clipping)
 const clipped = (name, pos, url, win, img, opts = {}) => node(name, pos, [{ clipImage: url, w_: win.w, h_: win.h, pivot: 4, depth: opts.depth ?? 9,
@@ -277,12 +286,6 @@ function screenTree() {
   // the separator on a tab's right edge goes when either neighbour is active
   if (tab !== "portrait") { const l = find(t, "RightInfo/Target/Active/CharacterTab/Tab_1/Tab_Off/Line"); if (l) l.active = tab !== "lobby"; }
   { const l = find(t, "RightInfo/Target/Active/CharacterTab/Tab_2/Tab_Off/Line (1)"); if (l) l.active = tab === "portrait"; }
-  // the active tab's corners a little rounder than the prefab's 5 px sprite
-  for (const tb of ["Tab_1", "Tab_2", "Tab_3"]) {
-    Object.assign(widget(t, `RightInfo/Target/Active/CharacterTab/${tb}/Tab_On/BG`), { sprite: "Common_Bg_Raius10px", h_: 132 });
-    at(t, `RightInfo/Target/Active/CharacterTab/${tb}/Tab_On/BG`).pos[1] = -4;
-  }
-
   // row 1: portrait information
   text(t, `${INFO}/Title_Bg/Label_Locale`, T(isSpecial(v) && tab === "lobby" ? "special.background" : `info.title.${tab}`), { w_: 600 });
   text(t, `${INFO}/Detail_Btn/Label_Locale`, T("info.details"));
@@ -351,18 +354,19 @@ function screenTree() {
   off(t, `${INFO}/Skill/Btn_Up_Wrapper`); // the install button, removed for now
   for (const [card, key, glyph, enabled] of actions) {
     const base = `${INFO}/Skill/${card}`;
-    off(t, `${base}/Lock_Cover`, `${base}/Normal/Label_SkillType (1)`, `${base}/Normal/Line (1)`);
+    actionState(at(t, base), enabled, find(t, `${INFO}/Weapon/Btn_Up_Wrapper/Lock`));
+    off(t, `${base}/Normal/Label_SkillType (1)`, `${base}/Normal/Line (1)`);
     const max = find(t, `${base}/Normal/Icon_Max`);
     if (max) max.active = false;
     const bgX = at(t, `${base}/Bg`).pos[0] + 1, midY = 158.3 - 126; // Bg_Line centre: the card's visible body
     const title = fitText(T(key), 40, 28, 170);
-    text(t, `${base}/Normal/Label_SkillType`, title.text, { fontSize: title.fs, color: enabled ? "#466399/1.00" : "#9aa3ad/1.00" });
+    text(t, `${base}/Normal/Label_SkillType`, title.text, { fontSize: title.fs, color: "#466399/1.00" });
     at(t, `${base}/Normal/Label_SkillType`).pos = [bgX + 66 * TAN10, midY + 66];
     const icon = at(t, `${base}/Normal/SkillIconBg`);
     icon.pos = [bgX - 30 * TAN10, midY - 30];
-    icon.widgets.find((w) => "sprite" in w).color = enabled ? "#9c44ac/1.00" : "#b6bec8/1.00";
-    for (const k of icon.children) if (["Bg_Skill_Plus", "Deco", "SkillIconBg (1)"].includes(k.name)) k.active = false; // EX-only rings
-    Object.assign(widget(t, `${base}/Normal/SkillIconBg/Texture`), { texture: `glyph:${glyph}`, w_: 64, h_: 64 });
+    const picture = widget(t, `${base}/Normal/SkillIconBg/Texture`);
+    delete picture.texture;
+    Object.assign(picture, { cls: "UISprite", sprite: { compare: "School_Icon_Schedule", update: "Common_Icon_All_Download", extract: "Common_Icon_Inventory_Equip" }[glyph], atlas: "Common", type: 0 });
   }
   // row 3: portrait box, the switch card (the game's light weapon card), add portrait. The box's body spans
   // -96..95 around its centre (its slanted right edge ends lower down a few units further left); the title sits at -8.
@@ -1487,6 +1491,7 @@ async function showDetails() {
   if (info.reveal) hit("Center/Popup/Btn/Btn_Cancel/BG (1)", () => reveal(info.reveal), T(platform === "mac" ? "open.mac" : "open.win"), "cancel");
   closable(view, host, done);
   const inner = scrollArea(next, [960 + DT.l * S, 540 - top * S, (DT.r - DT.l) * S, (top - bottom) * S], body.height * S);
+  await inner.ready;
   const bodyView = await NGUI.render(body.tree, inner, { scale: S, origin: [0, 0], z: 20 });
   info.fields.forEach(([, , mod], i) => {
     if (mod) hitNode(inner, bodyView, `Details/Edit_${i}`, () => editModName(mod, () => !host.hidden ? showDetails() : null), { name: T("modAlias.title") });
@@ -1717,8 +1722,15 @@ const wake = () => {
 // portrait's fullscreen is the game's visual mode (visual-mode.js), with the game's own buttons instead of fs-exit.
 // Leaving puts every part back whatever the tab is by now (an in-place show may have changed it); setStage(false)
 // closes the visual mode.
-function setFullscreen(on) {
+let fullscreenRequest = 0;
+async function setFullscreen(on) {
+  const request = ++fullscreenRequest, part = tab, key = variantKey;
   if (on && tab === "portrait") { enterVisual(); return; }
+  if (on) {
+    const layout = await (layouts.visual ||= NGUI.layout("UICharacterVisualMode").catch(() => null));
+    if (layout) await Visual.exitControl($("fs-exit"), layout);
+    if (request !== fullscreenRequest || !open || tab !== part || variantKey !== key) return;
+  }
   setStage(on);
   if (!on || tab === "lobby") { Lobby.frame(on ? "full" : "left"); Lobby.interactive(on); }
   if (!on || tab === "model") modelLib?.then((M) => M.frame(on ? "full" : "left"));

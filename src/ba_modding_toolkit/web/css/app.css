@@ -47,87 +47,28 @@ input[type="text"], input[type="search"], textarea { cursor: text; }
 .screen { position: absolute; inset: 0; }
 .screen[hidden] { display: none; }
 
-/* Batch import uses the game's plates and buttons, with a fixed column grid inside its scrolling list. */
-.import-page { position: absolute; inset: 0; font-size: 23px; }
-.import-background { position: absolute; inset: 0; pointer-events: none; z-index: 0; }
-.import-workspace { position: absolute; z-index: 1; left: 46px; top: 132px; width: 1828px; height: 730px; display: grid; grid-template-columns: 524px 1272px; gap: 32px; }
-.import-detail, .import-panel { position: relative; min-width: 0; }
-.import-skin { position: absolute; inset: 0; pointer-events: none; z-index: 0; }
-.import-panel { display: flex; flex-direction: column; padding: 6px; }
-.import-panel > :not(.import-skin) { position: relative; z-index: 1; }
-.import-panel-head { padding: 17px 20px 15px; background: #b7d5e4; border-radius: 6px 6px 0 0; }
-.import-heading, .import-filters, .import-add, .import-list-tools, .import-footer-actions { display: flex; align-items: center; gap: 14px; }
-.import-heading { margin-bottom: 17px; }
-.import-heading h2 { font-size: 34px; font-weight: 500; white-space: nowrap; }
-.import-count { color: #526f86; font-size: 23px; white-space: nowrap; }
-.import-add { margin-left: auto; }
-.import-input { min-width: 0; border: 1px solid #a4bfce; border-radius: 5px; padding: 8px 13px; background: #fff; color: #33516d; font: 500 23px/1.3 var(--font); }
-.import-search { flex: 1; width: 180px; }
-.import-filters select { width: 330px; }
-.import-button { position: relative; flex-shrink: 0; display: grid; place-items: center; filter: drop-shadow(0 2px 2px #49647935); }
-.import-button-label { position: relative; z-index: 12; line-height: 1.1; white-space: pre-line; text-align: center; padding-bottom: 3px; }
-.import-button:disabled { cursor: default; color: #8998a5; filter: grayscale(1); opacity: .55; }
-.import-button:focus-visible, .import-row-copy:focus-visible, .import-input:focus-visible { outline: 3px solid #168fe0; outline-offset: 3px; }
-.import-list { min-height: 0; overflow-y: auto; flex: 1; padding: 15px 19px; scrollbar-color: #92a6b7 #ccd7df; scrollbar-width: thin; }
-.import-row { position: relative; display: grid; grid-template-columns: 82px minmax(0, 1fr) 132px 225px 40px; gap: 14px; align-items: center; min-height: 116px; margin-bottom: 12px; padding: 10px 16px; border-radius: 7px; }
-.import-row:last-child { margin-bottom: 0; }
-.import-row > :not(.import-skin) { position: relative; z-index: 12; }
-.import-row.selected { outline: 3px solid #f2cc47; outline-offset: -2px; }
-.import-thumb { width: 82px; height: 92px; object-fit: cover; object-position: center 20%; border-radius: 6px; background: #dceaf0; }
-.import-row-copy { min-width: 0; text-align: left; display: flex; flex-direction: column; gap: 5px; align-items: flex-start; align-self: stretch; justify-content: center; }
-.import-row-name { display: block; width: 100%; font-size: 29px; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
-.import-row-meta { font-size: 18px; color: #70869a; width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.import-row-note { display: block; font-size: 18px; line-height: 1.3; color: #8796a3; overflow-wrap: anywhere; }
-.import-row-kind { color: #668094; font-size: 21px; text-align: center; overflow-wrap: anywhere; }
-.import-status { display: inline-block; justify-self: center; max-width: 100%; padding: 5px 9px; border-radius: 4px; font-size: 21px; line-height: 1.2; text-align: center; }
-.import-status.ready { color: #276a5b; background: #dff3e9; }
-.import-status.update { color: #8a591d; background: #ffefc4; }
-.import-status.library { color: #5f7082; background: #e2eaf2; }
-.import-status.installed { color: #526365; background: #dce6e6; }
-.import-status.library, .import-status.installed { font-size: 18px; }
-.import-status.blocked { color: #a74451; background: #fbe3e7; }
-.import-check { position: relative; display: inline-flex; align-items: center; gap: 10px; min-height: 36px; cursor: var(--cursor-press); }
-.import-check input { position: absolute; left: 0; top: 0; width: 36px; height: 36px; opacity: 0; cursor: inherit; }
-.import-check-box { position: relative; display: block; flex-shrink: 0; width: 36px; height: 36px; border: 2px solid #9ab9c7; border-radius: 5px; background: #e4f3f8; pointer-events: none; }
-.import-check input:checked + .import-check-box { background: #e4f3f8 url('/asset/ui/sprite/Common/Common_Icon_Check_B.png') center / 30px 30px no-repeat; }
-.import-check input:focus-visible + .import-check-box { outline: 3px solid #168fe0; outline-offset: 3px; }
-.import-check input:disabled + .import-check-box { filter: grayscale(1); opacity: .4; }
-.import-list-tools { padding: 8px 20px 12px; border-top: 1px solid #b9cedb; }
-.import-list-tools [data-action="remove"] { margin-left: auto; }
-.import-preview-pair { display: grid; grid-template-columns: 254px 254px; gap: 16px; }
-.import-preview { position: relative; height: 440px; overflow: hidden; }
-.import-preview-label { position: absolute; left: 15px; top: 13px; color: #56768e; z-index: 15; font-size: 22px; }
-.import-preview-image { position: absolute; inset: 55px 0 0; width: 100%; height: 385px; object-fit: contain; z-index: 12; }
-.import-preview-unavailable { position: absolute; left: 9px; right: 9px; bottom: 12px; background: #edf6fae8; color: #6e8497; z-index: 15; text-align: center; font-size: 19px; }
-.import-name-banner { position: relative; margin-top: 18px; height: 152px; padding: 20px 24px; color: white; }
-.import-name-banner h2, .import-name-banner small { position: relative; z-index: 12; font-weight: 500; overflow-wrap: anywhere; }
-.import-name-banner h2 { font-size: 34px; line-height: 1.15; max-height: 78px; overflow: hidden; }
-.import-name-banner small { display: block; margin-top: 8px; color: #b9d2e5; font-size: 20px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.import-detail-empty, .import-empty { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px; color: #6c879c; text-align: center; }
-.import-detail-empty { height: 570px; }
-.import-empty h3 { font-size: 34px; font-weight: 500; }
-.import-empty p { font-size: 23px; }
-.import-footer { position: absolute; z-index: 1; left: 50px; right: 50px; top: 892px; height: 78px; display: flex; align-items: center; justify-content: space-between; gap: 25px; }
-.import-footer-actions { gap: 22px; }
-.import-progress { min-width: 0; color: #526f86; font-size: 23px; overflow-wrap: anywhere; }
-.import-progress.error, .import-option-error { color: #a74451; }
-.import-progress progress { display: block; width: 330px; height: 10px; margin-top: 10px; accent-color: #4fafd2; }
-.import-dialog-content { position: absolute; left: 228px; top: 190px; width: 1464px; height: 670px; overflow-y: auto; display: grid; grid-template-columns: 1fr 1fr; align-content: start; gap: 22px 35px; padding: 16px; z-index: 40; scrollbar-color: #92a6b7 #ccd7df; }
-.import-option { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px; background: #ffffffc9; border-radius: 5px; font-size: 25px; }
-.import-option .import-input { width: 290px; flex-shrink: 0; }
-.import-option.wide, .import-resource-types, .import-option-note, .import-option-error { grid-column: 1 / -1; }
-.import-option.wide input { width: 1030px; }
-.import-resource-types { display: flex; flex-wrap: wrap; gap: 20px 28px; border: 1px solid #b9cedb; padding: 20px; font-size: 23px; }
-.import-resource-types legend { padding: 0 10px; }
-.import-option-note, .import-option-error { font-size: 21px; }
-.import-option-note { color: #6e8497; }
-.import-results { display: block; user-select: text; }
-.import-results table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 26px; }
-.import-results th, .import-results td { padding: 18px; text-align: left; vertical-align: top; border-bottom: 1px solid #c7d8e3; overflow-wrap: anywhere; }
-.import-results th { font-weight: 500; color: #55758d; }
-.import-results th:first-child { width: 30%; }
-.import-results th:nth-child(2) { width: 27%; }
-.import-results .import-row-note { margin-top: 8px; }
+/* Batch Import: geometry, native text entry and hit areas only. import-layout.js draws the game prefab widgets. */
+.import-page, .import-background, .import-art { position: absolute; inset: 0; }
+.import-background, .import-art { pointer-events: none; }
+.import-art { z-index: 0; }
+.import-panel > :not(.import-art) { z-index: 1; }
+.import-panel, .import-detail, .import-progress { z-index: 1; }
+.import-button, .import-option, .import-option-note, .import-option-error, .import-row, .import-result-row { position: relative; }
+.import-button, .import-row-copy, .import-check { z-index: 40; }
+.import-list { overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; }
+.import-row { width: 1192.32px; height: 187.92px; }
+.import-result-row { width: 1400px; height: 216px; }
+.import-selection { z-index: 34; pointer-events: none; }
+.import-check { position: relative; display: block; width: 50px; height: 50px; }
+.import-check input { position: absolute; inset: 0; width: 50px; height: 50px; appearance: none; -webkit-appearance: none; border: 0; cursor: var(--cursor-press); z-index: 40; }
+.import-input-wrap { z-index: 1; }
+.import-input-wrap .roster-search { z-index: 30; }
+.import-search-clear { z-index: 40; }
+.import-dialog-content { position: absolute; left: 228px; top: 190px; width: 1464px; height: 640px; overflow-y: auto; overflow-x: hidden; padding: 16px; z-index: 40; }
+.import-resource-types { position: relative; border: 0; min-width: 0; }
+.import-option-control { position: absolute; z-index: 40; appearance: none; -webkit-appearance: none; background: transparent; border: 0; }
+.import-radio-group button { z-index: 40; }
+
 
 /* The shipped font's full-width brackets and commas have blank half-em advances that look like added spaces. */
 .popup-layer:lang(zh-CN) { font-feature-settings: "halt"; }
@@ -139,19 +80,13 @@ input[type="text"], input[type="search"], textarea { cursor: text; }
   border-image: url("/asset/ui/sprite/Common/Common_Top_Menu_Bg.png") 0 20 0 310 fill / 0 11px 0 172px stretch;
   filter: drop-shadow(0 2px 3px rgba(30, 60, 100, .18));
 }
-.back {
-  position: absolute; left: -134px; top: 9px; width: 91px; height: 95px;
-  background: url("/asset/ui/sprite/Common/Common_Circle_Back_Btn.png") center / contain no-repeat;
-  display: grid; place-items: center;
-}
-.back .icon-back { display: inline-block; width: 46px; height: 36px; margin: -6px 0 0 -2px; background: url("/asset/ui/sprite/Common/Common_Icon_Back.png") center / contain no-repeat; }
+.back { position: absolute; left: -134px; top: 9px; width: 106.38px; height: 111.57px; }
 .title { margin-left: -12px; font: var(--w) 42px/1 var(--font); color: var(--navy-text); letter-spacing: 1px; }
 /* the game's top bar option button (Common_Top_Option_Btn tinted #466399) and the slanted divider before it */
 .top-option { position: absolute; right: 44px; top: 7px; width: 50px; height: 50px; display: grid; place-items: center; }
 .top-option i { width: 39px; height: 40px; background-color: #466399;
   -webkit-mask: url("/asset/ui/sprite/Common/Common_Top_Option_Btn.png") center / contain no-repeat;
   mask: url("/asset/ui/sprite/Common/Common_Top_Option_Btn.png") center / contain no-repeat; }
-.top-option:hover i { background-color: #2a63c5; }
 .top-line { position: absolute; right: 118px; top: 16px; width: 3px; height: 32px; background: #dde8f1; transform: skewX(-10deg); }
 
 /* the Enable Mods switch after the title (js/mod-switch.js): two of the roster filter's segments (UICharacterCollection
@@ -160,55 +95,18 @@ input[type="text"], input[type="search"], textarea { cursor: text; }
    square "?" (Btn_Information: Common_Btn_Information in #2c4564 over a white square) */
 .mod-switch { display: flex; align-items: center; gap: 12px; margin-left: 32px; height: 64px; }
 .mod-switch[hidden] { display: none; }
-.ms-toggle { position: relative; display: flex; height: 40px; filter: drop-shadow(0 1px 2px rgba(30, 60, 100, .3)); }
-.ms-seg { position: relative; display: grid; place-items: center; min-width: 82px; height: 40px; padding: 0 14px; }
-.ms-seg::before { content: ""; position: absolute; inset: 0; opacity: .95; border-style: solid; border-width: 4.2px 1.9px 6.5px 5.8px;
-  border-image: url("/asset/ui/sprite/Common/Common_Filter_Tab_Type1.png") 11 5 17 15 fill stretch; transform: skewX(-10deg); }
-.ms-seg.ms-off::before { transform: skewX(-10deg) scaleX(-1); }
-.ms-seg b { position: relative; font: var(--w) 24px/1 var(--font); letter-spacing: .5px; white-space: nowrap; margin-top: -3px; }
-.ms-seg.ms-on b { color: #006bff; }
-.ms-seg.ms-off b { color: #1d2a38; }
-/* the pressed segment: Common_Filter_Tab_Type1_Pressed (324 x 99 at +2.6, no shadow) in the segment's colour */
-.ms-toggle.is-on .ms-on::before, .ms-toggle:not(.is-on) .ms-off::before {
-  inset: 0 .8px 2px .8px; opacity: 1; border: 0; border-image: none; background: #0664eb;
-  -webkit-mask-box-image-source: url("/asset/ui/sprite/Common/Common_Filter_Tab_Type1_Pressed.png");
-  -webkit-mask-box-image-slice: 11 1 12 13 fill; -webkit-mask-box-image-width: 4.2px .4px 4.6px 5px;
-  -webkit-mask-box-image-repeat: stretch; }
-.ms-toggle:not(.is-on) .ms-off::before { background: #153757; }
-.ms-toggle.is-on .ms-on b, .ms-toggle:not(.is-on) .ms-off b { color: #ffffff; margin-top: -1px; }
-/* busy: dimmed at the loading indicator's pace; unavailable: greyed */
-.ms-toggle.busy { animation: ms-busy 1.1667s ease-in-out infinite; }
-@keyframes ms-busy { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
-.ms-toggle.unavailable { filter: grayscale(1); opacity: .55; }
+.ms-toggle { position: relative; width: 253px; height: 40px; }
 .ms-dot { position: absolute; right: -10px; top: -8px; width: 24px; height: 22px; pointer-events: none;
   background: url("/asset/ui/sprite/Common/Common_Icon_Reddot2.png") center / contain no-repeat; }
 .ms-dot[hidden] { display: none; }
 .ms-label { font: var(--w) 26px/1 var(--font); color: var(--navy-text); white-space: nowrap; letter-spacing: .5px; }
 .ms-help { position: relative; width: 40px; height: 40px; }
-.ms-help::before { content: ""; position: absolute; left: 5px; top: 2.2px; width: 28px; height: 28px; background: #ffffff; }
-.ms-help i { position: absolute; inset: 0 .5px; background-color: #2c4564;
-  -webkit-mask: url("/asset/ui/sprite/Common/Common_Btn_Information.png") center / contain no-repeat;
-  mask: url("/asset/ui/sprite/Common/Common_Btn_Information.png") center / contain no-repeat; }
-.ms-help:hover i { background-color: #2a63c5; }
-
 /* --- bottom navigation, pressed down to the bottom edge; icons only peek over the bar --- */
 .nav { position: absolute; left: 0; right: 0; bottom: 0; height: 104px; z-index: 1000; }
-.nav-bar {
-  position: absolute; left: 34px; right: 34px; bottom: 0; height: 60px; border-radius: 10px 10px 0 0;
-  background: linear-gradient(180deg, rgba(255, 255, 255, .95), rgba(240, 246, 250, .94));
-  box-shadow: 0 3px 10px rgba(30, 60, 100, .22);
-}
+.nav-bar { position: absolute; inset: 0; pointer-events: none; }
 .nav-items { position: absolute; left: 50px; right: 50px; bottom: 0; height: 104px; display: flex; justify-content: space-between; }
-.nav-item { position: relative; width: 180px; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; padding-bottom: 13px; font: var(--w) 26px/1 var(--font); color: #2c3c54; letter-spacing: 1px; white-space: nowrap; }
-.nav-item .nav-icon { width: 60px; height: 54px; margin-bottom: 4px; background: center / contain no-repeat; filter: drop-shadow(0 3px 2px rgba(30, 60, 100, .2)); }
-.nav-item.active { color: #2a63c5; }
-/* entries without a web screen (nav-items.js): the game's disabled tint and nothing else (no lock, no hover change,
-   never the active look); --nav-greyed is the tint as a brightness factor, from UILobby's locked entries (their icon
-   only, data-tint "game"), NGUI's default grey (icon and label at half, "ngui"), or, without a game, a plain grey */
-.nav-item.greyed .nav-icon { filter: brightness(var(--nav-greyed, .5)) drop-shadow(0 3px 2px rgba(30, 60, 100, .2)); }
-.nav-items[data-tint="ngui"] .nav-item.greyed { color: #161e2a; }
-.nav-items[data-tint="plain"] .nav-item.greyed { color: #9aa3ad; }
-.nav-items[data-tint="plain"] .nav-item.greyed .nav-icon { filter: grayscale(1) brightness(.5) drop-shadow(0 3px 2px rgba(30, 60, 100, .2)); }
+.nav-item { position: relative; width: 260px; height: 104px; font: var(--w) 26px/1 var(--font); white-space: nowrap; }
+.nav-item.greyed { color: #9aa3ad; }
 
 /* --- roster --- */
 .ngui-host { position: absolute; inset: 0; }
@@ -217,9 +115,8 @@ input[type="text"], input[type="search"], textarea { cursor: text; }
 .card-clip { position: absolute; left: 0; right: 0; overflow: hidden; z-index: 100; touch-action: none; }
 .card-scroll { position: absolute; left: 0; top: 0; width: 1920px; height: 1px; will-change: transform; }
 .card-row { position: absolute; inset: 0; }
-.scrollbar { position: absolute; z-index: 150; width: 10px; border-radius: 5px; background: #ccd7df; pointer-events: none; }
+.scrollbar { position: absolute; z-index: 150; pointer-events: none; }
 .scrollbar[hidden] { display: none; }
-.scrollbar i { position: absolute; left: 0; right: 0; border-radius: 5px; background: #92a6b7; }
 /* the search box's input over the game's InputField: Label_Search's colour and size, the placeholder like
    Label_Locale_Input; selectable although the stage is not */
 .roster-search { position: absolute; z-index: 320; border: 0; outline: 0; background: transparent; padding: 0; margin: 0;
@@ -264,7 +161,6 @@ input[type="text"], input[type="search"], textarea { cursor: text; }
 .portrait .layer { position: absolute; inset: 0; transition: opacity .35s ease; }
 .portrait .layer.fading { opacity: 0; }
 .portrait .portrait-static { position: absolute; left: 80px; top: 100px; width: 720px; height: 900px; object-fit: contain; }
-.lobby-unavailable button { display: block; margin: 18px auto 0; padding: 10px 24px; border: 0; border-radius: 6px; background: #128cbb; color: #fff; font: inherit; cursor: pointer; }
 .portrait .spine-player, .lobby-layer .spine-player, .thumb-player .spine-player { background: transparent !important; }
 /* the detail screen's popups cover the whole stage like the game's (top bar and navigation included), under the
    loading screen, the consent popup and settings */
@@ -368,9 +264,8 @@ input[type="text"], input[type="search"], textarea { cursor: text; }
 .lobby-subtitle.in { opacity: 0; translate: 0 24px; transition: none; }
 .stage.fullscreen .lobby-subtitle { left: 50%; transform: translateX(-50%); bottom: 70px; }
 
-/* fullscreen exit: the game's hide-UI icon at the top right, fades while the pointer rests */
-.fs-exit { position: absolute; right: 36px; top: 28px; z-index: 30; width: 92px; height: 92px; border-radius: 50%;
-  background: rgba(20, 40, 70, .55) url("/asset/ui/sprite/Common/Common_UIHide_Icon2.png") center / 56% no-repeat; transition: opacity .6s ease; }
+/* Fullscreen exit uses UICharacterVisualMode/LeftTop/Btn_Back. */
+.fs-exit { position: absolute; z-index: 30; transition: opacity .6s ease; }
 .fs-exit[hidden] { display: none; }
 .fs-exit.idle { opacity: 0; }
 

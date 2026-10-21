@@ -16,6 +16,7 @@ function harness(allowed = false) {
   const host = new El(), consentHost = {}, players = [], prompts = [];
   let decision = false, permission = allowed;
   const env = {
+    skinPrimary: (button, caption) => { button.textContent = caption; },
     ensureSpine: async () => permission,
     confirmLicence: async (host, options) => { prompts.push([host, options]); permission = decision; return decision; },
     $: () => consentHost, T: (key) => key,

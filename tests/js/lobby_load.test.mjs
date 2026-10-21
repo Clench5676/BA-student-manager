@@ -22,6 +22,7 @@ function harness(layersOf = layers, resolveSources = null, { allowed = true, con
   const host = { innerHTML: "", classList: { remove: noop }, querySelector: () => ({}), appendChild(el) { this.message = el; } };
   const prompts = [];
   const env = {
+    skinPrimary: (button, caption) => { button.textContent = caption; },
     latestLoad, layersOf, withTimeout, atStep, validRect, ensureSpine: async () => allowed,
     consent: async () => ({ async spine(host, opts) { prompts.push({ host, opts }); allowed = confirm; return confirm; } }),
     rectOf: (v) => ({ x0: v.x, y0: v.y, x1: v.x + v.w, y1: v.y + v.h }),

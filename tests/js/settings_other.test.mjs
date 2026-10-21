@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
+import { controls } from "./control_prefabs.mjs";
 
 const web = new URL("../../src/ba_modding_toolkit/web/js/", import.meta.url);
 const source = readFileSync(new URL("settings-other.js", web), "utf8");
@@ -106,7 +107,11 @@ test("generic Settings rows render names, every target file, status and actions 
     const NGUI = await import(new URL("ngui.js", web));
     const { wrapPath } = await import(new URL("util.js", web));
     const h = harness();
-    const deps = { NGUI, T: h.T, wrapPath };
+    const { rowBase, radioRow } = await import(new URL("settings-rows.js", web));
+    const ButtonsModule = await import(new URL("game-buttons.js", web));
+    const { option, filter } = controls();
+    const Buttons = { smallButton: (...args) => ButtonsModule.optionButton(option, filter, ...args) };
+    const deps = { NGUI, T: h.T, wrapPath, rowBase, radioRow, Buttons };
     const valueRow = new Function("deps", `const {${Object.keys(deps)}} = deps; ${strip(settings)}; return valueRow;`)(deps);
     const rows = h.rows([mod, { ...mod, id: "m2", label: "Missing Pack", state: "missing" }], valueRow, h.changed);
     const host = new El();

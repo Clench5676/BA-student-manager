@@ -40,6 +40,8 @@ import * as Touch from "./lobby-touch.js";
 import * as Sync from "./lobby-sync.js";
 import * as Intro from "./lobby-intro.js";
 
+const skinPrimary = async (...args) => (await import("./game-buttons.js")).skinPrimary(...args);
+
 const STAGE = { w: 1920, h: 1080 };
 const consent = () => import("./consent.js");
 const GAME = { x: -1480, y: -832.5, w: 2960, h: 1665 };  // lobby.json "view": the game's 16:9 view in NGUI units
@@ -1002,7 +1004,7 @@ export function licenseRequired(host, retry) {
   message.textContent = T("spine.license.required");
   const confirm = document.createElement("button");
   confirm.type = "button";
-  confirm.textContent = T("spine.license.confirm");
+  skinPrimary(confirm, T("spine.license.confirm"));
   confirm.addEventListener("click", async () => {
     const Consent = await consent();
     if (await Consent.spine(document.getElementById("consent"), { over: true })) await retry?.();

@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { register } from "node:module";
 import { test } from "node:test";
+import { controls } from "./control_prefabs.mjs";
+const controlLayouts = controls();
 
 class El {
   constructor(tag = "div") {
@@ -244,6 +246,8 @@ globalThis.fetch = async (url, opts = {}) => {
   if (url.startsWith("/asset/ui/layout/")) {
     if (optionalPending && url.endsWith("UIPopup_Sort.json")) return new Promise(() => {});
     if (url.endsWith("UIPopup_Sort.json")) return reply(sortPopup);
+    if (url.endsWith("UIPopup_Option_PC.json")) return reply(controlLayouts.option);
+    if (url.endsWith("UIPopup_FilterSort.json")) return reply(controlLayouts.filter);
     if (url.endsWith("UICharacterCollection.json") || url.endsWith("UIPopup_GachaCharList.Btn_Checkbox.json")) return reply(null, 404);
     return reply(node("Empty"));
   }
@@ -292,6 +296,37 @@ register(`data:text/javascript,${encodeURIComponent(`export async function resol
 }`)}`);
 await import(modelStub);
 const Detail = await import("../../src/ba_modding_toolkit/web/js/detail.js");
+
+test("action cards select the complete lock cover without recolouring the normal donor", () => {
+  const card = node("SkillData_EX"), normal = node("Normal"), cover = node("Lock_Cover"), empty = node("Empty");
+  const icon = node("SkillIconBg"); icon.widgets[0].color = "#bb3421/1.00";
+  normal.children.push(icon); cover.children.push(node("Bg"), node("Icon"), node("Icon_Star"), node("Label_StarNum"));
+  card.children.push(normal, cover, empty);
+  const original = structuredClone(cover.children);
+  for (const enabled of [false, true, false]) {
+    Detail.actionState(card, enabled);
+    assert.equal(normal.active, true); assert.equal(cover.active, !enabled); assert.equal(empty.active, false);
+    assert.equal(icon.widgets[0].color, "#bb3421/1.00");
+    assert.deepEqual(cover.children, original);
+  }
+});
+
+
+test("unavailable actions use the complete add-button lock without a skill star requirement", () => {
+  const card = node("SkillData_EX"), normal = node("Normal"), bg = node("Bg"), line = node("Bg_Line");
+  bg.pos = [14, 158]; line.pos = [1, -126]; line.widgets[0].w_ = 280; line.widgets[0].h_ = 251;
+  bg.children.push(line); card.children.push(bg, normal, node("Lock_Cover"));
+  const template = node("Lock"), body = node("Bg"), lock = node("Lock"), fx = node("FX");
+  body.widgets[0].color = "#000000/0.94"; fx.active = false; template.children.push(body, lock, fx);
+  const before = structuredClone(template);
+  Detail.actionState(card, false, template);
+  const cover = card.children.find((child) => child.name === "Lock_Cover");
+  assert.equal(cover.active, true); assert.deepEqual(cover.pos, [15, 32]);
+  assert.deepEqual(cover.children.map((child) => child.name), ["Bg", "Lock", "FX"]);
+  assert.equal(cover.children[0].widgets[0].color, "#000000/0.94");
+  assert.equal(cover.children[0].widgets[0].w_, 280); assert.equal(cover.children[0].widgets[0].h_, 251);
+  assert.deepEqual(template, before);
+});
 const NGUI = await import("../../src/ba_modding_toolkit/web/js/ngui.js");
 const Loading = await import("../../src/ba_modding_toolkit/web/js/loading.js");
 const ModSwitch = await import("../../src/ba_modding_toolkit/web/js/mod-switch.js");

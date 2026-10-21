@@ -1,6 +1,7 @@
 // Update popup on the game's popup frame (UIPopup_Sort): the current and the new version, Later / Update.
 // Updating downloads and verifies the build; Restart installs it only after a separate confirmation.
 // check() resolves once the popup has closed; automatic checks wait for beforeShow without holding a screen.
+import * as Buttons from "./game-buttons.js";
 import * as NGUI from "./ngui.js";
 import * as Popup from "./popup.js";
 import { rpc, waitJob } from "./api.js";
@@ -63,6 +64,7 @@ async function draw(host, info, resolve) {
   };
   // on the popup stack from the start: Escape is Later unless a job or restart is in progress
   Popup.opened(host, () => close("later"));
+  await Buttons.ready();
   const sort = await NGUI.layout("UIPopup_Sort");
   if (ended) return;
   const t = clone(find(sort, "Center"));
@@ -113,8 +115,8 @@ async function draw(host, info, resolve) {
       const f = NGUI.fitText(l.text, 64, 34, 400, 1);
       Object.assign(l, { text: f.text, fontSize: f.fs });
       if (locked) {
-        l.color = "#6e7c8d/1.00";
-        for (const w of find(controls, `${name}/BG (1)`).widgets) w.color = "#aab4bf/1.00";
+        const index = controls.children.findIndex((child) => child.name === name);
+        controls.children[index] = Buttons.disable(controls.children[index]);
       }
     }
     const text = error || (phase === "downloading" ? T("update.downloading", { p: percent })

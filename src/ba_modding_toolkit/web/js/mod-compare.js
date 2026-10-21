@@ -1,3 +1,4 @@
+import { skinPrimary } from "./game-buttons.js";
 import * as NGUI from "./ngui.js";
 import { T } from "./i18n.js";
 import { $, S } from "./util.js";
@@ -111,7 +112,7 @@ function previewPlayer(host, scene, side, pages) {
       if (!allowed) {
         host.textContent = T("spine.license.required");
         const button = document.createElement("button");
-        button.textContent = T("spine.license.confirm");
+        skinPrimary(button, T("spine.license.confirm"));
         button.addEventListener("click", async () => {
           if (confirming || disposed) return;
           confirming = true;

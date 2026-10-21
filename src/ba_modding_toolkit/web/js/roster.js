@@ -14,10 +14,12 @@ import { specialFraming } from "./special-view.js";
 import * as NGUI from "./ngui.js";
 import * as Display from "./display.js";
 import * as Loading from "./loading.js";
+import { searchTree as rosterSearchTree, sortBody, orderBody } from "./roster-widgets.js";
 import { current as modsState } from "./mod-switch.js";
 import { countNodes, countText, iconsOf } from "./mod-counts.js";
 import { rpc, spineBase } from "./api.js";
 import { L, T, language } from "./i18n.js";
+import { scrollbar } from "./scrollbar.js";
 import { prioritise, thumbnailScope } from "./thumbs.js";
 import { spineAllowed } from "./spine-runtime.js";
 import { configuredKey, hasAsset, previewBase, primaryKind } from "./switch-sources.js";
@@ -154,28 +156,11 @@ function frameTree(lay) {
   // sort: the current key, and the funnel in blue while a display setting filters the list
   const sort = find(menu, "SortBtn");
   sort.pos[0] = lay.sort + 83;
-  const body = find(sort, "Btn_Normal");
-  const shrink = 622 - lay.sortW;
-  body.widgets.find((w) => "sprite" in w).w_ = lay.sortW;
-  const filtered = filtering(view.filters);
-  for (const name of ["FilterMarker_Off", "FilterMarker_On"]) {
-    const n = find(body, name);
-    n.pos[0] += shrink / 2;
-    find(n, "Icon").pos[0] -= shrink;
-    find(n, "Filter_02").widgets[0].w_ -= shrink;
-    n.active = (name === "FilterMarker_On") === filtered;
-  }
-  find(body, "Icon").pos[0] -= shrink / 2;
-  find(body, "Type_1").active = false;
-  const type2 = find(body, "Type_2");
-  type2.active = true;
-  Object.assign(find(type2, "Text").widgets[0], { text: lay.sortText.text, fontSize: lay.sortText.fs, w_: lay.sortW - 120 });
-  find(type2, "Text").pos[0] = 30;
+  sort.children = sort.children.map((c) => c.name === "Btn_Normal" ? sortBody(layouts.collection, lay.sortText, lay.sortW, filtering(view.filters)) : c);
   // order: one arrow, down for descending (the prefab holds both, Icon_Up flipped)
   const orderBtn = find(menu, "OrderBtn");
   orderBtn.pos[0] = lay.order + 45.1;
-  find(orderBtn, "Btn_Normal/Icon_down").active = view.order === "desc";
-  find(orderBtn, "Btn_Normal/Icon_Up").active = view.order !== "desc";
+  orderBtn.children = orderBtn.children.map((c) => c.name === "Btn_Normal" ? orderBody(layouts.collection, view.order !== "desc") : c);
   // checkbox toggle after the title (game: "unowned students only" in the gacha character list)
   const cb = clone(layouts.checkbox);
   cb.name = "Merge";
@@ -197,7 +182,7 @@ function frameTree(lay) {
     line.widgets[0].color = "#adbfc0/0.12";
     if (line.pos[1] < PAPER_BOTTOM + 20) line.active = false;
   }
-  find(t, "SeletControl/List/Scroll Bar").active = false; // drawn by us
+  find(t, "SeletControl/List/Scroll Bar").active = false; // rendered separately for the virtual list
   return t;
 }
 
@@ -266,6 +251,7 @@ function cardTree(e) {
   // dimmed like the game's not-owned cards (BG_Discover is the darkening overlay); changed ones stay bright
   const dim = find(t, "BG_Discover");
   dim.active = !e.mods && !e.replaced;
+  // lighter than the game's not-owned overlay (0.90): these cards are only unmodded and must stay legible
   dim.widgets[0].color = "#000000/0.55";
   return t;
 }
@@ -349,11 +335,7 @@ function applyScroll() {
   if (!scrollHost) return Promise.resolve();
   view.scroll = Math.min(maxScroll(), Math.max(0, view.scroll));
   scrollHost.style.transform = `translateY(${-clipTop() - view.scroll}px)`;
-  const viewH = CLIP_BOTTOM - clipTop(), th = Math.max(40, (viewH - 20) * Math.min(1, viewH / Math.max(1, contentH)));
-  const thumbEl = bar.firstChild;
-  thumbEl.style.height = `${th}px`;
-  thumbEl.style.top = `${(viewH - 20 - th) * (maxScroll() ? view.scroll / maxScroll() : 0)}px`;
-  bar.hidden = contentH <= viewH;
+  bar.sync(CLIP_BOTTOM - clipTop(), contentH, view.scroll);
   return syncRows();
 }
 
@@ -401,12 +383,7 @@ async function relist() {
 }
 
 // --- search: the game's search box over the top of the list, filtering as one types ---
-function searchTree() {
-  const box = clone(find(layouts.collection, "SeletControl/CharacterSearch"));
-  const input = find(box, "SearchName/SearchNameArea/InputField");
-  for (const c of input.children) c.widgets.find((w) => "text" in w).text = ""; // the input draws its text and placeholder
-  return box;
-}
+const searchTree = () => rosterSearchTree(layouts.collection);
 // the input over the game's InputField (at (2, 258) in SeletControl's units)
 function searchInput() {
   const el = document.createElement("input");
@@ -534,12 +511,7 @@ async function buildFrame(my) {
   scrollHost.className = "card-scroll";
   clip.appendChild(scrollHost);
   next.appendChild(clip);
-  // scrollbar in the paper's right gutter, game colours (track #ccd7df, thumb #92a6b7)
-  const bar = document.createElement("div");
-  bar.className = "scrollbar";
-  Object.assign(bar.style, { left: `${960 + 1391 * S - 5}px`, top: `${clipTop() + 10}px`, height: `${CLIP_BOTTOM - clipTop() - 20}px` });
-  bar.appendChild(document.createElement("i"));
-  next.appendChild(bar);
+  const bar = await scrollbar(next, [960 + (1391 - 63) * S, clipTop() + 10, 126 * S, CLIP_BOTTOM - clipTop() - 20], { collection: layouts.collection });
   const empty = document.createElement("div");
   empty.className = "roster-empty";
   next.appendChild(empty);

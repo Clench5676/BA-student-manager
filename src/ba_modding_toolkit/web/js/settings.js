@@ -11,6 +11,8 @@ import * as Popup from "./popup.js";
 import * as Prompts from "./prompts.js";
 import * as Consent from "./consent.js";
 import * as OtherMods from "./settings-other.js";
+import * as Buttons from "./game-buttons.js";
+import { rowBase, radioRow } from "./settings-rows.js";
 import { on, rpc } from "./api.js";
 import { T, platform } from "./i18n.js";
 import { runtimeLoaded, setSpineConsent } from "./spine-runtime.js";
@@ -21,7 +23,6 @@ const fitText = (...a) => NGUI.fitText(...a);
 // UIPopup_Option_PC's tab column has five separators (TabBg/Grid Line_1 to Line_5)
 const TABS = ["general", "mods", "sound", "l2d", "folders"];
 const CONTENT = { x: 209, top: 375, w: 1576, h: 854 }; // the panel's inner list area (List/BG), units
-const ROW_W = 1552;
 
 let layout = null, prefs = null, tab = "general", scroll = 0, onChange = null, token = 0;
 let checkingUpdate = false;
@@ -34,48 +35,8 @@ async function call(fn) {
 
 // --- rows ---
 
-function titleNode(text, y = 65) {
-  const f = fitText(text, 50, 40, 1400, 1);
-  return node("Title", [-718.5, y], [label(f.text, f.fs, "#506e8e/1.00", 1440, 76, { pivot: 3, depth: 8 })], [
-    node("TagDeco", [-13, 5.2], [sprite("Common_Square_Bg", 6, 45, { depth: 9, color: "#5cd3ff/1.00" })]),
-  ]);
-}
-
 // the popup's light-blue button (ETCSetting/ButtonBg), smaller
-function buttonNode(name, x, y, caption, { w = 300, h = 112, enabled = true } = {}) {
-  const f = fitText(caption, 44, 30, w - 60);
-  return node(name, [x, y], [sprite("Common_Btn_BG", w, h, { incline: 10, depth: 10, color: enabled ? "#8de4ff/1.00" : "#dfe5ea/1.00" })], [
-    node("Deco", [w * 0.21, 10], [sprite("Common_Btn_Normal_B_S_Pt", w * 0.6, h, { type: 0, depth: 11, color: "#ffffff/1.00" })]),
-    node("Label", [0, 3], [label(f.text, f.fs, enabled ? "#314665/1.00" : "#9aa3ad/1.00", w - 30, h - 20, { depth: 12 })]),
-  ]);
-}
-
-// a row: the white body with the title and its dotted line; returns [tree, height, hits]
-function rowBase(name, y, h, title) {
-  return node(name, [0, y], [sprite("Common_Bg_Raius5px", ROW_W, h, { depth: 5, color: "#ffffff/1.00" })], [
-    titleNode(title, h / 2 - 55),
-    node("DotLine", [-759.7, h / 2 - 109], [sprite("Common_Dotline", 1523, 4, { pivot: 3, type: 2, depth: 6, color: "#ffffff/1.00" })]),
-  ]);
-}
-
-// radio options in a row (the game's On / Off toggles, as many as needed): [value, text, the text's language if it is
-// not the page's]; dim: the options drawn faded (a switch that is busy or unavailable; a click still answers why)
-function radioRow(name, y, title, options, selected, onPick, { dim = false, description = "" } = {}) {
-  const h = 240, row = rowBase(name, y, h, title), hits = [];
-  const pitch = Math.min(508, 1400 / options.length);
-  options.forEach(([value, text, lang], i) => {
-    const x = -689 + i * pitch, on = value === selected;
-    const f = fitText(text, 48, 34, pitch - 110, 2, lang);
-    const alpha = dim ? (on ? "0.55" : "0.35") : on ? "1.00" : "0.71";
-    row.children.push(node(`Opt_${i}`, [x, -h / 2 + 65.5], [], [
-      node("BG", [0, 0], [sprite("Common_Btn_Radio_BG", 60, 60, { type: 0, depth: 25, ...(dim ? { color: "#ffffff/0.55" } : {}) })]),
-      ...(on ? [node("On", [0, 0], [sprite("Common_Btn_Radio_On", 60, 60, { type: 0, depth: 26, ...(dim ? { color: "#ffffff/0.55" } : {}) })])] : []),
-      node("Label", [49, -5], [label(f.text, f.fs, `#2c4663/${alpha}`, pitch - 90, 50, { pivot: 3, depth: 26, lang })]),
-    ]));
-    hits.push({ path: `${name}/Opt_${i}/BG`, w: pitch - 20, fn: () => onPick(value), name: text, description });
-  });
-  return { tree: row, h, hits };
-}
+const buttonNode = (...args) => Buttons.smallButton(...args);
 
 // the On / Off options of the Mods tab's rows (the game's words, settings.post.*)
 const ON_OFF = () => [[true, T("settings.post.on")], [false, T("settings.post.off")]];
@@ -474,6 +435,7 @@ export async function open(changed, initialTab = null) {
   if (TABS.includes(initialTab)) { tab = initialTab; scroll = 0; }
   follow();
   if (!layout) {
+    await Buttons.ready();
     const popup = await NGUI.layout("UIPopup_Option_PC");
     layout = { popup, slider: find(popup, "Center/Popup/List/Sound_Setting/Sound_Scroll View/Grid_2/Master/Type_3") };
   }

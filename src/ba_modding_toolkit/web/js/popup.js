@@ -10,6 +10,9 @@
 // answered with a button takes Escape and does nothing with it, so nothing under it acts either.
 // The pure parts (the stack, the selection, the start sequence) are tested in Node (tests/js/popup.test.mjs).
 import * as NGUI from "./ngui.js";
+import { scrollbar } from "./scrollbar.js";
+import * as Buttons from "./game-buttons.js";
+import { searchTree, sortBody, orderBody, pickerItems } from "./roster-widgets.js";
 import { resizeButton } from "./button-layout.js";
 import { T } from "./i18n.js";
 import { DOT, RECRUIT, S, TAN10, advanceOf, clone, glyphsOf, hitButton, markedLabel, wrapPath } from "./util.js";
@@ -23,7 +26,7 @@ const hostOf = (h) => (typeof h === "string" ? document.getElementById(h) : h);
 let layouts = null, loading = null;
 const optional = (name) => NGUI.layout(name).catch((err) => { console.warn("popup layout", name, err); return null; });
 export function ready() {
-  loading ||= Promise.all([NGUI.layout("UIPopup_Sort"), optional("UICharacterCollection"), optional("UIPopup_GachaCharList.Btn_Checkbox")])
+  loading ||= Promise.all([NGUI.layout("UIPopup_Sort"), optional("UICharacterCollection"), optional("UIPopup_GachaCharList.Btn_Checkbox"), Buttons.ready()])
     .then(([sortPopup, collection, checkbox]) => { layouts = { sortPopup, collection, checkbox }; }, (err) => { loading = null; throw err; });
   return loading;
 }
@@ -38,12 +41,22 @@ function prune() { for (let i = stack.length - 1; i >= 0; i -= 1) if (!live(stac
 // a popup opened in host (el: its own layer, when the host holds several); close(how) closes it, how being "escape",
 // "backdrop" or "close"; null for a popup that must be answered with one of its buttons. Drawing the same popup again
 // keeps its place on the stack.
-export function opened(host, close, { el = null } = {}) {
+export function opened(host, close, { el = null, loading = false } = {}) {
+  if (loading && el) { el.style.visibility = "hidden"; el.inert = true; }
   prune();
   const entry = { host, el, close };
   const at = stack.findIndex((e) => e.host === host && e.el === el);
   if (at >= 0) stack[at] = entry; else stack.push(entry);
   return entry;
+}
+// Reveal only after the entire layer's work and decoded pictures are ready. A closed layer stays closed.
+export async function reveal(layer, pending = []) {
+  await Promise.all(pending);
+  await NGUI.decoded([layer, ...(layer.querySelectorAll?.("*") || [])], Infinity);
+  if (!layer.isConnected) return false;
+  layer.style.visibility = "";
+  layer.inert = false;
+  return true;
 }
 export function closed(host, el = null) {
   const at = stack.findIndex((e) => e.host === host && e.el === el);
@@ -180,15 +193,12 @@ export function scrollArea(host, [l, t, w, h], contentH) {
   area.appendChild(inner);
   host.appendChild(area);
   if (contentH > h + 1) {
-    const bar = document.createElement("div");
-    bar.className = "scrollbar";
-    Object.assign(bar.style, { left: `${l + w + 8}px`, top: `${t + 6}px`, height: `${h - 12}px` });
-    const th = document.createElement("i");
-    th.style.height = `${(h - 12) * (h / contentH)}px`;
-    th.style.top = "0";
-    bar.appendChild(th);
-    host.appendChild(bar);
-    area.addEventListener("scroll", () => { th.style.top = `${(h - 12 - parseFloat(th.style.height)) * area.scrollTop / (contentH - h)}px`; });
+    const pending = scrollbar(host, [l + w + 8 - 63 * S, t + 6, 126 * S, h - 12]).then((bar) => {
+      const sync = () => bar.sync(h, contentH, area.scrollTop || 0);
+      area.addEventListener("scroll", sync);
+      sync();
+    }).catch((err) => console.warn("popup scrollbar unavailable", err));
+    inner.ready = pending;
   }
   return inner;
 }
@@ -247,7 +257,7 @@ const COLS6 = 6;
 const BTN_W = 496; // the frame's button body (Common_Btn_BG)
 
 // the student list's tools at the top right of the list: order, sort, search and, with segs, the segment filter
-function toolbar(right, y, { segs = null, sortKey = "sort.default", active = 0 } = {}) {
+function toolbar(right, y, { segs = null, sortKey = "sort.default", active = 0, ascending = true, filtered = false } = {}) {
   const menu = find(layouts.collection, "SeletControl/TopMenu");
   const kids = [];
   let x = right;
@@ -256,22 +266,9 @@ function toolbar(right, y, { segs = null, sortKey = "sort.default", active = 0 }
   x -= 243 + 16;
   const sort = clone(find(menu, "SortBtn"));
   const sortW = 420;
-  const body = find(sort, "Btn_Normal");
-  const shrink = 622 - sortW;
-  body.widgets.find((w) => "sprite" in w).w_ = sortW;
-  for (const m of ["FilterMarker_Off", "FilterMarker_On"]) {
-    const n = find(body, m);
-    n.pos[0] += shrink / 2;
-    find(n, "Icon").pos[0] -= shrink;
-    find(n, "Filter_02").widgets[0].w_ -= shrink;
-  }
-  find(body, "Icon").pos[0] -= shrink / 2;
-  find(body, "Type_1").active = false;
-  const type2 = find(body, "Type_2");
-  type2.active = true;
+  order.children = order.children.map((child) => child.name === "Btn_Normal" ? orderBody(layouts.collection, ascending) : child);
   const st = fitText(T(sortKey), 56, 36, sortW - 150);
-  Object.assign(find(type2, "Text").widgets[0], { text: st.text, fontSize: st.fs, w_: sortW - 120 });
-  find(type2, "Text").pos[0] = 30;
+  sort.children = sort.children.map((child) => child.name === "Btn_Normal" ? sortBody(layouts.collection, st, sortW, filtered) : child);
   sort.pos = [x - sortW / 2 + 83, y];
   x -= sortW + 16;
   const search = clone(find(menu, "SearchBtn"));
@@ -334,10 +331,7 @@ function listFrame(title, buttons, closeButton) {
     n.pos = [right - bw / 2 - (buttons.length - 1 - i) * (bw + gap), LP.ok.y];
     const f = fitText(b.label, 72, 48, 360);
     Object.assign(find(n, "Label_Locale").widgets[0], { text: f.text, fontSize: f.fs });
-    if (b.greyed) {
-      find(n, "BG (1)").widgets.find((w) => "sprite" in w).color = "#dfe5ea/1.00";
-      find(n, "Label_Locale").widgets[0].color = "#9aa3ad/1.00";
-    }
+    if (b.greyed) return Buttons.disable(n);
     return n;
   });
   find(t, "BlackBg/BlackBgClickArea").widgets.find((w) => "sprite" in w).color = "#000000/0.60";
@@ -469,16 +463,29 @@ function detailsTree(it, title, fields, actions) {
 //          object is passed to every drawing
 //   details(it): {title, fields: [[caption, value, colour]], actions: [[caption, fn]]} for the panel on the left
 //   keepScroll: the list's scroll position to draw it at
+const toolStates = new WeakMap();
 const tokens = new Map(); // host -> the latest drawing's number: an older one that ends later is dropped
-export async function listPopup({
+export async function listPopup(options) {
+  let {
   host: hostArg, hostId, title, items, selected = null, multi = false, focus = null, onSelect, buttons = null, okText, onOk,
   onClose = null, tools = null, hint = "", footer = "", check = null, details, keepScroll: scrollTop = 0,
-}) {
+} = options;
   const host = hostOf(hostArg ?? hostId);
   const my = (tokens.get(host) || 0) + 1;
   tokens.set(host, my);
+  const reopening = host.hidden;
   host.hidden = false;
   await ready();
+  let toolState = toolStates.get(host);
+  if (tools) {
+    if (reopening || !toolState || host.dataset.pickerTitle !== title) {
+      toolState = { query: "", sort: "default", ascending: true, searching: false };
+      toolStates.set(host, toolState);
+      host.dataset.pickerTitle = title;
+    }
+    items = pickerItems(items, toolState);
+  }
+  const redraw = () => listPopup({ ...options, keepScroll: 0 });
   const ticked = multi ? new Set(selected || []) : null;
   const isSelected = (key) => (multi ? ticked.has(key) : key === selected);
   const btns = buttons || [{ label: okText, fn: onOk, primary: true, action: "ok" }];
@@ -489,8 +496,21 @@ export async function listPopup({
   closable(view, host, onClose);
   const band = [];
   if (tools && layouts.collection) {
-    const tb = toolbar(LP.list.r - 24, LP.list.t - 76, { segs: tools.segs, sortKey: tools.sortKey, active: tools.seg ?? 0 });
-    await NGUI.render(tb.tree, next, { scale: S, origin: [960, 540], z: 20 });
+    const tb = toolbar(LP.list.r - 24, LP.list.t - 76, { segs: tools.segs, sortKey: toolState.sort === "name" ? "sort.name" : tools.sortKey, active: tools.seg ?? 0, ascending: toolState.ascending, filtered: !!toolState.query });
+    const tv = await NGUI.render(tb.tree, next, { scale: S, origin: [960, 540], z: 20 });
+    hit(next, tv, "Toolbar/OrderBtn/Btn_Normal", () => { toolState.ascending = !toolState.ascending; redraw(); },
+      { name: T(toolState.ascending ? "roster.asc" : "roster.desc"), action: "order" });
+    hit(next, tv, "Toolbar/SearchBtn/Btn_Normal", () => { toolState.searching = !toolState.searching; if (!toolState.searching) toolState.query = ""; redraw(); },
+      { name: T("roster.search"), action: "search" });
+    hit(next, tv, "Toolbar/SortBtn/Btn_Normal", async () => {
+      const Display = await import("./display.js");
+      await Display.open({ view: { sort: toolState.sort, order: toolState.ascending ? "asc" : "desc", filters: {} },
+        count: () => items.length, sorts: ["default", "name"], sortOnly: true,
+        onDone: (draft) => {
+          if (!draft || host.hidden || tokens.get(host) !== my) return;
+          toolState.sort = draft.sort; toolState.ascending = draft.order === "asc"; redraw();
+        } });
+    }, { name: T("display.tab.sort"), action: "sort" });
     if (tb.segBox && tools.onSeg) {
       const { right, segW, y } = tb.segBox;
       for (let i = 0; i < 3; i++) {
@@ -516,11 +536,34 @@ export async function listPopup({
     const bv = await NGUI.render(node("Band", [0, 0], [], band), next, { scale: S, origin: [960, 540], z: 20 });
     if (cb) wireCheck(next, bv, "Band/Check", check, check.onChange);
   }
-  const top = LP.list.t - 166, bottom = LP.list.b + 24;
+  let searchInput = null;
+  if (tools && toolState.searching && layouts.collection) {
+    const search = searchTree(layouts.collection);
+    search.pos = [(LP.list.l + LP.list.r) / 2, LP.list.t - 166];
+    find(search, "SearchName").pos = [0, 0];
+    const sv = await NGUI.render(search, next, { scale: S, origin: [960, 540], z: 25 });
+    const r = nodeRect(sv, `${search.name}/SearchName/SearchNameArea/InputField/Label_Search`);
+    if (r) {
+      searchInput = document.createElement("input");
+      searchInput.className = "roster-search";
+      Object.assign(searchInput.style, { left: `${r[0]}px`, top: `${r[1]}px`, width: `${r[2]}px`, height: `${r[3]}px`, fontSize: `${60 * S}px`, zIndex: 80 });
+      searchInput.type = "text"; searchInput.autocomplete = "off"; searchInput.spellcheck = false;
+      searchInput.placeholder = T("roster.searchHint");
+      searchInput.value = toolState.query;
+      searchInput.setAttribute("aria-label", T("roster.searchHint"));
+      const apply = () => { toolState.query = searchInput.value; redraw(); };
+      searchInput.addEventListener("input", (ev) => { if (!ev.isComposing) apply(); });
+      searchInput.addEventListener("compositionend", apply);
+      hit(next, sv, `${search.name}/SearchName/SearchNameArea/Btn_Close`, () => { toolState.query = ""; toolState.searching = false; redraw(); }, { name: T("display.close"), action: "search-close" });
+      next.appendChild(searchInput);
+    }
+  }
+  const top = LP.list.t - 166 - (tools && toolState.searching ? 160 : 0), bottom = LP.list.b + 24;
   const [aL, aT] = [960 + (LP.list.l + 16) * S, 540 - top * S];
   const rows = Math.ceil(items.length / COLS6);
   const contentH = (rows * LP.pitch[1] + 20) * S, visH = (top - bottom) * S;
   const inner = scrollArea(next, [aL, aT, (LP.list.r - LP.list.l - 32) * S, visH], contentH);
+  await inner.ready;
   const origin = [960 - aL, 540 - aT];
   // centre the grid on its ink: slanted cards lean right at the top (+h/2 tan10) and left under the name bar
   const leanL = (LP.card.h / 2 + 10 + LP.card.bar) * TAN10, leanR = (LP.card.h / 2) * TAN10;
@@ -550,6 +593,7 @@ export async function listPopup({
   if (tokens.get(host) !== my || host.hidden) return;
   const area = inner.parentElement;
   host.replaceChildren(...next.childNodes);
+  if (searchInput) { searchInput.focus?.(); searchInput.setSelectionRange?.(searchInput.value.length, searchInput.value.length); }
   area.scrollTop = scrollTop;
   // the thumbnails render in the order they were asked for: the cards in view go first, again as the list scrolls
   const bumpShown = () => {
@@ -678,11 +722,7 @@ function messageLines(lines, w, fitTogether, plain) {
     out.push(node(`${boxed ? "Row" : "Line"}_${i}`, [left ? -w / 2 + (boxed ? 140 : 120) : 0, cy],
       [label(f.text, f.fs, `${r.color || "#2d4664"}/1.00`, left ? room : w - 200, f.lines * f.fs * 1.3 + 8, { pivot: left ? 3 : 4, depth: 8 })]));
     if (bf) {
-      // the small light-blue button of the consent popup's Change
-      out.push(node(`Btn_${i}`, [w / 2 - (boxed ? 130 : 120) - bw / 2, cy], [sprite("Common_Btn_BG", bw, 92, { incline: 10, depth: 8, color: "#8de4ff/1.00" })], [
-        node("Deco", [bw / 2 - 70, 8], [sprite("Common_Btn_Normal_B_S_Pt", 140, 92, { type: 0, depth: 9, color: "#ffffff/1.00" })]),
-        node("Label", [0, 3], [label(bf.text, bf.fs, "#314665/1.00", bw - 30, 80, { depth: 10 })]),
-      ]));
+      out.push(Buttons.smallButton(`Btn_${i}`, w / 2 - (boxed ? 130 : 120) - bw / 2, cy, r.button.label, { w: bw, h: 92, fs: 40, min: 28, depth: 8 }));
       buttons.push([i, r.button]);
     }
     if (boxed && i < sized.length - 1) out.push(node(`Dot_${i}`, [0, y - h], [sprite("Common_Line_Dot", boxW - 60, 4, { type: 2, depth: 7, color: "#c0c9d4/1.00" })]));
@@ -754,6 +794,7 @@ async function showMessage({ title = "", lines = [], ok = null, cancel = null, c
     const view = await NGUI.render(t, next, { scale: S, origin: [960, 540], z: 10 });
     const bodyHost = scroll ? scrollArea(next, [960 - (width - 120) * S / 2, 540 - y0 * S,
       (width - 120) * S, visible * S], body.height * S) : next;
+    await bodyHost.ready;
     const bodyView = scroll ? await NGUI.render(body.tree, bodyHost,
       { scale: S, origin: [(width - 120) * S / 2, 0], z: 10 }) : view;
     if (ended) return;

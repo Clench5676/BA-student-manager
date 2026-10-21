@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
+import { makeImportLayouts, find, renderImportTree } from "./import_prefabs.mjs";
 
 const walk = (element) => [element, ...element.children.flatMap(walk)];
 function matches(element, selector) {
@@ -36,8 +37,10 @@ class El {
   closest(selector) { for (let element = this; element; element = element.parentNode) if (matches(element, selector)) return element; return null; }
   setAttribute(key, value) { this.attrs[key] = String(value); }
   getAttribute(key) { return this.attrs[key] ?? null; }
+  removeAttribute(key) { delete this.attrs[key]; }
   addEventListener(type, fn) { (this.listeners[type] ||= []).push(fn); }
   focus() { document.activeElement = this; }
+  blur() { if (document.activeElement === this) document.activeElement = body; }
   async dispatch(type, props = {}) {
     const event = { type, target: this, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; },
       stopPropagation() { this.stopped = true; }, ...props };
@@ -66,6 +69,9 @@ globalThis.IntersectionObserver = class {
 };
 const { createImportPage, entryIdentity, catalogEntries } = await import("../../src/ba_modding_toolkit/web/js/batch-import.js");
 const { importAssistants, suggestImports } = await import("../../src/ba_modding_toolkit/web/js/import-assistants.js");
+const { importArtwork, clipButtonPatterns } = await import("../../src/ba_modding_toolkit/web/js/import-layout.js");
+const { ROW_W: OPTION_WIDTH, rowBase, radioRow } = await import("../../src/ba_modding_toolkit/web/js/settings-rows.js");
+const { S } = await import("../../src/ba_modding_toolkit/web/js/util.js");
 const { createImportState } = await import("../../src/ba_modding_toolkit/web/js/import-state.js");
 const { setStrings } = await import("../../src/ba_modding_toolkit/web/js/i18n.js");
 const flatten = (data, prefix = "", result = {}) => {
@@ -105,14 +111,24 @@ async function fixture({ licensed = false, native = true, suggest } = {}) {
     assert.fail(`Unexpected RPC ${method}`);
   };
   const node = (name, pos = [0, 0], widgets = [], children = []) => ({ name, pos, widgets, children, scale: [1, 1] });
-  const ui = { node, sprite: (sprite, w_, h_, opts) => ({ sprite, w_, h_, ...opts }),
-    fitText: (text, fs) => ({ text, fs }), init: async () => {}, layout: async () => node("Collection", [0, 0], [], [node("BG")]),
-    find: (tree, path) => path === "BG" ? tree.children[0] : null,
-    render: async () => ({ nodes: new Map() }), decoded: async () => {},
+  const layouts = makeImportLayouts(), layoutSnapshot = structuredClone(layouts), rendered = [], loaded = [];
+  let renderHold = null, imagesHold = null;
+  const ui = { node, fitText: (text, fs) => ({ text, fs }), init: async () => {},
+    layout: async (name) => { loaded.push(name); assert.ok(layouts[name], `Unexpected layout ${name}`); return layouts[name]; },
+    find, render: async (tree, host, opts) => {
+      rendered.push({ tree, opts, host }); const view = await renderImportTree(tree, host, opts);
+      if (renderHold?.predicate(tree)) { const hold = renderHold; renderHold = null; await hold.promise; }
+      if (imagesHold?.predicate(tree)) { view.images = [imagesHold.promise]; imagesHold = null; }
+      return view;
+    }, decoded: async () => {},
   };
   const popups = { ready: async () => {},
     message: async (message) => { messages.push(message); const answer = answers.shift() || { button: "cancel", checked: false }; return answer.promise || answer; },
-    popupFrame: () => node("Popup"), opened: (host, close) => popupStack.push({ host, close }),
+    popupFrame: () => node("Popup"), opened: (host, close, { el, loading } = {}) => {
+      if (loading) { el.style.visibility = "hidden"; el.inert = true; }
+      popupStack.push({ host, close });
+    },
+    reveal: async (layer, work) => { await Promise.all(work); layer.style.visibility = ""; layer.inert = false; },
     closed: () => popupStack.pop(), closable() {},
     hit: (host, _view, _path, fn, attrs) => {
       const button = new El("button"); button.dataset.action = attrs.action; button.setAttribute("aria-label", attrs.name);
@@ -129,9 +145,11 @@ async function fixture({ licensed = false, native = true, suggest } = {}) {
   const row = (id) => walk(host).find((element) => element.dataset.entry === id);
   const phase = () => host.children[0].dataset.phase;
   const analyze = async (entries = mixed(), paths = entries.flatMap((entry) => entry.paths)) => {
-    const adding = page.drop(paths); await flush(); analyses.at(-1).resolve({ entries, skipped: 0 }); await adding; await flush(); return adding;
+    const adding = page.drop(paths); await flush(); analyses.at(-1).resolve({ entries, skipped: 0 }); await adding; await page.settled(); await flush(); return adding;
   };
-  return { page, context, host, dialog, calls, analyses, runs, messages, answers, thumbs, scopes, popupStack, action, row, phase, analyze,
+  return { page, context, host, dialog, layouts, layoutSnapshot, rendered, loaded, calls,
+    holdImages: (predicate) => { const hold = { ...deferred(), predicate }; imagesHold = hold; return hold; },
+    holdRender: (predicate) => { const hold = { ...deferred(), predicate }; renderHold = hold; return hold; }, analyses, runs, messages, answers, thumbs, scopes, popupStack, action, row, phase, analyze,
     changed: () => changed, picker: (paths) => { pickerPaths = paths; }, pickError: (error) => { pickError = error; },
     optionsError: (error) => { optionsError = error; }, saveError: (error) => { saveError = error; } };
 }
@@ -149,7 +167,7 @@ test("analyzing locks edits; mixed states default to ready/update only, with ali
   const h = await fixture(), pending = h.page.drop(["/fixtures/folder"]); await flush();
   assert.equal(h.phase(), "analyzing"); assert.match(h.host.textContent, /Analyzing/);
   for (const action of ["files", "folder", "clear", "recheck", "options", "start"]) assert.equal(h.action(action).disabled, true);
-  h.analyses[0].resolve({ entries: mixed(), skipped: 3 }); await pending;
+  h.analyses[0].resolve({ entries: mixed(), skipped: 3 }); await pending; await h.page.settled();
   assert.deepEqual([...h.page.model.state.checked], ["a", "b"]); assert.equal(h.action("start").getAttribute("aria-label"), "Import (2)");
   for (const id of ["c", "d", "e"]) {
     const input = h.row(id).querySelector("input"); assert.equal(input.checked, false); assert.equal(input.disabled, true);
@@ -163,13 +181,18 @@ test("analyzing locks edits; mixed states default to ready/update only, with ali
 
 test("search includes all catalog names and aliases; state counts are unfiltered and sort toggles", async () => {
   const h = await fixture(); await h.analyze();
+  await h.action("searchToggle").click();
   const search = h.host.querySelector(".import-search"); search.value = "JP b";
   await search.dispatch("input", { isComposing: true }); assert.ok(h.row("a"));
   await search.dispatch("compositionend"); assert.ok(!h.row("a")); assert.ok(h.row("b"));
-  const filter = h.host.querySelector("select"); assert.match(filter.textContent, /Already in Library \(1\)/);
-  filter.value = "blocked"; await filter.dispatch("change"); assert.ok(!h.row("b"));
+  await h.action("filter").click(); await flush(); await h.page.settled();
+  assert.match(h.dialog.textContent, /Already in Library \(1\)/);
+  await walk(h.dialog).find((e) => e.dataset.value === "blocked").click();
+  await h.action("ok", h.dialog).click(); await h.page.settled(); assert.ok(!h.row("b"));
   search.value = ""; await search.dispatch("input"); assert.ok(h.row("e"));
-  filter.value = "all"; await filter.dispatch("change");
+  await h.action("filter").click(); await flush();
+  await walk(h.dialog).find((e) => e.dataset.value === "all").click();
+  await h.action("ok", h.dialog).click(); await h.page.settled();
   const before = walk(h.host).filter((element) => element.dataset.entry).map((element) => element.dataset.entry);
   await h.action("order").click();
   assert.deepEqual(walk(h.host).filter((element) => element.dataset.entry).map((element) => element.dataset.entry), before.reverse());
@@ -221,9 +244,9 @@ test("running captures IDs/options, follows job progress, survives hiding and sh
   await h.action("start").click(); await flush();
   assert.equal(h.phase(), "running"); assert.deepEqual(h.runs[0].params, { ids: ["a", "b"], options });
   assert.equal(h.action("options").disabled, true); assert.equal(h.row("a").querySelector("input").disabled, true);
-  h.runs[0].progress({ done: 1, total: 2, current: "b", phase: "update" });
+  h.runs[0].progress({ done: 1, total: 2, current: "b", phase: "update" }); await h.page.settled();
   assert.match(h.host.textContent, /Updating - 1\/2 Student b/);
-  assert.equal(h.host.querySelector("progress").value, 1);
+  assert.equal(h.host.querySelector(".import-progress").getAttribute("aria-valuenow"), "1");
   h.page.hide(); assert.equal(h.scopes[0].cancelled, true);
   h.runs[0].resolve({ results: [{ id: "a", outcome: "imported", reason: null, libraryId: "lib-a", applied: false },
     { id: "b", outcome: "failed", reason: "unreadable", libraryId: null, applied: false }] }); await flush();
@@ -238,7 +261,7 @@ test("running captures IDs/options, follows job progress, survives hiding and sh
 
 test("analysis and run errors remain visible and prevent stale execution until recheck", async () => {
   const h = await fixture(); const adding = h.page.drop(["/fixtures/new.bundle"]); await flush();
-  h.analyses[0].reject({ code: "game_running" }); await adding;
+  h.analyses[0].reject({ code: "game_running" }); await adding; await h.page.settled();
   assert.equal(h.phase(), "error"); assert.match(h.host.textContent, /Close the game first/); assert.equal(h.action("start").disabled, true);
   const retry = h.page.model.recheck(); await flush(); assert.deepEqual(h.analyses[1].params.paths, ["/fixtures/new.bundle"]);
   h.analyses[1].resolve({ entries: [entry("a")], skipped: 0 }); await retry;
@@ -287,7 +310,7 @@ test("missing incoming previews keep the static fallback and never borrow curren
   assert.match(h.host.textContent, /Preview Unavailable/);
   for (const observer of observers) observer.reveal(); await flush();
   assert.ok(h.thumbs.every(([base, frame]) => base.includes("/spr/a_spr/") && frame === "bust"));
-  assert.equal(h.row("a").querySelector("img").src, "/portrait/a.png");
+  assert.equal(h.row("a").querySelector(".import-thumb").dataset.source, "/portrait/a.png");
 });
 
 test("reanalysis replaces the incoming preview for the same entry ID", async () => {
@@ -296,7 +319,7 @@ test("reanalysis replaces the incoming preview for the same entry ID", async () 
   h.analyses.at(-1).resolve({ entries: [{ ...entry("a"), preview: { kind: "import", key: "source-a-new" } }], skipped: 0 });
   await checking; await flush();
   assert.ok(h.thumbs.some(([base, frame]) => base.includes("/import/source-a-new/") && frame === "bust"));
-  assert.ok(h.host.querySelector(".incoming").querySelector("img").src.includes("/import/source-a-new/"));
+  assert.ok(h.host.querySelector(".incoming").querySelector(".import-preview-image").dataset.source.includes("/import/source-a-new/"));
 });
 
 test("special lobby categories keep lobby source selection and framing", async () => {
@@ -311,7 +334,7 @@ test("special lobby categories keep lobby source selection and framing", async (
 
 test("DOM drops forward native paths and browser-only drops explain native availability", async () => {
   const h = await fixture({ native: false });
-  await h.host.children[0].dispatch("drop", { dataTransfer: { files: [{ name: "a.bundle" }] } });
+  await h.host.children[0].dispatch("drop", { dataTransfer: { files: [{ name: "a.bundle" }] } }); await h.page.settled();
   assert.match(h.host.textContent, /Not available in browser mode/); assert.equal(h.analyses.length, 0);
   await h.host.children[0].dispatch("drop", { dataTransfer: { files: [{ path: "/fixtures/a.bundle" }] } }); await flush();
   assert.deepEqual(h.analyses[0].params, { paths: ["/fixtures/a.bundle"], recursive: false });
@@ -348,7 +371,7 @@ test("recheck respects manual deselection and automatically selects newly eligib
 
 test("a game-file change during analysis requires another check before import", async () => {
   const h = await fixture(), pending = h.page.drop(["/fixtures/a.bundle"]); await flush(); h.page.model.invalidate();
-  h.analyses[0].resolve({ entries: [entry("a")], skipped: 0 }); await pending;
+  h.analyses[0].resolve({ entries: [entry("a")], skipped: 0 }); await pending; await h.page.settled();
   assert.equal(h.page.model.state.valid, false); assert.equal(h.phase(), "error");
   assert.match(h.host.textContent, /Game files changed, check again/); assert.equal(h.action("start").disabled, true);
 });
@@ -376,4 +399,355 @@ test("the window's native drop event goes directly to Batch Import on its route"
     toast: () => assert.fail("no drop error"), T: (key) => key };
   new Function("env", `const { ${Object.keys(env).join(", ")} } = env; ${drop}`)(env);
   await handler({ paths: ["/fixtures/a.bundle"] }); assert.deepEqual(calls, [["/fixtures/a.bundle"]]);
+});
+
+
+const treeNodes = (tree) => [tree, ...(tree.children || []).flatMap(treeNodes)];
+test("the page clones runtime Items/Mailbox widgets and has no invented empty preview or key hint", async () => {
+  const h = await fixture();
+  assert.deepEqual(h.loaded, ["UINonEquipmentInventory", "UIMailBox", "UIMailBoxContent", "UIPopup_FilterSort", "UINonEquipmentInventoryListItem"]);
+  assert.equal(h.host.querySelector(".import-detail").textContent, "");
+  await h.analyze(); await h.page.openOptions(); await h.page.settled();
+  assert.equal(h.dialog.querySelector("select"), null, "options use the game's radio widgets");
+  for (const { tree } of h.rendered.filter(({ tree }) => !tree.name.startsWith("Option_"))) for (const n of treeNodes(tree)) for (const w of n.widgets) {
+    if ("w_" in w) assert.equal(w.prefabMarker, true, `invented widget: ${n.name}`);
+  }
+  assert.deepEqual(h.layouts, h.layoutSnapshot, "runtime cached prefabs are never mutated");
+  assert.equal(h.host.querySelector("img"), null, "pictures bind to prefab UITexture widgets");
+  assert.equal(h.host.querySelector(".import-preview-image").dataset.path, "EquipPos/Texture");
+  assert.equal(h.row("a").querySelector(".import-thumb").dataset.path, "List_01/BG_Icon/Icon_Arona");
+  const source = readFileSync(new URL("../../src/ba_modding_toolkit/web/js/batch-import.js", import.meta.url), "utf8");
+  assert.doesNotMatch(source, /ui\.(sprite|node)\(|import\.choose|\b[Kk]ey[Hh]int/);
+  const css = readFileSync(new URL("../../src/ba_modding_toolkit/web/css/app.css", import.meta.url), "utf8");
+  const rules = css.slice(css.indexOf("/* Batch Import:"), css.indexOf("/* Batch Import:") + css.slice(css.indexOf("/* Batch Import:")).indexOf("\n/*", 3));
+  assert.doesNotMatch(rules, /border-radius|box-shadow|#[0-9a-f]{3,8}|linear-gradient|drop-shadow/i);
+});
+
+test("mail row columns and native checkbox/selection widgets stay aligned for every state", async () => {
+  const h = await fixture(); await h.analyze();
+  const cards = h.rendered.filter(({ tree }) => ["List_01", "List_02"].includes(tree.name));
+  assert.equal(cards.length, 5);
+  for (const { tree } of cards) {
+    assert.deepEqual(find(tree, "Label_From").pos, [110, -23]);
+    assert.deepEqual(find(tree, "TimeLimit").pos, [605, -23]);
+    assert.ok(find(tree, "Label_System").widgets[0].prefabMarker);
+    assert.equal(find(tree, "Btn_Receive"), undefined, "row actions are selection, not a decorative receive button");
+  }
+  const tones = cards.map(({ tree }) => find(tree, "TimeLimit/Bg").widgets[0].color);
+  assert.equal(new Set(tones).size, 5, "status tones come from distinct game widgets");
+  for (const id of ["a", "b", "c", "d", "e"]) {
+    assert.ok(h.row(id).querySelector(".import-check-art"));
+    assert.equal(h.row(id).querySelector(".import-selection").hidden, id !== "a");
+  }
+  h.page.model.select("e"); await h.page.settled();
+  assert.equal(h.row("a").querySelector(".import-selection").hidden, true);
+  assert.equal(h.row("e").querySelector(".import-selection").hidden, false);
+  assert.equal(h.row("e").querySelector("input").checked, false);
+});
+
+test("state filter cancellation preserves the list and advanced radio controls save the exact option values", async () => {
+  const h = await fixture(); await h.analyze();
+  await h.action("filter").click(); await flush();
+  await walk(h.dialog).find((e) => e.dataset.value === "blocked").click();
+  await h.action("cancel", h.dialog).click(); assert.ok(h.row("a")); assert.ok(h.row("e"));
+  await h.page.openOptions();
+  for (const value of ["path_id", "off", "lz4"]) await walk(h.dialog).find((e) => e.dataset.value === value).click();
+  await h.action("ok", h.dialog).click();
+  assert.deepEqual(h.calls.find((c) => c.method === "import.setOptions").params,
+    { ...options, strategy: "path_id", crc: "off", compression: "lz4" });
+});
+
+test("a late button render cannot replace a newer count or enabled state", async () => {
+  const h = await fixture();
+  const hold = h.holdRender((tree) => treeNodes(tree).some((n) => n.widgets.some((w) => w.text === "Import (1)")));
+  const adding = h.page.drop(entry("a").paths); await flush();
+  h.analyses[0].resolve({ entries: [entry("a")], skipped: 0 }); await adding; await flush();
+  h.page.model.toggle("a", false); await flush();
+  hold.resolve(); await h.page.settled();
+  assert.equal(h.action("start").disabled, true);
+  assert.equal(h.action("start").getAttribute("aria-label"), "Import (0)");
+  assert.equal(h.action("start").textContent, "Import (0)");
+});
+
+
+test("resized real button patterns are clipped to the inclined body at every page scale and flip", async () => {
+  const layouts = makeImportLayouts(), art = importArtwork({ find, fitText: (text, fs) => ({ text, fs }) }, layouts);
+  for (const primary of [false, true]) for (const width of [180, 230, 330]) for (const scale of [0.34, 0.4, 0.5, 0.6]) for (const flip of [0, 3]) {
+    const tree = art.button("A long action caption", width / scale, primary);
+    for (const n of treeNodes(tree)) for (const w of n.widgets) if (/_Pt$/.test(w.sprite || "")) w.flip = flip;
+    const view = await renderImportTree(tree, new El(), { scale, origin: [width / 2, 50] });
+    clipButtonPatterns(view);
+    for (const [path, entry] of view.nodes) {
+      const w = entry.node.widgets.find((w) => /_Pt$/.test(w.sprite || "")); if (!w) continue;
+      const parent = view.nodes.get(path.slice(0, path.lastIndexOf("/")));
+      const bg = parent.node.widgets.find((w) => w.sprite === "Common_Btn_BG");
+      const rect = (e) => ["left", "top", "width", "height"].map((k) => parseFloat(e.style[k]));
+      const [bl, bt, bw, bh] = rect(parent.els[0]), [pl, pt, pw, ph] = rect(entry.els[0]);
+      assert.ok(entry.els[0].style.clipPath.startsWith("polygon("));
+      const points = entry.els[0].style.clipPath.match(/-?[\d.]+(?=px)/g).map(Number);
+      assert.equal(points.length, 8); assert.ok(points.every(Number.isFinite));
+      for (let i = 0; i < points.length; i += 2) {
+        const x = pl + pw / 2 + (points[i] - pw / 2) * (flip === 3 ? -1 : 1);
+        const y = pt + ph / 2 + (points[i + 1] - ph / 2) * (flip === 3 ? -1 : 1);
+        const left = bl + Math.tan(bg.incline * Math.PI / 180) * (bh / 2 - (y - bt));
+        assert.ok(y >= bt - 1e-6 && y <= bt + bh + 1e-6);
+        assert.ok(x >= left - 1e-6 && x <= left + bw + 1e-6, "pattern escapes the prefab body");
+      }
+    }
+  }
+});
+
+const drawn = (h, element) => h.rendered.findLast((item) => item.host === element.art);
+const rectOf = (element) => ["left", "top", "width", "height"].map((key) => parseFloat(element.style[key]));
+const closeTo = (actual, expected) => assert.ok(Math.abs(actual - expected) < 0.02, `${actual} != ${expected}`);
+
+test("every page action swaps its whole disabled prefab, including both dotted patterns, through the job lifecycle", async () => {
+  const h = await fixture();
+  const actions = ["files", "folder", "options", "clear", "remove", "all", "none", "recheck", "start"];
+  const check = async () => {
+    await h.page.settled();
+    for (const action of actions) {
+      const button = h.action(action), { tree } = drawn(h, button);
+      const patterns = treeNodes(tree).flatMap((n) => n.widgets.filter((w) => /_Pt$/.test(w.sprite || "")));
+      assert.ok(patterns.length);
+      const kind = button.disabled ? "B_C" : action === "start" ? "Y_S" : "B_S";
+      assert.ok(patterns.every((w) => w.sprite === `Common_Btn_Normal_${kind}_Pt`), action);
+      if (button.disabled && action !== "start") {
+        assert.equal(patterns.length, 2, "the entire Mailbox disabled state is retained");
+        assert.equal(patterns[1].color, "#ffffff/0.80");
+        assert.equal(patterns[1].flip, 3);
+      }
+      for (const n of treeNodes(tree)) assert.ok(n.scale.every((scale) => scale > 0));
+    }
+  };
+  await check();
+  const pending = h.page.drop(entry("a").paths); await flush(); await check();
+  h.analyses[0].resolve({ entries: [entry("a")], skipped: 0 }); await pending; await check();
+  const graphic = h.row("a").querySelector(".import-check-art");
+  assert.equal(find(drawn(h, graphic).tree, "CheckBoxIcon").active, true);
+  h.answers.push({ button: "ok" }); await h.action("start").click(); await flush(); await check();
+  assert.equal(find(drawn(h, graphic).tree, "CheckBoxIcon").active, false);
+  assert.equal(find(drawn(h, graphic).tree, "CheckBoxIcon_Disable").active, true);
+  h.runs[0].resolve({ results: [{ id: "a", outcome: "imported", libraryId: "lib-a", applied: false }] });
+  await flush(); await check();
+  assert.equal(h.action("start").disabled, false, "View Results uses the enabled primary state");
+  assert.equal(h.action("all").disabled, true);
+});
+
+test("advanced boolean, choice, resource and input rows share Settings' body, title, dotted line and spacing", async () => {
+  const h = await fixture(); await h.page.openOptions(); await h.page.settled();
+  const groups = walk(h.dialog).filter((element) => element.dataset.option);
+  assert.equal(groups.length, 10);
+  for (const group of groups) {
+    const { tree, opts } = drawn(h, group), key = group.dataset.option;
+    const height = parseFloat(group.style.height) / S;
+    const base = rowBase(`Option_${key}`, 0, height, find(tree, "Title").widgets[0].text);
+    assert.deepEqual(tree.widgets, base.widgets);
+    assert.deepEqual(find(tree, "Title"), find(base, "Title"));
+    assert.deepEqual(find(tree, "DotLine"), find(base, "DotLine"));
+    assert.equal(opts.scale, S); closeTo(parseFloat(group.style.width), OPTION_WIDTH * S);
+    closeTo(parseFloat(group.style.marginBottom), 24 * S);
+  }
+  const enable = groups.find((group) => group.dataset.option === "enableAfterImport");
+  assert.equal(enable.querySelector("input"), null, "boolean options show labelled On/Off choices");
+  const off = walk(enable).find((element) => element.dataset.value === "false");
+  await off.click(); await h.page.settled();
+  assert.equal(off.getAttribute("aria-checked"), "true");
+  assert.equal(walk(enable).find((element) => element.dataset.value === "true").getAttribute("aria-checked"), "false");
+  const expected = radioRow("Option_enableAfterImport", 0, "Enable Mods After Import", [[true, "On"], [false, "Off"]], false, () => {}).tree;
+  assert.deepEqual(drawn(h, enable).tree, expected);
+  await h.action("ok", h.dialog).click();
+  assert.equal(h.calls.find((call) => call.method === "import.setOptions").params.enableAfterImport, false);
+});
+
+test("search and editable option fields cover the real sprite, keep text inside its frame, and put clear above the art", async () => {
+  const h = await fixture(); await h.action("searchToggle").click(); await h.page.openOptions(); await h.page.settled();
+  for (const wrap of [...h.host.querySelectorAll(".import-input-wrap"), ...h.dialog.querySelectorAll(".import-input-wrap")]) {
+    const { tree, opts } = drawn(h, wrap), input = wrap.querySelector("input");
+    const body = tree.widgets.find((w) => "sprite" in w), line = find(tree, "BG_Line").widgets.find((w) => "sprite" in w);
+    closeTo(body.w_ * opts.scale, parseFloat(wrap.style.width));
+    closeTo(line.w_, body.w_); closeTo(line.h_, body.h_);
+    const [x, y, w, height] = rectOf(input);
+    assert.ok(x >= 0 && x + w <= parseFloat(wrap.style.width));
+    assert.ok(y >= 0 && y + height <= 112 * S);
+    closeTo(y + height / 2, 56 * S);
+    assert.equal(find(tree, "InputField/Label_Search").widgets[0].text, "");
+    assert.equal(find(tree, "InputField/Label_Locale_Input").widgets[0].text, "");
+    if (input.classList.contains("import-search")) {
+      const clear = wrap.querySelector(".import-search-clear"), [cx, cy, cw, ch] = rectOf(clear);
+      assert.ok(cx >= x + w && cx + cw <= parseFloat(wrap.style.width));
+      closeTo(cy + ch / 2, 56 * S);
+      assert.equal(cw, 110 * S);
+      assert.equal(input.type, "text", "the roster's native input avoids a second browser search cancel icon");
+    } else {
+      assert.equal(find(tree, "Icon_Search").active, false);
+      assert.equal(find(tree, "Btn_Close").active, false);
+      closeTo(w, (body.w_ - 60) * S);
+    }
+  }
+  await h.action("cancel", h.dialog).click(); await h.analyze();
+  const input = h.host.querySelector(".import-search"); input.value = "b_home"; await input.dispatch("input");
+  assert.equal(h.row("a"), undefined);
+  await h.host.querySelector(".import-search-clear").click(); assert.ok(h.row("a")); assert.equal(document.activeElement, input);
+  await input.dispatch("keydown", { key: "Enter", isComposing: true }); assert.equal(document.activeElement, input);
+  await input.dispatch("keydown", { key: "Enter" }); assert.equal(document.activeElement, body);
+});
+
+test("the Items header retains its own control sizes, transforms and states with hit areas over its widgets", async () => {
+  const h = await fixture(), source = find(h.layouts.UINonEquipmentInventory, "Inventory_ListControl/RightCanvas/ListBG/BG_Top_Widget");
+  const header = h.host.querySelector(".import-header");
+  const assertTools = () => {
+    const { tree, opts } = drawn(h, header);
+    assert.equal(opts.scale, S); assert.deepEqual(tree.pos, [1272 / S - 692, 440 - 901]);
+    const expanded = h.action("searchToggle").getAttribute("aria-expanded") === "true";
+    for (const [key, path] of [["filter", "SortBtn/Btn_Normal"], ["order", "OrderBtn/Btn_Normal"], ["searchToggle", `SearchBtn/${expanded ? "Btn_Pressed" : "Btn_Normal"}`]]) {
+      const n = find(tree, path), original = find(source, path), parent = path.split("/")[0];
+      assert.deepEqual(n.widgets, original.widgets, `${key}: actual Items sprite`);
+      assert.deepEqual(n.pos, original.pos); assert.deepEqual(find(tree, parent).pos, find(source, parent).pos);
+      assert.deepEqual(find(tree, parent).scale, find(source, parent).scale);
+      const graphic = header.art.children.find((e) => e.dataset.path === `BG_Top_Widget/${path}`);
+      rectOf(h.action(key)).forEach((v, i) => closeTo(v, rectOf(graphic)[i]));
+    }
+    const ascending = h.action("order").getAttribute("aria-label") === "Ascending";
+    assert.equal(find(tree, "OrderBtn/Btn_Normal/Icon_Up").active, ascending);
+    assert.equal(find(tree, "OrderBtn/Btn_Normal/Icon_down").active, !ascending);
+    const filtered = h.action("filter").getAttribute("aria-label").startsWith("Cannot Import");
+    assert.equal(find(tree, "SortBtn/Btn_Normal/FilterMarker_On").active, filtered);
+    assert.equal(find(tree, "SortBtn/Btn_Normal/FilterMarker_Off").active, !filtered);
+    assert.equal(find(tree, "SortBtn/Btn_Normal/Type_2/Text").widgets[0].ellipsis, true);
+  };
+  assertTools(); await h.analyze(); await h.action("order").click(); await h.page.settled(); assertTools();
+  await h.action("filter").click(); await flush(); await walk(h.dialog).find((e) => e.dataset.value === "blocked").click();
+  await h.action("ok", h.dialog).click(); await h.page.settled(); assertTools();
+  const search = h.host.querySelector(".import-search"), wrap = h.host.querySelector(".import-input-wrap"), list = h.host.querySelector(".import-list");
+  assert.equal(wrap.hidden, true); closeTo(parseFloat(list.style.top), 144);
+  await h.action("searchToggle").click(); await h.page.settled(); assertTools();
+  assert.equal(wrap.hidden, false); assert.equal(document.activeElement, search); closeTo(parseFloat(list.style.top), 236);
+  search.value = "JP e"; await search.dispatch("compositionend"); assert.ok(h.row("e"));
+  await h.action("searchToggle").click(); await h.page.settled(); assertTools();
+  assert.equal(wrap.hidden, true); closeTo(parseFloat(list.style.top), 144); assert.equal(search.value, "JP e");
+  assert.deepEqual(h.layouts, h.layoutSnapshot);
+});
+
+// Include each inclined sprite's overhang; checking only the button rectangles missed earlier regressions.
+function artworkBounds(h, element, predicate = () => true) {
+  const { tree } = drawn(h, element);
+  return element.art.children.filter((e) => predicate(e.dataset.path)).map((e) => {
+    const path = e.dataset.path.split("/").slice(1).join("/"), n = path ? find(tree, path) : tree;
+    const w = n.widgets.find((w) => "sprite" in w || "text" in w || "texture" in w);
+    const [x, y, width, height] = rectOf(e), skew = Math.abs(Math.tan((w.incline || 0) * Math.PI / 180) * height / 2);
+    return [x - skew, y, x + width + skew, y + height];
+  });
+}
+
+test("empty, full, filtered and long Thai toolbars fit the header, with search and count clear of the list", async () => {
+  const english = flatten(JSON.parse(readFileSync(new URL("../../src/ba_modding_toolkit/locales/en-US.json", import.meta.url), "utf8")));
+  const thai = flatten(JSON.parse(readFileSync(new URL("../../src/ba_modding_toolkit/locales/th-TH.json", import.meta.url), "utf8")));
+  try {
+    for (const strings of [english, thai, { ...thai,
+      "webui.import.list": thai["webui.import.list"].repeat(12),
+      "webui.import.filterCount": thai["webui.import.filterCount"].repeat(12),
+      "webui.import.count": thai["webui.import.count"].repeat(12),
+    }]) {
+      setStrings(strings === english ? "en-US" : "th-TH", strings);
+      const h = await fixture();
+      const check = async () => {
+        await h.page.settled();
+        const header = h.host.querySelector(".import-header"), panel = h.host.querySelector(".import-panel");
+        const [,, width] = rectOf(panel), headerBottom = parseFloat(header.style.height);
+        for (const [l, t, r, b] of artworkBounds(h, header)) {
+          assert.ok(l >= 0 && r <= width, `header x: ${l}..${r} outside 0..${width}`);
+          assert.ok(t >= 0 && b <= headerBottom, `header y: ${t}..${b} outside 0..${headerBottom}`);
+        }
+        const title = artworkBounds(h, header, (p) => p.endsWith("Label_Locale_Title"))[0];
+        const controls = artworkBounds(h, header, (p) => !p.endsWith("Label_Locale_Title"));
+        assert.ok(title[2] < Math.min(...controls.map((r) => r[0])), "title stays left of the tools");
+        const list = h.host.querySelector(".import-list"), count = h.host.querySelector(".import-count");
+        const [cx, cy, cw, ch] = rectOf(count), [lx, ly, lw, lh] = rectOf(list);
+        closeTo(cx + cw, lx + lw); closeTo(cy + ch, ly);
+        assert.ok(cy > headerBottom); assert.ok(ly + lh < parseFloat(h.action("files").style.top));
+        const countBounds = artworkBounds(h, count)[0];
+        closeTo(countBounds[0], 0); closeTo(countBounds[1], 0); closeTo(countBounds[2], cw); closeTo(countBounds[3], ch);
+        const wrap = h.host.querySelector(".import-input-wrap");
+        if (!wrap.hidden) {
+          const [sx, sy, sw, sh] = rectOf(wrap);
+          assert.ok(sx >= 0 && sx + sw <= width); assert.ok(sy > headerBottom && sy + sh < cy);
+        }
+        for (const n of [find(drawn(h, header).tree, "Label_Locale_Title"), find(drawn(h, header).tree, "SortBtn/Btn_Normal/Type_2/Text"), drawn(h, count).tree]) {
+          const label = n.widgets.find((w) => "text" in w);
+          assert.equal(label.ellipsis, true); assert.ok(!label.text.includes("\n"));
+        }
+      };
+      await check(); await h.action("searchToggle").click(); await check();
+      await h.analyze(Array.from({ length: 150 }, (_, i) => entry(`mod-${i}`, i % 2 ? "blocked" : "ready")));
+      await check(); await h.action("order").click(); await check();
+      await h.action("filter").click(); await flush();
+      await walk(h.dialog).find((e) => e.dataset.value === "blocked").click(); await h.action("ok", h.dialog).click();
+      await check(); const search = h.host.querySelector(".import-search");
+      search.value = "missing"; await search.dispatch("input"); assert.equal(h.host.querySelectorAll(".import-row").length, 0); await check();
+      await h.host.querySelector(".import-search-clear").click(); await check();
+      await h.action("searchToggle").click(); await check();
+    }
+  } finally { setStrings("en-US", english); }
+});
+
+test("footer artwork clears the whole bottom nav and the list and dialog contents leave room for their buttons", async () => {
+  const h = await fixture();
+  const navTop = 1080 - 104;
+  for (const action of ["options", "recheck", "start"]) {
+    const button = h.action(action), top = parseFloat(button.style.top), height = parseFloat(button.style.height);
+    assert.ok(top + height <= navTop - 24 + 0.01);
+    for (const child of button.art.children) {
+      if (child.style.clipPath) continue; // The inclined body's clipping bounds its decorative patterns.
+      const [, y, , h] = rectOf(child); assert.ok(top + y + h <= navTop - 24 + 0.1);
+    }
+  }
+  const panel = h.host.querySelector(".import-panel"), list = h.host.querySelector(".import-list");
+  assert.ok(parseFloat(panel.style.top) + parseFloat(panel.style.height) < parseFloat(h.action("start").style.top));
+  assert.ok(parseFloat(list.style.top) + parseFloat(list.style.height) < parseFloat(h.action("all").style.top));
+  const css = readFileSync(new URL("../../src/ba_modding_toolkit/web/css/app.css", import.meta.url), "utf8");
+  assert.match(css, /\.import-search-clear\s*\{\s*z-index:\s*40/);
+  const rule = css.match(/\.import-dialog-content\s*\{([^}]+)\}/)[1];
+  const top = Number(rule.match(/top:\s*(\d+)px/)[1]), height = Number(rule.match(/height:\s*(\d+)px/)[1]);
+  const popupButtonTop = 540 - (-12 - 1360 / 2 + 122 - 4) * S - 177 * S / 2;
+  assert.ok(top + height < popupButtonTop - 16);
+});
+
+test("all six locales retain option labels, On/Off choices and the same saved values", async () => {
+  const load = (locale) => flatten(JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${locale}.json`, import.meta.url), "utf8")));
+  try {
+    for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) {
+      const strings = load(locale); setStrings(locale, strings);
+      const h = await fixture(); await h.page.openOptions(); await h.page.settled();
+      for (const group of walk(h.dialog).filter((element) => element.dataset.option)) {
+        const key = group.dataset.option, title = strings[`webui.import.options.${key}`];
+        assert.ok(title, `${locale}: ${key}`);
+        assert.ok(group.textContent.includes(title), `${locale}: visible ${key}`);
+        if (["extraBytes", "workers", "output"].includes(key)) assert.equal(group.querySelector("input").getAttribute("aria-label"), title);
+        if (["backup", "skipUnchanged", "enableAfterImport"].includes(key)) {
+          assert.equal(group.getAttribute("aria-label"), title);
+          const controls = group.querySelectorAll("button");
+          assert.deepEqual(controls.map((control) => control.getAttribute("aria-label")), [strings["webui.settings.post.on"], strings["webui.settings.post.off"]]);
+        }
+      }
+      await h.action("ok", h.dialog).click();
+      assert.deepEqual(h.calls.find((call) => call.method === "import.setOptions").params, options);
+    }
+  } finally { setStrings("en-US", load("en-US")); }
+});
+
+test("advanced popup stays hidden until its body images finish, with native fields aligned during preparation", async () => {
+  const h = await fixture(), hold = h.holdImages((tree) => tree.name === "SearchNameArea");
+  const opening = h.page.openOptions();
+  try {
+    await flush();
+    const layer = h.dialog.children[0];
+    assert.equal(layer.style.visibility, "hidden");
+    const field = walk(h.dialog).find((element) => element.dataset.option === "extraBytes").querySelector("input");
+    assert.ok(parseFloat(field.style.width) > 0);
+    closeTo(parseFloat(field.style.top), 10 * S);
+    hold.resolve(); await opening; await h.page.settled();
+    assert.equal(layer.style.visibility, "");
+    assert.equal(layer.inert, false);
+  } finally { hold.resolve(); await opening; }
 });
