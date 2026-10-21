@@ -68,7 +68,7 @@ export async function colourSwitchCard(picture, text, widget, load, { signal, ki
   if (signal?.aborted) return;
   // the portrait card keeps the prefab's own look: no background picture and no fade
   if (kind === "portrait") return;
-  if (kind !== "lobby") return;
+  if (kind !== "lobby" && kind !== "model") return;
   const url = await withTimeout(Promise.resolve(widget.clipImage), widget.clipImage?.thumbnail ? Infinity : 15000, "Switch card picture", { signal });
   if (!url) return;
   const image = await withTimeout(load(url, { signal }), 15000, "Switch card colours", { signal }), canvas = document.createElement("canvas");

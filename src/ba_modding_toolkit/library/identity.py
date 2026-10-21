@@ -8,11 +8,17 @@ from pathlib import Path
 from ..bundle import Bundle
 from ..errors import ServiceError
 from ..naming import parse_filename
-from .judge import kind_of
+from .judge import MODEL_CATEGORIES, kind_of
 
 # Match complete Spine core names, including asset names followed by a page or role.
 CORE = re.compile(r"(?<![a-z0-9_])([a-z][a-z0-9_]*?_(?:spr|home(?:_gl|_teen)?))(?=$|[^a-z0-9])", re.I)
 CONTAINER = re.compile(r"(?:^|/)(spinebackground|spinelobbies|spinecharacters)/([a-z0-9_]+)(?:/|\.)", re.I)
+
+MODEL_CONTAINER = re.compile(r"(?:^|/)(?:characters|npcs)/([a-z0-9_]+)(?:/|\.)", re.I)
+MODEL_ASSET = re.compile(
+    r"^([a-z][a-z0-9_]*?)_(?:body|face|hair|head|eyemouth|eyesmouth|halo|weapon|"
+    r"formation|cafe|victory)(?:_[a-z0-9_]+)?(?:\.[a-z0-9]+)?$", re.I)
+MODEL_PREFAB = re.compile(r"^(?:echelon|cafe|strategy)_([a-z0-9_]+)(?:\.prefab)?$", re.I)
 
 
 def content_cores(path: Path) -> set[str]:
@@ -45,6 +51,12 @@ def content_cores(path: Path) -> set[str]:
             container_kinds.setdefault(Path(name).stem, set()).add(kind)
     cores = set(special.values())
     for normalized in names:
+        model = MODEL_CONTAINER.search(normalized) or MODEL_PREFAB.fullmatch(Path(normalized).name)
+        if not model and kind_of(parsed.core, parsed.category) == "model":
+            model = MODEL_ASSET.fullmatch(Path(normalized).name)
+        if model:
+            cores.add("model:" + model[1].lower())
+            continue
         if normalized in special or (special and "/" not in normalized):
             continue
         if special_file and "/" not in normalized:
@@ -78,12 +90,16 @@ def identify(path: Path, name: str, catalog) -> tuple[str, str, str]:
     conflicting content or an unknown content core refuses the whole upload."""
     parsed = parse_filename(name)
     resolve = getattr(catalog, "variant_for_asset_core", catalog.variant_for_core)
-    declared = resolve(parsed.core.lower())
+    resolve_model = getattr(catalog, "variant_for_model_core", catalog.variant_for_core)
+    declared_kind = kind_of(parsed.core, parsed.category)
+    declared = (resolve_model if declared_kind == "model" else resolve)(parsed.core.lower())
     cores = content_cores(path)
-    resolved = [(core, resolve(core)) for core in sorted(cores)]
+    resolved = [(core, (resolve_model(core[6:]) if core.startswith("model:") else resolve(core)))
+                for core in sorted(cores)]
     if any(variant is None for _, variant in resolved):
         raise ServiceError("mod_target_unknown", file=path)
-    targets = {(variant.key, "lobby" if getattr(variant, "spine_category", None) else kind_of(core))
+    targets = {(variant.key, "model" if core.startswith("model:") else
+                "lobby" if getattr(variant, "spine_category", None) else kind_of(core))
                for core, variant in resolved}
     if len(targets) > 1:
         raise ServiceError("mod_target_ambiguous", file=path)
@@ -95,8 +111,13 @@ def identify(path: Path, name: str, catalog) -> tuple[str, str, str]:
     else:
         target, kind = targets.pop()
         variant = resolved[0][1]
-    core = (variant.spr if kind == "spr" else variant.lobby) or (resolved[0][0] if resolved else parsed.core)
-    category = getattr(variant, "spine_category", None) or ("spinecharacters" if kind == "spr" else "spinelobbies")
+    if kind == "model":
+        # Keep prefab/dependency categories: their separate slots share the same model dev name.
+        core = getattr(variant, "model", None) or (resolved[0][0][6:] if resolved else parsed.core)
+        category = parsed.category if parsed.category in MODEL_CATEGORIES else "characters"
+    else:
+        core = (variant.spr if kind == "spr" else variant.lobby) or (resolved[0][0] if resolved else parsed.core)
+        category = getattr(variant, "spine_category", None) or ("spinecharacters" if kind == "spr" else "spinelobbies")
     prefix = parsed.prefix.replace(f"-{parsed.core}-", f"-{core}-", 1)
     if parsed.category:
         prefix = prefix.replace(f"-{parsed.category}-", f"-{category}-", 1)

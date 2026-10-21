@@ -246,3 +246,16 @@ test("every live atlas page needs a texture even without an active attachment", 
   assert.deepEqual(result.issues.map(({ key }) => key), ["atlasSize"]);
   assert.equal(result.issues[0].params.name, "missing.png");
 });
+
+
+test("model checks use bundle integrity without requesting the Spine runtime or atlas remap", async () => {
+  const h = await harness(); h.license(false);
+  const empty = { skeletons: {}, atlases: {}, textures: {} };
+  h.use({ kind: "model", official: empty, mod: empty, remappable: false });
+  await h.mod.check("model-mod", "Model", () => assert.fail("no atlas remap"), { kind: "model" });
+  assert.deepEqual(h.calls, [["actions.compatibility", { mod: "model-mod" }]]);
+  assert.equal(h.confirms(), 0);
+  assert.equal(h.mod.eligible({ kind: "model" }), false);
+  assert.equal(h.mod.canRemap("model-mod"), false);
+  assert.ok(h.popups.some((p) => p.title === h.strings.compatibility.check));
+});

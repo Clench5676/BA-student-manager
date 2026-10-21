@@ -15,7 +15,7 @@ const destination = (mod) => variantKey(mod.target || mod.variant);
 export function resultLines(added, name) {
   const mixed = new Set(added.map((m) => m.kind)).size > 1;
   return added.map((m) => ({ mod: m, text: T(mixed ? "add.part" : "add.belongs", {
-    name: name({ ...m, variant: destination(m) }).trim(), kind: T(`tab.${m.kind === "spr" ? "portrait" : "lobby"}`),
+    name: name({ ...m, variant: destination(m) }).trim(), kind: T(`tab.${m.kind === "spr" ? "portrait" : m.kind}`),
   }) }));
 }
 

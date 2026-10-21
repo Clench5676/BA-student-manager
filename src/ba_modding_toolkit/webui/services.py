@@ -158,7 +158,9 @@ def _changed_of(result: Any) -> dict[str, list[str]]:
     if isinstance(files, list):
         names = [parse_filename(Path(f).name).core.lower() for f in files if isinstance(f, (str, Path))]
         cores = sorted({c for c in names if c})
-        kinds = sorted({"spr" if c.endswith("_spr") else "lobby" for c in cores})
+        from ..library.judge import kind_of_file
+        kinds = sorted({kind_of_file(Path(f).name) or ("spr" if parse_filename(Path(f).name).core.endswith("_spr")
+                                                     else "lobby") for f in files if isinstance(f, (str, Path))})
         return {"cores": cores, "kinds": kinds}
     mod = getattr(result, "mod", None)
     if mod is not None and getattr(mod, "core", None):
@@ -665,7 +667,7 @@ class Services:
     def submit_apply(self, variant: str, source: str, kind: str = "spr") -> str:
         """``actions.apply``: one entry of the current install, pinned at submit. ``classic_open`` only when it would
         write a game file (an apply while mods are off only changes the configuration)."""
-        if kind not in ("spr", "lobby"):
+        if kind not in ("spr", "lobby", "model"):
             raise ServiceError("bad_params", kind=kind)
         library = self.library
         pin = self._current_pin(library)
@@ -683,7 +685,7 @@ class Services:
         """``actions.restore``: back to official, pinned at submit. A restore that writes nothing (the files are
         official already) is allowed while a classic window is open; if it turns out to write after all (the full
         judgement finds a file changed), the write itself is refused with ``classic_open``."""
-        if kind not in ("spr", "lobby"):
+        if kind not in ("spr", "lobby", "model"):
             raise ServiceError("bad_params", kind=kind)
         library = self.library
         pin = self._current_pin(library)
@@ -782,7 +784,7 @@ class Services:
             count = self.queue.add(call, intent=library.intent()["enabled"])
         elif method in ("actions.apply", "actions.restore"):
             variant, kind = params.get("variant"), params.get("kind", "spr")
-            if not isinstance(variant, str) or kind not in ("spr", "lobby"):
+            if not isinstance(variant, str) or kind not in ("spr", "lobby", "model"):
                 raise ServiceError("bad_params", key="variant")
             clean: dict[str, Any] = {"variant": variant, "kind": kind}
             if method == "actions.apply":
@@ -794,7 +796,7 @@ class Services:
                 found = self.catalog.variant(variant)
             except KeyError as error:
                 raise ServiceError("variant_not_found", variant=variant) from error
-            core = (found.spr if kind == "spr" else found.lobby) or ""
+            core = getattr(found, kind, None) or ""
             files = [str(f.file) for f in library.state(variant, pin=pin).files if f.kind == kind]
             entry = (pin.key, core.lower())
             call = QueuedCall(method, clean, entries=(entry,), pins={pin.key: pin}, files={entry: stat_files(files)},
@@ -1121,7 +1123,20 @@ class Services:
             core = self.catalog.variant(_stem(parts[1])).model
             if not core:
                 raise KeyError(path)
-            return AssetResponse(self.game.model_glb(core), MIME[".glb"], light=False)
+            source = query.get("source", "live")
+            if source == "live":
+                data = self.game.model_glb(core)
+            elif source == "official":
+                data = self.game.model_glb(core, overrides=self.library.official_bundles(core))
+            elif source.startswith("mod:"):
+                mod_id = source[4:]
+                entry = next((mod for mod in self.library.mods() if mod.id == mod_id), None)
+                if entry is None or entry.kind != "model" or entry.target != self.catalog.variant(_stem(parts[1])).key:
+                    raise KeyError(path)
+                data = self.game.model_glb(core, overrides=self.library.preview_bundles(mod_id))
+            else:
+                raise KeyError(path)
+            return AssetResponse(data, MIME[".glb"], light=False)
         if kind == "voice" and len(parts) == 3:
             # a memorial lobby voice clip from Kivo, relayed so it is never cached
             variant = self.catalog.variant(parts[1])

@@ -106,7 +106,7 @@ export function helpLines(state, { sep = listSep() } = {}) {
 
 // an entry as the result and the messages name it: the variant's name and the kind
 export function entryLabel(entry, nameOf = (e) => e?.variant || e?.core || "", sep = listSep()) {
-  const kind = entry?.kind === "lobby" || (entry?.core && !/_spr$/i.test(entry.core)) ? "tab.lobby" : "tab.portrait";
+  const kind = entry?.kind === "model" ? "tab.model" : entry?.kind === "lobby" || (entry?.core && !/_spr$/i.test(entry.core)) ? "tab.lobby" : "tab.portrait";
   return `${nameOf(entry)}${sep}${T(kind)}`;
 }
 

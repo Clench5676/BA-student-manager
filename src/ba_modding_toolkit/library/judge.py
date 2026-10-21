@@ -9,6 +9,7 @@ official, unknown or damaged; *configured* is the source the user chose for it; 
 from __future__ import annotations
 
 import os
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
@@ -18,6 +19,13 @@ from ..searching import SEARCH_DIR_SUFFIXES
 
 LIBRARY_SOURCES = ("mod:", "variant:")
 CRC_STATES = ("ok", "fixed", "needs_fix")
+KINDS = ("spr", "lobby", "model")
+MODEL_CATEGORIES = {"character", "characters", "npcs"}
+
+
+def supports_kind(kind: str) -> bool:
+    """Whether files of this kind can be stored and switched by the library."""
+    return kind in KINDS
 
 
 def now() -> str:
@@ -38,7 +46,10 @@ def seconds(value: Any) -> float | None:
 
 
 def kind_of(core: str, category: str | None = None) -> str | None:
-    """The kind of a core: "spr" (portrait), "lobby" (memorial lobby) or None."""
+    """The kind of a character asset slot, using the bundle category for 3D models."""
+    if category and category.lower() in MODEL_CATEGORIES and spine_kind(core) is None and re.fullmatch(r"[a-z0-9][a-z0-9_]*", core.lower()):
+        if core.lower() != "mxcommon" and not core.lower().startswith("mxcommon_"):
+            return "model"
     return spine_kind(core, category)
 
 

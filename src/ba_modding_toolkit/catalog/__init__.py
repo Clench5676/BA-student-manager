@@ -129,6 +129,30 @@ class Catalog:
                        and stem in (alias.lower() for alias in entry.get("core_aliases", []))]
             return copy.deepcopy(matches[0]) if len(matches) == 1 else None
 
+    def model_map(self, cores: Iterable[str]) -> dict[str, str]:
+        """Map model dev names to variant keys, independently of the selected install's portraits."""
+        available = {core.lower() for core in cores}
+        with self._lock:
+            entries, _, _ = self._metadata()
+            for key in self._get()[1]:
+                if not key.startswith(SPECIAL_PREFIX):
+                    entries.setdefault(key, {})
+            result = {}
+            for key, entry in entries.items():
+                aliases = [alias.lower() for alias in entry.get("core_aliases", [])
+                           if alias.lower() not in entries or alias.lower() == key]
+                # Direct file IDs take precedence over shared dev aliases.
+                for core in [key, key + "_original", *aliases, *(alias + "_original" for alias in aliases)]:
+                    if core in available:
+                        result.setdefault(core, key)
+            return result
+
+    def variant_for_model_core(self, core: str) -> Variant | None:
+        """Resolve model filenames and internal dev names to an installed variant."""
+        key = self.model_map([core]).get(core.lower())
+        with self._lock:
+            return copy.deepcopy(self._get()[1].get(key)) if key else None
+
     def core_map(self, spr_cores: Iterable[str], lobby_cores: Iterable[str],
                  special_cores: Iterable[str] = ()) -> CoreMap:
         """Map an install's portrait and memorial lobby cores to variant keys by the roster's own rules, for any
@@ -333,6 +357,9 @@ class Catalog:
             family.variants.append(variant)
             variants[key] = variant
         cores = {lower: variants[key] for lower, key in keys.items() if key in variants}
+        for variant in variants.values():
+            if variant.model:
+                cores.setdefault(variant.model.lower(), variant)
         for family in families.values():
             # recruitable here first, then playable on another server, then story and NPC variants
             family.variants.sort(key=lambda variant: (variant.key != family.key, not variant.recruitable,
