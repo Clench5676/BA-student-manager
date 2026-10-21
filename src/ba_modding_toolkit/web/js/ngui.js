@@ -126,6 +126,24 @@ export async function tinted(url, hex) {
   return tints.get(key);
 }
 
+const gradients = new Map();
+async function gradientTint(url, colors) {
+  const key = `${url}|${colors.join("|")}`;
+  if (!gradients.has(key)) gradients.set(key, load(url).then(async (img) => {
+    const c = document.createElement("canvas"); c.width = img.naturalWidth; c.height = img.naturalHeight;
+    const g = c.getContext("2d"), gradient = g.createLinearGradient(0, 0, 0, c.height);
+    colors.forEach((value, i) => {
+      const { hex, a } = colorOf(value);
+      gradient.addColorStop(i, `${hex}${Math.round(a * 255).toString(16).padStart(2, "0")}`);
+    });
+    g.drawImage(img, 0, 0); g.globalCompositeOperation = "multiply";
+    g.fillStyle = gradient; g.fillRect(0, 0, c.width, c.height);
+    g.globalCompositeOperation = "destination-in"; g.drawImage(img, 0, 0);
+    return canvasUrl(c);
+  }).catch((err) => { gradients.delete(key); throw err; }));
+  return gradients.get(key);
+}
+
 // draw a sliced sprite at its final pixel size (x2 for sharp edges on HiDPI) into a single image
 const baked = new Map();
 function slicedImage(url, b, wpx, hpx, bs) {
@@ -327,7 +345,8 @@ export async function render(tree, host, opts = {}) {
           if (atlasDone === spritesReady) initDone = null;
           throw new Error(`Missing sprite ${atlas}/${w.sprite} in /asset/ui/atlases.json`);
         }
-        const url = await tinted(spriteUrl(atlas, w.sprite), col.hex);
+        const tintedUrl = await tinted(spriteUrl(atlas, w.sprite), col.hex);
+        const url = w.gradient ? await gradientTint(tintedUrl, w.gradient) : tintedUrl;
         const b = [meta.borderTop, meta.borderRight, meta.borderBottom, meta.borderLeft].map((v) => v || 0);
         // like NGUI, shrink borders that overlap (e.g. 30 + 30 on a 55 px sprite) so the centre survives
         const fitB = (i, j, size) => {

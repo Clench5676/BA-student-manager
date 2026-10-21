@@ -430,16 +430,13 @@ function screenTree() {
   for (const state of ["Pin_On", "Pin_Off"]) {
     const base = `${np}/Pin/${state}`;
     at(t, base).pos[1] = 392;
-    const isOn = state === "Pin_On", color = isOn ? "#725538" : "#7d7d7d";
     const lblNode = find(t, `${base}/Bg/Icon/Label_Locale`) || find(t, `${base}/Bg/Label_Locale`);
-    const fs = 38, tw = advanceOf(T("fav.label"), fs);
-    // the badge sprite carries its shadow in the bottom 8 units: centre the content 4 units higher
-    const icon = at(t, `${base}/Bg/Icon`);
-    icon.pos = [36, 5];
-    Object.assign(icon.widgets[0], { color: `${color}/1.00`, w_: 34, h_: 34 });
-    Object.assign(lblNode.widgets[0], { text: T("fav.label"), fontSize: fs, w_: tw + 4, color: `${color}/1.00` });
-    lblNode.pos = isOn ? [26, -1] : [62, 4];
-    widget(t, `${base}/Bg`).w_ = 36 + 17 + 10 + tw + 30;
+    const label = lblNode.widgets.find((w) => "text" in w), tw = advanceOf(T("fav.label"), label.fontSize);
+    // Keep each state's sprite, baked shading, icon tint and local positions.
+    // Only the translated caption and its right anchor expand the prefab.
+    const oldWidth = label.w_;
+    Object.assign(label, { text: T("fav.label"), w_: Math.max(oldWidth, tw + 4) });
+    widget(t, `${base}/Bg`).w_ += label.w_ - oldWidth;
   }
   // Both names share the existing dark band, leaving room for the pencil after the main name.
   const original = originalName(v), shown = fullName(v), aliased = customAliases().length > 0;

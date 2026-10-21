@@ -35,6 +35,11 @@ def _widget(obj: ObjectReader, tree: dict, names: dict[str, str], scripts: dict)
                       type=tree["mType"], flip=tree["mFlip"], incline=tree.get("inclineAngle"),
                       fillDir=tree.get("mFillDirection"), fill=tree.get("mFillAmount"),
                       fillCenter=tree.get("mFillCenter"))
+        if tree.get("mApplyGradient"):
+            widget["gradient"] = ["#%02x%02x%02x/%.2f" % (
+                round(tree[key]["r"] * 255), round(tree[key]["g"] * 255),
+                round(tree[key]["b"] * 255), tree[key]["a"])
+                for key in ("mGradientTop", "mGradientBottom")]
     if "mTexture" in tree and "mWidth" in tree:
         pointer = tree["mTexture"]
         cab, pid = reference(obj, pointer)
