@@ -8,13 +8,14 @@ setSpineConsent(true);
 
 const revisions = new Map();
 const loaded = [], requests = [], posed = [];
+const players = new Set();
 let blobs = 0, animations = ["Idle_01"];
 const el = () => ({
   style: {}, appendChild() {}, remove() {},
   querySelector: () => ({ toBlob: (done) => done({}) }),
 });
 globalThis.document = { body: el(), createElement: el };
-globalThis.requestAnimationFrame = (done) => queueMicrotask(done);
+globalThis.requestAnimationFrame = (done) => queueMicrotask(() => { for (const p of players) p.config.draw(p); done(); });
 globalThis.URL.createObjectURL = () => `blob:thumb-${++blobs}`;
 globalThis.URL.revokeObjectURL = () => {};
 globalThis.fetch = async (url, options) => {
@@ -29,7 +30,9 @@ globalThis.spine = {
       assert.equal(config.premultipliedAlpha, false, "thumbnail PMA matches 0.2.0");
       assert.equal(config.viewport.width, 1, "capture framing replaces the initial viewport without animation sampling");
       loaded.push(config);
-      this.config = config;
+      this.config = config; players.add(this);
+      this.context = { gl: { drawingBufferWidth: 2, drawingBufferHeight: 1, RGBA: 1, UNSIGNED_BYTE: 1,
+        readPixels: (_x, _y, _w, _h, _f, _t, pixels) => pixels.set([0, 0, 0, 0, 200, 100, 50, 255]) } };
       this.skeleton = {
         data: { findAnimation: (name) => (animations.includes(name) ? {} : null), animations: animations.map((name) => ({ name })) },
         slots: [], updateWorldTransform() {}, setToSetupPose() { posed.push(["setup"]); },
@@ -50,7 +53,7 @@ globalThis.spine = {
       });
     }
     setViewport() {}
-    dispose() {}
+    dispose() { players.delete(this); }
   },
 };
 const set = (base, value) => revisions.set(base.replace(/skeleton$/, "manifest.json"), value.repeat(64));
@@ -561,4 +564,31 @@ test("backgrounds participate in still cache identity and propagate to companion
     const transparent = await scope.thumb(base, "card");
     assert.ok(transparent && transparent !== first && transparent !== other);
   } finally { scope.cancel(); await new Promise(setImmediate); document.createElement = create; globalThis.Image = Image; }
+});
+
+test("portrait captures retry cleared frames and never cache a pale uniform square", async () => {
+  const Player = spine.SpinePlayer, base = spineBase("mod", "ch0294_spr_capture");
+  let reads = 0, mode = "late";
+  spine.SpinePlayer = class extends Player {
+    constructor(...args) {
+      super(...args);
+      this.context.gl.readPixels = (_x, _y, _w, _h, _f, _t, pixels) => {
+        reads++;
+        if (mode === "solid") pixels.fill(240);
+        else if (mode === "ready" || reads >= 3) pixels.set([0, 0, 0, 0, 200, 100, 50, 255]);
+      };
+    }
+  };
+  try {
+    set(base, "a");
+    const before = blobs;
+    assert.ok(await thumb(base, "face"));
+    assert.equal(reads, 3, "the first two transparent draws are rejected");
+    assert.equal(blobs, before + 1, "only the verified draw is encoded");
+    set(base, "b"); mode = "solid"; reads = 0;
+    assert.equal(await thumb(base, "face"), null);
+    assert.equal(reads, 6, "a persistently blank frame leaves the slot empty");
+    mode = "ready";
+    assert.ok(await thumb(base, "face"), "a later attempt can recover; blank output was never cached");
+  } finally { spine.SpinePlayer = Player; }
 });

@@ -18,6 +18,8 @@ const FRAMES = {
   bust: [480, 480],
   card: [384, 352],
   roster: [404, 456],
+  portrait: [480, 880],
+  landscape: [640, 360],
 };
 // the frame a card's other use shows: the list card and the big picture of the same skeleton are drawn in one load
 const COMPANION = { card: "bust", bust: "card" };
@@ -34,6 +36,7 @@ const queue = [];
 const scopes = new Set();
 let running = false, active = null, preferred = "";
 let host = null;
+const drawnFrames = new WeakMap();
 
 function hostEl() {
   if (!host) {
@@ -108,7 +111,7 @@ export function thumbFrame(found, bounds, frame, aspect) {
   const faceW = face ? Math.min(Math.max(face.x1 - face.x0, FACE_W[0]), FACE_W[1]) : bounds.w * 0.17;
   const cx = face ? (face.x0 + face.x1) / 2 : bounds.x + bounds.w / 2;
   const cyFace = face ? (face.y0 + face.y1) / 2 : bounds.y + bounds.h * 0.8;
-  const bust = frame === "bust" || frame === "roster";
+  const bust = frame === "bust" || frame === "roster" || frame === "portrait";
   const w = bust ? faceW * 3.8 : frame === "card" ? faceW * 3.4 : faceW * 3.3;
   const h = w / aspect;
   const cy = bust ? cyFace - h * 0.2 : frame === "card" ? cyFace - h * 0.06 : cyFace + h * 0.07;
@@ -116,8 +119,8 @@ export function thumbFrame(found, bounds, frame, aspect) {
 }
 
 function viewFor(p, frame, aspect, framing) {
-  if (framing) {
-    const r = specialView(artBounds(p.skeleton), framing, aspect);
+  if (framing || frame === "landscape") {
+    const r = specialView(artBounds(p.skeleton), framing || "scene", aspect);
     return { x: r.x, y: r.y, width: r.w, height: r.h, padLeft: 0, padRight: 0, padTop: 0, padBottom: 0, transitionTime: 0, animations: {} };
   }
   const offset = new spine.Vector2(), size = new spine.Vector2();
@@ -143,6 +146,7 @@ function loadPlayer(base, el, signal, onError) {
     skeleton: `${base}.skel`, atlas: `${base}.atlas`, animation: undefined,
     premultipliedAlpha: false, alpha: true, backgroundColor: "#00000000",
     showControls: false, showLoading: false, preserveDrawingBuffer: true,
+    draw: (player) => drawnFrames.set(player, (drawnFrames.get(player) || 0) + 1),
     // capture() supplies the actual frame. Do not sample the first animation's bounds a hundred times first.
     viewport: { x: 0, y: 0, width: 1, height: 1, padLeft: 0, padRight: 0, padTop: 0, padBottom: 0, transitionTime: 0, animations: {} },
   }, { signal, onError });
@@ -166,10 +170,35 @@ async function capture(player, el, frame, expr, lobby, framing, background, sign
   player.skeleton.updateWorldTransform(spine.Physics.update);
   player.config.viewport = viewFor(player, frame, w / h, framing);
   player.setViewport(entry.animation);
-  await frames(3, signal);
-  if (signal.aborted) return null;
+  const before = drawnFrames.get(player) || 0;
+  let valid = false;
+  // Success fires before the runtime's first draw. A resize or suspended renderer can still leave a cleared
+  // framebuffer several RAFs later; require an actual post-viewport draw and inspect it before adding a background.
+  for (let attempt = 0; attempt < 6 && !signal.aborted; attempt++) {
+    await frames(2, signal);
+    const gl = player.context?.gl;
+    if ((drawnFrames.get(player) || 0) <= before || !gl || gl.isContextLost?.()) continue;
+    const width = gl.drawingBufferWidth, height = gl.drawingBufferHeight;
+    if (!(width > 0 && height > 0)) continue;
+    const pixels = new Uint8Array(width * height * 4);
+    gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+    if (hasThumbnailInk(pixels)) { valid = true; break; }
+  }
+  if (!valid || signal.aborted) return null;
   const canvas = await collectionStill(el.querySelector("canvas"), background, signal);
   return new Promise((resolve) => canvas.toBlob((b) => resolve(b && !signal.aborted ? URL.createObjectURL(b) : null)));
+}
+
+// Reject both a transparent framebuffer and a uniform loading/background square. Never cache either as art.
+export function hasThumbnailInk(pixels) {
+  let visible = false, varied = false;
+  for (let i = 0; i < pixels.length; i += 4) {
+    if (pixels[i + 3] > 0) visible = true;
+    if (pixels[i + 3] !== pixels[3] || (pixels[i + 3] > 0 &&
+      (pixels[i] !== pixels[0] || pixels[i + 1] !== pixels[1] || pixels[i + 2] !== pixels[2]))) varied = true;
+    if (visible && varied) return true;
+  }
+  return false;
 }
 
 // Collection portraits fill their texture with the variant background before the transparent Spine still.

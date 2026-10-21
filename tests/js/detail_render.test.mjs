@@ -76,7 +76,7 @@ globalThis.document = { hidden: false, hasFocus: () => true, body, documentEleme
 Object.defineProperty(globalThis, "navigator", { value: { platform: "Mac" }, configurable: true });
 globalThis.location = { hash: "#/student/ibuki/ibuki" };
 globalThis.addEventListener = () => {};
-globalThis.requestAnimationFrame = (fn) => { queueMicrotask(() => fn(performance.now())); return 1; };
+globalThis.requestAnimationFrame = (fn) => { queueMicrotask(() => { for (const p of thumbnailPlayers) if (!p.disposed) p.config.draw?.(p); fn(performance.now()); }); return 1; };
 globalThis.cancelAnimationFrame = () => {};
 globalThis.getComputedStyle = () => ({ opacity: "1" });
 
@@ -142,6 +142,8 @@ globalThis.spine = { Vector2: class {}, Physics: { update: 1 }, RegionAttachment
     this.setViewport = () => {};
     if (el.className === "thumb-player") {
       thumbnailPlayers.push(this);
+      this.context = { gl: { drawingBufferWidth: 2, drawingBufferHeight: 1, RGBA: 1, UNSIGNED_BYTE: 1,
+        readPixels: (_x, _y, _w, _h, _f, _t, pixels) => pixels.set([0, 0, 0, 0, 200, 100, 50, 255]) } };
       el.appendChild(new El("canvas"));
       const done = () => config.success(this);
       if (thumbMode === "ready") queueMicrotask(done); else pendingThumbnails.push(done);
