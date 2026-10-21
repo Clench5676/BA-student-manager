@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { makeImportLayouts, find, renderImportTree } from "./import_prefabs.mjs";
+import { makeImportLayouts, find, renderImportTree, FRAME_META, framePixels } from "./import_prefabs.mjs";
 
 const walk = (element) => [element, ...element.children.flatMap(walk)];
 function matches(element, selector) {
@@ -71,6 +71,7 @@ globalThis.IntersectionObserver = class {
 const { createImportPage, entryIdentity, catalogEntries } = await import("../../src/ba_modding_toolkit/web/js/batch-import.js");
 const { importAssistants, suggestImports } = await import("../../src/ba_modding_toolkit/web/js/import-assistants.js");
 const { importArtwork, clipButtonPatterns, selectionWindow, ROW_SELECTION, ROW_SCALE, ROW_WIDTH } = await import("../../src/ba_modding_toolkit/web/js/import-layout.js");
+const { frameOutline } = await import("../../src/ba_modding_toolkit/web/js/row-thumbnail.js");
 const { ROW_W: OPTION_WIDTH, rowBase, radioRow } = await import("../../src/ba_modding_toolkit/web/js/settings-rows.js");
 const { S } = await import("../../src/ba_modding_toolkit/web/js/util.js");
 const { createImportState } = await import("../../src/ba_modding_toolkit/web/js/import-state.js");
@@ -117,7 +118,8 @@ async function fixture({ licensed = false, native = true, suggest, countIcons = 
   const label = (text, fontSize, color, w_, h_, opts = {}) => ({ text, fontSize, color, w_, h_, pivot: 4, depth: 9, ...opts });
   const ui = { node, label, fitText: (text, fs) => ({ text, fs }), glyphWidth: (text, fs) => String(text).length * fs, init: async () => {},
     layout: async (name) => { loaded.push(name); assert.ok(layouts[name], `Unexpected layout ${name}`); return layouts[name]; },
-    atlasIndex: () => countIcons ? { Common: Object.fromEntries(["Student", "Play", "Craft"].map((name) => [`Common_Icon_${name}`, { width: 48, height: 48 }])) } : {},
+    atlasIndex: () => ({ Common: { Card_Select_Line: FRAME_META, ...(countIcons ? Object.fromEntries(["Student", "Play", "Craft"].map((name) => [`Common_Icon_${name}`, { width: 48, height: 48 }])) : {}) } }),
+    spritePixels: async () => framePixels(),
     find, render: async (tree, host, opts) => {
       rendered.push({ tree, opts, host }); const view = await renderImportTree(tree, host, opts);
       if (renderHold?.predicate(tree)) { const hold = renderHold; renderHold = null; await hold.promise; }
@@ -529,7 +531,7 @@ test("analysis holds the page through generated stills and never flashes catalog
   for (const { opts } of textures) for (const source of Object.values(opts.textures)) assert.equal(await source, null);
   gate.resolve("blob:generated-still"); await h.page.settled(); await flush();
   assert.equal(image.dataset.source, "blob:generated-still");
-  assert.equal(image.firstElementChild.style.backgroundSize, "cover"); assert.equal(image.style.clipPath, undefined);
+  assert.equal(image.firstElementChild.style.backgroundSize, "cover"); assert.equal(image.style.clipPath, "polygon(0% 0%, 100% 0%, 100% 100%, 0% 100%)");
   for (const preview of h.host.querySelectorAll(".import-preview-image")) assert.equal(preview.style.backgroundPosition, "center top");
   assert.ok(!h.holds.some((hold) => hold.active));
 });
@@ -553,7 +555,7 @@ for (const wideFrame of [false, true]) test(`list and result text clears every t
   const gapOf = (row) => {
     const image = row.querySelector(".import-thumb"), [x, y, , height] = rectOf(image);
     assert.ok((wideFrame || x >= 0) && y >= 0 && y + height <= parseFloat(row.style.height || "216"));
-    assert.equal(image.style.overflow, "hidden"); assert.equal(image.style.clipPath, undefined);
+    assert.equal(image.style.overflow, "hidden"); assert.equal(image.style.clipPath, "polygon(0% 0%, 100% 0%, 100% 100%, 0% 100%)");
     const slot = artworkBounds(h, row, (path) => /\/BG_Icon(?:\/|$)/.test(path));
     const selection = row.querySelector(".import-selection");
     if (selection) for (const box of artworkBounds(h, selection)) {
@@ -577,7 +579,7 @@ for (const wideFrame of [false, true]) test(`list and result text clears every t
   h.runs[0].resolve({ results: [converting, entry("b")].map((item) => ({ id: item.id, outcome: "imported", libraryId: `lib-${item.id}`, applied: true })) });
   await flush(); await h.page.results(); await h.page.settled();
   const resultGap = Math.min(...walk(h.dialog).filter((row) => row.dataset.result).map(gapOf));
-  assert.ok(listGap >= 32); assert.ok(resultGap >= 32);
+  assert.ok(listGap >= 32 - 1e-8); assert.ok(resultGap >= 32 - 1e-8);
   t.diagnostic(`Minimum rendered gap: list ${listGap.toFixed(2)} px; results ${resultGap.toFixed(2)} px`);
 });
 
@@ -1235,20 +1237,23 @@ test("portrait comparisons are vertical side by side; lobbies are landscape with
 });
 
 
-test("list and result pictures fill the same inclined rounded prefab window in selected and unselected rows", async () => {
+test("list and result pictures use the same sharp inner parallelogram in selected and unselected rows", async () => {
   const h = await fixture({ licensed: true });
   const frame = find(h.layouts.UINonEquipmentInventoryListItem, "Card/Normal/Cover_Select");
   Object.assign(frame.widgets[0], { w_: 246, h_: 228, incline: 12, radius: 27 });
-  await h.analyze([entry("a"), entry("b")]);
-  const expected = selectionWindow({ ...frame, pos: [0, 0] });
+  await h.analyze([entry("a"), entry("b"), entry("c", "installed")]);
+  const expected = selectionWindow({ ...frame, pos: [0, 0] }, { Common: { Card_Select_Line: FRAME_META } }, frameOutline(framePixels()));
   const check = (row) => {
     const { tree, opts } = drawn(h, row), slot = find(tree, "BG_Icon/Icon_Arona").widgets[0];
     const picture = row.querySelector(".import-thumb"), [x, y, w, height] = rectOf(picture);
-    closeTo(w, 246 * ROW_SELECTION.scale * opts.scale / ROW_SCALE);
-    closeTo(height, 228 * ROW_SELECTION.scale * opts.scale / ROW_SCALE);
+    closeTo(w, expected.width * opts.scale);
+    closeTo(height, expected.height * opts.scale);
+    assert.ok(w < 246 * ROW_SELECTION.scale * opts.scale / ROW_SCALE);
+    assert.ok(height < 228 * ROW_SELECTION.scale * opts.scale / ROW_SCALE);
+    assert.equal(picture.style.clipPath, "polygon(0% 0%, 100% 0%, 100% 100%, 0% 100%)");
     closeTo(x + w / 2, opts.origin[0] + expected.x * opts.scale);
     closeTo(y + height / 2, opts.origin[1] - expected.y * opts.scale);
-    assert.equal(slot.incline, 12); closeTo(slot.radius, 27 * ROW_SELECTION.scale / ROW_SCALE);
+    assert.equal(slot.incline, 12); assert.equal(slot.radius, 0, "the thumbnail has four sharp corners");
     closeTo(parseFloat(picture.style.borderRadius), slot.radius * opts.scale);
     assert.equal(picture.style.transform, "skewX(-12deg)");
     assert.equal(picture.firstElementChild.style.transform, "skewX(12deg)", "the subject remains upright");
@@ -1259,17 +1264,25 @@ test("list and result pictures fill the same inclined rounded prefab window in s
     return [w, height, slot.incline, slot.radius];
   };
   assert.deepEqual(check(h.row("a")), check(h.row("b")));
+  assert.deepEqual(check(h.row("a")), check(h.row("c")));
   assert.equal(h.row("b").querySelector(".import-selection").hidden, true);
+  for (const selected of ["b", "a"]) {
+    h.page.model.select(selected); await h.page.settled();
+    assert.equal(h.row(selected).querySelector(".import-selection").hidden, false);
+    assert.equal(h.row(selected === "a" ? "b" : "a").querySelector(".import-selection").hidden, true);
+    assert.deepEqual(check(h.row("a")), check(h.row("b")), "selection only changes the frame's visibility");
+  }
   await h.action("start").click(); await flush();
   h.runs[0].resolve({ results: ["a", "b"].map((id) => ({ id, outcome: "imported", libraryId: `lib-${id}` })) });
   await flush(); await h.page.results(); await h.page.settled();
   for (const row of walk(h.dialog).filter((el) => el.dataset.result)) check(row);
 });
 
-test("selection corner radius comes from the frame's atlas slices when the widget has no explicit radius", () => {
+test("atlas slice cuts never become the thumbnail corner radius", () => {
   const frame = { name: "Frame", active: true, pos: [0, 0], scale: [1, 1], widgets: [{ sprite: "Frame", atlas: "Items", w_: 240, h_: 220, incline: 9 }], children: [] };
-  const win = selectionWindow(frame, { Items: { Frame: { borderLeft: 16, borderRight: 18, borderTop: 20, borderBottom: 14 } } });
-  closeTo(win.radius, 20 * ROW_SELECTION.scale / ROW_SCALE); assert.equal(win.incline, 9);
+  const win = selectionWindow(frame, { Items: { Frame: FRAME_META } }, frameOutline(framePixels()));
+  assert.equal(win.radius, 0); assert.equal(win.incline, 9);
+  assert.equal(win.clipPolygon.length, 4);
 });
 
 for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) test(`merged and result row kinds share the metadata font and top line in ${locale}`, async () => {
@@ -1375,4 +1388,23 @@ for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) tes
       }
     }
   } finally { setStrings("en-US", flatten(JSON.parse(readFileSync(new URL("../../src/ba_modding_toolkit/locales/en-US.json", import.meta.url))))); }
+});
+
+
+test("nested selection widgets retain their derived picture position and draw above its edges", async () => {
+  const h = await fixture({ licensed: true });
+  const frame = find(h.layouts.UINonEquipmentInventoryListItem, "Card/Normal/Cover_Select"), w = frame.widgets[0];
+  frame.widgets = []; frame.children = [{ name: "Border", active: true, pos: [6, -3], scale: [.8, 1.2],
+    widgets: [{ ...w, pivot: 1, incline: 13 }], children: [] }];
+  await h.analyze([entry("a"), entry("b")]);
+  const expected = selectionWindow({ ...frame, pos: [0, 0] }, { Common: { Card_Select_Line: FRAME_META } }, frameOutline(framePixels()));
+  for (const id of ["a", "b"]) {
+    const row = h.row(id), { opts } = drawn(h, row);
+    const [x, y, width, height] = rectOf(row.querySelector(".import-thumb"));
+    closeTo(x + width / 2, opts.origin[0] + expected.x * opts.scale);
+    closeTo(y + height / 2, opts.origin[1] - expected.y * opts.scale);
+  }
+  const css = readFileSync(new URL("../../src/ba_modding_toolkit/web/css/app.css", import.meta.url), "utf8");
+  const z = (name) => Number(new RegExp(`\\.${name} \\{[^}]*z-index: ([0-9]+)`).exec(css)?.[1]);
+  assert.ok(z("import-selection") > z("import-art"), "the game frame covers the picture's border");
 });

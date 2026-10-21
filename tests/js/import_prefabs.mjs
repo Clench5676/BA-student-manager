@@ -1,6 +1,19 @@
 // Authored stand-ins for the runtime layout contract, not exported game trees or assets.
 // Marker fields prove that the page preserves the prefab widgets rather than rebuilding them from sprite names.
 export const node = (name, pos = [0, 0], widgets = [], children = []) => ({ name, active: true, pos, widgets, children, scale: [1, 1] });
+export const FRAME_META = { width: 64, height: 64, borderLeft: 16, borderRight: 16, borderTop: 16, borderBottom: 16 };
+export function framePixels() {
+  const data = new Uint8ClampedArray(64 * 64 * 4);
+  const rounded = (x, y, a, b, radius) => {
+    const cx = Math.max(a + radius, Math.min(b - radius, x));
+    const cy = Math.max(a + radius, Math.min(b - radius, y));
+    return x >= a && y >= a && x <= b && y <= b && (x - cx) ** 2 + (y - cy) ** 2 <= radius ** 2;
+  };
+  for (let y = 0; y < 64; y++) for (let x = 0; x < 64; x++) {
+    if (rounded(x + .5, y + .5, 0, 64, 16) && !rounded(x + .5, y + .5, 8, 56, 8)) data[(y * 64 + x) * 4 + 3] = 255;
+  }
+  return { width: 64, height: 64, data };
+}
 const sprite = (name, w_ = 100, h_ = 100, extra = {}) => ({ sprite: name, w_, h_, pivot: 4, color: "#ffffff/1.00", depth: 7, prefabMarker: true, ...extra });
 const label = (name, text = "sample", extra = {}) => node(name, [0, 0], [{ text, fontSize: 48, w_: 800, h_: 60, pivot: 4, color: "#2c4663/1.00", depth: 22, prefabMarker: true, ...extra }]);
 const image = (name) => node(name, [0, 0], [{ texture: "stand-in", w_: 304, h_: 321, color: "#ffffff/1.00", prefabMarker: true }]);
@@ -85,7 +98,7 @@ export function makeImportLayouts() {
     node("Bg", [-50, 0], [sprite("Common_line_10px", 100, 100, { pivot: 3 })]), node("CheckBoxIcon", [0, 0], [sprite("Common_Icon_Check_B", 82, 80)]), node("CheckBoxIcon_Disable", [0, 0], [sprite("Common_Icon_Check_B", 82, 80, { color: "#96aac3/0.66" })]),
   ]));
   insert(fs, "Center/Popup/Sort/Scroll View/Sort_Normal/Option_Normal/Grid/UISortObjectListUnit/Label_Text", node("Label_Text", [0, 0], [], [node("BG", [0, 0], [sprite("Common_Btn_Radio_BG", 60, 60)]), node("On", [0, 0], [sprite("Common_Btn_Radio_On", 60, 60)], [label("Label_On")]), label("Label_On"), node("Line", [0, -87], [sprite("Common_Square_Bg", 504, 4)])]));
-  const item = node("UINonEquipmentInventoryListItem", [0, 0], [], [node("Card", [0, 0], [], [node("Normal", [0, 0], [], [node("Cover_Select", [0, -0.6], [sprite("Card_Select_Line", 240, 220)], [{ name: "Bare", active: true, pos: [0, 0], scale: [1, 1], widgets: [] }])])])]);
+  const item = node("UINonEquipmentInventoryListItem", [0, 0], [], [node("Card", [0, 0], [], [node("Normal", [0, 0], [], [node("Cover_Select", [0, -0.6], [sprite("Card_Select_Line", 240, 220, { type: 1, incline: 10 })], [{ name: "Bare", active: true, pos: [0, 0], scale: [1, 1], widgets: [] }])])])]);
   const state = (name) => node(name, [178, -3.2], [], [node("Check", [-120, 8], [sprite(`Check_${name}`, 74, 72)]), label("Caption")]);
   const caption = label("Locale_Text", "unowned", { pivot: 3, color: "#484e52/1.00" }); caption.pos = [131, 2.8];
   const toggle = node("UIPopup_GachaCharList.Btn_Checkbox", [-1385, 598], [sprite("Common_Toggle_BG", 798, 110, { pivot: 3 })],
@@ -111,6 +124,7 @@ export async function renderImportTree(tree, host, { scale = 1, origin = [0, 0] 
         width: `${w.w_ * sx * scale}px`, height: `${w.h_ * sy * scale}px` });
       if ("clipImage" in w) {
         Object.assign(e.style, { overflow: "hidden", borderRadius: `${w.radius * sy * scale}px`, transform: `skewX(${-w.incline}deg)` });
+        if (w.clipPolygon) e.style.clipPath = `polygon(${w.clipPolygon.map(([x, y]) => `${x * 100}% ${y * 100}%`).join(", ")})`;
         const picture = document.createElement("div");
         Object.assign(picture.style, { left: w.imgLeft, width: w.imgWidth, height: w.imgHeight,
           backgroundSize: w.imgSize, backgroundPosition: w.imgPosition, transform: `skewX(${w.incline}deg)` });

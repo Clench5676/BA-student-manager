@@ -10,6 +10,7 @@ import { clipButtonPatterns } from "./button-layout.js";
 import { spriteUrl } from "./api.js";
 import { decodeAll, imageUrls } from "./image-decode.js";
 import { withTimeout } from "./async.js";
+import { spriteBorders, sliceAxis } from "./sprite-slices.js";
 
 const PIVX = [0, 0.5, 1, 0, 0.5, 1, 0, 0.5, 1];
 const PIVY = [0, 0, 0, 0.5, 0.5, 0.5, 1, 1, 1]; // fraction of the height above the pivot
@@ -102,6 +103,14 @@ export function load(url, { signal } = {}) {
   return images.get(url);
 }
 
+export async function spritePixels(widget) {
+  const img = await load(spriteUrl(widget.atlas || "Common", widget.sprite));
+  const canvas = document.createElement("canvas");
+  canvas.width = img.naturalWidth; canvas.height = img.naturalHeight;
+  const context = canvas.getContext("2d"); context.drawImage(img, 0, 0);
+  return context.getImageData(0, 0, canvas.width, canvas.height);
+}
+
 // canvases become in-memory blob URLs (never written anywhere)
 const canvasUrl = (c) => withTimeout(new Promise((resolve) => c.toBlob((b) => resolve(b ? URL.createObjectURL(b) : c.toDataURL()))), 15000, "UI image encoding");
 
@@ -150,19 +159,14 @@ function slicedImage(url, b, wpx, hpx, bs) {
   const key = `${url}|${b.join(",")}|${wpx.toFixed(1)}x${hpx.toFixed(1)}|${bs.toFixed(3)}`;
   if (!baked.has(key)) {
     baked.set(key, load(url).then((img) => {
-      const k = 2, W = Math.max(1, Math.round(wpx * k)), H = Math.max(1, Math.round(hpx * k));
+      const [t, r, bo, l] = b, sw = img.naturalWidth, sh = img.naturalHeight;
+      const horizontal = sliceAxis(sw, l, r, wpx, bs), vertical = sliceAxis(sh, t, bo, hpx, bs);
+      const W = horizontal.size, H = vertical.size;
       const c = document.createElement("canvas");
       c.width = W; c.height = H;
       const g = c.getContext("2d");
       g.imageSmoothingQuality = "high";
-      const [t, r, bo, l] = b, sw = img.naturalWidth, sh = img.naturalHeight;
-      // destination borders: sprite pixels times the stage scale, shrunk together if they overlap
-      let dl = l * bs * k, dr = r * bs * k, dt = t * bs * k, db = bo * bs * k;
-      if (dl + dr > W) { const f = W / (dl + dr); dl *= f; dr *= f; }
-      if (dt + db > H) { const f = H / (dt + db); dt *= f; db *= f; }
-      dl = Math.round(dl); dr = Math.round(dr); dt = Math.round(dt); db = Math.round(db);
-      const xs = [[0, l, 0, dl], [l, sw - r, dl, W - dr], [sw - r, sw, W - dr, W]];
-      const ys = [[0, t, 0, dt], [t, sh - bo, dt, H - db], [sh - bo, sh, H - db, H]];
+      const xs = horizontal.spans, ys = vertical.spans;
       for (const [sx0, sx1, dx0, dx1] of xs) {
         for (const [sy0, sy1, dy0, dy1] of ys) {
           if (sx1 <= sx0 || sy1 <= sy0 || dx1 <= dx0 || dy1 <= dy0) continue;
@@ -278,6 +282,7 @@ export async function render(tree, host, opts = {}) {
       // an upright picture in a sheared, rounded window (stands in for NGUI panel clipping)
       const r = (w.radius || 0) * S * Math.abs(sy);
       Object.assign(el.style, { overflow: "hidden", borderRadius: `${r.toFixed(1)}px` });
+      if (w.clipPolygon) el.style.clipPath = `polygon(${w.clipPolygon.map(([x, y]) => `${x * 100}% ${y * 100}%`).join(", ")})`;
       const pic = document.createElement("div");
       const inc = w.incline || 0;
       Object.assign(pic.style, {
@@ -347,13 +352,7 @@ export async function render(tree, host, opts = {}) {
         }
         const tintedUrl = await tinted(spriteUrl(atlas, w.sprite), col.hex);
         const url = w.gradient ? await gradientTint(tintedUrl, w.gradient) : tintedUrl;
-        const b = [meta.borderTop, meta.borderRight, meta.borderBottom, meta.borderLeft].map((v) => v || 0);
-        // like NGUI, shrink borders that overlap (e.g. 30 + 30 on a 55 px sprite) so the centre survives
-        const fitB = (i, j, size) => {
-          if (b[i] + b[j] >= size) { const f = (size - 1) / (b[i] + b[j]); b[i] = Math.floor(b[i] * f); b[j] = Math.floor(b[j] * f); }
-        };
-        fitB(0, 2, meta.height);
-        fitB(1, 3, meta.width);
+        const b = spriteBorders(meta);
         if (w.type === 1 && b.some(Boolean)) {
           return slicedImage(url, b, ww * S, hh * S, S * Math.min(Math.abs(sx), Math.abs(sy))).then((img) => {
             Object.assign(el.style, { backgroundImage: `url("${img}")`, backgroundSize: "100% 100%", backgroundRepeat: "no-repeat" });
