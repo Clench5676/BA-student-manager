@@ -361,6 +361,7 @@ input[type="text"], input[type="search"], textarea { cursor: text; }
 .loading-progress { position: absolute; left: 84px; bottom: 44px; max-width: 1000px;
   color: #fff; font-size: 26px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; pointer-events: none; }
+.loading-progress.prefab-label { inset: 0; max-width: none; overflow: visible; background: none; }
 .loading-fallback i { width: 11px; height: 11px; margin-bottom: 5px; border-radius: 50%; background: #8de4ff;
   box-shadow: 0 0 0 1px #fff, 0 3px 0 2px #2c445c; animation: ld-dot0 1.1667s ease-in-out infinite; }
 .loading-fallback i:nth-of-type(2) { animation-name: ld-dot1; }

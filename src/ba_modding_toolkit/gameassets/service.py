@@ -32,8 +32,8 @@ from .unity import find_object, object_record, open_bundle, reference, ref_key
 logger = logging.getLogger(__name__)
 _SCHEMA = "gameassets-v1/"
 # The layout export's format, part of each cached layout's key: raise it whenever export_layout's output changes, so
-# layouts cached in an older format are rebuilt and no other cached asset is dropped (v2: state controllers' nodes)
-_LAYOUT = "layout-v2/"
+# layouts cached in an older format are rebuilt and no other cached asset is dropped (v3: label effect colours and distances)
+_LAYOUT = "layout-v3/"
 _ATLASES = "atlases-v2/"
 # One model export at a time in the process: an export holds the path locks of every bundle it reads
 _MODEL_LOCK = threading.Lock()

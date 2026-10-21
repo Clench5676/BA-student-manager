@@ -7,10 +7,11 @@
 // work goes on. wait(promise) shades the edges of the current screen for an in-page wait. There is one
 // page overlay at a time; a newer call takes over the one on screen instead of flashing a new one.
 // Writer progress has its own indicator and lifetime, independent of page changes.
+import { loadingLabel } from "./ngui-label.js";
 import * as NGUI from "./ngui.js";
 import * as Popup from "./popup.js";
 import { T } from "./i18n.js";
-import { S, toast } from "./util.js";
+import { S } from "./util.js";
 
 const STAGE_UNITS_H = 1080 / S; // 1665 units: the stage is taller than the prefabs' 2960 x 1440 frame
 const FADE_BLACK = 150;         // a scene first fades to black; work done by then fades straight back
@@ -33,7 +34,7 @@ function track(promise) {
   work.then(finish, finish);
   return work;
 }
-let repeater = null, shade = null, geometry = null;
+let repeater = null, loadingTree = null, shade = null, geometry = null;
 const initialCover = document.getElementById("loading-boot");
 let styled = !!initialCover && !initialCover.classList.contains("neutral"), assetsAllowed = styled;
 let firstLoading = null;
@@ -48,6 +49,8 @@ export function init(info) {
   for (const o of [overlay, writerOverlay]) if (o && !o.done) decorate(o);
   if (!assetsAllowed || !info?.gameFound) return;
   NGUI.layout("UILoading").then((tree) => {
+    loadingTree = tree;
+    for (const o of [overlay, writerOverlay]) if (o) renderProgress(o).catch(() => {});
     const back = NGUI.find(tree, "BlackBG")?.widgets.find((w) => "color" in w)?.color;
     geometry = { back: back ? back.split("/")[0] : "#000000" };
     if (overlay) overlay.el.querySelector(".loading-back").style.background = geometry.back;
@@ -90,8 +93,7 @@ export async function task(run, { label = null } = {}) {
   const update = (value = latest) => {
     if (my !== writerGen || o !== writerOverlay) return;
     latest = value;
-    detail.textContent = progressText(value, label || undefined);
-    o.el.setAttribute("aria-label", detail.textContent);
+    setProgress(o, progressText(value, label || undefined));
   };
   o.relabelProgress = () => update();
   update();
@@ -137,8 +139,7 @@ function open(mode, opaque = false, writer = false) {
     const detail = document.createElement("div"); detail.className = "loading-progress";
     o.el.appendChild(detail); o.progress = detail;
     o.relabelProgress = () => {
-      detail.textContent = [...holds].reverse().find((hold) => hold.progress)?.progress() || o.waitLabel || T("app.loading");
-      o.el.setAttribute("aria-label", detail.textContent);
+      setProgress(o, [...holds].reverse().find((hold) => hold.progress)?.progress() || o.waitLabel || T("app.loading"));
     };
     o.relabelProgress();
   }
@@ -149,6 +150,25 @@ function open(mode, opaque = false, writer = false) {
 export function refresh() {
   for (const o of [overlay, writerOverlay]) o?.relabelProgress?.();
   if (overlay) overlay.el.style.visibility = overlay.mode === "indicator" && writerOverlay && !writerOverlay.closing ? "hidden" : "";
+}
+
+function setProgress(o, text) {
+  o.progressText = text;
+  o.el.setAttribute("aria-label", text);
+  if (!o.progressTree) o.progress.textContent = text;
+  renderProgress(o).catch(() => {});
+}
+async function renderProgress(o) {
+  if (!assetsAllowed || !o.progress || !o.repeaterTree || o.closing) return;
+  const tree = loadingLabel(o.repeaterTree, loadingTree, o.progressText || "", S);
+  if (!tree) return;
+  const token = o.progressVersion = (o.progressVersion || 0) + 1;
+  const next = document.createElement("div");
+  await NGUI.render(tree, next, { scale: S, origin: [0, 0] });
+  if (token !== o.progressVersion || o.closing || o.done) return;
+  o.progressTree = tree;
+  o.progress.classList.add("prefab-label");
+  o.progress.replaceChildren(...next.childNodes);
 }
 
 // resolves in the first frame the overlay is fully black (the fade may start late on a busy page, so it is watched,
@@ -253,6 +273,8 @@ async function upgrade(o) {
   const widgets = [...next.querySelectorAll(".ngui")];
   // NGUI keeps hit geometry after image failures; it must not replace the fallback with empty widgets.
   if (!decoded || !widgets.length || widgets.some((el) => !el.style.backgroundImage && !el.textContent)) { o.sprites = false; return; }
+  o.repeaterTree = tree;
+  renderProgress(o).catch(() => {});
   o.ind.replaceChildren(next);
   styled = true;
   o.plain = false;
@@ -286,7 +308,6 @@ export async function scene(fn, { opaque = false, until = null } = {}) {
   const o = cover(opaque);
   const covered = whenOpaque(o);
   let failed = false, error = null, result;
-  const timer = setTimeout(() => { if (my === gen && !o.done) toast(T("loading.slow")); }, HARD_CAP);
   covered.then(() => { if (my === gen && !o.done) decorate(o); });
   try {
     const work = Promise.resolve().then(() => fn(covered));
@@ -295,7 +316,6 @@ export async function scene(fn, { opaque = false, until = null } = {}) {
     failed = true;
     error = err;
   }
-  clearTimeout(timer);
   if (my === gen) {
     o.done = true;
     if (o === overlay && !o.closing) await close(o);
@@ -334,7 +354,6 @@ export async function wait(promise, { label: text = null, cap = HARD_CAP, immedi
   clearTimeout(timer);
   const o = overlay;
   if (my === gen && o && !o.closing && o.mode === "indicator" && !(o.holdOwned && held())) {
-    if (timedOut) toast(T("loading.slow"));
     const left = immediate ? 0 : WAIT_MIN - (performance.now() - o.shownAt);
     const finish = () => { if (my === gen && o === overlay && !o.closing) close(o); };
     if (left > 0) sleep(left).then(finish); else finish();

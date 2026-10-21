@@ -984,3 +984,15 @@ def test_real_lobby_menu_disabled_look(real_game):
         assert (icon["sprite"], icon["color"], normal["color"]) == (normal["sprite"], "#797979/1.00", "#ffffff/1.00")
         assert subtree(disabled, "Lock")["widgets"][0]["sprite"] == "Common_Icon_Lock"
         assert "text" in subtree(entry, "Label")["widgets"][0]
+
+
+def test_layout_exports_loading_label_effect_colour_and_distance():
+    tree = export_layout(_fake_prefab({1: ("Root", 0), 2: ("Tip", 1)}, [
+        (100, 2, "UILabel", {"mText": "Loading", "mFontSize": 46, "mEffectStyle": 2,
+                             "mEffectColor": {"r": 0.1, "g": 0.2, "b": 0.3, "a": 0.9},
+                             "mEffectDistance": {"x": 2, "y": -3}}),
+    ]), "Root", {})
+    label = subtree(tree, "Tip")["widgets"][0]
+    assert label["effect"] == 2
+    assert label["effectColor"] == "#1a334c/0.90"
+    assert label["effectDistance"] == [2, -3]

@@ -5,6 +5,7 @@
 //   - textures: the game's UITexture images, or per-node overrides
 //   - labels: plain text in the page font, sized from the label's font size (italic: a placeholder's slant)
 // Depth becomes z-index; NGUI y points up, the stage's y points down.
+import { labelEffect } from "./ngui-label.js";
 import { clipButtonPatterns } from "./button-layout.js";
 import { spriteUrl } from "./api.js";
 import { decodeAll, imageUrls } from "./image-decode.js";
@@ -294,6 +295,7 @@ export async function render(tree, host, opts = {}) {
         justifyContent: { left: "flex-start", center: "center", right: "flex-end", justify: "center" }[align],
         color: col.hex, fontSize: `${(fontSizeFor(text, w.fontSize || 40) * sy * S).toFixed(2)}px`, lineHeight: "1.15", whiteSpace: "pre", textAlign: align,
         fontStyle: w.italic ? "italic" : "",
+        textShadow: labelEffect(w, sy * S),
         paddingBottom: `${(fontSizeFor(text, w.fontSize || 40) * sy * S * (isLatin(text) ? LATIN_LIFT : GLYPH_LIFT) * 2).toFixed(2)}px`,
       });
       if (w.lang) el.lang = w.lang; // text in another language than the page's draws with its fonts (app.css)

@@ -1,3 +1,4 @@
+import { loadingLabel } from "../../src/ba_modding_toolkit/web/js/ngui-label.js";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
@@ -17,11 +18,14 @@ class El {
       contains: (name) => this.className.split(" ").includes(name),
     };
   }
+  get childNodes() { return [...this.children]; }
+  get textContent() { return (this._text || "") + this.children.map((el) => el.textContent).join(""); }
+  set textContent(value) { this.replaceChildren(); this._text = String(value); }
   get isConnected() { return !!this.parentNode; }
   get firstChild() { return this.children[0]; }
   appendChild(el) { el.remove(); this.children.push(el); el.parentNode = this; return el; }
   remove() { if (this.parentNode) this.parentNode.children = this.parentNode.children.filter((el) => el !== this); this.parentNode = null; }
-  replaceChildren(...children) { for (const el of [...this.children]) el.remove(); for (const el of children) this.appendChild(el); }
+  replaceChildren(...children) { this._text = ""; for (const el of [...this.children]) el.remove(); for (const el of children) this.appendChild(el); }
   set innerHTML(html) {
     this.replaceChildren();
     if (html.includes('class="loading-back"')) {
@@ -49,7 +53,7 @@ class El {
   }
 }
 
-async function harness({ locale = "en-US", translated = true, render = "ready", decoded = true, boot = false, consent = true, uiCached = false, infoReady = true, edges = false } = {}) {
+async function harness({ locale = "en-US", translated = true, render = "ready", decoded = true, boot = false, consent = true, uiCached = false, infoReady = true, edges = false, prefabLabels = false } = {}) {
   const stage = new El(), sprites = deferred(), timers = new Map(), assets = [], drawn = [];
   const gradient = { name: "Bg", pos: [234, -180], scale: [1, 1], children: [], widgets: [{ sprite: "Common_Bg_Gradation_5px", color: "#032650/0.90", w_: 348, h_: 540, pivot: 1 }] };
   let now = 0, timerId = 0;
@@ -69,18 +73,22 @@ async function harness({ locale = "en-US", translated = true, render = "ready", 
     performance: { now: () => now }, getComputedStyle: () => ({ opacity: "1" }),
     setTimeout: (fn, ms) => { const id = ++timerId; timers.set(id, { at: now + ms, fn }); return id; },
     clearTimeout: (id) => timers.delete(id), requestAnimationFrame: (fn) => fn(),
-    T, S: 1, toast() {},
-    NGUI: { find: (_tree, path) => edges && path.endsWith("CharCombatStyleAniwidget/Bg") ? gradient : null, init: () => { assets.push("indexes"); return sprites.promise; }, layout: async (name) => { assets.push(name); return {}; }, decoded: async () => decoded, render: async (tree, host) => {
+    T, S: 1, loadingLabel,
+    NGUI: { find: (_tree, path) => edges && path.endsWith("CharCombatStyleAniwidget/Bg") ? gradient : null, init: () => { assets.push("indexes"); return sprites.promise; }, layout: async (name) => { assets.push(name); return prefabLabels && name === "UIRepeater" ? {
+      name: "UIRepeater", active: true, pos: [0, 0], scale: [1, 1], widgets: [], children: [{ name: "Loading", active: true,
+        pos: [900, -600], scale: [1, 1], children: [], widgets: [{ text: "Now Loading", fontSize: 46, w_: 300, h_: 70, pivot: 4,
+          effect: 2, color: "#ffffff/1.00", effectColor: "#123456/0.90", effectDistance: [2, -3] }] }] } : {}; }, decoded: async () => decoded, render: async (tree, host) => {
       drawn.push(tree);
       if (render === "reject") throw new Error("Missing atlas");
       if (render === "empty") return;
       const el = new El(); el.className = "ngui";
+      if (tree.name === "Progress") el.textContent = tree.widgets[0].text;
       if (render === "ready") el.style.backgroundImage = 'url("sprite.png")';
       host.appendChild(el);
     } },
   };
   globalThis.loadingDeps = d;
-  const code = `const {document,performance,setTimeout,clearTimeout,requestAnimationFrame,getComputedStyle,NGUI,T,S,toast} = globalThis.loadingDeps;\n${source.replace(/^import .*;$/gm, "")}\n// ${seq++}`;
+  const code = `const {document,performance,setTimeout,clearTimeout,requestAnimationFrame,getComputedStyle,NGUI,T,S,loadingLabel} = globalThis.loadingDeps;\n${source.replace(/^import .*;$/gm, "")}\n// ${seq++}`;
   const loading = await import(`data:text/javascript;base64,${Buffer.from(code).toString("base64")}`);
   if (infoReady) loading.init({ consent, uiCached, gameFound: true });
   const advance = async (ms) => {
@@ -444,4 +452,20 @@ test("a route taking over a suppressed page indicator remains visible during an 
   assert.equal(h.loading.covering(), true); assert.equal(indicator.style.visibility, "");
   route.resolve(); work.resolve(); writer.resolve(); await flush(); await h.advance(300);
   await Promise.all([held, writing, navigating]);
+});
+
+
+test("live in-page progress upgrades to the actual NGUI loading label and retains its effect on updates", async () => {
+  const h = await harness({ prefabLabels: true }), work = deferred();
+  let value = "Adding Mods 1 / 2";
+  const done = h.loading.hold(() => work.promise, { progress: () => value });
+  await flush(); h.sprites.resolve(); await flush(); await flush();
+  const label = h.stage.children[0].querySelector(".loading-progress");
+  assert.ok(label.classList.contains("prefab-label"));
+  assert.equal(label.textContent, value);
+  const first = h.drawn.find((tree) => tree.name === "Progress").widgets[0];
+  assert.equal(first.effectColor, "#123456/0.90"); assert.deepEqual(first.effectDistance, [2, -3]);
+  value = "Adding Mods 2 / 2"; h.loading.refresh(); await flush();
+  assert.equal(label.textContent, value);
+  work.resolve(); await done;
 });

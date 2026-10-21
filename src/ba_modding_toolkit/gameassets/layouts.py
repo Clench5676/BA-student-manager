@@ -44,6 +44,14 @@ def _widget(obj: ObjectReader, tree: dict, names: dict[str, str], scripts: dict)
         widget.update(text=tree["mText"][:60], fontSize=tree.get("mFontSize"),
                       overflow=tree.get("mOverflow"), align=tree.get("mAlignment"),
                       spacingX=tree.get("mSpacingX"), effect=tree.get("mEffectStyle"))
+        effect_color = tree.get("mEffectColor")
+        if effect_color:
+            widget["effectColor"] = "#%02x%02x%02x/%.2f" % (
+                round(effect_color["r"] * 255), round(effect_color["g"] * 255),
+                round(effect_color["b"] * 255), effect_color["a"])
+        distance = tree.get("mEffectDistance")
+        if distance:
+            widget["effectDistance"] = [distance["x"], distance["y"]]
     if "mWidth" in tree:
         color = tree.get("mColor")
         widget.update(w_=tree["mWidth"], h_=tree["mHeight"], pivot=tree.get("mPivot"),
