@@ -888,7 +888,8 @@
 			"extract": "资源提取",
 			"adb": "ADB 推送",
 			"tools": "工具",
-			"classic": "{label} - 经典界面"
+			"classic": "{label} - 经典界面",
+			"import": "批量导入"
 		},
 		"roster": {
 			"title": "学生名单",
@@ -1401,6 +1402,99 @@
 				"no": "没有 Spine 授权",
 				"required": "Spine 授权未确认",
 				"confirm": "确认授权"
+			}
+		},
+		"import": {
+			"list": "导入清单",
+			"count": "{n} 个 Mod",
+			"addFiles": "添加文件",
+			"addFolder": "添加文件夹",
+			"search": "名称、ID、文件名",
+			"filter": "导入状态",
+			"filterCount": "{state}（{n}）",
+			"all": "全选",
+			"none": "取消全选",
+			"remove": "移除",
+			"clear": "清空",
+			"recheck": "重新检查",
+			"action": "导入（{n}）",
+			"results": "查看结果",
+			"choose": "选择 Mod",
+			"select": "选择",
+			"selectNamed": "选择 {name}",
+			"meta": "{id} - {n} 个文件，{size}",
+			"empty": "暂无 Mod",
+			"drop": "添加文件、文件夹，或拖放到此处",
+			"noMatch": "未找到 Mod",
+			"current": "当前游戏",
+			"incoming": "待导入 Mod",
+			"previewUnavailable": "暂无预览",
+			"other": "其他",
+			"analyzing": "正在检查",
+			"picking": "选择文件",
+			"saving": "正在保存",
+			"failed": "导入失败",
+			"confirm": "确认导入",
+			"confirmCount": "{state}：{n} 个",
+			"recursive": "包含子文件夹",
+			"progress": "{phase} - {done}/{total} {name}",
+			"complete": "完成：{n}，失败：{failed}",
+			"resultTitle": "导入结果",
+			"mod": "Mod",
+			"detected": "检测状态",
+			"resultLabel": "处理结果",
+			"applied": "已应用",
+			"notApplied": "未应用",
+			"auto": "自动",
+			"original": "原压缩方式",
+			"uncompressed": "不压缩",
+			"state": {
+				"ready": "可导入",
+				"update": "需更新",
+				"library": "已在 Mod 仓库",
+				"installed": "已安装",
+				"blocked": "无法导入"
+			},
+			"reason": {
+				"unreadable": "文件不可读",
+				"no_target": "未找到游戏文件",
+				"conflict": "目标冲突",
+				"spine_version": "Spine 版本不兼容",
+				"unsupported": "不支持的类型"
+			},
+			"phase": {
+				"update": "正在更新",
+				"add": "正在加入 Mod 仓库",
+				"apply": "正在应用 Mod"
+			},
+			"outcome": {
+				"imported": "已加入 Mod 仓库",
+				"updated": "已更新并加入 Mod 仓库",
+				"unchanged": "无变化",
+				"failed": "失败",
+				"skipped": "已跳过"
+			},
+			"options": {
+				"title": "高级选项",
+				"enableAfterImport": "安装后马上启用 Mod",
+				"strategy": "匹配策略",
+				"types": "资源类型",
+				"allTypes": "所有资源类型",
+				"skipUnchanged": "跳过未改变",
+				"crc": "CRC 修正",
+				"compression": "压缩方式",
+				"extraBytes": "额外字节",
+				"backup": "创建备份",
+				"workers": "并行线程数",
+				"output": "输出目录",
+				"bytesHint": "0x 开头为十六进制，其他为 ASCII",
+				"typesRequired": "请选择资源类型",
+				"workersInvalid": "线程数至少为 1"
+			},
+			"strategy": {
+				"cont_name_type": "容器、名称、类型",
+				"path_id": "Path ID",
+				"name_type": "名称、类型"
 			}
 		}
 	}

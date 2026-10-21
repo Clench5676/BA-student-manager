@@ -2,6 +2,7 @@
 // loading screen covers the start and every change of screen until the new one is ready; a change inside the detail
 // screen (a variant chip, the arrows) is covered too, through its first complete frame.
 import * as Consent from "./consent.js";
+import * as BatchImport from "./batch-import.js";
 import * as Cursor from "./cursor.js";
 import * as Detail from "./detail.js";
 import * as Loading from "./loading.js";
@@ -90,6 +91,7 @@ function libraryChanged(data) {
   // An import changes the mod list without changing game files.
   const change = data && !data.mods && Array.isArray(data.cores) ? { cores: data.cores } : null;
   if (change && !change.cores.length) return;
+  BatchImport.invalidate();
   for (const core of change?.cores || []) {
     const kinds = data.kinds?.length ? data.kinds : [/_spr$/i.test(core) ? "spr" : "lobby"];
     for (const kind of kinds) {
@@ -145,7 +147,7 @@ function visited(fam, key) {
 }
 
 function showScreen(name) {
-  for (const id of ["screen-roster", "screen-detail", "screen-message"]) $(id).hidden = id !== `screen-${name}`;
+  for (const id of ["screen-roster", "screen-detail", "screen-import", "screen-message"]) $(id).hidden = id !== `screen-${name}`;
 }
 
 function message(title, hint, actions = []) {
@@ -200,8 +202,23 @@ async function route() {
   const ended = new Promise((resolve) => { endRoute = resolve; });
   const my = ++routeToken;
   const parts = location.hash.replace(/^#\/?/, "").split("/").map(decodeURIComponent);
+  if (parts[0] !== "import") BatchImport.hide();
+  renderNav(parts[0] === "import" ? 1 : 0);
   try {
-    if (parts[0] === "student" && parts[1]) {
+    if (parts[0] === "import") {
+      Roster.hide();
+      await Loading.scene(async (covered) => {
+        await covered;
+        if (my !== routeToken) return;
+        Detail.hide();
+        const data = await roster();
+        if (my !== routeToken) return;
+        await BatchImport.show(ctx, data);
+        if (my !== routeToken) return;
+        showScreen("import");
+        setTitle(T("nav.import"), () => { location.hash = "#/roster"; });
+      }, { until: ended });
+    } else if (parts[0] === "student" && parts[1]) {
       // leaving the list: its cards as shown are the arrows' order
       if (!stepCards && rosterData && !$("screen-roster").hidden) stepCards = Roster.order(rosterData);
       Roster.invalidate();
@@ -318,7 +335,7 @@ async function start() {
   $("fs-exit").setAttribute("aria-label", T("lobby.exit"));
   $("top-option").setAttribute("aria-label", T("settings.button"));
   // subscribed before the no-game screen too, so choosing the game folder elsewhere reaches the page
-  on("config.changed", () => { if (!info.gameFound) { location.reload(); return; } stepCards = null; ctx.invalidateRoster(); route(); });
+  on("config.changed", () => { if (!info.gameFound) { location.reload(); return; } BatchImport.invalidate(); stepCards = null; ctx.invalidateRoster(); route(); });
   on("app.busy", () => toast(T("error.busy"), { kind: "error" }));
   await timed("fonts", () => document.fonts.ready);
   // the bottom bar: its greyed entries hand over to the classic UI (with or without a game folder), their prompt
@@ -351,6 +368,7 @@ async function start() {
   // files dropped on the window are added to the library
   on("drop", async ({ paths }) => {
     try {
+      if (location.hash.replace(/\/$/, "") === "#/import") { await BatchImport.drop(paths); return; }
       const added = await ModAdd.add(paths, Detail.currentVariant());
       if (!(added?.length || added?.added?.length || added?.duplicates?.length || added?.installed?.length)) toast(T("drop.hint"));
       ctx.invalidateRoster();

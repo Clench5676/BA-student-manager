@@ -159,6 +159,7 @@ test("file drops use the student actually shown and refresh after either confirm
     let handler, refreshes = 0, invalidations = 0;
     const env = {
       on: (name, fn) => { assert.equal(name, "drop"); handler = fn; },
+      location: { hash: "#/student/base/base" },
       ModAdd: h.mod, Detail: { currentVariant: () => shown },
       ctx: { invalidateRoster: () => { invalidations++; } }, route: () => { refreshes++; },
       toast: () => assert.fail("a successful drop does not show a hint or error"), T: (key) => key,
@@ -366,7 +367,7 @@ test("drop callers accept report objects for new mods, duplicates and adoption w
   const drop = main.slice(main.indexOf('  on("drop",'), main.indexOf('  $("top-option").addEventListener'));
   for (const report of [{ added: [portrait] }, { duplicates: [portrait] }, { installed: [portrait] }]) {
     let handler, refreshes = 0, invalidations = 0;
-    const env = { on: (_name, fn) => { handler = fn; }, Detail: { currentVariant: () => "base" },
+    const env = { on: (_name, fn) => { handler = fn; }, Detail: { currentVariant: () => "base" }, location: { hash: "#/roster" },
       ctx: { invalidateRoster: () => { invalidations++; } }, route: () => { refreshes++; },
       toast: () => assert.fail("a successful drop has no hint or error"), T: (key) => key,
       ModAdd: { add: async (...args) => { assert.deepEqual(args, [["mod.bundle"], "base"]); return report; } },
