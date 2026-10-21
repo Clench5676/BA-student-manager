@@ -544,16 +544,40 @@ test("leaving during thumbnail generation releases the hold and ignores late pic
   assert.equal(image.dataset.source, undefined);
 });
 
-test("mail thumbnails crop inside the slot and leave a clear gap before text", async () => {
-  const h = await fixture({ licensed: true }); await h.analyze([entry("a")]);
-  const row = h.row("a"), image = row.querySelector(".import-thumb");
-  const [x, y, width, height] = rectOf(image);
-  const title = row.querySelectorAll("div").find((e) => e.dataset.path === "List_01/Label_System");
-  const paragraph = row.querySelectorAll("div").find((e) => e.dataset.path === "List_01/Label_Locale_Received");
-  assert.ok(x >= 0 && y >= 0 && y + height <= 329 * 0.54);
-  assert.ok(parseFloat(title.style.left) - x - width >= 24 * 0.54);
-  assert.ok(parseFloat(paragraph.style.left) - x - width >= 19 * 0.54);
-  assert.equal(image.style.overflow, "hidden"); assert.equal(image.style.clipPath, "inset(0)");
+for (const wideFrame of [false, true]) test(`list and result text clears every thumbnail widget${wideFrame ? " with a wider inclined selection frame" : ""}`, async (t) => {
+  const h = await fixture({ licensed: true });
+  if (wideFrame) Object.assign(find(h.layouts.UINonEquipmentInventoryListItem, "Card/Normal/Cover_Select").widgets[0], { w_: 380, incline: 15 });
+  const converting = { ...entry("a", "convert"), source: { server: "japan", platform: "android" }, target: { server: "global", platform: "windows" } };
+  await h.analyze([converting, entry("b", "update"), entry("c", "installed")]);
+  const gapOf = (row) => {
+    const image = row.querySelector(".import-thumb"), [x, y, , height] = rectOf(image);
+    assert.ok(x >= 0 && y >= 0 && y + height <= parseFloat(row.style.height || "216"));
+    assert.equal(image.style.overflow, "hidden"); assert.equal(image.style.clipPath, "inset(0)");
+    const slot = artworkBounds(h, row, (path) => /\/BG_Icon(?:\/|$)/.test(path));
+    const selection = row.querySelector(".import-selection");
+    if (selection) for (const box of artworkBounds(h, selection)) {
+      slot.push([box[0] + parseFloat(selection.style.left), box[1], box[2] + parseFloat(selection.style.left), box[3]]);
+    }
+    const right = Math.max(...slot.map((box) => box[2]));
+    const text = artworkBounds(h, row, (path) => /\/(Label_System|Label_Locale_Received|Platform|Label_Locale_Limit)$/.test(path));
+    const gap = Math.min(...text.map((box) => box[0])) - right;
+    assert.ok(gap >= 28, `thumbnail-to-text gap: ${gap.toFixed(2)} stage px`);
+    const { tree, opts } = drawn(h, row);
+    assert.equal(find(tree, "BG").widgets[0].w_, 2208);
+    assert.deepEqual(find(tree, "Label_From").pos, [110, -23]);
+    assert.deepEqual(find(tree, "TimeLimit").pos, [605, -23]);
+    const title = text.find((box) => Math.abs(box[2] - (opts.origin[0] + 926 * opts.scale)) < 0.01);
+    assert.ok(title, "the title keeps its right edge");
+    if (selection) closeTo(parseFloat(row.querySelector(".import-check").style.left), 1192.32 - 66);
+    return gap;
+  };
+  const listGap = Math.min(...["a", "b", "c"].map((id) => gapOf(h.row(id))));
+  await h.action("start").click(); await flush();
+  h.runs[0].resolve({ results: [converting, entry("b")].map((item) => ({ id: item.id, outcome: "imported", libraryId: `lib-${item.id}`, applied: true })) });
+  await flush(); await h.page.results(); await h.page.settled();
+  const resultGap = Math.min(...walk(h.dialog).filter((row) => row.dataset.result).map(gapOf));
+  if (!wideFrame) { closeTo(listGap, 35.56); closeTo(resultGap, 54.56); }
+  t.diagnostic(`Minimum rendered gap: list ${listGap.toFixed(2)} px; results ${resultGap.toFixed(2)} px`);
 });
 
 test("both preview tags align to the panel top and both image slots to its header bottom", async () => {
@@ -829,7 +853,8 @@ test("unknown source opens game radio choices and reanalyzes only its entry", as
   const unknown = { ...entry("a", "blocked"), reason: "source_unknown", source: null,
     target: { server: "global", platform: "windows" } };
   await h.analyze([unknown, entry("b")]);
-  assert.match(h.host.textContent, /Unknown Source → Global PC/);
+  assert.match(h.host.textContent, /Unknown Source/);
+  assert.equal(find(drawn(h, h.row("a")).tree, "Platform"), undefined, "an unknown source is not a conversion route");
   assert.ok(h.thumbs.some(([base]) => base.includes("/import/source-a")), "blocked source keeps its preview");
   await h.action("source").click(); await flush(); await h.page.settled();
   assert.match(h.dialog.textContent, /Source Server/); assert.match(h.dialog.textContent, /Source Platform/);
@@ -1003,4 +1028,39 @@ test("conversion is eligible, counted separately, and routes sit below aligned m
   assert.equal(h.action("source").disabled, false, "detected origins remain manually correctable");
   await h.action("filter").click(); await flush(); await h.page.settled();
   assert.match(h.dialog.textContent, /Pending Conversion \(1\)/); assert.match(h.dialog.textContent, /Pending Update \(1\)/);
+});
+
+for (const merged of [false, true]) test(`only conversions reserve a platform line in ${merged ? "merged" : "individual"} list and result rows`, async () => {
+  const h = await fixture(), target = { server: "global", platform: "windows" };
+  const same = { ...entry("a"), source: { ...target, detected: true }, target };
+  const lobby = { ...entry("a-lobby", "update", "lobby"), variant: "a", source: { ...target }, target };
+  const platform = { ...entry("b", "convert"), source: { ...target, platform: "android" }, target };
+  const server = { ...entry("c", "convert"), source: { ...target, server: "japan" }, target };
+  const blocked = { ...entry("d", "blocked"), source: { ...target }, target };
+  await h.analyze([same, lobby, platform, server, blocked]);
+  if (merged) {
+    const merge = h.action("merge").querySelector("input"); merge.checked = true; await merge.dispatch("change"); await h.page.settled();
+  }
+  const check = (row, route) => {
+    const { tree, opts } = drawn(h, row), platform = find(tree, "Platform"), note = find(tree, "Label_Locale_Limit");
+    assert.doesNotMatch(row.textContent, /Global PC → Global PC/);
+    if (route) assert.equal(platform.widgets[0].text, route);
+    else {
+      assert.equal(platform, undefined);
+      assert.ok(row.art.children.every((element) => !element.dataset.path.endsWith("/Platform")));
+      assert.equal(note.pos[0] + note.widgets[0].w_, -140, "the raised note stays in the metadata column");
+    }
+    assert.equal(note.pos[1], route ? -138 : -84, "notes move up into the unused platform line");
+    const graphic = row.art.children.find((element) => element.dataset.path.endsWith("/Label_Locale_Limit"));
+    closeTo(rectOf(graphic)[1], opts.origin[1] - note.pos[1] * opts.scale - note.widgets[0].h_ * opts.scale / 2);
+  };
+  check(h.row("a")); if (!merged) check(h.row("a-lobby")); check(h.row("d"));
+  check(h.row("b"), "Global Android → Global PC"); check(h.row("c"), "Japan PC → Global PC");
+  await h.action("start").click(); await flush();
+  h.runs[0].resolve({ results: [same, lobby, platform, server].map((item) => ({ id: item.id, outcome: "imported", libraryId: `lib-${item.id}`, applied: true })) });
+  await flush(); await h.page.results(); await h.page.settled();
+  for (const row of walk(h.dialog).filter((element) => element.dataset.result)) {
+    check(row, { b: "Global Android → Global PC", c: "Japan PC → Global PC" }[row.dataset.result]);
+    assert.match(row.textContent, /Applied/);
+  }
 });

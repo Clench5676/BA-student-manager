@@ -10,7 +10,18 @@ const DETAIL = `${INVENTORY}/Left_Info/EquipInfo/Equip_Target`;
 const FILTER = "Center/Popup/Filter/ScrollView/Filter_List/Table_List/UIFilterObjectList_1";
 const RADIO = "Center/Popup/Sort/Scroll View/Sort_Normal/Option_Normal/Grid/UISortObjectListUnit/Label_Text";
 export const ROW_SCALE = 0.54, ROW_WIDTH = 2208 * ROW_SCALE, ROW_HEIGHT = 348 * ROW_SCALE;
+export const ROW_SELECTION = { left: 19, top: 8, width: 164, height: 160, scale: 0.68, origin: [82, 80] };
 const rowGap = (ui, layouts) => 348 - ui.find(layouts.UIMailBoxContent, "List_01/BG").widgets.find((w) => "sprite" in w).h_;
+
+// Include child widgets, their pivots and inclined overhangs in the selection frame's drawn edge.
+function rightEdge(node, x = 0, sx = 1, sy = 1) {
+  if (node.active === false) return -Infinity;
+  x += node.pos[0] * sx; sx *= node.scale[0]; sy *= node.scale[1];
+  return Math.max(...node.widgets.filter((w) => "w_" in w).map((w) =>
+    x + (1 - [0, 0.5, 1][(w.pivot ?? 4) % 3]) * w.w_ * sx
+      + Math.abs(Math.tan((w.incline || 0) * Math.PI / 180) * w.h_ * sy / 2)),
+  ...node.children.map((child) => rightEdge(child, x, sx, sy)));
+}
 
 export async function loadImportLayouts(ui) {
   const names = ["UINonEquipmentInventory", "UIMailBox", "UIMailBoxContent", "UIPopup_FilterSort", "UINonEquipmentInventoryListItem",
@@ -35,6 +46,8 @@ export function importArtwork(ui, layouts) {
   const mail = (path) => get("UIMailBox", path);
   const content = (path) => get("UIMailBoxContent", path);
   const filter = (path) => get("UIPopup_FilterSort", path);
+  const selection = () => at(get("UINonEquipmentInventoryListItem",
+    `${layouts.UINonEquipmentInventoryListItem.children[0].name}/Normal/Cover_Select`));
 
   return {
     label,
@@ -189,8 +202,14 @@ export function importArtwork(ui, layouts) {
       // Use a rectangular crop inside the mail icon slot, clear of the inclined card edge and text column.
       Object.assign(slot, { w_: 252, h_: 260, pivot: 4 });
       picture.pos = [0, 0]; picture.scale = [1, 1];
-      ui.find(t, "BG_Icon").pos = [-914, 0];
-      label(ui.find(t, "Label_System"), name, 1688, 1);
+      ui.find(t, "BG_Icon").pos = [-914, 0]; ui.find(t, "BG_Icon").scale = [1, 1];
+      // Reserve 32 stage pixels beyond the entire selected slot, including the real prefab frame.
+      // Preserve each label's right edge so the fixed kind, state and checkbox columns do not move.
+      const frameRight = ROW_SELECTION.left + ROW_SELECTION.origin[0] + rightEdge(selection()) * ROW_SELECTION.scale;
+      const textLeft = Math.max(-700, rightEdge(ui.find(t, "BG_Icon")) + 32 / ROW_SCALE,
+        (frameRight + 32 - ROW_WIDTH / 2) / ROW_SCALE);
+      const title = ui.find(t, "Label_System"); title.pos[0] = textLeft;
+      label(title, name, 926 - textLeft, 1);
       // Keep the card's title, divider and row pitch; reserve the bottom right for three fixed columns.
       const sender = ui.find(t, "Label_From"); at(sender, 110, -23); label(sender, kind, 360, 2);
       sender.widgets[0].pivot = 4;
@@ -200,18 +219,21 @@ export function importArtwork(ui, layouts) {
         sender.children = countNodes(counts, iconsOf(ui.atlasIndex?.()), ui.translate, { kinds, width: 800,
           color: ui.find(t, "Label_System").widgets[0].color });
       }
-      const received = ui.find(t, "Label_Locale_Received"); received.children = []; label(received, meta, 620, 1);
-      at(received, -760, -10);
-      const platform = clone(received); platform.name = "Platform"; at(platform, received.pos[0], -84);
-      const routeLabel = platform.widgets.find((w) => "text" in w);
-      routeLabel.fontSize = Math.min(routeLabel.fontSize, 42); routeLabel.h_ = routeLabel.fontSize * 1.3;
-      label(platform, route, 620, 1); t.children.push(platform);
+      const received = ui.find(t, "Label_Locale_Received"); received.children = []; label(received, meta, -140 - textLeft, 1);
+      at(received, textLeft, -10);
+      if (route) {
+        const platform = clone(received); platform.name = "Platform"; at(platform, textLeft, -84);
+        const routeLabel = platform.widgets.find((w) => "text" in w);
+        routeLabel.fontSize = Math.min(routeLabel.fontSize, 42); routeLabel.h_ = routeLabel.fontSize * 1.3;
+        label(platform, route, -140 - textLeft, 1); t.children.push(platform);
+      }
       let limit = ui.find(t, "Label_Locale_Limit");
       if (!limit) { limit = content("List_01/Label_Locale_Limit"); t.children.push(limit); }
-      limit.children = []; at(limit, -760, -138);
+      limit.children = []; at(limit, textLeft, route ? -138 : -84);
       const noteLabel = limit.widgets.find((w) => "text" in w);
-      noteLabel.fontSize = Math.min(noteLabel.fontSize, 36); noteLabel.h_ = noteLabel.fontSize * 1.3;
-      label(limit, note, 1360, 1);
+      noteLabel.pivot = 3; noteLabel.fontSize = Math.min(noteLabel.fontSize, 36); noteLabel.h_ = noteLabel.fontSize * 1.3;
+      // A note taking the platform line must also stay clear of multi-line kind/status cells.
+      label(limit, note, (route ? 600 : -140) - textLeft, 1);
       // TimeLimit is only present on the unread card; clone that same node for read cards as well.
       let status = ui.find(t, "TimeLimit");
       if (!status) { status = content("List_01/TimeLimit"); t.children.push(status); }
@@ -236,10 +258,7 @@ export function importArtwork(ui, layouts) {
       return t;
     },
     // Items list card's Cover_Select provides the selected preview marker, independently of import selection.
-    selection() {
-      const root = layouts.UINonEquipmentInventoryListItem;
-      return at(get("UINonEquipmentInventoryListItem", `${root.children[0].name}/Normal/Cover_Select`));
-    },
+    selection,
     // Items/ListEmpty label; Mailbox's footer note is the status/progress text slot (no synthetic progress widget).
     empty: (caption) => at(label(inventory(`${LIST}/Inbox/ListEmpty/Label_Locale_EmptyMessage`), caption, 1700, 2)),
     note: (caption) => at(label(mail("Bottom/ObjectsDisplayed_Unread/Label_Locale"), caption, 1678, 2)),

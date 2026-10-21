@@ -11,7 +11,7 @@ import { spineAllowed } from "./spine-runtime.js";
 import { thumbnailScope } from "./thumbs.js";
 import { S } from "./util.js";
 import { ROW_W as OPTION_WIDTH, rowBase, radioRow } from "./settings-rows.js";
-import { loadImportLayouts, importArtwork, clipButtonPatterns, ROW_SCALE, ROW_WIDTH, ROW_HEIGHT } from "./import-layout.js";
+import { loadImportLayouts, importArtwork, clipButtonPatterns, ROW_SCALE, ROW_WIDTH, ROW_HEIGHT, ROW_SELECTION } from "./import-layout.js";
 import { suggestImports } from "./import-assistants.js";
 import { createImportState, countsOf, eligible, RESOURCE_TYPES, STATES } from "./import-state.js";
 
@@ -375,6 +375,11 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
     if (!source || !source.platform) return T("import.source.unknown");
     return `${T(`settings.server.${source.server}`)} ${T(`import.source.${source.platform}`)}`;
   }
+  function conversionRoutes(entries) {
+    return [...new Set(entries.filter((item) => item.source && item.target
+      && ["server", "platform"].some((key) => item.source[key] !== item.target[key]))
+      .map((item) => T("import.source.route", { source: sourceLabel(item.source), target: sourceLabel(item.target) })))].join(listSeparator());
+  }
   function sourceControl(entry) {
     const group = el("div", "import-source");
     const choose = button(T("import.source.choose"), "source", { width: 524, scale: 0.34 });
@@ -428,8 +433,7 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
         const drawing = paint(row, art.row({ name, kind: T(KIND_KEYS[entry.kind] || KIND_KEYS.other), state: T(`import.state.${entry.state}`), stateKey: entry.state,
           counts: merged ? group.counts : null, badge: !merged, meta: merged ? [...new Set(group.entries.map((item) => T(`import.state.${item.state}`)))].join(listSeparator())
             : T(entry.files?.length === 1 ? "import.metaOne" : "import.meta", { id: identified(entry).core, n: entry.files?.length || 0, size: sizeText(entry.size) }),
-          route: [...new Set(group.entries.filter((item) => item.target).map((item) => T("import.source.route", {
-            source: sourceLabel(item.source), target: sourceLabel(item.target) })))].join(listSeparator()),
+          route: conversionRoutes(group.entries),
           note: [...new Set(group.entries.map(rowNote).filter(Boolean))].join(listSeparator()), muted: !eligible(entry) }),
         { scale: ROW_SCALE, origin: [ROW_WIDTH / 2, 329 * ROW_SCALE / 2], textures: { "Icon_Arona": Promise.resolve(null) } });
         // MailboxContent/List_01 or List_02/BG_Icon/Icon_Arona is the incoming Mod's real texture slot.
@@ -438,8 +442,8 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
         copy.addEventListener("click", () => model.select(entry.id));
         const check = checkbox("", model.state.checked.has(entry.id), (checked) => model.toggleGroup(group.entries.map((item) => item.id), checked));
         check.input.setAttribute("aria-label", T("import.selectNamed", { name })); place(check.label, ROW_WIDTH - 66, 78, 50, 50);
-        const selection = place(el("div", "import-selection"), 19, 8, 164, 160);
-        paint(selection, art.selection(), { scale: 0.68, origin: [82, 80] });
+        const selection = place(el("div", "import-selection"), ROW_SELECTION.left, ROW_SELECTION.top, ROW_SELECTION.width, ROW_SELECTION.height);
+        paint(selection, art.selection(), { scale: ROW_SELECTION.scale, origin: ROW_SELECTION.origin });
         row.append(selection, copy, check.label); contents.push(row); rows.set(group.key, { row, copy, selection, input: check.input, refresh: check.refresh, group, signature });
       }
       dom.list.replaceChildren(...contents);
@@ -619,7 +623,7 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
           : ["imported", "updated", "unchanged"].includes(result?.outcome) ? T(result.applied ? "import.applied" : "import.notApplied") : "").filter(Boolean))];
         const source = thumbnail(entry, { incoming: true });
         const drawing = paint(row, art.row({ name: identified(entry).name, kind: T(KIND_KEYS[entry.kind] || KIND_KEYS.other),
-          badge: false, counts: merged ? group.counts : null, meta: outcomes.join(", "), note: notes.join(", ") }),
+          badge: false, counts: merged ? group.counts : null, meta: outcomes.join(", "), route: conversionRoutes(group.entries), note: notes.join(", ") }),
         { scale: 0.62, origin: [700, 104], textures: { "Icon_Arona": Promise.resolve(null) } });
         bindTexture(drawing, "List_01/BG_Icon/Icon_Arona", source, "import-thumb");
         const go = button(T("add.go"), "go", { width: 225, scale: 0.4 });
