@@ -18,7 +18,7 @@ const FADE_OUT = 300;
 const WAIT_AFTER = 300;         // indicator mode: a shorter wait shows nothing
 const WAIT_MIN = 500;           // once shown, the indicator stays at least this long
 const HARD_CAP = 15000;         // warn about a slow scene; only its work or cancellation can reveal it
-const EDGE_LENGTH = 150, EDGE_ALPHA = 0.6; // in-page wait: the edge shade's reach (units) and its share of the prefab's alpha
+const EDGE_HORIZONTAL = 260, EDGE_SIDE = 150, EDGE_ALPHA = 0.6;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const stage = () => document.getElementById("stage");
@@ -219,16 +219,21 @@ async function shadeEdges(o) {
     .catch(() => { shade = null; return null; });
   const template = await shade;
   if (!template || o.closing || o.done || (o !== overlay && o !== writerOverlay)) { o.shade = false; return; }
-  for (const [name, width, angle, x, y] of [["Bottom", 1920, 0, 960, 1080], ["Top", 1920, 180, 960, 0],
-    ["Left", 1080, 90, 0, 540], ["Right", 1080, -90, 1920, 540]]) {
+  for (const [name, width, angle, x, y, reach, inset] of [
+    ["Bottom", 1920, 0, 960, 1080, EDGE_HORIZONTAL, EDGE_SIDE], ["Top", 1920, 180, 960, 0, EDGE_HORIZONTAL, EDGE_SIDE],
+    ["Left", 1080, 90, 0, 540, EDGE_SIDE, EDGE_HORIZONTAL], ["Right", 1080, -90, 1920, 540, EDGE_SIDE, EDGE_HORIZONTAL]]) {
     const host = document.createElement("div"); host.className = "loading-edge";
     Object.assign(host.style, { left: `${x}px`, top: `${y}px`, transform: `rotate(${angle}deg)` });
     const node = structuredClone(template); node.name = name; node.pos = [0, 0]; node.active = true; node.children = [];
     // flipped: the gradient's dark side sits on the window edge and fades inwards; shorter and lighter than the prefab
     const [hex, alpha = "1"] = node.widgets[0].color.split("/");
-    Object.assign(node.widgets[0], { w_: width / S, h_: EDGE_LENGTH, pivot: 7, flip: (node.widgets[0].flip || 0) ^ 2,
+    Object.assign(node.widgets[0], { w_: width / S, h_: reach, pivot: 7, flip: (node.widgets[0].flip || 0) ^ 2,
       color: `${hex}/${(Number(alpha) * EDGE_ALPHA).toFixed(2)}` });
     await NGUI.render(node, host, { scale: S, origin: [0, 0] });
+    // Neighbours share the diagonal from the window corner to their inner joint, without overlapping alpha.
+    const outer = node.widgets[0].flip >= 2 ? "0" : "100%", inner = outer === "0" ? "100%" : "0";
+    for (const edge of host.querySelectorAll(".ngui")) edge.style.clipPath =
+      `polygon(0 ${outer}, 100% ${outer}, calc(100% - ${inset * S}px) ${inner}, ${inset * S}px ${inner})`;
     if (o.closing || (o !== overlay && o !== writerOverlay)) return;
     o.el.appendChild(host);
   }

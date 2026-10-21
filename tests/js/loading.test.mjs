@@ -395,6 +395,10 @@ test("in-page holds use the prefab gradient on every edge, Now Loading and live 
   assert.equal(edges.length, 4);
   assert.ok(edges.every((tree) => tree.widgets[0].sprite === h.gradient.widgets[0].sprite && tree.widgets[0].color === "#032650/0.54"));
   assert.ok(edges.every((tree) => tree.widgets[0].flip === 2), "the dark side faces the window edge");
+  assert.deepEqual(edges.map((tree) => tree.widgets[0].h_), [260, 260, 150, 150]);
+  const bands = overlay.children.filter((el) => el.className === "loading-edge");
+  assert.deepEqual(bands.map((band) => band.children[0].style.clipPath), [150, 150, 260, 260].map((inset) =>
+    `polygon(0 0, 100% 0, calc(100% - ${inset}px) 100%, ${inset}px 100%)`), "clips account for the flipped gradient, leaving full width only at the window edge");
   assert.deepEqual(h.gradient, snapshot, "the runtime prefab remains immutable");
   assert.ok(overlay.querySelector(".loading-repeater"));
   text = "Applying Mods 1 / 2"; h.loading.refresh();
