@@ -24,13 +24,15 @@ export function iconsOf(index = {}) {
 export const countText = (counts, T) => T("band.modCounts", { portraits: counts?.spr || 0, lobbies: counts?.lobby || 0 });
 
 // The portrait band: one half per kind, both always shown (zero too); long text shrinks in place
-export function countNodes(counts, icons = {}, T = null, { kinds = ["spr", "lobby"], width = 400, color = "#ffffff/1.00" } = {}) {
+export function countNodes(counts, icons = {}, T = null, { kinds = ["spr", "lobby"], width = 400, color = "#ffffff/1.00",
+  fontSize = 36, top = false } = {}) {
   return kinds.map((kind, i) => {
     const icon = icons[kind], n = `×${counts?.[kind] || 0}`;
     const room = icon ? 120 : 190, text = icon || !T ? n : `${T(WORD[kind])} ${n}`;
-    const fs = Math.min(36, 36 * room / Math.max(textWidth(text, 36), 1));
-    const kids = [node("Count", [icon ? 28 : 0, 0], [label(text, fs, color, room, 48, { depth: 16 })])];
-    if (icon) kids.push(node("Icon", [-70, 0], [sprite(icon.name, 42 * Math.min(1, icon.ratio), 42 / Math.max(1, icon.ratio),
+    const fs = top ? fontSize : Math.min(fontSize, fontSize * room / Math.max(textWidth(text, fontSize), 1));
+    const kids = [node("Count", [icon ? 28 : 0, 0], [label(text, fs, color, room, top ? fs * 1.3 : 48,
+      { depth: 16, pivot: top ? 1 : 4, ellipsis: top })])];
+    if (icon) kids.push(node("Icon", [-70, top ? -21 : 0], [sprite(icon.name, 42 * Math.min(1, icon.ratio), 42 / Math.max(1, icon.ratio),
       { atlas: icon.atlas, type: 0, depth: 16, color })]));
     return node(kind, [(i + 0.5) * width / kinds.length - width / 2, 0], [], kids);
   });

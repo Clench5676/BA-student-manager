@@ -1185,3 +1185,35 @@ test("selection corner radius comes from the frame's atlas slices when the widge
   const win = selectionWindow(frame, { Items: { Frame: { borderLeft: 16, borderRight: 18, borderTop: 20, borderBottom: 14 } } });
   closeTo(win.radius, 20 * ROW_SELECTION.scale / ROW_SCALE); assert.equal(win.incline, 9);
 });
+
+for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) test(`merged and result row kinds share the metadata font and top line in ${locale}`, async () => {
+  try {
+    setStrings(locale, flatten(JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${locale}.json`, import.meta.url), "utf8"))));
+    for (const merged of [false, true]) for (const countIcons of [false, true]) {
+      const h = await fixture({ countIcons });
+      const entries = [entry("a"), { ...entry("a-lobby", "ready", "lobby"), variant: "a" },
+        { ...entry("a-model", "ready", "model"), variant: "a" }];
+      await h.analyze(entries);
+      if (merged) {
+        const merge = h.action("merge").querySelector("input"); merge.checked = true;
+        await merge.dispatch("change"); await h.page.settled();
+      }
+      const check = (row, result = false) => {
+        const { tree } = drawn(h, row), sender = find(tree, "Label_From");
+        const kinds = sender.children.length ? sender.children.map((kind) => `Label_From/${kind.name}/Count`) : ["Label_From"];
+        const paths = ["Label_Locale_Received", ...kinds, ...(result || merged) ? [] : ["TimeLimit/Label_Locale_TimeLimit"]];
+        for (const path of paths) assert.equal(find(tree, path).widgets[0].fontSize, 42, path);
+        const tops = paths.map((path) => rectOf(row.art.children.find((el) => el.dataset.path === `${tree.name}/${path}`))[1]);
+        if (!result) tops.push(parseFloat(row.querySelector(".import-check").style.top));
+        tops.forEach((top) => closeTo(top, tops[0]));
+      };
+      for (const row of walk(h.host).filter((el) => el.dataset.entry)) check(row);
+      await h.action("start").click(); await flush();
+      h.runs[0].resolve({ results: entries.map(({ id }) => ({ id, outcome: "imported", libraryId: `lib-${id}` })) });
+      await flush(); await h.page.results(); await h.page.settled();
+      const rows = walk(h.dialog).filter((el) => el.dataset.result);
+      assert.equal(rows.length, merged ? 1 : 3);
+      rows.forEach((row) => check(row, true));
+    }
+  } finally { setStrings("en-US", flatten(JSON.parse(readFileSync(new URL("../../src/ba_modding_toolkit/locales/en-US.json", import.meta.url), "utf8")))); }
+});

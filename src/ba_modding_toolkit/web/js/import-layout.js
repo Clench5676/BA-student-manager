@@ -266,9 +266,9 @@ export function importArtwork(ui, layouts) {
       const sender = ui.find(t, "Label_From"); at(sender, 110, ROW_TEXT_TOP); rowLabel(sender, kind, 360, 1, 2);
       if (counts) {
         const kinds = ["spr", "lobby", "model", "other"].filter((kind) => counts[kind] > 0);
-        at(sender, 220, -23); sender.widgets = [];
+        at(sender, 220, ROW_TEXT_TOP); sender.widgets = [];
         sender.children = countNodes(counts, iconsOf(ui.atlasIndex?.()), ui.translate, { kinds, width: 800,
-          color: ui.find(t, "Label_System").widgets[0].color });
+          color: ui.find(t, "Label_System").widgets[0].color, fontSize: ROW_TEXT_SIZE, top: true });
       }
       const received = ui.find(t, "Label_Locale_Received"); received.children = []; rowLabel(received, meta, -140 - textLeft);
       at(received, textLeft, ROW_TEXT_TOP);
