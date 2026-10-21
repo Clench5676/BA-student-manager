@@ -850,6 +850,7 @@
 			}
 		},
 		"detail": {
+			"copyFailed": "Could not copy the name.",
 			"failed": "Preview unavailable"
 		},
 		"lobby": {

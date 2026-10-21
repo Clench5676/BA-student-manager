@@ -992,7 +992,7 @@ test("portrait and memorial lobby mods share the localized Mod chip under the na
 const DETAIL = new URL("../../src/ba_modding_toolkit/web/js/detail.js", import.meta.url).href;
 const THUMBS = new URL("../../src/ba_modding_toolkit/web/js/thumbs.js", import.meta.url).href;
 const detailTest = `
-export { baseOf, detailsBody, renderPopup, runUpdate, runCompatibility };
+export { baseOf, detailsBody, renderPopup, runUpdate, runCompatibility, copyName };
 export function setupPreviewTest(data, kind, onLeft = async () => {}) {
   fam = data; variantKey = data.variants[0].key; ctx = { invalidateRoster() {} };
   open = true; busy = false; tab = kind === "lobby" ? "lobby" : "portrait";
@@ -1427,4 +1427,25 @@ for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) tes
     work = Detail.runUpdate(); (await drawn(dialog, "ok")).click(); assert.equal(await work, true);
     assert.equal(updates, 1);
   } finally { setStrings("en-US", Object.fromEntries(strings(english))); }
+});
+
+for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) test(`copy-name failures use an error popup while success stays silent in ${locale}`, async () => {
+  const ui = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${locale}.json`, import.meta.url))).webui;
+  const previous = navigator.clipboard, copied = [];
+  setStrings(locale, Object.fromEntries(strings(ui)));
+  Detail.setupPreviewTest(previewFamily(), "spr");
+  try {
+    navigator.clipboard = { writeText: async (name) => { copied.push(name); } };
+    await Detail.copyName();
+    assert.equal(copied.length, 1); assert.ok(copied[0]);
+    assert.equal(dialog.hidden, true, "successful copying stays silent");
+    for (const clipboard of [undefined, { writeText: async () => { throw new Error("Clipboard rejected"); } }]) {
+      navigator.clipboard = clipboard;
+      await Detail.copyName();
+      const layer = dialog.children.at(-1), ok = await drawn(layer, "ok");
+      assert.ok(walk(layer).some((el) => el.textContent.replaceAll("\n", " ") === ui.detail.copyFailed));
+      assert.ok(walk(layer).some((el) => el.dataset.path === "Center/Popup/Base/BG"));
+      ok.click(); assert.equal(dialog.hidden, true);
+    }
+  } finally { navigator.clipboard = previous; setStrings("en-US", Object.fromEntries(strings(english))); }
 });

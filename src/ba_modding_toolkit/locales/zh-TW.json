@@ -850,6 +850,7 @@
 			}
 		},
 		"detail": {
+			"copyFailed": "複製名稱失敗。",
 			"failed": "預覽無法使用"
 		},
 		"lobby": {

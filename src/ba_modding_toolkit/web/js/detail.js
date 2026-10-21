@@ -612,7 +612,8 @@ async function call(fn) {
 async function reveal(path) { if (path) await call(() => rpc("os.reveal", { path })); }
 async function copyName() {
   const name = baseName(gameFile(variant(), tabKind()));
-  try { await navigator.clipboard.writeText(name); } catch {}
+  try { await navigator.clipboard.writeText(name); }
+  catch { notify(T("detail.copyFailed"), { kind: "error" }); }
 }
 function editModName(mod, redraw = null) {
   const page = pageToken;
