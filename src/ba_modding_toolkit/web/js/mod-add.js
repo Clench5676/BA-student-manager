@@ -1,7 +1,8 @@
 // Shared by the native picker and file drops. The backend owns every target decision.
+import { notify } from "./popup.js";
 import { rpc, waitJob } from "./api.js";
 import { T } from "./i18n.js";
-import { toast } from "./util.js";
+
 import * as Loading from "./loading.js";
 import * as Popup from "./popup.js";
 
@@ -33,7 +34,7 @@ export async function add(paths = null, currentVariant = null) {
     T("add.applyFailed", { reason: T(`error.${failure.code}`, failure.params) })]));
   const installedIds = new Set(installed.map((m) => m.id));
   const visibleAdded = added.filter((mod) => !from || destination(mod) !== from || installedIds.has(mod.id) || failures.has(mod.id));
-  if (visibleAdded.length < added.length) toast(T("add.done"));
+  if (visibleAdded.length < added.length) notify(T("add.done"));
   if (!visibleAdded.length && !duplicates.length) return report;
   const name = await context.names();
   const go = (mod) => mod.kind === "other" ? context.goOther() : context.go(destination(mod));

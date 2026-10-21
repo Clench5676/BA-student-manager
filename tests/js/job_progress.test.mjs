@@ -20,6 +20,7 @@ for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) tes
   assert.equal(base, T("progress.subject", { name: "Azusa", parts: kind }));
   const line = jobProgress({ action: "import.phase.add", name, current: 2, total: 3, step: "import.step.add" });
   assert.ok(!line.includes(" - "));
+  assert.ok(!jobProgress({ action: "progress.actionExtract", name, step: "import.step.extract" }).includes(" - "));
   assert.ok(line.includes("2 / 3")); assert.ok(line.includes(name));
   assert.ok(jobProgress({ action: "import.phase.update", name, step: "import.step.crc" }).endsWith(T("progress.step", { step: T("import.step.crc") })));
 });

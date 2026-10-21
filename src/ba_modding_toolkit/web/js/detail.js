@@ -1,3 +1,5 @@
+import { notify } from "./popup.js";
+import { jobProgress, progressName } from "./job-progress.js";
 // Detail screen, built from the game's own prefab (UICharacterDetail) by ngui.js. The prefab supplies every frame,
 // sprite, tint, incline and position; this file swaps labels and textures, hides what the tool has no use for, and adds
 // what the game has no screen for: variant chips, the expression strip and the portrait and lobby switchers. A family
@@ -37,9 +39,7 @@ import { setTitle } from "./nav.js";
 import { KEYS, deltaOf, pacer, typing } from "./step-keys.js";
 import { FRAME_Y, closable, hit as hitNode, listPopup, message, popupFrame, scrollArea } from "./popup.js";
 import { availableTab, coreOf, hasAsset, primaryKind, appliedKey as keyOf, appliedOf, candidates as listSources, partsOf, popupMode, modelSource, previewBase, previewChanged, previewKey, sourceOf, switchKindOf } from "./switch-sources.js";
-import {
-  $, DOT, RECRUIT, S, TAN10, advanceOf, at, clone, glyphsOf, hitButton, markedLabel, off, text, toast, widget, wrapPath,
-} from "./util.js";
+import { $, DOT, RECRUIT, S, TAN10, advanceOf, at, clone, glyphsOf, hitButton, markedLabel, off, text, widget, wrapPath } from "./util.js";
 
 const { node, sprite, label, find, rect } = NGUI;
 const fitText = (...a) => NGUI.fitText(...a);
@@ -76,7 +76,7 @@ const frames = (n) => new Promise((resolve) => { const step = () => (--n > 0 ? r
 function renderFailed(err, source = null) {
   console.error("Detail render failed", ...(source ? [source] : []), err);
   previewError(err, source, "detail");
-  if (open) toast(T("detail.failed"), { kind: "error" });
+  if (open) notify(T("detail.failed"), { kind: "error" });
 }
 
 // Every visible swap goes through commit(): at once, or, while an in-place change is prepared, queued and applied
@@ -605,14 +605,14 @@ function hits(view, leftHost, rightHost) {
 async function call(fn) {
   try { return await fn(); } catch (err) {
     console.error("Detail action failed", err);
-    toast(err.code ? errorText(err) : T("detail.failed"), { kind: "error" });
+    notify(err.code ? errorText(err) : T("detail.failed"), { kind: "error" });
     return null;
   }
 }
 async function reveal(path) { if (path) await call(() => rpc("os.reveal", { path })); }
 async function copyName() {
   const name = baseName(gameFile(variant(), tabKind()));
-  try { await navigator.clipboard.writeText(name); toast(name); } catch { toast(name); }
+  try { await navigator.clipboard.writeText(name); notify(name); } catch { notify(name); }
 }
 function editModName(mod, redraw = null) {
   const page = pageToken;
@@ -643,42 +643,47 @@ async function addMods() {
 // A switch the classic UI's open window refuses opens the classic modal, which can queue it (mod-switch.js).
 // An apply while mods are off only saves the choice (deferred).
 async function job(method, params, { onDone, after = () => reload(), name = fullName(variant()) } = {}) {
-  if (busy) { toast(T("error.busy"), { kind: "error" }); return false; }
+  if (busy) { notify(T("error.busy"), { kind: "error" }); return false; }
   busy = true;
   const page = pageToken;
   let ok = false, result = null;
   const action = ({ "actions.apply": params.source === "official" ? "restore" : "apply", "actions.restore": "restore", "actions.update": "repair",
     "actions.extract": "extract", "mods.remove": "delete" })[method] || "process";
-  const running = T(`progress.${action}`, { name });
+  const mod = fam?.variants?.flatMap((v) => v.modList || []).find((m) => m.id === (params.mod || params.id || params.target?.replace(/^mod:/, "")));
+  const targetKey = params.variant || (params.target?.startsWith("variant:") ? params.target.slice(8) : mod?.target);
+  const target = fam?.variants?.find((v) => v.key === targetKey) || variant();
+  const kind = params.kind || mod?.kind || switchKind() || "spr";
+  const subject = progressName(target, T(({ spr: "tab.portrait", lobby: "tab.lobby", model: "tab.model", other: "import.other" })[kind] || "import.other"), name, fam);
+  const progress = (p = {}) => jobProgress({ action: `progress.action${action[0].toUpperCase()}${action.slice(1)}`, name: subject,
+    current: p.current || 1, total: p.total || 1, step: p.step || "" });
+  const running = progress();
   try {
     return await Loading.hold(async (update) => {
       update(running);
       try {
         await renderScreen();
-        toast(running, { sticky: true });
         const id = await rpc(method, params, { timeout: 30000 });
-        result = await waitJob(id, (p) => { const text = Loading.progressText(p, running); update(text); toast(text, { sticky: true }); });
-        toast(result?.deferred ? T("mods.saved") : T("job.done"));
+        result = await waitJob(id, (p) => { const text = progress(p); update(text); });
+        notify(result?.deferred ? T("mods.saved") : T("job.done"));
         await onDone?.(result);
         ok = true;
       } catch (err) {
         if (page === pageToken && open && err?.code === "original_unavailable" && QUEUEABLE.includes(method)) {
-          toast("");
           // Refusal messages, Add First and its adoption result use the popup stack, exempt from the hold.
           await overwrittenMessage(variant(), params.kind || "spr");
         } else if (QUEUEABLE.includes(method)) await refused(err, method, params);
-        else toast(errorText(err), { kind: "error", sticky: false });
+        else notify(errorText(err), { kind: "error" });
       }
       if (page === pageToken && open) await after(ok, result);
       return ok;
     }, { until: leftPage });
   } catch (err) {
-    toast(errorText(err), { kind: "error", sticky: false });
+    notify(errorText(err), { kind: "error" });
     return false;
   } finally {
     busy = false;
     if (page === pageToken && open) {
-      try { await renderScreen(); } catch (err) { toast(errorText(err), { kind: "error" }); }
+      try { await renderScreen(); } catch (err) { notify(errorText(err), { kind: "error" }); }
     }
     resumeChanged();
   }
@@ -697,7 +702,7 @@ async function runUpdate(c = shownMod()) {
   }
   return job("actions.update", { mod: c.id }, {
     name: c.label,
-    onDone: (result) => { forget(spinePrefix("mod", c.id)); toast(T(result?.unchanged ? "remap.unneeded" : "compatibility.ported")); },
+    onDone: (result) => { forget(spinePrefix("mod", c.id)); notify(T(result?.unchanged ? "remap.unneeded" : "compatibility.ported")); },
     after: (ok) => reload(ok ? [kind] : []),
   });
 }
@@ -710,7 +715,7 @@ async function runCompatibility() {
 async function remapped() {
   ctx.invalidateRoster();
   await reload();
-  toast(T("remap.done"));
+  notify(T("remap.done"));
 }
 async function runRemap(c) {
   if (!c || busy || !Compatibility.eligible(c.mod)) return;
@@ -739,7 +744,7 @@ async function runCompare() {
 // keeps what it replaces (an official file until it is official again, a mod in the library)
 async function applyCandidate(key, kind = "spr") {
   const v = variant();
-  if (modsOn() && key === appliedKey(v, kind)) { toast(T("mods.alreadyInUse")); return; }
+  if (modsOn() && key === appliedKey(v, kind)) { notify(T("mods.alreadyInUse")); return; }
   await job("actions.apply", { variant: v.key, source: sourceOf(key), kind }, {
     onDone: (result) => {
       if (result?.files?.length) {
@@ -997,7 +1002,7 @@ function enableDrag(clip, track) {
 
 // --- main Spine portrait ---
 // loadSpine(base) -> Promise, resolved once the portrait's first frame is drawn and the expression strip shows its
-// faces (also on an error, after the toast). The new layer stays transparent until committed; then it fades in over
+// faces (also on an error, after the message popup). The new layer stays transparent until committed; then it fades in over
 // the old one, which goes. A portrait that cannot be shown takes the old one away too: the left side stays empty
 // rather than showing another variant under this one's name.
 const portraitLoads = latestLoad();
@@ -1097,7 +1102,7 @@ async function showSpine(base, my, signal) {
     if (signal.aborted || my !== spineToken) layer.remove();
   } catch (err) {
     if (!signal.aborted && my === spineToken) renderFailed(err, base);
-    // spine-player's own error box (black, with the message) never shows: the toast says it
+    // spine-player's own error box (black, with the message) never shows: the message popup says it
     layer.querySelector(".spine-player-error")?.remove();
     if (my === spineToken) {
       if (mainPlayer === layer.player) { clearTimeout(blinkTimer); mainPlayer = null; } // it broke after it was shown
@@ -1249,7 +1254,7 @@ function closePopup(apply) {
   const chosen = candidates(variant(), popupKind).find((c) => c.key === pending);
   // only a choice other than the start (what the game shows; while mods are off, the configured source)
   if (apply && chosen && !chosen.greyed) {
-    if (pending === popupStart) toast(T(modsOn() ? "mods.alreadyInUse" : "switch.configured"));
+    if (pending === popupStart) notify(T(modsOn() ? "mods.alreadyInUse" : "switch.configured"));
     else applyCandidate(pending, popupKind);
   }
 }
@@ -1266,10 +1271,10 @@ async function removeMod(id) {
     if (r.button !== "ok") return false;
     return await job("mods.remove", { id, confirm: true }, {
       name: info.name,
-      onDone: (result) => { if (result?.failed?.length) toast(T("mods.deletePending")); },
+      onDone: (result) => { if (result?.failed?.length) notify(T("mods.deletePending")); },
     });
   } catch (err) {
-    toast(errorText(err), { kind: "error" });
+    notify(errorText(err), { kind: "error" });
     return false;
   }
 }
@@ -1696,7 +1701,7 @@ async function showModel(v, my, alive = () => true) {
   } catch (err) {
     // a model that cannot be read (a broken or unreadable GLB): the tab stays, empty, and the rest of the screen works
     console.error(err);
-    if (still()) toast(T("model.failed"), { kind: "error" });
+    if (still()) notify(T("model.failed"), { kind: "error" });
   }
 }
 function hideModel() {

@@ -78,17 +78,4 @@ export function markedLabel(caption, { fs = 40, fsMin = 26, color, maxW, mark = 
 // the game's red "new" dot
 export const DOT = (pos, size = 34) => NGUI.node("Dot", pos, [NGUI.sprite("Common_Icon_Reddot2", size, size * 31 / 34, { type: 0, depth: 45 })]);
 
-// a short status line at the bottom of the stage (job progress, errors)
-let toastTimer = null;
-export function toast(message, { kind = "info", sticky = false } = {}) {
-  const el = $("toast");
-  if (!el) return;
-  el.textContent = message;
-  el.className = `toast ${kind}`;
-  el.hidden = !message;
-  clearTimeout(toastTimer);
-  toastTimer = null;
-  if (message && !sticky) toastTimer = setTimeout(() => { toastTimer = null; el.hidden = true; }, 3200);
-}
-
 export const fitStage = () => document.getElementById("stage").style.setProperty("--scale", Math.min(innerWidth / 1920, innerHeight / 1080));

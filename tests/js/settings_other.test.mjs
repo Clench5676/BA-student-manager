@@ -19,7 +19,7 @@ function harness({ locale = "en-US", answer = "ok", used = true, error = null, r
       calls.push([method, params]);
       if (error) throw error;
       return method === "mods.removalInfo" ? { name: "UI Pack", used } : "job1";
-    }, waitJob: async (id) => { assert.equal(id, "job1"); return result; }, toast: (s) => calls.push(["toast", s]),
+    }, waitJob: async (id) => { assert.equal(id, "job1"); return result; }, notify: (s) => calls.push(["notify", s]),
   };
   const api = new Function("deps", `const {${Object.keys(deps)}} = deps; ${strip(source)}; return { rows, select, remove };`)(deps);
   return { ...api, T, calls, messages, refused, changed: () => { changed++; }, changes: () => changed };

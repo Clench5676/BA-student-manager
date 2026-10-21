@@ -33,7 +33,7 @@ function harness(initial = "roster") {
       currentVariant: () => detailOpen ? "ibuki" : null,
     },
     Roster: { invalidate() {}, hide: () => events.push("hide-roster"), order: () => [], show: async () => { events.push("build-roster"); await rows.promise; } },
-    noGame() {}, toast() {},
+    noGame() {}, notify() {},
   };
   const route = new Function("env", `let { ${Object.keys(env).join(", ")} } = env; ${code} return route;`)(env);
   return { route, family, preview, rows, rosterData, details, events, screens, location: env.location, covered: () => covered };

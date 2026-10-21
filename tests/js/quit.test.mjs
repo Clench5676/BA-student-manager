@@ -45,7 +45,7 @@ function deps({ button = "ok", refuse = null, native = false } = {}) {
     message: async (opts) => { log.push(["message", opts]); return { button, checked: null }; },
     rpc: async (method) => { log.push(["rpc", method]); if (refuse) { const err = new Error(refuse); err.code = refuse; err.params = {}; throw err; } return null; },
     T: (key) => `<${key}>`,
-    toast: (text, opts) => log.push(["toast", text, opts?.kind]),
+    notify: (text, opts) => log.push(["notify", text, opts?.kind]),
     native,
     closed: () => log.push(["closed"]),
   };
@@ -68,7 +68,7 @@ test("the quit prompt: the game's words, Cancel and Confirm, Enter and Space con
   assert.equal(closedByEscape.log.length, 1);
 });
 
-test("Confirm quits: the window closes itself, browser mode says Closed, a refusal is a toast", async () => {
+test("Confirm quits: the window closes itself, browser mode says Closed, a refusal is a notify", async () => {
   const win = deps({ native: true });
   assert.equal(await confirmQuit(win), "quit");
   assert.deepEqual(win.log.slice(1), [["rpc", "app.quit"]], "the window closes; nothing else to show");
@@ -79,11 +79,11 @@ test("Confirm quits: the window closes itself, browser mode says Closed, a refus
 
   const busy = deps({ refuse: "busy", native: true });
   assert.equal(await confirmQuit(busy), "busy");
-  assert.deepEqual(busy.log.slice(1), [["rpc", "app.quit"], ["toast", "<error.busy>", "error"]]);
+  assert.deepEqual(busy.log.slice(1), [["rpc", "app.quit"], ["notify", "<error.busy>", "error"]]);
 
   const serve = deps({ refuse: "native_unavailable" });
   assert.equal(await confirmQuit(serve), "native_unavailable");
-  assert.deepEqual(serve.log.at(-1), ["toast", "<error.native_unavailable>", "error"]);
+  assert.deepEqual(serve.log.at(-1), ["notify", "<error.native_unavailable>", "error"]);
   assert.equal(serve.log.some(([k]) => k === "closed"), false);
 });
 

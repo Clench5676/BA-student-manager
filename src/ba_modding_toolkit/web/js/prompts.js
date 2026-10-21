@@ -5,6 +5,7 @@
 // (mods.entries), so the prompts exist only with the scan consent; the messages need none (the detail screen judges its
 // files cheaply). The pure parts (which entries a prompt lists, its cards and details, what its buttons do, the drift
 // result) are tested in Node (tests/js/prompts.test.mjs).
+import { notify } from "./popup.js";
 import * as Loading from "./loading.js";
 import * as ModSwitch from "./mod-switch.js";
 import * as Popup from "./popup.js";
@@ -12,7 +13,6 @@ import { on, rpc, spineBase, waitJob } from "./api.js";
 import { T } from "./i18n.js";
 import { addFirstLines, overwrittenLines } from "./repairs.js";
 import { thumb } from "./thumbs.js";
-import { toast } from "./util.js";
 
 // --- pure parts ---
 
@@ -149,13 +149,13 @@ export function untrackedOutcome(button, items, selection, dontAsk = false) {
   return { adopt, dismiss, turnOn: button === "addTurnOn" };
 }
 
-// Apply Mod Configuration's result: a toast when everything was done; otherwise the failed entries with their error
+// Apply Mod Configuration's result: a message popup when everything was done; otherwise the failed entries with their error
 // strings, and the ones skipped because their files changed since the scan (another tool, the classic UI) with
 // "Game files changed, check again"
 export function driftSummary(result, nameOf) {
   const list = (k) => result?.[k] || [];
   const skipped = list("skipped").filter((s) => ["changed", "untracked", "entry_changed"].includes(s.why));
-  if (!list("failed").length && !skipped.length && !list("stuck").length) return { toast: T("job.done") };
+  if (!list("failed").length && !skipped.length && !list("stuck").length) return { notify: T("job.done") };
   const label = (e) => ModSwitch.entryLabel(e, nameOf);
   const lines = [T("mods.result", { done: list("done").length, failed: list("failed").length + skipped.length })];
   if (list("stuck").length) lines.push(T("mods.stuck", { n: list("stuck").length }));
@@ -229,14 +229,14 @@ async function later() {
 }
 
 // show(which, {entries, dismissed, force}): a prompt over the current screen. force: from Settings' Check or the tray,
-// whatever was shown before (an empty list says so with a toast)
+// whatever was shown before (an empty list says so with a message popup)
 export async function show(which, { entries = null, dismissed = false, force = false } = {}) {
   if (busy) return null;
   const s = ModSwitch.current() || (await ModSwitch.refresh()) || {};
   const all = entries || (await rpc("mods.entries").catch(() => []));
   const lists = promptEntries(all, which, { dismissed, enabled: s.enabled !== false });
   if (!lists.listed.length) {
-    if (force) toast(T("settings.mods.clean"));
+    if (force) notify(T("settings.mods.clean"));
     return null;
   }
   for (const e of lists.listed) shown[which].add(`${entryKey(e)}|${e.state}`);
@@ -271,7 +271,7 @@ function listPrompt({ title, items, buttons, hint, check, closable, which }) {
     const draw = (scroll = 0) => Popup.listPopup({
       host, title, items, selected: [...selection], multi: true, focus, keepScroll: scroll, hint,
       footer: footer(items, selection, { size: which === "untracked" }), check,
-      buttons: buttons.map((b) => ({ ...b, fn: () => (b.greyed ? toast(b.why || "", { kind: "error" }) : done(b.action)) })),
+      buttons: buttons.map((b) => ({ ...b, fn: () => (b.greyed ? notify(b.why || "", { kind: "error" }) : done(b.action)) })),
       onClose: closable ? () => done("later") : null,
       onSelect: (key, s) => { focus = key; selection = Popup.toggled(selection, items, key); draw(s); },
       details: (it) => {
@@ -311,7 +311,7 @@ async function driftPrompt(lists, s) {
   const choice = ModSwitch.driftChoice(answer.button, listed, [...answer.selection]);
   const plain = (e) => ({ install: e.install, core: e.core, state: e.state });
   if (choice.dismiss.length) {
-    await rpc("mods.dismiss", { kind: "drift", entries: choice.dismiss.map(plain) }).catch((err) => toast(ModSwitch.errorText(err.code, err.params), { kind: "error" }));
+    await rpc("mods.dismiss", { kind: "drift", entries: choice.dismiss.map(plain) }).catch((err) => notify(ModSwitch.errorText(err.code, err.params), { kind: "error" }));
   }
   if (choice.restore.length) await applyDrift(choice.restore.map(plain));
   return answer.button;
@@ -329,14 +329,10 @@ async function applyDrift(entries) {
     return;
   }
   const running = T("progress.apply", { name: T("progress.mods") });
-  toast(running, { sticky: true });
   try {
-    const job = waitJob(id, (p) => toast(Loading.progressText(p, running), { sticky: true }));
-    Loading.wait(job).catch(() => {});
-    const result = await job;
+    const result = await Loading.task((update) => waitJob(id, update), { label: running });
     const summary = driftSummary(result, await names().catch(() => undefined));
-    if (summary.toast) { toast(summary.toast); return; }
-    toast("");
+    if (summary.notify) { notify(summary.notify); return; }
     await Popup.message({ title: summary.title, lines: summary.lines, ok: T("picker.ok") });
   } catch (err) {
     ModSwitch.refused(err, "mods.restoreDrift", params);
@@ -356,7 +352,7 @@ async function untrackedPrompt(lists, s) {
   if (!answer.button) return null;
   const outcome = untrackedOutcome(answer.button, items, answer.selection, answer.checked);
   if (outcome.dismiss.length) {
-    await rpc("mods.dismiss", { kind: "untracked", entries: outcome.dismiss }).catch((err) => toast(ModSwitch.errorText(err.code, err.params), { kind: "error" }));
+    await rpc("mods.dismiss", { kind: "untracked", entries: outcome.dismiss }).catch((err) => notify(ModSwitch.errorText(err.code, err.params), { kind: "error" }));
   }
   if (outcome.adopt.length) {
     const added = await adopt(outcome.adopt);
@@ -365,24 +361,20 @@ async function untrackedPrompt(lists, s) {
   return answer.button;
 }
 
-// Add to Library: the library.adopt job (allowed while the game runs); a toast, or a result popup for failures
+// Add to Library: the library.adopt job (allowed while the game runs); a message popup, or a result popup for failures
 export async function adopt(entries) {
   let id;
   try {
     id = await rpc("mods.adopt", { entries });
   } catch (err) {
-    toast(ModSwitch.errorText(err.code, err.params), { kind: "error" });
+    notify(ModSwitch.errorText(err.code, err.params), { kind: "error" });
     return false;
   }
   const running = T("progress.add", { name: T("progress.mods") });
-  toast(running, { sticky: true });
   try {
-    const job = waitJob(id, (p) => toast(Loading.progressText(p, running), { sticky: true }));
-    Loading.wait(job).catch(() => {});
-    const result = await job;
+    const result = await Loading.task((update) => waitJob(id, update), { label: running });
     const failed = [...(result?.failed || []), ...(result?.skipped || []).map((s) => ({ entry: s, code: "entry_changed" }))];
-    if (!failed.length) { toast(T("job.done")); return true; }
-    toast("");
+    if (!failed.length) { notify(T("job.done")); return true; }
     const nameOf = await names().catch(() => undefined);
     await Popup.message({
       title: T("mods.untrackedAdd"),
@@ -392,7 +384,7 @@ export async function adopt(entries) {
     });
     return (result?.added || []).length > 0;
   } catch (err) {
-    toast(ModSwitch.errorText(err.code, err.params), { kind: "error" });
+    notify(ModSwitch.errorText(err.code, err.params), { kind: "error" });
     return false;
   }
 }

@@ -1,4 +1,6 @@
 // Exercise the detail job's orchestration with stand-ins for the rendered screen and RPC transport.
+import { jobProgress, progressName } from "../../src/ba_modding_toolkit/web/js/job-progress.js";
+import { setStrings, T as translate } from "../../src/ba_modding_toolkit/web/js/i18n.js";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
@@ -10,7 +12,7 @@ function harness(overrides = {}) {
   const messages = [], calls = [], progress = [];
   let released = false, end;
   const env = {
-    toast: (s) => messages.push(s), T: (s) => s, renderScreen: async () => {},
+    notify: (s) => messages.push(s), jobProgress, progressName, fam: {}, switchKind: () => "spr", T: (s) => s, renderScreen: async () => {},
     rpc: async () => { calls.push("submit"); return "j1"; }, waitJob: async () => ({}), reload: async () => {},
     errorText: String, QUEUEABLE: ["actions.apply", "actions.restore"], refused: (err) => messages.push(String(err)),
     overwrittenMessage: async () => {}, variant: () => ({}), fullName: () => "Example", resumeChanged: () => {},
@@ -82,6 +84,11 @@ test("detail actions keep the verb, target and count from progress in all locale
   for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) {
     const strings = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${locale}.json`, import.meta.url), "utf8")).webui;
     const T = (key, vars = {}) => key.split(".").reduce((o, k) => o[k], strings).replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? "");
+    const flat = (o, prefix = "", result = {}) => { for (const [key, value] of Object.entries(o)) {
+      if (value && typeof value === "object") flat(value, prefix + key + ".", result); else result["webui." + prefix + key] = value;
+    } return result; };
+    globalThis.document ||= { documentElement: {} }; globalThis.document.documentElement ||= {};
+    setStrings(locale, flat(strings));
     const progressText = new Function("T", `${progressSource.replace("export ", "")}; return progressText;`)(T);
     for (const [method, action, params = {}] of [["actions.apply", "apply"], ["actions.apply", "restore", { source: "official" }], ["actions.restore", "restore"], ["actions.update", "repair"],
       ["actions.extract", "extract"], ["mods.remove", "delete"]]) {
@@ -92,9 +99,11 @@ test("detail actions keep the verb, target and count from progress in all locale
         return {};
       } });
       assert.equal(await h.job(method, params, { name: "Example" }), true);
-      assert.deepEqual(progress, [T(`progress.${action}`, { name: "Example" }), T("progress.count", { label, current: 1, total: 3 })]);
-      assert.deepEqual(h.messages, [T(`progress.${action}`, { name: "Example" }),
-        T("progress.count", { label, current: 1, total: 3 }), T("job.done")]);
+      const subject = progressName(null, T("tab.portrait"), "Example");
+      const actionKey = `progress.action${action[0].toUpperCase()}${action.slice(1)}`;
+      assert.deepEqual(progress, [jobProgress({ action: actionKey, name: subject }), jobProgress({ action: actionKey, name: subject, current: 1, total: 3 })]);
+      assert.deepEqual(h.messages, [T("job.done")]);
+      assert.ok(progress.every((text) => !text.includes("portrait.bundle")));
     }
   }
 });
@@ -125,4 +134,20 @@ test("a completed add reloads only the page that opened its picker", async () =>
     await h.addMods();
     assert.deepEqual(calls, move === "stay" ? ["roster", "reload"] : ["roster"]);
   }
+});
+
+test("detail progress identifies the target Mod's student variant and kind instead of the active tab or bundle", async () => {
+  const strings = JSON.parse(readFileSync(new URL("../../src/ba_modding_toolkit/locales/en-US.json", import.meta.url), "utf8"));
+  const flat = (o, prefix = "", out = {}) => { for (const [key, value] of Object.entries(o)) {
+    if (value && typeof value === "object") flat(value, `${prefix}${key}.`, out); else out[prefix + key] = value;
+  } return out; };
+  setStrings("en-US", flat(strings));
+  const family = { variants: [{ key: "band", names: { en: { full: "Yoshimi (Band)", short: "Band" } },
+    modList: [{ id: "m1", target: "band", kind: "lobby" }] }] };
+  const h = harness({ T: translate, fam: family, variant: () => ({ key: "base" }), waitJob: async (_id, update) => {
+    update({ label: "Repairing: assets-_mx-test.bundle", current: 2, total: 2 }); return {};
+  } });
+  await h.job("actions.update", { mod: "m1" });
+  assert.match(h.progress.at(-1), /Repairing Yoshimi \(Band, Memorial Lobby\) 2 \/ 2/);
+  assert.doesNotMatch(h.progress.at(-1), /assets-|\.bundle|Portrait/);
 });

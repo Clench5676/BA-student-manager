@@ -616,7 +616,7 @@ export async function listPopup(options) {
 const MSG = { title: 150, gap: 28, rowMin: 104, check: 150, buttons: 236, none: 70, minH: 640 };
 
 // message({title, lines, ok, cancel, check, host, width, close, confirmKeys, scroll}): a message on the popup frame, in host
-// (#dialog by default, over everything but the toast). Resolves once it is closed, however it is closed, with
+// (#dialog by default, over everything but the message popup). Resolves once it is closed, however it is closed, with
 // {button, checked}: button "ok" or "cancel", or null for the close button, the backdrop or Escape; checked, the
 // checkbox's state then (null without one).
 //   lines: text, or {text, button: {label, fn}} for a line with a small button at its end (fn({close}), where
@@ -879,4 +879,10 @@ export function textViewer({ title, text, copy, close = T("display.close"), onCo
     };
     draw();
   });
+}
+
+// Persistent results and errors share the game's existing message popup.
+export function notify(text, { kind = "info" } = {}) {
+  if (!text) return;
+  void message({ title: T(kind === "error" ? "job.failed" : "app.title"), lines: [text], ok: T("picker.ok") });
 }

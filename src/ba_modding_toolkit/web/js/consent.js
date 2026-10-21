@@ -4,13 +4,14 @@
 // files and never copied.
 // Also the scan consent (scan()): whether the app may check the game files on its own (the start and the end of each
 // portrait and memorial lobby file), asked once like the asset consent; Settings' Mods tab asks again or withdraws it.
+import { notify } from "./popup.js";
 import * as NGUI from "./ngui.js";
 import * as Buttons from "./game-buttons.js";
 import * as Popup from "./popup.js";
 import { rpc } from "./api.js";
 import { T } from "./i18n.js";
 import { setSpineConsent } from "./spine-runtime.js";
-import { S, clone, hitButton, toast, wrapPath } from "./util.js";
+import { S, clone, hitButton, wrapPath } from "./util.js";
 
 const { node, sprite, label, find, rect } = NGUI;
 let assetsAllowed = false, spinePrompt = null;
@@ -91,7 +92,7 @@ async function draw(host, cacheDir, native, resolve) {
         const prefs = await rpc("settings.set", { key: "cacheDir", value: folder });
         draw(host, prefs.cacheDir, native, resolve);
       } catch (err) {
-        toast(T(`error.${err.code || "internal"}`, err.params || {}), { kind: "error" });
+        notify(T(`error.${err.code || "internal"}`, err.params || {}), { kind: "error" });
       }
     }, T("consent.change"), 2100);
   }
@@ -117,7 +118,7 @@ async function drawSpine(host, over, resolve) {
     if (choosing) return;
     choosing = true;
     try { await rpc("app.spineConsent", { granted }); }
-    catch (err) { choosing = false; toast(T(`error.${err.code || "internal"}`, err.params || {}), { kind: "error" }); return; }
+    catch (err) { choosing = false; notify(T(`error.${err.code || "internal"}`, err.params || {}), { kind: "error" }); return; }
     setSpineConsent(granted);
     finishScan(host);
     resolve(granted);
@@ -259,7 +260,7 @@ async function drawScan(host, over, resolve) {
       try {
         await rpc("mods.consent", { granted });
       } catch (err) {
-        toast(T(`error.${err.code || "internal"}`, err.params || {}), { kind: "error" });
+        notify(T(`error.${err.code || "internal"}`, err.params || {}), { kind: "error" });
         return;
       }
       finishScan(host);

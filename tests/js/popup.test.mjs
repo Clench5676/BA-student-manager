@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { register } from "node:module";
-import { test } from "node:test";
+import { afterEach, test } from "node:test";
 import vm from "node:vm";
 import { controls, insert } from "./control_prefabs.mjs";
 
@@ -83,7 +83,7 @@ function press(key, extra = {}) {
 }
 const host = (id) => { const h = body.appendChild(new El()); h.id = id; h.hidden = true; return h; };
 const dialog = host("dialog"), prompt = host("prompt"), consent = host("consent");
-const settings = host("settings"), toast = host("toast");
+const settings = host("settings");
 settings.className = "popup-host";
 consent.className = "consent-host";
 const stage = host("stage");
@@ -179,6 +179,11 @@ async function until(fn) {
   assert.fail("popup did not reach the expected state");
 }
 const part = (name) => walk(consent).find((e) => e.dataset.path === `Center/Popup/${name}`);
+
+afterEach(async () => {
+  await new Promise((resolve) => setImmediate(resolve));
+  for (const layer of [...dialog.children].reverse()) action(layer, "close")?.click();
+});
 
 test("fitting message lines together keeps the size floor and all text when extra wrapping is needed", async () => {
   const NGUI = await import("../../src/ba_modding_toolkit/web/js/ngui.js");
@@ -816,7 +821,8 @@ test("Settings disables Check for Updates while pending and uses the shared popu
   assert.equal(calls.slice(start).filter((m) => m === "app.checkUpdate").length, 1);
   answer({ result: null });
   await until(() => checkButton());
-  assert.equal(toast.textContent, english.settings.update.none);
+  await until(() => walk(dialog).some((el) => el.textContent === english.settings.update.none));
+  (await drawn(dialog.children.at(-1), "ok")).click();
   // A later check is allowed; its popup owns the same host and startup shares its promise.
   answer = null;
   checkButton().click();
@@ -1342,4 +1348,20 @@ test("the single Update action checks fresh inputs and routes a mixed page misma
     assert.deepEqual(methods, ["check", "remap", "discard"]);
     switchHost.hidden = true;
   } finally { globalThis.spine = previous; }
+});
+
+test("former result and error notices use an answerable game message popup; the toast UI is absent", async () => {
+  setStrings("en-US", Object.fromEntries(strings(english)));
+  for (const kind of ["info", "error"]) {
+    assert.equal(Popup.notify(`Review ${kind}`, { kind }), undefined, "notification delivery does not change caller return values");
+    const layer = dialog.children.at(-1);
+    const ok = await drawn(layer, "ok");
+    assert.ok(walk(layer).some((el) => el.textContent === `Review ${kind}`));
+    assert.ok(walk(layer).some((el) => el.dataset.path === "Center/Popup/Base/BG"), "uses the existing game popup frame");
+    ok.click(); assert.equal(dialog.hidden, true);
+  }
+  const root = new URL("../../src/ba_modding_toolkit/web/", import.meta.url);
+  assert.doesNotMatch(readFileSync(new URL("index.html", root), "utf8"), /id="toast"|class="toast"/);
+  assert.doesNotMatch(readFileSync(new URL("css/app.css", root), "utf8"), /\.toast\b/);
+  assert.doesNotMatch(readFileSync(new URL("js/util.js", root), "utf8"), /export function toast\b/);
 });

@@ -5,6 +5,7 @@
 // startup file checks, the tray icon, Settings' Check of the game files, plus the size and cleanup of the mod cache.
 // Whether the classic UI asks before it opens is a General row,
 // under More Settings.
+import { notify } from "./popup.js";
 import * as ModSwitch from "./mod-switch.js";
 import * as NGUI from "./ngui.js";
 import * as Popup from "./popup.js";
@@ -16,7 +17,7 @@ import { rowBase, radioRow } from "./settings-rows.js";
 import { on, rpc } from "./api.js";
 import { T, platform } from "./i18n.js";
 import { runtimeLoaded, setSpineConsent } from "./spine-runtime.js";
-import { $, DOT, S, clone, glyphsOf, hitButton, toast, wrapPath } from "./util.js";
+import { $, DOT, S, clone, glyphsOf, hitButton, wrapPath } from "./util.js";
 
 const { node, sprite, label, find, rect } = NGUI;
 const fitText = (...a) => NGUI.fitText(...a);
@@ -30,7 +31,7 @@ let otherMods = null, otherRequest = 0;
 
 const errorText = (err) => T(`error.${err.code || "internal"}`, err.params || { error: String(err) });
 async function call(fn) {
-  try { return await fn(); } catch (err) { toast(errorText(err), { kind: "error" }); return null; }
+  try { return await fn(); } catch (err) { notify(errorText(err), { kind: "error" }); return null; }
 }
 
 // --- rows ---
@@ -82,7 +83,7 @@ async function checkFiles() {
   if (!result) return;
   const m = ModSwitch.current() || {};
   render();
-  if (!m.drift && !m.untracked && !m.damaged) { toast(T("settings.mods.clean")); return; }
+  if (!m.drift && !m.untracked && !m.damaged) { notify(T("settings.mods.clean")); return; }
   const entries = await rpc("mods.entries").catch(() => []);
   await Prompts.show("drift", { entries, dismissed: true });
   await Prompts.show("untracked", { entries, dismissed: true });
@@ -185,7 +186,7 @@ function rows({ builtSize = null, sizeError = null } = {}) {
     add(radioRow("Language", 0, T("settings.language"), p.languages.map((l) => [l.code, l.name, l.code]), p.language, (v) => set("language", v)));
     add(valueRow("Cache", 0, T("settings.cache.label"), p.consent ? T("cacheTo", { path: p.cacheDir }) : `${T("settings.cache.off")} - ${p.cacheDir}`, [
       [T("settings.cache.change"), browse("cacheDir", p.cacheDir), p.native],
-      [T("settings.cache.clear"), async () => { if (await call(() => rpc("settings.clearCache")) !== null) toast(T("settings.cache.cleared")); }, !!p.consent]]));
+      [T("settings.cache.clear"), async () => { if (await call(() => rpc("settings.clearCache")) !== null) notify(T("settings.cache.cleared")); }, !!p.consent]]));
     add(radioRow("Spine", 0, T(runtimeLoaded() && p.spineConsent !== true ? "settings.spine.restart" : "settings.spine.label"),
       [[true, T("spine.license.yes")], [false, T("spine.license.no")]], p.spineConsent === true, async (granted) => {
         if (granted === (prefs.spineConsent === true)) return;
@@ -265,7 +266,7 @@ function rows({ builtSize = null, sizeError = null } = {}) {
       [T("settings.detect"), async () => {
         const found = await call(() => rpc("settings.detectGame", { region }));
         if (found?.length) set(`gameDir.${region}`, found[0]);
-        else if (found) toast(T("app.noGame.title"), { kind: "error" });
+        else if (found) notify(T("app.noGame.title"), { kind: "error" });
       }],
       [T("settings.change"), browse(`gameDir.${region}`, dir), p.native]]));
     add(valueRow("Library", 0, T("settings.library"), p.libraryDir, [[open, reveal(p.libraryDir)], [T("settings.change"), browse("libraryDir", p.libraryDir), p.native]]));
@@ -288,7 +289,7 @@ async function openLog() {
         if (!document.execCommand("copy")) throw new Error("Clipboard unavailable");
       } finally { input.remove(); }
     }
-    toast(T("settings.log.copied"));
+    notify(T("settings.log.copied"));
   }) });
 }
 
@@ -300,11 +301,11 @@ async function checkUpdate(event) {
     await render();
     const { check } = await import("./update.js");
     await check($("consent"), undefined, {
-      onCheck: (info) => { if (info) close(); else toast(T("settings.update.none")); },
-      onError: (err) => toast(errorText(err), { kind: "error" }),
+      onCheck: (info) => { if (info) close(); else notify(T("settings.update.none")); },
+      onError: (err) => notify(errorText(err), { kind: "error" }),
     });
   } catch (err) {
-    toast(errorText(err), { kind: "error" });
+    notify(errorText(err), { kind: "error" });
   } finally {
     checkingUpdate = false;
     if (!$("settings").hidden) render();
@@ -316,7 +317,7 @@ async function set(key, value) {
   if (!next) return;
   prefs = next;
   if (key === "language") { location.reload(); return; }
-  toast(T("settings.saved"));
+  notify(T("settings.saved"));
   onChange?.(key, next);
   render();
   return next;

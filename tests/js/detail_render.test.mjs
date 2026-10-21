@@ -63,7 +63,7 @@ class El {
 const walk = (el) => [el, ...el.children.flatMap(walk)];
 const body = new El("body"), title = new El(), back = new El("button");
 const hosts = Object.fromEntries(["stage", "screen-detail", "ngui", "ngui-bg", "ngui-chips", "ngui-expr", "portrait", "lobby", "model",
-  "popup", "picker", "dialog", "prompt", "consent", "toast", "fs-exit"].map((id) => {
+  "popup", "picker", "dialog", "prompt", "consent", "notify", "fs-exit"].map((id) => {
   const el = body.appendChild(new El()); el.id = id; el.hidden = /popup|picker|dialog|prompt|consent/.test(id); return [id, el];
 }));
 const documentEvents = new EventTarget();
@@ -549,7 +549,7 @@ test("a mod portrait setup exception is observed, settled and reported", async (
     t.mock.timers.tick(1300); await flush(); await finish(t, showing);
     assert.ok(switchButton());
     assert.ok(errors.some((a) => a.some((e) => String(e).includes("Mod skeleton setup failed"))));
-    assert.equal(hosts.toast.textContent, "Preview unavailable");
+    assert.ok(walk(hosts.dialog).some((el) => el.textContent === "Preview unavailable"));
     assert.ok(!hosts.portrait.classList.contains("pending"));
   } finally { Detail.hide(); await flush(); t.mock.timers.reset(); playerMode = "ready"; }
 });
@@ -575,7 +575,7 @@ for (const status of [404, 500]) test(`the main portrait logs the cause of a fai
     errors.length = 0; warnings.length = 0; family = modFamily(); portraitStatus = status;
     const showing = Detail.show(context, family, "ibuki"); await flush();
     t.mock.timers.tick(1300); await flush(); await finish(t, showing);
-    assert.equal(hosts.toast.textContent, "Preview unavailable");
+    assert.ok(walk(hosts.dialog).some((el) => el.textContent === "Preview unavailable"));
     assert.ok(errors.some((args) => args.includes("/asset/spine/spr/ibuki_spr/skeleton")), "the console names the current source");
     assert.ok([...errors, ...warnings].some((args) => args.some((value) => String(value).includes(`HTTP ${status}`))));
     assert.ok(switchButton(), "the panels stay usable");

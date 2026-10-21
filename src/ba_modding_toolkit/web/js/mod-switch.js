@@ -4,6 +4,7 @@
 // A write refused while the classic UI is open opens the classic modal, which can queue it until the window closes.
 // The pure parts (the view from mods.state, the click, the help's lines, the result, the start prompts, the classic
 // modal's outcome) are tested in Node (tests/js/mod_switch.test.mjs).
+import { notify } from "./popup.js";
 import * as NGUI from "./ngui.js";
 import * as Consent from "./consent.js";
 import * as Loading from "./loading.js";
@@ -11,7 +12,7 @@ import * as Popup from "./popup.js";
 import { on, rpc, waitJob } from "./api.js";
 import { T, language } from "./i18n.js";
 import { overwrittenLines } from "./repairs.js";
-import { $, toast } from "./util.js";
+import { $ } from "./util.js";
 
 // --- pure parts ---
 
@@ -63,8 +64,8 @@ export function view(state, { place = "top" } = {}) {
 }
 
 // clickAction(state, explained): what a click on the switch does
-//   "busy": a toggle runs (refused, a toast); "queued": writes wait for the classic window (the classic modal, its
-//   box ticked); "reason": unavailable (the reason as a toast); "explain": the first toggle ever (the explanation,
+//   "busy": a toggle runs (refused, a message popup); "queued": writes wait for the classic window (the classic modal, its
+//   box ticked); "reason": unavailable (the reason as a message popup); "explain": the first toggle ever (the explanation,
 //   then the toggle); "classic": the classic window is open (the classic modal); "toggle": at once (decision 3)
 export function clickAction(state, explained = false) {
   if (!state) return "none";
@@ -117,12 +118,12 @@ export function entryLabel(entry, nameOf = (e) => e?.variant || e?.core || "", s
 
 const MAX_LISTED = 6; // failed entries a result names; the rest are counted
 
-// resultSummary(result, nameOf): what a toggle's end shows. Nothing adopted, failed, stuck or left: a toast ("Mods
+// resultSummary(result, nameOf): what a toggle's end shows. Nothing adopted, failed, stuck or left: a message popup ("Mods
 // off" / "Mods on"); otherwise {title, lines} for a result popup, each failed entry with its error string.
 export function resultSummary(result, nameOf) {
   const list = (k) => result?.[k] || [];
   const title = T(result?.enabled === false ? "mods.offState" : "mods.onState");
-  if (!list("adopted").length && !list("failed").length && !list("stuck").length && !list("left").length) return { toast: title };
+  if (!list("adopted").length && !list("failed").length && !list("stuck").length && !list("left").length) return { notify: title };
   const lines = [];
   if (list("adopted").length) lines.push(T("mods.toAdd", { n: list("adopted").length }));
   lines.push(T("mods.result", { done: list("done").length, failed: list("failed").length + list("left").length }));
@@ -312,9 +313,9 @@ async function render() {
 export async function click(from = "top") {
   const s = state;
   switch (clickAction(s, explainedHere)) {
-    case "busy": toast(T("error.busy"), { kind: "error" }); return;
+    case "busy": notify(T("error.busy"), { kind: "error" }); return;
     case "queued": classicModal({ queued: true }); return;
-    case "reason": toast(reasonText(s), { kind: "error" }); return;
+    case "reason": notify(reasonText(s), { kind: "error" }); return;
     case "explain":
       // the toggle the explanation named; switched elsewhere meanwhile, the job refuses it (state_changed), and a
       // classic window opened meanwhile gives the classic modal
@@ -337,12 +338,12 @@ async function explain(s) {
 
 // a toggle or Retry: submitted at once; the indicator and the progress while it runs; the result at its end
 async function run(params) {
-  if (inFlight) { toast(T("error.busy"), { kind: "error" }); return; }
+  if (inFlight) { notify(T("error.busy"), { kind: "error" }); return; }
   inFlight = true;
   try {
-    const result = await Loading.hold(async () => {
+    const result = await Loading.hold(async (update) => {
       const id = await rpc("mods.toggle", params, { timeout: 30000 });
-      const result = await toggleJob(id, params);
+      const result = await toggleJob(id, params, update);
       // Flush the delayed library.changed refresh before input resumes or a result popup can defer it.
       let timer;
       try {
@@ -359,7 +360,7 @@ async function run(params) {
   }
 }
 
-// a toggle job followed to its end: the indicator, action and count, then the toast or the result popup. method: the
+// a toggle job followed to its end: the indicator, action and count, then the message popup or the result popup. method: the
 // call a classic_open refusal may queue (the tray's toggle has none: the tray never queues)
 async function follow(id, params, method) {
   try {
@@ -369,10 +370,13 @@ async function follow(id, params, method) {
   }
 }
 
-function toggleJob(id, params) {
+function toggleJob(id, params, update = null) {
   const running = T(params.enabled ? "progress.apply" : "progress.restore", { name: T("progress.mods") });
-  toast(running, { sticky: true });
-  return waitJob(id, (p) => toast(Loading.progressText(p, running), { sticky: true }));
+  if (update) {
+    update(running);
+    return waitJob(id, (p) => update(Loading.progressText(p, running)));
+  }
+  return Loading.task((report) => waitJob(id, report), { label: running });
 }
 
 // turn(params): a toggle asked for by another control (the untracked prompt's Add and Turn On Mods): the first
@@ -404,18 +408,17 @@ export async function trayOpen(data = {}) {
 }
 
 // tray.toggle {job, enabled, expect}: the tray submitted the toggle; the page follows it as its own (progress, the end
-// toast, the result popup)
+// message popup, the result popup)
 export async function trayToggle(data = {}) {
   if (!data?.job) return;
   await follow(data.job, { enabled: !!data.enabled, expect: !!data.expect }, null);
 }
 
-// a toggle's end: a toast, or the result popup when entries were adopted, failed, stuck or left
+// a toggle's end: a message popup, or the result popup when entries were adopted, failed, stuck or left
 async function finished(result) {
   const nameOf = await names().catch(() => undefined);
   const summary = resultSummary(result, nameOf);
-  if (summary.toast) { toast(summary.toast); return; }
-  toast("");
+  if (summary.notify) { notify(summary.notify); return; }
   await Popup.message({ title: summary.title, lines: summary.lines, ok: T("picker.ok") });
 }
 
@@ -423,8 +426,8 @@ async function finished(result) {
 // elsewhere first, the switch redraws from mods.state
 export function refused(err, method = null, params = null) {
   const code = err?.code || "internal";
-  if (code === "classic_open" && QUEUEABLE.includes(method)) { toast(""); classicModal({ method, params }); return; }
-  toast(errorText(code, err?.params || { error: String(err) }), { kind: "error" });
+  if (code === "classic_open" && QUEUEABLE.includes(method)) { classicModal({ method, params }); return; }
+  notify(errorText(code, err?.params || { error: String(err) }), { kind: "error" });
   if (code === "state_changed") refresh();
 }
 
@@ -442,12 +445,12 @@ export async function classicModal({ method = null, params = null, queued = fals
   try {
     if (what === "queue" && method) {
       await rpc("classic.queue", { method, params: params || {} });
-      toast(T("classic.queued"));
+      notify(T("classic.queued"));
     } else if (what === "clear") {
       await rpc("classic.clearQueue");
     }
   } catch (err) {
-    toast(errorText(err.code, err.params), { kind: "error" });
+    notify(errorText(err.code, err.params), { kind: "error" });
   }
   return what;
 }
@@ -457,7 +460,7 @@ async function queueDone({ submitted = [], dropped = [] } = {}) {
   for (const item of submitted) {
     if (!item.job) continue;
     waitJob(item.job).then((result) => (item.method === "mods.toggle" ? finished(result) : null))
-      .catch((err) => toast(errorText(err.code, err.params), { kind: "error" }));
+      .catch((err) => notify(errorText(err.code, err.params), { kind: "error" }));
   }
   if (!dropped.length) return;
   const nameOf = await names().catch(() => undefined);
@@ -492,10 +495,10 @@ export async function clearBuilt() {
   try {
     const id = await rpc("mods.clearBuilt");
     await Loading.task((update) => waitJob(id, update), { label: T("progress.clear") });
-    toast(T("mods.cacheCleared"));
+    notify(T("mods.cacheCleared"));
     return true;
   } catch (err) {
-    toast(errorText(err.code, err.params), { kind: "error" });
+    notify(errorText(err.code, err.params), { kind: "error" });
     return false;
   }
 }
@@ -528,7 +531,7 @@ export async function check() {
   try {
     await rpc("mods.scan", { dismissed: true });
   } catch (err) {
-    toast(errorText(err.code, err.params), { kind: "error" });
+    notify(errorText(err.code, err.params), { kind: "error" });
     return null;
   }
   const result = await Loading.task(() => done, { label: T("progress.check") });

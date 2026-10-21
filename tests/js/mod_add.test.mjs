@@ -16,7 +16,7 @@ async function harness({ locale = "en-US", added = [], button = "cancel", error 
     waitJob: async (id, update) => { update({ current: 1, total: 2, label: "dress_home.bundle" }); if (error) throw error; return added; },
     Loading: { task: async (run, options) => { log.push(["loading", options]); try { return await run((p) => progress.push(p)); } finally { log.push(["closed"]); } } },
     Popup: { message: async (opts) => { log.push(["popup", opts]); return { button }; } },
-    toast: (text) => log.push(["toast", text]),
+    notify: (text) => log.push(["notify", text]),
     Compatibility: {
       compare: (report) => ({ issues: report.issues || [] }),
       show: async (report, options) => {
@@ -29,7 +29,7 @@ async function harness({ locale = "en-US", added = [], button = "cancel", error 
     },
   };
   globalThis.modAddDeps = d;
-  const code = `const {rpc,waitJob,T,Loading,Popup,toast,Compatibility} = globalThis.modAddDeps;\n${source.replace(/^import .*;$/gm, "")}\n// ${seq++}`;
+  const code = `const {rpc,waitJob,T,Loading,Popup,notify,Compatibility} = globalThis.modAddDeps;\n${source.replace(/^import .*;$/gm, "")}\n// ${seq++}`;
   const mod = await import(`data:text/javascript;base64,${Buffer.from(code).toString("base64")}`);
   mod.init({ names: async () => name,
     changed: () => log.push(["changed"]), go: (key) => log.push(["go", key]), goOther: () => log.push(["goOther"]) });
@@ -57,7 +57,7 @@ test("a failed automatic switch remains visible on the current variant in all si
     const popup = h.log.find(([k]) => k === "popup")[1];
     const strings = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${locale}.json`, import.meta.url), "utf8")).webui;
     assert.deepEqual(popup.lines, [strings.add.applyFailed.replace("{reason}", strings.error.game_running)]);
-    assert.ok(!h.log.some(([k]) => k === "toast"));
+    assert.ok(!h.log.some(([k]) => k === "notify"));
   }
 });
 
@@ -87,7 +87,7 @@ test("same-variant adds confirm briefly for maid, dress, swimsuit and base varia
       for (const report of [[mod], { added: [mod], duplicates: [], installed: [] }]) {
         const h = await harness({ added: report });
         assert.deepEqual(await h.mod.add(paths, ` ${key} `), report);
-        assert.deepEqual(h.log.at(-1), ["toast", "Added"]);
+        assert.deepEqual(h.log.at(-1), ["notify", "Added"]);
         assert.equal(h.log.filter(([k]) => k === "changed").length, 1);
         assert.ok(!h.log.some(([k]) => k === "popup" || k === "go"));
       }
@@ -102,7 +102,7 @@ test("another variant in the same family and another family each offer the canon
     await h.mod.add(null, from);
     assert.equal(h.log.find(([k]) => k === "popup")[1].lines[0], "Mod for ch0200 added");
     assert.deepEqual(h.log.at(-1), ["go", "ch0200"]);
-    assert.ok(!h.log.some(([k]) => k === "toast"));
+    assert.ok(!h.log.some(([k]) => k === "notify"));
   }
 });
 
@@ -119,7 +119,7 @@ test("entry-shaped results use variant, while core never substitutes for the cat
   const mod = { variant: "CH0200", core: "aris_maid_spr", kind: "spr" };
   const h = await harness({ added: [mod] });
   await h.mod.add(null, "ch0200");
-  assert.deepEqual(h.log.at(-1), ["toast", "Added"]);
+  assert.deepEqual(h.log.at(-1), ["notify", "Added"]);
   const other = await harness({ added: [mod], button: "ok" });
   await other.mod.add(null, "aris");
   assert.deepEqual(other.log.at(-1), ["go", "ch0200"]);
@@ -136,7 +136,7 @@ test("both kinds on the selected variant use the localized short confirmation", 
   for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) {
     const h = await harness({ locale, added: [portrait, { ...portrait, kind: "lobby" }] });
     await h.mod.add(null, "base");
-    const text = h.log.find(([k]) => k === "toast")[1];
+    const text = h.log.find(([k]) => k === "notify")[1];
     assert.ok(text && text !== "add.done" && !/[{}]/.test(text));
     assert.ok(!h.log.some(([k]) => k === "popup"));
   }
@@ -162,12 +162,12 @@ test("file drops use the student actually shown and refresh after either confirm
       location: { hash: "#/student/base/base" },
       ModAdd: h.mod, Detail: { currentVariant: () => shown },
       ctx: { invalidateRoster: () => { invalidations++; } }, route: () => { refreshes++; },
-      toast: () => assert.fail("a successful drop does not show a hint or error"), T: (key) => key,
+      notify: () => assert.fail("a successful drop does not show a hint or error"), T: (key) => key,
     };
     new Function("env", `const { ${Object.keys(env).join(", ")} } = env; ${drop}`)(env);
     await handler({ paths: ["mod.bundle"] });
     assert.equal(h.log.some(([k]) => k === "popup"), shown !== "ch0200");
-    assert.equal(h.log.some(([k]) => k === "toast"), shown === "ch0200");
+    assert.equal(h.log.some(([k]) => k === "notify"), shown === "ch0200");
     assert.equal(refreshes, 1);
     assert.equal(invalidations, 1);
   }
@@ -275,7 +275,7 @@ test("duplicates on the current canonical variant show OK without navigation in 
     assert.deepEqual(opts.lines, [strings.add.duplicate.replace("{name}", "My portrait")]);
     assert.equal(opts.ok, strings.picker.ok);
     assert.equal(opts.cancel, null);
-    assert.ok(!h.log.some(([k]) => ["go", "toast", "changed"].includes(k)));
+    assert.ok(!h.log.some(([k]) => ["go", "notify", "changed"].includes(k)));
   }
 });
 
@@ -290,7 +290,7 @@ test("adoption on the selected variant reports installation and refreshes even f
     assert.equal(opts.ok, "Confirm");
     assert.equal(opts.cancel, null);
     assert.equal(h.log.filter(([k]) => k === "changed").length, 1);
-    assert.ok(!h.log.some(([k]) => k === "go" || k === "toast"));
+    assert.ok(!h.log.some(([k]) => k === "go" || k === "notify"));
   }
 });
 
@@ -313,7 +313,7 @@ test("one report combines special results, toasts plain local adds and navigates
     ]);
     assert.equal(typeof opts.lines[0], "string");
     assert.equal(typeof opts.lines[2], "string");
-    assert.deepEqual(h.log.filter(([k]) => k === "toast"), [["toast", strings.add.done]]);
+    assert.deepEqual(h.log.filter(([k]) => k === "notify"), [["notify", strings.add.done]]);
     assert.deepEqual(h.log.at(-1), ["go", "dress"]);
     for (const [index, target] of [[1, "dress"], [3, "ch0200"]]) {
       const closed = [];
@@ -369,7 +369,7 @@ test("drop callers accept report objects for new mods, duplicates and adoption w
     let handler, refreshes = 0, invalidations = 0;
     const env = { on: (_name, fn) => { handler = fn; }, Detail: { currentVariant: () => "base" }, location: { hash: "#/roster" },
       ctx: { invalidateRoster: () => { invalidations++; } }, route: () => { refreshes++; },
-      toast: () => assert.fail("a successful drop has no hint or error"), T: (key) => key,
+      notify: () => assert.fail("a successful drop has no hint or error"), T: (key) => key,
       ModAdd: { add: async (...args) => { assert.deepEqual(args, [["mod.bundle"], "base"]); return report; } },
     };
     new Function("env", `const { ${Object.keys(env).join(", ")} } = env; ${drop}`)(env);

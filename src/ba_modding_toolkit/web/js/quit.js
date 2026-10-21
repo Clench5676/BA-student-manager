@@ -29,13 +29,13 @@ export const CONFIRM_KEYS = Object.freeze(["Enter", " "]);
 
 // the quit prompt, then the quit:
 //   message(opts)  the shared message popup (popup.js), resolving with {button}
-//   rpc, T, toast  the page's
+//   rpc, T, notify  the page's
 //   native         the app runs in its own window (app.quit closes it)
 //   closed()       shows that the app has quit (browser mode: the server stops after answering)
 // Resolves with "cancel", "quit" or the refusal's error code (busy while a writer job runs, native_unavailable with
 // --serve).
 let asking = false;
-export async function confirmQuit({ message, rpc, T, toast, native = false, closed }) {
+export async function confirmQuit({ message, rpc, T, notify, native = false, closed }) {
   if (asking) return "cancel";
   asking = true;
   try {
@@ -46,7 +46,7 @@ export async function confirmQuit({ message, rpc, T, toast, native = false, clos
     try {
       await rpc("app.quit");
     } catch (err) {
-      toast(T(`error.${err.code || "internal"}`, err.params || {}), { kind: "error" });
+      notify(T(`error.${err.code || "internal"}`, err.params || {}), { kind: "error" });
       return err.code || "internal";
     }
     if (!native) closed?.();

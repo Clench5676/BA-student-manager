@@ -11,7 +11,7 @@ function harness({ locale = "en-US", used = true, button = "ok", error = null } 
   const deps = {
     T, rpc: async (...args) => { calls.push(args); if (error) throw error; return { name: "My portrait", used }; },
     message: async (opts) => { messages.push(opts); return { button }; },
-    job: async (...args) => { calls.push(args); return true; }, toast: (text) => calls.push(["toast", text]), errorText: String,
+    job: async (...args) => { calls.push(args); return true; }, notify: (text) => calls.push(["notify", text]), errorText: String,
   };
   const remove = new Function("deps", `const {${Object.keys(deps).join(",")}} = deps; ${removeSource}; return removeMod;`)(deps);
   return { remove, calls, messages, T };
@@ -56,18 +56,18 @@ test("a completed deletion reports any pending restoration from its single write
     await h.remove("m1");
     assert.equal(h.calls.filter(([method]) => method === "mods.remove").length, 1);
     h.calls[1][2].onDone({ failed });
-    assert.deepEqual(h.calls.filter(([method]) => method === "toast"),
-      failed.length ? [["toast", h.T("mods.deletePending")]] : []);
+    assert.deepEqual(h.calls.filter(([method]) => method === "notify"),
+      failed.length ? [["notify", h.T("mods.deletePending")]] : []);
   }
 });
 
 test("applying the source already in use shows its status without starting a job", async () => {
   const applySource = source.slice(source.indexOf("async function applyCandidate("), source.indexOf("// --- variant chips"));
   const messages = [];
-  const apply = new Function("deps", `const {${["variant", "modsOn", "appliedKey", "toast", "T", "job"].join(",")}} = deps;
+  const apply = new Function("deps", `const {${["variant", "modsOn", "appliedKey", "notify", "T", "job"].join(",")}} = deps;
     ${applySource}; return applyCandidate;`)({
     variant: () => ({ key: "test" }), modsOn: () => true, appliedKey: () => "m:m1",
-    T: (s) => s, toast: (s) => messages.push(s), job: () => assert.fail("must not submit a job"),
+    T: (s) => s, notify: (s) => messages.push(s), job: () => assert.fail("must not submit a job"),
   });
   await apply("m:m1", "spr");
   assert.deepEqual(messages, ["mods.alreadyInUse"]);

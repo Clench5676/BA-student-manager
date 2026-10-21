@@ -1,10 +1,11 @@
 // Generic library sources in Settings, using the same rows and writer jobs as the other controls.
+import { notify } from "./popup.js";
 import * as Loading from "./loading.js";
 import * as ModSwitch from "./mod-switch.js";
 import * as Popup from "./popup.js";
 import { rpc, waitJob } from "./api.js";
 import { T } from "./i18n.js";
-import { toast } from "./util.js";
+
 
 let busy = false;
 
@@ -15,7 +16,7 @@ async function write(method, params, name, changed) {
     await Loading.task(async (update) => waitJob(await rpc(method, params), update), {
       label: T(method === "mods.remove" ? "progress.delete" : method === "actions.restore" ? "progress.restore" : "progress.apply", { name }),
     }).then((result) => {
-      if (result?.failed?.length) toast(T("mods.deletePending"));
+      if (result?.failed?.length) notify(T("mods.deletePending"));
     });
     await ModSwitch.refresh();
     await changed();

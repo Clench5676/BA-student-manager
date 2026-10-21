@@ -3,7 +3,7 @@
 // stand-in DOM. Run by tests/test_mod_switch.py with Node's test runner: node --test tests/js/mod_switch.test.mjs
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { test } from "node:test";
+import { afterEach, test } from "node:test";
 import { controls, insert } from "./control_prefabs.mjs";
 
 // --- a stand-in DOM: elements in a tree, ids, clicks, the focus and the window's key listeners ---
@@ -87,7 +87,7 @@ globalThis.requestAnimationFrame = (fn) => setTimeout(fn, 0);
 function press(key, target = document.activeElement) { return target.dispatch("keydown", { key }); }
 const stage = body.appendChild(new El()); stage.id = "stage";
 const host = (id) => { const h = stage.appendChild(new El()); h.id = id; h.hidden = true; return h; };
-const dialog = host("dialog"), consent = host("consent"), toastEl = host("toast"), prompt = host("prompt"), settingsHost = host("settings");
+const dialog = host("dialog"), consent = host("consent"), prompt = host("prompt"), settingsHost = host("settings");
 dialog.className = prompt.className = "popup-host"; consent.className = "consent-host";
 const switchHost = host("mod-switch");
 
@@ -173,6 +173,19 @@ async function until(fn, what) {
   for (let i = 0; i < 300; i++) { if (fn()) return; await tick(); }
   throw new Error(`never: ${what}`);
 }
+const noticeDelay = globalThis.setTimeout;
+async function expectNotice(text) {
+  for (let i = 0; i < 2000; i++) {
+    const layer = dialog.children.at(-1), ok = layer && action(layer, "ok");
+    if (ok && walk(layer).some((el) => el.textContent.replaceAll("\n", " ") === text)) { ok.click(); return; }
+    await new Promise((resolve) => noticeDelay(resolve, 1));
+  }
+  throw new Error(`message not shown: ${text}`);
+}
+afterEach(async () => {
+  await tick();
+  for (const layer of [...dialog.children].reverse()) action(layer, "close")?.click();
+});
 const called = (method) => calls.filter(([m]) => m === method).map(([, p]) => p);
 const labels = (root) => walk(root).map((e) => e.attrs?.["aria-label"]).filter(Boolean);
 function deferred() { let resolve; const promise = new Promise((r) => { resolve = r; }); return { promise, resolve }; }
@@ -284,9 +297,9 @@ test("the help's lines: game folders, Retry and Details, independent of scan con
   for (const l of MS.helpLines(counts)) assert.ok(!/^mods\./.test(l.text), `a string for ${l.text}`);
 });
 
-test("a toggle's end: a toast, or the result popup naming each failed entry with its error string", () => {
-  assert.deepEqual(MS.resultSummary({ enabled: false, done: [{}, {}], adopted: [], failed: [], stuck: [], left: [], skipped: [{}] }), { toast: S("mods.offState") });
-  assert.deepEqual(MS.resultSummary({ enabled: true, done: [] }), { toast: S("mods.onState") });
+test("a toggle's end: a notify, or the result popup naming each failed entry with its error string", () => {
+  assert.deepEqual(MS.resultSummary({ enabled: false, done: [{}, {}], adopted: [], failed: [], stuck: [], left: [], skipped: [{}] }), { notify: S("mods.offState") });
+  assert.deepEqual(MS.resultSummary({ enabled: true, done: [] }), { notify: S("mods.onState") });
   const names = (e) => ({ airi: "Airi", ch0251: "Airi (Band)" })[e.variant] || e.variant;
   const r = MS.resultSummary({
     enabled: false, done: [{}, {}, {}], adopted: [{ variant: "airi" }],
@@ -384,8 +397,8 @@ test("the top bar's switch follows mods.state, and the first toggle explains onc
   toggle.click();
   await until(() => called("mods.toggle").length === 1, "mods.toggle");
   assert.deepEqual(called("mods.toggle")[0], { enabled: false, expect: true });
-  assert.equal(dialog.hidden, true, "no explanation the second time");
-  await until(() => toastEl.textContent === S("mods.offState"), "the toast");
+  assert.equal(called("mods.explained").length, 1, "no explanation the second time");
+  await expectNotice(S("mods.offState"));
   // greyed with an accessible reason; a click says why and submits nothing
   answers["mods.state"] = base({ available: false, reason: "game_running" });
   await MS.refresh();
@@ -393,7 +406,7 @@ test("the top bar's switch follows mods.state, and the first toggle explains onc
   assert.equal(toggle.title, "");
   assert.equal(toggle.getAttribute("aria-description"), S("error.game_running"));
   MS.click("top");
-  assert.equal(toastEl.textContent, S("error.game_running"));
+  await expectNotice(S("error.game_running"));
   assert.equal(called("mods.toggle").length, 1);
   // An older state response cannot hide the main switch.
   answers["mods.state"] = base({ shown: false });
@@ -450,7 +463,7 @@ test("Settings measures built mods only when its Mods row is drawn, and remeasur
   assert.equal(called("mods.clearBuilt").length, 1);
   assert.equal(called("mods.sizes").length, count + 2);
   assert.equal(button(S("settings.mods.clear")), undefined, "cleanup disabled when empty");
-  assert.equal(toastEl.textContent, S("mods.cacheCleared"));
+  await expectNotice(S("mods.cacheCleared"));
   button(S("settings.tab.general")).click();
   await until(() => !!button(S("settings.tab.mods")), "General tab");
   assert.equal(called("mods.sizes").length, count + 2);
@@ -612,24 +625,23 @@ test("Settings' manual Check asks for missing consent, stops on refusal, and che
       button(S("settings.mods.check")).click();
       await drawn(consent, "ok");
       assert.equal(called("mods.scan").length, scans);
-      toastEl.textContent = "";
       action(consent, "ok").click();
       await until(() => called("mods.scan").length === scans + 1, "manual Check after Allow");
       assert.deepEqual(called("mods.consent").at(-1), { granted: true });
       assert.deepEqual(called("mods.scan").at(-1), { dismissed: true }, "manual Check includes dismissed entries");
-      assert.equal(toastEl.textContent, "", "waits for the scan result");
+      assert.equal(dialog.hidden, true, "waits for the scan result");
       emit("library.scanned", { entries: [] });
-      await until(() => toastEl.textContent === S("settings.mods.clean") && selected(0), "scan result and On selected");
+      await expectNotice(S("settings.mods.clean"));
+      await until(() => selected(0), "scan result and On selected");
       assert.equal(settingsHost.hidden, false);
       const granted = called("mods.consent").length;
-      toastEl.textContent = "";
       button(S("settings.mods.check")).click();
       await until(() => called("mods.scan").length === scans + 2, "manual Check with existing consent");
       assert.equal(consent.hidden, true, "existing consent needs no popup");
       assert.equal(called("mods.consent").length, granted);
       assert.deepEqual(called("mods.scan").at(-1), { dismissed: true });
       emit("library.scanned", { entries: [] });
-      await until(() => toastEl.textContent === S("settings.mods.clean"), "existing consent scan result");
+      await expectNotice(S("settings.mods.clean"));
       button(S("display.close")).click();
     }
   } finally {
@@ -681,6 +693,7 @@ test("the classic modal queues the refused write only when its box is ticked, on
   press("Escape");
   assert.equal(await m, "queue");
   await until(() => queued() === 1, "classic.queue");
+  await expectNotice(S("classic.queued"));
   assert.deepEqual(called("classic.queue")[0], { method: "actions.apply", params: { variant: "airi", source: "variant:ch0251", kind: "spr" } });
   // ticked, Bring to Front: raised and queued
   m = MS.classicModal({ method: "mods.toggle", params: { enabled: true, expect: false } });
@@ -689,6 +702,7 @@ test("the classic modal queues the refused write only when its box is ticked, on
   action(dialog, "cancel").click();
   assert.equal(await m, "queue");
   await until(() => queued() === 2 && called("classic.front").length === 1, "front and queue");
+  await expectNotice(S("classic.queued"));
   // opened on writes already queued (a click on the busy switch): the box ticked; unticked and closed, the queue empties
   answers["mods.state"] = base({ busy: true, queued: 2 });
   await MS.refresh();
@@ -698,7 +712,7 @@ test("the classic modal queues the refused write only when its box is ticked, on
   action(dialog, "check").click();
   action(dialog, "ok").click();
   await until(() => called("classic.clearQueue").length === 1, "classic.clearQueue");
-  // a toggle refused at submit with classic_open opens the modal instead of a toast
+  // a toggle refused at submit with classic_open opens the modal instead of a notify
   answers["mods.state"] = base();
   await MS.refresh();
   answers["mods.toggle"] = { error: { code: "classic_open", params: {} } };
@@ -783,7 +797,7 @@ test("the untracked prompt's buttons: add the ticked cards, Don't Ask Again dism
 });
 
 test("Apply Mod Configuration's result names the entries skipped because their files changed", () => {
-  assert.deepEqual(P.driftSummary({ done: [{}], failed: [], skipped: [], stuck: [] }), { toast: S("job.done") });
+  assert.deepEqual(P.driftSummary({ done: [{}], failed: [], skipped: [], stuck: [] }), { notify: S("job.done") });
   const nameOf = (e) => e.variant;
   const r = P.driftSummary({
     done: [{}], stuck: [],
@@ -816,7 +830,7 @@ test("the tray's first toggle explains once, and the explanation's button submit
   action(dialog, "ok").click();
   await shown;
   assert.deepEqual(called("mods.toggle").slice(before), [{ enabled: false, expect: true }]);
-  await until(() => toastEl.textContent === S("mods.offState"), "the toast");
+  await expectNotice(S("mods.offState"));
   // closed any other way: shown, and nothing toggled
   const Other = await import("../../src/ba_modding_toolkit/web/js/mod-switch.js?tray-cancel");
   const explained = called("mods.explained").length;
@@ -830,14 +844,14 @@ test("the tray's first toggle explains once, and the explanation's button submit
 
 test("the tray's refusal shows as the page's own, and its toggle is followed to its result", async () => {
   await MS.trayOpen({ view: "error", code: "game_running", params: {} });
-  assert.equal(toastEl.textContent, S("error.game_running"));
+  await expectNotice(S("error.game_running"));
   // classic_open from the tray: the tray never queues, so no classic modal
   await MS.trayOpen({ view: "error", code: "classic_open", params: {} });
-  assert.equal(toastEl.textContent, S("error.classic_open"));
+  await expectNotice(S("error.classic_open"));
   assert.equal(dialog.hidden, true);
   jobs["job-tray-2"] = { state: "done", result: { enabled: true, done: [{}], adopted: [], failed: [], stuck: [], left: [] } };
   emit("tray.toggle", { job: "job-tray-2", enabled: true, expect: false });
-  await until(() => toastEl.textContent === S("mods.onState"), "the end toast");
+  await expectNotice(S("mods.onState"));
   // a result with failed entries: the result popup
   jobs["job-tray-3"] = { state: "done", result: { enabled: false, done: [], adopted: [], stuck: [], left: [],
     failed: [{ entry: { core: "airi_spr", variant: "airi", kind: "spr" }, code: "game_file_locked", params: {} }] } };
@@ -845,10 +859,10 @@ test("the tray's refusal shows as the page's own, and its toggle is followed to 
   await drawn(dialog, "ok");
   action(dialog, "ok").click();
   await followed;
-  // a toggle job that failed (switched elsewhere first): its toast
+  // a toggle job that failed (switched elsewhere first): its notify
   jobs["job-tray-4"] = { state: "failed", error: { code: "state_changed", params: {} } };
   await MS.trayToggle({ job: "job-tray-4", enabled: true, expect: false });
-  assert.equal(toastEl.textContent, S("error.state_changed"));
+  await expectNotice(S("error.state_changed"));
 });
 
 test("the tray's Back to Official opens the drift prompt: two buttons and no way out but them", async () => {
@@ -874,11 +888,11 @@ test("the tray's Back to Official opens the drift prompt: two buttons and no way
   assert.deepEqual(called("mods.restoreDrift")[0], { entries: [{ install: GLOBAL, core: "airi_spr", state: "reset" }] });
   assert.deepEqual(called("mods.dismiss").at(-1), { kind: "drift", entries: [{ install: GLOBAL, core: "hina_home", state: "updated" }] });
   assert.equal(prompt.hidden, true);
-  await until(() => toastEl.textContent === S("job.done"), "the end toast");
+  await expectNotice(S("job.done"));
   // nothing back to official any more: the tray's item was stale, the page says so
   answers["mods.entries"] = [];
   await MS.trayOpen({ view: "drift" });
-  assert.equal(toastEl.textContent, S("settings.mods.clean"));
+  await expectNotice(S("settings.mods.clean"));
 });
 
 test("the Game Files row's \"?\": one definition of configuration drift", async () => {
@@ -978,7 +992,7 @@ test("a failed or stalled page refresh releases the toggle hold within its bound
   await MS.init({ refreshPage: async () => { throw new Error("refresh failed"); } });
   await MS.turn({ enabled: true, expect: false });
   assert.equal(Loading.held(), false);
-  assert.equal(toastEl.textContent, S("mods.onState"));
+  await expectNotice(S("mods.onState"));
   assert.match(String(errors[0]), /refresh failed/);
 
   const started = deferred();
@@ -994,7 +1008,7 @@ test("a failed or stalled page refresh releases the toggle hold within its bound
     t.mock.timers.tick(1);
     await toggled;
     assert.equal(Loading.held(), false);
-    assert.equal(toastEl.textContent, S("mods.onState"));
+    await expectNotice(S("mods.onState"));
     // The in-flight guard was released too: another toggle can complete.
     await MS.init({ refreshPage: async () => {} });
     await MS.turn({ enabled: true, expect: false });
@@ -1036,12 +1050,13 @@ test("scan, cache cleanup and both switch directions name their action in every 
         jobs[id] = { state: "running" }; answers["mods.toggle"] = id;
         const toggled = MS.turn({ enabled, expect: !enabled });
         try {
-          await until(() => toastEl.textContent === ui(`progress.${action}`, { name: ui("progress.mods") }), "switch action");
+          await until(() => progress(ui(`progress.${action}`, { name: ui("progress.mods") })), "switch action");
           const label = ui(`progress.${action}`, { name: "test_spr" });
           emit("job.progress", { id, label, current: 0, total: 2 });
-          assert.equal(toastEl.textContent, ui("progress.count", { label, current: 0, total: 2 }));
+          assert.ok(progress(ui("progress.count", { label, current: 0, total: 2 })));
         } finally { jobs[id] = { state: "done", result }; emit("job.done", { id, result }); }
         await toggled;
+        await expectNotice(ui(enabled ? "mods.onState" : "mods.offState"));
       }
     }
   } finally { I18n.setStrings("en-US", strings); }

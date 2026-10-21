@@ -1,9 +1,10 @@
 // A library-only name on the game's input row, above the source picker or detail panel.
+import { notify } from "./popup.js";
 import * as NGUI from "./ngui.js";
 import { rpc } from "./api.js";
 import { T } from "./i18n.js";
 import { FRAME_Y, closed, closable, hit, popupFrame, ready } from "./popup.js";
-import { $, S, toast } from "./util.js";
+import { $, S } from "./util.js";
 
 let token = 0, dismiss = null;
 export function close() { token += 1; dismiss?.(); }
@@ -42,7 +43,7 @@ export async function open({ mod, onSaved }) {
       if (my === token) finish();
       await onSaved(saved);
     } catch (err) {
-      toast(T(`error.${err.code || "internal"}`, err.params || { error: String(err) }), { kind: "error" });
+      notify(T(`error.${err.code || "internal"}`, err.params || { error: String(err) }), { kind: "error" });
     } finally { saving = false; input.disabled = false; }
   };
   input.addEventListener("keydown", (ev) => {

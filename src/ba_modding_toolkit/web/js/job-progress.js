@@ -15,7 +15,7 @@ export function jobProgress({ action, name, current = 1, total = 1, step = "" })
   const detail = step && T(step);
   // These phases and steps express the same work even where their grammatical forms differ.
   const repeated = { "import.phase.add": "import.step.add", "import.phase.apply": "import.step.apply",
-    "progress.add": "import.step.add", "progress.apply": "import.step.apply", "progress.extract": "import.step.extract" };
+    "progress.actionApply": "import.step.apply", "progress.actionExtract": "import.step.extract" };
   const suffix = detail && detail !== phase && repeated[action] !== step ? T("progress.step", { step: detail }) : "";
   return T("progress.job", { action: phase.replace(/\{name\}/g, "").replace(/[:：]\s*$/u, "").trim(), name, current, total }) + suffix;
 }
