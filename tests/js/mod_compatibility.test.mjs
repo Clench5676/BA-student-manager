@@ -122,7 +122,20 @@ test("the card's on-demand check is read only and never offers an in-place Updat
   await h.mod.check("old-mod", "Painted", () => assert.fail("no in-place update"));
   assert.deepEqual(h.calls, [["actions.compatibility", { mod: "old-mod" }]]);
   assert.equal(h.popups[0].ok, h.strings.picker.ok);
+  assert.ok(h.popups[0].lines.every((line) => line !== "Painted"));
   assert.equal(h.mod.canRemap("old-mod"), false);
+});
+
+test("compatibility popups omit custom mod and skin names in every locale", async () => {
+  for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) {
+    const h = await harness(locale, "cancel");
+    const alias = "\u8317\u732b";
+    await h.mod.check("old-mod", alias);
+    assert.deepEqual(h.popups[0].lines, [h.strings.compatibility.matches]);
+    assert.ok(!JSON.stringify(h.popups[0]).includes(alias));
+    await h.mod.show(report(), { label: "Custom skin" });
+    assert.deepEqual(h.popups[1].lines, [h.strings.compatibility.matches]);
+  }
 });
 
 test("dismissing a mixed-origin size report never prepares a repair", async () => {

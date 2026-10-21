@@ -106,7 +106,7 @@ export function compare(report, runtime = globalThis.spine, summarize = false) {
     remap: eligible(report) && report.remappable === true && issues.some(({ key }) => ["regions", "atlasSize"].includes(key)) };
 }
 
-export async function show(report, { label = "", onRemap } = {}) {
+export async function show(report, { onRemap } = {}) {
   if (report.kind !== "model" && !await requireRuntime()) return;
   const result = compare(report, globalThis.spine, true);
   const lines = result.issues.map(({ key, params, detail }) => {
@@ -117,7 +117,7 @@ export async function show(report, { label = "", onRemap } = {}) {
   if (!lines.length) lines.push(T("compatibility.matches"));
   if (result.author) lines.push(T("compatibility.authorHint"));
   if (result.author || result.remap) lines.push(T("compatibility.crcHint"));
-  const response = await Popup.message({ title: T("compatibility.check"), lines: [...(label ? [label] : []), ...lines],
+  const response = await Popup.message({ title: T("compatibility.check"), lines,
     scroll: true,
     ok: T(result.remap && onRemap ? "remap.action" : "picker.ok"),
     cancel: (result.remap && onRemap) ? T("popup.cancel") : null });
@@ -169,7 +169,7 @@ export async function inspect(id, label = "") {
 export async function check(id, label = "", onRemapped = () => {}, mod = null) {
   if (mod?.kind !== "model" && !await requireRuntime()) return;
   const report = await inspect(id, label);
-  return show(report, { label, onRemap: () => remap(id, onRemapped, label) });
+  return show(report, { onRemap: () => remap(id, onRemapped, label) });
 }
 
 async function requireRuntime() {

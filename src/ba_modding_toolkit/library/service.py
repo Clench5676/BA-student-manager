@@ -817,18 +817,24 @@ class ModLibrary:
         return added
 
     def _check_group(self, files: dict[str, Path], pin: Pin | None, *, compatibility: bool = True,
-                     dependencies: bool = True, conversion: bool = False) -> dict:
+                     dependencies: bool = True, conversion: bool = False, variant_key: str | None = None) -> dict:
         selected, official, effective = integrity.Contents(), integrity.Contents(), integrity.Contents()
         sources = {name: integrity.inspect(path, allow_unknown=True) if conversion else integrity.inspect(path)
                    for name, path in files.items()}
         core = core_of(next(iter(files)))
         kind = kind_of_file(next(iter(files)))
+        target_core = core
         targets = (self._other_targets(files, pin) if kind == "other" else self._spine_parts(core, pin)) if pin else []
+        if pin and not targets and variant_key and kind != "other":
+            target_core = self._core_map(pin).core(variant_key, kind) or core
+            targets = self._spine_parts(target_core, pin)
+        if targets and kind != "other":
+            target_core = parse_filename(targets[0].name).core
         originals, original_paths = {}, []
         unavailable = not targets
         for target in targets:
             try:
-                original = self._official_for(target, pin)
+                original = self._official_for(target, pin, game_first=True)
                 originals[target] = integrity.inspect(original)
                 original_paths.append(original)
             except ServiceError as error:
@@ -842,7 +848,12 @@ class ModLibrary:
             if not conversion:
                 integrity.check_platform(contents, files[name], expected)
             selected.merge(contents)
-        parts = {part_of(name) for name in files}
+        parts = set()
+        for name in files:
+            prefix, res_type = part_of(name)
+            if kind != "other":
+                prefix = prefix.replace(f"-{parse_filename(name).core}-", f"-{target_core}-", 1)
+            parts.add((prefix, res_type))
         for target, contents in originals.items():
             if part_of(target.name) not in parts:
                 effective.merge(contents)
@@ -889,7 +900,8 @@ class ModLibrary:
     def compatibility(self, mod_id: str, pin: Pin | None = None) -> dict:
         """Fresh official and effective Spine data, without building or rewriting a mod."""
         record = self._record(mod_id)
-        report = self._check_group({path.name: path for path in self._paths(record)}, pin or self.current_pin())
+        report = self._check_group({path.name: path for path in self._paths(record)}, pin or self.current_pin(),
+                                   variant_key=self._target_of(record))
         report["repaired_from"], report["repaired_id"] = record.get("repaired_from", ""), record.get("repaired_id", "")
         report["remappable"] = report["remappable"] and not (report["repaired_from"] or report["repaired_id"])
         return report
@@ -1596,18 +1608,14 @@ class ModLibrary:
                 out.append(path)
         return out
 
-    def _official_for(self, game_file: Path, pin: Pin, full: bool = True) -> Path:
+    def _official_for(self, game_file: Path, pin: Pin, full: bool = True, *, game_first: bool = False) -> Path:
         """An official copy of a game file, in this order: the library's kept original (it was verified when it was
         kept; ``original_invalid`` when it fails, never overwritten), the game file itself, its .backup beside it (the
         classic GUI's; judged by the name without .backup), a file of its name in another game folder. At write
         strength each candidate is verified by the CRC32 of its whole content; else (previews) by the cheap rule.
-        ``original_unavailable`` when there is none."""
+        ``original_unavailable`` when there is none. Read-only checks may prefer the current official game file
+        with ``game_first``; an invalid kept original must still block writes."""
         check_resource_path(game_file, list(pin.dirs))
-        original = self._original_path(game_file)
-        if original.exists():
-            if full and not self._is_official(original):
-                raise ServiceError("original_invalid", file=original)
-            return original
 
         def official(path: Path) -> bool:
             try:
@@ -1619,6 +1627,13 @@ class ModLibrary:
             except OSError:
                 return False
 
+        if game_first and official(game_file):
+            return game_file
+        original = self._original_path(game_file)
+        if original.exists():
+            if full and not self._is_official(original):
+                raise ServiceError("original_invalid", file=original)
+            return original
         if official(game_file):
             return game_file
         backup = game_file.with_name(game_file.name + ".backup")

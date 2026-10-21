@@ -269,6 +269,59 @@ def test_compatibility_uses_the_new_current_official_files_after_a_game_update(s
     assert json.loads(base64.b64decode(report["official"]["skeletons"]["test_spr.skel"]["data"])) == data["official"]
 
 
+@pytest.mark.parametrize("official_source", ["game", "game_with_invalid_backup", "library"])
+def test_compatibility_of_a_custom_alias_finds_current_official_files(serialized, official_source):
+    env, register = serialized
+    data = fixture("mismatched_skeleton")
+    official = {"skeletons": {"test_spr.skel": json.dumps(data["official"])},
+        "atlases": {"test_spr.atlas": "page.png\nsize: 64,64\n"}, "textures": {"page": [64, 64]}}
+    register(env.original, official)
+    source = register(make_mod(env.original, env.tmp / "input"), {
+        **official, "skeletons": {"test_spr.skel": json.dumps(data["mod"])}})
+    entry, = env.library.add([source])
+    env.library.rename(entry.id, "\u8317\u732b")
+    if official_source == "library":
+        env.library.apply("test", f"mod:{entry.id}")
+    elif official_source == "game_with_invalid_backup":
+        backup = env.root / "originals" / env.original.name
+        backup.parent.mkdir(parents=True)
+        backup.write_bytes(b"invalid")
+    before = {path: path.read_bytes() for path in (entry.file, env.original)}
+    report = env.library.compatibility(entry.id)
+    assert not report["unavailable"]
+    assert json.loads(base64.b64decode(report["official"]["skeletons"]["test_spr.skel"]["data"])) == data["official"]
+    assert json.loads(base64.b64decode(report["mod"]["skeletons"]["test_spr.skel"]["data"])) == data["mod"]
+    assert all(path.read_bytes() == contents for path, contents in before.items())
+    if official_source == "game_with_invalid_backup":
+        assert backup.read_bytes() == b"invalid"
+
+
+@pytest.mark.parametrize("stored_core", ["test_spr", "TEST_SPR"])
+def test_compatibility_uses_the_variant_core_after_its_installed_core_changes(serialized, stored_core):
+    env, register = serialized
+    data = fixture("mismatched_skeleton")
+    source = register(make_mod(env.original, env.tmp / "input"), {
+        "skeletons": {"test_spr.skel": json.dumps(data["mod"])},
+        "atlases": {"test_spr.atlas": "page.png\nsize: 64,64\n"}, "textures": {"page": [64, 64]}})
+    entry, = env.library.add([source])
+    if stored_core != "test_spr":
+        renamed = entry.file.with_name(entry.file.name.replace("test_spr", stored_core))
+        entry.file.rename(renamed)
+        env.library._record(entry.id)["files"] = [renamed.name]
+        env.library._save()
+    env.library.rename(entry.id, "\u8317\u732b")
+    env.original.unlink()
+    env.catalog.variants["test"].spr = "current_spr"
+    register(game_bundle(env.game_dir, "current_spr", payload=b"current official"), {
+        "skeletons": {"current_spr.skel": json.dumps(data["official"])},
+        "atlases": {"test_spr.atlas": "page.png\nsize: 64,64\n"}, "textures": {"page": [64, 64]}})
+    report = env.library.compatibility(entry.id)
+    assert report["outdated"] and not report["unavailable"]
+    assert json.loads(base64.b64decode(report["official"]["skeletons"]["current_spr.skel"]["data"])) == data["official"]
+    assert set(report["mod"]["skeletons"]) == {"test_spr.skel"}
+    assert json.loads(base64.b64decode(report["mod"]["skeletons"]["test_spr.skel"]["data"])) == data["mod"]
+
+
 @pytest.mark.parametrize("size,remappable", [([8, 8], False), ([8, 4], True)])
 def test_compatibility_keeps_the_live_atlas_and_checks_page_proportions(serialized, size, remappable):
     env, register = serialized
