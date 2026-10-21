@@ -20,7 +20,7 @@ UNKNOWN_PLATFORMS = {"UnknownPlatform", "NoTarget", "Unknown", "0", "-2"}
 
 
 def platform_of(contents: Contents) -> str | None:
-    platforms = {UNITY_PLATFORMS.get(name) for name in contents.platforms}
+    platforms = {UNITY_PLATFORMS.get(name) for name in contents.platforms - UNKNOWN_PLATFORMS}
     return next(iter(platforms)) if len(platforms) == 1 else None
 
 

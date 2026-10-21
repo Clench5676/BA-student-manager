@@ -10,6 +10,7 @@ import pytest
 from ba_modding_toolkit import mod_origin
 from ba_modding_toolkit.bundle import Bundle
 from ba_modding_toolkit.library import integrity
+from ba_modding_toolkit.library.identity import content_cores
 from ba_modding_toolkit.library.integrity import inspect as inspect_bundle
 from ba_modding_toolkit.webui import batch_import
 from ba_modding_toolkit.searching import _asset_match
@@ -67,8 +68,8 @@ def test_server_evidence_does_not_guess_from_shared_suffixes_or_a_bare_cab(tmp_p
                                 integrity.Contents(), target)[0]['server'] == 'global'
 
 
-def official_bundle(env, platform=19):
-    unity_bundle(env.original, platform)
+def official_bundle(env, platform=19, **kwargs):
+    unity_bundle(env.original, platform, **kwargs)
     prefix = env.original.name.rsplit('_', 1)[0]
     renamed = env.original.with_name(f'{prefix}_{CRCUtils.compute_crc32(env.original.read_bytes())}.bundle')
     env.original.rename(renamed)
@@ -321,18 +322,19 @@ def test_installed_mobile_bytes_do_not_bypass_conversion(real_metadata):
 
 @pytest.mark.parametrize("platform,expected", [(13, "android"), (9, "ios"), (-2, "android")])
 @pytest.mark.parametrize("compression", ["lz4", "lzma"])
-def test_markerless_lobby_fallback_validates_compressed_renamed_bundles(real_metadata, platform, expected, compression):
+def test_markerless_lobby_fallback_validates_compressed_renamed_bundles(real_metadata, monkeypatch, platform, expected, compression):
     env = real_metadata
     env.original.unlink()
     env.original = game_bundle(env.game_dir, "ch0156_home")
     env.catalog.variants["test"].lobby = "ch0156_home"
-    official_bundle(env)
-    source = unity_bundle(env.tmp / "input" / "renamed.bundle", platform, cab="CAB-repacked", payload=b"mobile mod")
+    monkeypatch.setattr("ba_modding_toolkit.library.identity.content_cores", content_cores)
+    official_bundle(env, name="ch0156_home_note")
+    source = unity_bundle(env.tmp / "input" / "renamed.bundle", platform, cab="CAB-repacked", payload=b"mobile mod", name="ch0156_home_note")
     bundle = Bundle.load(source)
     from ba_modding_toolkit.models import SaveOptions
     assert bundle.save(source, SaveOptions(compression=compression, perform_crc=False))[0]
-    # Identification has its own filename/content contract; keep the recognized slot for this origin test.
-    source = source.rename(source.with_name(env.original.name))
+    # The outer filename falsely declares a portrait; content names still identify the lobby.
+    source = source.rename(source.with_name(env.original.name.replace("ch0156_home", "test_spr")))
     entry, = analyze(env, [source])["entries"]
     assert entry["kind"] == "lobby" and entry["state"] == "convert"
     assert entry["source"] == {"server": "global", "platform": expected, "detected": True}
@@ -356,3 +358,12 @@ def test_fallback_tie_prefers_partial_markers_then_fixed_order(real_metadata):
     unity_bundle(source, 9, cab="CAB-new")
     entry, = analyze(env, [source])["entries"]
     assert entry["source"] == {"server": "global", "platform": "ios", "detected": True}
+
+
+def test_unknown_shared_file_target_does_not_discard_an_ios_marker():
+    selected = integrity.Contents(platforms={"iOS", "NoTarget"}, references={"com.nexon.bluearchive"})
+    source, reason = mod_origin.source_of(set(), selected, integrity.Contents(), {"server": "global", "platform": "windows"})
+    assert source == {"server": "global", "platform": "ios", "detected": True}
+    assert reason is None
+    selected.references.clear()
+    assert mod_origin.candidates(set(), selected)[0]["platform"] == "ios"
