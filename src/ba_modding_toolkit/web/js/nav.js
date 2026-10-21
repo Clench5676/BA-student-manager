@@ -4,7 +4,7 @@
 import * as Loading from "./loading.js";
 import * as NGUI from "./ngui.js";
 import * as Popup from "./popup.js";
-import { navigationEntry } from "./navigation-layout.js";
+import { navigationEntry, navigationOrigin } from "./navigation-layout.js";
 import { rpc } from "./api.js";
 import { T } from "./i18n.js";
 import { ITEMS, activate, handOffPrompt, view } from "./nav-items.js";
@@ -71,7 +71,7 @@ export async function renderNav(active = 0, opts = {}) {
     next.appendChild(b);
     if (lobby) {
       const tree = navigationEntry(NGUI.find(lobby, "Front/Bottom/Menu/BG/Grid"), item, v.label, v.greyed, i);
-      await NGUI.render(tree, b, { scale: S, origin: [130, 90] });
+      await NGUI.render(tree, b, { scale: S, origin: navigationOrigin(tree, S) });
     } else b.textContent = v.label;
   }));
   if (revision !== navRevision) return;

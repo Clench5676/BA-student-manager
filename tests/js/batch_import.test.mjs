@@ -97,7 +97,7 @@ const catalog = { families: ["a", "b", "c", "d", "e"].map((id) => ({ key: id, cu
 async function fixture({ licensed = false, native = true, suggest } = {}) {
   body.replaceChildren(); observers.length = 0;
   const host = body.appendChild(new El()), dialog = body.appendChild(new El()); dialog.id = "dialog"; dialog.hidden = true;
-  const calls = [], analyses = [], runs = [], messages = [], answers = [], thumbs = [], scopes = [], popupStack = [];
+  const calls = [], analyses = [], runs = [], messages = [], answers = [], thumbs = [], scopes = [], popupStack = [], holds = [];
   let pickerPaths = [], pickError = null, optionsError = null, saveError = null, changed = 0;
   const call = async (method, params) => {
     calls.push({ method, params });
@@ -112,7 +112,7 @@ async function fixture({ licensed = false, native = true, suggest } = {}) {
   };
   const node = (name, pos = [0, 0], widgets = [], children = []) => ({ name, pos, widgets, children, scale: [1, 1] });
   const layouts = makeImportLayouts(), layoutSnapshot = structuredClone(layouts), rendered = [], loaded = [];
-  let renderHold = null, imagesHold = null;
+  let renderHold = null, imagesHold = null, thumbsHold = null;
   const ui = { node, fitText: (text, fs) => ({ text, fs }), init: async () => {},
     layout: async (name) => { loaded.push(name); assert.ok(layouts[name], `Unexpected layout ${name}`); return layouts[name]; },
     find, render: async (tree, host, opts) => {
@@ -136,8 +136,13 @@ async function fixture({ licensed = false, native = true, suggest } = {}) {
     },
   };
   const page = createImportPage({ host, call, ui, popups, allowed: () => licensed, suggest,
+    loading: { hold: (work, opts) => {
+      const hold = { opts, active: true }; holds.push(hold);
+      const done = Promise.resolve().then(work).finally(() => { hold.active = false; });
+      opts.until.then(() => { hold.active = false; }); return done;
+    } },
     jobs: (id, progress) => { const job = [...analyses, ...runs].find((job) => job.id === id); job.progress = progress; return job.promise; },
-    thumbnails: () => { const scope = { cancel: () => { scope.cancelled = true; }, thumb: (...args) => { thumbs.push(args); return Promise.resolve(`blob:${args[0]}`); } }; scopes.push(scope); return scope; },
+    thumbnails: () => { const scope = { cancel: () => { scope.cancelled = true; }, thumb: (...args) => { thumbs.push(args); return thumbsHold?.promise || Promise.resolve(`blob:${args[0]}`); } }; scopes.push(scope); return scope; },
   });
   const context = { info: { native }, invalidateRoster: () => changed++ };
   await page.show(context, catalog); await flush();
@@ -148,6 +153,7 @@ async function fixture({ licensed = false, native = true, suggest } = {}) {
     const adding = page.drop(paths); await flush(); analyses.at(-1).resolve({ entries, skipped: 0 }); await adding; await page.settled(); await flush(); return adding;
   };
   return { page, context, host, dialog, layouts, layoutSnapshot, rendered, loaded, calls,
+    holds, holdThumbs: () => { thumbsHold = deferred(); return thumbsHold; },
     holdImages: (predicate) => { const hold = { ...deferred(), predicate }; imagesHold = hold; return hold; },
     holdRender: (predicate) => { const hold = { ...deferred(), predicate }; renderHold = hold; return hold; }, analyses, runs, messages, answers, thumbs, scopes, popupStack, action, row, phase, analyze,
     changed: () => changed, picker: (paths) => { pickerPaths = paths; }, pickError: (error) => { pickError = error; },
@@ -176,7 +182,7 @@ test("analyzing locks edits; mixed states default to ready/update only, with ali
   assert.match(h.row("e").textContent, /No Matching Game File/);
   assert.match(h.row("a").textContent, /Saved Alias/);
   assert.equal(h.row("a").children.length, h.row("e").children.length);
-  assert.equal(h.thumbs.length, 0, "declined Spine licence leaves static catalog portraits");
+  assert.equal(h.thumbs.length, 0, "declined Spine licence leaves thumbnail slots empty");
 });
 
 test("search includes all catalog names and aliases; state counts are unfiltered and sort toggles", async () => {
@@ -305,12 +311,12 @@ test("licensed previews pair the current game with analyzed sources and draw inc
   assert.ok(h.thumbs.some(([base]) => base.includes("/lobby/b_home/")));
 });
 
-test("missing incoming previews keep the static fallback and never borrow current game art", async () => {
+test("missing incoming previews leave the slot empty and never borrow current game art", async () => {
   const h = await fixture({ licensed: true }); await h.analyze([{ ...entry("a"), preview: null }]);
   assert.match(h.host.textContent, /Preview Unavailable/);
   for (const observer of observers) observer.reveal(); await flush();
   assert.ok(h.thumbs.every(([base, frame]) => base.includes("/spr/a_spr/") && frame === "bust"));
-  assert.equal(h.row("a").querySelector(".import-thumb").dataset.source, "/portrait/a.png");
+  assert.equal(h.row("a").querySelector(".import-thumb").dataset.source, undefined);
 });
 
 test("reanalysis replaces the incoming preview for the same entry ID", async () => {
@@ -501,6 +507,62 @@ const drawn = (h, element) => h.rendered.findLast((item) => item.host === elemen
 const rectOf = (element) => ["left", "top", "width", "height"].map((key) => parseFloat(element.style[key]));
 const closeTo = (actual, expected) => assert.ok(Math.abs(actual - expected) < 0.02, `${actual} != ${expected}`);
 
+test("analysis holds the page through generated stills and never flashes catalog thumbnails", async () => {
+  const h = await fixture({ licensed: true }), gate = h.holdThumbs();
+  const adding = h.page.drop(["/fixtures/a.bundle"]); await flush();
+  assert.ok(h.holds.some((hold) => hold.active && hold.opts.all));
+  h.analyses.at(-1).resolve({ entries: [entry("a")], skipped: 0 }); await adding; await flush();
+  assert.equal(h.phase(), "idle");
+  assert.ok(h.holds.some((hold) => hold.active), "the hold continues after analysis until generated stills settle");
+  const image = h.row("a").querySelector(".import-thumb");
+  assert.ok(!image.style.backgroundImage); assert.equal(image.dataset.source, undefined);
+  const textures = h.rendered.filter(({ opts }) => opts.textures?.Icon_Arona || opts.textures?.Texture);
+  for (const { opts } of textures) for (const source of Object.values(opts.textures)) assert.equal(await source, null);
+  gate.resolve("blob:generated-still"); await h.page.settled(); await flush();
+  assert.equal(image.dataset.source, "blob:generated-still");
+  assert.equal(image.style.backgroundSize, "cover"); assert.equal(image.style.clipPath, "inset(0)");
+  for (const preview of h.host.querySelectorAll(".import-preview-image")) assert.equal(preview.style.backgroundPosition, "center top");
+  assert.ok(!h.holds.some((hold) => hold.active));
+});
+
+test("leaving during thumbnail generation releases the hold and ignores late pictures", async () => {
+  const h = await fixture({ licensed: true }), gate = h.holdThumbs();
+  const adding = h.page.drop(["/fixtures/a.bundle"]); await flush();
+  h.analyses.at(-1).resolve({ entries: [entry("a")], skipped: 0 }); await adding; await flush();
+  const image = h.row("a").querySelector(".import-thumb");
+  h.page.hide(); await flush();
+  assert.ok(!h.holds.some((hold) => hold.active)); assert.equal(h.scopes.at(-1).cancelled, true);
+  gate.resolve("blob:late-still"); await h.page.settled();
+  assert.equal(image.dataset.source, undefined);
+});
+
+test("mail thumbnails have rectangular bounds and the game's gap before title and paragraph", async () => {
+  const h = await fixture({ licensed: true }); await h.analyze([entry("a")]);
+  const row = h.row("a"), image = row.querySelector(".import-thumb");
+  const [x, y, width, height] = rectOf(image);
+  const title = row.querySelectorAll("div").find((e) => e.dataset.path === "List_01/Label_System");
+  const paragraph = row.querySelectorAll("div").find((e) => e.dataset.path === "List_01/Label_Locale_Received");
+  assert.ok(x >= 0 && y >= 0 && y + height <= 329 * 0.54);
+  closeTo(parseFloat(title.style.left) - x - width, 19 * 0.54);
+  assert.ok(parseFloat(paragraph.style.left) - x - width >= 19 * 0.54);
+  assert.equal(image.style.overflow, "hidden"); assert.equal(image.style.clipPath, "inset(0)");
+});
+
+test("both preview tags align to the panel top and both image slots to its header bottom", async () => {
+  const h = await fixture(); await h.analyze([entry("a")]);
+  const panel = h.host.querySelector(".import-panel"), header = h.host.querySelector(".import-header"), preview = h.host.querySelector(".import-detail");
+  const paper = panel.art.children.find((e) => e.dataset.path === "ListBG/PaperBG");
+  for (const box of h.host.querySelectorAll(".import-preview")) {
+    const tag = box.art.children.find((e) => e.dataset.path === "EquipPos/Text_Type/TypeBG");
+    const image = box.querySelector(".import-preview-image");
+    const circle = box.art.children.find((e) => e.dataset.path === "EquipPos/BGCilcle");
+    closeTo(parseFloat(preview.style.top) + parseFloat(tag.style.top), parseFloat(panel.style.top));
+    closeTo(parseFloat(preview.style.top) + parseFloat(image.style.top), parseFloat(panel.style.top) + parseFloat(paper.style.top));
+    assert.ok(parseFloat(circle.style.top) >= parseFloat(header.style.height), "the backing circle follows the image instead of rising over the tags");
+  }
+  assert.equal(h.host.querySelectorAll(".import-preview").length, 2);
+});
+
 test("every page action swaps its whole disabled prefab, including both dotted patterns, through the job lifecycle", async () => {
   const h = await fixture();
   const actions = ["files", "folder", "options", "clear", "remove", "all", "none", "recheck", "start"];
@@ -664,7 +726,7 @@ test("empty, full, filtered and long Thai toolbars fit the header, with search a
         assert.ok(title[2] < Math.min(...controls.map((r) => r[0])), "title stays left of the tools");
         const list = h.host.querySelector(".import-list"), count = h.host.querySelector(".import-count");
         const [cx, cy, cw, ch] = rectOf(count), [lx, ly, lw, lh] = rectOf(list);
-        closeTo(cx + cw, lx + lw); closeTo(cy + ch, ly);
+        closeTo(cx + cw, lx + lw); closeTo(ly - cy - ch, 19 * 0.54);
         assert.ok(cy > headerBottom); assert.ok(ly + lh < parseFloat(h.action("files").style.top));
         const countBounds = artworkBounds(h, count)[0];
         closeTo(countBounds[0], 0); closeTo(countBounds[1], 0); closeTo(countBounds[2], cw); closeTo(countBounds[3], ch);

@@ -193,6 +193,7 @@ for (const stat of ["Label_Life", "Label_Attact", "Label_Defense", "Label_Healin
 for (const button of ["Status", "Weapon"]) for (const path of ["BG (1)/Corner", "Label_Locale"]) add(`${INFO}/${button}/Btn_Up_Wrapper/Btn_Up/${path}`);
 for (const card of ["SkillData_EX", "SkillData_EX (1)", "SkillData_EX (2)", "SkillData_EX (3)"]) {
   for (const path of ["Bg/Bg_Line", "Normal/Label_SkillType", "Normal/SkillIconBg/Texture"]) add(`${INFO}/Skill/${card}/${path}`);
+  for (const path of ["Normal/SkillIconBg/SkillIconBg (1)", "Normal/SkillIconBg/Deco", "Normal/SkillIconBg/Bg_Skill_Plus/IconPlus"]) add(`${INFO}/Skill/${card}/${path}`);
   add(`${INFO}/Skill/${card}/Bg/Corner`).widgets = [{ sprite: "Common_Btn_Normal_B_C_Pt", w_: 20, h_: 10, pivot: 2,
     anchors: { leftAnchor: [1, -23], rightAnchor: [1, -3], bottomAnchor: [1, -14], topAnchor: [1, -4] } }];
 }
@@ -203,7 +204,7 @@ for (const path of ["BG/Deco", "Label_Name", "Char_CVCollectionBtn/Sprite", "Cha
 
 const atlas = { Common: Object.fromEntries([...new Set([
   ...[...readFileSync(new URL("../../src/ba_modding_toolkit/web/js/detail.js", import.meta.url), "utf8").matchAll(/"(Common_[A-Za-z0-9_]+)"/g)].map((m) => m[1]),
-  "Card_Select_Line_Blue", "Cafe_Icon_NameEdit", "Common_Icon_Reddot2",
+  "Card_Select_Line_Blue", "Cafe_Icon_NameEdit", "Common_Icon_Reddot2", "School_Icon_Schedule",
 ])].map((name) => [name, { width: 8, height: 8 }])) };
 const reply = (data, status = 200) => ({ ok: status === 200, status, json: async () => data });
 let family, indexMode = "ready", layoutMode = "ready", lobbyMode = "pending", optionalPending = false, modsEnabled = true;
@@ -1199,6 +1200,25 @@ for (const core of ["ibuki_home", "arona_workpage_daytime", "np0032_npc"]) test(
   } finally { Detail.hide(); lobbyMode = "pending"; playerMode = "ready"; await flush(); t.mock.timers.reset(); }
 });
 
+test("re-entering a torn-down lobby rebuilds its players and keeps the Portrait tab usable", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    lobbyMode = "ready"; playerMode = "lobby-ready"; family = modFamily("lobby", "route-recovery");
+    await showPortrait(t);
+    const switching = tabButton(2).click(); await flush(); await finish(t, switching);
+    const before = previewPlayers.filter((p) => !p.disposed);
+    assert.ok(before.length); assert.equal(hosts.lobby.hidden, false);
+    Detail.hide();
+    assert.equal(Detail.currentVariant(), null); assert.ok(before.every((p) => p.disposed));
+    const requests = playerRequests.length;
+    const returning = Detail.show(context, family, "ibuki"); await flush(); await finish(t, returning);
+    assert.ok(playerRequests.length > requests, "the same variant gets fresh lobby players after hide");
+    assert.equal(hosts.lobby.hidden, false); assert.equal(Detail.currentVariant(), "ibuki");
+    const portrait = tabButton(1).click(); await flush(); await finish(t, portrait);
+    assert.equal(hosts.portrait.hidden, false); assert.equal(hosts.lobby.hidden, true);
+  } finally { Detail.hide(); lobbyMode = "pending"; playerMode = "ready"; await flush(); t.mock.timers.reset(); }
+});
+
 
 for (const enabled of [true, false]) test(`model switching reuses the detail controls and previews its source with mods ${enabled ? "on" : "off"}`, async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
@@ -1231,4 +1251,20 @@ for (const enabled of [true, false]) test(`model switching reuses the detail con
     assert.ok(!errors.flat().some((e) => String(e).includes("Spine source unavailable")));
     await closeSwitch();
   } finally { Detail.hide(); modsEnabled = true; await ModSwitch.refresh(); await flush(); t.mock.timers.reset(); }
+});
+
+test("detail action cards remove skill bases and plus badges and contain their replacement icons", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    family = modFamily(); await showPortrait(t);
+    for (const card of ["SkillData_EX", "SkillData_EX (1)", "SkillData_EX (2)", "SkillData_EX (3)"]) {
+      const prefix = `${INFO}/Skill/${card}/Normal/SkillIconBg`;
+      const picture = walk(hosts.ngui).find((e) => e.dataset.path?.endsWith(`${prefix}/Texture`));
+      assert.ok(picture); assert.equal(picture.style.width, picture.style.height); assert.equal(picture.style.backgroundSize, "contain");
+      assert.ok(!walk(hosts.ngui).some((e) => e.dataset.path?.endsWith(prefix)));
+      assert.ok(walk(hosts.ngui).some((e) => e.dataset.path?.endsWith(`${prefix}/Deco`)), "the prefab's separate circle decoration is retained");
+      assert.ok(!walk(hosts.ngui).some((e) => e.dataset.path?.includes(`${prefix}/Bg_Skill_Plus`)));
+      assert.ok(!walk(hosts.ngui).some((e) => e.dataset.path?.includes(`${prefix}/SkillIconBg (1)`)));
+    }
+  } finally { Detail.hide(); await flush(); t.mock.timers.reset(); }
 });

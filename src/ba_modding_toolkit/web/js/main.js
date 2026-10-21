@@ -197,6 +197,7 @@ function noGame() {
 }
 
 let routeToken = 0, endRoute = () => {};
+let shownRoute = "#/roster";
 async function route() {
   endRoute();
   const ended = new Promise((resolve) => { endRoute = resolve; });
@@ -223,7 +224,7 @@ async function route() {
       if (!stepCards && rosterData && !$("screen-roster").hidden) stepCards = Roster.order(rosterData);
       Roster.invalidate();
       Roster.hide();
-      const inPlace = !$("screen-detail").hidden;
+      const inPlace = !$("screen-detail").hidden && !!Detail.currentVariant();
       await Loading.hold(() => Loading.scene(async (covered) => {
         const fam = await rpc("family.get", { key: parts[1] });
         await covered;
@@ -257,7 +258,9 @@ async function route() {
       };
       await Loading.scene(open, { until: ended });
     }
+    if (my === routeToken) shownRoute = location.hash;
   } catch (err) {
+    if (my !== routeToken) return;
     console.error(err);
     if (err.code === "game_not_found") { noGame(); return; }
     toast(T(`error.${err.code || "internal"}`, err.params || { error: String(err) }), { kind: "error" });
@@ -267,6 +270,11 @@ async function route() {
     if (parts[0] === "student" && my === routeToken && String(err.code || "").startsWith("catalog_")) {
       Detail.hide();
       location.replace("#/roster");
+    } else if (location.hash !== shownRoute) {
+      // The previous page has released its players/input. Re-enter its route to rebuild it, rather than exposing
+      // its closed DOM under the failed destination's address (detail tabs deliberately ignore clicks when closed).
+      BatchImport.hide();
+      location.replace(shownRoute);
     }
   }
 }

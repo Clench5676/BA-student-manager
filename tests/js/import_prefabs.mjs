@@ -29,6 +29,10 @@ export function makeImportLayouts() {
   insert(inv, `${base}/EquipPos`, node("EquipPos", [0, 0], [], [image("Texture"), image("BGCilcle")]));
   insert(inv, `${detail}/Text_Type`, label("Text_Type", "type"));
   insert(inv, `${detail}/Text_Type/TypeBG`, node("TypeBG", [0, 0], [sprite("Common_Bg_Raius10px")]));
+  const tag = find(inv, `${detail}/Text_Type`); tag.scale = [1.001, 1.001];
+  Object.assign(tag.widgets[0], { fontSize: 46, w_: 106, h_: 44, pivot: 3 });
+  const tagBG = find(tag, "TypeBG"); tagBG.pos = [-26, 1]; Object.assign(tagBG.widgets[0], { w_: 170, h_: 86, pivot: 3 });
+  Object.assign(find(inv, `${base}/EquipPos/Texture`).widgets[0], { w_: 551, h_: 435, pivot: 4 });
   insert(inv, `${detail}/Label_Name`, label("Label_Name", "Name", { fontSize: 104 }));
   insert(inv, `${detail}/Text_Amount`, label("Text_Amount", "x999", { color: "#77deff/1.00" }));
   insert(inv, `${detail}/BG`, node("BG", [17, 98], [sprite("Common_Bg_Raius20px", 1246, 204, { color: "#1a3351/0.99" })], [node("HaveBG"), image("Texture")]));
@@ -68,6 +72,10 @@ export function makeImportLayouts() {
   for (const name of ["List_01", "List_02"]) {
     const row = node(name, [0, 0], [], [node("BG", [0, 0], [sprite("Campaign_List_Normal", 2208, 329)]), image("Deco"), node("Line", [-760.8, 50], [sprite("Common_Square_Bg", 1842, 4)]),
       node("BG_Icon", [-897.9, 4], [sprite("Common_Circle_Bg", 304, 322)], [image("Icon_Arona")]), label("Label_System", "Title"), label("Label_From", "From"), label("Label_Locale_Received", "day")]);
+    find(row, "BG_Icon").widgets[0].pivot = 3;
+    find(row, "BG_Icon/Icon_Arona").pos = [-17.7, 0];
+    find(row, "Label_System").pos = [-762, 99]; Object.assign(find(row, "Label_System").widgets[0], { fontSize: 62, w_: 1688, h_: 93, pivot: 3 });
+    find(row, "Label_Locale_Received").pos = [-759.8, -22.7]; find(row, "Label_Locale_Received").widgets[0].pivot = 3;
     if (name === "List_01") row.children.push(label("Label_Locale_Limit", "limit"), node("TimeLimit", [0, 0], [], [node("Bg", [0, 0], [sprite("Common_Bg_Raius10px", 220, 54)]), label("Label_Locale_TimeLimit")]), button("Btn_Receive"));
     content.children.push(row);
   }
