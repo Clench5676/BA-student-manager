@@ -1457,8 +1457,8 @@
 			"confirm": "確認匯入",
 			"confirmCount": "{state}：{n} 個",
 			"recursive": "包含子資料夾",
-			"progress": "{phase} - {done}/{total} {name}",
-			"complete": "完成：{n}，失敗：{failed}",
+			"progress": "{phase} {name}（{kind}）{index} / {total} - {step}",
+			"complete": "完成 {n}，失敗 {failed}",
 			"resultTitle": "匯入結果",
 			"applied": "已套用",
 			"notApplied": "未套用",
@@ -1470,10 +1470,11 @@
 			"state": {
 				"done": "已完成",
 				"ready": "可匯入",
-				"update": "需更新",
+				"update": "待更新",
 				"library": "已在 Mod 倉庫",
 				"installed": "已安裝",
-				"blocked": "無法匯入"
+				"blocked": "無法匯入",
+				"convert": "待轉換"
 			},
 			"reason": {
 				"unreadable": "無法讀取檔案",
@@ -1492,7 +1493,8 @@
 			"phase": {
 				"update": "正在更新",
 				"add": "正在加入 Mod 倉庫",
-				"apply": "正在套用 Mod"
+				"apply": "正在套用 Mod",
+				"convert": "正在轉換"
 			},
 			"outcome": {
 				"imported": "已加入 Mod 倉庫",
@@ -1524,7 +1526,7 @@
 				"name_type": "名稱、類型"
 			},
 			"source": {
-				"choose": "選擇原始版本",
+				"choose": "平台識別不準確？手動選擇",
 				"unknown": "原始版本未知",
 				"server": "原始伺服器",
 				"platform": "原始平台",
@@ -1532,6 +1534,16 @@
 				"ios": "iOS",
 				"windows": "電腦",
 				"route": "{source} → {target}"
+			},
+			"step": {
+				"check": "檢查檔案",
+				"extract": "提取資源",
+				"replace": "替換資源",
+				"save": "儲存檔案",
+				"crc": "修復 CRC",
+				"add": "加入 Mod 倉庫",
+				"apply": "套用 Mod",
+				"export": "匯出檔案"
 			}
 		}
 	}

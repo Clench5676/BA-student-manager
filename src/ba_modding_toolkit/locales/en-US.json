@@ -1457,8 +1457,8 @@
 			"confirm": "Confirm Import",
 			"confirmCount": "{state}: {n}",
 			"recursive": "Include Subfolders",
-			"progress": "{phase} - {done}/{total} {name}",
-			"complete": "Done: {n}, failed: {failed}",
+			"progress": "{phase} {name} ({kind}) {index} / {total} - {step}",
+			"complete": "Done {n}, failed {failed}",
 			"resultTitle": "Import Results",
 			"applied": "Applied",
 			"notApplied": "Not Applied",
@@ -1470,10 +1470,11 @@
 			"state": {
 				"done": "Done",
 				"ready": "Ready",
-				"update": "Needs Update",
+				"update": "Pending Update",
 				"library": "Already in Library",
 				"installed": "Already Installed",
-				"blocked": "Cannot Import"
+				"blocked": "Cannot Import",
+				"convert": "Pending Conversion"
 			},
 			"reason": {
 				"unreadable": "Unreadable File",
@@ -1492,7 +1493,8 @@
 			"phase": {
 				"update": "Updating",
 				"add": "Adding to Library",
-				"apply": "Applying Mods"
+				"apply": "Applying Mods",
+				"convert": "Converting"
 			},
 			"outcome": {
 				"imported": "Added to Library",
@@ -1524,7 +1526,7 @@
 				"name_type": "Name, Type"
 			},
 			"source": {
-				"choose": "Choose Source",
+				"choose": "Wrong Platform? Choose Manually",
 				"unknown": "Unknown Source",
 				"server": "Source Server",
 				"platform": "Source Platform",
@@ -1532,6 +1534,16 @@
 				"ios": "iOS",
 				"windows": "PC",
 				"route": "{source} → {target}"
+			},
+			"step": {
+				"check": "Checking Files",
+				"extract": "Extracting Assets",
+				"replace": "Replacing Assets",
+				"save": "Saving Bundle",
+				"crc": "Repairing CRC",
+				"add": "Adding to Library",
+				"apply": "Applying Mod",
+				"export": "Exporting Files"
 			}
 		}
 	}

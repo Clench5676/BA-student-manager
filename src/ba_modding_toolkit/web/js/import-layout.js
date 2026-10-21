@@ -72,7 +72,7 @@ export function importArtwork(ui, layouts) {
       ui.find(t, "SearchBtn/Btn_Pressed").active = searching;
       return t;
     },
-    // Mailbox's top/right count sits immediately above the list, outside the Items header controls.
+    // Mailbox's top/right count stays in the paper header, outside the scrolling list.
     count: (caption) => {
       const t = at(mail("Right/Label_Amount")), w = t.widgets.find((w) => "text" in w), height = w.h_;
       label(t, caption, 500); Object.assign(w, { h_: height, ellipsis: true }); return t;
@@ -154,12 +154,12 @@ export function importArtwork(ui, layouts) {
       ui.find(t, "Line").widgets[0].w_ = width;
       return t;
     },
-    // Items/EquipPos: bind the comparison art to its UITexture, retaining the game's backing circle.
+    // Items/EquipPos: bind comparison art to its UITexture without the decorative backing circle.
     preview(caption, headerHeight) {
       const t = at(inventory(`${INVENTORY}/EquipPos`));
       const picture = ui.find(t, "Texture");
       picture.widgets[0].h_ = 837; picture.pos[1] = -headerHeight - picture.widgets[0].h_ / 2;
-      ui.find(t, "BGCilcle").pos[1] = picture.pos[1];
+      t.children = t.children.filter((child) => child.name !== "BGCilcle");
       const tag = inventory(`${DETAIL}/Text_Type`);
       const bg = ui.find(tag, "TypeBG"), body = bg.widgets[0];
       at(tag, -240, -(bg.pos[1] + body.h_ / 2) * tag.scale[1]); label(tag, caption, 500);
@@ -178,7 +178,7 @@ export function importArtwork(ui, layouts) {
     },
     // MailboxContent/List_01 (unread) and List_02 (muted/read): the real card, title, divider and meta slots.
     // The sender becomes the aligned kind column; TimeLimit becomes status; receipt/expiry become metadata/reason.
-    row({ name, kind, state, stateKey = "ready", meta, note = "", muted = false, counts = null, badge = true }) {
+    row({ name, kind, state, stateKey = "ready", meta, route = "", note = "", muted = false, counts = null, badge = true }) {
       const t = at(content(muted ? "List_02" : "List_01"));
       t.children = t.children.filter((c) => ["BG", "Deco", "Deco (1)", "Sprite", "Line", "BG_Icon", "Label_System", "Label_From",
         "Label_Locale_Received", "Label_Locale_Limit", "TimeLimit"].includes(c.name));
@@ -186,8 +186,10 @@ export function importArtwork(ui, layouts) {
       const picture = ui.find(t, "BG_Icon/Icon_Arona"), slot = picture.widgets.find((w) => "texture" in w);
       picture.active = true;
       ui.find(t, "BG_Icon").widgets = [];
-      // Keep the mail title/paragraph columns; inset the rectangular texture by the mail card's own row gap.
-      picture.pos[0] = ui.find(t, "Label_System").pos[0] - rowGap(ui, layouts) - slot.w_ / 2 - ui.find(t, "BG_Icon").pos[0];
+      // Use a rectangular crop inside the mail icon slot, clear of the inclined card edge and text column.
+      Object.assign(slot, { w_: 252, h_: 260, pivot: 4 });
+      picture.pos = [0, 0]; picture.scale = [1, 1];
+      ui.find(t, "BG_Icon").pos = [-914, 0];
       label(ui.find(t, "Label_System"), name, 1688, 1);
       // Keep the card's title, divider and row pitch; reserve the bottom right for three fixed columns.
       const sender = ui.find(t, "Label_From"); at(sender, 110, -23); label(sender, kind, 360, 2);
@@ -199,9 +201,17 @@ export function importArtwork(ui, layouts) {
           color: ui.find(t, "Label_System").widgets[0].color });
       }
       const received = ui.find(t, "Label_Locale_Received"); received.children = []; label(received, meta, 620, 1);
+      at(received, -760, -10);
+      const platform = clone(received); platform.name = "Platform"; at(platform, received.pos[0], -84);
+      const routeLabel = platform.widgets.find((w) => "text" in w);
+      routeLabel.fontSize = Math.min(routeLabel.fontSize, 42); routeLabel.h_ = routeLabel.fontSize * 1.3;
+      label(platform, route, 620, 1); t.children.push(platform);
       let limit = ui.find(t, "Label_Locale_Limit");
       if (!limit) { limit = content("List_01/Label_Locale_Limit"); t.children.push(limit); }
-      limit.children = []; label(limit, note, 620, 1);
+      limit.children = []; at(limit, -760, -138);
+      const noteLabel = limit.widgets.find((w) => "text" in w);
+      noteLabel.fontSize = Math.min(noteLabel.fontSize, 36); noteLabel.h_ = noteLabel.fontSize * 1.3;
+      label(limit, note, 1360, 1);
       // TimeLimit is only present on the unread card; clone that same node for read cards as well.
       let status = ui.find(t, "TimeLimit");
       if (!status) { status = content("List_01/TimeLimit"); t.children.push(status); }
@@ -210,6 +220,7 @@ export function importArtwork(ui, layouts) {
       ui.find(status, "Bg").widgets[0].w_ = 540;
       const tones = {
         ready: inventory(`${DETAIL}/Text_Amount`).widgets[0].color,
+        convert: mail("Bottom/ObjectsDisplayed_Unread/ReceiveAll/Btn").widgets[0].color,
         update: mail("Bottom/ObjectsDisplayed_Unread/ReceiveAll/Btn").widgets[0].color,
         library: content("List_02/BG").widgets[0].color,
         installed: content("List_02/Label_System").widgets[0].color,
@@ -218,7 +229,7 @@ export function importArtwork(ui, layouts) {
       };
       ui.find(status, "Bg").widgets[0].color = tones[stateKey] || tones.blocked;
       const statusLabel = ui.find(status, "Label_Locale_TimeLimit");
-      if (["ready", "update", "library"].includes(stateKey)) statusLabel.widgets[0].color = inventory(`${DETAIL}/Text_Type`).widgets[0].color;
+      if (["ready", "convert", "update", "library"].includes(stateKey)) statusLabel.widgets[0].color = inventory(`${DETAIL}/Text_Type`).widgets[0].color;
       if (muted) statusLabel.widgets[0].fontSize *= 0.8;
       label(statusLabel, state, 510, 2);
       ui.find(status, "Bg").widgets[0].h_ = statusLabel.widgets[0].h_ + 8;

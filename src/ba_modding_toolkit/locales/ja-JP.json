@@ -1457,8 +1457,8 @@
 			"confirm": "インポートを確認",
 			"confirmCount": "{state}：{n}件",
 			"recursive": "サブフォルダーを含める",
-			"progress": "{phase} - {done}/{total} {name}",
-			"complete": "完了：{n}件、失敗：{failed}件",
+			"progress": "{phase} {name}（{kind}）{index} / {total} - {step}",
+			"complete": "完了 {n}、失敗 {failed}",
 			"resultTitle": "インポート結果",
 			"applied": "適用済み",
 			"notApplied": "未適用",
@@ -1470,10 +1470,11 @@
 			"state": {
 				"done": "完了",
 				"ready": "インポート可能",
-				"update": "更新が必要",
+				"update": "更新待ち",
 				"library": "ライブラリに登録済み",
 				"installed": "導入済み",
-				"blocked": "インポート不可"
+				"blocked": "インポート不可",
+				"convert": "変換待ち"
 			},
 			"reason": {
 				"unreadable": "ファイルを読み込めません",
@@ -1492,7 +1493,8 @@
 			"phase": {
 				"update": "更新中",
 				"add": "ライブラリに追加中",
-				"apply": "MODを適用中"
+				"apply": "MODを適用中",
+				"convert": "変換中"
 			},
 			"outcome": {
 				"imported": "ライブラリに追加済み",
@@ -1524,7 +1526,7 @@
 				"name_type": "名前、種類"
 			},
 			"source": {
-				"choose": "移植元を選択",
+				"choose": "プラットフォームが違う？手動選択",
 				"unknown": "移植元不明",
 				"server": "移植元サーバー",
 				"platform": "移植元プラットフォーム",
@@ -1532,6 +1534,16 @@
 				"ios": "iOS",
 				"windows": "PC",
 				"route": "{source} → {target}"
+			},
+			"step": {
+				"check": "ファイル確認",
+				"extract": "アセット抽出",
+				"replace": "アセット置換",
+				"save": "ファイル保存",
+				"crc": "CRC 修復",
+				"add": "Mod ライブラリに追加",
+				"apply": "Mod 適用",
+				"export": "ファイル出力"
 			}
 		}
 	}

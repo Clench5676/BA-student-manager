@@ -3,6 +3,7 @@
 import traceback
 import threading
 from pathlib import Path
+from typing import Callable
 import shutil
 import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -580,6 +581,7 @@ def process_mod_update(
     anim_check: AnimCheckOptions | None = None,
     log: LogFunc = no_log,
     prepared_patch: Patch | None = None,
+    on_step: Callable[[str], None] | None = None,
 ) -> ModUpdateResult:
     """
     自动化Mod更新流程 (N-to-N)。
@@ -608,6 +610,8 @@ def process_mod_update(
     try:
         # 1. 提取资源 (Extraction)
         log(f'\n--- {t("log.section.extracting_patches")} ---')
+        if on_step:
+            on_step("extract")
         patches: Patch = dict(prepared_patch or {})
         skel_conflicts: list[SkelVersionConflict] = []
 
@@ -644,6 +648,8 @@ def process_mod_update(
                 failed_targets = True
                 continue
             
+            if on_step:
+                on_step("replace")
             result = tgt_bundle.apply_patch(patches, match_strategy, anim_check)
             if prepared_patch is not None and result.matched_count != len(patches):
                 return ModUpdateResult(False, t("webui.error.atlas_remap_target_mismatch", file=tgt.name,
@@ -660,7 +666,8 @@ def process_mod_update(
             
             if result.is_success:
                 output_path = output_dir / tgt.name
-                save_ok, save_message = tgt_bundle.save(output_path, save_options)
+                save_ok, save_message = (tgt_bundle.save(output_path, save_options, on_step)
+                                         if on_step else tgt_bundle.save(output_path, save_options))
                 if save_ok:
                     file_pairs.append(FilePair(output_path, tgt))
                     log(f"  ✅ {t('log.mod_update.target_processed', name=tgt.name, applied=result.applied_count)}")

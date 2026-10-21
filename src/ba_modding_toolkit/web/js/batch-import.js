@@ -21,6 +21,7 @@ const REASONS = new Set(["unreadable", "no_target", "conflict", "spine_version",
 const OUTCOMES = new Set(["imported", "updated", "unchanged", "failed", "skipped"]);
 const sizeText = (size) => size >= 1048576 ? `${(size / 1048576).toFixed(1)} MB` : `${Math.ceil((size || 0) / 1024)} KB`;
 const baseName = (path) => path?.split(/[\\/]/).pop() || "";
+const listSeparator = () => /^(zh|ja)/i.test(language()) ? "、" : ", ";
 
 export function catalogEntries(data) {
   return (data?.families || []).flatMap((family) => (family.variants || []).map((variant) => ({ ...variant, family })));
@@ -49,8 +50,14 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
   const waiting = () => drawings.size || ["analyzing", "running", "picking", "saving"].includes(model.state.phase);
   function importProgress() {
     const { phase, progress: p } = model.state;
-    const label = phase === "running" ? T(["update", "add", "apply"].includes(p?.phase) ? `import.phase.${p.phase}` : "job.running")
-      : T(["analyzing", "picking", "saving"].includes(phase) ? `import.${phase}` : "app.loading");
+    if (phase === "running") {
+      const current = model.state.taskEntries.find((entry) => entry.id === p?.current);
+      const action = ["update", "convert", "add", "apply"].includes(p?.phase) ? T(`import.phase.${p.phase}`) : T("job.running");
+      return T("import.progress", { phase: action, name: current ? identified(current).name : "",
+        kind: current ? T(KIND_KEYS[current.kind] || KIND_KEYS.other) : "", index: p?.index || 1,
+        total: p?.total || model.state.taskEntries.length, step: T(p?.step || "import.step.check") });
+    }
+    const label = T(["analyzing", "picking", "saving"].includes(phase) ? `import.${phase}` : "app.loading");
     return p?.total > 0 ? T("import.waitProgress", { label, done: p.done || 0, total: p.total }) : label;
   }
   function holdArtwork() {
@@ -260,7 +267,7 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
     const top = searchOpen ? 294 : 202;
     dom.searchWrap.hidden = !searchOpen;
     dom.searchToggle.setAttribute("aria-expanded", String(searchOpen));
-    place(dom.count, 996, top - 32 - art.rowGap(), 250, 32);
+    place(dom.count, 996, 90, 250, 32);
     place(dom.list, 26, top, 1220, 616 - top);
   }
   function renderToolbar() {
@@ -369,12 +376,10 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
     return `${T(`settings.server.${source.server}`)} ${T(`import.source.${source.platform}`)}`;
   }
   function sourceControl(entry) {
-    const group = el("div", "import-source"), summary = place(el("div"), 0, 590, 524, 50);
-    textWidget(summary, T("import.source.route", { source: sourceLabel(entry.source), target: sourceLabel(entry.target) }),
-      "empty", { scale: 0.4, origin: [262, 25] });
-    const choose = button(T("import.source.choose"), "source", { width: 250, scale: 0.34 });
-    place(choose, 137, 645, 250, 55); choose.disabled = model.busy() || model.state.phase === "done"; choose.refresh();
-    choose.addEventListener("click", () => openSource(entry).catch((error) => textWidget(dom.status, report(error)))); group.append(summary, choose); return group;
+    const group = el("div", "import-source");
+    const choose = button(T("import.source.choose"), "source", { width: 524, scale: 0.34 });
+    place(choose, 0, 645, 524, 55); choose.disabled = model.busy() || model.state.phase === "done"; choose.refresh();
+    choose.addEventListener("click", () => openSource(entry).catch((error) => textWidget(dom.status, report(error)))); group.append(choose); return group;
   }
   async function openSource(entry) {
     if (model.busy()) return;
@@ -421,9 +426,11 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
         const name = identified(entry).name;
         const source = thumbnail(entry, { incoming: true });
         const drawing = paint(row, art.row({ name, kind: T(KIND_KEYS[entry.kind] || KIND_KEYS.other), state: T(`import.state.${entry.state}`), stateKey: entry.state,
-          counts: merged ? group.counts : null, badge: !merged, meta: merged ? [...new Set(group.entries.map((item) => T(`import.state.${item.state}`)))].join(", ")
+          counts: merged ? group.counts : null, badge: !merged, meta: merged ? [...new Set(group.entries.map((item) => T(`import.state.${item.state}`)))].join(listSeparator())
             : T(entry.files?.length === 1 ? "import.metaOne" : "import.meta", { id: identified(entry).core, n: entry.files?.length || 0, size: sizeText(entry.size) }),
-          note: [...new Set(group.entries.map(rowNote).filter(Boolean))].join(", "), muted: !eligible(entry) }),
+          route: [...new Set(group.entries.filter((item) => item.target).map((item) => T("import.source.route", {
+            source: sourceLabel(item.source), target: sourceLabel(item.target) })))].join(listSeparator()),
+          note: [...new Set(group.entries.map(rowNote).filter(Boolean))].join(listSeparator()), muted: !eligible(entry) }),
         { scale: ROW_SCALE, origin: [ROW_WIDTH / 2, 329 * ROW_SCALE / 2], textures: { "Icon_Arona": Promise.resolve(null) } });
         // MailboxContent/List_01 or List_02/BG_Icon/Icon_Arona is the incoming Mod's real texture slot.
         bindTexture(drawing, `${eligible(entry) ? "List_01" : "List_02"}/BG_Icon/Icon_Arona`, source, "import-thumb");
@@ -467,28 +474,13 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
     let status = "";
     if (state.error) status = report(state.error);
     else if (["analyzing", "picking", "saving"].includes(state.phase)) status = T(`import.${state.phase}`);
-    else if (state.phase === "running") {
-      const p = state.progress || {}, total = Math.max(1, Number(p.total) || state.taskEntries.length), done = Math.min(total, Math.max(0, Number(p.done) || 0));
-      const phase = ["update", "add", "apply"].includes(p.phase) ? T(`import.phase.${p.phase}`) : T("job.running");
-      const current = state.taskEntries.find((entry) => entry.id === p.current || entry.core === p.current);
-      status = T("import.progress", { phase, done, total, name: current ? identified(current).name : "" });
-      dom.status.setAttribute("role", "progressbar"); dom.status.setAttribute("aria-valuemin", "0");
-      dom.status.setAttribute("aria-valuemax", total); dom.status.setAttribute("aria-valuenow", done);
-    } else if (state.phase === "done") status = T("import.complete", { n: state.results.filter((r) => r.outcome !== "failed" && r.outcome !== "skipped").length, failed: state.results.filter((r) => r.outcome === "failed").length });
-    if (state.phase !== "running") { dom.status.setAttribute("role", "status"); for (const attr of ["aria-valuemin", "aria-valuemax", "aria-valuenow"]) dom.status.removeAttribute(attr); }
+    else if (state.phase === "done") status = T("import.complete", { n: state.results.filter((r) => r.outcome !== "failed" && r.outcome !== "skipped").length, failed: state.results.filter((r) => r.outcome === "failed").length });
+    dom.status.hidden = state.phase === "running";
     textWidget(dom.status, status, state.error ? "error" : "note", { scale: 0.5, origin: [state.error ? 400 : 0, 35] });
     renderRows(); renderPreview();
   }
 
-  // Confirmation uses Popup.message: UIPopup_Sort/Center/Popup, shared with the other screens.
-  async function start() {
-    await model.start(async (counts, n) => {
-      const result = await popups.message({ title: T("import.confirm"),
-        lines: STATES.filter((state) => counts[state]).map((state) => T("import.confirmCount", { state: T(`import.state.${state}`), n: counts[state] })),
-        ok: T("import.action", { n }), cancel: T("popup.cancel") });
-      return visible && result.button === "ok";
-    });
-  }
+  const start = () => model.start();
   // Popup.message adds UIPopup_GachaCharList/Btn_Checkbox to the same Sort frame for recursive scanning.
   async function pickFolder() {
     const result = await popups.message({ title: T("import.addFolder"), lines: [],

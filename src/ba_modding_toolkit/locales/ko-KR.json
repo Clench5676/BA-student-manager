@@ -1457,8 +1457,8 @@
 			"confirm": "가져오기 확인",
 			"confirmCount": "{state}: {n}개",
 			"recursive": "하위 폴더 포함",
-			"progress": "{phase} - {done}/{total} {name}",
-			"complete": "완료: {n}개, 실패: {failed}개",
+			"progress": "{phase} {name} ({kind}) {index} / {total} - {step}",
+			"complete": "완료 {n}, 실패 {failed}",
 			"resultTitle": "가져오기 결과",
 			"applied": "적용됨",
 			"notApplied": "미적용",
@@ -1470,10 +1470,11 @@
 			"state": {
 				"done": "완료",
 				"ready": "가져오기 가능",
-				"update": "업데이트 필요",
+				"update": "업데이트 대기",
 				"library": "라이브러리에 있음",
 				"installed": "이미 설치됨",
-				"blocked": "가져오기 불가"
+				"blocked": "가져오기 불가",
+				"convert": "변환 대기"
 			},
 			"reason": {
 				"unreadable": "파일을 읽을 수 없음",
@@ -1492,7 +1493,8 @@
 			"phase": {
 				"update": "업데이트 중",
 				"add": "라이브러리에 추가 중",
-				"apply": "모드 적용 중"
+				"apply": "모드 적용 중",
+				"convert": "변환 중"
 			},
 			"outcome": {
 				"imported": "라이브러리에 추가됨",
@@ -1524,7 +1526,7 @@
 				"name_type": "이름, 유형"
 			},
 			"source": {
-				"choose": "원본 버전 선택",
+				"choose": "플랫폼이 다른가요? 직접 선택",
 				"unknown": "원본 버전 알 수 없음",
 				"server": "원본 서버",
 				"platform": "원본 플랫폼",
@@ -1532,6 +1534,16 @@
 				"ios": "iOS",
 				"windows": "PC",
 				"route": "{source} → {target}"
+			},
+			"step": {
+				"check": "파일 확인",
+				"extract": "리소스 추출",
+				"replace": "리소스 교체",
+				"save": "파일 저장",
+				"crc": "CRC 수정",
+				"add": "Mod 라이브러리에 추가",
+				"apply": "Mod 적용",
+				"export": "파일 내보내기"
 			}
 		}
 	}

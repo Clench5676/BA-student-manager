@@ -433,7 +433,8 @@ class Bundle:
 
         return self.env.file.save(packer=packer)
     
-    def save(self, output_path: Path, save_options: SaveOptions) -> tuple[bool, str]:
+    def save(self, output_path: Path, save_options: SaveOptions,
+             on_step: Callable[[str], None] | None = None) -> tuple[bool, str]:
         """
         生成压缩bundle数据，根据需要执行CRC修正，并最终保存到文件。
         CRC修正使用输出文件名中提取的目标CRC值。
@@ -452,12 +453,16 @@ class Bundle:
             crc_status_str = t("common.on") if save_options.perform_crc else t("common.off")
             self.log(f"  > {t('log.file.saving_bundle_prefix')} [{t('log.file.compression_method', compression=compression_str)}] [{t('log.file.crc_correction', crc_status=crc_status_str)}]")
             
+            if on_step:
+                on_step("save")
             compressed_data = self.compress(save_options.compression)
             
             final_data = compressed_data
             success_message = t("message.save_success")
             
             if save_options.perform_crc:
+                if on_step:
+                    on_step("crc")
                 crc_str = parse_filename(output_path.name).crc
                 if not crc_str or not crc_str.isdigit():
                     return False, t("message.crc.correction_failed_file_not_generated", name=output_path.name)

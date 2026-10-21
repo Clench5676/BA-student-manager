@@ -1,7 +1,7 @@
 // Batch import's RPC contract and session state, independent of the screen and its artwork.
-export const STATES = Object.freeze(["ready", "update", "library", "installed", "blocked", "done"]);
+export const STATES = Object.freeze(["ready", "convert", "update", "library", "installed", "blocked", "done"]);
 export const RESOURCE_TYPES = Object.freeze(["ALL", "Texture2D", "TextAsset", "Mesh", "AnimationClip"]);
-export const eligible = (entry) => entry?.state === "ready" || entry?.state === "update";
+export const eligible = (entry) => ["ready", "convert", "update"].includes(entry?.state);
 export const pathsOf = (entries) => [...new Set(entries.flatMap((entry) => entry.paths || []))];
 const snapshot = (options) => ({ ...options, types: [...options.types] });
 
@@ -15,9 +15,9 @@ export function createImportState({ rpc, waitJob, changed = () => {}, suggest = 
   const state = { entries: [], checked: new Set(), selected: null, phase: "idle", progress: null, error: null,
     options: null, results: [], taskEntries: [], taskOptions: null, suggestions: [], valid: false };
   const listeners = new Set();
-  let revision = 0, contextRevision = 0, retryPaths = [], retryRecursive = false, confirming = false, optionsRead = null;
+  let revision = 0, contextRevision = 0, retryPaths = [], retryRecursive = false, starting = false, optionsRead = null;
   const emit = () => { for (const fn of listeners) fn(state); };
-  const busy = () => confirming || ["picking", "analyzing", "running", "saving"].includes(state.phase);
+  const busy = () => starting || ["picking", "analyzing", "running", "saving"].includes(state.phase);
   const selected = () => state.entries.filter((entry) => eligible(entry) && state.checked.has(entry.id));
   const fail = (error) => { state.error = error; state.phase = "error"; emit(); };
   const progress = (data) => { state.progress = { ...data }; emit(); };
@@ -27,7 +27,7 @@ export function createImportState({ rpc, waitJob, changed = () => {}, suggest = 
     if (state.options) return true;
     optionsRead ||= Promise.resolve().then(() => rpc("import.options")).then((options) => {
       state.options = snapshot(options); emit(); return true;
-    }).catch((error) => { if (!busy()) fail(error); return false; }).finally(() => { optionsRead = null; });
+    }).catch((error) => { if (!busy() || starting) fail(error); return false; }).finally(() => { optionsRead = null; });
     return optionsRead;
   }
 
@@ -144,18 +144,19 @@ export function createImportState({ rpc, waitJob, changed = () => {}, suggest = 
         state.phase = previous; state.error = null; revision++; emit(); return true;
       } catch (error) { fail(error); return false; }
     },
-    async start(confirm) {
+    async start() {
       if (busy() || !state.valid || state.phase === "done" || !selected().length) return false;
-      if (!await loadOptions()) return false;
-      if (busy() || !state.valid || !selected().length) return false;
-      confirming = true; emit();
-      const entries = structuredClone(selected()), options = snapshot(state.options), at = revision;
-      let accepted;
-      try { accepted = await confirm(countsOf(entries), entries.length); }
-      finally { confirming = false; emit(); }
-      if (!accepted || at !== revision) return false;
+      const at = revision;
+      starting = true; emit();
+      try {
+        if (!await loadOptions() || at !== revision || !state.valid || !selected().length) return false;
+      } finally { starting = false; emit(); }
+      const entries = structuredClone(selected()), options = snapshot(state.options);
       state.taskEntries = entries; state.taskOptions = options; state.results = [];
-      state.phase = "running"; state.error = null; state.progress = { done: 0, total: entries.length, current: "", phase: "add" }; emit();
+      state.phase = "running"; state.error = null;
+      state.progress = { done: 0, total: entries.length, current: entries[0].id, index: 1,
+        phase: entries[0].state === "ready" ? "add" : entries[0].state === "convert" ? "convert" : "update",
+        step: "import.step.check" }; emit();
       try {
         const id = await rpc("import.run", { ids: entries.map((entry) => entry.id), options });
         const result = await waitJob(id, progress);

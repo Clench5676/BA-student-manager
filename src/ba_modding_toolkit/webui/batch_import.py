@@ -494,7 +494,7 @@ class BatchImport:
                                         not self.services.settings.spine_options().is_valid())):
                 entry.update(state="blocked", reason="spine_version")
             else:
-                entry.update(state="ready" if exact and not mismatch and not candidate.conversion else "update", reason=None)
+                entry.update(state="convert" if candidate.conversion else "ready" if exact and not mismatch else "update", reason=None)
         except ServiceError as error:
             entry.update(state="blocked", reason=error.code if error.code in (
                 "source_unknown", "source_conflict", "platform_unsupported", "target_unknown",
@@ -524,16 +524,19 @@ class BatchImport:
             total, completed = len(chosen), [0]
             progress_lock = threading.Lock()
 
-            def report(candidate: Candidate, phase: str) -> None:
+            positions = {candidate.entry["id"]: index for index, candidate in enumerate(chosen, 1)}
+
+            def report(candidate: Candidate, phase: str, step: str | None = None) -> None:
                 with progress_lock:
-                    progress({"done": completed[0], "total": total,
-                              "current": candidate.entry["id"], "phase": phase})
+                    progress({"done": completed[0], "total": total, "index": positions[candidate.entry["id"]],
+                              "current": candidate.entry["id"], "phase": phase,
+                              "step": "import.step." + (step or phase)})
 
             with tempfile.TemporaryDirectory(prefix=devmode.LIBRARY_STAGING_PREFIX + "import-") as temporary:
                 with ThreadPoolExecutor(max_workers=options["workers"]) as workers:
                     futures = {}
                     for candidate in chosen:
-                        if candidate.entry["state"] not in ("ready", "update"):
+                        if candidate.entry["state"] not in ("ready", "convert", "update"):
                             continue
                         # Recheck the actual inputs and current official files before launching parallel builds.
                         try:
@@ -544,6 +547,8 @@ class BatchImport:
                             fresh = Candidate(dict(candidate.files), dict(candidate.entry),
                                               source_override=candidate.source_override)
                             fresh.entry["files"] = [dict(f) for f in candidate.entry["files"]]
+                            report(candidate, "convert" if candidate.conversion else "update"
+                                   if candidate.entry["state"] == "update" else "add", "check")
                             self._judge(fresh, library, pin, log)
                             futures[candidate.entry["id"]] = workers.submit(
                                 self._prepare, fresh, settings, Path(temporary), log, report)
@@ -613,7 +618,8 @@ class BatchImport:
             raise ServiceError(entry["reason"])
         if entry["state"] == "ready":
             return list(candidate.files.values()), False, candidate
-        progress(candidate, "update")
+        phase = "convert" if candidate.conversion else "update"
+        progress(candidate, phase, "check")
         work = temporary / entry["id"]
         output, targets_dir = work / "output", work / "targets"
         output.mkdir(parents=True)
@@ -639,7 +645,8 @@ class BatchImport:
                 save_options=settings.save_options(settings.crc_needed(group[0])), spine_options=spine,
                 skip_unchanged=settings.options["skipUnchanged"],
                 match_strategy="name_type" if candidate.conversion else settings.options["strategy"],
-                anim_check=settings.anim_check_options(), log=log)
+                anim_check=settings.anim_check_options(), log=log,
+                on_step=lambda step: progress(candidate, phase, step))
             if not updated.success:
                 raise ServiceError("conversion_failed" if candidate.conversion else "mod_update_failed")
             if updated.message != "all_targets_unchanged":
@@ -655,6 +662,7 @@ class BatchImport:
                 shutil.copy2(target, output / target.name)
                 generated[target.name] = output / target.name
         if settings.options["output"]:
+            progress(candidate, phase, "export")
             destination = Path(settings.options["output"]) / "bundles" / entry["id"]
             for path in generated.values():
                 exported = destination / path.name

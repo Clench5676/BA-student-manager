@@ -401,8 +401,9 @@ def test_update_then_add_then_apply_forwards_every_classic_option_and_reports_ev
         seen.append(events.get_nowait())
     progress = [data for event, data in seen if event == "job.progress"]
     assert {p["phase"] for p in progress} == {"update", "add", "apply"}
-    assert all(set(p) == {"id", "done", "total", "current", "phase"} for p in progress)
+    assert all(set(p) == {"id", "done", "total", "current", "phase", "index", "step"} for p in progress)
     assert progress[-1]["done"] == progress[-1]["total"] == 1
+    assert all(p["index"] == 1 and p["step"].startswith("import.step.") for p in progress)
     changed = next(data for event, data in seen if event == "library.changed")
     assert changed == {"cores": ["test_spr"], "kinds": ["spr"], "mods": True}
     assert any(event == "mods.state" for event, _ in seen)

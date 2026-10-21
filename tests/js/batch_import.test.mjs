@@ -94,7 +94,7 @@ const catalog = { families: ["a", "b", "c", "d", "e"].map((id) => ({ key: id, cu
   key: id, fileId: `${id}_spr`, spr: `${id}_spr`, lobby: `${id}_home`, portrait: `/portrait/${id}.png`, bg: `/bg/${id}.png`, names: { en: { full: `Student ${id}` }, ja: { full: `JP ${id}` } },
 }] })) };
 
-async function fixture({ licensed = false, native = true, suggest } = {}) {
+async function fixture({ licensed = false, native = true, suggest, countIcons = false } = {}) {
   body.replaceChildren(); observers.length = 0;
   const host = body.appendChild(new El()), dialog = body.appendChild(new El()); dialog.id = "dialog"; dialog.hidden = true;
   const calls = [], analyses = [], runs = [], sources = [], messages = [], answers = [], thumbs = [], scopes = [], popupStack = [], holds = [];
@@ -116,6 +116,7 @@ async function fixture({ licensed = false, native = true, suggest } = {}) {
   const label = (text, fontSize, color, w_, h_, opts = {}) => ({ text, fontSize, color, w_, h_, pivot: 4, depth: 9, ...opts });
   const ui = { node, label, fitText: (text, fs) => ({ text, fs }), glyphWidth: (text, fs) => String(text).length * fs, init: async () => {},
     layout: async (name) => { loaded.push(name); assert.ok(layouts[name], `Unexpected layout ${name}`); return layouts[name]; },
+    atlasIndex: () => countIcons ? { Common: Object.fromEntries(["Student", "Play", "Craft"].map((name) => [`Common_Icon_${name}`, { width: 48, height: 48 }])) } : {},
     find, render: async (tree, host, opts) => {
       rendered.push({ tree, opts, host }); const view = await renderImportTree(tree, host, opts);
       if (renderHold?.predicate(tree)) { const hold = renderHold; renderHold = null; await hold.promise; }
@@ -238,13 +239,13 @@ test("duplicate source paths are silently skipped; new input analyzes all retain
   assert.equal(h.page.model.state.entries.length, 2); assert.doesNotMatch(h.host.textContent, /duplicate/i);
 });
 
-test("confirmation counts only selected eligible states and Cancel never starts a job", async () => {
+test("Import starts immediately with only selected eligible entries and no confirmation popup", async () => {
   const h = await fixture(); await h.analyze();
+  h.page.model.toggle("a", false);
   await h.action("start").click(); await flush();
-  assert.deepEqual(h.messages[0].lines, ["Ready: 1", "Needs Update: 1"]); assert.equal(h.messages[0].ok, "Import (2)");
-  assert.equal(h.runs.length, 0);
-  const check = h.row("a").querySelector("input"); check.checked = false; await check.dispatch("change");
-  await h.action("start").click(); await flush(); assert.deepEqual(h.messages[1].lines, ["Needs Update: 1"]);
+  assert.equal(h.messages.length, 0); assert.equal(h.runs.length, 1);
+  assert.deepEqual(h.runs[0].params.ids, ["b"]);
+  h.runs[0].resolve({ results: [] }); await flush();
 });
 
 test("running captures IDs/options, follows job progress, survives hiding and shows per-Mod results", async () => {
@@ -252,14 +253,15 @@ test("running captures IDs/options, follows job progress, survives hiding and sh
   await h.action("start").click(); await flush();
   assert.equal(h.phase(), "running"); assert.deepEqual(h.runs[0].params, { ids: ["a", "b"], options });
   assert.equal(h.action("options").disabled, true); assert.equal(h.row("a").querySelector("input").disabled, true);
-  h.runs[0].progress({ done: 1, total: 2, current: "b", phase: "update" }); await h.page.settled();
-  assert.match(h.host.textContent, /Updating - 1\/2 Student b/);
-  assert.equal(h.host.querySelector(".import-progress").getAttribute("aria-valuenow"), "1");
+  h.runs[0].progress({ done: 0, index: 2, total: 2, current: "b", phase: "update", step: "import.step.crc" }); await h.page.settled();
+  assert.equal(h.host.querySelector(".import-progress").hidden, true);
+  assert.doesNotMatch(h.host.textContent, /Updating.*Student b/);
+  assert.equal(h.holds.findLast((hold) => hold.active).opts.progress(), "Updating Student b (Memorial Lobby) 2 / 2 - Repairing CRC");
   h.page.hide(); assert.equal(h.scopes[0].cancelled, true);
   h.runs[0].resolve({ results: [{ id: "a", outcome: "imported", reason: null, libraryId: "lib-a", applied: false },
     { id: "b", outcome: "failed", reason: "unreadable", libraryId: null, applied: false }] }); await flush();
   await h.page.show(h.context, catalog); assert.equal(h.phase(), "done"); assert.equal(h.changed(), 1);
-  assert.equal(h.action("start").getAttribute("aria-label"), "View Results"); assert.match(h.host.textContent, /Done: 1, failed: 1/);
+  assert.equal(h.action("start").getAttribute("aria-label"), "View Results"); assert.match(h.host.textContent, /Done 1, failed 1/);
   await h.page.results();
   assert.match(h.dialog.textContent, /Added to Library/); assert.match(h.dialog.textContent, /Not Applied/);
   assert.match(h.dialog.textContent, /Unreadable File/);
@@ -359,14 +361,17 @@ test("optional helpers are consulted on copies, failures are contained and selec
   assert.equal(entryIdentity(entry("a"), catalogEntries(catalog)).name, "Saved Alias");
 });
 
-test("confirmation locks selection and drops until answered, and changed game files invalidate its snapshot", async () => {
-  const h = await fixture(); await h.analyze(); const answer = deferred(); h.answers.push(answer);
-  await h.action("start").click(); await flush();
-  assert.equal(h.action("files").disabled, true); h.page.model.toggle("a", false);
-  assert.equal(h.page.model.state.checked.has("a"), true);
-  await h.page.drop(["/fixtures/later.bundle"]); assert.equal(h.analyses.length, 1);
-  h.page.model.invalidate(); answer.resolve({ button: "ok" }); await flush();
-  assert.equal(h.runs.length, 0); assert.equal(h.action("start").disabled, true);
+test("initial option loading locks selection and a changed context prevents starting", async () => {
+  const reading = deferred(), model = createImportState({
+    rpc: async (method) => method === "import.options" ? reading.promise : "job",
+    waitJob: async () => ({ entries: [entry("a")], skipped: 0 }),
+  });
+  await model.add(entry("a").paths);
+  const starting = model.start(); await flush();
+  model.toggle("a", false); assert.equal(model.state.checked.has("a"), true);
+  assert.equal(await model.add(["/fixtures/later.bundle"]), false);
+  model.invalidate(); reading.resolve(options);
+  assert.equal(await starting, false); assert.equal(model.state.valid, false);
 });
 
 test("recheck respects manual deselection and automatically selects newly eligible entries", async () => {
@@ -539,14 +544,14 @@ test("leaving during thumbnail generation releases the hold and ignores late pic
   assert.equal(image.dataset.source, undefined);
 });
 
-test("mail thumbnails have rectangular bounds and the game's gap before title and paragraph", async () => {
+test("mail thumbnails crop inside the slot and leave a clear gap before text", async () => {
   const h = await fixture({ licensed: true }); await h.analyze([entry("a")]);
   const row = h.row("a"), image = row.querySelector(".import-thumb");
   const [x, y, width, height] = rectOf(image);
   const title = row.querySelectorAll("div").find((e) => e.dataset.path === "List_01/Label_System");
   const paragraph = row.querySelectorAll("div").find((e) => e.dataset.path === "List_01/Label_Locale_Received");
   assert.ok(x >= 0 && y >= 0 && y + height <= 329 * 0.54);
-  closeTo(parseFloat(title.style.left) - x - width, 19 * 0.54);
+  assert.ok(parseFloat(title.style.left) - x - width >= 24 * 0.54);
   assert.ok(parseFloat(paragraph.style.left) - x - width >= 19 * 0.54);
   assert.equal(image.style.overflow, "hidden"); assert.equal(image.style.clipPath, "inset(0)");
 });
@@ -561,7 +566,7 @@ test("both preview tags align to the panel top and both image slots to its heade
     const circle = box.art.children.find((e) => e.dataset.path === "EquipPos/BGCilcle");
     closeTo(parseFloat(preview.style.top) + parseFloat(tag.style.top), parseFloat(panel.style.top));
     closeTo(parseFloat(preview.style.top) + parseFloat(image.style.top), parseFloat(panel.style.top) + parseFloat(paper.style.top));
-    assert.ok(parseFloat(circle.style.top) >= parseFloat(header.style.height), "the backing circle follows the image instead of rising over the tags");
+    assert.equal(circle, undefined, "preview decorations are removed from both pictures");
   }
   assert.equal(h.host.querySelectorAll(".import-preview").length, 2);
 });
@@ -729,14 +734,15 @@ test("empty, full, filtered and long Thai toolbars fit the header, with search a
         assert.ok(title[2] < Math.min(...controls.map((r) => r[0])), "title stays left of the tools");
         const list = h.host.querySelector(".import-list"), count = h.host.querySelector(".import-count");
         const [cx, cy, cw, ch] = rectOf(count), [lx, ly, lw, lh] = rectOf(list);
-        closeTo(cx + cw, lx + lw); closeTo(ly - cy - ch, 19 * 0.54);
+        closeTo(cx + cw, lx + lw); closeTo(cy, 90); assert.ok(cy + ch < ly);
+        assert.equal(count.parentNode, panel, "count never scrolls with rows");
         assert.ok(cy > headerBottom); assert.ok(ly + lh < parseFloat(h.action("files").style.top));
         const countBounds = artworkBounds(h, count)[0];
         closeTo(countBounds[0], 0); closeTo(countBounds[1], 0); closeTo(countBounds[2], cw); closeTo(countBounds[3], ch);
         const wrap = h.host.querySelector(".import-input-wrap");
         if (!wrap.hidden) {
           const [sx, sy, sw, sh] = rectOf(wrap);
-          assert.ok(sx >= 0 && sx + sw <= width); assert.ok(sy > headerBottom && sy + sh < cy);
+          assert.ok(sx >= 0 && sx + sw <= width); assert.ok(sy > cy && sy + sh < ly);
         }
         for (const n of [find(drawn(h, header).tree, "Label_Locale_Title"), find(drawn(h, header).tree, "SortBtn/Btn_Normal/Type_2/Text"), drawn(h, count).tree]) {
           const label = n.widgets.find((w) => "text" in w);
@@ -937,8 +943,8 @@ test("the shared page hold reports both analysis and import progress through art
   assert.equal(hold().opts.progress(), "Analyzing 3 / 12");
   h.analyses[0].resolve({ entries: [entry("a")], skipped: 0 }); await analyzing; await h.page.settled(); await flush();
   h.answers.push({ button: "ok" }); await h.action("start").click(); await flush();
-  h.runs[0].progress({ done: 1, total: 2, phase: "apply" });
-  assert.equal(hold().opts.progress(), "Applying Mods 1 / 2");
+  h.runs[0].progress({ done: 0, index: 1, total: 2, current: "a", phase: "apply", step: "import.step.apply" });
+  assert.equal(hold().opts.progress(), "Applying Mods Saved Alias (Portrait) 1 / 2 - Applying Mod");
   h.runs[0].reject({ code: "internal" }); await flush(); await h.page.settled(); await flush();
   assert.equal(hold(), undefined);
 });
@@ -962,4 +968,27 @@ test("re-entering recreates cancelled row stills and merged rows prefer an avail
   h.page.hide(); await h.page.show(h.context, catalog); await h.page.settled();
   assert.ok(h.thumbs.filter(([base, frame]) => base.includes("/import/source-a/") && frame === "card").length > count);
   assert.match(h.row("a").querySelector(".import-thumb").dataset.source, /source-a/);
+});
+
+
+test("conversion is eligible, counted separately, and routes sit below aligned metadata", async () => {
+  const h = await fixture();
+  const converting = { ...entry("a", "convert"), source: { server: "japan", platform: "android" },
+    target: { server: "global", platform: "windows" } };
+  await h.analyze([converting, entry("b", "update")]);
+  assert.deepEqual([...h.page.model.state.checked], ["a", "b"]);
+  const tree = drawn(h, h.row("a")).tree, meta = find(tree, "Label_Locale_Received"), platform = find(tree, "Platform");
+  assert.equal(platform.widgets[0].text, "Japan Android → Global PC");
+  assert.equal(platform.pos[0], meta.pos[0]); assert.ok(platform.pos[1] < meta.pos[1]);
+  const graphics = h.row("a").art.children;
+  const platformBox = rectOf(graphics.find((element) => element.dataset.path === "List_01/Platform"));
+  const kindBox = rectOf(graphics.find((element) => element.dataset.path === "List_01/Label_From"));
+  assert.ok(platformBox[0] + platformBox[2] < kindBox[0], "route stays in the metadata column");
+  const noteBox = rectOf(graphics.find((element) => element.dataset.path === "List_01/Label_Locale_Limit"));
+  assert.ok(platformBox[1] + platformBox[3] < noteBox[1]);
+  assert.ok(noteBox[1] + noteBox[3] <= 329 * 0.54);
+  assert.doesNotMatch(h.host.querySelector(".import-detail").textContent, /→/);
+  assert.equal(h.action("source").disabled, false, "detected origins remain manually correctable");
+  await h.action("filter").click(); await flush(); await h.page.settled();
+  assert.match(h.dialog.textContent, /Pending Conversion \(1\)/); assert.match(h.dialog.textContent, /Pending Update \(1\)/);
 });

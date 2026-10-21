@@ -1457,8 +1457,8 @@
 			"confirm": "确认导入",
 			"confirmCount": "{state}：{n} 个",
 			"recursive": "包含子文件夹",
-			"progress": "{phase} - {done}/{total} {name}",
-			"complete": "完成：{n}，失败：{failed}",
+			"progress": "{phase} {name}（{kind}）{index} / {total} - {step}",
+			"complete": "完成 {n}，失败 {failed}",
 			"resultTitle": "导入结果",
 			"applied": "已应用",
 			"notApplied": "未应用",
@@ -1470,10 +1470,11 @@
 			"state": {
 				"done": "已完成",
 				"ready": "可导入",
-				"update": "需更新",
+				"update": "待更新",
 				"library": "已在 Mod 仓库",
 				"installed": "已安装",
-				"blocked": "无法导入"
+				"blocked": "无法导入",
+				"convert": "待转换"
 			},
 			"reason": {
 				"unreadable": "文件不可读",
@@ -1492,7 +1493,8 @@
 			"phase": {
 				"update": "正在更新",
 				"add": "正在加入 Mod 仓库",
-				"apply": "正在应用 Mod"
+				"apply": "正在应用 Mod",
+				"convert": "正在转换"
 			},
 			"outcome": {
 				"imported": "已加入 Mod 仓库",
@@ -1524,7 +1526,7 @@
 				"name_type": "名称、类型"
 			},
 			"source": {
-				"choose": "选择原始版本",
+				"choose": "平台识别不准确？手动选择",
 				"unknown": "原始版本未知",
 				"server": "原始区服",
 				"platform": "原始平台",
@@ -1532,6 +1534,16 @@
 				"ios": "iOS",
 				"windows": "电脑",
 				"route": "{source} → {target}"
+			},
+			"step": {
+				"check": "检查文件",
+				"extract": "提取资源",
+				"replace": "替换资源",
+				"save": "保存文件",
+				"crc": "修复 CRC",
+				"add": "加入 Mod 仓库",
+				"apply": "应用 Mod",
+				"export": "导出文件"
 			}
 		}
 	}

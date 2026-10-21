@@ -92,11 +92,22 @@ def test_conversion_update_add_apply_uses_real_classic_core(real_metadata, platf
                           references=['com.nexon.bluearchive'])
     before = source.read_bytes()
     entry, = analyze(env, [source])['entries']
-    assert (entry['state'], entry['reason']) == ('update', None)
+    assert (entry['state'], entry['reason']) == ('convert', None)
     assert entry['source'] == {'server': 'global', 'platform': source_platform, 'detected': True}
     assert entry['target'] == {'server': 'global', 'platform': 'windows' if target_platform == 19 else 'android' if target_platform == 13 else 'ios'}
-    result, = run(env, [entry], strategy='path_id', types=['TextAsset'], backup=True)
+    events = env.services.events.subscribe()
+    result, = run(env, [entry], strategy='path_id', types=['TextAsset'], backup=True,
+                  crc='on' if target_platform == 19 else 'off')
     assert result['outcome'] == 'updated' and result['applied']
+    updates = []
+    while not events.empty():
+        event, data = events.get_nowait()
+        if event == 'job.progress':
+            updates.append(data)
+    steps = {item['step'] for item in updates if item['phase'] == 'convert'}
+    assert {'import.step.check', 'import.step.extract', 'import.step.replace', 'import.step.save'} <= steps
+    assert ('import.step.crc' in steps) is (target_platform == 19)
+    assert all(item['current'] == entry['id'] and item['index'] == item['total'] == 1 for item in updates)
     mod, = env.library.mods()
     assert mod.id == result['libraryId']
     converted = Bundle.load(env.original)
@@ -113,7 +124,7 @@ def test_cross_server_matching_filename_converts_instead_of_copying(real_metadat
                           references=['com.Yostar JP.BlueArchive'])
     entry, = analyze(env, [source])['entries']
     assert entry['source']['server'] == 'japan' and entry['target']['server'] == 'global'
-    assert entry['state'] == 'update'
+    assert entry['state'] == 'convert'
     result, = run(env, [entry], types=['TextAsset'])
     assert result['outcome'] == 'updated' and result['applied']
     assert Bundle.load(env.original).env.objects[0].read().m_Script == 'JP mod'
@@ -129,9 +140,9 @@ def test_unknown_source_set_source_reanalyzes_and_persists_for_run_and_recheck(r
     assert entry['preview']
     selected = finish(env, rpc(env, 'import.setSource', id=entry['id'], server='global', platform='android'))
     assert selected['source'] == {'server': 'global', 'platform': 'android', 'detected': False}
-    assert selected['state'] == 'update' and selected['id'] == entry['id']
+    assert selected['state'] == 'convert' and selected['id'] == entry['id']
     selected, = analyze(env, [source])['entries']
-    assert selected['source']['detected'] is False and selected['state'] == 'update'
+    assert selected['source']['detected'] is False and selected['state'] == 'convert'
     result, = run(env, [selected], types=['TextAsset'])
     assert result['outcome'] == 'updated' and result['applied']
     assert Bundle.load(env.original).env.objects[0].read().m_Script == 'unknown mod'
@@ -195,7 +206,7 @@ def test_same_platform_cross_server_still_rebuilds(real_metadata):
     source = unity_bundle(env.tmp / 'input' / env.original.name, 19, cab='CAB-jp', payload=b'JP mod',
                           references=['com.Yostar JP.BlueArchive'])
     entry, = analyze(env, [source])['entries']
-    assert entry['state'] == 'update'
+    assert entry['state'] == 'convert'
     result, = run(env, [entry], types=['TextAsset'])
     assert result['applied'] and result['outcome'] == 'updated'
     assert 'com.yostar jp.bluearchive' not in inspect_bundle(env.original).references
@@ -300,7 +311,7 @@ def test_installed_mobile_bytes_do_not_bypass_conversion(real_metadata):
     env.original.with_name(env.original.name + '.backup').write_bytes(official)
     env.original.write_bytes(source.read_bytes())
     entry, = analyze(env, [source])['entries']
-    assert entry['state'] == 'update' and entry['target']['platform'] == 'windows'
+    assert entry['state'] == 'convert' and entry['target']['platform'] == 'windows'
     result, = run(env, [entry], types=['TextAsset'])
     assert result['outcome'] == 'updated' and result['applied']
     assert inspect_bundle(env.original).platforms == {'StandaloneWindows64'}

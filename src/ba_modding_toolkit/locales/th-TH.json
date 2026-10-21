@@ -1457,8 +1457,8 @@
 			"confirm": "ยืนยันการนำเข้า",
 			"confirmCount": "{state}: {n}",
 			"recursive": "รวมโฟลเดอร์ย่อย",
-			"progress": "{phase} - {done}/{total} {name}",
-			"complete": "เสร็จแล้ว: {n}, ล้มเหลว: {failed}",
+			"progress": "{phase} {name} ({kind}) {index} / {total} - {step}",
+			"complete": "สำเร็จ {n}, ล้มเหลว {failed}",
 			"resultTitle": "ผลการนำเข้า",
 			"applied": "ใช้แล้ว",
 			"notApplied": "ยังไม่ได้ใช้",
@@ -1470,10 +1470,11 @@
 			"state": {
 				"done": "เสร็จแล้ว",
 				"ready": "พร้อม",
-				"update": "ต้องอัปเดต",
+				"update": "รออัปเดต",
 				"library": "มีในคลัง Mod แล้ว",
 				"installed": "ติดตั้งแล้ว",
-				"blocked": "นำเข้าไม่ได้"
+				"blocked": "นำเข้าไม่ได้",
+				"convert": "รอแปลง"
 			},
 			"reason": {
 				"unreadable": "อ่านไฟล์ไม่ได้",
@@ -1492,7 +1493,8 @@
 			"phase": {
 				"update": "กำลังอัปเดต",
 				"add": "กำลังเพิ่มในคลัง Mod",
-				"apply": "กำลังใช้ Mod"
+				"apply": "กำลังใช้ Mod",
+				"convert": "กำลังแปลง"
 			},
 			"outcome": {
 				"imported": "เพิ่มในคลัง Mod แล้ว",
@@ -1524,7 +1526,7 @@
 				"name_type": "ชื่อ, ประเภท"
 			},
 			"source": {
-				"choose": "เลือกเวอร์ชันต้นทาง",
+				"choose": "แพลตฟอร์มไม่ถูกต้อง? เลือกเอง",
 				"unknown": "ไม่ทราบเวอร์ชันต้นทาง",
 				"server": "เซิร์ฟเวอร์ต้นทาง",
 				"platform": "แพลตฟอร์มต้นทาง",
@@ -1532,6 +1534,16 @@
 				"ios": "iOS",
 				"windows": "PC",
 				"route": "{source} → {target}"
+			},
+			"step": {
+				"check": "ตรวจสอบไฟล์",
+				"extract": "แยกทรัพยากร",
+				"replace": "แทนที่ทรัพยากร",
+				"save": "บันทึกไฟล์",
+				"crc": "แก้ไข CRC",
+				"add": "เพิ่มในคลัง Mod",
+				"apply": "ใช้ Mod",
+				"export": "ส่งออกไฟล์"
 			}
 		}
 	}
