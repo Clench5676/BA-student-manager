@@ -98,12 +98,12 @@ async function fixture({ licensed = false, native = true, suggest, countIcons = 
   body.replaceChildren(); observers.length = 0;
   const host = body.appendChild(new El()), dialog = body.appendChild(new El()); dialog.id = "dialog"; dialog.hidden = true;
   const calls = [], analyses = [], runs = [], sources = [], messages = [], answers = [], thumbs = [], scopes = [], popupStack = [], holds = [];
-  let pickerPaths = [], pickError = null, optionsError = null, saveError = null, changed = 0;
+  let pickerHold = null, pickerPaths = [], pickError = null, optionsError = null, saveError = null, changed = 0;
   const call = async (method, params) => {
     calls.push({ method, params });
     if (method === "import.options") { if (optionsError) throw optionsError; return structuredClone(options); }
     if (method === "import.setOptions") { if (saveError) throw saveError; return structuredClone(params); }
-    if (method === "import.pick") { if (pickError) throw pickError; return { paths: pickerPaths }; }
+    if (method === "import.pick") { if (pickError) throw pickError; if (pickerHold) return pickerHold.promise; return { paths: pickerPaths }; }
     if (["import.analyze", "import.run", "import.setSource"].includes(method)) {
       const list = method === "import.analyze" ? analyses : method === "import.run" ? runs : sources, job = { ...deferred(), id: `job-${calls.length}`, params };
       list.push(job); return job.id;
@@ -156,7 +156,7 @@ async function fixture({ licensed = false, native = true, suggest, countIcons = 
     const adding = page.drop(paths); await flush(); analyses.at(-1).resolve({ entries, skipped: 0 }); await adding; await page.settled(); await flush(); return adding;
   };
   return { page, context, destinations, host, dialog, layouts, layoutSnapshot, rendered, loaded, calls,
-    holds, holdThumbs: () => { thumbsHold = deferred(); return thumbsHold; },
+    holds, holdPicker: () => { pickerHold = deferred(); return pickerHold; }, holdThumbs: () => { thumbsHold = deferred(); return thumbsHold; },
     holdImages: (predicate) => { const hold = { ...deferred(), predicate }; imagesHold = hold; return hold; },
     holdRender: (predicate) => { const hold = { ...deferred(), predicate }; renderHold = hold; return hold; }, analyses, runs, sources, messages, answers, thumbs, scopes, popupStack, action, row, phase, analyze,
     changed: () => changed, picker: (paths) => { pickerPaths = paths; }, pickError: (error) => { pickError = error; },
@@ -174,7 +174,7 @@ test("empty screen has add actions and zero Mods, without AI UI or tooltips", as
 
 test("analyzing locks edits; mixed states default to ready/update only, with aligned row cells", async () => {
   const h = await fixture(), pending = h.page.drop(["/fixtures/folder"]); await flush();
-  assert.equal(h.phase(), "analyzing"); assert.match(h.host.textContent, /Analyzing/);
+  assert.equal(h.phase(), "analyzing"); assert.doesNotMatch(h.host.textContent, /Analyzing/);
   for (const action of ["files", "folder", "clear", "recheck", "options", "start"]) assert.equal(h.action(action).disabled, true);
   h.analyses[0].resolve({ entries: mixed(), skipped: 3 }); await pending; await h.page.settled();
   assert.deepEqual([...h.page.model.state.checked], ["a", "b"]); assert.equal(h.action("start").getAttribute("aria-label"), "Import (2)");
@@ -254,14 +254,14 @@ test("running captures IDs/options, follows job progress, survives hiding and sh
   assert.equal(h.phase(), "running"); assert.deepEqual(h.runs[0].params, { ids: ["a", "b"], options });
   assert.equal(h.action("options").disabled, true); assert.equal(h.row("a").querySelector("input").disabled, true);
   h.runs[0].progress({ done: 0, index: 2, total: 2, current: "b", phase: "update", step: "import.step.crc" }); await h.page.settled();
-  assert.equal(h.host.querySelector(".import-progress").hidden, true);
+  assert.equal(h.host.querySelector(".import-progress"), null);
   assert.doesNotMatch(h.host.textContent, /Updating.*Student b/);
   assert.equal(h.holds.findLast((hold) => hold.active).opts.progress(), "Updating Student b (Memorial Lobby) 2 / 2 - Repairing CRC");
   h.page.hide(); assert.equal(h.scopes[0].cancelled, true);
   h.runs[0].resolve({ results: [{ id: "a", outcome: "imported", reason: null, libraryId: "lib-a", applied: false },
     { id: "b", outcome: "failed", reason: "unreadable", libraryId: null, applied: false }] }); await flush();
   await h.page.show(h.context, catalog); assert.equal(h.phase(), "done"); assert.equal(h.changed(), 1);
-  assert.equal(h.action("start").getAttribute("aria-label"), "View Results"); assert.match(h.host.textContent, /Done: 1, failed: 1/);
+  assert.equal(h.action("start").getAttribute("aria-label"), "View Results"); assert.doesNotMatch(h.host.textContent, /Done: 1, failed: 1/);
   await h.page.results();
   assert.match(h.dialog.textContent, /Added to Library/); assert.match(h.dialog.textContent, /Not Applied/);
   assert.match(h.dialog.textContent, /Unreadable File/);
@@ -272,12 +272,12 @@ test("running captures IDs/options, follows job progress, survives hiding and sh
 test("analysis and run errors remain visible and prevent stale execution until recheck", async () => {
   const h = await fixture(); const adding = h.page.drop(["/fixtures/new.bundle"]); await flush();
   h.analyses[0].reject({ code: "game_running" }); await adding; await h.page.settled();
-  assert.equal(h.phase(), "error"); assert.match(h.host.textContent, /Close the game first/); assert.equal(h.action("start").disabled, true);
+  assert.equal(h.phase(), "error"); assert.match(h.messages.at(-1).lines.join(" "), /Close the game first/); assert.equal(h.action("start").disabled, true);
   const retry = h.page.model.recheck(); await flush(); assert.deepEqual(h.analyses[1].params.paths, ["/fixtures/new.bundle"]);
   h.analyses[1].resolve({ entries: [entry("a")], skipped: 0 }); await retry;
   h.answers.push({ button: "ok" }); await h.action("start").click(); await flush();
   h.runs[0].reject({ code: "future_error" }); await flush();
-  assert.equal(h.phase(), "error"); assert.match(h.host.textContent, /Import Failed/); assert.doesNotMatch(h.host.textContent, /future_error/);
+  assert.equal(h.phase(), "error"); assert.match(h.messages.at(-1).lines.join(" "), /Import Failed/); assert.doesNotMatch(h.host.textContent, /future_error/);
   assert.equal(h.action("start").disabled, true); assert.equal(h.action("recheck").disabled, false);
 });
 
@@ -304,7 +304,7 @@ test("options save errors keep the dialog open and report localized text", async
 test("licensed previews pair the current game with analyzed sources and draw incoming row thumbnails", async () => {
   const h = await fixture({ licensed: true }); await h.analyze();
   assert.ok(h.thumbs.some(([base]) => base.includes("/spr/a_spr/")));
-  assert.ok(h.thumbs.some(([base, frame]) => base.includes("/import/source-a/") && frame === "bust"));
+  assert.ok(h.thumbs.some(([base, frame]) => base.includes("/import/source-a/") && frame === "portrait"));
   assert.doesNotMatch(h.host.textContent, /Preview Unavailable/);
   for (const observer of observers) observer.reveal(); await flush();
   assert.ok(h.thumbs.some(([base, frame, , lobby]) => base.includes("/import/source-b/") && frame === "card" && lobby));
@@ -319,7 +319,7 @@ test("missing incoming previews leave the slot empty and never borrow current ga
   const h = await fixture({ licensed: true }); await h.analyze([{ ...entry("a"), preview: null }]);
   assert.match(h.host.textContent, /Preview Unavailable/);
   for (const observer of observers) observer.reveal(); await flush();
-  assert.ok(h.thumbs.every(([base, frame]) => base.includes("/spr/a_spr/") && frame === "bust"));
+  assert.ok(h.thumbs.every(([base, frame]) => base.includes("/spr/a_spr/") && frame === "portrait"));
   assert.equal(h.row("a").querySelector(".import-thumb").dataset.source, undefined);
 });
 
@@ -328,7 +328,7 @@ test("reanalysis replaces the incoming preview for the same entry ID", async () 
   const checking = h.page.model.recheck(); await flush();
   h.analyses.at(-1).resolve({ entries: [{ ...entry("a"), preview: { kind: "import", key: "source-a-new" } }], skipped: 0 });
   await checking; await flush();
-  assert.ok(h.thumbs.some(([base, frame]) => base.includes("/import/source-a-new/") && frame === "bust"));
+  assert.ok(h.thumbs.some(([base, frame]) => base.includes("/import/source-a-new/") && frame === "portrait"));
   assert.ok(h.host.querySelector(".incoming").querySelector(".import-preview-image").dataset.source.includes("/import/source-a-new/"));
 });
 
@@ -338,14 +338,14 @@ test("special lobby categories keep lobby source selection and framing", async (
   special.families[1].variants[0].spineCategory = "spinebackground";
   await h.page.show(h.context, special);
   await h.analyze([entry("b", "ready", "lobby")]);
-  assert.ok(h.thumbs.some(([base, frame, , lobby, framing]) => base.includes("/lobby/b_home/") && frame === "bust" && lobby && framing === "scene"));
-  assert.ok(h.thumbs.some(([base, frame, , lobby, framing]) => base.includes("/import/source-b/") && frame === "bust" && lobby && framing === "scene"));
+  assert.ok(h.thumbs.some(([base, frame, , lobby, framing]) => base.includes("/lobby/b_home/") && frame === "landscape" && lobby && framing === "scene"));
+  assert.ok(h.thumbs.some(([base, frame, , lobby, framing]) => base.includes("/import/source-b/") && frame === "landscape" && lobby && framing === "scene"));
 });
 
 test("DOM drops forward native paths and browser-only drops explain native availability", async () => {
   const h = await fixture({ native: false });
   await h.host.children[0].dispatch("drop", { dataTransfer: { files: [{ name: "a.bundle" }] } }); await h.page.settled();
-  assert.match(h.host.textContent, /Not available in browser mode/); assert.equal(h.analyses.length, 0);
+  assert.match(h.messages.at(-1).lines.join(" "), /Not available in browser mode/); assert.equal(h.analyses.length, 0);
   await h.host.children[0].dispatch("drop", { dataTransfer: { files: [{ path: "/fixtures/a.bundle" }] } }); await flush();
   assert.deepEqual(h.analyses[0].params, { paths: ["/fixtures/a.bundle"], recursive: false });
   h.analyses[0].resolve({ entries: [entry("a")], skipped: 0 }); await flush();
@@ -386,7 +386,7 @@ test("a game-file change during analysis requires another check before import", 
   const h = await fixture(), pending = h.page.drop(["/fixtures/a.bundle"]); await flush(); h.page.model.invalidate();
   h.analyses[0].resolve({ entries: [entry("a")], skipped: 0 }); await pending; await h.page.settled();
   assert.equal(h.page.model.state.valid, false); assert.equal(h.phase(), "error");
-  assert.match(h.host.textContent, /Game files changed, check again/); assert.equal(h.action("start").disabled, true);
+  assert.match(h.messages.at(-1).lines.join(" "), /Game files changed, check again/); assert.equal(h.action("start").disabled, true);
 });
 
 test("failed option reads cannot release an in-flight analysis lock", async () => {
@@ -409,7 +409,7 @@ test("the window's native drop event goes directly to Batch Import on its route"
   const calls = []; let handler;
   const env = { on: (_event, fn) => { handler = fn; }, location: { hash: "#/import" },
     BatchImport: { drop: async (paths) => calls.push(paths) }, ModAdd: { add: () => assert.fail("use the import analyzer") },
-    toast: () => assert.fail("no drop error"), T: (key) => key };
+    notify: () => assert.fail("no drop error"), T: (key) => key };
   new Function("env", `const { ${Object.keys(env).join(", ")} } = env; ${drop}`)(env);
   await handler({ paths: ["/fixtures/a.bundle"] }); assert.deepEqual(calls, [["/fixtures/a.bundle"]]);
 });
@@ -442,8 +442,8 @@ test("mail row columns and native checkbox/selection widgets stay aligned for ev
   const cards = h.rendered.filter(({ tree }) => ["List_01", "List_02"].includes(tree.name));
   assert.equal(cards.length, 5);
   for (const { tree } of cards) {
-    assert.deepEqual(find(tree, "Label_From").pos, [110, -23]);
-    assert.deepEqual(find(tree, "TimeLimit").pos, [605, -23]);
+    assert.deepEqual(find(tree, "Label_From").pos, [110, 20]);
+    assert.deepEqual(find(tree, "TimeLimit").pos, [605, 20]);
     assert.ok(find(tree, "Label_System").widgets[0].prefabMarker);
     assert.equal(find(tree, "Btn_Receive"), undefined, "row actions are selection, not a decorative receive button");
   }
@@ -564,8 +564,8 @@ for (const wideFrame of [false, true]) test(`list and result text clears every t
     assert.ok(gap >= 28, `thumbnail-to-text gap: ${gap.toFixed(2)} stage px`);
     const { tree, opts } = drawn(h, row);
     assert.equal(find(tree, "BG").widgets[0].w_, 2208);
-    assert.deepEqual(find(tree, "Label_From").pos, [110, -23]);
-    assert.deepEqual(find(tree, "TimeLimit").pos, [605, -23]);
+    assert.deepEqual(find(tree, "Label_From").pos, [110, 20]);
+    assert.deepEqual(find(tree, "TimeLimit").pos, [605, 20]);
     const title = text.find((box) => Math.abs(box[2] - (opts.origin[0] + 926 * opts.scale)) < 0.01);
     assert.ok(title, "the title keeps its right edge");
     if (selection) closeTo(parseFloat(row.querySelector(".import-check").style.left), 1192.32 - 66);
@@ -589,7 +589,7 @@ test("both preview tags align to the panel top and both image slots to its heade
     const image = box.querySelector(".import-preview-image");
     const circle = box.art.children.find((e) => e.dataset.path === "EquipPos/BGCilcle");
     closeTo(parseFloat(preview.style.top) + parseFloat(tag.style.top), parseFloat(panel.style.top));
-    closeTo(parseFloat(preview.style.top) + parseFloat(image.style.top), parseFloat(panel.style.top) + parseFloat(paper.style.top));
+    closeTo(parseFloat(preview.style.top) + parseFloat(image.style.top), parseFloat(panel.style.top) + 44);
     assert.equal(circle, undefined, "preview decorations are removed from both pictures");
   }
   assert.equal(h.host.querySelectorAll(".import-preview").length, 2);
@@ -758,7 +758,7 @@ test("empty, full, filtered and long Thai toolbars fit the header, with search a
         assert.ok(title[2] < Math.min(...controls.map((r) => r[0])), "title stays left of the tools");
         const list = h.host.querySelector(".import-list"), count = h.host.querySelector(".import-count");
         const [cx, cy, cw, ch] = rectOf(count), [lx, ly, lw, lh] = rectOf(list);
-        closeTo(cx + cw, lx + lw); closeTo(cy, 90); assert.ok(cy + ch < ly);
+        closeTo(cx + cw, lx + 1192.32); closeTo(cy + ch / 2, (352 + 60 * S - (704 / S - 152) * S / 2 + 202) / 2); assert.ok(cy + ch < ly);
         assert.equal(count.parentNode, panel, "count never scrolls with rows");
         assert.ok(cy > headerBottom); assert.ok(ly + lh < parseFloat(h.action("files").style.top));
         const countBounds = artworkBounds(h, count)[0];
@@ -981,7 +981,7 @@ test("the shared page hold reports both analysis and import progress through art
   h.analyses[0].resolve({ entries: [entry("a")], skipped: 0 }); await analyzing; await h.page.settled(); await flush();
   h.answers.push({ button: "ok" }); await h.action("start").click(); await flush();
   h.runs[0].progress({ done: 0, index: 1, total: 2, current: "a", phase: "apply", step: "import.step.apply" });
-  assert.equal(hold().opts.progress(), "Applying Mods Saved Alias (Portrait) 1 / 2 - Applying Mod");
+  assert.equal(hold().opts.progress(), "Applying Mods Saved Alias (Portrait) 1 / 2");
   h.runs[0].reject({ code: "internal" }); await flush(); await h.page.settled(); await flush();
   assert.equal(hold(), undefined);
 });
@@ -1062,5 +1062,87 @@ for (const merged of [false, true]) test(`only conversions reserve a platform li
   for (const row of walk(h.dialog).filter((element) => element.dataset.result)) {
     check(row, { b: "Global Android → Global PC", c: "Japan PC → Global PC" }[row.dataset.result]);
     assert.match(row.textContent, /Applied/);
+  }
+});
+
+test("the page has no status widget during analysis, completion or picker failures", async () => {
+  const h = await fixture();
+  const picker = h.holdPicker(), picking = h.action("files").click(); await flush();
+  assert.equal(h.phase(), "picking");
+  assert.equal(h.holds.some((hold) => hold.active), false, "native selection has no wait overlay");
+  assert.equal(h.host.querySelector(".import-progress"), null);
+  picker.resolve({ paths: [] }); await picking; await flush();
+  h.pickError({ code: "native_unavailable" }); await h.action("files").click(); await flush();
+  assert.match(h.messages.at(-1).lines.join(" "), /Not available in browser mode/);
+  assert.equal(h.host.querySelector(".import-progress"), null);
+});
+
+test("row metadata, kind, badge text and checkbox share a top edge and fixed font in all six locales", async () => {
+  try {
+    for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) {
+      setStrings(locale, flatten(JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${locale}.json`, import.meta.url), "utf8"))));
+      const h = await fixture(); await h.analyze();
+      for (const id of ["a", "b", "c", "d", "e"]) {
+        const row = h.row(id), { tree } = drawn(h, row), prefix = tree.name;
+        const paths = ["Label_Locale_Received", "Label_From", "TimeLimit/Label_Locale_TimeLimit"];
+        const labels = paths.map((path) => find(tree, path).widgets[0]);
+        assert.deepEqual(labels.map((w) => w.fontSize), [42, 42, 42]);
+        const tops = paths.map((path) => rectOf(row.art.children.find((el) => el.dataset.path === `${prefix}/${path}`))[1]);
+        tops.push(parseFloat(row.querySelector(".import-check").style.top));
+        tops.forEach((top) => closeTo(top, tops[0]));
+        const divider = find(tree, "Line"), title = find(tree, "Label_System");
+        assert.equal(divider.widgets[0].pivot, 3);
+        assert.equal(divider.pos[0], title.pos[0]);
+        closeTo(divider.pos[0] + divider.widgets[0].w_, 926);
+      }
+    }
+  } finally { setStrings("en-US", flatten(JSON.parse(readFileSync(new URL("../../src/ba_modding_toolkit/locales/en-US.json", import.meta.url), "utf8")))); }
+});
+
+test("the entire white mail gradient stretches to the card edge without clipping off its fade", async () => {
+  const h = await fixture();
+  for (const name of ["List_01", "List_02"]) find(h.layouts.UIMailBoxContent, name).children.push({ name: "Sprite", active: true,
+    pos: [-210, 0], scale: [1, 1], widgets: [{ texture: "Mail_White_Highlight", w_: 1324, h_: 329, pivot: 4, prefabMarker: true }], children: [] });
+  await h.analyze();
+  for (const id of ["a", "c"]) {
+    const { tree } = drawn(h, h.row(id)), gradient = find(tree, "Sprite"), bg = find(tree, "BG");
+    assert.equal(gradient.widgets[0].w_, bg.widgets[0].w_);
+    assert.equal(gradient.pos[0], bg.pos[0]);
+    assert.equal(gradient.widgets[0].texture, "Mail_White_Highlight");
+  }
+});
+
+test("manual source selection is limited to unknown sources and conversion routes", async () => {
+  const h = await fixture(), target = { server: "global", platform: "windows" };
+  await h.analyze([{ ...entry("a"), source: target, target }, { ...entry("b"), target },
+    { ...entry("c"), source: { ...target, platform: "android" }, target }, { ...entry("d"), source: { platform: "windows" }, target }]);
+  assert.equal(h.action("source"), undefined);
+  for (const id of ["b", "c", "d"]) { h.page.model.select(id); await h.page.settled(); assert.ok(h.action("source")); }
+  h.page.model.select("a"); await h.page.settled(); assert.equal(h.action("source"), undefined);
+});
+
+test("portrait comparisons are vertical side by side; lobbies are landscape with current above incoming", async () => {
+  for (const kind of ["spr", "lobby"]) {
+    const h = await fixture({ licensed: true }); await h.analyze([entry("a", "ready", kind)]);
+    const column = h.host.querySelector(".import-detail"), boxes = h.host.querySelectorAll(".import-preview");
+    const images = boxes.map((box) => box.querySelector(".import-preview-image"));
+    const bounds = boxes.map(rectOf), pictures = images.map(rectOf);
+    assert.match(boxes[0].textContent, /Current Game/); assert.match(boxes[1].textContent, /Incoming Mod/);
+    if (kind === "spr") {
+      assert.ok(bounds[0][0] + bounds[0][2] < bounds[1][0]); closeTo(bounds[0][1], bounds[1][1]);
+      assert.ok(pictures.every(([, , w, h]) => h > w));
+    } else {
+      assert.ok(bounds[0][1] + bounds[0][3] < bounds[1][1]); closeTo(bounds[0][0], bounds[1][0]);
+      assert.ok(pictures.every(([, , w, h]) => w > h));
+    }
+    const banner = rectOf(h.host.querySelector(".import-name-banner"));
+    for (let i = 0; i < 2; i++) {
+      const [x, y, w, hgt] = bounds[i];
+      assert.ok(x >= 0 && x + w <= parseFloat(column.style.width));
+      assert.ok(y + hgt <= banner[1]);
+      const tag = boxes[i].art.children.find((el) => el.dataset.path === "EquipPos/Text_Type/TypeBG");
+      assert.ok(rectOf(tag)[1] + rectOf(tag)[3] <= pictures[i][1] + 0.01, "caption stays with its picture");
+    }
+    assert.ok(parseFloat(column.style.top) + parseFloat(column.style.height) < 861.5, "the comparison stays above the footer");
   }
 });

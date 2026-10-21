@@ -1,4 +1,5 @@
 // Unified import behaviour over runtime Items, Mailbox and FilterSort prefab widgets (import-layout.js).
+import { jobProgress, progressName } from "./job-progress.js";
 import { importGroups } from "./import-groups.js";
 import * as NGUI from "./ngui.js";
 import * as Popup from "./popup.js";
@@ -11,7 +12,7 @@ import { spineAllowed } from "./spine-runtime.js";
 import { thumbnailScope } from "./thumbs.js";
 import { S } from "./util.js";
 import { ROW_W as OPTION_WIDTH, rowBase, radioRow } from "./settings-rows.js";
-import { loadImportLayouts, importArtwork, clipButtonPatterns, ROW_SCALE, ROW_WIDTH, ROW_HEIGHT, ROW_SELECTION } from "./import-layout.js";
+import { loadImportLayouts, importArtwork, clipButtonPatterns, ROW_SCALE, ROW_WIDTH, ROW_HEIGHT, ROW_SELECTION, ROW_CHECK_TOP } from "./import-layout.js";
 import { suggestImports } from "./import-assistants.js";
 import { createImportState, countsOf, eligible, RESOURCE_TYPES, STATES } from "./import-state.js";
 
@@ -42,22 +43,23 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
   let context = null, catalog = [], visible = false, root = null, scope = null;
   let query = "", filter = "all", ascending = true, searchOpen = false, rowsKey = null, previewKey = null, generation = 0;
   let rows = new Map(), identities = new WeakMap(), dom = {}, dialogClose = null, countsKey = null;
-  let art = null, merged = false;
+  let art = null, merged = false, shownError = null;
+  const showError = (message) => popups.message({ title: T("job.failed"), lines: [message], ok: T("picker.ok") });
   const drawings = new Set();
   let loadingHold = null, left = Promise.resolve(), leave = () => {};
   const waiters = new Set();
   const wake = () => { for (const resolve of waiters) resolve(); waiters.clear(); };
-  const waiting = () => drawings.size || ["analyzing", "running", "picking", "saving"].includes(model.state.phase);
+  const waiting = () => model.state.phase !== "picking" && (drawings.size || ["analyzing", "running", "saving"].includes(model.state.phase));
   function importProgress() {
     const { phase, progress: p } = model.state;
     if (phase === "running") {
       const current = model.state.taskEntries.find((entry) => entry.id === p?.current);
-      const action = ["update", "convert", "add", "apply"].includes(p?.phase) ? T(`import.phase.${p.phase}`) : T("job.running");
-      return T("import.progress", { phase: action, name: current ? identified(current).name : "",
-        kind: current ? T(KIND_KEYS[current.kind] || KIND_KEYS.other) : "", index: p?.index || 1,
-        total: p?.total || model.state.taskEntries.length, step: T(p?.step || "import.step.check") });
+      const action = ["update", "convert", "add", "apply"].includes(p?.phase) ? `import.phase.${p.phase}` : "job.running";
+      const identity = current && identified(current);
+      return jobProgress({ action, name: current ? progressName(identity.variant, T(KIND_KEYS[current.kind] || KIND_KEYS.other), identity.name) : "",
+        current: p?.index || 1, total: p?.total || model.state.taskEntries.length, step: p?.step || "import.step.check" });
     }
-    const label = T(["analyzing", "picking", "saving"].includes(phase) ? `import.${phase}` : "app.loading");
+    const label = T(["analyzing", "saving"].includes(phase) ? `import.${phase}` : "app.loading");
     return p?.total > 0 ? T("import.waitProgress", { label, done: p.done || 0, total: p.total }) : label;
   }
   function holdArtwork() {
@@ -209,7 +211,7 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
     dom.count = el("div", "import-count"); panel.append(dom.header, dom.count);
     const search = inputControl(T("import.search"), query, { width: 1220, search: true });
     dom.search = search.input; dom.search.placeholder = T("import.search"); dom.search.enterKeyHint = "search";
-    dom.searchWrap = place(search.wrap, 26, art.searchTop() * S + 58, 1220, 112 * S);
+    dom.searchWrap = place(search.wrap, 26, 202, 1220, 112 * S);
     const runSearch = () => { query = dom.search.value.toLocaleLowerCase(); renderRows(); };
     dom.search.addEventListener("input", (event) => { if (!event.isComposing) runSearch(); }); dom.search.addEventListener("compositionend", runSearch);
     search.clear.addEventListener("click", () => { dom.search.value = ""; runSearch(); dom.search.focus(); });
@@ -231,7 +233,6 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
       dom[key] = button(T(`import.${caption}`), key, { width, scale: 0.34 }); place(dom[key], x, 629, width, 56); panel.appendChild(dom[key]);
     }
     root.appendChild(panel);
-    dom.status = place(el("div", "import-progress"), 50, 858, 800, 90); dom.status.setAttribute("role", "status"); dom.status.setAttribute("aria-live", "polite"); root.appendChild(dom.status);
     dom.options = button(T("import.options.title"), "options", { width: 290, scale: 0.5 });
     dom.recheck = button(T("import.recheck"), "recheck", { width: 230, scale: 0.5 });
     dom.start = button(T("import.action", { n: 0 }), "start", { width: 330, scale: 0.6, primary: true });
@@ -250,7 +251,7 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
         ascending = !ascending; renderToolbar(); renderRows();
       }, all: () => model.checkAll(true), none: () => model.checkAll(false), remove: () => model.remove(), clear: () => model.clear(),
       options: openOptions, recheck: () => model.recheck(), start: () => model.state.phase === "done" ? results() : start() };
-      Promise.resolve(actions[target.dataset.action]?.()).catch((error) => { textWidget(dom.status, report(error)); });
+      Promise.resolve(actions[target.dataset.action]?.()).catch((error) => { showError(report(error)); });
     });
     root.addEventListener("dragover", (event) => { event.preventDefault(); if (event.dataTransfer) event.dataTransfer.dropEffect = model.busy() ? "none" : "copy"; });
     root.addEventListener("drop", (event) => {
@@ -258,7 +259,7 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
       const paths = [...(event.dataTransfer?.files || [])].map((file) => file.path).filter(Boolean);
       if (paths.length) model.add(paths);
       // Browser File objects do not expose native paths; the native window drop event handles them in the app.
-      else if (!context?.info?.native) textWidget(dom.status, T("error.native_unavailable"));
+      else if (!context?.info?.native) showError(T("error.native_unavailable"));
     });
     host.replaceChildren(root); rowsKey = previewKey = countsKey = null;
   }
@@ -267,7 +268,9 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
     const top = searchOpen ? 294 : 202;
     dom.searchWrap.hidden = !searchOpen;
     dom.searchToggle.setAttribute("aria-expanded", String(searchOpen));
-    place(dom.count, 996, 90, 250, 32);
+    const paperTop = 352 + 60 * S - (704 / S - 152) * S / 2;
+    const stripTop = paperTop;
+    place(dom.count, 26 + ROW_WIDTH - 250, (stripTop + 202) / 2 - 16, 250, 32);
     place(dom.list, 26, top, 1220, 616 - top);
   }
   function renderToolbar() {
@@ -334,7 +337,7 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
     const base = incoming ? incomingBase(entry)
       : key ? spineBase(kind, key) : null;
     const work = allowed() && base && scope
-      ? scope.thumb(base, large ? "bust" : "card", null, kind === "lobby", specialFraming(variant), variant?.bg) : Promise.resolve(null);
+      ? scope.thumb(base, large ? (kind === "lobby" ? "landscape" : "portrait") : "card", null, kind === "lobby", specialFraming(variant), variant?.bg) : Promise.resolve(null);
     if (large) work.bump?.();
     const source = Promise.resolve(work).then(async (url) => {
       if (url && ui.load) await ui.load(url, { signal });
@@ -350,23 +353,26 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
     const next = el("div", "import-detail-content");
     if (entry) {
       const identity = identified(entry);
+      const landscape = entry.kind === "lobby";
+      const width = landscape ? 400 : 254, height = landscape ? 225 : 466, headerHeight = landscape ? 30 : 44;
       for (const incoming of [false, true]) {
-        const box = place(el("div", `import-preview${incoming ? " incoming" : ""}`), incoming ? 270 : 0, 0, 254, 136 * S + 837 * 0.46);
+        const box = place(el("div", `import-preview${incoming ? " incoming" : ""}`), landscape ? 62 : incoming ? 270 : 0,
+          landscape && incoming ? 271 : 0, width, headerHeight + height);
         const source = thumbnail(entry, { incoming, large: true });
-        const drawing = paint(box, art.preview(T(incoming ? "import.incoming" : "import.current"), 136 * S / 0.46), {
-          scale: 0.46, origin: [127, 0], textures: { "Texture": Promise.resolve(null) },
+        const drawing = paint(box, art.preview(T(incoming ? "import.incoming" : "import.current"), { width: width / 0.46, height: height / 0.46, headerHeight: headerHeight / 0.46 }), {
+          scale: 0.46, origin: [width / 2, 0], textures: { "Texture": Promise.resolve(null) },
         });
         bindTexture(drawing, "EquipPos/Texture", source, "import-preview-image", true);
         if (incoming && !incomingBase(entry)) {
-          const note = place(el("div"), 0, 474, 254, 45); note.style.zIndex = "20"; box.appendChild(note);
-          textWidget(note, T("import.previewUnavailable"), "empty", { scale: 0.4, origin: [127, 23] });
+          const note = place(el("div"), 0, headerHeight + height - 45, width, 45); note.style.zIndex = "20"; box.appendChild(note);
+          textWidget(note, T("import.previewUnavailable"), "empty", { scale: 0.4, origin: [width / 2, 23] });
         }
         next.appendChild(box);
       }
       const banner = place(el("div", "import-name-banner"), 0, 526, 524, 120);
       paint(banner, art.banner(identity.name, T(KIND_KEYS[entry.kind] || KIND_KEYS.other)), { scale: 0.42, origin: [255, 104] });
       next.appendChild(banner);
-      if (entry.target) next.appendChild(sourceControl(entry));
+      if (entry.target && (!entry.source?.server || !entry.source?.platform || ["server", "platform"].some((key) => entry.source[key] !== entry.target[key]))) next.appendChild(sourceControl(entry));
     }
     dom.preview.replaceChildren(next);
   }
@@ -384,7 +390,7 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
     const group = el("div", "import-source");
     const choose = button(T("import.source.choose"), "source", { width: 524, scale: 0.34 });
     place(choose, 0, 645, 524, 55); choose.disabled = model.busy() || model.state.phase === "done"; choose.refresh();
-    choose.addEventListener("click", () => openSource(entry).catch((error) => textWidget(dom.status, report(error)))); group.append(choose); return group;
+    choose.addEventListener("click", () => openSource(entry).catch((error) => showError(report(error)))); group.append(choose); return group;
   }
   async function openSource(entry) {
     if (model.busy()) return;
@@ -441,7 +447,7 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
         const copy = place(el("button", "hit import-row-copy"), 0, 0, ROW_WIDTH - 72, ROW_HEIGHT - 10); copy.type = "button"; copy.setAttribute("aria-label", name);
         copy.addEventListener("click", () => model.select(entry.id));
         const check = checkbox("", model.state.checked.has(entry.id), (checked) => model.toggleGroup(group.entries.map((item) => item.id), checked));
-        check.input.setAttribute("aria-label", T("import.selectNamed", { name })); place(check.label, ROW_WIDTH - 66, 78, 50, 50);
+        check.input.setAttribute("aria-label", T("import.selectNamed", { name })); place(check.label, ROW_WIDTH - 66, ROW_CHECK_TOP, 50, 50);
         const selection = place(el("div", "import-selection"), ROW_SELECTION.left, ROW_SELECTION.top, ROW_SELECTION.width, ROW_SELECTION.height);
         paint(selection, art.selection(), { scale: ROW_SELECTION.scale, origin: ROW_SELECTION.origin });
         row.append(selection, copy, check.label); contents.push(row); rows.set(group.key, { row, copy, selection, input: check.input, refresh: check.refresh, group, signature });
@@ -464,7 +470,7 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
   function render() {
     if (!visible || !root) return;
     const state = model.state, busy = model.busy(); root.dataset.phase = state.phase; root.setAttribute("aria-busy", String(busy));
-    textWidget(dom.count, T("import.count", { n: state.entries.length }), "count", { scale: 0.5, origin: [250, 0] });
+    textWidget(dom.count, T("import.count", { n: state.entries.length }), "count", { scale: 0.5, origin: [250, 16] });
     renderToolbar();
     dom.merge.input.disabled = busy; dom.merge.refresh();
     for (const key of ["files", "folder", "options", "clear", "remove", "all", "none", "recheck"]) dom[key].disabled = busy;
@@ -475,12 +481,8 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
     dom.start.disabled = busy || state.phase !== "done" && (!state.valid || !model.selected().length);
     setCaption(dom.start, state.phase === "done" ? T("import.results") : T("import.action", { n: model.selected().length }));
     for (const key of ["files", "folder", "options", "clear", "remove", "all", "none", "recheck"]) dom[key].refresh();
-    let status = "";
-    if (state.error) status = report(state.error);
-    else if (["analyzing", "picking", "saving"].includes(state.phase)) status = T(`import.${state.phase}`);
-    else if (state.phase === "done") status = T("import.complete", { n: state.results.filter((r) => r.outcome !== "failed" && r.outcome !== "skipped").length, failed: state.results.filter((r) => r.outcome === "failed").length });
-    dom.status.hidden = state.phase === "running";
-    textWidget(dom.status, status, state.error ? "error" : "note", { scale: 0.5, origin: [state.error ? 400 : 0, 35] });
+    if (state.error && state.error !== shownError) showError(report(state.error));
+    shownError = state.error;
     renderRows(); renderPreview();
   }
 

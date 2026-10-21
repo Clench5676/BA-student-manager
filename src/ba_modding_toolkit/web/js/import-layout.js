@@ -10,6 +10,8 @@ const DETAIL = `${INVENTORY}/Left_Info/EquipInfo/Equip_Target`;
 const FILTER = "Center/Popup/Filter/ScrollView/Filter_List/Table_List/UIFilterObjectList_1";
 const RADIO = "Center/Popup/Sort/Scroll View/Sort_Normal/Option_Normal/Grid/UISortObjectListUnit/Label_Text";
 export const ROW_SCALE = 0.54, ROW_WIDTH = 2208 * ROW_SCALE, ROW_HEIGHT = 348 * ROW_SCALE;
+export const ROW_TEXT_SIZE = 42, ROW_TEXT_TOP = 20;
+export const ROW_CHECK_TOP = 329 * ROW_SCALE / 2 - ROW_TEXT_TOP * ROW_SCALE;
 export const ROW_SELECTION = { left: 19, top: 8, width: 164, height: 160, scale: 0.68, origin: [82, 80] };
 const rowGap = (ui, layouts) => 348 - ui.find(layouts.UIMailBoxContent, "List_01/BG").widgets.find((w) => "sprite" in w).h_;
 
@@ -90,7 +92,7 @@ export function importArtwork(ui, layouts) {
     // Mailbox's top/right count stays in the paper header, outside the scrolling list.
     count: (caption) => {
       const t = at(mail("Right/Label_Amount")), w = t.widgets.find((w) => "text" in w), height = w.h_;
-      label(t, caption, 500); Object.assign(w, { h_: height, ellipsis: true }); return t;
+      label(t, caption, 500); Object.assign(w, { h_: height, pivot: 5, ellipsis: true }); return t;
     },
     searchTop() {
       const panel = ui.find(layouts.UINonEquipmentInventory, LIST);
@@ -170,15 +172,18 @@ export function importArtwork(ui, layouts) {
       return t;
     },
     // Items/EquipPos: bind comparison art to its UITexture without the decorative backing circle.
-    preview(caption, headerHeight) {
+    preview(caption, { width, height, headerHeight }) {
       const t = at(inventory(`${INVENTORY}/EquipPos`));
       const picture = ui.find(t, "Texture");
-      picture.widgets[0].h_ = 837; picture.pos[1] = -headerHeight - picture.widgets[0].h_ / 2;
+      Object.assign(picture.widgets[0], { w_: width, h_: height, pivot: 1 }); picture.pos = [0, -headerHeight];
       t.children = t.children.filter((child) => child.name !== "BGCilcle");
       const tag = inventory(`${DETAIL}/Text_Type`);
       const bg = ui.find(tag, "TypeBG"), body = bg.widgets[0];
-      at(tag, -240, -(bg.pos[1] + body.h_ / 2) * tag.scale[1]); label(tag, caption, 500);
-      body.w_ = 520;
+      const tagScale = Math.min(1, headerHeight / (body.h_ * tag.scale[1]));
+      tag.scale = tag.scale.map((value) => value * tagScale);
+      at(tag, -width / 2 - bg.pos[0] * tag.scale[0], -(bg.pos[1] + body.h_ / 2) * tag.scale[1]);
+      label(tag, caption, width / tag.scale[0] - 40);
+      body.w_ = width / tag.scale[0];
       t.children.push(tag); return t;
     },
     // Items/Equip_Target: keep the dark name plate, texture and category tag. Quantity/expiry are irrelevant to Mods.
@@ -210,21 +215,36 @@ export function importArtwork(ui, layouts) {
       const frameRight = ROW_SELECTION.left + ROW_SELECTION.origin[0] + rightEdge(selection()) * ROW_SELECTION.scale;
       const textLeft = Math.max(-700, rightEdge(ui.find(t, "BG_Icon")) + 32 / ROW_SCALE,
         (frameRight + 32 - ROW_WIDTH / 2) / ROW_SCALE);
+      // Stretch the complete mail highlight so its transparent end survives the wider card.
+      for (const name of ["BG", "Sprite"]) {
+        const n = ui.find(t, name);
+        for (const w of n?.widgets || []) if ("sprite" in w || "texture" in w) {
+          const pivot = w.pivot ?? 4;
+          n.pos[0] = 0; w.pivot = Math.floor(pivot / 3) * 3 + 1; w.w_ = ROW_WIDTH / ROW_SCALE / Math.abs(n.scale?.[0] || 1);
+        }
+      }
+      const divider = ui.find(t, "Line");
+      divider.pos[0] = textLeft;
+      Object.assign(divider.widgets[0], { pivot: 3, w_: 926 - textLeft });
+      const rowLabel = (n, caption, width, pivot = 0, lines = 1) => {
+        const w = n.widgets.find((w) => "text" in w), f = ui.fitText(caption, ROW_TEXT_SIZE, ROW_TEXT_SIZE, width, lines);
+        Object.assign(w, { text: f.text, fontSize: ROW_TEXT_SIZE, w_: width, h_: ROW_TEXT_SIZE * 1.3 * String(f.text).split("\n").length,
+          pivot, ellipsis: lines === 1 });
+      };
       const title = ui.find(t, "Label_System"); title.pos[0] = textLeft;
       label(title, name, 926 - textLeft, 1);
       // Keep the card's title, divider and row pitch; reserve the bottom right for three fixed columns.
-      const sender = ui.find(t, "Label_From"); at(sender, 110, -23); label(sender, kind, 360, 2);
-      sender.widgets[0].pivot = 4;
+      const sender = ui.find(t, "Label_From"); at(sender, 110, ROW_TEXT_TOP); rowLabel(sender, kind, 360, 1, 2);
       if (counts) {
         const kinds = ["spr", "lobby", "model", "other"].filter((kind) => counts[kind] > 0);
         at(sender, 220, -23); sender.widgets = [];
         sender.children = countNodes(counts, iconsOf(ui.atlasIndex?.()), ui.translate, { kinds, width: 800,
           color: ui.find(t, "Label_System").widgets[0].color });
       }
-      const received = ui.find(t, "Label_Locale_Received"); received.children = []; label(received, meta, -140 - textLeft, 1);
-      at(received, textLeft, -10);
+      const received = ui.find(t, "Label_Locale_Received"); received.children = []; rowLabel(received, meta, -140 - textLeft);
+      at(received, textLeft, ROW_TEXT_TOP);
       if (route) {
-        const platform = clone(received); platform.name = "Platform"; at(platform, textLeft, -84);
+        const platform = clone(received); platform.widgets[0].pivot = 3; platform.name = "Platform"; at(platform, textLeft, -84);
         const routeLabel = platform.widgets.find((w) => "text" in w);
         routeLabel.fontSize = Math.min(routeLabel.fontSize, 42); routeLabel.h_ = routeLabel.fontSize * 1.3;
         label(platform, route, -140 - textLeft, 1); t.children.push(platform);
@@ -240,7 +260,7 @@ export function importArtwork(ui, layouts) {
       let status = ui.find(t, "TimeLimit");
       if (!status) { status = content("List_01/TimeLimit"); t.children.push(status); }
       status.active = badge;
-      at(status, 605, -23);
+      at(status, 605, ROW_TEXT_TOP);
       ui.find(status, "Bg").widgets[0].w_ = 540;
       const tones = {
         ready: inventory(`${DETAIL}/Text_Amount`).widgets[0].color,
@@ -254,14 +274,15 @@ export function importArtwork(ui, layouts) {
       ui.find(status, "Bg").widgets[0].color = tones[stateKey] || tones.blocked;
       const statusLabel = ui.find(status, "Label_Locale_TimeLimit");
       if (["ready", "convert", "update", "library"].includes(stateKey)) statusLabel.widgets[0].color = inventory(`${DETAIL}/Text_Type`).widgets[0].color;
-      if (muted) statusLabel.widgets[0].fontSize *= 0.8;
-      label(statusLabel, state, 510, 2);
-      ui.find(status, "Bg").widgets[0].h_ = statusLabel.widgets[0].h_ + 8;
+      at(statusLabel);
+      rowLabel(statusLabel, state, 510, 1, 2);
+      const statusBG = ui.find(status, "Bg"); at(statusBG, 0, 4);
+      Object.assign(statusBG.widgets[0], { pivot: 1, h_: statusLabel.widgets[0].h_ + 8 });
       return t;
     },
     // Items list card's Cover_Select provides the selected preview marker, independently of import selection.
     selection,
-    // Items/ListEmpty label; Mailbox's footer note is the status/progress text slot (no synthetic progress widget).
+    // Items/ListEmpty label and Mailbox's footer note supply dialog copy.
     empty: (caption) => at(label(inventory(`${LIST}/Inbox/ListEmpty/Label_Locale_EmptyMessage`), caption, 1700, 2)),
     note: (caption) => at(label(mail("Bottom/ObjectsDisplayed_Unread/Label_Locale"), caption, 1678, 2)),
     // Items' expiry tag supplies the error tone; read mail's title supplies the muted note tone.

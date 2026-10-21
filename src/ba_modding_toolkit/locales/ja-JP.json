@@ -1119,7 +1119,19 @@
 			"check": "ゲームファイルを確認中",
 			"clear": "MODキャッシュをクリア中",
 			"mods": "MOD",
-			"count": "{label}（{current}/{total}）"
+			"count": "{label}（{current}/{total}）",
+			"comma": "、",
+			"subject": "{name}（{parts}）",
+			"job": "{action} {name} {current} / {total}",
+			"step": " - {step}",
+			"actionProcess": "処理",
+			"actionApply": "適用",
+			"actionRestore": "復元",
+			"actionRepair": "修復",
+			"actionExtract": "抽出",
+			"actionDelete": "削除",
+			"actionRemap": "テクスチャ再配置",
+			"actionCompatibility": "互換性確認"
 		},
 		"job": {
 			"running": "処理中",

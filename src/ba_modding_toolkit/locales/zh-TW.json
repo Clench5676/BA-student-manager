@@ -1119,7 +1119,19 @@
 			"check": "檢查遊戲檔案",
 			"clear": "清除 Mod 快取",
 			"mods": "Mod",
-			"count": "{label}（{current}/{total}）"
+			"count": "{label}（{current}/{total}）",
+			"comma": "，",
+			"subject": "{name}（{parts}）",
+			"job": "{action}{name} {current} / {total}",
+			"step": " - {step}",
+			"actionProcess": "處理",
+			"actionApply": "套用",
+			"actionRestore": "還原",
+			"actionRepair": "修復",
+			"actionExtract": "提取",
+			"actionDelete": "刪除",
+			"actionRemap": "重排貼圖",
+			"actionCompatibility": "檢查相容性"
 		},
 		"job": {
 			"running": "處理中",

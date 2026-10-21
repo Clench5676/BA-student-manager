@@ -1119,7 +1119,19 @@
 			"check": "Checking game files",
 			"clear": "Clearing Mod cache",
 			"mods": "Mods",
-			"count": "{label} ({current}/{total})"
+			"count": "{label} ({current}/{total})",
+			"comma": ", ",
+			"subject": "{name} ({parts})",
+			"job": "{action} {name} {current} / {total}",
+			"step": " - {step}",
+			"actionProcess": "Processing",
+			"actionApply": "Applying",
+			"actionRestore": "Restoring",
+			"actionRepair": "Repairing",
+			"actionExtract": "Extracting",
+			"actionDelete": "Deleting",
+			"actionRemap": "Remapping textures",
+			"actionCompatibility": "Checking compatibility"
 		},
 		"job": {
 			"running": "Working",

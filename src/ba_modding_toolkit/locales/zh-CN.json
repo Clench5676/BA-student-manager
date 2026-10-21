@@ -1119,7 +1119,19 @@
 			"check": "检查游戏文件",
 			"clear": "清理 Mod 缓存",
 			"mods": "Mod",
-			"count": "{label}（{current}/{total}）"
+			"count": "{label}（{current}/{total}）",
+			"comma": "，",
+			"subject": "{name}（{parts}）",
+			"job": "{action}{name} {current} / {total}",
+			"step": " - {step}",
+			"actionProcess": "处理",
+			"actionApply": "应用",
+			"actionRestore": "还原",
+			"actionRepair": "修复",
+			"actionExtract": "提取",
+			"actionDelete": "删除",
+			"actionRemap": "重排贴图",
+			"actionCompatibility": "检查兼容性"
 		},
 		"job": {
 			"running": "处理中",

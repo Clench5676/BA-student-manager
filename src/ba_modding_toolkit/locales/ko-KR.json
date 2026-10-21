@@ -1119,7 +1119,19 @@
 			"check": "게임 파일 확인 중",
 			"clear": "모드 캐시 지우는 중",
 			"mods": "모드",
-			"count": "{label} ({current}/{total})"
+			"count": "{label} ({current}/{total})",
+			"comma": ", ",
+			"subject": "{name} ({parts})",
+			"job": "{action} {name} {current} / {total}",
+			"step": " - {step}",
+			"actionProcess": "처리",
+			"actionApply": "적용",
+			"actionRestore": "복원",
+			"actionRepair": "복구",
+			"actionExtract": "추출",
+			"actionDelete": "삭제",
+			"actionRemap": "텍스처 재배치",
+			"actionCompatibility": "호환성 확인"
 		},
 		"job": {
 			"running": "처리 중",

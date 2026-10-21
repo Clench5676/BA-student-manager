@@ -1119,7 +1119,19 @@
 			"check": "กำลังตรวจสอบไฟล์เกม",
 			"clear": "กำลังล้างแคช Mod",
 			"mods": "Mod",
-			"count": "{label} ({current}/{total})"
+			"count": "{label} ({current}/{total})",
+			"comma": ", ",
+			"subject": "{name} ({parts})",
+			"job": "{action} {name} {current} / {total}",
+			"step": " - {step}",
+			"actionProcess": "กำลังประมวลผล",
+			"actionApply": "กำลังใช้",
+			"actionRestore": "กำลังคืนค่า",
+			"actionRepair": "กำลังซ่อมแซม",
+			"actionExtract": "กำลังแยก",
+			"actionDelete": "กำลังลบ",
+			"actionRemap": "กำลังจัดพื้นผิวใหม่",
+			"actionCompatibility": "กำลังตรวจสอบความเข้ากันได้"
 		},
 		"job": {
 			"running": "กำลังประมวลผล",

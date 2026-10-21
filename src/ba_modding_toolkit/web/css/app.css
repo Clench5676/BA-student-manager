@@ -53,7 +53,7 @@ input[type="text"], input[type="search"], textarea { cursor: text; }
 .import-background, .import-art { pointer-events: none; }
 .import-art { z-index: 0; }
 .import-panel > :not(.import-art) { z-index: 1; }
-.import-panel, .import-detail, .import-progress { z-index: 1; }
+.import-panel, .import-detail { z-index: 1; }
 .import-button, .import-option, .import-option-note, .import-option-error, .import-row, .import-result-row { position: relative; }
 .import-button, .import-row-copy, .import-check { z-index: 40; }
 .import-list { overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; }
