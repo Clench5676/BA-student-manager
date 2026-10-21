@@ -109,6 +109,13 @@ export async function renderImportTree(tree, host, { scale = 1, origin = [0, 0] 
       Object.assign(e.style, { left: `${entry.stage[0] - [0, .5, 1, 0, .5, 1, 0, .5, 1][w.pivot ?? 4] * w.w_ * sx * scale}px`,
         top: `${entry.stage[1] - [0, 0, 0, .5, .5, .5, 1, 1, 1][w.pivot ?? 4] * w.h_ * sy * scale}px`,
         width: `${w.w_ * sx * scale}px`, height: `${w.h_ * sy * scale}px` });
+      if ("clipImage" in w) {
+        Object.assign(e.style, { overflow: "hidden", borderRadius: `${w.radius * sy * scale}px`, transform: `skewX(${-w.incline}deg)` });
+        const picture = document.createElement("div");
+        Object.assign(picture.style, { left: w.imgLeft, width: w.imgWidth, height: w.imgHeight,
+          backgroundSize: w.imgSize, backgroundPosition: w.imgPosition, transform: `skewX(${w.incline}deg)` });
+        e.appendChild(picture);
+      }
       host.appendChild(e); entry.els.push(e);
     }
     n.children?.forEach((c) => walk(c, p, x, y, sx, sy));

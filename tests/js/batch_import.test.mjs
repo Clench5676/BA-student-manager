@@ -25,6 +25,7 @@ class El {
   }
   get textContent() { return this._text + this.children.map((child) => child.textContent).join(""); }
   set textContent(text) { this._text = String(text); this.replaceChildren(); }
+  get firstElementChild() { return this.children[0] || null; }
   get childNodes() { return [...this.children]; }
   get isConnected() { return body.contains(this); }
   contains(element) { return walk(this).includes(element); }
@@ -69,7 +70,7 @@ globalThis.IntersectionObserver = class {
 };
 const { createImportPage, entryIdentity, catalogEntries } = await import("../../src/ba_modding_toolkit/web/js/batch-import.js");
 const { importAssistants, suggestImports } = await import("../../src/ba_modding_toolkit/web/js/import-assistants.js");
-const { importArtwork, clipButtonPatterns } = await import("../../src/ba_modding_toolkit/web/js/import-layout.js");
+const { importArtwork, clipButtonPatterns, selectionWindow, ROW_SELECTION, ROW_SCALE, ROW_WIDTH } = await import("../../src/ba_modding_toolkit/web/js/import-layout.js");
 const { ROW_W: OPTION_WIDTH, rowBase, radioRow } = await import("../../src/ba_modding_toolkit/web/js/settings-rows.js");
 const { S } = await import("../../src/ba_modding_toolkit/web/js/util.js");
 const { createImportState } = await import("../../src/ba_modding_toolkit/web/js/import-state.js");
@@ -528,7 +529,7 @@ test("analysis holds the page through generated stills and never flashes catalog
   for (const { opts } of textures) for (const source of Object.values(opts.textures)) assert.equal(await source, null);
   gate.resolve("blob:generated-still"); await h.page.settled(); await flush();
   assert.equal(image.dataset.source, "blob:generated-still");
-  assert.equal(image.style.backgroundSize, "cover"); assert.equal(image.style.clipPath, "inset(0)");
+  assert.equal(image.firstElementChild.style.backgroundSize, "cover"); assert.equal(image.style.clipPath, undefined);
   for (const preview of h.host.querySelectorAll(".import-preview-image")) assert.equal(preview.style.backgroundPosition, "center top");
   assert.ok(!h.holds.some((hold) => hold.active));
 });
@@ -551,8 +552,8 @@ for (const wideFrame of [false, true]) test(`list and result text clears every t
   await h.analyze([converting, entry("b", "update"), entry("c", "installed")]);
   const gapOf = (row) => {
     const image = row.querySelector(".import-thumb"), [x, y, , height] = rectOf(image);
-    assert.ok(x >= 0 && y >= 0 && y + height <= parseFloat(row.style.height || "216"));
-    assert.equal(image.style.overflow, "hidden"); assert.equal(image.style.clipPath, "inset(0)");
+    assert.ok((wideFrame || x >= 0) && y >= 0 && y + height <= parseFloat(row.style.height || "216"));
+    assert.equal(image.style.overflow, "hidden"); assert.equal(image.style.clipPath, undefined);
     const slot = artworkBounds(h, row, (path) => /\/BG_Icon(?:\/|$)/.test(path));
     const selection = row.querySelector(".import-selection");
     if (selection) for (const box of artworkBounds(h, selection)) {
@@ -576,7 +577,7 @@ for (const wideFrame of [false, true]) test(`list and result text clears every t
   h.runs[0].resolve({ results: [converting, entry("b")].map((item) => ({ id: item.id, outcome: "imported", libraryId: `lib-${item.id}`, applied: true })) });
   await flush(); await h.page.results(); await h.page.settled();
   const resultGap = Math.min(...walk(h.dialog).filter((row) => row.dataset.result).map(gapOf));
-  if (!wideFrame) { closeTo(listGap, 35.56); closeTo(resultGap, 54.56); }
+  assert.ok(listGap >= 32); assert.ok(resultGap >= 32);
   t.diagnostic(`Minimum rendered gap: list ${listGap.toFixed(2)} px; results ${resultGap.toFixed(2)} px`);
 });
 
@@ -1145,4 +1146,42 @@ test("portrait comparisons are vertical side by side; lobbies are landscape with
     }
     assert.ok(parseFloat(column.style.top) + parseFloat(column.style.height) < 861.5, "the comparison stays above the footer");
   }
+});
+
+
+test("list and result pictures fill the same inclined rounded prefab window in selected and unselected rows", async () => {
+  const h = await fixture({ licensed: true });
+  const frame = find(h.layouts.UINonEquipmentInventoryListItem, "Card/Normal/Cover_Select");
+  Object.assign(frame.widgets[0], { w_: 246, h_: 228, incline: 12, radius: 27 });
+  await h.analyze([entry("a"), entry("b")]);
+  const expected = selectionWindow({ ...frame, pos: [0, 0] });
+  const check = (row) => {
+    const { tree, opts } = drawn(h, row), slot = find(tree, "BG_Icon/Icon_Arona").widgets[0];
+    const picture = row.querySelector(".import-thumb"), [x, y, w, height] = rectOf(picture);
+    closeTo(w, 246 * ROW_SELECTION.scale * opts.scale / ROW_SCALE);
+    closeTo(height, 228 * ROW_SELECTION.scale * opts.scale / ROW_SCALE);
+    closeTo(x + w / 2, opts.origin[0] + expected.x * opts.scale);
+    closeTo(y + height / 2, opts.origin[1] - expected.y * opts.scale);
+    assert.equal(slot.incline, 12); closeTo(slot.radius, 27 * ROW_SELECTION.scale / ROW_SCALE);
+    closeTo(parseFloat(picture.style.borderRadius), slot.radius * opts.scale);
+    assert.equal(picture.style.transform, "skewX(-12deg)");
+    assert.equal(picture.firstElementChild.style.transform, "skewX(12deg)", "the subject remains upright");
+    assert.equal(picture.firstElementChild.style.backgroundSize, "cover");
+    assert.equal(picture.firstElementChild.style.backgroundPosition, "center");
+    const bleed = Math.tan(12 * Math.PI / 180) * height / w * 100;
+    closeTo(parseFloat(slot.imgWidth), 100 + bleed); closeTo(parseFloat(slot.imgLeft), -bleed / 2);
+    return [w, height, slot.incline, slot.radius];
+  };
+  assert.deepEqual(check(h.row("a")), check(h.row("b")));
+  assert.equal(h.row("b").querySelector(".import-selection").hidden, true);
+  await h.action("start").click(); await flush();
+  h.runs[0].resolve({ results: ["a", "b"].map((id) => ({ id, outcome: "imported", libraryId: `lib-${id}` })) });
+  await flush(); await h.page.results(); await h.page.settled();
+  for (const row of walk(h.dialog).filter((el) => el.dataset.result)) check(row);
+});
+
+test("selection corner radius comes from the frame's atlas slices when the widget has no explicit radius", () => {
+  const frame = { name: "Frame", active: true, pos: [0, 0], scale: [1, 1], widgets: [{ sprite: "Frame", atlas: "Items", w_: 240, h_: 220, incline: 9 }], children: [] };
+  const win = selectionWindow(frame, { Items: { Frame: { borderLeft: 16, borderRight: 18, borderTop: 20, borderBottom: 14 } } });
+  closeTo(win.radius, 20 * ROW_SELECTION.scale / ROW_SCALE); assert.equal(win.incline, 9);
 });

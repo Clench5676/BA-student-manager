@@ -304,7 +304,8 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
   function setTexture(image, source, large) {
     if (!source) return;
     image.dataset.source = source;
-    Object.assign(image.style, { backgroundImage: `url(${JSON.stringify(source)})`, backgroundSize: large ? "contain" : "cover", backgroundPosition: large ? "center top" : "center", backgroundRepeat: "no-repeat" });
+    const surface = image.firstElementChild || image;
+    Object.assign(surface.style, { backgroundImage: `url(${JSON.stringify(source)})`, backgroundSize: large ? "contain" : "cover", backgroundPosition: large ? "center top" : "center", backgroundRepeat: "no-repeat" });
   }
   function bindTexture(drawing, path, source, className, large = false) {
     const token = generation;
@@ -313,7 +314,8 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
       const image = view.nodes.get(path)?.els[0];
       if (image) {
         image.classList.add(className);
-        Object.assign(image.style, { overflow: "hidden", clipPath: "inset(0)" });
+        if (!view.nodes.get(path).node.widgets.some((w) => "clipImage" in w))
+          Object.assign(image.style, { overflow: "hidden", clipPath: "inset(0)" });
       }
     }).catch(() => {});
     return tracked(Promise.all([drawing, source]).then(([view, url]) => {

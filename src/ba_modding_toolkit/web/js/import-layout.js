@@ -27,6 +27,32 @@ function rightEdge(node, x = 0, sx = 1, sy = 1) {
   ...(node.children || []).map((child) => rightEdge(child, x, sx, sy)));
 }
 
+// The thumbnail uses the selection frame's own widget, including nested transforms and atlas corner slices.
+export function selectionWindow(tree, atlas = {}) {
+  function visit(n, x = 0, y = 0, sx = 1, sy = 1) {
+    if (n.active === false) return null;
+    x += (n.pos?.[0] || 0) * sx; y += (n.pos?.[1] || 0) * sy;
+    sx *= n.scale?.[0] ?? 1; sy *= n.scale?.[1] ?? 1;
+    const w = n.widgets?.find((w) => w.sprite && w.w_ > 0 && w.h_ > 0);
+    if (w) {
+      const meta = atlas[w.atlas || "Common"]?.[w.sprite] || {};
+      const radius = w.radius ?? Math.max(...["borderLeft", "borderRight", "borderTop", "borderBottom"].map((key) => meta[key] || 0));
+      const ratio = ROW_SELECTION.scale / ROW_SCALE, pivot = w.pivot ?? 4;
+      return { x: (ROW_SELECTION.left + ROW_SELECTION.origin[0] - ROW_WIDTH / 2) / ROW_SCALE
+          + (x + (0.5 - (pivot % 3) / 2) * w.w_ * sx) * ratio,
+        y: (329 * ROW_SCALE / 2 - ROW_SELECTION.top - ROW_SELECTION.origin[1]) / ROW_SCALE
+          + (y + (Math.floor(pivot / 3) / 2 - 0.5) * w.h_ * sy) * ratio,
+        width: w.w_ * Math.abs(sx) * ratio, height: w.h_ * Math.abs(sy) * ratio,
+        incline: w.incline || 0, radius: radius * Math.abs(sy) * ratio };
+    }
+    for (const child of n.children || []) { const found = visit(child, x, y, sx, sy); if (found) return found; }
+    return null;
+  }
+  const result = visit(tree);
+  if (!result) throw new Error("Import selection frame has no drawable widget");
+  return result;
+}
+
 export async function loadImportLayouts(ui) {
   const names = ["UINonEquipmentInventory", "UIMailBox", "UIMailBoxContent", "UIPopup_FilterSort", "UINonEquipmentInventoryListItem",
     "UIPopup_GachaCharList.Btn_Checkbox"];
@@ -206,10 +232,13 @@ export function importArtwork(ui, layouts) {
       const picture = ui.find(t, "BG_Icon/Icon_Arona"), slot = picture.widgets.find((w) => "texture" in w);
       picture.active = true;
       ui.find(t, "BG_Icon").widgets = [];
-      // Use a rectangular crop inside the mail icon slot, clear of the inclined card edge and text column.
-      Object.assign(slot, { w_: 252, h_: 260, pivot: 4 });
+      const window = selectionWindow(selection(), ui.atlasIndex?.());
+      const bleed = Math.abs(Math.tan(window.incline * Math.PI / 180)) * window.height / window.width * 100;
+      Object.assign(slot, { w_: window.width, h_: window.height, pivot: 4, clipImage: null,
+        incline: window.incline, radius: window.radius, imgSize: "cover", imgPosition: "center",
+        imgLeft: `${-bleed / 2}%`, imgWidth: `${100 + bleed}%`, imgTop: "0", imgHeight: "100%" });
       picture.pos = [0, 0]; picture.scale = [1, 1];
-      ui.find(t, "BG_Icon").pos = [-914, 0]; ui.find(t, "BG_Icon").scale = [1, 1];
+      ui.find(t, "BG_Icon").pos = [window.x, window.y]; ui.find(t, "BG_Icon").scale = [1, 1];
       // Reserve 32 stage pixels beyond the entire selected slot, including the real prefab frame.
       // Preserve each label's right edge so the fixed kind, state and checkbox columns do not move.
       const frameRight = ROW_SELECTION.left + ROW_SELECTION.origin[0] + rightEdge(selection()) * ROW_SELECTION.scale;
