@@ -46,11 +46,23 @@ for (const initial of ["roster", "detail"]) test(`${initial} to student stays co
   assert.ok(h.events.includes("hide-roster"), "abandon list thumbnails before the detail work starts");
   assert.equal(h.details.length, 0, "the family has not arrived");
   h.family.resolve({ key: "ibuki" }); await flush();
-  assert.deepEqual(h.details, [{ inPlace: initial === "detail" }]);
+  assert.deepEqual(h.details, [{ inPlace: initial === "detail", kind: undefined }]);
   assert.equal(h.covered(), true, "the preview is still drawing");
   h.preview.resolve(); await route;
   assert.equal(h.covered(), false);
 });
+
+for (const [kind, tab] of [["spr", "portrait"], ["portrait", "portrait"], ["lobby", "lobby"], ["model", "model"]])
+  test(`imported ${kind} navigation requests its ${tab} detail tab`, async () => {
+    const h = harness("import");
+    const contextCode = source.slice(source.indexOf("const ctx = {"), source.indexOf("async function roster("));
+    const ctx = new Function("location", `${contextCode}\nreturn ctx;`)(h.location);
+    ctx.go("ibuki", "ibuki", kind);
+    assert.equal(h.location.hash, `#/student/ibuki/ibuki/${tab}`);
+    h.family.resolve({ key: "ibuki" }); h.preview.resolve();
+    await h.route();
+    assert.deepEqual(h.details, [{ inPlace: false, kind: tab }]);
+  });
 
 test("Back covers detail teardown and reveals the roster only after its rows finish", async () => {
   const h = harness("detail");
@@ -106,7 +118,7 @@ test("a failed import returns to the last student route and rebuilds its release
   assert.ok(h.events.includes("replace:#/student/ibuki/ibuki"));
   await h.route();
   assert.equal(h.details.length, 2, "the old detail DOM is re-entered through show, not left closed");
-  assert.deepEqual(h.details[1], { inPlace: false });
+  assert.deepEqual(h.details[1], { inPlace: false, kind: undefined });
   assert.equal(h.screens["screen-detail"].hidden, false);
 });
 

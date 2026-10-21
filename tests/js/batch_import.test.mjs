@@ -905,20 +905,32 @@ test("merged rows keep variant identity, count every asset kind in place, and se
 });
 
 test("results omit state badges, follow the merge setting and route every student or generic Mod", async () => {
-  const h = await fixture();
-  const a = entry("a"), lobby = { ...entry("a-lobby", "update", "lobby"), variant: "a" }, other = entry("generic", "ready", "other");
-  await h.analyze([a, lobby, other]);
+  const h = await fixture({ countIcons: true });
+  const a = entry("a"), lobby = { ...entry("a-lobby", "update", "lobby"), variant: "a" },
+    model = { ...entry("a-model", "ready", "model"), variant: "a" }, other = entry("generic", "ready", "other");
+  await h.analyze([a, lobby, model, other]);
   const merge = h.action("merge").querySelector("input"); merge.checked = true; await merge.dispatch("change");
   h.answers.push({ button: "ok" }); await h.action("start").click(); await flush();
-  h.runs[0].resolve({ results: [a, lobby, other].map((entry) => ({ id: entry.id, outcome: "imported", libraryId: `lib-${entry.id}`, applied: true })) });
+  h.runs[0].resolve({ results: [a, lobby, model, other].map((entry) => ({ id: entry.id, outcome: "imported", libraryId: `lib-${entry.id}`, applied: true })) });
   await flush(); await h.page.results(); await h.page.settled();
   const rows = walk(h.dialog).filter((element) => element.dataset.result);
   assert.equal(rows.length, 2); assert.match(h.dialog.textContent, /Applied/);
   for (const row of rows) assert.equal(find(drawn(h, row).tree, "TimeLimit").active, false);
-  await h.action("go", rows[0]).click(); assert.deepEqual(h.destinations, [["a", "a"]]); assert.equal(h.dialog.hidden, true);
+  await h.action("go", rows[0]).click(); assert.deepEqual(h.destinations, [["a", "a", "portrait"]]); assert.equal(h.dialog.hidden, true);
+  await h.page.results(); await h.page.settled();
+  const lobbyCount = walk(h.dialog).find((element) => element.dataset.kind === "lobby");
+  assert.ok(lobbyCount);
+  const row = lobbyCount.parentNode, icon = row.art.children.find((element) => element.dataset.path === "List_01/Label_From/lobby/Icon");
+  const [left, top, width, height] = rectOf(lobbyCount), [ix, iy, iw, ih] = rectOf(icon);
+  assert.ok(left <= ix && top <= iy && left + width >= ix + iw && top + height >= iy + ih);
+  await lobbyCount.click();
+  assert.deepEqual(h.destinations.at(-1), ["a", "a", "lobby"]);
+  await h.page.results(); await h.page.settled();
+  await walk(h.dialog).find((element) => element.dataset.kind === "model").click();
+  assert.deepEqual(h.destinations.at(-1), ["a", "a", "model"]);
   await h.page.results(); await h.page.settled();
   await h.action("go", walk(h.dialog).find((row) => row.dataset.result === "generic")).click();
-  assert.deepEqual(h.destinations, [["a", "a"], "other"]);
+  assert.equal(h.destinations.at(-1), "other");
 });
 
 test("done entries stay unchecked across navigation and backend reanalysis", async () => {

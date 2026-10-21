@@ -624,11 +624,26 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
         bindTexture(drawing, "List_01/BG_Icon/Icon_Arona", source, "import-thumb");
         const go = button(T("add.go"), "go", { width: 225, scale: 0.4 });
         place(go, 1115, 86, 225, 65);
-        go.addEventListener("click", () => {
+        const navigate = (item) => {
           dialogClose?.();
-          const variant = identified(entry).variant;
-          if (entry.kind === "other" || !variant) context?.goOther?.();
-          else context?.go?.(variant.family.key, variant.key);
+          const variant = identified(item).variant;
+          if (item.kind === "other" || !variant) context?.goOther?.();
+          else context?.go?.(variant.family.key, variant.key, item.kind === "spr" ? "portrait" : item.kind);
+        };
+        go.addEventListener("click", () => navigate(entry));
+        if (merged) drawing.then((view) => {
+          for (const kind of Object.keys(group.counts).filter((kind) => group.counts[kind])) {
+            const item = group.entries.find((item) => item.kind === kind);
+            const path = `List_01/Label_From/${kind}`;
+            const boxes = ["Count", "Icon"].map((part) => Popup.nodeRect(view, `${path}/${part}`)).filter(Boolean);
+            const x = Math.min(...boxes.map(([x]) => x)), y = Math.min(...boxes.map(([, y]) => y));
+            const right = Math.max(...boxes.map(([x, , w]) => x + w)), bottom = Math.max(...boxes.map(([, y, , h]) => y + h));
+            const count = place(el("button", "hit import-result-count"), x, y, right - x, bottom - y);
+            count.style.zIndex = "40";
+            count.type = "button"; count.dataset.kind = kind;
+            count.setAttribute("aria-label", T(KIND_KEYS[kind] || KIND_KEYS.other));
+            count.addEventListener("click", () => navigate(item)); row.appendChild(count);
+          }
         });
         row.appendChild(go); area.appendChild(row);
       }

@@ -37,7 +37,11 @@ let stepCards = null;
 
 const ctx = {
   dragged: false,
-  go: (family, variant) => { location.hash = `#/student/${encodeURIComponent(family)}/${encodeURIComponent(variant)}`; },
+  go: (family, variant, kind) => {
+    const target = kind === "spr" ? "portrait" : kind;
+    const tab = ["portrait", "lobby", "model"].includes(target) ? `/${target}` : "";
+    location.hash = `#/student/${encodeURIComponent(family)}/${encodeURIComponent(variant)}${tab}`;
+  },
   invalidateRoster: () => { rosterStale = true; Roster.invalidate(); },
   // the card before or after the shown variant (merged: family) in the roster's order, within its filters
   step: async (delta, family, variant) => {
@@ -231,7 +235,7 @@ async function route() {
         if (my !== routeToken) return; // a later navigation took over
         showScreen("detail");
         visited(fam, parts[2]);
-        await Detail.show(ctx, fam, parts[2], { inPlace });
+        await Detail.show(ctx, fam, parts[2], { inPlace, kind: parts[3] });
       }, { until: ended }), { until: ended });
     } else {
       const reveal = () => {

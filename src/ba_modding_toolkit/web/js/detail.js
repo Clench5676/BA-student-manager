@@ -1962,7 +1962,7 @@ addEventListener("blur", () => keySteps.release());
 // show(context, familyData, variantKey, {inPlace}): open the detail screen on a variant; resolves once the screen is
 // ready (the panels, preview and decoded images, with a short allowance for thumbnails). In place (another
 // variant or family while the screen is shown), the shown screen stays until then and every part swaps in one frame.
-export async function show(context, familyData, key, { inPlace = false } = {}) {
+export async function show(context, familyData, key, { inPlace = false, kind = null } = {}) {
   ModAlias.close();
   leavePage();
   pageToken += 1;
@@ -1994,7 +1994,7 @@ export async function show(context, familyData, key, { inPlace = false } = {}) {
     mainPlayer = null;
   }
   // the tabs the variant has, on every show: another install may lack a part under the same variant
-  tab = availableTab(variant(), tab);
+  tab = availableTab(variant(), ({ spr: "portrait", portrait: "portrait", lobby: "lobby", model: "model" })[kind] || tab);
   previewEnabled = modsOn();
   rpc("ui.visit", { variant: variantKey }).catch(() => {});
   // The portrait uses its own assets and default framing while the UI layout is still loading or unavailable.
