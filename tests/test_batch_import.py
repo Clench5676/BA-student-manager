@@ -21,11 +21,24 @@ from ba_modding_toolkit.webui.services import Services
 from ba_modding_toolkit.webui.state import UiState
 
 from test_library import FakeVariant, game_bundle, make_mod, setup_library
+from test_library_model import model_bundle, model_env
 
 
 @pytest.fixture
 def env(setup_library, monkeypatch):
     env = setup_library
+    env.settings.set("output_dir", str(env.tmp / "exports"))
+    env.services = Services(env.settings, env.tmp / "app", cache=object(), game=object(),
+                            catalog=env.catalog, library=env.library)
+    env.rpc = build_api(env.services)
+    monkeypatch.setattr(batch_import, "_asset_match", lambda sources, targets, log: (targets, ""))
+    yield env
+    env.services.close()
+
+
+@pytest.fixture
+def batch_model_env(model_env, monkeypatch):
+    env = model_env
     env.settings.set("output_dir", str(env.tmp / "exports"))
     env.services = Services(env.settings, env.tmp / "app", cache=object(), game=object(),
                             catalog=env.catalog, library=env.library)
@@ -68,7 +81,8 @@ def test_entry_shapes_grouping_stable_ids_and_recursive_scan(env):
     shallow = analyze(env, [texture.parent])
     entry, = shallow["entries"]
     assert shallow["skipped"] == 1
-    assert set(entry) == {"id", "paths", "variant", "core", "kind", "files", "size", "state", "reason", "libraryId"}
+    assert set(entry) == {"id", "paths", "variant", "core", "kind", "files", "size", "state", "reason", "libraryId",
+                          "preview"}
     assert entry["paths"] == sorted(map(str, [texture, text]))
     assert (entry["variant"], entry["core"], entry["kind"], entry["state"]) == ("test", "test_spr", "spr", "ready")
     assert entry["reason"] is None and entry["libraryId"] is None
@@ -156,7 +170,7 @@ def test_backup_upload_and_content_alias_use_library_normalization(env, monkeypa
 
 
 @pytest.mark.parametrize("problem,reason", [("unreadable", "unreadable"), ("missing", "no_target"),
-    ("platform", "conflict"), ("ambiguous", "conflict"), ("other", "unsupported"), ("model", "unsupported")])
+    ("platform", "conflict"), ("ambiguous", "conflict"), ("other", "unsupported")])
 def test_blocked_reasons_are_codes_and_failures_do_not_hide_other_entries(env, monkeypatch, problem, reason):
     source = make_mod(env.original, env.tmp / "bad")
     expected_kind = "spr"
@@ -174,9 +188,6 @@ def test_blocked_reasons_are_codes_and_failures_do_not_hide_other_entries(env, m
     elif problem == "other":
         source = game_bundle(env.tmp / "bad", "shared", category="shaders")
         expected_kind = "other"
-    elif problem == "model":
-        source = game_bundle(env.tmp / "bad", "ch0242", category="characters")
-        expected_kind = "model"
     good = make_mod(env.original, env.tmp / "good", payload=b"fine")
     result = analyze(env, [source, good])
     bad, valid = result["entries"]
@@ -187,7 +198,7 @@ def test_blocked_reasons_are_codes_and_failures_do_not_hide_other_entries(env, m
     assert results[1]["outcome"] == "imported"
 
 
-def test_library_capability_hook_can_enable_model_kind(env, monkeypatch):
+def test_library_capability_api_rejects_an_unsupported_kind(env, monkeypatch):
     seen = []
     monkeypatch.setattr(env.library, "supports_kind", lambda kind: seen.append(kind) or False, raising=False)
     source = game_bundle(env.tmp / "input", "ch0242", category="characters")
@@ -196,15 +207,32 @@ def test_library_capability_hook_can_enable_model_kind(env, monkeypatch):
     assert seen == ["model"]
 
 
-def test_model_prefab_and_dependencies_group_and_resolve_variant_before_support_lands(env):
-    variant = env.catalog.variant("test")
-    variant.model = "ch0242"
-    dependency = game_bundle(env.tmp / "input", "ch0242", category="characters")
-    prefab = dependency.with_name("character-ch0242-_mxload-2026-01-01_assets_all_1.bundle")
-    prefab.write_bytes(dependency.read_bytes())
-    entry, = analyze(env, [prefab, dependency])["entries"]
-    assert (entry["kind"], entry["variant"], entry["reason"]) == ("model", "test", "unsupported")
-    assert entry["paths"] == sorted(map(str, [prefab, dependency]))
+@pytest.mark.parametrize("outdated", [False, True])
+def test_model_prefab_and_dependencies_analyze_update_add_and_apply(batch_model_env, monkeypatch, outdated):
+    env = batch_model_env
+    if outdated:
+        sources = [model_bundle(env.tmp / "input", prefab=True, part="000", date="2025-01-01", payload=b"mod prefab"),
+                   model_bundle(env.tmp / "input", part="meshes", date="2025-01-01", payload=b"mod mesh")]
+    else:
+        sources = [make_mod(path, env.tmp / "input", payload=f"mod {i}".encode())
+                   for i, path in enumerate(env.parts[:2])]
+    entry, = analyze(env, sources)["entries"]
+    assert (entry["kind"], entry["variant"], entry["core"], entry["state"], entry["reason"]) == (
+        "model", "hoshino", "hoshino_original", "update" if outdated else "ready", None)
+    assert entry["paths"] == sorted(map(str, sources))
+    calls = []
+    updater(monkeypatch, calls)
+    result, = run(env, [entry], backup=False)
+    assert result["outcome"] == ("updated" if outdated else "imported")
+    assert result["applied"] and len(calls) == int(outdated)
+    mod, = env.library.mods()
+    assert (mod.kind, mod.target, result["libraryId"]) == ("model", "hoshino", mod.id)
+    assert env.library.configured("hoshino")["model"] == f"mod:{mod.id}"
+    assert all(path.read_bytes() != env.official[path] for path in env.parts[:2])
+    if not outdated:
+        assert env.parts[2].read_bytes() == env.official[env.parts[2]]
+    env.library.restore("hoshino", kind="model")
+    assert all(path.read_bytes() == original for path, original in env.official.items())
 
 
 def test_spine_version_blocks_without_converter_and_requests_update_with_one(env, monkeypatch):
@@ -224,6 +252,50 @@ def test_spine_version_blocks_without_converter_and_requests_update_with_one(env
     env.settings.set("spine_converter_path", str(converter))
     entry, = analyze(env, [source])["entries"]
     assert (entry["state"], entry["reason"]) == ("update", None)
+
+
+@pytest.mark.parametrize("version,state", [(b"3.8.75", "blocked"), (b"4.2.20", "ready")])
+def test_multiple_official_spine_patch_versions_keep_the_major_minor_check(env, monkeypatch, version, state):
+    source = make_mod(env.original, env.tmp / "input")
+
+    def inspect(path):
+        skeletons = {"first.skel": version, "second.skel": version, "third.skel": version} if path == source else {
+            "first.skel": b"4.2.33", "second.skel": b"4.2.40", "third.skel": b"4.2.9"}
+        return integrity.Contents(platforms={"StandaloneWindows64"}, skeletons=skeletons,
+                                  atlases={"first.atlas": b"", "second.atlas": b"", "third.atlas": b""})
+
+    monkeypatch.setattr(integrity, "inspect", inspect)
+    entry, = analyze(env, [source])["entries"]
+    assert (entry["state"], entry["reason"]) == (state, "spine_version" if state == "blocked" else None)
+    if state == "blocked":
+        converter = env.tmp / "converter"
+        converter.touch()
+        env.settings.set("enable_spine_conversion", True)
+        env.settings.set("spine_converter_path", str(converter))
+        entry, = analyze(env, [source])["entries"]
+        assert (entry["state"], entry["reason"]) == ("update", None)
+        calls = []
+        updater(monkeypatch, calls)
+        assert run(env, [entry], enableAfterImport=False)[0]["outcome"] == "updated"
+        assert calls[0][1]["spine_options"].target_version == "4.2.40"
+
+
+def test_incompatible_mixed_official_spine_series_do_not_convert_to_a_default_version(env, monkeypatch):
+    source = make_mod(env.original, env.tmp / "input")
+
+    def inspect(path):
+        skeletons = {"first.skel": b"3.8.75", "second.skel": b"3.8.75"} if path == source else {
+            "first.skel": b"4.1.24", "second.skel": b"4.2.40"}
+        return integrity.Contents(platforms={"StandaloneWindows64"}, skeletons=skeletons,
+                                  atlases={"first.atlas": b"", "second.atlas": b""})
+
+    monkeypatch.setattr(integrity, "inspect", inspect)
+    converter = env.tmp / "converter"
+    converter.touch()
+    env.settings.set("enable_spine_conversion", True)
+    env.settings.set("spine_converter_path", str(converter))
+    entry, = analyze(env, [source])["entries"]
+    assert (entry["state"], entry["reason"]) == ("blocked", "spine_version")
 
 
 def test_classic_asset_matching_finds_repacked_targets(env, monkeypatch):
@@ -320,6 +392,32 @@ def test_enable_after_import_respects_master_switch_and_backup_option(env, switc
     assert not env.original.with_name(env.original.name + ".backup").exists()
 
 
+def test_enable_after_import_applies_to_the_pinned_install_when_already_installed_elsewhere(env, monkeypatch):
+    source = make_mod(env.original, env.tmp / "input")
+    other = env.tmp / "other-game" / env.original.name
+    other.parent.mkdir()
+    other.write_bytes(source.read_bytes())
+    other.with_name(other.name + ".backup").write_bytes(env.original.read_bytes())
+    env.settings.set("game_resource_dir_japan", str(other.parent))
+    entry, = analyze(env, [source])["entries"]
+    assert entry["state"] == "ready"
+    add = env.library.add_files
+    recognized = []
+
+    def adding(*args, **kwargs):
+        added = add(*args, **kwargs)
+        recognized.extend(added.installed)
+        return added
+
+    monkeypatch.setattr(env.library, "add_files", adding)
+    result, = run(env, [entry], backup=False)
+    assert recognized and recognized[0].id == result["libraryId"]
+    assert result["outcome"] == "imported" and result["applied"]
+    assert env.original.read_bytes() == source.read_bytes()
+    assert other.read_bytes() == source.read_bytes()
+    assert env.library.configured("test")["spr"] == f"mod:{result['libraryId']}"
+
+
 @pytest.mark.parametrize("phase", ["update", "add", "apply"])
 def test_per_entry_failures_keep_successful_imports_and_error_codes(env, monkeypatch, phase):
     other_target = game_bundle(env.game_dir, "other_spr")
@@ -333,10 +431,10 @@ def test_per_entry_failures_keep_successful_imports_and_error_codes(env, monkeyp
     elif phase == "add":
         add = env.library.add
 
-        def fail(paths, **kwargs):
+        def fail(paths, *args, **kwargs):
             if paths == [bad]:
                 raise ServiceError("library_io_error")
-            return add(paths, **kwargs)
+            return add(paths, *args, **kwargs)
 
         monkeypatch.setattr(env.library, "add", fail)
         code = "library_io_error"

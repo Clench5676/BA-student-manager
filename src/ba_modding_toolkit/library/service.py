@@ -803,7 +803,8 @@ class ModLibrary:
                                               name=paths[-1].name if paths else t("webui.progress.mods")))
         return added
 
-    def _check_group(self, files: dict[str, Path], pin: Pin | None, *, compatibility: bool = True) -> dict:
+    def _check_group(self, files: dict[str, Path], pin: Pin | None, *, compatibility: bool = True,
+                     dependencies: bool = True) -> dict:
         selected, official, effective = integrity.Contents(), integrity.Contents(), integrity.Contents()
         sources = {name: integrity.inspect(path) for name, path in files.items()}
         core = core_of(next(iter(files)))
@@ -835,7 +836,8 @@ class ModLibrary:
             selected.atlases = {**{name: data for name, data in official.atlases.items() if name not in paired},
                                **selected.atlases}
         effective.merge(selected)
-        missing = integrity.missing_parts(effective, official) if not compatibility or kind == "model" else set()
+        missing = (integrity.missing_parts(effective, official)
+                   if dependencies and (not compatibility or kind == "model") else set())
         if missing:
             # Name omitted files from the selected folders, without importing them.
             names = dict(effective.reference_names)
@@ -893,8 +895,10 @@ class ModLibrary:
             installed = self._matches_installed(identity, entry)
         if duplicate or installed:
             return {"identity": identity, "libraryId": duplicate, "installed": installed, "targets": targets}
-        self._check_group(files, pin, compatibility=False)
-        report = self._check_group(files, pin)
+        report = self._check_group(files, pin, dependencies=False)
+        # Old CAB references are replaced by the rebuild. Its output goes through add()'s full preflight.
+        if not report["outdated"]:
+            self._check_group(files, pin, compatibility=False)
         return {"identity": identity, "libraryId": None, "installed": False, "compatibility": report,
                 "targets": targets}
 

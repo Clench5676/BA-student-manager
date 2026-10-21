@@ -16,6 +16,7 @@ from typing import Any
 from .. import core, devmode
 from ..bundle import Bundle
 from ..errors import ServiceError
+from ..gameassets.spine import spine_revision
 from ..library.identity import identify
 from ..library.judge import kind_of, part_of
 from ..library.storage import Fingerprints
@@ -30,13 +31,6 @@ TYPES = ("Texture2D", "TextAsset", "Mesh", "AnimationClip", "ALL")
 CHOICES = {"strategy": ("path_id", "cont_name_type", "name_type"),
            "crc": ("auto", "on", "off"), "compression": ("lzma", "lz4", "original", "none")}
 BOOLS = ("skipUnchanged", "backup", "enableAfterImport")
-
-
-def supports_kind(library: Any, kind: str, name: str) -> bool:
-    """Use the library capability API when present; bridge older libraries through their classifier."""
-    supports = getattr(library, "supports_kind", None)
-    parsed = parse_filename(name)
-    return bool(supports(kind)) if callable(supports) else kind_of(parsed.core, parsed.category) == kind
 
 
 def options_of(value: Any, defaults: dict) -> dict:
@@ -125,6 +119,7 @@ class BatchImport:
         self._lock = threading.RLock()
         self._revision = 0
         self._latest: dict[str, Candidate] = {}
+        self._previews: dict[str, tuple[Candidate, str]] = {}
         self._library: Any = None
         self._pin: Any = None
         self._hashes = Fingerprints()
@@ -174,11 +169,12 @@ class BatchImport:
             self._revision += 1
             revision = self._revision
             self._latest = {}
+            self._previews = {}
             self._library, self._pin = library, pin
 
         def analyze(log: Any, progress: Any) -> dict:
             candidates, skipped = self._collect(paths, recursive, library)
-            entries, known = [], set()
+            entries, known, previews = [], set(), {}
             for i, candidate in enumerate(candidates):
                 self._judge(candidate, library, pin, log)
                 if candidate.identity and candidate.identity in known:
@@ -186,14 +182,49 @@ class BatchImport:
                     continue
                 if candidate.identity:
                     known.add(candidate.identity)
+                if not candidate.error and candidate.entry["variant"] and candidate.entry["kind"] in ("spr", "lobby"):
+                    try:
+                        stamp = spine_revision(list(candidate.files.values()))
+                        key = hashlib.sha256(f"{revision}:{candidate.entry['id']}:{stamp}".encode()).hexdigest()
+                        previews[key] = (candidate, stamp)
+                        candidate.entry["preview"] = {"kind": "import", "key": key}
+                    except (OSError, KeyError):
+                        pass  # An unavailable source keeps its static catalog artwork.
                 entries.append(candidate)
                 progress(i + 1, len(candidates), candidate.entry["core"] or "")
             with self._lock:
                 if revision == self._revision:
                     self._latest = {c.entry["id"]: c for c in entries}
+                    self._previews = previews
             return {"entries": [c.entry for c in entries], "skipped": skipped}
 
         return self.services.submit("import.analyze", analyze)
+
+    def preview(self, key: str) -> tuple[str, list[Path]]:
+        """Compose an analyzed source in memory, with missing parts from the pinned official files."""
+        with self._lock:
+            candidate, stamp = self._previews[key]
+            library, pin = self._library, self._pin
+        if self.services.library is not library:
+            raise KeyError(key)
+        if pin:
+            self.services._check_pin(library, pin)
+        paths = list(candidate.files.values())
+        if spine_revision(paths) != stamp:
+            raise KeyError(key)
+        core_name = candidate.entry["core"]
+        try:
+            originals = library.official_bundles(core_name, pin=pin) if pin else []
+        except ServiceError as error:
+            if error.code not in ("game_file_not_found", "original_unavailable", "original_invalid"):
+                raise
+            originals = []  # A self-contained upload can preview without recoverable official parts.
+        replaced = {part_of(name) for name in candidate.files}
+        bundles = [path for path in originals if part_of(path.name) not in replaced] + paths
+        with self._lock:
+            if key not in self._previews:
+                raise KeyError(key)
+        return core_name, bundles
 
     def _collect(self, paths: list[str], recursive: bool, library: Any) -> tuple[list[Candidate], int]:
         selected, seen, skipped = [], set(), 0
@@ -230,20 +261,15 @@ class BatchImport:
         for path in selected:
             name = path.name.removesuffix(".backup")
             parsed = parse_filename(name)
-            kind = kind_of(parsed.core, parsed.category) or (
-                "model" if parsed.category in ("character", "characters", "npcs") else "other")
+            kind = kind_of(parsed.core, parsed.category) or "other"
             variant, error = None, None
             try:
                 if self._hashes.get(path).trailing is None:
                     raise ServiceError("bundle_invalid")
-                if kind == "other" or not supports_kind(library, kind, name):
+                if not library.supports_kind(kind):
                     error = "unsupported"
                     resolve = getattr(library.catalog, "variant_for_asset_core", library.catalog.variant_for_core)
                     found = resolve(parsed.core.lower())
-                    if found is None and kind == "model":
-                        matches = [v for family in library.catalog.families() for v in family.variants
-                                   if (getattr(v, "model", None) or "").lower() == parsed.core.lower()]
-                        found = matches[0] if len(matches) == 1 else None
                     variant = found.key if found else None
                 else:
                     name, variant, kind = identify(path, name, library.catalog)
@@ -288,7 +314,7 @@ class BatchImport:
             entry = {"id": hashlib.sha256("\0".join(map(str, sources)).encode()).hexdigest(),
                      "paths": list(map(str, sources)), "variant": variant, "core": core_name or None,
                      "kind": kind, "files": file_list, "size": sum(f["size"] for f in file_list),
-                     "state": "blocked", "reason": error, "libraryId": None}
+                     "state": "blocked", "reason": error, "libraryId": None, "preview": None}
             candidate = Candidate(files, entry, error)
             try:
                 candidate.identity = frozenset((core_name, self._hashes.get(path).sha1) for path in files.values())
@@ -344,12 +370,16 @@ class BatchImport:
             official = compatibility["official"]["skeletons"]
             incoming = compatibility["mod"]["skeletons"]
             versions = {s["version"] for s in official.values() if s.get("version")}
-            candidate.spine_version = next(iter(versions)) if len(versions) == 1 else None
+            series = {tuple(version.split(".")[:2]) for version in versions}
+            candidate.spine_version = max(versions, key=lambda version: tuple(map(int, version.split(".")))) if len(series) == 1 else None
             unknown = any(not s.get("version") for s in incoming.values())
-            mismatch = any(s.get("version") and candidate.spine_version and
-                           s["version"].split(".")[:2] != candidate.spine_version.split(".")[:2]
-                           for s in incoming.values())
-            if unknown or (mismatch and not self.services.settings.spine_options().is_valid()):
+            mismatch = any(s.get("version") and
+                           tuple(s["version"].split(".")[:2]) not in (
+                               {tuple(official[name]["version"].split(".")[:2])}
+                               if official.get(name, {}).get("version") else series)
+                           for name, s in incoming.items())
+            if unknown or (mismatch and (candidate.spine_version is None or
+                                        not self.services.settings.spine_options().is_valid())):
                 entry.update(state="blocked", reason="spine_version")
             else:
                 entry.update(state="ready" if exact and not mismatch else "update", reason=None)
@@ -423,7 +453,7 @@ class BatchImport:
                                     item.update(outcome="unchanged", libraryId=fresh.entry["libraryId"])
                                 else:
                                     report(candidate, "add")
-                                    added = library.add(paths, pin=pin)
+                                    added = library.add_files(fresh.entry["kind"], paths, pin=pin)
                                     entries = [*added, *added.duplicates]
                                     if len(entries) != 1:
                                         raise ServiceError("mod_unsupported")
@@ -433,7 +463,7 @@ class BatchImport:
                                     result.added.extend(added)
                                     result.cores.add(mod.core)
                                     result.kinds.add(mod.kind)
-                                    if options["enableAfterImport"] and added and mod not in added.installed:
+                                    if options["enableAfterImport"] and added:
                                         phase = "apply"
                                         report(candidate, phase)
                                         applied = library.apply_import(mod.target, f"mod:{mod.id}", kind=mod.kind,

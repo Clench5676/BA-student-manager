@@ -81,7 +81,8 @@ const options = { strategy: "cont_name_type", types: ["ALL"], skipUnchanged: tru
   extraBytes: "0x08080808", backup: true, workers: 4, output: null, enableAfterImport: true };
 const entry = (id, state = "ready", kind = "spr") => ({ id, paths: [`/fixtures/${id}.bundle`], variant: id, core: `${id}_spr`, kind,
   files: [{ path: `/fixtures/${id}.bundle`, size: 1024, target: `${id}_spr.bundle` }], size: 1024, state,
-  reason: state === "blocked" ? "no_target" : null, libraryId: state === "library" ? "lib-known" : null });
+  reason: state === "blocked" ? "no_target" : null, libraryId: state === "library" ? "lib-known" : null,
+  preview: ["spr", "lobby"].includes(kind) ? { kind: "import", key: `source-${id}` } : null });
 const mixed = () => [entry("a"), entry("b", "update", "lobby"), entry("c", "library"), entry("d", "installed"), entry("e", "blocked", "model")];
 const catalog = { families: ["a", "b", "c", "d", "e"].map((id) => ({ key: id, custom: id === "a" ? ["Saved Alias"] : [], variants: [{
   key: id, fileId: `${id}_spr`, spr: `${id}_spr`, lobby: `${id}_home`, portrait: `/portrait/${id}.png`, names: { en: { full: `Student ${id}` }, ja: { full: `JP ${id}` } },
@@ -267,15 +268,45 @@ test("options save errors keep the dialog open and report localized text", async
   await h.action("cancel", h.dialog).click(); assert.equal(h.dialog.hidden, true);
 });
 
-test("licensed previews use current game sources, library IDs and lazy thumbnails; incoming files never impersonate game art", async () => {
+test("licensed previews pair the current game with analyzed sources and draw incoming row thumbnails", async () => {
   const h = await fixture({ licensed: true }); await h.analyze();
   assert.ok(h.thumbs.some(([base]) => base.includes("/spr/a_spr/")));
-  assert.match(h.host.textContent, /Preview Unavailable/);
+  assert.ok(h.thumbs.some(([base, frame]) => base.includes("/import/source-a/") && frame === "bust"));
+  assert.doesNotMatch(h.host.textContent, /Preview Unavailable/);
   for (const observer of observers) observer.reveal(); await flush();
-  assert.ok(h.thumbs.some(([base, frame]) => base.includes("/lobby/b_home/") && frame === "card"));
+  assert.ok(h.thumbs.some(([base, frame, , lobby]) => base.includes("/import/source-b/") && frame === "card" && lobby));
+  assert.ok(!h.thumbs.some(([base, frame]) => base.includes("/lobby/b_home/") && frame === "card"));
   h.page.model.select("c"); await flush();
   assert.ok(h.thumbs.some(([base]) => base.includes("/mod/lib-known/")));
-  assert.ok(!h.thumbs.some(([base]) => base.includes("/import/")), "no invented incoming preview endpoint");
+  h.page.model.select("b"); await flush();
+  assert.ok(h.thumbs.some(([base]) => base.includes("/lobby/b_home/")));
+});
+
+test("missing incoming previews keep the static fallback and never borrow current game art", async () => {
+  const h = await fixture({ licensed: true }); await h.analyze([{ ...entry("a"), preview: null }]);
+  assert.match(h.host.textContent, /Preview Unavailable/);
+  for (const observer of observers) observer.reveal(); await flush();
+  assert.ok(h.thumbs.every(([base, frame]) => base.includes("/spr/a_spr/") && frame === "bust"));
+  assert.equal(h.row("a").querySelector("img").src, "/portrait/a.png");
+});
+
+test("reanalysis replaces the incoming preview for the same entry ID", async () => {
+  const h = await fixture({ licensed: true }); await h.analyze([entry("a")]);
+  const checking = h.page.model.recheck(); await flush();
+  h.analyses.at(-1).resolve({ entries: [{ ...entry("a"), preview: { kind: "import", key: "source-a-new" } }], skipped: 0 });
+  await checking; await flush();
+  assert.ok(h.thumbs.some(([base, frame]) => base.includes("/import/source-a-new/") && frame === "bust"));
+  assert.ok(h.host.querySelector(".incoming").querySelector("img").src.includes("/import/source-a-new/"));
+});
+
+test("special lobby categories keep lobby source selection and framing", async () => {
+  const h = await fixture({ licensed: true });
+  const special = structuredClone(catalog);
+  special.families[1].variants[0].spineCategory = "spinebackground";
+  await h.page.show(h.context, special);
+  await h.analyze([entry("b", "ready", "lobby")]);
+  assert.ok(h.thumbs.some(([base, frame, , lobby, framing]) => base.includes("/lobby/b_home/") && frame === "bust" && lobby && framing === "scene"));
+  assert.ok(h.thumbs.some(([base, frame, , lobby, framing]) => base.includes("/import/source-b/") && frame === "bust" && lobby && framing === "scene"));
 });
 
 test("DOM drops forward native paths and browser-only drops explain native availability", async () => {

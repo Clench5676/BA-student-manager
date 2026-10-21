@@ -1184,7 +1184,7 @@ class Services:
 
     def _spine_bundles(self, kind: str, key: str) -> list[Path]:
         core, pin, game = key, None, self.game
-        if "@" in key and kind != "mod":
+        if "@" in key and kind not in ("mod", "import"):
             core, _, install_id = key.rpartition("@")
             game = self._install_game(install_id)
             pin = next(p for p in self.library.installs() if p.id == install_id)
@@ -1201,6 +1201,8 @@ class Services:
                 return game.spine_cores(kind)[core.lower()]
         if kind == "mod":
             return self.library.preview_bundles(key)
+        if kind == "import":
+            return self.batch_import.preview(key)[1]
         raise KeyError(kind)
 
     def _spine_asset(self, kind: str, key: str, name: str, revision: str | None = None) -> AssetResponse:
@@ -1265,6 +1267,9 @@ class Services:
             files = game.spine_files_from(bundles)
             # the mod's own core names its skeleton (a lobby has more than one: the character and its background)
             core = parse_filename(bundles[-1].name).core
+        elif kind == "import":
+            core, sources = self.batch_import.preview(key)
+            files = game.spine_files_from(bundles if bundles is not None else sources)
         else:
             raise KeyError(kind)
         if name == "files.json":

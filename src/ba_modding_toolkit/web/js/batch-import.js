@@ -163,13 +163,18 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
     image.src = portrait || fallbackIcon(); image.alt = ""; image.draggable = false;
     image.addEventListener("error", () => { if (image.src !== fallbackIcon()) image.src = fallbackIcon(); }, { once: true });
   }
+  function incomingBase(entry) {
+    if (!["spr", "lobby"].includes(entry.kind)) return null;
+    const libraryId = entry.libraryId || model.state.results.find((result) => result.id === entry.id)?.libraryId;
+    if (libraryId) return spineBase("mod", libraryId);
+    return entry.preview?.kind === "import" && entry.preview.key ? spineBase("import", entry.preview.key) : null;
+  }
   function thumbImage(entry, image, { incoming = false, large = false, token = generation } = {}) {
     const { variant } = identified(entry);
     staticImage(image, variant?.portrait);
-    const libraryId = entry.libraryId || model.state.results.find((result) => result.id === entry.id)?.libraryId;
-    const kind = variant?.spineCategory || entry.kind;
-    const key = kind === "spr" ? variant?.spr : kind === "lobby" ? variant?.lobby : null;
-    const base = incoming ? libraryId && ["spr", "lobby"].includes(entry.kind) ? spineBase("mod", libraryId) : null
+    const kind = entry.kind;
+    const key = kind === "spr" ? variant?.spr || entry.core : kind === "lobby" ? variant?.lobby || entry.core : null;
+    const base = incoming ? incomingBase(entry)
       : key ? spineBase(kind, key) : null;
     if (!allowed() || !base || !scope) return;
     const work = scope.thumb(base, large ? "bust" : "card", null, kind === "lobby", specialFraming(variant));
@@ -181,7 +186,7 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
 
   function renderPreview() {
     const entry = model.state.entries.find((item) => item.id === model.state.selected);
-    const key = JSON.stringify([entry?.id, entry?.libraryId, model.state.results, allowed()]);
+    const key = JSON.stringify([entry?.id, entry?.libraryId, entry?.preview, model.state.results, allowed()]);
     if (key === previewKey) return; previewKey = key;
     const next = el("div", "import-detail-content");
     if (!entry) {
@@ -193,8 +198,7 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
         skin(box, 254, 440, { color: incoming ? "#dff6ff" : "#f0f7fa", border: "#ffffff" });
         box.appendChild(el("span", "import-preview-label", T(incoming ? "import.incoming" : "import.current")));
         const image = el("img", "import-preview-image"); box.appendChild(image);
-        const libraryId = entry.libraryId || model.state.results.find((result) => result.id === entry.id)?.libraryId;
-        if (incoming && !libraryId) box.appendChild(el("span", "import-preview-unavailable", T("import.previewUnavailable")));
+        if (incoming && !incomingBase(entry)) box.appendChild(el("span", "import-preview-unavailable", T("import.previewUnavailable")));
         pair.appendChild(box); thumbImage(entry, image, { incoming, large: true });
       }
       const banner = el("div", "import-name-banner"); skin(banner, 524, 152, { color: "#2d4765" });
@@ -235,7 +239,7 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
           observer ||= new IntersectionObserver((changes) => {
             for (const change of changes) if (change.isIntersecting) {
               const item = model.state.entries.find((item) => item.id === change.target.dataset.entry);
-              if (item) thumbImage(item, change.target.querySelector(".import-thumb")); observer?.unobserve(change.target);
+              if (item) thumbImage(item, change.target.querySelector(".import-thumb"), { incoming: true }); observer?.unobserve(change.target);
             }
           }, { root: dom.list, rootMargin: "100px" });
           observer.observe(row);

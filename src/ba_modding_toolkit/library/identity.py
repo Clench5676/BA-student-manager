@@ -15,9 +15,10 @@ CORE = re.compile(r"(?<![a-z0-9_])([a-z][a-z0-9_]*?_(?:spr|home(?:_gl|_teen)?))(
 CONTAINER = re.compile(r"(?:^|/)(spinebackground|spinelobbies|spinecharacters)/([a-z0-9_]+)(?:/|\.)", re.I)
 
 MODEL_CONTAINER = re.compile(r"(?:^|/)(?:characters|npcs)/([a-z0-9_]+)(?:/|\.)", re.I)
-MODEL_ASSET = re.compile(
-    r"^([a-z][a-z0-9_]*?)_(?:body|face|hair|head|eyemouth|eyesmouth|halo|weapon|"
-    r"formation|cafe|victory)(?:_[a-z0-9_]+)?(?:\.[a-z0-9]+)?$", re.I)
+MODEL_ROLE = (
+    r"(?:(?:cut_?in)_)?(?:body|face|hair|head|eyemouth|eyesmouth|eyebrow|halo|weapon|"
+    r"formation|cafe|victory|normal|stand|idle)(?:_[a-z0-9_]+)?(?:\.[a-z0-9]+)?")
+MODEL_ASSET = re.compile(r"^([a-z][a-z0-9_]*?)_" + MODEL_ROLE + r"$", re.I)
 MODEL_PREFAB = re.compile(r"^(?:echelon|cafe|strategy)_([a-z0-9_]+)(?:\.prefab)?$", re.I)
 
 
@@ -45,18 +46,32 @@ def content_cores(path: Path) -> set[str]:
                 and (match[1] != "spinelobbies" or kind_of(parsed.core) != "lobby"))):
             special[name] = match[2]
     container_kinds: dict[str, set[str]] = {}
+    model_names = {}
     for name in names:
+        model = MODEL_CONTAINER.search(name) or MODEL_PREFAB.fullmatch(Path(name).name)
+        if model:
+            model_names[name] = model[1].lower()
         kind = "home" if "spinelobbies/" in name else "spr" if "spinecharacters/" in name else None
         if kind and name.endswith((".skel", ".atlas")):
             container_kinds.setdefault(Path(name).stem, set()).add(kind)
     cores = set(special.values())
+    model_cores = set(model_names.values())
+    if not model_cores and kind_of(parsed.core, parsed.category) == "model":
+        model_cores.add(parsed.core.lower())
     for normalized in names:
-        model = MODEL_CONTAINER.search(normalized) or MODEL_PREFAB.fullmatch(Path(normalized).name)
-        if not model and kind_of(parsed.core, parsed.category) == "model":
-            model = MODEL_ASSET.fullmatch(Path(normalized).name)
-        if model:
-            cores.add("model:" + model[1].lower())
+        if normalized in model_names:
+            cores.add("model:" + model_names[normalized])
             continue
+        if model_cores:
+            bare = Path(normalized).name
+            # Prefabs and containers own the core; cut-in bodies and animation slots add roles to it.
+            matches = {core for core in model_cores
+                       if re.fullmatch(re.escape(core) + "_" + MODEL_ROLE, bare, re.I)}
+            if not matches and (model := MODEL_ASSET.fullmatch(bare)):
+                matches.add(model[1].lower())
+            if matches:
+                cores.update("model:" + core for core in matches)
+                continue
         if normalized in special or (special and "/" not in normalized):
             continue
         if special_file and "/" not in normalized:

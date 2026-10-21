@@ -73,6 +73,51 @@ def test_model_content_conflict_and_unknown_are_refused(model_env, monkeypatch):
                 identify(source, source.name, env.catalog)
 
 
+@pytest.mark.parametrize('anchor', ['container', 'prefab', 'filename'])
+@pytest.mark.parametrize('role', ['Body', 'CutIn_Body', 'Cut_In_Body', 'EyeBrow', 'Formation_Idle',
+                                  'Cafe_Reaction', 'Victory_End', 'Normal_Idle', 'Stand_Idle', 'Idle'])
+def test_model_roles_resolve_against_the_owning_core(model_env, monkeypatch, anchor, role):
+    env = model_env
+    variant = SimpleNamespace(key='shigure', model='ch0123')
+    catalog = SimpleNamespace(variant_for_core=lambda core: None,
+                              variant_for_model_core=lambda core: variant if core == 'ch0123' else None)
+    source = model_bundle(env.tmp / 'upload', core='ch0123' if anchor == 'filename' else 'renamed')
+    names = [f'CH0123_{role}']
+    containers = ['Assets/_MX/Characters/CH0123/Mesh/Body.asset'] if anchor == 'container' else []
+    if anchor == 'prefab':
+        names.append('Echelon_CH0123')
+    objects(monkeypatch, names, containers)
+    monkeypatch.setattr('ba_modding_toolkit.library.identity.content_cores', content_cores)
+    assert content_cores(source) == {'model:ch0123'}
+    filename, key, kind = identify(source, source.name, catalog)
+    assert (parse_filename(filename).core, key, kind) == ('ch0123', 'shigure', 'model')
+
+
+def test_model_core_with_role_word_keeps_the_prefab_identity(model_env, monkeypatch):
+    source = model_bundle(model_env.tmp / 'upload', core='renamed')
+    objects(monkeypatch, ['Echelon_CH0123_CutIn', 'CH0123_CutIn_Body'])
+    assert content_cores(source) == {'model:ch0123_cutin'}
+
+
+@pytest.mark.parametrize('names, code', [
+    (['Echelon_Hoshino_Original', 'Unknown_CutIn_Body'], 'mod_target_unknown'),
+    (['Echelon_Unknown', 'Hoshino_CutIn_Body'], 'mod_target_unknown'),
+    (['Echelon_Hoshino_Original', 'Echelon_Shigure', 'Shigure_CutIn_Body'], 'mod_target_ambiguous'),
+])
+def test_model_role_resolution_preserves_unknown_and_conflicting_targets(model_env, monkeypatch, names, code):
+    source = model_bundle(model_env.tmp / 'upload')
+    hoshino = SimpleNamespace(key='hoshino', model='hoshino_original')
+    shigure = SimpleNamespace(key='shigure', model='shigure')
+    variants = {'hoshino': hoshino, 'hoshino_original': hoshino, 'shigure': shigure}
+    catalog = SimpleNamespace(variant_for_core=lambda core: None,
+                              variant_for_model_core=variants.get)
+    objects(monkeypatch, names)
+    monkeypatch.setattr('ba_modding_toolkit.library.identity.content_cores', content_cores)
+    with pytest.raises(ServiceError) as caught:
+        identify(source, source.name, catalog)
+    assert caught.value.code == code
+
+
 def test_model_add_apply_restore_keeps_every_slot_and_official_backup(model_env):
     env = model_env
     uploads = [make_mod(p, env.tmp / 'upload', payload=f'mod {i}'.encode()) for i, p in enumerate(env.parts[:2])]
