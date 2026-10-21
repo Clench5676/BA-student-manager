@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from .. import devmode, globallines, updater
+from ..catalog.special import SPECIAL_PREFIX
 from ..errors import ServiceError
 from ..i18n import get_locale_dir, i18n_manager, offered_languages, t
 from ..kivo import clip_id
@@ -370,6 +371,17 @@ def build_api(s: Services) -> RpcRegistry:
 
     # --- students ---
 
+    def alias_target(family: Any) -> str:
+        # A missing normal base never gives its nickname to a skin. A special-only family has no such base:
+        # attach its old name to one stable, catalog-ordered scene and persist that choice.
+        if family.variants and all(v.key.startswith(SPECIAL_PREFIX) for v in family.variants):
+            return min(family.variants, key=lambda v: (v.order, v.key)).key
+        return family.key
+
+    def variant_aliases() -> dict[str, list[str]]:
+        targets = {f.key: target for f in s.catalog.families() if (target := alias_target(f)) != f.key}
+        return s.state.aliases(targets)
+
     def variant_json(v: Any, mods: dict[str, list], favorites: set[str], recent: list[str], seen: set[str] | None,
                      modified: dict[str, str] | None = None, custom: dict[str, list[str]] | None = None) -> dict[str, Any]:
         own = mods.get(v.key, [])
@@ -408,7 +420,7 @@ def build_api(s: Services) -> RpcRegistry:
         if not s.game_found():
             raise ServiceError("game_not_found")
         mods, favorites, recent = mods_by_target(), s.library.favorites(), s.state.recent()
-        modified, custom = s.library.modified(), s.state.aliases()
+        modified, custom = s.library.modified(), variant_aliases()
         seen = s.state.seen_mods()
         families = []
         for f in s.catalog.families():
@@ -454,7 +466,7 @@ def build_api(s: Services) -> RpcRegistry:
         mods, favorites, recent = mods_by_target(), s.library.favorites(), s.state.recent()
         seen = s.state.seen_mods()
         variants = []
-        custom = s.state.aliases()
+        custom = variant_aliases()
         for v in f.variants:
             item = variant_json(v, mods, favorites, recent, seen, custom=custom)
             item["state"] = to_json(s.library.state(v.key))
@@ -476,12 +488,13 @@ def build_api(s: Services) -> RpcRegistry:
         if not isinstance(variant if variant is not None else family, str) or not isinstance(aliases, list) or not all(isinstance(a, str) for a in aliases):
             raise ServiceError("bad_params", key="aliases")
         # The legacy family argument edits the original variant only.
-        key = s.catalog.variant(variant).key if variant is not None else s.catalog.family(family).key
+        key = s.catalog.variant(variant).key if variant is not None else alias_target(s.catalog.family(family))
         names = [alias_text(a) for a in aliases]
         if any(len(name) > ALIAS_LENGTH for name in names):
             raise ServiceError("alias_too_long", max=ALIAS_LENGTH)
         if len({alias_key(name) for name in names if name}) > ALIAS_MAX:
             raise ServiceError("alias_too_many", max=ALIAS_MAX)
+        variant_aliases()
         return s.state.set_aliases(key, names)
 
     warmed: dict[str, Any] = {"game": None}

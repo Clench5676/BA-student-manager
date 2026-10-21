@@ -168,8 +168,9 @@ async function settleThumbs() {
 }
 
 // --- names, candidates, state ---
-const fullName = (v) => L(v.names)?.full ?? v.key;
-const shortName = (v) => L(v.names)?.short ?? v.key;
+const originalName = (v) => L(v.names)?.full ?? v.key;
+const fullName = (v) => studentName(v, originalName(v));
+const shortName = (v) => studentName(v, L(v.names)?.short ?? v.key);
 // the current variant's own aliases (webui/state.py keeps the same limits): the roster search
 // finds this skin by all of them; the first one is the nameplate's main name
 const ALIAS_MAX = 8, ALIAS_LENGTH = 24;
@@ -441,7 +442,7 @@ function screenTree() {
     widget(t, `${base}/Bg`).w_ = 36 + 17 + 10 + tw + 30;
   }
   // Both names share the existing dark band, leaving room for the pencil after the main name.
-  const original = fullName(v), shown = studentName(v, original), aliased = customAliases().length > 0;
+  const original = originalName(v), shown = fullName(v), aliased = customAliases().length > 0;
   const room = PLATE_RIGHT - 110 - PENCIL - 48;
   const nm = fitText(shown, aliased ? 54 : 64, 44, room, 1), nameY = aliased ? 310 : 288;
   text(t, `${np}/Label_Name`, nm.text, { w_: room, h_: aliased ? 64 : 76, fontSize: nm.fs, ellipsis: true, ariaLabel: shown });

@@ -242,10 +242,22 @@ class UiState:
 
     # --- the user's own aliases, by variant key ---
 
-    def aliases(self) -> dict[str, list[str]]:
+    def aliases(self, legacy_targets: dict[str, str] | None = None) -> dict[str, list[str]]:
         """Every variant's own aliases ({variant key: [alias]}), cleaned as custom_aliases does.
-        Legacy family keys already identify the original variant, so they migrate without rewriting the file."""
+        Ordinary family keys identify the original variant. Special-only families need a catalog-selected target;
+        move those entries once under the shared lock, preserving any explicitly saved variant aliases."""
         table = self._current().get("aliases")
+        if isinstance(table, dict) and legacy_targets and any(key in table for key in legacy_targets):
+            def migrate(data: dict[str, Any]) -> None:
+                aliases = data.get("aliases")
+                if not isinstance(aliases, dict):
+                    return
+                for family, variant in legacy_targets.items():
+                    if family in aliases:
+                        aliases.setdefault(variant, aliases.pop(family))
+
+            self._update(migrate)
+            table = self._current().get("aliases")
         if not isinstance(table, dict):
             return {}
         out = {}

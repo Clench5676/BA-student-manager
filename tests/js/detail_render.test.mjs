@@ -847,6 +847,45 @@ test("student aliases lead the existing name band, keep the variant's original, 
   }
 });
 
+test("variant aliases name detail chips, switch cards and variant picker cards in every locale", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const labelled = (host, caption) => walk(host).some((el) => el.style.fontSize &&
+    (el.textContent === caption || el.getAttribute("aria-label") === caption));
+  try {
+    for (const lang of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) {
+      setStrings(lang, flat(JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${lang}.json`, import.meta.url), "utf8"))));
+      family = modFamily();
+      family.variants[0].custom = ["Base Ink"];
+      family.variants.push(...Array.from({ length: 8 }, (_, i) => ({
+        key: `skin_${i}`, spr: `skin_${i}_spr`, order: i + 1, recruitable: true, modList: [],
+        custom: i === 0 ? ["Skin Ink"] : [], names: { en: { full: `Variant ${i}`, short: `Skin ${i}` } },
+      })));
+      await showPortrait(t);
+      assert.ok(labelled(hosts["ngui-chips"], "Base Ink"), `${lang}: base chip`);
+      assert.ok(labelled(hosts["ngui-chips"], "Skin Ink"), `${lang}: skin chip`);
+      await switchButton().click(); await flush();
+      assert.ok(labelled(hosts.popup, "Base Ink"), `${lang}: own switch card`);
+      assert.ok(labelled(hosts.popup, "Skin Ink"), `${lang}: skin switch card`);
+      const skin = walk(hosts.popup).find((el) => el.dataset.key === "v:skin_0");
+      assert.ok(skin); await skin.click(); await flush();
+      assert.equal(walk(hosts.popup).find((el) => el.dataset.path === "Details/Name").getAttribute("aria-label"), "Skin Ink");
+      await closeSwitch();
+      assert.ok(walk(hosts["ngui-chips"]).some((el) => el.dataset.path?.endsWith("/Chip_more")));
+      await walk(hosts["ngui-chips"]).filter((el) => el.tagName === "BUTTON").at(-1).click(); await flush();
+      assert.ok(labelled(hosts.picker, "Base Ink"), `${lang}: own picker card`);
+      assert.ok(labelled(hosts.picker, "Skin Ink"), `${lang}: skin picker card`);
+      const selected = walk(hosts.picker).find((el) => el.dataset.key === "skin_0");
+      assert.ok(selected); await selected.click(); await flush();
+      assert.equal(walk(hosts.picker).find((el) => el.dataset.path === "Details/Name").getAttribute("aria-label"), "Skin Ink");
+      assert.ok(labelled(hosts.picker, "Skin 1"), "an unaliased sibling retains its original short name");
+      Detail.hide();
+    }
+  } finally {
+    Detail.hide(); await flush(); t.mock.timers.reset();
+    setStrings("en-US", flat(JSON.parse(readFileSync(new URL("../../src/ba_modding_toolkit/locales/en-US.json", import.meta.url), "utf8"))));
+  }
+});
+
 test("mod aliases save and clear from the current value and both switch pencils in every locale", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   try {

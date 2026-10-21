@@ -975,6 +975,29 @@ test("leaving removes only completed entries and reanalysis uses the remaining p
   await recheck; await h.page.settled(); assert.equal(h.page.model.state.checked.size, 0);
 });
 
+test("leaving during Recheck keeps completed entries removed when its old response arrives", async () => {
+  const h = await fixture();
+  await h.analyze([entry("a", "done"), entry("b"), entry("c", "blocked")]);
+  const pending = h.page.model.recheck(); await flush();
+  h.page.hide();
+  await h.page.show(h.context, catalog); await h.page.settled();
+  assert.deepEqual(h.page.model.state.entries.map(({ id }) => id), ["b", "c"]);
+  h.analyses.at(-1).resolve({ entries: [entry("a", "installed"), entry("b", "update"), entry("c", "blocked")], skipped: 0 });
+  await pending; await h.page.settled();
+  assert.deepEqual(h.page.model.state.entries.map(({ id }) => id), ["b", "c"]);
+  assert.equal(h.row("a"), undefined);
+  assert.deepEqual([...h.page.model.state.checked], ["b"]);
+  const retry = h.page.model.recheck(); await flush();
+  assert.deepEqual(h.analyses.at(-1).params.paths, [...entry("b").paths, ...entry("c").paths]);
+  h.analyses.at(-1).resolve({ entries: [entry("b"), entry("c", "blocked")], skipped: 0 });
+  await retry;
+  // Removal only retires the in-flight response; explicitly adding the same paths later is allowed.
+  const adding = h.page.model.add(entry("a").paths); await flush();
+  h.analyses.at(-1).resolve({ entries: [entry("a", "installed"), entry("b"), entry("c", "blocked")], skipped: 0 });
+  await adding; await h.page.settled();
+  assert.ok(h.row("a"));
+});
+
 test("the shared page hold reports both analysis and import progress through artwork completion", async () => {
   const h = await fixture(); const analyzing = h.page.drop(entry("a").paths); await flush();
   const hold = () => h.holds.findLast((hold) => hold.active);

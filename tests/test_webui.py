@@ -531,6 +531,41 @@ def test_legacy_family_aliases_migrate_to_original_only_and_skins_save_independe
     assert json.loads(path.read_text())["prefs"] == legacy["prefs"]
 
 
+@pytest.mark.parametrize("explicit", [False, True])
+@pytest.mark.parametrize("family_key", ["special", "arona"])
+def test_special_only_family_alias_migrates_once_to_one_scene(app, services, tmp_path, monkeypatch, explicit, family_key):
+    path = tmp_path / "webui.json"
+    scene = replace(services.catalog.v, key="special:alpha", family=family_key, spr=None, lobby="alpha", order=0)
+    sibling = replace(scene, key="special:beta", lobby="beta", order=1)
+    services.catalog.f = FakeFamily(family_key, {"en": "Special"}, None, [sibling, scene])
+    monkeypatch.setattr(services.catalog, "family", lambda key: services.catalog.f)
+    aliases = {family_key: ["Legacy scene name"]}
+    if explicit:
+        aliases[scene.key] = ["Explicit scene name"]
+    legacy = {"aliases": aliases, "prefs": {"voice_volume": 40}, "seen_mods": []}
+    path.write_text(json.dumps(legacy), encoding="utf-8")
+
+    def names(method):
+        result = rpc(app, method, **({"key": family_key} if method == "family.get" else {}))["result"]
+        family = result["families"][0] if method == "roster.list" else result
+        return {v["key"]: v["custom"] for v in family["variants"]}
+
+    kept = aliases.get(scene.key, aliases[family_key])
+    for method in ("roster.list", "family.get"):
+        assert names(method) == {scene.key: kept, sibling.key: []}
+    assert UiState(path).aliases() == {scene.key: kept}
+    assert json.loads(path.read_text())["prefs"] == legacy["prefs"]
+    # A new earlier scene or a different install's ordering cannot move a migrated name.
+    earlier = replace(scene, key="special:aardvark", order=-1)
+    services.catalog.f.variants.insert(0, earlier)
+    assert names("roster.list") == {earlier.key: [], scene.key: kept, sibling.key: []}
+    assert rpc(app, "aliases.set", variant=scene.key, aliases=[])["result"] == []
+    assert names("family.get") == {earlier.key: [], scene.key: [], sibling.key: []}
+    # Older callers using the family argument also write a usable variant key.
+    assert rpc(app, "aliases.set", family=family_key, aliases=["New name"])["result"] == ["New name"]
+    assert UiState(path).aliases() == {earlier.key: ["New name"]}
+
+
 def _bundle(folder: Path, stem: str, trailing: bytes = b"") -> Path:
     """A minimal UnityFS file named with the CRC of its whole content, as the game names its bundles."""
     head = b"UnityFS\x00" + (6).to_bytes(4, "big") + b"5.x.x\x002021.3\x00"

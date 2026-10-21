@@ -24,6 +24,7 @@ import { confirmQuit, quitKey } from "./quit.js";
 import { forget } from "./thumbs.js";
 import { setSpineConsent } from "./spine-runtime.js";
 import { $, fitStage } from "./util.js";
+import { studentName } from "./names.js";
 
 let info = null, rosterData = null, rosterStale = true;
 const startup = {};
@@ -83,7 +84,7 @@ async function variantNames() {
   const byKey = new Map((data?.families || []).flatMap((f) => f.variants.map((v) => [v.key, v])));
   return (entry) => {
     const v = byKey.get(entry?.variant);
-    return (v && L(v.names)?.full) || L(entry?.names)?.full || entry?.variant || entry?.core || "";
+    return studentName(v, (v && L(v.names)?.full) || L(entry?.names)?.full || entry?.variant || entry?.core || "");
   };
 }
 

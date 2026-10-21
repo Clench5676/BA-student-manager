@@ -24,13 +24,14 @@ export function latestLoad() {
 
 // The runtime does not await success hooks. Settle on hook errors, cancellation, disposal and missing callbacks too.
 // Each player owns its atlas and textures; a cancelled player's hooks never touch the next view's state.
-export function loadPlayer(create, config, { signal, timeout = 15000, onError, onResume, onRecover } = {}) {
-  let player, settled = false, disposed = false, failed = false, cancelTimer, resolve, reject;
+export function loadPlayer(create, config, { signal, timeout = 15000, onError, onResume, onRecover, manual = false } = {}) {
+  let player, settled = false, disposed = false, failed = false, assetsReady = false, cancelTimer, frameTimer, resolve, reject;
   const ready = new Promise((ok, fail) => { resolve = ok; reject = fail; });
   const finish = (error = null) => {
     if (settled) return;
     settled = true;
     cancelTimer?.();
+    clearTimeout(frameTimer);
     if (error) reject(error); else resolve(disposed ? null : player);
   };
   const dispose = () => {
@@ -43,7 +44,7 @@ export function loadPlayer(create, config, { signal, timeout = 15000, onError, o
   const lifecycle = previewLifecycle({
     suspend: () => player?.stopRendering?.(),
     resume: () => {
-      if (disposed || failed) return;
+      if (disposed || failed || manual) return;
       player?.time?.update?.();
       if (player?.time) player.time.delta = 0;
       const render = onResume?.() !== false;
@@ -62,7 +63,7 @@ export function loadPlayer(create, config, { signal, timeout = 15000, onError, o
   });
   const fail = (error, step = "load") => {
     if (failed || disposed || signal?.aborted) return;
-    if (lifecycle.recovering() || (!lifecycle.active() && ["render", "frame", "draw", "update", "updateWorldTransform"].includes(step))) {
+    if (!manual && (lifecycle.recovering() || (!lifecycle.active() && ["render", "frame", "draw", "update", "updateWorldTransform"].includes(step)))) {
       lifecycle.invalidate();
       return;
     }
@@ -83,13 +84,14 @@ export function loadPlayer(create, config, { signal, timeout = 15000, onError, o
   try {
     const hooks = Object.fromEntries(["frame", "update", "draw", "updateWorldTransform"].filter((key) => config[key])
       .map((key) => [key, (...args) => {
-        if (disposed || failed || signal?.aborted || !lifecycle.active()) return;
+        if (disposed || failed || signal?.aborted || (!manual && !lifecycle.active())) return;
         try { return config[key](...args); } catch (err) { fail(err, key); }
       }]));
     player = create({
       ...config, ...hooks,
       success: (p) => {
         if (disposed || failed || signal?.aborted) return;
+        assetsReady = true;
         // Start synchronously: the runtime uses track 0 as soon as this callback returns.
         try { Promise.resolve(config.success?.(p, () => !disposed && !failed && !signal?.aborted))
           .then(() => finish(), (err) => fail(err, "setup")); } catch (err) { fail(err, "setup"); }
@@ -97,10 +99,24 @@ export function loadPlayer(create, config, { signal, timeout = 15000, onError, o
       error: (_p, message) => fail(message, settled ? "render" : "load"),
     });
     lifecycle.watch(player?.canvas);
-    if (!lifecycle.active()) player?.stopRendering?.();
+    if (manual || !lifecycle.active()) player?.stopRendering?.();
     signal?.addEventListener("abort", dispose, { once: true });
     if (disposed) player?.dispose(); // a synchronous constructor callback failed
-    if (!settled) cancelTimer = previewTimer(() => fail(new Error("Spine load timed out"), "load timeout"), timeout);
+    if (!settled) {
+      const expired = () => fail(new Error("Spine load timed out"), "load timeout");
+      if (manual) {
+        const timer = setTimeout(expired, timeout);
+        cancelTimer = () => clearTimeout(timer);
+        // Assets completing does not fire success: drawFrame discovers them and builds the skeleton.
+        // Own this clock until readiness, then leave all subsequent still draws to the caller.
+        const render = () => {
+          if (assetsReady || settled || disposed || failed || signal?.aborted) return;
+          try { player.drawFrame(false); } catch (err) { fail(err, "render"); }
+          if (!assetsReady && !settled && !disposed && !failed && !signal?.aborted) frameTimer = setTimeout(render, 16);
+        };
+        queueMicrotask(render);
+      } else cancelTimer = previewTimer(expired, timeout);
+    }
   } catch (err) { fail(err, "construct"); }
   return { player, ready, dispose, active: lifecycle.active };
 }

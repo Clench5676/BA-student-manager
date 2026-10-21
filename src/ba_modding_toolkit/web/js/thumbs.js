@@ -134,7 +134,7 @@ function loadPlayer(base, el, signal, onError) {
     showControls: false, showLoading: false, preserveDrawingBuffer: true,
     // capture() supplies the actual frame. Do not sample the first animation's bounds a hundred times first.
     viewport: { x: 0, y: 0, width: 1, height: 1, padLeft: 0, padRight: 0, padTop: 0, padBottom: 0, transitionTime: 0, animations: {} },
-  }, { signal, onError });
+  }, { signal, onError, manual: true });
 }
 
 async function capture(player, el, frame, expr, lobby, framing, background, signal) {

@@ -15,6 +15,7 @@ export function createImportState({ rpc, waitJob, changed = () => {}, suggest = 
   const state = { entries: [], checked: new Set(), selected: null, phase: "idle", progress: null, error: null,
     options: null, results: [], taskEntries: [], taskOptions: null, suggestions: [], valid: false };
   const listeners = new Set();
+  const pendingAnalyses = new Set();
   let revision = 0, contextRevision = 0, retryPaths = [], retryRecursive = false, starting = false, optionsRead = null;
   const emit = () => { for (const fn of listeners) fn(state); };
   const busy = () => starting || ["picking", "analyzing", "running", "saving"].includes(state.phase);
@@ -37,12 +38,14 @@ export function createImportState({ rpc, waitJob, changed = () => {}, suggest = 
     const before = new Map(state.entries.map((entry) => [entry.id, entry]));
     const checked = new Set(state.checked);
     const contextAtStart = contextRevision;
+    const removed = new Set();
+    pendingAnalyses.add(removed);
     state.phase = "analyzing"; state.error = null; state.valid = false;
     resetResults(); revision++; emit();
     try {
       const id = await rpc("import.analyze", { paths: retryPaths, recursive });
       const result = await waitJob(id, progress);
-      state.entries = [...new Map(result.entries.map((entry) => [entry.id, entry])).values()];
+      state.entries = [...new Map(result.entries.filter((entry) => !removed.has(entry.id)).map((entry) => [entry.id, entry])).values()];
       state.checked = new Set(state.entries.filter((entry) => eligible(entry)
         && (!eligible(before.get(entry.id)) || checked.has(entry.id))).map((entry) => entry.id));
       if (!state.entries.some((entry) => entry.id === state.selected)) state.selected = state.entries[0]?.id ?? null;
@@ -55,6 +58,7 @@ export function createImportState({ rpc, waitJob, changed = () => {}, suggest = 
         .then((suggestions) => { if (revision === at) state.suggestions = suggestions; }).catch(() => {});
       return true;
     } catch (error) { fail(error); return false; }
+    finally { pendingAnalyses.delete(removed); }
   }
 
   async function add(paths, recursive = false) {
@@ -133,6 +137,7 @@ export function createImportState({ rpc, waitJob, changed = () => {}, suggest = 
     leave() {
       const completed = new Set(state.entries.filter((entry) => entry.state === "done").map((entry) => entry.id));
       if (!completed.size) return;
+      for (const removed of pendingAnalyses) for (const id of completed) removed.add(id);
       state.entries = state.entries.filter((entry) => !completed.has(entry.id));
       for (const id of completed) state.checked.delete(id);
       if (completed.has(state.selected)) state.selected = state.entries[0]?.id ?? null;
