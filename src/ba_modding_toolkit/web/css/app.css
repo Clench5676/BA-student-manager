@@ -41,7 +41,8 @@ input[type="text"], input[type="search"], textarea { cursor: text; }
 .stage {
   position: absolute; left: 50%; top: 50%; width: 1920px; height: 1080px;
   transform: translate(-50%, -50%) scale(var(--scale, .5));
-  overflow: hidden; font-family: var(--font); font-weight: var(--w); color: var(--navy-text); user-select: none;
+  /* clip: focus and scrollIntoView must never scroll the stage onto its oversized backgrounds */
+  overflow: hidden; overflow: clip; font-family: var(--font); font-weight: var(--w); color: var(--navy-text); user-select: none;
   background: linear-gradient(180deg, #d3eef9 0%, #b6e0f3 55%, #9fd4ee 100%);
 }
 .screen { position: absolute; inset: 0; }
