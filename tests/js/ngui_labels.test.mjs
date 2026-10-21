@@ -53,11 +53,21 @@ test("sprite letter ink, excluding g and Arona, defines the progress baseline", 
 test("ellipsis glyph canvas includes font descent and outline on every side", async () => {
   const { labelClipPadding } = await import("../../src/ba_modding_toolkit/web/js/ngui-label.js");
   for (const text of ["Import List", "gjpy", "\u6e05\u55ae", "\u4e00\u89a7", "\ubaa9\ub85d", "\u0e19\u0e33\u0e40\u0e02\u0e49\u0e32"]) {
-    const fs = 62, metrics = { actualBoundingBoxAscent: 72, actualBoundingBoxDescent: 18 };
+    const fs = 62, metrics = { actualBoundingBoxAscent: 72, actualBoundingBoxDescent: 18, fontBoundingBoxAscent: 72, fontBoundingBoxDescent: 18 };
     const padding = labelClipPadding({ ...letter, text }, fs, metrics);
     const baseline = (fs * 1.15 + 72 - 18) / 2;
     assert.ok(padding.top + baseline >= 72 + 3);
     assert.ok(fs * 1.15 + padding.bottom - baseline >= 18 + 3);
     assert.ok(padding.left >= 2 && padding.right >= 2);
   }
+});
+
+
+test("Thai combining marks use the font baseline rather than moving it to the ink center", async () => {
+  const { labelClipPadding } = await import("../../src/ba_modding_toolkit/web/js/ngui-label.js");
+  const fs = 62, baseline = (fs * 1.15 + 72 - 18) / 2;
+  const pad = labelClipPadding(letter, fs, { actualBoundingBoxAscent: 90, actualBoundingBoxDescent: 25,
+    fontBoundingBoxAscent: 72, fontBoundingBoxDescent: 18 });
+  assert.ok(pad.top + baseline >= 93);
+  assert.ok(fs * 1.15 + pad.bottom - baseline >= 28);
 });

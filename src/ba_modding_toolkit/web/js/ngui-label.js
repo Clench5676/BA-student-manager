@@ -21,9 +21,10 @@ export function labelBaselineInset(text, fontSize) {
 // A CSS line box is shorter than this font's ink. Ellipsis clips both axes, so
 // give its canvas room for descenders, combining marks and the prefab's effect.
 export function labelClipPadding(widget, fs, metrics = {}) {
-  const ascent = Math.max(metrics.actualBoundingBoxAscent || 0, metrics.fontBoundingBoxAscent || 0, fs * 1.16);
-  const descent = Math.max(metrics.actualBoundingBoxDescent || 0, metrics.fontBoundingBoxDescent || 0, fs * 0.29);
-  const baseline = (fs * 1.15 + ascent - descent) / 2;
+  const fontAscent = metrics.fontBoundingBoxAscent ?? fs * 1.16, fontDescent = metrics.fontBoundingBoxDescent ?? fs * 0.29;
+  const ascent = Math.max(metrics.actualBoundingBoxAscent || 0, fontAscent);
+  const descent = Math.max(metrics.actualBoundingBoxDescent || 0, fontDescent);
+  const baseline = (fs * 1.15 + fontAscent - fontDescent) / 2;
   const [dx, dy] = widget.effect ? (widget.effectDistance || [0, 0]).map(Math.abs) : [0, 0];
   return { top: Math.max(0, ascent - baseline) + dy, bottom: Math.max(0, descent - (fs * 1.15 - baseline)) + dy,
     left: dx, right: dx };
