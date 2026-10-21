@@ -231,6 +231,8 @@ def test_model_prefab_and_dependencies_analyze_update_add_and_apply(batch_model_
     assert all(path.read_bytes() != env.official[path] for path in env.parts[:2])
     if not outdated:
         assert env.parts[2].read_bytes() == env.official[env.parts[2]]
+    completed, = analyze(env, sources)["entries"]
+    assert (completed["state"], completed["libraryId"]) == ("done", mod.id)
     env.library.restore("hoshino", kind="model")
     assert all(path.read_bytes() == original for path, original in env.official.items())
 
@@ -406,18 +408,138 @@ def test_update_then_add_then_apply_forwards_every_classic_option_and_reports_ev
     assert any(event == "mods.state" for event, _ in seen)
 
 
-@pytest.mark.parametrize("switch,enable", [(False, True), (True, False), (True, True)])
-def test_enable_after_import_respects_master_switch_and_backup_option(env, switch, enable):
+def import_targets(env, kind):
+    if kind == "spr":
+        return [env.original]
+    if kind == "lobby":
+        return [game_bundle(env.game_dir, "test_home_gl")]
+    return env.parts
+
+
+@pytest.mark.parametrize("fixture,kind", [("env", "spr"), ("env", "lobby"),
+                                         ("batch_model_env", "model"), ("batch_other_env", "other")])
+@pytest.mark.parametrize("switch", [False, True])
+@pytest.mark.parametrize("enable", [False, True])
+def test_enable_after_import_configures_every_kind_and_defers_game_writes(request, fixture, kind, switch, enable):
+    env = request.getfixturevalue(fixture)
     if not switch:
-        env.library.toggle(False, True)
-    source = make_mod(env.original, env.tmp / "input")
-    before = env.original.read_bytes()
-    entry, = analyze(env, [source])["entries"]
+        assert not env.library.toggle(False, True).failed
+    targets = import_targets(env, kind)
+    sources = [make_mod(target, env.tmp / "input", payload=f"mod {i}".encode()) for i, target in enumerate(targets)]
+    before = {target: target.read_bytes() for target in targets}
+    entry, = analyze(env, sources)["entries"]
     result, = run(env, [entry], enableAfterImport=enable, backup=False)
-    assert result["outcome"] == "imported" and result["applied"] is (switch and enable)
-    assert env.original.read_bytes() == (source.read_bytes() if switch and enable else before)
-    assert env.library.configured("test")["spr"] == (f"mod:{result['libraryId']}" if enable else None)
-    assert not env.original.with_name(env.original.name + ".backup").exists()
+    assert result["outcome"] == "imported" and result["applied"] is enable
+    mod, = env.library.mods()
+    if kind == "other":
+        assert rpc(env, "mods.other")[0]["selected"] is enable
+    else:
+        assert env.library.configured(mod.target)[kind] == (f"mod:{mod.id}" if enable else None)
+    for target, source in zip(targets, sources):
+        assert target.read_bytes() == (source.read_bytes() if switch and enable else before[target])
+        assert not target.with_name(target.name + ".backup").exists()
+    if not switch:
+        assert not env.library.toggle(True, False).failed
+        for target, source in zip(targets, sources):
+            assert target.read_bytes() == (source.read_bytes() if enable else before[target])
+    assert env.services.batch_import._latest[entry["id"]].entry["state"] == "done"
+    completed, = analyze(env, sources)["entries"]
+    assert (completed["state"], completed["libraryId"], completed["reason"]) == ("done", mod.id, None)
+
+
+@pytest.mark.parametrize("fixture,kind", [("env", "spr"), ("env", "lobby"),
+                                         ("batch_model_env", "model"), ("batch_other_env", "other")])
+@pytest.mark.parametrize("switch", [False, True])
+def test_several_mods_for_one_variant_configure_in_request_order_last_wins_and_reenter_done(
+        request, fixture, kind, switch, monkeypatch):
+    env = request.getfixturevalue(fixture)
+    if not switch:
+        assert not env.library.toggle(False, True).failed
+    targets = import_targets(env, kind)
+    before = {target: target.read_bytes() for target in targets}
+    sources = [make_mod(target, env.tmp / name, payload=f"{name} {i}".encode())
+               for name in ("first", "second", "third") for i, target in enumerate(targets)]
+    jid = rpc(env, "import.analyze", paths=list(map(str, sources)))
+    entries = finish(env, jid)["entries"]
+    chosen = list(reversed(entries))
+    results = run(env, chosen, workers=3)
+    assert [result["id"] for result in results] == [entry["id"] for entry in chosen]
+    assert all(result["outcome"] == "imported" and result["applied"] for result in results)
+    last = next(mod for mod in env.library.mods() if mod.id == results[-1]["libraryId"])
+    if kind == "other":
+        assert [row["id"] for row in rpc(env, "mods.other") if row["selected"]] == [last.id]
+    else:
+        assert env.library.configured(last.target)[kind] == f"mod:{last.id}"
+    for target in targets:
+        assert target.read_bytes() == ((last.file.parent / target.name).read_bytes() if switch else before[target])
+    assert all(candidate.entry["state"] == "done" for candidate in env.services.batch_import._latest.values())
+    completed = analyze(env, sources)["entries"]
+    assert all(entry["state"] == "done" and entry["reason"] is None for entry in completed)
+    assert {entry["libraryId"] for entry in completed} == {result["libraryId"] for result in results}
+
+    def no_apply(*args, **kwargs):
+        pytest.fail("Completed rows must never configure their sources again")
+
+    monkeypatch.setattr(env.library, "apply_import", no_apply)
+    assert all(result["outcome"] == "unchanged" and not result["applied"] for result in run(env, completed))
+    assert len(env.library.mods()) == 3
+    if not switch:
+        assert not env.library.toggle(True, False).failed
+        assert all(target.read_bytes() == (last.file.parent / target.name).read_bytes() for target in targets)
+
+
+@pytest.mark.parametrize("duplicate_phase", ["preflight", "add", "update"])
+@pytest.mark.parametrize("switch", [False, True])
+def test_import_configures_a_duplicate_created_since_analysis(env, monkeypatch, duplicate_phase, switch):
+    if not switch:
+        assert not env.library.toggle(False, True).failed
+    source = (game_bundle(env.tmp / "input", date="2025-01-01", payload=b"old mod") if duplicate_phase == "update"
+              else make_mod(env.original, env.tmp / "input"))
+    entry, = analyze(env, [source])["entries"]
+    if duplicate_phase == "update":
+        updater(monkeypatch, [], payload=b"converted mod")
+        stored, = env.library.add([make_mod(env.original, env.tmp / "stored", payload=b"converted mod")])
+    elif duplicate_phase == "preflight":
+        stored, = env.library.add([source])
+    else:
+        add = env.library.add_files
+        stored = []
+
+        def add_duplicate(*args, **kwargs):
+            stored.extend(add(*args, **kwargs))
+            return add(*args, **kwargs)
+
+        monkeypatch.setattr(env.library, "add_files", add_duplicate)
+    before = env.original.read_bytes()
+    result, = run(env, [entry])
+    if duplicate_phase == "add":
+        stored, = stored
+    assert result["outcome"] == "unchanged" and result["applied"]
+    assert result["libraryId"] == stored.id and len(env.library.mods()) == 1
+    assert env.library.configured("test")["spr"] == f"mod:{stored.id}"
+    assert env.original.read_bytes() == (stored.file.read_bytes() if switch else before)
+    completed, = analyze(env, [source])["entries"]
+    assert (completed["state"], completed["libraryId"]) == ("done", stored.id)
+
+
+@pytest.mark.parametrize("change", ["bytes", "remove", "library", "folder"])
+def test_completed_rows_are_scoped_to_unchanged_inputs_and_the_library_install(env, change):
+    source = make_mod(env.original, env.tmp / "input")
+    entry, = analyze(env, [source])["entries"]
+    result, = run(env, [entry], enableAfterImport=False)
+    assert analyze(env, [source])["entries"][0]["state"] == "done"
+    if change == "bytes":
+        make_mod(env.original, source.parent, payload=b"changed mod")
+    elif change == "remove":
+        assert not env.library.remove(result["libraryId"]).failed
+    elif change == "library":
+        from ba_modding_toolkit.library import ModLibrary
+        env.services._library = ModLibrary(env.tmp / "another-library", env.catalog, object(), env.settings)
+    else:
+        game_bundle(env.tmp / "another-game")
+        env.settings.set("game_resource_dir", str(env.tmp / "another-game"))
+    reentered, = analyze(env, [source])["entries"]
+    assert reentered["state"] == ("library" if change == "folder" else "ready")
 
 
 def test_enable_after_import_applies_to_the_pinned_install_when_already_installed_elsewhere(env, monkeypatch):
@@ -480,6 +602,8 @@ def test_per_entry_failures_keep_successful_imports_and_error_codes(env, monkeyp
     assert failed["outcome"] == "failed" and failed["reason"] == code and not failed["applied"]
     assert bool(failed["libraryId"]) is (phase == "apply")
     assert imported["outcome"] == "imported" and imported["applied"]
+    assert env.services.batch_import._latest[failed["id"]].entry["state"] != "done"
+    assert env.services.batch_import._latest[imported["id"]].entry["state"] == "done"
 
 
 def test_skip_unchanged_update_and_modified_source_are_safe(env, monkeypatch):
@@ -489,6 +613,7 @@ def test_skip_unchanged_update_and_modified_source_are_safe(env, monkeypatch):
                         ModUpdateResult(True, "all_targets_unchanged", []))
     result, = run(env, [entry])
     assert result["outcome"] == "unchanged" and not env.library.mods()
+    assert env.services.batch_import._latest[entry["id"]].entry["state"] != "done"
     old.write_bytes(old.read_bytes() + b"changed")
     result, = run(env, [entry])
     assert result["outcome"] == "failed" and result["reason"] == "entry_changed"
@@ -735,7 +860,7 @@ def test_generic_batch_multi_target_import_apply_library_and_settings_rpc(batch_
     row, = rpc(env, 'mods.other')
     assert row['id'] == mod.id and row['selected'] and row['state'] == 'active'
     duplicate, = analyze(env, sources)['entries']
-    assert duplicate['state'] == 'library' and duplicate['libraryId'] == mod.id
+    assert duplicate['state'] == 'done' and duplicate['libraryId'] == mod.id
     finish(env, rpc(env, 'actions.restore', variant=mod.target, kind='other'))
     assert rpc(env, 'mods.other')[0]['state'] == 'official'
     assert all(p.read_bytes() == data for p, data in env.official.items())
@@ -756,10 +881,12 @@ def test_generic_old_batch_uses_classic_update_then_add_and_deferred_apply(batch
     updater(monkeypatch, calls)
     assert not env.library.toggle(False, True).failed
     result, = run(env, [entry], strategy='cont_name_type')
-    assert result['outcome'] == 'updated' and not result['applied']
+    assert result['outcome'] == 'updated' and result['applied']
     assert calls[0][1]['source_paths'] == [old]
     assert [p.name for p in calls[0][1]['target_paths']] == [env.parts[0].name]
     assert rpc(env, 'mods.other')[0]['state'] == 'set'
+    completed, = analyze(env, [old])['entries']
+    assert (completed['state'], completed['libraryId']) == ('done', result['libraryId'])
     assert not env.library.toggle(True, False).failed
     assert env.parts[0].read_bytes() == env.library.mods()[0].file.read_bytes()
 

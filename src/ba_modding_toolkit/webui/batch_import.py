@@ -128,6 +128,7 @@ class BatchImport:
         self._pin: Any = None
         self._hashes = Fingerprints()
         self._sources: dict[str, tuple[frozenset, dict]] = {}
+        self._completed: dict[tuple, str] = {}
 
     def defaults(self) -> dict:
         settings = self.services.settings
@@ -186,6 +187,7 @@ class BatchImport:
                 if override and override[0] == candidate.identity:
                     candidate.source_override = dict(override[1])
                 self._judge(candidate, library, pin, log)
+                self._restore_completed(candidate, library, pin)
                 if candidate.identity and candidate.identity in known:
                     skipped += len(candidate.entry["paths"])
                     continue
@@ -233,6 +235,7 @@ class BatchImport:
             if identity != fresh.identity:
                 raise ServiceError("entry_changed")
             self._judge(fresh, library, pin, log)
+            self._restore_completed(fresh, library, pin)
             previews = {}
             self._register_preview(fresh, revision, previews)
             with self._lock:
@@ -245,6 +248,21 @@ class BatchImport:
             return fresh.entry
 
         return self.services.submit("import.setSource", analyze)
+
+    def _completion_key(self, candidate: Candidate, library: Any, pin: Any) -> tuple:
+        return (library, pin.key if pin else None, tuple(pin.dirs) if pin else (),
+                candidate.entry["id"], candidate.identity)
+
+    def _restore_completed(self, candidate: Candidate, library: Any, pin: Any) -> None:
+        with self._lock:
+            mod_id = self._completed.get(self._completion_key(candidate, library, pin))
+        if mod_id and any(mod.id == mod_id for mod in library.mods()):
+            candidate.entry.update(state="done", reason=None, libraryId=mod_id)
+
+    def _complete(self, candidate: Candidate, library: Any, pin: Any, mod_id: str) -> None:
+        with self._lock:
+            self._completed[self._completion_key(candidate, library, pin)] = mod_id
+            candidate.entry.update(state="done", reason=None, libraryId=mod_id)
 
     def preview(self, key: str) -> tuple[str, list[Path]]:
         """Compose an analyzed source in memory, with missing parts from the pinned official files."""
@@ -537,7 +555,7 @@ class BatchImport:
                         phase = "add"
                         try:
                             state = candidate.entry["state"]
-                            if state in ("library", "installed"):
+                            if state in ("done", "library", "installed"):
                                 item["outcome"] = "unchanged"
                             elif state == "blocked":
                                 item["reason"] = candidate.entry["reason"]
@@ -548,6 +566,7 @@ class BatchImport:
                                 paths, updated, fresh = future.result()
                                 if paths is None:
                                     item.update(outcome="unchanged", libraryId=fresh.entry["libraryId"])
+                                    mod = next((mod for mod in library.mods() if mod.id == item["libraryId"]), None)
                                 else:
                                     report(candidate, "add")
                                     added = library.add_files(fresh.entry["kind"], paths, pin=pin)
@@ -558,14 +577,17 @@ class BatchImport:
                                     item.update(libraryId=mod.id, outcome=("updated" if updated else "imported")
                                                 if added else "unchanged")
                                     result.added.extend(added)
-                                    result.cores.update(core_of(path.name) for path in paths)
+                                if mod is not None:
+                                    result.cores.update(core_of(name) for name in fresh.files)
                                     result.kinds.add(mod.kind)
-                                    if options["enableAfterImport"] and added:
+                                    if options["enableAfterImport"]:
                                         phase = "apply"
                                         report(candidate, phase)
-                                        applied = library.apply_import(mod.target, f"mod:{mod.id}", kind=mod.kind,
+                                        library.apply_import(mod.target, f"mod:{mod.id}", kind=mod.kind,
                                             pin=pin, settings=settings, backup=options["backup"], log=log)
-                                        item["applied"] = not applied.deferred
+                                        # A successful apply configures the source, including deferred applies.
+                                        item["applied"] = True
+                                    self._complete(candidate, library, pin, mod.id)
                         except ServiceError as error:
                             item.update(outcome="failed", reason=error.code)
                         except OSError:
