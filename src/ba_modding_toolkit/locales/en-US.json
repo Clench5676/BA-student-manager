@@ -1459,8 +1459,8 @@
 			"progress": "{phase} - {done}/{total} {name}",
 			"complete": "Done: {n}, failed: {failed}",
 			"resultTitle": "Import Results",
-			"applied": "Set as Source",
-			"notApplied": "Source Not Set",
+			"applied": "Applied",
+			"notApplied": "Not Applied",
 			"auto": "Auto",
 			"original": "Original",
 			"uncompressed": "Uncompressed",
@@ -1491,7 +1491,7 @@
 			"phase": {
 				"update": "Updating",
 				"add": "Adding to Library",
-				"apply": "Setting Sources"
+				"apply": "Applying Mods"
 			},
 			"outcome": {
 				"imported": "Added to Library",
@@ -1502,7 +1502,7 @@
 			},
 			"options": {
 				"title": "Advanced Options",
-				"enableAfterImport": "Set as Source After Import",
+				"enableAfterImport": "Enable Mods After Import",
 				"strategy": "Match Strategy",
 				"types": "Resource Types",
 				"allTypes": "All Resource Types",

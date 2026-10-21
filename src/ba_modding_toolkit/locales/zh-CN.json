@@ -1459,8 +1459,8 @@
 			"progress": "{phase} - {done}/{total} {name}",
 			"complete": "完成：{n}，失败：{failed}",
 			"resultTitle": "导入结果",
-			"applied": "已设为来源",
-			"notApplied": "未设为来源",
+			"applied": "已应用",
+			"notApplied": "未应用",
 			"auto": "自动",
 			"original": "原压缩方式",
 			"uncompressed": "不压缩",
@@ -1491,7 +1491,7 @@
 			"phase": {
 				"update": "正在更新",
 				"add": "正在加入 Mod 仓库",
-				"apply": "设置来源"
+				"apply": "正在应用 Mod"
 			},
 			"outcome": {
 				"imported": "已加入 Mod 仓库",
@@ -1502,7 +1502,7 @@
 			},
 			"options": {
 				"title": "高级选项",
-				"enableAfterImport": "导入后设为来源",
+				"enableAfterImport": "安装后马上启用 Mod",
 				"strategy": "匹配策略",
 				"types": "资源类型",
 				"allTypes": "所有资源类型",

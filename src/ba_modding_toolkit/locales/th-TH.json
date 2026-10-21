@@ -1459,8 +1459,8 @@
 			"progress": "{phase} - {done}/{total} {name}",
 			"complete": "เสร็จแล้ว: {n}, ล้มเหลว: {failed}",
 			"resultTitle": "ผลการนำเข้า",
-			"applied": "ตั้งเป็นแหล่งแล้ว",
-			"notApplied": "ยังไม่ตั้งเป็นแหล่ง",
+			"applied": "ใช้แล้ว",
+			"notApplied": "ยังไม่ได้ใช้",
 			"auto": "อัตโนมัติ",
 			"original": "ต้นฉบับ",
 			"uncompressed": "ไม่บีบอัด",
@@ -1491,7 +1491,7 @@
 			"phase": {
 				"update": "กำลังอัปเดต",
 				"add": "กำลังเพิ่มในคลัง Mod",
-				"apply": "กำลังตั้งแหล่ง"
+				"apply": "กำลังใช้ Mod"
 			},
 			"outcome": {
 				"imported": "เพิ่มในคลัง Mod แล้ว",
@@ -1502,7 +1502,7 @@
 			},
 			"options": {
 				"title": "ตัวเลือกขั้นสูง",
-				"enableAfterImport": "ตั้งเป็นแหล่งหลังนำเข้า",
+				"enableAfterImport": "เปิดใช้ Mod หลังนำเข้า",
 				"strategy": "วิธีจับคู่",
 				"types": "ประเภททรัพยากร",
 				"allTypes": "ทรัพยากรทุกประเภท",

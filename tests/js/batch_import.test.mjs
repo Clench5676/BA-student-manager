@@ -260,7 +260,7 @@ test("running captures IDs/options, follows job progress, survives hiding and sh
   await h.page.show(h.context, catalog); assert.equal(h.phase(), "done"); assert.equal(h.changed(), 1);
   assert.equal(h.action("start").getAttribute("aria-label"), "View Results"); assert.match(h.host.textContent, /Done: 1, failed: 1/);
   await h.page.results();
-  assert.match(h.dialog.textContent, /Added to Library/); assert.match(h.dialog.textContent, /Source Not Set/);
+  assert.match(h.dialog.textContent, /Added to Library/); assert.match(h.dialog.textContent, /Not Applied/);
   assert.match(h.dialog.textContent, /Unreadable File/);
   assert.equal(walk(h.dialog).filter((element) => element.dataset.result).length, 2);
   await h.action("ok", h.dialog).click(); assert.equal(h.dialog.hidden, true);
@@ -617,7 +617,7 @@ test("advanced boolean, choice, resource and input rows share Settings' body, ti
   await off.click(); await h.page.settled();
   assert.equal(off.getAttribute("aria-checked"), "true");
   assert.equal(walk(enable).find((element) => element.dataset.value === "true").getAttribute("aria-checked"), "false");
-  const expected = radioRow("Option_enableAfterImport", 0, "Set as Source After Import", [[true, "On"], [false, "Off"]], false, () => {}).tree;
+  const expected = radioRow("Option_enableAfterImport", 0, "Enable Mods After Import", [[true, "On"], [false, "Off"]], false, () => {}).tree;
   assert.deepEqual(drawn(h, enable).tree, expected);
   await h.action("ok", h.dialog).click();
   assert.equal(h.calls.find((call) => call.method === "import.setOptions").params.enableAfterImport, false);
@@ -905,7 +905,7 @@ test("results omit state badges, follow the merge setting and route every studen
   h.runs[0].resolve({ results: [a, lobby, other].map((entry) => ({ id: entry.id, outcome: "imported", libraryId: `lib-${entry.id}`, applied: true })) });
   await flush(); await h.page.results(); await h.page.settled();
   const rows = walk(h.dialog).filter((element) => element.dataset.result);
-  assert.equal(rows.length, 2); assert.match(h.dialog.textContent, /Set as Source/);
+  assert.equal(rows.length, 2); assert.match(h.dialog.textContent, /Applied/);
   for (const row of rows) assert.equal(find(drawn(h, row).tree, "TimeLimit").active, false);
   await h.action("go", rows[0]).click(); assert.deepEqual(h.destinations, [["a", "a"]]); assert.equal(h.dialog.hidden, true);
   await h.page.results(); await h.page.settled();
@@ -936,17 +936,17 @@ test("the shared page hold reports both analysis and import progress through art
   h.analyses[0].resolve({ entries: [entry("a")], skipped: 0 }); await analyzing; await h.page.settled(); await flush();
   h.answers.push({ button: "ok" }); await h.action("start").click(); await flush();
   h.runs[0].progress({ done: 1, total: 2, phase: "apply" });
-  assert.equal(hold().opts.progress(), "Setting Sources 1 / 2");
+  assert.equal(hold().opts.progress(), "Applying Mods 1 / 2");
   h.runs[0].reject({ code: "internal" }); await flush(); await h.page.settled(); await flush();
   assert.equal(hold(), undefined);
 });
 
-test("all six locales use short completion, merge and source-configuration labels", () => {
+test("all six locales use short completion, merge and applied labels", () => {
   for (const lang of ["zh-CN", "zh-TW", "en-US", "ja-JP", "ko-KR", "th-TH"]) {
     const data = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${lang}.json`, import.meta.url))).webui.import;
     for (const text of [data.state.done, data.merge, data.applied, data.notApplied]) assert.ok(text && !/[{}]/.test(text));
     assert.deepEqual([...data.waitProgress.matchAll(/\{(\w+)\}/g)].map((m) => m[1]), ["label", "done", "total"]);
-    if (lang === "zh-CN") { assert.equal(data.state.done, "\u5df2\u5b8c\u6210"); assert.equal(data.applied, "\u5df2\u8bbe\u4e3a\u6765\u6e90"); }
+    if (lang === "zh-CN") { assert.equal(data.state.done, "\u5df2\u5b8c\u6210"); assert.equal(data.applied, "\u5df2\u5e94\u7528"); }
   }
 });
 

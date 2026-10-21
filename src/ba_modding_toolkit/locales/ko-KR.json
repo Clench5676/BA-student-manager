@@ -1459,8 +1459,8 @@
 			"progress": "{phase} - {done}/{total} {name}",
 			"complete": "완료: {n}개, 실패: {failed}개",
 			"resultTitle": "가져오기 결과",
-			"applied": "소스로 설정됨",
-			"notApplied": "소스 미설정",
+			"applied": "적용됨",
+			"notApplied": "미적용",
 			"auto": "자동",
 			"original": "원본 압축 방식",
 			"uncompressed": "압축 안 함",
@@ -1491,7 +1491,7 @@
 			"phase": {
 				"update": "업데이트 중",
 				"add": "라이브러리에 추가 중",
-				"apply": "소스 설정 중"
+				"apply": "모드 적용 중"
 			},
 			"outcome": {
 				"imported": "라이브러리에 추가됨",
@@ -1502,7 +1502,7 @@
 			},
 			"options": {
 				"title": "고급 옵션",
-				"enableAfterImport": "가져온 후 소스로 설정",
+				"enableAfterImport": "가져온 후 모드 활성화",
 				"strategy": "매칭 방식",
 				"types": "리소스 유형",
 				"allTypes": "모든 리소스 유형",

@@ -1459,8 +1459,8 @@
 			"progress": "{phase} - {done}/{total} {name}",
 			"complete": "完了：{n}件、失敗：{failed}件",
 			"resultTitle": "インポート結果",
-			"applied": "ソース設定済み",
-			"notApplied": "ソース未設定",
+			"applied": "適用済み",
+			"notApplied": "未適用",
 			"auto": "自動",
 			"original": "元の圧縮形式",
 			"uncompressed": "無圧縮",
@@ -1491,7 +1491,7 @@
 			"phase": {
 				"update": "更新中",
 				"add": "ライブラリに追加中",
-				"apply": "ソース設定中"
+				"apply": "MODを適用中"
 			},
 			"outcome": {
 				"imported": "ライブラリに追加済み",
@@ -1502,7 +1502,7 @@
 			},
 			"options": {
 				"title": "詳細オプション",
-				"enableAfterImport": "インポート後にソースに設定",
+				"enableAfterImport": "インポート後にMODを有効化",
 				"strategy": "照合方法",
 				"types": "アセットの種類",
 				"allTypes": "すべてのアセット",

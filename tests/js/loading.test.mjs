@@ -396,7 +396,7 @@ test("in-page holds use the prefab gradient on every edge, Now Loading and live 
   assert.ok(edges.every((tree) => tree.widgets[0].sprite === h.gradient.widgets[0].sprite && tree.widgets[0].color === h.gradient.widgets[0].color));
   assert.deepEqual(h.gradient, snapshot, "the runtime prefab remains immutable");
   assert.ok(overlay.querySelector(".loading-repeater"));
-  text = "Setting Sources 1 / 2"; h.loading.refresh();
+  text = "Applying Mods 1 / 2"; h.loading.refresh();
   assert.equal(overlay.querySelector(".loading-progress").textContent, text);
   left.resolve(); await flush();
   assert.equal(h.loading.held(), false); assert.equal(h.loading.active(), false);
