@@ -1442,6 +1442,7 @@
 			"select": "選択",
 			"selectNamed": "{name}を選択",
 			"meta": "{id} - {n}ファイル、{size}",
+			"metaOne": "{id} - {n}ファイル、{size}",
 			"empty": "MODがありません",
 			"drop": "ファイルやフォルダーを追加、またはここにドロップ",
 			"noMatch": "該当するMODがありません",

@@ -1442,6 +1442,7 @@
 			"select": "Select",
 			"selectNamed": "Select {name}",
 			"meta": "{id} - {n} files, {size}",
+			"metaOne": "{id} - {n} file, {size}",
 			"empty": "No Mods",
 			"drop": "Add files, a folder or drop them here",
 			"noMatch": "No Matching Mods",

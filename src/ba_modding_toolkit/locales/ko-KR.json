@@ -1442,6 +1442,7 @@
 			"select": "선택",
 			"selectNamed": "{name} 선택",
 			"meta": "{id} - 파일 {n}개, {size}",
+			"metaOne": "{id} - 파일 {n}개, {size}",
 			"empty": "모드 없음",
 			"drop": "파일이나 폴더를 추가하거나 여기에 놓기",
 			"noMatch": "일치하는 모드 없음",

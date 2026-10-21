@@ -1442,6 +1442,7 @@
 			"select": "選擇",
 			"selectNamed": "選擇 {name}",
 			"meta": "{id} - {n} 個檔案，{size}",
+			"metaOne": "{id} - {n} 個檔案，{size}",
 			"empty": "尚無 Mod",
 			"drop": "新增檔案、資料夾，或拖放至此",
 			"noMatch": "找不到 Mod",

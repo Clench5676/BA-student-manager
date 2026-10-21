@@ -1442,6 +1442,7 @@
 			"select": "เลือก",
 			"selectNamed": "เลือก {name}",
 			"meta": "{id} - {n} ไฟล์, {size}",
+			"metaOne": "{id} - {n} ไฟล์, {size}",
 			"empty": "ไม่มี Mod",
 			"drop": "เพิ่มไฟล์, โฟลเดอร์หรือลากมาที่นี่",
 			"noMatch": "ไม่พบ Mod ที่ตรงกัน",
