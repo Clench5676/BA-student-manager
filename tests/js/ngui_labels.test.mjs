@@ -16,12 +16,11 @@ test("loading progress clones the prefab label effect and NGUI renders its exact
   assert.match(css, /\.loading-progress\.prefab-label \{ inset: 0/);
   assert.match(css, /\.loading-edge \{[^}]*z-index: 0/);
 });
-test("progress baselines match Now Loading after the stage-bottom shift in Latin, CJK and Thai", () => {
+test("progress labels retain the target line across Latin, CJK and Thai initial placements", () => {
   for (const scale of [1920 / 2960, 0.54, 1]) for (const text of ["Applying Mods", "\u6b63\u5728\u52a0\u5165", "\u0e01\u0e33\u0e25\u0e31\u0e07"]) {
     const tree = loadingLabel(repeater, null, text, scale), w = tree.widgets[0];
     const expected = 1080 - (720 - 600) * scale + letter.h_ * scale / 2 - labelBaselineInset(letter.text, letter.fontSize) * scale;
-    const actual = -tree.pos[1] * scale - labelBaselineInset(text, w.fontSize) * scale;
-    assert.ok(Math.abs(expected - actual) < 1e-8);
+    assert.ok(Math.abs(expected - tree.inkLine) < 1e-8);
     assert.equal(tree.pos[0] * scale, 84);
   }
 });
@@ -45,8 +44,7 @@ test("sprite letter ink, excluding g and Arona, defines the progress baseline", 
     const tree = loadingLabel(r, style, "Reading game files", scale, ink);
     assert.ok(tree, "the real sprite-based prefab must produce a progress label");
     const expected = 1080 - (134 - 43.4) * scale - (80 - 68) * scale;
-    const baseline = -tree.pos[1] * scale - labelBaselineInset(tree.widgets[0].text, tree.widgets[0].fontSize) * scale;
-    assert.ok(Math.abs(expected - baseline) < 1e-8);
+    assert.ok(Math.abs(expected - tree.inkLine) < 1e-8);
   }
 });
 

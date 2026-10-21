@@ -73,7 +73,7 @@ def test_verified_loading_letters_define_progress_line(tmp_path):
 let input = ""; for await (const part of process.stdin) input += part;
 const {tree, style, ink} = JSON.parse(input), s = 1920/2960;
 const label = loadingLabel(tree, style, "Reading game files", s, ink), w = label.widgets[0];
-console.log(-label.pos[1]*s - labelBaselineInset(w.text, w.fontSize)*s);'''.replace("MODULE", json.dumps(module.as_uri()))
+console.log(label.inkLine);'''.replace("MODULE", json.dumps(module.as_uri()))
     run = subprocess.run(["node", "--input-type=module", "-e", script], input=json.dumps({"tree": tree, "style": style, "ink": ink}),
                          capture_output=True, text=True, check=True)
     assert float(run.stdout) == pytest.approx(max(lines), abs=1e-7)

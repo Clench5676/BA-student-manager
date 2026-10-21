@@ -7,7 +7,8 @@
 // while a complete destination is prepared. wait(promise) shades an in-page wait. There is one
 // page overlay at a time; a newer call takes over the one on screen instead of flashing a new one.
 // Writer progress has its own indicator and lifetime, independent of page changes.
-import { loadingLabel, loadingLetterSprites, alphaBounds } from "./ngui-label.js";
+import { loadingLabel, loadingLetterSprites, loadingInkLine, alphaBounds } from "./ngui-label.js";
+import { alignBaseline, domBaseline, publishAligned } from "./loading-baseline.js";
 import { spriteUrl } from "./api.js";
 import * as NGUI from "./ngui.js";
 import * as Popup from "./popup.js";
@@ -52,7 +53,7 @@ export function init(info) {
   if (!assetsAllowed || !info?.gameFound) return;
   NGUI.layout("UILoading").then((tree) => {
     loadingTree = tree;
-    for (const o of [overlay, writerOverlay]) if (o) renderProgress(o).catch(() => {});
+    for (const o of [overlay, writerOverlay]) if (o) queueProgress(o);
     const back = NGUI.find(tree, "BlackBG")?.widgets.find((w) => "color" in w)?.color;
     geometry = { back: back ? back.split("/")[0] : "#000000" };
     if (overlay) overlay.el.querySelector(".loading-back").style.background = geometry.back;
@@ -88,8 +89,10 @@ export async function task(run, { label = null } = {}) {
   o.el.classList.add("with-progress");
   const detail = document.createElement("div");
   detail.className = "loading-progress";
+  detail.style.visibility = "hidden";
   o.progress?.remove();
   o.progress = detail;
+  o.progressTree = null; o.progressContent = null;
   o.el.appendChild(detail);
   let latest = {};
   const update = (value = latest) => {
@@ -139,6 +142,7 @@ function open(mode, opaque = false, writer = false) {
   else overlay = o;
   if (mode === "indicator" && !writer) {
     const detail = document.createElement("div"); detail.className = "loading-progress";
+    detail.style.visibility = "hidden";
     o.el.appendChild(detail); o.progress = detail;
     o.relabelProgress = () => {
       setProgress(o, [...holds].reverse().find((hold) => hold.progress)?.progress() || o.waitLabel || T("app.loading"));
@@ -157,11 +161,19 @@ export function refresh() {
 function setProgress(o, text) {
   o.progressText = text;
   o.el.setAttribute("aria-label", text);
-  if (!o.progressTree) o.progress.textContent = text;
-  renderProgress(o).catch(() => {});
+  if (!o.progressContent) o.progress.textContent = text;
+  correctFallback(o);
+  queueProgress(o);
+}
+function queueProgress(o) {
+  const work = renderProgress(o).catch(() => {});
+  o.progressWork = work;
+  return work;
 }
 async function renderProgress(o) {
   if (!assetsAllowed || !o.progress || !o.repeaterTree || o.closing) return;
+  const token = o.progressVersion = (o.progressVersion || 0) + 1;
+  const text = o.progressText || "";
   const template = await NGUI.layout("UICharacterDetail");
   const style = NGUI.find(template, "Inventory_ListControl/LeftInfo/CharInfo/Char_Target/Text_Lv/Text_Lv_Exp");
   const bounds = await Promise.all(loadingLetterSprites(o.repeaterTree).map(async ({ w }) => {
@@ -172,16 +184,54 @@ async function renderProgress(o) {
     }).catch((err) => { letterInk.delete(w.sprite); throw err; }));
     return [w.sprite, await letterInk.get(w.sprite)];
   }));
-  const tree = loadingLabel(o.repeaterTree, style || loadingTree, o.progressText || "", S, Object.fromEntries(bounds));
-  if (!tree) return;
-  const token = o.progressVersion = (o.progressVersion || 0) + 1;
+  const ink = Object.fromEntries(bounds);
+  const tree = loadingLabel(o.repeaterTree, style || loadingTree, text, S, ink);
+  const line = tree?.inkLine ?? loadingInkLine(o.repeaterTree, S, ink);
+  if (line == null) return;
   const next = document.createElement("div");
-  await NGUI.render(tree, next, { scale: S, origin: [0, 0] });
-  if (token !== o.progressVersion || o.closing || o.done) return;
+  Object.assign(next.style, { position: "absolute", inset: "0", visibility: "hidden" });
+  o.el.appendChild(next); // connected and measurable, never painted before correction
+  try {
+    if (tree) await NGUI.render(tree, next, { scale: S, origin: [0, 0] });
+    else {
+      const css = getComputedStyle(o.progress);
+      Object.assign(next.style, { inset: "auto", left: "84px", bottom: "44px", font: css.font, color: css.color, whiteSpace: "nowrap" });
+      next.textContent = text;
+    }
+    await document.fonts?.ready;
+    if (token !== o.progressVersion || o.closing || o.done) { next.remove(); return; }
+    o.progress.classList.add("prefab-label");
+    o.progress.style.transform = "";
+    if (!publishAligned(o.progress, next, line, stage())) { next.remove(); return; }
+  } catch (err) { next.remove(); throw err; }
   o.progressTree = tree;
-  o.progress.classList.add("prefab-label");
-  o.progress.replaceChildren(...next.childNodes);
+  o.inkLine = line; o.progressContent = next;
+  o.progress.style.visibility = "";
 }
+
+function correctFallback(o) {
+  if (!o.progress || o.progressContent) return;
+  if (assetsAllowed && o.inkLine == null && !o.geometryFailed) return;
+  try {
+    const indicator = o.ind.querySelector("span"), rect = stage().getBoundingClientRect();
+    if (!indicator || !rect.width) return;
+    const line = o.inkLine ?? (domBaseline(indicator) - rect.top) / (rect.width / 1920);
+    if (alignBaseline(o.progress, line, stage())) o.progress.style.visibility = "";
+  } catch { /* a detached boot surface waits for its first measurable frame */ }
+}
+
+function realignProgress() {
+  for (const o of [overlay, writerOverlay]) {
+    if (!o || o.closing) continue;
+    if (o.progressContent) alignBaseline(o.progressContent, o.inkLine, stage());
+    else correctFallback(o);
+  }
+}
+globalThis.addEventListener?.("resize", realignProgress);
+document.fonts?.addEventListener?.("loadingdone", realignProgress);
+if (globalThis.ResizeObserver && stage()) new ResizeObserver(realignProgress).observe(stage());
+if (globalThis.MutationObserver && stage()) new MutationObserver(realignProgress)
+  .observe(stage(), { attributes: true, attributeFilter: ["style"] });
 
 // resolves in the first frame the overlay is fully black (the fade may start late on a busy page, so it is watched,
 // not timed); a page in the background, which draws no frames, gets a time limit instead
@@ -243,6 +293,7 @@ function fallback(o) {
   o.ind.innerHTML = o.plain ? '<div class="loading-plain"><span></span></div>' :
     '<div class="loading-fallback"><span></span><i></i><i></i><i></i></div>';
   o.ind.querySelector("span").textContent = indicatorText(o);
+  correctFallback(o);
 }
 
 function repeaterTree() {
@@ -283,7 +334,7 @@ async function upgrade(o) {
   if (!assetsAllowed || o.sprites) return;
   o.sprites = true;
   const tree = await repeaterTree();
-  if (!tree || (o !== overlay && o !== writerOverlay)) { o.sprites = false; return; }
+  if (!tree || (o !== overlay && o !== writerOverlay)) { o.sprites = false; o.geometryFailed = !tree; correctFallback(o); return; }
   const next = document.createElement("div");
   next.className = "loading-repeater";
   // the corner widget is anchored to the screen: moved down to the stage's bottom edge
@@ -292,9 +343,12 @@ async function upgrade(o) {
   if (!assetsAllowed || (o !== overlay && o !== writerOverlay)) { o.sprites = false; return; }
   const widgets = [...next.querySelectorAll(".ngui")];
   // NGUI keeps hit geometry after image failures; it must not replace the fallback with empty widgets.
-  if (!decoded || !widgets.length || widgets.some((el) => !el.style.backgroundImage && !el.textContent)) { o.sprites = false; return; }
+  if (!decoded || !widgets.length || widgets.some((el) => !el.style.backgroundImage && !el.textContent)) {
+    o.sprites = false; o.geometryFailed = true; correctFallback(o); return;
+  }
   o.repeaterTree = tree;
-  renderProgress(o).catch(() => {});
+  let progress = queueProgress(o);
+  do { await progress; if (progress === o.progressWork) break; progress = o.progressWork; } while (progress);
   o.ind.replaceChildren(next);
   styled = true;
   o.plain = false;
@@ -316,7 +370,7 @@ function decorate(o) {
     const text = o.ind.querySelector("span");
     if (text) text.textContent = indicatorText(o);
   }
-  upgrade(o).catch(() => { o.sprites = false; });
+  upgrade(o).catch(() => { o.sprites = false; o.geometryFailed = true; correctFallback(o); });
 }
 
 // --- modes ---

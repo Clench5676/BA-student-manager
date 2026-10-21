@@ -1,4 +1,5 @@
-import { loadingLabel, loadingLetterSprites, alphaBounds } from "../../src/ba_modding_toolkit/web/js/ngui-label.js";
+import { alignBaseline, publishAligned } from "../../src/ba_modding_toolkit/web/js/loading-baseline.js";
+import { loadingLabel, loadingLetterSprites, loadingInkLine, alphaBounds } from "../../src/ba_modding_toolkit/web/js/ngui-label.js";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
@@ -53,9 +54,10 @@ class El {
   }
 }
 
-async function harness({ locale = "en-US", translated = true, render = "ready", decoded = true, boot = false, consent = true, uiCached = false, infoReady = true, edges = false, prefabLabels = false } = {}) {
+async function harness({ labelGate = null, locale = "en-US", translated = true, render = "ready", decoded = true, boot = false, consent = true, uiCached = false, infoReady = true, edges = false, prefabLabels = false } = {}) {
   const stage = new El(), sprites = deferred(), timers = new Map(), assets = [], drawn = [];
   const gradient = { name: "Bg", pos: [234, -180], scale: [1, 1], children: [], widgets: [{ sprite: "Common_Bg_Gradation_5px", color: "#032650/0.90", w_: 348, h_: 540, pivot: 1 }] };
+  stage.getBoundingClientRect = () => ({ top: 0, width: 1920 });
   let now = 0, timerId = 0;
   let localized = translated;
   const strings = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${locale}.json`, import.meta.url), "utf8")).webui;
@@ -73,12 +75,15 @@ async function harness({ locale = "en-US", translated = true, render = "ready", 
     performance: { now: () => now }, getComputedStyle: () => ({ opacity: "1" }),
     setTimeout: (fn, ms) => { const id = ++timerId; timers.set(id, { at: now + ms, fn }); return id; },
     clearTimeout: (id) => timers.delete(id), requestAnimationFrame: (fn) => fn(),
-    T, S: 1, loadingLabel, loadingLetterSprites, alphaBounds,
+    T, S: 1, loadingLabel, loadingLetterSprites, loadingInkLine, alphaBounds,
+    domBaseline: () => 1028.75, alignBaseline: (el, line) => alignBaseline(el, line, stage, () => 1028.75 + (el.baselineShift || 0)),
+    publishAligned: (host, next, line) => publishAligned(host, next, line, stage, () => 1028.75 + (next.baselineShift || 0)),
     NGUI: { find: (_tree, path) => edges && path.endsWith("CharCombatStyleAniwidget/Bg") ? gradient : null, init: () => { assets.push("indexes"); return sprites.promise; }, layout: async (name) => { assets.push(name); return prefabLabels && name === "UIRepeater" ? {
       name: "UIRepeater", active: true, pos: [0, 0], scale: [1, 1], widgets: [], children: [{ name: "Loading", active: true,
         pos: [900, -600], scale: [1, 1], children: [], widgets: [{ text: "Now Loading", fontSize: 46, w_: 300, h_: 70, pivot: 4,
           effect: 2, color: "#ffffff/1.00", effectColor: "#123456/0.90", effectDistance: [2, -3] }] }] } : {}; }, decoded: async () => decoded, render: async (tree, host) => {
       drawn.push(tree);
+      if (tree.name === "Progress" && labelGate) await labelGate.promise;
       if (render === "reject") throw new Error("Missing atlas");
       if (render === "empty") return;
       const el = new El(); el.className = "ngui";
@@ -88,7 +93,7 @@ async function harness({ locale = "en-US", translated = true, render = "ready", 
     } },
   };
   globalThis.loadingDeps = d;
-  const code = `const {document,performance,setTimeout,clearTimeout,requestAnimationFrame,getComputedStyle,NGUI,T,S,loadingLabel,loadingLetterSprites,alphaBounds} = globalThis.loadingDeps;\n${source.replace(/^import .*;$/gm, "")}\n// ${seq++}`;
+  const code = `const {document,performance,setTimeout,clearTimeout,requestAnimationFrame,getComputedStyle,NGUI,T,S,loadingLabel,loadingLetterSprites,loadingInkLine,alphaBounds,alignBaseline,domBaseline,publishAligned} = globalThis.loadingDeps;\n${source.replace(/^import .*;$/gm, "")}\n// ${seq++}`;
   const loading = await import(`data:text/javascript;base64,${Buffer.from(code).toString("base64")}`);
   if (infoReady) loading.init({ consent, uiCached, gameFound: true });
   const advance = async (ms) => {
@@ -479,4 +484,18 @@ test("ordinary navigation uses the shared inner shade and blocks every interacti
   assert.ok(h.stage.classList.contains("input-held"));
   work.resolve(); await flush(); await h.advance(300); await done;
   assert.equal(h.loading.held(), false);
+});
+
+
+test("the first sprite frame waits for a connected, measured progress label", async () => {
+  const gate = deferred(), h = await harness({ prefabLabels: true, labelGate: gate }), work = deferred();
+  const pending = h.loading.hold(() => work.promise);
+  await flush(); h.sprites.resolve(); await flush();
+  assert.equal(h.stage.children[0].querySelector(".loading-repeater"), null);
+  gate.resolve(); await flush(); await flush();
+  const progress = h.stage.children[0].querySelector(".loading-progress");
+  assert.ok(progress.firstChild.style.transform.startsWith("translateY("));
+  assert.equal(progress.firstChild.style.visibility, "");
+  assert.ok(h.stage.children[0].querySelector(".loading-repeater"));
+  work.resolve(); await pending;
 });

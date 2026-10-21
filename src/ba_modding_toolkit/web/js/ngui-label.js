@@ -48,9 +48,18 @@ function labels(tree, path = "", x = 0, y = 0, sx = 1, sy = 1, result = []) {
   return result;
 }
 
-// Both labels share the repeater's screen-bottom anchor, including the text renderer's baseline lift.
+// The sprite ink supplies the target. Label positions below are only initial
+// placement; loading.js corrects the rendered DOM baseline before publication.
 export function loadingLetterSprites(repeater) {
   return labels(repeater).filter((item) => /\/Loading\//i.test(item.path) && item.w.sprite && !/\/g$/i.test(item.path));
+}
+
+export function loadingInkLine(repeater, scale, ink) {
+  const letters = loadingLetterSprites(repeater).filter(({ w }) => ink[w.sprite]);
+  return letters.length ? Math.max(...letters.map(({ w, y, sy }) => {
+    const rect = ink[w.sprite];
+    return 1080 - (720 + y) * scale + (rect.bottom / rect.height - Math.floor((w.pivot ?? 4) / 3) / 2) * w.h_ * sy * scale;
+  })) : null;
 }
 
 export function loadingLabel(repeater, loading, text, scale, ink = {}) {
@@ -70,5 +79,5 @@ export function loadingLabel(repeater, loading, text, scale, ink = {}) {
   }));
   Object.assign(w, { text, fontSize: fs, w_: 1000 / scale, h_: fs * 1.4, pivot: 6, align: 1, ellipsis: true });
   return { name: "Progress", active: true, pos: [84 / scale, -(baseline + labelBaselineInset(text, fs) * scale) / scale],
-    scale: [1, 1], widgets: [w], children: [] };
+    scale: [1, 1], widgets: [w], children: [], inkLine: baseline };
 }
