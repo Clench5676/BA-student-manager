@@ -103,6 +103,24 @@ uv run pytest
 发布构建：`scripts/build_macos.sh`（macOS）与 `scripts/build_windows.ps1`（Windows）。界面实现说明见
 [docs/web-ui.md](docs/web-ui.md)。
 
+## 许可
+
+Blue Archive Modding and Patching Tool（以下简称“BMPT”）依据 GNU 通用公共许可证第 3 版（以下简称“GPLv3”）授权。
+
+BMPT 的预览使用 Esoteric Software LLC 的 Spine Runtimes（以下简称“Spine Runtimes”）。Spine Runtimes 依据
+[Spine Runtimes License Agreement](https://esotericsoftware.com/spine-runtimes-license) 授权，不适用 GPLv3。
+使用 Spine Runtimes 须由每位用户持有有效的 Spine 授权。BMPT 在加载 Spine Runtimes 之前取得用户持有该授权的确认；
+未经确认的，预览仅限静态图片。
+
+BMPT 所贡献代码的版权持有人（以下简称“BMPT 贡献者”）仅就该等代码授予下述附加许可。源自上游项目、由 BMPT 贡献者以外的人员编写的代码，
+仍适用 GPLv3，不附带此附加许可。
+
+下述附加许可以英文文本为准：
+
+> **Additional permission under GNU GPL version 3 section 7**
+>
+> If you modify this Program, or any covered work, by linking or combining it with the Spine Runtimes (or a modified version of that library), containing parts covered by the terms of the Spine Runtimes License Agreement, the licensors of this Program grant you additional permission to convey the resulting work. Corresponding Source for a non-source form of such a combination shall include the source code for the parts of the Spine Runtimes used as well as that of the covered work.
+
 ## 致谢
 
 基于 Agent-0808 的 [BA Modding Toolkit](https://github.com/Agent-0808/BA-Modding-Toolkit)，感谢
