@@ -86,3 +86,16 @@ def source_of(names: set[str], selected: Contents, official: Contents, target: d
     if not platform or not hints:
         return None, "source_unknown"
     return {"server": hints.pop(), "platform": platform, "detected": True}, None
+
+
+def candidates(names: set[str], selected: Contents) -> list[dict]:
+    """Partial marker agreement first; ties use Global/Japan, then Android/iOS/PC.
+
+    This is an ordering, not evidence that a bundle is convertible. Every candidate
+    must pass the same preflight as a manual selection, including asset matching.
+    """
+    servers = server_hints(names | names_of(selected))
+    platforms = {platform_of(selected)} - {None} or platform_hints(names_of(selected))
+    choices = [{"server": server, "platform": platform, "detected": True}
+               for server in SERVERS for platform in PLATFORMS]
+    return sorted(choices, key=lambda c: -(int(c["server"] in servers) + int(c["platform"] in platforms)))

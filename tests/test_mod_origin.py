@@ -136,7 +136,8 @@ def test_unknown_source_set_source_reanalyzes_and_persists_for_run_and_recheck(r
     env = real_metadata
     source = unity_bundle(env.tmp / 'input' / env.original.name, platform, cab='CAB-unknown', payload=b'unknown mod')
     entry, = analyze(env, [source])['entries']
-    assert (entry['state'], entry['reason'], entry['source']) == ('blocked', 'source_unknown', None)
+    assert (entry['state'], entry['reason']) == ('convert', None)
+    assert entry['source'] == {'server': 'global', 'platform': 'android', 'detected': True}
     assert entry['preview']
     selected = finish(env, rpc(env, 'import.setSource', id=entry['id'], server='global', platform='android'))
     assert selected['source'] == {'server': 'global', 'platform': 'android', 'detected': False}
@@ -297,7 +298,8 @@ def test_unknown_server_can_be_selected_without_unnecessary_platform_conversion(
     env = real_metadata
     source = unity_bundle(env.tmp / 'input' / env.original.name, 19, cab='CAB-unknown', payload=b'mod')
     entry, = analyze(env, [source])['entries']
-    assert entry['source'] is None and entry['reason'] == 'source_unknown'
+    assert entry['source'] == {'server': 'global', 'platform': 'windows', 'detected': True}
+    assert entry['state'] == 'ready'
     selected = finish(env, rpc(env, 'import.setSource', id=entry['id'], server='global', platform='windows'))
     assert selected['state'] == 'ready' and selected['source']['detected'] is False
     assert run(env, [selected])[0]['applied']
@@ -315,3 +317,42 @@ def test_installed_mobile_bytes_do_not_bypass_conversion(real_metadata):
     result, = run(env, [entry], types=['TextAsset'])
     assert result['outcome'] == 'updated' and result['applied']
     assert inspect_bundle(env.original).platforms == {'StandaloneWindows64'}
+
+
+@pytest.mark.parametrize("platform,expected", [(13, "android"), (9, "ios"), (-2, "android")])
+@pytest.mark.parametrize("compression", ["lz4", "lzma"])
+def test_markerless_lobby_fallback_validates_compressed_renamed_bundles(real_metadata, platform, expected, compression):
+    env = real_metadata
+    env.original.unlink()
+    env.original = game_bundle(env.game_dir, "ch0156_home")
+    env.catalog.variants["test"].lobby = "ch0156_home"
+    official_bundle(env)
+    source = unity_bundle(env.tmp / "input" / "renamed.bundle", platform, cab="CAB-repacked", payload=b"mobile mod")
+    bundle = Bundle.load(source)
+    from ba_modding_toolkit.models import SaveOptions
+    assert bundle.save(source, SaveOptions(compression=compression, perform_crc=False))[0]
+    # Identification has its own filename/content contract; keep the recognized slot for this origin test.
+    source = source.rename(source.with_name(env.original.name))
+    entry, = analyze(env, [source])["entries"]
+    assert entry["kind"] == "lobby" and entry["state"] == "convert"
+    assert entry["source"] == {"server": "global", "platform": expected, "detected": True}
+    assert run(env, [entry], types=["TextAsset"])[0]["applied"]
+
+
+def test_unknown_fallback_rejects_unmatched_assets(real_metadata):
+    env = real_metadata
+    source = unity_bundle(env.tmp / "input" / env.original.name, -2, cab="CAB-unidentified", name="unrelated")
+    entry, = analyze(env, [source])["entries"]
+    assert (entry["state"], entry["reason"], entry["source"]) == ("blocked", "source_unknown", None)
+    assert entry["preview"]
+
+
+def test_fallback_tie_prefers_partial_markers_then_fixed_order(real_metadata):
+    env = real_metadata
+    source = unity_bundle(env.tmp / "input" / env.original.name, -2, cab="CAB-new", references=["com.YostarJP.BlueArchive"])
+    entry, = analyze(env, [source])["entries"]
+    assert entry["source"] == {"server": "japan", "platform": "android", "detected": True}
+    # A known serialized target wins over the default Android candidate.
+    unity_bundle(source, 9, cab="CAB-new")
+    entry, = analyze(env, [source])["entries"]
+    assert entry["source"] == {"server": "global", "platform": "ios", "detected": True}

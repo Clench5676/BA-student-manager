@@ -499,8 +499,25 @@ class BatchImport:
             entry.update(state="blocked", reason=error.code if error.code in (
                 "source_unknown", "source_conflict", "platform_unsupported", "target_unknown",
                 "conversion_names", "no_matching_assets") else blocked_reason(error))
+            if error.code == "source_unknown" and candidate.source_override is None:
+                self._infer_source(candidate, library, pin, names, selected, log)
         except (OSError, ValueError):
             entry.update(state="blocked", reason="unreadable")
+
+    def _infer_source(self, candidate: Candidate, library: Any, pin: Any, names: set[str],
+                      selected: integrity.Contents, log: Any) -> None:
+        for source in mod_origin.candidates(names, selected):
+            trial = replace(candidate, entry=deepcopy(candidate.entry), source_override=source)
+            self._judge(trial, library, pin, log)
+            if trial.entry["state"] not in ("ready", "convert", "update"):
+                continue
+            # Even a same-platform exact filename must prove a nonempty intersection
+            # of comparable Unity objects. Filename recognition alone accepts anything.
+            matches, _ = _asset_match(list(trial.files.values()), trial.originals, log)
+            if not matches:
+                continue
+            candidate.__dict__.update(trial.__dict__)
+            return
 
     def run(self, ids: list[str], options: dict) -> str:
         options = options_of(options, self.defaults())
