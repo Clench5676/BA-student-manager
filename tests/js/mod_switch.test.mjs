@@ -1047,6 +1047,7 @@ test("the toggle flushes the event delay and awaits the visible detail or roster
     const env = {
       $: (id) => ({ hidden: id !== `screen-${screen}` }),
       ctx: { invalidateRoster: () => { invalidated++; } },
+      BatchImport: { invalidate() {} },
       forget() {}, spinePrefix() {},
       Detail: { filesChanged: async () => { refreshed = true; await ready.promise; } },
       Popup: { whenIdle: async () => {} },

@@ -9,12 +9,13 @@ const flush = async () => { for (let i = 0; i < 30; i++) await Promise.resolve()
 
 function harness(initial = "roster") {
   const family = deferred(), preview = deferred(), rows = deferred(), rosterData = deferred();
-  const screens = Object.fromEntries(["detail", "roster"].map((key) => [`screen-${key}`, { hidden: key !== initial }]));
+  const screens = Object.fromEntries(["detail", "roster", "import"].map((key) => [`screen-${key}`, { hidden: key !== initial }]));
   const details = [], events = [];
   let covered = false, generation = 0;
   const env = {
     location: { hash: "#/student/ibuki/ibuki" }, $: (key) => screens[key],
     ctx: {}, rosterData: null, stepCards: null, roster: () => rosterData.promise,
+    BatchImport: { hide() {}, show: async () => { events.push("build-import"); await rows.promise; } }, renderNav() {},
     rpc: async () => family.promise, visited() {}, setTitle() {}, T: (key) => key, askQuit() {},
     showScreen: (key) => { for (const [id, el] of Object.entries(screens)) el.hidden = id !== `screen-${key}`; events.push(key); },
     Loading: {
@@ -74,6 +75,20 @@ test("Back takes over a pending student RPC without a late student reveal", asyn
   assert.equal(h.details.length, 0);
   h.rosterData.resolve({ families: [] }); h.rows.resolve(); await back;
   assert.equal(h.screens["screen-roster"].hidden, false);
+  assert.equal(h.covered(), false);
+});
+
+test("Batch Import releases detail previews and stays covered until its screen is built", async () => {
+  const h = harness("detail");
+  h.location.hash = "#/import";
+  const route = h.route(); await flush();
+  assert.equal(h.covered(), true);
+  assert.ok(h.events.includes("hide-detail"));
+  h.rosterData.resolve({ families: [] }); await flush();
+  assert.ok(h.events.includes("build-import"));
+  assert.equal(h.screens["screen-import"].hidden, true);
+  h.rows.resolve(); await route;
+  assert.equal(h.screens["screen-import"].hidden, false);
   assert.equal(h.covered(), false);
 });
 

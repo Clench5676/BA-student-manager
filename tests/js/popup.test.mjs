@@ -412,10 +412,10 @@ test("the hand-off prompt saves Don't Ask Again only with Open (decision 6)", as
   const ask = (item) => Popup.message(handOffPrompt(item, T));
   const run = () => {
     const log = [];
-    const done = activate(ITEMS[3], { prompt: true, ask, go: () => log.push("go"), open: async (tab) => log.push(`open ${tab}`), savePrompt: async (v) => log.push(`save ${v}`) });
+    const done = activate(ITEMS.find((item) => item.classic === "crc_tool"), { prompt: true, ask, go: () => log.push("go"), open: async (tab) => log.push(`open ${tab}`), savePrompt: async (v) => log.push(`save ${v}`) });
     return { log, done };
   };
-  for (const [ticked, button, expected] of [[true, "ok", ["save false", "open mod_install"]], [false, "ok", ["open mod_install"]], [true, "cancel", []], [true, "close", []]]) {
+  for (const [ticked, button, expected] of [[true, "ok", ["save false", "open crc_tool"]], [false, "ok", ["open crc_tool"]], [true, "cancel", []], [true, "close", []]]) {
     const r = run();
     const box = await drawn(dialog, "check");
     if (ticked) box.click();

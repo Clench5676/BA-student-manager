@@ -1,4 +1,4 @@
-"""The bottom navigation's entries (web/js/nav-items.js: greyed entries, the hand-off and its prompt, the greyed look)
+"""The bottom navigation's entries (web/js/nav-items.js: Students, Batch Import, greyed entries, the hand-off and its prompt, the greyed look)
 are front-end code: their tests run with Node's test runner, skipped where Node is not installed."""
 
 import shutil

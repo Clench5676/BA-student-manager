@@ -7,17 +7,20 @@ import { test } from "node:test";
 import { ITEMS, NGUI_GREY, activate, greyed, handOffPrompt, tintOf, view } from "../../src/ba_modding_toolkit/web/js/nav-items.js";
 
 const T = (key, vars = {}) => (key === "nav.classic" ? `${vars.label} - Classic UI` : `<${key}>`);
-const CLASSIC = ["mod_update", "batch_update", "mod_install", "crc_tool", "asset_packer", "asset_extractor", "adb_push", "tools"];
+const CLASSIC = ["crc_tool", "asset_packer", "asset_extractor", "adb_push", "tools"];
 
-test("Students is drawn normally and the eight classic entries are greyed", () => {
-  assert.equal(ITEMS.length, 9);
+test("Students and Batch Import have web screens and the five classic entries are greyed", () => {
+  assert.equal(ITEMS.length, 7);
+  assert.equal(ITEMS[1].route, "#/import");
+  assert.equal(greyed(ITEMS[1]), false);
+  assert.ok(!ITEMS.some((item) => ["mod_update", "batch_update", "mod_install"].includes(item.classic)));
   assert.equal(greyed(ITEMS[0]), false);
   assert.equal(ITEMS[0].route, "#/roster");
   assert.deepEqual(ITEMS.filter(greyed).map((it) => it.classic), CLASSIC);
 });
 
 test("an entry with a route is never greyed, whatever classic tab it keeps", () => {
-  assert.equal(greyed({ label: "nav.modUpdate", classic: "mod_update", route: "#/update" }), false);
+  assert.equal(greyed({ label: "nav.crc", classic: "crc_tool", route: "#/update" }), false);
   assert.equal(greyed({ label: "x", classic: "tools" }), true);
   assert.equal(greyed({ label: "x" }), false);
 });
@@ -47,39 +50,39 @@ function page(answer) {
     savePrompt: async (value) => { log.push(["save", value]); },
   };
 }
-const modUpdate = ITEMS[1];
+const classicItem = ITEMS[2];
 
-test("a click on Students goes to its screen, without a prompt", async () => {
+for (const item of ITEMS.filter((item) => item.route)) test(`a click on ${item.route} goes to its screen without a prompt`, async () => {
   const p = page(null);
-  assert.equal(await activate(ITEMS[0], { ...p, prompt: true }), "route");
-  assert.deepEqual(p.log, [["go", "#/roster"]]);
+  assert.equal(await activate(item, { ...p, prompt: true }), "route");
+  assert.deepEqual(p.log, [["go", item.route]]);
 });
 
 test("with the prompt on: Open hands off; Don't Ask Again is saved only with Open (decision 6)", async () => {
   let p = page({ button: "ok", checked: false });
-  assert.equal(await activate(modUpdate, { ...p, prompt: true }), "open");
-  assert.deepEqual(p.log, [["ask", "mod_update"], ["open", "mod_update"]]);
+  assert.equal(await activate(classicItem, { ...p, prompt: true }), "open");
+  assert.deepEqual(p.log, [["ask", "crc_tool"], ["open", "crc_tool"]]);
 
   p = page({ button: "ok", checked: true });
-  assert.equal(await activate(modUpdate, { ...p, prompt: true }), "open");
-  assert.deepEqual(p.log, [["ask", "mod_update"], ["save", false], ["open", "mod_update"]], "turned off before the hand-off");
+  assert.equal(await activate(classicItem, { ...p, prompt: true }), "open");
+  assert.deepEqual(p.log, [["ask", "crc_tool"], ["save", false], ["open", "crc_tool"]], "turned off before the hand-off");
 
   for (const answer of [{ button: "cancel", checked: true }, { button: null, checked: true }, { button: "cancel", checked: false }]) {
     p = page(answer);
-    assert.equal(await activate(modUpdate, { ...p, prompt: true }), "cancel");
-    assert.deepEqual(p.log, [["ask", "mod_update"]], "Cancel, Escape, the backdrop or the close button save nothing");
+    assert.equal(await activate(classicItem, { ...p, prompt: true }), "cancel");
+    assert.deepEqual(p.log, [["ask", "crc_tool"]], "Cancel, Escape, the backdrop or the close button save nothing");
   }
 });
 
 test("with classicPrompt off, a click hands off at once (decision 6)", async () => {
   const p = page(null);
-  assert.equal(await activate(ITEMS[8], { ...p, prompt: false }), "open");
+  assert.equal(await activate(ITEMS[6], { ...p, prompt: false }), "open");
   assert.deepEqual(p.log, [["open", "tools"]]);
 });
 
 test("the hand-off prompt: the entry's label, where it opens, Don't Ask Again unticked, Cancel and Open", () => {
-  assert.deepEqual(handOffPrompt(modUpdate, T), {
-    title: "<nav.modUpdate>", lines: ["<classic.hint>"], check: { label: "<mods.dontAsk>", checked: false },
+  assert.deepEqual(handOffPrompt(classicItem, T), {
+    title: "<nav.crc>", lines: ["<classic.hint>"], check: { label: "<mods.dontAsk>", checked: false },
     ok: "<settings.classic.open>", cancel: "<popup.cancel>",
   });
 });
@@ -159,23 +162,23 @@ test("without a game folder the hand-off prompt is drawn plain, and works the sa
   const ask = (item) => Popup.message(handOffPrompt(item, T));
   // Open with Don't Ask Again ticked: saved, then handed off
   let p = page(null);
-  let run = activate(modUpdate, { ...p, ask, prompt: true });
+  let run = activate(classicItem, { ...p, ask, prompt: true });
   const check = await drawn("check");
   assert.equal(check.getAttribute("role"), "checkbox");
   assert.equal(check.getAttribute("aria-checked"), "false");
   const texts = walk(dialog).map((e) => e.textContent).filter(Boolean);
-  assert.ok(texts.includes("<nav.modUpdate>") && texts.includes("<classic.hint>"), "the title and the line");
+  assert.ok(texts.includes("<nav.crc>") && texts.includes("<classic.hint>"), "the title and the line");
   check.click();
   assert.equal(check.getAttribute("aria-checked"), "true");
   assert.equal(action("ok").getAttribute("aria-label"), "<settings.classic.open>");
   action("ok").click();
   assert.equal(await run, "open");
-  assert.deepEqual(p.log, [["save", false], ["open", "mod_update"]]);
+  assert.deepEqual(p.log, [["save", false], ["open", "crc_tool"]]);
   assert.equal(dialog.hidden, true);
 
   // ticked, then Cancel: nothing saved, nothing opened
   p = page(null);
-  run = activate(modUpdate, { ...p, ask, prompt: true });
+  run = activate(classicItem, { ...p, ask, prompt: true });
   (await drawn("check")).click();
   action("cancel").click();
   assert.equal(await run, "cancel");
@@ -183,7 +186,7 @@ test("without a game folder the hand-off prompt is drawn plain, and works the sa
 
   // Escape closes it like Cancel
   p = page(null);
-  run = activate(modUpdate, { ...p, ask, prompt: true });
+  run = activate(classicItem, { ...p, ask, prompt: true });
   await drawn("ok");
   assert.ok(press("Escape").defaultPrevented);
   assert.equal(await run, "cancel");

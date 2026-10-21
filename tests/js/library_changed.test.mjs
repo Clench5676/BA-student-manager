@@ -12,6 +12,7 @@ function harness() {
   let invalidated = 0;
   const env = {
     ctx: { invalidateRoster: () => invalidated++ },
+    BatchImport: { invalidate() {} },
     Detail: { filesChanged: (change) => refreshed.push(change) },
     $: () => ({ hidden: false }),
     forget: (base) => forgotten.push(base), spinePrefix: (kind, core) => `${kind}/${core}`,

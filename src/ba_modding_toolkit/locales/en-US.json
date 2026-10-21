@@ -888,7 +888,8 @@
 			"extract": "Asset Extractor",
 			"adb": "ADB Push",
 			"tools": "Tools",
-			"classic": "{label} - Classic UI"
+			"classic": "{label} - Classic UI",
+			"import": "Batch Import"
 		},
 		"roster": {
 			"title": "Student List",
@@ -1401,6 +1402,99 @@
 				"no": "I Do Not Have a Spine License",
 				"required": "Spine license confirmation required",
 				"confirm": "Confirm License"
+			}
+		},
+		"import": {
+			"list": "Import List",
+			"count": "{n} Mods",
+			"addFiles": "Add Files",
+			"addFolder": "Add Folder",
+			"search": "Name, ID, filename",
+			"filter": "Import State",
+			"filterCount": "{state} ({n})",
+			"all": "Select All",
+			"none": "Deselect All",
+			"remove": "Remove",
+			"clear": "Clear",
+			"recheck": "Recheck",
+			"action": "Import ({n})",
+			"results": "View Results",
+			"choose": "Select a Mod",
+			"select": "Select",
+			"selectNamed": "Select {name}",
+			"meta": "{id} - {n} files, {size}",
+			"empty": "No Mods",
+			"drop": "Add files, a folder or drop them here",
+			"noMatch": "No Matching Mods",
+			"current": "Current Game",
+			"incoming": "Incoming Mod",
+			"previewUnavailable": "Preview Unavailable",
+			"other": "Other",
+			"analyzing": "Analyzing",
+			"picking": "Selecting Files",
+			"saving": "Saving",
+			"failed": "Import Failed",
+			"confirm": "Confirm Import",
+			"confirmCount": "{state}: {n}",
+			"recursive": "Include Subfolders",
+			"progress": "{phase} - {done}/{total} {name}",
+			"complete": "Done: {n}, failed: {failed}",
+			"resultTitle": "Import Results",
+			"mod": "Mod",
+			"detected": "Detected State",
+			"resultLabel": "Result",
+			"applied": "Applied",
+			"notApplied": "Not Applied",
+			"auto": "Auto",
+			"original": "Original",
+			"uncompressed": "Uncompressed",
+			"state": {
+				"ready": "Ready",
+				"update": "Needs Update",
+				"library": "Already in Library",
+				"installed": "Already Installed",
+				"blocked": "Cannot Import"
+			},
+			"reason": {
+				"unreadable": "Unreadable File",
+				"no_target": "No Matching Game File",
+				"conflict": "Conflicting Targets",
+				"spine_version": "Incompatible Spine Version",
+				"unsupported": "Unsupported Type"
+			},
+			"phase": {
+				"update": "Updating",
+				"add": "Adding to Library",
+				"apply": "Applying Mods"
+			},
+			"outcome": {
+				"imported": "Added to Library",
+				"updated": "Updated and Added to Library",
+				"unchanged": "Unchanged",
+				"failed": "Failed",
+				"skipped": "Skipped"
+			},
+			"options": {
+				"title": "Advanced Options",
+				"enableAfterImport": "Enable Mods After Import",
+				"strategy": "Match Strategy",
+				"types": "Resource Types",
+				"allTypes": "All Resource Types",
+				"skipUnchanged": "Skip Unchanged",
+				"crc": "CRC Correction",
+				"compression": "Compression",
+				"extraBytes": "Extra Bytes",
+				"backup": "Create Backup",
+				"workers": "Threads",
+				"output": "Output Folder",
+				"bytesHint": "0x prefix: hexadecimal, otherwise ASCII",
+				"typesRequired": "Select a Resource Type",
+				"workersInvalid": "Threads: 1 or more"
+			},
+			"strategy": {
+				"cont_name_type": "Container, Name, Type",
+				"path_id": "Path ID",
+				"name_type": "Name, Type"
 			}
 		}
 	}
