@@ -32,3 +32,12 @@ def test_analyze_bundles_reports_progress():
     events = []
     analyze_bundles([item], ["naming"], lambda *args: events.append(args))
     assert events == [(1, 1, "sample.bundle")]
+
+
+def test_asset_extraction_forwards_each_bundle_progress(monkeypatch, tmp_path):
+    monkeypatch.setattr(Bundle, "load", lambda *args, **kwargs: SimpleNamespace(env=SimpleNamespace(objects=[])))
+    paths = [tmp_path / "first.bundle", tmp_path / "second.bundle"]
+    progress = []
+    result, _ = core.process_asset_extraction(paths, tmp_path / "out", progress_callback=lambda *args: progress.append(args))
+    assert result
+    assert progress == [(1, 2, "first.bundle"), (2, 2, "second.bundle")]

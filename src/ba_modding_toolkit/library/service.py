@@ -923,9 +923,12 @@ class ModLibrary:
         return hashlib.sha256(json.dumps(identity).encode()).hexdigest()
 
     @_serialized
-    def compatibility(self, mod_id: str, pin: Pin | None = None) -> dict:
+    def compatibility(self, mod_id: str, pin: Pin | None = None,
+                      progress: Callable[[dict], None] | None = None) -> dict:
         """Fresh official and effective Spine data, without building or rewriting a mod."""
         record = self._record(mod_id)
+        if progress:
+            progress({"current": 1, "total": 1, "step": "import.step.check"})
         report = self._check_group({path.name: path for path in self._paths(record)}, pin or self.current_pin(),
                                    variant_key=self._target_of(record))
         report["repaired_from"], report["repaired_id"] = record.get("repaired_from", ""), record.get("repaired_id", "")
@@ -3822,7 +3825,7 @@ class ModLibrary:
 
     @_serialized
     def remap(self, mod_id: str, log: LogFunc = no_log,
-              progress: ProgressCallback | None = None, pin: Pin | None = None) -> dict:
+              progress: Callable[[dict], None] | None = None, pin: Pin | None = None) -> dict:
         """Prepare a review in temporary storage; only accept_remap can add it to the library."""
         pin = self._current(pin)
         record = self._record(mod_id)
@@ -3835,10 +3838,16 @@ class ModLibrary:
         targets = self._spine_parts(core_of(paths[0].name), pin)
         if not targets:
             raise ServiceError("game_file_not_found", variant=record["target"])
+        def step(key: str, current: int = 1) -> None:
+            if progress:
+                progress({"current": current, "total": len(targets), "step": f"import.step.{key}"})
+
         with tempfile.TemporaryDirectory(prefix=devmode.LIBRARY_STAGING_PREFIX + "remap-") as temporary:
             output = Path(temporary)
+            step("check")
             originals = self._stage_official(targets, output / "official", pin)
             try:
+                step("extract")
                 mod = atlas_remap.read_inputs(paths)
                 official = atlas_remap.read_inputs(list(originals.values()))
 
@@ -3874,8 +3883,7 @@ class ModLibrary:
                 return {"unchanged": True, "report": report}
             generated = {}
             for i, (target, original) in enumerate(originals.items(), 1):
-                if progress:
-                    progress(i, len(targets), t("webui.progress.remap", name=target.name))
+                step("replace", i)
                 bundle = Bundle.load(original)
                 if bundle is None:
                     raise ServiceError("bundle_invalid", file=original.name)
@@ -3886,7 +3894,8 @@ class ModLibrary:
                 if local_patch:
                     result = core.process_mod_update([], [original], output, {"Texture2D"},
                         self.settings.save_options(self.settings.crc_needed(target)),
-                        match_strategy="cont_name_type", log=log, prepared_patch=local_patch)
+                        match_strategy="cont_name_type", log=log, prepared_patch=local_patch,
+                        on_step=lambda key: step(key, i))
                     if not result.success or len(result.file_pairs) != 1:
                         raise ServiceError("mod_update_failed", id=mod_id)
                 else:
@@ -3961,7 +3970,7 @@ class ModLibrary:
 
     @_serialized
     def update(self, mod_id: str, log: LogFunc = no_log,
-               progress: ProgressCallback | None = None, pin: Pin | None = None) -> UpdateResult:
+               progress: Callable[[dict], None] | None = None, pin: Pin | None = None) -> UpdateResult:
         """Rebuild a mod against current official bundles and retain its old files. Its built copies go: they hold
         the old build."""
         pin = self._current(pin)
@@ -3973,13 +3982,16 @@ class ModLibrary:
             generated = []
             all_unchanged = True
             for i, target in enumerate(targets, 1):
-                if progress:
-                    progress(i, len(targets), t("webui.progress.repair", name=target.name))
+                def step(key: str) -> None:
+                    if progress:
+                        progress({"current": i, "total": len(targets), "step": f"import.step.{key}"})
+
+                step("check")
                 result = core.process_mod_update(
                     paths, [self._official_for(target, pin)], output, self.settings.asset_types(),
                     self.settings.save_options(self.settings.crc_needed(target)), self.settings.spine_options(),
                     skip_unchanged=True, match_strategy="cont_name_type",
-                    anim_check=self.settings.anim_check_options(), log=log)
+                    anim_check=self.settings.anim_check_options(), log=log, on_step=step)
                 if not result.success:
                     raise ServiceError("mod_update_failed", id=mod_id)
                 if result.message != "all_targets_unchanged":
@@ -4025,7 +4037,8 @@ class ModLibrary:
         return UpdateResult(self._entry(record), self._paths(record), previous)
 
     @_serialized
-    def extract(self, target: str, out_dir: Path, log: LogFunc = no_log, pin: Pin | None = None) -> Path:
+    def extract(self, target: str, out_dir: Path, log: LogFunc = no_log, pin: Pin | None = None,
+                progress: Callable[[dict], None] | None = None) -> Path:
         """Extract game or mod bundles into a folder named after their core."""
         if target.startswith("mod:"):
             paths = self._paths(self._record(target[4:]))
@@ -4037,7 +4050,10 @@ class ModLibrary:
             raise ServiceError("game_file_not_found", target=target)
         folder = Path(out_dir).resolve() / parse_filename(paths[0].name).core
         folder.mkdir(parents=True, exist_ok=True)
-        success, _ = core.process_asset_extraction(paths, folder, spine_options=self.settings.spine_options(False), log=log)
+        report = (lambda current, total, _name: progress({"current": current, "total": total,
+                                                        "step": "import.step.extract"})) if progress else None
+        success, _ = core.process_asset_extraction(paths, folder, spine_options=self.settings.spine_options(False),
+                                                  log=log, progress_callback=report)
         if not success:
             raise ServiceError("asset_extraction_failed", target=target)
         return folder

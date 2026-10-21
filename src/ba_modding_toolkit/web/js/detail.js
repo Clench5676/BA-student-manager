@@ -697,11 +697,16 @@ function shownMod() {
   const sk = switchKind(), c = sk && current(sk);
   return c?.kind === "mod" ? c : null;
 }
+function modProgressName(c) {
+  const mod = c.mod || c, target = fam.variants.find((v) => v.key === mod.target) || variant();
+  const kind = mod.kind || switchKind();
+  return progressName(target, T(({ spr: "tab.portrait", lobby: "tab.lobby", model: "tab.model" })[kind] || "import.other"), c.label, fam);
+}
 async function runUpdate(c = shownMod()) {
   const kind = switchKind();
   if (!c || busy) return;
   const page = pageToken;
-  const report = await call(() => Loading.hold(() => Compatibility.forUpdate(c.id, c.label), { all: true }));
+  const report = await call(() => Loading.hold(() => Compatibility.forUpdate(c.id, c.label, modProgressName(c)), { all: true }));
   if (!report || page !== pageToken || !open) return false;
   if (Compatibility.eligible(c.mod) && Compatibility.canRemap(c.id, c.mod)) return runRemap(c);
   if (!Compatibility.compare(report).issues.length) {
@@ -718,7 +723,7 @@ async function runUpdate(c = shownMod()) {
 async function runCompatibility() {
   const c = shownMod();
   if (!c || busy) return;
-  await call(() => Compatibility.check(c.id, c.label, remapped, c.mod));
+  await call(() => Compatibility.check(c.id, c.label, remapped, c.mod, modProgressName(c)));
   if (open) await renderScreen();
 }
 async function remapped() {
@@ -727,7 +732,7 @@ async function remapped() {
 }
 async function runRemap(c) {
   if (!c || busy || !Compatibility.eligible(c.mod)) return;
-  await call(() => Compatibility.remap(c.id, remapped, c.label));
+  await call(() => Compatibility.remap(c.id, remapped, c.label, modProgressName(c)));
 }
 async function jumpRepaired(c) {
   const id = repairedId(c);
@@ -1208,7 +1213,7 @@ async function drawPopup(scroll = 0) {
         actions: [[T(platform === "mac" ? "open.mac" : "open.win"), () => reveal(file)],
           ...(c.kind === "mod" ? [[T("compatibility.check"), async () => {
             let rebuilt = false;
-            await call(() => Compatibility.check(c.id, c.label, () => { rebuilt = true; return remapped(); }, c.mod));
+            await call(() => Compatibility.check(c.id, c.label, () => { rebuilt = true; return remapped(); }, c.mod, modProgressName(c)));
             if (open && !rebuilt) await renderPopup();
           }], ...(repairedId(c) ? [[T("remap.go"), () => jumpRepaired(c)]] : [[T("act.update"), () => runUpdate(c)]])] : []),
           c.kind === "mod"

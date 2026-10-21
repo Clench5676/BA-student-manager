@@ -833,3 +833,16 @@ def test_merged_inputs_take_the_last_bundle_assets(tmp_path):
     assert merged.skeletons == {"test.skel": b"second"}
     assert merged.textures["page"].size == (4, 4)
     assert merged.textures["page"].getpixel((0, 0)) == (255, 0, 0, 255)
+
+
+def test_remap_progress_reports_real_steps_without_bundle_names(repair_review):
+    env, source, _, _ = repair_review
+    progress = []
+    result = env.library.remap(source.id, progress=progress.append)
+    assert result["preview"]
+    steps = [item["step"] for item in progress]
+    assert steps[:2] == ["import.step.check", "import.step.extract"]
+    assert "import.step.replace" in steps
+    assert "import.step.save" in steps
+    assert all(set(item) == {"current", "total", "step"} for item in progress)
+    assert all(1 <= item["current"] <= item["total"] for item in progress)

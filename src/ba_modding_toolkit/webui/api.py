@@ -759,7 +759,7 @@ def build_api(s: Services) -> RpcRegistry:
         library = s.library
         pin = library.current_pin()
         return s.submit("extract", lambda log, progress: {
-            "folder": str(library.extract(target, out_dir, log=log, pin=pin))})
+            "folder": str(library.extract(target, out_dir, log=log, pin=pin, progress=progress))})
 
     @rpc.method("actions.compare")
     def actions_compare(mod: str) -> Any:
@@ -774,7 +774,11 @@ def build_api(s: Services) -> RpcRegistry:
     @rpc.method("actions.acceptRemap")
     def actions_accept_remap(preview: str) -> str:
         library = s.library
-        return s.submit("remap.accept", lambda log, progress: library.accept_remap(preview),
+        def accept(log: Any, progress: Any) -> Any:
+            progress({"current": 1, "total": 1, "step": "import.step.add"})
+            return library.accept_remap(preview)
+
+        return s.submit("remap.accept", accept,
                         writes="library", library=library)
 
     @rpc.method("actions.discardRemap")
@@ -790,7 +794,7 @@ def build_api(s: Services) -> RpcRegistry:
     def actions_compatibility(mod: str) -> str:
         library = s.library
         pin = s._current_pin(library)
-        return s.submit("compatibility", lambda log, progress: library.compatibility(mod, pin=pin))
+        return s.submit("compatibility", lambda log, progress: library.compatibility(mod, pin=pin, progress=progress))
 
     @rpc.method("jobs.get")
     def jobs_get(id: str) -> dict[str, Any]:

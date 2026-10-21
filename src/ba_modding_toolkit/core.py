@@ -65,6 +65,7 @@ def _extract_assets_from_bundle(
     work_dir: Path,
     asset_types_to_extract: set[str],
     log: LogFunc = no_log,
+    progress_callback: ProgressCallback | None = None,
 ) -> dict[AssetType, list[Path]]:
     """
     从 bundle 文件提取指定类型的资源到工作目录（内部函数）。
@@ -86,7 +87,9 @@ def _extract_assets_from_bundle(
         AssetType.AnimationClip: []
     }
     
-    for bundle_file in bundle_paths:
+    for i, bundle_file in enumerate(bundle_paths, 1):
+        if progress_callback:
+            progress_callback(i, len(bundle_paths), bundle_file.name)
         bundle = Bundle.load(bundle_file, log)
         if not bundle:
             continue
@@ -381,6 +384,7 @@ def process_asset_extraction(
     enable_unpack_atlas: bool = False,
     scale_atlas: bool = False,
     log: LogFunc = no_log,
+    progress_callback: ProgressCallback | None = None,
 ) -> tuple[bool, str]:
     """
     从指定的 Bundle 文件中提取全部支持的资源类型到输出目录（见 EXTRACTABLE_ASSET_TYPES）。
@@ -421,7 +425,8 @@ def process_asset_extraction(
             # ========== 阶段 1: 提取资源 ==========
             log(f'\n--- {t("log.section.extract_to_temp")} ---')
             extracted_files = _extract_assets_from_bundle(
-                bundle_paths, work_dir, EXTRACTABLE_ASSET_TYPES, log
+                bundle_paths, work_dir, EXTRACTABLE_ASSET_TYPES, log,
+                **({"progress_callback": progress_callback} if progress_callback else {}),
             )
             
             # 统计提取数量

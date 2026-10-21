@@ -95,13 +95,13 @@ test("detail actions keep the verb, target and count from progress in all locale
       const label = T(`progress.${action}`, { name: "portrait.bundle" });
       const progress = [];
       const h = harness({ T, Loading: { hold: (fn) => fn((value) => progress.push(value)), progressText }, waitJob: async (id, update) => {
-        update({ label, current: 1, total: 3 });
+        update({ label, current: 1, total: 3, step: "import.step.crc" });
         return {};
       } });
       assert.equal(await h.job(method, params, { name: "Example" }), true);
       const subject = progressName(null, T("tab.portrait"), "Example");
       const actionKey = `progress.action${action[0].toUpperCase()}${action.slice(1)}`;
-      assert.deepEqual(progress, [jobProgress({ action: actionKey, name: subject }), jobProgress({ action: actionKey, name: subject, current: 1, total: 3 })]);
+      assert.deepEqual(progress, [jobProgress({ action: actionKey, name: subject }), jobProgress({ action: actionKey, name: subject, current: 1, total: 3, step: "import.step.crc" })]);
       assert.deepEqual(h.messages, []);
       assert.ok(progress.every((text) => !text.includes("portrait.bundle")));
     }

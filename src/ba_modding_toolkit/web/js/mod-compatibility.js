@@ -6,11 +6,17 @@ import * as Popup from "./popup.js";
 import * as Compare from "./mod-compare.js";
 import { ensureSpine } from "./spine-runtime.js";
 import { spine as confirmLicence } from "./consent.js";
+import { jobProgress } from "./job-progress.js";
 
 const key = (name) => name.replaceAll("\\", "/").split("/").at(-1).toLowerCase().replace(/\.png$/i, "");
 const joined = (items) => items.join(/^(zh|ja)/i.test(language()) ? "、" : ", ") || "—";
 const shortList = (items) => items.length > 3 ? T("compatibility.more", { names: joined(items.slice(0, 3)), n: items.length - 3 }) : joined(items);
 const reports = new Map(), stamps = new Map();
+function progressTask(action, name, run) {
+  const text = (p = {}) => jobProgress({ action: `progress.action${action}`, name: name || T("progress.mods"),
+    current: p.current || 1, total: p.total || 1, step: p.step || "" });
+  return Loading.task((update) => run((p) => update({ label: text(p) })), { label: text() });
+}
 export const eligible = (mod) => mod?.kind !== "model" && !mod?.repaired_from && !mod?.repaired_id;
 export const canRemap = (id, mod = null) => eligible(mod) && eligible(reports.get(id)) && reports.get(id)?.remappable === true;
 
@@ -126,10 +132,10 @@ export async function show(report, { onRemap } = {}) {
   }
 }
 
-export async function remap(id, onRemapped = () => {}, label = "") {
-  const result = await Loading.hold(() => Loading.page(() => Loading.task(
+export async function remap(id, onRemapped = () => {}, label = "", subject = label) {
+  const result = await Loading.hold(() => Loading.page(() => progressTask("Remap", subject,
     async (update) => waitJob(await rpc("actions.remap", { mod: id }), update),
-    { label: T("progress.remap", { name: label || T("progress.mods") }) })), { all: true });
+  )), { all: true });
   if (result.unchanged) {
     reports.set(id, { ...reports.get(id), remappable: false });
     await Popup.message({ title: T("remap.action"), lines: [T("remap.unneeded")], ok: T("picker.ok") });
@@ -146,24 +152,24 @@ export async function remap(id, onRemapped = () => {}, label = "") {
       lines, partial: report.partial, accept: T("remap.accept"), discard: T("remap.discard"),
     });
     if (!accepted) return null;
-    const saved = await Loading.hold(() => Loading.page(() => Loading.task(async (update) => {
+    const saved = await Loading.hold(() => Loading.page(() => progressTask("Repair", subject, async (update) => {
       const saved = await waitJob(await rpc("actions.acceptRemap", { preview: result.preview }), update);
       reports.set(id, { ...reports.get(id), remappable: false, repaired_id: saved.mod.id });
       stamps.delete(id); stamps.delete(saved.mod.id);
       reports.set(saved.mod.id, { remappable: false, repaired_from: id });
       await onRemapped(saved);
       return saved;
-    }, { label: T("progress.repair", { name: label || T("progress.mods") }) })), { all: true });
+    })), { all: true });
     return saved;
   } finally {
     await rpc("actions.discardRemap", { preview: result.preview });
   }
 }
 
-export async function inspect(id, label = "", stamp = null) {
+export async function inspect(id, label = "", stamp = null, subject = label) {
   stamp ??= await rpc("actions.compatibilityStamp", { mod: id });
-  const report = await Loading.task(async (update) => waitJob(await rpc("actions.compatibility", { mod: id }), update),
-    { label: T("progress.compatibility", { name: label || T("progress.mods") }) });
+  const report = await progressTask("Compatibility", subject,
+    async (update) => waitJob(await rpc("actions.compatibility", { mod: id }), update));
   const current = await rpc("actions.compatibilityStamp", { mod: id });
   if (current !== stamp) {
     stamps.delete(id); reports.delete(id);
@@ -175,15 +181,15 @@ export async function inspect(id, label = "", stamp = null) {
 }
 
 // Reuse a report only while the exact Mod, install and candidate official source files still match.
-export async function forUpdate(id, label = "") {
+export async function forUpdate(id, label = "", subject = label) {
   const stamp = await rpc("actions.compatibilityStamp", { mod: id });
-  return stamps.get(id) === stamp && reports.has(id) ? reports.get(id) : inspect(id, label, stamp);
+  return stamps.get(id) === stamp && reports.has(id) ? reports.get(id) : inspect(id, label, stamp, subject);
 }
 
-export async function check(id, label = "", onRemapped = () => {}, mod = null) {
+export async function check(id, label = "", onRemapped = () => {}, mod = null, subject = label) {
   if (mod?.kind !== "model" && !await requireRuntime()) return;
-  const report = await Loading.hold(() => inspect(id, label), { all: true });
-  return show(report, { onRemap: () => remap(id, onRemapped, label) });
+  const report = await Loading.hold(() => inspect(id, label, null, subject), { all: true });
+  return show(report, { onRemap: () => remap(id, onRemapped, label, subject) });
 }
 
 async function requireRuntime() {

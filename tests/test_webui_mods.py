@@ -1330,14 +1330,16 @@ def test_compatibility_rpc_is_a_read_only_job_and_uses_the_current_install(env, 
     calls = []
     report = {"official": {}, "mod": {}, "unavailable": False, "outdated": True}
 
-    def check(mod, pin=None):
+    def check(mod, pin=None, progress=None):
         calls.append((mod, pin))
+        progress({"current": 1, "total": 1, "step": "import.step.check"})
         return report
 
     monkeypatch.setattr(env.s.library, "compatibility", check)
     job = env.job("actions.compatibility", mod=entry.id)
     assert job.state == "done" and job.writes is None and job.result == report
     assert calls == [(entry.id, env.s.library.current_pin())]
+    assert job.progress["step"] == "import.step.check"
     assert (entry.file.read_bytes(), env.spr.read_bytes()) == before
 
 
@@ -1404,3 +1406,14 @@ def test_compatibility_stamp_rpc_is_read_only_and_uses_the_current_install(env, 
     monkeypatch.setattr(env.s.library, "compatibility_stamp", lambda mod, pin=None: calls.append((mod, pin)) or "stamp")
     assert rpc(env.app, "actions.compatibilityStamp", mod=entry.id)["result"] == "stamp"
     assert calls == [(entry.id, env.s.library.current_pin())]
+
+
+def test_extract_rpc_forwards_step_progress(env, monkeypatch):
+    def extract(target, out_dir, log=None, pin=None, progress=None):
+        progress({"current": 2, "total": 3, "step": "import.step.extract"})
+        return out_dir / "test_spr"
+
+    monkeypatch.setattr(env.s.library, "extract", extract)
+    job = env.job("actions.extract", target="variant:test")
+    assert job.state == "done"
+    assert job.progress == {"id": job.id, "current": 2, "total": 3, "step": "import.step.extract"}

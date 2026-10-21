@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import vm from "node:vm";
+import { jobProgress } from "../../src/ba_modding_toolkit/web/js/job-progress.js";
+import { setStrings } from "../../src/ba_modding_toolkit/web/js/i18n.js";
 
 const context = vm.createContext({ console, TextDecoder, TextEncoder, Float32Array, Uint8Array, Uint16Array, Int16Array, Int32Array, ArrayBuffer, DataView });
 vm.runInContext(readFileSync(new URL("../../src/ba_modding_toolkit/web/vendor/spine-player-4.2.120/spine-player.min.js", import.meta.url), "utf8"), context);
@@ -17,11 +19,19 @@ const mixedReport = () => { const r = report(); r.mod.textures.page = [64, 32]; 
 let sequence = 0;
 async function harness(locale = "en-US", button = "cancel", accept = false) {
   const strings = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${locale}.json`, import.meta.url), "utf8")).webui;
+  globalThis.document ||= { documentElement: {}, getElementById: () => null };
+  const flat = (o, prefix = "webui.", out = {}) => {
+    for (const [key, value] of Object.entries(o)) {
+      if (value && typeof value === "object") flat(value, `${prefix}${key}.`, out); else out[prefix + key] = value;
+    } return out;
+  };
+  setStrings(locale, flat(strings));
   const calls = [], popups = [], comparisons = [], covers = [], labels = [], progress = [];
   let nextReport = report(), rebuilt = null, held = false, covered = false, licensed = true, confirms = 0;
   let taskActive = false, stamp = "inputs-1", afterCheck = () => {};
   const saved = { mod: { id: "new-mod", repaired_from: "old-mod" } };
   globalThis.compatibilityDeps = {
+    jobProgress,
     ensureSpine: async () => licensed,
     confirmLicence: async () => { confirms++; return licensed; },
     language: () => locale,
@@ -34,7 +44,7 @@ async function harness(locale = "en-US", button = "cancel", accept = false) {
     },
     waitJob: async (id, update) => {
       assert.equal(typeof update, "function");
-      update({ current: 1, total: 1, label: id });
+      update({ current: 2, total: 3, label: "assets-raw.bundle", step: "import.step.replace" });
       if (id === "actions.compatibility") afterCheck();
       return id === "actions.remap" ? rebuilt : id === "actions.acceptRemap" ? saved : nextReport;
     },
@@ -48,7 +58,7 @@ async function harness(locale = "en-US", button = "cancel", accept = false) {
     Popup: { message: async (options) => { assert.ok(!held && !covered && !taskActive); popups.push(options); return { button }; } },
     Compare: { show: async (...args) => { assert.ok(!held && !covered && !taskActive); comparisons.push(args); return accept; } },
   };
-  const code = `const { T, language, rpc, waitJob, Loading, Popup, Compare, ensureSpine, confirmLicence } = globalThis.compatibilityDeps;\n${source.replace(/^import .*;$/gm, "")}\n// ${sequence++}`;
+  const code = `const { T, language, rpc, waitJob, Loading, Popup, Compare, ensureSpine, confirmLicence, jobProgress } = globalThis.compatibilityDeps;\n${source.replace(/^import .*;$/gm, "")}\n// ${sequence++}`;
   const mod = await import(`data:text/javascript;base64,${Buffer.from(code).toString("base64")}`);
   return { mod, calls, popups, comparisons, covers, labels, progress, strings, saved,
     use: (value) => { nextReport = value; }, build: (value) => { rebuilt = value; },
@@ -161,8 +171,11 @@ test("repair previews ask first in every locale; only Accept saves and refreshes
     assert.equal(changed, Number(accept));
     assert.deepEqual(h.calls.map(([method]) => method), ["actions.compatibility", "actions.remap", ...(accept ? ["actions.acceptRemap"] : []), "actions.discardRemap"]);
     assert.deepEqual(h.labels, ["compatibility", "remap", ...(accept ? ["repair"] : [])]
-      .map((action) => h.strings.progress[action].replace("{name}", "Painted")));
-    assert.deepEqual(h.progress.map(({ label }) => label), h.calls.slice(0, -1).map(([method]) => method));
+      .map((action) => jobProgress({ action: `progress.action${action[0].toUpperCase()}${action.slice(1)}`, name: "Painted" })));
+    assert.deepEqual(h.progress.map(({ label }) => label), ["compatibility", "remap", ...(accept ? ["repair"] : [])]
+      .map((action) => jobProgress({ action: `progress.action${action[0].toUpperCase()}${action.slice(1)}`, name: "Painted",
+        current: 2, total: 3, step: "import.step.replace" })));
+    assert.ok(h.progress.every(({ label }) => !label.includes(".bundle")));
     const [data, title, host, options] = h.comparisons[0];
     assert.deepEqual(data.pages, preview.pages);
     assert.equal(title, "Painted"); assert.equal(host, "dialog");
@@ -185,7 +198,7 @@ test("checks and repair progress use the localized target fallback without a lab
     h.use(mixedReport()); h.build(prepared());
     await h.mod.check("old-mod");
     assert.deepEqual(h.labels, ["compatibility", "remap", "repair"]
-      .map((action) => h.strings.progress[action].replace("{name}", h.strings.progress.mods)));
+      .map((action) => jobProgress({ action: `progress.action${action[0].toUpperCase()}${action.slice(1)}`, name: h.strings.progress.mods })));
   }
 });
 

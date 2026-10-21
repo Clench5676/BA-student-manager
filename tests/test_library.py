@@ -1084,13 +1084,17 @@ def test_update_uses_official_baseline_preserves_previous_and_reports_unchanged(
     calls = []
     def update(sources, targets, output, *args, **kwargs):
         calls.append(targets)
+        if kwargs.get("on_step"):
+            for step in ("extract", "replace", "save", "crc"):
+                kwargs["on_step"](step)
         result = output / targets[0].name
         result.write_bytes(header_bundle(b"updated!"))
         return ModUpdateResult(True, "updated", [FilePair(result, targets[0])])
     monkeypatch.setattr(core, "process_mod_update", update)
     progress = []
     result = env.library.update(entry.id, progress=lambda *args: progress.append(args))
-    assert progress == [(1, 1, service.t("webui.progress.repair", name=env.original.name))]
+    assert progress == [({"current": 1, "total": 1, "step": f"import.step.{step}"},)
+                        for step in ("check", "extract", "replace", "save", "crc")]
     assert result.unchanged is False
     assert result.previous[0].read_bytes() == old_bytes
     assert result.previous[0].is_relative_to(entry.file.parent / "previous")
@@ -1160,10 +1164,14 @@ def test_extract_uses_core_and_returns_core_folder(setup_library, monkeypatch):
     calls = []
     def extract(paths, output, **kwargs):
         calls.append(paths)
+        if kwargs.get("progress_callback"):
+            kwargs["progress_callback"](1, len(paths), paths[0].name)
         (output / "test.atlas").write_bytes(b"atlas")
         return True, "done"
     monkeypatch.setattr(core, "process_asset_extraction", extract)
-    folder = env.library.extract(f"mod:{entry.id}", env.tmp / "extracted")
+    progress = []
+    folder = env.library.extract(f"mod:{entry.id}", env.tmp / "extracted", progress=progress.append)
+    assert progress == [{"current": 1, "total": 1, "step": "import.step.extract"}]
     assert folder == env.tmp / "extracted" / "test_spr"
     assert (folder / "test.atlas").read_bytes() == b"atlas"
     env.library.extract("variant:test", env.tmp / "extracted")
