@@ -854,7 +854,7 @@ test("unknown source opens game radio choices and reanalyzes only its entry", as
   const unknown = { ...entry("a", "blocked"), reason: "source_unknown", source: null,
     target: { server: "global", platform: "windows" } };
   await h.analyze([unknown, entry("b")]);
-  assert.match(h.host.textContent, /Unknown Source/);
+  assert.match(h.host.textContent, /Identify source manually/);
   assert.equal(find(drawn(h, h.row("a")).tree, "Platform"), undefined, "an unknown source is not a conversion route");
   assert.ok(h.thumbs.some(([base]) => base.includes("/import/source-a")), "blocked source keeps its preview");
   await h.action("source").click(); await flush(); await h.page.settled();
@@ -1075,9 +1075,9 @@ for (const merged of [false, true]) test(`only conversions reserve a platform li
       assert.ok(row.art.children.every((element) => !element.dataset.path.endsWith("/Platform")));
       assert.equal(note.pos[0] + note.widgets[0].w_, 120, "the raised note stays in the metadata column");
     }
-    assert.equal(note.pos[1], route ? -138 : -84, "notes move up into the unused platform line");
+    assert.equal(note.pos[1], route ? -92 : -36, "notes move up into the unused platform line");
     const graphic = row.art.children.find((element) => element.dataset.path.endsWith("/Label_Locale_Limit"));
-    closeTo(rectOf(graphic)[1], opts.origin[1] - note.pos[1] * opts.scale - note.widgets[0].h_ * opts.scale / 2);
+    closeTo(rectOf(graphic)[1], opts.origin[1] - note.pos[1] * opts.scale);
   };
   check(h.row("a")); if (!merged) check(h.row("a-lobby")); check(h.row("d"));
   check(h.row("b"), "Global Android → Global PC"); check(h.row("c"), "Japan PC → Global PC");
@@ -1302,4 +1302,38 @@ for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) tes
       rows.forEach((row) => check(row, true));
     }
   } finally { setStrings("en-US", flatten(JSON.parse(readFileSync(new URL("../../src/ba_modding_toolkit/locales/en-US.json", import.meta.url), "utf8")))); }
+});
+
+for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) test(`owner review: source badge and result paragraphs fit in ${locale}`, async () => {
+  try {
+    const strings = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${locale}.json`, import.meta.url)));
+    setStrings(locale, flatten(strings));
+    const h = await fixture();
+    await h.analyze([{ ...entry("a", "blocked"), source: null, target: { server: "global", platform: "windows" }, reason: "source_unknown" }]);
+    const badge = find(drawn(h, h.row("a")).tree, "TimeLimit/Label_Locale_TimeLimit").widgets[0];
+    assert.equal(badge.text, strings.webui.import.reason.source_unknown);
+    assert.ok(badge.text.length * badge.fontSize <= badge.w_);
+    assert.ok(h.action("source"));
+    await h.action("source").click(); await h.page.settled();
+    const titles = walk(h.dialog).filter((el) => el.style.height === "60px");
+    assert.equal(titles.length, 2);
+    assert.ok(titles.every((el) => el.style.position === "relative"), "each prefab label anchors to its own title row");
+    h.page.hide();
+    const ready = await fixture();
+    const mobile = { ...entry("mobile", "convert", "lobby"), source: { server: "global", platform: "android" }, target: { server: "global", platform: "windows" } };
+    await ready.analyze([mobile, entry("same")]);
+    await ready.action("start").click(); await flush();
+    ready.runs[0].resolve({ results: ["mobile", "same"].map((id) => ({ id, outcome: "updated", libraryId: id, applied: true })) });
+    await flush(); await ready.page.results(); await ready.page.settled();
+    for (const row of walk(ready.dialog).filter((el) => el.dataset.result)) {
+      const { tree } = drawn(ready, row), paths = ["Label_Locale_Received", ...(find(tree, "Platform") ? ["Platform"] : []), "Label_Locale_Limit"];
+      const labels = paths.map((p) => find(tree, p));
+      const fs = labels[0].widgets[0].fontSize;
+      for (const [i, n] of labels.entries()) {
+        const w = n.widgets[0]; assert.equal(w.fontSize, fs); assert.equal(w.pivot, 0);
+        assert.ok(n.pos[1] - w.h_ >= -329 / 2 + 12, "text and descenders clear the card bottom");
+        if (i) assert.equal(labels[i - 1].pos[1] - n.pos[1], 56);
+      }
+    }
+  } finally { setStrings("en-US", flatten(JSON.parse(readFileSync(new URL("../../src/ba_modding_toolkit/locales/en-US.json", import.meta.url))))); }
 });

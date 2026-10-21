@@ -400,7 +400,7 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
     await dialog(T("import.source.choose"), { action: T("picker.ok"), cancel: T("popup.cancel"),
       onAction: () => model.setSource(entry.id, server, platform) }, (area) => {
       const choices = (key, values, value, change) => {
-        const title = el("div"); title.style.height = "60px"; area.appendChild(title);
+        const title = el("div"); Object.assign(title.style, { height: "60px", position: "relative" }); area.appendChild(title);
         textWidget(title, T(`import.source.${key}`), "empty", { scale: 0.5, origin: [685, 30] });
         const group = radioOptions(area, values, value, change, { columns: values.length });
         group.setAttribute("aria-label", T(`import.source.${key}`));
@@ -412,7 +412,8 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
 
   function rowCopy(group, result = false) {
     const entry = representative(group.entries);
-    return { result, kind: T(KIND_KEYS[entry.kind] || KIND_KEYS.other), state: T(`import.state.${entry.state}`),
+    return { result, kind: T(KIND_KEYS[entry.kind] || KIND_KEYS.other),
+      unidentified: entry.reason === "source_unknown", state: T(entry.reason === "source_unknown" ? "import.reason.source_unknown" : `import.state.${entry.state}`),
       counts: merged ? group.counts : null, badge: !merged && !result,
       meta: result ? [...new Set(group.entries.map((entry) => model.state.results.find((item) => item.id === entry.id))
         .map((item) => T(`import.outcome.${OUTCOMES.has(item?.outcome) ? item.outcome : "failed"}`)))].join(", ")
@@ -420,10 +421,23 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
         : T(entry.files?.length === 1 ? "import.metaOne" : "import.meta", { id: identified(entry).core, n: entry.files?.length || 0, size: sizeText(entry.size) }) };
   }
 
+  function paragraphCopy(group, result = false) {
+    const notes = result ? group.entries.map((entry) => {
+      const item = model.state.results.find((item) => item.id === entry.id);
+      return item?.reason ? report(item.reason, entry) : ["imported", "updated", "unchanged"].includes(item?.outcome)
+        ? T(item.applied ? "import.applied" : "import.notApplied") : "";
+    }) : group.entries.map(rowNote);
+    return { ...rowCopy(group, result), route: conversionRoutes(group.entries),
+      note: [...new Set(notes.filter(Boolean))].join(listSeparator()) };
+  }
+
+  const sharedRowSize = (groups) => art.rowTextSize(groups.flatMap((group) =>
+    [paragraphCopy(group), ...(model.state.phase === "done" ? [paragraphCopy(group, true)] : [])]));
+
   function renderRows() {
     if (!visible || !root) return;
     const allGroups = importGroups(model.state.entries, merged, identified);
-    const textSize = art.rowTextSize(allGroups.map((group) => rowCopy(group)));
+    const textSize = sharedRowSize(allGroups);
     const groups = allGroups.filter((group) => group.entries.some((entry) =>
       (filter === "all" || entry.state === filter) && identified(entry).search.includes(query)));
     const entries = groups.map((group) => group.entries[0]);
@@ -629,7 +643,7 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
     await dialog(T("import.resultTitle"), {}, (area) => {
       area.classList.add("import-results");
       const groups = importGroups(model.state.taskEntries, merged, identified);
-      const textSize = art.rowTextSize(groups.map((group) => rowCopy(group, true)));
+      const textSize = sharedRowSize(groups);
       for (const group of groups) {
         const entry = representative(group.entries), row = el("div", "import-result-row");
         const resultItems = group.entries.map((item) => ({ entry: item, result: model.state.results.find((result) => result.id === item.id) }));

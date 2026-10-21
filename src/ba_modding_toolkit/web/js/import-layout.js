@@ -230,11 +230,13 @@ export function importArtwork(ui, layouts) {
           }
           for (const child of n.children || []) fit(child);
         };
-        for (const path of ["Label_Locale_Received", "Label_From", "TimeLimit"]) fit(ui.find(tree, path));
+        for (const path of ["Label_Locale_Received", "Label_From", "TimeLimit", "Platform", "Label_Locale_Limit"]) {
+          const n = ui.find(tree, path); if (n) fit(n);
+        }
       }
       return Math.floor(size * 10) / 10;
     },
-    row({ name, kind, state, stateKey = "ready", meta, route = "", note = "", muted = false, counts = null, badge = true, result = false, textSize = ROW_TEXT_SIZE }) {
+    row({ name, kind, state, stateKey = "ready", meta, route = "", note = "", muted = false, counts = null, badge = true, result = false, unidentified = false, textSize = ROW_TEXT_SIZE }) {
       const t = at(content(muted ? "List_02" : "List_01"));
       t.children = t.children.filter((c) => ["BG", "Deco", "Deco (1)", "Sprite", "Line", "BG_Icon", "Label_System", "Label_From",
         "Label_Locale_Received", "Label_Locale_Limit", "TimeLimit"].includes(c.name));
@@ -272,35 +274,35 @@ export function importArtwork(ui, layouts) {
       };
       const title = ui.find(t, "Label_System"); title.pos[0] = textLeft;
       label(title, name, 926 - textLeft, 1);
+      const badgeWidth = unidentified ? Math.max(330, Math.min(850, ui.glyphWidth(state, ROW_TEXT_SIZE) + 32)) : 330;
+      const kindRight = unidentified ? 926 - badgeWidth - 28 : 550;
+      const kindWidth = unidentified ? 300 : 400;
+      const metaRight = unidentified ? kindRight - kindWidth - 28 : 120;
       // Keep the card's title, divider and row pitch; reserve the bottom right for three fixed columns.
-      const sender = ui.find(t, "Label_From"); at(sender, 350, ROW_TEXT_TOP); rowLabel(sender, kind, 400, 1);
+      const sender = ui.find(t, "Label_From"); at(sender, kindRight - kindWidth / 2, ROW_TEXT_TOP); rowLabel(sender, kind, kindWidth, 1);
       if (counts) {
         const kinds = ["spr", "lobby", "model", "other"].filter((kind) => counts[kind] > 0);
         at(sender, result ? 370 : 510, ROW_TEXT_TOP); sender.widgets = [];
         sender.children = countNodes(counts, iconsOf(ui.atlasIndex?.()), ui.translate, { kinds, width: result ? 500 : 780,
           color: ui.find(t, "Label_System").widgets[0].color, fontSize: textSize, top: true });
       }
-      const received = ui.find(t, "Label_Locale_Received"); received.children = []; rowLabel(received, meta, 120 - textLeft);
+      const received = ui.find(t, "Label_Locale_Received"); received.children = []; rowLabel(received, meta, metaRight - textLeft);
       at(received, textLeft, ROW_TEXT_TOP);
       if (route) {
-        const platform = clone(received); platform.widgets[0].pivot = 3; platform.name = "Platform"; at(platform, textLeft, -84);
-        const routeLabel = platform.widgets.find((w) => "text" in w);
-        routeLabel.fontSize = Math.min(routeLabel.fontSize, 42); routeLabel.h_ = routeLabel.fontSize * 1.3;
-        label(platform, route, 120 - textLeft, 1); t.children.push(platform);
+        const platform = clone(received); platform.name = "Platform"; at(platform, textLeft, ROW_TEXT_TOP - 56);
+        rowLabel(platform, route, 120 - textLeft); t.children.push(platform);
       }
       let limit = ui.find(t, "Label_Locale_Limit");
       if (!limit) { limit = content("List_01/Label_Locale_Limit"); t.children.push(limit); }
-      limit.children = []; at(limit, textLeft, route ? -138 : -84);
-      const noteLabel = limit.widgets.find((w) => "text" in w);
-      noteLabel.pivot = 3; noteLabel.fontSize = Math.min(noteLabel.fontSize, 36); noteLabel.h_ = noteLabel.fontSize * 1.3;
+      limit.children = []; at(limit, textLeft, ROW_TEXT_TOP - (route ? 112 : 56));
       // Notes stay within the text band below the one-line metadata, kind and state.
-      label(limit, note, (route ? 900 : 120) - textLeft, 1);
+      rowLabel(limit, note, (route ? 900 : 120) - textLeft);
       // TimeLimit is only present on the unread card; clone that same node for read cards as well.
       let status = ui.find(t, "TimeLimit");
       if (!status) { status = content("List_01/TimeLimit"); t.children.push(status); }
       status.active = badge;
-      at(status, 745, ROW_TEXT_TOP);
-      ui.find(status, "Bg").widgets[0].w_ = 330;
+      at(status, unidentified ? 926 - badgeWidth / 2 : 745, ROW_TEXT_TOP);
+      ui.find(status, "Bg").widgets[0].w_ = badgeWidth;
       const tones = {
         ready: inventory(`${DETAIL}/Text_Amount`).widgets[0].color,
         convert: mail("Bottom/ObjectsDisplayed_Unread/ReceiveAll/Btn").widgets[0].color,
@@ -314,7 +316,7 @@ export function importArtwork(ui, layouts) {
       const statusLabel = ui.find(status, "Label_Locale_TimeLimit");
       if (["ready", "convert", "update", "library"].includes(stateKey)) statusLabel.widgets[0].color = inventory(`${DETAIL}/Text_Type`).widgets[0].color;
       at(statusLabel);
-      rowLabel(statusLabel, state, 300, 1);
+      rowLabel(statusLabel, state, badgeWidth - 30, 1);
       const statusBG = ui.find(status, "Bg"); at(statusBG, 0, 4);
       Object.assign(statusBG.widgets[0], { pivot: 1, h_: statusLabel.widgets[0].h_ + 8 });
       return t;
