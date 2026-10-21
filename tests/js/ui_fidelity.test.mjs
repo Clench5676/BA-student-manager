@@ -29,6 +29,7 @@ const segments = ["All", "Support"].map((name) => n(name, [0, 0], [], [
     [n("Caption", [0, 1.4], [{ texture: name, color: "#ffffff/1.00", depth: 9 }])]),
 ]));
 insert(collection, "SeletControl/TopMenu/FilterBtn", n("FilterBtn", [0, 0], [], segments));
+insert(collection, "SeletControl/TopMenu/SortBtn/Btn_Normal", n("Btn_Normal", [0, 0], [spr("Common_Bg_Raius5px_Shadow", 456, 116, { type: 1, incline: 10 })]));
 insert(collection, "SeletControl/List/Scroll Bar", n("Scroll Bar", [0, 0], [], [
   n("Background", [1391, 0], [{ texture: "Scroll", w_: 126, h_: 990, depth: 3, color: "#ccd7df/1.00" }]),
   n("Foreground", [1391, 0], [{ texture: "Scroll", w_: 126, h_: 990, depth: 4, color: "#92a6b7/1.00" }]),
@@ -91,13 +92,21 @@ test("Mods switch selects one complete normal, pressed or unavailable branch per
         assert.equal(find(active[0], "Label_Locale").widgets[0].color, "#828282/1.00");
       } else {
         assert.equal(active[0].name, i === (on ? 0 : 1) ? "Btn_Pressed" : "Btn_Normal"); // "On" first, as before
-        if (active[0].name === "Btn_Normal") assert.equal(active[0].widgets[0].color, "#f0f8fa/0.95");
+        if (active[0].name === "Btn_Normal") {
+          assert.equal(active[0].widgets[0].color, "#f0f8fa/0.95");
+          const shadow = find(active[0], "Shadow");
+          assert.equal(shadow.widgets[0].sprite, "Common_Bg_Raius5px_Shadow");
+          assert.equal(shadow.widgets[0].w_, active[0].widgets[0].w_);
+          assert.equal(shadow.widgets[0].h_, 116);
+          assert.equal(shadow.pos[1] + shadow.widgets[0].h_ / 2, active[0].widgets[0].h_ / 2);
+          assert.equal(shadow.widgets[0].depth, active[0].widgets[0].depth - 1);
+        }
       }
     });
   }
 });
 
-test("navigation keeps the donor's label and icon dimensions, and greys without the lock", () => {
+test("navigation fits icons in the Student slot and greys without the lock", () => {
   const grid = n("Grid", [0, 0], [], [n("Student", [100, 0], [], [
     n("Label", [1, 8], [lbl("#2c4564/1.00")]),
     n("Able", [0, 94], [spr("Common_Icon_Student", 98, 134)]),
@@ -107,6 +116,8 @@ test("navigation keeps the donor's label and icon dimensions, and greys without 
     const tree = navigationEntry(grid, { icon: "Common_Icon_Student" }, "Students", grey, 0);
     assert.equal(find(tree, "Able").active, !grey); assert.equal(find(tree, "Disable").active, grey);
     assert.equal(find(tree, "Able").widgets[0].h_, 134);
+    assert.equal(find(tree, "Able").widgets[0].w_, 134);
+    assert.equal(find(tree, "Able").widgets[0].keepAspect, true);
     assert.equal(find(tree, "Label").widgets[0].color, "#2c4564/1.00");
     assert.equal(find(tree, "Disable/Lock"), null); // classic hand-offs are not locked game content
     assert.ok(find(tree, "Disable/Icon"));

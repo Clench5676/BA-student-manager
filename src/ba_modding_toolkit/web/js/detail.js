@@ -364,9 +364,11 @@ function screenTree() {
     at(t, `${base}/Normal/Label_SkillType`).pos = [bgX + 66 * TAN10, midY + 66];
     const icon = at(t, `${base}/Normal/SkillIconBg`);
     icon.pos = [bgX - 30 * TAN10, midY - 30];
+    icon.widgets = [];
+    icon.children = icon.children.filter((child) => ["Texture", "Deco"].includes(child.name));
     const picture = widget(t, `${base}/Normal/SkillIconBg/Texture`);
     delete picture.texture;
-    Object.assign(picture, { cls: "UISprite", sprite: { compare: "School_Icon_Schedule", update: "Common_Icon_All_Download", extract: "Common_Icon_Inventory_Equip" }[glyph], atlas: "Common", type: 0 });
+    Object.assign(picture, { cls: "UISprite", sprite: { compare: "School_Icon_Schedule", update: "Common_Icon_All_Download", extract: "Common_Icon_Inventory_Equip" }[glyph], atlas: "Common", type: 0, w_: 109, h_: 109, keepAspect: true });
   }
   // row 3: portrait box, the switch card (the game's light weapon card), add portrait. The box's body spans
   // -96..95 around its centre (its slanted right edge ends lower down a few units further left); the title sits at -8.

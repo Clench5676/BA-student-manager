@@ -9,6 +9,7 @@ const DETAIL = `${INVENTORY}/Left_Info/EquipInfo/Equip_Target`;
 const FILTER = "Center/Popup/Filter/ScrollView/Filter_List/Table_List/UIFilterObjectList_1";
 const RADIO = "Center/Popup/Sort/Scroll View/Sort_Normal/Option_Normal/Grid/UISortObjectListUnit/Label_Text";
 export const ROW_SCALE = 0.54, ROW_WIDTH = 2208 * ROW_SCALE, ROW_HEIGHT = 348 * ROW_SCALE;
+const rowGap = (ui, layouts) => 348 - ui.find(layouts.UIMailBoxContent, "List_01/BG").widgets.find((w) => "sprite" in w).h_;
 
 export async function loadImportLayouts(ui) {
   const names = ["UINonEquipmentInventory", "UIMailBox", "UIMailBoxContent", "UIPopup_FilterSort", "UINonEquipmentInventoryListItem"];
@@ -35,6 +36,7 @@ export function importArtwork(ui, layouts) {
 
   return {
     label,
+    rowGap: () => rowGap(ui, layouts) * ROW_SCALE,
     // UINonEquipmentInventory/Inventory_ListControl/BG, including the game's two background textures.
     background: () => at(inventory(`${INVENTORY}/BG`)),
     // Items/ListBG: retain its paper and inset; replace its grid with the scrolling mail cards.
@@ -140,12 +142,15 @@ export function importArtwork(ui, layouts) {
       return t;
     },
     // Items/EquipPos: bind the comparison art to its UITexture, retaining the game's backing circle.
-    preview(caption) {
+    preview(caption, headerHeight) {
       const t = at(inventory(`${INVENTORY}/EquipPos`));
-      ui.find(t, "Texture").widgets[0].h_ = 837; ui.find(t, "Texture").pos[1] = -15;
+      const picture = ui.find(t, "Texture");
+      picture.widgets[0].h_ = 837; picture.pos[1] = -headerHeight - picture.widgets[0].h_ / 2;
+      ui.find(t, "BGCilcle").pos[1] = picture.pos[1];
       const tag = inventory(`${DETAIL}/Text_Type`);
-      at(tag, -240, 455); label(tag, caption, 500);
-      ui.find(tag, "TypeBG").widgets[0].w_ = 520;
+      const bg = ui.find(tag, "TypeBG"), body = bg.widgets[0];
+      at(tag, -240, -(bg.pos[1] + body.h_ / 2) * tag.scale[1]); label(tag, caption, 500);
+      body.w_ = 520;
       t.children.push(tag); return t;
     },
     // Items/Equip_Target: keep the dark name plate, texture and category tag. Quantity/expiry are irrelevant to Mods.
@@ -165,9 +170,13 @@ export function importArtwork(ui, layouts) {
       t.children = t.children.filter((c) => ["BG", "Deco", "Deco (1)", "Sprite", "Line", "BG_Icon", "Label_System", "Label_From",
         "Label_Locale_Received", "Label_Locale_Limit", "TimeLimit"].includes(c.name));
       ui.find(t, "BG_Icon").children = ui.find(t, "BG_Icon").children.filter((c) => c.name === "Icon_Arona");
-      ui.find(t, "BG_Icon/Icon_Arona").active = true;
+      const picture = ui.find(t, "BG_Icon/Icon_Arona"), slot = picture.widgets.find((w) => "texture" in w);
+      picture.active = true;
+      ui.find(t, "BG_Icon").widgets = [];
+      // Keep the mail title/paragraph columns; inset the rectangular texture by the mail card's own row gap.
+      picture.pos[0] = ui.find(t, "Label_System").pos[0] - rowGap(ui, layouts) - slot.w_ / 2 - ui.find(t, "BG_Icon").pos[0];
       label(ui.find(t, "Label_System"), name, 1688, 1);
-      // Do not change the card's title, icon, divider or row pitch; reserve the bottom right for three fixed columns.
+      // Keep the card's title, divider and row pitch; reserve the bottom right for three fixed columns.
       const sender = ui.find(t, "Label_From"); at(sender, 110, -23); label(sender, kind, 360, 2);
       sender.widgets[0].pivot = 4;
       const received = ui.find(t, "Label_Locale_Received"); received.children = []; label(received, meta, 620, 1);

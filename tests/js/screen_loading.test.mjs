@@ -4,16 +4,16 @@ import { test } from "node:test";
 
 const source = readFileSync(new URL("../../src/ba_modding_toolkit/web/js/main.js", import.meta.url), "utf8");
 const code = source.slice(source.indexOf("let routeToken ="), source.indexOf("async function boot("));
-const deferred = () => { let resolve; const promise = new Promise((r) => { resolve = r; }); return { promise, resolve }; };
+const deferred = () => { let resolve, reject; const promise = new Promise((r, fail) => { resolve = r; reject = fail; }); return { promise, resolve, reject }; };
 const flush = async () => { for (let i = 0; i < 30; i++) await Promise.resolve(); };
 
 function harness(initial = "roster") {
   const family = deferred(), preview = deferred(), rows = deferred(), rosterData = deferred();
   const screens = Object.fromEntries(["detail", "roster", "import"].map((key) => [`screen-${key}`, { hidden: key !== initial }]));
   const details = [], events = [];
-  let covered = false, generation = 0;
+  let covered = false, generation = 0, detailOpen = initial === "detail";
   const env = {
-    location: { hash: "#/student/ibuki/ibuki" }, $: (key) => screens[key],
+    location: { hash: "#/student/ibuki/ibuki", replace(hash) { this.hash = hash; events.push(`replace:${hash}`); } }, $: (key) => screens[key],
     ctx: {}, rosterData: null, stepCards: null, roster: () => rosterData.promise,
     BatchImport: { hide() {}, show: async () => { events.push("build-import"); await rows.promise; } }, renderNav() {},
     rpc: async () => family.promise, visited() {}, setTitle() {}, T: (key) => key, askQuit() {},
@@ -28,8 +28,9 @@ function harness(initial = "roster") {
       },
     },
     Detail: {
-      show: async (_ctx, _family, _key, options) => { details.push(options); await preview.promise; },
-      hide: () => events.push("hide-detail"), stepFailed() {},
+      show: async (_ctx, _family, _key, options) => { detailOpen = true; details.push(options); await preview.promise; },
+      hide: () => { detailOpen = false; events.push("hide-detail"); }, stepFailed() {},
+      currentVariant: () => detailOpen ? "ibuki" : null,
     },
     Roster: { invalidate() {}, hide: () => events.push("hide-roster"), order: () => [], show: async () => { events.push("build-roster"); await rows.promise; } },
     noGame() {}, toast() {},
@@ -90,6 +91,35 @@ test("Batch Import releases detail previews and stays covered until its screen i
   h.rows.resolve(); await route;
   assert.equal(h.screens["screen-import"].hidden, false);
   assert.equal(h.covered(), false);
+});
+
+test("a failed import returns to the last student route and rebuilds its released preview", async (t) => {
+  t.mock.method(console, "error", () => {});
+  const h = harness();
+  h.family.resolve({ key: "ibuki" }); h.preview.resolve(); await h.route();
+  h.location.hash = "#/import";
+  h.rosterData.resolve({ families: [] });
+  const importing = h.route(); await flush();
+  assert.ok(h.events.includes("hide-detail"));
+  h.rows.reject(new Error("layout export failed")); await importing;
+  assert.equal(h.location.hash, "#/student/ibuki/ibuki");
+  assert.ok(h.events.includes("replace:#/student/ibuki/ibuki"));
+  await h.route();
+  assert.equal(h.details.length, 2, "the old detail DOM is re-entered through show, not left closed");
+  assert.deepEqual(h.details[1], { inPlace: false });
+  assert.equal(h.screens["screen-detail"].hidden, false);
+});
+
+test("a late import failure cannot redirect a newer student navigation", async (t) => {
+  t.mock.method(console, "error", () => {});
+  const h = harness("detail");
+  h.rosterData.resolve({ families: [] }); h.location.hash = "#/import";
+  const importing = h.route(); await flush();
+  h.location.hash = "#/student/ibuki/dress";
+  h.family.resolve({ key: "ibuki" }); h.preview.resolve(); await h.route(); await importing;
+  h.rows.reject(new Error("late failure")); await flush();
+  assert.equal(h.location.hash, "#/student/ibuki/dress");
+  assert.ok(!h.events.some((event) => event.startsWith("replace:")));
 });
 
 test("startup scan prompts follow current consent without a separate startup mode", async () => {

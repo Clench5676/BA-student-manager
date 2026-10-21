@@ -334,7 +334,8 @@ export async function render(tree, host, opts = {}) {
           Object.assign(el.style, { backgroundImage: `url("${url}")`, backgroundRepeat: "repeat", backgroundSize: `${meta.width * S}px ${meta.height * S}px` });
         } else {
           // simple sprites keep their own aspect unless told to stretch (NGUI stretches; game widgets are sized to match)
-          return downscaled(url, ww * S, hh * S).then((small) => {
+          const fit = Math.min(ww * S / meta.width, hh * S / meta.height);
+          return downscaled(url, w.keepAspect ? meta.width * fit : ww * S, w.keepAspect ? meta.height * fit : hh * S).then((small) => {
             Object.assign(el.style, { backgroundImage: `url("${small}")`, backgroundSize: w.keepAspect ? "contain" : "100% 100%", backgroundPosition: "center", backgroundRepeat: "no-repeat" });
           });
         }
@@ -402,10 +403,13 @@ const layouts = new Map();
 export function layout(name) {
   if (!layouts.has(name)) {
     const [root, sub] = name.split(".");
-    layouts.set(name, withTimeout(fetch(`/asset/ui/layout/${encodeURIComponent(root)}.json`).then((r) => {
+    // Cold exports scan prefab bundles and can wait for a lobby's bundle locks. The scene owns the slow-load
+    // indicator and navigation cancellation; elapsed time alone does not make a valid server response fail.
+    const request = sub ? layout(root).then((tree) => findNamed(tree, sub)) : fetch(`/asset/ui/layout/${encodeURIComponent(root)}.json`).then((r) => {
       if (!r.ok) throw new Error(`layout ${root}: HTTP ${r.status}`);
       return r.json();
-    }).then((tree) => (sub ? findNamed(tree, sub) : tree)), 15000, `Layout ${name}`)
+    });
+    layouts.set(name, request
       .catch((err) => { layouts.delete(name); throw err; }));
   }
   return layouts.get(name);
