@@ -1199,7 +1199,14 @@
 			"atlas_remap_asset_ambiguous": "無法重排：{file} - 資源有歧義：{name}",
 			"atlas_remap_atlas_missing": "無法重排：{file} - 缺少相符的 Mod 圖集",
 			"atlas_remap_source_missing": "無法重排：{file} - Mod 缺少圖集，未保留 {date} 的原版圖集",
-			"atlas_remap_regions_missing": "無法自動修復，Mod 缺少區域：{names}"
+			"atlas_remap_regions_missing": "無法自動修復，Mod 缺少區域：{names}",
+			"source_unknown": "原始版本未知",
+			"source_conflict": "原始版本資訊衝突",
+			"platform_unsupported": "不支援的平台",
+			"target_unknown": "遊戲目錄平台未知",
+			"conversion_names": "無對應檔名",
+			"no_matching_assets": "無相符資源",
+			"conversion_failed": "轉換失敗"
 		},
 		"drop": {
 			"hint": "拖入 Mod 檔案以新增"
@@ -1469,7 +1476,14 @@
 				"no_target": "找不到遊戲檔案",
 				"conflict": "目標衝突",
 				"spine_version": "Spine 版本不相容",
-				"unsupported": "不支援的類型"
+				"unsupported": "不支援的類型",
+				"source_unknown": "原始版本未知",
+				"source_conflict": "原始版本資訊衝突",
+				"platform_unsupported": "不支援的平台",
+				"target_unknown": "遊戲目錄平台未知",
+				"conversion_names": "無對應檔名",
+				"no_matching_assets": "無相符資源",
+				"conversion_failed": "轉換失敗"
 			},
 			"phase": {
 				"update": "正在更新",
@@ -1504,6 +1518,16 @@
 				"cont_name_type": "容器、名稱、類型",
 				"path_id": "Path ID",
 				"name_type": "名稱、類型"
+			},
+			"source": {
+				"choose": "選擇原始版本",
+				"unknown": "原始版本未知",
+				"server": "原始伺服器",
+				"platform": "原始平台",
+				"android": "Android",
+				"ios": "iOS",
+				"windows": "電腦",
+				"route": "{source} → {target}"
 			}
 		}
 	}

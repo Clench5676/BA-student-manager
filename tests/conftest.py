@@ -262,7 +262,7 @@ def header_only_bundles(monkeypatch):
     monkeypatch.setattr("ba_modding_toolkit.library.identity.content_cores", lambda path: set())
     from ba_modding_toolkit.library.integrity import Contents
     monkeypatch.setattr("ba_modding_toolkit.library.integrity.inspect",
-                        lambda path: Contents(platforms={"StandaloneWindows64"}))
+                        lambda path, **kwargs: Contents(platforms={"StandaloneWindows64"}, files={"cab-test"}))
 
 
 def require_render_support() -> None:

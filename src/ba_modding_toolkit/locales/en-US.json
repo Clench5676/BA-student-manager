@@ -1199,7 +1199,14 @@
 			"atlas_remap_asset_ambiguous": "Cannot remap: {file} - ambiguous asset {name}",
 			"atlas_remap_atlas_missing": "Cannot remap: {file} - no matching Mod atlas",
 			"atlas_remap_source_missing": "Cannot remap: {file} - Mod atlas missing, no kept official atlas for {date}",
-			"atlas_remap_regions_missing": "Cannot update automatically, missing Mod regions: {names}"
+			"atlas_remap_regions_missing": "Cannot update automatically, missing Mod regions: {names}",
+			"source_unknown": "Unknown Source",
+			"source_conflict": "Conflicting Source Metadata",
+			"platform_unsupported": "Unsupported Platform",
+			"target_unknown": "Unknown Game Platform",
+			"conversion_names": "No Matching Filename",
+			"no_matching_assets": "No Matching Assets",
+			"conversion_failed": "Conversion Failed"
 		},
 		"drop": {
 			"hint": "Drop mod files to add them"
@@ -1469,7 +1476,14 @@
 				"no_target": "No Matching Game File",
 				"conflict": "Conflicting Targets",
 				"spine_version": "Incompatible Spine Version",
-				"unsupported": "Unsupported Type"
+				"unsupported": "Unsupported Type",
+				"source_unknown": "Unknown Source",
+				"source_conflict": "Conflicting Source Metadata",
+				"platform_unsupported": "Unsupported Platform",
+				"target_unknown": "Unknown Game Platform",
+				"conversion_names": "No Matching Filename",
+				"no_matching_assets": "No Matching Assets",
+				"conversion_failed": "Conversion Failed"
 			},
 			"phase": {
 				"update": "Updating",
@@ -1504,6 +1518,16 @@
 				"cont_name_type": "Container, Name, Type",
 				"path_id": "Path ID",
 				"name_type": "Name, Type"
+			},
+			"source": {
+				"choose": "Choose Source",
+				"unknown": "Unknown Source",
+				"server": "Source Server",
+				"platform": "Source Platform",
+				"android": "Android",
+				"ios": "iOS",
+				"windows": "PC",
+				"route": "{source} → {target}"
 			}
 		}
 	}

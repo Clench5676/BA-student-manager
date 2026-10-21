@@ -1151,6 +1151,11 @@ class Services:
                 if entry is None or entry.kind != "model" or entry.target != self.catalog.variant(_stem(parts[1])).key:
                     raise KeyError(path)
                 data = self.game.model_glb(core, overrides=self.library.preview_bundles(mod_id))
+            elif source.startswith("import:"):
+                preview_core, bundles = self.batch_import.preview(source[7:])
+                if preview_core != core:
+                    raise KeyError(path)
+                data = self.game.model_glb(core, overrides=bundles)
             else:
                 raise KeyError(path)
             return AssetResponse(data, MIME[".glb"], light=False)

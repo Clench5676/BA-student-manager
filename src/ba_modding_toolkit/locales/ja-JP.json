@@ -1199,7 +1199,14 @@
 			"atlas_remap_asset_ambiguous": "再配置不可：{file} - アセットを特定できません：{name}",
 			"atlas_remap_atlas_missing": "再配置不可：{file} - 対応する Mod アトラスなし",
 			"atlas_remap_source_missing": "再配置不可：{file} - Mod のアトラスなし、{date} の公式アトラスの保管なし",
-			"atlas_remap_regions_missing": "自動修復不可、Mod の不足領域：{names}"
+			"atlas_remap_regions_missing": "自動修復不可、Mod の不足領域：{names}",
+			"source_unknown": "移植元不明",
+			"source_conflict": "移植元の情報が競合",
+			"platform_unsupported": "非対応プラットフォーム",
+			"target_unknown": "ゲームのプラットフォーム不明",
+			"conversion_names": "一致するファイル名なし",
+			"no_matching_assets": "一致するリソースなし",
+			"conversion_failed": "変換失敗"
 		},
 		"drop": {
 			"hint": "MODファイルをドロップして追加"
@@ -1469,7 +1476,14 @@
 				"no_target": "対応するゲームファイルなし",
 				"conflict": "対象が競合",
 				"spine_version": "Spineバージョン非対応",
-				"unsupported": "非対応の種類"
+				"unsupported": "非対応の種類",
+				"source_unknown": "移植元不明",
+				"source_conflict": "移植元の情報が競合",
+				"platform_unsupported": "非対応プラットフォーム",
+				"target_unknown": "ゲームのプラットフォーム不明",
+				"conversion_names": "一致するファイル名なし",
+				"no_matching_assets": "一致するリソースなし",
+				"conversion_failed": "変換失敗"
 			},
 			"phase": {
 				"update": "更新中",
@@ -1504,6 +1518,16 @@
 				"cont_name_type": "コンテナー、名前、種類",
 				"path_id": "Path ID",
 				"name_type": "名前、種類"
+			},
+			"source": {
+				"choose": "移植元を選択",
+				"unknown": "移植元不明",
+				"server": "移植元サーバー",
+				"platform": "移植元プラットフォーム",
+				"android": "Android",
+				"ios": "iOS",
+				"windows": "PC",
+				"route": "{source} → {target}"
 			}
 		}
 	}

@@ -555,6 +555,10 @@ def build_api(s: Services) -> RpcRegistry:
     def import_analyze(paths: list[str], recursive: bool = False) -> str:
         return s.batch_import.analyze(paths, recursive)
 
+    @rpc.method("import.setSource")
+    def import_set_source(id: str, server: str, platform: str) -> str:
+        return s.batch_import.set_source(id, server, platform)
+
     @rpc.method("import.run")
     def import_run(ids: list[str], options: dict[str, Any]) -> str:
         return s.batch_import.run(ids, options)
