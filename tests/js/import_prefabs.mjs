@@ -85,7 +85,7 @@ export function makeImportLayouts() {
     node("Bg", [-50, 0], [sprite("Common_line_10px", 100, 100, { pivot: 3 })]), node("CheckBoxIcon", [0, 0], [sprite("Common_Icon_Check_B", 82, 80)]), node("CheckBoxIcon_Disable", [0, 0], [sprite("Common_Icon_Check_B", 82, 80, { color: "#96aac3/0.66" })]),
   ]));
   insert(fs, "Center/Popup/Sort/Scroll View/Sort_Normal/Option_Normal/Grid/UISortObjectListUnit/Label_Text", node("Label_Text", [0, 0], [], [node("BG", [0, 0], [sprite("Common_Btn_Radio_BG", 60, 60)]), node("On", [0, 0], [sprite("Common_Btn_Radio_On", 60, 60)], [label("Label_On")]), label("Label_On"), node("Line", [0, -87], [sprite("Common_Square_Bg", 504, 4)])]));
-  const item = node("UINonEquipmentInventoryListItem", [0, 0], [], [node("Card", [0, 0], [], [node("Normal", [0, 0], [], [node("Cover_Select", [0, -0.6], [sprite("Card_Select_Line", 240, 220)])])])]);
+  const item = node("UINonEquipmentInventoryListItem", [0, 0], [], [node("Card", [0, 0], [], [node("Normal", [0, 0], [], [node("Cover_Select", [0, -0.6], [sprite("Card_Select_Line", 240, 220)], [{ name: "Bare", active: true, pos: [0, 0], scale: [1, 1], widgets: [] }])])])]);
   const state = (name) => node(name, [178, -3.2], [], [node("Check", [-120, 8], [sprite(`Check_${name}`, 74, 72)]), label("Caption")]);
   const caption = label("Locale_Text", "unowned", { pivot: 3, color: "#484e52/1.00" }); caption.pos = [131, 2.8];
   const toggle = node("UIPopup_GachaCharList.Btn_Checkbox", [-1385, 598], [sprite("Common_Toggle_BG", 798, 110, { pivot: 3 })],
@@ -111,7 +111,7 @@ export async function renderImportTree(tree, host, { scale = 1, origin = [0, 0] 
         width: `${w.w_ * sx * scale}px`, height: `${w.h_ * sy * scale}px` });
       host.appendChild(e); entry.els.push(e);
     }
-    n.children.forEach((c) => walk(c, p, x, y, sx, sy));
+    n.children?.forEach((c) => walk(c, p, x, y, sx, sy));
   }
   walk(tree); return { nodes, scale, origin };
 }

@@ -16,11 +16,13 @@ const rowGap = (ui, layouts) => 348 - ui.find(layouts.UIMailBoxContent, "List_01
 // Include child widgets, their pivots and inclined overhangs in the selection frame's drawn edge.
 function rightEdge(node, x = 0, sx = 1, sy = 1) {
   if (node.active === false) return -Infinity;
-  x += node.pos[0] * sx; sx *= node.scale[0]; sy *= node.scale[1];
-  return Math.max(...node.widgets.filter((w) => "w_" in w).map((w) =>
+  // exported prefab nodes may omit empty widget and child lists
+  const [px] = node.pos || [0, 0], [kx, ky] = node.scale || [1, 1];
+  x += px * sx; sx *= kx; sy *= ky;
+  return Math.max(...(node.widgets || []).filter((w) => "w_" in w).map((w) =>
     x + (1 - [0, 0.5, 1][(w.pivot ?? 4) % 3]) * w.w_ * sx
       + Math.abs(Math.tan((w.incline || 0) * Math.PI / 180) * w.h_ * sy / 2)),
-  ...node.children.map((child) => rightEdge(child, x, sx, sy)));
+  ...(node.children || []).map((child) => rightEdge(child, x, sx, sy)));
 }
 
 export async function loadImportLayouts(ui) {
