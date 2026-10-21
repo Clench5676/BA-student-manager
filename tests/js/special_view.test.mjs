@@ -63,7 +63,7 @@ test("detail and thumbnails frame real posed vertices, ignoring stale export bou
   const lobby = read("../../src/ba_modding_toolkit/web/js/lobby.js");
   const code = lobby.slice(lobby.indexOf("function measureSpecial("), lobby.indexOf("// switch between the left view"));
   const thumbs = read("../../src/ba_modding_toolkit/web/js/thumbs.js");
-  const thumbnail = new Function("spine", "specialView", "artBounds", `${thumbs.slice(thumbs.indexOf("function viewFor("), thumbs.indexOf("const frames ="))}; return viewFor;`)(spine, specialView, artBounds);
+  const thumbnail = new Function("spine", "specialView", "artBounds", `${thumbs.slice(thumbs.indexOf("function viewFor("), thumbs.indexOf("function loadPlayer("))}; return viewFor;`)(spine, specialView, artBounds);
   const p = player(), layer = { name: "np0032_npc", x: 40000, y: -30000, scale: 0.01, player: p };
   const edge = worldBounds(artBounds(p.skeleton), layer);
   for (const framing of ["character", "scene"]) {

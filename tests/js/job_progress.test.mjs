@@ -27,8 +27,10 @@ for (const locale of locales) test(`student job identities use one bracket and o
   for (const [base, full, short] of [["Shiroko", "Shiroko*Terror", "Terror"], ["Arona", "Arona - Tasks - Daytime", "Tasks - Daytime"]]) {
     const family = { key: base, base: { en: base } }, v = { key: full, names: { en: { full, short } }, family };
     assert.equal(progressName(v, kind), T("progress.subject", { name: base, parts: [short, kind].join(T("progress.comma")) }));
-    family.custom = ["Custom"];
-    assert.equal(progressName(v, kind), T("progress.subject", { name: "Custom", parts: [short, kind].join(T("progress.comma")) }));
+    family.custom = ["Legacy base alias"];
+    assert.equal(progressName(v, kind), T("progress.subject", { name: base, parts: [short, kind].join(T("progress.comma")) }));
+    v.custom = ["Custom"];
+    assert.equal(progressName(v, kind), T("progress.subject", { name: "Custom", parts: kind }));
   }
   const line = jobProgress({ action: "import.phase.add", name, current: 2, total: 3, step: "import.step.add" });
   assert.ok(!line.includes(" - "));
@@ -48,9 +50,9 @@ for (const locale of locales) {
       assert.equal(progressName(variant, kind), expected);
       assert.equal(progressName({ ...variant, family: family.key }, kind, "", family), expected);
       assert.equal(progressName(variant, ""), base);
-      family.custom = ["Custom"];
+      variant.custom = ["Custom"];
       assert.equal(progressName(variant, kind), T("progress.subject", { name: "Custom", parts: kind }));
-      delete family.custom;
+      delete variant.custom;
     }
   });
   test(`catalog variants retain their labels in ${locale}`, () => {

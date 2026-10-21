@@ -371,9 +371,10 @@ def build_api(s: Services) -> RpcRegistry:
     # --- students ---
 
     def variant_json(v: Any, mods: dict[str, list], favorites: set[str], recent: list[str], seen: set[str] | None,
-                     modified: dict[str, str] | None = None) -> dict[str, Any]:
+                     modified: dict[str, str] | None = None, custom: dict[str, list[str]] | None = None) -> dict[str, Any]:
         own = mods.get(v.key, [])
         return {
+            "custom": (custom or {}).get(v.key, []),
             "key": v.key, "fileId": v.file_id, "family": v.family, "names": v.names, "playable": v.playable,
             "aliases": v.aliases,  # the search matches them, the page never shows them (the CN server's names)
             "recruitable": v.recruitable,  # on the selected server; playable is on some server
@@ -411,9 +412,9 @@ def build_api(s: Services) -> RpcRegistry:
         seen = s.state.seen_mods()
         families = []
         for f in s.catalog.families():
-            families.append({"key": f.key, "base": f.names, "aliases": f.aliases, "custom": custom.get(f.key, []),
+            families.append({"key": f.key, "base": f.names, "aliases": f.aliases,
                              "school": f.school,
-                             "variants": [variant_json(v, mods, favorites, recent, seen, modified) for v in f.variants]})
+                             "variants": [variant_json(v, mods, favorites, recent, seen, modified, custom) for v in f.variants]})
         return {"families": families}
 
     def model_files(core: str | None) -> list[dict[str, Any]]:
@@ -453,8 +454,9 @@ def build_api(s: Services) -> RpcRegistry:
         mods, favorites, recent = mods_by_target(), s.library.favorites(), s.state.recent()
         seen = s.state.seen_mods()
         variants = []
+        custom = s.state.aliases()
         for v in f.variants:
-            item = variant_json(v, mods, favorites, recent, seen)
+            item = variant_json(v, mods, favorites, recent, seen, custom=custom)
             item["state"] = to_json(s.library.state(v.key))
             item["modList"] = [{**to_json(m), "fresh": seen is not None and m.user_added and m.id not in seen}
                                for m in mods.get(v.key, [])]
@@ -462,18 +464,19 @@ def build_api(s: Services) -> RpcRegistry:
             variants.append(item)
         # the game's resource version tells installs apart (another game folder or file source): the page then reads
         # every part of a variant again, even under the same variant key
-        return {"key": f.key, "base": f.names, "aliases": f.aliases, "custom": s.state.aliases().get(f.key, []),
+        return {"key": f.key, "base": f.names, "aliases": f.aliases,
                 "school": f.school, "variants": variants,
                 "version": s.game.resource_version if s.game_found() else None}
 
     @rpc.method("aliases.set")
-    def aliases_set(family: str, aliases: list[str]) -> list[str]:
-        """Keep the user's own aliases of a student (the roster search matches them) and return them as kept: each
+    def aliases_set(aliases: list[str], variant: str | None = None, family: str | None = None) -> list[str]:
+        """Keep the user's own aliases of a variant (the roster search matches them) and return them as kept: each
         cleaned (state.alias_text), empty and repeated ones dropped. ``alias_too_long`` or ``alias_too_many`` past the
         limits; nothing is kept then."""
-        if not isinstance(family, str) or not isinstance(aliases, list) or not all(isinstance(a, str) for a in aliases):
+        if not isinstance(variant if variant is not None else family, str) or not isinstance(aliases, list) or not all(isinstance(a, str) for a in aliases):
             raise ServiceError("bad_params", key="aliases")
-        key = s.catalog.family(family).key
+        # The legacy family argument edits the original variant only.
+        key = s.catalog.variant(variant).key if variant is not None else s.catalog.family(family).key
         names = [alias_text(a) for a in aliases]
         if any(len(name) > ALIAS_LENGTH for name in names):
             raise ServiceError("alias_too_long", max=ALIAS_LENGTH)

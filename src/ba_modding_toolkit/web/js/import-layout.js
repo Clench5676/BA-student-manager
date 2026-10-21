@@ -219,7 +219,22 @@ export function importArtwork(ui, layouts) {
     },
     // MailboxContent/List_01 (unread) and List_02 (muted/read): the real card, title, divider and meta slots.
     // The sender becomes the aligned kind column; TimeLimit becomes status; receipt/expiry become metadata/reason.
-    row({ name, kind, state, stateKey = "ready", meta, route = "", note = "", muted = false, counts = null, badge = true }) {
+    rowTextSize(rows) {
+      let size = ROW_TEXT_SIZE;
+      for (const row of rows) {
+        const tree = this.row({ ...row, textSize: ROW_TEXT_SIZE });
+        const fit = (n) => {
+          if (n.active === false) return;
+          for (const w of n.widgets || []) if ("text" in w && w.fontSize === ROW_TEXT_SIZE) {
+            size = Math.min(size, ROW_TEXT_SIZE * w.w_ / Math.max(ui.glyphWidth(w.text, ROW_TEXT_SIZE), 1));
+          }
+          for (const child of n.children || []) fit(child);
+        };
+        for (const path of ["Label_Locale_Received", "Label_From", "TimeLimit"]) fit(ui.find(tree, path));
+      }
+      return Math.floor(size * 10) / 10;
+    },
+    row({ name, kind, state, stateKey = "ready", meta, route = "", note = "", muted = false, counts = null, badge = true, result = false, textSize = ROW_TEXT_SIZE }) {
       const t = at(content(muted ? "List_02" : "List_01"));
       t.children = t.children.filter((c) => ["BG", "Deco", "Deco (1)", "Sprite", "Line", "BG_Icon", "Label_System", "Label_From",
         "Label_Locale_Received", "Label_Locale_Limit", "TimeLimit"].includes(c.name));
@@ -235,7 +250,7 @@ export function importArtwork(ui, layouts) {
       picture.pos = [0, 0]; picture.scale = [1, 1];
       ui.find(t, "BG_Icon").pos = [window.x, window.y]; ui.find(t, "BG_Icon").scale = [1, 1];
       // Reserve 32 stage pixels beyond the entire selected slot, including the real prefab frame.
-      // Preserve each label's right edge so the fixed kind, state and checkbox columns do not move.
+      // Metadata gets half the text band; kind and state keep separate one-line cells.
       const frameRight = ROW_SELECTION.left + ROW_SELECTION.origin[0] + rightEdge(selection()) * ROW_SELECTION.scale;
       const textLeft = Math.max(-700, rightEdge(ui.find(t, "BG_Icon")) + 32 / ROW_SCALE,
         (frameRight + 32 - ROW_WIDTH / 2) / ROW_SCALE);
@@ -250,42 +265,42 @@ export function importArtwork(ui, layouts) {
       const divider = ui.find(t, "Line");
       divider.pos[0] = textLeft;
       Object.assign(divider.widgets[0], { pivot: 3, w_: 926 - textLeft });
-      const rowLabel = (n, caption, width, pivot = 0, lines = 1) => {
-        const w = n.widgets.find((w) => "text" in w), f = ui.fitText(caption, ROW_TEXT_SIZE, ROW_TEXT_SIZE, width, lines);
-        Object.assign(w, { text: f.text, fontSize: ROW_TEXT_SIZE, w_: width, h_: ROW_TEXT_SIZE * 1.3 * String(f.text).split("\n").length,
-          pivot, ellipsis: lines === 1 });
+      const rowLabel = (n, caption, width, pivot = 0) => {
+        const w = n.widgets.find((w) => "text" in w);
+        Object.assign(w, { text: String(caption ?? ""), fontSize: textSize, w_: width, h_: textSize * 1.3,
+          pivot, ellipsis: false });
       };
       const title = ui.find(t, "Label_System"); title.pos[0] = textLeft;
       label(title, name, 926 - textLeft, 1);
       // Keep the card's title, divider and row pitch; reserve the bottom right for three fixed columns.
-      const sender = ui.find(t, "Label_From"); at(sender, 110, ROW_TEXT_TOP); rowLabel(sender, kind, 360, 1, 2);
+      const sender = ui.find(t, "Label_From"); at(sender, 350, ROW_TEXT_TOP); rowLabel(sender, kind, 400, 1);
       if (counts) {
         const kinds = ["spr", "lobby", "model", "other"].filter((kind) => counts[kind] > 0);
-        at(sender, 220, ROW_TEXT_TOP); sender.widgets = [];
-        sender.children = countNodes(counts, iconsOf(ui.atlasIndex?.()), ui.translate, { kinds, width: 800,
-          color: ui.find(t, "Label_System").widgets[0].color, fontSize: ROW_TEXT_SIZE, top: true });
+        at(sender, result ? 370 : 510, ROW_TEXT_TOP); sender.widgets = [];
+        sender.children = countNodes(counts, iconsOf(ui.atlasIndex?.()), ui.translate, { kinds, width: result ? 500 : 780,
+          color: ui.find(t, "Label_System").widgets[0].color, fontSize: textSize, top: true });
       }
-      const received = ui.find(t, "Label_Locale_Received"); received.children = []; rowLabel(received, meta, -140 - textLeft);
+      const received = ui.find(t, "Label_Locale_Received"); received.children = []; rowLabel(received, meta, 120 - textLeft);
       at(received, textLeft, ROW_TEXT_TOP);
       if (route) {
         const platform = clone(received); platform.widgets[0].pivot = 3; platform.name = "Platform"; at(platform, textLeft, -84);
         const routeLabel = platform.widgets.find((w) => "text" in w);
         routeLabel.fontSize = Math.min(routeLabel.fontSize, 42); routeLabel.h_ = routeLabel.fontSize * 1.3;
-        label(platform, route, -140 - textLeft, 1); t.children.push(platform);
+        label(platform, route, 120 - textLeft, 1); t.children.push(platform);
       }
       let limit = ui.find(t, "Label_Locale_Limit");
       if (!limit) { limit = content("List_01/Label_Locale_Limit"); t.children.push(limit); }
       limit.children = []; at(limit, textLeft, route ? -138 : -84);
       const noteLabel = limit.widgets.find((w) => "text" in w);
       noteLabel.pivot = 3; noteLabel.fontSize = Math.min(noteLabel.fontSize, 36); noteLabel.h_ = noteLabel.fontSize * 1.3;
-      // A note taking the platform line must also stay clear of multi-line kind/status cells.
-      label(limit, note, (route ? 600 : -140) - textLeft, 1);
+      // Notes stay within the text band below the one-line metadata, kind and state.
+      label(limit, note, (route ? 900 : 120) - textLeft, 1);
       // TimeLimit is only present on the unread card; clone that same node for read cards as well.
       let status = ui.find(t, "TimeLimit");
       if (!status) { status = content("List_01/TimeLimit"); t.children.push(status); }
       status.active = badge;
-      at(status, 605, ROW_TEXT_TOP);
-      ui.find(status, "Bg").widgets[0].w_ = 540;
+      at(status, 745, ROW_TEXT_TOP);
+      ui.find(status, "Bg").widgets[0].w_ = 330;
       const tones = {
         ready: inventory(`${DETAIL}/Text_Amount`).widgets[0].color,
         convert: mail("Bottom/ObjectsDisplayed_Unread/ReceiveAll/Btn").widgets[0].color,
@@ -299,7 +314,7 @@ export function importArtwork(ui, layouts) {
       const statusLabel = ui.find(status, "Label_Locale_TimeLimit");
       if (["ready", "convert", "update", "library"].includes(stateKey)) statusLabel.widgets[0].color = inventory(`${DETAIL}/Text_Type`).widgets[0].color;
       at(statusLabel);
-      rowLabel(statusLabel, state, 510, 1, 2);
+      rowLabel(statusLabel, state, 300, 1);
       const statusBG = ui.find(status, "Bg"); at(statusBG, 0, 4);
       Object.assign(statusBG.widgets[0], { pivot: 1, h_: statusLabel.widgets[0].h_ + 8 });
       return t;

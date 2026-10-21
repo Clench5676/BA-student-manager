@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 import { spineBase, spinePrefix, spineAssetBase } from "../../src/ba_modding_toolkit/web/js/api.js";
-import { thumb, forget, prioritise, thumbnailScope } from "../../src/ba_modding_toolkit/web/js/thumbs.js";
+import { thumb, forget, prioritise, thumbnailScope, hasThumbnailInk } from "../../src/ba_modding_toolkit/web/js/thumbs.js";
 import { setSpineConsent } from "../../src/ba_modding_toolkit/web/js/spine-runtime.js";
 
 setSpineConsent(true);
@@ -16,7 +16,7 @@ const el = () => ({
   getContext: () => ({ drawImage() {} }), toBlob: (done) => done({}),
 });
 globalThis.document = { body: el(), createElement: el };
-globalThis.requestAnimationFrame = (done) => queueMicrotask(() => { for (const p of players) p.config.draw(p); done(); });
+globalThis.requestAnimationFrame = (done) => queueMicrotask(() => { for (const p of players) p.config.draw?.(p); done(); });
 globalThis.URL.createObjectURL = () => `blob:thumb-${++blobs}`;
 globalThis.URL.revokeObjectURL = () => {};
 globalThis.fetch = async (url, options) => {
@@ -54,12 +54,66 @@ globalThis.spine = {
       });
     }
     setViewport() {}
+    stopRendering() { this.stopRequestAnimationFrame = true; }
+    drawFrame(loop) { assert.equal(loop, false); this.config.draw?.(this); }
     dispose() { players.delete(this); }
   },
 };
 const set = (base, value) => revisions.set(base.replace(/skeleton$/, "manifest.json"), value.repeat(64));
 // Successful requests may still have a companion capture and player cleanup behind them.
 afterEach(async () => { await new Promise(setImmediate); });
+
+test("off-screen captures render while lifecycle hooks and the RAF clock are inactive", async () => {
+  const Player = spine.SpinePlayer, raf = requestAnimationFrame;
+  const base = spineBase("official-spr", "inactive_spr");
+  let draws = 0;
+  document.hasFocus = () => false;
+  globalThis.requestAnimationFrame = () => assert.fail("a thumbnail must not wait for RAF");
+  spine.SpinePlayer = class extends Player {
+    constructor(el, config) {
+      super(el, { ...config, success: (player) => {
+        assert.equal(player.stopRequestAnimationFrame, true, "the real lifecycle suspended this player before readiness");
+        config.success(player);
+      } });
+      this.context.gl.readPixels = (_x, _y, _w, _h, _f, _t, pixels) => {
+        if (draws) pixels.set([80, 80, 80, 0, 80, 80, 80, 255]);
+      };
+    }
+    drawFrame(loop) { draws++; super.drawFrame(loop); }
+  };
+  try {
+    set(base, "a");
+    assert.ok(await thumb(base, "face"));
+    assert.equal(draws, 1);
+  } finally { delete document.hasFocus; globalThis.requestAnimationFrame = raf; spine.SpinePlayer = Player; }
+});
+
+test("alpha boundaries count as ink in flat-colour art; blank frames do not", () => {
+  for (const pixels of [[90, 90, 90, 0, 90, 90, 90, 255], [90, 90, 90, 255, 90, 90, 90, 0]]) {
+    assert.equal(hasThumbnailInk(new Uint8Array(pixels)), true);
+  }
+  assert.equal(hasThumbnailInk(new Uint8Array([10, 20, 30, 0, 40, 50, 60, 0])), false);
+  assert.equal(hasThumbnailInk(new Uint8Array([240, 240, 240, 255, 240, 240, 240, 255])), false);
+});
+
+test("a blank inactive capture is rejected quickly and the next skeleton still renders", async () => {
+  const Player = spine.SpinePlayer, raf = requestAnimationFrame;
+  const blank = spineBase("spr", "inactive_blank_spr"), healthy = spineBase("spr", "inactive_healthy_spr");
+  let reads = 0;
+  document.hidden = true;
+  globalThis.requestAnimationFrame = () => assert.fail("blank captures cannot wait for RAF");
+  spine.SpinePlayer = class extends Player {
+    constructor(el, config) {
+      super(el, config);
+      if (config.skeleton.includes("/inactive_blank_spr/")) this.context.gl.readPixels = () => { reads++; };
+    }
+  };
+  try {
+    set(blank, "a"); set(healthy, "b");
+    const failed = thumb(blank, "face"), next = thumb(healthy, "face");
+    assert.equal(await failed, null); assert.equal(reads, 6); assert.ok(await next);
+  } finally { delete document.hidden; globalThis.requestAnimationFrame = raf; spine.SpinePlayer = Player; }
+});
 
 test("thumbnail cache follows file revisions, source, install, frame and expression", async () => {
   const official = spineBase("official-spr", "ibuki_spr");
@@ -443,15 +497,18 @@ test("a stalled skeleton fails all its faces once and releases the next core", a
     dispose() { disposed.push(this.config.skeleton); super.dispose(); }
   };
   try {
+    document.hidden = true;
     set(base, "d"); set(next, "e");
     const faces = Array.from({ length: 8 }, (_, i) => scope.thumb(base, "face", `0${i}`));
     const later = scope.thumb(next, "face", "00");
     await new Promise(setImmediate);
-    t.mock.timers.tick(15000); await new Promise(setImmediate);
+    t.mock.timers.tick(7999); await new Promise(setImmediate);
+    assert.equal(disposed.length, 0);
+    t.mock.timers.tick(1); await new Promise(setImmediate);
     assert.deepEqual(await Promise.all(faces), Array(8).fill(null));
     assert.ok(await later, "one total deadline, rather than a deadline per queued face");
     assert.ok(disposed.some((url) => url.includes("/stuck_spr/")));
-  } finally { scope.cancel(); await new Promise(setImmediate); spine.SpinePlayer = Player; t.mock.timers.reset(); }
+  } finally { delete document.hidden; scope.cancel(); await new Promise(setImmediate); spine.SpinePlayer = Player; t.mock.timers.reset(); }
 });
 
 test("a stuck encoder fails the remaining expressions together and lets another skeleton render", async (t) => {

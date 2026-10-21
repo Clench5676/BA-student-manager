@@ -94,6 +94,12 @@ class FakeCatalog:
             raise ServiceError("family_not_found", key=key)
         return self.f
 
+    def variant(self, key):
+        for variant in self.f.variants:
+            if variant.key == key:
+                return variant
+        raise ServiceError("catalog_variant_not_found", key=key)
+
 
 @dataclass
 class FakeMod:
@@ -472,11 +478,11 @@ def test_roster_and_family_carry_the_aliases_the_search_matches(app, services):
 
 
 def test_own_aliases_are_kept_and_listed(app, services, tmp_path):
-    assert rpc(app, "roster.list")["result"]["families"][0]["custom"] == []
+    assert rpc(app, "roster.list")["result"]["families"][0]["variants"][0]["custom"] == []
     kept = rpc(app, "aliases.set", family="hoshino", aliases=[" Oji  san ", "oji san", "", "<i>x</i>"])["result"]
     assert kept == ["Oji san", "<i>x</i>"]
-    assert rpc(app, "roster.list")["result"]["families"][0]["custom"] == kept
-    assert rpc(app, "family.get", key="hoshino")["result"]["custom"] == kept
+    assert rpc(app, "roster.list")["result"]["families"][0]["variants"][0]["custom"] == kept
+    assert rpc(app, "family.get", key="hoshino")["result"]["variants"][0]["custom"] == kept
     # kept across launches, in the user's data folder
     assert UiState(tmp_path / "webui.json").aliases() == {"hoshino": kept}
     # past the limits nothing changes
@@ -490,10 +496,39 @@ def test_own_aliases_are_kept_and_listed(app, services, tmp_path):
     for bad in ("x", [1], None):
         assert rpc(app, "aliases.set", family="hoshino", aliases=bad)["error"]["code"] == "bad_params"
     assert rpc(app, "aliases.set", family="nobody", aliases=["x"])["error"]["code"] == "family_not_found"
-    assert rpc(app, "family.get", key="hoshino")["result"]["custom"] == kept
+    assert rpc(app, "family.get", key="hoshino")["result"]["variants"][0]["custom"] == kept
     # none: the student's entry goes
     assert rpc(app, "aliases.set", family="hoshino", aliases=[])["result"] == []
     assert UiState(tmp_path / "webui.json").aliases() == {}
+
+
+def test_legacy_family_aliases_migrate_to_original_only_and_skins_save_independently(app, services, tmp_path):
+    path = tmp_path / "webui.json"
+    legacy = {"aliases": {"hoshino": ["Original nickname"]}, "prefs": {"voice_volume": 40}, "seen_mods": []}
+    path.write_text(json.dumps(legacy), encoding="utf-8")
+    before = path.read_bytes()
+    skin = replace(services.catalog.v, key="hoshino_swimsuit", file_id="hoshino_swimsuit")
+    services.catalog.f.variants.append(skin)
+
+    def names(method):
+        result = rpc(app, method, **({"key": "hoshino"} if method == "family.get" else {}))["result"]
+        family = result["families"][0] if method == "roster.list" else result
+        assert "custom" not in family
+        return {v["key"]: v["custom"] for v in family["variants"]}
+
+    for method in ("roster.list", "family.get"):
+        assert names(method) == {"hoshino": ["Original nickname"], skin.key: []}
+    assert path.read_bytes() == before  # Reinterpreting the stable base key needs no disk rewrite.
+    assert rpc(app, "aliases.set", variant=skin.key, aliases=["Skin nickname"])["result"] == ["Skin nickname"]
+    for method in ("roster.list", "family.get"):
+        assert names(method) == {"hoshino": ["Original nickname"], skin.key: ["Skin nickname"]}
+    assert rpc(app, "aliases.set", variant="hoshino", aliases=[])["result"] == []
+    assert UiState(path).aliases() == {skin.key: ["Skin nickname"]}
+    services.catalog.f.variants = [skin]  # A missing original must not transfer its alias to an installed skin.
+    path.write_text(json.dumps(legacy), encoding="utf-8")
+    assert names("roster.list") == {skin.key: []}
+    assert rpc(app, "aliases.set", variant="missing", aliases=["x"])["error"]["code"] == "catalog_variant_not_found"
+    assert json.loads(path.read_text())["prefs"] == legacy["prefs"]
 
 
 def _bundle(folder: Path, stem: str, trailing: bytes = b"") -> Path:

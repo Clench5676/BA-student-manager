@@ -1,5 +1,5 @@
 """Small UI state kept between launches: the asset consent, recently opened variants, seen mods, the user's own
-aliases of the students and the web UI's own preferences (voice volume, the mod library folder, scan and Spine consents,
+aliases of the variants and the web UI's own preferences (voice volume, the mod library folder, scan and Spine consents,
 the mod switch's and the classic hand-off's flags, the data directory's id). Kept apart from config.toml, which the
 classic GUI rewrites with only its own keys.
 
@@ -240,24 +240,24 @@ class UiState:
 
         self._update(change)
 
-    # --- the user's own aliases, by family key ---
+    # --- the user's own aliases, by variant key ---
 
     def aliases(self) -> dict[str, list[str]]:
-        """Every student's own aliases ({family key: [alias]}), cleaned as custom_aliases does; students without any
-        are left out."""
+        """Every variant's own aliases ({variant key: [alias]}), cleaned as custom_aliases does.
+        Legacy family keys already identify the original variant, so they migrate without rewriting the file."""
         table = self._current().get("aliases")
         if not isinstance(table, dict):
             return {}
         out = {}
-        for family, value in table.items():
+        for variant, value in table.items():
             names = custom_aliases(value)
-            if isinstance(family, str) and names:
-                out[family] = names
+            if isinstance(variant, str) and names:
+                out[variant] = names
         return out
 
-    def set_aliases(self, family: str, names: list[str]) -> list[str]:
-        """Keep a student's own aliases (none: forget the student's entry) and return them as kept. Only this
-        student's entry of the file changes."""
+    def set_aliases(self, variant: str, names: list[str]) -> list[str]:
+        """Keep a variant's own aliases (none: forget its entry) and return them as kept.
+        Only this variant's entry of the file changes."""
         kept = custom_aliases(names)
 
         def change(data: dict[str, Any]) -> None:
@@ -265,9 +265,9 @@ class UiState:
             if not isinstance(table, dict):
                 table = data["aliases"] = {}
             if kept:
-                table[family] = kept
+                table[variant] = kept
             else:
-                table.pop(family, None)
+                table.pop(variant, None)
 
         self._update(change)
         return kept

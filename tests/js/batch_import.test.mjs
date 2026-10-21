@@ -91,8 +91,8 @@ const entry = (id, state = "ready", kind = "spr") => ({ id, paths: [`/fixtures/$
   reason: state === "blocked" ? "no_target" : null, libraryId: state === "library" ? "lib-known" : null,
   preview: ["spr", "lobby"].includes(kind) ? { kind: "import", key: `source-${id}` } : null });
 const mixed = () => [entry("a"), entry("b", "update", "lobby"), entry("c", "library"), entry("d", "installed"), entry("e", "blocked", "model")];
-const catalog = { families: ["a", "b", "c", "d", "e"].map((id) => ({ key: id, custom: id === "a" ? ["Saved Alias"] : [], variants: [{
-  key: id, fileId: `${id}_spr`, spr: `${id}_spr`, lobby: `${id}_home`, portrait: `/portrait/${id}.png`, bg: `/bg/${id}.png`, names: { en: { full: `Student ${id}` }, ja: { full: `JP ${id}` } },
+const catalog = { families: ["a", "b", "c", "d", "e"].map((id) => ({ key: id, variants: [{
+  key: id, custom: id === "a" ? ["Saved Alias"] : [], fileId: `${id}_spr`, spr: `${id}_spr`, lobby: `${id}_home`, portrait: `/portrait/${id}.png`, bg: `/bg/${id}.png`, names: { en: { full: `Student ${id}` }, ja: { full: `JP ${id}` } },
 }] })) };
 
 async function fixture({ licensed = false, native = true, suggest, countIcons = false } = {}) {
@@ -443,8 +443,8 @@ test("mail row columns and native checkbox/selection widgets stay aligned for ev
   const cards = h.rendered.filter(({ tree }) => ["List_01", "List_02"].includes(tree.name));
   assert.equal(cards.length, 5);
   for (const { tree } of cards) {
-    assert.deepEqual(find(tree, "Label_From").pos, [110, 20]);
-    assert.deepEqual(find(tree, "TimeLimit").pos, [605, 20]);
+    assert.deepEqual(find(tree, "Label_From").pos, [350, 20]);
+    assert.deepEqual(find(tree, "TimeLimit").pos, [745, 20]);
     assert.ok(find(tree, "Label_System").widgets[0].prefabMarker);
     assert.equal(find(tree, "Btn_Receive"), undefined, "row actions are selection, not a decorative receive button");
   }
@@ -565,8 +565,8 @@ for (const wideFrame of [false, true]) test(`list and result text clears every t
     assert.ok(gap >= 28, `thumbnail-to-text gap: ${gap.toFixed(2)} stage px`);
     const { tree, opts } = drawn(h, row);
     assert.equal(find(tree, "BG").widgets[0].w_, 2208);
-    assert.deepEqual(find(tree, "Label_From").pos, [110, 20]);
-    assert.deepEqual(find(tree, "TimeLimit").pos, [605, 20]);
+    assert.deepEqual(find(tree, "Label_From").pos, [350, 20]);
+    assert.deepEqual(find(tree, "TimeLimit").pos, [745, 20]);
     const title = text.find((box) => Math.abs(box[2] - (opts.origin[0] + 926 * opts.scale)) < 0.01);
     assert.ok(title, "the title keeps its right edge");
     if (selection) closeTo(parseFloat(row.querySelector(".import-check").style.left), 1192.32 - 66);
@@ -959,19 +959,20 @@ test("results omit state badges, follow the merge setting and route every studen
   assert.equal(h.destinations.at(-1), "other");
 });
 
-test("done entries stay unchecked across navigation and backend reanalysis", async () => {
-  const h = await fixture(); await h.analyze([entry("a"), entry("b", "done")]);
-  const assertDone = (id) => {
-    assert.match(h.row(id).textContent, /Done/); const check = h.row(id).querySelector("input");
-    assert.equal(check.checked, false); assert.equal(check.disabled, true);
-    h.page.model.toggle(id, true); assert.equal(h.page.model.state.checked.has(id), false);
-  };
-  assertDone("b"); h.answers.push({ button: "ok" }); await h.action("start").click(); await flush();
+test("leaving removes only completed entries and reanalysis uses the remaining paths", async () => {
+  const h = await fixture(); await h.analyze([entry("a"), entry("b", "done"), entry("c", "blocked"), entry("d", "installed")]);
+  h.page.model.toggle("b", true); assert.equal(h.page.model.state.checked.has("b"), false);
+  h.answers.push({ button: "ok" }); await h.action("start").click(); await flush();
   h.runs[0].resolve({ results: [{ id: "a", outcome: "unchanged", libraryId: "lib-a", applied: false }] }); await flush(); await h.page.settled();
-  assertDone("a"); h.page.hide(); await h.page.show(h.context, catalog); assertDone("a"); assertDone("b");
+  assert.match(h.row("a").textContent, /Done/); assert.match(h.row("b").textContent, /Done/);
+  h.page.hide(); await h.page.show(h.context, catalog); await h.page.settled();
+  assert.deepEqual(h.page.model.state.entries.map(({ id }) => id), ["c", "d"]);
+  assert.equal(h.row("a"), undefined); assert.equal(h.row("b"), undefined);
+  assert.ok(h.row("c")); assert.ok(h.row("d"));
   const recheck = h.page.model.recheck(); await flush();
-  h.analyses.at(-1).resolve({ entries: [entry("a", "done"), entry("b", "done")], skipped: 0 }); await recheck; await h.page.settled();
-  assertDone("a"); assertDone("b"); assert.equal(h.page.model.state.checked.size, 0);
+  assert.deepEqual(h.analyses.at(-1).params.paths, [...entry("c").paths, ...entry("d").paths]);
+  h.analyses.at(-1).resolve({ entries: [entry("c", "blocked"), entry("d", "installed")], skipped: 0 });
+  await recheck; await h.page.settled(); assert.equal(h.page.model.state.checked.size, 0);
 });
 
 test("the shared page hold reports both analysis and import progress through artwork completion", async () => {
@@ -1049,7 +1050,7 @@ for (const merged of [false, true]) test(`only conversions reserve a platform li
     else {
       assert.equal(platform, undefined);
       assert.ok(row.art.children.every((element) => !element.dataset.path.endsWith("/Platform")));
-      assert.equal(note.pos[0] + note.widgets[0].w_, -140, "the raised note stays in the metadata column");
+      assert.equal(note.pos[0] + note.widgets[0].w_, 120, "the raised note stays in the metadata column");
     }
     assert.equal(note.pos[1], route ? -138 : -84, "notes move up into the unused platform line");
     const graphic = row.art.children.find((element) => element.dataset.path.endsWith("/Label_Locale_Limit"));
@@ -1087,7 +1088,8 @@ test("row metadata, kind, badge text and checkbox share a top edge and fixed fon
         const row = h.row(id), { tree } = drawn(h, row), prefix = tree.name;
         const paths = ["Label_Locale_Received", "Label_From", "TimeLimit/Label_Locale_TimeLimit"];
         const labels = paths.map((path) => find(tree, path).widgets[0]);
-        assert.deepEqual(labels.map((w) => w.fontSize), [42, 42, 42]);
+        assert.ok(labels[0].fontSize > 0 && labels[0].fontSize <= 42);
+        assert.deepEqual(labels.map((w) => w.fontSize), Array(3).fill(labels[0].fontSize));
         const tops = paths.map((path) => rectOf(row.art.children.find((el) => el.dataset.path === `${prefix}/${path}`))[1]);
         tops.push(parseFloat(row.querySelector(".import-check").style.top));
         tops.forEach((top) => closeTo(top, tops[0]));
@@ -1120,6 +1122,67 @@ test("manual source selection is limited to unknown sources and conversion route
   assert.equal(h.action("source"), undefined);
   for (const id of ["b", "c", "d"]) { h.page.model.select(id); await h.page.settled(); assert.ok(h.action("source")); }
   h.page.model.select("a"); await h.page.settled(); assert.equal(h.action("source"), undefined);
+});
+
+for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) test(`long metadata and kinds fit one shared line in list and result rows in ${locale}`, async () => {
+  try {
+    const strings = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${locale}.json`, import.meta.url), "utf8"));
+    setStrings(locale, flatten(strings));
+    for (const merged of [false, true]) for (const countIcons of [false, true]) {
+      const h = await fixture({ countIcons });
+      const entries = [
+        { ...entry("a"), core: "shiroko_swimsuit_very_long_variant_identifier_spr", size: 123456789 },
+        { ...entry("a-lobby", "ready", "lobby"), variant: "a" },
+        { ...entry("a-model", "ready", "model"), variant: "a" }, entry("b", "update", "lobby"),
+      ];
+      await h.analyze(entries);
+      if (merged) {
+        const toggle = h.action("merge").querySelector("input"); toggle.checked = true;
+        await toggle.dispatch("change"); await h.page.settled();
+      }
+      const check = (rows, result = false) => {
+        let shared;
+        for (const row of rows) {
+          const { tree } = drawn(h, row), meta = find(tree, "Label_Locale_Received").widgets[0];
+          shared ??= meta.fontSize; assert.equal(meta.fontSize, shared, "all rows share a size");
+          const paths = ["Label_Locale_Received", ...(find(tree, "Label_From").children.length
+            ? find(tree, "Label_From").children.map((n) => `Label_From/${n.name}/Count`) : ["Label_From"]),
+            ...(!result && !merged ? ["TimeLimit/Label_Locale_TimeLimit"] : [])];
+          const boxes = [];
+          for (const path of paths) {
+            const w = find(tree, path).widgets[0];
+            assert.equal(w.fontSize, shared); assert.equal(w.ellipsis, false);
+            assert.doesNotMatch(w.text, /\n|…/); assert.ok(String(w.text).length * w.fontSize <= w.w_ + 0.01, path);
+            boxes.push(rectOf(row.art.children.find((el) => el.dataset.path === `${tree.name}/${path}`)));
+          }
+          for (let i = 1; i < boxes.length; i++) assert.ok(boxes[i - 1][0] + boxes[i - 1][2] <= boxes[i][0], "columns do not overlap");
+          const boundary = result ? parseFloat(h.action("go", row).style.left) : parseFloat(row.querySelector(".import-check").style.left);
+          assert.ok(boxes.at(-1)[0] + boxes.at(-1)[2] < boundary, "text clears the action control");
+        }
+      };
+      const rows = walk(h.host).filter((el) => el.dataset.entry); check(rows);
+      if (!merged) {
+        const expected = strings.webui.import.metaOne.replace("{id}", entries[0].core).replace("{n}", "1").replace("{size}", "117.7 MB");
+        assert.equal(find(drawn(h, h.row("a")).tree, "Label_Locale_Received").widgets[0].text, expected);
+      }
+      await h.action("start").click(); await flush();
+      h.runs[0].resolve({ results: entries.map(({ id }) => ({ id, outcome: "imported", libraryId: `lib-${id}` })) });
+      await flush(); await h.page.results(); await h.page.settled();
+      check(walk(h.dialog).filter((el) => el.dataset.result), true);
+    }
+  } finally { setStrings("en-US", flatten(JSON.parse(readFileSync(new URL("../../src/ba_modding_toolkit/locales/en-US.json", import.meta.url))))); }
+});
+
+test("import identities and search keep aliases on the selected skin", () => {
+  const data = { families: [{ key: "base", variants: [
+    { key: "base", custom: ["Original nickname"], names: { en: { full: "Original" } } },
+    { key: "skin", custom: ["Skin nickname", "Search skin"], names: { en: { full: "Maid" } } },
+    { key: "other", names: { en: { full: "Swimsuit" } } },
+  ] }] };
+  const catalog = catalogEntries(data), identity = (variant) => entryIdentity({ variant }, catalog);
+  assert.equal(identity("skin").name, "Skin nickname"); assert.match(identity("skin").search, /search skin/);
+  assert.equal(identity("base").name, "Original nickname"); assert.doesNotMatch(identity("base").search, /skin nickname|search skin/);
+  assert.equal(identity("other").name, "Swimsuit"); assert.doesNotMatch(identity("other").search, /nickname/);
 });
 
 test("portrait comparisons are vertical side by side; lobbies are landscape with current above incoming", async () => {
@@ -1202,7 +1265,7 @@ for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) tes
         const { tree } = drawn(h, row), sender = find(tree, "Label_From");
         const kinds = sender.children.length ? sender.children.map((kind) => `Label_From/${kind.name}/Count`) : ["Label_From"];
         const paths = ["Label_Locale_Received", ...kinds, ...(result || merged) ? [] : ["TimeLimit/Label_Locale_TimeLimit"]];
-        for (const path of paths) assert.equal(find(tree, path).widgets[0].fontSize, 42, path);
+        for (const path of paths) assert.equal(find(tree, path).widgets[0].fontSize, find(tree, paths[0]).widgets[0].fontSize, path);
         const tops = paths.map((path) => rectOf(row.art.children.find((el) => el.dataset.path === `${tree.name}/${path}`))[1]);
         if (!result) tops.push(parseFloat(row.querySelector(".import-check").style.top));
         tops.forEach((top) => closeTo(top, tops[0]));

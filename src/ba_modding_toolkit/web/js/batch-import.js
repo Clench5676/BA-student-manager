@@ -31,9 +31,9 @@ export function entryIdentity(entry, catalog) {
   const variant = catalog.find((item) => item.key === entry.variant)
     || catalog.find((item) => entry.core && [item.fileId, item.spr, item.lobby, item.model].includes(entry.core));
   const names = L(variant?.names);
-  const name = studentName(variant?.family, names?.full || names?.short || entry.core || baseName(entry.paths?.[0]) || entry.id);
+  const name = studentName(variant, names?.full || names?.short || entry.core || baseName(entry.paths?.[0]) || entry.id);
   return { variant, name, core: entry.core || variant?.fileId || entry.variant || baseName(entry.paths?.[0]),
-    search: [name, entry.core, entry.variant, ...(entry.paths || []), ...customAliases(variant?.family),
+    search: [name, entry.core, entry.variant, ...(entry.paths || []), ...customAliases(variant),
       ...Object.values(variant?.names || {}).flatMap((value) => typeof value === "string" ? [value] : Object.values(value))].filter(Boolean).join(" ").toLocaleLowerCase() };
 }
 
@@ -410,14 +410,26 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
     });
   }
 
+  function rowCopy(group, result = false) {
+    const entry = representative(group.entries);
+    return { result, kind: T(KIND_KEYS[entry.kind] || KIND_KEYS.other), state: T(`import.state.${entry.state}`),
+      counts: merged ? group.counts : null, badge: !merged && !result,
+      meta: result ? [...new Set(group.entries.map((entry) => model.state.results.find((item) => item.id === entry.id))
+        .map((item) => T(`import.outcome.${OUTCOMES.has(item?.outcome) ? item.outcome : "failed"}`)))].join(", ")
+        : merged ? [...new Set(group.entries.map((item) => T(`import.state.${item.state}`)))].join(listSeparator())
+        : T(entry.files?.length === 1 ? "import.metaOne" : "import.meta", { id: identified(entry).core, n: entry.files?.length || 0, size: sizeText(entry.size) }) };
+  }
+
   function renderRows() {
     if (!visible || !root) return;
-    const groups = importGroups(model.state.entries, merged, identified).filter((group) => group.entries.some((entry) =>
+    const allGroups = importGroups(model.state.entries, merged, identified);
+    const textSize = art.rowTextSize(allGroups.map((group) => rowCopy(group)));
+    const groups = allGroups.filter((group) => group.entries.some((entry) =>
       (filter === "all" || entry.state === filter) && identified(entry).search.includes(query)));
     const entries = groups.map((group) => group.entries[0]);
     const collator = new Intl.Collator(language(), { numeric: true, sensitivity: "base" });
     groups.sort((a, b) => (ascending ? 1 : -1) * collator.compare(identified(a.entries[0]).name, identified(b.entries[0]).name));
-    const key = JSON.stringify([merged, groups]);
+    const key = JSON.stringify([merged, textSize, groups]);
     if (key !== rowsKey) {
       rowsKey = key; const previous = rows; rows = new Map();
       const contents = [];
@@ -432,15 +444,13 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
       }
       for (const group of groups) {
         const entry = representative(group.entries);
-        const existing = previous.get(group.key), signature = JSON.stringify(group);
+        const existing = previous.get(group.key), signature = JSON.stringify([textSize, group]);
         if (existing?.signature === signature) { rows.set(group.key, existing); contents.push(existing.row); continue; }
         const row = existing?.row || el("div", "import-row"); row.dataset.entry = entry.id;
         row.replaceChildren(); row.paintVersion = (row.paintVersion || 0) + 1; row.art = null;
         const name = identified(entry).name;
         const source = thumbnail(entry, { incoming: true });
-        const drawing = paint(row, art.row({ name, kind: T(KIND_KEYS[entry.kind] || KIND_KEYS.other), state: T(`import.state.${entry.state}`), stateKey: entry.state,
-          counts: merged ? group.counts : null, badge: !merged, meta: merged ? [...new Set(group.entries.map((item) => T(`import.state.${item.state}`)))].join(listSeparator())
-            : T(entry.files?.length === 1 ? "import.metaOne" : "import.meta", { id: identified(entry).core, n: entry.files?.length || 0, size: sizeText(entry.size) }),
+        const drawing = paint(row, art.row({ name, ...rowCopy(group), textSize, stateKey: entry.state,
           route: conversionRoutes(group.entries),
           note: [...new Set(group.entries.map(rowNote).filter(Boolean))].join(listSeparator()), muted: !eligible(entry) }),
         { scale: ROW_SCALE, origin: [ROW_WIDTH / 2, 329 * ROW_SCALE / 2], textures: { "Icon_Arona": Promise.resolve(null) } });
@@ -618,16 +628,16 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
   async function results() {
     await dialog(T("import.resultTitle"), {}, (area) => {
       area.classList.add("import-results");
-      for (const group of importGroups(model.state.taskEntries, merged, identified)) {
+      const groups = importGroups(model.state.taskEntries, merged, identified);
+      const textSize = art.rowTextSize(groups.map((group) => rowCopy(group, true)));
+      for (const group of groups) {
         const entry = representative(group.entries), row = el("div", "import-result-row");
         const resultItems = group.entries.map((item) => ({ entry: item, result: model.state.results.find((result) => result.id === item.id) }));
         row.dataset.result = entry.id;
-        const outcomes = [...new Set(resultItems.map(({ result }) => T(`import.outcome.${OUTCOMES.has(result?.outcome) ? result.outcome : "failed"}`)))];
         const notes = [...new Set(resultItems.map(({ entry, result }) => result?.reason ? report(result.reason, entry)
           : ["imported", "updated", "unchanged"].includes(result?.outcome) ? T(result.applied ? "import.applied" : "import.notApplied") : "").filter(Boolean))];
         const source = thumbnail(entry, { incoming: true });
-        const drawing = paint(row, art.row({ name: identified(entry).name, kind: T(KIND_KEYS[entry.kind] || KIND_KEYS.other),
-          badge: false, counts: merged ? group.counts : null, meta: outcomes.join(", "), route: conversionRoutes(group.entries), note: notes.join(", ") }),
+        const drawing = paint(row, art.row({ name: identified(entry).name, ...rowCopy(group, true), textSize, route: conversionRoutes(group.entries), note: notes.join(", ") }),
         { scale: 0.62, origin: [700, 104], textures: { "Icon_Arona": Promise.resolve(null) } });
         bindTexture(drawing, "List_01/BG_Icon/Icon_Arona", source, "import-thumb");
         const go = button(T("add.go"), "go", { width: 225, scale: 0.4 });
@@ -675,7 +685,7 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
       model.loadOptions();
       await Promise.all([...drawings]); await ui.decoded(root, 15000);
     },
-    hide() { visible = false; generation++; leave(); wake(); scope?.cancel(); dialogClose?.(); },
+    hide() { visible = false; generation++; leave(); wake(); scope?.cancel(); dialogClose?.(); model.leave(); },
     drop(paths) { return model.add(paths); },
     openOptions, results,
     async settled() { await Promise.all([...drawings]); },

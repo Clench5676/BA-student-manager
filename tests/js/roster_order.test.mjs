@@ -238,7 +238,7 @@ test("the aliases (the CN server's names) are found but never shown", () => {
   // the cards keep their names; nothing of the alias shows
   assert.deepEqual(find("\u6b66\u88c5").map((c) => c.name), ["\u6843\u4e95\uff08\u4e34\u6218\uff09"]);
   // merged: the card is the variant the alias found
-  assert.deepEqual(find("\u6b66\u88c5", { merged: true }).map((c) => [c.family, c.key, c.name]), [["momoi", "np0267", "\u6843\u4e95"]]);
+  assert.deepEqual(find("\u6b66\u88c5", { merged: true }).map((c) => [c.family, c.key, c.name]), [["momoi", "np0267", "\u6843\u4e95\uff08\u4e34\u6218\uff09"]]);
   // the detail screen's arrows step through the same search
   const list = find("\u5eb7\u5a1c");
   assert.equal(neighbour(list, null, { family: "kanna", variant: "ch0170", merged: false }, 1).key, "ch0260");
@@ -247,36 +247,35 @@ test("the aliases (the CN server's names) are found but never shown", () => {
   assert.deepEqual(keys(order(bad, view(), { label, query: "x" })), ["x"]);
 });
 
-test("the user's own aliases of a family find all of its variants, and an edit is found at once", () => {
-  const d = data();
-  const hoshino = d.families[0];
-  const find = (q) => keys(order(d, view(), { label, query: q }));
-  assert.deepEqual(find("ojisan"), []);
-  hoshino.custom = ["Oji-san", "\u5927\u53d4"];
-  assert.deepEqual(find("ojisan"), ["hoshino_swimsuit", "hoshino", "np0045"]); // separators folded like names
-  assert.deepEqual(find("\u5927\u53d4 \u6cf3\u88c5"), ["hoshino_swimsuit"]);
-  // an edit puts a new list in place: the old alias is gone, the new one is found
-  hoshino.custom = ["\u5c0f\u661f"];
-  assert.deepEqual(find("\u5927\u53d4"), []);
-  assert.deepEqual(find("\u5c0f\u661f"), ["hoshino_swimsuit", "hoshino", "np0045"]);
-  assert.ok(order(d, view(), { label, query: "\u5c0f\u661f" }).every((c) => c.name === "\u5c0f\u661f"));
+test("own aliases find only their variant, including merged cards, and edits update search", () => {
+  const d = data(), skin = d.families[0].variants[1];
+  const find = (q, merged = false) => order(d, view({ merged }), { label, query: q });
+  skin.custom = ["Skin nickname", "Other spelling"];
+  for (const merged of [false, true]) {
+    assert.deepEqual(keys(find("Skin nickname", merged)), [skin.key]);
+    assert.equal(find("Other spelling", merged)[0].name, "Skin nickname");
+  }
+  skin.custom = ["New nickname"];
+  assert.deepEqual(find("Skin nickname"), []);
+  assert.deepEqual(keys(find("New nickname")), [skin.key]);
+  assert.equal(order(d, view(), { label }).find((v) => v.key === "hoshino").name, label(d.families[0].variants[0].names).full);
 });
 
 test("the first own alias names variant and merged cards, drives name order and clears immediately", () => {
   const d = { families: [
-    { key: "a", base: { en: "Alpha" }, custom: [null, "", "Zulu", "Other alias"], variants: [v("a"), v("dress")] },
+    { key: "a", base: { en: "Alpha" }, variants: [v("a", { custom: [null, "", "Zulu", "Other alias"] }), v("dress")] },
     { key: "b", base: { en: "Beta" }, variants: [v("b")] },
   ] };
   const collator = new Intl.Collator("en", { numeric: true });
   for (const merged of [false, true]) {
     const find = (query = "", orderBy = "asc") => order(d, view({ merged, sort: "name", order: orderBy }), { label, collator, query });
-    assert.deepEqual(find().map((c) => c.name), merged ? ["Beta", "Zulu"] : ["b", "Zulu", "Zulu"]);
+    assert.deepEqual(find().map((c) => c.name), merged ? ["Beta", "Zulu"] : ["b", "dress", "Zulu"]);
     assert.equal(find("Other alias")[0].name, "Zulu");
-    assert.equal(find("Alpha")[0].name, "Zulu", "the original family name still matches");
-    assert.equal(find("dress")[0].name, "Zulu", "the variant id still matches");
+    assert.equal(find("Alpha").find((v) => v.key === "a").name, "Zulu", "the original family name still matches");
+    assert.equal(find("dress")[0].name, "dress", "another skin keeps its own name");
     assert.equal(find("", "desc")[0].name, "Zulu");
   }
-  d.families[0].custom = [];
+  d.families[0].variants[0].custom = [];
   assert.deepEqual(order(d, view({ merged: true, sort: "name", order: "asc" }), { label, collator }).map((c) => c.name), ["Alpha", "Beta"]);
   assert.deepEqual(order(d, view(), { label, query: "Zulu" }), []);
   assert.equal(order(d, view(), { label, query: "dress" })[0].name, "dress");

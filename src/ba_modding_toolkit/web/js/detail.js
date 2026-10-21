@@ -170,10 +170,10 @@ async function settleThumbs() {
 // --- names, candidates, state ---
 const fullName = (v) => L(v.names)?.full ?? v.key;
 const shortName = (v) => L(v.names)?.short ?? v.key;
-// the user's own aliases of the student (family.get's custom; webui/state.py keeps the same limits): the roster search
-// finds the student by all of them; the first one is the nameplate's main name
+// the current variant's own aliases (webui/state.py keeps the same limits): the roster search
+// finds this skin by all of them; the first one is the nameplate's main name
 const ALIAS_MAX = 8, ALIAS_LENGTH = 24;
-const customAliases = () => aliasesOf(fam);
+const customAliases = () => aliasesOf(variant());
 const aliasList = () => customAliases().join(/^(zh|ja)/.test(language()) ? "\u3001" : ", ");
 const variant = () => fam.variants.find((v) => v.key === variantKey) || fam.variants[0];
 const familyMods = () => fam.variants.flatMap((v) => v.modList || []);
@@ -441,7 +441,7 @@ function screenTree() {
     widget(t, `${base}/Bg`).w_ = 36 + 17 + 10 + tw + 30;
   }
   // Both names share the existing dark band, leaving room for the pencil after the main name.
-  const original = fullName(v), shown = studentName(fam, original), aliased = customAliases().length > 0;
+  const original = fullName(v), shown = studentName(v, original), aliased = customAliases().length > 0;
   const room = PLATE_RIGHT - 110 - PENCIL - 48;
   const nm = fitText(shown, aliased ? 54 : 64, 44, room, 1), nameY = aliased ? 310 : 288;
   text(t, `${np}/Label_Name`, nm.text, { w_: room, h_: aliased ? 64 : 76, fontSize: nm.fs, ellipsis: true, ariaLabel: shown });
@@ -917,7 +917,7 @@ function row4Pick(key) {
 // play every dialogue in order; the cards and the play-all button follow along (Lobby.onTalk)
 function togglePlayAll() {
   if (Lobby.playingAll()) Lobby.stop();
-  else Lobby.playAll();
+  else Lobby.playAll(lobbySeq);
 }
 // a dialogue started (a card, play all, a tap on the character in fullscreen), ended or stopped. A lobby that is
 // hidden stops without telling (and off the lobby tab nothing is followed): the tab change, the variant change and
@@ -1325,7 +1325,7 @@ async function openPicker(scroll = 0) {
   });
 }
 
-// --- the alias editor (the nameplate's pencil): the user's own aliases of the student on the popup frame, one input
+// --- the alias editor (the nameplate's pencil): the user's own aliases of the variant on the popup frame, one input
 // row each, drawn like the game's input row (UIPopup_Input's Input_NickName: a grey box with a line round it, a dark
 // icon at its end), the cross removing it, then an empty row with the pencil to add one while there is room. OK keeps
 // them (aliases.set); Cancel, the close button, the backdrop or Escape drop the changes. Enter in the empty row adds
@@ -1335,7 +1335,7 @@ const AL = { w: 1500, rowW: 1180, rowH: 100, pitch: 124, top: 236, bottom: 334 }
 let aliasToken = 0;
 // draft: the rows; focusAt: the row to focus (the empty one when null); carry: the empty row of the editor drawn before,
 // which keeps the focus while this one is drawn: what is typed there meanwhile goes into the new empty row
-async function openAliases(draft = customAliases(), focusAt = null, family = fam.key, carry = null) {
+async function openAliases(draft = customAliases(), focusAt = null, key = variantKey, carry = null) {
   const my = ++aliasToken;
   const host = $("popup");
   const names = draft.slice(0, ALIAS_MAX);
@@ -1359,19 +1359,19 @@ async function openAliases(draft = customAliases(), focusAt = null, family = fam
   const view = await NGUI.render(t, next, { scale: S, origin: [960, 540], z: 10 });
   if (my !== aliasToken) return;
   const close = () => { aliasToken += 1; host.hidden = true; host.innerHTML = ""; };
-  // the screen was left or shows another student meanwhile
-  if (!open || fam.key !== family) { close(); return; }
+  // the screen was left or shows another variant meanwhile
+  if (!open || variantKey !== key) { close(); return; }
   const inputs = [];
   // the rows' aliases as edited, and what the empty row holds
   const rows = () => inputs.slice(0, names.length).map((el) => el.value);
   const typed = () => (adding ? inputs[n - 1].value : "");
   const keep = async () => {
-    const saved = await call(() => rpc("aliases.set", { family, aliases: [...rows(), typed()] }));
+    const saved = await call(() => rpc("aliases.set", { variant: key, aliases: [...rows(), typed()] }));
     if (!saved || my !== aliasToken) return; // an error is shown and the editor stays
     close();
     ctx.invalidateRoster();
-    if (fam.key !== family) return;
-    fam.custom = saved;
+    if (variantKey !== key) return;
+    variant().custom = saved;
     renderScreen();
   };
   ys.forEach((y, i) => {
@@ -1396,7 +1396,7 @@ async function openAliases(draft = customAliases(), focusAt = null, family = fam
       if (add && el.value.trim()) {
         const text = el.value;
         el.value = "";
-        openAliases([...rows(), text], names.length + 1, family, el);
+        openAliases([...rows(), text], names.length + 1, key, el);
       }
       else if (i < n - 1) inputs[i + 1].focus();
       else keep();
@@ -1405,7 +1405,7 @@ async function openAliases(draft = customAliases(), focusAt = null, family = fam
     inputs.push(el);
     const [ix, iy] = [960 + (AL.rowW / 2 - 58) * S, 540 - y * S], size = 84 * S;
     const b = hitButton(next, [ix - size / 2, iy - size / 2, size, size],
-      add ? () => el.focus() : () => openAliases(rows().filter((_, j) => j !== i), i, family, adding ? inputs[n - 1] : null),
+      add ? () => el.focus() : () => openAliases(rows().filter((_, j) => j !== i), i, key, adding ? inputs[n - 1] : null),
       add ? T("alias.add") : T("alias.remove"), 86);
     if (add) b.tabIndex = -1;
   });
@@ -1991,8 +1991,8 @@ export async function show(context, familyData, key, { inPlace = false, kind = n
   askedKey = key;
   const g = begin();
   const sameFamily = fam?.key === familyData.key;
-  // the alias editor of another student goes (a history step while it was open)
-  if (!sameFamily && $("popup").querySelector(".alias-input")) { aliasToken += 1; $("popup").hidden = true; $("popup").innerHTML = ""; }
+  // the alias editor of another variant goes (a history step while it was open)
+  if ((!sameFamily || variantKey !== key) && $("popup").querySelector(".alias-input")) { aliasToken += 1; $("popup").hidden = true; $("popup").innerHTML = ""; }
   // the same variant of another install (another game folder or file source) is read again like another variant
   const sameVariant = sameFamily && variantKey === key && fam.version === familyData.version;
   fam = familyData;

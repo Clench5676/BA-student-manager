@@ -130,6 +130,16 @@ export function createImportState({ rpc, waitJob, changed = () => {}, suggest = 
       retryPaths = pathsOf(state.entries); retryRecursive = false;
       revision++; emit();
     },
+    leave() {
+      const completed = new Set(state.entries.filter((entry) => entry.state === "done").map((entry) => entry.id));
+      if (!completed.size) return;
+      state.entries = state.entries.filter((entry) => !completed.has(entry.id));
+      for (const id of completed) state.checked.delete(id);
+      if (completed.has(state.selected)) state.selected = state.entries[0]?.id ?? null;
+      retryPaths = pathsOf(state.entries); retryRecursive = false;
+      if (state.phase === "done") { state.phase = "idle"; resetResults(); }
+      revision++; emit();
+    },
     clear() {
       if (busy()) return;
       state.entries = []; state.checked.clear(); state.selected = null; state.error = null; state.phase = "idle";

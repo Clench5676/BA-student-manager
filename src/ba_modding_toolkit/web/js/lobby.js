@@ -1341,12 +1341,12 @@ export function next() {
   play(seqs[(talkIndex + 1) % seqs.length].anim);
 }
 // every dialogue in order, each starting when the previous one ends
-export function playAll() {
+export function playAll(selected = null) {
   const seqs = current?.meta?.sequences;
   if (!seqs?.length) return;
-  const run = { i: 0 };
+  const run = { i: Math.max(0, seqs.findIndex((seq) => seq.anim === selected)) };
   chain = run;
-  play(seqs[0].anim, { fromChain: true });
+  play(seqs[run.i].anim, { fromChain: true });
 }
 export const playingAll = () => !!chain;
 export const playing = () => talk?.seq.anim || null;

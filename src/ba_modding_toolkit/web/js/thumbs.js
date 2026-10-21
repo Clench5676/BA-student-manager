@@ -3,10 +3,9 @@
 // in-memory blob URLs, never written anywhere.
 import { artBounds, settle } from "./lobby-health.js";
 import { specialView } from "./special-view.js";
-import { withPreviewTimeout as withTimeout } from "./async.js";
+import { withTimeout } from "./async.js";
 import { loadPlayer as spinePlayer } from "./spine-load.js";
 import { ensureSpine, spineAllowed } from "./spine-runtime.js";
-import { previewTimer } from "./preview-lifecycle.js";
 
 import { spineAssetBase, forgetSpineAssets } from "./api.js";
 import { lobbyIdle } from "./rest-pose.js";
@@ -36,7 +35,6 @@ const queue = [];
 const scopes = new Set();
 let running = false, active = null, preferred = "";
 let host = null;
-const drawnFrames = new WeakMap();
 
 function hostEl() {
   if (!host) {
@@ -129,24 +127,11 @@ function viewFor(p, frame, aspect, framing) {
   return { ...rect, padLeft: 0, padRight: 0, padTop: 0, padBottom: 0, transitionTime: 0, animations: {} };
 }
 
-const frames = (n, signal) => new Promise((resolve) => {
-  let frame;
-  const finish = () => {
-    globalThis.cancelAnimationFrame?.(frame);
-    signal.removeEventListener("abort", finish);
-    resolve();
-  };
-  const step = () => (n-- <= 0 || signal.aborted ? finish() : (frame = requestAnimationFrame(step)));
-  signal.addEventListener("abort", finish, { once: true });
-  frame = requestAnimationFrame(step);
-});
-
 function loadPlayer(base, el, signal, onError) {
   return spinePlayer((config) => new spine.SpinePlayer(el, config), {
     skeleton: `${base}.skel`, atlas: `${base}.atlas`, animation: undefined,
     premultipliedAlpha: false, alpha: true, backgroundColor: "#00000000",
     showControls: false, showLoading: false, preserveDrawingBuffer: true,
-    draw: (player) => drawnFrames.set(player, (drawnFrames.get(player) || 0) + 1),
     // capture() supplies the actual frame. Do not sample the first animation's bounds a hundred times first.
     viewport: { x: 0, y: 0, width: 1, height: 1, padLeft: 0, padRight: 0, padTop: 0, padBottom: 0, transitionTime: 0, animations: {} },
   }, { signal, onError });
@@ -157,6 +142,9 @@ async function capture(player, el, frame, expr, lobby, framing, background, sign
   el.style.width = `${w}px`;
   el.style.height = `${h}px`;
   const state = player.animationState, data = player.skeleton.data;
+  // Stills own their frame clock, including in an unfocused window or an off-screen host.
+  player.stopRendering();
+  player.paused = true;
   // the pose a still shows is the one the skeleton settles into: a lobby's idle as the lobby player chooses it, a
   // portrait's idle. The player starts the skeleton's first animation (a lobby's is its intro, Start_Idle_*), and an
   // animation set on top of it would mix in from it: the first frames would show the intro's first frame, mostly.
@@ -170,14 +158,13 @@ async function capture(player, el, frame, expr, lobby, framing, background, sign
   player.skeleton.updateWorldTransform(spine.Physics.update);
   player.config.viewport = viewFor(player, frame, w / h, framing);
   player.setViewport(entry.animation);
-  const before = drawnFrames.get(player) || 0;
   let valid = false;
-  // Success fires before the runtime's first draw. A resize or suspended renderer can still leave a cleared
-  // framebuffer several RAFs later; require an actual post-viewport draw and inspect it before adding a background.
+  // drawFrame(false) resizes and renders synchronously without scheduling a visibility-dependent RAF.
+  // Inspect that exact frame before adding a background; a cleared or uniform framebuffer is never art.
   for (let attempt = 0; attempt < 6 && !signal.aborted; attempt++) {
-    await frames(2, signal);
+    player.drawFrame(false);
     const gl = player.context?.gl;
-    if ((drawnFrames.get(player) || 0) <= before || !gl || gl.isContextLost?.()) continue;
+    if (!gl || gl.isContextLost?.()) continue;
     const width = gl.drawingBufferWidth, height = gl.drawingBufferHeight;
     if (!(width > 0 && height > 0)) continue;
     const pixels = new Uint8Array(width * height * 4);
@@ -287,7 +274,7 @@ async function pump() {
       Object.assign(el.style, { width: `${w}px`, height: `${h}px` });
       hostEl().appendChild(el);
       // One skeleton gets one budget, including all its captures. A broken encoder cannot cost 15 s per face.
-      const cancel = previewTimer(() => controller.abort(new Error(`Thumbnail ${base}: timed out`)), 15000);
+      const timer = setTimeout(() => controller.abort(new Error(`Thumbnail ${base}: timed out`)), 8000);
       let load;
       try {
         load = loadPlayer(base, el, signal, (err) => controller.abort(err));
@@ -310,7 +297,7 @@ async function pump() {
       } catch (err) {
         for (const q of active.items) complete(q, null, signal.aborted && signal.reason?.name === "AbortError" ? null : err);
       } finally {
-        cancel();
+        clearTimeout(timer);
         controller.abort();
         load?.dispose();
         el.remove();

@@ -56,16 +56,15 @@ export function fold(str) {
 export const terms = (query) => String(query ?? "").split(/\s+/).map(fold).filter(Boolean);
 
 // what a variant is found by: its names, its family's base names, the aliases the UI never shows (the variant's and
-// the family's, the CN server's wording) and the user's own aliases of the family (f.custom: an edit puts a new list
-// there, which makes the text again)
+// the family's, the CN server's wording) and the user's own aliases of the variant (v.custom changes after an edit)
 const haystacks = new WeakMap();
 function haystack(v, f) {
   let h = haystacks.get(v);
-  if (h === undefined || h.custom !== f?.custom || h.modNames !== v.modNames) {
-    const parts = [v.key, v.fileId, ...(v.aliases || []), ...(f?.aliases || []), ...(f?.custom || []), ...(v.modNames || [])];
+  if (h === undefined || h.custom !== v.custom || h.modNames !== v.modNames) {
+    const parts = [v.key, v.fileId, ...(v.aliases || []), ...(f?.aliases || []), ...(v.custom || []), ...(v.modNames || [])];
     for (const n of Object.values(v.names || {})) parts.push(n?.full);
     for (const n of Object.values(f?.base || {})) parts.push(n);
-    h = { custom: f?.custom, modNames: v.modNames, text: parts.filter((p) => typeof p === "string" && p).map(fold).join("\u0000") };
+    h = { custom: v.custom, modNames: v.modNames, text: parts.filter((p) => typeof p === "string" && p).map(fold).join("\u0000") };
     haystacks.set(v, h);
   }
   return h.text;
@@ -104,7 +103,7 @@ function cards(data, view, words, label) {
       const card = {
         ...vs[0], ...(hit ? { key: hit.key, spr: hit.spr, portrait: hit.portrait, names: hit.names,
           configured: hit.configured, state: hit.state, spineCategory: hit.spineCategory } : {}),
-        name: studentName(f, label(f.base) ?? f.key), family: f.key, n: n++, matched: !!hit,
+        name: studentName(hit || vs[0], words.length ? label((hit || vs[0]).names)?.full ?? f.key : label(f.base) ?? f.key), family: f.key, n: n++, matched: !!hit,
         recruit: vs.some((v) => v.recruitable), mods: vs.reduce((s, v) => s + (v.mods || 0), 0),
         modCounts: Object.fromEntries(["spr", "lobby"].map((kind) => [kind, vs.reduce((s, v) => s + (v.modCounts?.[kind] || 0), 0)])),
         favorite: vs.some((v) => v.favorite), fresh: vs.some((v) => v.fresh),
@@ -115,7 +114,7 @@ function cards(data, view, words, label) {
       list.push(card);
     } else {
       for (const v of vs) {
-        list.push({ ...v, name: studentName(f, label(v.names)?.full ?? v.key), family: f.key, n: n++, matched: matches(v, f, words),
+        list.push({ ...v, name: studentName(v, label(v.names)?.full ?? v.key), family: f.key, n: n++, matched: matches(v, f, words),
           recruit: !!v.recruitable, recent: v.recent ?? Infinity, added: time(v.added) });
       }
     }

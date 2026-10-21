@@ -140,6 +140,7 @@ globalThis.spine = { Vector2: class {}, Physics: { update: 1 }, RegionAttachment
       this.canvas = el.appendChild(new El("canvas"));
     }
     this.setViewport = () => {};
+    this.drawFrame = () => config.draw?.(this);
     if (el.className === "thumb-player") {
       thumbnailPlayers.push(this);
       this.context = { gl: { drawingBufferWidth: 2, drawingBufferHeight: 1, RGBA: 1, UNSIGNED_BYTE: 1,
@@ -805,13 +806,17 @@ test("student aliases lead the existing name band, keep the variant's original, 
     for (const lang of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) {
       const ui = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${lang}.json`, import.meta.url), "utf8"));
       setStrings(lang, flat(ui));
-      family = modFamily(); family.custom = ["My <Ibuki> & friend", "Search nickname"];
+      family = modFamily(); family.variants[0].custom = ["My <Ibuki> & friend", "Search nickname"];
+      const base = structuredClone(family.variants[0]);
+      base.custom = ["Original nickname"];
+      family.variants[0].key = "ibuki_dress";
+      family.variants.push(base);
       const original = "Ibuki (Dress) ".repeat(10);
       family.variants[0].names = { en: { full: original, short: "Dress" } };
-      await showPortrait(t);
+      await showPortrait(t, "ibuki_dress");
       const part = (name) => walk(hosts.ngui).find((el) => el.dataset.path?.endsWith(`${PLATE}/${name}`) && el.style.fontSize);
       const main = part("Label_Name"), secondary = part("Label_OriginalName");
-      assert.equal(main.getAttribute("aria-label"), family.custom[0]);
+      assert.equal(main.getAttribute("aria-label"), family.variants[0].custom[0]);
       assert.equal(secondary.getAttribute("aria-label"), original);
       assert.ok(parseFloat(main.style.fontSize) > parseFloat(secondary.style.fontSize));
       const a = NGUI.rect(main), b = NGUI.rect(secondary);
@@ -824,12 +829,16 @@ test("student aliases lead the existing name band, keep the variant's original, 
       const invalidated = invalidations;
       await walk(hosts.popup).find((el) => el.dataset.action === "ok").click(); await flush();
       assert.equal(part("Label_Name").getAttribute("aria-label"), "Changed name");
+      assert.equal(rpcRequests.findLast((r) => r.method === "aliases.set").params.variant, "ibuki_dress");
+      assert.deepEqual(base.custom, ["Original nickname"]);
       assert.equal(invalidations, invalidated + 1, "roster will reload aliases and name order");
       await pencil().click(); await flush();
       for (const input of hosts.popup.querySelectorAll(".alias-input")) input.value = "";
       await walk(hosts.popup).find((el) => el.dataset.action === "ok").click(); await flush();
       assert.equal(part("Label_Name").getAttribute("aria-label"), original);
       assert.equal(part("Label_OriginalName"), undefined);
+      await showPortrait(t, "ibuki");
+      assert.equal(part("Label_Name").getAttribute("aria-label"), "Original nickname");
       Detail.hide();
     }
   } finally {
