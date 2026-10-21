@@ -1265,7 +1265,7 @@ test("detail action cards remove skill bases and plus badges and contain their r
       const picture = walk(hosts.ngui).find((e) => e.dataset.path?.endsWith(`${prefix}/Texture`));
       assert.ok(picture); assert.equal(picture.style.width, picture.style.height); assert.equal(picture.style.backgroundSize, "contain");
       assert.ok(!walk(hosts.ngui).some((e) => e.dataset.path?.endsWith(prefix)));
-      assert.ok(walk(hosts.ngui).some((e) => e.dataset.path?.endsWith(`${prefix}/Deco`)), "the prefab's separate circle decoration is retained");
+      assert.ok(!walk(hosts.ngui).some((e) => e.dataset.path?.endsWith(`${prefix}/Deco`)), "action icons have no decoration ring");
       assert.ok(!walk(hosts.ngui).some((e) => e.dataset.path?.includes(`${prefix}/Bg_Skill_Plus`)));
       assert.ok(!walk(hosts.ngui).some((e) => e.dataset.path?.includes(`${prefix}/SkillIconBg (1)`)));
     }
