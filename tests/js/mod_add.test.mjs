@@ -14,7 +14,7 @@ async function harness({ locale = "en-US", added = [], button = "cancel", error 
     T: (key, vars = {}) => (strings[`webui.${key}`] || key).replace(/\{(\w+)\}/g, (_, k) => vars[k] || ""),
     rpc: async (...args) => { log.push(["rpc", ...args]); return cancelled ? [] : "j1"; },
     waitJob: async (id, update) => { update({ current: 1, total: 2, label: "dress_home.bundle" }); if (error) throw error; return added; },
-    Loading: { task: async (run, options) => { log.push(["loading", options]); try { return await run((p) => progress.push(p)); } finally { log.push(["closed"]); } } },
+    Loading: { hold: (fn) => fn(), task: async (run, options) => { log.push(["loading", options]); try { return await run((p) => progress.push(p)); } finally { log.push(["closed"]); } } },
     Popup: { message: async (opts) => { log.push(["popup", opts]); return { button }; } },
     notify: (text) => log.push(["notify", text]),
     Compatibility: {

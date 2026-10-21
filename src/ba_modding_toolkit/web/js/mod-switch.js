@@ -351,7 +351,7 @@ async function run(params) {
       } catch (err) { console.error("refresh after a switch", err); }
       finally { clearTimeout(timer); }
       return result;
-    });
+    }, { all: true });
     await finished(result);
   } catch (err) {
     refused(err, "mods.toggle", params);

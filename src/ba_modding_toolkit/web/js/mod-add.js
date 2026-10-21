@@ -22,9 +22,11 @@ export function resultLines(added, name) {
 
 export async function add(paths = null, currentVariant = null) {
   const from = variantKey(currentVariant);
-  const id = await rpc(paths ? "mods.add" : "mods.pick", { ...(paths ? { paths } : {}), background: true });
-  if (Array.isArray(id)) return id; // the native picker was cancelled
-  const report = await Loading.task((update) => waitJob(id, update), { label: T("progress.add", { name: T("progress.mods") }) });
+  const report = await Loading.hold(async () => {
+    const id = await rpc(paths ? "mods.add" : "mods.pick", { ...(paths ? { paths } : {}), background: true });
+    if (Array.isArray(id)) return id; // the native picker was cancelled
+    return Loading.task((update) => waitJob(id, update), { label: T("progress.add", { name: T("progress.mods") }) });
+  }, { all: true });
   const added = Array.isArray(report) ? report : report?.added || [];
   const duplicates = report?.duplicates || [], installed = report?.installed || [];
   if (!added.length && !duplicates.length) return report;
