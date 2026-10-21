@@ -18,12 +18,13 @@
   --cursor-press: pointer;
 }
 /* per language (the html lang, i18n.js, or an element's own): zh-CN and en-US draw everything with RHR, the others
-   their own system fonts for CJK (macOS, Windows, Linux), RHR last for a glyph none of them has. ngui.textWidth
+   their own system fonts for CJK and Thai (macOS, Windows, Linux), RHR last for a glyph none of them has. ngui.textWidth
    measures with the stack the text draws with */
 :root, [lang="zh-CN"], [lang="en-US"] { --font: "RHR", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; }
 :lang(zh-TW) { --font: "RHR Latin", "PingFang TC", "Microsoft JhengHei UI", "Microsoft JhengHei", "Noto Sans CJK TC", "RHR", sans-serif; }
 :lang(ja) { --font: "RHR Latin", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Meiryo UI", "Noto Sans CJK JP", "RHR", sans-serif; }
 :lang(ko) { --font: "RHR Latin", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans CJK KR", "RHR", sans-serif; }
+:lang(th) { --font: "RHR Latin", "Thonburi", "Sukhumvit Set", "Leelawadee UI", "Tahoma", "Noto Sans Thai", "RHR", sans-serif; }
 /* text in another language than the page's (each language's name in the language list) draws with its own stack: a
    Korean screen's fonts have no glyph for some Simplified characters and would mix two fonts in one name */
 .stage [lang] { font-family: var(--font); }

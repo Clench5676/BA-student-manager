@@ -17,10 +17,10 @@ from ba_modding_toolkit.webui.services import Services
 from ba_modding_toolkit.webui.state import UiState
 
 
-def row(cid, group, order, en, tw="", anim="", category="UILobbySpecial", teen=False, jp="", kr=""):
+def row(cid, group, order, en, tw="", anim="", category="UILobbySpecial", teen=False, jp="", kr="", th=""):
     return {"CharacterId": cid, "CostumeUniqueId": cid * 100 + 1, "DisplayOrder": order, "DialogCategory": category,
             "DialogCondition": "Idle", "GroupId": group, "DialogType": "Talk", "AnimationName": anim,
-            "LocalizeEN": en, "LocalizeTW": tw, "LocalizeKR": kr, "LocalizeTH": "", "LocalizeJP": jp, "TeenMode": teen}
+            "LocalizeEN": en, "LocalizeTW": tw, "LocalizeKR": kr, "LocalizeTH": th, "LocalizeJP": jp, "TeenMode": teen}
 
 
 # the shape of ba-data's CharacterDialogExcelTable.json (Hoshino's third dialogue has two rows for three clips)
@@ -231,13 +231,13 @@ def test_lobby_lines_in_english(api):
     assert lines["hoshino_memoriallobby_3_1"]["en"] == "Is it okay? I shouldn't worry about that? All right, then."
 
 
-@pytest.mark.parametrize("ui, key", [("ko-KR", "ko"), ("zh-TW", "zh-TW")])
+@pytest.mark.parametrize("ui, key", [("ko-KR", "ko"), ("zh-TW", "zh-TW"), ("th-TH", "th")])
 def test_lobby_lines_default_to_the_ui_language(api, monkeypatch, ui, key):
     from ba_modding_toolkit.i18n import i18n_manager
 
     s, rpc = api
     table = {"DataList": [*TABLE["DataList"],
-                          row(10005, 4, 310, "Look!", anim="Talk_04_M", kr="봐 봐!\n물고기야!")]}
+                          row(10005, 4, 310, "Look!", anim="Talk_04_M", kr="봐 봐!\n물고기야!", th="ดูสิ!\nปลา!")]}
     s.global_lines = Fetcher(json.dumps(table).encode())
     monkeypatch.setattr(i18n_manager, "lang", ui)
     lines = rpc.call("lobby.lines", {"variant": "hoshino", "talks": {"Talk_04_M": ["h_2"], "Talk_01_M": ["h_1"]}})
@@ -246,6 +246,9 @@ def test_lobby_lines_default_to_the_ui_language(api, monkeypatch, ui, key):
     if key == "ko":
         # Korean parts of a line keep the space between them (Hangul is spaced like English)
         assert lines["h_2"]["ko"] == "봐 봐! 물고기야!"
+    elif key == "th":
+        assert lines["h_2"]["th"] == "ดูสิ! ปลา!"
+        assert "th" not in lines["h_1"]  # no substituted English or Kivo text for a missing Thai row
     else:
         assert lines["h_1"]["zh-TW"] == "欸嘿～好厲害。"
 
@@ -255,6 +258,16 @@ def test_lobby_lines_in_chinese_never_read_the_global_table(api):
     lines = rpc.call("lobby.lines", {"variant": "hoshino", "lang": "zh-CN"})["result"]
     assert lines["hoshino_memoriallobby_1"] == {"zh-CN": "\u6b38\u563f", "ja": "\u3078\u3048", "voice": True}
     assert s.global_lines.urls == []
+
+
+def test_thai_lines_keep_kivo_voice_without_inventing_thai_text(api):
+    s, rpc = api
+    s.global_lines = Fetcher(error=OSError("offline"))
+    lines = rpc.call("lobby.lines", {"variant": "hoshino", "lang": "th"})["result"]
+    assert lines["hoshino_memoriallobby_1"]["voice"] is True
+    assert all("th" not in line for line in lines.values())
+    s.kivo = Kivo(fail=True)
+    assert rpc.call("lobby.lines", {"variant": "hoshino", "lang": "th"})["error"]["code"] == "lines_unavailable"
 
 
 def test_lobby_lines_without_kivo_or_global(api):

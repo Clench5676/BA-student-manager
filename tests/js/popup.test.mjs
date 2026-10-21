@@ -828,6 +828,26 @@ test("Settings disables Check for Updates while pending and uses the shared popu
   handlers.clear();
 });
 
+test("Settings includes Thai as a sixth language with its native label and language tag", async () => {
+  const Settings = await import("../../src/ba_modding_toolkit/web/js/settings.js");
+  const languages = ["zh-CN", "zh-TW", "en-US", "ja-JP", "ko-KR", "th-TH"].map((code) => ({
+    code, name: JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${code}.json`, import.meta.url))).webui.languageName,
+  }));
+  handlers.set("settings.get", () => ({ result: { version: "1.0.0", language: "en-US", languages } }));
+  handlers.set("mods.state", () => ({ result: {} }));
+  try {
+    await Settings.open();
+    const labels = walk(settings).filter((e) => /Rows\/Language\/Opt_\d+\/Label$/.test(e.dataset.path || ""));
+    assert.equal(labels.length, 6);
+    assert.equal(labels[5].textContent, "ไทย");
+    assert.equal(labels[5].lang, "th-TH");
+    assert.ok(walk(settings).some((e) => e.tagName === "BUTTON" && e.getAttribute("aria-label") === "ไทย"));
+  } finally {
+    press("Escape");
+    handlers.clear();
+  }
+});
+
 test("a manual Settings check joins an automatic offer already queued behind Settings", async () => {
   const Settings = await import("../../src/ba_modding_toolkit/web/js/settings.js");
   handlers.set("settings.get", () => ({ result: {
@@ -855,7 +875,7 @@ test("a manual Settings check joins an automatic offer already queued behind Set
 });
 
 test("every update locale has short completion and restart labels", () => {
-  for (const language of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"]) {
+  for (const language of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) {
     const locale = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${language}.json`, import.meta.url))).webui.update;
     assert.deepEqual(Object.keys(locale).sort(), Object.keys(english.update).sort());
     for (const key of ["complete", "restart"]) assert.ok(locale[key] && !/[.。!！·・]/u.test(locale[key]));
@@ -944,7 +964,7 @@ test("new card dots hide for in-use and selected mods independently", async () =
 });
 
 test("portrait and memorial lobby mods share the localized Mod chip under the name", async () => {
-  for (const lang of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"]) {
+  for (const lang of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) {
     const ui = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${lang}.json`, import.meta.url))).webui;
     setStrings(lang, { "webui.type.added": ui.type.added, "webui.popup.inUse": ui.popup.inUse });
     for (const kind of ["spr", "lobby"]) {
@@ -1091,7 +1111,7 @@ test("each mod card exposes a read-only compatibility check for its own mod", as
 });
 
 test("configured switch cards and detail chips say Set while mods are off, and In Use when on", async () => {
-  for (const lang of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"]) {
+  for (const lang of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) {
     const ui = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${lang}.json`, import.meta.url))).webui;
     setStrings(lang, Object.fromEntries(["type", "popup", "switch"].flatMap((group) =>
       Object.entries(ui[group]).map(([key, value]) => [`webui.${group}.${key}`, value]))));
@@ -1127,7 +1147,7 @@ test("a saved source's detail chip keeps its caption independently of In Use", a
 test("switch popup fields fit a long file independently in portrait and lobby details", async () => {
   const field = (prefix, i) => walk(prompt).find((el) => el.dataset.path === `Details/${prefix}_${i}`);
   try {
-    for (const lang of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"]) {
+    for (const lang of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) {
       const ui = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${lang}.json`, import.meta.url))).webui;
       setStrings(lang, Object.fromEntries(strings(ui)));
       for (const kind of ["portrait", "lobby"]) {
@@ -1153,7 +1173,7 @@ test("switch popup fields fit a long file independently in portrait and lobby de
 test("long mod aliases and original file names share the switch detail name band in every locale", async () => {
   const NGUI = await import("../../src/ba_modding_toolkit/web/js/ngui.js");
   try {
-    for (const lang of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"]) {
+    for (const lang of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) {
       const ui = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${lang}.json`, import.meta.url))).webui;
       setStrings(lang, Object.fromEntries(strings(ui)));
       const alias = "Painted <summer> & colors ".repeat(8), original = "ibuki_dress_spr".repeat(16) + ".bundle";

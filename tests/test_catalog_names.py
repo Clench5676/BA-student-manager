@@ -13,8 +13,8 @@ import pytest
 
 from ba_modding_toolkit.catalog import DEFAULT_DATA
 from ba_modding_toolkit.catalog._names import (
-    BASE_SHORT, FILE_ID, LANGUAGES, NAMES, NAMING, PART_SEPARATORS, SEPARATORS, TWINS, bracketed, csv_bases,
-    remark, usable,
+    BASE_SHORT, FILE_ID, LANGUAGES, NAMES, NAMING, PART_SEPARATORS, SEPARATORS, TWINS, apply_thai_names,
+    bracketed, csv_bases, remark, thai_fallback, usable,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures" / "catalog"
@@ -52,7 +52,7 @@ def generator():
 
 def foreign(text: str, lang: str) -> list[str]:
     """Characters of another language's script in a name."""
-    if lang == "en":
+    if lang in ("en", "th"):
         return CJK.findall(text)
     if lang == "ko":  # Hangul, Latin and digits; never Han characters, kana or full-width forms
         return HAN_KANA.findall(text)
@@ -131,7 +131,9 @@ def test_generator_applies_the_name_table(generator, tmp_path: Path):
     entries = generator.build_catalog(write_cases(tmp_path / "map.csv"), FIXTURES)["variants"]
     for key, expected in CASES["expected"].items():
         entry = entries[key]
-        assert {field: entry[field] for field in expected} == expected, key
+        actual = {field: {lang: value for lang, value in entry[field].items() if lang != "th"}
+                  if isinstance(entry[field], dict) else entry[field] for field in expected}
+        assert actual == expected, key
 
 
 def test_bases_keep_titles_whole_and_skip_file_ids():
@@ -140,6 +142,54 @@ def test_bases_keep_titles_whole_and_skip_file_ids():
     assert csv_bases(rows["NP0139"])["en"] == "Niko"
     assert not FILE_ID.search(csv_bases(rows["NP0022"])["ja"])
     assert not usable("NP0022") and not usable("Citizen_animal5_spr") and usable("Arona")
+
+
+def test_thai_names_use_the_existing_official_source_or_english(shipped: dict):
+    source = NAMING["thai"]
+    assert source["source"].endswith("/data/th/students.min.json")
+    assert re.fullmatch(r"[a-f0-9]{40}", source["sha"])
+    official = 0
+    for key, entry in shipped["variants"].items():
+        name = entry["names"]["th"]
+        if entry["name_sources"]["th"] == "official":
+            official += 1
+            assert entry["playable"]
+            assert name["full"] == source["students"][str(entry["schale_id"])]["Name"], key
+            assert "th" not in entry["fallbacks"], key
+        else:
+            assert name == thai_fallback(entry["names"]["en"]), key
+            assert entry["fallbacks"]["th"] == "missing_thai_name", key
+    assert official == len(source["students"]) == 172
+    assert shipped["variants"]["hoshino"]["names"]["th"] == {"full": "โฮชิโนะ", "short": "ต้นฉบับ"}
+    assert shipped["variants"]["hoshino_swimsuit"]["names"]["th"] == {
+        "full": "โฮชิโนะ (ชุดว่ายน้ำ)", "short": "ชุดว่ายน้ำ"}
+    for student in shipped["students"].values():
+        assert re.search(r"[\u0e00-\u0e7f]", student["names"]["th"]) or student["names"]["th"] == student["names"]["en"]
+
+
+def test_thai_fallback_uses_final_english_names_and_does_not_guess_story_names():
+    students = {"1": {"base": "base", "names": {"en": "Changed Base"}}}
+    entries = {
+        "base": {"playable": True, "schale_id": 99999, "names": {"en": {"full": "Changed Base", "short": "Original"}}},
+        "story": {"playable": False, "schale_id": 10005,
+                  "names": {"en": {"full": "Changed Base (Story)", "short": "Story"}}},
+    }
+    apply_thai_names(students, entries)
+    assert students["1"]["names"]["th"] == "Changed Base"
+    assert entries["base"]["names"]["th"] == {"full": "Changed Base", "short": "ต้นฉบับ"}
+    assert entries["story"]["names"]["th"] == entries["story"]["names"]["en"]
+    assert all(entry["fallbacks"]["th"] == "missing_thai_name" for entry in entries.values())
+
+
+def test_generator_accepts_an_optional_newer_thai_table(generator, tmp_path: Path):
+    for path in FIXTURES.glob("students.*.json"):
+        (tmp_path / path.name).write_bytes(path.read_bytes())
+    thai = {"Id": 10005, "Name": "โฮชิโนะ", "PersonalName": "โฮชิโนะ", "IsReleased": [True, True, False]}
+    (tmp_path / "students.th.json").write_text(json.dumps([thai]), encoding="utf-8")
+    data = generator.build_catalog(FIXTURES / "characters.csv", tmp_path)
+    assert data["variants"]["hoshino"]["names"]["th"]["full"] == "โฮชิโนะ"
+    assert data["variants"]["ch0010"]["fallbacks"]["th"] == "missing_thai_name"
+    assert data["students"]["42"]["names"]["th"] == "โฮชิโนะ"
 
 
 def kivo_given(name: str) -> str:
@@ -244,7 +294,7 @@ def test_generator_names_playables_in_kivo_wording(generator, case):
 
 def test_shipped_terror_names_use_one_asterisk(shipped: dict):
     # Chinese and Japanese write it full width, English and Korean half width (\uc2dc\ub85c\ucf54*\ud14c\ub7ec, as the game does)
-    half = ("en", "ko")
+    half = ("en", "ko", "th")
     names = [(key, lang, text) for key, lang, text in all_names(shipped) if lang not in half]
     assert not [item for item in names if "*" in item[2]]
     assert not [item for item in all_names(shipped) if item[1] in half and "\uff0a" in item[2]]

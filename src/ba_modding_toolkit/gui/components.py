@@ -157,6 +157,7 @@ class Theme:
         "zh-TW": ("Microsoft JhengHei UI", "PingFang TC"),
         "ja-JP": ("Yu Gothic UI", "Hiragino Sans"),
         "ko-KR": ("Malgun Gothic", "Apple SD Gothic Neo"),
+        "th-TH": ("Leelawadee UI", "Thonburi"),
     }
 
     @classmethod

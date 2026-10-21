@@ -8,13 +8,13 @@ const { L, NAME_LANG, T, language, nameKeys, setStrings } = await import("../../
 
 const names = { "zh-CN": "星野", "zh-TW": "星野", en: "Hoshino", ja: "ホシノ", ko: "호시노" };
 
-test("every M1 UI language has its name language", () => {
-  assert.deepEqual(NAME_LANG, { "zh-CN": "zh-CN", "zh-TW": "zh-TW", "en-US": "en", "ja-JP": "ja", "ko-KR": "ko" });
+test("every UI language has its name language", () => {
+  assert.deepEqual(NAME_LANG, { "zh-CN": "zh-CN", "zh-TW": "zh-TW", "en-US": "en", "ja-JP": "ja", "ko-KR": "ko", "th-TH": "th" });
   for (const [ui, key] of Object.entries(NAME_LANG)) {
     setStrings(ui, {});
     assert.equal(language(), ui);
     assert.equal(document.documentElement.lang, ui); // the page's lang picks the font stack (app.css :lang)
-    assert.equal(L(names), names[key], ui);
+    assert.equal(L(names), names[key] ?? names.en, ui);
   }
 });
 
@@ -33,6 +33,14 @@ test("a missing name falls back to English, Simplified Chinese only for Simplifi
   assert.deepEqual(nameKeys("zh-SG"), ["zh-SG", "zh-CN", "en"]);
   assert.deepEqual(nameKeys("zh-Hant-HK"), ["zh-Hant-HK", "en", "zh-CN"]);
   assert.deepEqual(nameKeys("ko-KR"), ["ko", "en", "zh-CN"]);
+});
+
+test("Thai student and variant names use English until Thai source values exist", () => {
+  setStrings("th-TH", {});
+  assert.deepEqual(nameKeys("th-TH"), ["th", "en", "zh-CN"]);
+  assert.equal(L(names), "Hoshino");
+  assert.equal(L({ en: "Swimsuit", "zh-CN": "\u6cf3\u88c5" }), "Swimsuit");
+  assert.equal(L({ ...names, th: "โฮชิโนะ" }), "โฮชิโนะ");
 });
 
 test("strings are looked up with their variables", () => {
