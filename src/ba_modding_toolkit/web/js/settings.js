@@ -468,9 +468,10 @@ function follow() {
   on("library.changed", () => { if (!$("settings").hidden && tab === "mods") refreshOtherMods(); });
 }
 
-// open(onChange): onChange(key, prefs) after a setting was saved
-export async function open(changed) {
+// open(onChange, initialTab): onChange(key, prefs) after a setting was saved
+export async function open(changed, initialTab = null) {
   onChange = changed;
+  if (TABS.includes(initialTab)) { tab = initialTab; scroll = 0; }
   follow();
   if (!layout) {
     const popup = await NGUI.layout("UIPopup_Option_PC");

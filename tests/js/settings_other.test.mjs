@@ -25,6 +25,28 @@ function harness({ locale = "en-US", answer = "ok", used = true, error = null, r
 }
 const mod = { id: "m1", label: "UI Pack", target: "other-set:ui", files: ["ui-textures.bundle", "music-audio.bundle"], state: "official", selected: false };
 
+test("opening Settings on Mods selects the tab before loading generic sources", async () => {
+  const openSource = settings.slice(settings.indexOf("export async function open("), settings.indexOf("export const current"));
+  const calls = [], host = { hidden: true }, prefs = { language: "en-US" };
+  const deps = { $: () => host, follow: () => {}, call: (fn) => fn(),
+    ModSwitch: { current: () => ({}), refresh: () => assert.fail("already loaded") },
+    rpc: async (method) => { calls.push(method); return method === "settings.get" ? prefs : [mod]; },
+    render: async () => calls.push("render") };
+  const h = new Function("deps", `const {${Object.keys(deps)}} = deps;
+    const TABS = ["general", "mods", "sound", "l2d", "folders"];
+    let onChange, layout = {}, tab = "folders", scroll = 250, prefs, otherRequest = 0, otherMods;
+    ${strip(openSource)}
+    return { open, state: () => ({ tab, scroll, prefs, otherMods, onChange }) };`)(deps);
+  const changed = () => {};
+  await h.open(changed, "mods");
+  assert.deepEqual(calls, ["settings.get", "mods.other", "render"]);
+  assert.deepEqual(h.state(), { tab: "mods", scroll: 0, prefs, otherMods: [mod], onChange: changed });
+  assert.equal(host.hidden, false);
+  calls.length = 0;
+  await h.open(changed);
+  assert.equal(h.state().tab, "mods", "the ordinary settings button retains the selected tab");
+});
+
 test("Settings switches generic Mods through the shared apply and restore jobs", async () => {
   const h = harness();
   await h.select(mod, h.changed, true);

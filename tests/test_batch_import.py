@@ -168,6 +168,9 @@ def test_backup_upload_and_content_alias_use_library_normalization(env, monkeypa
     monkeypatch.setattr("ba_modding_toolkit.library.identity.content_cores", lambda path: {"test_home_gl"})
     entry, = analyze(env, [renamed])["entries"]
     assert (entry["kind"], entry["core"], entry["files"][0]["target"]) == ("lobby", "test_home_gl", target.name)
+    result, = run(env, [entry])
+    assert result["outcome"] == "imported" and result["applied"]
+    assert target.read_bytes() == renamed.read_bytes()
 
 
 @pytest.mark.parametrize("problem,reason", [("unreadable", "unreadable"), ("missing", "no_target"),
@@ -234,6 +237,34 @@ def test_model_prefab_and_dependencies_analyze_update_add_and_apply(batch_model_
         assert env.parts[2].read_bytes() == env.official[env.parts[2]]
     env.library.restore("hoshino", kind="model")
     assert all(path.read_bytes() == original for path, original in env.official.items())
+
+
+def test_old_model_mesh_updates_when_prefab_has_a_newer_release(batch_model_env, monkeypatch):
+    env = batch_model_env
+    prefab = env.parts[0]
+    newer_prefab = prefab.with_name(prefab.name.replace("2026-01-01", "2026-02-01"))
+    prefab.rename(newer_prefab)
+    mesh, texture = env.parts[1:]
+    source = model_bundle(env.tmp / "input", part="meshes", date="2025-01-01", payload=b"old mod mesh")
+    monkeypatch.setattr(batch_import, "_asset_match", __import__(
+        "ba_modding_toolkit.searching", fromlist=["_asset_match"])._asset_match)
+    monkeypatch.setattr(Bundle, "load", lambda path, *args: SimpleNamespace(
+        get_asset_keys=lambda *args: {"body-mesh"} if path in (source, mesh) else set()))
+    entry, = analyze(env, [source])["entries"]
+    assert (entry["state"], entry["reason"], entry["files"][0]["target"]) == ("update", None, mesh.name)
+    calls = []
+    updater(monkeypatch, calls)
+    result, = run(env, [entry], backup=False)
+    assert result["outcome"] == "updated" and result["applied"]
+    assert len(calls) == 1 and calls[0][1]["source_paths"] == [source]
+    assert [path.name for path in calls[0][1]["target_paths"]] == [mesh.name]
+    mod, = env.library.mods()
+    assert (mod.kind, mod.target) == ("model", "hoshino")
+    assert mesh.read_bytes() == mod.file.read_bytes()
+    assert newer_prefab.read_bytes() == env.official[prefab]
+    assert texture.read_bytes() == env.official[texture]
+    env.library.restore("hoshino", kind="model")
+    assert mesh.read_bytes() == env.official[mesh]
 
 
 def test_spine_version_blocks_without_converter_and_requests_update_with_one(env, monkeypatch):

@@ -356,9 +356,14 @@ class BatchImport:
             elif entry["kind"] == "other":
                 targets = live
             else:
-                latest = max(parse_filename(p.name).date for p in live)
+                # A model's prefab and dependencies can have different release dates.
+                latest = {}
+                for path in live:
+                    parsed = parse_filename(path.name)
+                    latest[parsed.prefix] = max(latest.get(parsed.prefix, ""), parsed.date)
                 targets, _ = _asset_match(list(candidate.files.values()),
-                                          [baseline[p] for p in live if parse_filename(p.name).date == latest], log)
+                                          [baseline[p] for p in live if parse_filename(p.name).date ==
+                                           latest[parse_filename(p.name).prefix]], log)
                 targets = [p for p in live if baseline[p] in targets]
             if not targets:
                 raise ServiceError("game_file_not_found")

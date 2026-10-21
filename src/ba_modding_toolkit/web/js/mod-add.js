@@ -8,14 +8,15 @@ import * as Popup from "./popup.js";
 let context = {};
 export function init(ctx) { context = ctx; }
 
-// ModEntry.target and the selected roster variant's key are catalog keys, not family keys or Spine cores.
+// Character targets and the selected roster variant's key are catalog keys, not family keys or Spine cores.
 const variantKey = (key) => String(key || "").trim().toLowerCase();
-const destination = (mod) => variantKey(mod.target || mod.variant);
+const destination = (mod) => mod.kind === "other" ? null : variantKey(mod.target || mod.variant);
 
 export function resultLines(added, name) {
   const mixed = new Set(added.map((m) => m.kind)).size > 1;
   return added.map((m) => ({ mod: m, text: T(mixed ? "add.part" : "add.belongs", {
-    name: name({ ...m, variant: destination(m) }).trim(), kind: T(`tab.${m.kind === "spr" ? "portrait" : m.kind}`),
+    name: m.kind === "other" ? m.label.trim() : name({ ...m, variant: destination(m) }).trim(),
+    kind: T(m.kind === "other" ? "import.other" : `tab.${m.kind === "spr" ? "portrait" : m.kind}`),
   }) }));
 }
 
@@ -35,7 +36,7 @@ export async function add(paths = null, currentVariant = null) {
   if (visibleAdded.length < added.length) toast(T("add.done"));
   if (!visibleAdded.length && !duplicates.length) return report;
   const name = await context.names();
-  const go = (mod) => context.go(destination(mod));
+  const go = (mod) => mod.kind === "other" ? context.goOther() : context.go(destination(mod));
   const elsewhere = added.filter((mod) => !from || destination(mod) !== from);
   const addedLines = new Map(resultLines(elsewhere, name).map(({ mod, text }) => [mod, text]));
   const rows = [

@@ -359,10 +359,15 @@ async function start() {
     libraryChanged(null);
   });
   Prompts.init({ names: variantNames });
+  const settingsChanged = (key, prefs) => {
+    ctx.prefs = prefs;
+    Detail.applyPrefs(prefs);
+    if (key === "fileSource" || key.startsWith("gameDir") || key === "libraryDir" || key === "spineConsent") { stepCards = null; ctx.invalidateRoster(); route(); }
+  };
   ModAdd.init({ names: variantNames, changed: ctx.invalidateRoster, go: (key) => {
     const family = rosterData?.families.find((f) => f.variants.some((v) => v.key === key));
     if (family) ctx.go(family.key, key);
-  } });
+  }, goOther: () => Settings.open(settingsChanged, "mods") });
   on("library.changed", libraryChanged);
   watchFront();
   // files dropped on the window are added to the library
@@ -377,11 +382,7 @@ async function start() {
       toast(T(`error.${err.code}`, err.params), { kind: "error" });
     }
   });
-  $("top-option").addEventListener("click", () => Settings.open((key, prefs) => {
-    ctx.prefs = prefs;
-    Detail.applyPrefs(prefs);
-    if (key === "fileSource" || key.startsWith("gameDir") || key === "libraryDir" || key === "spineConsent") { stepCards = null; ctx.invalidateRoster(); route(); }
-  }));
+  $("top-option").addEventListener("click", () => Settings.open(settingsChanged));
   addEventListener("hashchange", route);
   await timed("first-screen", route);
 }

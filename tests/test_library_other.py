@@ -12,6 +12,9 @@ from ba_modding_toolkit.library import ModLibrary, supports_kind
 from ba_modding_toolkit.library.identity import identify
 from ba_modding_toolkit.library.integrity import Contents, inspect as inspect_bundle
 from ba_modding_toolkit.library.judge import core_of, other_target
+from ba_modding_toolkit.models import PatchResult
+from ba_modding_toolkit.naming import parse_filename
+from ba_modding_toolkit.utils import CRCUtils
 
 from test_library import game_bundle, header_bundle, make_mod, setup_library
 
@@ -138,6 +141,86 @@ def test_generic_update_target_match_uses_container_name_and_type(other_env, mon
     report = env.library.inspect_import({old.name: old})
     assert report['targets'] == [env.parts[0]]
     assert wrong not in report['targets']
+
+
+@pytest.mark.parametrize('crc_needed', [False, True])
+def test_generic_older_name_update_creates_output_before_core_save(other_env, monkeypatch, crc_needed):
+    env = other_env
+    target = env.parts[0]
+    upload = game_bundle(env.tmp / 'old', 'common', category='ui', part='textures',
+                         date='2025-01-01', payload=b'old mod')
+    key = ('Assets/UI/title.png', 'title', 'Texture2D')
+    updated = header_bundle(b'updated UI')
+    saves = []
+
+    class FakeBundle:
+        def get_asset_keys(self, strategy):
+            assert strategy == 'cont_name_type'
+            return {key}
+
+        def extract_patch(self, types, strategy, spine):
+            assert strategy == 'cont_name_type'
+            return {key: b'updated UI'}, []
+
+        def apply_patch(self, patch, strategy, anim_check):
+            assert patch == {key: b'updated UI'}
+            return PatchResult(1, 0, [], [], [key])
+
+        def save(self, path, options):
+            # Exercise the real core update through its save; it does not create this directory.
+            assert path.parent.is_dir()
+            assert options.perform_crc == crc_needed
+            data = CRCUtils.apply_crc_fix(updated, int(parse_filename(path.name).crc)) if crc_needed else updated
+            path.write_bytes(data)
+            saves.append(path.name)
+            return True, ''
+
+    monkeypatch.setattr(Bundle, 'load', lambda *args: FakeBundle())
+    monkeypatch.setattr(env.settings, 'crc_needed', lambda path: crc_needed)
+    mod, = env.library.add_files('other', [upload])
+    result = env.library.apply(mod.target, f'mod:{mod.id}', kind='other')
+    assert result.files == [target]
+    assert saves == [target.name]
+    expected = CRCUtils.apply_crc_fix(updated, int(parse_filename(target.name).crc)) if crc_needed else updated
+    assert target.read_bytes() == expected
+    env.library.restore(mod.target, kind='other')
+    assert target.read_bytes() == env.official[target]
+
+
+@pytest.mark.parametrize('payload', [b'AudioClip:mod music',
+                                   b'Texture2D:mod texture|AudioClip:mod music|Material:mod material'])
+def test_generic_exact_name_crc_save_preserves_whole_bundle_outside_update_types(other_env, monkeypatch, payload):
+    env = other_env
+    target = env.parts[-1] if payload.startswith(b'AudioClip:') else env.parts[0]
+    upload = make_mod(target, env.tmp / 'upload', payload=payload)
+    saves = []
+
+    class WholeBundle:
+        def __init__(self, path):
+            self.path = path
+
+        def extract_patch(self, *args):
+            pytest.fail('Same-name CRC correction must preserve every uploaded object')
+
+        def save(self, path, options):
+            assert options.perform_crc
+            data = CRCUtils.apply_crc_fix(self.path.read_bytes(), int(parse_filename(path.name).crc))
+            path.write_bytes(data)
+            saves.append(self.path)
+            return True, ''
+
+    monkeypatch.setattr(Bundle, 'load', lambda path, *args: WholeBundle(path))
+    monkeypatch.setattr(env.settings, 'crc_needed', lambda path: True)
+    monkeypatch.setattr(env.settings, 'asset_types', lambda: {'Texture2D'})
+    mod, = env.library.add_files('other', [upload])
+    result = env.library.apply(mod.target, f'mod:{mod.id}', kind='other')
+    assert result.files == [target]
+    assert saves == [mod.file]
+    assert target.read_bytes() == CRCUtils.apply_crc_fix(upload.read_bytes(), int(parse_filename(target.name).crc))
+    assert payload in target.read_bytes()
+    assert Bundle.check_crc_match(target)
+    env.library.restore(mod.target, kind='other')
+    assert target.read_bytes() == env.official[target]
 
 
 def test_generic_audio_integrity_tracks_its_stream_companion(other_env, monkeypatch):

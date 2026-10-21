@@ -719,8 +719,6 @@ class ModLibrary:
         """Import a batch of one supported kind, optionally applying through the master switch."""
         if not supports_kind(kind):
             raise ServiceError("mod_unsupported", kind=kind)
-        if any(kind_of_file(Path(path).name.removesuffix(".backup")) != kind for path in paths):
-            raise ServiceError("mod_unsupported", kind=kind)
         if apply:
             return self.add_and_apply(paths, progress, pin, log, kind=kind)
         return self.add(paths, progress, pin, kind=kind)
@@ -2365,16 +2363,31 @@ class ModLibrary:
                         progress: ProgressCallback | None, pin: Pin) -> dict[Path, Path]:
         if record["kind"] == "other":
             staged = self._stage_official(targets, work / "targets", pin)
+            output = work / "output"
+            output.mkdir(parents=True, exist_ok=True)
             sources = self._paths(record)
             for target, original in staged.items():
                 exact = next((path for path in sources if path.name == target.name), None)
-                if exact and not self._needs_crc_fix(exact, target):
-                    atomic_copy(exact, original)
+                if exact:
+                    if not self._needs_crc_fix(exact, target):
+                        atomic_copy(exact, original)
+                        continue
+                    # Same-name mods retain the whole uploaded bundle, including types outside the update filter.
+                    parsed = parse_filename(exact.name)
+                    group = mod_install.ModGroup(parsed.prefix, parsed.category, parsed.core, [
+                        mod_install.ModFilePlan(exact, parsed, mod_install.InstallAction.DIRECT_REPLACE,
+                                                existing_path=original, need_crc_fix=True)])
+                    result = mod_install.execute_mod_install(
+                        [group], output, self.settings.asset_types(),
+                        self.settings.save_options(self.settings.crc_needed(target)),
+                        self.settings.spine_options(), create_backup=False, log=log)
+                    if result.failed_groups:
+                        raise ServiceError("mod_apply_failed", id=record["id"])
                     continue
                 matching = [path for path in sources if parse_filename(path.name).prefix == parse_filename(target.name).prefix]
                 if not matching:
                     raise ServiceError("mod_target_mismatch", id=record["id"], variant=core_of(target.name))
-                result = core.process_mod_update(matching, [original], work / "output", self.settings.asset_types(),
+                result = core.process_mod_update(matching, [original], output, self.settings.asset_types(),
                     self.settings.save_options(self.settings.crc_needed(target)), self.settings.spine_options(),
                     match_strategy="cont_name_type", skip_unchanged=True,
                     anim_check=self.settings.anim_check_options(), log=log)
