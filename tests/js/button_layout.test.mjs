@@ -54,3 +54,18 @@ test("patterns without anchors retain their prefab edge offsets when the body wi
     assert.deepEqual([deco.widgets[0].w_, deco.widgets[0].h_], [126, 70]);
   }
 });
+
+
+test("Items and Mailbox mirrored unanchored decoration follows the left/bottom edges", () => {
+  for (const [flip, scale] of [[3, [1, 1]], [0, [-1, -1]]]) {
+    const body = fixture(4, 4, scale), deco = body.children[0], w = deco.widgets[0];
+    delete w.anchors; w.flip = flip;
+    const leftOffset = deco.pos[0] + 496 / 2, bottomOffset = deco.pos[1] + 177 / 2;
+    for (const [width, height] of [[550, 166], [205, 80], [820, 200], [496, 177]]) {
+      resizeButton(body, width, height);
+      near(deco.pos[0] + width / 2, leftOffset);
+      near(deco.pos[1] + height / 2, bottomOffset);
+      assert.deepEqual([w.w_, w.h_], [126, 70]);
+    }
+  }
+});

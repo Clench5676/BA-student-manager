@@ -18,8 +18,11 @@ export function resizeButton(body, width = null, height = null) {
         const edge = (key) => anchors[key] ? start + (end - start) * anchors[key][0] + anchors[key][1] : null;
         let a = edge(lo), b = edge(hi);
         if (a == null && b == null) {
-          // Unanchored patterns retain the prefab's distance from the right/top edge on resize.
-          child.pos[i] += (bg[size] - old) * (1 - bp);
+          // Unanchored patterns retain their prefab edge offsets. Items/UseBtn's second pattern is mirrored
+          // on the left/bottom; Mailbox/ReceiveAll uses a negative child scale for the same decoration.
+          const flipped = i === 0 ? w.flip === 1 || w.flip === 3 : w.flip >= 2;
+          const mirrored = flipped !== (scale < 0);
+          child.pos[i] += (bg[size] - old) * ((mirrored ? 0 : 1) - bp);
           return;
         }
         if (a == null) a = b - span;

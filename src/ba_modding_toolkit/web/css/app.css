@@ -47,87 +47,25 @@ input[type="text"], input[type="search"], textarea { cursor: text; }
 .screen { position: absolute; inset: 0; }
 .screen[hidden] { display: none; }
 
-/* Batch import uses the game's plates and buttons, with a fixed column grid inside its scrolling list. */
-.import-page { position: absolute; inset: 0; font-size: 23px; }
-.import-background { position: absolute; inset: 0; pointer-events: none; z-index: 0; }
-.import-workspace { position: absolute; z-index: 1; left: 46px; top: 132px; width: 1828px; height: 730px; display: grid; grid-template-columns: 524px 1272px; gap: 32px; }
-.import-detail, .import-panel { position: relative; min-width: 0; }
-.import-skin { position: absolute; inset: 0; pointer-events: none; z-index: 0; }
-.import-panel { display: flex; flex-direction: column; padding: 6px; }
-.import-panel > :not(.import-skin) { position: relative; z-index: 1; }
-.import-panel-head { padding: 17px 20px 15px; background: #b7d5e4; border-radius: 6px 6px 0 0; }
-.import-heading, .import-filters, .import-add, .import-list-tools, .import-footer-actions { display: flex; align-items: center; gap: 14px; }
-.import-heading { margin-bottom: 17px; }
-.import-heading h2 { font-size: 34px; font-weight: 500; white-space: nowrap; }
-.import-count { color: #526f86; font-size: 23px; white-space: nowrap; }
-.import-add { margin-left: auto; }
-.import-input { min-width: 0; border: 1px solid #a4bfce; border-radius: 5px; padding: 8px 13px; background: #fff; color: #33516d; font: 500 23px/1.3 var(--font); }
-.import-search { flex: 1; width: 180px; }
-.import-filters select { width: 330px; }
-.import-button { position: relative; flex-shrink: 0; display: grid; place-items: center; filter: drop-shadow(0 2px 2px #49647935); }
-.import-button-label { position: relative; z-index: 12; line-height: 1.1; white-space: pre-line; text-align: center; padding-bottom: 3px; }
-.import-button:disabled { cursor: default; color: #8998a5; filter: grayscale(1); opacity: .55; }
-.import-button:focus-visible, .import-row-copy:focus-visible, .import-input:focus-visible { outline: 3px solid #168fe0; outline-offset: 3px; }
-.import-list { min-height: 0; overflow-y: auto; flex: 1; padding: 15px 19px; scrollbar-color: #92a6b7 #ccd7df; scrollbar-width: thin; }
-.import-row { position: relative; display: grid; grid-template-columns: 82px minmax(0, 1fr) 132px 225px 40px; gap: 14px; align-items: center; min-height: 116px; margin-bottom: 12px; padding: 10px 16px; border-radius: 7px; }
-.import-row:last-child { margin-bottom: 0; }
-.import-row > :not(.import-skin) { position: relative; z-index: 12; }
-.import-row.selected { outline: 3px solid #f2cc47; outline-offset: -2px; }
-.import-thumb { width: 82px; height: 92px; object-fit: cover; object-position: center 20%; border-radius: 6px; background: #dceaf0; }
-.import-row-copy { min-width: 0; text-align: left; display: flex; flex-direction: column; gap: 5px; align-items: flex-start; align-self: stretch; justify-content: center; }
-.import-row-name { display: block; width: 100%; font-size: 29px; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
-.import-row-meta { font-size: 18px; color: #70869a; width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.import-row-note { display: block; font-size: 18px; line-height: 1.3; color: #8796a3; overflow-wrap: anywhere; }
-.import-row-kind { color: #668094; font-size: 21px; text-align: center; overflow-wrap: anywhere; }
-.import-status { display: inline-block; justify-self: center; max-width: 100%; padding: 5px 9px; border-radius: 4px; font-size: 21px; line-height: 1.2; text-align: center; }
-.import-status.ready { color: #276a5b; background: #dff3e9; }
-.import-status.update { color: #8a591d; background: #ffefc4; }
-.import-status.library { color: #5f7082; background: #e2eaf2; }
-.import-status.installed { color: #526365; background: #dce6e6; }
-.import-status.library, .import-status.installed { font-size: 18px; }
-.import-status.blocked { color: #a74451; background: #fbe3e7; }
-.import-check { position: relative; display: inline-flex; align-items: center; gap: 10px; min-height: 36px; cursor: var(--cursor-press); }
-.import-check input { position: absolute; left: 0; top: 0; width: 36px; height: 36px; opacity: 0; cursor: inherit; }
-.import-check-box { position: relative; display: block; flex-shrink: 0; width: 36px; height: 36px; border: 2px solid #9ab9c7; border-radius: 5px; background: #e4f3f8; pointer-events: none; }
-.import-check input:checked + .import-check-box { background: #e4f3f8 url('/asset/ui/sprite/Common/Common_Icon_Check_B.png') center / 30px 30px no-repeat; }
-.import-check input:focus-visible + .import-check-box { outline: 3px solid #168fe0; outline-offset: 3px; }
-.import-check input:disabled + .import-check-box { filter: grayscale(1); opacity: .4; }
-.import-list-tools { padding: 8px 20px 12px; border-top: 1px solid #b9cedb; }
-.import-list-tools [data-action="remove"] { margin-left: auto; }
-.import-preview-pair { display: grid; grid-template-columns: 254px 254px; gap: 16px; }
-.import-preview { position: relative; height: 440px; overflow: hidden; }
-.import-preview-label { position: absolute; left: 15px; top: 13px; color: #56768e; z-index: 15; font-size: 22px; }
-.import-preview-image { position: absolute; inset: 55px 0 0; width: 100%; height: 385px; object-fit: contain; z-index: 12; }
-.import-preview-unavailable { position: absolute; left: 9px; right: 9px; bottom: 12px; background: #edf6fae8; color: #6e8497; z-index: 15; text-align: center; font-size: 19px; }
-.import-name-banner { position: relative; margin-top: 18px; height: 152px; padding: 20px 24px; color: white; }
-.import-name-banner h2, .import-name-banner small { position: relative; z-index: 12; font-weight: 500; overflow-wrap: anywhere; }
-.import-name-banner h2 { font-size: 34px; line-height: 1.15; max-height: 78px; overflow: hidden; }
-.import-name-banner small { display: block; margin-top: 8px; color: #b9d2e5; font-size: 20px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.import-detail-empty, .import-empty { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px; color: #6c879c; text-align: center; }
-.import-detail-empty { height: 570px; }
-.import-empty h3 { font-size: 34px; font-weight: 500; }
-.import-empty p { font-size: 23px; }
-.import-footer { position: absolute; z-index: 1; left: 50px; right: 50px; top: 892px; height: 78px; display: flex; align-items: center; justify-content: space-between; gap: 25px; }
-.import-footer-actions { gap: 22px; }
-.import-progress { min-width: 0; color: #526f86; font-size: 23px; overflow-wrap: anywhere; }
-.import-progress.error, .import-option-error { color: #a74451; }
-.import-progress progress { display: block; width: 330px; height: 10px; margin-top: 10px; accent-color: #4fafd2; }
-.import-dialog-content { position: absolute; left: 228px; top: 190px; width: 1464px; height: 670px; overflow-y: auto; display: grid; grid-template-columns: 1fr 1fr; align-content: start; gap: 22px 35px; padding: 16px; z-index: 40; scrollbar-color: #92a6b7 #ccd7df; }
-.import-option { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px; background: #ffffffc9; border-radius: 5px; font-size: 25px; }
-.import-option .import-input { width: 290px; flex-shrink: 0; }
-.import-option.wide, .import-resource-types, .import-option-note, .import-option-error { grid-column: 1 / -1; }
-.import-option.wide input { width: 1030px; }
-.import-resource-types { display: flex; flex-wrap: wrap; gap: 20px 28px; border: 1px solid #b9cedb; padding: 20px; font-size: 23px; }
-.import-resource-types legend { padding: 0 10px; }
-.import-option-note, .import-option-error { font-size: 21px; }
-.import-option-note { color: #6e8497; }
-.import-results { display: block; user-select: text; }
-.import-results table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 26px; }
-.import-results th, .import-results td { padding: 18px; text-align: left; vertical-align: top; border-bottom: 1px solid #c7d8e3; overflow-wrap: anywhere; }
-.import-results th { font-weight: 500; color: #55758d; }
-.import-results th:first-child { width: 30%; }
-.import-results th:nth-child(2) { width: 27%; }
-.import-results .import-row-note { margin-top: 8px; }
+/* Batch Import: geometry, native text entry and hit areas only. import-layout.js draws the game prefab widgets. */
+.import-page, .import-background, .import-art { position: absolute; inset: 0; }
+.import-background, .import-art { pointer-events: none; }
+.import-art { z-index: 0; }
+.import-panel > :not(.import-art) { z-index: 1; }
+.import-panel, .import-detail, .import-progress { z-index: 1; }
+.import-button, .import-option, .import-option-note, .import-option-error, .import-row, .import-result-row { position: relative; }
+.import-button, .import-row-copy, .import-check { z-index: 40; }
+.import-list { overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; }
+.import-row { width: 1192.32px; height: 187.92px; }
+.import-result-row { width: 1400px; height: 216px; }
+.import-selection { z-index: 34; pointer-events: none; }
+.import-check { position: relative; display: block; width: 50px; height: 50px; }
+.import-check input { position: absolute; inset: 0; width: 50px; height: 50px; appearance: none; -webkit-appearance: none; border: 0; cursor: var(--cursor-press); z-index: 40; }
+.import-input-wrap .roster-search { z-index: 30; }
+.import-dialog-content { position: absolute; left: 228px; top: 190px; width: 1464px; height: 670px; overflow-y: auto; overflow-x: hidden; padding: 16px; z-index: 40; }
+.import-resource-types { position: relative; border: 0; min-width: 0; }
+.import-radio-group button { z-index: 40; }
+
 
 /* The shipped font's full-width brackets and commas have blank half-em advances that look like added spaces. */
 .popup-layer:lang(zh-CN) { font-feature-settings: "halt"; }
