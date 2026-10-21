@@ -115,8 +115,8 @@ test("navigation fits icons in the Student slot and greys without the lock", () 
   for (const grey of [false, true]) {
     const tree = navigationEntry(grid, { icon: "Common_Icon_Student" }, "Students", grey, 0);
     assert.equal(find(tree, "Able").active, !grey); assert.equal(find(tree, "Disable").active, grey);
-    assert.equal(find(tree, "Able").widgets[0].h_, 134);
-    assert.equal(find(tree, "Able").widgets[0].w_, 134);
+    assert.equal(find(tree, "Able").widgets[0].h_, 80);
+    assert.equal(find(tree, "Able").widgets[0].w_, 80);
     assert.equal(find(tree, "Able").widgets[0].keepAspect, true);
     assert.equal(find(tree, "Label").widgets[0].color, "#2c4564/1.00");
     assert.equal(find(tree, "Disable/Lock"), null); // classic hand-offs are not locked game content

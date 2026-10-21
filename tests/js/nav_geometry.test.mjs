@@ -36,7 +36,8 @@ const lobby = n("UILobby"), collection = n("UICharacterCollection");
 insert(lobby, "Front/Bottom/Menu/BG/BG", n("BG"));
 insert(lobby, "Front/Bottom/Menu/BG/Grid", n("Grid", [0, 0], [], ITEMS.map((item, i) => {
   const entry = n(`Entry${i}`, [i * 200, 0], [], [
-    n("Label", [5, 8 + i * 2], [{ text: "Label", fontSize: 39, w_: 200, h_: 40, pivot: 4, color: "#2c4564/1.00" }]),
+    n("Label", [5, 8 + i * 2], [{ text: "Label", fontSize: 39, w_: 200, h_: 40, pivot: 4, color: "#2c4564/1.00" }],
+      [n("IconPlus", [77, 9], [spr("Common_Icon_Minus", 20, 22)])]),
     n("Able", [0, 94 + i], [spr(item.icon, 108 + i * 30, 130 + i * 20)]),
     n("Disable", [0, 0], [], [n("Icon", [0, 94 + i], [spr(item.icon, 108 + i * 30, 130 + i * 20)]), n("Lock")]),
   ]);
@@ -71,7 +72,9 @@ for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) tes
     const label = button.children.find((e) => e.dataset.path.endsWith("/Label"));
     const icon = button.children.find((e) => /\/(Able|Disable\/Icon)$/.test(e.dataset.path));
     assert.equal(icon.style.backgroundSize, "contain");
-    assert.ok(Math.abs(parseFloat(icon.style.width) - 130 * S) < 0.01);
+    assert.ok(Math.abs(parseFloat(icon.style.width) - 80 * S) < 0.01);
+    assert.ok(parseFloat(icon.style.top) >= 0, "icons stay inside the bar, below the panels");
+    assert.ok(parseFloat(icon.style.top) + parseFloat(icon.style.height) < parseFloat(label.style.top), "icons clear the labels");
     assert.equal(icon.style.width, icon.style.height);
     iconTops.push(icon.style.top);
     const url = /url\("(.+)"\)/.exec(icon.style.backgroundImage)[1], encoded = blobs.get(url);
@@ -83,6 +86,7 @@ for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) tes
     assert.ok(parseFloat(label.style.left) >= 0 && parseFloat(label.style.left) + parseFloat(label.style.width) <= 260);
     assert.ok(!label.textContent.includes("\n")); labelTops.push(label.style.top);
     assert.ok(!button.children.some((e) => e.dataset.path.endsWith("/Lock")));
+    assert.ok(!button.children.some((e) => e.dataset.path.includes("/IconPlus")), "donor submenu badges are removed");
   });
   assert.equal(new Set(labelTops).size, 1);
   assert.equal(new Set(iconTops).size, 1);
