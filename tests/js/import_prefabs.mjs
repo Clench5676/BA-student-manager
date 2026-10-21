@@ -17,7 +17,7 @@ function insert(tree, path, n) {
 function button(name, primary = false, disabled = false) {
   const bg = node(primary ? "BG" : name, [0, 0], [sprite("Common_Btn_BG", primary ? 372 : 348, primary ? 166 : 162,
     { incline: 10, color: disabled ? "#d6d6d6/0.90" : primary ? "#ffee00/0.94" : "#77deff/1.00" })], [
-    node("Pt", [52.1, 2.4], [sprite(`Common_Btn_Normal_${primary ? "Y" : "B"}_S_Pt`, 252, 140)]),
+    node("Pt", [52.1, 2.4], [sprite(`Common_Btn_Normal_${disabled ? "B_C" : primary ? "Y_S" : "B_S"}_Pt`, 252, 140)]),
   ]);
   if (primary) return node(name, [0, 0], [], [bg, label(disabled ? "Text" : "Label_Locale_Use", "use", { fontSize: 72 })]);
   bg.children.push(label("Label_Locale", "receive", { fontSize: 60 })); return bg;
@@ -49,7 +49,9 @@ export function makeImportLayouts() {
   insert(mail, "Bottom/ObjectsDisplayed_Unread/Label_Locale", label("Label_Locale", "note", { pivot: 3 }));
   const receive = insert(mail, "Bottom/ObjectsDisplayed_Unread/ReceiveAll/Btn", button("Btn", false));
   receive.widgets[0].color = "#f6e94b/1.00";
-  insert(mail, "Bottom/ObjectsDisplayed_Unread/ReceiveAll/Btn_Disable", button("Btn_Disable", false, true));
+  const disabled = insert(mail, "Bottom/ObjectsDisplayed_Unread/ReceiveAll/Btn_Disable", button("Btn_Disable", false, true));
+  disabled.children.push(node("Pt (1)", [-52, 3], [sprite("Common_Btn_Normal_B_C_Pt", 252, 140, { color: "#ffffff/0.80" })]));
+  disabled.children.at(-1).scale = [-1, -1];
   for (const name of ["List_01", "List_02"]) {
     const row = node(name, [0, 0], [], [node("BG", [0, 0], [sprite("Campaign_List_Normal", 2208, 329)]), image("Deco"), node("Line", [-760.8, 50], [sprite("Common_Square_Bg", 1842, 4)]),
       node("BG_Icon", [-897.9, 4], [sprite("Common_Circle_Bg", 304, 322)], [image("Icon_Arona")]), label("Label_System", "Title"), label("Label_From", "From"), label("Label_Locale_Received", "day")]);
@@ -63,7 +65,24 @@ export function makeImportLayouts() {
   ]));
   insert(fs, "Center/Popup/Sort/Scroll View/Sort_Normal/Option_Normal/Grid/UISortObjectListUnit/Label_Text", node("Label_Text", [0, 0], [], [node("BG", [0, 0], [sprite("Common_Btn_Radio_BG", 60, 60)]), node("On", [0, 0], [sprite("Common_Btn_Radio_On", 60, 60)], [label("Label_On")]), label("Label_On"), node("Line", [0, -87], [sprite("Common_Square_Bg", 504, 4)])]));
   const item = node("UINonEquipmentInventoryListItem", [0, 0], [], [node("Card", [0, 0], [], [node("Normal", [0, 0], [], [node("Cover_Select", [0, -0.6], [sprite("Card_Select_Line", 240, 220)])])])]);
-  return { UINonEquipmentInventory: inv, UIMailBox: mail, UIMailBoxContent: content, UIPopup_FilterSort: fs, UINonEquipmentInventoryListItem: item };
+  const collection = node("UICharacterCollection");
+  const search = structuredClone(find(inv, `${list}/Inbox/SearchInfo/SearchName/SearchNameArea`));
+  search.widgets.unshift({ cls: "UIRect" }); // The exported layout's first component is not its white sprite.
+  find(search, "Icon_Search").widgets.unshift({ cls: "UIRect" });
+  Object.assign(find(search, "InputField/Label_Search").widgets[0], { w_: 778, h_: 58 });
+  Object.assign(find(search, "InputField/Label_Locale_Input").widgets[0], { w_: 778, h_: 50 });
+  insert(collection, "SeletControl/CharacterSearch/SearchName/SearchNameArea", search);
+  const sort = structuredClone(find(inv, `${list}/BG_Top_Widget/SortBtn/Btn_Normal`));
+  sort.widgets[0].w_ = 622;
+  for (const name of ["FilterMarker_On", "FilterMarker_Off"]) {
+    const marker = find(sort, name); marker.pos = [-264, 26];
+    find(marker, "Icon").pos = [550, 4.5];
+    marker.children.push(node("Filter_02", [-30, 33], [sprite("Common_Icon_Filter_02", 611, 6)]));
+  }
+  insert(collection, "SeletControl/TopMenu/SortBtn/Btn_Normal", sort);
+  const order = structuredClone(find(inv, `${list}/BG_Top_Widget/OrderBtn/Btn_Normal`)); order.widgets[0].w_ = 243;
+  insert(collection, "SeletControl/TopMenu/OrderBtn/Btn_Normal", order);
+  return { UINonEquipmentInventory: inv, UIMailBox: mail, UIMailBoxContent: content, UIPopup_FilterSort: fs, UINonEquipmentInventoryListItem: item, UICharacterCollection: collection };
 }
 export { find };
 

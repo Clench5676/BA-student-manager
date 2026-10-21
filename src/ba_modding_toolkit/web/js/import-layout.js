@@ -1,6 +1,7 @@
 // Batch Import's artwork is cloned from runtime game layouts. Only container dimensions and data slots adapt
 // to the approved two-column screen; sprite slicing, inclines, decoration, colours and typography stay in NGUI.
 import { resizeButton } from "./button-layout.js";
+import { searchTree, sortBody, orderBody } from "./roster-widgets.js";
 import { clone } from "./util.js";
 
 const INVENTORY = "Inventory_ListControl";
@@ -11,7 +12,7 @@ const RADIO = "Center/Popup/Sort/Scroll View/Sort_Normal/Option_Normal/Grid/UISo
 export const ROW_SCALE = 0.54, ROW_WIDTH = 2208 * ROW_SCALE, ROW_HEIGHT = 348 * ROW_SCALE;
 
 export async function loadImportLayouts(ui) {
-  const names = ["UINonEquipmentInventory", "UIMailBox", "UIMailBoxContent", "UIPopup_FilterSort", "UINonEquipmentInventoryListItem"];
+  const names = ["UINonEquipmentInventory", "UIMailBox", "UIMailBoxContent", "UIPopup_FilterSort", "UINonEquipmentInventoryListItem", "UICharacterCollection"];
   return Object.fromEntries(await Promise.all(names.map(async (name) => [name, await ui.layout(name)])));
 }
 
@@ -25,7 +26,7 @@ export function importArtwork(ui, layouts) {
   const label = (n, caption, width = null, lines = 1) => {
     const w = n.widgets.find((w) => "text" in w);
     const f = ui.fitText(caption, w.fontSize, w.fontSize * 0.7, width ?? w.w_, lines);
-    Object.assign(w, { text: f.text, fontSize: f.fs, w_: width ?? w.w_, h_: Math.max(w.h_, f.fs * 1.3 * lines) });
+    Object.assign(w, { text: f.text, fontSize: f.fs, w_: width ?? w.w_, h_: Math.max(w.h_, f.fs * 1.3 * String(f.text).split("\n").length) });
     return n;
   };
   const inventory = (path) => get("UINonEquipmentInventory", path);
@@ -53,56 +54,56 @@ export function importArtwork(ui, layouts) {
     // Items/ListBG/BG_Top_Widget/Label_Locale_Title; Mailbox/Right/Label_Amount supplies the counter.
     title: (caption) => at(label(inventory(`${LIST}/BG_Top_Widget/Label_Locale_Title`), caption, 660)),
     count: (caption) => at(label(mail("Right/Label_Amount"), caption, 500)),
-    // Items/SearchNameArea contains the real search sprite, outline, search icon and clear icon.
-    // Its InputField labels are replaced by a native input over the same slot, as in roster.js.
-    search(width) {
-      const t = at(inventory(`${LIST}/Inbox/SearchInfo/SearchName/SearchNameArea`));
-      t.widgets[0].w_ = width;
-      ui.find(t, "BG_Line").widgets[0].w_ = width;
-      ui.find(t, "Icon_Search").pos[0] = -width / 2 + 62;
-      ui.find(t, "Btn_Close").pos[0] = width / 2 - 60;
-      ui.find(t, "InputField").children = [];
+    // The roster's white search field, outline, search icon and clear icon. Resize actual sprite widgets:
+    // SearchNameArea starts with a nonvisual component in exported layouts, not its background sprite.
+    search(width, searching = true) {
+      const t = at(ui.find(searchTree(layouts.UICharacterCollection), "SearchName/SearchNameArea"));
+      const body = t.widgets.find((w) => "sprite" in w), delta = width - body.w_;
+      body.w_ = width;
+      ui.find(t, "BG_Line").widgets.find((w) => "sprite" in w).w_ = width;
+      ui.find(t, "Icon_Search").pos[0] -= delta / 2;
+      ui.find(t, "Btn_Close").pos[0] += delta / 2;
+      ui.find(t, "Icon_Search").active = searching;
+      ui.find(t, "Btn_Close").active = searching;
+      for (const c of ui.find(t, "InputField").children) {
+        const w = c.widgets.find((w) => "text" in w);
+        w.w_ = searching ? w.w_ + delta : width - 60;
+      }
       return t;
     },
     inputStyle(scale) {
-      const w = inventory(`${LIST}/Inbox/SearchInfo/SearchName/SearchNameArea/InputField/Label_Search`).widgets[0];
+      const w = ui.find(layouts.UICharacterCollection, "SeletControl/CharacterSearch/SearchName/SearchNameArea/InputField/Label_Search").widgets.find((w) => "text" in w);
       return { color: w.color.split("/")[0], caretColor: w.color.split("/")[0], fontSize: `${w.fontSize * scale}px` };
     },
-    // Items/SortBtn/Btn_Normal: use its text-only variant and its real funnel marker and expand arrow.
-    stateButton(caption, active, width = 456) {
-      const t = at(inventory(`${LIST}/BG_Top_Widget/SortBtn/Btn_Normal`));
-      ui.find(t, "Type_1").active = false;
-      ui.find(t, "Type_2").active = true;
-      ui.find(t, "FilterMarker_On").active = active;
-      ui.find(t, "FilterMarker_Off").active = !active;
-      label(ui.find(t, "Type_2/Text"), caption, width - 120);
-      resizeButton(t, width);
-      ui.find(t, "Icon").pos[0] += (width - 456) / 2;
-      for (const state of ["FilterMarker_On", "FilterMarker_Off"]) ui.find(t, `${state}/Icon`).pos[0] += (width - 456) / 2;
-      return t;
+    // The roster's sort button builder retains both funnel states, including their full-width top line.
+    stateButton(caption, active, width = 570) {
+      return at(sortBody(layouts.UICharacterCollection, ui.fitText(caption, 48, 28, width - 120, 2), width, active));
     },
-    // Items/OrderBtn/Btn_Normal has both order arrows. Draw only the current direction.
+    // The roster's order button uses the same 243 x 116 body and direction states.
     order(ascending) {
-      const t = at(inventory(`${LIST}/BG_Top_Widget/OrderBtn/Btn_Normal`));
-      ui.find(t, "Icon_down").active = !ascending; ui.find(t, "Icon_Up").active = ascending;
-      resizeButton(t); return t;
+      return at(orderBody(layouts.UICharacterCollection, ascending));
     },
     // MailboxContent/List_01/Btn_Receive supplies every blue action; Items/Bottom/Use/UseBtn supplies Import.
-    // Disabled colours come from Mailbox/ReceiveAll/Btn_Disable and Items/Bottom/None/UseBtn respectively.
+    // Clone the entire disabled state, including its dark dotted B_C patterns, not just its body/label colours.
     button(caption, width, primary = false, enabled = true) {
-      const t = primary ? inventory(`${INVENTORY}/RightCanvas/Bottom/${enabled ? "Use" : "None"}/UseBtn`) : content("List_01/Btn_Receive");
+      const t = primary ? inventory(`${INVENTORY}/RightCanvas/Bottom/${enabled ? "Use" : "None"}/UseBtn`)
+        : enabled ? content("List_01/Btn_Receive") : mail("Bottom/ObjectsDisplayed_Unread/ReceiveAll/Btn_Disable");
       at(t);
       const body = primary ? ui.find(t, "BG") : t;
       if (primary) {
         const [x, y] = body.pos;
         for (const c of t.children) { c.pos[0] -= x; c.pos[1] -= y; }
-      } else if (!enabled) {
-        body.widgets.find((w) => "sprite" in w).color = mail("Bottom/ObjectsDisplayed_Unread/ReceiveAll/Btn_Disable").widgets[0].color;
-        ui.find(t, "Label_Locale").widgets[0].color = mail("Bottom/ObjectsDisplayed_Unread/ReceiveAll/Btn_Disable/Label_Locale").widgets[0].color;
       }
       resizeButton(body, width);
+      // NGUI's DOM renderer uses sprite flips for mirroring; negative prefab scales would produce negative CSS sizes.
+      for (const c of body.children) for (const w of c.widgets) if (/^Common_Btn_.*_Pt$/.test(w.sprite || "")) {
+        w.flip = (w.flip || 0) ^ (c.scale[0] < 0 ? 1 : 0) ^ (c.scale[1] < 0 ? 2 : 0);
+        c.scale = c.scale.map(Math.abs);
+      }
       const captionNode = ui.find(t, primary ? enabled ? "Label_Locale_Use" : "Text" : "Label_Locale");
       label(captionNode, caption, width - 60, 2);
+      const w = captionNode.widgets.find((w) => "text" in w), height = body.widgets.find((w) => "sprite" in w).h_ - 20;
+      if (w.h_ > height) { w.fontSize *= height / w.h_; w.h_ = height; }
       return t;
     },
     // UIPopup_FilterSort's actual UIFilter_CheckBox, also used by the roster's display settings.
@@ -120,12 +121,6 @@ export function importArtwork(ui, layouts) {
       for (const p of ["On/Label_On", "Label_On"]) label(ui.find(t, p), caption, width - 100, 2);
       ui.find(t, "Line").widgets[0].w_ = width;
       return t;
-    },
-    // FilterSort/UIFilterObjectList_1 supplies option headings, tag and dotted divider, without its demo options.
-    optionHeading(caption) {
-      const t = at(filter(FILTER));
-      t.children = t.children.filter((c) => c.name === "Label_Title");
-      label(ui.find(t, "Label_Title"), caption, 2100); return t;
     },
     // Items/EquipPos: bind the comparison art to its UITexture, retaining the game's backing circle.
     preview(caption) {

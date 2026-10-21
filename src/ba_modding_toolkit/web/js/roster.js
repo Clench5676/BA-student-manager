@@ -14,6 +14,7 @@ import { specialFraming } from "./special-view.js";
 import * as NGUI from "./ngui.js";
 import * as Display from "./display.js";
 import * as Loading from "./loading.js";
+import { searchTree as rosterSearchTree, sortBody, orderBody } from "./roster-widgets.js";
 import { current as modsState } from "./mod-switch.js";
 import { countNodes, countText, iconsOf } from "./mod-counts.js";
 import { rpc, spineBase } from "./api.js";
@@ -154,28 +155,11 @@ function frameTree(lay) {
   // sort: the current key, and the funnel in blue while a display setting filters the list
   const sort = find(menu, "SortBtn");
   sort.pos[0] = lay.sort + 83;
-  const body = find(sort, "Btn_Normal");
-  const shrink = 622 - lay.sortW;
-  body.widgets.find((w) => "sprite" in w).w_ = lay.sortW;
-  const filtered = filtering(view.filters);
-  for (const name of ["FilterMarker_Off", "FilterMarker_On"]) {
-    const n = find(body, name);
-    n.pos[0] += shrink / 2;
-    find(n, "Icon").pos[0] -= shrink;
-    find(n, "Filter_02").widgets[0].w_ -= shrink;
-    n.active = (name === "FilterMarker_On") === filtered;
-  }
-  find(body, "Icon").pos[0] -= shrink / 2;
-  find(body, "Type_1").active = false;
-  const type2 = find(body, "Type_2");
-  type2.active = true;
-  Object.assign(find(type2, "Text").widgets[0], { text: lay.sortText.text, fontSize: lay.sortText.fs, w_: lay.sortW - 120 });
-  find(type2, "Text").pos[0] = 30;
+  sort.children = sort.children.map((c) => c.name === "Btn_Normal" ? sortBody(layouts.collection, lay.sortText, lay.sortW, filtering(view.filters)) : c);
   // order: one arrow, down for descending (the prefab holds both, Icon_Up flipped)
   const orderBtn = find(menu, "OrderBtn");
   orderBtn.pos[0] = lay.order + 45.1;
-  find(orderBtn, "Btn_Normal/Icon_down").active = view.order === "desc";
-  find(orderBtn, "Btn_Normal/Icon_Up").active = view.order !== "desc";
+  orderBtn.children = orderBtn.children.map((c) => c.name === "Btn_Normal" ? orderBody(layouts.collection, view.order !== "desc") : c);
   // checkbox toggle after the title (game: "unowned students only" in the gacha character list)
   const cb = clone(layouts.checkbox);
   cb.name = "Merge";
@@ -401,12 +385,7 @@ async function relist() {
 }
 
 // --- search: the game's search box over the top of the list, filtering as one types ---
-function searchTree() {
-  const box = clone(find(layouts.collection, "SeletControl/CharacterSearch"));
-  const input = find(box, "SearchName/SearchNameArea/InputField");
-  for (const c of input.children) c.widgets.find((w) => "text" in w).text = ""; // the input draws its text and placeholder
-  return box;
-}
+const searchTree = () => rosterSearchTree(layouts.collection);
 // the input over the game's InputField (at (2, 258) in SeletControl's units)
 function searchInput() {
   const el = document.createElement("input");

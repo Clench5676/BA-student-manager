@@ -106,7 +106,8 @@ test("generic Settings rows render names, every target file, status and actions 
     const NGUI = await import(new URL("ngui.js", web));
     const { wrapPath } = await import(new URL("util.js", web));
     const h = harness();
-    const deps = { NGUI, T: h.T, wrapPath };
+    const { rowBase, radioRow } = await import(new URL("settings-rows.js", web));
+    const deps = { NGUI, T: h.T, wrapPath, rowBase, radioRow };
     const valueRow = new Function("deps", `const {${Object.keys(deps)}} = deps; ${strip(settings)}; return valueRow;`)(deps);
     const rows = h.rows([mod, { ...mod, id: "m2", label: "Missing Pack", state: "missing" }], valueRow, h.changed);
     const host = new El();

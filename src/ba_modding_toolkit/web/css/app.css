@@ -61,9 +61,12 @@ input[type="text"], input[type="search"], textarea { cursor: text; }
 .import-selection { z-index: 34; pointer-events: none; }
 .import-check { position: relative; display: block; width: 50px; height: 50px; }
 .import-check input { position: absolute; inset: 0; width: 50px; height: 50px; appearance: none; -webkit-appearance: none; border: 0; cursor: var(--cursor-press); z-index: 40; }
+.import-input-wrap { z-index: 1; }
 .import-input-wrap .roster-search { z-index: 30; }
-.import-dialog-content { position: absolute; left: 228px; top: 190px; width: 1464px; height: 670px; overflow-y: auto; overflow-x: hidden; padding: 16px; z-index: 40; }
+.import-search-clear { z-index: 40; }
+.import-dialog-content { position: absolute; left: 228px; top: 190px; width: 1464px; height: 640px; overflow-y: auto; overflow-x: hidden; padding: 16px; z-index: 40; }
 .import-resource-types { position: relative; border: 0; min-width: 0; }
+.import-option-control { position: absolute; z-index: 40; appearance: none; -webkit-appearance: none; background: transparent; border: 0; }
 .import-radio-group button { z-index: 40; }
 
 

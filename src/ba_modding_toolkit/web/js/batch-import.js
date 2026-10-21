@@ -8,6 +8,7 @@ import { specialFraming } from "./special-view.js";
 import { spineAllowed } from "./spine-runtime.js";
 import { thumbnailScope } from "./thumbs.js";
 import { S } from "./util.js";
+import { ROW_W as OPTION_WIDTH, rowBase, radioRow } from "./settings-rows.js";
 import { loadImportLayouts, importArtwork, clipButtonPatterns, ROW_SCALE, ROW_WIDTH, ROW_HEIGHT } from "./import-layout.js";
 import { suggestImports } from "./import-assistants.js";
 import { createImportState, countsOf, eligible, RESOURCE_TYPES, STATES } from "./import-state.js";
@@ -59,13 +60,14 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
     Object.assign(element.style, { position: "absolute", left: `${x}px`, top: `${y}px`, width: `${width}px`, height: `${height}px` });
     return element;
   };
-  function paint(element, tree, { scale = S, origin = [0, 0], textures = {} } = {}) {
+  function paint(element, tree, { scale = S, origin = [0, 0], textures = {}, onRender = null } = {}) {
     const version = element.paintVersion = (element.paintVersion || 0) + 1;
     const next = el("div", "import-art");
     const drawing = ui.render(tree, next, { scale, origin, textures, deferImages: true }).then((view) => {
       clipButtonPatterns(view);
       if (element.paintVersion === version) {
         element.art?.remove(); element.art = next; element.appendChild(next);
+        onRender?.(view);
       }
       return Promise.allSettled(view.images || []).then(() => view);
     });
@@ -104,20 +106,26 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
     input.addEventListener("change", () => { onChange(input.checked); refresh(); }); refresh();
     return { label, input, refresh };
   }
-  // Native text/number entry uses Items/SearchNameArea, including its outline and the game's input colour/font.
+  // Match roster.js's native input and clear hit area to the rendered prefab labels/icons.
   function inputControl(caption, value, { type = "text", width = 650, search = false } = {}) {
     const wrap = el("div", "import-input-wrap"), input = el("input", `roster-search${search ? " import-search" : ""}`);
     input.type = type; input.value = value; input.setAttribute("aria-label", caption);
     input.autocomplete = "off"; input.spellcheck = false;
-    Object.assign(wrap.style, { position: "relative", width: `${width}px`, height: "56px" });
-    const tree = art.search(width / 0.5);
-    if (!search) { ui.find(tree, "Icon_Search").active = false; ui.find(tree, "Btn_Close").active = false; }
-    paint(wrap, tree, { scale: 0.5, origin: [width / 2, 0] });
-    place(input, search ? 58 : 18, 0, width - (search ? 118 : 36), 56);
-    Object.assign(input.style, art.inputStyle(0.5)); wrap.appendChild(input);
-    return { wrap, input };
+    Object.assign(wrap.style, { position: "relative", width: `${width}px`, height: `${112 * S}px` });
+    Object.assign(input.style, art.inputStyle(S)); wrap.appendChild(input);
+    const clear = search ? el("button", "hit import-search-clear") : null;
+    if (clear) { clear.type = "button"; clear.setAttribute("aria-label", T("display.reset")); wrap.appendChild(clear); }
+    paint(wrap, art.search(width / S, search), { scale: S, origin: [width / 2, 0], onRender: (view) => {
+      const [x, y, w, h] = Popup.nodeRect(view, "SearchNameArea/InputField/Label_Search");
+      place(input, x, y + h / 2 - 46 * S, w, 92 * S);
+      if (clear) {
+        const [cx, cy, cw, ch] = Popup.nodeRect(view, "SearchNameArea/Btn_Close");
+        place(clear, cx + cw / 2 - 55 * S, cy + ch / 2 - 55 * S, 110 * S, 110 * S);
+      }
+    } });
+    return { wrap, input, clear };
   }
-  // FilterSort/UISortObjectListUnit supplies every option; native selects would introduce a foreign widget.
+  // The state filter uses FilterSort/UISortObjectListUnit, as in display.js.
   function radioOptions(area, values, value, onChange, { width = 1370, columns = 1 } = {}) {
     const controls = [];
     const refresh = () => {
@@ -148,33 +156,40 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
     paint(dom.background, art.background(), { origin: [960, 540] });
     dom.preview = place(el("div", "import-detail"), 46, 150, 524, 700); root.appendChild(dom.preview);
     // Items/ListBG: the two-column frame retains its paper/inbox insets, with a mail list in place of the item grid.
-    const panel = place(el("div", "import-panel"), 602, 132, 1272, 730);
-    paint(panel, art.panel(1272 / S, 730 / S), { origin: [636, 365] });
+    const panel = place(el("div", "import-panel"), 602, 132, 1272, 704);
+    paint(panel, art.panel(1272 / S, 704 / S), { origin: [636, 352] });
     const title = place(el("div"), 26, 22, 400, 55); panel.appendChild(title);
     textWidget(title, T("import.list"), "title", { scale: 0.5, origin: [0, 27] });
     dom.count = place(el("div"), 372, 24, 330, 48); panel.appendChild(dom.count);
     dom.files = button(T("import.addFiles"), "files", { width: 196 }); place(dom.files, 818, 7, 196, 65);
     dom.folder = button(T("import.addFolder"), "folder", { width: 220 }); place(dom.folder, 1028, 7, 220, 65);
-    const search = inputControl(T("import.search"), query, { width: 802, type: "search", search: true });
-    dom.search = search.input; dom.search.placeholder = T("import.search"); place(search.wrap, 26, 94, 802, 56);
+    const toolsY = 94, toolsH = 116 * S, filterW = 570 * S, orderW = 243 * S, gap = 16 * S;
+    const searchW = 1220 - filterW - orderW - 2 * gap;
+    const search = inputControl(T("import.search"), query, { width: searchW, search: true });
+    dom.search = search.input; dom.search.placeholder = T("import.search"); dom.search.enterKeyHint = "search";
+    place(search.wrap, 26, toolsY, searchW, 112 * S);
     const runSearch = () => { query = dom.search.value.toLocaleLowerCase(); renderRows(); };
     dom.search.addEventListener("input", (event) => { if (!event.isComposing) runSearch(); }); dom.search.addEventListener("compositionend", runSearch);
-    const clearSearch = place(el("button", "hit"), 740, 0, 60, 56); clearSearch.type = "button";
-    clearSearch.setAttribute("aria-label", T("display.reset")); clearSearch.addEventListener("click", () => { dom.search.value = ""; runSearch(); dom.search.focus(); });
-    search.wrap.appendChild(clearSearch);
-    dom.filter = place(el("button", "hit"), 852, 92, 285, 60); dom.filter.type = "button"; dom.filter.dataset.action = "filter";
-    dom.order = place(el("button", "hit"), 1158, 92, 84, 60); dom.order.type = "button"; dom.order.dataset.action = "order";
+    search.clear.addEventListener("click", () => { dom.search.value = ""; runSearch(); dom.search.focus(); });
+    dom.search.addEventListener("keydown", (event) => {
+      if (!event.isComposing && event.keyCode !== 229 && event.key === "Enter") dom.search.blur();
+    });
+    dom.filter = place(el("button", "hit"), 26 + searchW + gap, toolsY, filterW, toolsH); dom.filter.type = "button"; dom.filter.dataset.action = "filter";
+    dom.order = place(el("button", "hit"), 26 + searchW + gap * 2 + filterW, toolsY, orderW, toolsH); dom.order.type = "button"; dom.order.dataset.action = "order";
     panel.append(dom.files, dom.folder, search.wrap, dom.filter, dom.order);
-    dom.list = place(el("div", "import-list"), 26, 178, 1220, 464); dom.list.setAttribute("aria-label", T("import.list")); panel.appendChild(dom.list);
+    dom.list = place(el("div", "import-list"), 26, 190, 1220, 426); dom.list.setAttribute("aria-label", T("import.list")); panel.appendChild(dom.list);
     for (const [key, x, width] of [["all", 28, 180], ["none", 225, 200], ["remove", 840, 180], ["clear", 1040, 180]]) {
-      dom[key] = button(T(`import.${key}`), key, { width, scale: 0.34 }); place(dom[key], x, 655, width, 56); panel.appendChild(dom[key]);
+      dom[key] = button(T(`import.${key}`), key, { width, scale: 0.34 }); place(dom[key], x, 629, width, 56); panel.appendChild(dom[key]);
     }
     root.appendChild(panel);
-    dom.status = place(el("div", "import-progress"), 50, 900, 800, 90); dom.status.setAttribute("role", "status"); dom.status.setAttribute("aria-live", "polite"); root.appendChild(dom.status);
+    dom.status = place(el("div", "import-progress"), 50, 858, 800, 90); dom.status.setAttribute("role", "status"); dom.status.setAttribute("aria-live", "polite"); root.appendChild(dom.status);
     dom.options = button(T("import.options.title"), "options", { width: 290, scale: 0.5 });
     dom.recheck = button(T("import.recheck"), "recheck", { width: 230, scale: 0.5 });
     dom.start = button(T("import.action", { n: 0 }), "start", { width: 330, scale: 0.6, primary: true });
-    place(dom.options, 958, 904, 290, 81); place(dom.recheck, 1272, 904, 230, 81); place(dom.start, 1528, 894, 330, 100);
+    // As on the roster/detail screens, reserve the nav's entire 104 px area, with 24 px above it.
+    const footerY = 902;
+    place(dom.options, 958, footerY - 40.5, 290, 81); place(dom.recheck, 1272, footerY - 40.5, 230, 81);
+    place(dom.start, 1528, footerY - 49.8, 330, 99.6);
     root.append(dom.options, dom.recheck, dom.start);
     root.addEventListener("click", (event) => {
       const target = event.target.closest?.("[data-action]");
@@ -198,7 +213,7 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
 
   function renderOrder() {
     dom.order.setAttribute("aria-label", T(ascending ? "roster.asc" : "roster.desc"));
-    paint(dom.order, art.order(ascending), { scale: 0.5, origin: [42, 29] });
+    paint(dom.order, art.order(ascending), { scale: S, origin: [243 * S / 2, 116 * S / 2] });
   }
   const filterOptions = () => {
     const counts = countsOf(model.state.entries);
@@ -350,7 +365,7 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
     const key = JSON.stringify([caption, filter]);
     if (countsKey !== key) {
       countsKey = key; dom.filter.setAttribute("aria-label", caption);
-      paint(dom.filter, art.stateButton(caption, filter !== "all", 570), { scale: 0.5, origin: [142.5, 29] });
+      paint(dom.filter, art.stateButton(caption, filter !== "all", 570), { scale: S, origin: [570 * S / 2, 116 * S / 2] });
     }
     for (const key of ["files", "folder", "options", "clear", "remove", "all", "none", "recheck"]) dom[key].disabled = busy;
     dom.clear.disabled ||= !state.entries.length; dom.remove.disabled ||= !state.selected;
@@ -393,7 +408,7 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
   }
 
   // Popup.popupFrame clones UIPopup_Sort/Center: Base/BG, Btn_Close and Btn/Btn_Ok / Btn_Cancel.
-  async function dialog(title, { action = T("display.close"), cancel = null, onAction = () => true } = {}, content) {
+  async function dialog(title, { action = T("display.close"), cancel = null, onAction = () => true, width = 2458, bodyWidth = null } = {}, content) {
     await popups.ready();
     if (!visible || dialogClose) return;
     const dialogHost = document.getElementById("dialog"), layer = el("div", "popup-layer import-dialog-layer"), before = document.activeElement;
@@ -407,9 +422,11 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
     dialogClose = () => close(true);
     popups.opened(dialogHost, close, { el: layer });
     try {
-      const view = await ui.render(popups.popupFrame(title, 2458, 1360, { ok: action, cancel }), layer, { scale: S, origin: [960, 540], z: 10 });
+      const view = await ui.render(popups.popupFrame(title, width, 1360, { ok: action, cancel }), layer, { scale: S, origin: [960, 540], z: 10 });
       if (ended) return;
-      const area = el("div", "import-dialog-content"); layer.appendChild(area); await content(area);
+      const area = el("div", "import-dialog-content");
+      if (bodyWidth) Object.assign(area.style, { left: `${960 - bodyWidth / 2 - 16}px`, width: `${bodyWidth + 32}px` });
+      layer.appendChild(area); await content(area);
       const finish = async () => {
         if (working) return; working = true; layer.setAttribute("aria-busy", "true");
         try {
@@ -437,50 +454,73 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
     if (model.busy() || !await model.loadOptions()) return;
     const draft = { ...model.state.options, types: [...model.state.options.types] };
     let error;
-    await dialog(T("import.options.title"), { action: T("picker.ok"), cancel: T("popup.cancel"), onAction: async () => {
+    await dialog(T("import.options.title"), { action: T("picker.ok"), cancel: T("popup.cancel"), width: 1800, bodyWidth: OPTION_WIDTH * S, onAction: async () => {
       if (!draft.types.length || !Number.isSafeInteger(draft.workers) || draft.workers < 1) {
-        textWidget(error, T(!draft.types.length ? "import.options.typesRequired" : "import.options.workersInvalid"), "error", { origin: [650, 35] }); return false;
+        textWidget(error, T(!draft.types.length ? "import.options.typesRequired" : "import.options.workersInvalid"), "error", { origin: [OPTION_WIDTH * S / 2, 35] }); return false;
       }
-      const saved = await model.saveOptions(draft); if (!saved) textWidget(error, report(model.state.error), "error", { origin: [650, 35] }); return saved;
+      const saved = await model.saveOptions(draft); if (!saved) textWidget(error, report(model.state.error), "error", { origin: [OPTION_WIDTH * S / 2, 35] }); return saved;
     } }, (area) => {
-      const row = (key, control, height = 145) => {
-        const group = el("div", "import-option"); group.style.height = `${height}px`;
-        const heading = place(el("div"), 0, 0, 1390, 58);
-        paint(heading, art.optionHeading(T(`import.options.${key}`)), { scale: 0.6, origin: [0, 78] });
-        const content = place(el("div"), 12, 66, 1370, height - 66); content.appendChild(control);
-        group.append(heading, content); area.appendChild(group); return content;
+      const add = (key, height) => {
+        const group = el("div", "import-option"); group.dataset.option = key;
+        Object.assign(group.style, { width: `${OPTION_WIDTH * S}px`, height: `${height * S}px`, marginBottom: `${24 * S}px` });
+        area.appendChild(group); return group;
       };
+      const choice = (key, title, values, getValue, onPick, { multiple = false, parent = area } = {}) => {
+        const makeRow = () => radioRow(`Option_${key}`, 0, title, values, getValue(), onPick, { columns: Math.min(values.length, 3) });
+        const group = add(key, makeRow().h), controls = [];
+        if (parent !== area) parent.appendChild(group);
+        group.setAttribute("role", multiple ? "group" : "radiogroup"); group.setAttribute("aria-label", title);
+        const refresh = () => {
+          const row = makeRow();
+          values.forEach(([value], i) => {
+            const checked = multiple ? getValue().has(value) : value === getValue();
+            const option = ui.find(row.tree, `Opt_${i}`), control = controls[i];
+            if (multiple) {
+              const check = art.checkbox(checked); check.scale = [0.6, 0.6];
+              option.children = [check, ui.find(option, "Label")]; control.checked = checked;
+            } else control.setAttribute("aria-checked", String(checked));
+          });
+          paint(group, row.tree, { scale: S, origin: [OPTION_WIDTH * S / 2, row.h * S / 2] });
+        };
+        const row = makeRow();
+        values.forEach(([value, caption], i) => {
+          const option = ui.find(row.tree, `Opt_${i}`), hit = row.hits[i];
+          const control = place(el(multiple ? "input" : "button", "hit import-option-control"),
+            (OPTION_WIDTH / 2 + option.pos[0] - 30) * S, (row.h / 2 - option.pos[1] - 30) * S, hit.w * S, 60 * S);
+          control.type = multiple ? "checkbox" : "button";
+          if (!multiple) control.setAttribute("role", "radio");
+          control.setAttribute("aria-label", caption); control.dataset.value = String(value);
+          control.addEventListener(multiple ? "change" : "click", () => { onPick(value, control.checked); refresh(); });
+          controls.push(control); group.appendChild(control);
+        });
+        refresh(); return refresh;
+      };
+      const onOff = [[true, T("settings.post.on")], [false, T("settings.post.off")]];
       for (const key of ["enableAfterImport", "skipUnchanged", "backup"]) {
-        const check = checkbox("", draft[key], (value) => { draft[key] = value; });
-        check.input.setAttribute("aria-label", T(`import.options.${key}`)); row(key, check.label, 140);
+        choice(key, T(`import.options.${key}`), onOff, () => draft[key], (value) => { draft[key] = value; });
       }
-      const radio = (key, values) => {
-        const controls = el("div");
-        radioOptions(controls, values, draft[key], (value) => { draft[key] = value; }, { columns: values.length > 2 ? 2 : 1 });
-        row(key, controls, 78 + Math.ceil(values.length / (values.length > 2 ? 2 : 1)) * 96);
-      };
+      const radio = (key, values) => choice(key, T(`import.options.${key}`), values, () => draft[key], (value) => { draft[key] = value; });
       radio("strategy", ["cont_name_type", "path_id", "name_type"].map((key) => [key, T(`import.strategy.${key}`)]));
       radio("crc", [["auto", T("import.auto")], ["on", T("settings.post.on")], ["off", T("settings.post.off")]]);
       radio("compression", [["lzma", "LZMA"], ["lz4", "LZ4"], ["original", T("import.original")], ["none", T("import.uncompressed")]]);
-      const types = el("fieldset", "import-resource-types"); types.setAttribute("aria-label", T("import.options.types"));
-      const checks = new Map();
-      for (const [i, type] of RESOURCE_TYPES.entries()) {
-        const check = checkbox(type === "ALL" ? T("import.options.allTypes") : type, draft.types.includes(type), (checked) => {
+      const types = el("fieldset", "import-resource-types"); types.setAttribute("aria-label", T("import.options.types")); area.appendChild(types);
+      choice("types", T("import.options.types"), RESOURCE_TYPES.map((type) => [type, type === "ALL" ? T("import.options.allTypes") : type]),
+        () => new Set(draft.types), (type, checked) => {
           const values = new Set(draft.types); if (checked) values.add(type); else values.delete(type);
           if (checked && type === "ALL") { values.clear(); values.add("ALL"); } else if (checked) values.delete("ALL");
-          draft.types = [...values]; for (const [key, check] of checks) { check.input.checked = values.has(key); check.refresh(); }
-        });
-        place(check.label, i % 2 * 685, Math.floor(i / 2) * 70, 670, 60); types.appendChild(check.label); checks.set(type, check);
-      }
-      row("types", types, 80 + Math.ceil(RESOURCE_TYPES.length / 2) * 70);
+          draft.types = [...values];
+        }, { multiple: true, parent: types });
       for (const key of ["extraBytes", "workers", "output"]) {
-        const control = inputControl(T(`import.options.${key}`), draft[key] ?? "", { type: key === "workers" ? "number" : "text", width: key === "output" ? 1350 : 900 });
+        const group = add(key, 240);
+        paint(group, rowBase(`Option_${key}`, 0, 240, T(`import.options.${key}`)), { scale: S, origin: [OPTION_WIDTH * S / 2, 120 * S] });
+        const control = inputControl(T(`import.options.${key}`), draft[key] ?? "", { type: key === "workers" ? "number" : "text", width: (OPTION_WIDTH - 110) * S });
+        place(control.wrap, 55 * S, 120 * S, (OPTION_WIDTH - 110) * S, 112 * S); group.appendChild(control.wrap);
         const input = control.input;
         if (key === "workers") { input.min = "1"; input.step = "1"; }
-        input.addEventListener("input", () => { draft[key] = key === "workers" ? Number(input.value) : key === "output" ? input.value.trim() || null : input.value; }); row(key, control.wrap);
+        input.addEventListener("input", () => { draft[key] = key === "workers" ? Number(input.value) : key === "output" ? input.value.trim() || null : input.value; });
       }
       const note = el("div", "import-option-note"); note.style.height = "70px"; area.appendChild(note);
-      textWidget(note, T("import.options.bytesHint"), "empty", { origin: [650, 35] });
+      textWidget(note, T("import.options.bytesHint"), "empty", { origin: [OPTION_WIDTH * S / 2, 35] });
       error = el("div", "import-option-error"); error.style.height = "80px"; error.setAttribute("role", "alert"); area.appendChild(error);
     });
   }
