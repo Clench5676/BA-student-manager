@@ -200,6 +200,9 @@ for (const card of ["SkillData_EX", "SkillData_EX (1)", "SkillData_EX (2)", "Ski
 }
 for (const path of ["BG/BG (1)", "Line/Line", "Label_WeaponType"]) add(`${INFO}/Weapon/WeaponType/${path}`);
 for (const path of ["Card_Bg/Deco", "Card_Level"]) add(`${INFO}/Weapon/Equip_1/UIEquipmentCard/Btn_Target/Normal/${path}`);
+add(`${INFO}/Weapon/Equip_1/UIEquipmentCard/Dot`).widgets = [
+  { sprite: "Common_Icon_Reddot2", w_: 34, h_: 31, color: "#ffffff/1.00" },
+];
 for (const path of ["BG/Deco", "Label_Name", "Char_CVCollectionBtn/Sprite", "Char_ZoomBtn/Sprite",
   "Pin/Pin_On/Bg/Icon/Label_Locale", "Pin/Pin_Off/Bg/Icon/Label_Locale"]) add(`${PLATE}/${path}`);
 
@@ -349,6 +352,7 @@ const finish = async (t, promise) => {
   return promise;
 };
 const switchButton = () => walk(hosts.ngui).find((e) => e.dataset.part === `${INFO}/Weapon/Equip_1/UIEquipmentCard/Btn_Target/Normal/Card_Bg`);
+const switchDot = () => walk(hosts.ngui).find((e) => e.dataset.path?.endsWith(`${INFO}/Weapon/Equip_1/UIEquipmentCard/Dot`));
 const tabDot = (i) => walk(hosts.ngui).find((e) => e.dataset.path?.endsWith(`CharacterTab/Tab_${i}/${i === 1 ? "Dot" : `Dot (${i - 1})`}`));
 const chipDot = (key) => walk(hosts["ngui-chips"]).find((e) => e.dataset.path?.endsWith(`/Chip_${key}/Dot`));
 const tabButton = (i) => walk(hosts.ngui).find((e) => e.dataset.part?.endsWith(`Tab_${i}/Tab_Off/Label`));
@@ -643,8 +647,8 @@ for (const core of ["arona_workpage_daytime", "np0032_npc"]) for (const category
     assert.equal(switchButton().getAttribute("aria-label"), "Switch L2D");
     assert.ok(switchButton().listeners.click.length, "apply and restore still have a switch card");
     assert.ok(!rpcRequests.slice(rpcStart).some((r) => r.method === "lobby.lines"));
-    assert.ok(tabDot(2)); assert.ok(chipDot(v.key));
-    assert.ok(!rpcRequests.slice(rpcStart).some((r) => r.method === "mods.seen"), "a failed preview leaves mods unseen");
+    assert.equal(tabDot(2), undefined); assert.equal(chipDot(v.key), undefined);
+    assert.ok(rpcRequests.slice(rpcStart).some((r) => r.method === "mods.seen"), "showing the configured asset's tab marks it seen");
     await switchButton().click(); await flush();
     assert.deepEqual(rpcRequests.filter((r) => r.method === "mods.seen").at(-1).params, { ids: ["special-day"] });
     assert.equal(tabDot(2), undefined); assert.equal(chipDot(v.key), undefined);
@@ -1004,6 +1008,7 @@ test("new mod dots survive visits and tab changes, then clear for the switch's o
     const start = rpcRequests.length, invalidated = invalidations;
     await showPortrait(t);
     assert.ok(tabDot(1)); assert.ok(tabDot(2)); assert.equal(tabDot(3), undefined);
+    assert.ok(switchDot(), "unapplied portrait assets mark the switch card");
     assert.ok(chipDot(v.key)); assert.ok(chipDot("dress"));
     assert.ok(rpcRequests.slice(start).every((r) => r.method !== "mods.seen"), "visiting leaves the marks alone");
     const switching = tabButton(2).click(); await flush();
@@ -1030,17 +1035,40 @@ test("new mod dots survive visits and tab changes, then clear for the switch's o
   } finally { Detail.hide(); await flush(); t.mock.timers.reset(); }
 });
 
+for (const kind of ["spr", "portrait", "lobby"]) for (const enabled of [true, false]) test(`opening the ${kind} result tab sees the ${enabled ? "applied" : "configured"} import without opening its switch`, async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    const assetKind = kind === "portrait" ? "spr" : kind;
+    family = modFamily(assetKind, `import-${assetKind}`);
+    const v = family.variants[0], imported = v.modList[0];
+    imported.fresh = true; v.fresh = true;
+    v.configured = { [assetKind]: `mod:${imported.id}` };
+    if (!enabled) Object.assign(v.state.files[0], { applied: "official", official: true });
+    modsEnabled = enabled; await ModSwitch.refresh();
+    const invalidated = invalidations, start = rpcRequests.length;
+    const showing = Detail.show(context, family, v.key, { kind }); await flush(); await finish(t, showing); await flush();
+    const tabNumber = assetKind === "lobby" ? 2 : 1;
+    assert.equal(tabButton(tabNumber), undefined, "the requested asset tab is active immediately");
+    assert.equal(tabDot(tabNumber), undefined); assert.equal(chipDot(v.key), undefined); assert.equal(switchDot(), undefined);
+    assert.equal(imported.fresh, false); assert.equal(v.fresh, false);
+    assert.deepEqual(rpcRequests.slice(start).filter((r) => r.method === "mods.seen").map((r) => r.params), [{ ids: [imported.id] }]);
+    assert.equal(invalidations, invalidated + 1, "returning to the roster refreshes its cleared mark");
+    assert.equal(hosts.popup.hidden, true);
+  } finally { Detail.hide(); modsEnabled = true; await ModSwitch.refresh(); await flush(); t.mock.timers.reset(); }
+});
+
 for (const kind of ["spr", "lobby"]) test(`an auto-applied ${kind} mod has no card dot when another source is picked`, async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   try {
     family = modFamily(kind); family.variants[0].modList[0].fresh = true;
+    seenReply = async () => ({ error: { code: "internal" } });
     await showPortrait(t);
     const tab = kind === "lobby" ? 2 : 1;
     if (tab === 2) {
       const switching = tabButton(tab).click(); await flush(); await finish(t, switching);
     }
     assert.ok(tabDot(tab)); assert.ok(chipDot("ibuki"));
-    seenReply = async () => ({ error: { code: "internal" } });
+    assert.equal(switchDot(), undefined, "applied assets never mark the switch card");
     const popup = switchButton().click(); await flush(); await popup;
     const own = walk(hosts.popup).find((e) => e.dataset.key === "self");
     assert.ok(own); await own.click(); await flush();
@@ -1055,8 +1083,8 @@ test("a failed seen write keeps the dots and can be retried by opening the mod c
   t.mock.timers.enable({ apis: ["setTimeout"] });
   try {
     family = modFamily(); family.variants[0].modList[0].fresh = true;
-    await showPortrait(t);
     seenReply = async () => ({ error: { code: "internal" } });
+    await showPortrait(t);
     const popup = switchButton().click(); await flush(); await popup;
     assert.ok(tabDot(1)); assert.ok(chipDot("ibuki"));
     seenReply = async () => ({ result: null });
@@ -1246,6 +1274,8 @@ for (const enabled of [true, false]) test(`model switching reuses the detail con
     const text = walk(hosts.ngui).find((e) => e.className === "switch-text");
     assert.ok(text.children.some((e) => e.className === "switch-go"));
     assert.ok(text.children.some((e) => e.innerText === "test"));
+    assert.equal(tabDot(3), undefined, "showing the model tab marks its configured asset seen");
+    assert.equal(v.fresh, false);
     await switchButton().click(); await flush();
     assert.ok(walk(hosts.popup).some((e) => e.dataset.key === "self"));
     assert.ok(walk(hosts.popup).some((e) => e.dataset.key === "m:test"));

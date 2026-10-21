@@ -31,6 +31,7 @@ import { L, T, language, platform } from "./i18n.js";
 import { forget, idleAnimation, prioritise, thumbnailScope } from "./thumbs.js";
 import { portraitViewport } from "./portrait-view.js";
 import { colourSwitchCard } from "./switch-card.js";
+import { clearUnseen, hasUnseen as hasFresh, shownUnseen, switchUnseen } from "./unseen-assets.js";
 import { customAliases as aliasesOf, modOriginalName, studentName } from "./names.js";
 import { setTitle } from "./nav.js";
 import { KEYS, deltaOf, pacer, typing } from "./step-keys.js";
@@ -134,6 +135,7 @@ async function prepare({ gen, ended }, inPlace, work) {
     for (const fn of queued) try { fn(); } catch (err) { console.error(err); }
     batch = null;
   }
+  if (open && fam) markSeen(shownUnseen(fam, variant(), tabKind(), modsOn()));
   return true;
 }
 // Panels and decoded backgrounds are required; generated thumbnails have one short shared reveal allowance.
@@ -178,7 +180,6 @@ const familyMods = () => fam.variants.flatMap((v) => v.modList || []);
 const isFav = (v) => !!v.favorite;
 const hasLobby = (v) => !!v.lobby;
 const hasModel = (v) => !!v.model;
-const hasFresh = (v, kind = null) => (v.modList || []).some((m) => m.fresh && (!kind || m.kind === kind));
 const modLabel = (m) => m.alias || m.label || m.file?.split(/[\\/]/).pop() || m.id;
 const repairedId = (c) => c?.mod?.repaired_id && familyMods().some((m) => m.id === c.mod.repaired_id) ? c.mod.repaired_id : null;
 const repairAction = (c) => repairedId(c) ? "remap.go" : "act.update";
@@ -378,7 +379,7 @@ function screenTree() {
   at(t, `${INFO}/Weapon/WeaponType/Label_WeaponType`).pos = [-8, -2];
   off(t, `${INFO}/Weapon/WeaponType/Icon`);
   const card = `${INFO}/Weapon/Equip_1/UIEquipmentCard/Btn_Target`;
-  if (!sk || !hasFresh(v, sk)) off(t, `${INFO}/Weapon/Equip_1/UIEquipmentCard/Dot`);
+  if (!sk || !switchUnseen(fam, v, sk, modsOn())) off(t, `${INFO}/Weapon/Equip_1/UIEquipmentCard/Dot`);
   off(t, `${card}/Normal_NotEquip`, `${card}/Lock`, `${card}/Normal/Icon`, `${card}/Normal/Icon_Star`,
     `${card}/Normal/Card_Equipment`, `${card}/Normal/Card_Bg/Deco`);
   text(t, `${card}/Normal/Card_Level`, "");
@@ -1226,13 +1227,12 @@ const seeing = new Set();
 async function markSeen(mods, scroll = 0) {
   const ids = [...new Set(mods.filter((m) => m.fresh && !seeing.has(m.id)).map((m) => m.id))];
   if (!ids.length) return;
+  const family = fam;
   ids.forEach((id) => seeing.add(id));
   try {
     await rpc("mods.seen", { ids });
-    for (const v of fam.variants) {
-      for (const m of v.modList || []) if (ids.includes(m.id)) m.fresh = false;
-      v.fresh = hasFresh(v);
-    }
+    clearUnseen(family, ids);
+    if (fam !== family) clearUnseen(fam, ids);
     ctx.invalidateRoster();
     // The save may finish after the switch closed and another popup took its host.
     if (open) await Promise.all([renderScreen(), renderChips(),
