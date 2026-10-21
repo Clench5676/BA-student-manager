@@ -545,6 +545,32 @@ def build_api(s: Services) -> RpcRegistry:
     def ui_visit(variant: str) -> None:
         s.state.visit(variant)
 
+    # --- batch import ---
+
+    @rpc.method("import.pick")
+    def import_pick(folder: bool = False, recursive: bool = False) -> dict[str, Any]:
+        return s.batch_import.pick(folder, recursive)
+
+    @rpc.method("import.analyze")
+    def import_analyze(paths: list[str], recursive: bool = False) -> str:
+        return s.batch_import.analyze(paths, recursive)
+
+    @rpc.method("import.run")
+    def import_run(ids: list[str], options: dict[str, Any]) -> str:
+        return s.batch_import.run(ids, options)
+
+    @rpc.method("import.options")
+    def import_options() -> dict[str, Any]:
+        return s.batch_import.options()
+
+    @rpc.method("import.setOptions")
+    def import_set_options(strategy: str, types: list[str], skipUnchanged: bool, crc: str,
+                           compression: str, extraBytes: str, backup: bool, workers: int,
+                           output: str | None, enableAfterImport: bool) -> dict[str, Any]:
+        return s.batch_import.set_options({"strategy": strategy, "types": types, "skipUnchanged": skipUnchanged,
+            "crc": crc, "compression": compression, "extraBytes": extraBytes, "backup": backup,
+            "workers": workers, "output": output, "enableAfterImport": enableAfterImport})
+
     # --- mods ---
 
     @rpc.method("mods.add")
