@@ -30,3 +30,34 @@ test("the loading tip supplies its effect when repeater letters lack one", () =>
   const tip = n("UILoading", [0, 0], [], [n("Tip", [0, 0], [letter])]);
   assert.equal(loadingLabel(plain, tip, "Updating", 1).widgets[0].effectColor, letter.effectColor);
 });
+
+test("sprite letter ink, excluding g and Arona, defines the progress baseline", () => {
+  const r = n("UIRepeater", [0, 0], [], [n("Widget", [1480, -720], [], [
+    n("Loading", [-303.6, 134], [], [
+      n("N", [-491, -43.4], [{ sprite: "Loading_n1", w_: 60, h_: 80, pivot: 7 }]),
+      n("o", [-443.2, -43.4], [{ sprite: "Loading_o", w_: 58, h_: 68, pivot: 7 }]),
+      n("g", [-88, -58], [{ sprite: "Loading_g", w_: 54, h_: 80, pivot: 7 }]),
+    ]), n("Arona", [0, 0], [{ sprite: "bunny", w_: 116, h_: 136 }]),
+  ])]);
+  const ink = { Loading_n1: { height: 80, bottom: 68 }, Loading_o: { height: 67, bottom: 55 }, Loading_g: { height: 79, bottom: 68 } };
+  const style = n("ProgressStyle", [0, 0], [letter]);
+  for (const scale of [1920 / 2960, 0.54, 1]) {
+    const tree = loadingLabel(r, style, "Reading game files", scale, ink);
+    assert.ok(tree, "the real sprite-based prefab must produce a progress label");
+    const expected = 1080 - (134 - 43.4) * scale - (80 - 68) * scale;
+    const baseline = -tree.pos[1] * scale - labelBaselineInset(tree.widgets[0].text, tree.widgets[0].fontSize) * scale;
+    assert.ok(Math.abs(expected - baseline) < 1e-8);
+  }
+});
+
+test("ellipsis glyph canvas includes font descent and outline on every side", async () => {
+  const { labelClipPadding } = await import("../../src/ba_modding_toolkit/web/js/ngui-label.js");
+  for (const text of ["Import List", "gjpy", "\u6e05\u55ae", "\u4e00\u89a7", "\ubaa9\ub85d", "\u0e19\u0e33\u0e40\u0e02\u0e49\u0e32"]) {
+    const fs = 62, metrics = { actualBoundingBoxAscent: 72, actualBoundingBoxDescent: 18 };
+    const padding = labelClipPadding({ ...letter, text }, fs, metrics);
+    const baseline = (fs * 1.15 + 72 - 18) / 2;
+    assert.ok(padding.top + baseline >= 72 + 3);
+    assert.ok(fs * 1.15 + padding.bottom - baseline >= 18 + 3);
+    assert.ok(padding.left >= 2 && padding.right >= 2);
+  }
+});

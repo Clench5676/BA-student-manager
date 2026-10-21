@@ -1,4 +1,4 @@
-import { loadingLabel } from "../../src/ba_modding_toolkit/web/js/ngui-label.js";
+import { loadingLabel, loadingLetterSprites, alphaBounds } from "../../src/ba_modding_toolkit/web/js/ngui-label.js";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
@@ -73,7 +73,7 @@ async function harness({ locale = "en-US", translated = true, render = "ready", 
     performance: { now: () => now }, getComputedStyle: () => ({ opacity: "1" }),
     setTimeout: (fn, ms) => { const id = ++timerId; timers.set(id, { at: now + ms, fn }); return id; },
     clearTimeout: (id) => timers.delete(id), requestAnimationFrame: (fn) => fn(),
-    T, S: 1, loadingLabel,
+    T, S: 1, loadingLabel, loadingLetterSprites, alphaBounds,
     NGUI: { find: (_tree, path) => edges && path.endsWith("CharCombatStyleAniwidget/Bg") ? gradient : null, init: () => { assets.push("indexes"); return sprites.promise; }, layout: async (name) => { assets.push(name); return prefabLabels && name === "UIRepeater" ? {
       name: "UIRepeater", active: true, pos: [0, 0], scale: [1, 1], widgets: [], children: [{ name: "Loading", active: true,
         pos: [900, -600], scale: [1, 1], children: [], widgets: [{ text: "Now Loading", fontSize: 46, w_: 300, h_: 70, pivot: 4,
@@ -88,7 +88,7 @@ async function harness({ locale = "en-US", translated = true, render = "ready", 
     } },
   };
   globalThis.loadingDeps = d;
-  const code = `const {document,performance,setTimeout,clearTimeout,requestAnimationFrame,getComputedStyle,NGUI,T,S,loadingLabel} = globalThis.loadingDeps;\n${source.replace(/^import .*;$/gm, "")}\n// ${seq++}`;
+  const code = `const {document,performance,setTimeout,clearTimeout,requestAnimationFrame,getComputedStyle,NGUI,T,S,loadingLabel,loadingLetterSprites,alphaBounds} = globalThis.loadingDeps;\n${source.replace(/^import .*;$/gm, "")}\n// ${seq++}`;
   const loading = await import(`data:text/javascript;base64,${Buffer.from(code).toString("base64")}`);
   if (infoReady) loading.init({ consent, uiCached, gameFound: true });
   const advance = async (ms) => {

@@ -7,7 +7,8 @@
 // work goes on. wait(promise) shades the edges of the current screen for an in-page wait. There is one
 // page overlay at a time; a newer call takes over the one on screen instead of flashing a new one.
 // Writer progress has its own indicator and lifetime, independent of page changes.
-import { loadingLabel } from "./ngui-label.js";
+import { loadingLabel, loadingLetterSprites, alphaBounds } from "./ngui-label.js";
+import { spriteUrl } from "./api.js";
 import * as NGUI from "./ngui.js";
 import * as Popup from "./popup.js";
 import { T } from "./i18n.js";
@@ -35,6 +36,7 @@ function track(promise) {
   return work;
 }
 let repeater = null, loadingTree = null, shade = null, geometry = null;
+const letterInk = new Map();
 const initialCover = document.getElementById("loading-boot");
 let styled = !!initialCover && !initialCover.classList.contains("neutral"), assetsAllowed = styled;
 let firstLoading = null;
@@ -160,7 +162,17 @@ function setProgress(o, text) {
 }
 async function renderProgress(o) {
   if (!assetsAllowed || !o.progress || !o.repeaterTree || o.closing) return;
-  const tree = loadingLabel(o.repeaterTree, loadingTree, o.progressText || "", S);
+  const template = await NGUI.layout("UICharacterDetail");
+  const style = NGUI.find(template, "Inventory_ListControl/LeftInfo/CharInfo/Char_Target/Text_Lv/Text_Lv_Exp");
+  const bounds = await Promise.all(loadingLetterSprites(o.repeaterTree).map(async ({ w }) => {
+    if (!letterInk.has(w.sprite)) letterInk.set(w.sprite, NGUI.load(spriteUrl(w.atlas || "Common", w.sprite)).then((img) => {
+      const c = document.createElement("canvas"); c.width = img.naturalWidth; c.height = img.naturalHeight;
+      const ctx = c.getContext("2d"); ctx.drawImage(img, 0, 0);
+      return alphaBounds(ctx.getImageData(0, 0, c.width, c.height));
+    }).catch((err) => { letterInk.delete(w.sprite); throw err; }));
+    return [w.sprite, await letterInk.get(w.sprite)];
+  }));
+  const tree = loadingLabel(o.repeaterTree, style || loadingTree, o.progressText || "", S, Object.fromEntries(bounds));
   if (!tree) return;
   const token = o.progressVersion = (o.progressVersion || 0) + 1;
   const next = document.createElement("div");

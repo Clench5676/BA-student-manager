@@ -5,7 +5,7 @@
 //   - textures: the game's UITexture images, or per-node overrides
 //   - labels: plain text in the page font, sized from the label's font size (italic: a placeholder's slant)
 // Depth becomes z-index; NGUI y points up, the stage's y points down.
-import { labelEffect } from "./ngui-label.js";
+import { labelEffect, labelClipPadding } from "./ngui-label.js";
 import { clipButtonPatterns } from "./button-layout.js";
 import { spriteUrl } from "./api.js";
 import { decodeAll, imageUrls } from "./image-decode.js";
@@ -302,7 +302,14 @@ export async function render(tree, host, opts = {}) {
       if (w.ariaLabel) el.setAttribute("aria-label", w.ariaLabel);
       if (w.ellipsis) {
         const span = document.createElement("span");
-        Object.assign(span.style, { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100%" });
+        const fs = fontSizeFor(text, w.fontSize || 40) * sy * S;
+        measureCtx.font = `500 ${fs}px ${fontStack()}`;
+        const distance = (w.effectDistance || [0, 0]).map((v) => v * sy * S);
+        const pad = labelClipPadding({ ...w, effectDistance: distance }, fs, measureCtx.measureText(text));
+        Object.assign(span.style, { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100%",
+          padding: `${pad.top}px ${pad.right}px ${pad.bottom}px ${pad.left}px`,
+          marginTop: `${-pad.top}px`, marginBottom: `${-pad.bottom}px`,
+          marginLeft: `${-pad.left}px`, marginRight: `${-pad.right}px` });
         span.textContent = text;
         el.appendChild(span);
       } else {
