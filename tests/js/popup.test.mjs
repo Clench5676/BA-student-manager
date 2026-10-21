@@ -6,6 +6,7 @@ import { readFileSync } from "node:fs";
 import { register } from "node:module";
 import { test } from "node:test";
 import vm from "node:vm";
+import { controls, insert } from "./control_prefabs.mjs";
 
 // --- a stand-in DOM: elements in a tree, ids, clicks, the focus and the window's key listeners ---
 class El {
@@ -122,6 +123,8 @@ OPTIONS.children[0].children[1].children.push(
   n("TabBg", [0, 0], [], [n("Grid", [0, 0])]),
   n("Game", [0, 0], [], ["Tab_On", "Tab_Off"].map((name) => n(name, [0, 0], [], [n("Label_Locale", [0, 0], [lbl()])]))),
 );
+const controlLayouts = controls();
+insert(OPTIONS, "Center/Popup/List/Sound_Setting/ETCSetting/ButtonBg", controlLayouts.option.children[0].children[0].children[0].children[0].children[0].children[0]);
 let update = null; // what app.checkUpdate answers
 const calls = [];
 const requests = [], handlers = new Map();
@@ -135,9 +138,10 @@ globalThis.fetch = async (url, opts = {}) => {
     return reply({ result: method === "app.checkUpdate" ? update : null, params });
   }
   if (url === "/asset/ui/atlases.json") return reply({ Common: Object.fromEntries(
-    ["Common_Bg_Raius10px", "Common_Btn_BG", "Common_Popup_Bg", "Common_Btn_Normal_B_C_Pt"].map((name) => [name, { width: 8, height: 8 }])) });
+    ["Common_Square_Bg", "Common_Bg_Raius10px", "Common_Btn_BG", "Common_Popup_Bg", "Common_Btn_Normal_B_C_Pt"].map((name) => [name, { width: 8, height: 8 }])) });
   if (url === "/asset/ui/textures.json") return reply({});
   if (url === "/asset/ui/layout/UIPopup_Sort.json") return reply(SORT);
+  if (url === "/asset/ui/layout/UIPopup_FilterSort.json") return reply(controlLayouts.filter);
   if (url === "/asset/ui/layout/UIPopup_Option_PC.json") return reply(OPTIONS);
   return reply(null, false); // the other prefabs are optional
 };
@@ -597,7 +601,7 @@ test("update progress stays in NGUI, blocks buttons and Escape, and completion w
   const later = action(consent, "later"), downloading = action(consent, "update");
   assert.ok(later.disabled && downloading.disabled);
   assert.equal(downloading.getAttribute("aria-disabled"), "true");
-  assert.equal(part("Btn/Btn_Ok/Label_Locale").style.color, "#6e7c8d");
+  assert.equal(part("Btn/Btn_Ok/Label_Locale").style.color, "#828282");
   later.click();
   downloading.click();
   assert.ok(press("Escape").defaultPrevented);

@@ -420,7 +420,7 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
       dialogClose = null; if (before?.isConnected) before.focus?.({ preventScroll: true });
     };
     dialogClose = () => close(true);
-    popups.opened(dialogHost, close, { el: layer });
+    popups.opened(dialogHost, close, { el: layer, loading: true });
     try {
       const view = await ui.render(popups.popupFrame(title, width, 1360, { ok: action, cancel }), layer, { scale: S, origin: [960, 540], z: 10 });
       if (ended) return;
@@ -446,7 +446,8 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
         if (event.shiftKey && (document.activeElement === first || document.activeElement === layer)) { event.preventDefault(); last.focus(); }
         else if (!event.shiftKey && (document.activeElement === last || document.activeElement === layer)) { event.preventDefault(); first.focus(); }
       });
-      layer.focus?.({ preventScroll: true });
+      await (popups.reveal ? popups.reveal(layer, [...drawings]) : Promise.all([...drawings]));
+      if (!ended) layer.focus?.({ preventScroll: true });
     } catch (error) { close(); throw error; }
   }
 

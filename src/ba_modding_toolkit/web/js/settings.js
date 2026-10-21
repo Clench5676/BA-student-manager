@@ -11,6 +11,7 @@ import * as Popup from "./popup.js";
 import * as Prompts from "./prompts.js";
 import * as Consent from "./consent.js";
 import * as OtherMods from "./settings-other.js";
+import * as Buttons from "./game-buttons.js";
 import { rowBase, radioRow } from "./settings-rows.js";
 import { on, rpc } from "./api.js";
 import { T, platform } from "./i18n.js";
@@ -35,13 +36,7 @@ async function call(fn) {
 // --- rows ---
 
 // the popup's light-blue button (ETCSetting/ButtonBg), smaller
-function buttonNode(name, x, y, caption, { w = 300, h = 112, enabled = true } = {}) {
-  const f = fitText(caption, 44, 30, w - 60);
-  return node(name, [x, y], [sprite("Common_Btn_BG", w, h, { incline: 10, depth: 10, color: enabled ? "#8de4ff/1.00" : "#dfe5ea/1.00" })], [
-    node("Deco", [w * 0.21, 10], [sprite("Common_Btn_Normal_B_S_Pt", w * 0.6, h, { type: 0, depth: 11, color: "#ffffff/1.00" })]),
-    node("Label", [0, 3], [label(f.text, f.fs, enabled ? "#314665/1.00" : "#9aa3ad/1.00", w - 30, h - 20, { depth: 12 })]),
-  ]);
-}
+const buttonNode = (...args) => Buttons.smallButton(...args);
 
 // the On / Off options of the Mods tab's rows (the game's words, settings.post.*)
 const ON_OFF = () => [[true, T("settings.post.on")], [false, T("settings.post.off")]];
@@ -440,6 +435,7 @@ export async function open(changed, initialTab = null) {
   if (TABS.includes(initialTab)) { tab = initialTab; scroll = 0; }
   follow();
   if (!layout) {
+    await Buttons.ready();
     const popup = await NGUI.layout("UIPopup_Option_PC");
     layout = { popup, slider: find(popup, "Center/Popup/List/Sound_Setting/Sound_Scroll View/Grid_2/Master/Type_3") };
   }

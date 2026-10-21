@@ -36,3 +36,11 @@ export function orderBody(collection, ascending) {
   find(body, "Icon_Up").active = ascending;
   return body;
 }
+
+export function pickerItems(items, { query = "", sort = "default", ascending = true } = {}) {
+  const terms = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
+  const list = items.filter((item) => terms.every((term) =>
+    [item.label, item.full, item.original, item.key].some((value) => String(value || "").toLocaleLowerCase().includes(term))));
+  if (sort === "name") list.sort((a, b) => String(a.label).localeCompare(String(b.label)));
+  return ascending ? list : list.reverse();
+}

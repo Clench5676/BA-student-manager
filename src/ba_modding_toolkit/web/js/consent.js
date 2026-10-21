@@ -5,6 +5,7 @@
 // Also the scan consent (scan()): whether the app may check the game files on its own (the start and the end of each
 // portrait and memorial lobby file), asked once like the asset consent; Settings' Mods tab asks again or withdraws it.
 import * as NGUI from "./ngui.js";
+import * as Buttons from "./game-buttons.js";
 import * as Popup from "./popup.js";
 import { rpc } from "./api.js";
 import { T } from "./i18n.js";
@@ -23,6 +24,7 @@ export async function show(host, cacheDir, native = false) {
 }
 
 async function draw(host, cacheDir, native, resolve) {
+  await Buttons.ready();
   const sort = await NGUI.layout("UIPopup_Sort");
   const t = clone(find(sort, "Center"));
   const popup = find(t, "Popup");
@@ -60,10 +62,7 @@ async function draw(host, cacheDir, native, resolve) {
   const pathY = -212 - (to.lines - 1) * to.fs * 0.65;
   cached.children.push(
     node("Path", [-800, pathY], [label(to.text, to.fs, "#2d4664/1.00", 1290, to.fs * 1.3 * to.lines + 8, { pivot: 3, depth: 7 })]),
-    node("Change", [700, pathY], [sprite("Common_Btn_BG", 230, 96, { incline: 10, depth: 8, color: native ? "#8de4ff/1.00" : "#dfe5ea/1.00" })], [
-      node("Deco", [48, 8], [sprite("Common_Btn_Normal_B_S_Pt", 140, 96, { type: 0, depth: 9, color: "#ffffff/1.00" })]),
-      node("Label", [0, 3], [label(T("consent.change"), NGUI.fitText(T("consent.change"), 40, 28, 180).fs, native ? "#314665/1.00" : "#9aa3ad/1.00", 200, 80, { depth: 10 })]),
-    ]));
+    Buttons.smallButton("Change", 700, pathY, T("consent.change"), { w: 230, h: 96, enabled: native, fs: 40, min: 28, depth: 8 }));
   popup.children.push(
     cached,
     row("Never", 90, T("consent.never.label"), [T("consent.never.items"), T("consent.never.how")], "#545454"),

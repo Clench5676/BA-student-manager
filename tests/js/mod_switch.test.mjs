@@ -4,6 +4,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
+import { controls, insert } from "./control_prefabs.mjs";
 
 // --- a stand-in DOM: elements in a tree, ids, clicks, the focus and the window's key listeners ---
 class El {
@@ -62,8 +63,14 @@ class El {
   click() { return this.dispatch("click"); }
   focus() { document.activeElement = this; }
   querySelector(key) { return this.parts?.[key] || (key.startsWith(".") ? walk(this).find((e) => e.classList.contains(key.slice(1))) : null); }
-  getContext() { return { font: "", measureText(s) { return { width: s.length * 0.6 * parseFloat(/([\d.]+)px/.exec(this.font)?.[1] || 10) }; } }; }
+  getContext() { return { font: "", drawImage() {}, fillRect() {}, measureText(s) { return { width: s.length * 0.6 * parseFloat(/([\d.]+)px/.exec(this.font)?.[1] || 10) }; } }; }
+  toBlob(fn) { fn(new Blob()); }
 }
+globalThis.Image = class {
+  naturalWidth = 8; naturalHeight = 8;
+  set src(value) { queueMicrotask(() => this.onload?.()); }
+  decode() { return Promise.resolve(); }
+};
 const body = new El("body");
 const walk = (n, out = []) => { out.push(n); for (const c of n.children) walk(c, out); return out; };
 globalThis.document = {
@@ -111,6 +118,8 @@ OPTIONS.children[0].children.find((e) => e.name === "Popup").children.push(
     n("Grid_2", [0, 0], [], [n("Master", [0, 0], [], [n("Type_3", [0, 0])])]),
   ])])]),
 );
+const controlLayouts = controls();
+insert(OPTIONS, "Center/Popup/List/Sound_Setting/ETCSetting/ButtonBg", controlLayouts.option.children[0].children[0].children[0].children[0].children[0].children[0]);
 const calls = [];
 const answers = { "mods.sizes": ({ kind }) => ({ [`${kind}Size`]: 0 }) }; // method -> result (or a function of params)
 const jobs = {}; // id -> {state, result, error}
@@ -131,6 +140,7 @@ globalThis.fetch = async (url, opts = {}) => {
   ].map((name) => [name, { width: 8, height: 8 }])) });
   if (url === "/asset/ui/textures.json") return reply({});
   if (url === "/asset/ui/layout/UIPopup_Sort.json") return reply(SORT);
+  if (url === "/asset/ui/layout/UIPopup_FilterSort.json") return reply(controlLayouts.filter);
   if (url === "/asset/ui/layout/UIPopup_Option_PC.json") return reply(OPTIONS);
   return reply(null, false);
 };

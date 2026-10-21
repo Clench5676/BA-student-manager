@@ -36,3 +36,23 @@ export function resizeButton(body, width = null, height = null) {
   }
   return body;
 }
+
+// The game clips button decoration to its inclined body. NGUI's DOM renderer flattens the hierarchy, so restore
+// that clipping from the *rendered prefab body*, after resizeButton has resolved the patterns' anchors.
+export function clipButtonPatterns(view) {
+  for (const [path, entry] of view.nodes) {
+    const w = entry.node.widgets.find((w) => /^Common_Btn_.*_Pt$/.test(w.sprite || ""));
+    if (!w) continue;
+    const parent = view.nodes.get(path.slice(0, path.lastIndexOf("/")));
+    const body = parent?.node.widgets.find((w) => w.sprite === "Common_Btn_BG");
+    const element = entry.els[0];
+    if (!body || !element) continue;
+    const rect = (el) => ["left", "top", "width", "height"].map((key) => parseFloat(el.style[key]));
+    const [bl, bt, bw, bh] = rect(parent.els[0]), [pl, pt, pw, ph] = rect(element);
+    const slant = Math.tan((body.incline || 0) * Math.PI / 180) * bh / 2;
+    const points = [[bl + slant, bt], [bl + bw + slant, bt], [bl + bw - slant, bt + bh], [bl - slant, bt + bh]];
+    // Account for the prefab's flip on the pattern: clipping is applied before its CSS transform.
+    const fx = w.flip === 1 || w.flip === 3 ? -1 : 1, fy = w.flip >= 2 ? -1 : 1;
+    element.style.clipPath = `polygon(${points.map(([x, y]) => `${pw / 2 + (x - pl - pw / 2) * fx}px ${ph / 2 + (y - pt - ph / 2) * fy}px`).join(", ")})`;
+  }
+}

@@ -47,6 +47,19 @@ export async function prepare({ layout, bg, strings }) {
   return { pc, bg: back, groups };
 }
 
+// The same complete Back widget for memorial lobby and model fullscreen.
+export async function exitControl(host, layout) {
+  const source = NGUI.find(layout, "Inventory_ListControl_PC/LeftTop/Btn_Back");
+  if (!source) return;
+  const tree = clone(source), body = tree.widgets.find((w) => "sprite" in w);
+  tree.pos = [0, 0];
+  const w = body.w_ * S, h = body.h_ * S, next = document.createElement("div");
+  await NGUI.render(tree, next, { scale: S, origin: [w / 2, h / 2] });
+  await NGUI.decoded([...(next.children || [])], Infinity);
+  Object.assign(host.style, { left: `${960 + source.pos[0] * S - w / 2}px`, top: `${540 - source.pos[1] * S - h / 2}px`, width: `${w}px`, height: `${h}px` });
+  host.replaceChildren(...next.childNodes);
+}
+
 // open({parts, skeleton, detail, host, bgHost, uiHost, players, onBack}): the portrait glides from the detail screen's
 // viewport (detail) to the whole art while the prepared parts come in; without parts (no prefab) there is no
 // background and no button, and the caller gives a way out. players(): every portrait player on the stage. The glide's

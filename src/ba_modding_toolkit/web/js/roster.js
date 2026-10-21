@@ -19,6 +19,7 @@ import { current as modsState } from "./mod-switch.js";
 import { countNodes, countText, iconsOf } from "./mod-counts.js";
 import { rpc, spineBase } from "./api.js";
 import { L, T, language } from "./i18n.js";
+import { scrollbar } from "./scrollbar.js";
 import { prioritise, thumbnailScope } from "./thumbs.js";
 import { spineAllowed } from "./spine-runtime.js";
 import { configuredKey, hasAsset, previewBase, primaryKind } from "./switch-sources.js";
@@ -181,7 +182,7 @@ function frameTree(lay) {
     line.widgets[0].color = "#adbfc0/0.12";
     if (line.pos[1] < PAPER_BOTTOM + 20) line.active = false;
   }
-  find(t, "SeletControl/List/Scroll Bar").active = false; // drawn by us
+  find(t, "SeletControl/List/Scroll Bar").active = false; // rendered separately for the virtual list
   return t;
 }
 
@@ -250,7 +251,6 @@ function cardTree(e) {
   // dimmed like the game's not-owned cards (BG_Discover is the darkening overlay); changed ones stay bright
   const dim = find(t, "BG_Discover");
   dim.active = !e.mods && !e.replaced;
-  dim.widgets[0].color = "#000000/0.55";
   return t;
 }
 
@@ -333,11 +333,7 @@ function applyScroll() {
   if (!scrollHost) return Promise.resolve();
   view.scroll = Math.min(maxScroll(), Math.max(0, view.scroll));
   scrollHost.style.transform = `translateY(${-clipTop() - view.scroll}px)`;
-  const viewH = CLIP_BOTTOM - clipTop(), th = Math.max(40, (viewH - 20) * Math.min(1, viewH / Math.max(1, contentH)));
-  const thumbEl = bar.firstChild;
-  thumbEl.style.height = `${th}px`;
-  thumbEl.style.top = `${(viewH - 20 - th) * (maxScroll() ? view.scroll / maxScroll() : 0)}px`;
-  bar.hidden = contentH <= viewH;
+  bar.sync(CLIP_BOTTOM - clipTop(), contentH, view.scroll);
   return syncRows();
 }
 
@@ -513,12 +509,7 @@ async function buildFrame(my) {
   scrollHost.className = "card-scroll";
   clip.appendChild(scrollHost);
   next.appendChild(clip);
-  // scrollbar in the paper's right gutter, game colours (track #ccd7df, thumb #92a6b7)
-  const bar = document.createElement("div");
-  bar.className = "scrollbar";
-  Object.assign(bar.style, { left: `${960 + 1391 * S - 5}px`, top: `${clipTop() + 10}px`, height: `${CLIP_BOTTOM - clipTop() - 20}px` });
-  bar.appendChild(document.createElement("i"));
-  next.appendChild(bar);
+  const bar = await scrollbar(next, [960 + (1391 - 63) * S, clipTop() + 10, 126 * S, CLIP_BOTTOM - clipTop() - 20], { collection: layouts.collection });
   const empty = document.createElement("div");
   empty.className = "roster-empty";
   next.appendChild(empty);

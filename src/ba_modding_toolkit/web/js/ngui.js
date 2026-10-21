@@ -5,6 +5,7 @@
 //   - textures: the game's UITexture images, or per-node overrides
 //   - labels: plain text in the page font, sized from the label's font size (italic: a placeholder's slant)
 // Depth becomes z-index; NGUI y points up, the stage's y points down.
+import { clipButtonPatterns } from "./button-layout.js";
 import { spriteUrl } from "./api.js";
 import { decodeAll, imageUrls } from "./image-decode.js";
 import { withTimeout } from "./async.js";
@@ -197,6 +198,9 @@ const colorOf = (c) => {
 //       styles { name|path: css }, rootPath (prefix used in paths), z (z-index offset), deferImages (fill in later)
 // pictures includes all deferred work; images and thumbnails let a screen give optional thumbnails a shorter wait.
 export async function render(tree, host, opts = {}) {
+  // Popup branches publish together, including decoded textures, even when the caller renders into a live layer.
+  const target = host, popup = !!findNamed(tree, "Popup");
+  if (popup) host = document.createElement("div");
   const ready = init();
   const spritesReady = atlasDone, textureReady = texturesDone;
   if (opts.deferImages) ready.catch((err) => console.error("NGUI index failed", err));
@@ -207,7 +211,11 @@ export async function render(tree, host, opts = {}) {
   const pick = (map, name, path) => (map ? map[path] ?? map[name] : undefined);
   const nodes = new Map();
   const jobs = [], post = [], pictures = [], thumbnails = [];
-  const failed = (p, err) => console.error("NGUI image failed", p, err);
+  const frameFailures = [];
+  const failed = (p, err) => {
+    console.error("NGUI image failed", p, err);
+    if (popup && /(?:\/Popup\/Base\/BG|\/BlackBg\/BlackBgClickArea)$/.test(p)) frameFailures.push(err);
+  };
 
   function walk(n, px, py, sx, sy, alpha, path) {
     const p = path ? `${path}/${n.name}` : n.name;
@@ -356,7 +364,17 @@ export async function render(tree, host, opts = {}) {
   if (opts.deferImages) pictures.push(...jobs);
   else await Promise.all(jobs);
   for (const [el, css] of post) el.style.cssText += css;
-  return { nodes, scale: S, origin: [ox, oy], pictures, images: pictures.filter((p) => !thumbnails.includes(p)), thumbnails };
+  const view = { nodes, scale: S, origin: [ox, oy], pictures, images: pictures.filter((p) => !thumbnails.includes(p)), thumbnails };
+  clipButtonPatterns(view);
+  if (popup) await Promise.all(view.images);
+  if (frameFailures.length) throw new AggregateError(frameFailures, "Popup frame unavailable");
+  if (popup || !opts.deferImages) {
+    await decoded([...(host.children || [])].filter((el) => !el.dataset?.thumbnail), Infinity);
+  }
+  if (popup) {
+    for (const child of [...host.children]) target.appendChild(child);
+  }
+  return view;
 }
 
 // find a subtree by path ("A/B/C", relative to the given node)

@@ -4,28 +4,15 @@
 import * as Loading from "./loading.js";
 import * as NGUI from "./ngui.js";
 import * as Popup from "./popup.js";
-import { rpc, spriteUrl } from "./api.js";
+import { navigationEntry } from "./navigation-layout.js";
+import { rpc } from "./api.js";
 import { T } from "./i18n.js";
-import { ITEMS, activate, handOffPrompt, tintOf, view } from "./nav-items.js";
-import { $, toast } from "./util.js";
-
-// labels: 26 px, down to 18 px so they stay on one line in their 176 px slot
-const navSize = (str) => { for (let fs = 26; fs > 18; fs -= 1) if (NGUI.textWidth(str, fs) / NGUI.fontSizeFor(str, 1) <= 172) return fs; return 18; };
+import { ITEMS, activate, handOffPrompt, view } from "./nav-items.js";
+import { $, S, clone, toast } from "./util.js";
 
 const CLASSIC_WAIT = 32000; // the classic UI's start: app.openClassic waits up to 30 s for its window
 let options = { game: false, prefs: () => null, setPrefs: () => {} };
-let tint = null, opening = false;
-
-// the greyed look: the tint of UILobby's locked entries, read once (nav-items.js tintOf); without a game, the plain
-// one at once
-function applyTint(host) {
-  const set = (t) => { host.dataset.tint = t.mode; host.style.setProperty("--nav-greyed", String(t.factor)); };
-  if (!options.game) { set(tintOf(null, { game: false })); return; }
-  tint ||= fetch("/asset/ui/layout/UILobby.json?path=Front/Bottom/Menu/BG/Grid")
-    .then((r) => (r.ok ? r.json() : null)).catch(() => null).then((grid) => tintOf(grid));
-  set({ mode: "pending", factor: 0.5 }); // until the prefab is read: the icon at half, the label as it is
-  tint.then((t) => { if (host.isConnected) set(t); });
-}
+let opening = false;
 
 // the hand-off prompt (drawn plain without a game folder: the classic UI works without one)
 const ask = (item) => Popup.message(handOffPrompt(item, T));
@@ -60,32 +47,54 @@ async function click(item) {
 
 // renderNav(active, {game, prefs, setPrefs}): game, whether a game folder is found (the greyed look's source);
 // prefs(), the settings as last read (settings.get); setPrefs(prefs), after the prompt turned itself off
-export function renderNav(active = 0, opts = {}) {
+let navRevision = 0;
+export async function renderNav(active = 0, opts = {}) {
   options = { ...options, ...opts };
-  const host = $("nav");
-  host.innerHTML = "";
-  applyTint(host);
-  ITEMS.forEach((item, i) => {
-    const v = view(item, T);
-    const b = document.createElement("button");
-    // a greyed entry never takes the active look
-    b.className = `nav-item${v.greyed ? " greyed" : i === active ? " active" : ""}`;
+  const host = $("nav"), revision = ++navRevision;
+  const next = document.createElement("div"), plate = document.createElement("div");
+  let lobby = null;
+  if (options.game) lobby = await NGUI.layout("UILobby").catch((err) => { console.warn("navigation layout", err); return null; });
+  if (lobby) {
+    skinTop().catch(console.error);
+    const tree = clone(NGUI.find(lobby, "Front/Bottom/Menu/BG/BG")); tree.pos = [0, 0];
+    await NGUI.render(tree, plate, { scale: S, origin: [960, 104 - 52 * S] });
+  }
+  await Promise.all(ITEMS.map(async (item, i) => {
+    const v = view(item, T), b = document.createElement("button");
+    b.className = `nav-item${v.greyed ? " greyed" : ""}`;
+    b.setAttribute("aria-label", v.name);
     if (v.greyed) {
-      // still a button (a click hands over), so aria-disabled rather than disabled; named, never a tooltip
       b.setAttribute("aria-disabled", "true");
-      b.setAttribute("aria-label", v.name);
       b.dataset.tab = v.tab;
-    }
-    const icon = document.createElement("i");
-    icon.className = "nav-icon";
-    icon.style.backgroundImage = `url("${spriteUrl("Common", item.icon)}")`;
-    const span = document.createElement("span");
-    span.textContent = v.label;
-    span.style.fontSize = `${navSize(v.label)}px`;
-    b.append(icon, span);
+    } else if (i === active) b.setAttribute("aria-current", "page");
     b.addEventListener("click", () => click(item));
-    host.appendChild(b);
-  });
+    next.appendChild(b);
+    if (lobby) {
+      const tree = navigationEntry(NGUI.find(lobby, "Front/Bottom/Menu/BG/Grid"), item, v.label, v.greyed, i);
+      await NGUI.render(tree, b, { scale: S, origin: [130, 90] });
+    } else b.textContent = v.label;
+  }));
+  if (revision !== navRevision) return;
+  host.replaceChildren(...next.childNodes);
+  document.querySelector(".nav-bar")?.replaceChildren(...plate.childNodes);
+}
+
+let topReady;
+function skinTop() {
+  return topReady ||= NGUI.layout("UICharacterCollection").then(async (collection) => {
+    for (const [selector, path, w, h] of [
+      [".topbar .back", "SeletControl/Top/BG_W/Bg/Btn", 164, 172],
+      [".top-option", "NUITop_Scenes/Top/Right/Option", 60, 62],
+    ]) {
+      const host = document.querySelector(selector);
+      if (!host) continue;
+      const tree = clone(NGUI.find(collection, path)); tree.pos = [0, 0];
+      const next = document.createElement("div");
+      await NGUI.render(tree, next, { scale: S, origin: [w * S / 2, h * S / 2] });
+      Object.assign(host.style, { width: `${w * S}px`, height: `${h * S}px` });
+      host.replaceChildren(...next.childNodes);
+    }
+  }).catch((err) => { topReady = null; throw err; });
 }
 
 export function setTitle(text, onBack) {

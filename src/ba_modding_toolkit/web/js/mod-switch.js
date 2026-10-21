@@ -4,6 +4,8 @@
 // A write refused while the classic UI is open opens the classic modal, which can queue it until the window closes.
 // The pure parts (the view from mods.state, the click, the help's lines, the result, the start prompts, the classic
 // modal's outcome) are tested in Node (tests/js/mod_switch.test.mjs).
+import * as NGUI from "./ngui.js";
+import { switchTree } from "./navigation-layout.js";
 import * as Consent from "./consent.js";
 import * as Loading from "./loading.js";
 import * as Popup from "./popup.js";
@@ -243,17 +245,9 @@ function build() {
   const toggle = document.createElement("button");
   toggle.className = "ms-toggle";
   toggle.setAttribute("role", "switch");
-  const seg = (cls, text) => {
-    const s = document.createElement("span");
-    s.className = `ms-seg ${cls}`;
-    const b = document.createElement("b");
-    b.textContent = text;
-    s.appendChild(b);
-    return s;
-  };
   const dot = document.createElement("i");
   dot.className = "ms-dot";
-  toggle.append(seg("ms-on", T("settings.post.on")), seg("ms-off", T("settings.post.off")), dot);
+  toggle.appendChild(dot);
   const label = document.createElement("span");
   label.className = "ms-label";
   label.id = "mod-switch-label";
@@ -278,11 +272,14 @@ function fitLabel(el, max = 240) {
   }
 }
 
-function render() {
+let switchRevision = 0;
+let switchLayouts;
+async function render() {
   if (!host || !els) return;
+  const revision = ++switchRevision;
   const v = view(state);
   host.hidden = v.hidden;
-  const { toggle, dot } = els;
+  const { toggle, dot, help } = els;
   toggle.classList.toggle("is-on", v.on);
   toggle.classList.toggle("busy", v.busy);
   toggle.classList.toggle("unavailable", v.unavailable);
@@ -290,6 +287,23 @@ function render() {
   toggle.setAttribute("aria-disabled", String(v.busy || v.unavailable));
   if (v.unavailable) toggle.setAttribute("aria-description", reasonText(state)); else toggle.removeAttribute("aria-description");
   dot.hidden = !v.dot;
+  if (v.hidden) return;
+  try {
+    const [collection, filter] = await (switchLayouts ||= Promise.all([NGUI.layout("UICharacterCollection"), NGUI.layout("UIPopup_FilterSort")]));
+    const next = document.createElement("div");
+    const information = NGUI.find(collection, "SeletControl/Top/BG_W/Bg/Label_Title/Btn_Information");
+    if (information && !help.dataset.skinned) {
+      const tree = structuredClone(information); tree.pos = [0, 0];
+      const skin = document.createElement("div");
+      await NGUI.render(tree, skin, { scale: 0.55, origin: [20, 20] });
+      help.replaceChildren(...skin.childNodes); help.dataset.skinned = "true";
+    }
+    await NGUI.render(switchTree(collection, filter, v.on, v.unavailable, [T("settings.post.off"), T("settings.post.on")]), next,
+      { scale: 40 / 104, origin: [328 * 40 / 104, 20] });
+    if (revision !== switchRevision) return;
+    toggle.replaceChildren(...next.childNodes, dot);
+  } catch (err) { switchLayouts = null; console.warn("mod switch layout", err); }
+
 }
 
 // --- clicks ---

@@ -125,7 +125,11 @@ async function fixture({ licensed = false, native = true, suggest } = {}) {
   };
   const popups = { ready: async () => {},
     message: async (message) => { messages.push(message); const answer = answers.shift() || { button: "cancel", checked: false }; return answer.promise || answer; },
-    popupFrame: () => node("Popup"), opened: (host, close) => popupStack.push({ host, close }),
+    popupFrame: () => node("Popup"), opened: (host, close, { el, loading } = {}) => {
+      if (loading) { el.style.visibility = "hidden"; el.inert = true; }
+      popupStack.push({ host, close });
+    },
+    reveal: async (layer, work) => { await Promise.all(work); layer.style.visibility = ""; layer.inert = false; },
     closed: () => popupStack.pop(), closable() {},
     hit: (host, _view, _path, fn, attrs) => {
       const button = new El("button"); button.dataset.action = attrs.action; button.setAttribute("aria-label", attrs.name);
@@ -652,12 +656,18 @@ test("all six locales retain option labels, On/Off choices and the same saved va
   } finally { setStrings("en-US", load("en-US")); }
 });
 
-test("native option fields align as soon as prefab geometry is ready, before deferred sprite images", async () => {
+test("advanced popup stays hidden until its body images finish, with native fields aligned during preparation", async () => {
   const h = await fixture(), hold = h.holdImages((tree) => tree.name === "SearchNameArea");
+  const opening = h.page.openOptions();
   try {
-    await h.page.openOptions(); await flush();
+    await flush();
+    const layer = h.dialog.children[0];
+    assert.equal(layer.style.visibility, "hidden");
     const field = walk(h.dialog).find((element) => element.dataset.option === "extraBytes").querySelector("input");
     assert.ok(parseFloat(field.style.width) > 0);
     closeTo(parseFloat(field.style.top), 10 * S);
-  } finally { hold.resolve(); await h.page.settled(); }
+    hold.resolve(); await opening; await h.page.settled();
+    assert.equal(layer.style.visibility, "");
+    assert.equal(layer.inert, false);
+  } finally { hold.resolve(); await opening; }
 });
