@@ -12,6 +12,8 @@ export function navigationEntry(grid, item, caption, greyed, index) {
   NGUI.find(tree, "Able").active = !greyed;
   const disabled = NGUI.find(tree, "Disable");
   disabled.active = greyed;
+  // greyed entries hand over to the classic UI: the dimmed icon only, not the game's lock and unlock effect
+  disabled.children = disabled.children.filter((child) => child.name === "Icon");
   for (const path of ["Able", "Disable/Icon"]) {
     const icon = NGUI.find(tree, path).widgets.find((w) => "sprite" in w);
     icon.sprite = item.icon;
@@ -32,7 +34,7 @@ export function switchTree(collection, filter, on, unavailable, captions) {
     const segment = clone(NGUI.find(source, name));
     segment.pos = [i === 0 ? -164 : 164, segment.pos[1] - baseline];
     for (const state of segment.children) {
-      state.active = (state.name === "Btn_Pressed") === (i === (on ? 1 : 0));
+      state.active = (state.name === "Btn_Pressed") === (i === (on ? 0 : 1));
       for (const child of state.children || []) {
         const picture = child.widgets.find((w) => "texture" in w);
         if (picture) child.widgets = [NGUI.label(captions[i], 56, picture.color, 280, 80, { depth: picture.depth })];

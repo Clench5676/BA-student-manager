@@ -82,7 +82,7 @@ test("narrow Cancel patterns keep opposite edges and clip to the inclined body",
 
 test("Mods switch selects one complete normal, pressed or unavailable branch per segment", () => {
   for (const on of [false, true]) for (const unavailable of [false, true]) {
-    const tree = switchTree(collection, filter, on, unavailable, ["Off", "On"]);
+    const tree = switchTree(collection, filter, on, unavailable, ["On", "Off"]);
     tree.children.forEach((segment, i) => {
       const active = segment.children.filter((child) => child.active);
       assert.equal(active.length, 1);
@@ -90,14 +90,14 @@ test("Mods switch selects one complete normal, pressed or unavailable branch per
         assert.equal(find(active[0], "BG (1)").widgets[0].color, "#d6d6d6/0.90");
         assert.equal(find(active[0], "Label_Locale").widgets[0].color, "#828282/1.00");
       } else {
-        assert.equal(active[0].name, i === (on ? 1 : 0) ? "Btn_Pressed" : "Btn_Normal");
+        assert.equal(active[0].name, i === (on ? 0 : 1) ? "Btn_Pressed" : "Btn_Normal"); // "On" first, as before
         if (active[0].name === "Btn_Normal") assert.equal(active[0].widgets[0].color, "#f0f8fa/0.95");
       }
     });
   }
 });
 
-test("navigation keeps the donor's label, individual icon dimensions and complete disabled branch", () => {
+test("navigation keeps the donor's label and icon dimensions, and greys without the lock", () => {
   const grid = n("Grid", [0, 0], [], [n("Student", [100, 0], [], [
     n("Label", [1, 8], [lbl("#2c4564/1.00")]),
     n("Able", [0, 94], [spr("Common_Icon_Student", 98, 134)]),
@@ -108,7 +108,8 @@ test("navigation keeps the donor's label, individual icon dimensions and complet
     assert.equal(find(tree, "Able").active, !grey); assert.equal(find(tree, "Disable").active, grey);
     assert.equal(find(tree, "Able").widgets[0].h_, 134);
     assert.equal(find(tree, "Label").widgets[0].color, "#2c4564/1.00");
-    assert.ok(find(tree, "Disable/Lock"));
+    assert.equal(find(tree, "Disable/Lock"), null); // classic hand-offs are not locked game content
+    assert.ok(find(tree, "Disable/Icon"));
   }
 });
 

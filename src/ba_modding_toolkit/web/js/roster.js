@@ -251,6 +251,8 @@ function cardTree(e) {
   // dimmed like the game's not-owned cards (BG_Discover is the darkening overlay); changed ones stay bright
   const dim = find(t, "BG_Discover");
   dim.active = !e.mods && !e.replaced;
+  // lighter than the game's not-owned overlay (0.90): these cards are only unmodded and must stay legible
+  dim.widgets[0].color = "#000000/0.55";
   return t;
 }
 

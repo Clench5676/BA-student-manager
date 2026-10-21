@@ -298,7 +298,7 @@ async function render() {
       await NGUI.render(tree, skin, { scale: 0.55, origin: [20, 20] });
       help.replaceChildren(...skin.childNodes); help.dataset.skinned = "true";
     }
-    await NGUI.render(switchTree(collection, filter, v.on, v.unavailable, [T("settings.post.off"), T("settings.post.on")]), next,
+    await NGUI.render(switchTree(collection, filter, v.on, v.unavailable, [T("settings.post.on"), T("settings.post.off")]), next,
       { scale: 40 / 104, origin: [328 * 40 / 104, 20] });
     if (revision !== switchRevision) return;
     toggle.replaceChildren(...next.childNodes, dot);
