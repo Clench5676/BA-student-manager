@@ -33,8 +33,8 @@ from .system import reveal
 logger = logging.getLogger(__name__)
 trace_logger = logging.getLogger("ba_modding_toolkit.webui.trace")
 TRACE_BATCH, TRACE_LINE = 100, 600  # events per debug.trace call, characters per logged event
-# UI language -> lobby lines key (globallines.COLUMNS: the Global server's en, zh-TW, ko; ja from Kivo, else Global)
-LINE_LANGS = {"zh-CN": "zh-CN", "zh-TW": "zh-TW", "en-US": "en", "ja-JP": "ja", "ko-KR": "ko"}
+# UI language -> lobby lines key (Global en, zh-TW, ko, th; ja from Kivo, else Global)
+LINE_LANGS = {"zh-CN": "zh-CN", "zh-TW": "zh-TW", "en-US": "en", "ja-JP": "ja", "ko-KR": "ko", "th-TH": "th"}
 # seconds lobby.lines waits for the Global table (a download the first time); it answers with Kivo's lines after that,
 # so a slow download never holds the page's connections (the table keeps coming in for the next lobby)
 LINES_WAIT = 3.0

@@ -91,6 +91,12 @@ def test_unknown_skeleton_has_own_file_id_family(catalog: Catalog):
     assert variant.bg is variant.portrait is variant.date is None
 
 
+def test_thai_names_fall_back_to_english_for_older_catalogs_and_new_csv_rows(catalog: Catalog):
+    assert catalog.family("hoshino").names["th"] == catalog.family("hoshino").names["en"]
+    assert catalog.variant("hoshino").names["th"] == {"full": "Hoshino", "short": "ต้นฉบับ"}
+    assert catalog.variant("np0999").names["th"] == catalog.variant("np0999").names["en"]
+
+
 def test_new_csv_additions_and_shipped_values_win(game: FakeGame, tmp_path: Path):
     csv_path = tmp_path / "map.csv"
     text = (FIXTURES / "characters.csv").read_text(encoding="utf-8-sig")
@@ -387,7 +393,7 @@ def test_shipped_names_and_playable_art_invariants(shipped: dict):
             assert not any(dot in str(name) for dot in ("\u00b7", "\u30fb"))
             if name["full"] == student["names"][lang]:
                 assert name["short"] == BASE_SHORT[lang]
-            if lang in ("en", "ko"):  # half-width brackets, as the game writes them
+            if lang in ("en", "ko", "th"):  # half-width brackets, as the game writes them
                 assert "（" not in name["full"] and "）" not in name["full"]
             else:
                 assert "(" not in name["full"] and ")" not in name["full"]
@@ -401,7 +407,7 @@ def test_all_43_curated_names_match_approved_snapshot(shipped: dict):
     assert shipped["rules"] == approved["rules"]
     for research_key, names in approved["variants"].items():
         key = approved["file_ids"][research_key]
-        assert shipped["variants"][key]["names"] == names, research_key
+        assert {lang: value for lang, value in shipped["variants"][key]["names"].items() if lang != "th"} == names, research_key
 
 
 def test_numbered_playables_legacy_names_and_shared_forms(shipped: dict):

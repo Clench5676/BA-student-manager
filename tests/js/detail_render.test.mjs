@@ -705,7 +705,7 @@ test("long portrait and lobby names only resize their own info cell in every loc
   const cell = (path) => walk(hosts.ngui).find((el) => el.dataset.path?.endsWith(`${INFO}/Status/${path}`) && el.style.fontSize);
   const size = (str, fs) => `${(NGUI.fontSizeFor(str, fs) * 1920 / 2960).toFixed(2)}px`;
   try {
-    for (const lang of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"]) {
+    for (const lang of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) {
       setStrings(lang, flat(JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${lang}.json`, import.meta.url), "utf8"))));
       for (const kind of ["spr", "lobby"]) {
         const snapshots = [];
@@ -758,7 +758,7 @@ const currentCell = () => walk(hosts.ngui).find((el) => el.dataset.path?.endsWit
 test("student aliases lead the existing name band, keep the variant's original, and update on save and clear in every locale", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   try {
-    for (const lang of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"]) {
+    for (const lang of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) {
       const ui = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${lang}.json`, import.meta.url), "utf8"));
       setStrings(lang, flat(ui));
       family = modFamily(); family.custom = ["My <Ibuki> & friend", "Search nickname"];
@@ -797,7 +797,7 @@ test("student aliases lead the existing name band, keep the variant's original, 
 test("mod aliases save and clear from the current value and both switch pencils in every locale", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   try {
-    for (const lang of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"]) {
+    for (const lang of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) {
       const ui = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${lang}.json`, import.meta.url), "utf8"));
       setStrings(lang, flat(ui));
       for (const kind of ["spr", "lobby"]) {
@@ -872,7 +872,7 @@ test("an alias on another variant's mod replaces the entire display name", async
 test("repaired names and own aliases keep a separate repair tag in every locale", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   try {
-    for (const lang of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"]) {
+    for (const lang of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) {
       const ui = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${lang}.json`, import.meta.url), "utf8"));
       setStrings(lang, flat(ui));
       for (const enabled of [true, false]) for (const alias of ["", "Own alias"]) {

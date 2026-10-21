@@ -7,7 +7,7 @@ from pathlib import Path
 from ._names import LANGUAGES
 
 SPECIAL_PREFIX = "special:"
-LOCALES = {"en": "en-US", "ja": "ja-JP", "ko": "ko-KR", "zh-CN": "zh-CN", "zh-TW": "zh-TW"}
+LOCALES = {"en": "en-US", "ja": "ja-JP", "ko": "ko-KR", "th": "th-TH", "zh-CN": "zh-CN", "zh-TW": "zh-TW"}
 PEOPLE = {"arona": "arona", "plana": "np0035", "aoi": "np0032"}
 
 

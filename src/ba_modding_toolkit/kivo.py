@@ -46,7 +46,8 @@ def lobby_lines(page: dict[str, Any]) -> dict[str, dict[str, str]]:
     """``{clip id: {"zh-CN", "ja", "audio"}}`` for the memorial lobby clips of a Kivo student page.
 
     zh-CN is the CN server's text when Kivo has it, else Kivo's translation; ja is the original line; audio is the
-    Japanese voice (the one the Global and Japanese clients play)."""
+    Japanese voice (the one the Global and Japanese clients play). Thai text comes
+    from the Global table; Kivo supplies no Thai dialogue fallback."""
     def by_clip(entries: list[dict]) -> dict[str, dict]:
         # several entries can share a clip id ("<clip>_new" re-recordings with empty text): keep the one with text
         out: dict[str, dict] = {}

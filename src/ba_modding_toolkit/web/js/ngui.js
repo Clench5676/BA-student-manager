@@ -15,10 +15,11 @@ const PIVY = [0, 0, 0, 0.5, 0.5, 0.5, 1, 1, 1]; // fraction of the height above 
 // baseline, so in a 1.15 line box the ink centre is 0.06 em low
 const GLYPH_LIFT = 0.06;
 // Latin glyphs of this font are small next to its CJK glyphs and read low (lowercase mass sits on the baseline): text
-// without CJK is drawn 12 % larger and lifted a little more. Measuring goes through textWidth, so layout agrees.
+// without CJK or Thai is drawn 12 % larger and lifted a little more. Measuring goes through textWidth, so layout agrees.
 const LATIN_SCALE = 1.12, LATIN_LIFT = 0.085;
-// CJK here: Han, kana, CJK punctuation and full-width forms, and Hangul (syllables, jamo, compatibility jamo)
-const isLatin = (str) => !/[\u2e80-\u9fff\u3000-\u303f\uff00-\uffef\u3040-\u30ff\uac00-\ud7af\u1100-\u11ff\u3130-\u318f]/.test(str);
+// CJK here: Han, kana, CJK punctuation and full-width forms, and Hangul (syllables, jamo, compatibility jamo).
+// Thai uses system fonts too, so the RHR Latin size and baseline adjustment do not apply.
+const isLatin = (str) => !/[\u0e00-\u0e7f\u2e80-\u9fff\u3000-\u303f\uff00-\uffef\u3040-\u30ff\uac00-\ud7af\u1100-\u11ff\u3130-\u318f]/.test(str);
 export const fontSizeFor = (str, fs) => fs * (isLatin(str) ? LATIN_SCALE : 1);
 const measureCtx = document.createElement("canvas").getContext("2d");
 // the font stack text in a language draws with (app.css --font): the UI language's (the html lang), or another one's
@@ -417,9 +418,10 @@ export const label = (text, fontSize, color, w, h, opts = {}) => ({ cls: "UILabe
 export const glyphWidth = (str, fs) => Math.max(...String(str).split("\n").map((l) => textWidth(l, fs) - (/[\uff09\u300d]$/.test(l) ? fs * 0.45 : 0)));
 // fit text into maxW: shrink from fsMax to fsMin on one line; if it still does not fit, break into up to maxLines lines
 // at the smallest size that fits. Breaks go at separators (full-width comma and enumeration comma, ", ", " - ", spaces,
-// before brackets) first, then between CJK
+// before brackets) first, then between CJK or Thai
 // words; the CJK line-breaking rules hold (NO_START, NO_END). Wrapped text is never larger than fsMin.
 const CJK = /[\u3040-\u30ff\u3400-\u9fff\uff00-\uffef]/;
+const THAI = /[\u0e00-\u0e7f]/;
 // never at the start of a line (UAX #14 CL, CP, EX, IS, NS, IN and the small kana of CJ, as CSS line-break: strict
 // keeps them): closing brackets and quotes, commas, full stops, colons, exclamation and question marks, ellipses, the
 // prolonged sound mark, wave dashes, iteration marks and small kana
@@ -432,9 +434,10 @@ const NO_START = new RegExp("^[" +
 const NO_END = /[\uff08\uff3b\uff5b\uff5f\u3008\u300a\u300c\u300e\u3010\u3014\u3016\u3018\u301a\u301d\u2018\u201c([{]$/;
 function tokensOf(str, cjkBreaks) {
   let tokens = String(str).split(/(?<=[\uff0c\u3001]|, | - |\s)|(?=[\uff08(])/).filter(Boolean);
-  // CJK runs break between words (Intl.Segmenter), so a compound such as "add memorial lobby" wraps between its words, not inside one
+  // CJK and Thai runs break between words (Intl.Segmenter), keeping Thai vowels and tone marks with their words.
+  // Without a segmenter, Thai runs stay whole rather than splitting combining marks from their base letters.
   const seg = typeof Intl !== "undefined" && Intl.Segmenter ? new Intl.Segmenter(textLang() || "zh", { granularity: "word" }) : null;
-  if (cjkBreaks) tokens = tokens.flatMap((tok) => (!CJK.test(tok) ? [tok] : seg ? [...seg.segment(tok)].map((x) => x.segment)
+  if (cjkBreaks) tokens = tokens.flatMap((tok) => (!(CJK.test(tok) || THAI.test(tok)) ? [tok] : seg ? [...seg.segment(tok)].map((x) => x.segment)
     : tok.match(/[\u3040-\u30ff\u3400-\u9fff\uff00-\uffef]|[^\u3040-\u30ff\u3400-\u9fff\uff00-\uffef]+/g)));
   // a token that may not start a line joins the one before it, one after an opening bracket joins that bracket
   const merged = [];

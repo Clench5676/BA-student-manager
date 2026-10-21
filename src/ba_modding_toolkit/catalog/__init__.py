@@ -12,7 +12,7 @@ from typing import Iterable, Protocol
 from ..errors import ServiceError
 from ..naming import parse_filename
 from ._data import base_rank, csv_entry, read_character_map
-from ._names import BASE_SHORT, LANGUAGES, cn_aliases, cn_base, cn_words, csv_bases, csv_names, name_head
+from ._names import BASE_SHORT, LANGUAGES, apply_thai_names, cn_aliases, cn_base, cn_words, csv_bases, csv_names, name_head
 from .models import CoreMap, Family, Variant
 from .special import SPECIAL_PREFIX, describe
 
@@ -192,6 +192,8 @@ class Catalog:
             entries = {key.lower(): dict(entry) for key, entry in data["variants"].items()}
             shipped_keys = set(entries)
             students = {str(key): dict(student) for key, student in data["students"].items()}
+            if any("th" not in record["names"] for record in (*entries.values(), *students.values())):
+                apply_thai_names(students, entries)
             for key, entry in entries.items():
                 student = students[str(entry["student_id"])]
                 if student["base"] not in entries or key != entry["file_id"].lower():
