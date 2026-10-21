@@ -366,6 +366,7 @@ test("the top bar's switch follows mods.state, and the first toggle explains onc
   assert.equal(switchHost.hidden, false);
   assert.equal(toggle.getAttribute("role"), "switch");
   assert.equal(toggle.getAttribute("aria-checked"), "true");
+  assert.deepEqual(toggle.children.filter((e) => e.className.startsWith("ms-seg")).map((e) => e.className), ["ms-seg ms-on", "ms-seg ms-off"]);
   assert.equal(switchHost.children.find((e) => e.className === "ms-help").getAttribute("aria-label"), S("mods.guide"));
   // the first click (here from Settings): the explanation; closing it any way but its button toggles nothing
   MS.click("settings");

@@ -45,7 +45,7 @@ globalThis.fetch = async (url) => ({ ok: true, json: async () => {
 const NGUI = await import("../../src/ba_modding_toolkit/web/js/ngui.js");
 const Buttons = await import("../../src/ba_modding_toolkit/web/js/game-buttons.js");
 const { resizeButton } = await import("../../src/ba_modding_toolkit/web/js/button-layout.js");
-const { navigationEntry, switchTree } = await import("../../src/ba_modding_toolkit/web/js/navigation-layout.js");
+const { navigationEntry } = await import("../../src/ba_modding_toolkit/web/js/navigation-layout.js");
 const { pickerItems, orderBody } = await import("../../src/ba_modding_toolkit/web/js/roster-widgets.js");
 const { scrollbar } = await import("../../src/ba_modding_toolkit/web/js/scrollbar.js");
 const Popup = await import("../../src/ba_modding_toolkit/web/js/popup.js");
@@ -79,31 +79,6 @@ test("narrow Cancel patterns keep opposite edges and clip to the inclined body",
     ["Body/Left", { node: find(body, "Left"), els: [element(-2, 0, 252, 140)] }]]) };
   clipButtonPatterns(view);
   assert.match(view.nodes.get("Body/Left").els[0].style.clipPath, /^polygon\(/);
-});
-
-test("Mods switch selects one complete normal, pressed or unavailable branch per segment", () => {
-  for (const on of [false, true]) for (const unavailable of [false, true]) {
-    const tree = switchTree(collection, filter, on, unavailable, ["On", "Off"]);
-    tree.children.forEach((segment, i) => {
-      const active = segment.children.filter((child) => child.active);
-      assert.equal(active.length, 1);
-      if (unavailable) {
-        assert.equal(find(active[0], "BG (1)").widgets[0].color, "#d6d6d6/0.90");
-        assert.equal(find(active[0], "Label_Locale").widgets[0].color, "#828282/1.00");
-      } else {
-        assert.equal(active[0].name, i === (on ? 0 : 1) ? "Btn_Pressed" : "Btn_Normal"); // "On" first, as before
-        if (active[0].name === "Btn_Normal") {
-          assert.equal(active[0].widgets[0].color, "#f0f8fa/0.95");
-          const shadow = find(active[0], "Shadow");
-          assert.equal(shadow.widgets[0].sprite, "Common_Bg_Raius5px_Shadow");
-          assert.equal(shadow.widgets[0].w_, active[0].widgets[0].w_);
-          assert.equal(shadow.widgets[0].h_, 116);
-          assert.equal(shadow.pos[1] + shadow.widgets[0].h_ / 2, active[0].widgets[0].h_ / 2);
-          assert.equal(shadow.widgets[0].depth, active[0].widgets[0].depth - 1);
-        }
-      }
-    });
-  }
 });
 
 test("navigation fits icons in the Student slot and greys without the lock", () => {
