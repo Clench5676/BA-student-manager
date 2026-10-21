@@ -7,7 +7,7 @@
 // Depth becomes z-index; NGUI y points up, the stage's y points down.
 import { labelEffect, labelClipPadding } from "./ngui-label.js";
 import { clipButtonPatterns } from "./button-layout.js";
-import { spriteUrl } from "./api.js";
+import { spriteUrl, uiExportUrl } from "./api.js";
 import { decodeAll, imageUrls } from "./image-decode.js";
 import { withTimeout } from "./async.js";
 import { spriteBorders, sliceAxis } from "./sprite-slices.js";
@@ -67,19 +67,20 @@ export function init() {
       }
       index = a;
     }),
-    texturesDone = assetIndex("/asset/ui/textures.json").then((t) => { textures = t; }),
+    texturesDone = assetIndex("/asset/ui/textures.json").then((t) => { textures = Object.fromEntries(Object.entries(t).map(([name, url]) => [name, uiExportUrl(url)])); }),
   ]).catch((err) => { initDone = null; throw err; });
   return initDone;
 }
 
 function assetIndex(url) {
-  return withTimeout(fetch(url, { cache: "no-store" }).then((r) => {
+  return withTimeout(fetch(uiExportUrl(url), { cache: "no-store" }).then((r) => {
     if (!r.ok) throw new Error(`${url}: HTTP ${r.status}`);
     return r.json();
   }), 15000, url);
 }
 
 export function load(url, { signal } = {}) {
+  url = uiExportUrl(url);
   if (signal) {
     const img = new Image();
     const pending = new Promise((resolve, reject) => {
@@ -432,7 +433,7 @@ export function layout(name) {
     const [root, sub] = name.split(".");
     // Cold exports scan prefab bundles and can wait for a lobby's bundle locks. The scene owns the slow-load
     // indicator and navigation cancellation; elapsed time alone does not make a valid server response fail.
-    const request = sub ? layout(root).then((tree) => findNamed(tree, sub)) : fetch(`/asset/ui/layout/${encodeURIComponent(root)}.json`).then((r) => {
+    const request = sub ? layout(root).then((tree) => findNamed(tree, sub)) : fetch(uiExportUrl(`/asset/ui/layout/${encodeURIComponent(root)}.json`), { cache: "no-cache" }).then((r) => {
       if (!r.ok) throw new Error(`layout ${root}: HTTP ${r.status}`);
       return r.json();
     });

@@ -4,10 +4,12 @@
 from __future__ import annotations
 
 import hmac
+import hashlib
 import json
 import logging
 import mimetypes
 import secrets
+import re
 import socketserver
 import threading
 from dataclasses import dataclass
@@ -25,6 +27,7 @@ logger = logging.getLogger(__name__)
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 MAX_BODY = 4 * 1024 * 1024
+HTTP_EXPORT_SCHEMA = "http-exports-v1"
 
 MIME = {
     ".js": "text/javascript; charset=utf-8", ".mjs": "text/javascript; charset=utf-8",
@@ -96,7 +99,7 @@ class WebApp:
             if path == "/api/events" and method == "GET":
                 return self._sse(start_response)
             if path.startswith("/asset/") and method == "GET":
-                return self._asset(path, query, start_response)
+                return self._asset(path, query, start_response, environ.get("HTTP_IF_NONE_MATCH", ""))
             if method in ("GET", "HEAD"):
                 return self._static(path, start_response)
             return self._text(start_response, "405 Method Not Allowed", "method not allowed")
@@ -170,7 +173,7 @@ class WebApp:
                                   ("Cache-Control", "no-store"), ("X-Accel-Buffering", "no")])
         return self.events.stream()
 
-    def _asset(self, path: str, query: dict[str, str], start_response: Callable) -> Iterable[bytes]:
+    def _asset(self, path: str, query: dict[str, str], start_response: Callable, validator: str = "") -> Iterable[bytes]:
         if self.assets is None:
             return self._text(start_response, "404 Not Found", "not found")
         try:
@@ -178,8 +181,14 @@ class WebApp:
         except (KeyError, FileNotFoundError, ServiceError) as e:
             logger.warning("asset %s not found: %r", path, e, exc_info=isinstance(e, OSError))
             return self._text(start_response, "404 Not Found", "not found")
-        cache = "private, max-age=86400" if res.light and self.consent() else "no-store"
-        return self._respond(start_response, "200 OK", res.body, res.mime, [("Cache-Control", cache)])
+        headers = [("Cache-Control", "no-store")]
+        if res.light and self.consent():
+            digest = hashlib.sha256(HTTP_EXPORT_SCHEMA.encode() + b"\0" + res.body).hexdigest()
+            etag = f'"{digest}"'
+            headers = [("Cache-Control", "private, no-cache"), ("ETag", etag)]
+            if etag in [part.strip().removeprefix("W/") for part in validator.split(",")]:
+                return self._respond(start_response, "304 Not Modified", b"", res.mime, headers)
+        return self._respond(start_response, "200 OK", res.body, res.mime, headers)
 
     def _static(self, path: str, start_response: Callable) -> Iterable[bytes]:
         rel = "index.html" if path in ("", "/") else path.lstrip("/")
@@ -193,6 +202,10 @@ class WebApp:
             return self._text(start_response, "404 Not Found", "not found")
         mime = MIME.get(file.suffix.lower()) or mimetypes.guess_type(file.name)[0] or "application/octet-stream"
         body = file.read_bytes()
+        if rel == "index.html":
+            body = body.replace(b"</head>", f'<meta name="bamt-ui-exports" content="{HTTP_EXPORT_SCHEMA}"></head>'.encode())
+        if file.suffix.lower() == ".css":
+            body = re.sub(rb'(/asset/ui/[^"\s)]+)', lambda m: m[1] + b"?export=" + HTTP_EXPORT_SCHEMA.encode(), body)
         if rel == "index.html" and self.ui_cached():
             body = body.replace(b'class="loading full on neutral"', b'class="loading full on"')
             body = body.replace(b'<div class="loading-plain"><span></span></div>',

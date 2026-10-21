@@ -21,6 +21,7 @@
 // Both use the game's textures from the light /asset/ui/texture route; without a game the system cursor stays and
 // there is no effect.
 import * as FX from "./touch-fx.js";
+import { textureUrl } from "./api.js";
 
 const POINTER = "PCIcon_MousePoint";
 const TEXTURES = { ring: "FX_TEX_Grad_Ring3", disc: "FX_TEX_Circle_01", tri: "FX_TEX_Triangle_02_1", trail: "FX_TEX_Trail_03" };
@@ -32,7 +33,7 @@ function image(name) {
     const img = new Image();
     img.onload = () => resolve(img);
     img.onerror = () => resolve(null);
-    img.src = `/asset/ui/texture/${name}.png`;
+    img.src = textureUrl(name);
   });
 }
 

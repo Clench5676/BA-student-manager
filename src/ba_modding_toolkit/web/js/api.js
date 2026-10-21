@@ -107,8 +107,16 @@ export function waitJob(id, onProgress, { pollEvery = 1500, maxErrors = 3, timeo
 }
 
 // asset URLs
-export const spriteUrl = (atlas, name) => `/asset/ui/sprite/${encodeURIComponent(atlas)}/${encodeURIComponent(name)}.png`;
-export const textureUrl = (name) => `/asset/ui/texture/${encodeURIComponent(name)}.png`;
+// The bootstrap epoch bypasses legacy max-age entries. Every new light response
+// also revalidates its schema/content ETag, including after game resource changes.
+export function uiExportUrl(url) {
+  const epoch = globalThis.document?.querySelector?.('meta[name="bamt-ui-exports"]')?.content;
+  if (!epoch || !url.startsWith("/asset/ui/")) return url;
+  const parsed = new URL(url, "http://exports.invalid"); parsed.searchParams.set("export", epoch);
+  return `${parsed.pathname}${parsed.search}`;
+}
+export const spriteUrl = (atlas, name) => uiExportUrl(`/asset/ui/sprite/${encodeURIComponent(atlas)}/${encodeURIComponent(name)}.png`);
+export const textureUrl = (name) => uiExportUrl(`/asset/ui/texture/${encodeURIComponent(name)}.png`);
 // what every skeleton URL of a core starts with, whatever the file: the library.changed handler forgets the
 // thumbnails under it once the core's game files were switched
 export const spinePrefix = (kind, key) => `/asset/spine/${kind}/${encodeURIComponent(key)}`;
