@@ -614,7 +614,7 @@ def process_mod_update(
         for src in source_paths:
             src_bundle = Bundle.load(src, log)
             if not src_bundle:
-                continue
+                return ModUpdateResult(False, t("message.load_failed"), [])
             patch, conflicts = src_bundle.extract_patch(asset_types_to_replace, match_strategy, spine_options)
             patches.update(patch)
             skel_conflicts.extend(conflicts)
@@ -635,11 +635,13 @@ def process_mod_update(
         file_pairs: list[FilePair] = []
         total_matched = 0  # 总匹配数（包括跳过的）
         anim_diffs: dict[str, set[str]] = {}
+        failed_targets = False
 
         for tgt in target_paths:
             tgt_bundle = Bundle.load(tgt, log)
             if not tgt_bundle:
                 log(f"  ❌ {t('message.load_failed')}: {tgt.name}")
+                failed_targets = True
                 continue
             
             result = tgt_bundle.apply_patch(patches, match_strategy, anim_check)
@@ -664,11 +666,16 @@ def process_mod_update(
                     log(f"  ✅ {t('log.mod_update.target_processed', name=tgt.name, applied=result.applied_count)}")
                 else:
                     log(f"  ❌ {t('log.file.save_failed', path=output_path, error=save_message)}")
+                    failed_targets = True
             else:
                 log(f"  > {t('log.file.no_changes_made')} ({tgt.name})")
 
         # 3. 归一化动画差异（按 skel 名排序）
         final_anim_diffs: AnimDiffMap = {k: sorted(v) for k, v in anim_diffs.items()}
+
+        # A partial save is a failed mod, even when another part was unchanged or saved successfully.
+        if failed_targets:
+            return ModUpdateResult(False, t("message.mod_update.no_targets_processed"), [], final_anim_diffs)
 
         if not file_pairs:
             # 区分：完全没有匹配 vs 匹配了但都被跳过

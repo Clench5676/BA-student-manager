@@ -153,7 +153,8 @@ def _changed_of(result: Any) -> dict[str, list[str]]:
         return {"cores": sorted({m.core for m in switched}), "kinds": sorted({m.kind for m in switched}), "mods": True}
     cores, kinds = getattr(result, "cores", None), getattr(result, "kinds", None)
     if cores is not None and kinds is not None:
-        return {"cores": sorted(cores), "kinds": sorted(kinds)}
+        return {"cores": sorted(cores), "kinds": sorted(kinds),
+                **({"mods": True} if getattr(result, "mods_changed", False) else {})}
     files = getattr(result, "files", None)
     if isinstance(files, list):
         names = [parse_filename(Path(f).name).core.lower() for f in files if isinstance(f, (str, Path))]
@@ -247,6 +248,9 @@ class Services:
         self.jobs.listen(self._job_finished)
         self.watch: Any = None  # the GameWatch, once start() runs
         self.settings.on_change(self._on_settings_changed)
+        from .batch_import import BatchImport
+
+        self.batch_import = BatchImport(self)
 
     # --- lazily built services ---
 

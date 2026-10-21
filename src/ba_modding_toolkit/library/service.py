@@ -854,6 +854,49 @@ class ModLibrary:
         report["remappable"] = report["remappable"] and not (report["repaired_from"] or report["repaired_id"])
         return report
 
+    @_serialized
+    def inspect_import(self, files: dict[str, Path], pin: Pin | None = None) -> dict:
+        """Preflight canonical upload names without storing or adopting anything.
+
+        Use the same identities, dependency checks and installed-content judgement as add().
+        Original recovery is deliberately separate: an already installed upload can be recognized
+        even when an outside installer left no official copy behind.
+        """
+        for path in files.values():
+            devmode.check_read(path)
+        identity = self._identity(files)
+        duplicate = self._known().get(identity)
+        core_name = core_of(next(iter(files)))
+        pin = pin or self.current_pin()
+        targets = self._spine_parts(core_name, pin) if pin else []
+        installed = False
+        if pin:
+            entry = self._view([pin], "full").entry(pin, core_name)
+            installed = self._matches_installed(identity, entry)
+        if duplicate or installed:
+            return {"identity": identity, "libraryId": duplicate, "installed": installed, "targets": targets}
+        self._check_group(files, pin, compatibility=False)
+        report = self._check_group(files, pin)
+        return {"identity": identity, "libraryId": None, "installed": False, "compatibility": report,
+                "targets": targets}
+
+    @_serialized
+    def apply_import(self, variant_key: str, source: str, *, kind: Kind, pin: Pin,
+                     settings: Settings, backup: bool, log: LogFunc = no_log,
+                     progress: ProgressCallback | None = None) -> ApplyResult:
+        """Apply with one import's save settings, retaining the normal switch and transaction checks.
+
+        The settings adapter is local to this serialized operation; neither config.toml nor
+        the shared Settings object changes. Deferred configurations use the usual switch flow.
+        """
+        previous = self.settings
+        self.settings = settings
+        try:
+            return self.apply(variant_key, source, kind=kind, pin=pin, log=log,
+                              progress=progress, create_backup=backup)
+        finally:
+            self.settings = previous
+
     def add_and_apply(self, paths: list[Path], progress: ProgressCallback | None = None,
                       pin: Pin | None = None, log: LogFunc = no_log) -> AddResult:
         """The web add action: store, check, then use the same switch as a source selection."""
@@ -1869,7 +1912,7 @@ class ModLibrary:
 
     def _commit(self, replacements: dict[Path, Path], source: str, log: LogFunc,
                 progress: ProgressCallback | None = None, pin: Pin | None = None, prune: bool = True,
-                build_keys: dict[Path, str] | None = None) -> list[Path]:
+                build_keys: dict[Path, str] | None = None, create_backup: bool = False) -> list[Path]:
         """Write prepared files over game files as one unit, keeping what they replace: the official file in
         originals/ (once), a file kept nowhere else as a library mod (_keep_replaced). Every written part is rolled
         back on failure. With ``prune``, kept originals no longer needed are deleted afterwards, whatever the
@@ -1877,7 +1920,8 @@ class ModLibrary:
         pin = self._current(pin)
         try:
             with self._transaction_lock():
-                return self._write(replacements, source, log, progress, pin, build_keys)
+                return self._write(replacements, source, log, progress, pin, build_keys,
+                                   create_backup=create_backup)
         finally:
             if prune:
                 self._prune_quietly()
@@ -1983,7 +2027,8 @@ class ModLibrary:
             self._save()
 
     def _write(self, replacements: dict[Path, Path], source: str, log: LogFunc,
-               progress: ProgressCallback | None, pin: Pin, build_keys: dict[Path, str] | None = None) -> list[Path]:
+               progress: ProgressCallback | None, pin: Pin, build_keys: dict[Path, str] | None = None,
+               *, create_backup: bool = False) -> list[Path]:
         dirs = list(pin.dirs)
         for target, prepared in replacements.items():
             check_resource_path(target, dirs)
@@ -2065,6 +2110,10 @@ class ModLibrary:
                 atomic_json(journal, transaction)
                 try:
                     for item, target in zip(items, changed):
+                        if create_backup and officials[target] == target.with_name(target.name + ".backup"):
+                            # Keep the only official baseline before the adjacent backup is replaced.
+                            self._keep_original(target, pin)
+                        mod_install.backup_file(target, create_backup, log)
                         self._keep_original(target, pin, moving=True)
                         if not item["official"]:
                             backup = self.root / item["rollback"]
@@ -2179,7 +2228,7 @@ class ModLibrary:
 
     @_serialized
     def apply(self, variant_key: str, source: str, log: LogFunc = no_log, progress: ProgressCallback | None = None,
-              kind: Kind | None = "spr", pin: Pin | None = None) -> ApplyResult:
+              kind: Kind | None = "spr", pin: Pin | None = None, *, create_backup: bool = False) -> ApplyResult:
         """Install one kind from a mod, variant, or originals; None selects both, and configure it.
 
         A mod replaces all parts of its own kind as a unit. Another variant's mod must belong to the same family and
@@ -2249,7 +2298,8 @@ class ModLibrary:
                 else:
                     raise ServiceError("source_unsupported", source=source)
                 prepared = time.perf_counter()
-                files = self._commit(replacements, source, log, progress, pin, prune=False, build_keys=build_keys)
+                files = self._commit(replacements, source, log, progress, pin, prune=False, build_keys=build_keys,
+                                     create_backup=create_backup)
                 self._configure(pin, variant_key, kinds, source)
                 for core in kinds.values():
                     self._clear_marker(pin, core)
