@@ -1386,7 +1386,7 @@ test("clean Update asks Cancel / Update and reuses the checked report; problems 
   handlers.set("actions.update", () => { updates++; return { result: "force-update" }; });
   handlers.set("family.get", () => ({ result: structuredClone(fam) }));
   handlers.set("jobs.get", ({ id }) => ({ result: { state: "done", result: id === "force-check"
-    ? { official: inputs, mod: inputs, unavailable: problems } : {} } }));
+    ? { official: problems ? { ...inputs, skeletons: { "required.skel": {} } } : inputs, mod: inputs } : {} } }));
   Detail.setupPreviewTest(fam, "spr");
   let work = Detail.runCompatibility(); (await drawn(dialog, "ok")).click(); await work;
   assert.equal(checks, 1); assert.equal(updates, 0);
@@ -1403,4 +1403,28 @@ test("clean Update asks Cancel / Update and reuses the checked report; problems 
   assert.ok(!walk(dialog).some((el) => el.textContent.replaceAll("\n", " ") === english.compatibility.forceUpdate));
   const exact = JSON.parse(readFileSync(new URL("../../src/ba_modding_toolkit/locales/zh-CN.json", import.meta.url))).webui.compatibility.forceUpdate;
   assert.equal(exact, "\u76ee\u524d\u5b8c\u6574\u6027\u65e0\u95ee\u9898\uff0c\u662f\u5426\u786e\u5b9a\u4ecd\u8981\u5f3a\u5236\u66f4\u65b0\uff1f");
+});
+
+for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) test(`unavailable compatibility asks before updating in ${locale}`, async () => {
+  const ui = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${locale}.json`, import.meta.url))).webui;
+  setStrings(locale, Object.fromEntries(strings(ui))); await modsEnabled(false);
+  const inputs = { skeletons: {}, atlases: {}, textures: {} }, fam = previewFamily();
+  let updates = 0;
+  handlers.set("actions.compatibilityStamp", () => ({ result: `unchecked-${locale}` }));
+  handlers.set("actions.compatibility", () => ({ result: "unchecked-check" }));
+  handlers.set("actions.update", () => { updates++; return { result: "unchecked-update" }; });
+  handlers.set("family.get", () => ({ result: structuredClone(fam) }));
+  handlers.set("jobs.get", ({ id }) => ({ result: { state: "done", result: id === "unchecked-check"
+    ? { official: inputs, mod: inputs, unavailable: true } : {} } }));
+  Detail.setupPreviewTest(fam, "spr");
+  try {
+    let work = Detail.runUpdate(); await drawn(dialog, "cancel");
+    assert.ok(walk(dialog).some((el) => el.textContent.replaceAll("\n", " ") === ui.compatibility.updateUnchecked));
+    assert.ok(walk(dialog).some((el) => el.dataset.path === "Center/Popup/Base/BG"));
+    assert.equal(action(dialog, "ok").getAttribute("aria-label"), ui.act.update);
+    assert.equal(action(dialog, "cancel").getAttribute("aria-label"), ui.popup.cancel);
+    action(dialog, "cancel").click(); assert.equal(await work, false); assert.equal(updates, 0);
+    work = Detail.runUpdate(); (await drawn(dialog, "ok")).click(); assert.equal(await work, true);
+    assert.equal(updates, 1);
+  } finally { setStrings("en-US", Object.fromEntries(strings(english))); }
 });

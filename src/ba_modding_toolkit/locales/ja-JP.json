@@ -1404,6 +1404,7 @@
 			"runtimeVersion": "{name}、Spine {version}、ランタイム {runtime}",
 			"missingAnimations": "{name}、必須アニメーション不足：{names}",
 			"ported": "現在のバンドルにアセットを移植済み",
+			"updateUnchecked": "互換性を確認できません。それでも更新しますか？",
 			"forceUpdate": "現在、整合性に問題はありません。それでも強制更新しますか？"
 		},
 		"remap": {

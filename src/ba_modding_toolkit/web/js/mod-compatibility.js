@@ -18,7 +18,8 @@ function progressTask(action, name, run) {
   return Loading.task((update) => run((p) => update({ label: text(p) })), { label: text() });
 }
 export const eligible = (mod) => mod?.kind !== "model" && !mod?.repaired_from && !mod?.repaired_id;
-export const canRemap = (id, mod = null) => eligible(mod) && eligible(reports.get(id)) && reports.get(id)?.remappable === true;
+export const canRemap = (id, mod = null) => eligible(mod) && eligible(reports.get(id))
+  && reports.get(id)?.remappable === true && reports.get(id)?.assessment?.remap === true;
 
 export function readSkeleton(input, runtime = globalThis.spine) {
   const bytes = Uint8Array.from(atob(input.data), (c) => c.charCodeAt(0));
@@ -60,6 +61,7 @@ export function readSkeleton(input, runtime = globalThis.spine) {
 }
 
 export function compare(report, runtime = globalThis.spine, summarize = false) {
+  if (!runtime && report.kind !== "model") return { available: false, issues: [{ key: "unavailable", params: {} }], author: false, remap: false };
   const issues = [], add = (key, params = {}, detail = null) => issues.push({ key, params, ...(detail ? { detail } : {}) });
   const list = summarize ? shortList : joined;
   const official = report.official, mod = report.mod;
@@ -108,8 +110,17 @@ export function compare(report, runtime = globalThis.spine, summarize = false) {
     if (!size || !page.width || !page.height || size[0] * page.height !== size[1] * page.width)
       add("atlasSize", { name: page.name, atlas: `${page.width} × ${page.height}`, texture: size?.join(" × ") || "—" });
   }
-  return { issues, author: issues.some(({ key }) => key !== "unavailable"),
-    remap: eligible(report) && report.remappable === true && issues.some(({ key }) => ["regions", "atlasSize"].includes(key)) };
+  const available = !issues.some(({ key }) => key === "unavailable");
+  return { available, issues, author: issues.some(({ key }) => key !== "unavailable"),
+    remap: available && eligible(report) && report.remappable === true && issues.some(({ key }) => ["regions", "atlasSize"].includes(key)) };
+}
+
+async function assess(report) {
+  let available = report.kind === "model";
+  if (!available) {
+    try { available = await ensureSpine(); } catch { available = false; }
+  }
+  return compare(report, available ? globalThis.spine : null);
 }
 
 export async function show(report, { onRemap } = {}) {
@@ -176,14 +187,18 @@ export async function inspect(id, label = "", stamp = null, subject = label) {
     throw Object.assign(new Error("Compatibility inputs changed"), { code: "entry_changed" });
   }
   stamps.set(id, stamp);
-  reports.set(id, { ...report, remappable: report.kind !== "model" && await ensureSpine() ? compare(report).remap : false });
-  return report;
+  const checked = { ...report, assessment: await assess(report) };
+  reports.set(id, checked);
+  return checked;
 }
 
 // Reuse a report only while the exact Mod, install and candidate official source files still match.
 export async function forUpdate(id, label = "", subject = label) {
   const stamp = await rpc("actions.compatibilityStamp", { mod: id });
-  return stamps.get(id) === stamp && reports.has(id) ? reports.get(id) : inspect(id, label, stamp, subject);
+  if (stamps.get(id) !== stamp || !reports.has(id)) return inspect(id, label, stamp, subject);
+  const report = reports.get(id), checked = { ...report, assessment: await assess(report) };
+  reports.set(id, checked);
+  return checked;
 }
 
 export async function check(id, label = "", onRemapped = () => {}, mod = null, subject = label) {

@@ -32,7 +32,7 @@ async function harness(locale = "en-US", button = "cancel", accept = false) {
   const saved = { mod: { id: "new-mod", repaired_from: "old-mod" } };
   globalThis.compatibilityDeps = {
     jobProgress,
-    ensureSpine: async () => licensed,
+    ensureSpine: async () => { if (licensed === "error") throw new Error("Runtime failed to load"); return licensed; },
     confirmLicence: async () => { confirms++; return licensed; },
     language: () => locale,
     T: (key, vars = {}) => key.split(".").reduce((o, k) => o?.[k], strings)?.replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? "") || key,
@@ -307,4 +307,30 @@ test("inputs changed during the check invalidate the report and refuse the updat
   h.afterCheck(() => {});
   assert.ok(await h.mod.forUpdate("old-mod"));
   assert.equal(h.calls.filter(([method]) => method === "actions.compatibility").length, 2);
+});
+
+
+test("missing runtime, declined consent and runtime load failures remain unavailable instead of integrity findings", async () => {
+  const h = await harness(), healthy = report();
+  const missing = h.mod.compare(healthy, null);
+  assert.equal(missing.available, false);
+  assert.deepEqual(missing.issues.map(({ key }) => key), ["unavailable"]);
+  assert.equal(missing.author, false); assert.equal(missing.remap, false);
+  h.use({ ...mixedReport(), unavailable: true });
+  const incomplete = await h.mod.forUpdate("incomplete-mod");
+  assert.equal(incomplete.assessment.available, false);
+  assert.equal(h.mod.canRemap("incomplete-mod"), false, "incomplete official inputs cannot bypass the update question through remap");
+  h.use(healthy);
+  for (const availability of [false, "error"]) {
+    h.license(availability);
+    const checked = await h.mod.forUpdate("healthy-mod");
+    assert.equal(checked.assessment.available, false);
+    assert.deepEqual(checked.assessment.issues.map(({ key }) => key), ["unavailable"]);
+    assert.equal(h.mod.canRemap("healthy-mod"), false);
+  }
+  h.license(true);
+  const checked = await h.mod.forUpdate("healthy-mod");
+  assert.equal(checked.assessment.available, true, "a cached report is assessed again when the runtime becomes available");
+  assert.deepEqual(checked.assessment.issues, []);
+  assert.equal(h.calls.filter(([method, params]) => method === "actions.compatibility" && params.mod === "healthy-mod").length, 1);
 });

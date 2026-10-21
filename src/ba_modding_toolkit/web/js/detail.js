@@ -709,8 +709,8 @@ async function runUpdate(c = shownMod()) {
   const report = await call(() => Loading.hold(() => Compatibility.forUpdate(c.id, c.label, modProgressName(c)), { all: true }));
   if (!report || page !== pageToken || !open) return false;
   if (Compatibility.eligible(c.mod) && Compatibility.canRemap(c.id, c.mod)) return runRemap(c);
-  if (!Compatibility.compare(report).issues.length) {
-    const answer = await message({ title: T("act.update"), lines: [T("compatibility.forceUpdate")],
+  if (!report.assessment.available || !report.assessment.issues.length) {
+    const answer = await message({ title: T("act.update"), lines: [T(report.assessment.available ? "compatibility.forceUpdate" : "compatibility.updateUnchecked")],
       cancel: T("popup.cancel"), ok: T("act.update") });
     if (answer.button !== "ok" || page !== pageToken || !open) return false;
   }

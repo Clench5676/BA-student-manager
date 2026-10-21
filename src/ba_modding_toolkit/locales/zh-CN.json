@@ -1404,6 +1404,7 @@
 			"runtimeVersion": "{name}，Spine {version}，运行时 {runtime}",
 			"missingAnimations": "{name}，缺少必需动画：{names}",
 			"ported": "资源已移植到当前资源包",
+			"updateUnchecked": "无法检查兼容性，仍要更新？",
 			"forceUpdate": "目前完整性无问题，是否确定仍要强制更新？"
 		},
 		"remap": {

@@ -1404,6 +1404,7 @@
 			"runtimeVersion": "{name}, Spine {version}, รันไทม์ {runtime}",
 			"missingAnimations": "{name}, ขาดแอนิเมชันที่จำเป็น: {names}",
 			"ported": "ย้ายทรัพยากรไปยัง Bundle ปัจจุบันแล้ว",
+			"updateUnchecked": "ตรวจสอบความเข้ากันไม่ได้ ยังจะอัปเดตหรือไม่?",
 			"forceUpdate": "ขณะนี้ไม่พบปัญหาความสมบูรณ์ คุณยังยืนยันว่าจะบังคับอัปเดตหรือไม่?"
 		},
 		"remap": {
