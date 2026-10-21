@@ -770,3 +770,18 @@ def test_real_chibi_exports(tmp_path):
         fade = [m["extras"]["colors"].get("_CameraFadeParams") for m in _strict(game.model_glb("saya_original"))["materials"]]
         assert [0.0, model.FLT_MAX, 0.0, 0.0] in fade
     assert not (tmp_path / "cache").exists()
+
+
+def test_model_preview_overrides_the_prefab_root_as_well_as_dependencies(tmp_path, monkeypatch):
+    prefab = 'character-ch0242-_mxload-2024-11-18_assets_all_1.bundle'
+    game, resources = _game(tmp_path, prefab)
+    upload = tmp_path / 'preview' / prefab
+    upload.parent.mkdir()
+    upload.write_bytes(_unityfs(['CAB-mod']))
+    calls = []
+    def export(graph, bundles, dev):
+        calls.append((list(bundles), graph.index['cab-mod']))
+        return b'glTF preview'
+    monkeypatch.setattr(model, 'export_chibi', export)
+    assert game.model_glb('ch0242', overrides=[upload]) == b'glTF preview'
+    assert calls == [([upload], str(upload))]

@@ -35,7 +35,7 @@ import { customAliases as aliasesOf, modOriginalName, studentName } from "./name
 import { setTitle } from "./nav.js";
 import { KEYS, deltaOf, pacer, typing } from "./step-keys.js";
 import { FRAME_Y, closable, hit as hitNode, listPopup, message, popupFrame, scrollArea } from "./popup.js";
-import { availableTab, coreOf, hasAsset, primaryKind, appliedKey as keyOf, appliedOf, candidates as listSources, partsOf, popupMode, previewBase, previewChanged, previewKey, sourceOf, switchKindOf } from "./switch-sources.js";
+import { availableTab, coreOf, hasAsset, primaryKind, appliedKey as keyOf, appliedOf, candidates as listSources, partsOf, popupMode, modelSource, previewBase, previewChanged, previewKey, sourceOf, switchKindOf } from "./switch-sources.js";
 import {
   $, DOT, RECRUIT, S, TAN10, advanceOf, at, clone, glyphsOf, hitButton, markedLabel, off, text, toast, widget, wrapPath,
 } from "./util.js";
@@ -60,7 +60,7 @@ let ctx = null, fam = null, variantKey = null, layouts = null;
 let previewEnabled = true;
 let tab = "portrait", fullscreen = false, expression = "00", expanded = false, exprScroll = 0;
 let mainPlayer = null, blinkTimer = null, pending = null, pickerSel = null, lobbySeq = null, busy = false, lobbyShot = null;
-let modelShot = null, modelActions = [], modelAction = null;
+let modelShot = null, modelActions = [], modelAction = null, modelGeneration = 0;
 // three.js and the model viewer load with the first 3D model
 let modelLib = null;
 const ModelLib = () => (modelLib ||= import("./model.js"));
@@ -196,7 +196,7 @@ function candidates(v = variant(), kind = "spr") {
 }
 // the kind of game file the shown tab is about, and the newest date of a kind's files
 const tabKind = () => (tab === "lobby" || tab === "model" ? tab : "spr");
-// the switch card's kind on the shown tab: the portrait or the lobby; null on the 3D tab (the library keeps no 3D mods)
+// The switch card uses the kind of the shown asset tab.
 const switchKind = () => switchKindOf(tab);
 const dateOf = (v, kind) => (kind === "spr" ? v.date : partsOf(v, kind).map((f) => f.date).filter(Boolean).sort().pop());
 function crcOf(v, kind = "spr") {
@@ -211,10 +211,11 @@ const current = (kind = "spr") => candidates(variant(), kind).find((c) => c.key 
 // a candidate's name on the cards: another variant's mod with that variant's name first
 const candidateLabel = (c, v = variant()) => (c.kind === "mod" && !c.mod.alias && c.origin && c.origin.key !== v.key ? `${shortName(c.origin)} - ${c.label}` : c.label);
 // The lobby's preview source as a label: the original, a mod's or another variant's name, or "replaced".
-function lobbyLabel(v) {
-  const key = shownSource(v, "lobby");
-  if (key === "self") return T("lobby.original");
-  const c = candidates(v, "lobby").find((x) => x.key === key);
+const lobbyLabel = (v) => sourceLabel(v, "lobby");
+function sourceLabel(v, kind) {
+  const key = shownSource(v, kind);
+  if (key === "self") return T(`${kind}.original`);
+  const c = candidates(v, kind).find((x) => x.key === key);
   return c ? candidateLabel(c, v) : T("status.replaced");
 }
 const gameFile = (v = variant(), kind = "spr") => partsOf(v, kind)[0]?.file || null;
@@ -257,7 +258,7 @@ function screenTree() {
   off(t, "Top", "NUITop_Scenes", "LeftInfo/CharInfo_Disable", "LeftInfo/CharCombatStyle", "RightInfo/Target/Disable",
     "RightInfo/Target/Active/2_LevelUp", "RightInfo/Target/Active/3_Transcendence", "RightInfo/Target/Active/FullCollier", "RightInfo/Target/Active/Effect");
   const v = variant(), sk = switchKind(), c = current(sk || "spr"), kind = tabKind();
-  const swapped = tab === "lobby" ? appliedOf(v, "lobby") !== "official" : tab === "model" ? false : appliedKey() !== "self";
+  const swapped = appliedOf(v, kind) !== "official";
   // layer 1 of the panel: measured on the game screenshots it lets about 55 % of the background through
   widget(t, "RightInfo/Target/Active/Bg").color = "#0c284b/0.45";
 
@@ -287,7 +288,7 @@ function screenTree() {
   text(t, `${INFO}/Detail_Btn/Label_Locale`, T("info.details"));
   const crcState = crcOf(v, kind);
   const crc = crcState === "fixed" ? ["crc.fixed", "#1f9a52"] : crcState === "needs_fix" ? ["crc.needed", "#d9822b"] : ["crc.original", "#000000"];
-  const now = tab === "portrait" ? c.label : tab === "lobby" ? lobbyLabel(v) : T("model.original");
+  const now = tab === "portrait" ? c.label : sourceLabel(v, kind);
   const stats = [["Label_Life", "info.current", "Data_Widget/Data", now],
     ["Label_Attact", "info.status", "Data_Widget/Data", T(swapped ? "status.replaced" : "status.original")],
     ["Label_Defense", "info.gameFile", "Data", dateOf(v, kind) || "—"], ["Label_Healing", "info.crc", "Data_Widget/Data", T(crc[0]), crc[1]]];
@@ -527,7 +528,7 @@ function addSwitchText(host, view) {
   box.className = "switch-text";
   const textW = w * 0.42 - 44; // the chevron sits in the last 44 px
   Object.assign(box.style, { left: `${l + w * 0.5}px`, top: `${t}px`, width: `${w * 0.42}px`, height: `${h * 0.94}px`, paddingRight: "44px" });
-  const sub = tab === "lobby" ? lobbyLabel(variant()) : tab === "model" ? T("model.original") : candidateLabel(current());
+  const sub = tab === "portrait" ? candidateLabel(current()) : sourceLabel(variant(), tabKind());
   const title = T(isSpecial(variant()) && tab === "lobby" ? "special.switch" : `row.switch.${tab}`);
   const tf = fitText(title, 46, 34, textW / S), sf = fitText(sub, 32, 24, textW / S);
   box.style.setProperty("--title-size", `${NGUI.fontSizeFor(title, tf.fs) * S}px`);
@@ -536,7 +537,7 @@ function addSwitchText(host, view) {
   b.innerText = tf.text;
   span.innerText = sf.text;
   go.className = "switch-go";
-  // the chevron only where the card opens a popup: the 3D card has nothing to switch to and stays inert (hits)
+  // The chevron opens the shared source popup.
   box.append(b, span, ...(switchKind() ? [go] : []));
   host.appendChild(box);
   const bust = view.nodes.get(`Inventory_ListControl/${INFO}/Weapon/Equip_1/UIEquipmentCard/Btn_Target/Normal/Bust`);
@@ -552,7 +553,7 @@ function hits(view, leftHost, rightHost) {
     const el = view.nodes.get(`Inventory_ListControl/${path}`)?.els[0];
     if (el) hitButton(host, rect(el), fn, name).dataset.part = path;
   };
-  // the switch card puts another source on the game files of the shown tab (the 3D tab has none to offer yet)
+  // The switch card selects a source for the shown asset kind.
   const sk = switchKind();
   if (sk) {
     add(rightHost, `${INFO}/Weapon/Equip_1/UIEquipmentCard/Btn_Target/Normal/Card_Bg`, () => openPopup(sk), T(isSpecial(variant()) && sk === "lobby" ? "special.switch" : `row.switch.${tab}`));
@@ -692,7 +693,7 @@ async function runUpdate(c = shownMod()) {
 async function runCompatibility() {
   const c = shownMod();
   if (!c || busy) return;
-  await call(() => Compatibility.check(c.id, c.label, remapped));
+  await call(() => Compatibility.check(c.id, c.label, remapped, c.mod));
   if (open) await renderScreen();
 }
 async function remapped() {
@@ -731,7 +732,7 @@ async function applyCandidate(key, kind = "spr") {
   await job("actions.apply", { variant: v.key, source: sourceOf(key), kind }, {
     onDone: (result) => {
       if (result?.files?.length) {
-        const core = kind === "lobby" ? v.lobby : v.spr;
+        const core = coreOf(v, kind);
         forget(spinePrefix(kind, core));
         forget(spinePrefix(`official-${kind}`, core));
       }
@@ -1140,7 +1141,8 @@ async function drawPopup(scroll = 0) {
     original: c.mod?.alias ? modOriginalName(c.mod) : "",
     nameEdit: c.kind === "mod" ? { label: T("modAlias.title"), fn: (s = scroll) => editModName(c.mod,
       () => switchPopupPage === pageToken && !$("popup").hidden ? renderPopup(s) : null) } : null,
-    thumb: thumb(baseOf(c, kind), "card", null, kind === "lobby", specialFraming(v)), big: () => thumb(baseOf(c, kind), "bust", null, kind === "lobby", specialFraming(v)),
+    thumb: kind === "model" ? (c.origin || c.variant || v).portrait : thumb(baseOf(c, kind), "card", null, kind === "lobby", specialFraming(v)),
+    big: () => kind === "model" ? (c.origin || c.variant || v).portrait : thumb(baseOf(c, kind), "bust", null, kind === "lobby", specialFraming(v)),
     inUse: c.key === inUseKey, fav: c.fav, isNew: c.kind === "mod" && c.mod.fresh, src: c,
     inUseText: mode.set && c.key === mode.set ? T("switch.configured") : null,
     dim: c.greyed,
@@ -1150,7 +1152,7 @@ async function drawPopup(scroll = 0) {
     .filter((it) => popupSeg === 0 || (popupSeg === 1) === !!it.recruit)
     .sort((a, b) => (b.fav ? 1 : 0) - (a.fav ? 1 : 0));
   await listPopup({
-    hostId: "popup", title: T(isSpecial(v) ? "special.switch" : kind === "lobby" ? "row.switch.lobby" : "popup.switch"), okText: T(mode.button), items, selected: pending, keepScroll: scroll,
+    hostId: "popup", title: T(isSpecial(v) ? "special.switch" : kind === "spr" ? "popup.switch" : `row.switch.${kind}`), okText: T(mode.button), items, selected: pending, keepScroll: scroll,
     tools: { segs: ["seg.all", "seg.recruit", "seg.noRecruit"], seg: popupSeg, onSeg: (i) => { popupSeg = i; renderPopup(); }, sortKey: "sort.default" },
     onSelect: (key, s) => {
       const c = candidates(v, kind).find((x) => x.key === key);
@@ -1172,13 +1174,13 @@ async function drawPopup(scroll = 0) {
       const crcState = c.key === appliedKey(v, kind) ? crcOf(v, kind) : null;
       const crc = crcState === "fixed" ? ["crc.fixed", "#1f9a52"] : crcState === "needs_fix" ? ["crc.needed", "#d9822b"] : crcState === "ok" ? ["crc.original", ""] : null;
       return {
-        title: T(isSpecial(v) ? "special.background" : kind === "lobby" ? "info.title.lobby" : "info.title.portrait"),
+        title: T(isSpecial(v) ? "special.background" : kind === "spr" ? "info.title.portrait" : `info.title.${kind}`),
         fields: [[T("field.file"), baseName(file)], [T("field.size"), sizeText(size)], [T("field.status"), T(status[0]), status[1] && `${status[1]}/1.00`],
           [T("field.crc"), crc ? T(crc[0]) : "—", crc?.[1] && `${crc[1]}/1.00`]],
         actions: [[T(platform === "mac" ? "open.mac" : "open.win"), () => reveal(file)],
           ...(c.kind === "mod" ? [[T("compatibility.check"), async () => {
             let rebuilt = false;
-            await call(() => Compatibility.check(c.id, c.label, () => { rebuilt = true; return remapped(); }));
+            await call(() => Compatibility.check(c.id, c.label, () => { rebuilt = true; return remapped(); }, c.mod));
             if (open && !rebuilt) await renderPopup();
           }], ...(repairedId(c) ? [[T("remap.go"), () => jumpRepaired(c)]] : [[T("act.update"), () => runUpdate(c)]])] : []),
           c.kind === "mod"
@@ -1261,7 +1263,7 @@ async function removeMod(id) {
 // the Add First or Overwritten message of a variant's files of a kind (prompts.js); resolves with true once its mod
 // was added to the library
 function overwrittenMessage(v, kind = "spr") {
-  const core = kind === "lobby" ? v.lobby : v.spr;
+  const core = coreOf(v, kind);
   return Prompts.overwritten({ name: entryLabel({ core, kind }, () => fullName(v)), core, files: partsOf(v, kind) });
 }
 
@@ -1404,15 +1406,15 @@ function detailsInfo() {
   const v = variant(), kind = tabKind(), parts = partsOf(v, kind);
   const first = parts[0]?.file || null;
   const folder = first ? first.replace(/[\\/][^\\/]*$/, "") : "—";
-  const applied = kind === "model" ? "official" : appliedOf(v, kind);
-  const fields = [[T("field.folder"), folder], [T("info.current"), tab === "portrait" ? current().label : tab === "lobby" ? lobbyLabel(v) : T("model.original"), shownMod()?.mod]];
+  const applied = appliedOf(v, kind);
+  const fields = [[T("field.folder"), folder], [T("info.current"), tab === "portrait" ? current().label : sourceLabel(v, kind), shownMod()?.mod]];
   const mod = applied.startsWith("mod:") ? familyMods().find((m) => m.id === applied.slice(4)) : null;
   const from = mod ? fam.variants.find((o) => o.key === mod.target) : applied.startsWith("variant:") ? fam.variants.find((o) => o.key === applied.slice(8)) : null;
   if (mod) fields.push([T("field.modFile"), mod.file || "—"]);
   if (from) fields.push([T("field.source"), fullName(from)]);
   const rows = parts.map((p) => {
     const crc = crcLabel(p.crc);
-    return [baseName(p.file), sizeText(p.size), p.date || "—", [crc[0], crc[1]], kind === "model" ? null : carriedLabel(p.applied)];
+    return [baseName(p.file), sizeText(p.size), p.date || "—", [crc[0], crc[1]], carriedLabel(p.applied)];
   });
   return { title: T(isSpecial(v) && tab === "lobby" ? "special.background" : `info.title.${tab}`), fields, rows, reveal: first };
 }
@@ -1533,7 +1535,7 @@ function showTab(id) {
 const LEFT = ["portrait", "lobby", "model"];
 let shownLeft = null, shownKey = null;
 // what the lobby or the model shows: the same variant of another install (game folder, file source) is another one
-const leftKey = (part, v) => (part === "lobby" ? `${v.lobby}:${shownSource(v, "lobby")}@${fam.version}` : part === "model" ? `${v.key}@${fam.version}` : null);
+const leftKey = (part, v) => (part === "lobby" ? `${v.lobby}:${shownSource(v, "lobby")}@${fam.version}` : part === "model" ? `${v.key}:${shownSource(v, "model")}@${fam.version}` : null);
 let lobbyFrom = null; // the install of the lobby in lobby.js, which keeps a lobby shown again by its core
 let lobbyStale = false; // its game files were switched: lobby.js reads them again
 function renderLeft() {
@@ -1668,7 +1670,7 @@ async function showModel(v, my, alive = () => true) {
     const M = await ModelLib();
     if (!still()) return;
     const list = await M.show(v.key, $("model"), {
-      frame: fullscreen ? "full" : "left", version: fam.version,
+      frame: fullscreen ? "full" : "left", version: `${fam.version}:${modelGeneration}`, source: modelSource(v, modsOn()),
       onAction: (a) => { if (tab === "model" && variantKey === v.key) { modelAction = a; renderExpressions(); } },
     });
     if (!list || !still()) return;
@@ -1779,7 +1781,7 @@ async function reload(refresh = []) {
   const data = await call(() => readFamily(fam.key));
   const next = data?.variants.find((v) => v.key === variantKey) || data?.variants[0];
   const changed = new Set(refresh);
-  if (data) for (const kind of ["spr", "lobby"]) if (previewChanged(variant(), next, kind, previewEnabled, modsOn())) changed.add(kind);
+  if (data) for (const kind of ["spr", "lobby", "model"]) if (previewChanged(variant(), next, kind, previewEnabled, modsOn())) changed.add(kind);
   if (data) fam = data;
   for (const kind of changed) resetPreview(kind);
   await Promise.all([renderAll(), changed.has(tabKind()) ? renderLeft() : null]);
@@ -1793,6 +1795,10 @@ function resetPreview(kind) {
     lobbySeq = null;
     lobbyAll = false;
     if (shownLeft === "lobby") shownKey = null;
+  } else if (kind === "model") {
+    modelShot = null;
+    modelGeneration++;
+    if (shownLeft === "model") shownKey = null;
   } else {
     expression = "00";
     clearTimeout(blinkTimer);
@@ -1847,21 +1853,22 @@ async function reloadChanged() {
   if (!data || !open || fam?.key !== key || busy) return;
   // A repacked file can retain its size, date and family fields. A source event still revalidates its manifest.
   const lobbyChanged = change === null || change.cores.includes(lower(variant().lobby));
-  if (JSON.stringify(data) === JSON.stringify(fam) && previewEnabled === modsOn() && !lobbyChanged) return;
+  const modelChanged = change === null || change.cores.includes(lower(variant().model));
+  if (JSON.stringify(data) === JSON.stringify(fam) && previewEnabled === modsOn() && !lobbyChanged && !modelChanged) return;
   // the thumbnails of every core of the family whose files or configured preview changed
-  const changed = { spr: false, lobby: lobbyChanged };
+  const changed = { spr: false, lobby: lobbyChanged, model: modelChanged };
   for (const v of data.variants) {
     const was = fam.variants.find((x) => x.key === v.key);
-    for (const kind of ["spr", "lobby"]) {
+    for (const kind of ["spr", "lobby", "model"]) {
       if (filesSig(was, kind) === filesSig(v, kind) && !previewChanged(was, v, kind, previewEnabled, modsOn())) continue;
-      const core = kind === "spr" ? v.spr : v.lobby;
+      const core = coreOf(v, kind);
       if (core) { forget(spinePrefix(kind, core)); forget(spinePrefix(`official-${kind}`, core)); }
       if (v.key === variantKey) changed[kind] = true;
     }
   }
   ctx.invalidateRoster();
-  for (const kind of ["spr", "lobby"]) if (changed[kind]) resetPreview(kind);
-  const left = (changed.spr && tab === "portrait") || (changed.lobby && tab === "lobby");
+  for (const kind of ["spr", "lobby", "model"]) if (changed[kind]) resetPreview(kind);
+  const left = changed[tabKind()];
   await changeInPlace(async () => {
     fam = data;
     await Promise.all([renderAll(), left ? renderLeft() : null]);

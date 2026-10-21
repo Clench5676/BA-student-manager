@@ -58,10 +58,12 @@ class CoreMap:
     lobby: dict[str, str]  # variant key -> its primary memorial lobby core in the install, as named there
     names: dict[str, dict[str, dict[str, str]]]  # variant key -> the shipped names, for the keys the data has
 
+    model: dict[str, str] = field(default_factory=dict)  # variant key -> installed 3D model core
+
     def key(self, core: str) -> str | None:
         """The variant key of a portrait or lobby core, ignoring letter case; None for a core of neither kind."""
         return self.keys.get(core.lower())
 
     def core(self, key: str, kind: str) -> str | None:
         """A variant's portrait core ("spr") or primary lobby core ("lobby") in the install."""
-        return (self.spr if kind == "spr" else self.lobby).get(key.lower())
+        return {"spr": self.spr, "lobby": self.lobby, "model": self.model}.get(kind, {}).get(key.lower())

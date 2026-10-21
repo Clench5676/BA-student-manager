@@ -11,7 +11,7 @@ const key = (name) => name.replaceAll("\\", "/").split("/").at(-1).toLowerCase()
 const joined = (items) => items.join(/^(zh|ja)/i.test(language()) ? "、" : ", ") || "—";
 const shortList = (items) => items.length > 3 ? T("compatibility.more", { names: joined(items.slice(0, 3)), n: items.length - 3 }) : joined(items);
 const reports = new Map();
-export const eligible = (mod) => !mod?.repaired_from && !mod?.repaired_id;
+export const eligible = (mod) => mod?.kind !== "model" && !mod?.repaired_from && !mod?.repaired_id;
 export const canRemap = (id, mod = null) => eligible(mod) && eligible(reports.get(id)) && reports.get(id)?.remappable === true;
 
 export function readSkeleton(input, runtime = globalThis.spine) {
@@ -107,7 +107,7 @@ export function compare(report, runtime = globalThis.spine, summarize = false) {
 }
 
 export async function show(report, { label = "", onRemap } = {}) {
-  if (!await requireRuntime()) return;
+  if (report.kind !== "model" && !await requireRuntime()) return;
   const result = compare(report, globalThis.spine, true);
   const lines = result.issues.map(({ key, params, detail }) => {
     const text = T(`compatibility.${key}`, params), full = detail ? T(`compatibility.${key}`, detail) : text;
@@ -162,12 +162,12 @@ export async function remap(id, onRemapped = () => {}, label = "") {
 export async function inspect(id, label = "") {
   const report = await Loading.task(async (update) => waitJob(await rpc("actions.compatibility", { mod: id }), update),
     { label: T("progress.compatibility", { name: label || T("progress.mods") }) });
-  reports.set(id, { ...report, remappable: await ensureSpine() ? compare(report).remap : false });
+  reports.set(id, { ...report, remappable: report.kind !== "model" && await ensureSpine() ? compare(report).remap : false });
   return report;
 }
 
-export async function check(id, label = "", onRemapped = () => {}) {
-  if (!await requireRuntime()) return;
+export async function check(id, label = "", onRemapped = () => {}, mod = null) {
+  if (mod?.kind !== "model" && !await requireRuntime()) return;
   const report = await inspect(id, label);
   return show(report, { label, onRemap: () => remap(id, onRemapped, label) });
 }

@@ -5,9 +5,10 @@ from .models import (
     ScanResult, ToggleResult, UpdateResult, VariantState,
 )
 from .service import ModLibrary
+from .judge import supports_kind
 
 __all__ = [
-    "ModLibrary", "ModEntry", "GameFileState", "VariantState", "ApplyResult",
+    "ModLibrary", "supports_kind", "ModEntry", "GameFileState", "VariantState", "ApplyResult",
     "UpdateResult", "CompareResult", "AssetDifference", "Pin", "EntryState", "ScanResult", "AdoptResult",
     "ToggleResult",
 ]

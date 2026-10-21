@@ -84,6 +84,10 @@ def inspect(path: Path) -> Contents:
             stream = getattr(data, "m_StreamData", None)
             if stream and stream.path:
                 result.streams.add(reference(stream.path))
+        elif obj.type.name == "Mesh":
+            stream = getattr(obj.read(), "m_StreamData", None)
+            if stream and stream.path:
+                result.streams.add(reference(stream.path))
         elif obj.type.name == "TextAsset":
             name = obj.peek_name() or ""
             if name.lower().endswith((".skel", ".atlas")):

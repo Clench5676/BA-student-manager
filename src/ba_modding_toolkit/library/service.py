@@ -39,8 +39,8 @@ from . import profiles as profiles_mod
 from . import integrity, safety
 from .identity import identify
 from .judge import (
-    CRC_STATES, LIBRARY_SOURCES, carried_of, classify, core_of, crc_state, date_of, distinguishing_folders,
-    install_key, install_root, kind_of, kind_of_file, leaves, now, part_of, says_official, seconds,
+    CRC_STATES, KINDS, LIBRARY_SOURCES, carried_of, classify, core_of, crc_state, date_of, distinguishing_folders,
+    install_key, install_root, kind_of, kind_of_file, leaves, now, part_of, says_official, seconds, supports_kind,
 )
 from .migrations import LEGACY_REMAP, legacy_remapped
 from .models import (
@@ -556,7 +556,7 @@ class ModLibrary:
                 continue
             if not all(isinstance(record[key], str) for key in ("label", "target", "added")):
                 continue
-            if record["kind"] not in ("spr", "lobby") or not isinstance(record["seen"], bool):
+            if not supports_kind(record["kind"]) or not isinstance(record["seen"], bool):
                 continue
             if all((self.root / "mods" / mod_id / f).is_file() for f in files):
                 records[mod_id] = record
@@ -708,14 +708,28 @@ class ModLibrary:
         """Return the mod entries in insertion order."""
         return [self._entry(record) for record in self._records.values()]
 
+    supports_kind = staticmethod(supports_kind)
+
+    def add_files(self, kind: Kind, paths: list[Path], progress: ProgressCallback | None = None,
+                  pin: Pin | None = None, *, apply: bool = False, log: LogFunc = no_log) -> AddResult:
+        """Import a batch of one supported kind, optionally applying through the master switch."""
+        if not supports_kind(kind):
+            raise ServiceError("mod_unsupported", kind=kind)
+        if any(kind_of_file(Path(path).name.removesuffix(".backup")) != kind for path in paths):
+            raise ServiceError("mod_unsupported", kind=kind)
+        if apply:
+            return self.add_and_apply(paths, progress, pin, log, kind=kind)
+        return self.add(paths, progress, pin, kind=kind)
+
     @_serialized
     @_mod_writer
-    def add(self, paths: list[Path], progress: ProgressCallback | None = None, pin: Pin | None = None) -> AddResult:
+    def add(self, paths: list[Path], progress: ProgressCallback | None = None, pin: Pin | None = None,
+            *, kind: Kind | None = None) -> AddResult:
         """Store one mod per core and date, deduplicating complete bundle sets. In dev mode (devmode) only files
         inside the dev roots are taken."""
         for path in paths:
             devmode.check_read(path)
-        return self._add(paths, progress, pin)
+        return self._add(paths, progress, pin, kind)
 
     def _identity(self, files: dict[str, Path]) -> frozenset:
         return frozenset((core_of(name), self._hashes.get(path).sha1) for name, path in files.items())
@@ -731,7 +745,8 @@ class ModLibrary:
                 known[identity] = record["id"]
         return known
 
-    def _add(self, paths: list[Path], progress: ProgressCallback | None = None, pin: Pin | None = None) -> AddResult:
+    def _add(self, paths: list[Path], progress: ProgressCallback | None = None, pin: Pin | None = None,
+             expected_kind: Kind | None = None) -> AddResult:
         known = self._known()
         groups: dict[tuple[str, str], dict[str, Path]] = {}
         targets = {}
@@ -751,6 +766,8 @@ class ModLibrary:
                     raise ServiceError("mod_unsupported", file=source)
                 name = matches[0]
             name, target, kind = identify(source, name, self.catalog)
+            if expected_kind is not None and kind != expected_kind:
+                raise ServiceError("mod_unsupported", file=source)
             parsed = parse_filename(name)
             targets[parsed.core.lower()] = (target, kind)
             group = groups.setdefault((parsed.core.lower(), parsed.date), {})
@@ -790,6 +807,7 @@ class ModLibrary:
         selected, official, effective = integrity.Contents(), integrity.Contents(), integrity.Contents()
         sources = {name: integrity.inspect(path) for name, path in files.items()}
         core = core_of(next(iter(files)))
+        kind = kind_of_file(next(iter(files)))
         targets = self._spine_parts(core, pin) if pin else []
         originals = {}
         unavailable = not targets
@@ -817,7 +835,7 @@ class ModLibrary:
             selected.atlases = {**{name: data for name, data in official.atlases.items() if name not in paired},
                                **selected.atlases}
         effective.merge(selected)
-        missing = integrity.missing_parts(effective, official) if not compatibility else set()
+        missing = integrity.missing_parts(effective, official) if not compatibility or kind == "model" else set()
         if missing:
             # Name omitted files from the selected folders, without importing them.
             names = dict(effective.reference_names)
@@ -833,7 +851,7 @@ class ModLibrary:
             raise ServiceError("mod_parts_missing", files=", ".join(sorted({names.get(name, name) for name in missing})))
         if not compatibility:
             return {}
-        report = {"official": official.spine(), "mod": effective.spine(), "unavailable": unavailable,
+        report = {"kind": kind, "official": official.spine(), "mod": effective.spine(), "unavailable": unavailable,
                 "outdated": bool(targets) and set(files) != {path.name for path in targets
                     if part_of(path.name) in parts}}
         try:
@@ -855,10 +873,10 @@ class ModLibrary:
         return report
 
     def add_and_apply(self, paths: list[Path], progress: ProgressCallback | None = None,
-                      pin: Pin | None = None, log: LogFunc = no_log) -> AddResult:
+                      pin: Pin | None = None, log: LogFunc = no_log, *, kind: Kind | None = None) -> AddResult:
         """The web add action: store, check, then use the same switch as a source selection."""
         pin = pin or self.current_pin()
-        added = self.add(paths, progress, pin=pin)
+        added = self.add(paths, progress, pin=pin, kind=kind)
         for entry in added:
             try:
                 result = self.apply(entry.target, f"mod:{entry.id}", kind=entry.kind, pin=pin, log=log,
@@ -1167,10 +1185,10 @@ class ModLibrary:
 
     @_serialized
     def variant_cores(self, variant_key: str) -> set[str]:
-        """The portrait and lobby cores of a variant in every known install (lower case), for a scan of them."""
+        """The asset cores of a variant in every known install (lower case), for a scan of them."""
         cores = set()
         for pin in self.installs():
-            for kind in ("spr", "lobby"):
+            for kind in KINDS:
                 core = self._core_map(pin).core(variant_key, kind)
                 if core:
                     cores.add(core.lower())
@@ -1306,6 +1324,18 @@ class ModLibrary:
                     target = spr_of if core.lower().endswith("_spr") else lobby_of
                     target.setdefault(variant.key, core)
             mapped = CoreMap(keys, spr_of, lobby_of, {})
+        models = [slot.core for slot in slots if kind_of(slot.core, slot.category) == "model"]
+        model_map = getattr(self.catalog, "model_map", None)
+        keys = model_map(models) if model_map else {
+            core.lower(): variant.key for core in models
+            if (variant := self.catalog.variant_for_core(core.lower())) is not None}
+        model_of = {}
+        for core in sorted(models):
+            key = keys.get(core.lower())
+            if key:
+                mapped.keys.setdefault(core.lower(), key)
+                model_of.setdefault(key, core)
+        mapped = replace(mapped, model=model_of)
         self._maps[pin.key] = (built_for, mapped)
         return mapped
 
@@ -1349,7 +1379,7 @@ class ModLibrary:
     def _game_files(self, key: str, kind: Kind | None = None, pin: Pin | None = None) -> list[Path]:
         variant = self._variant(key)
         index = self._index(self._current(pin))
-        return [path for current, value in (("spr", variant.spr), ("lobby", variant.lobby))
+        return [path for current, value in (("spr", variant.spr), ("lobby", variant.lobby), ("model", getattr(variant, "model", None)))
                 if value and (kind is None or current == kind) for path in index.get(value.lower(), [])]
 
     def _view(self, pins: list[Pin], allow: str, config: dict | None | type(...) = ...,
@@ -1730,7 +1760,7 @@ class ModLibrary:
         pin = self._current(pin)
         view = self._view(self._view_pins(pin), "family")
         files = []
-        for value in (variant.spr, variant.lobby):
+        for value in (variant.spr, variant.lobby, getattr(variant, "model", None)):
             if not value:
                 continue
             core = value.lower()
@@ -1751,12 +1781,13 @@ class ModLibrary:
 
     @_serialized
     def configured(self, variant_key: str, pin: Pin | None = None) -> dict[str, str | None]:
-        """The sources configured for a variant's primary portrait and lobby cores in the current install."""
+        """The sources configured for a variant's asset kinds in the current install."""
         variant = self._variant(variant_key)
         pin = self._current(pin)
         folder = (((self.profiles.read() or {}).get("folders") or {}).get(pin.key) or {}).get("configured") or {}
         return {kind: (folder.get(value.lower()) or {}).get("source") if value else None
-                for kind, value in (("spr", variant.spr), ("lobby", variant.lobby))}
+                for kind, value in (("spr", variant.spr), ("lobby", variant.lobby), ("model", getattr(variant, "model", None)))
+                if kind != "model" or hasattr(variant, "model")}
 
     @_serialized
     def modified(self, pin: Pin | None = None) -> dict[str, str]:
@@ -1799,8 +1830,11 @@ class ModLibrary:
         return [self._official_for(path, pin) for path in paths]
 
     def _spine_parts(self, core: str, pin: Pin) -> list[Path]:
-        """The bundle files of a core that hold its Spine skeleton, atlas and pages (the category of its kind), in
-        the order the game folder lists them. Other files that share the core name add nothing to a preview."""
+        """The supported character bundle parts of a core, in game folder order.
+
+        Model parts include the prefab and its own meshes, materials, textures and clips; shared dependencies
+        remain supplied by the install's CAB graph.
+        """
         core = core.lower()
         paths = self._index(pin).get(core, [])
         return [path for path in paths if kind_of_file(path.name)]
@@ -2180,7 +2214,9 @@ class ModLibrary:
     @_serialized
     def apply(self, variant_key: str, source: str, log: LogFunc = no_log, progress: ProgressCallback | None = None,
               kind: Kind | None = "spr", pin: Pin | None = None) -> ApplyResult:
-        """Install one kind from a mod, variant, or originals; None selects both, and configure it.
+        """Install and configure one kind from a mod, variant, or originals.
+
+        None selects all kinds for originals, and both Spine kinds for variant adaptation.
 
         A mod replaces all parts of its own kind as a unit. Another variant's mod must belong to the same family and
         is adapted to official targets. While mods are off nothing is written: the source is configured and applied
@@ -2206,7 +2242,7 @@ class ModLibrary:
                     if not targets:
                         raise ServiceError("game_file_not_found", variant=variant_key)
                     cores = [core_of(targets[0].name)]
-                    if record["kind"] == "lobby" and core_of(record["files"][0]) != cores[0]:
+                    if record["kind"] in ("lobby", "model") and core_of(record["files"][0]) != cores[0]:
                         raise ServiceError("mod_target_mismatch", id=record["id"], variant=variant_key)
                     if not on:
                         return self._defer(pin, variant_key, {record["kind"]: cores[0]}, source)
@@ -2230,6 +2266,9 @@ class ModLibrary:
                 elif source.startswith("variant:"):
                     other = source[8:]
                     self._variant(other)
+                    if kind == "model":
+                        # Mesh names alone cannot adapt a prefab's rig, materials and object references.
+                        raise ServiceError("source_unsupported", source=source)
                     replacements: dict[Path, Path] = {}
                     kinds = {}
                     for current in (("spr", "lobby") if kind is None else (kind,)):
@@ -2269,7 +2308,7 @@ class ModLibrary:
     @_serialized
     def restore(self, variant_key: str, log: LogFunc = no_log, kind: Kind | None = "spr",
                 pin: Pin | None = None, progress: ProgressCallback | None = None) -> ApplyResult:
-        """Restore one kind to official bytes and drop its configuration; None restores portrait and lobby. Files that
+        """Restore one kind to official bytes and drop its configuration; None restores all kinds. Files that
         are official already are not written (only recorded)."""
         pin = self._current(pin)
         self.profiles.read()

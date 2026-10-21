@@ -9,6 +9,7 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { chibiMaterial, disposeDefaults, outlineMaterial, setOutlineScale } from "./chibi-materials.js";
 import { wheelKind, wheelStep } from "./lobby-touch.js";
+import { modelUrl } from "./switch-sources.js";
 
 const ease = (t) => 1 - Math.pow(1 - t, 3);
 const clamp = THREE.MathUtils.clamp;
@@ -773,8 +774,8 @@ let view = null, token = 0;
 // the first frame is drawn, or null when another show or a hide came first. onAction(name) follows the current
 // action when it changes by itself (a tap, a reaction ending). The shown view is kept for the same variant of the
 // same install (version: the game's resource version; another game folder or file source loads it again).
-export async function show(key, host, { frame: mode = "left", onAction = null, version = null } = {}) {
-  if (view?.key === key && view.host === host && view.version === version) {
+export async function show(key, host, { frame: mode = "left", onAction = null, version = null, source = "live" } = {}) {
+  if (view?.key === key && view.host === host && view.version === version && view.source === source) {
     view.onAction = onAction;
     if (view.mode !== mode) view.frameTo(mode);
     return view.ready;
@@ -783,11 +784,12 @@ export async function show(key, host, { frame: mode = "left", onAction = null, v
   const my = ++token;
   const v = (view = new ChibiView(host, key));
   v.version = version;
+  v.source = source;
   v.onAction = onAction;
   v.frameTo(mode); // before the load this only records the framing
   v.ready = (async () => {
     try {
-      await v.load(`/asset/model/${encodeURIComponent(key)}.glb`);
+      await v.load(modelUrl(key, source));
     } catch (err) {
       if (my !== token) return null;
       hide(host);
