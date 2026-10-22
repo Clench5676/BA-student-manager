@@ -119,10 +119,10 @@ def blocked_reason(error: ServiceError) -> str:
     return "no_target"
 
 
-def copy_compatibility(report: dict) -> tuple[dict, dict, bool]:
+def copy_compatibility(report: dict, uploaded: integrity.Contents) -> tuple[dict, dict, bool]:
     """A direct copy installs every uploaded asset alongside the retained official parts."""
     skeletons = report.get("official", {}).get("skeletons", {})
-    incoming = {name: data["version"] for name, data in report.get("mod", {}).get("skeletons", {}).items()}
+    incoming = {name: get_skel_version(data) for name, data in uploaded.skeletons.items()}
     versions = {data["version"] for data in skeletons.values()} or {None}
     official = {name: {skeletons[name]["version"]} if name in skeletons else versions for name in incoming}
     return official, incoming, report.get("remappable", False)
@@ -547,7 +547,7 @@ class BatchImport:
                 if not failure and (selected.skeletons or compatibility.get("remappable")):
                     if exact and not converting:
                         # The ready path copies whole bundles, ignoring update filters and matching keys.
-                        official, incoming, remappable = copy_compatibility(compatibility)
+                        official, incoming, remappable = copy_compatibility(compatibility, selected)
                     else:
                         official, incoming, remappable = transfer_compatibility(inspection, sources,
                             [baseline[path] for path in chosen], originals,

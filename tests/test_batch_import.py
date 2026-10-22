@@ -1201,3 +1201,37 @@ def test_multiple_picked_folders_scan_and_deduplicate(env, monkeypatch, recursiv
     result = analyze(env, picked["paths"], recursive=recursive)
     assert {path for entry in result["entries"] for path in entry["paths"]} == {str(first), str(second)}
     assert result["skipped"] == 1
+
+
+def test_same_name_upload_converts_only_uploaded_skeletons(env, monkeypatch):
+    source = make_mod(env.original, env.tmp / "old-spine")
+    untouched = game_bundle(env.game_dir, part="textassets", payload=b"retained official")
+    retained_bytes = untouched.read_bytes()
+
+    def inspect(path, **kwargs):
+        skeletons = ({"a.skel": b"3.8.75"} if path == source else
+                     {"b.skel": b"4.1.24"} if path.name == untouched.name else {"a.skel": b"4.2.33"})
+        return integrity.Contents(platforms={"StandaloneWindows64"}, files={"cab-test"}, skeletons=skeletons,
+                                  atlases={name.replace(".skel", ".atlas"): b"" for name in skeletons})
+
+    mock_spine_contents(monkeypatch, inspect)
+    converter = env.tmp / "converter"
+    converter.touch()
+    env.settings.set("enable_spine_conversion", True)
+    env.settings.set("spine_converter_path", str(converter))
+    entry, = analyze(env, [source])["entries"]
+    assert (entry["state"], entry["reason"]) == ("update", None)
+    calls = []
+    updater(monkeypatch, calls)
+    assert run(env, [entry], enableAfterImport=False)[0]["outcome"] == "updated"
+    assert calls[0][1]["spine_options"].target_version == "4.2.33"
+    assert untouched.read_bytes() == retained_bytes
+
+
+def test_copy_compatibility_keeps_retained_atlas_validation(monkeypatch):
+    monkeypatch.setattr(batch_import, "get_skel_version", lambda data: data.decode())
+    report = {"official": {"skeletons": {"a.skel": {"version": "4.2.33"}, "b.skel": {"version": "4.1.24"}}},
+              "mod": {"skeletons": {"a.skel": {"version": "3.8.75"}, "b.skel": {"version": "4.1.24"}}},
+              "remappable": True}
+    assert batch_import.copy_compatibility(report, integrity.Contents(skeletons={"a.skel": b"3.8.75"})) == (
+        {"a.skel": {"4.2.33"}}, {"a.skel": "3.8.75"}, True)
