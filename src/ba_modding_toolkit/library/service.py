@@ -36,7 +36,7 @@ from ..naming import parse_filename
 from ..searching import SEARCH_DIR_SUFFIXES, get_search_dirs
 from ..utils import no_log
 from . import profiles as profiles_mod
-from . import integrity, safety
+from . import integrity, safety, staging
 from .identity import identify
 from .judge import (
     CRC_STATES, KINDS, LIBRARY_SOURCES, carried_of, classify, core_of, crc_state, date_of, distinguishing_folders,
@@ -532,6 +532,7 @@ class ModLibrary:
         self._originals_cache: tuple[Any, dict[str, int]] | None = None
         self._maps_cache: tuple[tuple, Any] | None = None
         self.profiles = Profiles(self.root)
+        staging.cleanup(self.root)
         self._load()
         with self._lock:
             try:
@@ -948,7 +949,11 @@ class ModLibrary:
         """
         for path in files.values():
             devmode.check_read(path)
+            if inspection:
+                inspection.check(path)
         identity = self._identity(files)
+        if inspection:
+            inspection.validate()
         duplicate = self._known().get(identity)
         core_name = core_of(next(iter(files)))
         pin = pin or self.current_pin()

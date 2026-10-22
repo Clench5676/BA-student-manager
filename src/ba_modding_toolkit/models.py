@@ -1,6 +1,6 @@
 # models.py
 from pathlib import Path
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable, Literal, NamedTuple
 from enum import StrEnum
 from PIL import Image
@@ -138,6 +138,7 @@ class ModUpdateResult:
     file_pairs: list[FilePair]
     anim_diffs: AnimDiffMap | None = None
     error: ServiceError | None = None
+    not_transferred: list[str] = field(default_factory=list)
 
 @dataclass
 class BatchUpdateResult:

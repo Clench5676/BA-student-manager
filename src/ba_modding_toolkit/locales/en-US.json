@@ -1481,6 +1481,7 @@
 			"resultTitle": "Import Results",
 			"applied": "Applied",
 			"notApplied": "Not Applied",
+			"notTransferred": "Warning: not transferred (no counterpart in the new official bundle): {names}",
 			"auto": "Auto",
 			"original": "Original",
 			"uncompressed": "Uncompressed",

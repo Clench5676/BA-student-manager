@@ -80,6 +80,65 @@ def collect_stream_companions(raw: bytes, env_file: UnityFile) -> dict[str, byte
     return companions
 
 
+class UpdateScope:
+    """Counterparts in the new release, shared by preflight and execution."""
+
+    def __init__(self, targets: list["Bundle"], strategy: MatchStrategy, asset_types: set[str]):
+        key_of = Bundle._get_key_func(strategy)
+        self.counterparts: dict[AssetKey, list[tuple["Bundle", object]]] = {}
+        self.not_transferred: set[AssetKey] = set()
+        self.unchanged: set[AssetKey] = set()
+        for target in targets:
+            for obj in target.env.objects:
+                if obj.type in REPLACEABLE_ASSET_TYPES and ("ALL" in asset_types or obj.type.name in asset_types):
+                    key = key_of(obj)
+                    if key is not None:
+                        self.counterparts.setdefault(key, []).append((target, obj))
+
+    def includes(self, key: AssetKey) -> bool:
+        if key in self.counterparts:
+            return True
+        self.not_transferred.add(key)
+        return False
+
+    @staticmethod
+    def serialized(bundle: "Bundle", obj) -> tuple[bytes, dict[str, bytes]]:
+        raw = obj.get_raw_data()
+        companions = collect_stream_companions(raw, bundle.env.file)
+        if companions is None:
+            raise ValueError(t("webui.error.required_asset_stream_missing"))
+        # Compare the object's own stream range when metadata can be read without decoding it.
+        try:
+            data = obj.read()
+            stream = getattr(data, "m_StreamData", None)
+            resource = getattr(data, "m_Resource", None)
+        except Exception:
+            stream = resource = None
+        ranges = []
+        if stream and stream.path:
+            ranges.append((stream.path, stream.offset, stream.size))
+        if resource and resource.m_Source:
+            ranges.append((resource.m_Source, resource.m_Offset, resource.m_Size))
+        for path, offset, size in ranges:
+            name = path.replace("\\", "/").rsplit("/", 1)[-1]
+            payload = companions.get(name)
+            if payload is None or offset < 0 or size < 0 or offset + size > len(payload):
+                raise ValueError(t("webui.error.required_asset_stream_missing"))
+            companions[name] = payload[offset:offset + size]
+        return raw, companions
+
+    def skip_unchanged(self, source: "Bundle", obj, key: AssetKey) -> bool:
+        try:
+            content = self.serialized(source, obj)
+            if all(content == self.serialized(target, counterpart)
+                   for target, counterpart in self.counterparts[key]):
+                self.unchanged.add(key)
+                return True
+        except Exception:
+            pass  # Unproven equality must retain the original extraction failure.
+        return False
+
+
 class Bundle:
     """
     封装 Bundle 文件的业务类。
@@ -615,7 +674,8 @@ class Bundle:
         self,
         asset_types_to_replace: set[ReplaceAssetType],
         match_strategy: MatchStrategy = 'path_id',
-        spine_options: SkelConvertOptions | None = None
+        spine_options: SkelConvertOptions | None = None,
+        *, scope: UpdateScope | None = None,
     ) -> tuple[Patch, list[SkelVersionConflict]]:
         """
         从当前 Bundle 提取资源，生成补丁。
@@ -639,10 +699,13 @@ class Bundle:
             if not replace_all and obj.type.name not in asset_types_to_replace:
                 continue
             resource_name = str(getattr(obj, "path_id", "unknown"))
+            asset_key = None
             try:
                 resource_name = obj.peek_name() or resource_name
-                data = obj.read()
                 asset_key = key_func(obj)
+                if scope is not None and not scope.includes(asset_key):
+                    continue
+                data = obj.read()
                 if asset_key is None or not getattr(data, 'm_Name', None):
                     continue
                 
@@ -685,6 +748,8 @@ class Bundle:
                 if content is not None:
                     patch[asset_key] = content
             except Exception as e:
+                if scope is not None and asset_key in scope.counterparts and scope.skip_unchanged(self, obj, asset_key):
+                    continue
                 raise ServiceError("required_asset_extract_failed", file=self.path.name,
                                    name=resource_name, error=str(e)) from e
         

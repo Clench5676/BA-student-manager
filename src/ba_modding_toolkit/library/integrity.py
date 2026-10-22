@@ -7,10 +7,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .. import devmode
-from ..bundle import Bundle
+from ..bundle import Bundle, UpdateScope
 from ..errors import ServiceError
 from ..gameassets.spine import atlas_pages
-from ..models import AssetKey, AssetType
+from ..models import AssetKey, AssetType, REPLACEABLE_ASSET_TYPES
 from ..spine import get_skel_version
 
 
@@ -52,43 +52,69 @@ class Contents:
 class Inspection:
     """A single analysis snapshot; never reused for execution or after input changes."""
 
-    def __init__(self):
+    def __init__(self, asset_types: set[str] | None = None):
+        self.asset_types = frozenset(asset_types if asset_types is not None else
+                                    {"Texture2D", "TextAsset", "Mesh", "AnimationClip"})
+        self._revisions: dict[Path, tuple[int, ...]] = {}
         self._bundles: dict[Path, Bundle] = {}
         self._contents: dict[Path, Contents] = {}
         self._keys: dict[Path, set[AssetKey]] = {}
-        self._readable: dict[Path, set[AssetKey]] = {}
+        self._readable: dict[tuple[Path, tuple[Path, ...]], set[AssetKey]] = {}
+
+    def check(self, path: Path) -> None:
+        devmode.check_read(path)
+        stat = path.stat()
+        revision = (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
+        if self._revisions.setdefault(path, revision) != revision:
+            raise ServiceError("entry_changed")
+
+    def validate(self) -> None:
+        for path in self._revisions:
+            self.check(path)
 
     def bundle(self, path: Path) -> Bundle:
+        self.check(path)
         if path not in self._bundles:
             devmode.check_read(path)
             bundle = Bundle.load(path)
             if bundle is None:
                 raise ServiceError("bundle_invalid", file=path.name)
             self._bundles[path] = bundle
+        self.check(path)
         return self._bundles[path]
 
     def inspect(self, path: Path, *, allow_unknown: bool = False) -> Contents:
+        self.check(path)
         if path not in self._contents:
             self._contents[path] = inspect(path, allow_unknown=True, inspection=self)
+        self.check(path)
         result = self._contents[path]
         if not allow_unknown and (not result.platforms or "UnknownPlatform" in result.platforms):
             raise ServiceError("mod_platform_unknown", file=path.name)
         return result
 
     def keys(self, path: Path) -> set[AssetKey]:
+        self.check(path)
         if path not in self._keys:
-            self._keys[path] = self.bundle(path).get_asset_keys("name_type", {
-                AssetType.Texture2D, AssetType.TextAsset, AssetType.Mesh, AssetType.AnimationClip})
+            types = REPLACEABLE_ASSET_TYPES if "ALL" in self.asset_types else {
+                AssetType[name] for name in self.asset_types}
+            self._keys[path] = self.bundle(path).get_asset_keys("name_type", types)
+        self.check(path)
         return self._keys[path]
 
-    def readable_keys(self, path: Path) -> set[AssetKey]:
-        if path not in self._readable:
+    def readable_keys(self, path: Path, *, targets: tuple[Path, ...] = ()) -> set[AssetKey]:
+        self.check(path)
+        for target in targets:
+            self.check(target)
+        cache_key = (path, targets)
+        if cache_key not in self._readable:
             # Use the execution reader, including texture decoding and mesh stream resolution.
             # Source choices select conversion routes; they do not override serialized Unity metadata.
-            patch, _ = self.bundle(path).extract_patch(
-                {"Texture2D", "TextAsset", "Mesh", "AnimationClip"}, "name_type")
-            self._readable[path] = set(patch)
-        return self._readable[path]
+            scope = UpdateScope([self.bundle(target) for target in targets], "name_type", self.asset_types) if targets else None
+            patch, _ = self.bundle(path).extract_patch(self.asset_types, "name_type", scope=scope)
+            self._readable[cache_key] = (set(patch) - {"__mode__"}) | (scope.unchanged if scope else set())
+        self.validate()
+        return self._readable[cache_key]
 
 
 def inspect(path: Path, *, allow_unknown: bool = False, inspection: Inspection | None = None) -> Contents:

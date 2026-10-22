@@ -1447,6 +1447,27 @@ for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) for
   }
 });
 
+for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) test(`successful result notes list assets not transferred in ${locale}`, async () => {
+  try {
+    const strings = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${locale}.json`, import.meta.url), "utf8"));
+    setStrings(locale, flatten(strings));
+    const h = await fixture(); await h.analyze([entry("a")]);
+    await h.action("start").click(); await flush();
+    h.runs[0].resolve({ results: [{ id: "a", outcome: "updated", applied: true,
+      notTransferred: ["[Texture2D] obsolete_page", "[TextAsset] removed_note"] }] });
+    await flush(); await h.page.results(); await h.page.settled();
+    const row = walk(h.dialog).find((el) => el.dataset.result), { tree } = drawn(h, row);
+    const compact = (text) => text.replace(/\s/g, "");
+    const note = compact(find(tree, "Label_Locale_Limit").widgets[0].text);
+    assert.ok(note.includes(compact(strings.webui.import.applied)));
+    assert.ok(note.includes(compact(strings.webui.import.notTransferred.split("{names}")[0])));
+    assert.ok(note.includes("[Texture2D]obsolete_page") && note.includes("[TextAsset]removed_note"));
+    assert.ok(compact(row.textContent).includes(compact(strings.webui.import.outcome.updated)));
+  } finally {
+    setStrings("en-US", flatten(JSON.parse(readFileSync(new URL("../../src/ba_modding_toolkit/locales/en-US.json", import.meta.url), "utf8"))));
+  }
+});
+
 test("blocked entry notes preserve error parameters", async () => {
   const h = await fixture(), path = "/profile/input/refused.bundle";
   await h.analyze([{ ...entry("a", "blocked"), reason: "dev_path_outside", params: { path } }]);

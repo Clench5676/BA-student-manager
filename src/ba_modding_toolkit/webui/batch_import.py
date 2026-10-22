@@ -6,7 +6,6 @@ import hashlib
 import logging
 import os
 import shutil
-import tempfile
 import threading
 from copy import deepcopy
 from concurrent.futures import ThreadPoolExecutor
@@ -19,7 +18,7 @@ from ..bundle import Bundle
 from ..errors import ServiceError
 from ..gameassets.spine import spine_revision
 from ..library.identity import identify
-from ..library import integrity
+from ..library import integrity, staging
 from ..library.judge import core_of, kind_of, part_of
 from ..library.storage import Fingerprints
 from ..models import SaveOptions
@@ -93,6 +92,7 @@ class Candidate:
     spine_version: str | None = None
     source_override: dict | None = None
     conversion: bool = False
+    not_transferred: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -389,13 +389,14 @@ class BatchImport:
             candidates.append(candidate)
         return candidates, skipped
 
-    def _judge(self, candidate: Candidate, library: Any, pin: Any, log: Any = no_log) -> None:
+    def _judge(self, candidate: Candidate, library: Any, pin: Any, log: Any = no_log,
+               *, asset_types: set[str] | None = None) -> None:
         entry = candidate.entry
         entry.pop("params", None)
         entry.update(state="blocked", reason=candidate.error, libraryId=None, source=None,
                      target=mod_origin.target_of(self.services.settings, pin))
         candidate.targets, candidate.originals, candidate.spine_version, candidate.conversion = [], [], None, False
-        inspection = integrity.Inspection()
+        inspection = integrity.Inspection(asset_types if asset_types is not None else set(self.options()["types"]))
         try:
             selected = integrity.Contents()
             for path in candidate.files.values():
@@ -406,6 +407,7 @@ class BatchImport:
             if candidate.error:
                 return
             report = library.inspect_import(candidate.files, pin=pin, conversion=True, inspection=inspection)
+            inspection.validate()
             candidate.identity = report["identity"]
             live = report["targets"]
             compatibility = report.get("compatibility") or {}
@@ -505,19 +507,21 @@ class BatchImport:
                     entry.update(state="blocked", reason=failure)
                     return
                 if inferred or (candidate.source_override or {}).get("detected"):
-                    # Matching names are insufficient: read every comparable input with the execution reader,
-                    # and require coverage across the selected official targets, including split bundles.
+                    # Validate selected inputs against current counterparts using the execution reader.
                     try:
-                        required = set().union(*(inspection.readable_keys(path) for path in sources))
+                        counterparts = tuple(baseline[path] for path in chosen)
+                        required = set().union(*(inspection.readable_keys(path, targets=counterparts) for path in sources))
                         available = set().union(*(inspection.keys(baseline[path]) for path in chosen))
                         if not required or not required <= available:
                             raise ServiceError("no_matching_assets")
                     except (ServiceError, OSError, ValueError):
+                        inspection.validate()
                         if inferred:
                             break  # Reading is independent of the choice; another label cannot repair the bytes.
                         raise
                 if not converting:
                     library.inspect_import(candidate.files, pin=pin, inspection=inspection)
+                inspection.validate()
                 candidate.conversion = converting
                 candidate.targets, candidate.originals = chosen, [baseline[p] for p in chosen]
                 if inferred:
@@ -531,7 +535,7 @@ class BatchImport:
             entry.update(state="blocked", reason="source_unknown")
         except ServiceError as error:
             entry.update(state="blocked", reason=error.code if error.code in (
-                "source_unknown", "source_conflict", "platform_unsupported", "target_unknown",
+                "entry_changed", "source_unknown", "source_conflict", "platform_unsupported", "target_unknown",
                 "conversion_names", "no_matching_assets", "required_asset_extract_failed") else blocked_reason(error))
             if error.params:
                 entry["params"] = error.to_json()["params"]
@@ -570,11 +574,7 @@ class BatchImport:
 
             # Converted bundles are read back by add_files. Keep both target
             # copies and output in this library's allowed data, not system temp.
-            staging = library.root / "staging"
-            devmode.check_read(staging)
-            devmode.check_write(staging)
-            staging.mkdir(parents=True, exist_ok=True)
-            with tempfile.TemporaryDirectory(prefix="import-", dir=staging) as temporary:
+            with staging.import_directory(library.root) as temporary:
                 with ThreadPoolExecutor(max_workers=options["workers"]) as workers:
                     futures = {}
                     for candidate in chosen:
@@ -591,7 +591,7 @@ class BatchImport:
                             fresh.entry["files"] = [dict(f) for f in candidate.entry["files"]]
                             report(candidate, "convert" if candidate.conversion else "update"
                                    if candidate.entry["state"] == "update" else "add", "check")
-                            self._judge(fresh, library, pin, log)
+                            self._judge(fresh, library, pin, log, asset_types=settings.asset_types())
                             futures[candidate.entry["id"]] = workers.submit(
                                 self._prepare, fresh, settings, Path(temporary), log, report)
                         except (OSError, ServiceError) as error:
@@ -613,6 +613,8 @@ class BatchImport:
                                 if isinstance(future, Exception):
                                     raise future
                                 paths, updated, fresh = future.result()
+                                if fresh.not_transferred:
+                                    item["notTransferred"] = fresh.not_transferred
                                 if paths is None:
                                     item.update(outcome="unchanged", libraryId=fresh.entry["libraryId"])
                                     mod = next((mod for mod in library.mods() if mod.id == item["libraryId"]), None)
@@ -697,6 +699,7 @@ class BatchImport:
                 if updated.error:
                     raise updated.error
                 raise ServiceError("conversion_failed" if candidate.conversion else "mod_update_failed")
+            candidate.not_transferred = sorted(set(candidate.not_transferred) | set(updated.not_transferred))
             if updated.message != "all_targets_unchanged":
                 if not updated.file_pairs:
                     raise ServiceError("mod_update_failed")

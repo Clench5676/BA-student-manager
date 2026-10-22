@@ -1481,6 +1481,7 @@
 			"resultTitle": "가져오기 결과",
 			"applied": "적용됨",
 			"notApplied": "미적용",
+			"notTransferred": "경고: 전송되지 않은 에셋(새 공식 Bundle에 대응하는 에셋이 없음): {names}",
 			"auto": "자동",
 			"original": "원본 압축 방식",
 			"uncompressed": "압축 안 함",

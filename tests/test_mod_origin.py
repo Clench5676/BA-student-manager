@@ -313,7 +313,7 @@ def test_system_temp_conversion_output_reproduces_the_dev_read_guard_failure(rea
     source = unity_bundle(env.tmp / 'mods' / 'ui_android' / env.original.name, 13,
                           cab='CAB-mobile', payload=b'mobile mod', references=['com.nexon.bluearchive'])
     entry, = analyze(env, [source])['entries']
-    temporary_directory = batch_import.tempfile.TemporaryDirectory
+    temporary_directory = batch_import.staging.tempfile.TemporaryDirectory
     staged = []
 
     def former_staging(**kwargs):
@@ -322,7 +322,7 @@ def test_system_temp_conversion_output_reproduces_the_dev_read_guard_failure(rea
         staged.append(Path(directory.name))
         return directory
 
-    monkeypatch.setattr(batch_import.tempfile, 'TemporaryDirectory', former_staging)
+    monkeypatch.setattr(batch_import.staging.tempfile, 'TemporaryDirectory', former_staging)
     result, = run(env, [entry], types=['TextAsset'], enableAfterImport=False)
     refused = staged[0] / entry['id'] / 'output' / env.original.name
     assert result['outcome'] == 'failed' and result['reason'] == 'dev_path_outside'
@@ -475,8 +475,9 @@ def test_fallback_inspects_each_file_once_per_analysis(real_metadata, monkeypatc
     assert reports == [True]
 
 
+@pytest.mark.parametrize("selected", [False, True])
 @pytest.mark.parametrize("kind", ["Texture2D", "Mesh"])
-def test_inference_rejects_unreadable_required_assets(real_metadata, monkeypatch, kind):
+def test_inference_rejects_only_selected_unreadable_assets(real_metadata, monkeypatch, kind, selected):
     from unittest.mock import Mock, PropertyMock
     from ba_modding_toolkit.models import AssetType
     env = real_metadata
@@ -485,18 +486,148 @@ def test_inference_rejects_unreadable_required_assets(real_metadata, monkeypatch
 
     def broken_load(path, *args, **kwargs):
         result = load(path, *args, **kwargs)
-        if path == source:
+        if path in (source, env.original) or path.parent.name == "targets":
             data = Mock(m_Name="required", m_Width=1, m_Height=1, m_StreamData=None)
             type(data).image = PropertyMock(side_effect=ValueError("texture decode failed"))
             obj = Mock(type=AssetType[kind], peek_name=lambda: "required", read=lambda: data,
-                       get_raw_data=lambda: b"archive:/CAB-missing/CAB-missing.resS")
+                       get_raw_data=lambda: b"archive:/CAB-missing/CAB-missing.resS" if path == source else b"official")
             result.env = SimpleNamespace(objects=[*result.env.objects, obj], files=result.env.files,
                                          file=result.env.file, container=result.env.container)
         return result
 
     monkeypatch.setattr(Bundle, "load", broken_load)
+    env.services.batch_import.set_options({"types": ["TextAsset", kind] if selected else ["TextAsset"]})
     entry, = analyze(env, [source])["entries"]
-    assert (entry["state"], entry["reason"], entry["source"]) == ("blocked", "source_unknown", None)
+    if selected:
+        assert (entry["state"], entry["reason"], entry["source"]) == ("blocked", "source_unknown", None)
+    else:
+        assert (entry["state"], entry["reason"]) == ("convert", None)
+        result, = run(env, [entry], types=["TextAsset"])
+        assert result["outcome"] == "updated" and result["applied"]
+
+
+@pytest.mark.parametrize("manual", [False, True])
+@pytest.mark.parametrize("counterpart", ["missing", "identical", "changed"])
+def test_import_uses_current_counterparts_and_reports_omissions(real_metadata, monkeypatch, manual, counterpart):
+    from tests.test_core.test_update_failures import asset
+    from ba_modding_toolkit.models import AssetType
+    env = real_metadata
+    source = unity_bundle(env.tmp / "input" / env.original.name, -2, cab="CAB-unknown", payload=b"modded")
+    before = env.original.read_bytes()
+    load = Bundle.load
+
+    def with_texture(path, *args, **kwargs):
+        result = load(path, *args, **kwargs)
+        if path == source or (counterpart != "missing" and (path == env.original or path.parent.name == "targets")):
+            obj = asset("stock_page", AssetType.Texture2D, "extract")
+            data = obj.read()
+            data.m_Width = data.m_Height = 1
+            data.m_StreamData = None
+            obj.read = lambda: data
+            obj.get_raw_data = lambda: b"mod texture" if counterpart == "changed" and path == source else b"stock texture"
+            result.env = SimpleNamespace(objects=[*result.env.objects, obj], files=result.env.files,
+                                         file=result.env.file, container=result.env.container)
+        return result
+
+    monkeypatch.setattr(Bundle, "load", with_texture)
+    env.services.batch_import.set_options({"types": ["TextAsset", "Texture2D"]})
+    entry, = analyze(env, [source])["entries"]
+    if manual:
+        entry = finish(env, rpc(env, "import.setSource", id=entry["id"], server="global", platform="android"))
+    if counterpart == "changed" and not manual:
+        assert (entry["state"], entry["reason"]) == ("blocked", "source_unknown")
+    else:
+        assert entry["state"] == "convert", entry
+        result, = run(env, [entry], types=["TextAsset", "Texture2D"])
+        if counterpart == "changed":
+            assert (result["outcome"], result["reason"]) == ("failed", "required_asset_extract_failed")
+        else:
+            assert result["outcome"] == "updated" and result["applied"]
+            assert result.get("notTransferred", []) == (["[Texture2D] stock_page"] if counterpart == "missing" else [])
+            assert Bundle.load(env.original).env.objects[0].read().m_Script == "modded"
+    if counterpart == "changed":
+        assert not env.library.mods() and env.original.read_bytes() == before
+
+
+@pytest.mark.parametrize("method", ["bundle", "inspect", "keys", "readable_keys"])
+@pytest.mark.parametrize("replacement", [False, True])
+def test_inspection_rejects_changed_file_revision(tmp_path, method, replacement):
+    from ba_modding_toolkit.errors import ServiceError
+    source = unity_bundle(tmp_path / "source.bundle")
+    inspection = integrity.Inspection()
+    getattr(inspection, method)(source)
+    stamp = source.stat()
+    if replacement:
+        other = unity_bundle(tmp_path / "other.bundle", payload=b"modified")
+        os.utime(other, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
+        other.replace(source)
+    else:
+        source.write_bytes(source.read_bytes() + b"changed")
+    with pytest.raises(ServiceError, match="entry_changed"):
+        getattr(inspection, method)(source)
+
+
+def test_judge_rejects_input_changed_before_library_identity(real_metadata, monkeypatch):
+    env = real_metadata
+    source = unity_bundle(env.tmp / "input" / env.original.name, -2, cab="CAB-unknown", payload=b"mod")
+    report = env.library.inspect_import
+
+    def changed(*args, **kwargs):
+        unity_bundle(source, 19, name="unrelated", payload=b"replacement")
+        return report(*args, **kwargs)
+
+    monkeypatch.setattr(env.library, "inspect_import", changed)
+    entry, = analyze(env, [source])["entries"]
+    assert (entry["state"], entry["reason"]) == ("blocked", "entry_changed")
+    assert not env.library.mods()
+
+
+def test_judge_rejects_input_changed_during_library_identity(real_metadata, monkeypatch):
+    env = real_metadata
+    source = unity_bundle(env.tmp / "input" / env.original.name, -2, cab="CAB-unknown", payload=b"mod")
+    identity = env.library._identity
+
+    def changed(files):
+        result = identity(files)
+        if source in files.values():
+            source.write_bytes(source.read_bytes() + b"changed")
+        return result
+
+    monkeypatch.setattr(env.library, "_identity", changed)
+    entry, = analyze(env, [source])["entries"]
+    assert (entry["state"], entry["reason"]) == ("blocked", "entry_changed")
+    assert not env.library.mods()
+
+
+def test_inspection_rejects_a_file_changed_during_load(tmp_path, monkeypatch):
+    from ba_modding_toolkit.errors import ServiceError
+    source = unity_bundle(tmp_path / "source.bundle")
+    load = Bundle.load
+
+    def changed(path):
+        result = load(path)
+        path.write_bytes(path.read_bytes() + b"changed")
+        return result
+
+    monkeypatch.setattr(Bundle, "load", changed)
+    with pytest.raises(ServiceError, match="entry_changed"):
+        integrity.Inspection().bundle(source)
+
+
+def test_inference_reports_a_revision_change_during_extraction(real_metadata, monkeypatch):
+    env = real_metadata
+    source = unity_bundle(env.tmp / "input" / env.original.name, -2, cab="CAB-unknown", payload=b"mod")
+    extract = Bundle.extract_patch
+
+    def changed(self, *args, **kwargs):
+        result = extract(self, *args, **kwargs)
+        if self.path == source:
+            source.write_bytes(source.read_bytes() + b"changed")
+        return result
+
+    monkeypatch.setattr(Bundle, "extract_patch", changed)
+    entry, = analyze(env, [source])["entries"]
+    assert (entry["state"], entry["reason"]) == ("blocked", "entry_changed")
 
 
 @pytest.mark.parametrize("manual", [False, True])
@@ -514,10 +645,11 @@ def test_required_asset_failure_never_imports_or_applies_a_partial_mod(real_meta
 
     def broken_load(path, *args, **kwargs):
         result = load(path, *args, **kwargs)
-        if failure == "extract" and path == source:
+        if failure == "extract":
             data = Mock(m_Name="required_texture", m_Width=1, m_Height=1, m_StreamData=None)
             type(data).image = PropertyMock(side_effect=ValueError("texture decode failed"))
-            obj = Mock(type=AssetType.Texture2D, peek_name=lambda: "required_texture", read=lambda: data)
+            obj = Mock(type=AssetType.Texture2D, peek_name=lambda: "required_texture", read=lambda: data,
+                       get_raw_data=lambda: b"modded" if path == source else b"official")
             objects = [*result.env.objects, obj]
         elif failure == "apply" and path.parent.name == "targets":
             data = Mock(m_Name="test_spr_note", m_Script="official")
