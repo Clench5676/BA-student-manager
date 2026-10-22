@@ -142,7 +142,7 @@ globalThis.fetch = async (url, opts = {}) => {
   if (url === "/asset/ui/atlases.json") return reply({ Common: Object.fromEntries(
     ["Common_Square_Bg", "Common_Bg_Raius10px", "Common_Btn_BG", "Common_Popup_Bg", "Common_Btn_Normal_B_C_Pt",
       "Common_Line_Raius20px", "Common_Icon_Reddot2", "Card_Ability_Select_Line", "Card_Ability_Select_Line_Icon", "Cafe_Icon_NameEdit"].map((name) => [name, { width: 8, height: 8 }])) });
-  if (url === "/asset/ui/textures.json") return reply({});
+  if (url === "/asset/ui/textures.json") return reply({ Scroll: "scroll.png" });
   if (url === "/asset/ui/layout/UICharacterCollectionPopulatorUnit.json") return reply(switchLayouts.unit);
   if (url === "/asset/ui/layout/UINonEquipmentInventory.json") return reply(switchLayouts.inventory);
   if (url === "/asset/ui/layout/UIPopup_Sort.json") return reply(SORT);
@@ -1527,10 +1527,11 @@ test("switch geometry: per-kind columns, aspects, card bounds, labels and portra
         }
         if (kind === "lobby") assert.ok(Math.abs(ratio - 16 / 9) < .02);
         if (kind === "model") { assert.equal(ratio, 1); assert.ok(cards[0][2] > 220); }
+        const rowSize = kind === "spr" ? items.length : columns;
         for (let i = 0; i < cards.length; i++) {
-          if (i % columns) assert.ok(cards[i][0] > cards[i - 1][0] + cards[i - 1][2] + 8, `${kind}: column gap`);
-          if (i >= columns) assert.ok(cards[i][1] > cards[i - columns][1] + cards[i - columns][3] + 65, `${kind}: row gap includes names`);
-          assert.equal(cards[i][1], cards[Math.floor(i / columns) * columns][1]);
+          if (i % rowSize) assert.ok(cards[i][0] > cards[i - 1][0] + cards[i - 1][2] + 8, `${kind}: column gap`);
+          if (i >= rowSize) assert.ok(cards[i][1] > cards[i - rowSize][1] + cards[i - rowSize][3] + 65, `${kind}: row gap includes names`);
+          assert.equal(cards[i][1], cards[Math.floor(i / rowSize) * rowSize][1]);
           const label = walk(prompt).find((el) => el.dataset.path?.startsWith(`Card_${i}/Bar/Name/`) && el.textContent);
           const band = box(`Card_${i}/Bar`);
           inside(NGUI.rect(label), band, `${lang}: name in card bar`);
@@ -1577,7 +1578,7 @@ test("switch geometry: per-kind columns, aspects, card bounds, labels and portra
 });
 
 
-test("portrait columns fit available space with four tall cards at the standard width", async () => {
+test("portrait spacing fits four tall cards at the standard width and selects horizontal scrolling", async () => {
   const { switchGrid } = await import("../../src/ba_modding_toolkit/web/js/switch-layout.js");
   for (const width of [1300, 1818, 2200]) {
     const { card, columns, pitch, overhang } = switchGrid("spr", width);
@@ -1587,10 +1588,15 @@ test("portrait columns fit available space with four tall cards at the standard 
     assert.ok((columns - 1) * pitch[0] + card.w + overhang <= width - 80 + .001);
   }
   assert.equal(switchGrid("spr").columns, 4);
+  assert.equal(switchGrid("spr").horizontal, true);
+  for (const [kind, columns] of [["lobby", 2], ["model", 4]]) {
+    assert.equal(switchGrid(kind).horizontal, false);
+    assert.equal(switchGrid(kind).columns, columns);
+  }
 });
 
 // Measure rendered CSS rectangles independently of switch-layout's calculations. Include each widget's shear.
-test("every kind centres one, two and full rows by their outer corners with the same header inset", async () => {
+test("every kind left-aligns short and full rows by their outer corners with equal paper insets", async () => {
   const { rect } = await import("../../src/ba_modding_toolkit/web/js/ngui.js");
   const { switchGrid } = await import("../../src/ba_modding_toolkit/web/js/switch-layout.js");
   const outer = (el) => {
@@ -1598,29 +1604,156 @@ test("every kind centres one, two and full rows by their outer corners with the 
     const overhang = Math.abs(Math.tan(angle * Math.PI / 180) * h / 2);
     return { left: x - overhang, right: x + w + overhang, top: y, bottom: y + h };
   };
-  const headerInsets = [];
+  const headerInsets = [], leftInsets = [];
   for (const kind of ["spr", "lobby", "model"]) {
     const { columns } = switchGrid(kind);
-    for (const count of new Set([1, 2, columns, columns + 1, 2 * columns])) {
+    for (const count of new Set([0, 1, 2, columns, columns + 1, 2 * columns, 19])) for (const selected of new Set(["0", String(count - 1), null])) {
       const items = Array.from({ length: count }, (_, i) => ({ key: String(i), full: "Owner label", label: "Owner label", isNew: true }));
-      await Popup.listPopup({ host: prompt, layoutKind: kind, items, selected: "0", title: kind, okText: "Set" });
+      await Popup.listPopup({ host: prompt, layoutKind: kind, items, selected, title: kind, okText: "Set" });
       const paper = outer(walk(prompt).find((e) => e.dataset.path === "Center/Popup/ListPaper"));
       const area = walk(prompt).find((e) => e.className === "popup-cards");
       const dx = parseFloat(area.style.left), dy = parseFloat(area.style.top);
-      for (let start = 0; start < count; start += columns) {
-        const names = items.slice(start, start + columns).map((it) => `Card_${it.key}`);
+      const rowSize = kind === "spr" ? Math.max(1, count) : columns;
+      for (let start = 0; start < count; start += rowSize) {
+        const names = items.slice(start, start + rowSize).map((it) => `Card_${it.key}`);
         const ink = walk(prompt).filter((e) => e.style.backgroundImage && names.some((n) => e.dataset.path === n || e.dataset.path?.startsWith(`${n}/`))).map(outer);
         const left = Math.min(...ink.map((b) => b.left)) + dx - paper.left;
         const right = paper.right - Math.max(...ink.map((b) => b.right)) - dx;
-        assert.ok(Math.abs(left - right) <= 1, `${kind}, ${count} cards, row ${start}: ${left} vs ${right}`);
-        assert.ok(left >= 24 && right >= 24, "inclined name bands stay clear of both paper edges");
+        leftInsets.push(left);
+        assert.ok(Math.abs(left - 40 * S) <= 1, `${kind}, ${count} cards, row ${start}: fixed left inset, no centring offset`);
+        if (names.length === columns) assert.ok(Math.abs(left - right) <= 1, `${kind}: equal insets for a full row`);
+        if (kind !== "spr" || count <= columns) assert.ok(right >= left - 1, "short rows leave spare space on the right");
+        if (kind === "spr") {
+          assert.ok(Math.min(...ink.map((b) => b.top)) >= 0, "the row starts inside the viewport");
+          assert.ok(Math.max(...ink.map((b) => b.bottom)) <= parseFloat(area.style.height), "portrait row including names fits the paper");
+          const inner = area.children[0], extent = parseFloat(inner.style.width), visible = parseFloat(area.style.width);
+          assert.equal(inner.style.height, area.style.height, "no vertical overflow");
+          assert.equal(area.style.overflowX, "auto"); assert.equal(area.style.overflowY, "hidden");
+          assert.ok(extent >= visible);
+          const lastRight = Math.max(...ink.map((b) => b.right));
+          assert.ok(lastRight <= extent - 40 * S + 1, "scroll extent includes the last inclined corner and trailing inset");
+          if (count > columns) assert.ok(Math.abs(extent - lastRight - left) <= 1, "last card reaches the matching right inset at the scroll end");
+        }
         if (!start) headerInsets.push(Math.min(...ink.map((b) => b.top)) + dy - paper.top);
       }
       prompt.hidden = true;
     }
   }
   assert.ok(Math.max(...headerInsets) - Math.min(...headerInsets) < 1, "all kinds share the top inset");
+  assert.ok(Math.max(...leftInsets) - Math.min(...leftInsets) < 1, "all kinds and incomplete rows share the left inset");
   assert.ok(Math.abs(headerInsets[0] - 40 * S) < 1);
+});
+
+const fire = (el, type, extra = {}) => {
+  const event = { type, detail: 1, defaultPrevented: false, stopped: false,
+    preventDefault() { this.defaultPrevented = true; }, stopImmediatePropagation() { this.stopped = true; }, ...extra };
+  for (const listener of el.listeners[type] || []) { listener(event); if (event.stopped) break; }
+  return event;
+};
+
+test("portrait horizontal input handles wheel units, scaled drags, touch and keyboard clicks", async () => {
+  const { horizontalScroll } = await import("../../src/ba_modding_toolkit/web/js/horizontal-scroll.js");
+  const area = new El(); area.scrollLeft = 0; area.scrollTop = 0;
+  area.getBoundingClientRect = () => ({ width: 200 }); // stage at half scale
+  let captured = null; area.setPointerCapture = (id) => { captured = id; };
+  horizontalScroll(area, 400, 1600);
+  assert.equal(fire(area, "wheel", { deltaX: 30, deltaY: 1 }).defaultPrevented, true);
+  assert.equal(area.scrollLeft, 60, "horizontal trackpad input follows the scaled stage");
+  fire(area, "wheel", { deltaX: 0, deltaY: 20 }); assert.equal(area.scrollLeft, 100, "vertical wheel maps to horizontal");
+  fire(area, "wheel", { deltaY: 2, deltaMode: 1 }); assert.equal(area.scrollLeft, 180, "line units");
+  fire(area, "wheel", { deltaY: 1, deltaMode: 2 }); assert.equal(area.scrollLeft, 580, "page units");
+  assert.equal(fire(area, "wheel", { deltaY: 100, ctrlKey: true }).defaultPrevented, false);
+  assert.equal(area.scrollLeft, 580, "pinch zoom is not swallowed");
+  fire(area, "wheel", { deltaX: 10000 }); assert.equal(area.scrollLeft, 1200);
+  fire(area, "wheel", { deltaY: -10000 }); assert.equal(area.scrollLeft, 0);
+  fire(area, "pointerdown", { button: 0, pointerId: 7, clientX: 100 });
+  fire(area, "pointermove", { pointerId: 7, clientX: 98 });
+  assert.equal(area.scrollLeft, 0, "a click's small movement is not a drag");
+  assert.equal(captured, null, "ordinary card and pencil clicks retain their target");
+  fire(area, "pointermove", { pointerId: 8, clientX: 0 }); assert.equal(area.scrollLeft, 0);
+  fire(area, "pointermove", { pointerId: 7, clientX: 50 }); assert.equal(area.scrollLeft, 100);
+  assert.equal(captured, 7, "drag capture continues outside the paper");
+  fire(area, "pointerup", { pointerId: 7 });
+  assert.equal(fire(area, "click").stopped, true, "a drag cannot select or rename a card");
+  assert.equal(fire(area, "click", { detail: 0 }).stopped, false, "keyboard activation is retained");
+  fire(area, "pointerdown", { button: 0, pointerId: 8, clientX: 100 });
+  fire(area, "pointerup", { pointerId: 8 });
+  assert.equal(fire(area, "click").stopped, false, "ordinary clicks still select");
+  fire(area, "pointerdown", { button: 0, pointerId: 9, pointerType: "touch", clientX: 100 });
+  fire(area, "pointermove", { pointerId: 9, clientX: 0 }); assert.equal(area.scrollLeft, 100, "touch uses native pan-x");
+  fire(area, "pointerdown", { button: 0, pointerId: 10, clientX: 100 });
+  fire(area, "pointercancel", { pointerId: 10 });
+  fire(area, "pointermove", { pointerId: 10, clientX: 0 }); assert.equal(area.scrollLeft, 100);
+  assert.equal(area.scrollTop, 0);
+  const short = new El(); short.scrollLeft = 0;
+  horizontalScroll(short, 400, 400);
+  assert.equal(fire(short, "wheel", { deltaY: 100 }).defaultPrevented, false);
+});
+
+test("switch captures begin on visibility and retain selection and rename offsets on either axis", async () => {
+  const { lazyThumbnail } = await import("../../src/ba_modding_toolkit/web/js/lazy-thumbnail.js");
+  const { rect } = await import("../../src/ba_modding_toolkit/web/js/ngui.js");
+  for (const kind of ["spr", "lobby", "model"]) {
+    const captured = [], selections = [], aliases = [];
+    const items = Array.from({ length: 19 }, (_, i) => {
+      const picture = lazyThumbnail(() => { captured.push(String(i)); return Promise.resolve(`blob:${kind}-${i}`); });
+      return { key: String(i), label: "Owner label", full: `Owner label ${i}`, thumb: picture, big: () => picture.start(),
+        nameEdit: { label: "Rename", fn: (offset) => aliases.push([String(i), offset]) },
+        badge: i === 0 ? { text: "Set", color: "#8de4ff" } : null };
+    });
+    const options = { host: prompt, layoutKind: kind, items, selected: "0", title: kind, okText: "Apply",
+      onSelect: (key, offset) => selections.push([key, offset]), details: () => ({ title: kind, fields: [], actions: [] }) };
+    await Popup.listPopup(options);
+    const area = walk(prompt).find((e) => e.className === "popup-cards"), horizontal = kind === "spr";
+    const axis = horizontal ? "scrollLeft" : "scrollTop", index = horizontal ? 0 : 1;
+    const visible = parseFloat(area.style[horizontal ? "width" : "height"]);
+    const expected = (offset) => items.filter((it) => {
+      const boxes = walk(area).filter((e) => e.style.backgroundImage && (e.dataset.path === `Card_${it.key}` || e.dataset.path?.startsWith(`Card_${it.key}/`)))
+        .map((e) => {
+          const r = rect(e), angle = Number(/skewX\(([-\d.]+)deg\)/.exec(e.style.transform)?.[1] || 0);
+          const lean = horizontal ? Math.abs(Math.tan(angle * Math.PI / 180) * r[3] / 2) : 0;
+          return [r[index] - lean, r[index] + r[index + 2] + lean];
+        });
+      return Math.max(...boxes.map((b) => b[1])) > offset && Math.min(...boxes.map((b) => b[0])) < offset + visible;
+    }).map((it) => it.key);
+    assert.deepEqual([...captured].sort(), expected(0).sort(), `${kind}: only visible cards capture at open`);
+    assert.ok(captured.length < items.length);
+    const offset = parseFloat(area.children[0].style[horizontal ? "width" : "height"]) - visible;
+    const visibleAtEnd = expected(offset);
+    area[axis] = offset; fire(area, "scroll");
+    await new Promise((resolve) => setTimeout(resolve, 140));
+    for (const key of visibleAtEnd) assert.ok(captured.includes(key), `${kind}: newly visible card ${key} captures`);
+    assert.ok(!captured.includes("9"), "unvisited middle cards stay deferred");
+    assert.ok(captured.includes("18"), "the last card can be reached");
+    const hits = walk(area).filter((e) => e.dataset.key);
+    assert.deepEqual(hits.map((e) => e.dataset.key), items.map((it) => it.key), "keyboard order follows the row or grid");
+    hits.at(-1).click(); action(area, "alias:18").click(); action(prompt, "alias:details").click();
+    assert.deepEqual(selections, [["18", offset]]);
+    assert.deepEqual(aliases, [["18", offset], ["0", offset]]);
+    await Popup.listPopup({ ...options, selected: "18", keepScroll: offset });
+    const nextArea = walk(prompt).find((e) => e.className === "popup-cards");
+    assert.equal(nextArea[axis], offset, "selection redraw retains the active axis offset");
+    assert.ok(walk(prompt).some((e) => e.dataset.path === "Card_18/Select"));
+    assert.ok(walk(prompt).some((e) => e.dataset.path === "Card_0/Using/Text" && e.textContent === "Set"));
+    assert.equal(captured.filter((key) => key === "18").length, 1, "card and details reuse one capture");
+    area[axis] = offset / 2; fire(area, "scroll");
+    await new Promise((resolve) => setTimeout(resolve, 140));
+    assert.ok(!captured.includes("9"), "a retired popup cannot start off-screen captures after redraw");
+    prompt.hidden = true;
+  }
+});
+
+test("deferred switch thumbnails cancel without starting off-screen work or publishing late results", async () => {
+  const { lazyThumbnail } = await import("../../src/ba_modding_toolkit/web/js/lazy-thumbnail.js");
+  const cancelled = new AbortController(); let starts = 0;
+  const pending = lazyThumbnail(() => { starts++; return "blob:unexpected"; }, cancelled.signal);
+  cancelled.abort(); pending.bump();
+  assert.equal(await pending, null); assert.equal(starts, 0);
+  const active = new AbortController(); let finish, bumps = 0;
+  const picture = lazyThumbnail(() => Object.assign(new Promise((resolve) => { starts++; finish = resolve; }), { bump: () => bumps++ }), active.signal);
+  assert.equal(picture.start(), picture); picture.bump(); picture.start();
+  assert.equal(starts, 1); assert.equal(bumps, 1);
+  active.abort(); finish("blob:late"); assert.equal(await picture, null);
 });
 
 test("NGUI preview placeholders remain for pending, missing, rejected and undecodable stills", async () => {
@@ -1667,4 +1800,39 @@ for (const kind of ["spr", "model"]) test(`${kind} card and info panel remove pl
     assert.deepEqual([s.left, s.top, s.width, s.height], geometry[i], "image publication preserves prefab geometry");
   });
   prompt.hidden = true;
+});
+
+test("portrait search uses the prefab header without reducing the row height or hiding the scrollbar", async (t) => {
+  const NGUI = await import("../../src/ba_modding_toolkit/web/js/ngui.js");
+  const collection = n("UICharacterCollection", [0, 0]);
+  const base = "Inventory_ListControl/RightCanvas/ListBG";
+  insert(collection, "SeletControl/TopMenu", structuredClone(NGUI.find(switchLayouts.inventory, `${base}/BG_Top_Widget`)));
+  insert(collection, "SeletControl/CharacterSearch", structuredClone(NGUI.find(switchLayouts.inventory, `${base}/Inbox/SearchInfo`)));
+  insert(collection, "SeletControl/List/Scroll Bar", n("Scroll Bar", [0, 0], [], ["Background", "Foreground"].map((name) =>
+    n(name, [1391, 0], [{ texture: "Scroll", w_: 126, h_: 990, pivot: 4, color: "#92a6b7/1.00" }]))));
+  const fetch = globalThis.fetch;
+  t.mock.method(globalThis, "fetch", async (url, options) => url === "/asset/ui/layout/UICharacterCollection.json" ? reply(collection) : fetch(url, options));
+  const Fresh = await import("../../src/ba_modding_toolkit/web/js/popup.js?portrait-search");
+  const items = Array.from({ length: 8 }, (_, i) => ({ key: String(i), label: `Owner ${i}`, full: `Owner ${i}` }));
+  try {
+    await Fresh.listPopup({ host: prompt, layoutKind: "spr", title: "Portraits", items, selected: "7", tools: {}, okText: "Apply" });
+    const area = () => walk(prompt).find((e) => e.className === "popup-cards");
+    const before = { ...area().style };
+    action(prompt, "search").click();
+    await until(() => walk(prompt).some((e) => e.className === "roster-search"));
+    assert.deepEqual(area().style, before, "search keeps the complete portrait viewport");
+    assert.equal(action(prompt, "search"), undefined, "the search field occupies the toolbar's header slot");
+    const input = walk(prompt).find((e) => e.className === "roster-search");
+    assert.ok(NGUI.rect(input)[1] + NGUI.rect(input)[3] <= parseFloat(area().style.top), "search stays above the paper");
+    const bands = walk(area()).filter((e) => /Card_\d+\/Bar$/.test(e.dataset.path || ""));
+    assert.ok(bands.every((e) => { const r = NGUI.rect(e); return r[1] + r[3] <= parseFloat(area().style.height); }));
+    assert.equal(new Set(bands.map((e) => e.style.top)).size, 1, "the selected last card stays in the same row");
+    const bar = walk(prompt).find((e) => e.className.startsWith("scrollbar"));
+    assert.equal(bar.style.transform, "rotate(-90deg)");
+    const thumb = walk(bar).find((e) => e.dataset.path === "Scroll Bar/Foreground");
+    area().scrollLeft = 200; fire(area(), "scroll");
+    assert.ok(parseFloat(thumb.style.top) > 0, "native horizontal scrolling updates the prefab thumb");
+    action(prompt, "search-close").click();
+    await until(() => !!action(prompt, "search"));
+  } finally { prompt.hidden = true; Fresh.closed(prompt); }
 });

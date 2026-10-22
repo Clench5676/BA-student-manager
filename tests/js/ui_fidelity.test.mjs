@@ -122,6 +122,22 @@ test("texture scrollbars update the thumb's extent and position for native and v
   bar.sync(100, 100, 0); assert.equal(bar.hidden, true);
 });
 
+test("horizontal scrollbar turns the complete collection prefab and synchronizes its thumb", async () => {
+  const before = structuredClone(collection), host = new El();
+  const bar = await scrollbar(host, [20, 30, 400, 10], { collection, horizontal: true });
+  assert.equal(bar.style.left, "20px"); assert.equal(bar.style.top, "40px");
+  assert.equal(bar.style.width, "10px"); assert.equal(bar.style.height, "400px");
+  assert.equal(bar.style.transform, "rotate(-90deg)"); assert.equal(bar.style.transformOrigin, "top left");
+  const parts = ["Background", "Foreground"].map((name) => bar.children.find((el) => el.dataset.path === `Scroll Bar/${name}`));
+  for (const part of parts) assert.ok(part.style.backgroundImage, "the prefab texture is retained");
+  bar.sync(400, 1600, 0);
+  assert.equal(parts[1].style.height, "100px"); assert.equal(parts[1].style.top, "0px");
+  bar.sync(400, 1600, 600); assert.equal(parts[1].style.top, "150px");
+  bar.sync(400, 1600, 1200); assert.equal(parts[1].style.top, "300px");
+  bar.sync(400, 400); assert.equal(bar.hidden, true);
+  assert.deepEqual(collection, before, "the source prefab is not mutated");
+});
+
 test("a live popup publishes its labels, body and backdrop together after decode", async () => {
   let release;
   decodeHold = new Promise((resolve) => { release = resolve; });

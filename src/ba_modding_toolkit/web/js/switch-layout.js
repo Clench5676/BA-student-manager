@@ -12,7 +12,7 @@ export function switchGrid(kind, width = GRID_WIDTH) {
   const max = kind === "lobby" ? 2 : kind === "spr" || kind === "model" ? 4 : 6;
   const columns = Math.max(1, Math.min(max, Math.floor((width - 2 * INSET - overhang + 48) / (card.w + 48))));
   const pitch = [(width - 2 * INSET - card.w - overhang) / Math.max(1, columns - 1), card.h + card.bar + ROW_GAP];
-  return { card, columns, pitch, overhang };
+  return { card, columns, pitch, overhang, horizontal: kind === "spr", leftAligned: true };
 }
 
 // NGUI inclines each widget around its own centre; children are positioned separately.
@@ -38,16 +38,24 @@ export function cardInkBounds(tree) {
   return bounds;
 }
 
-export function placeSwitchCards(trees, { columns, pitch }, paper) {
+export function placeSwitchCards(trees, { columns, pitch, horizontal, leftAligned }, paper) {
   const boxes = trees.map(cardInkBounds);
-  for (let start = 0; start < trees.length; start += columns) {
-    const row = boxes.slice(start, start + columns);
+  const size = horizontal ? Math.max(1, trees.length) : columns;
+  for (let start = 0; start < trees.length; start += size) {
+    const row = boxes.slice(start, start + size);
+    // A full row sets the spacing; short rows retain its left inset and column positions.
+    // Portraits continue that spacing along one horizontal strip, including past the paper.
+    if (leftAligned && row.length >= columns && columns > 1) {
+      pitch[0] = (paper.right - paper.left - 2 * INSET + row[0].left - row[columns - 1].right) / (columns - 1);
+    }
     const left = Math.min(...row.map((b, i) => b.left + i * pitch[0]));
     const right = Math.max(...row.map((b, i) => b.right + i * pitch[0]));
-    const x = (paper.left + paper.right - left - right) / 2;
-    const y = paper.top - INSET - Math.max(...row.map((b) => b.top)) - Math.floor(start / columns) * pitch[1];
+    const x = leftAligned ? paper.left + INSET - left : (paper.left + paper.right - left - right) / 2;
+    const y = paper.top - INSET - Math.max(...row.map((b) => b.top)) - Math.floor(start / size) * pitch[1];
     row.forEach((_, i) => { trees[start + i].pos = [x + i * pitch[0], y]; });
   }
+  return boxes.map((b, i) => ({ left: b.left + trees[i].pos[0], right: b.right + trees[i].pos[0],
+    top: b.top + trees[i].pos[1], bottom: b.bottom + trees[i].pos[1] }));
 }
 
 // Portrait body: image on the left, name/chips/stacked fields on the right;

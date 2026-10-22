@@ -1228,6 +1228,14 @@ or the classic UI is open, no drift while mods are off, nothing dismissed (see M
   `_home_gl`, is switched by the Enable Mods switch only). While mods are off nothing is written (decision 2): the
   popup starts on the configured source (the own files when none), that card carries "Set" (`switch.configured`),
   apart from In Use, its button reads Save, and saving only configures the choice ("Saved, applied when mods are on").
+  Candidate rows start 40 NGUI units inside the list paper, measured from their inclined outer corners; short rows
+  stay left-aligned. Portraits retain their tall cards in one horizontal row, with drag, horizontal trackpad input
+  and vertical wheel input mapped to horizontal scrolling. Search occupies the header so the row keeps its full
+  height. Memorial lobbies keep two columns and models four, scrolling vertically. The horizontal track and thumb
+  turn the complete `UICharacterCollection/SeletControl/List/Scroll Bar` prefab; the existing `UIPopup_Sort` frame,
+  card sprites and `UINonEquipmentInventory/Inventory_ListControl/EquipPos/Texture` detail image stay intact.
+  Selection and rename redraws retain the active axis offset. Captures start when a card enters the viewport or
+  its details are shown, and both share one still; closing the popup cancels deferred work.
   On an overwritten kind (a file that is not official with no official copy anywhere, `restorable` false) every card
   but the one in use is greyed (the roster's not-owned dim, its picture in grey, "Overwritten" where In Use goes), and
   so is another variant's card whose files of that kind are overwritten: a greyed card is never chosen, and a click on

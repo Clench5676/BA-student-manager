@@ -32,6 +32,7 @@ import { rpc, spineBase, spinePrefix, loadSpineAssets, waitJob } from "./api.js"
 import { L, T, language, platform } from "./i18n.js";
 import { forget, idleAnimation, prioritise, thumbnailScope } from "./thumbs.js";
 import { modelThumbnail, modelStillVersion } from "./model-still.js";
+import { lazyThumbnail } from "./lazy-thumbnail.js";
 import { portraitViewport } from "./portrait-view.js";
 import { colourSwitchCard } from "./switch-card.js";
 import { clearUnseen, hasUnseen as hasFresh, shownUnseen, switchUnseen } from "./unseen-assets.js";
@@ -1175,8 +1176,9 @@ async function drawPopup(scroll = 0) {
   const v = variant(), kind = popupKind, inUseKey = appliedKey(v, kind);
   const mode = popupMode(fam, v, kind, modsOn());
   const items = candidates(v, kind).map((c) => {
-    const picture = kind === "model" ? modelPicture(c, v, switchThumbnails)
-      : thumb(baseOf(c, kind), kind === "spr" ? "portrait" : "landscape", null, kind === "lobby", specialFraming(v), (c.origin || c.variant || v).bg, switchThumbnails);
+    const work = switchThumbnails;
+    const picture = lazyThumbnail(() => kind === "model" ? modelPicture(c, v, work)
+      : thumb(baseOf(c, kind), kind === "spr" ? "portrait" : "landscape", null, kind === "lobby", specialFraming(v), (c.origin || c.variant || v).bg, work), work.signal);
     return {
       key: c.key, kind: c.kind, recruit: c.kind !== "mod" && c.recruit,
       label: candidateLabel(c, v),
@@ -1185,7 +1187,7 @@ async function drawPopup(scroll = 0) {
       nameEdit: c.kind === "mod" ? { label: T("modAlias.title"), fn: (s = scroll) => editModName(c.mod,
         () => switchPopupPage === pageToken && !$("popup").hidden ? renderPopup(s) : null) } : null,
       // The card and info panel consume one still, including its fallback, so they cannot disagree after a retry.
-      thumb: picture, big: () => picture,
+      thumb: picture, big: () => picture.start(),
       inUse: c.key === inUseKey && (c.key === "self" || selectionStatus(v, kind) === "status.installed"), fav: c.fav, isNew: c.kind === "mod" && c.mod.fresh, src: c,
       inUseText: mode.set && c.key === mode.set ? T(selectionStatus(v, kind)) : null,
       dim: c.greyed,

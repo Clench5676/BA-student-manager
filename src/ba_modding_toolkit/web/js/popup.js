@@ -12,6 +12,7 @@
 import * as NGUI from "./ngui.js";
 import { switchGrid, placeSwitchCards, splitPortraitPanel } from "./switch-layout.js";
 import { scrollbar } from "./scrollbar.js";
+import { horizontalScroll } from "./horizontal-scroll.js";
 import * as Buttons from "./game-buttons.js";
 import { searchTree, sortBody, orderBody, pickerItems } from "./roster-widgets.js";
 import { resizeButton } from "./button-layout.js";
@@ -190,18 +191,24 @@ export function closable(view, host, close, { el = null } = {}) {
 }
 
 // a scrolling card area with the game list's scrollbar colours
-export function scrollArea(host, [l, t, w, h], contentH) {
+export function scrollArea(host, [l, t, w, h], contentH, { horizontal = false, contentW = w } = {}) {
   const area = document.createElement("div");
   area.className = "popup-cards";
   Object.assign(area.style, { left: `${l}px`, top: `${t}px`, width: `${w}px`, height: `${h}px` });
   const inner = document.createElement("div");
   inner.className = "popup-cards-inner";
   inner.style.height = `${contentH}px`;
+  if (horizontal) {
+    Object.assign(area.style, { overflowX: "auto", overflowY: "hidden" });
+    inner.style.width = `${contentW}px`;
+    horizontalScroll(area, w, contentW);
+  }
   area.appendChild(inner);
   host.appendChild(area);
-  if (contentH > h + 1) {
-    const pending = scrollbar(host, [l + w + 8 - 63 * S, t + 6, 126 * S, h - 12]).then((bar) => {
-      const sync = () => bar.sync(h, contentH, area.scrollTop || 0);
+  if (horizontal ? contentW > w + 1 : contentH > h + 1) {
+    const track = horizontal ? [l + 6, t + h + 8 - 63 * S, w - 12, 126 * S] : [l + w + 8 - 63 * S, t + 6, 126 * S, h - 12];
+    const pending = scrollbar(host, track, { horizontal }).then((bar) => {
+      const sync = () => horizontal ? bar.sync(w, contentW, area.scrollLeft || 0) : bar.sync(h, contentH, area.scrollTop || 0);
       area.addEventListener("scroll", sync);
       sync();
     }).catch((err) => console.warn("popup scrollbar unavailable", err));
@@ -487,13 +494,13 @@ function detailsTree(it, title, fields, actions, portraitTexture = null, kind = 
 //   check: {label, checked, onChange} for a checkbox left of the buttons; a click flips check.checked, so the same
 //          object is passed to every drawing
 //   details(it): {title, fields: [[caption, value, colour]], actions: [[caption, fn]]} for the panel on the left
-//   keepScroll: the list's scroll position to draw it at
+//   keepScroll: the list's offset on its scrolling axis (horizontal for portraits)
 const toolStates = new WeakMap();
 const tokens = new Map(); // host -> the latest drawing's number: an older one that ends later is dropped
 export async function listPopup(options) {
   let {
   host: hostArg, hostId, title, items, selected = null, multi = false, focus = null, onSelect, buttons = null, okText, onOk,
-  onClose = null, tools = null, hint = "", footer = "", check = null, details, keepScroll: scrollTop = 0,
+  onClose = null, tools = null, hint = "", footer = "", check = null, details, keepScroll = 0,
 } = options;
   const host = hostOf(hostArg ?? hostId);
   const my = (tokens.get(host) || 0) + 1;
@@ -506,7 +513,8 @@ export async function listPopup(options) {
     const inventory = await NGUI.layout("UINonEquipmentInventory");
     portraitTexture = find(inventory, "Inventory_ListControl/EquipPos/Texture");
   }
-  const grid = switchGrid(options.layoutKind), { card, columns, pitch } = grid;
+  const grid = switchGrid(options.layoutKind), { card, columns, pitch, horizontal } = grid;
+  const scrollKey = horizontal ? "scrollLeft" : "scrollTop";
   let toolState = toolStates.get(host);
   if (tools) {
     if (reopening || !toolState || host.dataset.pickerTitle !== title) {
@@ -526,7 +534,7 @@ export async function listPopup(options) {
   if (onClose) hit(next, view, "Center/Popup/Base/BG/Btn_Close", () => onClose("close"), { name: T("display.close"), action: "close" });
   closable(view, host, onClose);
   const band = [];
-  if (tools && layouts.collection) {
+  if (tools && layouts.collection && !(horizontal && toolState.searching)) {
     const tb = toolbar(LP.list.r - 24, LP.list.t - 76, { segs: tools.segs, sortKey: toolState.sort === "name" ? "sort.name" : tools.sortKey, active: tools.seg ?? 0, ascending: toolState.ascending, filtered: !!toolState.query });
     const tv = await NGUI.render(tb.tree, next, { scale: S, origin: [960, 540], z: 20 });
     hit(next, tv, "Toolbar/OrderBtn/Btn_Normal", () => { toolState.ascending = !toolState.ascending; redraw(); },
@@ -570,8 +578,13 @@ export async function listPopup(options) {
   let searchInput = null;
   if (tools && toolState.searching && layouts.collection) {
     const search = searchTree(layouts.collection);
+    // Portraits need the paper's full height: search replaces their toolbar in the header.
     search.pos = [(LP.list.l + LP.list.r) / 2, LP.list.t - 166];
     find(search, "SearchName").pos = [0, 0];
+    if (horizontal) {
+      const area = find(search, "SearchName/SearchNameArea"), w = area.widgets.find((w) => "sprite" in w);
+      search.pos[1] = LP.list.t - 76 - area.pos[1] - (Math.floor((w.pivot ?? 4) / 3) / 2 - .5) * w.h_;
+    }
     const sv = await NGUI.render(search, next, { scale: S, origin: [960, 540], z: 25 });
     const r = nodeRect(sv, `${search.name}/SearchName/SearchNameArea/InputField/Label_Search`);
     if (r) {
@@ -589,27 +602,30 @@ export async function listPopup(options) {
       next.appendChild(searchInput);
     }
   }
-  const top = LP.list.t - 166 - (tools && toolState.searching ? 160 : 0), bottom = LP.list.b + 24;
+  const top = LP.list.t - 166 - (tools && toolState.searching && !horizontal ? 160 : 0), bottom = LP.list.b + 24;
   const [aL, aT] = [960 + (LP.list.l + 16) * S, 540 - top * S];
-  const rows = Math.ceil(items.length / columns);
-  const contentH = (rows * pitch[1] + 20) * S, visH = (top - bottom) * S;
-  const inner = scrollArea(next, [aL, aT, (LP.list.r - LP.list.l - 32) * S, visH], contentH);
-  await inner.ready;
-  const origin = [960 - aL, 540 - aT];
   // Measure the actual prefab widgets, including the name band's asymmetric incline and selection marks.
   const trees = items.map((it) => listCard(it, 0, 0, isSelected(it.key), card, options.layoutKind));
-  placeSwitchCards(trees, grid, { left: LP.list.l + 16, right: LP.list.r - 16, top: top + 16 });
+  const paper = { left: LP.list.l + 16, right: LP.list.r - 16, top: top + 16 };
+  const bounds = placeSwitchCards(trees, grid, paper);
+  const rows = Math.ceil(items.length / columns), visH = (top - bottom) * S, visW = (paper.right - paper.left) * S;
+  const contentH = horizontal ? visH : (rows * pitch[1] + 20) * S;
+  const contentW = horizontal ? Math.max(visW, ...bounds.map((b) => (b.right - paper.left + 40) * S)) : visW;
+  const inner = scrollArea(next, [aL, aT, visW, visH], contentH, { horizontal, contentW });
+  await inner.ready;
+  const origin = [960 - aL, 540 - aT];
+  const scroll = () => inner.parentElement[scrollKey] || 0;
   const at = (i) => trees[i].pos;
   await Promise.all(items.map(async (it, i) => {
     const tree = trees[i];
     const styles = it.dim ? { [`Card_${it.key}/Thumb`]: "filter: grayscale(1)" } : undefined;
     const cv = await NGUI.render(tree, inner, { scale: S, origin, z: 30, styles });
-    if (it.nameEdit) hit(inner, cv, `Card_${it.key}/Bar/EditName`, () => it.nameEdit.fn(inner.parentElement.scrollTop), { name: it.nameEdit.label, action: `alias:${it.key}` });
+    if (it.nameEdit) hit(inner, cv, `Card_${it.key}/Bar/EditName`, () => it.nameEdit.fn(scroll()), { name: it.nameEdit.label, action: `alias:${it.key}` });
   }));
   // the cards' buttons in the list's order, so the keyboard steps through them as they show
   items.forEach((it, i) => {
     const [x, y] = at(i), [sx, sy] = [origin[0] + x * S, origin[1] - y * S];
-    const b = hitButton(inner, [sx - card.w / 2 * S, sy - card.h / 2 * S, card.w * S, (card.h + card.bar + 10) * S], () => onSelect(it.key, inner.parentElement.scrollTop), it.full, 60);
+    const b = hitButton(inner, [sx - card.w / 2 * S, sy - card.h / 2 * S, card.w * S, (card.h + card.bar + 10) * S], () => onSelect(it.key, scroll()), it.full, 60);
     b.dataset.key = it.key;
     if (multi) { b.setAttribute("role", "checkbox"); b.setAttribute("aria-checked", String(ticked.has(it.key))); }
   });
@@ -618,20 +634,23 @@ export async function listPopup(options) {
   if (sel && details) {
     const d = details(sel);
     const dv = await NGUI.render(detailsTree(sel, d.title, d.fields, d.actions, portraitTexture, options.layoutKind), next, { scale: S, origin: [960, 540], z: 20 });
-    if (sel.nameEdit) hit(next, dv, "Details/EditName", () => sel.nameEdit.fn(inner.parentElement.scrollTop), { name: sel.nameEdit.label, action: "alias:details" });
+    if (sel.nameEdit) hit(next, dv, "Details/EditName", () => sel.nameEdit.fn(scroll()), { name: sel.nameEdit.label, action: "alias:details" });
     d.actions.forEach(([caption, fn], i) => { if (fn) hit(next, dv, `Details/Act_${i}/Body`, fn, { name: caption }); });
   }
   if (tokens.get(host) !== my || host.hidden) return;
   const area = inner.parentElement;
   host.replaceChildren(...next.childNodes);
   if (searchInput) { searchInput.focus?.(); searchInput.setSelectionRange?.(searchInput.value.length, searchInput.value.length); }
-  area.scrollTop = scrollTop;
+  area[scrollKey] = keepScroll;
   // the thumbnails render in the order they were asked for: the cards in view go first, again as the list scrolls
   const bumpShown = () => {
-    const row = pitch[1] * S, first = Math.floor(area.scrollTop / row), last = Math.floor((area.scrollTop + visH) / row);
+    if (tokens.get(host) !== my || host.hidden) return;
+    const offset = scroll();
     for (let i = items.length - 1; i >= 0; i--) {
-      const at = Math.floor(i / columns);
-      if (at >= first && at <= last) items[i].thumb?.bump?.();
+      const b = bounds[i];
+      const first = horizontal ? (b.left - paper.left) * S : (top - b.top) * S;
+      const last = horizontal ? (b.right - paper.left) * S : (top - b.bottom) * S;
+      if (last > offset && first < offset + (horizontal ? visW : visH)) items[i].thumb?.bump?.();
     }
   };
   bumpShown();
