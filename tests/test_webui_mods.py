@@ -461,7 +461,8 @@ def test_another_data_directorys_toggle_shows_within_one_poll(env, monkeypatch):
     events = env.drain()
     assert events_named(events, "mods.state") and events_named(events, "mods.state")[-1]["enabled"] is False
     # with scan consent a scan follows, and the unfinished list is judged again on the job worker
-    assert wait_for(lambda: events_named(env.drain(), "library.scanned"))
+    # A fast scan can finish in the same batch as the state event already drained above.
+    assert events_named(events, "library.scanned") or wait_for(lambda: events_named(env.drain(), "library.scanned"))
     assert wait_for(lambda: not s.jobs.active("library.judge"))
     # unchanged: profiles.json is not read again
     monkeypatch.setattr(s.library, "intent", lambda: pytest.fail("read again"))
