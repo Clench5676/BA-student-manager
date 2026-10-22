@@ -698,10 +698,11 @@ class BatchImport:
                                     if options["enableAfterImport"]:
                                         phase = "apply"
                                         report(candidate, phase)
-                                        library.apply_import(mod.target, f"mod:{mod.id}", kind=mod.kind,
+                                        applied = library.apply_import(mod.target, f"mod:{mod.id}", kind=mod.kind,
                                             pin=pin, settings=settings, backup=options["backup"], log=log)
                                         # A successful apply configures the source, including deferred applies.
-                                        item["applied"] = True
+                                        item["configured"] = True
+                                        item["applied"] = not applied.deferred
                                     self._complete(candidate, library, pin, mod.id)
                         except ServiceError as error:
                             item.update(outcome="failed", reason=error.code)
@@ -712,6 +713,16 @@ class BatchImport:
                         except Exception:
                             logger.exception("Batch import entry failed: %s", candidate.entry["id"])
                             item.update(outcome="failed", reason="internal")
+                        if phase == "apply" and item.get("libraryId") and item.get("reason"):
+                            # A failed install can still have saved the choice. Report both facts.
+                            try:
+                                if mod.kind == "other":
+                                    item["configured"] = any(row["id"] == mod.id and row["selected"]
+                                                             for row in library.other_mods(pin))
+                                else:
+                                    item["configured"] = library.configured(mod.target, pin).get(mod.kind) == f"mod:{mod.id}"
+                            except (ServiceError, OSError):
+                                item["configured"] = False
                         result.results.append(item)
                         with progress_lock:
                             completed[0] += 1

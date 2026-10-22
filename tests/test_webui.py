@@ -142,6 +142,9 @@ class FakeLibrary:
     def state(self, key, pin=None):
         return {"applied": "official", "crc": "ok"}
 
+    def selection(self, key, pin=None):
+        return {}
+
     def configured(self, key, pin=None):
         return {"spr": None, "lobby": None}
 
@@ -155,7 +158,7 @@ class FakeLibrary:
         self.applied.append((variant_key, "official"))
         return {"applied": "official"}
 
-    def would_write(self, variant_key, source, kind="spr", pin=None):
+    def would_write(self, variant_key, source, kind="spr", pin=None, *, setting=False):
         return self.writes
 
     def live_bundles(self, core, pin=None):
@@ -327,6 +330,8 @@ def test_library_counts_and_configured_sources_reach_roster_and_family(app, serv
     monkeypatch.setattr(services.library, "configured", lambda key: configured)
     for enabled in (True, False):
         services.library.enabled = enabled
+        selection = {"spr": {"source": "mod:p1", "installed": enabled, "error": None}}
+        monkeypatch.setattr(services.library, "selection", lambda key: selection)
         roster = rpc(app, "roster.list")["result"]["families"][0]
         family = rpc(app, "family.get", key="hoshino")["result"]
         for data in (roster, family):
@@ -334,6 +339,7 @@ def test_library_counts_and_configured_sources_reach_roster_and_family(app, serv
             assert v["mods"] == 4
             assert v["modCounts"] == {"spr": 3, "lobby": 1}
             assert v["configured"] == configured
+            assert v["selection"] == selection
     monkeypatch.setattr(services.library, "mods", lambda: [])
     v = rpc(app, "roster.list")["result"]["families"][0]["variants"][0]
     assert v["mods"] == 0 and v["modCounts"] == {"spr": 0, "lobby": 0}

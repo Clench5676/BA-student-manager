@@ -623,7 +623,7 @@ def test_update_then_add_then_apply_forwards_every_classic_option_and_reports_ev
     assert args["anim_check"] == env.settings.anim_check_options()
     assert calls[2][1]["backup"] is True
     assert result == {"id": entry["id"], "outcome": "updated", "reason": None,
-                      "libraryId": env.library.mods()[0].id, "applied": True}
+                      "libraryId": env.library.mods()[0].id, "applied": True, "configured": True}
     assert env.original.with_name(env.original.name + ".backup").read_bytes() == before
     assert env.library.settings is env.settings
     assert env.settings.get("compression_method") == "none"
@@ -662,7 +662,8 @@ def test_enable_after_import_configures_every_kind_and_defers_game_writes(reques
     before = {target: target.read_bytes() for target in targets}
     entry, = analyze(env, sources)["entries"]
     result, = run(env, [entry], enableAfterImport=enable, backup=False)
-    assert result["outcome"] == "imported" and result["applied"] is enable
+    assert result["outcome"] == "imported" and result["applied"] is (enable and switch)
+    assert result.get("configured", False) is enable
     mod, = env.library.mods()
     if kind == "other":
         assert rpc(env, "mods.other")[0]["selected"] is enable
@@ -697,7 +698,7 @@ def test_several_mods_for_one_variant_configure_in_request_order_last_wins_and_r
     chosen = list(reversed(entries))
     results = run(env, chosen, workers=3)
     assert [result["id"] for result in results] == [entry["id"] for entry in chosen]
-    assert all(result["outcome"] == "imported" and result["applied"] for result in results)
+    assert all(result["outcome"] == "imported" and result["applied"] is switch and result["configured"] for result in results)
     last = next(mod for mod in env.library.mods() if mod.id == results[-1]["libraryId"])
     if kind == "other":
         assert [row["id"] for row in rpc(env, "mods.other") if row["selected"]] == [last.id]
@@ -747,7 +748,7 @@ def test_import_configures_a_duplicate_created_since_analysis(env, monkeypatch, 
     result, = run(env, [entry])
     if duplicate_phase == "add":
         stored, = stored
-    assert result["outcome"] == "unchanged" and result["applied"]
+    assert result["outcome"] == "unchanged" and result["applied"] is switch and result["configured"]
     assert result["libraryId"] == stored.id and len(env.library.mods()) == 1
     assert env.library.configured("test")["spr"] == f"mod:{stored.id}"
     assert env.original.read_bytes() == (stored.file.read_bytes() if switch else before)
@@ -1114,7 +1115,7 @@ def test_generic_old_batch_uses_classic_update_then_add_and_deferred_apply(batch
     updater(monkeypatch, calls)
     assert not env.library.toggle(False, True).failed
     result, = run(env, [entry], strategy='cont_name_type')
-    assert result['outcome'] == 'updated' and result['applied']
+    assert result['outcome'] == 'updated' and not result['applied'] and result['configured']
     assert calls[0][1]['source_paths'] == [old]
     assert [p.name for p in calls[0][1]['target_paths']] == [env.parts[0].name]
     assert rpc(env, 'mods.other')[0]['state'] == 'set'
@@ -1235,3 +1236,16 @@ def test_copy_compatibility_keeps_retained_atlas_validation(monkeypatch):
               "remappable": True}
     assert batch_import.copy_compatibility(report, integrity.Contents(skeletons={"a.skel": b"3.8.75"})) == (
         {"a.skel": {"4.2.33"}}, {"a.skel": "3.8.75"}, True)
+
+
+def test_failed_install_result_keeps_set_note_and_error(env, monkeypatch):
+    source = make_mod(env.original, env.tmp / "input")
+    entry, = analyze(env, [source])["entries"]
+    def fail(*args, **kwargs):
+        raise ServiceError("game_file_locked", file=env.original)
+    monkeypatch.setattr(env.library, "_commit", fail)
+    result, = run(env, [entry])
+    assert result["outcome"] == "failed" and result["reason"] == "game_file_locked"
+    assert result["configured"] and not result["applied"]
+    assert env.library.configured("test")["spr"] == f"mod:{result['libraryId']}"
+    assert not env.library.selection("test")["spr"]["installed"]

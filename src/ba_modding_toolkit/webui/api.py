@@ -437,6 +437,7 @@ def build_api(s: Services) -> RpcRegistry:
             "modCounts": {kind: len({getattr(m, "repaired_from", "") or m.id for m in own if m.kind == kind})
                           for kind in ("spr", "lobby")},
             "configured": configured_of(v.key),
+            "selection": selection_of(v.key),
             # when the newest of its own mods was added (ISO), for the roster's "recently added" sort
             "added": max((m.added for m in own if getattr(m, "added", None)), default=None),
             "recent": recent.index(v.key) if v.key in recent else None,
@@ -494,6 +495,12 @@ def build_api(s: Services) -> RpcRegistry:
             return s.library.configured(key)
         except ServiceError:
             return {"spr": None, "lobby": None}
+
+    def selection_of(key: str) -> dict:
+        try:
+            return s.library.selection(key)
+        except ServiceError:
+            return {}
 
     @rpc.method("family.get")
     @s.timings.measure("detail.data")
