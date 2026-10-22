@@ -3,8 +3,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { register } from "node:module";
 import { test } from "node:test";
+import { switchPrefabs } from "./switch_prefabs.mjs";
 import { controls } from "./control_prefabs.mjs";
 const controlLayouts = controls();
+const switchLayouts = switchPrefabs();
 
 class El {
   constructor(tag = "div") {
@@ -253,6 +255,8 @@ globalThis.fetch = async (url, opts = {}) => {
   }
   if (url.startsWith("/asset/ui/layout/")) {
     if (optionalPending && url.endsWith("UIPopup_Sort.json")) return new Promise(() => {});
+    if (url.endsWith("UICharacterCollectionPopulatorUnit.json")) return reply(switchLayouts.unit);
+    if (url.endsWith("UINonEquipmentInventory.json")) return reply(switchLayouts.inventory);
     if (url.endsWith("UIPopup_Sort.json")) return reply(sortPopup);
     if (url.endsWith("UIPopup_Option_PC.json")) return reply(controlLayouts.option);
     if (url.endsWith("UIPopup_FilterSort.json")) return reply(controlLayouts.filter);
@@ -346,7 +350,7 @@ function modFamily(kind = "spr", id = "test") {
   return { key: "ibuki", version: id, variants: [{ key: "ibuki", spr: "ibuki_spr", lobby: "ibuki_home", names: { en: { full: "Ibuki", short: "Ibuki" } },
     modList: [{ id, target: "ibuki", kind, label: id }], state: { files: [{ kind, applied: `mod:${id}`, official: false, restorable: true, crc: "fixed" }] } }] };
 }
-const flush = async () => { for (let i = 0; i < 80; i++) await Promise.resolve(); };
+const flush = async () => { for (let i = 0; i < 160; i++) await Promise.resolve(); };
 const finish = async (t, promise) => {
   let settled = false;
   promise.finally(() => { settled = true; }).catch(() => {});
@@ -667,7 +671,7 @@ for (const core of ["arona_workpage_daytime", "np0032_npc"]) for (const category
     await finish(t, aliasKey(aliasInput()));
     assert.equal(part("Details/Name").getAttribute("aria-label"), "Evening L2D");
     assert.equal(part("Card_m:special-day/Tag/Text").textContent, "Repaired");
-    assert.equal(part("Details/Chip_0/Text/Text").textContent, "Repaired");
+    assert.equal(walk(part("Details/Chip_0/Text/Text")).map((el) => el.textContent).join(""), "Repaired");
     assert.ok(!walk(hosts.popup).some((el) => el.getAttribute("aria-label") === "Remap to current version"));
     await closeSwitch();
     back.onclick(); assert.equal(location.hash, "#/roster");
@@ -978,14 +982,15 @@ test("repaired names and own aliases keep a separate repair tag in every locale"
         Object.assign(mod, { alias, label: name, repaired_from: "original" });
         v.modList.push({ id: "original", target: v.key, kind: "spr", alias: "Painted", label: "Painted", repaired_id: mod.id });
         v.configured = { spr: "mod:fixed" };
+        v.selection = { spr: { source: "mod:fixed", installed: enabled } };
         await showPortrait(t);
         assert.equal(currentCell().getAttribute("aria-label"), name);
         await switchButton().click(); await flush();
         const part = (path) => walk(hosts.popup).find((el) => el.dataset.path === path);
         assert.equal(part("Details/Name").getAttribute("aria-label"), name);
-        assert.equal(part("Details/Chip_0/Text/Text").textContent, ui.webui.remap.repaired);
-        assert.equal(part("Card_m:fixed/Tag/Text").textContent, ui.webui.remap.repaired);
-        assert.equal(part("Card_m:fixed/Using/Text").textContent, enabled ? ui.webui.popup.inUse : ui.webui.switch.configured);
+        assert.equal(walk(part("Details/Chip_0/Text/Text")).map((el) => el.textContent).join(""), ui.webui.remap.repaired);
+        assert.equal((part("Card_m:fixed/Tag/Label_Schoolname").textContent || part("Card_m:fixed/Tag/Label_Schoolname").children[0].textContent), ui.webui.remap.repaired);
+        assert.equal((part("Card_m:fixed/Sort/Label_Schoolname").textContent || part("Card_m:fixed/Sort/Label_Schoolname").children[0].textContent), enabled ? ui.webui.status.installed : ui.webui.switch.configured);
         assert.ok(walk(hosts.popup).some((el) => el.dataset.action === "alias:m:fixed"));
         assert.equal(walk(hosts.popup).filter((el) => el.getAttribute("aria-label") === ui.webui.act.update).length, 1);
         await closeSwitch();
@@ -1113,6 +1118,8 @@ for (const kind of ["spr", "lobby"]) test(`an auto-applied ${kind} mod has no ca
   t.mock.timers.enable({ apis: ["setTimeout"] });
   try {
     family = modFamily(kind); family.variants[0].modList[0].fresh = true;
+    family.variants[0].configured = { [kind]: "mod:test" };
+    family.variants[0].selection = { [kind]: { source: "mod:test", installed: true } };
     seenReply = async () => ({ error: { code: "internal" } });
     await showPortrait(t);
     const tab = kind === "lobby" ? 2 : 1;
@@ -1124,8 +1131,8 @@ for (const kind of ["spr", "lobby"]) test(`an auto-applied ${kind} mod has no ca
     const popup = switchButton().click(); await flush(); await popup;
     const own = walk(hosts.popup).find((e) => e.dataset.key === "self");
     assert.ok(own); await own.click(); await flush();
-    assert.ok(walk(hosts.popup).some((e) => e.dataset.path?.endsWith("Card_m:test/Using")));
-    assert.equal(walk(hosts.popup).find((e) => e.dataset.path?.endsWith("Card_m:test/Dot")), undefined);
+    assert.ok(walk(hosts.popup).some((e) => e.dataset.path?.endsWith(kind === "spr" ? "Card_m:test/Sort/Label_Schoolname" : "Card_m:test/Using")));
+    assert.equal(walk(hosts.popup).find((e) => e.dataset.path?.match(/Card_m:test\/(?:Dot|NewIcon)$/)), undefined);
     assert.ok(tabDot(tab)); assert.ok(chipDot("ibuki"), "card rendering leaves the unread marks intact");
     await closeSwitch();
   } finally { Detail.hide(); seenReply = async () => ({ result: null }); await flush(); t.mock.timers.reset(); }
@@ -1160,7 +1167,7 @@ for (const after of ["closed", "aliases", "reopened", "left"]) test(`a delayed s
     const popup = switchButton().click(); await flush();
     assert.ok(finish, "the switch shows while its seen state is being saved");
     assert.ok(walk(hosts.popup).some((e) => e.dataset.key === "m:test"));
-    assert.ok(walk(hosts.popup).some((e) => e.dataset.path?.endsWith("Card_m:test/Dot")));
+    assert.ok(walk(hosts.popup).some((e) => e.dataset.path?.match(/Card_m:test\/(?:Dot|NewIcon)$/)));
     assert.ok(tabDot(1));
     await closeSwitch();
     let input;
@@ -1184,7 +1191,7 @@ for (const after of ["closed", "aliases", "reopened", "left"]) test(`a delayed s
     } else if (after === "reopened") {
       assert.equal(hosts.popup.hidden, false);
       assert.ok(walk(hosts.popup).some((e) => e.dataset.key === "m:test"));
-      assert.equal(walk(hosts.popup).find((e) => e.dataset.path?.endsWith("Card_m:test/Dot")), undefined);
+      assert.equal(walk(hosts.popup).find((e) => e.dataset.path?.match(/Card_m:test\/(?:Dot|NewIcon)$/)), undefined);
     } else {
       assert.equal(hosts.popup.hidden, true);
       assert.equal(hosts.popup.children.length, 0);
@@ -1311,6 +1318,7 @@ for (const enabled of [true, false]) test(`model switching reuses the detail con
     const v = family.variants[0];
     v.model = "ibuki_model";
     v.configured = { model: "mod:test" };
+    v.selection = { model: { source: "mod:test", installed: enabled } };
     v.modList[0].fresh = true;
     if (!enabled) v.state.files = [{ kind: "model", applied: "official", official: true, restorable: true, crc: "ok" }];
     modsEnabled = enabled; await ModSwitch.refresh();
@@ -1319,13 +1327,13 @@ for (const enabled of [true, false]) test(`model switching reuses the detail con
     for (let i = 0; i < 20; i++) { await new Promise(setImmediate); await flush(); }
     await finish(t, switching);
     assert.equal(modelRequests.at(-1)?.key, "ibuki", errors.map((args) => args.map(String).join(" ")).join("\n"));
-    assert.equal(modelRequests.at(-1).source, enabled ? "live" : "mod:test");
+    assert.equal(modelRequests.at(-1).source, "mod:test");
     assert.ok(switchButton(), "the model switch opens the shared popup");
     const add = walk(hosts.ngui).find((e) => e.dataset.part === `${INFO}/Weapon/Btn_Up_Wrapper/Btn_Up/BG (1)`);
     assert.ok(add && add.getAttribute("aria-label") === "Add 3D Model");
     const text = walk(hosts.ngui).find((e) => e.className === "switch-text");
     assert.ok(text.children.some((e) => e.className === "switch-go"));
-    assert.ok(text.children.some((e) => e.innerText === "test"));
+    assert.ok(text.children.some((e) => e.innerText?.startsWith("test · ")));
     assert.equal(tabDot(3), undefined, "showing the model tab marks its configured asset seen");
     assert.equal(v.fresh, false);
     await switchButton().click(); await flush();

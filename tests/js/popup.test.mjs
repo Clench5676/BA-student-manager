@@ -6,6 +6,7 @@ import { readFileSync } from "node:fs";
 import { register } from "node:module";
 import { afterEach, test } from "node:test";
 import vm from "node:vm";
+import { switchPrefabs } from "./switch_prefabs.mjs";
 import { controls, insert } from "./control_prefabs.mjs";
 
 // --- a stand-in DOM: elements in a tree, ids, clicks, the focus and the window's key listeners ---
@@ -124,6 +125,7 @@ OPTIONS.children[0].children[1].children.push(
   n("Game", [0, 0], [], ["Tab_On", "Tab_Off"].map((name) => n(name, [0, 0], [], [n("Label_Locale", [0, 0], [lbl()])]))),
 );
 const controlLayouts = controls();
+const switchLayouts = switchPrefabs();
 insert(OPTIONS, "Center/Popup/List/Sound_Setting/ETCSetting/ButtonBg", controlLayouts.option.children[0].children[0].children[0].children[0].children[0].children[0]);
 let update = null; // what app.checkUpdate answers
 const calls = [];
@@ -140,6 +142,8 @@ globalThis.fetch = async (url, opts = {}) => {
   if (url === "/asset/ui/atlases.json") return reply({ Common: Object.fromEntries(
     ["Common_Square_Bg", "Common_Bg_Raius10px", "Common_Btn_BG", "Common_Popup_Bg", "Common_Btn_Normal_B_C_Pt"].map((name) => [name, { width: 8, height: 8 }])) });
   if (url === "/asset/ui/textures.json") return reply({});
+  if (url === "/asset/ui/layout/UICharacterCollectionPopulatorUnit.json") return reply(switchLayouts.unit);
+  if (url === "/asset/ui/layout/UINonEquipmentInventory.json") return reply(switchLayouts.inventory);
   if (url === "/asset/ui/layout/UIPopup_Sort.json") return reply(SORT);
   if (url === "/asset/ui/layout/UIPopup_FilterSort.json") return reply(controlLayouts.filter);
   if (url === "/asset/ui/layout/UIPopup_Option_PC.json") return reply(OPTIONS);
@@ -1128,25 +1132,26 @@ test("each mod card exposes a read-only compatibility check for its own mod", as
   }
 });
 
-test("configured switch cards and detail chips say Set while mods are off, and In Use when on", async () => {
+test("configured switch cards, chips and Status use verified Set or Installed", async () => {
   for (const lang of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) {
     const ui = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${lang}.json`, import.meta.url))).webui;
-    setStrings(lang, Object.fromEntries(["type", "popup", "switch"].flatMap((group) =>
+    setStrings(lang, Object.fromEntries(["type", "popup", "switch", "status"].flatMap((group) =>
       Object.entries(ui[group]).map(([key, value]) => [`webui.${group}.${key}`, value]))));
     for (const [kind, source] of [["spr", "mod:p"], ["lobby", "mod:l"], ["spr", "variant:b"]]) {
       for (const enabled of [false, true]) {
         await modsEnabled(enabled);
         const fam = previewFamily();
         fam.variants[0].configured[kind] = source;
+        fam.variants[0].selection = { [kind]: { source, installed: enabled } };
         if (enabled) Object.assign(fam.variants[0].state.files.find((f) => f.kind === kind), { applied: source, official: false });
         Detail.setupPreviewTest(fam, kind);
         await Detail.renderPopup();
         const captions = walk(switchHost).map((el) => el.textContent);
-        const caption = enabled ? ui.popup.inUse : ui.switch.configured;
-        assert.equal(captions.filter((c) => c === caption).length, !enabled && source.startsWith("mod:") ? 3 : 2,
+        const caption = enabled ? ui.status.installed : ui.switch.configured;
+        assert.equal(captions.filter((c) => c === caption).length, 3,
           `${lang} ${kind} ${source}: card, chip and configured status`);
         if (source.startsWith("mod:")) assert.ok(captions.includes(ui.type.added));
-        assert.ok(!captions.includes(enabled ? ui.switch.configured : ui.popup.inUse));
+        assert.ok(!captions.includes(enabled ? ui.switch.configured : ui.status.installed));
         switchHost.hidden = true;
       }
     }
@@ -1490,4 +1495,62 @@ test("error popup report actions retain the triggering code and parameters", asy
     action(next, "ok").click();
     await pending;
   } finally { delete globalThis.BAMTRecovery; }
+});
+
+// Exercise the actual rendered popup at all supported text lengths and kinds, without localhost.
+test("switch geometry: per-kind columns, aspects, card bounds, labels and portrait split", async () => {
+  const NGUI = await import("../../src/ba_modding_toolkit/web/js/ngui.js");
+  const box = (path) => NGUI.rect(walk(prompt).find((el) => el.dataset.path === path));
+  const inside = (a, b, message) => {
+    assert.ok(a[0] >= b[0] - 1 && a[1] >= b[1] - 1 && a[0] + a[2] <= b[0] + b[2] + 1 && a[1] + a[3] <= b[1] + b[3] + 1, message);
+  };
+  try {
+    for (const lang of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) {
+      const ui = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${lang}.json`, import.meta.url))).webui;
+      setStrings(lang, Object.fromEntries(strings(ui)));
+      for (const [kind, columns] of [["spr", 4], ["lobby", 2], ["model", 4]]) {
+        const items = Array.from({ length: 9 }, (_, i) => ({ key: String(i), kind: "mod", full: "ch0200_spr", label: "ch0200_spr",
+          nameEdit: { label: ui.modAlias.title, fn() {} }, inUseText: ui.switch.configured,
+          badge: { text: ui.switch.configured, color: "#8de4ff" } }));
+        const fields = [[ui.field.file, `assets-_mx-spinecharacters-${"long_bundle_name_".repeat(5)}.bundle`],
+          [ui.field.size, "2.5 MB"], [ui.field.status, `${ui.switch.configured}\n${ui.error.game_file_locked.replace("{file}", "/very/long/path".repeat(20))}`], [ui.field.crc, "—"]];
+        await Popup.listPopup({ host: prompt, title: kind, layoutKind: kind, items, selected: "0", okText: ui.popup.apply,
+          details: () => ({ title: ui.info.title.portrait, fields, actions: [[ui.open.mac], [ui.btn.extract]] }) });
+        const cards = items.map((it) => box(`Card_${it.key}${kind === "spr" ? "/BG" : ""}`));
+        const ratio = cards[0][2] / cards[0][3];
+        if (kind === "spr") assert.ok(ratio < .8);
+        if (kind === "lobby") assert.ok(Math.abs(ratio - 16 / 9) < .02);
+        if (kind === "model") { assert.equal(ratio, 1); assert.ok(cards[0][2] > 220); }
+        for (let i = 0; i < cards.length; i++) {
+          if (i % columns) assert.ok(cards[i][0] > cards[i - 1][0] + cards[i - 1][2] + 8, `${kind}: column gap`);
+          if (i >= columns) assert.ok(cards[i][1] > cards[i - columns][1] + cards[i - columns][3] + (kind === "spr" ? 0 : 65), `${kind}: row gap includes names`);
+          assert.equal(cards[i][1], cards[Math.floor(i / columns) * columns][1]);
+          const labelPath = `Card_${i}/${kind === "spr" ? "Label_CharName" : "Bar/Name/Text"}`;
+          if (kind === "spr") inside(box(labelPath), cards[i], `${lang}: portrait name inside native card`);
+          else {
+            const label = walk(prompt).find((el) => el.dataset.path?.startsWith(`Card_${i}/Bar/Name/`) && el.textContent);
+            inside(NGUI.rect(label), box(`Card_${i}/Bar`), `${lang}: name in card bar`);
+          }
+        }
+        if (kind === "spr") {
+          const picture = box("Details/Picture/Texture"), name = box("Details/Name"), buttons = box("Details/Act_0/Body");
+          assert.ok(picture[3] > picture[2] * 2);
+          assert.ok(picture[0] + picture[2] < name[0]);
+          assert.ok(picture[1] + picture[3] < buttons[1]);
+          let previous = box("Details/Chip_0");
+          for (let i = 0; i < 4; i++) {
+            const caption = box(`Details/F_${i}`), value = box(`Details/V_${i}`);
+            assert.ok(caption[0] > picture[0] + picture[2]);
+            assert.ok(caption[1] >= previous[1] + previous[3]);
+            assert.ok(value[1] >= caption[1] + caption[3]);
+            assert.ok(value[0] + value[2] <= buttons[0] + 500);
+            assert.ok(value[1] + value[3] < buttons[1], `${lang}: fields above actions`);
+            previous = value;
+          }
+          assert.ok(walk(prompt).find((el) => el.dataset.path === "Details/V_0").textContent.includes("\n"));
+        }
+        prompt.hidden = true;
+      }
+    }
+  } finally { prompt.hidden = true; setStrings("en-US", Object.fromEntries(strings(english))); }
 });

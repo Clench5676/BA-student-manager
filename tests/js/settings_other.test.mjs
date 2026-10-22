@@ -85,7 +85,7 @@ test("cancel, close and failed lookups cannot delete; unused sources omit the re
 test("refused writes keep the list and expose the shared refusal flow", async () => {
   const error = { code: "classic_open" }, h = harness({ error });
   await h.select(mod, h.changed);
-  assert.equal(h.changes(), 0);
+  assert.equal(h.changes(), 1);
   assert.deepEqual(h.refused, [[error, "actions.apply", { variant: mod.target, kind: "other", source: "mod:m1" }]]);
 });
 

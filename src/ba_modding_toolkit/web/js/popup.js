@@ -10,6 +10,7 @@
 // answered with a button takes Escape and does nothing with it, so nothing under it acts either.
 // The pure parts (the stack, the selection, the start sequence) are tested in Node (tests/js/popup.test.mjs).
 import * as NGUI from "./ngui.js";
+import { switchGrid, splitPortraitPanel, portraitCard, maskPortrait } from "./switch-layout.js";
 import { scrollbar } from "./scrollbar.js";
 import * as Buttons from "./game-buttons.js";
 import { searchTree, sortBody, orderBody, pickerItems } from "./roster-widgets.js";
@@ -259,7 +260,6 @@ const LP = {
   card: { w: 250, h: 226, bar: 68 },            // card body (Common_Btn_BG) and its name bar
   pitch: [284, 350],
 };
-const COLS6 = 6;
 const BTN_W = 496; // the frame's button body (Common_Btn_BG)
 
 // the student list's tools at the top right of the list: order, sort, search and, with segs, the segment filter
@@ -353,8 +353,8 @@ function listFrame(title, buttons, closeButton) {
 // one card of the list: the game's card body, the picture clipped to its window, a name bar under it. A card that
 // cannot be chosen (dim) is darkened like the roster's not-owned cards, its picture without colour; its badge (In Use,
 // or the caller's) stays bright.
-function listCard(it, x, y, selected) {
-  const { w, h, bar } = LP.card;
+function listCard(it, x, y, selected, card = LP.card) {
+  const { w, h, bar } = card;
   const kids = [
     node("Thumb", [1, 4], [{ clipImage: it.thumb, w_: w - 16, h_: h - 26, pivot: 4, depth: 8, incline: 10, radius: 18, color: "#ffffff/1.00", imgSize: "cover", imgPosition: "center 30%" }]),
     node("Line", [1, 4], [sprite("Common_Line_Raius20px", w - 12, h - 18, { incline: 10, depth: 9, color: "#ffffff/1.00" })]),
@@ -385,7 +385,7 @@ function listCard(it, x, y, selected) {
 }
 
 // the details panel: title bar, the picture, name, kind chips, fields, actions
-function detailsTree(it, title, fields, actions) {
+function detailsTree(it, title, fields, actions, portraitTexture = null) {
   const b = LP.left, cx = (b.l + b.r) / 2, w = b.r - b.l;
   const kids = [
     node("Title_Bg", [cx, b.t - 40], [sprite("Common_Bg_Raius10px", w - 20, 73, { depth: 5, color: "#2d4c72/1.00", incline: 10 })], [
@@ -421,7 +421,11 @@ function detailsTree(it, title, fields, actions) {
   });
   // fields, on the game's light stats box; long values (file names) wrap, never cut
   const capW = Math.max(...fields.map(([k]) => advanceOf(k, 38))) + 30, room = w - 120 - capW;
-  const values = fields.map(([, v]) => wrapPath(String(v), 38, 26, room, 3));
+  const values = fields.map(([, v], i) => {
+    const f = wrapPath(String(v), 38, 26, room, 3);
+    if (i === 2 && f.lines > 2) { f.text = f.text.split("\n").slice(0, 2).join("\n") + "…"; f.lines = 2; }
+    return f;
+  });
   const rowHs = values.map((f) => Math.max(64, f.lines * f.fs * 1.25 + 16));
   const boxT = b.t - 750, boxH = rowHs.reduce((a, h) => a + h, 0) + 24;
   kids.push(node("Fields", [cx, boxT - boxH / 2], [sprite("Common_Bg_Raius10px", w - 40, boxH, { depth: 5, color: "#ecf5f9/1.00" })], [
@@ -450,7 +454,18 @@ function detailsTree(it, title, fields, actions) {
       node("Label", [0, 6], [label(f.text, f.fs, "#2d5164/1.00", bw - 40, 60 * f.lines, { depth: 8 })]),
     ]));
   });
-  return node("Details", [0, 0], [], kids);
+  const tree = node("Details", [0, 0], [], kids);
+  if (portraitTexture) {
+    const picture = find(tree, "Picture");
+    picture.widgets = [];
+    const texture = clone(portraitTexture);
+    const w = texture.widgets.find((w) => "texture" in w);
+    Object.assign(w, { clipImage: typeof it.big === "function" ? it.big() : it.big,
+      imgSize: "cover", imgPosition: "center", imgLeft: "0", imgWidth: "100%", incline: 0, radius: 0 });
+    picture.children = [texture];
+    splitPortraitPanel(tree, find, wrapPath);
+  }
+  return tree;
 }
 
 // a list popup in host (an element or its id). Redrawn by the caller on every change (a card picked, a segment):
@@ -482,6 +497,13 @@ export async function listPopup(options) {
   const reopening = host.hidden;
   host.hidden = false;
   await ready();
+  let portrait = null, portraitTexture = null;
+  if (options.layoutKind === "spr") {
+    const [unit, inventory] = await Promise.all([NGUI.layout("UICharacterCollectionPopulatorUnit"), NGUI.layout("UINonEquipmentInventory")]);
+    portrait = find(unit, "Grid/UICollectCard");
+    portraitTexture = find(inventory, "Inventory_ListControl/EquipPos/Texture");
+  }
+  const grid = switchGrid(options.layoutKind, portrait), { card, columns, pitch } = grid;
   let toolState = toolStates.get(host);
   if (tools) {
     if (reopening || !toolState || host.dataset.pickerTitle !== title) {
@@ -566,25 +588,29 @@ export async function listPopup(options) {
   }
   const top = LP.list.t - 166 - (tools && toolState.searching ? 160 : 0), bottom = LP.list.b + 24;
   const [aL, aT] = [960 + (LP.list.l + 16) * S, 540 - top * S];
-  const rows = Math.ceil(items.length / COLS6);
-  const contentH = (rows * LP.pitch[1] + 20) * S, visH = (top - bottom) * S;
+  const rows = Math.ceil(items.length / columns);
+  const contentH = (rows * pitch[1] + 20) * S, visH = (top - bottom) * S;
   const inner = scrollArea(next, [aL, aT, (LP.list.r - LP.list.l - 32) * S, visH], contentH);
   await inner.ready;
   const origin = [960 - aL, 540 - aT];
   // centre the grid on its ink: slanted cards lean right at the top (+h/2 tan10) and left under the name bar
-  const leanL = (LP.card.h / 2 + 10 + LP.card.bar) * TAN10, leanR = (LP.card.h / 2) * TAN10;
-  const inkW = (COLS6 - 1) * LP.pitch[0] + LP.card.w + leanL + leanR, areaW = LP.list.r - LP.list.l - 32 - 30;
-  const x0 = LP.list.l + 16 + (areaW - inkW) / 2 + leanL + LP.card.w / 2;
-  const at = (i) => [x0 + (i % COLS6) * LP.pitch[0], top - 30 - LP.card.h / 2 - Math.floor(i / COLS6) * LP.pitch[1]];
+  const leanL = grid.overhang / 2, leanR = grid.overhang / 2;
+  const inkW = (columns - 1) * pitch[0] + card.w + leanL + leanR, areaW = LP.list.r - LP.list.l - 32 - 30;
+  const x0 = LP.list.l + 16 + (areaW - inkW) / 2 + leanL + card.w / 2;
+  const at = (i) => [x0 + (i % columns) * pitch[0], top - 24 - card.h / 2 - Math.floor(i / columns) * pitch[1]];
   await Promise.all(items.map(async (it, i) => {
-    const styles = it.dim ? { [`Card_${it.key}/Thumb`]: "filter: grayscale(1)" } : undefined;
-    const cv = await NGUI.render(listCard(it, ...at(i), isSelected(it.key)), inner, { scale: S, origin, z: 30, styles });
-    if (it.nameEdit) hit(inner, cv, `Card_${it.key}/Bar/EditName`, () => it.nameEdit.fn(inner.parentElement.scrollTop), { name: it.nameEdit.label, action: `alias:${it.key}` });
+    const tree = portrait ? portraitCard(portrait, it, isSelected(it.key), NGUI, T("popup.inUse"))
+      : listCard(it, ...at(i), isSelected(it.key), card);
+    if (portrait) tree.pos = at(i);
+    const styles = it.dim ? { [`Card_${it.key}/${portrait ? "Char_Portrait" : "Thumb"}`]: "filter: grayscale(1)" } : undefined;
+    const cv = await NGUI.render(tree, inner, { scale: S, origin, z: 30, styles });
+    if (portrait) await maskPortrait(cv, tree.name);
+    if (it.nameEdit) hit(inner, cv, `Card_${it.key}/${portrait ? "EditName" : "Bar/EditName"}`, () => it.nameEdit.fn(inner.parentElement.scrollTop), { name: it.nameEdit.label, action: `alias:${it.key}` });
   }));
   // the cards' buttons in the list's order, so the keyboard steps through them as they show
   items.forEach((it, i) => {
     const [x, y] = at(i), [sx, sy] = [origin[0] + x * S, origin[1] - y * S];
-    const b = hitButton(inner, [sx - LP.card.w / 2 * S, sy - LP.card.h / 2 * S, LP.card.w * S, (LP.card.h + 90) * S], () => onSelect(it.key, inner.parentElement.scrollTop), it.full, 60);
+    const b = hitButton(inner, [sx - card.w / 2 * S, sy - card.h / 2 * S, card.w * S, (card.h + card.bar + 10) * S], () => onSelect(it.key, inner.parentElement.scrollTop), it.full, 60);
     b.dataset.key = it.key;
     if (multi) { b.setAttribute("role", "checkbox"); b.setAttribute("aria-checked", String(ticked.has(it.key))); }
   });
@@ -592,7 +618,7 @@ export async function listPopup(options) {
   const sel = items.find((it) => it.key === shown) || items[0];
   if (sel && details) {
     const d = details(sel);
-    const dv = await NGUI.render(detailsTree(sel, d.title, d.fields, d.actions), next, { scale: S, origin: [960, 540], z: 20 });
+    const dv = await NGUI.render(detailsTree(sel, d.title, d.fields, d.actions, portraitTexture), next, { scale: S, origin: [960, 540], z: 20 });
     if (sel.nameEdit) hit(next, dv, "Details/EditName", () => sel.nameEdit.fn(inner.parentElement.scrollTop), { name: sel.nameEdit.label, action: "alias:details" });
     d.actions.forEach(([caption, fn], i) => { if (fn) hit(next, dv, `Details/Act_${i}/Body`, fn, { name: caption }); });
   }
@@ -603,9 +629,9 @@ export async function listPopup(options) {
   area.scrollTop = scrollTop;
   // the thumbnails render in the order they were asked for: the cards in view go first, again as the list scrolls
   const bumpShown = () => {
-    const row = LP.pitch[1] * S, first = Math.floor(area.scrollTop / row), last = Math.floor((area.scrollTop + visH) / row);
+    const row = pitch[1] * S, first = Math.floor(area.scrollTop / row), last = Math.floor((area.scrollTop + visH) / row);
     for (let i = items.length - 1; i >= 0; i--) {
-      const at = Math.floor(i / COLS6);
+      const at = Math.floor(i / columns);
       if (at >= first && at <= last) items[i].thumb?.bump?.();
     }
   };

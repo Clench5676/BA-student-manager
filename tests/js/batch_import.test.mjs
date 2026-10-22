@@ -942,7 +942,7 @@ test("results omit state badges, follow the merge setting and route every studen
   h.runs[0].resolve({ results: [a, lobby, model, other].map((entry) => ({ id: entry.id, outcome: "imported", libraryId: `lib-${entry.id}`, applied: true })) });
   await flush(); await h.page.results(); await h.page.settled();
   const rows = walk(h.dialog).filter((element) => element.dataset.result);
-  assert.equal(rows.length, 2); assert.match(h.dialog.textContent, /Applied/);
+  assert.equal(rows.length, 2); assert.match(h.dialog.textContent, /Installed/);
   for (const row of rows) assert.equal(find(drawn(h, row).tree, "TimeLimit").active, false);
   await h.action("go", rows[0]).click(); assert.deepEqual(h.destinations, [["a", "a", "portrait"]]); assert.equal(h.dialog.hidden, true);
   await h.page.results(); await h.page.settled();
@@ -1018,7 +1018,7 @@ test("all six locales use short completion, merge and applied labels", () => {
     const data = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${lang}.json`, import.meta.url))).webui.import;
     for (const text of [data.state.done, data.merge, data.applied, data.notApplied]) assert.ok(text && !/[{}]/.test(text));
     assert.deepEqual([...data.waitProgress.matchAll(/\{(\w+)\}/g)].map((m) => m[1]), ["label", "done", "total"]);
-    if (lang === "zh-CN") { assert.equal(data.state.done, "\u5df2\u5b8c\u6210"); assert.equal(data.applied, "\u5df2\u5e94\u7528"); }
+    if (lang === "zh-CN") { assert.equal(data.state.done, "\u5df2\u5b8c\u6210"); assert.equal(data.applied, "\u5df2\u5b89\u88c5"); }
   }
 });
 
@@ -1089,7 +1089,7 @@ for (const merged of [false, true]) test(`only conversions reserve a platform li
   await flush(); await h.page.results(); await h.page.settled();
   for (const row of walk(h.dialog).filter((element) => element.dataset.result)) {
     check(row, { b: "Global Android → Global PC", c: "Japan PC → Global PC" }[row.dataset.result]);
-    assert.match(row.textContent, /Applied/);
+    assert.match(row.textContent, /Installed/);
   }
 });
 

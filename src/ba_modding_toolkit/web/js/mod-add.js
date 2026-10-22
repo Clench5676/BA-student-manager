@@ -34,6 +34,8 @@ export async function add(paths = null, currentVariant = null) {
   const failures = new Map((report?.failed || []).map((failure) => [failure.id,
     T("add.applyFailed", { reason: T(`error.${failure.code}`, failure.params) })]));
   const installedIds = new Set(installed.map((m) => m.id));
+  const appliedIds = new Set((report?.applied || []).map((m) => m.id));
+  const configuredIds = new Set((report?.configured || []).map((m) => m.id));
   const visibleAdded = added.filter((mod) => !from || destination(mod) !== from || installedIds.has(mod.id) || failures.has(mod.id));
   if (!visibleAdded.length && !duplicates.length) return report;
   const name = await context.names();
@@ -41,7 +43,7 @@ export async function add(paths = null, currentVariant = null) {
   const elsewhere = added.filter((mod) => !from || destination(mod) !== from);
   const addedLines = new Map(resultLines(elsewhere, name).map(({ mod, text }) => [mod, text]));
   const rows = [
-    ...visibleAdded.map((mod) => ({ mod, text: [addedLines.get(mod), installedIds.has(mod.id) ? T("add.installed") : null, failures.get(mod.id)]
+    ...visibleAdded.map((mod) => ({ mod, text: [addedLines.get(mod), installedIds.has(mod.id) ? T("add.installed") : appliedIds.has(mod.id) ? T("status.installed") : configuredIds.has(mod.id) ? T("switch.configured") : null, failures.get(mod.id)]
       .filter(Boolean).join("\n") })),
     ...duplicates.map((mod) => ({ mod, text: T("add.duplicate", { name: mod.label.trim() })
       + (installedIds.has(mod.id) ? `\n${T("add.installed")}` : "") })),

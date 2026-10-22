@@ -102,7 +102,7 @@ function cards(data, view, words, label) {
       const recent = Math.min(...vs.map((v) => (v.recent ?? Infinity)));
       const card = {
         ...vs[0], ...(hit ? { key: hit.key, spr: hit.spr, portrait: hit.portrait, names: hit.names,
-          configured: hit.configured, state: hit.state, spineCategory: hit.spineCategory } : {}),
+          configured: hit.configured, selection: hit.selection, state: hit.state, spineCategory: hit.spineCategory } : {}),
         name: studentName(hit || vs[0], words.length ? label((hit || vs[0]).names)?.full ?? f.key : label(f.base) ?? f.key), family: f.key, n: n++, matched: !!hit,
         recruit: vs.some((v) => v.recruitable), mods: vs.reduce((s, v) => s + (v.mods || 0), 0),
         modCounts: Object.fromEntries(["spr", "lobby"].map((kind) => [kind, vs.reduce((s, v) => s + (v.modCounts?.[kind] || 0), 0)])),

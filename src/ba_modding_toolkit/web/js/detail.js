@@ -38,7 +38,7 @@ import { customAliases as aliasesOf, modOriginalName, studentName } from "./name
 import { setTitle } from "./nav.js";
 import { KEYS, deltaOf, pacer, typing } from "./step-keys.js";
 import { FRAME_Y, closable, frameReady, hit as hitNode, listPopup, message, popupFrame, scrollArea } from "./popup.js";
-import { availableTab, coreOf, hasAsset, primaryKind, appliedKey as keyOf, appliedOf, candidates as listSources, partsOf, popupMode, modelSource, previewBase, previewChanged, previewKey, sourceOf, switchKindOf } from "./switch-sources.js";
+import { candidateStatus, detailStatus, selectionStatus, selectionError, availableTab, coreOf, hasAsset, primaryKind, appliedKey as keyOf, appliedOf, candidates as listSources, partsOf, popupMode, modelSource, previewBase, previewChanged, previewKey, sourceOf, switchKindOf } from "./switch-sources.js";
 import { $, DOT, RECRUIT, S, TAN10, advanceOf, at, clone, glyphsOf, hitButton, markedLabel, off, text, widget, wrapPath } from "./util.js";
 
 const { node, sprite, label, find, rect } = NGUI;
@@ -271,7 +271,6 @@ function screenTree() {
   off(t, "Top", "NUITop_Scenes", "LeftInfo/CharInfo_Disable", "LeftInfo/CharCombatStyle", "RightInfo/Target/Disable",
     "RightInfo/Target/Active/2_LevelUp", "RightInfo/Target/Active/3_Transcendence", "RightInfo/Target/Active/FullCollier", "RightInfo/Target/Active/Effect");
   const v = variant(), sk = switchKind(), c = current(sk || "spr"), kind = tabKind();
-  const swapped = appliedOf(v, kind) !== "official";
   // layer 1 of the panel: measured on the game screenshots it lets about 55 % of the background through
   widget(t, "RightInfo/Target/Active/Bg").color = "#0c284b/0.45";
 
@@ -297,7 +296,7 @@ function screenTree() {
   const crc = crcState === "fixed" ? ["crc.fixed", "#1f9a52"] : crcState === "needs_fix" ? ["crc.needed", "#d9822b"] : ["crc.original", "#000000"];
   const now = tab === "portrait" ? c.label : sourceLabel(v, kind);
   const stats = [["Label_Life", "info.current", "Data_Widget/Data", now],
-    ["Label_Attact", "info.status", "Data_Widget/Data", T(swapped ? "status.replaced" : "status.original")],
+    ["Label_Attact", "info.status", "Data_Widget/Data", T(detailStatus(v, kind))],
     ["Label_Defense", "info.gameFile", "Data", dateOf(v, kind) || "—"], ["Label_Healing", "info.crc", "Data_Widget/Data", T(crc[0]), crc[1]]];
   // the value column starts after the longest caption of its column
   const capW = (keys) => Math.max(...keys.map((k) => advanceOf(T(k), 42))) + 24;
@@ -537,7 +536,8 @@ function addSwitchText(host, view) {
   box.className = "switch-text";
   const textW = w * 0.42 - 44; // the chevron sits in the last 44 px
   Object.assign(box.style, { left: `${l + w * 0.5}px`, top: `${t}px`, width: `${w * 0.42}px`, height: `${h * 0.94}px`, paddingRight: "44px" });
-  const sub = tab === "portrait" ? candidateLabel(current()) : sourceLabel(variant(), tabKind());
+  const selectedStatus = selectionStatus(variant(), tabKind());
+  const sub = [tab === "portrait" ? candidateLabel(current()) : sourceLabel(variant(), tabKind()), selectedStatus && T(selectedStatus)].filter(Boolean).join(" · ");
   const title = T(isSpecial(variant()) && tab === "lobby" ? "special.switch" : `row.switch.${tab}`);
   const tf = fitText(title, 46, 34, textW / S), sf = fitText(sub, 32, 24, textW / S);
   box.style.setProperty("--title-size", `${NGUI.fontSizeFor(title, tf.fs) * S}px`);
@@ -757,7 +757,7 @@ async function runCompare() {
 // keeps what it replaces (an official file until it is official again, a mod in the library)
 async function applyCandidate(key, kind = "spr") {
   const v = variant();
-  if (modsOn() && key === appliedKey(v, kind)) return;
+  if (key === shownSource(v, kind) && selectionStatus(v, kind) === "status.installed") return;
   await job("actions.apply", { variant: v.key, source: sourceOf(key), kind }, {
     onDone: (result) => {
       if (result?.files?.length) {
@@ -768,8 +768,8 @@ async function applyCandidate(key, kind = "spr") {
     },
     // the applied portrait or lobby swaps in with the rest of the screen; the old one shows until then
     after: async (ok, result) => {
-      if (!ok) return reload();
       ctx.invalidateRoster();
+      if (!ok) return reload();
       if (result?.unchanged) return reload();
       resetPreview(kind);
       if (!open) return null; // the screen was left meanwhile: the next show reads the family again
@@ -1165,7 +1165,7 @@ const SET_BADGE = () => ({ text: T("switch.configured"), color: "#8de4ff", ink: 
 const GREYED_BADGE = () => ({ text: T("mods.overwritten"), color: "#9aa3ad", ink: "#ffffff" });
 function renderPopup(scroll = 0) { return drawPopup(scroll).catch(renderFailed); }
 async function drawPopup(scroll = 0) {
-  const v = variant(), kind = popupKind, inUseKey = shownSource(v, kind);
+  const v = variant(), kind = popupKind, inUseKey = appliedKey(v, kind);
   const mode = popupMode(fam, v, kind, modsOn());
   const items = candidates(v, kind).map((c) => ({
     key: c.key, kind: c.kind, recruit: c.kind !== "mod" && c.recruit,
@@ -1174,18 +1174,18 @@ async function drawPopup(scroll = 0) {
     original: c.mod?.alias ? modOriginalName(c.mod) : "",
     nameEdit: c.kind === "mod" ? { label: T("modAlias.title"), fn: (s = scroll) => editModName(c.mod,
       () => switchPopupPage === pageToken && !$("popup").hidden ? renderPopup(s) : null) } : null,
-    thumb: kind === "model" ? (c.origin || c.variant || v).portrait : thumb(baseOf(c, kind), "card", null, kind === "lobby", specialFraming(v), (c.origin || c.variant || v).bg),
-    big: () => kind === "model" ? (c.origin || c.variant || v).portrait : thumb(baseOf(c, kind), "bust", null, kind === "lobby", specialFraming(v), (c.origin || c.variant || v).bg),
-    inUse: c.key === inUseKey, fav: c.fav, isNew: c.kind === "mod" && c.mod.fresh, src: c,
-    inUseText: mode.set && c.key === mode.set ? T("switch.configured") : null,
+    thumb: kind === "model" ? (c.origin || c.variant || v).portrait : thumb(baseOf(c, kind), kind === "spr" ? "portrait" : "landscape", null, kind === "lobby", specialFraming(v), (c.origin || c.variant || v).bg),
+    big: () => kind === "model" ? (c.origin || c.variant || v).portrait : thumb(baseOf(c, kind), kind === "spr" ? "portrait" : "landscape", null, kind === "lobby", specialFraming(v), (c.origin || c.variant || v).bg),
+    inUse: c.key === inUseKey && (c.key === "self" || selectionStatus(v, kind) === "status.installed"), fav: c.fav, isNew: c.kind === "mod" && c.mod.fresh, src: c,
+    inUseText: mode.set && c.key === mode.set ? T(selectionStatus(v, kind)) : null,
     dim: c.greyed,
-    badge: c.greyed ? GREYED_BADGE() : mode.set && c.key === mode.set ? SET_BADGE() : null,
+    badge: c.greyed ? GREYED_BADGE() : mode.set && c.key === mode.set ? { ...SET_BADGE(), text: T(selectionStatus(v, kind)) } : null,
     tag: c.mod?.repaired_from ? { text: T("remap.repaired"), color: "#d7eaf4", ink: "#2d4664" } : null,
   }))
     .filter((it) => popupSeg === 0 || (popupSeg === 1) === !!it.recruit)
     .sort((a, b) => (b.fav ? 1 : 0) - (a.fav ? 1 : 0));
   await listPopup({
-    hostId: "popup", title: T(isSpecial(v) ? "special.switch" : kind === "spr" ? "popup.switch" : `row.switch.${kind}`), okText: T(mode.button), items, selected: pending, keepScroll: scroll,
+    hostId: "popup", layoutKind: kind, title: T(isSpecial(v) ? "special.switch" : kind === "spr" ? "popup.switch" : `row.switch.${kind}`), okText: T(mode.button), items, selected: pending, keepScroll: scroll,
     tools: { segs: ["seg.all", "seg.recruit", "seg.noRecruit"], seg: popupSeg, onSeg: (i) => { popupSeg = i; renderPopup(); }, sortKey: "sort.default" },
     onSelect: (key, s) => {
       const c = candidates(v, kind).find((x) => x.key === key);
@@ -1200,15 +1200,17 @@ async function drawPopup(scroll = 0) {
     },
     onOk: () => closePopup(true), onClose: () => closePopup(false),
     details: (it) => {
-      const c = it.src, inUse = it.inUse;
+      const c = it.src;
       const file = c.kind === "mod" ? c.mod.file : gameFile(c.variant, kind);
       const size = c.kind === "mod" ? c.mod.size : partsOf(c.variant, kind).reduce((n, f) => n + (f.size || 0), 0);
-      const status = c.kind === "mod" ? (inUse ? [modsOn() ? "status.installed" : "switch.configured", "#1f9a52"] : ["status.notInstalled", "#d9822b"]) : ["status.gameFile", ""];
+      const status = candidateStatus(v, kind, c.key);
+      const statusColor = ["status.installed", "switch.configured"].includes(status) ? "#1f9a52/1.00" : status === "status.notInstalled" ? "#d9822b/1.00" : null;
+      const error = c.key === mode.set ? selectionError(v, kind) : null;
       const crcState = c.key === appliedKey(v, kind) ? crcOf(v, kind) : null;
       const crc = crcState === "fixed" ? ["crc.fixed", "#1f9a52"] : crcState === "needs_fix" ? ["crc.needed", "#d9822b"] : crcState === "ok" ? ["crc.original", ""] : null;
       return {
         title: T(isSpecial(v) ? "special.background" : kind === "spr" ? "info.title.portrait" : `info.title.${kind}`),
-        fields: [[T("field.file"), baseName(file)], [T("field.size"), sizeText(size)], [T("field.status"), T(status[0]), status[1] && `${status[1]}/1.00`],
+        fields: [[T("field.file"), baseName(file)], [T("field.size"), sizeText(size)], [T("field.status"), [T(status), error && T(`error.${error.code}`, error.params)].filter(Boolean).join("\n"), statusColor],
           [T("field.crc"), crc ? T(crc[0]) : "—", crc?.[1] && `${crc[1]}/1.00`]],
         actions: [[T(platform === "mac" ? "open.mac" : "open.win"), () => reveal(file)],
           ...(c.kind === "mod" ? [[T("compatibility.check"), async () => {
@@ -1266,7 +1268,7 @@ function closePopup(apply) {
   $("popup").innerHTML = "";
   const chosen = candidates(variant(), popupKind).find((c) => c.key === pending);
   // only a choice other than the start (what the game shows; while mods are off, the configured source)
-  if (apply && chosen && !chosen.greyed && pending !== popupStart) applyCandidate(pending, popupKind);
+  if (apply && chosen && !chosen.greyed && (pending !== popupStart || modsOn() && selectionStatus(variant(), popupKind) === "switch.configured")) applyCandidate(pending, popupKind);
 }
 
 // The confirmation is read again when opened, so configurations in other installs are included.
@@ -1854,7 +1856,7 @@ let reloadingChanged = null;
 const mergeChange = (a, b) => (a === null || b === null ? null : a === undefined ? b : { cores: [...new Set([...a.cores, ...b.cores])] });
 const lower = (core) => String(core || "").toLowerCase();
 // a variant's game files of a kind as the screen judged them: they changed when this differs
-const filesSig = (v, kind) => JSON.stringify(v ? [v.configured?.[kind], partsOf(v, kind).map((f) => [f.file, f.applied, f.crc, f.size, f.date, f.mtime, f.official])] : null);
+const filesSig = (v, kind) => JSON.stringify(v ? [v.configured?.[kind], v.selection?.[kind], partsOf(v, kind).map((f) => [f.file, f.applied, f.crc, f.size, f.date, f.mtime, f.official])] : null);
 const quiet = () => !fullscreen && !Visual.isOpen() && !popupOpen() && !changing() && !Loading.covering();
 
 // filesChanged({cores} | null): resolves after queued changes have refreshed and drawn, or the screen is left

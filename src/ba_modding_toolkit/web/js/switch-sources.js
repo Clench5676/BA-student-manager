@@ -1,6 +1,6 @@
 // What the detail screen's switch cards offer and what the game shows now, for the portrait ("spr") and the memorial
 // lobby ("lobby"): pure functions of the family that family.get returns, tested in Node
-// (tests/js/switch_sources.test.mjs). Switching writes the chosen source into the game's files (actions.apply); the
+// (tests/js/switch_sources.test.mjs). Switching saves the chosen source and installs it while enabled; the
 // library keeps what it replaces (docs/web-ui.md, library).
 import { spineBase } from "./api.js";
 
@@ -93,37 +93,49 @@ export function configuredKey(v, kind = "spr") {
   return null;
 }
 
-// The previews keep the configured source while mods are off. The file table and write guards
+// Manager previews always show the saved source. The file table and write guards
 // still use appliedOf/appliedKey: those describe the bytes in the game folder.
-export const previewKey = (v, kind = "spr", enabled = true) => (enabled ? appliedKey(v, kind) : configuredKey(v, kind) || "self");
+export const previewKey = (v, kind = "spr", enabled = true) => configuredKey(v, kind)
+  || (v?.configured || !enabled ? "self" : appliedKey(v, kind));
+
+// A switch being On is intent, never evidence that the chosen source reached the game.
+export function selectionStatus(v, kind = "spr") {
+  const choice = v?.selection?.[kind];
+  return configuredKey(v, kind) ? (choice?.source === v.configured[kind] && choice?.installed === true ? "status.installed" : "switch.configured") : null;
+}
+export function candidateStatus(v, kind, key) {
+  if (key === configuredKey(v, kind)) return selectionStatus(v, kind);
+  return key.startsWith("m:") ? "status.notInstalled" : "status.gameFile";
+}
+export const detailStatus = (v, kind) => selectionStatus(v, kind)
+  || (appliedOf(v, kind) === "official" ? "status.original" : "status.replaced");
+export const selectionError = (v, kind) => v?.selection?.[kind]?.error || null;
+export const importStatus = (item) => item?.applied ? "status.installed"
+  : item?.configured ? "switch.configured" : "import.notApplied";
 export const previewChanged = (before, after, kind, beforeEnabled, enabled) => !before || !after || beforeEnabled !== enabled
   || previewKey(before, kind, beforeEnabled) !== previewKey(after, kind, enabled);
 export function modelSource(v, enabled = true) {
+  if (enabled && !v?.configured) return "live";
   const key = previewKey(v, "model", enabled);
-  return enabled ? "live" : key.startsWith("m:") ? `mod:${key.slice(2)}` : "official";
+  return key.startsWith("m:") ? `mod:${key.slice(2)}` : key === "self" ? "official" : "live";
 }
 export const modelUrl = (key, source = "live") => `/asset/model/${encodeURIComponent(key)}.glb${source === "live" ? "" : `?source=${encodeURIComponent(source)}`}`;
 
 export function previewBase(v, kind = "spr", enabled = true, variants = []) {
   if (kind === "model") return modelUrl(v.key, modelSource(v, enabled));
-  if (enabled) return spineBase(kind, coreOf(v, kind));
+  if (enabled && !v?.configured) return spineBase(kind, coreOf(v, kind));
   const key = previewKey(v, kind, enabled);
   if (key.startsWith("m:")) return spineBase("mod", key.slice(2));
   const source = key.startsWith("v:") ? variants.find((o) => o.key === key.slice(2)) : v;
   return spineBase(`official-${kind}`, coreOf(source || v, kind));
 }
 
-// how the switch popup works (decision 2). With mods on it starts on what the game shows, and Apply writes the choice.
-// While mods are off nothing is written: it starts on the configured source (the own files when none), Save only
-// configures the choice (it applies when mods are on), and the configured card carries the "Set" chip.
-// A greyed start falls back to the card in use. The popup applies only a choice other than its start.
-//   {start, button: "popup.apply" | "popup.save", set: the configured key while off, else null}
+// Start on the saved choice, including a pending or failed install. Keep Apply/Save labels.
 export function popupMode(fam, v, kind = "spr", enabled = true) {
-  const inUse = appliedKey(v, kind);
-  if (enabled) return { start: inUse, button: "popup.apply", set: null };
   const set = configuredKey(v, kind);
   const listed = candidates(fam, v, kind);
-  const want = set && listed.some((c) => c.key === set) ? set : "self";
-  const start = listed.find((c) => c.key === want)?.greyed ? inUse : want;
-  return { start, button: "popup.save", set };
+  const want = previewKey(v, kind, enabled);
+  const start = listed.some((c) => c.key === want) ? want : "self";
+  if (!set && listed.find((c) => c.key === start)?.greyed) return { start: appliedKey(v, kind), button: enabled ? "popup.apply" : "popup.save", set };
+  return { start, button: enabled ? "popup.apply" : "popup.save", set };
 }

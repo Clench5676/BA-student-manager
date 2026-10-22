@@ -23,7 +23,7 @@ import { L, T, language } from "./i18n.js";
 import { scrollbar } from "./scrollbar.js";
 import { prioritise, thumbnailScope } from "./thumbs.js";
 import { spineAllowed } from "./spine-runtime.js";
-import { configuredKey, hasAsset, previewBase, primaryKind } from "./switch-sources.js";
+import { selectionStatus, configuredKey, hasAsset, previewBase, primaryKind } from "./switch-sources.js";
 import { $, RECRUIT, S, advanceOf, clone, glyphsOf } from "./util.js";
 import { DEFAULT_VIEW, SORTS, arrange, filtering, normalizeView, order as orderOf } from "./roster-order.js";
 
@@ -248,6 +248,17 @@ function cardTree(e) {
     counts.widgets = [];
     counts.children = countNodes(e.modCounts, countIcons, T);
   } else counts.widgets[0].text = T("band.replaced");
+  // UICollectCard's Sort band also carries the saved choice's verified status.
+  const status = selectionStatus(e, primaryKind(e));
+  if (status) {
+    sort.active = true;
+    const badge = clone(sort); badge.name = "SelectionStatus";
+    badge.pos[1] += 96;
+    const caption = find(badge, "Label_Schoolname");
+    caption.children = [];
+    caption.widgets = [{ ...find(layouts.card, "Sort/Label_Schoolname").widgets[0], text: T(status) }];
+    t.children.push(badge);
+  }
   // dimmed like the game's not-owned cards (BG_Discover is the darkening overlay); changed ones stay bright
   const dim = find(t, "BG_Discover");
   dim.active = !e.mods && !e.replaced;
@@ -260,7 +271,7 @@ const portraitOf = (e) => {
   if (!spineAllowed()) return e.portrait || null;
   const thumb = thumbnailWork.thumb;
   const kind = primaryKind(e), variants = data.families.find((f) => f.key === e.family)?.variants || [];
-  if (modsState()?.enabled === false && configuredKey(e, kind)) {
+  if (configuredKey(e, kind)) {
     return thumb(previewBase(e, kind, false, variants), "roster", null, kind === "lobby", specialFraming(e), e.bg);
   }
   return e.portrait || (hasAsset(e) ? thumb(spineBase(kind, kind === "spr" ? e.spr : e.lobby), "roster", null, kind === "lobby", specialFraming(e), e.bg) : null);
