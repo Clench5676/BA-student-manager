@@ -1510,7 +1510,22 @@
 				"target_unknown": "게임 플랫폼 알 수 없음",
 				"conversion_names": "일치하는 파일명 없음",
 				"no_matching_assets": "일치하는 리소스 없음",
-				"conversion_failed": "변환 실패"
+				"conversion_failed": "변환 실패",
+				"mod_platform_unknown": "Mod 플랫폼 알 수 없음",
+				"library_io_error": "파일 접근 실패",
+				"mod_target_ambiguous": "Mod 대상 중복",
+				"mod_target_unknown": "Mod 대상 알 수 없음",
+				"mod_parts_missing": "Mod 구성 파일 누락",
+				"game_file_conflict": "게임 파일 충돌",
+				"mod_platform_mismatch": "플랫폼 호환 불가",
+				"mod_unity_version_mismatch": "Unity 버전 호환 불가",
+				"required_asset_extract_failed": "에셋 추출 실패",
+				"required_asset_apply_failed": "에셋 적용 실패",
+				"required_assets_unmatched": "필수 에셋 불일치",
+				"entry_changed": "파일 변경됨",
+				"original_unavailable": "원본 파일 사용 불가",
+				"original_invalid": "잘못된 원본 파일",
+				"failed": "가져오기 확인 실패"
 			},
 			"phase": {
 				"update": "업데이트 중",

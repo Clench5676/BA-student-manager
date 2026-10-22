@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -25,6 +26,7 @@ def texture_key(name: str) -> str:
 @dataclass
 class Contents:
     platforms: set[str] = field(default_factory=set)
+    versions: set[str] = field(default_factory=set)
     names: set[str] = field(default_factory=set)
     files: set[str] = field(default_factory=set)
     references: set[str] = field(default_factory=set)
@@ -36,7 +38,7 @@ class Contents:
     textures: dict[str, tuple[int, int]] = field(default_factory=dict)
 
     def merge(self, other: Contents) -> None:
-        for key in ("platforms", "names", "files", "references", "reference_paths", "streams"):
+        for key in ("platforms", "versions", "names", "files", "references", "reference_paths", "streams"):
             getattr(self, key).update(getattr(other, key))
         for key in ("skeletons", "atlases", "textures", "reference_names"):
             getattr(self, key).update(getattr(other, key))
@@ -58,6 +60,7 @@ class Inspection:
         self._revisions: dict[Path, tuple[int, ...]] = {}
         self._bundles: dict[Path, Bundle] = {}
         self._contents: dict[Path, Contents] = {}
+        self._metadata: dict[Path, Contents] = {}
         self._keys: dict[Path, set[AssetKey]] = {}
         self._readable: dict[tuple[Path, tuple[Path, ...]], set[AssetKey]] = {}
 
@@ -93,6 +96,13 @@ class Inspection:
             raise ServiceError("mod_platform_unknown", file=path.name)
         return result
 
+    def metadata(self, path: Path) -> Contents:
+        self.check(path)
+        if path not in self._metadata:
+            self._metadata[path] = metadata(path, inspection=self)
+        self.check(path)
+        return self._metadata[path]
+
     def keys(self, path: Path) -> set[AssetKey]:
         self.check(path)
         if path not in self._keys:
@@ -115,6 +125,48 @@ class Inspection:
             self._readable[cache_key] = (set(patch) - {"__mode__"}) | (scope.unchanged if scope else set())
         self.validate()
         return self._readable[cache_key]
+
+
+def replacement_key(name: str) -> str:
+    """Keep the complete release and part identity, ignoring only the final numeric CRC."""
+    return re.sub(r"_[0-9]+\.bundle$", ".bundle", name.removesuffix(".backup"))
+
+
+def replacements(files: dict[str, Path], targets: list[Path]) -> dict[Path, Path]:
+    result = {}
+    for name, source in files.items():
+        matches = [path for path in targets if replacement_key(path.name) == replacement_key(name)]
+        if not matches:
+            return {}
+        if len(matches) != 1 or matches[0] in result:
+            raise ServiceError("game_file_conflict", file=name)
+        result[matches[0]] = source
+    return result
+
+
+def metadata(path: Path, *, inspection: Inspection) -> Contents:
+    """Validate UnityFS and serialized-file headers without reading individual assets."""
+    bundle = inspection.bundle(path)
+    if getattr(bundle.env.file, "signature", None) != "UnityFS":
+        raise ServiceError("bundle_invalid", file=path.name)
+    result = Contents(names={path.name.removesuffix(".backup")})
+
+    def walk(file) -> None:
+        if hasattr(file, "target_platform"):
+            platform = file.target_platform
+            result.platforms.add(getattr(platform, "name", str(platform)))
+            version = re.match(r"^(\d+\.\d+)(?:\.|$)", file.unity_version)
+            if not version:
+                raise ServiceError("bundle_invalid", file=path.name)
+            result.versions.add(version[1])
+            return
+        for child in getattr(file, "files", {}).values():
+            walk(child)
+
+    walk(bundle.env)
+    if not result.platforms or result.platforms & {"UnknownPlatform", "NoTarget"}:
+        raise ServiceError("mod_platform_unknown", file=path.name)
+    return result
 
 
 def inspect(path: Path, *, allow_unknown: bool = False, inspection: Inspection | None = None) -> Contents:

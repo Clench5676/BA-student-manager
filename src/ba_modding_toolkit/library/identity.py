@@ -100,9 +100,9 @@ def content_cores(path: Path) -> set[str]:
     return cores
 
 
-def identify(path: Path, name: str, catalog) -> tuple[str, str, str]:
+def identify(path: Path, name: str, catalog, *, filename_only: bool = False) -> tuple[str, str, str]:
     """Return the stored filename, target and kind. Character content wins over a renamed filename;
-    generic bundle slots retain their official filename identity."""
+    verified current slots can use their filename without inspecting asset names."""
     parsed = parse_filename(name)
     resolve = getattr(catalog, "variant_for_asset_core", catalog.variant_for_core)
     resolve_model = getattr(catalog, "variant_for_model_core", catalog.variant_for_core)
@@ -110,6 +110,12 @@ def identify(path: Path, name: str, catalog) -> tuple[str, str, str]:
     if declared_kind is None and kind_of_file(name) == "other":
         return name, other_target([name]), "other"
     declared = (resolve_model if declared_kind == "model" else resolve)(parsed.core.lower())
+    if filename_only:
+        if declared_kind == "model" and declared is None:
+            return name, parsed.core.lower(), declared_kind
+        if declared is None or declared_kind is None:
+            raise ServiceError("mod_target_unknown", file=path)
+        return name, declared.key, declared_kind
     cores = content_cores(path)
     resolved = [(core, (resolve_model(core[6:]) if core.startswith("model:") else resolve(core)))
                 for core in sorted(cores)]

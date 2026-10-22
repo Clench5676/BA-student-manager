@@ -1506,3 +1506,32 @@ for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) tes
     assert.ok(!row.textContent.includes(strings.webui.import.state.blocked));
   } finally { setStrings("en-US", flatten(JSON.parse(readFileSync(new URL("../../src/ba_modding_toolkit/locales/en-US.json", import.meta.url))))); }
 });
+
+for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) {
+  test(`failure rows use distinct short labels and results retain diagnostics in ${locale}`, async () => {
+    try {
+      const strings = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${locale}.json`, import.meta.url), "utf8"));
+      setStrings(locale, flatten(strings));
+      const reasons = ["required_asset_extract_failed", "required_asset_apply_failed", "required_assets_unmatched",
+        "mod_target_unknown", "mod_parts_missing", "mod_platform_mismatch", "mod_unity_version_mismatch", "failed"];
+      const h = await fixture();
+      await h.analyze(reasons.map((reason, index) => ({ ...entry(`blocked-${index}`, "blocked"), reason })));
+      for (const [index, reason] of reasons.entries()) {
+        const note = find(drawn(h, h.row(`blocked-${index}`)).tree, "Label_Locale_Limit").widgets[0].text;
+        assert.equal(note, strings.webui.import.reason[reason]);
+        assert.notEqual(note, strings.webui.import.reason.no_target);
+      }
+      await h.analyze([entry("ready")]);
+      await h.action("start").click(); await flush();
+      const detail = { code: "required_asset_apply_failed", params: { file: "model.bundle", name: "Body", error: "write failed" } };
+      h.runs[0].resolve({ results: [{ id: "ready", outcome: "failed", reason: "required_asset_apply_failed", error: detail }] });
+      await flush(); await h.page.results(); await h.page.settled();
+      const row = walk(h.dialog).find((element) => element.dataset.result);
+      const note = find(drawn(h, row).tree, "Label_Locale_Limit").widgets[0].text;
+      assert.ok(note.includes(strings.webui.import.reason.required_asset_apply_failed));
+      for (const value of [detail.code, ...Object.values(detail.params)]) assert.ok(note.includes(value));
+    } finally {
+      setStrings("en-US", flatten(JSON.parse(readFileSync(new URL("../../src/ba_modding_toolkit/locales/en-US.json", import.meta.url), "utf8"))));
+    }
+  });
+}

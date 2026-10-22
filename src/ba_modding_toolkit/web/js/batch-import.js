@@ -18,7 +18,10 @@ import { createImportState, countsOf, eligible, RESOURCE_TYPES, STATES } from ".
 
 const KIND_KEYS = { spr: "tab.portrait", lobby: "tab.lobby", model: "tab.model", other: "import.other" };
 const REASONS = new Set(["unreadable", "no_target", "conflict", "spine_version", "unsupported",
-  "source_unknown", "source_conflict", "platform_unsupported", "target_unknown", "conversion_names", "no_matching_assets", "conversion_failed"]);
+  "source_unknown", "source_conflict", "platform_unsupported", "target_unknown", "conversion_names", "no_matching_assets", "conversion_failed",
+  "mod_platform_unknown", "library_io_error", "mod_target_ambiguous", "mod_target_unknown", "mod_parts_missing",
+  "game_file_conflict", "mod_platform_mismatch", "mod_unity_version_mismatch", "required_asset_extract_failed",
+  "required_asset_apply_failed", "required_assets_unmatched", "entry_changed", "original_unavailable", "original_invalid", "failed"]);
 const OUTCOMES = new Set(["imported", "updated", "unchanged", "failed", "skipped"]);
 const sizeText = (size) => size >= 1048576 ? `${(size / 1048576).toFixed(1)} MB` : `${Math.ceil((size || 0) / 1024)} KB`;
 const baseName = (path) => path?.split(/[\\/]/).pop() || "";
@@ -77,9 +80,13 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
   }
   const report = (error, entry = null) => {
     const code = typeof error === "string" ? error : error?.code || error?.reason;
-    if (REASONS.has(code)) return T(`import.reason.${code}`, error?.params || {});
+    if (entry && REASONS.has(code)) return T(`import.reason.${code}`, error?.params || {});
     const key = `error.${code}`, text = T(key, { file: entry?.paths?.[0] || "", ...(error?.params || {}) });
     return code && code !== "internal" && text !== key ? text : T("import.failed");
+  };
+  const resultNote = (item, entry) => {
+    const detail = item.error || { code: item.reason, params: item.params || {} };
+    return `${report(item, entry)}\n${detail.code}: ${JSON.stringify(detail.params)}`;
   };
   const el = (tag, className = "", text = "") => {
     const element = document.createElement(tag); element.className = className; element.textContent = text; return element;
@@ -427,7 +434,7 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
   function paragraphCopy(group, result = false) {
     const notes = result ? group.entries.map((entry) => {
       const item = model.state.results.find((item) => item.id === entry.id);
-      return item?.reason ? report(item, entry) : ["imported", "updated", "unchanged"].includes(item?.outcome)
+      return item?.reason ? resultNote(item, entry) : ["imported", "updated", "unchanged"].includes(item?.outcome)
         ? T(item.applied ? "import.applied" : "import.notApplied") : "";
     }) : group.entries.map(rowNote);
     const omitted = result ? group.entries.reduce((count, entry) => count

@@ -165,17 +165,16 @@ def test_backup_upload_and_content_alias_use_library_normalization(env, monkeypa
     assert entry["state"] == "ready" and entry["files"][0]["target"] == env.original.name
     assert run(env, [entry], enableAfterImport=False)[0]["outcome"] == "imported"
     target = game_bundle(env.game_dir, "test_home_gl")
-    renamed = make_mod(env.original, env.tmp / "wrong-name", payload=b"lobby data")
+    renamed = game_bundle(env.tmp / "wrong-name", date="2025-01-01", payload=b"lobby data")
     monkeypatch.setattr("ba_modding_toolkit.library.identity.content_cores", lambda path: {"test_home_gl"})
     entry, = analyze(env, [renamed])["entries"]
     assert (entry["kind"], entry["core"], entry["files"][0]["target"]) == ("lobby", "test_home_gl", target.name)
-    result, = run(env, [entry])
-    assert result["outcome"] == "imported" and result["applied"]
-    assert target.read_bytes() == renamed.read_bytes()
+    assert entry["state"] == "update"
+    assert entry["paths"] == [str(renamed)]
 
 
 @pytest.mark.parametrize("problem,reason", [("unreadable", "unreadable"), ("missing", "no_target"),
-    ("ambiguous", "conflict"), ("other", "no_target")])
+    ("ambiguous", "mod_target_ambiguous"), ("other", "no_target")])
 def test_blocked_reasons_are_codes_and_failures_do_not_hide_other_entries(env, monkeypatch, problem, reason):
     source = make_mod(env.original, env.tmp / "bad")
     expected_kind = "spr"
@@ -184,6 +183,7 @@ def test_blocked_reasons_are_codes_and_failures_do_not_hide_other_entries(env, m
     elif problem == "missing":
         source = game_bundle(env.tmp / "bad", "other_spr")
     elif problem == "ambiguous":
+        source = game_bundle(env.tmp / "bad", date="2025-01-01", payload=b"ambiguous")
         monkeypatch.setattr("ba_modding_toolkit.library.identity.content_cores",
                             lambda path: {"test_spr", "other_spr"} if path == source else set())
     elif problem == "other":
@@ -319,7 +319,7 @@ def test_texture_only_update_ignores_a_matching_incompatible_skeleton(env, monke
 
 @pytest.mark.parametrize("strategy", ["name_type", "cont_name_type", "path_id"])
 @pytest.mark.parametrize("version", [b"3.8.75", b"undecodable skeleton"])
-def test_direct_copy_checks_skeletons_outside_the_update_filter(env, monkeypatch, strategy, version):
+def test_direct_copy_preserves_skeletons_outside_the_update_filter(env, monkeypatch, strategy, version):
     source = make_mod(env.original, env.tmp / "input")
 
     def inspect(path, **kwargs):
@@ -341,11 +341,10 @@ def test_direct_copy_checks_skeletons_outside_the_update_filter(env, monkeypatch
     rpc(env, "import.setOptions", **{**rpc(env, "import.options"), "types": ["Texture2D"], "strategy": strategy})
     before = env.original.read_bytes()
     entry, = analyze(env, [source])["entries"]
-    assert (entry["state"], entry["reason"]) == ("blocked", "spine_version")
+    assert (entry["state"], entry["reason"]) == ("ready", None)
     result, = run(env, [entry])
-    assert (result["outcome"], result["reason"]) == ("skipped", "spine_version")
-    assert env.original.read_bytes() == before
-    assert not env.library.mods()
+    assert result["outcome"] == "imported" and result["applied"]
+    assert env.original.read_bytes() == source.read_bytes() != before
 
 
 @pytest.mark.parametrize("outdated", [False, True])
@@ -370,7 +369,7 @@ def test_texture_import_checks_retained_official_atlas(env, monkeypatch, outdate
     rpc(env, "import.setOptions", **{**rpc(env, "import.options"), "types": ["Texture2D"]})
     before = {path: path.read_bytes() for path in (env.original, text)}
     entry, = analyze(env, [source])["entries"]
-    if size == (8, 4):
+    if outdated and size == (8, 4):
         assert (entry["state"], entry["reason"]) == ("blocked", "conflict")
         result, = run(env, [entry])
         assert (result["outcome"], result["reason"]) == ("skipped", "conflict")
@@ -433,7 +432,7 @@ def test_unselected_official_skeleton_does_not_change_the_conversion_version(env
 
 
 def test_spine_version_blocks_without_converter_and_requests_update_with_one(env, monkeypatch):
-    source = make_mod(env.original, env.tmp / "old-spine")
+    source = game_bundle(env.tmp / "old-spine", date="2025-01-01", payload=b"old spine")
 
     def inspect(path, **kwargs):
         version = b"3.8.75" if path == source else b"4.2.33"
@@ -451,9 +450,9 @@ def test_spine_version_blocks_without_converter_and_requests_update_with_one(env
     assert (entry["state"], entry["reason"]) == ("update", None)
 
 
-@pytest.mark.parametrize("version,state", [(b"3.8.75", "blocked"), (b"4.2.20", "ready")])
+@pytest.mark.parametrize("version,state", [(b"3.8.75", "blocked"), (b"4.2.20", "update")])
 def test_multiple_official_spine_patch_versions_keep_the_major_minor_check(env, monkeypatch, version, state):
-    source = make_mod(env.original, env.tmp / "input")
+    source = game_bundle(env.tmp / "input", date="2025-01-01", payload=b"old spine")
 
     def inspect(path, **kwargs):
         skeletons = {"first.skel": version, "second.skel": version, "third.skel": version} if path == source else {
@@ -478,7 +477,7 @@ def test_multiple_official_spine_patch_versions_keep_the_major_minor_check(env, 
 
 
 def test_incompatible_mixed_official_spine_series_do_not_convert_to_a_default_version(env, monkeypatch):
-    source = make_mod(env.original, env.tmp / "input")
+    source = game_bundle(env.tmp / "input", date="2025-01-01", payload=b"old spine")
 
     def inspect(path, **kwargs):
         skeletons = {"first.skel": b"3.8.75", "second.skel": b"3.8.75"} if path == source else {
@@ -955,7 +954,7 @@ def test_unavailable_official_baseline_is_blocked_even_with_live_targets(env):
     env.original.write_bytes(outside_mod.read_bytes())
     incoming = make_mod(env.original, env.tmp / "incoming", payload=b"incoming mod")
     entry, = analyze(env, [incoming])["entries"]
-    assert (entry["state"], entry["reason"]) == ("blocked", "no_target")
+    assert (entry["state"], entry["reason"]) == ("blocked", "original_unavailable")
 
 
 def test_import_backup_preserves_an_official_baseline_from_a_classic_backup(env):
@@ -1203,8 +1202,8 @@ def test_multiple_picked_folders_scan_and_deduplicate(env, monkeypatch, recursiv
     assert result["skipped"] == 1
 
 
-def test_same_name_upload_converts_only_uploaded_skeletons(env, monkeypatch):
-    source = make_mod(env.original, env.tmp / "old-spine")
+def test_old_release_upload_converts_only_uploaded_skeletons(env, monkeypatch):
+    source = game_bundle(env.tmp / "old-spine", date="2025-01-01", payload=b"old spine")
     untouched = game_bundle(env.game_dir, part="textassets", payload=b"retained official")
     retained_bytes = untouched.read_bytes()
 

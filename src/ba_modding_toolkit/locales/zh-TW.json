@@ -1510,7 +1510,22 @@
 				"target_unknown": "遊戲目錄平台未知",
 				"conversion_names": "無對應檔名",
 				"no_matching_assets": "無相符資源",
-				"conversion_failed": "轉換失敗"
+				"conversion_failed": "轉換失敗",
+				"mod_platform_unknown": "Mod 平台未知",
+				"library_io_error": "檔案存取失敗",
+				"mod_target_ambiguous": "Mod 目標不唯一",
+				"mod_target_unknown": "Mod 目標未知",
+				"mod_parts_missing": "Mod 分卷缺失",
+				"game_file_conflict": "遊戲檔案衝突",
+				"mod_platform_mismatch": "平台不相容",
+				"mod_unity_version_mismatch": "Unity 版本不相容",
+				"required_asset_extract_failed": "資源擷取失敗",
+				"required_asset_apply_failed": "資源套用失敗",
+				"required_assets_unmatched": "必要資源未匹配",
+				"entry_changed": "檔案已變更",
+				"original_unavailable": "原版檔案無法使用",
+				"original_invalid": "原版檔案無效",
+				"failed": "匯入檢查失敗"
 			},
 			"phase": {
 				"update": "正在更新",

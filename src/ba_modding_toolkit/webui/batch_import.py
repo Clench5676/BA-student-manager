@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import os
 import shutil
@@ -18,7 +19,6 @@ from ..bundle import Bundle, UpdateScope
 from ..errors import ServiceError
 from ..gameassets.spine import spine_revision
 from ..i18n import t
-from ..library.identity import identify
 from ..library import integrity, staging
 from ..library.judge import core_of, kind_of, part_of
 from ..library.storage import Fingerprints
@@ -26,7 +26,7 @@ from ..models import AssetType, SaveOptions
 from ..naming import parse_filename
 from ..searching import _asset_match
 from ..spine import get_skel_version
-from ..utils import no_log, parse_hex_bytes
+from ..utils import CRCUtils, no_log, parse_hex_bytes
 
 logger = logging.getLogger(__name__)
 PREF = "batch_import"
@@ -95,6 +95,8 @@ class Candidate:
     source_override: dict | None = None
     conversion: bool = False
     not_transferred: list[str] = field(default_factory=list)
+    failure: dict | None = None
+    direct: dict[Path, Path] = field(default_factory=dict)
 
 
 @dataclass
@@ -110,13 +112,23 @@ class ImportResult:
 
 
 def blocked_reason(error: ServiceError) -> str:
-    if error.code in ("bundle_invalid", "mod_platform_unknown", "library_io_error"):
-        return "unreadable"
-    if error.code in ("mod_target_ambiguous", "mod_parts_missing", "game_file_conflict", "mod_platform_mismatch"):
-        return "conflict"
-    if error.code in ("mod_unsupported", "source_unsupported"):
-        return "unsupported"
-    return "no_target"
+    aliases = {"bundle_invalid": "unreadable", "game_file_not_found": "no_target",
+               "mod_unsupported": "unsupported", "source_unsupported": "unsupported"}
+    reasons = {"mod_platform_unknown", "library_io_error", "mod_target_ambiguous", "mod_target_unknown",
+               "mod_parts_missing", "game_file_conflict", "mod_platform_mismatch", "mod_unity_version_mismatch",
+               "required_asset_extract_failed", "required_asset_apply_failed", "required_assets_unmatched",
+               "spine_version", "source_unknown", "source_conflict", "platform_unsupported", "target_unknown",
+               "conversion_names", "no_matching_assets", "conversion_failed", "entry_changed",
+               "original_unavailable", "original_invalid", "conflict", "unreadable", "unsupported", "failed"}
+    return aliases.get(error.code, error.code if error.code in reasons else "failed")
+
+
+def failure_detail(error: ServiceError, paths: Any, log: Any = no_log) -> dict:
+    detail = error.to_json()
+    message = f"Batch import: {', '.join(map(str, paths))}: {json.dumps(detail, ensure_ascii=False, sort_keys=True)}"
+    logger.warning(message)
+    log(message)
+    return detail
 
 
 def copy_compatibility(report: dict, uploaded: integrity.Contents) -> tuple[dict, dict, bool]:
@@ -278,7 +290,7 @@ class BatchImport:
                 raise ServiceError("bad_params", key="id")
             candidate = self._latest[id]
             fresh = Candidate(dict(candidate.files), deepcopy(candidate.entry), candidate.error,
-                              identity=candidate.identity,
+                              identity=candidate.identity, failure=candidate.failure,
                               source_override={"server": server, "platform": platform, "detected": False})
             library, pin, revision = self._library, self._pin, self._revision
 
@@ -382,34 +394,39 @@ class BatchImport:
             name = path.name.removesuffix(".backup")
             parsed = parse_filename(name)
             kind = kind_of(parsed.core, parsed.category) or "other"
-            variant, error = None, None
+            variant, error, failure = None, None, None
             try:
                 if self._hashes.get(path).trailing is None:
                     raise ServiceError("bundle_invalid")
                 if not library.supports_kind(kind):
                     error = "unsupported"
+                    failure = ServiceError("mod_unsupported", file=path, kind=kind).to_json()
                     resolve = getattr(library.catalog, "variant_for_asset_core", library.catalog.variant_for_core)
                     found = resolve(parsed.core.lower())
                     variant = found.key if found else None
                 else:
-                    name, variant, kind = identify(path, name, library.catalog)
-            except OSError:
-                error = "unreadable"
+                    name, variant, kind = library.identify_import(path, name)
+            except OSError as caught:
+                error = "library_io_error"
+                failure = ServiceError("library_io_error", file=path, error=str(caught)).to_json()
             except ServiceError as caught:
                 error = blocked_reason(caught)
-            except Exception:
+                failure = caught.to_json()
+            except Exception as caught:
                 logger.debug("Cannot inspect uploaded bundle: %s", path, exc_info=True)
                 error = "unreadable"
+                failure = ServiceError("bundle_invalid", file=path, error=str(caught)).to_json()
             parsed = parse_filename(name)
             # Date separates versions; folders separate alternative mods of the same release.
             key = (path.parent, "", "", kind, None) if kind == "other" else (
                 path.parent, parsed.core.lower(), parsed.date, kind, variant)
-            groups.setdefault(key, []).append((path, name, error))
+            groups.setdefault(key, []).append((path, name, error, failure))
         candidates = []
         for (_, core_name, _, kind, variant), items in groups.items():
-            files, parts, sources, error = {}, {}, [], None
-            for path, name, problem in items:
+            files, parts, sources, error, failure = {}, {}, [], None, None
+            for path, name, problem, detail in items:
                 error = error or problem
+                failure = failure or detail
                 try:
                     if name in files:
                         if self._hashes.get(files[name]).sha1 == self._hashes.get(path).sha1:
@@ -437,7 +454,7 @@ class BatchImport:
                      "kind": kind, "files": file_list, "size": sum(f["size"] for f in file_list),
                      "state": "blocked", "reason": error, "libraryId": None, "preview": None,
                      "source": None, "target": mod_origin.target_of(self.services.settings, library.current_pin())}
-            candidate = Candidate(files, entry, error)
+            candidate = Candidate(files, entry, error, failure=failure)
             try:
                 candidate.identity = frozenset((core_of(name), self._hashes.get(path).sha1) for name, path in files.items())
             except OSError:
@@ -449,20 +466,42 @@ class BatchImport:
                *, asset_types: set[str] | None = None, strategy: str | None = None) -> None:
         entry = candidate.entry
         entry.pop("params", None)
+        entry.pop("error", None)
         entry.update(state="blocked", reason=candidate.error, libraryId=None, source=None,
                      target=mod_origin.target_of(self.services.settings, pin))
         candidate.targets, candidate.originals, candidate.spine_version, candidate.conversion = [], [], None, False
+        candidate.direct = {}
         inspection = integrity.Inspection(asset_types if asset_types is not None else set(self.options()["types"]))
         try:
+            if candidate.failure:
+                raise ServiceError(candidate.failure["code"], **candidate.failure["params"])
+            if candidate.error:
+                raise ServiceError(candidate.error)
+            for path in candidate.files.values():
+                inspection.check(path)
+            report = library.inspect_import(candidate.files, pin=pin, conversion=True, inspection=inspection)
+            if report.get("recognized"):
+                entry.update(state="library" if report["libraryId"] else "installed", reason=None,
+                             libraryId=report["libraryId"])
+                return
+            if report.get("direct"):
+                candidate.identity = report["identity"]
+                candidate.direct = report["direct"]
+                candidate.targets, candidate.originals = report["targets"], report["originals"]
+                entry["target"] = mod_origin.target_of(self.services.settings, pin, report["officialContents"])
+                entry["source"] = {**entry["target"], "detected": True}
+                for file in entry["files"]:
+                    file["target"] = next(target.name for target, source in candidate.direct.items()
+                                          if str(source) == file["path"])
+                entry.update(state="library" if report["libraryId"] else "installed" if report["installed"] else "ready",
+                             reason=None, libraryId=report["libraryId"])
+                return
             selected = integrity.Contents()
             for path in candidate.files.values():
                 selected.merge(inspection.inspect(path, allow_unknown=True))
             names = {path.name.removesuffix(".backup") for path in candidate.files.values()}
             source, source_error = mod_origin.source_of(names, selected, integrity.Contents(), entry["target"])
             entry["source"] = candidate.source_override or source
-            if candidate.error:
-                return
-            report = library.inspect_import(candidate.files, pin=pin, conversion=True, inspection=inspection)
             inspection.validate()
             candidate.identity = report["identity"]
             live = report["targets"]
@@ -528,7 +567,7 @@ class BatchImport:
             inferred = entry["source"] is None
             choices = (mod_origin.candidates(names, selected, official_contents, entry["target"]) if inferred
                        else [entry["source"]])
-            matched_targets = None
+            matched_targets, last_failure = None, None
             for choice in choices:
                 converting = conversion(choice)
                 failure = None
@@ -564,9 +603,9 @@ class BatchImport:
                                                 not self.services.settings.spine_options().is_valid()))) else None
                 if failure:
                     if inferred:
+                        last_failure = failure
                         continue
-                    entry.update(state="blocked", reason=failure)
-                    return
+                    raise ServiceError(failure)
                 if inferred or (candidate.source_override or {}).get("detected"):
                     # Validate selected inputs against current counterparts using the execution reader.
                     try:
@@ -577,8 +616,6 @@ class BatchImport:
                             raise ServiceError("no_matching_assets")
                     except (ServiceError, OSError, ValueError):
                         inspection.validate()
-                        if inferred:
-                            break  # Reading is independent of the choice; another label cannot repair the bytes.
                         raise
                 if not converting:
                     library.inspect_import(candidate.files, pin=pin, inspection=inspection)
@@ -593,15 +630,16 @@ class BatchImport:
                         file["target"] = chosen[0].name
                 entry.update(state="convert" if converting else "ready" if exact and not mismatch else "update", reason=None)
                 return
-            entry.update(state="blocked", reason="source_unknown")
+            raise ServiceError(last_failure or "source_unknown")
         except ServiceError as error:
-            entry.update(state="blocked", reason=error.code if error.code in (
-                "entry_changed", "source_unknown", "source_conflict", "platform_unsupported", "target_unknown",
-                "conversion_names", "no_matching_assets", "required_asset_extract_failed") else blocked_reason(error))
+            entry.update(state="blocked", reason=blocked_reason(error),
+                         error=failure_detail(error, candidate.files.values(), log))
             if error.params:
                 entry["params"] = error.to_json()["params"]
-        except (OSError, ValueError):
-            entry.update(state="blocked", reason="unreadable")
+        except (OSError, ValueError) as error:
+            detail = ServiceError("bundle_invalid", error=str(error))
+            entry.update(state="blocked", reason="unreadable",
+                         error=failure_detail(detail, candidate.files.values(), log))
 
     def run(self, ids: list[str], options: dict) -> str:
         options = options_of(options, self.defaults())
@@ -668,6 +706,8 @@ class BatchImport:
                                 item["outcome"] = "unchanged"
                             elif state == "blocked":
                                 item["reason"] = candidate.entry["reason"]
+                                if candidate.entry.get("error"):
+                                    item["error"] = candidate.entry["error"]
                                 if candidate.entry.get("params"):
                                     item["params"] = candidate.entry["params"]
                             else:
@@ -684,7 +724,7 @@ class BatchImport:
                                     mod = next((mod for mod in library.mods() if mod.id == item["libraryId"]), None)
                                 else:
                                     report(candidate, "add")
-                                    added = library.add_files(fresh.entry["kind"], paths, pin=pin)
+                                    added = library.add_files(fresh.entry["kind"], paths, pin=pin, direct=bool(fresh.direct))
                                     entries = [*added, *added.duplicates]
                                     if len(entries) != 1:
                                         raise ServiceError("mod_unsupported")
@@ -704,14 +744,19 @@ class BatchImport:
                                         item["applied"] = True
                                     self._complete(candidate, library, pin, mod.id)
                         except ServiceError as error:
-                            item.update(outcome="failed", reason=error.code)
+                            item.update(outcome="failed", reason=error.code,
+                                        error=failure_detail(error, candidate.files.values(), log))
                             if error.params:
                                 item["params"] = error.to_json()["params"]
-                        except OSError:
-                            item.update(outcome="failed", reason="library_io_error")
-                        except Exception:
+                        except OSError as error:
+                            detail = ServiceError("library_io_error", error=str(error))
+                            item.update(outcome="failed", reason=detail.code, params=detail.params,
+                                        error=failure_detail(detail, candidate.files.values(), log))
+                        except Exception as error:
                             logger.exception("Batch import entry failed: %s", candidate.entry["id"])
-                            item.update(outcome="failed", reason="internal")
+                            detail = ServiceError("internal", error=str(error))
+                            item.update(outcome="failed", reason=detail.code, params=detail.params,
+                                        error=failure_detail(detail, candidate.files.values(), log))
                         result.results.append(item)
                         with progress_lock:
                             completed[0] += 1
@@ -727,8 +772,28 @@ class BatchImport:
         if entry["state"] in ("library", "installed"):
             return None, False, candidate
         if entry["state"] == "blocked":
-            raise ServiceError(entry["reason"], **entry.get("params", {}))
+            detail = entry.get("error") or {"code": entry["reason"], "params": entry.get("params", {})}
+            raise ServiceError(detail["code"], **detail["params"])
         if entry["state"] == "ready":
+            if candidate.direct:
+                output = temporary / entry["id"] / "direct"
+                output.mkdir(parents=True)
+                paths = []
+                for (target, source), original in zip(candidate.direct.items(), candidate.originals):
+                    path = output / target.name
+                    data = source.read_bytes()
+                    expected = int(parse_filename(target.name).crc)
+                    fix = Bundle.check_need_crc(original) and CRCUtils.compute_crc32(data) != expected
+                    if not fix and source.name.removesuffix(".backup") == target.name:
+                        paths.append(source)
+                        continue
+                    if fix:
+                        data = CRCUtils.apply_crc_fix(data, expected)
+                        if data is None:
+                            raise ServiceError("crc_fix_failed", file=source.name)
+                    path.write_bytes(data)
+                    paths.append(path)
+                return paths, False, candidate
             return list(candidate.files.values()), False, candidate
         phase = "convert" if candidate.conversion else "update"
         progress(candidate, phase, "check")

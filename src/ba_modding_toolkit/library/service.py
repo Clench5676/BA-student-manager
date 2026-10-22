@@ -21,6 +21,7 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from functools import wraps
 from pathlib import Path
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, Callable, Iterator
 
 from UnityPy.helpers.ResourceReader import get_resource_data
@@ -662,8 +663,17 @@ class ModLibrary:
     def _variant(self, key: str) -> Any:
         try:
             return self.catalog.variant(key)
-        except KeyError as error:
-            raise ServiceError("variant_not_found", variant=key) from error
+        except (KeyError, ServiceError) as error:
+            if isinstance(error, ServiceError) and error.code != "catalog_variant_not_found":
+                raise
+            # Current NPC bundles may have no roster entry. Their stored filename owns the model slot.
+            record = next((record for record in self._records.values() if record["kind"] == "model"
+                           and record["target"] == key and core_of(record["files"][0]) == key), None)
+            if record:
+                return SimpleNamespace(key=key, family=key, spr=None, lobby=None, model=key)
+            if isinstance(error, KeyError):
+                raise ServiceError("variant_not_found", variant=key) from error
+            raise
 
     def _record(self, mod_id: str) -> dict[str, Any]:
         try:
@@ -716,23 +726,24 @@ class ModLibrary:
     supports_kind = staticmethod(supports_kind)
 
     def add_files(self, kind: Kind, paths: list[Path], progress: ProgressCallback | None = None,
-                  pin: Pin | None = None, *, apply: bool = False, log: LogFunc = no_log) -> AddResult:
+                  pin: Pin | None = None, *, apply: bool = False, log: LogFunc = no_log,
+                  direct: bool = False) -> AddResult:
         """Import a batch of one supported kind, optionally applying through the master switch."""
         if not supports_kind(kind):
             raise ServiceError("mod_unsupported", kind=kind)
         if apply:
             return self.add_and_apply(paths, progress, pin, log, kind=kind)
-        return self.add(paths, progress, pin, kind=kind)
+        return self.add(paths, progress, pin, kind=kind, direct=direct)
 
     @_serialized
     @_mod_writer
     def add(self, paths: list[Path], progress: ProgressCallback | None = None, pin: Pin | None = None,
-            *, kind: Kind | None = None) -> AddResult:
+            *, kind: Kind | None = None, direct: bool = False) -> AddResult:
         """Store one mod per core and date, deduplicating complete bundle sets. In dev mode (devmode) only files
         inside the dev roots are taken."""
         for path in paths:
             devmode.check_read(path)
-        return self._add(paths, progress, pin, kind)
+        return self._add(paths, progress, pin, kind, direct=direct)
 
     def _identity(self, files: dict[str, Path]) -> frozenset:
         return frozenset((core_of(name), self._hashes.get(path).sha1) for name, path in files.items())
@@ -749,7 +760,7 @@ class ModLibrary:
         return known
 
     def _add(self, paths: list[Path], progress: ProgressCallback | None = None, pin: Pin | None = None,
-             expected_kind: Kind | None = None) -> AddResult:
+             expected_kind: Kind | None = None, *, direct: bool = False) -> AddResult:
         known = self._known()
         groups: dict[tuple[str, str], dict[str, Path]] = {}
         targets = {}
@@ -768,7 +779,8 @@ class ModLibrary:
                 if len({core_of(name) for name in matches}) != 1:
                     raise ServiceError("mod_unsupported", file=source)
                 name = matches[0]
-            name, target, kind = identify(source, name, self.catalog)
+            name, target, kind = (self.identify_import(source, name, pin) if direct else
+                                  identify(source, name, self.catalog))
             if expected_kind is not None and kind != expected_kind:
                 raise ServiceError("mod_unsupported", file=source)
             parsed = parse_filename(name)
@@ -790,7 +802,8 @@ class ModLibrary:
         # Validate every group before storing any part of this upload.
         pin = pin or self.current_pin()
         for group in groups.values():
-            self._check_group(group, pin, compatibility=False)
+            if not direct or not self.direct_import(group, pin):
+                self._check_group(group, pin, compatibility=False)
         added = AddResult()
         for key, group in groups.items():
             signature_ = self._identity(group)
@@ -939,6 +952,44 @@ class ModLibrary:
         return report
 
     @_serialized
+    def identify_import(self, path: Path, name: str, pin: Pin | None = None) -> tuple[str, str, str]:
+        """Current official slots own their identity even when a Mod renames its assets."""
+        pin = pin or self.current_pin()
+        targets = (self._other_targets({name: path}, pin) if kind_of_file(name) == "other"
+                   else self._spine_parts(core_of(name), pin)) if pin else []
+        return identify(path, name, self.catalog, filename_only=bool(integrity.replacements({name: path}, targets)))
+
+    @_serialized
+    def direct_import(self, files: dict[str, Path], pin: Pin | None = None, *,
+                      inspection: integrity.Inspection | None = None) -> dict | None:
+        """Resolve current release parts using only names and Unity container metadata."""
+        pin = pin or self.current_pin()
+        if not pin:
+            return None
+        name = next(iter(files))
+        targets = (self._other_targets(files, pin) if kind_of_file(name) == "other"
+                   else self._spine_parts(core_of(name), pin))
+        replacements = integrity.replacements(files, targets)
+        if not replacements:
+            return None
+        inspection = inspection or integrity.Inspection()
+        selected, official, originals = integrity.Contents(), integrity.Contents(), []
+        for target, source in replacements.items():
+            original = self._official_for(target, pin, game_first=True)
+            incoming, baseline = inspection.metadata(source), inspection.metadata(original)
+            integrity.check_platform(incoming, source, baseline.platforms)
+            if incoming.versions != baseline.versions:
+                raise ServiceError("mod_unity_version_mismatch", file=source.name,
+                                   version=", ".join(sorted(incoming.versions)),
+                                   expected=", ".join(sorted(baseline.versions)))
+            selected.merge(incoming)
+            official.merge(baseline)
+            originals.append(original)
+        inspection.validate()
+        return {"direct": replacements, "targets": list(replacements), "originals": originals,
+                "sourceContents": selected, "officialContents": official}
+
+    @_serialized
     def inspect_import(self, files: dict[str, Path], pin: Pin | None = None, *, conversion: bool = False,
                        inspection: integrity.Inspection | None = None) -> dict:
         """Preflight canonical upload names without storing or adopting anything.
@@ -974,6 +1025,15 @@ class ModLibrary:
             installed = self._matches_installed(identity, entry)
         if (duplicate or installed) and not conversion:
             return {"identity": identity, "libraryId": duplicate, "installed": installed, "targets": targets}
+        try:
+            direct = self.direct_import(files, pin, inspection=inspection) if conversion else None
+        except ServiceError as error:
+            if not (duplicate or installed) or error.code not in ("original_unavailable", "original_invalid"):
+                raise
+            return {"identity": identity, "libraryId": duplicate, "installed": installed,
+                    "targets": targets, "recognized": True}
+        if direct:
+            return {"identity": identity, "libraryId": duplicate, "installed": installed, **direct}
         report = self._check_group(files, pin, dependencies=False, conversion=conversion, inspection=inspection)
         # Old CAB references are replaced by the rebuild. Its output goes through add()'s full preflight.
         if not report["outdated"] and not conversion:
@@ -1504,10 +1564,9 @@ class ModLibrary:
             if (variant := self.catalog.variant_for_core(core.lower())) is not None}
         model_of = {}
         for core in sorted(models):
-            key = keys.get(core.lower())
-            if key:
-                mapped.keys.setdefault(core.lower(), key)
-                model_of.setdefault(key, core)
+            key = keys.get(core.lower(), core.lower())
+            mapped.keys.setdefault(core.lower(), key)
+            model_of.setdefault(key, core)
         mapped = replace(mapped, model=model_of)
         self._maps[pin.key] = (built_for, mapped)
         return mapped
@@ -1578,6 +1637,10 @@ class ModLibrary:
         available = [path for slot, paths in self._index(pin).items() if slot.startswith("other:") for path in paths]
         targets = set()
         for name, source in files.items():
+            current = integrity.replacements({name: source}, available)
+            if current:
+                targets.update(current)
+                continue
             prefix = parse_filename(name).prefix
             candidates = [path for path in available if parse_filename(path.name).prefix == prefix]
             latest = {}
