@@ -10,7 +10,7 @@
 // answered with a button takes Escape and does nothing with it, so nothing under it acts either.
 // The pure parts (the stack, the selection, the start sequence) are tested in Node (tests/js/popup.test.mjs).
 import * as NGUI from "./ngui.js";
-import { switchGrid, splitPortraitPanel, portraitCard, maskPortrait } from "./switch-layout.js";
+import { switchGrid, splitPortraitPanel } from "./switch-layout.js";
 import { scrollbar } from "./scrollbar.js";
 import * as Buttons from "./game-buttons.js";
 import { searchTree, sortBody, orderBody, pickerItems } from "./roster-widgets.js";
@@ -355,8 +355,11 @@ function listFrame(title, buttons, closeButton) {
 // or the caller's) stays bright.
 function listCard(it, x, y, selected, card = LP.card) {
   const { w, h, bar } = card;
+  // The same upright image must reach both inclined edges even in a tall portrait window.
+  const overscan = Math.max(.15, (h - 26) * TAN10 / (2 * (w - 16)));
   const kids = [
-    node("Thumb", [1, 4], [{ clipImage: it.thumb, w_: w - 16, h_: h - 26, pivot: 4, depth: 8, incline: 10, radius: 18, color: "#ffffff/1.00", imgSize: "cover", imgPosition: "center 30%" }]),
+    node("Thumb", [1, 4], [{ clipImage: it.thumb, w_: w - 16, h_: h - 26, pivot: 4, depth: 8, incline: 10, radius: 18, color: "#ffffff/1.00", imgSize: "cover", imgPosition: "center 30%",
+      imgLeft: `${-overscan * 100}%`, imgWidth: `${(1 + 2 * overscan) * 100}%` }]),
     node("Line", [1, 4], [sprite("Common_Line_Raius20px", w - 12, h - 18, { incline: 10, depth: 9, color: "#ffffff/1.00" })]),
   ];
   const lbl = markedLabel(it.label, { fs: 34, fsMin: 24, color: "#ffffff/1.00", maxW: w - 56 - (it.nameEdit ? 60 : 0), mark: false, maxLines: 2 });
@@ -497,13 +500,12 @@ export async function listPopup(options) {
   const reopening = host.hidden;
   host.hidden = false;
   await ready();
-  let portrait = null, portraitTexture = null;
+  let portraitTexture = null;
   if (options.layoutKind === "spr") {
-    const [unit, inventory] = await Promise.all([NGUI.layout("UICharacterCollectionPopulatorUnit"), NGUI.layout("UINonEquipmentInventory")]);
-    portrait = find(unit, "Grid/UICollectCard");
+    const inventory = await NGUI.layout("UINonEquipmentInventory");
     portraitTexture = find(inventory, "Inventory_ListControl/EquipPos/Texture");
   }
-  const grid = switchGrid(options.layoutKind, portrait), { card, columns, pitch } = grid;
+  const grid = switchGrid(options.layoutKind), { card, columns, pitch } = grid;
   let toolState = toolStates.get(host);
   if (tools) {
     if (reopening || !toolState || host.dataset.pickerTitle !== title) {
@@ -599,13 +601,10 @@ export async function listPopup(options) {
   const x0 = LP.list.l + 16 + (areaW - inkW) / 2 + leanL + card.w / 2;
   const at = (i) => [x0 + (i % columns) * pitch[0], top - 24 - card.h / 2 - Math.floor(i / columns) * pitch[1]];
   await Promise.all(items.map(async (it, i) => {
-    const tree = portrait ? portraitCard(portrait, it, isSelected(it.key), NGUI, T("popup.inUse"))
-      : listCard(it, ...at(i), isSelected(it.key), card);
-    if (portrait) tree.pos = at(i);
-    const styles = it.dim ? { [`Card_${it.key}/${portrait ? "Char_Portrait" : "Thumb"}`]: "filter: grayscale(1)" } : undefined;
+    const tree = listCard(it, ...at(i), isSelected(it.key), card);
+    const styles = it.dim ? { [`Card_${it.key}/Thumb`]: "filter: grayscale(1)" } : undefined;
     const cv = await NGUI.render(tree, inner, { scale: S, origin, z: 30, styles });
-    if (portrait) await maskPortrait(cv, tree.name);
-    if (it.nameEdit) hit(inner, cv, `Card_${it.key}/${portrait ? "EditName" : "Bar/EditName"}`, () => it.nameEdit.fn(inner.parentElement.scrollTop), { name: it.nameEdit.label, action: `alias:${it.key}` });
+    if (it.nameEdit) hit(inner, cv, `Card_${it.key}/Bar/EditName`, () => it.nameEdit.fn(inner.parentElement.scrollTop), { name: it.nameEdit.label, action: `alias:${it.key}` });
   }));
   // the cards' buttons in the list's order, so the keyboard steps through them as they show
   items.forEach((it, i) => {

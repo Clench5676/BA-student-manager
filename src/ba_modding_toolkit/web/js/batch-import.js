@@ -428,7 +428,7 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
   function paragraphCopy(group, result = false) {
     const notes = result ? group.entries.map((entry) => {
       const item = model.state.results.find((item) => item.id === entry.id);
-      return item?.reason ? [item.configured && T(importStatus(item)), report(item, entry)].filter(Boolean).join(" · ") : ["imported", "updated", "unchanged"].includes(item?.outcome)
+      return item?.reason ? [item.configured && T(importStatus(item)), report(item, entry)].filter(Boolean).join(" - ") : ["imported", "updated", "unchanged"].includes(item?.outcome)
         ? T(importStatus(item)) : "";
     }) : group.entries.map(rowNote);
     const omitted = result ? group.entries.reduce((count, entry) => count

@@ -30,7 +30,7 @@ import * as Prompts from "./prompts.js";
 import { anyOpen as popupOpen } from "./popup.js";
 import { rpc, spineBase, spinePrefix, loadSpineAssets, waitJob } from "./api.js";
 import { L, T, language, platform } from "./i18n.js";
-import { forget, idleAnimation, prioritise, thumbnailScope } from "./thumbs.js";
+import { forget, idleAnimation, prioritise, thumbnailScope, withThumbnailFallback } from "./thumbs.js";
 import { portraitViewport } from "./portrait-view.js";
 import { colourSwitchCard } from "./switch-card.js";
 import { clearUnseen, hasUnseen as hasFresh, shownUnseen, switchUnseen } from "./unseen-assets.js";
@@ -96,12 +96,16 @@ let leftPage = Promise.resolve(), leavePage = () => {};
 let showGen = 0, endWait = () => {};
 let thumbnailWork = thumbnailScope();
 let thumbnailWait = Promise.resolve(), releaseThumbnails = () => {};
-const thumb = (base, frame = "bust", expr = null, lobby = false, framing = null, background = variant()?.bg) => spineAllowed()
-  ? thumbnailWork.thumb(base, frame, expr, lobby, framing, frame === "face" ? null : background) : collectionPortrait(base);
+const thumb = (base, frame = "bust", expr = null, lobby = false, framing = null, background = variant()?.bg) => {
+  const fallback = collectionPortrait(base);
+  if (!spineAllowed()) return fallback;
+  const picture = thumbnailWork.thumb(base, frame, expr, lobby, framing, frame === "face" ? null : background);
+  return frame === "portrait" ? withThumbnailFallback(picture, () => fallback) : picture;
+};
 function collectionPortrait(base) {
   for (const v of fam?.variants || []) {
     if (!v.spr) continue;
-    if ([spineBase("spr", v.spr), spineBase("official-spr", v.spr), variantBase(v)].includes(base)
+    if ([spineBase("spr", v.spr), spineBase("official-spr", v.spr)].includes(base)
         || (v.modList || []).some((m) => m.kind === "spr" && spineBase("mod", m.id) === base)) return v.portrait || null;
   }
   return null;
@@ -537,7 +541,7 @@ function addSwitchText(host, view) {
   const textW = w * 0.42 - 44; // the chevron sits in the last 44 px
   Object.assign(box.style, { left: `${l + w * 0.5}px`, top: `${t}px`, width: `${w * 0.42}px`, height: `${h * 0.94}px`, paddingRight: "44px" });
   const selectedStatus = selectionStatus(variant(), tabKind());
-  const sub = [tab === "portrait" ? candidateLabel(current()) : sourceLabel(variant(), tabKind()), selectedStatus && T(selectedStatus)].filter(Boolean).join(" · ");
+  const sub = [tab === "portrait" ? candidateLabel(current()) : sourceLabel(variant(), tabKind()), selectedStatus && T(selectedStatus)].filter(Boolean).join(" - ");
   const title = T(isSpecial(variant()) && tab === "lobby" ? "special.switch" : `row.switch.${tab}`);
   const tf = fitText(title, 46, 34, textW / S), sf = fitText(sub, 32, 24, textW / S);
   box.style.setProperty("--title-size", `${NGUI.fontSizeFor(title, tf.fs) * S}px`);
@@ -1167,21 +1171,25 @@ function renderPopup(scroll = 0) { return drawPopup(scroll).catch(renderFailed);
 async function drawPopup(scroll = 0) {
   const v = variant(), kind = popupKind, inUseKey = appliedKey(v, kind);
   const mode = popupMode(fam, v, kind, modsOn());
-  const items = candidates(v, kind).map((c) => ({
-    key: c.key, kind: c.kind, recruit: c.kind !== "mod" && c.recruit,
-    label: candidateLabel(c, v),
-    full: c.kind === "mod" ? c.label : fullName(c.variant),
-    original: c.mod?.alias ? modOriginalName(c.mod) : "",
-    nameEdit: c.kind === "mod" ? { label: T("modAlias.title"), fn: (s = scroll) => editModName(c.mod,
-      () => switchPopupPage === pageToken && !$("popup").hidden ? renderPopup(s) : null) } : null,
-    thumb: kind === "model" ? (c.origin || c.variant || v).portrait : thumb(baseOf(c, kind), kind === "spr" ? "portrait" : "landscape", null, kind === "lobby", specialFraming(v), (c.origin || c.variant || v).bg),
-    big: () => kind === "model" ? (c.origin || c.variant || v).portrait : thumb(baseOf(c, kind), kind === "spr" ? "portrait" : "landscape", null, kind === "lobby", specialFraming(v), (c.origin || c.variant || v).bg),
-    inUse: c.key === inUseKey && (c.key === "self" || selectionStatus(v, kind) === "status.installed"), fav: c.fav, isNew: c.kind === "mod" && c.mod.fresh, src: c,
-    inUseText: mode.set && c.key === mode.set ? T(selectionStatus(v, kind)) : null,
-    dim: c.greyed,
-    badge: c.greyed ? GREYED_BADGE() : mode.set && c.key === mode.set ? { ...SET_BADGE(), text: T(selectionStatus(v, kind)) } : null,
-    tag: c.mod?.repaired_from ? { text: T("remap.repaired"), color: "#d7eaf4", ink: "#2d4664" } : null,
-  }))
+  const items = candidates(v, kind).map((c) => {
+    const picture = kind === "model" ? (c.origin || c.variant || v).portrait
+      : thumb(baseOf(c, kind), kind === "spr" ? "portrait" : "landscape", null, kind === "lobby", specialFraming(v), (c.origin || c.variant || v).bg);
+    return {
+      key: c.key, kind: c.kind, recruit: c.kind !== "mod" && c.recruit,
+      label: candidateLabel(c, v),
+      full: c.kind === "mod" ? c.label : fullName(c.variant),
+      original: c.mod?.alias ? modOriginalName(c.mod) : "",
+      nameEdit: c.kind === "mod" ? { label: T("modAlias.title"), fn: (s = scroll) => editModName(c.mod,
+        () => switchPopupPage === pageToken && !$("popup").hidden ? renderPopup(s) : null) } : null,
+      // The card and info panel consume one still, including its fallback, so they cannot disagree after a retry.
+      thumb: picture, big: () => picture,
+      inUse: c.key === inUseKey && (c.key === "self" || selectionStatus(v, kind) === "status.installed"), fav: c.fav, isNew: c.kind === "mod" && c.mod.fresh, src: c,
+      inUseText: mode.set && c.key === mode.set ? T(selectionStatus(v, kind)) : null,
+      dim: c.greyed,
+      badge: c.greyed ? GREYED_BADGE() : mode.set && c.key === mode.set ? { ...SET_BADGE(), text: T(selectionStatus(v, kind)) } : null,
+      tag: c.mod?.repaired_from ? { text: T("remap.repaired"), color: "#d7eaf4", ink: "#2d4664" } : null,
+    };
+  })
     .filter((it) => popupSeg === 0 || (popupSeg === 1) === !!it.recruit)
     .sort((a, b) => (b.fav ? 1 : 0) - (a.fav ? 1 : 0));
   await listPopup({

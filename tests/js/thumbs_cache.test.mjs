@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 import { spineBase, spinePrefix, spineAssetBase } from "../../src/ba_modding_toolkit/web/js/api.js";
-import { thumb, forget, prioritise, thumbnailScope, hasThumbnailInk } from "../../src/ba_modding_toolkit/web/js/thumbs.js";
+import { thumb, forget, prioritise, thumbnailScope, hasThumbnailInk, withThumbnailFallback } from "../../src/ba_modding_toolkit/web/js/thumbs.js";
 import { setSpineConsent } from "../../src/ba_modding_toolkit/web/js/spine-runtime.js";
 
 setSpineConsent(true);
@@ -62,6 +62,38 @@ globalThis.spine = {
 const set = (base, value) => revisions.set(base.replace(/skeleton$/, "manifest.json"), value.repeat(64));
 // Successful requests may still have a companion capture and player cleanup behind them.
 afterEach(async () => { await new Promise(setImmediate); });
+
+test("a failed portrait capture reuses an existing still of the same source revision only", async () => {
+  const base = spineBase("official-spr", "pajamas_cached"), Player = spine.SpinePlayer;
+  set(base, "a");
+  const still = await thumb(base, "bust");
+  await new Promise(setImmediate);
+  spine.SpinePlayer = class extends Player {
+    constructor(el, config) { super(el, config); this.context.gl.readPixels = () => {}; }
+  };
+  try {
+    assert.equal(await thumb(base, "portrait"), still);
+    const twin = spineBase("official-spr", "pajamas_other"); set(twin, "a");
+    assert.equal(await thumb(twin, "portrait"), null, "a similarly named variant is a different source");
+    set(base, "b");
+    assert.equal(await thumb(base, "portrait"), null, "never show art from an older revision");
+  } finally { spine.SpinePlayer = Player; }
+});
+
+test("portrait fallback preserves the real picture, queue priority and cancellation", async () => {
+  const controller = new AbortController();
+  let resolve, bumps = 0, fallbacks = 0;
+  const picture = Object.assign(new Promise((done) => { resolve = done; }), { thumbnail: true,
+    signal: controller.signal, bump: () => bumps++ });
+  const pending = withThumbnailFallback(picture, () => { fallbacks++; return "collection.png"; });
+  assert.equal(pending.thumbnail, true); assert.equal(pending.signal, controller.signal);
+  pending.bump(); assert.equal(bumps, 1);
+  controller.abort(); resolve(null);
+  assert.equal(await pending, null); assert.equal(fallbacks, 0);
+  assert.equal(await withThumbnailFallback(Promise.resolve("blob:art"), () => assert.fail("prefer the captured art")), "blob:art");
+  assert.equal(await withThumbnailFallback(Promise.resolve(null), () => "collection.png"), "collection.png");
+  assert.equal(await withThumbnailFallback(Promise.reject(new Error("capture failed")), () => "collection.png"), "collection.png");
+});
 
 test("off-screen captures render while lifecycle hooks and the RAF clock are inactive", async () => {
   const Player = spine.SpinePlayer, raf = requestAnimationFrame;

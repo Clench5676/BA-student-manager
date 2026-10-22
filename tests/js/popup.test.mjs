@@ -140,7 +140,8 @@ globalThis.fetch = async (url, opts = {}) => {
     return reply({ result: method === "app.checkUpdate" ? update : null, params });
   }
   if (url === "/asset/ui/atlases.json") return reply({ Common: Object.fromEntries(
-    ["Common_Square_Bg", "Common_Bg_Raius10px", "Common_Btn_BG", "Common_Popup_Bg", "Common_Btn_Normal_B_C_Pt"].map((name) => [name, { width: 8, height: 8 }])) });
+    ["Common_Square_Bg", "Common_Bg_Raius10px", "Common_Btn_BG", "Common_Popup_Bg", "Common_Btn_Normal_B_C_Pt",
+      "Common_Line_Raius20px", "Card_Ability_Select_Line", "Card_Ability_Select_Line_Icon", "Cafe_Icon_NameEdit"].map((name) => [name, { width: 8, height: 8 }])) });
   if (url === "/asset/ui/textures.json") return reply({});
   if (url === "/asset/ui/layout/UICharacterCollectionPopulatorUnit.json") return reply(switchLayouts.unit);
   if (url === "/asset/ui/layout/UINonEquipmentInventory.json") return reply(switchLayouts.inventory);
@@ -1013,6 +1014,7 @@ const thumbsTest = `
 export const forgotten = [];
 export const forget = (base) => forgotten.push(base);
 export const thumb = async () => null;
+export const withThumbnailFallback = async (picture, fallback) => await picture || fallback();
 export function thumbnailScope() {
   const controller = new AbortController();
   return { signal: controller.signal, thumb, cancel: () => controller.abort() };
@@ -1508,7 +1510,7 @@ test("switch geometry: per-kind columns, aspects, card bounds, labels and portra
     for (const lang of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) {
       const ui = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${lang}.json`, import.meta.url))).webui;
       setStrings(lang, Object.fromEntries(strings(ui)));
-      for (const [kind, columns] of [["spr", 4], ["lobby", 2], ["model", 4]]) {
+      for (const [kind, columns] of [["spr", 5], ["lobby", 2], ["model", 4]]) {
         const items = Array.from({ length: 9 }, (_, i) => ({ key: String(i), kind: "mod", full: "ch0200_spr", label: "ch0200_spr",
           nameEdit: { label: ui.modAlias.title, fn() {} }, inUseText: ui.switch.configured,
           badge: { text: ui.switch.configured, color: "#8de4ff" } }));
@@ -1516,20 +1518,38 @@ test("switch geometry: per-kind columns, aspects, card bounds, labels and portra
           [ui.field.size, "2.5 MB"], [ui.field.status, `${ui.switch.configured}\n${ui.error.game_file_locked.replace("{file}", "/very/long/path".repeat(20))}`], [ui.field.crc, "—"]];
         await Popup.listPopup({ host: prompt, title: kind, layoutKind: kind, items, selected: "0", okText: ui.popup.apply,
           details: () => ({ title: ui.info.title.portrait, fields, actions: [[ui.open.mac], [ui.btn.extract]] }) });
-        const cards = items.map((it) => box(`Card_${it.key}${kind === "spr" ? "/BG" : ""}`));
+        const cards = items.map((it) => box(`Card_${it.key}`));
         const ratio = cards[0][2] / cards[0][3];
-        if (kind === "spr") assert.ok(ratio < .8);
+        if (kind === "spr") {
+          const still = box("Details/Picture/Texture");
+          assert.ok(Math.abs(ratio - still[2] / still[3]) < .01, "portrait aspect matches the info still");
+        }
         if (kind === "lobby") assert.ok(Math.abs(ratio - 16 / 9) < .02);
         if (kind === "model") { assert.equal(ratio, 1); assert.ok(cards[0][2] > 220); }
         for (let i = 0; i < cards.length; i++) {
           if (i % columns) assert.ok(cards[i][0] > cards[i - 1][0] + cards[i - 1][2] + 8, `${kind}: column gap`);
-          if (i >= columns) assert.ok(cards[i][1] > cards[i - columns][1] + cards[i - columns][3] + (kind === "spr" ? 0 : 65), `${kind}: row gap includes names`);
+          if (i >= columns) assert.ok(cards[i][1] > cards[i - columns][1] + cards[i - columns][3] + 65, `${kind}: row gap includes names`);
           assert.equal(cards[i][1], cards[Math.floor(i / columns) * columns][1]);
-          const labelPath = `Card_${i}/${kind === "spr" ? "Label_CharName" : "Bar/Name/Text"}`;
-          if (kind === "spr") inside(box(labelPath), cards[i], `${lang}: portrait name inside native card`);
-          else {
-            const label = walk(prompt).find((el) => el.dataset.path?.startsWith(`Card_${i}/Bar/Name/`) && el.textContent);
-            inside(NGUI.rect(label), box(`Card_${i}/Bar`), `${lang}: name in card bar`);
+          const label = walk(prompt).find((el) => el.dataset.path?.startsWith(`Card_${i}/Bar/Name/`) && el.textContent);
+          const band = box(`Card_${i}/Bar`);
+          inside(NGUI.rect(label), band, `${lang}: name in card bar`);
+          inside(box(`Card_${i}/Bar/EditName`), band, `${lang}: edit pencil in card bar`);
+          assert.ok(band[1] > cards[i][1] + cards[i][3], "the name band is below the artwork");
+          const el = (suffix = "") => walk(prompt).find((e) => e.dataset.path === `Card_${i}${suffix}`);
+          assert.ok(el().style.backgroundImage, "shared card body sprite renders");
+          for (const suffix of ["", "/Thumb", "/Line", "/Bar", "/Using"]) {
+            assert.equal(el(suffix).style.transform, "skewX(-10deg)", `${kind}: shared incline for ${suffix}`);
+          }
+          assert.equal(el("/Thumb").style.borderRadius, `${(18 * S).toFixed(1)}px`);
+          const image = el("/Thumb").children[0], window = box(`Card_${i}/Thumb`);
+          assert.equal(image.style.transform, "skewX(10deg)", "art stays upright inside the shared incline");
+          const margin = -parseFloat(image.style.left) / 100 * window[2];
+          assert.ok(margin + .01 >= window[3] * Math.tan(Math.PI / 18) / 2, "image covers the tall slanted corners");
+          assert.ok(!walk(prompt).some((e) => e.dataset.path?.startsWith(`Card_${i}/Sort`)), "no collection Sort overlay across the art");
+          if (i === 0) {
+            assert.ok(el("/Select").style.backgroundImage, "shared selection outline renders");
+            assert.equal(el("/Select").style.transform, "skewX(-10deg)");
+            assert.ok(el("/Select/Check").style.backgroundImage, "shared check sprite renders");
           }
         }
         if (kind === "spr") {
@@ -1553,4 +1573,18 @@ test("switch geometry: per-kind columns, aspects, card bounds, labels and portra
       }
     }
   } finally { prompt.hidden = true; setStrings("en-US", Object.fromEntries(strings(english))); }
+});
+
+
+test("portrait columns fit the available width at the square-card gap, with left-to-right wrapping", async () => {
+  const { switchGrid } = await import("../../src/ba_modding_toolkit/web/js/switch-layout.js");
+  const model = switchGrid("model"), gap = model.pitch[0] - model.card.w;
+  for (const width of [1300, 1788, 2200]) {
+    const grid = switchGrid("spr", width), { card, columns, pitch, overhang } = grid;
+    assert.ok(Math.abs(pitch[0] - card.w - gap) < 1e-8);
+    assert.equal(pitch[1] - card.h - card.bar, 48);
+    assert.ok((columns - 1) * pitch[0] + card.w + overhang <= width);
+    assert.ok(columns * pitch[0] + card.w + overhang > width, "one more column would not fit");
+  }
+  assert.equal(switchGrid("spr").columns, 5);
 });

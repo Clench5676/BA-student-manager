@@ -155,7 +155,10 @@ async function capture(player, el, frame, expr, lobby, framing, background, sign
   player.skeleton.setToSetupPose();
   let entry = idle ? state.setAnimation(0, idle, true) : state.setEmptyAnimation(0, 0);
   if (framing) { settle(player, { name: "thumbnail" }, null, () => {}); entry = state.getCurrent(0); }
-  if (expr && player.skeleton.data.findAnimation(expr)) state.setAnimation(1, expr, true);
+  // The main portrait also applies 00. Some story portraits attach their entire body on that track;
+  // an empty setup pose cannot produce a still, however often the same frame is drawn.
+  const expression = expr || (!lobby && !framing ? "00" : null);
+  if (expression && data.findAnimation(expression)) state.setAnimation(1, expression, true);
   state.apply(player.skeleton);
   player.skeleton.updateWorldTransform(spine.Physics.update);
   player.config.viewport = viewFor(player, frame, w / h, framing, lobby);
@@ -178,7 +181,10 @@ async function capture(player, el, frame, expr, lobby, framing, background, sign
   const portrait = el.querySelector("canvas"), still = document.createElement("canvas");
   still.width = portrait.width; still.height = portrait.height;
   still.getContext("2d").drawImage(portrait, 0, 0);
-  const canvas = await collectionStill(still, background, signal);
+  const canvas = await collectionStill(still, background, signal).catch((err) => {
+    if (!signal.aborted) console.warn("Thumbnail background unavailable", background, err);
+    return still;
+  });
   return new Promise((resolve) => canvas.toBlob((b) => resolve(b && !signal.aborted ? URL.createObjectURL(b) : null)));
 }
 
@@ -209,6 +215,16 @@ export async function collectionStill(portrait, background, signal, load = (url,
 }
 
 const keyOf = (base, frame, expr, lobby = false, framing = null, background = null) => `${base}|${frame}|${expr || ""}|${lobby}|${framing || ""}|${background || ""}`;
+
+// A fallback retains queue priority and cancellation: an abandoned view must never publish a late image.
+export function withThumbnailFallback(picture, fallback) {
+  const result = Promise.resolve(picture).catch(() => null).then((url) => picture?.signal?.aborted ? null : url || fallback());
+  result.thumbnail = true;
+  result.signal = picture?.signal;
+  result.bump = () => picture?.bump?.();
+  result.failure = () => picture?.failure?.();
+  return result;
+}
 
 // Consumers share a render, but cancelling one view must not cancel another view's use of it.
 function subscribe(item, signal) {
@@ -406,7 +422,17 @@ function request(base, frame = "bust", expr = null, lobby = false, framing = nul
     if (preferred) queue.sort((a, b) => b.base.startsWith(preferred) - a.base.startsWith(preferred));
     queueMicrotask(pump);
   }
-  return subscribe(cache.get(key), signal);
+  const picture = subscribe(cache.get(key), signal);
+  if (frame !== "portrait") return picture;
+  // Reuse only a still of these exact source bytes. Never borrow the other similarly named variant's art,
+  // a face-only crop, or a thumbnail from before an install/update changed the revision.
+  return withThumbnailFallback(picture, () => {
+    for (const otherFrame of ["roster", "bust", "card"]) {
+      const still = cache.get(keyOf(base, otherFrame, expr, lobby, framing, background));
+      if (still?.url) return still.url;
+    }
+    return null;
+  });
 }
 
 function bump(item) {

@@ -84,6 +84,7 @@ globalThis.getComputedStyle = () => ({ opacity: "1" });
 
 const imageRequests = [], pendingImages = [];
 let imageMode = "ready", playerMode = "ready", portraitRevision = "a", portraitStatus = 200;
+let blankThumbnailCore = "";
 let decodeMode = "ready", thumbMode = "pending", portraitExpressions = ["00", "01"];
 const thumbnailPlayers = [], pendingThumbnails = [];
 const pendingDecodes = [], pendingPlayers = [];
@@ -146,7 +147,9 @@ globalThis.spine = { Vector2: class {}, Physics: { update: 1 }, RegionAttachment
     if (el.className === "thumb-player") {
       thumbnailPlayers.push(this);
       this.context = { gl: { drawingBufferWidth: 2, drawingBufferHeight: 1, RGBA: 1, UNSIGNED_BYTE: 1,
-        readPixels: (_x, _y, _w, _h, _f, _t, pixels) => pixels.set([0, 0, 0, 0, 200, 100, 50, 255]) } };
+        readPixels: (_x, _y, _w, _h, _f, _t, pixels) => {
+          if (!blankThumbnailCore || !config.skeleton.includes(blankThumbnailCore)) pixels.set([0, 0, 0, 0, 200, 100, 50, 255]);
+        } } };
       el.appendChild(new El("canvas"));
       const done = () => config.success(this);
       if (thumbMode === "ready") queueMicrotask(done); else pendingThumbnails.push(done);
@@ -989,8 +992,8 @@ test("repaired names and own aliases keep a separate repair tag in every locale"
         const part = (path) => walk(hosts.popup).find((el) => el.dataset.path === path);
         assert.equal(part("Details/Name").getAttribute("aria-label"), name);
         assert.equal(walk(part("Details/Chip_0/Text/Text")).map((el) => el.textContent).join(""), ui.webui.remap.repaired);
-        assert.equal((part("Card_m:fixed/Tag/Label_Schoolname").textContent || part("Card_m:fixed/Tag/Label_Schoolname").children[0].textContent), ui.webui.remap.repaired);
-        assert.equal((part("Card_m:fixed/Sort/Label_Schoolname").textContent || part("Card_m:fixed/Sort/Label_Schoolname").children[0].textContent), enabled ? ui.webui.status.installed : ui.webui.switch.configured);
+        assert.equal((part("Card_m:fixed/Tag/Text").textContent || part("Card_m:fixed/Tag/Text").children[0].textContent), ui.webui.remap.repaired);
+        assert.equal((part("Card_m:fixed/Using/Text").textContent || part("Card_m:fixed/Using/Text").children[0].textContent), enabled ? ui.webui.status.installed : ui.webui.switch.configured);
         assert.ok(walk(hosts.popup).some((el) => el.dataset.action === "alias:m:fixed"));
         assert.equal(walk(hosts.popup).filter((el) => el.getAttribute("aria-label") === ui.webui.act.update).length, 1);
         await closeSwitch();
@@ -1131,7 +1134,7 @@ for (const kind of ["spr", "lobby"]) test(`an auto-applied ${kind} mod has no ca
     const popup = switchButton().click(); await flush(); await popup;
     const own = walk(hosts.popup).find((e) => e.dataset.key === "self");
     assert.ok(own); await own.click(); await flush();
-    assert.ok(walk(hosts.popup).some((e) => e.dataset.path?.endsWith(kind === "spr" ? "Card_m:test/Sort/Label_Schoolname" : "Card_m:test/Using")));
+    assert.ok(walk(hosts.popup).some((e) => e.dataset.path?.endsWith("Card_m:test/Using")));
     assert.equal(walk(hosts.popup).find((e) => e.dataset.path?.match(/Card_m:test\/(?:Dot|NewIcon)$/)), undefined);
     assert.ok(tabDot(tab)); assert.ok(chipDot("ibuki"), "card rendering leaves the unread marks intact");
     await closeSwitch();
@@ -1333,7 +1336,7 @@ for (const enabled of [true, false]) test(`model switching reuses the detail con
     assert.ok(add && add.getAttribute("aria-label") === "Add 3D Model");
     const text = walk(hosts.ngui).find((e) => e.className === "switch-text");
     assert.ok(text.children.some((e) => e.className === "switch-go"));
-    assert.ok(text.children.some((e) => e.innerText?.startsWith("test · ")));
+    assert.ok(text.children.some((e) => e.innerText?.startsWith("test - ")));
     assert.equal(tabDot(3), undefined, "showing the model tab marks its configured asset seen");
     assert.equal(v.fresh, false);
     await switchButton().click(); await flush();
@@ -1360,4 +1363,52 @@ test("detail action cards remove skill bases and plus badges and contain their r
       assert.ok(!walk(hosts.ngui).some((e) => e.dataset.path?.includes(`${prefix}/SkillIconBg (1)`)));
     }
   } finally { Detail.hide(); await flush(); t.mock.timers.reset(); }
+});
+
+
+test("switch subtitles retain the selected name and use a plain separator in all six locales", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    for (const lang of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) {
+      const ui = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${lang}.json`, import.meta.url), "utf8"));
+      setStrings(lang, flat(ui));
+      for (const installed of [false, true]) {
+        family = modFamily("spr", "hina_spr");
+        const v = family.variants[0];
+        v.configured = { spr: "mod:hina_spr" };
+        v.selection = { spr: { source: "mod:hina_spr", installed } };
+        await showPortrait(t);
+        const text = walk(hosts.ngui).find((e) => e.className === "switch-text");
+        const subtitle = text.children.find((e) => e.tagName === "SPAN").innerText.replace(/\n/g, "");
+        assert.equal(subtitle, `hina_spr - ${installed ? ui.webui.status.installed : ui.webui.switch.configured}`);
+        assert.ok(!/[·•・]/u.test(subtitle));
+        Detail.hide();
+      }
+    }
+  } finally {
+    Detail.hide(); await flush(); t.mock.timers.reset();
+    setStrings("en-US", flat(JSON.parse(readFileSync(new URL("../../src/ba_modding_toolkit/locales/en-US.json", import.meta.url), "utf8"))));
+  }
+});
+
+test("a failed portrait capture uses its own collection still in both the candidate and info panel", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    thumbMode = "ready"; blankThumbnailCore = "pajamas_missing_spr";
+    family = modFamily();
+    family.variants.push({ key: "pajamas", spr: blankThumbnailCore,
+      portrait: "/asset/art/portrait/pajamas", names: { en: { full: "Ibuki (Pajamas)", short: "Pajamas" } }, modList: [], state: { files: [] } });
+    const v = family.variants[0];
+    v.portrait = "/asset/art/portrait/original";
+    v.configured = { spr: "variant:pajamas" };
+    v.selection = { spr: { source: "variant:pajamas", installed: false } };
+    await showPortrait(t);
+    await switchButton().click(); await flush();
+    const picture = (path) => walk(hosts.popup).find((e) => e.dataset.path === path).children[0].style.backgroundImage;
+    assert.equal(picture("Card_v:pajamas/Thumb"), 'url("/asset/art/portrait/pajamas")');
+    assert.equal(picture("Details/Picture/Texture"), picture("Card_v:pajamas/Thumb"));
+    await closeSwitch();
+  } finally {
+    Detail.hide(); blankThumbnailCore = ""; thumbMode = "pending"; await flush(); t.mock.timers.reset();
+  }
 });

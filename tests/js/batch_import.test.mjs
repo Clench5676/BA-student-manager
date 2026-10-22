@@ -1438,10 +1438,13 @@ for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) for
     setStrings(locale, flatten(JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${locale}.json`, import.meta.url), "utf8"))));
     const h = await fixture(); await h.analyze([entry("a")]);
     await h.action("start").click(); await flush();
-    h.runs[0].resolve({ results: [{ id: "a", outcome: "failed", reason, params }] });
+    h.runs[0].resolve({ results: [{ id: "a", outcome: "failed", configured: true, reason, params }] });
     await flush(); await h.page.results(); await h.page.settled();
     const row = walk(h.dialog).find((el) => el.dataset.result), { tree } = drawn(h, row);
-    assert.ok(find(tree, "Label_Locale_Limit").widgets[0].text.includes(expected));
+    const note = find(tree, "Label_Locale_Limit").widgets[0].text;
+    assert.ok(note.includes(expected));
+    assert.ok(note.includes(" - "), "saved status and error use the plain separator");
+    assert.ok(!/[·•・]/u.test(note));
   } finally {
     setStrings("en-US", flatten(JSON.parse(readFileSync(new URL("../../src/ba_modding_toolkit/locales/en-US.json", import.meta.url), "utf8"))));
   }

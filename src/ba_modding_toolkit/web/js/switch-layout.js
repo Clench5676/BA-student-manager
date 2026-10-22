@@ -1,21 +1,21 @@
-// Switch geometry in NGUI units. UICollectCard supplies the portrait silhouette;
-// lobby/model retain the existing popup's Common_Btn_BG card and name bar.
-export function switchGrid(kind, portrait = null) {
-  if (!kind) return { card: { w: 250, h: 226, bar: 68 }, columns: 6, pitch: [284, 350], overhang: (226 + 68 + 10) * Math.tan(Math.PI / 18) };
-  const card = kind === "spr" ? { w: 300, h: 440, bar: 0 }
+// Switch geometry in NGUI units. All kinds use popup.js's shared switch card:
+// Common_Btn_BG body, Common_Line_Raius20px frame and Common_Bg_Raius10px name band.
+const GRID_WIDTH = 1788, INCLINE = 10, ROW_GAP = 48;
+const lean = Math.tan(INCLINE * Math.PI / 180);
+const overhangOf = (card) => (card.h + card.bar + 10) * lean;
+// Preserve the accepted square-card spacing for the portrait rows as well.
+const COLUMN_GAP = (GRID_WIDTH - 360 - overhangOf({ h: 360, bar: 104 })) / 3 - 360;
+export function switchGrid(kind, width = GRID_WIDTH) {
+  if (!kind) return { card: { w: 250, h: 226, bar: 68 }, columns: 6, pitch: [284, 350], overhang: (226 + 68 + 10) * lean };
+  const b = portraitPanel, portraitAspect = (b.right - b.left - b.gap) / 2 / (b.top - b.bottom);
+  const card = kind === "spr" ? { w: 250, h: 250 / portraitAspect, bar: 104 }
     : kind === "lobby" ? { w: 750, h: 422, bar: 104 }
     : kind === "model" ? { w: 360, h: 360, bar: 104 }
     : { w: 250, h: 226, bar: 104 };
-  if (kind === "spr" && portrait) {
-    const bg = portrait.children.find((c) => c.name === "BG");
-    const w = bg.widgets.find((w) => w.sprite);
-    card.h = card.w * w.h_ / w.w_;
-    card.incline = w.incline || 0;
-  }
-  const columns = kind === "lobby" ? 2 : kind === "model" || kind === "spr" ? 4 : 6;
-  const lean = Math.abs(Math.tan((card.incline ?? 10) * Math.PI / 180));
-  const overhang = (card.h + card.bar + 10) * lean;
-  const pitch = [(1788 - card.w - overhang) / (columns - 1), card.h + card.bar + 48];
+  const overhang = overhangOf(card);
+  const columns = kind === "spr" ? Math.max(1, Math.floor((width - overhang + COLUMN_GAP) / (card.w + COLUMN_GAP)))
+    : kind === "lobby" ? 2 : kind === "model" ? 4 : 6;
+  const pitch = [kind === "spr" ? card.w + COLUMN_GAP : (width - card.w - overhang) / (columns - 1), card.h + card.bar + ROW_GAP];
   return { card, columns, pitch, overhang };
 }
 
@@ -72,68 +72,4 @@ export function splitPortraitPanel(tree, find, wrap) {
   Object.assign(box.widgets[0], { w_: width, h_: boxTop - top });
   Object.assign(find(box, "Line").widgets[0], { w_: width + 6, h_: boxTop - top + 6 });
   return tree;
-}
-
-// UICollectCard is cloned intact. Only content and unused branches change;
-// its BG sprite retains the game's incline, corner contour, colour and slicing.
-export function portraitCard(template, it, selected, ui, caption) {
-  const t = structuredClone(template), find = ui.find;
-  t.name = `Card_${it.key}`;
-  const keep = new Set(["BG", "Char_Portrait", "Label_CharName", "Sort", "Btn_Pin", "NewIcon", "BG_Discover"]);
-  for (const c of t.children) if (!keep.has(c.name)) c.active = false;
-  const bg = find(t, "BG"), body = bg.widgets.find((w) => w.sprite);
-  const picture = find(t, "Char_Portrait");
-  const pw = picture.widgets.find((w) => "texture" in w);
-  Object.assign(pw, { clipImage: it.thumb, imgSize: "cover", imgPosition: "center", imgLeft: "0", imgWidth: "100%", radius: 0, incline: body.incline || 0 });
-  const name = find(t, "Label_CharName"), nw = name.widgets.find((w) => "text" in w);
-  const nameWidth = body.w_ - 72 - (it.nameEdit ? 60 : 0);
-  const fitted = ui.fitText(it.label, nw.fontSize, 24, nameWidth, 2);
-  Object.assign(nw, { text: fitted.text, fontSize: fitted.fs, ariaLabel: it.full, ellipsis: true,
-    w_: nameWidth, h_: Math.min(100, fitted.lines * fitted.fs * 1.25) });
-  name.pos = [bg.pos[0], bg.pos[1] - body.h_ / 2 + 140];
-  for (const child of name.children || []) child.active = false;
-  const sort = find(t, "Sort"), status = find(sort, "Label_Schoolname");
-  sort.active = !!(it.badge || it.inUse);
-  sort.pos = [bg.pos[0], bg.pos[1] - body.h_ / 2 + 38];
-  status.pos = [0, 0];
-  Object.assign(status.widgets.find((w) => "text" in w), { text: it.badge?.text || caption, w_: body.w_ - 72, h_: 48, ellipsis: true });
-  if (it.tag) {
-    const tag = structuredClone(sort); tag.name = "Tag"; tag.active = true;
-    tag.pos[1] = bg.pos[1] + body.h_ / 2 - 112;
-    find(tag, "Label_Schoolname").widgets.find((w) => "text" in w).text = it.tag.text;
-    t.children.push(tag);
-  }
-  if (it.nameEdit) {
-    name.pos[0] -= 30;
-    t.children.push(ui.node("EditName", [bg.pos[0] + body.w_ / 2 - 48, name.pos[1]],
-      [ui.sprite("Cafe_Icon_NameEdit", 42, 42, { type: 0, depth: 26 })]));
-  }
-  if (it.recruit) t.children.push(ui.node("Recruit", [bg.pos[0] - body.w_ / 2 + 48, bg.pos[1] + body.h_ / 2 - 48],
-    [ui.sprite("Common_Icon_Gacha2", 62 * 126 / 143, 62, { type: 0, depth: 26 })]));
-  const dim = find(t, "BG_Discover"); dim.active = !!it.dim;
-  const pin = find(t, "Btn_Pin"); pin.active = !!it.fav;
-  pin.pos = [bg.pos[0] + body.w_ / 2 - 48, bg.pos[1] + body.h_ / 2 - 180];
-  if (find(pin, "Off")) find(pin, "Off").active = false;
-  find(t, "NewIcon").active = !!it.isNew && !it.inUse && !selected;
-  if (selected) {
-    // Existing switch selection widgets, using the character frame's native dimensions/incline.
-    t.children.push(ui.node("Select", [...bg.pos], [], [ui.node("Check", [body.w_ / 2 - 48, body.h_ / 2 - 48],
-      [ui.sprite("Card_Ability_Select_Line_Icon", 66, 65, { type: 0, depth: 26 })])]));
-  }
-  const [bx, by] = bg.pos;
-  for (const child of t.children) { child.pos[0] -= bx; child.pos[1] -= by; }
-  const scale = 300 / body.w_;
-  t.scale = [scale, scale];
-  return t;
-}
-
-// Clip the upright portrait with UICollectCard/BG's actual raster alpha, not a guessed CSS corner radius.
-export async function maskPortrait(view, root) {
-  await Promise.all(view.images || []);
-  const frame = view.nodes.get(`${root}/BG`)?.els[0], picture = view.nodes.get(`${root}/Char_Portrait`)?.els[0];
-  if (!frame || !picture) return;
-  const position = `${parseFloat(frame.style.left) - parseFloat(picture.style.left)}px ${parseFloat(frame.style.top) - parseFloat(picture.style.top)}px`;
-  Object.assign(picture.style, { webkitMaskImage: frame.style.backgroundImage, maskImage: frame.style.backgroundImage,
-    webkitMaskSize: `${frame.style.width} ${frame.style.height}`, maskSize: `${frame.style.width} ${frame.style.height}`,
-    webkitMaskPosition: position, maskPosition: position, webkitMaskRepeat: "no-repeat", maskRepeat: "no-repeat" });
 }
