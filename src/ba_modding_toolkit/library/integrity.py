@@ -10,6 +10,7 @@ from .. import devmode
 from ..bundle import Bundle
 from ..errors import ServiceError
 from ..gameassets.spine import atlas_pages
+from ..models import AssetKey, AssetType
 from ..spine import get_skel_version
 
 
@@ -27,6 +28,7 @@ class Contents:
     names: set[str] = field(default_factory=set)
     files: set[str] = field(default_factory=set)
     references: set[str] = field(default_factory=set)
+    reference_paths: set[str] = field(default_factory=set)
     streams: set[str] = field(default_factory=set)
     reference_names: dict[str, str] = field(default_factory=dict)
     skeletons: dict[str, bytes] = field(default_factory=dict)
@@ -34,7 +36,7 @@ class Contents:
     textures: dict[str, tuple[int, int]] = field(default_factory=dict)
 
     def merge(self, other: Contents) -> None:
-        for key in ("platforms", "names", "files", "references", "streams"):
+        for key in ("platforms", "names", "files", "references", "reference_paths", "streams"):
             getattr(self, key).update(getattr(other, key))
         for key in ("skeletons", "atlases", "textures", "reference_names"):
             getattr(self, key).update(getattr(other, key))
@@ -47,10 +49,52 @@ class Contents:
                 "textures": self.textures}
 
 
-def inspect(path: Path, *, allow_unknown: bool = False) -> Contents:
+class Inspection:
+    """A single analysis snapshot; never reused for execution or after input changes."""
+
+    def __init__(self):
+        self._bundles: dict[Path, Bundle] = {}
+        self._contents: dict[Path, Contents] = {}
+        self._keys: dict[Path, set[AssetKey]] = {}
+        self._readable: dict[Path, set[AssetKey]] = {}
+
+    def bundle(self, path: Path) -> Bundle:
+        if path not in self._bundles:
+            devmode.check_read(path)
+            bundle = Bundle.load(path)
+            if bundle is None:
+                raise ServiceError("bundle_invalid", file=path.name)
+            self._bundles[path] = bundle
+        return self._bundles[path]
+
+    def inspect(self, path: Path, *, allow_unknown: bool = False) -> Contents:
+        if path not in self._contents:
+            self._contents[path] = inspect(path, allow_unknown=True, inspection=self)
+        result = self._contents[path]
+        if not allow_unknown and (not result.platforms or "UnknownPlatform" in result.platforms):
+            raise ServiceError("mod_platform_unknown", file=path.name)
+        return result
+
+    def keys(self, path: Path) -> set[AssetKey]:
+        if path not in self._keys:
+            self._keys[path] = self.bundle(path).get_asset_keys("name_type", {
+                AssetType.Texture2D, AssetType.TextAsset, AssetType.Mesh, AssetType.AnimationClip})
+        return self._keys[path]
+
+    def readable_keys(self, path: Path) -> set[AssetKey]:
+        if path not in self._readable:
+            # Use the execution reader, including texture decoding and mesh stream resolution.
+            # Source choices select conversion routes; they do not override serialized Unity metadata.
+            patch, _ = self.bundle(path).extract_patch(
+                {"Texture2D", "TextAsset", "Mesh", "AnimationClip"}, "name_type")
+            self._readable[path] = set(patch)
+        return self._readable[path]
+
+
+def inspect(path: Path, *, allow_unknown: bool = False, inspection: Inspection | None = None) -> Contents:
     """Read metadata and text assets, without decoding images or following external paths."""
     devmode.check_read(path)
-    bundle = Bundle.load(path)
+    bundle = inspection.bundle(path) if inspection else Bundle.load(path)
     if bundle is None:
         raise ServiceError("bundle_invalid", file=path.name)
     result = Contents(names={path.name.removesuffix(".backup")})
@@ -58,6 +102,7 @@ def inspect(path: Path, *, allow_unknown: bool = False) -> Contents:
     def reference(path: str) -> str:
         name = basename(path)
         result.references.add(name)
+        result.reference_paths.add(path.replace("\\", "/"))
         result.reference_names[name] = path.replace("\\", "/").rsplit("/", 1)[-1]
         return name
 

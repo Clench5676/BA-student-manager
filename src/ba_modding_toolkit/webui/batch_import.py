@@ -395,24 +395,25 @@ class BatchImport:
         entry.update(state="blocked", reason=candidate.error, libraryId=None, source=None,
                      target=mod_origin.target_of(self.services.settings, pin))
         candidate.targets, candidate.originals, candidate.spine_version, candidate.conversion = [], [], None, False
+        inspection = integrity.Inspection()
         try:
             selected = integrity.Contents()
             for path in candidate.files.values():
-                selected.merge(integrity.inspect(path, allow_unknown=True))
+                selected.merge(inspection.inspect(path, allow_unknown=True))
             names = {path.name.removesuffix(".backup") for path in candidate.files.values()}
             source, source_error = mod_origin.source_of(names, selected, integrity.Contents(), entry["target"])
             entry["source"] = candidate.source_override or source
             if candidate.error:
                 return
-            report = library.inspect_import(candidate.files, pin=pin, conversion=True)
+            report = library.inspect_import(candidate.files, pin=pin, conversion=True, inspection=inspection)
             candidate.identity = report["identity"]
             live = report["targets"]
-            compatibility = report.get("compatibility")
-            official_contents = compatibility["officialContents"] if compatibility else integrity.Contents()
+            compatibility = report.get("compatibility") or {}
+            official_contents = compatibility.get("officialContents", integrity.Contents())
             if not compatibility and pin and live:
                 try:
                     for path in library.official_bundles(entry["core"], pin=pin):
-                        official_contents.merge(integrity.inspect(path))
+                        official_contents.merge(inspection.inspect(path))
                 except ServiceError:
                     pass  # Installed uploads can be recognized without a recoverable original.
             entry["target"] = mod_origin.target_of(self.services.settings, pin, official_contents)
@@ -420,38 +421,39 @@ class BatchImport:
             entry["source"] = candidate.source_override or source
             if source_error in ("source_conflict", "platform_unsupported"):
                 raise ServiceError(source_error)
-            if candidate.source_override and mod_origin.platform_of(selected) not in (None, entry["source"]["platform"]):
+            evidence, _ = mod_origin.constraints(names, selected, official_contents, entry["target"])
+            if candidate.source_override and any(value and candidate.source_override[key] != value
+                                                  for key, value in evidence.items()):
                 raise ServiceError("source_conflict")
-            candidate.conversion = bool(entry["source"] and (
-                any(entry["source"][key] != entry["target"][key] for key in ("server", "platform"))
-                or (official_contents.platforms and selected.platforms != official_contents.platforms)
-                or mod_origin.platform_of(selected) is None))
+
+            def conversion(source: dict) -> bool:
+                return bool(any(source[key] != entry["target"][key] for key in ("server", "platform"))
+                            or (official_contents.platforms and selected.platforms != official_contents.platforms)
+                            or mod_origin.platform_of(selected) is None)
+
             if len({p.name for p in live}) != len(live):
                 raise ServiceError("game_file_conflict")
             for file in entry["files"]:
                 name = next((name for name, path in candidate.files.items() if str(path) == file["path"]), "")
                 matches = [p for p in live if part_of(p.name) == part_of(name)]
                 file["target"] = matches[0].name if len(matches) == 1 else None
-            if report["libraryId"] and not candidate.conversion:
-                entry.update(state="library", reason=None, libraryId=report["libraryId"])
-                return
-            if report["installed"] and not candidate.conversion:
-                entry.update(state="installed", reason=None)
-                return
+            if entry["source"] is None or not conversion(entry["source"]):
+                if report["libraryId"]:
+                    entry.update(state="library", reason=None, libraryId=report["libraryId"])
+                    return
+                if report["installed"]:
+                    entry.update(state="installed", reason=None)
+                    return
             if not pin or not live:
                 raise ServiceError("game_file_not_found")
             originals = report["originals"] if entry["kind"] == "other" else library.official_bundles(entry["core"], pin=pin)
             if not entry["target"]["platform"]:
                 raise ServiceError("target_unknown")
-            if entry["source"] is None:
-                raise ServiceError(source_error or "source_unknown")
             if len(live) != len(originals):
                 raise ServiceError("game_file_conflict")
             baseline = dict(zip(live, originals))
             exact = set(candidate.files) <= {p.name for p in live}
-            if entry["source"]["server"] != entry["target"]["server"] and not all(
-                    any(part_of(name) == part_of(path.name) for path in live) for name in names):
-                raise ServiceError("conversion_names")
+            sources = list(candidate.files.values())
             if exact:
                 targets = [p for p in live if p.name in candidate.files]
             elif entry["kind"] == "other":
@@ -462,26 +464,11 @@ class BatchImport:
                 for path in live:
                     parsed = parse_filename(path.name)
                     latest[parsed.prefix] = max(latest.get(parsed.prefix, ""), parsed.date)
-                targets, _ = _asset_match(list(candidate.files.values()),
-                                          [baseline[p] for p in live if parse_filename(p.name).date ==
-                                           latest[parse_filename(p.name).prefix]], log)
-                targets = [p for p in live if baseline[p] in targets]
-            if candidate.conversion:
-                matched, _ = _asset_match(list(candidate.files.values()), [baseline[p] for p in targets], log)
-                targets = [p for p in targets if baseline[p] in matched]
-            if not targets:
-                raise ServiceError("no_matching_assets" if candidate.conversion else "game_file_not_found")
-            candidate.targets, candidate.originals = targets, [baseline[p] for p in targets]
-            for file in entry["files"]:
-                if file["target"] is None and len(targets) == 1:
-                    file["target"] = targets[0].name
-            if not candidate.conversion:
-                library.inspect_import(candidate.files, pin=pin)
-            if compatibility.get("remappable"):
-                entry.update(state="blocked", reason="conflict")
-                return
-            official = compatibility["official"]["skeletons"]
-            incoming = compatibility["mod"]["skeletons"]
+                matched, _ = _asset_match(sources, [baseline[p] for p in live if parse_filename(p.name).date ==
+                                          latest[parse_filename(p.name).prefix]], log, keys=inspection.keys)
+                targets = [p for p in live if baseline[p] in matched]
+            official = compatibility.get("official", {}).get("skeletons", {})
+            incoming = compatibility.get("mod", {}).get("skeletons", {})
             versions = {s["version"] for s in official.values() if s.get("version")}
             series = {tuple(version.split(".")[:2]) for version in versions}
             candidate.spine_version = max(versions, key=lambda version: tuple(map(int, version.split(".")))) if len(series) == 1 else None
@@ -491,36 +478,65 @@ class BatchImport:
                                {tuple(official[name]["version"].split(".")[:2])}
                                if official.get(name, {}).get("version") else series)
                            for name, s in incoming.items())
-            if unknown or (mismatch and (candidate.spine_version is None or
-                                        not self.services.settings.spine_options().is_valid())):
-                entry.update(state="blocked", reason="spine_version")
-            else:
-                entry.update(state="convert" if candidate.conversion else "ready" if exact and not mismatch else "update", reason=None)
+            common_error = "conflict" if compatibility.get("remappable") else "spine_version" if (
+                unknown or (mismatch and (candidate.spine_version is None or
+                                         not self.services.settings.spine_options().is_valid()))) else None
+            inferred = entry["source"] is None
+            choices = (mod_origin.candidates(names, selected, official_contents, entry["target"]) if inferred
+                       else [entry["source"]])
+            matched_targets = None
+            for choice in choices:
+                converting = conversion(choice)
+                failure = common_error
+                chosen = targets
+                if choice["server"] != entry["target"]["server"] and not all(
+                        any(part_of(name) == part_of(path.name) for path in live) for name in names):
+                    failure = "conversion_names"
+                if not failure and (converting or inferred):
+                    if matched_targets is None:
+                        matches, _ = _asset_match(sources, [baseline[p] for p in targets], log, keys=inspection.keys)
+                        matched_targets = [p for p in targets if baseline[p] in matches]
+                    chosen = matched_targets
+                if not chosen:
+                    failure = failure or ("no_matching_assets" if converting or inferred else "game_file_not_found")
+                if failure:
+                    if inferred:
+                        continue
+                    entry.update(state="blocked", reason=failure)
+                    return
+                if inferred or (candidate.source_override or {}).get("detected"):
+                    # Matching names are insufficient: read every comparable input with the execution reader,
+                    # and require coverage across the selected official targets, including split bundles.
+                    try:
+                        required = set().union(*(inspection.readable_keys(path) for path in sources))
+                        available = set().union(*(inspection.keys(baseline[path]) for path in chosen))
+                        if not required or not required <= available:
+                            raise ServiceError("no_matching_assets")
+                    except (ServiceError, OSError, ValueError):
+                        if inferred:
+                            break  # Reading is independent of the choice; another label cannot repair the bytes.
+                        raise
+                if not converting:
+                    library.inspect_import(candidate.files, pin=pin, inspection=inspection)
+                candidate.conversion = converting
+                candidate.targets, candidate.originals = chosen, [baseline[p] for p in chosen]
+                if inferred:
+                    candidate.source_override = dict(choice)
+                entry["source"] = choice
+                for file in entry["files"]:
+                    if file["target"] is None and len(chosen) == 1:
+                        file["target"] = chosen[0].name
+                entry.update(state="convert" if converting else "ready" if exact and not mismatch else "update", reason=None)
+                return
+            entry.update(state="blocked", reason="source_unknown")
         except ServiceError as error:
             entry.update(state="blocked", reason=error.code if error.code in (
                 "source_unknown", "source_conflict", "platform_unsupported", "target_unknown",
-                "conversion_names", "no_matching_assets") else blocked_reason(error))
+                "conversion_names", "no_matching_assets", "required_asset_extract_failed") else blocked_reason(error))
             if error.params:
                 entry["params"] = error.to_json()["params"]
-            if error.code == "source_unknown" and candidate.source_override is None:
-                self._infer_source(candidate, library, pin, names, selected, log)
         except (OSError, ValueError):
             entry.update(state="blocked", reason="unreadable")
-
-    def _infer_source(self, candidate: Candidate, library: Any, pin: Any, names: set[str],
-                      selected: integrity.Contents, log: Any) -> None:
-        for source in mod_origin.candidates(names, selected):
-            trial = replace(candidate, entry=deepcopy(candidate.entry), source_override=source)
-            self._judge(trial, library, pin, log)
-            if trial.entry["state"] not in ("ready", "convert", "update"):
-                continue
-            # Even a same-platform exact filename must prove a nonempty intersection
-            # of comparable Unity objects. Filename recognition alone accepts anything.
-            matches, _ = _asset_match(list(trial.files.values()), trial.originals, log)
-            if not matches:
-                continue
-            candidate.__dict__.update(trial.__dict__)
-            return
 
     def run(self, ids: list[str], options: dict) -> str:
         options = options_of(options, self.defaults())
@@ -678,6 +694,8 @@ class BatchImport:
                 anim_check=settings.anim_check_options(), log=log,
                 on_step=lambda step: progress(candidate, phase, step))
             if not updated.success:
+                if updated.error:
+                    raise updated.error
                 raise ServiceError("conversion_failed" if candidate.conversion else "mod_update_failed")
             if updated.message != "all_targets_unchanged":
                 if not updated.file_pairs:

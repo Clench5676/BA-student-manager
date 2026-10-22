@@ -5,6 +5,8 @@ from typing import Callable, Literal, NamedTuple
 from enum import StrEnum
 from PIL import Image
 
+from .errors import ServiceError
+
 
 from UnityPy.enums import ClassIDType as AssetType
 from UnityPy.files import ObjectReader as Obj
@@ -135,6 +137,7 @@ class ModUpdateResult:
     message: str
     file_pairs: list[FilePair]
     anim_diffs: AnimDiffMap | None = None
+    error: ServiceError | None = None
 
 @dataclass
 class BatchUpdateResult:

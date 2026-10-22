@@ -1452,3 +1452,17 @@ test("blocked entry notes preserve error parameters", async () => {
   await h.analyze([{ ...entry("a", "blocked"), reason: "dev_path_outside", params: { path } }]);
   assert.ok(find(drawn(h, h.row("a")).tree, "Label_Locale_Limit").widgets[0].text.includes(path));
 });
+
+for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) test(`merged unknown-source states keep the manual-identification wording in ${locale}`, async () => {
+  try {
+    const strings = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${locale}.json`, import.meta.url)));
+    setStrings(locale, flatten(strings));
+    const h = await fixture();
+    await h.analyze([entry("a"), { ...entry("a-lobby", "blocked", "lobby"), variant: "a", source: null, reason: "source_unknown" }]);
+    const merge = h.action("merge").querySelector("input");
+    merge.checked = true; await merge.dispatch("change"); await h.page.settled();
+    const row = h.row("a");
+    assert.ok(row.textContent.replace(/\s/g, "").includes(strings.webui.import.reason.source_unknown.replace(/\s/g, "")));
+    assert.ok(!row.textContent.includes(strings.webui.import.state.blocked));
+  } finally { setStrings("en-US", flatten(JSON.parse(readFileSync(new URL("../../src/ba_modding_toolkit/locales/en-US.json", import.meta.url))))); }
+});

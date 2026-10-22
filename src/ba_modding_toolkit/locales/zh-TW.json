@@ -1140,6 +1140,10 @@
 			"failed": "失敗"
 		},
 		"error": {
+			"required_asset_extract_failed": "無法從 {file} 提取 Mod 必需資源 {name}：{error}",
+			"required_asset_apply_failed": "無法將 Mod 必需資源 {name} 套用至 {file}：{error}",
+			"required_assets_unmatched": "Mod 必需資源沒有相符的目標：{names}",
+			"required_asset_stream_missing": "Bundle 中必需的串流資料遺失或不完整",
 			"internal": "發生錯誤：{error}",
 			"game_not_found": "找不到遊戲資料夾",
 			"mod_unsupported": "不支援的檔案：{file}",

@@ -1140,6 +1140,10 @@
 			"failed": "Failed"
 		},
 		"error": {
+			"required_asset_extract_failed": "Cannot extract required Mod asset {name} from {file}: {error}",
+			"required_asset_apply_failed": "Cannot apply required Mod asset {name} to {file}: {error}",
+			"required_assets_unmatched": "Required Mod assets have no matching target: {names}",
+			"required_asset_stream_missing": "Required stream data is missing or incomplete in the bundle",
 			"internal": "Something went wrong: {error}",
 			"game_not_found": "Game folder not found",
 			"mod_unsupported": "Unsupported file: {file}",

@@ -166,7 +166,15 @@ function setProgress(o, text) {
   queueProgress(o);
 }
 function queueProgress(o) {
-  const work = renderProgress(o).catch(() => {});
+  const work = renderProgress(o).catch(() => {
+    if (o.progressWork !== work || o.closing || o.done || !o.progress) return;
+    o.progressContent = null; o.progressTree = null;
+    o.progress.classList.remove("prefab-label");
+    o.progress.textContent = o.progressText || "";
+    o.geometryFailed = true;
+    correctFallback(o);
+    if (!o.progressContent) o.progress.style.visibility = "";
+  });
   o.progressWork = work;
   return work;
 }
@@ -187,7 +195,7 @@ async function renderProgress(o) {
   const ink = Object.fromEntries(bounds);
   const tree = loadingLabel(o.repeaterTree, style || loadingTree, text, S, ink);
   const line = tree?.inkLine ?? loadingInkLine(o.repeaterTree, S, ink);
-  if (line == null) return;
+  if (line == null) throw new Error("Loading label baseline unavailable");
   const next = document.createElement("div");
   Object.assign(next.style, { position: "absolute", inset: "0", visibility: "hidden" });
   o.el.appendChild(next); // connected and measurable, never painted before correction
@@ -202,7 +210,7 @@ async function renderProgress(o) {
     if (token !== o.progressVersion || o.closing || o.done) { next.remove(); return; }
     o.progress.classList.add("prefab-label");
     o.progress.style.transform = "";
-    if (!publishAligned(o.progress, next, line, stage())) { next.remove(); return; }
+    if (!publishAligned(o.progress, next, line, stage())) throw new Error("Loading label alignment unavailable");
   } catch (err) { next.remove(); throw err; }
   o.progressTree = tree;
   o.inkLine = line; o.progressContent = next;

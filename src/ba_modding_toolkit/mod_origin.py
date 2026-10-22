@@ -36,7 +36,7 @@ def server_hints(names: set[str]) -> set[str]:
 
 
 def names_of(contents: Contents) -> set[str]:
-    return (contents.names | contents.files | contents.references | set(contents.skeletons)
+    return (contents.names | contents.files | contents.references | contents.reference_paths | set(contents.skeletons)
             | set(contents.atlases) | set(contents.textures))
 
 
@@ -62,19 +62,19 @@ def target_of(settings: Any, pin: Any, official: Contents | None = None) -> dict
     return {"server": server, "platform": platform}
 
 
-def source_of(names: set[str], selected: Contents, official: Contents, target: dict) -> tuple[dict | None, str | None]:
-    """Return a complete detected source, or a precise unresolved/unsupported reason."""
+def constraints(names: set[str], selected: Contents, official: Contents, target: dict) -> tuple[dict, str | None]:
+    """Reliable evidence constrains each dimension even when the other is unknown."""
     platforms = {UNITY_PLATFORMS.get(name) for name in selected.platforms}
     known = selected.platforms - UNKNOWN_PLATFORMS
     if any(name not in UNITY_PLATFORMS for name in known):
-        return None, "platform_unsupported"
+        return {}, "platform_unsupported"
     if len(platforms - {None}) > 1:
-        return None, "source_conflict"
+        return {}, "source_conflict"
     platform = platform_of(selected)
     if platform is None:
         hints = platform_hints(names_of(selected))
         if len(hints) > 1:
-            return None, "source_conflict"
+            return {}, "source_conflict"
         platform = next(iter(hints)) if hints else None
     hints = server_hints(names | names_of(selected))
     if not hints:
@@ -82,20 +82,26 @@ def source_of(names: set[str], selected: Contents, official: Contents, target: d
         if cabs and cabs <= official.files:
             hints.add(target["server"])
     if len(hints) > 1:
-        return None, "source_conflict"
-    if not platform or not hints:
+        return {}, "source_conflict"
+    return {"server": next(iter(hints)) if hints else None, "platform": platform}, None
+
+
+def source_of(names: set[str], selected: Contents, official: Contents, target: dict) -> tuple[dict | None, str | None]:
+    """Return a complete detected source, or a precise unresolved/unsupported reason."""
+    evidence, error = constraints(names, selected, official, target)
+    if error:
+        return None, error
+    if not all(evidence.values()):
         return None, "source_unknown"
-    return {"server": hints.pop(), "platform": platform, "detected": True}, None
+    return {**evidence, "detected": True}, None
 
 
-def candidates(names: set[str], selected: Contents) -> list[dict]:
-    """Partial marker agreement first; ties use Global/Japan, then Android/iOS/PC.
-
-    This is an ordering, not evidence that a bundle is convertible. Every candidate
-    must pass the same preflight as a manual selection, including asset matching.
-    """
-    servers = server_hints(names | names_of(selected))
-    platforms = {platform_of(selected)} - {None} or platform_hints(names_of(selected))
-    choices = [{"server": server, "platform": platform, "detected": True}
-               for server in SERVERS for platform in PLATFORMS]
-    return sorted(choices, key=lambda c: -(int(c["server"] in servers) + int(c["platform"] in platforms)))
+def candidates(names: set[str], selected: Contents, official: Contents | None = None,
+               target: dict | None = None) -> list[dict]:
+    """Try only unknown dimensions, in Global/Japan and Android/iOS/PC order."""
+    evidence, error = constraints(names, selected, official or Contents(), target or {})
+    if error:
+        return []
+    return [{"server": server, "platform": platform, "detected": True}
+            for server in SERVERS for platform in PLATFORMS
+            if evidence["server"] in (None, server) and evidence["platform"] in (None, platform)]

@@ -1,7 +1,7 @@
 # searching.py
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 import os
 
 from .i18n import t
@@ -129,6 +129,7 @@ def _asset_match(
     source_paths: list[Path],
     candidates: list[Path],
     log: LogFunc = no_log,
+    *, keys: Callable[[Path], set[AssetKey]] | None = None,
 ) -> tuple[list[Path], str]:
     """
     对候选文件进行指纹比对，筛选出与源文件组匹配的目标文件。
@@ -141,6 +142,9 @@ def _asset_match(
 
     source_assets: set[AssetKey] = set()
     for src_path in source_paths:
+        if keys is not None:
+            source_assets |= keys(src_path)
+            continue
         src_bundle = Bundle.load(src_path, log)
         if not src_bundle:
             continue
@@ -157,11 +161,13 @@ def _asset_match(
     for candidate_path in candidates:
         log(f"  - {t('log.search.checking_candidate', name=candidate_path.name)}")
 
-        candidate_bundle = Bundle.load(candidate_path, log)
-        if not candidate_bundle:
-            continue
-
-        candidate_keys = candidate_bundle.get_asset_keys(strategy, comparable_types)
+        if keys is not None:
+            candidate_keys = keys(candidate_path)
+        else:
+            candidate_bundle = Bundle.load(candidate_path, log)
+            if not candidate_bundle:
+                continue
+            candidate_keys = candidate_bundle.get_asset_keys(strategy, comparable_types)
         if candidate_keys & source_assets:
             matched_paths.append(candidate_path)
             msg = t("message.search.new_file_confirmed", name=candidate_path.name)

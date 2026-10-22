@@ -10,6 +10,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from PIL import Image
 
 from .i18n import t
+from .errors import ServiceError
 from .utils import ImageUtils, no_log
 from .spine import (
     SkelConverter, SpineViewer, atlas_downgrade,
@@ -634,7 +635,8 @@ def process_mod_update(
             log(f"❌ {msg}")
             return ModUpdateResult(False, msg, [])
 
-        if not patches:
+        required_keys = set(patches) - {"__mode__"}
+        if not required_keys:
             return ModUpdateResult(False, t("message.mod_update.no_assets_extracted"), [])
 
         log(f"  > {t('log.mod_update.pool_built', count=len(patches))}")
@@ -645,6 +647,8 @@ def process_mod_update(
         total_matched = 0  # 总匹配数（包括跳过的）
         anim_diffs: dict[str, set[str]] = {}
         failed_targets = False
+        matched_keys = set()
+        pending_saves = []
 
         for tgt in target_paths:
             tgt_bundle = Bundle.load(tgt, log)
@@ -660,6 +664,7 @@ def process_mod_update(
                 return ModUpdateResult(False, t("webui.error.atlas_remap_target_mismatch", file=tgt.name,
                                                 matched=result.matched_count, expected=len(patches)), [])
             total_matched += result.matched_count
+            matched_keys.update(result.matched_keys)
 
             # 汇总动画差异
             for name, anims in (result.anim_diffs or {}).items():
@@ -670,17 +675,26 @@ def process_mod_update(
                 continue
             
             if result.is_success:
-                output_path = output_dir / tgt.name
-                save_ok, save_message = (tgt_bundle.save(output_path, save_options, on_step)
-                                         if on_step else tgt_bundle.save(output_path, save_options))
-                if save_ok:
-                    file_pairs.append(FilePair(output_path, tgt))
-                    log(f"  ✅ {t('log.mod_update.target_processed', name=tgt.name, applied=result.applied_count)}")
-                else:
-                    log(f"  ❌ {t('log.file.save_failed', path=output_path, error=save_message)}")
-                    failed_targets = True
+                pending_saves.append((tgt, tgt_bundle, result))
             else:
                 log(f"  > {t('log.file.no_changes_made')} ({tgt.name})")
+
+        if failed_targets:
+            return ModUpdateResult(False, t("message.mod_update.no_targets_processed"), [])
+        missing = required_keys - matched_keys
+        if missing:
+            raise ServiceError("required_assets_unmatched", names=", ".join(sorted(map(str, missing))))
+        # Validate every target before publishing any output for this Mod.
+        for tgt, tgt_bundle, result in pending_saves:
+            output_path = output_dir / tgt.name
+            save_ok, save_message = (tgt_bundle.save(output_path, save_options, on_step)
+                                     if on_step else tgt_bundle.save(output_path, save_options))
+            if save_ok:
+                file_pairs.append(FilePair(output_path, tgt))
+                log(f"  ✅ {t('log.mod_update.target_processed', name=tgt.name, applied=result.applied_count)}")
+            else:
+                log(f"  ❌ {t('log.file.save_failed', path=output_path, error=save_message)}")
+                failed_targets = True
 
         # 3. 归一化动画差异（按 skel 名排序）
         final_anim_diffs: AnimDiffMap = {k: sorted(v) for k, v in anim_diffs.items()}
@@ -696,6 +710,11 @@ def process_mod_update(
             return ModUpdateResult(False, t("message.mod_update.no_targets_processed"), [], final_anim_diffs)
 
         return ModUpdateResult(True, t("message.mod_update.success"), file_pairs, final_anim_diffs)
+
+    except ServiceError as error:
+        message = t("webui.error." + error.code, **error.params)
+        log(message)
+        return ModUpdateResult(False, message, [], error=error)
 
     except Exception as e:
         log(f"\n❌ {t('common.error')}: {t('log.error_processing', error=e)}")

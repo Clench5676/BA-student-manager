@@ -54,7 +54,7 @@ class El {
   }
 }
 
-async function harness({ labelGate = null, locale = "en-US", translated = true, render = "ready", decoded = true, boot = false, consent = true, uiCached = false, infoReady = true, edges = false, prefabLabels = false } = {}) {
+async function harness({ labelFailure = null, labelGate = null, locale = "en-US", translated = true, render = "ready", decoded = true, boot = false, consent = true, uiCached = false, infoReady = true, edges = false, prefabLabels = false } = {}) {
   const stage = new El(), sprites = deferred(), timers = new Map(), assets = [], drawn = [];
   const gradient = { name: "Bg", pos: [234, -180], scale: [1, 1], children: [], widgets: [{ sprite: "Common_Bg_Gradation_5px", color: "#032650/0.90", w_: 348, h_: 540, pivot: 1 }] };
   stage.getBoundingClientRect = () => ({ top: 0, width: 1920 });
@@ -77,12 +77,13 @@ async function harness({ labelGate = null, locale = "en-US", translated = true, 
     clearTimeout: (id) => timers.delete(id), requestAnimationFrame: (fn) => fn(),
     T, S: 1, loadingLabel, loadingLetterSprites, loadingInkLine, alphaBounds,
     domBaseline: () => 1028.75, alignBaseline: (el, line) => alignBaseline(el, line, stage, () => 1028.75 + (el.baselineShift || 0)),
-    publishAligned: (host, next, line) => publishAligned(host, next, line, stage, () => 1028.75 + (next.baselineShift || 0)),
-    NGUI: { find: (_tree, path) => edges && path.endsWith("CharCombatStyleAniwidget/Bg") ? gradient : null, init: () => { assets.push("indexes"); return sprites.promise; }, layout: async (name) => { assets.push(name); return prefabLabels && name === "UIRepeater" ? {
+    publishAligned: (host, next, line) => labelFailure !== "alignment" && publishAligned(host, next, line, stage, () => 1028.75 + (next.baselineShift || 0)),
+    NGUI: { find: (_tree, path) => edges && path.endsWith("CharCombatStyleAniwidget/Bg") ? gradient : null, init: () => { assets.push("indexes"); return sprites.promise; }, layout: async (name) => { assets.push(name); if (name === "UICharacterDetail" && labelFailure === "layout") throw new Error("Missing label style"); return prefabLabels && name === "UIRepeater" ? {
       name: "UIRepeater", active: true, pos: [0, 0], scale: [1, 1], widgets: [], children: [{ name: "Loading", active: true,
         pos: [900, -600], scale: [1, 1], children: [], widgets: [{ text: "Now Loading", fontSize: 46, w_: 300, h_: 70, pivot: 4,
           effect: 2, color: "#ffffff/1.00", effectColor: "#123456/0.90", effectDistance: [2, -3] }] }] } : {}; }, decoded: async () => decoded, render: async (tree, host) => {
       drawn.push(tree);
+      if (tree.name === "Progress" && labelFailure === "render") throw new Error("Label rendering failed");
       if (tree.name === "Progress" && labelGate) await labelGate.promise;
       if (render === "reject") throw new Error("Missing atlas");
       if (render === "empty") return;
@@ -508,4 +509,32 @@ test("closing an overlay while its measured label waits cannot publish a late sp
   work.resolve(); await pending;
   gate.resolve(); await flush(); await flush();
   assert.equal(old.querySelector(".loading-repeater"), null);
+});
+
+for (const labelFailure of ["layout", "render", "alignment"]) test(`progress stays visible when label ${labelFailure} fails`, async () => {
+  const h = await harness({ prefabLabels: true, labelFailure }), work = deferred();
+  let text = "Reading game files";
+  const done = h.loading.hold(() => work.promise, { progress: () => text });
+  await flush(); h.sprites.resolve(); await flush(); await flush();
+  const progress = h.stage.children[0].querySelector(".loading-progress");
+  assert.equal(progress.textContent, text);
+  assert.notEqual(progress.style.visibility, "hidden");
+  text = "Applying Mods"; h.loading.refresh(); await flush();
+  assert.equal(progress.textContent, text);
+  assert.notEqual(progress.style.visibility, "hidden");
+  work.resolve(); await done;
+});
+
+test("a failed progress refresh replaces the previous label with current fallback text", async () => {
+  const gate = deferred(), h = await harness({ prefabLabels: true, labelGate: gate }), work = deferred();
+  let text = "Reading game files";
+  const done = h.loading.hold(() => work.promise, { progress: () => text });
+  await flush(); h.sprites.resolve(); await flush(); gate.resolve(); await flush(); await flush();
+  const progress = h.stage.children[0].querySelector(".loading-progress");
+  assert.ok(progress.classList.contains("prefab-label"));
+  gate.promise = Promise.reject(new Error("Label rendering failed"));
+  text = "Applying Mods"; h.loading.refresh(); await flush();
+  assert.equal(progress.textContent, text);
+  assert.notEqual(progress.style.visibility, "hidden");
+  work.resolve(); await done;
 });

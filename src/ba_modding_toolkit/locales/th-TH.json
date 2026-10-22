@@ -1140,6 +1140,10 @@
 			"failed": "ล้มเหลว"
 		},
 		"error": {
+			"required_asset_extract_failed": "ไม่สามารถแยกแอสเซ็ตที่จำเป็นของ Mod {name} จาก {file}: {error}",
+			"required_asset_apply_failed": "ไม่สามารถนำแอสเซ็ตที่จำเป็นของ Mod {name} ไปใช้กับ {file}: {error}",
+			"required_assets_unmatched": "ไม่มีเป้าหมายที่ตรงกับแอสเซ็ตที่จำเป็นของ Mod: {names}",
+			"required_asset_stream_missing": "ข้อมูลสตรีมที่จำเป็นใน Bundle ขาดหายไปหรือไม่ครบถ้วน",
 			"internal": "เกิดข้อผิดพลาด: {error}",
 			"game_not_found": "ไม่พบโฟลเดอร์เกม",
 			"mod_unsupported": "ไฟล์ที่ไม่รองรับ: {file}",

@@ -421,3 +421,135 @@ def test_unknown_shared_file_target_does_not_discard_an_ios_marker():
     assert reason is None
     selected.references.clear()
     assert mod_origin.candidates(set(), selected)[0]["platform"] == "ios"
+
+
+def test_partial_japan_evidence_cannot_fall_back_to_global(real_metadata):
+    env = real_metadata
+    source = game_bundle(env.tmp / "input", part="textures")
+    unity_bundle(source, -2, cab="CAB-jp", payload=b"mod", references=["com.YostarJP.BlueArchive"])
+    entry, = analyze(env, [source])["entries"]
+    assert (entry["state"], entry["reason"], entry["source"]) == ("blocked", "source_unknown", None)
+
+
+@pytest.mark.parametrize("platforms,refs,expected", [
+    ({"NoTarget"}, {"com.YostarJP.BlueArchive"}, [("japan", p) for p in mod_origin.PLATFORMS]),
+    ({"iOS"}, set(), [(s, "ios") for s in mod_origin.SERVERS]),
+])
+def test_candidates_only_try_unknown_dimensions(platforms, refs, expected):
+    choices = mod_origin.candidates(set(), integrity.Contents(platforms=platforms, references=refs))
+    assert [(c["server"], c["platform"]) for c in choices] == expected
+
+
+def test_path_hints_survive_real_bundle_inspection(tmp_path):
+    source = unity_bundle(tmp_path / "neutral.bundle", -2,
+                          references=[r"archive:/com.nexon.bluearchive/GameData/Android/shared.bundle"])
+    selected = inspect_bundle(source, allow_unknown=True)
+    detected, reason = mod_origin.source_of(set(), selected, integrity.Contents(), {"server": "global"})
+    assert detected == {"server": "global", "platform": "android", "detected": True}
+    assert reason is None
+    assert selected.references == {"shared.bundle"}, "dependency matching still uses basenames"
+
+
+@pytest.mark.parametrize("matches", [False, True])
+def test_fallback_inspects_each_file_once_per_analysis(real_metadata, monkeypatch, matches):
+    from collections import Counter
+    env = real_metadata
+    source = unity_bundle(env.tmp / "input" / env.original.name, -2, cab="CAB-unknown",
+                          name="test_spr_note" if matches else "unrelated")
+    loads, reports = Counter(), []
+    original_load, original_report = Bundle.load, env.library.inspect_import
+
+    def load(path, *args, **kwargs):
+        loads[path] += 1
+        return original_load(path, *args, **kwargs)
+
+    def report(*args, **kwargs):
+        reports.append(kwargs.get("conversion", False))
+        return original_report(*args, **kwargs)
+
+    monkeypatch.setattr(Bundle, "load", load)
+    monkeypatch.setattr(env.library, "inspect_import", report)
+    entry, = analyze(env, [source])["entries"]
+    assert entry["state"] == ("convert" if matches else "blocked")
+    assert loads == {source: 1, env.original: 1}
+    assert reports == [True]
+
+
+@pytest.mark.parametrize("kind", ["Texture2D", "Mesh"])
+def test_inference_rejects_unreadable_required_assets(real_metadata, monkeypatch, kind):
+    from unittest.mock import Mock, PropertyMock
+    from ba_modding_toolkit.models import AssetType
+    env = real_metadata
+    source = unity_bundle(env.tmp / "input" / env.original.name, -2, cab="CAB-unknown", payload=b"mod")
+    load = Bundle.load
+
+    def broken_load(path, *args, **kwargs):
+        result = load(path, *args, **kwargs)
+        if path == source:
+            data = Mock(m_Name="required", m_Width=1, m_Height=1, m_StreamData=None)
+            type(data).image = PropertyMock(side_effect=ValueError("texture decode failed"))
+            obj = Mock(type=AssetType[kind], peek_name=lambda: "required", read=lambda: data,
+                       get_raw_data=lambda: b"archive:/CAB-missing/CAB-missing.resS")
+            result.env = SimpleNamespace(objects=[*result.env.objects, obj], files=result.env.files,
+                                         file=result.env.file, container=result.env.container)
+        return result
+
+    monkeypatch.setattr(Bundle, "load", broken_load)
+    entry, = analyze(env, [source])["entries"]
+    assert (entry["state"], entry["reason"], entry["source"]) == ("blocked", "source_unknown", None)
+
+
+@pytest.mark.parametrize("manual", [False, True])
+@pytest.mark.parametrize("failure", ["extract", "apply"])
+def test_required_asset_failure_never_imports_or_applies_a_partial_mod(real_metadata, monkeypatch, manual, failure):
+    from unittest.mock import Mock, PropertyMock
+    from ba_modding_toolkit.models import AssetType
+    env = real_metadata
+    source = unity_bundle(env.tmp / "input" / env.original.name, -2, cab="CAB-unknown", payload=b"modded")
+    entry, = analyze(env, [source])["entries"]
+    if manual:
+        entry = finish(env, rpc(env, "import.setSource", id=entry["id"], server="global", platform="android"))
+    before = env.original.read_bytes()
+    load = Bundle.load
+
+    def broken_load(path, *args, **kwargs):
+        result = load(path, *args, **kwargs)
+        if failure == "extract" and path == source:
+            data = Mock(m_Name="required_texture", m_Width=1, m_Height=1, m_StreamData=None)
+            type(data).image = PropertyMock(side_effect=ValueError("texture decode failed"))
+            obj = Mock(type=AssetType.Texture2D, peek_name=lambda: "required_texture", read=lambda: data)
+            objects = [*result.env.objects, obj]
+        elif failure == "apply" and path.parent.name == "targets":
+            data = Mock(m_Name="test_spr_note", m_Script="official")
+            data.save.side_effect = ValueError("texture or text write failed")
+            objects = [Mock(type=AssetType.TextAsset, peek_name=lambda: "test_spr_note", read=lambda: data)]
+        else:
+            return result
+        result.env = SimpleNamespace(objects=objects, files=result.env.files,
+                                     file=result.env.file, container=result.env.container)
+        return result
+
+    monkeypatch.setattr(Bundle, "load", broken_load)
+    result, = run(env, [entry], types=["Texture2D", "TextAsset"])
+    assert result["outcome"] == "failed"
+    assert result["reason"] == f"required_asset_{failure}_failed"
+    assert result["params"]["name"] == ("required_texture" if failure == "extract" else "test_spr_note")
+    assert result["params"]["error"] and result["params"]["file"] == source.name
+    assert not result["applied"] and not env.library.mods()
+    assert env.original.read_bytes() == before
+
+
+def test_inference_must_decode_atlas_text(real_metadata):
+    env = real_metadata
+    official_bundle(env, name="test_spr.atlas", payload=b"page.png\nsize: 1,1\n")
+    source = unity_bundle(env.tmp / "input" / env.original.name, -2, cab="CAB-unknown",
+                          name="test_spr.atlas", payload=b"\xff\xfe\xff")
+    entry, = analyze(env, [source])["entries"]
+    assert (entry["state"], entry["reason"], entry["source"]) == ("blocked", "source_unknown", None)
+
+
+def test_partial_cab_region_evidence_constrains_candidates():
+    selected = integrity.Contents(platforms={"NoTarget"}, files={"cab-official"})
+    official = integrity.Contents(files={"cab-official"})
+    choices = mod_origin.candidates(set(), selected, official, {"server": "japan"})
+    assert [(c["server"], c["platform"]) for c in choices] == [("japan", p) for p in mod_origin.PLATFORMS]

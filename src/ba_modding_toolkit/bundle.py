@@ -12,6 +12,7 @@ from UnityPy.environment import Environment as Env
 from PIL import Image
 
 from .i18n import t
+from .errors import ServiceError
 from .utils import CRCUtils, no_log, throttle_progress
 from .spine import SkelConverter, check_skel_animation_diff
 from .naming import RESOURCE_TYPES_NUM, parse_filename
@@ -515,23 +516,24 @@ class Bundle:
         matched_keys: list[AssetKey] = []
         anim_diffs: dict[str, list[str]] = {}
         
-        tasks = patch.copy()
+        tasks = {key: value for key, value in patch.items() if key != "__mode__"}
         
         for obj in self.env.objects:
             if not tasks:
                 break
             
+            if obj.type not in REPLACEABLE_ASSET_TYPES:
+                continue
+            resource_name = str(getattr(obj, "path_id", "unknown"))
             try:
-                data = obj.read()
                 asset_key = key_func(obj)
                 
                 if asset_key is None:
                     continue
                 
-                if obj.type not in REPLACEABLE_ASSET_TYPES:
-                    continue
-                
                 if asset_key in tasks:
+                    resource_name = str(asset_key)
+                    data = obj.read()
                     content: AssetContent = tasks.pop(asset_key)
                     matched_keys.append(asset_key)
                     resource_name = getattr(data, 'm_Name', t("log.unnamed_resource", type=obj.type.name))
@@ -552,7 +554,8 @@ class Bundle:
                         data.save()
                     elif obj.type == AssetType.TextAsset:
                         content: bytes
-                        target_bytes = data.m_Script.encode("utf-8", "surrogateescape")
+                        script = data.m_Script
+                        target_bytes = script if isinstance(script, bytes) else script.encode("utf-8", "surrogateescape")
 
                         if target_bytes == content:
                             self.log(f'  ⏭️ {t("log.replace_skipped_same_content", type=obj.type.name, name=resource_name)}')
@@ -596,9 +599,8 @@ class Bundle:
                     applied_assets_log.append(log_message)
             
             except Exception as e:
-                resource_name_for_error = obj.peek_name() or t("log.unnamed_resource", type=obj.type.name)
-                self.log(f'  ❌ {t("common.error")}: {t("log.replace_resource_failed", name=resource_name_for_error, type=obj.type.name, error=e)}')
-                self.log(traceback.format_exc())
+                raise ServiceError("required_asset_apply_failed", file=self.path.name,
+                                   name=resource_name, error=str(e)) from e
         
         return PatchResult(
             applied_count=applied_count,
@@ -632,15 +634,14 @@ class Bundle:
         replace_all = "ALL" in asset_types_to_replace
         
         for obj in self.env.objects:
+            if obj.type not in REPLACEABLE_ASSET_TYPES:
+                continue
+            if not replace_all and obj.type.name not in asset_types_to_replace:
+                continue
+            resource_name = str(getattr(obj, "path_id", "unknown"))
             try:
+                resource_name = obj.peek_name() or resource_name
                 data = obj.read()
-                
-                if obj.type not in REPLACEABLE_ASSET_TYPES:
-                    continue
-                
-                if not replace_all and obj.type.name not in asset_types_to_replace:
-                    continue
-                
                 asset_key = key_func(obj)
                 if asset_key is None or not getattr(data, 'm_Name', None):
                     continue
@@ -650,8 +651,12 @@ class Bundle:
                 
                 if obj.type == AssetType.Texture2D:
                     content: Image.Image = data.image
+                    content.load()
                 elif obj.type == AssetType.TextAsset:
-                    asset_bytes = data.m_Script.encode("utf-8", "surrogateescape")
+                    script = data.m_Script
+                    asset_bytes = script if isinstance(script, bytes) else script.encode("utf-8", "surrogateescape")
+                    if resource_name.lower().endswith(".atlas"):
+                        asset_bytes.decode("utf-8-sig")
                     if resource_name.lower().endswith('.skel'):
                         content, conflict = SkelConverter.ensure_version(
                             skel_bytes=asset_bytes,
@@ -668,17 +673,20 @@ class Bundle:
                     raw = obj.get_raw_data()
                     companions = collect_stream_companions(raw, self.env.file)
                     if companions is None:
-                        # 流引用悬空（如历史版本 raw 替换遗留的坏数据）：
-                        # 替换会把坏引用带进目标导致资源损坏，拒绝提取该对象
-                        self.log(f"  > ⚠️ {t('log.extractor.stream_ref_dangling', name=resource_name)}")
-                        continue
-                    # 有流引用时附带 companion 随 patch 走，apply 侧写入目标 bundle
+                        raise ValueError(t("webui.error.required_asset_stream_missing"))
+                    stream = getattr(data, "m_StreamData", None) if obj.type == AssetType.Mesh else None
+                    if stream and stream.path and stream.size:
+                        stream_name = stream.path.replace("\\", "/").rsplit("/", 1)[-1]
+                        payload = companions.get(stream_name)
+                        if payload is None or stream.offset < 0 or stream.size < 0 or stream.offset + stream.size > len(payload):
+                            raise ValueError(t("webui.error.required_asset_stream_missing"))
                     content: bytes = RawAssetBytes(raw, companions) if companions else raw
                 
                 if content is not None:
                     patch[asset_key] = content
             except Exception as e:
-                self.log(f"  > ⚠️ {t('log.extractor.extraction_failed', name=getattr(data, 'm_Name', 'N/A'), error=e)}")
+                raise ServiceError("required_asset_extract_failed", file=self.path.name,
+                                   name=resource_name, error=str(e)) from e
         
         if replace_all:
             patch["__mode__"] = {"ALL"}

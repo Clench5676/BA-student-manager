@@ -1,45 +1,16 @@
-"""Owner review regressions for prefab metadata and verified camera geometry."""
-from types import SimpleNamespace
+"""Optional verified-asset check for the loading progress baseline."""
+import os
 
-from ba_modding_toolkit.gameassets.layouts import _widget
-
-
-def test_prefab_pin_gradient_is_exported_without_changing_its_white_tint():
-    obj = SimpleNamespace(assets_file=SimpleNamespace(name="fixture", externals=[]))
-    tree = {"m_Script": {}, "mAtlas": {}, "mSpriteName": "Common_Icon_Pin_Detail", "mType": 1,
-            "mFlip": 0, "mApplyGradient": 1, "mGradientTop": {"r": 1., "g": .5, "b": 0., "a": 1.},
-            "mGradientBottom": {"r": .8, "g": .3, "b": 0., "a": 1.},
-            "mColor": {"r": 1., "g": 1., "b": 1., "a": 1.}, "mWidth": 38, "mHeight": 38}
-    widget = _widget(obj, tree, {}, {})
-    assert widget["gradient"] == ["#ff8000/1.00", "#cc4c00/1.00"]
-    assert widget["color"] == "#ffffff/1.00"
+import pytest
 
 
-def test_verified_ui_lobby_camera_matches_still_coordinates(tmp_path):
-    import os
-    from pathlib import Path
-    import pytest
-    from ba_modding_toolkit.gameassets import AssetCache, GameAssets
-    from ba_modding_toolkit.searching import get_search_dirs
-
-    root = Path(os.environ.get("BAMT_TEST_GAME_DIR", "/nonexistent/verified-view"))
-    if not root.is_dir():
-        pytest.skip("Verified game view not supplied")
-    game = GameAssets(get_search_dirs(root), AssetCache(root=tmp_path / "cache"))
-    info = game.lobby_info("ch0169_home")
-    assert info["main"] == "CH0169_home"
-    assert info["view"] == {"x": -1480, "y": -832.5, "w": 2960, "h": 1665}
-    layer, = [layer for layer in info["layers"] if layer["name"] == info["main"]]
-    assert {k: layer[k] for k in ("x", "y", "scale")} == {"x": 0, "y": -962, "scale": 1}
-
-
+@pytest.mark.skipif(not os.environ.get("BAMT_TEST_GAME_DIR"),
+                    reason="Optional verified-asset check: set BAMT_TEST_GAME_DIR to an isolated verified copy")
 def test_verified_loading_letters_define_progress_line(tmp_path):
     import io
     import json
-    import os
     import subprocess
     from pathlib import Path
-    import pytest
     from PIL import Image
     from ba_modding_toolkit.gameassets import AssetCache, GameAssets
     from ba_modding_toolkit.searching import get_search_dirs

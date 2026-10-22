@@ -817,9 +817,11 @@ class ModLibrary:
         return added
 
     def _check_group(self, files: dict[str, Path], pin: Pin | None, *, compatibility: bool = True,
-                     dependencies: bool = True, conversion: bool = False, variant_key: str | None = None) -> dict:
+                     dependencies: bool = True, conversion: bool = False, variant_key: str | None = None,
+                     inspection: integrity.Inspection | None = None) -> dict:
+        inspect = inspection.inspect if inspection else integrity.inspect
         selected, official, effective = integrity.Contents(), integrity.Contents(), integrity.Contents()
-        sources = {name: integrity.inspect(path, allow_unknown=True) if conversion else integrity.inspect(path)
+        sources = {name: inspect(path, allow_unknown=True) if conversion else inspect(path)
                    for name, path in files.items()}
         core = core_of(next(iter(files)))
         kind = kind_of_file(next(iter(files)))
@@ -835,7 +837,7 @@ class ModLibrary:
         for target in targets:
             try:
                 original = self._official_for(target, pin, game_first=True)
-                originals[target] = integrity.inspect(original)
+                originals[target] = inspect(original)
                 original_paths.append(original)
             except ServiceError as error:
                 if error.code not in ("original_unavailable", "original_invalid"):
@@ -872,7 +874,7 @@ class ModLibrary:
                 for path in sorted([*folder.glob("*.bundle"), *folder.glob("*.bundle.backup")]):
                     if path not in files.values() and core_of(path.name) == core:
                         try:
-                            contents = integrity.inspect(path)
+                            contents = inspect(path)
                         except ServiceError:
                             continue
                         names.update({name: path.name for name in contents.files})
@@ -936,7 +938,8 @@ class ModLibrary:
         return report
 
     @_serialized
-    def inspect_import(self, files: dict[str, Path], pin: Pin | None = None, *, conversion: bool = False) -> dict:
+    def inspect_import(self, files: dict[str, Path], pin: Pin | None = None, *, conversion: bool = False,
+                       inspection: integrity.Inspection | None = None) -> dict:
         """Preflight canonical upload names without storing or adopting anything.
 
         Use the same identities, dependency checks and installed-content judgement as add().
@@ -966,10 +969,10 @@ class ModLibrary:
             installed = self._matches_installed(identity, entry)
         if (duplicate or installed) and not conversion:
             return {"identity": identity, "libraryId": duplicate, "installed": installed, "targets": targets}
-        report = self._check_group(files, pin, dependencies=False, conversion=conversion)
+        report = self._check_group(files, pin, dependencies=False, conversion=conversion, inspection=inspection)
         # Old CAB references are replaced by the rebuild. Its output goes through add()'s full preflight.
         if not report["outdated"] and not conversion:
-            self._check_group(files, pin, compatibility=False)
+            self._check_group(files, pin, compatibility=False, inspection=inspection)
         originals = report.pop("originalPaths", []) if conversion else (
             [self._official_for(path, pin) for path in targets] if generic else [])
         return {"identity": identity, "libraryId": duplicate, "installed": installed, "compatibility": report,

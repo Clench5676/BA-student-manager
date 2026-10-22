@@ -411,14 +411,16 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
     });
   }
 
+  const stateText = (entry) => T(entry.reason === "source_unknown" ? "import.reason.source_unknown" : `import.state.${entry.state}`);
+
   function rowCopy(group, result = false) {
     const entry = representative(group.entries);
     return { result, kind: T(KIND_KEYS[entry.kind] || KIND_KEYS.other),
-      unidentified: entry.reason === "source_unknown", state: T(entry.reason === "source_unknown" ? "import.reason.source_unknown" : `import.state.${entry.state}`),
+      unidentified: entry.reason === "source_unknown", state: stateText(entry),
       counts: merged ? group.counts : null, badge: !merged && !result,
       meta: result ? [...new Set(group.entries.map((entry) => model.state.results.find((item) => item.id === entry.id))
         .map((item) => T(`import.outcome.${OUTCOMES.has(item?.outcome) ? item.outcome : "failed"}`)))].join(", ")
-        : merged ? [...new Set(group.entries.map((item) => T(`import.state.${item.state}`)))].join(listSeparator())
+        : merged ? [...new Set(group.entries.map(stateText))].join(listSeparator())
         : T(entry.files?.length === 1 ? "import.metaOne" : "import.meta", { id: identified(entry).core, n: entry.files?.length || 0, size: sizeText(entry.size) }) };
   }
 

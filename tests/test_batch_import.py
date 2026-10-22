@@ -32,7 +32,7 @@ def env(setup_library, monkeypatch):
     env.services = Services(env.settings, env.tmp / "app", cache=object(), game=object(),
                             catalog=env.catalog, library=env.library)
     env.rpc = build_api(env.services)
-    monkeypatch.setattr(batch_import, "_asset_match", lambda sources, targets, log: (targets, ""))
+    monkeypatch.setattr(batch_import, "_asset_match", lambda sources, targets, log, **kwargs: (targets, ""))
     yield env
     env.services.close()
 
@@ -44,7 +44,7 @@ def batch_model_env(model_env, monkeypatch):
     env.services = Services(env.settings, env.tmp / "app", cache=object(), game=object(),
                             catalog=env.catalog, library=env.library)
     env.rpc = build_api(env.services)
-    monkeypatch.setattr(batch_import, "_asset_match", lambda sources, targets, log: (targets, ""))
+    monkeypatch.setattr(batch_import, "_asset_match", lambda sources, targets, log, **kwargs: (targets, ""))
     yield env
     env.services.close()
 
