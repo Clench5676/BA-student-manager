@@ -811,6 +811,7 @@ stops the server (the page shows Closed); with `--serve` it gives `native_unavai
 | `mods.remove {id, confirm = false}` | library writer job id; result `{done, failed, dropped, cores, kinds}`; deletes the source, stored files and references, then restores game entries to Official or their saved source; refused writes keep the new configuration and an unfinished entry |
 | `mods.rename {id, label}` | |
 | `mods.seen {id}` or `{ids}` | stores seen mod IDs in `webui.json`, without writing the library; roster and family fresh flags come from this state |
+| `ui.preview {variant, kind, source}` | stores a preview choice in `webui.json`, scoped to the install and variant; returns `previewSources`; never changes the application manifest or game files |
 | `mods.state` | `{installs: [{id, key, server, folder, label, distinct, named}], current, enabled, available, reason, reasonParams, scan, explained, configured, pending, stuck, left, unfinished: {pending, left, stuck}, drift, untracked, damaged, sourceMissing, queued, scanned, tray, traySupported, busy, progress}` from the snapshot (above); `id` is the first 12 hex digits of the install key's SHA-1 (used in URLs), `named` tells a folder the settings name from a recorded one; `busy` while a toggle is queued or running or writes are queued for the classic window; `progress` is `{done, total}` of a running toggle |
 | `mods.sizes {kind}` | `{builtSize}` for `kind: "built"` or `{originalsSize}` for `kind: "originals"`, bytes measured on demand; Settings requests only the Mod Cache size; no size walks in `mods.state` |
 | `mods.toggle {enabled, expect}` | job id (`mods.toggle`): the switch over every known install, also Retry; `busy` while another toggle is queued or running, `classic_open` at submit; the job's refusals `state_changed`, `folder_changed`, `game_running`, `game_status_unavailable`, `steam_busy`, `classic_open`, `not_enough_space` |
@@ -845,6 +846,12 @@ direct inputs. Rebuilt and converted inputs are recognized as `library` through 
 identities, including after restarting or moving the source files. Completion is scoped to the library and pinned install and
 requires the imported library Mod to still exist. Pre-existing library/installed entries,
 skipped updates with no output and failed imports do not become `done`.
+Older conversions without source identities are compared with a temporary conversion against the verified
+official targets. All output parts must match an existing entry after normalizing compression and CRC tails.
+Successful matches persist provenance; misses are cached against source, target, options and library revisions.
+This check neither adds a Mod nor applies one; a failed optional comparison leaves the import verdict unchanged.
+Model list and comparison pictures use the shared 3D still queue with live, imported or library sources;
+NPC cores without student-list entries resolve through the current game's model index.
 
 `import.run {ids, options, revision}` requires the revision returned by the latest analysis.
 Queued work checks that revision again before building or writing. Only `ready`, `convert`,
@@ -1237,24 +1244,27 @@ or the classic UI is open, no drift while mods are off, nothing dismissed (see M
   with one of their own), then the other variants' added ones. Other variants' lobbies and their added ones are not
   offered: another student's lobby under this variant's lobby prefab is untested in the game (the library itself
   still takes `variant:<key>` and other variants' mods for the lobby). Cards are framed on the face of each skeleton
-  (a lobby's main skeleton, named like its core), "In Use" marks what the game shows now. Apply writes the choice
-  into the game files (`actions.apply` with the tab's kind), then the portrait or the lobby is read again from them,
-  under a still of the old one. A lobby popup offers only the lobby mods of its own core (a mod of an alternate core,
-  `_home_gl`, is switched by the Enable Mods switch only). While mods are off nothing is written (decision 2): the
-  popup starts on the configured source (the own files when none), that card carries "Set" (`switch.configured`),
-  apart from In Use, its button reads Save, and saving only configures the choice ("Saved, applied when mods are on").
+  (a lobby's main skeleton, named like its core). Save always changes only the preview, independently of the
+  application manifest. Preview sources persist per install and variant in `webui.json`; family and roster data
+  expose them as `previewSources`. Apply, in the detail page's fourth action and the popup's lower-left actions,
+  updates the manifest through `actions.apply`. With Mods on it also installs; with Mods off it only updates the
+  intended source for the next enable. Applied marks this manifest choice, independently of the physical files.
+  Set and In Use are not shown. Applying the manifest's current choice is disabled using the game's grey button
+  treatment, without a dark cover over the card. A lobby popup offers only the lobby mods of its own core
+  (a mod of an alternate core, `_home_gl`, is switched by Enable Mods only).
   Candidate rows start 40 NGUI units inside the list paper, measured from their inclined outer corners; short rows
   stay left-aligned. Portraits retain their tall cards in one horizontal row, with drag, horizontal trackpad input
   and vertical wheel input mapped to horizontal scrolling. Search occupies the header so the row keeps its full
-  height. Memorial lobbies keep two columns and models four, scrolling vertically. The horizontal track and thumb
+  height, with a fixed 48-unit gap between portrait bodies. Memorial lobbies use larger 790 by 444.375 cards in
+  two columns and models keep four, scrolling vertically. The horizontal track and thumb
   turn the complete `UICharacterCollection/SeletControl/List/Scroll Bar` prefab; the existing `UIPopup_Sort` frame,
   card sprites and `UINonEquipmentInventory/Inventory_ListControl/EquipPos/Texture` detail image stay intact.
   Selection and rename redraws retain the active axis offset. Captures start when a card enters the viewport or
   its details are shown, and both share one still; closing the popup cancels deferred work.
   On an overwritten kind (a file that is not official with no official copy anywhere, `restorable` false) every card
   but the one in use is greyed (the roster's not-owned dim, its picture in grey, "Overwritten" where In Use goes), and
-  so is another variant's card whose files of that kind are overwritten: a greyed card is never chosen, and a click on
-  it opens the entry's Add First or Overwritten message (see Mods already in use), as does `original_unavailable`
+  so is another variant's card whose files of that kind are overwritten. These cards can still be selected for
+  preview; Apply is disabled. `original_unavailable` opens the Add First or Overwritten message
   from an apply or a restore. Delete, in a mod's details, always confirms with the mod's name. If configured or
   applied anywhere, it explains that those entries return to Official or their saved source. The library writer
   deletes stored files and references, retaining built files referenced by other keys, then restores affected game
@@ -1425,12 +1435,13 @@ overwritten entry need none (the detail screen judges its files cheaply).
 `loading.js` draws the game's own loading screen: UILoading's black backdrop with nothing in the middle (the game
 shows an illustration there; the tool does not) and UIRepeater in the bottom-right corner ("Now Loading", the
 hopping dots and Arona turning round, animated in `app.css` from the keyframes of the clip `UIAni_Repeat 1`; its
-UIAudioPlay is never played). Before asset consent and a ready UI cache, covers use neutral system text, a grey
+UIAudioPlay is never played). Before asset consent, covers use neutral system text, a grey
 background and no game layouts, sprites or fonts. The server selects the initial document's style from consent and
 the current resource version's disk cache, so a cached launch is stylized before modules or RPC replies arrive.
 `app.info.uiCached` reports the same cache state. A cold cache upgrades after consent and successful
-UIRepeater decode; later covers always use the stylized indicator. While cached sprites decode, or if a later
-sprite/decode fails, the bundled rounded font and blue/white palette preserve the breathing text and hopping dots. All web controls use accessible names and descriptions; none creates a hover tooltip.
+UIRepeater decode; authorized covers use only that actual prefab. Waiting for sprites or a decode failure never
+revives a generated text-and-dots substitute. All web controls use accessible names and descriptions;
+none creates a hover tooltip.
 
 - `scene(fn)` covers startup, roster/detail navigation, student steps and detail tabs: a fade to black (150 ms),
   then, while the work goes on, the indicator. It warns after 15 s and stays covered until preparation settles or
