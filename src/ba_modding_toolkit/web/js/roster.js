@@ -23,7 +23,7 @@ import { L, T, language } from "./i18n.js";
 import { scrollbar } from "./scrollbar.js";
 import { prioritise, thumbnailScope } from "./thumbs.js";
 import { spineAllowed } from "./spine-runtime.js";
-import { selectionStatus, configuredKey, hasAsset, previewBase, primaryKind } from "./switch-sources.js";
+import { configuredKey, hasAsset, previewBase, primaryKind } from "./switch-sources.js";
 import { $, RECRUIT, S, advanceOf, clone, glyphsOf } from "./util.js";
 import { DEFAULT_VIEW, SORTS, arrange, filtering, normalizeView, order as orderOf } from "./roster-order.js";
 
@@ -240,24 +240,13 @@ function cardTree(e) {
   const pin = find(t, "Btn_Pin");
   pin.active = !!e.favorite;
   find(pin, "Off").active = false;
-  // the band: portrait and memorial lobby counts, or "replaced" when no mod belongs to the variant
+  // The roster band shows Mod counts only, without an application-status banner.
   const sort = find(t, "Sort");
-  sort.active = e.mods > 0 || !!e.replaced;
+  sort.active = e.mods > 0;
   const counts = find(sort, "Label_Schoolname");
   if (e.mods > 0) {
     counts.widgets = [];
     counts.children = countNodes(e.modCounts, countIcons, T);
-  } else counts.widgets[0].text = T("band.replaced");
-  // UICollectCard's extra Sort band only marks a verified installed selection.
-  const status = selectionStatus(e, primaryKind(e));
-  if (configuredKey(e, primaryKind(e)) && status === "status.applied") {
-    sort.active = true;
-    const badge = clone(sort); badge.name = "SelectionStatus";
-    badge.pos[1] += 96;
-    const caption = find(badge, "Label_Schoolname");
-    caption.children = [];
-    caption.widgets = [{ ...find(layouts.card, "Sort/Label_Schoolname").widgets[0], text: T(status) }];
-    t.children.push(badge);
   }
   // dimmed like the game's not-owned cards (BG_Discover is the darkening overlay); changed ones stay bright
   const dim = find(t, "BG_Discover");

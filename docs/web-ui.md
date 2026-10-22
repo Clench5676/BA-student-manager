@@ -1249,7 +1249,8 @@ or the classic UI is open, no drift while mods are off, nothing dismissed (see M
   expose them as `previewSources`. Apply, in the detail page's fourth action and the popup's lower-left actions,
   updates the manifest through `actions.apply`. With Mods on it also installs; with Mods off it only updates the
   intended source for the next enable. Applied marks this manifest choice, independently of the physical files.
-  Set and In Use are not shown. Applying the manifest's current choice is disabled using the game's grey button
+  Set and In Use are not shown. Student-list cards have no application-status banners; their band shows Mod counts only.
+  Applying the manifest's current choice is disabled using the game's grey button
   treatment, without a dark cover over the card. A lobby popup offers only the lobby mods of its own core
   (a mod of an alternate core, `_home_gl`, is switched by Enable Mods only).
   Candidate rows start 40 NGUI units inside the list paper, measured from their inclined outer corners; short rows
