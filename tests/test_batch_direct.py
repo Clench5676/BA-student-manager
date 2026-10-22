@@ -18,7 +18,7 @@ from ba_modding_toolkit.utils import CRCUtils
 from ba_modding_toolkit.webui import batch_import
 from test_batch_import import analyze, batch_model_env, env, run
 from test_library import game_bundle, make_mod, setup_library
-from test_library_model import model_env
+from test_library_model import model_bundle, model_env
 from test_mod_origin import unity_bundle
 
 
@@ -346,6 +346,69 @@ def test_partial_model_replacement_validates_effective_dependencies(batch_model_
     with pytest.raises(ServiceError, match='mod_parts_missing'):
         env.library.add_files('model', [source], direct=True)
     assert not env.library.mods()
+
+
+def material(name):
+    return {'m_Name': name, 'm_Shader': {'m_FileID': 0, 'm_PathID': 0},
+            'm_ValidKeywords': [], 'm_InvalidKeywords': [], 'm_LightmapFlags': 0,
+            'm_EnableInstancingVariants': False, 'm_DoubleSidedGI': False, 'm_CustomRenderQueue': -1,
+            'stringTagMap': [], 'disabledShaderPasses': [], 'm_BuildTextureStacks': [],
+            'm_SavedProperties': {'m_TexEnvs': [], 'm_Ints': [], 'm_Floats': [], 'm_Colors': []}}
+
+
+def asset_bundle_reference(path_id):
+    return {'m_Name': 'model', 'm_PreloadTable': [{'m_FileID': 1, 'm_PathID': path_id}],
+            'm_Container': [], 'm_MainAsset': {'preloadIndex': 0, 'preloadSize': 0,
+                                            'asset': {'m_FileID': 0, 'm_PathID': 0}},
+            'm_RuntimeCompatibility': 0, 'm_AssetBundleName': 'model', 'm_Dependencies': [],
+            'm_IsStreamedSceneAssetBundle': False, 'm_ExplicitDataLayout': 0, 'm_PathFlags': 0,
+            'm_SceneHashes': []}
+
+
+@pytest.mark.parametrize('part', ['004', '006'])
+@pytest.mark.parametrize('consumer', ['prefab', 'retained_part', 'other_bundle'])
+@pytest.mark.parametrize('change', ['added', 'removed_reference', 'changed_type', 'removed_unused', 'changed_cab'])
+def test_model_replacement_preserves_referenced_objects(batch_model_env, monkeypatch, part, consumer, change):
+    env = batch_model_env
+    restore_metadata(monkeypatch)
+    monkeypatch.setattr(integrity, 'inspect', inspect_bundle)
+    # All installed bundles are generated fixtures, including consumers outside this model.
+    env.original = rename_crc(unity_bundle(env.original, cab='CAB-other'))
+    for index, target in enumerate(env.parts):
+        env.parts[index] = rename_crc(unity_bundle(target, cab=f'CAB-part-{index}'))
+    env.parts[1].unlink()
+    target = rename_crc(unity_bundle(model_bundle(env.game_dir, part=part), cab='CAB-body',
+                                    objects=[(1, 21, material('Original')), (2, 21, material('Unused'))]))
+    consumer_path = {'prefab': env.parts[0], 'retained_part': env.parts[2], 'other_bundle': env.original}[consumer]
+    rename_crc(unity_bundle(consumer_path, cab='CAB-consumer', references=['archive:/CAB-body/CAB-body'],
+                            objects=[(10, 142, asset_bundle_reference(1))]))
+    objects = [(1, 21, material('Original')), (2, 21, material('Unused')), (3, 21, material('Added'))]
+    source = unity_bundle(env.tmp / 'input' / target.name, cab='CAB-body', objects=objects)
+    entry, = analyze(env, [source])['entries']
+    assert (entry['state'], entry['reason']) == ('ready', None), entry
+
+    if change == 'removed_reference':
+        objects = objects[1:]
+    elif change == 'changed_type':
+        objects[0] = (1, 49, {'m_Name': 'Changed', 'm_Script': 'different type'})
+    elif change == 'removed_unused':
+        objects.pop(1)
+    unity_bundle(source, cab='CAB-changed' if change == 'changed_cab' else 'CAB-body', objects=objects)
+    entry, = analyze(env, [source])['entries']
+    if change in ('removed_reference', 'changed_type', 'changed_cab'):
+        code = 'mod_parts_missing' if change == 'changed_cab' and consumer != 'other_bundle' else 'mod_release_mismatch'
+        assert (entry['state'], entry['reason']) == ('blocked', code), entry
+        with pytest.raises(ServiceError, match=code):
+            env.library.add_files('model', [source], direct=True)
+        assert not env.library.mods()
+    else:
+        assert (entry['state'], entry['reason']) == ('ready', None), entry
+        before = {path: path.read_bytes() for path in env.game_dir.glob('*.bundle')}
+        result, = run(env, [entry], enableAfterImport=False)
+        assert result['outcome'] == 'imported', result
+        stored, = env.library.mods()
+        assert stored.file.read_bytes() == source.read_bytes()
+        assert all(path.read_bytes() == data for path, data in before.items())
 
 
 def test_unexpected_import_failure_does_not_log_private_traceback(env, monkeypatch, caplog):

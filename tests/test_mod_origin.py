@@ -22,18 +22,33 @@ from test_batch_import import analyze, env, finish, rpc, run
 from test_library import game_bundle, make_mod, setup_library
 
 
-def unity_bundle(path, platform=19, *, cab='CAB-fixture', payload=b'official', name='test_spr_note', references=()):
-    """One serialized TextAsset, with no type tree; UnityPy uses its shipped class database."""
+def unity_bundle(path, platform=19, *, cab='CAB-fixture', payload=b'official', name='test_spr_note', references=(),
+                 objects=None):
+    """Serialized objects without type trees; UnityPy uses its shipped class database."""
     def string(value):
         data = struct.pack('<I', len(value)) + value
         return data + bytes(-len(data) % 4)
 
-    obj = string(name.encode()) + string(payload)
-    metadata = b'2021.3.0f1\0' + struct.pack('<i?I', platform, False, 1)
-    metadata += struct.pack('<i?h', 49, False, -1) + bytes(16)
-    metadata += struct.pack('<I', 1)
-    metadata += bytes(-(20 + len(metadata)) % 4)
-    metadata += struct.pack('<qIII', 1, 0, len(obj), 0)
+    if objects is None:
+        objects = [(1, 49, string(name.encode()) + string(payload))]
+    types = list(dict.fromkeys(kind for _, kind, _ in objects))
+    metadata = b'2021.3.0f1\0' + struct.pack('<i?I', platform, False, len(types))
+    for kind in types:
+        metadata += struct.pack('<i?h', kind, False, -1) + bytes(16)
+    metadata += struct.pack('<I', len(objects))
+    obj = b''
+    for path_id, kind, data in objects:
+        if isinstance(data, dict):
+            from UnityPy.helpers import TypeTreeHelper
+            from UnityPy.helpers.Tpk import get_typetree_node
+            from UnityPy.streams import EndianBinaryWriter
+            writer = EndianBinaryWriter(endian='<')
+            TypeTreeHelper.write_typetree(data, get_typetree_node(kind, (2021, 3, 0, 1)), writer)
+            data = writer.bytes
+        obj += bytes(-len(obj) % 8)
+        metadata += bytes(-(20 + len(metadata)) % 4)
+        metadata += struct.pack('<qIII', path_id, len(obj), len(data), types.index(kind))
+        obj += data
     metadata += struct.pack('<II', 0, len(references))
     for reference in references:
         metadata += bytes(17) + struct.pack('<I', 0) + reference.encode() + b'\0'

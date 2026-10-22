@@ -76,16 +76,18 @@ class Inspection:
         for path in self._revisions:
             self.check(path)
 
-    def bundle(self, path: Path) -> Bundle:
+    def bundle(self, path: Path, *, cache: bool = True) -> Bundle:
         self.check(path)
-        if path not in self._bundles:
+        bundle = self._bundles.get(path)
+        if bundle is None:
             devmode.check_read(path)
             bundle = Bundle.load(path)
             if bundle is None:
                 raise ServiceError("bundle_invalid", file=path.name)
-            self._bundles[path] = bundle
+            if cache:
+                self._bundles[path] = bundle
         self.check(path)
-        return self._bundles[path]
+        return bundle
 
     def inspect(self, path: Path, *, allow_unknown: bool = False) -> Contents:
         self.check(path)
@@ -238,6 +240,44 @@ def check_platform(contents: Contents, path: Path, expected: set[str]) -> None:
     if contents.platforms != expected:
         raise ServiceError("mod_platform_mismatch", file=path.name,
                            platform=", ".join(sorted(contents.platforms)), expected=", ".join(sorted(expected)))
+
+
+def references_changed_objects(path: Path, changed: dict[str, set[int]], removed_cabs: set[str],
+                               inspection: Inspection) -> bool:
+    """Inspect external PPtrs without resolving them or following paths outside the install.
+
+    External tables identify candidate consumers cheaply. Only those consumers need their
+    objects read; an unreadable consumer cannot prove an object safe to remove or retype.
+    """
+    def pointers(value, external: dict[int, str]) -> bool:
+        if isinstance(value, dict):
+            file_id, path_id = value.get("m_FileID"), value.get("m_PathID")
+            if path_id and path_id in changed.get(external.get(file_id), set()):
+                return True
+            return any(pointers(child, external) for child in value.values())
+        if isinstance(value, (list, tuple)):
+            return any(pointers(child, external) for child in value)
+        return False
+
+    def walk(file) -> bool:
+        if hasattr(file, "target_platform"):
+            external = {index: basename(ref.path) for index, ref in enumerate(file.externals, 1)}
+            if removed_cabs.intersection(external.values()):
+                return True
+            if not changed.keys() & external.values():
+                return False
+            for obj in file.objects.values():
+                try:
+                    tree = obj.read_typetree()
+                except Exception:
+                    return True
+                if pointers(tree, external):
+                    return True
+            return False
+        return any(walk(child) for child in getattr(file, "files", {}).values())
+
+    # A removal may need to inspect the whole install; do not retain every decompressed bundle.
+    return walk(inspection.bundle(path, cache=False).env)
 
 
 def missing_parts(effective: Contents, official: Contents) -> set[str]:

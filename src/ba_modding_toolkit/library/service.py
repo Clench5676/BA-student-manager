@@ -1068,7 +1068,11 @@ class ModLibrary:
         if compatibility["unavailable"]:
             raise ServiceError("original_unavailable")
         for source, incoming, baseline in identities:
-            if not incoming.files or incoming.files != baseline.files or incoming.layout != baseline.layout:
+            if not incoming.files:
+                raise ServiceError("mod_release_mismatch", file=source.name)
+            if kind_of_file(name) == "model":
+                self._check_model_references(source, incoming, baseline, replacements, targets, pin, inspection)
+            elif incoming.files != baseline.files or incoming.layout != baseline.layout:
                 raise ServiceError("mod_release_mismatch", file=source.name)
         inspection.validate()
         source_origin, error = mod_origin.source_of(set(files), selected, official, target_origin)
@@ -1077,6 +1081,27 @@ class ModLibrary:
         return {"direct": replacements, "targets": list(replacements), "originals": originals,
                 "sourceContents": selected, "officialContents": official, "source": source_origin,
                 "compatibility": compatibility}
+
+    def _check_model_references(self, source: Path, incoming: integrity.Contents, baseline: integrity.Contents,
+                                replacements: dict[Path, Path], targets: list[Path], pin: Pin,
+                                inspection: integrity.Inspection) -> None:
+        """Only changes to objects consumed outside a replaced part can break its public interface."""
+        changed = {}
+        for cab, layout in baseline.layout.items():
+            replacement = dict(incoming.layout.get(cab, ()))
+            ids = {path_id for path_id, kind in layout if replacement.get(path_id) != kind}
+            if ids:
+                changed[cab] = ids
+        removed_cabs = baseline.files - incoming.files
+        if not changed and not removed_cabs:
+            return  # Preserving every original object is safe without scanning other bundles.
+        consumers = {path: path for paths in self._index(pin).values() for path in paths}
+        for target in targets:
+            consumers[target] = (replacements[target] if target in replacements else
+                                 self._official_for(target, pin, game_first=True))
+        for path in consumers.values():
+            if path != source and integrity.references_changed_objects(path, changed, removed_cabs, inspection):
+                raise ServiceError("mod_release_mismatch", file=source.name)
 
     @_serialized
     def inspect_import(self, files: dict[str, Path], pin: Pin | None = None, *, conversion: bool = False,
