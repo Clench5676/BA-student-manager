@@ -1480,7 +1480,7 @@
 			"progress": "{phase} {name}（{kind}）{index} / {total} - {step}",
 			"complete": "完了：{n}件、失敗：{failed}件",
 			"resultTitle": "インポート結果",
-			"applied": "適用済み",
+			"applied": "導入済み",
 			"notApplied": "未適用",
 			"notTransferred": "警告：転送されなかったアセット（新しい公式 Bundle に対応するアセットがありません）：{names}",
 			"notTransferredCount": "{count} 個のアセットが未転送",

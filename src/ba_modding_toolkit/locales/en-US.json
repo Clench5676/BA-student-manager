@@ -1480,7 +1480,7 @@
 			"progress": "{phase} {name} ({kind}) {index} / {total} - {step}",
 			"complete": "Done: {n}, failed: {failed}",
 			"resultTitle": "Import Results",
-			"applied": "Applied",
+			"applied": "Installed",
 			"notApplied": "Not Applied",
 			"notTransferred": "Warning: not transferred (no counterpart in the new official bundle): {names}",
 			"notTransferredCount": "Assets not transferred: {count}",
