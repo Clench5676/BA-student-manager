@@ -11,6 +11,7 @@ import { customAliases, studentName } from "./names.js";
 import { specialFraming } from "./special-view.js";
 import { spineAllowed } from "./spine-runtime.js";
 import { thumbnailScope } from "./thumbs.js";
+import { modelThumbnail } from "./model-still.js";
 import { S } from "./util.js";
 import { ROW_W as OPTION_WIDTH, rowBase, radioRow } from "./settings-rows.js";
 import { loadImportLayouts, importArtwork, clipButtonPatterns, ROW_SCALE, ROW_WIDTH, ROW_HEIGHT, ROW_SELECTION, ROW_CHECK_TOP } from "./import-layout.js";
@@ -42,7 +43,7 @@ export function entryIdentity(entry, catalog) {
 }
 
 export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, popups = Popup,
-  thumbnails = thumbnailScope, allowed = spineAllowed, suggest = suggestImports, loading = Loading } = {}) {
+  thumbnails = thumbnailScope, modelThumbnails = modelThumbnail, allowed = spineAllowed, suggest = suggestImports, loading = Loading } = {}) {
   const model = createImportState({ rpc: call, waitJob: jobs, suggest, changed: () => context?.invalidateRoster?.() });
   let context = null, catalog = [], visible = false, root = null, scope = null;
   let query = "", filter = "all", ascending = true, searchOpen = false, rowsKey = null, previewKey = null, generation = 0;
@@ -333,14 +334,18 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
       return image;
     }));
   }
-  function incomingBase(entry) {
-    if (!["spr", "lobby"].includes(entry.kind)) return null;
+  function incomingSource(entry) {
     const libraryId = model.state.results.find((result) => result.id === entry.id)?.libraryId || entry.libraryId;
-    if (libraryId) return spineBase("mod", libraryId);
-    return entry.preview?.kind === "import" && entry.preview.key ? spineBase("import", entry.preview.key) : null;
+    if (libraryId) return { kind: "mod", key: libraryId };
+    return entry.preview?.kind === "import" && entry.preview.key ? entry.preview : null;
+  }
+  function incomingBase(entry) {
+    const source = incomingSource(entry);
+    return source && ["spr", "lobby"].includes(entry.kind) ? spineBase(source.kind, source.key) : null;
   }
   const representative = (entries) => entries.find((entry) => eligible(entry) && incomingBase(entry))
-    || entries.find(eligible) || entries.find((entry) => incomingBase(entry)) || entries[0];
+    || entries.find((entry) => eligible(entry) && incomingSource(entry))
+    || entries.find(eligible) || entries.find((entry) => incomingSource(entry)) || entries[0];
   function thumbnail(entry, { incoming = false, large = false } = {}) {
     const { variant } = identified(entry);
     const signal = scope?.signal;
@@ -348,8 +353,16 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
     const key = kind === "spr" ? variant?.spr || entry.core : kind === "lobby" ? variant?.lobby || entry.core : null;
     const base = incoming ? incomingBase(entry)
       : key ? spineBase(kind, key) : null;
-    const work = allowed() && base && scope
-      ? scope.thumb(base, large ? (kind === "lobby" ? "landscape" : "portrait") : "card", null, kind === "lobby", specialFraming(variant), variant?.bg) : Promise.resolve(null);
+    let work = Promise.resolve(null);
+    const modelKey = variant?.key || entry.variant;
+    if (kind === "model" && modelKey && scope) {
+      const source = incomingSource(entry);
+      if (!incoming || source) work = modelThumbnails(modelKey, incoming ? `${source.kind}:${source.key}` : "live", {
+        signal, version: JSON.stringify([generation, entry.preview, entry.files, entry.libraryId, model.state.results]),
+      });
+    } else if (allowed() && base && scope) {
+      work = scope.thumb(base, large ? (kind === "lobby" ? "landscape" : "portrait") : "card", null, kind === "lobby", specialFraming(variant), variant?.bg);
+    }
     if (large) work.bump?.();
     const source = Promise.resolve(work).then(async (url) => {
       if (url && ui.load) await ui.load(url, { signal });
@@ -375,7 +388,7 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
           scale: 0.46, origin: [width / 2, 0], textures: { "Texture": Promise.resolve(null) },
         });
         bindTexture(drawing, "EquipPos/Texture", source, "import-preview-image", true);
-        if (incoming && !incomingBase(entry)) {
+        if (incoming && !incomingSource(entry)) {
           const note = place(el("div"), 0, headerHeight + height - 45, width, 45); note.style.zIndex = "20"; box.appendChild(note);
           textWidget(note, T("import.previewUnavailable"), "empty", { scale: 0.4, origin: [width / 2, 23] });
         }

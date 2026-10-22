@@ -90,16 +90,16 @@ const options = { strategy: "cont_name_type", types: ["ALL"], skipUnchanged: tru
 const entry = (id, state = "ready", kind = "spr") => ({ id, paths: [`/fixtures/${id}.bundle`], variant: id, core: `${id}_spr`, kind,
   files: [{ path: `/fixtures/${id}.bundle`, size: 1024, target: `${id}_spr.bundle` }], size: 1024, state,
   reason: state === "blocked" ? "no_target" : null, libraryId: state === "library" ? "lib-known" : null,
-  preview: ["spr", "lobby"].includes(kind) ? { kind: "import", key: `source-${id}` } : null });
+  preview: ["spr", "lobby", "model"].includes(kind) ? { kind: "import", key: `source-${id}` } : null });
 const mixed = () => [entry("a"), entry("b", "update", "lobby"), entry("c", "library"), entry("d", "installed"), entry("e", "blocked", "model")];
 const catalog = { families: ["a", "b", "c", "d", "e"].map((id) => ({ key: id, variants: [{
-  key: id, custom: id === "a" ? ["Saved Alias"] : [], fileId: `${id}_spr`, spr: `${id}_spr`, lobby: `${id}_home`, portrait: `/portrait/${id}.png`, bg: `/bg/${id}.png`, names: { en: { full: `Student ${id}` }, ja: { full: `JP ${id}` } },
+  key: id, custom: id === "a" ? ["Saved Alias"] : [], fileId: `${id}_spr`, spr: `${id}_spr`, lobby: `${id}_home`, model: `${id}_model`, portrait: `/portrait/${id}.png`, bg: `/bg/${id}.png`, names: { en: { full: `Student ${id}` }, ja: { full: `JP ${id}` } },
 }] })) };
 
 async function fixture({ licensed = false, native = true, suggest, countIcons = false } = {}) {
   body.replaceChildren(); observers.length = 0;
   const host = body.appendChild(new El()), dialog = body.appendChild(new El()); dialog.id = "dialog"; dialog.hidden = true;
-  const calls = [], analyses = [], runs = [], sources = [], messages = [], answers = [], thumbs = [], scopes = [], popupStack = [], holds = [];
+  const calls = [], analyses = [], runs = [], sources = [], messages = [], answers = [], thumbs = [], modelThumbs = [], scopes = [], popupStack = [], holds = [];
   let pickerHold = null, pickerPaths = [], pickError = null, optionsError = null, saveError = null, changed = 0;
   const call = async (method, params) => {
     calls.push({ method, params });
@@ -148,6 +148,7 @@ async function fixture({ licensed = false, native = true, suggest, countIcons = 
     } },
     jobs: (id, progress) => { const job = [...analyses, ...runs, ...sources].find((job) => job.id === id); job.progress = progress; return job.promise; },
     thumbnails: () => { const scope = { cancel: () => { scope.cancelled = true; }, thumb: (...args) => { thumbs.push(args); return thumbsHold?.promise || Promise.resolve(`blob:${args[0]}`); } }; scopes.push(scope); return scope; },
+    modelThumbnails: (...args) => { modelThumbs.push(args); return thumbsHold?.promise || Promise.resolve(`blob:model:${args[0]}:${args[1]}`); },
   });
   const destinations = [];
   const context = { info: { native }, go: (...args) => destinations.push(args), goOther: () => destinations.push("other"), invalidateRoster: () => changed++ };
@@ -162,7 +163,7 @@ async function fixture({ licensed = false, native = true, suggest, countIcons = 
     holds, holdPicker: () => { pickerHold = deferred(); return pickerHold; }, holdThumbs: () => { thumbsHold = deferred(); return thumbsHold; },
     holdImages: (predicate) => { const hold = { ...deferred(), predicate }; imagesHold = hold; return hold; },
     holdRender: (predicate) => { const hold = { ...deferred(), predicate }; renderHold = hold; return hold; }, analyses, runs, sources, messages, answers, thumbs, scopes, popupStack, action, row, phase, analyze,
-    changed: () => changed, picker: (paths) => { pickerPaths = paths; }, pickError: (error) => { pickError = error; },
+    modelThumbs, changed: () => changed, picker: (paths) => { pickerPaths = paths; }, pickError: (error) => { pickError = error; },
     optionsError: (error) => { optionsError = error; }, saveError: (error) => { saveError = error; } };
 }
 
@@ -173,6 +174,32 @@ test("empty screen has add actions and zero Mods, without AI UI or tooltips", as
   assert.equal(h.action("files").disabled, false); assert.equal(h.action("folder").disabled, false);
   assert.doesNotMatch(h.host.textContent, /AI|master switch|step/i);
   assert.ok(walk(h.host).every((element) => !element.getAttribute("title")));
+});
+
+test("four incoming models render in the list and comparison without a Spine licence", async () => {
+  const h = await fixture();
+  await h.analyze(["a", "b", "c", "d"].map((id) => entry(id, "ready", "model")));
+  for (const id of ["a", "b", "c", "d"]) {
+    assert.equal(h.row(id).querySelector(".import-thumb").dataset.source, `blob:model:${id}:import:source-${id}`);
+    assert.ok(h.modelThumbs.some(([key, source]) => key === id && source === `import:source-${id}`));
+  }
+  assert.equal(h.thumbs.length, 0, "models use only the 3D renderer");
+  h.page.model.select("b"); await h.page.settled();
+  assert.deepEqual(h.host.querySelectorAll(".import-preview-image").map((image) => image.dataset.source),
+    ["blob:model:b:live", "blob:model:b:import:source-b"]);
+  await h.action("start").click(); await flush();
+  h.runs[0].resolve({ results: ["a", "b", "c", "d"].map((id) => ({ id, outcome: "imported", libraryId: `lib-${id}` })) });
+  await flush(); await h.page.results(); await h.page.settled();
+  assert.ok(h.modelThumbs.some(([key, source]) => key === "b" && source === "mod:lib-b"));
+});
+
+test("an NPC model without a roster entry renders from the analyzed variant key", async () => {
+  const h = await fixture();
+  await h.analyze([{ ...entry("en0002", "ready", "model"), core: "en0002" }]);
+  assert.equal(h.row("en0002").querySelector(".import-thumb").dataset.source,
+    "blob:model:en0002:import:source-en0002");
+  assert.deepEqual(h.host.querySelectorAll(".import-preview-image").map((image) => image.dataset.source),
+    ["blob:model:en0002:live", "blob:model:en0002:import:source-en0002"]);
 });
 
 test("analyzing locks edits; mixed states default to ready/update only, with aligned row cells", async () => {
@@ -942,7 +969,7 @@ test("results omit state badges, follow the merge setting and route every studen
   h.runs[0].resolve({ results: [a, lobby, model, other].map((entry) => ({ id: entry.id, outcome: "imported", libraryId: `lib-${entry.id}`, applied: true })) });
   await flush(); await h.page.results(); await h.page.settled();
   const rows = walk(h.dialog).filter((element) => element.dataset.result);
-  assert.equal(rows.length, 2); assert.match(h.dialog.textContent, /Installed/);
+  assert.equal(rows.length, 2); assert.match(h.dialog.textContent, /Applied/);
   for (const row of rows) assert.equal(find(drawn(h, row).tree, "TimeLimit").active, false);
   await h.action("go", rows[0]).click(); assert.deepEqual(h.destinations, [["a", "a", "portrait"]]); assert.equal(h.dialog.hidden, true);
   await h.page.results(); await h.page.settled();
@@ -1089,7 +1116,7 @@ for (const merged of [false, true]) test(`only conversions reserve a platform li
   await flush(); await h.page.results(); await h.page.settled();
   for (const row of walk(h.dialog).filter((element) => element.dataset.result)) {
     check(row, { b: "Global Android → Global PC", c: "Japan PC → Global PC" }[row.dataset.result]);
-    assert.match(row.textContent, /Installed/);
+    assert.match(row.textContent, /Applied/);
   }
 });
 
@@ -1462,7 +1489,7 @@ for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) tes
     const row = walk(h.dialog).find((el) => el.dataset.result), { tree } = drawn(h, row);
     const compact = (text) => text.replace(/\s/g, "");
     const note = compact(find(tree, "Label_Locale_Limit").widgets[0].text);
-    assert.ok(note.includes(compact(strings.webui.import.applied)));
+    assert.ok(note.includes(compact(strings.webui.status.applied)));
     assert.ok(!note.includes("obsolete_page") && !note.includes("removed_note"));
     assert.ok(note.includes(compact(strings.webui.import.notTransferredCount.replace("{count}", "2"))));
     assert.ok(!walk(row).some((el) => el.title));

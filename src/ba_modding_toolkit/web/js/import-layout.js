@@ -45,13 +45,18 @@ function selectionWidget(tree) {
   return result;
 }
 
-// Both row kinds use the inner painted edge of the exact selected prefab widget.
-// Its atlas slicing and asymmetric stroke determine size and position; the clip
-// follows the measured inner corner contour instead of a guessed CSS radius.
-export function selectionWindow(tree, atlas = {}, outline) {
+// The selected widget supplies size and position. The standard rounded popup
+// line supplies the picture's small corners, independently of the selection glow.
+export function selectionWindow(tree, atlas = {}, outline, pictureOutline = null) {
   const frame = selectionWidget(tree), ratio = ROW_SELECTION.scale / ROW_SCALE;
   const window = innerFrame(frame.w, atlas[frame.w.atlas || "Common"]?.[frame.w.sprite] || {}, outline,
     { ...frame, scale: ROW_SELECTION.scale });
+  if (pictureOutline) {
+    const rounded = innerFrame({ sprite: "Common_Line_Raius20px", type: 1, pivot: 4,
+      w_: window.width, h_: window.height }, atlas.Common?.Common_Line_Raius20px || {}, pictureOutline,
+    { scale: ROW_SELECTION.scale });
+    window.clipPolygon = rounded.clipPolygon;
+  }
   return { ...window,
     x: (ROW_SELECTION.left + ROW_SELECTION.origin[0] - ROW_WIDTH / 2) / ROW_SCALE + window.x * ratio,
     y: (329 * ROW_SCALE / 2 - ROW_SELECTION.top - ROW_SELECTION.origin[1]) / ROW_SCALE + window.y * ratio,
@@ -66,6 +71,7 @@ export async function loadImportLayouts(ui) {
   const frame = clone(ui.find(item, `${item.children[0].name}/Normal/Cover_Select`));
   frame.active = true; frame.pos = [0, 0];
   layouts.selectionOutline = frameOutline(await ui.spritePixels(selectionWidget(frame).w));
+  layouts.pictureOutline = frameOutline(await ui.spritePixels({ sprite: "Common_Line_Raius20px", atlas: "Common" }));
   return layouts;
 }
 
@@ -240,7 +246,7 @@ export function importArtwork(ui, layouts) {
       const picture = ui.find(t, "BG_Icon/Icon_Arona"), slot = picture.widgets.find((w) => "texture" in w);
       picture.active = true;
       ui.find(t, "BG_Icon").widgets = [];
-      const window = selectionWindow(selection(), ui.atlasIndex?.(), layouts.selectionOutline);
+      const window = selectionWindow(selection(), ui.atlasIndex?.(), layouts.selectionOutline, layouts.pictureOutline);
       const bleed = Math.abs(Math.tan(window.incline * Math.PI / 180)) * window.height / window.width * 100;
       Object.assign(slot, { w_: window.width, h_: window.height, pivot: 4, clipImage: null,
         incline: window.incline, radius: 0, clipPolygon: window.clipPolygon, imgSize: "cover", imgPosition: "center",

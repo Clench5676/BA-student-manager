@@ -1152,7 +1152,18 @@ class Services:
             return self._spine_asset(parts[1], parts[2], parts[3])
         if kind == "model" and len(parts) == 2 and parts[1].endswith(".glb"):
             # a variant's 3D chibi, exported from the game files in memory and never cached
-            core = self.catalog.variant(_stem(parts[1])).model
+            key = _stem(parts[1])
+            try:
+                variant = self.catalog.variant(key)
+                core, target = variant.model, variant.key
+            except (ServiceError, KeyError) as error:
+                if isinstance(error, ServiceError) and error.code != "catalog_variant_not_found":
+                    raise
+                # NPC models can exist without a student-list entry. Resolve only
+                # cores indexed from this game's own files, never arbitrary names.
+                if key not in getattr(self.game, "model_cores", lambda: set())():
+                    raise KeyError(path) from None
+                core = target = key
             if not core:
                 raise KeyError(path)
             source = query.get("source", "live")
@@ -1163,7 +1174,7 @@ class Services:
             elif source.startswith("mod:"):
                 mod_id = source[4:]
                 entry = next((mod for mod in self.library.mods() if mod.id == mod_id), None)
-                if entry is None or entry.kind != "model" or entry.target != self.catalog.variant(_stem(parts[1])).key:
+                if entry is None or entry.kind != "model" or entry.target != target:
                     raise KeyError(path)
                 data = self.game.model_glb(core, overrides=self.library.preview_bundles(mod_id))
             elif source.startswith("import:"):

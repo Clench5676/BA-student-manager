@@ -82,3 +82,24 @@ def test_model_route_uses_verified_official_or_own_mod_sources(tmp_path):
                 s.asset('model/ch0242.glb', {'source': source})
     finally:
         s.close()
+
+
+def test_indexed_npc_model_can_preview_without_a_student_entry(tmp_path):
+    import pytest
+    game = RouteGame()
+    game.model_cores = lambda: {"en0002"}
+    calls = []
+    game.model_glb = lambda core, overrides=(): calls.append((core, list(overrides))) or b"glTF npc"
+    sources = [tmp_path / "npc.bundle"]
+    s = Services(Settings(tmp_path / "config.toml"), tmp_path, state=UiState(tmp_path / "webui.json"),
+                 cache=object(), game=game, catalog=RouteCatalog(), library=object())
+    s.batch_import = SimpleNamespace(preview=lambda key: ("en0002", sources))
+    try:
+        assert s.asset("model/en0002.glb", {}).body == b"glTF npc"
+        assert calls[-1] == ("en0002", [])
+        assert s.asset("model/en0002.glb", {"source": "import:verified-token"}).body == b"glTF npc"
+        assert calls[-1] == ("en0002", sources)
+        with pytest.raises(KeyError):
+            s.asset("model/unindexed.glb", {"source": "import:verified-token"})
+    finally:
+        s.close()
