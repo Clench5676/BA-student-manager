@@ -51,8 +51,11 @@ class El {
   querySelector(selector) { return walk(this).find((e) => selector.startsWith(".")
     ? e.className.split(" ").includes(selector.slice(1)) : e.tagName === selector.toUpperCase()) || null; }
   // a canvas: text is measured at 0.6 of its size per character
-  getContext() { return { font: "", drawImage() {}, fillRect() {}, measureText(s) { return { width: s.length * 0.6 * parseFloat(/([\d.]+)px/.exec(this.font)?.[1] || 10) }; } }; }
+  getContext() { return { font: "", drawImage() {}, fillRect() {}, scale() {}, transform() {}, putImageData() {},
+    getImageData(_x, _y, width, height) { return { width, height, data: new Uint8ClampedArray(width * height * 4).fill(255) }; },
+    measureText(s) { return { width: s.length * 0.6 * parseFloat(/([\d.]+)px/.exec(this.font)?.[1] || 10) }; } }; }
   toBlob(fn) { fn(new Blob()); }
+  toDataURL() { return "data:image/png;base64,c3ludGhldGljLW1hc2s="; }
 }
 globalThis.Image = class {
   naturalWidth = 8;

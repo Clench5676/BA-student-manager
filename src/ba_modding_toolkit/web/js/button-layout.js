@@ -1,4 +1,5 @@
 // Button patterns are separate NGUI widgets: their anchors, pivot and size follow the body, not its caption.
+import { maskWithSprite, spriteMaskTransform } from "./sprite-mask.js";
 const PIVX = [0, 0.5, 1, 0, 0.5, 1, 0, 0.5, 1];
 const PIVY = [1, 1, 1, 0.5, 0.5, 0.5, 0, 0, 0];
 
@@ -39,7 +40,8 @@ export function resizeButton(body, width = null, height = null) {
 
 // The game clips button decoration to its inclined body. NGUI's DOM renderer flattens the hierarchy, so restore
 // that clipping from the *rendered prefab body*, after resizeButton has resolved the patterns' anchors.
-export function clipButtonPatterns(view) {
+export function clipButtonPatterns(view, { load } = {}) {
+  const pending = [];
   for (const [path, entry] of view.nodes) {
     const w = entry.node.widgets.find((w) => /^Common_Btn_.*_Pt$/.test(w.sprite || ""));
     if (!w) continue;
@@ -48,11 +50,18 @@ export function clipButtonPatterns(view) {
     const element = entry.els[0];
     if (!body || !element) continue;
     const rect = (el) => ["left", "top", "width", "height"].map((key) => parseFloat(el.style[key]));
-    const [bl, bt, bw, bh] = rect(parent.els[0]), [pl, pt, pw, ph] = rect(element);
-    const slant = Math.tan((body.incline || 0) * Math.PI / 180) * bh / 2;
-    const points = [[bl + slant, bt], [bl + bw + slant, bt], [bl + bw - slant, bt + bh], [bl - slant, bt + bh]];
-    // Account for the prefab's flip on the pattern: clipping is applied before its CSS transform.
-    const fx = w.flip === 1 || w.flip === 3 ? -1 : 1, fy = w.flip >= 2 ? -1 : 1;
-    element.style.clipPath = `polygon(${points.map(([x, y]) => `${pw / 2 + (x - pl - pw / 2) * fx}px ${ph / 2 + (y - pt - ph / 2) * fy}px`).join(", ")})`;
+    const source = parent.els[0], [, , bw, bh] = rect(source);
+    // The cheap bounds are available before asynchronous sprite painting. The
+    // alpha mask then adds the official body's rounded corners, which a four-
+    // corner polygon cannot represent.
+    const transform = (widget) => `${widget.incline ? `skewX(${-widget.incline}deg)` : ""} scale(${widget.flip === 1 || widget.flip === 3 ? -1 : 1}, ${widget.flip >= 2 ? -1 : 1})`;
+    const style = (el, widget) => Object.fromEntries(["left", "top", "width", "height", "transform"].map((key) =>
+      [key, key === "transform" ? el.style.transform || transform(widget) : el.style[key]]));
+    const sourceStyle = style(source, body), targetStyle = style(element, w);
+    const [a, b, c, d, e, f] = spriteMaskTransform(sourceStyle, targetStyle);
+    const points = [[0, 0], [bw, 0], [bw, bh], [0, bh]].map(([x, y]) => [a * x + c * y + e, b * x + d * y + f]);
+    element.style.clipPath = `polygon(${points.map(([x, y]) => `${x}px ${y}px`).join(", ")})`;
+    if (load) pending.push(Promise.all(view.images || []).then(() => maskWithSprite(source, element, load, { surface: true })));
   }
+  return Promise.all(pending);
 }

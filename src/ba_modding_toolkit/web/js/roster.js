@@ -299,7 +299,7 @@ async function renderRow(host, rowKey) {
     else hit.disabled = true;
     row.appendChild(hit);
     jobs.push(NGUI.render(t, row, { scale: S, origin: ORIGIN, z: 100, deferImages: true, textures: tex ? { Char_Portrait: tex } : {} }).then(async (view) => {
-      await clipRosterBand(view, t.name); return view;
+      await clipRosterBand(view, t.name, { load: NGUI.load }); return view;
     }));
   }
   row.ready = Promise.all(jobs).then(async (views) => {

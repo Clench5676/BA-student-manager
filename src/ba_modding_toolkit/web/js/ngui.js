@@ -410,7 +410,7 @@ export async function render(tree, host, opts = {}) {
   else await Promise.all(jobs);
   for (const [el, css] of post) el.style.cssText += css;
   const view = { nodes, scale: S, origin: [ox, oy], pictures, images: pictures.filter((p) => !thumbnails.includes(p)), thumbnails };
-  clipButtonPatterns(view);
+  await clipButtonPatterns(view, { load });
   if (popup) await Promise.all(view.images);
   if (frameFailures.length) throw new AggregateError(frameFailures, "Popup frame unavailable");
   if (popup || !opts.deferImages) {

@@ -3,29 +3,33 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { clipRosterBand } from "../../src/ba_modding_toolkit/web/js/roster-card.js";
 import { collectionStill } from "../../src/ba_modding_toolkit/web/js/thumbs.js";
+import { maskCanvas } from "./sprite_mask_fixture.mjs";
 
 const source = (file) => readFileSync(new URL(`../../src/ba_modding_toolkit/web/js/${file}.js`, import.meta.url), "utf8");
 
-test("the native 405-unit tag shares the game card's baked alpha, including fractional scales", async () => {
+test("the native tag and portrait share the card's painted surface after deferred frame completion", async () => {
   assert.doesNotMatch(source("roster"), /w_ = 406/);
+  const previous = globalThis.document, fake = maskCanvas(); globalThis.document = fake.document;
+  try {
   for (const scale of [0.5, 1920 / 2960, 0.873, 1.25]) {
     let resolve;
     const images = [new Promise((r) => { resolve = r; })];
     const style = (x, y, w, h) => ({ left: `${x * scale}px`, top: `${y * scale}px`, width: `${w * scale}px`, height: `${h * scale}px` });
-    const frame = { style: { ...style(-218, -245, 436, 490), backgroundImage: 'url("card-silhouette")' } };
+    const frame = { style: style(-218, -245, 436, 490) };
     const band = { style: style(-203, 139.1, 405, 87) }, portrait = { style: style(-202, -230.8, 404, 456) };
     const nodes = new Map([["Card/BG", { els: [frame] }], ["Card/Sort/Sprite", { els: [band] }], ["Card/Char_Portrait", { els: [portrait] }]]);
-    const clipping = clipRosterBand({ nodes, images }, "Card");
+    const clipping = clipRosterBand({ nodes, images, thumbnails: [new Promise(() => {})] }, "Card", {
+      load: async (url) => { assert.equal(url, "card-silhouette"); return { naturalWidth: 872, naturalHeight: 980 }; },
+    });
     assert.equal(band.style.maskImage, undefined);
+    frame.style.backgroundImage = 'url("card-silhouette")';
     resolve(); await clipping;
-    assert.equal(band.style.maskImage, frame.style.backgroundImage);
-    assert.equal(band.style.maskSize, `${436 * scale}px ${490 * scale}px`);
-    const [x, y] = band.style.maskPosition.split(" ").map(parseFloat);
-    assert.ok(Math.abs(x + 15 * scale) < 1e-6);
-    assert.ok(Math.abs(y + 384.1 * scale) < 1e-6);
+    assert.match(band.style.maskImage, /synthetic-/); assert.match(portrait.style.maskImage, /synthetic-/);
+    assert.equal(band.style.maskSize, "100% 100%");
     assert.equal(band.style.maskRepeat, "no-repeat");
-    assert.equal(portrait.style.clipPath, "inset(0 0.5px 0 0)");
+    assert.equal(portrait.style.clipPath, undefined, "the card silhouette replaces the rectangular half-pixel inset");
   }
+  } finally { globalThis.document = previous; }
 });
 
 test("a collection still covers the frame with the catalog background before drawing Spine", async () => {

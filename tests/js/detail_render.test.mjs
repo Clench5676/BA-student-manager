@@ -59,11 +59,12 @@ class El {
     return { font: "", measureText(s) {
       const fs = parseFloat(/([\d.]+)px/.exec(this.font)?.[1] || 10);
       return { width: [...s].reduce((w, c) => w + (/[\u2e80-\u9fff\u3000-\u303f\uff00-\uffef\uac00-\ud7af]/.test(c) ? fs : fs / 2), 0) };
-    }, drawImage() {}, fillRect() {}, clearRect() {}, getImageData(_x, _y, width, height) {
+    }, drawImage() {}, fillRect() {}, clearRect() {}, scale() {}, transform() {}, putImageData() {}, getImageData(_x, _y, width, height) {
       return { width, height, data: new Uint8ClampedArray(Array.from({ length: width * height }, () => [20, 40, 60, 255]).flat()) };
     } };
   }
   toBlob(fn) { fn(new Blob()); }
+  toDataURL() { return "data:image/png;base64,c3ludGhldGljLW1hc2s="; }
 }
 const walk = (el) => [el, ...el.children.flatMap(walk)];
 const body = new El("body"), title = new El(), back = new El("button");
