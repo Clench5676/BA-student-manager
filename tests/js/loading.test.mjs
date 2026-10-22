@@ -68,7 +68,7 @@ async function harness({ labelFailure = null, labelGate = null, locale = "en-US"
     initial.id = "loading-boot"; initial.className = `loading full on${consent && uiCached ? "" : " neutral"}`;
     initial.innerHTML = '<div class="loading-back"></div><div class="loading-ind"></div>';
     initial.querySelector(".loading-ind").innerHTML = consent && uiCached ?
-      '<div class="loading-fallback"><span></span><i></i><i></i><i></i></div>' : '<div class="loading-plain"><span></span></div>';
+      '' : '<div class="loading-plain"><span></span></div>';
   }
   const d = {
     document: { createElement: () => new El(), getElementById: (id) => id === "stage" ? stage : id === "loading-boot" && initial?.isConnected && initial.id ? initial : null },
@@ -271,15 +271,14 @@ test("the initial cover measures the fallback and sprite portions through reveal
   assert.deepEqual(h.loading.timings(), { "fallback-loading": 200, "sprite-loading": 1000 });
 });
 
-for (const mode of ["scene", "wait", "task"]) test(`${mode} stays neutral until consented UI assets decode`, async () => {
+for (const mode of ["scene", "wait", "task"]) test(`${mode} waits for the real prefab without a substitute after consent`, async () => {
   const h = await harness(), work = deferred();
   const pending = mode === "scene" ? h.loading.scene(() => work.promise) : mode === "wait" ? h.loading.wait(work.promise) : h.loading.task(() => work.promise);
   await h.advance(300);
-  const indicator = h.stage.children[0], fallback = indicator.querySelector(".loading-plain");
-  assert.ok(fallback);
-  assert.equal(fallback.querySelector("span").textContent, "Loading");
-  assert.equal(fallback.children.filter((el) => el.tagName === "i").length, 0);
-  assert.equal(indicator.classList.contains("neutral"), true);
+  const indicator = h.stage.children[0];
+  assert.equal(indicator.querySelector(".loading-plain"), null);
+  assert.equal(indicator.querySelector(".loading-fallback"), null);
+  assert.equal(indicator.classList.contains("neutral"), false);
   assert.equal(indicator.attrs["aria-label"], mode === "task" ? "Processing: Mods" : "Reading game files");
   h.sprites.resolve(); await flush();
   assert.ok(indicator.querySelector(".loading-repeater"));
@@ -288,21 +287,20 @@ for (const mode of ["scene", "wait", "task"]) test(`${mode} stays neutral until 
   work.resolve(); await flush(); await h.advance(500); await h.advance(300); await pending;
 });
 
-for (const failure of ["indexes", "reject", "empty", "blank", "decode"]) test(`the neutral indicator stays visible after ${failure} asset failure`, async () => {
+for (const failure of ["indexes", "reject", "empty", "blank", "decode"]) test(`consented ${failure} failures never revive a substitute loading style`, async () => {
   const h = await harness({ render: ["indexes", "decode"].includes(failure) ? "ready" : failure, decoded: failure !== "decode" }), work = deferred();
   const pending = h.loading.scene(() => work.promise);
   await flush();
-  const fallback = h.stage.children[0].querySelector(".loading-plain");
   if (failure === "indexes") h.sprites.reject(new Error("No game assets")); else h.sprites.resolve();
   await flush();
-  assert.equal(h.stage.children[0].querySelector(".loading-plain"), fallback);
-  assert.equal(fallback.querySelector("span").textContent, "Loading");
+  assert.equal(h.stage.children[0].querySelector(".loading-plain"), null);
+  assert.equal(h.stage.children[0].querySelector(".loading-fallback"), null);
   assert.equal(h.stage.children[0].querySelector(".loading-repeater"), null);
   work.resolve(); await flush(); await h.advance(300); await pending;
 });
 
 test("boot adopts the neutral indicator and relabels it when locale strings arrive", async () => {
-  const h = await harness({ boot: true, translated: false }), work = deferred();
+  const h = await harness({ boot: true, translated: false, consent: false }), work = deferred();
   const fallback = h.initial.querySelector(".loading-plain");
   const pending = h.loading.scene(() => work.promise, { opaque: true });
   await flush();
@@ -363,7 +361,7 @@ for (const mode of ["scene", "wait", "task"]) test(`${mode} starts stylized with
   const pending = mode === "scene" ? h.loading.scene(() => work.promise) : mode === "wait" ? h.loading.wait(work.promise) : h.loading.task(() => work.promise);
   await h.advance(300);
   const indicator = h.stage.children[0];
-  assert.ok(indicator.querySelector(".loading-fallback"), "stylized while cached sprites decode");
+  assert.equal(indicator.querySelector(".loading-fallback"), null, "cached sprites never show a substitute while decoding");
   assert.equal(indicator.classList.contains("neutral"), false);
   h.sprites.resolve(); await flush();
   assert.ok(indicator.querySelector(".loading-repeater"));
@@ -387,7 +385,7 @@ test("a cached boot stays stylized before app.info arrives", async () => {
   const h = await harness({ boot: true, uiCached: true, infoReady: false }), work = deferred();
   const pending = h.loading.scene(() => work.promise, { opaque: true });
   await flush();
-  assert.ok(h.initial.querySelector(".loading-fallback"));
+  assert.equal(h.initial.querySelector(".loading-fallback"), null);
   assert.equal(h.initial.classList.contains("neutral"), false);
   h.sprites.resolve(); await flush();
   assert.ok(h.initial.querySelector(".loading-repeater"));
@@ -403,7 +401,7 @@ test("in-page holds use the prefab gradient on every edge, Now Loading and live 
   assert.equal(h.loading.covering(), false); assert.equal(h.loading.held(), true);
   assert.ok(overlay.classList.contains("indicator"));
   assert.equal(overlay.querySelector(".loading-progress").textContent, text);
-  assert.ok(overlay.querySelector(".loading-fallback"));
+  assert.equal(overlay.querySelector(".loading-fallback"), null);
   const snapshot = structuredClone(h.gradient);
   h.sprites.resolve(); await flush(); await flush();
   const edges = h.drawn.filter((tree) => ["Bottom", "Top", "Left", "Right"].includes(tree.name));

@@ -48,7 +48,7 @@ export const timings = () => firstLoading || {};
 // Before asset consent, covers use only system text and a neutral backdrop.
 export function init(info) {
   assetsAllowed = info?.consent === true && !!info?.gameFound;
-  styled = assetsAllowed && (styled || info.uiCached === true);
+  styled = assetsAllowed;
   for (const o of [overlay, writerOverlay]) if (o && !o.done) decorate(o);
   if (!assetsAllowed || !info?.gameFound) return;
   NGUI.layout("UILoading").then((tree) => {
@@ -298,8 +298,13 @@ function close(o) {
 // --- the indicator: neutral until consent and a decoded UIRepeater, stylized on subsequent covers ---
 
 function fallback(o) {
-  o.ind.innerHTML = o.plain ? '<div class="loading-plain"><span></span></div>' :
-    '<div class="loading-fallback"><span></span><i></i><i></i><i></i></div>';
+  if (assetsAllowed) {
+    // Authorization selects the real prefab, including while it is still decoding.
+    // A slow or failed export must never replace it with the drawn imitation.
+    o.ind.replaceChildren();
+    return;
+  }
+  o.ind.innerHTML = '<div class="loading-plain"><span></span></div>';
   o.ind.querySelector("span").textContent = indicatorText(o);
   correctFallback(o);
 }

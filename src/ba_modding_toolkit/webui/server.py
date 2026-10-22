@@ -222,7 +222,7 @@ class WebApp:
         if rel == "index.html" and self.ui_cached():
             body = body.replace(b'class="loading full on neutral"', b'class="loading full on"')
             body = body.replace(b'<div class="loading-plain"><span></span></div>',
-                                b'<div class="loading-fallback"><span></span><i></i><i></i><i></i></div>')
+                                b'')
         return self._respond(start_response, "200 OK", body, mime, [("Cache-Control", "no-cache")])
 
     # --- responses ---

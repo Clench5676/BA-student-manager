@@ -956,7 +956,7 @@ def test_initial_html_selects_the_cached_loading_style_before_any_rpc(app, servi
     services.state.set_consent(True)
     body = call(app, "/index.html")[2]
     assert b'class="loading full on"' in body
-    assert b'class="loading-fallback"' in body
+    assert b'class="loading-fallback"' not in body
     assert b'class="loading-plain"' not in body
     cache.clear()
     assert b'class="loading full on neutral"' in call(app, "/index.html")[2]
