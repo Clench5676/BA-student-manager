@@ -45,9 +45,11 @@ assets split across several target bundles are checked together.
 Source probes do not install or apply Mods. Converted entries remember the complete source
 part hashes, target server and platform, official bundle identities, and stored output filenames and hashes.
 Analysis recognizes those inputs as already in the library. An older library entry without
-provenance is recognized only when its recorded `source_hashes` contains the same source
-part mapping, target and official release identity. Entries without recorded source hashes
-stay unrecognized; analysis never rebuilds them. Optional recognition failures leave the
+provenance is recognized when its recorded `source_hashes` contains the same source
+part mapping, target and official release identity. Without those hashes, analysis converts into temporary
+official copies and compares every named output part with eligible old entries. Compression and CRC tails
+are normalized for this comparison; serialized content, references and streams must match. This check
+never imports or applies the temporary result. Optional recognition failures leave the
 normal compatibility verdict intact. Recognition results and file hashes are cached by revision.
 Changed inputs, outputs, target releases and removed entries invalidate the association.
 Library inspection may perform migration saves. Both analysis and source selection run as

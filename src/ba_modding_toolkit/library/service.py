@@ -800,10 +800,39 @@ class ModLibrary:
         return self._legacy_import_matches[key]
 
     @_serialized
-    def find_import_output(self, paths: list[Path]) -> str | None:
+    def legacy_import_snapshot(self, kind: str, target: str) -> list:
+        """Limit legacy comparison to this asset's unlinked records and their current bytes."""
+        return sorted([record["id"], self._output_identity(self._paths(record))]
+                      for record in self._records.values()
+                      if record["kind"] == kind and record["target"] == target
+                      and not record.get("import_sources") and not record.get("source_hashes"))
+
+    @_serialized
+    def find_import_output(self, paths: list[Path], candidates: set[str] | None = None) -> str | None:
         output = self._output_identity(paths)
-        return next((record["id"] for record in self._records.values()
-                     if self._output_identity(self._paths(record)) == output), None)
+        records = [record for record in self._records.values()
+                   if candidates is None or record["id"] in candidates]
+        exact = next((record["id"] for record in records
+                      if self._output_identity(self._paths(record)) == output), None)
+        if exact or candidates is None:
+            return exact
+        # Normalize only the container packing and CRC tail. Serialized objects,
+        # external references, streams and complete part filenames must still agree.
+        def contents(files):
+            result = []
+            for path in files:
+                bundle = Bundle.load(path)
+                if bundle is None:
+                    raise ServiceError("bundle_invalid", file=path)
+                result.append([path.name, hashlib.sha256(bundle.compress("none")).hexdigest()])
+            return sorted(result)
+        wanted = contents(paths)
+        names = {path.name for path in paths}
+        for record in records:
+            files = self._paths(record)
+            if {path.name for path in files} == names and contents(files) == wanted:
+                return record["id"]
+        return None
 
     @_serialized
     @_mod_writer

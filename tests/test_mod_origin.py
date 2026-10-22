@@ -210,29 +210,29 @@ def test_conversion_provenance_never_matches_changed_bytes_or_removed_entry(real
     assert repeated['state'] == 'convert' and repeated['libraryId'] is None
 
 
-def test_legacy_converted_output_without_source_hashes_stays_unrecognized(real_metadata, monkeypatch):
+@pytest.mark.parametrize('compression', ['none', 'lz4', 'lzma'])
+def test_legacy_converted_output_is_verified_without_reimporting(real_metadata, monkeypatch, compression):
     env = real_metadata
     source = old_bundle(env.tmp / 'input' / env.original.name, 13, cab='CAB-source', payload=b'modded',
                         references=['com.nexon.bluearchive'])
     entry, = analyze(env, [source])['entries']
-    result, = run(env, [entry], enableAfterImport=False)
+    result, = run(env, [entry], enableAfterImport=False, compression=compression)
     env.library._records[result['libraryId']].pop('import_sources')
     env.library._save()
     env.services.batch_import = batch_import.BatchImport(env.services)
     before = env.original.read_bytes()
 
     def forbidden(*args, **kwargs):
-        pytest.fail('Legacy recognition must never build, add or apply a Mod')
+        pytest.fail('Legacy recognition must never add or apply a Mod')
 
     monkeypatch.setattr(env.library, 'add_files', forbidden)
     monkeypatch.setattr(env.library, 'apply_import', forbidden)
-    monkeypatch.setattr(batch_import.core, 'process_mod_update', forbidden)
     repeated, = analyze(env, [source])['entries']
-    assert (repeated['state'], repeated['libraryId']) == ('convert', None)
-    assert not env.library._records[result['libraryId']].get('import_sources')
+    assert (repeated['state'], repeated['libraryId']) == ('library', result['libraryId'])
+    assert env.library._records[result['libraryId']].get('import_sources')
     assert env.original.read_bytes() == before and len(env.library.mods()) == 1
     monkeypatch.setattr(batch_import.core, 'process_mod_update', forbidden)
-    assert analyze(env, [source])['entries'][0]['state'] == 'convert'
+    assert analyze(env, [source])['entries'][0]['state'] == 'library'
 
 
 def test_conversion_source_identity_includes_the_complete_part_mapping(real_metadata):
@@ -802,7 +802,7 @@ def test_partial_cab_region_evidence_constrains_candidates():
 
 
 @pytest.mark.parametrize('recorded', [False, True])
-def test_legacy_recognition_never_builds_and_uses_recorded_source_hashes(real_metadata, monkeypatch, recorded):
+def test_legacy_recognition_rebuilds_only_when_source_hashes_are_missing(real_metadata, monkeypatch, recorded):
     env = real_metadata
     source = old_bundle(env.tmp / 'input' / env.original.name, 13, cab='CAB-source', payload=b'mod',
                         references=['com.nexon.bluearchive'])
@@ -818,11 +818,13 @@ def test_legacy_recognition_never_builds_and_uses_recorded_source_hashes(real_me
     def forbidden(*args, **kwargs):
         pytest.fail('Analysis must never rebuild a legacy conversion')
 
-    monkeypatch.setattr(batch_import.core, 'process_mod_update', forbidden)
-    monkeypatch.setattr(batch_import.staging, 'import_directory', forbidden)
+    if recorded:
+        monkeypatch.setattr(batch_import.core, 'process_mod_update', forbidden)
+        monkeypatch.setattr(batch_import.staging, 'import_directory', forbidden)
     for _ in range(2):
         repeated, = analyze(env, [source])['entries']
-        assert repeated['state'] == ('library' if recorded else 'convert')
+        assert repeated['state'] == 'library'
+        monkeypatch.setattr(batch_import.core, 'process_mod_update', forbidden)
     assert len(env.library.mods()) == 1
 
 

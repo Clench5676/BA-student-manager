@@ -203,6 +203,7 @@ class BatchImport:
         self._hashes = Fingerprints()
         self._sources: dict[str, tuple[frozenset, dict]] = {}
         self._completed: dict[tuple, str] = {}
+        self._legacy_checks: dict[str, str | None] = {}
 
     def defaults(self) -> dict:
         settings = self.services.settings
@@ -343,11 +344,36 @@ class BatchImport:
                 candidate.entry["id"], candidate.identity)
 
     def _recognize_legacy(self, candidate: Candidate, library: Any) -> None:
-        """Optional recognition never rebuilds or changes an importable verdict on failure."""
+        """Verify old conversions in temporary copies without importing or applying them."""
         if candidate.entry["state"] != "convert" or not candidate.provenance:
             return
         try:
             mod_id = library.find_legacy_import_source(candidate.provenance, candidate.entry["kind"])
+            if not mod_id:
+                snapshot = library.legacy_import_snapshot(candidate.entry["kind"], candidate.entry["variant"])
+                if not snapshot:
+                    return
+                options = {**self.options(), "output": None, "compression": "none", "crc": "off", "extraBytes": ""}
+                key = json.dumps([candidate.provenance, snapshot, options, candidate.spine_version,
+                                  str(self.services.settings.spine_options())], sort_keys=True)
+                if key not in self._legacy_checks:
+                    settings = ImportSettings(self.services.settings, options)
+                    with staging.import_directory(library.root) as temporary:
+                        checking = replace(candidate, entry=deepcopy(candidate.entry), not_transferred=[])
+                        paths, _, _ = self._prepare(checking, settings, Path(temporary), lambda *args: None,
+                                                    lambda *args: None)
+                        mod_id = library.find_import_output(paths, {item[0] for item in snapshot}) if paths else None
+                    originals = (candidate.originals if candidate.entry["kind"] == "other" else
+                                 library.official_bundles(candidate.entry["core"], pin=self._pin))
+                    if library.import_source_identity(candidate.files, candidate.entry["target"],
+                                                      originals) != candidate.provenance:
+                        return
+                    if library.legacy_import_snapshot(candidate.entry["kind"], candidate.entry["variant"]) != snapshot:
+                        return
+                    if len(self._legacy_checks) >= 128:
+                        self._legacy_checks.clear()
+                    self._legacy_checks[key] = mod_id
+                mod_id = self._legacy_checks[key]
             if mod_id:
                 library.remember_import_source(mod_id, candidate.provenance)
                 candidate.entry.update(state="library", reason=None, libraryId=mod_id)
