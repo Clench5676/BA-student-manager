@@ -63,8 +63,11 @@ class El {
   click() { return this.dispatch("click"); }
   focus() { document.activeElement = this; }
   querySelector(key) { return this.parts?.[key] || (key.startsWith(".") ? walk(this).find((e) => e.classList.contains(key.slice(1))) : null); }
-  getContext() { return { font: "", drawImage() {}, fillRect() {}, measureText(s) { return { width: s.length * 0.6 * parseFloat(/([\d.]+)px/.exec(this.font)?.[1] || 10) }; } }; }
+  getContext() { return { font: "", drawImage() {}, fillRect() {}, scale() {}, transform() {}, putImageData() {},
+    getImageData(_x, _y, width, height) { return { width, height, data: new Uint8ClampedArray(width * height * 4).fill(255) }; },
+    measureText(s) { return { width: s.length * 0.6 * parseFloat(/([\d.]+)px/.exec(this.font)?.[1] || 10) }; } }; }
   toBlob(fn) { fn(new Blob()); }
+  toDataURL() { return "data:image/png;base64,c3ludGhldGljLW1hc2s="; }
 }
 globalThis.Image = class {
   naturalWidth = 8; naturalHeight = 8;
@@ -1268,7 +1271,8 @@ test("Settings confirms Spine beside the asset consent and withdrawal names its 
     button(S("settings.tab.general"))?.click();
     await until(() => selected(1), "Spine refusal selected");
     const rows = walk(settingsHost).map((e) => e.dataset.path).filter((p) => /^Rows\/[^/]+$/.test(p));
-    assert.equal(rows[rows.indexOf("Rows/Cache") + 1], "Rows/Spine");
+    assert.equal(rows[rows.indexOf("Rows/Cache") + 1], "Rows/PreviewCache");
+    assert.equal(rows[rows.indexOf("Rows/PreviewCache") + 1], "Rows/Spine");
     const before = called("app.spineConsent").length;
     spineButton(0).click();
     await drawn(consent, "ok");

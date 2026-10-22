@@ -1275,6 +1275,7 @@
 				"mods": "Mods"
 			},
 			"language": "Language",
+			"previewCache": "Preview Cache",
 			"cache": {
 				"label": "Asset Cache",
 				"on": "Cached on this device",

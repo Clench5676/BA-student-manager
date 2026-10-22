@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import shutil
@@ -240,6 +241,7 @@ class Services:
         self.tray_shown = False  # the tray or menu bar icon is shown (the game watch then polls fast)
         self._lock = threading.RLock()
         self._cache, self._game, self._catalog, self._library = cache, game, catalog, library
+        self._preview_cache = None
         self._injected = {k for k, v in (("game", game), ("catalog", catalog), ("library", library)) if v is not None}
         self._other_games: dict[str, Any] = {}  # other installs' GameAssets by install key, for <core>@<id> URLs
         self._prune_job: str | None = None
@@ -277,6 +279,46 @@ class Services:
             return self._cache
 
     @property
+    def preview_cache(self) -> Any:
+        with self._lock:
+            if self._preview_cache is None:
+                from ..gameassets.cache import PreviewCache
+
+                self._preview_cache = PreviewCache(self.cache_dir() / "previews", allowed=self.state.get("preview_cache") is True)
+            return self._preview_cache
+
+    def set_preview_cache(self, enabled: bool) -> None:
+        with self._lock:
+            self.state.set("preview_cache", enabled)
+            self.preview_cache.allowed = enabled
+
+    def preview_thumbnail_key(self, key: str) -> str:
+        """The client hashes all renderer inputs; the server isolates installation and export version."""
+        if not isinstance(key, str) or not key or len(key) > 4096:
+            raise ServiceError("bad_params", key="key")
+        try:
+            encoded = key.encode()
+        except UnicodeError as error:
+            raise ServiceError("bad_params", key="key") from error
+        if len(encoded) > 4096:
+            raise ServiceError("bad_params", key="key")
+        game = self.game
+        namespace = getattr(game, "preview_namespace", None)
+        if namespace is None:
+            namespace = json.dumps([self.settings.get("file_source"), str(self.settings.game_dir()), game.resource_version])
+        return "thumbnail/" + hashlib.sha256((namespace + "\n" + key).encode()).hexdigest()
+
+    def clear_cache(self) -> None:
+        with self._lock:
+            self.preview_cache.clear_with(self.cache.clear)
+            for game in [self._game, *self._other_games.values()]:
+                if game is not None and hasattr(game, "clear_memory"):
+                    game.clear_memory()
+            if "game" not in self._injected:
+                self._game = None
+            self._other_games = {}
+
+    @property
     def game(self) -> Any:
         self._refresh_if_idle()
         with self._lock:
@@ -292,11 +334,11 @@ class Services:
         from ..gameassets import AssetCache, GameAssets
 
         if private:
-            # another install's files: a memory-only cache of its own, since the shared one is keyed by the game's
-            # resource version and its indexes hold bundle paths, so two installs at one version would read each
-            # other's bundles
-            return GameAssets(dirs, AssetCache(allowed=False, max_bytes=128 * 1024 * 1024, root=self.cache_dir()))
-        return GameAssets(dirs, self.cache)
+            # Light indexes contain bundle paths, so give each other installation its own memory cache.
+            # The separately consented preview store includes the install identity in every key.
+            return GameAssets(dirs, AssetCache(allowed=False, max_bytes=128 * 1024 * 1024, root=self.cache_dir()),
+                              preview_cache=self.preview_cache)
+        return GameAssets(dirs, self.cache, preview_cache=self.preview_cache)
 
     def game_found(self) -> bool:
         if self.safe_mode:
@@ -358,7 +400,7 @@ class Services:
         self._prune_job = self.submit("library.prune", prune, writes="library", library=library)
 
     def cache_dir(self) -> Path:
-        """Where light game UI assets are cached: a bluearchive-modding-patching-tool/cache folder inside the chosen folder,
+        """Where consented game assets are cached: a bluearchive-modding-patching-tool/cache folder inside the chosen folder,
         else the default user cache folder. Always a folder of its own, so clearing it never touches anything else."""
         chosen = self.state.get("cache_parent")
         if not chosen:
@@ -375,14 +417,18 @@ class Services:
             raise ServiceError("path_not_found", path=str(parent))
         with self._lock:
             old = self.cache_dir()
+            preview_cache = self.preview_cache
             self.state.set("cache_parent", str(parent))
             new = self.cache_dir()
             if new != old:
-                if self._cache is not None:
-                    self._cache.clear()  # removes the old cache folder only
-                    self._cache.root = new
-                elif old.is_dir() and old.name == "cache" and old.parent.name in (APP_DIR_NAME, OLD_APP_DIR_NAME):
-                    shutil.rmtree(old, ignore_errors=True)
+                # A cache relocation must invalidate pending writes to the old generation too.
+                def clear_old() -> None:
+                    if self._cache is not None:
+                        self._cache.clear()
+                        self._cache.root = new
+                    elif old.is_dir() and old.name == "cache" and old.parent.name in (APP_DIR_NAME, OLD_APP_DIR_NAME):
+                        shutil.rmtree(old, ignore_errors=True)
+                preview_cache.relocate(new / "previews", clear_old)
         return new
 
     def library_dir(self) -> Path:
@@ -1151,7 +1197,7 @@ class Services:
         if kind == "spine" and len(parts) == 4:
             return self._spine_asset(parts[1], parts[2], parts[3])
         if kind == "model" and len(parts) == 2 and parts[1].endswith(".glb"):
-            # a variant's 3D chibi, exported from the game files in memory and never cached
+            # A variant's 3D chibi, exported losslessly and cached only with separate preview consent.
             key = _stem(parts[1])
             try:
                 variant = self.catalog.variant(key)

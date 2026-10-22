@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
+import hashlib
 import json
 import logging
 import math
+import re
 import sys
 import tempfile
 import threading
@@ -13,8 +17,10 @@ import weakref
 import webbrowser
 from concurrent.futures import Future
 from concurrent.futures import TimeoutError as FutureTimeout
+from io import BytesIO
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote
 
 from .. import devmode, globallines, updater
 from ..catalog.special import SPECIAL_PREFIX
@@ -104,6 +110,8 @@ def build_api(s: Services) -> RpcRegistry:
             "resourceVersion": version,
             "consent": s.state.consent,
             "spineConsent": s.state.spine_consent,
+            "previewCache": s.state.get("preview_cache") is True,
+            "previewCacheGeneration": s.preview_cache.generation,
             "uiCached": found and s.ui_cached(version),
             "cacheDir": str(s.cache_dir()),
             "dataDir": str(s.data_dir),
@@ -294,6 +302,8 @@ def build_api(s: Services) -> RpcRegistry:
             "roster": roster_view(s.state.get("roster")),
             "consent": s.state.consent, "cacheDir": str(s.cache_dir()),
             "spineConsent": s.state.spine_consent,
+            "previewCache": s.state.get("preview_cache") is True,
+            "previewCacheGeneration": s.preview_cache.generation,
             "version": get_version_info().get("version"), "native": s.window is not None,
             "logPath": str(s.log_path),
             # the tray or menu bar icon, the hand-off prompt
@@ -337,6 +347,10 @@ def build_api(s: Services) -> RpcRegistry:
             s.move_library(Path(str(value)))
         elif key == "cacheDir":
             s.set_cache_parent(Path(str(value)))
+        elif key == "previewCache":
+            if not isinstance(value, bool):
+                raise ServiceError("bad_params", key=key)
+            s.set_preview_cache(value)
         elif key == "voiceVolume":
             s.state.set("voice_volume", max(0, min(100, int(value))))
         elif key == "voiceMuted":
@@ -382,8 +396,88 @@ def build_api(s: Services) -> RpcRegistry:
         return str(result[0]) if result else None
 
     @rpc.method("settings.clearCache")
-    def settings_clear_cache() -> None:
-        s.cache.clear()
+    def settings_clear_cache() -> dict[str, Any]:
+        s.clear_cache()
+        return settings_get()
+
+    @rpc.method("preview.cacheGet")
+    def preview_cache_get(key: str) -> dict[str, Any]:
+        cache = s.preview_cache
+        generation = cache.generation
+        allowed = cache.allowed and not s.safe_mode
+        data = cache.get(s.preview_thumbnail_key(key)) if allowed else None
+        # A concurrent clear/toggle must not return a stale generation as usable data.
+        if cache.generation != generation:
+            data = None
+        return {"allowed": allowed and cache.allowed, "generation": cache.generation,
+                "data": base64.b64encode(data).decode("ascii") if data is not None else None}
+
+    @rpc.method("preview.modelRevision")
+    def preview_model_revision(variant: str, source: str = "live") -> dict[str, str]:
+        if (not isinstance(variant, str) or not variant or len(variant) > 256 or "/" in variant
+                or not isinstance(source, str) or len(source) > 512):
+            raise ServiceError("bad_params", key="variant")
+        generation = s.preview_cache.generation
+        try:
+            exported = s.asset("model/" + variant + ".glb", {"source": source})
+        except KeyError as error:
+            raise ServiceError("bad_params", key="variant") from error
+        return {"revision": hashlib.sha256(exported.body).hexdigest(), "generation": generation}
+
+    @rpc.method("preview.assetRevision")
+    def preview_asset_revision(paths: list[str]) -> dict[str, str]:
+        """Identify the exact background and framing bytes used by a persisted still."""
+        if not s.preview_cache.allowed or s.safe_mode:
+            raise ServiceError("bad_params", key="previewCache")
+        if not isinstance(paths, list) or not 1 <= len(paths) <= 2:
+            raise ServiceError("bad_params", key="paths")
+        checked = []
+        for path in paths:
+            if not isinstance(path, str) or len(path) > 2048:
+                raise ServiceError("bad_params", key="paths")
+            try:
+                path = unquote(path, errors="strict")
+            except UnicodeError as error:
+                raise ServiceError("bad_params", key="paths") from error
+            background = re.fullmatch(r"/asset/art/bg/BG_[a-zA-Z0-9_-]+\.png", path)
+            framing = re.fullmatch(r"/asset/spine/(?:spr|lobby|official-spr|official-lobby|mod|import)/"
+                                   r"[a-zA-Z0-9_][a-zA-Z0-9_@.:-]{0,511}/[a-f0-9]{64}/framing\.json", path)
+            if not (background or framing):
+                raise ServiceError("bad_params", key="paths")
+            checked.append(path)
+        generation = s.preview_cache.generation
+        identities = []
+        try:
+            for path in sorted(set(checked)):
+                exported = s.asset(path[len("/asset/"):], {})
+                identities.append([path, hashlib.sha256(exported.body).hexdigest()])
+        except KeyError as error:
+            raise ServiceError("bad_params", key="paths") from error
+        digest = hashlib.sha256(json.dumps(identities, separators=(",", ":")).encode()).hexdigest()
+        return {"revision": digest, "generation": generation}
+
+    @rpc.method("preview.cachePut")
+    def preview_cache_put(key: str, data: str, generation: str) -> bool:
+        cache = s.preview_cache
+        if s.safe_mode or not cache.allowed or generation != cache.generation:
+            return False
+        # Base64 leaves sufficient room under the authenticated RPC's 4 MiB body cap.
+        limit = 2 * 1024 * 1024
+        if not isinstance(data, str) or len(data) > 4 * ((limit + 2) // 3):
+            raise ServiceError("bad_params", key="data")
+        from PIL import Image
+
+        try:
+            raw = base64.b64decode(data, validate=True)
+            if len(raw) > limit or not raw.startswith(b"\x89PNG\r\n\x1a\n"):
+                raise ValueError("Invalid thumbnail PNG")
+            with Image.open(BytesIO(raw)) as image:
+                if image.format != "PNG" or image.width > 4096 or image.height > 4096:
+                    raise ValueError("Invalid thumbnail dimensions")
+                image.verify()
+        except (ValueError, binascii.Error, OSError, SyntaxError, Image.DecompressionBombError) as error:
+            raise ServiceError("bad_params", key="data") from error
+        return cache.put(s.preview_thumbnail_key(key), raw, generation=generation)
 
     @rpc.method("debug.trace")
     def debug_trace(events: list[Any]) -> None:

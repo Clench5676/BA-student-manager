@@ -1275,6 +1275,7 @@
 				"mods": "Mod"
 			},
 			"language": "語言",
+			"previewCache": "預覽快取",
 			"cache": {
 				"label": "素材快取",
 				"on": "已快取到本機",

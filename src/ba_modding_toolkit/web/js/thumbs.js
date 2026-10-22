@@ -12,6 +12,7 @@ import { lobbyIdle } from "./rest-pose.js";
 import { lobbyStillViewport } from "./lobby-still.js";
 import { previewError } from "./preview-error.js";
 import { captureRetries } from "./capture-retries.js";
+import { previewCache } from "./preview-cache.js";
 import { holdPopupCaptures, onCapturePriorityChange, popupCapturesOpen, popupItem, captureEligible } from "./capture-priority.js";
 
 export const THUMB_LOAD_TIMEOUT = 15000;
@@ -159,7 +160,7 @@ function loadPlayer(base, el, signal, onError) {
   }, { signal, onError, manual: true });
 }
 
-async function capture(player, el, frame, expr, lobby, framing, background, signal) {
+async function capture(player, el, frame, expr, lobby, framing, background, signal, partial = () => {}) {
   const [w, h] = FRAMES[frame];
   el.style.width = `${w}px`;
   el.style.height = `${h}px`;
@@ -203,6 +204,7 @@ async function capture(player, el, frame, expr, lobby, framing, background, sign
   still.width = portrait.width; still.height = portrait.height;
   still.getContext("2d").drawImage(portrait, 0, 0);
   const canvas = await collectionStill(still, background, signal).catch((err) => {
+    partial();
     if (!signal.aborted) console.warn("Thumbnail background unavailable", background, err);
     return still;
   });
@@ -231,6 +233,15 @@ export async function collectionStill(portrait, background, signal, load = (url,
 }
 
 const keyOf = (base, frame, expr, lobby = false, framing = null, background = null) => `${base}|${frame}|${expr || ""}|${lobby}|${framing || ""}|${background || ""}`;
+const persistentKey = (base, frame, expr, lobby, framing, background) => JSON.stringify([
+  "spine-4.2.120-still-v1", base.match(/\/([a-f0-9]{64})\//)?.[1] || base,
+  base.slice(base.lastIndexOf("/") + 1), frame, FRAMES[frame], expr, lobby, framing, background,
+  globalThis.devicePixelRatio || 1,
+]);
+const persistentDependencies = (base, lobby, framing, background) => [
+  ...(background ? [background.endsWith(".png") ? background : `${background}.png`] : []),
+  ...(lobby && !framing ? [`${base.slice(0, base.lastIndexOf("/"))}/framing.json`] : []),
+];
 
 // A fallback retains queue priority and cancellation: an abandoned view must never publish a late image.
 export function withThumbnailFallback(picture, fallback) {
@@ -289,6 +300,7 @@ function complete(item, url, error = null) {
   const at = queue.indexOf(item);
   if (at >= 0) queue.splice(at, 1);
   if (!url && cache.get(item.key) === item) cache.delete(item.key);
+  if (url && item.persistent && !item.forgotten) void previewCache.put(item.persistent, url);
   for (const done of [...item.clients]) done(url);
   if (url && item.forgotten) URL.revokeObjectURL(url);
 }
@@ -352,7 +364,9 @@ async function pump() {
         const batch = [];
         let q = first.settled ? queue.find((q) => q.base === base) : first;
         while (!signal.aborted && q && !q.settled && captureEligible(q)) {
-          const url = await withTimeout(capture(player, el, q.frame, q.expr, q.lobby, q.framing, q.background, signal), THUMB_CAPTURE_TIMEOUT, `Thumbnail capture ${base}`, { signal });
+          if (q.lobby && !q.framing && !player.bamtLobbyFrame) q.persistent = null;
+          const url = await withTimeout(capture(player, el, q.frame, q.expr, q.lobby, q.framing, q.background, signal,
+            () => { q.persistent = null; }), THUMB_CAPTURE_TIMEOUT, `Thumbnail capture ${base}`, { signal });
           if (active.preempted) { if (url) URL.revokeObjectURL(url); break; }
           batch.push(q);
           complete(q, url, !url && !signal.aborted ? new Error(`PNG encoding failed (frame=${q.frame})`) : null);
@@ -382,9 +396,13 @@ async function companions(player, el, base, batch, signal) {
     if (!frame || queue.length || popupCapturesOpen()) continue;
     const key = keyOf(base, frame, null, q.lobby, q.framing, q.background);
     if (cache.has(key)) continue;
+    let persistent = await previewCache.assetTicket(previewCache.ticket(persistentKey(base, frame, null, q.lobby, q.framing, q.background)),
+      persistentDependencies(base, q.lobby, q.framing, q.background));
+    if (q.lobby && !q.framing && !player.bamtLobbyFrame) persistent = null;
     let url;
     try {
-      url = await withTimeout(capture(player, el, frame, null, q.lobby, q.framing, q.background, signal), THUMB_CAPTURE_TIMEOUT, `Thumbnail companion ${base}`, { signal });
+      url = await withTimeout(capture(player, el, frame, null, q.lobby, q.framing, q.background, signal,
+        () => { persistent = null; }), THUMB_CAPTURE_TIMEOUT, `Thumbnail companion ${base}`, { signal });
       if (!url && !signal.aborted) throw new Error(`PNG encoding failed (frame=${frame})`);
     } catch (error) {
       // A speculative companion has no unsettled item to report through complete().
@@ -395,7 +413,10 @@ async function companions(player, el, base, batch, signal) {
     const waiting = cache.get(key);
     if (waiting && !waiting.settled) complete(waiting, url);
     else if (waiting) URL.revokeObjectURL(url);
-    else cache.set(key, { key, base, frame, lobby: q.lobby, framing: q.framing, background: q.background, url, settled: true, clients: new Set() });
+    else {
+      cache.set(key, { key, base, frame, lobby: q.lobby, framing: q.framing, background: q.background, url, settled: true, clients: new Set() });
+      void previewCache.put(persistent, url);
+    }
   }
 }
 
@@ -464,12 +485,25 @@ function request(base, frame = "bust", expr = null, lobby = false, framing = nul
   }
   const key = keyOf(base, frame, expr, lobby, framing, background);
   if (!cache.has(key)) {
-    const item = { key, base, frame, expr, lobby, framing, background, clients: new Set(), settled: false };
+    const item = { key, base, frame, expr, lobby, framing, background, clients: new Set(), settled: false,
+      persistent: previewCache.ticket(persistentKey(base, frame, expr, lobby, framing, background)) };
     cache.set(key, item);
-    queue.push(item);
-    if (active?.base === base && !active.controller.signal.aborted) active.items.add(item);
-    if (preferred) queue.sort((a, b) => b.base.startsWith(preferred) - a.base.startsWith(preferred));
-    queueMicrotask(pump);
+    const enqueue = () => {
+      if (item.settled || item.forgotten) { complete(item, null); return; }
+      queue.push(item);
+      if (active?.base === base && !active.controller.signal.aborted) active.items.add(item);
+      if (preferred) queue.sort((a, b) => b.base.startsWith(preferred) - a.base.startsWith(preferred));
+      queueMicrotask(pump);
+    };
+    if (item.persistent) void previewCache.assetTicket(item.persistent, persistentDependencies(base, lobby, framing, background)).then(async (ticket) => {
+      item.persistent = ticket;
+      return previewCache.get(ticket);
+    }).then((url) => {
+      if (item.settled || item.forgotten) { if (url) URL.revokeObjectURL(url); complete(item, null); return; }
+      if (url) { item.persistent = null; complete(item, url); }
+      else enqueue();
+    });
+    else enqueue();
   }
   const picture = subscribe(cache.get(key), signal);
   queueMicrotask(pump);

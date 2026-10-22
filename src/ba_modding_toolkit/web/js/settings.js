@@ -184,9 +184,13 @@ function rows({ builtSize = null, sizeError = null } = {}) {
   if (tab === "general") {
     // each language named in itself, in its own fonts
     add(radioRow("Language", 0, T("settings.language"), p.languages.map((l) => [l.code, l.name, l.code]), p.language, (v) => set("language", v)));
-    add(valueRow("Cache", 0, T("settings.cache.label"), p.consent ? T("cacheTo", { path: p.cacheDir }) : `${T("settings.cache.off")} - ${p.cacheDir}`, [
+    add(valueRow("Cache", 0, T("settings.cache.label"), p.consent || p.previewCache ? T("cacheTo", { path: p.cacheDir }) : `${T("settings.cache.off")} - ${p.cacheDir}`, [
       [T("settings.cache.change"), browse("cacheDir", p.cacheDir), p.native],
-      [T("settings.cache.clear"), async () => { await call(() => rpc("settings.clearCache")); }, !!p.consent]]));
+      [T("settings.cache.clear"), async () => {
+        const next = await call(() => rpc("settings.clearCache"));
+        if (next) { prefs = next; await onChange?.("cacheCleared", next); await render(); }
+      }, true]]));
+    add(radioRow("PreviewCache", 0, T("settings.previewCache"), ON_OFF(), p.previewCache === true, (value) => set("previewCache", value)));
     add(radioRow("Spine", 0, T(runtimeLoaded() && p.spineConsent !== true ? "settings.spine.restart" : "settings.spine.label"),
       [[true, T("spine.license.yes")], [false, T("spine.license.no")]], p.spineConsent === true, async (granted) => {
         if (granted === (prefs.spineConsent === true)) return;

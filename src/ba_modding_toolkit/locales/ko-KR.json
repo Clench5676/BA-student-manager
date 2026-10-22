@@ -1275,6 +1275,7 @@
 				"mods": "모드"
 			},
 			"language": "언어",
+			"previewCache": "미리보기 캐시",
 			"cache": {
 				"label": "에셋 캐시",
 				"on": "이 기기에 캐시됨",

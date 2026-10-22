@@ -1275,6 +1275,7 @@
 				"mods": "MOD"
 			},
 			"language": "言語",
+			"previewCache": "プレビューキャッシュ",
 			"cache": {
 				"label": "素材キャッシュ",
 				"on": "この端末にキャッシュ済み",

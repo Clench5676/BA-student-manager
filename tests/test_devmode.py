@@ -291,7 +291,11 @@ def dev_services(dev):
     from ba_modding_toolkit.webui.services import Services
     from ba_modding_toolkit.webui.state import UiState
 
-    s = Services(config.Settings(dev.root / "config.toml"), dev.root, state=UiState(dev.root / "webui.json"),
+    state = UiState(dev.root / "webui.json")
+    # This fixture narrows the session roots; its lazily constructed preview
+    # cache must use that same root rather than the outer test session's default.
+    state.set("cache_parent", str(dev.root))
+    s = Services(config.Settings(dev.root / "config.toml"), dev.root, state=state,
                  game=object(), catalog=object(), library=_Library())
     yield s
     s.close()

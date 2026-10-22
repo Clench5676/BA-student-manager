@@ -1275,6 +1275,7 @@
 				"mods": "Mod"
 			},
 			"language": "语言",
+			"previewCache": "预览缓存",
 			"cache": {
 				"label": "素材缓存",
 				"on": "已缓存到本机",

@@ -116,18 +116,27 @@ Imports only go one way: `webui` → `library` → `catalog` → `gameassets` �
 - **Game assets.** Two classes:
   - *Light*: atlas sprites, atlas metadata, UI textures, prefab layouts and the bundle indexes. Kept in memory; written
     to the disk cache only after the user agreed (`consent = true`).
-  - *Heavy*: collection backgrounds and portraits, Spine skeletons, lobbies and their data, 3D models, voices,
-    anything from a character bundle. Memory only, never written to disk, served with `Cache-Control: no-store`.
+  - *Heavy*: collection backgrounds and portraits, Spine skeletons, lobbies and their data, and 3D models use memory
+    by default. The separate **Preview Cache** setting permits lossless exports and generated PNG thumbnails in
+    the user cache directory. Browser responses remain `Cache-Control: no-store`; voices remain memory-only.
 - **Disk cache.** `user_cache_dir()/<resource_version>/...`, where `user_cache_dir()` is
   `%LOCALAPPDATA%\bluearchive-modding-patching-tool\cache` on Windows,
   `~/Library/Application Support/bluearchive-modding-patching-tool/cache` on macOS and
   `$XDG_CACHE_HOME/bluearchive-modding-patching-tool` (or `~/.cache/...`) elsewhere. It can be cleared from the UI.
   The old `BA-Modding-Toolkit` user folder is renamed automatically on first start; obsolete caches are rebuilt.
   Close older app windows first, then use the new version: an old build started afterward can recreate its old folder.
+- **Preview cache.** Off by default, independent of light UI caching. Stored under the configured cache directory's
+  `previews/` folder, bounded to 2 GiB with least-recently-used eviction. Entries include installation/resource/export
+  identity, source revisions and model dependencies. Still keys additionally include renderer parameters and current
+  background/framing content. Corrupt entries rebuild. A PNG above 2 MiB remains memory-only; it is not downscaled.
+  **Clear Cache** deletes stored previews and backend memory without interrupting the active frontend scene or import
+  selections. Clear, opt-out and location changes invalidate pending writes. Turning caching off keeps stored files
+  until Clear; new renders after Clear may create new entries while caching remains enabled.
 - **Resource version.** SHA-1 of `Catalog/Windows/catalog_Windows.hash` when present, else of the sorted
   `(name, size)` listing of the resource folders. The cache key; a game update starts a new cache folder.
   The UI atlas index additionally keys on the current atlas bundle inventory (resolved paths, sizes, modification
-  and change times). It is rediscovered on each atlas or sprite request, so adding bundles to a partial install or
+  and change times). Discovery is reused while resource directory generations remain unchanged; known atlas files
+  are still revalidated on each request, so adding bundles to a partial install or
   sandbox invalidates the index and cropped sprites even with the same catalog hash. Empty indexes, unresolved
   atlas replacements or textures, failed reads and changes during a scan are logged and never cached. Old atlas
   entries use a different key. The atlas JSON uses `no-store` in both the request and response; consent still

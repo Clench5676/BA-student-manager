@@ -435,7 +435,8 @@ def test_live_spine_files_merge_in_the_previews_order(setup_library, monkeypatch
         revision = json.loads(services.asset(f"{prefix}/manifest.json", {}).body)["revision"]
         for clear in (False, True):
             if clear:
-                assert build_api(services).call("settings.clearCache", {}) == {"result": None}
+                cleared = build_api(services).call("settings.clearCache", {})["result"]
+                assert cleared["previewCache"] is False
             assert json.loads(services.asset(f"{prefix}/manifest.json", {}).body)["revision"] == revision
             assert services.asset(f"{prefix}/{revision}/skeleton.skel", {}).body == b"skeleton"
             assert services.asset(f"{prefix}/{revision}/page.png", {}).body == targets[0].read_bytes()

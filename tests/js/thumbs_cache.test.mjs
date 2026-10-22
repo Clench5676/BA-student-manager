@@ -3,6 +3,7 @@ import { afterEach, test } from "node:test";
 import { spineBase, spinePrefix, spineAssetBase } from "../../src/ba_modding_toolkit/web/js/api.js";
 import { thumb, forget, prioritise, thumbnailScope, hasThumbnailInk, withThumbnailFallback, THUMB_LOAD_TIMEOUT, THUMB_CAPTURE_TIMEOUT } from "../../src/ba_modding_toolkit/web/js/thumbs.js";
 import { setSpineConsent } from "../../src/ba_modding_toolkit/web/js/spine-runtime.js";
+import { previewCache } from "../../src/ba_modding_toolkit/web/js/preview-cache.js";
 
 setSpineConsent(true);
 
@@ -899,4 +900,149 @@ test("a shared popup and background still survives another popup scope closing",
     assert.equal(players.has(player), true);
     release({}); assert.ok(await b); assert.equal(await c, await b);
   } finally { first.cancel(); second.cancel(); background.cancel(); document.createElement = create; }
+});
+
+// A synthetic one-pixel PNG travels through the actual RPC/base64/blob path.
+// Render calls still use the existing fake Spine canvas; no game art is stored.
+const PERSISTED_PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=";
+const until = async (predicate, message) => {
+  for (let i = 0; i < 300 && !predicate(); i++) await new Promise(setImmediate);
+  assert.ok(predicate(), message);
+};
+function persistentBackend() {
+  const previous = { fetch: globalThis.fetch, Image: globalThis.Image, create: document.createElement,
+    revoke: URL.revokeObjectURL };
+  const files = new Map(), calls = [], revoked = [], imageRequests = [], blobReads = [];
+  const state = { generation: "thumb-queue-test", dependency: "a".repeat(64), background: true, framing: true, delayedRead: null };
+  const reply = (result) => ({ ok: true, json: async () => ({ result }) });
+  globalThis.fetch = async (url, options) => {
+    if (url === "/api/rpc") {
+      const { method, params } = JSON.parse(options.body); calls.push({ method, params });
+      if (method === "preview.assetRevision") return reply({ revision: state.dependency, generation: state.generation });
+      if (method === "preview.cacheGet") {
+        const result = { allowed: true, generation: state.generation, data: files.get(params.key) ?? null };
+        if (state.delayedRead) return state.delayedRead(result);
+        return reply(result);
+      }
+      if (method === "preview.cachePut") {
+        assert.equal(params.generation, state.generation);
+        assert.equal(params.data, PERSISTED_PNG, "persistence keeps the exact lossless bytes");
+        files.set(params.key, params.data); return reply(true);
+      }
+      return previous.fetch(url, options);
+    }
+    if (url.startsWith("blob:")) {
+      blobReads.push(url);
+      return { ok: true, blob: async () => new Blob([Buffer.from(PERSISTED_PNG, "base64")], { type: "image/png" }) };
+    }
+    if (url.endsWith("/framing.json")) return { ok: state.framing, status: state.framing ? 200 : 503,
+      json: async () => ({ view: { x: -1480, y: -832.5, w: 2960, h: 1665 }, layer: { x: 0, y: -962, scale: 1 } }) };
+    return previous.fetch(url, options);
+  };
+  document.createElement = (tag) => tag === "canvas" ? {
+    getContext: () => ({ measureText: (text) => ({ width: text.length * 10 }), drawImage() {} }),
+    toBlob: (done) => done(new Blob([Buffer.from(PERSISTED_PNG, "base64")], { type: "image/png" })),
+  } : el();
+  globalThis.Image = class {
+    naturalWidth = 16; naturalHeight = 9;
+    set src(value) {
+      this.url = value; imageRequests.push(value);
+      queueMicrotask(() => state.background ? this.onload?.() : this.onerror?.());
+    }
+    get src() { return this.url; }
+    removeAttribute() {}
+  };
+  URL.revokeObjectURL = (url) => revoked.push(url);
+  previewCache.configure({ previewCache: true, previewCacheGeneration: state.generation });
+  return { state, files, calls, revoked, imageRequests, blobReads, reply,
+    puts: () => calls.filter(({ method }) => method === "preview.cachePut"),
+    gets: () => calls.filter(({ method }) => method === "preview.cacheGet"),
+    async restore(base) {
+      previewCache.configure({ previewCache: false }); forget(base.slice(0, base.lastIndexOf("/")));
+      await new Promise(setImmediate);
+      globalThis.fetch = previous.fetch; globalThis.Image = previous.Image;
+      document.createElement = previous.create; URL.revokeObjectURL = previous.revoke;
+    },
+  };
+}
+
+test("an opted-in persistent PNG hit bypasses Spine creation after the memory cache is forgotten", async () => {
+  const server = persistentBackend(), base = spineBase("official-spr", "disk_hit_spr"), before = loaded.length;
+  try {
+    set(base, "a");
+    assert.ok(await thumb(base, "face"));
+    await until(() => server.files.size === 1, "the successful capture reaches the authenticated PNG store");
+    assert.equal(loaded.length, before + 1); assert.equal(server.blobReads.length, 1);
+    forget(base.slice(0, base.lastIndexOf("/")));
+    assert.ok(await thumb(base, "face"));
+    assert.equal(loaded.length, before + 1, "a disk hit never constructs a SpinePlayer");
+    assert.equal(server.gets().length, 2); assert.equal(server.puts().length, 1, "a disk read is not uploaded again");
+    previewCache.configure({ previewCache: false }); forget(base.slice(0, base.lastIndexOf("/")));
+    assert.ok(await thumb(base, "face"));
+    assert.equal(loaded.length, before + 2, "without opt-in the renderer remains available");
+    assert.equal(server.gets().length, 2, "opt-out performs no disk-cache read");
+  } finally { await server.restore(base); }
+});
+
+for (const dependency of ["source", "background", "framing"]) test(`persistent thumbnail misses when its ${dependency} revision changes`, async () => {
+  const server = persistentBackend(), lobby = dependency === "framing";
+  const base = spineBase(lobby ? "official-lobby" : "official-spr", `disk_${dependency}`);
+  const background = dependency === "background" ? "/asset/art/bg/disk-revision.png" : null;
+  const render = () => thumb(base, "face", null, lobby, null, background);
+  const before = loaded.length;
+  try {
+    set(base, "b"); assert.ok(await render());
+    await until(() => server.files.size === 1, "the first complete capture is persisted");
+    const firstKey = server.puts()[0].params.key;
+    forget(base.slice(0, base.lastIndexOf("/")));
+    assert.ok(await render()); assert.equal(loaded.length, before + 1, "unchanged bytes reuse the disk entry");
+    if (dependency === "source") set(base, "c");
+    else server.state.dependency = "d".repeat(64);
+    forget(base.slice(0, base.lastIndexOf("/")));
+    assert.ok(await render());
+    await until(() => server.files.size === 2, "the changed source has a separate persistent entry");
+    assert.equal(loaded.length, before + 2); assert.notEqual(server.puts().at(-1).params.key, firstKey);
+    const dependencies = server.calls.filter(({ method }) => method === "preview.assetRevision");
+    if (dependency !== "source") assert.ok(dependencies.length >= 3, "each reopening validates dependent asset bytes");
+    if (dependency === "background") assert.ok(dependencies.every(({ params }) => params.paths.includes(background)));
+    if (dependency === "framing") assert.ok(dependencies.every(({ params }) => params.paths.length === 1 && params.paths[0].endsWith("/framing.json")));
+  } finally { await server.restore(base); }
+});
+
+for (const missing of ["background", "framing"]) test(`an incomplete ${missing} capture never poisons the persistent thumbnail cache`, async () => {
+  const server = persistentBackend(), lobby = missing === "framing";
+  const base = spineBase(lobby ? "official-lobby" : "official-spr", `disk_missing_${missing}`);
+  const background = missing === "background" ? "/asset/art/bg/disk-missing.png" : null;
+  const before = loaded.length;
+  try {
+    set(base, "e"); server.state[missing] = false;
+    assert.ok(await thumb(base, "card", null, lobby, null, background), "the page may display its in-memory fallback");
+    await until(() => !players.size, "both card and speculative bust finish before checking writes");
+    assert.equal(server.puts().length, 0, "neither the requested frame nor its companion is persisted");
+    assert.equal(server.blobReads.length, 0, "incomplete pictures are rejected before encoding an upload");
+    forget(base.slice(0, base.lastIndexOf("/"))); server.state[missing] = true;
+    assert.ok(await thumb(base, "card", null, lobby, null, background));
+    await until(() => server.files.size === 2, "the recovered card and companion may both be persisted");
+    assert.equal(loaded.length, before + 2, "reopening renders a complete frame instead of reading a poisoned disk entry");
+  } finally { await server.restore(base); }
+});
+
+test("cancelling a delayed disk thumbnail read never publishes late art or starts a player", async () => {
+  const server = persistentBackend(), base = spineBase("official-spr", "disk_cancel_spr"), scope = thumbnailScope();
+  let release;
+  try {
+    set(base, "f"); assert.ok(await thumb(base, "face"));
+    await until(() => server.files.size === 1, "the seed capture is persisted");
+    forget(base.slice(0, base.lastIndexOf("/")));
+    server.state.delayedRead = (result) => new Promise((resolve) => { release = () => resolve(server.reply(result)); });
+    const count = loaded.length, oldBlobs = blobs, pending = scope.thumb(base, "face");
+    await until(() => !!release, "the PNG read is waiting on its response");
+    scope.cancel(); assert.equal(await pending, null);
+    release(); await new Promise(setImmediate);
+    assert.equal(loaded.length, count); assert.equal(await pending, null, "a late response cannot replace the cancelled result");
+    for (let i = oldBlobs + 1; i <= blobs; i++) assert.ok(server.revoked.includes(`blob:thumb-${i}`), "any late PNG URL is discarded");
+    server.state.delayedRead = null;
+    assert.ok(await thumb(base, "face"), "a new request can still read the valid disk entry");
+    assert.equal(loaded.length, count); assert.equal(server.puts().length, 1);
+  } finally { release?.(); scope.cancel(); await server.restore(base); }
 });

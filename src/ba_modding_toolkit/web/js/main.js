@@ -26,6 +26,7 @@ import { setSpineConsent } from "./spine-runtime.js";
 import { $, fitStage } from "./util.js";
 import { studentName } from "./names.js";
 import { withTimeout } from "./async.js";
+import { previewCache } from "./preview-cache.js";
 
 globalThis.BAMTRecovery?.presentReport((result) => Popup.message({ title: T("recovery.report"),
   lines: result ? [T("recovery.saved"), result.path, T(result.copied ? "recovery.copied" : "recovery.copyFailed"),
@@ -392,6 +393,7 @@ async function start() {
   const ui = info.gameFound ? timed("ui-indexes", () => NGUI.init()) : Promise.resolve();
   ui.catch(() => {}); // observed below after the strings and fonts
   ctx.prefs = await prefs;
+  previewCache.configure(ctx.prefs);
   Roster.init(ctx.prefs?.roster);
   setStrings(info.language, await timed("strings", () => rpc("i18n.strings", { lang: info.language })));
   Loading.relabel();
@@ -426,6 +428,8 @@ async function start() {
   Prompts.init({ names: variantNames });
   const settingsChanged = async (key, prefs) => {
     ctx.prefs = prefs;
+    previewCache.configure(prefs);
+    if (key === "cacheCleared" || key === "previewCache" || key === "cacheDir") return;
     if (key === "language") { await refreshLanguage(prefs.language); return; }
     Detail.applyPrefs(prefs);
     if (key === "fileSource" || key.startsWith("gameDir") || key === "libraryDir" || key === "spineConsent") { stepCards = null; ctx.invalidateRoster(); route(); }

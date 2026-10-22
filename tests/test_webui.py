@@ -857,7 +857,8 @@ def test_live_portrait_survives_cache_clear(app, services, monkeypatch, tmp_path
     revision = json.loads(call(app, prefix + "/manifest.json")[2])["revision"]
     for clear in (False, True):
         if clear:
-            assert rpc(app, "settings.clearCache") == {"result": None}
+            cleared = rpc(app, "settings.clearCache")["result"]
+            assert cleared["previewCache"] is False
         assert json.loads(call(app, prefix + "/manifest.json")[2])["revision"] == revision
         for name, expected in (("skeleton.skel", b"skeleton"), ("skeleton.atlas", b"page.png\nsize: 1,1\n"),
                                ("page.png", mod.read_bytes())):

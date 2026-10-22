@@ -423,6 +423,7 @@ test("generic go-to opens Settings' Mods tab with the same preference updates as
   const changes = [], opened = [], destinations = [];
   let context;
   const env = { ctx: { invalidateRoster: () => changes.push("invalidated"), go: (...args) => destinations.push(args) },
+    previewCache: { configure() {} },
     Detail: { applyPrefs: (prefs) => changes.push(prefs) }, variantNames: () => {}, route: () => changes.push("routed"),
     Settings: { open: (...args) => opened.push(args) }, ModAdd: { init: (value) => { context = value; } },
     rosterData: { families: [{ key: "mutsuki", variants: [{ key: "base" }] }] }, stepCards: {},

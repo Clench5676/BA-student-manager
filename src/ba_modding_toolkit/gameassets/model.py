@@ -545,6 +545,9 @@ class BundleGraph:
         self.objects: dict[tuple[str, int], Any] = {}
         self.trees: dict[tuple[str, int], Any] = {}
         self.loaded: list[str] = []
+        # Missing external CABs can arrive later without changing any already-read
+        # file. Partial exports remain usable, but cannot be persisted as complete.
+        self.missing_cabs: set[str] = set()
         self._stack = ExitStack()
 
     def __enter__(self) -> "BundleGraph":
@@ -590,6 +593,8 @@ class BundleGraph:
             if path is not None and path not in self.loaded:
                 self.add(path)
                 hit = self.objects.get((cab, pid))
+            elif path is None and cab.startswith("cab-"):
+                self.missing_cabs.add(cab)
         return hit
 
     def component(self, game_object: Any, type_name: str) -> Any:

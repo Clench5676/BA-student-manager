@@ -4,6 +4,7 @@ import { withTimeout } from "./async.js";
 import { modelUrl, partsOf } from "./switch-sources.js";
 import { previewError } from "./preview-error.js";
 import { captureRetries } from "./capture-retries.js";
+import { previewCache } from "./preview-cache.js";
 import { onCapturePriorityChange, popupCapturesOpen, popupItem, captureEligible } from "./capture-priority.js";
 
 export const modelStillVersion = (family, variant, generation = 0) => JSON.stringify([
@@ -13,7 +14,7 @@ export const modelStillVersion = (family, variant, generation = 0) => JSON.strin
 ]);
 export const modelStillKey = (key, source, version) => JSON.stringify([key, source, version, "square-640-v2"]);
 
-export function createModelStills({ renderer = () => import("./model.js"), report = previewError, timeout = 8000 } = {}) {
+export function createModelStills({ renderer = () => import("./model.js"), report = previewError, timeout = 8000, persistent = previewCache } = {}) {
   const cache = new Map(), queue = [];
   const retries = captureRetries(() => queueMicrotask(pump));
   let running = false, active = null, unwatch = null;
@@ -36,6 +37,7 @@ export function createModelStills({ renderer = () => import("./model.js"), repor
     }
     item.done = true; item.url = url; item.error = error;
     if (!url && cache.get(item.key) === item) cache.delete(item.key);
+    if (url && item.persistent) void persistent.put(item.persistent, url);
     const at = queue.indexOf(item);
     if (at >= 0) queue.splice(at, 1);
     for (const finish of [...item.clients]) finish(url);
@@ -57,6 +59,13 @@ export function createModelStills({ renderer = () => import("./model.js"), repor
         item.controller = controller;
         let view;
         const capture = (async () => {
+          item.persistent = await persistent.modelTicket(JSON.stringify(["model-square-640-v2", globalThis.devicePixelRatio || 1]), item.variant, item.source);
+          signal.throwIfAborted();
+          const saved = await persistent.get(item.persistent, { signal });
+          if (saved) {
+            if (signal.aborted) { URL.revokeObjectURL(saved); return null; }
+            item.persistent = null; return saved;
+          }
           const module = await renderer();
           signal.throwIfAborted();
           view = module.createStillView();
@@ -90,7 +99,7 @@ export function createModelStills({ renderer = () => import("./model.js"), repor
     const key = modelStillKey(variant, source, version);
     let item = cache.get(key);
     if (!item) {
-      item = { key, urlSource: modelUrl(variant, source), clients: new Set(), done: false };
+      item = { key, variant, source, urlSource: modelUrl(variant, source), clients: new Set(), done: false };
       cache.set(key, item); queue.push(item); queueMicrotask(pump);
     }
     const picture = new Promise((resolve) => {

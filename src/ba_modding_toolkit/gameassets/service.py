@@ -9,6 +9,7 @@ import math
 import re
 import threading
 from collections.abc import Iterable
+from contextlib import contextmanager
 from copy import deepcopy
 from pathlib import Path
 from typing import Any, Callable
@@ -18,7 +19,7 @@ from PIL import Image
 from .. import devmode
 from ..errors import ServiceError
 from ..naming import parse_filename, spine_kind
-from .cache import AssetCache
+from .cache import AssetCache, PreviewCache, pack_preview_files, unpack_preview_files
 from . import lobby
 from .discovery import (
     bundle_paths, cab_names, group_bundles, is_atlas, is_layout_texture,
@@ -94,17 +95,43 @@ class GameAssets:
     Unity operations even across different service instances.
     """
 
-    def __init__(self, resource_dirs: list[Path], cache: AssetCache):
+    def __init__(self, resource_dirs: list[Path], cache: AssetCache, *, preview_cache: PreviewCache | None = None):
         for path in resource_dirs:
             devmode.check_read(path)  # dev mode: only game folders inside the dev roots
         self.resource_dirs = list(dict.fromkeys(Path(p).resolve() for p in resource_dirs if Path(p).is_dir()))
         if not self.resource_dirs:
             raise ServiceError("game_not_found")
         self.cache = cache
+        self.preview_cache = preview_cache
         self._guard = threading.RLock()
         self._locks: dict[str, threading.RLock] = {}
         self._indexes: dict[str, Any] = {}
         self._shader_forms: dict[tuple[str, int], dict] = {}  # shader (cab, path id) -> name, properties, pass states
+
+    @property
+    def preview_namespace(self) -> str:
+        """Keep identical resource catalogs in different installations separate."""
+        return json.dumps([[str(path) for path in self.resource_dirs], self.resource_version])
+
+    def clear_memory(self) -> None:
+        """Drop derived indexes; old requests retain only their private references."""
+        with self._guard:
+            self._indexes = {}
+            self._shader_forms = {}
+            self.cache.clear_memory()
+
+    def _preview_key(self, key: str) -> str:
+        return self.preview_namespace + "/" + key
+
+    def _preview_get(self, key: str) -> bytes | None:
+        return self.preview_cache.get(self._preview_key(key)) if self.preview_cache else None
+
+    def _preview_put(self, key: str, value: bytes, generation: str | None) -> None:
+        if self.preview_cache is not None and generation is not None:
+            self.preview_cache.put(self._preview_key(key), value, generation=generation)
+
+    def _preview_generation(self) -> str | None:
+        return self.preview_cache.generation if self.preview_cache else None
 
     def _lock(self, key: str) -> threading.RLock:
         with self._guard:
@@ -135,14 +162,29 @@ class GameAssets:
 
     def _cached(self, key: str, build: Callable[[], bytes], *, disk: bool = True) -> bytes:
         with self._lock(key):
+            generation = self.cache.generation
             value = self.cache.get(_SCHEMA + key, version=self.resource_version, disk=disk)
             if value is None:
                 value = build()
-                self.cache.put(_SCHEMA + key, value, version=self.resource_version, disk=disk)
+                self.cache.put(_SCHEMA + key, value, version=self.resource_version, disk=disk, generation=generation)
+            return value
+
+    def _preview_bytes(self, key: str, build: Callable[[], bytes]) -> bytes:
+        """Reuse the exact export bytes in memory and, with opt-in, across launches."""
+        with self._lock(key):
+            generation, disk_generation = self.cache.generation, self._preview_generation()
+            value = self.cache.get(_SCHEMA + key, version=self.resource_version, disk=False)
+            if value is None:
+                value = self._preview_get(key)
+                if value is None:
+                    value = build()
+                    self._preview_put(key, value, disk_generation)
+                self.cache.put(_SCHEMA + key, value, version=self.resource_version, disk=False, generation=generation)
             return value
 
     def _index(self, key: str, build: Callable[[], Any], *, disk: bool = True) -> Any:
         with self._lock(key):
+            generation = self.cache.generation
             if key not in self._indexes:
                 def encode() -> bytes:
                     return json.dumps(build(), ensure_ascii=True, separators=(",", ":")).encode()
@@ -153,7 +195,7 @@ class GameAssets:
                     logger.warning("Rebuilding invalid asset index %s", key)
                     value = build()
                     self.cache.put(_SCHEMA + key, json.dumps(value).encode(),
-                                   version=self.resource_version, disk=disk)
+                                   version=self.resource_version, disk=disk, generation=generation)
                 self._indexes[key] = value
             return self._indexes[key]
 
@@ -183,6 +225,7 @@ class GameAssets:
         # The catalog version alone does not describe the installed UI bundles (partial downloads and sandboxes).
         # Keep the inventory in the key, including replacements that preserve size and modification time.
         with self._lock("atlases"):
+            generation = self.cache.generation
             try:
                 paths = self._atlas_paths()
                 if not paths:
@@ -205,7 +248,7 @@ class GameAssets:
                     self._validate_atlases(value)
                     if spine_stamps(self._atlas_paths()) != stamps:
                         raise AssetNotFound("UI atlas bundles changed during indexing")
-                    self.cache.put(_SCHEMA + key, json.dumps(value).encode(), version=self.resource_version)
+                    self.cache.put(_SCHEMA + key, json.dumps(value).encode(), version=self.resource_version, generation=generation)
                 self._indexes["atlases"], self._indexes["atlas-source"] = value, key
                 return value
             except Exception as error:
@@ -292,12 +335,13 @@ class GameAssets:
         path = self._bundle_path(record["bundle"])
         key = "image/" + ref_key(record["cab"], record["pid"]) + json.dumps(spine_stamps([path]))
         with self._lock(key):
+            generation = self.cache.generation
             image = self.cache.get(_SCHEMA + key, version=self.resource_version, disk=False)
             if image is None:
                 with open_bundle(path) as env:
                     image = find_object(env, record).read().image
                     image.load()
-                self.cache.put(_SCHEMA + key, image, version=self.resource_version, disk=False)
+                self.cache.put(_SCHEMA + key, image, version=self.resource_version, disk=False, generation=generation)
             return image
 
     def sprite_png(self, atlas: str, sprite: str) -> bytes:
@@ -401,6 +445,7 @@ class GameAssets:
 
     def layout(self, root: str, subpath: str = "") -> dict:
         """Return a prefab tree, optionally selecting an exact child subpath."""
+        generation = self.cache.generation
         def build() -> dict:
             path = self._prefab_bundle(root)
             extra = self._index("layout-textures", lambda: self._scan_textures(
@@ -419,7 +464,7 @@ class GameAssets:
             logger.warning("Rebuilding invalid prefab layout %s", root)
             tree = build()
             self.cache.put(_SCHEMA + _LAYOUT + root, json.dumps(tree).encode(),
-                           version=self.resource_version)
+                           version=self.resource_version, generation=generation)
         return subtree(tree, subpath)
 
     def _collection(self) -> dict:
@@ -437,18 +482,27 @@ class GameAssets:
                 "portrait": sorted(n for n in names if n.startswith("Student_Portrait_"))}
 
     def _collection_png(self, name: str, prefix: str) -> bytes:
+        if not name.startswith(prefix) or name not in self._collection():
+            raise AssetNotFound(name)
+        record = self._collection()[name]
+        path = self._bundle_path(record["bundle"])
+        stamps = spine_stamps([path])
         def build() -> bytes:
-            if not name.startswith(prefix) or name not in self._collection():
-                raise AssetNotFound(name)
-            return png_bytes(self._image(self._collection()[name]))
-        return self._cached("art/" + prefix + name, build, disk=False)
+            value = png_bytes(self._image(record))
+            if spine_stamps([path]) != stamps:
+                raise AssetNotFound("Collection art changed during extraction")
+            return value
+        value = self._preview_bytes("art/" + prefix + name + json.dumps(stamps), build)
+        if spine_stamps([path]) != stamps:
+            raise AssetNotFound("Collection art changed during extraction")
+        return value
 
     def collection_bg(self, name: str) -> tuple[bytes, str]:
-        """Return a collection background with its image MIME type (memory only)."""
+        """Return a lossless collection background with its image MIME type."""
         return self._collection_png(name, "BG_"), "image/png"
 
     def collection_portrait(self, name: str) -> bytes:
-        """Return a collection portrait as PNG bytes (memory only)."""
+        """Return a lossless collection portrait as PNG bytes."""
         return self._collection_png(name, "Student_Portrait_")
 
     def spine_cores(self, kind: str) -> dict[str, list[Path]]:
@@ -474,7 +528,7 @@ class GameAssets:
         return self.spine_files_from(bundles)
 
     def spine_files_from(self, bundles: list[Path]) -> dict[str, bytes]:
-        """Extract ordered parts in memory; later bundles override earlier files.
+        """Extract ordered parts, optionally persisting their unchanged bytes.
 
         Supply official parts first and mod parts last. Cache identity includes
         the order and file stamps, so precedence and changed mods invalidate it.
@@ -485,16 +539,28 @@ class GameAssets:
         stamps = spine_stamps(paths)
         key = "spine/" + json.dumps(stamps)
         with self._lock(key):
+            generation, disk_generation = self.cache.generation, self._preview_generation()
             value = self.cache.get(_SCHEMA + key, version=self.resource_version, disk=False)
             if value is None:
-                value = extract_spine(paths)
+                stored = self._preview_get(key)
+                if stored is not None:
+                    try:
+                        value = unpack_preview_files(stored)
+                    except (ValueError, UnicodeError, TypeError):
+                        self.preview_cache.discard(self._preview_key(key))
+                if value is None:
+                    value = extract_spine(paths)
+                    if spine_stamps(paths) != stamps:
+                        raise AssetNotFound("spine changed during extraction")
+                    if self.preview_cache is not None and self.preview_cache.allowed:
+                        self._preview_put(key, pack_preview_files(value), disk_generation)
                 if spine_stamps(paths) != stamps:
                     raise AssetNotFound("spine changed during extraction")
                 self.cache.put(_SCHEMA + key, value, version=self.resource_version,
-                               disk=False, size=sum(len(data) for data in value.values()))
+                               disk=False, size=sum(len(data) for data in value.values()), generation=generation)
             return dict(value)
 
-    # --- 3D chibi models: memory only, never cached on disk ---
+    # --- 3D chibi models ---
 
     def _model_index(self) -> dict[str, list[str]]:
         return self._index("model-cores", lambda: {
@@ -525,7 +591,7 @@ class GameAssets:
         return self._index("cabs-all" if everything else "cabs", build, disk=False)
 
     def model_glb(self, core: str, overrides: Iterable[Path] = ()) -> bytes:
-        """Export a chibi to GLB bytes (memory only). ``overrides`` are bundles that replace the official bundles
+        """Export a chibi to lossless GLB bytes. ``overrides`` are bundles that replace the official bundles
         holding the same CABs (mod previews)."""
         from .model import BundleGraph, export_chibi
 
@@ -546,7 +612,9 @@ class GameAssets:
             except FileNotFoundError:
                 raise AssetNotFound(str(path)) from None
             stamps.append((str(path), stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns))
-        key = _SCHEMA + "model/" + json.dumps([core, stamps])
+        # v2 excludes old partial exports whose missing CABs were not recorded.
+        key = _SCHEMA + "model/v2/" + json.dumps([core, stamps])
+        generation, disk_generation = self.cache.generation, self._preview_generation()
 
         def valid_cached() -> bytes | None:
             cached = self.cache.get(key, version=self.resource_version, disk=False)
@@ -555,6 +623,26 @@ class GameAssets:
             if cached is not None and all(stamp is not None and _stamp(path) == stamp
                                           for path, stamp in cached[1].items()):
                 return cached[0]
+            stored = self._preview_get(key)
+            if stored is not None:
+                try:
+                    files = unpack_preview_files(stored)
+                    read = json.loads(files["sources.json"])
+                    if not isinstance(read, dict) or not read or len(read) > 8192:
+                        raise ValueError("Invalid model source manifest")
+                    permitted = {str(path) for path in overrides}
+                    if any(not isinstance(path, str) or (Path(path).parent not in self.resource_dirs and path not in permitted)
+                           for path in read):
+                        raise ValueError("Invalid model source location")
+                    if all(isinstance(stamp, list) and len(stamp) == 3 and _stamp(path) == tuple(stamp)
+                           for path, stamp in read.items()):
+                        data = files["model.glb"]
+                        self.cache.put(key, (data, {path: tuple(stamp) for path, stamp in read.items()}),
+                                       version=self.resource_version, disk=False, size=len(data), generation=generation)
+                        return data
+                except (ValueError, UnicodeError, TypeError, KeyError):
+                    pass
+                self.preview_cache.discard(self._preview_key(key))
             return None
 
         # Cached models need no Unity bundle locks and must not queue behind unrelated model or lobby exports.
@@ -566,10 +654,35 @@ class GameAssets:
             if cached is not None:
                 return cached
             index = self._cab_index()
-            with BundleGraph(index, overrides, fallback=lambda: self._cab_index(everything=True)) as graph:
+            started: dict[str, tuple[int, int, int] | None] = {}
+
+            @contextmanager
+            def tracked_bundle(path: Path):
+                before = _stamp(path)
+                if before is None:
+                    raise AssetNotFound("Model dependency is unavailable")
+                with open_bundle(path) as env:
+                    # The opener decodes before yielding. Never associate those decoded
+                    # bytes with a replacement written while it was opening the bundle.
+                    if _stamp(path) != before:
+                        raise AssetNotFound("Model dependency changed while opening")
+                    started[str(path)] = before
+                    yield env
+                    if _stamp(path) != before:
+                        raise AssetNotFound("Model dependency changed during extraction")
+
+            with BundleGraph(index, overrides, fallback=lambda: self._cab_index(everything=True), opener=tracked_bundle) as graph:
                 data = export_chibi(graph, bundles, core)
                 read = {path: _stamp(path) for path in graph.loaded}
-            self.cache.put(key, (data, read), version=self.resource_version, disk=False, size=len(data))
+                complete = not graph.missing_cabs
+                if any(stamp is None or _stamp(path) != stamp for path, stamp in started.items()):
+                    raise AssetNotFound("Model dependency changed during extraction")
+            if spine_stamps([*bundles, *overrides]) != list(dict.fromkeys(stamps)):
+                raise AssetNotFound("Model changed during extraction")
+            self.cache.put(key, (data, read), version=self.resource_version, disk=False, size=len(data), generation=generation)
+            if complete and read and all(stamp is not None for stamp in read.values()) and self.preview_cache is not None and self.preview_cache.allowed:
+                manifest = json.dumps({str(path): stamp for path, stamp in read.items()}).encode()
+                self._preview_put(key, pack_preview_files({"sources.json": manifest, "model.glb": data}), disk_generation)
             return data
 
     def _lobby_prefabs(self) -> dict[str, str]:
