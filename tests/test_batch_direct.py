@@ -113,23 +113,17 @@ def test_model_direct_replacement_never_transfers_assets(batch_model_env, monkey
     assert target.read_bytes() == official
 
 
-@pytest.mark.parametrize('change,code', [('platform', 'mod_platform_mismatch'),
-                                         ('version', 'mod_unity_version_mismatch'),
-                                         ('invalid', 'bundle_invalid')])
-def test_current_name_rejects_incompatible_metadata(env, monkeypatch, change, code):
+def test_current_name_rejects_invalid_bundle(env, monkeypatch):
     restore_metadata(monkeypatch)
     target = rename_crc(unity_bundle(env.original))
     env.original = target
-    source = unity_bundle(env.tmp / 'input' / target.name, 13 if change == 'platform' else 19, payload=b'mod')
-    if change == 'version':
-        source.write_bytes(source.read_bytes().replace(b'2021.3.0f1', b'2022.3.0f1'))
-    elif change == 'invalid':
-        source.write_bytes(source.read_bytes()[:45])
+    source = unity_bundle(env.tmp / 'input' / target.name, payload=b'mod')
+    source.write_bytes(source.read_bytes()[:45])
     before = target.read_bytes()
     entry, = analyze(env, [source])['entries']
     assert entry['state'] == 'blocked'
-    assert entry['error']['code'] == code
-    assert entry['reason'] == batch_import.blocked_reason(ServiceError(code))
+    assert entry['error']['code'] == 'bundle_invalid'
+    assert entry['reason'] == 'unreadable'
     result, = run(env, [entry])
     assert result['outcome'] == 'skipped' and result['error'] == entry['error']
     assert target.read_bytes() == before and not env.library.mods()
@@ -302,7 +296,7 @@ def test_verified_wrong_platform_keeps_real_error(verified_model):
 
 @pytest.mark.parametrize('crc_name', [False, True])
 @pytest.mark.parametrize('change', ['cab', 'layout', 'region'])
-def test_current_name_cannot_admit_foreign_or_older_content(env, monkeypatch, crc_name, change):
+def test_current_name_rebuilds_foreign_or_older_spine_instead_of_copying(env, monkeypatch, crc_name, change):
     restore_metadata(monkeypatch)
     monkeypatch.setattr(integrity, 'inspect', inspect_bundle)
     target = rename_crc(unity_bundle(env.original))
@@ -321,11 +315,17 @@ def test_current_name_cannot_admit_foreign_or_older_content(env, monkeypatch, cr
     if crc_name:
         source = rename_crc(source)
     entry, = analyze(env, [source])['entries']
-    assert entry['state'] == 'blocked'
-    assert entry['reason'] == ('source_conflict' if change == 'region' else 'mod_release_mismatch')
+    assert (entry['state'], entry['reason']) == ('convert' if change == 'region' else 'update', None)
     with pytest.raises(ServiceError):
         env.library.add_files('spr', [source], direct=True)
     assert not env.library.mods()
+    result, = run(env, [entry], types=['TextAsset'])
+    assert result['outcome'] == 'updated' and result['applied'], result
+    contents = inspect_bundle(target)
+    assert 'cab-fixture' in contents.files and 'cab-older' not in contents.files
+    assert not contents.references
+    obj, = Bundle.load(target).env.objects
+    assert obj.path_id == 1 and obj.read().m_Script == 'older or foreign'
 
 
 @pytest.mark.parametrize('change', ['body_cab', 'missing_material'])

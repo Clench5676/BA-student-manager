@@ -143,6 +143,164 @@ def test_conversion_update_add_apply_uses_real_classic_core(real_metadata, platf
     assert Bundle.load(env.original).env.objects[0].read().m_Script == 'official'
 
 
+@pytest.mark.parametrize('kind', ['spr', 'lobby'])
+@pytest.mark.parametrize('crc_name', [False, True])
+@pytest.mark.parametrize('manual', [False, True])
+@pytest.mark.parametrize('platform,source_platform', [(13, 'android'), (9, 'ios')])
+def test_current_release_spine_rebuilds_foreign_platform_instead_of_copying(
+        real_metadata, kind, crc_name, manual, platform, source_platform):
+    from ba_modding_toolkit.errors import ServiceError
+
+    env = real_metadata
+    if kind == 'lobby':
+        env.original.unlink()
+        env.original = game_bundle(env.game_dir, 'test_home_gl')
+        official_bundle(env, name='test_home_gl_note')
+    name = 'test_spr_note' if kind == 'spr' else 'test_home_gl_note'
+    source = unity_bundle(env.tmp / 'input' / env.original.name, platform, cab='CAB-mobile',
+                          name=name, payload=b'modded', references=['com.nexon.bluearchive'])
+    if crc_name:
+        source = source.rename(source.with_name(source.name.rsplit('_', 1)[0] +
+                              f'_{CRCUtils.compute_crc32(source.read_bytes())}.bundle'))
+    before = source.read_bytes()
+    # A matching filename still cannot make a foreign-platform whole-file install safe.
+    with pytest.raises(ServiceError, match='mod_platform_mismatch'):
+        env.library.add_files(kind, [source], direct=True)
+    entry, = analyze(env, [source])['entries']
+    assert (entry['state'], entry['reason']) == ('convert', None), entry
+    assert entry['source'] == {'server': 'global', 'platform': source_platform, 'detected': True}
+    assert env.services.batch_import.preview(entry['preview']['key'])[1][-1] == source
+    if manual:
+        entry = finish(env, rpc(env, 'import.setSource', id=entry['id'], server='global', platform=source_platform))
+        assert (entry['state'], entry['reason'], entry['source']['detected']) == ('convert', None, False)
+    result, = run(env, [entry], types=['TextAsset'])
+    assert (result['outcome'], result['applied']) == ('updated', True), result
+    converted = Bundle.load(env.original)
+    assert converted.platform_info[0] == 'StandaloneWindows64'
+    assert converted.env.objects[0].read().m_Script == 'modded'
+    assert source.read_bytes() == before
+    assert 'cab-fixture' in inspect_bundle(env.original).files
+    assert 'cab-mobile' not in inspect_bundle(env.original).files
+    env.library.restore('test', kind=kind)
+    assert Bundle.load(env.original).env.objects[0].read().m_Script == 'official'
+
+
+def test_current_release_platform_override_cannot_relabel_serialized_target(real_metadata):
+    env = real_metadata
+    source = unity_bundle(env.tmp / 'input' / env.original.name, 13, cab='CAB-mobile', payload=b'mod',
+                          references=['com.nexon.bluearchive'])
+    entry, = analyze(env, [source])['entries']
+    selected = finish(env, rpc(env, 'import.setSource', id=entry['id'], server='global', platform='windows'))
+    assert (selected['state'], selected['reason']) == ('blocked', 'source_conflict')
+    assert not env.library.mods()
+
+
+@pytest.mark.parametrize('change,reason', [('platform', 'mod_platform_mismatch'),
+                                           ('version', 'mod_unity_version_mismatch')])
+def test_current_release_cross_platform_rebuild_rejects_invalid_output(real_metadata, monkeypatch, change, reason):
+    from ba_modding_toolkit.models import FilePair, ModUpdateResult
+
+    env = real_metadata
+    source = unity_bundle(env.tmp / 'input' / env.original.name, 13, cab='CAB-mobile', payload=b'mod',
+                          references=['com.nexon.bluearchive'])
+    before = env.original.read_bytes()
+    entry, = analyze(env, [source])['entries']
+    assert entry['state'] == 'convert'
+
+    def foreign_output(**kwargs):
+        target = kwargs['target_paths'][0]
+        output = unity_bundle(kwargs['output_dir'] / target.name, 13 if change == 'platform' else 19,
+                              payload=b'bad rebuild')
+        if change == 'version':
+            output.write_bytes(output.read_bytes().replace(b'2021.3.0f1', b'2020.3.0f1'))
+        return ModUpdateResult(True, 'converted', [FilePair(output, target)])
+
+    monkeypatch.setattr(batch_import.core, 'process_mod_update', foreign_output)
+    result, = run(env, [entry], types=['TextAsset'])
+    assert (result['outcome'], result['reason'], result['applied']) == ('failed', reason, False)
+    assert env.original.read_bytes() == before and not env.library.mods()
+
+
+@pytest.mark.parametrize('kind', ['spr', 'lobby'])
+@pytest.mark.parametrize('manual', [False, True])
+def test_current_release_spine_upgrades_serialized_version_using_target_format(real_metadata, kind, manual):
+    from ba_modding_toolkit.errors import ServiceError
+
+    env = real_metadata
+    if kind == 'lobby':
+        env.original.unlink()
+        env.original = game_bundle(env.game_dir, 'test_home_gl')
+        official_bundle(env, name='test_home_gl_note')
+    source = unity_bundle(env.tmp / 'input' / env.original.name,
+        name='test_spr_note' if kind == 'spr' else 'test_home_gl_note', payload=b'older format')
+    source.write_bytes(source.read_bytes().replace(b'2021.3.0f1', b'2020.3.0f1'))
+    before = source.read_bytes()
+    with pytest.raises(ServiceError, match='mod_unity_version_mismatch'):
+        env.library.add_files(kind, [source], direct=True)
+    entry, = analyze(env, [source])['entries']
+    assert (entry['state'], entry['reason']) == ('update', None), entry
+    if manual:
+        entry = finish(env, rpc(env, 'import.setSource', id=entry['id'], server='global', platform='windows'))
+        assert (entry['state'], entry['reason']) == ('update', None)
+    result, = run(env, [entry], types=['TextAsset'])
+    assert (result['outcome'], result['applied']) == ('updated', True), result
+    converted = Bundle.load(env.original)
+    assert converted.platform_info[0] == 'StandaloneWindows64'
+    assert converted.env.objects[0].read().m_Script == 'older format'
+    assert bundle_metadata(env.original, inspection=integrity.Inspection()).versions == {'2021.3'}
+    assert source.read_bytes() == before
+
+
+def test_current_release_mixed_platform_parts_still_conflict(real_metadata):
+    env = real_metadata
+    second = unity_bundle(game_bundle(env.game_dir, part='004'), name='test_spr_second', cab='CAB-second')
+    second = second.rename(second.with_name(second.name.rsplit('_', 1)[0] +
+                                           f'_{CRCUtils.compute_crc32(second.read_bytes())}.bundle'))
+    sources = [unity_bundle(env.tmp / 'input' / target.name, platform,
+                           payload=b'mod', references=['com.nexon.bluearchive'])
+               for target, platform in [(env.original, 13), (second, 9)]]
+    entry, = analyze(env, sources)['entries']
+    assert (entry['state'], entry['reason']) == ('blocked', 'source_conflict')
+    selected = finish(env, rpc(env, 'import.setSource', id=entry['id'], server='global', platform='android'))
+    assert (selected['state'], selected['reason']) == ('blocked', 'source_conflict')
+    assert not env.library.mods()
+
+
+def test_renderable_current_release_texture_rebuilds_without_losing_pixels(real_metadata):
+    from PIL import Image
+    from UnityPy.enums import BuildTarget
+    from ba_modding_toolkit.models import SaveOptions
+    from test_atlas_remap import write_bundle
+
+    env = real_metadata
+    official = Image.new('RGBA', (8, 8), (10, 20, 30, 255))
+    modified = Image.new('RGBA', (8, 8), (90, 140, 210, 170))
+    write_bundle(env.original, {}, {'test_spr_page': official}, skeleton=None)
+    env.original = env.original.rename(env.original.with_name(env.original.name.rsplit('_', 1)[0] +
+        f'_{CRCUtils.compute_crc32(env.original.read_bytes())}.bundle'))
+    source = env.tmp / 'input' / env.original.name
+    source.parent.mkdir()
+    write_bundle(source, {}, {'test_spr_page': modified}, skeleton=None)
+    bundle = Bundle.load(source)
+    obj, = bundle.env.objects
+    obj.assets_file.target_platform = BuildTarget.Android
+    obj.assets_file._m_target_platform = BuildTarget.Android.value
+    obj.assets_file.mark_changed()
+    assert bundle.save(source, SaveOptions(perform_crc=False, compression='none'))[0]
+    before = source.read_bytes()
+    # The preview decoder can already read pixels from the foreign-platform input.
+    assert Bundle.load(source).env.objects[0].read().image.convert('RGBA').tobytes() == modified.tobytes()
+    entry, = analyze(env, [source])['entries']
+    assert (entry['state'], entry['reason']) == ('convert', None), entry
+    result, = run(env, [entry], types=['Texture2D'])
+    assert (result['outcome'], result['applied']) == ('updated', True), result
+    output = Bundle.load(env.original)
+    assert output.platform_info[0] == 'StandaloneWindows64'
+    image = output.env.objects[0].read().image.convert('RGBA')
+    assert image.size == modified.size and image.tobytes() == modified.tobytes()
+    assert source.read_bytes() == before
+
+
 def test_cross_server_old_filename_converts_instead_of_copying(real_metadata):
     env = real_metadata
     source = old_bundle(env.tmp / 'input' / env.original.name, 13, cab='CAB-jp', payload=b'JP mod',
@@ -246,9 +404,11 @@ def test_conversion_source_identity_includes_the_complete_part_mapping(real_meta
 
 
 @pytest.mark.parametrize('platform', [13, -2])
-def test_unknown_source_set_source_reanalyzes_and_persists_for_run_and_recheck(real_metadata, platform):
+@pytest.mark.parametrize('current_release', [False, True])
+def test_unknown_source_set_source_reanalyzes_and_persists_for_run_and_recheck(real_metadata, platform, current_release):
     env = real_metadata
-    source = old_bundle(env.tmp / 'input' / env.original.name, platform, cab='CAB-unknown', payload=b'unknown mod')
+    source = (unity_bundle if current_release else old_bundle)(env.tmp / 'input' / env.original.name, platform,
+                                                              cab='CAB-unknown', payload=b'unknown mod')
     entry, = analyze(env, [source])['entries']
     assert (entry['state'], entry['reason']) == ('convert', None)
     assert entry['source'] == {'server': 'global', 'platform': 'android', 'detected': True}
@@ -264,18 +424,21 @@ def test_unknown_source_set_source_reanalyzes_and_persists_for_run_and_recheck(r
 
 
 @pytest.mark.parametrize('platform,reason', [(2, 'platform_unsupported')])
-def test_unsupported_source_still_has_preview(real_metadata, platform, reason):
+@pytest.mark.parametrize('current_release', [False, True])
+def test_unsupported_source_still_has_preview(real_metadata, platform, reason, current_release):
     env = real_metadata
-    source = old_bundle(env.tmp / 'input' / env.original.name, platform, references=['com.nexon.bluearchive'])
+    source = (unity_bundle if current_release else old_bundle)(env.tmp / 'input' / env.original.name, platform,
+                                                              references=['com.nexon.bluearchive'])
     entry, = analyze(env, [source])['entries']
     assert (entry['state'], entry['reason']) == ('blocked', reason)
     assert env.services.batch_import.preview(entry['preview']['key'])[1][-1] == source
 
 
-def test_conversion_without_matching_assets_is_blocked_but_previewable(real_metadata):
+@pytest.mark.parametrize('current_release', [False, True])
+def test_conversion_without_matching_assets_is_blocked_but_previewable(real_metadata, current_release):
     env = real_metadata
-    source = old_bundle(env.tmp / 'input' / env.original.name, 13, payload=b'mod', name='unrelated',
-                          references=['com.nexon.bluearchive'])
+    source = (unity_bundle if current_release else old_bundle)(env.tmp / 'input' / env.original.name, 13,
+                                payload=b'mod', name='unrelated', references=['com.nexon.bluearchive'])
     entry, = analyze(env, [source])['entries']
     assert (entry['state'], entry['reason']) == ('blocked', 'no_matching_assets')
     assert entry['preview']
@@ -443,12 +606,13 @@ def test_system_temp_conversion_output_reproduces_the_dev_read_guard_failure(rea
     assert not env.library.mods()
 
 
-def test_converted_output_still_requires_full_dependency_validation(real_metadata, monkeypatch):
+@pytest.mark.parametrize('current_release', [False, True])
+def test_converted_output_still_requires_full_dependency_validation(real_metadata, monkeypatch, current_release):
     from ba_modding_toolkit.models import FilePair, ModUpdateResult
 
     env = real_metadata
-    source = old_bundle(env.tmp / 'input' / env.original.name, 13, cab='CAB-mobile', payload=b'mod',
-                          references=['com.nexon.bluearchive'])
+    source = (unity_bundle if current_release else old_bundle)(env.tmp / 'input' / env.original.name, 13,
+                                cab='CAB-mobile', payload=b'mod', references=['com.nexon.bluearchive'])
     entry, = analyze(env, [source])['entries']
 
     def broken_output(**kwargs):

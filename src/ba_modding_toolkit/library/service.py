@@ -1082,11 +1082,7 @@ class ModLibrary:
         for target, source in replacements.items():
             original = self._official_for(target, pin, game_first=True)
             incoming, baseline = inspection.metadata(source), inspection.metadata(original)
-            integrity.check_platform(incoming, source, baseline.platforms)
-            if incoming.versions != baseline.versions:
-                raise ServiceError("mod_unity_version_mismatch", file=source.name,
-                                   version=", ".join(sorted(incoming.versions)),
-                                   expected=", ".join(sorted(baseline.versions)))
+            integrity.check_format(incoming, source, baseline)
             identities.append((source, incoming, baseline))
             selected.merge(inspection.inspect(source))
             official.merge(inspection.inspect(original))
@@ -1172,13 +1168,21 @@ class ModLibrary:
             installed = self._matches_installed(identity, entry)
         if (duplicate or installed) and not conversion:
             return {"identity": identity, "libraryId": duplicate, "installed": installed, "targets": targets}
+        rebuild = False
         try:
             direct = self.direct_import(files, pin, inspection=inspection) if conversion else None
         except ServiceError as error:
-            if not (duplicate or installed) or error.code not in ("original_unavailable", "original_invalid"):
+            if (duplicate or installed) and error.code in ("original_unavailable", "original_invalid"):
+                return {"identity": identity, "libraryId": duplicate, "installed": installed,
+                        "targets": targets, "recognized": True}
+            if kind_of_file(next(iter(files))) not in ("spr", "lobby") or error.code not in (
+                    "mod_platform_mismatch", "mod_platform_unknown", "mod_unity_version_mismatch",
+                    "mod_release_mismatch", "source_conflict"):
                 raise
-            return {"identity": identity, "libraryId": duplicate, "installed": installed,
-                    "targets": targets, "recognized": True}
+            # Current Spine filenames identify slots, not a compatible whole-file format.
+            # Preserve this verdict even on the same platform: extraction and target
+            # rebuilding must succeed before add() validates and stores the output.
+            direct, rebuild = None, True
         if direct:
             return {"identity": identity, "libraryId": duplicate, "installed": installed, **direct}
         report = self._check_group(files, pin, dependencies=False, conversion=conversion, inspection=inspection)
@@ -1188,7 +1192,7 @@ class ModLibrary:
         originals = report.pop("originalPaths", []) if conversion else (
             [self._official_for(path, pin) for path in targets] if generic else [])
         return {"identity": identity, "libraryId": duplicate, "installed": installed, "compatibility": report,
-                "targets": targets, "originals": originals if generic else []}
+                "targets": targets, "originals": originals if generic else [], "rebuild": rebuild}
 
     @_serialized
     def apply_import(self, variant_key: str, source: str, *, kind: Kind, pin: Pin,

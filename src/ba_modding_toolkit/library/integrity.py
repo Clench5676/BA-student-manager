@@ -242,6 +242,15 @@ def check_platform(contents: Contents, path: Path, expected: set[str]) -> None:
                            platform=", ".join(sorted(contents.platforms)), expected=", ".join(sorted(expected)))
 
 
+def check_format(contents: Contents, path: Path, expected: Contents) -> None:
+    """A copied or rebuilt bundle must use the target's serialized Unity format."""
+    check_platform(contents, path, expected.platforms)
+    if contents.versions != expected.versions:
+        raise ServiceError("mod_unity_version_mismatch", file=path.name,
+                           version=", ".join(sorted(contents.versions)),
+                           expected=", ".join(sorted(expected.versions)))
+
+
 def references_changed_objects(path: Path, changed: dict[str, set[int]], removed_cabs: set[str],
                                inspection: Inspection) -> bool:
     """Inspect external PPtrs without resolving them or following paths outside the install.

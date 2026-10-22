@@ -95,6 +95,7 @@ class Candidate:
     spine_version: str | None = None
     source_override: dict | None = None
     conversion: bool = False
+    rebuild: bool = False
     not_transferred: list[str] = field(default_factory=list)
     failure: dict | None = None
     direct: dict[Path, Path] = field(default_factory=dict)
@@ -532,6 +533,7 @@ class BatchImport:
         entry.update(state="blocked", reason=candidate.error, libraryId=None, source=None,
                      target=mod_origin.target_of(self.services.settings, pin))
         candidate.targets, candidate.originals, candidate.spine_version, candidate.conversion = [], [], None, False
+        candidate.rebuild = False
         candidate.direct = {}
         candidate.provenance = None
         inspection = integrity.Inspection(asset_types if asset_types is not None else set(self.options()["types"]))
@@ -568,6 +570,7 @@ class BatchImport:
                              "update" if mismatch else "ready", reason=None, libraryId=report["libraryId"])
                 return
             selected = integrity.Contents()
+            rebuild = report.get("rebuild", False)
             for path in candidate.files.values():
                 selected.merge(inspection.inspect(path, allow_unknown=True))
             names = {path.name.removesuffix(".backup") for path in candidate.files.values()}
@@ -655,22 +658,22 @@ class BatchImport:
                 if choice["server"] != entry["target"]["server"] and not all(
                         any(part_of(name) == part_of(path.name) for path in live) for name in names):
                     failure = "conversion_names"
-                if not failure and (converting or inferred):
+                if not failure and (converting or inferred or rebuild):
                     if matched_targets is None:
                         matches, _ = _asset_match(sources, [baseline[p] for p in targets], log, keys=inspection.keys)
                         matched_targets = [p for p in targets if baseline[p] in matches]
                     chosen = matched_targets
                 if not chosen:
-                    failure = failure or ("no_matching_assets" if converting or inferred else "game_file_not_found")
+                    failure = failure or ("no_matching_assets" if converting or inferred or rebuild else "game_file_not_found")
                 mismatch = False
                 if not failure and (selected.skeletons or compatibility.get("remappable")):
-                    if exact and not converting:
+                    if exact and not converting and not rebuild:
                         # The ready path copies whole bundles, ignoring update filters and matching keys.
                         official, incoming, remappable = copy_compatibility(compatibility, selected)
                     else:
                         official, incoming, remappable = transfer_compatibility(inspection, sources,
                             [baseline[path] for path in chosen], originals,
-                            "name_type" if converting else strategy or self.options()["strategy"])
+                            "name_type" if converting or rebuild else strategy or self.options()["strategy"])
                     try:
                         mismatch = self._check_spine(candidate, official, incoming, remappable)
                     except ServiceError as error:
@@ -680,7 +683,7 @@ class BatchImport:
                         last_failure = failure
                         continue
                     raise ServiceError(failure)
-                if inferred or (candidate.source_override or {}).get("detected"):
+                if rebuild or inferred or (candidate.source_override or {}).get("detected"):
                     # Validate selected inputs against current counterparts using the execution reader.
                     try:
                         counterparts = tuple(baseline[path] for path in chosen)
@@ -691,10 +694,11 @@ class BatchImport:
                     except (ServiceError, OSError, ValueError):
                         inspection.validate()
                         raise
-                if not converting:
+                if not converting and not rebuild:
                     library.inspect_import(candidate.files, pin=pin, inspection=inspection)
                 inspection.validate()
                 candidate.conversion = converting
+                candidate.rebuild = rebuild
                 candidate.targets, candidate.originals = chosen, [baseline[p] for p in chosen]
                 if inferred:
                     candidate.source_override = dict(choice)
@@ -702,7 +706,8 @@ class BatchImport:
                 for file in entry["files"]:
                     if file["target"] is None and len(chosen) == 1:
                         file["target"] = chosen[0].name
-                entry.update(state="convert" if converting else "ready" if exact and not mismatch else "update", reason=None)
+                entry.update(state="convert" if converting else "ready" if exact and not mismatch and not rebuild else "update",
+                             reason=None)
                 return
             raise ServiceError(last_failure or "source_unknown")
         except ServiceError as error:
@@ -976,7 +981,7 @@ class BatchImport:
                 output_dir=output, asset_types_to_replace=settings.asset_types(),
                 save_options=settings.save_options(settings.crc_needed(group[0])), spine_options=spine,
                 skip_unchanged=settings.options["skipUnchanged"],
-                match_strategy="name_type" if candidate.conversion else settings.options["strategy"],
+                match_strategy="name_type" if candidate.conversion or candidate.rebuild else settings.options["strategy"],
                 anim_check=settings.anim_check_options(), log=log,
                 on_step=lambda step: progress(candidate, phase, step))
             if not updated.success:
@@ -996,6 +1001,15 @@ class BatchImport:
             if target.name not in generated:
                 shutil.copy2(target, output / target.name)
                 generated[target.name] = output / target.name
+        if candidate.conversion or candidate.rebuild:
+            # Reject a failed conversion before publishing exports or library records.
+            validation = integrity.Inspection()
+            baselines = {live.name: original for live, original in zip(candidate.targets, candidate.originals)}
+            for name, path in generated.items():
+                if name not in baselines:
+                    raise ServiceError("mod_release_mismatch", file=path.name)
+                integrity.check_format(validation.metadata(path), path, validation.metadata(baselines[name]))
+            validation.validate()
         if settings.options["output"]:
             progress(candidate, phase, "export")
             destination = Path(settings.options["output"]) / "bundles" / entry["id"]
