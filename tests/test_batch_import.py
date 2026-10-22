@@ -111,6 +111,21 @@ def test_duplicate_uploads_skipped_by_complete_library_identity(env):
     assert {e["state"] for e in result["entries"]} == {"ready"}
 
 
+def test_batch_identity_keeps_hashes_bound_to_their_parts(env):
+    second_target = game_bundle(env.game_dir, part='004')
+    first = make_mod(env.original, env.tmp / 'first', payload=b'first part')
+    second = make_mod(second_target, first.parent, payload=b'second part')
+    swapped = [make_mod(env.original, env.tmp / 'swapped', payload=b'second part'),
+               make_mod(second_target, env.tmp / 'swapped', payload=b'first part')]
+    result = analyze(env, [first, second, *swapped])
+    assert result['skipped'] == 0
+    assert len(result['entries']) == 2
+    assert {entry['state'] for entry in result['entries']} == {'ready'}
+    results = run(env, result['entries'], enableAfterImport=False)
+    assert [item['outcome'] for item in results] == ['imported', 'imported']
+    assert len({item['libraryId'] for item in results}) == 2
+
+
 @pytest.mark.parametrize("same", [False, True])
 def test_backup_and_bundle_of_the_same_part_conflict_or_deduplicate(env, same):
     source = make_mod(env.original, env.tmp / "input")

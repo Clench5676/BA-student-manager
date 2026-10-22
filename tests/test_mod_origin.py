@@ -855,6 +855,41 @@ def test_output_provenance_rejects_swapped_part_bytes(env):
     assert env.library.find_import_output([first, second]) is None
 
 
+def test_reimport_rebuild_does_not_rebind_provenance_to_swapped_parts(real_metadata):
+    env = real_metadata
+    official_bundle(env, name='test_spr_first', cab='CAB-first')
+    second = unity_bundle(game_bundle(env.game_dir, part='004'), name='test_spr_second', cab='CAB-second')
+    second = second.rename(second.with_name(second.name.rsplit('_', 1)[0] +
+                                           f'_{CRCUtils.compute_crc32(second.read_bytes())}.bundle'))
+    sources = [old_bundle(env.tmp / 'input' / target.name, 13, cab=f'CAB-source-{index}',
+                          name=f'test_spr_{name}', payload=name.encode(), references=['com.nexon.bluearchive'])
+               for index, (target, name) in enumerate([(env.original, 'first'), (second, 'second')])]
+    entry, = analyze(env, sources)['entries']
+    first, = run(env, [entry], types=['TextAsset'], enableAfterImport=False)
+    assert first['outcome'] == 'updated', first
+    record = env.library._records[first['libraryId']]
+    provenance = record['import_sources'][0]['source']
+    paths = env.library._paths(record)
+    original = {path.name: path.read_bytes() for path in paths}
+    assert len(set(original.values())) == 2
+    paths[0].write_bytes(original[paths[1].name])
+    paths[1].write_bytes(original[paths[0].name])
+    swapped = {path.name: path.read_bytes() for path in paths}
+    assert env.library.find_import_source(provenance) is None
+
+    entry, = analyze(env, sources)['entries']
+    assert entry['state'] == 'convert'
+    rebuilt, = run(env, [entry], types=['TextAsset'], enableAfterImport=False)
+    assert rebuilt['outcome'] == 'updated', rebuilt
+    assert rebuilt['libraryId'] != first['libraryId']
+    assert {path.name: path.read_bytes() for path in paths} == swapped
+    rebuilt_paths = env.library._paths(env.library._records[rebuilt['libraryId']])
+    assert {path.name: path.read_bytes() for path in rebuilt_paths} == original
+    assert env.library.find_import_source(provenance) == rebuilt['libraryId']
+    repeated, = analyze(env, sources)['entries']
+    assert (repeated['state'], repeated['libraryId']) == ('library', rebuilt['libraryId'])
+
+
 def test_optional_stored_source_lookup_failure_does_not_block(real_metadata, monkeypatch):
     from ba_modding_toolkit.errors import ServiceError
     env = real_metadata

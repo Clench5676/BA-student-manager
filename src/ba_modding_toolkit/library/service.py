@@ -747,7 +747,7 @@ class ModLibrary:
         return self._add(paths, progress, pin, kind, direct=direct)
 
     def _identity(self, files: dict[str, Path]) -> frozenset:
-        return frozenset((core_of(name), self._hashes.get(path).sha1) for name, path in files.items())
+        return frozenset((core_of(name), part_of(name), self._hashes.get(path).sha1) for name, path in files.items())
 
     @_serialized
     def import_source_identity(self, files: dict[str, Path], target: dict, originals: list[Path]) -> dict:

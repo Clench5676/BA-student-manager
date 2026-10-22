@@ -317,7 +317,8 @@ class BatchImport:
                 raise ServiceError("folder_changed")
             if pin:
                 self.services._check_pin(library, pin)
-            identity = frozenset((core_of(name), self._hashes.get(path).sha1) for name, path in fresh.files.items())
+            identity = frozenset((core_of(name), part_of(name), self._hashes.get(path).sha1)
+                                 for name, path in fresh.files.items())
             if identity != fresh.identity:
                 raise ServiceError("entry_changed")
             self._judge(fresh, library, pin, log)
@@ -490,7 +491,8 @@ class BatchImport:
                      "source": None, "target": mod_origin.target_of(self.services.settings, library.current_pin())}
             candidate = Candidate(files, entry, error, failure=failure)
             try:
-                candidate.identity = frozenset((core_of(name), self._hashes.get(path).sha1) for name, path in files.items())
+                candidate.identity = frozenset((core_of(name), part_of(name), self._hashes.get(path).sha1)
+                                               for name, path in files.items())
             except OSError:
                 pass  # The unreadable row above still reports all of its source paths.
             candidates.append(candidate)
@@ -765,7 +767,7 @@ class BatchImport:
                             with self._lock:
                                 check_current()
                                 self._require_importable(candidate)
-                            current = frozenset((core_of(name), self._hashes.get(path).sha1)
+                            current = frozenset((core_of(name), part_of(name), self._hashes.get(path).sha1)
                                                 for name, path in candidate.files.items())
                             if current != candidate.identity:
                                 raise ServiceError("entry_changed")
@@ -813,7 +815,7 @@ class BatchImport:
                                     check_current()
                                     self._require_importable(candidate)
                                     self._require_importable(fresh)
-                                    current = frozenset((core_of(name), self._hashes.get(path).sha1)
+                                    current = frozenset((core_of(name), part_of(name), self._hashes.get(path).sha1)
                                                         for name, path in fresh.files.items())
                                     if current != fresh.identity:
                                         raise ServiceError("entry_changed")
