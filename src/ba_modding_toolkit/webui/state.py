@@ -192,6 +192,17 @@ class UiState:
             raise
         self._data, self._seen = data, self._signature()
 
+    def diagnostic_state(self) -> dict | None:
+        """Read the last known diagnostic settings without a file lock or disk access."""
+        if not self._lock.acquire(blocking=False):
+            return None
+        try:
+            prefs = self._data.get("prefs", {})
+            return {"consent": {"uiAssets": self._data.get("consent"), "spine": prefs.get("spine_consent")},
+                    "libraryDir": prefs.get("library_dir")}
+        finally:
+            self._lock.release()
+
     @property
     def consent(self) -> bool | None:
         """None until the user answered the consent popup; then True (cache allowed) or False."""

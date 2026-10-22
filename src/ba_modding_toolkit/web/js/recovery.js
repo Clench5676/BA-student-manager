@@ -48,10 +48,8 @@
       const stage = document.getElementById?.("stage");
       if (stage) { stage.inert = true; stage.hidden = true; }
     }
-    const style = el("style");
-    style.textContent = `#bamt-recovery{position:fixed;inset:0;z-index:2147483647;background:#edf6fa;color:#243d52;font:18px system-ui,sans-serif;overflow:auto;padding:8vh 8vw;box-sizing:border-box;text-align:left;user-select:text}#bamt-recovery button{font:inherit;background:#d8f3ff;color:#243d52;border:1px solid #89b9d0;border-radius:5px;padding:12px 18px;margin:8px 12px 8px 0;cursor:pointer}#bamt-recovery p,#bamt-recovery pre{white-space:pre-wrap;overflow-wrap:anywhere}#bamt-recovery pre{max-height:50vh;overflow:auto;font:14px monospace}#bamt-recovery button:disabled{opacity:.5}`;
     panel = el("section"); panel.id = "bamt-recovery"; panel.setAttribute("role", "alert");
-    panel.append(style, el("h1", title), el("p", hint));
+    panel.append(el("h1", title), el("p", hint));
     status = el("p"); status.setAttribute("role", "status");
     panel.appendChild(status); document.body.appendChild(panel);
     return true;
@@ -61,12 +59,13 @@
     button(panel, "recovery.logs", () => rpc("app.logFolder"));
   }
   function showFailure() {
+    if (!failed) return;
     if (!document.body) { document.addEventListener("DOMContentLoaded", showFailure, { once: true }); return; }
     const separator = /^(zh|ja)/.test(config.language) ? "、" : ", ";
     const step = phase.split(", ").map((p) => T(`recovery.phases.${p}`)).join(separator);
     shell(T("recovery.failed"), `${T("recovery.step")}: ${step}`);
     actions();
-    button(panel, "recovery.safeRestart", () => rpc("app.restartSafe"));
+    if (config.canRestartSafe) button(panel, "recovery.safeRestart", () => rpc("app.restartSafe"));
     button(panel, "recovery.retry", () => location.reload());
   }
   function fail(error, kind = "boot", source = "") {
@@ -76,9 +75,9 @@
     clearTimeout(watchdog);
     showFailure();
   }
-  async function report() {
+  async function report(event) {
     if (reporting) return reporting;
-    reporting = rpc("app.report", { context: context() }).then(async (result) => {
+    reporting = rpc("app.report", { context: context(), event }).then(async (result) => {
       if (presenter && finished && !failed && !config.safeMode) {
         await presenter(result);
         return result;
@@ -130,16 +129,25 @@
       gl.getExtension("WEBGL_lose_context")?.loseContext();
     } catch (error) { webgl = { supported: false, renderer: null, error: String(error) }; }
   }
-  const watchdog = setTimeout(() => fail(new Error(`Boot timeout: ${phase}`), "watchdog"), 45000);
+  let watchdog;
+  function progress() {
+    clearTimeout(watchdog);
+    if (!finished && !failed) watchdog = setTimeout(() => fail(new Error(`Boot timeout: ${phase}`), "watchdog"), 45000);
+  }
+  progress();
   window.BAMTRecovery = {
     report, forward, fail, context, presentReport(fn) { presenter = fn; }, isBooting: () => !finished, failed: () => failed,
-    begin(name) { if (finished || failed) return; pending.add(name); if (name !== "boot") phase = name; },
+    begin(name) { if (finished) return; pending.add(name); if (name !== "boot") phase = name; progress(); },
     end(name, elapsed) {
-      timings[name] = elapsed; pending.delete(name);
+      timings[name] = elapsed; pending.delete(name); progress();
       if (!finished && !failed) phase = [...pending].filter((p) => p !== "boot").join(", ") || name;
     },
     ready() {
-      if (failed) return false;
+      if (failed) {
+        panel?.remove(); panel = null; status = null; failed = false;
+        const stage = document.getElementById?.("stage");
+        if (stage) { stage.inert = false; stage.hidden = false; }
+      }
       finished = true; phase = "ready"; clearTimeout(watchdog); probe();
       rpc("app.frontendError", { context: context() }).catch(() => {});
       return true;

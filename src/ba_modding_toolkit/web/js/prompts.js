@@ -310,7 +310,7 @@ async function driftPrompt(lists, s) {
   const choice = ModSwitch.driftChoice(answer.button, listed, [...answer.selection]);
   const plain = (e) => ({ install: e.install, core: e.core, state: e.state });
   if (choice.dismiss.length) {
-    await rpc("mods.dismiss", { kind: "drift", entries: choice.dismiss.map(plain) }).catch((err) => notify(ModSwitch.errorText(err.code, err.params), { kind: "error" }));
+    await rpc("mods.dismiss", { kind: "drift", entries: choice.dismiss.map(plain) }).catch((err) => notify(ModSwitch.errorText(err.code, err.params), { kind: "error", error: err }));
   }
   if (choice.restore.length) await applyDrift(choice.restore.map(plain));
   return answer.button;
@@ -332,7 +332,8 @@ async function applyDrift(entries) {
     const result = await Loading.task((update) => waitJob(id, update), { label: running });
     const summary = driftSummary(result, await names().catch(() => undefined));
     if (!summary) return;
-    await Popup.message({ title: summary.title, lines: summary.lines, ok: T("picker.ok"), error: true });
+    await Popup.message({ title: summary.title, lines: summary.lines, ok: T("picker.ok"),
+      error: { code: result.failed?.[0]?.code || "internal", params: { failed: result.failed, left: result.left } } });
   } catch (err) {
     ModSwitch.refused(err, "mods.restoreDrift", params);
   }
@@ -351,7 +352,7 @@ async function untrackedPrompt(lists, s) {
   if (!answer.button) return null;
   const outcome = untrackedOutcome(answer.button, items, answer.selection, answer.checked);
   if (outcome.dismiss.length) {
-    await rpc("mods.dismiss", { kind: "untracked", entries: outcome.dismiss }).catch((err) => notify(ModSwitch.errorText(err.code, err.params), { kind: "error" }));
+    await rpc("mods.dismiss", { kind: "untracked", entries: outcome.dismiss }).catch((err) => notify(ModSwitch.errorText(err.code, err.params), { kind: "error", error: err }));
   }
   if (outcome.adopt.length) {
     const added = await adopt(outcome.adopt);
@@ -366,7 +367,7 @@ export async function adopt(entries) {
   try {
     id = await rpc("mods.adopt", { entries });
   } catch (err) {
-    notify(ModSwitch.errorText(err.code, err.params), { kind: "error" });
+    notify(ModSwitch.errorText(err.code, err.params), { kind: "error", error: err });
     return false;
   }
   const running = T("progress.add", { name: T("progress.mods") });
@@ -376,14 +377,14 @@ export async function adopt(entries) {
     if (!failed.length) return true;
     const nameOf = await names().catch(() => undefined);
     await Popup.message({
-      title: T("mods.untrackedAdd"), error: true,
+      title: T("mods.untrackedAdd"), error: { code: failed[0].code, params: { failed } },
       lines: [T("mods.result", { done: (result?.added || []).length, failed: failed.length }),
         ...failed.slice(0, 6).map((f) => `${ModSwitch.entryLabel(f.entry, nameOf)} - ${ModSwitch.errorText(f.code, f.params)}`)],
       ok: T("picker.ok"),
     });
     return (result?.added || []).length > 0;
   } catch (err) {
-    notify(ModSwitch.errorText(err.code, err.params), { kind: "error" });
+    notify(ModSwitch.errorText(err.code, err.params), { kind: "error", error: err });
     return false;
   }
 }

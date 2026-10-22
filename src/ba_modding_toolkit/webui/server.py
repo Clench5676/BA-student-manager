@@ -213,8 +213,9 @@ class WebApp:
                 body = body.replace(b'<script type="module" src="js/main.js"></script>', b"")
             config = json.dumps(recovery_config, ensure_ascii=True).replace("<", "\\u003c")
             recovery = (WEB_DIR / "js" / "recovery.js").read_bytes()
+            fallback = (WEB_DIR / "css" / "fallback.css").read_bytes()
             body = body.replace(b"<!-- recovery -->", b"<script>window.BAMT_CONFIG=" + config.encode() +
-                                b";</script><script>" + recovery + b"</script>")
+                                b";</script><style>" + fallback + b"</style><script>" + recovery + b"</script>")
             body = body.replace(b"</head>", f'<meta name="bamt-ui-exports" content="{HTTP_EXPORT_SCHEMA}"></head>'.encode())
         if file.suffix.lower() == ".css":
             body = re.sub(rb'(/asset/ui/[^"\s)]+)', lambda m: m[1] + b"?export=" + HTTP_EXPORT_SCHEMA.encode(), body)

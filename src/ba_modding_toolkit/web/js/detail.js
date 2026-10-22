@@ -76,7 +76,7 @@ const frames = (n) => new Promise((resolve) => { const step = () => (--n > 0 ? r
 function renderFailed(err, source = null) {
   console.error("Detail render failed", ...(source ? [source] : []), err);
   previewError(err, source, "detail");
-  if (open) notify(T("detail.failed"), { kind: "error" });
+  if (open) notify(T("detail.failed"), { kind: "error", error: err });
 }
 
 // Every visible swap goes through commit(): at once, or, while an in-place change is prepared, queued and applied
@@ -604,7 +604,7 @@ function hits(view, leftHost, rightHost) {
 async function call(fn) {
   try { return await fn(); } catch (err) {
     console.error("Detail action failed", err);
-    notify(err.code ? errorText(err) : T("detail.failed"), { kind: "error" });
+    notify(err.code ? errorText(err) : T("detail.failed"), { kind: "error", error: err });
     return null;
   }
 }
@@ -612,7 +612,7 @@ async function reveal(path) { if (path) await call(() => rpc("os.reveal", { path
 async function copyName() {
   const name = baseName(gameFile(variant(), tabKind()));
   try { await navigator.clipboard.writeText(name); }
-  catch { notify(T("detail.copyFailed"), { kind: "error" }); }
+  catch (err) { notify(T("detail.copyFailed"), { kind: "error", error: err }); }
 }
 function editModName(mod, redraw = null) {
   const page = pageToken;
@@ -643,7 +643,7 @@ async function addMods() {
 // A switch the classic UI's open window refuses opens the classic modal, which can queue it (mod-switch.js).
 // An apply while mods are off only saves the choice (deferred).
 async function job(method, params, { onDone, after = () => reload(), name = fullName(variant()) } = {}) {
-  if (busy) { notify(T("error.busy"), { kind: "error" }); return false; }
+  if (busy) { notify(T("error.busy"), { kind: "error", error: { code: "busy" } }); return false; }
   busy = true;
   const page = pageToken;
   let ok = false, result = null, refusal = null;
@@ -673,12 +673,12 @@ async function job(method, params, { onDone, after = () => reload(), name = full
       } finally {
         busy = false;
         if (page === pageToken && open) {
-          try { await renderScreen(); } catch (err) { notify(errorText(err), { kind: "error" }); }
+          try { await renderScreen(); } catch (err) { notify(errorText(err), { kind: "error", error: err }); }
         }
       }
     }, { all: true });
   } catch (err) {
-    notify(errorText(err), { kind: "error" });
+    notify(errorText(err), { kind: "error", error: err });
     return false;
   } finally {
     busy = false;
@@ -687,7 +687,7 @@ async function job(method, params, { onDone, after = () => reload(), name = full
       if (page === pageToken && open && refusal.code === "original_unavailable" && QUEUEABLE.includes(method))
         await overwrittenMessage(variant(), params.kind || "spr");
       else if (QUEUEABLE.includes(method)) await refused(refusal, method, params);
-      else notify(errorText(refusal), { kind: "error" });
+      else notify(errorText(refusal), { kind: "error", error: refusal });
     }
     resumeChanged();
   }
@@ -1281,10 +1281,10 @@ async function removeMod(id) {
     if (r.button !== "ok") return false;
     return await job("mods.remove", { id, confirm: true }, {
       name: info.name,
-      onDone: (result) => { if (result?.failed?.length) notify(T("mods.deletePending"), { kind: "error" }); },
+      onDone: (result) => { if (result?.failed?.length) notify(T("mods.deletePending"), { kind: "error", error: { code: result.failed[0]?.code || "internal", params: { failed: result.failed } } }); },
     });
   } catch (err) {
-    notify(errorText(err), { kind: "error" });
+    notify(errorText(err), { kind: "error", error: err });
     return false;
   }
 }
@@ -1713,7 +1713,7 @@ async function showModel(v, my, alive = () => true) {
   } catch (err) {
     // a model that cannot be read (a broken or unreadable GLB): the tab stays, empty, and the rest of the screen works
     console.error(err);
-    if (still()) notify(T("model.failed"), { kind: "error" });
+    if (still()) notify(T("model.failed"), { kind: "error", error: err });
   }
 }
 function hideModel() {

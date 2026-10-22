@@ -31,7 +31,7 @@ let otherMods = null, otherRequest = 0;
 
 const errorText = (err) => T(`error.${err.code || "internal"}`, err.params || { error: String(err) });
 async function call(fn) {
-  try { return await fn(); } catch (err) { notify(errorText(err), { kind: "error" }); return null; }
+  try { return await fn(); } catch (err) { notify(errorText(err), { kind: "error", error: err }); return null; }
 }
 
 // --- rows ---
@@ -267,7 +267,7 @@ function rows({ builtSize = null, sizeError = null } = {}) {
       [T("settings.detect"), async () => {
         const found = await call(() => rpc("settings.detectGame", { region }));
         if (found?.length) set(`gameDir.${region}`, found[0]);
-        else if (found) notify(T("app.noGame.title"), { kind: "error" });
+        else if (found) notify(T("app.noGame.title"), { kind: "error", error: { code: "game_not_found" } });
       }],
       [T("settings.change"), browse(`gameDir.${region}`, dir), p.native]]));
     add(valueRow("Library", 0, T("settings.library"), p.libraryDir, [[open, reveal(p.libraryDir)], [T("settings.change"), browse("libraryDir", p.libraryDir), p.native]]));
@@ -302,10 +302,10 @@ async function checkUpdate(event) {
     const { check } = await import("./update.js");
     await check($("consent"), undefined, {
       onCheck: (info) => { if (info) close(); },
-      onError: (err) => notify(errorText(err), { kind: "error" }),
+      onError: (err) => notify(errorText(err), { kind: "error", error: err }),
     });
   } catch (err) {
-    notify(errorText(err), { kind: "error" });
+    notify(errorText(err), { kind: "error", error: err });
   } finally {
     checkingUpdate = false;
     if (!$("settings").hidden) render();

@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from ..errors import ServiceError
+from .. import devmode, updater
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,16 @@ def program_command() -> list[str]:
             return [str(argv0.resolve())]
         return [sys.executable]
     return [sys.executable, "-m", "ba_modding_toolkit"]
+
+
+def can_restart_safe() -> bool:
+    return updater.is_compiled() and not devmode.active()
+
+
+def safe_restart_command() -> list[str]:
+    if not can_restart_safe():
+        raise ServiceError("safe_restart_unavailable")
+    return program_command()
 
 
 CLASSIC_TABS = ("mod_update", "batch_update", "mod_install", "crc_tool", "asset_packer", "asset_extractor",

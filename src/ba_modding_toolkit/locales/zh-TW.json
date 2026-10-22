@@ -1140,6 +1140,7 @@
 			"failed": "失敗"
 		},
 		"error": {
+			"safe_restart_unavailable": "無法安全重新啟動",
 			"required_asset_extract_failed": "無法從 {file} 提取 Mod 必需資源 {name}：{error}",
 			"required_asset_apply_failed": "無法將 Mod 必需資源 {name} 套用至 {file}：{error}",
 			"required_assets_unmatched": "Mod 必需資源沒有相符的目標：{names}",
@@ -1580,8 +1581,8 @@
 			"copied": "摘要已複製",
 			"copyFailed": "無法複製",
 			"actionFailed": "操作失敗",
-			"native": "錯誤報告已儲存至：",
-			"runtime": "請安裝或更新 WebView2。錯誤報告：",
+			"native": "啟動失敗",
+			"runtime": "需安裝或更新 WebView2",
 			"phases": {
 				"modules": "應用程式模組",
 				"boot": "啟動",

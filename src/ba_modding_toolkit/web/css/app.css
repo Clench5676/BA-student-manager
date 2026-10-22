@@ -325,13 +325,6 @@ input[type="text"], input[type="search"], textarea { cursor: text; }
 .loading-edge { position: absolute; width: 0; height: 0; pointer-events: none; z-index: 0; }
 .loading-ind, .loading-progress { z-index: 1; }
 .loading.full .loading-edge, .loading.full .loading-progress { display: none; }
-.loading.neutral .loading-back { background: #f4f4f4 !important; }
-.loading.neutral .loading-ind { background: none; }
-.loading.neutral { font-family: system-ui, sans-serif; }
-.loading.neutral .loading-progress { color: #444; background: #f4f4f4; border-radius: 0; }
-.loading-plain { position: absolute; right: 84px; bottom: 44px; padding: 10px 16px;
-  color: #444; background: #f4f4f4; font: 24px/1.4 system-ui, sans-serif; }
-.loading.neutral .loading-progress { color: #444; background: #f4f4f4; font-family: system-ui, sans-serif; }
 
 /* the game's clip "UIAni_Repeat 1" (legacy, 60 fps, loop of 140 frames = two equal halves of 70): the dots hop
    20 units (12.97 px) one after another; Arona and her halo squeeze to nothing and back, the halos swapping at the
@@ -378,14 +371,6 @@ input[type="text"], input[type="search"], textarea { cursor: text; }
 .left-freeze { position: absolute; z-index: 1; pointer-events: none; }
 .left-freeze canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
 
-/* message screen */
-.screen.message { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; }
-.screen.message[hidden] { display: none; }
-.screen.message h2 { font: var(--w) 56px/1.2 var(--font); color: #2d4664; }
-.screen.message p { font: var(--w) 32px/1.4 var(--font); color: #5b6f86; }
-.message-actions { display: flex; gap: 28px; margin-top: 18px; }
-.message-button { min-width: 240px; padding: 22px 40px; border-radius: 10px; background: #8de4ff; color: #314665; font: var(--w) 34px/1 var(--font);
-  transform: skewX(-10deg); box-shadow: 0 4px 0 rgba(40, 80, 120, .25); }
 /* the app has quit (browser mode): the Closed message alone */
 .stage.closed .topbar, .stage.closed .nav { display: none; }
 

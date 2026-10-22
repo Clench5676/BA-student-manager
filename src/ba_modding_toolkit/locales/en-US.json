@@ -1140,6 +1140,7 @@
 			"failed": "Failed"
 		},
 		"error": {
+			"safe_restart_unavailable": "Safe Restart Unavailable",
 			"required_asset_extract_failed": "Cannot extract required Mod asset {name} from {file}: {error}",
 			"required_asset_apply_failed": "Cannot apply required Mod asset {name} to {file}: {error}",
 			"required_assets_unmatched": "Required Mod assets have no matching target: {names}",
@@ -1580,8 +1581,8 @@
 			"copied": "Summary Copied",
 			"copyFailed": "Copy Unavailable",
 			"actionFailed": "Action Failed",
-			"native": "Error report saved to:",
-			"runtime": "WebView2 installation or update required. Error report:",
+			"native": "Startup Failed",
+			"runtime": "WebView2 Installation or Update Required",
 			"phases": {
 				"modules": "App Modules",
 				"boot": "Startup",

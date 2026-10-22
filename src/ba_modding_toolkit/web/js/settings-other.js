@@ -16,7 +16,7 @@ async function write(method, params, name, changed) {
     await Loading.task(async (update) => waitJob(await rpc(method, params), update), {
       label: T(method === "mods.remove" ? "progress.delete" : method === "actions.restore" ? "progress.restore" : "progress.apply", { name }),
     }).then((result) => {
-      if (result?.failed?.length) notify(T("mods.deletePending"), { kind: "error" });
+      if (result?.failed?.length) notify(T("mods.deletePending"), { kind: "error", error: { code: result.failed[0]?.code || "internal", params: { failed: result.failed } } });
     });
     await ModSwitch.refresh();
     await changed();

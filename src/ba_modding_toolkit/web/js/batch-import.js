@@ -44,7 +44,7 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
   let query = "", filter = "all", ascending = true, searchOpen = false, rowsKey = null, previewKey = null, generation = 0;
   let rows = new Map(), identities = new WeakMap(), dom = {}, dialogClose = null, countsKey = null;
   let art = null, merged = false, shownError = null;
-  const showError = (message) => popups.message({ title: T("job.failed"), lines: [message], ok: T("picker.ok") });
+  const showError = (message, error) => popups.message({ title: T("job.failed"), lines: [message], ok: T("picker.ok"), error });
   const drawings = new Set();
   let loadingHold = null, left = Promise.resolve(), leave = () => {};
   const waiters = new Set();
@@ -252,7 +252,7 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
         ascending = !ascending; renderToolbar(); renderRows();
       }, all: () => model.checkAll(true), none: () => model.checkAll(false), remove: () => model.remove(), clear: () => model.clear(),
       options: openOptions, recheck: () => model.recheck(), start: () => model.state.phase === "done" ? results() : start() };
-      Promise.resolve(actions[target.dataset.action]?.()).catch((error) => { showError(report(error)); });
+      Promise.resolve(actions[target.dataset.action]?.()).catch((error) => { showError(report(error), error); });
     });
     root.addEventListener("dragover", (event) => { event.preventDefault(); if (event.dataTransfer) event.dataTransfer.dropEffect = model.busy() ? "none" : "copy"; });
     root.addEventListener("drop", (event) => {
@@ -260,7 +260,7 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
       const paths = [...(event.dataTransfer?.files || [])].map((file) => file.path).filter(Boolean);
       if (paths.length) model.add(paths);
       // Browser File objects do not expose native paths; the native window drop event handles them in the app.
-      else if (!context?.info?.native) showError(T("error.native_unavailable"));
+      else if (!context?.info?.native) showError(T("error.native_unavailable"), { code: "native_unavailable" });
     });
     host.replaceChildren(root); rowsKey = previewKey = countsKey = null;
   }
@@ -393,7 +393,7 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
     const group = el("div", "import-source");
     const choose = button(T("import.source.choose"), "source", { width: 524, scale: 0.34 });
     place(choose, 0, 645, 524, 55); choose.disabled = model.busy() || model.state.phase === "done"; choose.refresh();
-    choose.addEventListener("click", () => openSource(entry).catch((error) => showError(report(error)))); group.append(choose); return group;
+    choose.addEventListener("click", () => openSource(entry).catch((error) => showError(report(error), error))); group.append(choose); return group;
   }
   async function openSource(entry) {
     if (model.busy()) return;
@@ -510,7 +510,7 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
     dom.start.disabled = busy || state.phase !== "done" && (!state.valid || !model.selected().length);
     setCaption(dom.start, state.phase === "done" ? T("import.results") : T("import.action", { n: model.selected().length }));
     for (const key of ["files", "folder", "options", "clear", "remove", "all", "none", "recheck"]) dom[key].refresh();
-    if (state.error && state.error !== shownError) showError(report(state.error));
+    if (state.error && state.error !== shownError) showError(report(state.error), state.error);
     shownError = state.error;
     renderRows(); renderPreview();
   }

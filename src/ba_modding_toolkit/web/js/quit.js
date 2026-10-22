@@ -46,7 +46,7 @@ export async function confirmQuit({ message, rpc, T, notify, native = false, clo
     try {
       await rpc("app.quit");
     } catch (err) {
-      notify(T(`error.${err.code || "internal"}`, err.params || {}), { kind: "error" });
+      notify(T(`error.${err.code || "internal"}`, err.params || {}), { kind: "error", error: err });
       return err.code || "internal";
     }
     if (!native) closed?.();

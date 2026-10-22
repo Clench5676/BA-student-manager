@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+import tempfile
 from pathlib import Path
 from urllib.parse import quote, quote_plus
 
@@ -21,9 +22,9 @@ _USERINFO = re.compile(r"(https?://)[^/\s:@]+:[^/\s@]+@", re.I)
 
 
 def redact(text: str, secrets: set[str]) -> str:
-    for secret in sorted(filter(None, secrets), key=len, reverse=True):
-        for value in {secret, quote(secret, safe=""), quote_plus(secret)}:
-            text = text.replace(value, REDACTED)
+    for secret in sorted((s for s in secrets if len(s) >= 8), key=len, reverse=True):
+        for value in {secret, secret.replace(" ", "+"), quote(secret, safe=""), quote_plus(secret)}:
+            text = re.sub(r"(?<![\w./%+~-])" + re.escape(value) + r"(?![\w./%+~-])", REDACTED, text)
     text = _QUERY.sub(r"\1" + REDACTED, text)
     text = _BEARER.sub(r"\1 " + REDACTED, text)
     text = _CREDENTIAL.sub(r"\1" + REDACTED, text)
@@ -57,19 +58,38 @@ class RedactingFormatter(logging.Formatter):
         return redact(super().format(record), self.secrets)
 
 
-def open_run_log(path: Path, secrets: set[str], *, safe_mode: bool = False) -> logging.FileHandler:
+def open_run_log(path: Path, secrets: set[str], *, safe_mode: bool = False) -> logging.StreamHandler:
     """Rotate once per launch and write the environment before any other records."""
-    from .diagnostics import environment, private_text
+    from .diagnostics import COLLECTION_TIMEOUT, Reports, clean, environment, private_text
+    import time
     import json
 
-    path.parent.mkdir(parents=True, exist_ok=True)
-    for source, target in ((path.with_name("webui.1.log"), path.with_name("webui.2.log")),
-                           (path, path.with_name("webui.1.log"))):
-        if source.exists():
-            source.replace(target)
-    handler = logging.FileHandler(path, mode="w", encoding="utf-8")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        for source, target in ((path.with_name("webui.1.log"), path.with_name("webui.2.log")),
+                               (path, path.with_name("webui.1.log"))):
+            if source.exists():
+                source.replace(target)
+        handler = logging.FileHandler(path, mode="w", encoding="utf-8")
+    except OSError:
+        try:
+            import os
+            fd, name = tempfile.mkstemp(prefix="BAMT-", suffix=".log")
+            os.close(fd)
+            handler = logging.FileHandler(name, mode="w", encoding="utf-8")
+        except OSError:
+            handler = logging.StreamHandler()
     handler.setFormatter(RedactingFormatter(secrets))
-    header = {**environment(safe_mode), "dataDir": private_text(str(path.parent), secrets)}
-    handler.stream.write("Environment " + json.dumps(header, ensure_ascii=False) + "\n")
-    handler.flush()
+    def header_values():
+        values = environment(safe_mode)
+        app = values.pop("app")
+        return {**clean(values, secrets), "app": app, "dataDir": private_text(str(path.parent), secrets)}
+    header = Reports(path.parent).optional("environment", header_values, time.monotonic() + COLLECTION_TIMEOUT)
+    try:
+        handler.stream.write("Environment " + json.dumps(header, ensure_ascii=False) + "\n")
+        handler.flush()
+    except OSError:
+        handler.close()
+        handler = logging.StreamHandler()
+        handler.setFormatter(RedactingFormatter(secrets))
     return handler

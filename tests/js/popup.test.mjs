@@ -1472,3 +1472,22 @@ test("failed-job notifications offer Error Report on the game frame", async () =
     await refused;
   } finally { delete globalThis.BAMTRecovery; }
 });
+
+
+test("error popup report actions retain the triggering code and parameters", async () => {
+  const events = [], error = { code: "library_io_error", params: { file: "Private Mod Name.bundle", operation: "read" } };
+  globalThis.BAMTRecovery = { report: (event) => events.push(event) };
+  try {
+    Popup.notify("Cannot read", { kind: "error", error });
+    const layer = dialog.children.at(-1);
+    (await drawn(layer, "cancel")).click();
+    assert.equal(events[0].code, error.code);
+    assert.deepEqual(events[0].params, error.params);
+    const pending = Popup.message({ title: "Failed", error, ok: "OK", cancel: "Retry" });
+    const next = dialog.children.at(-1);
+    (await drawn(next, "line0")).click();
+    assert.equal(events[1].code, error.code);
+    action(next, "ok").click();
+    await pending;
+  } finally { delete globalThis.BAMTRecovery; }
+});

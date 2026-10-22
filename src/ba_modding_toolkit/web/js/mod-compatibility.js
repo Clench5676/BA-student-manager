@@ -209,7 +209,7 @@ export async function check(id, label = "", onRemapped = () => {}, mod = null, s
 
 async function requireRuntime() {
   if (await ensureSpine()) return true;
-  const response = await Popup.message({ title: T("spine.license.title"), lines: [T("spine.license.required")], error: true,
+  const response = await Popup.message({ title: T("spine.license.title"), lines: [T("spine.license.required")], error: { code: "spine_license_required" },
     ok: T("spine.license.confirm"), cancel: T("popup.cancel") });
   if (response.button !== "ok") return false;
   return await confirmLicence(document.getElementById("consent"), { over: true }) === true && await ensureSpine();

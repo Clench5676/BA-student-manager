@@ -638,15 +638,19 @@ const MSG = { title: 150, gap: 28, rowMin: 104, check: 150, buttons: 236, none: 
 // Without the frame's prefab (no game folder) the same message is drawn plain.
 export function message(opts) {
   if (opts.error || opts.title === T("job.failed")) {
+    const error = typeof opts.error === "object" && opts.error ? opts.error : {};
+    const event = { kind: "popup", code: error.code || "internal", params: error.params || {},
+      message: error.message || (opts.lines || []).filter((line) => typeof line === "string").join("\n") };
+    const report = () => globalThis.BAMTRecovery?.report(event);
     if (!opts.cancel) {
       opts = { ...opts, cancel: T("recovery.report") };
       return new Promise((resolve) => showMessage(opts, (result) => {
-        if (result.button === "cancel") globalThis.BAMTRecovery?.report();
+        if (result.button === "cancel") report();
         resolve(result);
       }));
     }
     opts = { ...opts, lines: [...(opts.lines || []), { text: "", button: { label: T("recovery.report"),
-      fn: () => globalThis.BAMTRecovery?.report() } }] };
+      fn: report } }] };
   }
   return new Promise((resolve) => { showMessage(opts, resolve); });
 }
@@ -899,7 +903,7 @@ export function textViewer({ title, text, copy, close = T("display.close"), onCo
 }
 
 // Only errors/refusals use a notification popup. Rich results call message() explicitly.
-export function notify(text, { kind = "info" } = {}) {
+export function notify(text, { kind = "info", error = null } = {}) {
   if (!text || kind !== "error") return;
-  void message({ title: T("job.failed"), lines: [text], ok: T("picker.ok") });
+  void message({ title: T("job.failed"), lines: [text], ok: T("picker.ok"), error });
 }

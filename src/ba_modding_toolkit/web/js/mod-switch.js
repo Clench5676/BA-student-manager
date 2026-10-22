@@ -313,9 +313,9 @@ async function render() {
 export async function click(from = "top") {
   const s = state;
   switch (clickAction(s, explainedHere)) {
-    case "busy": notify(T("error.busy"), { kind: "error" }); return;
+    case "busy": notify(T("error.busy"), { kind: "error", error: { code: "busy" } }); return;
     case "queued": classicModal({ queued: true }); return;
-    case "reason": notify(reasonText(s), { kind: "error" }); return;
+    case "reason": notify(reasonText(s), { kind: "error", error: { code: s.reason, params: s.reasonParams } }); return;
     case "explain":
       // the toggle the explanation named; switched elsewhere meanwhile, the job refuses it (state_changed), and a
       // classic window opened meanwhile gives the classic modal
@@ -338,7 +338,7 @@ async function explain(s) {
 
 // a toggle or Retry: submitted at once; the indicator and the progress while it runs; the result at its end
 async function run(params) {
-  if (inFlight) { notify(T("error.busy"), { kind: "error" }); return; }
+  if (inFlight) { notify(T("error.busy"), { kind: "error", error: { code: "busy" } }); return; }
   inFlight = true;
   try {
     const result = await Loading.hold(async (update) => {
@@ -420,7 +420,8 @@ async function finished(result) {
   const summary = resultSummary(result, nameOf);
   if (!summary) return;
   await Popup.message({ title: summary.title, lines: summary.lines, ok: T("picker.ok"),
-    error: !!(result?.failed?.length || result?.left?.length || result?.stuck?.length) });
+    error: (result?.failed?.length || result?.left?.length || result?.stuck?.length)
+      ? { code: result.failed?.[0]?.code || "internal", params: { failed: result.failed, left: result.left, stuck: result.stuck } } : null });
 }
 
 // a refusal (at submit or from the job): the classic modal for the classic window, else its string; switched
@@ -428,7 +429,7 @@ async function finished(result) {
 export function refused(err, method = null, params = null) {
   const code = err?.code || "internal";
   if (code === "classic_open" && QUEUEABLE.includes(method)) { classicModal({ method, params }); return; }
-  notify(errorText(code, err?.params || { error: String(err) }), { kind: "error" });
+  notify(errorText(code, err?.params || { error: String(err) }), { kind: "error", error: err });
   if (code === "state_changed") refresh();
 }
 
@@ -437,7 +438,7 @@ export function refused(err, method = null, params = null) {
 // queued, the queue is emptied) ---
 export async function classicModal({ method = null, params = null, queued = false } = {}) {
   const r = await Popup.message({
-    title: T("classic.opened"), lines: [T("error.classic_open")], error: true,
+    title: T("classic.opened"), lines: [T("error.classic_open")], error: { code: "classic_open", params: { method, params } },
     cancel: T("classic.front"), ok: T("picker.ok"),
     check: { label: T("classic.autoApply"), checked: queued },
   });
@@ -450,7 +451,7 @@ export async function classicModal({ method = null, params = null, queued = fals
       await rpc("classic.clearQueue");
     }
   } catch (err) {
-    notify(errorText(err.code, err.params), { kind: "error" });
+    notify(errorText(err.code, err.params), { kind: "error", error: err });
   }
   return what;
 }
@@ -460,7 +461,7 @@ async function queueDone({ submitted = [], dropped = [] } = {}) {
   for (const item of submitted) {
     if (!item.job) continue;
     waitJob(item.job).then((result) => (item.method === "mods.toggle" ? finished(result) : null))
-      .catch((err) => notify(errorText(err.code, err.params), { kind: "error" }));
+      .catch((err) => notify(errorText(err.code, err.params), { kind: "error", error: err }));
   }
   if (!dropped.length) return;
   const nameOf = await names().catch(() => undefined);
@@ -470,7 +471,7 @@ async function queueDone({ submitted = [], dropped = [] } = {}) {
     return entryLabel({ variant: d.params?.variant, kind: d.params?.kind }, nameOf);
   };
   await Popup.message({
-    title: T("classic.notApplied"), error: true,
+    title: T("classic.notApplied"), error: { code: dropped[0]?.error?.code || "internal", params: { dropped } },
     lines: dropped.map((d) => `${what(d)} - ${errorText(d.error?.code, d.error?.params)}`),
     ok: T("picker.ok"),
   });
@@ -497,7 +498,7 @@ export async function clearBuilt() {
     await Loading.task((update) => waitJob(id, update), { label: T("progress.clear") });
     return true;
   } catch (err) {
-    notify(errorText(err.code, err.params), { kind: "error" });
+    notify(errorText(err.code, err.params), { kind: "error", error: err });
     return false;
   }
 }
@@ -530,7 +531,7 @@ export async function check() {
   try {
     await rpc("mods.scan", { dismissed: true });
   } catch (err) {
-    notify(errorText(err.code, err.params), { kind: "error" });
+    notify(errorText(err.code, err.params), { kind: "error", error: err });
     return null;
   }
   const result = await Loading.task(() => done, { label: T("progress.check") });

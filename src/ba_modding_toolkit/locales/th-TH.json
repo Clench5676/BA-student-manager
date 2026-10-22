@@ -1140,6 +1140,7 @@
 			"failed": "ล้มเหลว"
 		},
 		"error": {
+			"safe_restart_unavailable": "เริ่มใหม่ในโหมดปลอดภัยไม่ได้",
 			"required_asset_extract_failed": "ไม่สามารถแยกแอสเซ็ตที่จำเป็นของ Mod {name} จาก {file}: {error}",
 			"required_asset_apply_failed": "ไม่สามารถนำแอสเซ็ตที่จำเป็นของ Mod {name} ไปใช้กับ {file}: {error}",
 			"required_assets_unmatched": "ไม่มีเป้าหมายที่ตรงกับแอสเซ็ตที่จำเป็นของ Mod: {names}",
@@ -1580,8 +1581,8 @@
 			"copied": "คัดลอกสรุปแล้ว",
 			"copyFailed": "คัดลอกไม่ได้",
 			"actionFailed": "ดำเนินการไม่สำเร็จ",
-			"native": "ตำแหน่งรายงานข้อผิดพลาด:",
-			"runtime": "ต้องติดตั้งหรืออัปเดต WebView2 รายงานข้อผิดพลาด:",
+			"native": "เริ่มต้นไม่สำเร็จ",
+			"runtime": "ต้องติดตั้งหรืออัปเดต WebView2",
 			"phases": {
 				"modules": "โมดูลแอป",
 				"boot": "เริ่มต้น",

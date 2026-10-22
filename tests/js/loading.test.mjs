@@ -320,8 +320,9 @@ test("the initial document uses a neutral system style before modules and locale
   const css = readFileSync(new URL("../../src/ba_modding_toolkit/web/css/app.css", import.meta.url), "utf8");
   assert.match(html, /class="loading full on neutral" id="loading-boot"/);
   assert.match(html, /id="loading-boot"[\s\S]*?class="loading-plain"><span><\/span>/);
-  assert.match(css, /\.loading-plain \{[^}]*system-ui, sans-serif/);
-  assert.match(css, /\.loading\.neutral \.loading-back \{[^}]*#f4f4f4/);
+  const fallback = readFileSync(new URL("../../src/ba_modding_toolkit/web/css/fallback.css", import.meta.url), "utf8");
+  assert.match(fallback, /\.loading-plain \{[^}]*system-ui, sans-serif/);
+  assert.match(fallback, /\.loading\.neutral \.loading-back \{[^}]*#f4f4f4/);
   assert.match(css, /\.loading-fallback \{[^}]*bottom: 44px[^}]*color: #8de4ff[^}]*"RHR"[^}]*text-stroke: 1px #fff/);
 });
 

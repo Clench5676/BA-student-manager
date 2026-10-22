@@ -199,12 +199,12 @@ addEventListener("keydown", (ev) => {
 function noGame() {
   const setDir = async (path) => {
     try { await rpc("settings.set", { key: "gameDir.global", value: path }); location.reload(); }
-    catch (err) { notify(T(`error.${err.code}`, err.params), { kind: "error" }); }
+    catch (err) { notify(T(`error.${err.code}`, err.params), { kind: "error", error: err }); }
   };
   message(T("app.noGame.title"), T("app.noGame.hint"), [
     [T("settings.detect"), async () => {
       const found = await rpc("settings.detectGame", { region: "global" }).catch(() => []);
-      if (found.length) setDir(found[0]); else notify(T("app.noGame.title"), { kind: "error" });
+      if (found.length) setDir(found[0]); else notify(T("app.noGame.title"), { kind: "error", error: { code: "game_not_found" } });
     }],
     ...(info?.native ? [[T("settings.change"), async () => { const p = await rpc("settings.pickFolder", {}).catch(() => null); if (p) setDir(p); }]] : []),
   ]);
@@ -298,7 +298,7 @@ async function route() {
     if (globalThis.BAMTRecovery?.isBooting() && err.code !== "game_not_found") throw err;
     console.error(err);
     if (err.code === "game_not_found") { noGame(); return; }
-    notify(T(`error.${err.code || "internal"}`, err.params || { error: String(err) }), { kind: "error" });
+    notify(T(`error.${err.code || "internal"}`, err.params || { error: String(err) }), { kind: "error", error: err });
     if (parts[0] === "student") Detail.stepFailed();
     // a student the catalog does not have (a stale or mistyped link): the screen shown before, its portrait, lobby or
     // 3D view, does not stay under that address; back to the list, under the error popup
@@ -380,7 +380,7 @@ async function start() {
   $("top-option").setAttribute("aria-label", T("settings.button"));
   // subscribed before the no-game screen too, so choosing the game folder elsewhere reaches the page
   on("config.changed", () => { if (!info.gameFound) { location.reload(); return; } BatchImport.invalidate(); stepCards = null; ctx.invalidateRoster(); route(); });
-  on("app.busy", () => notify(T("error.busy"), { kind: "error" }));
+  on("app.busy", () => notify(T("error.busy"), { kind: "error", error: { code: "busy" } }));
   await timed("fonts", () => document.fonts.ready);
   // the bottom bar: its greyed entries hand over to the classic UI (with or without a game folder), their prompt
   // following the pref classicPrompt
@@ -423,7 +423,7 @@ async function start() {
       ctx.invalidateRoster();
       route();
     } catch (err) {
-      notify(T(`error.${err.code}`, err.params), { kind: "error" });
+      notify(T(`error.${err.code}`, err.params), { kind: "error", error: err });
     }
   });
   $("top-option").addEventListener("click", () => Settings.open(settingsChanged));

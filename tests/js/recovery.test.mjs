@@ -14,7 +14,7 @@ class El {
   querySelector(tag) { return this.children.find((c) => c.tag === tag); }
   getContext() { throw new Error("No GPU"); }
 }
-function harness({ safeMode = false } = {}) {
+function harness({ safeMode = false, canRestartSafe = true } = {}) {
   let now = 0, timerId = 0;
   const timers = new Map(), listeners = {}, calls = [], body = new El("body");
   const strings = JSON.parse(readFileSync(new URL("../../src/ba_modding_toolkit/locales/en-US.json", import.meta.url))).webui;
@@ -24,7 +24,7 @@ function harness({ safeMode = false } = {}) {
     if (typeof value === "string") flat[key] = value; else flatten(value, key);
   } };
   flatten(strings);
-  const ctx = { BAMT_CONFIG: { safeMode, language: "en-US", strings: flat },
+  const ctx = { BAMT_CONFIG: { safeMode, canRestartSafe, language: "en-US", strings: flat },
     document: { body, createElement: (tag) => new El(tag), addEventListener: (name, fn) => { listeners[name] = fn; } },
     addEventListener: (name, fn) => { listeners[name] = fn; }, location: { hash: "#/student/old", reload() { calls.push(["reload"]); } },
     navigator: { userAgent: "test" }, screen: { width: 1920, height: 1080 }, devicePixelRatio: 2,
@@ -53,7 +53,6 @@ test("slow boot stays covered; stuck boot shows the current phase and four recov
   assert.ok(h.panel());
   assert.ok(h.panel().children.some((c) => c.textContent.includes("Game UI")));
   assert.equal(h.panel().children.filter((c) => c.tag === "button").length, 4);
-  assert.equal(h.api.ready(), false, "late completion cannot hide a failed boot");
   await h.click("Error Report");
   assert.equal(h.calls.filter(([name]) => name === "app.report").length, 1);
   await h.click("Open Log Folder");
@@ -125,4 +124,37 @@ test("normal report results use the game's shared presenter and repeated clicks 
   assert.equal(h.calls.filter(([name]) => name === "app.report").length, 1);
   assert.equal(shown.length, 1);
   assert.equal(h.panel(), undefined);
+});
+
+
+test("watchdog tracks progress beyond 45 seconds and late ready restores the app", async () => {
+  const h = harness(), stage = { hidden: false, inert: false };
+  h.ctx.document.getElementById = () => stage;
+  h.api.begin("boot");
+  await h.advance(30000);
+  h.api.begin("ui-indexes");
+  await h.advance(30000);
+  assert.equal(h.panel(), undefined);
+  h.api.end("ui-indexes", 30000);
+  await h.advance(44000);
+  assert.equal(h.panel(), undefined);
+  await h.advance(1000);
+  assert.ok(h.panel());
+  assert.equal(stage.hidden, true);
+  const logged = h.calls.filter(([name, p]) => name === "app.frontendError" && p.event).length;
+  assert.equal(h.api.ready(), true);
+  assert.equal(h.panel(), undefined);
+  assert.equal(stage.hidden, false);
+  assert.equal(stage.inert, false);
+  assert.equal(h.api.failed(), false);
+  assert.equal(h.calls.filter(([name, p]) => name === "app.frontendError" && p.event).length, logged);
+});
+
+test("unsupported launches hide safe restart and popup reports carry their trigger", async () => {
+  const h = harness({ canRestartSafe: false });
+  h.api.fail(new Error("failed"));
+  assert.ok(!h.panel().children.some((c) => c.textContent === "Restart in Safe Mode"));
+  const event = { kind: "popup", code: "busy", params: { operation: "apply" } };
+  await h.api.report(event);
+  assert.deepEqual(h.calls.find(([name]) => name === "app.report")[1].event, event);
 });

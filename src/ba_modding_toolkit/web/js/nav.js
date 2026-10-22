@@ -40,7 +40,7 @@ async function click(item) {
       ask, open: openClassic, savePrompt,
     });
   } catch (err) {
-    notify(T(`error.${err.code || "internal"}`, err.params || { error: String(err) }), { kind: "error" });
+    notify(T(`error.${err.code || "internal"}`, err.params || { error: String(err) }), { kind: "error", error: err });
   } finally {
     opening = false;
   }

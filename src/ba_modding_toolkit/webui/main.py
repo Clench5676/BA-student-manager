@@ -96,8 +96,8 @@ def main(argv: list[str] | None = None) -> None:
         instance.release()
     if restart:
         import subprocess
-        from .system import program_command
-        command = program_command() + ["--safe-mode"]
+        from .system import safe_restart_command
+        command = safe_restart_command() + ["--safe-mode"]
         command += [flag for flag in ("--browser", "--debug", "--mute") if getattr(args, flag[2:])]
         subprocess.Popen(command)
 
@@ -117,8 +117,10 @@ def second_start(data_dir: Path, *, serve: bool) -> int:
 
 def recovery_config(s: Services) -> dict:
     from .strings import ui_strings
+    from .system import can_restart_safe
     strings = ui_strings(i18n_manager.lang)
-    return {"safeMode": s.safe_mode, "language": i18n_manager.lang,
+    return {"safeMode": s.safe_mode, "canRestartSafe": can_restart_safe() and not getattr(s, "serve_only", False) and
+            (getattr(s, "window", None) is not None or getattr(s, "quit_handle", None) is not None), "language": i18n_manager.lang,
             "strings": {k.removeprefix("webui."): v for k, v in strings.items() if k.startswith("webui.recovery.") or
                         k in ("webui.settings.button", "webui.settings.log.open", "webui.picker.ok")}}
 
@@ -128,10 +130,12 @@ def _run(args: argparse.Namespace, instance: InstanceLock) -> bool:
     reports = Reports(EXE_DIR, safe_mode=safe_mode)
     if args.token:
         reports.secrets.add(args.token)
-    handler = open_run_log(EXE_DIR / "webui.log", reports.secrets, safe_mode=safe_mode)
-    logging.getLogger().addHandler(handler)
+    handler = None
     restore = install_exception_hooks(reports)
     try:
+        handler = open_run_log(EXE_DIR / "webui.log", reports.secrets, safe_mode=safe_mode)
+        reports.log_path = Path(handler.baseFilename) if hasattr(handler, "baseFilename") else None
+        logging.getLogger().addHandler(handler)
         return _serve(args, instance, reports, handler)
     except Exception as error:
         logger.exception("Startup failed")
@@ -142,12 +146,15 @@ def _run(args: argparse.Namespace, instance: InstanceLock) -> bool:
         return False
     finally:
         restore()
-        logging.getLogger().removeHandler(handler)
-        handler.close()
+        if handler is not None:
+            logging.getLogger().removeHandler(handler)
+            handler.close()
 
 
 def _serve(args: argparse.Namespace, instance: InstanceLock, reports: Reports, handler) -> bool:
     s, server = build(args.port, token=args.token, safe_mode=reports.safe_mode, reports=reports)
+    s.serve_only = args.serve
+    s.log_path = reports.log_path
     handler.setFormatter(RedactingFormatter(s.log_secrets))
     for phase, value in s.timings.snapshot().items():
         logger.info("Timing %s: %.3f s (%s calls before log opened)", phase, value["seconds"], value["count"])

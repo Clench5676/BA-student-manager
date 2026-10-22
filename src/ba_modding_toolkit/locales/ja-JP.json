@@ -1140,6 +1140,7 @@
 			"failed": "失敗"
 		},
 		"error": {
+			"safe_restart_unavailable": "セーフモード再起動不可",
 			"required_asset_extract_failed": "{file} から Mod の必須アセット {name} を抽出できません：{error}",
 			"required_asset_apply_failed": "Mod の必須アセット {name} を {file} に適用できません：{error}",
 			"required_assets_unmatched": "Mod の必須アセットに対応する対象がありません：{names}",
@@ -1580,8 +1581,8 @@
 			"copied": "概要コピー済み",
 			"copyFailed": "コピー不可",
 			"actionFailed": "操作失敗",
-			"native": "エラーレポート保存先：",
-			"runtime": "WebView2 のインストールまたは更新が必要。レポート：",
+			"native": "起動失敗",
+			"runtime": "WebView2 のインストールまたは更新が必要",
 			"phases": {
 				"modules": "アプリモジュール",
 				"boot": "起動",

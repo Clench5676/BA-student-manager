@@ -284,12 +284,14 @@ def test_safe_mode_disables_assets_and_maintenance_without_changing_consent(tmp_
         response = b"".join(app._static("/", lambda *args: None)).decode()
         assert 'type="module" src="js/main.js"' not in response
         assert response.index("window.BAMT_CONFIG") < response.index('href="css/app.css"')
-        assert "const watchdog" in response
+        assert "function progress()" in response
     finally:
         s.close()
 
 
 def test_restart_safe_refuses_writers_and_restarts_only_after_lock_release(monkeypatch, tmp_path):
+    monkeypatch.setattr(diagnostics.updater, "is_compiled", lambda: True)
+    monkeypatch.setattr(main.devmode, "active", lambda: False)
     r = SimpleNamespace(jobs=SimpleNamespace(busy=lambda: True, reserve_quit=lambda: None, cancel_quit=lambda: None), window=object(), quit_handle=None,
                         restart_requested=False, quit=lambda: None, timings=Timings())
     rpc = build_api(r)
@@ -409,3 +411,247 @@ def test_automatic_retention_never_removes_user_reports(reports):
         reports.backend_exception(type(error), error, None)
     assert manual.exists()
     assert len(list(reports.data_dir.glob("*-auto*.zip"))) == 3
+
+
+@pytest.mark.parametrize("value", ["Private Mod Name.bundle", "C:/Mods/Private Folder/Private Mod Name.bundle",
+                                  "/opt/Private Folder/Private Mod Name.bundle"])
+def test_review_asset_values_and_unquoted_log_paths_are_wholly_redacted(value):
+    assert diagnostics.clean({"file": value}, set()) == {"file": "[asset].bundle"}
+    text = diagnostics.private_text(f"Cannot open {value}\nTiming boot: 1 s", set())
+    assert "Private" not in text and "[asset].bundle" in text and "Timing boot: 1 s" in text
+
+
+def test_review_encoded_identities_are_scrubbed_everywhere(reports, monkeypatch):
+    import socket
+    from urllib.parse import quote
+    home = Path("/Users/\u5c71\u7530")
+    monkeypatch.setattr(Path, "home", lambda: home)
+    monkeypatch.setattr(diagnostics.getpass, "getuser", lambda: home.name)
+    monkeypatch.setattr(socket, "gethostname", lambda: "Private-Mac")
+    monkeypatch.setattr(diagnostics.platform, "node", lambda: "Private-Mac")
+    monkeypatch.setenv("COMPUTERNAME", "Private-PC")
+    forms = [str(home), json.dumps(str(home))[1:-1], quote(str(home)), quote(str(home), safe=""),
+             quote(quote(str(home), safe=""), safe=""), json.dumps(home.name)[1:-1],
+             "Private-Mac", "Private-PC"]
+    payload = "\n".join(forms)
+    for name in diagnostics.LOG_NAMES:
+        (reports.data_dir / name).write_text(payload)
+    reports.frontend_event({"message": payload})
+    joined = "\n".join(contents(reports.generate()).values())
+    for form in forms:
+        assert form not in joined
+
+
+def test_review_short_secrets_keys_and_version_survive(reports, monkeypatch):
+    reports.secrets.update({"a", "0", "0.3.0", "long-secret"})
+    value = diagnostics.clean({"phase": "data", "long-secret": "long-secret", "message": "long-secret long-secret-extra"}, reports.secrets)
+    assert value == {"phase": "data", "long-secret": "[redacted]", "message": "[redacted] long-secret-extra"}
+    monkeypatch.setattr(diagnostics.updater, "current_version", lambda: "0.3.0-development")
+    reports.secrets.add("0.3.0-development")
+    result = reports.generate()
+    assert Path(result["path"]).name.startswith("BAMT-report-0.3.0-development-")
+    assert json.loads(contents(result)["report.json"])["app"]["version"] == "0.3.0-development"
+
+
+@pytest.mark.parametrize("operation", ["mkdir", "open", "rotate"])
+def test_review_unwritable_logging_keeps_hooks_reports_and_native_alert(reports, monkeypatch, operation):
+    monkeypatch.setattr(main, "EXE_DIR", reports.data_dir)
+    desktop = native.report_folders()[0]
+    desktop.mkdir()
+    log = reports.data_dir / "webui.log"
+    log.write_text("old log")
+    import builtins
+    original_mkdir, original_open, original_replace = Path.mkdir, builtins.open, Path.replace
+
+    def mkdir(path, *args, **kwargs):
+        if operation == "mkdir" and path == reports.data_dir:
+            raise PermissionError("data directory unavailable")
+        return original_mkdir(path, *args, **kwargs)
+
+    def open_file(path, *args, **kwargs):
+        if operation == "open" and Path(path) == log:
+            raise PermissionError("log unavailable")
+        return original_open(path, *args, **kwargs)
+
+    def replace(path, *args, **kwargs):
+        if operation == "rotate" and path == log:
+            raise PermissionError("rotation unavailable")
+        return original_replace(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "mkdir", mkdir)
+    monkeypatch.setattr(builtins, "open", open_file)
+    monkeypatch.setattr(Path, "replace", replace)
+    previous_hook, original_log = sys.excepthook, main.open_run_log
+    def open_log(*args, **kwargs):
+        assert sys.excepthook is not previous_hook
+        return original_log(*args, **kwargs)
+    monkeypatch.setattr(main, "open_run_log", open_log)
+    entered, messages = [], []
+    def serve(args, instance, r, handler):
+        entered.append(handler)
+        handler.emit(logging.makeLogRecord({"msg": "fallback log works", "levelno": logging.ERROR, "levelname": "ERROR"}))
+        raise RuntimeError("service startup failed")
+    monkeypatch.setattr(main, "_serve", serve)
+    monkeypatch.setattr(native, "message_box", lambda *args: messages.append(args))
+    assert main._run(SimpleNamespace(safe_mode=False, token=None, serve=False), SimpleNamespace()) is False
+    assert entered and messages and sys.excepthook is previous_hook
+    assert list(desktop.glob("BAMT-report-*.zip"))
+    if getattr(entered[0], "baseFilename", None):
+        assert "fallback log works" in Path(entered[0].baseFilename).read_text()
+
+
+@pytest.mark.parametrize("runtime", [False, True])
+def test_review_native_alert_survives_report_failure(reports, monkeypatch, runtime):
+    messages = []
+    monkeypatch.setattr(reports, "generate", lambda: (_ for _ in ()).throw(OSError("no writable destination")))
+    monkeypatch.setattr(native, "message_box", lambda *args: messages.append(args))
+    result = native.startup_failure(reports, RuntimeError("startup failed"), runtime=runtime)
+    assert result is None and len(messages) == 1
+    assert (native.WEBVIEW2_URL in messages[0][1]) is runtime
+    assert ".zip" not in messages[0][1]
+
+
+@pytest.mark.parametrize("compiled,development,serve", [(False, False, False), (True, True, False), (True, False, True)])
+def test_review_restart_safe_refuses_unsupported_launches(monkeypatch, compiled, development, serve):
+    monkeypatch.setattr(diagnostics.updater, "is_compiled", lambda: compiled)
+    monkeypatch.setattr(main.devmode, "active", lambda: development)
+    s = SimpleNamespace(jobs=SimpleNamespace(busy=lambda: False), window=None if serve else object(),
+                        quit_handle=None, restart_requested=False, timings=Timings(), safe_mode=False)
+    result = build_api(s).call("app.restartSafe", {})
+    assert result["error"]["code"] == "safe_restart_unavailable"
+    assert s.restart_requested is False
+    assert main.recovery_config(s)["canRestartSafe"] is False
+
+
+def test_review_optional_failures_and_blocking_reads_yield_report(reports, monkeypatch):
+    import time
+    release = threading.Event()
+    entered = []
+    def blocked(*args):
+        entered.append(True)
+        release.wait(2)
+        return {}
+    monkeypatch.setattr(reports.services, "library_dir", lambda: (_ for _ in ()).throw(RuntimeError("bad settings")))
+    monkeypatch.setattr(reports.services.timings, "snapshot", blocked)
+    monkeypatch.setattr(native, "engine_info", blocked)
+    try:
+        started = time.monotonic()
+        data = json.loads(contents(reports.generate())["report.json"])
+        assert time.monotonic() - started < 1.5
+        assert data["libraryCounts"] is None and data["timings"] is None and data["webview"] is None
+    finally:
+        release.set()
+
+
+def test_review_consent_uses_cache_without_file_lock(reports, monkeypatch):
+    from ba_modding_toolkit.webui.state import UiState
+    state = UiState(reports.data_dir / "webui.json")
+    state.set_consent(True)
+    state.set("spine_consent", False)
+    reports.services.state = state
+    monkeypatch.setattr(state, "_current", lambda: (_ for _ in ()).throw(AssertionError("blocking state read")))
+    library = reports.data_dir / "chosen-library"
+    library.mkdir()
+    (library / "state.json").write_text('{"mods": [{"kind": "spr"}]}')
+    state.set("library_dir", str(library))
+    reports.services.library_dir = lambda: Path(state.get("library_dir"))
+    data = reports.snapshot()
+    assert data["consent"] == {"uiAssets": True, "spine": False}
+    assert data["libraryCounts"] == {"spr": 1, "lobby": 0, "model": 0, "other": 0}
+
+
+def test_review_popup_report_records_error_code_and_private_parameters(reports):
+    result = build_api(reports.services).call("app.report", {"event": {"kind": "popup", "code": "library_io_error",
+        "params": {"file": "Private Mod Name.bundle", "token": "secret-value", "operation": "read"}}})
+    assert "result" in result
+    error = json.loads(contents(result["result"])["report.json"])["frontendErrors"][-1]
+    assert error["code"] == "library_io_error"
+    assert error["params"] == {"file": "[asset].bundle", "token": "[redacted]", "operation": "read"}
+
+
+def test_review_recovery_embeds_shared_plain_style(reports):
+    from ba_modding_toolkit.webui.server import WebApp, WEB_DIR
+    from ba_modding_toolkit.webui.events import EventBus
+    from ba_modding_toolkit.webui.rpc import RpcRegistry
+    body = b"".join(WebApp(RpcRegistry(), EventBus())._static("/", lambda *args: None)).decode()
+    style = (WEB_DIR / "css" / "fallback.css").read_text()
+    assert style in body
+    assert body.index(style) < body.index('href="css/app.css"')
+    assert "#bamt-recovery" in style and ".screen.message" in style
+    assert "#edf6fa" not in body and "#89b9d0" not in body
+
+
+def test_review_collection_deadline_and_stuck_worker_count(reports, monkeypatch):
+    import time
+    release = threading.Event()
+    calls = []
+    def blocked():
+        calls.append(True)
+        release.wait(5)
+    monkeypatch.setattr(diagnostics, "READ_TIMEOUT", .05)
+    monkeypatch.setattr(diagnostics, "COLLECTION_TIMEOUT", .2)
+    monkeypatch.setattr(native, "engine_info", blocked)
+    monkeypatch.setattr(native, "report_folders", blocked)
+    monkeypatch.setattr(reports.services.timings, "snapshot", blocked)
+    monkeypatch.setattr(reports, "library_counts", blocked)
+    monkeypatch.setattr(reports, "_previous_error", blocked)
+    try:
+        for _ in range(2):
+            started = time.monotonic()
+            result = reports.generate()
+            assert Path(result["path"]).is_file()
+            assert time.monotonic() - started < .5
+        assert len(calls) <= 5
+    finally:
+        release.set()
+
+
+def test_review_held_diagnostic_lock_does_not_block_report_rpc(reports):
+    import time
+    held, release = threading.Event(), threading.Event()
+    def hold():
+        with reports._lock:
+            held.set()
+            release.wait(5)
+    worker = threading.Thread(target=hold, daemon=True)
+    worker.start()
+    assert held.wait(1)
+    try:
+        started = time.monotonic()
+        result = build_api(reports.services).call("app.report", {})
+        assert "result" in result and time.monotonic() - started < 1.5
+    finally:
+        release.set()
+        worker.join(1)
+
+
+def test_review_popup_trigger_survives_a_full_error_rate_limit(reports):
+    for i in range(10):
+        reports.frontend_event({"message": str(i)})
+    result = build_api(reports.services).call("app.report", {"event": {
+        "kind": "popup", "code": "busy", "params": {"file": "Private Mod.bundle"}}})["result"]
+    data = json.loads(contents(result)["report.json"])
+    assert data["triggeringError"] == {"kind": "popup", "code": "busy", "params": {"file": "[asset].bundle"}}
+    assert "busy" in data["summary"]
+
+
+def test_review_stderr_fallback_when_no_log_file_is_writable(reports, monkeypatch):
+    import builtins
+    previous = builtins.open
+    def denied(path, mode="r", *args, **kwargs):
+        if str(path).endswith(".log") and mode == "w":
+            raise PermissionError("logs unavailable")
+        return previous(path, mode, *args, **kwargs)
+    monkeypatch.setattr(builtins, "open", denied)
+    handler = open_run_log(reports.data_dir / "webui.log", set())
+    try:
+        assert handler.stream is sys.stderr
+        assert not isinstance(handler, logging.FileHandler)
+    finally:
+        handler.close()
+
+
+def test_review_structured_filenames_keep_only_extensions():
+    assert diagnostics.clean({"file": "Private Settings.txt", "paths": ["Private Archive.tar.gz", "Private Folder"],
+                              "filename": "Private Mod.bundle.backup"}, set()) == {
+        "file": "[asset].txt", "paths": ["[asset].gz", "[asset]"], "filename": "[asset].bundle.backup"}

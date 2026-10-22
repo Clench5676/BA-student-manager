@@ -29,7 +29,7 @@ from .rpc import RpcRegistry, to_json
 from .services import Services
 from .session_log import tail
 from .state import ALIAS_LENGTH, ALIAS_MAX, LOBBY_ZOOM_MODES, alias_key, alias_text, is_number, lobby_zoom, roster_view
-from .system import reveal
+from .system import can_restart_safe, reveal
 
 logger = logging.getLogger(__name__)
 trace_logger = logging.getLogger("ba_modding_toolkit.webui.trace")
@@ -137,12 +137,12 @@ def build_api(s: Services) -> RpcRegistry:
 
     @rpc.method("app.log")
     def app_log() -> dict[str, str]:
-        return {"path": str(s.log_path), "text": tail(s.log_path, s.log_secrets)}
+        return {"path": str(s.log_path) if s.log_path else "", "text": tail(s.log_path, s.log_secrets) if s.log_path else ""}
 
     @rpc.method("app.report")
-    def app_report(context: dict | None = None) -> dict:
-        s.reports.frontend_event(context=context)
-        return s.reports.generate()
+    def app_report(context: dict | None = None, event: dict | None = None) -> dict:
+        s.reports.frontend_event(event=event, context=context)
+        return s.reports.generate(trigger=event)
 
     @rpc.method("app.frontendError")
     def app_frontend_error(event: dict | None = None, context: dict | None = None) -> bool:
@@ -150,14 +150,14 @@ def build_api(s: Services) -> RpcRegistry:
 
     @rpc.method("app.logFolder")
     def app_log_folder() -> None:
-        reveal(s.data_dir)
+        reveal(s.log_path.parent if s.log_path else s.data_dir)
 
     @rpc.method("app.restartSafe")
     def app_restart_safe() -> None:
         if s.jobs.busy():
             raise ServiceError("busy")
-        if s.window is None and s.quit_handle is None:
-            raise ServiceError("native_unavailable")
+        if not can_restart_safe() or getattr(s, "serve_only", False) or (s.window is None and s.quit_handle is None):
+            raise ServiceError("safe_restart_unavailable")
         if s.restart_requested:
             return
         s.jobs.reserve_quit()

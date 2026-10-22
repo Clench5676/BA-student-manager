@@ -1140,6 +1140,7 @@
 			"failed": "失败"
 		},
 		"error": {
+			"safe_restart_unavailable": "无法安全重启",
 			"required_asset_extract_failed": "无法从 {file} 提取 Mod 必需资源 {name}：{error}",
 			"required_asset_apply_failed": "无法将 Mod 必需资源 {name} 应用到 {file}：{error}",
 			"required_assets_unmatched": "Mod 必需资源没有匹配的目标：{names}",
@@ -1580,8 +1581,8 @@
 			"copied": "摘要已复制",
 			"copyFailed": "无法复制",
 			"actionFailed": "操作失败",
-			"native": "错误报告已保存至：",
-			"runtime": "请安装或更新 WebView2。错误报告：",
+			"native": "启动失败",
+			"runtime": "需安装或更新 WebView2",
 			"phases": {
 				"modules": "应用模块",
 				"boot": "启动",

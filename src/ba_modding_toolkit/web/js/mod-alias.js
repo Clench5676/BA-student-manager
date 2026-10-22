@@ -44,7 +44,7 @@ export async function open({ mod, onSaved }) {
       if (my === token) finish();
       await onSaved(saved);
     } catch (err) {
-      notify(T(`error.${err.code || "internal"}`, err.params || { error: String(err) }), { kind: "error" });
+      notify(T(`error.${err.code || "internal"}`, err.params || { error: String(err) }), { kind: "error", error: err });
     } finally { saving = false; input.disabled = false; }
   };
   input.addEventListener("keydown", (ev) => {

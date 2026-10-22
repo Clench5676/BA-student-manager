@@ -179,11 +179,19 @@ def message_box(title: str, message: str) -> None:
             root.destroy()
 
 
-def startup_failure(reports, error: BaseException, *, runtime: bool = False) -> dict:
+def startup_failure(reports, error: BaseException, *, runtime: bool = False) -> dict | None:
     from ..i18n import t
-    reports.frontend_event({"kind": "native", "message": str(error), "phase": "native.initialize"})
-    result = reports.generate()
-    text = t("webui.recovery.runtime" if runtime else "webui.recovery.native") + "\n\n" + result["path"]
+    result, report_path = None, None
+    try:
+        reports.frontend_event({"kind": "native", "message": str(error), "phase": "native.initialize"})
+        result = reports.generate()
+        if result and Path(result["path"]).is_file():
+            report_path = result["path"]
+    except Exception:
+        logger.warning("Startup report unavailable", exc_info=True)
+    text = t("webui.recovery.runtime" if runtime else "webui.recovery.native")
+    if report_path:
+        text += "\n\n" + report_path
     if runtime:
         text += "\n\n" + WEBVIEW2_URL
     message_box(t("webui.recovery.failed"), text)

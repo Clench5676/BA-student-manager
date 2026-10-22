@@ -1140,6 +1140,7 @@
 			"failed": "실패"
 		},
 		"error": {
+			"safe_restart_unavailable": "안전 모드 재시작 불가",
 			"required_asset_extract_failed": "{file}에서 Mod 필수 에셋 {name}을 추출할 수 없습니다: {error}",
 			"required_asset_apply_failed": "Mod 필수 에셋 {name}을 {file}에 적용할 수 없습니다: {error}",
 			"required_assets_unmatched": "Mod 필수 에셋과 일치하는 대상이 없습니다: {names}",
@@ -1580,8 +1581,8 @@
 			"copied": "요약 복사됨",
 			"copyFailed": "복사 불가",
 			"actionFailed": "작업 실패",
-			"native": "오류 보고서 저장 위치:",
-			"runtime": "WebView2 설치 또는 업데이트 필요. 오류 보고서:",
+			"native": "시작 실패",
+			"runtime": "WebView2 설치 또는 업데이트 필요",
 			"phases": {
 				"modules": "앱 모듈",
 				"boot": "시작",

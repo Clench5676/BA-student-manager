@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import getpass
+import html
 import json
 import locale
 import logging
@@ -10,6 +11,8 @@ import os
 import platform
 import re
 import sys
+import socket
+import tempfile
 import threading
 import time
 import traceback
@@ -18,7 +21,7 @@ from collections import Counter, deque
 from datetime import datetime
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import unquote
 
 from .. import devmode, updater
 from ..i18n import i18n_manager
@@ -30,40 +33,65 @@ LOG_CAP = 512 * 1024
 DATA_CAP = 256 * 1024
 LOG_NAMES = ("webui.log", "webui.1.log", "webui.2.log")
 CRASH_NAME = "last-backend-error.json"
-# Asset names are unnecessary for diagnostics; retain extensions and each occurrence.
-_ASSET = re.compile(r'''(?i)(?<![^\s\[\]<>"'=,;])[^\s\[\]<>"'=,;]+?\.(?:bundle(?:\.backup)?|backup|skel|atlas|png|jpg|jpeg|webp|zip|glb|fbx|wav|ogg|mp3)(?![\w.])''')
-_QUOTED_ASSET = re.compile(r'''(?i)(["'])[^"'\r\n]+\.(bundle(?:\.backup)?|backup|skel|atlas|png|jpg|jpeg|webp|zip|glb|fbx|wav|ogg|mp3)\1''')
-_HOME = re.compile(r"(?i)(?:[A-Z]:[/\\](?:Users|Documents and Settings)[/\\]|/(?:Users|home)/)[^/\\\s\"']+")
+# Log fields may contain unquoted names with spaces. Discard the full field through the extension.
+_EXTENSIONS = r"bundle(?:\.backup)?|backup|skel|atlas|png|jpg|jpeg|webp|zip|glb|fbx|wav|ogg|mp3"
+_ASSET_FIELD = re.compile(r"[^\r\n\"'=,;<>]+")
+_ASSET_EXTENSION = re.compile(r"(?i)\.(" + _EXTENSIONS + r")(?![\w.])")
+_ASSET_VALUE = re.compile(r"(?is)^.+?\.(" + _EXTENSIONS + r")$")
+_HOME = re.compile(r"(?i)(?:[A-Z]:[/\\](?:Users|Documents and Settings)[/\\]|/(?:Users|home)/)[^/\\\r\n\"']+")
+READ_TIMEOUT = 0.1
+COLLECTION_TIMEOUT = 1.0
 
 
 def private_text(text: str, secrets: set[str]) -> str:
+    # Normalize common log encodings before scrubbing; the caller encodes only the sanitized result.
+    for _ in range(3):
+        decoded = html.unescape(unquote(text))
+        decoded = re.sub(r"\\+u([0-9a-fA-F]{4})", lambda m: chr(int(m[1], 16)), decoded)
+        decoded = decoded.encode("utf-16", errors="surrogatepass").decode("utf-16", errors="replace")
+        decoded = decoded.replace(r"\/", "/").replace("\\\\", "\\")
+        if decoded == text:
+            break
+        text = decoded
     home = str(Path.home())
-    for value in (home, home.replace("\\", "/"), quote(home, safe=""), quote(home)):
+    for value in {home, home.replace("\\", "/"), home.replace(" ", "+")}:
         text = text.replace(value, "~")
     text = _HOME.sub("~", text)
     for name in {getpass.getuser(), Path.home().name, os.environ.get("USERNAME", "")} - {"", "root"}:
-        text = re.sub(r"(?<![\w])" + re.escape(name) + r"(?![\w])", "[user]", text, flags=re.I)
-    text = _QUOTED_ASSET.sub(lambda m: m[1] + "[asset]." + m[2] + m[1], text)
-    text = _ASSET.sub(lambda m: "[asset]" + (".bundle.backup" if m[0].lower().endswith(".bundle.backup") else
-                                              "." + m[0].rsplit(".", 1)[-1]), text)
+        for value in {name, name.replace(" ", "+")}:
+            text = re.sub(r"(?<![\w])" + re.escape(value) + r"(?![\w])", "[user]", text, flags=re.I)
+    for name in {socket.gethostname(), platform.node(), os.environ.get("COMPUTERNAME", "")} - {""}:
+        text = re.sub(re.escape(name), "[host]", text, flags=re.I)
+    def asset_field(match):
+        field = match[0]
+        matches = list(_ASSET_EXTENSION.finditer(field))
+        if not matches:
+            return field
+        return " ".join("[asset]." + m[1] for m in matches) + field[matches[-1].end():]
+    text = _ASSET_FIELD.sub(asset_field, text)
     return redact(text, secrets)
 
 
-def clean(value: Any, secrets: set[str], depth: int = 0) -> Any:
+def clean(value: Any, secrets: set[str], depth: int = 0, *, filename: bool = False) -> Any:
     if depth > 8:
         return "[truncated]"
     if isinstance(value, dict):
-        return {private_text(str(k), secrets)[:100]: ("[redacted]" if re.search(
-            r"token|secret|password|passwd|api.?key|authorization|cookie", str(k), re.I) else clean(v, secrets, depth + 1))
+        return {str(k): ("[redacted]" if re.search(
+            r"token|secret|password|passwd|api.?key|authorization|cookie", str(k), re.I) else clean(
+                v, secrets, depth + 1, filename=str(k).lower() in {"file", "files", "filename", "filenames", "path", "paths"}))
                 for k, v in list(value.items())[:100]}
     if isinstance(value, (list, tuple, deque)):
-        return [clean(v, secrets, depth + 1) for v in list(value)[-40:]]
+        return [clean(v, secrets, depth + 1, filename=filename) for v in list(value)[-40:]]
     if isinstance(value, str):
         # Redact before truncation so a clipped credential cannot survive.
+        asset = _ASSET_VALUE.fullmatch(value.strip())
+        if filename or (asset and "\n" not in value):
+            extension = re.search(r"\.[a-zA-Z0-9]{1,16}$", value.strip())
+            return "[asset]" + ("." + asset[1] if asset else extension[0] if extension else "")
         return private_text(value, secrets)[-8000:]
     if value is None or isinstance(value, (bool, int, float)):
         return value
-    return clean(str(value), secrets, depth + 1)
+    return clean(str(value), secrets, depth + 1, filename=filename)
 
 
 def environment(safe_mode: bool = False) -> dict:
@@ -73,7 +101,7 @@ def environment(safe_mode: bool = False) -> dict:
             "webview": native.engine_info(), "safeMode": safe_mode}
 
 
-def log_tail(path: Path, secrets: set[str]) -> str:
+def log_tail(path: Path, secrets: set[str]) -> str | None:
     try:
         with path.open("rb") as stream:
             stream.seek(0, 2)
@@ -89,7 +117,7 @@ def log_tail(path: Path, secrets: set[str]) -> str:
             start = 1
         return ("[Earlier log content truncated]\n" if start else "") + text
     except OSError:
-        return "[Log unavailable]\n"
+        return None
 
 
 class Reports:
@@ -105,16 +133,22 @@ class Reports:
         self._lock = threading.RLock()
         self._writing = threading.Lock()
         self._crash_at = -float("inf")
+        self.log_path = self.data_dir / "webui.log"
+        self._backend_error = None
+        self._reads: dict = {}
+        self._reads_lock = threading.Lock()
 
     def frontend_event(self, event: dict | None = None, context: dict | None = None) -> bool:
         now = time.monotonic()
-        with self._lock:
+        if not self._lock.acquire(timeout=READ_TIMEOUT):
+            return False
+        try:
             if isinstance(context, dict):
                 self.frontend = clean({k: context[k] for k in ("page", "phase", "userAgent", "screen", "webgl", "timings")
                                        if k in context}, self.secrets)
             if not isinstance(event, dict):
                 return False
-            item = clean({k: event[k] for k in ("message", "stack", "page", "phase", "kind", "source") if k in event}, self.secrets)
+            item = clean({k: event[k] for k in ("message", "stack", "page", "phase", "kind", "source", "code", "params") if k in event}, self.secrets)
             key = json.dumps(item, sort_keys=True)
             self._seen = {k: t for k, t in self._seen.items() if now - t < 60}
             while self._times and now - self._times[0] >= 60:
@@ -124,6 +158,8 @@ class Reports:
             self._seen[key] = now
             self._times.append(now)
             self.errors.append({"at": datetime.now().astimezone().isoformat(timespec="seconds"), **item})
+        finally:
+            self._lock.release()
         logger.error("Frontend %s", json.dumps(item, ensure_ascii=False))
         return True
 
@@ -137,8 +173,15 @@ class Reports:
         if s is None:
             return None
         # Read persisted metadata only; taking the library lock could hang a report during failed work.
-        path = s.library_dir() / "state.json"
         try:
+            if hasattr(s.state, "diagnostic_state"):
+                cached = s.state.diagnostic_state()
+                if cached is None:
+                    return None
+                folder = Path(cached["libraryDir"]) if cached["libraryDir"] else self.data_dir / "library"
+            else:
+                folder = s.library_dir()
+            path = folder / "state.json"
             devmode.check_read(path)
             with path.open("rb") as stream:
                 raw = stream.read(8 * 1024 * 1024 + 1)
@@ -149,40 +192,97 @@ class Reports:
             items = mods.values() if isinstance(mods, dict) else mods
             counts = Counter(m.get("kind", "other") for m in items if isinstance(m, dict))
             return {kind: counts.get(kind, 0) for kind in ("spr", "lobby", "model", "other")}
-        except FileNotFoundError:
-            return {kind: 0 for kind in ("spr", "lobby", "model", "other")}
         except (OSError, ValueError, TypeError, AttributeError):
             return None
 
-    def snapshot(self) -> dict:
-        s = self.services
-        with self._lock:
-            data = {**environment(self.safe_mode), "created": datetime.now().astimezone().isoformat(timespec="seconds"),
-                    "privacy": "Redacted: home paths, user names, credentials and asset filenames. Local only; no upload.",
-                    "game": dict(self.game), "frontend": dict(self.frontend), "frontendErrors": list(self.errors),
-                    "lastFailedJob": self.last_job, "libraryCounts": self.library_counts(),
-                    "consent": {"uiAssets": s.state.consent, "spine": s.state.spine_consent} if s else None,
-                    "timings": s.timings.snapshot() if s else {}}
+    def optional(self, key: str, read, deadline: float):
+        """Bound optional reads, including OS calls. At most one daemon per field can remain stuck."""
+        remaining = min(READ_TIMEOUT, deadline - time.monotonic())
+        if remaining <= 0 or not self._reads_lock.acquire(blocking=False):
+            return None
         try:
-            with (self.data_dir / CRASH_NAME).open("rb") as stream:
-                data["previousBackendError"] = json.loads(stream.read(DATA_CAP))
-        except (OSError, ValueError):
-            data["previousBackendError"] = None
-        return clean(data, self.secrets)
+            task = self._reads.get(key)
+            if task is None:
+                task = {"done": threading.Event(), "value": None}
+                self._reads[key] = task
+                def run():
+                    try:
+                        task["value"] = read()
+                    except Exception:
+                        pass
+                    finally:
+                        task["done"].set()
+                threading.Thread(target=run, name="bamt-report-" + key, daemon=True).start()
+        finally:
+            self._reads_lock.release()
+        if not task["done"].wait(remaining):
+            return None
+        with self._reads_lock:
+            self._reads.pop(key, None)
+        return task["value"]
 
-    def generate(self, *, automatic: bool = False) -> dict:
-        with self._writing:
-            data = self.snapshot()
+    def _local_snapshot(self) -> dict:
+        if not self._lock.acquire(timeout=READ_TIMEOUT):
+            return {}
+        try:
+            return {"game": dict(self.game), "frontend": dict(self.frontend), "frontendErrors": list(self.errors),
+                    "lastFailedJob": self.last_job}
+        finally:
+            self._lock.release()
+
+    def _previous_error(self):
+        if self._backend_error is not None:
+            return self._backend_error
+        with (self.data_dir / CRASH_NAME).open("rb") as stream:
+            return json.loads(stream.read(DATA_CAP))
+
+    def snapshot(self, deadline: float | None = None) -> dict:
+        deadline = deadline if deadline is not None else time.monotonic() + COLLECTION_TIMEOUT
+        read = lambda key, fn: self.optional(key, fn, deadline)
+        s = self.services
+        # Build identity is trusted metadata, separate from payload redaction and filenames.
+        app = {"version": read("version", updater.current_version) or "unknown",
+               "build": "compiled" if updater.is_compiled() else "source"}
+        data = {"created": datetime.now().astimezone().isoformat(timespec="seconds"),
+                "privacy": "Redacted: home paths, user names, hostnames, credentials and asset filenames. Local only; no upload.",
+                "safeMode": self.safe_mode,
+                "os": read("os", lambda: {"name": platform.system(), "version": platform.version(), "arch": platform.machine()}),
+                "locale": read("locale", lambda: locale.getlocale()[0]), "language": i18n_manager.lang,
+                "webview": read("webview", native.engine_info),
+                **dict.fromkeys(("game", "frontend", "frontendErrors", "lastFailedJob")),
+                **(read("local", self._local_snapshot) or {}),
+                "libraryCounts": read("library", self.library_counts),
+                "consent": read("consent", lambda: (s.state.diagnostic_state() or {}).get("consent") if hasattr(s.state, "diagnostic_state")
+                                else {"uiAssets": s.state.consent, "spine": s.state.spine_consent}) if s else None,
+                "timings": read("timings", lambda: s.timings.snapshot()) if s else None,
+                "previousBackendError": read("previous", self._previous_error)}
+        sanitized = read("redaction", lambda: clean(data, self.secrets))
+        return {**(sanitized if sanitized is not None else dict.fromkeys(data)), "app": app}
+
+    def generate(self, *, automatic: bool = False, trigger: dict | None = None) -> dict:
+        if not self._writing.acquire(timeout=COLLECTION_TIMEOUT):
+            raise OSError("Report already in progress")
+        try:
+            deadline = time.monotonic() + COLLECTION_TIMEOUT
+            data = self.snapshot(deadline)
+            if isinstance(trigger, dict):
+                data["triggeringError"] = self.optional("trigger", lambda: clean({
+                    k: trigger[k] for k in ("kind", "code", "params", "message") if k in trigger}, self.secrets), deadline)
+            folders = self.optional("folders", native.report_folders, deadline) or []
+            logs = {name: self.optional(name, lambda name=name: log_tail(
+                self.log_path if name == "webui.log" else self.data_dir / name, self.secrets), deadline)
+                    for name in LOG_NAMES}
             last = data["lastFailedJob"] or {}
-            phase = data["frontend"].get("phase", "startup")
+            phase = (data["frontend"] or {}).get("phase", "startup")
             latest = data["frontendErrors"][-1] if data["frontendErrors"] else {}
-            reason = " ".join(str(last.get("code") or latest.get("message") or phase).split())[:160]
-            summary = (f"BAMT {data['app']['version']} | {data['os']['name']} {data['os']['arch']} | {data['language']}\n"
+            reason = " ".join(str((data.get("triggeringError") or {}).get("code") or last.get("code") or latest.get("code") or latest.get("message") or phase).split())[:160]
+            os_info = data["os"] or {}
+            summary = (f"BAMT {data['app']['version']} | {os_info.get('name')} {os_info.get('arch')} | {data['language']}\n"
                        f"{reason} | Safe mode: {self.safe_mode}\n")
             data = {"summary": summary, **data}
             encoded = json.dumps(data, ensure_ascii=False, indent=2)
             # A malicious error payload must not inflate the archive. Keep the latest bounded fields.
-            for field in ("previousBackendError", "frontendErrors", "lastFailedJob", "frontend", "timings"):
+            for field in ("previousBackendError", "frontendErrors", "lastFailedJob", "frontend", "timings", "triggeringError"):
                 if len(encoded.encode("utf-8")) <= DATA_CAP:
                     break
                 data[field] = "[Truncated]"
@@ -191,7 +291,8 @@ class Reports:
                 f"[{key}]\n{json.dumps(value, ensure_ascii=False, indent=2)}" for key, value in data.items() if key != "summary")
             version = re.sub(r"[^A-Za-z0-9.+-]", "_", str(data["app"]["version"]))
             stem = f"BAMT-report-{version}-{datetime.now():%Y%m%d-%H%M}" + ("-auto" if automatic else "")
-            folders = [self.data_dir] if automatic else [*native.report_folders(), self.data_dir]
+            folders = [self.data_dir, *folders] if automatic else [*folders, self.data_dir]
+            folders.append(Path(tempfile.gettempdir()))
             error = None
             for folder in dict.fromkeys(folders):
                 path, created = None, False
@@ -214,7 +315,7 @@ class Reports:
                         archive.writestr("report.txt", report)
                         archive.writestr("report.json", encoded)
                         for name in LOG_NAMES:
-                            archive.writestr(name, log_tail(self.data_dir / name, self.secrets))
+                            archive.writestr(name, logs[name] if logs[name] is not None else "null\n")
                     break
                 except OSError as exc:
                     error = exc
@@ -234,16 +335,21 @@ class Reports:
                     except Exception:
                         logger.warning("Report %s unavailable", action, exc_info=True)
             return result
+        finally:
+            self._writing.release()
 
     def backend_exception(self, exc_type: type, exc: BaseException, tb: Any) -> None:
         # One automatic report per minute. Keep one snapshot for the next user report, without recursive archives.
         now = time.monotonic()
-        with self._lock:
+        if not self._lock.acquire(timeout=READ_TIMEOUT):
+            return
+        try:
             if now - self._crash_at < 60:
                 return
             self._crash_at = now
+        finally:
+            self._lock.release()
         try:
-            self.data_dir.mkdir(parents=True, exist_ok=True)
             data = self.snapshot()
             data.pop("previousBackendError", None)
             data["error"] = private_text("".join(traceback.format_exception(exc_type, exc, tb)), self.secrets)[-32000:]
@@ -253,7 +359,12 @@ class Reports:
                     break
                 data[field] = "[Truncated]"
                 encoded = json.dumps(data, ensure_ascii=False)
-            (self.data_dir / CRASH_NAME).write_text(encoded, encoding="utf-8")
+            self._backend_error = data
+            try:
+                self.data_dir.mkdir(parents=True, exist_ok=True)
+                (self.data_dir / CRASH_NAME).write_text(encoded, encoding="utf-8")
+            except OSError:
+                logger.warning("Backend snapshot kept in memory")
             self.generate(automatic=True)
             reports = sorted((p for p in self.data_dir.glob("BAMT-report-*.zip")
                               if re.search(r"-\d{8}-\d{4}-auto(?:-\d+)?\.zip$", p.name)),
