@@ -984,6 +984,15 @@ second load; the promise of a thumbnail has `bump()`, which `popup.js` calls for
 and the roster asks for its rows in view first. Pictures stay in memory only, keyed by the resolved base (the revision
 the files carry), frame and expression; `spineAssetBase` shares one answer between overlapping requests.
 
+Switch popups hold capture priority for their entire thumbnail scope, including gaps between lazy card requests.
+Opening one cancels any active off-screen background attempt and suspends queued background work; surviving
+subscribers resume after the last popup closes. Popup and background consumers of the same still share the result.
+Both Spine and model queues respect this scope. Spine loading has a 15 s deadline after dequeueing, and each
+rendered image has its own 15 s budget; neither queue waiting nor earlier faces consume that image's deadline.
+Timed-out captures keep their subscribers for three retries, after 2 s, 5 s and 15 s of an idle renderer queue.
+New work restarts the idle interval without spending a retry. Closing a scope removes its pending work and timers;
+late callbacks cannot publish cancelled images. Speculative companion captures wait until no popup is open.
+
 The main portrait resolves its current candidate in the same way. The main memorial lobby uses live `lobby` files,
 or the configured `mod` art while mods are off. Its metadata and effect/audio requests keep the live lobby's
 revision; its art layers and pages use the art source's revision. Player reuse and measured art limits require both

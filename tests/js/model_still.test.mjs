@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { holdPopupCaptures } from "../../src/ba_modding_toolkit/web/js/capture-priority.js";
 import { createModelStills, modelStillKey, modelStillVersion } from "../../src/ba_modding_toolkit/web/js/model-still.js";
 const turn = () => new Promise(setImmediate);
 const fixture = (capture = async (url) => `blob:${url}`) => {
@@ -87,7 +88,7 @@ test("a timeout advances fresh work, then retries for existing consumers and rev
     assert.equal(await b, "blob:next");
     assert.equal(f.disposed.length, 2); assert.match(f.reports[0][0].message, /timed out/);
     finish("blob:too-late"); await turn(); assert.deepEqual(revoked, ["blob:too-late"]);
-    t.mock.timers.tick(499); await turn(); assert.equal(attempts, 1);
+    t.mock.timers.tick(1999); await turn(); assert.equal(attempts, 1);
     t.mock.timers.tick(1); await turn();
     assert.equal(await a, "blob:recovered"); assert.equal(attempts, 2);
     assert.equal(f.maxContexts(), 1); assert.equal(f.reports.length, 1);
@@ -95,19 +96,22 @@ test("a timeout advances fresh work, then retries for existing consumers and rev
   } finally { URL.revokeObjectURL = revoke; t.mock.timers.reset(); }
 });
 
-test("timeouts have two retries with increasing backoff; every attempt is reported", async (t) => {
+test("timeouts have three retries with increasing backoff; every attempt is reported", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   const f = fixture(() => new Promise(() => {}));
   try {
     const picture = f.thumb("always-stalled", "official");
     await turn(); t.mock.timers.tick(8000); await turn();
-    t.mock.timers.tick(500); await turn(); assert.equal(f.loads.length, 2);
+    t.mock.timers.tick(2000); await turn(); assert.equal(f.loads.length, 2);
     t.mock.timers.tick(8000); await turn();
-    t.mock.timers.tick(999); await turn(); assert.equal(f.loads.length, 2);
+    t.mock.timers.tick(4999); await turn(); assert.equal(f.loads.length, 2);
     t.mock.timers.tick(1); await turn(); assert.equal(f.loads.length, 3);
+    t.mock.timers.tick(8000); await turn();
+    t.mock.timers.tick(14999); await turn(); assert.equal(f.loads.length, 3);
+    t.mock.timers.tick(1); await turn(); assert.equal(f.loads.length, 4);
     t.mock.timers.tick(8000); await turn(); assert.equal(await picture, null);
-    assert.equal(f.reports.length, 3); assert.equal(f.disposed.length, 3);
-    t.mock.timers.tick(60000); await turn(); assert.equal(f.loads.length, 3);
+    assert.equal(f.reports.length, 4); assert.equal(f.disposed.length, 4);
+    t.mock.timers.tick(60000); await turn(); assert.equal(f.loads.length, 4);
   } finally { t.mock.timers.reset(); }
 });
 
@@ -128,4 +132,46 @@ test("cancellation during lazy import never allocates a late WebGL context", asy
   const scope = new AbortController(), pending = thumb("hina", "official", { signal: scope.signal });
   await turn(); scope.abort(); assert.equal(await pending, null);
   finish({ createStillView: () => assert.fail("cancelled import must not allocate a context") }); await turn();
+});
+
+test("model popups preempt background captures, hold priority while open and resume after close", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const pending = [], popup = new AbortController(), background = new AbortController();
+  const f = fixture((url, signal) => new Promise((resolve) => pending.push({ url, signal, resolve })));
+  try {
+    const a = f.thumb("background", "official", { signal: background.signal });
+    const b = f.thumb("queued", "official", { signal: background.signal });
+    await turn();
+    holdPopupCaptures(popup.signal);
+    const c = f.thumb("hina", "official", { signal: popup.signal });
+    b.bump(); await turn();
+    assert.equal(pending[0].signal.aborted, true);
+    assert.match(pending[1].url, /hina/);
+    pending[1].resolve("blob:popup"); assert.equal(await c, "blob:popup");
+    await turn(); t.mock.timers.tick(60000); await turn();
+    assert.equal(pending.length, 2, "the modal keeps priority even with no queued popup captures");
+    popup.abort(); await turn();
+    pending[2].resolve("blob:background"); await turn();
+    pending[3].resolve("blob:queued");
+    assert.ok(await a); assert.ok(await b);
+    assert.equal(f.maxContexts(), 1); assert.equal(f.reports.length, 0);
+  } finally { popup.abort(); background.abort(); t.mock.timers.reset(); }
+});
+
+test("a busy model queue grants each still its own timeout and starts backoff only after draining", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const pending = [], scope = new AbortController();
+  const f = fixture((url) => new Promise((resolve) => pending.push({ url, resolve })));
+  try {
+    const a = f.thumb("timeout", "official", { signal: scope.signal });
+    const b = f.thumb("busy", "official", { signal: scope.signal });
+    const c = f.thumb("waiting", "official", { signal: scope.signal });
+    await turn(); t.mock.timers.tick(8000); await turn();
+    t.mock.timers.tick(7000); await turn(); pending[1].resolve("blob:busy"); assert.ok(await b); await turn();
+    t.mock.timers.tick(7000); await turn(); pending[2].resolve("blob:waiting"); assert.ok(await c); await turn();
+    assert.equal(f.reports.length, 1, "queue waiting never consumes the next still's rendering deadline");
+    t.mock.timers.tick(1999); await turn(); assert.equal(pending.length, 3);
+    t.mock.timers.tick(1); await turn(); assert.equal(pending.length, 4);
+    pending[3].resolve("blob:retry"); assert.equal(await a, "blob:retry");
+  } finally { scope.abort(); t.mock.timers.reset(); }
 });

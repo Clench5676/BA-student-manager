@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import { afterEach, test } from "node:test";
-import { thumb, thumbnailScope } from "../../src/ba_modding_toolkit/web/js/thumbs.js";
+import { thumb, thumbnailScope, THUMB_LOAD_TIMEOUT } from "../../src/ba_modding_toolkit/web/js/thumbs.js";
 import { setSpineConsent } from "../../src/ba_modding_toolkit/web/js/spine-runtime.js";
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -158,20 +158,20 @@ test("cancellation retires manual loading frames and lets the next skeleton run"
   assert.equal(retired.draws, draws); assert.equal(retired.disposed, true);
 });
 
-test("a stalled inactive runtime has three bounded attempts and disposes every manual clock", async (t) => {
+test("a stalled inactive runtime has four bounded attempts and disposes every manual clock", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   try {
     hidden = true; stall = true;
     const pending = thumb(base("deadline_loading"), "face");
     await new Promise(setImmediate);
     const retired = players.at(-1);
-    t.mock.timers.tick(8000);
+    t.mock.timers.tick(THUMB_LOAD_TIMEOUT);
     await new Promise(setImmediate);
     assert.equal(retired.disposed, true);
     const draws = retired.draws;
-    for (const delay of [500, 1000]) {
+    for (const delay of [2000, 5000, 15000]) {
       t.mock.timers.tick(delay); await new Promise(setImmediate);
-      t.mock.timers.tick(8000); await new Promise(setImmediate);
+      t.mock.timers.tick(THUMB_LOAD_TIMEOUT); await new Promise(setImmediate);
       assert.equal(players.at(-1).disposed, true);
     }
     assert.equal(await pending, null);

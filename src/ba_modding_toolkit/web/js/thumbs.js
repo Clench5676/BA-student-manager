@@ -12,6 +12,10 @@ import { lobbyIdle } from "./rest-pose.js";
 import { lobbyStillViewport } from "./lobby-still.js";
 import { previewError } from "./preview-error.js";
 import { captureRetries } from "./capture-retries.js";
+import { holdPopupCaptures, onCapturePriorityChange, popupCapturesOpen, popupItem, captureEligible } from "./capture-priority.js";
+
+export const THUMB_LOAD_TIMEOUT = 15000;
+export const THUMB_CAPTURE_TIMEOUT = 15000;
 
 const FRAMES = {
   // [width, height] of the rendered picture in CSS px: about what the cards show (a list card's window is 234 x 200
@@ -39,6 +43,19 @@ const retries = captureRetries(() => queueMicrotask(pump));
 const scopes = new Set();
 let running = false, active = null, preferred = "";
 let host = null;
+
+function focusQueue() {
+  // Stop the off-screen attempt, retaining subscribers for a fresh attempt after the modal closes.
+  // A shared render with a popup consumer keeps running.
+  if (active && popupCapturesOpen() && ![...active.items].some((item) => !item.settled && popupItem(item))) {
+    active.preempted = true;
+    active.controller.abort();
+  }
+  retries.busy();
+  queueMicrotask(pump);
+}
+onCapturePriorityChange(focusQueue);
+const orderQueue = () => queue.sort((a, b) => Number(popupItem(b)) - Number(popupItem(a)));
 
 function hostEl() {
   if (!host) {
@@ -243,6 +260,7 @@ function subscribe(item, signal) {
       }
     };
     client = finish;
+    client.signal = signal;
     if (signal?.aborted) { cancel(); return; }
     if (item.settled) { resolve(item.url); return; }
     item.clients.add(client);
@@ -280,14 +298,17 @@ async function pump() {
   running = true;
   try {
     while (true) {
-      if (!queue.length) {
-        const retry = retries.take();
-        if (!retry) break;
+      orderQueue();
+      if (!queue.some(captureEligible)) {
+        const retry = retries.take(captureEligible);
+        if (!retry) { retries.idle(captureEligible); break; }
         queue.push(retry);
-        // Faces of one skeleton still share a load and a deadline on each retry.
+        // Faces of one skeleton still share one load on each retry.
         let sibling;
-        while ((sibling = retries.take((item) => item.base === retry.base))) queue.push(sibling);
+        while ((sibling = retries.take((item) => item.base === retry.base && captureEligible(item)))) queue.push(sibling);
+        orderQueue();
       }
+      retries.busy();
       try {
         if (!await ensureSpine()) {
           for (const item of [...queue]) complete(item, null);
@@ -297,6 +318,8 @@ async function pump() {
         for (const item of [...queue]) complete(item, null, err);
         break;
       }
+      orderQueue();
+      if (!queue.length || !captureEligible(queue[0])) continue;
       const first = queue[0], base = first.base, controller = new AbortController(), { signal } = controller;
       active = { base, controller, items: new Set(queue.filter((q) => q.base === base)) };
       const el = document.createElement("div");
@@ -304,14 +327,14 @@ async function pump() {
       const [w, h] = FRAMES[queue[0].frame];
       Object.assign(el.style, { width: `${w}px`, height: `${h}px` });
       hostEl().appendChild(el);
-      // One skeleton gets one budget, including all its captures. A broken encoder cannot cost 15 s per face.
-      const timer = setTimeout(() => controller.abort(new Error(`Thumbnail ${base}: timed out`)), 8000);
+      // Loading starts its clock only after dequeueing; every capture then gets its own rendering budget.
+      const timer = setTimeout(() => controller.abort(new Error(`Thumbnail ${base}: timed out`)), THUMB_LOAD_TIMEOUT);
       let load;
       try {
         load = loadPlayer(base, el, signal, (err) => controller.abort(err));
         const player = await load.ready;
         if (!player || signal.aborted) {
-          for (const q of active.items) complete(q, null, signal.reason?.name === "AbortError" ? null : signal.reason);
+          if (!active.preempted) for (const q of active.items) complete(q, null, signal.reason?.name === "AbortError" ? null : signal.reason);
           continue;
         }
         if (first.lobby && !first.framing) {
@@ -325,19 +348,22 @@ async function pump() {
             return null;
           });
         }
+        clearTimeout(timer);
         const batch = [];
         let q = first.settled ? queue.find((q) => q.base === base) : first;
-        while (!signal.aborted && q && !q.settled) {
-          const url = await withTimeout(capture(player, el, q.frame, q.expr, q.lobby, q.framing, q.background, signal), 3000, `Thumbnail capture ${base}`, { signal });
+        while (!signal.aborted && q && !q.settled && captureEligible(q)) {
+          const url = await withTimeout(capture(player, el, q.frame, q.expr, q.lobby, q.framing, q.background, signal), THUMB_CAPTURE_TIMEOUT, `Thumbnail capture ${base}`, { signal });
+          if (active.preempted) { if (url) URL.revokeObjectURL(url); break; }
           batch.push(q);
           complete(q, url, !url && !signal.aborted ? new Error(`PNG encoding failed (frame=${q.frame})`) : null);
           // Let a visible card's bump take effect before the next capture.
           await Promise.resolve();
+          orderQueue();
           q = queue[0]?.base === base ? queue[0] : null;
         }
         if (!signal.aborted) await companions(player, el, base, batch, signal);
       } catch (err) {
-        for (const q of active.items) complete(q, null, signal.aborted && signal.reason?.name === "AbortError" ? null : err);
+        if (!active.preempted) for (const q of active.items) complete(q, null, signal.aborted && signal.reason?.name === "AbortError" ? null : err);
       } finally {
         clearTimeout(timer);
         controller.abort();
@@ -353,12 +379,12 @@ async function pump() {
 async function companions(player, el, base, batch, signal) {
   for (const q of batch) {
     const frame = COMPANION[q.frame];
-    if (!frame || queue.length) continue;
+    if (!frame || queue.length || popupCapturesOpen()) continue;
     const key = keyOf(base, frame, null, q.lobby, q.framing, q.background);
     if (cache.has(key)) continue;
     let url;
     try {
-      url = await withTimeout(capture(player, el, frame, null, q.lobby, q.framing, q.background, signal), 3000, `Thumbnail companion ${base}`, { signal });
+      url = await withTimeout(capture(player, el, frame, null, q.lobby, q.framing, q.background, signal), THUMB_CAPTURE_TIMEOUT, `Thumbnail companion ${base}`, { signal });
       if (!url && !signal.aborted) throw new Error(`PNG encoding failed (frame=${frame})`);
     } catch (error) {
       // A speculative companion has no unsettled item to report through complete().
@@ -375,9 +401,10 @@ async function companions(player, el, base, batch, signal) {
 
 // A detail generation shares each manifest answer until it changes. Re-entering the page revalidates the source;
 // cancelling also stops manifest deadlines, queued renders and the active player when nobody else needs it.
-export function thumbnailScope() {
+export function thumbnailScope({ priority = "background" } = {}) {
   const controller = new AbortController(), manifests = new Map();
   scopes.add(manifests);
+  if (priority === "popup") holdPopupCaptures(controller.signal);
   return {
     signal: controller.signal,
     thumb: (base, frame = "bust", expr = null, lobby = false, framing = null, background = null) => request(base, frame, expr, lobby, framing, background, { signal: controller.signal, manifests }),
@@ -445,6 +472,7 @@ function request(base, frame = "bust", expr = null, lobby = false, framing = nul
     queueMicrotask(pump);
   }
   const picture = subscribe(cache.get(key), signal);
+  queueMicrotask(pump);
   if (frame !== "portrait") return picture;
   // Reuse only a still of these exact source bytes. Never borrow the other similarly named variant's art,
   // a face-only crop, or a thumbnail from before an install/update changed the revision.

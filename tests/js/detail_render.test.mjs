@@ -1470,9 +1470,12 @@ test("switch and detail captures can recover after the detail thumbnail reveal d
       assert.equal(walk(hosts.popup).find((e) => e.dataset.path === `${path}/Placeholder`), undefined);
     }
     pendingThumbnails.splice(0).forEach((done) => done()); await flush();
-    t.mock.timers.tick(500); await flush();
-    assert.ok(detailPictures.every((e) => e.style.backgroundImage), "page pictures still publish after the reveal deadline");
+    const captures = thumbnailPlayers.length;
+    t.mock.timers.tick(60000); await flush();
+    assert.equal(thumbnailPlayers.length, captures, "background retries wait while the switch popup owns the renderer");
     await closeSwitch();
+    t.mock.timers.tick(2000); await flush();
+    assert.ok(detailPictures.every((e) => e.style.backgroundImage), "page pictures resume after the popup closes, even after the reveal deadline");
   } finally { Detail.hide(); thumbMode = "pending"; await flush(); t.mock.timers.reset(); }
 });
 
@@ -1489,12 +1492,12 @@ test("a timed-out switch candidate logs its source and updates both card and pan
     const paths = ["Card_v:swimsuit/Thumb", "Details/Picture/Texture"];
     const element = (path) => walk(hosts.popup).find((e) => e.dataset.path === path);
     for (const path of paths) assert.ok(element(`${path}/Placeholder`));
-    t.mock.timers.tick(8000); await flush();
+    t.mock.timers.tick(15000); await flush();
     assert.ok(rpcRequests.slice(start).some((r) => r.method === "preview.failed"
       && r.params.url.includes("hina_swimsuit_retry_spr") && /timed out/.test(r.params.error)));
     thumbMode = "ready";
     pendingThumbnails.splice(0).forEach((done) => done()); await flush();
-    t.mock.timers.tick(500); await flush();
+    t.mock.timers.tick(2000); await flush();
     for (const path of paths) {
       assert.ok(element(path).children[0].style.backgroundImage, path);
       assert.equal(element(`${path}/Placeholder`), undefined, path);

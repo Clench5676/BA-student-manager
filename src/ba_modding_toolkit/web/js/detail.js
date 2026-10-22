@@ -1247,7 +1247,7 @@ async function drawPopup(scroll = 0) {
 async function openPopup(kind = "spr") {
   const family = fam, v = variant();
   switchThumbnails?.cancel();
-  switchThumbnails = thumbnailScope();
+  switchThumbnails = thumbnailScope({ priority: "popup" });
   switchPopupPage = pageToken;
   popupKind = kind;
   popupStart = popupMode(fam, variant(), kind, modsOn()).start;
@@ -1257,7 +1257,7 @@ async function openPopup(kind = "spr") {
   try {
     await drawPopup();
     if (open && fam === family && variant() === v && popupKind === kind && !$("popup").hidden) await markSeen(mods);
-  } catch (err) { renderFailed(err); }
+  } catch (err) { closePopup(false); renderFailed(err); }
 }
 
 const seeing = new Set();

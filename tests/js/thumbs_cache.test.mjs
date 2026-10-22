@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 import { spineBase, spinePrefix, spineAssetBase } from "../../src/ba_modding_toolkit/web/js/api.js";
-import { thumb, forget, prioritise, thumbnailScope, hasThumbnailInk, withThumbnailFallback } from "../../src/ba_modding_toolkit/web/js/thumbs.js";
+import { thumb, forget, prioritise, thumbnailScope, hasThumbnailInk, withThumbnailFallback, THUMB_LOAD_TIMEOUT, THUMB_CAPTURE_TIMEOUT } from "../../src/ba_modding_toolkit/web/js/thumbs.js";
 import { setSpineConsent } from "../../src/ba_modding_toolkit/web/js/spine-runtime.js";
 
 setSpineConsent(true);
@@ -438,7 +438,7 @@ test("a stalled companion capture releases the thumbnail queue for another core"
     assert.equal(encodes, 2, "the shared bust capture has started and never calls back");
     const later = thumb(next, "face", "00");
     await new Promise(setImmediate);
-    t.mock.timers.tick(3000);
+    t.mock.timers.tick(THUMB_CAPTURE_TIMEOUT);
     assert.ok(await later, "the next core renders after the stalled capture's deadline");
     await new Promise(setImmediate);
     assert.equal(reports.length, 1, "speculative failures reach the session log even after the card has succeeded");
@@ -465,20 +465,22 @@ test("a portrait timeout is logged, waits for idle with backoff, and resolves it
     } });
     set(base, "a"); set(next, "b");
     const card = scope.thumb(base, "portrait"), panel = scope.thumb(base, "portrait"), fresh = scope.thumb(next, "portrait");
-    await new Promise(setImmediate); t.mock.timers.tick(3000); await new Promise(setImmediate);
+    await new Promise(setImmediate); t.mock.timers.tick(THUMB_CAPTURE_TIMEOUT); await new Promise(setImmediate);
     assert.equal(encodes, 2, "fresh queued work advances before the retry");
     assert.equal(reports.length, 1); assert.equal(reports[0].method, "preview.failed");
     assert.match(reports[0].params.url, /official-spr\/timeout_once_spr/);
     assert.equal(reports[0].params.step, "thumbnail:portrait");
-    t.mock.timers.tick(499); await new Promise(setImmediate); assert.equal(loaded.length, start + 2);
+    t.mock.timers.tick(1999); await new Promise(setImmediate); assert.equal(loaded.length, start + 2);
     t.mock.timers.tick(1); await new Promise(setImmediate); assert.equal(loaded.length, start + 2, "ready retry cannot interrupt fresh work");
-    release({}); assert.ok(await fresh); assert.ok(await card); assert.equal(await card, await panel);
+    release({}); assert.ok(await fresh); await new Promise(setImmediate);
+    t.mock.timers.tick(1999); await new Promise(setImmediate); assert.equal(loaded.length, start + 2, "backoff starts after fresh work drains");
+    t.mock.timers.tick(1); await new Promise(setImmediate); assert.ok(await card); assert.equal(await card, await panel);
     assert.equal(loaded.length, start + 3); assert.equal(card.failure(), null);
     late({}); await new Promise(setImmediate); assert.equal(reports.length, 1);
   } finally { scope.cancel(); document.createElement = create; globalThis.fetch = fetch; t.mock.timers.reset(); }
 });
 
-test("portrait retries stop after two attempts with backoff and cancel when their scope closes", async (t) => {
+test("portrait retries stop after three retries with backoff and cancel when their scope closes", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   const create = document.createElement, scope = thumbnailScope();
   const base = spineBase("official-spr", "timeout_bounded_spr"), cancelled = spineBase("official-spr", "timeout_cancel_spr");
@@ -487,16 +489,19 @@ test("portrait retries stop after two attempts with backoff and cancel when thei
     document.createElement = () => ({ ...el(), toBlob() { encodes++; } });
     set(base, "a"); set(cancelled, "b");
     const picture = scope.thumb(base, "portrait");
-    await new Promise(setImmediate); t.mock.timers.tick(3000); await new Promise(setImmediate);
-    t.mock.timers.tick(500); await new Promise(setImmediate); assert.equal(encodes, 2);
-    t.mock.timers.tick(3000); await new Promise(setImmediate);
-    t.mock.timers.tick(999); await new Promise(setImmediate); assert.equal(encodes, 2);
+    await new Promise(setImmediate); t.mock.timers.tick(THUMB_CAPTURE_TIMEOUT); await new Promise(setImmediate);
+    t.mock.timers.tick(2000); await new Promise(setImmediate); assert.equal(encodes, 2);
+    t.mock.timers.tick(THUMB_CAPTURE_TIMEOUT); await new Promise(setImmediate);
+    t.mock.timers.tick(4999); await new Promise(setImmediate); assert.equal(encodes, 2);
     t.mock.timers.tick(1); await new Promise(setImmediate); assert.equal(encodes, 3);
-    t.mock.timers.tick(3000); await new Promise(setImmediate); assert.equal(await picture, null);
+    t.mock.timers.tick(THUMB_CAPTURE_TIMEOUT); await new Promise(setImmediate);
+    t.mock.timers.tick(14999); await new Promise(setImmediate); assert.equal(encodes, 3);
+    t.mock.timers.tick(1); await new Promise(setImmediate); assert.equal(encodes, 4);
+    t.mock.timers.tick(THUMB_CAPTURE_TIMEOUT); await new Promise(setImmediate); assert.equal(await picture, null);
     const gone = scope.thumb(cancelled, "portrait");
-    await new Promise(setImmediate); t.mock.timers.tick(3000); await new Promise(setImmediate);
+    await new Promise(setImmediate); t.mock.timers.tick(THUMB_CAPTURE_TIMEOUT); await new Promise(setImmediate);
     scope.cancel(); assert.equal(await gone, null);
-    t.mock.timers.tick(60000); await new Promise(setImmediate); assert.equal(encodes, 4);
+    t.mock.timers.tick(60000); await new Promise(setImmediate); assert.equal(encodes, 5);
   } finally { scope.cancel(); document.createElement = create; t.mock.timers.reset(); }
 });
 
@@ -596,16 +601,16 @@ test("a stalled skeleton releases the next core and retries its faces together w
     const faces = Array.from({ length: 8 }, (_, i) => scope.thumb(base, "face", `0${i}`));
     const later = scope.thumb(next, "face", "00");
     await new Promise(setImmediate);
-    t.mock.timers.tick(7999); await new Promise(setImmediate);
+    t.mock.timers.tick(THUMB_LOAD_TIMEOUT - 1); await new Promise(setImmediate);
     assert.equal(disposed.length, 0);
     t.mock.timers.tick(1); await new Promise(setImmediate);
     assert.ok(await later, "one total deadline, rather than a deadline per queued face");
-    for (const delay of [500, 1000]) {
+    for (const delay of [2000, 5000, 15000]) {
       t.mock.timers.tick(delay); await new Promise(setImmediate);
-      t.mock.timers.tick(8000); await new Promise(setImmediate);
+      t.mock.timers.tick(THUMB_LOAD_TIMEOUT); await new Promise(setImmediate);
     }
     assert.deepEqual(await Promise.all(faces), Array(8).fill(null));
-    assert.equal(disposed.filter((url) => url.includes("/stuck_spr/")).length, 3, "one initial load plus two shared retries");
+    assert.equal(disposed.filter((url) => url.includes("/stuck_spr/")).length, 4, "one initial load plus three shared retries");
     assert.ok(disposed.some((url) => url.includes("/stuck_spr/")));
   } finally { delete document.hidden; scope.cancel(); await new Promise(setImmediate); spine.SpinePlayer = Player; t.mock.timers.reset(); }
 });
@@ -624,13 +629,13 @@ test("a stuck encoder lets another skeleton render before recovering the pending
     const faces = ["00", "01", "02"].map((expr) => scope.thumb(base, "face", expr));
     const healthy = scope.thumb(next, "face", "00");
     await new Promise(setImmediate);
-    t.mock.timers.tick(3000); await new Promise(setImmediate);
+    t.mock.timers.tick(THUMB_CAPTURE_TIMEOUT); await new Promise(setImmediate);
     assert.ok(await healthy);
     assert.equal(encodes, 2, "one failed encode, then the healthy skeleton's picture");
     assert.equal(blobs, before + 1);
     late({}); await new Promise(setImmediate);
     assert.equal(blobs, before + 1, "a cancelled encode's late callback cannot leak a blob URL");
-    t.mock.timers.tick(500); await new Promise(setImmediate);
+    t.mock.timers.tick(2000); await new Promise(setImmediate);
     assert.ok((await Promise.all(faces)).every(Boolean));
     assert.equal(encodes, 5);
   } finally { scope.cancel(); await new Promise(setImmediate); document.createElement = create; t.mock.timers.reset(); }
@@ -799,4 +804,99 @@ test("a Mod portrait never falls back to the official cache even with identical 
     assert.equal(await thumb(mod, "portrait"), null, "official bust is not a Mod fallback");
     assert.equal(await thumb(official, "portrait"), art, "an official request may reuse its own cached bust");
   } finally { spine.SpinePlayer = Player; }
+});
+
+test("queued stills and later faces get a full render budget after their own capture starts", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const create = document.createElement, scope = thumbnailScope(), callbacks = [];
+  const base = spineBase("official-spr", "busy_budget_spr"), next = spineBase("official-spr", "busy_later_spr");
+  const start = loaded.length;
+  try {
+    document.createElement = () => ({ ...el(), toBlob(done) { callbacks.push(done); } });
+    set(base, "a"); set(next, "b");
+    const pictures = ["00", "01", "02"].map((expr) => scope.thumb(base, "face", expr));
+    pictures.push(scope.thumb(next, "portrait"));
+    await new Promise(setImmediate);
+    for (let i = 0; i < pictures.length; i++) {
+      assert.equal(callbacks.length, i + 1);
+      t.mock.timers.tick(THUMB_CAPTURE_TIMEOUT - 1000); await new Promise(setImmediate);
+      callbacks[i]({});
+      assert.ok(await pictures[i], "earlier renders and queue waiting never consume this image's budget");
+      await new Promise(setImmediate);
+    }
+    assert.equal(loaded.length, start + 2, "three faces share a load even when their total time exceeds the load budget");
+  } finally { scope.cancel(); document.createElement = create; t.mock.timers.reset(); }
+});
+
+test("a popup preempts the background renderer and keeps priority between lazy requests until close", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const create = document.createElement, background = thumbnailScope(), callbacks = [];
+  const bases = ["roster_active", "roster_queued", "hina_original", "hina_dress"].map((name) => spineBase("official-spr", name));
+  let popup;
+  const before = blobs, at = loaded.length;
+  try {
+    document.createElement = () => ({ ...el(), toBlob(done) { callbacks.push(done); } });
+    bases.forEach((base, i) => set(base, "abcd"[i]));
+    const first = background.thumb(bases[0], "roster"), queued = background.thumb(bases[1], "roster");
+    await new Promise(setImmediate);
+    assert.equal(callbacks.length, 1);
+    const oldPlayer = [...players][0];
+    popup = thumbnailScope({ priority: "popup" });
+    const original = popup.thumb(bases[2], "portrait"), panel = popup.thumb(bases[2], "portrait");
+    queued.bump(); // Background scrolling cannot outrank a modal.
+    await new Promise(setImmediate);
+    assert.equal(players.has(oldPlayer), false, "the off-screen attempt releases its renderer immediately");
+    assert.equal(callbacks.length, 2);
+    assert.match(loaded.at(-1).skeleton, /hina_original/);
+    callbacks[1]({}); assert.ok(await original); assert.equal(await panel, await original);
+    await new Promise(setImmediate);
+    t.mock.timers.tick(60000); await new Promise(setImmediate);
+    assert.equal(callbacks.length, 2, "background work stays suspended while lazy popup cards have not requested a capture");
+    const dress = popup.thumb(bases[3], "portrait");
+    await new Promise(setImmediate); callbacks[2]({}); assert.ok(await dress);
+    callbacks[0]({}); await new Promise(setImmediate);
+    assert.equal(blobs, before + 2, "a late cancelled background encode cannot publish or leak an image");
+    popup.cancel(); await new Promise(setImmediate);
+    for (let i = 3; i < 5; i++) { callbacks[i]({}); await new Promise(setImmediate); }
+    assert.ok(await first); assert.ok(await queued);
+    assert.equal(loaded.length, at + 5, "background attempts resume without consuming a retry");
+  } finally { popup?.cancel(); background.cancel(); document.createElement = create; t.mock.timers.reset(); }
+});
+
+test("popup priority cancels a loading background player and discards abandoned queued background work", async () => {
+  const Player = spine.SpinePlayer, background = thumbnailScope(), at = loaded.length;
+  const base = spineBase("spr", "preempt_loading"), queuedBase = spineBase("spr", "abandoned_background"), popupBase = spineBase("official-spr", "popup_after_load");
+  let popup;
+  spine.SpinePlayer = class extends Player {
+    constructor(el, config) { super(el, config.skeleton.includes("preempt_loading") ? { ...config, success() {} } : config); }
+  };
+  try {
+    set(base, "a"); set(queuedBase, "b"); set(popupBase, "c");
+    const pending = background.thumb(base, "face"), queued = background.thumb(queuedBase, "face");
+    await new Promise(setImmediate);
+    const retired = [...players][0];
+    popup = thumbnailScope({ priority: "popup" });
+    assert.ok(await popup.thumb(popupBase, "portrait"));
+    assert.equal(players.has(retired), false);
+    background.cancel(); assert.equal(await pending, null); assert.equal(await queued, null);
+    popup.cancel(); await new Promise(setImmediate);
+    assert.equal(loaded.length, at + 2, "abandoned overscan is never rendered after closing the popup");
+  } finally { popup?.cancel(); background.cancel(); spine.SpinePlayer = Player; }
+});
+
+test("a shared popup and background still survives another popup scope closing", async () => {
+  const create = document.createElement, background = thumbnailScope();
+  const first = thumbnailScope({ priority: "popup" }), second = thumbnailScope({ priority: "popup" });
+  const base = spineBase("official-spr", "shared_popup_priority");
+  let release;
+  try {
+    document.createElement = () => ({ ...el(), toBlob(done) { release = done; } });
+    set(base, "d");
+    const a = first.thumb(base, "portrait"), b = second.thumb(base, "portrait"), c = background.thumb(base, "portrait");
+    await new Promise(setImmediate);
+    const player = [...players][0];
+    first.cancel(); assert.equal(await a, null);
+    assert.equal(players.has(player), true);
+    release({}); assert.ok(await b); assert.equal(await c, await b);
+  } finally { first.cancel(); second.cancel(); background.cancel(); document.createElement = create; }
 });

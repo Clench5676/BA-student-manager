@@ -1,15 +1,26 @@
-// Timed-out captures keep their subscribers and retry only after fresh queued work.
-// Two retries, after 500 ms and 1000 ms; cancellation removes both the timer and waiting work.
+// Backoff starts only when fresh work has drained. New work pauses and resets the
+// idle interval, without consuming another attempt; cancellation retires its timer.
+const DELAYS = [2000, 5000, 15000];
 export function captureRetries(wake) {
   const waiting = new Map();
   return {
     defer(item, error) {
-      if (!/timed out/i.test(error?.message || "") || (item.retries || 0) >= 2) return false;
-      const entry = { ready: false };
-      entry.timer = setTimeout(() => { entry.ready = true; wake(); }, 500 * 2 ** (item.retries || 0));
-      item.retries = (item.retries || 0) + 1;
-      waiting.set(item, entry);
+      const attempt = item.retries || 0;
+      if (!/timed out/i.test(error?.message || "") || attempt >= DELAYS.length) return false;
+      waiting.set(item, { ready: false, delay: DELAYS[attempt], timer: null });
+      item.retries = attempt + 1;
       return true;
+    },
+    idle(match = () => true) {
+      for (const [item, entry] of waiting) {
+        if (!match(item) || entry.ready || entry.timer !== null) continue;
+        entry.timer = setTimeout(() => { entry.timer = null; entry.ready = true; wake(); }, entry.delay);
+      }
+    },
+    busy() {
+      for (const entry of waiting.values()) {
+        clearTimeout(entry.timer); entry.timer = null; entry.ready = false;
+      }
     },
     take(match = () => true) {
       for (const [item, entry] of waiting) if (entry.ready && match(item)) { waiting.delete(item); return item; }
