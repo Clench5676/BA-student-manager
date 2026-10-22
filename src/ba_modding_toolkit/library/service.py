@@ -748,6 +748,49 @@ class ModLibrary:
     def _identity(self, files: dict[str, Path]) -> frozenset:
         return frozenset((core_of(name), self._hashes.get(path).sha1) for name, path in files.items())
 
+    @_serialized
+    def import_source_identity(self, files: dict[str, Path], target: dict, originals: list[Path]) -> dict:
+        """Content identities survive moves; official bytes scope conversions to their target release."""
+        return {"files": sorted(([list(part_of(name)), self._hashes.get(path).sha1] for name, path in files.items()),
+                                key=lambda item: json.dumps(item)),
+                "target": dict(target),
+                "originals": sorted([path.name, self._hashes.get(path).sha1] for path in originals)}
+
+    @_serialized
+    def find_import_source(self, source: dict) -> str | None:
+        for record in self._records.values():
+            matches = [item for item in record.get("import_sources", []) if item.get("source") == source]
+            if matches:
+                output = sorted(map(list, self._identity({p.name: p for p in self._paths(record)})))
+                if any(item.get("output") == output for item in matches):
+                    return record["id"]
+        return None
+
+    @_serialized
+    def has_legacy_imports(self, kind: str) -> bool:
+        return any(record["kind"] == kind and not record.get("import_sources") for record in self._records.values())
+
+    @_serialized
+    def find_import_output(self, paths: list[Path]) -> str | None:
+        return self._known().get(self._identity({path.name: path for path in paths}))
+
+    @_serialized
+    @_mod_writer
+    def remember_import_source(self, mod_id: str, source: dict) -> None:
+        record = self._record(mod_id)
+        item = {"source": copy.deepcopy(source),
+                "output": sorted(map(list, self._identity({p.name: p for p in self._paths(record)})))}
+        previous = copy.deepcopy(record)
+        imports = record.setdefault("import_sources", [])
+        if item in imports:
+            return
+        imports.append(item)
+        try:
+            self._save()
+        except Exception:
+            self._records[mod_id] = previous
+            raise
+
     def _known(self) -> dict[frozenset, str]:
         known = {}
         for record in self._records.values():

@@ -60,7 +60,7 @@ class RedactingFormatter(logging.Formatter):
 
 def open_run_log(path: Path, secrets: set[str], *, safe_mode: bool = False) -> logging.StreamHandler:
     """Rotate once per launch and write the environment before any other records."""
-    from .diagnostics import COLLECTION_TIMEOUT, Reports, clean, environment, private_text
+    from .diagnostics import COLLECTION_TIMEOUT, Reports, clean, configured_language, environment, private_text
     import time
     import json
 
@@ -81,7 +81,7 @@ def open_run_log(path: Path, secrets: set[str], *, safe_mode: bool = False) -> l
             handler = logging.StreamHandler()
     handler.setFormatter(RedactingFormatter(secrets))
     def header_values():
-        values = environment(safe_mode)
+        values = environment(safe_mode, configured_language(path.parent))
         app = values.pop("app")
         return {**clean(values, secrets), "app": app, "dataDir": private_text(str(path.parent), secrets)}
     header = Reports(path.parent).optional("environment", header_values, time.monotonic() + COLLECTION_TIMEOUT)

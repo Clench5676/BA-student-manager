@@ -70,7 +70,8 @@ def analyze(env, paths, recursive=False):
 
 def run(env, entries, **options):
     options = {**rpc(env, "import.options"), "output": None, **options}
-    return finish(env, rpc(env, "import.run", ids=[e["id"] for e in entries], options=options))["results"]
+    return finish(env, rpc(env, "import.run", ids=[e["id"] for e in entries], options=options,
+                           revision=env.services.batch_import._revision))["results"]
 
 
 def test_entry_shapes_grouping_stable_ids_and_recursive_scan(env):
@@ -233,7 +234,7 @@ def test_model_prefab_and_dependencies_analyze_update_add_and_apply(batch_model_
     if not outdated:
         assert env.parts[2].read_bytes() == env.official[env.parts[2]]
     completed, = analyze(env, sources)["entries"]
-    assert (completed["state"], completed["libraryId"]) == ("done", mod.id)
+    assert (completed["state"], completed["libraryId"]) == ("library" if outdated else "done", mod.id)
     env.library.restore("hoshino", kind="model")
     assert all(path.read_bytes() == original for path, original in env.official.items())
 
@@ -406,6 +407,8 @@ def test_spine_checks_use_the_transfer_matching_strategy(env, monkeypatch, strat
     updater(monkeypatch, calls)
     # Run-time options must also scope the recheck, even if the saved options differ.
     assert run(env, [entry], strategy="name_type", enableAfterImport=False)[0]["reason"] == "spine_version"
+    assert run(env, [entry], enableAfterImport=False)[0]["outcome"] == "skipped"
+    entry, = analyze(env, [source])["entries"]
     assert run(env, [entry], enableAfterImport=False)[0]["outcome"] == "updated"
 
 
@@ -722,7 +725,7 @@ def test_several_mods_for_one_variant_configure_in_request_order_last_wins_and_r
 
 @pytest.mark.parametrize("duplicate_phase", ["preflight", "add", "update"])
 @pytest.mark.parametrize("switch", [False, True])
-def test_import_configures_a_duplicate_created_since_analysis(env, monkeypatch, duplicate_phase, switch):
+def test_import_skips_a_duplicate_created_since_analysis(env, monkeypatch, duplicate_phase, switch):
     if not switch:
         assert not env.library.toggle(False, True).failed
     source = (game_bundle(env.tmp / "input", date="2025-01-01", payload=b"old mod") if duplicate_phase == "update"
@@ -746,12 +749,12 @@ def test_import_configures_a_duplicate_created_since_analysis(env, monkeypatch, 
     result, = run(env, [entry])
     if duplicate_phase == "add":
         stored, = stored
-    assert result["outcome"] == "unchanged" and result["applied"]
+    assert result["outcome"] == "unchanged" and not result["applied"]
     assert result["libraryId"] == stored.id and len(env.library.mods()) == 1
-    assert env.library.configured("test")["spr"] == f"mod:{stored.id}"
-    assert env.original.read_bytes() == (stored.file.read_bytes() if switch else before)
+    assert env.library.configured("test").get("spr") != f"mod:{stored.id}"
+    assert env.original.read_bytes() == before
     completed, = analyze(env, [source])["entries"]
-    assert (completed["state"], completed["libraryId"]) == ("done", stored.id)
+    assert (completed["state"], completed["libraryId"]) == ("done" if duplicate_phase == "add" else "library", stored.id)
 
 
 @pytest.mark.parametrize("change", ["bytes", "remove", "library", "folder"])
@@ -858,12 +861,13 @@ def test_new_analysis_invalidates_previous_ids_at_submission(env):
     wait = env.services.jobs.submit("wait", lambda log, progress: gate.wait(5))
     try:
         new = rpc(env, "import.analyze", paths=[])
-        answer = env.rpc.call("import.run", {"ids": [old["id"]], "options": rpc(env, "import.options")})
+        answer = env.rpc.call("import.run", {"ids": [old["id"]], "options": rpc(env, "import.options"),
+                                            "revision": env.services.batch_import._revision})
         assert answer["error"]["code"] == "bad_params"
     finally:
         gate.set()
     finish(env, wait)
-    assert finish(env, new) == {"entries": [], "skipped": 0}
+    assert finish(env, new) == {"entries": [], "skipped": 0, "revision": 2}
 
 
 def test_a_replaced_library_invalidates_analyzed_sources(env):
@@ -872,7 +876,8 @@ def test_a_replaced_library_invalidates_analyzed_sources(env):
     source = make_mod(env.original, env.tmp / "input")
     entry, = analyze(env, [source])["entries"]
     env.services._library = ModLibrary(env.tmp / "another-library", env.catalog, object(), env.settings)
-    answer = env.rpc.call("import.run", {"ids": [entry["id"]], "options": rpc(env, "import.options")})
+    answer = env.rpc.call("import.run", {"ids": [entry["id"]], "options": rpc(env, "import.options"),
+                                        "revision": env.services.batch_import._revision})
     assert answer["error"]["code"] == "folder_changed"
     assert not env.library.mods() and not env.services.library.mods()
 
@@ -1118,7 +1123,7 @@ def test_generic_old_batch_uses_classic_update_then_add_and_deferred_apply(batch
     assert [p.name for p in calls[0][1]['target_paths']] == [env.parts[0].name]
     assert rpc(env, 'mods.other')[0]['state'] == 'set'
     completed, = analyze(env, [old])['entries']
-    assert (completed['state'], completed['libraryId']) == ('done', result['libraryId'])
+    assert (completed['state'], completed['libraryId']) == ('library', result['libraryId'])
     assert not env.library.toggle(True, False).failed
     assert env.parts[0].read_bytes() == env.library.mods()[0].file.read_bytes()
 
@@ -1234,3 +1239,169 @@ def test_copy_compatibility_keeps_retained_atlas_validation(monkeypatch):
               "remappable": True}
     assert batch_import.copy_compatibility(report, integrity.Contents(skeletons={"a.skel": b"3.8.75"})) == (
         {"a.skel": {"4.2.33"}}, {"a.skel": "3.8.75"}, True)
+
+
+def forbid(*args, **kwargs):
+    pytest.fail("A non-importable row reached an import side effect")
+
+
+@pytest.mark.parametrize("state", ["blocked", "library", "installed", "done", "unknown"])
+def test_non_importable_selection_never_builds_adds_or_applies(batch_model_env, monkeypatch, state):
+    env = batch_model_env
+    source = make_mod(env.parts[1], env.tmp / "input")
+    entry, = analyze(env, [source])["entries"]
+    cached = env.services.batch_import._latest[entry["id"]]
+    cached.entry.update(state=state, reason="required_assets_unmatched")
+    monkeypatch.setattr(env.services.batch_import, "_prepare", forbid)
+    monkeypatch.setattr(env.library, "add_files", forbid)
+    monkeypatch.setattr(env.library, "apply_import", forbid)
+    result, = run(env, [entry, entry])
+    assert result["outcome"] in ("skipped", "unchanged") and not result["applied"]
+    assert not env.library.mods()
+    assert all(path.read_bytes() == data for path, data in env.official.items())
+
+
+def test_execution_recheck_refusal_never_reaches_prepare(batch_model_env, monkeypatch):
+    env = batch_model_env
+    source = make_mod(env.parts[1], env.tmp / "input")
+    entry, = analyze(env, [source])["entries"]
+
+    def refuse(*args, **kwargs):
+        raise ServiceError("required_assets_unmatched", file=source, names="Body")
+
+    monkeypatch.setattr(env.library, "inspect_import", refuse)
+    monkeypatch.setattr(env.services.batch_import, "_prepare", forbid)
+    monkeypatch.setattr(env.library, "add_files", forbid)
+    monkeypatch.setattr(env.library, "apply_import", forbid)
+    result, = run(env, [entry])
+    assert result["outcome"] == "failed" and result["state"] == "blocked"
+    assert result["error"] == ServiceError("required_assets_unmatched", file=source, names="Body").to_json()
+    assert env.services.batch_import._latest[entry["id"]].entry["state"] == "blocked"
+    assert run(env, [entry])[0]["outcome"] == "skipped"
+    assert analyze(env, [source])["entries"][0]["state"] == "blocked"
+    assert not env.library.mods()
+    assert all(path.read_bytes() == data for path, data in env.official.items())
+
+
+def test_collection_failure_survives_a_stale_importable_state(env, monkeypatch):
+    source = make_mod(env.original, env.tmp / "input")
+    duplicate = source.with_name(source.name + ".backup")
+    duplicate.write_bytes(source.read_bytes() + b"conflict")
+    entry, = analyze(env, [source, duplicate])["entries"]
+    assert entry["state"] == "blocked"
+    env.services.batch_import._latest[entry["id"]].entry["state"] = "ready"
+    monkeypatch.setattr(env.services.batch_import, "_prepare", forbid)
+    monkeypatch.setattr(env.library, "add_files", forbid)
+    result, = run(env, [entry])
+    assert result["outcome"] == "failed" and result["reason"] == "conflict"
+    assert not env.library.mods()
+
+
+@pytest.mark.parametrize("change", ["verdict", "bytes", "analysis"])
+def test_prepared_work_cannot_bypass_a_changed_verdict_or_input(env, monkeypatch, change):
+    source = make_mod(env.original, env.tmp / "input")
+    before = env.original.read_bytes()
+    entry, = analyze(env, [source])["entries"]
+    batch = env.services.batch_import
+    prepare = batch._prepare
+
+    def changed(candidate, *args):
+        result = prepare(candidate, *args)
+        if change == "verdict":
+            candidate.entry.update(state="blocked", reason="mod_platform_mismatch")
+        elif change == "bytes":
+            source.write_bytes(source.read_bytes() + b"changed")
+        else:
+            batch.analyze([str(source)])
+        return result
+
+    monkeypatch.setattr(batch, "_prepare", changed)
+    monkeypatch.setattr(env.library, "add_files", forbid)
+    monkeypatch.setattr(env.library, "apply_import", forbid)
+    result, = run(env, [entry])
+    assert result["outcome"] == "failed"
+    assert result["reason"] == ("mod_platform_mismatch" if change == "verdict" else "entry_changed")
+    assert not env.library.mods() and env.original.read_bytes() == before
+
+
+def test_completion_never_masks_a_new_blocked_verdict(env, monkeypatch):
+    source = make_mod(env.original, env.tmp / "input")
+    entry, = analyze(env, [source])["entries"]
+    run(env, [entry], enableAfterImport=False)
+
+    def refuse(*args, **kwargs):
+        raise ServiceError("mod_platform_mismatch", file=source)
+
+    monkeypatch.setattr(env.library, "inspect_import", refuse)
+    blocked, = analyze(env, [source])["entries"]
+    assert blocked["state"] == "blocked" and blocked["reason"] == "mod_platform_mismatch"
+    monkeypatch.setattr(env.library, "apply_import", forbid)
+    assert run(env, [blocked])[0]["outcome"] == "skipped"
+
+
+def test_reanalysis_of_identical_paths_invalidates_an_old_request(env):
+    source = make_mod(env.original, env.tmp / "input")
+    first = analyze(env, [source])
+    second = analyze(env, [source])
+    assert first["entries"][0]["id"] == second["entries"][0]["id"]
+    result = env.rpc.call("import.run", {"ids": [first["entries"][0]["id"]],
+        "options": rpc(env, "import.options"), "revision": first["revision"]})
+    assert result["error"]["code"] == "entry_changed"
+    assert not env.library.mods()
+
+
+@pytest.mark.parametrize("revision", [None, True, "1"])
+def test_import_cannot_omit_or_forge_the_analysis_revision(env, revision):
+    source = make_mod(env.original, env.tmp / "input")
+    entry, = analyze(env, [source])["entries"]
+    params = {"ids": [entry["id"]], "options": rpc(env, "import.options")}
+    if revision is not None:
+        params["revision"] = revision
+    answer = env.rpc.call("import.run", params)
+    assert answer["error"]["code"] in ("entry_changed", "bad_params")
+    assert not env.library.mods()
+
+
+def test_queued_import_cannot_execute_after_new_analysis(env, monkeypatch):
+    source = make_mod(env.original, env.tmp / "input")
+    entry, = analyze(env, [source])["entries"]
+    gate = threading.Event()
+    waiting = env.services.jobs.submit("wait", lambda log, progress: gate.wait(5))
+    try:
+        job = rpc(env, "import.run", ids=[entry["id"]], options=rpc(env, "import.options"),
+                  revision=env.services.batch_import._revision)
+        new = rpc(env, "import.analyze", paths=[str(source)])
+        monkeypatch.setattr(env.library, "add_files", forbid)
+    finally:
+        gate.set()
+    finish(env, waiting)
+    assert env.services.jobs.wait(job, 10)
+    assert rpc(env, "jobs.get", id=job)["error"]["code"] == "entry_changed"
+    finish(env, new)
+    assert not env.library.mods()
+
+
+def test_every_analysis_logs_a_redacted_verdict_at_info(env, monkeypatch, caplog):
+    good = make_mod(env.original, env.tmp / "good")
+    bad = make_mod(env.original, env.tmp / "bad", payload=b"bad mod")
+    inspect = env.library.inspect_import
+
+    def refuse(files, *args, **kwargs):
+        if bad in files.values():
+            raise ServiceError("required_assets_unmatched", file=bad, name="Body")
+        return inspect(files, *args, **kwargs)
+
+    monkeypatch.setattr(env.library, "inspect_import", refuse)
+    with caplog.at_level(logging.INFO, logger="ba_modding_toolkit.webui.batch_import"):
+        entries = analyze(env, [good, bad])["entries"]
+    logs = [record.message for record in caplog.records if "Batch import analysis (analyze):" in record.message]
+    assert len(logs) == 2
+    rows = [json.loads(message.split(": ", 1)[1]) for message in logs]
+    assert {row["state"] for row in rows} == {"ready", "blocked"}
+    blocked = next(row for row in rows if row["state"] == "blocked")
+    assert blocked["code"] == "required_assets_unmatched" and blocked["params"]["name"] == "Body"
+    assert blocked["params"]["file"] == "[asset].bundle"
+    assert all(row["files"][0]["filename"] == "[asset].bundle" for row in rows)
+    assert all("part" in row["files"][0] and "conversionRoute" in row and "target" in row for row in rows)
+    assert good.name not in "\n".join(logs) and str(env.tmp) not in "\n".join(logs)
+    assert {row["id"] for row in rows} == {entry["id"] for entry in entries}

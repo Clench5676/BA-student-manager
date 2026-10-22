@@ -1,6 +1,7 @@
 """Origin detection and classic conversions using generated UnityFS bundles only."""
 
 import os
+import shutil
 import struct
 from pathlib import Path
 from types import SimpleNamespace
@@ -10,6 +11,7 @@ import pytest
 from ba_modding_toolkit import mod_origin
 from ba_modding_toolkit.bundle import Bundle
 from ba_modding_toolkit.library import integrity
+from ba_modding_toolkit.library import ModLibrary
 from ba_modding_toolkit.library.identity import content_cores
 from ba_modding_toolkit.library.integrity import inspect as inspect_bundle, metadata as bundle_metadata
 from ba_modding_toolkit.webui import batch_import
@@ -137,6 +139,94 @@ def test_cross_server_old_filename_converts_instead_of_copying(real_metadata):
     assert result['outcome'] == 'updated' and result['applied']
     assert Bundle.load(env.original).env.objects[0].read().m_Script == 'JP mod'
     assert inspect_bundle(env.original).platforms == {'StandaloneWindows64'}
+
+
+@pytest.mark.parametrize('restart', [False, True])
+@pytest.mark.parametrize('enabled', [False, True])
+def test_converted_source_is_already_in_library_after_move_and_restart(real_metadata, monkeypatch, restart, enabled):
+    env = real_metadata
+    source = old_bundle(env.tmp / 'input' / env.original.name, 13, cab='CAB-source', payload=b'modded',
+                        references=['com.nexon.bluearchive'])
+    entry, = analyze(env, [source])['entries']
+    result, = run(env, [entry], types=['TextAsset'], enableAfterImport=enabled)
+    assert result['outcome'] == 'updated'
+    if enabled:
+        env.library.restore('test')
+    before = env.original.read_bytes()
+    if restart:
+        env.library = ModLibrary(env.root, env.catalog, object(), env.settings)
+        env.services._library = env.library
+        env.services.batch_import = batch_import.BatchImport(env.services)
+    moved = env.tmp / 'moved' / source.name
+    moved.parent.mkdir()
+    shutil.copy2(source, moved)
+
+    def forbidden(*args, **kwargs):
+        pytest.fail('A remembered conversion must not rebuild, add, or apply')
+
+    monkeypatch.setattr(batch_import.core, 'process_mod_update', forbidden)
+    monkeypatch.setattr(env.library, 'add_files', forbidden)
+    monkeypatch.setattr(env.library, 'apply_import', forbidden)
+    repeated, = analyze(env, [moved])['entries']
+    assert (repeated['state'], repeated['libraryId']) == ('library', result['libraryId'])
+    duplicate, = run(env, [repeated])
+    assert duplicate['outcome'] == 'unchanged' and not duplicate['applied']
+    assert len(env.library.mods()) == 1 and env.original.read_bytes() == before
+
+
+@pytest.mark.parametrize('change', ['source', 'output', 'release', 'remove'])
+def test_conversion_provenance_never_matches_changed_bytes_or_removed_entry(real_metadata, change):
+    env = real_metadata
+    source = old_bundle(env.tmp / 'input' / env.original.name, 13, cab='CAB-source', payload=b'modded',
+                        references=['com.nexon.bluearchive'])
+    entry, = analyze(env, [source])['entries']
+    result, = run(env, [entry], types=['TextAsset'], enableAfterImport=False)
+    if change == 'source':
+        unity_bundle(source, 13, cab='CAB-source', payload=b'new mod', references=['com.nexon.bluearchive'])
+    elif change == 'output':
+        mod, = env.library.mods()
+        unity_bundle(mod.file, payload=b'changed library output')
+    elif change == 'release':
+        env.original = env.original.rename(env.original.with_name(env.original.name.replace('2026-01-01', '2026-02-01')))
+    else:
+        assert not env.library.remove(result['libraryId']).failed
+    env.services.batch_import = batch_import.BatchImport(env.services)
+    repeated, = analyze(env, [source])['entries']
+    assert repeated['state'] == 'convert' and repeated['libraryId'] is None
+
+
+def test_legacy_converted_output_is_verified_and_source_identity_backfilled(real_metadata, monkeypatch):
+    env = real_metadata
+    source = old_bundle(env.tmp / 'input' / env.original.name, 13, cab='CAB-source', payload=b'modded',
+                        references=['com.nexon.bluearchive'])
+    entry, = analyze(env, [source])['entries']
+    result, = run(env, [entry], enableAfterImport=False)
+    env.library._records[result['libraryId']].pop('import_sources')
+    env.library._save()
+    env.services.batch_import = batch_import.BatchImport(env.services)
+    before = env.original.read_bytes()
+
+    def forbidden(*args, **kwargs):
+        pytest.fail('Legacy recognition must never add or apply a Mod')
+
+    monkeypatch.setattr(env.library, 'add_files', forbidden)
+    monkeypatch.setattr(env.library, 'apply_import', forbidden)
+    repeated, = analyze(env, [source])['entries']
+    assert (repeated['state'], repeated['libraryId']) == ('library', result['libraryId'])
+    assert env.library._records[result['libraryId']]['import_sources']
+    assert env.original.read_bytes() == before and len(env.library.mods()) == 1
+    monkeypatch.setattr(batch_import.core, 'process_mod_update', forbidden)
+    assert analyze(env, [source])['entries'][0]['state'] == 'library'
+
+
+def test_conversion_source_identity_includes_the_complete_part_mapping(real_metadata):
+    env = real_metadata
+    first = old_bundle(env.tmp / 'input' / env.original.name, 13, payload=b'first')
+    second = old_bundle(env.tmp / 'input' / env.original.name.replace('_003_', '_004_'), 13, payload=b'second')
+    target = {'server': 'global', 'platform': 'windows'}
+    identity = env.library.import_source_identity({first.name: first, second.name: second}, target, [env.original])
+    for files in ({first.name: first}, {first.name: second, second.name: first}):
+        assert env.library.import_source_identity(files, target, [env.original]) != identity
 
 
 @pytest.mark.parametrize('platform', [13, -2])

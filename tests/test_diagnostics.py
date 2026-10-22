@@ -176,6 +176,59 @@ def test_log_rotation_and_environment_header(reports):
     assert header["webview"]["version"] == "620.1" and header["os"]["arch"]
 
 
+@pytest.mark.parametrize("popup", [False, True])
+def test_report_includes_the_current_import_list_and_ui_language(reports, monkeypatch, popup):
+    monkeypatch.setattr(diagnostics.i18n_manager, "lang", "en-US")
+    (reports.data_dir / "config.toml").write_text('[AppSettings]\nlanguage = "zh-CN"\n')
+    handler = open_run_log(reports.log_path, set())
+    handler.close()
+    rows = [{"id": str(i), "kind": "model", "state": "blocked", "reason": "required_assets_unmatched",
+             "error": {"code": "required_assets_unmatched", "params": {"file": "/private/Owner Mod.bundle", "name": "Body"}},
+             "files": [{"path": "/private/Owner Mod.bundle"}], "selected": False,
+             "source": {"server": "global", "platform": "android"},
+             "target": {"server": "global", "platform": "windows"}} for i in range(60)]
+    context = {"language": "zh-CN", "page": "#/import" if popup else "#/settings",
+               "batchImport": {"phase": "idle", "revision": 7, "rows": rows}}
+    params = {"context": context}
+    if popup:
+        params["event"] = {"code": "required_assets_unmatched"}
+    result = build_api(reports.services).call("app.report", params)["result"]
+    files = contents(result)
+    data = json.loads(files["report.json"])
+    header = json.loads(files["webui.log"].splitlines()[0].removeprefix("Environment "))
+    assert data["language"] == header["language"] == "zh-CN"
+    assert "zh-CN" in result["summary"] and "en-US" not in result["summary"]
+    imports = data["batchImport"]
+    assert imports["total"] == 60 and imports["omitted"] == 0 and len(imports["rows"]) == 60
+    assert imports["rows"][0]["params"] == {"file": "[asset].bundle", "name": "Body"}
+    assert imports["rows"][0]["conversionRoute"] == "global/android -> global/windows"
+    assert "Owner Mod" not in "\n".join(files.values())
+    assert "[batchImport]" in files["report.txt"] and "required_assets_unmatched" in files["report.txt"]
+    context["batchImport"]["rows"] = []
+    cleared = build_api(reports.services).call("app.report", {"context": context})["result"]
+    assert json.loads(contents(cleared)["report.json"])["batchImport"]["rows"] == []
+
+
+def test_report_uses_backend_import_snapshot_when_frontend_is_unavailable(reports):
+    reports.services.batch_import = SimpleNamespace(diagnostic_snapshot=lambda: {
+        "revision": 2, "rows": [{"id": "model", "kind": "model", "state": "blocked", "reason": "mod_target_unknown"}]})
+    data = json.loads(contents(reports.generate())["report.json"])
+    assert data["batchImport"]["rows"][0]["reason"] == "mod_target_unknown"
+
+
+def test_import_snapshot_bounds_large_lists_with_explicit_omission_count(reports):
+    rows = [{"id": str(i), "kind": "model", "state": "blocked", "reason": "conversion_failed",
+             "params": {"error": "details " * 1000}} for i in range(2000)]
+    reports.frontend_event(context={"batchImport": {"rows": rows}})
+    result = reports.generate()
+    files = contents(result)
+    assert len(files["report.json"].encode()) <= diagnostics.DATA_CAP
+    snapshot = json.loads(files["report.json"])["batchImport"]
+    assert snapshot["total"] == 2000
+    assert 0 < len(snapshot["rows"]) < 2000
+    assert snapshot["omitted"] + len(snapshot["rows"]) == 2000
+
+
 class Registry:
     HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE = 1, 2
     KEY_WOW64_32KEY, KEY_WOW64_64KEY, KEY_READ = 32, 64, 128

@@ -1475,6 +1475,80 @@ test("blocked entry notes preserve error parameters", async () => {
   assert.ok(find(drawn(h, h.row("a")).tree, "Label_Locale_Limit").widgets[0].text.includes(path));
 });
 
+test("blocked and library rows cannot enter requests through merged or stale selection", async () => {
+  const h = await fixture();
+  const items = [entry("a"), { ...entry("a-model", "blocked", "model"), variant: "a" },
+    { ...entry("a-lobby", "library", "lobby"), variant: "a" }];
+  await h.analyze(items);
+  const merge = h.action("merge").querySelector("input"); merge.checked = true;
+  await merge.dispatch("change"); await h.page.settled();
+  h.page.model.checkAll(true);
+  h.page.model.toggleGroup(items.map((item) => item.id), true);
+  h.page.model.state.checked.add("a-model"); h.page.model.state.checked.add("a-lobby");
+  await h.action("start").click(); await flush();
+  assert.deepEqual(h.runs[0].params.ids, ["a"]);
+  h.runs[0].resolve({ results: [{ id: "a", outcome: "failed", state: "blocked", reason: "mod_platform_mismatch" }] });
+  await flush();
+  assert.equal(h.page.model.state.entries[0].state, "blocked");
+  assert.equal(h.page.model.state.checked.has("a"), false);
+  const checking = h.page.model.recheck(); await flush();
+  h.analyses.at(-1).resolve({ revision: 2, entries: [entry("a", "blocked"), ...items.slice(1)], skipped: 0 });
+  await checking; await h.page.settled();
+  h.page.model.state.checked.add("a");
+  assert.equal(await h.page.model.start(), false);
+  assert.equal(h.action("start").disabled, true);
+  assert.equal(h.runs.length, 1);
+});
+
+test("the import request carries the analysis revision after recheck", async () => {
+  const h = await fixture(); await h.analyze([entry("a")]);
+  const checking = h.page.model.recheck(); await flush();
+  h.analyses.at(-1).resolve({ entries: [entry("a")], skipped: 0, revision: 17 });
+  await checking; await h.page.settled();
+  await h.action("start").click(); await flush();
+  assert.equal(h.runs[0].params.revision, 17);
+  h.runs[0].resolve({ results: [{ id: "a", outcome: "imported" }] });
+  await flush();
+});
+
+for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) {
+  test(`converted duplicates show the library label and disable Import in ${locale}`, async () => {
+    try {
+      const strings = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${locale}.json`, import.meta.url)));
+      setStrings(locale, flatten(strings));
+      const h = await fixture();
+      await h.analyze([{ ...entry("a", "library"), source: { server: "global", platform: "android" },
+        target: { server: "global", platform: "windows" } }]);
+      assert.equal(h.action("start").disabled, true);
+      assert.ok(h.row("a").textContent.replace(/\s/g, "").includes(strings.webui.import.state.library.replace(/\s/g, "")));
+      h.page.model.state.checked.add("a");
+      assert.equal(await h.page.model.start(), false);
+      assert.equal(h.runs.length, 0);
+    } finally {
+      setStrings("en-US", flatten(JSON.parse(readFileSync(new URL("../../src/ba_modding_toolkit/locales/en-US.json", import.meta.url)))));
+    }
+  });
+}
+
+test("report context reads the live list after removal, recheck, and clearing", async () => {
+  let snapshot;
+  globalThis.BAMTRecovery = { importList(read) { snapshot = read; } };
+  try {
+    const h = await fixture(); await h.analyze([entry("a"), entry("b", "blocked")]);
+    assert.deepEqual(snapshot().rows.map(({ id, state, selected }) => ({ id, state, selected })), [
+      { id: "a", state: "ready", selected: true }, { id: "b", state: "blocked", selected: false }]);
+    h.page.model.remove("a");
+    assert.deepEqual(snapshot().rows.map((row) => row.id), ["b"]);
+    const checking = h.page.model.recheck(); await flush();
+    h.analyses.at(-1).resolve({ revision: 9, entries: [{ ...entry("b", "blocked"), reason: "mod_platform_mismatch" }], skipped: 0 });
+    await checking;
+    assert.equal(snapshot().rows[0].reason, "mod_platform_mismatch");
+    assert.equal(snapshot().revision, 9);
+    h.page.model.clear();
+    assert.deepEqual(snapshot().rows, []);
+  } finally { delete globalThis.BAMTRecovery; }
+});
+
 test("merged result rows total the omitted asset counts", async () => {
   const h = await fixture();
   await h.analyze([entry("a"), { ...entry("a-lobby", "ready", "lobby"), variant: "a" }]);

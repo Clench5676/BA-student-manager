@@ -13,7 +13,7 @@ export function countsOf(entries) {
 
 export function createImportState({ rpc, waitJob, changed = () => {}, suggest = async () => [] }) {
   const state = { entries: [], checked: new Set(), selected: null, phase: "idle", progress: null, error: null,
-    options: null, results: [], taskEntries: [], taskOptions: null, suggestions: [], valid: false };
+    options: null, results: [], taskEntries: [], taskOptions: null, suggestions: [], valid: false, analysisRevision: null };
   const listeners = new Set();
   const pendingAnalyses = new Set();
   let revision = 0, contextRevision = 0, retryPaths = [], retryRecursive = false, starting = false, optionsRead = null;
@@ -23,6 +23,8 @@ export function createImportState({ rpc, waitJob, changed = () => {}, suggest = 
   const fail = (error) => { state.error = error; state.phase = "error"; emit(); };
   const progress = (data) => { state.progress = { ...data }; emit(); };
   const resetResults = () => { state.results = []; state.taskEntries = []; state.taskOptions = null; state.progress = null; };
+  globalThis.BAMTRecovery?.importList?.(() => ({ phase: state.phase, revision: state.analysisRevision,
+    rows: state.entries.map((entry) => ({ ...entry, selected: eligible(entry) && state.checked.has(entry.id) })) }));
 
   async function loadOptions() {
     if (state.options) return true;
@@ -45,6 +47,7 @@ export function createImportState({ rpc, waitJob, changed = () => {}, suggest = 
     try {
       const id = await rpc("import.analyze", { paths: retryPaths, recursive });
       const result = await waitJob(id, progress);
+      state.analysisRevision = result.revision;
       state.entries = [...new Map(result.entries.filter((entry) => !removed.has(entry.id)).map((entry) => [entry.id, entry])).values()];
       state.checked = new Set(state.entries.filter((entry) => eligible(entry)
         && (!eligible(before.get(entry.id)) || checked.has(entry.id))).map((entry) => entry.id));
@@ -96,6 +99,7 @@ export function createImportState({ rpc, waitJob, changed = () => {}, suggest = 
       try {
         const job = await rpc("import.setSource", { id, server, platform });
         const entry = await waitJob(job, progress);
+        state.analysisRevision = entry.revision;
         state.entries = state.entries.map((item) => item.id === id ? entry : item);
         if (eligible(entry)) state.checked.add(id); else state.checked.delete(id);
         state.valid = contextAtStart === contextRevision;
@@ -166,6 +170,7 @@ export function createImportState({ rpc, waitJob, changed = () => {}, suggest = 
       try {
         if (!await loadOptions() || at !== revision || !state.valid || !selected().length) return false;
       } finally { starting = false; emit(); }
+      if (at !== revision || !state.valid || !selected().length) return false;
       const entries = structuredClone(selected()), options = snapshot(state.options);
       state.taskEntries = entries; state.taskOptions = options; state.results = [];
       state.phase = "running"; state.error = null;
@@ -173,12 +178,16 @@ export function createImportState({ rpc, waitJob, changed = () => {}, suggest = 
         phase: entries[0].state === "ready" ? "add" : entries[0].state === "convert" ? "convert" : "update",
         step: "import.step.check" }; emit();
       try {
-        const id = await rpc("import.run", { ids: entries.map((entry) => entry.id), options });
+        const id = await rpc("import.run", { ids: entries.map((entry) => entry.id), options,
+          ...(state.analysisRevision == null ? {} : { revision: state.analysisRevision }) });
         const result = await waitJob(id, progress);
         state.results = result.results;
         const completed = new Map(state.results.filter((item) => ["imported", "updated", "unchanged"].includes(item.outcome)).map((item) => [item.id, item]));
+        const blocked = new Map(state.results.filter((item) => item.state === "blocked").map((item) => [item.id, item]));
         state.entries = state.entries.map((entry) => completed.has(entry.id)
-          ? { ...entry, state: "done", libraryId: completed.get(entry.id).libraryId || entry.libraryId } : entry);
+          ? { ...entry, state: "done", libraryId: completed.get(entry.id).libraryId || entry.libraryId }
+          : blocked.has(entry.id) ? { ...entry, ...blocked.get(entry.id) } : entry);
+        for (const id of blocked.keys()) state.checked.delete(id);
         for (const id of completed.keys()) state.checked.delete(id);
         state.phase = "done"; state.valid = false;
         state.progress = null; changed(); emit(); return true;

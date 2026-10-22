@@ -42,8 +42,19 @@ Manual and automatic source choices use the same strict updater; a partial conve
 cannot be added or applied as a completed Mod. Unchanged assets count as applied, and
 assets split across several target bundles are checked together.
 
-Source probes do not convert, install or apply Mods. Library inspection may perform
-migration saves, so analysis is not guaranteed to be free of writes. If no candidate
+Source probes do not install or apply Mods. Converted entries remember the complete source
+part hashes, target server and platform, official bundle identities, and stored output hashes.
+Analysis recognizes those inputs as already in the library. An older library entry without
+source metadata can be linked after a temporary rebuild exactly matches its stored output;
+this check uses current conversion options and never exports, adds or applies the rebuild.
+Changed inputs, outputs, target releases and removed entries invalidate the association.
+Library inspection may perform migration saves, so analysis is not guaranteed to be free of writes. If no candidate
 passes, the row retains `source_unknown`, its preview and the manual source selector.
 Both individual and merged state labels ask for manual source identification. Other
 failures retain their specific statuses.
+
+Every analyzed row emits an INFO verdict with its kind, state, reason code, parameters,
+redacted filenames, parts, platforms and conversion route. Reports from Settings and error
+popups include the current import list, including selections and blocked reasons. Large
+snapshots report their total and omitted row counts. The report uses the displayed UI
+language; the startup log reads the same saved language preference before game detection.

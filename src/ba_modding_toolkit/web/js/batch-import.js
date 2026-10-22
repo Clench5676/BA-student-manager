@@ -338,7 +338,8 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
     if (libraryId) return spineBase("mod", libraryId);
     return entry.preview?.kind === "import" && entry.preview.key ? spineBase("import", entry.preview.key) : null;
   }
-  const representative = (entries) => entries.find((entry) => incomingBase(entry)) || entries.find(eligible) || entries[0];
+  const representative = (entries) => entries.find((entry) => eligible(entry) && incomingBase(entry))
+    || entries.find(eligible) || entries.find((entry) => incomingBase(entry)) || entries[0];
   function thumbnail(entry, { incoming = false, large = false } = {}) {
     const { variant } = identified(entry);
     const signal = scope?.signal;
