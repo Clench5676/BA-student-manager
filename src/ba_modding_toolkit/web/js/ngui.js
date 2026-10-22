@@ -315,7 +315,7 @@ export async function render(tree, host, opts = {}) {
           if (note) {
             await load(u, { signal: src.signal || opts.signal });
             if (src.signal?.aborted || opts.signal?.aborted) return;
-            note.hidden = true;
+            note.remove();
           }
           pic.style.backgroundImage = `url("${u}")`;
           if (performance.now() - t0 < 50) pic.style.transition = "none";

@@ -3,31 +3,43 @@
 import { withTimeout } from "./async.js";
 import { modelUrl, partsOf } from "./switch-sources.js";
 import { previewError } from "./preview-error.js";
+import { captureRetries } from "./capture-retries.js";
 
 export const modelStillVersion = (family, variant, generation = 0) => JSON.stringify([
   family.version, variant.model, partsOf(variant, "model"),
   family.variants.flatMap((v) => v.modList || []).filter((m) => m.kind === "model")
     .map(({ alias, label, fresh, ...source }) => source), generation,
 ]);
-export const modelStillKey = (key, source, version) => JSON.stringify([key, source, version, "square-640-v1"]);
+export const modelStillKey = (key, source, version) => JSON.stringify([key, source, version, "square-640-v2"]);
 
 export function createModelStills({ renderer = () => import("./model.js"), report = previewError, timeout = 8000 } = {}) {
   const cache = new Map(), queue = [];
+  const retries = captureRetries(() => queueMicrotask(pump));
   let running = false;
   function complete(item, url, error = null) {
     if (item.done) { if (url) URL.revokeObjectURL(url); return; }
+    retries.delete(item);
+    if (error) report(error, item.urlSource, "thumbnail:model");
+    if (!url && error && item.clients.size && retries.defer(item, error)) {
+      const at = queue.indexOf(item);
+      if (at >= 0) queue.splice(at, 1);
+      return;
+    }
     item.done = true; item.url = url; item.error = error;
     if (!url && cache.get(item.key) === item) cache.delete(item.key);
     const at = queue.indexOf(item);
     if (at >= 0) queue.splice(at, 1);
-    if (error) report(error, item.urlSource, "thumbnail:model");
     for (const finish of [...item.clients]) finish(url);
   }
   async function pump() {
     if (running) return;
     running = true;
     try {
-      while (queue.length) {
+      while (true) {
+        if (!queue.length) {
+          const retry = retries.take();
+          if (retry) queue.push(retry); else break;
+        }
         const item = queue[0], controller = new AbortController(), { signal } = controller;
         item.controller = controller;
         let view;
@@ -49,6 +61,7 @@ export function createModelStills({ renderer = () => import("./model.js"), repor
         } finally {
           controller.abort();
           view?.dispose();
+          item.controller = null;
         }
       }
     } finally { running = false; }

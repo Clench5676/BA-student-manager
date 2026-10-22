@@ -74,19 +74,52 @@ test("one consumer can cancel while another finishes; abandoning all consumers f
   const fresh = f.thumb("ibuki", "official"); await turn(); waiting[2].resolve("blob:fresh"); assert.equal(await fresh, "blob:fresh");
 });
 
-test("an eight-second deadline disposes stalled work, advances the queue and revokes a late blob", async (t) => {
+test("a timeout advances fresh work, then retries for existing consumers and revokes a late blob", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   const revoke = URL.revokeObjectURL, revoked = [];
   URL.revokeObjectURL = (url) => revoked.push(url);
   let finish;
-  const f = fixture((url) => url.includes("stalled") ? new Promise((resolve) => { finish = resolve; }) : "blob:next");
+  let attempts = 0;
+  const f = fixture((url) => url.includes("stalled") ? (++attempts === 1 ? new Promise((resolve) => { finish = resolve; }) : "blob:recovered") : "blob:next");
   try {
     const a = f.thumb("stalled", "mod:pink"), b = f.thumb("next", "official");
     await turn(); t.mock.timers.tick(8000);
-    assert.equal(await a, null); assert.equal(await b, "blob:next");
+    assert.equal(await b, "blob:next");
     assert.equal(f.disposed.length, 2); assert.match(f.reports[0][0].message, /timed out/);
     finish("blob:too-late"); await turn(); assert.deepEqual(revoked, ["blob:too-late"]);
+    t.mock.timers.tick(499); await turn(); assert.equal(attempts, 1);
+    t.mock.timers.tick(1); await turn();
+    assert.equal(await a, "blob:recovered"); assert.equal(attempts, 2);
+    assert.equal(f.maxContexts(), 1); assert.equal(f.reports.length, 1);
+    assert.equal(await f.thumb("stalled", "mod:pink"), "blob:recovered");
   } finally { URL.revokeObjectURL = revoke; t.mock.timers.reset(); }
+});
+
+test("timeouts have two retries with increasing backoff; every attempt is reported", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const f = fixture(() => new Promise(() => {}));
+  try {
+    const picture = f.thumb("always-stalled", "official");
+    await turn(); t.mock.timers.tick(8000); await turn();
+    t.mock.timers.tick(500); await turn(); assert.equal(f.loads.length, 2);
+    t.mock.timers.tick(8000); await turn();
+    t.mock.timers.tick(999); await turn(); assert.equal(f.loads.length, 2);
+    t.mock.timers.tick(1); await turn(); assert.equal(f.loads.length, 3);
+    t.mock.timers.tick(8000); await turn(); assert.equal(await picture, null);
+    assert.equal(f.reports.length, 3); assert.equal(f.disposed.length, 3);
+    t.mock.timers.tick(60000); await turn(); assert.equal(f.loads.length, 3);
+  } finally { t.mock.timers.reset(); }
+});
+
+test("closing a model popup during backoff cancels its retry", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const f = fixture(() => new Promise(() => {})), scope = new AbortController();
+  try {
+    const picture = f.thumb("cancel-retry", "official", { signal: scope.signal });
+    await turn(); t.mock.timers.tick(8000); await turn(); scope.abort();
+    assert.equal(await picture, null);
+    t.mock.timers.tick(60000); await turn(); assert.equal(f.loads.length, 1);
+  } finally { t.mock.timers.reset(); }
 });
 
 test("cancellation during lazy import never allocates a late WebGL context", async () => {

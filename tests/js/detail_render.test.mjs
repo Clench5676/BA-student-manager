@@ -458,7 +458,7 @@ test("entry cards and thumbnails publish together after every visible picture is
   }
 });
 
-test("a bounded fallback cancels thumbnail players, deadlines and late DOM writes", async (t) => {
+test("leaving a page revealed at its deadline cancels thumbnail players, retries and late DOM writes", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   try {
     family = modFamily(); family.variants[0].spr = "cancelled_spr";
@@ -1223,7 +1223,7 @@ test("the 3D tab dot only follows mods of its own kind", async (t) => {
 test("the detail portrait resumes focus and rebuilds after a hidden context loss", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   try {
-    errors.length = 0; family = modFamily(); playerMode = "ready";
+    errors.length = 0; family = modFamily(); playerMode = thumbMode = "ready";
     await showPortrait(t);
     const p = previewPlayers.at(-1), count = previewPlayers.length;
     const failStart = rpcRequests.filter((r) => r.method === "preview.failed").length;
@@ -1241,7 +1241,7 @@ test("the detail portrait resumes focus and rebuilds after a hidden context loss
     assert.equal(rpcRequests.filter((r) => r.method === "preview.failed").length, failStart);
     p.canvas.dispatchEvent(new Event("webglcontextrestored")); await flush();
     assert.equal(previewPlayers.length, count + 1, "a disposed portrait cannot restart again");
-  } finally { document.hidden = false; Detail.hide(); await flush(); t.mock.timers.reset(); }
+  } finally { document.hidden = false; Detail.hide(); thumbMode = "pending"; await flush(); t.mock.timers.reset(); }
 });
 
 test("detail action patterns follow their resized bodies", async (t) => {
@@ -1451,4 +1451,55 @@ test("a failed Mod portrait never displays the variant's official collection art
     assert.ok(playerRequests.some((url) => url.includes("/mod/test/")));
     await closeSwitch();
   } finally { Detail.hide(); blankThumbnailCore = ""; thumbMode = "pending"; portraitRevision = "a"; await flush(); t.mock.timers.reset(); }
+});
+
+test("switch and detail captures can recover after the detail thumbnail reveal deadline", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    family = modFamily(); family.variants[0].spr = "popup_after_deadline_spr";
+    const showing = Detail.show(context, family, "ibuki"); await flush();
+    t.mock.timers.tick(15000); await flush(); await showing;
+    const detailPictures = walk(hosts.ngui).filter((e) => e.dataset.thumbnail === "true");
+    assert.ok(detailPictures.length);
+    const before = thumbnailPlayers.length;
+    thumbMode = "ready";
+    await switchButton().click(); await flush();
+    assert.ok(thumbnailPlayers.length > before, "popup owns a fresh capture scope");
+    for (const path of ["Card_self/Thumb", "Details/Picture/Texture"]) {
+      assert.ok(walk(hosts.popup).find((e) => e.dataset.path === path).children[0].style.backgroundImage);
+      assert.equal(walk(hosts.popup).find((e) => e.dataset.path === `${path}/Placeholder`), undefined);
+    }
+    pendingThumbnails.splice(0).forEach((done) => done()); await flush();
+    t.mock.timers.tick(500); await flush();
+    assert.ok(detailPictures.every((e) => e.style.backgroundImage), "page pictures still publish after the reveal deadline");
+    await closeSwitch();
+  } finally { Detail.hide(); thumbMode = "pending"; await flush(); t.mock.timers.reset(); }
+});
+
+test("a timed-out switch candidate logs its source and updates both card and panel after an idle retry", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    family = modFamily();
+    family.variants.push({ key: "swimsuit", spr: "hina_swimsuit_retry_spr",
+      names: { en: { full: "Hina (Swimsuit)", short: "Swimsuit" } }, modList: [], state: { files: [] } });
+    family.variants[0].configured = { spr: "variant:swimsuit" };
+    await showPortrait(t);
+    const start = rpcRequests.length;
+    await switchButton().click(); await flush();
+    const paths = ["Card_v:swimsuit/Thumb", "Details/Picture/Texture"];
+    const element = (path) => walk(hosts.popup).find((e) => e.dataset.path === path);
+    for (const path of paths) assert.ok(element(`${path}/Placeholder`));
+    t.mock.timers.tick(8000); await flush();
+    assert.ok(rpcRequests.slice(start).some((r) => r.method === "preview.failed"
+      && r.params.url.includes("hina_swimsuit_retry_spr") && /timed out/.test(r.params.error)));
+    thumbMode = "ready";
+    pendingThumbnails.splice(0).forEach((done) => done()); await flush();
+    t.mock.timers.tick(500); await flush();
+    for (const path of paths) {
+      assert.ok(element(path).children[0].style.backgroundImage, path);
+      assert.equal(element(`${path}/Placeholder`), undefined, path);
+    }
+    assert.equal(element(paths[0]).children[0].style.backgroundImage, element(paths[1]).children[0].style.backgroundImage);
+    await closeSwitch();
+  } finally { Detail.hide(); thumbMode = "pending"; await flush(); t.mock.timers.reset(); }
 });

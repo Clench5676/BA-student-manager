@@ -70,7 +70,7 @@ let renderToken = 0, exprToken = 0, chipToken = 0, spineToken = 0, leftToken = 0
 
 // --- readiness ---
 const HARD_CAP = 15000;  // individual failed assets settle with an error before the screen is revealed
-const THUMBS_CAP = HARD_CAP; // entry pictures finish together, or cancel at the asset deadline
+const THUMBS_CAP = HARD_CAP; // reveal the page at the deadline; bounded capture retries can still fill its pictures
 const LINES_CAP = 1500;  // the lobby's lines from Kivo (a network call) likewise
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const frames = (n) => new Promise((resolve) => { const step = () => (--n > 0 ? requestAnimationFrame(step) : resolve()); requestAnimationFrame(step); });
@@ -97,9 +97,9 @@ let leftPage = Promise.resolve(), leavePage = () => {};
 let showGen = 0, endWait = () => {};
 let thumbnailWork = thumbnailScope();
 let thumbnailWait = Promise.resolve(), releaseThumbnails = () => {};
-const thumb = (base, frame = "bust", expr = null, lobby = false, framing = null, background = variant()?.bg) => {
+const thumb = (base, frame = "bust", expr = null, lobby = false, framing = null, background = variant()?.bg, work = thumbnailWork) => {
   if (!spineAllowed()) return collectionPortrait(base);
-  return thumbnailWork.thumb(base, frame, expr, lobby, framing, frame === "face" ? null : background);
+  return work.thumb(base, frame, expr, lobby, framing, frame === "face" ? null : background);
 };
 function collectionPortrait(base) {
   for (const v of fam?.variants || []) {
@@ -108,8 +108,8 @@ function collectionPortrait(base) {
   }
   return null;
 }
-const modelPicture = (c, v = variant()) => modelThumbnail(v.key, c.kind === "mod" ? `mod:${c.id}` : "official",
-  { version: modelStillVersion(fam, v, modelGeneration), signal: thumbnailWork.signal });
+const modelPicture = (c, v = variant(), work = thumbnailWork) => modelThumbnail(v.key, c.kind === "mod" ? `mod:${c.id}` : "official",
+  { version: modelStillVersion(fam, v, modelGeneration), signal: work.signal });
 function begin() {
   endWait();
   thumbnailWork.cancel();
@@ -117,7 +117,7 @@ function begin() {
   screenPics = exprPics = chipPics = screenThumbs = exprThumbs = chipThumbs = [];
   const done = new Promise((resolve) => { releaseThumbnails = resolve; });
   const scope = thumbnailWork;
-  thumbnailWait = open ? withTimeout(done, THUMBS_CAP, "Detail thumbnails", { signal: scope.signal }).catch(() => scope.cancel()) : Promise.resolve();
+  thumbnailWait = open ? withTimeout(done, THUMBS_CAP, "Detail thumbnails", { signal: scope.signal }).catch(() => {}) : Promise.resolve();
   const gen = ++showGen;
   return { gen, ended: new Promise((resolve) => { endWait = resolve; }) };
 }
@@ -1165,16 +1165,18 @@ function disposePortrait() {
 // whose card carries "Set", and its button reads Save. On an overwritten kind its cards are greyed (switch-sources.js):
 // a click on one opens the entry's Add First or Overwritten message instead of choosing it.
 let popupSeg = 0, popupKind = "spr", popupStart = null, switchPopupPage = null;
+let switchThumbnails = null;
 const modsOn = () => modsState()?.enabled !== false;
 const SET_BADGE = () => ({ text: T("switch.configured"), color: "#8de4ff", ink: "#314665" });
 const GREYED_BADGE = () => ({ text: T("mods.overwritten"), color: "#9aa3ad", ink: "#ffffff" });
 function renderPopup(scroll = 0) { return drawPopup(scroll).catch(renderFailed); }
 async function drawPopup(scroll = 0) {
+  if (!switchThumbnails || switchPopupPage !== pageToken) return;
   const v = variant(), kind = popupKind, inUseKey = appliedKey(v, kind);
   const mode = popupMode(fam, v, kind, modsOn());
   const items = candidates(v, kind).map((c) => {
-    const picture = kind === "model" ? modelPicture(c, v)
-      : thumb(baseOf(c, kind), kind === "spr" ? "portrait" : "landscape", null, kind === "lobby", specialFraming(v), (c.origin || c.variant || v).bg);
+    const picture = kind === "model" ? modelPicture(c, v, switchThumbnails)
+      : thumb(baseOf(c, kind), kind === "spr" ? "portrait" : "landscape", null, kind === "lobby", specialFraming(v), (c.origin || c.variant || v).bg, switchThumbnails);
     return {
       key: c.key, kind: c.kind, recruit: c.kind !== "mod" && c.recruit,
       label: candidateLabel(c, v),
@@ -1242,6 +1244,8 @@ async function drawPopup(scroll = 0) {
 }
 async function openPopup(kind = "spr") {
   const family = fam, v = variant();
+  switchThumbnails?.cancel();
+  switchThumbnails = thumbnailScope();
   switchPopupPage = pageToken;
   popupKind = kind;
   popupStart = popupMode(fam, variant(), kind, modsOn()).start;
@@ -1272,6 +1276,8 @@ async function markSeen(mods, scroll = 0) {
   finally { ids.forEach((id) => seeing.delete(id)); }
 }
 function closePopup(apply) {
+  switchThumbnails?.cancel();
+  switchThumbnails = null;
   switchPopupPage = null;
   $("popup").hidden = true;
   $("popup").innerHTML = "";
@@ -2050,12 +2056,16 @@ export const currentVariant = () => (open || suspended) && fam ? variant().key :
 // Release page work before a destination waits on library locks, retaining the
 // complete current frame until that destination can replace it.
 export function suspend() {
+  switchThumbnails?.cancel();
+  switchThumbnails = null;
   ModAlias.close(); leavePage(); open = false; suspended = true;
   begin(); batch = null; leftToken += 1; spineToken += 1;
 }
 
 // leaving the screen: stop the players, drop any change being prepared
 export function hide() {
+  switchThumbnails?.cancel();
+  switchThumbnails = null;
   ModAlias.close();
   leavePage();
   pageToken += 1;

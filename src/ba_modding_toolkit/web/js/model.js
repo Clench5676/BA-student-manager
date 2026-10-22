@@ -197,6 +197,21 @@ export function attachInput(el, sink) {
 // the front view, level, as on the formation screen
 const HOME = new THREE.Vector3(0, 0, 1);
 
+// Frame the rendered silhouette, including the halo and props but excluding transparent mesh margins.
+// WebGL rows start at the bottom; camera view offsets start at the top. The second draw keeps full resolution.
+export function visibleStillFrame(pixels, width, height, margin = 24) {
+  let left = width, right = -1, bottom = height, top = -1;
+  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+    if (!pixels[(y * width + x) * 4 + 3]) continue;
+    left = Math.min(left, x); right = Math.max(right, x);
+    bottom = Math.min(bottom, y); top = Math.max(top, y);
+  }
+  if (right < left) throw new Error("3D still: no visible pixels");
+  const scale = Math.max((right - left + 1) / (width - 2 * margin), (top - bottom + 1) / (height - 2 * margin));
+  const w = width * scale, h = height * scale;
+  return { x: (left + right + 1 - w) / 2, y: height - (bottom + top + 1 + h) / 2, w, h };
+}
+
 // The switch card's still is taken from its own camera: the live one's lens, at the front view at the fit distance
 // from the orbit target, the target on the frame's point of a w x h host. The live camera's orbit and zoom do not
 // matter (seen from straight above, the box's height shrinks to nothing on the canvas).
@@ -764,6 +779,13 @@ class ChibiView {
     this.renderer.render(this.scene, this.camera);
     const gl = this.renderer.getContext(), pixels = new Uint8Array(640 * 640 * 4);
     if (gl.isContextLost()) throw new Error("3D still: WebGL context lost");
+    gl.readPixels(0, 0, 640, 640, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+    const frame = visibleStillFrame(pixels, 640, 640);
+    const camera = this.camera.clone();
+    camera.setViewOffset(640, 640, frame.x, frame.y, frame.w, frame.h);
+    this.renderer.render(this.scene, camera);
+    if (gl.isContextLost()) throw new Error("3D still: WebGL context lost");
+    pixels.fill(0);
     gl.readPixels(0, 0, 640, 640, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
     if (!pixels.some((value, i) => i % 4 === 3 && value > 0)) throw new Error("3D still: no visible pixels");
     const frozen = document.createElement("canvas");

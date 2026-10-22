@@ -11,6 +11,7 @@ import { spineAssetBase, forgetSpineAssets } from "./api.js";
 import { lobbyIdle } from "./rest-pose.js";
 import { lobbyStillViewport } from "./lobby-still.js";
 import { previewError } from "./preview-error.js";
+import { captureRetries } from "./capture-retries.js";
 
 const FRAMES = {
   // [width, height] of the rendered picture in CSS px: about what the cards show (a list card's window is 234 x 200
@@ -34,6 +35,7 @@ export function idleAnimation(data) {
 
 const cache = new Map();   // key -> cached picture or a request with its consumers
 const queue = [];
+const retries = captureRetries(() => queueMicrotask(pump));
 const scopes = new Set();
 let running = false, active = null, preferred = "";
 let host = null;
@@ -256,13 +258,19 @@ function subscribe(item, signal) {
 
 function complete(item, url, error = null) {
   if (item.settled) { if (url) URL.revokeObjectURL(url); return; }
+  retries.delete(item);
+  if (error) previewError(error, item.base, `thumbnail:${item.frame}`);
+  if (!url && error && item.clients.size && retries.defer(item, error)) {
+    const at = queue.indexOf(item);
+    if (at >= 0) queue.splice(at, 1);
+    return;
+  }
   item.settled = true;
   item.url = url;
   item.error = error;
   const at = queue.indexOf(item);
   if (at >= 0) queue.splice(at, 1);
   if (!url && cache.get(item.key) === item) cache.delete(item.key);
-  if (error) previewError(error, item.base, `thumbnail:${item.frame}`);
   for (const done of [...item.clients]) done(url);
   if (url && item.forgotten) URL.revokeObjectURL(url);
 }
@@ -271,7 +279,15 @@ async function pump() {
   if (running) return;
   running = true;
   try {
-    while (queue.length) {
+    while (true) {
+      if (!queue.length) {
+        const retry = retries.take();
+        if (!retry) break;
+        queue.push(retry);
+        // Faces of one skeleton still share a load and a deadline on each retry.
+        let sibling;
+        while ((sibling = retries.take((item) => item.base === retry.base))) queue.push(sibling);
+      }
       try {
         if (!await ensureSpine()) {
           for (const item of [...queue]) complete(item, null);
@@ -340,7 +356,15 @@ async function companions(player, el, base, batch, signal) {
     if (!frame || queue.length) continue;
     const key = keyOf(base, frame, null, q.lobby, q.framing, q.background);
     if (cache.has(key)) continue;
-    const url = await withTimeout(capture(player, el, frame, null, q.lobby, q.framing, q.background, signal), 3000, `Thumbnail companion ${base}`, { signal });
+    let url;
+    try {
+      url = await withTimeout(capture(player, el, frame, null, q.lobby, q.framing, q.background, signal), 3000, `Thumbnail companion ${base}`, { signal });
+      if (!url && !signal.aborted) throw new Error(`PNG encoding failed (frame=${frame})`);
+    } catch (error) {
+      // A speculative companion has no unsettled item to report through complete().
+      if (!signal.aborted || signal.reason?.name !== "AbortError") previewError(error, base, `thumbnail:${frame}`);
+      throw error;
+    }
     if (!url) continue;
     const waiting = cache.get(key);
     if (waiting && !waiting.settled) complete(waiting, url);
@@ -408,6 +432,7 @@ function request(base, frame = "bust", expr = null, lobby = false, framing = nul
     outer.bump = () => { first = true; inner?.bump?.(); };
     outer.thumbnail = true;
     outer.signal = signal;
+    outer.failure = () => inner?.failure?.();
     return outer;
   }
   const key = keyOf(base, frame, expr, lobby, framing, background);

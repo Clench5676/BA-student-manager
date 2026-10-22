@@ -1003,6 +1003,7 @@ export function setupPreviewTest(data, kind, onLeft = async () => {}) {
   open = true; busy = false; tab = kind === "lobby" ? "lobby" : "portrait";
   leftPage = new Promise(() => {});
   popupKind = kind; popupSeg = 0; pending = shownSource(variant(), kind); previewEnabled = modsOn();
+  switchThumbnails?.cancel(); switchThumbnails = thumbnailScope(); switchPopupPage = pageToken;
   expression = "03"; mainPlayer = { cached: true }; lobbyShot = "cached";
   lobbySeq = "talk"; lobbyAll = true; lobbyStale = false; shownLeft = tab; shownKey = "cached";
   renderScreen = renderChips = renderExpressions = async () => {};
@@ -1639,8 +1640,31 @@ test("NGUI preview placeholders remain for pending, missing, rejected and undeco
     try {
       const v = await NGUI.render(n("Still", [0, 0], [{ clipImage: source, placeholder: "Preview unavailable", w_: 320, h_: 704 }]), target);
       await Promise.all(v.pictures);
-      assert.equal(note().hidden, source === "blob:ready");
-      assert.equal(note().style.color, "#2d4664", "UIPopup_Sort cancel label colour is retained");
+      if (source === "blob:ready") assert.equal(note(), undefined, "successful decoding removes the label from the DOM");
+      else {
+        assert.equal(note().hidden, false);
+        assert.equal(note().style.color, "#2d4664", "UIPopup_Sort cancel label colour is retained");
+      }
     } finally { globalThis.Image = Original; }
   }
+});
+
+for (const kind of ["spr", "model"]) test(`${kind} card and info panel remove placeholders after their shared still succeeds`, async () => {
+  let finish;
+  const picture = Object.assign(new Promise((resolve) => { finish = resolve; }), { thumbnail: true });
+  const items = ["Original", "Dress", "hina_spr"].map((label) => ({ key: label, label, full: label, thumb: picture, big: () => picture }));
+  await Popup.listPopup({ host: prompt, title: kind, layoutKind: kind, items, selected: "Original",
+    details: () => ({ title: kind, fields: [], actions: [] }) });
+  const paths = [...items.map((it) => `Card_${it.key}/Thumb`), kind === "spr" ? "Details/Picture/Texture" : "Details/Picture/Thumb"];
+  const element = (path) => walk(prompt).find((el) => el.dataset.path === path);
+  const geometry = paths.map((path) => { const s = element(path).style; return [s.left, s.top, s.width, s.height]; });
+  for (const path of paths) assert.ok(element(`${path}/Placeholder`));
+  finish(`blob:${kind}-success`);
+  await until(() => paths.every((path) => element(path).children[0].style.backgroundImage), "all stills decoded");
+  paths.forEach((path, i) => {
+    assert.equal(element(`${path}/Placeholder`), undefined, path);
+    const s = element(path).style;
+    assert.deepEqual([s.left, s.top, s.width, s.height], geometry[i], "image publication preserves prefab geometry");
+  });
+  prompt.hidden = true;
 });

@@ -423,7 +423,12 @@ test("a stalled companion capture releases the thumbnail queue for another core"
   t.mock.timers.enable({ apis: ["setTimeout"] });
   const create = document.createElement, base = spineBase("spr", "companion_spr"), next = spineBase("spr", "after_companion_spr");
   let encodes = 0;
+  const fetch = globalThis.fetch, reports = [];
   try {
+    globalThis.fetch = async (url, options) => {
+      if (url === "/api/rpc") reports.push(JSON.parse(options.body));
+      return fetch(url, options);
+    };
     document.createElement = () => ({ ...el(), toBlob(done) {
       if (++encodes !== 2) done({});
     } });
@@ -436,7 +441,63 @@ test("a stalled companion capture releases the thumbnail queue for another core"
     t.mock.timers.tick(3000);
     assert.ok(await later, "the next core renders after the stalled capture's deadline");
     await new Promise(setImmediate);
-  } finally { document.createElement = create; t.mock.timers.reset(); }
+    assert.equal(reports.length, 1, "speculative failures reach the session log even after the card has succeeded");
+    assert.equal(reports[0].params.step, "thumbnail:bust");
+    assert.match(reports[0].params.error, /Thumbnail companion .* timed out/);
+  } finally { document.createElement = create; globalThis.fetch = fetch; t.mock.timers.reset(); }
+});
+
+test("a portrait timeout is logged, waits for idle with backoff, and resolves its original card and panel consumers", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const create = document.createElement, fetch = globalThis.fetch, reports = [], scope = thumbnailScope();
+  const base = spineBase("official-spr", "timeout_once_spr"), next = spineBase("spr", "timeout_next_spr");
+  let encodes = 0, release, late;
+  const start = loaded.length;
+  try {
+    globalThis.fetch = async (url, options) => {
+      if (url === "/api/rpc") reports.push(JSON.parse(options.body));
+      return fetch(url, options);
+    };
+    document.createElement = () => ({ ...el(), toBlob(done) {
+      if (++encodes === 1) late = done;
+      else if (encodes === 2) release = done;
+      else done({});
+    } });
+    set(base, "a"); set(next, "b");
+    const card = scope.thumb(base, "portrait"), panel = scope.thumb(base, "portrait"), fresh = scope.thumb(next, "portrait");
+    await new Promise(setImmediate); t.mock.timers.tick(3000); await new Promise(setImmediate);
+    assert.equal(encodes, 2, "fresh queued work advances before the retry");
+    assert.equal(reports.length, 1); assert.equal(reports[0].method, "preview.failed");
+    assert.match(reports[0].params.url, /official-spr\/timeout_once_spr/);
+    assert.equal(reports[0].params.step, "thumbnail:portrait");
+    t.mock.timers.tick(499); await new Promise(setImmediate); assert.equal(loaded.length, start + 2);
+    t.mock.timers.tick(1); await new Promise(setImmediate); assert.equal(loaded.length, start + 2, "ready retry cannot interrupt fresh work");
+    release({}); assert.ok(await fresh); assert.ok(await card); assert.equal(await card, await panel);
+    assert.equal(loaded.length, start + 3); assert.equal(card.failure(), null);
+    late({}); await new Promise(setImmediate); assert.equal(reports.length, 1);
+  } finally { scope.cancel(); document.createElement = create; globalThis.fetch = fetch; t.mock.timers.reset(); }
+});
+
+test("portrait retries stop after two attempts with backoff and cancel when their scope closes", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const create = document.createElement, scope = thumbnailScope();
+  const base = spineBase("official-spr", "timeout_bounded_spr"), cancelled = spineBase("official-spr", "timeout_cancel_spr");
+  let encodes = 0;
+  try {
+    document.createElement = () => ({ ...el(), toBlob() { encodes++; } });
+    set(base, "a"); set(cancelled, "b");
+    const picture = scope.thumb(base, "portrait");
+    await new Promise(setImmediate); t.mock.timers.tick(3000); await new Promise(setImmediate);
+    t.mock.timers.tick(500); await new Promise(setImmediate); assert.equal(encodes, 2);
+    t.mock.timers.tick(3000); await new Promise(setImmediate);
+    t.mock.timers.tick(999); await new Promise(setImmediate); assert.equal(encodes, 2);
+    t.mock.timers.tick(1); await new Promise(setImmediate); assert.equal(encodes, 3);
+    t.mock.timers.tick(3000); await new Promise(setImmediate); assert.equal(await picture, null);
+    const gone = scope.thumb(cancelled, "portrait");
+    await new Promise(setImmediate); t.mock.timers.tick(3000); await new Promise(setImmediate);
+    scope.cancel(); assert.equal(await gone, null);
+    t.mock.timers.tick(60000); await new Promise(setImmediate); assert.equal(encodes, 4);
+  } finally { scope.cancel(); document.createElement = create; t.mock.timers.reset(); }
 });
 
 test("a bust requested during its companion capture joins that render without replacing its consumers", async () => {
@@ -521,7 +582,7 @@ test("prioritising before manifests answer puts the visible source before an old
   } finally { release(); spine.SpinePlayer = Player; prioritise(null); }
 });
 
-test("a stalled skeleton fails all its faces once and releases the next core", async (t) => {
+test("a stalled skeleton releases the next core and retries its faces together within a bounded budget", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   const Player = spine.SpinePlayer, base = spineBase("official-spr", "stuck_spr"), next = spineBase("spr", "healthy_spr");
   const scope = thumbnailScope(), disposed = [];
@@ -538,13 +599,18 @@ test("a stalled skeleton fails all its faces once and releases the next core", a
     t.mock.timers.tick(7999); await new Promise(setImmediate);
     assert.equal(disposed.length, 0);
     t.mock.timers.tick(1); await new Promise(setImmediate);
-    assert.deepEqual(await Promise.all(faces), Array(8).fill(null));
     assert.ok(await later, "one total deadline, rather than a deadline per queued face");
+    for (const delay of [500, 1000]) {
+      t.mock.timers.tick(delay); await new Promise(setImmediate);
+      t.mock.timers.tick(8000); await new Promise(setImmediate);
+    }
+    assert.deepEqual(await Promise.all(faces), Array(8).fill(null));
+    assert.equal(disposed.filter((url) => url.includes("/stuck_spr/")).length, 3, "one initial load plus two shared retries");
     assert.ok(disposed.some((url) => url.includes("/stuck_spr/")));
   } finally { delete document.hidden; scope.cancel(); await new Promise(setImmediate); spine.SpinePlayer = Player; t.mock.timers.reset(); }
 });
 
-test("a stuck encoder fails the remaining expressions together and lets another skeleton render", async (t) => {
+test("a stuck encoder lets another skeleton render before recovering the pending expressions together", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   const create = document.createElement, scope = thumbnailScope();
   const base = spineBase("spr", "stuck_encoder_spr"), next = spineBase("spr", "after_encoder_spr");
@@ -559,12 +625,14 @@ test("a stuck encoder fails the remaining expressions together and lets another 
     const healthy = scope.thumb(next, "face", "00");
     await new Promise(setImmediate);
     t.mock.timers.tick(3000); await new Promise(setImmediate);
-    assert.deepEqual(await Promise.all(faces), [null, null, null]);
     assert.ok(await healthy);
     assert.equal(encodes, 2, "one failed encode, then the healthy skeleton's picture");
     assert.equal(blobs, before + 1);
     late({}); await new Promise(setImmediate);
     assert.equal(blobs, before + 1, "a cancelled encode's late callback cannot leak a blob URL");
+    t.mock.timers.tick(500); await new Promise(setImmediate);
+    assert.ok((await Promise.all(faces)).every(Boolean));
+    assert.equal(encodes, 5);
   } finally { scope.cancel(); await new Promise(setImmediate); document.createElement = create; t.mock.timers.reset(); }
 });
 

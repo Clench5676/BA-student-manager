@@ -158,7 +158,7 @@ test("cancellation retires manual loading frames and lets the next skeleton run"
   assert.equal(retired.draws, draws); assert.equal(retired.disposed, true);
 });
 
-test("a stalled inactive runtime exhausts one eight-second budget and disposes its manual clock", async (t) => {
+test("a stalled inactive runtime has three bounded attempts and disposes every manual clock", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   try {
     hidden = true; stall = true;
@@ -166,10 +166,15 @@ test("a stalled inactive runtime exhausts one eight-second budget and disposes i
     await new Promise(setImmediate);
     const retired = players.at(-1);
     t.mock.timers.tick(8000);
-    assert.equal(await pending, null);
     await new Promise(setImmediate);
     assert.equal(retired.disposed, true);
     const draws = retired.draws;
+    for (const delay of [500, 1000]) {
+      t.mock.timers.tick(delay); await new Promise(setImmediate);
+      t.mock.timers.tick(8000); await new Promise(setImmediate);
+      assert.equal(players.at(-1).disposed, true);
+    }
+    assert.equal(await pending, null);
     t.mock.timers.tick(60000);
     assert.equal(retired.draws, draws);
   } finally { t.mock.timers.reset(); }
