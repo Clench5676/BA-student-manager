@@ -537,3 +537,33 @@ test("a failed progress refresh replaces the previous label with current fallbac
   assert.notEqual(progress.style.visibility, "hidden");
   work.resolve(); await done;
 });
+
+test("concurrent progress updates coalesce to the latest prefab draw", async () => {
+  const gate = deferred(), h = await harness({ prefabLabels: true, labelGate: gate }), work = deferred();
+  let text = "Completed 0 / 47";
+  const done = h.loading.hold(() => work.promise, { progress: () => text });
+  await flush(); h.sprites.resolve(); await flush();
+  const progressDraws = () => h.drawn.filter((tree) => tree.name === "Progress");
+  assert.equal(progressDraws().length, 1);
+  for (let i = 1; i <= 47; i++) {
+    text = `Completed ${i} / 47`; h.loading.refresh();
+    await flush();
+  }
+  assert.equal(progressDraws().length, 1, "only one label renderer may run while its assets are pending");
+  gate.resolve(); await flush(); await flush();
+  assert.equal(progressDraws().length, 2, "intermediate phases do not each allocate a prefab");
+  assert.equal(h.stage.children[0].querySelector(".loading-progress").textContent, text);
+  for (let i = 0; i < 10; i++) h.loading.refresh();
+  await flush();
+  assert.equal(progressDraws().length, 2, "unchanged progress needs no extra draw");
+  work.resolve(); await done;
+});
+
+test("a replacement writer with the same initial label still fills its new progress element", async () => {
+  const h = await harness({ consent: false }), first = deferred(), second = deferred();
+  const before = h.loading.task(() => first.promise, { label: "Adding Mods" });
+  const after = h.loading.task(() => second.promise, { label: "Adding Mods" });
+  assert.equal(h.stage.children[0].querySelector(".loading-progress").textContent, "Adding Mods");
+  first.resolve(); await before;
+  second.resolve(); await flush(); await h.advance(300); await after;
+});

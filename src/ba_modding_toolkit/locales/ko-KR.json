@@ -1496,6 +1496,7 @@
 			"uncompressed": "압축 안 함",
 			"merge": "같은 학생 모드 합치기",
 			"waitProgress": "{label} {done} / {total}",
+			"completedProgress": "완료 {done} / {total}, 남음 {remaining}\n{action} {name}{step}",
 			"state": {
 				"done": "완료",
 				"ready": "가져오기 가능",

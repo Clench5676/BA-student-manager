@@ -25,7 +25,7 @@ const options = (server, extra = {}) => ({ request: server.request, digest: asyn
   fetchImage: async () => ({ blob: async () => new Blob([png], { type: "image/png" }) }),
   makeUrl: (bytes) => { assert.deepEqual(bytes, png); return "blob:persisted"; }, ...extra });
 
-test("preview disk access is opt-in and cached lossless bytes survive a new page", async () => {
+test("preview disk access waits for settings and cached lossless bytes survive a new page", async () => {
   const server = backend(), first = createPreviewCache(options(server));
   assert.equal(first.ticket("source"), null);
   assert.equal(await first.get(null), null); assert.equal(await first.put(null, "blob:x"), false);
@@ -35,6 +35,33 @@ test("preview disk access is opt-in and cached lossless bytes survive a new page
   const second = createPreviewCache(options(server)); configured(second);
   assert.equal(await second.get(second.ticket("revision+camera")), "blob:persisted");
   assert.equal(await second.get(second.ticket("new-revision+camera")), null);
+});
+
+test("preview cache defaults on after settings load and preserves explicit opt-out", async () => {
+  const server = backend(), store = createPreviewCache(options(server));
+  store.configure({ previewCacheGeneration: "one" });
+  assert.ok(store.ticket("default-on"));
+  assert.equal(await store.put(store.ticket("default-on"), "blob:x"), true);
+  store.configure({ previewCache: false, previewCacheGeneration: "one" });
+  assert.equal(store.ticket("saved-off"), null);
+  const calls = server.calls.length;
+  assert.equal(await store.put(null, "blob:x"), false);
+  assert.equal(server.calls.length, calls);
+});
+
+test("stalled optional cache RPCs time out and fall back without blocking rendering", async () => {
+  const calls = [], store = createPreviewCache(options(backend(), {
+    timeout: 5, request(method, args, options) {
+      calls.push([method, options.timeout]);
+      return new Promise(() => {});
+    },
+  }));
+  configured(store);
+  assert.equal(await store.get(store.ticket("source")), null);
+  assert.equal(await store.modelTicket("source", "student", "live"), null);
+  assert.equal(await store.assetTicket(store.ticket("source"), ["/asset/art/bg/BG_Cafe.png"]), null);
+  assert.equal(await store.put(store.ticket("source"), "blob:x"), false);
+  assert.deepEqual(calls, [["preview.cacheGet", 5], ["preview.modelRevision", 5], ["preview.assetRevision", 5], ["preview.cachePut", 5]]);
 });
 
 test("clear or opt-out prevents a pending thumbnail upload from restoring old cache", async () => {

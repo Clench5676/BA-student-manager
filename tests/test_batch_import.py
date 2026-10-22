@@ -651,7 +651,8 @@ def test_update_then_add_then_apply_forwards_every_classic_option_and_reports_ev
         seen.append(events.get_nowait())
     progress = [data for event, data in seen if event == "job.progress"]
     assert {p["phase"] for p in progress} == {"update", "add", "apply"}
-    assert all(set(p) == {"id", "done", "total", "current", "phase", "index", "step"} for p in progress)
+    assert all({"id", "done", "completed", "remaining", "total", "current", "phase", "index", "step"} <= set(p)
+               for p in progress)
     assert progress[-1]["done"] == progress[-1]["total"] == 1
     assert all(p["index"] == 1 and p["step"].startswith("import.step.") for p in progress)
     changed = next(data for event, data in seen if event == "library.changed")
@@ -969,6 +970,153 @@ def test_workers_parallelize_updates_while_library_adds_remain_serial(env, monke
     results = run(env, entries, workers=2, enableAfterImport=False)
     assert [r["outcome"] for r in results] == ["updated", "updated"]
     assert len(threads) == 2 and len(env.library.mods()) == 2
+
+
+def test_parallel_progress_separates_completed_count_from_active_input_order(env, monkeypatch):
+    sources = [make_mod(env.original, env.tmp / f'input-{i}', payload=f'mod-{i}'.encode()) for i in range(3)]
+    entries = analyze(env, sources)['entries']
+    positions = {entry['id']: i for i, entry in enumerate(entries)}
+    turns = [threading.Event() for _ in entries]
+    turns[2].set()
+    following = {2: 0, 0: 1}
+    barrier = threading.Barrier(3)
+    prepare = env.services.batch_import._prepare
+
+    def reordered(candidate, settings, temporary, log, progress):
+        index = positions[candidate.entry['id']]
+        barrier.wait(timeout=5)
+        assert turns[index].wait(5)
+        progress(candidate, 'update', 'save')
+        if index in following:
+            turns[following[index]].set()
+        return prepare(candidate, settings, temporary, log, progress)
+
+    monkeypatch.setattr(env.services.batch_import, '_prepare', reordered)
+    events = env.services.events.subscribe()
+    results = run(env, entries, workers=3, enableAfterImport=False)
+    updates = []
+    while not events.empty():
+        event, data = events.get_nowait()
+        if event == 'job.progress':
+            updates.append(data)
+    assert [p['index'] for p in updates if p['step'] == 'import.step.save'] == [3, 1, 2]
+    assert [p['completed'] for p in updates] == sorted(p['completed'] for p in updates)
+    assert all(p['done'] == p['completed'] and p['remaining'] == len(entries) - p['completed'] for p in updates)
+    assert updates[-1]['completed'] == len(results) == 3 and updates[-1]['remaining'] == 0
+    assert [result['id'] for result in results] == [entry['id'] for entry in entries]
+
+
+@pytest.mark.parametrize('fail', [False, True])
+def test_batch_application_prunes_globally_once_even_after_failure(env, monkeypatch, fail):
+    sources = [make_mod(env.original, env.tmp / f'input-{i}', payload=f'mod-{i}'.encode()) for i in range(3)]
+    entries = analyze(env, sources)['entries']
+    prune = env.library._prune
+    calls = []
+
+    def counted():
+        calls.append(1)
+        return prune()
+
+    monkeypatch.setattr(env.library, '_prune', counted)
+    if fail:
+        monkeypatch.setattr(env.library, '_commit', lambda *args, **kwargs: (_ for _ in ()).throw(
+            ServiceError('game_file_locked')))
+    results = run(env, entries)
+    assert len(calls) == 1
+    assert all(result['outcome'] == ('failed' if fail else 'imported') for result in results)
+    assert env.library._deferred_prunes == 0 and not env.library._prune_pending
+
+
+def test_crc_detection_reuses_only_the_same_target_revision(env, monkeypatch):
+    settings = batch_import.ImportSettings(env.settings, {**env.services.batch_import.options(), 'crc': 'auto'})
+    calls = []
+    monkeypatch.setattr(Bundle, 'check_need_crc', lambda path: calls.append(path) or True)
+    assert settings.crc_needed(env.original) and settings.crc_needed(env.original)
+    assert calls == [env.original.resolve()]
+    stat = env.original.stat()
+    data = env.original.read_bytes()
+    env.original.write_bytes(data[:-1] + bytes([data[-1] ^ 1]))
+    os.utime(env.original, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+    assert settings.crc_needed(env.original)
+    assert calls == [env.original.resolve(), env.original.resolve()]
+
+
+def test_crc_detection_does_not_serialize_unrelated_worker_targets(env, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+
+    targets = [env.original, game_bundle(env.game_dir, 'other_spr')]
+    settings = batch_import.ImportSettings(env.settings, {**env.services.batch_import.options(), 'crc': 'auto'})
+    barrier = threading.Barrier(2)
+
+    def detect(path):
+        barrier.wait(timeout=5)
+        return True
+
+    monkeypatch.setattr(Bundle, 'check_need_crc', detect)
+    with ThreadPoolExecutor(2) as workers:
+        assert list(workers.map(settings.crc_needed, targets)) == [True, True]
+
+
+def test_later_worker_uses_frozen_official_bytes_after_an_earlier_apply(env, monkeypatch):
+    original = env.original.read_bytes()
+    sources = [game_bundle(env.tmp / f'input-{i}', date='2025-01-01', payload=f'mod-{i}'.encode()) for i in range(2)]
+    entries = analyze(env, sources)['entries']
+    applied = threading.Event()
+    prepare, apply = env.services.batch_import._prepare, env.library.apply_import
+    baselines, copies = [], []
+    clone = batch_import.atomic_clone
+
+    def tracked_clone(source, target):
+        if source == env.original:
+            copies.append(source)
+        return clone(source, target)
+
+    def delayed(candidate, *args):
+        if candidate.entry['id'] == entries[1]['id']:
+            assert applied.wait(5)
+        return prepare(candidate, *args)
+
+    def applying(*args, **kwargs):
+        result = apply(*args, **kwargs)
+        applied.set()
+        return result
+
+    def update(**kwargs):
+        pairs = []
+        for target in kwargs['target_paths']:
+            baselines.append(target.read_bytes())
+            output = kwargs['output_dir'] / target.name
+            output.write_bytes(kwargs['source_paths'][0].read_bytes())
+            pairs.append(FilePair(output, target))
+        return ModUpdateResult(True, 'ok', pairs)
+
+    monkeypatch.setattr(batch_import, 'atomic_clone', tracked_clone)
+    monkeypatch.setattr(env.services.batch_import, '_prepare', delayed)
+    monkeypatch.setattr(env.library, 'apply_import', applying)
+    monkeypatch.setattr(batch_import.core, 'process_mod_update', update)
+    results = run(env, entries, workers=2)
+    assert all(result['outcome'] == 'updated' and result['applied'] for result in results)
+    assert baselines == [original, original]
+    assert copies == [env.original]
+    assert env.original.read_bytes() == sources[1].read_bytes()
+    env.library.restore('test')
+    assert env.original.read_bytes() == original
+
+
+def test_changing_original_during_snapshot_never_reaches_preparation(env, monkeypatch):
+    source = game_bundle(env.tmp / 'old', date='2025-01-01', payload=b'old mod')
+    entry, = analyze(env, [source])['entries']
+
+    def changed(original, copied):
+        shutil.copy2(original, copied)
+        original.write_bytes(original.read_bytes() + b'changed')
+        return True
+
+    monkeypatch.setattr(batch_import, 'atomic_clone', changed)
+    monkeypatch.setattr(env.services.batch_import, '_prepare', forbid)
+    result, = run(env, [entry], enableAfterImport=False)
+    assert (result['outcome'], result['reason']) == ('failed', 'entry_changed')
+    assert not env.library.mods()
 
 
 def test_unavailable_official_baseline_is_blocked_even_with_live_targets(env):

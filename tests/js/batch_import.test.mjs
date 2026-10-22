@@ -70,7 +70,7 @@ globalThis.IntersectionObserver = class {
 };
 const { createImportPage, entryIdentity, catalogEntries } = await import("../../src/ba_modding_toolkit/web/js/batch-import.js");
 const { importAssistants, suggestImports } = await import("../../src/ba_modding_toolkit/web/js/import-assistants.js");
-const { importArtwork, clipButtonPatterns, selectionWindow, ROW_SELECTION, ROW_SCALE, ROW_WIDTH } = await import("../../src/ba_modding_toolkit/web/js/import-layout.js");
+const { importArtwork, clipButtonPatterns, selectionWindow, ROW_SELECTION, ROW_SCALE, ROW_WIDTH, ROW_HEIGHT } = await import("../../src/ba_modding_toolkit/web/js/import-layout.js");
 const { frameOutline } = await import("../../src/ba_modding_toolkit/web/js/row-thumbnail.js");
 const { ROW_W: OPTION_WIDTH, rowBase, radioRow } = await import("../../src/ba_modding_toolkit/web/js/settings-rows.js");
 const { S } = await import("../../src/ba_modding_toolkit/web/js/util.js");
@@ -114,7 +114,7 @@ async function fixture({ licensed = false, native = true, suggest, countIcons = 
   };
   const node = (name, pos = [0, 0], widgets = [], children = []) => ({ name, pos, widgets, children, scale: [1, 1] });
   const layouts = makeImportLayouts(), layoutSnapshot = structuredClone(layouts), rendered = [], loaded = [];
-  let renderHold = null, imagesHold = null, thumbsHold = null;
+  let renderHold = null, imagesHold = null, thumbsHold = null, decodeHold = null, thumbnailFor = null;
   const label = (text, fontSize, color, w_, h_, opts = {}) => ({ text, fontSize, color, w_, h_, pivot: 4, depth: 9, ...opts });
   const ui = { node, label, fitText: (text, fs) => ({ text, fs }), glyphWidth: (text, fs) => String(text).length * fs, init: async () => {},
     layout: async (name) => { loaded.push(name); assert.ok(layouts[name], `Unexpected layout ${name}`); return layouts[name]; },
@@ -125,7 +125,7 @@ async function fixture({ licensed = false, native = true, suggest, countIcons = 
       if (renderHold?.predicate(tree)) { const hold = renderHold; renderHold = null; await hold.promise; }
       if (imagesHold?.predicate(tree)) { view.images = [imagesHold.promise]; imagesHold = null; }
       return view;
-    }, decoded: async () => {},
+    }, decoded: async (element) => { if (decodeHold?.predicate(element)) await decodeHold.promise; },
   };
   const popups = { ready: async () => {},
     message: async (message) => { messages.push(message); const answer = answers.shift() || { button: "cancel", checked: false }; return answer.promise || answer; },
@@ -147,7 +147,7 @@ async function fixture({ licensed = false, native = true, suggest, countIcons = 
       opts.until.then(() => { hold.active = false; }); return done;
     } },
     jobs: (id, progress) => { const job = [...analyses, ...runs, ...sources].find((job) => job.id === id); job.progress = progress; return job.promise; },
-    thumbnails: () => { const scope = { cancel: () => { scope.cancelled = true; }, thumb: (...args) => { thumbs.push(args); return thumbsHold?.promise || Promise.resolve(`blob:${args[0]}`); } }; scopes.push(scope); return scope; },
+    thumbnails: () => { const scope = { cancel: () => { scope.cancelled = true; }, thumb: (...args) => { thumbs.push(args); return thumbnailFor?.(...args) || thumbsHold?.promise || Promise.resolve(`blob:${args[0]}`); } }; scopes.push(scope); return scope; },
     modelThumbnails: (...args) => { modelThumbs.push(args); return thumbsHold?.promise || Promise.resolve(`blob:model:${args[0]}:${args[1]}`); },
   });
   const destinations = [];
@@ -161,6 +161,8 @@ async function fixture({ licensed = false, native = true, suggest, countIcons = 
   };
   return { page, context, destinations, host, dialog, layouts, layoutSnapshot, rendered, loaded, calls,
     holds, holdPicker: () => { pickerHold = deferred(); return pickerHold; }, holdThumbs: () => { thumbsHold = deferred(); return thumbsHold; },
+    thumbnailFor: (fn) => { thumbnailFor = fn; },
+    holdDecode: (predicate) => { decodeHold = { ...deferred(), predicate }; return decodeHold; },
     holdImages: (predicate) => { const hold = { ...deferred(), predicate }; imagesHold = hold; return hold; },
     holdRender: (predicate) => { const hold = { ...deferred(), predicate }; renderHold = hold; return hold; }, analyses, runs, sources, messages, answers, thumbs, scopes, popupStack, action, row, phase, analyze,
     modelThumbs, changed: () => changed, picker: (paths) => { pickerPaths = paths; }, pickError: (error) => { pickError = error; },
@@ -205,7 +207,9 @@ test("language changes retain import choices, search input and capture scope wit
 test("four incoming models render in the list and comparison without a Spine licence", async () => {
   const h = await fixture();
   await h.analyze(["a", "b", "c", "d"].map((id) => entry(id, "ready", "model")));
-  for (const id of ["a", "b", "c", "d"]) {
+  for (const [index, id] of ["a", "b", "c", "d"].entries()) {
+    const list = h.host.querySelector(".import-list"); list.scrollTop = index * ROW_HEIGHT;
+    await list.dispatch("scroll"); await h.page.settled();
     assert.equal(h.row(id).querySelector(".import-thumb").dataset.source, `blob:model:${id}:import:source-${id}`);
     assert.ok(h.modelThumbs.some(([key, source]) => key === id && source === `import:source-${id}`));
   }
@@ -216,7 +220,7 @@ test("four incoming models render in the list and comparison without a Spine lic
   await h.action("start").click(); await flush();
   h.runs[0].resolve({ results: ["a", "b", "c", "d"].map((id) => ({ id, outcome: "imported", libraryId: `lib-${id}` })) });
   await flush(); await h.page.results(); await h.page.settled();
-  assert.ok(h.modelThumbs.some(([key, source]) => key === "b" && source === "mod:lib-b"));
+  assert.ok(!h.modelThumbs.some(([, source]) => source.startsWith("mod:")), "result artwork reuses the analyzed input preview");
 });
 
 test("an NPC model without a roster entry renders from the analyzed variant key", async () => {
@@ -249,17 +253,17 @@ test("search includes all catalog names and aliases; state counts are unfiltered
   await h.action("searchToggle").click();
   const search = h.host.querySelector(".import-search"); search.value = "JP b";
   await search.dispatch("input", { isComposing: true }); assert.ok(h.row("a"));
-  await search.dispatch("compositionend"); assert.ok(!h.row("a")); assert.ok(h.row("b"));
+  await search.dispatch("compositionend"); await h.page.settled(); assert.ok(!h.row("a")); assert.ok(h.row("b"));
   await h.action("filter").click(); await flush(); await h.page.settled();
   assert.match(h.dialog.textContent, /Already in Library \(1\)/);
   await walk(h.dialog).find((e) => e.dataset.value === "blocked").click();
   await h.action("ok", h.dialog).click(); await h.page.settled(); assert.ok(!h.row("b"));
-  search.value = ""; await search.dispatch("input"); assert.ok(h.row("e"));
+  search.value = ""; await search.dispatch("input"); await h.page.settled(); assert.ok(h.row("e"));
   await h.action("filter").click(); await flush();
   await walk(h.dialog).find((e) => e.dataset.value === "all").click();
   await h.action("ok", h.dialog).click(); await h.page.settled();
   const before = walk(h.host).filter((element) => element.dataset.entry).map((element) => element.dataset.entry);
-  await h.action("order").click();
+  await h.action("order").click(); await h.page.settled();
   assert.deepEqual(walk(h.host).filter((element) => element.dataset.entry).map((element) => element.dataset.entry), before.reverse());
 });
 
@@ -267,7 +271,7 @@ test("all/none follow eligibility; removal keeps source files out of the next fu
   const h = await fixture(); await h.analyze();
   await h.action("none").click(); assert.equal(h.page.model.state.checked.size, 0);
   await h.action("all").click(); assert.deepEqual([...h.page.model.state.checked], ["a", "b"]);
-  await h.row("b").querySelector("button").click(); await h.action("remove").click(); assert.ok(!h.row("b"));
+  await h.row("b").querySelector("button").click(); await h.action("remove").click(); await h.page.settled(); assert.ok(!h.row("b"));
   const recheck = h.page.model.recheck(); await flush();
   assert.deepEqual(h.analyses.at(-1).params.paths, mixed().filter((entry) => entry.id !== "b").flatMap((entry) => entry.paths));
   h.analyses.at(-1).resolve({ entries: mixed().filter((entry) => entry.id !== "b"), skipped: 0 }); await recheck;
@@ -312,7 +316,7 @@ test("running captures IDs/options, follows job progress, survives hiding and sh
   h.runs[0].progress({ done: 0, index: 2, total: 2, current: "b", phase: "update", step: "import.step.crc" }); await h.page.settled();
   assert.equal(h.host.querySelector(".import-progress"), null);
   assert.doesNotMatch(h.host.textContent, /Updating.*Student b/);
-  assert.equal(h.holds.findLast((hold) => hold.active).opts.progress(), "Updating Student b (Memorial Lobby) 2 / 2 - Repairing CRC");
+  assert.equal(h.holds.findLast((hold) => hold.active).opts.progress(), "Completed 0 / 2, remaining 2\nUpdating Student b (Memorial Lobby) - Repairing CRC");
   h.page.hide(); assert.equal(h.scopes[0].cancelled, true);
   h.runs[0].resolve({ results: [{ id: "a", outcome: "imported", reason: null, libraryId: "lib-a", applied: false },
     { id: "b", outcome: "failed", reason: "unreadable", libraryId: null, applied: false }] }); await flush();
@@ -578,7 +582,8 @@ test("analysis holds the page through generated stills and never flashes catalog
   h.analyses.at(-1).resolve({ entries: [entry("a")], skipped: 0 }); await adding; await flush();
   assert.equal(h.phase(), "idle");
   assert.ok(h.holds.some((hold) => hold.active), "the hold continues after analysis until generated stills settle");
-  const image = h.row("a").querySelector(".import-thumb");
+  assert.equal(h.row("a"), undefined, "the newly analyzed list is staged until its visible stills are ready");
+  const image = h.rendered.findLast(({ tree }) => tree.name === "List_01").host.querySelector(".import-thumb");
   assert.ok(!image.style.backgroundImage); assert.equal(image.dataset.source, undefined);
   const textures = h.rendered.filter(({ opts }) => opts.textures?.Icon_Arona || opts.textures?.Texture);
   for (const { opts } of textures) for (const source of Object.values(opts.textures)) assert.equal(await source, null);
@@ -589,11 +594,148 @@ test("analysis holds the page through generated stills and never flashes catalog
   assert.ok(!h.holds.some((hold) => hold.active));
 });
 
+test("a large analyzed folder prepares only visible thumbnails before committing its list", async () => {
+  const h = await fixture({ licensed: true }), gates = new Map();
+  h.thumbnailFor((base, frame) => {
+    const key = `${base}|${frame}`;
+    if (!gates.has(key)) gates.set(key, deferred());
+    return gates.get(key).promise;
+  });
+  const entries = Array.from({ length: 12 }, (_, i) => entry(`folder_${i}`));
+  const adding = h.page.drop(entries.flatMap((item) => item.paths)); await flush();
+  h.analyses.at(-1).resolve({ entries, skipped: 0 }); await adding; await flush();
+  const cards = h.thumbs.filter(([, frame]) => frame === "card");
+  assert.ok(cards.length > 0 && cards.length <= 3, "offscreen rows do not occupy the GPU capture queue");
+  assert.equal(walk(h.host).filter((node) => node.dataset.entry).length, 0, "the list stays staged while a visible picture is unfinished");
+  for (const [key, gate] of gates) gate.resolve(`blob:${key}`);
+  await h.page.settled(); await flush();
+  assert.equal(walk(h.host).filter((node) => node.dataset.entry).length, 12);
+  assert.equal(h.holds.some((hold) => hold.active), false, "unrequested offscreen pictures do not extend the initial hold");
+  const list = h.host.querySelector(".import-list");
+  const totalHeight = list.children.reduce((sum, row) => sum + (parseFloat(row.style.height) || ROW_HEIGHT), 0);
+  list.scrollTop = totalHeight - parseFloat(list.style.height);
+  const scrolling = list.dispatch("scroll"); await flush();
+  assert.ok(h.thumbs.filter(([, frame]) => frame === "card").length > cards.length, "scrolling schedules the newly visible rows");
+  assert.ok(h.thumbs.filter(([, frame]) => frame === "card").length < entries.length, "rows between the two viewports remain lazy");
+  for (const [key, gate] of gates) gate.resolve(`blob:${key}`);
+  await scrolling; await h.page.settled();
+});
+
+test("filtering from the bottom prepares the clamped viewport before replacing a shorter list", async () => {
+  const h = await fixture({ licensed: true });
+  const entries = Array.from({ length: 12 }, (_, i) => entry(`range_${i}`));
+  await h.analyze(entries);
+  const list = h.host.querySelector(".import-list");
+  list.scrollTop = list.children.reduce((sum, row) => sum + parseFloat(row.style.height), 0) - parseFloat(list.style.height);
+  await list.dispatch("scroll"); await h.page.settled();
+  assert.ok(list.scrollTop > 0);
+  assert.equal(h.thumbs.some(([base, frame]) => base.includes("/source-range_5/") && frame === "card"), false);
+  const gate = deferred();
+  h.thumbnailFor((base, frame) => base.includes("/source-range_5/") && frame === "card" ? gate.promise : null);
+  await h.action("searchToggle").click();
+  const search = h.host.querySelector(".import-search"); search.value = "range_5";
+  await search.dispatch("input"); await flush();
+  assert.equal(list.children.length, 12, "the old list remains until the actual post-filter viewport is ready");
+  assert.ok(h.thumbs.some(([base, frame]) => base.includes("/source-range_5/") && frame === "card"));
+  gate.resolve("blob:filtered-middle"); await h.page.settled();
+  assert.equal(list.children.length, 1); assert.equal(list.scrollTop, 0);
+  assert.equal(h.row("range_5").querySelector(".import-thumb").dataset.source, "blob:filtered-middle");
+});
+
+test("visible thumbnail decoding belongs to the list reveal barrier", async () => {
+  const h = await fixture({ licensed: true }), decode = h.holdDecode((element) => element.classList.contains("import-thumb"));
+  const adding = h.page.drop(entry("a").paths); await flush();
+  h.analyses.at(-1).resolve({ entries: [entry("a")], skipped: 0 }); await adding; await flush();
+  assert.equal(h.row("a"), undefined, "a generated blob is insufficient until its displayed image decodes");
+  assert.ok(h.holds.some((hold) => hold.active));
+  decode.resolve(); await h.page.settled(); await flush();
+  assert.ok(h.row("a").querySelector(".import-thumb").dataset.source);
+  assert.equal(h.holds.some((hold) => hold.active), false);
+});
+
+test("a settled preview failure reveals its fallback and releases the visible-image barrier", async () => {
+  const h = await fixture({ licensed: true });
+  h.thumbnailFor(() => Promise.reject(new Error("Unsupported preview")));
+  await h.analyze([entry("a")]);
+  assert.ok(h.row("a")); assert.equal(h.row("a").querySelector(".import-thumb").dataset.source, undefined);
+  assert.equal(h.holds.some((hold) => hold.active), false);
+});
+
+test("successful import and its result popup reuse prepared input thumbnails without new captures", async () => {
+  const h = await fixture({ licensed: true }); await h.analyze([entry("a"), entry("b", "convert", "lobby")]);
+  const prepared = h.thumbs.length;
+  await h.action("start").click(); await flush(); await h.page.settled();
+  assert.equal(h.thumbs.length, prepared, "running-state labels do not change a picture's identity");
+  h.runs[0].resolve({ results: [{ id: "a", outcome: "imported", libraryId: "added-a" },
+    { id: "b", outcome: "imported", libraryId: "converted-b" }] });
+  await flush(); await h.page.settled(); await h.page.results(); await h.page.settled();
+  assert.equal(h.thumbs.length, prepared, "completion and result rows reuse the immutable analyzed input source");
+  assert.ok(h.thumbs.every(([base]) => !base.includes("/mod/")), "no unverified transfer to converted output artwork");
+});
+
+for (const kind of ["spr", "model"]) test(`an applied ${kind} refreshes only the current-game comparison once`, async () => {
+  const h = await fixture({ licensed: true }); await h.analyze([entry("a", "ready", kind)]);
+  const calls = () => kind === "model" ? h.modelThumbs : h.thumbs;
+  const live = (args) => kind === "model" ? args[1] === "live" : args[0].includes("/spine/spr/");
+  const currentBefore = calls().filter(live), incomingBefore = calls().filter((args) => !live(args)).length;
+  await h.action("start").click(); await flush();
+  h.runs[0].resolve({ results: [{ id: "a", outcome: "imported", libraryId: "applied-a", configured: true, applied: true }] });
+  await flush(); await h.page.settled();
+  assert.equal(calls().filter(live).length, currentBefore.length + 1, "the current game may now contain different files");
+  assert.equal(calls().filter((args) => !live(args)).length, incomingBefore, "the analyzed input image stays reusable");
+  if (kind === "model") assert.notEqual(calls().filter(live).at(-1)[2].version, currentBefore[0][2].version);
+  h.page.model.select("a"); h.page.relabel(); await h.page.settled();
+  assert.equal(calls().filter(live).length, currentBefore.length + 1, "a result is invalidated once, not on every render");
+});
+
+for (const kind of ["spr", "model"]) test(`external invalidation refreshes only live ${kind} pictures and defers during analysis`, async () => {
+  const h = await fixture({ licensed: true }); await h.analyze([entry("a", "ready", kind)]);
+  const calls = () => kind === "model" ? h.modelThumbs : h.thumbs;
+  const live = (args) => kind === "model" ? args[1] === "live" : args[0].includes("/spine/spr/");
+  const before = calls().filter(live).length, incoming = calls().filter((args) => !live(args)).length;
+  for (let i = 1; i <= 2; i++) {
+    h.page.invalidate(); await h.page.settled();
+    assert.equal(calls().filter(live).length, before + i, "even an already invalid list rechecks the current game");
+    assert.equal(calls().filter((args) => !live(args)).length, incoming, "an external game change does not invalidate immutable input artwork");
+  }
+  const checking = h.page.model.recheck(); await flush();
+  h.page.invalidate(); await flush();
+  assert.equal(calls().filter(live).length, before + 2, "analysis invalidation must not start a competing preview render");
+  h.analyses.at(-1).resolve({ entries: [entry("a", "ready", kind)], skipped: 0 }); await checking; await h.page.settled();
+  assert.equal(calls().filter(live).length, before + 3);
+  assert.equal(calls().filter((args) => !live(args)).length, incoming);
+  if (kind === "model") assert.equal(new Set(calls().filter(live).map((args) => args[2].version)).size, before + 3);
+});
+
+test("external change events during import leave live invalidation to applied results", async () => {
+  const h = await fixture({ licensed: true }); await h.analyze([entry("a")]);
+  const before = h.thumbs.length;
+  await h.action("start").click(); await flush(); h.page.invalidate(); await h.page.settled();
+  assert.equal(h.thumbs.length, before);
+  h.runs[0].resolve({ results: [{ id: "a", outcome: "imported", libraryId: "deferred-a", configured: true, applied: false }] });
+  await flush(); await h.page.settled();
+  assert.equal(h.thumbs.length, before, "a deferred configuration did not change game bytes");
+});
+
+test("a late obsolete row drawing cannot overwrite a newer staged status after adoption", async () => {
+  const h = await fixture(), old = h.holdRender((tree) => tree.name === "List_01");
+  const adding = h.page.drop(entry("a").paths); await flush();
+  h.analyses[0].resolve({ entries: [entry("a")], skipped: 0 }); await adding; await flush();
+  const change = h.page.model.setSource("a", "global", "windows"); await flush();
+  h.sources[0].resolve(entry("a", "blocked")); await change; await flush();
+  const row = h.row("a"); assert.ok(row, "the new row can adopt the original container while its old paint is delayed");
+  const latest = row.art;
+  assert.equal(drawn(h, row).tree.name, "List_02");
+  old.resolve(); await h.page.settled();
+  assert.equal(row.art, latest, "old paint cannot remove the current status art");
+  assert.equal(drawn(h, row).tree.name, "List_02");
+});
+
 test("leaving during thumbnail generation releases the hold and ignores late pictures", async () => {
   const h = await fixture({ licensed: true }), gate = h.holdThumbs();
   const adding = h.page.drop(["/fixtures/a.bundle"]); await flush();
   h.analyses.at(-1).resolve({ entries: [entry("a")], skipped: 0 }); await adding; await flush();
-  const image = h.row("a").querySelector(".import-thumb");
+  const image = h.rendered.findLast(({ tree }) => tree.name === "List_01").host.querySelector(".import-thumb");
   h.page.hide(); await flush();
   assert.ok(!h.holds.some((hold) => hold.active)); assert.equal(h.scopes.at(-1).cancelled, true);
   gate.resolve("blob:late-still"); await h.page.settled();
@@ -736,9 +878,9 @@ test("search and editable option fields cover the real sprite, keep text inside 
     }
   }
   await h.action("cancel", h.dialog).click(); await h.analyze();
-  const input = h.host.querySelector(".import-search"); input.value = "b_home"; await input.dispatch("input");
+  const input = h.host.querySelector(".import-search"); input.value = "b_home"; await input.dispatch("input"); await h.page.settled();
   assert.equal(h.row("a"), undefined);
-  await h.host.querySelector(".import-search-clear").click(); assert.ok(h.row("a")); assert.equal(document.activeElement, input);
+  await h.host.querySelector(".import-search-clear").click(); await h.page.settled(); assert.ok(h.row("a")); assert.equal(document.activeElement, input);
   await input.dispatch("keydown", { key: "Enter", isComposing: true }); assert.equal(document.activeElement, input);
   await input.dispatch("keydown", { key: "Enter" }); assert.equal(document.activeElement, body);
 });
@@ -835,7 +977,7 @@ test("empty, full, filtered and long Thai toolbars fit the header, with search a
       await h.action("filter").click(); await flush();
       await walk(h.dialog).find((e) => e.dataset.value === "blocked").click(); await h.action("ok", h.dialog).click();
       await check(); const search = h.host.querySelector(".import-search");
-      search.value = "missing"; await search.dispatch("input"); assert.equal(h.host.querySelectorAll(".import-row").length, 0); await check();
+      search.value = "missing"; await search.dispatch("input"); await h.page.settled(); assert.equal(h.host.querySelectorAll(".import-row").length, 0); await check();
       await h.host.querySelector(".import-search-clear").click(); await check();
       await h.action("searchToggle").click(); await check();
     }
@@ -1056,12 +1198,12 @@ test("leaving during Recheck keeps completed entries removed when its old respon
 test("the shared page hold reports both analysis and import progress through artwork completion", async () => {
   const h = await fixture(); const analyzing = h.page.drop(entry("a").paths); await flush();
   const hold = () => h.holds.findLast((hold) => hold.active);
-  assert.equal(hold().opts.all, true); h.analyses[0].progress({ done: 3, total: 12 });
+  assert.equal(hold().opts.all, true); h.analyses[0].progress({ current: 3, total: 12 });
   assert.equal(hold().opts.progress(), "Analyzing 3 / 12");
   h.analyses[0].resolve({ entries: [entry("a")], skipped: 0 }); await analyzing; await h.page.settled(); await flush();
   h.answers.push({ button: "ok" }); await h.action("start").click(); await flush();
   h.runs[0].progress({ done: 0, index: 1, total: 2, current: "a", phase: "apply", step: "import.step.apply" });
-  assert.equal(hold().opts.progress(), "Applying Mods Saved Alias (Portrait) 1 / 2");
+  assert.equal(hold().opts.progress(), "Completed 0 / 2, remaining 2\nApplying Mods Saved Alias (Portrait)");
   h.runs[0].reject({ code: "internal" }); await flush(); await h.page.settled(); await flush();
   assert.equal(hold(), undefined);
 });

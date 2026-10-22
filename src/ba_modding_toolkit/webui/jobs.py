@@ -180,6 +180,8 @@ class JobRunner:
         pending: list[str] = []
         last_flush = [time.monotonic()]
         last_progress = [0.0]
+        progress_sequence = itertools.count(1)
+        progress_lock = threading.Lock()
 
         def flush() -> None:
             if pending:
@@ -195,18 +197,20 @@ class JobRunner:
                 flush()
 
         def progress(current: int | dict[str, Any], total: int | None = None, label: str = "") -> None:
-            if isinstance(current, dict):
-                # Batch import reports completed mods, the entry id and the active phase.
-                job.progress = {"id": job.id, **current}
+            # Worker callbacks, polling and SSE share immutable, ordered snapshots.
+            # A delayed HTTP response must never replace a newer event in the UI.
+            with progress_lock:
+                if isinstance(current, dict):
+                    job.progress = {**current, "id": job.id, "sequence": next(progress_sequence)}
+                else:
+                    label = label or t("webui.progress.process", name=t("webui.progress.mods"))
+                    job.progress = {"id": job.id, "current": current, "total": total, "label": label,
+                                    "sequence": next(progress_sequence)}
+                    now = time.monotonic()
+                    if current < total and now - last_progress[0] < PROGRESS_SECONDS:
+                        return
+                    last_progress[0] = now
                 publish("job.progress", job.progress)
-                return
-            label = label or t("webui.progress.process", name=t("webui.progress.mods"))
-            job.progress = {"id": job.id, "current": current, "total": total, "label": label}
-            now = time.monotonic()
-            if current < total and now - last_progress[0] < PROGRESS_SECONDS:
-                return
-            last_progress[0] = now
-            publish("job.progress", job.progress)
 
         job.state = "running"
         publish("job.started", {"id": job.id, "kind": job.kind})

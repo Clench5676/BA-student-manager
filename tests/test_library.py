@@ -436,7 +436,7 @@ def test_live_spine_files_merge_in_the_previews_order(setup_library, monkeypatch
         for clear in (False, True):
             if clear:
                 cleared = build_api(services).call("settings.clearCache", {})["result"]
-                assert cleared["previewCache"] is False
+                assert cleared["previewCache"] is True
             assert json.loads(services.asset(f"{prefix}/manifest.json", {}).body)["revision"] == revision
             assert services.asset(f"{prefix}/{revision}/skeleton.skel", {}).body == b"skeleton"
             assert services.asset(f"{prefix}/{revision}/page.png", {}).body == targets[0].read_bytes()
@@ -807,6 +807,7 @@ def test_refuses_install_plan_outside_resource_dirs(setup_library, monkeypatch):
     entry = env.library.add([make_mod(env.original, env.tmp / "input")])[0]
     groups = mod_install.plan_mod_install([entry.file], [outside.parent])
     monkeypatch.setattr(mod_install, "plan_mod_install", lambda *args: groups)
+    monkeypatch.setattr(env.library, '_needs_crc_fix', lambda *args: True)
     before = outside.read_bytes()
     expect_error("game_file_outside_resources", lambda: env.library.apply("test", f"mod:{entry.id}"))
     assert outside.read_bytes() == before
@@ -1161,11 +1162,54 @@ def test_failed_install_preparation_keeps_game_and_originals(setup_library, monk
     env = setup_library
     entry = env.library.add([make_mod(env.original, env.tmp / "input")])[0]
     game_bytes = env.original.read_bytes()
+    monkeypatch.setattr(env.library, '_needs_crc_fix', lambda *args: True)
     monkeypatch.setattr(mod_install, "execute_mod_install", lambda *args, **kwargs:
                         mod_install.InstallResult(failed_groups=[("test_spr", "failed")]))
     expect_error("mod_apply_failed", lambda: env.library.apply("test", f"mod:{entry.id}"))
     assert env.original.read_bytes() == game_bytes
     assert not (env.root / "originals").exists()
+
+
+def test_current_ready_parts_skip_planning_and_staging_but_restore_retained_parts(setup_library, monkeypatch):
+    env = setup_library
+    second = game_bundle(env.game_dir, part='textassets', payload=b'official text')
+    official = {target: target.read_bytes() for target in (env.original, second)}
+    first = env.library.add([make_mod(target, env.tmp / 'first', payload=b'first mod')
+                             for target in (env.original, second)])[0]
+    env.library.apply('test', f'mod:{first.id}')
+    source = make_mod(env.original, env.tmp / 'second', payload=b'second mod')
+    mod, = env.library.add([source])
+    before = {target: target.read_bytes() for target in (env.original, second)}
+    stored = mod.file.read_bytes()
+
+    def forbidden(*args, **kwargs):
+        pytest.fail('Current ready bytes must not scan the install or make redundant staged copies')
+
+    monkeypatch.setattr(env.library, '_plan', forbidden)
+    monkeypatch.setattr(env.library, '_stage_official', forbidden)
+    applied = env.library.apply('test', f'mod:{mod.id}', create_backup=True)
+    assert set(applied.files) == {env.original, second}
+    assert env.original.read_bytes() == stored and second.read_bytes() == official[second]
+    assert source.read_bytes() == stored and mod.file.read_bytes() == stored
+    assert all(target.with_name(target.name + '.backup').read_bytes() == before[target] for target in before)
+    env.library.restore('test')
+    assert {target: target.read_bytes() for target in official} == official
+
+
+def test_batch_housekeeping_runs_once_on_exception_and_releases_its_scope(setup_library, monkeypatch):
+    library = setup_library.library
+    calls = []
+    monkeypatch.setattr(library, '_prune', lambda: calls.append(1) or [])
+    with pytest.raises(RuntimeError, match='failed batch'):
+        with library.import_batch():
+            library._prune_quietly()
+            with library.import_batch():
+                library._prune_quietly()
+            assert not calls
+            raise RuntimeError('failed batch')
+    assert calls == [1]
+    library._prune_quietly()
+    assert calls == [1, 1]
 
 
 def test_extract_uses_core_and_returns_core_folder(setup_library, monkeypatch):

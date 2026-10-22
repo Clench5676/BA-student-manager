@@ -67,7 +67,7 @@ function connect() {
 // subscribes, or be lost while the event stream reconnects, so the job's state is also polled.
 export function waitJob(id, onProgress, { pollEvery = 1500, maxErrors = 3, timeout = 30 * 60 * 1000 } = {}) {
   return new Promise((resolve, reject) => {
-    let settled = false, timer, deadline, errors = 0;
+    let settled = false, timer, deadline, errors = 0, progressSequence = 0;
     const offs = [];
     const finish = (fn, value) => {
       if (settled) return;
@@ -78,9 +78,17 @@ export function waitJob(id, onProgress, { pollEvery = 1500, maxErrors = 3, timeo
       fn(value);
     };
     const failed = (error) => finish(reject, error);
+    const progress = (data) => {
+      if (settled) return;
+      if (Number.isSafeInteger(data?.sequence)) {
+        if (data.sequence <= progressSequence) return;
+        progressSequence = data.sequence;
+      } else if (progressSequence) return;
+      onProgress?.(data);
+    };
     try {
       offs.push(
-        on("job.progress", (d) => { if (d.id === id) onProgress?.(d); }),
+        on("job.progress", (d) => { if (d.id === id) progress(d); }),
         on("job.done", (d) => { if (d.id === id) finish(resolve, d.result); }),
         on("job.failed", (d) => { if (d.id === id) failed(new RpcError(d.code, d.params)); }),
         on("server.closing", () => failed(new RpcError("internal", { error: "Server closed" }))),
@@ -93,7 +101,7 @@ export function waitJob(id, onProgress, { pollEvery = 1500, maxErrors = 3, timeo
         const job = await rpc("jobs.get", { id }, { timeout: 15000 });
         if (settled) return;
         errors = 0;
-        if (job.progress) onProgress?.(job.progress);
+        if (job.progress) progress(job.progress);
         if (job.state === "done") return finish(resolve, job.result);
         if (job.state === "failed") return failed(new RpcError(job.error?.code || "internal", job.error?.params || {}));
         if (job.state !== "queued" && job.state !== "running") return failed(new RpcError("internal", { error: `Job ${job.state}` }));

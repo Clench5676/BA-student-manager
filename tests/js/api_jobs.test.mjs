@@ -77,3 +77,30 @@ test("a late poll cannot forward progress after the waiter has ended", async () 
     assert.deepEqual(seen, []);
   }
 });
+
+test("a delayed poll and duplicate SSE cannot overwrite newer sequenced progress", async () => {
+  let respond;
+  const seen = [];
+  globalThis.fetch = () => new Promise((resolve) => { respond = resolve; });
+  const pending = waitJob("ordered", (p) => seen.push(p), { pollEvery: 1000, timeout: 200 });
+  stream.emit("job.progress", { id: "ordered", sequence: 4, done: 39, total: 47 });
+  respond(answer({ result: { state: "running", progress: { id: "ordered", sequence: 3, done: 38, total: 47 } } }));
+  await new Promise(setImmediate);
+  stream.emit("job.progress", { id: "ordered", sequence: 4, done: 39, total: 47 });
+  stream.emit("job.progress", { id: "ordered", sequence: 2, done: 37, total: 47 });
+  stream.emit("job.progress", { id: "ordered", sequence: 5, done: 40, total: 47 });
+  stream.emit("job.done", { id: "ordered", result: "done" });
+  assert.equal(await pending, "done");
+  assert.deepEqual(seen.map((p) => [p.sequence, p.done]), [[4, 39], [5, 40]]);
+});
+
+test("polling recovers a missing progress event and ordering starts afresh for each job", async () => {
+  for (const id of ["first", "next"]) {
+    const seen = [];
+    globalThis.fetch = async () => answer({ result: {
+      state: "done", progress: { id, sequence: 1, done: 1, total: 1 }, result: "done",
+    } });
+    assert.equal(await waitJob(id, (p) => seen.push(p), options), "done");
+    assert.deepEqual(seen, [{ id, sequence: 1, done: 1, total: 1 }]);
+  }
+});

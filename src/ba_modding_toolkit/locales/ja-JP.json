@@ -1496,6 +1496,7 @@
 			"uncompressed": "無圧縮",
 			"merge": "同じ生徒の MOD をまとめる",
 			"waitProgress": "{label} {done} / {total}",
+			"completedProgress": "完了 {done} / {total}、残り {remaining}\n{action} {name}{step}",
 			"state": {
 				"done": "完了",
 				"ready": "インポート可能",

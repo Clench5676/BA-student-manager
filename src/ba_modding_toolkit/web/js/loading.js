@@ -159,6 +159,8 @@ export function refresh() {
 }
 
 function setProgress(o, text) {
+  if (o.progressText === text && o.progressTarget === o.progress) return;
+  o.progressTarget = o.progress;
   o.progressText = text;
   o.el.setAttribute("aria-label", text);
   if (!o.progressContent) o.progress.textContent = text;
@@ -166,14 +168,27 @@ function setProgress(o, text) {
   queueProgress(o);
 }
 function queueProgress(o) {
-  const work = renderProgress(o).catch(() => {
-    if (o.progressWork !== work || o.closing || o.done || !o.progress) return;
-    o.progressContent = null; o.progressTree = null;
-    o.progress.classList.remove("prefab-label");
-    o.progress.textContent = o.progressText || "";
-    o.geometryFailed = true;
-    correctFallback(o);
-    if (!o.progressContent) o.progress.style.visibility = "";
+  o.progressDirty = true;
+  o.progressVersion = (o.progressVersion || 0) + 1;
+  if (o.progressWork) return o.progressWork;
+  // Concurrent imports can advance several phases before one prefab label has
+  // decoded. Finish that draw, then render only the latest pending snapshot.
+  const work = Promise.resolve().then(async () => {
+    do {
+      o.progressDirty = false;
+      try { await renderProgress(o); }
+      catch {
+        if (o.closing || o.done || !o.progress || o.progressDirty) continue;
+        o.progressContent = null; o.progressTree = null;
+        o.progress.classList.remove("prefab-label");
+        o.progress.textContent = o.progressText || "";
+        o.geometryFailed = true;
+        correctFallback(o);
+        if (!o.progressContent) o.progress.style.visibility = "";
+      }
+    } while (o.progressDirty && !o.closing && !o.done);
+  }).finally(() => {
+    if (o.progressWork === work) o.progressWork = null;
   });
   o.progressWork = work;
   return work;

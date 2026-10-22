@@ -62,15 +62,18 @@ test("roster cards keep their full accessible name and counts without a hover ti
   await pending;
 });
 
-for (const kind of ["spr", "lobby"]) test(`pending generated ${kind} thumbnails do not hold roster interaction`, async () => {
+for (const kind of ["spr", "lobby"]) test(`visible generated ${kind} thumbnails complete before the roster is revealed`, async () => {
   const h = harness(kind, true);
   let ready = false;
   const showing = h.syncRows().then(() => { ready = true; });
   await flush();
   assert.equal(ready, false, "prefab construction still precedes reveal");
   for (const key of [0, 1]) h.renders.get(key).resolve();
+  await flush(); assert.equal(ready, false, "card frames cannot release the portrait barrier");
+  h.pictures.get(0).resolve(); await flush(); assert.equal(ready, false);
+  h.pictures.get(1).resolve();
   await showing;
-  assert.equal(ready, true, "unresolved generated thumbnails remain local to each card");
+  assert.equal(ready, true, "only offscreen thumbnails may remain unresolved");
   assert.deepEqual(h.requested, [0, 1, 2]);
 });
 

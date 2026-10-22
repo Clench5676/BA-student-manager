@@ -1047,6 +1047,7 @@ def test_failed_build_finishes_the_apply_and_releases_its_locks(env, monkeypatch
     mod = env.add(env.spr)
     original = env.spr.read_bytes()
     execute = mod_install.execute_mod_install
+    needs_fix = env.s.library._needs_crc_fix
 
     def fail(*args, **kwargs):
         if failure == "exception":
@@ -1054,11 +1055,13 @@ def test_failed_build_finishes_the_apply_and_releases_its_locks(env, monkeypatch
         return SimpleNamespace(failed_groups=["mismatched bundle"])
 
     monkeypatch.setattr(mod_install, "execute_mod_install", fail)
+    monkeypatch.setattr(env.s.library, "_needs_crc_fix", lambda *args: True)
     job = env.job("actions.apply", variant="test", source=f"mod:{mod.id}")
     assert job.state == "failed"
     assert job.error["code"] in ("mod_apply_failed", "library_operation_failed")
     assert env.spr.read_bytes() == original and not env.s.jobs.busy()
     monkeypatch.setattr(mod_install, "execute_mod_install", execute)
+    monkeypatch.setattr(env.s.library, "_needs_crc_fix", needs_fix)
     assert env.job("actions.apply", variant="test", source=f"mod:{mod.id}").state == "done"
     assert env.job("actions.restore", variant="test").state == "done"
 
@@ -1074,7 +1077,7 @@ def test_background_add_switches_and_rescans_with_durable_file_progress(env, mon
     job = env.job('mods.add', paths=[str(path)], background=True)
     assert job.state == 'done' and job.writes == 'game'
     assert [(m['target'], m['kind']) for m in job.result['added']] == [('test', 'spr')]
-    assert job.to_json()['progress'] == {'id': job.id, 'current': 1, 'total': 1,
+    assert job.to_json()['progress'] == {'id': job.id, 'current': 1, 'total': 1, 'sequence': 4,
                                          'label': t('webui.progress.apply', name=path.name)}
     assert job.result['applied'] == job.result['added'] and not job.result['failed']
     assert env.spr.read_bytes() == path.read_bytes()
@@ -1084,7 +1087,7 @@ def test_background_add_switches_and_rescans_with_durable_file_progress(env, mon
     assert changed[-1] == {'cores': ['test_spr'], 'kinds': ['spr'], 'mods': True}
     restored = env.job('actions.restore', variant='test')
     assert restored.state == 'done'
-    assert restored.to_json()['progress'] == {'id': restored.id, 'current': 1, 'total': 1,
+    assert restored.to_json()['progress'] == {'id': restored.id, 'current': 1, 'total': 1, 'sequence': 1,
                                               'label': t('webui.progress.restore', name=path.name)}
 
 
@@ -1446,4 +1449,4 @@ def test_extract_rpc_forwards_step_progress(env, monkeypatch):
     monkeypatch.setattr(env.s.library, "extract", extract)
     job = env.job("actions.extract", target="variant:test")
     assert job.state == "done"
-    assert job.progress == {"id": job.id, "current": 2, "total": 3, "step": "import.step.extract"}
+    assert job.progress == {"id": job.id, "current": 2, "total": 3, "step": "import.step.extract", "sequence": 1}

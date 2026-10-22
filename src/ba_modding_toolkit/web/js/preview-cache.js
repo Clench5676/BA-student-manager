@@ -1,6 +1,7 @@
-// Optional, revision-addressed PNG persistence. Only the authenticated backend
+// Default-on, revision-addressed PNG persistence with an explicit opt-out. Only the authenticated backend
 // writes user-space files; browser HTTP/storage caches never retain heavy art.
 import { rpc } from "./api.js";
+import { withTimeout } from "./async.js";
 
 const MAX_PNG = 2 * 1024 * 1024;
 async function hashKey(key) {
@@ -14,12 +15,15 @@ function encode(bytes) {
   return btoa(text);
 }
 
-export function createPreviewCache({ request = rpc, digest = hashKey, fetchImage = (url) => fetch(url),
+export function createPreviewCache({ request = rpc, digest = hashKey, fetchImage = (url) => fetch(url), timeout = 15000,
   makeUrl = (bytes) => URL.createObjectURL(new Blob([bytes], { type: "image/png" })) } = {}) {
   let enabled = false, generation = "", epoch = 0;
+  // Optional storage must never hold visible thumbnail readiness indefinitely.
+  // The transport aborts its HTTP request; the outer bound also covers injected transports.
+  const call = (method, args) => withTimeout(request(method, args, { timeout }), timeout, method);
   const valid = (ticket) => !!ticket && enabled && ticket.epoch === epoch && ticket.generation === generation;
   const configure = (prefs) => {
-    const next = prefs?.previewCache === true, token = prefs?.previewCacheGeneration || "";
+    const next = prefs?.previewCache !== false, token = prefs?.previewCacheGeneration || "";
     if (enabled !== next || generation !== token) { enabled = next; generation = token; epoch++; }
   };
   const ticket = (key) => enabled && generation ? { key, generation, epoch } : null;
@@ -33,7 +37,7 @@ export function createPreviewCache({ request = rpc, digest = hashKey, fetchImage
       if (!valid(current)) return null;
       if (!paths.length) return current;
       try {
-        const reply = await request("preview.assetRevision", { paths });
+        const reply = await call("preview.assetRevision", { paths });
         if (!valid(current)) return null;
         observe(reply);
         if (!valid(current) || !/^[a-f0-9]{64}$/.test(reply?.revision || "")) return null;
@@ -44,7 +48,7 @@ export function createPreviewCache({ request = rpc, digest = hashKey, fetchImage
       const current = ticket(key);
       if (!current) return null;
       try {
-        const reply = await request("preview.modelRevision", { variant, source });
+        const reply = await call("preview.modelRevision", { variant, source });
         if (!valid(current)) return null;
         observe(reply);
         if (!valid(current) || !/^[a-f0-9]{64}$/.test(reply?.revision || "")) return null;
@@ -56,7 +60,7 @@ export function createPreviewCache({ request = rpc, digest = hashKey, fetchImage
       try {
         const key = await keyOf(current);
         if (!valid(current) || signal?.aborted) return null;
-        const reply = await request("preview.cacheGet", { key });
+        const reply = await call("preview.cacheGet", { key });
         if (!valid(current) || signal?.aborted) return null;
         observe(reply);
         if (!valid(current) || signal?.aborted || !reply?.allowed || typeof reply.data !== "string"
@@ -77,12 +81,12 @@ export function createPreviewCache({ request = rpc, digest = hashKey, fetchImage
         const data = encode(new Uint8Array(await blob.arrayBuffer()));
         if (!valid(current)) return false;
         if (current.dependencies || current.model) {
-          const reply = await request(current.model ? "preview.modelRevision" : "preview.assetRevision",
+          const reply = await call(current.model ? "preview.modelRevision" : "preview.assetRevision",
             current.model || { paths: current.dependencies });
           if (!valid(current) || reply?.generation !== current.generation
               || reply?.revision !== (current.modelRevision || current.dependencyRevision)) return false;
         }
-        return !!await request("preview.cachePut", { key, data, generation: current.generation });
+        return !!await call("preview.cachePut", { key, data, generation: current.generation });
       } catch { return false; }
     },
   };

@@ -117,7 +117,7 @@ Imports only go one way: `webui` → `library` → `catalog` → `gameassets` �
   - *Light*: atlas sprites, atlas metadata, UI textures, prefab layouts and the bundle indexes. Kept in memory; written
     to the disk cache only after the user agreed (`consent = true`).
   - *Heavy*: collection backgrounds and portraits, Spine skeletons, lobbies and their data, and 3D models use memory
-    by default. The separate **Preview Cache** setting permits lossless exports and generated PNG thumbnails in
+    and the default-on **Preview Cache** setting permits lossless exports and generated PNG thumbnails in
     the user cache directory. Browser responses remain `Cache-Control: no-store`; voices remain memory-only.
 - **Disk cache.** `user_cache_dir()/<resource_version>/...`, where `user_cache_dir()` is
   `%LOCALAPPDATA%\bluearchive-modding-patching-tool\cache` on Windows,
@@ -125,13 +125,15 @@ Imports only go one way: `webui` → `library` → `catalog` → `gameassets` �
   `$XDG_CACHE_HOME/bluearchive-modding-patching-tool` (or `~/.cache/...`) elsewhere. It can be cleared from the UI.
   The old `BA-Modding-Toolkit` user folder is renamed automatically on first start; obsolete caches are rebuilt.
   Close older app windows first, then use the new version: an old build started afterward can recreate its old folder.
-- **Preview cache.** Off by default, independent of light UI caching. Stored under the configured cache directory's
+- **Preview cache.** On by default, preserving an explicitly saved off setting and independent of the initial official
+  UI asset permission and light UI caching. Stored under the configured cache directory's
   `previews/` folder, bounded to 2 GiB with least-recently-used eviction. Entries include installation/resource/export
   identity, source revisions and model dependencies. Still keys additionally include renderer parameters and current
   background/framing content. Corrupt entries rebuild. A PNG above 2 MiB remains memory-only; it is not downscaled.
   **Clear Cache** deletes stored previews and backend memory without interrupting the active frontend scene or import
   selections. Clear, opt-out and location changes invalidate pending writes. Turning caching off keeps stored files
-  until Clear; new renders after Clear may create new entries while caching remains enabled.
+  until Clear; new renders after Clear may create new entries while caching remains enabled. Optional preview cache
+  RPCs have a 15-second timeout and fall back to live rendering when storage or revision checks cannot finish.
 - **Resource version.** SHA-1 of `Catalog/Windows/catalog_Windows.hash` when present, else of the sorted
   `(name, size)` listing of the resource folders. The cache key; a game update starts a new cache folder.
   The UI atlas index additionally keys on the current atlas bundle inventory (resolved paths, sizes, modification
@@ -719,7 +721,7 @@ Events on `/api/events`:
 |---|---|
 | `job.started` | `{id, kind}` |
 | `job.log` | `{id, lines: [str]}` (batched) |
-| `job.progress` | `{id, current, total, label}` (throttled) |
+| `job.progress` | `{id, sequence, current, total, label}` (throttled); batch jobs also report `done`, `completed`, `remaining`, `index`, `phase`, and `step` |
 | `job.done` | `{id, result}` |
 | `job.failed` | `{id, code, params}` |
 | `drop` | `{paths: [str]}` |
@@ -867,12 +869,24 @@ Queued work checks that revision again before building or writing. Only `ready`,
 and `update` rows can execute; a fresh blocked verdict stops the build, library addition and
 apply, and requires Recheck before a retry. Merged selection filters each member separately.
 
-Results use `applied: true` when that import successfully configured its Mod as
-the variant's chosen source. With `enableAfterImport`, each newly imported Mod selects its
+Parallel preparation reports completed entries separately from the active entry's input ordinal. The UI shows
+completed/total and remaining, followed by the current phase and student. Per-job sequence numbers prevent a delayed
+poll response from overwriting newer SSE progress. Verified original inputs are snapshotted before any row applies,
+so two Mods for the same slot cannot rebuild from each other's writes. Each apply keeps its own transaction and
+rollback; library maintenance runs once at the end of the batch. Exact current-name, CRC-ready inputs skip redundant
+planning and staging, while the final resource checks, backup, content verification and rollback remain in place.
+
+The import list prepares and decodes visible row thumbnails before committing their DOM together; offscreen rows
+load when scrolled into view. The roster similarly waits for its visible portraits before ending the loading hold.
+Completed import rows and the result dialog reuse their immutable analyzed input previews. Only a successful game
+apply invalidates the current-game comparison; saving a deferred choice does not reload unchanged game pictures.
+
+Results use `configured: true` when that import successfully configured its Mod as
+the variant's chosen source, and `applied: true` when the apply was not deferred. With `enableAfterImport`, each newly imported Mod selects its
 source. Existing library Mods and unchanged outputs are skipped without applying. This applies to
 `spr`, `lobby`, `model` and `other`. The master switch can remain off: configuration succeeds
-immediately and the existing deferred apply writes game files when it turns on. `applied`
-does not indicate that game files changed. For several imports targeting the same variant
+immediately and the existing deferred apply writes game files when it turns on. `applied` remains false until then.
+For several imports targeting the same variant
 and kind (or overlapping `other` slots), the last successful import in the submitted ID order
 wins. Completed rows submitted again are unchanged and do not select their sources again.
 
@@ -997,8 +1011,9 @@ library does not know keeps the game's order. Official and preview parts are lim
 cleared before the idle is set, as the player starts the skeleton's first animation (a lobby's intro) and a new one would
 mix in from it. A load also takes the other frame of a card (`card` and `bust`), so the big picture of a card is not a
 second load; the promise of a thumbnail has `bump()`, which `popup.js` calls for the cards in view (again on scroll),
-and the roster asks for its rows in view first. Pictures stay in memory only, keyed by the resolved base (the revision
-the files carry), frame and expression; `spineAssetBase` shares one answer between overlapping requests.
+and the roster asks for its rows in view first. Pictures stay in memory, keyed by the resolved base (the revision
+the files carry), frame and expression, with the default-on Preview Cache retaining validated lossless PNGs on disk;
+`spineAssetBase` shares one answer between overlapping requests.
 
 Switch popups hold capture priority for their entire thumbnail scope, including gaps between lazy card requests.
 Opening one cancels any active off-screen background attempt and suspends queued background work; surviving

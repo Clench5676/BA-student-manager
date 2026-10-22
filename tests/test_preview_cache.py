@@ -381,6 +381,7 @@ def test_real_complete_models_still_persist(tmp_path, monkeypatch, core):
 def preview_services(tmp_path):
     settings = Settings(tmp_path / "config.toml")
     state = UiState(tmp_path / "webui.json")
+    state.set("preview_cache", False)
     cache = AssetCache(root=tmp_path / "cache")
     services = Services(settings, tmp_path, state=state, cache=cache, game=FakeGame(),
                         catalog=FakeCatalog(), library=FakeLibrary())
@@ -392,6 +393,26 @@ def preview_services(tmp_path):
 @pytest.fixture
 def preview_app(preview_services):
     return WebApp(build_api(preview_services), preview_services.events, token="tok")
+
+
+@pytest.mark.parametrize("saved, expected", [(None, True), (True, True), (False, False)])
+def test_preview_cache_defaults_on_and_preserves_saved_choice(tmp_path, saved, expected):
+    settings = Settings(tmp_path / "config.toml")
+    state = UiState(tmp_path / "webui.json")
+    if saved is not None:
+        state.set("preview_cache", saved)
+    services = Services(settings, tmp_path, state=state, cache=AssetCache(root=tmp_path / "cache"),
+                        game=FakeGame(), catalog=FakeCatalog(), library=FakeLibrary())
+    try:
+        assert services.preview_cache.allowed is expected
+        api = build_api(services)
+        assert api.call("settings.get", {})["result"]["previewCache"] is expected
+        assert api.call("app.info", {})["result"]["previewCache"] is expected
+        assert state.consent is None, "preview defaults must not grant the initial official UI asset permission"
+        assert not services.cache.allowed
+        assert UiState(state.path).preview_cache is expected
+    finally:
+        services.close()
 
 
 def _png():

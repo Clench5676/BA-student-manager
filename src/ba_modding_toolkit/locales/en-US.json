@@ -1496,6 +1496,7 @@
 			"uncompressed": "Uncompressed",
 			"merge": "Group Mods by Student",
 			"waitProgress": "{label} {done} / {total}",
+			"completedProgress": "Completed {done} / {total}, remaining {remaining}\n{action} {name}{step}",
 			"state": {
 				"done": "Done",
 				"ready": "Ready",

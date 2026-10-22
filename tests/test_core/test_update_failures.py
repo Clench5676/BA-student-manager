@@ -46,6 +46,40 @@ def bundle(path, objects):
     return Bundle(path, SimpleNamespace(objects=objects, file=SimpleNamespace(files={})))
 
 
+@pytest.mark.parametrize('changed', [False, True])
+def test_texture_application_decodes_target_once_without_changing_pixel_comparison(tmp_path, changed):
+    current = Image.new('RGBA', (7, 9), (10, 40, 90, 123))
+    incoming = current.copy()
+    if changed:
+        incoming.putpixel((3, 4), (200, 80, 20, 42))
+    reads, writes = [], []
+
+    class Data:
+        m_Name = 'page'
+
+        @property
+        def image(self):
+            reads.append(1)
+            return current.copy()
+
+        @image.setter
+        def image(self, value):
+            writes.append(value.copy())
+
+        def save(self):
+            pass
+
+    obj = asset('page', AssetType.Texture2D)
+    obj.read = Data
+    target = bundle(tmp_path / 'target.bundle', [obj])
+    result = target.apply_patch({('page', 'Texture2D'): incoming}, 'name_type')
+    assert reads == [1]
+    assert result.applied_count == int(changed) and result.skipped_count == int(not changed)
+    assert len(writes) == int(changed)
+    if changed:
+        assert writes[0].size == incoming.size and writes[0].tobytes() == incoming.tobytes()
+
+
 @pytest.mark.parametrize("kind,failure", [(AssetType.Texture2D, "extract"), (AssetType.Mesh, "extract"),
     (AssetType.TextAsset, "read"), (AssetType.Texture2D, "read")])
 def test_update_rejects_partial_extraction(tmp_path, monkeypatch, kind, failure):

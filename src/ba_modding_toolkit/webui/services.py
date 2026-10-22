@@ -284,7 +284,7 @@ class Services:
             if self._preview_cache is None:
                 from ..gameassets.cache import PreviewCache
 
-                self._preview_cache = PreviewCache(self.cache_dir() / "previews", allowed=self.state.get("preview_cache") is True)
+                self._preview_cache = PreviewCache(self.cache_dir() / "previews", allowed=self.state.preview_cache)
             return self._preview_cache
 
     def set_preview_cache(self, enabled: bool) -> None:

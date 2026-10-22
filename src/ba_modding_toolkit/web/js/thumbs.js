@@ -1,6 +1,6 @@
 // Thumbnails rendered in the page from the portrait skeletons: faces for the expression cards, busts for the switch
 // card and the roster, cards for the popups. One hidden Spine player at a time (one WebGL context); results are
-// in-memory blob URLs, never written anywhere.
+// in-memory blob URLs, with validated lossless PNGs retained by the backend preview cache when enabled.
 import { artBounds, settle } from "./lobby-health.js";
 import { specialView } from "./special-view.js";
 import { withTimeout } from "./async.js";

@@ -519,6 +519,8 @@ class ModLibrary:
         self._legacy_import_matches: dict[str, str | None] = {}
         self._writing_mods = False
         self._transacting = False
+        self._deferred_prunes = 0
+        self._prune_pending = False
         self._records: dict[str, dict[str, Any]] = {}
         self._remap_previews: dict[str, dict] = {}
         self._favorites: set[str] = set()
@@ -2179,10 +2181,29 @@ class ModLibrary:
         return record.get("size") == stat.st_size and record.get("mtime") == stat.st_mtime_ns
 
     def _prune_quietly(self) -> None:
+        # Writers already hold the library lock, possibly followed by transaction
+        # and Mod locks. Do not reacquire it after those higher-order locks.
+        if self._deferred_prunes:
+            self._prune_pending = True
+            return
         try:
             self._prune()
         except Exception as error:  # never in the way of the switch itself; the next prune tries again
             log_failure(logger, logging.WARNING, "Could not prune the kept originals", error)
+
+    @contextlib.contextmanager
+    def import_batch(self) -> Iterator[None]:
+        """Keep per-Mod transactions independent, but run global housekeeping once."""
+        with self._lock:
+            self._deferred_prunes += 1
+        try:
+            yield
+        finally:
+            with self._lock:
+                self._deferred_prunes -= 1
+                if not self._deferred_prunes and self._prune_pending:
+                    self._prune_pending = False
+                    self._prune_quietly()
 
     @_serialized
     def prune(self) -> list[Path]:
@@ -2724,6 +2745,18 @@ class ModLibrary:
 
     def _install_direct(self, record: dict[str, Any], targets: list[Path], work: Path, log: LogFunc,
                         progress: ProgressCallback | None, pin: Pin) -> dict[Path, Path]:
+        sources = {path.name: path for path in self._paths(record)}
+        by_name = {path.name: path for path in targets}
+        if (len(sources) == len(record["files"]) and len(by_name) == len(targets)
+                and sources.keys() <= by_name.keys()
+                and all(not self._needs_crc_fix(path, by_name[name]) for name, path in sources.items())):
+            # These parts already have the current names and required CRC. The
+            # transaction checks and copies their exact bytes once; staging an
+            # official copy and replacing it with the same Mod adds no protection.
+            if progress:
+                progress(0, 1, t("webui.progress.process", name=core_of(record["files"][0])))
+            return {target: sources[target.name] if target.name in sources else self._official_for(target, pin)
+                    for target in targets}
         if record["kind"] == "other":
             staged = self._stage_official(targets, work / "targets", pin)
             output = work / "output"

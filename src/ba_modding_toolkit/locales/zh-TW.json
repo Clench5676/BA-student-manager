@@ -1496,6 +1496,7 @@
 			"uncompressed": "不壓縮",
 			"merge": "合併同一學生 Mod",
 			"waitProgress": "{label} {done} / {total}",
+			"completedProgress": "已完成 {done} / {total}，剩餘 {remaining}\n{action} {name}{step}",
 			"state": {
 				"done": "已完成",
 				"ready": "可匯入",

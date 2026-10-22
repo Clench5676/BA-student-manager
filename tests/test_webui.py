@@ -858,7 +858,7 @@ def test_live_portrait_survives_cache_clear(app, services, monkeypatch, tmp_path
     for clear in (False, True):
         if clear:
             cleared = rpc(app, "settings.clearCache")["result"]
-            assert cleared["previewCache"] is False
+            assert cleared["previewCache"] is True
         assert json.loads(call(app, prefix + "/manifest.json")[2])["revision"] == revision
         for name, expected in (("skeleton.skel", b"skeleton"), ("skeleton.atlas", b"page.png\nsize: 1,1\n"),
                                ("page.png", mod.read_bytes())):
@@ -1279,7 +1279,7 @@ def test_update_download_progress_names_the_action_and_asset(app, services, upda
     assert services.jobs.wait(job, 5)
     result = services.jobs.get(job)
     assert result.state == "done", result.error
-    assert result.progress == {"id": job, "current": 8, "total": 8,
+    assert result.progress == {"id": job, "current": 8, "total": 8, "sequence": 1,
                                "label": translate("webui.progress.download", name="1.1.0.dmg")}
 
 

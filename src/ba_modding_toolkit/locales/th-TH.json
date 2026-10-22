@@ -1496,6 +1496,7 @@
 			"uncompressed": "ไม่บีบอัด",
 			"merge": "รวมม็อดของนักเรียนเดียวกัน",
 			"waitProgress": "{label} {done} / {total}",
+			"completedProgress": "เสร็จแล้ว {done} / {total}, เหลือ {remaining}\n{action} {name}{step}",
 			"state": {
 				"done": "เสร็จแล้ว",
 				"ready": "พร้อม",

@@ -303,9 +303,9 @@ async function renderRow(host, rowKey) {
     }));
   }
   row.ready = Promise.all(jobs).then(async (views) => {
-    // Generated portraits fill their existing cards independently. Only the
-    // prefab and directly available pictures belong to the navigation barrier.
-    await Promise.all(views.flatMap((v) => v.images));
+    // A visible row is committed with its actual portraits. Each thumbnail
+    // owns a bounded render attempt; time spent queued is not a render failure.
+    await Promise.allSettled(views.flatMap((v) => v.pictures || v.images));
   });
   await row.ready;
 }
@@ -566,7 +566,7 @@ async function buildFrame(my) {
   hit([lay.sort, TOOL_Y, lay.sortW, 116], openDisplay, T("display.title")).addEventListener("pointerenter", () => Display.warm());
   hit([lay.order, TOOL_Y, 243, 116], flipOrder, T(view.order === "desc" ? "roster.desc" : "roster.asc"));
 
-  // The visible card frames finish before reveal; generated portraits fill locally.
+  // The visible card frames and portraits finish before their shared reveal.
   rendered = new Map();
   dom = { clip, scrollHost, bar, empty };
   items = layoutItems();
@@ -601,7 +601,7 @@ function warm() {
 }
 
 // Show the roster from its saved data. Required UI and available pictures decode
-// before reveal; generated previews can continue without blocking navigation.
+// before reveal. Offscreen rows do not extend that barrier.
 export async function show(context, rosterData) {
   if (thumbnailWork.signal.aborted) thumbnailWork = thumbnailScope();
   prioritise(null);

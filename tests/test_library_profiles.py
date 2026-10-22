@@ -567,6 +567,12 @@ def no_installer(monkeypatch):
 def rebuilding_installer(monkeypatch, payload=b"rebuilt!", only=None):
     """An installer that rebuilds the mod (CRC-fixed bytes no file of the mod holds)."""
     real = mod_install.execute_mod_install
+    needs_fix = service.ModLibrary._needs_crc_fix
+
+    def rebuilding(self, source, target):
+        # These synthetic fixtures must exercise a build, even when their bytes
+        # otherwise qualify for the exact-source copy path.
+        return (only is None or source.name == only) or needs_fix(self, source, target)
 
     def install(groups, output, *args, **kwargs):
         if only is not None and groups[0].files[0].mod_path.name != only:
@@ -578,6 +584,7 @@ def rebuilding_installer(monkeypatch, payload=b"rebuilt!", only=None):
         return mod_install.InstallResult()
 
     monkeypatch.setattr(mod_install, "execute_mod_install", install)
+    monkeypatch.setattr(service.ModLibrary, "_needs_crc_fix", rebuilding)
 
 
 def test_an_off_keeps_built_copies_and_on_writes_them_back_without_the_installer(world, monkeypatch):
@@ -1649,6 +1656,7 @@ def test_the_official_flag_compares_the_written_bytes_with_the_official_copy(wor
         return mod_install.InstallResult()
 
     monkeypatch.setattr(mod_install, "execute_mod_install", install)
+    monkeypatch.setattr(world.library, "_needs_crc_fix", lambda *args: True)
     world.library.apply("test", f"mod:{pack.id}")
     applied = json.loads((world.root / "state.json").read_text())["applied"]
     assert applied[str(atlas.resolve())]["official"] is True

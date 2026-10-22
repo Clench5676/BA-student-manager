@@ -1,16 +1,16 @@
 import { importStatus } from "./switch-sources.js";
 // Unified import behaviour over runtime Items, Mailbox and FilterSort prefab widgets (import-layout.js).
-import { jobProgress, progressName } from "./job-progress.js";
+import { progressName } from "./job-progress.js";
 import { importGroups } from "./import-groups.js";
 import * as NGUI from "./ngui.js";
 import * as Popup from "./popup.js";
 import * as Loading from "./loading.js";
-import { rpc, spineBase, waitJob } from "./api.js";
+import { rpc, spineBase, spinePrefix, waitJob } from "./api.js";
 import { L, T, language } from "./i18n.js";
 import { customAliases, studentName } from "./names.js";
 import { specialFraming } from "./special-view.js";
 import { spineAllowed } from "./spine-runtime.js";
-import { thumbnailScope } from "./thumbs.js";
+import { thumbnailScope, forget } from "./thumbs.js";
 import { modelThumbnail } from "./model-still.js";
 import { S } from "./util.js";
 import { ROW_W as OPTION_WIDTH, rowBase, radioRow } from "./settings-rows.js";
@@ -49,6 +49,9 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
   let query = "", filter = "all", ascending = true, searchOpen = false, rowsKey = null, previewKey = null, generation = 0;
   let rows = new Map(), identities = new WeakMap(), dom = {}, dialogClose = null, countsKey = null;
   let art = null, merged = false, shownError = null;
+  const thumbnailJobs = new Map();
+  const liveVersions = new Map(), refreshedResults = new WeakSet();
+  let listGeneration = 0, liveRefreshPending = false;
   const showError = (message, error) => popups.message({ title: T("job.failed"), lines: [message], ok: T("picker.ok"), error });
   const drawings = new Set();
   let loadingHold = null, left = Promise.resolve(), leave = () => {};
@@ -61,11 +64,17 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
       const current = model.state.taskEntries.find((entry) => entry.id === p?.current);
       const action = ["update", "convert", "add", "apply"].includes(p?.phase) ? `import.phase.${p.phase}` : "job.running";
       const identity = current && identified(current);
-      return jobProgress({ action, name: current ? progressName(identity.variant, T(KIND_KEYS[current.kind] || KIND_KEYS.other), identity.name) : "",
-        current: p?.index || 1, total: p?.total || model.state.taskEntries.length, step: p?.step || "import.step.check" });
+      const done = p?.completed ?? p?.done ?? 0, total = p?.total || model.state.taskEntries.length;
+      const phase = T(action).replace(/\{name\}/g, "").replace(/[:：]\s*$/u, "").trim();
+      const step = p?.step || "import.step.check", detail = T(step);
+      const repeated = { "import.phase.add": "import.step.add", "import.phase.apply": "import.step.apply" };
+      return T("import.completedProgress", { done, total, remaining: p?.remaining ?? Math.max(0, total - done), action: phase,
+        name: current ? progressName(identity.variant, T(KIND_KEYS[current.kind] || KIND_KEYS.other), identity.name) : "",
+        step: detail && detail !== phase && repeated[action] !== step ? T("progress.step", { step: detail }) : "" });
     }
     const label = T(["analyzing", "saving"].includes(phase) ? `import.${phase}` : "app.loading");
-    return p?.total > 0 ? T("import.waitProgress", { label, done: p.done || 0, total: p.total }) : label;
+    const done = p?.completed ?? p?.done ?? (Number.isFinite(p?.current) ? p.current : 0);
+    return p?.total > 0 ? T("import.waitProgress", { label, done, total: p.total }) : label;
   }
   function holdArtwork() {
     if (!visible || loadingHold || !waiting()) return;
@@ -237,6 +246,7 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
     dom.merge = toggle(T("import.merge"), merged, (checked) => { merged = checked; rowsKey = null; renderRows(); });
     dom.merge.label.dataset.action = "merge"; panel.appendChild(dom.merge.label);
     dom.list = el("div", "import-list"); dom.list.setAttribute("aria-label", T("import.list")); panel.appendChild(dom.list);
+    dom.list.addEventListener("scroll", () => prepareVisibleRows(dom.list, rows.values()));
     layoutList();
     for (const [key, caption, x, width] of [["files", "addFiles", 26, 196], ["folder", "addFolder", 238, 220],
       ["all", "all", 474, 150], ["none", "none", 640, 180], ["remove", "remove", 836, 180], ["clear", "clear", 1032, 214]]) {
@@ -328,16 +338,26 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
           Object.assign(image.style, { overflow: "hidden", clipPath: "inset(0)" });
       }
     }).catch(() => {});
-    return tracked(Promise.all([drawing, source]).then(([view, url]) => {
+    return tracked(Promise.all([drawing, source]).then(async ([view, url]) => {
       const image = view.nodes.get(path)?.els[0];
-      if (image && visible && token === generation && image.isConnected) setTexture(image, url, large);
+      // Rows may still be in the staging tree. Generation guards prevent a
+      // departed page from publishing; detached obsolete rows are never shown.
+      if (image && visible && token === generation) {
+        setTexture(image, url, large);
+        await ui.decoded(image, 15000, null, { signal: scope?.signal });
+      }
       return image;
     }));
   }
   function incomingSource(entry) {
-    const libraryId = model.state.results.find((result) => result.id === entry.id)?.libraryId || entry.libraryId;
+    // Analysis previews remain valid for the immutable input session after
+    // import. Changing the label/status must not reload the same picture from
+    // a new library endpoint (conversion output is validated separately).
+    const result = model.state.results.find((result) => result.id === entry.id);
+    if (entry.preview?.kind === "import" && entry.preview.key && (!entry.libraryId || result?.libraryId)) return entry.preview;
+    const libraryId = result?.libraryId || entry.libraryId;
     if (libraryId) return { kind: "mod", key: libraryId };
-    return entry.preview?.kind === "import" && entry.preview.key ? entry.preview : null;
+    return null;
   }
   function incomingBase(entry) {
     const source = incomingSource(entry);
@@ -346,6 +366,32 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
   const representative = (entries) => entries.find((entry) => eligible(entry) && incomingBase(entry))
     || entries.find((entry) => eligible(entry) && incomingSource(entry))
     || entries.find(eligible) || entries.find((entry) => incomingSource(entry)) || entries[0];
+  const liveIdentity = (entry, variant) => JSON.stringify([entry.kind, entry.kind === "model" ? variant?.key || entry.variant
+    : entry.kind === "spr" ? variant?.spr || entry.core : variant?.lobby || entry.core]);
+  function refreshCurrentPreviews() {
+    for (const [key, version] of liveVersions) liveVersions.set(key, version + 1);
+    for (const key of thumbnailJobs.keys()) {
+      const [kind, base, incoming] = JSON.parse(key);
+      if (incoming) continue;
+      thumbnailJobs.delete(key);
+      if (base && ["spr", "lobby"].includes(kind)) forget(base.slice(0, base.lastIndexOf("/")));
+    }
+    previewKey = null;
+  }
+  function refreshAppliedPreviews() {
+    for (const result of model.state.results) {
+      if (!result.applied || refreshedResults.has(result)) continue;
+      refreshedResults.add(result);
+      const entry = model.state.taskEntries.find((item) => item.id === result.id);
+      if (!entry) continue;
+      const { variant } = identified(entry), key = liveIdentity(entry, variant);
+      liveVersions.set(key, (liveVersions.get(key) || 0) + 1);
+      if (["spr", "lobby"].includes(entry.kind)) {
+        const core = entry.kind === "spr" ? variant?.spr || entry.core : variant?.lobby || entry.core;
+        if (core) forget(spinePrefix(entry.kind, core));
+      }
+    }
+  }
   function thumbnail(entry, { incoming = false, large = false } = {}) {
     const { variant } = identified(entry);
     const signal = scope?.signal;
@@ -353,22 +399,51 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
     const key = kind === "spr" ? variant?.spr || entry.core : kind === "lobby" ? variant?.lobby || entry.core : null;
     const base = incoming ? incomingBase(entry)
       : key ? spineBase(kind, key) : null;
+    const input = incomingSource(entry), framing = specialFraming(variant);
+    const frame = large ? (kind === "lobby" ? "landscape" : "portrait") : "card";
+    const liveKey = liveIdentity(entry, variant);
+    if (!incoming && !liveVersions.has(liveKey)) liveVersions.set(liveKey, 0);
+    const liveVersion = incoming ? 0 : liveVersions.get(liveKey);
+    const version = JSON.stringify([incoming ? input : "live", entry.files, liveVersion]);
+    const identity = JSON.stringify([kind, kind === "model" ? variant?.key || entry.variant : base,
+      incoming, frame, framing, variant?.bg, kind === "model" ? version : null, liveVersion, allowed()]);
+    if (thumbnailJobs.has(identity)) return thumbnailJobs.get(identity);
     let work = Promise.resolve(null);
     const modelKey = variant?.key || entry.variant;
     if (kind === "model" && modelKey && scope) {
-      const source = incomingSource(entry);
+      const source = input;
       if (!incoming || source) work = modelThumbnails(modelKey, incoming ? `${source.kind}:${source.key}` : "live", {
-        signal, version: JSON.stringify([generation, entry.preview, entry.files, entry.libraryId, model.state.results]),
+        signal, version,
       });
     } else if (allowed() && base && scope) {
-      work = scope.thumb(base, large ? (kind === "lobby" ? "landscape" : "portrait") : "card", null, kind === "lobby", specialFraming(variant), variant?.bg);
+      work = scope.thumb(base, frame, null, kind === "lobby", framing, variant?.bg);
     }
     if (large) work.bump?.();
     const source = Promise.resolve(work).then(async (url) => {
       if (url && ui.load) await ui.load(url, { signal });
       return url;
-    }).catch(() => null);
+    }).catch(() => null).then((url) => {
+      if (!url && thumbnailJobs.get(identity) === source) thumbnailJobs.delete(identity);
+      return url;
+    });
+    thumbnailJobs.set(identity, source);
     return source;
+  }
+
+  function prepareVisibleRows(container, records, fallbackHeight = 640) {
+    const items = [...records], height = container.clientHeight || parseFloat(container.style.height) || fallbackHeight;
+    const heights = items.map((record) => parseFloat(record.row.style.height) || record.height || ROW_HEIGHT);
+    // A filtered staging tree can be shorter than the currently displayed
+    // list. Prepare the viewport the browser will show after it clamps scroll.
+    const top = Math.min(Math.max(0, container.scrollTop || 0), Math.max(0, heights.reduce((sum, h) => sum + h, 0) - height));
+    const work = [];
+    let y = 0;
+    for (const [index, record] of items.entries()) {
+      const rowHeight = heights[index];
+      if (y < top + height && y + rowHeight > top) work.push(record.prepare());
+      y += rowHeight;
+    }
+    return Promise.allSettled(work).then(() => top);
   }
 
   function renderPreview() {
@@ -471,6 +546,7 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
     const key = JSON.stringify([merged, textSize, groups]);
     if (key !== rowsKey) {
       rowsKey = key; const previous = rows; rows = new Map();
+      const token = ++listGeneration, page = generation;
       const contents = [];
       if (!entries.length) {
         const empty = place(el("div", "import-empty"), 0, 120, 1200, 180);
@@ -485,25 +561,39 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
         const entry = representative(group.entries);
         const existing = previous.get(group.key), signature = JSON.stringify([textSize, group]);
         if (existing?.signature === signature) { rows.set(group.key, existing); contents.push(existing.row); continue; }
-        const row = existing?.row || el("div", "import-row"); row.dataset.entry = entry.id;
-        row.replaceChildren(); row.paintVersion = (row.paintVersion || 0) + 1; row.art = null;
+        const row = el("div", "import-row"); row.dataset.entry = entry.id;
         const name = identified(entry).name;
-        const source = thumbnail(entry, { incoming: true });
         const drawing = paint(row, art.row({ name, ...rowCopy(group), textSize, stateKey: entry.state,
           route: conversionRoutes(group.entries),
           note: [...new Set(group.entries.map(rowNote).filter(Boolean))].join(listSeparator()), muted: !eligible(entry) }),
         { scale: ROW_SCALE, origin: [ROW_WIDTH / 2, 329 * ROW_SCALE / 2], textures: { "Icon_Arona": Promise.resolve(null) } });
         // MailboxContent/List_01 or List_02/BG_Icon/Icon_Arona is the incoming Mod's real texture slot.
-        bindTexture(drawing, `${eligible(entry) ? "List_01" : "List_02"}/BG_Icon/Icon_Arona`, source, "import-thumb");
+        const texturePath = `${eligible(entry) ? "List_01" : "List_02"}/BG_Icon/Icon_Arona`;
+        let picture;
+        const prepare = () => picture ||= bindTexture(drawing, texturePath, thumbnail(entry, { incoming: true }), "import-thumb");
         const copy = place(el("button", "hit import-row-copy"), 0, 0, ROW_WIDTH - 72, parseFloat(row.style.height || ROW_HEIGHT) - 10); copy.type = "button"; copy.setAttribute("aria-label", name);
         copy.addEventListener("click", () => model.select(entry.id));
         const check = checkbox("", model.state.checked.has(entry.id), (checked) => model.toggleGroup(group.entries.map((item) => item.id), checked));
         check.input.setAttribute("aria-label", T("import.selectNamed", { name })); place(check.label, ROW_WIDTH - 66, ROW_CHECK_TOP, 50, 50);
         const selection = place(el("div", "import-selection"), ROW_SELECTION.left, ROW_SELECTION.top, ROW_SELECTION.width, ROW_SELECTION.height);
         paint(selection, art.selection(), { scale: ROW_SELECTION.scale, origin: ROW_SELECTION.origin });
-        row.append(selection, copy, check.label); contents.push(row); rows.set(group.key, { row, copy, selection, input: check.input, refresh: check.refresh, group, signature });
+        row.append(selection, copy, check.label); contents.push(row); rows.set(group.key, { row, copy, selection, input: check.input,
+          refresh: check.refresh, group, signature, prepare, drawing, previousRow: existing?.row });
       }
-      dom.list.replaceChildren(...contents);
+      const staged = [...rows.values()];
+      tracked(Promise.all([prepareVisibleRows(dom.list, staged), Promise.allSettled(staged.map((record) => record.drawing))]).then(([scrollTop]) => {
+        if (!visible || page !== generation || token !== listGeneration) return;
+        const replacements = new Map();
+        for (const record of staged) if (record.previousRow) {
+          const previous = record.previousRow, next = record.row;
+          previous.paintVersion = (previous.paintVersion || 0) + 1;
+          previous.replaceChildren(...next.childNodes); previous.style.height = next.style.height;
+          Object.assign(previous.dataset, next.dataset); previous.art = next.art;
+          record.row = previous; record.previousRow = null; replacements.set(next, previous);
+        }
+        dom.list.replaceChildren(...contents.map((row) => replacements.get(row) || row));
+        dom.list.scrollTop = scrollTop;
+      }));
     }
     for (const row of rows.values()) {
       const ids = row.group.entries.map((entry) => entry.id), selectable = row.group.entries.filter(eligible);
@@ -683,16 +773,18 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
   async function results() {
     await dialog(T("import.resultTitle"), {}, (area) => {
       area.classList.add("import-results");
+      const pictures = [];
       const groups = importGroups(model.state.taskEntries, merged, identified);
       const textSize = art.rowTextSize(groups.map((group) => paragraphCopy(group, true)));
       const resultScale = 0.62, resultTextSize = textSize;
       for (const group of groups) {
         const entry = representative(group.entries), row = el("div", "import-result-row");
         row.dataset.result = entry.id;
-        const source = thumbnail(entry, { incoming: true });
         const drawing = paint(row, art.row({ name: identified(entry).name, ...paragraphCopy(group, true), textSize: resultTextSize }),
         { scale: resultScale, origin: [700, 104], textures: { "Icon_Arona": Promise.resolve(null) } });
-        bindTexture(drawing, "List_01/BG_Icon/Icon_Arona", source, "import-thumb");
+        let picture;
+        pictures.push({ row, height: 216, prepare: () => picture ||= bindTexture(drawing,
+          "List_01/BG_Icon/Icon_Arona", thumbnail(entry, { incoming: true }), "import-thumb") });
         const go = button(T("add.go"), "go", { width: 225, scale: 0.4 });
         place(go, 1115, 86, 225, 65);
         const navigate = (item) => {
@@ -718,10 +810,15 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
         });
         row.appendChild(go); area.appendChild(row);
       }
+      area.addEventListener("scroll", () => prepareVisibleRows(area, pictures));
+      prepareVisibleRows(area, pictures);
     });
   }
 
-  model.subscribe(() => { render(); wake(); holdArtwork(); loading.refresh?.(); });
+  model.subscribe(() => {
+    if (liveRefreshPending && !model.busy()) { liveRefreshPending = false; refreshCurrentPreviews(); }
+    refreshAppliedPreviews(); render(); wake(); holdArtwork(); loading.refresh?.();
+  });
   return {
     model,
     async show(ctx, data) {
@@ -729,6 +826,7 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
       context = ctx; catalog = catalogEntries(data); identities = new WeakMap(); visible = true;
       const token = ++generation;
       scope?.cancel(); scope = thumbnails();
+      thumbnailJobs.clear();
       if (!art) { await ui.init(); art = importArtwork({ ...ui, translate: T }, await loadImportLayouts(ui)); }
       if (!visible || token !== generation) return;
       if (!root) build();
@@ -739,6 +837,7 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
       await Promise.all([...drawings]); await ui.decoded(root, 15000);
     },
     hide() { visible = false; generation++; leave(); wake(); scope?.cancel(); dialogClose?.(); model.leave(); },
+    invalidate() { if (model.state.phase !== "running") liveRefreshPending = true; model.invalidate(); },
     drop(paths) { return model.add(paths); },
     openOptions, results, relabel,
     async settled() { await Promise.all([...drawings]); },
@@ -752,5 +851,5 @@ export function show(context, data) {
 }
 export function hide() { page?.hide(); }
 export function drop(paths) { return page?.drop(paths); }
-export function invalidate() { page?.model.invalidate(); }
+export function invalidate() { page?.invalidate(); }
 export function relabel() { return page?.relabel(); }

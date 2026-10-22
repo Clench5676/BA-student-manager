@@ -36,7 +36,7 @@ def test_progress_keeps_action_labels_and_names_an_empty_callback(monkeypatch, l
         assert [report["label"] for report in reports] == [
             translate("webui.progress.process", name=translate("webui.progress.mods")), named]
         assert jobs.get(jid).to_json()["progress"] == reports[-1]
-        assert reports[-1] == {"id": jid, "current": 2, "total": 2, "label": named}
+        assert reports[-1] == {"id": jid, "current": 2, "total": 2, "label": named, "sequence": 2}
     finally:
         jobs.shutdown()
 
@@ -159,9 +159,40 @@ def test_event_delivery_failure_cannot_kill_the_job_worker():
         assert jobs.wait(jid, 5)
         assert jobs.get(jid).state == "done" and not jobs.busy()
         assert jobs.get(jid).to_json()["progress"] == {
-            "id": jid, "current": 2, "total": 2, "label": "lobby.bundle"}
+            "id": jid, "current": 2, "total": 2, "label": "lobby.bundle", "sequence": 2}
         next_id = jobs.submit("restore", lambda log, progress: "ok", writes="game")
         assert jobs.wait(next_id, 5)
         assert jobs.get(next_id).result == "ok"
+    finally:
+        jobs.shutdown()
+
+
+def test_parallel_progress_has_one_sequence_shared_with_polling():
+    from concurrent.futures import ThreadPoolExecutor
+
+    events = EventBus()
+    seen = events.subscribe()
+    jobs = JobRunner(events)
+    start = threading.Barrier(4)
+
+    def run(log, progress):
+        def report(worker):
+            start.wait(timeout=5)
+            for step in range(5):
+                progress({"worker": worker, "done": step, "total": 5, "sequence": -1})
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            list(pool.map(report, range(4)))
+
+    try:
+        jid = jobs.submit("import.run", run)
+        assert jobs.wait(jid, 5)
+        reports = []
+        while not seen.empty():
+            event, data = seen.get_nowait()
+            if event == "job.progress":
+                reports.append(data)
+        assert [report["sequence"] for report in reports] == list(range(1, 21))
+        assert jobs.get(jid).to_json()["progress"] == reports[-1]
+        assert len({id(report) for report in reports}) == 20
     finally:
         jobs.shutdown()

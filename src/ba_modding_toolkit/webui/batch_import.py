@@ -21,7 +21,7 @@ from ..gameassets.spine import spine_revision
 from ..i18n import t
 from ..library import integrity, staging
 from ..library.judge import core_of, kind_of, part_of
-from ..library.storage import Fingerprints
+from ..library.storage import Fingerprints, atomic_clone, verify_file
 from ..models import AssetType, SaveOptions
 from ..naming import parse_filename
 from ..searching import _asset_match
@@ -68,6 +68,8 @@ class ImportSettings:
 
     def __init__(self, base: Any, options: dict):
         self.base, self.options = base, options
+        self._crc: dict[Path, tuple[tuple[int, ...], bool]] = {}
+        self._crc_lock = threading.Lock()
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self.base, name)
@@ -77,7 +79,19 @@ class ImportSettings:
 
     def crc_needed(self, target: Path | None) -> bool:
         setting = self.options["crc"]
-        return setting == "on" or (setting == "auto" and target is not None and Bundle.check_need_crc(target))
+        if setting != "auto" or target is None:
+            return setting == "on"
+        target = target.resolve()
+        stat = target.stat()
+        stamp = (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
+        with self._crc_lock:
+            cached = self._crc.get(target)
+        if cached is not None and cached[0] == stamp:
+            return cached[1]
+        value = Bundle.check_need_crc(target)
+        with self._crc_lock:
+            self._crc[target] = (stamp, value)
+        return value
 
     def save_options(self, perform_crc: bool) -> SaveOptions:
         return SaveOptions(perform_crc=perform_crc, compression=self.options["compression"],
@@ -779,17 +793,20 @@ class BatchImport:
 
             positions = {candidate.entry["id"]: index for index, candidate in enumerate(chosen, 1)}
 
-            def report(candidate: Candidate, phase: str, step: str | None = None) -> None:
+            def report(candidate: Candidate, phase: str, step: str | None = None, *, finished: bool = False) -> None:
                 with progress_lock:
-                    progress({"done": completed[0], "total": total, "index": positions[candidate.entry["id"]],
+                    if finished:
+                        completed[0] += 1
+                    progress({"done": completed[0], "completed": completed[0], "remaining": total - completed[0],
+                              "total": total, "index": positions[candidate.entry["id"]],
                               "current": candidate.entry["id"], "phase": phase,
                               "step": "import.step." + (step or phase)})
 
             # Converted bundles are read back by add_files. Keep both target
             # copies and output in this library's allowed data, not system temp.
-            with staging.import_directory(library.root) as temporary:
+            with library.import_batch(), staging.import_directory(library.root) as temporary:
                 with ThreadPoolExecutor(max_workers=options["workers"]) as workers:
-                    futures, analyzed = {}, {}
+                    futures, analyzed, originals = {}, {}, {}
                     for candidate in chosen:
                         if candidate.entry["state"] not in IMPORTABLE:
                             continue
@@ -816,6 +833,7 @@ class BatchImport:
                                 futures[candidate.entry["id"]] = fresh
                                 continue
                             self._require_importable(fresh)
+                            self._snapshot_originals(fresh, Path(temporary), originals)
                             futures[candidate.entry["id"]] = workers.submit(
                                 self._prepare, fresh, settings, Path(temporary), log, report)
                         except (OSError, ServiceError) as error:
@@ -920,15 +938,32 @@ class BatchImport:
                                     candidate.entry = deepcopy(verdict.entry)
                                 item["state"] = "blocked"
                             result.results.append(item)
-                            with progress_lock:
-                                completed[0] += 1
-                            report(candidate, phase)
+                            report(candidate, phase, finished=True)
             return result
 
         writes = ("game" if options["enableAfterImport"] else "library") if any(
             candidate.entry["state"] in IMPORTABLE for candidate in chosen) else None
         return self.services.submit("import.run", run, writes=writes,
                                     library=library)
+
+    def _snapshot_originals(self, candidate: Candidate, temporary: Path, snapshots: dict) -> None:
+        """Freeze verified baselines before any earlier row can replace their live paths."""
+        originals = []
+        for original in candidate.originals:
+            revision = spine_revision([original])
+            key = (original.resolve(), revision)
+            if key not in snapshots:
+                fingerprint = self._hashes.get(original)
+                copied = temporary / "originals" / fingerprint.sha1 / original.name
+                copied.parent.mkdir(parents=True, exist_ok=True)
+                if not atomic_clone(original, copied):
+                    shutil.copy2(original, copied)
+                verify_file(copied, fingerprint.sha1)
+                if spine_revision([original]) != revision:
+                    raise ServiceError("entry_changed")
+                snapshots[key] = copied
+            originals.append(snapshots[key])
+        candidate.originals = originals
 
     def _prepare(self, candidate: Candidate, settings: ImportSettings, temporary: Path,
                  log: Any, progress: Any) -> tuple[list[Path] | None, bool, Candidate]:
@@ -964,7 +999,8 @@ class BatchImport:
         targets = []
         for live, original in zip(candidate.targets, candidate.originals):
             target = targets_dir / live.name
-            shutil.copy2(original, target)
+            if not atomic_clone(original, target):
+                shutil.copy2(original, target)
             targets.append(target)
         spine = settings.spine_options()
         if candidate.spine_version:

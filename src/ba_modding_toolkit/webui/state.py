@@ -212,6 +212,11 @@ class UiState:
     def set_consent(self, granted: bool) -> None:
         self._update(lambda data: data.__setitem__("consent", bool(granted)))
 
+    @property
+    def preview_cache(self) -> bool:
+        """Enable preview storage by default while preserving an explicit opt-out."""
+        return self.get("preview_cache") is not False
+
     def recent(self) -> list[str]:
         return _recent_of(self._current())
 

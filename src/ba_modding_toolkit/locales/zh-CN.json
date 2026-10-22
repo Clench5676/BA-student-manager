@@ -1496,6 +1496,7 @@
 			"uncompressed": "不压缩",
 			"merge": "合并同一角色 Mod",
 			"waitProgress": "{label} {done} / {total}",
+			"completedProgress": "已完成 {done} / {total}，剩余 {remaining}\n{action} {name}{step}",
 			"state": {
 				"done": "已完成",
 				"ready": "可导入",
