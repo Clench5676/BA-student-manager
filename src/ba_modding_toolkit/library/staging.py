@@ -10,6 +10,7 @@ import time
 
 from .. import devmode
 from ..filelock import file_lock
+from ..logging_utils import log_failure
 
 logger = logging.getLogger(__name__)
 MIN_IMPORT_AGE = 24 * 60 * 60
@@ -71,9 +72,9 @@ def cleanup(root: Path) -> None:
                     lease.unlink(missing_ok=True)
                 except TimeoutError:
                     continue  # Another instance is still using this workspace.
-                except OSError:
-                    logger.warning("Could not remove abandoned import %s", path, exc_info=True)
+                except OSError as error:
+                    log_failure(logger, logging.WARNING, "Could not remove abandoned import", error)
     except TimeoutError:
         pass  # A creation or another cleanup currently owns the directory list.
-    except OSError:
-        logger.warning("Could not clean import staging %s", staging, exc_info=True)
+    except OSError as error:
+        log_failure(logger, logging.WARNING, "Could not clean import staging", error)

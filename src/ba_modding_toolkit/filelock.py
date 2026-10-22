@@ -13,6 +13,8 @@ import time
 from collections.abc import Iterator
 from pathlib import Path
 
+from .logging_utils import log_failure
+
 logger = logging.getLogger(__name__)
 
 
@@ -24,10 +26,10 @@ def file_lock(path: Path, *, timeout: float | None = None) -> Iterator[None]:
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         handle = open(path, "a+b")  # noqa: SIM115 - held for the lock's lifetime
-    except OSError:
+    except OSError as error:
         if timeout is not None:
             raise
-        logger.warning("cannot lock %s", path, exc_info=True)
+        log_failure(logger, logging.WARNING, "Cannot lock file", error)
         yield
         return
     with handle:

@@ -447,5 +447,5 @@ def test_library_inspection_failure_logs_only_sanitized_error(env, monkeypatch, 
     assert len(records) == 1
     assert records[0].exc_info is None
     assert error_type.__name__ in records[0].getMessage()
-    assert '[asset].bundle' in records[0].getMessage()
+    assert '[path]' in records[0].getMessage()
     assert all(value not in caplog.text for value in (str(source), source.name, 'PrivateUser', 'Private Assets'))

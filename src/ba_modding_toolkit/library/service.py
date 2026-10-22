@@ -32,6 +32,7 @@ from ..catalog.models import CoreMap
 from ..errors import ServiceError
 from ..filelock import file_lock
 from ..i18n import t
+from ..logging_utils import log_failure
 from ..models import AssetType, LogFunc, ProgressCallback
 from ..naming import parse_filename
 from ..searching import SEARCH_DIR_SUFFIXES, get_search_dirs
@@ -112,15 +113,13 @@ def _errors(operation: str) -> Iterator[None]:
     try:
         yield
     except OSError as error:
-        from ..webui.diagnostics import private_text
-        logger.error("Library file operation failed: %s: %s", type(error).__name__, private_text(str(error), set()))
+        log_failure(logger, logging.ERROR, "Library file operation failed", error, code="library_io_error")
         raise ServiceError("library_io_error", file=error.filename) from error
     except ServiceError:
         raise
     except Exception as error:
-        from ..webui.diagnostics import private_text
-        logger.error("Library operation failed (%s): %s: %s", operation, type(error).__name__,
-                     private_text(str(error), set()))
+        log_failure(logger, logging.ERROR, f"Library operation failed ({operation})", error,
+                    code="library_operation_failed")
         raise ServiceError("library_operation_failed", operation=operation) from error
 
 
@@ -545,9 +544,9 @@ class ModLibrary:
                 self._lookup_records()
                 self._known()
             except ServiceError as error:
-                logger.warning("Mod configuration not looked up: %s", error.code)
-            except Exception:  # the library still works without it; the next build tries again
-                logger.exception("Mod configuration lookup failed")
+                log_failure(logger, logging.WARNING, "Mod configuration not looked up", error)
+            except Exception as error:  # the library still works without it; the next build tries again
+                log_failure(logger, logging.ERROR, "Mod configuration lookup failed", error)
 
     # --- state.json ---
 
@@ -583,8 +582,8 @@ class ModLibrary:
             state = self._parse_state(json.loads((self.root / "state.json").read_text(encoding="utf-8")))
         except FileNotFoundError:
             return
-        except (OSError, ValueError, TypeError, KeyError, AttributeError):
-            logger.warning("Ignoring unreadable library state", exc_info=True)
+        except (OSError, ValueError, TypeError, KeyError, AttributeError) as error:
+            log_failure(logger, logging.WARNING, "Ignoring unreadable library state", error)
             return
         self._records, self._favorites, self._applied, self._migrations = state
         self._base = copy.deepcopy(state)
@@ -592,8 +591,8 @@ class ModLibrary:
         if self._migration_pending:
             try:
                 self._save()
-            except OSError:
-                logger.warning("Could not migrate legacy remapped mods", exc_info=True)
+            except OSError as error:
+                log_failure(logger, logging.WARNING, "Could not migrate legacy remapped mods", error)
 
     def _state_signature(self) -> tuple[int, int] | None:
         try:
@@ -1385,7 +1384,7 @@ class ModLibrary:
             except ServiceError as error:
                 failed.append({"entry": item, "code": error.code, "params": error.to_json()["params"]})
                 outcomes[key, core] = "stuck" if error.code == "original_unavailable" else "pending"
-                logger.info("Deleted mod %s; restore of %s in %s deferred: %s", mod_id, core, key, error.code)
+                log_failure(logger, logging.INFO, "Deleted mod; restore deferred", error)
         self._save_outcomes(outcomes)
         self._prune_quietly()
         return DeleteResult(done, failed, [{"install": key, "core": core} for key, core in sorted(affected)],
@@ -1490,8 +1489,8 @@ class ModLibrary:
         """Whether the scan consent is given, asked at each use (it can change while the library lives)."""
         try:
             return bool(self._scan_allowed_input())
-        except Exception:
-            logger.warning("Cannot read the scan consent", exc_info=True)
+        except Exception as error:
+            log_failure(logger, logging.WARNING, "Cannot read the scan consent", error)
             return False
 
     def _pin(self, folder: Path, server: str) -> Pin | None:
@@ -1931,8 +1930,8 @@ class ModLibrary:
             self._records.pop(mod_id, None)
         try:
             self._save()
-        except OSError:
-            logger.warning("Could not save the library state after a rollback", exc_info=True)
+        except OSError as error:
+            log_failure(logger, logging.WARNING, "Could not save the library state after a rollback", error)
         for mod_id in mod_ids:
             shutil.rmtree(self.root / "mods" / mod_id, ignore_errors=True)
 
@@ -2063,8 +2062,8 @@ class ModLibrary:
                     continue
             try:
                 original.unlink()
-            except OSError:
-                logger.warning("Could not delete the kept original %s", original, exc_info=True)
+            except OSError as error:
+                log_failure(logger, logging.WARNING, "Could not delete the kept original", error)
                 continue
             logger.info("Released the kept original %s", name)
             released.append(original)
@@ -2095,9 +2094,9 @@ class ModLibrary:
                 self._applied.pop(name, None)
             try:
                 self._save()
-            except OSError:
+            except OSError as error:
                 self._applied = old_applied
-                logger.warning("Could not save the library state after pruning", exc_info=True)
+                log_failure(logger, logging.WARNING, "Could not save the library state after pruning", error)
                 markers = {}
         if markers or built_drops:
             stamp = now()
@@ -2143,8 +2142,8 @@ class ModLibrary:
     def _prune_quietly(self) -> None:
         try:
             self._prune()
-        except Exception:  # never in the way of the switch itself; the next prune tries again
-            logger.warning("Could not prune the kept originals", exc_info=True)
+        except Exception as error:  # never in the way of the switch itself; the next prune tries again
+            log_failure(logger, logging.WARNING, "Could not prune the kept originals", error)
 
     @_serialized
     def prune(self) -> list[Path]:
@@ -2557,9 +2556,9 @@ class ModLibrary:
                     self._applied = old_applied
                     try:
                         self._rollback_write(transaction)
-                    except Exception:
+                    except Exception as rollback_error:
                         restored = False
-                        logger.exception("Could not roll back library write %s", journal)
+                        log_failure(logger, logging.ERROR, "Could not roll back library write", rollback_error)
                     if isinstance(error, OSError):
                         code = "library_io_error" if saving_state else "game_file_locked"
                         raise ServiceError(code, file=error.filename) from error
@@ -3878,8 +3877,8 @@ class ModLibrary:
         if changed:
             try:
                 self._save()
-            except OSError:
-                logger.warning("Could not save what a judgement found", exc_info=True)
+            except OSError as error:
+                log_failure(logger, logging.WARNING, "Could not save what a judgement found", error)
 
     def judge_unfinished(self) -> int:
         """Judge the unfinished list's entries again from what the library recorded (stat, header and last bytes of
