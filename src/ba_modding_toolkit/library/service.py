@@ -1188,7 +1188,8 @@ class ModLibrary:
                                     progress=progress)
             except ServiceError as error:
                 added.failed.append({"id": entry.id, **error.to_json()})
-                if entry.kind != "other" and self.configured(entry.target, pin).get(entry.kind) == f"mod:{entry.id}":
+                if (pin is not None and entry.kind != "other"
+                        and self.configured(entry.target, pin).get(entry.kind) == f"mod:{entry.id}"):
                     added.configured.append(entry)
             else:
                 (added.configured if result.deferred else added.applied).append(entry)

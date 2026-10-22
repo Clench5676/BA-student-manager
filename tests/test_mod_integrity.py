@@ -412,6 +412,8 @@ def test_adding_without_an_install_keeps_the_mod_and_reports_the_refused_switch(
     assert len(report) == 1
     assert report.compatibility == {}
     assert report.failed[0]["code"] == "game_not_found"
+    assert not report.configured
+    assert not report.applied
 
 
 def test_self_contained_atlas_positions_rotations_and_trims_are_not_official_drift(serialized):
