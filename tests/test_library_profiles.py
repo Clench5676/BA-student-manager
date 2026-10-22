@@ -3040,3 +3040,103 @@ def test_migration_keeps_the_old_choice_as_set_after_an_external_reset(world):
         (world.root / name).unlink(missing_ok=True)
     choice = world.reload().selection("test")["spr"]
     assert choice == {"source": f"mod:{mod.id}", "installed": False, "error": None}
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_roster_snapshot_reads_one_pin_and_profile_without_hashing_or_per_variant_selection(world, monkeypatch, enabled):
+    mod = world.add(world.spr)
+    source = f"mod:{mod.id}"
+    world.library.apply("test", source)
+    if not enabled:
+        world.toggle(False)
+    world.library.set_favorite("test", True)
+    keys = ["test", "other"]
+    for i in range(100):
+        variant = FakeVariant(f"variant{i}", f"variant{i}_spr")
+        game_bundle(world.game, core_name=variant.spr)
+        world.catalog.variants[variant.key] = variant
+        keys.append(variant.key)
+    calls = {"pin": 0, "profiles": 0, "inventory": 0}
+    current_pin, read, index = world.library.current_pin, world.library.profiles.read, world.library._index
+
+    def pin():
+        calls["pin"] += 1
+        return current_pin()
+
+    def profiles():
+        calls["profiles"] += 1
+        return read()
+
+    def inventory(pin):
+        calls["inventory"] += 1
+        return index(pin)
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("The roster must not hash bundles or verify individual selections")
+
+    monkeypatch.setattr(world.library, "current_pin", pin)
+    monkeypatch.setattr(world.library.profiles, "read", profiles)
+    monkeypatch.setattr(world.library, "_index", inventory)
+    monkeypatch.setattr(world.library, "selection", forbidden)
+    monkeypatch.setattr(world.library, "configured", forbidden)
+    monkeypatch.setattr(world.library._hashes, "get", forbidden)
+    snapshot = world.library.roster_snapshot(keys)
+    assert calls == {"pin": 1, "profiles": 1, "inventory": 5}
+    assert snapshot["install"] == world.key()
+    assert snapshot["favorites"] == {"test"} and [entry.id for entry in snapshot["mods"]] == [mod.id]
+    assert snapshot["configured"]["test"] == {"spr": source, "lobby": None}
+    assert all(snapshot["configured"][key] == {"spr": None, "lobby": None} for key in keys[1:])
+    assert snapshot["modified"] == ({"test": source} if enabled else {})
+
+
+def test_roster_snapshot_refreshes_external_intent_and_detaches_returned_data(world):
+    first = world.add(world.spr)
+    second = world.add(world.spr, payload=b"second mod", where="second")
+    world.toggle(False)
+    world.library.apply("test", f"mod:{first.id}")
+    world.library.set_favorite("test", True)
+    before = world.library.roster_snapshot(["test", "other"])
+    external = world.build("B")
+    external.apply("test", f"mod:{second.id}")
+    external.set_favorite("test", False)
+    after = world.library.roster_snapshot(["test", "other"])
+    assert before["configured"]["test"]["spr"] == f"mod:{first.id}"
+    assert before["favorites"] == {"test"}
+    assert after["configured"]["test"]["spr"] == f"mod:{second.id}" and after["favorites"] == set()
+    after["configured"]["test"]["spr"] = "official"
+    after["favorites"].add("other")
+    assert world.library.configured("test")["spr"] == f"mod:{second.id}"
+    assert world.library.favorites() == set()
+
+
+def test_roster_snapshot_keeps_no_install_defaults_without_reading_profiles(world, monkeypatch):
+    monkeypatch.setattr(world.library, "current_pin", lambda: None)
+    monkeypatch.setattr(world.library.profiles, "read", lambda: pytest.fail("No install needs no profile lookup"))
+    snapshot = world.library.roster_snapshot(["test"])
+    assert snapshot["install"] is None and snapshot["modified"] == {}
+    assert snapshot["configured"] == {"test": {"spr": None, "lobby": None}}
+
+
+def test_roster_snapshot_preserves_replacement_scan_consent(world):
+    world.spr.write_bytes(CRCUtils.apply_crc_fix(header_bundle(b"outside mod"), int(parse_filename(world.spr.name).crc)))
+    assert world.library.roster_snapshot(["test"])["modified"] == {}
+    world.consent = True
+    assert world.library.roster_snapshot(["test"])["modified"] == {"test": "unknown"}
+
+
+def test_cold_core_map_reuses_its_inventory_instead_of_rechecking_each_core(world, monkeypatch):
+    for i in range(100):
+        game_bundle(world.game, core_name=f"variant{i}_spr")
+    pin = world.library.current_pin()
+    world.library._maps.clear()
+    index = world.library._index
+    reads = []
+
+    def counted(current):
+        reads.append(current.key)
+        return index(current)
+
+    monkeypatch.setattr(world.library, "_index", counted)
+    mapped = world.library._core_map(pin)
+    assert mapped.spr["test"] == "test_spr" and mapped.spr["variant99"] == "variant99_spr"
+    assert len(reads) <= 2

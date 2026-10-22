@@ -22,10 +22,47 @@ export function imageUrls(elements) {
   return [...urls];
 }
 
-// decodeAll(urls, decode, cap) -> resolves with true once decode(url) has settled for every URL (one that fails counts
-// as done: the element shows what it can, as before), or with false after cap ms, whichever comes first
+// Share overlapping decode work and retain a bounded set of image objects. A
+// retained image still rechecks decode readiness when requested again: WebKit
+// may discard decoded pixels while a view is hidden. No assets are written out.
+export function imageDecoder(create, { maxBytes = 32 * 1024 * 1024, maxEntries = 256 } = {}) {
+  const images = new Map();
+  let bytes = 0;
+  const trim = () => {
+    for (const [url, entry] of images) {
+      if (bytes <= maxBytes && images.size <= maxEntries) break;
+      if (entry.pending) continue;
+      images.delete(url);
+      bytes -= entry.bytes;
+    }
+  };
+  return (url) => {
+    let entry = images.get(url);
+    if (entry) { images.delete(url); images.set(url, entry); }
+    else {
+      const image = create();
+      image.src = url;
+      entry = { image, pending: null, bytes: 0 };
+      images.set(url, entry);
+    }
+    if (entry.pending) return entry.pending;
+    entry.pending = Promise.resolve().then(() => entry.image.decode()).then(() => {
+      bytes -= entry.bytes;
+      entry.bytes = Math.max(1, entry.image.naturalWidth || 0) * Math.max(1, entry.image.naturalHeight || 0) * 4;
+      bytes += entry.bytes;
+    }).catch((error) => {
+      if (images.get(url) === entry) { images.delete(url); bytes -= entry.bytes; }
+      throw error;
+    }).finally(() => { entry.pending = null; trim(); });
+    return entry.pending;
+  };
+}
+
+// Resolve true only when every picture decoded successfully. Failures settle
+// without hanging the screen, but must not publish an incomplete loading word.
 export function decodeAll(urls, decode, cap = Infinity, { signal } = {}) {
-  const all = Promise.all(urls.map((url) => Promise.resolve().then(() => decode(url)).catch(() => {}))).then(() => true);
+  const all = Promise.all(urls.map((url) => Promise.resolve().then(() => decode(url)).then(() => true, () => false)))
+    .then((results) => results.every(Boolean));
   if (!Number.isFinite(cap) && !signal) return all;
   let timer = 0;
   let cancel;

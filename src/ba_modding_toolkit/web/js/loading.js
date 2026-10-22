@@ -395,7 +395,7 @@ export async function scene(fn, { opaque = false, until = null } = {}) {
   if (!opaque) return hold(() => {
     const work = Promise.resolve().then(() => fn(Promise.resolve()));
     return until ? Promise.race([work, until]) : work;
-  }, { all: true, until });
+  }, { until });
   const my = ++gen;
   const o = cover(opaque);
   const covered = whenOpaque(o);
@@ -488,7 +488,8 @@ export async function hold(work, { until = null, all = false, progress = null } 
   try { return await task; } finally { release(); }
 }
 
-// Preview changes block every interaction through their final frame swap.
+// Read-only previews retain their frame-swap guard but allow Back and existing
+// popups to cancel or supersede the wait. Writers keep their explicit strict hold.
 export function page(fn, options = {}) {
-  return hold(() => fn(Promise.resolve()), { all: true, ...options });
+  return hold(() => fn(Promise.resolve()), options);
 }

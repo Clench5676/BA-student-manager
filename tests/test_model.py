@@ -7,7 +7,9 @@ import json
 import math
 import os
 import struct
+import threading
 import zlib
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -17,6 +19,7 @@ from UnityPy.helpers.CompressionHelper import compress_lz4
 from ba_modding_toolkit.catalog import Catalog, model_core
 from ba_modding_toolkit.gameassets import AssetCache, AssetNotFound, GameAssets
 from ba_modding_toolkit.gameassets import model
+from ba_modding_toolkit.gameassets import service
 from ba_modding_toolkit.gameassets.discovery import cab_names, is_model_dependency
 from ba_modding_toolkit.searching import get_search_dirs
 
@@ -657,6 +660,84 @@ def test_model_glb_exports_again_when_a_bundle_it_read_changes(tmp_path, monkeyp
     (resources / dependency).unlink()
     assert game.model_glb("ch0242") == b"glTF\0\0\0"
     assert len(calls) == 3 and not (tmp_path / "cache").exists()
+
+
+def test_model_glb_cache_hit_does_not_wait_for_export_lock(tmp_path, monkeypatch):
+    prefab = "character-ch0242-_mxload-2024-11-18_assets_all_1.bundle"
+    game, resources = _game(tmp_path, prefab)
+    monkeypatch.setattr(model, "export_chibi", lambda *args: b"glTF cached")
+    assert game.model_glb("ch0242") == b"glTF cached"
+
+    class UnrelatedExport:
+        def __enter__(self):
+            pytest.fail("a validated cached model must bypass unrelated exports")
+
+        def __exit__(self, *args):
+            pass
+
+    monkeypatch.setattr(service, "_MODEL_LOCK", UnrelatedExport())
+    assert game.model_glb("ch0242") == b"glTF cached"
+    assert not (tmp_path / "cache").exists()
+
+
+def test_model_glb_waiting_requests_reuse_the_completed_export(tmp_path, monkeypatch):
+    prefab = "character-ch0242-_mxload-2024-11-18_assets_all_1.bundle"
+    game, resources = _game(tmp_path, prefab)
+    started, release, waiting = threading.Event(), threading.Event(), threading.Event()
+    calls = []
+    lookup = game.cache.get
+
+    def get(key, **kwargs):
+        value = lookup(key, **kwargs)
+        if key.startswith(service._SCHEMA + "model/") and value is None and started.is_set():
+            waiting.set()
+        return value
+
+    def export(*args):
+        calls.append(1)
+        started.set()
+        assert release.wait(5)
+        return b"glTF shared"
+
+    monkeypatch.setattr(game.cache, "get", get)
+    monkeypatch.setattr(model, "export_chibi", export)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(game.model_glb, "ch0242")
+        try:
+            assert started.wait(5)
+            second = pool.submit(game.model_glb, "ch0242")
+            assert waiting.wait(5)
+        finally:
+            release.set()
+        assert first.result(timeout=5) == second.result(timeout=5) == b"glTF shared"
+    assert len(calls) == 1
+    assert not (tmp_path / "cache").exists()
+
+
+@pytest.mark.parametrize("changed", ["prefab", "dependency"])
+def test_model_glb_cache_detects_mtime_preserving_replacement(tmp_path, monkeypatch, changed):
+    prefab = "character-ch0242-_mxload-2024-11-18_assets_all_1.bundle"
+    dependency = "assets-_mx-characters-ch0242-_mxdependency-2024-11-18_004_assets_all_2.bundle"
+    game, resources = _game(tmp_path, prefab, dependency)
+    calls = []
+
+    def export(graph, bundles, dev):
+        graph.loaded.append(str(resources / dependency))
+        calls.append(dev)
+        return b"glTF" + bytes(len(calls))
+
+    monkeypatch.setattr(model, "export_chibi", export)
+    assert game.model_glb("ch0242") == b"glTF\0"
+    path = resources / (prefab if changed == "prefab" else dependency)
+    before = path.stat()
+    replacement = resources / "replacement"
+    replacement.write_bytes(b"")
+    os.utime(replacement, ns=(before.st_atime_ns, before.st_mtime_ns))
+    replacement.replace(path)
+    assert game.model_glb("ch0242") == b"glTF\0\0"
+    assert game.model_glb("ch0242") == b"glTF\0\0"
+    assert len(calls) == 2
+    assert not (tmp_path / "cache").exists()
 
 
 def test_cab_index_skips_a_corrupt_bundle(tmp_path):

@@ -46,6 +46,7 @@ class ModEntry(JsonResult):
     repaired_id: str = ""
     user_added: bool = False  # explicit add, rather than adoption, recovery or re-filing
     alias: str = ""
+    label_base: str = ""  # stored name before aliases and localized repair suffixes
 
 
 class AddResult(list[ModEntry]):

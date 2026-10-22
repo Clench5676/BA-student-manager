@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { L, setStrings } from "../../src/ba_modding_toolkit/web/js/i18n.js";
-import { studentName } from "../../src/ba_modding_toolkit/web/js/names.js";
+import { L, T, setStrings } from "../../src/ba_modding_toolkit/web/js/i18n.js";
+import { modName, studentName } from "../../src/ba_modding_toolkit/web/js/names.js";
 
 globalThis.document = { documentElement: {}, createElement: () => ({ getContext: () => ({ measureText: () => ({ width: 0 }) }) }),
   getElementById: () => null, querySelector: () => null, addEventListener() {} };
@@ -43,4 +43,24 @@ test("main's shared resolver supplies variant aliases to global prompts, Mod Add
       assert.equal(nameOf({ core: "unknown_spr" }), "unknown_spr");
     }
   }
+});
+
+test("cached repaired Mod names relocalize from stable source labels without changing user aliases", () => {
+  const source = { id: "source", label: "Initial", label_base: "Initial", alias: "Source alias" };
+  const repaired = { id: "fixed", repaired_from: "source", label: "Cached repair suffix", label_base: "Initial" };
+  for (const lang of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH", "en-US"]) {
+    const table = flatten(JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${lang}.json`, import.meta.url), "utf8")));
+    setStrings(lang, table);
+    const expected = (name) => table["webui.remap.name"].replace("{name}", name);
+    assert.equal(modName(repaired, [source, repaired], T), expected("Source alias"));
+    assert.equal(modName({ ...repaired, alias: "Own alias - Repaired" }, [source, repaired], T), "Own alias - Repaired");
+    assert.equal(modName(repaired, [repaired], T), expected("Initial"), "a removed source uses the stored unlocalized name");
+    assert.equal(modName({ ...source, alias: "" }, [source], T), "Initial");
+  }
+});
+
+test("legacy labels remain usable and malformed repair cycles stay bounded", () => {
+  assert.equal(modName({ id: "legacy", repaired_from: "missing", label: "Existing repaired label" }, [], T), "Existing repaired label");
+  const a = { id: "a", repaired_from: "b", label_base: "A" }, b = { id: "b", repaired_from: "a", label_base: "B" };
+  assert.equal(modName(a, [a, b], (_key, { name }) => `${name} repaired`), "B repaired");
 });

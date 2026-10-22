@@ -494,6 +494,63 @@ def test_atlas_cache_tracks_bundle_replacement_and_removal(atlas_source):
         source.game().atlases()
 
 
+def test_cached_sprites_reuse_inventory_across_concurrent_requests(atlas_source, monkeypatch):
+    source = atlas_source
+    game = source.game()
+    scans = []
+    discover = service.bundle_paths
+
+    def count(directories):
+        scans.append(1)
+        return discover(directories)
+
+    monkeypatch.setattr(service, "bundle_paths", count)
+    expected = game.sprite_png("Common", "Back")
+    source.loads.clear()
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        assert list(pool.map(lambda _: game.sprite_png("Common", "Back"), range(12))) == [expected] * 12
+    assert len(scans) == 1, "warm sprite validation must not enumerate all game bundles"
+    assert not source.loads, "warm sprites must retain the original image decode"
+
+
+def test_atlas_in_place_change_does_not_require_inventory_scan(atlas_source, monkeypatch):
+    source = atlas_source
+    game = source.game()
+    assert Image.open(BytesIO(game.sprite_png("Common", "Back"))).getpixel((0, 0)) == (0, 0, 255, 255)
+    before = source.directory.stat()
+    stamp = source.image.stat()
+    source.image.write_bytes(b"red ")
+    os.utime(source.image, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
+    assert source.directory.stat().st_mtime_ns == before.st_mtime_ns
+
+    def forbidden(*args):
+        pytest.fail("an in-place edit must revalidate known atlases without enumerating unrelated bundles")
+
+    monkeypatch.setattr(service, "bundle_paths", forbidden)
+    assert Image.open(BytesIO(game.sprite_png("Common", "Back"))).getpixel((0, 0)) == (255, 0, 0, 255)
+
+
+def test_atlas_inventory_does_not_publish_directory_changes_during_discovery(atlas_source, monkeypatch):
+    source = atlas_source
+    game = source.game()
+    discover = service.bundle_paths
+    scans = []
+
+    def changed(directories):
+        result = discover(directories)
+        scans.append(1)
+        (source.directory / f"download-{len(scans)}.partial").write_bytes(b"download")
+        return result
+
+    monkeypatch.setattr(service, "bundle_paths", changed)
+    with pytest.raises(AssetNotFound, match="changed during discovery"):
+        game.atlases()
+    assert len(scans) == 2
+    assert not source.root.exists()
+    monkeypatch.setattr(service, "bundle_paths", discover)
+    assert "Back" in game.atlases()["Common"]
+
+
 @pytest.mark.parametrize("alias_name", ["Extra", "Common"])
 def test_atlas_inventory_addition_invalidates_a_complete_index(atlas_source, monkeypatch, alias_name):
     source = atlas_source

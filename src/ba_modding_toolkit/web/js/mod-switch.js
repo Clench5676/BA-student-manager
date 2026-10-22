@@ -190,6 +190,17 @@ const listeners = new Set();
 let lastSignature = "";
 
 export const current = () => state;
+export function relabel() {
+  if (!els) return;
+  els.label.textContent = T("mods.switch");
+  els.help.setAttribute("aria-label", T("mods.guide"));
+  for (const [selector, key] of [[".ms-on b", "settings.post.on"], [".ms-off b", "settings.post.off"]]) {
+    const text = els.toggle.querySelector(selector);
+    if (text) text.textContent = T(key);
+  }
+  fitLabel(els.label);
+  return render();
+}
 // fn(state) when what Settings' Mods tab shows changed (not on every progress step)
 export function onChange(fn) { listeners.add(fn); return () => listeners.delete(fn); }
 

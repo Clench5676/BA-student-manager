@@ -1,5 +1,30 @@
 import { previewTimer } from "./preview-lifecycle.js";
 
+// Hidden or unfocused WebKit windows may stop their frame clock. Resource setup
+// can still finish there; continuous playback remains governed by its lifecycle.
+export function nextFrame({ signal } = {}) {
+  return new Promise((resolve) => {
+    let frame, timer, done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      globalThis.cancelAnimationFrame?.(frame);
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", finish);
+      resolve();
+    };
+    const check = () => {
+      if (globalThis.document?.hidden || globalThis.document?.hasFocus?.() === false
+          || !globalThis.requestAnimationFrame) finish();
+      else timer = setTimeout(check, 100);
+    };
+    if (signal?.aborted) { finish(); return; }
+    signal?.addEventListener("abort", finish, { once: true });
+    frame = globalThis.requestAnimationFrame?.(finish);
+    if (!done) timer = setTimeout(check, 100);
+  });
+}
+
 // Bound waits on asset loaders whose callbacks may never arrive. Observe late rejections too.
 export function withTimeout(promise, ms, name, { signal } = {}) {
   return bounded(promise, ms, name, (fn, delay) => {

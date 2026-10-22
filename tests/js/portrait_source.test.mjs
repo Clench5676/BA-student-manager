@@ -2,6 +2,19 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { forgetSpineAssets, loadSpineAssets, spineBase } from "../../src/ba_modding_toolkit/web/js/api.js";
 
+test("cancelling a view aborts its manifest request before constructing a player", async (t) => {
+  const controller = new AbortController();
+  let received;
+  t.mock.method(globalThis, "fetch", (_url, options) => {
+    received = options.signal;
+    return new Promise((_resolve, reject) => options.signal.addEventListener("abort", () => reject(options.signal.reason), { once: true }));
+  });
+  const pending = loadSpineAssets(spineBase("spr", "cancelled_spr"), () => assert.fail("Cancelled manifest must not load a player"), { signal: controller.signal });
+  assert.equal(received, controller.signal);
+  controller.abort();
+  await assert.rejects(pending, /aborted/i);
+});
+
 const base = spineBase("spr", "ibuki_spr");
 const revision = (letter) => `${base.slice(0, base.lastIndexOf("/"))}/${letter.repeat(64)}/skeleton`;
 

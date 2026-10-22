@@ -9,14 +9,14 @@ import { jobProgress, progressName } from "./job-progress.js";
 // can be worn by the other variants of the family, lobbies are not offered to them. Switching writes the chosen one
 // into the game files (switch-sources.js, actions.apply).
 // A change inside the screen (another variant, a tab, an applied portrait) prepares its parts behind the loading
-// cover and swaps them in one frame (the commit barrier below), after previews and visible images settle.
+// cover and swaps them in one frame, after the primary preview and required UI images settle.
 import { isSpecial, specialFraming } from "./special-view.js";
 import * as NGUI from "./ngui.js";
 import { resizeButton } from "./button-layout.js";
 import { latestLoad, loadPlayer } from "./spine-load.js";
 import { ensureSpine, spineAllowed } from "./spine-runtime.js";
 import { decodeAll } from "./image-decode.js";
-import { withPreviewTimeout as withTimeout } from "./async.js";
+import { withTimeout, nextFrame } from "./async.js";
 import { previewError } from "./preview-error.js";
 import * as Loading from "./loading.js";
 import * as ModAdd from "./mod-add.js";
@@ -36,7 +36,7 @@ import { lazyThumbnail } from "./lazy-thumbnail.js";
 import { portraitViewport } from "./portrait-view.js";
 import { colourSwitchCard } from "./switch-card.js";
 import { clearUnseen, hasUnseen as hasFresh, shownUnseen, switchUnseen } from "./unseen-assets.js";
-import { customAliases as aliasesOf, modOriginalName, studentName } from "./names.js";
+import { customAliases as aliasesOf, modName, modOriginalName, studentName } from "./names.js";
 import { setTitle } from "./nav.js";
 import { KEYS, deltaOf, pacer, typing } from "./step-keys.js";
 import { FRAME_Y, closable, frameReady, hit as hitNode, listPopup, message, popupFrame, scrollArea } from "./popup.js";
@@ -71,10 +71,9 @@ let renderToken = 0, exprToken = 0, chipToken = 0, spineToken = 0, leftToken = 0
 
 // --- readiness ---
 const HARD_CAP = 15000;  // individual failed assets settle with an error before the screen is revealed
-const THUMBS_CAP = HARD_CAP; // reveal the page at the deadline; bounded capture retries can still fill its pictures
 const LINES_CAP = 1500;  // the lobby's lines from Kivo (a network call) likewise
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-const frames = (n) => new Promise((resolve) => { const step = () => (--n > 0 ? requestAnimationFrame(step) : resolve()); requestAnimationFrame(step); });
+const frames = async (n) => { while (n-- > 0) await nextFrame(); };
 function renderFailed(err, source = null) {
   console.error("Detail render failed", ...(source ? [source] : []), err);
   previewError(err, source, "detail");
@@ -97,7 +96,6 @@ let leftPage = Promise.resolve(), leavePage = () => {};
 // a generation of the screen: a newer show, tab change or hide ends the wait of the one before
 let showGen = 0, endWait = () => {};
 let thumbnailWork = thumbnailScope();
-let thumbnailWait = Promise.resolve(), releaseThumbnails = () => {};
 const thumb = (base, frame = "bust", expr = null, lobby = false, framing = null, background = variant()?.bg, work = thumbnailWork) => {
   if (!spineAllowed()) return collectionPortrait(base);
   return work.thumb(base, frame, expr, lobby, framing, frame === "face" ? null : background);
@@ -115,10 +113,7 @@ function begin() {
   endWait();
   thumbnailWork.cancel();
   thumbnailWork = thumbnailScope();
-  screenPics = exprPics = chipPics = screenThumbs = exprThumbs = chipThumbs = [];
-  const done = new Promise((resolve) => { releaseThumbnails = resolve; });
-  const scope = thumbnailWork;
-  thumbnailWait = open ? withTimeout(done, THUMBS_CAP, "Detail thumbnails", { signal: scope.signal }).catch(() => {}) : Promise.resolve();
+  screenPics = exprPics = chipPics = [];
   const gen = ++showGen;
   return { gen, ended: new Promise((resolve) => { endWait = resolve; }) };
 }
@@ -134,9 +129,8 @@ async function prepare({ gen, ended }, inPlace, work) {
     if (gen === showGen) renderFailed(err);
   }
   if (gen !== showGen) return false;
-  releaseThumbnails();
   if (queued) {
-    await new Promise(requestAnimationFrame);
+    await nextFrame();
     if (gen !== showGen) return false;
     for (const fn of queued) try { fn(); } catch (err) { console.error(err); }
     batch = null;
@@ -144,9 +138,9 @@ async function prepare({ gen, ended }, inPlace, work) {
   if (open && fam) markSeen(shownUnseen(fam, variant(), tabKind(), modsOn()));
   return true;
 }
-// Panels, backgrounds and every entry thumbnail settle behind the same commit barrier.
+// Required UI pictures settle before publication; optional thumbnails keep their
+// existing scopes and fill locally without holding the primary preview.
 let screenPics = [], exprPics = [], chipPics = [];
-let screenThumbs = [], exprThumbs = [], chipThumbs = [];
 const picturesReady = (pictures, ...roots) => {
   const { signal } = thumbnailWork;
   // roots may be missing (a part not drawn) and descendants may lack a style (e.g. text holders): skip both
@@ -157,6 +151,10 @@ const picturesReady = (pictures, ...roots) => {
     return NGUI.decoded(elements, HARD_CAP, null, { signal });
   });
 };
+function fillPictures(pictures, ...roots) {
+  const { signal } = thumbnailWork;
+  picturesReady(pictures, ...roots).catch((error) => { if (!signal.aborted) renderFailed(error); });
+}
 async function settlePictures(read, signal) {
   let before;
   do {
@@ -164,13 +162,9 @@ async function settlePictures(read, signal) {
     await Promise.allSettled(before.flat());
   } while (!signal.aborted && before.some((part, i) => part !== read()[i]));
 }
-async function settleThumbs() {
+async function settleImages() {
   const { signal } = thumbnailWork;
-  const release = releaseThumbnails;
-  await Promise.all([
-    settlePictures(() => [screenPics, exprPics, chipPics], signal),
-    Promise.race([settlePictures(() => [screenThumbs, exprThumbs, chipThumbs], signal).then(release), thumbnailWait]),
-  ]);
+  await settlePictures(() => [screenPics, exprPics, chipPics], signal);
 }
 
 // --- names, candidates, state ---
@@ -187,7 +181,7 @@ const familyMods = () => fam.variants.flatMap((v) => v.modList || []);
 const isFav = (v) => !!v.favorite;
 const hasLobby = (v) => !!v.lobby;
 const hasModel = (v) => !!v.model;
-const modLabel = (m) => m.alias || m.label || m.file?.split(/[\\/]/).pop() || m.id;
+const modLabel = (m) => modName(m, familyMods(), T);
 const repairedId = (c) => c?.mod?.repaired_id && familyMods().some((m) => m.id === c.mod.repaired_id) ? c.mod.repaired_id : null;
 const repairAction = (c) => repairedId(c) ? "remap.go" : "act.update";
 // a candidate's skeleton: a mod's preview (its parts over the official ones), else the variant's own portrait or lobby
@@ -514,7 +508,7 @@ async function drawScreen() {
   const cardReady = addSwitchText(rightHost, view);
   if (my === renderToken) {
     screenPics = [picturesReady([...lv.images, ...rv.images, ...bg.images], leftHost, rightHost, frag)];
-    screenThumbs = [picturesReady([...lv.thumbnails, ...rv.thumbnails, ...bg.thumbnails, cardReady], leftHost, rightHost, frag)];
+    fillPictures([...lv.thumbnails, ...rv.thumbnails, ...bg.thumbnails, cardReady], leftHost, rightHost, frag);
   }
   hits(view, leftHost, rightHost);
   commit(() => {
@@ -872,7 +866,7 @@ async function drawChips() {
   const view = await NGUI.render(tree, next, { scale: S, origin: ORIGIN, z: 20, deferImages: true });
   if (my === chipToken) {
     chipPics = [picturesReady(view.images, next)];
-    chipThumbs = [picturesReady(view.thumbnails, next)];
+    fillPictures(view.thumbnails, next);
   }
   if (!ok()) return; // a newer render took over
   for (const [path, entry] of view.nodes) {
@@ -1005,7 +999,7 @@ async function drawExpressions() {
   if (!ok()) return; // a newer render took over (e.g. the tab changed while faces were rendering)
   if (my === exprToken) {
     exprPics = [picturesReady(pics, clip)];
-    exprThumbs = [picturesReady(thumbs, clip)];
+    fillPictures(thumbs, clip);
   }
   if (unfolded) {
     clip.classList.add("expanded");
@@ -1570,7 +1564,7 @@ function changeInPlace(work) {
     if (g.gen !== showGen) return false;
     return prepare(g, true, async () => {
       await work();
-      await settleThumbs();
+      await settleImages();
     });
   }, { until: g.ended }).then((ready) => {
     // it may have taken over a show (a tab clicked while a step loads): the screen is on that student now
@@ -1654,7 +1648,7 @@ async function freezeLeft(part) {
   const host = $(part);
   const sources = [...host.querySelectorAll(part === "lobby" ? ".lobby-view .lobby-layer:not(.lobby-off) canvas" : "canvas.model-view")];
   if (!sources.length) return;
-  if (part === "model") await new Promise(requestAnimationFrame);
+  if (part === "model") await nextFrame();
   const box = document.createElement("div");
   box.className = `left-freeze ${part}`;
   Object.assign(box.style, { left: `${host.offsetLeft}px`, top: `${host.offsetTop}px`, width: `${host.offsetWidth}px`, height: `${host.offsetHeight}px` });
@@ -1702,15 +1696,7 @@ async function showLobby(v, my, alive = () => true) {
   if (!still()) return;
   if (!m) throw new Error(`Lobby load superseded without a replacement: ${v.lobby}`);
   if (fullscreen) { Lobby.frame("full"); Lobby.interactive(true); }
-  // the lines in the UI language only (Kivo's Chinese and Japanese, the Global server's English and the others), on
-  // the voice clips of each talk animation, and Kivo's voices; nothing in another language stands in for a missing one
-  const key = LINE_LANG[language()] || "en";
-  const talks = Object.fromEntries(m.sequences.map((sq) => [sq.anim, sq.cues.map((c) => c.clip)]));
-  const lines = (isSpecial(v) ? Promise.resolve({}) : rpc("lobby.lines", { variant: v.key, talks, lang: key })).then((table) => {
-    if (!still()) return null;
-    Lobby.setLines(table, (l) => l?.[key] || "");
-    return renderExpressions();
-  }).catch((err) => { console.error("Lobby lines failed", err); if (still()) Lobby.setLines({}, null); });
+  const lines = refreshLobbyLines(v, m, still);
   // the still is taken in the left framing, once the players have drawn a few frames of it; while the intro plays (its
   // flash and scenes are not the lobby at rest), once it has ended
   await frames(4);
@@ -1723,6 +1709,22 @@ async function showLobby(v, my, alive = () => true) {
     }).catch(renderFailed);
   } else if (!lobbyShot && !fullscreen) lobbyShot = snapshotLobby();
   await Promise.all([renderScreen(), renderExpressions(), Promise.race([lines, sleep(LINES_CAP)])]);
+}
+
+let linesRevision = 0;
+function refreshLobbyLines(v, meta, alive = () => true) {
+  const my = ++linesRevision, lang = language(), key = LINE_LANG[lang] || "en";
+  const still = () => my === linesRevision && alive() && open && tab === "lobby"
+    && variantKey === v.key && language() === lang && Lobby.meta() === meta;
+  const talks = Object.fromEntries(meta.sequences.map((sq) => [sq.anim, sq.cues.map((cue) => cue.clip)]));
+  // Change the subtitle picker immediately, retaining voice metadata while the
+  // next language's table is fetched. Pending voice cues must keep playing.
+  Lobby.setLines(undefined, (line) => line?.[key] || "");
+  return (isSpecial(v) ? Promise.resolve({}) : rpc("lobby.lines", { variant: v.key, talks, lang: key })).then((table) => {
+    if (!still()) return;
+    Lobby.setLines(table, (line) => line?.[key] || "");
+    return renderExpressions();
+  }).catch((err) => { console.error("Lobby lines failed", err); });
 }
 // the 3D chibi: loaded, its shaders compiled and its first frame drawn; the actions fill row 4 and a still of it goes
 // on the switch card
@@ -1964,6 +1966,23 @@ export function applyPrefs(prefs) {
   Lobby.setTrace(ctx?.info?.debug ? (events) => rpc("debug.trace", { events }).catch(() => {}) : null);
 }
 
+// Locale updates redraw controls around the retained scene. Do not call show,
+// renderLeft or begin here: they reset expressions, playback or capture scopes.
+export async function relabel() {
+  if (!open || !fam || !layouts) return;
+  const work = [renderScreen(), renderChips(), renderExpressions()];
+  if (tab === "lobby" && Lobby.meta()) {
+    // Network-backed dialogue is optional; it must not delay language selection.
+    refreshLobbyLines(variant(), Lobby.meta());
+  }
+  if (switchThumbnails && switchPopupPage === pageToken && !$("popup").hidden && !$("popup").querySelector(".alias-input")) {
+    const scroll = $("popup").querySelector(".popup-cards");
+    work.push(renderPopup(popupKind === "spr" ? scroll?.scrollLeft || 0 : scroll?.scrollTop || 0));
+  }
+  if (pickerSel && !$("picker").hidden) work.push(openPicker($("picker").querySelector(".popup-cards")?.scrollTop || 0));
+  await Promise.all(work);
+}
+
 // --- the previous and next student from the keyboard: the PC client's keys for the arrows (step-keys.js) ---
 // A key steps exactly like its arrow (ctx.step: the roster's cards in its order), one step at a time: the next one
 // waits until the screen shows the student the last one went to (arrived), so a held key goes at the pace the screen
@@ -2011,7 +2030,7 @@ addEventListener("keyup", (ev) => { if (KEYS[ev.key]) keySteps.release(KEYS[ev.k
 addEventListener("blur", () => keySteps.release());
 
 // show(context, familyData, variantKey, {inPlace}): open the detail screen on a variant; resolves once the screen is
-// ready (the panels, preview and decoded images, with a short allowance for thumbnails). In place (another
+// ready (the panels, primary preview and decoded UI images). In place (another
 // variant or family while the screen is shown), the shown screen stays until then and every part swaps in one frame.
 export async function show(context, familyData, key, { inPlace = false, kind = null } = {}) {
   ModAlias.close();
@@ -2054,7 +2073,7 @@ export async function show(context, familyData, key, { inPlace = false, kind = n
     await Promise.all([renderLeft(), ensureLayouts().then(() => {
       if (g.gen === showGen) return renderAll();
     }).catch(renderFailed)]);
-    await settleThumbs();
+    await settleImages();
   });
   if (ready) arrived(familyData.key, key);
   // the server's index of the lobbies' prefabs takes seconds to build the first time: built in the background once

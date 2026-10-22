@@ -32,6 +32,27 @@ test("a configured lobby reads every art layer from the library preview and keep
   } finally { globalThis.fetch = before; }
 });
 
+for (const phase of ["manifest", "metadata"]) test(`cancelling a lobby aborts its ${phase} requests`, async () => {
+  const before = globalThis.fetch, controller = new AbortController(), pending = [];
+  globalThis.fetch = (url, { signal } = {}) => {
+    assert.equal(signal, controller.signal);
+    if (phase === "metadata" && url.endsWith("manifest.json"))
+      return Promise.resolve({ ok: true, json: async () => ({ revision: "a".repeat(64) }) });
+    return new Promise((resolve, reject) => {
+      pending.push(url);
+      signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+    });
+  };
+  try {
+    const loading = Lobby.layersOf("cancel_home", "cancel_mod", null, null, { signal: controller.signal });
+    const cancelled = assert.rejects(loading, /cancelled/);
+    await new Promise(setImmediate);
+    assert.equal(pending.length, 2);
+    controller.abort(new DOMException("cancelled", "AbortError"));
+    await cancelled;
+  } finally { globalThis.fetch = before; }
+});
+
 // skeleton data with named animations of the given durations
 const data = (anims) => ({
   animations: Object.entries(anims).map(([name, duration]) => ({ name, duration })),

@@ -172,7 +172,7 @@ export function spineAssetBase(base, { signal } = {}) {
 // A cold extraction can overlap a source change after its manifest answered. Retry that composition once, with
 // the current manifest; every skeleton, atlas and page of an attempt still belongs to one revision.
 export async function loadSpineAssets(base, load, { signal } = {}) {
-  let resolved = await spineAssetBase(base);
+  let resolved = await spineAssetBase(base, { signal });
   for (let attempt = 0; ; attempt++) {
     if (signal?.aborted) return null;
     if (!resolved) throw new Error(`Spine source unavailable: ${base}`);
@@ -180,7 +180,7 @@ export async function loadSpineAssets(base, load, { signal } = {}) {
       if (signal?.aborted || attempt) throw err;
       forgetSpineAssets(base.slice(0, base.lastIndexOf("/")));
       let fresh;
-      try { fresh = await spineAssetBase(base); } catch (cause) {
+      try { fresh = await spineAssetBase(base, { signal }); } catch (cause) {
         console.warn("Cannot refresh Spine source", base, cause);
         throw err;
       }

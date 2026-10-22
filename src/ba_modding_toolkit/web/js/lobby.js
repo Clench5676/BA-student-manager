@@ -26,7 +26,7 @@ import { latestLoad, loadPlayer } from "./spine-load.js";
 import { ensureSpine } from "./spine-runtime.js";
 import { forgetSpineAssets, spineBase, spineAssetBase } from "./api.js";
 import { lobbyIdle } from "./rest-pose.js";
-import { withPreviewTimeout as withTimeout } from "./async.js";
+import { withTimeout } from "./async.js";
 import { atStep, previewError } from "./preview-error.js";
 import { T } from "./i18n.js";
 import { artBounds, containingView, overlaps, resumeRest, settle, validRect, worldBounds } from "./lobby-health.js";
@@ -70,12 +70,12 @@ const game = () => {
   return { ...v };
 };
 
-async function sourcesOf(core, mod, refresh = false) {
+async function sourcesOf(core, mod, refresh = false, signal = null) {
   const artSource = spineBase(mod ? "mod" : "lobby", mod || core), layoutSource = spineBase("lobby", core);
   // A shown tab must not inherit a manifest request that belonged to a cancelled or previous source.
   if (refresh) for (const source of new Set([artSource, layoutSource])) forgetSpineAssets(source.slice(0, source.lastIndexOf("/")));
-  const art = spineAssetBase(artSource);
-  const layout = mod ? spineAssetBase(layoutSource) : art;
+  const art = spineAssetBase(artSource, { signal });
+  const layout = mod ? spineAssetBase(layoutSource, { signal }) : art;
   const dir = (base) => base?.slice(0, base.lastIndexOf("/") + 1) || null;
   const [artBase, base] = await Promise.all([art, layout]);
   return { artBase: dir(artBase), base: dir(base) };
@@ -83,13 +83,13 @@ async function sourcesOf(core, mod, refresh = false) {
 
 // the layers of a lobby in the prefab's draw order with its offsets and scales; skeletons the prefab keeps inactive
 // (talk-only scenes) are left out. Without prefab data every skeleton sits at the standard place, backgrounds first.
-export async function layersOf(core, mod = null, sources = null, framing = null) {
-  const { artBase, base } = sources || await sourcesOf(core, mod);
+export async function layersOf(core, mod = null, sources = null, framing = null, { signal } = {}) {
+  const { artBase, base } = sources || await sourcesOf(core, mod, false, signal);
   if (!artBase) throw new Error(`Lobby source unavailable: ${core}`);
-  const read = (url) => withTimeout(fetch(url).then((r) => {
+  const read = (url) => withTimeout(fetch(url, { signal }).then((r) => {
     if (!r.ok) throw new Error(`${url}: HTTP ${r.status}`);
     return r.json();
-  }), 15000, url).catch((err) => { throw atStep(err, url, "metadata"); });
+  }), 15000, url, { signal }).catch((err) => { throw atStep(err, url, "metadata"); });
   const [files, info] = await Promise.all([
     read(`${artBase}files.json`),
     base ? read(`${base}lobby.json`) : null,
@@ -159,6 +159,45 @@ export function idleClips(info, name, idle, clip) {
 // --- painted rect P: opaque, normal-blend triangles of every layer, over a few idle poses, on a 16-unit grid ---
 const CELL = 16, SAMPLES = 6;
 const QUAD = [0, 1, 2, 2, 3, 0];
+// Geometry only, never art or a live player: bound both the retained occupancy masks and revision keys.
+function rectCache(maxBytes = 8 * 1024 * 1024, maxEntries = 24) {
+  const entries = new Map();
+  let bytes = 0;
+  const remove = (key) => { const old = entries.get(key); if (old) { bytes -= old.bytes; entries.delete(key); } };
+  return {
+    get(key) {
+      const entry = key && entries.get(key);
+      if (!entry) return null;
+      entries.delete(key); entries.set(key, entry);
+      return structuredClone(entry.value);
+    },
+    set(key, value) {
+      if (!key) return;
+      remove(key);
+      const size = key.length * 2 + (value.any?.byteLength || 0) + 1024;
+      if (size > maxBytes) return;
+      while (entries.size && (entries.size >= maxEntries || bytes + size > maxBytes)) remove(entries.keys().next().value);
+      entries.set(key, { value: structuredClone(value), bytes: size });
+      bytes += size;
+    },
+  };
+}
+const paintedRects = rectCache();
+function geometryKey(loaded, G) {
+  const { artBase, base, framing, info } = current || {};
+  // Only immutable revision URLs identify parsed skeleton/atlas content; unversioned inputs are measured afresh.
+  if (!/\/[a-f0-9]{64}\/$/.test(artBase || "") || (base && !/\/[a-f0-9]{64}\/$/.test(base))) return null;
+  // Keep every authored layer field and the resolved rest pose, including skin, transforms and ignorePins.
+  // The complete layout also covers pins, idle/clip selection and any future framing inputs.
+  return JSON.stringify([artBase, base, framing, G, info, loaded.map(({ player, ...layer }) => layer)]);
+}
+function cachedPaintedRect(loaded, G) {
+  const key = geometryKey(loaded, G), cached = paintedRects.get(key);
+  if (cached) return cached;
+  const value = paintedRect(loaded, G);
+  paintedRects.set(key, value);
+  return value;
+}
 // the grid: three game views wide and high around the game's view
 function gridOf(G) {
   return { X0: G.x - G.w, Y0: G.y - G.h, gw: Math.ceil((G.w * 3) / CELL), gh: Math.ceil((G.h * 3) / CELL) };
@@ -283,7 +322,7 @@ const BAND = 24;          // cells inside each side of P that are checked: a sce
 const CLIP_STEP = 0.1;    // s between the poses sampled from a clip
 const SLICE_MS = 8;       // the measurement runs in slices of the main thread, after the lobby is shown
 const DRAG_CLIP = /^(Pat|Look|Pinch|HandFollow|Touch)(End)?_\d+_M$/;
-const safeRects = new Map(); // lobby art and layout revisions -> safe rect, for the session
+const safeRects = rectCache(2 * 1024 * 1024); // the same source and geometry identity as the initial painted rect
 
 // The poses to check, [layer index, tracks]: every clip the lobby plays (its dialogues, the drag clips and their ends,
 // the clips the idle starts, the random idle clips and the clips they chain to) every CLIP_STEP, on its own track over
@@ -377,7 +416,7 @@ function outerOf(edge, full, sparse) {
 function measureClips() {
   const c = current, m = c?.meta;
   if (!m || m.sparse || m.safe || c.measuring || !c.loaded) return;
-  const key = `${c.artBase}|${c.base}`;
+  const key = geometryKey(c.loaded, game());
   const done = (rect) => {
     if (current !== c) return;
     c.measuring = false;
@@ -386,7 +425,8 @@ function measureClips() {
     m.whole = union(rect.whole, rectOf(m.full));
     reclamp();
   };
-  if (safeRects.has(key)) { done(safeRects.get(key)); return; }
+  const cached = safeRects.get(key);
+  if (cached) { done(cached); return; }
   c.measuring = true;
   const job = measureSafe(c.loaded, m, game());
   let busy = 0;
@@ -403,8 +443,9 @@ function measureClips() {
     }
     busy += performance.now() - from;
     if (!step.done) { setTimeout(slice, 0); return; }
-    safeRects.set(key, { ...step.value, ms: Math.round(busy) });
-    done(safeRects.get(key));
+    const rect = { ...step.value, ms: Math.round(busy) };
+    safeRects.set(key, rect);
+    done(rect);
   };
   setTimeout(slice, 0);
 }
@@ -489,7 +530,7 @@ function measure(loaded) {
   const info = current.info, G = game();
   const main = loaded.find((l) => l.name === info?.main) || loaded.find((l) => l.player.skeleton.data.findBone("Touch_Point")) || loaded[loaded.length - 1];
   const data = main.player.skeleton.data;
-  const { any, ...painted } = paintedRect(loaded, G); // any: the cells some idle pose paints
+  const { any, ...painted } = cachedPaintedRect(loaded, G); // any: the cells some idle pose paints
   // a lobby whose art covers less than half the view (a character-only mod): the game view with the old edge
   // extension and feather, measured on the skeletons' bounds
   const area = (r) => Math.max(0, r.x1 - r.x0) * Math.max(0, r.y1 - r.y0);
@@ -860,7 +901,7 @@ export function show(core, host, variant, { mod = null, framing = null } = {}) {
     const abort = () => lobbyLoads.cancel();
     sourceSignal.addEventListener("abort", abort, { once: true });
     const run = async () => {
-      let sources = await sourcesOf(core, mod, true);
+      let sources = await sourcesOf(core, mod, true, sourceSignal);
       for (let attempt = 0; ; attempt++) {
         if (stopped || sourceSignal.aborted) return null;
         if (!sources.artBase) throw atStep(new Error("Lobby source unavailable"), url.replace(/skeleton$/, "manifest.json"), "manifest");
@@ -870,7 +911,7 @@ export function show(core, host, variant, { mod = null, framing = null } = {}) {
           return await lobbyLoads.run((signal) => showNow(core, host, variant, mod, sources, signal, framing));
         } catch (err) {
           if (sourceSignal.aborted || attempt) throw err;
-          const fresh = await sourcesOf(core, mod, true);
+          const fresh = await sourcesOf(core, mod, true, sourceSignal);
           if (stopped || sourceSignal.aborted) return null;
           if (fresh.artBase === sources.artBase && fresh.base === sources.base) throw err;
           console.warn("Lobby source changed during load", url, err);
@@ -878,7 +919,7 @@ export function show(core, host, variant, { mod = null, framing = null } = {}) {
         }
       }
     };
-    try { return await withTimeout(run(), 15000, "Detail lobby"); }
+    try { return await withTimeout(run(), 15000, "Detail lobby", { signal: sourceSignal }); }
     catch (err) {
       stopped = true;
       if (!sourceSignal.aborted) {
@@ -904,7 +945,7 @@ async function showNow(core, host, variant, mod, sources, signal, framing) {
   signal.addEventListener("abort", current.cancel, { once: true });
   talkIndex = -1;
   current.ready = (async () => {
-    const { info, layers } = await layersOf(core, mod, sources, framing);
+    const { info, layers } = await layersOf(core, mod, sources, framing, { signal });
     if (signal.aborted || my !== token) return null;
     if (!layers.length) throw new Error("No lobby skeletons found");
     current.info = info;
@@ -1283,10 +1324,11 @@ export function play(anim, { fromChain = false } = {}) {
   Idle.interrupt();
   returnToIdle(p);
   talkIndex = i;
-  const my = (talk = { seq, started: performance.now() });
+  const my = (talk = { seq, started: performance.now(), cues: [] });
   for (const cue of seq.cues) {
     cueTimers.push(setTimeout(() => {
       if (talk !== my) return;
+      my.cues.push(cue.clip);
       const text = lineOf(lines[cue.clip]);
       if (text) subtitle(text);
       if (!muted && lines[cue.clip]?.voice) voice(cue.clip);
@@ -1370,8 +1412,14 @@ function silence() {
 // and the picker of the UI language's line ("" when it has none: a cue without one leaves the subtitle as it is, since
 // one row of the game's text can cover two clips)
 export function setLines(table, pick) {
-  lines = table || {};
+  // Undefined changes only the picker while translated rows load; keep voice availability for upcoming cues.
+  if (table !== undefined) lines = table || {};
   if (pick) lineOf = pick;
+  // Re-evaluate only cues already reached. A text row may cover several voice cues, so a blank later cue keeps
+  // the latest translated row. Playback, voice audio and the remaining cue timers continue unchanged.
+  let text = "";
+  for (const clip of talk?.cues || []) text = lineOf(lines[clip]) || text;
+  subtitle(text, true);
 }
 // the voice volume (0 to 1), which the clips' sounds follow too; muted never plays voices or sounds
 export function setVolume(value, mute) {
@@ -1444,10 +1492,16 @@ export const soundLog = () => Sfx.log.slice();
 export const textOf = (seq) => seq.cues.map((c) => lineOf(lines[c.clip])).filter(Boolean);
 
 // one subtitle line at a time: the old one leaves upwards and the next rises in from below
-function subtitle(text) {
+function subtitle(text, immediate = false) {
   const box = current?.host?.querySelector(".lobby-subtitle");
   if (!box) return;
   clearTimeout(subtitleTimer);
+  if (immediate) {
+    box.textContent = text;
+    box.hidden = !text;
+    box.classList.remove("in", "out");
+    return;
+  }
   const showNew = () => {
     box.textContent = text;
     box.hidden = !text;

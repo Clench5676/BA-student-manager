@@ -566,6 +566,9 @@ def test_repaired_default_name_tracks_original_alias_and_has_its_own_override(se
     stored = env.library._store({source.name: source}, "Original alias", entry.target, entry.kind,
                                 repaired_from=entry.id)
     repaired_id = stored["id"]
+    repaired = next(m for m in reload_library(env).mods() if m.id == repaired_id)
+    assert repaired.label_base == "Original alias"
+    assert repaired.to_json()["label_base"] == "Original alias"
     label = lambda: next(m.label for m in reload_library(env).mods() if m.id == repaired_id)
     assert label() == translate("webui.remap.name", name="Original alias")
     env.library.rename(entry.id, "Changed alias")
@@ -577,6 +580,7 @@ def test_repaired_default_name_tracks_original_alias_and_has_its_own_override(se
     assert label() == translate("webui.remap.name", name=entry.label)
     env.library.remove(entry.id)
     assert label() == translate("webui.remap.name", name="Original alias")
+    assert next(m for m in reload_library(env).mods() if m.id == repaired_id).label_base == "Original alias"
 
 
 @pytest.mark.parametrize("contents", ["{broken", "[]", "null", '{"version":1,"mods":null}',

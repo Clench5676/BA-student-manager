@@ -14,6 +14,25 @@ export function setStrings(appLang, table) {
 
 export const language = () => lang;
 
+// Locale tables are small and immutable for this page. Concurrent requests share a
+// read; a late reply cannot replace a newer choice or restart the media pipeline.
+export function languageRefresh({ load, refresh }) {
+  const tables = new Map();
+  let revision = 0;
+  return async (next) => {
+    const my = ++revision;
+    if (!tables.has(next)) tables.set(next, Promise.resolve().then(() => load(next)).catch((error) => {
+      tables.delete(next);
+      throw error;
+    }));
+    const table = await tables.get(next);
+    if (my !== revision) return false;
+    setStrings(next, table);
+    await refresh(next);
+    return my === revision;
+  };
+}
+
 export function T(key, vars = {}) {
   const s = strings[`webui.${key}`] ?? key;
   return s.replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? "");

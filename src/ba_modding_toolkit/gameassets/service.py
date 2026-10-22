@@ -76,13 +76,13 @@ def is_collection_art(name: str) -> bool:
     return name.startswith("BG_") or (name.startswith("Student_Portrait_") and name.endswith("_Collection"))
 
 
-def _stamp(path: str | Path) -> tuple[int, int] | None:
-    """A file's size and modification time, or None when it cannot be read."""
+def _stamp(path: str | Path) -> tuple[int, int, int] | None:
+    """A file's size, modification and change times, or None when it cannot be read."""
     try:
         stat = Path(path).stat()
     except OSError:
         return None
-    return stat.st_size, stat.st_mtime_ns
+    return stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns
 
 
 class GameAssets:
@@ -157,12 +157,34 @@ class GameAssets:
                 self._indexes[key] = value
             return self._indexes[key]
 
+    def _atlas_paths(self) -> list[Path]:
+        """Reuse discovery while directory entries are unchanged; the caller holds the atlas lock.
+
+        Resource folders are flat. Directory stamps detect added, removed and renamed bundles without enumerating
+        every game resource for each sprite. Each known atlas is still stamped separately by ``_atlas_index`` so
+        edits in place, including replacements that preserve mtime, never depend on the directory changing.
+        """
+        def directories() -> tuple:
+            return tuple((stat.st_dev, stat.st_ino, stat.st_mtime_ns, stat.st_ctime_ns)
+                         for stat in (directory.stat() for directory in self.resource_dirs))
+
+        for _ in range(2):
+            before = directories()
+            if self._indexes.get("atlas-directories") == before:
+                return self._indexes["atlas-paths"]
+            paths = list(filter(is_atlas, bundle_paths(self.resource_dirs)))
+            # Never publish a partial inventory when a download changes the directory during discovery.
+            if directories() == before:
+                self._indexes["atlas-directories"], self._indexes["atlas-paths"] = before, paths
+                return paths
+        raise AssetNotFound("UI atlas bundles changed during discovery")
+
     def _atlas_index(self) -> dict:
         # The catalog version alone does not describe the installed UI bundles (partial downloads and sandboxes).
         # Keep the inventory in the key, including replacements that preserve size and modification time.
         with self._lock("atlases"):
             try:
-                paths = list(filter(is_atlas, bundle_paths(self.resource_dirs)))
+                paths = self._atlas_paths()
                 if not paths:
                     raise AssetNotFound("No UI atlas bundles in the resource folders")
                 stamps = spine_stamps(paths)
@@ -181,7 +203,7 @@ class GameAssets:
                 if value is None:
                     value = self._scan_atlases(paths)
                     self._validate_atlases(value)
-                    if spine_stamps(list(filter(is_atlas, bundle_paths(self.resource_dirs)))) != stamps:
+                    if spine_stamps(self._atlas_paths()) != stamps:
                         raise AssetNotFound("UI atlas bundles changed during indexing")
                     self.cache.put(_SCHEMA + key, json.dumps(value).encode(), version=self.resource_version)
                 self._indexes["atlases"], self._indexes["atlas-source"] = value, key
@@ -523,15 +545,26 @@ class GameAssets:
                 stat = path.stat()
             except FileNotFoundError:
                 raise AssetNotFound(str(path)) from None
-            stamps.append((str(path), stat.st_size, stat.st_mtime_ns))
+            stamps.append((str(path), stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns))
         key = _SCHEMA + "model/" + json.dumps([core, stamps])
-        with _MODEL_LOCK:
+
+        def valid_cached() -> bytes | None:
             cached = self.cache.get(key, version=self.resource_version, disk=False)
             # the meshes, textures and clips sit in other bundles than the prefab: the entry also keeps the stamps of
             # every bundle the export read, so one changed in place (a mod install) exports again
             if cached is not None and all(stamp is not None and _stamp(path) == stamp
                                           for path, stamp in cached[1].items()):
                 return cached[0]
+            return None
+
+        # Cached models need no Unity bundle locks and must not queue behind unrelated model or lobby exports.
+        cached = valid_cached()
+        if cached is not None:
+            return cached
+        with _MODEL_LOCK:
+            cached = valid_cached()
+            if cached is not None:
+                return cached
             index = self._cab_index()
             with BundleGraph(index, overrides, fallback=lambda: self._cab_index(everything=True)) as graph:
                 data = export_chibi(graph, bundles, core)

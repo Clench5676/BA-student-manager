@@ -16,7 +16,7 @@ import * as Settings from "./settings.js";
 import * as Update from "./update.js";
 import * as ModAdd from "./mod-add.js";
 import { on, rpc, spinePrefix } from "./api.js";
-import { L, T, setStrings } from "./i18n.js";
+import { L, T, setStrings, languageRefresh } from "./i18n.js";
 import { neighbour, visit } from "./roster-order.js";
 import { hasAsset, primaryKind } from "./switch-sources.js";
 import { renderNav, setTitle } from "./nav.js";
@@ -44,6 +44,27 @@ async function timed(phase, work) {
 // the roster's cards as the list showed them when it was left (its filters, search and sort): the detail screen's
 // arrows step through these, so visits and edits on the way do not reshuffle them; taken afresh once the roster shows
 let stepCards = null;
+
+function relabelShell() {
+  document.title = T("top.students");
+  document.querySelector(".topbar .back").setAttribute("aria-label", T("a11y.back"));
+  $("fs-exit").setAttribute("aria-label", T("lobby.exit"));
+  $("top-option").setAttribute("aria-label", T("settings.button"));
+  const back = document.querySelector(".topbar .back").onclick;
+  setTitle(T(!$("screen-import").hidden ? "nav.import" : "top.students"), back);
+  Loading.relabel();
+}
+const refreshLanguage = languageRefresh({
+  load: (lang) => rpc("i18n.strings", { lang }),
+  refresh: async (lang) => {
+    info.language = lang;
+    stepCards = null;
+    relabelShell();
+    await document.fonts.ready;
+    await Promise.all([renderNav(!$("screen-import").hidden ? 1 : 0), ModSwitch.relabel(),
+      Roster.relabel(), Detail.relabel(), BatchImport.relabel()]);
+  },
+});
 
 const ctx = {
   dragged: false,
@@ -403,8 +424,9 @@ async function start() {
     libraryChanged(null);
   });
   Prompts.init({ names: variantNames });
-  const settingsChanged = (key, prefs) => {
+  const settingsChanged = async (key, prefs) => {
     ctx.prefs = prefs;
+    if (key === "language") { await refreshLanguage(prefs.language); return; }
     Detail.applyPrefs(prefs);
     if (key === "fileSource" || key.startsWith("gameDir") || key === "libraryDir" || key === "spineConsent") { stepCards = null; ctx.invalidateRoster(); route(); }
   };

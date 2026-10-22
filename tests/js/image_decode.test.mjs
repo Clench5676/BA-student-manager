@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { cssUrls, decodeAll, imageUrls } from "../../src/ba_modding_toolkit/web/js/image-decode.js";
+import { cssUrls, decodeAll, imageUrls, imageDecoder } from "../../src/ba_modding_toolkit/web/js/image-decode.js";
 
 // an element as the page has it: only its inline style matters
 const el = (backgroundImage) => ({ style: { backgroundImage } });
@@ -35,12 +35,34 @@ test("decodeAll waits for every picture and resolves with true", async () => {
   assert.deepEqual(done.sort(), ["a", "b", "slow"]);
 });
 
-test("decodeAll counts a picture that fails, or throws, as done", async () => {
+test("decodeAll settles failed pictures without claiming complete readiness", async () => {
   const decode = (url) => {
     if (url === "throws") throw new Error("no picture");
     return url === "rejects" ? Promise.reject(new Error("broken")) : Promise.resolve();
   };
-  assert.equal(await decodeAll(["ok", "rejects", "throws"], decode, 1000), true);
+  assert.equal(await decodeAll(["ok", "rejects", "throws"], decode, 1000), false);
+});
+
+test("image decoding shares in-flight work, retains images and rechecks later readiness", async () => {
+  let made = 0, calls = 0, finish;
+  const decode = imageDecoder(() => { made++; return { naturalWidth: 10, naturalHeight: 10,
+    decode() { calls++; return new Promise((resolve) => { finish = resolve; }); } }; });
+  const a = decode("a"), b = decode("a");
+  assert.equal(a, b);
+  await Promise.resolve(); finish(); await a;
+  const next = decode("a"); await Promise.resolve(); finish(); await next;
+  assert.equal(made, 1); assert.equal(calls, 2);
+});
+
+test("decoded image retention has a byte budget and failed sources can retry", async () => {
+  let made = 0, failed = true;
+  const decode = imageDecoder(() => { made++; return { naturalWidth: 10, naturalHeight: 10,
+    decode() { return this.src === "bad" && failed ? Promise.reject(new Error("decode")) : Promise.resolve(); } }; }, { maxBytes: 400 });
+  await decode("a"); await decode("b"); await decode("a");
+  assert.equal(made, 3, "old unreferenced images leave the retention cache");
+  await assert.rejects(decode("bad"), /decode/);
+  failed = false; await decode("bad");
+  assert.equal(made, 5);
 });
 
 test("decodeAll gives up after cap ms and resolves with false", async () => {

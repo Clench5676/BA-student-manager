@@ -334,6 +334,7 @@ register(`data:text/javascript,${encodeURIComponent(`export async function resol
 }`)}`);
 await import(modelStub);
 const Detail = await import("../../src/ba_modding_toolkit/web/js/detail.js");
+const localeTable = (lang) => flat(JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${lang}.json`, import.meta.url), "utf8")));
 
 test("disabled action cards never enable the dark lock cover", () => {
   const card = node("SkillData_EX"), normal = node("Normal"), cover = node("Lock_Cover"), empty = node("Empty");
@@ -446,7 +447,7 @@ test("detail waits for UI images and bounds optional thumbnails before reveal", 
   } finally { Detail.hide(); await flush(); t.mock.timers.reset(); imageMode = "ready"; optionalPending = false; }
 });
 
-test("entry cards and thumbnails publish together after every visible picture is ready", async (t) => {
+test("ready detail controls publish while optional thumbnails continue filling locally", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   try {
     family = modFamily(); family.variants[0].spr = "late_spr";
@@ -456,9 +457,9 @@ test("entry cards and thumbnails publish together after every visible picture is
     let ready = false;
     const showing = Detail.show(context, family, "ibuki").then(() => { ready = true; });
     await flush(); t.mock.timers.tick(3000); await flush();
-    assert.equal(ready, false, "the old soft thumbnail allowance cannot reveal unfinished cards");
-    assert.deepEqual(hosts.ngui.children, previous);
-    assert.deepEqual(hosts["ngui-expr"].children, previousExpressions);
+    assert.equal(ready, true, "never-settling optional thumbnails cannot hold the ready primary preview");
+    assert.notDeepEqual(hosts.ngui.children, previous);
+    assert.notDeepEqual(hosts["ngui-expr"].children, previousExpressions);
     thumbMode = "ready"; pendingThumbnails.splice(0).forEach((done) => done()); await flush();
     await finish(t, showing);
     const pictures = [hosts.ngui, hosts["ngui-expr"]].flatMap(walk).filter((e) => e.dataset.thumbnail === "true");
@@ -531,7 +532,7 @@ test("the first detail reveal waits for its preview and decoded background", asy
   }
 });
 
-test("main content and thumbnails share one complete reveal barrier", async (t) => {
+test("main preview and decoded UI remain required while optional thumbnails do not", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   try {
     family = modFamily(); family.variants[0].spr = "slow_main_spr";
@@ -543,7 +544,7 @@ test("main content and thumbnails share one complete reveal barrier", async (t) 
     playerMode = "ready"; pendingPlayers.splice(0).forEach((done) => done()); await flush();
     assert.equal(ready, false, "decoded panel backgrounds remain required");
     decodeMode = "ready"; pendingDecodes.splice(0).forEach((done) => done()); await flush();
-    assert.equal(ready, false, "entry thumbnails are still required");
+    assert.equal(ready, true, "entry thumbnails cannot extend the required-image barrier");
     thumbMode = "ready"; pendingThumbnails.splice(0).forEach((done) => done()); await flush();
     await finish(t, showing);
     assert.equal(ready, true);
@@ -1026,6 +1027,36 @@ test("repaired names and own aliases keep a separate repair tag in every locale"
   }
 });
 
+for (const parentPresent of [true, false]) test(`a loaded repaired Mod relocalizes its name with its source ${parentPresent ? "present" : "removed"}`, async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    setStrings("en-US", localeTable("en-US"));
+    thumbMode = playerMode = "ready";
+    family = modFamily("spr", "locale-repair");
+    const v = family.variants[0], repaired = v.modList[0], sourceName = parentPresent ? "Source alias" : "Stored source";
+    Object.assign(repaired, { repaired_from: "original", label_base: "Stored source",
+      label: localeTable("en-US")["webui.remap.name"].replace("{name}", sourceName) });
+    if (parentPresent) v.modList.push({ id: "original", target: v.key, kind: "spr", label: "Source alias", alias: "Source alias", repaired_id: repaired.id });
+    v.previewSources = { spr: `mod:${repaired.id}` };
+    await showPortrait(t); await switchButton().click(); await flush();
+    const players = previewPlayers.length, before = rpcRequests.length;
+    for (const alias of ["", "Own repaired alias"]) {
+      repaired.alias = alias;
+      for (const lang of ["ja-JP", "zh-CN", "en-US"]) {
+        setStrings(lang, localeTable(lang)); await Detail.relabel(); await flush();
+        const expected = alias || localeTable(lang)["webui.remap.name"].replace("{name}", sourceName);
+        assert.equal(currentCell().getAttribute("aria-label"), expected);
+        assert.equal(walk(hosts.popup).find((e) => e.dataset.path === "Details/Name").getAttribute("aria-label"), expected);
+        assert.equal(previewPlayers.length, players);
+      }
+    }
+    assert.ok(!rpcRequests.slice(before).some((r) => ["family.get", "roster.list"].includes(r.method)));
+  } finally {
+    Detail.hide(); thumbMode = "pending";
+    setStrings("en-US", localeTable("en-US")); await flush(); t.mock.timers.reset();
+  }
+});
+
 test("cancel, close, backdrop and Escape discard an alias draft without saving", async () => {
   const start = rpcRequests.length;
   for (const how of ["cancel", "close", "backdrop", "escape"]) {
@@ -1328,6 +1359,62 @@ test("re-entering a torn-down lobby rebuilds its players and keeps the Portrait 
     t.mock.timers.tick(360); await flush();
     assert.equal(hosts.portrait.hidden, false); assert.equal(hosts.lobby.hidden, true);
   } finally { Detail.hide(); lobbyMode = "pending"; playerMode = "ready"; await flush(); t.mock.timers.reset(); }
+});
+
+for (const kind of ["portrait", "lobby", "model"]) test(`repeated locale changes preserve the active ${kind} player and route`, async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    family = modFamily("spr", `locale-${kind}`);
+    family.variants[0].model = "ibuki_model";
+    family.variants[0].names.ja = { full: "Localized Ibuki", short: "Localized" };
+    lobbyMode = "ready"; playerMode = "lobby-ready"; thumbMode = "ready";
+    const showing = Detail.show(context, family, "ibuki", { kind }); await flush(); await finish(t, showing);
+    const players = previewPlayers.filter((p) => !p.disposed), modelCount = modelRequests.length;
+    const liveCount = previewPlayers.length, before = rpcRequests.length, hash = location.hash;
+    const canvases = hosts[kind].children.slice();
+    for (const lang of ["ja-JP", "en-US", "ja-JP"]) {
+      setStrings(lang, localeTable(lang));
+      await Detail.relabel(); await flush();
+      assert.equal(previewPlayers.length, liveCount, "localization cannot create a new live Spine player");
+      assert.equal(modelRequests.length, modelCount, "localization cannot reload a model");
+      assert.ok(players.every((p) => !p.disposed));
+      assert.deepEqual(hosts[kind].children, canvases, "the media DOM remains mounted");
+      assert.equal(hosts[kind].hidden, false); assert.equal(location.hash, hash);
+      const apply = walk(hosts.ngui).find((e) => e.dataset.part === `${INFO}/Skill/SkillData_EX (3)/Bg`);
+      assert.ok(apply, "the existing action remains available");
+      assert.equal(apply.attrs["aria-label"], localeTable(lang)["webui.popup.apply"]);
+    }
+    assert.ok(!rpcRequests.slice(before).some((r) => ["roster.list", "family.get", "ui.visit"].includes(r.method)), "locale refresh reuses loaded family data");
+    if (kind === "lobby") assert.equal(rpcRequests.filter((r) => r.method === "lobby.lines").at(-1).params.lang, "ja");
+  } finally {
+    Detail.hide(); lobbyMode = "pending"; playerMode = "ready"; thumbMode = "pending";
+    setStrings("en-US", localeTable("en-US")); await flush(); t.mock.timers.reset();
+  }
+});
+
+test("an open source picker relabels while keeping its unsaved selection and scroll", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    family = modFamily("spr", "localized-picker");
+    family.variants[0].previewSources = { spr: "official" };
+    thumbMode = playerMode = "ready";
+    await showPortrait(t);
+    await switchButton().click(); await flush();
+    await walk(hosts.popup).find((e) => e.dataset.key === "m:localized-picker").click(); await flush();
+    hosts.popup.querySelector(".popup-cards").scrollLeft = 185;
+    const players = previewPlayers.length;
+    setStrings("ja-JP", localeTable("ja-JP"));
+    await Detail.relabel(); await flush();
+    assert.equal(hosts.popup.querySelector(".popup-cards").scrollLeft, 185);
+    const save = walk(hosts.popup).find((e) => e.dataset.action === "ok");
+    assert.equal(save.getAttribute("aria-label"), localeTable("ja-JP")["webui.popup.save"]);
+    assert.equal(previewPlayers.length, players);
+    await finish(t, save.click());
+    assert.equal(family.variants[0].previewSources.spr, "mod:localized-picker");
+  } finally {
+    Detail.hide(); thumbMode = "pending";
+    setStrings("en-US", localeTable("en-US")); await flush(); t.mock.timers.reset();
+  }
 });
 
 

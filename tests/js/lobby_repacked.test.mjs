@@ -103,6 +103,73 @@ test("the full lobby measurement frames renamed idle art beyond the official cam
   }
 });
 
+test("revisited revision geometry matches cold painting exactly and cannot be mutated by callers", () => {
+  const source = readFileSync(new URL("../../src/ba_modding_toolkit/web/js/lobby.js", import.meta.url), "utf8");
+  const code = source.slice(source.indexOf("const CELL ="), source.indexOf("// --- the zoom-out limit"))
+    .replaceAll("export function", "function");
+  const G = { x: -1480, y: -832.5, w: 2960, h: 1665 }, revision = "a".repeat(64);
+  const env = { spine, Pins, idleOf: Lobby.idleOf };
+  const h = new Function("env", `const { ${Object.keys(env).join(", ")} } = env;
+    let current = { artBase: "/art/${revision}/", base: "/layout/${revision}/", info: {} }, calls = 0;
+    ${code}
+    const original = paintedRect;
+    paintedRect = (...args) => { calls++; return original(...args); };
+    return { paint: cachedPaintedRect, count: () => calls, set: (value) => { current = value; } };`)(env);
+  const p = player("official"), l = layer(); settle(p, l, {}, Pins.pin);
+  const loaded = [{ ...l, player: p }], first = h.paint(loaded, G), expected = structuredClone(first);
+  first.any.fill(0); first.cells.i0 += 9; first.whole.cells.j0 += 9;
+  const second = h.paint(loaded, G);
+  assert.deepEqual(second, expected);
+  assert.equal(h.count(), 1, "warm geometry skips repeated skeleton posing and triangle rasterization");
+  second.any.fill(1); assert.deepEqual(h.paint(loaded, G), expected);
+});
+
+test("geometry identity covers revisions, transforms, skins, rest poses, pins, framing and camera", () => {
+  const source = readFileSync(new URL("../../src/ba_modding_toolkit/web/js/lobby.js", import.meta.url), "utf8");
+  const helpers = source.slice(source.indexOf("function rectCache("), source.indexOf("// the grid: three game views"));
+  const h = new Function(`let current;
+    ${helpers}
+    return (context, loaded, view) => { current = context; return geometryKey(loaded, view); };`)();
+  const revision = "a".repeat(64), next = "b".repeat(64);
+  const context = { artBase: `/art/${revision}/`, base: `/layout/${revision}/`, framing: null,
+    info: { idle: { hero: "Idle_01" }, pins: [{ skeleton: "hero", bone: "root", scaleX: 1 }] } };
+  const loaded = [{ name: "hero", x: 0, y: -962, scale: 1, skin: "default", animation: "Idle_01",
+    rest: { name: "Idle_01", time: 0, bounds: { x0: 0, x1: 10, y0: 0, y1: 10 } }, ignorePins: false,
+    player: { skeleton: "live owner" } }], G = { x: -1480, y: -832.5, w: 2960, h: 1665 };
+  const key = h(context, loaded, G);
+  assert.equal(h(structuredClone(context), [{ ...loaded[0], player: {} }], { ...G }), key,
+    "fresh live players reuse geometry from identical immutable sources");
+  for (const [field, value] of Object.entries({ x: 1, y: -961, scale: 2, skin: "other", animation: "Idle_02",
+    rest: { ...loaded[0].rest, time: 0.5 }, ignorePins: true }))
+    assert.notEqual(h(context, [{ ...loaded[0], [field]: value }], G), key, field);
+  for (const changed of [{ ...context, artBase: `/art/${next}/` }, { ...context, base: `/layout/${next}/` },
+    { ...context, framing: "scene" }, { ...context, info: { ...context.info, pins: [] } },
+    { ...context, info: { ...context.info, idle: { hero: "Idle_02" } } }])
+    assert.notEqual(h(changed, loaded, G), key);
+  assert.notEqual(h(context, loaded, { ...G, w: G.w + 1 }), key);
+  assert.equal(h({ ...context, artBase: "/art/unversioned/" }, loaded, G), null);
+  assert.equal(h({ ...context, base: "/layout/unversioned/" }, loaded, G), null);
+});
+
+test("geometry caches bound memory, evict least recently used entries and clone typed masks", () => {
+  const source = readFileSync(new URL("../../src/ba_modding_toolkit/web/js/lobby.js", import.meta.url), "utf8");
+  const rectCache = new Function(`${source.slice(source.indexOf("function rectCache("), source.indexOf("const paintedRects ="))}
+    return rectCache;`)();
+  const value = { any: new Uint8Array(16).fill(1), cells: { i0: 1 }, whole: { cells: { i0: 2 } } };
+  const cache = rectCache(4096, 2);
+  cache.set("a", value); cache.set("b", value);
+  cache.get("a"); cache.set("c", value);
+  assert.equal(cache.get("b"), null); assert.deepEqual(cache.get("a"), value); assert.deepEqual(cache.get("c"), value);
+  value.any.fill(0); value.cells.i0 = 9;
+  assert.equal(cache.get("a").any[0], 1); assert.equal(cache.get("a").cells.i0, 1);
+  const bytes = rectCache(2200, 10);
+  bytes.set("a", value); bytes.set("b", value); bytes.set("c", value);
+  assert.equal(bytes.get("a"), null); assert.ok(bytes.get("b")); assert.ok(bytes.get("c"));
+  bytes.set("huge", { any: new Uint8Array(4096) }); assert.equal(bytes.get("huge"), null);
+  assert.ok(bytes.get("b"), "an oversize result does not evict unrelated usable geometry");
+  bytes.set(null, value); assert.equal(bytes.get(null), null);
+});
+
 test("stale pins and skin names cannot erase otherwise drawable repacked art", () => {
   const p = player("repacked"), l = { ...layer(), skin: "official-only" };
   settle(p, l, { pins: [{ skeleton: l.name, bone: "root", scaleX: 0, scaleY: 0 }] }, Pins.pin);

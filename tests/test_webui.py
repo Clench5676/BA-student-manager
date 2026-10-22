@@ -148,6 +148,11 @@ class FakeLibrary:
     def configured(self, key, pin=None):
         return {"spr": None, "lobby": None}
 
+    def roster_snapshot(self, keys):
+        pin = self.current_pin()
+        return {"install": pin.key if pin else None, "mods": self.mods(), "favorites": self.favorites(),
+                "modified": self.modified(), "configured": {key: self.configured(key) for key in keys}}
+
     def apply(self, variant_key, source, log, progress, kind="spr", pin=None):
         log("applying")
         progress(1, 1, variant_key)
@@ -339,10 +344,77 @@ def test_library_counts_and_configured_sources_reach_roster_and_family(app, serv
             assert v["mods"] == 4
             assert v["modCounts"] == {"spr": 3, "lobby": 1}
             assert v["configured"] == configured
-            assert v["selection"] == selection
+        assert "selection" not in roster["variants"][0]
+        assert family["variants"][0]["selection"] == selection
     monkeypatch.setattr(services.library, "mods", lambda: [])
     v = rpc(app, "roster.list")["result"]["families"][0]["variants"][0]
     assert v["mods"] == 0 and v["modCounts"] == {"spr": 0, "lobby": 0}
+
+
+def test_roster_uses_one_snapshot_and_validates_saved_previews_without_library_reads(app, services, monkeypatch):
+    variants = [FakeVariant(f"v{i}", "hoshino", spr=f"v{i}_spr", lobby=f"v{i}_home", model=f"ch{i:04}")
+                for i in range(100)]
+    services.catalog.f.variants = variants
+    mods = [FakeMod(f"m{i}", v.key) for i, v in enumerate(variants)]
+    mods += [FakeMod("lobby", "v0", kind="lobby"), FakeMod("model", "v0", kind="model")]
+    choices = {v.key: {"spr": "mod:m0", "lobby": None, "model": None} for v in variants}
+    calls = []
+
+    def snapshot(keys):
+        calls.append(keys)
+        return {"install": "current", "mods": mods, "favorites": {"v1"}, "configured": choices,
+                "modified": {"v2": "mod:m2"}}
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("The roster must use its snapshot instead of per-variant library or UI-state reads")
+
+    monkeypatch.setattr(services.library, "roster_snapshot", snapshot)
+    for name in ("current_pin", "mods", "configured", "selection", "modified", "favorites"):
+        monkeypatch.setattr(services.library, name, forbidden)
+    monkeypatch.setattr(services.state, "preview_sources", forbidden)
+    services.state.set_preview_source("another-install", "v0", "spr", "official")
+    for i, v in enumerate(variants):
+        services.state.set_preview_source("current", v.key, "spr", f"mod:m{i}")
+    services.state.set_preview_source("current", "v0", "lobby", "mod:lobby")
+    services.state.set_preview_source("current", "v0", "model", "mod:model")
+    services.state.set_preview_source("current", "v1", "lobby", "mod:lobby")
+    services.state.set_preview_source("current", "v1", "model", "mod:m1")
+    services.state.set_preview_source("current", "v2", "spr", "variant:v3")
+    services.state.set_preview_source("current", "v3", "spr", "mod:deleted")
+    services.state.set_preview_source("current", "v4", "spr", "official")
+    services.state.set_preview_source("current", "removed-variant", "spr", "official")
+    reads = []
+    preview_snapshot = services.state.preview_snapshot
+
+    def previews(install):
+        reads.append(install)
+        return preview_snapshot(install)
+
+    monkeypatch.setattr(services.state, "preview_snapshot", previews)
+    result = rpc(app, "roster.list")["result"]["families"][0]["variants"]
+    assert calls == [[v.key for v in variants]] and reads == ["current"]
+    assert all(v["configured"] == choices[v["key"]] and "selection" not in v for v in result)
+    assert result[0]["previewSources"] == {"spr": "mod:m0", "lobby": "mod:lobby", "model": "mod:model"}
+    assert result[1]["previewSources"] == {"spr": "mod:m1"} and result[1]["favorite"]
+    assert result[2]["previewSources"] == {"spr": "variant:v3"} and result[2]["replaced"] == "mod:m2"
+    assert result[3]["previewSources"] == {} and result[4]["previewSources"] == {"spr": "official"}
+    assert result[99]["previewSources"] == {"spr": "mod:m99"}
+
+
+def test_preview_snapshot_filters_malformed_choices_and_does_not_share_state(tmp_path):
+    path = tmp_path / "webui.json"
+    path.write_text(json.dumps({"asset_previews": {"current": {
+        "valid": {"spr": "official", "lobby": "mod:one", "model": "mod:two", "future": "ignored"},
+        "bad-sources": {"spr": None, "lobby": False, "model": 1}, "bad-variant": [],
+    }, "bad-folder": []}}))
+    state = UiState(path)
+    snapshot = state.preview_snapshot("current")
+    assert snapshot == {"valid": {"spr": "official", "lobby": "mod:one", "model": "mod:two"}, "bad-sources": {}}
+    snapshot["valid"]["spr"] = "mod:changed"
+    assert state.preview_sources("current", "valid")["spr"] == "official"
+    assert state.preview_snapshot("missing") == state.preview_snapshot("bad-folder") == {}
+    UiState(path).set_preview_source("current", "valid", "spr", "mod:external")
+    assert state.preview_snapshot("current")["valid"]["spr"] == "mod:external"
 
 
 def mod_marks(app):
@@ -1453,11 +1525,15 @@ def test_settings_change_waits_for_the_running_job(services):
 
 
 def test_every_service_error_has_a_string():
+    import os
     import re
     root = Path(__file__).resolve().parents[1] / "src" / "ba_modding_toolkit"
     codes = set()
-    for path in root.rglob("*.py"):
-        codes |= set(re.findall(r'ServiceError\("([a-z_]+)"', path.read_text(encoding="utf-8")))
+    for folder, directories, names in os.walk(root):
+        directories[:] = [name for name in directories if not name.startswith(".")]
+        for name in names:
+            if name.endswith(".py"):
+                codes |= set(re.findall(r'ServiceError\("([a-z_]+)"', (Path(folder) / name).read_text(encoding="utf-8")))
     for lang in offered_languages():
         strings = ui_strings(lang)
         assert not [c for c in sorted(codes) if f"webui.error.{c}" not in strings], lang

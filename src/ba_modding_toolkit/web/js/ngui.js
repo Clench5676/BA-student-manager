@@ -8,7 +8,7 @@
 import { labelEffect, labelClipPadding } from "./ngui-label.js";
 import { clipButtonPatterns } from "./button-layout.js";
 import { spriteUrl, uiExportUrl } from "./api.js";
-import { decodeAll, imageUrls } from "./image-decode.js";
+import { decodeAll, imageUrls, imageDecoder } from "./image-decode.js";
 import { withTimeout } from "./async.js";
 import { spriteBorders, sliceAxis } from "./sprite-slices.js";
 
@@ -466,13 +466,13 @@ export const rect = (el) => ["left", "top", "width", "height"].map((k) => parseF
 // screen about to show (see image-decode.js); resolves after cap ms at the latest. A picture still being made (a
 // thumbnail) has no background yet and fills in later as before. shown: an element whose pictures are on screen now,
 // so decoded already; they are left out (a Chromium decode() takes a frame or two even then).
+const decodeImage = imageDecoder(() => new Image());
 export function decoded(root, cap, shown = null, { signal } = {}) {
   const onScreen = shown?.isConnected && shown.getClientRects().length ? imageUrls(shown.querySelectorAll("*")) : [];
   const skip = new Set(onScreen);
   const elements = Array.isArray(root) ? root : [root, ...root.querySelectorAll("*")];
   const urls = imageUrls(elements).filter((url) => !skip.has(url));
-  const decode = (url) => { const img = new Image(); img.src = url; return img.decode(); };
-  return decodeAll(urls, decode, cap, { signal });
+  return decodeAll(urls, decodeImage, cap, { signal });
 }
 
 // a plain node, for building widgets by hand: node("Name", [x, y], [widget], [children])

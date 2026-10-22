@@ -298,12 +298,14 @@ async function renderRow(host, rowKey) {
     if (hasAsset(it.e)) hit.addEventListener("click", () => { if (!ctx.dragged) location.hash = `#/student/${encodeURIComponent(it.e.family)}/${encodeURIComponent(it.e.key)}`; });
     else hit.disabled = true;
     row.appendChild(hit);
-    jobs.push(NGUI.render(t, row, { scale: S, origin: ORIGIN, z: 100, textures: tex ? { Char_Portrait: tex } : {} }).then(async (view) => {
+    jobs.push(NGUI.render(t, row, { scale: S, origin: ORIGIN, z: 100, deferImages: true, textures: tex ? { Char_Portrait: tex } : {} }).then(async (view) => {
       await clipRosterBand(view, t.name); return view;
     }));
   }
   row.ready = Promise.all(jobs).then(async (views) => {
-    await Promise.all(views.flatMap((v) => v.pictures));
+    // Generated portraits fill their existing cards independently. Only the
+    // prefab and directly available pictures belong to the navigation barrier.
+    await Promise.all(views.flatMap((v) => v.images));
   });
   await row.ready;
 }
@@ -564,7 +566,7 @@ async function buildFrame(my) {
   hit([lay.sort, TOOL_Y, lay.sortW, 116], openDisplay, T("display.title")).addEventListener("pointerenter", () => Display.warm());
   hit([lay.order, TOOL_Y, 243, 116], flipOrder, T(view.order === "desc" ? "roster.desc" : "roster.asc"));
 
-  // The visible cards and their portraits finish behind the loading cover.
+  // The visible card frames finish before reveal; generated portraits fill locally.
   rendered = new Map();
   dom = { clip, scrollHost, bar, empty };
   items = layoutItems();
@@ -598,9 +600,8 @@ function warm() {
   }, 2500);
 }
 
-// show the roster; data comes from roster.list (re-read when invalidated). Resolves once the list is ready to be seen,
-// built and its pictures decoded: the caller builds it behind the screen still shown and then shows it, so its first
-// frame is complete.
+// Show the roster from its saved data. Required UI and available pictures decode
+// before reveal; generated previews can continue without blocking navigation.
 export async function show(context, rosterData) {
   if (thumbnailWork.signal.aborted) thumbnailWork = thumbnailScope();
   prioritise(null);
@@ -626,4 +627,17 @@ export async function show(context, rosterData) {
 export function hide() {
   thumbnailWork.cancel();
   dirty = true;
+}
+
+// Names and name-based ordering come from the already loaded multilingual data.
+// Reuse the thumbnail scope/cache; a language change never needs roster.list.
+export async function relabel() {
+  dirty = true;
+  if (!data || !layouts || $("screen-roster").hidden) return;
+  if (searchEl) {
+    searchEl.placeholder = T("roster.searchHint");
+    searchEl.setAttribute("aria-label", T("roster.search"));
+  }
+  await renderAll();
+  dirty = false;
 }

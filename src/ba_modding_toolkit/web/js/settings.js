@@ -312,13 +312,21 @@ async function checkUpdate(event) {
   }
 }
 
-async function set(key, value) {
+let languageWrite = Promise.resolve();
+function set(key, value) {
+  if (key !== "language") return saveSetting(key, value);
+  // Keep persisted language and visible strings in the same order when several
+  // radio choices are clicked before the preceding request finishes.
+  const saved = languageWrite.then(() => saveSetting(key, value));
+  languageWrite = saved.catch(() => {});
+  return saved;
+}
+async function saveSetting(key, value) {
   const next = await call(() => rpc("settings.set", { key, value }));
   if (!next) return;
   prefs = next;
-  if (key === "language") { location.reload(); return; }
-  onChange?.(key, next);
-  render();
+  await call(() => onChange?.(key, next));
+  await render();
   return next;
 }
 

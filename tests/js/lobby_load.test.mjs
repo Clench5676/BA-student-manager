@@ -287,20 +287,25 @@ test("zoom limits are cached by both the configured art revision and the live la
     measureSafe: function* (loaded) { measured.push(loaded[0]); return { whole: {} }; },
   };
   const measure = new Function("env", `const { ${Object.keys(env).join(", ")} } = env;
-    const safeRects = new Map(); let current;
+    let current;
+    ${source.slice(source.indexOf("function rectCache("), source.indexOf("// the grid: three game views"))}
+    const safeRects = rectCache();
     ${code}
-    return (artBase, base) => {
-      current = { artBase, base, loaded: [artBase], meta: { full: {} } };
+    return (artBase, base, extra = {}) => {
+      current = { artBase, base, loaded: [{ name: "hero", x: 0, y: 0, scale: 1, player: {} }], meta: { full: {} }, ...extra };
       measureClips();
       return current.meta;
     };`)(env);
-  assert.ok(measure("mod-a/first/", "layout/first/").safe);
-  assert.ok(measure("mod-b/first/", "layout/first/").safe);
-  assert.ok(measure("mod-b/second/", "layout/first/").safe);
-  assert.ok(measure("mod-b/second/", "layout/second/").safe);
+  const first = `${"a".repeat(64)}/`, second = `${"b".repeat(64)}/`;
+  assert.ok(measure(`mod-a/${first}`, `layout/${first}`).safe);
+  assert.ok(measure(`mod-b/${first}`, `layout/${first}`).safe);
+  assert.ok(measure(`mod-b/${second}`, `layout/${first}`).safe);
+  assert.ok(measure(`mod-b/${second}`, `layout/${second}`).safe);
   assert.equal(measured.length, 4, "changing either source measures its own limits");
-  assert.ok(measure("mod-a/first/", "layout/first/").safe);
+  assert.ok(measure(`mod-a/${first}`, `layout/${first}`).safe);
   assert.equal(measured.length, 4, "revisiting the same two sources reuses their limits");
+  assert.ok(measure(`mod-a/${first}`, `layout/${first}`, { info: { pins: [{ bone: "root", scaleX: 0.5 }] } }).safe);
+  assert.equal(measured.length, 5, "changed pin configuration never reuses earlier clip limits");
 });
 
 for (const framing of [null, "character", "scene"]) test(`context recovery rebuilds the complete lobby with framing ${framing}`, async () => {

@@ -24,7 +24,7 @@ class El {
   remove() {}
 }
 
-function harness(kind = "spr") {
+function harness(kind = "spr", generated = false) {
   const requested = [], host = new El(), pictures = new Map(), renders = new Map();
   const rows = new Map([0, 70, 150].map((top, key) => {
     pictures.set(key, deferred()); renders.set(key, deferred());
@@ -40,7 +40,7 @@ function harness(kind = "spr") {
     NGUI: { render: async (tree) => {
       requested.push(tree.key);
       await renders.get(tree.key).promise;
-      return { pictures: [pictures.get(tree.key).promise] };
+      return { images: generated ? [] : [pictures.get(tree.key).promise], pictures: [pictures.get(tree.key).promise] };
     } },
   };
   const api = new Function("env", `const { ${Object.keys(env).join(", ")} } = env;
@@ -60,6 +60,18 @@ test("roster cards keep their full accessible name and counts without a hover ti
   assert.equal(card.attrs.title, undefined);
   for (const key of [0, 1]) { h.renders.get(key).resolve(); h.pictures.get(key).resolve(); }
   await pending;
+});
+
+for (const kind of ["spr", "lobby"]) test(`pending generated ${kind} thumbnails do not hold roster interaction`, async () => {
+  const h = harness(kind, true);
+  let ready = false;
+  const showing = h.syncRows().then(() => { ready = true; });
+  await flush();
+  assert.equal(ready, false, "prefab construction still precedes reveal");
+  for (const key of [0, 1]) h.renders.get(key).resolve();
+  await showing;
+  assert.equal(ready, true, "unresolved generated thumbnails remain local to each card");
+  assert.deepEqual(h.requested, [0, 1, 2]);
 });
 
 test("leaving the roster cancels overscan queued behind the visible rows", async () => {

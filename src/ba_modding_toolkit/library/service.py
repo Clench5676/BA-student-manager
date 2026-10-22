@@ -708,7 +708,8 @@ class ModLibrary:
                         record["added"], not record["seen"], sum(p.stat().st_size for p in paths),
                         parsed.date, parsed.crc, core_of(paths[0].name),
                         repaired_from=record.get("repaired_from", ""), repaired_id=record.get("repaired_id", ""),
-                        user_added=record.get("user_added") is True, alias=record.get("alias", ""))
+                        user_added=record.get("user_added") is True, alias=record.get("alias", ""),
+                        label_base=record["label"])
 
     def _label(self, record: dict[str, Any], seen: frozenset[str] = frozenset()) -> str:
         """Resolve internal aliases and repaired names without touching bundle names or bytes."""
@@ -1689,7 +1690,8 @@ class ModLibrary:
         cached = self._maps.get(pin.key)
         if cached and cached[0] == built_for:
             return cached[1]
-        slots = [parse_filename(paths[0].name) for core in index if (paths := self._spine_parts(core, pin))]
+        slots = [parse_filename(path.name) for paths in index.values()
+                 if (path := next((part for part in paths if kind_of_file(part.name)), None)) is not None]
         spr = [slot.core for slot in slots if kind_of(slot.core, slot.category) == "spr"]
         lobby = [slot.core for slot in slots if kind_of(slot.core, slot.category) == "lobby"]
         special = [slot.core for slot in slots if kind_of(slot.core, slot.category) == "lobby" and
@@ -2232,9 +2234,39 @@ class ModLibrary:
         variant = self._variant(variant_key)
         pin = self._current(pin)
         folder = (((self.profiles.read() or {}).get("folders") or {}).get(pin.key) or {}).get("configured") or {}
+        return self._configured_sources(variant, folder)
+
+    @staticmethod
+    def _configured_sources(variant: Any, folder: dict) -> dict[str, str | None]:
         return {kind: (folder.get(value.lower()) or {}).get("source") if value else None
                 for kind, value in (("spr", variant.spr), ("lobby", variant.lobby), ("model", getattr(variant, "model", None)))
                 if kind != "model" or hasattr(variant, "model")}
+
+    @_serialized
+    def roster_snapshot(self, variant_keys: list[str]) -> dict[str, Any]:
+        """Read one install and configuration for the whole roster under the library lock.
+
+        The roster needs manifest intent and cheap replacement checks, not physical
+        installation verification. Detailed selection errors and byte verification
+        remain in ``selection`` for the detail screen and write operations.
+        """
+        pin = self.current_pin()
+        config = self.profiles.read() if pin is not None else None
+        folder = ((config or {}).get("folders") or {}).get(pin.key) if pin else None
+        choices = (folder or {}).get("configured") or {}
+        configured = {}
+        for key in variant_keys:
+            try:
+                configured[key] = self._configured_sources(self._variant(key), choices) if pin else {"spr": None, "lobby": None}
+            except ServiceError:
+                configured[key] = {"spr": None, "lobby": None}
+        modified = {}
+        if pin is not None:
+            allow = "scan" if self._scan_allowed() else "recorded"
+            modified = self._modified(pin, _View(self, [pin], config, allow))
+        return {"install": pin.key if pin else None,
+                "mods": [self._entry(record) for record in self._records.values()],
+                "favorites": set(self._favorites), "configured": configured, "modified": modified}
 
     @_serialized
     def selection(self, variant_key: str, pin: Pin | None = None) -> dict[str, dict]:
@@ -2297,15 +2329,19 @@ class ModLibrary:
             return {}
         allowed = self._scan_allowed()
         view = self._view([pin], "scan" if allowed else "recorded")
+        return self._modified(pin, view)
+
+    def _modified(self, pin: Pin, view: _View) -> dict[str, str]:
         out: dict[str, str] = {}
         for core, paths in view.indexes[pin.key].items():
             variant = self.catalog.variant_for_core(core)
             if variant is None or (not core.endswith("_spr") and not getattr(variant, "spine_category", None)):
                 continue
+            kind = next((kind for path in paths if (kind := kind_of_file(path.name))), None) or "spr"
             sources = set()
             for path in paths:
                 try:
-                    part = view.part(path, pin, self._kind(core, pin) or "spr")
+                    part = view.part(path, pin, kind)
                 except (_Unread, OSError):
                     continue
                 if not part.official and part.carried != "damaged":

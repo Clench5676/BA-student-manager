@@ -222,6 +222,15 @@ class UiState:
         return {kind: source for kind, source in sources.items()
                 if kind in ("spr", "lobby", "model") and isinstance(source, str)} if isinstance(sources, dict) else {}
 
+    def preview_snapshot(self, install: str) -> dict[str, dict[str, str]]:
+        """Read all saved view choices of one install once, detached from mutable state."""
+        data = self._current().get("asset_previews", {})
+        folder = data.get(install, {}) if isinstance(data, dict) else {}
+        return {variant: {kind: source for kind, source in sources.items()
+                          if kind in ("spr", "lobby", "model") and isinstance(source, str)}
+                for variant, sources in folder.items() if isinstance(variant, str) and isinstance(sources, dict)
+                } if isinstance(folder, dict) else {}
+
     def set_preview_source(self, install: str, variant: str, kind: str, source: str) -> None:
         """Remember a view choice independently of the library's game configuration."""
         def change(data: dict[str, Any]) -> None:

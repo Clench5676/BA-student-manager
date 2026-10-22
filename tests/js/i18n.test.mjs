@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 globalThis.document = { documentElement: { lang: "" } };
-const { L, NAME_LANG, T, language, nameKeys, setStrings } = await import("../../src/ba_modding_toolkit/web/js/i18n.js");
+const { L, NAME_LANG, T, language, nameKeys, setStrings, languageRefresh } = await import("../../src/ba_modding_toolkit/web/js/i18n.js");
 
 const names = { "zh-CN": "星野", "zh-TW": "星野", en: "Hoshino", ja: "ホシノ", ko: "호시노" };
 
@@ -47,4 +47,40 @@ test("strings are looked up with their variables", () => {
   setStrings("ko-KR", { "webui.hello": "{name} 안녕" });
   assert.equal(T("hello", { name: "호시노" }), "호시노 안녕");
   assert.equal(T("missing"), "missing");
+});
+
+test("repeated language selection reuses tables and only refreshes retained UI", async () => {
+  const loaded = [], refreshed = [];
+  const player = { frame: 42 }, route = "#/student/ako/ako/lobby";
+  const change = languageRefresh({ load: async (lang) => { loaded.push(lang); return { "webui.caption": lang }; },
+    refresh: async (lang) => { refreshed.push([lang, T("caption"), player, route]); } });
+  for (const lang of ["en-US", "ja-JP", "en-US", "ja-JP"]) assert.equal(await change(lang), true);
+  assert.deepEqual(loaded, ["en-US", "ja-JP"]);
+  assert.deepEqual(refreshed.map(([lang, text]) => [lang, text]), [["en-US", "en-US"], ["ja-JP", "ja-JP"], ["en-US", "en-US"], ["ja-JP", "ja-JP"]]);
+  assert.ok(refreshed.every(([, , kept, hash]) => kept === player && hash === route));
+  assert.equal(player.frame, 42);
+});
+
+test("a late locale response cannot revert a newer selected language", async () => {
+  const replies = new Map(), refreshed = [];
+  const change = languageRefresh({ load: (lang) => new Promise((resolve) => replies.set(lang, resolve)), refresh: (lang) => refreshed.push(lang) });
+  const first = change("en-US"), second = change("ja-JP");
+  await Promise.resolve();
+  replies.get("ja-JP")({ "webui.caption": "new" });
+  assert.equal(await second, true);
+  replies.get("en-US")({ "webui.caption": "old" });
+  assert.equal(await first, false);
+  assert.equal(language(), "ja-JP");
+  assert.equal(T("caption"), "new");
+  assert.deepEqual(refreshed, ["ja-JP"]);
+});
+
+test("a failed locale read preserves the active table and can be retried", async () => {
+  setStrings("en-US", { "webui.caption": "retained" });
+  let attempts = 0;
+  const change = languageRefresh({ load: async () => { if (++attempts === 1) throw new Error("offline"); return { "webui.caption": "retried" }; }, refresh() {} });
+  await assert.rejects(change("ja-JP"), /offline/);
+  assert.equal(T("caption"), "retained");
+  await change("ja-JP");
+  assert.equal(T("caption"), "retried");
 });

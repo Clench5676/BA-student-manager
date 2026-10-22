@@ -261,14 +261,15 @@ test("a navigation cannot leave an existing strict hold blocking pencils without
   const click = event(); stage.listeners.click(click); assert.equal(click.stopped, false);
 });
 
-test("a detail preview transition blocks Back and popup input until its atomic swap", async () => {
+test("a read-only preview keeps Back and popups available while guarding other inputs", async () => {
   const work = deferred(), back = new El(); back.back = true;
   const popup = new El(); popup.className = "popup-host";
   const changing = Loading.page(async () => work.promise);
   await new Promise(setImmediate);
   try {
-    for (const target of [back, popup, new El()]) {
-      const click = event(target); stage.listeners.click(click); assert.equal(click.stopped, true);
+    for (const target of [back, popup]) {
+      const click = event(target); stage.listeners.click(click); assert.equal(click.stopped, false);
     }
+    const click = event(new El()); stage.listeners.click(click); assert.equal(click.stopped, true);
   } finally { work.resolve(); await changing; }
 });

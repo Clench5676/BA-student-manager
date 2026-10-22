@@ -157,13 +157,13 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
     label.append(graphic, input);
     let previous = null;
     const refresh = () => {
-      const key = String(input.checked); if (key === previous) return; previous = key;
+      const key = JSON.stringify([caption, input.checked]); if (key === previous) return; previous = key;
       const tree = art.toggle(caption, input.checked), body = tree.widgets.find((w) => "sprite" in w);
       label.style.width = `${body.w_ * S}px`; label.style.height = `${body.h_ * S}px`;
       paint(graphic, tree, { origin: [0, body.h_ * S / 2] });
     };
     input.addEventListener("change", () => { onChange(input.checked); refresh(); }); refresh();
-    return { label, input, refresh };
+    return { label, input, refresh, relabel(value) { caption = value; input.setAttribute("aria-label", value); refresh(); } };
   }
   // Match roster.js's native input and clear hit area to the rendered prefab labels/icons.
   function inputControl(caption, value, { type = "text", width = 650, search = false } = {}) {
@@ -537,6 +537,22 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
     renderRows(); renderPreview();
   }
 
+  function relabel() {
+    identities = new WeakMap();
+    rowsKey = previewKey = countsKey = null;
+    for (const row of rows.values()) row.signature = null;
+    if (!root) return;
+    dom.search.placeholder = T("import.search");
+    dom.search.setAttribute("aria-label", T("import.search"));
+    dom.searchToggle.setAttribute("aria-label", T("import.search"));
+    dom.searchWrap.querySelector("button")?.setAttribute("aria-label", T("display.reset"));
+    dom.list.setAttribute("aria-label", T("import.list"));
+    dom.merge.relabel(T("import.merge"));
+    for (const [key, label] of [["files", "addFiles"], ["folder", "addFolder"], ["all", "all"], ["none", "none"],
+      ["remove", "remove"], ["clear", "clear"], ["options", "options.title"], ["recheck", "recheck"]]) setCaption(dom[key], T(`import.${label}`));
+    render();
+  }
+
   const start = () => model.start();
   // Popup.message adds UIPopup_GachaCharList/Btn_Checkbox to the same Sort frame for recursive scanning.
   async function pickFolder() {
@@ -724,7 +740,7 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
     },
     hide() { visible = false; generation++; leave(); wake(); scope?.cancel(); dialogClose?.(); model.leave(); },
     drop(paths) { return model.add(paths); },
-    openOptions, results,
+    openOptions, results, relabel,
     async settled() { await Promise.all([...drawings]); },
   };
 }
@@ -737,3 +753,4 @@ export function show(context, data) {
 export function hide() { page?.hide(); }
 export function drop(paths) { return page?.drop(paths); }
 export function invalidate() { page?.model.invalidate(); }
+export function relabel() { return page?.relabel(); }

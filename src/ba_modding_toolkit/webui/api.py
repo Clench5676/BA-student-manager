@@ -419,7 +419,8 @@ def build_api(s: Services) -> RpcRegistry:
         return s.state.aliases(targets)
 
     def variant_json(v: Any, mods: dict[str, list], favorites: set[str], recent: list[str], seen: set[str] | None,
-                     modified: dict[str, str] | None = None, custom: dict[str, list[str]] | None = None) -> dict[str, Any]:
+                     modified: dict[str, str] | None = None, custom: dict[str, list[str]] | None = None,
+                     roster_state: dict[str, Any] | None = None) -> dict[str, Any]:
         own = mods.get(v.key, [])
         return {
             "custom": (custom or {}).get(v.key, []),
@@ -436,9 +437,10 @@ def build_api(s: Services) -> RpcRegistry:
             "fresh": seen is not None and any(m.user_added and m.id not in seen for m in own),
             "modCounts": {kind: len({getattr(m, "repaired_from", "") or m.id for m in own if m.kind == kind})
                           for kind in ("spr", "lobby")},
-            "configured": configured_of(v.key),
-            "previewSources": preview_sources_of(v.key),
-            "selection": selection_of(v.key),
+            **({"configured": roster_state["configured"][v.key],
+                "previewSources": roster_state["previews"].get(v.key, {})} if roster_state is not None else {
+                    "configured": configured_of(v.key), "previewSources": preview_sources_of(v.key),
+                    "selection": selection_of(v.key)}),
             # when the newest of its own mods was added (ISO), for the roster's "recently added" sort
             "added": max((m.added for m in own if getattr(m, "added", None)), default=None),
             "recent": recent.index(v.key) if v.key in recent else None,
@@ -446,9 +448,9 @@ def build_api(s: Services) -> RpcRegistry:
             "replaced": (modified or {}).get(v.key),
         }
 
-    def mods_by_target() -> dict[str, list]:
+    def mods_by_target(entries: list | None = None) -> dict[str, list]:
         out: dict[str, list] = {}
-        for m in s.library.mods():
+        for m in s.library.mods() if entries is None else entries:
             out.setdefault(m.target, []).append(m)
         return out
 
@@ -457,14 +459,20 @@ def build_api(s: Services) -> RpcRegistry:
     def roster_list() -> dict[str, Any]:
         if not s.game_found():
             raise ServiceError("game_not_found")
-        mods, favorites, recent = mods_by_target(), s.library.favorites(), s.state.recent()
-        modified, custom = s.library.modified(), variant_aliases()
+        catalog_families = s.catalog.families()
+        snapshot = s.library.roster_snapshot([v.key for f in catalog_families for v in f.variants])
+        mods, favorites, recent = mods_by_target(snapshot["mods"]), snapshot["favorites"], s.state.recent()
+        modified, custom = snapshot["modified"], variant_aliases()
+        previews = s.state.preview_snapshot(snapshot["install"]) if snapshot["install"] is not None else {}
+        by_id = {mod.id: mod for mod in snapshot["mods"]}
+        snapshot["previews"] = {key: valid_preview_sources(key, sources, by_id) for key, sources in previews.items()}
         seen = s.state.seen_mods()
         families = []
-        for f in s.catalog.families():
+        for f in catalog_families:
             families.append({"key": f.key, "base": f.names, "aliases": f.aliases,
                              "school": f.school,
-                             "variants": [variant_json(v, mods, favorites, recent, seen, modified, custom) for v in f.variants]})
+                             "variants": [variant_json(v, mods, favorites, recent, seen, modified, custom, snapshot)
+                                          for v in f.variants]})
         return {"families": families}
 
     def model_files(core: str | None) -> list[dict[str, Any]]:
@@ -503,7 +511,7 @@ def build_api(s: Services) -> RpcRegistry:
         except ServiceError:
             return {}
 
-    def preview_source_valid(variant: str, kind: str, source: str) -> bool:
+    def preview_source_valid(variant: str, kind: str, source: str, mods: dict | None = None) -> bool:
         v = s.catalog.variant(variant)
         core = getattr(v, kind, None)
         if not core:
@@ -511,8 +519,8 @@ def build_api(s: Services) -> RpcRegistry:
         if source == "official":
             return True
         if source.startswith("mod:"):
-            mod = next((m for m in s.library.mods() if m.id == source[4:] and m.kind == kind), None)
-            if mod is None:
+            mod = mods.get(source[4:]) if mods is not None else next((m for m in s.library.mods() if m.id == source[4:]), None)
+            if mod is None or mod.kind != kind:
                 return False
             other = s.catalog.variant(mod.target)
         elif source.startswith("variant:") and kind == "spr":
@@ -527,10 +535,13 @@ def build_api(s: Services) -> RpcRegistry:
         if pin is None:
             return {}
         sources = s.state.preview_sources(pin.key, key)
+        return valid_preview_sources(key, sources)
+
+    def valid_preview_sources(key: str, sources: dict, mods: dict | None = None) -> dict:
         valid = {}
         for kind, source in sources.items():
             try:
-                if preview_source_valid(key, kind, source):
+                if preview_source_valid(key, kind, source, mods):
                     valid[kind] = source
             except (ServiceError, KeyError):
                 pass

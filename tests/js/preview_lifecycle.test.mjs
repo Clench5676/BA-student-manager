@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { previewLifecycle, previewTimer } from "../../src/ba_modding_toolkit/web/js/preview-lifecycle.js";
 import { latestLoad, loadPlayer } from "../../src/ba_modding_toolkit/web/js/spine-load.js";
+import { nextFrame } from "../../src/ba_modding_toolkit/web/js/async.js";
 
 const tick = () => new Promise(setImmediate);
 function globals(t, env) {
@@ -67,6 +68,40 @@ test("player loading and first-frame deadlines pause through a hidden window", a
   assert.equal(load.active(), false);
   env.hidden(false); p.config.success(p);
   assert.equal(await load.ready, p); load.dispose(); t.mock.timers.reset();
+});
+
+test("an unfocused player initializes without starting background animation", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const env = surface(); env.focus(false); globals(t, env);
+  let draws = 0, starts = 0;
+  const load = loadPlayer((config) => ({ config, canvas: new EventTarget(),
+    stopRendering() { this.stopped = true; }, startRendering() { starts++; }, dispose() {},
+    drawFrame() { if (++draws === 2) config.success(this); },
+  }), {});
+  await tick(); assert.equal(draws, 1);
+  t.mock.timers.tick(32); await tick();
+  assert.equal(await load.ready, load.player);
+  assert.equal(load.player.stopped, true);
+  t.mock.timers.tick(1000); await tick();
+  assert.equal(draws, 2); assert.equal(starts, 0);
+  load.dispose(); t.mock.timers.reset();
+});
+
+test("frame readiness uses foreground frames but can finish after focus leaves", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const env = surface(); globals(t, env);
+  const old = globalThis.requestAnimationFrame;
+  let callback;
+  globalThis.requestAnimationFrame = (fn) => { callback = fn; return 1; };
+  t.after(() => { if (old) globalThis.requestAnimationFrame = old; else delete globalThis.requestAnimationFrame; });
+  let ready = false;
+  const frame = nextFrame().then(() => { ready = true; });
+  t.mock.timers.tick(100); await tick(); assert.equal(ready, false);
+  callback(); await frame; assert.equal(ready, true);
+  const unfocused = nextFrame(); env.focus(false); t.mock.timers.tick(100); await unfocused;
+  const controller = new AbortController();
+  const cancelled = nextFrame({ signal: controller.signal }); controller.abort(); await cancelled;
+  t.mock.timers.reset();
 });
 
 for (const kind of ["portrait", "lobby", "special L2D"]) test(`${kind} restarts without stale frames, rebuilds its context and ignores disposed events`, async (t) => {

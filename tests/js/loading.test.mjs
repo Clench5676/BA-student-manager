@@ -475,13 +475,13 @@ test("live in-page progress upgrades to the actual NGUI loading label and retain
   work.resolve(); await done;
 });
 
-test("ordinary navigation uses the shared inner shade and blocks every interaction", async () => {
+test("ordinary navigation uses the shared inner shade without a strict writer hold", async () => {
   const h = await harness({ consent: false }), work = deferred();
   const done = h.loading.scene(() => work.promise); await flush();
   assert.equal(h.loading.covering(), false);
   assert.equal(h.loading.held(), true);
   assert.ok(h.stage.children[0].classList.contains("indicator"));
-  assert.ok(h.stage.classList.contains("input-held"));
+  assert.equal(h.stage.classList.contains("input-held"), false, "Back remains available during read-only loading");
   work.resolve(); await flush(); await h.advance(300); await done;
   assert.equal(h.loading.held(), false);
 });

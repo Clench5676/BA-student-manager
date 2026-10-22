@@ -176,6 +176,32 @@ test("empty screen has add actions and zero Mods, without AI UI or tooltips", as
   assert.ok(walk(h.host).every((element) => !element.getAttribute("title")));
 });
 
+test("language changes retain import choices, search input and capture scope without another analysis", async () => {
+  const h = await fixture({ licensed: true });
+  try {
+    await h.analyze();
+    h.page.model.select("b"); h.page.model.checkAll(true);
+    const checked = [...h.page.model.state.checked], selected = h.page.model.state.selected;
+    const input = h.host.querySelector("input.roster-search") || h.host.querySelectorAll("input").find((el) => el.classList.contains("roster-search"));
+    const calls = h.calls.length, scope = h.scopes[0];
+    for (const lang of ["ja-JP", "en-US", "ja-JP"]) {
+      const strings = flatten(JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${lang}.json`, import.meta.url), "utf8")));
+      setStrings(lang, strings);
+      h.page.relabel(); await h.page.settled();
+      assert.equal(h.action("files").getAttribute("aria-label"), strings["webui.import.addFiles"]);
+      assert.equal(input.getAttribute("aria-label"), strings["webui.import.search"]);
+      assert.ok(input.isConnected, "the text input is not recreated");
+      assert.equal(h.page.model.state.selected, selected);
+      assert.deepEqual([...h.page.model.state.checked], checked);
+      assert.equal(h.scopes.length, 1); assert.ok(!scope.cancelled);
+      assert.equal(h.calls.length, calls, "no analysis or settings reread during localization");
+    }
+  } finally {
+    h.page.hide();
+    setStrings("en-US", flatten(JSON.parse(readFileSync(new URL("../../src/ba_modding_toolkit/locales/en-US.json", import.meta.url), "utf8"))));
+  }
+});
+
 test("four incoming models render in the list and comparison without a Spine licence", async () => {
   const h = await fixture();
   await h.analyze(["a", "b", "c", "d"].map((id) => entry(id, "ready", "model")));

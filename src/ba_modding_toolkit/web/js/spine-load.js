@@ -84,7 +84,7 @@ export function loadPlayer(create, config, { signal, timeout = 15000, onError, o
   try {
     const hooks = Object.fromEntries(["frame", "update", "draw", "updateWorldTransform"].filter((key) => config[key])
       .map((key) => [key, (...args) => {
-        if (disposed || failed || signal?.aborted || (!manual && !lifecycle.active())) return;
+        if (disposed || failed || signal?.aborted || (!manual && settled && !lifecycle.active())) return;
         try { return config[key](...args); } catch (err) { fail(err, key); }
       }]));
     player = create({
@@ -107,15 +107,21 @@ export function loadPlayer(create, config, { signal, timeout = 15000, onError, o
       if (manual) {
         const timer = setTimeout(expired, timeout);
         cancelTimer = () => clearTimeout(timer);
-        // Assets completing does not fire success: drawFrame discovers them and builds the skeleton.
-        // Own this clock until readiness, then leave all subsequent still draws to the caller.
-        const render = () => {
-          if (assetsReady || settled || disposed || failed || signal?.aborted) return;
-          try { player.drawFrame(false); } catch (err) { fail(err, "render"); }
-          if (!assetsReady && !settled && !disposed && !failed && !signal?.aborted) frameTimer = setTimeout(render, 16);
-        };
-        queueMicrotask(render);
       } else cancelTimer = previewTimer(expired, timeout);
+      // The runtime discovers downloaded assets in drawFrame, even before its
+      // success hook. Bootstrap paused players too, without starting a second
+      // animation loop or resuming continuous playback in a background window.
+      const render = () => {
+        if (settled || disposed || failed || signal?.aborted || (manual && assetsReady)) return;
+        if ((manual || !lifecycle.active()) && !lifecycle.recovering()) {
+          try {
+            if (manual) player.drawFrame(false);
+            else player.drawFrame?.(false);
+          } catch (err) { fail(err, "render"); }
+        }
+        if (!settled && !disposed && !failed && !signal?.aborted && !(manual && assetsReady)) frameTimer = setTimeout(render, 32);
+      };
+      queueMicrotask(render);
     }
   } catch (err) { fail(err, "construct"); }
   return { player, ready, dispose, active: lifecycle.active };
