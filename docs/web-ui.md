@@ -837,7 +837,7 @@ HTTP endpoints outside `/api/rpc`, each with its own token, never the session to
 
 ### Batch import origins and conversion
 
-`import.analyze {paths, recursive}` returns a job ID; its result is `{entries, skipped, revision}`.
+`import.analyze {paths, recursive}` returns a library writer job ID; its result is `{entries, skipped, revision}`.
 `Entry.state` is `ready`, `convert`, `update`, `blocked`, `library`, `installed` or `done`. `done` means
 the entry imported successfully in this session; it is unchecked and cannot be selected.
 Completion survives leaving the page and re-analyzing the same unchanged inputs, including
@@ -865,7 +865,7 @@ Server values are `global` and `japan`, the servers supported by Settings; platf
 `android`, `ios` and `windows`. A target platform can be `null` when its metadata is conflicting
 or unsupported. `source: null` means that a complete source could not be established.
 
-`import.setSource {id, server, platform}` returns a read-only analysis job ID whose result is
+`import.setSource {id, server, platform}` returns a library writer job ID whose result is
 one replacement entry with the same ID, a new `revision`, and `source.detected: false`. It checks the upload's
 fingerprint and pinned folder again. Choices survive rechecks of unchanged bytes in this session.
 A new upload or library/folder context invalidates stale analysis as usual. The page keeps the

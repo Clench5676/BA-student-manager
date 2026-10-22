@@ -195,7 +195,7 @@ def test_conversion_provenance_never_matches_changed_bytes_or_removed_entry(real
     assert repeated['state'] == 'convert' and repeated['libraryId'] is None
 
 
-def test_legacy_converted_output_is_verified_and_source_identity_backfilled(real_metadata, monkeypatch):
+def test_legacy_converted_output_without_source_hashes_stays_unrecognized(real_metadata, monkeypatch):
     env = real_metadata
     source = old_bundle(env.tmp / 'input' / env.original.name, 13, cab='CAB-source', payload=b'modded',
                         references=['com.nexon.bluearchive'])
@@ -207,16 +207,17 @@ def test_legacy_converted_output_is_verified_and_source_identity_backfilled(real
     before = env.original.read_bytes()
 
     def forbidden(*args, **kwargs):
-        pytest.fail('Legacy recognition must never add or apply a Mod')
+        pytest.fail('Legacy recognition must never build, add or apply a Mod')
 
     monkeypatch.setattr(env.library, 'add_files', forbidden)
     monkeypatch.setattr(env.library, 'apply_import', forbidden)
+    monkeypatch.setattr(batch_import.core, 'process_mod_update', forbidden)
     repeated, = analyze(env, [source])['entries']
-    assert (repeated['state'], repeated['libraryId']) == ('library', result['libraryId'])
-    assert env.library._records[result['libraryId']]['import_sources']
+    assert (repeated['state'], repeated['libraryId']) == ('convert', None)
+    assert not env.library._records[result['libraryId']].get('import_sources')
     assert env.original.read_bytes() == before and len(env.library.mods()) == 1
     monkeypatch.setattr(batch_import.core, 'process_mod_update', forbidden)
-    assert analyze(env, [source])['entries'][0]['state'] == 'library'
+    assert analyze(env, [source])['entries'][0]['state'] == 'convert'
 
 
 def test_conversion_source_identity_includes_the_complete_part_mapping(real_metadata):
@@ -783,3 +784,86 @@ def test_partial_cab_region_evidence_constrains_candidates():
     official = integrity.Contents(files={"cab-official"})
     choices = mod_origin.candidates(set(), selected, official, {"server": "japan"})
     assert [(c["server"], c["platform"]) for c in choices] == [("japan", p) for p in mod_origin.PLATFORMS]
+
+
+@pytest.mark.parametrize('recorded', [False, True])
+def test_legacy_recognition_never_builds_and_uses_recorded_source_hashes(real_metadata, monkeypatch, recorded):
+    env = real_metadata
+    source = old_bundle(env.tmp / 'input' / env.original.name, 13, cab='CAB-source', payload=b'mod',
+                        references=['com.nexon.bluearchive'])
+    entry, = analyze(env, [source])['entries']
+    result, = run(env, [entry], enableAfterImport=False)
+    record = env.library._records[result['libraryId']]
+    provenance = record.pop('import_sources')[0]['source']
+    if recorded:
+        record['source_hashes'] = provenance
+    env.library._save()
+    env.services.batch_import = batch_import.BatchImport(env.services)
+
+    def forbidden(*args, **kwargs):
+        pytest.fail('Analysis must never rebuild a legacy conversion')
+
+    monkeypatch.setattr(batch_import.core, 'process_mod_update', forbidden)
+    monkeypatch.setattr(batch_import.staging, 'import_directory', forbidden)
+    for _ in range(2):
+        repeated, = analyze(env, [source])['entries']
+        assert repeated['state'] == ('library' if recorded else 'convert')
+    assert len(env.library.mods()) == 1
+
+
+def test_optional_legacy_recognition_failure_does_not_block(real_metadata, monkeypatch):
+    env = real_metadata
+    source = old_bundle(env.tmp / 'input' / env.original.name, 13, cab='CAB-source', payload=b'mod',
+                        references=['com.nexon.bluearchive'])
+    entry, = analyze(env, [source])['entries']
+    result, = run(env, [entry], enableAfterImport=False)
+    record = env.library._records[result['libraryId']]
+    record['source_hashes'] = record.pop('import_sources')[0]['source']
+    monkeypatch.setattr(env.library, 'remember_import_source', lambda *args: (_ for _ in ()).throw(OSError('optional')))
+    repeated, = analyze(env, [source])['entries']
+    assert repeated['state'] == 'convert' and repeated['reason'] is None
+
+
+def test_output_provenance_rejects_swapped_part_bytes(env):
+    first = make_mod(env.original, env.tmp / 'input', payload=b'first')
+    second = game_bundle(env.tmp / 'input', part='textassets', payload=b'second')
+    mod, = env.library.add([first, second])
+    source = env.library.import_source_identity({first.name: first, second.name: second},
+                                               {'server': 'global', 'platform': 'windows'}, [env.original])
+    env.library.remember_import_source(mod.id, source)
+    assert env.library.find_import_source(source) == mod.id
+    paths = env.library._paths(env.library._records[mod.id])
+    left, right = [p.read_bytes() for p in paths]
+    paths[0].write_bytes(right)
+    paths[1].write_bytes(left)
+    assert env.library.find_import_source(source) is None
+    assert env.library.find_import_output([first, second]) is None
+
+
+def test_optional_stored_source_lookup_failure_does_not_block(real_metadata, monkeypatch):
+    from ba_modding_toolkit.errors import ServiceError
+    env = real_metadata
+    source = old_bundle(env.tmp / 'input' / env.original.name, 13, cab='CAB-source', payload=b'mod',
+                        references=['com.nexon.bluearchive'])
+    monkeypatch.setattr(env.library, 'find_import_source',
+                        lambda *args: (_ for _ in ()).throw(ServiceError('library_io_error')))
+    entry, = analyze(env, [source])['entries']
+    assert (entry['state'], entry['reason']) == ('convert', None)
+
+
+def test_legacy_recognition_cache_tracks_file_and_record_revisions(env):
+    source = make_mod(env.original, env.tmp / 'input')
+    mod, = env.library.add([source])
+    identity = env.library.import_source_identity({source.name: source},
+        {'server': 'global', 'platform': 'windows'}, [env.original])
+    record = env.library._records[mod.id]
+    record['source_hashes'] = identity
+    lookup = lambda: env.library.find_legacy_import_source(identity, 'spr')
+    assert lookup() == lookup() == mod.id
+    assert len(env.library._legacy_import_matches) == 1
+    mod.file.write_bytes(mod.file.read_bytes() + b'changed')
+    assert lookup() == mod.id
+    assert len(env.library._legacy_import_matches) == 2
+    record['source_hashes'] = {**identity, 'target': {'server': 'japan', 'platform': 'windows'}}
+    assert lookup() is None
+    assert len(env.library._legacy_import_matches) == 3

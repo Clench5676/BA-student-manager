@@ -1587,7 +1587,7 @@ for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) {
       const strings = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${locale}.json`, import.meta.url), "utf8"));
       setStrings(locale, flatten(strings));
       const reasons = ["required_asset_extract_failed", "required_asset_apply_failed", "required_assets_unmatched",
-        "mod_target_unknown", "mod_parts_missing", "mod_platform_mismatch", "mod_unity_version_mismatch", "failed"];
+        "mod_target_unknown", "mod_parts_missing", "mod_platform_mismatch", "mod_unity_version_mismatch", "mod_release_mismatch", "failed"];
       const h = await fixture();
       await h.analyze(reasons.map((reason, index) => ({ ...entry(`blocked-${index}`, "blocked"), reason })));
       for (const [index, reason] of reasons.entries()) {

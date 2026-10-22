@@ -11,7 +11,7 @@ from ba_modding_toolkit.bundle import Bundle
 from ba_modding_toolkit.errors import ServiceError
 from ba_modding_toolkit.library import integrity
 from ba_modding_toolkit.library.identity import content_cores
-from ba_modding_toolkit.library.integrity import metadata as bundle_metadata
+from ba_modding_toolkit.library.integrity import metadata as bundle_metadata, inspect as inspect_bundle
 from ba_modding_toolkit.models import AssetType, SaveOptions
 from ba_modding_toolkit.naming import parse_filename
 from ba_modding_toolkit.utils import CRCUtils
@@ -28,7 +28,7 @@ from test_mod_origin import unity_bundle
     *[(code, code) for code in (
         'required_asset_extract_failed', 'required_asset_apply_failed', 'required_assets_unmatched',
         'spine_version', 'source_unknown', 'source_conflict', 'mod_target_unknown', 'mod_target_ambiguous',
-        'mod_platform_mismatch', 'mod_platform_unknown', 'mod_unity_version_mismatch', 'mod_parts_missing',
+        'mod_platform_mismatch', 'mod_platform_unknown', 'mod_unity_version_mismatch', 'mod_release_mismatch', 'mod_parts_missing',
         'game_file_conflict', 'library_io_error', 'no_matching_assets', 'original_unavailable', 'entry_changed')],
     ('future_failure', 'failed'),
 ])
@@ -59,7 +59,8 @@ def test_failure_details_reach_results_and_logs(env, monkeypatch, caplog, phase,
     if phase != 'prepare':
         assert entry['reason'] == batch_import.blocked_reason(ServiceError(code))
         assert entry['error'] == expected
-    assert code in caplog.text and 'Modified_Body' in caplog.text and str(source) in caplog.text
+    assert code in caplog.text and 'Modified_Body' in caplog.text
+    assert str(source) not in caplog.text and source.name not in caplog.text
 
 
 def restore_metadata(monkeypatch):
@@ -74,7 +75,7 @@ def rename_crc(path):
 
 @pytest.mark.parametrize('crc_name', [False, True])
 @pytest.mark.parametrize('fixed', [False, True])
-def test_model_direct_replacement_never_reads_or_transfers_assets(batch_model_env, monkeypatch, crc_name, fixed):
+def test_model_direct_replacement_never_transfers_assets(batch_model_env, monkeypatch, crc_name, fixed):
     env = batch_model_env
     restore_metadata(monkeypatch)
     target = rename_crc(unity_bundle(env.parts[1], name='Hoshino_Body'))
@@ -92,9 +93,8 @@ def test_model_direct_replacement_never_reads_or_transfers_assets(batch_model_en
         identify(source, source.name, env.catalog)
 
     def forbidden(*args, **kwargs):
-        pytest.fail('Current official parts must not inspect, match or transfer assets')
+        pytest.fail('Current official parts must not match or transfer assets')
 
-    monkeypatch.setattr(integrity, 'inspect', forbidden)
     monkeypatch.setattr(Bundle, 'extract_patch', forbidden)
     monkeypatch.setattr(batch_import, '_asset_match', forbidden)
     monkeypatch.setattr(batch_import.core, 'process_mod_update', forbidden)
@@ -154,7 +154,6 @@ def test_crc_only_names_copy_all_kinds_without_asset_matching(env, monkeypatch, 
     def forbidden(*args, **kwargs):
         pytest.fail('CRC-only filename differences must not trigger asset matching')
 
-    monkeypatch.setattr(integrity, 'inspect', forbidden)
     monkeypatch.setattr(Bundle, 'get_asset_keys', forbidden)
     monkeypatch.setattr(Bundle, 'extract_patch', forbidden)
     entry, = analyze(env, [source])['entries']
@@ -265,10 +264,9 @@ def test_verified_modified_model_part_imports_whole(verified_model, monkeypatch,
         identify(source, source.name, env.library.catalog)
 
     def forbidden(*args, **kwargs):
-        pytest.fail('Direct replacements must bypass asset inspection and transfer')
+        pytest.fail('Direct replacements must bypass asset transfer')
 
     monkeypatch.setattr(Bundle, 'extract_patch', forbidden)
-    monkeypatch.setattr(integrity, 'inspect', forbidden)
     monkeypatch.setattr(batch_import, '_asset_match', forbidden)
     entry, = analyze(env, [source])['entries']
     assert (entry['state'], entry['reason']) == ('ready', None), entry
@@ -300,3 +298,66 @@ def test_verified_wrong_platform_keeps_real_error(verified_model):
     assert entry['error']['code'] == 'mod_platform_mismatch'
     assert entry['error']['params']['platform'] != entry['error']['params']['expected']
     assert not env.library.mods()
+
+
+@pytest.mark.parametrize('crc_name', [False, True])
+@pytest.mark.parametrize('change', ['cab', 'layout', 'region'])
+def test_current_name_cannot_admit_foreign_or_older_content(env, monkeypatch, crc_name, change):
+    restore_metadata(monkeypatch)
+    monkeypatch.setattr(integrity, 'inspect', inspect_bundle)
+    target = rename_crc(unity_bundle(env.original))
+    source = unity_bundle(env.tmp / 'input' / target.name, payload=b'older or foreign',
+                         cab='CAB-older' if change == 'cab' else 'CAB-fixture',
+                         references=['com.YostarJP.BlueArchive'] if change == 'region' else [])
+    if change == 'layout':
+        bundle = Bundle.load(source)
+        obj = bundle.env.objects[0]
+        file = obj.assets_file
+        del file.objects[obj.path_id]
+        obj.path_id = 99
+        file.objects[obj.path_id] = obj
+        file.mark_changed()
+        assert bundle.save(source, SaveOptions(perform_crc=False, compression='none'))[0]
+    if crc_name:
+        source = rename_crc(source)
+    entry, = analyze(env, [source])['entries']
+    assert entry['state'] == 'blocked'
+    assert entry['reason'] == ('source_conflict' if change == 'region' else 'mod_release_mismatch')
+    with pytest.raises(ServiceError):
+        env.library.add_files('spr', [source], direct=True)
+    assert not env.library.mods()
+
+
+@pytest.mark.parametrize('change', ['body_cab', 'missing_material'])
+def test_partial_model_replacement_validates_effective_dependencies(batch_model_env, monkeypatch, change):
+    env = batch_model_env
+    restore_metadata(monkeypatch)
+    monkeypatch.setattr(integrity, 'inspect', inspect_bundle)
+    for index, cab in enumerate(['CAB-prefab', 'CAB-body', 'CAB-texture']):
+        env.parts[index] = rename_crc(unity_bundle(env.parts[index], cab=cab,
+            references=['CAB-body'] if index == 0 else []))
+    target = env.parts[1 if change == 'body_cab' else 0]
+    source = unity_bundle(env.tmp / 'input' / target.name, payload=b'mod',
+                         cab='CAB-changed' if change == 'body_cab' else 'CAB-prefab',
+                         references=[] if change == 'body_cab' else ['CAB-missing-material'])
+    entry, = analyze(env, [source])['entries']
+    assert (entry['state'], entry['reason']) == ('blocked', 'mod_parts_missing')
+    assert ('CAB-body' if change == 'body_cab' else 'CAB-missing-material') in entry['params']['files']
+    with pytest.raises(ServiceError, match='mod_parts_missing'):
+        env.library.add_files('model', [source], direct=True)
+    assert not env.library.mods()
+
+
+def test_unexpected_import_failure_does_not_log_private_traceback(env, monkeypatch, caplog):
+    source = make_mod(env.original, env.tmp / 'input')
+    entry, = analyze(env, [source])['entries']
+    private = '/Users/PrivateUser/Private Mesh.bundle'
+
+    def fail(*args, **kwargs):
+        raise RuntimeError(f'Cannot read {private}')
+
+    monkeypatch.setattr(env.services.batch_import, '_prepare', fail)
+    result, = run(env, [entry], enableAfterImport=False)
+    assert result['error']['code'] == 'internal'
+    assert private not in caplog.text and 'PrivateUser' not in caplog.text and 'Private Mesh' not in caplog.text
+    assert '[asset].bundle' in caplog.text

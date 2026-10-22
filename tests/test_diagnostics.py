@@ -708,3 +708,25 @@ def test_review_structured_filenames_keep_only_extensions():
     assert diagnostics.clean({"file": "Private Settings.txt", "paths": ["Private Archive.tar.gz", "Private Folder"],
                               "filename": "Private Mod.bundle.backup"}, set()) == {
         "file": "[asset].txt", "paths": ["[asset].gz", "[asset]"], "filename": "[asset].bundle.backup"}
+
+
+def test_batch_failure_is_redacted_in_session_log_before_report(reports):
+    from ba_modding_toolkit.errors import ServiceError
+    from ba_modding_toolkit.webui.batch_import import failure_detail
+    path = reports.data_dir / 'webui.log'
+    handler = logging.FileHandler(path)
+    logger = logging.getLogger('ba_modding_toolkit.webui.batch_import')
+    logger.addHandler(handler)
+    events = []
+    error = ServiceError('required_asset_extract_failed', file='/Users/PrivateUser/Mods/Private Model.bundle',
+                         name='Body', error='PrivateUser could not read /Users/PrivateUser/Private Image.png')
+    try:
+        detail = failure_detail(error, ['/Users/PrivateUser/Mods/Private Model.bundle'], events.append)
+    finally:
+        logger.removeHandler(handler)
+        handler.close()
+    assert detail == error.to_json()
+    for text in [path.read_text(), *events]:
+        assert 'PrivateUser' not in text and '/Users/' not in text
+        assert 'Private Model' not in text and 'Private Image' not in text
+        assert '[asset].bundle' in text and 'required_asset_extract_failed' in text

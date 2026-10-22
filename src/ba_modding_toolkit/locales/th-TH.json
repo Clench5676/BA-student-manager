@@ -1519,6 +1519,7 @@
 				"game_file_conflict": "ไฟล์เกมขัดแย้งกัน",
 				"mod_platform_mismatch": "แพลตฟอร์มไม่รองรับ",
 				"mod_unity_version_mismatch": "เวอร์ชัน Unity ไม่รองรับ",
+				"mod_release_mismatch": "เวอร์ชันเกมไม่รองรับ",
 				"required_asset_extract_failed": "แยกแอสเซ็ตไม่สำเร็จ",
 				"required_asset_apply_failed": "ใช้แอสเซ็ตไม่สำเร็จ",
 				"required_assets_unmatched": "แอสเซ็ตที่จำเป็นไม่ตรงกัน",

@@ -1519,6 +1519,7 @@
 				"game_file_conflict": "ゲームファイル競合",
 				"mod_platform_mismatch": "プラットフォーム非対応",
 				"mod_unity_version_mismatch": "Unity バージョン非対応",
+				"mod_release_mismatch": "ゲーム版非対応",
 				"required_asset_extract_failed": "アセット抽出失敗",
 				"required_asset_apply_failed": "アセット適用失敗",
 				"required_assets_unmatched": "必須アセットの一致なし",

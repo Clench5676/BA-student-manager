@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING, Any, Callable, Iterator
 
 from UnityPy.helpers.ResourceReader import get_resource_data
 
-from .. import atlas_remap, core, devmode, mod_install
+from .. import atlas_remap, core, devmode, mod_install, mod_origin
 from ..bundle import Bundle
 from ..catalog.models import CoreMap
 from ..errors import ServiceError
@@ -513,6 +513,7 @@ class ModLibrary:
         self._write_check = write_check
         self._lock = threading.RLock()
         self._hashes = Fingerprints()
+        self._legacy_import_matches: dict[str, str | None] = {}
         self._writing_mods = False
         self._transacting = False
         self._records: dict[str, dict[str, Any]] = {}
@@ -756,30 +757,57 @@ class ModLibrary:
                 "target": dict(target),
                 "originals": sorted([path.name, self._hashes.get(path).sha1] for path in originals)}
 
+    def _output_identity(self, paths: list[Path]) -> list:
+        """Bind every stored output hash to its complete part filename."""
+        return sorted([path.name, self._hashes.get(path).sha1] for path in paths)
+
     @_serialized
     def find_import_source(self, source: dict) -> str | None:
         for record in self._records.values():
             matches = [item for item in record.get("import_sources", []) if item.get("source") == source]
             if matches:
-                output = sorted(map(list, self._identity({p.name: p for p in self._paths(record)})))
+                output = self._output_identity(self._paths(record))
                 if any(item.get("output") == output for item in matches):
                     return record["id"]
         return None
 
     @_serialized
-    def has_legacy_imports(self, kind: str) -> bool:
-        return any(record["kind"] == kind and not record.get("import_sources") for record in self._records.values())
+    def find_legacy_import_source(self, source: dict, kind: str) -> str | None:
+        """Recognize only recorded source hashes, scoped to their target and official release.
+
+        Entries without these records cannot be identified without a rebuild, so skip them.
+        Cache both hits and misses until the source, records or stored file revisions change.
+        """
+        records, revisions = [], []
+        for record in self._records.values():
+            if record["kind"] != kind or record.get("import_sources") or not record.get("source_hashes"):
+                continue
+            records.append(record)
+            stamps = []
+            for path in self._paths(record):
+                stat = path.stat()
+                stamps.append((path.name, stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns))
+            revisions.append((record["id"], record["source_hashes"], stamps))
+        key = json.dumps([source, kind, revisions], sort_keys=True)
+        if key not in self._legacy_import_matches:
+            match = next((record["id"] for record in records if record["source_hashes"] == source), None)
+            if len(self._legacy_import_matches) >= 128:
+                self._legacy_import_matches.clear()
+            self._legacy_import_matches[key] = match
+        return self._legacy_import_matches[key]
 
     @_serialized
     def find_import_output(self, paths: list[Path]) -> str | None:
-        return self._known().get(self._identity({path.name: path for path in paths}))
+        output = self._output_identity(paths)
+        return next((record["id"] for record in self._records.values()
+                     if self._output_identity(self._paths(record)) == output), None)
 
     @_serialized
     @_mod_writer
     def remember_import_source(self, mod_id: str, source: dict) -> None:
         record = self._record(mod_id)
         item = {"source": copy.deepcopy(source),
-                "output": sorted(map(list, self._identity({p.name: p for p in self._paths(record)})))}
+                "output": self._output_identity(self._paths(record))}
         previous = copy.deepcopy(record)
         imports = record.setdefault("import_sources", [])
         if item in imports:
@@ -1005,7 +1033,7 @@ class ModLibrary:
     @_serialized
     def direct_import(self, files: dict[str, Path], pin: Pin | None = None, *,
                       inspection: integrity.Inspection | None = None) -> dict | None:
-        """Resolve current release parts using only names and Unity container metadata."""
+        """Validate current parts and the resulting set before admitting a whole-file copy."""
         pin = pin or self.current_pin()
         if not pin:
             return None
@@ -1017,6 +1045,7 @@ class ModLibrary:
             return None
         inspection = inspection or integrity.Inspection()
         selected, official, originals = integrity.Contents(), integrity.Contents(), []
+        identities = []
         for target, source in replacements.items():
             original = self._official_for(target, pin, game_first=True)
             incoming, baseline = inspection.metadata(source), inspection.metadata(original)
@@ -1025,12 +1054,29 @@ class ModLibrary:
                 raise ServiceError("mod_unity_version_mismatch", file=source.name,
                                    version=", ".join(sorted(incoming.versions)),
                                    expected=", ".join(sorted(baseline.versions)))
-            selected.merge(incoming)
-            official.merge(baseline)
+            identities.append((source, incoming, baseline))
+            selected.merge(inspection.inspect(source))
+            official.merge(inspection.inspect(original))
             originals.append(original)
+        target_origin = mod_origin.target_of(self.settings, pin, official)
+        evidence, error = mod_origin.constraints(set(files), selected, official, target_origin)
+        if error or (evidence.get("server") and evidence["server"] != target_origin["server"]):
+            raise ServiceError(error or "source_conflict")
+        # Retained official prefabs must still resolve into the replacement CABs.
+        compatibility = self._check_group(files, pin, conversion=True, inspection=inspection)
+        self._check_group(files, pin, compatibility=False, inspection=inspection)
+        if compatibility["unavailable"]:
+            raise ServiceError("original_unavailable")
+        for source, incoming, baseline in identities:
+            if not incoming.files or incoming.files != baseline.files or incoming.layout != baseline.layout:
+                raise ServiceError("mod_release_mismatch", file=source.name)
         inspection.validate()
+        source_origin, error = mod_origin.source_of(set(files), selected, official, target_origin)
+        if error:
+            raise ServiceError(error)
         return {"direct": replacements, "targets": list(replacements), "originals": originals,
-                "sourceContents": selected, "officialContents": official}
+                "sourceContents": selected, "officialContents": official, "source": source_origin,
+                "compatibility": compatibility}
 
     @_serialized
     def inspect_import(self, files: dict[str, Path], pin: Pin | None = None, *, conversion: bool = False,

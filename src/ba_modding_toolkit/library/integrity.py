@@ -27,6 +27,7 @@ def texture_key(name: str) -> str:
 class Contents:
     platforms: set[str] = field(default_factory=set)
     versions: set[str] = field(default_factory=set)
+    layout: dict[str, tuple[tuple[int, int], ...]] = field(default_factory=dict)
     names: set[str] = field(default_factory=set)
     files: set[str] = field(default_factory=set)
     references: set[str] = field(default_factory=set)
@@ -40,7 +41,7 @@ class Contents:
     def merge(self, other: Contents) -> None:
         for key in ("platforms", "versions", "names", "files", "references", "reference_paths", "streams"):
             getattr(self, key).update(getattr(other, key))
-        for key in ("skeletons", "atlases", "textures", "reference_names"):
+        for key in ("skeletons", "atlases", "textures", "reference_names", "layout"):
             getattr(self, key).update(getattr(other, key))
 
     def spine(self) -> dict:
@@ -151,8 +152,11 @@ def metadata(path: Path, *, inspection: Inspection) -> Contents:
         raise ServiceError("bundle_invalid", file=path.name)
     result = Contents(names={path.name.removesuffix(".backup")})
 
-    def walk(file) -> None:
+    def walk(file, name: str = "") -> None:
         if hasattr(file, "target_platform"):
+            identity = basename(name)
+            result.files.add(identity)
+            result.layout[identity] = tuple(sorted((obj.path_id, obj.type.value) for obj in file.objects.values()))
             platform = file.target_platform
             result.platforms.add(getattr(platform, "name", str(platform)))
             version = re.match(r"^(\d+\.\d+)(?:\.|$)", file.unity_version)
@@ -160,8 +164,8 @@ def metadata(path: Path, *, inspection: Inspection) -> Contents:
                 raise ServiceError("bundle_invalid", file=path.name)
             result.versions.add(version[1])
             return
-        for child in getattr(file, "files", {}).values():
-            walk(child)
+        for child_name, child in getattr(file, "files", {}).items():
+            walk(child, child_name)
 
     walk(bundle.env)
     if not result.platforms or result.platforms & {"UnknownPlatform", "NoTarget"}:

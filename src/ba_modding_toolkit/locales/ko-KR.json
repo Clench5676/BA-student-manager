@@ -1519,6 +1519,7 @@
 				"game_file_conflict": "게임 파일 충돌",
 				"mod_platform_mismatch": "플랫폼 호환 불가",
 				"mod_unity_version_mismatch": "Unity 버전 호환 불가",
+				"mod_release_mismatch": "게임 버전 호환 불가",
 				"required_asset_extract_failed": "에셋 추출 실패",
 				"required_asset_apply_failed": "에셋 적용 실패",
 				"required_assets_unmatched": "필수 에셋 불일치",

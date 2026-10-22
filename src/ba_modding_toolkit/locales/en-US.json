@@ -1519,6 +1519,7 @@
 				"game_file_conflict": "Conflicting Game Files",
 				"mod_platform_mismatch": "Incompatible Platform",
 				"mod_unity_version_mismatch": "Incompatible Unity Version",
+				"mod_release_mismatch": "Incompatible Game Release",
 				"required_asset_extract_failed": "Asset Extraction Failed",
 				"required_asset_apply_failed": "Asset Apply Failed",
 				"required_assets_unmatched": "Unmatched Required Assets",

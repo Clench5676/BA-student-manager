@@ -20,7 +20,7 @@ const KIND_KEYS = { spr: "tab.portrait", lobby: "tab.lobby", model: "tab.model",
 const REASONS = new Set(["unreadable", "no_target", "conflict", "spine_version", "unsupported",
   "source_unknown", "source_conflict", "platform_unsupported", "target_unknown", "conversion_names", "no_matching_assets", "conversion_failed",
   "mod_platform_unknown", "library_io_error", "mod_target_ambiguous", "mod_target_unknown", "mod_parts_missing",
-  "game_file_conflict", "mod_platform_mismatch", "mod_unity_version_mismatch", "required_asset_extract_failed",
+  "game_file_conflict", "mod_platform_mismatch", "mod_unity_version_mismatch", "mod_release_mismatch", "required_asset_extract_failed",
   "required_asset_apply_failed", "required_assets_unmatched", "entry_changed", "original_unavailable", "original_invalid", "failed"]);
 const OUTCOMES = new Set(["imported", "updated", "unchanged", "failed", "skipped"]);
 const sizeText = (size) => size >= 1048576 ? `${(size / 1048576).toFixed(1)} MB` : `${Math.ceil((size || 0) / 1024)} KB`;

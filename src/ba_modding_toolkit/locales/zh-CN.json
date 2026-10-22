@@ -1519,6 +1519,7 @@
 				"game_file_conflict": "游戏文件冲突",
 				"mod_platform_mismatch": "平台不兼容",
 				"mod_unity_version_mismatch": "Unity 版本不兼容",
+				"mod_release_mismatch": "游戏版本不兼容",
 				"required_asset_extract_failed": "资源提取失败",
 				"required_asset_apply_failed": "资源应用失败",
 				"required_assets_unmatched": "必要资源未匹配",
