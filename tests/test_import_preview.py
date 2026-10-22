@@ -123,7 +123,7 @@ def test_source_preview_tokens_never_resolve_arbitrary_paths(env):
 def test_blocked_sources_still_serve_renderable_preview_assets(env, monkeypatch, problem):
     from ba_modding_toolkit.library import integrity
     if problem == "source":
-        monkeypatch.setattr("ba_modding_toolkit.webui.batch_import._asset_match", lambda *args: ([], ""))
+        monkeypatch.setattr("ba_modding_toolkit.webui.batch_import._asset_match", lambda *args, **kwargs: ([], ""))
 
     source = make_mod(env.original, env.tmp / 'input')
     inspect = integrity.inspect
