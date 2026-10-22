@@ -119,14 +119,23 @@ def blocked_reason(error: ServiceError) -> str:
     return "no_target"
 
 
+def copy_compatibility(report: dict) -> tuple[dict, dict, bool]:
+    """A direct copy installs every uploaded asset alongside the retained official parts."""
+    skeletons = report.get("official", {}).get("skeletons", {})
+    incoming = {name: data["version"] for name, data in report.get("mod", {}).get("skeletons", {}).items()}
+    versions = {data["version"] for data in skeletons.values()} or {None}
+    official = {name: {skeletons[name]["version"]} if name in skeletons else versions for name in incoming}
+    return official, incoming, report.get("remappable", False)
+
+
 def transfer_compatibility(inspection: integrity.Inspection, sources: list[Path], targets: list[Path],
-                           strategy: str) -> tuple[dict, dict, bool]:
-    """Check only Spine inputs that execution will transfer to the chosen official bundles."""
+                           originals: list[Path], strategy: str) -> tuple[dict, dict, bool]:
+    """Check transferred Spine inputs against their counterparts and retained official parts."""
     scope = UpdateScope([inspection.bundle(path) for path in targets], strategy, inspection.asset_types)
     key_of = Bundle._get_key_func(strategy)
     incoming, official = {}, {}
     atlases, textures, transferred_atlases, transferred_textures = {}, {}, set(), {}
-    for path in targets:
+    for path in originals:
         contents = inspection.inspect(path)
         atlases.update(contents.atlases)
         textures.update(contents.textures)
@@ -536,8 +545,13 @@ class BatchImport:
                     failure = failure or ("no_matching_assets" if converting or inferred else "game_file_not_found")
                 mismatch = False
                 if not failure and (selected.skeletons or compatibility.get("remappable")):
-                    official, incoming, remappable = transfer_compatibility(inspection, sources,
-                        [baseline[path] for path in chosen], "name_type" if converting else strategy or self.options()["strategy"])
+                    if exact and not converting:
+                        # The ready path copies whole bundles, ignoring update filters and matching keys.
+                        official, incoming, remappable = copy_compatibility(compatibility)
+                    else:
+                        official, incoming, remappable = transfer_compatibility(inspection, sources,
+                            [baseline[path] for path in chosen], originals,
+                            "name_type" if converting else strategy or self.options()["strategy"])
                     versions = {version for values in official.values() for version in values if version}
                     series = {tuple(version.split(".")[:2]) for version in versions}
                     candidate.spine_version = (max(versions, key=lambda version: tuple(map(int, version.split("."))))

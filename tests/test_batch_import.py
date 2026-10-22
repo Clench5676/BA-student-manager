@@ -317,6 +317,69 @@ def test_texture_only_update_ignores_a_matching_incompatible_skeleton(env, monke
     assert (entry["state"], entry["reason"]) == ("update", None)
 
 
+@pytest.mark.parametrize("strategy", ["name_type", "cont_name_type", "path_id"])
+@pytest.mark.parametrize("version", [b"3.8.75", b"undecodable skeleton"])
+def test_direct_copy_checks_skeletons_outside_the_update_filter(env, monkeypatch, strategy, version):
+    source = make_mod(env.original, env.tmp / "input")
+
+    def inspect(path, **kwargs):
+        return integrity.Contents(platforms={"StandaloneWindows64"}, files={"cab-test"},
+            skeletons={"test.skel": version if path == source else b"4.2.33"},
+            atlases={"test.atlas": b""}, textures={"page": (8, 8)})
+
+    mock_spine_contents(monkeypatch, inspect)
+    load = Bundle.load
+
+    def with_changed_keys(path, *args):
+        bundle = load(path)
+        if path == source:
+            bundle.env.objects[0].container = "Assets/renamed.skel"
+            bundle.env.objects[0].path_id = 999
+        return bundle
+
+    monkeypatch.setattr(Bundle, "load", with_changed_keys)
+    rpc(env, "import.setOptions", **{**rpc(env, "import.options"), "types": ["Texture2D"], "strategy": strategy})
+    before = env.original.read_bytes()
+    entry, = analyze(env, [source])["entries"]
+    assert (entry["state"], entry["reason"]) == ("blocked", "spine_version")
+    result, = run(env, [entry])
+    assert (result["outcome"], result["reason"]) == ("skipped", "spine_version")
+    assert env.original.read_bytes() == before
+    assert not env.library.mods()
+
+
+@pytest.mark.parametrize("outdated", [False, True])
+@pytest.mark.parametrize("size", [(8, 4), (8, 8), (4, 4)])
+def test_texture_import_checks_retained_official_atlas(env, monkeypatch, outdated, size):
+    text = game_bundle(env.game_dir, part="textassets", payload=b"official text")
+    source = (game_bundle(env.tmp / "input", date="2025-01-01", payload=b"old texture") if outdated
+              else make_mod(env.original, env.tmp / "input"))
+
+    def inspect(path, **kwargs):
+        contents = integrity.Contents(platforms={"StandaloneWindows64"}, files={"cab-test"})
+        if path == text:
+            contents.skeletons = {"test.skel": b"4.2.33"}
+            contents.atlases = {"test.atlas": b"page.png\nsize: 8,8\nregion\n bounds: 0,0,4,4\n"}
+        else:
+            contents.textures = {"page": size if path == source else (8, 8)}
+        return contents
+
+    mock_spine_contents(monkeypatch, inspect)
+    # The updater selects only the texture bundle; the text bundle stays official.
+    monkeypatch.setattr(batch_import, "_asset_match", lambda *args, **kwargs: ([env.original], ""))
+    rpc(env, "import.setOptions", **{**rpc(env, "import.options"), "types": ["Texture2D"]})
+    before = {path: path.read_bytes() for path in (env.original, text)}
+    entry, = analyze(env, [source])["entries"]
+    if size == (8, 4):
+        assert (entry["state"], entry["reason"]) == ("blocked", "conflict")
+        result, = run(env, [entry])
+        assert (result["outcome"], result["reason"]) == ("skipped", "conflict")
+    else:
+        assert (entry["state"], entry["reason"]) == ("update" if outdated else "ready", None)
+    assert {path: path.read_bytes() for path in before} == before
+    assert not env.library.mods()
+
+
 @pytest.mark.parametrize("strategy", ["cont_name_type", "path_id"])
 def test_spine_checks_use_the_transfer_matching_strategy(env, monkeypatch, strategy):
     source = game_bundle(env.tmp / "old", date="2025-01-01", payload=b"old mod")
