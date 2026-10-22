@@ -424,3 +424,28 @@ def test_unexpected_import_failure_does_not_log_private_traceback(env, monkeypat
     assert result['error']['code'] == 'internal'
     assert private not in caplog.text and 'PrivateUser' not in caplog.text and 'Private Mesh' not in caplog.text
     assert '[asset].bundle' in caplog.text
+
+
+@pytest.mark.parametrize('error_type', [FileNotFoundError, RuntimeError])
+def test_library_inspection_failure_logs_only_sanitized_error(env, monkeypatch, caplog, error_type):
+    source = make_mod(env.original, env.tmp / 'home' / 'PrivateUser' / 'Private Assets')
+
+    def fail(path, **kwargs):
+        if path == source:
+            source.unlink()
+            if error_type is FileNotFoundError:
+                source.stat()
+            raise RuntimeError(f'Cannot inspect {source}')
+        return bundle_metadata(path, **kwargs)
+
+    monkeypatch.setattr(integrity, 'metadata', fail)
+    entry, = analyze(env, [source])['entries']
+    assert entry['state'] == 'blocked'
+    assert entry['error']['code'] == ('library_io_error' if error_type is FileNotFoundError
+                                      else 'library_operation_failed')
+    records = [record for record in caplog.records if record.name == 'ba_modding_toolkit.library.service']
+    assert len(records) == 1
+    assert records[0].exc_info is None
+    assert error_type.__name__ in records[0].getMessage()
+    assert '[asset].bundle' in records[0].getMessage()
+    assert all(value not in caplog.text for value in (str(source), source.name, 'PrivateUser', 'Private Assets'))

@@ -112,12 +112,15 @@ def _errors(operation: str) -> Iterator[None]:
     try:
         yield
     except OSError as error:
-        logger.exception("Library file operation failed")
+        from ..webui.diagnostics import private_text
+        logger.error("Library file operation failed: %s: %s", type(error).__name__, private_text(str(error), set()))
         raise ServiceError("library_io_error", file=error.filename) from error
     except ServiceError:
         raise
     except Exception as error:
-        logger.exception("Library operation failed: %s", operation)
+        from ..webui.diagnostics import private_text
+        logger.error("Library operation failed (%s): %s: %s", operation, type(error).__name__,
+                     private_text(str(error), set()))
         raise ServiceError("library_operation_failed", operation=operation) from error
 
 
