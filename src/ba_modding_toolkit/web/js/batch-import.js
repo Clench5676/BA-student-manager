@@ -427,11 +427,12 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
   function paragraphCopy(group, result = false) {
     const notes = result ? group.entries.map((entry) => {
       const item = model.state.results.find((item) => item.id === entry.id);
-      const status = item?.reason ? report(item, entry) : ["imported", "updated", "unchanged"].includes(item?.outcome)
+      return item?.reason ? report(item, entry) : ["imported", "updated", "unchanged"].includes(item?.outcome)
         ? T(item.applied ? "import.applied" : "import.notApplied") : "";
-      const warning = item?.notTransferred?.length ? T("import.notTransferred", { names: item.notTransferred.join(listSeparator()) }) : "";
-      return [status, warning].filter(Boolean).join("\n");
     }) : group.entries.map(rowNote);
+    const omitted = result ? group.entries.reduce((count, entry) => count
+      + (model.state.results.find((item) => item.id === entry.id)?.notTransferred?.length || 0), 0) : 0;
+    if (omitted) notes.push(T("import.notTransferredCount", { count: omitted }));
     return { ...rowCopy(group, result), route: conversionRoutes(group.entries),
       note: [...new Set(notes.filter(Boolean))].join(listSeparator()) };
   }

@@ -13,17 +13,19 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
-from .. import core, devmode, mod_origin
-from ..bundle import Bundle
+from .. import atlas_remap, core, devmode, mod_origin
+from ..bundle import Bundle, UpdateScope
 from ..errors import ServiceError
 from ..gameassets.spine import spine_revision
+from ..i18n import t
 from ..library.identity import identify
 from ..library import integrity, staging
 from ..library.judge import core_of, kind_of, part_of
 from ..library.storage import Fingerprints
-from ..models import SaveOptions
+from ..models import AssetType, SaveOptions
 from ..naming import parse_filename
 from ..searching import _asset_match
+from ..spine import get_skel_version
 from ..utils import no_log, parse_hex_bytes
 
 logger = logging.getLogger(__name__)
@@ -115,6 +117,51 @@ def blocked_reason(error: ServiceError) -> str:
     if error.code in ("mod_unsupported", "source_unsupported"):
         return "unsupported"
     return "no_target"
+
+
+def transfer_compatibility(inspection: integrity.Inspection, sources: list[Path], targets: list[Path],
+                           strategy: str) -> tuple[dict, dict, bool]:
+    """Check only Spine inputs that execution will transfer to the chosen official bundles."""
+    scope = UpdateScope([inspection.bundle(path) for path in targets], strategy, inspection.asset_types)
+    key_of = Bundle._get_key_func(strategy)
+    incoming, official = {}, {}
+    atlases, textures, transferred_atlases, transferred_textures = {}, {}, set(), {}
+    for path in targets:
+        contents = inspection.inspect(path)
+        atlases.update(contents.atlases)
+        textures.update(contents.textures)
+    for path in sources:
+        contents = inspection.inspect(path, allow_unknown=True)
+        for obj in inspection.bundle(path).env.objects:
+            if obj.type not in (AssetType.TextAsset, AssetType.Texture2D):
+                continue
+            if "ALL" not in inspection.asset_types and obj.type.name not in inspection.asset_types:
+                continue
+            key = key_of(obj)
+            if key not in scope.counterparts:
+                continue
+            name = obj.peek_name()
+            for target, counterpart in scope.counterparts[key]:
+                target_name = counterpart.peek_name()
+                if obj.type == AssetType.TextAsset and name in contents.skeletons:
+                    incoming[key] = get_skel_version(contents.skeletons[name])
+                    data = inspection.inspect(target.path).skeletons.get(target_name)
+                    official.setdefault(key, set()).add(get_skel_version(data) if data is not None else None)
+                elif obj.type == AssetType.TextAsset and name in contents.atlases:
+                    transferred_atlases.add(target_name)
+                elif obj.type == AssetType.Texture2D:
+                    size = contents.textures.get(integrity.texture_key(name))
+                    if size is not None:
+                        transferred_textures[integrity.texture_key(target_name)] = size
+    try:
+        mixed = {name: data for name, data in atlases.items() if name not in transferred_atlases
+                 and any(integrity.texture_key(page) in transferred_textures
+                         for page in atlas_remap.parse_atlas(data, name).pages)}
+        remappable = bool(mixed) and atlas_remap.page_size_mismatch(mixed, {**textures, **transferred_textures})
+    except (ValueError, UnicodeError):
+        remappable = False
+    inspection.validate()
+    return official, incoming, remappable
 
 
 class BatchImport:
@@ -390,7 +437,7 @@ class BatchImport:
         return candidates, skipped
 
     def _judge(self, candidate: Candidate, library: Any, pin: Any, log: Any = no_log,
-               *, asset_types: set[str] | None = None) -> None:
+               *, asset_types: set[str] | None = None, strategy: str | None = None) -> None:
         entry = candidate.entry
         entry.pop("params", None)
         entry.update(state="blocked", reason=candidate.error, libraryId=None, source=None,
@@ -469,27 +516,13 @@ class BatchImport:
                 matched, _ = _asset_match(sources, [baseline[p] for p in live if parse_filename(p.name).date ==
                                           latest[parse_filename(p.name).prefix]], log, keys=inspection.keys)
                 targets = [p for p in live if baseline[p] in matched]
-            official = compatibility.get("official", {}).get("skeletons", {})
-            incoming = compatibility.get("mod", {}).get("skeletons", {})
-            versions = {s["version"] for s in official.values() if s.get("version")}
-            series = {tuple(version.split(".")[:2]) for version in versions}
-            candidate.spine_version = max(versions, key=lambda version: tuple(map(int, version.split(".")))) if len(series) == 1 else None
-            unknown = any(not s.get("version") for s in incoming.values())
-            mismatch = any(s.get("version") and
-                           tuple(s["version"].split(".")[:2]) not in (
-                               {tuple(official[name]["version"].split(".")[:2])}
-                               if official.get(name, {}).get("version") else series)
-                           for name, s in incoming.items())
-            common_error = "conflict" if compatibility.get("remappable") else "spine_version" if (
-                unknown or (mismatch and (candidate.spine_version is None or
-                                         not self.services.settings.spine_options().is_valid()))) else None
             inferred = entry["source"] is None
             choices = (mod_origin.candidates(names, selected, official_contents, entry["target"]) if inferred
                        else [entry["source"]])
             matched_targets = None
             for choice in choices:
                 converting = conversion(choice)
-                failure = common_error
+                failure = None
                 chosen = targets
                 if choice["server"] != entry["target"]["server"] and not all(
                         any(part_of(name) == part_of(path.name) for path in live) for name in names):
@@ -501,6 +534,20 @@ class BatchImport:
                     chosen = matched_targets
                 if not chosen:
                     failure = failure or ("no_matching_assets" if converting or inferred else "game_file_not_found")
+                mismatch = False
+                if not failure and (selected.skeletons or compatibility.get("remappable")):
+                    official, incoming, remappable = transfer_compatibility(inspection, sources,
+                        [baseline[path] for path in chosen], "name_type" if converting else strategy or self.options()["strategy"])
+                    versions = {version for values in official.values() for version in values if version}
+                    series = {tuple(version.split(".")[:2]) for version in versions}
+                    candidate.spine_version = (max(versions, key=lambda version: tuple(map(int, version.split("."))))
+                                               if len(series) == 1 else None)
+                    unknown = any(not version for version in incoming.values())
+                    mismatch = any(version and any(not target or version.split(".")[:2] != target.split(".")[:2]
+                                                   for target in official[key]) for key, version in incoming.items())
+                    failure = "conflict" if remappable else "spine_version" if (
+                        unknown or (mismatch and (candidate.spine_version is None or
+                                                not self.services.settings.spine_options().is_valid()))) else None
                 if failure:
                     if inferred:
                         continue
@@ -591,7 +638,8 @@ class BatchImport:
                             fresh.entry["files"] = [dict(f) for f in candidate.entry["files"]]
                             report(candidate, "convert" if candidate.conversion else "update"
                                    if candidate.entry["state"] == "update" else "add", "check")
-                            self._judge(fresh, library, pin, log, asset_types=settings.asset_types())
+                            self._judge(fresh, library, pin, log, asset_types=settings.asset_types(),
+                                        strategy=settings.options["strategy"])
                             futures[candidate.entry["id"]] = workers.submit(
                                 self._prepare, fresh, settings, Path(temporary), log, report)
                         except (OSError, ServiceError) as error:
@@ -615,6 +663,8 @@ class BatchImport:
                                 paths, updated, fresh = future.result()
                                 if fresh.not_transferred:
                                     item["notTransferred"] = fresh.not_transferred
+                                    logger.warning("%s: %s", ", ".join(sorted(fresh.files)),
+                                        t("webui.import.notTransferred", names=", ".join(fresh.not_transferred)))
                                 if paths is None:
                                     item.update(outcome="unchanged", libraryId=fresh.entry["libraryId"])
                                     mod = next((mod for mod in library.mods() if mod.id == item["libraryId"]), None)

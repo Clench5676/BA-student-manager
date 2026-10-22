@@ -12,7 +12,7 @@ from ba_modding_toolkit.library import ModLibrary, supports_kind
 from ba_modding_toolkit.library.identity import identify
 from ba_modding_toolkit.library.integrity import Contents, inspect as inspect_bundle
 from ba_modding_toolkit.library.judge import core_of, other_target
-from ba_modding_toolkit.models import PatchResult
+from ba_modding_toolkit.models import AssetType, PatchResult
 from ba_modding_toolkit.naming import parse_filename
 from ba_modding_toolkit.utils import CRCUtils
 
@@ -154,12 +154,16 @@ def test_generic_older_name_update_creates_output_before_core_save(other_env, mo
     saves = []
 
     class FakeBundle:
+        env = SimpleNamespace(objects=[SimpleNamespace(
+            type=AssetType.Texture2D, container=key[0], peek_name=lambda: key[1])])
+
         def get_asset_keys(self, strategy):
             assert strategy == 'cont_name_type'
             return {key}
 
-        def extract_patch(self, types, strategy, spine):
+        def extract_patch(self, types, strategy, spine, *, scope):
             assert strategy == 'cont_name_type'
+            assert set(scope.counterparts) == {key}
             return {key: b'updated UI'}, []
 
         def apply_patch(self, patch, strategy, anim_check):

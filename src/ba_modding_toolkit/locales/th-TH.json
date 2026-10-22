@@ -1482,6 +1482,7 @@
 			"applied": "ใช้แล้ว",
 			"notApplied": "ยังไม่ได้ใช้",
 			"notTransferred": "คำเตือน: ไม่ได้ถ่ายโอน (ไม่มีแอสเซ็ตที่ตรงกันใน Bundle ทางการรุ่นใหม่): {names}",
+			"notTransferredCount": "ไม่ได้ถ่ายโอน {count} แอสเซ็ต",
 			"auto": "อัตโนมัติ",
 			"original": "ต้นฉบับ",
 			"uncompressed": "ไม่บีบอัด",

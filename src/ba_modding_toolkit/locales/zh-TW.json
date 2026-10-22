@@ -1482,6 +1482,7 @@
 			"applied": "已套用",
 			"notApplied": "未套用",
 			"notTransferred": "警告：未轉移（新版官方 Bundle 中沒有對應資源）：{names}",
+			"notTransferredCount": "{count} 個資源未轉移",
 			"auto": "自動",
 			"original": "原壓縮方式",
 			"uncompressed": "不壓縮",

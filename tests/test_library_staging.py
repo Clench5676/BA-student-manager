@@ -1,14 +1,46 @@
 """Crash recovery for import staging, using temporary libraries only."""
 
 from pathlib import Path
+import os
 import subprocess
 import sys
+import time
+
+import pytest
 
 from ba_modding_toolkit.filelock import file_lock
 from ba_modding_toolkit.library.service import ModLibrary
 from ba_modding_toolkit.library.staging import import_directory
 
 from test_library import setup_library
+
+
+def age_tree(path, age=24 * 60 * 60 + 1):
+    modified = time.time() - age
+    for item in [*path.rglob("*"), path]:
+        os.utime(item, (modified, modified))
+
+
+@pytest.mark.parametrize("recent", ["directory", "nested_directory", "nested_file", None])
+@pytest.mark.parametrize("lease_exists", [False, True])
+def test_startup_keeps_recent_imports_even_without_an_active_lease(setup_library, recent, lease_exists):
+    env = setup_library
+    path = env.library.root / "staging" / "import-older-app"
+    nested = path / "targets"
+    nested.mkdir(parents=True)
+    output = nested / "output.bundle"
+    output.write_bytes(b"older app is still importing")
+    if lease_exists:
+        path.with_suffix(".lock").touch()
+    age_tree(path)
+    if recent:
+        modified = time.time() - 24 * 60 * 60 + 60
+        os.utime({"directory": path, "nested_directory": nested, "nested_file": output}[recent],
+                 (modified, modified))
+    ModLibrary(env.library.root, env.catalog, settings=env.settings)
+    assert path.exists() is bool(recent)
+    if recent:
+        assert output.read_bytes() == b"older app is still importing"
 
 
 def test_startup_removes_abandoned_imports_but_keeps_active_and_unrelated_files(setup_library):
@@ -18,6 +50,7 @@ def test_startup_removes_abandoned_imports_but_keeps_active_and_unrelated_files(
     for path in (stale, active, unrelated):
         path.mkdir(parents=True)
         (path / "output.bundle").write_bytes(b"temporary data")
+        age_tree(path)
     lease = staging / "import-active.lock"
     with file_lock(lease, timeout=0):
         ModLibrary(env.library.root, env.catalog, settings=env.settings)
@@ -72,5 +105,8 @@ with import_directory(Path(sys.argv[1])) as path:
     finally:
         process.kill()
         process.communicate(timeout=5)
+    ModLibrary(env.library.root, env.catalog, settings=env.settings)
+    assert path.exists()
+    age_tree(path)
     ModLibrary(env.library.root, env.catalog, settings=env.settings)
     assert not path.exists()

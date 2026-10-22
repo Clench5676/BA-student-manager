@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shutil
 import threading
@@ -14,7 +15,7 @@ import pytest
 from ba_modding_toolkit.bundle import Bundle
 from ba_modding_toolkit.errors import ServiceError
 from ba_modding_toolkit.library import integrity
-from ba_modding_toolkit.models import FilePair, ModUpdateResult, PatchResult
+from ba_modding_toolkit.models import AssetType, FilePair, ModUpdateResult, PatchResult
 from ba_modding_toolkit.webui import batch_import, native
 from ba_modding_toolkit.webui.api import build_api
 from ba_modding_toolkit.webui.services import Services
@@ -265,6 +266,109 @@ def test_old_model_mesh_updates_when_prefab_has_a_newer_release(batch_model_env,
     assert mesh.read_bytes() == env.official[mesh]
 
 
+def mock_spine_contents(monkeypatch, inspect):
+    def load(path, *args):
+        contents = inspect(path)
+        objects = []
+        for kind, names in ((AssetType.TextAsset, [*contents.skeletons, *contents.atlases]),
+                            (AssetType.Texture2D, contents.textures)):
+            for name in names:
+                objects.append(SimpleNamespace(type=kind, container=f"Assets/{name}",
+                    path_id=len(objects) + 1, peek_name=lambda name=name: name))
+        return Bundle(path, SimpleNamespace(objects=objects))
+
+    monkeypatch.setattr(integrity, "inspect", inspect)
+    monkeypatch.setattr(Bundle, "load", load)
+
+
+@pytest.mark.parametrize("types", [["Texture2D"], ["Texture2D", "TextAsset"], ["ALL"]])
+@pytest.mark.parametrize("version", [b"3.8.75", b"undecodable skeleton"])
+def test_removed_skeleton_does_not_block_a_matching_texture_update(env, monkeypatch, types, version):
+    source = game_bundle(env.tmp / "old", date="2025-01-01", payload=b"old mod")
+
+    def inspect(path, **kwargs):
+        name, data = ("removed", version) if path == source else ("current", b"4.2.33")
+        return integrity.Contents(platforms={"StandaloneWindows64"}, files={"cab-test"},
+            skeletons={f"{name}.skel": data}, atlases={f"{name}.atlas": b""}, textures={"page": (8, 8)})
+
+    mock_spine_contents(monkeypatch, inspect)
+    rpc(env, "import.setOptions", **{**rpc(env, "import.options"), "types": types})
+    assert not env.settings.spine_options().is_valid()
+    entry, = analyze(env, [source])["entries"]
+    assert (entry["state"], entry["reason"]) == ("update", None)
+    calls = []
+    updater(monkeypatch, calls)
+    result, = run(env, [entry], enableAfterImport=False)
+    assert result["outcome"] == "updated"
+    assert calls[0][1]["asset_types_to_replace"] == set(types)
+
+
+def test_texture_only_update_ignores_a_matching_incompatible_skeleton(env, monkeypatch):
+    source = game_bundle(env.tmp / "old", date="2025-01-01", payload=b"old mod")
+
+    def inspect(path, **kwargs):
+        return integrity.Contents(platforms={"StandaloneWindows64"}, files={"cab-test"},
+            skeletons={"test.skel": b"3.8.75" if path == source else b"4.2.33"},
+            atlases={"test.atlas": b""}, textures={"page": (8, 8)})
+
+    mock_spine_contents(monkeypatch, inspect)
+    rpc(env, "import.setOptions", **{**rpc(env, "import.options"), "types": ["Texture2D"]})
+    entry, = analyze(env, [source])["entries"]
+    assert (entry["state"], entry["reason"]) == ("update", None)
+
+
+@pytest.mark.parametrize("strategy", ["cont_name_type", "path_id"])
+def test_spine_checks_use_the_transfer_matching_strategy(env, monkeypatch, strategy):
+    source = game_bundle(env.tmp / "old", date="2025-01-01", payload=b"old mod")
+
+    def inspect(path, **kwargs):
+        return integrity.Contents(platforms={"StandaloneWindows64"}, files={"cab-test"},
+            skeletons={"test.skel": b"3.8.75" if path == source else b"4.2.33"},
+            atlases={"test.atlas": b""}, textures={"page": (8, 8)})
+
+    mock_spine_contents(monkeypatch, inspect)
+    load = Bundle.load
+
+    def with_removed_skeleton(path, *args):
+        bundle = load(path)
+        if path == source:
+            bundle.env.objects[0].container = "Assets/removed.skel"
+            bundle.env.objects[0].path_id = 999
+        return bundle
+
+    monkeypatch.setattr(Bundle, "load", with_removed_skeleton)
+    rpc(env, "import.setOptions", **{**rpc(env, "import.options"), "strategy": strategy})
+    entry, = analyze(env, [source])["entries"]
+    assert (entry["state"], entry["reason"]) == ("update", None)
+    calls = []
+    updater(monkeypatch, calls)
+    # Run-time options must also scope the recheck, even if the saved options differ.
+    assert run(env, [entry], strategy="name_type", enableAfterImport=False)[0]["reason"] == "spine_version"
+    assert run(env, [entry], enableAfterImport=False)[0]["outcome"] == "updated"
+
+
+def test_unselected_official_skeleton_does_not_change_the_conversion_version(env, monkeypatch):
+    source = game_bundle(env.tmp / "old", date="2025-01-01", payload=b"old mod")
+
+    def inspect(path, **kwargs):
+        skeletons = {"test.skel": b"3.8.75"} if path == source else {
+            "test.skel": b"4.2.33", "unrelated.skel": b"4.1.24"}
+        return integrity.Contents(platforms={"StandaloneWindows64"}, files={"cab-test"}, skeletons=skeletons,
+            atlases={name.replace(".skel", ".atlas"): b"" for name in skeletons})
+
+    mock_spine_contents(monkeypatch, inspect)
+    converter = env.tmp / "converter"
+    converter.touch()
+    env.settings.set("enable_spine_conversion", True)
+    env.settings.set("spine_converter_path", str(converter))
+    entry, = analyze(env, [source])["entries"]
+    assert (entry["state"], entry["reason"]) == ("update", None)
+    calls = []
+    updater(monkeypatch, calls)
+    assert run(env, [entry], enableAfterImport=False)[0]["outcome"] == "updated"
+    assert calls[0][1]["spine_options"].target_version == "4.2.33"
+
+
 def test_spine_version_blocks_without_converter_and_requests_update_with_one(env, monkeypatch):
     source = make_mod(env.original, env.tmp / "old-spine")
 
@@ -273,7 +377,7 @@ def test_spine_version_blocks_without_converter_and_requests_update_with_one(env
         return integrity.Contents(platforms={"StandaloneWindows64"}, files={"cab-test"}, skeletons={"test.skel": version},
                                   atlases={"test.atlas": b""})
 
-    monkeypatch.setattr(integrity, "inspect", inspect)
+    mock_spine_contents(monkeypatch, inspect)
     entry, = analyze(env, [source])["entries"]
     assert (entry["state"], entry["reason"]) == ("blocked", "spine_version")
     converter = env.tmp / "converter"
@@ -294,7 +398,7 @@ def test_multiple_official_spine_patch_versions_keep_the_major_minor_check(env, 
         return integrity.Contents(platforms={"StandaloneWindows64"}, files={"cab-test"}, skeletons=skeletons,
                                   atlases={"first.atlas": b"", "second.atlas": b"", "third.atlas": b""})
 
-    monkeypatch.setattr(integrity, "inspect", inspect)
+    mock_spine_contents(monkeypatch, inspect)
     entry, = analyze(env, [source])["entries"]
     assert (entry["state"], entry["reason"]) == (state, "spine_version" if state == "blocked" else None)
     if state == "blocked":
@@ -319,7 +423,7 @@ def test_incompatible_mixed_official_spine_series_do_not_convert_to_a_default_ve
         return integrity.Contents(platforms={"StandaloneWindows64"}, files={"cab-test"}, skeletons=skeletons,
                                   atlases={"first.atlas": b"", "second.atlas": b""})
 
-    monkeypatch.setattr(integrity, "inspect", inspect)
+    mock_spine_contents(monkeypatch, inspect)
     converter = env.tmp / "converter"
     converter.touch()
     env.settings.set("enable_spine_conversion", True)
@@ -351,6 +455,36 @@ def updater(monkeypatch, calls, payload=b"updated mod"):
         return ModUpdateResult(True, "ok", pairs)
 
     monkeypatch.setattr(batch_import.core, "process_mod_update", update)
+
+
+def test_omitted_assets_are_available_in_the_settings_app_log(env, monkeypatch):
+    from ba_modding_toolkit.webui.session_log import RedactingFormatter
+
+    source = game_bundle(env.tmp / "old", date="2025-01-01", payload=b"old mod")
+    entry, = analyze(env, [source])["entries"]
+    updater(monkeypatch, [])
+    update = batch_import.core.process_mod_update
+    omitted = [f"[Texture2D] removed_page_{i}" for i in range(50)]
+
+    def with_omissions(**kwargs):
+        result = update(**kwargs)
+        result.not_transferred = omitted
+        return result
+
+    monkeypatch.setattr(batch_import.core, "process_mod_update", with_omissions)
+    env.services.log_path.parent.mkdir(parents=True, exist_ok=True)
+    handler = logging.FileHandler(env.services.log_path, encoding="utf-8")
+    handler.setFormatter(RedactingFormatter(env.services.log_secrets))
+    logging.getLogger().addHandler(handler)
+    try:
+        result, = run(env, [entry], enableAfterImport=False)
+        assert result["outcome"] == "updated" and result["notTransferred"] == sorted(omitted)
+        text = rpc(env, "app.log")["text"]
+        assert source.name in text
+        assert all(name in text for name in omitted)
+    finally:
+        logging.getLogger().removeHandler(handler)
+        handler.close()
 
 
 @pytest.mark.parametrize("phase", ["prepare", "add", "apply", "recheck"])

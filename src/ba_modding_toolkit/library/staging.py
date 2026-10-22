@@ -2,14 +2,30 @@
 
 from contextlib import ExitStack, contextmanager
 import logging
+import os
 from pathlib import Path
 import shutil
 import tempfile
+import time
 
 from .. import devmode
 from ..filelock import file_lock
 
 logger = logging.getLogger(__name__)
+MIN_IMPORT_AGE = 24 * 60 * 60
+
+
+def _stale(path: Path, cutoff: float) -> bool:
+    if path.stat().st_mtime > cutoff:
+        return False
+    # Writing an existing output does not update its parent directory's mtime.
+    with os.scandir(path) as entries:
+        for entry in entries:
+            if entry.stat(follow_symlinks=False).st_mtime > cutoff:
+                return False
+            if entry.is_dir(follow_symlinks=False) and not _stale(Path(entry.path), cutoff):
+                return False
+    return True
 
 
 @contextmanager
@@ -48,6 +64,9 @@ def cleanup(root: Path) -> None:
                     continue
                 try:
                     with file_lock(lease, timeout=0):
+                        # Older versions have no lease, so also require a full day without writes.
+                        if not _stale(path, time.time() - MIN_IMPORT_AGE):
+                            continue
                         shutil.rmtree(path)
                     lease.unlink(missing_ok=True)
                 except TimeoutError:

@@ -1482,6 +1482,7 @@
 			"applied": "Applied",
 			"notApplied": "Not Applied",
 			"notTransferred": "Warning: not transferred (no counterpart in the new official bundle): {names}",
+			"notTransferredCount": "Assets not transferred: {count}",
 			"auto": "Auto",
 			"original": "Original",
 			"uncompressed": "Uncompressed",
