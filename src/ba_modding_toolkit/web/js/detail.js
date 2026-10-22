@@ -30,7 +30,8 @@ import * as Prompts from "./prompts.js";
 import { anyOpen as popupOpen } from "./popup.js";
 import { rpc, spineBase, spinePrefix, loadSpineAssets, waitJob } from "./api.js";
 import { L, T, language, platform } from "./i18n.js";
-import { forget, idleAnimation, prioritise, thumbnailScope, withThumbnailFallback } from "./thumbs.js";
+import { forget, idleAnimation, prioritise, thumbnailScope } from "./thumbs.js";
+import { modelThumbnail, modelStillVersion } from "./model-still.js";
 import { portraitViewport } from "./portrait-view.js";
 import { colourSwitchCard } from "./switch-card.js";
 import { clearUnseen, hasUnseen as hasFresh, shownUnseen, switchUnseen } from "./unseen-assets.js";
@@ -97,19 +98,18 @@ let showGen = 0, endWait = () => {};
 let thumbnailWork = thumbnailScope();
 let thumbnailWait = Promise.resolve(), releaseThumbnails = () => {};
 const thumb = (base, frame = "bust", expr = null, lobby = false, framing = null, background = variant()?.bg) => {
-  const fallback = collectionPortrait(base);
-  if (!spineAllowed()) return fallback;
-  const picture = thumbnailWork.thumb(base, frame, expr, lobby, framing, frame === "face" ? null : background);
-  return frame === "portrait" ? withThumbnailFallback(picture, () => fallback) : picture;
+  if (!spineAllowed()) return collectionPortrait(base);
+  return thumbnailWork.thumb(base, frame, expr, lobby, framing, frame === "face" ? null : background);
 };
 function collectionPortrait(base) {
   for (const v of fam?.variants || []) {
     if (!v.spr) continue;
-    if ([spineBase("spr", v.spr), spineBase("official-spr", v.spr)].includes(base)
-        || (v.modList || []).some((m) => m.kind === "spr" && spineBase("mod", m.id) === base)) return v.portrait || null;
+    if (spineBase("official-spr", v.spr) === base) return v.portrait || null;
   }
   return null;
 }
+const modelPicture = (c, v = variant()) => modelThumbnail(v.key, c.kind === "mod" ? `mod:${c.id}` : "official",
+  { version: modelStillVersion(fam, v, modelGeneration), signal: thumbnailWork.signal });
 function begin() {
   endWait();
   thumbnailWork.cancel();
@@ -256,7 +256,8 @@ export function actionState(card, enabled, lockTemplate = null) {
 }
 
 // an upright texture inside a slanted body is clipped to the body (the game does this with panel clipping)
-const clipped = (name, pos, url, win, img, opts = {}) => node(name, pos, [{ clipImage: url, w_: win.w, h_: win.h, pivot: 4, depth: opts.depth ?? 9,
+const clipped = (name, pos, url, win, img, opts = {}) => node(name, pos, [{ clipImage: url, placeholder: opts.placeholder, w_: win.w, h_: win.h, pivot: 4, depth: opts.depth ?? 9,
+  placeholderRect: { x: img.dx, y: img.dy, w: img.w, h: img.h },
   incline: 10, radius: win.r ?? 20, color: opts.color ?? "#ffffff/1.00", tint: opts.tint, imgSize: "100% 100%", imgPosition: "0 0",
   imgLeft: `${(win.w / 2 + img.dx - img.w / 2) * S}px`, imgTop: `${(win.h / 2 - img.dy - img.h / 2) * S}px`, imgWidth: `${img.w * S}px`, imgHeight: `${img.h * S}px`,
   imgMask: opts.mask, imgEdge: opts.edge }]);
@@ -399,8 +400,8 @@ function screenTree() {
       ? clipped("Bust", [1, 6], thumb(currentBase(), "bust"), win, { dx: -383 + 202 - 40, dy: -67.5, w: 404, h: 404 },
         { depth: 10, mask: "linear-gradient(90deg, #000 70%, transparent 98%)" })
       // wider than the window's slanted left edge; the lobby fades out before the labels so their contrast is known
-      : clipped("Bust", [1, 6], tab === "model" ? modelShot : lobbyShot, win, { dx: -383 + 216, dy: 0, w: 450, h: 253 },
-        { depth: 10, edge: 0.7, mask: `linear-gradient(90deg, transparent 0, #000 10%, #000 70%, transparent ${tab === "model" ? 96 : 82}%)` }));
+      : clipped("Bust", [1, 6], tab === "model" ? modelPicture(current("model")) : lobbyShot, win, { dx: -383 + 216, dy: 0, w: tab === "model" ? 253 : 450, h: 253 },
+        { depth: 10, placeholder: T("import.previewUnavailable"), edge: 0.7, mask: `linear-gradient(90deg, transparent 0, #000 10%, #000 70%, transparent ${tab === "model" ? 96 : 82}%)` }));
   // the wrapper holds an enabled (cyan) and a disabled (grey) body and label: the enabled ones while the tab has
   // something to add and switch to (switchKind), else the disabled ones
   const keep = switchKind() ? 1 : 2;
@@ -1172,7 +1173,7 @@ async function drawPopup(scroll = 0) {
   const v = variant(), kind = popupKind, inUseKey = appliedKey(v, kind);
   const mode = popupMode(fam, v, kind, modsOn());
   const items = candidates(v, kind).map((c) => {
-    const picture = kind === "model" ? (c.origin || c.variant || v).portrait
+    const picture = kind === "model" ? modelPicture(c, v)
       : thumb(baseOf(c, kind), kind === "spr" ? "portrait" : "landscape", null, kind === "lobby", specialFraming(v), (c.origin || c.variant || v).bg);
     return {
       key: c.key, kind: c.kind, recruit: c.kind !== "mod" && c.recruit,

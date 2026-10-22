@@ -10,7 +10,7 @@
 // answered with a button takes Escape and does nothing with it, so nothing under it acts either.
 // The pure parts (the stack, the selection, the start sequence) are tested in Node (tests/js/popup.test.mjs).
 import * as NGUI from "./ngui.js";
-import { switchGrid, splitPortraitPanel } from "./switch-layout.js";
+import { switchGrid, placeSwitchCards, splitPortraitPanel } from "./switch-layout.js";
 import { scrollbar } from "./scrollbar.js";
 import * as Buttons from "./game-buttons.js";
 import { searchTree, sortBody, orderBody, pickerItems } from "./roster-widgets.js";
@@ -353,12 +353,12 @@ function listFrame(title, buttons, closeButton) {
 // one card of the list: the game's card body, the picture clipped to its window, a name bar under it. A card that
 // cannot be chosen (dim) is darkened like the roster's not-owned cards, its picture without colour; its badge (In Use,
 // or the caller's) stays bright.
-function listCard(it, x, y, selected, card = LP.card) {
+function listCard(it, x, y, selected, card = LP.card, kind = null) {
   const { w, h, bar } = card;
   // The same upright image must reach both inclined edges even in a tall portrait window.
   const overscan = Math.max(.15, (h - 26) * TAN10 / (2 * (w - 16)));
   const kids = [
-    node("Thumb", [1, 4], [{ clipImage: it.thumb, w_: w - 16, h_: h - 26, pivot: 4, depth: 8, incline: 10, radius: 18, color: "#ffffff/1.00", imgSize: "cover", imgPosition: "center 30%",
+    node("Thumb", [1, 4], [{ clipImage: it.thumb, placeholder: T("import.previewUnavailable"), w_: w - 16, h_: h - 26, pivot: 4, depth: 8, incline: 10, radius: 18, color: "#ffffff/1.00", imgSize: kind === "model" ? "contain" : "cover", imgPosition: "center 30%",
       imgLeft: `${-overscan * 100}%`, imgWidth: `${(1 + 2 * overscan) * 100}%` }]),
     node("Line", [1, 4], [sprite("Common_Line_Raius20px", w - 12, h - 18, { incline: 10, depth: 9, color: "#ffffff/1.00" })]),
   ];
@@ -388,17 +388,18 @@ function listCard(it, x, y, selected, card = LP.card) {
 }
 
 // the details panel: title bar, the picture, name, kind chips, fields, actions
-function detailsTree(it, title, fields, actions, portraitTexture = null) {
+function detailsTree(it, title, fields, actions, portraitTexture = null, kind = null) {
   const b = LP.left, cx = (b.l + b.r) / 2, w = b.r - b.l;
+  const pictureW = kind === "model" ? 490 : w;
   const kids = [
     node("Title_Bg", [cx, b.t - 40], [sprite("Common_Bg_Raius10px", w - 20, 73, { depth: 5, color: "#2d4c72/1.00", incline: 10 })], [
       node("Deco", [-(w - 20) / 2 + 30, 0], [sprite("Common_BGDeco", 68, 72, { depth: 6, color: "#2a5886/1.00", type: 0 })]),
       node("Deco (1)", [(w - 20) / 2 - 30, 0], [sprite("Common_BGDeco", 68, 72, { depth: 6, color: "#2a5886/1.00", flip: 3, type: 0 })]),
       node("Label", [0, 0], [label(title, fitText(title, 46, 32, w - 140).fs, "#ffffff/1.00", w - 140, 50, { depth: 7 })]),
     ]),
-    node("Picture", [cx, b.t - 330], [sprite("Common_Btn_BG", w - 40, 460, { incline: 10, depth: 6, color: "#ffffff/1.00" })], [
-      node("Thumb", [1, 4], [{ clipImage: typeof it.big === "function" ? it.big() : it.big, w_: w - 60, h_: 430, pivot: 4, depth: 7, incline: 10, radius: 22, color: "#ffffff/1.00", imgSize: "cover", imgPosition: "center 18%" }]),
-      node("Line", [1, 4], [sprite("Common_Line_Raius20px", w - 54, 438, { incline: 10, depth: 8, color: "#ffffff/1.00" })]),
+    node("Picture", [cx, b.t - 330], [sprite("Common_Btn_BG", pictureW - 40, 460, { incline: 10, depth: 6, color: "#ffffff/1.00" })], [
+      node("Thumb", [1, 4], [{ clipImage: typeof it.big === "function" ? it.big() : it.big, placeholder: T("import.previewUnavailable"), w_: pictureW - 60, h_: 430, pivot: 4, depth: 7, incline: 10, radius: 22, color: "#ffffff/1.00", imgSize: kind === "model" ? "contain" : "cover", imgPosition: "center 18%" }]),
+      node("Line", [1, 4], [sprite("Common_Line_Raius20px", pictureW - 54, 438, { incline: 10, depth: 8, color: "#ffffff/1.00" })]),
     ]),
   ];
   const nameRoom = w - 60 - (it.nameEdit ? 70 : 0), nameX = cx - (it.nameEdit ? 35 : 0), nameY = b.t - (it.original ? 590 : 610);
@@ -463,7 +464,7 @@ function detailsTree(it, title, fields, actions, portraitTexture = null) {
     picture.widgets = [];
     const texture = clone(portraitTexture);
     const w = texture.widgets.find((w) => "texture" in w);
-    Object.assign(w, { clipImage: typeof it.big === "function" ? it.big() : it.big,
+    Object.assign(w, { clipImage: typeof it.big === "function" ? it.big() : it.big, placeholder: T("import.previewUnavailable"),
       imgSize: "cover", imgPosition: "center", imgLeft: "0", imgWidth: "100%", incline: 0, radius: 0 });
     picture.children = [texture];
     splitPortraitPanel(tree, find, wrapPath);
@@ -595,13 +596,12 @@ export async function listPopup(options) {
   const inner = scrollArea(next, [aL, aT, (LP.list.r - LP.list.l - 32) * S, visH], contentH);
   await inner.ready;
   const origin = [960 - aL, 540 - aT];
-  // centre the grid on its ink: slanted cards lean right at the top (+h/2 tan10) and left under the name bar
-  const leanL = grid.overhang / 2, leanR = grid.overhang / 2;
-  const inkW = (columns - 1) * pitch[0] + card.w + leanL + leanR, areaW = LP.list.r - LP.list.l - 32 - 30;
-  const x0 = LP.list.l + 16 + (areaW - inkW) / 2 + leanL + card.w / 2;
-  const at = (i) => [x0 + (i % columns) * pitch[0], top - 24 - card.h / 2 - Math.floor(i / columns) * pitch[1]];
+  // Measure the actual prefab widgets, including the name band's asymmetric incline and selection marks.
+  const trees = items.map((it) => listCard(it, 0, 0, isSelected(it.key), card, options.layoutKind));
+  placeSwitchCards(trees, grid, { left: LP.list.l + 16, right: LP.list.r - 16, top: top + 16 });
+  const at = (i) => trees[i].pos;
   await Promise.all(items.map(async (it, i) => {
-    const tree = listCard(it, ...at(i), isSelected(it.key), card);
+    const tree = trees[i];
     const styles = it.dim ? { [`Card_${it.key}/Thumb`]: "filter: grayscale(1)" } : undefined;
     const cv = await NGUI.render(tree, inner, { scale: S, origin, z: 30, styles });
     if (it.nameEdit) hit(inner, cv, `Card_${it.key}/Bar/EditName`, () => it.nameEdit.fn(inner.parentElement.scrollTop), { name: it.nameEdit.label, action: `alias:${it.key}` });
@@ -617,7 +617,7 @@ export async function listPopup(options) {
   const sel = items.find((it) => it.key === shown) || items[0];
   if (sel && details) {
     const d = details(sel);
-    const dv = await NGUI.render(detailsTree(sel, d.title, d.fields, d.actions, portraitTexture), next, { scale: S, origin: [960, 540], z: 20 });
+    const dv = await NGUI.render(detailsTree(sel, d.title, d.fields, d.actions, portraitTexture, options.layoutKind), next, { scale: S, origin: [960, 540], z: 20 });
     if (sel.nameEdit) hit(next, dv, "Details/EditName", () => sel.nameEdit.fn(inner.parentElement.scrollTop), { name: sel.nameEdit.label, action: "alias:details" });
     d.actions.forEach(([caption, fn], i) => { if (fn) hit(next, dv, `Details/Act_${i}/Body`, fn, { name: caption }); });
   }

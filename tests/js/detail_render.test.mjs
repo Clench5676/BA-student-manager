@@ -290,9 +290,14 @@ const { setStrings } = await import("../../src/ba_modding_toolkit/web/js/i18n.js
 const { setSpineConsent } = await import("../../src/ba_modding_toolkit/web/js/spine-runtime.js");
 setSpineConsent(true);
 setStrings("en-US", flat(JSON.parse(readFileSync(new URL("../../src/ba_modding_toolkit/locales/en-US.json", import.meta.url), "utf8"))));
-const modelRequests = [];
+const modelRequests = [], modelStillRequests = [];
 let modelPreview = null;
 globalThis.__detailModel = {
+  createStillView() {
+    let source;
+    return { async load(url) { source = url; modelStillRequests.push(url); },
+      async renderStill() { return `blob:rendered-${source}`; }, dispose() {} };
+  },
   async show(key, host, options) {
     modelRequests.push({ key, ...options });
     modelPreview = options;
@@ -306,7 +311,7 @@ globalThis.__detailModel = {
 const modelStub = `data:text/javascript,${encodeURIComponent(Object.keys(globalThis.__detailModel)
   .map((name) => `export const ${name} = (...args) => globalThis.__detailModel.${name}(...args);`).join("\n"))}`;
 register(`data:text/javascript,${encodeURIComponent(`export async function resolve(spec, ctx, next) {
-  if (spec === "./model.js" && ctx.parentURL?.endsWith("/detail.js")) return { url: ${JSON.stringify(modelStub)}, shortCircuit: true };
+  if (spec === "./model.js" && (ctx.parentURL?.endsWith("/detail.js") || ctx.parentURL?.endsWith("/model-still.js"))) return { url: ${JSON.stringify(modelStub)}, shortCircuit: true };
   return next(spec, ctx);
 }`)}`);
 await import(modelStub);
@@ -1342,6 +1347,16 @@ for (const enabled of [true, false]) test(`model switching reuses the detail con
     await switchButton().click(); await flush();
     assert.ok(walk(hosts.popup).some((e) => e.dataset.key === "self"));
     assert.ok(walk(hosts.popup).some((e) => e.dataset.key === "m:test"));
+    const picture = (host, path) => walk(host).find((e) => e.dataset.path === path)?.children[0].style.backgroundImage;
+    for (let i = 0; i < 5; i++) { await new Promise(setImmediate); await flush(); }
+    const original = picture(hosts.popup, "Card_self/Thumb"), mod = picture(hosts.popup, "Card_m:test/Thumb");
+    assert.match(original, /blob:rendered-.*source=official/);
+    assert.match(mod, /blob:rendered-.*source=mod%3Atest/);
+    assert.equal(picture(hosts.popup, "Details/Picture/Thumb"), mod);
+    const switchImage = walk(hosts.ngui).find((e) => e.dataset.path?.endsWith("/Bust") && e.children[0]?.style.backgroundImage?.includes("blob:rendered"));
+    assert.equal(switchImage?.children[0].style.backgroundImage, mod, "detail and popup share the source's 3D still");
+    const info = walk(hosts.popup).find((e) => e.dataset.path === "Details/Picture/Thumb");
+    assert.equal(info.style.width, info.style.height, "the model info preview is square");
     assert.equal(tabDot(3), undefined, "opening the model switch marks its offered mods seen");
     assert.equal(v.modList[0].fresh, false);
     assert.ok(!errors.flat().some((e) => String(e).includes("Spine source unavailable")));
@@ -1391,7 +1406,7 @@ test("switch subtitles retain the selected name and use a plain separator in all
   }
 });
 
-test("a failed portrait capture uses its own collection still in both the candidate and info panel", async (t) => {
+test("a failed portrait capture keeps the shared placeholder and reports the exact source and frame", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   try {
     thumbMode = "ready"; blankThumbnailCore = "pajamas_missing_spr";
@@ -1405,10 +1420,35 @@ test("a failed portrait capture uses its own collection still in both the candid
     await showPortrait(t);
     await switchButton().click(); await flush();
     const picture = (path) => walk(hosts.popup).find((e) => e.dataset.path === path).children[0].style.backgroundImage;
-    assert.equal(picture("Card_v:pajamas/Thumb"), 'url("/asset/art/portrait/pajamas")');
+    assert.equal(picture("Card_v:pajamas/Thumb"), undefined);
+    for (const path of ["Card_v:pajamas/Thumb/Placeholder", "Details/Picture/Texture/Placeholder"]) {
+      const note = walk(hosts.popup).find((e) => e.dataset.path === path);
+      assert.ok(note?.textContent); assert.equal(note.hidden, false);
+    }
+    assert.ok(errors.some((args) => args[0] === "Preview failed" && args[1].url.includes("official-spr/pajamas_missing_spr/")
+      && args[1].step === "thumbnail:portrait" && args[1].error.includes("No visible pixels")));
     assert.equal(picture("Details/Picture/Texture"), picture("Card_v:pajamas/Thumb"));
     await closeSwitch();
   } finally {
     Detail.hide(); blankThumbnailCore = ""; thumbMode = "pending"; await flush(); t.mock.timers.reset();
   }
+});
+
+
+test("a failed Mod portrait never displays the variant's official collection art", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    thumbMode = "ready"; blankThumbnailCore = "/mod/test/"; portraitRevision = "f";
+    family = modFamily();
+    const v = family.variants[0]; v.portrait = "/asset/art/portrait/official-hina";
+    v.configured = { spr: "mod:test" };
+    await showPortrait(t); await switchButton().click(); await flush();
+    for (const path of ["Card_m:test/Thumb", "Details/Picture/Texture"]) {
+      const preview = walk(hosts.popup).find((e) => e.dataset.path === path);
+      assert.equal(preview.children[0].style.backgroundImage, undefined);
+      assert.equal(walk(hosts.popup).find((e) => e.dataset.path === `${path}/Placeholder`).hidden, false);
+    }
+    assert.ok(playerRequests.some((url) => url.includes("/mod/test/")));
+    await closeSwitch();
+  } finally { Detail.hide(); blankThumbnailCore = ""; thumbMode = "pending"; portraitRevision = "a"; await flush(); t.mock.timers.reset(); }
 });

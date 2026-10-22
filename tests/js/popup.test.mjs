@@ -141,7 +141,7 @@ globalThis.fetch = async (url, opts = {}) => {
   }
   if (url === "/asset/ui/atlases.json") return reply({ Common: Object.fromEntries(
     ["Common_Square_Bg", "Common_Bg_Raius10px", "Common_Btn_BG", "Common_Popup_Bg", "Common_Btn_Normal_B_C_Pt",
-      "Common_Line_Raius20px", "Card_Ability_Select_Line", "Card_Ability_Select_Line_Icon", "Cafe_Icon_NameEdit"].map((name) => [name, { width: 8, height: 8 }])) });
+      "Common_Line_Raius20px", "Common_Icon_Reddot2", "Card_Ability_Select_Line", "Card_Ability_Select_Line_Icon", "Cafe_Icon_NameEdit"].map((name) => [name, { width: 8, height: 8 }])) });
   if (url === "/asset/ui/textures.json") return reply({});
   if (url === "/asset/ui/layout/UICharacterCollectionPopulatorUnit.json") return reply(switchLayouts.unit);
   if (url === "/asset/ui/layout/UINonEquipmentInventory.json") return reply(switchLayouts.inventory);
@@ -1510,7 +1510,7 @@ test("switch geometry: per-kind columns, aspects, card bounds, labels and portra
     for (const lang of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) {
       const ui = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${lang}.json`, import.meta.url))).webui;
       setStrings(lang, Object.fromEntries(strings(ui)));
-      for (const [kind, columns] of [["spr", 5], ["lobby", 2], ["model", 4]]) {
+      for (const [kind, columns] of [["spr", 4], ["lobby", 2], ["model", 4]]) {
         const items = Array.from({ length: 9 }, (_, i) => ({ key: String(i), kind: "mod", full: "ch0200_spr", label: "ch0200_spr",
           nameEdit: { label: ui.modAlias.title, fn() {} }, inUseText: ui.switch.configured,
           badge: { text: ui.switch.configured, color: "#8de4ff" } }));
@@ -1522,7 +1522,7 @@ test("switch geometry: per-kind columns, aspects, card bounds, labels and portra
         const ratio = cards[0][2] / cards[0][3];
         if (kind === "spr") {
           const still = box("Details/Picture/Texture");
-          assert.ok(Math.abs(ratio - still[2] / still[3]) < .01, "portrait aspect matches the info still");
+          assert.ok(Math.abs(1 / ratio - 2.2) < .01, "portrait height follows the latest 2.2:1 sketch");
         }
         if (kind === "lobby") assert.ok(Math.abs(ratio - 16 / 9) < .02);
         if (kind === "model") { assert.equal(ratio, 1); assert.ok(cards[0][2] > 220); }
@@ -1576,15 +1576,71 @@ test("switch geometry: per-kind columns, aspects, card bounds, labels and portra
 });
 
 
-test("portrait columns fit the available width at the square-card gap, with left-to-right wrapping", async () => {
+test("portrait columns fit available space with four tall cards at the standard width", async () => {
   const { switchGrid } = await import("../../src/ba_modding_toolkit/web/js/switch-layout.js");
-  const model = switchGrid("model"), gap = model.pitch[0] - model.card.w;
-  for (const width of [1300, 1788, 2200]) {
-    const grid = switchGrid("spr", width), { card, columns, pitch, overhang } = grid;
-    assert.ok(Math.abs(pitch[0] - card.w - gap) < 1e-8);
+  for (const width of [1300, 1818, 2200]) {
+    const { card, columns, pitch, overhang } = switchGrid("spr", width);
+    assert.equal(card.h / card.w, 2.2);
     assert.equal(pitch[1] - card.h - card.bar, 48);
-    assert.ok((columns - 1) * pitch[0] + card.w + overhang <= width);
-    assert.ok(columns * pitch[0] + card.w + overhang > width, "one more column would not fit");
+    assert.ok(columns <= 4);
+    assert.ok((columns - 1) * pitch[0] + card.w + overhang <= width - 80 + .001);
   }
-  assert.equal(switchGrid("spr").columns, 5);
+  assert.equal(switchGrid("spr").columns, 4);
+});
+
+// Measure rendered CSS rectangles independently of switch-layout's calculations. Include each widget's shear.
+test("every kind centres one, two and full rows by their outer corners with the same header inset", async () => {
+  const { rect } = await import("../../src/ba_modding_toolkit/web/js/ngui.js");
+  const { switchGrid } = await import("../../src/ba_modding_toolkit/web/js/switch-layout.js");
+  const outer = (el) => {
+    const [x, y, w, h] = rect(el), angle = Number(/skewX\(([-\d.]+)deg\)/.exec(el.style.transform)?.[1] || 0);
+    const overhang = Math.abs(Math.tan(angle * Math.PI / 180) * h / 2);
+    return { left: x - overhang, right: x + w + overhang, top: y, bottom: y + h };
+  };
+  const headerInsets = [];
+  for (const kind of ["spr", "lobby", "model"]) {
+    const { columns } = switchGrid(kind);
+    for (const count of new Set([1, 2, columns, columns + 1, 2 * columns])) {
+      const items = Array.from({ length: count }, (_, i) => ({ key: String(i), full: "Owner label", label: "Owner label", isNew: true }));
+      await Popup.listPopup({ host: prompt, layoutKind: kind, items, selected: "0", title: kind, okText: "Set" });
+      const paper = outer(walk(prompt).find((e) => e.dataset.path === "Center/Popup/ListPaper"));
+      const area = walk(prompt).find((e) => e.className === "popup-cards");
+      const dx = parseFloat(area.style.left), dy = parseFloat(area.style.top);
+      for (let start = 0; start < count; start += columns) {
+        const names = items.slice(start, start + columns).map((it) => `Card_${it.key}`);
+        const ink = walk(prompt).filter((e) => e.style.backgroundImage && names.some((n) => e.dataset.path === n || e.dataset.path?.startsWith(`${n}/`))).map(outer);
+        const left = Math.min(...ink.map((b) => b.left)) + dx - paper.left;
+        const right = paper.right - Math.max(...ink.map((b) => b.right)) - dx;
+        assert.ok(Math.abs(left - right) <= 1, `${kind}, ${count} cards, row ${start}: ${left} vs ${right}`);
+        assert.ok(left >= 24 && right >= 24, "inclined name bands stay clear of both paper edges");
+        if (!start) headerInsets.push(Math.min(...ink.map((b) => b.top)) + dy - paper.top);
+      }
+      prompt.hidden = true;
+    }
+  }
+  assert.ok(Math.max(...headerInsets) - Math.min(...headerInsets) < 1, "all kinds share the top inset");
+  assert.ok(Math.abs(headerInsets[0] - 40 * S) < 1);
+});
+
+test("NGUI preview placeholders remain for pending, missing, rejected and undecodable stills", async () => {
+  const NGUI = await import("../../src/ba_modding_toolkit/web/js/ngui.js");
+  let finish;
+  const pending = Object.assign(new Promise((resolve) => { finish = resolve; }), { thumbnail: true });
+  const target = new El();
+  const view = await NGUI.render(n("Still", [0, 0], [{ clipImage: pending, placeholder: "Preview unavailable", w_: 320, h_: 704 }]), target);
+  const note = () => walk(target).find((e) => e.dataset.path === "Still/Placeholder");
+  assert.ok(note().textContent); assert.equal(note().hidden, false);
+  finish(null); await Promise.all(view.thumbnails);
+  assert.equal(note().hidden, false);
+  for (const source of [null, Promise.reject(new Error("capture failed")), "missing:still", "blob:ready"]) {
+    target.replaceChildren();
+    const Original = Image;
+    globalThis.Image = class { set src(url) { queueMicrotask(() => url === "missing:still" ? this.onerror?.() : this.onload?.()); } };
+    try {
+      const v = await NGUI.render(n("Still", [0, 0], [{ clipImage: source, placeholder: "Preview unavailable", w_: 320, h_: 704 }]), target);
+      await Promise.all(v.pictures);
+      assert.equal(note().hidden, source === "blob:ready");
+      assert.equal(note().style.color, "#2d4664", "UIPopup_Sort cancel label colour is retained");
+    } finally { globalThis.Image = Original; }
+  }
 });

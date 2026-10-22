@@ -10,6 +10,7 @@ import { ensureSpine, spineAllowed } from "./spine-runtime.js";
 import { spineAssetBase, forgetSpineAssets } from "./api.js";
 import { lobbyIdle } from "./rest-pose.js";
 import { lobbyStillViewport } from "./lobby-still.js";
+import { previewError } from "./preview-error.js";
 
 const FRAMES = {
   // [width, height] of the rendered picture in CSS px: about what the cards show (a list card's window is 234 x 200
@@ -165,7 +166,7 @@ async function capture(player, el, frame, expr, lobby, framing, background, sign
   player.setViewport(entry.animation);
   let valid = false;
   // drawFrame(false) resizes and renders synchronously without scheduling a visibility-dependent RAF.
-  // Inspect that exact frame before adding a background; a cleared or uniform framebuffer is never art.
+  // Inspect that exact frame before adding a background; a transparent framebuffer is never art.
   for (let attempt = 0; attempt < 6 && !signal.aborted; attempt++) {
     player.drawFrame(false);
     const gl = player.context?.gl;
@@ -176,7 +177,8 @@ async function capture(player, el, frame, expr, lobby, framing, background, sign
     gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
     if (hasThumbnailInk(pixels)) { valid = true; break; }
   }
-  if (!valid || signal.aborted) return null;
+  if (signal.aborted) return null;
+  if (!valid) throw new Error(`No visible pixels (frame=${frame}, idle=${idle || "setup"}, expression=${expression || "none"}, viewport=${JSON.stringify(player.config.viewport)})`);
   // Freeze the validated draw before background loading or encoding can yield to the running player.
   const portrait = el.querySelector("canvas"), still = document.createElement("canvas");
   still.width = portrait.width; still.height = portrait.height;
@@ -188,15 +190,10 @@ async function capture(player, el, frame, expr, lobby, framing, background, sign
   return new Promise((resolve) => canvas.toBlob((b) => resolve(b && !signal.aborted ? URL.createObjectURL(b) : null)));
 }
 
-// Reject both a transparent framebuffer and a uniform loading/background square. Never cache either as art.
+// The capture buffer is cleared transparent before drawing. Uniform opaque pixels may be a solid-colour Mod;
+// colour variation is not evidence of a valid source. Validate before compositing any collection background.
 export function hasThumbnailInk(pixels) {
-  let visible = false, varied = false;
-  for (let i = 0; i < pixels.length; i += 4) {
-    if (pixels[i + 3] > 0) visible = true;
-    if (pixels[i + 3] !== pixels[3] || (pixels[i + 3] > 0 &&
-      (pixels[i] !== pixels[0] || pixels[i + 1] !== pixels[1] || pixels[i + 2] !== pixels[2]))) varied = true;
-    if (visible && varied) return true;
-  }
+  for (let i = 3; i < pixels.length; i += 4) if (pixels[i] > 0) return true;
   return false;
 }
 
@@ -265,7 +262,7 @@ function complete(item, url, error = null) {
   const at = queue.indexOf(item);
   if (at >= 0) queue.splice(at, 1);
   if (!url && cache.get(item.key) === item) cache.delete(item.key);
-  if (error) console.warn("thumbnail failed", item.base, error);
+  if (error) previewError(error, item.base, `thumbnail:${item.frame}`);
   for (const done of [...item.clients]) done(url);
   if (url && item.forgotten) URL.revokeObjectURL(url);
 }
@@ -317,7 +314,7 @@ async function pump() {
         while (!signal.aborted && q && !q.settled) {
           const url = await withTimeout(capture(player, el, q.frame, q.expr, q.lobby, q.framing, q.background, signal), 3000, `Thumbnail capture ${base}`, { signal });
           batch.push(q);
-          complete(q, url);
+          complete(q, url, !url && !signal.aborted ? new Error(`PNG encoding failed (frame=${q.frame})`) : null);
           // Let a visible card's bump take effect before the next capture.
           await Promise.resolve();
           q = queue[0]?.base === base ? queue[0] : null;
@@ -407,7 +404,7 @@ function request(base, frame = "bust", expr = null, lobby = false, framing = nul
         resolved = fresh;
       }
       return null;
-    }).catch((err) => { if (!signal?.aborted) console.warn("thumbnail failed", base, err); return null; });
+    }).catch((err) => { if (!signal?.aborted) previewError(err, base, `thumbnail:${frame}`); return null; });
     outer.bump = () => { first = true; inner?.bump?.(); };
     outer.thumbnail = true;
     outer.signal = signal;

@@ -20,6 +20,7 @@ globalThis.requestAnimationFrame = (done) => queueMicrotask(() => { for (const p
 globalThis.URL.createObjectURL = () => `blob:thumb-${++blobs}`;
 globalThis.URL.revokeObjectURL = () => {};
 globalThis.fetch = async (url, options) => {
+  if (url === "/api/rpc") return { ok: true, json: async () => ({ result: null }) };
   requests.push([url, options]);
   const revision = revisions.get(url);
   return { ok: !!revision, status: revision ? 200 : 404, json: async () => ({ revision }) };
@@ -125,7 +126,7 @@ test("alpha boundaries count as ink in flat-colour art; blank frames do not", ()
     assert.equal(hasThumbnailInk(new Uint8Array(pixels)), true);
   }
   assert.equal(hasThumbnailInk(new Uint8Array([10, 20, 30, 0, 40, 50, 60, 0])), false);
-  assert.equal(hasThumbnailInk(new Uint8Array([240, 240, 240, 255, 240, 240, 240, 255])), false);
+  assert.equal(hasThumbnailInk(new Uint8Array([240, 240, 240, 255, 240, 240, 240, 255])), true);
 });
 
 test("a blank inactive capture is rejected quickly and the next skeleton still renders", async () => {
@@ -656,7 +657,7 @@ test("backgrounds participate in still cache identity and propagate to companion
   } finally { scope.cancel(); await new Promise(setImmediate); document.createElement = create; globalThis.Image = Image; }
 });
 
-test("portrait captures retry cleared frames and never cache a pale uniform square", async () => {
+test("portrait captures retry transparent frames and accept solid-colour Mod art", async () => {
   const Player = spine.SpinePlayer, base = spineBase("mod", "ch0294_spr_capture");
   let reads = 0, mode = "late";
   spine.SpinePlayer = class extends Player {
@@ -664,7 +665,8 @@ test("portrait captures retry cleared frames and never cache a pale uniform squa
       super(...args);
       this.context.gl.readPixels = (_x, _y, _w, _h, _f, _t, pixels) => {
         reads++;
-        if (mode === "solid") pixels.fill(240);
+        if (mode === "solid") pixels.set([255, 0, 200, 255, 255, 0, 200, 255]);
+        else if (mode === "blank") return;
         else if (mode === "ready" || reads >= 3) pixels.set([0, 0, 0, 0, 200, 100, 50, 255]);
       };
     }
@@ -675,11 +677,13 @@ test("portrait captures retry cleared frames and never cache a pale uniform squa
     assert.ok(await thumb(base, "face"));
     assert.equal(reads, 3, "the first two transparent draws are rejected");
     assert.equal(blobs, before + 1, "only the verified draw is encoded");
-    set(base, "b"); mode = "solid"; reads = 0;
+    set(base, "b"); mode = "blank"; reads = 0;
     assert.equal(await thumb(base, "face"), null);
     assert.equal(reads, 6, "a persistently blank frame leaves the slot empty");
-    mode = "ready";
-    assert.ok(await thumb(base, "face"), "a later attempt can recover; blank output was never cached");
+    mode = "solid";
+    const pink = await thumb(base, "face");
+    assert.ok(pink, "a solid pink Mod is valid art, not a loading square");
+    assert.equal(await thumb(base, "face"), pink);
   } finally { spine.SpinePlayer = Player; }
 });
 
@@ -711,4 +715,20 @@ test("the encoded thumbnail retains its validated portrait while the background 
     assert.ok(await work);
     assert.deepEqual(encoded, [true], "encode the frozen validated draw, never the later blank live canvas");
   } finally { await new Promise(setImmediate); document.createElement = create; globalThis.Image = Image; }
+});
+
+test("a Mod portrait never falls back to the official cache even with identical revision and background", async () => {
+  const official = spineBase("official-spr", "hina_spr"), mod = spineBase("mod", "hina_spr");
+  set(official, "a"); set(mod, "a");
+  const art = await thumb(official, "bust");
+  await new Promise(setImmediate);
+  const Player = spine.SpinePlayer;
+  spine.SpinePlayer = class extends Player {
+    constructor(el, config) { super(el, config); this.context.gl.readPixels = () => {}; }
+  };
+  try {
+    assert.ok(art);
+    assert.equal(await thumb(mod, "portrait"), null, "official bust is not a Mod fallback");
+    assert.equal(await thumb(official, "portrait"), art, "an official request may reuse its own cached bust");
+  } finally { spine.SpinePlayer = Player; }
 });

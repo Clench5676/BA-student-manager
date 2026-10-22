@@ -1,22 +1,53 @@
-// Switch geometry in NGUI units. All kinds use popup.js's shared switch card:
-// Common_Btn_BG body, Common_Line_Raius20px frame and Common_Bg_Raius10px name band.
-const GRID_WIDTH = 1788, INCLINE = 10, ROW_GAP = 48;
-const lean = Math.tan(INCLINE * Math.PI / 180);
-const overhangOf = (card) => (card.h + card.bar + 10) * lean;
-// Preserve the accepted square-card spacing for the portrait rows as well.
-const COLUMN_GAP = (GRID_WIDTH - 360 - overhangOf({ h: 360, bar: 104 })) / 3 - 360;
+// Switch geometry in NGUI units. Preserve popup.js's Common_Btn_BG body,
+// Common_Line_Raius20px frame and Common_Bg_Raius10px name band.
+const GRID_WIDTH = 1818, INSET = 40, ROW_GAP = 48;
+const lean = Math.tan(10 * Math.PI / 180);
 export function switchGrid(kind, width = GRID_WIDTH) {
-  if (!kind) return { card: { w: 250, h: 226, bar: 68 }, columns: 6, pitch: [284, 350], overhang: (226 + 68 + 10) * lean };
-  const b = portraitPanel, portraitAspect = (b.right - b.left - b.gap) / 2 / (b.top - b.bottom);
-  const card = kind === "spr" ? { w: 250, h: 250 / portraitAspect, bar: 104 }
+  if (!kind) return { card: { w: 250, h: 226, bar: 68 }, columns: 6, pitch: [284, 350], overhang: 304 * lean };
+  const card = kind === "spr" ? { w: 320, h: 704, bar: 104 }
     : kind === "lobby" ? { w: 750, h: 422, bar: 104 }
     : kind === "model" ? { w: 360, h: 360, bar: 104 }
-    : { w: 250, h: 226, bar: 104 };
-  const overhang = overhangOf(card);
-  const columns = kind === "spr" ? Math.max(1, Math.floor((width - overhang + COLUMN_GAP) / (card.w + COLUMN_GAP)))
-    : kind === "lobby" ? 2 : kind === "model" ? 4 : 6;
-  const pitch = [kind === "spr" ? card.w + COLUMN_GAP : (width - card.w - overhang) / (columns - 1), card.h + card.bar + ROW_GAP];
+    : { w: 250, h: 226, bar: 68 };
+  const overhang = (card.h + card.bar + 10) * lean;
+  const max = kind === "lobby" ? 2 : kind === "spr" || kind === "model" ? 4 : 6;
+  const columns = Math.max(1, Math.min(max, Math.floor((width - 2 * INSET - overhang + 48) / (card.w + 48))));
+  const pitch = [(width - 2 * INSET - card.w - overhang) / Math.max(1, columns - 1), card.h + card.bar + ROW_GAP];
   return { card, columns, pitch, overhang };
+}
+
+// NGUI inclines each widget around its own centre; children are positioned separately.
+// Measure the outer corners, rather than splitting the total overhang equally about the body centre.
+export function cardInkBounds(tree) {
+  const bounds = { left: Infinity, right: -Infinity, top: -Infinity, bottom: Infinity };
+  function visit(n, px, py, sx, sy) {
+    if (n.active === false) return;
+    const x = px + n.pos[0] * sx, y = py + n.pos[1] * sy;
+    sx *= n.scale?.[0] ?? 1; sy *= n.scale?.[1] ?? 1;
+    for (const w of n.widgets || []) {
+      if (!("sprite" in w)) continue;
+      const width = w.w_ * sx, height = w.h_ * sy, pivot = w.pivot ?? 4;
+      const cx = x + (.5 - (pivot % 3) / 2) * width;
+      const cy = y + (Math.floor(pivot / 3) / 2 - .5) * height;
+      const half = width / 2 + Math.abs(Math.tan((w.incline || 0) * Math.PI / 180) * height / 2);
+      bounds.left = Math.min(bounds.left, cx - half); bounds.right = Math.max(bounds.right, cx + half);
+      bounds.top = Math.max(bounds.top, cy + height / 2); bounds.bottom = Math.min(bounds.bottom, cy - height / 2);
+    }
+    for (const child of n.children || []) visit(child, x, y, sx, sy);
+  }
+  visit(tree, 0, 0, 1, 1);
+  return bounds;
+}
+
+export function placeSwitchCards(trees, { columns, pitch }, paper) {
+  const boxes = trees.map(cardInkBounds);
+  for (let start = 0; start < trees.length; start += columns) {
+    const row = boxes.slice(start, start + columns);
+    const left = Math.min(...row.map((b, i) => b.left + i * pitch[0]));
+    const right = Math.max(...row.map((b, i) => b.right + i * pitch[0]));
+    const x = (paper.left + paper.right - left - right) / 2;
+    const y = paper.top - INSET - Math.max(...row.map((b) => b.top)) - Math.floor(start / columns) * pitch[1];
+    row.forEach((_, i) => { trees[start + i].pos = [x + i * pitch[0], y]; });
+  }
 }
 
 // Portrait body: image on the left, name/chips/stacked fields on the right;

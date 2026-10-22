@@ -36,7 +36,8 @@ export const FORMATION_VIEW = (() => {
 // where the formation view's centre (the point 0.44 above the feet) lands on the host, in stage pixels, for a host of
 // w x h: beside the panel the feet stay above the nameplate (floor); fullscreen it is the formation screen's centre.
 // Pixels, not fractions, so the chibi does not jump when the host widens for fullscreen.
-const FRAMES = { left: { x: 490, y: 500, w: 1000, h: 1080, floor: 700 }, full: { x: 960, y: 540, w: 1920, h: 1080, floor: 1056 } };
+const FRAMES = { left: { x: 490, y: 500, w: 1000, h: 1080, floor: 700 }, full: { x: 960, y: 540, w: 1920, h: 1080, floor: 1056 },
+  still: { x: 320, y: 320, w: 640, h: 640, floor: 616 } };
 const TWEEN = 450;
 
 // The camera distance (character units) for a frame: the formation screen's, or further back where the chibi's box
@@ -231,19 +232,22 @@ const ACTIONS = {
 
 const stageScale = () => (document.getElementById("stage")?.getBoundingClientRect().width || 1920) / 1920;
 
+let viewCount = 0;
 class ChibiView {
-  constructor(host, key) {
+  constructor(host, key, { still = false, renderer = null } = {}) {
     this.host = host;
     this.key = key;
     this.onAction = null;
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    this.renderer = renderer || new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    viewCount++;
+    this.still = still;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.canvas = this.renderer.domElement;
     this.canvas.className = "model-view";
-    host.appendChild(this.canvas);
+    host?.appendChild(this.canvas);
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(FORMATION_VIEW.fov, 1, 0.01, 100);
-    this.controls = new OrbitControls(this.camera, this.canvas);
+    this.controls = still ? { target: new THREE.Vector3(), update() {}, dispose() {} } : new OrbitControls(this.camera, this.canvas);
     // the controls orbit, at any angle (straight from above to straight from below), with one finger or the left
     // button; zoom and pan are attachInput's, between the bust and a step back (frameTo, bustDistance). The controls'
     // own zoom took 58 Chromium notches or about 1430 slow macOS ones (on a 2x screen) to the bust, and WebKit's
@@ -258,6 +262,13 @@ class ChibiView {
     this.goal = null; // the camera distance a zoom eases to
     this.pan = new THREE.Vector3(); // the orbit target's offset from the lifted target, and the one it eases to
     this.panGoal = new THREE.Vector3();
+    if (still) {
+      this.mode = "still";
+      this.view = { ...FRAMES.still };
+      this.renderer.setPixelRatio(1);
+      this.renderer.setSize(640, 640, false);
+      return;
+    }
     this.detachInput = attachInput(this.canvas, {
       zoom: (f) => this.zoomBy(f), zoomSave: () => saveZoom(this), zoomRestore: (saved) => restoreZoom(this, saved),
       span: () => this.span(), pan: (dx, dy) => this.panBy(dx, dy),
@@ -294,19 +305,33 @@ class ChibiView {
 
   // the orbit target projects to the host's centre; shift the view so it lands on the frame's point instead
   applyView() {
-    const w = this.host.clientWidth || 1, h = this.host.clientHeight || 1;
+    const w = this.still ? 640 : this.host.clientWidth || 1, h = this.still ? 640 : this.host.clientHeight || 1;
     this.camera.setViewOffset(w, h, w / 2 - this.view.x, h / 2 - this.view.y, w, h);
     this.camera.updateProjectionMatrix();
   }
 
-  async load(url) {
-    const gltf = await new GLTFLoader().loadAsync(url);
-    if (this.disposed) return;
+  async load(url, { signal } = {}) {
+    const loader = new GLTFLoader();
+    const gltf = signal ? await (async () => {
+      const response = await fetch(url, { signal, cache: "no-store" });
+      if (!response.ok) throw new Error(`${url}: HTTP ${response.status}`);
+      const bytes = await response.arrayBuffer();
+      signal.throwIfAborted();
+      return loader.parseAsync(bytes, "");
+    })() : await loader.loadAsync(url);
+    const discard = () => gltf.scene.traverse((o) => {
+      o.geometry?.dispose();
+      for (const m of [].concat(o.material || [])) {
+        for (const v of Object.values(m)) if (v?.isTexture) v.dispose();
+        m.dispose();
+      }
+    });
+    if (this.disposed) { discard(); return; }
     const json = gltf.parser.json, parser = gltf.parser;
     const ex = json.extras || {};
     const textures = await Promise.all((json.textures || []).map((_, i) => parser.getDependency("texture", i)));
     const nodes = await Promise.all((json.nodes || []).map((_, i) => parser.getDependency("node", i)));
-    if (this.disposed) { for (const t of textures) t.dispose(); return; }
+    if (this.disposed) { discard(); for (const t of textures) t.dispose(); return; }
     // colour textures are decoded from sRGB, masks and direction maps are data (the game's linear colour space)
     textures.forEach((t, i) => {
       t.colorSpace = json.textures[i].extras?.linear ? THREE.NoColorSpace : THREE.SRGBColorSpace;
@@ -384,6 +409,7 @@ class ChibiView {
     // the character; the game's clips scale them away, so fold them here
     if (!this.clips.size) root.traverse((o) => { if (/^(prop_root|Bip001_Weapon)$/i.test(o.name)) o.scale.setScalar(0); });
     await this.setupHalo(ex.haloFollower);
+    if (this.disposed) return;
     this.act("idle", { fade: 0, quiet: true });
     this.measure();
   }
@@ -717,7 +743,37 @@ class ChibiView {
     this.controls.update();
     this.root?.updateMatrixWorld();
     this.updateSpaces();
+    setOutlineScale(this.host.clientWidth || 1, this.host.clientHeight || 1);
     this.renderer.render(this.scene, this.camera);
+  }
+
+  // The live tab's shaders, idle, halo and formation camera with an explicit off-screen clock.
+  // Freeze and validate before encoding: no RAF, blank cached frames or disk writes.
+  async renderStill(signal) {
+    this.frameTo("still", true);
+    this.camera.lookAt(this.controls.target);
+    await this.compile();
+    signal.throwIfAborted();
+    this.mixer.update(0);
+    this.applySwitches();
+    this.updateMouth();
+    this.followHalo(0, true);
+    this.root.updateMatrixWorld(true);
+    this.updateSpaces();
+    setOutlineScale(640, 640, 640);
+    this.renderer.render(this.scene, this.camera);
+    const gl = this.renderer.getContext(), pixels = new Uint8Array(640 * 640 * 4);
+    if (gl.isContextLost()) throw new Error("3D still: WebGL context lost");
+    gl.readPixels(0, 0, 640, 640, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+    if (!pixels.some((value, i) => i % 4 === 3 && value > 0)) throw new Error("3D still: no visible pixels");
+    const frozen = document.createElement("canvas");
+    frozen.width = frozen.height = 640;
+    frozen.getContext("2d").drawImage(this.canvas, 0, 0);
+    return new Promise((resolve, reject) => frozen.toBlob((blob) => {
+      if (signal.aborted) resolve(null);
+      else if (!blob) reject(new Error("3D still: PNG encoding failed"));
+      else resolve(URL.createObjectURL(blob));
+    }, "image/png"));
   }
 
   // a still of the upper body for the switch card, from the front view at the fit distance in the current framing
@@ -744,13 +800,14 @@ class ChibiView {
   reveal() { this.canvas.classList.add("ready"); }
 
   dispose() {
+    if (this.disposed) return;
     this.disposed = true;
     this.renderer.setAnimationLoop(null);
     this.drawn?.();
-    this.observer.disconnect();
-    removeEventListener("resize", this.onWindow);
-    this.dpr.removeEventListener("change", this.onPixelRatio);
-    this.detachInput();
+    this.observer?.disconnect();
+    if (this.onWindow) removeEventListener("resize", this.onWindow);
+    this.dpr?.removeEventListener("change", this.onPixelRatio);
+    this.detachInput?.();
     this.controls.dispose();
     this.mixer?.stopAllAction();
     this.scene.traverse((o) => {
@@ -761,12 +818,14 @@ class ChibiView {
       }
     });
     for (const t of this.textures || []) t.dispose();
-    disposeDefaults();
+    if (--viewCount === 0) disposeDefaults();
     this.renderer.dispose();
     this.renderer.forceContextLoss();
     this.canvas.remove();
   }
 }
+
+export const createStillView = (options = {}) => new ChibiView(null, null, { ...options, still: true });
 
 let view = null, token = 0;
 
