@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 import { spineBase, spinePrefix, spineAssetBase } from "../../src/ba_modding_toolkit/web/js/api.js";
-import { thumb, forget, prioritise, thumbnailScope, hasThumbnailInk } from "../../src/ba_modding_toolkit/web/js/thumbs.js";
+import { thumb, forget, prioritise, thumbnailScope, hasThumbnailInk, withThumbnailFallback } from "../../src/ba_modding_toolkit/web/js/thumbs.js";
 import { setSpineConsent } from "../../src/ba_modding_toolkit/web/js/spine-runtime.js";
 
 setSpineConsent(true);
@@ -20,6 +20,7 @@ globalThis.requestAnimationFrame = (done) => queueMicrotask(() => { for (const p
 globalThis.URL.createObjectURL = () => `blob:thumb-${++blobs}`;
 globalThis.URL.revokeObjectURL = () => {};
 globalThis.fetch = async (url, options) => {
+  if (url === "/api/rpc") return { ok: true, json: async () => ({ result: null }) };
   requests.push([url, options]);
   const revision = revisions.get(url);
   return { ok: !!revision, status: revision ? 200 : 404, json: async () => ({ revision }) };
@@ -63,6 +64,38 @@ const set = (base, value) => revisions.set(base.replace(/skeleton$/, "manifest.j
 // Successful requests may still have a companion capture and player cleanup behind them.
 afterEach(async () => { await new Promise(setImmediate); });
 
+test("a failed portrait capture reuses an existing still of the same source revision only", async () => {
+  const base = spineBase("official-spr", "pajamas_cached"), Player = spine.SpinePlayer;
+  set(base, "a");
+  const still = await thumb(base, "bust");
+  await new Promise(setImmediate);
+  spine.SpinePlayer = class extends Player {
+    constructor(el, config) { super(el, config); this.context.gl.readPixels = () => {}; }
+  };
+  try {
+    assert.equal(await thumb(base, "portrait"), still);
+    const twin = spineBase("official-spr", "pajamas_other"); set(twin, "a");
+    assert.equal(await thumb(twin, "portrait"), null, "a similarly named variant is a different source");
+    set(base, "b");
+    assert.equal(await thumb(base, "portrait"), null, "never show art from an older revision");
+  } finally { spine.SpinePlayer = Player; }
+});
+
+test("portrait fallback preserves the real picture, queue priority and cancellation", async () => {
+  const controller = new AbortController();
+  let resolve, bumps = 0, fallbacks = 0;
+  const picture = Object.assign(new Promise((done) => { resolve = done; }), { thumbnail: true,
+    signal: controller.signal, bump: () => bumps++ });
+  const pending = withThumbnailFallback(picture, () => { fallbacks++; return "collection.png"; });
+  assert.equal(pending.thumbnail, true); assert.equal(pending.signal, controller.signal);
+  pending.bump(); assert.equal(bumps, 1);
+  controller.abort(); resolve(null);
+  assert.equal(await pending, null); assert.equal(fallbacks, 0);
+  assert.equal(await withThumbnailFallback(Promise.resolve("blob:art"), () => assert.fail("prefer the captured art")), "blob:art");
+  assert.equal(await withThumbnailFallback(Promise.resolve(null), () => "collection.png"), "collection.png");
+  assert.equal(await withThumbnailFallback(Promise.reject(new Error("capture failed")), () => "collection.png"), "collection.png");
+});
+
 test("off-screen captures render while lifecycle hooks and the RAF clock are inactive", async () => {
   const Player = spine.SpinePlayer, raf = requestAnimationFrame;
   const base = spineBase("official-spr", "inactive_spr");
@@ -93,7 +126,7 @@ test("alpha boundaries count as ink in flat-colour art; blank frames do not", ()
     assert.equal(hasThumbnailInk(new Uint8Array(pixels)), true);
   }
   assert.equal(hasThumbnailInk(new Uint8Array([10, 20, 30, 0, 40, 50, 60, 0])), false);
-  assert.equal(hasThumbnailInk(new Uint8Array([240, 240, 240, 255, 240, 240, 240, 255])), false);
+  assert.equal(hasThumbnailInk(new Uint8Array([240, 240, 240, 255, 240, 240, 240, 255])), true);
 });
 
 test("a blank inactive capture is rejected quickly and the next skeleton still renders", async () => {
@@ -390,7 +423,12 @@ test("a stalled companion capture releases the thumbnail queue for another core"
   t.mock.timers.enable({ apis: ["setTimeout"] });
   const create = document.createElement, base = spineBase("spr", "companion_spr"), next = spineBase("spr", "after_companion_spr");
   let encodes = 0;
+  const fetch = globalThis.fetch, reports = [];
   try {
+    globalThis.fetch = async (url, options) => {
+      if (url === "/api/rpc") reports.push(JSON.parse(options.body));
+      return fetch(url, options);
+    };
     document.createElement = () => ({ ...el(), toBlob(done) {
       if (++encodes !== 2) done({});
     } });
@@ -403,7 +441,63 @@ test("a stalled companion capture releases the thumbnail queue for another core"
     t.mock.timers.tick(3000);
     assert.ok(await later, "the next core renders after the stalled capture's deadline");
     await new Promise(setImmediate);
-  } finally { document.createElement = create; t.mock.timers.reset(); }
+    assert.equal(reports.length, 1, "speculative failures reach the session log even after the card has succeeded");
+    assert.equal(reports[0].params.step, "thumbnail:bust");
+    assert.match(reports[0].params.error, /Thumbnail companion .* timed out/);
+  } finally { document.createElement = create; globalThis.fetch = fetch; t.mock.timers.reset(); }
+});
+
+test("a portrait timeout is logged, waits for idle with backoff, and resolves its original card and panel consumers", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const create = document.createElement, fetch = globalThis.fetch, reports = [], scope = thumbnailScope();
+  const base = spineBase("official-spr", "timeout_once_spr"), next = spineBase("spr", "timeout_next_spr");
+  let encodes = 0, release, late;
+  const start = loaded.length;
+  try {
+    globalThis.fetch = async (url, options) => {
+      if (url === "/api/rpc") reports.push(JSON.parse(options.body));
+      return fetch(url, options);
+    };
+    document.createElement = () => ({ ...el(), toBlob(done) {
+      if (++encodes === 1) late = done;
+      else if (encodes === 2) release = done;
+      else done({});
+    } });
+    set(base, "a"); set(next, "b");
+    const card = scope.thumb(base, "portrait"), panel = scope.thumb(base, "portrait"), fresh = scope.thumb(next, "portrait");
+    await new Promise(setImmediate); t.mock.timers.tick(3000); await new Promise(setImmediate);
+    assert.equal(encodes, 2, "fresh queued work advances before the retry");
+    assert.equal(reports.length, 1); assert.equal(reports[0].method, "preview.failed");
+    assert.match(reports[0].params.url, /official-spr\/timeout_once_spr/);
+    assert.equal(reports[0].params.step, "thumbnail:portrait");
+    t.mock.timers.tick(499); await new Promise(setImmediate); assert.equal(loaded.length, start + 2);
+    t.mock.timers.tick(1); await new Promise(setImmediate); assert.equal(loaded.length, start + 2, "ready retry cannot interrupt fresh work");
+    release({}); assert.ok(await fresh); assert.ok(await card); assert.equal(await card, await panel);
+    assert.equal(loaded.length, start + 3); assert.equal(card.failure(), null);
+    late({}); await new Promise(setImmediate); assert.equal(reports.length, 1);
+  } finally { scope.cancel(); document.createElement = create; globalThis.fetch = fetch; t.mock.timers.reset(); }
+});
+
+test("portrait retries stop after two attempts with backoff and cancel when their scope closes", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const create = document.createElement, scope = thumbnailScope();
+  const base = spineBase("official-spr", "timeout_bounded_spr"), cancelled = spineBase("official-spr", "timeout_cancel_spr");
+  let encodes = 0;
+  try {
+    document.createElement = () => ({ ...el(), toBlob() { encodes++; } });
+    set(base, "a"); set(cancelled, "b");
+    const picture = scope.thumb(base, "portrait");
+    await new Promise(setImmediate); t.mock.timers.tick(3000); await new Promise(setImmediate);
+    t.mock.timers.tick(500); await new Promise(setImmediate); assert.equal(encodes, 2);
+    t.mock.timers.tick(3000); await new Promise(setImmediate);
+    t.mock.timers.tick(999); await new Promise(setImmediate); assert.equal(encodes, 2);
+    t.mock.timers.tick(1); await new Promise(setImmediate); assert.equal(encodes, 3);
+    t.mock.timers.tick(3000); await new Promise(setImmediate); assert.equal(await picture, null);
+    const gone = scope.thumb(cancelled, "portrait");
+    await new Promise(setImmediate); t.mock.timers.tick(3000); await new Promise(setImmediate);
+    scope.cancel(); assert.equal(await gone, null);
+    t.mock.timers.tick(60000); await new Promise(setImmediate); assert.equal(encodes, 4);
+  } finally { scope.cancel(); document.createElement = create; t.mock.timers.reset(); }
 });
 
 test("a bust requested during its companion capture joins that render without replacing its consumers", async () => {
@@ -488,7 +582,7 @@ test("prioritising before manifests answer puts the visible source before an old
   } finally { release(); spine.SpinePlayer = Player; prioritise(null); }
 });
 
-test("a stalled skeleton fails all its faces once and releases the next core", async (t) => {
+test("a stalled skeleton releases the next core and retries its faces together within a bounded budget", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   const Player = spine.SpinePlayer, base = spineBase("official-spr", "stuck_spr"), next = spineBase("spr", "healthy_spr");
   const scope = thumbnailScope(), disposed = [];
@@ -505,13 +599,18 @@ test("a stalled skeleton fails all its faces once and releases the next core", a
     t.mock.timers.tick(7999); await new Promise(setImmediate);
     assert.equal(disposed.length, 0);
     t.mock.timers.tick(1); await new Promise(setImmediate);
-    assert.deepEqual(await Promise.all(faces), Array(8).fill(null));
     assert.ok(await later, "one total deadline, rather than a deadline per queued face");
+    for (const delay of [500, 1000]) {
+      t.mock.timers.tick(delay); await new Promise(setImmediate);
+      t.mock.timers.tick(8000); await new Promise(setImmediate);
+    }
+    assert.deepEqual(await Promise.all(faces), Array(8).fill(null));
+    assert.equal(disposed.filter((url) => url.includes("/stuck_spr/")).length, 3, "one initial load plus two shared retries");
     assert.ok(disposed.some((url) => url.includes("/stuck_spr/")));
   } finally { delete document.hidden; scope.cancel(); await new Promise(setImmediate); spine.SpinePlayer = Player; t.mock.timers.reset(); }
 });
 
-test("a stuck encoder fails the remaining expressions together and lets another skeleton render", async (t) => {
+test("a stuck encoder lets another skeleton render before recovering the pending expressions together", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   const create = document.createElement, scope = thumbnailScope();
   const base = spineBase("spr", "stuck_encoder_spr"), next = spineBase("spr", "after_encoder_spr");
@@ -526,12 +625,14 @@ test("a stuck encoder fails the remaining expressions together and lets another 
     const healthy = scope.thumb(next, "face", "00");
     await new Promise(setImmediate);
     t.mock.timers.tick(3000); await new Promise(setImmediate);
-    assert.deepEqual(await Promise.all(faces), [null, null, null]);
     assert.ok(await healthy);
     assert.equal(encodes, 2, "one failed encode, then the healthy skeleton's picture");
     assert.equal(blobs, before + 1);
     late({}); await new Promise(setImmediate);
     assert.equal(blobs, before + 1, "a cancelled encode's late callback cannot leak a blob URL");
+    t.mock.timers.tick(500); await new Promise(setImmediate);
+    assert.ok((await Promise.all(faces)).every(Boolean));
+    assert.equal(encodes, 5);
   } finally { scope.cancel(); await new Promise(setImmediate); document.createElement = create; t.mock.timers.reset(); }
 });
 
@@ -624,7 +725,7 @@ test("backgrounds participate in still cache identity and propagate to companion
   } finally { scope.cancel(); await new Promise(setImmediate); document.createElement = create; globalThis.Image = Image; }
 });
 
-test("portrait captures retry cleared frames and never cache a pale uniform square", async () => {
+test("portrait captures retry transparent frames and accept solid-colour Mod art", async () => {
   const Player = spine.SpinePlayer, base = spineBase("mod", "ch0294_spr_capture");
   let reads = 0, mode = "late";
   spine.SpinePlayer = class extends Player {
@@ -632,7 +733,8 @@ test("portrait captures retry cleared frames and never cache a pale uniform squa
       super(...args);
       this.context.gl.readPixels = (_x, _y, _w, _h, _f, _t, pixels) => {
         reads++;
-        if (mode === "solid") pixels.fill(240);
+        if (mode === "solid") pixels.set([255, 0, 200, 255, 255, 0, 200, 255]);
+        else if (mode === "blank") return;
         else if (mode === "ready" || reads >= 3) pixels.set([0, 0, 0, 0, 200, 100, 50, 255]);
       };
     }
@@ -643,11 +745,13 @@ test("portrait captures retry cleared frames and never cache a pale uniform squa
     assert.ok(await thumb(base, "face"));
     assert.equal(reads, 3, "the first two transparent draws are rejected");
     assert.equal(blobs, before + 1, "only the verified draw is encoded");
-    set(base, "b"); mode = "solid"; reads = 0;
+    set(base, "b"); mode = "blank"; reads = 0;
     assert.equal(await thumb(base, "face"), null);
     assert.equal(reads, 6, "a persistently blank frame leaves the slot empty");
-    mode = "ready";
-    assert.ok(await thumb(base, "face"), "a later attempt can recover; blank output was never cached");
+    mode = "solid";
+    const pink = await thumb(base, "face");
+    assert.ok(pink, "a solid pink Mod is valid art, not a loading square");
+    assert.equal(await thumb(base, "face"), pink);
   } finally { spine.SpinePlayer = Player; }
 });
 
@@ -679,4 +783,20 @@ test("the encoded thumbnail retains its validated portrait while the background 
     assert.ok(await work);
     assert.deepEqual(encoded, [true], "encode the frozen validated draw, never the later blank live canvas");
   } finally { await new Promise(setImmediate); document.createElement = create; globalThis.Image = Image; }
+});
+
+test("a Mod portrait never falls back to the official cache even with identical revision and background", async () => {
+  const official = spineBase("official-spr", "hina_spr"), mod = spineBase("mod", "hina_spr");
+  set(official, "a"); set(mod, "a");
+  const art = await thumb(official, "bust");
+  await new Promise(setImmediate);
+  const Player = spine.SpinePlayer;
+  spine.SpinePlayer = class extends Player {
+    constructor(el, config) { super(el, config); this.context.gl.readPixels = () => {}; }
+  };
+  try {
+    assert.ok(art);
+    assert.equal(await thumb(mod, "portrait"), null, "official bust is not a Mod fallback");
+    assert.equal(await thumb(official, "portrait"), art, "an official request may reuse its own cached bust");
+  } finally { spine.SpinePlayer = Player; }
 });

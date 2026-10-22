@@ -765,8 +765,13 @@ def test_multi_part_install_rolls_back_every_part_on_write_failure(setup_library
     assert written == ([atlas, atlas] if cloning else [atlas, env.original, atlas])
     assert {path: path.read_bytes() for path in targets} == before
     assert reload_library(env).state("test").applied == "official"
-    # rolled back to official: the kept copies are released
-    assert not any((env.root / "originals" / path.name).exists() for path in targets)
+    # The saved choice remains pending; retained clones stay available for its retry.
+    for path in targets:
+        kept = env.root / "originals" / path.name
+        if kept.exists():
+            assert kept.read_bytes() == before[path]
+    assert env.library.configured("test")["spr"] == f"mod:{entry.id}"
+    assert not env.library.selection("test")["spr"]["installed"]
 
 
 @pytest.mark.parametrize("fixed", [False, True])

@@ -1,3 +1,4 @@
+import { importStatus } from "./switch-sources.js";
 // Unified import behaviour over runtime Items, Mailbox and FilterSort prefab widgets (import-layout.js).
 import { jobProgress, progressName } from "./job-progress.js";
 import { importGroups } from "./import-groups.js";
@@ -427,8 +428,8 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
   function paragraphCopy(group, result = false) {
     const notes = result ? group.entries.map((entry) => {
       const item = model.state.results.find((item) => item.id === entry.id);
-      return item?.reason ? report(item, entry) : ["imported", "updated", "unchanged"].includes(item?.outcome)
-        ? T(item.applied ? "import.applied" : "import.notApplied") : "";
+      return item?.reason ? [item.configured && T(importStatus(item)), report(item, entry)].filter(Boolean).join(" - ") : ["imported", "updated", "unchanged"].includes(item?.outcome)
+        ? T(importStatus(item)) : "";
     }) : group.entries.map(rowNote);
     const omitted = result ? group.entries.reduce((count, entry) => count
       + (model.state.results.find((item) => item.id === entry.id)?.notTransferred?.length || 0), 0) : 0;

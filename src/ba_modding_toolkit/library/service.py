@@ -270,8 +270,9 @@ class _View:
         matched = bool(record) and record.get("size") == size and record.get("mtime") == mtime
         trailing: Any = ...
         restamp = None
-        if not matched:
+        if not matched or self.allow == "full":
             if self.allow == "full":
+                matched = False
                 fingerprint = self.library._hashes.get(path)
                 trailing = fingerprint.trailing
                 if trailing is not None and record and fingerprint.sha1 == record.get("sha1"):
@@ -1011,6 +1012,8 @@ class ModLibrary:
                                     progress=progress)
             except ServiceError as error:
                 added.failed.append({"id": entry.id, **error.to_json()})
+                if entry.kind != "other" and self.configured(entry.target, pin).get(entry.kind) == f"mod:{entry.id}":
+                    added.configured.append(entry)
             else:
                 (added.configured if result.deferred else added.applied).append(entry)
         return added
@@ -1094,7 +1097,7 @@ class ModLibrary:
     def other_mods(self, pin: Pin | None = None) -> list[dict]:
         """Settings' generic sources, with their target files and current install's configuration."""
         pin = pin or self.current_pin()
-        view = self._view([pin], "family") if pin else None
+        view = self._view([pin], "full") if pin else None
         rows = []
         for record in self._records.values():
             if record["kind"] != "other":
@@ -1110,10 +1113,10 @@ class ModLibrary:
             state = "official" if all(not entry.configured and entry.carried == "official" for entry in entries) else "inactive"
             if not entries:
                 state = "missing"
+            elif selected == len(entries):
+                state = "active" if active == len(entries) and profiles_mod.enabled(self.profiles.read()) else "set"
             elif any(entry.state not in ("ok", "pending") for entry in entries):
                 state = "changed"
-            elif selected == len(entries):
-                state = "active" if active == len(entries) else "set"
             elif selected or active:
                 state = "mixed"
             rows.append({"id": record["id"], "label": self._label(record), "target": record["target"],
@@ -2025,6 +2028,56 @@ class ModLibrary:
                 if kind != "model" or hasattr(variant, "model")}
 
     @_serialized
+    def selection(self, variant_key: str, pin: Pin | None = None) -> dict[str, dict]:
+        """Saved choices and verified installation status, using the master switch as intent.
+
+        Every current part must match the recorded write of this source. Fingerprints are
+        cached by size, mtime and ctime; an unchanged tail is not proof of installation.
+        """
+        pin = self._current(pin)
+        variant = self._variant(variant_key)
+        config = self.profiles.read()
+        folder = (((config or {}).get("folders") or {}).get(pin.key) or {}).get("configured") or {}
+        result = {}
+        for kind, core in (("spr", variant.spr), ("lobby", variant.lobby), ("model", getattr(variant, "model", None))):
+            choice = folder.get(core.lower()) if core else None
+            if not choice:
+                continue
+            paths = self._index(pin).get(core.lower(), [])
+            installed = bool(paths) and profiles_mod.enabled(config) and not choice.get("error")
+            try:
+                for path in paths:
+                    record = self._applied.get(str(path.resolve())) or {}
+                    if (record.get("source") != choice["source"] or record.get("removed")
+                            or self._hashes.get(path).sha1 != record.get("sha1")):
+                        installed = False
+                        break
+                recorded = {Path(name) for name, record in self._applied.items()
+                            if Path(name).parent in pin.dirs and core_of(Path(name).name) == core.lower()
+                            and record.get("source") == choice["source"] and not record.get("removed")}
+                installed = installed and recorded == set(paths)
+            except (OSError, ServiceError):
+                installed = False
+            result[kind] = {"source": choice["source"], "installed": installed,
+                            "error": None if installed else choice.get("error")}
+        return result
+
+    def _selection_error(self, pin: Pin, cores, error: dict | None) -> None:
+        def change(data):
+            choices = (data["folders"].get(pin.key) or {}).get("configured", {})
+            changed = False
+            for core in cores:
+                choice = choices.get(core)
+                if choice is not None and choice.get("error") != error:
+                    if error is None:
+                        choice.pop("error", None)
+                    else:
+                        choice["error"] = error
+                    changed = True
+            return changed
+        self._update_profiles(change)
+
+    @_serialized
     def modified(self, pin: Pin | None = None) -> dict[str, str]:
         """Variants whose portrait or special slot files are not official, from cheap checks only (no hashing): the
         library's own records while the file is unchanged since it wrote it (a part a record says official adds nothing),
@@ -2502,9 +2555,15 @@ class ModLibrary:
 
         A mod replaces all parts of its own kind as a unit. Another variant's mod must belong to the same family and
         is adapted to official targets. While mods are off nothing is written: the source is configured and applied
-        when mods are on (``deferred``). The configuration changes only once the switch succeeded.
+        when mods are on (``deferred``). Save the validated choice before attempting installation.
         """
         if source == "official":
+            pin = self._current(pin)
+            if not profiles_mod.enabled(self.profiles.read()):
+                targets = self._game_files(variant_key, kind, pin)
+                kinds = {(core_of(path.name) if kind == "other" else kind_of_file(path.name)): core_of(path.name)
+                         for path in targets}
+                return self._defer(pin, variant_key, kinds, None)
             return self.restore(variant_key, log, kind, pin=pin)
         if kind == "other":
             return self._apply_other(variant_key, source, log, progress, self._current(pin), create_backup)
@@ -2512,6 +2571,7 @@ class ModLibrary:
         pin = self._current(pin)
         on = profiles_mod.enabled(self.profiles.read())
         started = time.perf_counter()
+        kinds = {}
         try:
             with tempfile.TemporaryDirectory(prefix=devmode.LIBRARY_STAGING_PREFIX) as temporary:
                 work = Path(temporary)
@@ -2530,6 +2590,8 @@ class ModLibrary:
                         raise ServiceError("mod_target_mismatch", id=record["id"], variant=variant_key)
                     if not on:
                         return self._defer(pin, variant_key, {record["kind"]: cores[0]}, source)
+                    kinds = {record["kind"]: cores[0]}
+                    self._configure(pin, variant_key, kinds, source)
                     if core_of(record["files"][0]) == cores[0]:
                         view = self._view([pin], "full")
                         entry = view.entry(pin, cores[0])
@@ -2537,6 +2599,7 @@ class ModLibrary:
                         if entry.carried == source and self._matches_installed(identity, entry):
                             self._note_judged(view, entry)
                             self._configure(pin, variant_key, {record["kind"]: cores[0]}, source)
+                            self._selection_error(pin, kinds.values(), None)
                             return ApplyResult(variant_key, source, [], unchanged=True)
                         replacements = self._cached_build(self._paths(record), targets, pin,
                             lambda: self._install_direct(record, targets, work, log, progress, pin), build_keys)
@@ -2561,7 +2624,13 @@ class ModLibrary:
                         if not targets or not sources:
                             continue
                         kinds[current] = core_of(targets[0].name)
-                        if on:
+                    if not kinds:
+                        raise ServiceError("game_file_not_found", variant=variant_key)
+                    self._configure(pin, variant_key, kinds, source)
+                    if on:
+                        for current in kinds:
+                            targets = self._game_files(variant_key, current, pin)
+                            sources = self._game_files(other, current, pin)
                             official = [self._official_for(path, pin) for path in sources]
                             replacements.update(self._cached_build(official, targets, pin,
                                 lambda: self._stage_adapted(official, targets, work / current, log, pin), build_keys))
@@ -2575,20 +2644,29 @@ class ModLibrary:
                 files = self._commit(replacements, source, log, progress, pin, prune=False, build_keys=build_keys,
                                      create_backup=create_backup)
                 self._configure(pin, variant_key, kinds, source)
+                self._selection_error(pin, kinds.values(), None)
                 for core in kinds.values():
                     self._clear_marker(pin, core)
                 logger.info("Mod apply copy and record: %.3f s", time.perf_counter() - prepared)
                 return ApplyResult(variant_key, source, files, unchanged=not files)
+        except Exception as error:
+            if kinds:
+                self._selection_error(pin, kinds.values(), error.to_json() if isinstance(error, ServiceError)
+                                      else {"code": "library_io_error" if isinstance(error, OSError) else "library_operation_failed",
+                                            "params": {"operation": "apply"}})
+            raise
         finally:
             pruning = time.perf_counter()
             self._prune_quietly()
             logger.info("Mod apply prune: %.3f s; total: %.3f s", time.perf_counter() - pruning,
                         time.perf_counter() - started)
 
-    def _defer(self, pin: Pin, variant_key: str, kinds: dict[str, str], source: str) -> ApplyResult:
+    def _defer(self, pin: Pin, variant_key: str, kinds: dict[str, str], source: str | None) -> ApplyResult:
         """While mods are off: configure the source without writing, applied when mods are on."""
         self._configure(pin, variant_key, kinds, source)
-        return ApplyResult(variant_key, source, [], unchanged=True, deferred=True)
+        if source is None:
+            self._prune_quietly()
+        return ApplyResult(variant_key, source or "official", [], unchanged=True, deferred=True)
 
     def _apply_other(self, target: str, source: str, log: LogFunc, progress: ProgressCallback | None,
                      pin: Pin, create_backup: bool) -> ApplyResult:
@@ -2601,6 +2679,7 @@ class ModLibrary:
         kinds = {core_of(path.name): core_of(path.name) for path in targets}
         if not profiles_mod.enabled(self.profiles.read()):
             return self._defer(pin, target, kinds, source)
+        self._configure(pin, target, kinds, source)
         try:
             with tempfile.TemporaryDirectory(prefix=devmode.LIBRARY_STAGING_PREFIX) as temporary:
                 build_keys = {}
@@ -2609,9 +2688,15 @@ class ModLibrary:
                 files = self._commit(replacements, source, log, progress, pin, prune=False,
                                      build_keys=build_keys, create_backup=create_backup)
             self._configure(pin, target, kinds, source)
+            self._selection_error(pin, kinds, None)
             for slot in kinds:
                 self._clear_marker(pin, slot)
             return ApplyResult(target, source, files, unchanged=not files)
+        except Exception as error:
+            self._selection_error(pin, kinds, error.to_json() if isinstance(error, ServiceError)
+                                  else {"code": "library_io_error" if isinstance(error, OSError) else "library_operation_failed",
+                                        "params": {"operation": "apply"}})
+            raise
         finally:
             self._prune_quietly()
 
@@ -2636,12 +2721,15 @@ class ModLibrary:
         return ApplyResult(variant_key, "official", files, unchanged=not files)
 
     @_serialized
-    def would_write(self, variant_key: str, source: str, kind: Kind | None = "spr", pin: Pin | None = None) -> bool:
-        """Whether apply (or restore, source "official") would write a game file now, judged cheaply: not a deferred
+    def would_write(self, variant_key: str, source: str, kind: Kind | None = "spr", pin: Pin | None = None,
+                    *, setting: bool = False) -> bool:
+        """Whether a setting (setting=True) or explicit restore would write a game file, judged cheaply: not a deferred
         apply while mods are off, nor a restore of files that are official already. Such calls only change the
         configuration (allowed while the classic UI is open)."""
         pin = self._current(pin)
         on = profiles_mod.enabled(self.profiles.read())
+        if setting and not on:
+            return False
         if source != "official":
             return on
         view = self._view([pin], "family")
@@ -3106,6 +3194,15 @@ class ModLibrary:
                     if candidate and candidate.startswith(LIBRARY_SOURCES) and view.source_exists(
                             candidate, pin.key, kind):
                         source = candidate
+            if source is None:
+                # Older state kept only applied records. Preserve that choice after an
+                # external reset too; selection() separately verifies installation.
+                remembered = {record.get("source") for path, record in records
+                              if view.says_nonofficial(path, record, present=path.exists())}
+                if len(remembered) == 1:
+                    candidate = next(iter(remembered))
+                    if candidate and candidate.startswith(LIBRARY_SOURCES) and view.source_exists(candidate, pin.key, kind):
+                        source = candidate
             if source:
                 configured[core] = {"variant": view.maps[pin.key].key(core) or core, "kind": kind,
                                     "source": source, "since": stamp}
@@ -3515,6 +3612,7 @@ class ModLibrary:
                 except ServiceError as error:
                     item = {"install": pin.key, "core": core, "kind": self._kind(core, pin) or "spr",
                             "variant": self._core_map(pin).key(core) or core}
+                    self._selection_error(pin, [core], error.to_json())
                     result["failed"].append({"entry": item, "code": error.code, "params": error.to_json()["params"]})
                     outcomes[(pin.key, core)] = "pending"
                     if error.code in STOPPING:
@@ -3522,6 +3620,8 @@ class ModLibrary:
                         break
                     continue
             outcomes[(pin.key, core)] = why
+            if "done" in outcome:
+                self._selection_error(pin, [core], None)
             for name, value in outcome.items():
                 result[name].append(value)
             if entry is not None and ("done" in outcome or "adopted" in outcome):
@@ -3621,7 +3721,10 @@ class ModLibrary:
                 try:
                     if allowed is False:
                         self._check_space(sum(part.size for part in entry.parts if part.carried == "unknown"))
+                    saved = entry.configured
                     mod_id = self._adopt_one(pin, core)
+                    if saved and view.source_exists(saved, pin.key, entry.kind):
+                        self._configure(pin, entry.variant, {entry.kind: core}, saved)
                 except ServiceError as error:
                     outcome["left"] = {**item, "code": error.code, "params": error.to_json()["params"]}
                     return outcome, "left", item
@@ -3645,7 +3748,7 @@ class ModLibrary:
             outcome["done"] = item
             return outcome, None, item
         # mods on: an On, its Retry, or Apply Mod Configuration
-        if state in ("untracked", "changed") and not (drift and state == "changed" and listed_state == "changed"):
+        if state in ("untracked", "changed") and not (entry.configured and not drift) and not (drift and state == "changed" and listed_state == "changed"):
             outcome["skipped"] = {**item, "why": state}
             return outcome, (None if leaves(state, True) else "pending"), item
         if drift and state not in ("reset", "updated", "changed"):
@@ -3654,6 +3757,7 @@ class ModLibrary:
             return outcome, (None if leaves(state, True) else "pending"), item
         target = entry.configured or "official"
         if state == "ok":
+            self._selection_error(pin, [core], None)
             return outcome, None, item
         if entry.overwritten and not entry.configured:
             outcome["stuck"] = item

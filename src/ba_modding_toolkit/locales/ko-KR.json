@@ -1480,7 +1480,7 @@
 			"progress": "{phase} {name} ({kind}) {index} / {total} - {step}",
 			"complete": "완료: {n}개, 실패: {failed}개",
 			"resultTitle": "가져오기 결과",
-			"applied": "적용됨",
+			"applied": "설치됨",
 			"notApplied": "미적용",
 			"notTransferred": "경고: 전송되지 않은 에셋(새 공식 Bundle에 대응하는 에셋이 없음): {names}",
 			"notTransferredCount": "에셋 {count}개 미전송",

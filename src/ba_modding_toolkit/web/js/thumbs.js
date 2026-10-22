@@ -10,6 +10,8 @@ import { ensureSpine, spineAllowed } from "./spine-runtime.js";
 import { spineAssetBase, forgetSpineAssets } from "./api.js";
 import { lobbyIdle } from "./rest-pose.js";
 import { lobbyStillViewport } from "./lobby-still.js";
+import { previewError } from "./preview-error.js";
+import { captureRetries } from "./capture-retries.js";
 
 const FRAMES = {
   // [width, height] of the rendered picture in CSS px: about what the cards show (a list card's window is 234 x 200
@@ -33,6 +35,7 @@ export function idleAnimation(data) {
 
 const cache = new Map();   // key -> cached picture or a request with its consumers
 const queue = [];
+const retries = captureRetries(() => queueMicrotask(pump));
 const scopes = new Set();
 let running = false, active = null, preferred = "";
 let host = null;
@@ -155,14 +158,17 @@ async function capture(player, el, frame, expr, lobby, framing, background, sign
   player.skeleton.setToSetupPose();
   let entry = idle ? state.setAnimation(0, idle, true) : state.setEmptyAnimation(0, 0);
   if (framing) { settle(player, { name: "thumbnail" }, null, () => {}); entry = state.getCurrent(0); }
-  if (expr && player.skeleton.data.findAnimation(expr)) state.setAnimation(1, expr, true);
+  // The main portrait also applies 00. Some story portraits attach their entire body on that track;
+  // an empty setup pose cannot produce a still, however often the same frame is drawn.
+  const expression = expr || (!lobby && !framing ? "00" : null);
+  if (expression && data.findAnimation(expression)) state.setAnimation(1, expression, true);
   state.apply(player.skeleton);
   player.skeleton.updateWorldTransform(spine.Physics.update);
   player.config.viewport = viewFor(player, frame, w / h, framing, lobby);
   player.setViewport(entry.animation);
   let valid = false;
   // drawFrame(false) resizes and renders synchronously without scheduling a visibility-dependent RAF.
-  // Inspect that exact frame before adding a background; a cleared or uniform framebuffer is never art.
+  // Inspect that exact frame before adding a background; a transparent framebuffer is never art.
   for (let attempt = 0; attempt < 6 && !signal.aborted; attempt++) {
     player.drawFrame(false);
     const gl = player.context?.gl;
@@ -173,24 +179,23 @@ async function capture(player, el, frame, expr, lobby, framing, background, sign
     gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
     if (hasThumbnailInk(pixels)) { valid = true; break; }
   }
-  if (!valid || signal.aborted) return null;
+  if (signal.aborted) return null;
+  if (!valid) throw new Error(`No visible pixels (frame=${frame}, idle=${idle || "setup"}, expression=${expression || "none"}, viewport=${JSON.stringify(player.config.viewport)})`);
   // Freeze the validated draw before background loading or encoding can yield to the running player.
   const portrait = el.querySelector("canvas"), still = document.createElement("canvas");
   still.width = portrait.width; still.height = portrait.height;
   still.getContext("2d").drawImage(portrait, 0, 0);
-  const canvas = await collectionStill(still, background, signal);
+  const canvas = await collectionStill(still, background, signal).catch((err) => {
+    if (!signal.aborted) console.warn("Thumbnail background unavailable", background, err);
+    return still;
+  });
   return new Promise((resolve) => canvas.toBlob((b) => resolve(b && !signal.aborted ? URL.createObjectURL(b) : null)));
 }
 
-// Reject both a transparent framebuffer and a uniform loading/background square. Never cache either as art.
+// The capture buffer is cleared transparent before drawing. Uniform opaque pixels may be a solid-colour Mod;
+// colour variation is not evidence of a valid source. Validate before compositing any collection background.
 export function hasThumbnailInk(pixels) {
-  let visible = false, varied = false;
-  for (let i = 0; i < pixels.length; i += 4) {
-    if (pixels[i + 3] > 0) visible = true;
-    if (pixels[i + 3] !== pixels[3] || (pixels[i + 3] > 0 &&
-      (pixels[i] !== pixels[0] || pixels[i + 1] !== pixels[1] || pixels[i + 2] !== pixels[2]))) varied = true;
-    if (visible && varied) return true;
-  }
+  for (let i = 3; i < pixels.length; i += 4) if (pixels[i] > 0) return true;
   return false;
 }
 
@@ -209,6 +214,16 @@ export async function collectionStill(portrait, background, signal, load = (url,
 }
 
 const keyOf = (base, frame, expr, lobby = false, framing = null, background = null) => `${base}|${frame}|${expr || ""}|${lobby}|${framing || ""}|${background || ""}`;
+
+// A fallback retains queue priority and cancellation: an abandoned view must never publish a late image.
+export function withThumbnailFallback(picture, fallback) {
+  const result = Promise.resolve(picture).catch(() => null).then((url) => picture?.signal?.aborted ? null : url || fallback());
+  result.thumbnail = true;
+  result.signal = picture?.signal;
+  result.bump = () => picture?.bump?.();
+  result.failure = () => picture?.failure?.();
+  return result;
+}
 
 // Consumers share a render, but cancelling one view must not cancel another view's use of it.
 function subscribe(item, signal) {
@@ -243,13 +258,19 @@ function subscribe(item, signal) {
 
 function complete(item, url, error = null) {
   if (item.settled) { if (url) URL.revokeObjectURL(url); return; }
+  retries.delete(item);
+  if (error) previewError(error, item.base, `thumbnail:${item.frame}`);
+  if (!url && error && item.clients.size && retries.defer(item, error)) {
+    const at = queue.indexOf(item);
+    if (at >= 0) queue.splice(at, 1);
+    return;
+  }
   item.settled = true;
   item.url = url;
   item.error = error;
   const at = queue.indexOf(item);
   if (at >= 0) queue.splice(at, 1);
   if (!url && cache.get(item.key) === item) cache.delete(item.key);
-  if (error) console.warn("thumbnail failed", item.base, error);
   for (const done of [...item.clients]) done(url);
   if (url && item.forgotten) URL.revokeObjectURL(url);
 }
@@ -258,7 +279,15 @@ async function pump() {
   if (running) return;
   running = true;
   try {
-    while (queue.length) {
+    while (true) {
+      if (!queue.length) {
+        const retry = retries.take();
+        if (!retry) break;
+        queue.push(retry);
+        // Faces of one skeleton still share a load and a deadline on each retry.
+        let sibling;
+        while ((sibling = retries.take((item) => item.base === retry.base))) queue.push(sibling);
+      }
       try {
         if (!await ensureSpine()) {
           for (const item of [...queue]) complete(item, null);
@@ -301,7 +330,7 @@ async function pump() {
         while (!signal.aborted && q && !q.settled) {
           const url = await withTimeout(capture(player, el, q.frame, q.expr, q.lobby, q.framing, q.background, signal), 3000, `Thumbnail capture ${base}`, { signal });
           batch.push(q);
-          complete(q, url);
+          complete(q, url, !url && !signal.aborted ? new Error(`PNG encoding failed (frame=${q.frame})`) : null);
           // Let a visible card's bump take effect before the next capture.
           await Promise.resolve();
           q = queue[0]?.base === base ? queue[0] : null;
@@ -327,7 +356,15 @@ async function companions(player, el, base, batch, signal) {
     if (!frame || queue.length) continue;
     const key = keyOf(base, frame, null, q.lobby, q.framing, q.background);
     if (cache.has(key)) continue;
-    const url = await withTimeout(capture(player, el, frame, null, q.lobby, q.framing, q.background, signal), 3000, `Thumbnail companion ${base}`, { signal });
+    let url;
+    try {
+      url = await withTimeout(capture(player, el, frame, null, q.lobby, q.framing, q.background, signal), 3000, `Thumbnail companion ${base}`, { signal });
+      if (!url && !signal.aborted) throw new Error(`PNG encoding failed (frame=${frame})`);
+    } catch (error) {
+      // A speculative companion has no unsettled item to report through complete().
+      if (!signal.aborted || signal.reason?.name !== "AbortError") previewError(error, base, `thumbnail:${frame}`);
+      throw error;
+    }
     if (!url) continue;
     const waiting = cache.get(key);
     if (waiting && !waiting.settled) complete(waiting, url);
@@ -391,10 +428,11 @@ function request(base, frame = "bust", expr = null, lobby = false, framing = nul
         resolved = fresh;
       }
       return null;
-    }).catch((err) => { if (!signal?.aborted) console.warn("thumbnail failed", base, err); return null; });
+    }).catch((err) => { if (!signal?.aborted) previewError(err, base, `thumbnail:${frame}`); return null; });
     outer.bump = () => { first = true; inner?.bump?.(); };
     outer.thumbnail = true;
     outer.signal = signal;
+    outer.failure = () => inner?.failure?.();
     return outer;
   }
   const key = keyOf(base, frame, expr, lobby, framing, background);
@@ -406,7 +444,17 @@ function request(base, frame = "bust", expr = null, lobby = false, framing = nul
     if (preferred) queue.sort((a, b) => b.base.startsWith(preferred) - a.base.startsWith(preferred));
     queueMicrotask(pump);
   }
-  return subscribe(cache.get(key), signal);
+  const picture = subscribe(cache.get(key), signal);
+  if (frame !== "portrait") return picture;
+  // Reuse only a still of these exact source bytes. Never borrow the other similarly named variant's art,
+  // a face-only crop, or a thumbnail from before an install/update changed the revision.
+  return withThumbnailFallback(picture, () => {
+    for (const otherFrame of ["roster", "bust", "card"]) {
+      const still = cache.get(keyOf(base, otherFrame, expr, lobby, framing, background));
+      if (still?.url) return still.url;
+    }
+    return null;
+  });
 }
 
 function bump(item) {

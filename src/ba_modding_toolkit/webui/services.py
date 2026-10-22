@@ -694,7 +694,7 @@ class Services:
             return library.apply(variant, source, log=log, progress=progress, kind=kind, pin=pin)
 
         with self.classic.starting():
-            if self.classic_open() and library.would_write(variant, source, kind, pin=pin):
+            if self.classic_open() and library.would_write(variant, source, kind, pin=pin, setting=True):
                 raise ServiceError("classic_open")
             return self.submit("apply", run, writes="game", library=library)
 

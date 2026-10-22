@@ -1063,7 +1063,7 @@
 			"cacheCleared": "Mod 缓存已清除"
 		},
 		"switch": {
-			"configured": "已设置"
+			"configured": "已设定"
 		},
 		"field": {
 			"file": "文件",
@@ -1480,7 +1480,7 @@
 			"progress": "{phase} {name}（{kind}）{index} / {total} - {step}",
 			"complete": "完成：{n}，失败：{failed}",
 			"resultTitle": "导入结果",
-			"applied": "已应用",
+			"applied": "已安装",
 			"notApplied": "未应用",
 			"notTransferred": "警告：未转移（新版官方 Bundle 中没有对应资源）：{names}",
 			"notTransferredCount": "{count} 个资源未转移",

@@ -229,6 +229,9 @@ export async function render(tree, host, opts = {}) {
   const spritesReady = atlasDone, textureReady = texturesDone;
   if (opts.deferImages) ready.catch((err) => console.error("NGUI index failed", err));
   else await ready;
+  const needsPlaceholder = (n) => n.widgets?.some((w) => w.placeholder) || n.children?.some(needsPlaceholder);
+  const placeholderLabel = needsPlaceholder(tree) ? find(await layout("UIPopup_Sort"),
+    "Center/Popup/Btn/Btn_Cancel/Label_Locale").widgets.find((w) => "text" in w) : null;
   const S = opts.scale ?? 1920 / 2960;
   const [ox, oy] = opts.origin ?? [960, 540];
   const on = new Set(opts.on || []), off = new Set(opts.off || []);
@@ -292,6 +295,14 @@ export async function render(tree, host, opts = {}) {
         backgroundRepeat: "no-repeat", transform: inc ? `skewX(${inc}deg)` : "",
         ...(w.imgMask ? { webkitMaskImage: w.imgMask, maskImage: w.imgMask } : {}),
       });
+      // Reuse the popup's UILabel treatment (UIPopup_Sort/Btn/Btn_Cancel/Label_Locale).
+      // Kept until a still decodes, including null, rejected and cancelled requests.
+      const placeholderRect = w.placeholderRect || { x: 0, y: 0, w: w.w_, h: w.h_ };
+      const fitted = w.placeholder && fitText(w.placeholder, 34, 24, placeholderRect.w - 32, 3);
+      const note = fitted ? widget(n, { ...placeholderLabel, text: fitted.text, fontSize: fitted.fs,
+        w_: placeholderRect.w - 32, h_: fitted.fs * fitted.lines * 1.3, pivot: 4, depth: (w.depth || 0) + 1 },
+        `${p}/Placeholder`, x + placeholderRect.x * sx, y + placeholderRect.y * sy,
+        sx, sy, colorOf(placeholderLabel.color), alpha) : null;
       const src = w.clipImage;
       if (src) {
         if (src.thumbnail) pic.dataset.thumbnail = "true";
@@ -299,8 +310,13 @@ export async function render(tree, host, opts = {}) {
         // wait. One that comes in after the first frames fades in instead of popping.
         const t0 = performance.now();
         Object.assign(pic.style, { opacity: "0", transition: "opacity .25s ease" });
-        const done = withTimeout(Promise.resolve(src).then((u) => (u && w.tint ? tinted(u, w.tint) : u)), src.thumbnail ? Infinity : 15000, `UI picture ${p}`, { signal: src.signal || opts.signal }).then((u) => {
+        const done = withTimeout(Promise.resolve(src).then((u) => (u && w.tint ? tinted(u, w.tint) : u)), src.thumbnail ? Infinity : 15000, `UI picture ${p}`, { signal: src.signal || opts.signal }).then(async (u) => {
           if (!u || src.signal?.aborted || opts.signal?.aborted) return;
+          if (note) {
+            await load(u, { signal: src.signal || opts.signal });
+            if (src.signal?.aborted || opts.signal?.aborted) return;
+            note.remove();
+          }
           pic.style.backgroundImage = `url("${u}")`;
           if (performance.now() - t0 < 50) pic.style.transition = "none";
           pic.style.opacity = "1";

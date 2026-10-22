@@ -1480,7 +1480,7 @@
 			"progress": "{phase} {name} ({kind}) {index} / {total} - {step}",
 			"complete": "เสร็จแล้ว: {n}, ล้มเหลว: {failed}",
 			"resultTitle": "ผลการนำเข้า",
-			"applied": "ใช้แล้ว",
+			"applied": "ติดตั้งแล้ว",
 			"notApplied": "ยังไม่ได้ใช้",
 			"notTransferred": "คำเตือน: ไม่ได้ถ่ายโอน (ไม่มีแอสเซ็ตที่ตรงกันใน Bundle ทางการรุ่นใหม่): {names}",
 			"notTransferredCount": "ไม่ได้ถ่ายโอน {count} แอสเซ็ต",

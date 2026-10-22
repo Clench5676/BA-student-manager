@@ -39,7 +39,7 @@ test("special slots open their lobby tab and switch only mods for their own core
   assert.equal(availableTab(fam.variants[2], "portrait"), "portrait");
   assert.equal(availableTab(fam.variants[4], "lobby"), "portrait");
   assert.deepEqual(candidates(fam, day, "lobby").map((c) => c.key), ["self", "m:day"]);
-  assert.equal(previewBase(day, "lobby", true), "/asset/spine/lobby/arona_workpage_daytime/skeleton");
+  assert.equal(previewBase(day, "lobby", true), "/asset/spine/mod/day/skeleton");
   assert.equal(previewBase(day, "lobby", false), "/asset/spine/mod/day/skeleton");
   assert.deepEqual(popupMode(fam, day, "lobby", false), { start: "m:day", button: "popup.save", set: "m:day" });
   day.state.files = [part("lobby", "mod:day")];
@@ -207,14 +207,14 @@ test("previews keep both configured kinds while the game files are official", ()
     assert.equal(previewKey(v, kind, false), `m:${id}`);
     assert.equal(previewBase(v, kind, false, fam.variants), `/asset/spine/mod/${id}/skeleton`);
     assert.equal(appliedKey(v, kind), "self", "file status remains independent of the preview");
-    assert.equal(previewKey(v, kind, true), "self", "turning mods on follows the carried source again");
+    assert.equal(previewKey(v, kind, true), `m:${id}`, "the saved source stays visible while installation is pending");
     const marked = candidates(fam, v, kind).filter((c) => c.key === previewKey(v, kind, false));
     assert.deepEqual(marked.map((c) => c.key), [`m:${id}`], "only the configured card matches the preview");
   }
   v.configured.spr = "variant:hoshino_swimsuit";
   assert.equal(previewKey(v, "spr", false), "v:hoshino_swimsuit");
   assert.equal(previewBase(v, "spr", false, fam.variants), "/asset/spine/official-spr/hoshino_swimsuit_spr/skeleton");
-  assert.equal(previewBase(v, "spr", true, fam.variants), "/asset/spine/spr/hoshino_spr/skeleton");
+  assert.equal(previewBase(v, "spr", true, fam.variants), "/asset/spine/official-spr/hoshino_swimsuit_spr/skeleton");
 });
 
 test("a configured variant previews its official copy even when its live files still carry a mod", () => {
@@ -231,7 +231,7 @@ test("off previews use the configuration even if an unswitched game file still c
   v.configured = { spr: "mod:configured" };
   v.state.files = [part("spr", "mod:carried")];
   assert.equal(previewBase(v, "spr", false), "/asset/spine/mod/configured/skeleton");
-  assert.equal(previewKey(v, "spr", true), "m:carried");
+  assert.equal(previewKey(v, "spr", true), "m:configured");
   for (const source of [null, "official", "unknown"]) {
     v.configured.spr = source;
     assert.equal(previewKey(v, "spr", false), "self");
@@ -247,7 +247,7 @@ test("off previews of the own source use verified originals for both kinds despi
     for (const source of [null, "official", "unknown"]) {
       v.configured = { [kind]: source };
       assert.equal(previewBase(v, kind, false, fam.variants), `/asset/spine/official-${kind}/${core}/skeleton`);
-      assert.equal(previewBase(v, kind, true, fam.variants), `/asset/spine/${kind}/${core}/skeleton`);
+      assert.equal(previewBase(v, kind, true, fam.variants), `/asset/spine/official-${kind}/${core}/skeleton`);
     }
   }
 });
@@ -262,7 +262,7 @@ test("a saved or removed configuration refreshes the preview without any change 
   after.configured.spr = null;
   assert.equal(previewChanged(before, after, "spr", false, false), true, "removing the configured mod reloads the player");
   assert.equal(previewChanged(before, before, "spr", true, false), true, "a toggle refreshes even an unswitched entry");
-  assert.equal(previewChanged(before, after, "spr", true, true), false, "with mods on the game files decide");
+  assert.equal(previewChanged(before, after, "spr", true, true), true, "with mods on the saved choice still decides");
 });
 
 
@@ -287,4 +287,27 @@ test("model sources stay within the variant and use the shared configured/applie
   assert.equal(modelUrl("a/b", "official"), "/asset/model/a%2Fb.glb?source=official");
   v.configured = {};
   assert.equal(modelSource(v, false), "official");
+});
+
+test("every manager status uses the saved source and verified install verdict, including pending failures", async () => {
+  const { selectionStatus, candidateStatus, detailStatus, selectionError, importStatus } = await import("../../src/ba_modding_toolkit/web/js/switch-sources.js");
+  for (const kind of ["spr", "lobby", "model"]) {
+    const v = { key: "a", spr: "a_spr", lobby: "a_home", model: "a", configured: { [kind]: "mod:chosen" },
+      state: { files: [part(kind, "mod:old")] }, selection: {} };
+    for (const installed of [false, true]) {
+      const error = installed ? null : { code: "game_file_locked", params: { file: "bundle" } };
+      v.selection[kind] = { source: "mod:chosen", installed, error };
+      const expected = installed ? "status.installed" : "switch.configured";
+      assert.equal(selectionStatus(v, kind), expected, "roster and switch card");
+      assert.equal(detailStatus(v, kind), expected, "detail Info");
+      assert.equal(candidateStatus(v, kind, "m:chosen"), expected, "popup Status and chip");
+      assert.equal(candidateStatus(v, kind, "m:old"), "status.notInstalled");
+      assert.equal(candidateStatus(v, kind, "self"), "status.gameFile");
+      assert.deepEqual(selectionError(v, kind), error);
+      assert.equal(importStatus({ applied: installed, configured: true }), expected, "import note");
+      for (const enabled of [false, true]) assert.equal(previewKey(v, kind, enabled), "m:chosen");
+    }
+    v.selection[kind].source = "mod:old";
+    assert.equal(selectionStatus(v, kind), "switch.configured", "a stale verdict for another source cannot claim installation");
+  }
 });

@@ -19,10 +19,9 @@ async function write(method, params, name, changed) {
       if (result?.failed?.length) notify(T("mods.deletePending"), { kind: "error", error: { code: result.failed[0]?.code || "internal", params: { failed: result.failed } } });
     });
     await ModSwitch.refresh();
-    await changed();
   } catch (err) {
     ModSwitch.refused(err, method, params);
-  } finally { busy = false; }
+  } finally { busy = false; await changed(); }
 }
 
 export async function select(mod, changed, useMod = !mod.selected) {
@@ -44,7 +43,7 @@ export async function remove(mod, changed) {
 
 export function rows(mods, valueRow, changed) {
   return mods.map((mod, i) => valueRow(`Other_${i}`, 0, mod.label,
-    [T(`settings.mods.otherState.${mod.state}`), ...mod.files].join(" - "), [
+    [T(mod.state === "active" ? "status.installed" : mod.state === "set" ? "switch.configured" : `settings.mods.otherState.${mod.state}`), ...mod.files].join(" - "), [
       [T("settings.mods.useMod"), () => select(mod, changed, true), mod.state !== "missing" && (!mod.selected || mod.state === "changed")],
       [T("settings.mods.official"), () => select(mod, changed, false), mod.state !== "missing"],
       [T("btn.delete"), () => remove(mod, changed)],

@@ -9,7 +9,7 @@ import { setSpineConsent } from "../../src/ba_modding_toolkit/web/js/spine-runti
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const events = [], players = [], images = [], encoded = [];
-let focused = true, hidden = false, blank = false, stall = false, nextBlob = 0, scheduledFrames = 0;
+let focused = true, hidden = false, blank = false, stall = false, expressionOnly = false, missingBackground = false, nextBlob = 0, scheduledFrames = 0;
 const docEvents = new EventTarget();
 class Canvas extends EventTarget {
   width = 2; height = 1; ink = false; background = null;
@@ -46,7 +46,7 @@ globalThis.Image = class {
     for (const player of players) if (!player.disposed) player.canvas.ink = false;
     setTimeout(() => {
       focused = true; window.dispatchEvent(new Event("focus"));
-      this.onload?.();
+      if (missingBackground) this.onerror?.(new Error("Missing background")); else this.onload?.();
     }, 20);
   }
   get src() { return this.url; }
@@ -68,7 +68,7 @@ class Player {
         if (this.canvas.ink) pixels.set([80, 80, 80, 0, 80, 80, 80, 255]);
       } } };
     this.sceneRenderer = { camera: { position: {} }, skeletonDebugRenderer: {}, resize() {}, begin() {}, end() {},
-      drawSkeleton: () => { this.canvas.ink = !blank; } };
+      drawSkeleton: () => { this.canvas.ink = !blank && (!expressionOnly || this.animationState.getCurrent(1)?.animation.name === "00"); } };
     this.assetManager = { isLoadingComplete: () => this.assets };
     // The constructor's queued first frame precedes asynchronous texture/atlas completion. Finishing assets
     // alone cannot invoke success; another real drawFrame must discover them.
@@ -80,7 +80,7 @@ class Player {
     S.SpinePlayer.prototype.drawFrame.call(this, loop);
   }
   loadSkeleton() {
-    const data = new S.SkeletonJson({}).readSkeletonData({ bones: [{ name: "root" }], animations: { Idle_01: {} } });
+    const data = new S.SkeletonJson({}).readSkeletonData({ bones: [{ name: "root" }], animations: expressionOnly ? { "00": {} } : { Idle_01: {} } });
     this.skeleton = new S.Skeleton(data);
     this.skeleton.getBounds = (offset, size) => { Object.assign(offset, { x: 0, y: 0 }); Object.assign(size, { x: 800, y: 1600 }); };
     this.animationState = new S.AnimationState(new S.AnimationStateData(data));
@@ -95,7 +95,20 @@ class Player {
 globalThis.spine = { ...S, SpinePlayer: Player };
 setSpineConsent(true);
 const base = (name) => `/asset/spine/spr/${name}/${"a".repeat(64)}/skeleton`;
-afterEach(async () => { await wait(25); focused = true; hidden = false; blank = false; stall = false; });
+afterEach(async () => { await wait(25); focused = true; hidden = false; blank = false; stall = false; expressionOnly = false; missingBackground = false; });
+
+test("an expression-only story portrait applies 00 before capture instead of encoding an empty setup pose", async () => {
+  expressionOnly = true;
+  assert.ok(await thumb(base("pajamas_expression_only"), "portrait"));
+  assert.equal(players.at(-1).animationState.getCurrent(1).animation.name, "00");
+  assert.equal(encoded.at(-1).ink, true);
+});
+
+test("a missing background retains the already validated portrait still", async () => {
+  missingBackground = true;
+  assert.ok(await thumb(base("portrait_missing_background"), "portrait", null, false, null, "/bg/missing"));
+  assert.deepEqual(encoded.at(-1), { ink: true, background: null });
+});
 
 test("a cold background key loads and composes after plain card/bust cache hits with an inactive lifecycle", async () => {
   const source = base("shiroko_spr"), background = "/asset/art/bg/BG_Abydos_Collection";
@@ -145,7 +158,7 @@ test("cancellation retires manual loading frames and lets the next skeleton run"
   assert.equal(retired.draws, draws); assert.equal(retired.disposed, true);
 });
 
-test("a stalled inactive runtime exhausts one eight-second budget and disposes its manual clock", async (t) => {
+test("a stalled inactive runtime has three bounded attempts and disposes every manual clock", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   try {
     hidden = true; stall = true;
@@ -153,10 +166,15 @@ test("a stalled inactive runtime exhausts one eight-second budget and disposes i
     await new Promise(setImmediate);
     const retired = players.at(-1);
     t.mock.timers.tick(8000);
-    assert.equal(await pending, null);
     await new Promise(setImmediate);
     assert.equal(retired.disposed, true);
     const draws = retired.draws;
+    for (const delay of [500, 1000]) {
+      t.mock.timers.tick(delay); await new Promise(setImmediate);
+      t.mock.timers.tick(8000); await new Promise(setImmediate);
+      assert.equal(players.at(-1).disposed, true);
+    }
+    assert.equal(await pending, null);
     t.mock.timers.tick(60000);
     assert.equal(retired.draws, draws);
   } finally { t.mock.timers.reset(); }

@@ -3,8 +3,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { register } from "node:module";
 import { test } from "node:test";
+import { switchPrefabs } from "./switch_prefabs.mjs";
 import { controls } from "./control_prefabs.mjs";
 const controlLayouts = controls();
+const switchLayouts = switchPrefabs();
 
 class El {
   constructor(tag = "div") {
@@ -82,6 +84,7 @@ globalThis.getComputedStyle = () => ({ opacity: "1" });
 
 const imageRequests = [], pendingImages = [];
 let imageMode = "ready", playerMode = "ready", portraitRevision = "a", portraitStatus = 200;
+let blankThumbnailCore = "";
 let decodeMode = "ready", thumbMode = "pending", portraitExpressions = ["00", "01"];
 const thumbnailPlayers = [], pendingThumbnails = [];
 const pendingDecodes = [], pendingPlayers = [];
@@ -144,7 +147,9 @@ globalThis.spine = { Vector2: class {}, Physics: { update: 1 }, RegionAttachment
     if (el.className === "thumb-player") {
       thumbnailPlayers.push(this);
       this.context = { gl: { drawingBufferWidth: 2, drawingBufferHeight: 1, RGBA: 1, UNSIGNED_BYTE: 1,
-        readPixels: (_x, _y, _w, _h, _f, _t, pixels) => pixels.set([0, 0, 0, 0, 200, 100, 50, 255]) } };
+        readPixels: (_x, _y, _w, _h, _f, _t, pixels) => {
+          if (!blankThumbnailCore || !config.skeleton.includes(blankThumbnailCore)) pixels.set([0, 0, 0, 0, 200, 100, 50, 255]);
+        } } };
       el.appendChild(new El("canvas"));
       const done = () => config.success(this);
       if (thumbMode === "ready") queueMicrotask(done); else pendingThumbnails.push(done);
@@ -253,6 +258,8 @@ globalThis.fetch = async (url, opts = {}) => {
   }
   if (url.startsWith("/asset/ui/layout/")) {
     if (optionalPending && url.endsWith("UIPopup_Sort.json")) return new Promise(() => {});
+    if (url.endsWith("UICharacterCollectionPopulatorUnit.json")) return reply(switchLayouts.unit);
+    if (url.endsWith("UINonEquipmentInventory.json")) return reply(switchLayouts.inventory);
     if (url.endsWith("UIPopup_Sort.json")) return reply(sortPopup);
     if (url.endsWith("UIPopup_Option_PC.json")) return reply(controlLayouts.option);
     if (url.endsWith("UIPopup_FilterSort.json")) return reply(controlLayouts.filter);
@@ -283,9 +290,14 @@ const { setStrings } = await import("../../src/ba_modding_toolkit/web/js/i18n.js
 const { setSpineConsent } = await import("../../src/ba_modding_toolkit/web/js/spine-runtime.js");
 setSpineConsent(true);
 setStrings("en-US", flat(JSON.parse(readFileSync(new URL("../../src/ba_modding_toolkit/locales/en-US.json", import.meta.url), "utf8"))));
-const modelRequests = [];
+const modelRequests = [], modelStillRequests = [];
 let modelPreview = null;
 globalThis.__detailModel = {
+  createStillView() {
+    let source;
+    return { async load(url) { source = url; modelStillRequests.push(url); },
+      async renderStill() { return `blob:rendered-${source}`; }, dispose() {} };
+  },
   async show(key, host, options) {
     modelRequests.push({ key, ...options });
     modelPreview = options;
@@ -299,7 +311,7 @@ globalThis.__detailModel = {
 const modelStub = `data:text/javascript,${encodeURIComponent(Object.keys(globalThis.__detailModel)
   .map((name) => `export const ${name} = (...args) => globalThis.__detailModel.${name}(...args);`).join("\n"))}`;
 register(`data:text/javascript,${encodeURIComponent(`export async function resolve(spec, ctx, next) {
-  if (spec === "./model.js" && ctx.parentURL?.endsWith("/detail.js")) return { url: ${JSON.stringify(modelStub)}, shortCircuit: true };
+  if (spec === "./model.js" && (ctx.parentURL?.endsWith("/detail.js") || ctx.parentURL?.endsWith("/model-still.js"))) return { url: ${JSON.stringify(modelStub)}, shortCircuit: true };
   return next(spec, ctx);
 }`)}`);
 await import(modelStub);
@@ -346,7 +358,7 @@ function modFamily(kind = "spr", id = "test") {
   return { key: "ibuki", version: id, variants: [{ key: "ibuki", spr: "ibuki_spr", lobby: "ibuki_home", names: { en: { full: "Ibuki", short: "Ibuki" } },
     modList: [{ id, target: "ibuki", kind, label: id }], state: { files: [{ kind, applied: `mod:${id}`, official: false, restorable: true, crc: "fixed" }] } }] };
 }
-const flush = async () => { for (let i = 0; i < 80; i++) await Promise.resolve(); };
+const flush = async () => { for (let i = 0; i < 160; i++) await Promise.resolve(); };
 const finish = async (t, promise) => {
   let settled = false;
   promise.finally(() => { settled = true; }).catch(() => {});
@@ -446,7 +458,7 @@ test("entry cards and thumbnails publish together after every visible picture is
   }
 });
 
-test("a bounded fallback cancels thumbnail players, deadlines and late DOM writes", async (t) => {
+test("leaving a page revealed at its deadline cancels thumbnail players, retries and late DOM writes", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   try {
     family = modFamily(); family.variants[0].spr = "cancelled_spr";
@@ -667,7 +679,7 @@ for (const core of ["arona_workpage_daytime", "np0032_npc"]) for (const category
     await finish(t, aliasKey(aliasInput()));
     assert.equal(part("Details/Name").getAttribute("aria-label"), "Evening L2D");
     assert.equal(part("Card_m:special-day/Tag/Text").textContent, "Repaired");
-    assert.equal(part("Details/Chip_0/Text/Text").textContent, "Repaired");
+    assert.equal(walk(part("Details/Chip_0/Text/Text")).map((el) => el.textContent).join(""), "Repaired");
     assert.ok(!walk(hosts.popup).some((el) => el.getAttribute("aria-label") === "Remap to current version"));
     await closeSwitch();
     back.onclick(); assert.equal(location.hash, "#/roster");
@@ -978,14 +990,15 @@ test("repaired names and own aliases keep a separate repair tag in every locale"
         Object.assign(mod, { alias, label: name, repaired_from: "original" });
         v.modList.push({ id: "original", target: v.key, kind: "spr", alias: "Painted", label: "Painted", repaired_id: mod.id });
         v.configured = { spr: "mod:fixed" };
+        v.selection = { spr: { source: "mod:fixed", installed: enabled } };
         await showPortrait(t);
         assert.equal(currentCell().getAttribute("aria-label"), name);
         await switchButton().click(); await flush();
         const part = (path) => walk(hosts.popup).find((el) => el.dataset.path === path);
         assert.equal(part("Details/Name").getAttribute("aria-label"), name);
-        assert.equal(part("Details/Chip_0/Text/Text").textContent, ui.webui.remap.repaired);
-        assert.equal(part("Card_m:fixed/Tag/Text").textContent, ui.webui.remap.repaired);
-        assert.equal(part("Card_m:fixed/Using/Text").textContent, enabled ? ui.webui.popup.inUse : ui.webui.switch.configured);
+        assert.equal(walk(part("Details/Chip_0/Text/Text")).map((el) => el.textContent).join(""), ui.webui.remap.repaired);
+        assert.equal((part("Card_m:fixed/Tag/Text").textContent || part("Card_m:fixed/Tag/Text").children[0].textContent), ui.webui.remap.repaired);
+        assert.equal((part("Card_m:fixed/Using/Text").textContent || part("Card_m:fixed/Using/Text").children[0].textContent), enabled ? ui.webui.status.installed : ui.webui.switch.configured);
         assert.ok(walk(hosts.popup).some((el) => el.dataset.action === "alias:m:fixed"));
         assert.equal(walk(hosts.popup).filter((el) => el.getAttribute("aria-label") === ui.webui.act.update).length, 1);
         await closeSwitch();
@@ -1113,6 +1126,8 @@ for (const kind of ["spr", "lobby"]) test(`an auto-applied ${kind} mod has no ca
   t.mock.timers.enable({ apis: ["setTimeout"] });
   try {
     family = modFamily(kind); family.variants[0].modList[0].fresh = true;
+    family.variants[0].configured = { [kind]: "mod:test" };
+    family.variants[0].selection = { [kind]: { source: "mod:test", installed: true } };
     seenReply = async () => ({ error: { code: "internal" } });
     await showPortrait(t);
     const tab = kind === "lobby" ? 2 : 1;
@@ -1125,7 +1140,7 @@ for (const kind of ["spr", "lobby"]) test(`an auto-applied ${kind} mod has no ca
     const own = walk(hosts.popup).find((e) => e.dataset.key === "self");
     assert.ok(own); await own.click(); await flush();
     assert.ok(walk(hosts.popup).some((e) => e.dataset.path?.endsWith("Card_m:test/Using")));
-    assert.equal(walk(hosts.popup).find((e) => e.dataset.path?.endsWith("Card_m:test/Dot")), undefined);
+    assert.equal(walk(hosts.popup).find((e) => e.dataset.path?.match(/Card_m:test\/(?:Dot|NewIcon)$/)), undefined);
     assert.ok(tabDot(tab)); assert.ok(chipDot("ibuki"), "card rendering leaves the unread marks intact");
     await closeSwitch();
   } finally { Detail.hide(); seenReply = async () => ({ result: null }); await flush(); t.mock.timers.reset(); }
@@ -1160,7 +1175,7 @@ for (const after of ["closed", "aliases", "reopened", "left"]) test(`a delayed s
     const popup = switchButton().click(); await flush();
     assert.ok(finish, "the switch shows while its seen state is being saved");
     assert.ok(walk(hosts.popup).some((e) => e.dataset.key === "m:test"));
-    assert.ok(walk(hosts.popup).some((e) => e.dataset.path?.endsWith("Card_m:test/Dot")));
+    assert.ok(walk(hosts.popup).some((e) => e.dataset.path?.match(/Card_m:test\/(?:Dot|NewIcon)$/)));
     assert.ok(tabDot(1));
     await closeSwitch();
     let input;
@@ -1184,7 +1199,7 @@ for (const after of ["closed", "aliases", "reopened", "left"]) test(`a delayed s
     } else if (after === "reopened") {
       assert.equal(hosts.popup.hidden, false);
       assert.ok(walk(hosts.popup).some((e) => e.dataset.key === "m:test"));
-      assert.equal(walk(hosts.popup).find((e) => e.dataset.path?.endsWith("Card_m:test/Dot")), undefined);
+      assert.equal(walk(hosts.popup).find((e) => e.dataset.path?.match(/Card_m:test\/(?:Dot|NewIcon)$/)), undefined);
     } else {
       assert.equal(hosts.popup.hidden, true);
       assert.equal(hosts.popup.children.length, 0);
@@ -1208,7 +1223,7 @@ test("the 3D tab dot only follows mods of its own kind", async (t) => {
 test("the detail portrait resumes focus and rebuilds after a hidden context loss", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   try {
-    errors.length = 0; family = modFamily(); playerMode = "ready";
+    errors.length = 0; family = modFamily(); playerMode = thumbMode = "ready";
     await showPortrait(t);
     const p = previewPlayers.at(-1), count = previewPlayers.length;
     const failStart = rpcRequests.filter((r) => r.method === "preview.failed").length;
@@ -1226,7 +1241,7 @@ test("the detail portrait resumes focus and rebuilds after a hidden context loss
     assert.equal(rpcRequests.filter((r) => r.method === "preview.failed").length, failStart);
     p.canvas.dispatchEvent(new Event("webglcontextrestored")); await flush();
     assert.equal(previewPlayers.length, count + 1, "a disposed portrait cannot restart again");
-  } finally { document.hidden = false; Detail.hide(); await flush(); t.mock.timers.reset(); }
+  } finally { document.hidden = false; Detail.hide(); thumbMode = "pending"; await flush(); t.mock.timers.reset(); }
 });
 
 test("detail action patterns follow their resized bodies", async (t) => {
@@ -1311,6 +1326,7 @@ for (const enabled of [true, false]) test(`model switching reuses the detail con
     const v = family.variants[0];
     v.model = "ibuki_model";
     v.configured = { model: "mod:test" };
+    v.selection = { model: { source: "mod:test", installed: enabled } };
     v.modList[0].fresh = true;
     if (!enabled) v.state.files = [{ kind: "model", applied: "official", official: true, restorable: true, crc: "ok" }];
     modsEnabled = enabled; await ModSwitch.refresh();
@@ -1319,18 +1335,28 @@ for (const enabled of [true, false]) test(`model switching reuses the detail con
     for (let i = 0; i < 20; i++) { await new Promise(setImmediate); await flush(); }
     await finish(t, switching);
     assert.equal(modelRequests.at(-1)?.key, "ibuki", errors.map((args) => args.map(String).join(" ")).join("\n"));
-    assert.equal(modelRequests.at(-1).source, enabled ? "live" : "mod:test");
+    assert.equal(modelRequests.at(-1).source, "mod:test");
     assert.ok(switchButton(), "the model switch opens the shared popup");
     const add = walk(hosts.ngui).find((e) => e.dataset.part === `${INFO}/Weapon/Btn_Up_Wrapper/Btn_Up/BG (1)`);
     assert.ok(add && add.getAttribute("aria-label") === "Add 3D Model");
     const text = walk(hosts.ngui).find((e) => e.className === "switch-text");
     assert.ok(text.children.some((e) => e.className === "switch-go"));
-    assert.ok(text.children.some((e) => e.innerText === "test"));
+    assert.ok(text.children.some((e) => e.innerText?.startsWith("test - ")));
     assert.equal(tabDot(3), undefined, "showing the model tab marks its configured asset seen");
     assert.equal(v.fresh, false);
     await switchButton().click(); await flush();
     assert.ok(walk(hosts.popup).some((e) => e.dataset.key === "self"));
     assert.ok(walk(hosts.popup).some((e) => e.dataset.key === "m:test"));
+    const picture = (host, path) => walk(host).find((e) => e.dataset.path === path)?.children[0].style.backgroundImage;
+    for (let i = 0; i < 5; i++) { await new Promise(setImmediate); await flush(); }
+    const original = picture(hosts.popup, "Card_self/Thumb"), mod = picture(hosts.popup, "Card_m:test/Thumb");
+    assert.match(original, /blob:rendered-.*source=official/);
+    assert.match(mod, /blob:rendered-.*source=mod%3Atest/);
+    assert.equal(picture(hosts.popup, "Details/Picture/Thumb"), mod);
+    const switchImage = walk(hosts.ngui).find((e) => e.dataset.path?.endsWith("/Bust") && e.children[0]?.style.backgroundImage?.includes("blob:rendered"));
+    assert.equal(switchImage?.children[0].style.backgroundImage, mod, "detail and popup share the source's 3D still");
+    const info = walk(hosts.popup).find((e) => e.dataset.path === "Details/Picture/Thumb");
+    assert.equal(info.style.width, info.style.height, "the model info preview is square");
     assert.equal(tabDot(3), undefined, "opening the model switch marks its offered mods seen");
     assert.equal(v.modList[0].fresh, false);
     assert.ok(!errors.flat().some((e) => String(e).includes("Spine source unavailable")));
@@ -1352,4 +1378,128 @@ test("detail action cards remove skill bases and plus badges and contain their r
       assert.ok(!walk(hosts.ngui).some((e) => e.dataset.path?.includes(`${prefix}/SkillIconBg (1)`)));
     }
   } finally { Detail.hide(); await flush(); t.mock.timers.reset(); }
+});
+
+
+test("switch subtitles retain the selected name and use a plain separator in all six locales", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    for (const lang of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) {
+      const ui = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${lang}.json`, import.meta.url), "utf8"));
+      setStrings(lang, flat(ui));
+      for (const installed of [false, true]) {
+        family = modFamily("spr", "hina_spr");
+        const v = family.variants[0];
+        v.configured = { spr: "mod:hina_spr" };
+        v.selection = { spr: { source: "mod:hina_spr", installed } };
+        await showPortrait(t);
+        const text = walk(hosts.ngui).find((e) => e.className === "switch-text");
+        const subtitle = text.children.find((e) => e.tagName === "SPAN").innerText.replace(/\n/g, "");
+        assert.equal(subtitle, `hina_spr - ${installed ? ui.webui.status.installed : ui.webui.switch.configured}`);
+        assert.ok(!/[·•・]/u.test(subtitle));
+        Detail.hide();
+      }
+    }
+  } finally {
+    Detail.hide(); await flush(); t.mock.timers.reset();
+    setStrings("en-US", flat(JSON.parse(readFileSync(new URL("../../src/ba_modding_toolkit/locales/en-US.json", import.meta.url), "utf8"))));
+  }
+});
+
+test("a failed portrait capture keeps the shared placeholder and reports the exact source and frame", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    thumbMode = "ready"; blankThumbnailCore = "pajamas_missing_spr";
+    family = modFamily();
+    family.variants.push({ key: "pajamas", spr: blankThumbnailCore,
+      portrait: "/asset/art/portrait/pajamas", names: { en: { full: "Ibuki (Pajamas)", short: "Pajamas" } }, modList: [], state: { files: [] } });
+    const v = family.variants[0];
+    v.portrait = "/asset/art/portrait/original";
+    v.configured = { spr: "variant:pajamas" };
+    v.selection = { spr: { source: "variant:pajamas", installed: false } };
+    await showPortrait(t);
+    await switchButton().click(); await flush();
+    const picture = (path) => walk(hosts.popup).find((e) => e.dataset.path === path).children[0].style.backgroundImage;
+    assert.equal(picture("Card_v:pajamas/Thumb"), undefined);
+    for (const path of ["Card_v:pajamas/Thumb/Placeholder", "Details/Picture/Texture/Placeholder"]) {
+      const note = walk(hosts.popup).find((e) => e.dataset.path === path);
+      assert.ok(note?.textContent); assert.equal(note.hidden, false);
+    }
+    assert.ok(errors.some((args) => args[0] === "Preview failed" && args[1].url.includes("official-spr/pajamas_missing_spr/")
+      && args[1].step === "thumbnail:portrait" && args[1].error.includes("No visible pixels")));
+    assert.equal(picture("Details/Picture/Texture"), picture("Card_v:pajamas/Thumb"));
+    await closeSwitch();
+  } finally {
+    Detail.hide(); blankThumbnailCore = ""; thumbMode = "pending"; await flush(); t.mock.timers.reset();
+  }
+});
+
+
+test("a failed Mod portrait never displays the variant's official collection art", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    thumbMode = "ready"; blankThumbnailCore = "/mod/test/"; portraitRevision = "f";
+    family = modFamily();
+    const v = family.variants[0]; v.portrait = "/asset/art/portrait/official-hina";
+    v.configured = { spr: "mod:test" };
+    await showPortrait(t); await switchButton().click(); await flush();
+    for (const path of ["Card_m:test/Thumb", "Details/Picture/Texture"]) {
+      const preview = walk(hosts.popup).find((e) => e.dataset.path === path);
+      assert.equal(preview.children[0].style.backgroundImage, undefined);
+      assert.equal(walk(hosts.popup).find((e) => e.dataset.path === `${path}/Placeholder`).hidden, false);
+    }
+    assert.ok(playerRequests.some((url) => url.includes("/mod/test/")));
+    await closeSwitch();
+  } finally { Detail.hide(); blankThumbnailCore = ""; thumbMode = "pending"; portraitRevision = "a"; await flush(); t.mock.timers.reset(); }
+});
+
+test("switch and detail captures can recover after the detail thumbnail reveal deadline", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    family = modFamily(); family.variants[0].spr = "popup_after_deadline_spr";
+    const showing = Detail.show(context, family, "ibuki"); await flush();
+    t.mock.timers.tick(15000); await flush(); await showing;
+    const detailPictures = walk(hosts.ngui).filter((e) => e.dataset.thumbnail === "true");
+    assert.ok(detailPictures.length);
+    const before = thumbnailPlayers.length;
+    thumbMode = "ready";
+    await switchButton().click(); await flush();
+    assert.ok(thumbnailPlayers.length > before, "popup owns a fresh capture scope");
+    for (const path of ["Card_self/Thumb", "Details/Picture/Texture"]) {
+      assert.ok(walk(hosts.popup).find((e) => e.dataset.path === path).children[0].style.backgroundImage);
+      assert.equal(walk(hosts.popup).find((e) => e.dataset.path === `${path}/Placeholder`), undefined);
+    }
+    pendingThumbnails.splice(0).forEach((done) => done()); await flush();
+    t.mock.timers.tick(500); await flush();
+    assert.ok(detailPictures.every((e) => e.style.backgroundImage), "page pictures still publish after the reveal deadline");
+    await closeSwitch();
+  } finally { Detail.hide(); thumbMode = "pending"; await flush(); t.mock.timers.reset(); }
+});
+
+test("a timed-out switch candidate logs its source and updates both card and panel after an idle retry", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    family = modFamily();
+    family.variants.push({ key: "swimsuit", spr: "hina_swimsuit_retry_spr",
+      names: { en: { full: "Hina (Swimsuit)", short: "Swimsuit" } }, modList: [], state: { files: [] } });
+    family.variants[0].configured = { spr: "variant:swimsuit" };
+    await showPortrait(t);
+    const start = rpcRequests.length;
+    await switchButton().click(); await flush();
+    const paths = ["Card_v:swimsuit/Thumb", "Details/Picture/Texture"];
+    const element = (path) => walk(hosts.popup).find((e) => e.dataset.path === path);
+    for (const path of paths) assert.ok(element(`${path}/Placeholder`));
+    t.mock.timers.tick(8000); await flush();
+    assert.ok(rpcRequests.slice(start).some((r) => r.method === "preview.failed"
+      && r.params.url.includes("hina_swimsuit_retry_spr") && /timed out/.test(r.params.error)));
+    thumbMode = "ready";
+    pendingThumbnails.splice(0).forEach((done) => done()); await flush();
+    t.mock.timers.tick(500); await flush();
+    for (const path of paths) {
+      assert.ok(element(path).children[0].style.backgroundImage, path);
+      assert.equal(element(`${path}/Placeholder`), undefined, path);
+    }
+    assert.equal(element(paths[0]).children[0].style.backgroundImage, element(paths[1]).children[0].style.backgroundImage);
+    await closeSwitch();
+  } finally { Detail.hide(); thumbMode = "pending"; await flush(); t.mock.timers.reset(); }
 });

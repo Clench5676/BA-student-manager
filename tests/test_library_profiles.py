@@ -440,7 +440,7 @@ def test_a_dismissal_lasts_until_a_file_changes(world):
     assert not world.entries()[(world.key(), "test_spr")].dismissed
 
 
-def test_a_configured_entry_changed_outside_is_adopted_with_the_change_on_off(world):
+def test_off_keeps_the_set_choice_and_adopts_outside_bytes_separately(world):
     world.consent = True
     mod = world.add(world.spr)
     world.library.apply("test", f"mod:{mod.id}")
@@ -450,9 +450,9 @@ def test_a_configured_entry_changed_outside_is_adopted_with_the_change_on_off(wo
     assert world.spr.read_bytes() == OFFICIAL
     adopted = next(m for m in world.library.mods() if m.id != mod.id)
     assert adopted.file.read_bytes() == data
-    assert world.folder()["configured"]["test_spr"]["source"] == f"mod:{adopted.id}"  # the user's latest choice
+    assert world.folder()["configured"]["test_spr"]["source"] == f"mod:{mod.id}"
     world.toggle(True)
-    assert world.spr.read_bytes() == data
+    assert world.spr.read_bytes() == mod.file.read_bytes()
 
 
 def test_an_overwritten_untracked_entry_is_adopted_and_left_stuck(world):
@@ -1104,7 +1104,7 @@ def test_the_judging_drops_nothing_when_another_instance_switched_meanwhile(worl
     assert len(world.unfinished()) == len(files)
 
 
-def test_a_left_entry_leaves_once_an_on_finds_it_changed(world, monkeypatch):
+def test_an_on_retries_the_set_source_after_an_unfinished_off(world, monkeypatch):
     mod = world.add(world.spr)
     world.library.apply("test", f"mod:{mod.id}")
     outside_mod(world.spr)  # changed outside the library; no consent: found when the Off reaches it
@@ -1114,9 +1114,10 @@ def test_a_left_entry_leaves_once_an_on_finds_it_changed(world, monkeypatch):
     assert world.unfinished() == [{"install": world.key(), "core": "test_spr", "why": "left"}]
     assert world.library.intent()["unfinished"]["left"] == 1
     result = world.toggle(True)
-    assert result.skipped == [{"install": world.key(), "core": "test_spr", "variant": "test", "kind": "spr",
-                               "why": "changed"}]
+    assert result.done and not result.failed
     assert world.unfinished() == []
+    assert world.library.selection("test")["spr"]["installed"]
+    assert world.spr.read_bytes() == mod.file.read_bytes()
 
 
 def test_a_stuck_item_stays_stuck_across_a_crash(world, monkeypatch):
@@ -1400,6 +1401,7 @@ def test_a_restore_while_off_writes_official_over_a_pending_entry(world):
     world.library.apply("test", f"mod:{mod.id}")
     world.library.profiles.update(lambda data: data.update(enabled=False))  # an Off cut short
     assert world.library.would_write("test", "official")
+    assert not world.library.would_write("test", "official", setting=True)
     world.library.restore("test")
     assert world.spr.read_bytes() == OFFICIAL and world.folder()["configured"] == {}
     assert not world.library.would_write("test", "official")
@@ -1574,10 +1576,11 @@ def test_an_unfixed_outside_write_of_the_official_size_is_caught_when_reached(wo
     entry = world.entries()[(world.key(), "test_spr")]
     assert entry.state == "reset"  # judged cheaply: official, changed since written
     result = world.library.toggle(True, True)  # a Retry of the On
-    assert result.skipped and result.skipped[0]["why"] == "changed"  # an On never overwrites it
-    assert world.spr.read_bytes() == header_bundle(b"outside!")
+    assert result.done and not result.failed
+    assert world.spr.read_bytes() == mod.file.read_bytes()
+    assert world.library.selection("test")["spr"]["installed"]
     result = world.toggle(False)
-    assert [item["core"] for item in result.adopted] == ["test_spr"]
+    assert not result.failed
     assert world.spr.read_bytes() == OFFICIAL
     assert any(m.file.read_bytes() == header_bundle(b"outside!") for m in world.library.mods())
 
@@ -1590,7 +1593,8 @@ def test_an_entry_changed_after_the_scan_is_judged_again_when_reached(world):
     assert world.entries()[(world.key(), "test_spr")].state == "ok"
     data = outside_mod(world.spr)  # after the last scan
     result = world.toggle(True)
-    assert result.skipped[0]["why"] == "changed" and world.spr.read_bytes() == data
+    assert result.done and world.spr.read_bytes() == mod.file.read_bytes()
+    assert any(m.file.read_bytes() == data for m in world.library.mods())
 
 
 def test_the_prune_reads_no_game_file_contents(world, monkeypatch):
@@ -1690,13 +1694,15 @@ def lock_game_file(monkeypatch, path: Path) -> None:
     monkeypatch.setattr(service, "verified_move", move_locked)
 
 
-def test_a_failed_apply_releases_the_original_it_kept_with_no_read(world, monkeypatch, original_cloning):
+def test_a_failed_apply_keeps_the_choice_and_available_original(world, monkeypatch, original_cloning):
     mod = world.add(world.spr, fixed=True)
     lock_game_file(monkeypatch, world.spr)
     expect_error("game_file_locked", lambda: world.library.apply("test", f"mod:{mod.id}"))
-    assert not world.original(world.spr).exists()
+    assert world.original(world.spr).exists() == original_cloning
     assert world.spr.read_bytes() == OFFICIAL
-    assert world.library.configured("test")["spr"] is None
+    assert world.library.configured("test")["spr"] == f"mod:{mod.id}"
+    choice = world.library.selection("test")["spr"]
+    assert not choice["installed"] and choice["error"]["code"] == "game_file_locked"
 
 
 def test_a_failed_on_of_a_configured_entry_keeps_its_original(world, monkeypatch, original_cloning):
@@ -2936,3 +2942,101 @@ def test_delete_metadata_write_failure_keeps_the_source_and_configuration(world,
     assert world.folder()["configured"]["test_spr"]["source"] == f"mod:{mod.id}"
     assert world.spr.read_bytes() == before
     assert json.loads((world.root / "state.json").read_text())["mods"][0]["id"] == mod.id
+
+
+def test_selection_status_follows_bytes_and_keeps_choices_across_toggles(world):
+    mod = world.add(world.spr)
+    source = f"mod:{mod.id}"
+    world.toggle(False)
+    before = world.spr.read_bytes(), world.spr.stat().st_mtime_ns
+    result = world.library.apply("test", source)
+    assert result.deferred
+    assert (world.spr.read_bytes(), world.spr.stat().st_mtime_ns) == before
+    assert world.library.selection("test")["spr"] == {"source": source, "installed": False, "error": None}
+    assert not world.toggle(True).failed
+    assert world.library.selection("test")["spr"]["installed"]
+    assert not world.toggle(False).failed
+    assert world.library.configured("test")["spr"] == source
+    assert not world.library.selection("test")["spr"]["installed"]
+    assert world.spr.read_bytes() == OFFICIAL
+
+
+def test_failed_set_retains_the_new_choice_and_error_across_restart(world, monkeypatch):
+    first = world.add(world.spr)
+    world.library.apply("test", f"mod:{first.id}")
+    second = world.add(world.spr, payload=b"new mod!", where="second")
+    def fail(*args, **kwargs):
+        raise ServiceError("game_file_locked", file=world.spr)
+    monkeypatch.setattr(world.library, "_commit", fail)
+    expect_error("game_file_locked", lambda: world.library.apply("test", f"mod:{second.id}"))
+    choice = world.reload().selection("test")["spr"]
+    assert choice["source"] == f"mod:{second.id}" and not choice["installed"]
+    assert choice["error"]["code"] == "game_file_locked"
+    world.library.apply("test", f"mod:{second.id}")
+    assert world.library.selection("test")["spr"] == {"source": f"mod:{second.id}", "installed": True, "error": None}
+
+
+@pytest.mark.parametrize("change", ["restore", "same_stat", "delete", "update"])
+def test_selection_does_not_claim_installed_after_game_file_changes(world, change):
+    mod = world.add(world.spr, payload=b"modified payload with unchanged tail")
+    world.library.apply("test", f"mod:{mod.id}")
+    assert world.library.selection("test")["spr"]["installed"]
+    if change == "restore":
+        world.spr.write_bytes(OFFICIAL)
+    elif change == "same_stat":
+        stat = world.spr.stat()
+        data = bytearray(world.spr.read_bytes())
+        data[-12] ^= 1
+        world.spr.write_bytes(data)
+        os.utime(world.spr, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+    elif change == "delete":
+        world.spr.unlink()
+    else:
+        world.spr.rename(world.spr.with_name(world.spr.name.replace("2026-01-01", "2026-02-01")))
+    choice = world.library.selection("test")["spr"]
+    assert choice["source"] == f"mod:{mod.id}" and not choice["installed"]
+
+
+def test_existing_applied_records_migrate_to_set_and_verified_installed(world):
+    mod = world.add(world.spr)
+    world.library.apply("test", f"mod:{mod.id}")
+    for name in ["profiles.json", "profiles.json.prev"]:
+        (world.root / name).unlink(missing_ok=True)
+    assert world.reload().selection("test")["spr"] == {"source": f"mod:{mod.id}", "installed": True, "error": None}
+
+
+def test_selecting_original_while_off_never_writes_even_after_interrupted_restore(world):
+    mod = world.add(world.spr)
+    world.library.apply("test", f"mod:{mod.id}")
+    world.library.profiles.update(lambda data: data.update(enabled=False))
+    before = world.spr.read_bytes(), world.spr.stat().st_mtime_ns
+    assert world.library.apply("test", "official").deferred
+    assert (world.spr.read_bytes(), world.spr.stat().st_mtime_ns) == before
+    assert world.library.configured("test")["spr"] is None
+
+
+def test_failed_toggle_reports_set_with_error_then_retry_installs(world, monkeypatch):
+    mod = world.add(world.spr)
+    world.toggle(False)
+    world.library.apply("test", f"mod:{mod.id}")
+    switch = world.library._switch
+    def fail(*args, **kwargs):
+        raise ServiceError("game_file_locked", file=world.spr)
+    monkeypatch.setattr(world.library, "_switch", fail)
+    result = world.toggle(True)
+    assert result.failed[0]["code"] == "game_file_locked"
+    choice = world.library.selection("test")["spr"]
+    assert not choice["installed"] and choice["error"]["code"] == "game_file_locked"
+    monkeypatch.setattr(world.library, "_switch", switch)
+    assert not world.library.toggle(True, True).failed
+    assert world.library.selection("test")["spr"] == {"source": f"mod:{mod.id}", "installed": True, "error": None}
+
+
+def test_migration_keeps_the_old_choice_as_set_after_an_external_reset(world):
+    mod = world.add(world.spr)
+    world.library.apply("test", f"mod:{mod.id}")
+    world.spr.write_bytes(OFFICIAL)
+    for name in ["profiles.json", "profiles.json.prev"]:
+        (world.root / name).unlink(missing_ok=True)
+    choice = world.reload().selection("test")["spr"]
+    assert choice == {"source": f"mod:{mod.id}", "installed": False, "error": None}
