@@ -8,7 +8,7 @@ from ba_modding_toolkit.bundle import Bundle
 from ba_modding_toolkit.core import process_mod_update
 from ba_modding_toolkit.models import AssetType, SaveOptions
 
-from tests.test_core.test_update_failures import asset, bundle
+from .test_update_failures import asset, bundle
 
 
 @pytest.mark.parametrize("obsolete_kind", [AssetType.TextAsset, AssetType.Texture2D])
