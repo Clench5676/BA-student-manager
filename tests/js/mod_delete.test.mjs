@@ -61,12 +61,12 @@ test("a completed deletion reports any pending restoration from its single write
   }
 });
 
-test("applying the verified installed source does not start another job", async () => {
+test("applying the manifest's current source does not start another job", async () => {
   const applySource = source.slice(source.indexOf("async function applyCandidate("), source.indexOf("// --- variant chips"));
   const messages = [];
-  const apply = new Function("deps", `const {${["variant", "shownSource", "selectionStatus", "notify", "T", "job"].join(",")}} = deps;
+  const apply = new Function("deps", `const {${["variant", "busy", "isApplied", "notify", "T", "job"].join(",")}} = deps;
     ${applySource}; return applyCandidate;`)({
-    variant: () => ({ key: "test" }), shownSource: () => "m:m1", selectionStatus: () => "status.installed",
+    variant: () => ({ key: "test" }), busy: false, isApplied: (_variant, _kind, key) => key === "m:m1",
     T: (s) => s, notify: (s) => messages.push(s), job: () => assert.fail("must not submit a job"),
   });
   await apply("m:m1", "spr");

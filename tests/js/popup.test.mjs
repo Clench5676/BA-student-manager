@@ -1135,7 +1135,7 @@ test("each mod card exposes a read-only compatibility check for its own mod", as
   }
 });
 
-test("configured switch cards, chips and Status use verified Set or Installed", async () => {
+test("switch cards and details label manifest choices Applied with either switch state", async () => {
   for (const lang of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) {
     const ui = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${lang}.json`, import.meta.url))).webui;
     setStrings(lang, Object.fromEntries(["type", "popup", "switch", "status"].flatMap((group) =>
@@ -1150,11 +1150,12 @@ test("configured switch cards, chips and Status use verified Set or Installed", 
         Detail.setupPreviewTest(fam, kind);
         await Detail.renderPopup();
         const captions = walk(switchHost).map((el) => el.textContent);
-        const caption = enabled ? ui.status.installed : ui.switch.configured;
+        const caption = ui.status.applied;
         assert.equal(captions.filter((c) => c === caption).length, 3,
           `${lang} ${kind} ${source}: card, chip and configured status`);
         if (source.startsWith("mod:")) assert.ok(captions.includes(ui.type.added));
-        assert.ok(!captions.includes(enabled ? ui.switch.configured : ui.status.installed));
+        assert.ok(!captions.includes(ui.switch.configured) && !captions.includes(ui.status.installed));
+        assert.ok(!captions.includes(ui.popup.inUse));
         switchHost.hidden = true;
       }
     }
@@ -1583,6 +1584,7 @@ test("portrait spacing fits four tall cards at the standard width and selects ho
   for (const width of [1300, 1818, 2200]) {
     const { card, columns, pitch, overhang } = switchGrid("spr", width);
     assert.equal(card.h / card.w, 2.2);
+    assert.equal(pitch[0] - card.w, 48, "portrait gaps do not stretch to fill the viewport");
     assert.equal(pitch[1] - card.h - card.bar, 48);
     assert.ok(columns <= 4);
     assert.ok((columns - 1) * pitch[0] + card.w + overhang <= width - 80 + .001);
@@ -1596,7 +1598,7 @@ test("portrait spacing fits four tall cards at the standard width and selects ho
 });
 
 // Measure rendered CSS rectangles independently of switch-layout's calculations. Include each widget's shear.
-test("every kind left-aligns short and full rows by their outer corners with equal paper insets", async () => {
+test("every kind left-aligns outer corners, with compact portrait gaps and balanced vertical grids", async () => {
   const { rect } = await import("../../src/ba_modding_toolkit/web/js/ngui.js");
   const { switchGrid } = await import("../../src/ba_modding_toolkit/web/js/switch-layout.js");
   const outer = (el) => {
@@ -1621,7 +1623,7 @@ test("every kind left-aligns short and full rows by their outer corners with equ
         const right = paper.right - Math.max(...ink.map((b) => b.right)) - dx;
         leftInsets.push(left);
         assert.ok(Math.abs(left - 40 * S) <= 1, `${kind}, ${count} cards, row ${start}: fixed left inset, no centring offset`);
-        if (names.length === columns) assert.ok(Math.abs(left - right) <= 1, `${kind}: equal insets for a full row`);
+        if (kind !== "spr" && names.length === columns) assert.ok(Math.abs(left - right) <= 1, `${kind}: equal insets for a full row`);
         if (kind !== "spr" || count <= columns) assert.ok(right >= left - 1, "short rows leave spare space on the right");
         if (kind === "spr") {
           assert.ok(Math.min(...ink.map((b) => b.top)) >= 0, "the row starts inside the viewport");

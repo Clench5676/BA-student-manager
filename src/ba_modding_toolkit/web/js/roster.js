@@ -248,9 +248,9 @@ function cardTree(e) {
     counts.widgets = [];
     counts.children = countNodes(e.modCounts, countIcons, T);
   } else counts.widgets[0].text = T("band.replaced");
-  // UICollectCard's Sort band also carries the saved choice's verified status.
+  // UICollectCard's extra Sort band only marks a verified installed selection.
   const status = selectionStatus(e, primaryKind(e));
-  if (status) {
+  if (configuredKey(e, primaryKind(e)) && status === "status.applied") {
     sort.active = true;
     const badge = clone(sort); badge.name = "SelectionStatus";
     badge.pos[1] += 96;
@@ -271,7 +271,7 @@ const portraitOf = (e) => {
   if (!spineAllowed()) return e.portrait || null;
   const thumb = thumbnailWork.thumb;
   const kind = primaryKind(e), variants = data.families.find((f) => f.key === e.family)?.variants || [];
-  if (configuredKey(e, kind)) {
+  if (e.previewSources?.[kind] || configuredKey(e, kind)) {
     return thumb(previewBase(e, kind, false, variants), "roster", null, kind === "lobby", specialFraming(e), e.bg);
   }
   return e.portrait || (hasAsset(e) ? thumb(spineBase(kind, kind === "spr" ? e.spr : e.lobby), "roster", null, kind === "lobby", specialFraming(e), e.bg) : null);

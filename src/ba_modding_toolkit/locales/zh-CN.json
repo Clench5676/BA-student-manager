@@ -949,6 +949,7 @@
 			"replaced": "已替换",
 			"gameFile": "游戏文件",
 			"installed": "已安装",
+			"applied": "已应用",
 			"notInstalled": "未安装"
 		},
 		"crc": {

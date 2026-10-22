@@ -450,19 +450,25 @@ function detailsTree(it, title, fields, actions, portraitTexture = null, kind = 
     if (i < fields.length - 1) kids.push(node(`L_${i}`, [cx, y - rowH / 2], [sprite("Common_Line_Dot", w - 100, 4, { type: 2, depth: 7, color: "#c0c9d4/1.00" })]));
     top -= rowH;
   });
-  actions.forEach(([caption], i) => {
+  actions.forEach(([caption, , disabled], i) => {
     const bw = (w - 60) / actions.length, x = b.l + 30 + bw / 2 + i * bw, f = fitText(caption, 40, 26, bw - 60);
-    const body = clone(find(layouts.sortPopup, "Center/Popup/Btn/Btn_Cancel/BG (1)"));
+    let body = clone(find(layouts.sortPopup, "Center/Popup/Btn/Btn_Cancel/BG (1)"));
+    let ink = "#2d5164/1.00";
+    if (disabled) {
+      const grey = Buttons.disable(node("Action", [0, 0], [], [body]));
+      body = clone(find(grey, "BG (1)"));
+      ink = find(grey, "Label_Locale").widgets[0].color;
+    }
     const bg = body.widgets.find((w) => "sprite" in w), k = 120 / bg.h_;
     body.name = "Body";
     body.pos = [0, 0];
     body.scale = [k, k];
     resizeButton(body, (bw - 14) / k);
-    Object.assign(bg, { depth: 6, color: "#dbeef5/1.00" });
+    Object.assign(bg, { depth: 6, ...(!disabled ? { color: "#dbeef5/1.00" } : {}) });
     for (const child of body.children || []) for (const w of child.widgets) if ("w_" in w) w.depth = 7;
     kids.push(node(`Act_${i}`, [x, b.b + 70], [], [
       body,
-      node("Label", [0, 6], [label(f.text, f.fs, "#2d5164/1.00", bw - 40, 60 * f.lines, { depth: 8 })]),
+      node("Label", [0, 6], [label(f.text, f.fs, ink, bw - 40, 60 * f.lines, { depth: 8 })]),
     ]));
   });
   const tree = node("Details", [0, 0], [], kids);
@@ -635,7 +641,11 @@ export async function listPopup(options) {
     const d = details(sel);
     const dv = await NGUI.render(detailsTree(sel, d.title, d.fields, d.actions, portraitTexture, options.layoutKind), next, { scale: S, origin: [960, 540], z: 20 });
     if (sel.nameEdit) hit(next, dv, "Details/EditName", () => sel.nameEdit.fn(scroll()), { name: sel.nameEdit.label, action: "alias:details" });
-    d.actions.forEach(([caption, fn], i) => { if (fn) hit(next, dv, `Details/Act_${i}/Body`, fn, { name: caption }); });
+    d.actions.forEach(([caption, fn, disabled], i) => {
+      if (!fn) return;
+      const button = hit(next, dv, `Details/Act_${i}/Body`, disabled ? () => {} : fn, { name: caption });
+      if (button) button.disabled = !!disabled;
+    });
   }
   if (tokens.get(host) !== my || host.hidden) return;
   const area = inner.parentElement;

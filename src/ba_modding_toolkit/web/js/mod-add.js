@@ -43,7 +43,7 @@ export async function add(paths = null, currentVariant = null) {
   const elsewhere = added.filter((mod) => !from || destination(mod) !== from);
   const addedLines = new Map(resultLines(elsewhere, name).map(({ mod, text }) => [mod, text]));
   const rows = [
-    ...visibleAdded.map((mod) => ({ mod, text: [addedLines.get(mod), installedIds.has(mod.id) ? T("add.installed") : appliedIds.has(mod.id) ? T("status.installed") : configuredIds.has(mod.id) ? T("switch.configured") : null, failures.get(mod.id)]
+    ...visibleAdded.map((mod) => ({ mod, text: [addedLines.get(mod), appliedIds.has(mod.id) || configuredIds.has(mod.id) ? T("status.applied") : installedIds.has(mod.id) ? T("add.installed") : null, failures.get(mod.id)]
       .filter(Boolean).join("\n") })),
     ...duplicates.map((mod) => ({ mod, text: T("add.duplicate", { name: mod.label.trim() })
       + (installedIds.has(mod.id) ? `\n${T("add.installed")}` : "") })),

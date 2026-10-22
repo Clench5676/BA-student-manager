@@ -215,6 +215,19 @@ class UiState:
     def recent(self) -> list[str]:
         return _recent_of(self._current())
 
+    def preview_sources(self, install: str, variant: str) -> dict[str, str]:
+        data = self._current().get("asset_previews", {})
+        folder = data.get(install, {}) if isinstance(data, dict) else {}
+        sources = folder.get(variant, {}) if isinstance(folder, dict) else {}
+        return {kind: source for kind, source in sources.items()
+                if kind in ("spr", "lobby", "model") and isinstance(source, str)} if isinstance(sources, dict) else {}
+
+    def set_preview_source(self, install: str, variant: str, kind: str, source: str) -> None:
+        """Remember a view choice independently of the library's game configuration."""
+        def change(data: dict[str, Any]) -> None:
+            data.setdefault("asset_previews", {}).setdefault(install, {}).setdefault(variant, {})[kind] = source
+        self._update(change)
+
     def visit(self, variant_key: str) -> None:
         def change(data: dict[str, Any]) -> None:
             recent = [v for v in _recent_of(data) if v != variant_key]

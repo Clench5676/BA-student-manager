@@ -40,7 +40,7 @@ import { customAliases as aliasesOf, modOriginalName, studentName } from "./name
 import { setTitle } from "./nav.js";
 import { KEYS, deltaOf, pacer, typing } from "./step-keys.js";
 import { FRAME_Y, closable, frameReady, hit as hitNode, listPopup, message, popupFrame, scrollArea } from "./popup.js";
-import { candidateStatus, detailStatus, selectionStatus, selectionError, availableTab, coreOf, hasAsset, primaryKind, appliedKey as keyOf, appliedOf, candidates as listSources, partsOf, popupMode, modelSource, previewBase, previewChanged, previewKey, sourceOf, switchKindOf } from "./switch-sources.js";
+import { candidateStatus, detailStatus, selectionStatus, selectionError, intendedKey, isApplied, availableTab, coreOf, hasAsset, primaryKind, appliedKey as keyOf, appliedOf, candidates as listSources, partsOf, popupMode, modelSource, previewBase, previewChanged, previewKey, sourceOf, switchKindOf } from "./switch-sources.js";
 import { $, DOT, RECRUIT, S, TAN10, advanceOf, at, clone, glyphsOf, hitButton, markedLabel, off, text, widget, wrapPath } from "./util.js";
 
 const { node, sprite, label, find, rect } = NGUI;
@@ -238,20 +238,16 @@ const TEXTURES = {
   "svg:folder": svg('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><path fill="#2d5164" d="M5 12a3 3 0 0 1 3-3h11l4 5h17a3 3 0 0 1 3 3v19a3 3 0 0 1-3 3H8a3 3 0 0 1-3-3Z"/></svg>'),
 };
 
-// SkillData_EX keeps its normal rings; the add button's complete lock state has no star requirement.
-export function actionState(card, enabled, lockTemplate = null) {
-  if (lockTemplate) {
-    const cover = clone(lockTemplate), body = find(cover, "Bg");
-    const bg = find(card, "Bg"), line = find(bg, "Bg_Line");
-    cover.name = "Lock_Cover";
-    cover.pos = [bg.pos[0] + line.pos[0], bg.pos[1] + line.pos[1]];
-    Object.assign(body.widgets[0], { w_: line.widgets[0].w_, h_: line.widgets[0].h_ });
-    card.children = card.children.filter((child) => child.name !== "Lock_Cover");
-    card.children.push(cover);
-  }
+// Keep the card readable; disabled colours come from FilterSort's disabled button.
+export function actionState(card, enabled, disabledTemplate = null) {
   find(card, "Normal").active = true;
   const lock = find(card, "Lock_Cover");
-  if (lock) lock.active = !enabled;
+  if (lock) lock.active = false;
+  if (!enabled && disabledTemplate) {
+    const color = find(disabledTemplate, "BG (1)")?.widgets.find((w) => "sprite" in w)?.color;
+    const body = find(card, "Bg")?.widgets.find((w) => "sprite" in w);
+    if (body && color) body.color = color;
+  }
   const empty = find(card, "Empty");
   if (empty) empty.active = false;
 }
@@ -302,7 +298,7 @@ function screenTree() {
   const crc = crcState === "fixed" ? ["crc.fixed", "#1f9a52"] : crcState === "needs_fix" ? ["crc.needed", "#d9822b"] : ["crc.original", "#000000"];
   const now = tab === "portrait" ? c.label : sourceLabel(v, kind);
   const stats = [["Label_Life", "info.current", "Data_Widget/Data", now],
-    ["Label_Attact", "info.status", "Data_Widget/Data", T(detailStatus(v, kind))],
+    ["Label_Attact", "info.status", "Data_Widget/Data", detailStatus(v, kind) ? T(detailStatus(v, kind)) : "—"],
     ["Label_Defense", "info.gameFile", "Data", dateOf(v, kind) || "—"], ["Label_Healing", "info.crc", "Data_Widget/Data", T(crc[0]), crc[1]]];
   // the value column starts after the longest caption of its column
   const capW = (keys) => Math.max(...keys.map((k) => advanceOf(T(k), 42))) + 24;
@@ -351,7 +347,7 @@ function screenTree() {
   // slanted midline.
   const isMod = !!sk && c.kind === "mod";
   const actions = [["SkillData_EX", "compatibility.check", "compare", isMod && !busy], ["SkillData_EX (1)", repairAction(c), "update", isMod && !busy],
-    ["SkillData_EX (2)", "act.extract", "extract", !busy], ["SkillData_EX (3)", "act.compare", "diff", isMod && !busy]];
+    ["SkillData_EX (2)", "act.extract", "extract", !busy], ["SkillData_EX (3)", "popup.apply", "apply", !!sk && !busy && !isApplied(v, sk, shownSource(v, sk))]];
   // the row's white section spans x 58..1320 (Bg_W2 at 689, 1262 wide); cards keep the first card's 37-unit margins
   const ROW_L = 58 + 37, ROW_R = 1320 - 37, GAP = 6, CW = (ROW_R - ROW_L - 3 * GAP) / 4;
   actions.forEach(([card], i) => {
@@ -363,13 +359,14 @@ function screenTree() {
   off(t, `${INFO}/Skill/Btn_Up_Wrapper`); // the install button, removed for now
   for (const [card, key, glyph, enabled] of actions) {
     const base = `${INFO}/Skill/${card}`;
-    actionState(at(t, base), enabled, find(t, `${INFO}/Weapon/Btn_Up_Wrapper/Lock`));
+    actionState(at(t, base), enabled, layouts.disabled);
     off(t, `${base}/Normal/Label_SkillType (1)`, `${base}/Normal/Line (1)`);
     const max = find(t, `${base}/Normal/Icon_Max`);
     if (max) max.active = false;
     const bgX = at(t, `${base}/Bg`).pos[0] + 1, midY = 158.3 - 126; // Bg_Line centre: the card's visible body
     const title = fitText(T(key), 40, 28, 170);
-    text(t, `${base}/Normal/Label_SkillType`, title.text, { fontSize: title.fs, color: "#466399/1.00" });
+    const disabledInk = layouts.disabled && find(layouts.disabled, "Label_Locale")?.widgets.find((w) => "text" in w)?.color;
+    text(t, `${base}/Normal/Label_SkillType`, title.text, { fontSize: title.fs, color: !enabled && disabledInk ? disabledInk : "#466399/1.00" });
     at(t, `${base}/Normal/Label_SkillType`).pos = [bgX + 66 * TAN10, midY + 66];
     const icon = at(t, `${base}/Normal/SkillIconBg`);
     icon.pos = [bgX - 30 * TAN10, midY - 30];
@@ -378,8 +375,9 @@ function screenTree() {
     const picture = widget(t, `${base}/Normal/SkillIconBg/Texture`);
     delete picture.texture;
     const [atlas, sprite] = { compare: ["Common", "School_Icon_Schedule"], update: ["Common", "Common_Icon_All_Download"],
-      extract: ["Common", "Common_Icon_Inventory_Equip"], diff: ["Event", "Event_Icon_ClueSearch_857"] }[glyph];
+      extract: ["Common", "Common_Icon_Inventory_Equip"], apply: ["Common", "Common_Icon_All_Download"] }[glyph];
     Object.assign(picture, { cls: "UISprite", sprite, atlas, type: 0, w_: 109, h_: 109, keepAspect: true });
+    if (!enabled && disabledInk) picture.color = disabledInk;
   }
   // row 3: portrait box, the switch card (the game's light weapon card), add portrait. The box's body spans
   // -96..95 around its centre (its slanted right edge ends lower down a few units further left); the title sits at -8.
@@ -566,7 +564,10 @@ function hits(view, leftHost, rightHost) {
   // each button names its part, so the focus finds it again in the next render
   const add = (host, path, fn, name) => {
     const el = view.nodes.get(`Inventory_ListControl/${path}`)?.els[0];
-    if (el) hitButton(host, rect(el), fn, name).dataset.part = path;
+    if (!el) return null;
+    const button = hitButton(host, rect(el), fn, name);
+    button.dataset.part = path;
+    return button;
   };
   // The switch card selects a source for the shown asset kind.
   const sk = switchKind();
@@ -582,7 +583,8 @@ function hits(view, leftHost, rightHost) {
   act("SkillData_EX (1)", () => repairedId(shownMod()) ? jumpRepaired(shownMod()) : runUpdate(),
     T(repairAction(shownMod())));
   act("SkillData_EX (2)", () => runExtract(), T("act.extract"));
-  act("SkillData_EX (3)", () => runCompare(), T("act.compare"));
+  const apply = act("SkillData_EX (3)", () => applyCandidate(shownSource(variant(), sk), sk), T("popup.apply"));
+  if (apply) apply.disabled = !sk || busy || isApplied(variant(), sk, shownSource(variant(), sk));
   add(leftHost, "LeftInfo/CharInfo/Char_Target/Pin/Pin_On/Bg", toggleFav, T("fav.label"));
   add(leftHost, "LeftInfo/CharInfo/Char_Target/Pin/Pin_Off/Bg", toggleFav, T("fav.label"));
   add(leftHost, "LeftInfo/CharInfo/Char_Target/Char_CVCollectionBtn", copyName, baseName(gameFile(variant(), tabKind())));
@@ -763,7 +765,7 @@ async function runCompare() {
 // keeps what it replaces (an official file until it is official again, a mod in the library)
 async function applyCandidate(key, kind = "spr") {
   const v = variant();
-  if (key === shownSource(v, kind) && selectionStatus(v, kind) === "status.installed") return;
+  if (!kind || busy || isApplied(v, kind, key)) return;
   await job("actions.apply", { variant: v.key, source: sourceOf(key), kind }, {
     onDone: (result) => {
       if (result?.files?.length) {
@@ -786,6 +788,19 @@ async function applyCandidate(key, kind = "spr") {
       });
     },
   });
+  if (switchPopupPage === pageToken && !$("popup").hidden) await renderPopup();
+}
+
+async function saveCandidate(key, kind) {
+  const v = variant(), family = fam;
+  await call(() => Loading.hold(async () => {
+    const sources = await rpc("ui.preview", { variant: v.key, kind, source: sourceOf(key) });
+    ctx.invalidateRoster();
+    if (!open || fam !== family || variant() !== v) return;
+    v.previewSources = sources;
+    resetPreview(kind);
+    await changeInPlace(() => Promise.all([renderAll(), renderLeft()]));
+  }, { all: true }));
 }
 
 // --- variant chips in the nameplate's white panel (style of the game's type chips) ---
@@ -1168,12 +1183,12 @@ function disposePortrait() {
 let popupSeg = 0, popupKind = "spr", popupStart = null, switchPopupPage = null;
 let switchThumbnails = null;
 const modsOn = () => modsState()?.enabled !== false;
-const SET_BADGE = () => ({ text: T("switch.configured"), color: "#8de4ff", ink: "#314665" });
+const APPLIED_BADGE = () => ({ text: T("status.applied"), color: "#8de4ff", ink: "#314665" });
 const GREYED_BADGE = () => ({ text: T("mods.overwritten"), color: "#9aa3ad", ink: "#ffffff" });
 function renderPopup(scroll = 0) { return drawPopup(scroll).catch(renderFailed); }
 async function drawPopup(scroll = 0) {
   if (!switchThumbnails || switchPopupPage !== pageToken) return;
-  const v = variant(), kind = popupKind, inUseKey = appliedKey(v, kind);
+  const v = variant(), kind = popupKind, applied = intendedKey(v, kind);
   const mode = popupMode(fam, v, kind, modsOn());
   const items = candidates(v, kind).map((c) => {
     const work = switchThumbnails;
@@ -1188,10 +1203,10 @@ async function drawPopup(scroll = 0) {
         () => switchPopupPage === pageToken && !$("popup").hidden ? renderPopup(s) : null) } : null,
       // The card and info panel consume one still, including its fallback, so they cannot disagree after a retry.
       thumb: picture, big: () => picture.start(),
-      inUse: c.key === inUseKey && (c.key === "self" || selectionStatus(v, kind) === "status.installed"), fav: c.fav, isNew: c.kind === "mod" && c.mod.fresh, src: c,
-      inUseText: mode.set && c.key === mode.set ? T(selectionStatus(v, kind)) : null,
+      inUse: false, fav: c.fav, isNew: c.kind === "mod" && c.mod.fresh && c.key !== applied, src: c,
+      inUseText: c.key === applied ? T("status.applied") : null,
       dim: c.greyed,
-      badge: c.greyed ? GREYED_BADGE() : mode.set && c.key === mode.set ? { ...SET_BADGE(), text: T(selectionStatus(v, kind)) } : null,
+      badge: c.greyed ? GREYED_BADGE() : c.key === applied ? APPLIED_BADGE() : null,
       tag: c.mod?.repaired_from ? { text: T("remap.repaired"), color: "#d7eaf4", ink: "#2d4664" } : null,
     };
   })
@@ -1203,11 +1218,6 @@ async function drawPopup(scroll = 0) {
     onSelect: (key, s) => {
       const c = candidates(v, kind).find((x) => x.key === key);
       if (c?.kind === "mod") markSeen([c.mod], s);
-      if (c?.greyed) {
-        // never the choice: the entry whose files are overwritten says what can be done
-        overwrittenMessage(c.kind === "variant" ? c.variant : v, kind).then((added) => (added ? reload().then(() => renderPopup(s)) : null));
-        return;
-      }
       pending = key;
       renderPopup(s);
     },
@@ -1217,15 +1227,16 @@ async function drawPopup(scroll = 0) {
       const file = c.kind === "mod" ? c.mod.file : gameFile(c.variant, kind);
       const size = c.kind === "mod" ? c.mod.size : partsOf(c.variant, kind).reduce((n, f) => n + (f.size || 0), 0);
       const status = candidateStatus(v, kind, c.key);
-      const statusColor = ["status.installed", "switch.configured"].includes(status) ? "#1f9a52/1.00" : status === "status.notInstalled" ? "#d9822b/1.00" : null;
+      const statusColor = status ? "#1f9a52/1.00" : null;
       const error = c.key === mode.set ? selectionError(v, kind) : null;
       const crcState = c.key === appliedKey(v, kind) ? crcOf(v, kind) : null;
       const crc = crcState === "fixed" ? ["crc.fixed", "#1f9a52"] : crcState === "needs_fix" ? ["crc.needed", "#d9822b"] : crcState === "ok" ? ["crc.original", ""] : null;
       return {
         title: T(isSpecial(v) ? "special.background" : kind === "spr" ? "info.title.portrait" : `info.title.${kind}`),
-        fields: [[T("field.file"), baseName(file)], [T("field.size"), sizeText(size)], [T("field.status"), [T(status), error && T(`error.${error.code}`, error.params)].filter(Boolean).join("\n"), statusColor],
+        fields: [[T("field.file"), baseName(file)], [T("field.size"), sizeText(size)], [T("field.status"), [status && T(status), error && T(`error.${error.code}`, error.params)].filter(Boolean).join("\n") || "—", statusColor],
           [T("field.crc"), crc ? T(crc[0]) : "—", crc?.[1] && `${crc[1]}/1.00`]],
-        actions: [[T(platform === "mac" ? "open.mac" : "open.win"), () => reveal(file)],
+        actions: [[T("popup.apply"), () => applyCandidate(c.key, kind), isApplied(v, kind, c.key) || !!c.greyed || busy],
+          [T(platform === "mac" ? "open.mac" : "open.win"), () => reveal(file)],
           ...(c.kind === "mod" ? [[T("compatibility.check"), async () => {
             let rebuilt = false;
             await call(() => Compatibility.check(c.id, c.label, () => { rebuilt = true; return remapped(); }, c.mod, modProgressName(c)));
@@ -1285,7 +1296,7 @@ function closePopup(apply) {
   $("popup").innerHTML = "";
   const chosen = candidates(variant(), popupKind).find((c) => c.key === pending);
   // only a choice other than the start (what the game shows; while mods are off, the configured source)
-  if (apply && chosen && !chosen.greyed && (pending !== popupStart || modsOn() && selectionStatus(variant(), popupKind) === "switch.configured")) applyCandidate(pending, popupKind);
+  if (apply && chosen) return saveCandidate(pending, popupKind);
 }
 
 // The confirmation is read again when opened, so configurations in other installs are included.
@@ -1322,7 +1333,7 @@ async function openPicker(scroll = 0) {
   const items = fam.variants.filter(hasAsset).sort(byRank).map((o) => ({
     key: o.key, kind: o.recruitable ? "playable" : "other", recruit: o.recruitable, label: shortName(o), full: fullName(o),
     thumb: thumb(variantBase(o, primaryKind(o)), "card", null, !o.spr, specialFraming(o), o.bg), big: () => thumb(variantBase(o, primaryKind(o)), "bust", null, !o.spr, specialFraming(o), o.bg),
-    inUse: o.key === variantKey, fav: isFav(o), isNew: hasFresh(o), src: o,
+    inUse: false, fav: isFav(o), isNew: hasFresh(o), src: o,
   })).filter((it) => pickerSeg === 0 || (pickerSeg === 1) === it.recruit);
   await listPopup({
     hostId: "picker", title: T("picker.title"), okText: T("picker.ok"), items, selected: pickerSel, keepScroll: scroll,
@@ -1936,8 +1947,10 @@ async function reloadChanged() {
 async function ensureLayouts() {
   if (layouts) return;
   const detail = await withTimeout(NGUI.layout("UICharacterDetail"), HARD_CAP, "Detail layout");
+  const filter = await withTimeout(NGUI.layout("UIPopup_FilterSort"), HARD_CAP, "Disabled button layout");
   await NGUI.init().catch(renderFailed);
-  layouts = { list: find(detail, "Inventory_ListControl"), textures: NGUI.textureIndex(), visual: null };
+  layouts = { list: find(detail, "Inventory_ListControl"), textures: NGUI.textureIndex(), visual: null,
+    disabled: find(filter, "Center/Popup/Btn_Section/Btn_Disable") };
 }
 
 // the voice volume and mute (development runs started with --mute stay silent), the zoom-out limit and the

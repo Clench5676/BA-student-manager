@@ -150,6 +150,35 @@ def events_named(events, name):
     return [data for event, data in events if event == name]
 
 
+@pytest.mark.parametrize("enabled", [False, True])
+def test_preview_save_is_persistent_and_independent_of_game_intent(env, enabled):
+    mod = env.add(env.spr)
+    if not enabled:
+        env.s.library.toggle(False, True)
+    before = env.spr.read_bytes()
+    intent = env.s.library.configured("test")
+    source = f"mod:{mod.id}"
+    result = rpc(env.app, "ui.preview", variant="test", kind="spr", source=source)
+    assert result["result"] == {"spr": source}
+    assert env.spr.read_bytes() == before
+    assert env.s.library.configured("test") == intent
+    state = UiState(env.data / "webui.json")
+    pin = env.s.library.current_pin()
+    assert state.preview_sources(pin.key, "test") == {"spr": source}
+    assert state.preview_sources("another-install", "test") == {}
+    assert rpc(env.app, "ui.preview", variant="test", kind="spr", source="official")["result"] == {"spr": "official"}
+    assert env.s.library.configured("test") == intent
+    assert env.spr.read_bytes() == before
+
+
+def test_preview_save_refuses_foreign_missing_or_wrong_kind_sources(env):
+    for kind, source in [("spr", "mod:missing"), ("spr", "variant:other"), ("model", "official"),
+                         ("other", "official"), ("spr", "path:/outside")]:
+        result = rpc(env.app, "ui.preview", variant="test", kind=kind, source=source)
+        assert "error" in result
+    assert env.s.state.preview_sources(env.s.library.current_pin().key, "test") == {}
+
+
 # --- mods.state ---
 
 STATE_KEYS = {"installs", "current", "enabled", "available", "reason", "scan", "explained", "configured",

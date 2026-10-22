@@ -95,27 +95,32 @@ export function configuredKey(v, kind = "spr") {
 
 // Manager previews always show the saved source. The file table and write guards
 // still use appliedOf/appliedKey: those describe the bytes in the game folder.
-export const previewKey = (v, kind = "spr", enabled = true) => configuredKey(v, kind)
-  || (v?.configured || !enabled ? "self" : appliedKey(v, kind));
+export const previewKey = (v, kind = "spr", enabled = true) => {
+  const source = v?.previewSources?.[kind];
+  if (source === "official") return "self";
+  if (source?.startsWith("mod:")) return `m:${source.slice(4)}`;
+  if (source?.startsWith("variant:")) return `v:${source.slice(8)}`;
+  return configuredKey(v, kind) || (v?.configured || !enabled ? "self" : appliedKey(v, kind));
+};
+
+// The manifest describes what the game should use, including while Mods are off.
+export const intendedKey = (v, kind = "spr") => configuredKey(v, kind) || "self";
+export const isApplied = (v, kind, key = previewKey(v, kind)) => key === intendedKey(v, kind);
 
 // A switch being On is intent, never evidence that the chosen source reached the game.
 export function selectionStatus(v, kind = "spr") {
-  const choice = v?.selection?.[kind];
-  return configuredKey(v, kind) ? (choice?.source === v.configured[kind] && choice?.installed === true ? "status.installed" : "switch.configured") : null;
+  return isApplied(v, kind) ? "status.applied" : null;
 }
 export function candidateStatus(v, kind, key) {
-  if (key === configuredKey(v, kind)) return selectionStatus(v, kind);
-  return key.startsWith("m:") ? "status.notInstalled" : "status.gameFile";
+  return isApplied(v, kind, key) ? "status.applied" : null;
 }
-export const detailStatus = (v, kind) => selectionStatus(v, kind)
-  || (appliedOf(v, kind) === "official" ? "status.original" : "status.replaced");
+export const detailStatus = selectionStatus;
 export const selectionError = (v, kind) => v?.selection?.[kind]?.error || null;
-export const importStatus = (item) => item?.applied ? "status.installed"
-  : item?.configured ? "switch.configured" : "import.notApplied";
+export const importStatus = (item) => item?.applied || item?.configured ? "status.applied" : "import.notApplied";
 export const previewChanged = (before, after, kind, beforeEnabled, enabled) => !before || !after || beforeEnabled !== enabled
   || previewKey(before, kind, beforeEnabled) !== previewKey(after, kind, enabled);
 export function modelSource(v, enabled = true) {
-  if (enabled && !v?.configured) return "live";
+  if (enabled && !v?.configured && !v?.previewSources?.model) return "live";
   const key = previewKey(v, "model", enabled);
   return key.startsWith("m:") ? `mod:${key.slice(2)}` : key === "self" ? "official" : "live";
 }
@@ -123,7 +128,7 @@ export const modelUrl = (key, source = "live") => `/asset/model/${encodeURICompo
 
 export function previewBase(v, kind = "spr", enabled = true, variants = []) {
   if (kind === "model") return modelUrl(v.key, modelSource(v, enabled));
-  if (enabled && !v?.configured) return spineBase(kind, coreOf(v, kind));
+  if (enabled && !v?.configured && !v?.previewSources?.[kind]) return spineBase(kind, coreOf(v, kind));
   const key = previewKey(v, kind, enabled);
   if (key.startsWith("m:")) return spineBase("mod", key.slice(2));
   const source = key.startsWith("v:") ? variants.find((o) => o.key === key.slice(2)) : v;
@@ -136,6 +141,5 @@ export function popupMode(fam, v, kind = "spr", enabled = true) {
   const listed = candidates(fam, v, kind);
   const want = previewKey(v, kind, enabled);
   const start = listed.some((c) => c.key === want) ? want : "self";
-  if (!set && listed.find((c) => c.key === start)?.greyed) return { start: appliedKey(v, kind), button: enabled ? "popup.apply" : "popup.save", set };
-  return { start, button: enabled ? "popup.apply" : "popup.save", set };
+  return { start, button: "popup.save", set };
 }

@@ -18,6 +18,7 @@ async function apply(result, kind, { changedConfiguration = false } = {}) {
   if (changedConfiguration) next.configured[kind] = "mod:new";
   const enabled = !result.deferred;
   const ctx = {
+    busy: false, isApplied: () => false, switchPopupPage: null, pageToken: 1,
     coreOf, variant: () => ctx.fam.variants[0], sourceOf: (key) => key, ctx: { invalidateRoster: () => calls.push("roster") },
     forget: () => calls.push("forget"), spinePrefix: (kind, core) => `${kind}/${core}`,
     call: (fn) => fn(), readFamily: async () => ({ key: "family", variants: [next] }),

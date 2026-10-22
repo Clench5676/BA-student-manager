@@ -12,6 +12,9 @@ class El {
   constructor(tag = "div") {
     Object.assign(this, { tagName: tag.toUpperCase(), children: [], parentNode: null, style: { setProperty(k, v) { this[k] = v; } },
       dataset: {}, attrs: {}, listeners: {}, className: "", hidden: false, textContent: "", id: "", width: 8, height: 8 });
+    // Match the DOM's non-enumerable parent link so failed assertions cannot
+    // recursively print the complete page through every sibling's parent.
+    Object.defineProperty(this, "parentNode", { value: null, writable: true, enumerable: false });
     this.classList = {
       contains: (c) => this.className.split(" ").includes(c),
       replace: (a, b) => { this.classList.remove(a); this.classList.add(b); },
@@ -237,6 +240,21 @@ globalThis.fetch = async (url, opts = {}) => {
     if (method === "mods.seen") return reply(await seenReply(request.params));
     if (method === "mods.rename") return reply(await renameReply(request.params));
     if (method === "aliases.set") return reply({ result: request.params.aliases.map((s) => s.trim()).filter(Boolean) });
+    if (method === "ui.preview") {
+      const { variant, kind, source } = request.params;
+      const v = family.variants.find((v) => v.key === variant);
+      (v.previewSources ||= {})[kind] = source;
+      return reply({ result: { ...v.previewSources } });
+    }
+    if (method === "actions.apply") {
+      const { variant, kind, source } = request.params;
+      const v = family.variants.find((v) => v.key === variant);
+      (v.configured ||= {})[kind] = source === "official" ? null : source;
+      if (modsEnabled) for (const file of v.state.files.filter((f) => f.kind === kind)) file.applied = source;
+      return reply({ result: "apply-test" });
+    }
+    if (method === "jobs.get" && request.params.id === "apply-test")
+      return reply({ result: { state: "done", result: { deferred: !modsEnabled, files: [] } } });
     return reply({ result: method === "family.get" ? family : method === "mods.state" ? { enabled: modsEnabled } : null });
   }
   assetRequests.push(url);
@@ -317,7 +335,7 @@ register(`data:text/javascript,${encodeURIComponent(`export async function resol
 await import(modelStub);
 const Detail = await import("../../src/ba_modding_toolkit/web/js/detail.js");
 
-test("action cards select the complete lock cover without recolouring the normal donor", () => {
+test("disabled action cards never enable the dark lock cover", () => {
   const card = node("SkillData_EX"), normal = node("Normal"), cover = node("Lock_Cover"), empty = node("Empty");
   const icon = node("SkillIconBg"); icon.widgets[0].color = "#bb3421/1.00";
   normal.children.push(icon); cover.children.push(node("Bg"), node("Icon"), node("Icon_Star"), node("Label_StarNum"));
@@ -325,26 +343,21 @@ test("action cards select the complete lock cover without recolouring the normal
   const original = structuredClone(cover.children);
   for (const enabled of [false, true, false]) {
     Detail.actionState(card, enabled);
-    assert.equal(normal.active, true); assert.equal(cover.active, !enabled); assert.equal(empty.active, false);
+    assert.equal(normal.active, true); assert.equal(cover.active, false); assert.equal(empty.active, false);
     assert.equal(icon.widgets[0].color, "#bb3421/1.00");
     assert.deepEqual(cover.children, original);
   }
 });
 
 
-test("unavailable actions use the complete add-button lock without a skill star requirement", () => {
-  const card = node("SkillData_EX"), normal = node("Normal"), bg = node("Bg"), line = node("Bg_Line");
-  bg.pos = [14, 158]; line.pos = [1, -126]; line.widgets[0].w_ = 280; line.widgets[0].h_ = 251;
-  bg.children.push(line); card.children.push(bg, normal, node("Lock_Cover"));
-  const template = node("Lock"), body = node("Bg"), lock = node("Lock"), fx = node("FX");
-  body.widgets[0].color = "#000000/0.94"; fx.active = false; template.children.push(body, lock, fx);
+test("disabled actions use the game's grey button body without changing its donor", () => {
+  const card = node("SkillData_EX"), normal = node("Normal"), bg = node("Bg");
+  card.children.push(bg, normal, node("Lock_Cover"));
+  const template = walk(controlLayouts.filter).find((node) => node.name === "Btn_Disable");
   const before = structuredClone(template);
   Detail.actionState(card, false, template);
-  const cover = card.children.find((child) => child.name === "Lock_Cover");
-  assert.equal(cover.active, true); assert.deepEqual(cover.pos, [15, 32]);
-  assert.deepEqual(cover.children.map((child) => child.name), ["Bg", "Lock", "FX"]);
-  assert.equal(cover.children[0].widgets[0].color, "#000000/0.94");
-  assert.equal(cover.children[0].widgets[0].w_, 280); assert.equal(cover.children[0].widgets[0].h_, 251);
+  assert.equal(card.children.find((child) => child.name === "Lock_Cover").active, false);
+  assert.equal(bg.widgets[0].color, template.children.find((node) => node.name === "BG (1)").widgets[0].color);
   assert.deepEqual(template, before);
 });
 const NGUI = await import("../../src/ba_modding_toolkit/web/js/ngui.js");
@@ -998,7 +1011,7 @@ test("repaired names and own aliases keep a separate repair tag in every locale"
         assert.equal(part("Details/Name").getAttribute("aria-label"), name);
         assert.equal(walk(part("Details/Chip_0/Text/Text")).map((el) => el.textContent).join(""), ui.webui.remap.repaired);
         assert.equal((part("Card_m:fixed/Tag/Text").textContent || part("Card_m:fixed/Tag/Text").children[0].textContent), ui.webui.remap.repaired);
-        assert.equal((part("Card_m:fixed/Using/Text").textContent || part("Card_m:fixed/Using/Text").children[0].textContent), enabled ? ui.webui.status.installed : ui.webui.switch.configured);
+        assert.equal((part("Card_m:fixed/Using/Text").textContent || part("Card_m:fixed/Using/Text").children[0].textContent), ui.webui.status.applied);
         assert.ok(walk(hosts.popup).some((el) => el.dataset.action === "alias:m:fixed"));
         assert.equal(walk(hosts.popup).filter((el) => el.getAttribute("aria-label") === ui.webui.act.update).length, 1);
         await closeSwitch();
@@ -1395,7 +1408,7 @@ test("switch subtitles retain the selected name and use a plain separator in all
         await showPortrait(t);
         const text = walk(hosts.ngui).find((e) => e.className === "switch-text");
         const subtitle = text.children.find((e) => e.tagName === "SPAN").innerText.replace(/\n/g, "");
-        assert.equal(subtitle, `hina_spr - ${installed ? ui.webui.status.installed : ui.webui.switch.configured}`);
+        assert.equal(subtitle, `hina_spr - ${ui.webui.status.applied}`);
         assert.ok(!/[·•・]/u.test(subtitle));
         Detail.hide();
       }
@@ -1505,4 +1518,42 @@ test("a timed-out switch candidate logs its source and updates both card and pan
     assert.equal(element(paths[0]).children[0].style.backgroundImage, element(paths[1]).children[0].style.backgroundImage);
     await closeSwitch();
   } finally { Detail.hide(); thumbMode = "pending"; await flush(); t.mock.timers.reset(); }
+});
+
+for (const enabled of [false, true]) test(`Save changes only the preview and both Apply buttons follow intent with Mods ${enabled ? "on" : "off"}`, async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    thumbMode = playerMode = imageMode = decodeMode = "ready";
+    family = modFamily();
+    const v = family.variants[0]; v.configured = {}; v.previewSources = { spr: "official" };
+    modsEnabled = enabled; await ModSwitch.refresh();
+    await showPortrait(t);
+    const before = structuredClone(v.state.files), start = rpcRequests.length;
+    await switchButton().click(); await flush();
+    await walk(hosts.popup).find((e) => e.dataset.key === "m:test").click(); await flush();
+    const save = walk(hosts.popup).find((e) => e.dataset.action === "ok");
+    assert.equal(save.getAttribute("aria-label"), "Save");
+    await finish(t, save.click());
+    assert.deepEqual(v.previewSources, { spr: "mod:test" });
+    assert.deepEqual(v.configured, {});
+    assert.deepEqual(v.state.files, before);
+    assert.equal(rpcRequests.slice(start).filter((r) => r.method === "actions.apply").length, 0);
+    const detailApply = () => walk(hosts.ngui).find((e) => e.dataset.part?.endsWith("SkillData_EX (3)/Bg"));
+    assert.equal(detailApply().getAttribute("aria-label"), "Apply");
+    assert.equal(detailApply().disabled, false);
+    await finish(t, detailApply().click());
+    assert.equal(v.configured.spr, "mod:test");
+    if (!enabled) assert.deepEqual(v.state.files, before);
+    assert.equal(detailApply().disabled, true);
+    await switchButton().click(); await flush();
+    const popupApply = () => walk(hosts.popup).find((e) => e.tagName === "BUTTON" && e.getAttribute("aria-label") === "Apply");
+    assert.equal(popupApply().disabled, true);
+    await walk(hosts.popup).find((e) => e.dataset.key === "self").click(); await flush();
+    assert.equal(popupApply().disabled, false);
+    await finish(t, popupApply().click());
+    assert.equal(v.configured.spr, null);
+    assert.equal(v.previewSources.spr, "mod:test", "Apply does not overwrite the saved preview");
+    assert.equal(popupApply().disabled, true);
+    assert.equal(detailApply().disabled, false);
+  } finally { Detail.hide(); modsEnabled = true; await ModSwitch.refresh(); await flush(); t.mock.timers.reset(); }
 });

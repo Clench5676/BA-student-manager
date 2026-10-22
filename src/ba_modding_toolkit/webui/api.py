@@ -437,6 +437,7 @@ def build_api(s: Services) -> RpcRegistry:
             "modCounts": {kind: len({getattr(m, "repaired_from", "") or m.id for m in own if m.kind == kind})
                           for kind in ("spr", "lobby")},
             "configured": configured_of(v.key),
+            "previewSources": preview_sources_of(v.key),
             "selection": selection_of(v.key),
             # when the newest of its own mods was added (ISO), for the roster's "recently added" sort
             "added": max((m.added for m in own if getattr(m, "added", None)), default=None),
@@ -501,6 +502,39 @@ def build_api(s: Services) -> RpcRegistry:
             return s.library.selection(key)
         except ServiceError:
             return {}
+
+    def preview_source_valid(variant: str, kind: str, source: str) -> bool:
+        v = s.catalog.variant(variant)
+        core = getattr(v, kind, None)
+        if not core:
+            return False
+        if source == "official":
+            return True
+        if source.startswith("mod:"):
+            mod = next((m for m in s.library.mods() if m.id == source[4:] and m.kind == kind), None)
+            if mod is None:
+                return False
+            other = s.catalog.variant(mod.target)
+        elif source.startswith("variant:") and kind == "spr":
+            other = s.catalog.variant(source[8:])
+        else:
+            return False
+        return other.family == v.family and bool(getattr(other, kind, None)) and (
+            kind == "spr" or getattr(other, kind, None) == core)
+
+    def preview_sources_of(key: str) -> dict:
+        pin = getattr(s.library, "current_pin", lambda: None)()
+        if pin is None:
+            return {}
+        sources = s.state.preview_sources(pin.key, key)
+        valid = {}
+        for kind, source in sources.items():
+            try:
+                if preview_source_valid(key, kind, source):
+                    valid[kind] = source
+            except (ServiceError, KeyError):
+                pass
+        return valid
 
     @rpc.method("family.get")
     @s.timings.measure("detail.data")
@@ -603,6 +637,18 @@ def build_api(s: Services) -> RpcRegistry:
     @rpc.method("ui.visit")
     def ui_visit(variant: str) -> None:
         s.state.visit(variant)
+
+    @rpc.method("ui.preview")
+    def ui_preview(variant: str, kind: str, source: str) -> dict:
+        if not all(isinstance(value, str) for value in (variant, kind, source)) or kind not in ("spr", "lobby", "model"):
+            raise ServiceError("bad_params", key="source")
+        if not preview_source_valid(variant, kind, source):
+            raise ServiceError("bad_params", key="source")
+        pin = s.library.current_pin()
+        if pin is None:
+            raise ServiceError("game_not_found")
+        s.state.set_preview_source(pin.key, variant, kind, source)
+        return s.state.preview_sources(pin.key, variant)
 
     # --- batch import ---
 

@@ -43,7 +43,7 @@ export async function remove(mod, changed) {
 
 export function rows(mods, valueRow, changed) {
   return mods.map((mod, i) => valueRow(`Other_${i}`, 0, mod.label,
-    [T(mod.state === "active" ? "status.installed" : mod.state === "set" ? "switch.configured" : `settings.mods.otherState.${mod.state}`), ...mod.files].join(" - "), [
+    [T(["active", "set"].includes(mod.state) ? "status.applied" : `settings.mods.otherState.${mod.state}`), ...mod.files].join(" - "), [
       [T("settings.mods.useMod"), () => select(mod, changed, true), mod.state !== "missing" && (!mod.selected || mod.state === "changed")],
       [T("settings.mods.official"), () => select(mod, changed, false), mod.state !== "missing"],
       [T("btn.delete"), () => remove(mod, changed)],

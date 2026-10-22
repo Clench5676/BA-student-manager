@@ -146,9 +146,9 @@ test("candidates carry restorable; on an overwritten kind every card but the one
   fam.variants[0].state.files = [part("spr", "mod:p1", { official: false, copy: null, restorable: false })];
   const list = candidates(fam, fam.variants[0], "spr");
   assert.deepEqual(list.filter((c) => !c.greyed).map((c) => c.key), ["m:p1"]);
-  // the popup never starts on a greyed card: on the one in use
+  // Preview selection is independent of whether the asset can currently be applied.
   assert.equal(popupMode(fam, fam.variants[0], "spr", true).start, "m:p1");
-  assert.equal(popupMode(fam, fam.variants[0], "spr", false).start, "m:p1");
+  assert.equal(popupMode(fam, fam.variants[0], "spr", false).start, "self");
   // the lobby is not overwritten: its cards are not greyed
   assert.ok(candidates(fam, fam.variants[0], "lobby").every((c) => !c.greyed));
 });
@@ -178,12 +178,12 @@ test("a lobby popup lists only the lobby mods of its own core", () => {
   assert.deepEqual(keys, ["self", "m:l1", "m:own"], "a mod without core is matched by its target, an alternate core's is not offered");
 });
 
-test("while mods are off: Save, starting on the configured card, chipped Set", () => {
+test("asset selection always saves the preview independently of the Mods switch", () => {
   const fam = family();
   const v = fam.variants[0];
   // mods on: Apply, from what the game shows
-  assert.deepEqual(popupMode(fam, v, "spr", true), { start: "self", button: "popup.apply", set: null });
-  assert.deepEqual(popupMode(fam, v, "lobby", true), { start: "m:l1", button: "popup.apply", set: null });
+  assert.deepEqual(popupMode(fam, v, "spr", true), { start: "self", button: "popup.save", set: null });
+  assert.deepEqual(popupMode(fam, v, "lobby", true), { start: "m:l1", button: "popup.save", set: null });
   // off, with a configured mod: the files are official, the popup starts on the configured card and saves
   v.configured = { spr: "mod:p1", lobby: "variant:hoshino_swimsuit" };
   v.state.files = [part("spr", "official"), part("lobby", "official")];
@@ -289,7 +289,7 @@ test("model sources stay within the variant and use the shared configured/applie
   assert.equal(modelSource(v, false), "official");
 });
 
-test("every manager status uses the saved source and verified install verdict, including pending failures", async () => {
+test("Applied follows game intent independently of physical writes and preview selection", async () => {
   const { selectionStatus, candidateStatus, detailStatus, selectionError, importStatus } = await import("../../src/ba_modding_toolkit/web/js/switch-sources.js");
   for (const kind of ["spr", "lobby", "model"]) {
     const v = { key: "a", spr: "a_spr", lobby: "a_home", model: "a", configured: { [kind]: "mod:chosen" },
@@ -297,17 +297,35 @@ test("every manager status uses the saved source and verified install verdict, i
     for (const installed of [false, true]) {
       const error = installed ? null : { code: "game_file_locked", params: { file: "bundle" } };
       v.selection[kind] = { source: "mod:chosen", installed, error };
-      const expected = installed ? "status.installed" : "switch.configured";
+      const expected = "status.applied";
       assert.equal(selectionStatus(v, kind), expected, "roster and switch card");
       assert.equal(detailStatus(v, kind), expected, "detail Info");
       assert.equal(candidateStatus(v, kind, "m:chosen"), expected, "popup Status and chip");
-      assert.equal(candidateStatus(v, kind, "m:old"), "status.notInstalled");
-      assert.equal(candidateStatus(v, kind, "self"), "status.gameFile");
+      assert.equal(candidateStatus(v, kind, "m:old"), null);
+      assert.equal(candidateStatus(v, kind, "self"), null);
       assert.deepEqual(selectionError(v, kind), error);
       assert.equal(importStatus({ applied: installed, configured: true }), expected, "import note");
       for (const enabled of [false, true]) assert.equal(previewKey(v, kind, enabled), "m:chosen");
     }
     v.selection[kind].source = "mod:old";
-    assert.equal(selectionStatus(v, kind), "switch.configured", "a stale verdict for another source cannot claim installation");
+    assert.equal(selectionStatus(v, kind), "status.applied", "physical installation verdicts do not change game intent");
+  }
+});
+
+test("saved previews and game intent remain independent for every asset kind", async () => {
+  const { intendedKey, isApplied, selectionStatus } = await import("../../src/ba_modding_toolkit/web/js/switch-sources.js");
+  for (const kind of ["spr", "lobby", "model"]) {
+    const v = { key: "a", configured: { [kind]: "mod:game" }, previewSources: { [kind]: "mod:preview" } };
+    for (const enabled of [false, true]) {
+      assert.equal(previewKey(v, kind, enabled), "m:preview");
+      assert.equal(intendedKey(v, kind), "m:game");
+      assert.equal(selectionStatus(v, kind), null);
+      assert.equal(isApplied(v, kind, "m:game"), true);
+      assert.equal(isApplied(v, kind, "m:preview"), false);
+    }
+    v.previewSources[kind] = "official";
+    assert.equal(previewKey(v, kind), "self", "explicit original preview does not fall back to an applied Mod");
+    v.configured[kind] = null;
+    assert.equal(selectionStatus(v, kind), "status.applied");
   }
 });

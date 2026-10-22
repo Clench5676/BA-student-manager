@@ -5,13 +5,14 @@ const lean = Math.tan(10 * Math.PI / 180);
 export function switchGrid(kind, width = GRID_WIDTH) {
   if (!kind) return { card: { w: 250, h: 226, bar: 68 }, columns: 6, pitch: [284, 350], overhang: 304 * lean };
   const card = kind === "spr" ? { w: 320, h: 704, bar: 104 }
-    : kind === "lobby" ? { w: 750, h: 422, bar: 104 }
+    : kind === "lobby" ? { w: 790, h: 444.375, bar: 104 }
     : kind === "model" ? { w: 360, h: 360, bar: 104 }
     : { w: 250, h: 226, bar: 68 };
   const overhang = (card.h + card.bar + 10) * lean;
   const max = kind === "lobby" ? 2 : kind === "spr" || kind === "model" ? 4 : 6;
   const columns = Math.max(1, Math.min(max, Math.floor((width - 2 * INSET - overhang + 48) / (card.w + 48))));
-  const pitch = [(width - 2 * INSET - card.w - overhang) / Math.max(1, columns - 1), card.h + card.bar + ROW_GAP];
+  const pitch = [kind === "spr" ? card.w + 48
+    : (width - 2 * INSET - card.w - overhang) / Math.max(1, columns - 1), card.h + card.bar + ROW_GAP];
   return { card, columns, pitch, overhang, horizontal: kind === "spr", leftAligned: true };
 }
 
@@ -44,8 +45,8 @@ export function placeSwitchCards(trees, { columns, pitch, horizontal, leftAligne
   for (let start = 0; start < trees.length; start += size) {
     const row = boxes.slice(start, start + size);
     // A full row sets the spacing; short rows retain its left inset and column positions.
-    // Portraits continue that spacing along one horizontal strip, including past the paper.
-    if (leftAligned && row.length >= columns && columns > 1) {
+    // Portraits retain a compact fixed gap as one strip, including past the paper.
+    if (leftAligned && !horizontal && row.length >= columns && columns > 1) {
       pitch[0] = (paper.right - paper.left - 2 * INSET + row[0].left - row[columns - 1].right) / (columns - 1);
     }
     const left = Math.min(...row.map((b, i) => b.left + i * pitch[0]));
