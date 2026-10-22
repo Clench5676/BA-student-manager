@@ -6,7 +6,9 @@
   const began = Date.now(), pending = new Set(), timings = {}, seen = new Map(), sent = [];
   let phase = "modules", finished = false, failed = false, panel = null, status = null, reporting = null, presenter = null;
   let webgl = { supported: null, renderer: null, disabled: !!config.safeMode };
+  let importList = () => null;
   const context = () => ({ page: location.hash || "#/roster", phase, timings,
+    language: document.documentElement?.lang || config.language, batchImport: importList(),
     userAgent: navigator.userAgent, screen: { width: screen.width, height: screen.height, scale: devicePixelRatio }, webgl });
   async function rpc(method, params = {}) {
     const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 15000);
@@ -136,6 +138,7 @@
   }
   progress();
   window.BAMTRecovery = {
+    importList(read) { importList = read; },
     report, forward, fail, context, presentReport(fn) { presenter = fn; }, isBooting: () => !finished, failed: () => failed,
     begin(name) { if (finished) return; pending.add(name); if (name !== "boot") phase = name; progress(); },
     end(name, elapsed) {

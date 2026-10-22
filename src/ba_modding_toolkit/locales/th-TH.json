@@ -1224,7 +1224,12 @@
 			"target_unknown": "ไม่ทราบแพลตฟอร์มเกม",
 			"conversion_names": "ไม่พบชื่อไฟล์ที่ตรงกัน",
 			"no_matching_assets": "ไม่พบทรัพยากรที่ตรงกัน",
-			"conversion_failed": "แปลงไม่สำเร็จ"
+			"conversion_failed": "แปลงไม่สำเร็จ",
+			"conflict": "เป้าหมายขัดแย้งกัน",
+			"spine_version": "เวอร์ชัน Spine ไม่เข้ากัน",
+			"mod_unity_version_mismatch": "เวอร์ชัน Unity ไม่รองรับ",
+			"mod_release_mismatch": "เวอร์ชันเกมไม่รองรับ",
+			"crc_fix_failed": "ซ่อมแซม CRC ไม่สำเร็จ"
 		},
 		"drop": {
 			"hint": "ลากไฟล์ Mod มาเพื่อเพิ่ม"
@@ -1510,7 +1515,23 @@
 				"target_unknown": "ไม่ทราบแพลตฟอร์มเกม",
 				"conversion_names": "ไม่พบชื่อไฟล์ที่ตรงกัน",
 				"no_matching_assets": "ไม่พบทรัพยากรที่ตรงกัน",
-				"conversion_failed": "แปลงไม่สำเร็จ"
+				"conversion_failed": "แปลงไม่สำเร็จ",
+				"mod_platform_unknown": "ไม่ทราบแพลตฟอร์ม Mod",
+				"library_io_error": "เข้าถึงไฟล์ไม่สำเร็จ",
+				"mod_target_ambiguous": "เป้าหมาย Mod ซ้ำกัน",
+				"mod_target_unknown": "ไม่ทราบเป้าหมาย Mod",
+				"mod_parts_missing": "ส่วนประกอบ Mod ไม่ครบ",
+				"game_file_conflict": "ไฟล์เกมขัดแย้งกัน",
+				"mod_platform_mismatch": "แพลตฟอร์มไม่รองรับ",
+				"mod_unity_version_mismatch": "เวอร์ชัน Unity ไม่รองรับ",
+				"mod_release_mismatch": "เวอร์ชันเกมไม่รองรับ",
+				"required_asset_extract_failed": "แยกแอสเซ็ตไม่สำเร็จ",
+				"required_asset_apply_failed": "ใช้แอสเซ็ตไม่สำเร็จ",
+				"required_assets_unmatched": "แอสเซ็ตที่จำเป็นไม่ตรงกัน",
+				"entry_changed": "ไฟล์เปลี่ยนแปลงแล้ว",
+				"original_unavailable": "ไฟล์ต้นฉบับไม่พร้อมใช้",
+				"original_invalid": "ไฟล์ต้นฉบับไม่ถูกต้อง",
+				"failed": "ตรวจสอบการนำเข้าไม่สำเร็จ"
 			},
 			"phase": {
 				"update": "กำลังอัปเดต",

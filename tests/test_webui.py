@@ -1458,7 +1458,7 @@ def test_every_service_error_has_a_string():
     codes = set()
     for path in root.rglob("*.py"):
         codes |= set(re.findall(r'ServiceError\("([a-z_]+)"', path.read_text(encoding="utf-8")))
-    for lang in ("zh-CN", "en-US"):
+    for lang in offered_languages():
         strings = ui_strings(lang)
         assert not [c for c in sorted(codes) if f"webui.error.{c}" not in strings], lang
 

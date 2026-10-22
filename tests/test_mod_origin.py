@@ -1,6 +1,7 @@
 """Origin detection and classic conversions using generated UnityFS bundles only."""
 
 import os
+import shutil
 import struct
 from pathlib import Path
 from types import SimpleNamespace
@@ -10,8 +11,9 @@ import pytest
 from ba_modding_toolkit import mod_origin
 from ba_modding_toolkit.bundle import Bundle
 from ba_modding_toolkit.library import integrity
+from ba_modding_toolkit.library import ModLibrary
 from ba_modding_toolkit.library.identity import content_cores
-from ba_modding_toolkit.library.integrity import inspect as inspect_bundle
+from ba_modding_toolkit.library.integrity import inspect as inspect_bundle, metadata as bundle_metadata
 from ba_modding_toolkit.webui import batch_import
 from ba_modding_toolkit.searching import _asset_match
 from ba_modding_toolkit.utils import CRCUtils
@@ -20,18 +22,33 @@ from test_batch_import import analyze, env, finish, rpc, run
 from test_library import game_bundle, make_mod, setup_library
 
 
-def unity_bundle(path, platform=19, *, cab='CAB-fixture', payload=b'official', name='test_spr_note', references=()):
-    """One serialized TextAsset, with no type tree; UnityPy uses its shipped class database."""
+def unity_bundle(path, platform=19, *, cab='CAB-fixture', payload=b'official', name='test_spr_note', references=(),
+                 objects=None):
+    """Serialized objects without type trees; UnityPy uses its shipped class database."""
     def string(value):
         data = struct.pack('<I', len(value)) + value
         return data + bytes(-len(data) % 4)
 
-    obj = string(name.encode()) + string(payload)
-    metadata = b'2021.3.0f1\0' + struct.pack('<i?I', platform, False, 1)
-    metadata += struct.pack('<i?h', 49, False, -1) + bytes(16)
-    metadata += struct.pack('<I', 1)
-    metadata += bytes(-(20 + len(metadata)) % 4)
-    metadata += struct.pack('<qIII', 1, 0, len(obj), 0)
+    if objects is None:
+        objects = [(1, 49, string(name.encode()) + string(payload))]
+    types = list(dict.fromkeys(kind for _, kind, _ in objects))
+    metadata = b'2021.3.0f1\0' + struct.pack('<i?I', platform, False, len(types))
+    for kind in types:
+        metadata += struct.pack('<i?h', kind, False, -1) + bytes(16)
+    metadata += struct.pack('<I', len(objects))
+    obj = b''
+    for path_id, kind, data in objects:
+        if isinstance(data, dict):
+            from UnityPy.helpers import TypeTreeHelper
+            from UnityPy.helpers.Tpk import get_typetree_node
+            from UnityPy.streams import EndianBinaryWriter
+            writer = EndianBinaryWriter(endian='<')
+            TypeTreeHelper.write_typetree(data, get_typetree_node(kind, (2021, 3, 0, 1)), writer)
+            data = writer.bytes
+        obj += bytes(-len(obj) % 8)
+        metadata += bytes(-(20 + len(metadata)) % 4)
+        metadata += struct.pack('<qIII', path_id, len(obj), len(data), types.index(kind))
+        obj += data
     metadata += struct.pack('<II', 0, len(references))
     for reference in references:
         metadata += bytes(17) + struct.pack('<I', 0) + reference.encode() + b'\0'
@@ -45,6 +62,12 @@ def unity_bundle(path, platform=19, *, cab='CAB-fixture', payload=b'official', n
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(header + padding + info + data)
     return path
+
+
+def old_bundle(path, *args, **kwargs):
+    """Conversion and extraction checks use an older release; current names copy whole files."""
+    path = path.with_name(path.name.replace('2026-01-01', '2025-01-01'))
+    return unity_bundle(path, *args, **kwargs)
 
 
 @pytest.mark.parametrize('platform,expected', [(13, 'android'), (9, 'ios'), (19, 'windows'), (5, 'windows')])
@@ -79,6 +102,7 @@ def official_bundle(env, platform=19, **kwargs):
 @pytest.fixture
 def real_metadata(env, monkeypatch):
     monkeypatch.setattr(integrity, 'inspect', inspect_bundle)
+    monkeypatch.setattr(integrity, 'metadata', bundle_metadata)
     monkeypatch.setattr(batch_import, '_asset_match', _asset_match)
     official_bundle(env)
     return env
@@ -89,7 +113,7 @@ def real_metadata(env, monkeypatch):
 def test_conversion_update_add_apply_uses_real_classic_core(real_metadata, platform, source_platform, target_platform):
     env = real_metadata
     official_bundle(env, target_platform)
-    source = unity_bundle(env.tmp / 'input' / env.original.name, platform, cab='CAB-source', payload=b'modded',
+    source = old_bundle(env.tmp / 'input' / env.original.name, platform, cab='CAB-source', payload=b'modded',
                           references=['com.nexon.bluearchive'])
     before = source.read_bytes()
     entry, = analyze(env, [source])['entries']
@@ -119,9 +143,9 @@ def test_conversion_update_add_apply_uses_real_classic_core(real_metadata, platf
     assert Bundle.load(env.original).env.objects[0].read().m_Script == 'official'
 
 
-def test_cross_server_matching_filename_converts_instead_of_copying(real_metadata):
+def test_cross_server_old_filename_converts_instead_of_copying(real_metadata):
     env = real_metadata
-    source = unity_bundle(env.tmp / 'input' / env.original.name, 13, cab='CAB-jp', payload=b'JP mod',
+    source = old_bundle(env.tmp / 'input' / env.original.name, 13, cab='CAB-jp', payload=b'JP mod',
                           references=['com.Yostar JP.BlueArchive'])
     entry, = analyze(env, [source])['entries']
     assert entry['source']['server'] == 'japan' and entry['target']['server'] == 'global'
@@ -132,10 +156,99 @@ def test_cross_server_matching_filename_converts_instead_of_copying(real_metadat
     assert inspect_bundle(env.original).platforms == {'StandaloneWindows64'}
 
 
+@pytest.mark.parametrize('restart', [False, True])
+@pytest.mark.parametrize('enabled', [False, True])
+def test_converted_source_is_already_in_library_after_move_and_restart(real_metadata, monkeypatch, restart, enabled):
+    env = real_metadata
+    source = old_bundle(env.tmp / 'input' / env.original.name, 13, cab='CAB-source', payload=b'modded',
+                        references=['com.nexon.bluearchive'])
+    entry, = analyze(env, [source])['entries']
+    result, = run(env, [entry], types=['TextAsset'], enableAfterImport=enabled)
+    assert result['outcome'] == 'updated'
+    if enabled:
+        env.library.restore('test')
+    before = env.original.read_bytes()
+    if restart:
+        env.library = ModLibrary(env.root, env.catalog, object(), env.settings)
+        env.services._library = env.library
+        env.services.batch_import = batch_import.BatchImport(env.services)
+    moved = env.tmp / 'moved' / source.name
+    moved.parent.mkdir()
+    shutil.copy2(source, moved)
+
+    def forbidden(*args, **kwargs):
+        pytest.fail('A remembered conversion must not rebuild, add, or apply')
+
+    monkeypatch.setattr(batch_import.core, 'process_mod_update', forbidden)
+    monkeypatch.setattr(env.library, 'add_files', forbidden)
+    monkeypatch.setattr(env.library, 'apply_import', forbidden)
+    repeated, = analyze(env, [moved])['entries']
+    assert (repeated['state'], repeated['libraryId']) == ('library', result['libraryId'])
+    duplicate, = run(env, [repeated])
+    assert duplicate['outcome'] == 'unchanged' and not duplicate['applied']
+    assert len(env.library.mods()) == 1 and env.original.read_bytes() == before
+
+
+@pytest.mark.parametrize('change', ['source', 'output', 'release', 'remove'])
+def test_conversion_provenance_never_matches_changed_bytes_or_removed_entry(real_metadata, change):
+    env = real_metadata
+    source = old_bundle(env.tmp / 'input' / env.original.name, 13, cab='CAB-source', payload=b'modded',
+                        references=['com.nexon.bluearchive'])
+    entry, = analyze(env, [source])['entries']
+    result, = run(env, [entry], types=['TextAsset'], enableAfterImport=False)
+    if change == 'source':
+        unity_bundle(source, 13, cab='CAB-source', payload=b'new mod', references=['com.nexon.bluearchive'])
+    elif change == 'output':
+        mod, = env.library.mods()
+        unity_bundle(mod.file, payload=b'changed library output')
+    elif change == 'release':
+        env.original = env.original.rename(env.original.with_name(env.original.name.replace('2026-01-01', '2026-02-01')))
+    else:
+        assert not env.library.remove(result['libraryId']).failed
+    env.services.batch_import = batch_import.BatchImport(env.services)
+    repeated, = analyze(env, [source])['entries']
+    assert repeated['state'] == 'convert' and repeated['libraryId'] is None
+
+
+def test_legacy_converted_output_without_source_hashes_stays_unrecognized(real_metadata, monkeypatch):
+    env = real_metadata
+    source = old_bundle(env.tmp / 'input' / env.original.name, 13, cab='CAB-source', payload=b'modded',
+                        references=['com.nexon.bluearchive'])
+    entry, = analyze(env, [source])['entries']
+    result, = run(env, [entry], enableAfterImport=False)
+    env.library._records[result['libraryId']].pop('import_sources')
+    env.library._save()
+    env.services.batch_import = batch_import.BatchImport(env.services)
+    before = env.original.read_bytes()
+
+    def forbidden(*args, **kwargs):
+        pytest.fail('Legacy recognition must never build, add or apply a Mod')
+
+    monkeypatch.setattr(env.library, 'add_files', forbidden)
+    monkeypatch.setattr(env.library, 'apply_import', forbidden)
+    monkeypatch.setattr(batch_import.core, 'process_mod_update', forbidden)
+    repeated, = analyze(env, [source])['entries']
+    assert (repeated['state'], repeated['libraryId']) == ('convert', None)
+    assert not env.library._records[result['libraryId']].get('import_sources')
+    assert env.original.read_bytes() == before and len(env.library.mods()) == 1
+    monkeypatch.setattr(batch_import.core, 'process_mod_update', forbidden)
+    assert analyze(env, [source])['entries'][0]['state'] == 'convert'
+
+
+def test_conversion_source_identity_includes_the_complete_part_mapping(real_metadata):
+    env = real_metadata
+    first = old_bundle(env.tmp / 'input' / env.original.name, 13, payload=b'first')
+    second = old_bundle(env.tmp / 'input' / env.original.name.replace('_003_', '_004_'), 13, payload=b'second')
+    target = {'server': 'global', 'platform': 'windows'}
+    identity = env.library.import_source_identity({first.name: first, second.name: second}, target, [env.original])
+    for files in ({first.name: first}, {first.name: second, second.name: first}):
+        assert env.library.import_source_identity(files, target, [env.original]) != identity
+
+
 @pytest.mark.parametrize('platform', [13, -2])
 def test_unknown_source_set_source_reanalyzes_and_persists_for_run_and_recheck(real_metadata, platform):
     env = real_metadata
-    source = unity_bundle(env.tmp / 'input' / env.original.name, platform, cab='CAB-unknown', payload=b'unknown mod')
+    source = old_bundle(env.tmp / 'input' / env.original.name, platform, cab='CAB-unknown', payload=b'unknown mod')
     entry, = analyze(env, [source])['entries']
     assert (entry['state'], entry['reason']) == ('convert', None)
     assert entry['source'] == {'server': 'global', 'platform': 'android', 'detected': True}
@@ -153,7 +266,7 @@ def test_unknown_source_set_source_reanalyzes_and_persists_for_run_and_recheck(r
 @pytest.mark.parametrize('platform,reason', [(2, 'platform_unsupported')])
 def test_unsupported_source_still_has_preview(real_metadata, platform, reason):
     env = real_metadata
-    source = unity_bundle(env.tmp / 'input' / env.original.name, platform, references=['com.nexon.bluearchive'])
+    source = old_bundle(env.tmp / 'input' / env.original.name, platform, references=['com.nexon.bluearchive'])
     entry, = analyze(env, [source])['entries']
     assert (entry['state'], entry['reason']) == ('blocked', reason)
     assert env.services.batch_import.preview(entry['preview']['key'])[1][-1] == source
@@ -161,7 +274,7 @@ def test_unsupported_source_still_has_preview(real_metadata, platform, reason):
 
 def test_conversion_without_matching_assets_is_blocked_but_previewable(real_metadata):
     env = real_metadata
-    source = unity_bundle(env.tmp / 'input' / env.original.name, 13, payload=b'mod', name='unrelated',
+    source = old_bundle(env.tmp / 'input' / env.original.name, 13, payload=b'mod', name='unrelated',
                           references=['com.nexon.bluearchive'])
     entry, = analyze(env, [source])['entries']
     assert (entry['state'], entry['reason']) == ('blocked', 'no_matching_assets')
@@ -178,7 +291,7 @@ def test_settings_region_and_resource_folder_platform():
 @pytest.mark.parametrize('server,platform', [('other', 'android'), ('global', 'linux'), (None, 'windows')])
 def test_set_source_rejects_invalid_values(real_metadata, server, platform):
     env = real_metadata
-    source = unity_bundle(env.tmp / 'input' / env.original.name, 13, cab='CAB-unknown')
+    source = old_bundle(env.tmp / 'input' / env.original.name, 13, cab='CAB-unknown')
     entry, = analyze(env, [source])['entries']
     result = env.rpc.call('import.setSource', {'id': entry['id'], 'server': server, 'platform': platform})
     assert result['error']['code'] == 'bad_params'
@@ -186,7 +299,7 @@ def test_set_source_rejects_invalid_values(real_metadata, server, platform):
 
 def test_set_source_rejects_changed_upload(real_metadata):
     env = real_metadata
-    source = unity_bundle(env.tmp / 'input' / env.original.name, 13, cab='CAB-unknown')
+    source = old_bundle(env.tmp / 'input' / env.original.name, 13, cab='CAB-unknown')
     entry, = analyze(env, [source])['entries']
     source.write_bytes(source.read_bytes() + b'changed')
     job = rpc(env, 'import.setSource', id=entry['id'], server='global', platform='android')
@@ -205,7 +318,7 @@ def test_cross_server_nonmatching_slot_is_blocked(real_metadata):
 
 def test_same_platform_cross_server_still_rebuilds(real_metadata):
     env = real_metadata
-    source = unity_bundle(env.tmp / 'input' / env.original.name, 19, cab='CAB-jp', payload=b'JP mod',
+    source = old_bundle(env.tmp / 'input' / env.original.name, 19, cab='CAB-jp', payload=b'JP mod',
                           references=['com.Yostar JP.BlueArchive'])
     entry, = analyze(env, [source])['entries']
     assert entry['state'] == 'convert'
@@ -266,7 +379,7 @@ def test_conversion_failure_cannot_store_or_apply_mobile_bytes(real_metadata, mo
     from ba_modding_toolkit.models import ModUpdateResult
 
     env = real_metadata
-    source = unity_bundle(env.tmp / 'input' / env.original.name, 13, cab='CAB-mobile', payload=b'mod',
+    source = old_bundle(env.tmp / 'input' / env.original.name, 13, cab='CAB-mobile', payload=b'mod',
                           references=['com.nexon.bluearchive'])
     entry, = analyze(env, [source])['entries']
     before = env.original.read_bytes()
@@ -283,7 +396,7 @@ def test_conversion_stages_only_inside_the_pinned_library_with_dev_guards(real_m
     env = real_metadata
     monkeypatch.setenv(devmode.ROOTS, str(env.tmp))
     monkeypatch.setenv(devmode.WRITABLE, str(env.tmp))
-    source = unity_bundle(env.tmp / 'mods' / 'ui_android' / env.original.name, 13,
+    source = old_bundle(env.tmp / 'mods' / 'ui_android' / env.original.name, 13,
                           cab='CAB-mobile', payload=b'mobile mod', references=['com.nexon.bluearchive'])
     before = source.read_bytes()
     entry, = analyze(env, [source])['entries']
@@ -310,7 +423,7 @@ def test_system_temp_conversion_output_reproduces_the_dev_read_guard_failure(rea
     env = real_metadata
     monkeypatch.setenv(devmode.ROOTS, str(env.tmp))
     monkeypatch.setenv(devmode.WRITABLE, str(env.tmp))
-    source = unity_bundle(env.tmp / 'mods' / 'ui_android' / env.original.name, 13,
+    source = old_bundle(env.tmp / 'mods' / 'ui_android' / env.original.name, 13,
                           cab='CAB-mobile', payload=b'mobile mod', references=['com.nexon.bluearchive'])
     entry, = analyze(env, [source])['entries']
     temporary_directory = batch_import.staging.tempfile.TemporaryDirectory
@@ -334,7 +447,7 @@ def test_converted_output_still_requires_full_dependency_validation(real_metadat
     from ba_modding_toolkit.models import FilePair, ModUpdateResult
 
     env = real_metadata
-    source = unity_bundle(env.tmp / 'input' / env.original.name, 13, cab='CAB-mobile', payload=b'mod',
+    source = old_bundle(env.tmp / 'input' / env.original.name, 13, cab='CAB-mobile', payload=b'mod',
                           references=['com.nexon.bluearchive'])
     entry, = analyze(env, [source])['entries']
 
@@ -351,19 +464,19 @@ def test_converted_output_still_requires_full_dependency_validation(real_metadat
 
 def test_unknown_server_can_be_selected_without_unnecessary_platform_conversion(real_metadata):
     env = real_metadata
-    source = unity_bundle(env.tmp / 'input' / env.original.name, 19, cab='CAB-unknown', payload=b'mod')
+    source = old_bundle(env.tmp / 'input' / env.original.name, 19, cab='CAB-unknown', payload=b'mod')
     entry, = analyze(env, [source])['entries']
     assert entry['source'] == {'server': 'global', 'platform': 'windows', 'detected': True}
-    assert entry['state'] == 'ready'
+    assert entry['state'] == 'update'
     selected = finish(env, rpc(env, 'import.setSource', id=entry['id'], server='global', platform='windows'))
-    assert selected['state'] == 'ready' and selected['source']['detected'] is False
+    assert selected['state'] == 'update' and selected['source']['detected'] is False
     assert run(env, [selected])[0]['applied']
 
 
 def test_installed_mobile_bytes_do_not_bypass_conversion(real_metadata):
     env = real_metadata
     official = env.original.read_bytes()
-    source = unity_bundle(env.tmp / 'input' / env.original.name, 13, cab='CAB-mobile', payload=b'mobile mod',
+    source = old_bundle(env.tmp / 'input' / env.original.name, 13, cab='CAB-mobile', payload=b'mobile mod',
                           references=['com.nexon.bluearchive'])
     env.original.with_name(env.original.name + '.backup').write_bytes(official)
     env.original.write_bytes(source.read_bytes())
@@ -388,7 +501,7 @@ def test_markerless_lobby_fallback_validates_compressed_renamed_bundles(real_met
     from ba_modding_toolkit.models import SaveOptions
     assert bundle.save(source, SaveOptions(compression=compression, perform_crc=False))[0]
     # The outer filename falsely declares a portrait; content names still identify the lobby.
-    source = source.rename(source.with_name(env.original.name.replace("ch0156_home", "test_spr")))
+    source = source.rename(source.with_name(env.original.name.replace("ch0156_home", "test_spr").replace("2026-01-01", "2025-01-01")))
     entry, = analyze(env, [source])["entries"]
     assert entry["kind"] == "lobby" and entry["state"] == "convert"
     assert entry["source"] == {"server": "global", "platform": expected, "detected": True}
@@ -397,15 +510,15 @@ def test_markerless_lobby_fallback_validates_compressed_renamed_bundles(real_met
 
 def test_unknown_fallback_rejects_unmatched_assets(real_metadata):
     env = real_metadata
-    source = unity_bundle(env.tmp / "input" / env.original.name, -2, cab="CAB-unidentified", name="unrelated")
+    source = old_bundle(env.tmp / "input" / env.original.name, -2, cab="CAB-unidentified", name="unrelated")
     entry, = analyze(env, [source])["entries"]
-    assert (entry["state"], entry["reason"], entry["source"]) == ("blocked", "source_unknown", None)
+    assert (entry["state"], entry["reason"], entry["source"]) == ("blocked", 'no_matching_assets', None)
     assert entry["preview"]
 
 
 def test_fallback_tie_prefers_partial_markers_then_fixed_order(real_metadata):
     env = real_metadata
-    source = unity_bundle(env.tmp / "input" / env.original.name, -2, cab="CAB-new", references=["com.YostarJP.BlueArchive"])
+    source = old_bundle(env.tmp / "input" / env.original.name, -2, cab="CAB-new", references=["com.YostarJP.BlueArchive"])
     entry, = analyze(env, [source])["entries"]
     assert entry["source"] == {"server": "japan", "platform": "android", "detected": True}
     # A known serialized target wins over the default Android candidate.
@@ -428,7 +541,7 @@ def test_partial_japan_evidence_cannot_fall_back_to_global(real_metadata):
     source = game_bundle(env.tmp / "input", part="textures")
     unity_bundle(source, -2, cab="CAB-jp", payload=b"mod", references=["com.YostarJP.BlueArchive"])
     entry, = analyze(env, [source])["entries"]
-    assert (entry["state"], entry["reason"], entry["source"]) == ("blocked", "source_unknown", None)
+    assert (entry["state"], entry["reason"], entry["source"]) == ("blocked", 'conversion_names', None)
 
 
 @pytest.mark.parametrize("platforms,refs,expected", [
@@ -441,7 +554,7 @@ def test_candidates_only_try_unknown_dimensions(platforms, refs, expected):
 
 
 def test_path_hints_survive_real_bundle_inspection(tmp_path):
-    source = unity_bundle(tmp_path / "neutral.bundle", -2,
+    source = old_bundle(tmp_path / "neutral.bundle", -2,
                           references=[r"archive:/com.nexon.bluearchive/GameData/Android/shared.bundle"])
     selected = inspect_bundle(source, allow_unknown=True)
     detected, reason = mod_origin.source_of(set(), selected, integrity.Contents(), {"server": "global"})
@@ -454,7 +567,7 @@ def test_path_hints_survive_real_bundle_inspection(tmp_path):
 def test_fallback_inspects_each_file_once_per_analysis(real_metadata, monkeypatch, matches):
     from collections import Counter
     env = real_metadata
-    source = unity_bundle(env.tmp / "input" / env.original.name, -2, cab="CAB-unknown",
+    source = old_bundle(env.tmp / "input" / env.original.name, -2, cab="CAB-unknown",
                           name="test_spr_note" if matches else "unrelated")
     loads, reports = Counter(), []
     original_load, original_report = Bundle.load, env.library.inspect_import
@@ -481,7 +594,7 @@ def test_inference_rejects_only_selected_unreadable_assets(real_metadata, monkey
     from unittest.mock import Mock, PropertyMock
     from ba_modding_toolkit.models import AssetType
     env = real_metadata
-    source = unity_bundle(env.tmp / "input" / env.original.name, -2, cab="CAB-unknown", payload=b"mod")
+    source = old_bundle(env.tmp / "input" / env.original.name, -2, cab="CAB-unknown", payload=b"mod")
     load = Bundle.load
 
     def broken_load(path, *args, **kwargs):
@@ -499,7 +612,7 @@ def test_inference_rejects_only_selected_unreadable_assets(real_metadata, monkey
     env.services.batch_import.set_options({"types": ["TextAsset", kind] if selected else ["TextAsset"]})
     entry, = analyze(env, [source])["entries"]
     if selected:
-        assert (entry["state"], entry["reason"], entry["source"]) == ("blocked", "source_unknown", None)
+        assert (entry["state"], entry["reason"], entry["source"]) == ("blocked", "required_asset_extract_failed", None)
     else:
         assert (entry["state"], entry["reason"]) == ("convert", None)
         result, = run(env, [entry], types=["TextAsset"])
@@ -512,7 +625,7 @@ def test_import_uses_current_counterparts_and_reports_omissions(real_metadata, m
     from tests.test_core.test_update_failures import asset
     from ba_modding_toolkit.models import AssetType
     env = real_metadata
-    source = unity_bundle(env.tmp / "input" / env.original.name, -2, cab="CAB-unknown", payload=b"modded")
+    source = old_bundle(env.tmp / "input" / env.original.name, -2, cab="CAB-unknown", payload=b"modded")
     before = env.original.read_bytes()
     load = Bundle.load
 
@@ -535,7 +648,7 @@ def test_import_uses_current_counterparts_and_reports_omissions(real_metadata, m
     if manual:
         entry = finish(env, rpc(env, "import.setSource", id=entry["id"], server="global", platform="android"))
     if counterpart == "changed" and not manual:
-        assert (entry["state"], entry["reason"]) == ("blocked", "source_unknown")
+        assert (entry["state"], entry["reason"]) == ("blocked", "required_asset_extract_failed")
     else:
         assert entry["state"] == "convert", entry
         result, = run(env, [entry], types=["TextAsset", "Texture2D"])
@@ -569,7 +682,7 @@ def test_inspection_rejects_changed_file_revision(tmp_path, method, replacement)
 
 def test_judge_rejects_input_changed_before_library_identity(real_metadata, monkeypatch):
     env = real_metadata
-    source = unity_bundle(env.tmp / "input" / env.original.name, -2, cab="CAB-unknown", payload=b"mod")
+    source = old_bundle(env.tmp / "input" / env.original.name, -2, cab="CAB-unknown", payload=b"mod")
     report = env.library.inspect_import
 
     def changed(*args, **kwargs):
@@ -584,7 +697,7 @@ def test_judge_rejects_input_changed_before_library_identity(real_metadata, monk
 
 def test_judge_rejects_input_changed_during_library_identity(real_metadata, monkeypatch):
     env = real_metadata
-    source = unity_bundle(env.tmp / "input" / env.original.name, -2, cab="CAB-unknown", payload=b"mod")
+    source = old_bundle(env.tmp / "input" / env.original.name, -2, cab="CAB-unknown", payload=b"mod")
     identity = env.library._identity
 
     def changed(files):
@@ -616,7 +729,7 @@ def test_inspection_rejects_a_file_changed_during_load(tmp_path, monkeypatch):
 
 def test_inference_reports_a_revision_change_during_extraction(real_metadata, monkeypatch):
     env = real_metadata
-    source = unity_bundle(env.tmp / "input" / env.original.name, -2, cab="CAB-unknown", payload=b"mod")
+    source = old_bundle(env.tmp / "input" / env.original.name, -2, cab="CAB-unknown", payload=b"mod")
     extract = Bundle.extract_patch
 
     def changed(self, *args, **kwargs):
@@ -636,7 +749,7 @@ def test_required_asset_failure_never_imports_or_applies_a_partial_mod(real_meta
     from unittest.mock import Mock, PropertyMock
     from ba_modding_toolkit.models import AssetType
     env = real_metadata
-    source = unity_bundle(env.tmp / "input" / env.original.name, -2, cab="CAB-unknown", payload=b"modded")
+    source = old_bundle(env.tmp / "input" / env.original.name, -2, cab="CAB-unknown", payload=b"modded")
     entry, = analyze(env, [source])["entries"]
     if manual:
         entry = finish(env, rpc(env, "import.setSource", id=entry["id"], server="global", platform="android"))
@@ -666,7 +779,8 @@ def test_required_asset_failure_never_imports_or_applies_a_partial_mod(real_meta
     assert result["outcome"] == "failed"
     assert result["reason"] == f"required_asset_{failure}_failed"
     assert result["params"]["name"] == ("required_texture" if failure == "extract" else "test_spr_note")
-    assert result["params"]["error"] and result["params"]["file"] == source.name
+    assert result["params"]["error"]
+    assert result["params"]["file"] == (source.name if failure == "extract" else env.original.name)
     assert not result["applied"] and not env.library.mods()
     assert env.original.read_bytes() == before
 
@@ -674,10 +788,10 @@ def test_required_asset_failure_never_imports_or_applies_a_partial_mod(real_meta
 def test_inference_must_decode_atlas_text(real_metadata):
     env = real_metadata
     official_bundle(env, name="test_spr.atlas", payload=b"page.png\nsize: 1,1\n")
-    source = unity_bundle(env.tmp / "input" / env.original.name, -2, cab="CAB-unknown",
+    source = old_bundle(env.tmp / "input" / env.original.name, -2, cab="CAB-unknown",
                           name="test_spr.atlas", payload=b"\xff\xfe\xff")
     entry, = analyze(env, [source])["entries"]
-    assert (entry["state"], entry["reason"], entry["source"]) == ("blocked", "source_unknown", None)
+    assert (entry["state"], entry["reason"], entry["source"]) == ("blocked", "required_asset_extract_failed", None)
 
 
 def test_partial_cab_region_evidence_constrains_candidates():
@@ -685,3 +799,121 @@ def test_partial_cab_region_evidence_constrains_candidates():
     official = integrity.Contents(files={"cab-official"})
     choices = mod_origin.candidates(set(), selected, official, {"server": "japan"})
     assert [(c["server"], c["platform"]) for c in choices] == [("japan", p) for p in mod_origin.PLATFORMS]
+
+
+@pytest.mark.parametrize('recorded', [False, True])
+def test_legacy_recognition_never_builds_and_uses_recorded_source_hashes(real_metadata, monkeypatch, recorded):
+    env = real_metadata
+    source = old_bundle(env.tmp / 'input' / env.original.name, 13, cab='CAB-source', payload=b'mod',
+                        references=['com.nexon.bluearchive'])
+    entry, = analyze(env, [source])['entries']
+    result, = run(env, [entry], enableAfterImport=False)
+    record = env.library._records[result['libraryId']]
+    provenance = record.pop('import_sources')[0]['source']
+    if recorded:
+        record['source_hashes'] = provenance
+    env.library._save()
+    env.services.batch_import = batch_import.BatchImport(env.services)
+
+    def forbidden(*args, **kwargs):
+        pytest.fail('Analysis must never rebuild a legacy conversion')
+
+    monkeypatch.setattr(batch_import.core, 'process_mod_update', forbidden)
+    monkeypatch.setattr(batch_import.staging, 'import_directory', forbidden)
+    for _ in range(2):
+        repeated, = analyze(env, [source])['entries']
+        assert repeated['state'] == ('library' if recorded else 'convert')
+    assert len(env.library.mods()) == 1
+
+
+def test_optional_legacy_recognition_failure_does_not_block(real_metadata, monkeypatch):
+    env = real_metadata
+    source = old_bundle(env.tmp / 'input' / env.original.name, 13, cab='CAB-source', payload=b'mod',
+                        references=['com.nexon.bluearchive'])
+    entry, = analyze(env, [source])['entries']
+    result, = run(env, [entry], enableAfterImport=False)
+    record = env.library._records[result['libraryId']]
+    record['source_hashes'] = record.pop('import_sources')[0]['source']
+    monkeypatch.setattr(env.library, 'remember_import_source', lambda *args: (_ for _ in ()).throw(OSError('optional')))
+    repeated, = analyze(env, [source])['entries']
+    assert repeated['state'] == 'convert' and repeated['reason'] is None
+
+
+def test_output_provenance_rejects_swapped_part_bytes(env):
+    first = make_mod(env.original, env.tmp / 'input', payload=b'first')
+    second = game_bundle(env.tmp / 'input', part='textassets', payload=b'second')
+    mod, = env.library.add([first, second])
+    source = env.library.import_source_identity({first.name: first, second.name: second},
+                                               {'server': 'global', 'platform': 'windows'}, [env.original])
+    env.library.remember_import_source(mod.id, source)
+    assert env.library.find_import_source(source) == mod.id
+    paths = env.library._paths(env.library._records[mod.id])
+    left, right = [p.read_bytes() for p in paths]
+    paths[0].write_bytes(right)
+    paths[1].write_bytes(left)
+    assert env.library.find_import_source(source) is None
+    assert env.library.find_import_output([first, second]) is None
+
+
+def test_reimport_rebuild_does_not_rebind_provenance_to_swapped_parts(real_metadata):
+    env = real_metadata
+    official_bundle(env, name='test_spr_first', cab='CAB-first')
+    second = unity_bundle(game_bundle(env.game_dir, part='004'), name='test_spr_second', cab='CAB-second')
+    second = second.rename(second.with_name(second.name.rsplit('_', 1)[0] +
+                                           f'_{CRCUtils.compute_crc32(second.read_bytes())}.bundle'))
+    sources = [old_bundle(env.tmp / 'input' / target.name, 13, cab=f'CAB-source-{index}',
+                          name=f'test_spr_{name}', payload=name.encode(), references=['com.nexon.bluearchive'])
+               for index, (target, name) in enumerate([(env.original, 'first'), (second, 'second')])]
+    entry, = analyze(env, sources)['entries']
+    first, = run(env, [entry], types=['TextAsset'], enableAfterImport=False)
+    assert first['outcome'] == 'updated', first
+    record = env.library._records[first['libraryId']]
+    provenance = record['import_sources'][0]['source']
+    paths = env.library._paths(record)
+    original = {path.name: path.read_bytes() for path in paths}
+    assert len(set(original.values())) == 2
+    paths[0].write_bytes(original[paths[1].name])
+    paths[1].write_bytes(original[paths[0].name])
+    swapped = {path.name: path.read_bytes() for path in paths}
+    assert env.library.find_import_source(provenance) is None
+
+    entry, = analyze(env, sources)['entries']
+    assert entry['state'] == 'convert'
+    rebuilt, = run(env, [entry], types=['TextAsset'], enableAfterImport=False)
+    assert rebuilt['outcome'] == 'updated', rebuilt
+    assert rebuilt['libraryId'] != first['libraryId']
+    assert {path.name: path.read_bytes() for path in paths} == swapped
+    rebuilt_paths = env.library._paths(env.library._records[rebuilt['libraryId']])
+    assert {path.name: path.read_bytes() for path in rebuilt_paths} == original
+    assert env.library.find_import_source(provenance) == rebuilt['libraryId']
+    repeated, = analyze(env, sources)['entries']
+    assert (repeated['state'], repeated['libraryId']) == ('library', rebuilt['libraryId'])
+
+
+def test_optional_stored_source_lookup_failure_does_not_block(real_metadata, monkeypatch):
+    from ba_modding_toolkit.errors import ServiceError
+    env = real_metadata
+    source = old_bundle(env.tmp / 'input' / env.original.name, 13, cab='CAB-source', payload=b'mod',
+                        references=['com.nexon.bluearchive'])
+    monkeypatch.setattr(env.library, 'find_import_source',
+                        lambda *args: (_ for _ in ()).throw(ServiceError('library_io_error')))
+    entry, = analyze(env, [source])['entries']
+    assert (entry['state'], entry['reason']) == ('convert', None)
+
+
+def test_legacy_recognition_cache_tracks_file_and_record_revisions(env):
+    source = make_mod(env.original, env.tmp / 'input')
+    mod, = env.library.add([source])
+    identity = env.library.import_source_identity({source.name: source},
+        {'server': 'global', 'platform': 'windows'}, [env.original])
+    record = env.library._records[mod.id]
+    record['source_hashes'] = identity
+    lookup = lambda: env.library.find_legacy_import_source(identity, 'spr')
+    assert lookup() == lookup() == mod.id
+    assert len(env.library._legacy_import_matches) == 1
+    mod.file.write_bytes(mod.file.read_bytes() + b'changed')
+    assert lookup() == mod.id
+    assert len(env.library._legacy_import_matches) == 2
+    record['source_hashes'] = {**identity, 'target': {'server': 'japan', 'platform': 'windows'}}
+    assert lookup() is None
+    assert len(env.library._legacy_import_matches) == 3

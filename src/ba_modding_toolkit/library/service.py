@@ -21,16 +21,18 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from functools import wraps
 from pathlib import Path
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, Callable, Iterator
 
 from UnityPy.helpers.ResourceReader import get_resource_data
 
-from .. import atlas_remap, core, devmode, mod_install
+from .. import atlas_remap, core, devmode, mod_install, mod_origin
 from ..bundle import Bundle
 from ..catalog.models import CoreMap
 from ..errors import ServiceError
 from ..filelock import file_lock
 from ..i18n import t
+from ..logging_utils import log_failure
 from ..models import AssetType, LogFunc, ProgressCallback
 from ..naming import parse_filename
 from ..searching import SEARCH_DIR_SUFFIXES, get_search_dirs
@@ -111,12 +113,13 @@ def _errors(operation: str) -> Iterator[None]:
     try:
         yield
     except OSError as error:
-        logger.exception("Library file operation failed")
+        log_failure(logger, logging.ERROR, "Library file operation failed", error, code="library_io_error")
         raise ServiceError("library_io_error", file=error.filename) from error
     except ServiceError:
         raise
     except Exception as error:
-        logger.exception("Library operation failed: %s", operation)
+        log_failure(logger, logging.ERROR, f"Library operation failed ({operation})", error,
+                    code="library_operation_failed")
         raise ServiceError("library_operation_failed", operation=operation) from error
 
 
@@ -513,6 +516,7 @@ class ModLibrary:
         self._write_check = write_check
         self._lock = threading.RLock()
         self._hashes = Fingerprints()
+        self._legacy_import_matches: dict[str, str | None] = {}
         self._writing_mods = False
         self._transacting = False
         self._records: dict[str, dict[str, Any]] = {}
@@ -541,9 +545,9 @@ class ModLibrary:
                 self._lookup_records()
                 self._known()
             except ServiceError as error:
-                logger.warning("Mod configuration not looked up: %s", error.code)
-            except Exception:  # the library still works without it; the next build tries again
-                logger.exception("Mod configuration lookup failed")
+                log_failure(logger, logging.WARNING, "Mod configuration not looked up", error)
+            except Exception as error:  # the library still works without it; the next build tries again
+                log_failure(logger, logging.ERROR, "Mod configuration lookup failed", error)
 
     # --- state.json ---
 
@@ -579,8 +583,8 @@ class ModLibrary:
             state = self._parse_state(json.loads((self.root / "state.json").read_text(encoding="utf-8")))
         except FileNotFoundError:
             return
-        except (OSError, ValueError, TypeError, KeyError, AttributeError):
-            logger.warning("Ignoring unreadable library state", exc_info=True)
+        except (OSError, ValueError, TypeError, KeyError, AttributeError) as error:
+            log_failure(logger, logging.WARNING, "Ignoring unreadable library state", error)
             return
         self._records, self._favorites, self._applied, self._migrations = state
         self._base = copy.deepcopy(state)
@@ -588,8 +592,8 @@ class ModLibrary:
         if self._migration_pending:
             try:
                 self._save()
-            except OSError:
-                logger.warning("Could not migrate legacy remapped mods", exc_info=True)
+            except OSError as error:
+                log_failure(logger, logging.WARNING, "Could not migrate legacy remapped mods", error)
 
     def _state_signature(self) -> tuple[int, int] | None:
         try:
@@ -663,8 +667,17 @@ class ModLibrary:
     def _variant(self, key: str) -> Any:
         try:
             return self.catalog.variant(key)
-        except KeyError as error:
-            raise ServiceError("variant_not_found", variant=key) from error
+        except (KeyError, ServiceError) as error:
+            if isinstance(error, ServiceError) and error.code != "catalog_variant_not_found":
+                raise
+            # Current NPC bundles may have no roster entry. Their stored filename owns the model slot.
+            record = next((record for record in self._records.values() if record["kind"] == "model"
+                           and record["target"] == key and core_of(record["files"][0]) == key), None)
+            if record:
+                return SimpleNamespace(key=key, family=key, spr=None, lobby=None, model=key)
+            if isinstance(error, KeyError):
+                raise ServiceError("variant_not_found", variant=key) from error
+            raise
 
     def _record(self, mod_id: str) -> dict[str, Any]:
         try:
@@ -717,26 +730,97 @@ class ModLibrary:
     supports_kind = staticmethod(supports_kind)
 
     def add_files(self, kind: Kind, paths: list[Path], progress: ProgressCallback | None = None,
-                  pin: Pin | None = None, *, apply: bool = False, log: LogFunc = no_log) -> AddResult:
+                  pin: Pin | None = None, *, apply: bool = False, log: LogFunc = no_log,
+                  direct: bool = False) -> AddResult:
         """Import a batch of one supported kind, optionally applying through the master switch."""
         if not supports_kind(kind):
             raise ServiceError("mod_unsupported", kind=kind)
         if apply:
             return self.add_and_apply(paths, progress, pin, log, kind=kind)
-        return self.add(paths, progress, pin, kind=kind)
+        return self.add(paths, progress, pin, kind=kind, direct=direct)
 
     @_serialized
     @_mod_writer
     def add(self, paths: list[Path], progress: ProgressCallback | None = None, pin: Pin | None = None,
-            *, kind: Kind | None = None) -> AddResult:
+            *, kind: Kind | None = None, direct: bool = False) -> AddResult:
         """Store one mod per core and date, deduplicating complete bundle sets. In dev mode (devmode) only files
         inside the dev roots are taken."""
         for path in paths:
             devmode.check_read(path)
-        return self._add(paths, progress, pin, kind)
+        return self._add(paths, progress, pin, kind, direct=direct)
 
     def _identity(self, files: dict[str, Path]) -> frozenset:
-        return frozenset((core_of(name), self._hashes.get(path).sha1) for name, path in files.items())
+        return frozenset((core_of(name), part_of(name), self._hashes.get(path).sha1) for name, path in files.items())
+
+    @_serialized
+    def import_source_identity(self, files: dict[str, Path], target: dict, originals: list[Path]) -> dict:
+        """Content identities survive moves; official bytes scope conversions to their target release."""
+        return {"files": sorted(([list(part_of(name)), self._hashes.get(path).sha1] for name, path in files.items()),
+                                key=lambda item: json.dumps(item)),
+                "target": dict(target),
+                "originals": sorted([path.name, self._hashes.get(path).sha1] for path in originals)}
+
+    def _output_identity(self, paths: list[Path]) -> list:
+        """Bind every stored output hash to its complete part filename."""
+        return sorted([path.name, self._hashes.get(path).sha1] for path in paths)
+
+    @_serialized
+    def find_import_source(self, source: dict) -> str | None:
+        for record in self._records.values():
+            matches = [item for item in record.get("import_sources", []) if item.get("source") == source]
+            if matches:
+                output = self._output_identity(self._paths(record))
+                if any(item.get("output") == output for item in matches):
+                    return record["id"]
+        return None
+
+    @_serialized
+    def find_legacy_import_source(self, source: dict, kind: str) -> str | None:
+        """Recognize only recorded source hashes, scoped to their target and official release.
+
+        Entries without these records cannot be identified without a rebuild, so skip them.
+        Cache both hits and misses until the source, records or stored file revisions change.
+        """
+        records, revisions = [], []
+        for record in self._records.values():
+            if record["kind"] != kind or record.get("import_sources") or not record.get("source_hashes"):
+                continue
+            records.append(record)
+            stamps = []
+            for path in self._paths(record):
+                stat = path.stat()
+                stamps.append((path.name, stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns))
+            revisions.append((record["id"], record["source_hashes"], stamps))
+        key = json.dumps([source, kind, revisions], sort_keys=True)
+        if key not in self._legacy_import_matches:
+            match = next((record["id"] for record in records if record["source_hashes"] == source), None)
+            if len(self._legacy_import_matches) >= 128:
+                self._legacy_import_matches.clear()
+            self._legacy_import_matches[key] = match
+        return self._legacy_import_matches[key]
+
+    @_serialized
+    def find_import_output(self, paths: list[Path]) -> str | None:
+        output = self._output_identity(paths)
+        return next((record["id"] for record in self._records.values()
+                     if self._output_identity(self._paths(record)) == output), None)
+
+    @_serialized
+    @_mod_writer
+    def remember_import_source(self, mod_id: str, source: dict) -> None:
+        record = self._record(mod_id)
+        item = {"source": copy.deepcopy(source),
+                "output": self._output_identity(self._paths(record))}
+        previous = copy.deepcopy(record)
+        imports = record.setdefault("import_sources", [])
+        if item in imports:
+            return
+        imports.append(item)
+        try:
+            self._save()
+        except Exception:
+            self._records[mod_id] = previous
+            raise
 
     def _known(self) -> dict[frozenset, str]:
         known = {}
@@ -750,7 +834,7 @@ class ModLibrary:
         return known
 
     def _add(self, paths: list[Path], progress: ProgressCallback | None = None, pin: Pin | None = None,
-             expected_kind: Kind | None = None) -> AddResult:
+             expected_kind: Kind | None = None, *, direct: bool = False) -> AddResult:
         known = self._known()
         groups: dict[tuple[str, str], dict[str, Path]] = {}
         targets = {}
@@ -769,7 +853,8 @@ class ModLibrary:
                 if len({core_of(name) for name in matches}) != 1:
                     raise ServiceError("mod_unsupported", file=source)
                 name = matches[0]
-            name, target, kind = identify(source, name, self.catalog)
+            name, target, kind = (self.identify_import(source, name, pin) if direct else
+                                  identify(source, name, self.catalog))
             if expected_kind is not None and kind != expected_kind:
                 raise ServiceError("mod_unsupported", file=source)
             parsed = parse_filename(name)
@@ -791,7 +876,8 @@ class ModLibrary:
         # Validate every group before storing any part of this upload.
         pin = pin or self.current_pin()
         for group in groups.values():
-            self._check_group(group, pin, compatibility=False)
+            if not direct or not self.direct_import(group, pin):
+                self._check_group(group, pin, compatibility=False)
         added = AddResult()
         for key, group in groups.items():
             signature_ = self._identity(group)
@@ -940,6 +1026,87 @@ class ModLibrary:
         return report
 
     @_serialized
+    def identify_import(self, path: Path, name: str, pin: Pin | None = None) -> tuple[str, str, str]:
+        """Current official slots own their identity even when a Mod renames its assets."""
+        pin = pin or self.current_pin()
+        targets = (self._other_targets({name: path}, pin) if kind_of_file(name) == "other"
+                   else self._spine_parts(core_of(name), pin)) if pin else []
+        return identify(path, name, self.catalog, filename_only=bool(integrity.replacements({name: path}, targets)))
+
+    @_serialized
+    def direct_import(self, files: dict[str, Path], pin: Pin | None = None, *,
+                      inspection: integrity.Inspection | None = None) -> dict | None:
+        """Validate current parts and the resulting set before admitting a whole-file copy."""
+        pin = pin or self.current_pin()
+        if not pin:
+            return None
+        name = next(iter(files))
+        targets = (self._other_targets(files, pin) if kind_of_file(name) == "other"
+                   else self._spine_parts(core_of(name), pin))
+        replacements = integrity.replacements(files, targets)
+        if not replacements:
+            return None
+        inspection = inspection or integrity.Inspection()
+        selected, official, originals = integrity.Contents(), integrity.Contents(), []
+        identities = []
+        for target, source in replacements.items():
+            original = self._official_for(target, pin, game_first=True)
+            incoming, baseline = inspection.metadata(source), inspection.metadata(original)
+            integrity.check_platform(incoming, source, baseline.platforms)
+            if incoming.versions != baseline.versions:
+                raise ServiceError("mod_unity_version_mismatch", file=source.name,
+                                   version=", ".join(sorted(incoming.versions)),
+                                   expected=", ".join(sorted(baseline.versions)))
+            identities.append((source, incoming, baseline))
+            selected.merge(inspection.inspect(source))
+            official.merge(inspection.inspect(original))
+            originals.append(original)
+        target_origin = mod_origin.target_of(self.settings, pin, official)
+        evidence, error = mod_origin.constraints(set(files), selected, official, target_origin)
+        if error or (evidence.get("server") and evidence["server"] != target_origin["server"]):
+            raise ServiceError(error or "source_conflict")
+        # Retained official prefabs must still resolve into the replacement CABs.
+        compatibility = self._check_group(files, pin, conversion=True, inspection=inspection)
+        self._check_group(files, pin, compatibility=False, inspection=inspection)
+        if compatibility["unavailable"]:
+            raise ServiceError("original_unavailable")
+        for source, incoming, baseline in identities:
+            if not incoming.files:
+                raise ServiceError("mod_release_mismatch", file=source.name)
+            if kind_of_file(name) == "model":
+                self._check_model_references(source, incoming, baseline, replacements, targets, pin, inspection)
+            elif incoming.files != baseline.files or incoming.layout != baseline.layout:
+                raise ServiceError("mod_release_mismatch", file=source.name)
+        inspection.validate()
+        source_origin, error = mod_origin.source_of(set(files), selected, official, target_origin)
+        if error:
+            raise ServiceError(error)
+        return {"direct": replacements, "targets": list(replacements), "originals": originals,
+                "sourceContents": selected, "officialContents": official, "source": source_origin,
+                "compatibility": compatibility}
+
+    def _check_model_references(self, source: Path, incoming: integrity.Contents, baseline: integrity.Contents,
+                                replacements: dict[Path, Path], targets: list[Path], pin: Pin,
+                                inspection: integrity.Inspection) -> None:
+        """Only changes to objects consumed outside a replaced part can break its public interface."""
+        changed = {}
+        for cab, layout in baseline.layout.items():
+            replacement = dict(incoming.layout.get(cab, ()))
+            ids = {path_id for path_id, kind in layout if replacement.get(path_id) != kind}
+            if ids:
+                changed[cab] = ids
+        removed_cabs = baseline.files - incoming.files
+        if not changed and not removed_cabs:
+            return  # Preserving every original object is safe without scanning other bundles.
+        consumers = {path: path for paths in self._index(pin).values() for path in paths}
+        for target in targets:
+            consumers[target] = (replacements[target] if target in replacements else
+                                 self._official_for(target, pin, game_first=True))
+        for path in consumers.values():
+            if path != source and integrity.references_changed_objects(path, changed, removed_cabs, inspection):
+                raise ServiceError("mod_release_mismatch", file=source.name)
+
+    @_serialized
     def inspect_import(self, files: dict[str, Path], pin: Pin | None = None, *, conversion: bool = False,
                        inspection: integrity.Inspection | None = None) -> dict:
         """Preflight canonical upload names without storing or adopting anything.
@@ -975,6 +1142,15 @@ class ModLibrary:
             installed = self._matches_installed(identity, entry)
         if (duplicate or installed) and not conversion:
             return {"identity": identity, "libraryId": duplicate, "installed": installed, "targets": targets}
+        try:
+            direct = self.direct_import(files, pin, inspection=inspection) if conversion else None
+        except ServiceError as error:
+            if not (duplicate or installed) or error.code not in ("original_unavailable", "original_invalid"):
+                raise
+            return {"identity": identity, "libraryId": duplicate, "installed": installed,
+                    "targets": targets, "recognized": True}
+        if direct:
+            return {"identity": identity, "libraryId": duplicate, "installed": installed, **direct}
         report = self._check_group(files, pin, dependencies=False, conversion=conversion, inspection=inspection)
         # Old CAB references are replaced by the rebuild. Its output goes through add()'s full preflight.
         if not report["outdated"] and not conversion:
@@ -1211,7 +1387,7 @@ class ModLibrary:
             except ServiceError as error:
                 failed.append({"entry": item, "code": error.code, "params": error.to_json()["params"]})
                 outcomes[key, core] = "stuck" if error.code == "original_unavailable" else "pending"
-                logger.info("Deleted mod %s; restore of %s in %s deferred: %s", mod_id, core, key, error.code)
+                log_failure(logger, logging.INFO, "Deleted mod; restore deferred", error)
         self._save_outcomes(outcomes)
         self._prune_quietly()
         return DeleteResult(done, failed, [{"install": key, "core": core} for key, core in sorted(affected)],
@@ -1316,8 +1492,8 @@ class ModLibrary:
         """Whether the scan consent is given, asked at each use (it can change while the library lives)."""
         try:
             return bool(self._scan_allowed_input())
-        except Exception:
-            logger.warning("Cannot read the scan consent", exc_info=True)
+        except Exception as error:
+            log_failure(logger, logging.WARNING, "Cannot read the scan consent", error)
             return False
 
     def _pin(self, folder: Path, server: str) -> Pin | None:
@@ -1507,10 +1683,9 @@ class ModLibrary:
             if (variant := self.catalog.variant_for_core(core.lower())) is not None}
         model_of = {}
         for core in sorted(models):
-            key = keys.get(core.lower())
-            if key:
-                mapped.keys.setdefault(core.lower(), key)
-                model_of.setdefault(key, core)
+            key = keys.get(core.lower(), core.lower())
+            mapped.keys.setdefault(core.lower(), key)
+            model_of.setdefault(key, core)
         mapped = replace(mapped, model=model_of)
         self._maps[pin.key] = (built_for, mapped)
         return mapped
@@ -1581,6 +1756,10 @@ class ModLibrary:
         available = [path for slot, paths in self._index(pin).items() if slot.startswith("other:") for path in paths]
         targets = set()
         for name, source in files.items():
+            current = integrity.replacements({name: source}, available)
+            if current:
+                targets.update(current)
+                continue
             prefix = parse_filename(name).prefix
             candidates = [path for path in available if parse_filename(path.name).prefix == prefix]
             latest = {}
@@ -1754,8 +1933,8 @@ class ModLibrary:
             self._records.pop(mod_id, None)
         try:
             self._save()
-        except OSError:
-            logger.warning("Could not save the library state after a rollback", exc_info=True)
+        except OSError as error:
+            log_failure(logger, logging.WARNING, "Could not save the library state after a rollback", error)
         for mod_id in mod_ids:
             shutil.rmtree(self.root / "mods" / mod_id, ignore_errors=True)
 
@@ -1886,8 +2065,8 @@ class ModLibrary:
                     continue
             try:
                 original.unlink()
-            except OSError:
-                logger.warning("Could not delete the kept original %s", original, exc_info=True)
+            except OSError as error:
+                log_failure(logger, logging.WARNING, "Could not delete the kept original", error)
                 continue
             logger.info("Released the kept original %s", name)
             released.append(original)
@@ -1918,9 +2097,9 @@ class ModLibrary:
                 self._applied.pop(name, None)
             try:
                 self._save()
-            except OSError:
+            except OSError as error:
                 self._applied = old_applied
-                logger.warning("Could not save the library state after pruning", exc_info=True)
+                log_failure(logger, logging.WARNING, "Could not save the library state after pruning", error)
                 markers = {}
         if markers or built_drops:
             stamp = now()
@@ -1966,8 +2145,8 @@ class ModLibrary:
     def _prune_quietly(self) -> None:
         try:
             self._prune()
-        except Exception:  # never in the way of the switch itself; the next prune tries again
-            logger.warning("Could not prune the kept originals", exc_info=True)
+        except Exception as error:  # never in the way of the switch itself; the next prune tries again
+            log_failure(logger, logging.WARNING, "Could not prune the kept originals", error)
 
     @_serialized
     def prune(self) -> list[Path]:
@@ -2430,9 +2609,9 @@ class ModLibrary:
                     self._applied = old_applied
                     try:
                         self._rollback_write(transaction)
-                    except Exception:
+                    except Exception as rollback_error:
                         restored = False
-                        logger.exception("Could not roll back library write %s", journal)
+                        log_failure(logger, logging.ERROR, "Could not roll back library write", rollback_error)
                     if isinstance(error, OSError):
                         code = "library_io_error" if saving_state else "game_file_locked"
                         raise ServiceError(code, file=error.filename) from error
@@ -3802,8 +3981,8 @@ class ModLibrary:
         if changed:
             try:
                 self._save()
-            except OSError:
-                logger.warning("Could not save what a judgement found", exc_info=True)
+            except OSError as error:
+                log_failure(logger, logging.WARNING, "Could not save what a judgement found", error)
 
     def judge_unfinished(self) -> int:
         """Judge the unfinished list's entries again from what the library recorded (stat, header and last bytes of

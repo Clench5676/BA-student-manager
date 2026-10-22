@@ -1224,7 +1224,12 @@
 			"target_unknown": "Unknown Game Platform",
 			"conversion_names": "No Matching Filename",
 			"no_matching_assets": "No Matching Assets",
-			"conversion_failed": "Conversion Failed"
+			"conversion_failed": "Conversion Failed",
+			"conflict": "Conflicting Targets",
+			"spine_version": "Incompatible Spine Version",
+			"mod_unity_version_mismatch": "Incompatible Unity Version",
+			"mod_release_mismatch": "Incompatible Game Release",
+			"crc_fix_failed": "CRC Repair Failed"
 		},
 		"drop": {
 			"hint": "Drop mod files to add them"
@@ -1510,7 +1515,23 @@
 				"target_unknown": "Unknown Game Platform",
 				"conversion_names": "No Matching Filename",
 				"no_matching_assets": "No Matching Assets",
-				"conversion_failed": "Conversion Failed"
+				"conversion_failed": "Conversion Failed",
+				"mod_platform_unknown": "Unknown Mod Platform",
+				"library_io_error": "File Access Failed",
+				"mod_target_ambiguous": "Ambiguous Mod Target",
+				"mod_target_unknown": "Unknown Mod Target",
+				"mod_parts_missing": "Missing Mod Parts",
+				"game_file_conflict": "Conflicting Game Files",
+				"mod_platform_mismatch": "Incompatible Platform",
+				"mod_unity_version_mismatch": "Incompatible Unity Version",
+				"mod_release_mismatch": "Incompatible Game Release",
+				"required_asset_extract_failed": "Asset Extraction Failed",
+				"required_asset_apply_failed": "Asset Apply Failed",
+				"required_assets_unmatched": "Unmatched Required Assets",
+				"entry_changed": "Files Changed",
+				"original_unavailable": "Official File Unavailable",
+				"original_invalid": "Invalid Official File",
+				"failed": "Import Check Failed"
 			},
 			"phase": {
 				"update": "Updating",

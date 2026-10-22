@@ -1224,7 +1224,12 @@
 			"target_unknown": "ゲームのプラットフォーム不明",
 			"conversion_names": "一致するファイル名なし",
 			"no_matching_assets": "一致するリソースなし",
-			"conversion_failed": "変換失敗"
+			"conversion_failed": "変換失敗",
+			"conflict": "対象が競合",
+			"spine_version": "Spineバージョン非対応",
+			"mod_unity_version_mismatch": "Unity バージョン非対応",
+			"mod_release_mismatch": "ゲーム版非対応",
+			"crc_fix_failed": "CRC 修復失敗"
 		},
 		"drop": {
 			"hint": "MODファイルをドロップして追加"
@@ -1510,7 +1515,23 @@
 				"target_unknown": "ゲームのプラットフォーム不明",
 				"conversion_names": "一致するファイル名なし",
 				"no_matching_assets": "一致するリソースなし",
-				"conversion_failed": "変換失敗"
+				"conversion_failed": "変換失敗",
+				"mod_platform_unknown": "Mod のプラットフォーム不明",
+				"library_io_error": "ファイルアクセス失敗",
+				"mod_target_ambiguous": "Mod の対象が複数",
+				"mod_target_unknown": "Mod の対象不明",
+				"mod_parts_missing": "Mod のパーツ不足",
+				"game_file_conflict": "ゲームファイル競合",
+				"mod_platform_mismatch": "プラットフォーム非対応",
+				"mod_unity_version_mismatch": "Unity バージョン非対応",
+				"mod_release_mismatch": "ゲーム版非対応",
+				"required_asset_extract_failed": "アセット抽出失敗",
+				"required_asset_apply_failed": "アセット適用失敗",
+				"required_assets_unmatched": "必須アセットの一致なし",
+				"entry_changed": "ファイル変更済み",
+				"original_unavailable": "公式ファイル利用不可",
+				"original_invalid": "公式ファイルが無効",
+				"failed": "インポート確認失敗"
 			},
 			"phase": {
 				"update": "更新中",

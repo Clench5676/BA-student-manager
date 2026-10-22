@@ -24,7 +24,7 @@ from typing import Any
 from urllib.parse import unquote
 
 from .. import devmode, updater
-from ..i18n import i18n_manager
+from ..i18n import UI_LANGUAGES, i18n_manager
 from . import native, system
 from .session_log import redact
 
@@ -94,10 +94,58 @@ def clean(value: Any, secrets: set[str], depth: int = 0, *, filename: bool = Fal
     return clean(str(value), secrets, depth + 1, filename=filename)
 
 
-def environment(safe_mode: bool = False) -> dict:
+def configured_language(data_dir: Path) -> str:
+    """Read only the UI preference, before startup loads settings or detects a game."""
+    import toml
+    try:
+        with (data_dir / "config.toml").open("r", encoding="utf-8") as stream:
+            value = toml.loads(stream.read(DATA_CAP)).get("AppSettings", {}).get("language")
+        if value in UI_LANGUAGES:
+            return value
+    except (OSError, ValueError, TypeError, AttributeError):
+        pass
+    return i18n_manager.lang
+
+
+def import_row(entry: dict, secrets: set[str]) -> dict:
+    """Use the same redacted, structured verdict in logs and reports."""
+    from ..naming import parse_filename
+
+    detail = entry.get("error") if isinstance(entry.get("error"), dict) else {}
+    source = entry.get("source") if isinstance(entry.get("source"), dict) else {}
+    target = entry.get("target") if isinstance(entry.get("target"), dict) else {}
+    files = entry.get("files") if isinstance(entry.get("files"), list) else []
+    route = " -> ".join(f"{side.get('server') or '?'}/{side.get('platform') or '?'}" for side in (source, target))
+    return clean({"id": entry.get("id"), "kind": entry.get("kind"), "state": entry.get("state"),
+                  "reason": entry.get("reason"), "code": detail.get("code") or entry.get("reason"),
+                  "params": detail.get("params") or entry.get("params", {}),
+                  "files": [{"filename": file.get("path"),
+                             "part": parse_filename(str(file.get("path", "")).replace("\\", "/").rsplit("/", 1)[-1]).res_type}
+                            for file in files if isinstance(file, dict)],
+                  "source": source, "target": target, "conversionRoute": route,
+                  "selected": entry.get("selected"), "libraryId": entry.get("libraryId")}, secrets)
+
+
+def import_snapshot(value: Any, secrets: set[str]) -> dict | None:
+    if not isinstance(value, dict) or not isinstance(value.get("rows"), list):
+        return None
+    rows, size = [], 0
+    for entry in value["rows"]:
+        if not isinstance(entry, dict):
+            continue
+        row = import_row(entry, secrets)
+        size += len(json.dumps(row, ensure_ascii=False, indent=2).encode("utf-8")) + 256
+        if size > DATA_CAP // 2:
+            break
+        rows.append(row)
+    return {"phase": clean(value.get("phase"), secrets), "revision": clean(value.get("revision"), secrets),
+            "total": len(value["rows"]), "omitted": len(value["rows"]) - len(rows), "rows": rows}
+
+
+def environment(safe_mode: bool = False, language: str | None = None) -> dict:
     return {"app": {"version": updater.current_version(), "build": "compiled" if updater.is_compiled() else "source"},
             "os": {"name": platform.system(), "version": platform.version(), "arch": platform.machine()},
-            "locale": locale.getlocale()[0], "language": i18n_manager.lang,
+            "locale": locale.getlocale()[0], "language": language or i18n_manager.lang,
             "webview": native.engine_info(), "safeMode": safe_mode}
 
 
@@ -125,6 +173,7 @@ class Reports:
         self.data_dir, self.services, self.safe_mode = Path(data_dir), services, safe_mode
         self.secrets: set[str] = set()
         self.frontend: dict = {}
+        self.imports: dict | None = None
         self.errors: deque = deque(maxlen=20)
         self.last_job: dict | None = None
         self.game: dict = {"found": None, "server": None, "platform": None, "resourceVersion": None}
@@ -144,8 +193,10 @@ class Reports:
             return False
         try:
             if isinstance(context, dict):
-                self.frontend = clean({k: context[k] for k in ("page", "phase", "userAgent", "screen", "webgl", "timings")
+                self.frontend = clean({k: context[k] for k in ("page", "phase", "language", "userAgent", "screen", "webgl", "timings")
                                        if k in context}, self.secrets)
+                if "batchImport" in context:
+                    self.imports = import_snapshot(context["batchImport"], self.secrets)
             if not isinstance(event, dict):
                 return False
             item = clean({k: event[k] for k in ("message", "stack", "page", "phase", "kind", "source", "code", "params") if k in event}, self.secrets)
@@ -236,6 +287,25 @@ class Reports:
         with (self.data_dir / CRASH_NAME).open("rb") as stream:
             return json.loads(stream.read(DATA_CAP))
 
+    def import_list(self) -> dict | None:
+        with self._lock:
+            if self.imports is not None:
+                return self.imports
+        batch = getattr(self.services, "batch_import", None)
+        return import_snapshot(batch.diagnostic_snapshot(), self.secrets) if batch else None
+
+    def language(self) -> str:
+        with self._lock:
+            language = self.frontend.get("language")
+        if language in UI_LANGUAGES:
+            return language
+        settings = getattr(self.services, "settings", None)
+        if settings:
+            language = settings.get("language")
+            if language in UI_LANGUAGES:
+                return language
+        return configured_language(self.data_dir)
+
     def snapshot(self, deadline: float | None = None) -> dict:
         deadline = deadline if deadline is not None else time.monotonic() + COLLECTION_TIMEOUT
         read = lambda key, fn: self.optional(key, fn, deadline)
@@ -247,7 +317,7 @@ class Reports:
                 "privacy": "Redacted: home paths, user names, hostnames, credentials and asset filenames. Local only; no upload.",
                 "safeMode": self.safe_mode,
                 "os": read("os", lambda: {"name": platform.system(), "version": platform.version(), "arch": platform.machine()}),
-                "locale": read("locale", lambda: locale.getlocale()[0]), "language": i18n_manager.lang,
+                "locale": read("locale", lambda: locale.getlocale()[0]), "language": read("language", self.language),
                 "webview": read("webview", native.engine_info),
                 **dict.fromkeys(("game", "frontend", "frontendErrors", "lastFailedJob")),
                 **(read("local", self._local_snapshot) or {}),
@@ -257,7 +327,8 @@ class Reports:
                 "timings": read("timings", lambda: s.timings.snapshot()) if s else None,
                 "previousBackendError": read("previous", self._previous_error)}
         sanitized = read("redaction", lambda: clean(data, self.secrets))
-        return {**(sanitized if sanitized is not None else dict.fromkeys(data)), "app": app}
+        return {**(sanitized if sanitized is not None else dict.fromkeys(data)), "app": app,
+                "batchImport": read("batchImport", self.import_list)}
 
     def generate(self, *, automatic: bool = False, trigger: dict | None = None) -> dict:
         if not self._writing.acquire(timeout=COLLECTION_TIMEOUT):
@@ -282,7 +353,7 @@ class Reports:
             data = {"summary": summary, **data}
             encoded = json.dumps(data, ensure_ascii=False, indent=2)
             # A malicious error payload must not inflate the archive. Keep the latest bounded fields.
-            for field in ("previousBackendError", "frontendErrors", "lastFailedJob", "frontend", "timings", "triggeringError"):
+            for field in ("previousBackendError", "frontendErrors", "lastFailedJob", "frontend", "timings", "triggeringError", "batchImport"):
                 if len(encoded.encode("utf-8")) <= DATA_CAP:
                     break
                 data[field] = "[Truncated]"
@@ -354,7 +425,7 @@ class Reports:
             data.pop("previousBackendError", None)
             data["error"] = private_text("".join(traceback.format_exception(exc_type, exc, tb)), self.secrets)[-32000:]
             encoded = json.dumps(data, ensure_ascii=False)
-            for field in ("frontendErrors", "frontend", "lastFailedJob", "timings"):
+            for field in ("frontendErrors", "frontend", "lastFailedJob", "timings", "batchImport"):
                 if len(encoded.encode("utf-8")) <= DATA_CAP:
                     break
                 data[field] = "[Truncated]"

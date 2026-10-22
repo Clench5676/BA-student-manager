@@ -101,14 +101,15 @@ for (const kind of ["spr", "lobby"]) test(`a repeated row sync still waits for r
 test("roster fallback and configured-source stills receive the variant's default background", () => {
   const code = source.slice(source.indexOf("const portraitOf ="), source.indexOf("// --- rows near the view"));
   const requested = [], student = { key: "np0189", family: "student", spr: "np0189_spr", bg: "/bg/practice-room", portrait: null };
-  let enabled = true;
+  let enabled = true, configured = false;
   const env = { spineAllowed: () => true, thumbnailWork: { thumb: (...args) => requested.push(args) },
     primaryKind: () => "spr", data: { families: [{ key: "student", variants: [student] }] },
-    modsState: () => ({ enabled }), configuredKey: () => "mod:incoming", previewBase: () => "configured-skeleton",
+    modsState: () => ({ enabled }), configuredKey: () => configured ? "mod:incoming" : null, previewBase: () => "configured-skeleton",
     spineBase: () => "live-skeleton", specialFraming: () => null, hasAsset: () => true };
   const portraitOf = new Function("env", `const { ${Object.keys(env).join(", ")} } = env; ${code} return portraitOf;`)(env);
-  portraitOf(student); enabled = false; portraitOf(student);
+  portraitOf(student); configured = true; portraitOf(student); enabled = false; portraitOf(student);
   assert.deepEqual(requested.map((args) => [args[0], args[1], args[5]]), [
-    ["live-skeleton", "roster", "/bg/practice-room"], ["configured-skeleton", "roster", "/bg/practice-room"],
+    ["live-skeleton", "roster", "/bg/practice-room"],
+    ["configured-skeleton", "roster", "/bg/practice-room"], ["configured-skeleton", "roster", "/bg/practice-room"],
   ]);
 });

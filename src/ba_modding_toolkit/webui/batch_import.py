@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import os
 import shutil
@@ -18,7 +19,6 @@ from ..bundle import Bundle, UpdateScope
 from ..errors import ServiceError
 from ..gameassets.spine import spine_revision
 from ..i18n import t
-from ..library.identity import identify
 from ..library import integrity, staging
 from ..library.judge import core_of, kind_of, part_of
 from ..library.storage import Fingerprints
@@ -26,7 +26,7 @@ from ..models import AssetType, SaveOptions
 from ..naming import parse_filename
 from ..searching import _asset_match
 from ..spine import get_skel_version
-from ..utils import no_log, parse_hex_bytes
+from ..utils import CRCUtils, no_log, parse_hex_bytes
 
 logger = logging.getLogger(__name__)
 PREF = "batch_import"
@@ -34,6 +34,7 @@ TYPES = ("Texture2D", "TextAsset", "Mesh", "AnimationClip", "ALL")
 CHOICES = {"strategy": ("path_id", "cont_name_type", "name_type"),
            "crc": ("auto", "on", "off"), "compression": ("lzma", "lz4", "original", "none")}
 BOOLS = ("skipUnchanged", "backup", "enableAfterImport")
+IMPORTABLE = frozenset(("ready", "convert", "update"))
 
 
 def options_of(value: Any, defaults: dict) -> dict:
@@ -95,6 +96,9 @@ class Candidate:
     source_override: dict | None = None
     conversion: bool = False
     not_transferred: list[str] = field(default_factory=list)
+    failure: dict | None = None
+    direct: dict[Path, Path] = field(default_factory=dict)
+    provenance: dict | None = None
 
 
 @dataclass
@@ -110,13 +114,27 @@ class ImportResult:
 
 
 def blocked_reason(error: ServiceError) -> str:
-    if error.code in ("bundle_invalid", "mod_platform_unknown", "library_io_error"):
-        return "unreadable"
-    if error.code in ("mod_target_ambiguous", "mod_parts_missing", "game_file_conflict", "mod_platform_mismatch"):
-        return "conflict"
-    if error.code in ("mod_unsupported", "source_unsupported"):
-        return "unsupported"
-    return "no_target"
+    aliases = {"bundle_invalid": "unreadable", "game_file_not_found": "no_target",
+               "mod_unsupported": "unsupported", "source_unsupported": "unsupported"}
+    reasons = {"mod_platform_unknown", "library_io_error", "mod_target_ambiguous", "mod_target_unknown",
+               "mod_parts_missing", "mod_release_mismatch", "game_file_conflict", "mod_platform_mismatch",
+               "mod_unity_version_mismatch",
+               "required_asset_extract_failed", "required_asset_apply_failed", "required_assets_unmatched",
+               "spine_version", "source_unknown", "source_conflict", "platform_unsupported", "target_unknown",
+               "conversion_names", "no_matching_assets", "conversion_failed", "entry_changed",
+               "original_unavailable", "original_invalid", "conflict", "unreadable", "unsupported", "failed"}
+    return aliases.get(error.code, error.code if error.code in reasons else "failed")
+
+
+def failure_detail(error: ServiceError, paths: Any, log: Any = no_log, *, secrets: set[str] | None = None) -> dict:
+    from .diagnostics import clean
+
+    detail = error.to_json()
+    safe = clean({"files": list(map(str, paths)), **detail}, secrets or set())
+    message = f"Batch import: {json.dumps(safe, ensure_ascii=False, sort_keys=True)}"
+    logger.warning(message)
+    log(message)
+    return detail
 
 
 def copy_compatibility(report: dict, uploaded: integrity.Contents) -> tuple[dict, dict, bool]:
@@ -243,7 +261,9 @@ class BatchImport:
                 if override and override[0] == candidate.identity:
                     candidate.source_override = dict(override[1])
                 self._judge(candidate, library, pin, log)
+                self._recognize_legacy(candidate, library)
                 self._restore_completed(candidate, library, pin)
+                self._log_analysis(candidate, "analyze")
                 if candidate.identity and candidate.identity in known:
                     skipped += len(candidate.entry["paths"])
                     continue
@@ -256,9 +276,9 @@ class BatchImport:
                 if revision == self._revision:
                     self._latest = {c.entry["id"]: c for c in entries}
                     self._previews = previews
-            return {"entries": [c.entry for c in entries], "skipped": skipped}
+            return {"entries": [c.entry for c in entries], "skipped": skipped, "revision": revision}
 
-        return self.services.submit("import.analyze", analyze)
+        return self.services.submit("import.analyze", analyze, writes="library", library=library)
 
     def _register_preview(self, candidate: Candidate, revision: int, previews: dict) -> None:
         if candidate.entry["core"] and candidate.entry["kind"] in ("spr", "lobby", "model"):
@@ -270,6 +290,15 @@ class BatchImport:
             except (OSError, KeyError):
                 pass  # An unavailable source keeps its static catalog artwork.
 
+    def diagnostic_snapshot(self) -> dict:
+        with self._lock:
+            return {"revision": self._revision, "rows": [deepcopy(c.entry) for c in self._latest.values()]}
+
+    def _log_analysis(self, candidate: Candidate, phase: str) -> None:
+        from .diagnostics import import_row
+        detail = import_row(candidate.entry, getattr(self.services, "log_secrets", set()))
+        logger.info("Batch import analysis (%s): %s", phase, json.dumps(detail, ensure_ascii=False, sort_keys=True))
+
     def set_source(self, id: str, server: str, platform: str) -> str:
         if not isinstance(id, str) or server not in mod_origin.SERVERS or platform not in mod_origin.PLATFORMS:
             raise ServiceError("bad_params", key="source")
@@ -277,8 +306,9 @@ class BatchImport:
             if id not in self._latest:
                 raise ServiceError("bad_params", key="id")
             candidate = self._latest[id]
+            self._revision += 1
             fresh = Candidate(dict(candidate.files), deepcopy(candidate.entry), candidate.error,
-                              identity=candidate.identity,
+                              identity=candidate.identity, failure=candidate.failure,
                               source_override={"server": server, "platform": platform, "detected": False})
             library, pin, revision = self._library, self._pin, self._revision
 
@@ -287,11 +317,14 @@ class BatchImport:
                 raise ServiceError("folder_changed")
             if pin:
                 self.services._check_pin(library, pin)
-            identity = frozenset((core_of(name), self._hashes.get(path).sha1) for name, path in fresh.files.items())
+            identity = frozenset((core_of(name), part_of(name), self._hashes.get(path).sha1)
+                                 for name, path in fresh.files.items())
             if identity != fresh.identity:
                 raise ServiceError("entry_changed")
             self._judge(fresh, library, pin, log)
+            self._recognize_legacy(fresh, library)
             self._restore_completed(fresh, library, pin)
+            self._log_analysis(fresh, "source")
             previews = {}
             self._register_preview(fresh, revision, previews)
             with self._lock:
@@ -301,15 +334,29 @@ class BatchImport:
                 self._sources[id] = (identity, dict(fresh.source_override))
                 self._previews.update(previews)
             progress(1, 1, fresh.entry["core"] or "")
-            return fresh.entry
+            return {**fresh.entry, "revision": revision}
 
-        return self.services.submit("import.setSource", analyze)
+        return self.services.submit("import.setSource", analyze, writes="library", library=library)
 
     def _completion_key(self, candidate: Candidate, library: Any, pin: Any) -> tuple:
         return (library, pin.key if pin else None, tuple(pin.dirs) if pin else (),
                 candidate.entry["id"], candidate.identity)
 
+    def _recognize_legacy(self, candidate: Candidate, library: Any) -> None:
+        """Optional recognition never rebuilds or changes an importable verdict on failure."""
+        if candidate.entry["state"] != "convert" or not candidate.provenance:
+            return
+        try:
+            mod_id = library.find_legacy_import_source(candidate.provenance, candidate.entry["kind"])
+            if mod_id:
+                library.remember_import_source(mod_id, candidate.provenance)
+                candidate.entry.update(state="library", reason=None, libraryId=mod_id)
+        except (OSError, ServiceError, ValueError):
+            logger.info("Batch import: optional source recognition unavailable")
+
     def _restore_completed(self, candidate: Candidate, library: Any, pin: Any) -> None:
+        if candidate.entry["state"] == "blocked" or candidate.provenance:
+            return
         with self._lock:
             mod_id = self._completed.get(self._completion_key(candidate, library, pin))
         if mod_id and any(mod.id == mod_id for mod in library.mods()):
@@ -382,34 +429,39 @@ class BatchImport:
             name = path.name.removesuffix(".backup")
             parsed = parse_filename(name)
             kind = kind_of(parsed.core, parsed.category) or "other"
-            variant, error = None, None
+            variant, error, failure = None, None, None
             try:
                 if self._hashes.get(path).trailing is None:
                     raise ServiceError("bundle_invalid")
                 if not library.supports_kind(kind):
                     error = "unsupported"
+                    failure = ServiceError("mod_unsupported", file=path, kind=kind).to_json()
                     resolve = getattr(library.catalog, "variant_for_asset_core", library.catalog.variant_for_core)
                     found = resolve(parsed.core.lower())
                     variant = found.key if found else None
                 else:
-                    name, variant, kind = identify(path, name, library.catalog)
-            except OSError:
-                error = "unreadable"
+                    name, variant, kind = library.identify_import(path, name)
+            except OSError as caught:
+                error = "library_io_error"
+                failure = ServiceError("library_io_error", file=path, error=str(caught)).to_json()
             except ServiceError as caught:
                 error = blocked_reason(caught)
-            except Exception:
-                logger.debug("Cannot inspect uploaded bundle: %s", path, exc_info=True)
+                failure = caught.to_json()
+            except Exception as caught:
+                logger.debug("Cannot inspect uploaded bundle")
                 error = "unreadable"
+                failure = ServiceError("bundle_invalid", file=path, error=str(caught)).to_json()
             parsed = parse_filename(name)
             # Date separates versions; folders separate alternative mods of the same release.
             key = (path.parent, "", "", kind, None) if kind == "other" else (
                 path.parent, parsed.core.lower(), parsed.date, kind, variant)
-            groups.setdefault(key, []).append((path, name, error))
+            groups.setdefault(key, []).append((path, name, error, failure))
         candidates = []
         for (_, core_name, _, kind, variant), items in groups.items():
-            files, parts, sources, error = {}, {}, [], None
-            for path, name, problem in items:
+            files, parts, sources, error, failure = {}, {}, [], None, None
+            for path, name, problem, detail in items:
                 error = error or problem
+                failure = failure or detail
                 try:
                     if name in files:
                         if self._hashes.get(files[name]).sha1 == self._hashes.get(path).sha1:
@@ -437,9 +489,10 @@ class BatchImport:
                      "kind": kind, "files": file_list, "size": sum(f["size"] for f in file_list),
                      "state": "blocked", "reason": error, "libraryId": None, "preview": None,
                      "source": None, "target": mod_origin.target_of(self.services.settings, library.current_pin())}
-            candidate = Candidate(files, entry, error)
+            candidate = Candidate(files, entry, error, failure=failure)
             try:
-                candidate.identity = frozenset((core_of(name), self._hashes.get(path).sha1) for name, path in files.items())
+                candidate.identity = frozenset((core_of(name), part_of(name), self._hashes.get(path).sha1)
+                                               for name, path in files.items())
             except OSError:
                 pass  # The unreadable row above still reports all of its source paths.
             candidates.append(candidate)
@@ -449,20 +502,51 @@ class BatchImport:
                *, asset_types: set[str] | None = None, strategy: str | None = None) -> None:
         entry = candidate.entry
         entry.pop("params", None)
+        entry.pop("error", None)
         entry.update(state="blocked", reason=candidate.error, libraryId=None, source=None,
                      target=mod_origin.target_of(self.services.settings, pin))
         candidate.targets, candidate.originals, candidate.spine_version, candidate.conversion = [], [], None, False
+        candidate.direct = {}
+        candidate.provenance = None
         inspection = integrity.Inspection(asset_types if asset_types is not None else set(self.options()["types"]))
         try:
+            if candidate.failure:
+                raise ServiceError(candidate.failure["code"], **candidate.failure["params"])
+            if candidate.error:
+                raise ServiceError(candidate.error)
+            for path in candidate.files.values():
+                inspection.check(path)
+            report = library.inspect_import(candidate.files, pin=pin, conversion=True, inspection=inspection)
+            if report.get("recognized"):
+                entry.update(state="library" if report["libraryId"] else "installed", reason=None,
+                             libraryId=report["libraryId"])
+                return
+            if report.get("direct"):
+                candidate.identity = report["identity"]
+                candidate.direct = report["direct"]
+                candidate.targets, candidate.originals = report["targets"], report["originals"]
+                entry["target"] = mod_origin.target_of(self.services.settings, pin, report["officialContents"])
+                source = report["source"]
+                if candidate.source_override and any(candidate.source_override[key] != source[key]
+                                                     for key in ("server", "platform")):
+                    raise ServiceError("source_conflict")
+                entry["source"] = candidate.source_override or source
+                official, incoming, remappable = copy_compatibility(report["compatibility"], report["sourceContents"])
+                mismatch = self._check_spine(candidate, official, incoming, remappable)
+                for file in entry["files"]:
+                    file["target"] = next(target.name for target, source in candidate.direct.items()
+                                          if str(source) == file["path"])
+                if mismatch:
+                    candidate.direct = {}
+                entry.update(state="library" if report["libraryId"] else "installed" if report["installed"] else
+                             "update" if mismatch else "ready", reason=None, libraryId=report["libraryId"])
+                return
             selected = integrity.Contents()
             for path in candidate.files.values():
                 selected.merge(inspection.inspect(path, allow_unknown=True))
             names = {path.name.removesuffix(".backup") for path in candidate.files.values()}
             source, source_error = mod_origin.source_of(names, selected, integrity.Contents(), entry["target"])
             entry["source"] = candidate.source_override or source
-            if candidate.error:
-                return
-            report = library.inspect_import(candidate.files, pin=pin, conversion=True, inspection=inspection)
             inspection.validate()
             candidate.identity = report["identity"]
             live = report["targets"]
@@ -505,6 +589,15 @@ class BatchImport:
             if not pin or not live:
                 raise ServiceError("game_file_not_found")
             originals = report["originals"] if entry["kind"] == "other" else library.official_bundles(entry["core"], pin=pin)
+            candidate.provenance = library.import_source_identity(candidate.files, entry["target"], originals)
+            try:
+                imported = library.find_import_source(candidate.provenance)
+            except (OSError, ServiceError, ValueError):
+                logger.info("Batch import: optional source recognition unavailable")
+                imported = None
+            if imported:
+                entry.update(state="library", reason=None, libraryId=imported)
+                return
             if not entry["target"]["platform"]:
                 raise ServiceError("target_unknown")
             if len(live) != len(originals):
@@ -528,7 +621,7 @@ class BatchImport:
             inferred = entry["source"] is None
             choices = (mod_origin.candidates(names, selected, official_contents, entry["target"]) if inferred
                        else [entry["source"]])
-            matched_targets = None
+            matched_targets, last_failure = None, None
             for choice in choices:
                 converting = conversion(choice)
                 failure = None
@@ -552,21 +645,15 @@ class BatchImport:
                         official, incoming, remappable = transfer_compatibility(inspection, sources,
                             [baseline[path] for path in chosen], originals,
                             "name_type" if converting else strategy or self.options()["strategy"])
-                    versions = {version for values in official.values() for version in values if version}
-                    series = {tuple(version.split(".")[:2]) for version in versions}
-                    candidate.spine_version = (max(versions, key=lambda version: tuple(map(int, version.split("."))))
-                                               if len(series) == 1 else None)
-                    unknown = any(not version for version in incoming.values())
-                    mismatch = any(version and any(not target or version.split(".")[:2] != target.split(".")[:2]
-                                                   for target in official[key]) for key, version in incoming.items())
-                    failure = "conflict" if remappable else "spine_version" if (
-                        unknown or (mismatch and (candidate.spine_version is None or
-                                                not self.services.settings.spine_options().is_valid()))) else None
+                    try:
+                        mismatch = self._check_spine(candidate, official, incoming, remappable)
+                    except ServiceError as error:
+                        failure = error.code
                 if failure:
                     if inferred:
+                        last_failure = failure
                         continue
-                    entry.update(state="blocked", reason=failure)
-                    return
+                    raise ServiceError(failure)
                 if inferred or (candidate.source_override or {}).get("detected"):
                     # Validate selected inputs against current counterparts using the execution reader.
                     try:
@@ -577,8 +664,6 @@ class BatchImport:
                             raise ServiceError("no_matching_assets")
                     except (ServiceError, OSError, ValueError):
                         inspection.validate()
-                        if inferred:
-                            break  # Reading is independent of the choice; another label cannot repair the bytes.
                         raise
                 if not converting:
                     library.inspect_import(candidate.files, pin=pin, inspection=inspection)
@@ -593,24 +678,52 @@ class BatchImport:
                         file["target"] = chosen[0].name
                 entry.update(state="convert" if converting else "ready" if exact and not mismatch else "update", reason=None)
                 return
-            entry.update(state="blocked", reason="source_unknown")
+            raise ServiceError(last_failure or "source_unknown")
         except ServiceError as error:
-            entry.update(state="blocked", reason=error.code if error.code in (
-                "entry_changed", "source_unknown", "source_conflict", "platform_unsupported", "target_unknown",
-                "conversion_names", "no_matching_assets", "required_asset_extract_failed") else blocked_reason(error))
+            entry.update(state="blocked", reason=blocked_reason(error),
+                         error=failure_detail(error, candidate.files.values(), log,
+                                              secrets=getattr(self.services, "log_secrets", set())))
             if error.params:
                 entry["params"] = error.to_json()["params"]
-        except (OSError, ValueError):
-            entry.update(state="blocked", reason="unreadable")
+        except (OSError, ValueError) as error:
+            detail = ServiceError("bundle_invalid", error=str(error))
+            entry.update(state="blocked", reason="unreadable",
+                         error=failure_detail(detail, candidate.files.values(), log,
+                                              secrets=getattr(self.services, "log_secrets", set())))
 
-    def run(self, ids: list[str], options: dict) -> str:
+    def _check_spine(self, candidate: Candidate, official: dict, incoming: dict, remappable: bool) -> bool:
+        versions = {version for values in official.values() for version in values if version}
+        series = {tuple(version.split(".")[:2]) for version in versions}
+        candidate.spine_version = (max(versions, key=lambda version: tuple(map(int, version.split("."))))
+                                   if len(series) == 1 else None)
+        unknown = any(not version for version in incoming.values())
+        mismatch = any(version and any(not target or version.split(".")[:2] != target.split(".")[:2]
+                                       for target in official[key]) for key, version in incoming.items())
+        if remappable:
+            raise ServiceError("conflict")
+        if unknown or (mismatch and (candidate.spine_version is None or
+                                    not self.services.settings.spine_options().is_valid())):
+            raise ServiceError("spine_version")
+        return mismatch
+
+    @staticmethod
+    def _require_importable(candidate: Candidate) -> None:
+        if candidate.entry["state"] not in IMPORTABLE:
+            detail = candidate.entry.get("error") or {
+                "code": candidate.entry.get("reason") or "entry_changed", "params": candidate.entry.get("params", {})}
+            raise ServiceError(detail["code"], **detail["params"])
+
+    def run(self, ids: list[str], options: dict, revision: int) -> str:
         options = options_of(options, self.defaults())
         if not isinstance(ids, list) or not all(isinstance(i, str) for i in ids):
             raise ServiceError("bad_params", key="ids")
         with self._lock:
+            if type(revision) is not int or revision != self._revision:
+                raise ServiceError("entry_changed")
             if any(i not in self._latest for i in ids):
                 raise ServiceError("bad_params", key="ids")
             chosen = [self._latest[i] for i in dict.fromkeys(ids)]
+            revision = self._revision
             library, pin = self._library, self._pin
         if library is None:
             raise ServiceError("bad_params", key="ids")
@@ -618,7 +731,15 @@ class BatchImport:
             raise ServiceError("folder_changed")
         settings = ImportSettings(self.services.settings, options)
 
+        def check_current() -> None:
+            if self.services.library is not library:
+                raise ServiceError("folder_changed")
+            if revision != self._revision or any(self._latest.get(c.entry["id"]) is not c for c in chosen):
+                raise ServiceError("entry_changed")
+
         def run(log: Any, progress: Any) -> ImportResult:
+            with self._lock:
+                check_current()
             if pin:
                 self.services._check_pin(library, pin)
             result = ImportResult([])
@@ -637,54 +758,79 @@ class BatchImport:
             # copies and output in this library's allowed data, not system temp.
             with staging.import_directory(library.root) as temporary:
                 with ThreadPoolExecutor(max_workers=options["workers"]) as workers:
-                    futures = {}
+                    futures, analyzed = {}, {}
                     for candidate in chosen:
-                        if candidate.entry["state"] not in ("ready", "convert", "update"):
+                        if candidate.entry["state"] not in IMPORTABLE:
                             continue
                         # Recheck the actual inputs and current official files before launching parallel builds.
                         try:
-                            current = frozenset((core_of(name), self._hashes.get(path).sha1)
+                            with self._lock:
+                                check_current()
+                                self._require_importable(candidate)
+                            current = frozenset((core_of(name), part_of(name), self._hashes.get(path).sha1)
                                                 for name, path in candidate.files.items())
                             if current != candidate.identity:
                                 raise ServiceError("entry_changed")
-                            fresh = Candidate(dict(candidate.files), dict(candidate.entry),
-                                              source_override=candidate.source_override)
+                            fresh = Candidate(dict(candidate.files), deepcopy(candidate.entry), candidate.error,
+                                              failure=deepcopy(candidate.failure),
+                                              source_override=deepcopy(candidate.source_override))
                             fresh.entry["files"] = [dict(f) for f in candidate.entry["files"]]
                             report(candidate, "convert" if candidate.conversion else "update"
                                    if candidate.entry["state"] == "update" else "add", "check")
                             self._judge(fresh, library, pin, log, asset_types=settings.asset_types(),
                                         strategy=settings.options["strategy"])
+                            analyzed[candidate.entry["id"]] = fresh
+                            self._log_analysis(fresh, "execute")
+                            if fresh.entry["state"] in ("library", "installed", "done"):
+                                futures[candidate.entry["id"]] = fresh
+                                continue
+                            self._require_importable(fresh)
                             futures[candidate.entry["id"]] = workers.submit(
                                 self._prepare, fresh, settings, Path(temporary), log, report)
                         except (OSError, ServiceError) as error:
                             futures[candidate.entry["id"]] = error
                     for candidate in chosen:
                         item = {"id": candidate.entry["id"], "outcome": "skipped", "reason": None,
-                                "libraryId": candidate.entry["libraryId"], "applied": False}
+                                "libraryId": candidate.entry["libraryId"], "configured": False, "applied": False}
                         phase = "add"
                         try:
                             state = candidate.entry["state"]
                             if state in ("done", "library", "installed"):
                                 item["outcome"] = "unchanged"
-                            elif state == "blocked":
-                                item["reason"] = candidate.entry["reason"]
+                            elif state not in IMPORTABLE:
+                                item["reason"] = candidate.entry.get("reason")
+                                if candidate.entry.get("error"):
+                                    item["error"] = candidate.entry["error"]
                                 if candidate.entry.get("params"):
                                     item["params"] = candidate.entry["params"]
                             else:
                                 future = futures[candidate.entry["id"]]
                                 if isinstance(future, Exception):
                                     raise future
+                                if isinstance(future, Candidate):
+                                    item.update(outcome="unchanged", libraryId=future.entry["libraryId"])
+                                    continue
                                 paths, updated, fresh = future.result()
+                                with self._lock:
+                                    check_current()
+                                    self._require_importable(candidate)
+                                    self._require_importable(fresh)
+                                    current = frozenset((core_of(name), part_of(name), self._hashes.get(path).sha1)
+                                                        for name, path in fresh.files.items())
+                                    if current != fresh.identity:
+                                        raise ServiceError("entry_changed")
                                 if fresh.not_transferred:
                                     item["notTransferred"] = fresh.not_transferred
                                     logger.warning("%s: %s", ", ".join(sorted(fresh.files)),
                                         t("webui.import.notTransferred", names=", ".join(fresh.not_transferred)))
                                 if paths is None:
                                     item.update(outcome="unchanged", libraryId=fresh.entry["libraryId"])
-                                    mod = next((mod for mod in library.mods() if mod.id == item["libraryId"]), None)
+                                    mod = None
                                 else:
                                     report(candidate, "add")
-                                    added = library.add_files(fresh.entry["kind"], paths, pin=pin)
+                                    with self._lock:
+                                        check_current()
+                                        added = library.add_files(fresh.entry["kind"], paths, pin=pin, direct=bool(fresh.direct))
                                     entries = [*added, *added.duplicates]
                                     if len(entries) != 1:
                                         raise ServiceError("mod_unsupported")
@@ -692,54 +838,91 @@ class BatchImport:
                                     item.update(libraryId=mod.id, outcome=("updated" if updated else "imported")
                                                 if added else "unchanged")
                                     result.added.extend(added)
+                                    if fresh.provenance:
+                                        library.remember_import_source(mod.id, fresh.provenance)
                                 if mod is not None:
                                     result.cores.update(core_of(name) for name in fresh.files)
                                     result.kinds.add(mod.kind)
-                                    if options["enableAfterImport"]:
+                                    if options["enableAfterImport"] and item["outcome"] != "unchanged":
                                         phase = "apply"
                                         report(candidate, phase)
-                                        applied = library.apply_import(mod.target, f"mod:{mod.id}", kind=mod.kind,
-                                            pin=pin, settings=settings, backup=options["backup"], log=log)
+                                        with self._lock:
+                                            check_current()
+                                            self._require_importable(candidate)
+                                            self._require_importable(fresh)
+                                            applied = library.apply_import(mod.target, f"mod:{mod.id}", kind=mod.kind,
+                                                pin=pin, settings=settings, backup=options["backup"], log=log)
                                         # A successful apply configures the source, including deferred applies.
                                         item["configured"] = True
                                         item["applied"] = not applied.deferred
                                     self._complete(candidate, library, pin, mod.id)
                         except ServiceError as error:
-                            item.update(outcome="failed", reason=error.code)
+                            item.update(outcome="failed", reason=error.code,
+                                        error=failure_detail(error, candidate.files.values(), log,
+                                                             secrets=getattr(self.services, "log_secrets", set())))
                             if error.params:
                                 item["params"] = error.to_json()["params"]
-                        except OSError:
-                            item.update(outcome="failed", reason="library_io_error")
-                        except Exception:
-                            logger.exception("Batch import entry failed: %s", candidate.entry["id"])
-                            item.update(outcome="failed", reason="internal")
-                        if phase == "apply" and item.get("libraryId") and item.get("reason"):
-                            # A failed install can still have saved the choice. Report both facts.
-                            try:
-                                if mod.kind == "other":
-                                    item["configured"] = any(row["id"] == mod.id and row["selected"]
-                                                             for row in library.other_mods(pin))
-                                else:
-                                    item["configured"] = library.configured(mod.target, pin).get(mod.kind) == f"mod:{mod.id}"
-                            except (ServiceError, OSError):
-                                item["configured"] = False
-                        result.results.append(item)
-                        with progress_lock:
-                            completed[0] += 1
-                        report(candidate, phase)
+                        except OSError as error:
+                            detail = ServiceError("library_io_error", error=str(error))
+                            item.update(outcome="failed", reason=detail.code, params=detail.params,
+                                        error=failure_detail(detail, candidate.files.values(), log,
+                                                             secrets=getattr(self.services, "log_secrets", set())))
+                        except Exception as error:
+                            detail = ServiceError("internal", error=str(error))
+                            item.update(outcome="failed", reason=detail.code, params=detail.params,
+                                        error=failure_detail(detail, candidate.files.values(), log,
+                                                             secrets=getattr(self.services, "log_secrets", set())))
+                        finally:
+                            if phase == "apply" and item.get("libraryId") and item.get("reason"):
+                                # A failed install can still have saved the choice. Report both facts.
+                                try:
+                                    if mod.kind == "other":
+                                        item["configured"] = any(row["id"] == mod.id and row["selected"]
+                                                                 for row in library.other_mods(pin))
+                                    else:
+                                        item["configured"] = library.configured(mod.target, pin).get(mod.kind) == f"mod:{mod.id}"
+                                except (ServiceError, OSError):
+                                    item["configured"] = False
+                            verdict = analyzed.get(candidate.entry["id"])
+                            if verdict and verdict.entry["state"] == "blocked":
+                                with self._lock:
+                                    candidate.entry = deepcopy(verdict.entry)
+                                item["state"] = "blocked"
+                            result.results.append(item)
+                            with progress_lock:
+                                completed[0] += 1
+                            report(candidate, phase)
             return result
 
-        return self.services.submit("import.run", run, writes="game" if options["enableAfterImport"] else "library",
+        writes = ("game" if options["enableAfterImport"] else "library") if any(
+            candidate.entry["state"] in IMPORTABLE for candidate in chosen) else None
+        return self.services.submit("import.run", run, writes=writes,
                                     library=library)
 
     def _prepare(self, candidate: Candidate, settings: ImportSettings, temporary: Path,
                  log: Any, progress: Any) -> tuple[list[Path] | None, bool, Candidate]:
         entry = candidate.entry
-        if entry["state"] in ("library", "installed"):
-            return None, False, candidate
-        if entry["state"] == "blocked":
-            raise ServiceError(entry["reason"], **entry.get("params", {}))
+        self._require_importable(candidate)
         if entry["state"] == "ready":
+            if candidate.direct:
+                output = temporary / entry["id"] / "direct"
+                output.mkdir(parents=True)
+                paths = []
+                for (target, source), original in zip(candidate.direct.items(), candidate.originals):
+                    path = output / target.name
+                    data = source.read_bytes()
+                    expected = int(parse_filename(target.name).crc)
+                    fix = Bundle.check_need_crc(original) and CRCUtils.compute_crc32(data) != expected
+                    if not fix and source.name.removesuffix(".backup") == target.name:
+                        paths.append(source)
+                        continue
+                    if fix:
+                        data = CRCUtils.apply_crc_fix(data, expected)
+                        if data is None:
+                            raise ServiceError("crc_fix_failed", file=source.name)
+                    path.write_bytes(data)
+                    paths.append(path)
+                return paths, False, candidate
             return list(candidate.files.values()), False, candidate
         phase = "convert" if candidate.conversion else "update"
         progress(candidate, phase, "check")

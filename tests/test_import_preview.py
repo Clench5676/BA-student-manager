@@ -55,7 +55,7 @@ def test_source_preview_composes_missing_official_parts_and_never_writes_art_to_
 
 def test_source_preview_uses_the_identified_core_for_renamed_uploads(env, monkeypatch):
     target = game_bundle(env.game_dir, "test_home_gl")
-    source = make_mod(env.original, env.tmp / "renamed")
+    source = game_bundle(env.tmp / "renamed", date="2025-01-01", payload=b"renamed lobby")
     monkeypatch.setattr("ba_modding_toolkit.library.identity.content_cores", lambda path: {"test_home_gl"})
     env.services._game = SimpleNamespace(spine_files_from=lambda paths: {
         "background.skel": b"background", "test_home_gl.skel": b"incoming lobby"})
@@ -125,7 +125,7 @@ def test_blocked_sources_still_serve_renderable_preview_assets(env, monkeypatch,
     if problem == "source":
         monkeypatch.setattr("ba_modding_toolkit.webui.batch_import._asset_match", lambda *args, **kwargs: ([], ""))
 
-    source = make_mod(env.original, env.tmp / 'input')
+    source = game_bundle(env.tmp / 'input', date="2025-01-01", payload=b"old mod")
     inspect = integrity.inspect
     if problem == 'conflict':
         monkeypatch.setattr('ba_modding_toolkit.library.identity.content_cores',

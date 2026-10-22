@@ -1849,7 +1849,7 @@ def test_duplicate_add_reports_the_existing_mod_even_with_another_filename(setup
     source = make_mod(env.original, env.tmp / "input")
     entry, = env.library.add([source])
     env.library.rename(entry.id, "My mod")
-    renamed = env.tmp / source.name.replace("2026-01-01_003", "2026-02-01_002")
+    renamed = env.tmp / source.name.replace("2026-01-01", "2026-02-01")
     renamed.write_bytes(source.read_bytes())
     plain = env.tmp / "My renamed portrait.bundle"
     plain.write_bytes(source.read_bytes())
@@ -1859,6 +1859,13 @@ def test_duplicate_add_reports_the_existing_mod_even_with_another_filename(setup
         assert [(m.id, m.label) for m in result.duplicates] == [(entry.id, "My mod")]
         assert result.to_json()["duplicates"][0]["target"] == "test"
     assert len(list((env.root / "mods").iterdir())) == 1
+
+    # Equal bytes belonging to a different part must remain a separate Mod.
+    different_part = env.tmp / source.name.replace("_003_", "_002_")
+    different_part.write_bytes(source.read_bytes())
+    result = reload_library(env).add([different_part])
+    assert len(result) == 1 and not result.duplicates
+    assert result[0].id != entry.id
 
 
 def test_duplicate_adds_from_two_instances_are_serialized(setup_library):

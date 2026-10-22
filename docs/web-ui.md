@@ -837,17 +837,23 @@ HTTP endpoints outside `/api/rpc`, each with its own token, never the session to
 
 ### Batch import origins and conversion
 
-`import.analyze {paths, recursive}` returns a job ID; its result is `{entries, skipped}`.
-`Entry.state` is `ready`, `update`, `blocked`, `library`, `installed` or `done`. `done` means
+`import.analyze {paths, recursive}` returns a library writer job ID; its result is `{entries, skipped, revision}`.
+`Entry.state` is `ready`, `convert`, `update`, `blocked`, `library`, `installed` or `done`. `done` means
 the entry imported successfully in this session; it is unchecked and cannot be selected.
 Completion survives leaving the page and re-analyzing the same unchanged inputs, including
-inputs that were rebuilt or converted. It is scoped to the library and pinned install and
+direct inputs. Rebuilt and converted inputs are recognized as `library` through persisted source
+identities, including after restarting or moving the source files. Completion is scoped to the library and pinned install and
 requires the imported library Mod to still exist. Pre-existing library/installed entries,
 skipped updates with no output and failed imports do not become `done`.
 
-`import.run` results use `applied: true` when that import successfully configured its Mod as
-the variant's chosen source. With `enableAfterImport`, every successful import selects its
-source, including imports whose output matches an existing library Mod. This applies to
+`import.run {ids, options, revision}` requires the revision returned by the latest analysis.
+Queued work checks that revision again before building or writing. Only `ready`, `convert`,
+and `update` rows can execute; a fresh blocked verdict stops the build, library addition and
+apply, and requires Recheck before a retry. Merged selection filters each member separately.
+
+Results use `applied: true` when that import successfully configured its Mod as
+the variant's chosen source. With `enableAfterImport`, each newly imported Mod selects its
+source. Existing library Mods and unchanged outputs are skipped without applying. This applies to
 `spr`, `lobby`, `model` and `other`. The master switch can remain off: configuration succeeds
 immediately and the existing deferred apply writes game files when it turns on. `applied`
 does not indicate that game files changed. For several imports targeting the same variant
@@ -859,8 +865,8 @@ Server values are `global` and `japan`, the servers supported by Settings; platf
 `android`, `ios` and `windows`. A target platform can be `null` when its metadata is conflicting
 or unsupported. `source: null` means that a complete source could not be established.
 
-`import.setSource {id, server, platform}` returns a read-only analysis job ID whose result is
-one replacement entry with the same ID and `source.detected: false`. It checks the upload's
+`import.setSource {id, server, platform}` returns a library writer job ID whose result is
+one replacement entry with the same ID, a new `revision`, and `source.detected: false`. It checks the upload's
 fingerprint and pinned folder again. Choices survive rechecks of unchanged bytes in this session.
 A new upload or library/folder context invalidates stale analysis as usual. The page keeps the
 choice UI in `batch-import.js`'s `sourceLabel`, `sourceControl` and `openSource` functions; only

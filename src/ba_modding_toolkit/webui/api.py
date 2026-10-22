@@ -619,8 +619,8 @@ def build_api(s: Services) -> RpcRegistry:
         return s.batch_import.set_source(id, server, platform)
 
     @rpc.method("import.run")
-    def import_run(ids: list[str], options: dict[str, Any]) -> str:
-        return s.batch_import.run(ids, options)
+    def import_run(ids: list[str], options: dict[str, Any], revision: int) -> str:
+        return s.batch_import.run(ids, options, revision)
 
     @rpc.method("import.options")
     def import_options() -> dict[str, Any]:

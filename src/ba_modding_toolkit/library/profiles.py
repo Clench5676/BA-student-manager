@@ -39,6 +39,7 @@ from typing import Any
 
 from ..errors import ServiceError
 from ..filelock import file_lock, replace
+from ..logging_utils import log_failure
 
 logger = logging.getLogger(__name__)
 
@@ -125,16 +126,16 @@ class Profiles:
             try:
                 return _parse(self.path), False
             except (OSError, ValueError) as error:
-                logger.warning("Cannot read %s (%s), reading %s instead", self.path, error, self.prev.name)
+                log_failure(logger, logging.WARNING, "Cannot read profiles, reading previous copy instead", error)
                 bad = True
         if self.prev.exists():
             try:
                 data = _parse(self.prev)
             except (OSError, ValueError) as error:
-                logger.error("Cannot read %s either (%s)", self.prev, error)
+                log_failure(logger, logging.ERROR, "Cannot read previous profiles either", error)
                 raise ServiceError("profiles_unreadable", file=str(self.path if bad else self.prev)) from error
             if not bad:
-                logger.warning("%s is missing, reading %s", self.path.name, self.prev.name)
+                logger.warning("Profiles missing, reading previous copy")
             return data, bad
         if bad:
             raise ServiceError("profiles_unreadable", file=str(self.path))

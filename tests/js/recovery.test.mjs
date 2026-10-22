@@ -94,6 +94,22 @@ test("error forwarding deduplicates and limits a burst to ten reports per minute
   assert.equal(h.api.forward(error), true);
 });
 
+test("settings and popup reports send the current list and displayed language", async () => {
+  const h = harness();
+  h.ctx.document.documentElement = { lang: "zh-CN" };
+  let rows = [{ id: "model", state: "blocked", reason: "mod_target_unknown" }];
+  h.api.importList(() => ({ rows, phase: "idle", revision: 4 }));
+  await h.api.report();
+  rows = [];
+  await h.api.report({ code: "conversion_failed" });
+  const calls = h.calls.filter(([method]) => method === "app.report").map(([, params]) => params);
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].context.language, "zh-CN");
+  assert.equal(calls[0].context.batchImport.rows[0].reason, "mod_target_unknown");
+  assert.deepEqual(calls[1].context.batchImport.rows, []);
+  assert.equal(calls[1].event.code, "conversion_failed");
+});
+
 test("safe mode ignores the last page and reaches plain Settings without WebGL", async () => {
   const h = harness({ safeMode: true });
   h.listeners.DOMContentLoaded();

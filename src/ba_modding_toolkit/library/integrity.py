@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -25,6 +26,8 @@ def texture_key(name: str) -> str:
 @dataclass
 class Contents:
     platforms: set[str] = field(default_factory=set)
+    versions: set[str] = field(default_factory=set)
+    layout: dict[str, tuple[tuple[int, int], ...]] = field(default_factory=dict)
     names: set[str] = field(default_factory=set)
     files: set[str] = field(default_factory=set)
     references: set[str] = field(default_factory=set)
@@ -36,9 +39,9 @@ class Contents:
     textures: dict[str, tuple[int, int]] = field(default_factory=dict)
 
     def merge(self, other: Contents) -> None:
-        for key in ("platforms", "names", "files", "references", "reference_paths", "streams"):
+        for key in ("platforms", "versions", "names", "files", "references", "reference_paths", "streams"):
             getattr(self, key).update(getattr(other, key))
-        for key in ("skeletons", "atlases", "textures", "reference_names"):
+        for key in ("skeletons", "atlases", "textures", "reference_names", "layout"):
             getattr(self, key).update(getattr(other, key))
 
     def spine(self) -> dict:
@@ -58,6 +61,7 @@ class Inspection:
         self._revisions: dict[Path, tuple[int, ...]] = {}
         self._bundles: dict[Path, Bundle] = {}
         self._contents: dict[Path, Contents] = {}
+        self._metadata: dict[Path, Contents] = {}
         self._keys: dict[Path, set[AssetKey]] = {}
         self._readable: dict[tuple[Path, tuple[Path, ...]], set[AssetKey]] = {}
 
@@ -72,16 +76,18 @@ class Inspection:
         for path in self._revisions:
             self.check(path)
 
-    def bundle(self, path: Path) -> Bundle:
+    def bundle(self, path: Path, *, cache: bool = True) -> Bundle:
         self.check(path)
-        if path not in self._bundles:
+        bundle = self._bundles.get(path)
+        if bundle is None:
             devmode.check_read(path)
             bundle = Bundle.load(path)
             if bundle is None:
                 raise ServiceError("bundle_invalid", file=path.name)
-            self._bundles[path] = bundle
+            if cache:
+                self._bundles[path] = bundle
         self.check(path)
-        return self._bundles[path]
+        return bundle
 
     def inspect(self, path: Path, *, allow_unknown: bool = False) -> Contents:
         self.check(path)
@@ -92,6 +98,13 @@ class Inspection:
         if not allow_unknown and (not result.platforms or "UnknownPlatform" in result.platforms):
             raise ServiceError("mod_platform_unknown", file=path.name)
         return result
+
+    def metadata(self, path: Path) -> Contents:
+        self.check(path)
+        if path not in self._metadata:
+            self._metadata[path] = metadata(path, inspection=self)
+        self.check(path)
+        return self._metadata[path]
 
     def keys(self, path: Path) -> set[AssetKey]:
         self.check(path)
@@ -115,6 +128,51 @@ class Inspection:
             self._readable[cache_key] = (set(patch) - {"__mode__"}) | (scope.unchanged if scope else set())
         self.validate()
         return self._readable[cache_key]
+
+
+def replacement_key(name: str) -> str:
+    """Keep the complete release and part identity, ignoring only the final numeric CRC."""
+    return re.sub(r"_[0-9]+\.bundle$", ".bundle", name.removesuffix(".backup"))
+
+
+def replacements(files: dict[str, Path], targets: list[Path]) -> dict[Path, Path]:
+    result = {}
+    for name, source in files.items():
+        matches = [path for path in targets if replacement_key(path.name) == replacement_key(name)]
+        if not matches:
+            return {}
+        if len(matches) != 1 or matches[0] in result:
+            raise ServiceError("game_file_conflict", file=name)
+        result[matches[0]] = source
+    return result
+
+
+def metadata(path: Path, *, inspection: Inspection) -> Contents:
+    """Validate UnityFS and serialized-file headers without reading individual assets."""
+    bundle = inspection.bundle(path)
+    if getattr(bundle.env.file, "signature", None) != "UnityFS":
+        raise ServiceError("bundle_invalid", file=path.name)
+    result = Contents(names={path.name.removesuffix(".backup")})
+
+    def walk(file, name: str = "") -> None:
+        if hasattr(file, "target_platform"):
+            identity = basename(name)
+            result.files.add(identity)
+            result.layout[identity] = tuple(sorted((obj.path_id, obj.type.value) for obj in file.objects.values()))
+            platform = file.target_platform
+            result.platforms.add(getattr(platform, "name", str(platform)))
+            version = re.match(r"^(\d+\.\d+)(?:\.|$)", file.unity_version)
+            if not version:
+                raise ServiceError("bundle_invalid", file=path.name)
+            result.versions.add(version[1])
+            return
+        for child_name, child in getattr(file, "files", {}).items():
+            walk(child, child_name)
+
+    walk(bundle.env)
+    if not result.platforms or result.platforms & {"UnknownPlatform", "NoTarget"}:
+        raise ServiceError("mod_platform_unknown", file=path.name)
+    return result
 
 
 def inspect(path: Path, *, allow_unknown: bool = False, inspection: Inspection | None = None) -> Contents:
@@ -182,6 +240,44 @@ def check_platform(contents: Contents, path: Path, expected: set[str]) -> None:
     if contents.platforms != expected:
         raise ServiceError("mod_platform_mismatch", file=path.name,
                            platform=", ".join(sorted(contents.platforms)), expected=", ".join(sorted(expected)))
+
+
+def references_changed_objects(path: Path, changed: dict[str, set[int]], removed_cabs: set[str],
+                               inspection: Inspection) -> bool:
+    """Inspect external PPtrs without resolving them or following paths outside the install.
+
+    External tables identify candidate consumers cheaply. Only those consumers need their
+    objects read; an unreadable consumer cannot prove an object safe to remove or retype.
+    """
+    def pointers(value, external: dict[int, str]) -> bool:
+        if isinstance(value, dict):
+            file_id, path_id = value.get("m_FileID"), value.get("m_PathID")
+            if path_id and path_id in changed.get(external.get(file_id), set()):
+                return True
+            return any(pointers(child, external) for child in value.values())
+        if isinstance(value, (list, tuple)):
+            return any(pointers(child, external) for child in value)
+        return False
+
+    def walk(file) -> bool:
+        if hasattr(file, "target_platform"):
+            external = {index: basename(ref.path) for index, ref in enumerate(file.externals, 1)}
+            if removed_cabs.intersection(external.values()):
+                return True
+            if not changed.keys() & external.values():
+                return False
+            for obj in file.objects.values():
+                try:
+                    tree = obj.read_typetree()
+                except Exception:
+                    return True
+                if pointers(tree, external):
+                    return True
+            return False
+        return any(walk(child) for child in getattr(file, "files", {}).values())
+
+    # A removal may need to inspect the whole install; do not retain every decompressed bundle.
+    return walk(inspection.bundle(path, cache=False).env)
 
 
 def missing_parts(effective: Contents, official: Contents) -> set[str]:

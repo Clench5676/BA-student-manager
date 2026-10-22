@@ -42,8 +42,29 @@ Manual and automatic source choices use the same strict updater; a partial conve
 cannot be added or applied as a completed Mod. Unchanged assets count as applied, and
 assets split across several target bundles are checked together.
 
-Source probes do not convert, install or apply Mods. Library inspection may perform
-migration saves, so analysis is not guaranteed to be free of writes. If no candidate
+Source probes do not install or apply Mods. Converted entries remember the complete source
+part hashes, target server and platform, official bundle identities, and stored output filenames and hashes.
+Analysis recognizes those inputs as already in the library. An older library entry without
+provenance is recognized only when its recorded `source_hashes` contains the same source
+part mapping, target and official release identity. Entries without recorded source hashes
+stay unrecognized; analysis never rebuilds them. Optional recognition failures leave the
+normal compatibility verdict intact. Recognition results and file hashes are cached by revision.
+Changed inputs, outputs, target releases and removed entries invalidate the association.
+Library inspection may perform migration saves. Both analysis and source selection run as
+library writer jobs, holding library moves and quitting until they finish. If no candidate
 passes, the row retains `source_unknown`, its preview and the manual source selector.
 Both individual and merged state labels ask for manual source identification. Other
 failures retain their specific statuses.
+
+Every analyzed row emits an INFO verdict with its kind, state, reason code, parameters,
+redacted filenames, parts, platforms and conversion route. Reports from Settings and error
+popups include the current import list, including selections and blocked reasons. Large
+snapshots report their total and omitted row counts. The report uses the displayed UI
+language; the startup log reads the same saved language preference before game detection.
+
+Current-name and CRC-only replacements preserve whole bundle bytes. Admission requires
+matching serialized CAB identities and object ID/type layouts, compatible Unity/platform
+metadata and consistent region evidence. The effective set combines replacement parts with
+retained official parts and validates external references and streams. Spine versions and
+retained atlas dimensions are checked even when update filters exclude those assets.
+Failure messages are sanitized before reaching either the session log or job log.

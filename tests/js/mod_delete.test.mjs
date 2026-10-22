@@ -61,12 +61,12 @@ test("a completed deletion reports any pending restoration from its single write
   }
 });
 
-test("applying the source already in use shows its status without starting a job", async () => {
+test("applying the verified installed source does not start another job", async () => {
   const applySource = source.slice(source.indexOf("async function applyCandidate("), source.indexOf("// --- variant chips"));
   const messages = [];
-  const apply = new Function("deps", `const {${["variant", "modsOn", "appliedKey", "notify", "T", "job"].join(",")}} = deps;
+  const apply = new Function("deps", `const {${["variant", "shownSource", "selectionStatus", "notify", "T", "job"].join(",")}} = deps;
     ${applySource}; return applyCandidate;`)({
-    variant: () => ({ key: "test" }), modsOn: () => true, appliedKey: () => "m:m1",
+    variant: () => ({ key: "test" }), shownSource: () => "m:m1", selectionStatus: () => "status.installed",
     T: (s) => s, notify: (s) => messages.push(s), job: () => assert.fail("must not submit a job"),
   });
   await apply("m:m1", "spr");

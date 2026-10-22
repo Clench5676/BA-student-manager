@@ -1224,7 +1224,12 @@
 			"target_unknown": "游戏目录平台未知",
 			"conversion_names": "无对应文件名",
 			"no_matching_assets": "无匹配资源",
-			"conversion_failed": "转换失败"
+			"conversion_failed": "转换失败",
+			"conflict": "目标冲突",
+			"spine_version": "Spine 版本不兼容",
+			"mod_unity_version_mismatch": "Unity 版本不兼容",
+			"mod_release_mismatch": "游戏版本不兼容",
+			"crc_fix_failed": "CRC 修复失败"
 		},
 		"drop": {
 			"hint": "拖入 Mod 文件以添加"
@@ -1510,7 +1515,23 @@
 				"target_unknown": "游戏目录平台未知",
 				"conversion_names": "无对应文件名",
 				"no_matching_assets": "无匹配资源",
-				"conversion_failed": "转换失败"
+				"conversion_failed": "转换失败",
+				"mod_platform_unknown": "Mod 平台未知",
+				"library_io_error": "文件访问失败",
+				"mod_target_ambiguous": "Mod 目标不唯一",
+				"mod_target_unknown": "Mod 目标未知",
+				"mod_parts_missing": "Mod 分卷缺失",
+				"game_file_conflict": "游戏文件冲突",
+				"mod_platform_mismatch": "平台不兼容",
+				"mod_unity_version_mismatch": "Unity 版本不兼容",
+				"mod_release_mismatch": "游戏版本不兼容",
+				"required_asset_extract_failed": "资源提取失败",
+				"required_asset_apply_failed": "资源应用失败",
+				"required_assets_unmatched": "必要资源未匹配",
+				"entry_changed": "文件已变更",
+				"original_unavailable": "原版文件不可用",
+				"original_invalid": "原版文件无效",
+				"failed": "导入检查失败"
 			},
 			"phase": {
 				"update": "正在更新",

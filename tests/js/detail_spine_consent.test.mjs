@@ -92,13 +92,14 @@ test("a cancelled confirmation read cannot add a portrait after detail was left"
   assert.equal(h.host.children.length, 0);
 });
 
-test("detail thumbnail fallbacks use collection portraits for installed, official and mod sources", () => {
+test("detail thumbnail fallbacks use collection portraits only for the matching official source", () => {
   const code = source.slice(source.indexOf("function collectionPortrait("), source.indexOf("function begin()"));
   const variants = [{ key: "ibuki", spr: "ibuki_spr", portrait: "/ibuki.png", modList: [{ id: "added", kind: "spr" }] },
     { key: "special:npc", lobby: "npc" }];
   const read = new Function("fam", "spineBase", "variantBase", `${code}; return collectionPortrait;`)
     ({ variants }, (kind, core) => `${kind}/${core}`, (v) => `installed/${v.spr}`);
-  for (const base of ["spr/ibuki_spr", "official-spr/ibuki_spr", "installed/ibuki_spr", "mod/added"]) assert.equal(read(base), "/ibuki.png");
+  assert.equal(read("official-spr/ibuki_spr"), "/ibuki.png");
+  for (const base of ["spr/ibuki_spr", "installed/ibuki_spr", "mod/added"]) assert.equal(read(base), null);
   assert.equal(read("lobby/npc"), null);
   assert.equal(read("unknown"), null);
 });

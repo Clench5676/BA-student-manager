@@ -26,6 +26,7 @@ from typing import Iterator
 
 from .. import devmode, game_paths
 from ..errors import ServiceError
+from ..logging_utils import log_failure
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +86,7 @@ def game_processes() -> list[str]:
         found = [text for pid, text in _ps("comm") if pid not in own and is_game_name(text)]
         return found or [text for pid, text in _ps("args") if pid not in own and is_game_command(text)]
     except (OSError, subprocess.SubprocessError) as error:
-        logger.debug("process list unavailable: %s", error)
+        log_failure(logger, logging.DEBUG, "Process list unavailable", error, code="game_status_unavailable")
         raise ServiceError("game_status_unavailable") from error
 
 
@@ -111,7 +112,7 @@ def _windows_processes() -> list[tuple[int | None, str]]:
     try:
         return _toolhelp_processes()
     except OSError as error:
-        logger.info("process snapshot unavailable, using tasklist: %s", error)
+        log_failure(logger, logging.INFO, "Process snapshot unavailable, using tasklist", error)
         return _tasklist_processes()
 
 
@@ -187,7 +188,7 @@ def steam_state_flags(game_folder: Path | str) -> int | None:
     try:
         text = manifest.read_text(encoding="utf-8", errors="replace")
     except OSError as error:
-        logger.info("Steam manifest unreadable: %s", error)
+        log_failure(logger, logging.INFO, "Steam manifest unreadable", error)
         return None
     values = game_paths.vdf_values(text, "StateFlags")
     try:
@@ -203,8 +204,9 @@ def check_steam_idle(game_folder: Path | str) -> None:
     """
     flags = steam_state_flags(game_folder)
     if flags is not None and flags & STEAM_BUSY_MASK:
-        logger.info("Steam busy with %s: StateFlags %d", game_folder, flags)
-        raise ServiceError("steam_busy")
+        error = ServiceError("steam_busy")
+        log_failure(logger, logging.INFO, f"Steam busy: StateFlags {flags}", error)
+        raise error
 
 
 # --- destinations ---
