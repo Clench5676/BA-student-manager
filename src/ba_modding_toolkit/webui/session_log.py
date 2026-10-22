@@ -13,7 +13,7 @@ LOG_LINES = 500
 LOG_BYTES = 2 * 1024 * 1024
 REDACTED = "[redacted]"
 _CREDENTIAL = re.compile(
-    r'''(?ix)(["']?(?:[\w-]*(?:token|secret|password|passwd|api[_-]?key)|authorization|cookie|set-cookie)["']?\s*[:=]\s*)
+    r'''(?ix)(?<![\w-])(["']?(?:[\w-]*(?:token|secret|password|passwd|api[_-]?key)|authorization|cookie|set-cookie)["']?\s*[:=]\s*)
         ("[^"\r\n]*"|'[^'\r\n]*'|[^\s,;&]+)''')
 _QUERY = re.compile(r"(?i)([?&](?:t|token|key|access_token|session_token)=)[^\s&#\"']+")
 _BEARER = re.compile(r"(?i)\b(Bearer|Basic)\s+[A-Za-z0-9+/_.=-]+")
@@ -55,3 +55,21 @@ class RedactingFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         return redact(super().format(record), self.secrets)
+
+
+def open_run_log(path: Path, secrets: set[str], *, safe_mode: bool = False) -> logging.FileHandler:
+    """Rotate once per launch and write the environment before any other records."""
+    from .diagnostics import environment, private_text
+    import json
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    for source, target in ((path.with_name("webui.1.log"), path.with_name("webui.2.log")),
+                           (path, path.with_name("webui.1.log"))):
+        if source.exists():
+            source.replace(target)
+    handler = logging.FileHandler(path, mode="w", encoding="utf-8")
+    handler.setFormatter(RedactingFormatter(secrets))
+    header = {**environment(safe_mode), "dataDir": private_text(str(path.parent), secrets)}
+    handler.stream.write("Environment " + json.dumps(header, ensure_ascii=False) + "\n")
+    handler.flush()
+    return handler

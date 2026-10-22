@@ -1881,3 +1881,46 @@ Online data, fetched on demand and kept in memory only (never written to disk):
 
 The page shows only the UI language's lines: a dialogue card without one shows a grey, slanted "Dialogue N", and the
 subtitle shows nothing for it.
+
+### Local error reports and startup recovery
+
+**Error Report** in Settings' log row and error/refusal popups creates one local
+`BAMT-report-<version>-<YYYYMMDD-HHMM>.zip`. The same action is available on the built-in startup failure page.
+The destination order is Desktop, Downloads, then the app data directory; Windows uses redirected shell folders.
+Repeated reports in one minute receive a numeric suffix. Finder/Explorer selects the archive and the clipboard
+receives its short summary. No upload is performed. A failed clipboard/reveal action does not discard the report.
+
+The archive contains `report.txt`, `report.json`, and `webui.log`, `webui.1.log`, `webui.2.log`. Each log keeps at
+most its last 512 KiB, dropping a partial first line. Structured data is limited to 256 KiB. Home paths, user names,
+credentials (including the existing session-secret registry), and asset filenames are redacted; extensions and
+counts remain. Game/library summaries contain no entry names or install paths. Unavailable observations are `null`.
+Game metadata is captured during initialization and `app.info`; report generation never initializes game assets
+or acquires the library lock. Persisted library metadata supplies counts only.
+
+Reports include app/build and OS details, system/UI locale, WebView2 or WebKit version, browser user agent,
+front-end page/phase/errors, screen size/scale, WebGL support/renderer when available, consent states, game metadata,
+library counts, boot timings, and the last failed job's error code/parameters. Backend exceptions create a report
+in the data directory, at most once per minute, retaining three automatic archives with an `-auto` suffix. User-created reports are retained. A bounded redacted snapshot of
+the latest exception and its environment is embedded in later reports; archives are never nested.
+
+Recovery code and its six-locale strings are embedded before CSS and the module graph. HTML delivery does not
+wait for game UI cache detection; the normal loading code adopts cached/game styling after `app.info`. During boot,
+uncaught errors, rejected promises and failed scripts/styles show a built-in recovery page immediately. Media
+failures are logged and retain their existing placeholders. A 45-second deadline covers modules, settings/info,
+strings/fonts, UI indexes, Mod status and the first screen. Slow boot retains the normal cover until that deadline.
+A late completion cannot dismiss the failure page. Error forwarding is deduplicated for 60 seconds and capped at
+ten distinct errors per minute on both sides.
+
+`--safe-mode` is a launch-only option. The safe restart action releases the single-instance lock before spawning
+the replacement. Safe mode omits the normal module graph, refuses game-asset requests, skips background maintenance,
+never creates Spine/WebGL renderers, and opens built-in Settings/report/log controls instead of restoring a page.
+The screen identifies Safe Mode and instructs a normal launch to leave it. Saved consent and preferences remain intact.
+
+Windows checks the Evergreen runtime before importing pywebview or creating a window, using Microsoft's
+[per-user/per-machine registry detection](https://learn.microsoft.com/microsoft-edge/webview2/concepts/distribution#detect-if-a-webview2-runtime-is-already-installed)
+in both registry views. The supported runtime floor is Chromium/WebView2 105; older/missing runtimes get a native
+localized message with the download URL and report path. Other native startup failures use the same report and
+message-box path without depending on a web view. macOS uses a native alert; Windows uses MessageBoxW.
+
+Each launch rotates the current log through `.1` and `.2` before service construction. Its first line records the
+app/build, OS, web view, home-redacted data directory and safe-mode state. Settings' log viewer still reads `webui.log`.

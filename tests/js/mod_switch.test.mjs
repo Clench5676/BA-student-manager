@@ -926,7 +926,7 @@ test("held refusal prompts accept Overwritten, Add First and its result, and sca
   await drawn(dialog, "cancel");
   assert.equal(action(dialog, "ok").click().stopped, false, "Add First can submit adoption");
   await drawn(dialog, "ok");
-  assert.equal(action(dialog, "cancel"), undefined, "the adoption result has only OK");
+  assert.equal(action(dialog, "cancel").attrs["aria-label"], S("recovery.report"), "the failed adoption offers Error Report");
   assert.equal(Loading.held(), true);
   assert.equal(press("Escape", stage).stopped, false, "the follow-up result receives Escape from the page");
   assert.equal(await held, false);

@@ -637,6 +637,17 @@ const MSG = { title: 150, gap: 28, rowMin: 104, check: 150, buttons: 236, none: 
 // The popup takes the keyboard focus while it is open (Enter presses nothing under it) and gives it back after.
 // Without the frame's prefab (no game folder) the same message is drawn plain.
 export function message(opts) {
+  if (opts.error || opts.title === T("job.failed")) {
+    if (!opts.cancel) {
+      opts = { ...opts, cancel: T("recovery.report") };
+      return new Promise((resolve) => showMessage(opts, (result) => {
+        if (result.button === "cancel") globalThis.BAMTRecovery?.report();
+        resolve(result);
+      }));
+    }
+    opts = { ...opts, lines: [...(opts.lines || []), { text: "", button: { label: T("recovery.report"),
+      fn: () => globalThis.BAMTRecovery?.report() } }] };
+  }
   return new Promise((resolve) => { showMessage(opts, resolve); });
 }
 

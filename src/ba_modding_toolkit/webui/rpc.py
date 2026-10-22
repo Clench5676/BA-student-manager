@@ -12,7 +12,8 @@ logger = logging.getLogger(__name__)
 
 
 class RpcRegistry:
-    def __init__(self) -> None:
+    def __init__(self, on_exception=None) -> None:
+        self.on_exception = on_exception
         self._methods: dict[str, Callable[..., Any]] = {}
 
     def method(self, name: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
@@ -44,6 +45,8 @@ class RpcRegistry:
             return {"error": e.to_json()}
         except Exception as e:
             logger.exception("RPC %s failed", name)
+            if self.on_exception:
+                self.on_exception(type(e), e, e.__traceback__)
             return {"error": {"code": "internal", "params": {"method": name, "error": f"{type(e).__name__}: {e}"}}}
         return {"result": to_json(result)}
 

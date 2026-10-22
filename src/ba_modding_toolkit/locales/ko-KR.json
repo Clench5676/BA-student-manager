@@ -1566,6 +1566,34 @@
 				"apply": "Mod 적용",
 				"export": "파일 내보내기"
 			}
+		},
+		"recovery": {
+			"report": "오류 보고서 생성",
+			"failed": "시작 실패",
+			"step": "단계",
+			"logs": "로그 폴더 열기",
+			"safeRestart": "안전 모드로 다시 시작",
+			"retry": "재시도",
+			"safeOn": "안전 모드",
+			"safeHint": "일반 실행으로 안전 모드 종료",
+			"saved": "보고서 저장됨",
+			"copied": "요약 복사됨",
+			"copyFailed": "복사 불가",
+			"actionFailed": "작업 실패",
+			"native": "오류 보고서 저장 위치:",
+			"runtime": "WebView2 설치 또는 업데이트 필요. 오류 보고서:",
+			"phases": {
+				"modules": "앱 모듈",
+				"boot": "시작",
+				"settings": "설정",
+				"info": "실행 환경",
+				"strings": "언어",
+				"fonts": "글꼴",
+				"ui-indexes": "게임 UI",
+				"mod-state": "Mod 상태",
+				"first-screen": "첫 화면",
+				"ready": "준비 완료"
+			}
 		}
 	}
 }

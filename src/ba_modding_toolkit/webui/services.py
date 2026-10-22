@@ -204,7 +204,7 @@ class Services:
     def __init__(self, settings: Settings | None = None, data_dir: Path = EXE_DIR, *,
                  events: EventBus | None = None, jobs: JobRunner | None = None, state: UiState | None = None,
                  cache: Any = None, game: Any = None, catalog: Any = None, library: Any = None,
-                 classic_options: dict[str, Any] | None = None):
+                 classic_options: dict[str, Any] | None = None, safe_mode: bool = False):
         devmode.check_read(data_dir)
         self.timings = Timings()
         with self.timings.measure("settings.load-detect"):
@@ -212,6 +212,14 @@ class Services:
         self.data_dir = Path(data_dir)
         self.log_path = self.data_dir / "webui.log"
         self.log_secrets: set[str] = set()
+        self.safe_mode = safe_mode
+        self.restart_requested = False
+        from .diagnostics import Reports
+        self.reports = Reports(self.data_dir, services=self, safe_mode=safe_mode)
+        self.reports.secrets = self.log_secrets
+        game_dir = self.settings.game_dir()
+        self.reports.game = {"found": bool(game_dir and game_dir.is_dir()), "server": self.settings.server_region(),
+                             "platform": "Android" if self.settings.is_adb_mode() else "Windows", "resourceVersion": None}
         self.events = events or EventBus()
         self.jobs = jobs or JobRunner(self.events)
         with self.timings.measure("settings.ui-state"):
@@ -249,6 +257,8 @@ class Services:
         self.scanner = Scanner(self._scan, allowed=self.scan_allowed, writer_busy=self.jobs.busy,
                                on_done=self._scanned)
         self.jobs.listen(self._job_finished)
+        self.jobs.listen(lambda job: self.reports.job_finished(job))
+        self.jobs.on_exception = lambda *args: self.reports.backend_exception(*args)
         self.watch: Any = None  # the GameWatch, once start() runs
         self.settings.on_change(self._on_settings_changed)
         from .batch_import import BatchImport
@@ -289,6 +299,8 @@ class Services:
         return GameAssets(dirs, self.cache)
 
     def game_found(self) -> bool:
+        if self.safe_mode:
+            return False
         try:
             self.game
             return True
@@ -464,7 +476,7 @@ class Services:
 
     def ui_cached(self, version: str | None = None) -> bool:
         """Whether consented light UI assets already exist for the current install."""
-        if self.state.consent is not True:
+        if self.safe_mode or self.state.consent is not True:
             return False
         if version is None:
             if not self.game_found():
@@ -982,12 +994,13 @@ class Services:
     def start(self) -> None:
         """Start the watch; library maintenance waits for the first screen to be revealed."""
         self._startup_ready = False
-        self.start_watch()
+        if not self.safe_mode:
+            self.start_watch()
 
     def ready(self) -> None:
         """The page revealed its first screen. Start optional checks once, away from the UI request."""
         with self._lock:
-            if self._startup_ready:
+            if self._startup_ready or self.safe_mode:
                 return
             self._startup_ready = True
         threading.Thread(target=self._warm, name="bamt-library", daemon=True).start()
@@ -1121,6 +1134,8 @@ class Services:
     # --- /asset/... ---
 
     def asset(self, path: str, query: dict[str, str]) -> AssetResponse:
+        if self.safe_mode:
+            raise ServiceError("game_not_found")
         parts = path.split("/")
         kind = parts[0]
         if kind == "ui":

@@ -58,7 +58,8 @@ class WebApp:
                  consent: Callable[[], bool | None] = lambda: None,
                  classic: Callable[[dict, Callable], Iterable[bytes]] | None = None,
                  raise_window: Callable[[], Any] | None = None, raise_token: str | None = None,
-                 ui_cached: Callable[[], bool] = lambda: False):
+                 ui_cached: Callable[[], bool] = lambda: False, recovery: Callable[[], dict] = lambda: {},
+                 on_exception: Callable | None = None):
         self.rpc = rpc
         self.events = events
         self.assets = assets
@@ -66,6 +67,8 @@ class WebApp:
         self.token = token or secrets.token_urlsafe(24)
         self.consent = consent
         self.ui_cached = ui_cached
+        self.recovery = recovery
+        self.on_exception = on_exception
         self.classic = classic  # ClassicWindow.wsgi
         self.raise_window = raise_window
         self.raise_token = raise_token or secrets.token_urlsafe(24)
@@ -103,8 +106,10 @@ class WebApp:
             if method in ("GET", "HEAD"):
                 return self._static(path, start_response)
             return self._text(start_response, "405 Method Not Allowed", "method not allowed")
-        except Exception:
+        except Exception as error:
             logger.exception("request %s %s failed", method, path)
+            if self.on_exception:
+                self.on_exception(type(error), error, error.__traceback__)
             return self._text(start_response, "500 Internal Server Error", "internal error")
 
     # --- security ---
@@ -203,6 +208,13 @@ class WebApp:
         mime = MIME.get(file.suffix.lower()) or mimetypes.guess_type(file.name)[0] or "application/octet-stream"
         body = file.read_bytes()
         if rel == "index.html":
+            recovery_config = self.recovery()
+            if recovery_config.get("safeMode"):
+                body = body.replace(b'<script type="module" src="js/main.js"></script>', b"")
+            config = json.dumps(recovery_config, ensure_ascii=True).replace("<", "\\u003c")
+            recovery = (WEB_DIR / "js" / "recovery.js").read_bytes()
+            body = body.replace(b"<!-- recovery -->", b"<script>window.BAMT_CONFIG=" + config.encode() +
+                                b";</script><script>" + recovery + b"</script>")
             body = body.replace(b"</head>", f'<meta name="bamt-ui-exports" content="{HTTP_EXPORT_SCHEMA}"></head>'.encode())
         if file.suffix.lower() == ".css":
             body = re.sub(rb'(/asset/ui/[^"\s)]+)', lambda m: m[1] + b"?export=" + HTTP_EXPORT_SCHEMA.encode(), body)
@@ -260,5 +272,6 @@ class Server:
 
     def stop(self) -> None:
         self.app.events.close()
-        self.httpd.shutdown()
+        if self._thread.is_alive():
+            self.httpd.shutdown()
         self.httpd.server_close()

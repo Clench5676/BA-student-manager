@@ -332,7 +332,7 @@ async function applyDrift(entries) {
     const result = await Loading.task((update) => waitJob(id, update), { label: running });
     const summary = driftSummary(result, await names().catch(() => undefined));
     if (!summary) return;
-    await Popup.message({ title: summary.title, lines: summary.lines, ok: T("picker.ok") });
+    await Popup.message({ title: summary.title, lines: summary.lines, ok: T("picker.ok"), error: true });
   } catch (err) {
     ModSwitch.refused(err, "mods.restoreDrift", params);
   }
@@ -376,7 +376,7 @@ export async function adopt(entries) {
     if (!failed.length) return true;
     const nameOf = await names().catch(() => undefined);
     await Popup.message({
-      title: T("mods.untrackedAdd"),
+      title: T("mods.untrackedAdd"), error: true,
       lines: [T("mods.result", { done: (result?.added || []).length, failed: failed.length }),
         ...failed.slice(0, 6).map((f) => `${ModSwitch.entryLabel(f.entry, nameOf)} - ${ModSwitch.errorText(f.code, f.params)}`)],
       ok: T("picker.ok"),

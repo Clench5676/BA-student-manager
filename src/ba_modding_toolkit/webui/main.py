@@ -17,22 +17,30 @@ from .api import build_api
 from .instance import InstanceLock, raise_running
 from .server import Server, WebApp
 from .services import Services
-from .session_log import RedactingFormatter
+from .session_log import RedactingFormatter, open_run_log
+from .diagnostics import Reports, install_exception_hooks
 
 logger = logging.getLogger(__name__)
 
 CONFIG_POLL_SECONDS = 2.0
 
 
-def build(port: int = 0, services: Services | None = None, token: str | None = None) -> tuple[Services, Server]:
-    s = services or Services()
+def build(port: int = 0, services: Services | None = None, token: str | None = None, *,
+          safe_mode: bool = False, reports: Reports | None = None) -> tuple[Services, Server]:
+    s = services or Services(safe_mode=safe_mode)
+    if reports is not None:
+        reports.services = s
+        reports.game = s.reports.game
+        reports.secrets.update(s.log_secrets)
+        s.log_secrets = reports.secrets
+        s.reports = reports
     with s.timings.measure("server.build"):
         lang = s.settings.get("language")
         if lang and lang != i18n_manager.lang:
             i18n_manager.set_language(lang)  # the language chosen in either GUI
         app = WebApp(build_api(s), s.events, assets=s.asset, consent=lambda: s.state.consent, token=token,
-                     ui_cached=s.ui_cached,
-                     classic=s.classic.wsgi, raise_window=s.raise_window)
+                     ui_cached=lambda: False, recovery=lambda: recovery_config(s),
+                     classic=s.classic.wsgi, raise_window=s.raise_window, on_exception=s.reports.backend_exception)
         s.log_secrets.update((app.token, app.raise_token))
         server = Server(app, port)
         s.origin = f"http://127.0.0.1:{server.port}"  # the classic window's channel
@@ -72,6 +80,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--token", help="a fixed session token instead of a random one (development only)")
     parser.add_argument("--mute", action="store_true", help="never play voices (development and tests)")
     parser.add_argument("--debug", action="store_true")
+    parser.add_argument("--safe-mode", action="store_true", help="start without game assets, Spine or restored pages")
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.DEBUG if args.debug else logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -80,10 +89,17 @@ def main(argv: list[str] | None = None) -> None:
     instance = InstanceLock(EXE_DIR)
     if not instance.acquire():
         raise SystemExit(second_start(EXE_DIR, serve=args.serve))
+    restart = False
     try:
-        _run(args, instance)
+        restart = _run(args, instance)
     finally:
         instance.release()
+    if restart:
+        import subprocess
+        from .system import program_command
+        command = program_command() + ["--safe-mode"]
+        command += [flag for flag in ("--browser", "--debug", "--mute") if getattr(args, flag[2:])]
+        subprocess.Popen(command)
 
 
 def second_start(data_dir: Path, *, serve: bool) -> int:
@@ -99,30 +115,57 @@ def second_start(data_dir: Path, *, serve: bool) -> int:
     return 1
 
 
-def _run(args: argparse.Namespace, instance: InstanceLock) -> None:
-    s, server = build(args.port, token=args.token)
-    s.log_path.parent.mkdir(parents=True, exist_ok=True)
-    handler = logging.FileHandler(s.log_path, mode="w", encoding="utf-8")
-    handler.setFormatter(RedactingFormatter(s.log_secrets))
+def recovery_config(s: Services) -> dict:
+    from .strings import ui_strings
+    strings = ui_strings(i18n_manager.lang)
+    return {"safeMode": s.safe_mode, "language": i18n_manager.lang,
+            "strings": {k.removeprefix("webui."): v for k, v in strings.items() if k.startswith("webui.recovery.") or
+                        k in ("webui.settings.button", "webui.settings.log.open", "webui.picker.ok")}}
+
+
+def _run(args: argparse.Namespace, instance: InstanceLock) -> bool:
+    safe_mode = getattr(args, "safe_mode", False)
+    reports = Reports(EXE_DIR, safe_mode=safe_mode)
+    if args.token:
+        reports.secrets.add(args.token)
+    handler = open_run_log(EXE_DIR / "webui.log", reports.secrets, safe_mode=safe_mode)
     logging.getLogger().addHandler(handler)
+    restore = install_exception_hooks(reports)
+    try:
+        return _serve(args, instance, reports, handler)
+    except Exception as error:
+        logger.exception("Startup failed")
+        reports.backend_exception(type(error), error, error.__traceback__)
+        if not args.serve:
+            from .native import startup_failure
+            startup_failure(reports, error)
+        return False
+    finally:
+        restore()
+        logging.getLogger().removeHandler(handler)
+        handler.close()
+
+
+def _serve(args: argparse.Namespace, instance: InstanceLock, reports: Reports, handler) -> bool:
+    s, server = build(args.port, token=args.token, safe_mode=reports.safe_mode, reports=reports)
+    handler.setFormatter(RedactingFormatter(s.log_secrets))
     for phase, value in s.timings.snapshot().items():
         logger.info("Timing %s: %.3f s (%s calls before log opened)", phase, value["seconds"], value["count"])
     s.mute = args.mute
     s.debug = args.debug
-    if args.debug:
-        _trace_to_file(s.data_dir / "input-trace.log")
-    with s.timings.measure("server.start"):
-        server.start()
-    instance.publish(server.port, server.app.raise_token)
     stop = threading.Event()
-    if args.browser:
-        s.quit_handle = stop.set  # app.quit stops the server; the page then shows Closed
-        s.browser_url = server.url
-    threading.Thread(target=_watch_config, args=(s, stop), name="bamt-config", daemon=True).start()
-    s.start()
-    logger.info("web UI at %s", server.url)
-
     try:
+        if args.debug:
+            _trace_to_file(s.data_dir / "input-trace.log")
+        with s.timings.measure("server.start"):
+            server.start()
+        instance.publish(server.port, server.app.raise_token)
+        if args.browser:
+            s.quit_handle = stop.set
+            s.browser_url = server.url
+        threading.Thread(target=_watch_config, args=(s, stop), name="bamt-config", daemon=True).start()
+        s.start()
+        logger.info("web UI at %s", server.url)
         if args.browser or args.serve:
             if args.browser:
                 webbrowser.open(server.url)
@@ -136,11 +179,16 @@ def _run(args: argparse.Namespace, instance: InstanceLock) -> None:
         stop.set()
         server.stop()
         s.close()
-        logging.getLogger().removeHandler(handler)
-        handler.close()
+    return s.restart_requested
 
 
 def _run_window(s: Services, server: Server, debug: bool) -> None:
+    from . import native
+    if sys.platform == "win32":
+        version = native.webview2_version()
+        if not native.webview2_supported(version):
+            native.startup_failure(s.reports, RuntimeError(f"WebView2 {version or 'missing'}"), runtime=True)
+            return
     with s.timings.measure("native.import"):
         import webview
 
@@ -165,6 +213,7 @@ def _run_window(s: Services, server: Server, debug: bool) -> None:
         if renderer_supported(renderer):
             return True
         logger.error("unsupported web renderer %s; install WebView2 from %s", renderer, WEBVIEW2_URL)
+        native.startup_failure(s.reports, RuntimeError(f"Unsupported renderer: {renderer}"), runtime=True)
         return False
 
     def on_loaded() -> None:
@@ -189,7 +238,8 @@ def _run_window(s: Services, server: Server, debug: bool) -> None:
         # the tray starts on a thread of its own once the GUI loop runs
         native_started = time.perf_counter()
         webview.start(func=tray.start if tray is not None else None, args=(window,) if tray is not None else None,
-                      debug=debug, private_mode=True, storage_path=str(storage))
+                      debug=debug, private_mode=True, storage_path=str(storage),
+                      gui="edgechromium" if sys.platform == "win32" else None)
     finally:
         if tray is not None:
             tray.close()  # on the main thread once the loop ended: the icon goes with the window

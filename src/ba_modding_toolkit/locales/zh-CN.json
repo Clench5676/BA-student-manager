@@ -1566,6 +1566,34 @@
 				"apply": "应用 Mod",
 				"export": "导出文件"
 			}
+		},
+		"recovery": {
+			"report": "生成错误报告",
+			"failed": "启动失败",
+			"step": "步骤",
+			"logs": "打开日志文件夹",
+			"safeRestart": "安全模式重新启动",
+			"retry": "重试",
+			"safeOn": "安全模式",
+			"safeHint": "正常启动即可退出安全模式",
+			"saved": "报告已保存",
+			"copied": "摘要已复制",
+			"copyFailed": "无法复制",
+			"actionFailed": "操作失败",
+			"native": "错误报告已保存至：",
+			"runtime": "请安装或更新 WebView2。错误报告：",
+			"phases": {
+				"modules": "应用模块",
+				"boot": "启动",
+				"settings": "设置",
+				"info": "运行环境",
+				"strings": "语言",
+				"fonts": "字体",
+				"ui-indexes": "游戏界面",
+				"mod-state": "Mod 状态",
+				"first-screen": "首屏",
+				"ready": "就绪"
+			}
 		}
 	}
 }

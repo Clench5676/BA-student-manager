@@ -1566,6 +1566,34 @@
 				"apply": "Mod 適用",
 				"export": "ファイル出力"
 			}
+		},
+		"recovery": {
+			"report": "エラーレポート作成",
+			"failed": "起動失敗",
+			"step": "ステップ",
+			"logs": "ログフォルダーを開く",
+			"safeRestart": "セーフモードで再起動",
+			"retry": "再試行",
+			"safeOn": "セーフモード",
+			"safeHint": "通常起動でセーフモードを終了",
+			"saved": "レポート保存済み",
+			"copied": "概要コピー済み",
+			"copyFailed": "コピー不可",
+			"actionFailed": "操作失敗",
+			"native": "エラーレポート保存先：",
+			"runtime": "WebView2 のインストールまたは更新が必要。レポート：",
+			"phases": {
+				"modules": "アプリモジュール",
+				"boot": "起動",
+				"settings": "設定",
+				"info": "動作環境",
+				"strings": "言語",
+				"fonts": "フォント",
+				"ui-indexes": "ゲーム UI",
+				"mod-state": "Mod 状態",
+				"first-screen": "初期画面",
+				"ready": "準備完了"
+			}
 		}
 	}
 }

@@ -419,7 +419,8 @@ async function finished(result) {
   const nameOf = await names().catch(() => undefined);
   const summary = resultSummary(result, nameOf);
   if (!summary) return;
-  await Popup.message({ title: summary.title, lines: summary.lines, ok: T("picker.ok") });
+  await Popup.message({ title: summary.title, lines: summary.lines, ok: T("picker.ok"),
+    error: !!(result?.failed?.length || result?.left?.length || result?.stuck?.length) });
 }
 
 // a refusal (at submit or from the job): the classic modal for the classic window, else its string; switched
@@ -436,7 +437,7 @@ export function refused(err, method = null, params = null) {
 // queued, the queue is emptied) ---
 export async function classicModal({ method = null, params = null, queued = false } = {}) {
   const r = await Popup.message({
-    title: T("classic.opened"), lines: [T("error.classic_open")],
+    title: T("classic.opened"), lines: [T("error.classic_open")], error: true,
     cancel: T("classic.front"), ok: T("picker.ok"),
     check: { label: T("classic.autoApply"), checked: queued },
   });
@@ -469,7 +470,7 @@ async function queueDone({ submitted = [], dropped = [] } = {}) {
     return entryLabel({ variant: d.params?.variant, kind: d.params?.kind }, nameOf);
   };
   await Popup.message({
-    title: T("classic.notApplied"),
+    title: T("classic.notApplied"), error: true,
     lines: dropped.map((d) => `${what(d)} - ${errorText(d.error?.code, d.error?.params)}`),
     ok: T("picker.ok"),
   });

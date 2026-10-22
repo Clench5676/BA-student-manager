@@ -1566,6 +1566,34 @@
 				"apply": "套用 Mod",
 				"export": "匯出檔案"
 			}
+		},
+		"recovery": {
+			"report": "產生錯誤報告",
+			"failed": "啟動失敗",
+			"step": "步驟",
+			"logs": "開啟記錄資料夾",
+			"safeRestart": "以安全模式重新啟動",
+			"retry": "重試",
+			"safeOn": "安全模式",
+			"safeHint": "正常啟動即可離開安全模式",
+			"saved": "報告已儲存",
+			"copied": "摘要已複製",
+			"copyFailed": "無法複製",
+			"actionFailed": "操作失敗",
+			"native": "錯誤報告已儲存至：",
+			"runtime": "請安裝或更新 WebView2。錯誤報告：",
+			"phases": {
+				"modules": "應用程式模組",
+				"boot": "啟動",
+				"settings": "設定",
+				"info": "執行環境",
+				"strings": "語言",
+				"fonts": "字型",
+				"ui-indexes": "遊戲介面",
+				"mod-state": "Mod 狀態",
+				"first-screen": "初始畫面",
+				"ready": "就緒"
+			}
 		}
 	}
 }

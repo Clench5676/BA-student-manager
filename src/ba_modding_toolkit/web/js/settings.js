@@ -206,7 +206,8 @@ function rows({ builtSize = null, sizeError = null } = {}) {
     add(valueRow("Version", 0, T("settings.version"), (p.version || "").replace(/-dev$/, ""), [[T("settings.update.check"), checkUpdate, !checkingUpdate]]));
     add(radioRow("StartupUpdate", 0, T("settings.update.startup"), ON_OFF(), p.startupUpdate !== false, (v) => set("startupUpdate", v)));
     add(valueRow("Log", 0, T("settings.log.label"), p.logPath, [
-      [T("settings.log.open"), openLog], [open, reveal(p.logPath)]]));
+      [T("settings.log.open"), openLog], [open, reveal(p.logPath)],
+      [T("recovery.report"), () => globalThis.BAMTRecovery?.report()]]));
     add(valueRow("Classic", 0, T("settings.classic.label"), T("settings.classic.hint"), [[T("settings.classic.open"), () => call(() => rpc("app.openClassic", { tab: "settings" }))]]));
     // the bottom bar's hand-off prompt (decision 6): Don't Ask Again turns it off, this turns it back on
     add(radioRow("ClassicAsk", 0, T("settings.classic.ask"), [[true, T("settings.post.on")], [false, T("settings.post.off")]],

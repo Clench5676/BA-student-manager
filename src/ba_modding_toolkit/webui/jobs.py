@@ -54,6 +54,7 @@ class JobRunner:
     """
 
     def __init__(self, events: EventBus, keep: int = 50):
+        self.on_exception = None
         self._events = events
         self._queue: queue.Queue[Job | None] = queue.Queue()
         self._jobs: dict[str, Job] = {}
@@ -224,6 +225,8 @@ class JobRunner:
             logger.exception("job %s (%s) failed", job.id, job.kind)
             job.error = {"code": "internal", "params": {"error": f"{type(e).__name__}: {e}"}}
             job.log.append(traceback.format_exc())
+            if self.on_exception:
+                self.on_exception(type(e), e, e.__traceback__)
             job.state = "failed"
             flush()
             publish("job.failed", {"id": job.id, "kind": job.kind, **job.error})

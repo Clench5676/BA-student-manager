@@ -27,12 +27,19 @@ import { $, fitStage } from "./util.js";
 import { studentName } from "./names.js";
 import { withTimeout } from "./async.js";
 
+globalThis.BAMTRecovery?.presentReport((result) => Popup.message({ title: T("recovery.report"),
+  lines: result ? [T("recovery.saved"), result.path, T(result.copied ? "recovery.copied" : "recovery.copyFailed"),
+    ...(!result.copied ? [result.summary] : [])] : [T("recovery.actionFailed")], ok: T("picker.ok"), plain: true,
+}));
+
 let info = null, rosterData = null, rosterStale = true;
 const startup = {};
 async function timed(phase, work) {
   const began = performance.now();
+  globalThis.BAMTRecovery?.begin(phase);
   try { return await work(); }
-  finally { startup[phase] = performance.now() - began; }
+  catch (error) { if (globalThis.BAMTRecovery?.isBooting()) globalThis.BAMTRecovery.fail(error); throw error; }
+  finally { startup[phase] = performance.now() - began; globalThis.BAMTRecovery?.end(phase, startup[phase]); }
 }
 // the roster's cards as the list showed them when it was left (its filters, search and sort): the detail screen's
 // arrows step through these, so visits and edits on the way do not reshuffle them; taken afresh once the roster shows
@@ -288,6 +295,7 @@ async function route() {
     if (my === routeToken) shownRoute = location.hash;
   } catch (err) {
     if (my !== routeToken) return;
+    if (globalThis.BAMTRecovery?.isBooting() && err.code !== "game_not_found") throw err;
     console.error(err);
     if (err.code === "game_not_found") { noGame(); return; }
     notify(T(`error.${err.code || "internal"}`, err.params || { error: String(err) }), { kind: "error" });
@@ -311,6 +319,7 @@ async function boot() {
   addEventListener("resize", fitStage);
   // the page starts behind the loading screen: the game's UI is read, then the first screen is built
   await timed("boot", () => Loading.scene(start, { opaque: true }));
+  if (globalThis.BAMTRecovery && !globalThis.BAMTRecovery.ready()) return;
   rpc("app.ready", { timings: { ...startup, ...Loading.timings() } }).catch(console.error);
   if (!info?.gameFound) return;
   Cursor.init();
@@ -353,7 +362,7 @@ function startPopups() {
 }
 
 async function start() {
-  const prefs = timed("settings", () => rpc("settings.get").catch(() => null));
+  const prefs = timed("settings", () => rpc("settings.get"));
   info = await timed("info", () => rpc("app.info"));
   ctx.info = info;
   Consent.init(info);
@@ -385,7 +394,7 @@ async function start() {
   await ui;
   renderNav(0, navOptions);
   // the Enable Mods switch in the top bar, and what the writer jobs switched
-  await timed("mod-state", () => ModSwitch.init({ names: variantNames, refreshPage: refreshAfterToggle }).catch((err) => console.error("mod switch", err)));
+  await timed("mod-state", () => ModSwitch.init({ names: variantNames, refreshPage: refreshAfterToggle }));
   let enabled = ModSwitch.current()?.enabled !== false;
   ModSwitch.onChange((state) => {
     const next = state.enabled !== false;
@@ -424,5 +433,5 @@ async function start() {
 
 boot().catch((err) => {
   console.error(err);
-  notify(String(err), { kind: "error" });
+  globalThis.BAMTRecovery?.fail(err);
 });

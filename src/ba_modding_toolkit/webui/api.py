@@ -82,15 +82,21 @@ FLAG_KEYS = {"tray": "tray", "classicPrompt": "classic_prompt",
 
 
 def build_api(s: Services) -> RpcRegistry:
-    rpc = RpcRegistry()
+    rpc = RpcRegistry(on_exception=lambda *args: s.reports.backend_exception(*args) if hasattr(s, "reports") else None)
 
     # --- app ---
 
     @rpc.method("app.info")
     def app_info() -> dict[str, Any]:
         found = s.game_found()
+        if hasattr(s, "reports") and not s.safe_mode:
+            s.reports.game["found"] = found
         version = resource_version() if found else None
+        if hasattr(s, "reports") and not s.safe_mode:
+            s.reports.game = {"found": found, "resourceVersion": version, "server": s.settings.server_region(),
+                              "platform": "Android" if s.settings.is_adb_mode() else "Windows"}
         return {
+            "safeMode": getattr(s, "safe_mode", False),
             "version": get_version_info().get("version"),
             "language": i18n_manager.lang,
             "platform": sys.platform,
@@ -132,6 +138,36 @@ def build_api(s: Services) -> RpcRegistry:
     @rpc.method("app.log")
     def app_log() -> dict[str, str]:
         return {"path": str(s.log_path), "text": tail(s.log_path, s.log_secrets)}
+
+    @rpc.method("app.report")
+    def app_report(context: dict | None = None) -> dict:
+        s.reports.frontend_event(context=context)
+        return s.reports.generate()
+
+    @rpc.method("app.frontendError")
+    def app_frontend_error(event: dict | None = None, context: dict | None = None) -> bool:
+        return s.reports.frontend_event(event, context)
+
+    @rpc.method("app.logFolder")
+    def app_log_folder() -> None:
+        reveal(s.data_dir)
+
+    @rpc.method("app.restartSafe")
+    def app_restart_safe() -> None:
+        if s.jobs.busy():
+            raise ServiceError("busy")
+        if s.window is None and s.quit_handle is None:
+            raise ServiceError("native_unavailable")
+        if s.restart_requested:
+            return
+        s.jobs.reserve_quit()
+        s.restart_requested = True
+        try:
+            s.quit()
+        except Exception:
+            s.restart_requested = False
+            s.jobs.cancel_quit()
+            raise
 
     @rpc.method("app.consent")
     def app_consent(granted: bool) -> None:

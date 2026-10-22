@@ -1449,3 +1449,26 @@ for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) tes
     }
   } finally { navigator.clipboard = previous; setStrings("en-US", Object.fromEntries(strings(english))); }
 });
+
+test("failed-job notifications offer Error Report on the game frame", async () => {
+  setStrings("en-US", Object.fromEntries(strings(english)));
+  let reports = 0;
+  globalThis.BAMTRecovery = { report: () => { reports++; } };
+  try {
+    Popup.notify("Failed job", { kind: "error" });
+    const layer = dialog.children.at(-1);
+    const report = await drawn(layer, "cancel");
+    assert.ok(walk(layer).some((el) => el.textContent === "Error Report"));
+    report.click();
+    assert.equal(reports, 1);
+    assert.equal(dialog.hidden, true);
+    const refused = Popup.message({ title: "Refusal", lines: ["Busy"], error: true, ok: "OK", cancel: "Existing Action" });
+    const next = dialog.children.at(-1);
+    await drawn(next, "line1");
+    action(next, "line1").click();
+    assert.equal(reports, 2);
+    assert.ok(action(next, "cancel"), "the original refusal action remains available");
+    action(next, "ok").click();
+    await refused;
+  } finally { delete globalThis.BAMTRecovery; }
+});

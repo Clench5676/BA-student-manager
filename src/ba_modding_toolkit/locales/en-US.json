@@ -1566,6 +1566,34 @@
 				"apply": "Applying Mod",
 				"export": "Exporting Files"
 			}
+		},
+		"recovery": {
+			"report": "Error Report",
+			"failed": "Startup Failed",
+			"step": "Step",
+			"logs": "Open Log Folder",
+			"safeRestart": "Restart in Safe Mode",
+			"retry": "Retry",
+			"safeOn": "Safe Mode",
+			"safeHint": "Restart normally to leave Safe Mode",
+			"saved": "Report Saved",
+			"copied": "Summary Copied",
+			"copyFailed": "Copy Unavailable",
+			"actionFailed": "Action Failed",
+			"native": "Error report saved to:",
+			"runtime": "WebView2 installation or update required. Error report:",
+			"phases": {
+				"modules": "App Modules",
+				"boot": "Startup",
+				"settings": "Settings",
+				"info": "Environment",
+				"strings": "Language",
+				"fonts": "Fonts",
+				"ui-indexes": "Game UI",
+				"mod-state": "Mod Status",
+				"first-screen": "First Screen",
+				"ready": "Ready"
+			}
 		}
 	}
 }
