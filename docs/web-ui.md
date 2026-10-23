@@ -876,6 +876,12 @@ so two Mods for the same slot cannot rebuild from each other's writes. Each appl
 rollback; library maintenance runs once at the end of the batch. Exact current-name, CRC-ready inputs skip redundant
 planning and staging, while the final resource checks, backup, content verification and rollback remain in place.
 
+Job waits have no default elapsed-time deadline. Each status RPC has a 15-second limit; transient failures keep the
+original job ID and progress while the UI shows Reconnecting. Polling retries with bounded backoff. Window focus,
+page restoration, visibility restoration and an SSE reconnection immediately refresh that same job, cancelling
+obsolete reads. A confirmed backend completion or failure settles the wait; a suspended window does not fail or
+resubmit the batch. Explicit timeout/error limits remain available to callers that require a bounded wait.
+
 The import list prepares and decodes visible row thumbnails before committing their DOM together; offscreen rows
 load when scrolled into view. The roster similarly waits for its visible portraits before ending the loading hold.
 Completed import rows and the result dialog reuse their immutable analyzed input previews. Only a successful game

@@ -1497,6 +1497,7 @@
 			"merge": "같은 학생 모드 합치기",
 			"waitProgress": "{label} {done} / {total}",
 			"completedProgress": "완료 {done} / {total}, 남음 {remaining}\n{action} {name}{step}",
+			"reconnecting": "재연결 중",
 			"state": {
 				"done": "완료",
 				"ready": "가져오기 가능",

@@ -10,7 +10,7 @@ globalThis.EventSource = class {
   emit(name, value) { this.events.get(name)?.({ data: JSON.stringify(value) }); }
 };
 const answer = (body) => ({ ok: true, json: async () => body });
-const options = { pollEvery: 1, timeout: 200 };
+const options = { pollEvery: 1, maxErrors: 3, timeout: 200 };
 
 test("polling observes a failed apply even when its event was lost, and done needs no event", async () => {
   globalThis.fetch = async () => answer({ result: { state: "failed", error: { code: "mod_target_mismatch", params: { variant: "test" } } } });

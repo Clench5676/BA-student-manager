@@ -59,12 +59,14 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
   const wake = () => { for (const resolve of waiters) resolve(); waiters.clear(); };
   const waiting = () => model.state.phase !== "picking" && (drawings.size || ["analyzing", "running", "saving"].includes(model.state.phase));
   function importProgress() {
-    const { phase, progress: p } = model.state;
+    const { phase, progress: p, reconnecting } = model.state;
     if (phase === "running") {
+      const done = p?.completed ?? p?.done ?? 0, total = p?.total || model.state.taskEntries.length;
+      if (reconnecting) return T("import.completedProgress", { done, total, remaining: p?.remaining ?? Math.max(0, total - done),
+        action: T("import.reconnecting"), name: "", step: "" }).trim();
       const current = model.state.taskEntries.find((entry) => entry.id === p?.current);
       const action = ["update", "convert", "add", "apply"].includes(p?.phase) ? `import.phase.${p.phase}` : "job.running";
       const identity = current && identified(current);
-      const done = p?.completed ?? p?.done ?? 0, total = p?.total || model.state.taskEntries.length;
       const phase = T(action).replace(/\{name\}/g, "").replace(/[:：]\s*$/u, "").trim();
       const step = p?.step || "import.step.check", detail = T(step);
       const repeated = { "import.phase.add": "import.step.add", "import.phase.apply": "import.step.apply" };
@@ -72,7 +74,7 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
         name: current ? progressName(identity.variant, T(KIND_KEYS[current.kind] || KIND_KEYS.other), identity.name) : "",
         step: detail && detail !== phase && repeated[action] !== step ? T("progress.step", { step: detail }) : "" });
     }
-    const label = T(["analyzing", "saving"].includes(phase) ? `import.${phase}` : "app.loading");
+    const label = T(reconnecting ? "import.reconnecting" : ["analyzing", "saving"].includes(phase) ? `import.${phase}` : "app.loading");
     const done = p?.completed ?? p?.done ?? (Number.isFinite(p?.current) ? p.current : 0);
     return p?.total > 0 ? T("import.waitProgress", { label, done, total: p.total }) : label;
   }

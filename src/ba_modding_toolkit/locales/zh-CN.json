@@ -1497,6 +1497,7 @@
 			"merge": "合并同一角色 Mod",
 			"waitProgress": "{label} {done} / {total}",
 			"completedProgress": "已完成 {done} / {total}，剩余 {remaining}\n{action} {name}{step}",
+			"reconnecting": "重新连接中",
 			"state": {
 				"done": "已完成",
 				"ready": "可导入",

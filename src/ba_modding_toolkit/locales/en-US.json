@@ -1497,6 +1497,7 @@
 			"merge": "Group Mods by Student",
 			"waitProgress": "{label} {done} / {total}",
 			"completedProgress": "Completed {done} / {total}, remaining {remaining}\n{action} {name}{step}",
+			"reconnecting": "Reconnecting",
 			"state": {
 				"done": "Done",
 				"ready": "Ready",

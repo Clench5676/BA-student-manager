@@ -13,10 +13,11 @@ export function countsOf(entries) {
 
 export function createImportState({ rpc, waitJob, changed = () => {}, suggest = async () => [] }) {
   const state = { entries: [], checked: new Set(), selected: null, phase: "idle", progress: null, error: null,
-    options: null, results: [], taskEntries: [], taskOptions: null, suggestions: [], valid: false, analysisRevision: null };
+    options: null, results: [], taskEntries: [], taskOptions: null, suggestions: [], valid: false, analysisRevision: null,
+    jobId: null, reconnecting: false };
   const listeners = new Set();
   const pendingAnalyses = new Set();
-  let revision = 0, contextRevision = 0, retryPaths = [], retryRecursive = false, starting = false, optionsRead = null;
+  let revision = 0, contextRevision = 0, retryPaths = [], retryRecursive = false, starting = false, optionsRead = null, waitGeneration = 0;
   const emit = () => { for (const fn of listeners) fn(state); };
   const busy = () => starting || ["picking", "analyzing", "running", "saving"].includes(state.phase);
   const selected = () => state.entries.filter((entry) => eligible(entry) && state.checked.has(entry.id));
@@ -25,6 +26,20 @@ export function createImportState({ rpc, waitJob, changed = () => {}, suggest = 
   const resetResults = () => { state.results = []; state.taskEntries = []; state.taskOptions = null; state.progress = null; };
   globalThis.BAMTRecovery?.importList?.(() => ({ phase: state.phase, revision: state.analysisRevision,
     rows: state.entries.map((entry) => ({ ...entry, selected: eligible(entry) && state.checked.has(entry.id) })) }));
+
+  async function waitForJob(id) {
+    const generation = ++waitGeneration;
+    state.jobId = id; state.reconnecting = false;
+    const active = () => generation === waitGeneration && state.jobId === id;
+    try {
+      return await waitJob(id, (data) => { if (active()) progress(data); }, { onConnection: (connected) => {
+        if (!active() || state.reconnecting === !connected) return;
+        state.reconnecting = !connected; emit();
+      } });
+    } finally {
+      if (active()) { state.jobId = null; state.reconnecting = false; }
+    }
+  }
 
   async function loadOptions() {
     if (state.options) return true;
@@ -46,7 +61,7 @@ export function createImportState({ rpc, waitJob, changed = () => {}, suggest = 
     resetResults(); revision++; emit();
     try {
       const id = await rpc("import.analyze", { paths: retryPaths, recursive });
-      const result = await waitJob(id, progress);
+      const result = await waitForJob(id);
       state.analysisRevision = result.revision;
       state.entries = [...new Map(result.entries.filter((entry) => !removed.has(entry.id)).map((entry) => [entry.id, entry])).values()];
       state.checked = new Set(state.entries.filter((entry) => eligible(entry)
@@ -98,7 +113,7 @@ export function createImportState({ rpc, waitJob, changed = () => {}, suggest = 
       state.phase = "analyzing"; state.error = null; resetResults(); revision++; emit();
       try {
         const job = await rpc("import.setSource", { id, server, platform });
-        const entry = await waitJob(job, progress);
+        const entry = await waitForJob(job);
         state.analysisRevision = entry.revision;
         state.entries = state.entries.map((item) => item.id === id ? entry : item);
         if (eligible(entry)) state.checked.add(id); else state.checked.delete(id);
@@ -180,7 +195,7 @@ export function createImportState({ rpc, waitJob, changed = () => {}, suggest = 
       try {
         const id = await rpc("import.run", { ids: entries.map((entry) => entry.id), options,
           ...(state.analysisRevision == null ? {} : { revision: state.analysisRevision }) });
-        const result = await waitJob(id, progress);
+        const result = await waitForJob(id);
         state.results = result.results;
         const completed = new Map(state.results.filter((item) => ["imported", "updated", "unchanged"].includes(item.outcome)).map((item) => [item.id, item]));
         const blocked = new Map(state.results.filter((item) => item.state === "blocked").map((item) => [item.id, item]));

@@ -1497,6 +1497,7 @@
 			"merge": "รวมม็อดของนักเรียนเดียวกัน",
 			"waitProgress": "{label} {done} / {total}",
 			"completedProgress": "เสร็จแล้ว {done} / {total}, เหลือ {remaining}\n{action} {name}{step}",
+			"reconnecting": "กำลังเชื่อมต่อใหม่",
 			"state": {
 				"done": "เสร็จแล้ว",
 				"ready": "พร้อม",

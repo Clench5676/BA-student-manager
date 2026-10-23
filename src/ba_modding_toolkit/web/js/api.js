@@ -10,8 +10,11 @@ export class RpcError extends Error {
 }
 
 // timeout (ms) is opt-in: a read can wait on a writer's library lock for as long as an apply runs
-export async function rpc(method, params = {}, { timeout = 0 } = {}) {
+export async function rpc(method, params = {}, { timeout = 0, signal } = {}) {
   const controller = new AbortController();
+  const abort = () => controller.abort();
+  signal?.addEventListener("abort", abort, { once: true });
+  if (signal?.aborted) abort();
   const timer = timeout > 0 ? setTimeout(() => controller.abort(), timeout) : null;
   try {
     const res = await fetch("/api/rpc", {
@@ -27,7 +30,7 @@ export async function rpc(method, params = {}, { timeout = 0 } = {}) {
   } catch (err) {
     if (err instanceof RpcError) throw err;
     throw new RpcError("internal", { error: String(err) });
-  } finally { clearTimeout(timer); }
+  } finally { clearTimeout(timer); signal?.removeEventListener("abort", abort); }
 }
 
 const listeners = new Map();
@@ -64,53 +67,93 @@ function connect() {
 }
 
 // a job's end as a promise (resolves with the result, rejects with RpcError). Events can arrive before this
-// subscribes, or be lost while the event stream reconnects, so the job's state is also polled.
-export function waitJob(id, onProgress, { pollEvery = 1500, maxErrors = 3, timeout = 30 * 60 * 1000 } = {}) {
+// subscribes, or be lost while the event stream reconnects, so the job's state is also polled. Runtime is unbounded
+// by default: sleeping or preparing a large batch does not mean the backend job failed. Each status read is bounded.
+export function waitJob(id, onProgress, { pollEvery = 1500, maxErrors = Infinity, timeout = 0,
+  requestTimeout = 15000, onConnection = () => {} } = {}) {
   return new Promise((resolve, reject) => {
-    let settled = false, timer, deadline, errors = 0, progressSequence = 0;
+    let settled = false, timer, deadline, errors = 0, progressSequence = 0, generation = 0;
+    let activeRead = null, connected = true;
     const offs = [];
     const finish = (fn, value) => {
       if (settled) return;
       settled = true;
+      generation++;
       clearTimeout(timer);
       clearTimeout(deadline);
+      activeRead?.abort(); activeRead = null;
       offs.forEach((f) => f());
       fn(value);
     };
     const failed = (error) => finish(reject, error);
+    const notify = (observer, value) => {
+      try { observer?.(value); } catch (error) { console.error("Job observer failed", error); }
+    };
+    const connection = (value) => {
+      if (connected === value) return;
+      connected = value; notify(onConnection, value);
+    };
     const progress = (data) => {
       if (settled) return;
       if (Number.isSafeInteger(data?.sequence)) {
         if (data.sequence <= progressSequence) return;
         progressSequence = data.sequence;
       } else if (progressSequence) return;
-      onProgress?.(data);
+      notify(onProgress, data);
     };
-    try {
-      offs.push(
-        on("job.progress", (d) => { if (d.id === id) progress(d); }),
-        on("job.done", (d) => { if (d.id === id) finish(resolve, d.result); }),
-        on("job.failed", (d) => { if (d.id === id) failed(new RpcError(d.code, d.params)); }),
-        on("server.closing", () => failed(new RpcError("internal", { error: "Server closed" }))),
-      );
-    } catch (err) { failed(err); return; }
-    deadline = setTimeout(() => failed(new RpcError("internal", { error: "Job wait timed out" })), timeout);
+    const schedule = (delay) => {
+      clearTimeout(timer);
+      const current = generation;
+      timer = setTimeout(() => { if (!settled && current === generation) void poll(); }, delay);
+    };
     const poll = async () => {
       if (settled) return;
+      clearTimeout(timer);
+      const current = ++generation, read = new AbortController();
+      activeRead?.abort(); activeRead = read;
       try {
-        const job = await rpc("jobs.get", { id }, { timeout: 15000 });
-        if (settled) return;
-        errors = 0;
+        const job = await rpc("jobs.get", { id }, { timeout: requestTimeout, signal: read.signal });
+        if (settled || current !== generation) return;
+        errors = 0; connection(true);
         if (job.progress) progress(job.progress);
         if (job.state === "done") return finish(resolve, job.result);
         if (job.state === "failed") return failed(new RpcError(job.error?.code || "internal", job.error?.params || {}));
         if (job.state !== "queued" && job.state !== "running") return failed(new RpcError("internal", { error: `Job ${job.state}` }));
       } catch (err) {
+        if (settled || current !== generation) return;
         if (err.code === "job_not_found" || ++errors >= maxErrors) return failed(err);
+        connection(false);
+      } finally {
+        if (activeRead === read) activeRead = null;
       }
-      if (!settled) timer = setTimeout(poll, pollEvery);
+      if (!settled && current === generation) schedule(Math.min(15000, pollEvery * 2 ** Math.min(errors, 4)));
     };
-    poll();
+    const wake = () => {
+      if (settled) return;
+      // Drop pre-sleep reads before they can report an expired timeout or stale snapshot.
+      generation++; errors = 0;
+      activeRead?.abort(); activeRead = null;
+      schedule(0);
+    };
+    const listen = (target, name, fn) => {
+      target?.addEventListener?.(name, fn);
+      offs.push(() => target?.removeEventListener?.(name, fn));
+    };
+    try {
+      offs.push(
+        on("job.progress", (d) => { if (d.id === id) { errors = 0; connection(true); progress(d); } }),
+        on("job.done", (d) => { if (d.id === id) finish(resolve, d.result); }),
+        on("job.failed", (d) => { if (d.id === id) failed(new RpcError(d.code, d.params)); }),
+        on("server.closing", () => failed(new RpcError("internal", { error: "Server closed" }))),
+        on("open", wake),
+      );
+      listen(globalThis, "focus", wake);
+      listen(globalThis, "pageshow", wake);
+      listen(globalThis.document, "visibilitychange", () => { if (!globalThis.document.hidden) wake(); });
+    } catch (err) { failed(err); return; }
+    // Explicit deadlines remain available to bounded callers, never imposed on imports by default.
+    if (timeout > 0) deadline = setTimeout(() => failed(new RpcError("internal", { error: "Job wait timed out" })), timeout);
+    void poll();
   });
 }
 

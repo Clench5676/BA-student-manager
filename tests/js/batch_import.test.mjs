@@ -146,7 +146,10 @@ async function fixture({ licensed = false, native = true, suggest, countIcons = 
       const done = Promise.resolve().then(work).finally(() => { hold.active = false; });
       opts.until.then(() => { hold.active = false; }); return done;
     } },
-    jobs: (id, progress) => { const job = [...analyses, ...runs, ...sources].find((job) => job.id === id); job.progress = progress; return job.promise; },
+    jobs: (id, progress, options = {}) => {
+      const job = [...analyses, ...runs, ...sources].find((job) => job.id === id);
+      job.progress = progress; job.connection = options.onConnection; return job.promise;
+    },
     thumbnails: () => { const scope = { cancel: () => { scope.cancelled = true; }, thumb: (...args) => { thumbs.push(args); return thumbnailFor?.(...args) || thumbsHold?.promise || Promise.resolve(`blob:${args[0]}`); } }; scopes.push(scope); return scope; },
     modelThumbnails: (...args) => { modelThumbs.push(args); return thumbsHold?.promise || Promise.resolve(`blob:model:${args[0]}:${args[1]}`); },
   });
@@ -327,6 +330,69 @@ test("running captures IDs/options, follows job progress, survives hiding and sh
   assert.match(h.dialog.textContent, /Unreadable File/);
   assert.equal(walk(h.dialog).filter((element) => element.dataset.result).length, 2);
   await h.action("ok", h.dialog).click(); assert.equal(h.dialog.hidden, true);
+});
+
+test("a disconnected import keeps its original job and completed count until resumed results arrive", async () => {
+  const h = await fixture(); await h.analyze([entry("a"), entry("b", "convert", "lobby")]);
+  await h.action("start").click(); await flush();
+  const job = h.runs[0];
+  job.progress({ completed: 1, done: 1, remaining: 1, total: 2, current: "b", index: 2, phase: "convert", step: "import.step.crc" });
+  job.connection(false); await h.page.settled();
+  assert.equal(h.phase(), "running"); assert.equal(h.page.model.state.jobId, job.id);
+  assert.equal(h.page.model.state.reconnecting, true); assert.equal(h.page.model.state.error, null);
+  assert.equal(h.holds.findLast((hold) => hold.active).opts.progress(), "Completed 1 / 2, remaining 1\nReconnecting");
+  assert.equal(h.action("recheck").disabled, true); assert.equal(h.action("start").disabled, true);
+  assert.equal(await h.page.model.start(), false); assert.equal(await h.page.model.recheck(), false);
+  assert.equal(await h.page.drop(entry("c").paths), false);
+  assert.equal(h.calls.filter(({ method }) => method === "import.run").length, 1);
+  assert.equal(h.analyses.length, 1, "loss of status transport must not reanalyze or resubmit the batch");
+  h.page.hide(); await h.page.show(h.context, catalog); await h.page.settled();
+  assert.equal(h.page.model.state.jobId, job.id); assert.equal(h.page.model.state.reconnecting, true);
+  job.connection(true); await h.page.settled();
+  assert.equal(h.page.model.state.reconnecting, false);
+  assert.match(h.holds.findLast((hold) => hold.active).opts.progress(), /^Completed 1 \/ 2, remaining 1\n/);
+  assert.doesNotMatch(h.holds.findLast((hold) => hold.active).opts.progress(), /Reconnecting/);
+  const results = [{ id: "a", outcome: "imported", libraryId: "resumed-a" },
+    { id: "b", outcome: "failed", state: "blocked", reason: "unreadable", libraryId: null }];
+  job.resolve({ results }); await flush(); await h.page.settled(); await flush();
+  assert.equal(h.phase(), "done"); assert.deepEqual(h.page.model.state.results, results);
+  assert.equal(h.page.model.state.entries.find(({ id }) => id === "a").libraryId, "resumed-a");
+  assert.equal(h.page.model.state.entries.find(({ id }) => id === "b").state, "blocked");
+  assert.equal(h.page.model.state.jobId, null); assert.equal(h.page.model.state.reconnecting, false);
+  assert.equal(h.holds.some((hold) => hold.active), false);
+  job.connection(false); job.progress({ done: 0, total: 2 });
+  assert.equal(h.page.model.state.reconnecting, false); assert.equal(h.page.model.state.progress, null);
+  assert.equal(h.calls.filter(({ method }) => method === "import.run").length, 1);
+});
+
+test("analysis reconnection retains numeric progress and ignores old connection callbacks after the next job starts", async () => {
+  const h = await fixture(), adding = h.page.drop(entry("a").paths); await flush();
+  const job = h.analyses[0]; job.progress({ current: 3, total: 8 }); job.connection(false);
+  assert.equal(h.phase(), "analyzing"); assert.equal(h.page.model.busy(), true);
+  assert.equal(h.holds.findLast((hold) => hold.active).opts.progress(), "Reconnecting 3 / 8");
+  assert.equal(await h.page.model.recheck(), false); assert.equal(h.analyses.length, 1);
+  job.connection(true);
+  assert.equal(h.holds.findLast((hold) => hold.active).opts.progress(), "Analyzing 3 / 8");
+  job.resolve({ entries: [entry("a")], skipped: 0, revision: 9 }); await adding; await h.page.settled();
+  assert.equal(h.phase(), "idle"); assert.equal(h.page.model.state.valid, true); assert.equal(h.page.model.state.jobId, null);
+  await h.action("start").click(); await flush();
+  job.connection(false); job.progress({ current: 0, total: 8 });
+  assert.equal(h.phase(), "running"); assert.equal(h.page.model.state.jobId, h.runs[0].id);
+  assert.equal(h.page.model.state.reconnecting, false); assert.equal(h.page.model.state.progress.total, 1);
+  h.runs[0].resolve({ results: [] }); await flush(); await h.page.settled();
+});
+
+test("manual-source analysis stays busy while reconnecting and still reports a terminal job failure", async () => {
+  const h = await fixture(); await h.analyze([entry("a")]);
+  const changing = h.page.model.setSource("a", "global", "windows"); await flush();
+  const job = h.sources[0]; job.connection(false);
+  assert.equal(h.phase(), "analyzing"); assert.equal(h.page.model.state.jobId, job.id);
+  assert.equal(h.holds.findLast((hold) => hold.active).opts.progress(), "Reconnecting");
+  assert.equal(await h.page.model.setSource("a", "global", "android"), false);
+  assert.equal(h.sources.length, 1);
+  job.connection(true); job.reject({ code: "entry_changed" }); await changing; await h.page.settled();
+  assert.equal(h.phase(), "error"); assert.equal(h.page.model.state.error.code, "entry_changed");
+  assert.equal(h.page.model.state.jobId, null); assert.equal(h.page.model.state.reconnecting, false);
 });
 
 test("analysis and run errors remain visible and prevent stale execution until recheck", async () => {

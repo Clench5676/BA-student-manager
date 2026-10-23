@@ -1497,6 +1497,7 @@
 			"merge": "合併同一學生 Mod",
 			"waitProgress": "{label} {done} / {total}",
 			"completedProgress": "已完成 {done} / {total}，剩餘 {remaining}\n{action} {name}{step}",
+			"reconnecting": "重新連線中",
 			"state": {
 				"done": "已完成",
 				"ready": "可匯入",
