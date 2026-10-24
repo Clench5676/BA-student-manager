@@ -13,6 +13,7 @@ from types import SimpleNamespace
 import pytest
 
 import ba_modding_toolkit
+from ba_modding_toolkit.utils import paths as utils_paths
 from ba_modding_toolkit import config, devmode, utils
 
 DEV_VARIABLES = ("BAMT_DATA_DIR", "BAMT_GAME_DIRS_GLOBAL", "BAMT_GAME_DIRS_JAPAN", "BAMT_DEV_ROOTS",
@@ -42,7 +43,7 @@ def test_data_dir_is_absolute(tmp_path, monkeypatch):
 
 
 def test_source_checkout_data_dir_unchanged_without_override():
-    assert utils._get_exe_dir() == Path(utils.__file__).resolve().parents[2]
+    assert utils._get_exe_dir() == Path(utils_paths.__file__).resolve().parents[3]
 
 
 def test_source_checkout_uses_the_override(tmp_path):
@@ -57,9 +58,9 @@ def test_compiled_build_copies_its_addons_into_the_override(tmp_path, monkeypatc
     portable.mkdir()
     (extracted / "Addons").mkdir(parents=True)
     (extracted / "Addons" / "BA-Characters-Internal-ID.csv").write_text("bundled map")
-    monkeypatch.setattr(utils, "__compiled__", SimpleNamespace(containing_dir=str(portable), macos_bundle_mode=macos),
+    monkeypatch.setattr(utils_paths, "__compiled__", SimpleNamespace(containing_dir=str(portable), macos_bundle_mode=macos),
                         raising=False)
-    monkeypatch.setattr(utils, "__file__", str(extracted / "ba_modding_toolkit" / "utils.py"))
+    monkeypatch.setattr(utils_paths, "__file__", str(extracted / "ba_modding_toolkit" / "utils" / "paths.py"))
     monkeypatch.setattr(sys, "executable", str(extracted / "Tool" if macos else portable / "Tool.exe"))
     monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
     assert utils._get_exe_dir(target) == target
@@ -115,7 +116,7 @@ def no_search(monkeypatch):
 
     for name in ("_unix_candidates", "_windows_candidates", "_wine_prefixes", "_native_steam_dirs"):
         monkeypatch.setattr(game_paths, name, searched)
-    monkeypatch.setattr(utils, "_ba_path_cache", {})
+    monkeypatch.setattr(utils_paths, "_ba_path_cache", {})
 
 
 def test_game_dirs_unset_is_none():

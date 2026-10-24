@@ -157,7 +157,9 @@
 		"adb_cache_dir": "キャッシュフォルダー",
 		"adb_cache_dir_info": "ADBファイルのローカルキャッシュフォルダー",
 		"backup_path": "バックアップ先",
-		"backup_path_info": "バックアップファイルの保存先フォルダーを選択"
+		"backup_path_info": "バックアップファイルの保存先フォルダーを選択",
+		"replace_font": "Font",
+		"replace_font_info": "フォントデータとファミリー名\n置換先のメトリクスを保持"
 	},
 	"file_type": {
 		"executable": "実行ファイル",
@@ -472,7 +474,8 @@
 			"extraction_failed": "アセット{name}の抽出中にエラーが発生しました：{error}",
 			"processing_file": "処理中：{name}",
 			"stream_ref_dangling": "[{name}]の抽出をスキップ：シリアライズデータがBundle内にないストリームデータファイル（.resS）を参照しているため、置き換えるとアセットが破損します",
-			"stream_ref_export_unsupported": "[{name}]の書き出しをスキップ：.resSストリーム参照を含むアセットは、再パックできるダンプとしての書き出しにまだ対応していません"
+			"stream_ref_export_unsupported": "[{name}]の書き出しをスキップ：.resSストリーム参照を含むアセットは、再パックできるダンプとしての書き出しにまだ対応していません",
+			"no_image_data": "抽出をスキップ [{name}]：テクスチャのピクセルデータなし"
 		},
 		"mod_update": {
 			"all_processes_complete": "すべての処理が完了しました！{count} 件のアセットを処理しました。",

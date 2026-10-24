@@ -157,7 +157,9 @@
 		"adb_cache_dir": "캐시 폴더",
 		"adb_cache_dir_info": "ADB 파일의 로컬 캐시 폴더",
 		"backup_path": "백업 경로",
-		"backup_path_info": "백업 파일을 저장할 폴더 선택"
+		"backup_path_info": "백업 파일을 저장할 폴더 선택",
+		"replace_font": "Font",
+		"replace_font_info": "글꼴 데이터 및 패밀리 이름\n대상 글꼴 메트릭 유지"
 	},
 	"file_type": {
 		"executable": "실행 파일",
@@ -472,7 +474,8 @@
 			"extraction_failed": "에셋 {name} 추출 중 오류: {error}",
 			"processing_file": "처리 중: {name}",
 			"stream_ref_dangling": "추출 건너뜀 [{name}]: 직렬화 데이터가 번들에 없는 스트림 데이터 파일(.resS)을 참조합니다. 교체하면 에셋이 손상됩니다",
-			"stream_ref_export_unsupported": "내보내기 건너뜀 [{name}]: .resS 스트림 참조가 있는 에셋은 아직 다시 패킹할 수 있는 덤프로 내보낼 수 없습니다"
+			"stream_ref_export_unsupported": "내보내기 건너뜀 [{name}]: .resS 스트림 참조가 있는 에셋은 아직 다시 패킹할 수 있는 덤프로 내보낼 수 없습니다",
+			"no_image_data": "추출 건너뛰기 [{name}]: 텍스처 픽셀 데이터 없음"
 		},
 		"mod_update": {
 			"all_processes_complete": "모든 처리 완료! 에셋 {count}개 처리.",

@@ -6,11 +6,11 @@ from tkinter import messagebox
 from pathlib import Path
 
 from ...i18n import t
-from ...mod_install import InstallAction, InstallResult, ModGroup, execute_mod_install, plan_mod_install
+from ...core.mod_install import InstallAction, InstallResult, ModGroup, execute_mod_install, plan_mod_install, ACTION_KEYS
 from ...searching import get_search_dirs
 from ..components import FileListbox, UIComponents, SettingRow
 from ..utils import warn_anim_diffs
-from ..windows.mod_install_dialog import ModInstallDialog, _ACTION_KEYS
+from ..windows.mod_install_dialog import ModInstallDialog
 from .base_tab import TabFrame
 
 # 文件级标注：动作 → 前景色（🟢 可直接替换 / 🟡 需更新 / 🔴 未找到 / ⚫ 错误）
@@ -130,7 +130,7 @@ class ModInstallTab(TabFrame):
     def _apply_file_annotations(self):
         """分析后给列表文件标注动作状态（NOT_FOUND/ERROR 无需进弹窗即可发现）"""
         annotations = {
-            f.mod_path: (f" · {t(_ACTION_KEYS[f.action])}", _ACTION_COLORS[f.action])
+            f.mod_path: (f" · {t(ACTION_KEYS[f.action])}", _ACTION_COLORS[f.action])
             for g in self.groups for f in g.files
         }
         self.mod_file_listbox.set_annotations(annotations)

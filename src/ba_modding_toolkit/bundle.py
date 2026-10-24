@@ -1,83 +1,54 @@
 # bundle.py
 
-import re
 import traceback
+from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path
 from typing import Callable
 
 import UnityPy
-from UnityPy.files import File as UnityFile, SerializedFile
+from UnityPy.files import SerializedFile
 from UnityPy.environment import Environment as Env
-from PIL import Image
 
+from .asset import ApplyContext, ExtractContext, apply_asset, extract_asset
 from .i18n import t
 from .errors import ServiceError
-from .utils import CRCUtils, no_log, throttle_progress
+from .utils import apply_crc_fix, compute_crc32, no_log, throttle_progress
 from .spine import SkelConverter, check_skel_animation_diff
-from .naming import RESOURCE_TYPES_NUM, parse_filename
+from .naming import RESOURCE_TYPES_NUM, parse_filename, ParsedFilename
+from .asset import find_stream_refs, collect_stream_companions, rewrite_stream_ref_prefixes
 from .models import (
     AssetKey, AssetContent, AssetType, Patch, KeyFunc,
     NameTypeKey, ContNameTypeKey, MatchStrategy, LogFunc,
     CompressionType, PatchResult, ReplaceAssetType,
-    SaveOptions, SkelConvertOptions, AnimCheckOptions, ParsedFilename,
-    BundleFileInfo, ProgressCallback, SkelVersionConflict,
+    SaveOptions, SkelConvertOptions, AnimCheckOptions,
+    ProgressCallback, SkelVersionConflict,
     RawAssetBytes, REPLACEABLE_ASSET_TYPES
 )
 
-# 对象序列化数据中的流式引用 basename（m_StreamData.path / m_Resource.m_Source，如 CAB-xxx.resS）
-STREAM_REF_PATTERN = re.compile(rb"[A-Za-z0-9_\-]+\.(?:resS|resource)")
 
-# 流引用完整路径前缀 archive:/<SerializedFile名>/，<SF名> 为包含该对象的内部 SerializedFile 名
-STREAM_REF_PREFIX_PATTERN = re.compile(rb"archive:/([A-Za-z0-9_\-]+)/(?=[A-Za-z0-9_\-]+\.(?:resS|resource))")
+@dataclass
+class BundleFileInfo:
+    """扫描结果中单个 bundle 文件的信息"""
+    path: Path
+    file_size: int
+    modified_time: float = 0.0
+    trailing_bytes: int | None = None
+    trailing_content: bytes | None = None
+    parsed_name: ParsedFilename | None = None
+    crc_actual: int | None = None
+    # ADB 支持
+    local_cache_path: Path | None = None  # ADB 模式下的本地缓存路径
+    source: str = "local"                  # "local" | "adb"
 
-
-def find_stream_refs(data: bytes) -> set[str]:
-    """提取序列化数据中引用的附属流文件名（.resS/.resource）"""
-    return {m.decode() for m in STREAM_REF_PATTERN.findall(data)}
-
-
-def rewrite_stream_ref_prefixes(data: bytes, target_cab: str, log: LogFunc = no_log) -> bytes:
-    """把流引用路径中的 SerializedFile 名段改写为目标 bundle 的 SF 名
-
-    'archive:/<SF名>/<resS名>' 的 <SF名> 必须与目标 bundle 的 SerializedFile 名一致，
-    游戏运行时才能解析（raw 替换内容残留源 bundle 的 SF 名，halo 等流式资源在游戏内不可见；
-    UnityPy 按 basename 兜底解析，因此仅靠 UnityPy 层测试不会暴露此问题）。
-    源/目标 SF 名均为 32 位 hex（等长），直接字节替换不影响序列化布局；
-    长度不一致时保留原值并告警（回退 basename 解析）。
-    """
-    dst = target_cab.encode()
-    result = data
-    for src in {m.group(1) for m in STREAM_REF_PREFIX_PATTERN.finditer(data)}:
-        if src == dst:
-            continue
-        if len(src) != len(dst):
-            log(f'  > ⚠️ {t("log.stream_prefix_skip", src=src.decode(), dst=target_cab)}')
-            continue
-        result = result.replace(b"archive:/" + src + b"/", b"archive:/" + dst + b"/")
-    return result
+    @property
+    def effective_path(self) -> Path:
+        """获取实际用于文件操作的本地路径"""
+        return self.local_cache_path if self.local_cache_path is not None else self.path
 
 
-def collect_stream_companions(raw: bytes, env_file: UnityFile) -> dict[str, bytes] | None:
-    """按 raw 内容中的引用 basename 从 bundle 内部文件收集附属流文件
-
-    引用藏在对象 raw 字节内而非序列化引用表，必须按内容匹配收集，
-    不能按 bundle 初始文件列表快照（二次提取需携带历史 companion）。
-
-    Returns:
-        {basename: 字节}；引用了 bundle 内不存在的文件时返回 None（悬空引用）
-    """
-    refs = find_stream_refs(raw)
-    if not refs:
-        return {}
-    files = {name: f for name, f in env_file.files.items() if not hasattr(f, "objects")}
-    companions: dict[str, bytes] = {}
-    for ref in refs:
-        entry = files.get(ref)
-        if entry is None:
-            return None
-        companions[ref] = entry.bytes
-    return companions
+# 流式引用辅助（STREAM_REF_* / find_stream_refs / rewrite_stream_ref_prefixes /
+# collect_stream_companions / install_raw_content）已迁移至 asset.py
 
 
 class UpdateScope:
@@ -144,17 +115,17 @@ class Bundle:
     封装 Bundle 文件的业务类。
     包含了底层的 UnityPy Environment 以及所有业务相关操作（加载、保存、替换、提取等）。
     """
-    
+
     def __init__(self, path: Path, env: Env, log: LogFunc = no_log):
         self.path = path
         self.env = env
         self.log = log
-    
+
     @property
     def name(self) -> str:
         """快捷获取文件名"""
         return self.path.name
-    
+
     @cached_property
     def parsed_name(self) -> ParsedFilename:
         """获取解析后的文件名信息（带缓存）"""
@@ -174,7 +145,7 @@ class Bundle:
     def res_type(self) -> str | None:
         """从文件名获取资源类型"""
         return self.parsed_name.res_type
-    
+
     def need_crc(self) -> bool:
         """
         判断是否需要执行 CRC 修正。
@@ -184,7 +155,7 @@ class Bundle:
 
         # if self.res_type in JP_RES_TYPES:
         #     return False
-        
+
         # 牛魔的为什么新版国际服的也用textures而不是003了？？？
 
         platform_name, _ = self.platform_info
@@ -194,32 +165,8 @@ class Bundle:
         """检查 Bundle 是否为空（不包含任何文件）"""
         return len(self.env.files) == 0
 
-    @cached_property
-    def sf_name(self) -> str:
-        """内部 SerializedFile 名（bundle 内唯一，如 CAB-xxxx）"""
-        return next(n for n, f in self.env.file.files.items() if hasattr(f, "objects"))
-
-    def install_raw_content(self, content: RawAssetBytes) -> RawAssetBytes:
-        """把 raw 替换内容安装进本 bundle：写入 companion 附属流文件并改写流引用前缀
-
-        - companion：使内嵌的 .resS/.resource 引用在目标 bundle 内闭合。
-          约束：多份 .resS 并存是设计要求（目标自己的与各代 companion 的分别服务不同对象）；
-          任何"清理未使用条目"优化不得将无序列化引用的 .resS 当孤儿删除
-          引用内嵌于对象 raw 字节，常规引用分析不可见，误删会破坏已分发的 mod。
-        - 前缀改写：流引用路径 archive:/<SF名>/ 的 <SF名> 段必须匹配本 bundle，否则游戏运行时无法解析。
-        """
-        for companion_name, companion_bytes in content.companions.items():
-            if companion_name in self.env.file.files:
-                self.log(f'  > ⏭️ {t("log.replace_companion_exists", name=companion_name)}')
-            else:
-                self.env.file.get_writeable_cab(companion_name).write(companion_bytes)
-        rewritten = rewrite_stream_ref_prefixes(content, self.sf_name, self.log)
-        if rewritten != content:
-            return RawAssetBytes(rewritten, content.companions)
-        return content
-    
     # -------- 匹配策略相关 --------
-    
+
     @staticmethod
     def _get_key_func(strategy: MatchStrategy) -> KeyFunc:
         """根据匹配策略名获取对应的键生成函数。"""
@@ -230,7 +177,7 @@ class Bundle:
         elif strategy == 'cont_name_type':
             return lambda obj: ContNameTypeKey(obj.container, obj.peek_name(), obj.type.name)
         raise ValueError(f"Unknown match strategy: {strategy}")
-    
+
     def get_asset_keys(
         self,
         strategy: MatchStrategy = 'name_type',
@@ -255,12 +202,12 @@ class Bundle:
             if key is not None:
                 keys.add(key)
         return keys
-    
+
     @cached_property
     def platform_info(self) -> tuple[str, str]:
         """
         获取 Bundle 文件的平台信息和 Unity 版本。
-        
+
         Returns:
             tuple[str, str]: (平台名称, Unity版本) 的元组
                              如果找不到则返回 ("UnknownPlatform", "Unknown")
@@ -269,20 +216,20 @@ class Bundle:
             for inner_obj in file_obj.files.values():
                 if isinstance(inner_obj, SerializedFile) and hasattr(inner_obj, 'target_platform'):
                     return inner_obj.target_platform.name, inner_obj.unity_version
-        
+
         return "UnknownPlatform", "Unknown"
-    
+
     @staticmethod
     def get_trailing_bytes(bundle_path: Path) -> int | None:
         """
         快速检测 UnityFS bundle 文件尾部添加的额外字节数。
-        
+
         通过读取文件头中的 size 字段与实际文件大小比较，
         可以在不解压的情况下判断是否需要移除尾部字节。
-        
+
         Args:
             bundle_path: bundle 文件路径
-            
+
         Returns:
             int: 需要移除的尾部字节数（0 表示无需移除）
             None: 读取失败
@@ -316,24 +263,24 @@ class Bundle:
                 size_bytes = f.read(8)
                 if len(size_bytes) != 8:
                     return None
-                
+
                 recorded_size = int.from_bytes(size_bytes, 'big')
-                
+
                 # 获取实际文件大小
                 actual_size = bundle_path.stat().st_size
-                
+
                 # 计算差值
                 trailing_bytes = actual_size - recorded_size
-                
+
                 # 如果实际大小小于记录大小，说明文件损坏
                 if trailing_bytes < 0:
                     return None
-                
+
                 return trailing_bytes
-                
+
         except Exception:
             return None
-    
+
     @staticmethod
     def get_trailing_content(bundle_path: Path, trailing_size: int, max_bytes: int = 64) -> bytes | None:
         """
@@ -354,27 +301,27 @@ class Bundle:
                 return f.read(read_size)
         except Exception:
             return None
-    
+
     @classmethod
     def load(cls, bundle_path: Path, log: LogFunc = no_log) -> 'Bundle | None':
         """
         尝试加载一个 Unity bundle 文件。
         使用快速检测尾部字节的方式优化加载流程。
-        
+
         Returns:
             Bundle 实例，如果加载失败则返回 None
         """
         if not bundle_path.exists():
             log(f'❌ {t("log.file.not_exist", path=bundle_path)}')
             return None
-        
+
         # 快速检测尾部字节数
         trailing = cls.get_trailing_bytes(bundle_path)
-        
+
         if trailing is None:
             log(f'❌ {t("log.file.load_failed", path=bundle_path)}')
             return None
-        
+
         # 尝试加载
         try:
             if trailing == 0:
@@ -385,17 +332,17 @@ class Bundle:
             return cls(bundle_path, env, log)
         except Exception:
             pass
-        
+
         # 如果精确检测后加载失败，尝试 fallback 方式
         try:
             data = bundle_path.read_bytes()
         except Exception as e:
             log(f'  ❌ {t("log.file.read_in_memory_failed", name=bundle_path.name, error=e)}')
             return None
-        
+
         # TODO: 支持用户指定输入
         bytes_to_remove = [4, 8, 12]
-        
+
         for bytes_num in bytes_to_remove:
             if len(data) > bytes_num:
                 try:
@@ -404,10 +351,10 @@ class Bundle:
                     return cls(bundle_path, env, log)
                 except Exception:
                     pass
-        
+
         log(f'❌ {t("log.file.load_failed", path=bundle_path)}')
         return None
-    
+
     @classmethod
     def check_need_crc(cls, bundle_path: Path, log: LogFunc = no_log) -> bool:
         """
@@ -417,7 +364,7 @@ class Bundle:
         bundle = cls.load(bundle_path)
         if bundle is None:
             return False
-        
+
         platform, unity_version = bundle.platform_info
         log(t("log.platform_info", platform=platform, version=unity_version))
 
@@ -432,7 +379,7 @@ class Bundle:
         crc_str = parse_filename(bundle_path.name).crc
         if not crc_str or not crc_str.isdigit():
             return False
-        return CRCUtils.compute_crc32(bundle_path) == int(crc_str)
+        return compute_crc32(bundle_path) == int(crc_str)
 
     @classmethod
     def list_asset_names(
@@ -471,7 +418,7 @@ class Bundle:
     def compress(self, compression: CompressionType = "none") -> bytes:
         """
         从 UnityPy.Environment 对象生成 bundle 文件的字节数据。
-        
+
         Args:
             compression: 压缩方式
                 - "lzma": 使用 LZMA 压缩
@@ -492,7 +439,7 @@ class Bundle:
             raise ValueError(f"Unsupported compression: {compression}")
 
         return self.env.file.save(packer=packer)
-    
+
     def save(self, output_path: Path, save_options: SaveOptions,
              on_step: Callable[[str], None] | None = None) -> tuple[bool, str]:
         """
@@ -512,14 +459,14 @@ class Bundle:
             compression_str = compression_map.get(save_options.compression, save_options.compression.upper())
             crc_status_str = t("common.on") if save_options.perform_crc else t("common.off")
             self.log(f"  > {t('log.file.saving_bundle_prefix')} [{t('log.file.compression_method', compression=compression_str)}] [{t('log.file.crc_correction', crc_status=crc_status_str)}]")
-            
+
             if on_step:
                 on_step("save")
             compressed_data = self.compress(save_options.compression)
-            
+
             final_data = compressed_data
             success_message = t("message.save_success")
-            
+
             if save_options.perform_crc:
                 if on_step:
                     on_step("crc")
@@ -527,30 +474,30 @@ class Bundle:
                 if not crc_str or not crc_str.isdigit():
                     return False, t("message.crc.correction_failed_file_not_generated", name=output_path.name)
                 target_crc = int(crc_str)
-                
+
                 if save_options.extra_bytes:
                     compressed_data += save_options.extra_bytes
-                
-                corrected_data = CRCUtils.apply_crc_fix(
+
+                corrected_data = apply_crc_fix(
                     compressed_data, target_crc
                 )
-                
+
                 if not corrected_data:
                     return False, t("message.crc.correction_failed_file_not_generated", name=output_path.name)
-                
+
                 final_data = corrected_data
-            
+
             with open(output_path, "wb") as f:
                 f.write(final_data)
             success_message = t("message.save_success")
-            
+
             return True, success_message
-        
+
         except Exception as e:
             self.log(f'❌ {t("log.file.save_failed", path=output_path, error=e)}')
             self.log(traceback.format_exc())
             return False, t("message.save_error", error=e)
-    
+
     def apply_patch(
         self,
         patch: Patch,
@@ -574,79 +521,40 @@ class Bundle:
         applied_assets_log = []
         matched_keys: list[AssetKey] = []
         anim_diffs: dict[str, list[str]] = {}
-        
+        ctx = ApplyContext(env=self.env, anim_check=anim_check, log=self.log)
+
         tasks = {key: value for key, value in patch.items() if key != "__mode__"}
-        
+
         for obj in self.env.objects:
             if not tasks:
                 break
-            
+
             if obj.type not in REPLACEABLE_ASSET_TYPES:
                 continue
             resource_name = str(getattr(obj, "path_id", "unknown"))
             try:
                 asset_key = key_func(obj)
-                
+
                 if asset_key is None:
                     continue
-                
+
                 if asset_key in tasks:
                     resource_name = str(asset_key)
                     data = obj.read()
                     content: AssetContent = tasks.pop(asset_key)
                     matched_keys.append(asset_key)
                     resource_name = getattr(data, 'm_Name', t("log.unnamed_resource", type=obj.type.name))
-                    
-                    # raw dump 内容（RawAssetBytes）：原样替换整个对象的序列化数据，优先于类型特定分支
-                    if isinstance(content, RawAssetBytes):
-                        obj.set_raw_data(self.install_raw_content(content))
-                    elif obj.type == AssetType.Texture2D:
-                        content: Image.Image
-                        new_image = content
-                        current_image = data.image
-                        if (current_image.mode == new_image.mode
-                                and current_image.size == new_image.size
-                                and current_image.tobytes() == new_image.tobytes()):
-                            self.log(f'  ⏭️ {t("log.replace_skipped_same_content", type=obj.type.name, name=resource_name)}')
-                            skipped_count += 1
-                            continue
-                        data.image = new_image
-                        data.save()
-                    elif obj.type == AssetType.TextAsset:
-                        content: bytes
-                        script = data.m_Script
-                        target_bytes = script if isinstance(script, bytes) else script.encode("utf-8", "surrogateescape")
 
-                        if target_bytes == content:
-                            self.log(f'  ⏭️ {t("log.replace_skipped_same_content", type=obj.type.name, name=resource_name)}')
-                            skipped_count += 1
-                            continue
+                    # 各资产类型的替换语义见 asset.apply_asset
+                    outcome = apply_asset(obj, content, ctx, data=data)
+                    if not outcome.applied:
+                        self.log(f'  ⏭️ {t("log.replace_skipped_same_content", type=obj.type.name, name=resource_name)}')
+                        skipped_count += 1
+                        continue
 
-                        # 就地检测动画差异
-                        if anim_check and anim_check.is_valid() and resource_name.lower().endswith('.skel'):
-                            self.log(f"  🔍 {t('log.spine.anim_check_comparing', name=resource_name)}")
-                            missing_anims = check_skel_animation_diff(
-                                source_skel=content,
-                                target_skel=target_bytes,
-                                viewer_path=anim_check.viewer_path,
-                                log=self.log
-                            )
-                            if missing_anims:
-                                anim_diffs[resource_name] = missing_anims
-                                self.log(f"  ⚠️ {t('log.spine.anim_check_new_animations', name=resource_name, animations=', '.join(missing_anims))}")
-                            else:
-                                self.log(f"  ✓ {t('log.spine.anim_check_no_diff', name=resource_name)}")
+                    if outcome.missing_anims:
+                        anim_diffs[resource_name] = outcome.missing_anims
 
-                        data.m_Script = content.decode("utf-8", "surrogateescape")
-                        data.save()
-                    else:
-                        # raw 类型（AnimationClip/Mesh 等）：内容相同则跳过，避免无效重存
-                        if obj.get_raw_data() == content:
-                            self.log(f'  ⏭️ {t("log.replace_skipped_same_content", type=obj.type.name, name=resource_name)}')
-                            skipped_count += 1
-                            continue
-                        obj.set_raw_data(content)
-                    
                     applied_count += 1
                     # 有 companion 随行时在成功行内追加，便于排查流式资源丢失类问题
                     companion_note = (
@@ -657,11 +565,11 @@ class Bundle:
                     key_display = str(asset_key)
                     log_message = f"[{obj.type.name}] {resource_name} (key: {key_display})"
                     applied_assets_log.append(log_message)
-            
+
             except Exception as e:
                 raise ServiceError("required_asset_apply_failed", file=self.path.name,
                                    name=resource_name, error=str(e)) from e
-        
+
         return PatchResult(
             applied_count=applied_count,
             skipped_count=skipped_count,
@@ -670,7 +578,7 @@ class Bundle:
             matched_keys=matched_keys,
             anim_diffs=anim_diffs,
         )
-    
+
     def extract_patch(
         self,
         asset_types_to_replace: set[ReplaceAssetType],
@@ -680,12 +588,12 @@ class Bundle:
     ) -> tuple[Patch, list[SkelVersionConflict]]:
         """
         从当前 Bundle 提取资源，生成补丁。
-        
+
         Args:
             asset_types_to_replace: 要替换的资源类型集合（如 {"Texture2D", "TextAsset", "Mesh"} 或 {"ALL"}）
             match_strategy: 匹配策略，用于生成资源键
             spine_options: Spine 资源版本检测与转换选项
-            
+
         Returns:
             (资源补丁 { asset_key: content }, skel 版本冲突列表)
         """
@@ -693,7 +601,8 @@ class Bundle:
         patch: Patch = {}
         skel_conflicts: list[SkelVersionConflict] = []
         replace_all = "ALL" in asset_types_to_replace
-        
+        ctx = ExtractContext(env_file=self.env.file, spine_options=spine_options, log=self.log)
+
         for obj in self.env.objects:
             if obj.type not in REPLACEABLE_ASSET_TYPES:
                 continue
@@ -706,54 +615,18 @@ class Bundle:
                 asset_key = key_func(obj)
                 if scope is not None and not scope.includes(asset_key):
                     continue
-                data = obj.read()
-                if asset_key is None or not getattr(data, 'm_Name', None):
+                if asset_key is None:
                     continue
-                
-                content: AssetContent | None = None
-                resource_name: str = data.m_Name
-                
-                if obj.type == AssetType.Texture2D:
-                    content: Image.Image = data.image
-                    content.load()
-                elif obj.type == AssetType.TextAsset:
-                    script = data.m_Script
-                    asset_bytes = script if isinstance(script, bytes) else script.encode("utf-8", "surrogateescape")
-                    if resource_name.lower().endswith(".atlas"):
-                        asset_bytes.decode("utf-8-sig")
-                    if resource_name.lower().endswith('.skel'):
-                        content, conflict = SkelConverter.ensure_version(
-                            skel_bytes=asset_bytes,
-                            resource_name=resource_name,
-                            options=spine_options,
-                            log=self.log
-                        )
-                        if conflict:
-                            skel_conflicts.append(conflict)
-                            continue
-                    else:
-                        content: bytes = asset_bytes
-                elif replace_all or obj.type.name in asset_types_to_replace:
-                    raw = obj.get_raw_data()
-                    companions = collect_stream_companions(raw, self.env.file)
-                    if companions is None:
-                        raise ValueError(t("webui.error.required_asset_stream_missing"))
-                    stream = getattr(data, "m_StreamData", None) if obj.type == AssetType.Mesh else None
-                    if stream and stream.path and stream.size:
-                        stream_name = stream.path.replace("\\", "/").rsplit("/", 1)[-1]
-                        payload = companions.get(stream_name)
-                        if payload is None or stream.offset < 0 or stream.size < 0 or stream.offset + stream.size > len(payload):
-                            raise ValueError(t("webui.error.required_asset_stream_missing"))
-                    content: bytes = RawAssetBytes(raw, companions) if companions else raw
-                
+                content, conflicts = extract_asset(obj, ctx)
+                skel_conflicts.extend(conflicts)
                 if content is not None:
                     patch[asset_key] = content
-            except Exception as e:
+            except Exception as error:
                 if scope is not None and asset_key in scope.counterparts and scope.skip_unchanged(self, obj, asset_key):
                     continue
                 raise ServiceError("required_asset_extract_failed", file=self.path.name,
-                                   name=resource_name, error=str(e)) from e
-        
+                                   name=resource_name, error=str(error)) from error
+
         if replace_all:
             patch["__mode__"] = {"ALL"}
 
@@ -782,7 +655,7 @@ def analyze_naming(item: BundleFileInfo) -> None:
 
 def analyze_crc(item: BundleFileInfo) -> None:
     """计算实际 CRC32"""
-    item.crc_actual = CRCUtils.compute_crc32(item.path)
+    item.crc_actual = compute_crc32(item.path)
 
 
 BUNDLE_ANALYZERS: dict[str, BundleAnalyzer] = {

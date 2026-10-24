@@ -11,6 +11,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from ba_modding_toolkit.utils import paths as utils_paths
 from ba_modding_toolkit import updater, utils
 from ba_modding_toolkit.errors import ServiceError
 
@@ -291,9 +292,9 @@ def test_compiled_addons_are_copied_once_and_existing_maps_are_preserved(
     license_name = "BA-Characters-Internal-ID-LICENSE.txt"
     (bundled / csv).write_text("bundled map")
     (bundled / license_name).write_text("CC BY-SA 4.0")
-    monkeypatch.setattr(utils, "__compiled__", SimpleNamespace(containing_dir=str(portable), macos_bundle_mode=macos),
+    monkeypatch.setattr(utils_paths, "__compiled__", SimpleNamespace(containing_dir=str(portable), macos_bundle_mode=macos),
                         raising=False)
-    monkeypatch.setattr(utils, "__file__", str(extracted / "ba_modding_toolkit" / "utils.py"))
+    monkeypatch.setattr(utils_paths, "__file__", str(extracted / "ba_modding_toolkit" / "utils" / "paths.py"))
     monkeypatch.setattr(sys, "executable", str(extracted / "Tool" if macos else portable / "Tool.exe"))
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     expected_dir = tmp_path / "Library" / "Application Support" / "bluearchive-modding-patching-tool" if macos else portable
@@ -308,8 +309,8 @@ def test_compiled_addons_are_copied_once_and_existing_maps_are_preserved(
 def test_compiled_build_without_addons_still_returns_portable_directory(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(utils, "__compiled__", SimpleNamespace(containing_dir=str(tmp_path)), raising=False)
-    monkeypatch.setattr(utils, "__file__", str(tmp_path / "extracted" / "ba_modding_toolkit" / "utils.py"))
+    monkeypatch.setattr(utils_paths, "__compiled__", SimpleNamespace(containing_dir=str(tmp_path)), raising=False)
+    monkeypatch.setattr(utils_paths, "__file__", str(tmp_path / "extracted" / "ba_modding_toolkit" / "utils" / "paths.py"))
     assert utils._get_exe_dir() == tmp_path
     assert not (tmp_path / "Addons").exists()
 
@@ -319,13 +320,13 @@ def test_bundled_addons_do_not_prevent_launch_from_an_unwritable_install(
 ) -> None:
     bundled = tmp_path / "extracted" / "Addons"
     bundled.mkdir(parents=True)
-    monkeypatch.setattr(utils, "__compiled__", SimpleNamespace(containing_dir=str(tmp_path)), raising=False)
-    monkeypatch.setattr(utils, "__file__", str(tmp_path / "extracted" / "ba_modding_toolkit" / "utils.py"))
+    monkeypatch.setattr(utils_paths, "__compiled__", SimpleNamespace(containing_dir=str(tmp_path)), raising=False)
+    monkeypatch.setattr(utils_paths, "__file__", str(tmp_path / "extracted" / "ba_modding_toolkit" / "utils" / "paths.py"))
 
     def deny_copy(*args) -> None:
         raise PermissionError("install directory is read-only")
 
-    monkeypatch.setattr(utils.shutil, "copytree", deny_copy)
+    monkeypatch.setattr(utils_paths.shutil, "copytree", deny_copy)
     assert utils._get_exe_dir() == tmp_path
 
 

@@ -157,7 +157,9 @@
 		"adb_cache_dir": "โฟลเดอร์แคช",
 		"adb_cache_dir_info": "โฟลเดอร์แคชไฟล์ ADB ในเครื่อง",
 		"backup_path": "ตำแหน่งสำรองข้อมูล",
-		"backup_path_info": "โฟลเดอร์บันทึกไฟล์สำรอง"
+		"backup_path_info": "โฟลเดอร์บันทึกไฟล์สำรอง",
+		"replace_font": "Font",
+		"replace_font_info": "ข้อมูลฟอนต์และชื่อแฟมิลี\nคงค่าเมตริกของฟอนต์ปลายทาง"
 	},
 	"file_type": {
 		"executable": "ไฟล์โปรแกรม",
@@ -472,7 +474,8 @@
 			"extraction_failed": "แยกทรัพยากร {name} ไม่สำเร็จ: {error}",
 			"processing_file": "กำลังประมวลผล: {name}",
 			"stream_ref_dangling": "ข้ามการแยก [{name}]: ข้อมูลอ้างถึงไฟล์สตรีม (.resS) ที่ไม่มีใน Bundle, การแทนที่จะทำให้ทรัพยากรเสียหาย",
-			"stream_ref_export_unsupported": "ข้ามการส่งออก [{name}]: ยังส่งออกทรัพยากรที่อ้างอิงสตรีม .resS เป็นดัมป์ที่แพ็กใหม่ได้ไม่ได้"
+			"stream_ref_export_unsupported": "ข้ามการส่งออก [{name}]: ยังส่งออกทรัพยากรที่อ้างอิงสตรีม .resS เป็นดัมป์ที่แพ็กใหม่ได้ไม่ได้",
+			"no_image_data": "ข้ามการแยก [{name}]: เท็กซ์เจอร์ไม่มีข้อมูลพิกเซล"
 		},
 		"mod_update": {
 			"all_processes_complete": "ดำเนินการทั้งหมดเสร็จแล้ว, ประมวลผล {count} ทรัพยากร",

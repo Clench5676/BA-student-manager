@@ -157,7 +157,9 @@
 		"adb_cache_dir": "快取資料夾",
 		"adb_cache_dir_info": "ADB 檔案的本機快取資料夾",
 		"backup_path": "備份路徑",
-		"backup_path_info": "選擇備份檔案的存放資料夾"
+		"backup_path_info": "選擇備份檔案的存放資料夾",
+		"replace_font": "Font",
+		"replace_font_info": "字型資料與家族名稱\n保留目標字型度量"
 	},
 	"file_type": {
 		"executable": "執行檔",
@@ -472,7 +474,8 @@
 			"extraction_failed": "提取資源 {name} 時發生錯誤：{error}",
 			"processing_file": "正在處理：{name}",
 			"stream_ref_dangling": "跳過提取 [{name}]：序列化資料引用了 Bundle 中不存在的串流資料檔（.resS），替換會損毀資源",
-			"stream_ref_export_unsupported": "跳過匯出 [{name}]：含 .resS 串流引用的資源暫不支援匯出為可重新打包的 dump"
+			"stream_ref_export_unsupported": "跳過匯出 [{name}]：含 .resS 串流引用的資源暫不支援匯出為可重新打包的 dump",
+			"no_image_data": "略過擷取 [{name}]：材質沒有像素資料"
 		},
 		"mod_update": {
 			"all_processes_complete": "全部流程已完成！共處理 {count} 個資源。",

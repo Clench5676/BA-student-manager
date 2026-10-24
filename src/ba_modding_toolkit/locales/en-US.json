@@ -157,7 +157,9 @@
 		"adb_cache_dir": "Cache Directory",
 		"adb_cache_dir_info": "Local cache directory for ADB files",
 		"backup_path": "Backup Path",
-		"backup_path_info": "Choose the directory where backup files will be saved"
+		"backup_path_info": "Choose the directory where backup files will be saved",
+		"replace_font": "Font",
+		"replace_font_info": "Font data and family names\nKeep target metrics"
 	},
 	"file_type": {
 		"executable": "Executable File",
@@ -472,7 +474,8 @@
 			"extraction_failed": "Error extracting asset {name}: {error}",
 			"processing_file": "Processing: {name}",
 			"stream_ref_dangling": "Skipping extraction [{name}]: serialized data references a stream data file (.resS) missing from the bundle; replacing would corrupt the asset",
-			"stream_ref_export_unsupported": "Skipping export [{name}]: assets with .resS stream references cannot yet be exported as repackable dumps"
+			"stream_ref_export_unsupported": "Skipping export [{name}]: assets with .resS stream references cannot yet be exported as repackable dumps",
+			"no_image_data": "Skipping extraction [{name}]: texture has no pixel data"
 		},
 		"mod_update": {
 			"all_processes_complete": "All processes completed! {count} assets processed.",

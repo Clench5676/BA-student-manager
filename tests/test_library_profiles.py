@@ -879,7 +879,7 @@ def test_a_game_update_makes_a_configured_entry_updated(world, monkeypatch):
     assert world.folder()["updated"].get("test_spr")
     assert world.entries()[(world.key(), "test_spr")].state == "updated"
     rebuilding_installer(monkeypatch)
-    monkeypatch.setattr(mod_install, "_asset_match", lambda sources, candidates, log: (candidates, ""))
+    monkeypatch.setattr(mod_install, "asset_match", lambda sources, candidates, log: (candidates, ""))
     result = world.library.restore_drift([{"install": world.key(), "core": "test_spr", "state": "updated"}])
     assert [item["core"] for item in result.done] == ["test_spr"], result
     assert "test_spr" not in world.folder()["updated"]
@@ -2012,7 +2012,7 @@ def test_gone_records_stay_while_another_install_keeps_the_original(world, monke
     assert world.folder()["updated"] == {}
     assert world.entries()[(world.key(), "test_spr")].state == "updated"  # by the gone rule
     rebuilding_installer(monkeypatch)
-    monkeypatch.setattr(mod_install, "_asset_match", lambda sources, candidates, log: (candidates, ""))
+    monkeypatch.setattr(mod_install, "asset_match", lambda sources, candidates, log: (candidates, ""))
     world.library.restore_drift([{"install": world.key(), "core": "test_spr", "state": "updated"}])
     assert world.entries()[(world.key(), "test_spr")].state == "ok"
     world.reload()
@@ -2056,7 +2056,7 @@ def test_an_adopted_overwritten_part_renamed_by_an_update_is_updated_then_ok(wor
     world.reload()
     world.library.prune()
     rebuilding_installer(monkeypatch)
-    monkeypatch.setattr(mod_install, "_asset_match", lambda sources, candidates, log: (candidates, ""))
+    monkeypatch.setattr(mod_install, "asset_match", lambda sources, candidates, log: (candidates, ""))
     world.library.restore_drift([{"install": world.key(), "core": "test_spr", "state": "updated"}])
     assert world.entries()[(world.key(), "test_spr")].state == "ok"
 
@@ -2067,7 +2067,7 @@ def test_a_written_successor_ends_the_gone_rule_before_the_prune(world, monkeypa
     world.library.apply("test", f"mod:{mod.id}")
     successor = game_update(world.spr)
     rebuilding_installer(monkeypatch)
-    monkeypatch.setattr(mod_install, "_asset_match", lambda sources, candidates, log: (candidates, ""))
+    monkeypatch.setattr(mod_install, "asset_match", lambda sources, candidates, log: (candidates, ""))
     world.library._switch(world.library.current_pin(), "test_spr", f"mod:{mod.id}")  # a bulk write: no prune
     assert str(world.spr.resolve()) in json.loads((world.root / "state.json").read_text())["applied"]
     assert successor.exists() and world.entries()[(world.key(), "test_spr")].state == "ok"
@@ -2251,7 +2251,7 @@ def test_a_game_update_drops_the_built_copy_and_on_rebuilds(world, monkeypatch):
     world.reload()
     world.library.prune()
     assert "test_spr" not in world.folder()["built"] and not copy.exists()
-    monkeypatch.setattr(mod_install, "_asset_match", lambda sources, candidates, log: (candidates, ""))
+    monkeypatch.setattr(mod_install, "asset_match", lambda sources, candidates, log: (candidates, ""))
     world.toggle(True)
     assert successor.read_bytes() != header_bundle(b"updated!")
 

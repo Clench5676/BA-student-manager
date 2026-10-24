@@ -13,6 +13,7 @@ from UnityPy.streams import EndianBinaryWriter
 
 from ba_modding_toolkit import atlas_remap as remap, core
 from ba_modding_toolkit.bundle import Bundle
+from ba_modding_toolkit.core import mod_update
 from ba_modding_toolkit.i18n import I18n, t
 from ba_modding_toolkit.library.integrity import inspect as inspect_bundle
 from ba_modding_toolkit.models import ContNameTypeKey, SaveOptions
@@ -509,7 +510,7 @@ def test_self_contained_split_bundles_do_not_use_official_layout(setup_library, 
 
 @pytest.mark.parametrize("language", ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"])
 def test_an_unapplied_prepared_page_refuses_the_build(tmp_path, monkeypatch, language):
-    monkeypatch.setattr(core, "t", I18n(language).t)
+    monkeypatch.setattr(mod_update, "t", I18n(language).t)
     name = "assets-_mx-spinecharacters-test_spr-_mxdependency-2026-01-01_003_assets_all_123.bundle"
     target = write_bundle(tmp_path / name, {}, {"page": Image.new("RGBA", (8, 8))})
     output = tmp_path / "out"

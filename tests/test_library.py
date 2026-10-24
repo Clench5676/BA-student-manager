@@ -1128,7 +1128,7 @@ def test_update_can_split_an_old_mod_into_current_bundle_parts(setup_library, mo
     targets = [game_bundle(env.game_dir, part=part, date="2026-10-01", payload=part.encode())
                for part in ("002", "003")]
     original_bytes = {target: target.read_bytes() for target in targets}
-    monkeypatch.setattr(mod_install, "_asset_match", lambda sources, candidates, log: (candidates, ""))
+    monkeypatch.setattr(mod_install, "asset_match", lambda sources, candidates, log: (candidates, ""))
     def update(sources, current, output, *args, **kwargs):
         result = output / current[0].name
         result.write_bytes(header_bundle(b"split mod " + parse_filename(current[0].name).res_type.encode()))
@@ -1641,7 +1641,7 @@ def test_a_mod_whose_changed_part_is_official_again_can_be_removed(setup_library
 
 @pytest.mark.parametrize("language", ["en-US", "zh-CN"])
 def test_the_in_use_refusals_have_their_messages(language):
-    locales = Path(core.__file__).parent / "locales"
+    locales = Path(core.__file__).parent.parent / "locales"
     errors = json.loads((locales / f"{language}.json").read_text(encoding="utf-8"))["webui"]["error"]
     assert errors["mod_in_use"] and "{folder}" in errors["mod_in_use_elsewhere"]
 

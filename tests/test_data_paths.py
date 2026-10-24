@@ -11,6 +11,7 @@ from types import SimpleNamespace
 import pytest
 import toml
 
+from ba_modding_toolkit.utils import paths as utils_paths
 from ba_modding_toolkit import config, data_paths, devmode, filelock, utils
 from ba_modding_toolkit.data_paths import APP_DIR_NAME, OLD_APP_DIR_NAME, migrate_data_dir
 from ba_modding_toolkit.webui.instance import InstanceLock
@@ -168,7 +169,7 @@ def test_override_never_inspects_default_folders(folders, tmp_path, monkeypatch)
     override = tmp_path / "isolated"
     monkeypatch.setenv("BAMT_DATA_DIR", str(override))
     monkeypatch.setattr(utils, "DATA_DIR_OVERRIDE", devmode.data_dir())
-    monkeypatch.setattr(utils, "__compiled__", SimpleNamespace(containing_dir=str(tmp_path), macos_bundle_mode=True),
+    monkeypatch.setattr(utils_paths, "__compiled__", SimpleNamespace(containing_dir=str(tmp_path), macos_bundle_mode=True),
                         raising=False)
 
     def forbidden(*args, **kwargs):
@@ -426,11 +427,11 @@ def test_migration_precedes_addons_copy(folders, tmp_path, monkeypatch):
     bundled = tmp_path / "bundle/Addons"
     bundled.mkdir(parents=True)
     (bundled / "map.csv").write_text("bundled map")
-    monkeypatch.setattr(utils, "__compiled__", SimpleNamespace(containing_dir=str(tmp_path), macos_bundle_mode=True),
+    monkeypatch.setattr(utils_paths, "__compiled__", SimpleNamespace(containing_dir=str(tmp_path), macos_bundle_mode=True),
                         raising=False)
     monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
     monkeypatch.setattr(sys, "executable", str(bundled.parent / "tool"))
-    monkeypatch.setattr(utils, "migrate_data_dir", lambda parent: migrate_data_dir(old.parent))
+    monkeypatch.setattr(utils_paths, "migrate_data_dir", lambda parent: migrate_data_dir(old.parent))
     assert utils._get_exe_dir() == new
     assert (new / "Addons/map.csv").read_text() == "user map"
 
