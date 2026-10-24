@@ -4,17 +4,27 @@ The new GUI: a pywebview window showing a local web front end that reproduces th
 from the approved prototype (`prototype/main-screen-v4`, git-ignored). Game art is read from the user's own install
 at runtime and never shipped with the program.
 
-## First milestone
+## Screens
 
-- Screens: consent popup, student roster, student detail (Portrait, Memorial Lobby and 3D tabs), the
+The Student Hall, import/assignment, ZIP export and navigation changes tracked in
+[`backlog.md`](backlog.md) are included in 0.5.0, along with office backgrounds, global portrait scaling,
+immersive Hall view and touch-friendly queue reordering. Local alpha review builds preceded the owner's stable
+release approval. Runtime checks cover Hall toolbars/selectors, portrait resource reuse and complete batch reveal,
+saved layering/mirroring, exclusive dialogue, and pointer-driven playlist reordering with save/reopen. Automated
+gesture checks cover touch holds, swipe-to-scroll, cancellation, viewport scaling and stationary-edge scrolling.
+Game assets and development data are excluded from packages.
+
+- Screens: consent popup, Student Hall, student roster, Batch Import, student detail (Portrait, Memorial Lobby and 3D tabs), the
   switch popups (portrait, memorial lobby) and the variant picker. The lobby is framed and touched like the game (its prefab data,
   `lobby.json`), plays its intro timeline when it is entered (a tap skips it; the settings' L2D tab turns it off) and
   plays its dialogue with Kivo's voices and the lines in the UI language (Kivo's Chinese and
   Japanese, the Global server's official English and the others); the 3D tab shows the variant's chibi, exported
-  from the install, and is disabled only for variants without one.
+  from the install or a selected library Mod. A tab can remain available for a library-only Mod even when the
+  installation has no corresponding original resource; application remains unavailable in that case.
 - Nav entries without a new screen yet open the classic Tk GUI on that tab (`bamt --tab <name>`).
 - `bamt` (and the compiled app) starts the web UI; `bamt --classic` starts the classic Tk GUI.
-- Released builds look for a newer GitHub release at start and can update themselves (`updater.py`).
+- Released builds look for a newer GitHub release at start and can update themselves (`updater.py`). The existing
+  unset-preference default is on; an explicitly saved startup-update opt-out remains off.
 - Out of scope for now: the other tool screens.
 
 ## Languages
@@ -95,7 +105,7 @@ src/ba_modding_toolkit/
   config.py      Tk-free settings: same config.toml groups and keys as gui/configs.py
   gameassets/    UI atlases, UI textures, prefab layouts, collection art and Spine skeletons from the install
   catalog/       students (families) and their variants, names in zh-CN, zh-TW, en, ja and ko
-  library/       the user's portrait and lobby mods: add, remove, apply, restore, update, extract, compare
+  library/       portrait, lobby, model and other mods: add, remove, apply, restore, update, extract, compare
   webui/         server, RPC, events, jobs, pywebview window, tray icon, entry point
   web/           static front end, no build step, plain ES modules
 ```
@@ -631,10 +641,23 @@ install from its list (Remove from List, `forget`) drops its record only when no
 otherwise it only hides the install there, and a toggle there lists that install's entries as not switched for the
 data directory that names it.
 
-The 3D model has no switch: the library keeps no 3D mods. It would take a `model` kind (`character-<dev>-_mxload-*`
-prefab bundles, whose meshes, textures and clips sit in other bundles found by CAB), its detection in `add`, game
-files matched by bundle name rather than by core, a preview through `GameAssets.model_glb(overrides=...)`, and no
-variant swap (chibis do not share meshes and bones).
+**Per-Mod import publication.** `_store` stages and verifies the complete file group under
+`import-transactions/<uuid>/files`, journals its expected hashes, publishes the directory under `mods/<uuid>`, then
+saves the corresponding `state.json` record. Metadata publication is the commit point. A failed operation rolls
+back its record, any repair link and its files without removing earlier independent imports. Recovery runs before
+library operations, validates journal and Mod paths, verifies a committed group's bytes and retains a pending
+journal if recovery cannot complete. Metadata and directory synchronization must succeed before recovery discards
+its journal, even when a retry finds that an earlier metadata replacement already took effect.
+
+This is stage-local atomicity. The existing game-write transaction separately retains and restores every replaced
+part. A complete library import is not undone merely because later optional application fails; its configured
+choice can remain pending. With the master switch off, a valid application records desired state and defers the
+game-file write. Fixture fault injection covers transfer, verification, metadata, interruption and rollback
+boundaries; it does not establish power-loss behavior for every filesystem or storage device.
+
+The library also supports `model` Mods and the detail page's model source selector. Their prefab, mesh, texture and
+animation dependencies are validated together. Model preview uses the chosen source independently of game
+application; a library-only assigned model exposes its tab without claiming a local installation target.
 
 ## Game watch
 
@@ -704,7 +727,7 @@ Every writer job ends on the worker with the library's judging of the `unfinishe
 |---|---|
 | game | `apply`, `restore`, `mods.toggle`, `mods.restore` (Apply Mod Configuration) |
 | library | `library.adopt`, `library.prune`, `library.clearBuilt`, `library.forget`, `library.judge`, `update` |
-| none | `extract`, `update.download` |
+| none | `extract`, `export`, `update.download` |
 
 Every game folder write a job makes is pinned at submit: the RPC captures the library and the pins (`installs()` for
 the jobs over every known install, `current_pin()` for one entry) and passes them to the library, so a game folder
@@ -837,6 +860,15 @@ stops the server (the page shows Closed); with `--serve` it gives `native_unavai
 | `mods.forget {install}` | job id (`library.forget`): Remove from List; `bad_params` for an install the settings name |
 | `actions.apply {variant, source, kind}` / `actions.restore {variant, kind}` | job id; switches what the current install shows, `kind` `spr` (default) or `lobby` (see library); the result has `deferred` while mods are off (configured, not written); `classic_open` at submit only when a game file would be written, `folder_changed` when the current install changed before the job ran, `steam_busy` from the write, `game_not_found` without a current install |
 | `actions.update {mod}` / `actions.extract {target}` | job id |
+| `export.options` | actual default output folder, current target server/platform and configured target choices; serialized platform metadata is preferred |
+| `export.start {scope, folder, server, platform, target?, kind?}` | job id; `scope` is `single`, `library` or `applied`; result `{folder, archive, count}` after complete ZIP verification and publication |
+| `import.catalog` | offline assignment families, including students without local resources |
+| `import.assignCharacter {id, variant}` | job id; confirms ownership for the analyzed entry and returns its updated verdict |
+| `hall.get` / `hall.update {value, revision}` | persistent Hall state; updates validate the complete snapshot and reject stale revisions with `hall_conflict` |
+| `hall.options` | available official/Mod portrait and memorial sources, plus installed day/night office-layout choices and collection-background URLs |
+| `hall.dialogueLayout` | the ordinary `LobbyCommon/DialogPanel/ChatDialog/Talk` NGUI speech balloon |
+| `hall.lines {variant, lang}` / `hall.voice {variant, clip}` | localized portrait dialogue metadata, including pending availability / memory-only voice audio |
+| `hall.viewed {variant, source}` | records a validated memorial source in bounded recently viewed history |
 | `actions.compare {mod}` | per-asset differences |
 | `actions.remap {mod}` | writer job; creates a new mod against current official bundles, preserving the source; result `{mod, report, compare}`; `report.upscaled` lists `{atlas, page, w, h}` for pages enlarged before remapping |
 | `os.reveal {path}` | |
@@ -847,7 +879,37 @@ HTTP endpoints outside `/api/rpc`, each with its own token, never the session to
 `POST /api/classic/report` (the classic child's one-time token, see Classic window) and `POST /api/instance/raise`
 (the raise token of `instance.json`).
 
+### ZIP export
+
+`mod-export.js` provides one flow for the student-detail Export action and Settings > Mods > Export Mod Library /
+Export Applied. The confirmation uses `UIPopup_Sort` and the shared option rows. It shows the actual default output
+path, target server and platform, Choose Directory on the left and Confirm on the right. The picker returns to this
+confirmation with the chosen path; cancelling it retains the previous path. It never starts an export by itself.
+The successful-export prompt opens the actual result folder only when the user chooses Open Folder.
+
+`webui/export_service.py` prepares selected sources against real originals from the chosen configured install.
+It uses the import preparation and compatibility checks without the duplicate-import shortcut or loose-file
+output. Missing or incompatible originals block the export; server/platform labels are never substituted for
+conversion. Existing secondary asset-extraction actions continue to use `actions.extract`.
+
+The ZIP has one stable, portable directory per source and a root `manifest.json` containing the target, source
+identities, filenames, sizes and SHA-256 digests. Bulk Applied selects distinct Mod IDs from desired-state manifests
+across recorded installations and records those assignments, including while the master switch is off. All members
+must prepare successfully. The archive is written to a temporary file in the destination, verified for ZIP integrity
+and member hashes, flushed and atomically published. Failed preparation or publication does not leave a partial
+new ZIP. This exports user-requested files at runtime; no game assets are included in application builds.
+
 ### Batch import origins and conversion
+
+Select for Preview and Apply to Game are independent checkboxes directly above Import. The options dialog no longer
+contains Apply After Import. `previewAfterImport` defaults false; `enableAfterImport` retains its existing true
+default, and saved explicit choices remain unchanged. Preview selection writes only the saved preview source;
+application writes the desired-state manifest and, while enabled, the game files. Failed imports never select a
+preview. A library-only assignment remains storable/previewable when no compatible application target exists.
+
+Remove Imported removes `done`, `library` and `installed` rows from the current list only. It does not delete stored
+Mods or change installed files; pending, conflicted and failed rows remain. The import list, selection and view
+controls remain in memory when navigation leaves and returns during the same session.
 
 `import.analyze {paths, recursive}` returns a library writer job ID; its result is `{entries, skipped, revision}`.
 `Entry.state` is `ready`, `convert`, `update`, `blocked`, `library`, `installed` or `done`. `done` means
@@ -957,6 +1019,19 @@ with the same text, so both entry reasons and RPC/job failures translate consist
 | `reason.conversion_names` | 无对应文件名 | No Matching Filename |
 | `reason.no_matching_assets` | 无匹配资源 | No Matching Assets |
 | `reason.conversion_failed` | 转换失败 | Conversion Failed |
+
+### Manual character assignment
+
+`character-picker.js` uses the roster's search, filters, sorting and variant-grouping controls over the offline
+assignment catalog. That catalog combines shipped student metadata and the character map, so ownership selection
+can include a Japanese-server student whose resources are absent from the selected Global installation. Confirming
+the owner persists `assignment` with a self-contained, validated Mod; re-analysis recognizes the stored result.
+
+`assigned_catalog.py` adds saved assigned students to roster/detail results without inventing resource handles.
+`storedKinds` describes kinds present in the student's library Mods, while `localKinds` and `spr`/`lobby`/`model`
+describe actual local resources. An assigned-only student can select its own Mod for preview. Without a local
+target, Apply stays disabled with No Matching Game File, sibling sources are not offered as substitutes, and an
+unset preview stays unset. A manual label does not bypass bundle-readability, dependency or compatibility checks.
 
 ### Atlas remap
 
@@ -1133,8 +1208,15 @@ The student list quits the app as the PC client's back key does in the lobby (`q
 `nav-items.js` (tested in Node from `tests/test_nav_items.py`) lists the bottom bar's entries and decides what a
 click does; `nav.js` draws them.
 
+Student Hall (`#/hall`) is the root page, followed by Students and Batch Import. `route-history.js` records committed
+page entries in memory. Back follows the previous entry, including Batch Import -> student detail -> Batch Import.
+Student arrows and tab changes replace the current detail entry. Cancelling unfinished navigation returns to the
+last committed screen, and failed transitions do not become successful history entries. Direct-entry routes fall
+back to Student Hall; navigation history is not restored across app restarts. Source-page state, including the
+import list and its view controls, stays available within the session.
+
 - **Greyed entries** (decisions 18 and 19). An entry is greyed exactly when it has a classic tab and no web screen
-  (`classic` and no `route`): today the eight entries after Students. A later web screen is drawn normally once its
+  (`classic` and no `route`): the remaining classic tool entries after Batch Import. A later web screen is drawn normally once its
   entry gets a route. A greyed entry keeps the game's disabled tint and nothing else: no lock (these entries are not
   locked, they open elsewhere), no hover change, never the active look, and no tooltip. It stays a button:
   `aria-disabled="true"` (not `disabled`, which would swallow the click), focusable with the focus ring, and named
@@ -1157,6 +1239,108 @@ click does; `nav.js` draws them.
 - **The hand-off.** `app.openClassic {tab}`, with the corner indicator labelled "Opening the classic UI" until the
   classic window is up (Loading screen); `classic_failed` and other refusals (`busy` while a job writes the game
   folder) show as a toast. One hand-off at a time: a click while one is under way does nothing.
+
+### Student Hall
+
+`student-hall.js` renders portrait-composition and memorial-lobby modes with the game's `UILobby` controls and
+`UILobbyCharacterSelectPopup_Slot` editor cards. Local actions precede the mode switch at the upper right. The global
+Home control comes from `UICharacterCollection/NUITop_Scenes/Top/Right/Lobby`; no bottom-nav Hall entry is added.
+Hall choices are separate from game application and detail preview selections. Every entry has its own UUID.
+The far-right Fullscreen action clones `UILobby/Front/Right/Btn_Screen_On`; the exit clones
+`Front/Right/ScreenshotMode/ModeInformation/Btn_Screen_Off`. Their icons use the same visible-size and native-body
+centering as the adjacent controls. `student-hall-fullscreen.js` owns the immersive state, exit control, Escape
+handling and restoration of hidden UI focus/inert state. It preserves the scene and any layout draft and does not
+share the detail screen's exit control. Only the exit and scene interaction remain active while editing controls
+and global navigation are hidden.
+
+Portrait mode uses one shared canvas/context and camera. Each instance has independent skeleton animation state,
+blink/talk tracks, position and legacy relative scale. Dragging changes position; individual wheel/gesture scaling
+is disabled. Hover controls in the editor remove an actor; with three or more actors they also change layer order
+and horizontal mirroring. There is no actor selection frame. Different portrait sources for one student may coexist;
+the same source cannot be added twice.
+Existing duplicate portrait rows are canonicalized on read without writing a migration or advancing the revision. Preview license
+opt-out remains effective. The Add Portraits modal lists student names beside independently scrolling portrait-card
+rows. Optional skin grouping, search, filters and sorting use roster semantics; only library portraits can be added.
+Cards are still previews with explicit Add buttons; clicking them neither opens another preview window nor plays
+in the background. The compact modal uses inclined native white row plates, equal outer-edge margins and a
+scrollbar aligned with the toolbar's painted right edge. Layout changes remain drafts until Save; Cancel restores
+the saved arrangement without recreating existing actors, textures or animation tracks.
+The native `LobbyCommon` CharPos and SkeletonDataAsset scale define the projection baseline. Layout editing exposes
+a compact global portrait-size slider from 25% to 150%, with 100% as the default.
+It sits below the two equal-width Save/Cancel buttons at the upper right, aligned with the entire icon group,
+in the native inclined button body. It has no visible caption, percentage field or Reset button.
+This multiplier preserves entry anchors and individual scales and leaves the background unchanged. Slider changes
+update the shared renderer and interaction bounds directly, including changes made while assets are still loading;
+they do not recreate a canvas, renderer or asset request. New source batches retain a lossless last-frame cover
+while shared-context guest players initialize; the complete new actor map is drawn before the cover is removed.
+Only current/saved actor resources and the required context owner are retained, and background caching is bounded
+to the current/saved choices.
+
+Memorial mode has an ordered playlist and an active entry, with Previous/Next and entry editing. The same
+variant/source pair can be added only once; different sources for the same student remain distinct. Legacy duplicates
+are canonicalized on read without writing a migration, preserving the active source. Its modal places
+six-column native formation cards on the left, landscape candidates on the right and the draggable draft playlist
+below, on a pale native rounded panel. Green selection outlines have no check or sequence number. Picker toolbars
+reuse the roster row without its screen title; playlist cards omit name strips and headings. Pointer capture implements
+reordering in WebKit: the source remains at 50% opacity, a thumbnail follows the pointer, and a native blue gradient
+marks the insertion gap without highlighting another card. Grab targets include the entire area above Remove.
+Mouse and pen drag directly. Touch swipes pan the queue; a 260 ms hold starts reordering, tolerating small finger
+jitter and lifting the ghost clear of the finger. Reordering owns its pointer stream, excluding simultaneous list
+panning. Time-based edge scrolling continues with a stationary pointer. A second touch, loss of focus, cancellation
+or disposal aborts the drag and removes capture, feedback, hold timers and animation callbacks. No selected student means recently viewed candidates by
+default. Mod availability, counts and sorting are scoped to portraits in the portrait picker and memorial lobbies in
+the memorial picker; current-server release filters retain their roster meaning. Removing the last entry is disabled and rejected by the persistence API; initial empty state remains
+valid until the first playlist is saved. Each selected
+official or Mod source runs through the existing lobby renderer, including its scene interaction and available
+dialogue. Missing sources remain distinguishable from an empty playlist. A library-only Mod can render without a
+local scene-layout resource, using the renderer's existing layout fallback.
+
+Hall mode changes retain the previous complete frame until the target background, actors, material/FX textures and
+first composite frame are ready. Portrait and current memorial sessions are retained separately; inactive sessions
+pause animation, intro clocks, timers and audio. Returning resumes those sessions without restarting the intro.
+Two bounded memorial renderer instances support the current scene and one hidden replacement. Editing or reordering
+the playlist does not recreate an unchanged active source. Failed or obsolete staging cannot replace the current
+scene or steal its input ownership. Modal redraws retain their committed content until visible thumbnails decode;
+offscreen library entries remain lazy.
+
+`student_hall.py` validates state stored under `student_hall` in UI preferences. Mode, background, portrait positions
+and legacy relative scales, boolean `mirror`, global `portraitScale`, entry order, memorial playlist and active entry persist. Missing global scale
+defaults to 1; the API rejects non-finite or out-of-range values. Revision checks prevent a stale window from
+silently overwriting another window's saved arrangement. Leaving the screen disposes its players, pending loads and
+audio; returning loads the saved state. Dirty exits prompt before changing page or return history. Home resets that
+history only once the root scene is committed. Async reveal, save and navigation guards reject stale owners.
+
+`student-hall-dialogue.js` uses the ordinary `LobbyCommon/DialogPanel/ChatDialog/Talk` branch and its `Lobby_balloon`
+sprite and original font. Text centers in the visible bubble body, excluding its tail and shadow, through the same
+nine-slice geometry as the renderer. The bubble follows the selected actor instance, wraps complete text, and can
+flip its tail near a stage edge. A Hall-wide turn lock ignores other portrait clicks throughout preparation and
+vocal playback. Preparation has a 25-second cap, removed when playback starts; text-only or failed-audio fallback
+lasts five seconds. `globallines.py` retains ordinary UILobby Idle groups alongside memorial dialogue
+from the same downloaded table; entry greetings are excluded. Matching installed AudioClips take priority, with
+Kivo as the existing fallback when local ordinary vocals are absent. No voice is written to disk. Bounded memory
+caches coalesce concurrent fetches. Per-click aborts stop obsolete text/audio requests and prevent stale playback;
+volume and mute changes also affect the active speaker. Pending first-click metadata retries without advancing the
+selected dialogue turn again, and voice failure leaves available text readable. Missing dialogue is silent.
+Authored expression clips use the ordinary lobby track metadata and timed dialogue continuation rows, including
+Simplified Chinese text. Late metadata enriches an active vocal at its current time without restarting the voice
+or balloon; its prior expression is restored when the turn ends.
+
+The office sources are the game's layered NGUI prefabs `LobbyCommon` and `LobbyCommonNight`, using their
+`UILobbyBackground_Day` and `UILobbyBackground_Night` branches. `gameassets/office.py` exposes the background branch,
+its ancestor transforms and the installed texture layers. The integration uses the prefab's geometry and serves
+native texture layers losslessly at their original resolution. It does not replace the office with a flattened
+collection image. `/asset/office/<day|night>/layout.json` supplies the layer tree and texture routes.
+
+The picker retains collection backgrounds alongside the available office choices. A saved available choice wins;
+otherwise the daytime office is the default when present. Partial installations missing office resources fall back
+to an available collection background. The inspected collection inventory contains 54 backgrounds, an observed
+count rather than a fixed limit. Native material/shader pass metadata selects normal or additive composition;
+night light uses the actual SrcAlpha/One pass in both the scene and picker. Texture URLs and cache keys track source,
+material and shader revisions. Environmental cloud/light motion driven by office Animation/Tween components stays
+static in this release; portrait and memorial-lobby animations retain their existing behavior. Day/night scenes,
+previews and cancellation have been checked in the running source UI; the final local build also renders the
+office background. No background, sprite,
+preview or voice is shipped as part of this feature.
 
 ### Portrait
 
@@ -1250,8 +1434,9 @@ time, in order, each only when it has something to show (`mod-switch.js startDue
 consent (while it is unanswered and a game folder is known; see Enable Mods switch). File checks require scan
 consent: On checks at every start, Off withdraws consent and stops scans.
 The Configuration Drift Check row's Check remains available while Off too: missing consent opens the scan consent
-popup first, then Allow continues the manual check; declining cancels it. Check for Updates at Startup defaults to
-on. In released builds it starts one background network check after the first screen is revealed, independently of
+popup first, then Allow continues the manual check; declining cancels it. Check for Updates at Startup already
+defaults to on for an unset preference; an explicitly saved false value remains off, without a migration resetting
+it. In released builds it starts one background network check after the first screen is revealed, independently of
 the popup sequence; turning it off skips that check. A slow
 or failed check never holds startup, scan prompts or navigation. A newer release waits for the start popups to
 finish, then for any open popup (including Settings), loading work, input hold, writer progress or queued mod toggle
