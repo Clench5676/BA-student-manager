@@ -1230,7 +1230,14 @@
 			"spine_version": "Incompatible Spine Version",
 			"mod_unity_version_mismatch": "Incompatible Unity Version",
 			"mod_release_mismatch": "Incompatible Game Release",
-			"crc_fix_failed": "CRC Repair Failed"
+			"crc_fix_failed": "CRC Repair Failed",
+			"export_empty": "No Mods to export",
+			"export_target_unavailable": "Target resources unavailable",
+			"hall_conflict": "Student Hall changed in another window",
+			"library_recovery_pending": "Mod recovery pending",
+			"hall_last_memorial": "Keep at least one Memorial Lobby",
+			"hall_duplicate_portrait": "This portrait is already in the hall",
+			"hall_duplicate_memorial": "This Memorial Lobby is already in the playlist"
 		},
 		"drop": {
 			"hint": "Drop mod files to add them"
@@ -1591,7 +1598,12 @@
 				"add": "Adding to Library",
 				"apply": "Applying Mod",
 				"export": "Exporting Files"
-			}
+			},
+			"selectPreview": "Select for Preview",
+			"applyGame": "Apply to Game",
+			"removeImported": "Remove Imported",
+			"assignCharacter": "Assign Character",
+			"libraryOnly": "Library only - no compatible game target"
 		},
 		"recovery": {
 			"report": "Error Report",
@@ -1620,6 +1632,70 @@
 				"first-screen": "First Screen",
 				"ready": "Ready"
 			}
+		},
+		"export": {
+			"title": "Export",
+			"defaultDestination": "Export to Default Directory",
+			"destination": "Export Directory",
+			"chooseDirectory": "Choose Directory",
+			"confirm": "Confirm",
+			"server": "Target Server",
+			"platform": "Target Platform",
+			"library": "Export Mod Library",
+			"applied": "Export Applied",
+			"success": "Export successful. Open folder?",
+			"openFolder": "Open Folder"
+		},
+		"hall": {
+			"title": "Student Hall",
+			"portraits": "Portraits",
+			"memorial": "Memorial Lobby",
+			"edit": "Layout Edit",
+			"adjust": "Adjust Memorial Lobby",
+			"background": "Change Background",
+			"add": "Add",
+			"remove": "Remove",
+			"previous": "Previous",
+			"next": "Next",
+			"done": "Done",
+			"empty": "Add students to the hall",
+			"missing": "Source unavailable",
+			"voiceUnavailable": "Dialogue unavailable",
+			"officeDay": "Office (Day)",
+			"officeNight": "Office (Night)",
+			"home": "Return to Student Hall",
+			"addPortraits": "Add Portraits",
+			"removeSelected": "Remove Selected",
+			"saveLayout": "Save Layout",
+			"changeLayout": "Change Layout",
+			"savePlaylist": "Save Playlist",
+			"doneAdding": "Done",
+			"noCandidates": "No matching assets",
+			"allReleased": "All Releases",
+			"released": "Released",
+			"unreleased": "Unreleased",
+			"clearStudent": "Clear Selection",
+			"recentMemorials": "Recently Viewed",
+			"memorialCandidates": "Memorial Lobbies",
+			"playlist": "Playlist",
+			"playlistHint": "Drag to reorder - keep at least one",
+			"preview": "Preview",
+			"backToPicker": "Back to Selection",
+			"useBackground": "Use Background",
+			"unsaved": "Unsaved Changes",
+			"unsavedText": "Save changes before leaving?",
+			"keepEditing": "Keep Editing",
+			"discard": "Discard Changes",
+			"saveLeave": "Save and Leave",
+			"added": "Added",
+			"portraitScale": "Portrait Size",
+			"portraitScalePercent": "Portrait Size (%)",
+			"scaleReset": "Reset",
+			"layerBackward": "Move Backward",
+			"layerForward": "Move Forward",
+			"layerFront": "Bring to Front",
+			"layerBack": "Send to Back",
+			"flipHorizontal": "Flip Horizontally"
 		}
 	}
 }

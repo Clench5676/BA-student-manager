@@ -1841,3 +1841,29 @@ test("portrait search uses the prefab header without reducing the row height or 
     await until(() => !!action(prompt, "search"));
   } finally { prompt.hidden = true; Fresh.closed(prompt); }
 });
+
+test("standard message choices expose all three actions within one native footer", async () => {
+  const pending = Popup.message({ title: "Unsaved Changes", width: 1450, lines: ["Save changes?"], buttons: [
+    { label: "Keep Editing", value: "stay" }, { label: "Discard", value: "discard" }, { label: "Save and Leave", value: "save", primary: true },
+  ] });
+  await until(() => action(dialog, "save"));
+  const choices = ["stay", "discard", "save"].map((name) => action(dialog, name));
+  assert.ok(choices.every(Boolean));
+  for (let i = 1; i < choices.length; i++) assert.ok(parseFloat(choices[i].style.left) > parseFloat(choices[i-1].style.left) + parseFloat(choices[i-1].style.width));
+  await choices[1].click(); assert.equal((await pending).button, "discard");
+});
+
+test("Hall's opt-in failure caption stays hidden until a lazy still actually fails", async () => {
+  const NGUI = await import("../../src/ba_modding_toolkit/web/js/ngui.js");
+  for (const outcome of ["null", "reject", "success"]) {
+    let resolve, reject;
+    const pending = Object.assign(new Promise((yes, no) => { resolve=yes; reject=no; }), { thumbnail:true });
+    const target = new El();
+    const view = await NGUI.render(n("LazyStill", [0,0], [{clipImage:pending,placeholder:"Preview unavailable",placeholderOnFailure:true,w_:320,h_:600}]),target);
+    const note=()=>walk(target).find((e)=>e.dataset.path==="LazyStill/Placeholder");
+    assert.equal(note().hidden,true);assert.equal(note().style.display,"none");
+    if(outcome==="reject")reject(new Error("capture failed")); else resolve(outcome==="null"?null:"blob:hall-success");
+    await Promise.all(view.thumbnails);
+    if(outcome==="success")assert.equal(note(),undefined);else { assert.equal(note().hidden,false);assert.equal(note().style.display,"flex"); }
+  }
+});

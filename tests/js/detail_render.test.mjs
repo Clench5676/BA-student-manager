@@ -293,6 +293,9 @@ globalThis.fetch = async (url, opts = {}) => {
     if (lobbyMode === "pending") return new Promise(() => {});
     return reply(url.endsWith("files.json") ? ["ibuki_home.skel", "ibuki_home.atlas"] : null);
   }
+  if (url.startsWith("/asset/spine/mod/library-only-lobby/")) {
+    return reply(url.endsWith("files.json") ? ["ibuki_home.skel", "ibuki_home.atlas"] : null);
+  }
   throw new Error(`Unexpected fetch ${url}`);
 };
 const errors = [], warnings = [];
@@ -1644,4 +1647,66 @@ for (const enabled of [false, true]) test(`Save changes only the preview and bot
     assert.equal(popupApply().disabled, true);
     assert.equal(detailApply().disabled, false);
   } finally { Detail.hide(); modsEnabled = true; await ModSwitch.refresh(); await flush(); t.mock.timers.reset(); }
+});
+
+for (const kind of ["spr", "lobby", "model"]) for (const selected of [false, true]) {
+  test(`library-only ${kind} remains selectable and preview ${selected ? "uses its saved Mod" : "stays unselected"}`, async (t) => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    try {
+      lobbyMode = "ready"; playerMode = "lobby-ready";
+      family = modFamily(kind, `library-only-${kind}`);
+      const v = family.variants[0];
+      Object.assign(v, { spr: null, lobby: null, model: null, storedKinds: [kind], localKinds: [],
+        configured: {}, previewSources: selected ? { [kind]: `mod:library-only-${kind}` } : {}, state: { files: [] } });
+      const assetsBefore = assetRequests.length, modelsBefore = modelRequests.length, rpcsBefore = rpcRequests.length;
+      const showing = Detail.show(context, family, v.key); await flush(); await finish(t, showing);
+      assert.equal(Detail.currentVariant(), v.key);
+      assert.ok(switchButton(), "the own Mod can still be selected for preview");
+      const apply = walk(hosts.ngui).find((e) => e.dataset.part?.endsWith("SkillData_EX (3)/Bg"));
+      assert.equal(apply.disabled, true);
+      assert.equal(apply.getAttribute("aria-description"), "No Matching Game File");
+      await apply.click(); await flush();
+      assert.equal(rpcRequests.slice(rpcsBefore).some((r) => r.method === "actions.apply"), false);
+      assert.equal(assetRequests.slice(assetsBefore).some((url) => url.includes("/null/")), false);
+      if (kind === "model") {
+        assert.equal(modelRequests.length - modelsBefore, selected ? 1 : 0);
+        if (selected) assert.equal(modelRequests.at(-1).source, "mod:library-only-model");
+      } else {
+        assert.equal(assetRequests.slice(assetsBefore).some((url) => url.includes(`/mod/library-only-${kind}/`)), selected);
+      }
+      assert.deepEqual(v.previewSources, selected ? { [kind]: `mod:library-only-${kind}` } : {});
+    } finally { Detail.hide(); lobbyMode = "pending"; playerMode = "ready"; await flush(); t.mock.timers.reset(); }
+  });
+}
+
+test("detail Back calls the session history callback", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let returned = 0;
+  try {
+    family = modFamily();
+    const showing = Detail.show({ ...context, back: () => { returned += 1; } }, family, "ibuki");
+    await flush(); await finish(t, showing);
+    back.onclick();
+    assert.equal(returned, 1);
+  } finally { Detail.hide(); await flush(); t.mock.timers.reset(); }
+});
+
+test("an unselected library-only Mod can be saved for preview without applying", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    family = modFamily("spr", "library-only-pick");
+    const v = family.variants[0];
+    Object.assign(v, { spr: null, lobby: null, model: null, storedKinds: ["spr"], localKinds: [],
+      configured: {}, previewSources: {}, state: { files: [] } });
+    await showPortrait(t);
+    const before = rpcRequests.length;
+    await switchButton().click(); await flush();
+    await walk(hosts.popup).find((e) => e.dataset.key === "m:library-only-pick").click(); await flush();
+    const save = walk(hosts.popup).find((e) => e.dataset.action === "ok");
+    await finish(t, save.click());
+    assert.deepEqual(v.previewSources, { spr: "mod:library-only-pick" });
+    assert.equal(rpcRequests.slice(before).some((r) => r.method === "actions.apply"), false);
+    const apply = walk(hosts.ngui).find((e) => e.dataset.part?.endsWith("SkillData_EX (3)/Bg"));
+    assert.equal(apply.disabled, true);
+  } finally { Detail.hide(); await flush(); t.mock.timers.reset(); }
 });

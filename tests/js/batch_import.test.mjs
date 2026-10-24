@@ -106,7 +106,10 @@ async function fixture({ licensed = false, native = true, suggest, countIcons = 
     if (method === "import.options") { if (optionsError) throw optionsError; return structuredClone(options); }
     if (method === "import.setOptions") { if (saveError) throw saveError; return structuredClone(params); }
     if (method === "import.pick") { if (pickError) throw pickError; if (pickerHold) return pickerHold.promise; return { paths: pickerPaths }; }
-    if (["import.analyze", "import.run", "import.setSource"].includes(method)) {
+    if (method === "import.catalog") return { families: [...structuredClone(catalog.families), { key: "future", base: { en: "Future" }, variants: [
+      { key: "future", names: { en: { full: "Future Student" } }, fileId: "future", spr: null, lobby: null, model: null },
+    ] }] };
+    if (["import.analyze", "import.run", "import.setSource", "import.assignCharacter"].includes(method)) {
       const list = method === "import.analyze" ? analyses : method === "import.run" ? runs : sources, job = { ...deferred(), id: `job-${calls.length}`, params };
       list.push(job); return job.id;
     }
@@ -179,6 +182,44 @@ test("empty screen has add actions and zero Mods, without AI UI or tooltips", as
   assert.equal(h.action("files").disabled, false); assert.equal(h.action("folder").disabled, false);
   assert.doesNotMatch(h.host.textContent, /AI|master switch|step/i);
   assert.ok(walk(h.host).every((element) => !element.getAttribute("title")));
+});
+
+test("preview and game checkboxes save independent choices outside advanced options", async () => {
+  const h = await fixture();
+  const checks = h.host.querySelectorAll("input").filter((input) => input.dataset.importOption);
+  assert.equal(checks.length, 2);
+  const preview = checks.find((input) => input.dataset.importOption === "previewAfterImport");
+  const apply = checks.find((input) => input.dataset.importOption === "enableAfterImport");
+  assert.equal(preview.checked, false); assert.equal(apply.checked, true);
+  preview.checked = true; await preview.dispatch("change"); await flush();
+  assert.equal(h.page.model.state.options.previewAfterImport, true);
+  assert.equal(h.page.model.state.options.enableAfterImport, true);
+  apply.checked = false; await apply.dispatch("change"); await flush();
+  assert.equal(h.page.model.state.options.previewAfterImport, true);
+  assert.equal(h.page.model.state.options.enableAfterImport, false);
+});
+
+test("Remove Imported keeps pending and failed rows and never calls a library mutation", async () => {
+  const h = await fixture(); await h.analyze([entry("a"), entry("b", "library"), entry("c", "installed"), entry("d", "blocked"), entry("e", "done")]);
+  const before = h.calls.length;
+  await h.action("removeImported").click(); await h.page.settled();
+  assert.deepEqual(h.page.model.state.entries.map((row) => row.id), ["a", "d"]);
+  assert.equal(h.calls.length, before);
+  assert.equal(h.page.model.state.checked.has("a"), true);
+});
+
+test("manual character picker searches cross-server students and confirms ownership through its own RPC", async () => {
+  const h = await fixture(); const unknown = { ...entry("unidentified", "blocked", "lobby"), variant: null, reason: "mod_target_unknown" };
+  await h.analyze([unknown]); await h.action("assignCharacter").click(); await flush(); await h.page.settled();
+  const search = h.dialog.querySelector("input"); search.value = "Future"; await search.dispatch("input"); await h.page.settled();
+  assert.match(h.dialog.textContent, /Future Student/);
+  const future = walk(h.dialog).find((element) => element.dataset.value === "future");
+  await future.click(); const confirming = h.action("ok", h.dialog).click(); await flush();
+  assert.deepEqual(h.calls.find((call) => call.method === "import.assignCharacter").params, { id: "unidentified", variant: "future" });
+  h.sources.at(-1).resolve({ ...unknown, variant: "future", assignment: "future", libraryOnly: true, state: "ready", reason: null, revision: 9 });
+  await confirming; await h.page.settled();
+  assert.equal(h.page.model.state.entries[0].variant, "future");
+  assert.equal(h.page.model.state.analysisRevision, 9);
 });
 
 test("language changes retain import choices, search input and capture scope without another analysis", async () => {
@@ -895,7 +936,7 @@ test("every page action swaps its whole disabled prefab, including both dotted p
 test("advanced boolean, choice, resource and input rows share Settings' body, title, dotted line and spacing", async () => {
   const h = await fixture(); await h.page.openOptions(); await h.page.settled();
   const groups = walk(h.dialog).filter((element) => element.dataset.option);
-  assert.equal(groups.length, 10);
+  assert.equal(groups.length, 9);
   for (const group of groups) {
     const { tree, opts } = drawn(h, group), key = group.dataset.option;
     const height = parseFloat(group.style.height) / S;
@@ -906,16 +947,17 @@ test("advanced boolean, choice, resource and input rows share Settings' body, ti
     assert.equal(opts.scale, S); closeTo(parseFloat(group.style.width), OPTION_WIDTH * S);
     closeTo(parseFloat(group.style.marginBottom), 24 * S);
   }
-  const enable = groups.find((group) => group.dataset.option === "enableAfterImport");
+  assert.equal(groups.find((group) => group.dataset.option === "enableAfterImport"), undefined);
+  const enable = groups.find((group) => group.dataset.option === "backup");
   assert.equal(enable.querySelector("input"), null, "boolean options show labelled On/Off choices");
   const off = walk(enable).find((element) => element.dataset.value === "false");
   await off.click(); await h.page.settled();
   assert.equal(off.getAttribute("aria-checked"), "true");
   assert.equal(walk(enable).find((element) => element.dataset.value === "true").getAttribute("aria-checked"), "false");
-  const expected = radioRow("Option_enableAfterImport", 0, "Enable Mods After Import", [[true, "On"], [false, "Off"]], false, () => {}).tree;
+  const expected = radioRow("Option_backup", 0, "Create Backup", [[true, "On"], [false, "Off"]], false, () => {}).tree;
   assert.deepEqual(drawn(h, enable).tree, expected);
   await h.action("ok", h.dialog).click();
-  assert.equal(h.calls.find((call) => call.method === "import.setOptions").params.enableAfterImport, false);
+  assert.equal(h.calls.find((call) => call.method === "import.setOptions").params.backup, false);
 });
 
 test("search and editable option fields cover the real sprite, keep text inside its frame, and put clear above the art", async () => {
@@ -1222,43 +1264,30 @@ test("results omit state badges, follow the merge setting and route every studen
   assert.equal(h.destinations.at(-1), "other");
 });
 
-test("leaving removes only completed entries and reanalysis uses the remaining paths", async () => {
+test("navigation preserves completed, failed and pending rows until explicit removal", async () => {
   const h = await fixture(); await h.analyze([entry("a"), entry("b", "done"), entry("c", "blocked"), entry("d", "installed")]);
-  h.page.model.toggle("b", true); assert.equal(h.page.model.state.checked.has("b"), false);
-  h.answers.push({ button: "ok" }); await h.action("start").click(); await flush();
-  h.runs[0].resolve({ results: [{ id: "a", outcome: "unchanged", libraryId: "lib-a", applied: false }] }); await flush(); await h.page.settled();
-  assert.match(h.row("a").textContent, /Done/); assert.match(h.row("b").textContent, /Done/);
+  h.page.model.select("c");
   h.page.hide(); await h.page.show(h.context, catalog); await h.page.settled();
-  assert.deepEqual(h.page.model.state.entries.map(({ id }) => id), ["c", "d"]);
-  assert.equal(h.row("a"), undefined); assert.equal(h.row("b"), undefined);
-  assert.ok(h.row("c")); assert.ok(h.row("d"));
+  assert.deepEqual(h.page.model.state.entries.map(({ id }) => id), ["a", "b", "c", "d"]);
+  assert.equal(h.page.model.state.selected, "c");
+  assert.deepEqual([...h.page.model.state.checked], ["a"]);
+  h.page.model.removeImported();
   const recheck = h.page.model.recheck(); await flush();
-  assert.deepEqual(h.analyses.at(-1).params.paths, [...entry("c").paths, ...entry("d").paths]);
-  h.analyses.at(-1).resolve({ entries: [entry("c", "blocked"), entry("d", "installed")], skipped: 0 });
-  await recheck; await h.page.settled(); assert.equal(h.page.model.state.checked.size, 0);
+  assert.deepEqual(h.analyses.at(-1).params.paths, [...entry("a").paths, ...entry("c").paths]);
+  h.analyses.at(-1).resolve({ entries: [entry("a"), entry("c", "blocked")], skipped: 0 });
+  await recheck;
 });
 
-test("leaving during Recheck keeps completed entries removed when its old response arrives", async () => {
+test("navigation during Recheck retains its response and existing list context", async () => {
   const h = await fixture();
   await h.analyze([entry("a", "done"), entry("b"), entry("c", "blocked")]);
   const pending = h.page.model.recheck(); await flush();
-  h.page.hide();
-  await h.page.show(h.context, catalog); await h.page.settled();
-  assert.deepEqual(h.page.model.state.entries.map(({ id }) => id), ["b", "c"]);
+  h.page.hide(); await h.page.show(h.context, catalog); await h.page.settled();
+  assert.deepEqual(h.page.model.state.entries.map(({ id }) => id), ["a", "b", "c"]);
   h.analyses.at(-1).resolve({ entries: [entry("a", "installed"), entry("b", "update"), entry("c", "blocked")], skipped: 0 });
   await pending; await h.page.settled();
-  assert.deepEqual(h.page.model.state.entries.map(({ id }) => id), ["b", "c"]);
-  assert.equal(h.row("a"), undefined);
+  assert.deepEqual(h.page.model.state.entries.map(({ id }) => id), ["a", "b", "c"]);
   assert.deepEqual([...h.page.model.state.checked], ["b"]);
-  const retry = h.page.model.recheck(); await flush();
-  assert.deepEqual(h.analyses.at(-1).params.paths, [...entry("b").paths, ...entry("c").paths]);
-  h.analyses.at(-1).resolve({ entries: [entry("b"), entry("c", "blocked")], skipped: 0 });
-  await retry;
-  // Removal only retires the in-flight response; explicitly adding the same paths later is allowed.
-  const adding = h.page.model.add(entry("a").paths); await flush();
-  h.analyses.at(-1).resolve({ entries: [entry("a", "installed"), entry("b"), entry("c", "blocked")], skipped: 0 });
-  await adding; await h.page.settled();
-  assert.ok(h.row("a"));
 });
 
 test("the shared page hold reports both analysis and import progress through artwork completion", async () => {

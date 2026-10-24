@@ -14,7 +14,7 @@ function harness() {
     ctx: { invalidateRoster: () => invalidated++ },
     BatchImport: { invalidate() {} },
     Detail: { filesChanged: (change) => refreshed.push(change) },
-    $: () => ({ hidden: false }),
+    $: (id) => ({ hidden: id === "screen-hall" }),
     forget: (base) => forgotten.push(base), spinePrefix: (kind, core) => `${kind}/${core}`,
     clearTimeout() {}, setTimeout: (fn) => { timers.push(fn); return timers.length; },
     routeToken: 1,

@@ -109,6 +109,8 @@ function cards(data, view, words, label) {
         favorite: vs.some((v) => v.favorite), fresh: vs.some((v) => v.fresh),
         replaced: vs.find((v) => v.replaced)?.replaced || null,
         lobby: hit?.spineCategory ? hit.lobby : vs.find((v) => v.lobby)?.lobby || null, model: vs.find((v) => v.model)?.model || null,
+        storedKinds: [...new Set(vs.flatMap((v) => v.storedKinds || []))],
+        localKinds: [...new Set(vs.flatMap((v) => v.localKinds || []))],
         recent, added: Math.max(...vs.map((v) => time(v.added))),
       };
       list.push(card);
@@ -170,7 +172,7 @@ export function visit(data, key) {
 // the list hides (another chip of the family, a deep link) steps to the nearest listed card after or before its place
 // in full (the unfiltered order, or a function making it). Null when there is nowhere else to go.
 export function neighbour(list, full, at, delta) {
-  const usable = list.filter((c) => c.spr || c.lobby);
+  const usable = list.filter((c) => c.spr || c.lobby || c.model || c.storedKinds?.length);
   if (!usable.length) return null;
   const id = (c) => (at.merged ? c.family : c.key);
   const here = at.merged ? at.family : at.variant;

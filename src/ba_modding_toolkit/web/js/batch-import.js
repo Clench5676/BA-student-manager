@@ -17,6 +17,7 @@ import { ROW_W as OPTION_WIDTH, rowBase, radioRow } from "./settings-rows.js";
 import { loadImportLayouts, importArtwork, clipButtonPatterns, ROW_SCALE, ROW_WIDTH, ROW_HEIGHT, ROW_SELECTION, ROW_CHECK_TOP } from "./import-layout.js";
 import { suggestImports } from "./import-assistants.js";
 import { createImportState, countsOf, eligible, RESOURCE_TYPES, STATES } from "./import-state.js";
+import { characterPicker } from "./character-picker.js";
 
 const KIND_KEYS = { spr: "tab.portrait", lobby: "tab.lobby", model: "tab.model", other: "import.other" };
 const REASONS = new Set(["unreadable", "no_target", "conflict", "spine_version", "unsupported",
@@ -145,14 +146,15 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
   function setCaption(b, caption) {
     b.caption = caption; b.setAttribute("aria-label", caption); b.refresh();
   }
-  function checkbox(caption, checked, onChange) {
+  function checkbox(caption, checked, onChange, { labelWidth = 540 } = {}) {
     const label = el("label", "import-check"), input = el("input", "hit"); input.type = "checkbox"; input.checked = checked;
     const graphic = place(el("div", "import-check-art"), 0, 0, 50, 50);
     input.setAttribute("aria-label", caption || T("import.select"));
     label.append(graphic, input);
+    let copy = null;
     if (caption) {
-      const copy = place(el("div"), 65, 0, 540, 55); label.appendChild(copy);
-      textWidget(copy, caption, "empty", { scale: 0.4, origin: [280, 26] });
+      copy = place(el("div"), 65, 0, labelWidth, 55); label.appendChild(copy);
+      paint(copy, art.label(art.empty(caption), caption, labelWidth / 0.4), { scale: 0.4, origin: [labelWidth / 2, 26] });
     }
     let previous = null;
     const refresh = () => {
@@ -160,7 +162,10 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
       paint(graphic, art.checkbox(input.checked, input.disabled), { scale: 0.5, origin: [25, 25] });
     };
     input.addEventListener("change", () => { onChange(input.checked); refresh(); }); refresh();
-    return { label, input, refresh };
+    return { label, input, refresh, relabel(value) {
+      input.setAttribute("aria-label", value);
+      if (copy) paint(copy, art.label(art.empty(value), value, labelWidth / 0.4), { scale: 0.4, origin: [labelWidth / 2, 26] });
+    } };
   }
   function toggle(caption, checked, onChange) {
     const label = el("label", "import-toggle"), input = el("input", "hit"); input.type = "checkbox"; input.checked = checked;
@@ -250,8 +255,9 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
     dom.list = el("div", "import-list"); dom.list.setAttribute("aria-label", T("import.list")); panel.appendChild(dom.list);
     dom.list.addEventListener("scroll", () => prepareVisibleRows(dom.list, rows.values()));
     layoutList();
-    for (const [key, caption, x, width] of [["files", "addFiles", 26, 196], ["folder", "addFolder", 238, 220],
-      ["all", "all", 474, 150], ["none", "none", 640, 180], ["remove", "remove", 836, 180], ["clear", "clear", 1032, 214]]) {
+    for (const [key, caption, x, width] of [["files", "addFiles", 26, 174], ["folder", "addFolder", 210, 190],
+      ["all", "all", 410, 126], ["none", "none", 546, 140], ["remove", "remove", 696, 150],
+      ["removeImported", "removeImported", 856, 224], ["clear", "clear", 1090, 156]]) {
       dom[key] = button(T(`import.${caption}`), key, { width, scale: 0.34 }); place(dom[key], x, 629, width, 56); panel.appendChild(dom[key]);
     }
     root.appendChild(panel);
@@ -263,6 +269,14 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
     place(dom.options, 958, footerY - 40.5, 290, 81); place(dom.recheck, 1272, footerY - 40.5, 230, 81);
     place(dom.start, 1528, footerY - 49.8, 330, 99.6);
     root.append(dom.options, dom.recheck, dom.start);
+    for (const [key, label, x] of [["previewAfterImport", "selectPreview", 1250], ["enableAfterImport", "applyGame", 1560]]) {
+      const control = checkbox(T(`import.${label}`), !!model.state.options?.[key], (value) => {
+        model.saveOptions({ ...model.state.options, [key]: value });
+      }, { labelWidth: 380 });
+      place(control.label, x, 817, 460, 50); control.label.style.transformOrigin = "top left";
+      control.input.dataset.importOption = key;
+      control.label.style.transform = "scale(0.65)"; root.appendChild(control.label); dom[key] = control;
+    }
     root.addEventListener("click", (event) => {
       const target = event.target.closest?.("[data-action]");
       if (!target || target.disabled) return;
@@ -271,7 +285,8 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
         if (searchOpen) dom.search.focus(); else dom.search.blur();
       }, order: () => {
         ascending = !ascending; renderToolbar(); renderRows();
-      }, all: () => model.checkAll(true), none: () => model.checkAll(false), remove: () => model.remove(), clear: () => model.clear(),
+      }, all: () => model.checkAll(true), none: () => model.checkAll(false), remove: () => model.remove(),
+      removeImported: () => model.removeImported(), clear: () => model.clear(),
       options: openOptions, recheck: () => model.recheck(), start: () => model.state.phase === "done" ? results() : start() };
       Promise.resolve(actions[target.dataset.action]?.()).catch((error) => { showError(report(error), error); });
     });
@@ -474,7 +489,13 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
       const banner = place(el("div", "import-name-banner"), 0, 526, 524, 120);
       paint(banner, art.banner(identity.name, T(KIND_KEYS[entry.kind] || KIND_KEYS.other)), { scale: 0.42, origin: [255, 104] });
       next.appendChild(banner);
-      if (entry.target && (!entry.source?.server || !entry.source?.platform || ["server", "platform"].some((key) => entry.source[key] !== entry.target[key]))) next.appendChild(sourceControl(entry));
+      if (!entry.libraryOnly && entry.target && (!entry.source?.server || !entry.source?.platform || ["server", "platform"].some((key) => entry.source[key] !== entry.target[key]))) next.appendChild(sourceControl(entry));
+      if (!["done", "library", "installed"].includes(entry.state) && (!entry.variant || entry.assignment || ["mod_target_unknown", "mod_target_ambiguous", "no_target"].includes(entry.reason))) {
+        const assign = button(T("import.assignCharacter"), "assignCharacter", { width: 524, scale: 0.34 });
+        place(assign, 0, 704, 524, 55); assign.disabled = model.busy(); assign.refresh();
+        assign.addEventListener("click", () => openCharacter(entry).catch((error) => showError(report(error), error)));
+        next.appendChild(assign);
+      }
     }
     dom.preview.replaceChildren(next);
   }
@@ -510,7 +531,18 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
     });
   }
 
-  const stateText = (entry) => T(entry.reason === "source_unknown" ? "import.reason.source_unknown" : `import.state.${entry.state}`);
+  async function openCharacter(entry) {
+    if (model.busy()) return;
+    const data = await call("import.catalog");
+    // Installed entries supply the same aliases, favourites and Mod counts as the main roster.
+    const current = new Map(catalog.map((variant) => [variant.key, variant]));
+    for (const family of data.families) family.variants = family.variants.map((variant) => ({ ...variant, ...current.get(variant.key) }));
+    catalog = catalogEntries(data); identities = new WeakMap();
+    await characterPicker({ data, selected: entry.variant, dialog, el, button, inputControl, checkbox, radioOptions,
+      onSelect: (variant) => model.assignCharacter(entry.id, variant) });
+  }
+
+  const stateText = (entry) => T(entry.libraryOnly && eligible(entry) ? "import.libraryOnly" : entry.reason === "source_unknown" ? "import.reason.source_unknown" : `import.state.${entry.state}`);
 
   function rowCopy(group, result = false) {
     const entry = representative(group.entries);
@@ -526,6 +558,7 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
   function paragraphCopy(group, result = false) {
     const notes = result ? group.entries.map((entry) => {
       const item = model.state.results.find((item) => item.id === entry.id);
+      if (item?.applyUnavailable) return T("import.libraryOnly");
       return item?.reason ? [item.configured && T(importStatus(item)), resultNote(item, entry)].filter(Boolean).join(" - ") : ["imported", "updated", "unchanged"].includes(item?.outcome)
         ? T(importStatus(item)) : "";
     }) : group.entries.map(rowNote);
@@ -616,14 +649,18 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
     textWidget(dom.count, T("import.count", { n: state.entries.length }), "count", { scale: 0.5, origin: [250, 16] });
     renderToolbar();
     dom.merge.input.disabled = busy; dom.merge.refresh();
-    for (const key of ["files", "folder", "options", "clear", "remove", "all", "none", "recheck"]) dom[key].disabled = busy;
+    for (const key of ["previewAfterImport", "enableAfterImport"]) {
+      dom[key].input.checked = !!state.options?.[key]; dom[key].input.disabled = busy || !state.options; dom[key].refresh();
+    }
+    for (const key of ["files", "folder", "options", "clear", "remove", "removeImported", "all", "none", "recheck"]) dom[key].disabled = busy;
+    dom.removeImported.disabled ||= !state.entries.some((entry) => ["done", "library", "installed"].includes(entry.state));
     dom.clear.disabled ||= !state.entries.length; dom.remove.disabled ||= !state.selected;
     dom.recheck.disabled ||= !state.entries.length && !state.error;
     dom.all.disabled ||= !state.valid || state.phase === "done" || !state.entries.some(eligible);
     dom.none.disabled ||= !state.valid || state.phase === "done" || !state.checked.size;
     dom.start.disabled = busy || state.phase !== "done" && (!state.valid || !model.selected().length);
     setCaption(dom.start, state.phase === "done" ? T("import.results") : T("import.action", { n: model.selected().length }));
-    for (const key of ["files", "folder", "options", "clear", "remove", "all", "none", "recheck"]) dom[key].refresh();
+    for (const key of ["files", "folder", "options", "clear", "remove", "removeImported", "all", "none", "recheck"]) dom[key].refresh();
     if (state.error && state.error !== shownError) showError(report(state.error), state.error);
     shownError = state.error;
     renderRows(); renderPreview();
@@ -640,8 +677,9 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
     dom.searchWrap.querySelector("button")?.setAttribute("aria-label", T("display.reset"));
     dom.list.setAttribute("aria-label", T("import.list"));
     dom.merge.relabel(T("import.merge"));
+    dom.previewAfterImport.relabel(T("import.selectPreview")); dom.enableAfterImport.relabel(T("import.applyGame"));
     for (const [key, label] of [["files", "addFiles"], ["folder", "addFolder"], ["all", "all"], ["none", "none"],
-      ["remove", "remove"], ["clear", "clear"], ["options", "options.title"], ["recheck", "recheck"]]) setCaption(dom[key], T(`import.${label}`));
+      ["remove", "remove"], ["removeImported", "removeImported"], ["clear", "clear"], ["options", "options.title"], ["recheck", "recheck"]]) setCaption(dom[key], T(`import.${label}`));
     render();
   }
 
@@ -743,7 +781,7 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
         refresh(); return refresh;
       };
       const onOff = [[true, T("settings.post.on")], [false, T("settings.post.off")]];
-      for (const key of ["enableAfterImport", "skipUnchanged", "backup"]) {
+      for (const key of ["skipUnchanged", "backup"]) {
         choice(key, T(`import.options.${key}`), onOff, () => draft[key], (value) => { draft[key] = value; });
       }
       const radio = (key, values) => choice(key, T(`import.options.${key}`), values, () => draft[key], (value) => { draft[key] = value; });

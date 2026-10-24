@@ -107,6 +107,21 @@ export function createImportState({ rpc, waitJob, changed = () => {}, suggest = 
       } catch (error) { fail(error); return false; }
     },
     recheck() { return analyze(retryPaths.length ? retryPaths : pathsOf(state.entries), retryRecursive); },
+    async assignCharacter(id, variant) {
+      if (busy() || !state.entries.some((entry) => entry.id === id)) return false;
+      const contextAtStart = contextRevision;
+      state.phase = "analyzing"; state.error = null; resetResults(); revision++; emit();
+      try {
+        const job = await rpc("import.assignCharacter", { id, variant });
+        const entry = await waitForJob(job);
+        state.analysisRevision = entry.revision;
+        state.entries = state.entries.map((item) => item.id === id ? entry : item);
+        if (eligible(entry)) state.checked.add(id); else state.checked.delete(id);
+        state.valid = contextAtStart === contextRevision; state.phase = state.valid ? "idle" : "error";
+        state.error = state.valid ? null : { code: "entry_changed" };
+        state.progress = null; revision++; emit(); return state.valid;
+      } catch (error) { state.valid = false; fail(error); return false; }
+    },
     async setSource(id, server, platform) {
       if (busy() || !state.entries.some((entry) => entry.id === id)) return false;
       const contextAtStart = contextRevision;
@@ -153,16 +168,18 @@ export function createImportState({ rpc, waitJob, changed = () => {}, suggest = 
       retryPaths = pathsOf(state.entries); retryRecursive = false;
       revision++; emit();
     },
-    leave() {
-      const completed = new Set(state.entries.filter((entry) => entry.state === "done").map((entry) => entry.id));
-      if (!completed.size) return;
-      for (const removed of pendingAnalyses) for (const id of completed) removed.add(id);
+    removeImported() {
+      if (busy()) return;
+      const completed = new Set(state.entries.filter((entry) => ["done", "library", "installed"].includes(entry.state)).map((entry) => entry.id));
       state.entries = state.entries.filter((entry) => !completed.has(entry.id));
       for (const id of completed) state.checked.delete(id);
       if (completed.has(state.selected)) state.selected = state.entries[0]?.id ?? null;
       retryPaths = pathsOf(state.entries); retryRecursive = false;
       if (state.phase === "done") { state.phase = "idle"; resetResults(); }
       revision++; emit();
+    },
+    leave() {
+      // The navigation session owns the list; only explicit removal discards completed rows.
     },
     clear() {
       if (busy()) return;

@@ -1148,7 +1148,7 @@ def test_import_backup_preserves_an_official_baseline_from_a_classic_backup(env)
 def test_options_persist_in_app_prefs_and_default_to_classic_settings(env):
     defaults = rpc(env, "import.options")
     assert set(defaults) == {"strategy", "types", "skipUnchanged", "crc", "compression", "extraBytes", "backup",
-                             "workers", "output", "enableAfterImport"}
+                             "workers", "output", "enableAfterImport", "previewAfterImport"}
     assert defaults["compression"] == "none" and defaults["crc"] == "off"
     assert defaults["workers"] == env.settings.get("max_workers")
     assert set(defaults["types"]) == env.settings.asset_types()

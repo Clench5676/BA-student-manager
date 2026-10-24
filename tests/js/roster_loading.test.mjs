@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { hasAsset } from "../../src/ba_modding_toolkit/web/js/switch-sources.js";
+import { hasAsset, primaryKind, configuredKey, previewBase } from "../../src/ba_modding_toolkit/web/js/switch-sources.js";
 
 const source = readFileSync(new URL("../../src/ba_modding_toolkit/web/js/roster.js", import.meta.url), "utf8");
 const rowsCode = source.slice(source.indexOf("async function renderRow("), source.indexOf("function maxScroll("));
@@ -127,4 +127,24 @@ test("roster fallback and configured-source stills receive the variant's default
     ["live-skeleton", "roster", "/bg/practice-room"],
     ["configured-skeleton", "roster", "/bg/practice-room"], ["configured-skeleton", "roster", "/bg/practice-room"],
   ]);
+});
+
+test("library-only roster cards use saved Mod previews without inventing local cores", () => {
+  const code = source.slice(source.indexOf("const portraitOf ="), source.indexOf("// --- rows near the view"));
+  const requested = [], variants = [];
+  const env = { spineAllowed: () => true, thumbnailWork: { thumb: (...args) => { requested.push(args); return args[0]; } },
+    primaryKind, configuredKey, previewBase, hasAsset, data: { families: [{ key: "assigned", variants }] },
+    spineBase: () => { throw new Error("No local core is available"); }, specialFraming: () => null };
+  const portraitOf = new Function("env", `const { ${Object.keys(env).join(", ")} } = env; ${code} return portraitOf;`)(env);
+  for (const kind of ["spr", "lobby", "model"]) {
+    const student = { key: kind, family: "assigned", spr: null, lobby: null, model: null, storedKinds: [kind], configured: {} };
+    variants.push(student);
+    assert.equal(hasAsset(student), true);
+    assert.equal(portraitOf(student), null, "preview opt-out stays unselected");
+    student.previewSources = { [kind]: `mod:assigned-${kind}` };
+    const result = portraitOf(student);
+    if (kind === "model") assert.equal(result, null, "model cards never request Spine assets");
+    else assert.ok(result.includes(`/mod/assigned-${kind}/`));
+  }
+  assert.equal(requested.length, 2);
 });

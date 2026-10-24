@@ -26,6 +26,38 @@ const family = () => ({
   ],
 });
 
+test("stored-only character sources are previewable without an official install target", () => {
+  const student = { key: "future", spr: null, lobby: null, model: null, storedKinds: ["lobby"], localKinds: [],
+    state: { files: [] }, configured: {}, previewSources: { lobby: "mod:future-mod" },
+    modList: [mod("future-mod", "future", "lobby")] };
+  const fam = { variants: [student] };
+  assert.ok(hasAsset(student));
+  assert.equal(primaryKind(student), "lobby");
+  assert.equal(availableTab(student, "portrait"), "lobby");
+  assert.equal(coreOf(student, "lobby"), null);
+  assert.equal(previewBase(student, "lobby", false), "/asset/spine/mod/future-mod/skeleton");
+  const choices = candidates(fam, student, "lobby");
+  assert.equal(choices.find((choice) => choice.key === "self").greyed, true);
+  assert.equal(choices.find((choice) => choice.kind === "mod").greyed, false);
+  assert.equal(configuredKey(student, "lobby"), null);
+  const modelOnly = { ...student, storedKinds: ["model"], previewSources: { model: "mod:future-model" } };
+  assert.ok(hasAsset(modelOnly));
+  assert.equal(primaryKind(modelOnly), "model");
+  assert.equal(availableTab(modelOnly, "portrait"), "model");
+  assert.equal(modelSource(modelOnly), "mod:future-model");
+});
+
+test("stored-only portraits offer their own Mods without sibling adaptation sources", () => {
+  const student = { key: "future", spr: null, lobby: null, storedKinds: ["spr"], localKinds: [],
+    state: { files: [] }, modList: [mod("own", "future", "spr")] };
+  const sibling = { key: "released", spr: "released_spr", state: { files: [] },
+    modList: [mod("sibling", "released", "spr")] };
+  const choices = candidates({ variants: [student, sibling] }, student, "spr");
+  assert.deepEqual(choices.map((choice) => choice.key), ["self", "m:own"]);
+  assert.equal(choices[0].greyed, true);
+  assert.equal(choices[1].greyed, false);
+});
+
 test("special slots open their lobby tab and switch only mods for their own core", () => {
   const day = { key: "special:arona_workpage_daytime", spr: null, lobby: "arona_workpage_daytime", spineCategory: "spinebackground",
     state: { files: [part("lobby", "official")] }, configured: { lobby: "mod:day" } };

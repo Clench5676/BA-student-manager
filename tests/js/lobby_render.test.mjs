@@ -358,6 +358,22 @@ test("only Aoi's NPC keeps its declared glow blends through the real lobby mater
   }
 });
 
+test("a library-only Mod without an official core still attaches and renders its lobby materials", () => {
+  const source = readFileSync(new URL("../../src/ba_modding_toolkit/web/js/lobby.js", import.meta.url), "utf8");
+  const code = source.slice(source.indexOf("function lightUp("), source.indexOf("// --- fallback only"));
+  const gl = fakeGL(), layer = { name: "custom_home", materials: { pages: {}, blend: {}, tintBlack: false } };
+  const p = player(gl, [["body", 0, "Page"], ["glow", 3, "Page"]], layer);
+  const env = { current: { core: null, mod: "library-only", base: null }, Linear: { ...Linear, attach: attachLinear }, Materials: M,
+    Stage: { hostOf: () => null }, SlotColours: { curvesOf: () => null }, game: () => ({}), layerViewport: () => ({}) };
+  const lightUp = new Function("env", `const { ${Object.keys(env).join(", ")} } = env; ${code}; return lightUp;`)(env);
+  try {
+    lightUp(p); p.frame();
+    assert.deepEqual(p.log.filter(([name]) => name === "mode").map((call) => call[1]).slice(-2), [0, 0]);
+    assert.deepEqual(p.skeleton.data.slots.map((slot) => slot.blendMode), [0, 3], "Rendering keeps the source's slot metadata");
+    assert.ok(gl.calls.some((call) => call[0] === "blendFuncSeparate" && call.slice(1).join() === "SRC_ALPHA,ONE_MINUS_SRC_ALPHA,ONE,ONE_MINUS_SRC_ALPHA"));
+  } finally { M.detach(p); Linear.detach(p); }
+});
+
 test("the glitch frames: a hash of the time against _GlitchFreq, the second pass on 3 x the time", () => {
   const frac = (x) => x - Math.floor(x);
   for (const t of [0.5, 1.25, 7.75, 100.1]) {

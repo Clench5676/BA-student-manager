@@ -1230,7 +1230,14 @@
 			"spine_version": "Spine 版本不兼容",
 			"mod_unity_version_mismatch": "Unity 版本不兼容",
 			"mod_release_mismatch": "游戏版本不兼容",
-			"crc_fix_failed": "CRC 修复失败"
+			"crc_fix_failed": "CRC 修复失败",
+			"export_empty": "没有可导出的 Mod",
+			"export_target_unavailable": "目标资源不可用",
+			"hall_conflict": "学生大厅已在其他窗口更改",
+			"library_recovery_pending": "Mod 恢复待完成",
+			"hall_last_memorial": "至少保留一个记忆大厅",
+			"hall_duplicate_portrait": "此立绘已在大厅中",
+			"hall_duplicate_memorial": "此记忆大厅已在清单中"
 		},
 		"drop": {
 			"hint": "拖入 Mod 文件以添加"
@@ -1591,7 +1598,12 @@
 				"add": "加入 Mod 仓库",
 				"apply": "应用 Mod",
 				"export": "导出文件"
-			}
+			},
+			"selectPreview": "选择为预览",
+			"applyGame": "应用到游戏",
+			"removeImported": "移除已导入",
+			"assignCharacter": "选择角色",
+			"libraryOnly": "仅入库 - 没有兼容的游戏目标"
 		},
 		"recovery": {
 			"report": "生成错误报告",
@@ -1620,6 +1632,70 @@
 				"first-screen": "首屏",
 				"ready": "就绪"
 			}
+		},
+		"export": {
+			"title": "导出",
+			"defaultDestination": "导出到默认目录",
+			"destination": "导出目录",
+			"chooseDirectory": "选择目录",
+			"confirm": "确认",
+			"server": "目标服务器",
+			"platform": "目标平台",
+			"library": "导出 Mod 仓库",
+			"applied": "导出已应用",
+			"success": "导出成功，是否打开文件夹？",
+			"openFolder": "打开文件夹"
+		},
+		"hall": {
+			"title": "学生大厅",
+			"portraits": "立绘",
+			"memorial": "记忆大厅",
+			"edit": "编辑布局",
+			"adjust": "调整记忆大厅",
+			"background": "更换背景",
+			"add": "添加",
+			"remove": "移除",
+			"previous": "上一个",
+			"next": "下一个",
+			"done": "完成",
+			"empty": "添加学生",
+			"missing": "资源不可用",
+			"voiceUnavailable": "语音不可用",
+			"officeDay": "办公室（白天）",
+			"officeNight": "办公室（夜晚）",
+			"home": "返回学生大厅",
+			"addPortraits": "添加立绘",
+			"removeSelected": "移除选中",
+			"saveLayout": "保存布局",
+			"changeLayout": "改变布局",
+			"savePlaylist": "保存清单",
+			"doneAdding": "完成添加",
+			"noCandidates": "没有匹配的资源",
+			"allReleased": "全部实装状态",
+			"released": "已实装",
+			"unreleased": "未实装",
+			"clearStudent": "清空选择",
+			"recentMemorials": "最近观看",
+			"memorialCandidates": "记忆大厅候选",
+			"playlist": "展示清单",
+			"playlistHint": "拖动排序 - 至少保留一项",
+			"preview": "预览",
+			"backToPicker": "返回选择",
+			"useBackground": "使用此背景",
+			"unsaved": "未保存的修改",
+			"unsavedText": "保存修改后离开？",
+			"keepEditing": "继续编辑",
+			"discard": "放弃修改",
+			"saveLeave": "保存并离开",
+			"added": "已添加",
+			"portraitScale": "立绘大小",
+			"portraitScalePercent": "立绘大小（%）",
+			"scaleReset": "重置",
+			"layerBackward": "下移一层",
+			"layerForward": "上移一层",
+			"layerFront": "置于顶层",
+			"layerBack": "置于底层",
+			"flipHorizontal": "水平翻转"
 		}
 	}
 }

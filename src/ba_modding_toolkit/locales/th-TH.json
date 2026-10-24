@@ -1230,7 +1230,14 @@
 			"spine_version": "เวอร์ชัน Spine ไม่เข้ากัน",
 			"mod_unity_version_mismatch": "เวอร์ชัน Unity ไม่รองรับ",
 			"mod_release_mismatch": "เวอร์ชันเกมไม่รองรับ",
-			"crc_fix_failed": "ซ่อมแซม CRC ไม่สำเร็จ"
+			"crc_fix_failed": "ซ่อมแซม CRC ไม่สำเร็จ",
+			"export_empty": "ไม่มี Mod ให้ส่งออก",
+			"export_target_unavailable": "ไม่พบทรัพยากรปลายทาง",
+			"hall_conflict": "ล็อบบี้นักเรียนถูกเปลี่ยนในหน้าต่างอื่น",
+			"library_recovery_pending": "รอคืนค่า Mod",
+			"hall_last_memorial": "เก็บล็อบบี้ความทรงจำไว้อย่างน้อย 1 รายการ",
+			"hall_duplicate_portrait": "เพิ่มภาพตัวละครนี้ในล็อบบี้แล้ว",
+			"hall_duplicate_memorial": "เพิ่มเมโมเรียลล็อบบี้นี้ในรายการแล้ว"
 		},
 		"drop": {
 			"hint": "ลากไฟล์ Mod มาเพื่อเพิ่ม"
@@ -1591,7 +1598,12 @@
 				"add": "เพิ่มในคลัง Mod",
 				"apply": "ใช้ Mod",
 				"export": "ส่งออกไฟล์"
-			}
+			},
+			"selectPreview": "เลือกเป็นภาพตัวอย่าง",
+			"applyGame": "ใช้ในเกม",
+			"removeImported": "นำรายการที่นำเข้าแล้วออก",
+			"assignCharacter": "เลือกตัวละคร",
+			"libraryOnly": "เฉพาะคลัง - ไม่มีเป้าหมายที่รองรับ"
 		},
 		"recovery": {
 			"report": "สร้างรายงานข้อผิดพลาด",
@@ -1620,6 +1632,70 @@
 				"first-screen": "หน้าจอแรก",
 				"ready": "พร้อม"
 			}
+		},
+		"export": {
+			"title": "ส่งออก",
+			"defaultDestination": "ส่งออกไปยังโฟลเดอร์เริ่มต้น",
+			"destination": "โฟลเดอร์ส่งออก",
+			"chooseDirectory": "เลือกโฟลเดอร์",
+			"confirm": "ยืนยัน",
+			"server": "เซิร์ฟเวอร์ปลายทาง",
+			"platform": "แพลตฟอร์มปลายทาง",
+			"library": "ส่งออกคลัง Mod",
+			"applied": "ส่งออก Mod ที่ใช้",
+			"success": "ส่งออกสำเร็จ เปิดโฟลเดอร์หรือไม่?",
+			"openFolder": "เปิดโฟลเดอร์"
+		},
+		"hall": {
+			"title": "ล็อบบี้นักเรียน",
+			"portraits": "ภาพตัวละคร",
+			"memorial": "ล็อบบี้ความทรงจำ",
+			"edit": "แก้ไขตำแหน่ง",
+			"adjust": "ตั้งค่าล็อบบี้ความทรงจำ",
+			"background": "เปลี่ยนพื้นหลัง",
+			"add": "เพิ่ม",
+			"remove": "นำออก",
+			"previous": "ก่อนหน้า",
+			"next": "ถัดไป",
+			"done": "เสร็จสิ้น",
+			"empty": "เพิ่มนักเรียน",
+			"missing": "ไม่พบทรัพยากร",
+			"voiceUnavailable": "ไม่พบบทสนทนา",
+			"officeDay": "สำนักงาน (กลางวัน)",
+			"officeNight": "สำนักงาน (กลางคืน)",
+			"home": "กลับล็อบบี้นักเรียน",
+			"addPortraits": "เพิ่มภาพตัวละคร",
+			"removeSelected": "นำรายการที่เลือกออก",
+			"saveLayout": "บันทึกตำแหน่ง",
+			"changeLayout": "เปลี่ยนตำแหน่ง",
+			"savePlaylist": "บันทึกรายการ",
+			"doneAdding": "เพิ่มเสร็จแล้ว",
+			"noCandidates": "ไม่พบทรัพยากรที่ตรงกัน",
+			"allReleased": "ทุกสถานะการเปิดตัว",
+			"released": "เปิดตัวแล้ว",
+			"unreleased": "ยังไม่เปิดตัว",
+			"clearStudent": "ล้างการเลือก",
+			"recentMemorials": "ดูล่าสุด",
+			"memorialCandidates": "ล็อบบี้ความทรงจำที่เลือกได้",
+			"playlist": "รายการแสดง",
+			"playlistHint": "ลากเพื่อจัดลำดับ - คงไว้อย่างน้อยหนึ่งรายการ",
+			"preview": "ตัวอย่าง",
+			"backToPicker": "กลับไปเลือก",
+			"useBackground": "ใช้พื้นหลังนี้",
+			"unsaved": "การเปลี่ยนแปลงที่ยังไม่บันทึก",
+			"unsavedText": "บันทึกการเปลี่ยนแปลงก่อนออกหรือไม่?",
+			"keepEditing": "แก้ไขต่อ",
+			"discard": "ละทิ้งการเปลี่ยนแปลง",
+			"saveLeave": "บันทึกและออก",
+			"added": "เพิ่มแล้ว",
+			"portraitScale": "ขนาดภาพตัวละคร",
+			"portraitScalePercent": "ขนาดภาพตัวละคร (%)",
+			"scaleReset": "รีเซ็ต",
+			"layerBackward": "เลื่อนลงหนึ่งชั้น",
+			"layerForward": "เลื่อนขึ้นหนึ่งชั้น",
+			"layerFront": "ย้ายไปชั้นบนสุด",
+			"layerBack": "ย้ายไปชั้นล่างสุด",
+			"flipHorizontal": "พลิกแนวนอน"
 		}
 	}
 }

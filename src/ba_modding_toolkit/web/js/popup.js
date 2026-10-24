@@ -11,7 +11,7 @@
 // The pure parts (the stack, the selection, the start sequence) are tested in Node (tests/js/popup.test.mjs).
 import * as NGUI from "./ngui.js";
 import { switchGrid, placeSwitchCards, splitPortraitPanel } from "./switch-layout.js";
-import { scrollbar } from "./scrollbar.js";
+import { scrollbar, scrollbarTrack } from "./scrollbar.js";
 import { horizontalScroll } from "./horizontal-scroll.js";
 import * as Buttons from "./game-buttons.js";
 import { searchTree, sortBody, orderBody, pickerItems } from "./roster-widgets.js";
@@ -147,7 +147,7 @@ export function hit(host, view, path, fn, { name = "", action = "", z = 80 } = {
 // these labels near the bottom edge (a lone one in the middle). The frame's centre sits 12 units under the stage's
 // (Base -20, BG +8).
 export const FRAME_Y = -12;
-export function popupFrame(title, w, h, { ok = null, cancel = null, close = true } = {}) {
+export function popupFrame(title, w, h, { ok = null, cancel = null, close = true, buttons = null } = {}) {
   const t = clone(find(layouts.sortPopup, "Center"));
   const popup = find(t, "Popup");
   popup.children = popup.children.filter((c) => ["Base", "Btn"].includes(c.name));
@@ -171,6 +171,16 @@ export function popupFrame(title, w, h, { ok = null, cancel = null, close = true
     b.active = !!caption;
     if (!(ok && cancel)) b.pos = [0, b.pos[1]];
     if (caption) NGUI.fitLabel(find(b, "Label_Locale").widgets[0], caption, 64, 40, 420);
+  }
+  if (buttons?.length) {
+    const primary = find(btn, "Btn_Ok"), secondary = find(btn, "Btn_Cancel");
+    const gap = 24, buttonWidth = Math.min(460, (w - 140 - gap * (buttons.length - 1)) / buttons.length), scale = buttonWidth / BTN_W;
+    btn.active = true;
+    btn.children = buttons.map((action, index) => {
+      const child = clone(action.primary ? primary : secondary); child.name = `Choice_${index}`; child.active = true;
+      child.scale = [scale, scale]; child.pos = [(index - (buttons.length - 1) / 2) * (buttonWidth + gap), 0];
+      NGUI.fitLabel(find(child, "Label_Locale").widgets[0], action.label, 64, 40, 420); return child;
+    });
   }
   find(t, "BlackBg/BlackBgClickArea").widgets.find((x) => "sprite" in x).color = "#000000/0.60";
   return t;
@@ -206,7 +216,7 @@ export function scrollArea(host, [l, t, w, h], contentH, { horizontal = false, c
   area.appendChild(inner);
   host.appendChild(area);
   if (horizontal ? contentW > w + 1 : contentH > h + 1) {
-    const track = horizontal ? [l + 6, t + h + 8 - 63 * S, w - 12, 126 * S] : [l + w + 8 - 63 * S, t + 6, 126 * S, h - 12];
+    const track = scrollbarTrack([l, t, w, h], S, horizontal);
     const pending = scrollbar(host, track, { horizontal }).then((bar) => {
       const sync = () => horizontal ? bar.sync(w, contentW, area.scrollLeft || 0) : bar.sync(h, contentH, area.scrollTop || 0);
       area.addEventListener("scroll", sync);
@@ -220,7 +230,7 @@ export function scrollArea(host, [l, t, w, h], contentH, { horizontal = false, c
 // the gacha list's checkbox (Btn_Checkbox: its white plate, the box and its tick, a label after it), at x (its left
 // edge), y; the tick shows when on. Without the prefab, the same pieces drawn from its numbers.
 const CHECK_H = 104;
-function checkbox(name, x, y, caption, on, maxW) {
+export function checkbox(name, x, y, caption, on, maxW) {
   const f = fitText(caption, 46, 30, maxW - 131 - 46);
   const w = 131 + glyphsOf(f.text, f.fs) + 46;
   const box = () => node("Check", [-120, 8], [sprite("Common_Bg_Raius10px", 74, 72, { incline: 10, depth: 25, color: "#e4f3f8/1.00" })], [
@@ -244,7 +254,7 @@ function checkbox(name, x, y, caption, on, maxW) {
   return { tree: cb, w, on };
 }
 // wires a drawn checkbox: a click flips it (state.checked) and shows or hides the tick
-function wireCheck(host, view, path, state, onChange) {
+export function wireCheck(host, view, path, state, onChange) {
   const tick = view.nodes.get(`${path}/Type_ON/Check/Icon`)?.els[0];
   const show = () => { if (tick) tick.style.visibility = state.checked ? "" : "hidden"; };
   show();
@@ -360,7 +370,7 @@ function listFrame(title, buttons, closeButton) {
 // one card of the list: the game's card body, the picture clipped to its window, a name bar under it. A card that
 // cannot be chosen (dim) is darkened like the roster's not-owned cards, its picture without colour; its badge (In Use,
 // or the caller's) stays bright.
-function listCard(it, x, y, selected, card = LP.card, kind = null) {
+export function listCard(it, x, y, selected, card = LP.card, kind = null) {
   const { w, h, bar } = card;
   // The same upright image must reach both inclined edges even in a tall portrait window.
   const overscan = Math.max(.15, (h - 26) * TAN10 / (2 * (w - 16)));
@@ -684,6 +694,7 @@ const MSG = { title: 150, gap: 28, rowMin: 104, check: 150, buttons: 236, none: 
 //   fitTogether: line indices fitted at one shared size, using the smallest fit within the popup's size floor
 //   plain: left-aligned lines without a box or separators, including lines with a button at the right
 //   ok, cancel: the buttons' labels (either may be left out); check: {label, checked}
+//   buttons: optional named footer choices [{label, value, primary}], instead of ok/cancel
 //   close: false for a popup that must be answered with a button (no close button; the backdrop and Escape do nothing)
 //   confirmKeys: keys that press OK while the popup is in front and holds the focus itself (a focused button takes its
 //                own key), as the PC client binds its popups' confirm (["Enter", " "]); none by default
@@ -717,7 +728,7 @@ export function confirmKey(ev, keys) {
 }
 
 // the message without the game's prefab: a plain box on a dark backdrop, the same buttons, marked the same way
-function plainMessage(layer, { title, lines, ok, cancel, state, dismissable, scroll, plain }, finish) {
+function plainMessage(layer, { title, lines, ok, cancel, buttons, state, dismissable, scroll, plain }, finish) {
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const button = (caption, fn, action, cls = "message-button") => {
     const b = el("button", cls, caption);
@@ -747,8 +758,9 @@ function plainMessage(layer, { title, lines, ok, cancel, state, dismissable, scr
     b.setAttribute("aria-checked", String(state.checked));
     box.appendChild(b);
   }
-  if (ok || cancel) {
+  if (ok || cancel || buttons?.length) {
     const row = el("div", "message-actions");
+    if (buttons) for (const action of buttons) row.appendChild(button(action.label, () => finish(action.value), action.value));
     if (cancel) row.appendChild(button(cancel, () => finish("cancel"), "cancel"));
     if (ok) row.appendChild(button(ok, () => finish("ok"), "ok"));
     box.appendChild(row);
@@ -806,7 +818,7 @@ function messageLines(lines, w, fitTogether, plain) {
   return { tree: node("Lines", [0, 0], [], out), height: boxed ? boxH : Math.max(0, -y - 16), buttons };
 }
 
-async function showMessage({ title = "", lines = [], ok = null, cancel = null, check = null, host: hostArg = "dialog", width = 1700, close: dismissable = true, confirmKeys = null, fitTogether = [], scroll = false, plain = false }, resolve) {
+async function showMessage({ title = "", lines = [], ok = null, cancel = null, buttons = null, check = null, host: hostArg = "dialog", width = 1700, close: dismissable = true, confirmKeys = null, fitTogether = [], scroll = false, plain = false }, resolve) {
   const host = hostOf(hostArg);
   const layer = document.createElement("div");
   layer.className = "popup-layer";
@@ -840,16 +852,16 @@ async function showMessage({ title = "", lines = [], ok = null, cancel = null, c
   } catch (err) {
     console.warn("message popup without the game's frame", err);
     if (ended) return;
-    plainMessage(layer, { title, lines, ok, cancel, state, dismissable, scroll, plain }, finish);
+    plainMessage(layer, { title, lines, ok, cancel, buttons, state, dismissable, scroll, plain }, finish);
     layer.focus?.({ preventScroll: true });
     return;
   }
   try {
     const body = messageLines(lines, width, fitTogether, plain);
-    const hasButtons = !!(ok || cancel);
+    const hasButtons = !!(ok || cancel || buttons?.length);
     const need = MSG.title + body.height + (state ? MSG.check : 0) + MSG.gap + (hasButtons ? MSG.buttons : MSG.none);
     const h = Math.min(scroll ? 1400 : Infinity, Math.max(MSG.minH, need));
-    const t = popupFrame(title, width, h, { ok, cancel, close: dismissable });
+    const t = popupFrame(title, width, h, { ok, cancel, buttons, close: dismissable });
     const popup = find(t, "Popup");
     // the content in the middle of the room between the title and the buttons
     const top = FRAME_Y + h / 2 - MSG.title, bottom = FRAME_Y - h / 2 + (hasButtons ? MSG.buttons : MSG.none);
@@ -873,6 +885,7 @@ async function showMessage({ title = "", lines = [], ok = null, cancel = null, c
     const bodyView = scroll ? await NGUI.render(body.tree, bodyHost,
       { scale: S, origin: [(width - 120) * S / 2, 0], z: 10 }) : view;
     if (ended) return;
+    for (const [index, action] of (buttons || []).entries()) hit(next, view, `Center/Popup/Btn/Choice_${index}/BG (1)`, () => finish(action.value), { name: action.label, action: action.value });
     if (ok) hit(next, view, "Center/Popup/Btn/Btn_Ok/BG (1)", () => finish("ok"), { name: ok, action: "ok" });
     if (cancel) hit(next, view, "Center/Popup/Btn/Btn_Cancel/BG (1)", () => finish("cancel"), { name: cancel, action: "cancel" });
     if (dismissable) hit(next, view, "Center/Popup/Base/BG/Btn_Close", () => finish(null), { name: T("display.close"), action: "close" });

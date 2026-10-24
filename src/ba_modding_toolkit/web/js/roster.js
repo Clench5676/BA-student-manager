@@ -15,7 +15,7 @@ import { specialFraming } from "./special-view.js";
 import * as NGUI from "./ngui.js";
 import * as Display from "./display.js";
 import * as Loading from "./loading.js";
-import { searchTree as rosterSearchTree, sortBody, orderBody } from "./roster-widgets.js";
+import { searchTree as rosterSearchTree, toolbarLayout, toolbarTree } from "./roster-widgets.js";
 import { current as modsState } from "./mod-switch.js";
 import { countNodes, countText, iconsOf } from "./mod-counts.js";
 import { rpc, spineBase } from "./api.js";
@@ -38,7 +38,6 @@ const PAPER_TOP = 334.5, PAPER_BOTTOM = -223 - 66 - (1247 - SHORTEN) / 2 + SHORT
 const SEARCH_LIST_TOP = 314 - 112 - 20;
 const CLIP_BOTTOM = ORIGIN[1] - PAPER_BOTTOM * S;
 const PITCH = 600, COLS = 6, LEFT = -1155, FIRST_Y = 281 - 18 - 245, BAR_EXTRA = 67 + 100;
-const TITLE_LEFT = -1270, RIGHT = 1412, GAP = 16;
 const TOOL_Y = 446.5; // centre of the search, sort and order buttons in SeletControl's units
 
 let view = { ...normalizeView(DEFAULT_VIEW), scroll: 0 };
@@ -97,83 +96,13 @@ addEventListener("pointermove", (ev) => {
 addEventListener("pointerup", () => { drag = null; setTimeout(() => { if (ctx) ctx.dragged = false; }, 0); });
 
 // --- toolbar layout: right to left from the order button, the most generous sizes that fit after the title ---
-function toolbarLayout() {
-  const steps = [[230, 44, 56, 40, 62], [210, 40, 48, 38, 62], [200, 36, 44, 34, 58], [190, 34, 42, 32, 54], [180, 32, 40, 30, 50], [170, 30, 36, 28, 46]];
-  for (const [segW, segFs, sortFs, cbFs, titleFs] of steps) {
-    const titleEnd = TITLE_LEFT + advanceOf(T("roster.title"), titleFs) + 40;
-    const segLabels = ["seg.all", "seg.mods", "seg.noMods", "seg.all", "seg.recruit", "seg.noRecruit"].map((k) => fitText(T(k), segFs, 22, segW - 26));
-    // the sort button is as wide as its longest key, so choosing another one moves nothing
-    const sortTexts = SORTS.map((k) => fitText(T(`sort.${k}`), sortFs, 28, 420));
-    const sortText = sortTexts[Math.max(0, SORTS.indexOf(view.sort))];
-    const sortW = Math.max(300, ...sortTexts.map((s) => glyphsOf(s.text, s.fs) + 170));
-    const cbText = fitText(T("roster.merge"), cbFs, 24, 400);
-    const cbW = 131 + glyphsOf(cbText.text, cbText.fs) + 46;
-    let x = RIGHT;
-    const order = x - 243 / 2; x -= 243 + GAP;
-    const sort = x - sortW / 2; x -= sortW + GAP;
-    const search = x - 75; x -= 150 + GAP;
-    const seg2 = x; x -= 3 * segW + GAP;
-    const seg1 = x; x -= 3 * segW + GAP;
-    const cbLeft = x - cbW;
-    if (cbLeft >= titleEnd || segW === 170) return { segW, segLabels, sortText, sortW, cbText, cbW, order, sort, search, seg1, seg2, cbLeft, titleFs };
-  }
-  return null;
-}
-
 // --- frame + top menu: our labels instead of image fonts, two segment filters, the checkbox, the tool states ---
 function frameTree(lay) {
   const t = clone(layouts.collection);
-  const menu = find(t, "SeletControl/TopMenu");
+  const menu = toolbarTree(layouts.collection, layouts.checkbox, view, searching, lay);
+  const control = find(t, "SeletControl");
+  control.children = control.children.map((child) => child.name === "TopMenu" ? menu : child);
   Object.assign(find(menu, "Menubar/Label_Locale_Title").widgets[0], { text: T("roster.title"), fontSize: lay.titleFs, w_: 600 });
-  // segment filters: the game's All / STRIKER / SPECIAL control with our words in the same colours
-  const segFilter = (name, labels, active, right) => {
-    const f = clone(find(menu, "FilterBtn"));
-    f.name = name;
-    f.active = true;
-    const sx = lay.segW / 328;
-    f.scale = [sx, 1];
-    f.pos = [right - (529.7 + 164) * sx, -219];
-    [["All", 0], ["Main", 1], ["Support", 2]].forEach(([k, i]) => {
-      const seg = find(f, k);
-      for (const state of seg.children) {
-        for (const c of state.children || []) {
-          const tex = c.widgets.find((w) => "texture" in w);
-          if (tex) c.widgets = [label(labels[i].text, labels[i].fs, tex.color, (lay.segW - 16) / sx, 60 * labels[i].lines, { depth: 9 })];
-        }
-        state.active = (state.name === "Btn_Pressed") === (i === active);
-      }
-    });
-    return f;
-  };
-  find(menu, "FilterBtn").active = false;
-  menu.children.push(
-    segFilter("ModFilter", lay.segLabels.slice(0, 3), { all: 0, mods: 1, none: 2 }[view.mods], lay.seg1),
-    segFilter("RecruitFilter", lay.segLabels.slice(3), { all: 0, yes: 1, no: 2 }[view.recruit], lay.seg2));
-  // search: the game's toggle, pressed while the search box is open
-  const search = find(menu, "SearchBtn");
-  search.pos[0] = lay.search - 89;
-  find(search, "Btn_Normal").active = !searching;
-  find(search, "Btn_Pressed").active = searching;
-  // sort: the current key, and the funnel in blue while a display setting filters the list
-  const sort = find(menu, "SortBtn");
-  sort.pos[0] = lay.sort + 83;
-  sort.children = sort.children.map((c) => c.name === "Btn_Normal" ? sortBody(layouts.collection, lay.sortText, lay.sortW, filtering(view.filters)) : c);
-  // order: one arrow, down for descending (the prefab holds both, Icon_Up flipped)
-  const orderBtn = find(menu, "OrderBtn");
-  orderBtn.pos[0] = lay.order + 45.1;
-  orderBtn.children = orderBtn.children.map((c) => c.name === "Btn_Normal" ? orderBody(layouts.collection, view.order !== "desc") : c);
-  // checkbox toggle after the title (game: "unowned students only" in the gacha character list)
-  const cb = clone(layouts.checkbox);
-  cb.name = "Merge";
-  cb.pos = [lay.cbLeft, -266];
-  Object.assign(cb.widgets.find((w) => "sprite" in w), { w_: lay.cbW, h_: 104 });
-  cb.children = cb.children.filter((c) => c.name !== "Locale_Text");
-  for (const c of cb.children) {
-    c.children = (c.children || []).filter((k) => k.name === "Check");
-    c.active = (c.name === "Type_ON") === view.merged;
-  }
-  cb.children.push(node("Label", [131, 0], [label(lay.cbText.text, lay.cbText.fs, "#484e52/1.00", lay.cbW - 131, 50 * lay.cbText.lines, { pivot: 3, depth: 31 })]));
-  find(menu, "Menubar").children.push(cb);
   // shorten the frame from the bottom (each piece keeps its top edge: centre up by half, height down by all)
   const listBG = find(t, "ListBG");
   listBG.pos[1] += SHORTEN / 2;
@@ -260,10 +189,13 @@ const portraitOf = (e) => {
   if (!spineAllowed()) return e.portrait || null;
   const thumb = thumbnailWork.thumb;
   const kind = primaryKind(e), variants = data.families.find((f) => f.key === e.family)?.variants || [];
+  // Model-only entries stay navigable without requesting a Spine skeleton for a GLB.
+  if (kind === "model") return e.portrait || null;
   if (e.previewSources?.[kind] || configuredKey(e, kind)) {
     return thumb(previewBase(e, kind, false, variants), "roster", null, kind === "lobby", specialFraming(e), e.bg);
   }
-  return e.portrait || (hasAsset(e) ? thumb(spineBase(kind, kind === "spr" ? e.spr : e.lobby), "roster", null, kind === "lobby", specialFraming(e), e.bg) : null);
+  const core = kind === "spr" ? e.spr : e.lobby;
+  return e.portrait || (core ? thumb(spineBase(kind, core), "roster", null, kind === "lobby", specialFraming(e), e.bg) : null);
 };
 
 // --- rows near the view ---
@@ -498,7 +430,7 @@ async function buildFrame(my) {
   if (searching && searchEl) query = searchEl.value;
   const host = $("roster");
   const next = document.createElement("div");
-  const lay = toolbarLayout();
+  const lay = toolbarLayout(view);
   const t = frameTree(lay);
   await Promise.all([
     NGUI.render(find(t, "BG"), next, { scale: S, origin: [960, 540], rootPath: "BG" }),

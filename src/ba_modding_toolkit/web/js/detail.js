@@ -21,6 +21,7 @@ import { previewError } from "./preview-error.js";
 import * as Loading from "./loading.js";
 import * as ModAdd from "./mod-add.js";
 import * as ModAlias from "./mod-alias.js";
+import * as ModExport from "./mod-export.js";
 import * as Compatibility from "./mod-compatibility.js";
 import { show as showCompare } from "./mod-compare.js";
 import * as Lobby from "./lobby.js";
@@ -40,7 +41,7 @@ import { customAliases as aliasesOf, modName, modOriginalName, studentName } fro
 import { setTitle } from "./nav.js";
 import { KEYS, deltaOf, pacer, typing } from "./step-keys.js";
 import { FRAME_Y, closable, frameReady, hit as hitNode, listPopup, message, popupFrame, scrollArea } from "./popup.js";
-import { candidateStatus, detailStatus, selectionStatus, selectionError, intendedKey, isApplied, availableTab, coreOf, hasAsset, primaryKind, appliedKey as keyOf, appliedOf, candidates as listSources, partsOf, popupMode, modelSource, previewBase, previewChanged, previewKey, sourceOf, switchKindOf } from "./switch-sources.js";
+import { candidateStatus, detailStatus, selectionStatus, selectionError, intendedKey, isApplied, availableTab, coreOf, hasAsset, hasKind, primaryKind, appliedKey as keyOf, appliedOf, candidates as listSources, partsOf, popupMode, modelSource, previewBase, previewChanged, previewKey, sourceOf, switchKindOf } from "./switch-sources.js";
 import { $, DOT, RECRUIT, S, TAN10, advanceOf, at, clone, glyphsOf, hitButton, markedLabel, off, text, widget, wrapPath } from "./util.js";
 
 const { node, sprite, label, find, rect } = NGUI;
@@ -97,6 +98,7 @@ let leftPage = Promise.resolve(), leavePage = () => {};
 let showGen = 0, endWait = () => {};
 let thumbnailWork = thumbnailScope();
 const thumb = (base, frame = "bust", expr = null, lobby = false, framing = null, background = variant()?.bg, work = thumbnailWork) => {
+  if (!base) return null;
   if (!spineAllowed()) return collectionPortrait(base);
   return work.thumb(base, frame, expr, lobby, framing, frame === "face" ? null : background);
 };
@@ -107,8 +109,9 @@ function collectionPortrait(base) {
   }
   return null;
 }
-const modelPicture = (c, v = variant(), work = thumbnailWork) => modelThumbnail(v.key, c.kind === "mod" ? `mod:${c.id}` : "official",
-  { version: modelStillVersion(fam, v, modelGeneration), signal: work.signal });
+const modelPicture = (c, v = variant(), work = thumbnailWork) => c.kind !== "mod" && !coreOf(v, "model") ? null
+  : modelThumbnail(v.key, c.kind === "mod" ? `mod:${c.id}` : "official",
+    { version: modelStillVersion(fam, v, modelGeneration), signal: work.signal });
 function begin() {
   endWait();
   thumbnailWork.cancel();
@@ -179,13 +182,13 @@ const aliasList = () => customAliases().join(/^(zh|ja)/.test(language()) ? "\u30
 const variant = () => fam.variants.find((v) => v.key === variantKey) || fam.variants[0];
 const familyMods = () => fam.variants.flatMap((v) => v.modList || []);
 const isFav = (v) => !!v.favorite;
-const hasLobby = (v) => !!v.lobby;
-const hasModel = (v) => !!v.model;
+const hasLobby = (v) => hasKind(v, "lobby");
+const hasModel = (v) => hasKind(v, "model");
 const modLabel = (m) => modName(m, familyMods(), T);
 const repairedId = (c) => c?.mod?.repaired_id && familyMods().some((m) => m.id === c.mod.repaired_id) ? c.mod.repaired_id : null;
 const repairAction = (c) => repairedId(c) ? "remap.go" : "act.update";
 // a candidate's skeleton: a mod's preview (its parts over the official ones), else the variant's own portrait or lobby
-const baseOf = (c, kind = "spr") => (c.kind === "mod" ? spineBase("mod", c.id) : spineBase(`official-${kind}`, c.core));
+const baseOf = (c, kind = "spr") => (c.kind === "mod" ? spineBase("mod", c.id) : c.core ? spineBase(`official-${kind}`, c.core) : null);
 // The installed portrait comes from the current game files; with mods off, preview the configured source.
 const currentBase = () => variantBase(variant());
 const readFamily = (key) => withTimeout(rpc("family.get", { key }), HARD_CAP, "family.get");
@@ -208,7 +211,8 @@ function crcOf(v, kind = "spr") {
 }
 const appliedKey = (v = variant(), kind = primaryKind(v)) => keyOf(v, kind);
 const shownSource = (v = variant(), kind = primaryKind(v)) => previewKey(v, kind, modsOn());
-const variantBase = (v, kind = "spr") => previewBase(v, kind, modsOn(), fam.variants);
+const previewAvailable = (v, kind) => !!coreOf(v, kind) || shownSource(v, kind).startsWith("m:");
+const variantBase = (v, kind = "spr") => previewAvailable(v, kind) ? previewBase(v, kind, modsOn(), fam.variants) : null;
 // The configured portrait or lobby while mods are off; otherwise what the game files carry.
 const current = (kind = "spr") => candidates(variant(), kind).find((c) => c.key === shownSource(variant(), kind)) || candidates(variant(), kind)[0];
 // a candidate's name on the cards: another variant's mod with that variant's name first
@@ -271,7 +275,7 @@ function screenTree() {
   widget(t, "RightInfo/Target/Active/Bg").color = "#0c284b/0.45";
 
   // tabs: portrait / memorial lobby / 3D model (disabled where unavailable)
-  const tabs = [["Tab_1", "tab.portrait", "portrait", !!v.spr], ["Tab_2", "tab.lobby", "lobby", hasLobby(v)], ["Tab_3", "tab.model", "model", hasModel(v)]];
+  const tabs = [["Tab_1", "tab.portrait", "portrait", hasKind(v, "spr")], ["Tab_2", "tab.lobby", "lobby", hasLobby(v)], ["Tab_3", "tab.model", "model", hasModel(v)]];
   for (const [node_, key, id, enabled] of tabs) {
     const base = `RightInfo/Target/Active/CharacterTab/${node_}`;
     const label = T(isSpecial(v) && id === "lobby" ? "special.background" : key);
@@ -292,7 +296,7 @@ function screenTree() {
   const crc = crcState === "fixed" ? ["crc.fixed", "#1f9a52"] : crcState === "needs_fix" ? ["crc.needed", "#d9822b"] : ["crc.original", "#000000"];
   const now = tab === "portrait" ? c.label : sourceLabel(v, kind);
   const stats = [["Label_Life", "info.current", "Data_Widget/Data", now],
-    ["Label_Attact", "info.status", "Data_Widget/Data", detailStatus(v, kind) ? T(detailStatus(v, kind)) : "—"],
+    ["Label_Attact", "info.status", "Data_Widget/Data", !coreOf(v, kind) ? T("import.reason.no_target") : detailStatus(v, kind) ? T(detailStatus(v, kind)) : "—"],
     ["Label_Defense", "info.gameFile", "Data", dateOf(v, kind) || "—"], ["Label_Healing", "info.crc", "Data_Widget/Data", T(crc[0]), crc[1]]];
   // the value column starts after the longest caption of its column
   const capW = (keys) => Math.max(...keys.map((k) => advanceOf(T(k), 42))) + 24;
@@ -341,7 +345,7 @@ function screenTree() {
   // slanted midline.
   const isMod = !!sk && c.kind === "mod";
   const actions = [["SkillData_EX", "compatibility.check", "compare", isMod && !busy], ["SkillData_EX (1)", repairAction(c), "update", isMod && !busy],
-    ["SkillData_EX (2)", "act.extract", "extract", !busy], ["SkillData_EX (3)", "popup.apply", "apply", !!sk && !busy && !isApplied(v, sk, shownSource(v, sk))]];
+    ["SkillData_EX (2)", "export.title", "extract", !busy], ["SkillData_EX (3)", "popup.apply", "apply", !!sk && !!coreOf(v, sk) && !busy && !isApplied(v, sk, shownSource(v, sk))]];
   // the row's white section spans x 58..1320 (Bg_W2 at 689, 1262 wide); cards keep the first card's 37-unit margins
   const ROW_L = 58 + 37, ROW_R = 1320 - 37, GAP = 6, CW = (ROW_R - ROW_L - 3 * GAP) / 4;
   actions.forEach(([card], i) => {
@@ -576,9 +580,12 @@ function hits(view, leftHost, rightHost) {
   act("SkillData_EX", () => runCompatibility(), T("compatibility.check"));
   act("SkillData_EX (1)", () => repairedId(shownMod()) ? jumpRepaired(shownMod()) : runUpdate(),
     T(repairAction(shownMod())));
-  act("SkillData_EX (2)", () => runExtract(), T("act.extract"));
+  act("SkillData_EX (2)", () => runExport(), T("export.title"));
   const apply = act("SkillData_EX (3)", () => applyCandidate(shownSource(variant(), sk), sk), T("popup.apply"));
-  if (apply) apply.disabled = !sk || busy || isApplied(variant(), sk, shownSource(variant(), sk));
+  if (apply) {
+    apply.disabled = !sk || !coreOf(variant(), sk) || busy || isApplied(variant(), sk, shownSource(variant(), sk));
+    if (!coreOf(variant(), sk)) apply.setAttribute("aria-description", T("import.reason.no_target"));
+  }
   add(leftHost, "LeftInfo/CharInfo/Char_Target/Pin/Pin_On/Bg", toggleFav, T("fav.label"));
   add(leftHost, "LeftInfo/CharInfo/Char_Target/Pin/Pin_Off/Bg", toggleFav, T("fav.label"));
   add(leftHost, "LeftInfo/CharInfo/Char_Target/Char_CVCollectionBtn", copyName, baseName(gameFile(variant(), tabKind())));
@@ -597,7 +604,7 @@ function hits(view, leftHost, rightHost) {
   add(leftHost, "LeftInfo/CharInfo/Char_Target/Char_ZoomBtn", () => setFullscreen(true), T("lobby.fullscreen"));
   if (tab === "lobby") add(leftHost, "LeftInfo/CharInfo/Char_Target/Char_PlayBtn", togglePlayAll, T(Lobby.playingAll() ? "lobby.stop" : "lobby.playAll"));
   const v = variant();
-  [["Tab_1", "portrait", !!v.spr], ["Tab_2", "lobby", hasLobby(v)], ["Tab_3", "model", hasModel(v)]].forEach(([n, id, ok]) => {
+  [["Tab_1", "portrait", hasKind(v, "spr")], ["Tab_2", "lobby", hasLobby(v)], ["Tab_3", "model", hasModel(v)]].forEach(([n, id, ok]) => {
     if (ok && id !== tab) add(rightHost, `RightInfo/Target/Active/CharacterTab/${n}/Tab_Off/Label`, () => showTab(id), T(isSpecial(v) && id === "lobby" ? "special.background" : `tab.${id}`));
   });
 }
@@ -743,11 +750,11 @@ async function jumpRepaired(c) {
   pending = `m:${id}`;
   await renderPopup();
 }
-function runExtract() {
+function runExport() {
   const c = shownMod();
   if (busy) return;
   const target = c ? `mod:${c.id}` : `variant:${variant().key}`;
-  job("actions.extract", { target }, { name: c?.label || fullName(variant()), onDone: (r) => reveal(r?.folder) });
+  ModExport.open({ scope: "single", target, kind: switchKind() || "spr" });
 }
 async function runCompare() {
   const c = shownMod();
@@ -759,7 +766,7 @@ async function runCompare() {
 // keeps what it replaces (an official file until it is official again, a mod in the library)
 async function applyCandidate(key, kind = "spr") {
   const v = variant();
-  if (!kind || busy || isApplied(v, kind, key)) return;
+  if (!kind || !coreOf(v, kind) || busy || isApplied(v, kind, key)) return;
   await job("actions.apply", { variant: v.key, source: sourceOf(key), kind }, {
     onDone: (result) => {
       if (result?.files?.length) {
@@ -915,6 +922,7 @@ function row4Items() {
   if (tab === "model") return modelActions.map((a) => ({ key: a, caption: T(`model.action.${a}`) }));
   if (!spineAllowed()) return [];
   const base = currentBase();
+  if (!base) return [];
   const names = mainPlayer?.skeleton ? mainPlayer.skeleton.data.animations.map((a) => a.name).filter((n) => /^\d{2}$/.test(n)).sort() : [];
   const request = thumbnailWork.thumb;
   return (names.length ? names : ["00"]).map((e) => ({ key: e, thumb: () => request(base, "face", e) }));
@@ -1198,9 +1206,10 @@ async function drawPopup(scroll = 0) {
       // The card and info panel consume one still, including its fallback, so they cannot disagree after a retry.
       thumb: picture, big: () => picture.start(),
       inUse: false, fav: c.fav, isNew: c.kind === "mod" && c.mod.fresh && c.key !== applied, src: c,
-      inUseText: c.key === applied ? T("status.applied") : null,
+      inUseText: coreOf(v, kind) && c.key === applied ? T("status.applied") : null,
       dim: c.greyed,
-      badge: c.greyed ? GREYED_BADGE() : c.key === applied ? APPLIED_BADGE() : null,
+      badge: c.greyed ? { ...GREYED_BADGE(), ...(!coreOf(v, kind) && c.kind === "self" ? { text: T("import.reason.no_target") } : {}) }
+        : coreOf(v, kind) && c.key === applied ? APPLIED_BADGE() : null,
       tag: c.mod?.repaired_from ? { text: T("remap.repaired"), color: "#d7eaf4", ink: "#2d4664" } : null,
     };
   })
@@ -1220,8 +1229,8 @@ async function drawPopup(scroll = 0) {
       const c = it.src;
       const file = c.kind === "mod" ? c.mod.file : gameFile(c.variant, kind);
       const size = c.kind === "mod" ? c.mod.size : partsOf(c.variant, kind).reduce((n, f) => n + (f.size || 0), 0);
-      const status = candidateStatus(v, kind, c.key);
-      const statusColor = status ? "#1f9a52/1.00" : null;
+      const status = !coreOf(v, kind) ? "import.reason.no_target" : candidateStatus(v, kind, c.key);
+      const statusColor = status && coreOf(v, kind) ? "#1f9a52/1.00" : null;
       const error = c.key === mode.set ? selectionError(v, kind) : null;
       const crcState = c.key === appliedKey(v, kind) ? crcOf(v, kind) : null;
       const crc = crcState === "fixed" ? ["crc.fixed", "#1f9a52"] : crcState === "needs_fix" ? ["crc.needed", "#d9822b"] : crcState === "ok" ? ["crc.original", ""] : null;
@@ -1229,7 +1238,7 @@ async function drawPopup(scroll = 0) {
         title: T(isSpecial(v) ? "special.background" : kind === "spr" ? "info.title.portrait" : `info.title.${kind}`),
         fields: [[T("field.file"), baseName(file)], [T("field.size"), sizeText(size)], [T("field.status"), [status && T(status), error && T(`error.${error.code}`, error.params)].filter(Boolean).join("\n") || "—", statusColor],
           [T("field.crc"), crc ? T(crc[0]) : "—", crc?.[1] && `${crc[1]}/1.00`]],
-        actions: [[T("popup.apply"), () => applyCandidate(c.key, kind), isApplied(v, kind, c.key) || !!c.greyed || busy],
+        actions: [[T("popup.apply"), () => applyCandidate(c.key, kind), !coreOf(v, kind) || isApplied(v, kind, c.key) || !!c.greyed || busy],
           [T(platform === "mac" ? "open.mac" : "open.win"), () => reveal(file)],
           ...(c.kind === "mod" ? [[T("compatibility.check"), async () => {
             let rebuilt = false;
@@ -1290,7 +1299,7 @@ function closePopup(apply) {
   $("popup").innerHTML = "";
   const chosen = candidates(variant(), popupKind).find((c) => c.key === pending);
   // only a choice other than the start (what the game shows; while mods are off, the configured source)
-  if (apply && chosen) return saveCandidate(pending, popupKind);
+  if (apply && chosen && !chosen.greyed) return saveCandidate(pending, popupKind);
 }
 
 // The confirmation is read again when opened, so configurations in other installs are included.
@@ -1326,7 +1335,8 @@ async function openPicker(scroll = 0) {
   pickerSel = pickerSel || variantKey;
   const items = fam.variants.filter(hasAsset).sort(byRank).map((o) => ({
     key: o.key, kind: o.recruitable ? "playable" : "other", recruit: o.recruitable, label: shortName(o), full: fullName(o),
-    thumb: thumb(variantBase(o, primaryKind(o)), "card", null, !o.spr, specialFraming(o), o.bg), big: () => thumb(variantBase(o, primaryKind(o)), "bust", null, !o.spr, specialFraming(o), o.bg),
+    thumb: primaryKind(o) === "model" ? null : thumb(variantBase(o, primaryKind(o)), "card", null, primaryKind(o) === "lobby", specialFraming(o), o.bg),
+    big: () => primaryKind(o) === "model" ? null : thumb(variantBase(o, primaryKind(o)), "bust", null, primaryKind(o) === "lobby", specialFraming(o), o.bg),
     inUse: false, fav: isFav(o), isNew: hasFresh(o), src: o,
   })).filter((it) => pickerSeg === 0 || (pickerSeg === 1) === it.recruit);
   await listPopup({
@@ -1597,6 +1607,12 @@ let lobbyStale = false; // its game files were switched: lobby.js reads them aga
 function renderLeft() {
   if (!open) return Promise.resolve();
   const v = variant(), my = ++leftToken, want = tab, el = $(want), key = leftKey(want, v);
+  const available = previewAvailable(v, switchKindOf(want));
+  if (!available) {
+    if (want === "portrait") disposePortrait();
+    else if (want === "lobby") Lobby.hide(el);
+    else hideModel();
+  }
   const same = want === shownLeft;
   if (!same) {
     el.hidden = false;
@@ -1606,7 +1622,7 @@ function renderLeft() {
   const swap = same && key !== shownKey ? freezeLeft(want) : null;
   let expired = false;
   // a newer left side or hide() came first: nothing is started
-  const ready = withTimeout(Promise.resolve(swap).then(() => (my !== leftToken || expired ? null
+  const ready = withTimeout(Promise.resolve(swap).then(() => (my !== leftToken || expired || !available ? null
     : want === "portrait" ? (mainPlayer ? null : loadSpine(currentBase()))
       : want === "lobby" ? showLobby(v, my, () => !expired) : showModel(v, my, () => !expired))), want === "lobby" ? HARD_CAP + 3000 : HARD_CAP, `Detail ${want}`).catch((err) => {
     expired = true;
@@ -1688,7 +1704,9 @@ async function showLobby(v, my, alive = () => true) {
   lobbyFrom = fam.version;
   lobbyStale = false;
   const c = current("lobby");
-  const options = { framing: specialFraming(v), mod: !modsOn() && c.kind === "mod" ? c.id : null };
+  const options = { framing: specialFraming(v),
+    mod: c.kind === "mod" && (!!v.previewSources?.lobby || !!v.configured || !modsOn() || !v.lobby) ? c.id : null,
+    official: c.kind === "self" && (!!v.configured || !!v.previewSources?.lobby || !modsOn()) };
   let m = await Lobby.show(v.lobby, $("lobby"), v.key, options);
   if (!still()) return;
   // A cancelled attempt is not a ready preview. The newest detail render owns one fresh attempt.
@@ -2069,7 +2087,7 @@ export async function show(context, familyData, key, { inPlace = false, kind = n
   rpc("ui.visit", { variant: variantKey }).catch(() => {});
   // The portrait uses its own assets and default framing while the UI layout is still loading or unavailable.
   const ready = await prepare(g, true, async () => {
-    commit(() => setTitle(T("top.students"), () => { location.hash = "#/roster"; }));
+    commit(() => setTitle(T("top.students"), ctx.back || (() => { location.hash = "#/roster"; })));
     await Promise.all([renderLeft(), ensureLayouts().then(() => {
       if (g.gen === showGen) return renderAll();
     }).catch(renderFailed)]);

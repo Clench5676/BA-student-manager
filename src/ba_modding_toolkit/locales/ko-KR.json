@@ -1230,7 +1230,14 @@
 			"spine_version": "호환되지 않는 Spine 버전",
 			"mod_unity_version_mismatch": "Unity 버전 호환 불가",
 			"mod_release_mismatch": "게임 버전 호환 불가",
-			"crc_fix_failed": "CRC 복구 실패"
+			"crc_fix_failed": "CRC 복구 실패",
+			"export_empty": "내보낼 Mod 없음",
+			"export_target_unavailable": "대상 리소스를 사용할 수 없음",
+			"hall_conflict": "다른 창에서 학생 로비가 변경되었습니다",
+			"library_recovery_pending": "Mod 복구 대기 중",
+			"hall_last_memorial": "메모리얼 로비 1개 이상 유지",
+			"hall_duplicate_portrait": "이미 추가된 일러스트입니다",
+			"hall_duplicate_memorial": "이미 추가된 메모리얼 로비입니다"
 		},
 		"drop": {
 			"hint": "모드 파일을 끌어다 놓아 추가"
@@ -1591,7 +1598,12 @@
 				"add": "Mod 라이브러리에 추가",
 				"apply": "Mod 적용",
 				"export": "파일 내보내기"
-			}
+			},
+			"selectPreview": "미리보기로 선택",
+			"applyGame": "게임에 적용",
+			"removeImported": "가져온 항목 제거",
+			"assignCharacter": "캐릭터 선택",
+			"libraryOnly": "라이브러리 전용 - 호환 대상 없음"
 		},
 		"recovery": {
 			"report": "오류 보고서 생성",
@@ -1620,6 +1632,70 @@
 				"first-screen": "첫 화면",
 				"ready": "준비 완료"
 			}
+		},
+		"export": {
+			"title": "내보내기",
+			"defaultDestination": "기본 폴더로 내보내기",
+			"destination": "내보내기 폴더",
+			"chooseDirectory": "폴더 선택",
+			"confirm": "확인",
+			"server": "대상 서버",
+			"platform": "대상 플랫폼",
+			"library": "Mod 라이브러리 내보내기",
+			"applied": "적용된 Mod 내보내기",
+			"success": "내보내기 완료. 폴더를 여시겠습니까?",
+			"openFolder": "폴더 열기"
+		},
+		"hall": {
+			"title": "학생 로비",
+			"portraits": "일러스트",
+			"memorial": "메모리얼 로비",
+			"edit": "배치 편집",
+			"adjust": "메모리얼 로비 설정",
+			"background": "배경 변경",
+			"add": "추가",
+			"remove": "제거",
+			"previous": "이전",
+			"next": "다음",
+			"done": "완료",
+			"empty": "학생 추가",
+			"missing": "리소스 사용 불가",
+			"voiceUnavailable": "음성 사용 불가",
+			"officeDay": "사무실 (낮)",
+			"officeNight": "사무실 (밤)",
+			"home": "학생 로비로 돌아가기",
+			"addPortraits": "일러스트 추가",
+			"removeSelected": "선택 제거",
+			"saveLayout": "배치 저장",
+			"changeLayout": "배치 변경",
+			"savePlaylist": "목록 저장",
+			"doneAdding": "추가 완료",
+			"noCandidates": "일치하는 리소스 없음",
+			"allReleased": "전체 출시 상태",
+			"released": "출시됨",
+			"unreleased": "미출시",
+			"clearStudent": "선택 해제",
+			"recentMemorials": "최근 감상",
+			"memorialCandidates": "메모리얼 로비 후보",
+			"playlist": "표시 목록",
+			"playlistHint": "드래그하여 정렬 - 최소 1개 유지",
+			"preview": "미리보기",
+			"backToPicker": "선택으로 돌아가기",
+			"useBackground": "배경 적용",
+			"unsaved": "저장하지 않은 변경",
+			"unsavedText": "변경 사항을 저장하고 나갈까요?",
+			"keepEditing": "계속 편집",
+			"discard": "변경 취소",
+			"saveLeave": "저장하고 나가기",
+			"added": "추가됨",
+			"portraitScale": "일러스트 크기",
+			"portraitScalePercent": "일러스트 크기 (%)",
+			"scaleReset": "초기화",
+			"layerBackward": "뒤로",
+			"layerForward": "앞으로",
+			"layerFront": "맨 앞으로",
+			"layerBack": "맨 뒤로",
+			"flipHorizontal": "좌우 반전"
 		}
 	}
 }

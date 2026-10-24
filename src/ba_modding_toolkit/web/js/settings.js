@@ -12,6 +12,7 @@ import * as Popup from "./popup.js";
 import * as Prompts from "./prompts.js";
 import * as Consent from "./consent.js";
 import * as OtherMods from "./settings-other.js";
+import * as ModExport from "./mod-export.js";
 import * as Buttons from "./game-buttons.js";
 import { rowBase, radioRow } from "./settings-rows.js";
 import { on, rpc } from "./api.js";
@@ -224,6 +225,13 @@ function rows({ builtSize = null, sizeError = null } = {}) {
     const sw = radioRow("Switch", 0, T("mods.switch"), ON_OFF(), v.on, (value) => { if (value !== v.on) ModSwitch.click("settings"); },
       { dim: v.busy || v.unavailable, description: v.unavailable ? ModSwitch.reasonText(m) : "" });
     add(helpAfterTitle(sw, T("mods.switch"), v.dot));
+    const exportRow = rowBase("Export", 0, 270, T("export.title"));
+    const exportHits = [];
+    [["library", "export.library"], ["applied", "export.applied"]].forEach(([scope, key], i) => {
+      exportRow.children.push(buttonNode(`Btn_${i}`, -370 + i * 740, -50, T(key), { w: 680 }));
+      exportHits.push({ path: `Export/Btn_${i}`, fn: () => ModExport.open({ scope }), name: T(key) });
+    });
+    add({ tree: exportRow, h: 270, hits: exportHits });
     add(valueRow("Built", 0, T("mods.cache"), sizeError || (builtSize == null ? T("job.running") :
       ModSwitch.sizeText(builtSize)), [
       [T("settings.mods.clear"), async () => { if (await ModSwitch.clearBuilt()) render(); }, builtSize > 0]]));

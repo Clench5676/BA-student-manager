@@ -12,6 +12,7 @@ import * as NGUI from "./ngui.js";
 import * as Popup from "./popup.js";
 import * as Prompts from "./prompts.js";
 import * as Roster from "./roster.js";
+import * as StudentHall from "./student-hall.js";
 import * as Settings from "./settings.js";
 import * as Update from "./update.js";
 import * as ModAdd from "./mod-add.js";
@@ -27,6 +28,7 @@ import { $, fitStage } from "./util.js";
 import { studentName } from "./names.js";
 import { withTimeout } from "./async.js";
 import { previewCache } from "./preview-cache.js";
+import { ROOT_ROUTE, routeHistory } from "./route-history.js";
 
 globalThis.BAMTRecovery?.presentReport((result) => Popup.message({ title: T("recovery.report"),
   lines: result ? [T("recovery.saved"), result.path, T(result.copied ? "recovery.copied" : "recovery.copyFailed"),
@@ -51,8 +53,9 @@ function relabelShell() {
   document.querySelector(".topbar .back").setAttribute("aria-label", T("a11y.back"));
   $("fs-exit").setAttribute("aria-label", T("lobby.exit"));
   $("top-option").setAttribute("aria-label", T("settings.button"));
+  $("top-home").setAttribute("aria-label", T("hall.home"));
   const back = document.querySelector(".topbar .back").onclick;
-  setTitle(T(!$("screen-import").hidden ? "nav.import" : "top.students"), back);
+  setTitle(T(!$("screen-hall").hidden ? "hall.title" : !$("screen-import").hidden ? "nav.import" : "top.students"), back);
   Loading.relabel();
 }
 const refreshLanguage = languageRefresh({
@@ -62,13 +65,14 @@ const refreshLanguage = languageRefresh({
     stepCards = null;
     relabelShell();
     await document.fonts.ready;
-    await Promise.all([renderNav(!$("screen-import").hidden ? 1 : 0), ModSwitch.relabel(),
-      Roster.relabel(), Detail.relabel(), BatchImport.relabel()]);
+    await Promise.all([renderNav(!$("screen-hall").hidden ? -1 : !$("screen-import").hidden ? 1 : 0), ModSwitch.relabel(),
+      StudentHall.relabel(), Roster.relabel(), Detail.relabel(), BatchImport.relabel()]);
   },
 });
 
 const ctx = {
   dragged: false,
+  back: () => goBack(),
   go: (family, variant, kind) => {
     const target = kind === "spr" ? "portrait" : kind;
     const tab = ["portrait", "lobby", "model"].includes(target) ? `/${target}` : "";
@@ -148,6 +152,11 @@ async function applyChange() {
   if (change === undefined) return;
   const my = changeRoute;
   if (!$("screen-detail").hidden) return Detail.filesChanged(change);
+  if (!$("screen-hall").hidden) {
+    await Popup.whenIdle();
+    if (my === routeToken && !$("screen-hall").hidden) await route();
+    return;
+  }
   if ($("screen-roster").hidden) return;
   // the list is built again once no popup is open, unless a route came meanwhile (it reads the list itself)
   await Popup.whenIdle();
@@ -183,7 +192,7 @@ function visited(fam, key) {
 }
 
 function showScreen(name) {
-  for (const id of ["screen-roster", "screen-detail", "screen-import", "screen-message"]) $(id).hidden = id !== `screen-${name}`;
+  for (const id of ["screen-hall", "screen-roster", "screen-detail", "screen-import", "screen-message"]) $(id).hidden = id !== `screen-${name}`;
 }
 
 function message(title, hint, actions = []) {
@@ -232,10 +241,58 @@ function noGame() {
   ]);
 }
 
-let routeToken = 0, endRoute = () => {};
-let shownRoute = "#/roster";
+let routeToken = 0, routeAttempt = 0, permissionAttempt = 0, endRoute = () => {}, homeRequested = false;
+const navigation = routeHistory();
+let shownRoute = ROOT_ROUTE;
 let stagedDetail = null;
+function goBack() {
+  return withHallPermission(() => {
+    const destination = navigation.back(location.hash || ROOT_ROUTE);
+    if (destination) location.hash = destination;
+    else return Promise.resolve(askQuit()).then((result) => {
+      if (result !== "quit" && !$("screen-hall").hidden) return StudentHall.settleView?.();
+    });
+  });
+}
+function withHallPermission(action) {
+  const permission = ++permissionAttempt;
+  if ($("screen-hall").hidden) return action();
+  return Promise.resolve(StudentHall.canLeave?.()).then((allowed) => {
+    if (allowed !== false && permission === permissionAttempt) return action();
+  }).catch((err) => {
+    if (permission === permissionAttempt) notify(T(`error.${err.code || "internal"}`, err.params || { error: String(err) }), { kind: "error", error: err });
+  });
+}
+function goHome() {
+  return withHallPermission(() => {
+    if ((location.hash || ROOT_ROUTE) === ROOT_ROUTE && !$("screen-hall").hidden) {
+      navigation.commit(ROOT_ROUTE, { home: true });
+      return StudentHall.settleView?.();
+    }
+    homeRequested = true;
+    location.hash = ROOT_ROUTE;
+  });
+}
 async function route() {
+  ++permissionAttempt;
+  const attempt = ++routeAttempt, address = location.hash || ROOT_ROUTE;
+  if (!$("screen-hall").hidden) {
+    try {
+      const allowed = await StudentHall.canLeave?.();
+      if (attempt !== routeAttempt) return;
+      if (allowed === false) {
+        homeRequested = false;
+        if (location.hash !== shownRoute) history.replaceState(null, "", shownRoute);
+        return;
+      }
+    } catch (err) {
+      if (attempt !== routeAttempt) return;
+      homeRequested = false;
+      if (location.hash !== shownRoute) history.replaceState(null, "", shownRoute);
+      notify(T(`error.${err.code || "internal"}`, err.params || { error: String(err) }), { kind: "error", error: err });
+      return;
+    }
+  }
   endRoute();
   if (stagedDetail) {
     stagedDetail.target.hidden = true; stagedDetail.target.style.visibility = ""; stagedDetail.target.inert = false;
@@ -243,23 +300,46 @@ async function route() {
   }
   const ended = new Promise((resolve) => { endRoute = resolve; });
   const my = ++routeToken;
-  const parts = location.hash.replace(/^#\/?/, "").split("/").map(decodeURIComponent);
+  const current = () => my === routeToken && attempt === routeAttempt;
+  const parts = address.replace(/^#\/?/, "").split("/").map(decodeURIComponent);
   if (parts[0] !== "import") BatchImport.hide();
-  renderNav(parts[0] === "import" ? 1 : 0);
+  if (parts[0] !== "hall") StudentHall.hide();
+  renderNav(parts[0] === "hall" ? -1 : parts[0] === "import" ? 1 : 0);
   try {
-    if (parts[0] === "import") {
+    if (parts[0] === "hall") {
+      Roster.hide();
+      await Loading.scene(async () => {
+        Detail.suspend();
+        Detail.hide();
+        const target = $("screen-hall");
+        const wasHidden = target.hidden, wasVisibility = target.style.visibility;
+        let committed = false;
+        target.hidden = false; target.style.visibility = "hidden";
+        try {
+          await StudentHall.show(ctx);
+          if (!current()) return;
+          showScreen("hall"); setTitle(T("hall.title"), goBack);
+          committed = true;
+        } finally {
+          if (my === routeToken) {
+            if (!committed) target.hidden = wasHidden;
+            target.style.visibility = wasVisibility || "";
+          }
+        }
+      }, { until: ended });
+    } else if (parts[0] === "import") {
       Roster.hide();
       await Loading.scene(async (covered) => {
         await covered;
-        if (my !== routeToken) return;
+        if (!current()) return;
         Detail.suspend();
         const data = await roster();
-        if (my !== routeToken) return;
+        if (!current()) return;
         await BatchImport.show(ctx, data);
-        if (my !== routeToken) return;
+        if (!current()) return;
         Detail.hide();
         showScreen("import");
-        setTitle(T("nav.import"), () => { location.hash = "#/roster"; });
+        setTitle(T("nav.import"), goBack);
       }, { until: ended });
     } else if (parts[0] === "student" && parts[1]) {
       // leaving the list: its cards as shown are the arrows' order
@@ -270,7 +350,7 @@ async function route() {
       await Loading.hold(() => Loading.scene(async (covered) => {
         const fam = await withTimeout(rpc("family.get", { key: parts[1] }), 15000, "family.get");
         await covered;
-        if (my !== routeToken) return; // a later navigation took over
+        if (!current()) return; // a later navigation took over
         visited(fam, parts[2]);
         const target = $("screen-detail"), wasHidden = target.hidden;
         let committed = false;
@@ -280,7 +360,7 @@ async function route() {
         }
         try {
           await Detail.show(ctx, fam, parts[2], { inPlace, kind: parts[3] });
-          if (my !== routeToken) return;
+          if (!current()) return;
           showScreen("detail");
           committed = true;
         } finally {
@@ -294,29 +374,33 @@ async function route() {
         Detail.hide();
         showScreen("roster");
         stepCards = null;
-        setTitle(T("top.students"), askQuit);
+        setTitle(T("top.students"), goBack);
       };
       const open = async (covered) => {
         await covered;
-        if (my !== routeToken) return;
+        if (!current()) return;
         // Release detail page work before a roster RPC can wait on a writer's library lock.
         Detail.suspend();
         const data = await roster();
-        if (my !== routeToken) return;
+        if (!current()) return;
         try {
           await Roster.show(ctx, data);
         } catch (err) {
-          if (my === routeToken) reveal();
+          if (current()) reveal();
           throw err;
         }
-        if (my !== routeToken) return;
+        if (!current()) return;
         reveal();
       };
       await Loading.scene(open, { until: ended });
     }
-    if (my === routeToken) shownRoute = location.hash;
+    if (current()) {
+      shownRoute = navigation.commit(address, { home: homeRequested && address === ROOT_ROUTE });
+      homeRequested = false;
+    }
   } catch (err) {
-    if (my !== routeToken) return;
+    if (!current()) return;
+    homeRequested = false;
     if (globalThis.BAMTRecovery?.isBooting() && err.code !== "game_not_found") throw err;
     console.error(err);
     if (err.code === "game_not_found") { noGame(); return; }
@@ -401,21 +485,24 @@ async function start() {
   document.querySelector(".topbar .back").setAttribute("aria-label", T("a11y.back"));
   $("fs-exit").setAttribute("aria-label", T("lobby.exit"));
   $("top-option").setAttribute("aria-label", T("settings.button"));
+  $("top-home").setAttribute("aria-label", T("hall.home"));
+  $("top-home").hidden = !info.gameFound;
   // subscribed before the no-game screen too, so choosing the game folder elsewhere reaches the page
   on("config.changed", () => { if (!info.gameFound) { location.reload(); return; } BatchImport.invalidate(); stepCards = null; ctx.invalidateRoster(); route(); });
   on("app.busy", () => notify(T("error.busy"), { kind: "error", error: { code: "busy" } }));
   await timed("fonts", () => document.fonts.ready);
   // the bottom bar: its greyed entries hand over to the classic UI (with or without a game folder), their prompt
   // following the pref classicPrompt
-  const navOptions = { game: !!info.gameFound, prefs: () => ctx.prefs, setPrefs: (prefs) => { ctx.prefs = prefs; } };
+  const navOptions = { game: !!info.gameFound, prefs: () => ctx.prefs, setPrefs: (prefs) => { ctx.prefs = prefs; },
+    canLeave: () => $("screen-hall").hidden || StudentHall.canLeave?.() };
   if (!info.gameFound) {
-    renderNav(0, navOptions);
+    renderNav(-1, navOptions);
     noGame();
     ModSwitch.listenTray(); // the tray still switches the known installs
     return;
   }
   await ui;
-  renderNav(0, navOptions);
+  renderNav(-1, navOptions);
   // the Enable Mods switch in the top bar, and what the writer jobs switched
   await timed("mod-state", () => ModSwitch.init({ names: variantNames, refreshPage: refreshAfterToggle }));
   let enabled = ModSwitch.current()?.enabled !== false;
@@ -432,6 +519,7 @@ async function start() {
     if (key === "cacheCleared" || key === "previewCache" || key === "cacheDir") return;
     if (key === "language") { await refreshLanguage(prefs.language); return; }
     Detail.applyPrefs(prefs);
+    StudentHall.applyPrefs?.(prefs);
     if (key === "fileSource" || key.startsWith("gameDir") || key === "libraryDir" || key === "spineConsent") { stepCards = null; ctx.invalidateRoster(); route(); }
   };
   ctx.goOther = () => Settings.open(settingsChanged, "mods");
@@ -453,6 +541,8 @@ async function start() {
     }
   });
   $("top-option").addEventListener("click", () => Settings.open(settingsChanged));
+  $("top-home").addEventListener("click", goHome);
+  if (!location.hash) history.replaceState(null, "", ROOT_ROUTE);
   addEventListener("hashchange", route);
   await timed("first-screen", route);
 }

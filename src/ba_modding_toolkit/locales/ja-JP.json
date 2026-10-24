@@ -1230,7 +1230,14 @@
 			"spine_version": "Spineバージョン非対応",
 			"mod_unity_version_mismatch": "Unity バージョン非対応",
 			"mod_release_mismatch": "ゲーム版非対応",
-			"crc_fix_failed": "CRC 修復失敗"
+			"crc_fix_failed": "CRC 修復失敗",
+			"export_empty": "出力可能な Mod がありません",
+			"export_target_unavailable": "出力先のリソースを利用できません",
+			"hall_conflict": "別のウィンドウで生徒ロビーが変更されました",
+			"library_recovery_pending": "Mod の復旧待ち",
+			"hall_last_memorial": "メモリアルロビーを1つ以上保持",
+			"hall_duplicate_portrait": "この立ち絵は追加済みです",
+			"hall_duplicate_memorial": "このメモリアルロビーは追加済みです"
 		},
 		"drop": {
 			"hint": "MODファイルをドロップして追加"
@@ -1591,7 +1598,12 @@
 				"add": "Mod ライブラリに追加",
 				"apply": "Mod 適用",
 				"export": "ファイル出力"
-			}
+			},
+			"selectPreview": "プレビューに設定",
+			"applyGame": "ゲームに適用",
+			"removeImported": "取込済みを除外",
+			"assignCharacter": "キャラクターを選択",
+			"libraryOnly": "ライブラリのみ - 対応する適用先なし"
 		},
 		"recovery": {
 			"report": "エラーレポート作成",
@@ -1620,6 +1632,70 @@
 				"first-screen": "初期画面",
 				"ready": "準備完了"
 			}
+		},
+		"export": {
+			"title": "エクスポート",
+			"defaultDestination": "既定のフォルダーへ出力",
+			"destination": "出力先フォルダー",
+			"chooseDirectory": "フォルダーを選択",
+			"confirm": "確認",
+			"server": "出力先サーバー",
+			"platform": "出力先プラットフォーム",
+			"library": "Mod ライブラリを出力",
+			"applied": "適用済みを出力",
+			"success": "出力完了。フォルダーを開きますか？",
+			"openFolder": "フォルダーを開く"
+		},
+		"hall": {
+			"title": "生徒ロビー",
+			"portraits": "立ち絵",
+			"memorial": "メモリアルロビー",
+			"edit": "配置編集",
+			"adjust": "メモリアルロビー設定",
+			"background": "背景変更",
+			"add": "追加",
+			"remove": "削除",
+			"previous": "前へ",
+			"next": "次へ",
+			"done": "完了",
+			"empty": "生徒を追加",
+			"missing": "データ利用不可",
+			"voiceUnavailable": "ボイス利用不可",
+			"officeDay": "オフィス（昼）",
+			"officeNight": "オフィス（夜）",
+			"home": "生徒ロビーに戻る",
+			"addPortraits": "立ち絵を追加",
+			"removeSelected": "選択を削除",
+			"saveLayout": "配置を保存",
+			"changeLayout": "配置変更",
+			"savePlaylist": "リストを保存",
+			"doneAdding": "追加完了",
+			"noCandidates": "該当するデータなし",
+			"allReleased": "すべての実装状況",
+			"released": "実装済み",
+			"unreleased": "未実装",
+			"clearStudent": "選択を解除",
+			"recentMemorials": "最近表示",
+			"memorialCandidates": "メモリアルロビー候補",
+			"playlist": "表示リスト",
+			"playlistHint": "ドラッグで並べ替え - 1件以上を保持",
+			"preview": "プレビュー",
+			"backToPicker": "選択に戻る",
+			"useBackground": "背景を適用",
+			"unsaved": "未保存の変更",
+			"unsavedText": "変更を保存して移動しますか？",
+			"keepEditing": "編集を続ける",
+			"discard": "変更を破棄",
+			"saveLeave": "保存して移動",
+			"added": "追加済み",
+			"portraitScale": "立ち絵サイズ",
+			"portraitScalePercent": "立ち絵サイズ（%）",
+			"scaleReset": "リセット",
+			"layerBackward": "背面へ",
+			"layerForward": "前面へ",
+			"layerFront": "最前面へ",
+			"layerBack": "最背面へ",
+			"flipHorizontal": "左右反転"
 		}
 	}
 }

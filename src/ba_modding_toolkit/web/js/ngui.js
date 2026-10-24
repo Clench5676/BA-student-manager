@@ -304,6 +304,10 @@ export async function render(tree, host, opts = {}) {
         `${p}/Placeholder`, x + placeholderRect.x * sx, y + placeholderRect.y * sy,
         sx, sy, colorOf(placeholderLabel.color), alpha) : null;
       const src = w.clipImage;
+      const failureNote = (visible) => {
+        if (note && w.placeholderOnFailure) { note.hidden = !visible; note.style.display = visible ? "flex" : "none"; }
+      };
+      failureNote(!src);
       if (src) {
         if (src.thumbnail) pic.dataset.thumbnail = "true";
         // a URL, or a promise of one (a thumbnail being rendered): thumbnails fill in when ready, render() does not
@@ -311,7 +315,8 @@ export async function render(tree, host, opts = {}) {
         const t0 = performance.now();
         Object.assign(pic.style, { opacity: "0", transition: "opacity .25s ease" });
         const done = withTimeout(Promise.resolve(src).then((u) => (u && w.tint ? tinted(u, w.tint) : u)), src.thumbnail ? Infinity : 15000, `UI picture ${p}`, { signal: src.signal || opts.signal }).then(async (u) => {
-          if (!u || src.signal?.aborted || opts.signal?.aborted) return;
+          if (src.signal?.aborted || opts.signal?.aborted) return;
+          if (!u) { failureNote(true); return; }
           if (note) {
             await load(u, { signal: src.signal || opts.signal });
             if (src.signal?.aborted || opts.signal?.aborted) return;
@@ -320,7 +325,7 @@ export async function render(tree, host, opts = {}) {
           pic.style.backgroundImage = `url("${u}")`;
           if (performance.now() - t0 < 50) pic.style.transition = "none";
           pic.style.opacity = "1";
-        }).catch((err) => { if (!src.signal?.aborted && !opts.signal?.aborted) failed(p, err); });
+        }).catch((err) => { if (!src.signal?.aborted && !opts.signal?.aborted) { failureNote(true); failed(p, err); } });
         if (src.thumbnail) thumbnails.push(done);
         if (typeof src === "string") jobs.push(done);
         else pictures.push(done);

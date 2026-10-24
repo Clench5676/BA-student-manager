@@ -39,6 +39,7 @@ import * as Pins from "./skeleton-pins.js";
 import * as Touch from "./lobby-touch.js";
 import * as Sync from "./lobby-sync.js";
 import * as Intro from "./lobby-intro.js";
+import { previewLifecycle } from "./preview-lifecycle.js";
 
 const skinPrimary = async (...args) => (await import("./game-buttons.js")).skinPrimary(...args);
 
@@ -59,6 +60,56 @@ let talk = null, talkIndex = -1, cueTimers = [], audios = [], subtitleTimer = nu
 let lines = {}, muted = false, volume = 0.8, lineOf = (l) => l?.["zh-CN"] || "";
 let introOn = true; // the intro setting (setIntro): off shows the lobby as its intro leaves it
 const listeners = new Set();
+let ownsTouch = false;
+// Query-keyed Lobby modules share lobby-touch.js. The shared token also protects against late disposal when a
+// caller claims another instance before releasing this one (including the canonical detail-screen instance).
+const touchOwners = globalThis[Symbol.for("bamt.lobby.touch-owners")] ||= new WeakMap(), touchToken = {};
+const ownsInput = () => ownsTouch && touchOwners.get(Touch) === touchToken;
+const paused = () => !!(current?.suspended || current?.backgroundPaused);
+// This module can have two Hall instances. Each owns its deadlines; suspension retains remaining time rather
+// than clearing/recreating a dialogue or random-idle run. Extracted playback tests still use native timers.
+const nativeTimeout = (...args) => globalThis.setTimeout(...args), nativeClearTimeout = (id) => globalThis.clearTimeout(id);
+const sceneTimers = new Map();
+function armTimer(timer) {
+  timer.started = performance.now();
+  timer.id = nativeTimeout(() => { sceneTimers.delete(timer); timer.fn(); }, Math.max(0, timer.remaining));
+}
+function setTimeout(fn, ms = 0) {
+  const timer = { fn, remaining: ms, id: null, started: null };
+  sceneTimers.set(timer, timer); if (!paused()) armTimer(timer); return timer;
+}
+function clearTimeout(timer) { if (!timer) return; nativeClearTimeout(timer.id); sceneTimers.delete(timer); }
+function pauseTimers() {
+  for (const timer of sceneTimers.values()) if (timer.id != null) {
+    nativeClearTimeout(timer.id); timer.remaining -= Math.max(0, performance.now() - timer.started); timer.id = null;
+  }
+}
+function resumeTimers() { for (const timer of sceneTimers.values()) if (timer.id == null) armTimer(timer); }
+function clearTimers() { for (const timer of sceneTimers.values()) nativeClearTimeout(timer.id); sceneTimers.clear(); }
+
+function releaseTouch() {
+  const owned = ownsInput(); ownsTouch = false;
+  if (!owned) return;
+  touchOwners.delete(Touch); Touch.detach(); Touch.setup(null);
+}
+function restoreTouch() {
+  if (!current?.touch || paused()) return;
+  touchOwners.set(Touch, touchToken); Touch.setup(current.touch); ownsTouch = true;
+  if (mode === "full" && wantTouch) Touch.attach(current.host);
+}
+function visualImage(url) {
+  const c = current;
+  if (!c) return Promise.reject(new Error("Lobby image has no owner"));
+  if (!c.visualLoads.has(url)) {
+    const image = new Image();
+    const request = withTimeout(new Promise((resolve, reject) => {
+      image.onload = () => resolve(image); image.onerror = () => reject(new Error(`Lobby image unavailable: ${url}`)); image.src = url;
+    }), 15000, url, { signal: c.signal }).finally(() => { image.onload = image.onerror = null; });
+    request.catch(() => {}); // The complete-frame barrier reports failures, including those swallowed by a renderer.
+    c.visualLoads.set(url, request);
+  }
+  return c.visualLoads.get(url);
+}
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const isBg = (n) => /background|_bg\b|bg_/i.test(n);
@@ -70,21 +121,21 @@ const game = () => {
   return { ...v };
 };
 
-async function sourcesOf(core, mod, refresh = false, signal = null) {
-  const artSource = spineBase(mod ? "mod" : "lobby", mod || core), layoutSource = spineBase("lobby", core);
+async function sourcesOf(core, mod, refresh = false, signal = null, official = false) {
+  const artSource = spineBase(mod ? "mod" : official ? "official-lobby" : "lobby", mod || core), layoutSource = core ? spineBase("lobby", core) : null;
   // A shown tab must not inherit a manifest request that belonged to a cancelled or previous source.
-  if (refresh) for (const source of new Set([artSource, layoutSource])) forgetSpineAssets(source.slice(0, source.lastIndexOf("/")));
+  if (refresh) for (const source of new Set([artSource, layoutSource].filter(Boolean))) forgetSpineAssets(source.slice(0, source.lastIndexOf("/")));
   const art = spineAssetBase(artSource, { signal });
-  const layout = mod ? spineAssetBase(layoutSource, { signal }) : art;
+  const layout = !layoutSource ? Promise.resolve(null) : mod || official ? spineAssetBase(layoutSource, { signal }) : art;
   const dir = (base) => base?.slice(0, base.lastIndexOf("/") + 1) || null;
   const [artBase, base] = await Promise.all([art, layout]);
-  return { artBase: dir(artBase), base: dir(base) };
+  return { artBase: dir(artBase), base: dir(base), official };
 }
 
 // the layers of a lobby in the prefab's draw order with its offsets and scales; skeletons the prefab keeps inactive
 // (talk-only scenes) are left out. Without prefab data every skeleton sits at the standard place, backgrounds first.
-export async function layersOf(core, mod = null, sources = null, framing = null, { signal } = {}) {
-  const { artBase, base } = sources || await sourcesOf(core, mod, false, signal);
+export async function layersOf(core, mod = null, sources = null, framing = null, { signal, official = false } = {}) {
+  const { artBase, base } = sources || await sourcesOf(core, mod, false, signal, official);
   if (!artBase) throw new Error(`Lobby source unavailable: ${core}`);
   const read = (url) => withTimeout(fetch(url, { signal }).then((r) => {
     if (!r.ok) throw new Error(`${url}: HTTP ${r.status}`);
@@ -596,11 +647,11 @@ export function frame(m) {
   mode = m;
   if (current && m === "left") current.userFramed = false;
   if (!current?.meta) return;
-  if (changed) crossfade();
+  if (changed && !paused()) crossfade();
   setView(viewOf(current.meta), true);
   feather(current.view);
-  if (m !== "full") Touch.detach();
-  else if (wantTouch) Touch.attach(current.host);
+  if (ownsInput() && m !== "full") Touch.detach();
+  else if (ownsInput() && wantTouch && !paused()) Touch.attach(current.host);
 }
 // a player's canvas on screen (not a layer the intro keeps hidden)
 const shown = (p) => !!p.canvas && !p.parent?.classList.contains("lobby-off");
@@ -742,11 +793,14 @@ function makePlayer(host, layer, fx, share, signal) {
     // that are due (before the animation update, as the game's coroutines run before the next Update), the shared
     // view, no spine-player viewport transitions of its own
     frame: (p, delta) => {
-      current?.intro?.frame(p, delta); // the intro's clock and state, its Spine clips (lobby-intro.js)
+      // SpinePlayer starts with paused=true, then calls play() AFTER success. Capture its settled playback
+      // state here, not the constructor's temporary pause, so activation does not restore that loading state.
+      if (paused() && !current?.preparingFrame) { freezePlayer(p, current); delta = 0; }
+      if (!paused() || current?.preparingFrame) current?.intro?.frame(p, delta);
       // A timeline may finish by emptying track 0. Its idle must resume once that mix has ended.
       if (!current?.intro?.pending() && !talk) resumeRest(p, layer);
       Stage.frame(p);
-      p.bamtRuns?.tick(delta);
+      if (!paused()) p.bamtRuns?.tick(delta);
       const v = viewNow();
       if (v) { p.currentViewport = layerViewport(v, layer); p.previousViewport = null; }
       Linear.begin(p);
@@ -756,7 +810,7 @@ function makePlayer(host, layer, fx, share, signal) {
     // the others after it
     update: (p, delta) => {
       Linear.tint(p);
-      fx?.below(p, delta);
+      fx?.below(p, paused() || current?.preparingFrame ? 0 : delta);
     },
     draw: (p) => {
       fx?.above(p);
@@ -766,9 +820,9 @@ function makePlayer(host, layer, fx, share, signal) {
     // after the animation, before the world transform: the sound keys its track entries have reached, and the
     // dragged bones follow the pointer
     updateWorldTransform: (p, delta) => {
-      p.bamtSounds?.tick();
+      if (!paused()) p.bamtSounds?.tick();
       Pins.apply(p, layer.ignorePins ? null : current?.info?.pins);
-      Touch.apply(p, delta);
+      if (ownsInput() && !paused()) Touch.apply(p, delta);
       p.skeleton.updateWorldTransform(spine.Physics.update);
     },
     success: (player) => {
@@ -791,15 +845,16 @@ function makePlayer(host, layer, fx, share, signal) {
         if (idle) soundsOf(player, player.animationState.getCurrent(0), clipOf(player, idle));
         for (const name of idleClips(current?.info, layer.name, idle, (n) => clipOf(player, n)))
           if (clipOf(player, name).track !== 0) playClip(player, name);
+        if (paused()) player.stopRendering?.();
       } catch (err) {
         console.error("Lobby player setup failed", layer.name, err);
         throw err;
       }
     },
-  }, { signal,
+  }, { signal, manual: !!current?.deferPlayback,
     onResume: () => {
       const c = current;
-      if (!c || c.signal !== signal) return false;
+      if (!c || c.signal !== signal || paused()) return false;
       c.drawnAt = performance.now(); c.introTime = undefined; c.pixelsChecked = false; c.viewAt = null;
       if (c.revealed) reveal(false);
       return !players.some((p) => p.bamtLayer === layer && Stage.hostOf(p));
@@ -824,8 +879,8 @@ function lightUp(player) {
   Linear.setScreen(player, layerViewport(game(), layer));
   Linear.setCurves(player, SlotColours.curvesOf(layer));
   // Keep Aoi's authored glow blends out of the memorial lobby's fallback to Normal.
-  Materials.attach(player, layer, { screen: () => layerViewport(game(), layer), base: current.base,
-    slotBlends: current.core.toLowerCase() === "np0032_npc" });
+  Materials.attach(player, layer, { screen: () => layerViewport(game(), layer), base: current.base, load: current.deferPlayback ? visualImage : undefined,
+    slotBlends: typeof current.core === "string" && current.core.toLowerCase() === "np0032_npc" });
 }
 
 // --- fallback only (art that does not cover the view): edge pixels stretched outwards and blurred ---
@@ -877,13 +932,13 @@ function feather(view) {
   // keep the extension in step with the animation (cheap: a 480 x 270 canvas a few times a second)
   const tick = () => current?.view && drawExtension(ext, current.view);
   tick();
-  extendTimer = setInterval(tick, 200);
+  if (!paused()) extendTimer = setInterval(tick, 200);
 }
 
 // show(core, host) -> Promise<meta> (frame, sequences); resolves once every layer is in and framed
 const lobbyLoads = latestLoad(), sourceLoads = latestLoad(), playerLoads = new WeakMap();
-export function show(core, host, variant, { mod = null, framing = null } = {}) {
-  if (current && (current.core !== core || current.mod !== mod || current.framing !== framing || !current.meta)) {
+export function show(core, host, variant, { mod = null, framing = null, official = false, deferPlayback = false } = {}) {
+  if (current && (current.core !== core || current.mod !== mod || !!current.official !== !!official || current.framing !== framing || !current.meta)) {
     lobbyLoads.cancel();
     clearView(host);
   }
@@ -891,27 +946,27 @@ export function show(core, host, variant, { mod = null, framing = null } = {}) {
     if (!(await ensureSpine())) {
       if (!sourceSignal.aborted) {
         clearView(host);
-        licenseRequired(host, () => show(core, host, variant, { mod, framing }));
+        licenseRequired(host, () => show(core, host, variant, { mod, framing, official, deferPlayback }));
       }
       return null;
     }
     if (sourceSignal.aborted) return null;
     let stopped = false;
-    const url = spineBase(mod ? "mod" : "lobby", mod || core);
+    const url = spineBase(mod ? "mod" : official ? "official-lobby" : "lobby", mod || core);
     const abort = () => lobbyLoads.cancel();
     sourceSignal.addEventListener("abort", abort, { once: true });
     const run = async () => {
-      let sources = await sourcesOf(core, mod, true, sourceSignal);
+      let sources = await sourcesOf(core, mod, true, sourceSignal, official);
       for (let attempt = 0; ; attempt++) {
         if (stopped || sourceSignal.aborted) return null;
         if (!sources.artBase) throw atStep(new Error("Lobby source unavailable"), url.replace(/skeleton$/, "manifest.json"), "manifest");
         if (current?.meta && current.artBase === sources.artBase && current.base === sources.base
             && current.framing === framing && current.host === host && !current.signal.aborted && players.length && !current.error) return current.ready;
         try {
-          return await lobbyLoads.run((signal) => showNow(core, host, variant, mod, sources, signal, framing));
+          return await lobbyLoads.run((signal) => showNow(core, host, variant, mod, sources, signal, framing, deferPlayback));
         } catch (err) {
           if (sourceSignal.aborted || attempt) throw err;
-          const fresh = await sourcesOf(core, mod, true, sourceSignal);
+          const fresh = await sourcesOf(core, mod, true, sourceSignal, official);
           if (stopped || sourceSignal.aborted) return null;
           if (fresh.artBase === sources.artBase && fresh.base === sources.base) throw err;
           console.warn("Lobby source changed during load", url, err);
@@ -930,7 +985,7 @@ export function show(core, host, variant, { mod = null, framing = null } = {}) {
     } finally { sourceSignal.removeEventListener("abort", abort); }
   });
 }
-async function showNow(core, host, variant, mod, sources, signal, framing) {
+async function showNow(core, host, variant, mod, sources, signal, framing, deferPlayback = false) {
   clearView(host);
   if (!sources.artBase) throw new Error("Lobby source unavailable");
   const { base } = sources;
@@ -939,7 +994,18 @@ async function showNow(core, host, variant, mod, sources, signal, framing) {
   const ext = host.querySelector(".lobby-extend"), viewHost = host.querySelector(".lobby-view"), fade = host.querySelector(".lobby-fade");
   ext.width = EXT_W; ext.height = EXT_H;
   fade.width = STAGE.w; fade.height = STAGE.h;
-  current = { core, mod, ...sources, variant, host, signal, framing, info: null, meta: null, view: null, target: null, viewAt: null };
+  current = { core, mod, ...sources, variant, host, signal, framing, deferPlayback, suspended: deferPlayback,
+    inputWasInert: !!host.inert, info: null, meta: null, view: null, target: null, viewAt: null,
+    visualLoads: new Map(), resumeAudio: new Set(), pendingSounds: [] };
+  if (deferPlayback) host.inert = true;
+  if (deferPlayback) {
+    const c = current;
+    c.lifecycle = previewLifecycle({
+      suspend: () => { if (current === c) { c.backgroundPaused = true; freezeScene(c); } },
+      resume: () => { if (current === c) { c.backgroundPaused = false; if (!c.suspended) resumeScene(c); } },
+    });
+    c.backgroundPaused = !c.lifecycle.active();
+  }
   // Cancel the composition before individual load listeners, releasing shared-context guests first.
   current.cancel = () => { if (current?.signal === signal) clearView(host); };
   signal.addEventListener("abort", current.cancel, { once: true });
@@ -951,7 +1017,7 @@ async function showNow(core, host, variant, mod, sources, signal, framing) {
     current.info = info;
     setView(game(), true); // the first frames are already in the game's framing
     const fx = (current.fx = info?.fx?.systems?.length || info?.fx?.renderers?.length || info?.fx?.sprites?.length
-      ? Particles.create(info.fx, { base, bone: boneOf }) : null);
+      ? Particles.create(info.fx, { base, bone: boneOf, load: deferPlayback ? visualImage : undefined }) : null);
     // every layer drawn with the bottom one's context (share), or each with its own
     const build = async (share) => (await Promise.all(layers.map(async (layer) => {
       const load = makePlayer(viewHost, layer, fx, share ? players[0] : null, signal);
@@ -977,14 +1043,14 @@ async function showNow(core, host, variant, mod, sources, signal, framing) {
     setView(viewOf(current.meta), true);
     feather(current.view);
     const main = loaded.find((l) => l.name === current.meta.main)?.player;
-    Touch.setup({
+    current.touch = {
       players: loaded.map((l) => l.player), main, info, toWorld, zoomAt, panBy, playClip, clearClip, next,
       viewTarget, setViewTarget,
       talking: () => !!talk, stopTalk: stop, blocked: () => Idle.blocking > 0,
       pause: () => Idle.pause(), resume: () => Idle.resume(), interrupt: () => Idle.interrupt(),
-    });
+    };
+    if (!deferPlayback) restoreTouch();
     Idle.start(loaded.map((l) => l.player));
-    if (mode === "full" && wantTouch) Touch.attach(host);
     openEdge();
     // the intro, from the first frame the lobby is revealed on screen (reveal); with the setting off, its end at once
     if (info?.intro) {
@@ -997,7 +1063,8 @@ async function showNow(core, host, variant, mod, sources, signal, framing) {
         // one target for the skeletons drawn with the bottom player's context: its clear stays
         clear: (p, on) => Linear.setClear(Stage.hostOf(p) || p, on && !c.meta.sparse),
         show: (p, on) => Stage.setShown(p, on),
-        visible: () => !!c.revealed && (host.checkVisibility ? host.checkVisibility({ opacityProperty: true }) : !host.hidden),
+        visible: () => !!c.preparingFrame || !paused() && !!c.revealed
+          && (host.checkVisibility ? host.checkVisibility({ opacityProperty: true }) : !host.hidden),
       });
       if (!introOn) c.intro.skip();
       else if (!muted && volume > 0) for (const s of info.intro.sounds || []) Sfx.prefetch(s.id); // in time for it
@@ -1016,8 +1083,8 @@ function recoverView(c) {
   const revealed = c.revealed;
   lobbyLoads.run(async (signal) => {
     try {
-      const meta = await showNow(c.core, c.host, c.variant, c.mod, { base: c.base, artBase: c.artBase }, signal, c.framing);
-      if (meta && !signal.aborted && revealed) reveal();
+      const meta = await showNow(c.core, c.host, c.variant, c.mod, { base: c.base, artBase: c.artBase, official: c.official }, signal, c.framing, c.deferPlayback);
+      if (meta && !signal.aborted && revealed) { if (c.deferPlayback && !c.suspended) resume(); else if (!c.deferPlayback) reveal(); }
       return meta;
     } catch (err) { if (!signal.aborted) failView(err, c.host, `${c.artBase}files.json`, "context recovery"); }
   }).catch((err) => console.error("Lobby recovery failed", err));
@@ -1081,8 +1148,9 @@ function clearView(host) {
   token += 1;
   clearTimeout(current?.watchdog);
   if (current?.cancel) current.signal.removeEventListener("abort", current.cancel);
-  Touch.detach();
-  Touch.setup(null);
+  releaseTouch();
+  current?.lifecycle?.dispose();
+  if (current?.host) current.host.inert = !!current.inputWasInert;
   Idle.stop();
   current?.intro?.dispose(); // its sounds, its depth of field's targets
   dropPlayers();
@@ -1093,17 +1161,90 @@ function clearView(host) {
   endTalk(false);
   Sfx.clear();
   clearTimeout(subtitleTimer);
+  clearTimers();
   if (host) { host.innerHTML = ""; host.classList.remove("open-edge"); }
 }
 
 // the input trace of the fullscreen interaction (lobby-touch.js): sink(events) gets batches, null turns it off
 export const setTrace = (sink) => Touch.setTrace(sink);
 
+function freezePlayer(player, c) {
+  c.pauseFlags ||= new Map();
+  // A native window can lose focus while the player's assets are loading. Its constructor pause is not a
+  // playback preference: loadSkeleton will still call play() after success. The first loaded frame captures it.
+  if (player.bamtLayer && player.animationState && !c.pauseFlags.has(player)) c.pauseFlags.set(player, player.paused);
+  player.paused = true; player.stopRendering?.();
+}
+function freezeScene(c) {
+  if (current !== c) return;
+  c.pausedAt ??= performance.now(); c.running = false;
+  c.host.inert = true;
+  pauseTimers(); clearInterval(extendTimer); extendTimer = null; releaseTouch();
+  for (const player of players) freezePlayer(player, c);
+  for (const audio of [...audios, ...Sfx.playing]) if (!audio.paused && !audio.ended) {
+    c.resumeAudio.add(audio); audio.pause();
+  }
+}
+function resumeScene(c) {
+  if (current !== c || paused() || c.running || c.signal.aborted) return;
+  c.running = true;
+  c.host.inert = !!c.inputWasInert;
+  if (talk && c.pausedAt != null) talk.started += Math.max(0, performance.now() - c.pausedAt);
+  c.pausedAt = null; c.viewAt = null; c.introTime = undefined; c.drawnAt = performance.now();
+  for (const player of players) {
+    if (c.pauseFlags?.has(player)) player.paused = c.pauseFlags.get(player);
+    freshClock(player);
+  }
+  c.pauseFlags?.clear();
+  restoreTouch(); resumeTimers(); feather(c.view);
+  for (const audio of c.resumeAudio) if (!muted && volume > 0 && !audio.ended && !audio.bamtOwnerSet?.closed)
+    audio.play().catch(() => {});
+  c.resumeAudio.clear();
+  const sounds = c.pendingSounds.splice(0); for (const [id, set] of sounds) if (!set?.closed) Sfx.play(id, set);
+  reveal(false);
+  // Let a previously queued frame observe stopRendering before permitting a single replacement RAF loop.
+  (globalThis.requestAnimationFrame || queueMicrotask)(() => {
+    if (current !== c || paused() || !c.running || c.signal.aborted) return;
+    for (const player of players) if (!Stage.hostOf(player) && player.stopRequestAnimationFrame
+        && playerLoads.get(player)?.active?.() !== false) { freshClock(player); player.startRendering?.(); }
+  });
+}
+// Hall keeps an attached instance while another mode is visible. All clocks and audio resume from this point.
+export function suspend() {
+  const c = current; if (!c || c.suspended) return;
+  c.suspended = true; freezeScene(c);
+}
+export function resume() {
+  const c = current; if (!c) return;
+  c.suspended = false; resumeScene(c);
+}
+// Resolve only after every optional FX/material image is in and an actual complete composite has been drawn.
+// Preparing the intro's frame zero queues its time-zero sounds for activation instead of consuming them silently.
+export async function prepareFrame() {
+  const c = current; if (!c) return false;
+  await c.ready;
+  if (current !== c || c.signal.aborted) return false;
+  await withTimeout(Promise.all(c.visualLoads.values()), 15000, "Lobby visual assets", { signal: c.signal });
+  if (current !== c || c.signal.aborted) return false;
+  const flags = new Map(players.map((player) => [player, player.paused]));
+  c.preparingFrame = true;
+  try {
+    for (const player of players) { player.paused = false; clocked(player); freshClock(player); }
+    for (const player of players) if (!Stage.hostOf(player)) player.drawFrame?.(false);
+    if (c.error) throw c.error;
+    if (players.some((player) => player.error || player.disposed)) throw new Error("Lobby frame preparation failed");
+    c.prepared = true; return true;
+  } finally {
+    c.preparingFrame = false;
+    for (const [player, flag] of flags) player.paused = flag;
+  }
+}
+
 // --- the intro (lobby-intro.js) ---
 // the lobby is on screen (the detail screen has committed it): its intro starts with the next frame it is visible
 export function reveal(restart = true) {
   const c = current;
-  if (!c) return;
+  if (!c || c.suspended || c.backgroundPaused) return;
   c.revealed = true;
   // A player first laid out under a hidden tab must get a frame with the visible canvas's size.
   for (const p of players) if (restart && !document.hidden && (document.hasFocus?.() ?? true)
@@ -1169,15 +1310,23 @@ export function setClock(dt) {
 }
 // a player on the checks' clock (a lobby shown after setClock too)
 function clocked(p) {
-  if (fixedDt == null || !p.time || p.time.bamtUpdate) return;
+  if (!p.time || p.time.bamtUpdate) return;
   const update = p.time.update.bind(p.time);
   p.time.bamtUpdate = update;
   p.time.update = () => {
+    const total = p.time.totalTime;
     update();
+    if (paused() || current?.preparingFrame) { p.time.delta = 0; p.time.totalTime = total; return; }
     if (fixedDt == null) return;
     p.time.delta = stepDt.has(p) ? stepDt.get(p) : fixedDt;
     stepDt.delete(p);
   };
+}
+function freshClock(p) {
+  if (!p.time) return;
+  const total = p.time.totalTime;
+  (p.time.bamtUpdate || p.time.update)?.call(p.time);
+  p.time.delta = 0; p.time.totalTime = total;
 }
 export function advance(dt) {
   for (const p of players) stepDt.set(p, Math.max(0, Number(dt) || 0));
@@ -1186,8 +1335,8 @@ export function advance(dt) {
 // fullscreen interaction on or off (lobby-touch.js); it only runs in the fullscreen framing
 export function interactive(on) {
   wantTouch = !!on;
-  if (wantTouch && mode === "full" && current?.meta) Touch.attach(current.host);
-  else Touch.detach();
+  if (wantTouch && mode === "full" && current?.meta && !paused()) { if (!ownsInput()) restoreTouch(); else Touch.attach(current.host); }
+  else if (ownsInput()) Touch.detach();
 }
 // a stage point (px) -> NGUI units in the current view
 function toWorld(sx, sy) {
@@ -1315,7 +1464,7 @@ const Idle = {
 // per voice cue; then back to idle. A dialogue starts at once, cutting off whatever was playing. ---
 export function play(anim, { fromChain = false } = {}) {
   const m = current?.meta;
-  if (!m) return null;
+  if (!m || current?.suspended || current?.backgroundPaused) return null;
   current.intro?.skip(); // a dialogue comes after the intro, as a tap that skips it
   if (!fromChain) chain = null;
   const i = m.sequences.findIndex((s) => s.anim === anim), seq = m.sequences[i], p = mainPlayer();
@@ -1340,6 +1489,7 @@ export function play(anim, { fromChain = false } = {}) {
   return seq;
 }
 function voice(clip) {
+  if (current?.suspended || current?.backgroundPaused) return;
   const a = new Audio(`/asset/voice/${encodeURIComponent(current.variant)}/${encodeURIComponent(clip)}.ogg`);
   a.volume = volume;
   audios.push(a);
@@ -1378,14 +1528,14 @@ export function stop() {
 // the next dialogue after the last one played (a tap on the body); a dialogue that has only just started is not cut
 export function next() {
   const seqs = current?.meta?.sequences;
-  if (!seqs?.length || (talk && performance.now() - talk.started < TALK_GUARD_MS)) return;
+  if (!seqs?.length || current?.suspended || current?.backgroundPaused || (talk && performance.now() - talk.started < TALK_GUARD_MS)) return;
   chain = null;
   play(seqs[(talkIndex + 1) % seqs.length].anim);
 }
 // every dialogue in order, each starting when the previous one ends
 export function playAll(selected = null) {
   const seqs = current?.meta?.sequences;
-  if (!seqs?.length) return;
+  if (!seqs?.length || current?.suspended || current?.backgroundPaused) return;
   const run = { i: Math.max(0, seqs.findIndex((seq) => seq.anim === selected)) };
   chain = run;
   play(seqs[run.i].anim, { fromChain: true });
@@ -1404,7 +1554,7 @@ function emit() {
 }
 
 function silence() {
-  for (const a of audios) a.pause();
+  for (const a of audios) { a.pause(); current?.resumeAudio?.delete(a); }
   audios = [];
 }
 
@@ -1448,6 +1598,7 @@ const Sfx = {
   },
   // also: the set the audio joins while it plays (the intro's, which a skip stops)
   play(id, also = null) {
+    if (paused()) { current?.pendingSounds.push([id, also]); return; }
     const ev = current?.info?.sounds?.[id];
     this.log.push({ event: id, name: ev?.name || null, at: Math.round(performance.now()) });
     if (this.log.length > 40) this.log.shift();
@@ -1456,6 +1607,7 @@ const Sfx = {
     this.load(clip).then((url) => {
       if (!url || my !== token || muted || also?.closed) return; // a skipped intro's sound still loading never plays
       const a = new Audio(url);
+      a.bamtOwnerSet = also;
       a.bamtVolume = ev.volume ?? 1;
       a.volume = clamp(a.bamtVolume * volume, 0, 1);
       a.preservesPitch = a.webkitPreservesPitch = a.mozPreservesPitch = false;
@@ -1463,11 +1615,12 @@ const Sfx = {
       this.playing.add(a);
       also?.add(a);
       a.onended = () => { this.playing.delete(a); also?.delete(a); };
-      a.play().catch(() => { this.playing.delete(a); also?.delete(a); });
+      if (paused()) current.resumeAudio.add(a);
+      else a.play().catch(() => { if (!current?.resumeAudio?.has(a)) { this.playing.delete(a); also?.delete(a); } });
     });
   },
   follow() { for (const a of this.playing) a.volume = clamp(a.bamtVolume * volume, 0, 1); }, // a new voice volume
-  stop() { for (const a of this.playing) a.pause(); this.playing.clear(); },
+  stop() { for (const a of this.playing) { a.pause(); current?.resumeAudio?.delete(a); } this.playing.clear(); },
   clear() {
     this.stop();
     for (const url of this.urls.values()) url.then((u) => u && URL.revokeObjectURL(u));

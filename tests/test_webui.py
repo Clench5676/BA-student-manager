@@ -115,6 +115,9 @@ class FakeMod:
 
 
 class FakeLibrary:
+    def assigned_targets(self):
+        return set()
+
     """The library calls of the web UI's handlers, with plain answers; ``pins`` are its known installs, the first
     one current."""
 

@@ -9,11 +9,12 @@ export const switchKindOf = (tab) => ({ portrait: "spr", lobby: "lobby", model: 
 
 // the core of a variant's skeleton of a kind: its portrait or its memorial lobby
 export const coreOf = (v, kind = "spr") => (kind === "model" ? v.model : kind === "lobby" ? v.lobby : v.spr) || null;
-export const hasAsset = (v) => !!(v.spr || v.lobby);
-export const primaryKind = (v) => v.spr ? "spr" : "lobby";
+export const hasKind = (v, kind) => ["spr", "lobby", "model"].includes(kind) && (!!coreOf(v, kind) || !!v?.storedKinds?.includes(kind));
+export const hasAsset = (v) => hasKind(v, "spr") || hasKind(v, "lobby") || hasKind(v, "model");
+export const primaryKind = (v) => hasKind(v, "spr") ? "spr" : hasKind(v, "lobby") ? "lobby" : hasKind(v, "model") ? "model" : "lobby";
 export function availableTab(v, tab) {
-  if (tab === "portrait" && v.spr || tab === "lobby" && v.lobby || tab === "model" && v.model) return tab;
-  return v.spr ? "portrait" : "lobby";
+  if (hasKind(v, switchKindOf(tab))) return tab;
+  return hasKind(v, "spr") ? "portrait" : hasKind(v, "lobby") ? "lobby" : hasKind(v, "model") ? "model" : "lobby";
 }
 
 // the game file parts of one kind ("spr" portrait, "lobby" memorial lobby, "model" the 3D chibi's prefab bundles,
@@ -67,7 +68,7 @@ export function candidates(fam, v, kind = "spr") {
   const own = coreOf(v, kind);
   const mods = fam.variants.flatMap((o) => o.modList || []).filter((m) => m.kind === kind)
     .filter((m) => kind === "spr" || !m.core || !own || m.core === String(own).toLowerCase());
-  const across = kind === "spr"; // whether other variants' files and mods are offered
+  const across = kind === "spr" && !!own; // Cross-variant adaptation requires an actual local target.
   const others = across ? fam.variants.filter((o) => o.key !== v.key && coreOf(o, kind) && coreOf(o, kind) !== own) : [];
   const mod = (m) => ({ key: `m:${m.id}`, kind: "mod", id: m.id, mod: m, core: null, origin: fam.variants.find((o) => o.key === m.target) || null });
   const list = [
@@ -79,7 +80,7 @@ export function candidates(fam, v, kind = "spr") {
   const stuck = overwrittenOf(v, kind), inUse = appliedKey(v, kind);
   return list.map((c) => {
     const restorable = c.kind === "mod" ? true : !overwrittenOf(c.variant, kind);
-    const greyed = (stuck && c.key !== inUse) || (c.kind === "variant" && !restorable);
+    const greyed = (c.kind === "self" && !own) || (stuck && c.key !== inUse) || (c.kind === "variant" && !restorable);
     return { ...c, restorable, greyed };
   });
 }

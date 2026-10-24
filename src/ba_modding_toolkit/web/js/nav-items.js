@@ -41,7 +41,7 @@ export const handOffPrompt = (item, T) => ({
 // Resolves with what happened: "route", "cancel" or "open".
 export async function activate(item, { prompt = true, go, ask, open, savePrompt }) {
   if (!greyed(item)) {
-    if (item.route) go(item.route);
+    if (item.route && await go(item.route) === false) return "cancel";
     return "route";
   }
   if (prompt !== false) {

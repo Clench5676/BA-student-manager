@@ -11,6 +11,7 @@ import io
 import json
 import logging
 import os
+import re
 import shutil
 import tempfile
 import threading
@@ -568,6 +569,8 @@ class ModLibrary:
                 continue
             if not supports_kind(record["kind"]) or not isinstance(record["seen"], bool):
                 continue
+            if "assignment" in record and (not isinstance(record["assignment"], str) or not record["assignment"]):
+                continue
             if all((self.root / "mods" / mod_id / f).is_file() for f in files):
                 records[mod_id] = record
         favorites = {key for key in data.get("favorites", []) if isinstance(key, str)}
@@ -666,12 +669,24 @@ class ModLibrary:
 
     # --- mods ---
 
+    @_serialized
+    def assigned_targets(self) -> set[str]:
+        """Explicit ownership targets represented by stored Mods, including absent local students."""
+        return {record["assignment"] for record in self._records.values() if record.get("assignment")}
+
+    @_serialized
+    def variant_metadata(self, key: str) -> Any:
+        """Resolve stored ownership under the library lock for read-only consumers."""
+        return self._variant(key)
+
     def _variant(self, key: str) -> Any:
         try:
             return self.catalog.variant(key)
         except (KeyError, ServiceError) as error:
             if isinstance(error, ServiceError) and error.code != "catalog_variant_not_found":
                 raise
+            if any(record.get("assignment") == key for record in self._records.values()):
+                return self.catalog.assignment_variant(key)
             # Current NPC bundles may have no roster entry. Their stored filename owns the model slot.
             record = next((record for record in self._records.values() if record["kind"] == "model"
                            and record["target"] == key and core_of(record["files"][0]) == key), None)
@@ -698,6 +713,8 @@ class ModLibrary:
     def _target_of(self, record: dict[str, Any]) -> str:
         """The variant a mod belongs to: the one the current catalog gives its core, else its stored target (fixed
         when it was added; a later catalog may name that core by an alias)."""
+        if record.get("assignment"):
+            return record["assignment"]
         if record["kind"] == "other":
             return record["target"]
         variant = self.catalog.variant_for_core(core_of(record["files"][0]))
@@ -1231,31 +1248,177 @@ class ModLibrary:
                 (added.configured if result.deferred else added.applied).append(entry)
         return added
 
+    @_serialized
+    @_mod_writer
+    def add_assigned_files(self, files: dict[str, Path], variant: str, kind: str,
+                           pin: Pin | None = None) -> AddResult:
+        """Store an explicitly attributed, self-contained Mod without claiming an install target."""
+        from .manual_identity import validate
+
+        self.catalog.assignment_variant(variant)
+        validate(files, kind)
+        signature = self._identity(files)
+        known = self._known().get(signature)
+        result = AddResult()
+        if known:
+            record = self._record(known)
+            if self._target_of(record) != variant or record["kind"] != kind:
+                raise ServiceError("mod_target_mismatch", id=known, variant=variant)
+            result.duplicates.append(self._entry(record))
+            return result
+        record = self._store(files, variant, variant, kind, user_added=True, assignment=variant)
+        result.append(self._entry(record))
+        return result
+
     def _store(self, files: dict[str, Path], label: str, target: str, kind: str,
-               *, repaired_from: str = "", user_added: bool = False) -> dict[str, Any]:
-        """Copy a mod's files into the library and record it; nothing is left behind on failure."""
+               *, repaired_from: str = "", user_added: bool = False, assignment: str = "") -> dict[str, Any]:
+        """Publish a complete directory before its metadata, with durable recovery of either outcome."""
         names = sorted(files)
+        if not names or any(Path(name).name != name or not name.endswith(".bundle") for name in names):
+            raise ServiceError("mod_unsupported")
         mod_id = uuid.uuid4().hex
         directory = self.root / "mods" / mod_id
+        transaction = self.root / "import-transactions" / mod_id
+        journal = transaction / "journal.json"
+        staged = transaction / "files"
+        if directory.parent.is_symlink() or transaction.parent.is_symlink() or directory.exists() or transaction.exists():
+            raise ServiceError("library_io_error", file=transaction)
         record = {"id": mod_id, "files": names, "label": label, "target": target,
                   "kind": kind, "added": datetime.now(timezone.utc).isoformat(), "seen": False,
                   "user_added": user_added}
         if repaired_from:
             record["repaired_from"] = repaired_from
+        if assignment:
+            record["assignment"] = assignment
+        hashes = {name: self._hashes.get(files[name]).sha1 for name in names}
+        data = {"version": 1, "id": mod_id, "phase": "preparing", "record": record, "hashes": hashes,
+                "repaired_from": repaired_from,
+                "old_repaired_id": self._record(repaired_from).get("repaired_id") if repaired_from else None}
+        atomic_json(journal, data)
         try:
             for name in names:
-                atomic_copy(files[name], directory / name)
+                atomic_copy(files[name], staged / name)
+                verify_file(staged / name, hashes[name])
+                if self._hashes.get(files[name]).sha1 != hashes[name]:
+                    raise ServiceError("entry_changed", core=core_of(name))
+            data["phase"] = "publishing"
+            atomic_json(journal, data)
+            directory.parent.mkdir(parents=True, exist_ok=True)
+            sync_directory(self.root)
+            os.replace(staged, directory)
+            sync_directory(directory.parent)
+            sync_directory(transaction)
             self._records[mod_id] = record
             if repaired_from:
                 self._record(repaired_from)["repaired_id"] = mod_id
             self._save()
-        except Exception:
-            self._records.pop(mod_id, None)
-            if repaired_from:
-                self._record(repaired_from).pop("repaired_id", None)
-            shutil.rmtree(directory, ignore_errors=True)
+        except Exception as error:
+            try:
+                data["phase"] = "rollback"
+                atomic_json(journal, data)
+                self._rollback_import(journal, data)
+            except Exception as recovery_error:
+                log_failure(logger, logging.ERROR, "Mod import rollback pending", recovery_error)
+                raise ServiceError("library_recovery_pending", file=journal) from error
             raise
+        # Metadata publication is the commit point. A leftover journal is safe:
+        # recovery verifies the complete committed group before removing it.
+        try:
+            shutil.rmtree(transaction)
+            sync_directory(transaction.parent)
+        except OSError as error:
+            log_failure(logger, logging.WARNING, "Committed import journal retained", error)
         return record
+
+    def _rollback_import(self, journal: Path, data: dict) -> None:
+        mod_id = data["id"]
+        directory = self.root / "mods" / mod_id
+        if (re.fullmatch(r"[0-9a-f]{32}", mod_id) is None or directory.parent.is_symlink()
+                or directory.is_symlink() or not directory.resolve().is_relative_to(self.root)
+                or journal.is_symlink() or journal.parent.is_symlink()
+                or not journal.resolve().is_relative_to(self.root / "import-transactions")):
+            raise ServiceError("library_io_error", file=journal)
+        self._records.pop(mod_id, None)
+        repaired = self._records.get(data["repaired_from"])
+        if repaired and repaired.get("repaired_id") == mod_id:
+            if data["old_repaired_id"] is None:
+                repaired.pop("repaired_id", None)
+            else:
+                repaired["repaired_id"] = data["old_repaired_id"]
+        path = self.root / "state.json"
+        with file_lock(self.root / "state.json.lock"):
+            try:
+                state = json.loads(path.read_text(encoding="utf-8"))
+            except FileNotFoundError:
+                state = None
+            if state is not None:
+                if not isinstance(state, dict) or state.get("version") != 1 or not isinstance(state.get("mods"), list):
+                    raise ServiceError("library_io_error", file=path)
+                before = copy.deepcopy(state)
+                state["mods"] = [record for record in state["mods"] if record.get("id") != mod_id]
+                for record in state["mods"]:
+                    if record.get("id") == data["repaired_from"] and record.get("repaired_id") == mod_id:
+                        if data["old_repaired_id"] is None:
+                            record.pop("repaired_id", None)
+                        else:
+                            record["repaired_id"] = data["old_repaired_id"]
+                if state != before:
+                    atomic_json(path, state)
+            # A prior replace may have succeeded before its directory flush failed.
+            # Prove the metadata removal durable even when this retry changes no JSON.
+            sync_directory(self.root)
+        self._seen = None
+        self._refresh_state()
+        if directory.exists():
+            shutil.rmtree(directory)
+            sync_directory(directory.parent)
+        shutil.rmtree(journal.parent)
+        sync_directory(journal.parent.parent)
+
+    def _recover_imports(self) -> None:
+        root = self.root / "import-transactions"
+        if root.is_symlink():
+            raise ServiceError("library_io_error", file=root)
+        journals = sorted(root.glob("*/journal.json"))
+        if not journals:
+            return
+        with file_lock(self.root / "mods.lock"):
+            for journal in journals:
+                try:
+                    if (journal.is_symlink() or journal.parent.is_symlink()
+                            or not journal.resolve().is_relative_to(root.resolve())):
+                        raise ValueError("Invalid import journal path")
+                    data = json.loads(journal.read_text(encoding="utf-8"))
+                    mod_id, record, hashes = data["id"], data["record"], data["hashes"]
+                    if (not isinstance(mod_id, str) or re.fullmatch(r"[0-9a-f]{32}", mod_id) is None
+                            or journal != root / mod_id / "journal.json" or journal.is_symlink()
+                            or journal.parent.is_symlink() or not isinstance(record, dict)
+                            or record.get("id") != mod_id or not isinstance(hashes, dict)
+                            or data["version"] != 1 or data["phase"] not in ("preparing", "publishing", "rollback")
+                            or not record.get("files") or set(record["files"]) != set(hashes)
+                            or any(not isinstance(name, str) or Path(name).name != name or not name.endswith(".bundle")
+                                   or not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{40}", value) is None
+                                   for name, value in hashes.items())):
+                        raise ValueError("Invalid import journal")
+                    directory = self.root / "mods" / mod_id
+                    if (directory.parent.is_symlink() or directory.is_symlink()
+                            or not directory.resolve().is_relative_to(self.root)):
+                        raise ValueError("Invalid import directory")
+                    committed = self._records.get(mod_id)
+                    if data["phase"] == "publishing" and committed and committed.get("files") == record["files"]:
+                        for name, digest in hashes.items():
+                            if (directory / name).is_symlink():
+                                raise ValueError("Invalid imported file")
+                            verify_file(directory / name, digest)
+                        sync_directory(directory)
+                        sync_directory(directory.parent)
+                        sync_directory(self.root)
+                        shutil.rmtree(journal.parent)
+                        sync_directory(root)
+                    else:
+                        self._rollback_import(journal, data)
+                except Exception as error:
+                    raise ServiceError("library_recovery_pending", file=journal) from error
 
     @_mod_writer
     def _add_group(self, paths: list[Path], label: str, pin: Pin) -> tuple[str, bool]:
@@ -2279,8 +2442,9 @@ class ModLibrary:
         config = self.profiles.read() if pin is not None else None
         folder = ((config or {}).get("folders") or {}).get(pin.key) if pin else None
         choices = (folder or {}).get("configured") or {}
+        assigned = {record["assignment"] for record in self._records.values() if record.get("assignment")}
         configured = {}
-        for key in variant_keys:
+        for key in dict.fromkeys([*variant_keys, *sorted(assigned)]):
             try:
                 configured[key] = self._configured_sources(self._variant(key), choices) if pin else {"spr": None, "lobby": None}
             except ServiceError:
@@ -2291,7 +2455,8 @@ class ModLibrary:
             modified = self._modified(pin, _View(self, [pin], config, allow))
         return {"install": pin.key if pin else None,
                 "mods": [self._entry(record) for record in self._records.values()],
-                "favorites": set(self._favorites), "configured": configured, "modified": modified}
+                "favorites": set(self._favorites), "configured": configured, "modified": modified,
+                "assigned": sorted(assigned)}
 
     @_serialized
     def selection(self, variant_key: str, pin: Pin | None = None) -> dict[str, dict]:
@@ -2508,11 +2673,13 @@ class ModLibrary:
 
     def _recover_pending(self) -> None:
         """Recover before indexing game files, including one moved away just before a crash."""
-        if not self._transacting and any((self.root / "transactions").glob("*/journal.json")):
+        if not self._transacting and (any((self.root / "transactions").glob("*/journal.json"))
+                                    or any((self.root / "import-transactions").glob("*/journal.json"))):
             with self._transaction_lock():
                 pass
 
     def _recover_transactions(self) -> None:
+        self._recover_imports()
         for path in sorted((self.root / "transactions").glob("*/journal.json")):
             try:
                 data = json.loads(path.read_text(encoding="utf-8"))

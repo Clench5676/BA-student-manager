@@ -12,6 +12,10 @@
 <body>
   <div class="viewport">
     <div class="stage" id="stage">
+      <!-- shared office-lobby artwork, configurable library portraits and memorial playlist -->
+      <section class="screen" id="screen-hall" hidden>
+        <div class="ngui-host" id="student-hall"></div>
+      </section>
       <!-- student list: rendered from the game's prefab layouts -->
       <section class="screen" id="screen-roster" hidden>
         <div class="ngui-host" id="roster"></div>
@@ -50,9 +54,10 @@
         <h1 class="title"></h1>
         <!-- the Enable Mods switch, its label and its square "?" (js/mod-switch.js); not on the no-game screen -->
         <div class="mod-switch" id="mod-switch" hidden></div>
-        <!-- the game's top bar option button, at the right end -->
+        <!-- the game's top bar Option and Home controls -->
         <i class="top-line"></i>
         <button class="top-option" id="top-option" aria-label="settings"><i></i></button>
+        <button class="top-home" id="top-home" aria-label="home" hidden></button>
       </header>
 
       <footer class="nav">

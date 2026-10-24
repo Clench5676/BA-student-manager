@@ -9,14 +9,18 @@ import { ITEMS, NGUI_GREY, activate, greyed, handOffPrompt, tintOf, view } from 
 const T = (key, vars = {}) => (key === "nav.classic" ? `${vars.label} - Classic UI` : `<${key}>`);
 const CLASSIC = ["crc_tool", "asset_packer", "asset_extractor", "adb_push", "tools"];
 
-test("Students and Batch Import have web screens and the five classic entries are greyed", () => {
+test("Students and Batch Import remain in the bottom bar while Home owns the hall entry", () => {
   assert.equal(ITEMS.length, 7);
-  assert.equal(ITEMS[1].route, "#/import");
+  assert.deepEqual(ITEMS.filter((item) => item.route).map((item) => item.route), ["#/roster", "#/import"]);
   assert.equal(greyed(ITEMS[1]), false);
   assert.ok(!ITEMS.some((item) => ["mod_update", "batch_update", "mod_install"].includes(item.classic)));
   assert.equal(greyed(ITEMS[0]), false);
   assert.equal(ITEMS[0].route, "#/roster");
   assert.deepEqual(ITEMS.filter(greyed).map((it) => it.classic), CLASSIC);
+});
+
+test("an asynchronous navigation refusal does not report a successful page change", async () => {
+  assert.equal(await activate(ITEMS[0], { go: async () => false }), "cancel");
 });
 
 test("an entry with a route is never greyed, whatever classic tab it keeps", () => {
@@ -35,7 +39,7 @@ test("each greyed entry is named for assistive technology, never with a tooltip,
     assert.equal(v.route, null);
     assert.equal("title" in v, false, "no tooltip (decision 19)");
   }
-  const students = view(ITEMS[0], T);
+  const students = view(ITEMS.find((item) => item.route === "#/roster"), T);
   assert.deepEqual(students, { label: "<nav.students>", name: "<nav.students>", greyed: false, route: "#/roster", tab: null });
 });
 
@@ -50,7 +54,7 @@ function page(answer) {
     savePrompt: async (value) => { log.push(["save", value]); },
   };
 }
-const classicItem = ITEMS[2];
+const classicItem = ITEMS.find((item) => item.classic === "crc_tool");
 
 for (const item of ITEMS.filter((item) => item.route)) test(`a click on ${item.route} goes to its screen without a prompt`, async () => {
   const p = page(null);
@@ -76,7 +80,7 @@ test("with the prompt on: Open hands off; Don't Ask Again is saved only with Ope
 
 test("with classicPrompt off, a click hands off at once (decision 6)", async () => {
   const p = page(null);
-  assert.equal(await activate(ITEMS[6], { ...p, prompt: false }), "open");
+  assert.equal(await activate(ITEMS.find((item) => item.classic === "tools"), { ...p, prompt: false }), "open");
   assert.deepEqual(p.log, [["open", "tools"]]);
 });
 

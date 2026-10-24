@@ -18,13 +18,16 @@ class El {
   toBlob(fn) { const blob = new Blob(); blob.width = this.width; blob.height = this.height; fn(blob); }
 }
 const host = new El(), plate = new El();
+const top = Object.fromEntries([".topbar .back", ".top-option", ".top-home", ".top-line"].map((key) => [key, new El()]));
 globalThis.document = { createElement: () => new El(), documentElement: { lang: "en-US" },
-  getElementById: (id) => id === "nav" ? host : null, querySelector: (s) => s === ".nav-bar" ? plate : null };
+  getElementById: (id) => id === "nav" ? host : null, querySelector: (s) => s === ".nav-bar" ? plate : top[s] || null };
 globalThis.addEventListener = () => {};
 const blobs = new Map();
 URL.createObjectURL = (blob) => { const url = `blob:${blobs.size}`; blobs.set(url, blob); return url; };
 const { ITEMS } = await import("../../src/ba_modding_toolkit/web/js/nav-items.js");
 const meta = Object.fromEntries(ITEMS.map((item, i) => [item.icon, { width: 1100 + i * 130, height: 1400 - i * 120 }]));
+Object.assign(meta, { Common_Top_Home_Btn: { width: 62, height: 59 }, Common_Top_Option_Btn: { width: 60, height: 62 },
+  Common_Square_Bg: { width: 4, height: 49 } });
 globalThis.Image = class {
   set src(url) {
     const image = blobs.get(url) || meta[url.split("/").at(-1).replace(/\.png$/, "")];
@@ -44,7 +47,9 @@ insert(lobby, "Front/Bottom/Menu/BG/Grid", n("Grid", [0, 0], [], ITEMS.map((item
   entry.scale = [1 + i * 0.1, 1]; return entry;
 })));
 insert(collection, "SeletControl/Top/BG_W/Bg/Btn", n("Btn"));
-insert(collection, "NUITop_Scenes/Top/Right/Option", n("Option"));
+insert(collection, "NUITop_Scenes/Top/Right/Option", n("Option", [-272.8, -52.4], [spr("Common_Top_Option_Btn", 60, 62)]));
+insert(collection, "NUITop_Scenes/Top/Right/Lobby", n("Lobby", [-98.8, -51.8], [spr("Common_Top_Home_Btn", 62, 59)]));
+insert(collection, "NUITop_Scenes/Top/Right/Line (1)", n("Line (1)", [-186.3, -54.2], [spr("Common_Square_Bg", 4, 49)]));
 globalThis.fetch = async (url) => ({ ok: true, json: async () => {
   if (url.endsWith("atlases.json")) return { Common: meta };
   if (url.endsWith("textures.json")) return {};
@@ -62,7 +67,7 @@ const flat = (value, prefix = "", out = {}) => {
   return out;
 };
 
-for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) test(`all seven nav entries share an icon box and lifted label baseline in ${locale}`, async () => {
+for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) test(`all seven nav entries fit their buttons with a shared icon box and label baseline in ${locale}`, async () => {
   document.documentElement.lang = locale;
   setStrings(locale, flat(JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${locale}.json`, import.meta.url), "utf8"))));
   await renderNav(1, { game: true });
@@ -79,15 +84,31 @@ for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) tes
     iconTops.push(icon.style.top);
     const url = /url\("(.+)"\)/.exec(icon.style.backgroundImage)[1], encoded = blobs.get(url);
     const native = meta[ITEMS[i].icon];
-    assert.ok(Math.abs(encoded.width / encoded.height / (native.width / native.height) - 1) < 0.01,
+    // Integer raster dimensions can round by half a pixel on each axis.
+    assert.ok(Math.abs(encoded.width * native.height - encoded.height * native.width) <= (native.width + native.height) / 2 + 1,
       `resampling preserves the native sprite aspect before CSS containment: ${encoded.width}x${encoded.height} from ${native.width}x${native.height}`);
     const bottom = parseFloat(label.style.top) + parseFloat(label.style.height);
     assert.ok(bottom <= 104 - 20 * S, "labels leave the game's half-label-height bottom inset");
-    assert.ok(parseFloat(label.style.left) >= 0 && parseFloat(label.style.left) + parseFloat(label.style.width) <= 260);
+    assert.ok(parseFloat(label.style.left) >= 0 && parseFloat(label.style.left) + parseFloat(label.style.width) <= parseFloat(button.style.width));
     assert.ok(!label.textContent.includes("\n")); labelTops.push(label.style.top);
     assert.ok(!button.children.some((e) => e.dataset.path.endsWith("/Lock")));
     assert.ok(!button.children.some((e) => e.dataset.path.includes("/IconPlus")), "donor submenu badges are removed");
   });
   assert.equal(new Set(labelTops).size, 1);
   assert.equal(new Set(iconTops).size, 1);
+});
+
+test("Home, settings and divider retain the game's native sibling spacing", async () => {
+  await renderNav(-1, { game: true });
+  const center = (selector) => {
+    const style = top[selector].style;
+    return [parseFloat(style.right) + parseFloat(style.width) / 2,
+      parseFloat(style.top) + parseFloat(style.height) / 2];
+  };
+  const home = center(".top-home"), option = center(".top-option"), line = center(".top-line");
+  assert.ok(Math.abs(option[0] - home[0] - 174 * S) < 0.001);
+  assert.ok(Math.abs(option[1] - home[1] - .6 * S) < 0.001);
+  assert.ok(Math.abs(line[0] - home[0] - 87.5 * S) < 0.001);
+  assert.ok(top[".top-home"].children.some((el) => el.dataset.path === "Lobby"));
+  assert.ok(!host.children.some((button) => button.attrs["aria-current"]), "the hall has no bottom-nav selection");
 });

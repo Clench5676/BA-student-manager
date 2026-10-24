@@ -94,6 +94,40 @@ class Catalog:
                 raise ServiceError("catalog_family_not_found", key=key)
             return copy.deepcopy(result)
 
+    def assignment_families(self) -> list[Family]:
+        """All shipped and character-map students, retaining only actual installed asset handles.
+
+        Ownership selection must include unreleased students without fabricating a local install target.
+        """
+        with self._lock:
+            entries, students, _ = self._metadata()
+            families = copy.deepcopy(self._get()[0])
+            installed = self._get()[1]
+            for key, entry in entries.items():
+                if key in installed:
+                    continue
+                student = students[str(entry["student_id"])]
+                family_key = student["base"]
+                family = families.setdefault(family_key, Family(family_key, student["names"],
+                    student.get("school"), [], list(student.get("aliases", []))))
+                family.variants.append(Variant(key, entry["file_id"], family_key, entry["names"],
+                    entry["playable"], entry["order"], None, None, None, None, None,
+                    page_id=entry.get("page_id"), schale_id=entry.get("schale_id"),
+                    aliases=list(entry.get("aliases", []))))
+            for family in families.values():
+                family.variants.sort(key=lambda variant: (variant.key != family.key, not variant.recruitable,
+                    not variant.playable, variant.order, variant.key))
+            return [families[key] for key in sorted(families)]
+
+    def assignment_variant(self, key: str) -> Variant:
+        """Resolve an ownership label independently of local asset availability."""
+        if isinstance(key, str):
+            for family in self.assignment_families():
+                for variant in family.variants:
+                    if variant.key == key.lower():
+                        return variant
+        raise ServiceError("catalog_variant_not_found", key=key)
+
     def variant(self, key: str) -> Variant:
         """Return an installed variant or raise a structured lookup error."""
         with self._lock:

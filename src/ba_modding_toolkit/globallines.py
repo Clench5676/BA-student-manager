@@ -82,6 +82,70 @@ def dialogues(rows: Iterable[dict[str, Any]]) -> dict[int, Dialogues]:
     return out
 
 
+def portrait_dialogues(rows: Iterable[dict[str, Any]]) -> dict[int, dict[int, list[dict[str, Any]]]]:
+    """Ordinary lobby Idle groups; greetings and memorial scenes are different voice sequences."""
+    groups: dict[tuple[int, int], list[dict]] = {}
+    for row in rows:
+        if (not isinstance(row, dict) or row.get("DialogCategory") != "UILobby" or row.get("TeenMode")
+                or row.get("DialogCondition") not in (None, "", "Idle")
+                or row.get("Anniversary") not in (None, "", "None")):
+            continue
+        try:
+            key = int(row["CharacterId"]), int(row["GroupId"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        groups.setdefault(key, []).append(row)
+    out: dict[int, dict[int, list[dict[str, Any]]]] = {}
+    def caption(value: Any) -> str:
+        return "\n".join(part.strip() for part in str(value or "").splitlines()).strip()
+    for (character, group), values in groups.items():
+        values.sort(key=lambda row: row.get("DisplayOrder") or 0)
+        out.setdefault(character, {})[group] = [
+            {**{lang: text for column, lang in COLUMNS.items() if (text := caption(row.get(column)))},
+             **({"expression": row["AnimationName"]} if isinstance(row.get("AnimationName"), str) and row["AnimationName"] else {}),
+             **({"duration": max(0, row["Duration"]) / 1000} if isinstance(row.get("Duration"), (int, float)) else {}),
+             **({"voiceIds": row["VoiceId"]} if isinstance(row.get("VoiceId"), list) else {})}
+            for row in values]
+    return out
+
+
+def portrait_by_clip(groups: dict, clips: dict[str, list[str]]) -> dict[str, dict[str, Any]]:
+    """Keep timed expression rows on the voice they continue, including rows with no new VoiceId."""
+    out = {}
+    for group, ids in clips.items():
+        rows = groups.get(group) or []
+        if not rows or not ids:
+            continue
+        segments = []
+        for row in rows:
+            if not segments or row.get("voiceIds") or "voiceIds" not in row:
+                segments.append([])
+            segments[-1].append(row)
+        assigned = [*segments[:len(ids) - 1], [row for segment in segments[len(ids) - 1:] for row in segment]]
+        for clip, values in zip(ids, assigned):
+            if not values:
+                continue
+            line = {}
+            for row in values:
+                for lang in COLUMNS.values():
+                    if row.get(lang):
+                        line[lang] = _join(line.get(lang, ""), row[lang])
+            cues, elapsed = [], 0.0
+            for row in values:
+                expression = row.get("expression")
+                if expression:
+                    cues.append({"time": elapsed, "expression": expression})
+                duration = row.get("duration", 0)
+                if not isinstance(duration, (int, float)) or duration <= 0:
+                    break  # No authored offset for later rows: never guess a fraction of the audio duration.
+                elapsed += duration
+            if cues:
+                line["expression"] = cues[0]["expression"]
+                line["expressionCues"] = cues
+            out[clip] = line
+    return out
+
+
 def talks_of(clips: Iterable[str]) -> dict[str, list[str]]:
     """Voice clips by talk animation, from their names (``hoshino_memoriallobby_3_2`` plays in Talk_03_M)."""
     found: dict[str, list[tuple[int, str]]] = {}
@@ -142,6 +206,7 @@ class GlobalLines:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._table: dict[int, Dialogues] | None = None
+        self._portraits: dict[int, dict[int, list[dict[str, str]]]] = {}
         self._failed_at = float("-inf")
 
     def _get(self, url: str, deadline: float | None = None) -> bytes:
@@ -199,7 +264,25 @@ class GlobalLines:
                 rows = data.get("DataList") if isinstance(data, dict) else data
                 if not isinstance(rows, list):
                     raise ValueError("no rows")
+                self._portraits = portrait_dialogues(rows)
                 return dialogues(rows)
             except Exception as e:  # offline, HTTP errors, bad JSON
                 logger.info("Global lobby lines unavailable from %s: %s", url, e)
         return None
+
+    def portrait_dialogues(self, character_id: int | str) -> dict[int, list[dict[str, str]]]:
+        """Reuse the same single-flight table read for ordinary lobby translations."""
+        self.dialogues(character_id)
+        try:
+            return self._portraits.get(int(character_id), {})
+        except (TypeError, ValueError):
+            return {}
+
+    def cached_portrait_dialogues(self, character_id: int | str) -> dict[int, list[dict[str, str]]] | None:
+        """Return published captions without waiting on a download that holds the table lock."""
+        if self._table is None:
+            return None
+        try:
+            return self._portraits.get(int(character_id), {})
+        except (TypeError, ValueError):
+            return {}

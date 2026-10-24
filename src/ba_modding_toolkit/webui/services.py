@@ -1186,6 +1186,10 @@ class Services:
         kind = parts[0]
         if kind == "ui":
             return self._ui_asset(parts[1:], query)
+        if kind == "office" and len(parts) == 3 and parts[2] == "layout.json":
+            return _json(self.game.office_layout(parts[1]), light=True)
+        if kind == "office" and len(parts) == 4 and parts[2] == "texture" and parts[3].endswith(".png"):
+            return AssetResponse(self.game.office_texture(parts[1], _stem(parts[3])), "image/png", light=False)
         if kind == "art" and len(parts) == 3:
             if parts[1] == "bg":
                 data, mime = self.game.collection_bg(_stem(parts[2]))

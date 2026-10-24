@@ -501,6 +501,19 @@ def build_api(s: Services) -> RpcRegistry:
 
     # --- students ---
 
+    from .assigned_catalog import families_with_assignments, family_with_assignments, stored_asset_fields
+
+    def visible_families() -> list[Any]:
+        return families_with_assignments(s.catalog, s.library.assigned_targets())
+
+    def visible_variant(key: str) -> Any:
+        try:
+            return s.catalog.variant(key)
+        except (ServiceError, KeyError):
+            if key in s.library.assigned_targets():
+                return s.catalog.assignment_variant(key)
+            raise
+
     def alias_target(family: Any) -> str:
         # A missing normal base never gives its nickname to a skin. A special-only family has no such base:
         # attach its old name to one stable, catalog-ordered scene and persist that choice.
@@ -508,8 +521,9 @@ def build_api(s: Services) -> RpcRegistry:
             return min(family.variants, key=lambda v: (v.order, v.key)).key
         return family.key
 
-    def variant_aliases() -> dict[str, list[str]]:
-        targets = {f.key: target for f in s.catalog.families() if (target := alias_target(f)) != f.key}
+    def variant_aliases(families: list[Any] | None = None) -> dict[str, list[str]]:
+        targets = {f.key: target for f in (visible_families() if families is None else families)
+                   if (target := alias_target(f)) != f.key}
         return s.state.aliases(targets)
 
     def variant_json(v: Any, mods: dict[str, list], favorites: set[str], recent: list[str], seen: set[str] | None,
@@ -517,6 +531,7 @@ def build_api(s: Services) -> RpcRegistry:
                      roster_state: dict[str, Any] | None = None) -> dict[str, Any]:
         own = mods.get(v.key, [])
         return {
+            **stored_asset_fields(v, own),
             "custom": (custom or {}).get(v.key, []),
             "key": v.key, "fileId": v.file_id, "family": v.family, "names": v.names, "playable": v.playable,
             "aliases": v.aliases,  # the search matches them, the page never shows them (the CN server's names)
@@ -555,11 +570,13 @@ def build_api(s: Services) -> RpcRegistry:
             raise ServiceError("game_not_found")
         catalog_families = s.catalog.families()
         snapshot = s.library.roster_snapshot([v.key for f in catalog_families for v in f.variants])
+        catalog_families = families_with_assignments(s.catalog, snapshot.get("assigned", []))
         mods, favorites, recent = mods_by_target(snapshot["mods"]), snapshot["favorites"], s.state.recent()
-        modified, custom = snapshot["modified"], variant_aliases()
+        modified, custom = snapshot["modified"], variant_aliases(catalog_families)
         previews = s.state.preview_snapshot(snapshot["install"]) if snapshot["install"] is not None else {}
         by_id = {mod.id: mod for mod in snapshot["mods"]}
-        snapshot["previews"] = {key: valid_preview_sources(key, sources, by_id) for key, sources in previews.items()}
+        variants = {v.key: v for family in catalog_families for v in family.variants}
+        snapshot["previews"] = {key: valid_preview_sources(key, sources, by_id, variants) for key, sources in previews.items()}
         seen = s.state.seen_mods()
         families = []
         for f in catalog_families:
@@ -605,23 +622,30 @@ def build_api(s: Services) -> RpcRegistry:
         except ServiceError:
             return {}
 
-    def preview_source_valid(variant: str, kind: str, source: str, mods: dict | None = None) -> bool:
-        v = s.catalog.variant(variant)
-        core = getattr(v, kind, None)
-        if not core:
+    def preview_source_valid(variant: str, kind: str, source: str, mods: dict | None = None,
+                             variants: dict | None = None) -> bool:
+        v = variants.get(variant) if variants is not None else visible_variant(variant)
+        if v is None:
             return False
+        core = getattr(v, kind, None)
         if source == "official":
-            return True
+            return bool(core)
         if source.startswith("mod:"):
             mod = mods.get(source[4:]) if mods is not None else next((m for m in s.library.mods() if m.id == source[4:]), None)
             if mod is None or mod.kind != kind:
                 return False
-            other = s.catalog.variant(mod.target)
+            if mod.target == variant:
+                return True
+            if not core:
+                return False
+            other = variants.get(mod.target) if variants is not None else visible_variant(mod.target)
         elif source.startswith("variant:") and kind == "spr":
-            other = s.catalog.variant(source[8:])
+            if not core:
+                return False
+            other = variants.get(source[8:]) if variants is not None else s.catalog.variant(source[8:])
         else:
             return False
-        return other.family == v.family and bool(getattr(other, kind, None)) and (
+        return other is not None and other.family == v.family and bool(getattr(other, kind, None)) and (
             kind == "spr" or getattr(other, kind, None) == core)
 
     def preview_sources_of(key: str) -> dict:
@@ -631,11 +655,11 @@ def build_api(s: Services) -> RpcRegistry:
         sources = s.state.preview_sources(pin.key, key)
         return valid_preview_sources(key, sources)
 
-    def valid_preview_sources(key: str, sources: dict, mods: dict | None = None) -> dict:
+    def valid_preview_sources(key: str, sources: dict, mods: dict | None = None, variants: dict | None = None) -> dict:
         valid = {}
         for kind, source in sources.items():
             try:
-                if preview_source_valid(key, kind, source, mods):
+                if preview_source_valid(key, kind, source, mods, variants):
                     valid[kind] = source
             except (ServiceError, KeyError):
                 pass
@@ -644,7 +668,7 @@ def build_api(s: Services) -> RpcRegistry:
     @rpc.method("family.get")
     @s.timings.measure("detail.data")
     def family_get(key: str) -> dict[str, Any]:
-        f = s.catalog.family(key)
+        f = family_with_assignments(s.catalog, s.library.assigned_targets(), key)
         mods, favorites, recent = mods_by_target(), s.library.favorites(), s.state.recent()
         seen = s.state.seen_mods()
         variants = []
@@ -670,7 +694,8 @@ def build_api(s: Services) -> RpcRegistry:
         if not isinstance(variant if variant is not None else family, str) or not isinstance(aliases, list) or not all(isinstance(a, str) for a in aliases):
             raise ServiceError("bad_params", key="aliases")
         # The legacy family argument edits the original variant only.
-        key = s.catalog.variant(variant).key if variant is not None else alias_target(s.catalog.family(family))
+        key = visible_variant(variant).key if variant is not None else alias_target(
+            family_with_assignments(s.catalog, s.library.assigned_targets(), family))
         names = [alias_text(a) for a in aliases]
         if any(len(name) > ALIAS_LENGTH for name in names):
             raise ServiceError("alias_too_long", max=ALIAS_LENGTH)
@@ -711,7 +736,7 @@ def build_api(s: Services) -> RpcRegistry:
         animation (``talks``: {animation: [clip ids in order]} from the skeleton, else Kivo's clip names).
         ``lines_unavailable`` when neither can be read; the Global text is left out when its table takes longer
         than LINES_WAIT."""
-        v = s.catalog.variant(variant)
+        v = visible_variant(variant)
         lang = lang or LINE_LANGS.get(i18n_manager.lang, "en")
         character = getattr(v, "schale_id", None)
         # the Global table (a download the first time) is read while Kivo's page is
@@ -769,6 +794,14 @@ def build_api(s: Services) -> RpcRegistry:
     def import_set_source(id: str, server: str, platform: str) -> str:
         return s.batch_import.set_source(id, server, platform)
 
+    @rpc.method("import.catalog")
+    def import_catalog() -> dict[str, Any]:
+        return s.batch_import.assignment_catalog()
+
+    @rpc.method("import.assignCharacter")
+    def import_assign_character(id: str, variant: str) -> str:
+        return s.batch_import.assign_character(id, variant)
+
     @rpc.method("import.run")
     def import_run(ids: list[str], options: dict[str, Any], revision: int) -> str:
         return s.batch_import.run(ids, options, revision)
@@ -780,10 +813,11 @@ def build_api(s: Services) -> RpcRegistry:
     @rpc.method("import.setOptions")
     def import_set_options(strategy: str, types: list[str], skipUnchanged: bool, crc: str,
                            compression: str, extraBytes: str, backup: bool, workers: int,
-                           output: str | None, enableAfterImport: bool) -> dict[str, Any]:
+                           output: str | None, enableAfterImport: bool, previewAfterImport: bool = False) -> dict[str, Any]:
         return s.batch_import.set_options({"strategy": strategy, "types": types, "skipUnchanged": skipUnchanged,
             "crc": crc, "compression": compression, "extraBytes": extraBytes, "backup": backup,
-            "workers": workers, "output": output, "enableAfterImport": enableAfterImport})
+            "workers": workers, "output": output, "enableAfterImport": enableAfterImport,
+            "previewAfterImport": previewAfterImport})
 
     # --- mods ---
 
@@ -1017,4 +1051,9 @@ def build_api(s: Services) -> RpcRegistry:
     def os_reveal(path: str) -> None:
         reveal(path)
 
+    from .export_service import register_api as register_export_api
+    from .student_hall import register_api as register_hall_api
+
+    register_export_api(rpc, s)
+    register_hall_api(rpc, s)
     return rpc

@@ -88,11 +88,14 @@ input[type="text"], input[type="search"], textarea { cursor: text; }
 .back { position: absolute; left: -134px; top: 9px; width: 106.38px; height: 111.57px; }
 .title { margin-left: -12px; font: var(--w) 42px/1 var(--font); color: var(--navy-text); letter-spacing: 1px; }
 /* the game's top bar option button (Common_Top_Option_Btn tinted #466399) and the slanted divider before it */
-.top-option { position: absolute; right: 44px; top: 7px; width: 50px; height: 50px; display: grid; place-items: center; }
+.top-option, .top-home { position: absolute; top: 7px; width: 50px; height: 50px; display: grid; place-items: center; }
+.top-option { right: 158px; }
+.top-home { right: 44px; }
+.top-home[hidden] { display: none; }
 .top-option i { width: 39px; height: 40px; background-color: #466399;
   -webkit-mask: url("/asset/ui/sprite/Common/Common_Top_Option_Btn.png") center / contain no-repeat;
   mask: url("/asset/ui/sprite/Common/Common_Top_Option_Btn.png") center / contain no-repeat; }
-.top-line { position: absolute; right: 118px; top: 16px; width: 3px; height: 32px; background: #dde8f1; transform: skewX(-10deg); }
+.top-line { position: absolute; right: 120px; top: 12px; width: 3px; height: 32px; }
 
 /* the Enable Mods switch after the title (js/mod-switch.js): two of the roster filter's segments (UICharacterCollection
    FilterBtn: Common_Filter_Tab_Type1 and its flipped twin, 9-sliced and inclined 10 degrees like NGUI draws them, at
@@ -151,7 +154,7 @@ input[type="text"], input[type="search"], textarea { cursor: text; }
 .roster-search.pending { opacity: 0; }
 /* keyboard focus (never shown for the pointer): a ring in the game's selection blue; a roster card's ring hugs its
    portrait frame, inside the list's clip */
-.hit:focus-visible, .card-hit:focus-visible, .nav-item:focus-visible, .top-option:focus-visible, .back:focus-visible,
+.hit:focus-visible, .card-hit:focus-visible, .nav-item:focus-visible, .top-option:focus-visible, .top-home:focus-visible, .back:focus-visible,
 .ms-toggle:focus-visible, .ms-help:focus-visible {
   outline: 4px solid #2fa6f0; outline-offset: 2px; border-radius: 10px; }
 .card-row .card-hit:focus-visible { outline: 5px solid #2fa6f0; outline-offset: -3px; border-radius: 12px;
@@ -243,6 +246,12 @@ input[type="text"], input[type="search"], textarea { cursor: text; }
 .stage.fullscreen .topbar { transform: translateY(-200%); pointer-events: none; }
 .stage.fullscreen .nav { transform: translateY(140%); }
 .stage.fullscreen .lobby-frost { opacity: 0; }
+/* Hall hides its chrome independently while retaining its portrait and memorial players. */
+.stage.hall-fullscreen .topbar { transform: translateY(-200%); pointer-events: none; }
+.stage.hall-fullscreen .nav { transform: translateY(140%); pointer-events: none; }
+#student-hall.hall-immersive > .hall-chrome, #student-hall.hall-immersive [data-actor-toolbar] { visibility: hidden; pointer-events: none; }
+.hall-fullscreen-exit { z-index: 6; }
+
 
 /* the collection background dims behind the lobby */
 #ngui-bg.dim { filter: blur(6px) brightness(.9); }

@@ -3,9 +3,9 @@ import * as NGUI from "./ngui.js";
 import { clone } from "./util.js";
 
 // UILobby's label half-height supplies the bottom inset as well as the space below the baseline.
-export const navigationOrigin = (tree, scale) => [130, 104 - NGUI.find(tree, "Label").widgets[0].h_ * scale];
+export const navigationOrigin = (tree, scale, width = 260) => [width / 2, 104 - NGUI.find(tree, "Label").widgets[0].h_ * scale];
 
-export function navigationEntry(grid, item, caption, greyed, index) {
+export function navigationEntry(grid, item, caption, greyed, index, width = 260) {
   const donor = grid.children.find((entry) => NGUI.find(entry, "Able")?.widgets.some((w) => w.sprite === item.icon))
     || grid.children[index % grid.children.length];
   const tree = clone(donor);
@@ -29,7 +29,8 @@ export function navigationEntry(grid, item, caption, greyed, index) {
   NGUI.find(tree, "Label").children = [];
   const label = NGUI.find(tree, "Label").widgets[0];
   NGUI.find(tree, "Label").pos = [...labelSlot.pos];
-  NGUI.fitLabel(label, caption, label.fontSize, 28, 360, 1);
-  label.w_ = 370;
+  const available = (width - 8) * 2960 / 1920 - 2 * Math.abs(labelSlot.pos[0]);
+  NGUI.fitLabel(label, caption, label.fontSize, 28, Math.min(360, available), 1);
+  label.w_ = Math.min(370, available + 4);
   return tree;
 }

@@ -19,7 +19,7 @@ from ..bundle import Bundle, UpdateScope
 from ..errors import ServiceError
 from ..gameassets.spine import spine_revision
 from ..i18n import t
-from ..library import integrity, staging
+from ..library import integrity, staging, manual_identity
 from ..library.judge import core_of, kind_of, part_of
 from ..library.storage import Fingerprints, atomic_clone, verify_file
 from ..models import AssetType, SaveOptions
@@ -33,7 +33,7 @@ PREF = "batch_import"
 TYPES = ("Texture2D", "TextAsset", "Mesh", "AnimationClip", "ALL")
 CHOICES = {"strategy": ("path_id", "cont_name_type", "name_type"),
            "crc": ("auto", "on", "off"), "compression": ("lzma", "lz4", "original", "none")}
-BOOLS = ("skipUnchanged", "backup", "enableAfterImport")
+BOOLS = ("skipUnchanged", "backup", "enableAfterImport", "previewAfterImport")
 IMPORTABLE = frozenset(("ready", "convert", "update"))
 
 
@@ -217,6 +217,7 @@ class BatchImport:
         self._pin: Any = None
         self._hashes = Fingerprints()
         self._sources: dict[str, tuple[frozenset, dict]] = {}
+        self._assignments: dict[str, tuple[frozenset, str]] = {}
         self._completed: dict[tuple, str] = {}
         self._legacy_checks: dict[str, str | None] = {}
 
@@ -227,7 +228,8 @@ class BatchImport:
                 "crc": {"true": "on", "false": "off"}.get(settings.get("enable_crc_correction"), "auto"),
                 "compression": settings.get("compression_method"), "extraBytes": settings.get("extra_bytes"),
                 "backup": settings.get("create_backup"), "workers": settings.get("max_workers"),
-                "output": settings.get("output_dir") or None, "enableAfterImport": True}
+                "output": settings.get("output_dir") or None, "enableAfterImport": True,
+                "previewAfterImport": False}
 
     def options(self) -> dict:
         defaults = self.defaults()
@@ -276,6 +278,9 @@ class BatchImport:
                     override = self._sources.get(candidate.entry["id"])
                 if override and override[0] == candidate.identity:
                     candidate.source_override = dict(override[1])
+                assignment = self._assignments.get(candidate.entry["id"])
+                if assignment and assignment[0] == candidate.identity:
+                    candidate.entry["assignment"] = assignment[1]
                 self._judge(candidate, library, pin, log)
                 self._recognize_legacy(candidate, library)
                 self._restore_completed(candidate, library, pin)
@@ -315,7 +320,36 @@ class BatchImport:
         detail = import_row(candidate.entry, getattr(self.services, "log_secrets", set()))
         logger.info("Batch import analysis (%s): %s", phase, json.dumps(detail, ensure_ascii=False, sort_keys=True))
 
-    def set_source(self, id: str, server: str, platform: str) -> str:
+    def assignment_catalog(self) -> dict:
+        """Use cross-server metadata; absent assets remain absent in the picker."""
+        families = []
+        for family in self.services.catalog.assignment_families():
+            variants = []
+            for variant in family.variants:
+                value = variant.to_json()
+                value["fileId"] = value.pop("file_id")
+                variants.append(value)
+            families.append({"key": family.key, "base": family.names, "aliases": family.aliases,
+                             "school": family.school, "variants": variants})
+        return {"families": families}
+
+    def assign_character(self, id: str, variant: str) -> str:
+        if not isinstance(id, str) or not isinstance(variant, str):
+            raise ServiceError("bad_params", key="variant")
+        selected = self.services.catalog.assignment_variant(variant)
+        with self._lock:
+            candidate = self._latest.get(id)
+            if candidate is None or candidate.entry["state"] in ("done", "library", "installed"):
+                raise ServiceError("bad_params", key="id")
+            if candidate.error not in (None, "mod_target_unknown", "mod_target_ambiguous", "unsupported"):
+                raise ServiceError(candidate.error)
+            candidate.entry["assignment"] = selected.key
+            self._assignments[id] = (candidate.identity, selected.key)
+        target = candidate.entry.get("source") or candidate.entry["target"]
+        return self.set_source(id, target.get("server") or "global", target.get("platform") or "windows",
+                               assignment_only=True)
+
+    def set_source(self, id: str, server: str, platform: str, *, assignment_only: bool = False) -> str:
         if not isinstance(id, str) or server not in mod_origin.SERVERS or platform not in mod_origin.PLATFORMS:
             raise ServiceError("bad_params", key="source")
         with self._lock:
@@ -325,7 +359,8 @@ class BatchImport:
             self._revision += 1
             fresh = Candidate(dict(candidate.files), deepcopy(candidate.entry), candidate.error,
                               identity=candidate.identity, failure=candidate.failure,
-                              source_override={"server": server, "platform": platform, "detected": False})
+                              source_override=candidate.source_override if assignment_only else
+                              {"server": server, "platform": platform, "detected": False})
             library, pin, revision = self._library, self._pin, self._revision
 
         def analyze(log: Any, progress: Any) -> dict:
@@ -347,7 +382,8 @@ class BatchImport:
                 if revision != self._revision or self._latest.get(id) is not candidate:
                     raise ServiceError("entry_changed")
                 self._latest[id] = fresh
-                self._sources[id] = (identity, dict(fresh.source_override))
+                if fresh.source_override:
+                    self._sources[id] = (identity, dict(fresh.source_override))
                 self._previews.update(previews)
             progress(1, 1, fresh.entry["core"] or "")
             return {**fresh.entry, "revision": revision}
@@ -552,6 +588,25 @@ class BatchImport:
         candidate.provenance = None
         inspection = integrity.Inspection(asset_types if asset_types is not None else set(self.options()["types"]))
         try:
+            if candidate.error in ("mod_target_unknown", "mod_target_ambiguous") or entry.get("assignment"):
+                existing = library.find_import_output(list(candidate.files.values()))
+                saved = next((mod for mod in library.mods() if mod.id == existing), None) if existing else None
+                if saved:
+                    if entry.get("assignment") and entry["assignment"] != saved.target:
+                        raise ServiceError("mod_target_ambiguous")
+                    entry.update(state="library", reason=None, libraryId=saved.id, variant=saved.target,
+                                 kind=saved.kind, core=entry["core"] or saved.core)
+                    return
+            if entry.get("assignment"):
+                if candidate.error not in (None, "mod_target_unknown", "mod_target_ambiguous", "unsupported"):
+                    raise ServiceError(candidate.error)
+                variant = self.services.catalog.assignment_variant(entry["assignment"])
+                kind = manual_identity.validate(candidate.files)
+                candidate.identity = frozenset((core_of(name), part_of(name), self._hashes.get(path).sha1)
+                                               for name, path in candidate.files.items())
+                entry.update(variant=variant.key, kind=kind, state="ready", reason=None, libraryOnly=True,
+                             core=entry["core"] or variant.file_id)
+                return
             if candidate.failure:
                 raise ServiceError(candidate.failure["code"], **candidate.failure["params"])
             if candidate.error:
@@ -879,7 +934,9 @@ class BatchImport:
                                     report(candidate, "add")
                                     with self._lock:
                                         check_current()
-                                        added = library.add_files(fresh.entry["kind"], paths, pin=pin, direct=bool(fresh.direct))
+                                        added = (library.add_assigned_files(fresh.files, fresh.entry["assignment"],
+                                                 fresh.entry["kind"], pin=pin) if fresh.entry.get("assignment") else
+                                                 library.add_files(fresh.entry["kind"], paths, pin=pin, direct=bool(fresh.direct)))
                                     entries = [*added, *added.duplicates]
                                     if len(entries) != 1:
                                         raise ServiceError("mod_unsupported")
@@ -892,7 +949,12 @@ class BatchImport:
                                 if mod is not None:
                                     result.cores.update(core_of(name) for name in fresh.files)
                                     result.kinds.add(mod.kind)
-                                    if options["enableAfterImport"] and item["outcome"] != "unchanged":
+                                    if options["previewAfterImport"] and pin and mod.kind in ("spr", "lobby", "model"):
+                                        self.services.state.set_preview_source(pin.key, mod.target, mod.kind, f"mod:{mod.id}")
+                                        item["previewSelected"] = True
+                                    if options["enableAfterImport"] and fresh.entry.get("libraryOnly"):
+                                        item["applyUnavailable"] = "no_target"
+                                    if options["enableAfterImport"] and not fresh.entry.get("libraryOnly") and item["outcome"] != "unchanged":
                                         phase = "apply"
                                         report(candidate, phase)
                                         with self._lock:

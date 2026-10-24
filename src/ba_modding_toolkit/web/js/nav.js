@@ -34,6 +34,7 @@ async function click(item) {
   if (opening) return; // one hand-off at a time
   opening = true;
   try {
+    if (await options.canLeave?.() === false) return;
     await activate(item, {
       prompt: options.prefs()?.classicPrompt !== false,
       go: (route) => { location.hash = route; },
@@ -56,13 +57,15 @@ export async function renderNav(active = 0, opts = {}) {
   let lobby = null;
   if (options.game) lobby = await NGUI.layout("UILobby").catch((err) => { console.warn("navigation layout", err); return null; });
   if (lobby) {
-    skinTop().catch(console.error);
+    await skinTop().catch((err) => console.warn("top bar layout", err));
     const tree = clone(NGUI.find(lobby, "Front/Bottom/Menu/BG/BG")); tree.pos = [0, 0];
     await NGUI.render(tree, plate, { scale: S, origin: [960, 104 - 52 * S] });
   }
   await Promise.all(ITEMS.map(async (item, i) => {
     const v = view(item, T), b = document.createElement("button");
     b.className = `nav-item${v.greyed ? " greyed" : ""}`;
+    const width = 1820 / ITEMS.length;
+    b.style.width = `${width}px`;
     b.setAttribute("aria-label", v.name);
     if (v.greyed) {
       b.setAttribute("aria-disabled", "true");
@@ -71,8 +74,8 @@ export async function renderNav(active = 0, opts = {}) {
     b.addEventListener("click", () => click(item));
     next.appendChild(b);
     if (lobby) {
-      const tree = navigationEntry(NGUI.find(lobby, "Front/Bottom/Menu/BG/Grid"), item, v.label, v.greyed, i);
-      await NGUI.render(tree, b, { scale: S, origin: navigationOrigin(tree, S) });
+      const tree = navigationEntry(NGUI.find(lobby, "Front/Bottom/Menu/BG/Grid"), item, v.label, v.greyed, i, width);
+      await NGUI.render(tree, b, { scale: S, origin: navigationOrigin(tree, S, width) });
     } else b.textContent = v.label;
   }));
   if (revision !== navRevision) return;
@@ -83,16 +86,30 @@ export async function renderNav(active = 0, opts = {}) {
 let topReady;
 function skinTop() {
   return topReady ||= NGUI.layout("UICharacterCollection").then(async (collection) => {
+    const right = "NUITop_Scenes/Top/Right";
+    const home = NGUI.find(collection, `${right}/Lobby`);
+    const homeWidget = home?.widgets?.find((w) => "sprite" in w);
     for (const [selector, path, w, h] of [
       [".topbar .back", "SeletControl/Top/BG_W/Bg/Btn", 164, 172],
-      [".top-option", "NUITop_Scenes/Top/Right/Option", 60, 62],
+      [".top-option", `${right}/Option`, 60, 62],
+      [".top-home", `${right}/Lobby`, 62, 59],
+      [".top-line", `${right}/Line (1)`, 4, 49],
     ]) {
       const host = document.querySelector(selector);
       if (!host) continue;
-      const tree = clone(NGUI.find(collection, path)); tree.pos = [0, 0];
+      const original = NGUI.find(collection, path);
+      if (!original) continue;
+      const tree = clone(original); tree.pos = [0, 0];
       const next = document.createElement("div");
       await NGUI.render(tree, next, { scale: S, origin: [w * S / 2, h * S / 2] });
       Object.assign(host.style, { width: `${w * S}px`, height: `${h * S}px` });
+      if (path.startsWith(right) && homeWidget) {
+        // Anchor the game's rightmost Home control; retain the prefab's sibling offsets and sizes.
+        Object.assign(host.style, {
+          right: `${44 + (home.pos[0] - original.pos[0] + (homeWidget.w_ - w) / 2) * S}px`,
+          top: `${7 + (home.pos[1] - original.pos[1] + (homeWidget.h_ - h) / 2) * S}px`,
+        });
+      }
       host.replaceChildren(...next.childNodes);
     }
   }).catch((err) => { topReady = null; throw err; });

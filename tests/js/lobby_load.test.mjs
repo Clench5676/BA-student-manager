@@ -16,7 +16,7 @@ const meta = { main: "main", sparse: false, left: { x: 0, y: 0, w: 1920, h: 1080
 const layers = async (core, mod) => ({ info: null, layers: [{ name: "main", spine: `${core}:${mod || "live"}` }] });
 
 function harness(layersOf = layers, resolveSources = null, { allowed = true, confirm = true } = {}) {
-  const created = [], calls = [];
+  const created = [], calls = [], touchSetups = [];
   const revisions = new Map();
   const failures = [];
   const host = { innerHTML: "", classList: { remove: noop }, querySelector: () => ({}), appendChild(el) { this.message = el; } };
@@ -44,6 +44,8 @@ function harness(layersOf = layers, resolveSources = null, { allowed = true, con
       }, {}, { signal });
     },
     setView: noop, game: () => ({}), viewOf: () => ({}), feather: noop, lightUp: noop, openEdge: noop,
+    releaseTouch: noop, restoreTouch: () => touchSetups.push("setup"), clearTimers: noop,
+    previewLifecycle: () => ({ active: () => true, dispose: noop }),
     measure: () => structuredClone(meta), measuresClips: () => false,
     Stage: { install: noop, hostOf: () => null }, Linear: { setClear: noop, detach: noop },
     Materials: { detach: noop }, Touch: { setup: noop, detach: noop }, Idle: { start: noop, stop: noop },
@@ -56,8 +58,17 @@ function harness(layersOf = layers, resolveSources = null, { allowed = true, con
     let extendTimer, chain, subtitleTimer;
     ${loading}
     return { show, hide, recoverView, current: () => current };`)(env);
-  return { ...h, host, created, calls, revisions, failures, prompts };
+  return { ...h, host, created, calls, revisions, failures, prompts, touchSetups };
 }
+
+test("deferred Hall loads retain input suspension and do not claim the shared Touch setup", async () => {
+  const h = harness();
+  const pending = h.show("hero_home", h.host, "hero", { deferPlayback: true });
+  await tick(); h.created[0].config.success(h.created[0]); await pending;
+  assert.equal(h.current().deferPlayback, true); assert.equal(h.current().suspended, true);
+  assert.equal(h.host.inert, true); assert.deepEqual(h.touchSetups, []);
+  h.hide(h.host); assert.equal(h.host.inert, false);
+});
 
 test("a lobby without confirmation fetches no source and offers confirmation before retrying", async () => {
   let sources = 0;

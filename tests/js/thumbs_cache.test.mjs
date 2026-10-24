@@ -1046,3 +1046,45 @@ test("cancelling a delayed disk thumbnail read never publishes late art or start
     assert.equal(loaded.length, count); assert.equal(server.puts().length, 1);
   } finally { release?.(); scope.cancel(); await server.restore(base); }
 });
+
+// Keep Loading.hold's real ownership/cancellation logic while stubbing its decorative overlay.
+async function modalLoadingHold() {
+  const {readFile}=await import("node:fs/promises");
+  const source=await readFile(new URL("../../src/ba_modding_toolkit/web/js/loading.js",import.meta.url),"utf8");
+  const start=source.indexOf("export async function hold("),end=source.indexOf("// Read-only previews",start);
+  const code=source.slice(start,end).replace("export async function","async function");
+  const el={classList:{add(){},remove(){}},addEventListener(){}},holds=new Set();
+  return new Function("env",`const {holds,stage}=env;const wired=new WeakSet(),refresh=()=>{},Popup={allowsInput:()=>true},T=key=>key,track=Promise.resolve.bind(Promise),wait=async()=>{},close=async()=>{};let overlay=null;\n${code}\nreturn{hold,held:()=>holds.size>0};`)({holds,stage:()=>el});
+}
+test("Hall visible-thumbnail retries drain and settle while a modal loading hold remains active",async(t)=>{
+  t.mock.timers.enable({apis:["setTimeout"]});
+  const Loading=await modalLoadingHold(),Player=spine.SpinePlayer,scope=thumbnailScope({priority:"popup"}),disposed=[];
+  const stuck=spineBase("official-spr","hall_held_stuck_spr"),healthy=spineBase("official-spr","hall_held_healthy_spr");
+  spine.SpinePlayer=class extends Player{constructor(el,config){super(el,config.skeleton.includes("/hall_held_stuck_spr/")?{...config,success(){}}:config);}dispose(){disposed.push(this.config.skeleton);super.dispose();}};
+  try{
+    set(stuck,"c");set(healthy,"d");
+    const picture=scope.thumb(stuck,"portrait"),later=scope.thumb(healthy,"portrait");
+    const pending=Loading.hold(()=>Promise.all([picture,later]));assert.equal(Loading.held(),true);await new Promise(setImmediate);
+    t.mock.timers.tick(THUMB_LOAD_TIMEOUT);await new Promise(setImmediate);assert.ok(await later);assert.equal(Loading.held(),true);
+    for(const delay of [2000,5000,15000]){t.mock.timers.tick(delay);await new Promise(setImmediate);assert.equal(Loading.held(),true);t.mock.timers.tick(THUMB_LOAD_TIMEOUT);await new Promise(setImmediate);}
+    const result=await pending;assert.equal(result[0],null);assert.equal(Loading.held(),false);assert.equal(disposed.filter(url=>url.includes("/hall_held_stuck_spr/")).length,4);
+  }finally{scope.cancel();await new Promise(setImmediate);spine.SpinePlayer=Player;t.mock.timers.reset();}
+});
+test("cancelling a Hall modal during first capture timeout releases its hold and retires pending retries",async(t)=>{
+  t.mock.timers.enable({apis:["setTimeout"]});
+  const Loading=await modalLoadingHold(),Player=spine.SpinePlayer,scope=thumbnailScope({priority:"popup"});let loads=0;
+  spine.SpinePlayer=class extends Player{constructor(el,config){loads++;super(el,{...config,success(){}});}};
+  try{
+    const base=spineBase("official-spr","hall_cancel_retry_spr");set(base,"e");
+    const cancelled=new Promise(resolve=>scope.signal.addEventListener("abort",resolve,{once:true}));
+    const pending=Loading.hold(()=>scope.thumb(base,"portrait"),{until:cancelled});await new Promise(setImmediate);
+    t.mock.timers.tick(THUMB_LOAD_TIMEOUT);await new Promise(setImmediate);assert.equal(Loading.held(),true);scope.cancel();assert.equal(await pending,null);assert.equal(Loading.held(),false);
+    t.mock.timers.tick(60000);await new Promise(setImmediate);assert.equal(loads,1);
+  }finally{scope.cancel();await new Promise(setImmediate);spine.SpinePlayer=Player;t.mock.timers.reset();}
+});
+test("a non-timeout Hall capture failure settles its modal hold without awaiting idle retries",async()=>{
+  const Loading=await modalLoadingHold(),Player=spine.SpinePlayer,scope=thumbnailScope({priority:"popup"});
+  spine.SpinePlayer=class{constructor(){throw new Error("Hall fixture capture failure");}};
+  try{const base=spineBase("official-spr","hall_failed_capture_spr");set(base,"f");const pending=Loading.hold(()=>scope.thumb(base,"portrait"));assert.equal(Loading.held(),true);assert.equal(await pending,null);assert.equal(Loading.held(),false);}
+  finally{scope.cancel();await new Promise(setImmediate);spine.SpinePlayer=Player;}
+});

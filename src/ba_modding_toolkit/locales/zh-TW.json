@@ -1230,7 +1230,14 @@
 			"spine_version": "Spine 版本不相容",
 			"mod_unity_version_mismatch": "Unity 版本不相容",
 			"mod_release_mismatch": "遊戲版本不相容",
-			"crc_fix_failed": "CRC 修復失敗"
+			"crc_fix_failed": "CRC 修復失敗",
+			"export_empty": "沒有可匯出的 Mod",
+			"export_target_unavailable": "目標資源無法使用",
+			"hall_conflict": "學生大廳已在其他視窗變更",
+			"library_recovery_pending": "Mod 復原待完成",
+			"hall_last_memorial": "至少保留一個紀念大廳",
+			"hall_duplicate_portrait": "此立繪已在大廳中",
+			"hall_duplicate_memorial": "此紀念大廳已在清單中"
 		},
 		"drop": {
 			"hint": "拖入 Mod 檔案以新增"
@@ -1591,7 +1598,12 @@
 				"add": "加入 Mod 倉庫",
 				"apply": "套用 Mod",
 				"export": "匯出檔案"
-			}
+			},
+			"selectPreview": "選為預覽",
+			"applyGame": "套用至遊戲",
+			"removeImported": "移除已匯入",
+			"assignCharacter": "選擇角色",
+			"libraryOnly": "僅入庫 - 沒有相容的遊戲目標"
 		},
 		"recovery": {
 			"report": "產生錯誤報告",
@@ -1620,6 +1632,70 @@
 				"first-screen": "初始畫面",
 				"ready": "就緒"
 			}
+		},
+		"export": {
+			"title": "匯出",
+			"defaultDestination": "匯出至預設目錄",
+			"destination": "匯出目錄",
+			"chooseDirectory": "選擇目錄",
+			"confirm": "確定",
+			"server": "目標伺服器",
+			"platform": "目標平台",
+			"library": "匯出 Mod 庫",
+			"applied": "匯出已套用",
+			"success": "匯出成功。開啟資料夾？",
+			"openFolder": "開啟資料夾"
+		},
+		"hall": {
+			"title": "學生大廳",
+			"portraits": "立繪",
+			"memorial": "紀念大廳",
+			"edit": "編輯配置",
+			"adjust": "調整紀念大廳",
+			"background": "更換背景",
+			"add": "新增",
+			"remove": "移除",
+			"previous": "上一個",
+			"next": "下一個",
+			"done": "完成",
+			"empty": "新增學生",
+			"missing": "資源無法使用",
+			"voiceUnavailable": "語音無法使用",
+			"officeDay": "辦公室（白天）",
+			"officeNight": "辦公室（夜晚）",
+			"home": "返回學生大廳",
+			"addPortraits": "新增立繪",
+			"removeSelected": "移除選取",
+			"saveLayout": "儲存配置",
+			"changeLayout": "變更配置",
+			"savePlaylist": "儲存清單",
+			"doneAdding": "完成新增",
+			"noCandidates": "沒有相符的資源",
+			"allReleased": "全部實裝狀態",
+			"released": "已實裝",
+			"unreleased": "未實裝",
+			"clearStudent": "清除選取",
+			"recentMemorials": "最近觀看",
+			"memorialCandidates": "紀念大廳候選",
+			"playlist": "展示清單",
+			"playlistHint": "拖曳排序 - 至少保留一項",
+			"preview": "預覽",
+			"backToPicker": "返回選取",
+			"useBackground": "使用此背景",
+			"unsaved": "未儲存的變更",
+			"unsavedText": "儲存變更後離開？",
+			"keepEditing": "繼續編輯",
+			"discard": "放棄變更",
+			"saveLeave": "儲存並離開",
+			"added": "已新增",
+			"portraitScale": "立繪大小",
+			"portraitScalePercent": "立繪大小（%）",
+			"scaleReset": "重設",
+			"layerBackward": "下移一層",
+			"layerForward": "上移一層",
+			"layerFront": "移至最上層",
+			"layerBack": "移至最下層",
+			"flipHorizontal": "水平翻轉"
 		}
 	}
 }

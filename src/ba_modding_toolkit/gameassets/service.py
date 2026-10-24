@@ -481,6 +481,30 @@ class GameAssets:
         return {"bg": sorted(n for n in names if n.startswith("BG_")),
                 "portrait": sorted(n for n in names if n.startswith("Student_Portrait_"))}
 
+    def office_backgrounds(self) -> list[dict]:
+        from . import office
+        return office.choices(self)
+
+    def office_layout(self, key: str) -> dict:
+        from . import office
+        return office.layout(self, key)
+
+    def office_texture(self, key: str, name: str) -> bytes:
+        """Decode only a texture used by this installed office prefab, at its original resolution."""
+        from . import office
+        record = office.texture_record(self, key, name)
+        path = self._bundle_path(record["bundle"])
+        stamps = spine_stamps([path])
+        def build() -> bytes:
+            data = png_bytes(self._image(record))
+            if spine_stamps([path]) != stamps:
+                raise AssetNotFound("Office background changed during extraction")
+            return data
+        value = self._preview_bytes("office/texture/" + key + "/" + name + json.dumps(stamps), build)
+        if spine_stamps([path]) != stamps:
+            raise AssetNotFound("Office background changed during extraction")
+        return value
+
     def _collection_png(self, name: str, prefix: str) -> bytes:
         if not name.startswith(prefix) or name not in self._collection():
             raise AssetNotFound(name)
