@@ -1,5 +1,7 @@
 # cli/taps.py
-from argparse import RawTextHelpFormatter
+import argparse
+import textwrap
+from argparse import RawTextHelpFormatter, _SubParsersAction
 from tap import Tap, Positional
 from pathlib import Path
 from typing import Literal
@@ -9,12 +11,46 @@ from ..core.report import ReportFormat
 from ..utils import BARegion
 from ..naming import CharacterInternalIDMap
 
+# 主帮助中子命令的分组显示：(分组标题, 命令列表)
+COMMAND_GROUPS: list[tuple[str, tuple[str, ...]]] = [
+    ('Console output', ('parse', 'inspect', 'trace', 'env')),
+    ('File output', ('update', 'batch-update', 'install', 'pack', 'extract', 'crc', 'backup')),
+    ('Report output', ('report', 'batch-preview')),
+]
+
+
+class GroupedHelpFormatter(RawTextHelpFormatter):
+    """主帮助输出中将子命令按 COMMAND_GROUPS 分组显示。"""
+
+    def _format_action(self, action: argparse.Action) -> str:
+        # 仅主解析器存在 subparsers action，其余 action 走默认渲染
+        if isinstance(action, _SubParsersAction):
+            return self._format_grouped_subparsers(action)
+        return super()._format_action(action)
+
+    def _format_grouped_subparsers(self, action: _SubParsersAction) -> str:
+        # _choices_actions 是 argparse 内部结构，按注册顺序保存各子命令的 name/help
+        helps: dict[str, str] = {pa.metavar: pa.help or '' for pa in action._choices_actions}
+        # 未登记分组的新子命令兜底归入 Other，避免从帮助中消失
+        grouped = {cmd for _, cmds in COMMAND_GROUPS for cmd in cmds}
+        ungrouped = tuple(name for name in helps if name not in grouped)
+        groups = [*COMMAND_GROUPS, *(('Other:', ungrouped) if ungrouped else ())]
+        width = max(len(cmd) for _, cmds in COMMAND_GROUPS for cmd in cmds)
+        indent = ' ' * self._current_indent
+        blocks = []
+        for title, cmds in groups:
+            lines = [f'{title}:']
+            lines += [f'  {cmd:<{width}}  {helps.get(cmd, "")}' for cmd in cmds]
+            blocks.append('\n'.join(lines))
+        return textwrap.indent('\n\n'.join(blocks), indent) + '\n'
+
+
 class BaseTap(Tap):
     """基础Tap类，提供共享配置。"""
 
     def configure(self) -> None:
         self.description = "Blue Archive Modding and Patching Tool - Command Line Interface."
-        self.formatter_class = RawTextHelpFormatter
+        self.formatter_class = GroupedHelpFormatter
         self._underscores_to_dashes = True
 
 
@@ -185,6 +221,64 @@ class EnvTap(BaseTap):
     def configure(self) -> None:
         super().configure()
         self.description = 'Display system information and library versions of the current environment.'
+
+class InstallTap(BaseTap):
+    """Install命令的参数解析器 - 用于一键安装Mod到游戏目录。"""
+
+    # 基本参数
+    mods: Positional[list[Path]]  # Path(s) to the mod bundle file(s) (.bundle / .backup).
+
+    # 目标定位参数
+    output_dir: Path = Path('./output/')  # Directory to save files generated during update-type installs.
+    resource_dir: Path | None = None      # Path to the game resource directory. Will try to find the directory automatically if not provided.
+    region: BARegion = 'auto'  # Game region used to auto-detect the install path (auto = global first, then japan).
+
+    # 资源与保存参数
+    no_crc: bool = False  # Disable CRC fix function.
+    extra_bytes: str | None = None  # Extra bytes in hex format (e.g., "0x08080808" or "QWERTYUI") to append before CRC correction.
+    asset_types: list[ReplaceAssetType] = ['Texture2D', 'TextAsset', 'Mesh', 'AnimationClip', 'Font']  # List of asset types to replace.
+    compression: CompressionType = 'lzma'  # Compression method for Bundle files.
+
+    # Spine转换参数（仅 skel 版本转换，不做预览渲染）
+    skel_converter_path: Path | None = None  # Full path to SpineSkeletonDataConverter.exe. Spine conversion is enabled when provided.
+    target_spine_version: str = '4.2.33'  # Target Spine version (e.g., "4.2.33").
+
+    # 安装行为参数
+    strategy: MatchStrategy = 'cont_name_type'  # Match strategy for update-type installs.
+    no_backup: bool = False  # Do not create a backup (.backup) before replacing files in the game directory.
+    spine_viewer_path: Path | None = None  # Path to SpineViewerCLI.exe. Enables missing-animation pre-check when provided (no preview rendering).
+    max_workers: int = 1  # Number of parallel worker threads for group installs (1 = sequential).
+    yes: bool = False  # Install all installable groups without interactive confirmation.
+
+    # 角色映射参数
+    bacii_path: Path | None = None  # Path to BA-Characters-Internal-ID.csv. Character name lookup is enabled when provided.
+    index_column: str = CharacterInternalIDMap.DEFAULT_INDEX_COLUMN  # CSV column used as the lookup key for character mapping.
+    name_field: str = CharacterInternalIDMap.DEFAULT_NAME_FIELD  # Character name field to display.
+
+    def configure(self) -> None:
+        super().configure()
+        self.description = '''Analyze mod file(s) and install them into the game directory.
+
+Same-name bundles are directly replaced; others are installed by updating the latest
+matching game bundles. Installable groups are confirmed one by one unless --yes is given.
+
+Examples:
+  # Interactive install with auto-detected game directory
+  bamt-cli install "C:\\path\\to\\mod1.bundle" "C:\\path\\to\\mod2.bundle"
+
+  # Install all installable groups without confirmation
+  bamt-cli install "mod1.bundle" --yes
+
+  # Specify game resource directory and disable backup
+  bamt-cli install "mod.bundle" --resource-dir "C:\\game\\resources" --no-backup
+
+  # Show character names with the BACII mapping
+  bamt-cli install "mod.bundle" --bacii-path "C:\\path\\to\\BA-Characters-Internal-ID.csv"
+
+  # Enable missing-animation pre-check (no preview rendering)
+  bamt-cli install "mod.bundle" --spine-viewer-path "C:\\path\\to\\SpineViewerCLI.exe"
+'''
+
 
 class BatchUpdateTap(BaseTap):
     """Batch-update命令的参数解析器 - 用于批量更新Mod文件。"""
@@ -372,6 +466,65 @@ Examples:
 '''
 
 
+class InspectTap(BaseTap):
+    """Inspect命令的参数解析器 - 用于bundle内省。"""
+
+    # 基本参数
+    bundle: Positional[list[Path]]  # Path(s) to the bundle file(s) to inspect.
+
+    # 跨包解析参数
+    resource_dir: Path | None = None  # Path to the game resource directory. Enables cross-bundle resolution (MonoScript class names, external CAB locations).
+    region: BARegion = 'auto'  # Game region used to auto-detect the install path (auto = global first, then japan).
+    cab_cache: Path | None = None  # Path to the CAB mapping cache file (default: <exe_dir>/Addons/cab_cache.json).
+    no_cache: bool = False  # Disable the CAB mapping cache.
+
+    def configure(self) -> None:
+        super().configure()
+        self.description = '''Inspect bundle file(s): platform info, asset type stats, external references,
+MonoBehaviour list grouped by MonoScript class name, and container entries.
+
+Examples:
+  # Inspect a single bundle
+  bamt-cli inspect "assets-_mx-spinelobbies-ch0242_home-_mxdependency-2025-07-10_002_assets_all_4117045409.bundle"
+
+  # Enable cross-bundle MonoScript class name resolution
+  bamt-cli inspect "bundle.bundle" --resource-dir "C:\\path\\to\\game"
+
+  # Disable the CAB mapping cache
+  bamt-cli inspect "bundle.bundle" --resource-dir "C:\\path\\to\\game" --no-cache
+'''
+
+
+class TraceTap(BaseTap):
+    """Trace命令的参数解析器 - 用于bundle引用追踪。"""
+
+    # 基本参数
+    bundle: Positional[Path]  # Path to the bundle file to trace.
+
+    # 跨包解析参数
+    resource_dir: Path | None = None  # Path to the game resource directory. Enables cross-bundle reference resolution.
+    region: BARegion = 'auto'  # Game region used to auto-detect the install path (auto = global first, then japan).
+    path_id: int | None = None  # Only trace the object with this path ID (default: trace all objects).
+    cab_cache: Path | None = None  # Path to the CAB mapping cache file (default: <exe_dir>/Addons/cab_cache.json).
+    no_cache: bool = False  # Disable the CAB mapping cache.
+
+    def configure(self) -> None:
+        super().configure()
+        self.description = '''Trace all references of objects inside a bundle and resolve each pointer
+(m_FileID, m_PathID) to its target object, locating external CAB references in the game directory.
+
+Examples:
+  # Trace all references without cross-bundle resolution
+  bamt-cli trace "assets-_mx-spinelobbies-ch0242_home-_mxdependency-2025-07-10_002_assets_all_4117045409.bundle"
+
+  # Resolve external references against the game directory
+  bamt-cli trace "bundle.bundle" --resource-dir "C:\\path\\to\\game"
+
+  # Trace a single object
+  bamt-cli trace "bundle.bundle" --path-id 123456
+'''
+
+
 class MainTap(BaseTap):
     """主Tap类，包含所有子命令。"""
 
@@ -383,6 +536,7 @@ class MainTap(BaseTap):
         self.add_subparsers(dest='command', help='Available commands')
         self.add_subparser('update', UpdateTap, help='Update or port a Mod, migrating assets from an old Mod to a specific Bundle.')
         self.add_subparser('batch-update', BatchUpdateTap, help='Batch update multiple Mod files from an input directory.')
+        self.add_subparser('install', InstallTap, help='Analyze mod file(s) and install them into the game directory (per-group confirmation).')
         self.add_subparser('pack', PackTap, help='Pack contents from an asset folder into a target bundle file.')
         self.add_subparser('extract', ExtractTap, help='Extract assets from Unity Bundle files.')
         self.add_subparser('crc', CrcTap, help='Tool to fix file CRC32 checksum or calculate/compare CRC32 values.')
@@ -390,4 +544,6 @@ class MainTap(BaseTap):
         self.add_subparser('report', ReportTap, help='Generate a report of all modded bundle files.')
         self.add_subparser('batch-preview', BatchPreviewTap, help='Batch render Spine preview images for all Spine resources.')
         self.add_subparser('backup', BackupTap, help='Backup all modded bundle files.')
+        self.add_subparser('inspect', InspectTap, help='Inspect bundle file(s): type stats, externals, MonoBehaviour list, container.')
+        self.add_subparser('trace', TraceTap, help='Trace object references inside a bundle and resolve external CAB targets.')
         self.add_subparser('env', EnvTap, help='Display system information and library versions.')
