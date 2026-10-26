@@ -8,7 +8,6 @@ As of 2026-10-26. Verify the actual branch, working tree and `pyproject.toml` ve
 | Branch | State |
 | --- | --- |
 | `main` | Local version `0.6.0-alpha.2`: the published 0.5.0 baseline, the upstream syncs after it, the 0.6.0-alpha.1 review work and the BL-032 to BL-039 fixes. Not pushed. |
-| `codex/v060-fixes` | The alpha.2 fixes, merged into `main`; kept until the owner accepts alpha.2. |
 
 The 0.6.0 work is unreleased. Nothing has been tagged, pushed or published since 0.5.0.
 
@@ -20,9 +19,12 @@ The 0.6.0 work is unreleased. Nothing has been tagged, pushed or published since
 | BL-009 through BL-012 | Implemented; in the local alpha builds |
 | BL-015 | Initial photography feature accepted by the owner; later requirements are separate entries |
 | BL-022 through BL-029, BL-031 | Implemented for alpha.1; later owner findings are separate entries |
-| BL-032 through BL-036, BL-038, BL-039 | Implemented for alpha.2; owner review in progress (macOS findings: BL-040 to BL-045; Windows not reviewed) |
+| BL-033 through BL-036, BL-038, BL-039 | Accepted by the owner on macOS (alpha.2); Windows not reviewed |
+| BL-032 | Implemented for alpha.2; the English label overflow continues as BL-040 |
 | BL-037 | Design task, not started |
-| BL-040 through BL-045 | Owner's macOS findings on alpha.2, planned |
+| BL-040, BL-041, BL-043 | In progress on `codex/text-fit` |
+| BL-042, BL-044, BL-045 | Owner's macOS findings on alpha.2, on hold |
+| BL-046 | Planned (upstream sync assessment follow-up) |
 | BL-013, BL-019 through BL-021, BL-030 | Planned, not implemented; BL-021 has a proposed flow only |
 | BL-014 | Candidate, not scheduled |
 | BL-016 through BL-018 | Deferred |

@@ -20,7 +20,8 @@ acceptance boundary and proposed execution order. BL-022 through BL-029 and BL-0
 Chinese README/CHANGELOG drafts and fork synchronization are complete; the initial BL-015 implementation has owner acceptance.
 
 BL-032 through BL-039 (except the BL-037 design task) were implemented for local 0.6.0-alpha.2 review. The owner's
-macOS review of alpha.2 on 2026-10-26 is recorded as **BL-040 through BL-045**; Windows has not been reviewed yet.
+macOS review of alpha.2 on 2026-10-26 accepted BL-033 to BL-036, BL-038 and BL-039; its findings are recorded as
+**BL-040 through BL-045**. Windows has not been reviewed yet.
 
 ## BL-001: Per-Mod atomic library import and game installation
 
@@ -661,7 +662,7 @@ The native button is compacted with a fixed right edge and measured localized la
 
 ## BL-033: Remaining frame-not-ready photography modal
 
-- Status: Implemented for local review; owner UAT/visual acceptance pending.
+- Status: Accepted by the owner (macOS review of 0.6.0-alpha.2, 2026-10-26); Windows not reviewed.
 - Requested: 2026-10-26, following local alpha.1 review.
 - Parent: BL-023.
 
@@ -675,7 +676,7 @@ Redraw readiness was outside the retry boundary, transparent frames passed the c
 
 ## BL-034: Correct gold-button scope and applied-Mod export label
 
-- Status: Implemented for local review; owner UAT/visual acceptance pending.
+- Status: Accepted by the owner (macOS review of 0.6.0-alpha.2, 2026-10-26); Windows not reviewed.
 - Requested: 2026-10-26, following local alpha.1 review.
 - Parent: BL-029; export wording also relates to BL-004.
 
@@ -702,7 +703,7 @@ Source-picker primary Save now carries an explicit affirmative semantic. Update 
 
 ## BL-035: Fine seam in the Mod switch's On segment
 
-- Status: Implemented for local review; owner UAT/visual acceptance pending.
+- Status: Accepted by the owner (macOS review of 0.6.0-alpha.2, 2026-10-26); Windows not reviewed.
 - Requested: 2026-10-26, following local alpha.1 review.
 - Parent: BL-026.
 
@@ -716,7 +717,7 @@ The switch bypassed NGUI's contiguous raster slicing: its active CSS mask and in
 
 ## BL-036: Consistent asset deletion for official, previewed and applied sources
 
-- Status: Implemented for local review; owner UAT/visual acceptance pending.
+- Status: Accepted by the owner (macOS review of 0.6.0-alpha.2, 2026-10-26); Windows not reviewed.
 - Requested: 2026-10-26, following local alpha.1 review.
 - Related: BL-015/BL-022 photograph protection, BL-001 atomic operations and existing library-source deletion.
 
@@ -767,7 +768,7 @@ no mockup or platform feasibility investigation is part of this documentation-on
 
 ## BL-038: Reflow Settings when Home is hidden in Student Hall
 
-- Status: Implemented for local review; owner UAT/visual acceptance pending.
+- Status: Accepted by the owner (macOS review of 0.6.0-alpha.2, 2026-10-26); Windows not reviewed.
 - Requested: 2026-10-26.
 - Parent: BL-028; coordinate native-control safe space with BL-037.
 
@@ -780,7 +781,7 @@ The Hall centers the native Settings sprite in Home’s former box and hides the
 
 ## BL-039: Missing Japanese directory causes server-switch error and blank Hall
 
-- Status: Implemented for local review; owner UAT/visual acceptance pending.
+- Status: Accepted by the owner (macOS review of 0.6.0-alpha.2, 2026-10-26); Windows not reviewed.
 - Requested: 2026-10-26.
 - Related: BL-030 support audit, but this is a separately reported settings/navigation failure.
 - Evidence: `codex-clipboard-dd0d548d-05d4-46af-a634-31af2a05b43c.png`, supplied by the owner.
