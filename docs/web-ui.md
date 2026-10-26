@@ -27,6 +27,47 @@ Game assets and development data are excluded from packages.
   unset-preference default is on; an explicitly saved startup-update opt-out remains off.
 - Out of scope for now: the other tool screens.
 
+## Student photography
+
+Local 0.6.0-alpha adds BL-015 photography to student details. The native fullscreen camera entry opens the actual
+portrait and memorial renderers; it never enlarges a thumbnail as its capture source. The centered 404:456 guide
+matches the student roster, optional thirds stay outside output, and the shutter writes a lossless native-pixel
+PNG directly to the library. Expression cards reuse the detail renderer's face cache. Mode switches retain ready
+resources, pause hidden clocks/audio and publish a complete frame in place. Route/variant changes invalidate
+pending work. Playback, Back and mode buttons reuse the approved native prefabs. The owner handles UAT/visual review.
+
+`photographs/` belongs to the movable/shared Mod library, not Preview Cache. Its atomic manifest retains per-student
+captures and App choices, IDs and SHA-256 digests; image publication rolls back if metadata cannot commit. Chosen
+App photographs and configured/applied game photographs cannot be deleted. Preview-cache clearing never removes
+captures. Save and App selection avoid unrelated game-writer status reads, and library moves include photographs
+even when no ordinary Mods exist. The roster/family payload's optional `thumbnail` field selects an App capture or an explicit verified
+default. `photography.changed {variant}` invalidates the roster without reloading an active camera.
+
+| RPC | Parameters | Result |
+| --- | --- | --- |
+| `photography.list` | `variant` | Captures, App choice, verified default URL, game intent/availability/error |
+| `photography.save` | `variant, png, mode, expression?, action?, source?` | Captures/App choice and saved ID; game status unchanged |
+| `photography.select` | `variant, id` (nullable) | Captures and updated App choice; game status unchanged |
+| `photography.delete` | `variant, id` | Updated gallery after protected deletion |
+| `photography.apply` | `variant, id` (nullable) | Actual writer job ID |
+| `photography.restore` | `variant` | Default restore job ID; clears App choice after success |
+
+Capture uploads are bounded to 48 MiB encoded PNG data and 4096 pixels per dimension. Only the save RPC receives the
+larger HTTP body allowance; other RPCs retain the 4 MiB bound. Assets use ID routes
+`/asset/photography/<variant>/<id>.png`. Defaults use
+`/asset/photography/default/<install-id>/<variant>.png?revision=<resource-version>` and verified original bundles;
+a changed current install cannot silently serve another install's default.
+
+Game Apply targets `UICharacterCollectionPopulatorUnit/Grid/UICollectCard/Char_Portrait`, not formation or Tactical
+Challenge icons. Collection bundles can contain hundreds of images; the composer changes only selected named
+textures and checks unchanged object bytes/resource streams. New captures use native dimensions/mipmaps and
+lossless RGBA32; restoring one texture inlines its exact original GPU payload. All-default compositions restore
+original bundle bytes. Generated composite sources are internal managed `other` Mods with per-texture photo
+recipes; the existing protected writer, rollback journal, official backups, pin checks and master-switch manifests
+apply. Mods off configures only; On installs. Game errors retain retryable intent instead of a false success.
+Dated Collection batches have distinct slots; old configuration keys migrate safely, and photo-only recipes can
+rebuild against changed batches. App-only photograph choices remain independent of game intent.
+
 ## Languages
 
 - The UI languages are the localization roadmap's M1 (`i18n.UI_LANGUAGES`: zh-CN, zh-TW, en-US, ja-JP, ko-KR), all
@@ -206,9 +247,15 @@ The collection art is read where the game loads it: CostumeExcel's `CollectionBG
 it holds names and bundle locations only, in memory. `/asset/art/bg/` serves only names starting with `BG_`,
 `/asset/art/portrait/` only `Student_Portrait_`.
 
-`model_glb` reads the prefab bundles, then only the bundles its objects point into (a CAB name index built from the
-bundle headers). The GLB is never written to disk; the memory entry is reused while every bundle the export read is
-unchanged.
+`model_glb` reads prefab bundles and resolves their external CABs on demand. Model, memorial and office graphs
+share the revision-checked `gameassets/cabs.py` resolver: same-character/group bundles, then prolog/common bundles,
+then the remaining directory, stopping once all requested names are found. Graph traversal batches metadata writes.
+The optional preview cache persists bounded, checksummed CAB metadata across launches, confined to the installation
+and checked by device, inode, size, mtime and ctime. Source changes, new dependencies and cache clears invalidate
+stale mappings. The shared `unityfs.py` parser reads only header/block info and uses the declared bundle length to
+ignore CRC-correction tails. Export locks, cleanup, overrides and missing-dependency safeguards remain in place.
+Complete GLBs can use the separately consented lossless preview cache; partial exports stay memory-only. Every cache
+hit revalidates the dependencies recorded by its export.
 
 The GLB carries what the game's shaders need: per material its shader, shading kind, constants (`colors` as stored,
 `vectors` naming the Vector properties and `hdr` the HDR Color properties the game passes unconverted; it converts
@@ -834,7 +881,7 @@ stops the server (the page shows Closed); with `--serve` it gives `native_unavai
 | `roster.list` | families with variants, mod counts, fresh flags, favourites, recent order, `added` (when the newest own mod was added), `aliases` per family and per variant (matched by the search, never shown), `custom` per family (the user's own aliases), `configured` manifest sources and independent `previewSources`; reads one library snapshot, without physical `selection` verification (available through `family.get`); without scan consent Replaced comes from the library's records only |
 | `settings.get` / `settings.set {key, value}` | the settings popup's values; key `roster` keeps the student list's view (merge, segment filters, sort, order, filter groups; `webui/state.py roster_view`); `lobbyZoom` is `{mode, custom}` in `settings.get`, set by keys `lobbyZoom` (`game`, `art`, `unlocked`, `custom`) and `lobbyZoomCustom` (1.0 to 4.0 game views across, kept in 0.1 steps); `lobbyPost` and `lobbyIntro` (the lobby's post-processing and its intro, on by default); the booleans `tray` (the tray or menu bar icon) and `classicPrompt` (the hand-off prompt); `settings.get` adds `traySupported` |
 | `family.get {key}` | a family with its variants (and `aliases` and `custom`, as in `roster.list`), mods and each variant's state, judged cheaply (`copy`, `restorable` and `official` per file; Needs Fix only from the record of the switch that wrote the file); `configured {spr, lobby}` per variant (the sources of its primary cores); `modelFiles` per variant (the 3D model's prefab bundles, newest first, `fixed` or `ok` from the header) and `version` (the game's resource version, so a switched install reloads the screen); `modList` by the variant the current catalog gives each mod's core |
-| `lobby.warm` | builds the memorial lobby prefab index and the index of every bundle's CABs (the particle effects' materials, textures and meshes) in the background (once per game); the detail screen calls it for a variant with a lobby |
+| `lobby.warm` | builds the memorial lobby prefab index in the background once per game; dependency CABs resolve on demand instead of triggering an eager full-directory index |
 | `lobby.lines {variant, talks, lang}` | `{clip: {lang: text, voice}}`: zh-CN from Kivo, ja from Kivo else the Global server, en, zh-TW, ko and th from the Global server (read only for a `lang` other than zh-CN, left out when its table is not in within 3 s); `talks` (`{animation: [clip ids]}` from the skeleton) places the Global rows on the clips; `lines_unavailable` when neither source can be read |
 | `debug.trace {events}` | the fullscreen lobby's input events, logged (logger `ba_modding_toolkit.webui.trace`, and `input-trace.log` in the data directory) only when the app was started with `--debug`; ignored otherwise |
 | `preview.failed {url, step, error}` | bounded browser preview diagnostics in the session log, including release builds |
@@ -1242,6 +1289,17 @@ import list and its view controls, stays available within the session.
 
 ### Student Hall
 
+The working tree after 0.5.0 adds the 0.5.1-alpha caption and scene-camera fixes described in BL-009.
+`dialogue-text.js` keeps Chinese subtitle fallback within Chinese scripts. Preferred-source readiness and late
+caption enrichment preserve the current voice and expression timeline; language changes also update a retained
+memorial scene without replaying it. Ordinary flat voice indices count voiced rows, not dialogue groups.
+
+`student-hall-camera.js` owns a temporary non-editing scene view (50–300%). Mouse wheels and touchpad pinches zoom;
+two-finger swipes pan. It reuses the detail viewer's wheel/trackpad classification, including WebKit gesture and
+ctrl-wheel deduplication. The portrait renderer changes its shared viewport rather than scaling a captured canvas;
+background layers, actor hits and balloons use the same projection. Layout state and resource identities are
+preserved. Editing and modal controls retain their own input, and disposal removes camera listeners and frames.
+
 `student-hall.js` renders portrait-composition and memorial-lobby modes with the game's `UILobby` controls and
 `UILobbyCharacterSelectPopup_Slot` editor cards. Local actions precede the mode switch at the upper right. The global
 Home control comes from `UICharacterCollection/NUITop_Scenes/Top/Right/Lobby`; no bottom-nav Hall entry is added.
@@ -1282,7 +1340,7 @@ are canonicalized on read without writing a migration, preserving the active sou
 six-column native formation cards on the left, landscape candidates on the right and the draggable draft playlist
 below, on a pale native rounded panel. Green selection outlines have no check or sequence number. Picker toolbars
 reuse the roster row without its screen title; playlist cards omit name strips and headings. Pointer capture implements
-reordering in WebKit: the source remains at 50% opacity, a thumbnail follows the pointer, and a native blue gradient
+reordering in WebKit: the source remains at 50% opacity, a thumbnail follows the pointer, and a 2-stage-pixel solid native formation-blue line
 marks the insertion gap without highlighting another card. Grab targets include the entire area above Remove.
 Mouse and pen drag directly. Touch swipes pan the queue; a 260 ms hold starts reordering, tolerating small finger
 jitter and lifting the ghost clear of the finger. Reordering owns its pointer stream, excluding simultaneous list
@@ -2180,3 +2238,9 @@ Each launch rotates the current log through `.1` and `.2` before service constru
 app/build, OS, web view, home-redacted data directory and safe-mode state. Exception hooks are installed before
 opening the log. Failed creation, rotation or opening falls back to a temporary log, then stderr. The report and
 Settings log viewer follow the active log path.
+
+
+Outside layout editing, `student-hall-camera.js` projects the entire portrait composition and background through a
+shared temporary camera, from 100% (the default view) to 300%. Wheel, pinch and animated zoom-out all stop at the
+default size; the scene can pan only within its magnified bounds. UI controls retain their normal size. Camera
+updates do not reload actors or mutate saved positions, individual scales or the layout-editing size slider.
