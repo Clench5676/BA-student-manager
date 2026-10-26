@@ -31,10 +31,10 @@ const selectedKey=key=>key===DEFAULT?null:key;
 async function generatedPNG(){const img=await NGUI.load(generatedThumbnail),canvas=document.createElement('canvas');canvas.width=img.naturalWidth||img.width;canvas.height=img.naturalHeight||img.height;canvas.getContext('2d').drawImage(img,0,0);return canvas.toDataURL('image/png');}
 const stage=()=>document.getElementById('stage');
 const tick=()=>new Promise(resolve=>requestAnimationFrame(resolve));
-const waitFrame=async()=>{await tick();await tick();};
+const waitFrame=async(delay=0)=>{if(delay)await new Promise(resolve=>setTimeout(resolve,delay));await tick();await tick();};
 async function repositoryRead(){const key=sessionVariant,value=await call('list');if(key!==sessionVariant)throw new DOMException('Photography ended','AbortError');repository=normalized(value);return repository;}
 function errorText(error){return error.code?T(`error.${error.code}`,error.params||{}):P('captureFailed');}
-function safe(fn){return (...args)=>Promise.resolve().then(()=>fn(...args)).catch(error=>{if(error.name==='AbortError')return;if(error.code==='capture_not_ready'){console.warn('Capture deferred until a valid frame is available');return;}console.error('Photography action failed',error);return Popup.message({title:P('failed'),lines:[errorText(error)],ok:P('confirm')});});}
+function safe(fn){return (...args)=>Promise.resolve().then(()=>fn(...args)).catch(error=>{if(error.name==='AbortError')return;console.error('Photography action failed',error);return Popup.message({title:P('failed'),lines:[errorText(error)],ok:P('confirm')});});}
 function node(name,widgets,children=[]){return {name,active:true,pos:[0,0],scale:[1,1,1],rotZ:0,widgets,children};}
 let whiteTemplate;
 async function whiteButton(host,name,caption,box,action,{icon=null,atlas='Common',pressed=false,enabled=true}={}){
@@ -91,7 +91,7 @@ export async function visualEntry(on){
 }
 async function open(hooks){
   if(active)return;bridge=hooks;const scope=++generation;sessionVariant=hooks.info().variant;
-  active=true;mode=hooks.info().mode==='lobby'?'lobby':'portrait';paused=false;expanded=false;
+  active=true;saving=false;mode=hooks.info().mode==='lobby'?'lobby':'portrait';paused=false;expanded=false;
   document.documentElement.classList.add('photo-active');
   try{
     await Loading.task(async()=>{
@@ -106,7 +106,7 @@ async function open(hooks){
   }catch(error){if(scope!==generation||error.name==='AbortError')return;active=false;document.documentElement.classList.remove('photo-active');overlay?.remove();throw error;}
 }
 async function leave(){
-  if(!active||leaving)return;leaving=true;
+  if(!active||leaving)return;leaving=true;generation++;
   try{
     modal?.close();modal=null;
     await Loading.task(async()=>{
@@ -135,7 +135,7 @@ function panSurface(host){
   const pair=()=>{const [a,b]=[...pointers.values()];return {x:(a.x+b.x)/2,y:(a.y+b.y)/2,d:Math.hypot(a.x-b.x,a.y-b.y)};};
   surface.addEventListener('pointerdown',event=>{if(event.button!==0)return;pointers.set(event.pointerId,{x:event.clientX,y:event.clientY});surface.setPointerCapture(event.pointerId);if(pointers.size===2)pinch=pair();event.preventDefault();});
   surface.addEventListener('pointermove',event=>{
-    const old=pointers.get(event.pointerId);if(!old)return;
+    const old=pointers.get(event.pointerId);if(!old||saving)return;
     pointers.set(event.pointerId,{x:event.clientX,y:event.clientY});
     if(pointers.size===2){const next=pair();if(pinch){const [x,y,k]=anchor(next.x,next.y);if(pinch.d>0)bridge.zoom(next.d/pinch.d,x,y);bridge.pan((next.x-pinch.x)*k,(next.y-pinch.y)*k);}pinch=next;}
     else if(pointers.size===1){const k=1920/stage().getBoundingClientRect().width;bridge.pan((event.clientX-old.x)*k,(event.clientY-old.y)*k);}
@@ -143,7 +143,7 @@ function panSurface(host){
   });
   for(const type of ['pointerup','pointercancel','lostpointercapture'])surface.addEventListener(type,event=>{pointers.delete(event.pointerId);pinch=null;});
   surface.addEventListener('wheel',event=>{
-    event.preventDefault();const [x,y,k]=anchor(event.clientX,event.clientY),unit=event.deltaMode===1?40:event.deltaMode===2?800:1,now=performance.now();
+    event.preventDefault();if(saving)return;const [x,y,k]=anchor(event.clientX,event.clientY),unit=event.deltaMode===1?40:event.deltaMode===2?800:1,now=performance.now();
     if(event.ctrlKey){if(now<pinchUntil)return;bridge.zoom(Math.exp(-event.deltaY*unit*.01),x,y);}
     else{const kind=wheelKind(event,now,scroll);scroll={kind,at:now};
       if(kind==='mouse'&&Math.abs(event.deltaY)>=Math.abs(event.deltaX))bridge.zoom(Math.exp(-Math.sign(event.deltaY)*Math.max(Math.abs(event.deltaY*unit),wheelStep(event)==='notch'?40:0)*.0015),x,y);
@@ -151,7 +151,7 @@ function panSurface(host){
     }redraw();
   },{passive:false});
   surface.addEventListener('gesturestart',event=>{event.preventDefault();gesture=1;pinchUntil=performance.now()+300;});
-  surface.addEventListener('gesturechange',event=>{event.preventDefault();pinchUntil=performance.now()+300;const [x,y]=anchor(event.clientX,event.clientY);bridge.zoom(event.scale/gesture,x,y);gesture=event.scale;redraw();});
+  surface.addEventListener('gesturechange',event=>{event.preventDefault();if(saving)return;pinchUntil=performance.now()+300;const [x,y]=anchor(event.clientX,event.clientY);bridge.zoom(event.scale/gesture,x,y);gesture=event.scale;redraw();});
   surface.addEventListener('gestureend',event=>{event.preventDefault();pinchUntil=performance.now()+300;});
   surface.addEventListener('contextmenu',event=>event.preventDefault());
 }
@@ -188,7 +188,7 @@ async function playbackButton(host){
   tree.widgets.find(w=>'sprite' in w).depth=60;
   for(const child of tree.children)for(const widget of child.widgets||[])widget.depth=65;
   await NGUI.render(tree,host,{scale,origin:[x+width/2,991],textureNames:textures});
-  const hit=hitButton(host,[x,950,width,82],safe(async()=>{paused=!paused;bridge.pause(paused);await drawControls();}),P(paused?'play':'pause'),90);
+  const hit=hitButton(host,[x,950,width,82],safe(async()=>{if(saving)return;paused=!paused;bridge.pause(paused);await drawControls();}),P(paused?'play':'pause'),90);
   hit.dataset.photoAction='Playback';hit.setAttribute('aria-pressed',String(paused));
 }
 
@@ -237,13 +237,13 @@ async function drawControls(){
         const key=items[index],preview=await bridge.expressionPreview(key),x=6+(index%box.columns)*146,y=Math.floor(index/box.columns)*box.rowHeight;
         const tree=bridge.expressionCard(key,preview),scale=128/242,height=209*scale;
         await NGUI.render(tree,area,{scale,origin:[x+64,y+height/2]});
-        const hit=hitButton(area,[x,y,128,height],safe(async()=>{bridge.setExpression(key);await drawControls();}),key==='00'?P('natural'):`${P('expressions')} ${key}`,90);
+        const hit=hitButton(area,[x,y,128,height],safe(async()=>{if(saving)return;bridge.setExpression(key);await drawControls();}),key==='00'?P('natural'):`${P('expressions')} ${key}`,90);
         hit.setAttribute('aria-pressed',String(key===bridge.expression()));
       })());
     }else{
       const sequences=entries;
       const actionArea=UI.area(layer,[box.x+12,box.y+12,box.columns*196,box.rows*61],box.contentHeight,'photo-actions');
-      for(let index=0;index<sequences.length;index++)buttons.push(UI.button(actionArea,'Sequence'+index,sequences[index].anim,[6+(index%box.columns)*196,Math.floor(index/box.columns)*61,185,53],safe(async()=>{paused=false;bridge.play(sequences[index].anim);await drawControls();})));
+      for(let index=0;index<sequences.length;index++)buttons.push(UI.button(actionArea,'Sequence'+index,sequences[index].anim,[6+(index%box.columns)*196,Math.floor(index/box.columns)*61,185,53],safe(async()=>{if(saving)return;paused=false;bridge.play(sequences[index].anim);await drawControls();})));
     }
   }
   await Promise.all(buttons);
@@ -256,7 +256,7 @@ async function capture(){
   const scope=generation,key=sessionVariant,current=bridge,effects=feedback;
   const scoped={...current,pause:on=>{if(scope===generation)current.pause(on);}};
   try{
-    const result=await photograph({bridge:scoped,mode,paused,wait:waitFrame,capture:async()=>{
+    const result=await photograph({bridge:scoped,mode,paused,alive:()=>scope===generation&&active&&!leaving,wait:waitFrame,capture:async()=>{
       if(scope!==generation)throw new DOMException('Photography ended','AbortError');
       const shot=await captureScene(current.paintRoots(),stage());
       if(scope!==generation)throw new DOMException('Photography ended','AbortError');
@@ -265,7 +265,7 @@ async function capture(){
     if(scope!==generation)return;
     repository=normalized({...repository,...result});selected=result.saved;page=Math.floor(result.photos.length/6);
     overlay?.querySelector('.photo-shutter-ring')?.animate([{scale:'.9'},{scale:'1'}],{duration:140});
-  }finally{saving=false;}
+  }finally{if(scope===generation)saving=false;}
 }
 async function image(host,url,box,className='photo-large-image'){
   const img=document.createElement('img');img.className=className;img.alt=P('photoLabel');
@@ -273,7 +273,7 @@ async function image(host,url,box,className='photo-large-image'){
   Object.assign(img.style,{position:'absolute',left:box[0]+'px',top:box[1]+'px',width:box[2]+'px',height:box[3]+'px',zIndex:'70',pointerEvents:'none',objectFit:'contain'});img.src=url;host.append(img);await img.decode();return img;
 }
 async function openGallery(keepSelection=false){
-  bridge.pause(true);await repositoryRead();
+  if(saving)return;bridge.pause(true);await repositoryRead();
   if(!keepSelection)selected=repository.app||DEFAULT;
   const close=()=>{modal?.close();modal=null;bridge.pause(paused);};
   modal=UI.createModal(P('gallery'),close);

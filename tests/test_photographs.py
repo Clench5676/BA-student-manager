@@ -159,3 +159,39 @@ def test_family_gallery_has_independent_variant_counters_and_selections(tmp_path
     assert store.app_url('student_base') is None
     reopened = Photographs(tmp_path, lambda key: key.split('_')[0])
     assert reopened.image('student_base', b) == stream.getvalue()
+
+
+def test_manifest_flush_failure_restores_references_before_removing_image(tmp_path, monkeypatch):
+    gallery = Photographs(tmp_path)
+    first = gallery.save("a", capture()[0], "portrait")["saved"]
+    real = photographs.atomic_json
+    calls = []
+    def fail_after_replace(path, data):
+        real(path, data)
+        calls.append(path)
+        if len(calls) == 1:
+            raise OSError("Manifest directory flush failed")
+    monkeypatch.setattr(photographs, "atomic_json", fail_after_replace)
+    with pytest.raises(OSError):
+        gallery.save("a", capture()[0], "portrait")
+    fresh = Photographs(tmp_path)
+    assert [entry["id"] for entry in fresh.list("a")["photos"]] == [first]
+    assert len(list((gallery.root / "images").glob("*.png"))) == 1
+    assert fresh.image("a", first)
+
+
+def test_failed_save_rollback_retains_valid_published_bytes_without_success(tmp_path, monkeypatch):
+    gallery = Photographs(tmp_path)
+    real = photographs.atomic_json
+    calls = []
+    def fail(path, data):
+        calls.append(path)
+        if len(calls) == 1:
+            real(path, data)
+        raise OSError("Flush or rollback failed")
+    monkeypatch.setattr(photographs, "atomic_json", fail)
+    with pytest.raises(OSError):
+        gallery.save("a", capture()[0], "portrait")
+    fresh = Photographs(tmp_path)
+    for entry in fresh.list("a")["photos"]:
+        assert fresh.image("a", entry["id"])

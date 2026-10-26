@@ -2262,7 +2262,14 @@ const photoBridge={
   play(value){photoLastAction=value;Lobby.resume();if((Lobby.meta()?.sequences||[]).some(seq=>seq.anim===value))Lobby.play(value);
     else{Lobby.skipIntro();Lobby.stop();for(const p of Lobby.layerPlayers())if(p.skeleton?.data.findAnimation(value))p.animationState.setAnimation(0,value,true);}},
   pause(on){if(tab==='lobby'){if(on)Lobby.suspend();else{Lobby.resume();Lobby.interactive(false);}}else if(mainPlayer)mainPlayer.paused=on;},
-  async redraw(){if(tab==='lobby')await Lobby.prepareFrame();else mainPlayer?.drawFrame?.(false);},
+  async redraw(){
+    if(tab==='lobby'){if(await Lobby.prepareFrame())return;}
+    else if(mainPlayer?.skeleton){
+      if(mainPlayer.error||mainPlayer.disposed)throw new Error('Portrait renderer failed');
+      mainPlayer.drawFrame(false);return;
+    }
+    throw Object.assign(new Error('Renderer is not ready'),{code:'capture_not_ready'});
+  },
   pan(dx,dy){if(tab==='portrait')Visual.panCapture(dx,dy);else Lobby.panBy(dx,dy);},
   zoom(f,x,y){if(tab==='portrait')Visual.zoomCapture(f,x,y);else Lobby.zoomAt(f,x,y);},
   paintRoots:()=>tab==='portrait'?[$("visual-bg"),$("portrait")]:[$("lobby")],

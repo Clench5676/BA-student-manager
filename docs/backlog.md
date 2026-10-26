@@ -658,7 +658,7 @@ The native button is compacted with a fixed right edge and measured localized la
 
 ## BL-033: Remaining frame-not-ready photography modal
 
-- Status: Reopened defect. Investigation and correction not started; owner requested backlog only.
+- Status: Implemented for local review; owner UAT/visual acceptance pending.
 - Requested: 2026-10-26, following local alpha.1 review.
 - Parent: BL-023.
 
@@ -667,6 +667,8 @@ path. Trace the actual failing capture/save/apply path and error propagation rat
 retry or message suppression as proof of a fix. Recover transient readiness in the background while preserving
 framing, pose, playback and session ownership; finish with a valid, durably saved image. Prevent duplicate or stale
 publication. Keep genuine storage/format/permanent failures distinguishable and never display a false success.
+
+Redraw readiness was outside the retry boundary, transparent frames passed the canvas check, and uncoded failures used the readiness caption. Capture now retries preparation and pixel readiness with session ownership, reports permanent failures separately, and preserves image/manifest consistency on publication failure.
 
 ## BL-034: Correct gold-button scope and applied-Mod export label
 

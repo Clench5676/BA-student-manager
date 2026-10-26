@@ -164,6 +164,7 @@ class Photographs:
         with self._lock, file_lock(self.root / "index.lock"):
             self._cached = None
             data = copy.deepcopy(self._read())
+            before = copy.deepcopy(data)
             counters = data.setdefault("next_by_variant", {})
             number = max(counters.get(variant, 1), max((int(item.get("number", 0)) + 1
                          for item in data["photos"].values() if item["variant"] == variant and not item.get("builtin")), default=1))
@@ -195,7 +196,13 @@ class Photographs:
                 self._write(data)
             except BaseException:
                 temporary.unlink(missing_ok=True)
+                # A manifest rename can succeed before its directory flush fails.
+                # Restore it before removing the image; retain valid bytes if rollback fails.
+                self._cached = None
+                if self._read()["photos"].get(key):
+                    self._write(before)
                 path.unlink(missing_ok=True)
+                sync_directory(path.parent)
                 raise
         return {**self.list(variant), "saved": key}
 
