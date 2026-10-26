@@ -49,8 +49,7 @@ test('native bounds cause a horizontal move only on a strict intersection', () =
 
 // Source boxes retain prefab sizes. Sibling groups move together, preserving their original gaps.
 const visual = [171 * S, 116 * S], hall = [156 * S, 104 * S];
-const visualHit = [(171 - 228.83) * S / 2, (116 - 165) * S / 2, 228.83 * S, 165 * S];
-const visualTop = [['top-left', [0, 0, ...visual], visualHit], ['top-right', [0, 0, ...visual], visualHit]];
+const visualTop = [['top-left', [0, 0, ...visual]], ['top-right', [0, 0, ...visual]]];
 const scenes = [
   ['Student Hall', false, [['top-right', [1875 - (4 * hall[0] + 60), 145 - hall[1] / 2, 4 * hall[0] + 60, hall[1]]]]],
   ['Student Hall fullscreen', true, [['top-right', [1875 - hall[0], 145 - hall[1] / 2, ...hall]]]],
@@ -68,27 +67,23 @@ for (const locale of locales) for (const platform of [null, 'darwin', 'win32']) 
     for (const [width, height] of [[960, 540], [1600, 900], [2560, 1440], [2560, 1080], [960, 1200]]) for (const density of [1, 2, 3]) {
       const g = geometry(width, height, platform, immersive);
       const topEdges = [];
-      for (const [corner, box, collisionBox = box] of groups) {
-        const result = cornerBox(box, { ...g, corner, collisionBox });
+      for (const [corner, box] of groups) {
+        const result = cornerBox(box, { ...g, corner });
         const rect = { left: g.stage.left + result[0] * g.scale, top: g.stage.top + result[1] * g.scale };
         rect.right = rect.left + result[2] * g.scale; rect.bottom = rect.top + result[3] * g.scale;
         const right = corner.endsWith('right'), bottom = corner.startsWith('bottom');
         const top = immersive ? 0 : g.barBottom, margin = CORNER_MARGIN * g.scale;
-        const footprint = { left: rect.left + (collisionBox[0] - box[0]) * g.scale,
-          top: rect.top + (collisionBox[1] - box[1]) * g.scale };
-        footprint.right = footprint.left + collisionBox[2] * g.scale; footprint.bottom = footprint.top + collisionBox[3] * g.scale;
         const original = cornerBox(box, { ...g, native: null, corner });
-        const candidate = { left: g.stage.left + (original[0] + collisionBox[0] - box[0]) * g.scale,
-          top: footprint.top, bottom: footprint.bottom };
-        candidate.right = candidate.left + collisionBox[2] * g.scale;
+        const candidate = { left: g.stage.left + original[0] * g.scale, top: rect.top, bottom: rect.bottom };
+        candidate.right = candidate.left + box[2] * g.scale;
         const displaced = !bottom && g.native && overlap(candidate, g.native.bounds);
-        near((displaced ? (right ? g.native.bounds.left - footprint.right : footprint.left - g.native.bounds.right)
+        near((displaced ? (right ? g.native.bounds.left - rect.right : rect.left - g.native.bounds.right)
           : (right ? width - rect.right : rect.left)) * density, margin * density);
         near((bottom ? height - rect.bottom : rect.top - top) * density, CORNER_MARGIN * g.scale * density);
         if (!bottom) topEdges.push(rect.top);
         near(result[2], box[2]); near(result[3], box[3]);
         assert.ok(rect.left >= 0 && rect.right <= width && rect.top >= 0 && rect.bottom <= height);
-        if (g.native) assert.ok(!overlap(footprint, g.native.bounds), 'The complete clickable control clears native controls');
+        if (g.native) assert.ok(!overlap(rect, g.native.bounds), 'The visible control body clears native controls');
       }
       topEdges.forEach(y => near(y, topEdges[0]));
     }

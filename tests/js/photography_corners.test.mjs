@@ -14,8 +14,9 @@ const source = readFileSync(new URL('../../src/ba_modding_toolkit/web/js/photogr
 const visualSource = readFileSync(new URL('../../src/ba_modding_toolkit/web/js/visual-mode.js', import.meta.url), 'utf8');
 // Run the shared fullscreen renderer too; only asset loading and the DOM are stand-ins.
 const backCode = visualSource.match(/^const CENTRE = .*$/m)[0] + '\n' + visualSource.match(/^const HIT = .*$/m)[0]
-  + '\nconst CORNERS = [];\n' + visualSource.slice(visualSource.indexOf('export async function prepareBack('), visualSource.indexOf('// The same complete Back')).replace('export ', '')
-  + visualSource.slice(visualSource.indexOf('async function renderButtons('), visualSource.indexOf('// a button of the open visual mode'));
+  + '\n' + visualSource.match(/^const CORNERS = .*$/m)[0] + '\n'
+  + visualSource.slice(visualSource.indexOf('export async function prepare('), visualSource.indexOf('// open({parts')).replaceAll('export ', '')
+  + visualSource.slice(visualSource.indexOf('async function renderBg('), visualSource.indexOf('// a button of the open visual mode'));
 const code = backCode + '\n' + source.match(/^const CHOICE_ICONS=.*$/m)[0] + '\n' + source.slice(source.indexOf('let whiteTemplate;'), source.indexOf('export function attach'))
   + source.slice(source.indexOf('async function modeButton('), source.indexOf('async function choicePanel('))
   + source.slice(source.indexOf('async function drawControls('), source.indexOf('async function capture('));
@@ -58,7 +59,8 @@ const NGUI = await import('../../src/ba_modding_toolkit/web/js/ngui.js');
 
 for (const locale of ['en-US', 'zh-CN', 'zh-TW', 'ja-JP', 'ko-KR', 'th-TH']) for (const mode of ['portrait', 'lobby']) {
   test(`real ${mode} camera controls retain prefab dimensions and fit at all corner margins in ${locale}`, async () => {
-    const strings = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${locale}.json`, import.meta.url))).webui.photo;
+    const webui = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${locale}.json`, import.meta.url))).webui;
+    const strings = webui.photo;
     for (const platform of [null, 'darwin', 'win32']) for (const [width, height] of [[960, 540], [1600, 900], [2560, 1440], [2560, 1080], [960, 1200]]) {
       const scale = Math.min(width / 1920, height / 1080), stageLeft = (width - 1920 * scale) / 2, stageTop = (height - 1080 * scale) / 2, header = headerGeometry(width, height, platform === 'win32' ? 40 : 0, true);
       const doc = { createElement: () => new Element(), documentElement: { lang: locale },
@@ -69,7 +71,7 @@ for (const locale of ['en-US', 'zh-CN', 'zh-TW', 'ja-JP', 'ko-KR', 'th-TH']) for
       const hits = new Map(), overlay = new Element(); let leftCamera = 0;
       const env = { S, FRAME, OCCLUSION_BUTTON, TOOLBAR_CAPTION, document: doc, mode, overlay, active: true,
         controlsRevision: 0, grid: true, occlusion: false, expanded: false, paused: false, saving: false,
-        P: key => strings[key], clone: structuredClone, safe: fn => fn, alignIcon: async () => {}, bindCorner, anchoredCentre,
+        P: key => strings[key], clone: structuredClone, safe: fn => fn, alignIcon: async () => {}, bindCorner, anchoredCentre, press() {},
         buttonCenter: async el => ({ x: parseFloat(el.style.left) + parseFloat(el.style.width) / 2, y: parseFloat(el.style.top) + parseFloat(el.style.height) / 2 }),
         NGUI: { ...NGUI, find, render, layout: async name => layouts[name] },
         node: (name, widgets, children = []) => n(name, [0, 0], widgets, children),
@@ -77,7 +79,7 @@ for (const locale of ['en-US', 'zh-CN', 'zh-TW', 'ja-JP', 'ko-KR', 'th-TH']) for
           const dataset = {}; Object.defineProperty(hit, 'dataset', { value: new Proxy(dataset, { set(target, key, value) { target[key] = value; if (key === 'photoAction') hits.set(value, hit); return true; } }) }); return hit; },
         panSurface() {}, shutter: async () => {}, openGallery() {}, leave() { leftCamera++; }, switchMode() {},
         bridge: { playbackTree: () => ({ tree: n('PhotoPlayback', [0, 0], [spr('Common_Bg_Raius5px_Shadow', 145, 141)]), textures: {} }) } };
-      vm.runInNewContext(`${code}\nglobalThis.draw = drawControls;`, env);
+      vm.runInNewContext(`${code}\nglobalThis.draw = drawControls; globalThis.prepare = prepare; globalThis.exitControl = exitControl; globalThis.prepareSwitch = prepareSwitch;`, env);
       await env.draw();
       const rect = name => { const hit = hits.get(name); assert.ok(hit, name);
         const [dx, dy] = hit.parentElement.style.translate.split(' ').map(parseFloat);
@@ -94,8 +96,25 @@ for (const locale of ['en-US', 'zh-CN', 'zh-TW', 'ja-JP', 'ko-KR', 'th-TH']) for
       near(b[2], 228.83 * S); near(b[3], 165 * S); assert.equal(backHit.label, strings.back);
       await backHit.action({ stopPropagation() {} }); assert.equal(leftCamera, 1);
       const overlap = (a, bounds) => a[0] < bounds.right / scale && a[0] + a[2] > bounds.left / scale && a[1] < bounds.bottom / scale && a[1] + a[3] > bounds.top / scale;
-      const native = globalThis.bamtWindowChrome?.bounds, backCandidate = [CORNER_MARGIN - dx, CORNER_MARGIN - dy, b[2], b[3]];
-      near(b[0], native && overlap(backCandidate, native) ? native.right / scale + CORNER_MARGIN : backCandidate[0]);
+      const native = globalThis.bamtWindowChrome?.bounds, backCandidate = [CORNER_MARGIN, CORNER_MARGIN, 171 * S, 116 * S];
+      near(b[0] + dx, native && overlap(backCandidate, native) ? native.right / scale + CORNER_MARGIN : backCandidate[0]);
+      const bodyRect = (group, sprite) => {
+        const [tx, ty] = group.style.translate.split(' ').map(parseFloat);
+        return [stageLeft / scale + parseFloat(sprite.style.left) + tx, stageTop / scale + parseFloat(sprite.style.top) + ty,
+          parseFloat(sprite.style.width), parseFloat(sprite.style.height)];
+      };
+      const cameraBox = bodyRect(backHit.parentElement, body);
+      const portrait = await env.prepare({ layout: layouts.UICharacterVisualMode,
+        strings: { back: webui.lobby.exit, switch: webui.row.switch.lobby, reset: webui.visual.reset } });
+      const exit = new Element('button'); await env.exitControl(exit, layouts.UICharacterVisualMode);
+      const lobbySwitch = await env.prepareSwitch({ layout: layouts.UICharacterVisualMode, label: webui.row.switch.portrait });
+      const sprite = (group, path) => group.children.find(el => el.dataset.path?.endsWith(path));
+      for (const box of [bodyRect(portrait.groups.Btn_Back, sprite(portrait.groups.Btn_Back, 'LeftTop/Btn_Back')), bodyRect(exit, exit)]) {
+        box.forEach((value, i) => near(value, cameraBox[i]));
+      }
+      for (const group of [portrait.groups.Btn_HideUI, lobbySwitch]) {
+        near(bodyRect(group, sprite(group, 'RightTop/Btn_HideUI'))[1], cameraBox[1]);
+      }
       const rightCandidate = [width / scale - CORNER_MARGIN - 538, CORNER_MARGIN, 538, 76];
       near(width / scale - rotate[0] - rotate[2], native && overlap(rightCandidate, native) ? (width - native.left) / scale + CORNER_MARGIN : CORNER_MARGIN);
       near(guide[1], rotate[1]); near(grid[1], rotate[1]); near(grid[0] - guide[0] - guide[2], 22); near(rotate[0] - grid[0] - grid[2], 22);
@@ -106,7 +125,11 @@ for (const locale of ['en-US', 'zh-CN', 'zh-TW', 'ja-JP', 'ko-KR', 'th-TH']) for
       for (const density of [1, 2, 3]) for (const name of hits.keys()) {
         const [x, y, w, h] = rect(name); assert.ok(x * scale * density >= 0 && (x + w) * scale * density <= width * density);
         assert.ok(y * scale * density >= 0 && (y + h) * scale * density <= height * density);
-        if (native) assert.ok(!overlap([x, y, w, h], native), `${name} clears native bounds at ${density}x`);
+        if (native) assert.ok(!overlap(name === 'Back' ? cameraBox : [x, y, w, h], native), `${name}'s visible body clears native bounds at ${density}x`);
+      }
+      if (platform === 'darwin' && width === 1600 && height === 900) {
+        assert.ok(overlap(b, native), 'The oversized collider may reach native controls without moving the body');
+        near(cameraBox[0], CORNER_MARGIN);
       }
     }
   });

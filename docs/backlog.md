@@ -1068,7 +1068,8 @@ seam from the Mod switch with the shared NGUI raster path (`ngui.js` `slicedImag
 
 ## BL-052: One corner-button margin across the App
 
-- Status: Owner review of alpha.7: the rest accepted on macOS; the fullscreen Back position must match (below); Windows not reviewed.
+- Status: Implemented for local review; owner UAT/visual acceptance pending.
+- Note: Native-control clearance uses visible button bodies across fullscreen views and both cameras; prefab hit areas stay intact, and the remaining alpha.7 macOS acceptance stands. Windows not reviewed.
 - Requested: 2026-10-26.
 - Related: BL-037 and BL-047.
 

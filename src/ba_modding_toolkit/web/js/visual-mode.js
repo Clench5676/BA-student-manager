@@ -251,7 +251,7 @@ async function renderButtons(pc, strings, corners = CORNERS, onPress = press) {
       made.push(NGUI.render(tree, el, { scale: S, origin: CENTRE, rootPath: "Inventory_ListControl_PC", texts: { Label_Locale_Reset: "" } }).then((view) => {
         const path = `Inventory_ListControl_PC/${corner}/${name}${corner === "RightBottom" ? "/Btn_RefreshPos" : ""}`;
         const body = view.nodes.get(path)?.els[0];
-        if (body) bindCorner(el, NGUI.rect(body), { corner: corner === "LeftTop" ? "top-left" : corner === "RightTop" ? "top-right" : "bottom-right", collisionBox: hitBox });
+        if (body) bindCorner(el, NGUI.rect(body), { corner: corner === "LeftTop" ? "top-left" : corner === "RightTop" ? "top-right" : "bottom-right" });
       }));
       if (hitBox) {
         const hit = hitButton(el, hitBox, (e) => { e.stopPropagation(); return onPress(name); }, labels[name]);

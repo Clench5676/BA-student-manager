@@ -1936,18 +1936,18 @@ for (const lang of ['en-US', 'zh-CN', 'zh-TW', 'ja-JP', 'ko-KR', 'th-TH']) test(
         assert.ok(sprite, path);
         const [dx, dy] = group.style.translate.split(' ').map(parseFloat), box = bounds(sprite);
         const right = corner.endsWith('right'), bottom = corner.startsWith('bottom');
-        const hit = button(group), footprint = hit ? bounds(hit) : box, margin = CORNER_MARGIN * k;
-        const actual = { left: stageLeft + (footprint[0] + dx) * k, top: stageTop + (footprint[1] + dy) * k };
-        actual.right = actual.left + footprint[2] * k; actual.bottom = actual.top + footprint[3] * k;
-        const candidate = { left: (right ? width - margin - box[2] * k : margin) + (footprint[0] - box[0]) * k,
+        const margin = CORNER_MARGIN * k;
+        const actual = { left: stageLeft + (box[0] + dx) * k, top: stageTop + (box[1] + dy) * k };
+        actual.right = actual.left + box[2] * k; actual.bottom = actual.top + box[3] * k;
+        const candidate = { left: right ? width - margin - box[2] * k : margin,
           top: actual.top, bottom: actual.bottom };
-        candidate.right = candidate.left + footprint[2] * k;
+        candidate.right = candidate.left + box[2] * k;
         const moved = !bottom && native && overlap(candidate, native.bounds);
         near(moved ? (right ? native.bounds.left - actual.right : actual.left - native.bounds.right)
           : (right ? width - stageLeft - (box[0] + dx + box[2]) * k : stageLeft + (box[0] + dx) * k), margin);
         near(bottom ? height - stageTop - (box[1] + dy + box[3]) * k : stageTop + (box[1] + dy) * k, margin);
         if (!bottom) topEdges.push(stageTop + (box[1] + dy) * k);
-        if (native) assert.ok(!overlap(actual, native.bounds), 'Clickable fullscreen controls clear native bounds');
+        if (native) assert.ok(!overlap(actual, native.bounds), 'Visible fullscreen controls clear native bounds');
       }
       topEdges.forEach(y => near(y, topEdges[0]));
       const [dx, dy] = exit.style.translate.split(' ').map(parseFloat);
@@ -1956,6 +1956,22 @@ for (const lang of ['en-US', 'zh-CN', 'zh-TW', 'ja-JP', 'ko-KR', 'th-TH']) test(
         top: margin, bottom: margin + parseFloat(exit.style.height) * k };
       near(x, native && overlap(candidate, native.bounds) ? native.bounds.right + margin : margin);
       near(stageTop + (parseFloat(exit.style.top) + dy) * k, margin);
+      for (const group of [parts.groups.Btn_Back, cameraBack]) {
+        const sprite = walk(group).find(el => el.dataset.path === 'Inventory_ListControl_PC/LeftTop/Btn_Back');
+        const [bx, by] = group.style.translate.split(' ').map(parseFloat), box = bounds(sprite);
+        [stageLeft + (box[0] + bx) * k, stageTop + (box[1] + by) * k, box[2] * k, box[3] * k]
+          .forEach((value, i) => near(value, [x, margin, parseFloat(exit.style.width) * k, parseFloat(exit.style.height) * k][i]));
+      }
+      if (platform === 'win32' && width === 2560 && height === 1440) {
+        for (const group of [parts.groups.Btn_HideUI, lobby]) {
+          const [tx, ty] = group.style.translate.split(' ').map(parseFloat), box = bounds(button(group));
+          const hit = { left: stageLeft + (box[0] + tx) * k, top: stageTop + (box[1] + ty) * k };
+          hit.right = hit.left + box[2] * k; hit.bottom = hit.top + box[3] * k;
+          assert.ok(overlap(hit, native.bounds), 'A collider-only overlap with Windows controls keeps the prefab hit area');
+          const sprite = walk(group).find(el => el.dataset.path === 'Inventory_ListControl_PC/RightTop/Btn_HideUI');
+          near(width - stageLeft - (parseFloat(sprite.style.left) + tx + parseFloat(sprite.style.width)) * k, margin);
+        }
+      }
     }
   } finally { holder.remove(); hosts.stage.getBoundingClientRect = oldRect; Object.assign(globalThis, old); }
 });

@@ -30,7 +30,7 @@ The 0.6.0 work is unreleased. Nothing has been tagged, pushed or published since
 | BL-049 | Accepted by the owner on macOS (alpha.7): page titles removed; Windows not reviewed |
 | BL-050 | Accepted by the owner on macOS (alpha.6); Windows not reviewed |
 | BL-051 | Accepted by the owner on macOS (alpha.6); Windows not reviewed |
-| BL-052 | Accepted on macOS (alpha.7) except the fullscreen Back placement, which must match the memorial lobby's; fix not started |
+| BL-052 | Implemented for local review; owner UAT/visual acceptance pending. Visible bodies govern native clearance for fullscreen and camera corners; prefab hit areas and the remaining alpha.7 macOS acceptance stay intact. Windows not reviewed. |
 | BL-053 | Accepted by the owner on macOS (alpha.7); Windows not reviewed |
 | BL-046 | Closed by the owner without UAT (CLI-only) |
 | BL-048 | Accepted: CLI no longer built, installed or released |
