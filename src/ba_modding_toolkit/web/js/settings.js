@@ -33,7 +33,13 @@ let otherMods = null, otherRequest = 0;
 
 const errorText = (err) => T(`error.${err.code || "internal"}`, err.params || { error: String(err) });
 async function call(fn) {
-  try { return await fn(); } catch (err) { notify(errorText(err), { kind: "error", error: err }); return null; }
+  try { return await fn(); } catch (err) {
+    if (err.code === "game_directory_missing" && ["global", "japan"].includes(err.params?.region)) {
+      // The game's notice caption, also used by Quit; UIPopup_Sort supplies the frame and lone Confirm button.
+      await Popup.message({ title: T("quit.title"), lines: [T(`settings.gameDirMissing.${err.params.region}`)], ok: T("picker.ok") });
+    } else notify(errorText(err), { kind: "error", error: err });
+    return null;
+  }
 }
 
 // --- rows ---
@@ -94,7 +100,7 @@ async function checkFiles() {
 
 // a value with one or two buttons on the right (folders, version, cache); long values wrap, never cut
 function valueRow(name, y, title, value, buttons, { below = false } = {}) {
-  const room = below ? 1440 : 1440 - buttons.length * 320;
+  const room = below ? 1440 : 1420 - buttons.length * 320;
   const f = wrapPath(value || T("settings.notSet"), 38, 30, room, 3);
   const lineH = f.fs * 1.3, blockH = Math.max(lineH * f.lines, 112);
   const h = 130 + blockH + 30 + (below ? 132 : 0), row = rowBase(name, y, h, title), hits = [];
@@ -184,7 +190,7 @@ function rows({ builtSize = null, sizeError = null } = {}) {
   const reveal = (path) => () => call(() => rpc("os.reveal", { path }));
   const browse = (key, start) => async () => {
     const path = await call(() => rpc("settings.pickFolder", { start }));
-    if (path) set(key, path);
+    if (path) return set(key, path);
   };
   const open = T(platform === "mac" ? "open.mac" : "open.win");
   if (tab === "general") {
@@ -278,17 +284,18 @@ function rows({ builtSize = null, sizeError = null } = {}) {
     add(radioRow("Intro", 0, T("settings.intro.label"), [[true, T("settings.intro.on")], [false, T("settings.intro.off")]],
       p.lobbyIntro !== false, (v) => set("lobbyIntro", v)));
   } else {
-    const region = p.fileSource === "windows_japan" ? "japan" : "global";
     add(radioRow("Server", 0, T("settings.server.label"), [["windows_global", T("settings.server.global")], ["windows_japan", T("settings.server.japan")]],
       p.fileSource, (v) => set("fileSource", v)));
-    const dir = p.gameDirs[region];
-    add(valueRow("Game", 0, T("settings.gameDir"), dir, [
-      [T("settings.detect"), async () => {
-        const found = await call(() => rpc("settings.detectGame", { region }));
-        if (found?.length) set(`gameDir.${region}`, found[0]);
-        else if (found) notify(T("app.noGame.title"), { kind: "error", error: { code: "game_not_found" } });
-      }],
-      [T("settings.change"), browse(`gameDir.${region}`, dir), p.native]]));
+    for (const region of ["global", "japan"]) {
+      const dir = p.gameDirs[region];
+      add(valueRow(`Game_${region}`, 0, T(`settings.gameDirLabel.${region}`), dir, [
+        [T("settings.detect"), async () => {
+          const found = await call(() => rpc("settings.detectGame", { region }));
+          if (found?.length) return set(`gameDir.${region}`, found[0]);
+          if (found) notify(T("app.noGame.title"), { kind: "error", error: { code: "game_not_found" } });
+        }],
+        [T("settings.change"), browse(`gameDir.${region}`, dir), p.native]]));
+    }
     add(valueRow("Library", 0, T("settings.library"), p.libraryDir, [[open, reveal(p.libraryDir)], [T("settings.change"), browse("libraryDir", p.libraryDir), p.native]]));
     add(valueRow("Output", 0, T("settings.output"), p.outputDir, [[open, reveal(p.outputDir)], [T("settings.change"), browse("outputDir", p.outputDir), p.native]]));
   }

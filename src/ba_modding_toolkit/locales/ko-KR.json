@@ -1382,6 +1382,8 @@
 				"japan": "일본"
 			},
 			"gameDir": "게임 폴더",
+			"gameDirLabel": {"global": "글로벌 게임 폴더", "japan": "일본 게임 폴더"},
+			"gameDirMissing": {"global": "글로벌 게임 폴더 미설정", "japan": "일본 게임 폴더 미설정"},
 			"library": "모드 라이브러리",
 			"output": "클래식 도구 출력 폴더",
 			"detect": "자동 감지",

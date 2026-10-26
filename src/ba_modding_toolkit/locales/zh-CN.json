@@ -1382,6 +1382,8 @@
 				"japan": "日服"
 			},
 			"gameDir": "游戏目录",
+			"gameDirLabel": {"global": "国际服游戏目录", "japan": "日服游戏目录"},
+			"gameDirMissing": {"global": "未设置国际服游戏目录", "japan": "未设置日服游戏目录"},
 			"library": "Mod 仓库",
 			"output": "经典工具输出目录",
 			"detect": "自动检测",

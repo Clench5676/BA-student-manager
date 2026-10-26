@@ -1382,6 +1382,8 @@
 				"japan": "Japan"
 			},
 			"gameDir": "Game Folder",
+			"gameDirLabel": {"global": "Global Game Folder", "japan": "Japan Game Folder"},
+			"gameDirMissing": {"global": "Global game folder not set", "japan": "Japan game folder not set"},
 			"library": "Mod Library",
 			"output": "Classic Tools Output Folder",
 			"detect": "Detect",

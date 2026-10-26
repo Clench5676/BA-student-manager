@@ -1382,6 +1382,8 @@
 				"japan": "日服"
 			},
 			"gameDir": "遊戲資料夾",
+			"gameDirLabel": {"global": "國際服遊戲資料夾", "japan": "日服遊戲資料夾"},
+			"gameDirMissing": {"global": "未設定國際服遊戲資料夾", "japan": "未設定日服遊戲資料夾"},
 			"library": "Mod 倉庫",
 			"output": "經典工具輸出目錄",
 			"detect": "自動偵測",

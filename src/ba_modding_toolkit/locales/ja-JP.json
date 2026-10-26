@@ -1382,6 +1382,8 @@
 				"japan": "日本版"
 			},
 			"gameDir": "ゲームフォルダー",
+			"gameDirLabel": {"global": "グローバル版ゲームフォルダー", "japan": "日本版ゲームフォルダー"},
+			"gameDirMissing": {"global": "グローバル版ゲームフォルダー未設定", "japan": "日本版ゲームフォルダー未設定"},
 			"library": "MODライブラリ",
 			"output": "クラシックツールの出力フォルダー",
 			"detect": "自動検出",
