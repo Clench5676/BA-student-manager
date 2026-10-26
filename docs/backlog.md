@@ -756,7 +756,7 @@ Official provenance controls Delete visibility and direct-request rejection. Man
 
 ## BL-037: Design native window controls integrated into the top toolbar
 
-- Status: Design proposed for owner review; implementation not started.
+- Status: Native experiment in progress (owner-approved direction, 2026-10-26).
 - Requested: 2026-10-26.
 - Parent: BL-024.
 
@@ -770,6 +770,14 @@ areas, resizing, maximize/fullscreen, keyboard/accessibility behavior and narrow
 existing unsaved-change and active-writer close handling. Avoid overlapping native controls with Back, Settings,
 Home or the Mod switch. The owner's latest clarification explicitly defers the design itself into the backlog;
 no mockup or platform feasibility investigation is part of this documentation-only update.
+
+Owner decisions on `docs/design/window-controls.md` (2026-10-26): try M1 (real macOS traffic lights in the
+toolbar row, moved vertically to the bar's centre line) and W1 (system caption buttons top right; their vertical
+position follows the system). The owner gives feedback after the experiment. Narrow windows: keep one row and drop
+the "Enable Mods" caption text, keeping the switch and its help badge. Windows 11 is the primary target; Windows 10
+keeps working without dedicated optimisation. Close: every quit origin uses the existing unsaved-change prompt,
+a clean close needs no prompt, active writers still refuse. Immersion: native controls stay with a small drag
+background; add only the window/fullscreen keyboard commands needed.
 
 ## BL-038: Reflow Settings when Home is hidden in Student Hall
 
@@ -902,6 +910,10 @@ ring mesh has no corner fill: it is a 9 px outline whose alpha is only the mask,
 0.29 over white. The canvas is now a premultiplied layer that is never darker than the game's blend; which of these
 showed at the corners is for the owner to judge.
 
+Owner decisions (2026-10-26): keep the new glow compositing for review. Badge text by state: the yellow (applied)
+badge reads the existing "Applied" label (`webui.status.applied`, zh-CN `已应用`); the blue (previewed) frame gets the
+prefab's blue badge (`Common_Icon_Mulligan_2`) reading "Selected" (`webui.status.selected`, zh-CN `已选择`).
+
 ## BL-045: Separate Global and Japanese game directories
 
 - Status: Accepted by the owner (macOS review of 0.6.0-alpha.3, 2026-10-26); Windows not reviewed.
@@ -937,7 +949,7 @@ interrupted runs. Upstream's CLI options and the shared UnityFS reader are alrea
 
 ## BL-047: Fullscreen button left on a rotated fullscreen portrait
 
-- Status: Reopened by the owner (2026-10-26): the removal was wrong and is reverted.
+- Status: In progress (function confirmed by the owner, 2026-10-26).
 - Requested: 2026-10-26.
 - Related: the portrait view's rotate and fullscreen controls.
 
@@ -947,6 +959,9 @@ top-right corner. It must not be shown once the view is fullscreen; leaving full
 Owner correction (2026-10-26): the top-right button stays; its function should be switching the fullscreen view
 between the portrait and the memorial lobby. The removal of the button is reverted; the new function awaits the
 owner's confirmation of the exact behaviour.
+
+Owner confirmation (2026-10-26): in the fullscreen view the top-right button (double-arrow icon kept) switches
+between this skin's portrait and its memorial lobby; the Hide UI function is dropped.
 
 ## BL-048: Remove the CLI as a built and installed command
 
