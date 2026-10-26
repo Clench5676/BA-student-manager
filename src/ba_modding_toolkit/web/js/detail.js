@@ -1862,6 +1862,7 @@ async function enterVisual({ switching = false } = {}) {
   const parts = await Visual.prepare({ layout, bg: variant().bg, strings }).catch((err) => { console.error(err); return null; });
   if (!alive()) return;
   if (!(await Visual.open({
+    instant: switching,
     parts, skeleton: mainPlayer.skeleton, detail: detailViewport(), host: stage(), bgHost: $("visual-bg"), uiHost: $("visual-ui"),
     players: () => [...$("portrait").querySelectorAll(".layer")].map((l) => l.player).filter(Boolean),
     onBack: () => setFullscreen(false),
@@ -1887,7 +1888,8 @@ async function switchFullscreenView() {
   try {
     const ready = await changeInPlace(async () => {
       if (!alive()) return;
-      Visual.close({ instant: true });
+      // Retire the old renderer without writing the detail viewport during an immersive handoff.
+      Visual.close({ instant: true, restore: false });
       $("visual-ui").hidden = true;
       $("visual-ui").replaceChildren();
       showExit(false);

@@ -60,10 +60,10 @@ function screen() {
   return { stage, out, left, right, topbar, nav, bgHost, uiHost, zoom, lobbyTab, player };
 }
 // the visual mode without its prefab (no background, no buttons): the touch area and Escape
-function openVisual(s, onBack = () => {}, alive) {
+function openVisual(s, onBack = () => {}, alive, options = {}) {
   return Visual.open({
     parts: null, skeleton: { data: { x: -580, y: -747, width: 1161, height: 2074 } }, detail: { ...DETAIL },
-    host: s.stage, bgHost: s.bgHost, uiHost: s.uiHost, players: () => [s.player], onBack, alive,
+    host: s.stage, bgHost: s.bgHost, uiHost: s.uiHost, players: () => [s.player], onBack, alive, ...options,
   });
 }
 // the portrait's player draws frames until the glide ends
@@ -84,6 +84,8 @@ test("while a fullscreen view is open the slid-out UI is inert and the focus let
   assert.equal(document.activeElement, s.zoom, "the focus is back on the control that had it");
   s.stage.remove();
 });
+
+
 
 test("a focus outside the slid-out UI stays; none comes back to a control that is gone or while the screen is left", () => {
   let s = screen();
@@ -178,5 +180,22 @@ test("leaving glides the portrait back to the detail framing exactly and takes t
   assert.equal(s.bgHost.hidden, true);
   const { x, y, width, height } = s.player.currentViewport;
   assert.deepEqual({ x, y, width, height }, DETAIL);
+  s.stage.remove();
+});
+
+test("fullscreen handoff never restores the detail viewport or replays the portrait entry", async () => {
+  const s = screen();
+  await openVisual(s);
+  drawFrames(s);
+  const full = { ...s.player.currentViewport };
+  Visual.close({ instant: true, restore: false });
+  assert.deepEqual(s.player.currentViewport, full);
+  assert.equal(Visual.state(), null);
+  await openVisual(s, () => {}, undefined, { instant: true });
+  assert.equal(Visual.state().glide, null);
+  Visual.frame(s.player);
+  assert.deepEqual(s.player.currentViewport, full);
+  Visual.close({ instant: true });
+  assert.deepEqual(s.player.currentViewport, { ...DETAIL, padLeft: 0, padRight: 0, padTop: 0, padBottom: 0 });
   s.stage.remove();
 });

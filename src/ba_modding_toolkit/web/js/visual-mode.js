@@ -81,8 +81,8 @@ export async function open(o) {
   const home = homeView(box, { s: S, scale: parts ? NGUI.find(parts.pc, "Character/CharacterPos")?.scale?.[0] : undefined });
   const detail = viewOf(o.detail);
   const s = st = {
-    o, home, lim: limits(box, home), detail, view: detail, target: home, last: null,
-    glide: { from: detail, to: home, t0: null, ms: GLIDE_MS, kind: "open" },
+    o, home, lim: limits(box, home), detail, view: o.instant ? home : detail, target: home, last: null,
+    glide: o.instant ? null : { from: detail, to: home, t0: null, ms: GLIDE_MS, kind: "open" },
     groups: parts?.groups || {}, homeShown: null, ptrs: new Map(), pinch: null,
     scroll: { kind: null, at: -Infinity }, pinchUntil: -Infinity, gesture: 1,
   };
@@ -98,9 +98,11 @@ export async function open(o) {
     o.bgHost.classList.remove("on");
     o.bgHost.replaceChildren(...parts.bg);
     o.bgHost.hidden = false;
+    // A fullscreen handoff publishes its background without replaying the entry fade.
+    o.bgHost.style.transition = o.instant ? "none" : "";
     void o.bgHost.offsetWidth; // the fade starts from transparent
     o.bgHost.classList.add("on");
-    for (const [name, keys] of Object.entries(MOVING)) if (g[name]) slide(g[name], keys, false);
+    if (!o.instant) for (const [name, keys] of Object.entries(MOVING)) if (g[name]) slide(g[name], keys, false);
   }
   addEventListener("keydown", onKey);
   return true;
@@ -108,10 +110,10 @@ export async function open(o) {
 
 // close(): the buttons slide out, the background fades and the portrait glides back to the detail screen's framing;
 // instant: at once (the screen is being left)
-export function close({ instant = false } = {}) {
+export function close({ instant = false, restore = true } = {}) {
   const s = st;
   if (!s) return;
-  if (instant) { finish(s); return; }
+  if (instant) { finish(s, restore); return; }
   if (s.closing) return;
   s.closing = true;
   removeEventListener("keydown", onKey);
@@ -125,14 +127,14 @@ export function close({ instant = false } = {}) {
   setTimeout(() => finish(s), GLIDE_MS + 1000);
 }
 
-function finish(s) {
+function finish(s, restore = true) {
   if (s.finished) return;
   s.finished = true;
   if (st === s) st = null;
   removeEventListener("keydown", onKey);
   // exactly the detail screen's framing again
   const { x, y, width, height } = s.o.detail;
-  for (const p of s.o.players()) if (p?.currentViewport) Object.assign(p.currentViewport, { x, y, width, height, padLeft: 0, padRight: 0, padTop: 0, padBottom: 0 });
+  if (restore) for (const p of s.o.players()) if (p?.currentViewport) Object.assign(p.currentViewport, { x, y, width, height, padLeft: 0, padRight: 0, padTop: 0, padBottom: 0 });
   for (const host of [s.o.bgHost, s.o.uiHost]) { host.hidden = true; host.replaceChildren(); host.classList.remove("on"); }
 }
 

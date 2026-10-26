@@ -26,7 +26,7 @@ The 0.6.0 work is unreleased. Nothing has been tagged, pushed or published since
 | BL-040, BL-041, BL-043, BL-045 | Accepted by the owner on macOS (alpha.3); Windows not reviewed |
 | BL-042 | Accepted by the owner on macOS (alpha.4) |
 | BL-044 | Implemented for local review; owner UAT/visual acceptance pending. Review 1 badges widen leftward with official-view-verified L14/R36 runtime slices; review 2 art covers the prefab frame opening. |
-| BL-047 | Implemented; owner's macOS review of alpha.5 found defects (position reset before switching); fixes not started. |
+| BL-047 | Implemented for local review; owner UAT/visual acceptance pending. Direct fullscreen handoffs retain preview selection and skip detail framing restoration. |
 | BL-049 | Implemented for local review; owner UAT/visual acceptance pending. Caption-sized titles use DOM measurement in native and fallback rows. |
 | BL-050 | Implemented for local review; owner UAT/visual acceptance pending. Hall removes Back and reclaims its title slot with native clearance. |
 | BL-051 | Implemented for local review; owner UAT/visual acceptance pending. Bar/scrollbar slices share the NGUI raster; scale/DPR geometry verified. |

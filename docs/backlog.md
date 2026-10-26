@@ -982,7 +982,7 @@ interrupted runs. Upstream's CLI options and the shared UnityFS reader are alrea
 
 ## BL-047: Fullscreen button left on a rotated fullscreen portrait
 
-- Status: Implemented; the owner's macOS review of 0.6.0-alpha.5 found defects (below); fixes not started.
+- Status: Implemented for local review; owner UAT/visual acceptance pending. Fullscreen handoffs skip detail framing restoration and portrait entry transitions.
 - Requested: 2026-10-26.
 - Related: the portrait view's rotate and fullscreen controls.
 - Note: The prefab's RightTop button switches portrait and memorial lobby fullscreen; skins without a lobby omit it.
