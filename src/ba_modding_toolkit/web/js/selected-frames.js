@@ -2,6 +2,8 @@
 // Clone the frame and the badge. Both badge sprites (Common_Icon_Mulligan_1 / _2) already draw their own check;
 // the slot's number label (Mulligan_IndexLabel) carries the caption, a word instead of the game's number. SelectLine's
 // own Sprite (Common_Icon_Check_Y_Off, inactive in the prefab) is not cloned: it would be a second check.
+import { innerFrame } from './row-thumbnail.js';
+
 export const SELECTION_PREFAB = 'UIPopup_Mulligan';
 export const SELECTION_SLOT = 'Center/Popup/01/UIMulliganSlot';
 const child = (n, name) => n.children.find(c => c.name === name);
@@ -23,6 +25,16 @@ export function fitBadgeCaptions(slot, texts, fitGroup) {
   if (!box) return null;
   return fitGroup(texts, box.fontSize, BADGE_FONT_MIN, box.width, 1, { maxH: box.height })
     .map(fit => ({ text: fit.text, fontSize: fit.fs, overflow: !!fit.overflow }));
+}
+
+// Paint the entire opening of SelectLine / SelectLine_Sub, including its corners. A second rounded mask or
+// Common_Line_Raius20px cuts into that opening and exposes Common/BG. One source texel of underpaint stays under
+// the opaque stroke and covers nine-slice raster rounding; the prefab frame itself supplies the visible corners.
+export function selectionArtWindow(frame, meta, outline) {
+  const { clipPolygon, ...window } = innerFrame(widget(frame), meta,
+    { ...outline, insets: outline.insets.map(v => Math.max(0, v - 1)) },
+    { x: frame.pos[0], y: frame.pos[1] });
+  return window;
 }
 
 // caption: { text, fontSize } for this state's badge label, already fitted to badgeCaptionBox.

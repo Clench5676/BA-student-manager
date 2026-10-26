@@ -16,7 +16,8 @@ import { horizontalScroll } from "./horizontal-scroll.js";
 import * as Buttons from "./game-buttons.js";
 import { searchTree, sortBody, orderBody, pickerItems } from "./roster-widgets.js";
 import { resizeButton } from "./button-layout.js";
-import { fitBadgeCaptions, selectedFrame, SELECTION_PREFAB, SELECTION_SLOT } from "./selected-frames.js";
+import { fitBadgeCaptions, selectedFrame, selectionArtWindow, SELECTION_PREFAB, SELECTION_SLOT } from "./selected-frames.js";
+import { frameOutline } from "./row-thumbnail.js";
 import { T } from "./i18n.js";
 import { withTimeout } from "./async.js";
 import { DOT, RECRUIT, S, TAN10, advanceOf, clone, glyphsOf, hitButton, markedLabel, wrapPath } from "./util.js";
@@ -28,12 +29,20 @@ const hostOf = (h) => (typeof h === "string" ? document.getElementById(h) : h);
 // --- the prefabs, read once: the frame (required), the student list's tools and the checkbox (each optional: a
 // popup without them still works) ---
 let layouts = null, loading = null, frameLoading = null;
-let selectionLoading = null, selectionSlot = null;
+let selectionLoading = null, selectionSlot = null, selectionSprite = null, selectionOutline = null;
 export function selectionReady() {
-  return selectionLoading ||= NGUI.layout(SELECTION_PREFAB).then(tree => {
-    selectionSlot = find(tree, SELECTION_SLOT);
-    if (!selectionSlot) throw new Error("Starting-skill selection slot unavailable");
-  }).catch(error => { selectionLoading = null; throw error; });
+  if (selectionLoading) return selectionLoading;
+  const pending = Promise.all([NGUI.layout(SELECTION_PREFAB), NGUI.init()]).then(async ([tree]) => {
+    const slot = find(tree, SELECTION_SLOT);
+    if (!slot) throw new Error("Starting-skill selection slot unavailable");
+    const frame = find(slot, "SelectLine").widgets.find(w => "sprite" in w);
+    const outline = frameOutline(await NGUI.spritePixels(frame));
+    if (selectionLoading !== pending) throw new DOMException("Resource context changed", "AbortError");
+    selectionSprite = NGUI.atlasIndex()[frame.atlas || "Common"][frame.sprite];
+    selectionOutline = outline;
+    selectionSlot = slot;
+  }).catch(error => { if (selectionLoading === pending) selectionLoading = null; throw error; });
+  return selectionLoading = pending;
 }
 // The slot's number label holds Applied (yellow) or Selected (blue), fitted together to keep one size across source cards.
 export function selectionCaptions(slot = selectionSlot) {
@@ -442,7 +451,17 @@ export function listCard(it, x, y, selected, card = LP.card, kind = null) {
     tree.children = kids.filter(n => n.name !== "Select");
     const caption = (it.applied || selected) ? selectionCaptions()?.[it.applied ? "applied" : "preview"] : null;
     const frame = selectedFrame(selectionSlot, card, it.applied, selected, caption);
-    if (frame) tree.children.push(frame);
+    if (frame) {
+      const window = selectionArtWindow(frame, selectionSprite, selectionOutline);
+      const source = find(tree, "Thumb"), image = { ...source.widgets[0] };
+      const thumb = { ...source, pos: [window.x, window.y], widgets: [image] };
+      // Retain the pre-existing layout envelope; only the art underneath the selected frame changes.
+      Object.assign(image, { w_: window.width, h_: window.height, radius: 0 });
+      const overscan = Math.max(.15, window.height * TAN10 / (2 * window.width));
+      Object.assign(image, { imgLeft: `${-overscan * 100}%`, imgWidth: `${(1 + 2 * overscan) * 100}%` });
+      tree.children = tree.children.filter(n => n.name !== "Line").map(n => n === source ? thumb : n);
+      tree.children.push(frame);
+    }
   }
   return tree;
 }
@@ -1032,4 +1051,4 @@ export function notify(text, { kind = "info", error = null } = {}) {
 }
 
 // Prefabs and derived UI values belong to the selected installation.
-NGUI.onResourceChange?.(() => { layouts = loading = frameLoading = selectionLoading = selectionSlot = null; });
+NGUI.onResourceChange?.(() => { layouts = loading = frameLoading = selectionLoading = selectionSlot = selectionSprite = selectionOutline = null; });

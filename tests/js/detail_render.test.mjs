@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { register } from "node:module";
 import { test } from "node:test";
 import { switchPrefabs } from "./switch_prefabs.mjs";
-import { selectionPrefab } from "./selection_prefabs.mjs";
+import { selectionPrefab, selectionFramePixels, selectionSprite } from "./selection_prefabs.mjs";
 import { controls } from "./control_prefabs.mjs";
 import { visualPrefab } from "./visual_prefabs.mjs";
 const controlLayouts = controls();
@@ -65,6 +65,7 @@ class El {
       const fs = parseFloat(/([\d.]+)px/.exec(this.font)?.[1] || 10);
       return { width: [...s].reduce((w, c) => w + (/[\u2e80-\u9fff\u3000-\u303f\uff00-\uffef\uac00-\ud7af]/.test(c) ? fs : fs / 2), 0) };
     }, drawImage() {}, fillRect() {}, clearRect() {}, scale() {}, transform() {}, putImageData() {}, getImageData(_x, _y, width, height) {
+      if (width === 30 && height === 30) return selectionFramePixels();
       return { width, height, data: new Uint8ClampedArray(Array.from({ length: width * height }, () => [20, 40, 60, 255]).flat()) };
     } };
   }
@@ -104,6 +105,7 @@ const pendingDecodes = [], pendingPlayers = [];
 globalThis.Image = class {
   naturalWidth = 8; naturalHeight = 8;
   set src(url) {
+    if (url.includes('Common_Bg_Raius10px_Select')) this.naturalWidth = this.naturalHeight = 30;
     imageRequests.push(url);
     if (imageMode === "pending") pendingImages.push(this);
     else queueMicrotask(() => imageMode === "error" ? this.onerror?.() : this.onload?.());
@@ -233,7 +235,7 @@ const atlas = { Common: Object.fromEntries([...new Set([
   ...[...readFileSync(new URL("../../src/ba_modding_toolkit/web/js/detail.js", import.meta.url), "utf8").matchAll(/"(Common_[A-Za-z0-9_]+)"/g)].map((m) => m[1]),
   "Common_Bg_Raius10px_Select", "Common_Icon_Check_Y_Off", "Common_Icon_Mulligan_1", "Common_Icon_Mulligan_2", "Card_Select_Line_Blue", "Cafe_Icon_NameEdit", "Common_Icon_Reddot2", "School_Icon_Schedule",
   "Common_UIHide_Icon", "Common_Icon_Back", "Common_Empty", "Cafe_Icon_Rotate",
-])].map((name) => [name, { width: 8, height: 8 }])), Event: { Event_Icon_ClueSearch_857: { width: 8, height: 8 } } };
+])].map((name) => [name, name === 'Common_Bg_Raius10px_Select' ? selectionSprite : { width: 8, height: 8 }])), Event: { Event_Icon_ClueSearch_857: { width: 8, height: 8 } } };
 const reply = (data, status = 200) => ({ ok: status === 200, status, json: async () => data });
 let family, indexMode = "ready", layoutMode = "ready", lobbyMode = "pending", optionalPending = false, modsEnabled = true;
 let seenReply = async () => ({ result: null });

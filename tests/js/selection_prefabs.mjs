@@ -2,6 +2,20 @@
 // the number label's numbers are the prefab's own values (data, not assets).
 const n = (name, pos = [0, 0], widgets = [], children = []) => ({ name, pos, widgets, children, active: true, scale: [1, 1], rotZ: 0 });
 const sprite = (sprite, w_, h_, depth, color = '#ffffff/1.00') => ({ sprite, w_, h_, depth, color, pivot: 4, type: 1, incline: 0, prefabMarker: true });
+export const selectionSprite = { width: 30, height: 30, borderLeft: 14, borderRight: 14, borderTop: 14, borderBottom: 14 };
+// Synthetic rounded ring, using the measured sprite's dimensions and eight-texel opening insets. No game pixels.
+export function selectionFramePixels() {
+  const width = 30, height = 30, data = new Uint8ClampedArray(width * height * 4);
+  const rounded = (x, y, inset, radius) => {
+    const cx = Math.max(inset + radius, Math.min(width - inset - radius, x));
+    const cy = Math.max(inset + radius, Math.min(height - inset - radius, y));
+    return x >= inset && x <= width - inset && y >= inset && y <= height - inset && (x - cx) ** 2 + (y - cy) ** 2 <= radius ** 2;
+  };
+  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+    data.set([255, 255, 255, rounded(x + .5, y + .5, 0, 14) && !rounded(x + .5, y + .5, 8, 6) ? 255 : 0], (y * width + x) * 4);
+  }
+  return { width, height, data };
+}
 export function selectionPrefab() {
   const effect = (blue) => ({ system: { main: { size: [115], rotation: [0, Math.PI, 0], duration: 1.5, life: 1.5, delay: 0, ring: 1, speedScale: 1,
     color: { col: blue ? [0.00392, 0.05882, 0.98039, 1] : [1, 0.14902, 0, 1] } } },

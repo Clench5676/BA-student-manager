@@ -1,13 +1,52 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
-import { selectedFrame, sourceCardState, SELECTION_SLOT } from '../../src/ba_modding_toolkit/web/js/selected-frames.js';
+import { selectedFrame, selectionArtWindow, sourceCardState, SELECTION_SLOT } from '../../src/ba_modding_toolkit/web/js/selected-frames.js';
 import { frameMesh } from '../../src/ba_modding_toolkit/web/js/ngui-frame-fx.js';
-import { selectionPrefab } from './selection_prefabs.mjs';
+import { frameOutline } from '../../src/ba_modding_toolkit/web/js/row-thumbnail.js';
+import { sliceAxis, slicePoint } from '../../src/ba_modding_toolkit/web/js/sprite-slices.js';
+import { selectionPrefab, selectionSprite, selectionFramePixels } from './selection_prefabs.mjs';
 const at = (tree, path) => path.split('/').reduce((n, part) => n.children.find(c => c.name === part), tree);
 const slot = () => at(selectionPrefab(), SELECTION_SLOT);
 const walk = n => [n, ...(n.children || []).flatMap(walk)];
 const sprite = n => n.widgets.find(w => 'sprite' in w);
+
+for (const applied of [false, true]) test(`the prefab opening is covered at both left corners, applied=${applied}`, () => {
+  const outline = frameOutline(selectionFramePixels()), lean = Math.tan(Math.PI / 18);
+  assert.deepEqual(outline.insets, [8, 8, 8, 8]);
+  assert.equal(selectionSprite.borderLeft, 14, 'slice cuts are not painted stroke widths');
+  for (const card of [{ w: 312, h: 480 }, { w: 320, h: 704 }, { w: 790, h: 444.375 }, { w: 360, h: 360 }, { w: 250, h: 250 }, { w: 250, h: 226 }]) {
+    const frame = selectedFrame(slot(), card, applied, true), fw = sprite(frame);
+    const art = selectionArtWindow(frame, selectionSprite, outline);
+    assert.equal(art.radius, 0, 'only the prefab stroke shapes the visible opening');
+    assert.ok(!art.clipPolygon, 'a second rounded clip cannot cut into the frame opening');
+    assert.equal(art.incline, fw.incline);
+    for (const density of [1, 2, 3]) for (const scale of [960 / 2960, 1600 / 2960, 2560 / 2960, .59]) {
+      const ax = sliceAxis(30, 14, 14, fw.w_ * scale, scale, Math.max(2, density));
+      const ay = sliceAxis(30, 14, 14, fw.h_ * scale, scale, Math.max(2, density));
+      // The complete bounding box of the actual opening, hence every curved corner and straight span inside it.
+      for (const u of [8, 15, 22]) for (const v of [8, 15, 22]) {
+        const y = frame.pos[1] + fw.h_ / 2 - slicePoint(v, ay) / scale;
+        const x = frame.pos[0] + slicePoint(u, ax) / scale - fw.w_ / 2 + (y - frame.pos[1]) * lean;
+        const localX = x - art.x - (y - art.y) * lean, localY = y - art.y;
+        assert.ok(Math.abs(localX) < art.width / 2 && Math.abs(localY) < art.height / 2,
+          `${card.w}x${card.h}, ${scale} at ${density}x, opening (${u},${v}) is painted`);
+      }
+    }
+    if (card.w === 312) {
+      assert.deepEqual([art.x, art.y, art.width, art.height], [0, 7, 284, 452]);
+      // The old window is centred at (1,4), 296x454, radius 18. These points are inside the frame opening.
+      const inOldArt = (qx, y) => {
+        const x = qx - (1 - 4 * lean), dy = y - 4;
+        const cx = Math.max(-148 + 18, Math.min(148 - 18, x));
+        const cy = Math.max(-227 + 18, Math.min(227 - 18, dy));
+        return Math.abs(x) <= 148 && Math.abs(dy) <= 227 && (x - cx) ** 2 + (dy - cy) ** 2 <= 18 ** 2;
+      };
+      assert.equal(inOldArt(-135 - 7 * lean, 231.5), false, 'old top-left clipping exposes the base');
+      assert.equal(inOldArt(-141 - 7 * lean, -218), false, 'old bottom-left clipping exposes the base');
+    }
+  }
+});
 
 for (const [applied, previewed, state] of [[false, false, null], [false, true, 'preview'], [true, false, 'applied'], [true, true, 'applied']]) {
   test(`source state applied=${applied} previewed=${previewed}`, () => {

@@ -899,7 +899,7 @@ and display densities.
 
 ## BL-044: Applied and preview frames from the game's selected skill cards
 
-- Status: Implemented; the owner's macOS review of 0.6.0-alpha.5 found defects (below); fixes not started.
+- Status: Implemented for local review; owner UAT/visual acceptance pending. Review 2 corner coverage follows the prefab opening; review 1 badge widening remains on hold for an owner decision.
 - Note: Yellow badges read Applied and blue badges Selected, fitted at one shared size per locale; no second check, and the frame effect and compositing are unchanged.
 - Requested: 2026-10-26.
 - Related: BL-015, BL-022 and BL-036.

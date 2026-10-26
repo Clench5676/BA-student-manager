@@ -7,7 +7,7 @@ import { register } from "node:module";
 import { afterEach, test } from "node:test";
 import vm from "node:vm";
 import { switchPrefabs } from "./switch_prefabs.mjs";
-import { selectionPrefab } from "./selection_prefabs.mjs";
+import { selectionPrefab, selectionFramePixels, selectionSprite } from "./selection_prefabs.mjs";
 import { controls, insert } from "./control_prefabs.mjs";
 
 // --- a stand-in DOM: elements in a tree, ids, clicks, the focus and the window's key listeners ---
@@ -53,7 +53,8 @@ class El {
     ? e.className.split(" ").includes(selector.slice(1)) : e.tagName === selector.toUpperCase()) || null; }
   // a canvas: text is measured at 0.6 of its size per character
   getContext() { return { font: "", drawImage() {}, fillRect() {}, scale() {}, transform() {}, putImageData() {},
-    getImageData(_x, _y, width, height) { return { width, height, data: new Uint8ClampedArray(width * height * 4).fill(255) }; },
+    getImageData(_x, _y, width, height) { return width === 30 && height === 30 ? selectionFramePixels()
+      : { width, height, data: new Uint8ClampedArray(width * height * 4).fill(255) }; },
     measureText(s) { return { width: s.length * 0.6 * parseFloat(/([\d.]+)px/.exec(this.font)?.[1] || 10) }; } }; }
   toBlob(fn) { fn(new Blob()); }
   toDataURL() { return "data:image/png;base64,c3ludGhldGljLW1hc2s="; }
@@ -61,7 +62,10 @@ class El {
 globalThis.Image = class {
   naturalWidth = 8;
   naturalHeight = 8;
-  set src(_) { queueMicrotask(() => this.onload?.()); }
+  set src(url) {
+    if (url.includes('Common_Bg_Raius10px_Select')) this.naturalWidth = this.naturalHeight = 30;
+    queueMicrotask(() => this.onload?.());
+  }
 };
 let events;
 globalThis.EventSource = class {
@@ -145,7 +149,8 @@ globalThis.fetch = async (url, opts = {}) => {
   }
   if (url === "/asset/ui/atlases.json") return reply({ Common: Object.fromEntries(
     ["Common_Square_Bg", "Common_Bg_Raius10px", "Common_Btn_BG", "Common_Popup_Bg", "Common_Btn_Normal_B_C_Pt",
-      "Common_Bg_Raius10px_Select", "Common_Icon_Check_Y_Off", "Common_Icon_Mulligan_1", "Common_Icon_Mulligan_2", "Common_Line_Raius20px", "Common_Icon_Reddot2", "Card_Ability_Select_Line", "Card_Ability_Select_Line_Icon", "Cafe_Icon_NameEdit"].map((name) => [name, { width: 8, height: 8 }])) });
+      "Common_Bg_Raius10px_Select", "Common_Icon_Check_Y_Off", "Common_Icon_Mulligan_1", "Common_Icon_Mulligan_2", "Common_Line_Raius20px", "Common_Icon_Reddot2", "Card_Ability_Select_Line", "Card_Ability_Select_Line_Icon", "Cafe_Icon_NameEdit"].map((name) =>
+      [name, name === 'Common_Bg_Raius10px_Select' ? selectionSprite : { width: 8, height: 8 }])) });
   if (url === "/asset/ui/textures.json") return reply({ Scroll: "scroll.png" });
   if (url === "/asset/ui/layout/UICharacterCollectionPopulatorUnit.json") return reply(switchLayouts.unit);
   if (url === "/asset/ui/layout/UINonEquipmentInventory.json") return reply(switchLayouts.inventory);
@@ -2128,6 +2133,12 @@ test('source cards use the state badge and fitted locale caption in every picker
           const frame = NGUI.find(tree, 'Select');
           if (!applied && !previewed) { assert.equal(frame, null); continue; }
           const prefix = applied ? 'Applied' : 'Preview', caption = captions[applied ? 'applied' : 'preview'];
+          const art = NGUI.find(tree, 'Thumb'), image = art.widgets[0], border = frame.widgets[0];
+          assert.deepEqual(art.pos, frame.pos, 'art follows the prefab frame centre in every locale');
+          assert.ok(Math.abs(image.w_ - (border.w_ - 14)) < .01);
+          assert.ok(Math.abs(image.h_ - (border.h_ - 14)) < .01, 'fractional heights follow the shared nine-slice raster cuts');
+          assert.equal(image.radius, 0);
+          assert.equal(NGUI.find(tree, 'Line'), null, 'the old 20-unit-radius outline cannot show through the opening');
           assert.ok(!caption.overflow);
           assert.deepEqual(treeWalk(frame).flatMap(n => n.widgets.filter(w => 'sprite' in w).map(w => w.sprite)),
             ['Common_Bg_Raius10px_Select', applied ? 'Common_Icon_Mulligan_1' : 'Common_Icon_Mulligan_2']);

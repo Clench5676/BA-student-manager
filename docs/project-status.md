@@ -25,7 +25,7 @@ The 0.6.0 work is unreleased. Nothing has been tagged, pushed or published since
 | BL-037 | Implemented; owner's macOS review of alpha.5 found defects (drag, double-click, Window menu, top bar over immersive pages); fixes not started. Windows not reviewed. |
 | BL-040, BL-041, BL-043, BL-045 | Accepted by the owner on macOS (alpha.3); Windows not reviewed |
 | BL-042 | Accepted by the owner on macOS (alpha.4) |
-| BL-044 | Implemented; owner's macOS review of alpha.5 found defects (caption overflow, corner base colour); fixes not started. |
+| BL-044 | Implemented for local review; owner UAT/visual acceptance pending. Review 2 art covers the prefab frame opening; review 1 badge widening remains on hold for an owner decision. |
 | BL-047 | Implemented; owner's macOS review of alpha.5 found defects (position reset before switching); fixes not started. |
 | BL-049 through BL-053 | Open owner findings from the alpha.5 macOS review, not started |
 | BL-046 | Closed by the owner without UAT (CLI-only) |
