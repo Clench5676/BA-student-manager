@@ -4,7 +4,6 @@
 import * as NGUI from "./ngui.js";
 import { inkBounds } from "./student-hall-icons.js";
 import { barCentre, barPadding, extent, inkRect, moveBy, titlePx } from "./top-bar-layout.js";
-import { S } from "./util.js";
 
 let centre = barCentre(), fillRead = null, revision = 0, watching = false;
 
@@ -48,9 +47,10 @@ async function drawnInk(root, bar, filter = () => true) {
   return extent(rects);
 }
 
-// The title is the prefab's Label_Title size in the app's drawing size for its script, on every page.
+// Keep the owner's caption size on every page, retaining the prefab fill-centre alignment.
 export function sizeTitle(title) {
-  if (title) title.style.fontSize = `${titlePx(NGUI.fontSizeFor, title.textContent, S).toFixed(2)}px`;
+  const caption = document.querySelector(".ms-label");
+  if (title) title.style.fontSize = `${titlePx(caption ? parseFloat(getComputedStyle(caption).fontSize) : undefined)}px`;
 }
 
 const applied = new WeakMap(); // how far each element is moved now

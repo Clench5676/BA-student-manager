@@ -89,7 +89,8 @@ input[type="text"], input[type="search"], textarea { cursor: text; }
   padding-bottom: var(--bar-padding, 4.88px);
 }
 .back { position: absolute; left: -134px; top: 9px; width: 106.38px; height: 111.57px; }
-.title { margin-left: -12px; font: var(--w) 42px/1 var(--font); color: var(--navy-text); letter-spacing: 1px; }
+.topbar.hall-home .title { margin-left: -134px; }
+.title { margin-left: -12px; font: var(--w) 26px/1 var(--font); color: var(--navy-text); letter-spacing: 1px; }
 /* the game's top bar option button (Common_Top_Option_Btn tinted #466399) and the slanted divider before it */
 .top-option, .top-home { position: absolute; top: 7px; width: 50px; height: 50px; display: grid; place-items: center; }
 .top-option { right: 158px; }

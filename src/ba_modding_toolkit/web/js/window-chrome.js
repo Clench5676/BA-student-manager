@@ -1,8 +1,9 @@
 import { on, rpc } from "./api.js";
 import { T } from "./i18n.js";
 import { reflowTopActions } from "./nav.js";
-import { alignTopBar } from "./top-bar.js";
+import { alignTopBar, sizeTitle } from "./top-bar.js";
 import { fitStage } from "./util.js";
+import { naturalTextWidth } from "./top-bar-measure.js";
 import { headerGeometry, rowLayout, subtractRegions, expandRect } from "./window-layout.js";
 
 let snapshot = null, wrapper = null, placeholder = null, compact = false, scheduled = false, lastLayout = "";
@@ -43,17 +44,14 @@ function schedule() {
 function fitRow(header, scale, nativeLeft = 0) {
   const title = header.querySelector('.title'), mods = header.querySelector('.mod-switch'), label = mods?.querySelector('.ms-label');
   const option = header.querySelector('.top-option').getBoundingClientRect();
-  // Natural text widths must not depend on the last ellipsis or hidden caption.
-  const measure = (element) => {
-    const style = getComputedStyle(element), canvas = document.createElement('canvas'), ctx = canvas.getContext('2d');
-    ctx.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
-    return (ctx.measureText(element.textContent).width + Math.max(0, element.textContent.length - 1) * (parseFloat(style.letterSpacing) || 0)) * scale;
-  };
+  sizeTitle(title);
+  // Measure outside the clipped title and the potentially hidden compact caption.
+  const measure = (element) => naturalTextWidth(element, scale);
   const captionWidth = label ? measure(label) + 12 * scale : 0;
   const fixedMods = mods && !mods.hidden ? [...mods.children].filter((el) => el !== label)
     .reduce((width, el) => width + el.getBoundingClientRect().width, 12 * scale) : 0;
   const row = rowLayout({ scale, nativeLeft, rightStart: option.left - header.getBoundingClientRect().left,
-    titleWidth: measure(title), modsWidth: fixedMods + captionWidth, captionWidth, compact, modsVisible: !!mods && !mods.hidden });
+    titleWidth: measure(title), modsWidth: fixedMods + captionWidth, captionWidth, compact, hall: header.classList.contains("hall-home"), modsVisible: !!mods && !mods.hidden });
   compact = row.compact;
   header.style.setProperty('--native-left', `${row.shift / scale}px`);
   header.classList.toggle('mods-compact', compact);

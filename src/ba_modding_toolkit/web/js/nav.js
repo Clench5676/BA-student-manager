@@ -87,7 +87,13 @@ export async function renderNav(active = 0, opts = {}) {
 
 let topReady,topHall=false,topAvailable=true;
 const topBoxes={home:[44,7,50,50],option:[158,7,50,50],line:[120,12,3,32]};
-export function setTopActions(hall,available=true){topHall=hall;topAvailable=available;reflowTopActions();}
+export function setTopActions(hall,available=true){
+  topHall=hall;topAvailable=available;
+  document.querySelector('.topbar')?.classList.toggle('hall-home',hall);
+  const back=document.querySelector('.topbar .back');
+  if(back)back.hidden=hall||!back.onclick;
+  reflowTopActions();
+}
 export function reflowTopActions(){
   const stage=(globalThis.bamtWindowChrome ? document.querySelector('.topbar') : document.getElementById('stage'))?.getBoundingClientRect?.();
   const native=globalThis.bamtWindowChrome;
@@ -144,7 +150,7 @@ export function setTitle(text, onBack) {
   sizeTitle(title);
   const back = document.querySelector(".topbar .back");
   back.onclick = onBack || null;
-  back.style.visibility = onBack ? "visible" : "hidden";
+  back.hidden = topHall || !onBack;
 }
 
 // the bar's content stays centred on its fill whatever changes under it (top-bar.js)

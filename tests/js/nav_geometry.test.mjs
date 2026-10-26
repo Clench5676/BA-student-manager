@@ -141,3 +141,20 @@ test('native-control clearance is preserved at fractional window scales',async()
     assert.equal(topActionLayout(boxes,false,0).option[0],158);
   }
 });
+
+test('Hall removes Back and moves the title slot; leaving restores Back for its current route',async()=>{
+  const {setTitle,setTopActions}=await import('../../src/ba_modding_toolkit/web/js/nav.js');
+  const classes=new Set();
+  top['.topbar']=Object.assign(new El(),{classList:{toggle(name,on){on?classes.add(name):classes.delete(name);}}});
+  top['.topbar .title']=new El();
+  const back=top['.topbar .back'],action=()=>{};
+  for(let i=0;i<3;i++){
+    setTopActions(false);setTitle('Students',action);
+    assert.equal(back.hidden,false);assert.equal(back.onclick,action);
+    setTopActions(true);setTitle('Student Hall',action);
+    assert.equal(back.hidden,true);assert.ok(classes.has('hall-home'));
+    setTopActions(false);setTitle('Batch Import',action);
+    assert.equal(back.hidden,false);assert.ok(!classes.has('hall-home'));
+    setTitle('Students',null);assert.equal(back.hidden,true);
+  }
+});

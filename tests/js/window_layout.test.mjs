@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { readFileSync } from 'node:fs';
 import { headerGeometry, rowLayout, subtractRegions, expandRect } from '../../src/ba_modding_toolkit/web/js/window-layout.js';
 import { topActionLayout, nativeRightClearance } from '../../src/ba_modding_toolkit/web/js/top-action-layout.js';
-import { barCentre, TITLE_UNITS } from '../../src/ba_modding_toolkit/web/js/top-bar-layout.js';
+import { barCentre, CAPTION_PX } from '../../src/ba_modding_toolkit/web/js/top-bar-layout.js';
 import { installCloseGuard } from '../../src/ba_modding_toolkit/web/js/window-close.js';
 
 const S = 24 / 37;
@@ -13,9 +13,9 @@ const near = (a,b) => assert.ok(Math.abs(a-b)<1e-7, `${a} != ${b}`);
 // contract as the DOM canvas. Native font rendering remains owner acceptance.
 const textWidth = (text, font) => [...text].reduce((w,c) => w + font * (/[^\x00-\x7f]/.test(c) ? 1 : .65), 0);
 const boxes = {home:[44,7,62*S,59*S],option:[44+175*S,7,60*S,62*S],line:[44+116.5*S,12,4*S,49*S]};
-for (const locale of ['en-US','zh-CN','zh-TW','ja-JP','ko-KR','th-TH']) test(`one row, native safe areas and preserved prefab title in ${locale}`, () => {
+for (const locale of ['en-US','zh-CN','zh-TW','ja-JP','ko-KR','th-TH']) test(`one row, native safe areas and caption-sized title in ${locale}`, () => {
   const strings = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${locale}.json`,import.meta.url))).webui;
-  for (const [width,height] of sizes) for (const density of [1,2,3]) for (const hall of [true,false]) for (const platform of ['darwin','win32']) {
+  for (const [width,height] of sizes) for (const density of [1,2,3]) for (const hall of [true,false]) for (const platform of ['darwin','win32','fallback']) {
     // Native APIs normalize device pixels/points before entering the web layout.
     const native = platform==='darwin' ? {left:12,top:8,right:80,bottom:30} : {left:width-148,top:0,right:width,bottom:32};
     const css = Object.fromEntries(Object.entries(native).map(([k,v]) => [k, v*density/density]));
@@ -28,12 +28,14 @@ for (const locale of ['en-US','zh-CN','zh-TW','ja-JP','ko-KR','th-TH']) test(`on
     const captionWidth=textWidth(strings.mods.switch,26)*k+12*k;
     for (const title of [strings.top.students,strings.hall.title,strings.nav.import]) for (const enlargement of [1,2]) {
       const row=rowLayout({scale:k,nativeLeft:platform==='darwin'?css.right:0,rightStart,
-        titleWidth:textWidth(title,TITLE_UNITS*S)*k*enlargement,modsWidth:240*k+captionWidth,captionWidth});
-      assert.equal(TITLE_UNITS,66);
+        titleWidth:textWidth(title,CAPTION_PX)*k*enlargement,modsWidth:240*k+captionWidth,captionWidth,hall});
+      assert.equal(CAPTION_PX,26);
       if(platform==='darwin')assert.ok(38*k+row.shift>=css.right+8);
-      else assert.ok(width-actions[hall?"option":"home"][0]*k<=css.left-8+1e-7);
+      else if(platform==='win32') assert.ok(width-actions[hall?"option":"home"][0]*k<=css.left-8+1e-7);
       assert.ok(row.titleLeft+row.titleWidth+32*k+row.modsWidth<=rightStart-64+1e-7);
       assert.ok(row.titleWidth>=0);
+      if(enlargement===1) near(row.titleWidth,textWidth(title,CAPTION_PX)*k);
+      near(row.titleLeft,(hall?38:160)*k+row.shift);
       // Hall keeps Settings in Home's former safe slot and all sprite sizes.
       if(hall)near(actions.option[0]+actions.option[2]/2,actions.home[0]+actions.home[2]/2);
       else near(actions.option[0]-actions.home[0]+(actions.option[2]-actions.home[2])/2,174*S, .01);
@@ -107,4 +109,16 @@ test('a new Hall draft revision invalidates an earlier approval',async()=>{
   assert.equal(target.bamtValidateClose('close'),true);
   revision='two';assert.equal(target.bamtValidateClose('close'),false);
   target.bamtCancelClose('close');assert.equal(element.inert,false);
+});
+
+
+test('Hall uses the Back slot and restores the other rows without losing native clearance',()=>{
+  for(const scale of [.5, 1, 2])for(const nativeLeft of [0,80]){
+    const input={scale,nativeLeft,rightStart:2000*scale,titleWidth:200*scale,modsWidth:400*scale,captionWidth:160*scale};
+    const before=rowLayout(input),hall=rowLayout({...input,hall:true}),after=rowLayout(input);
+    near(before.titleLeft-hall.titleLeft,122*scale);
+    assert.deepEqual(after,before);
+    if(nativeLeft)near(hall.titleLeft,nativeLeft+8);
+    assert.equal(hall.titleWidth,200*scale);
+  }
 });

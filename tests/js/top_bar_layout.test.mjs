@@ -93,17 +93,14 @@ test("every element's ink lands on the bar's centre, from the prefab's geometry 
   assert.ok(Math.abs(insideBox(help, 12, 52)) < 4.5);
 });
 
-for (const locale of LOCALES) test(`the title has the prefab's size on every page in ${locale}`, async () => {
+for (const locale of LOCALES) test(`the title uses the caption's drawn size on every page in ${locale}`, async () => {
   const ui = JSON.parse(await readFile(new URL(`../../src/ba_modding_toolkit/locales/${locale}.json`, import.meta.url), "utf8")).webui;
   document.documentElement.lang = locale;
-  const titles = [ui.top.students, ui.hall.title, ui.nav.import];
-  assert.ok(titles.every(Boolean));
-  const sizes = titles.map((t) => Layout.titlePx(NGUI.fontSizeFor, t, S));
-  // Label_Title is 66 units; the app draws text of a script at its own size (Latin larger, the rest as given)
-  assert.equal(new Set(sizes.map((s) => s.toFixed(4))).size, 1, `one size on every page: ${sizes}`);
-  const latin = !/[\u3040-\u30ff\u3400-\u9fff\uff00-\uffef\uac00-\ud7af\u1100-\u11ff\u3130-\u318f\u0e00-\u0e7f]/.test(titles[0]);
-  near(sizes[0], 66 * (latin ? 1.12 : 1) * S);
-  assert.equal(Layout.TITLE_UNITS, 66);
+  for (const title of [ui.top.students, ui.hall.title, ui.nav.import]) {
+    assert.ok(title);
+    for (const captionPx of [20, 23, 26]) assert.equal(Layout.titlePx(captionPx), captionPx);
+  }
+  assert.equal(Layout.titlePx(), 26);
 });
 
 test("the title is centred by its script's reference glyph, not by its own letters", async () => {
@@ -111,7 +108,7 @@ test("the title is centred by its script's reference glyph, not by its own lette
   assert.match(nav, /inkShift\(el\.textContent, parseFloat\(getComputedStyle\(el\)\.fontSize\), \{ reference: true \}\)/);
   // the same title on every page keeps one baseline: capital H for Latin
   document.documentElement.lang = "en-US";
-  const px = Layout.titlePx(NGUI.fontSizeFor, "Students", S);
+  const px = Layout.titlePx();
   const shifts = ["Students", "Student Hall", "Batch Import"].map((t) => NGUI.inkShift(t, px, { reference: true }));
   assert.ok(shifts.every((v) => Math.abs(v - shifts[0]) < 1e-9));
 });

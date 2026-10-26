@@ -10,9 +10,9 @@ export function headerGeometry(width, height, nativeBottom = 0) {
 }
 
 export function rowLayout({ scale, nativeLeft = 0, rightStart, titleWidth, modsWidth,
-  captionWidth, compact = false, modsVisible = true }) {
+  captionWidth, compact = false, modsVisible = true, hall = false }) {
   const shift = Math.max(0, nativeLeft + (nativeLeft ? 8 : 0) - 38 * scale);
-  const titleLeft = 160 * scale + shift;
+  const titleLeft = (hall ? 38 : 160) * scale + shift;
   const available = Math.max(0, rightStart - 64 - titleLeft);
   const gap = modsVisible ? 32 * scale : 0;
   const full = titleWidth + (modsVisible ? modsWidth + gap : 0);
