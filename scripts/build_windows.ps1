@@ -1,18 +1,19 @@
 # scripts/build_windows.ps1
 #
-# Build the Windows GUI and CLI with Nuitka (one file each) and write an MD5 file next to each build:
-#   dist\Blue-Archive-Modding-and-Patching-Tool-<version>-windows-x64.exe      (+ .md5)
-#   dist\Blue-Archive-Modding-and-Patching-Tool-cli-<version>-windows-x64.exe  (+ .md5)
-# The GUI build is the one the in-app update downloads; keep the names.
+# Build the Windows GUI with Nuitka (one file) and write an MD5 file next to it:
+#   dist\Blue-Archive-Modding-and-Patching-Tool-<version>-windows-x64.exe  (+ .md5)
+# It is the build the in-app update downloads; keep the name. The command line stays available from a source
+# checkout as `python -m ba_modding_toolkit.cli`; it is no longer built or installed as a command.
 #
 # Requires uv (https://docs.astral.sh/uv/); Nuitka downloads its C compiler on first use.
 # Usage, from the repository root:
-#   powershell -ExecutionPolicy Bypass -File scripts\build_windows.ps1 [-Target All|Gui|Cli] [-Python 3.12] [-NuitkaVersion 4.3]
+#   powershell -ExecutionPolicy Bypass -File scripts\build_windows.ps1 [-Target All|Gui] [-Python 3.12] [-NuitkaVersion 4.3]
 
 param(
     [string]$Python = "3.12",
     [string]$NuitkaVersion = "4.3",
-    [ValidateSet("All", "Gui", "Cli")]
+    # All and Gui both build the GUI; All is kept for existing invocations
+    [ValidateSet("All", "Gui")]
     [string]$Target = "All"
 )
 
@@ -63,7 +64,6 @@ Set-Content -Path (Join-Path $ArchspecCpu "placeholder") -Value "keeps archspec/
 
 $Name = "Blue-Archive-Modding-and-Patching-Tool"
 $Gui = "$Name-$Version-windows-x64.exe"
-$Cli = "$Name-cli-$Version-windows-x64.exe"
 $Copyright = "Copyright $([char]0xA9)2025-2026 Agent-0808. Licensed under GPLv3."
 $Trademarks = "Blue Archive $([char]0xA9)NEXON Games Co., Ltd. & Yostar, Inc. This tool is unofficial and not endorsed by them."
 $Common = @(
@@ -109,20 +109,6 @@ try {
         $Files += $Gui
     }
 
-    # --- CLI ---
-    if ($Target -in @("All", "Cli")) {
-        & $Py -m nuitka @Common `
-            --include-data-dir=src/ba_modding_toolkit/assets=ba_modding_toolkit/assets `
-            --include-data-dir=src/ba_modding_toolkit/locales=ba_modding_toolkit/locales `
-            --windows-icon-from-ico=src/ba_modding_toolkit/assets/eligma.ico `
-            --windows-console-mode=force `
-            --product-name="Blue Archive Modding and Patching Tool CLI" `
-            --file-description="Blue Archive Modding and Patching Tool - Command Line Interface" `
-            --output-filename=$Cli `
-            src/ba_modding_toolkit/cli/__main__.py
-        if ($LASTEXITCODE -ne 0) { throw "the CLI build failed" }
-        $Files += $Cli
-    }
 }
 finally {
     if ((Get-Location).Path -ne $Root) { Pop-Location }

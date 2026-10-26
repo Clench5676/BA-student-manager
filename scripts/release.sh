@@ -27,7 +27,7 @@ for f in "$@"; do
     name=$(basename "$f")
     case "$name" in
         "$NAME-$VERSION-macos-arm64.dmg"|"$NAME-$VERSION-macos-x86_64.dmg"|\
-        "$NAME-$VERSION-windows-x64.exe"|"$NAME-cli-$VERSION-windows-x64.exe") ;;
+        "$NAME-$VERSION-windows-x64.exe") ;;
         *) echo "$name is not a $VERSION build" >&2; exit 1 ;;
     esac
     hash=$(md5_of "$f")

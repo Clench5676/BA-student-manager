@@ -191,7 +191,7 @@ def test_windows_build_python_default_and_override(tmp_path, python):
 
 
 @pytest.mark.skipif(PWSH is None, reason="PowerShell is not installed")
-@pytest.mark.parametrize("target,kinds", [("Gui", [""]), ("Cli", ["-cli"]), ("All", ["", "-cli"])])
+@pytest.mark.parametrize("target,kinds", [("Gui", [""]), ("All", [""])])
 def test_windows_build_packages_selected_targets(tmp_path, target, kinds):
     # Run the build and packaging section with a compiler stub, bypassing dependency setup and downloads.
     script = (ROOT / "scripts" / "build_windows.ps1").read_text()

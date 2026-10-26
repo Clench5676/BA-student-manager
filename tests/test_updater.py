@@ -394,11 +394,10 @@ def test_release_rejects_wrong_version_and_unsupported_builds(release_workspace,
     assert not Path(env["BAMT_RELEASE_LOG"]).exists()
 
 
-@pytest.mark.parametrize("suffix", ["macos-arm64.dmg", "macos-x86_64.dmg", "windows-x64.exe", "cli"])
+@pytest.mark.parametrize("suffix", ["macos-arm64.dmg", "macos-x86_64.dmg", "windows-x64.exe"])
 def test_release_creates_exact_version_tag_and_checksum(release_workspace, suffix: str) -> None:
     repo, env = release_workspace
-    name = ("Blue-Archive-Modding-and-Patching-Tool-cli-0.1.0-windows-x64.exe" if suffix == "cli" else
-            f"Blue-Archive-Modding-and-Patching-Tool-0.1.0-{suffix}")
+    name = f"Blue-Archive-Modding-and-Patching-Tool-0.1.0-{suffix}"
     result = run_release(repo, env, name)
     assert result.returncode == 0, result.stderr
     assert (repo / (name + ".md5")).read_text() == f"{hashlib.md5(b'fixture build').hexdigest()}  {name}\n"
@@ -409,6 +408,14 @@ def test_release_creates_exact_version_tag_and_checksum(release_workspace, suffi
     assert commands[0] == ["git", "push", "origin", "refs/tags/0.1.0"]
     assert commands[-1] == ["gh", "release", "create", "0.1.0", "--verify-tag", "--title", "0.1.0", "--notes", "",
                             name, name + ".md5"]
+
+
+def test_release_rejects_cli_builds(release_workspace) -> None:
+    # The command line is no longer built or released; only GUI builds are uploaded.
+    repo, env = release_workspace
+    result = run_release(repo, env, "Blue-Archive-Modding-and-Patching-Tool-cli-0.1.0-windows-x64.exe")
+    assert result.returncode != 0 and "is not a 0.1.0 build" in result.stderr
+    assert not Path(env["BAMT_RELEASE_LOG"]).exists()
 
 
 @pytest.mark.parametrize("annotated", [False, True])
