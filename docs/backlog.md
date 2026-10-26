@@ -1062,7 +1062,7 @@ top edge in fullscreen views; the same horizontal margin from the window's side 
 
 ## BL-053: Thumbnail picker marks other skins' applied photos
 
-- Status: Open (owner finding, macOS review of 0.6.0-alpha.5, 2026-10-26).
+- Status: Implemented for local review; owner UAT/visual acceptance pending. Backend/gallery Applied follows the shown skin's Collection choice; cross-skin deletion warnings remain. A separate detail-page thumbnail picker could not be identified in this revision (stop rule).
 - Requested: 2026-10-26.
 - Related: BL-015, BL-022 and BL-044.
 

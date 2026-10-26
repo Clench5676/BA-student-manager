@@ -5,6 +5,7 @@ import io
 import json
 import time
 from pathlib import Path
+from dataclasses import replace
 
 import pytest
 from PIL import Image
@@ -68,6 +69,44 @@ def test_save_select_asset_and_roster_thumbnail(app, services, photography_env):
     current = rpc(app, 'photography.list', variant='hoshino')['result']
     assert current['default'].startswith('/asset/photography/default/')
     assert current['game']['id'] == 'official'
+
+
+@pytest.mark.parametrize('enabled', [True, False])
+def test_applied_is_scoped_to_the_shown_skin_but_deletion_checks_every_skin(
+        app, services, photography_env, enabled):
+    original = services.catalog.v
+    alternative = replace(original, key='hoshino_swimsuit', portrait='Student_Portrait_Test_swimsuit_Collection')
+    services.catalog.f.variants.append(alternative)
+    keys = [rpc(app, 'photography.save', variant=v.key, png=photography_env['png'], mode='portrait')['result']['saved']
+            for v in (original, alternative)]
+    choices = dict(zip([v.portrait for v in (original, alternative)], keys))
+    services.game.collection_target = lambda name: {**photography_env['descriptor'], 'name': name}
+    services.library.photograph_choice = lambda descriptor, pin: {
+        'id': choices[descriptor['name']], 'known': True, 'enabled': enabled, 'pending': not enabled}
+    services.library.photograph_removal_info = lambda variant, key: {'official': False, 'used': key in choices.values()}
+    for variant, own, other in [(original, keys[0], keys[1]), (alternative, keys[1], keys[0])]:
+        result = rpc(app, 'photography.list', variant=variant.key)['result']
+        assert {entry['variant'] for entry in result['photos']} == {original.key, alternative.key}
+        assert {entry['id'] for entry in result['photos'] if entry['applied']} == {own}
+        assert result['game']['id'] == own and result['game']['enabled'] == enabled
+        assert rpc(app, 'photography.removalInfo', variant=variant.key, id=other)['result']['used']
+    # Returning to official must not mark the other skin's persisted photo Applied.
+    choices[original.portrait] = None
+    result = rpc(app, 'photography.list', variant=original.key)['result']
+    assert result['game']['id'] == 'official' and not any(entry['applied'] for entry in result['photos'])
+    assert rpc(app, 'photography.removalInfo', variant=original.key, id=keys[1])['result']['used']
+
+
+@pytest.mark.parametrize('unavailable', ['game', 'target', 'unknown'])
+def test_unavailable_or_unknown_target_has_no_applied_photo(app, services, photography_env, unavailable):
+    key = rpc(app, 'photography.save', variant='hoshino', png=photography_env['png'], mode='portrait')['result']['saved']
+    photography_env['chosen'].update(id=key, known=unavailable != 'unknown')
+    if unavailable == 'game':
+        services.library.pins = []
+    elif unavailable == 'target':
+        services.catalog.v.portrait = None
+    result = rpc(app, 'photography.list', variant='hoshino')['result']
+    assert not any(entry['applied'] for entry in result['photos'])
 
 
 def test_apply_waits_for_real_job_and_restore_resets_app_choice(app, services, photography_env):

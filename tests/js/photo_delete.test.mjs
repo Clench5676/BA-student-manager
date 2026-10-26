@@ -3,6 +3,18 @@ import {readFileSync} from 'node:fs';
 import {test} from 'node:test';
 const source=readFileSync(new URL('../../src/ba_modding_toolkit/web/js/photography/controller.js',import.meta.url),'utf8');
 const code=source.slice(source.indexOf('async function deletePhoto()'),source.indexOf('async function applyGame()'));
+test('gallery cards and their accessible Applied label consume only the target-scoped flag', async () => {
+  const drawCode=source.slice(source.indexOf('async function galleryDraw()'),source.indexOf('async function deletePhoto()'));
+  const photos=[{id:'own',name:'Own skin',url:'own.png',applied:true},{id:'other',name:'Other skin',url:'other.png',applied:false}];
+  const cards=[],hits=[];
+  const env={Popup:{selectionReady:async()=>{},listCard:(item,x,y,selected)=>{cards.push({...item,selected});return item;}},
+    galleryPhotos:()=>photos,photo:()=>null,modal:{draw:fn=>fn({})},NGUI:{render:async()=>{}},
+    UI:{buttonSize:()=>({}),button:async()=>{}},
+    hitButton:(_layer,_box,_fn,label)=>hits.push(label),safe:fn=>fn,P:key=>key};
+  await new Function('env',`const {${Object.keys(env)}}=env;let page=0,selected='other',repository={game:{id:'own'}};const OFFICIAL='official';${drawCode};return galleryDraw();`)(env);
+  assert.deepEqual(cards.map(card=>[card.key,card.applied,card.selected]),[['own',true,false],['other',false,true]]);
+  assert.deepEqual(hits,['Own skin - applied','Other skin']);
+});
 function setup({used=false,official=false,answer='ok',fail=false,locale='en-US'}={}){
   const requests=[],prompts=[];let changed=0;
   const strings=JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${locale}.json`,import.meta.url),'utf8')).webui;

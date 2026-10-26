@@ -27,7 +27,8 @@ The 0.6.0 work is unreleased. Nothing has been tagged, pushed or published since
 | BL-042 | Accepted by the owner on macOS (alpha.4) |
 | BL-044 | Implemented for local review; owner UAT/visual acceptance pending. Review 2 art covers the prefab frame opening; review 1 badge widening remains on hold for an owner decision. |
 | BL-047 | Implemented; owner's macOS review of alpha.5 found defects (position reset before switching); fixes not started. |
-| BL-049 through BL-053 | Open owner findings from the alpha.5 macOS review, not started |
+| BL-049 through BL-052 | Open owner findings from the alpha.5 macOS review, not started |
+| BL-053 | Implemented for local review; owner UAT/visual acceptance pending. Backend/gallery Applied is scoped to the shown Collection target; separate detail-page thumbnail picker not identified (stop rule). |
 | BL-046 | Closed by the owner without UAT (CLI-only) |
 | BL-048 | Accepted: CLI no longer built, installed or released |
 | BL-020 | Implemented for local review; owner UAT/visual acceptance pending. Exact-release notes and empty-body link fallback. |

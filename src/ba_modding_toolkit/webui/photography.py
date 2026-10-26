@@ -62,8 +62,6 @@ class Photography:
         self._variant(variant)
         s = self.services
         result = self.describe(s.photographs.list(variant))
-        for entry in result["photos"]:
-            entry["applied"] = s.library.photograph_removal_info(variant, entry["id"])["used"]
         try:
             pin = s.library.current_pin()
             if pin is None:
@@ -79,6 +77,9 @@ class Photography:
             if error.code not in ("photo_target_unavailable", "game_not_found"):
                 raise
             game, default = {"id": None, "known": False}, None
+        # Applied describes this skin's Collection target. Deletion checks independently include every target.
+        for entry in result["photos"]:
+            entry["applied"] = game.get("known", False) and entry["id"] == game.get("id")
         return {**result, "game": game, "default": default, "applicable": default is not None}
 
     def save(self, variant: str, png: str, mode: str, expression: str, action: str, source: str) -> dict:

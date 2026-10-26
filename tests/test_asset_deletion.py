@@ -1,6 +1,7 @@
 """Deletion rows and undo paths use only synthetic game files and temporary libraries."""
 from copy import deepcopy
 from pathlib import Path
+from types import SimpleNamespace
 import json
 
 import pytest
@@ -10,6 +11,7 @@ from ba_modding_toolkit.library import service, portrait_edit, asset_delete
 from ba_modding_toolkit.library.photographs import Photographs
 from ba_modding_toolkit.library.judge import core_of
 from ba_modding_toolkit.webui.state import UiState
+from ba_modding_toolkit.webui.photography import Photography
 from test_library_profiles import world, japan, pin_of, OFFICIAL
 from test_library import header_bundle
 from ba_modding_toolkit.utils import CRCUtils
@@ -132,6 +134,32 @@ def recipes(world, monkeypatch):
                                    {'bundle': target.name, 'name': name}, pin, lambda _: None, None)
     apply('a', keys[0]); apply('b', keys[0]); apply('c', keys[1])
     return world, target, keys, decode, core
+
+
+@pytest.mark.parametrize('enabled', [True, False])
+def test_gallery_applied_uses_each_collection_target_while_other_skin_deletion_stays_protected(recipes, enabled):
+    world, target, _, _, _ = recipes
+    lib = world.library
+    variants = {'skin-a': 'a', 'skin-b': 'b'}
+    for key, name in variants.items():
+        lib.catalog.variants[key] = SimpleNamespace(key=key, family='test', portrait=name, spr=None, lobby=None, names={})
+    keys = [lib.photographs.save(variant, capture(color=(n, 80, 160, 255))[0], 'portrait')['saved']
+            for variant, n in zip(variants, [30, 40])]
+    for variant, key in zip(variants, keys):
+        lib.apply_photograph(variant, key, {'bundle': target.name, 'name': variants[variant]})
+    if not enabled:
+        world.toggle(False)
+    api = Photography(SimpleNamespace(
+        library=lib, photographs=lib.photographs,
+        catalog=SimpleNamespace(variant=lambda key: SimpleNamespace(portrait=variants.get(key), names={})),
+        game=SimpleNamespace(resource_version='synthetic', collection_target=lambda name: {'bundle': target.name, 'name': name})))
+    for variant, key, other in [('skin-a', keys[0], keys[1]), ('skin-b', keys[1], keys[0])]:
+        result = api.list(variant)
+        assert {entry['id'] for entry in result['photos'] if entry['applied']} == {key}
+        assert result['game']['id'] == key and result['game']['enabled'] == enabled
+        assert api.removal_info(variant, other)['used']
+        with pytest.raises(ServiceError, match='asset_delete_confirm'):
+            lib.delete_photograph(variant, other)
 
 
 @pytest.mark.parametrize('enabled', [True, False])
