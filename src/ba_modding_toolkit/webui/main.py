@@ -263,7 +263,6 @@ def _run_window(s: Services, server: Server, debug: bool) -> None:
             from PyObjCTools import AppHelper
             if s.chrome.host is None:
                 AppHelper.callAfter(s.chrome.install)
-            native.install_edit_menu()
             if commands is not None:
                 AppHelper.callAfter(commands.refresh)
         try:

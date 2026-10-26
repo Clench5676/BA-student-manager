@@ -198,30 +198,36 @@ def startup_failure(reports, error: BaseException, *, runtime: bool = False) -> 
     return result
 
 
+def _install_edit_menu(api, main):
+    from ..i18n import t
+
+    for existing in main.itemArray():
+        submenu = existing.submenu()
+        if submenu and any(str(item.action()) == "copy:" for item in submenu.itemArray()):
+            return
+    title = t("webui.window.edit")
+    menu = api.NSMenu.alloc().initWithTitle_(title)
+    item = api.NSMenuItem.alloc().init()
+    item.setTitle_(title)
+    item.setSubmenu_(menu)
+    for key, selector, shortcut in [("cut", "cut:", "x"), ("copy", "copy:", "c"),
+                                    ("paste", "paste:", "v"), ("selectAll", "selectAll:", "a")]:
+        menu.addItemWithTitle_action_keyEquivalent_(t("webui.window." + key), selector, shortcut)
+    main.addItem_(item)
+
+
 def install_edit_menu() -> None:
     """Restore standard responder editing shortcuts without pywebview's default application menus."""
     import sys
     if sys.platform != 'darwin':
         return
-    from AppKit import NSApplication, NSMenu, NSMenuItem
+    import AppKit
     from PyObjCTools import AppHelper
-    from ..i18n import t
 
     def install():
-        main = NSApplication.sharedApplication().mainMenu()
-        if main is None:
-            return
-        for existing in main.itemArray():
-            submenu = existing.submenu()
-            if submenu and any(str(item.action()) == 'copy:' for item in submenu.itemArray()):
-                return
-        menu = NSMenu.alloc().initWithTitle_(t('webui.window.edit'))
-        item = NSMenuItem.alloc().init()
-        item.setSubmenu_(menu)
-        for key, selector, shortcut in [('cut', 'cut:', 'x'), ('copy', 'copy:', 'c'),
-                                        ('paste', 'paste:', 'v'), ('selectAll', 'selectAll:', 'a')]:
-            menu.addItemWithTitle_action_keyEquivalent_(t('webui.window.' + key), selector, shortcut)
-        main.addItem_(item)
+        main = AppKit.NSApplication.sharedApplication().mainMenu()
+        if main is not None:
+            _install_edit_menu(AppKit, main)
     AppHelper.callAfter(install)
 
 
@@ -277,11 +283,14 @@ def install_window_commands(services, chrome):
 
     monitor = AppKit.NSEvent.addLocalMonitorForEventsMatchingMask_handler_(AppKit.NSEventMaskKeyDown, key)
     installed = []
+    logged = False
 
     def refresh():
+        nonlocal logged
         main = AppKit.NSApplication.sharedApplication().mainMenu()
         if main is None:
             return
+        _install_edit_menu(AppKit, main)
         for item in main.itemArray():
             submenu = item.submenu()
             for command in submenu.itemArray() if submenu else []:
@@ -290,8 +299,10 @@ def install_window_commands(services, chrome):
                     command.setAction_("closeWindow:")
         if installed and installed[0] in main.itemArray():
             return
-        menu = AppKit.NSMenu.alloc().initWithTitle_(t("webui.window.menu"))
+        title = t("webui.window.menu")
+        menu = AppKit.NSMenu.alloc().initWithTitle_(title)
         item = AppKit.NSMenuItem.alloc().init()
+        item.setTitle_(title)
         item.setSubmenu_(menu)
         for label, selector, shortcut, flags in (
             ("webui.window.close", "closeWindow:", "w", AppKit.NSEventModifierFlagCommand),
@@ -304,8 +315,18 @@ def install_window_commands(services, chrome):
             command.setTarget_(target)
         main.addItem_(item)
         installed[:] = [item]
+        if not logged:
+            logger.info("Native Window menu installed")
+            logged = True
+
+    # Cocoa 6.2.1 recreates the main menu in first_show and on some key-window
+    # transitions. Document load alone is not a menu lifecycle notification.
+    # Repair even replacements made without a window notification, or before load.
+    timer = AppKit.NSTimer.scheduledTimerWithTimeInterval_repeats_block_(0.25, True, lambda timer: refresh())
+    refresh()
 
     def dispose():
+        timer.invalidate()
         AppKit.NSEvent.removeMonitor_(monitor)
 
     dispose.refresh = refresh

@@ -141,7 +141,6 @@ def test_cocoa_moves_only_y_and_leaves_fullscreen_reveal_to_appkit(flipped):
     host.window = NS(contentView=lambda: content, isMiniaturized=lambda: state['mini'], isZoomed=lambda: False,
                      styleMask=lambda: 1 << 14 if state['fullscreen'] else 0)
     host.transition = False
-    host.overlay = None
     host.buttons = [Button(x, 8 if flipped else 178, flipped) for x in [12, 32, 52]]
     bounds = host.measure({'centre': 29.5619})
     assert (bounds.top + bounds.bottom) / 2 == pytest.approx(29.5619)
@@ -377,7 +376,7 @@ def test_windows_subclass_retains_callback_forwards_and_cleans_up():
     assert calls[0][1][1] is calls[-1][1][1] is hook.callback
 
 
-def test_macos_keyboard_and_minimal_menu_commands_route_close_before_webkit(monkeypatch):
+def test_macos_keyboard_and_minimal_menu_commands_route_close_before_webkit(monkeypatch, caplog):
     from ba_modding_toolkit.webui.native import install_window_commands
     class Object:
         @classmethod
@@ -386,6 +385,7 @@ def test_macos_keyboard_and_minimal_menu_commands_route_close_before_webkit(monk
     class Item(Object):
         def __init__(self): self.menu = None
         def setSubmenu_(self, menu): self.menu = menu
+        def setTitle_(self, title): self.title = title
         def submenu(self): return self.menu
         def action(self): return self.selector
         def setAction_(self, selector): self.selector = selector
@@ -402,9 +402,16 @@ def test_macos_keyboard_and_minimal_menu_commands_route_close_before_webkit(monk
     main, app_menu = Menu(), Menu()
     app_item = Item(); app_item.setSubmenu_(app_menu); main.addItem_(app_item)
     quit_item = app_menu.addItemWithTitle_action_keyEquivalent_('Quit', 'terminate:', 'q')
-    monitors, removed, calls = [], [], []
+    monitors, removed, calls, timers = [], [], [], []
+    current = {"main": None}
+    def timer(interval, repeats, fn):
+        assert interval == .25 and repeats
+        result = NS(fire=lambda: fn(result), invalidate=lambda: calls.append("timer-disposed"))
+        timers.append(result)
+        return result
     api = NS(NSObject=Object, NSMenu=Menu, NSMenuItem=Item,
-             NSApplication=NS(sharedApplication=lambda: NS(mainMenu=lambda: main)),
+             NSApplication=NS(sharedApplication=lambda: NS(mainMenu=lambda: current["main"])),
+             NSTimer=NS(scheduledTimerWithTimeInterval_repeats_block_=timer),
              NSEvent=NS(addLocalMonitorForEventsMatchingMask_handler_=lambda mask, fn: monitors.append(fn) or fn,
                         removeMonitor_=removed.append), NSEventMaskKeyDown=1,
              NSEventModifierFlagCommand=1, NSEventModifierFlagShift=2,
@@ -413,10 +420,14 @@ def test_macos_keyboard_and_minimal_menu_commands_route_close_before_webkit(monk
     window = NS(performMiniaturize_=lambda sender: calls.append('minimize'),
                 performZoom_=lambda sender: calls.append('zoom'), toggleFullScreen_=lambda sender: calls.append('fullscreen'))
     services = NS(window=NS(native=window), quit=lambda: calls.append('guarded-close'))
+    caplog.set_level("INFO")
     cleanup = install_window_commands(services, None)
-    cleanup.refresh(); cleanup.refresh()
-    assert len(main.items) == 2
-    commands = main.items[1].submenu().items
+    assert len(main.items) == 1, "installation can precede the application main menu"
+    current["main"] = main
+    timers[0].fire(); cleanup.refresh()
+    assert len(main.items) == 3
+    assert main.items[1].title and main.items[2].title
+    commands = main.items[2].submenu().items
     assert len(commands) == 4
     assert [item.key for item in commands] == ['w','m','','f']
     assert quit_item.selector == 'closeWindow:'
@@ -434,4 +445,71 @@ def test_macos_keyboard_and_minimal_menu_commands_route_close_before_webkit(monk
     event = NS(window=lambda: window, modifierFlags=lambda: 1, charactersIgnoringModifiers=lambda: 'q')
     assert monitors[0](event) is None
     assert calls[-1] == 'app.busy'
-    cleanup(); assert removed == monitors
+    # first_show / windowDidBecomeKey can replace the menu after document load.
+    replacement = Menu(); current["main"] = replacement
+    timers[0].fire(); timers[0].fire()
+    assert len(replacement.items) == 2
+    assert replacement.items[1].title == main.items[2].title
+    assert replacement.items[1].submenu().items[0].target is commands[0].target
+    replacement.items.clear()  # also repair in-place clearing
+    timers[0].fire()
+    assert len(replacement.items) == 2
+    assert sum(record.message == "Native Window menu installed" for record in caplog.records) == 1
+    cleanup(); assert removed == monitors and calls[-1] == "timer-disposed"
+
+
+@pytest.fixture
+def cocoa_drag():
+    calls, keys = [], []
+    host = CocoaHost.__new__(CocoaHost)
+    host.owner = NS(active=True, valid=True, layout={"drag": [Rect(90, 0, 150, 44)]})
+    host.transition = False
+    state = {"flipped": False, "action": None}
+    # A nonzero bounds origin and a changed content view exercise the conversion,
+    # rather than assuming locationInWindow already uses web coordinates.
+    def content():
+        return NS(bounds=lambda: rect(10, 20, 960, 540), isFlipped=lambda: state["flipped"],
+                  convertPoint_fromView_=lambda point, source: NS(x=point.x + 10, y=point.y + 20))
+    host.window = NS(contentView=content, performWindowDragWithEvent_=lambda event: calls.append("drag"),
+                     performMiniaturize_=lambda sender: calls.append("minimize"),
+                     performZoom_=lambda sender: calls.append("zoom"))
+    def preference(key):
+        keys.append(key)
+        return state["action"]
+    host.api = NS(NSUserDefaults=NS(standardUserDefaults=lambda: NS(stringForKey_=preference)))
+    def event(x=100, y=10, count=1, window=None):
+        return NS(window=lambda: window or host.window, clickCount=lambda: count,
+                  locationInWindow=lambda: NS(x=x, y=y if state["flipped"] else 540-y))
+    return NS(host=host, event=event, calls=calls, state=state, keys=keys)
+
+
+@pytest.mark.parametrize("flipped", [True, False])
+@pytest.mark.parametrize("point,hit", [((90, 0), True), ((149.9, 43.9), True), ((150, 10), False),
+                                       ((100, 44), False), ((89, 10), False), ((100, -1), False)])
+def test_cocoa_drag_hit_test_converts_to_content_top_left(cocoa_drag, flipped, point, hit):
+    f = cocoa_drag; f.state["flipped"] = flipped
+    event = f.event(*point)
+    assert f.host.mouse_down(event) is (None if hit else event)
+    assert f.calls == (["drag"] if hit else [])
+    assert not f.keys, "a single press does not read preferences"
+
+
+@pytest.mark.parametrize("action,expected", [("Minimize", "minimize"), ("None", None), ("Do Nothing", None),
+                                            ("Maximize", "zoom"), ("Zoom", "zoom"), (None, "zoom"), ("unknown", "zoom")])
+def test_cocoa_double_click_respects_system_title_bar_action(cocoa_drag, action, expected):
+    f = cocoa_drag; f.state["action"] = action
+    assert f.host.mouse_down(f.event(count=2)) is None
+    assert f.calls == ([expected] if expected else [])
+    assert f.keys == ["AppleActionOnDoubleClick"]
+
+
+@pytest.mark.parametrize("blocked", ["popup", "invalid", "inactive", "transition", "other-window"])
+def test_cocoa_drag_passes_unhandled_events_through(cocoa_drag, blocked):
+    f = cocoa_drag
+    if blocked == "popup": f.host.owner.layout["drag"] = []
+    if blocked == "invalid": f.host.owner.valid = False
+    if blocked == "inactive": f.host.owner.active = False
+    if blocked == "transition": f.host.transition = True
+    event = f.event(window=object() if blocked == "other-window" else None)
+    assert f.host.mouse_down(event) is event
+    assert not f.calls and not f.keys

@@ -1,4 +1,4 @@
-"""M1: public AppKit standard buttons and native background dragging only."""
+"""M1: public AppKit standard buttons and window-scoped native drag events."""
 
 from __future__ import annotations
 
@@ -15,8 +15,30 @@ class CocoaHost:
         self.api, self.dispatch = api, dispatch
         self.window, self.owner = window.native, owner
         self.buttons, self.original, self.observers = [], [], []
-        self.overlay, self.monitor = None, None
+        self.monitor = None
         self.transition = False
+
+    def mouse_down(self, event):
+        # A local monitor runs before WKWebView hit testing, including after Cocoa
+        # replaces contentView. Rectangles arrive in viewport CSS pixels (AppKit points).
+        if event.window() != self.window or not self.owner.active or not self.owner.valid or self.transition:
+            return event
+        content = self.window.contentView()
+        point = content.convertPoint_fromView_(event.locationInWindow(), None)
+        bounds = content.bounds()
+        x = point.x - bounds.origin.x
+        y = point.y - bounds.origin.y if content.isFlipped() else bounds.origin.y + bounds.size.height - point.y
+        if not any(r.contains(x, y) for r in self.owner.layout["drag"]):
+            return event
+        if event.clickCount() == 2:
+            action = self.api.NSUserDefaults.standardUserDefaults().stringForKey_("AppleActionOnDoubleClick")
+            if action == "Minimize":
+                self.window.performMiniaturize_(None)
+            elif action not in ("None", "Do Nothing"):
+                self.window.performZoom_(None)
+        else:
+            self.window.performWindowDragWithEvent_(event)
+        return None
 
     def _rect(self, button):
         view = self.window.contentView()
@@ -26,7 +48,6 @@ class CocoaHost:
 
     def install(self):
         api, window = self.api, self.window
-        self.movable = window.isMovableByWindowBackground()
         for kind in (api.NSWindowCloseButton, api.NSWindowMiniaturizeButton, api.NSWindowZoomButton):
             button = window.standardWindowButton_(kind)
             if button is None:
@@ -34,29 +55,7 @@ class CocoaHost:
             self.buttons.append(button)
             self.original.append((button.frame().origin, button.isHidden()))
             button.setHidden_(False)
-        window.setMovableByWindowBackground_(True)
-        owner = self.owner
-
-        class ToolbarDragView(api.NSView):
-            def isOpaque(self):
-                return False
-
-            def mouseDownCanMoveWindow(self):
-                return True
-
-            def hitTest_(self, point):
-                # The view is never a responder for an App action, modal or native button.
-                content = window.contentView()
-                p = content.convertPoint_fromView_(point, self.superview())
-                y = p.y if content.isFlipped() else content.bounds().size.height - p.y
-                return self if any(r.contains(p.x, y) for r in owner.layout["drag"]) else None
-
-        content = window.contentView()
-        self.overlay = ToolbarDragView.alloc().initWithFrame_(content.bounds())
-        self.overlay.setAutoresizingMask_(api.NSViewWidthSizable | api.NSViewHeightSizable)
-        content.addSubview_(self.overlay)
-        # NSView's standard mouseDown / NSWindow background handling owns dragging and
-        # title-bar double-click. Do not read private preference keys or simulate zoom.
+        self.monitor = api.NSEvent.addLocalMonitorForEventsMatchingMask_handler_(api.NSEventMaskLeftMouseDown, self.mouse_down)
         centre = api.NSNotificationCenter.defaultCenter()
         for name in ("NSWindowDidResizeNotification", "NSWindowDidMoveNotification", "NSWindowDidBecomeKeyNotification",
                      "NSWindowDidResignKeyNotification", "NSWindowDidMiniaturizeNotification", "NSWindowDidDeminiaturizeNotification",
@@ -76,10 +75,6 @@ class CocoaHost:
 
     def measure(self, layout):
         content = self.window.contentView()
-        if self.overlay is not None and self.overlay.superview() != content:
-            self.overlay.removeFromSuperview()
-            self.overlay.setFrame_(content.bounds())
-            content.addSubview_(self.overlay)
         if self.window.isMiniaturized() or self.transition:
             return None
         if not self.state()["fullscreen"]:
@@ -110,11 +105,9 @@ class CocoaHost:
         for observer in self.observers:
             centre.removeObserver_(observer)
         self.observers.clear()
-        if self.overlay is not None:
-            self.overlay.removeFromSuperview()
-            self.overlay = None
+        if self.monitor is not None:
+            self.api.NSEvent.removeMonitor_(self.monitor)
+            self.monitor = None
         for button, (origin, hidden) in zip(self.buttons, self.original):
             button.setFrameOrigin_(origin)
             button.setHidden_(hidden)
-        if hasattr(self, "movable"):
-            self.window.setMovableByWindowBackground_(self.movable)
