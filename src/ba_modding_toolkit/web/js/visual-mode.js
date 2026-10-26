@@ -57,6 +57,14 @@ export async function prepareSwitch({ layout, label, onSwitch }) {
   return groups.Btn_HideUI || null;
 }
 
+// Cameras reuse the fullscreen Back's complete body, icon and BoxCollider, with their existing leave action.
+export async function prepareBack({ layout, label, onBack }) {
+  const pc = layout ? NGUI.find(layout, "Inventory_ListControl_PC") : null;
+  if (!pc) return null;
+  const groups = await renderButtons(pc, { back: label }, [["LeftTop", ["Btn_Back"]]], onBack);
+  return groups.Btn_Back || null;
+}
+
 // The same complete Back widget for memorial lobby and model fullscreen.
 export async function exitControl(host, layout) {
   const source = NGUI.find(layout, "Inventory_ListControl_PC/LeftTop/Btn_Back");
@@ -235,14 +243,18 @@ async function renderButtons(pc, strings, corners = CORNERS, onPress = press) {
         const icon = NGUI.find(tree, `${name}/Icon`).widgets.find((w) => "sprite" in w);
         Object.assign(icon, { atlas: "Common", sprite: "Common_Icon_Change", type: 0, keepAspect: true });
       }
+      let hitBox;
+      if (HIT[name]) {
+        const [w, h, dy] = HIT[name], x = CENTRE[0] + (at[0] + n.pos[0]) * S, y = CENTRE[1] - (at[1] + n.pos[1] + dy) * S;
+        hitBox = [x - w * S / 2, y - h * S / 2, w * S, h * S];
+      }
       made.push(NGUI.render(tree, el, { scale: S, origin: CENTRE, rootPath: "Inventory_ListControl_PC", texts: { Label_Locale_Reset: "" } }).then((view) => {
         const path = `Inventory_ListControl_PC/${corner}/${name}${corner === "RightBottom" ? "/Btn_RefreshPos" : ""}`;
         const body = view.nodes.get(path)?.els[0];
-        if (body) bindCorner(el, NGUI.rect(body), { corner: corner === "LeftTop" ? "top-left" : corner === "RightTop" ? "top-right" : "bottom-right" });
+        if (body) bindCorner(el, NGUI.rect(body), { corner: corner === "LeftTop" ? "top-left" : corner === "RightTop" ? "top-right" : "bottom-right", collisionBox: hitBox });
       }));
-      if (HIT[name]) {
-        const [w, h, dy] = HIT[name], x = CENTRE[0] + (at[0] + n.pos[0]) * S, y = CENTRE[1] - (at[1] + n.pos[1] + dy) * S;
-        const hit = hitButton(el, [x - (w * S) / 2, y - (h * S) / 2, w * S, h * S], (e) => { e.stopPropagation(); return onPress(name); }, labels[name]);
+      if (hitBox) {
+        const hit = hitButton(el, hitBox, (e) => { e.stopPropagation(); return onPress(name); }, labels[name]);
         hit.dataset.visualAction = name;
       }
       groups[name] = el;

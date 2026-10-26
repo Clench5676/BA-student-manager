@@ -1865,6 +1865,8 @@ for (const lang of ['en-US', 'zh-CN', 'zh-TW', 'ja-JP', 'ko-KR', 'th-TH']) test(
   const parts = await Visual.prepare({ layout, strings: labels });
   let switched = 0;
   const lobby = await Visual.prepareSwitch({ layout, label: strings['webui.row.switch.portrait'], onSwitch: () => { switched++; } });
+  let leftCamera = 0;
+  const cameraBack = await Visual.prepareBack({ layout, label: strings['webui.photo.back'], onBack: () => { leftCamera++; } });
   const button = (group) => walk(group).find((el) => el.tagName === 'BUTTON');
   const portraitSwitch = button(parts.groups.Btn_HideUI), lobbySwitch = button(lobby);
   for (const key of ['left', 'top', 'width', 'height', 'zIndex']) assert.equal(lobbySwitch.style[key], portraitSwitch.style[key], 'Both views use the identical hit area');
@@ -1877,6 +1879,11 @@ for (const lang of ['en-US', 'zh-CN', 'zh-TW', 'ja-JP', 'ko-KR', 'th-TH']) test(
     assert.equal(control.closest('[inert]'), null);
   }
   await lobbySwitch.click(); assert.equal(switched, 1);
+  for (const key of ['left', 'top', 'width', 'height', 'zIndex']) assert.equal(button(cameraBack).style[key], button(parts.groups.Btn_Back).style[key], 'Camera Back uses the complete fullscreen collider');
+  assert.equal(button(cameraBack).getAttribute('aria-label'), strings['webui.photo.back']);
+  await button(cameraBack).click(); assert.equal(leftCamera, 1, 'Camera Back calls its leave action');
+  const backIcon = (group) => walk(group).find(el => el.dataset.path?.endsWith('LeftTop/Btn_Back/Icon'));
+  for (const key of ['left', 'top', 'width', 'height', 'backgroundImage']) assert.equal(backIcon(cameraBack).style[key], backIcon(parts.groups.Btn_Back).style[key], 'Camera Back retains the fullscreen icon geometry');
   assert.equal(parts.groups.Btn_ShowUI, undefined, 'No Hide/Show UI alternate remains');
   const near = (a, b) => assert.ok(Math.abs(a - b) < 0.02, `${a} != ${b}`);
   const bounds = (el) => ['left', 'top', 'width', 'height'].map((key) => parseFloat(el.style[key]));
@@ -1908,7 +1915,7 @@ for (const lang of ['en-US', 'zh-CN', 'zh-TW', 'ja-JP', 'ko-KR', 'th-TH']) test(
   const oldRect = hosts.stage.getBoundingClientRect;
   const old = Object.fromEntries(['innerWidth', 'innerHeight', 'bamtWindowChrome', 'bamtHeaderGeometry'].map(k => [k, globalThis[k]]));
   const holder = body.appendChild(new El());
-  holder.append(...Object.values(parts.groups), lobby);
+  holder.append(...Object.values(parts.groups), lobby, cameraBack);
   const exit = holder.appendChild(new El('button'));
   try {
     await Visual.exitControl(exit, layout);
@@ -1919,21 +1926,36 @@ for (const lang of ['en-US', 'zh-CN', 'zh-TW', 'ja-JP', 'ko-KR', 'th-TH']) test(
         bamtHeaderGeometry: platform ? headerGeometry(width, height, platform === 'win32' ? 40 : 0, true) : null });
       hosts.stage.getBoundingClientRect = () => ({ left: stageLeft, top: stageTop, width: 1920 * k, height: 1080 * k });
       reflowCorners();
-      const checks = [[parts.groups.Btn_Back, 'LeftTop/Btn_Back', 'top-left'], [parts.groups.Btn_HideUI, 'RightTop/Btn_HideUI', 'top-right'],
+      const checks = [[parts.groups.Btn_Back, 'LeftTop/Btn_Back', 'top-left'], [cameraBack, 'LeftTop/Btn_Back', 'top-left'], [parts.groups.Btn_HideUI, 'RightTop/Btn_HideUI', 'top-right'],
         [lobby, 'RightTop/Btn_HideUI', 'top-right'], [parts.groups.Btn_RefreshPos, 'RightBottom/Btn_RefreshPos/Btn_RefreshPos', 'bottom-right'],
         [parts.groups.Btn_RefreshPos_Disable, 'RightBottom/Btn_RefreshPos_Disable/Btn_RefreshPos', 'bottom-right']];
+      const topEdges = [];
+      const overlap = (a, b) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
       for (const [group, path, corner] of checks) {
         const sprite = walk(group).find(el => el.dataset.path === `Inventory_ListControl_PC/${path}`);
         assert.ok(sprite, path);
         const [dx, dy] = group.style.translate.split(' ').map(parseFloat), box = bounds(sprite);
         const right = corner.endsWith('right'), bottom = corner.startsWith('bottom');
-        const row = platform && (right ? platform === 'win32' : platform === 'darwin') ? globalThis.bamtHeaderGeometry.rowHeight : 0;
-        near(right ? width - stageLeft - (box[0] + dx + box[2]) * k : stageLeft + (box[0] + dx) * k, CORNER_MARGIN * k);
-        near(bottom ? height - stageTop - (box[1] + dy + box[3]) * k : stageTop + (box[1] + dy) * k - row, CORNER_MARGIN * k);
+        const hit = button(group), footprint = hit ? bounds(hit) : box, margin = CORNER_MARGIN * k;
+        const actual = { left: stageLeft + (footprint[0] + dx) * k, top: stageTop + (footprint[1] + dy) * k };
+        actual.right = actual.left + footprint[2] * k; actual.bottom = actual.top + footprint[3] * k;
+        const candidate = { left: (right ? width - margin - box[2] * k : margin) + (footprint[0] - box[0]) * k,
+          top: actual.top, bottom: actual.bottom };
+        candidate.right = candidate.left + footprint[2] * k;
+        const moved = !bottom && native && overlap(candidate, native.bounds);
+        near(moved ? (right ? native.bounds.left - actual.right : actual.left - native.bounds.right)
+          : (right ? width - stageLeft - (box[0] + dx + box[2]) * k : stageLeft + (box[0] + dx) * k), margin);
+        near(bottom ? height - stageTop - (box[1] + dy + box[3]) * k : stageTop + (box[1] + dy) * k, margin);
+        if (!bottom) topEdges.push(stageTop + (box[1] + dy) * k);
+        if (native) assert.ok(!overlap(actual, native.bounds), 'Clickable fullscreen controls clear native bounds');
       }
+      topEdges.forEach(y => near(y, topEdges[0]));
       const [dx, dy] = exit.style.translate.split(' ').map(parseFloat);
-      near(stageLeft + (parseFloat(exit.style.left) + dx) * k, CORNER_MARGIN * k);
-      near(stageTop + (parseFloat(exit.style.top) + dy) * k, CORNER_MARGIN * k + (platform === 'darwin' ? globalThis.bamtHeaderGeometry.rowHeight : 0));
+      const margin = CORNER_MARGIN * k, x = stageLeft + (parseFloat(exit.style.left) + dx) * k;
+      const candidate = { left: margin, right: margin + parseFloat(exit.style.width) * k,
+        top: margin, bottom: margin + parseFloat(exit.style.height) * k };
+      near(x, native && overlap(candidate, native.bounds) ? native.bounds.right + margin : margin);
+      near(stageTop + (parseFloat(exit.style.top) + dy) * k, margin);
     }
   } finally { holder.remove(); hosts.stage.getBoundingClientRect = oldRect; Object.assign(globalThis, old); }
 });

@@ -18,7 +18,7 @@ function geometry(width, height, platform, immersive) {
   const scale = header?.contentScale ?? Math.min(width / 1920, height / 1080);
   const stage = { width: 1920 * scale, height: 1080 * scale,
     left: (width - 1920 * scale) / 2, top: (height - 1080 * scale + (header?.extra || 0)) / 2 };
-  return { width, height, native, stage, rowBottom: header?.rowHeight || 0,
+  return { width, height, native, stage,
     barBottom: header?.rowHeight ?? 64 * scale, immersive, scale };
 }
 
@@ -28,15 +28,36 @@ test('the shared margin is the detail Home sprite edge, in authored NGUI units',
   near(CORNER_MARGIN, 67.8 * S);
 });
 
+test('native bounds cause a horizontal move only on a strict intersection', () => {
+  const box = [0, 0, 110, 75], stage = { left: 0, top: 0, width: 960 }, margin = CORNER_MARGIN / 2;
+  for (const corner of ['top-left', 'top-right']) {
+    const options = { corner, width: 960, height: 540, stage };
+    const original = cornerBox(box, options), x = original[0] / 2;
+    const touching = [
+      { left: x - 20, right: x, top: 0, bottom: 40 },
+      { left: x, right: x + 55, top: 0, bottom: margin },
+      { left: x, right: x + 55, top: margin + 37.5, bottom: margin + 50 },
+    ];
+    for (const bounds of touching) assert.deepEqual(cornerBox(box, { ...options, native: { active: true, bounds } }), original);
+    const bounds = { left: x, right: x + 55, top: margin, bottom: margin + 37.5 };
+    assert.deepEqual(cornerBox(box, { ...options, native: { active: false, bounds } }), original);
+    const moved = cornerBox(box, { ...options, native: { active: true, bounds } });
+    near(moved[1], original[1]);
+    near(corner === 'top-left' ? moved[0] / 2 - bounds.right : bounds.left - (moved[0] + moved[2]) / 2, margin);
+  }
+});
+
 // Source boxes retain prefab sizes. Sibling groups move together, preserving their original gaps.
 const visual = [171 * S, 116 * S], hall = [156 * S, 104 * S];
+const visualHit = [(171 - 228.83) * S / 2, (116 - 165) * S / 2, 228.83 * S, 165 * S];
+const visualTop = [['top-left', [0, 0, ...visual], visualHit], ['top-right', [0, 0, ...visual], visualHit]];
 const scenes = [
   ['Student Hall', false, [['top-right', [1875 - (4 * hall[0] + 60), 145 - hall[1] / 2, 4 * hall[0] + 60, hall[1]]]]],
   ['Student Hall fullscreen', true, [['top-right', [1875 - hall[0], 145 - hall[1] / 2, ...hall]]]],
-  ['portrait fullscreen', true, [['top-left', [0, 0, ...visual]], ['top-right', [0, 0, ...visual]], ['bottom-right', [0, 0, ...visual]]]],
-  ['memorial lobby fullscreen', true, [['top-left', [0, 0, ...visual]], ['top-right', [0, 0, ...visual]], ['bottom-right', [0, 0, ...visual]]]],
+  ['portrait fullscreen', true, [...visualTop, ['bottom-right', [0, 0, ...visual]]]],
+  ['memorial lobby fullscreen', true, [...visualTop, ['bottom-right', [0, 0, ...visual]]]],
   ...['portrait camera', 'memorial lobby camera'].map(name => [name, true, [
-    ['top-left', [25, 20, 164 * S, 172 * S]], ['top-right', [1352, 25, 538, 76]],
+    visualTop[0], ['top-right', [1352, 25, 538, 76]],
     ['bottom-left', [25, 950, 130, 82]], ['bottom-right', [1788 - 20 - 145 * 82 / 141, 950, 102 + 20 + 145 * 82 / 141, 82]],
   ]]),
 ];
@@ -46,19 +67,30 @@ for (const locale of locales) for (const platform of [null, 'darwin', 'win32']) 
     assert.ok(strings.lobby.exit && strings.row.switch.portrait && strings.row.switch.lobby && strings.photo.occlusion && strings.photo.gridOn);
     for (const [width, height] of [[960, 540], [1600, 900], [2560, 1440], [2560, 1080], [960, 1200]]) for (const density of [1, 2, 3]) {
       const g = geometry(width, height, platform, immersive);
-      for (const [corner, box] of groups) {
-        const result = cornerBox(box, { ...g, corner });
+      const topEdges = [];
+      for (const [corner, box, collisionBox = box] of groups) {
+        const result = cornerBox(box, { ...g, corner, collisionBox });
         const rect = { left: g.stage.left + result[0] * g.scale, top: g.stage.top + result[1] * g.scale };
         rect.right = rect.left + result[2] * g.scale; rect.bottom = rect.top + result[3] * g.scale;
         const right = corner.endsWith('right'), bottom = corner.startsWith('bottom');
-        const nativeCorner = platform && (right ? platform === 'win32' : platform === 'darwin');
-        const top = Math.max(immersive ? 0 : g.barBottom, nativeCorner ? g.rowBottom : 0);
-        near((right ? width - rect.right : rect.left) * density, CORNER_MARGIN * g.scale * density);
+        const top = immersive ? 0 : g.barBottom, margin = CORNER_MARGIN * g.scale;
+        const footprint = { left: rect.left + (collisionBox[0] - box[0]) * g.scale,
+          top: rect.top + (collisionBox[1] - box[1]) * g.scale };
+        footprint.right = footprint.left + collisionBox[2] * g.scale; footprint.bottom = footprint.top + collisionBox[3] * g.scale;
+        const original = cornerBox(box, { ...g, native: null, corner });
+        const candidate = { left: g.stage.left + (original[0] + collisionBox[0] - box[0]) * g.scale,
+          top: footprint.top, bottom: footprint.bottom };
+        candidate.right = candidate.left + collisionBox[2] * g.scale;
+        const displaced = !bottom && g.native && overlap(candidate, g.native.bounds);
+        near((displaced ? (right ? g.native.bounds.left - footprint.right : footprint.left - g.native.bounds.right)
+          : (right ? width - rect.right : rect.left)) * density, margin * density);
         near((bottom ? height - rect.bottom : rect.top - top) * density, CORNER_MARGIN * g.scale * density);
+        if (!bottom) topEdges.push(rect.top);
         near(result[2], box[2]); near(result[3], box[3]);
         assert.ok(rect.left >= 0 && rect.right <= width && rect.top >= 0 && rect.bottom <= height);
-        if (g.native) assert.ok(!overlap(rect, g.native.bounds), 'The entire corner group clears native controls');
+        if (g.native) assert.ok(!overlap(footprint, g.native.bounds), 'The complete clickable control clears native controls');
       }
+      topEdges.forEach(y => near(y, topEdges[0]));
     }
   });
   test(`detail and shared toolbar, ${locale}, ${platform || 'no native chrome'}: prefab side inset and native row`, () => {
@@ -85,11 +117,11 @@ test('registered controls recalculate after stage fitting and native bounds chan
   try {
     for (const [width, height, platform] of [[960, 540, 'darwin'], [2560, 1440, 'win32'], [1600, 900, null]]) {
       const g = geometry(width, height, platform, true);
-      Object.assign(globalThis, { innerWidth: width, innerHeight: height, bamtWindowChrome: g.native, bamtHeaderGeometry: { rowHeight: g.rowBottom },
+      Object.assign(globalThis, { innerWidth: width, innerHeight: height, bamtWindowChrome: g.native, bamtHeaderGeometry: { rowHeight: 1000 },
         document: { getElementById: () => ({ getBoundingClientRect: () => g.stage }) } });
-      if (!control.style.translate) bindCorner(control, [25, 20, 164 * S, 172 * S], { corner: 'top-left' });
+      if (!control.style.translate) bindCorner(control, [25, 20, ...visual], { corner: 'top-left' });
       else reflowCorners();
-      const expected = cornerBox([25, 20, 164 * S, 172 * S], { ...g, corner: 'top-left' });
+      const expected = cornerBox([25, 20, ...visual], { ...g, corner: 'top-left' });
       const [dx, dy] = control.style.translate.split(' ').map(parseFloat);
       near(25 + dx, expected[0]); near(20 + dy, expected[1]);
     }

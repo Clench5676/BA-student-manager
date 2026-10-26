@@ -13,6 +13,7 @@ import {alignIcon,buttonCenter} from '../student-hall-icons.js';
 import {anchoredCentre} from '../visual-view.js';
 import {wheelKind,wheelStep} from '../lobby-touch.js';
 import {bindCorner} from '../corner-layout.js';
+import {prepareBack} from '../visual-mode.js';
 export {FRAME};
 let sessionVariant=null,generation=0,repository,bridge,overlay,active=false,mode='portrait',grid=true,expanded=false,paused=false,selected=null,page=0,modal=null;
 let controlsRevision=0,saving=false,leaving=false,defaultThumbnail=null,generatedThumbnail=null,occlusion=false,feedback=null;
@@ -177,13 +178,9 @@ async function modeButton(host){
 }
 
 async function backButton(host){
-  const wrapper=document.createElement('div');host.append(wrapper);
-  const collection=await NGUI.layout('UICharacterCollection'),tree=clone(NGUI.find(collection,'SeletControl/Top/BG_W/Bg/Btn'));
-  tree.name='PhotoBack';tree.pos=[0,0];
-  const width=164*S,height=172*S;
-  await NGUI.render(tree,wrapper,{scale:S,origin:[25+width/2,20+height/2]});
-  const hit=hitButton(wrapper,[25,20,width,height],safe(leave),P('back'),90);hit.dataset.photoAction='Back';
-  bindCorner(wrapper,[25,20,width,height],{corner:'top-left'});
+  const wrapper=await prepareBack({layout:await NGUI.layout('UICharacterVisualMode'),label:P('back'),onBack:safe(leave)});
+  if(!wrapper)return;
+  wrapper.querySelector('button').dataset.photoAction='Back';host.append(wrapper);
 }
 
 async function playbackButton(host){

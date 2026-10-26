@@ -1068,7 +1068,7 @@ seam from the Mod switch with the shared NGUI raster path (`ngui.js` `slicedImag
 
 ## BL-052: One corner-button margin across the App
 
-- Status: Implemented; owner review of alpha.6 requests the alignment and Back changes below.
+- Status: Implemented for local review; owner UAT/visual acceptance pending. Top controls stay level, clear native controls horizontally, and cameras reuse the fullscreen Back.
 - Requested: 2026-10-26.
 - Related: BL-037 and BL-047.
 

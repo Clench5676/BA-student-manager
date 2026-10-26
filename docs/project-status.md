@@ -30,7 +30,7 @@ The 0.6.0 work is unreleased. Nothing has been tagged, pushed or published since
 | BL-049 | Implemented for local review; owner UAT/visual acceptance pending. Titles removed; header names stay accessible and Enable Mods reuses the title/Back slot with native clearance. |
 | BL-050 | Accepted by the owner on macOS (alpha.6); Windows not reviewed |
 | BL-051 | Accepted by the owner on macOS (alpha.6); Windows not reviewed |
-| BL-052 | Implemented; owner review of alpha.6 asks for top-left Back level with the top-right button and the fullscreen Back in the cameras. |
+| BL-052 | Implemented for local review; owner UAT/visual acceptance pending. Top controls stay level, clear native controls horizontally, and cameras reuse the fullscreen Back. |
 | BL-053 | Implemented for local review; owner UAT/visual acceptance pending. Photo deletion distinguishes other-skin-only usage in all six locales. |
 | BL-046 | Closed by the owner without UAT (CLI-only) |
 | BL-048 | Accepted: CLI no longer built, installed or released |
