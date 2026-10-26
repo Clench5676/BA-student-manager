@@ -879,7 +879,7 @@ Proposed mapping for owner review: applied = yellow frame with the check badge, 
 
 ## BL-045: Separate Global and Japanese game directories
 
-- Status: Planned; owner macOS review of 0.6.0-alpha.2.
+- Status: Implemented for local review; owner UAT/visual acceptance pending.
 - Requested: 2026-10-26.
 - Related: BL-039 and BL-030.
 - Evidence: owner screenshot of the dialog shown when switching to the Japanese server (title `失败`, message
@@ -890,6 +890,8 @@ and Japanese game directory settings, using each language's official server name
 directory to the server it belongs to. When the selected server's directory is not set, show a plain notice instead
 of a failure: no `失败` title and no error-report button, a message such as `未设置日服游戏目录`, and Confirm only.
 Keep BL-039's behaviour: the current server, Hall and saved choices stay as they are.
+
+Settings exposes both server folders, migrates detected legacy Japanese installs and shows a Confirm-only notice for missing folders; refused switches retain the current server, and resource caches remain isolated by installation.
 
 
 ## BL-046: Managed CLI CAB cache and upstream introspection tests

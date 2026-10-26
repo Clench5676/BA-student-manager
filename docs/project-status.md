@@ -23,7 +23,8 @@ The 0.6.0 work is unreleased. Nothing has been tagged, pushed or published since
 | BL-032 | Implemented for alpha.2; the English label overflow continues as BL-040 |
 | BL-037 | Design task, not started |
 | BL-040, BL-041, BL-043 | Implemented for local review; owner UAT/visual acceptance pending |
-| BL-042, BL-044, BL-045 | Owner's macOS findings on alpha.2, on hold |
+| BL-042, BL-044 | Owner's macOS findings on alpha.2, on hold |
+| BL-045 | Implemented for local review; owner UAT/visual acceptance pending. Separate server folders, legacy migration and missing-folder notices. |
 | BL-046 | Implemented for local review; owner UAT/visual acceptance pending. |
 | BL-020 | Implemented for local review; owner UAT/visual acceptance pending. Exact-release notes and empty-body link fallback. |
 | BL-021 | Implemented for local review; owner UAT/visual acceptance pending. Tour framework and Settings replay; published registry empty, 0.6.0 draft awaiting owner review. |
