@@ -899,8 +899,8 @@ and display densities.
 
 ## BL-044: Applied and preview frames from the game's selected skill cards
 
-- Status: Implemented for local review; owner UAT/visual acceptance pending. Review 2 corner coverage follows the prefab opening; review 1 badge widening remains on hold for an owner decision.
-- Note: Yellow badges read Applied and blue badges Selected, fitted at one shared size per locale; no second check, and the frame effect and compositing are unchanged.
+- Status: Implemented for local review; owner UAT/visual acceptance pending. Review 1 badges widen leftward through verified runtime slices; review 2 corner coverage follows the prefab opening.
+- Note: Both official badges have identical RGBA columns [14, 28), giving horizontal borders L14/R36 and no vertical cuts. Applied/Selected share a width and font size per locale/card, starting at Mulligan_IndexLabel's 42 units and shrinking only at the card body width limit; the check retains its original prefab scale. No image data ships.
 - Requested: 2026-10-26.
 - Related: BL-015, BL-022 and BL-036.
 - Evidence: owner screenshots of the game's Formation Edit > starting skills > selected skill cards (animated yellow

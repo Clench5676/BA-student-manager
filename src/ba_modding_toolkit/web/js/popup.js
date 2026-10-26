@@ -45,8 +45,8 @@ export function selectionReady() {
   return selectionLoading = pending;
 }
 // The slot's number label holds Applied (yellow) or Selected (blue), fitted together to keep one size across source cards.
-export function selectionCaptions(slot = selectionSlot) {
-  const captions = slot && fitBadgeCaptions(slot, [T("status.applied"), T("status.selected")], NGUI.fitGroup);
+export function selectionCaptions(card = null, slot = selectionSlot) {
+  const captions = slot && fitBadgeCaptions(slot, [T("status.applied"), T("status.selected")], NGUI.fitGroup, NGUI.glyphWidth, card);
   return captions && { applied: captions[0], preview: captions[1] };
 }
 export function frameReady() {
@@ -449,7 +449,7 @@ export function listCard(it, x, y, selected, card = LP.card, kind = null) {
     // Keep the existing list's measured envelope, hit boxes and scroll pitch when replacing its decoration.
     tree.layoutChildren = [...kids];
     tree.children = kids.filter(n => n.name !== "Select");
-    const caption = (it.applied || selected) ? selectionCaptions()?.[it.applied ? "applied" : "preview"] : null;
+    const caption = (it.applied || selected) ? selectionCaptions(card)?.[it.applied ? "applied" : "preview"] : null;
     const frame = selectedFrame(selectionSlot, card, it.applied, selected, caption);
     if (frame) {
       const window = selectionArtWindow(frame, selectionSprite, selectionOutline);

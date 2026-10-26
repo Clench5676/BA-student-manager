@@ -64,6 +64,7 @@ globalThis.Image = class {
   naturalHeight = 8;
   set src(url) {
     if (url.includes('Common_Bg_Raius10px_Select')) this.naturalWidth = this.naturalHeight = 30;
+    if (url.includes('Common_Icon_Mulligan_')) { this.naturalWidth = 64; this.naturalHeight = 69; }
     queueMicrotask(() => this.onload?.());
   }
 };
@@ -151,7 +152,7 @@ globalThis.fetch = async (url, opts = {}) => {
   if (url === "/asset/ui/atlases.json") return reply({ Common: Object.fromEntries(
     ["Common_Square_Bg", "Common_Bg_Raius10px", "Common_Btn_BG", "Common_Popup_Bg", "Common_Btn_Normal_B_C_Pt",
       "Common_Bg_Raius10px_Select", "Common_Icon_Check_Y_Off", "Common_Icon_Mulligan_1", "Common_Icon_Mulligan_2", "Common_Line_Raius20px", "Common_Icon_Reddot2", "Card_Ability_Select_Line", "Card_Ability_Select_Line_Icon", "Cafe_Icon_NameEdit"].map((name) =>
-      [name, name === 'Common_Bg_Raius10px_Select' ? selectionSprite : { width: 8, height: 8 }])) });
+      [name, name === 'Common_Bg_Raius10px_Select' ? selectionSprite : name.startsWith('Common_Icon_Mulligan_') ? { width: 64, height: 69 } : { width: 8, height: 8 }])) });
   if (url === "/asset/ui/textures.json") return reply({ Scroll: "scroll.png" });
   if (url === "/asset/ui/layout/UICharacterCollectionPopulatorUnit.json") return reply(switchLayouts.unit);
   if (url === "/asset/ui/layout/UINonEquipmentInventory.json") return reply(switchLayouts.inventory);
@@ -2129,6 +2130,7 @@ test('source cards use the state badge and fitted locale caption in every picker
       assert.equal(captions.preview.text, ui.status.selected);
       assert.equal(captions.applied.fontSize, captions.preview.fontSize);
       for (const kind of ['spr', 'lobby', 'model', null]) {
+        const captions = Popup.selectionCaptions(switchGrid(kind).card);
         for (const applied of [false, true]) for (const previewed of [false, true]) {
           const tree = Popup.listCard({ key: 'source', label: 'Source', applied }, 0, 0, previewed, switchGrid(kind).card, kind);
           const frame = NGUI.find(tree, 'Select');
@@ -2149,9 +2151,9 @@ test('source cards use the state badge and fitted locale caption in every picker
           assert.equal(NGUI.find(frame, `${prefix}Label`).widgets[0], text);
           assert.equal(text.text, applied ? ui.status.applied : ui.status.selected);
           assert.equal(text.fontSize, caption.fontSize);
-          assert.deepEqual([text.w_, text.h_, text.color], [70, 52, '#7a4800/1.00']);
+          assert.deepEqual([text.w_, text.h_, text.color], [caption.labelWidth, 52, '#7a4800/1.00']);
           assert.ok(NGUI.glyphWidth(text.text, text.fontSize) <= text.w_);
-          assert.ok(NGUI.fontSizeFor(text.text, text.fontSize) * NGUI.LINE_PITCH <= text.h_);
+          assert.ok(NGUI.fontSizeFor(text.text, text.fontSize) * NGUI.LINE_PITCH <= NGUI.find(frame, `${prefix}Badge`).widgets[0].h_);
           assert.ok(!treeWalk(tree).some(n => n.widgets.some(w => w.sprite?.includes('Check') || w.sprite === 'Card_Ability_Select_Line_Icon')),
             'the old selection check is absent from the rendered tree');
         }

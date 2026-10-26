@@ -401,9 +401,14 @@ export async function render(tree, host, opts = {}) {
         }
         const tintedUrl = await tinted(spriteUrl(atlas, w.sprite), col.hex);
         const url = w.gradient ? await gradientTint(tintedUrl, w.gradient) : tintedUrl;
-        const b = spriteBorders(meta);
+        // Runtime cuts use the same single-image raster path as atlas-authored sliced sprites.
+        const b = spriteBorders({ ...meta, ...w.sliceBorders });
         if (w.type === 1 && b.some(Boolean)) {
-          return slicedImage(url, b, ww * S, hh * S, S * Math.min(Math.abs(sx), Math.abs(sy)),Math.max(2,Number(opts.rasterDensity)||2)).then((img) => {
+          const sliceX = w.sliceScale && w.sliceScale[0] * S * Math.abs(sx), sliceY = w.sliceScale && w.sliceScale[1] * S * Math.abs(sy);
+          // slicedImage takes per-border scales: top, right, bottom, left.
+          const borderScale = w.sliceScale ? [sliceY, sliceX, sliceY, sliceX]
+            : S * Math.min(Math.abs(sx), Math.abs(sy));
+          return slicedImage(url, b, ww * S, hh * S, borderScale,Math.max(2,Number(opts.rasterDensity)||2)).then((img) => {
             Object.assign(el.style, { backgroundImage: `url("${img}")`, backgroundSize: "100% 100%", backgroundRepeat: "no-repeat" });
           });
         } else if (w.type === 2) {

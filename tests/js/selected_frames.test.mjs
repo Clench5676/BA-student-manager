@@ -58,7 +58,7 @@ for (const [applied, previewed, state] of [[false, false, null], [false, true, '
     assert.equal(frame.children.some(n => n.name === 'PreviewBadge'), !applied);
     assert.ok(frame.children.every(n => n.name !== 'Check'), 'the badge sprite draws the only check');
     assert.ok(walk(frame).every(n => !n.widgets.some(w => 'text' in w)), 'no caption without one given');
-    const caption = { text: applied ? 'Applied' : 'Selected', fontSize: 14 };
+    const caption = { text: applied ? 'Applied' : 'Selected', fontSize: 14, badgeWidth: 160, labelWidth: 100.625 };
     const captioned = selectedFrame(slot(), { w: 312, h: 480 }, applied, previewed, caption);
     assert.deepEqual(walk(captioned).filter(n => n.widgets.some(w => 'text' in w)).map(n => n.name),
       [applied ? 'AppliedLabel' : 'PreviewLabel']);
@@ -66,7 +66,7 @@ for (const [applied, previewed, state] of [[false, false, null], [false, true, '
 }
 
 for (const applied of [false, true]) test(`exactly one prefab badge and label remain for applied=${applied}`, () => {
-  const caption = { text: applied ? 'Applied' : 'Selected', fontSize: 14 };
+  const caption = { text: applied ? 'Applied' : 'Selected', fontSize: 14, badgeWidth: 160, labelWidth: 100.625 };
   const frame = selectedFrame(slot(), { w: 312, h: 480 }, applied, true, caption);
   const prefix = applied ? 'Applied' : 'Preview';
   assert.deepEqual(frame.children.map(n => n.name), [`${prefix}Badge`, `${prefix}Label`, 'FrameEffect']);
@@ -80,7 +80,7 @@ for (const applied of [false, true]) test(`exactly one prefab badge and label re
 
 for (const card of [{ w: 312, h: 480 }, { w: 320, h: 704 }, { w: 790, h: 444.375 }, { w: 360, h: 360 }, { w: 250, h: 226 }]) {
   for (const [applied, previewed] of [[false, true], [true, false], [true, true]]) test(`prefab corner geometry for ${card.w}x${card.h}, applied=${applied} previewed=${previewed}`, () => {
-    const source = slot(), before = structuredClone(source), caption = { text: applied ? 'Applied' : 'Selected', fontSize: 14 };
+    const source = slot(), before = structuredClone(source), caption = { text: applied ? 'Applied' : 'Selected', fontSize: 14, badgeWidth: 160, labelWidth: 100.625 };
     const frame = selectedFrame(source, card, applied, previewed, caption);
     assert.deepEqual(source, before, 'the shared prefab is immutable');
     const fw = sprite(frame);
@@ -90,16 +90,16 @@ for (const card of [{ w: 312, h: 480 }, { w: 320, h: 704 }, { w: 790, h: 444.375
     const prefix = applied ? 'Applied' : 'Preview';
     const badge = frame.children.find(n => n.name === `${prefix}Badge`), name = frame.children.find(n => n.name === `${prefix}Label`);
     assert.equal(sprite(badge).sprite, applied ? 'Common_Icon_Mulligan_1' : 'Common_Icon_Mulligan_2');
-    assert.deepEqual([sprite(badge).w_, sprite(badge).h_], [76, 74]);
+    assert.deepEqual([sprite(badge).w_, sprite(badge).h_], [160, 74]);
     const lean = Math.tan(Math.PI / 18);
-    assert.ok(Math.abs((badge.pos[0] - (badge.pos[1] + 7) * lean) - (card.w / 2 - 36)) < 1e-9);
+    assert.ok(Math.abs((badge.pos[0] - (badge.pos[1] + 7) * lean) - (card.w / 2 - 36 - 42)) < 1e-9);
     assert.ok(Math.abs(badge.pos[1] + 7 - (card.h / 2 - 27)) < 1e-9);
-    // the prefab's number label keeps its place in the badge (3 below its centre), size, colour and depth above the badge
+    // the prefab's number label is centred in the fill, preserving its font, height, ink and depth
     const text = name.widgets.find(w => 'text' in w);
     assert.equal(text.text, caption.text); assert.equal(text.fontSize, 14);
-    assert.deepEqual([text.w_, text.h_, text.pivot, text.depth, text.color], [70, 52, 4, 51, '#7a4800/1.00']);
-    assert.ok(Math.abs((name.pos[0] - (name.pos[1] + 7) * lean) - (card.w / 2 - 36)) < 1e-9);
-    assert.ok(Math.abs(name.pos[1] - badge.pos[1] + 3) < 1e-9);
+    assert.deepEqual([text.w_, text.h_, text.pivot, text.depth, text.color], [100.625, 52, 4, 51, '#7a4800/1.00']);
+    assert.ok(Math.abs(name.pos[0] - badge.pos[0] - (14 - 36) * 76 / 64 / 2) < 1e-9);
+    assert.ok(Math.abs(name.pos[1] - badge.pos[1]) < 1e-9);
     assert.ok(text.depth > sprite(badge).depth, 'the label stays visible over the badge body');
     const effect = frame.children.find(n => n.name === 'FrameEffect').frameEffect;
     assert.deepEqual(effect.uvScale, [.96, .975]);
