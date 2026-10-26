@@ -1,4 +1,5 @@
 import {topActionLayout,nativeRightClearance} from "./top-action-layout.js";
+import { sizeTitle, watchTopBar } from "./top-bar.js";
 // The lobby-style bottom navigation and the top bar. The entries are nav-items.js: one without a web screen is greyed
 // out with the game's disabled tint and hands over to the classic GUI on its tab, through the hand-off prompt
 // (decision 6: on every click, with Don't Ask Again, until the pref classicPrompt is turned off).
@@ -137,8 +138,13 @@ function skinTop() {
 }
 
 export function setTitle(text, onBack) {
-  document.querySelector(".topbar .title").textContent = text;
+  const title = document.querySelector(".topbar .title");
+  title.textContent = text;
+  sizeTitle(title);
   const back = document.querySelector(".topbar .back");
   back.onclick = onBack || null;
   back.style.visibility = onBack ? "visible" : "hidden";
 }
+
+// the bar's content stays centred on its fill whatever changes under it (top-bar.js)
+watchTopBar();

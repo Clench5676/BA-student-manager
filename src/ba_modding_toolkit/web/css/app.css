@@ -84,6 +84,9 @@ input[type="text"], input[type="search"], textarea { cursor: text; }
   border-style: solid; border-width: 0 11px 0 172px; border-color: transparent;
   border-image: url("/asset/ui/sprite/Common/Common_Top_Menu_Bg.png") 0 20 0 310 fill / 0 11px 0 172px stretch;
   filter: drop-shadow(0 2px 3px rgba(30, 60, 100, .18));
+  /* content is centred on the fill (rows 0-96 of the sprite's 105: its dark lip and shadow below are not the bar), not on
+     the whole height; top-bar.js sets --bar-padding from the sprite and moves each element's ink onto that centre */
+  padding-bottom: var(--bar-padding, 4.88px);
 }
 .back { position: absolute; left: -134px; top: 9px; width: 106.38px; height: 111.57px; }
 .title { margin-left: -12px; font: var(--w) 42px/1 var(--font); color: var(--navy-text); letter-spacing: 1px; }
