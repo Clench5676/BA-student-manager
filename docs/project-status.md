@@ -25,7 +25,7 @@ The 0.6.0 work is unreleased. Nothing has been tagged, pushed or published since
 | BL-037 | Design task, not started |
 | BL-040, BL-041, BL-043, BL-045 | Accepted by the owner on macOS (alpha.3); Windows not reviewed |
 | BL-042 | Accepted by the owner on macOS (alpha.4) |
-| BL-044 | Changes requested on alpha.4: duplicate checks, "已选择" label, dark frame corners |
+| BL-044 | Implemented for local review; owner UAT/visual acceptance pending. Single check, "Selected" label on the prefab badge, frame canvas premultiplied like the game's blend. |
 | BL-047 | Reopened: button restored; new portrait/memorial-lobby switch function awaits the owner's confirmation |
 | BL-046 | Closed by the owner without UAT (CLI-only) |
 | BL-048 | Accepted: CLI no longer built, installed or released |

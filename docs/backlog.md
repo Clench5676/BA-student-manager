@@ -871,8 +871,8 @@ and display densities.
 
 ## BL-044: Applied and preview frames from the game's selected skill cards
 
-- Status: Owner review of 0.6.0-alpha.4 (2026-10-26): changes requested, see below.
-- Note: Shared source cards use UIPopup_Mulligan’s yellow/blue frames, particle mesh motion and top-right check badge; the separate number is omitted.
+- Status: Implemented for local review; owner UAT/visual acceptance pending.
+- Note: Shared source cards use UIPopup_Mulligan’s yellow/blue frames, particle mesh motion and top-right badge; the badge's number label reads the game's "Selected" (`webui.status.selected`, the Global client's wording; Simplified Chinese as the owner worded it).
 - Requested: 2026-10-26.
 - Related: BL-015, BL-022 and BL-036.
 - Evidence: owner screenshots of the game's Formation Edit > starting skills > selected skill cards (animated yellow
@@ -893,6 +893,14 @@ Owner review of 0.6.0-alpha.4 (2026-10-26), two screenshots:
    and lets the browser blend it in display (gamma) space over the card. Where the scrolling mask is dark but its alpha
    is not zero, which includes the mesh's corners outside the rounded frame, the effect dims the card behind instead of
    adding light.
+
+Addressed, awaiting review: the badge sprite (`Common_Icon_Mulligan_1`) already draws a check, so the grey check cloned
+from `SelectLine/Sprite` is gone and the prefab's number label (`Mulligan_IndexLabel`) reads "Selected" instead. The
+ring mesh has no corner fill: it is a 9 px outline whose alpha is only the mask, while its HDR light saturates at mask
+0.15 (yellow) and 0.03 (blue). The straight-alpha canvas weighted that light by the mask, up to 0.85 (yellow) and 0.97
+(blue) darker than the game's One / OneMinusSrcAlpha result, and dimmed the card by (1 - alpha) in sRGB values, up to
+0.29 over white. The canvas is now a premultiplied layer that is never darker than the game's blend; which of these
+showed at the corners is for the owner to judge.
 
 ## BL-045: Separate Global and Japanese game directories
 
