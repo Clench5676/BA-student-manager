@@ -809,11 +809,14 @@ class ModLibrary:
 
     @_serialized
     def photograph_removal_info(self, variant: str, key: str) -> dict:
-        from .portrait_edit import in_use
+        from .portrait_edit import usage_targets
         if key == 'official':
-            return {'official': True, 'used': False}
+            return {'official': True, 'used': False, 'used_here': False, 'used_elsewhere': False, 'targets': []}
         self.photographs._entry(variant, key)
-        return {'official': False, 'used': key in in_use(self)}
+        uses = usage_targets(self)
+        targets = sorted(uses.get(key, set()))
+        return {'official': False, 'used': key in uses, 'used_here': variant in targets,
+                'used_elsewhere': any(target != variant for target in targets), 'targets': targets}
 
     @_serialized
     @_mod_writer

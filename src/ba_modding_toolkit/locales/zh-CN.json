@@ -1243,6 +1243,7 @@
 			"hall_duplicate_portrait": "此立绘已在大厅中",
 			"hall_duplicate_memorial": "此记忆大厅已在清单中",
 			"asset_delete_confirm": "该资产正在被应用中，是否删除？",
+			"photo_delete_other_variant": "正在被另一换皮使用",
 			"asset_official": "无法删除官方资产。",
 			"game_directory_missing": "请在设置中选择此服务器的游戏目录。",
 			"photo_capture_unavailable": "画面暂不可用，请重试",

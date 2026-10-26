@@ -1243,6 +1243,7 @@
 			"hall_duplicate_portrait": "This portrait is already in the hall",
 			"hall_duplicate_memorial": "This Memorial Lobby is already in the playlist",
 			"asset_delete_confirm": "This asset is applied. Delete it?",
+			"photo_delete_other_variant": "In use by another variant",
 			"asset_official": "Official assets cannot be deleted.",
 			"game_directory_missing": "Choose a game folder for this server in Settings.",
 			"photo_capture_unavailable": "Frame Unavailable. Try Again.",

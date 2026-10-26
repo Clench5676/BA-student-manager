@@ -1243,6 +1243,7 @@
 			"hall_duplicate_portrait": "เพิ่มภาพตัวละครนี้ในล็อบบี้แล้ว",
 			"hall_duplicate_memorial": "เพิ่มเมโมเรียลล็อบบี้นี้ในรายการแล้ว",
 			"asset_delete_confirm": "กำลังใช้ทรัพยากรนี้อยู่ ต้องการลบหรือไม่?",
+			"photo_delete_other_variant": "กำลังใช้กับชุดอื่น",
 			"asset_official": "ไม่สามารถลบทรัพยากรทางการได้",
 			"game_directory_missing": "เลือกโฟลเดอร์เกมของเซิร์ฟเวอร์นี้ในการตั้งค่า",
 			"photo_capture_unavailable": "ไม่สามารถจับภาพได้ กรุณาลองอีกครั้ง",

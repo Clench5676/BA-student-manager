@@ -163,6 +163,60 @@ def test_gallery_applied_uses_each_collection_target_while_other_skin_deletion_s
 
 
 @pytest.mark.parametrize('enabled', [True, False])
+@pytest.mark.parametrize('targets', [('skin-a',), ('skin-b',), ('skin-a', 'skin-b'), ()],
+                         ids=['shown-skin', 'other-skin', 'both-skins', 'unused'])
+def test_photo_removal_reports_target_skins_without_changing_confirmation(recipes, enabled, targets):
+    world, target, _, _, _ = recipes
+    lib = world.library
+    variants = {'skin-a': 'a', 'skin-b': 'b'}
+    for variant, name in variants.items():
+        lib.catalog.variants[variant] = SimpleNamespace(key=variant, family='test', portrait=name, names={})
+    # Origin and preview selection must not be mistaken for the application target.
+    key = lib.photographs.save('skin-b', capture(color=(50, 80, 160, 255))[0], 'portrait')['saved']
+    lib.photographs.select('skin-a', key)
+    for variant in targets:
+        lib.apply_photograph(variant, key, {'bundle': target.name, 'name': variants[variant]})
+    if not enabled:
+        world.toggle(False)
+    api = Photography(SimpleNamespace(library=lib, catalog=lib.catalog))
+    assert api.removal_info('skin-a', key) == {
+        'official': False, 'used': bool(targets), 'used_here': 'skin-a' in targets,
+        'used_elsewhere': 'skin-b' in targets, 'targets': sorted(targets)}
+    assert api.removal_info('skin-a', 'official') == {
+        'official': True, 'used': False, 'used_here': False, 'used_elsewhere': False, 'targets': []}
+    before = target.read_bytes(), deepcopy(world.profiles())
+    if targets:
+        with pytest.raises(ServiceError, match='asset_delete_confirm'):
+            lib.delete_photograph('skin-a', key)
+        assert (target.read_bytes(), world.profiles()) == before
+        assert lib.photographs.selection('skin-a') == key and lib.photographs.image('skin-a', key)
+    if not enabled:
+        lib._write_check = lambda *_: pytest.fail('Mods-off photo deletion wrote the game')
+    lib.delete_photograph('skin-a', key, confirm=bool(targets))
+    assert key not in portrait_edit.in_use(lib)
+    assert lib.photographs.selection('skin-a') is None and not lib.photographs._path(key).exists()
+
+
+def test_photo_usage_targets_retain_configured_and_applied_only_references(tmp_path):
+    present = tmp_path / 'collection.bundle'
+    present.touch()
+    records = {'configured': {portrait_edit.TAG: {'choices': {
+        'a': {'photo': 'shared', 'variant': 'skin-a'},
+        'b': {'photo': 'reset', 'variant': 'skin-b'},
+        'legacy': {'photo': 'unknown-target'}}}},
+        'applied': {portrait_edit.TAG: {'choices': {'b': {'photo': 'shared', 'variant': 'skin-b'}}}}}
+    config = {'folders': {'install': {'configured': {'collection': {
+        'source': 'mod:configured', 'photo_defaults': ['b']}}}}}
+    library = SimpleNamespace(_records=records, profiles=SimpleNamespace(read=lambda: config),
+                              _applied={str(present): {'source': 'mod:applied'},
+                                        str(tmp_path / 'missing'): {'source': 'mod:configured'}})
+    assert portrait_edit.usage_targets(library) == {'shared': {'skin-a', 'skin-b'}, 'unknown-target': set()}
+    assert portrait_edit.in_use(library) == {'shared', 'unknown-target'}
+    library._applied[str(present)]['removed'] = True
+    assert portrait_edit.usage_targets(library)['shared'] == {'skin-a'}
+
+
+@pytest.mark.parametrize('enabled', [True, False])
 def test_shared_photo_deletion_reconciles_all_skins_and_preserves_other_textures(recipes, enabled):
     world, target, keys, decode, core = recipes
     lib = world.library

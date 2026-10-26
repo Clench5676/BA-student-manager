@@ -1088,7 +1088,8 @@ fullscreen views (`UICharacterVisualMode/Inventory_ListControl_PC/LeftTop/Btn_Ba
 
 ## BL-053: Thumbnail picker marks other skins' applied photos
 
-- Status: Applied per skin accepted by the owner (macOS, alpha.6); delete-warning wording requested below.
+- Status: Implemented for local review; owner UAT/visual acceptance pending.
+- Note: Photo deletion reports target skins and distinguishes other-skin-only usage in all six locales; shown-skin usage keeps the existing warning.
 - Requested: 2026-10-26.
 - Related: BL-015, BL-022 and BL-044.
 

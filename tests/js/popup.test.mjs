@@ -292,6 +292,32 @@ test("scrollable findings wrap long paths and unbroken names inside the frame, k
   assert.deepEqual(await pending, { button: "ok", checked: null });
 });
 
+test('photo deletion warnings fit the UIPopup_Sort frame in all six locales', async () => {
+  const NGUI = await import('../../src/ba_modding_toolkit/web/js/ngui.js');
+  const bounds = el => { const [left, top, width, height] = NGUI.rect(el); return {left, top, right:left+width, bottom:top+height}; };
+  try {
+    for(const locale of ['en-US','zh-CN','zh-TW','ja-JP','ko-KR','th-TH']){
+      const ui=JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${locale}.json`,import.meta.url),'utf8')).webui;
+      setStrings(locale,Object.fromEntries(strings(ui)));
+      for(const warning of [ui.error.asset_delete_confirm,ui.error.photo_delete_other_variant]){
+        const pending=Popup.message({title:ui.photo.delete,lines:[warning],ok:ui.photo.delete,cancel:ui.popup.cancel});
+        const ok=await drawn(dialog,'ok');
+        const part=path=>walk(dialog).find(el=>el.dataset.path===`Center/Popup/${path}`);
+        const line=part('Lines/Line_0'),frame=bounds(part('Base/BG'));
+        const text=bounds(line),buttons=['Btn_Ok','Btn_Cancel'].map(name=>bounds(part(`Btn/${name}/BG (1)`)));
+        const fs=parseFloat(line.style.fontSize),width=parseFloat(line.style.width);
+        for(const row of line.textContent.split('\n'))assert.ok(row.length*.6*fs<=width+.01,`${locale}: ${row}`);
+        for(const viewportWidth of [960,1920,2560])for(const density of [1,2]){
+          const scale=viewportWidth/1920*density;
+          assert.ok(text.left*scale>=frame.left*scale&&text.right*scale<=frame.right*scale,locale);
+          assert.ok(text.top*scale>=frame.top*scale&&text.bottom*scale<Math.min(...buttons.map(b=>b.top))*scale,locale);
+        }
+        ok.click();await pending;
+      }
+    }
+  } finally { setStrings('en-US',Object.fromEntries(strings(english))); }
+});
+
 test("shared message sizes and scrolling preserve complete paths with and without row buttons", async () => {
   const NGUI = await import("../../src/ba_modding_toolkit/web/js/ngui.js");
   const path = "Intro_Shoulder_L/".repeat(90), name = "x".repeat(180);

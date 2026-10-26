@@ -1243,6 +1243,7 @@
 			"hall_duplicate_portrait": "この立ち絵は追加済みです",
 			"hall_duplicate_memorial": "このメモリアルロビーは追加済みです",
 			"asset_delete_confirm": "この素材は適用中です。削除しますか？",
+			"photo_delete_other_variant": "別のバリエーションで使用中",
 			"asset_official": "公式素材は削除できません。",
 			"game_directory_missing": "設定でこのサーバーのゲームフォルダーを選択してください。",
 			"photo_capture_unavailable": "画面を取得できません。再試行してください",

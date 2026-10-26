@@ -162,15 +162,28 @@ def _referenced_sources(library: ModLibrary) -> set:
     return sources
 
 
-def in_use(library: ModLibrary) -> set[str]:
+def usage_targets(library: ModLibrary) -> dict[str, set[str]]:
+    """Map referenced photos to their target skins, independently of the photo's originating skin."""
     config = library.profiles.read() or {}
     uses = [(entry.get('source'), set(entry.get('photo_defaults', [])))
             for folder in config.get('folders', {}).values() for entry in folder.get('configured', {}).values()]
     uses.extend((entry.get('source'), set()) for path, entry in library._applied.items()
                 if Path(path).exists() and not entry.get('removed'))
-    return {item['photo'] for source, defaults in uses if isinstance(source, str) and source.startswith('mod:')
-            for name, item in ((library._records.get(source[4:], {}).get(TAG) or {}).get('choices') or {}).items()
-            if name not in defaults and isinstance(item, dict) and isinstance(item.get('photo'), str)}
+    targets = {}
+    for source, defaults in uses:
+        if not isinstance(source, str) or not source.startswith('mod:'):
+            continue
+        for name, item in ((library._records.get(source[4:], {}).get(TAG) or {}).get('choices') or {}).items():
+            if name in defaults or not isinstance(item, dict) or not isinstance(item.get('photo'), str):
+                continue
+            variants = targets.setdefault(item['photo'], set())
+            if isinstance(item.get('variant'), str):
+                variants.add(item['variant'])
+    return targets
+
+
+def in_use(library: ModLibrary) -> set[str]:
+    return set(usage_targets(library))
 
 
 def remove_photo(library: ModLibrary, key: str, log) -> None:

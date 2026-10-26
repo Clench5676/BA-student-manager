@@ -83,13 +83,18 @@ def test_applied_is_scoped_to_the_shown_skin_but_deletion_checks_every_skin(
     services.game.collection_target = lambda name: {**photography_env['descriptor'], 'name': name}
     services.library.photograph_choice = lambda descriptor, pin: {
         'id': choices[descriptor['name']], 'known': True, 'enabled': enabled, 'pending': not enabled}
-    services.library.photograph_removal_info = lambda variant, key: {'official': False, 'used': key in choices.values()}
+    def removal_info(variant, key):
+        targets = sorted(v.key for v in (original, alternative) if choices[v.portrait] == key)
+        return {'official': False, 'used': bool(targets), 'used_here': variant in targets,
+                'used_elsewhere': any(target != variant for target in targets), 'targets': targets}
+    services.library.photograph_removal_info = removal_info
     for variant, own, other in [(original, keys[0], keys[1]), (alternative, keys[1], keys[0])]:
         result = rpc(app, 'photography.list', variant=variant.key)['result']
         assert {entry['variant'] for entry in result['photos']} == {original.key, alternative.key}
         assert {entry['id'] for entry in result['photos'] if entry['applied']} == {own}
         assert result['game']['id'] == own and result['game']['enabled'] == enabled
-        assert rpc(app, 'photography.removalInfo', variant=variant.key, id=other)['result']['used']
+        for key in (own, other):
+            assert rpc(app, 'photography.removalInfo', variant=variant.key, id=key)['result'] == removal_info(variant.key, key)
     # Returning to official must not mark the other skin's persisted photo Applied.
     choices[original.portrait] = None
     result = rpc(app, 'photography.list', variant=original.key)['result']

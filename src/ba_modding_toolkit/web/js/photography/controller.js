@@ -327,7 +327,8 @@ async function deletePhoto(){
   const key=selected,info=await call('removalInfo',{id:key});
   if(info.official)return;
   if(info.used){
-    const answer=await Popup.message({title:P('delete'),lines:[T('error.asset_delete_confirm')],ok:P('delete'),cancel:T('popup.cancel')});
+    const warning=info.used_elsewhere&&!info.used_here?'error.photo_delete_other_variant':'error.asset_delete_confirm';
+    const answer=await Popup.message({title:P('delete'),lines:[T(warning)],ok:P('delete'),cancel:T('popup.cancel')});
     if(answer.button!=='ok')return;
   }
   const scope=generation;

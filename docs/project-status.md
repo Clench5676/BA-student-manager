@@ -31,7 +31,7 @@ The 0.6.0 work is unreleased. Nothing has been tagged, pushed or published since
 | BL-050 | Accepted by the owner on macOS (alpha.6); Windows not reviewed |
 | BL-051 | Accepted by the owner on macOS (alpha.6); Windows not reviewed |
 | BL-052 | Implemented; owner review of alpha.6 asks for top-left Back level with the top-right button and the fullscreen Back in the cameras. |
-| BL-053 | Applied per skin accepted on macOS (alpha.6); owner asked for an "in use by another skin" delete warning. |
+| BL-053 | Implemented for local review; owner UAT/visual acceptance pending. Photo deletion distinguishes other-skin-only usage in all six locales. |
 | BL-046 | Closed by the owner without UAT (CLI-only) |
 | BL-048 | Accepted: CLI no longer built, installed or released |
 | BL-020 | Implemented for local review; owner UAT/visual acceptance pending. Exact-release notes and empty-body link fallback. |
