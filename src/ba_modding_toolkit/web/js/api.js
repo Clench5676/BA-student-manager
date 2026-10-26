@@ -160,10 +160,14 @@ export function waitJob(id, onProgress, { pollEvery = 1500, maxErrors = Infinity
 // asset URLs
 // The bootstrap epoch bypasses legacy max-age entries. Every new light response
 // also revalidates its schema/content ETag, including after game resource changes.
+let assetContext = "";
+export function setAssetContext(value) { assetContext = value || ""; forgetSpineAssets(); }
 export function uiExportUrl(url) {
   const epoch = globalThis.document?.querySelector?.('meta[name="bamt-ui-exports"]')?.content;
-  if (!epoch || !url.startsWith("/asset/ui/")) return url;
-  const parsed = new URL(url, "http://exports.invalid"); parsed.searchParams.set("export", epoch);
+  if ((!epoch && !assetContext) || !url.startsWith("/asset/ui/")) return url;
+  const parsed = new URL(url, "http://exports.invalid");
+  if (epoch) parsed.searchParams.set("export", epoch);
+  if (assetContext) parsed.searchParams.set("resource", assetContext);
   return `${parsed.pathname}${parsed.search}`;
 }
 export const spriteUrl = (atlas, name) => uiExportUrl(`/asset/ui/sprite/${encodeURIComponent(atlas)}/${encodeURIComponent(name)}.png`);

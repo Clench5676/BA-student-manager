@@ -6,6 +6,7 @@ const refresh=source.slice(source.indexOf('async function refreshConfiguration()
 test('old cross-server refreshes cannot commit after a newer refresh and recovery needs no restart',async()=>{
   const pending=[],routes=[],nav=[];
   const ctx={invalidateRoster(){}},env={ctx,
+    previewCache:{configure(){}},
     rpc:method=>new Promise(resolve=>pending.push({method,resolve})),
     renderNav:async(_,options)=>nav.push(options),route:async()=>routes.push(ctx.info.resourceVersion),
     StudentHall:{hide(){}},Detail:{hide(){}},Roster:{hide(){}},BatchImport:{invalidate(){}},

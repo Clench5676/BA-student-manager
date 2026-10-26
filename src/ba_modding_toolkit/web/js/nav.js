@@ -148,3 +148,5 @@ export function setTitle(text, onBack) {
 
 // the bar's content stays centred on its fill whatever changes under it (top-bar.js)
 watchTopBar();
+// Prefabs and derived UI values belong to the selected installation.
+NGUI.onResourceChange?.(() => { topReady = null; });

@@ -112,6 +112,7 @@ def build_api(s: Services) -> RpcRegistry:
             "platform": sys.platform,
             "gameFound": found,
             "resourceVersion": version,
+            "resourceContext": getattr(s.game, "cache_version", version) if found else None,
             "consent": s.state.consent,
             "spineConsent": s.state.spine_consent,
             "previewCache": s.state.preview_cache,
@@ -726,11 +727,10 @@ def build_api(s: Services) -> RpcRegistry:
                                for m in mods.get(v.key, [])]
             item["modelFiles"] = model_files(v.model)
             variants.append(item)
-        # the game's resource version tells installs apart (another game folder or file source): the page then reads
-        # every part of a variant again, even under the same variant key
+        # Include the installation: two servers can have the same resource hash.
         return {"key": f.key, "base": f.names, "aliases": f.aliases,
                 "school": f.school, "variants": variants,
-                "version": s.game.resource_version if s.game_found() else None}
+                "version": getattr(s.game, "cache_version", s.game.resource_version) if s.game_found() else None}
 
     @rpc.method("aliases.set")
     def aliases_set(aliases: list[str], variant: str | None = None, family: str | None = None) -> list[str]:

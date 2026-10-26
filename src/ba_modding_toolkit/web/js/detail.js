@@ -62,6 +62,8 @@ const stage = () => document.getElementById("stage");
 const PORTRAIT_BOX = { left: 0, top: 0, width: 1920, height: 1080 };
 
 let ctx = null, fam = null, variantKey = null, layouts = null;
+// Prefabs and derived UI values belong to the selected installation.
+NGUI.onResourceChange?.(() => { layouts = null; fam = null; photoFaces.clear(); });
 let previewEnabled = true;
 let tab = "portrait", fullscreen = false, expression = "00", expanded = false, exprScroll = 0;
 let mainPlayer = null, blinkTimer = null, pending = null, pickerSel = null, lobbySeq = null, busy = false, lobbyShot = null;

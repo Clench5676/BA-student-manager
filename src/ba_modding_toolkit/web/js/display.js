@@ -272,3 +272,6 @@ async function drawAhead() {
 }
 
 export const isOpen = () => !$("display").hidden;
+
+// Prefabs and derived UI values belong to the selected installation.
+NGUI.onResourceChange?.(() => { layout = null; token++; });

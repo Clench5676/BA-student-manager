@@ -387,8 +387,17 @@ function wireSlider(host, view, s) {
   area.addEventListener("pointerup", (e) => { if (!dragging) return; dragging = false; s.set(valueAt(e.clientX)); });
 }
 
+async function readyLayout() {
+  if (layout) return;
+  await Buttons.ready();
+  const popup = await NGUI.layout("UIPopup_Option_PC");
+  layout = { popup, slider: find(popup, "Center/Popup/List/Sound_Setting/Sound_Scroll View/Grid_2/Master/Type_3") };
+}
+
 async function render({ builtSize = null, sizeError = null } = {}) {
   const my = ++token;
+  await readyLayout();
+  if (my !== token || !layout) return;
   const host = $("settings");
   const next = document.createElement("div");
   const view = await NGUI.render(frameTree(), next, { scale: S, origin: [960, 540], z: 3000 });
@@ -471,11 +480,7 @@ export async function open(changed, initialTab = null) {
   onChange = changed;
   if (TABS.includes(initialTab)) { tab = initialTab; scroll = 0; }
   follow();
-  if (!layout) {
-    await Buttons.ready();
-    const popup = await NGUI.layout("UIPopup_Option_PC");
-    layout = { popup, slider: find(popup, "Center/Popup/List/Sound_Setting/Sound_Scroll View/Grid_2/Master/Type_3") };
-  }
+  if (!layout) await readyLayout();
   prefs = await call(() => rpc("settings.get"));
   if (!prefs) return;
   if (!ModSwitch.current()) await ModSwitch.refresh();
@@ -486,3 +491,6 @@ export async function open(changed, initialTab = null) {
 }
 
 export const current = () => prefs;
+
+// Prefabs and derived UI values belong to the selected installation.
+NGUI.onResourceChange?.(() => { layout = null; token++; });

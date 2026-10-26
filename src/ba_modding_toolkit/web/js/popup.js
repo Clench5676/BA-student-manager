@@ -1006,3 +1006,6 @@ export function notify(text, { kind = "info", error = null } = {}) {
   if (!text || kind !== "error") return;
   void message({ title: T("job.failed"), lines: [text], ok: T("picker.ok"), error });
 }
+
+// Prefabs and derived UI values belong to the selected installation.
+NGUI.onResourceChange?.(() => { layouts = loading = frameLoading = null; });

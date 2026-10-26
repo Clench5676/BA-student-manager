@@ -574,3 +574,6 @@ export async function relabel() {
   await renderAll();
   dirty = false;
 }
+
+// Prefabs and derived UI values belong to the selected installation.
+NGUI.onResourceChange?.(() => { layouts = countIcons = null; data = null; dirty = true; });

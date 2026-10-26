@@ -2,6 +2,8 @@
 import json
 from types import SimpleNamespace
 
+import pytest
+
 from ba_modding_toolkit.catalog import Catalog, Variant
 from ba_modding_toolkit.library import ModLibrary
 from ba_modding_toolkit.webui.photography import Photography
@@ -28,6 +30,7 @@ def test_missing_japanese_folder_keeps_global_and_hall_then_recovers(app, servic
     monkeypatch.setattr(services, 'reload_game', lambda: changes.append(settings.server_region()))
     result = rpc(app, 'settings.set', key='fileSource', value='windows_japan')
     assert result['error']['code'] == 'game_directory_missing'
+    assert result['error']['params'] == {'region': 'japan'}
     assert settings.get('file_source') == 'windows_global'
     assert before == (services.state.path.read_bytes(), settings.path.read_bytes())
     assert not changes and not services.library.applied
@@ -73,6 +76,15 @@ def test_saved_model_target_uses_offline_student_metadata(tmp_path):
     assert value.spr is None and value.lobby is None
 
 
+def test_retained_photograph_store_resolves_the_selected_catalog(services):
+    services._catalog = SimpleNamespace(variant=lambda key: SimpleNamespace(family="global-family"))
+    photographs = services.photographs
+    assert photographs.family("student") == "global-family"
+    services._catalog = SimpleNamespace(variant=lambda key: SimpleNamespace(family="japan-family"))
+    assert services.photographs is photographs
+    assert photographs.family("student") == "japan-family"
+
+
 def test_server_switch_cannot_reuse_a_catalog_retained_by_an_active_task(app, services, tmp_path, monkeypatch):
     folder = tmp_path / 'japan'; folder.mkdir()
     services.settings.set('file_source', 'windows_global')
@@ -81,6 +93,36 @@ def test_server_switch_cannot_reuse_a_catalog_retained_by_an_active_task(app, se
     before = services.settings.path.read_bytes()
     monkeypatch.setattr(services.jobs, 'busy', lambda *args: True)
     assert rpc(app, 'settings.set', key='fileSource', value='windows_japan')['error']['code'] == 'busy'
+    assert services.settings.path.read_bytes() == before
+
+
+@pytest.mark.parametrize("missing", ["unset", "deleted", "file"])
+def test_missing_global_directory_preserves_japan_and_preferences(app, services, tmp_path, monkeypatch, missing):
+    settings = services.settings
+    japan = tmp_path / "japan"
+    japan.mkdir()
+    folder = tmp_path / "global"
+    if missing == "file":
+        folder.write_bytes(b"not a directory")
+    settings.set("game_resource_dir", "" if missing == "unset" else str(folder))
+    settings.set("game_resource_dir_japan", str(japan))
+    settings.set("file_source", "windows_japan")
+    settings.save()
+    before = settings.path.read_bytes()
+    monkeypatch.setattr(services, "reload_game", lambda: pytest.fail("missing folder must not refresh"))
+    assert rpc(app, "settings.set", key="fileSource", value="windows_global")["error"] == {
+        "code": "game_directory_missing", "params": {"region": "global"}}
+    assert settings.get("file_source") == "windows_japan"
+    assert settings.path.read_bytes() == before
+
+
+def test_directory_change_cannot_retarget_an_active_writer(app, services, tmp_path, monkeypatch):
+    folder = tmp_path / "new"
+    folder.mkdir()
+    services.settings.save()
+    before = services.settings.path.read_bytes()
+    monkeypatch.setattr(services.jobs, "busy", lambda *args: True)
+    assert rpc(app, "settings.set", key="gameDir.global", value=str(folder))["error"]["code"] == "busy"
     assert services.settings.path.read_bytes() == before
 
 
@@ -133,12 +175,25 @@ def test_switch_rebuilds_game_library_catalog_and_cab_index(tmp_path, monkeypatc
     app = WebApp(build_api(services), services.events, token="tok")
     try:
         old_game, old_library, old_catalog = services.game, services.library, services.catalog
+        services.set_consent(True)
+        old_game._cached("server-ui", lambda: b"global")
+        assert services.ui_cached()
+        preview = services.preview_cache
+        preview.allowed = True
+        generation = preview.generation
+        assert preview.put("preserved", b"saved preview", generation=generation)
+        old_context = rpc(app, "app.info")["result"]["resourceContext"]
         assert old_game._cab_index(everything=True) == {"cab-shared": str(paths["global"])}
         before = {key: path.read_bytes() for key, path in paths.items()}
         assert "result" in rpc(app, "settings.set", key="fileSource", value="windows_japan")
         assert services.game is not old_game and services.library is not old_library and services.catalog is not old_catalog
         assert services.game.resource_version == old_game.resource_version
         assert services.game.cache_version != old_game.cache_version
+        assert not services.ui_cached()
+        assert rpc(app, "app.info")["result"]["resourceContext"] != old_context
+        assert preview.generation != generation
+        assert preview.get("preserved") == b"saved preview"
+        assert rpc(app, "preview.cachePut", key="late", data="", generation=generation)["result"] is False
         assert services.library.current_pin().root == paths["japan"].parent
         assert services.catalog.server == "japan"
         assert services.game._cab_index(everything=True) == {"cab-shared": str(paths["japan"])}

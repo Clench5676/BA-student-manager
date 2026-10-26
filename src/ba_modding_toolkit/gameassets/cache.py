@@ -218,6 +218,11 @@ class PreviewCache:
             self._sync_generation()
             return self._generation
 
+    def invalidate_pending(self) -> None:
+        """Reject exports from a previous resource context without discarding saved previews."""
+        with self._lock:
+            self._generation = secrets.token_hex(16)
+
     @property
     def allowed(self) -> bool:
         with self._lock:

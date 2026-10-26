@@ -71,3 +71,6 @@ export async function skinPrimary(button, caption) {
     button.replaceChildren(...next.childNodes);
   } catch (err) { console.warn("preview button without game assets", err); }
 }
+
+// Prefabs and derived UI values belong to the selected installation.
+NGUI.onResourceChange?.(() => { layouts = loading = null; });

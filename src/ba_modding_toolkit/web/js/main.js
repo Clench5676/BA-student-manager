@@ -252,6 +252,8 @@ async function refreshConfiguration(){
   const [next,prefs]=await Promise.all([rpc('app.info'),rpc('settings.get')]);
   if(revision!==configurationRevision)return;
   info=next;ctx.info=next;ctx.prefs=prefs;
+  previewCache.configure(prefs);
+  if (NGUI.setResourceContext?.(next.resourceContext)) forget();
   await renderNav(-1,{game:!!next.gameFound});
   if(revision!==configurationRevision)return;
   if(!next.gameFound){noGame();return;}
@@ -491,6 +493,7 @@ async function start() {
   const prefs = timed("settings", () => rpc("settings.get"));
   info = await timed("info", () => rpc("app.info"));
   ctx.info = info;
+  NGUI.setResourceContext?.(info.resourceContext);
   Consent.init(info);
   setSpineConsent(info.spineConsent);
   Loading.init(info); // the loading screen's backdrop from the game's prefab

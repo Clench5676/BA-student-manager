@@ -505,3 +505,6 @@ export async function hold(work, { until = null, all = false, progress = null } 
 export function page(fn, options = {}) {
   return hold(() => fn(Promise.resolve()), options);
 }
+
+// Prefabs and derived UI values belong to the selected installation.
+NGUI.onResourceChange?.(() => { repeater = loadingTree = shade = geometry = null; letterInk.clear(); });

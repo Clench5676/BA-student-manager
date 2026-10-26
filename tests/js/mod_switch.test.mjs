@@ -531,7 +531,7 @@ test("the help fits its opening lines together in every locale, with and without
 test("Settings combines scan consent and automatic checks, preserving the consent popup from Off", async () => {
   const Settings = await import("../../src/ba_modding_toolkit/web/js/settings.js");
   const NGUI = await import("../../src/ba_modding_toolkit/web/js/ngui.js");
-  let prefs = { ...answers["settings.get"], native: true, traySupported: true, gameDirs: { global: "/game" },
+  let prefs = { ...answers["settings.get"], native: true, traySupported: true, gameDirs: { global: "/game", japan: "" },
     fileSource: "windows_global", libraryDir: "/library", outputDir: "/output" };
   let state = base({ scan: false });
   answers["settings.get"] = () => prefs;
@@ -585,7 +585,7 @@ test("Settings combines scan consent and automatic checks, preserving the consen
   assert.equal(title.textContent.replaceAll("\n", " "), S("settings.classic.ask"));
   button(S("settings.tab.folders")).click();
   await until(() => hasPath("Rows/Output/Title"), "folder rows");
-  assert.equal(walk(settingsHost).filter((e) => e.tagName === "BUTTON" && e.getAttribute("aria-label") === S("settings.change")).length, 3);
+  assert.equal(walk(settingsHost).filter((e) => e.tagName === "BUTTON" && e.getAttribute("aria-label") === S("settings.change")).length, 4);
   assert.ok(walk(settingsHost).every((e) => !e.title && !e.getAttribute("title")));
   button(S("display.close")).click();
   assert.equal(settingsHost.hidden, true);

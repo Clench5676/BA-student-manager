@@ -8,7 +8,7 @@
 import {hasAffirmative,skinAffirmatives,goldTemplate} from "./affirmative-buttons.js";
 import { labelEffect, labelClipPadding } from "./ngui-label.js";
 import { clipButtonPatterns } from "./button-layout.js";
-import { spriteUrl, uiExportUrl } from "./api.js";
+import { spriteUrl, uiExportUrl, setAssetContext } from "./api.js";
 import { decodeAll, imageUrls, imageDecoder } from "./image-decode.js";
 import { withTimeout } from "./async.js";
 import { spriteBorders, sliceAxis } from "./sprite-slices.js";
@@ -55,9 +55,22 @@ export const atlasIndex = () => index || {};
 export const textureIndex = () => textures || {};
 let atlasDone = null, texturesDone = null;
 const images = new Map(), tints = new Map();
+let resourceContext = null, resourceRevision = 0;
+const resourceListeners = new Set();
+export function onResourceChange(fn) { resourceListeners.add(fn); return () => resourceListeners.delete(fn); }
+export function setResourceContext(value) {
+  if (value === resourceContext) return false;
+  resourceContext = value; resourceRevision++;
+  setAssetContext(value);
+  index = textures = initDone = atlasDone = texturesDone = null;
+  for (const cache of [images, tints, gradients, baked, scaled, layouts]) cache.clear();
+  for (const fn of resourceListeners) fn();
+  return true;
+}
 
 // the atlas and texture indexes, fetched once however many callers wait for them (the loading screen asks first)
 export function init() {
+  const revision = resourceRevision;
   initDone ||= Promise.all([
     atlasDone = assetIndex("/asset/ui/atlases.json").then((a) => {
       const object = (v) => v && typeof v === "object" && !Array.isArray(v);
@@ -66,10 +79,12 @@ export function init() {
         || !Object.values(a).some((sprites) => Object.keys(sprites).length)) {
         throw new Error("/asset/ui/atlases.json: empty or invalid atlas index");
       }
-      index = a;
+      if (revision === resourceRevision) index = a;
     }),
-    texturesDone = assetIndex("/asset/ui/textures.json").then((t) => { textures = Object.fromEntries(Object.entries(t).map(([name, url]) => [name, uiExportUrl(url)])); }),
-  ]).catch((err) => { initDone = null; throw err; });
+    texturesDone = assetIndex("/asset/ui/textures.json").then((t) => {
+      if (revision === resourceRevision) textures = Object.fromEntries(Object.entries(t).map(([name, url]) => [name, uiExportUrl(url)]));
+    }),
+  ]).catch((err) => { if (revision === resourceRevision) initDone = null; throw err; });
   return initDone;
 }
 
@@ -458,6 +473,7 @@ export function findNamed(tree, name) {
 const layouts = new Map();
 export function layout(name) {
   if (!layouts.has(name)) {
+    const revision = resourceRevision;
     const [root, sub] = name.split(".");
     // Cold exports scan prefab bundles and can wait for a lobby's bundle locks. The scene owns the slow-load
     // indicator and navigation cancellation; elapsed time alone does not make a valid server response fail.
@@ -465,8 +481,11 @@ export function layout(name) {
       if (!r.ok) throw new Error(`layout ${root}: HTTP ${r.status}`);
       return r.json();
     }).then(value=>{globalThis.BAMTRecovery?.activity?.();return value;});
-    layouts.set(name, request
-      .catch((err) => { layouts.delete(name); throw err; }));
+    const pending = request.then((tree) => {
+      if (revision !== resourceRevision) throw new DOMException("Resource context changed", "AbortError");
+      return tree;
+    }).catch((err) => { if (layouts.get(name) === pending) layouts.delete(name); throw err; });
+    layouts.set(name, pending);
   }
   return layouts.get(name);
 }

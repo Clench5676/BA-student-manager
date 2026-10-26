@@ -380,3 +380,6 @@ export async function updateAction(host, name, label, action, enabled) {
   for (const element of owner.querySelectorAll("[data-path]")) if (element.dataset.path === name || element.dataset.path.startsWith(name + "/")) element.remove();
   hit.remove(); owner.append(...next.childNodes);
 }
+
+// Prefabs and derived UI values belong to the selected installation.
+NGUI.onResourceChange?.(() => { assets = null; });

@@ -399,7 +399,7 @@ class Services:
         root = self.library_dir()
         store = getattr(self, "_photographs", None)
         if store is None or store.root.parent != root:
-            self._photographs = store = Photographs(root, lambda key, catalog=self.catalog: student_family(catalog, key))
+            self._photographs = store = Photographs(root, lambda key: student_family(self.catalog, key))
         return store
 
     @property
@@ -506,6 +506,8 @@ class Services:
         # so the job never shares the library with a second instance
         with self._lock:
             self._stale = True
+            if self._preview_cache is not None:
+                self._preview_cache.invalidate_pending()
         self._refresh_if_idle()
         self.events.publish("config.changed")
         # the known installs may be others now: a running scan is of the old ones
