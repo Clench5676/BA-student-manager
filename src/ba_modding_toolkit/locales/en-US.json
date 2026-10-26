@@ -1765,6 +1765,16 @@
 			"copy": "Copy",
 			"paste": "Paste",
 			"selectAll": "Select All"
+		},
+		"tour": {
+			"title": "New Features",
+			"previous": "Previous",
+			"next": "Next",
+			"finish": "Finish",
+			"count": "{page} / {total}",
+			"open": "Open",
+			"empty": "No published tours",
+			"separator": " - "
 		}
 	}
 }

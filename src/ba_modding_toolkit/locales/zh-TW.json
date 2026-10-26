@@ -1765,6 +1765,16 @@
 			"copy": "複製",
 			"paste": "貼上",
 			"selectAll": "全選"
+		},
+		"tour": {
+			"title": "新功能",
+			"previous": "上一頁",
+			"next": "下一頁",
+			"finish": "完成",
+			"count": "{page} / {total}",
+			"open": "查看",
+			"empty": "暫無功能導覽",
+			"separator": "、"
 		}
 	}
 }

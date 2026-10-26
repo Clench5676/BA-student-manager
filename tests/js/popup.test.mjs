@@ -1875,7 +1875,7 @@ test("release notes are literal, scroll, retain the offer and never download or 
   const release = { ...available, version: '0.6.0', page: 'https://github.com/example/releases/tag/0.6.0', notes };
   const offered = Update.check(consent, release);
   (await drawn(consent, "notes")).click();
-  await drawn(dialog, "ok");
+  await drawn(dialog, "page");
   const area = walk(dialog).find((el) => el.className === "popup-cards");
   assert.ok(area);
   assert.ok(parseFloat(area.children[0].style.height) > parseFloat(area.style.height));
@@ -1883,7 +1883,7 @@ test("release notes are literal, scroll, retain the offer and never download or 
   assert.ok(text.textContent.includes('<script>literal</script>'));
   assert.ok(text.textContent.includes('![remote]'));
   assert.equal(text.children.length, 0);
-  action(dialog, "cancel").click();
+  action(dialog, "dismiss").click();
   assert.equal(consent.hidden, false);
   assert.equal(await state(offered), 'pending');
   assert.equal(calls.slice(start).some((m) => ['app.update', 'app.installUpdate'].includes(m)), false);
@@ -1898,17 +1898,174 @@ test("empty and unavailable notes offer the exact release page in every locale",
     const release = { ...available, version: '0.6.0', page: 'https://github.com/example/releases/tag/v0.6.0' };
     const offered = Update.check(consent, release);
     (await drawn(consent, 'notes')).click();
-    await drawn(dialog, 'ok');
+    await drawn(dialog, 'page');
     assert.ok(walk(dialog).some((el) => el.textContent === ui.update.notesEmpty));
+    const noteButtons = [0, 1].map((i) => walk(dialog).find((el) => el.dataset.path === `Center/Popup/Btn/Choice_${i}/Label_Locale`));
+    assert.equal(noteButtons[0].style.fontSize, noteButtons[1].style.fontSize);
     const buttons = ['Btn_Cancel', 'Btn_Notes', 'Btn_Ok'].map((name) => walk(consent).find((el) => el.dataset.path === `Center/Popup/Btn/${name}/Label_Locale`));
     assert.equal(new Set(buttons.map((el) => el.style.fontSize)).size, 1);
     const bounds = ['Btn_Cancel', 'Btn_Notes', 'Btn_Ok'].map((name) => walk(consent).find((el) => el.dataset.path === `Center/Popup/Btn/${name}/BG (1)`));
     for (let i = 1; i < bounds.length; i++) assert.ok(parseFloat(bounds[i - 1].style.left) + parseFloat(bounds[i - 1].style.width) < parseFloat(bounds[i].style.left));
-    action(dialog, 'ok').click();
+    action(dialog, 'page').click();
     await until(() => requests.at(-1)?.method === 'app.openReleasePage');
     assert.deepEqual(requests.at(-1).params, { page: release.page });
     action(consent, 'later').click();
     await offered;
   }
   setStrings('en-US', Object.fromEntries(strings(english)));
+});
+
+const Tours = await import('../../src/ba_modding_toolkit/web/js/tours.js');
+const tourPages = [
+  { id: 'photos', version: '0.6.0', title: 'Your Student Photos', body: 'Frame a portrait, save a photo, make it yours.' },
+  { id: 'hall', version: '0.6.0', title: 'Your Student Hall', body: 'Keep your favorite students close.' },
+];
+function tourKey(layer, key, extra = {}) {
+  const event = { key, preventDefault() { this.defaultPrevented = true; }, ...extra };
+  for (const handler of layer.listeners.keydown || []) handler(event);
+  return event;
+}
+
+test('tour navigation, focus trap and dismissal acknowledge only a painted first page', async () => {
+  setStrings('en-US', Object.fromEntries(strings(english)));
+  const before = body.appendChild(new El('button')); before.focus();
+  const recorded = [];
+  handlers.set('app.tourPresented', ({ versions }) => { recorded.push(versions); return { result: null }; });
+  const opened = Tours.show(tourPages, ['0.6.0']);
+  assert.equal(Tours.show(tourPages, ['0.6.0']), opened, 'only one viewer at a time');
+  await drawn(dialog, 'next');
+  await until(() => recorded.length === 1);
+  const layer = dialog.children.at(-1);
+  assert.equal(action(layer, 'previous').disabled, true);
+  assert.equal(layer.getAttribute('aria-modal'), 'true');
+  assert.equal(document.activeElement, layer);
+  tourKey(layer, 'Tab', { shiftKey: true }); assert.equal(document.activeElement, action(layer, 'close'));
+  tourKey(layer, 'Tab'); assert.equal(document.activeElement, action(layer, 'next'));
+  tourKey(layer, 'Tab', { shiftKey: true }); assert.equal(document.activeElement, action(layer, 'close'));
+  tourKey(layer, 'Tab'); assert.equal(document.activeElement, action(layer, 'next'));
+  tourKey(layer, 'ArrowRight', { isComposing: true });
+  assert.equal(action(layer, 'previous').disabled, true);
+  tourKey(layer, 'ArrowRight');
+  await until(() => action(layer, 'previous')?.disabled === false);
+  assert.equal(action(layer, 'next').getAttribute('aria-label'), english.tour.finish);
+  assert.ok(walk(layer).some((el) => el.textContent === '2 / 2'));
+  tourKey(layer, 'ArrowLeft');
+  await until(() => action(layer, 'previous')?.disabled === true);
+  tourKey(layer, 'ArrowRight');
+  await until(() => action(layer, 'previous')?.disabled === false);
+  action(layer, 'next').click();
+  assert.equal(await opened, true);
+  assert.equal(document.activeElement, before);
+  assert.deepEqual(recorded, [['0.6.0']]);
+  const replay = Tours.show(tourPages, ['0.6.0']);
+  await drawn(dialog, 'next');
+  await until(() => recorded.length === 2);
+  tourKey(dialog.children.at(-1), 'Escape');
+  await replay;
+  assert.equal(dialog.hidden, true);
+  before.remove(); handlers.clear();
+});
+
+test('empty content and closing a pre-render consume no presentation; missing images never delay controls', async () => {
+  const start = calls.length;
+  assert.equal(await Tours.show([], ['0.6.0']), false);
+  assert.equal(await Tours.show([{ title: '', body: '' }], ['0.6.0']), false);
+  const interrupted = Tours.show(tourPages, ['0.6.0']);
+  press('Escape');
+  assert.equal(await interrupted, false);
+  await tick();
+  assert.equal(calls.slice(start).includes('app.tourPresented'), false);
+  const imagePage = { ...tourPages[0], image: '/tours/missing-ui.png', caption: 'Photo controls' };
+  const visible = Tours.show([imagePage], ['0.6.0']);
+  await drawn(dialog, 'next');
+  await until(() => calls.slice(start).includes('app.tourPresented'));
+  const image = walk(dialog).find((el) => el.tagName === 'IMG' && el.src === imagePage.image);
+  assert.ok(image); image.onerror(); assert.equal(image.isConnected, false);
+  action(dialog, 'close').click(); await visible;
+});
+
+test('tour pages and sibling controls fit all six locales inside the notice prefab', async () => {
+  const NGUI = await import('../../src/ba_modding_toolkit/web/js/ngui.js');
+  await Popup.ready();
+  const examples = {
+    'en-US': ['Your Student Photos', 'Frame a portrait, save a photo, make it yours.'],
+    'zh-CN': ['学生照片，随心定格', '调整构图，拍下喜欢的瞬间，设为学生照片。'],
+    'zh-TW': ['學生照片，自由定格', '調整構圖，拍下喜歡的瞬間，設為學生照片。'],
+    'ja-JP': ['お気に入りの一枚を', '構図を整えて撮影。学生の写真に設定。'],
+    'ko-KR': ['나만의 학생 사진', '구도를 맞추고 촬영，학생 사진으로 설정.'],
+    'th-TH': ['ภาพนักเรียนในแบบคุณ', 'จัดองค์ประกอบ ถ่ายภาพ แล้วตั้งเป็นภาพนักเรียน'],
+  };
+  try {
+    for (const [lang, [title, text]] of Object.entries(examples)) {
+      const ui = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${lang}.json`, import.meta.url))).webui;
+      setStrings(lang, Object.fromEntries(strings(ui)));
+      for (const image of [null, '/tours/app-ui.png']) for (const index of [0, 1]) {
+        const tree = Tours.pageTree({ version: '0.6.0', title, body: text, image, caption: title }, index, 2);
+        const popup = NGUI.find(tree, 'Popup');
+        assert.equal(NGUI.find(popup, 'Btn/Btn_Ok').actionSemantic, index === 1 ? 'finish' : 'navigation');
+        const titleWidget = NGUI.find(popup, 'FeatureTitle').widgets[0];
+        const bodyWidget = NGUI.find(popup, 'FeatureBody').widgets[0];
+        const count = NGUI.find(popup, 'Count');
+        const heading = NGUI.find(popup, 'FeatureTitle'), copy = NGUI.find(popup, 'FeatureBody');
+        assert.ok(count.pos[1] - 35 >= heading.pos[1] + titleWidget.h_ / 2);
+        assert.ok(heading.pos[1] - titleWidget.h_ / 2 > copy.pos[1] + bodyWidget.h_ / 2);
+        if (image) {
+          assert.ok(copy.pos[1] - bodyWidget.h_ / 2 >= 100);
+          assert.ok(-480 > NGUI.find(popup, 'Btn').pos[1] + 177 / 2);
+        }
+        for (const widget of [titleWidget, bodyWidget]) for (const line of widget.text.split('\n')) {
+          assert.ok(NGUI.glyphWidth(line, widget.fontSize) <= widget.w_, `${lang}: ${line}`);
+        }
+        const captions = ['Btn_Cancel', 'Btn_Ok'].map((name) => NGUI.find(popup, `Btn/${name}/Label_Locale`).widgets[0]);
+        assert.equal(captions[0].fontSize, captions[1].fontSize);
+        for (const widget of captions) {
+          assert.ok(widget.fontSize >= 40 && widget.fontSize <= 64);
+          assert.ok(widget.text.split('\n').length <= 2);
+          for (const line of widget.text.split('\n')) assert.ok(NGUI.glyphWidth(line, widget.fontSize) <= 400);
+        }
+      }
+    }
+  } finally { setStrings('en-US', Object.fromEntries(strings(english))); }
+});
+
+test('Settings replay keeps the version list underneath and earlier tours remain selectable', async () => {
+  handlers.set('app.tours', () => ({ result: { tours: [
+    { version: '0.6.0', pages: tourPages }, { version: '0.5.0', pages: [{ ...tourPages[0], version: '0.5.0' }] },
+  ] } }));
+  const versions = Tours.browse();
+  (await drawn(dialog, 'line1')).click();
+  await drawn(dialog, 'next');
+  const top = dialog.children.at(-1);
+  assert.ok(walk(top).some((el) => el.textContent.includes('0.5.0')));
+  action(top, 'close').click();
+  await until(() => dialog.children.length === 1);
+  assert.ok(action(dialog, 'line0'));
+  action(dialog, 'cancel').click(); await versions;
+  handlers.set('app.tours', () => ({ result: { tours: [] } }));
+  const empty = Tours.browse(); await drawn(dialog, 'cancel');
+  assert.ok(walk(dialog).some((el) => el.textContent === english.tour.empty));
+  action(dialog, 'cancel').click(); await empty;
+  handlers.clear();
+});
+
+test('automatic tours wait for consents, update dialogs and jobs without checking the network', async () => {
+  let busy = true, planning = 0;
+  handlers.set('app.tours', () => { planning++; return { result: { automatic: { versions: ['0.8.0'], pages: tourPages } } }; });
+  const start = calls.length;
+  const priority = Popup.message({ title: 'Update result', lines: ['Priority dialog'] });
+  await drawn(dialog, 'close');
+  const pending = Tours.start({ info: { gameFound: true }, ready: Promise.resolve(), blocked: () => busy });
+  await until(() => planning > 0);
+  assert.equal(action(dialog, 'next'), undefined);
+  action(dialog, 'close').click(); await priority;
+  await tick(); assert.equal(action(dialog, 'next'), undefined);
+  busy = false;
+  await drawn(dialog, 'next');
+  action(dialog, 'close').click(); await pending;
+  assert.equal(calls.slice(start).some((method) => ['app.checkUpdate', 'app.update', 'app.installUpdate'].includes(method)), false);
+  const before = planning;
+  await Tours.start({ info: { gameFound: true, safeMode: true } });
+  await Tours.start({ info: { gameFound: false } });
+  assert.equal(planning, before);
+  handlers.clear();
 });

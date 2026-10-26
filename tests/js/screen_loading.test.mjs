@@ -284,7 +284,7 @@ test("startup scan prompts follow current consent without a separate startup mod
 
 function bootHarness({ compiled = true, startupUpdate = true } = {}) {
   const first = deferred(), consent = deferred(), update = deferred();
-  const events = [], offers = [], blockers = [];
+  const events = [], offers = [], blockers = [], tourOffers = [];
   const host = {}, modState = { busy: false };
   let loading = false;
   const env = {
@@ -300,13 +300,15 @@ function bootHarness({ compiled = true, startupUpdate = true } = {}) {
       current: () => modState,
       startDue: (name, { info }) => name === "update" ? info.compiled && info.startupUpdate !== false : ["consent", "scan"].includes(name),
     },
+    Tours: { start: async (options) => { tourOffers.push(options); } },
+    document: { getElementById: () => null },
     Consent: { show: () => { events.push("consent"); return consent.promise; }, scan: async () => events.push("scan") },
     Prompts: { start: async (name) => events.push(name) },
     Update: { check: (_host, _info, options) => { events.push("update-check"); offers.push(options); return update.promise; } },
   };
   const bootCode = source.slice(source.indexOf("async function boot("), source.indexOf("async function start()"));
   const boot = new Function("env", `let { ${Object.keys(env).join(", ")} } = env; ${bootCode} return boot;`)(env);
-  return { boot, first, consent, update, events, offers, blockers, modState, setLoading: (v) => { loading = v; } };
+  return { boot, first, consent, update, events, offers, blockers, tourOffers, modState, setLoading: (v) => { loading = v; } };
 }
 
 test("startup launches its update check only after reveal and finishes while the network is still pending", async () => {
@@ -364,4 +366,20 @@ test("cancelling a hidden detail build clears its staging state and prevents a l
   h.preview.resolve(); h.rosterData.resolve({ families: [] }); h.rows.resolve(); await back;
   assert.equal(h.screens["screen-roster"].hidden, false);
   assert.equal(h.screens["screen-detail"].hidden, true);
+});
+
+
+test("the tour hook waits for first reveal and consents while a pending update network request stays independent", async () => {
+  const h = bootHarness();
+  const boot = h.boot();
+  await flush(); assert.equal(h.tourOffers.length, 0);
+  h.first.resolve(); await flush(); assert.equal(h.tourOffers.length, 0);
+  h.consent.resolve(true); await boot;
+  assert.equal(h.tourOffers.length, 1);
+  const { ready, blocked } = h.tourOffers[0];
+  await ready;
+  assert.equal(blocked(), false);
+  h.setLoading(true); assert.equal(blocked(), true);
+  h.setLoading(false); h.modState.busy = true; assert.equal(blocked(), true);
+  h.update.resolve();
 });

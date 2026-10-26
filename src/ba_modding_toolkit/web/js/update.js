@@ -17,8 +17,9 @@ export async function releaseNotes(info) {
   const notes = typeof info.notes === "string" ? info.notes.trim() : "";
   const result = await Popup.message({ title: `${T("update.notes")} - ${info.version}`,
     lines: notes ? notes.split(/\r?\n/) : [T("update.notesEmpty")], plain: true, scroll: true, width: 2458,
-    ok: T("update.releasePage"), cancel: T("display.close") });
-  if (result.button === "ok") await rpc("app.openReleasePage", { page: info.page });
+    sharedButtonSize: true, buttons: [{ label: T("update.releasePage"), value: "page" },
+      { label: T("display.close"), value: "dismiss" }] });
+  if (result.button === "page") await rpc("app.openReleasePage", { page: info.page });
 }
 
 // resolves with what closed the popup: "later" (Later or Escape), "page" (the download page opened) or "update" (a

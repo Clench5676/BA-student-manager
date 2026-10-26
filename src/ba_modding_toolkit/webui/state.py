@@ -365,6 +365,15 @@ class UiState:
 
     # --- preferences ---
 
+    def update_tours(self, change: Callable[[dict[str, Any]], None]) -> None:
+        """Merge presentation history under the existing profile lock, apart from library and preview state."""
+        def update(data: dict[str, Any]) -> None:
+            if not isinstance(data.get("tours"), dict):
+                data["tours"] = {}
+            change(data["tours"])
+
+        self._update(update)
+
     def get(self, key: str, default: Any = None) -> Any:
         prefs = self._current().get("prefs")
         return prefs.get(key, default) if isinstance(prefs, dict) else default

@@ -1765,6 +1765,16 @@
 			"copy": "コピー",
 			"paste": "ペースト",
 			"selectAll": "すべて選択"
+		},
+		"tour": {
+			"title": "新機能",
+			"previous": "前へ",
+			"next": "次へ",
+			"finish": "完了",
+			"count": "{page} / {total}",
+			"open": "開く",
+			"empty": "公開済みガイドなし",
+			"separator": "、"
 		}
 	}
 }

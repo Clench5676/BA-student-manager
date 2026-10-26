@@ -1698,3 +1698,25 @@ def test_release_page_snapshot_survives_another_check(app, services, update_env,
     for invalid in ('https://example.invalid/releases/tag/1.1.0', page + '/bad', page + '?next=bad', 42):
         assert rpc(app, 'app.openReleasePage', page=invalid)['error']['code'] == 'update_unavailable'
     assert update_env.downloads == update_env.installs == []
+
+
+def test_tours_rpc_requires_normal_ready_and_keeps_replay_local(app, services, monkeypatch):
+    from ba_modding_toolkit.webui import tours
+    manifest = ({'version': '0.2.0', 'approved': True, 'pages': [
+        {'id': 'photos', 'copy': {lang: {'title': 'Photos', 'body': 'Your photos'} for lang in tours.LOCALES}}]},)
+    monkeypatch.setattr(tours, 'PUBLISHED_TOURS', manifest)
+    monkeypatch.setattr(services, 'game_found', lambda: pytest.fail('tour must not inspect the game'))
+    monkeypatch.setattr(services, 'ready', lambda: None)
+    tours.launch(services.state, '0.1.0', [])
+    assert rpc(app, 'app.tours', launching=True)['result']['automatic']['pages'] == []
+    assert len(rpc(app, 'app.tours')['result']['tours']) == 1
+    services.safe_mode = True
+    rpc(app, 'app.ready')
+    assert rpc(app, 'app.tours', launching=True)['result']['automatic']['pages'] == []
+    services.safe_mode = False
+    rpc(app, 'app.ready')
+    automatic = rpc(app, 'app.tours', launching=True)['result']['automatic']
+    assert automatic['versions'] == ['0.2.0']
+    assert rpc(app, 'app.tourPresented', versions=automatic['versions']) == {'result': None}
+    assert rpc(app, 'app.tours', launching=True)['result']['automatic']['pages'] == []
+    assert len(rpc(app, 'app.tours')['result']['tours']) == 1

@@ -15,6 +15,7 @@ import * as Roster from "./roster.js";
 import * as StudentHall from "./student-hall.js";
 import * as Settings from "./settings.js";
 import * as Update from "./update.js";
+import * as Tours from "./tours.js";
 import * as ModAdd from "./mod-add.js";
 import { on, rpc, spinePrefix } from "./api.js";
 import { L, T, setStrings, languageRefresh } from "./i18n.js";
@@ -443,7 +444,7 @@ async function boot() {
   // the page starts behind the loading screen: the game's UI is read, then the first screen is built
   await timed("boot", () => Loading.scene(start, { opaque: true }));
   if (globalThis.BAMTRecovery && !globalThis.BAMTRecovery.ready()) return;
-  rpc("app.ready", { timings: { ...startup, ...Loading.timings() } }).catch(console.error);
+  const ready = rpc("app.ready", { timings: { ...startup, ...Loading.timings() } }).catch(console.error);
   if (!info?.gameFound) return;
   Cursor.init();
   // the start popups only once the first screen is revealed
@@ -456,6 +457,8 @@ async function boot() {
     } }).catch((err) => console.error("update check", err));
   }
   await popups;
+  Tours.start({ info, ready, blocked: () => Loading.busy() || ModSwitch.current()?.busy
+    || !!document.getElementById("bamt-recovery") }).catch((err) => console.warn("feature tour", err));
 }
 
 // The start popups, one at a time and in this order, each only when it has something to show (mod-switch.js

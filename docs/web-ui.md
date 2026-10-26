@@ -919,7 +919,9 @@ stops the server (the page shows Closed); with `--serve` it gives `native_unavai
 | `actions.compare {mod}` | per-asset differences |
 | `actions.remap {mod}` | writer job; creates a new mod against current official bundles, preserving the source; result `{mod, report, compare}`; `report.upscaled` lists `{atlas, page, w, h}` for pages enlarged before remapping |
 | `os.reveal {path}` | |
-| `app.checkUpdate` | the newest release above this version, or `null`; `downloaded` and `file` (path or `null`) report a verified file still present for that version in this session |
+| `app.checkUpdate` | the newest release above this version, or `null`; `notes` is the literal GitHub body for this exact tag and `page` its canonical release page; `downloaded` and `file` (path or `null`) report a verified file still present for that version in this session |
+| `app.tours {launching?}` | approved local tours through this version, newest first; after normal `app.ready`, `launching: true` records the profile baseline and returns pending upgrade pages, deduplicated by feature ID |
+| `app.tourPresented {versions}` | acknowledge the covered published versions only after a first page has painted; merges under the profile lock, without changing preferences/library/preview state |
 | `app.update` / `app.installUpdate {file}` | job id (download and MD5 check, result `{file}`; reuses the verified file for the same version) / swap in the build and quit after Restart; `classic_open` while any classic window is open (never queued) |
 
 HTTP endpoints outside `/api/rpc`, each with its own token, never the session token: `GET /api/classic/control` and
@@ -2244,3 +2246,18 @@ Outside layout editing, `student-hall-camera.js` projects the entire portrait co
 shared temporary camera, from 100% (the default view) to 300%. Wheel, pinch and animated zoom-out all stop at the
 default size; the scene can pan only within its magnified bounds. UI controls retain their normal size. Camera
 updates do not reload actors or mutate saved positions, individual scales or the layout-editing size slider.
+
+
+## Release notes and feature tours
+
+`update.js` retains the detected release snapshot. Release Notes uses the same `UIPopup_Sort` notice frame as
+messages, with literal UILabel text, a scrolling body and an explicit release-page action. Missing/empty GitHub
+bodies take this fallback path. No image/HTML/Markdown interpretation or download/install action is involved.
+The explicit validated page argument remains attached to that offer even if a later check changes backend state.
+
+`tours.js` and `webui/tours.py` implement the local presentation framework described in
+[the feature-tour flow](feature-tour-flow.md). The shipped registry is empty. Text-only pages are the default;
+optional bundled PNGs may illustrate only the App's own UI, without game assets. The framework adds no startup
+capture, asset scan or network request. Settings' General/version area replays all available versions. Navigation,
+modal focus, disabled Previous, Close and Finish use the existing NGUI popup/control prefabs. The empty-manifest
+path records launch history but performs no tour rendering. Drafts stay under `docs/tours/`, outside the package.

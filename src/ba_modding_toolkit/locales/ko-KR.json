@@ -1765,6 +1765,16 @@
 			"copy": "복사",
 			"paste": "붙여넣기",
 			"selectAll": "모두 선택"
+		},
+		"tour": {
+			"title": "새 기능",
+			"previous": "이전",
+			"next": "다음",
+			"finish": "완료",
+			"count": "{page} / {total}",
+			"open": "보기",
+			"empty": "공개된 안내 없음",
+			"separator": " - "
 		}
 	}
 }

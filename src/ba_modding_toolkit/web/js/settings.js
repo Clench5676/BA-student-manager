@@ -13,6 +13,7 @@ import * as Prompts from "./prompts.js";
 import * as Consent from "./consent.js";
 import * as OtherMods from "./settings-other.js";
 import * as ModExport from "./mod-export.js";
+import * as Tours from "./tours.js";
 import * as Buttons from "./game-buttons.js";
 import { rowBase, radioRow } from "./settings-rows.js";
 import { on, rpc } from "./api.js";
@@ -213,6 +214,7 @@ function rows({ builtSize = null, sizeError = null } = {}) {
         render();
       }));
     add(valueRow("Version", 0, T("settings.version"), (p.version || "").replace(/-dev$/, ""), [[T("settings.update.check"), checkUpdate, !checkingUpdate]]));
+    add(valueRow("Tours", 0, T("tour.title"), "", [[T("tour.open"), () => call(Tours.browse)]]));
     add(radioRow("StartupUpdate", 0, T("settings.update.startup"), ON_OFF(), p.startupUpdate !== false, (v) => set("startupUpdate", v)));
     add(valueRow("Log", 0, T("settings.log.label"), p.logPath, [
       [T("settings.log.open"), openLog], [open, reveal(p.logPath)],

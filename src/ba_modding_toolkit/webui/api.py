@@ -91,6 +91,8 @@ def build_api(s: Services) -> RpcRegistry:
     rpc = RpcRegistry(on_exception=lambda *args: s.reports.backend_exception(*args) if hasattr(s, "reports") else None)
     from .photography import register as register_photography
     register_photography(rpc, s)
+    from .tours import register as register_tours
+    register_tours(rpc, s)
 
     # --- app ---
 
@@ -140,6 +142,7 @@ def build_api(s: Services) -> RpcRegistry:
                 if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and 0 <= value <= 86400000:
                     s.timings.record("page." + phase, value / 1000)
         s.ready()
+        s.tours_ready = not getattr(s, "safe_mode", False)
 
     @rpc.method("app.timings")
     def app_timings() -> dict[str, Any]:

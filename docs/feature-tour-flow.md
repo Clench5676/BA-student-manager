@@ -1,6 +1,24 @@
-# New-version feature tour: proposed flow
+# New-version feature tour
 
-Status: BL-021 backlog design, awaiting owner feedback. No runtime implementation is included.
+Status: BL-021 framework implemented for local review; owner UAT/visual acceptance pending. The published registry
+is empty. [0.6.0 copy and illustration concepts](tours/0.6.0-draft.md) await owner approval.
+
+The current implementation uses text-only pages with an optional bundled App UI illustration slot. It never
+packages game screenshots or game-derived images, and never captures a scene or starts a renderer for a tour.
+`UIPopup_Sort` supplies the notice frame, close and navigation controls; `UIPopup_FilterSort` supplies the disabled
+Previous state. Settings reuses `UIPopup_Option_PC` and its option button row. Sprites come from the user's install
+through the existing asset routes, not bundled copies.
+
+The first normal launch with this framework establishes a profile baseline when no launch history exists. It cannot
+infer an earlier version from old preferences alone. Later normal upgrades queue approved versions above the
+highest recorded launch; failed pre-renders remain pending. Presentation is acknowledged after the first page is
+painted. Downgrades preserve the high-water version. State stays in the profile's existing `webui.json`, under
+`tours`, and uses its shared atomic lock. Safe-mode launches do not advance this baseline; recovery dialogs defer presentation.
+
+The hook runs after first-screen reveal and the consent/scan prompt sequence. Open update/recovery dialogs and
+active jobs retain priority. A still-pending background update check does not hold up a local tour; its eventual
+offer uses the existing idle queue. Missing tour content performs no prefab/image rendering. The UI neither
+changes routes nor changes a retained scene's playback state; existing modal input gates remain in force.
 
 ## Entry and priority
 
@@ -24,11 +42,11 @@ flowchart TD
     D --> E{Upgrade with approved unseen features?}
     C -->|No| E
     E -->|No| F[Use App]
-    E -->|Yes| G[Feature page: text and screenshot]
+    E -->|Yes| G[Feature page: text and optional illustration]
     G --> H{User action}
     H -->|Next / Previous| G
     H -->|Close / Finish| F
-    F --> I[Settings > About > New Features]
+    F --> I[Settings > General > New Features]
     I --> J[Choose version]
     J --> G
 ```
@@ -36,8 +54,8 @@ flowchart TD
 ## Page composition and controls
 
 Use the native App popup/gallery framing. Keep a short release heading and progress such as `2 / 4`, one feature
-title, one or two short benefit/usage lines, and one screenshot. Do not add a second introduction-only page.
-The screenshot caption can identify a relevant button or location without a long tutorial.
+title, one or two short benefit/usage lines, and one optional approved App UI illustration. Do not add a second introduction-only page.
+The illustration caption can identify a relevant button or location without a long tutorial.
 
 | Control | Behavior |
 | --- | --- |
@@ -55,7 +73,7 @@ implementation. Existing scene players remain retained/paused as appropriate beh
 ## What appears after skipped versions
 
 For an upgrade across several releases, collect the approved feature cards introduced after the previous version
-and through the current one. Deduplicate by stable feature ID, use the most recent approved screenshot/copy, and
+and through the current one. Deduplicate by stable feature ID, use the most recent approved illustration/copy, and
 show current-release highlights first. Only curated feature highlights belong in this tour; routine fixes and
 implementation detail remain in Release Notes/CHANGELOG. A release with no approved feature cards shows no empty
 tour. If earlier tour data is absent, show the available current highlights without inventing history.
@@ -78,7 +96,7 @@ another automatic tour. Keep optional last-page/completion state separate from w
 
 ## Settings replay
 
-Place **New Features** in Settings' existing About/version area. Opening it shows available versions, newest first,
+Place **New Features** in Settings' General tab, below Version. Opening it shows available versions, newest first,
 with a short feature summary. Selecting a version opens the same page viewer from page one. Current-version and
 earlier tours stay available without changing the App's remembered navigation. Closing a replay returns to the
 version list/Settings rather than jumping to Student Hall. Manual viewing of an otherwise pending current tour
@@ -87,10 +105,10 @@ counts as presentation and avoids a second automatic popup later in that launch.
 ## Release preparation
 
 1. Finalize the implemented feature list and update the developer-facing CHANGELOG.
-2. The agent prepares user-facing feature cards and captures screenshots in the development environment. Use
-   reproducible sample content, avoid personal paths/Mod artwork, and preserve the release's actual UI/localization.
-3. Hand the concrete copy and screenshots to the human owner together. Do not substitute an invented mockup for
-   a screenshot or treat draft images as approved publication assets.
+2. The agent prepares user-facing feature cards in all six locales and optional plain illustrations of the App's
+   own UI. Never package screenshots or images made from game files. Text-only pages are supported.
+3. Hand the concrete copy and any illustrations to the human owner together. Label illustration concepts as drafts;
+   do not treat them as screenshots or approved publication assets.
 4. After human review, package only approved tour materials for the corresponding release. Keep raw game files,
    exported caches and development fixtures out of distributables; follow the repository's game-asset policy.
 5. Test version gating, dismiss/replay, keyboard navigation, missing images, offline launch, skipped upgrades,
