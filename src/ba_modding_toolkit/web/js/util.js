@@ -1,5 +1,6 @@
 // Shared constants and small helpers for the screens.
 import * as NGUI from "./ngui.js";
+import { reflowCorners } from "./corner-layout.js";
 
 export const S = 1920 / 2960;                       // stage px per NGUI unit (the game fits 2960 units to the width)
 export const TAN10 = Math.tan((10 * Math.PI) / 180); // the game's 10 degree incline
@@ -83,4 +84,5 @@ export function fitStage() {
   stage.style.setProperty("--scale", header?.contentScale ?? Math.min(innerWidth / 1920, innerHeight / 1080));
   if (header) stage.style.top = `calc(50% + ${header.extra / 2}px)`;
   else stage.style.removeProperty("top");
+  reflowCorners();
 }

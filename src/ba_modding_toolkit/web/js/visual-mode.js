@@ -14,6 +14,7 @@ import {portraitMinimum} from './photography/camera.js';
 // Input: press and drag (any button, a finger) moves the art; the mouse wheel zooms at the pointer; a trackpad pinches
 // (ctrl + wheel in Chromium and WebView2, gesture events in WebKit) and swipes; two fingers pinch.
 import * as NGUI from "./ngui.js";
+import { bindCorner } from "./corner-layout.js";
 import { ensureSpine } from "./spine-runtime.js";
 import { wheelKind, wheelStep } from "./lobby-touch.js";
 import { S, clone, hitButton } from "./util.js";
@@ -67,6 +68,7 @@ export async function exitControl(host, layout) {
   await NGUI.decoded([...(next.children || [])], Infinity);
   Object.assign(host.style, { left: `${960 + source.pos[0] * S - w / 2}px`, top: `${540 - source.pos[1] * S - h / 2}px`, width: `${w}px`, height: `${h}px` });
   host.replaceChildren(...next.childNodes);
+  bindCorner(host, [parseFloat(host.style.left), parseFloat(host.style.top), w, h], { corner: "top-left" });
 }
 
 // open({parts, skeleton, detail, host, bgHost, uiHost, players, onBack}): the portrait glides from the detail screen's
@@ -228,7 +230,11 @@ async function renderButtons(pc, strings, corners = CORNERS, onPress = press) {
       const el = document.createElement("div");
       el.className = "visual-btn";
       const tree = NGUI.node(corner, at, [], [{ ...clone(n), active: true }]);
-      made.push(NGUI.render(tree, el, { scale: S, origin: CENTRE, rootPath: "Inventory_ListControl_PC", texts: { Label_Locale_Reset: "" } }));
+      made.push(NGUI.render(tree, el, { scale: S, origin: CENTRE, rootPath: "Inventory_ListControl_PC", texts: { Label_Locale_Reset: "" } }).then((view) => {
+        const path = `Inventory_ListControl_PC/${corner}/${name}${corner === "RightBottom" ? "/Btn_RefreshPos" : ""}`;
+        const body = view.nodes.get(path)?.els[0];
+        if (body) bindCorner(el, NGUI.rect(body), { corner: corner === "LeftTop" ? "top-left" : corner === "RightTop" ? "top-right" : "bottom-right" });
+      }));
       if (HIT[name]) {
         const [w, h, dy] = HIT[name], x = CENTRE[0] + (at[0] + n.pos[0]) * S, y = CENTRE[1] - (at[1] + n.pos[1] + dy) * S;
         const hit = hitButton(el, [x - (w * S) / 2, y - (h * S) / 2, w * S, h * S], (e) => { e.stopPropagation(); return onPress(name); }, labels[name]);

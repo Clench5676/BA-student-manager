@@ -27,9 +27,10 @@ globalThis.hallControlsHarness = { S, clone: structuredClone, NGUI: { find, node
   },
   text(tree, path, value) { find(tree, path).widgets[0].text = value; },
   UI: { scaleControl: async () => {} }, T: (key) => `localized:${key}`, Popup: { hit(host, view, path, fn, meta) { const b = { path, fn, dataset: {}, ...meta }; wired.push(b); return b; } },
-  document: { createElement: () => ({ style: {} }) }, lobby };
+  document: { createElement: () => ({ style: {}, children: [], append(child) { this.children.push(child); } }) }, lobby };
 let source = await readFile(new URL("../../src/ba_modding_toolkit/web/js/student-hall.js", import.meta.url), "utf8");
 source = source.replace(/^import .*;$/gm, "");
+source = `import { bindCorner } from "${new URL("../../src/ba_modding_toolkit/web/js/corner-layout.js", import.meta.url).href}";\n` + source;
 source = `const {S,clone,NGUI,alignIcon,text,T,Popup,document,UI}=globalThis.hallControlsHarness;\n${source}\nexport {lobbyControl,controls,renderChrome,renderPortraitActions};
 export function fixture(mode,kind=null,writes=0,portraits=[]){layouts={lobby:globalThis.hallControlsHarness.lobby};store={current:()=>({mode,memorials:[],portraits}),kind:()=>kind};root={};chrome={replaceChildren(){}};pendingWrites=writes;hitGeneration=0;}
 //# sourceURL=hall-controls-fixture.js`;
@@ -98,4 +99,27 @@ test("top-right icons keep the75percent baseline with the photo-only8percent opt
   Hall.fixture("portraits");await Hall.renderChrome();assert.equal(alignedIcons.get("Hall/Layout/Icon").height,48*S);
   for(const name of ["Add","Adjust","Layout","Background"]){assert.equal(alignedIcons.get(`Hall/${name}/Icon`).center,"bounds");assert.equal(alignedIcons.get(`Hall/${name}/Icon`).alphaCutoff,32);}
   assert.equal(alignedIcons.get("Hall/Mode/Icon").center,undefined);assert.equal(alignedIcons.get("Hall/Fullscreen/Icon").height,48*S);
+});
+
+test("Hall's real action row measures its top margin below the bar at minimum, default and large sizes", async () => {
+  const { CORNER_MARGIN } = await import('../../src/ba_modding_toolkit/web/js/corner-layout.js');
+  const { headerGeometry } = await import('../../src/ba_modding_toolkit/web/js/window-layout.js');
+  for (const mode of ['portraits', 'memorial']) for (const platform of [null, 'darwin', 'win32']) {
+    for (const [width, height] of [[960, 540], [1600, 900], [2560, 1440]]) {
+      const header = platform ? headerGeometry(width, height, platform === 'win32' ? 40 : 0) : null;
+      const k = header?.contentScale || width / 1920, stageTop = (height - 1080 * k + (header?.extra || 0)) / 2;
+      const barBottom = header?.rowHeight || 64 * k;
+      globalThis.document = { getElementById: () => ({ getBoundingClientRect: () => ({ left: (width - 1920 * k) / 2, top: stageTop, width: 1920 * k }) }),
+        querySelector: () => ({ getBoundingClientRect: () => ({ bottom: barBottom }) }) };
+      Object.assign(globalThis, { innerWidth: width, innerHeight: height, bamtHeaderGeometry: header,
+        bamtWindowChrome: platform ? { active: true, platform, bounds: platform === 'darwin'
+          ? { left: 12, top: 8, right: 80, bottom: 30 } : { left: width - 148, top: 8, right: width, bottom: 40 } } : null });
+      Hall.fixture(mode); const destination = await Hall.renderChrome({ publish: false });
+      const [dx, dy] = destination.children[0].style.translate.split(' ').map(parseFloat);
+      const near = (a, b) => assert.ok(Math.abs(a - b) < 1e-7, `${a} != ${b}`);
+      near(stageTop + (145 - 104 * S / 2 + dy) * k - barBottom, CORNER_MARGIN * k);
+      near(width - ((width - 1920 * k) / 2 + (1875 + dx) * k), CORNER_MARGIN * k);
+      assert.ok(rendered.children.every(node => node.children[0].widgets[0].h_ === 104));
+    }
+  }
 });

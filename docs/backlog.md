@@ -1051,7 +1051,7 @@ seam from the Mod switch with the shared NGUI raster path (`ngui.js` `slicedImag
 
 ## BL-052: One corner-button margin across the App
 
-- Status: Open (owner finding, macOS review of 0.6.0-alpha.5, 2026-10-26).
+- Status: Implemented for local review; owner UAT/visual acceptance pending. Scene corners use the detail prefab Home inset (67.8 NGUI units) with toolbar/native-row clearance.
 - Requested: 2026-10-26.
 - Related: BL-037 and BL-047.
 

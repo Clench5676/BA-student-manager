@@ -1,5 +1,6 @@
 // Student Hall: UILobby controls, independent drafts, and modal resource editors built from native game prefabs.
 import * as NGUI from "./ngui.js";
+import { bindCorner } from "./corner-layout.js";
 import * as Lobby from "./lobby.js";
 import * as Loading from "./loading.js";
 import * as Popup from "./popup.js";
@@ -143,22 +144,24 @@ async function renderChrome({ publish = true } = {}) {
   if (!root || !layouts) return;
   const gen = page, version = ++toolbar, mode = current().mode, destination = document.createElement("div");
   Object.assign(destination.style, { position: "absolute", inset: "0" });
+  const actionHost = document.createElement("div"); Object.assign(actionHost.style, { position: "absolute", inset: "0" }); destination.append(actionHost);
   const actions = controls(), nodes = actions.map(([name, key, x, width, , enabled, y]) => lobbyControl(name, T(key), x, width, enabled !== false && pendingWrites === 0, y));
-  if (mode === "memorial" && current().memorials.length) nodes.push(clone(NGUI.find(layouts.lobby, "Front/Btn_Arrow")));
-  const view = await NGUI.render(NGUI.node("Hall", [0, 0], [], nodes), destination, { scale: S, origin: [960, 540] });
+  const view = await NGUI.render(NGUI.node("Hall", [0, 0], [], nodes), actionHost, { scale: S, origin: [960, 540] });
+  bindCorner(actionHost, [TOOLBAR.right - TOOLBAR.width, 145 - 104 * S / 2, TOOLBAR.width, 104 * S], { corner: "top-right", immersive: false });
   await Promise.all(actions.filter(([name]) => name === "Mode" || name === "Fullscreen" || Object.hasOwn(ACTION_ICONS, name)).map(([name, , , , , enabled]) =>
     alignIcon(view, `Hall/${name}/Icon`, `Hall/${name}/Bg`, { height: 48 * S,
       maxWidth: 104 * S, enabled: enabled !== false && !pendingWrites, ...ACTION_OPTICS[name] })));
   const run = (action) => () => { if (gen === page && version === toolbar && root && pendingWrites === 0) Promise.resolve(action()).catch(fail); };
   for (const [name, key, , , action, enabled] of actions) {
-    const button = Popup.hit(destination, view, `Hall/${name}/Bg`, run(action), { name: T(key), action: `hall-${name.toLowerCase()}` });
+    const button = Popup.hit(actionHost, view, `Hall/${name}/Bg`, run(action), { name: T(key), action: `hall-${name.toLowerCase()}` });
     if (button) button.disabled = enabled === false || pendingWrites > 0;
   }
-  if (mode === "memorial") {
-    Popup.hit(destination, view, "Hall/Btn_Arrow/Pos_prev/Btn_prev/Btn_prev", run(() => step(-1)), { name: T("hall.previous"), action: "hall-previous" });
-    Popup.hit(destination, view, "Hall/Btn_Arrow/Pos_Next/Btn_Next/Btn_Next", run(() => step(1)), { name: T("hall.next"), action: "hall-next" });
+  if (mode === "memorial" && current().memorials.length) {
+    const arrows = await NGUI.render(NGUI.node("Hall", [0, 0], [], [clone(NGUI.find(layouts.lobby, "Front/Btn_Arrow"))]), destination, { scale: S, origin: [960, 540] });
+    Popup.hit(destination, arrows, "Hall/Btn_Arrow/Pos_prev/Btn_prev/Btn_prev", run(() => step(-1)), { name: T("hall.previous"), action: "hall-previous" });
+    Popup.hit(destination, arrows, "Hall/Btn_Arrow/Pos_Next/Btn_Next/Btn_Next", run(() => step(1)), { name: T("hall.next"), action: "hall-next" });
   }
-  if (editing()) await UI.scaleControl(destination, current().portraitScale, (value) => {
+  if (editing()) await UI.scaleControl(actionHost, current().portraitScale, (value) => {
     if (gen !== page || version !== toolbar || !root || !editing() || pendingWrites) return;
     current().portraitScale = value; portraits?.setScale?.(value); renderHits();
   }, { enabled: () => gen === page && version === toolbar && !!root && pendingWrites === 0, box: [TOOLBAR.right - TOOLBAR.width, 315, TOOLBAR.width] });
@@ -539,6 +542,7 @@ async function fullscreenExit(close) {
   const view = await NGUI.render(source, host, { scale: S, origin: [TOOLBAR.right - TOOLBAR.iconWidth / 2, 145] });
   await alignIcon(view, "HallFullscreenExit/Icon", "HallFullscreenExit/Bg", { height: 48 * S, maxWidth: 104 * S, center: "bounds", alphaCutoff: 32 });
   const button = Popup.hit(host, view, "HallFullscreenExit/Bg", close, { name: T("lobby.exit"), action: "hall-fullscreen-exit" });
+  bindCorner(host, NGUI.rect(view.nodes.get("HallFullscreenExit/Bg").els[0]), { corner: "top-right" });
   return { host, button };
 }
 export const closeRevision = () => JSON.stringify([page, store?.current(), store?.kind(), pendingWrites]);

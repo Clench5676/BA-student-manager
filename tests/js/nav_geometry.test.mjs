@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { insert, n, spr } from "./control_prefabs.mjs";
 
 class El {
-  children = []; style = {}; dataset = {}; attrs = {};
+  children = []; style = Object.defineProperty({}, "setProperty", { value(key, value) { this[key] = value; } }); dataset = {}; attrs = {};
   appendChild(child) { this.children.push(child); return child; }
   replaceChildren(...children) { this.children = children; }
   get childNodes() { return this.children; }

@@ -1,4 +1,5 @@
 import {topActionLayout,nativeRightClearance} from "./top-action-layout.js";
+import { CORNER_MARGIN } from "./corner-layout.js";
 import { sizeTitle, watchTopBar } from "./top-bar.js";
 // The lobby-style bottom navigation and the top bar. The entries are nav-items.js: one without a web screen is greyed
 // out with the game's disabled tint and hands over to the classic GUI on its tab, through the hand-off prompt
@@ -86,7 +87,7 @@ export async function renderNav(active = 0, opts = {}) {
 }
 
 let topReady,topHall=false,topAvailable=true;
-const topBoxes={home:[44,7,50,50],option:[158,7,50,50],line:[120,12,3,32]};
+const topBoxes={home:[CORNER_MARGIN,7,50,50],option:[CORNER_MARGIN+114,7,50,50],line:[CORNER_MARGIN+76,12,3,32]};
 export function setTopActions(hall,available=true){
   topHall=hall;topAvailable=available;
   document.querySelector('.topbar')?.classList.toggle('hall-home',hall);
@@ -95,6 +96,7 @@ export function setTopActions(hall,available=true){
   reflowTopActions();
 }
 export function reflowTopActions(){
+  document.querySelector('.topbar')?.style.setProperty('--corner-margin', `${CORNER_MARGIN}px`);
   const stage=(globalThis.bamtWindowChrome ? document.querySelector('.topbar') : document.getElementById('stage'))?.getBoundingClientRect?.();
   const native=globalThis.bamtWindowChrome;
   const controls=native?.platform==='win32' ? native.bounds : document.getElementById('native-controls')?.getBoundingClientRect?.();
@@ -130,7 +132,7 @@ function skinTop() {
       if (path.startsWith(right) && homeWidget) {
         // Anchor the game's rightmost Home control; retain the prefab's sibling offsets and sizes.
         Object.assign(host.style, {
-          right: `${44 + (home.pos[0] - original.pos[0] + (homeWidget.w_ - w) / 2) * S}px`,
+          right: `${CORNER_MARGIN + (home.pos[0] - original.pos[0] + (homeWidget.w_ - w) / 2) * S}px`,
           top: `${7 + (home.pos[1] - original.pos[1] + (homeWidget.h_ - h) / 2) * S}px`,
         });
       }

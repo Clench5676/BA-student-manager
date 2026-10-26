@@ -1898,4 +1898,37 @@ for (const lang of ['en-US', 'zh-CN', 'zh-TW', 'ja-JP', 'ko-KR', 'th-TH']) test(
     assert.ok(imageRequests.some((url) => url.includes('/Common_UIHide_Icon.png')), 'The original double-arrow sprite is rendered');
   }
   assert.deepEqual(layout, before, 'The source prefab is unchanged');
+  const { CORNER_MARGIN, reflowCorners } = await import('../../src/ba_modding_toolkit/web/js/corner-layout.js');
+  const { headerGeometry } = await import('../../src/ba_modding_toolkit/web/js/window-layout.js');
+  const oldRect = hosts.stage.getBoundingClientRect;
+  const old = Object.fromEntries(['innerWidth', 'innerHeight', 'bamtWindowChrome', 'bamtHeaderGeometry'].map(k => [k, globalThis[k]]));
+  const holder = body.appendChild(new El());
+  holder.append(...Object.values(parts.groups), lobby);
+  const exit = holder.appendChild(new El('button'));
+  try {
+    await Visual.exitControl(exit, layout);
+    for (const platform of [null, 'darwin', 'win32']) for (const [width, height] of [[960, 540], [1600, 900], [2560, 1440]]) {
+      const k = width / 1920, native = platform ? { active: true, platform, bounds: platform === 'darwin'
+        ? { left: 12, right: 80, top: 8, bottom: 30 } : { left: width - 148, right: width, top: 8, bottom: 40 } } : null;
+      Object.assign(globalThis, { innerWidth: width, innerHeight: height, bamtWindowChrome: native,
+        bamtHeaderGeometry: platform ? headerGeometry(width, height, platform === 'win32' ? 40 : 0, true) : null });
+      hosts.stage.getBoundingClientRect = () => ({ left: 0, top: 0, width, height });
+      reflowCorners();
+      const checks = [[parts.groups.Btn_Back, 'LeftTop/Btn_Back', 'top-left'], [parts.groups.Btn_HideUI, 'RightTop/Btn_HideUI', 'top-right'],
+        [lobby, 'RightTop/Btn_HideUI', 'top-right'], [parts.groups.Btn_RefreshPos, 'RightBottom/Btn_RefreshPos/Btn_RefreshPos', 'bottom-right'],
+        [parts.groups.Btn_RefreshPos_Disable, 'RightBottom/Btn_RefreshPos_Disable/Btn_RefreshPos', 'bottom-right']];
+      for (const [group, path, corner] of checks) {
+        const sprite = walk(group).find(el => el.dataset.path === `Inventory_ListControl_PC/${path}`);
+        assert.ok(sprite, path);
+        const [dx, dy] = group.style.translate.split(' ').map(parseFloat), box = bounds(sprite);
+        const right = corner.endsWith('right'), bottom = corner.startsWith('bottom');
+        const row = platform && (right ? platform === 'win32' : platform === 'darwin') ? globalThis.bamtHeaderGeometry.rowHeight : 0;
+        near(right ? 1920 - box[0] - dx - box[2] : box[0] + dx, CORNER_MARGIN);
+        near(bottom ? 1080 - box[1] - dy - box[3] : box[1] + dy - row / k, CORNER_MARGIN);
+      }
+      const [dx, dy] = exit.style.translate.split(' ').map(parseFloat);
+      near(parseFloat(exit.style.left) + dx, CORNER_MARGIN);
+      near(parseFloat(exit.style.top) + dy, CORNER_MARGIN + (platform === 'darwin' ? globalThis.bamtHeaderGeometry.rowHeight / k : 0));
+    }
+  } finally { holder.remove(); hosts.stage.getBoundingClientRect = oldRect; Object.assign(globalThis, old); }
 });

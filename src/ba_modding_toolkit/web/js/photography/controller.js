@@ -12,6 +12,7 @@ import {FRAME,choiceLayout,OCCLUSION_BUTTON,TOOLBAR_CAPTION} from './camera.js';
 import {alignIcon,buttonCenter} from '../student-hall-icons.js';
 import {anchoredCentre} from '../visual-view.js';
 import {wheelKind,wheelStep} from '../lobby-touch.js';
+import {bindCorner} from '../corner-layout.js';
 export {FRAME};
 let sessionVariant=null,generation=0,repository,bridge,overlay,active=false,mode='portrait',grid=true,expanded=false,paused=false,selected=null,page=0,modal=null;
 let controlsRevision=0,saving=false,leaving=false,defaultThumbnail=null,generatedThumbnail=null,occlusion=false,feedback=null;
@@ -39,7 +40,7 @@ function node(name,widgets,children=[]){return {name,active:true,pos:[0,0],scale
 let whiteTemplate;
 // The captions of the two text buttons, one size for both states of the grid button too, so nothing changes size on a click.
 const toolbarCaptions=()=>NGUI.fitGroup([P('occlusion'),P('gridOn'),P('gridOff')],TOOLBAR_CAPTION.size,TOOLBAR_CAPTION.min,TOOLBAR_CAPTION.width/S,2,{maxH:TOOLBAR_CAPTION.height/S});
-async function whiteButton(host,name,caption,box,action,{icon=null,atlas='Common',pressed=false,enabled=true,fit=null}={}){
+async function whiteButton(host,name,caption,box,action,{icon=null,atlas='Common',pressed=false,enabled=true,fit=null,corner=null,anchorBox=box}={}){
   whiteTemplate ||= NGUI.layout('UICharacterVisualMode').then(layout=>clone(NGUI.find(layout,'Inventory_ListControl_PC/LeftTop/Btn_Back')));
   const tree=clone(await whiteTemplate),[x,y,w,h]=box;
   tree.name=name;tree.pos=[0,0];tree.children=[];
@@ -63,6 +64,7 @@ async function whiteButton(host,name,caption,box,action,{icon=null,atlas='Common
     label.style.translate=`0 ${NGUI.inkShift(fit?.text??caption,parseFloat(label.style.fontSize))}px`;
   }
   const hit=hitButton(wrapper,box,safe(action),caption,90);hit.disabled=!enabled;hit.dataset.photoAction=name;
+  if(corner)bindCorner(wrapper,anchorBox,{corner});
   if(pressed)hit.setAttribute('aria-pressed','true');return hit;
 }
 export function attach(hooks){bridge=hooks;}
@@ -84,7 +86,7 @@ export async function visualEntry(on){
   const x=960+(at[0]+reset.pos[0]+body.pos[0])*S-width/2-(bridge.info().mode==='lobby'?0:width+26);
   const y=540-(at[1]+reset.pos[1]+body.pos[1])*S-height/2;
   const host=document.createElement('div');host.id='photo-launcher';stage().append(host);
-  await whiteButton(host,'Entry',P('open'),[x,y,width,height],()=>open(bridge),{icon:'Combat_Icon_Camera',atlas:'Combat'});
+  await whiteButton(host,'Entry',P('open'),[x,y,width,height],()=>open(bridge),{icon:'Combat_Icon_Camera',atlas:'Combat',corner:'bottom-right',anchorBox:[x+(bridge.info().mode==='lobby'?0:width+26),y,width,height]});
 }
 async function open(hooks){
   if(active)return;bridge=hooks;const scope=++generation;sessionVariant=hooks.info().variant;
@@ -163,29 +165,35 @@ async function shutter(host){
 }
 
 async function modeButton(host){
+  const wrapper=document.createElement('div');host.append(wrapper);
   const layout=await NGUI.layout('UILobby'),tree=clone(NGUI.find(layout,'Front/Right/Btn_RotateSpine/ConditionRoot/Able_Count'));
   tree.name='CameraMode';tree.pos=[0,0];tree.children=tree.children.filter(child=>['Bg','Icon'].includes(child.name));
   const body=NGUI.find(tree,'Bg').widgets.find(w=>'sprite' in w);body.w_=102/S;body.h_=76/S;body.depth=60;
   const icon=NGUI.find(tree,'Icon');icon.pos=[0,0];icon.scale=[1,1];icon.widgets.find(w=>'sprite' in w).depth=65;
-  const view=await NGUI.render(tree,host,{scale:S,origin:[1839,63]});
+  const view=await NGUI.render(tree,wrapper,{scale:S,origin:[1839,63]});
   await alignIcon(view,'CameraMode/Icon','CameraMode/Bg',{height:48*S,maxWidth:104*S,center:'bounds',color:'#2b496e'});
-  const hit=hitButton(host,[1788,25,102,76],safe(switchMode),P(mode==='portrait'?'lobby':'portrait'),90);hit.dataset.photoAction='Mode';
+  const hit=hitButton(wrapper,[1788,25,102,76],safe(switchMode),P(mode==='portrait'?'lobby':'portrait'),90);hit.dataset.photoAction='Mode';
+  bindCorner(wrapper,[1352,25,538,76],{corner:'top-right'});
 }
 
 async function backButton(host){
+  const wrapper=document.createElement('div');host.append(wrapper);
   const collection=await NGUI.layout('UICharacterCollection'),tree=clone(NGUI.find(collection,'SeletControl/Top/BG_W/Bg/Btn'));
   tree.name='PhotoBack';tree.pos=[0,0];
   const width=164*S,height=172*S;
-  await NGUI.render(tree,host,{scale:S,origin:[25+width/2,20+height/2]});
-  const hit=hitButton(host,[25,20,width,height],safe(leave),P('back'),90);hit.dataset.photoAction='Back';
+  await NGUI.render(tree,wrapper,{scale:S,origin:[25+width/2,20+height/2]});
+  const hit=hitButton(wrapper,[25,20,width,height],safe(leave),P('back'),90);hit.dataset.photoAction='Back';
+  bindCorner(wrapper,[25,20,width,height],{corner:'top-left'});
 }
 
 async function playbackButton(host){
+  const wrapper=document.createElement('div');host.append(wrapper);
   const {tree,textures}=bridge.playbackTree(paused),scale=82/141,width=145*scale,x=1788-20-width;
   tree.widgets.find(w=>'sprite' in w).depth=60;
   for(const child of tree.children)for(const widget of child.widgets||[])widget.depth=65;
-  await NGUI.render(tree,host,{scale,origin:[x+width/2,991],textureNames:textures});
-  const hit=hitButton(host,[x,950,width,82],safe(async()=>{if(saving)return;paused=!paused;bridge.pause(paused);await drawControls();}),P(paused?'play':'pause'),90);
+  await NGUI.render(tree,wrapper,{scale,origin:[x+width/2,991],textureNames:textures});
+  const hit=hitButton(wrapper,[x,950,width,82],safe(async()=>{if(saving)return;paused=!paused;bridge.pause(paused);await drawControls();}),P(paused?'play':'pause'),90);
+  bindCorner(wrapper,[1788,950,102,82],{corner:'bottom-right'});
   hit.dataset.photoAction='Playback';hit.setAttribute('aria-pressed',String(paused));
 }
 
@@ -218,19 +226,21 @@ async function drawControls(){
   Object.assign(guide.style,{left:`${FRAME.x}px`,top:`${FRAME.y}px`,width:`${FRAME.width}px`,height:`${FRAME.height}px`});
   const captions=toolbarCaptions();
   const buttons=[backButton(layer),
-    whiteButton(layer,'Occlusion',P('occlusion'),OCCLUSION_BUTTON,async()=>{occlusion=!occlusion;await drawControls();},{pressed:occlusion,fit:captions[0]}),
-    whiteButton(layer,'Grid',grid?P('gridOn'):P('gridOff'),[1570,25,196,76],async()=>{grid=!grid;await drawControls();},{pressed:grid,fit:captions[grid?1:2]}),
+    whiteButton(layer,'Occlusion',P('occlusion'),OCCLUSION_BUTTON,async()=>{occlusion=!occlusion;await drawControls();},{pressed:occlusion,fit:captions[0],corner:'top-right',anchorBox:[1352,25,538,76]}),
+    whiteButton(layer,'Grid',grid?P('gridOn'):P('gridOff'),[1570,25,196,76],async()=>{grid=!grid;await drawControls();},{pressed:grid,fit:captions[grid?1:2],corner:'top-right',anchorBox:[1352,25,538,76]}),
     modeButton(layer),
-    whiteButton(layer,'Gallery',P('gallery'),[25,950,130,82],openGallery,{icon:'Cafe_Icon_Photo'}),
+    whiteButton(layer,'Gallery',P('gallery'),[25,950,130,82],openGallery,{icon:'Cafe_Icon_Photo',corner:'bottom-left'}),
     shutter(layer),
-    whiteButton(layer,'Choices',P(mode==='portrait'?'expressions':'actions'),[1788,950,102,82],async()=>{expanded=!expanded;await drawControls();},CHOICE_ICONS[mode])];
+    whiteButton(layer,'Choices',P(mode==='portrait'?'expressions':'actions'),[1788,950,102,82],async()=>{expanded=!expanded;await drawControls();},{...CHOICE_ICONS[mode],corner:'bottom-right'})];
   if(occlusion)buttons.push(occlusionGuide(layer));
   if(mode==='lobby')buttons.push(playbackButton(layer));
   if(expanded){
+    const panelHost=document.createElement('div');layer.append(panelHost);
+    bindCorner(panelHost,[1788,950,102,82],{corner:'bottom-right'});
     const entries=mode==='portrait'?bridge.expressions():bridge.actions(),box=choiceLayout(mode,entries.length);
-    await choicePanel(layer,box);
+    await choicePanel(panelHost,box);
     if(mode==='portrait'){
-      const items=entries,area=UI.area(layer,[box.x+12,box.y+12,box.width-24,box.rows*box.rowHeight],box.contentHeight,'photo-expressions');
+      const items=entries,area=UI.area(panelHost,[box.x+12,box.y+12,box.width-24,box.rows*box.rowHeight],box.contentHeight,'photo-expressions');
       for(let index=0;index<items.length;index++)buttons.push((async()=>{
         const key=items[index],preview=await bridge.expressionPreview(key),x=6+(index%box.columns)*146,y=Math.floor(index/box.columns)*box.rowHeight;
         const tree=bridge.expressionCard(key,preview),scale=128/242,height=209*scale;
@@ -240,7 +250,7 @@ async function drawControls(){
       })());
     }else{
       const sequences=entries;
-      const actionArea=UI.area(layer,[box.x+12,box.y+12,box.columns*196,box.rows*61],box.contentHeight,'photo-actions');
+      const actionArea=UI.area(panelHost,[box.x+12,box.y+12,box.columns*196,box.rows*61],box.contentHeight,'photo-actions');
       for(let index=0;index<sequences.length;index++)buttons.push(UI.button(actionArea,'Sequence'+index,sequences[index].anim,[6+(index%box.columns)*196,Math.floor(index/box.columns)*61,185,53],safe(async()=>{if(saving)return;paused=false;bridge.play(sequences[index].anim);await drawControls();})));
     }
   }
