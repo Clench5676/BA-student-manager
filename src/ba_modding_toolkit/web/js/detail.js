@@ -2266,8 +2266,8 @@ const photoBridge={
   async redraw(){
     if(tab==='lobby'){if(await Lobby.prepareFrame())return;}
     else if(mainPlayer?.skeleton){
-      if(mainPlayer.error||mainPlayer.disposed)throw new Error('Portrait renderer failed');
-      mainPlayer.drawFrame(false);return;
+      if(mainPlayer.error)throw new Error('Portrait renderer failed');
+      if(!mainPlayer.disposed){mainPlayer.paused=true;mainPlayer.drawFrame(false);return;}
     }
     throw Object.assign(new Error('Renderer is not ready'),{code:'capture_not_ready'});
   },
