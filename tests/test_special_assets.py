@@ -137,7 +137,9 @@ def test_special_add_apply_switch_toggle_reload_restore(setup_library, category,
     assert companion.read_bytes() == companion_bytes
     assert env.library.configured(key)["lobby"] is None
     env.library.apply(key, f"mod:{first.id}", kind="lobby")
-    removed = env.library.remove(first.id)
+    with pytest.raises(ServiceError, match="asset_delete_confirm"):
+        env.library.remove(first.id)
+    removed = env.library.remove(first.id, confirm=True)
     assert removed.failed == [] and removed.kinds == ["lobby"]
     assert target.read_bytes() == original
 
