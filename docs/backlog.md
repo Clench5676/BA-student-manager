@@ -646,13 +646,15 @@ branding only; keep other-language assets untouched and hand candidates to the o
 
 ## BL-032: Compact photography occlusion control
 
-- Status: Planned. Not started; owner requested backlog only.
+- Status: Implemented for local review; owner UAT/visual acceptance pending.
 - Requested: 2026-10-26, following local alpha.1 review.
 - Parent: BL-023.
 
 Reduce the excessive width of the Occlusion Guide button. Keep its position to the left of the grid toggle,
 visual centering, localized readability and usable pointer/touch target. Do not enlarge or displace surrounding
 controls to accommodate it. Final visual acceptance belongs to the owner.
+
+The native button is compacted with a fixed right edge and measured localized label fit; neighbouring controls retain their geometry.
 
 ## BL-033: Remaining frame-not-ready photography modal
 

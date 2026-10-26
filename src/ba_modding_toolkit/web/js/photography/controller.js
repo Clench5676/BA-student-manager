@@ -8,7 +8,7 @@ import {clone,S,hitButton} from '../util.js';
 import {captureScene} from './capture.js';
 import {photograph} from './shoot.js';
 import {cameraFeedback} from './feedback.js';
-import {FRAME,choiceLayout} from './camera.js';
+import {FRAME,choiceLayout,OCCLUSION_BUTTON,captionSize} from './camera.js';
 import {alignIcon,buttonCenter} from '../student-hall-icons.js';
 import {anchoredCentre} from '../visual-view.js';
 import {wheelKind,wheelStep} from '../lobby-touch.js';
@@ -59,6 +59,9 @@ async function whiteButton(host,name,caption,box,action,{icon=null,atlas='Common
     Object.assign(label.style,{left:`${center.x-(w-24)/2}px`,top:`${center.y-(h-16)/2}px`,paddingBottom:'0px',justifyContent:'center'});
     const style=getComputedStyle(label),canvas=document.createElement('canvas'),context=canvas.getContext('2d');
     context.font=`${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+    const maximum=parseFloat(style.fontSize),font=size=>`${style.fontWeight} ${size}px ${style.fontFamily}`;
+    const size=name==='Occlusion'?captionSize(size=>{context.font=font(size);return context.measureText(caption).width;},w-36,maximum):maximum;
+    label.style.fontSize=`${size}px`;context.font=font(size);
     const metrics=context.measureText(caption),ascent=metrics.fontBoundingBoxAscent,descent=metrics.fontBoundingBoxDescent;
     if(Number.isFinite(ascent)&&Number.isFinite(descent))label.style.translate=`0 ${(metrics.actualBoundingBoxAscent-metrics.actualBoundingBoxDescent-ascent+descent)/2}px`;
   }
@@ -217,7 +220,7 @@ async function drawControls(){
   const guide=document.createElement('div');guide.className='photo-guide'+(grid?'':' no-grid');guide.innerHTML='<i></i><i></i><i></i><i></i>';layer.append(guide);
   Object.assign(guide.style,{left:`${FRAME.x}px`,top:`${FRAME.y}px`,width:`${FRAME.width}px`,height:`${FRAME.height}px`});
   const buttons=[backButton(layer),
-    whiteButton(layer,'Occlusion',P('occlusion'),[1300,25,248,76],async()=>{occlusion=!occlusion;await drawControls();},{pressed:occlusion}),
+    whiteButton(layer,'Occlusion',P('occlusion'),OCCLUSION_BUTTON,async()=>{occlusion=!occlusion;await drawControls();},{pressed:occlusion}),
     whiteButton(layer,'Grid',grid?P('gridOn'):P('gridOff'),[1570,25,196,76],async()=>{grid=!grid;await drawControls();},{pressed:grid}),
     modeButton(layer),
     whiteButton(layer,'Gallery',P('gallery'),[25,950,130,82],openGallery,{icon:'Cafe_Icon_Photo'}),

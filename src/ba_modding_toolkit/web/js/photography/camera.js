@@ -23,3 +23,9 @@ export function lobbyCaptureView(view,bounds,frame=FRAME){
   return {...view,x:bounded(view.x,bounds.x0-left*view.w,bounds.x1-right*view.w),
     y:bounded(view.y,bounds.y0-bottom*view.h,bounds.y1-top*view.h)};
 }
+
+// Keep the existing right edge and neighbouring grid/mode controls fixed.
+export const OCCLUSION_BUTTON=Object.freeze([1352,25,196,76]);
+export function captionSize(measure,available,maximum){
+  return Math.min(maximum,maximum*available/Math.max(1,measure(maximum)));
+}
