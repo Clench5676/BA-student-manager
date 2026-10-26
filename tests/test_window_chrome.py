@@ -125,7 +125,7 @@ class Button:
         return self.value
 
     def setFrameOrigin_(self, point):
-        self.value.origin = NS(x=point[0], y=point[1])
+        self.value.origin = point if hasattr(point, "x") else NS(x=point[0], y=point[1])
 
     def isHidden(self):
         return self.hidden
@@ -513,3 +513,33 @@ def test_cocoa_drag_passes_unhandled_events_through(cocoa_drag, blocked):
     event = f.event(window=object() if blocked == "other-window" else None)
     assert f.host.mouse_down(event) is event
     assert not f.calls and not f.keys
+
+
+def test_cocoa_installs_and_removes_a_window_scoped_mouse_monitor(cocoa_drag):
+    f = cocoa_drag
+    buttons = [Button(x, 8, True) for x in (12, 32, 52)]
+    for button in buttons:
+        button.hidden = True
+        button.setHidden_ = lambda hidden, button=button: setattr(button, 'hidden', hidden)
+    f.host.window.standardWindowButton_ = lambda kind: buttons[kind]
+    monitors, removed, observers = [], [], []
+    centre = NS(addObserverForName_object_queue_usingBlock_=lambda *args: observers.append(args) or args,
+                removeObserver_=removed.append)
+    api = NS(NSWindowCloseButton=0, NSWindowMiniaturizeButton=1, NSWindowZoomButton=2,
+             NSUserDefaults=f.host.api.NSUserDefaults,
+             NSEventMaskLeftMouseDown=2,
+             NSEvent=NS(addLocalMonitorForEventsMatchingMask_handler_=lambda mask, fn: monitors.append((mask, fn)) or fn,
+                        removeMonitor_=removed.append), NSNotificationCenter=NS(defaultCenter=lambda: centre))
+    names = ('DidResize', 'DidMove', 'DidBecomeKey', 'DidResignKey', 'DidMiniaturize', 'DidDeminiaturize',
+             'WillEnterFullScreen', 'WillExitFullScreen', 'DidEnterFullScreen', 'DidExitFullScreen')
+    for name in names:
+        setattr(api, 'NSWindow' + name + 'Notification', name)
+    host = CocoaHost(NS(native=f.host.window), f.host.owner, api=api, dispatch=lambda fn: fn())
+    host.install()
+    assert monitors[0][0] == api.NSEventMaskLeftMouseDown
+    assert monitors[0][1](f.event()) is None
+    assert f.calls == ['drag'] and not any(button.hidden for button in buttons)
+    host.dispose()
+    assert all(button.hidden for button in buttons)
+    assert removed == observers + [monitors[0][1]]
+    assert host.monitor is None and not hasattr(host, 'overlay')

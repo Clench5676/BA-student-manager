@@ -121,3 +121,14 @@ test("the bar's padding and the title size come from the code, not fixed numbers
   assert.match(nav, /sizeTitle\(title\)/);
   assert.match(nav, /watchTopBar\(\)/);
 });
+
+test('the actual title sizing reads the fitted caption even when the caption is compact or unavailable',async()=>{
+  const {sizeTitle}=await import('../../src/ba_modding_toolkit/web/js/top-bar.js');
+  const title={style:{}},caption={};let size=26;
+  document.querySelector=()=>caption;
+  globalThis.getComputedStyle=()=>({fontSize:`${size}px`});
+  for(size of [20,23,26,28.5]){
+    sizeTitle(title);near(parseFloat(title.style.fontSize),size);
+  }
+  document.querySelector=()=>null;sizeTitle(title);assert.equal(title.style.fontSize,'26px');
+});
