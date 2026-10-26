@@ -20,7 +20,7 @@ import { on, rpc, spinePrefix } from "./api.js";
 import { L, T, setStrings, languageRefresh } from "./i18n.js";
 import { neighbour, visit } from "./roster-order.js";
 import { hasAsset, primaryKind } from "./switch-sources.js";
-import { renderNav, setTitle } from "./nav.js";
+import { renderNav, setTitle, setTopActions, reflowTopActions } from "./nav.js";
 import { confirmQuit, quitKey } from "./quit.js";
 import { forget } from "./thumbs.js";
 import { setSpineConsent } from "./spine-runtime.js";
@@ -192,7 +192,7 @@ function visited(fam, key) {
 }
 
 function showScreen(name) {
-  $("top-home").hidden = !info?.gameFound || name === "hall";
+  setTopActions(name === "hall",!!info?.gameFound);
   for (const id of ["screen-hall", "screen-roster", "screen-detail", "screen-import", "screen-message"]) $(id).hidden = id !== `screen-${name}`;
 }
 
@@ -495,7 +495,7 @@ async function start() {
       const button=document.createElement('button');button.textContent=icon;button.setAttribute("aria-label",T(`window.${action}`));
       button.addEventListener('click',()=>rpc('window.control',{action}).catch(console.error));controls.append(button);
     }
-    document.body.append(controls);
+    document.body.append(controls);reflowTopActions();
   };
   setupWindowControls();
   addEventListener("pywebviewready",setupWindowControls,{once:true});

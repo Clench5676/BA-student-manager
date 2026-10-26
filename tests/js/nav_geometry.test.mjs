@@ -112,3 +112,32 @@ test("Home, settings and divider retain the game's native sibling spacing", asyn
   assert.ok(top[".top-home"].children.some((el) => el.dataset.path === "Lobby"));
   assert.ok(!host.children.some((button) => button.attrs["aria-current"]), "the hall has no bottom-nav selection");
 });
+
+test('Hall reflows Settings into Home and restores sibling geometry across repeated transitions',async()=>{
+  const {setTopActions}=await import('../../src/ba_modding_toolkit/web/js/nav.js');
+  await renderNav(-1,{game:true});
+  const original=structuredClone(Object.fromEntries(Object.entries(top).map(([key,node])=>[key,node.style])));
+  const centre=style=>[parseFloat(style.right)+parseFloat(style.width)/2,parseFloat(style.top)+parseFloat(style.height)/2];
+  for(let i=0;i<3;i++){
+    setTopActions(true,true);
+    assert.ok(centre(top['.top-option'].style).every((v,i)=>Math.abs(v-centre(original['.top-home'])[i])<1e-8));
+    assert.equal(top['.top-home'].hidden,true);assert.equal(top['.top-line'].hidden,true);
+    assert.equal(top['.top-option'].style.width,original['.top-option'].width);
+    assert.equal(top['.top-option'].style.height,original['.top-option'].height);
+    setTopActions(false,true);
+    for(const key of Object.keys(top))assert.deepEqual(top[key].style,original[key]);
+    assert.equal(top['.top-home'].hidden,false);assert.equal(top['.top-line'].hidden,false);
+  }
+});
+test('native-control clearance is preserved at fractional window scales',async()=>{
+  const {topActionLayout,nativeRightClearance}=await import('../../src/ba_modding_toolkit/web/js/top-action-layout.js');
+  const boxes={home:[44,7,62*S,59*S],option:[158,7,60*S,62*S],line:[120,12,4*S,49*S]};
+  for(const scale of [.5,.75,1,1.25,1.5,2]){
+    const stage={left:0,top:0,right:1920*scale,width:1920*scale},controls={left:stage.right-108,top:0,bottom:24,width:108};
+    const base=topActionLayout(boxes,true),safe=nativeRightClearance(stage,controls,base.option);
+    const next=topActionLayout(boxes,true,safe),option=next.option;
+    if(safe)assert.ok(stage.right-option[0]*scale<=controls.left-8+1e-8);
+    assert.deepEqual(option.slice(2),boxes.option.slice(2));
+    assert.equal(topActionLayout(boxes,false,0).option[0],158);
+  }
+});

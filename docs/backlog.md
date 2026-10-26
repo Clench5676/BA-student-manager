@@ -762,7 +762,7 @@ no mockup or platform feasibility investigation is part of this documentation-on
 
 ## BL-038: Reflow Settings when Home is hidden in Student Hall
 
-- Status: Planned. Not started; owner requested backlog only.
+- Status: Implemented for local review; owner UAT/visual acceptance pending.
 - Requested: 2026-10-26.
 - Parent: BL-028; coordinate native-control safe space with BL-037.
 
@@ -770,6 +770,8 @@ When already in Student Hall, Home remains hidden, Settings moves right into the
 and the separator between those actions is removed. Keep the appropriate outer margin/native-control clearance,
 visual centering and hit target. Other pages retain their Settings/Home arrangement and separator. Returning to
 or leaving the Hall must update the layout consistently without an empty Home-sized slot or a stray divider.
+
+The Hall centers the native Settings sprite in Home’s former box and hides the divider in the same layout update. Other pages restore the prefab sibling geometry; overlapping native controls retain clearance.
 
 ## BL-039: Missing Japanese directory causes server-switch error and blank Hall
 
