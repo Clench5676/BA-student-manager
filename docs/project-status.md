@@ -22,16 +22,16 @@ The 0.6.0 work is unreleased. Nothing has been tagged, pushed or published since
 | BL-022 through BL-029, BL-031 | Implemented for alpha.1; later owner findings are separate entries |
 | BL-033 through BL-036, BL-038, BL-039 | Accepted by the owner on macOS (alpha.2); Windows not reviewed |
 | BL-032 | Implemented for alpha.2; the English label overflow continues as BL-040 |
-| BL-037 | Implemented for local review; owner UAT/visual acceptance pending. Native gestures/menu repair and all five immersive states have fake-host/controller coverage; Windows not reviewed. |
+| BL-037 | Dragging and double-click accepted on macOS (alpha.6); owner asked to remove the immersive drag strip and the Window menu; Windows not reviewed. |
 | BL-040, BL-041, BL-043, BL-045 | Accepted by the owner on macOS (alpha.3); Windows not reviewed |
 | BL-042 | Accepted by the owner on macOS (alpha.4) |
-| BL-044 | Implemented for local review; owner UAT/visual acceptance pending. Review 1 badges widen leftward with official-view-verified L14/R36 runtime slices; review 2 art covers the prefab frame opening. |
-| BL-047 | Implemented for local review; owner UAT/visual acceptance pending. Direct fullscreen handoffs retain preview selection and skip detail framing restoration. |
-| BL-049 | Implemented for local review; owner UAT/visual acceptance pending. Caption-sized titles use DOM measurement in native and fallback rows. |
-| BL-050 | Implemented for local review; owner UAT/visual acceptance pending. Hall removes Back and reclaims its title slot with native clearance. |
-| BL-051 | Implemented for local review; owner UAT/visual acceptance pending. Bar/scrollbar slices share the NGUI raster; scale/DPR geometry verified. |
-| BL-052 | Implemented for local review; owner UAT/visual acceptance pending. Shared prefab inset covers Hall, detail/fullscreen and both cameras across window shapes and native rows. |
-| BL-053 | Implemented for local review; owner UAT/visual acceptance pending. Backend/gallery Applied is scoped to the shown Collection target; separate detail-page thumbnail picker not identified (stop rule). |
+| BL-044 | Review 1 (runtime-sliced badges) accepted on macOS (alpha.6); review 2 closed as won't fix by the owner. |
+| BL-047 | Direct switch accepted on macOS (alpha.6); owner asked for the `Common_Icon_Change` icon on the switch. |
+| BL-049 | Owner decision on alpha.6: remove page titles from the top bar; not started. |
+| BL-050 | Accepted by the owner on macOS (alpha.6); Windows not reviewed |
+| BL-051 | Accepted by the owner on macOS (alpha.6); Windows not reviewed |
+| BL-052 | Implemented; owner review of alpha.6 asks for top-left Back level with the top-right button and the fullscreen Back in the cameras. |
+| BL-053 | Applied per skin accepted on macOS (alpha.6); owner asked for an "in use by another skin" delete warning. |
 | BL-046 | Closed by the owner without UAT (CLI-only) |
 | BL-048 | Accepted: CLI no longer built, installed or released |
 | BL-020 | Implemented for local review; owner UAT/visual acceptance pending. Exact-release notes and empty-body link fallback. |

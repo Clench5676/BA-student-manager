@@ -756,7 +756,7 @@ Official provenance controls Delete visibility and direct-request rejection. Man
 
 ## BL-037: Design native window controls integrated into the top toolbar
 
-- Status: Implemented for local review; owner UAT/visual acceptance pending.
+- Status: Implemented; the owner accepted dragging and double-click on macOS (alpha.6); removals requested below; Windows not reviewed.
 - Note: Window-scoped macOS drag/double-click monitoring, menu lifecycle repair and five-scene immersion are covered by fakes; native acceptance remains pending on both platforms.
 - Requested: 2026-10-26.
 - Parent: BL-024.
@@ -798,6 +798,13 @@ Owner review of 0.6.0-alpha.5 on macOS (2026-10-26; Windows not reviewed yet):
    camera opened from each, plus Student Hall's fullscreen; nothing else is known to be wrong in the camera UI
    (the two-line Occlusion Guide label is BL-040's accepted wrap).
 5. Page titles are cut off although the row has room: BL-049.
+
+Owner review of 0.6.0-alpha.6 on macOS (2026-10-26):
+
+1. Dragging the blank bar and the double-click action: accepted.
+2. The small drag area beside the native controls in immersive scenes is not wanted: remove it (both platforms).
+3. The Window menu appears but is not wanted: remove it, with its 0.25 s repair timer. Keep the Edit menu and the
+   existing keyboard commands.
 
 ## BL-038: Reflow Settings when Home is hidden in Student Hall
 
@@ -899,7 +906,7 @@ and display densities.
 
 ## BL-044: Applied and preview frames from the game's selected skill cards
 
-- Status: Implemented for local review; owner UAT/visual acceptance pending. Review 1 badges widen leftward through verified runtime slices; review 2 corner coverage follows the prefab opening.
+- Status: Review 1 accepted by the owner (macOS, alpha.6); review 2 closed as won't fix by the owner; Windows not reviewed.
 - Note: Both official badges have identical RGBA columns [14, 28), giving horizontal borders L14/R36 and no vertical cuts. Applied/Selected share a width and font size per locale/card, starting at Mulligan_IndexLabel's 42 units and shrinking only at the card body width limit; the check retains its original prefab scale. No image data ships.
 - Requested: 2026-10-26.
 - Related: BL-015, BL-022 and BL-036.
@@ -947,6 +954,9 @@ sprite from the game; it defines its own horizontal slice borders (the rounded l
 check, and between them a run of identical pixel columns) and repeats only that run leftward, so the check and the
 corners keep their shape. Only the border numbers ship, verified numerically against the official sprite.
 
+Owner review of 0.6.0-alpha.6 on macOS (2026-10-26): review 1 (badges widened by runtime slicing) accepted. Review 2 (base colour
+at the frame corners) is not fixed by alpha.6; the owner stops work on it (won't fix).
+
 ## BL-045: Separate Global and Japanese game directories
 
 - Status: Accepted by the owner (macOS review of 0.6.0-alpha.3, 2026-10-26); Windows not reviewed.
@@ -982,7 +992,7 @@ interrupted runs. Upstream's CLI options and the shared UnityFS reader are alrea
 
 ## BL-047: Fullscreen button left on a rotated fullscreen portrait
 
-- Status: Implemented for local review; owner UAT/visual acceptance pending. Fullscreen handoffs skip detail framing restoration and portrait entry transitions.
+- Status: Direct switch accepted by the owner (macOS, alpha.6); icon change requested below.
 - Requested: 2026-10-26.
 - Related: the portrait view's rotate and fullscreen controls.
 - Note: The prefab's RightTop button switches portrait and memorial lobby fullscreen; skins without a lobby omit it.
@@ -1003,6 +1013,9 @@ Owner review of 0.6.0-alpha.5 on macOS (2026-10-26):
    lobby. It must switch at once, without restoring the position.
 2. The button touches the top edge, under the top bar that should be hidden there: BL-037 item 4 and BL-052.
 
+Owner review of 0.6.0-alpha.6 on macOS (2026-10-26): the direct switch is accepted. The top-right switch must use the cycle-arrows
+icon `Common_Icon_Change` (the Student Hall Flip action's icon, owner screenshot) instead of the double arrow.
+
 ## BL-048: Remove the CLI as a built and installed command
 
 - Status: Accepted by the owner (2026-10-26).
@@ -1016,7 +1029,7 @@ unchanged.
 
 ## BL-049: Page titles cut off; titles at the Enable Mods caption size
 
-- Status: Implemented for local review; owner UAT/visual acceptance pending.
+- Status: Owner decision on alpha.6: remove the page titles from the top bar; not started.
 - Note: Titles follow the rendered Enable Mods caption size; DOM text measurement includes shaping and trailing spacing before row fitting in native and fallback layouts.
 - Requested: 2026-10-26.
 - Related: BL-043 (title size) and BL-037 (single-row fitting).
@@ -1025,9 +1038,12 @@ Page titles are cut off with an ellipsis on every page and in every language alt
 (`Student H…`, `学…`). Owner decision: draw page titles at the same size as the "Enable Mods" caption, replacing
 BL-043's title size. A title is shortened only when the row really has no room left.
 
+Owner review of 0.6.0-alpha.6 on macOS (2026-10-26): the caption-sized titles are no longer noticeable. Owner decision: remove
+the page titles from the top bar on every page.
+
 ## BL-050: No Back button in Student Hall
 
-- Status: Implemented for local review; owner UAT/visual acceptance pending.
+- Status: Accepted by the owner (macOS review of 0.6.0-alpha.6, 2026-10-26); Windows not reviewed.
 - Note: Hall hides Back and uses its title slot with native clearance; leaving restores the current route and BL-038 action geometry.
 - Requested: 2026-10-26.
 - Related: BL-038.
@@ -1037,7 +1053,7 @@ Owner decision (2026-10-26): the title moves left into the Back's place, keeping
 
 ## BL-051: Hairlines at the top bar
 
-- Status: Implemented for local review; owner UAT/visual acceptance pending.
+- Status: Accepted by the owner (macOS review of 0.6.0-alpha.6, 2026-10-26); Windows not reviewed.
 - Note: The bar and scrollbar use the shared contiguous NGUI raster; the switch already used it. Geometry checks retain the source cuts, caps, colours and shadow at scales 0.5–2 and DPR 1–3.
 - Requested: 2026-10-26.
 - Related: BL-026 and BL-035.
@@ -1051,7 +1067,7 @@ seam from the Mod switch with the shared NGUI raster path (`ngui.js` `slicedImag
 
 ## BL-052: One corner-button margin across the App
 
-- Status: Implemented for local review; owner UAT/visual acceptance pending. The 67.8-unit detail prefab inset follows window edges and toolbar/native rows, including wide/tall windows.
+- Status: Implemented; owner review of alpha.6 requests the alignment and Back changes below.
 - Requested: 2026-10-26.
 - Related: BL-037 and BL-047.
 
@@ -1063,9 +1079,15 @@ Owner decision (2026-10-26): the margin is the game prefab's distance of the stu
 buttons from the screen edge. Measure it from the top bar's lower edge where the bar is shown and from the window's
 top edge in fullscreen views; the same horizontal margin from the window's side edge.
 
+Owner review of 0.6.0-alpha.6 on macOS (2026-10-26): the window-edge margins show no problem so far, including non-16:9 windows.
+In the portrait and memorial lobby fullscreen views and in both cameras, the top-left Back must sit at the same height
+as the top-right button; the lead's assumption of measuring below the native row is rejected. A real overlap with
+native window controls is resolved along the edge, not downward. The camera's Back must use the same button as the
+fullscreen views (`UICharacterVisualMode/Inventory_ListControl_PC/LeftTop/Btn_Back`), not the top bar's round Back.
+
 ## BL-053: Thumbnail picker marks other skins' applied photos
 
-- Status: Implemented for local review; owner UAT/visual acceptance pending. Backend/gallery Applied follows the shown skin's Collection choice; cross-skin deletion warnings remain. A separate detail-page thumbnail picker could not be identified in this revision (stop rule).
+- Status: Applied per skin accepted by the owner (macOS, alpha.6); delete-warning wording requested below.
 - Requested: 2026-10-26.
 - Related: BL-015, BL-022 and BL-044.
 
@@ -1073,3 +1095,7 @@ The thumbnail picker shows Applied on two photos at once: the one applied to the
 to the original skin. Only the photo applied to the shown skin's Collection portrait is Applied. Lead's diagnosis:
 `PhotographyService.list` sets `applied` from `photograph_removal_info(...)["used"]`, which is true when the photo is
 applied to any target. The delete warning for photos in use elsewhere stays as it is.
+
+Owner review of 0.6.0-alpha.6 on macOS (2026-10-26): Applied per skin accepted. The delete warning for a photo applied to another
+skin must say so: zh-CN `正在被另一换皮使用` (owner wording), translated in the other locales; a photo applied to the shown
+skin keeps the existing warning.
