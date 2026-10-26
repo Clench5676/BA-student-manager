@@ -880,7 +880,7 @@ and display densities.
 ## BL-044: Applied and preview frames from the game's selected skill cards
 
 - Status: Implemented for local review; owner UAT/visual acceptance pending.
-- Note: Shared source cards use UIPopup_Mulligan’s yellow/blue frames, particle mesh motion and top-right badge; the badge's number label reads the game's "Selected" (`webui.status.selected`, the Global client's wording; Simplified Chinese as the owner worded it).
+- Note: Yellow badges read Applied and blue badges Selected, fitted at one shared size per locale; no second check, and the frame effect and compositing are unchanged.
 - Requested: 2026-10-26.
 - Related: BL-015, BL-022 and BL-036.
 - Evidence: owner screenshots of the game's Formation Edit > starting skills > selected skill cards (animated yellow

@@ -1,5 +1,5 @@
 // UIPopup_Mulligan/Center/Popup/01/UIMulliganSlot: selected starting-skill cards.
-// Clone the frame and the badge. The badge sprite (Mulligan_IndexBg, Common_Icon_Mulligan_1) already draws its own check;
+// Clone the frame and the badge. Both badge sprites (Common_Icon_Mulligan_1 / _2) already draw their own check;
 // the slot's number label (Mulligan_IndexLabel) carries the caption, a word instead of the game's number. SelectLine's
 // own Sprite (Common_Icon_Check_Y_Off, inactive in the prefab) is not cloned: it would be a second check.
 export const SELECTION_PREFAB = 'UIPopup_Mulligan';
@@ -15,17 +15,17 @@ export function badgeCaptionBox(slot) {
   return text ? { fontSize: text.fontSize, width: text.w_, height: text.h_ } : null;
 }
 
-// The caption on one line, shrunk to that box (the prefab's label is ShrinkContent) by the given fitGroup (ngui.js), from the
-// label's own size down to BADGE_FONT_MIN and, only where the box cannot hold it, below that, flagged as overflow.
+// Both captions on one line at a shared size, shrunk to that box (the prefab's label is ShrinkContent) by fitGroup
+// (ngui.js), from the label's own size down to BADGE_FONT_MIN and, only where needed, below that, flagged as overflow.
 export const BADGE_FONT_MIN = 12;
-export function fitBadgeCaption(slot, text, fitGroup) {
+export function fitBadgeCaptions(slot, texts, fitGroup) {
   const box = badgeCaptionBox(slot);
   if (!box) return null;
-  const [fit] = fitGroup([text], box.fontSize, BADGE_FONT_MIN, box.width, 1, { maxH: box.height });
-  return { text: fit.text, fontSize: fit.fs, overflow: !!fit.overflow };
+  return fitGroup(texts, box.fontSize, BADGE_FONT_MIN, box.width, 1, { maxH: box.height })
+    .map(fit => ({ text: fit.text, fontSize: fit.fs, overflow: !!fit.overflow }));
 }
 
-// caption: { text, fontSize } for the applied badge's label, already fitted to badgeCaptionBox.
+// caption: { text, fontSize } for this state's badge label, already fitted to badgeCaptionBox.
 export function selectedFrame(slot, card, applied, previewed, caption = null) {
   const state = sourceCardState(applied, previewed);
   if (!state) return null;
@@ -37,23 +37,24 @@ export function selectedFrame(slot, card, applied, previewed, caption = null) {
   fw.w_ += dx * 2; fw.h_ += dy * 2; fw.incline = 10;
   frame.children = [];
   // Keep the prefab's fixed corner insets and sprite sizes as the list's image window stretches.
-  if (state === 'applied') {
-    const badge = structuredClone(child(slot, 'Mulligan_IndexBg'));
-    badge.name = 'AppliedBadge'; badge.active = true;
-    const nodes = [badge];
-    const number = child(slot, 'Mulligan_IndexLabel');
-    if (caption?.text && number) {
-      const label = structuredClone(number);
-      label.name = 'AppliedLabel'; label.active = true;
-      Object.assign(textOf(label), { text: caption.text, fontSize: caption.fontSize });
-      nodes.push(label);
-    }
-    for (const n of nodes) {
-      n.pos = [n.pos[0] + dx, n.pos[1] + dy - frame.pos[1]];
-      n.pos[0] += (n.pos[1] + frame.pos[1]) * Math.tan(Math.PI / 18);
-    }
-    frame.children.push(...nodes);
+  const prefix = state === 'applied' ? 'Applied' : 'Preview';
+  const badge = structuredClone(child(slot, 'Mulligan_IndexBg'));
+  badge.name = `${prefix}Badge`; badge.active = true;
+  if (state === 'preview') widget(badge).sprite = 'Common_Icon_Mulligan_2';
+  const nodes = [badge];
+  const number = child(slot, 'Mulligan_IndexLabel');
+  if (caption?.text && number) {
+    const label = structuredClone(number);
+    label.name = `${prefix}Label`; label.active = true;
+    // The prefab defines no separate blue label colour; retain Mulligan_IndexLabel's own ink for both badges.
+    Object.assign(textOf(label), { text: caption.text, fontSize: caption.fontSize });
+    nodes.push(label);
   }
+  for (const n of nodes) {
+    n.pos = [n.pos[0] + dx, n.pos[1] + dy - frame.pos[1]];
+    n.pos[0] += (n.pos[1] + frame.pos[1]) * Math.tan(Math.PI / 18);
+  }
+  frame.children.push(...nodes);
   const effectRoot = source.children.find(n => n.name.startsWith('FX_UI_Mulligan'));
   const uv = effectRoot?.children.find(n => n.name === 'UV');
   if (uv?.frameEffect) frame.children.push({ name: 'FrameEffect', active: true, pos: [0, 0], scale: [1, 1], widgets: [],

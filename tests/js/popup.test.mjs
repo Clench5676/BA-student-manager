@@ -145,7 +145,7 @@ globalThis.fetch = async (url, opts = {}) => {
   }
   if (url === "/asset/ui/atlases.json") return reply({ Common: Object.fromEntries(
     ["Common_Square_Bg", "Common_Bg_Raius10px", "Common_Btn_BG", "Common_Popup_Bg", "Common_Btn_Normal_B_C_Pt",
-      "Common_Bg_Raius10px_Select", "Common_Icon_Check_Y_Off", "Common_Icon_Mulligan_1", "Common_Line_Raius20px", "Common_Icon_Reddot2", "Card_Ability_Select_Line", "Card_Ability_Select_Line_Icon", "Cafe_Icon_NameEdit"].map((name) => [name, { width: 8, height: 8 }])) });
+      "Common_Bg_Raius10px_Select", "Common_Icon_Check_Y_Off", "Common_Icon_Mulligan_1", "Common_Icon_Mulligan_2", "Common_Line_Raius20px", "Common_Icon_Reddot2", "Card_Ability_Select_Line", "Card_Ability_Select_Line_Icon", "Cafe_Icon_NameEdit"].map((name) => [name, { width: 8, height: 8 }])) });
   if (url === "/asset/ui/textures.json") return reply({ Scroll: "scroll.png" });
   if (url === "/asset/ui/layout/UICharacterCollectionPopulatorUnit.json") return reply(switchLayouts.unit);
   if (url === "/asset/ui/layout/UINonEquipmentInventory.json") return reply(switchLayouts.inventory);
@@ -1156,10 +1156,11 @@ test("switch cards and details label manifest choices Applied with either switch
         await Detail.renderPopup();
         const captions = walk(switchHost).map((el) => el.textContent);
         const caption = ui.status.applied;
-        assert.equal(captions.filter((c) => c === caption).length, 2,
-          `${lang} ${kind} ${source}: chip and configured status`);
+        assert.equal(captions.filter((c) => c === caption).length, 3,
+          `${lang} ${kind} ${source}: badge, chip and configured status`);
         const key = source.startsWith("mod:") ? `m:${source.slice(4)}` : `v:${source.slice(8)}`;
         assert.ok(walk(switchHost).some(el => el.dataset.path === `Card_${key}/Select/AppliedBadge`));
+        assert.equal(walk(switchHost).find(el => el.dataset.path === `Card_${key}/Select/AppliedLabel`).textContent, caption);
         assert.ok(!walk(switchHost).some(el => el.dataset.path === `Card_${key}/Using`));
         if (source.startsWith("mod:")) assert.ok(captions.includes(ui.type.added));
         assert.ok(!captions.includes(ui.switch.configured) && !captions.includes(ui.status.installed));
@@ -2096,10 +2097,53 @@ test('source frame replacement preserves card envelopes, list placement and hit 
   assert.ok(hit.getAttribute('aria-label').includes(' - '));
   assert.ok(walk(prompt).some(e => e.dataset.path === 'Card_applied/Select/AppliedBadge'));
   const caption = walk(prompt).find(e => e.dataset.path === 'Card_applied/Select/AppliedLabel');
-  assert.equal(caption.textContent, 'Selected', 'the badge reads the word Selected');
+  assert.equal(caption.textContent, english.status.applied);
   assert.ok(!walk(prompt).some(e => e.dataset.path === 'Card_applied/Select/Check'), 'no second check beside the badge sprite');
   assert.ok(!walk(prompt).some(e => e.dataset.path === 'Card_preview/Select/AppliedLabel'));
   assert.ok(walk(prompt).some(e => e.dataset.path === 'Card_preview/Select'));
   assert.ok(!walk(prompt).some(e => e.dataset.path === 'Card_preview/Select/AppliedBadge'));
+  const previewCaption = walk(prompt).find(e => e.dataset.path === 'Card_preview/Select/PreviewLabel');
+  assert.equal(previewCaption.textContent, english.status.selected);
+  assert.ok(walk(prompt).some(e => e.dataset.path === 'Card_preview/Select/PreviewBadge'));
+  assert.ok(!walk(prompt).some(e => e.dataset.path === 'Card_preview/Select/Check'));
   prompt.hidden = true;
+});
+
+test('source cards use the state badge and fitted locale caption in every picker', async () => {
+  const NGUI = await import('../../src/ba_modding_toolkit/web/js/ngui.js');
+  const { switchGrid } = await import('../../src/ba_modding_toolkit/web/js/switch-layout.js');
+  await Popup.selectionReady();
+  const treeWalk = n => [n, ...(n.children || []).flatMap(treeWalk)];
+  try {
+    for (const lang of ['en-US', 'zh-CN', 'zh-TW', 'ja-JP', 'ko-KR', 'th-TH']) {
+      const ui = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${lang}.json`, import.meta.url))).webui;
+      setStrings(lang, Object.fromEntries(strings(ui)));
+      const captions = Popup.selectionCaptions();
+      assert.equal(captions.applied.text, ui.status.applied);
+      assert.equal(captions.preview.text, ui.status.selected);
+      assert.equal(captions.applied.fontSize, captions.preview.fontSize);
+      for (const kind of ['spr', 'lobby', 'model', null]) {
+        for (const applied of [false, true]) for (const previewed of [false, true]) {
+          const tree = Popup.listCard({ key: 'source', label: 'Source', applied }, 0, 0, previewed, switchGrid(kind).card, kind);
+          const frame = NGUI.find(tree, 'Select');
+          if (!applied && !previewed) { assert.equal(frame, null); continue; }
+          const prefix = applied ? 'Applied' : 'Preview', caption = captions[applied ? 'applied' : 'preview'];
+          assert.ok(!caption.overflow);
+          assert.deepEqual(treeWalk(frame).flatMap(n => n.widgets.filter(w => 'sprite' in w).map(w => w.sprite)),
+            ['Common_Bg_Raius10px_Select', applied ? 'Common_Icon_Mulligan_1' : 'Common_Icon_Mulligan_2']);
+          const labels = treeWalk(frame).flatMap(n => n.widgets.filter(w => 'text' in w));
+          assert.equal(labels.length, 1, 'only the resolved state has a caption');
+          const text = labels[0];
+          assert.equal(NGUI.find(frame, `${prefix}Label`).widgets[0], text);
+          assert.equal(text.text, applied ? ui.status.applied : ui.status.selected);
+          assert.equal(text.fontSize, caption.fontSize);
+          assert.deepEqual([text.w_, text.h_, text.color], [70, 52, '#7a4800/1.00']);
+          assert.ok(NGUI.glyphWidth(text.text, text.fontSize) <= text.w_);
+          assert.ok(NGUI.fontSizeFor(text.text, text.fontSize) * NGUI.LINE_PITCH <= text.h_);
+          assert.ok(!treeWalk(tree).some(n => n.widgets.some(w => w.sprite?.includes('Check') || w.sprite === 'Card_Ability_Select_Line_Icon')),
+            'the old selection check is absent from the rendered tree');
+        }
+      }
+    }
+  } finally { setStrings('en-US', Object.fromEntries(strings(english))); }
 });

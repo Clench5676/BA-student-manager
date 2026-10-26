@@ -221,7 +221,7 @@ for (const path of ["BG/Deco", "Label_Name", "Char_CVCollectionBtn/Sprite", "Cha
 
 const atlas = { Common: Object.fromEntries([...new Set([
   ...[...readFileSync(new URL("../../src/ba_modding_toolkit/web/js/detail.js", import.meta.url), "utf8").matchAll(/"(Common_[A-Za-z0-9_]+)"/g)].map((m) => m[1]),
-  "Common_Bg_Raius10px_Select", "Common_Icon_Check_Y_Off", "Common_Icon_Mulligan_1", "Card_Select_Line_Blue", "Cafe_Icon_NameEdit", "Common_Icon_Reddot2", "School_Icon_Schedule",
+  "Common_Bg_Raius10px_Select", "Common_Icon_Check_Y_Off", "Common_Icon_Mulligan_1", "Common_Icon_Mulligan_2", "Card_Select_Line_Blue", "Cafe_Icon_NameEdit", "Common_Icon_Reddot2", "School_Icon_Schedule",
 ])].map((name) => [name, { width: 8, height: 8 }])), Event: { Event_Icon_ClueSearch_857: { width: 8, height: 8 } } };
 const reply = (data, status = 200) => ({ ok: status === 200, status, json: async () => data });
 let family, indexMode = "ready", layoutMode = "ready", lobbyMode = "pending", optionalPending = false, modsEnabled = true;
@@ -1020,7 +1020,7 @@ test("repaired names and own aliases keep a separate repair tag in every locale"
         assert.equal((part("Card_m:fixed/Tag/Text").textContent || part("Card_m:fixed/Tag/Text").children[0].textContent), ui.webui.remap.repaired);
         assert.ok(part("Card_m:fixed/Select/AppliedBadge"));
         assert.equal(part("Card_m:fixed/Select/Check"), undefined, "the badge sprite draws the only check");
-        assert.equal((part("Card_m:fixed/Select/AppliedLabel").textContent || part("Card_m:fixed/Select/AppliedLabel").children[0].textContent), ui.webui.status.selected);
+        assert.equal((part("Card_m:fixed/Select/AppliedLabel").textContent || part("Card_m:fixed/Select/AppliedLabel").children[0].textContent), ui.webui.status.applied);
         assert.ok(walk(hosts.popup).find(el => el.dataset.key === "m:fixed").getAttribute("aria-label").includes(ui.webui.status.applied));
         assert.ok(walk(hosts.popup).some((el) => el.dataset.action === "alias:m:fixed"));
         assert.equal(walk(hosts.popup).filter((el) => el.getAttribute("aria-label") === ui.webui.act.update).length, 1);
