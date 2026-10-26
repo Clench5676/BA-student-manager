@@ -709,7 +709,7 @@ including its scaled segment edges and active-state paint, before choosing a cor
 shape, colors, text and click geometry; do not hide the defect by reducing image quality. Owner visual acceptance
 and accurately reported platform/DPI coverage are required when implementation is authorized.
 
-The switch bypassed NGUI's contiguous raster slicing: its active CSS mask and inactive border image sampled fractional tile edges independently. Both states now use the shared high-quality NGUI raster path, retaining the sprite, inclination, colors and hit box. Geometry checks cover stage scales 0.5–2 and device pixel ratios 1–3 with the shared 2× raster; native WebView visual acceptance remains pending.
+The switch bypassed NGUI's contiguous raster slicing: its active CSS mask and inactive border image sampled fractional tile edges independently. Both states now use the shared high-quality NGUI raster path, retaining the sprite, inclination, colors and hit box. Geometry checks cover stage scales 0.5–2 and device pixel ratios 1–3 with a raster of at least 2× that increases to the effective display density; native WebView visual acceptance remains pending.
 
 ## BL-036: Consistent asset deletion for official, previewed and applied sources
 

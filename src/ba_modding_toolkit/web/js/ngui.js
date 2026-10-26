@@ -155,14 +155,14 @@ async function gradientTint(url, colors) {
   return gradients.get(key);
 }
 
-// draw a sliced sprite at its final pixel size (x2 for sharp edges on HiDPI) into a single image
+// Draw a sliced sprite into one image, at least 2× with higher effective DPI when requested.
 const baked = new Map();
-function slicedImage(url, b, wpx, hpx, bs) {
-  const key = `${url}|${b.join(",")}|${wpx.toFixed(1)}x${hpx.toFixed(1)}|${bs.toFixed(3)}`;
+function slicedImage(url, b, wpx, hpx, bs, density=2) {
+  const key = `${url}|${b.join(",")}|${wpx.toFixed(1)}x${hpx.toFixed(1)}|${bs.toFixed(3)}|${density.toFixed(3)}`;
   if (!baked.has(key)) {
     baked.set(key, load(url).then((img) => {
       const [t, r, bo, l] = b, sw = img.naturalWidth, sh = img.naturalHeight;
-      const horizontal = sliceAxis(sw, l, r, wpx, bs), vertical = sliceAxis(sh, t, bo, hpx, bs);
+      const horizontal = sliceAxis(sw, l, r, wpx, bs, density), vertical = sliceAxis(sh, t, bo, hpx, bs, density);
       const W = horizontal.size, H = vertical.size;
       const c = document.createElement("canvas");
       c.width = W; c.height = H;
@@ -224,6 +224,7 @@ const colorOf = (c) => {
 // opts: scale (stage px per unit), origin [x, y] (stage px of the root's origin),
 //       on / off (node names or paths to force), shift { name|path: [dx, dy] units },
 //       texts { name|path: text }, textures { name|path: url }, textureNames { texture name: url },
+//       rasterDensity (optional sliced-sprite pixels per stage px; minimum 2),
 //       styles { name|path: css }, rootPath (prefix used in paths), z (z-index offset), deferImages (fill in later)
 // pictures includes all deferred work; images and thumbnails let a screen give optional thumbnails a shorter wait.
 export async function render(tree, host, opts = {}) {
@@ -382,7 +383,7 @@ export async function render(tree, host, opts = {}) {
         const url = w.gradient ? await gradientTint(tintedUrl, w.gradient) : tintedUrl;
         const b = spriteBorders(meta);
         if (w.type === 1 && b.some(Boolean)) {
-          return slicedImage(url, b, ww * S, hh * S, S * Math.min(Math.abs(sx), Math.abs(sy))).then((img) => {
+          return slicedImage(url, b, ww * S, hh * S, S * Math.min(Math.abs(sx), Math.abs(sy)),Math.max(2,Number(opts.rasterDensity)||2)).then((img) => {
             Object.assign(el.style, { backgroundImage: `url("${img}")`, backgroundSize: "100% 100%", backgroundRepeat: "no-repeat" });
           });
         } else if (w.type === 2) {

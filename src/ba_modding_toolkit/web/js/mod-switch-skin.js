@@ -10,3 +10,5 @@ export function segmentTree(width,pressed,flipped=false){
   }]};
 }
 export function segmentOrigin(width,pressed){return [width/2,(pressed?38:40)/2];}
+
+export function segmentDensity(dpi=1,stageScale=1){return Math.max(2,dpi*stageScale);}
