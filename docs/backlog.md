@@ -842,7 +842,8 @@ and review rule, kept in a UI guideline file rather than in the general agent ru
 
 ## BL-042: Restore Default on thumbnails creates an orphan generated default
 
-- Status: In progress (authorized 2026-10-26).
+- Status: Implemented for local review; owner UAT/visual acceptance pending.
+- Note: Restore reuses the variant’s stored generated default; gallery identity and applied usage now match deletion checks.
 - Requested: 2026-10-26.
 - Related: BL-022 (generated defaults) and BL-036 (deletion rules).
 

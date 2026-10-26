@@ -160,3 +160,37 @@ def test_export_preserves_pixels_and_avoids_collisions(services, photography_env
     assert first['path'] != second['path']
     assert Path(first['path']).read_bytes() == Path(second['path']).read_bytes() == photography_env['raw']
     assert opened == [destination, destination]
+
+
+@pytest.mark.parametrize('existing', [False, True])
+@pytest.mark.parametrize('deferred', [False, True])
+def test_restore_reuses_or_creates_one_default_and_reports_the_deletion_identity(
+        app, services, photography_env, existing, deferred):
+    env = photography_env
+    saved = services.photographs.save('hoshino', env['png'], 'portrait')['saved']
+    services.photographs.select('hoshino', saved)
+    generated = services.photographs.save('hoshino', env['png'], 'portrait', builtin=True)['saved'] if existing else None
+    services.library.enabled = not deferred
+    env['chosen'].update(id=saved, enabled=not deferred, pending=deferred, error={'code': 'photo_apply_failed'} if deferred else None)
+    stream = io.BytesIO()
+    Image.new('RGBA', (202, 228), (200, 30, 10, 255)).save(stream, format='PNG')
+    changed_png = 'data:image/png;base64,' + base64.b64encode(stream.getvalue()).decode()
+    done(services, rpc(app, 'photography.restore', variant='hoshino', png=changed_png)['result'])
+    result = rpc(app, 'photography.list', variant='hoshino')['result']
+    defaults = [entry for entry in result['photos'] if entry.get('builtin')]
+    assert len(defaults) == 1
+    key = defaults[0]['id']
+    assert not existing or key == generated
+    assert result['app'] == result['game']['id'] == key
+    for entry in result['photos']:
+        info = rpc(app, 'photography.removalInfo', variant='hoshino', id=entry['id'])['result']
+        assert entry['applied'] == info['used'] == (entry['id'] == key)
+    assert services.photographs.image('hoshino', key) == (env['raw'] if existing else stream.getvalue())
+    done(services, rpc(app, 'photography.restore', variant='hoshino', png=env['png'])['result'])
+    assert len(services.photographs.list('hoshino')['photos']) == 2
+    done(services, rpc(app, 'photography.delete', variant='hoshino', id=saved)['result'])
+    failed = rpc(app, 'photography.delete', variant='hoshino', id=key)['result']
+    deadline = time.monotonic() + 3
+    while services.jobs.get(failed).pending and time.monotonic() < deadline:
+        time.sleep(.01)
+    assert services.jobs.get(failed).error['code'] == 'asset_delete_confirm'

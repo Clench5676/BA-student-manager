@@ -62,6 +62,8 @@ class Photography:
         self._variant(variant)
         s = self.services
         result = self.describe(s.photographs.list(variant))
+        for entry in result["photos"]:
+            entry["applied"] = s.library.photograph_removal_info(variant, entry["id"])["used"]
         try:
             pin = s.library.current_pin()
             if pin is None:
@@ -71,11 +73,7 @@ class Photography:
             default = self.default_url(variant, pin)
             game = dict(game)
             key = game.get("id")
-            if key:
-                entry = s.photographs._entry(variant, key)
-                if entry.get("builtin"):
-                    game["id"] = "generated"
-            elif game.get("known"):
+            if not key and game.get("known"):
                 game["id"] = "official"
         except ServiceError as error:
             if error.code not in ("photo_target_unavailable", "game_not_found"):
@@ -128,7 +126,7 @@ class Photography:
                 chosen = library.photographs.save(variant, png, "portrait", source="generated", builtin=True)["saved"]
             result = library.apply_photograph(variant, chosen, descriptor, pin=pin, log=log, progress=progress)
             if restore_app:
-                library.photographs.select(variant, None)
+                library.photographs.select(variant, chosen)
                 s.events.publish("photography.changed", {"variant": variant})
             return replace(result, variant=variant)
 
@@ -144,7 +142,9 @@ class Photography:
             if error.code != "photo_target_unavailable":
                 raise
             return self.services.jobs.submit("photography.restore", lambda log, progress: self.select(variant, None))
-        return self.apply(variant, "generated" if png else None, png=png, restore_app=True)
+        existing = next((entry["id"] for entry in self.services.photographs.list(variant)["photos"]
+                         if entry["variant"] == variant and entry.get("builtin")), None)
+        return self.apply(variant, existing or ("generated" if png else None), png=png, restore_app=True)
 
     def export(self, variant: str, key: str | None, png: str | None = None) -> dict:
         self._variant(variant)

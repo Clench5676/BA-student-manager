@@ -25,7 +25,7 @@ const call=async(name,params={})=>{
 };
 const normalized=value=>({...value,photos:value.photos.map(entry=>({...entry,name:entry.builtin?P('generatedThumbnail'):[entry.variant!==sessionVariant?(L(entry.names)?.full||entry.variant):'',T('photo.captureName',{n:entry.number})].filter(Boolean).join(' - ')}))});
 const DEFAULT='generated',OFFICIAL='official';
-const galleryPhotos=()=>[{id:DEFAULT,name:P('generatedThumbnail'),url:generatedThumbnail,provenance:'runtime',managed:false},{id:OFFICIAL,name:P('officialThumbnail'),url:defaultThumbnail,provenance:'official',managed:false},...(repository?.photos||[])].filter(entry=>entry.url);
+const galleryPhotos=()=>[...((repository?.photos||[]).some(entry=>entry.variant===sessionVariant&&entry.builtin)?[]:[{id:DEFAULT,name:P('generatedThumbnail'),url:generatedThumbnail,provenance:'runtime',managed:false}]),{id:OFFICIAL,name:P('officialThumbnail'),url:defaultThumbnail,provenance:'official',managed:false},...(repository?.photos||[])].filter(entry=>entry.url);
 const photo=id=>galleryPhotos().find(item=>item.id===id);
 const selectedKey=key=>key===DEFAULT?null:key;
 async function generatedPNG(){const img=await NGUI.load(generatedThumbnail),canvas=document.createElement('canvas');canvas.width=img.naturalWidth||img.width;canvas.height=img.naturalHeight||img.height;canvas.getContext('2d').drawImage(img,0,0);return canvas.toDataURL('image/png');}
@@ -272,7 +272,7 @@ async function image(host,url,box,className='photo-large-image'){
 }
 async function openGallery(keepSelection=false){
   if(saving)return;bridge.pause(true);await repositoryRead();
-  if(!keepSelection)selected=repository.app||DEFAULT;
+  if(!keepSelection)selected=repository.app||repository.photos.find(entry=>entry.variant===sessionVariant&&entry.builtin)?.id||DEFAULT;
   const close=()=>{modal?.close();modal=null;bridge.pause(paused);};
   modal=UI.createModal(P('gallery'),close);
   await galleryDraw();
@@ -285,7 +285,7 @@ async function galleryDraw(){
     if(!rows.length)await UI.caption(layer,P('empty'),[365,440,680]);
     await Promise.all(rows.map(async(entry,index)=>{
       const x=465+(index%3)*215,y=343+Math.floor(index/3)*236,scale=.59;
-      const item={key:entry.id,label:entry.name,thumb:entry.url,badge:repository.game?.known&&!repository.game?.error&&!repository.game?.pending&&entry.id===repository.game.id?{text:P('applied'),color:'#8de4ff',ink:'#314665'}:null};
+      const item={key:entry.id,label:entry.name,thumb:entry.url,badge:(entry.applied||entry.id===OFFICIAL&&repository.game?.id===OFFICIAL)?{text:P('applied'),color:'#8de4ff',ink:'#314665'}:null};
       const tree=Popup.listCard(item,0,0,entry.id===selected,{w:250,h:250,bar:46});
       await NGUI.render(tree,layer,{scale,origin:[x,y]});
       hitButton(layer,[x-92,y-80,184,210],safe(async()=>{selected=entry.id;await galleryDraw();}),entry.name,90);
@@ -306,8 +306,8 @@ async function galleryDraw(){
     await UI.button(layer,'Restore',P('restore'),[365,835,180,64],safe(async()=>{
       const scope=generation;
       await Loading.task(async()=>{await waitJob(await call('restore',{png:await generatedPNG()}));if(scope!==generation)throw new DOMException('Photography ended','AbortError');await repositoryRead();});
-      bridge.thumbnailChanged();selected=DEFAULT;page=0;await galleryDraw();
-    }),{enabled:repository.app!==null||repository.game?.id!==DEFAULT,size:tools});
+      bridge.thumbnailChanged();selected=repository.app||DEFAULT;page=0;await galleryDraw();
+    }),{enabled:repository.app!==repository.game?.id||!photo(repository.game?.id)?.builtin,size:tools});
     await UI.button(layer,'Export',P('export'),[565,835,180,64],safe(async()=>{await Loading.task(async()=>call('export',{id:selected,png:selected===DEFAULT?await generatedPNG():null}));}),{enabled:!!selectedPhoto,size:tools});
     await UI.button(layer,'SaveSelection',P('saveSelection'),[1280,835,140,64],safe(async()=>{repository=normalized({...repository,...await call('select',{id:selectedKey(selected)})});bridge.thumbnailChanged();modal.close();modal=null;bridge.pause(paused);}),{semantic:"save",enabled:!!selected});
   },[],{width:2000,height:1200});

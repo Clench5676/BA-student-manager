@@ -170,10 +170,10 @@ class Photographs:
             number = max(counters.get(variant, 1), max((int(item.get("number", 0)) + 1
                          for item in data["photos"].values() if item["variant"] == variant and not item.get("builtin")), default=1))
             if builtin:
-                digest = hashlib.sha256(raw).hexdigest()
                 existing = next((item["id"] for item in data["photos"].values()
-                                 if item["variant"] == variant and item.get("builtin") and item["sha256"] == digest), None)
+                                 if item["variant"] == variant and item.get("builtin")), None)
                 if existing:
+                    self.image(variant, existing)
                     return {**self.list(variant), "saved": existing}
             entry = {"id": key, "number": number if not builtin else 0, "variant": variant, "mode": mode,
                      "expression": expression, "action": action, "source": source, "width": width, "height": height,

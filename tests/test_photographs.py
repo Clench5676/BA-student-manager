@@ -108,6 +108,17 @@ def test_two_instances_preserve_each_others_captures_and_selection(tmp_path):
     assert first.list("a")["app"] == key
 
 
+def test_generated_default_is_unique_per_variant_even_when_render_bytes_change(tmp_path):
+    first, second = Photographs(tmp_path), Photographs(tmp_path)
+    captures = [capture()[0], capture(color=(90, 30, 10, 255))[0]]
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda args: args[0].save("a", args[1], "portrait", builtin=True),
+                                zip((first, second), captures)))
+    assert results[0]["saved"] == results[1]["saved"]
+    assert len(first.list("a")["photos"]) == 1
+    assert first.save("b", captures[0], "portrait", builtin=True)["saved"] != results[0]["saved"]
+
+
 def test_symlinked_capture_cannot_escape_the_library(tmp_path):
     gallery = Photographs(tmp_path)
     key = gallery.save("a", capture()[0], "portrait")["saved"]

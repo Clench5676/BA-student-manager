@@ -35,3 +35,13 @@ test('official and runtime gallery entries omit Delete; persisted generated phot
   assert.match(source,/if\(selectedPhoto.managed!==false&&selectedPhoto.provenance!=='official'\)await UI.button\(layer,'Delete'/);
   assert.ok(!source.includes('enabled:!selectedPhoto.original'));
 });
+
+test('the gallery reuses the stored default card and retains separate skin defaults',()=>{
+  const start=source.indexOf('const galleryPhotos=');
+  const code=source.slice(start,source.indexOf('const photo=',start));
+  const cards=new Function('repository','sessionVariant',`const DEFAULT='generated',OFFICIAL='official',P=k=>k,generatedThumbnail='runtime',defaultThumbnail='official';${code};return galleryPhotos();`);
+  const own={id:'stored',variant:'a',builtin:'generated',url:'stored.png',applied:true};
+  const other={id:'skin',variant:'b',builtin:'generated',url:'skin.png'};
+  assert.deepEqual(cards({photos:[own,other]},'a').map(p=>p.id),['official','stored','skin']);
+  assert.deepEqual(cards({photos:[other]},'a').map(p=>p.id),['generated','official','skin']);
+});
