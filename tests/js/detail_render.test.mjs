@@ -1019,7 +1019,8 @@ test("repaired names and own aliases keep a separate repair tag in every locale"
         assert.equal(walk(part("Details/Chip_0/Text/Text")).map((el) => el.textContent).join(""), ui.webui.remap.repaired);
         assert.equal((part("Card_m:fixed/Tag/Text").textContent || part("Card_m:fixed/Tag/Text").children[0].textContent), ui.webui.remap.repaired);
         assert.ok(part("Card_m:fixed/Select/AppliedBadge"));
-        assert.ok(part("Card_m:fixed/Select/Check"));
+        assert.equal(part("Card_m:fixed/Select/Check"), undefined, "the badge sprite draws the only check");
+        assert.equal((part("Card_m:fixed/Select/AppliedLabel").textContent || part("Card_m:fixed/Select/AppliedLabel").children[0].textContent), ui.webui.status.selected);
         assert.ok(walk(hosts.popup).find(el => el.dataset.key === "m:fixed").getAttribute("aria-label").includes(ui.webui.status.applied));
         assert.ok(walk(hosts.popup).some((el) => el.dataset.action === "alias:m:fixed"));
         assert.equal(walk(hosts.popup).filter((el) => el.getAttribute("aria-label") === ui.webui.act.update).length, 1);

@@ -953,6 +953,7 @@
 			"gameFile": "遊戲檔案",
 			"installed": "已安裝",
 			"applied": "已套用",
+			"selected": "選擇中",
 			"notInstalled": "未安裝"
 		},
 		"crc": {

@@ -1,12 +1,32 @@
 // UIPopup_Mulligan/Center/Popup/01/UIMulliganSlot: selected starting-skill cards.
-// Clone the frame, number-badge body and check. The separate numeric label is omitted for a single applied source.
+// Clone the frame and the badge. The badge sprite (Mulligan_IndexBg, Common_Icon_Mulligan_1) already draws its own check;
+// the slot's number label (Mulligan_IndexLabel) carries the caption, a word instead of the game's number. SelectLine's
+// own Sprite (Common_Icon_Check_Y_Off, inactive in the prefab) is not cloned: it would be a second check.
 export const SELECTION_PREFAB = 'UIPopup_Mulligan';
 export const SELECTION_SLOT = 'Center/Popup/01/UIMulliganSlot';
 const child = (n, name) => n.children.find(c => c.name === name);
 const widget = n => n.widgets.find(w => 'sprite' in w);
+const textOf = n => n.widgets.find(w => 'text' in w);
 export const sourceCardState = (applied, previewed) => applied ? 'applied' : previewed ? 'preview' : null;
 
-export function selectedFrame(slot, card, applied, previewed) {
+// The box of the prefab's number label: its font size and size in prefab units, which a caption has to fit.
+export function badgeCaptionBox(slot) {
+  const label = child(slot, 'Mulligan_IndexLabel'), text = label && textOf(label);
+  return text ? { fontSize: text.fontSize, width: text.w_, height: text.h_ } : null;
+}
+
+// The caption on one line, shrunk to that box (the prefab's label is ShrinkContent) by the given fitGroup (ngui.js), from the
+// label's own size down to BADGE_FONT_MIN and, only where the box cannot hold it, below that, flagged as overflow.
+export const BADGE_FONT_MIN = 12;
+export function fitBadgeCaption(slot, text, fitGroup) {
+  const box = badgeCaptionBox(slot);
+  if (!box) return null;
+  const [fit] = fitGroup([text], box.fontSize, BADGE_FONT_MIN, box.width, 1, { maxH: box.height });
+  return { text: fit.text, fontSize: fit.fs, overflow: !!fit.overflow };
+}
+
+// caption: { text, fontSize } for the applied badge's label, already fitted to badgeCaptionBox.
+export function selectedFrame(slot, card, applied, previewed, caption = null) {
   const state = sourceCardState(applied, previewed);
   if (!state) return null;
   const source = child(slot, state === 'applied' ? 'SelectLine' : 'SelectLine_Sub');
@@ -20,14 +40,19 @@ export function selectedFrame(slot, card, applied, previewed) {
   if (state === 'applied') {
     const badge = structuredClone(child(slot, 'Mulligan_IndexBg'));
     badge.name = 'AppliedBadge'; badge.active = true;
-    badge.pos = [badge.pos[0] + dx, badge.pos[1] + dy - frame.pos[1]];
-    const check = structuredClone(child(source, 'Sprite'));
-    check.name = 'Check'; check.active = true;
-    check.pos = [check.pos[0] + dx, check.pos[1] + dy];
-    // The prefab's number is a sibling UILabel, not part of either sprite.
-    widget(check).depth = widget(badge).depth + 1;
-    for (const n of [badge, check]) n.pos[0] += (n.pos[1] + frame.pos[1]) * Math.tan(Math.PI / 18);
-    frame.children.push(badge, check);
+    const nodes = [badge];
+    const number = child(slot, 'Mulligan_IndexLabel');
+    if (caption?.text && number) {
+      const label = structuredClone(number);
+      label.name = 'AppliedLabel'; label.active = true;
+      Object.assign(textOf(label), { text: caption.text, fontSize: caption.fontSize });
+      nodes.push(label);
+    }
+    for (const n of nodes) {
+      n.pos = [n.pos[0] + dx, n.pos[1] + dy - frame.pos[1]];
+      n.pos[0] += (n.pos[1] + frame.pos[1]) * Math.tan(Math.PI / 18);
+    }
+    frame.children.push(...nodes);
   }
   const effectRoot = source.children.find(n => n.name.startsWith('FX_UI_Mulligan'));
   const uv = effectRoot?.children.find(n => n.name === 'UV');

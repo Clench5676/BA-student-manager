@@ -16,7 +16,7 @@ import { horizontalScroll } from "./horizontal-scroll.js";
 import * as Buttons from "./game-buttons.js";
 import { searchTree, sortBody, orderBody, pickerItems } from "./roster-widgets.js";
 import { resizeButton } from "./button-layout.js";
-import { selectedFrame, SELECTION_PREFAB, SELECTION_SLOT } from "./selected-frames.js";
+import { fitBadgeCaption, selectedFrame, SELECTION_PREFAB, SELECTION_SLOT } from "./selected-frames.js";
 import { T } from "./i18n.js";
 import { withTimeout } from "./async.js";
 import { DOT, RECRUIT, S, TAN10, advanceOf, clone, glyphsOf, hitButton, markedLabel, wrapPath } from "./util.js";
@@ -35,6 +35,9 @@ export function selectionReady() {
     if (!selectionSlot) throw new Error("Starting-skill selection slot unavailable");
   }).catch(error => { selectionLoading = null; throw error; });
 }
+// The applied badge's label: the slot's number label (Mulligan_IndexLabel) holds the word "Selected" in the UI language
+// instead of a number, on one line, shrunk to the label's box (selected-frames.js).
+export const appliedCaption = (slot = selectionSlot) => slot && fitBadgeCaption(slot, T("status.selected"), NGUI.fitGroup);
 export function frameReady() {
   return frameLoading ||= withTimeout(NGUI.layout("UIPopup_Sort"), 15000, "Popup frame")
     .then((sortPopup) => { layouts = { ...layouts, sortPopup }; })
@@ -435,7 +438,7 @@ export function listCard(it, x, y, selected, card = LP.card, kind = null) {
     // Keep the existing list's measured envelope, hit boxes and scroll pitch when replacing its decoration.
     tree.layoutChildren = [...kids];
     tree.children = kids.filter(n => n.name !== "Select");
-    const frame = selectedFrame(selectionSlot, card, it.applied, selected);
+    const frame = selectedFrame(selectionSlot, card, it.applied, selected, it.applied ? appliedCaption() : null);
     if (frame) tree.children.push(frame);
   }
   return tree;

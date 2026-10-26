@@ -953,6 +953,7 @@
 			"gameFile": "Game File",
 			"installed": "Installed",
 			"applied": "Applied",
+			"selected": "Selected",
 			"notInstalled": "Not Installed"
 		},
 		"crc": {

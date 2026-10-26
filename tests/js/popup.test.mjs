@@ -2095,6 +2095,10 @@ test('source frame replacement preserves card envelopes, list placement and hit 
   const hit = walk(prompt).find(e => e.dataset.key === 'applied');
   assert.ok(hit.getAttribute('aria-label').includes(' - '));
   assert.ok(walk(prompt).some(e => e.dataset.path === 'Card_applied/Select/AppliedBadge'));
+  const caption = walk(prompt).find(e => e.dataset.path === 'Card_applied/Select/AppliedLabel');
+  assert.equal(caption.textContent, 'Selected', 'the badge reads the word Selected');
+  assert.ok(!walk(prompt).some(e => e.dataset.path === 'Card_applied/Select/Check'), 'no second check beside the badge sprite');
+  assert.ok(!walk(prompt).some(e => e.dataset.path === 'Card_preview/Select/AppliedLabel'));
   assert.ok(walk(prompt).some(e => e.dataset.path === 'Card_preview/Select'));
   assert.ok(!walk(prompt).some(e => e.dataset.path === 'Card_preview/Select/AppliedBadge'));
   prompt.hidden = true;

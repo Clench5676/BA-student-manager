@@ -953,6 +953,7 @@
 			"gameFile": "게임 파일",
 			"installed": "설치됨",
 			"applied": "적용됨",
+			"selected": "선택 중",
 			"notInstalled": "미설치"
 		},
 		"crc": {
