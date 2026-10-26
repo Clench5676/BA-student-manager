@@ -794,6 +794,9 @@ Owner review of 0.6.0-alpha.5 on macOS (2026-10-26; Windows not reviewed yet):
    Back over the page's own Back (two Back buttons). Lead's diagnosis: the header moved from `#stage` into
    `.window-header`, so `.stage.fullscreen .topbar` and `.stage.hall-fullscreen .topbar` no longer match, and
    `.window-immersive .window-header .topbar > *` hides the bar's children but not its background or the Back.
+   Owner (2026-10-26): audit all four scenes, the portrait fullscreen, the memorial lobby (L2D) fullscreen and the
+   camera opened from each, plus Student Hall's fullscreen; nothing else is known to be wrong in the camera UI
+   (the two-line Occlusion Guide label is BL-040's accepted wrap).
 5. Page titles are cut off although the row has room: BL-049.
 
 ## BL-038: Reflow Settings when Home is hidden in Student Hall
@@ -1022,6 +1025,7 @@ BL-043's title size. A title is shortened only when the row really has no room l
 - Related: BL-038.
 
 Student Hall is the App's home: remove the top bar's Back button there. Other pages keep Back.
+Owner decision (2026-10-26): the title moves left into the Back's place, keeping the native-control clearance.
 
 ## BL-051: Hairlines at the top bar
 
@@ -1045,6 +1049,10 @@ seam from the Mod switch with the shared NGUI raster path (`ngui.js` `slicedImag
 Corner buttons sit at different distances from the edges. Student Hall's three top-right buttons hang too low (owner:
 move them up to just below the bar); the fullscreen view's top-right button touches the top edge (owner: move it
 down). Use one margin from the edges for corner buttons throughout the App.
+
+Owner decision (2026-10-26): the margin is the game prefab's distance of the student detail page's top-right
+buttons from the screen edge. Measure it from the top bar's lower edge where the bar is shown and from the window's
+top edge in fullscreen views; the same horizontal margin from the window's side edge.
 
 ## BL-053: Thumbnail picker marks other skins' applied photos
 
