@@ -842,7 +842,7 @@ and review rule, kept in a UI guideline file rather than in the general agent ru
 
 ## BL-042: Restore Default on thumbnails creates an orphan generated default
 
-- Status: Implemented for local review; owner UAT/visual acceptance pending.
+- Status: Accepted by the owner (macOS review of 0.6.0-alpha.4, 2026-10-26); Windows not reviewed.
 - Note: Restore reuses the variant’s stored generated default; gallery identity and applied usage now match deletion checks.
 - Requested: 2026-10-26.
 - Related: BL-022 (generated defaults) and BL-036 (deletion rules).
@@ -871,7 +871,7 @@ and display densities.
 
 ## BL-044: Applied and preview frames from the game's selected skill cards
 
-- Status: Implemented for local review; owner UAT/visual acceptance pending.
+- Status: Owner review of 0.6.0-alpha.4 (2026-10-26): changes requested, see below.
 - Note: Shared source cards use UIPopup_Mulligan’s yellow/blue frames, particle mesh motion and top-right check badge; the separate number is omitted.
 - Requested: 2026-10-26.
 - Related: BL-015, BL-022 and BL-036.
@@ -882,6 +882,17 @@ The portrait, L2D and thumbnail pickers (and the other source pickers) tell the 
 previewed. Show both with the game's animated selected-card frames, built from the game's prefab (identify and name
 it), not CSS. Move the Applied marker from the top-left corner to the top-right, in the numbered check-badge style.
 Proposed mapping for owner review: applied = yellow frame with the check badge, previewed = blue frame.
+
+Owner review of 0.6.0-alpha.4 (2026-10-26), two screenshots:
+
+1. Every badge shows its check twice. In the yellow (applied) badge the content must be the text "已选择" (the game's
+   own wording for a selected card in each language), not a grey check icon.
+2. The animated frames, yellow and blue alike, show extra dark areas at the card's corners, outside the rounded frame.
+   Lead's diagnosis to confirm: the game's `FX_SHADER_AlphaBlend_Add_Mask_0` (blend One / OneMinusSrcAlpha, linear
+   colour space) mostly adds light; the App draws the effect into its own WebGL canvas with non-premultiplied alpha
+   and lets the browser blend it in display (gamma) space over the card. Where the scrolling mask is dark but its alpha
+   is not zero, which includes the mesh's corners outside the rounded frame, the effect dims the card behind instead of
+   adding light.
 
 ## BL-045: Separate Global and Japanese game directories
 
@@ -918,12 +929,16 @@ interrupted runs. Upstream's CLI options and the shared UnityFS reader are alrea
 
 ## BL-047: Fullscreen button left on a rotated fullscreen portrait
 
-- Status: In progress (authorized 2026-10-26).
+- Status: Reopened by the owner (2026-10-26): the removal was wrong and is reverted.
 - Requested: 2026-10-26.
 - Related: the portrait view's rotate and fullscreen controls.
 
 In the portrait view, after rotating the screen and entering fullscreen, the fullscreen button is still shown in the
 top-right corner. It must not be shown once the view is fullscreen; leaving fullscreen restores it.
+
+Owner correction (2026-10-26): the top-right button stays; its function should be switching the fullscreen view
+between the portrait and the memorial lobby. The removal of the button is reverted; the new function awaits the
+owner's confirmation of the exact behaviour.
 
 ## BL-048: Remove the CLI as a built and installed command
 
