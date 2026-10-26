@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 _SCHEMA = "gameassets-v1/"
 # The layout export's format, part of each cached layout's key: raise it whenever export_layout's output changes, so
 # layouts cached in an older format are rebuilt and no other cached asset is dropped (v3: label effect colours and distances)
-_LAYOUT = "layout-v4/"
+_LAYOUT = "layout-v5/"
 _ATLASES = "atlases-v2/"
 # One model export at a time in the process: an export holds the path locks of every bundle it reads
 _MODEL_LOCK = threading.Lock()
@@ -49,6 +49,7 @@ PREFAB_HINTS = {
     "UICharacterCollectionPopulatorUnit": "ui-uiassetobject-_mxload-2024-11-18_assets_all_625906829.bundle",
     "UIPopup_GachaCharList": "ui-_mxload-prefabs-2025-07-02_assets_all_2249507476.bundle",
     "UIPopup_Sort": "ui-_mxload-prefabs-2025-07-02_assets_all_792282090.bundle",
+    "UIPopup_Mulligan": "ui-_mxload-prefabs-2025-07-02_assets_all_745642265.bundle",
     # the student list's display settings popup (filter and sort tabs) and its filter group template
     "UIPopup_FilterSort": "ui-_mxload-prefabs-2025-07-02_assets_all_2563991958.bundle",
     "UIFilterObjectList": "ui-uiassetobject-_mxload-2024-11-18_assets_all_625906829.bundle",
@@ -458,6 +459,14 @@ class GameAssets:
             extra = self._index("layout-textures", lambda: self._scan_textures(
                 filter(is_layout_texture, self._paths()))["names"])
             names = self._atlas_index()["names"] | self._texture_index()["names"] | extra
+            from . import selection_frames
+            if root == selection_frames.ROOT:
+                from .model import BundleGraph
+                with _MODEL_LOCK, self._cab_discovery().batch(), BundleGraph({}, resolver=self._resolve_cabs) as graph:
+                    env = graph.add(path)
+                    resolver = _FxResolver(graph, {obj.path_id: obj for obj in env.objects}, self._shader_forms)
+                    effects = selection_frames.export_effects(env, resolver.resolve)
+                    return export_layout(env, root, names, effects=effects)
             with open_bundle(path) as env:
                 return export_layout(env, root, names)
         # Layouts can be large. Keep their serialized bytes in the bounded LRU,
@@ -473,6 +482,34 @@ class GameAssets:
             self.cache.put(_SCHEMA + _LAYOUT + root, json.dumps(tree).encode(),
                            version=self.cache_version, generation=generation)
         return subtree(tree, subpath)
+
+    def selection_frame_texture(self, tex_id: str) -> bytes:
+        """Serve only textures referenced by the starting-skill selection frames, in memory."""
+        from .selection_frames import ROOT, SLOT
+        slot = self.layout(ROOT, SLOT)
+        textures = {}
+        def collect(node):
+            effect = node.get("frameEffect") or {}
+            for tex in effect.get("material", {}).get("tex", {}).values():
+                if "id" in tex:
+                    textures[tex["id"]] = tex
+            for child in node.get("children", []):
+                collect(child)
+        collect(slot)
+        if tex_id not in textures:
+            raise AssetNotFound(("selection-frame", tex_id))
+        cab, _, pid = tex_id.rpartition("_")
+        bundle = self._resolve_cabs({cab}).get(cab.lower())
+        if bundle is None or not pid.lstrip("-").isdigit():
+            raise AssetNotFound(("selection-frame", tex_id))
+        def build():
+            with open_bundle(Path(bundle)) as env:
+                obj = next((obj for obj in env.objects if obj.path_id == int(pid)
+                            and obj.assets_file.name.lower() == cab and obj.type.name == "Texture2D"), None)
+                if obj is None:
+                    raise AssetNotFound(("selection-frame", tex_id))
+                return png_bytes(obj.read().image)
+        return self._cached("selection-frame/" + json.dumps([tex_id, spine_stamps([Path(bundle)])]), build, disk=False)
 
     def _collection(self) -> dict:
         """Collection backgrounds and portraits by texture name (names and bundle locations only, memory only)."""

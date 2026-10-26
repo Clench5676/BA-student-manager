@@ -871,7 +871,8 @@ and display densities.
 
 ## BL-044: Applied and preview frames from the game's selected skill cards
 
-- Status: In progress (authorized 2026-10-26).
+- Status: Implemented for local review; owner UAT/visual acceptance pending.
+- Note: Shared source cards use UIPopup_Mulligan’s yellow/blue frames, particle mesh motion and top-right check badge; the separate number is omitted.
 - Requested: 2026-10-26.
 - Related: BL-015, BL-022 and BL-036.
 - Evidence: owner screenshots of the game's Formation Edit > starting skills > selected skill cards (animated yellow

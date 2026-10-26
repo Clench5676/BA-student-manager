@@ -77,7 +77,7 @@ def _widget(obj: ObjectReader, tree: dict, names: dict[str, str], scripts: dict)
     return widget
 
 
-def export_layout(env: Environment, root: str, names: dict[str, str]) -> dict:
+def export_layout(env: Environment, root: str, names: dict[str, str], *, effects: dict | None = None) -> dict:
     """Return a prefab root with ordered children and rounded widget transforms."""
     objects = list(env.objects)
     gos, transforms, scripts, components = {}, {}, {}, {}
@@ -132,6 +132,8 @@ def export_layout(env: Environment, root: str, names: dict[str, str]) -> dict:
                   "pos": [round(transform.m_LocalPosition.x, 1), round(transform.m_LocalPosition.y, 1)],
                   "scale": [round(transform.m_LocalScale.x, 3), round(transform.m_LocalScale.y, 3)],
                   "rotZ": round(rotation, 2), "widgets": components.get(gid, [])}
+        if effects and gid in effects:
+            result["frameEffect"] = effects[gid]
         children = [node(child.read().m_GameObject.path_id) for child in transform.m_Children]
         if children:
             result["children"] = children

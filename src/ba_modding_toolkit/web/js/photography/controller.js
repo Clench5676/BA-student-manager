@@ -278,6 +278,7 @@ async function openGallery(keepSelection=false){
   await galleryDraw();
 }
 async function galleryDraw(){
+  await Popup.selectionReady();
   const allPhotos=galleryPhotos();page=Math.min(page,Math.max(0,Math.ceil(allPhotos.length/6)-1));
   const selectedPhoto=photo(selected);
   await modal.draw(async(layer)=>{
@@ -285,10 +286,10 @@ async function galleryDraw(){
     if(!rows.length)await UI.caption(layer,P('empty'),[365,440,680]);
     await Promise.all(rows.map(async(entry,index)=>{
       const x=465+(index%3)*215,y=343+Math.floor(index/3)*236,scale=.59;
-      const item={key:entry.id,label:entry.name,thumb:entry.url,badge:(entry.applied||entry.id===OFFICIAL&&repository.game?.id===OFFICIAL)?{text:P('applied'),color:'#8de4ff',ink:'#314665'}:null};
+      const item={key:entry.id,label:entry.name,thumb:entry.url,applied:!!(entry.applied||entry.id===OFFICIAL&&repository.game?.id===OFFICIAL)};
       const tree=Popup.listCard(item,0,0,entry.id===selected,{w:250,h:250,bar:46});
       await NGUI.render(tree,layer,{scale,origin:[x,y]});
-      hitButton(layer,[x-92,y-80,184,210],safe(async()=>{selected=entry.id;await galleryDraw();}),entry.name,90);
+      hitButton(layer,[x-92,y-80,184,210],safe(async()=>{selected=entry.id;await galleryDraw();}),[entry.name,item.applied&&P('applied')].filter(Boolean).join(' - '),90);
     }));
     if(selectedPhoto){
       await image(layer,selectedPhoto.url,[1190,270,320,320]);

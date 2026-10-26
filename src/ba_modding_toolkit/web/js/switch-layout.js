@@ -33,7 +33,7 @@ export function cardInkBounds(tree) {
       bounds.left = Math.min(bounds.left, cx - half); bounds.right = Math.max(bounds.right, cx + half);
       bounds.top = Math.max(bounds.top, cy + height / 2); bounds.bottom = Math.min(bounds.bottom, cy - height / 2);
     }
-    for (const child of n.children || []) visit(child, x, y, sx, sy);
+    for (const child of n.layoutChildren || n.children || []) visit(child, x, y, sx, sy);
   }
   visit(tree, 0, 0, 1, 1);
   return bounds;

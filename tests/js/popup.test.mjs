@@ -7,6 +7,7 @@ import { register } from "node:module";
 import { afterEach, test } from "node:test";
 import vm from "node:vm";
 import { switchPrefabs } from "./switch_prefabs.mjs";
+import { selectionPrefab } from "./selection_prefabs.mjs";
 import { controls, insert } from "./control_prefabs.mjs";
 
 // --- a stand-in DOM: elements in a tree, ids, clicks, the focus and the window's key listeners ---
@@ -144,11 +145,12 @@ globalThis.fetch = async (url, opts = {}) => {
   }
   if (url === "/asset/ui/atlases.json") return reply({ Common: Object.fromEntries(
     ["Common_Square_Bg", "Common_Bg_Raius10px", "Common_Btn_BG", "Common_Popup_Bg", "Common_Btn_Normal_B_C_Pt",
-      "Common_Line_Raius20px", "Common_Icon_Reddot2", "Card_Ability_Select_Line", "Card_Ability_Select_Line_Icon", "Cafe_Icon_NameEdit"].map((name) => [name, { width: 8, height: 8 }])) });
+      "Common_Bg_Raius10px_Select", "Common_Icon_Check_Y_Off", "Common_Icon_Mulligan_1", "Common_Line_Raius20px", "Common_Icon_Reddot2", "Card_Ability_Select_Line", "Card_Ability_Select_Line_Icon", "Cafe_Icon_NameEdit"].map((name) => [name, { width: 8, height: 8 }])) });
   if (url === "/asset/ui/textures.json") return reply({ Scroll: "scroll.png" });
   if (url === "/asset/ui/layout/UICharacterCollectionPopulatorUnit.json") return reply(switchLayouts.unit);
   if (url === "/asset/ui/layout/UINonEquipmentInventory.json") return reply(switchLayouts.inventory);
   if (url === "/asset/ui/layout/UIPopup_Sort.json") return reply(SORT);
+  if (url === "/asset/ui/layout/UIPopup_Mulligan.json") return reply(selectionPrefab());
   if (url === "/asset/ui/layout/UIPopup_FilterSort.json") return reply(controlLayouts.filter);
   if (url === "/asset/ui/layout/UIPopup_Option_PC.json") return reply(OPTIONS);
   return reply(null, false); // the other prefabs are optional
@@ -1154,8 +1156,11 @@ test("switch cards and details label manifest choices Applied with either switch
         await Detail.renderPopup();
         const captions = walk(switchHost).map((el) => el.textContent);
         const caption = ui.status.applied;
-        assert.equal(captions.filter((c) => c === caption).length, 3,
-          `${lang} ${kind} ${source}: card, chip and configured status`);
+        assert.equal(captions.filter((c) => c === caption).length, 2,
+          `${lang} ${kind} ${source}: chip and configured status`);
+        const key = source.startsWith("mod:") ? `m:${source.slice(4)}` : `v:${source.slice(8)}`;
+        assert.ok(walk(switchHost).some(el => el.dataset.path === `Card_${key}/Select/AppliedBadge`));
+        assert.ok(!walk(switchHost).some(el => el.dataset.path === `Card_${key}/Using`));
         if (source.startsWith("mod:")) assert.ok(captions.includes(ui.type.added));
         assert.ok(!captions.includes(ui.switch.configured) && !captions.includes(ui.status.installed));
         assert.ok(!captions.includes(ui.popup.inUse));
@@ -2068,4 +2073,29 @@ test('automatic tours wait for consents, update dialogs and jobs without checkin
   await Tours.start({ info: { gameFound: false } });
   assert.equal(planning, before);
   handlers.clear();
+});
+
+test('source frame replacement preserves card envelopes, list placement and hit targets', async () => {
+  const { cardInkBounds, switchGrid, placeSwitchCards } = await import('../../src/ba_modding_toolkit/web/js/switch-layout.js');
+  await Popup.selectionReady();
+  for (const kind of ['spr', 'lobby', 'model', null]) {
+    const grid = switchGrid(kind), base = { key: 'choice', label: 'Source', full: 'Source' };
+    for (const selected of [false, true]) for (const applied of [false, true]) {
+      const oldTree = Popup.listCard(base, 0, 0, selected, grid.card, kind);
+      const tree = Popup.listCard({ ...base, applied }, 0, 0, selected, grid.card, kind);
+      assert.deepEqual(cardInkBounds(tree), cardInkBounds(oldTree));
+      const paper = { left: 0, right: 1818, top: 500 };
+      assert.deepEqual(placeSwitchCards([tree], structuredClone(grid), paper), placeSwitchCards([oldTree], structuredClone(grid), paper));
+      assert.deepEqual(tree.pos, oldTree.pos);
+    }
+  }
+  await Popup.listPopup({ host: prompt, title: 'Sources', layoutKind: 'spr', selected: 'preview',
+    items: [{ key: 'applied', label: 'Applied source', full: 'Applied source', applied: true },
+      { key: 'preview', label: 'Preview source', full: 'Preview source', applied: false }], onSelect() {} });
+  const hit = walk(prompt).find(e => e.dataset.key === 'applied');
+  assert.ok(hit.getAttribute('aria-label').includes(' - '));
+  assert.ok(walk(prompt).some(e => e.dataset.path === 'Card_applied/Select/AppliedBadge'));
+  assert.ok(walk(prompt).some(e => e.dataset.path === 'Card_preview/Select'));
+  assert.ok(!walk(prompt).some(e => e.dataset.path === 'Card_preview/Select/AppliedBadge'));
+  prompt.hidden = true;
 });

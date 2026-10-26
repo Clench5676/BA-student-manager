@@ -12,6 +12,7 @@ import { spriteUrl, uiExportUrl, setAssetContext } from "./api.js";
 import { decodeAll, imageUrls, imageDecoder } from "./image-decode.js";
 import { withTimeout } from "./async.js";
 import { spriteBorders, sliceAxis } from "./sprite-slices.js";
+import { renderFrameEffect } from "./ngui-frame-fx.js";
 
 const PIVX = [0, 0.5, 1, 0, 0.5, 1, 0, 0.5, 1];
 const PIVY = [0, 0, 0, 0.5, 0.5, 0.5, 1, 1, 1]; // fraction of the height above the pivot
@@ -275,6 +276,9 @@ export async function render(tree, host, opts = {}) {
     const nsx = sx * n.scale[0], nsy = sy * n.scale[1];
     const entry = { node: n, x, y, els: [], stage: [ox + x * S, oy - y * S] };
     nodes.set(p, entry);
+    if (n.frameEffect) jobs.push(renderFrameEffect(n.frameEffect, host, {
+      x: ox + x * S, y: oy - y * S, sx: nsx * S, sy: nsy * S, z: opts.z || 0, load,
+    }).catch(error => failed(p, error)));
     let a = alpha;
     for (const w of n.widgets) {
       if (!("w_" in w)) continue;

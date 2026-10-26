@@ -1275,6 +1275,8 @@ class Services:
             return AssetResponse(game.sprite_png(parts[1], _stem(parts[2])), "image/png", light=True)
         if len(parts) == 2 and parts[0] == "texture":
             return AssetResponse(game.texture_png(_stem(parts[1])), "image/png", light=True)
+        if len(parts) == 2 and parts[0] == "selection-frame":
+            return AssetResponse(game.selection_frame_texture(_stem(parts[1])), "image/png", light=False)
         if len(parts) == 2 and parts[0] == "layout":
             with self.timings.measure("ui.layouts"):
                 return _json(game.layout(_stem(parts[1]), query.get("path", "")), light=True)

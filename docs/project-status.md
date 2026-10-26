@@ -25,7 +25,8 @@ The 0.6.0 work is unreleased. Nothing has been tagged, pushed or published since
 | BL-037 | Design task, not started |
 | BL-040, BL-041, BL-043, BL-045 | Accepted by the owner on macOS (alpha.3); Windows not reviewed |
 | BL-042 | Implemented for local review; owner UAT/visual acceptance pending. Generated-default reuse and shared applied/deletion identity. |
-| BL-044, BL-047 | In progress |
+| BL-044 | Implemented for local review; owner UAT/visual acceptance pending. UIPopup_Mulligan frames and check badge across source pickers. |
+| BL-047 | In progress |
 | BL-046 | Closed by the owner without UAT (CLI-only) |
 | BL-048 | Accepted: CLI no longer built, installed or released |
 | BL-020 | Implemented for local review; owner UAT/visual acceptance pending. Exact-release notes and empty-body link fallback. |

@@ -1195,7 +1195,6 @@ function disposePortrait() {
 let popupSeg = 0, popupKind = "spr", popupStart = null, switchPopupPage = null;
 let switchThumbnails = null;
 const modsOn = () => modsState()?.enabled !== false;
-const APPLIED_BADGE = () => ({ text: T("status.applied"), color: "#8de4ff", ink: "#314665" });
 const GREYED_BADGE = () => ({ text: T("mods.overwritten"), color: "#9aa3ad", ink: "#ffffff" });
 function renderPopup(scroll = 0) { return drawPopup(scroll).catch(renderFailed); }
 async function drawPopup(scroll = 0) {
@@ -1215,11 +1214,11 @@ async function drawPopup(scroll = 0) {
         () => switchPopupPage === pageToken && !$("popup").hidden ? renderPopup(s) : null) } : null,
       // The card and info panel consume one still, including its fallback, so they cannot disagree after a retry.
       thumb: picture, big: () => picture.start(),
-      inUse: false, fav: c.fav, isNew: c.kind === "mod" && c.mod.fresh && c.key !== applied, src: c,
+      inUse: false, applied: !!coreOf(v, kind) && c.key === applied, fav: c.fav, isNew: c.kind === "mod" && c.mod.fresh && c.key !== applied, src: c,
       inUseText: coreOf(v, kind) && c.key === applied ? T("status.applied") : null,
       dim: c.greyed,
       badge: c.greyed ? { ...GREYED_BADGE(), ...(!coreOf(v, kind) && c.kind === "self" ? { text: T("import.reason.no_target") } : {}) }
-        : coreOf(v, kind) && c.key === applied ? APPLIED_BADGE() : null,
+        : null,
       tag: c.mod?.repaired_from ? { text: T("remap.repaired"), color: "#d7eaf4", ink: "#2d4664" } : null,
     };
   })

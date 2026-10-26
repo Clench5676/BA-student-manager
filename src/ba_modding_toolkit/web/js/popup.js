@@ -16,6 +16,7 @@ import { horizontalScroll } from "./horizontal-scroll.js";
 import * as Buttons from "./game-buttons.js";
 import { searchTree, sortBody, orderBody, pickerItems } from "./roster-widgets.js";
 import { resizeButton } from "./button-layout.js";
+import { selectedFrame, SELECTION_PREFAB, SELECTION_SLOT } from "./selected-frames.js";
 import { T } from "./i18n.js";
 import { withTimeout } from "./async.js";
 import { DOT, RECRUIT, S, TAN10, advanceOf, clone, glyphsOf, hitButton, markedLabel, wrapPath } from "./util.js";
@@ -27,6 +28,13 @@ const hostOf = (h) => (typeof h === "string" ? document.getElementById(h) : h);
 // --- the prefabs, read once: the frame (required), the student list's tools and the checkbox (each optional: a
 // popup without them still works) ---
 let layouts = null, loading = null, frameLoading = null;
+let selectionLoading = null, selectionSlot = null;
+export function selectionReady() {
+  return selectionLoading ||= NGUI.layout(SELECTION_PREFAB).then(tree => {
+    selectionSlot = find(tree, SELECTION_SLOT);
+    if (!selectionSlot) throw new Error("Starting-skill selection slot unavailable");
+  }).catch(error => { selectionLoading = null; throw error; });
+}
 export function frameReady() {
   return frameLoading ||= withTimeout(NGUI.layout("UIPopup_Sort"), 15000, "Popup frame")
     .then((sortPopup) => { layouts = { ...layouts, sortPopup }; })
@@ -419,10 +427,18 @@ export function listCard(it, x, y, selected, card = LP.card, kind = null) {
   if (it.fav) kids.push(node("Pin", corner(w / 2 - 38, -h / 2 + 36), [sprite("Common_Btn_Pin_01", 54, 54, { type: 0, depth: 26 })]));
   if (it.recruit) kids.push(node("Recruit", corner(-w / 2 + 34, -h / 2 + 40), [sprite(RECRUIT.sprite, 62 / RECRUIT.ratio, 62, { atlas: RECRUIT.atlas, type: 0, depth: 26 })]));
   // In-use mods already have a badge; a picked card's check takes the corner.
-  if (it.isNew && !it.inUse && !selected) kids.push(DOT(corner(w / 2 - 4, h / 2 - 6), 34));
+  if (it.isNew && !it.inUse && !it.applied && !selected) kids.push(DOT(corner(w / 2 - 4, h / 2 - 6), 34));
   if (selected) kids.push(node("Select", [1, 4], [sprite("Card_Ability_Select_Line", w + 4, h - 8, { incline: 10, depth: 20 })],
     [node("Check", [w / 2 - 28 + (h / 2 - 30) * TAN10, h / 2 - 30], [sprite("Card_Ability_Select_Line_Icon", 66, 65, { type: 0, depth: 21 })])]));
-  return node(`Card_${it.key}`, [x, y], [sprite("Common_Btn_BG", w, h, { incline: 10, depth: 7, color: "#ffffff/1.00" })], kids);
+  const tree = node(`Card_${it.key}`, [x, y], [sprite("Common_Btn_BG", w, h, { incline: 10, depth: 7, color: "#ffffff/1.00" })], kids);
+  if (typeof it.applied === "boolean") {
+    // Keep the existing list's measured envelope, hit boxes and scroll pitch when replacing its decoration.
+    tree.layoutChildren = [...kids];
+    tree.children = kids.filter(n => n.name !== "Select");
+    const frame = selectedFrame(selectionSlot, card, it.applied, selected);
+    if (frame) tree.children.push(frame);
+  }
+  return tree;
 }
 
 // the details panel's action buttons: a caption keeps 14 clear of each edge of the slanted body (the slant moves the text
@@ -557,6 +573,7 @@ export async function listPopup(options) {
   host.hidden = false;
   await ready();
   let portraitTexture = null;
+  if (items.some(it => typeof it.applied === "boolean")) await selectionReady();
   if (options.layoutKind === "spr") {
     const inventory = await NGUI.layout("UINonEquipmentInventory");
     portraitTexture = find(inventory, "Inventory_ListControl/EquipPos/Texture");
@@ -675,6 +692,7 @@ export async function listPopup(options) {
     const [x, y] = at(i), [sx, sy] = [origin[0] + x * S, origin[1] - y * S];
     const b = hitButton(inner, [sx - card.w / 2 * S, sy - card.h / 2 * S, card.w * S, (card.h + card.bar + 10) * S], () => onSelect(it.key, scroll()), it.full, 60);
     b.dataset.key = it.key;
+    if (it.applied) b.setAttribute("aria-label", [it.full || it.label, T("status.applied")].filter(Boolean).join(" - "));
     if (multi) { b.setAttribute("role", "checkbox"); b.setAttribute("aria-checked", String(ticked.has(it.key))); }
   });
   const shown = multi ? focus ?? items.find((it) => ticked.has(it.key))?.key : selected;
@@ -1008,4 +1026,4 @@ export function notify(text, { kind = "info", error = null } = {}) {
 }
 
 // Prefabs and derived UI values belong to the selected installation.
-NGUI.onResourceChange?.(() => { layouts = loading = frameLoading = null; });
+NGUI.onResourceChange?.(() => { layouts = loading = frameLoading = selectionLoading = selectionSlot = null; });
