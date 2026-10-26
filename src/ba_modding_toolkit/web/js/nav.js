@@ -97,11 +97,12 @@ export function setTopActions(hall,available=true){
 }
 export function reflowTopActions(){
   document.querySelector('.topbar')?.style.setProperty('--corner-margin', `${CORNER_MARGIN}px`);
-  const stage=(globalThis.bamtWindowChrome ? document.querySelector('.topbar') : document.getElementById('stage'))?.getBoundingClientRect?.();
+  const stage=document.querySelector('.topbar')?.getBoundingClientRect?.() || document.getElementById('stage')?.getBoundingClientRect?.();
   const native=globalThis.bamtWindowChrome;
   const controls=native?.platform==='win32' ? native.bounds : document.getElementById('native-controls')?.getBoundingClientRect?.();
   const preliminary=topActionLayout(topBoxes,topHall);
-  const boxes=topActionLayout(topBoxes,topHall,nativeRightClearance(stage,controls,preliminary.option,globalThis.bamtHeaderGeometry?.scale));
+  const scale=globalThis.bamtHeaderGeometry?.scale || document.getElementById('stage')?.getBoundingClientRect?.().width/1920;
+  const boxes=topActionLayout(topBoxes,topHall,nativeRightClearance(stage,controls,preliminary.option,scale));
   for(const [key,selector] of [['home','.top-home'],['option','.top-option'],['line','.top-line']]){
     const host=document.querySelector(selector);if(!host)continue;
     const [right,top,width,height]=boxes[key];Object.assign(host.style,{right:`${right}px`,top:`${top}px`,width:`${width}px`,height:`${height}px`});

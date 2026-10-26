@@ -37,16 +37,20 @@ body { cursor: var(--cursor); -webkit-user-select: none; user-select: none; }
 button { font: inherit; color: inherit; border: 0; background: none; cursor: var(--cursor-press); }
 input[type="text"], input[type="search"], textarea { cursor: text; }
 
-.viewport { position: fixed; inset: 0; }
+.viewport { position: fixed; inset: 0; overflow: hidden; overflow: clip; }
 .stage {
   position: absolute; left: 50%; top: 50%; width: 1920px; height: 1080px;
   transform: translate(-50%, -50%) scale(var(--scale, .5));
-  /* clip: focus and scrollIntoView must never scroll the stage onto its oversized backgrounds */
-  overflow: hidden; overflow: clip; font-family: var(--font); font-weight: var(--w); color: var(--navy-text); user-select: none; text-rendering: geometricPrecision;
+  /* Art clips at its fitted scene; corner controls can reach the window's edges outside that scene. */
+  font-family: var(--font); font-weight: var(--w); color: var(--navy-text); user-select: none; text-rendering: geometricPrecision;
   background: linear-gradient(180deg, #d3eef9 0%, #b6e0f3 55%, #9fd4ee 100%);
 }
 .screen { position: absolute; inset: 0; }
 .screen[hidden] { display: none; }
+.scene-clip { position: absolute; inset: 0; overflow: hidden; overflow: clip; pointer-events: none; }
+.scene-clip > .portrait, .scene-clip > .lobby, .scene-clip > .model, .scene-clip > .nav { pointer-events: auto; }
+.screen:not(#screen-detail):not(#screen-hall), .popup-host, .consent-host,
+#student-hall > .lobby, #student-hall > .layer-host:not(.hall-chrome):not(.hall-fullscreen-exit) { overflow: hidden; overflow: clip; }
 
 /* Batch Import: geometry, native text entry and hit areas only. import-layout.js draws the game prefab widgets. */
 .import-page, .import-background, .import-art { position: absolute; inset: 0; }

@@ -52,10 +52,10 @@ const NGUI = await import('../../src/ba_modding_toolkit/web/js/ngui.js');
 for (const locale of ['en-US', 'zh-CN', 'zh-TW', 'ja-JP', 'ko-KR', 'th-TH']) for (const mode of ['portrait', 'lobby']) {
   test(`real ${mode} camera controls retain prefab dimensions and fit at all corner margins in ${locale}`, async () => {
     const strings = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${locale}.json`, import.meta.url))).webui.photo;
-    for (const platform of [null, 'darwin', 'win32']) for (const [width, height] of [[960, 540], [1600, 900], [2560, 1440]]) {
-      const scale = width / 1920, header = headerGeometry(width, height, platform === 'win32' ? 40 : 0, true);
+    for (const platform of [null, 'darwin', 'win32']) for (const [width, height] of [[960, 540], [1600, 900], [2560, 1440], [2560, 1080], [960, 1200]]) {
+      const scale = Math.min(width / 1920, height / 1080), stageLeft = (width - 1920 * scale) / 2, stageTop = (height - 1080 * scale) / 2, header = headerGeometry(width, height, platform === 'win32' ? 40 : 0, true);
       const doc = { createElement: () => new Element(), documentElement: { lang: locale },
-        getElementById: () => ({ getBoundingClientRect: () => ({ left: 0, top: 0, width, height }) }) };
+        getElementById: () => ({ getBoundingClientRect: () => ({ left: stageLeft, top: stageTop, width: 1920 * scale, height: 1080 * scale }) }) };
       Object.assign(globalThis, { document: doc, innerWidth: width, innerHeight: height, bamtHeaderGeometry: platform ? header : null,
         bamtWindowChrome: platform ? { active: true, platform, bounds: platform === 'darwin'
           ? { left: 12, right: 80, top: 8, bottom: 30 } : { left: width - 148, right: width, top: 8, bottom: 40 } } : null });
@@ -74,16 +74,16 @@ for (const locale of ['en-US', 'zh-CN', 'zh-TW', 'ja-JP', 'ko-KR', 'th-TH']) for
       await env.draw();
       const rect = name => { const hit = hits.get(name); assert.ok(hit, name);
         const [dx, dy] = hit.parentElement.style.translate.split(' ').map(parseFloat);
-        return [hit.box[0] + dx, hit.box[1] + dy, hit.box[2], hit.box[3]]; };
+        return [stageLeft / scale + hit.box[0] + dx, stageTop / scale + hit.box[1] + dy, hit.box[2], hit.box[3]]; };
       const b = rect('Back'), rotate = rect('Mode'), guide = rect('Occlusion'), grid = rect('Grid'), gallery = rect('Gallery'), choices = rect('Choices');
       near(b[0], CORNER_MARGIN); near(b[1], CORNER_MARGIN + (platform === 'darwin' ? header.rowHeight / scale : 0));
       near(b[2], 164 * S); near(b[3], 172 * S); assert.equal(hits.get('Back').label, strings.back);
-      near(1920 - rotate[0] - rotate[2], CORNER_MARGIN);
+      near(width / scale - rotate[0] - rotate[2], CORNER_MARGIN);
       near(rotate[1], CORNER_MARGIN + (platform === 'win32' ? header.rowHeight / scale : 0));
       near(guide[1], rotate[1]); near(grid[1], rotate[1]); near(grid[0] - guide[0] - guide[2], 22); near(rotate[0] - grid[0] - grid[2], 22);
       near(guide[2], 196); near(grid[3], 76); near(rotate[2], 102);
-      near(gallery[0], CORNER_MARGIN); near(1080 - gallery[1] - gallery[3], CORNER_MARGIN);
-      near(1920 - choices[0] - choices[2], CORNER_MARGIN); near(1080 - choices[1] - choices[3], CORNER_MARGIN);
+      near(gallery[0], CORNER_MARGIN); near(height / scale - gallery[1] - gallery[3], CORNER_MARGIN);
+      near(width / scale - choices[0] - choices[2], CORNER_MARGIN); near(height / scale - choices[1] - choices[3], CORNER_MARGIN);
       if (mode === 'lobby') { const playback = rect('Playback'); near(choices[0] - playback[0] - playback[2], 20); near(playback[1], choices[1]); }
       for (const density of [1, 2, 3]) for (const name of hits.keys()) {
         const [x, y, w, h] = rect(name); assert.ok(x * scale * density >= 0 && (x + w) * scale * density <= width * density);

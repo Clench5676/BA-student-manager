@@ -1051,7 +1051,7 @@ seam from the Mod switch with the shared NGUI raster path (`ngui.js` `slicedImag
 
 ## BL-052: One corner-button margin across the App
 
-- Status: Implemented for local review; owner UAT/visual acceptance pending. Scene corners use the detail prefab Home inset (67.8 NGUI units) with toolbar/native-row clearance.
+- Status: Implemented for local review; owner UAT/visual acceptance pending. The 67.8-unit detail prefab inset follows window edges and toolbar/native rows, including wide/tall windows.
 - Requested: 2026-10-26.
 - Related: BL-037 and BL-047.
 

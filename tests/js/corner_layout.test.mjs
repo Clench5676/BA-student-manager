@@ -19,7 +19,7 @@ function geometry(width, height, platform, immersive) {
   const stage = { width: 1920 * scale, height: 1080 * scale,
     left: (width - 1920 * scale) / 2, top: (height - 1080 * scale + (header?.extra || 0)) / 2 };
   return { width, height, native, stage, rowBottom: header?.rowHeight || 0,
-    barBottom: header?.rowHeight ?? stage.top + 64 * scale, immersive, scale };
+    barBottom: header?.rowHeight ?? 64 * scale, immersive, scale };
 }
 
 test('the shared margin is the detail Home sprite edge, in authored NGUI units', () => {
@@ -44,7 +44,7 @@ for (const locale of locales) for (const platform of [null, 'darwin', 'win32']) 
   const strings = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${locale}.json`, import.meta.url))).webui;
   for (const [scene, immersive, groups] of scenes) test(`${scene}, ${locale}, ${platform || 'no native chrome'}: shared edge margin`, () => {
     assert.ok(strings.lobby.exit && strings.row.switch.portrait && strings.row.switch.lobby && strings.photo.occlusion && strings.photo.gridOn);
-    for (const [width, height] of [[960, 540], [1600, 900], [2560, 1440]]) for (const density of [1, 2, 3]) {
+    for (const [width, height] of [[960, 540], [1600, 900], [2560, 1440], [2560, 1080], [960, 1200]]) for (const density of [1, 2, 3]) {
       const g = geometry(width, height, platform, immersive);
       for (const [corner, box] of groups) {
         const result = cornerBox(box, { ...g, corner });
@@ -62,7 +62,7 @@ for (const locale of locales) for (const platform of [null, 'darwin', 'win32']) 
     }
   });
   test(`detail and shared toolbar, ${locale}, ${platform || 'no native chrome'}: prefab side inset and native row`, () => {
-    for (const [width, height] of [[960, 540], [1600, 900], [2560, 1440]]) {
+    for (const [width, height] of [[960, 540], [1600, 900], [2560, 1440], [2560, 1080], [960, 1200]]) {
       const g = geometry(width, height, platform, false), boxes = {
         home: [CORNER_MARGIN, 7, home.size[0] * S, home.size[1] * S],
         option: [CORNER_MARGIN + 175 * S, 7 + (.6 + (59 - 62) / 2) * S, 60 * S, 62 * S], line: [CORNER_MARGIN + 87.5 * S, 7, 4 * S, 49 * S],
@@ -94,4 +94,47 @@ test('registered controls recalculate after stage fitting and native bounds chan
       near(25 + dx, expected[0]); near(20 + dy, expected[1]);
     }
   } finally { Object.assign(globalThis, old); }
+});
+
+test('the real stage fitter spans the window with the non-native toolbar and clears those offsets on native hosts', async () => {
+  const old = Object.fromEntries(['document', 'innerWidth', 'innerHeight', 'bamtWindowChrome', 'bamtHeaderGeometry'].map(k => [k, globalThis[k]]));
+  globalThis.document = { createElement: () => ({ getContext: () => ({}) }) };
+  const { fitStage } = await import('../../src/ba_modding_toolkit/web/js/util.js');
+  const style = () => ({ setProperty(key, value) { this[key] = value; }, removeProperty(key) { delete this[key]; } });
+  const bar = { style: style() };
+  try {
+    for (const [width, height] of [[960, 540], [1600, 900], [2560, 1440], [2560, 1080], [960, 1200]]) {
+      const g = geometry(width, height, null, false), stage = { style: style(), getBoundingClientRect: () => g.stage };
+      Object.assign(globalThis, { innerWidth: width, innerHeight: height, bamtWindowChrome: null, bamtHeaderGeometry: null,
+        document: { getElementById: () => stage, querySelector: () => bar } });
+      fitStage();
+      near(g.stage.left + parseFloat(bar.style.left) * g.scale, 0);
+      near(g.stage.top + parseFloat(bar.style.top) * g.scale, 0);
+      near(parseFloat(bar.style.width) * g.scale, width);
+      globalThis.bamtHeaderGeometry = headerGeometry(width, height, 40);
+      fitStage();
+      assert.equal(bar.style.left, undefined); assert.equal(bar.style.top, undefined);
+    }
+  } finally { Object.assign(globalThis, old); }
+});
+
+test('the viewport clips the window while the scene artwork and sliding navigation retain their fitted clip', () => {
+  const css = readFileSync(new URL('../../src/ba_modding_toolkit/web/css/app.css', import.meta.url), 'utf8');
+  const html = readFileSync(new URL('../../src/ba_modding_toolkit/web/index.html', import.meta.url), 'utf8');
+  assert.match(css, /\.viewport \{[^}]*position: fixed;[^}]*inset: 0;[^}]*overflow: clip;/);
+  assert.doesNotMatch(/^\.stage \{([\s\S]*?)^\}/m.exec(css)[1], /overflow:/);
+  assert.match(css, /\.scene-clip \{[^}]*position: absolute;[^}]*inset: 0;[^}]*overflow: clip;[^}]*pointer-events: none;/);
+  assert.match(css, /#student-hall > \.lobby,[^}]*overflow: clip;/);
+  // Inspect actual HTML ancestry: art clips inside the stage; controls stay outside that clip.
+  const ancestry = new Map(), stack = [];
+  for (const match of html.matchAll(/<(\/?)(div|section|footer|button)\b([^>]*)>/g)) {
+    if (match[1]) { stack.pop(); continue; }
+    const classes = /class="([^"]*)"/.exec(match[3])?.[1].split(' ') || [];
+    const id = /id="([^"]*)"/.exec(match[3])?.[1];
+    if (id) ancestry.set(id, stack.flat());
+    if (match[2] === 'footer') assert.ok(stack.flat().includes('scene-clip'));
+    stack.push(classes);
+  }
+  for (const id of ['ngui-bg', 'visual-bg', 'portrait', 'model', 'lobby', 'ngui', 'ngui-chips', 'ngui-expr']) assert.ok(ancestry.get(id).includes('scene-clip'), id);
+  for (const id of ['visual-ui', 'fs-exit', 'popup', 'picker']) assert.ok(!ancestry.get(id).includes('scene-clip'), id);
 });

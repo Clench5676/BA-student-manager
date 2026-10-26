@@ -24,15 +24,17 @@
 
       <!-- student detail: game background < portrait or lobby < everything else from the UICharacterDetail prefab -->
       <section class="screen" id="screen-detail" hidden>
-        <div class="layer-host" id="ngui-bg"></div>
-        <!-- the portrait's visual mode (js/visual-mode.js): its background under the portrait, its buttons over all -->
-        <div class="visual-bg" id="visual-bg" hidden></div>
-        <div class="portrait" id="portrait"></div>
-        <div class="model" id="model" hidden></div>
-        <div class="lobby" id="lobby" hidden></div>
-        <div class="layer-host ui" id="ngui"></div>
-        <div class="layer-host ui" id="ngui-chips"></div>
-        <div class="layer-host ui" id="ngui-expr"></div>
+        <div class="scene-clip">
+          <div class="layer-host" id="ngui-bg"></div>
+          <!-- the portrait's visual mode (js/visual-mode.js): its background under the portrait, its buttons over all -->
+          <div class="visual-bg" id="visual-bg" hidden></div>
+          <div class="portrait" id="portrait"></div>
+          <div class="model" id="model" hidden></div>
+          <div class="lobby" id="lobby" hidden></div>
+          <div class="layer-host ui" id="ngui"></div>
+          <div class="layer-host ui" id="ngui-chips"></div>
+          <div class="layer-host ui" id="ngui-expr"></div>
+        </div>
         <div class="visual-ui" id="visual-ui" hidden></div>
         <button class="fs-exit" id="fs-exit" hidden aria-label="exit fullscreen"></button>
         <div class="layer-host popup-host" id="popup" hidden></div>
@@ -61,10 +63,12 @@
         <button class="top-home" id="top-home" aria-label="home" hidden></button>
       </header>
 
-      <footer class="nav">
-        <div class="nav-bar"></div>
-        <div class="nav-items" id="nav"></div>
-      </footer>
+      <div class="scene-clip">
+        <footer class="nav">
+          <div class="nav-bar"></div>
+          <div class="nav-items" id="nav"></div>
+        </footer>
+      </div>
 
       <!-- the loading screen (js/loading.js); the page starts covered, so nothing shows while it is built -->
       <div class="loading full on neutral" id="loading-boot" role="status">

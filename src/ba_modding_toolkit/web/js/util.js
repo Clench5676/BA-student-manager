@@ -84,5 +84,10 @@ export function fitStage() {
   stage.style.setProperty("--scale", header?.contentScale ?? Math.min(innerWidth / 1920, innerHeight / 1080));
   if (header) stage.style.top = `calc(50% + ${header.extra / 2}px)`;
   else stage.style.removeProperty("top");
+  const bar = document.querySelector?.('.topbar');
+  if (bar && !header) {
+    const box = stage.getBoundingClientRect(), scale = box.width / 1920;
+    Object.assign(bar.style, { left: `${-box.left / scale}px`, top: `${-box.top / scale}px`, width: `${innerWidth / scale}px` });
+  } else if (bar) { bar.style.removeProperty('left'); bar.style.removeProperty('top'); }
   reflowCorners();
 }

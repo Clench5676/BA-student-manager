@@ -1886,7 +1886,7 @@ for (const lang of ['en-US', 'zh-CN', 'zh-TW', 'ja-JP', 'ko-KR', 'th-TH']) test(
     [backBox, [960 + (-1354 - 228.83 / 2) * scale, switchBox[1], 228.83 * scale, 165 * scale]],
     [resetBox, [switchBox[0], 540 - (-112.5 - 658 + 32 + 195.2 / 2) * scale, 228.83 * scale, 195.2 * scale]],
   ];
-  for (const [width, height] of [[960, 540], [1600, 900], [2560, 1440]]) for (const density of [1, 2]) {
+  for (const [width, height] of [[960, 540], [1600, 900], [2560, 1440], [2560, 1080], [960, 1200]]) for (const density of [1, 2]) {
     const factor = Math.min(width / 1920, height / 1080) * density;
     for (const [actual, reference] of expected) actual.forEach((value, index) => near(value * factor, reference[index] * factor));
   }
@@ -1907,12 +1907,12 @@ for (const lang of ['en-US', 'zh-CN', 'zh-TW', 'ja-JP', 'ko-KR', 'th-TH']) test(
   const exit = holder.appendChild(new El('button'));
   try {
     await Visual.exitControl(exit, layout);
-    for (const platform of [null, 'darwin', 'win32']) for (const [width, height] of [[960, 540], [1600, 900], [2560, 1440]]) {
-      const k = width / 1920, native = platform ? { active: true, platform, bounds: platform === 'darwin'
+    for (const platform of [null, 'darwin', 'win32']) for (const [width, height] of [[960, 540], [1600, 900], [2560, 1440], [2560, 1080], [960, 1200]]) {
+      const k = Math.min(width / 1920, height / 1080), stageLeft = (width - 1920 * k) / 2, stageTop = (height - 1080 * k) / 2, native = platform ? { active: true, platform, bounds: platform === 'darwin'
         ? { left: 12, right: 80, top: 8, bottom: 30 } : { left: width - 148, right: width, top: 8, bottom: 40 } } : null;
       Object.assign(globalThis, { innerWidth: width, innerHeight: height, bamtWindowChrome: native,
         bamtHeaderGeometry: platform ? headerGeometry(width, height, platform === 'win32' ? 40 : 0, true) : null });
-      hosts.stage.getBoundingClientRect = () => ({ left: 0, top: 0, width, height });
+      hosts.stage.getBoundingClientRect = () => ({ left: stageLeft, top: stageTop, width: 1920 * k, height: 1080 * k });
       reflowCorners();
       const checks = [[parts.groups.Btn_Back, 'LeftTop/Btn_Back', 'top-left'], [parts.groups.Btn_HideUI, 'RightTop/Btn_HideUI', 'top-right'],
         [lobby, 'RightTop/Btn_HideUI', 'top-right'], [parts.groups.Btn_RefreshPos, 'RightBottom/Btn_RefreshPos/Btn_RefreshPos', 'bottom-right'],
@@ -1923,12 +1923,12 @@ for (const lang of ['en-US', 'zh-CN', 'zh-TW', 'ja-JP', 'ko-KR', 'th-TH']) test(
         const [dx, dy] = group.style.translate.split(' ').map(parseFloat), box = bounds(sprite);
         const right = corner.endsWith('right'), bottom = corner.startsWith('bottom');
         const row = platform && (right ? platform === 'win32' : platform === 'darwin') ? globalThis.bamtHeaderGeometry.rowHeight : 0;
-        near(right ? 1920 - box[0] - dx - box[2] : box[0] + dx, CORNER_MARGIN);
-        near(bottom ? 1080 - box[1] - dy - box[3] : box[1] + dy - row / k, CORNER_MARGIN);
+        near(right ? width - stageLeft - (box[0] + dx + box[2]) * k : stageLeft + (box[0] + dx) * k, CORNER_MARGIN * k);
+        near(bottom ? height - stageTop - (box[1] + dy + box[3]) * k : stageTop + (box[1] + dy) * k - row, CORNER_MARGIN * k);
       }
       const [dx, dy] = exit.style.translate.split(' ').map(parseFloat);
-      near(parseFloat(exit.style.left) + dx, CORNER_MARGIN);
-      near(parseFloat(exit.style.top) + dy, CORNER_MARGIN + (platform === 'darwin' ? globalThis.bamtHeaderGeometry.rowHeight / k : 0));
+      near(stageLeft + (parseFloat(exit.style.left) + dx) * k, CORNER_MARGIN * k);
+      near(stageTop + (parseFloat(exit.style.top) + dy) * k, CORNER_MARGIN * k + (platform === 'darwin' ? globalThis.bamtHeaderGeometry.rowHeight : 0));
     }
   } finally { holder.remove(); hosts.stage.getBoundingClientRect = oldRect; Object.assign(globalThis, old); }
 });

@@ -105,9 +105,9 @@ test("Hall's real action row measures its top margin below the bar at minimum, d
   const { CORNER_MARGIN } = await import('../../src/ba_modding_toolkit/web/js/corner-layout.js');
   const { headerGeometry } = await import('../../src/ba_modding_toolkit/web/js/window-layout.js');
   for (const mode of ['portraits', 'memorial']) for (const platform of [null, 'darwin', 'win32']) {
-    for (const [width, height] of [[960, 540], [1600, 900], [2560, 1440]]) {
+    for (const [width, height] of [[960, 540], [1600, 900], [2560, 1440], [2560, 1080], [960, 1200]]) {
       const header = platform ? headerGeometry(width, height, platform === 'win32' ? 40 : 0) : null;
-      const k = header?.contentScale || width / 1920, stageTop = (height - 1080 * k + (header?.extra || 0)) / 2;
+      const k = header?.contentScale || Math.min(width / 1920, height / 1080), stageTop = (height - 1080 * k + (header?.extra || 0)) / 2;
       const barBottom = header?.rowHeight || 64 * k;
       globalThis.document = { getElementById: () => ({ getBoundingClientRect: () => ({ left: (width - 1920 * k) / 2, top: stageTop, width: 1920 * k }) }),
         querySelector: () => ({ getBoundingClientRect: () => ({ bottom: barBottom }) }) };

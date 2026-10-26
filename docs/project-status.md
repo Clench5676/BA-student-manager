@@ -30,7 +30,7 @@ The 0.6.0 work is unreleased. Nothing has been tagged, pushed or published since
 | BL-049 | Implemented for local review; owner UAT/visual acceptance pending. Caption-sized titles use DOM measurement in native and fallback rows. |
 | BL-050 | Implemented for local review; owner UAT/visual acceptance pending. Hall removes Back and reclaims its title slot with native clearance. |
 | BL-051 | Implemented for local review; owner UAT/visual acceptance pending. Bar/scrollbar slices share the NGUI raster; scale/DPR geometry verified. |
-| BL-052 | Implemented for local review; owner UAT/visual acceptance pending. Shared prefab corner margin covers Hall, detail/fullscreen and both cameras with native-row clearance. |
+| BL-052 | Implemented for local review; owner UAT/visual acceptance pending. Shared prefab inset covers Hall, detail/fullscreen and both cameras across window shapes and native rows. |
 | BL-053 | Implemented for local review; owner UAT/visual acceptance pending. Backend/gallery Applied is scoped to the shown Collection target; separate detail-page thumbnail picker not identified (stop rule). |
 | BL-046 | Closed by the owner without UAT (CLI-only) |
 | BL-048 | Accepted: CLI no longer built, installed or released |
