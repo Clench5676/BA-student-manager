@@ -22,7 +22,7 @@ The 0.6.0 work is unreleased. Nothing has been tagged, pushed or published since
 | BL-033 through BL-036, BL-038, BL-039 | Accepted by the owner on macOS (alpha.2); Windows not reviewed |
 | BL-032 | Implemented for alpha.2; the English label overflow continues as BL-040 |
 | BL-037 | Design task, not started |
-| BL-040, BL-041, BL-043 | In progress on `codex/text-fit` |
+| BL-040, BL-041, BL-043 | Implemented for local review; owner UAT/visual acceptance pending |
 | BL-042, BL-044, BL-045 | Owner's macOS findings on alpha.2, on hold |
 | BL-046 | Implemented for local review; owner UAT/visual acceptance pending. |
 | BL-013, BL-019 through BL-021, BL-030 | Planned, not implemented; BL-021 has a proposed flow only |

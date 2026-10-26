@@ -807,10 +807,12 @@ Stored model fallback records lacked display metadata when the selected catalog 
 
 ## BL-040: Wrap the English Occlusion Guide label
 
-- Status: Planned; owner macOS review of 0.6.0-alpha.2.
+- Status: Implemented for local review; owner UAT/visual acceptance pending.
 - Requested: 2026-10-26.
 - Parent: BL-032.
 - Evidence: owner screenshot of the English photography toolbar.
+- Note: Occlusion Guide and the grid toggle share one caption size fitted to the prefab body on up to two lines;
+  English wraps as two lines inside the button.
 
 The compact Occlusion Guide button from BL-032 overflows in English. Wrap the label inside the native button instead
 of letting it spill out; keep BL-032's compact width, fixed right edge and the neighbouring controls' geometry. The
@@ -818,11 +820,14 @@ Chinese label already fits. Check every shipped language, not only English.
 
 ## BL-041: Text fit and one font size for source action buttons
 
-- Status: Planned; owner macOS review of 0.6.0-alpha.2.
+- Status: Implemented for local review; owner UAT/visual acceptance pending.
 - Requested: 2026-10-26.
 - Related: BL-034 and BL-036 (source-picker actions).
 - Evidence: owner screenshot of the English L2D source picker (Apply, Show in Finder, Check Compatibility, Update,
   Delete).
+- Note: one caption size per same-kind group (shared group fitting), wrapping on up to two lines; applied to the
+  source pickers and the other button rows, tabs and segments. Long English, Thai and Korean rows give the widest
+  caption a wider body.
 
 In the L2D source picker, Check Compatibility overflows its button, and the buttons in the same row use different
 font sizes (Update is smaller than Delete). Long labels wrap inside the button; buttons in one row share one font
@@ -844,10 +849,12 @@ confirmation appears only for assets that are actually applied.
 
 ## BL-043: Top bar vertical centring and title size
 
-- Status: Planned; owner macOS review of 0.6.0-alpha.2.
+- Status: Implemented for local review; owner UAT/visual acceptance pending.
 - Requested: 2026-10-26.
 - Related: BL-038 and BL-037.
 - Evidence: owner screenshot of the Students top bar with a red line through the bar's centre.
+- Note: content centred on the fill of `Common_Top_Menu_Bg` by ink (text by its script's reference glyph, bitmaps
+  by their drawn rows); the title uses the prefab's `Label_Title` size 66 in the App's per-script drawing size.
 
 The top bar's content is not centred on its background: the right-hand actions (Settings, Home) sit a few pixels
 high and the left-hand items low. The current page title (e.g. 学生) is larger than the bar's other text and not
