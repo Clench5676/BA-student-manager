@@ -12,7 +12,9 @@ const ctx = {
   font: "",
   measureText(s) {
     const fs = parseFloat(/([\d.]+)px/.exec(this.font)[1]);
-    return { width: [...s].reduce((w, c) => w + (WIDE.test(c) ? fs : fs / 2), 0) };
+    // metrics for inkShift: ink 0.72 above the baseline (0.2 below for a letter with a descender), the font's box 1.16 above and 0.29 below
+    return { width: [...s].reduce((w, c) => w + (WIDE.test(c) ? fs : fs / 2), 0), actualBoundingBoxAscent: 0.72 * fs, actualBoundingBoxDescent: /[gjpqy]/.test(s) ? 0.2 * fs : 0,
+      fontBoundingBoxAscent: 1.16 * fs, fontBoundingBoxDescent: 0.29 * fs };
   },
 };
 globalThis.document = {
@@ -21,7 +23,7 @@ globalThis.document = {
 };
 globalThis.getComputedStyle = (el) => ({ getPropertyValue: () => /^th(?:-|$)/.test(el.lang)
   ? /:lang\(th\)\s*\{\s*--font:\s*([^;]+);/.exec(css)?.[1] || "" : "" });
-const { fitLabel, fitText, fontSizeFor, textWidth } = await import("../../src/ba_modding_toolkit/web/js/ngui.js");
+const { LINE_PITCH, fitGroup, fitLabel, fitLabels, fitRow, fitText, fontSizeFor, glyphWidth, inkReference, inkShift, textWidth } = await import("../../src/ba_modding_toolkit/web/js/ngui.js");
 
 const BAD_START = /^[、。，．：；！？）」』】〉》…‥ーぁぃぅぇぉっゃゅょゎァィゥェォッャュョヮヵヶ〜～,.!?)]/;
 const BAD_END = /[（「『【〈《(]$/;
@@ -130,4 +132,162 @@ test("without Intl.Segmenter Thai runs stay intact", () => {
   } finally {
     Intl.Segmenter = segmenter;
   }
+});
+
+test("one long word goes below the size range instead of running past its box", () => {
+  document.documentElement.lang = "en-US";
+  // "Compatibility" is 7.28 em wide on this mock: 100 wide needs 13 or smaller, below fsMin - 8 (18)
+  const f = fitText("Compatibility", 40, 26, 100, 2);
+  assert.equal(f.lines, 1);
+  assert.ok(f.fs < 18, `shrunk below the range: ${f.fs}`);
+  assert.ok(glyphWidth(f.text, f.fs) <= 100);
+  // a word that fits at the range's own floor is unchanged
+  assert.equal(fitText("Compatibility", 40, 26, 140, 2).fs, 18);
+  // a one-line cell still keeps its floor (its caller clips)
+  assert.equal(fitText("Compatibility", 40, 26, 100, 1).fs, 26);
+  // and where not even half the minimum fits, the old floor stays
+  assert.equal(fitText("Compatibility", 40, 26, 40, 2).fs, 18);
+});
+
+// --- groups of widgets of one kind: one size for all (fitGroup, fitLabels, fitRow) ---
+const ROW = ["Apply", "Show in Finder", "Check Compatibility", "Update", "Delete"];
+const fits = (f, widths, maxH = Infinity) => f.every((x, i) => x.text.split("\n").every((l) => glyphWidth(l, x.fs) <= widths[i] + 1e-9)
+  && x.lines * fontSizeFor(x.text, x.fs) * LINE_PITCH <= maxH);
+
+// the narrowest the label gets at fs on one line or on two (broken at a space): what its box has to hold
+const narrowest = (label, fs) => {
+  const words = label.split(" "), one = glyphWidth(label, fs);
+  let best = one;
+  for (let k = 1; k < words.length; k++) best = Math.min(best, Math.max(glyphWidth(words.slice(0, k).join(" "), fs), glyphWidth(words.slice(k).join(" "), fs)));
+  return best;
+};
+test("a group shares one size, the largest at which every label fits after wrapping", () => {
+  document.documentElement.lang = "en-US";
+  for (const width of [100, 116, 144, 200, 300]) {
+    const group = fitGroup(ROW, 40, 26, width, 2);
+    assert.equal(new Set(group.map((f) => f.fs)).size, 1, `one size at ${width}`);
+    assert.ok(fits(group, ROW.map(() => width)), `every label fits ${width}`);
+    // the size is the largest: every label fits its narrowest wrapping at it, and one step larger fails for some label
+    const fs = group[0].fs;
+    assert.ok(ROW.every((s) => narrowest(s, fs) <= width + 1e-9), `all fit at ${fs}`);
+    if (fs < 40) assert.ok(ROW.some((s) => narrowest(s, fs + 2) > width), `${fs + 2} does not fit at ${width}`);
+  }
+});
+
+test("a long caption wraps at its spaces and a word is never split", () => {
+  document.documentElement.lang = "en-US";
+  const [a, b, c] = fitGroup(["Update", "Show in Finder", "Check Compatibility"], 40, 26, 140, 2);
+  assert.equal(a.text, "Update");
+  assert.equal(b.lines, 2);
+  assert.deepEqual(c.text.split("\n"), ["Check", "Compatibility"]);
+  for (const f of [a, b, c]) assert.ok(f.text.split("\n").every((l) => !/^\s|\s$/.test(l)));
+  // a word wider than the box makes the size smaller, not the word split
+  const narrow = fitGroup(["Compatibility", "OK"], 40, 26, 100, 2);
+  assert.equal(narrow[0].text, "Compatibility");
+  assert.ok(glyphWidth("Compatibility", narrow[0].fs) <= 100);
+  assert.ok(narrow[0].fs < 26, "below the minimum only where nothing else fits");
+  // and where not even half the minimum holds the word, the group says so instead of pretending
+  assert.ok(fitGroup(["Compatibility"], 40, 26, 60, 2).every((f) => f.overflow));
+});
+
+test("the height budget keeps wrapped lines inside the widget", () => {
+  document.documentElement.lang = "en-US";
+  const tall = fitGroup(["Show in Finder"], 40, 26, 160, 2);
+  const capped = fitGroup(["Show in Finder"], 40, 26, 160, 2, { maxH: 60 });
+  assert.ok(tall[0].fs > capped[0].fs || tall[0].lines === 1);
+  assert.ok(fits(capped, [160], 60));
+});
+
+test("wrapping that wins only a step of size is not used", () => {
+  document.documentElement.lang = "en-US";
+  // "Error Report" on one line fits at 52 here, two lines would give 54: one line stays
+  const [a] = fitGroup(["Error Report"], 64, 40, 420, 2, { maxH: 140 });
+  assert.equal(a.lines, 1);
+});
+
+test("a group of CJK and Thai labels wraps by words and shares a size", async () => {
+  for (const locale of ["th-TH", "zh-CN", "ko-KR", "ja-JP"]) {
+    const ui = JSON.parse(await readFile(new URL(`../../src/ba_modding_toolkit/locales/${locale}.json`, import.meta.url), "utf8")).webui;
+    const labels = [ui.popup.apply, ui.compatibility.check, ui.btn.delete];
+    document.documentElement.lang = locale;
+    const group = fitGroup(labels, 40, 26, 170, 2);
+    assert.equal(new Set(group.map((f) => f.fs)).size, 1, locale);
+    assert.ok(fits(group, labels.map(() => 170)), `${locale} fits`);
+    assert.equal(group.map((f) => f.text.replace(/\s/g, "")).join("|"), labels.map((l) => l.replace(/\s/g, "")).join("|"), "every character kept");
+  }
+});
+
+test("fitLabels puts one size into every label widget and never narrows a box", () => {
+  document.documentElement.lang = "en-US";
+  const widgets = [{ text: "", fontSize: 72, w_: 600 }, { text: "", fontSize: 72, w_: 100 }];
+  const group = fitLabels(widgets, ["Error Report", "OK"], 64, 40, 420, 2, { maxH: 140 });
+  assert.deepEqual(widgets.map((w) => w.fontSize), [group[0].fs, group[0].fs]);
+  assert.deepEqual(widgets.map((w) => w.w_), [600, 420]);
+  assert.deepEqual(widgets.map((w) => w.text), group.map((f) => f.text));
+});
+
+test("a row keeps equal bodies until they would force the size below the prefab's range", () => {
+  document.documentElement.lang = "en-US";
+  const clear = 28, gap = 14;
+  // equal bodies reach 26 or more: nothing moves, even where unequal bodies could win a few units of size
+  const plain = ["Apply", "Show in Finder", "Extract"], room = 3 * 249;
+  const even = fitRow(plain, 40, 26, room, clear, 2, { maxH: 96 });
+  assert.ok(even[0].fs >= 26);
+  assert.deepEqual(even.map((f) => f.width), [249, 249, 249]);
+  assert.equal(new Set(even.map((f) => f.fs)).size, 1);
+  assert.equal(even[0].fs, fitGroup(plain, 40, 26, 249 - clear, 2, { maxH: 96 })[0].fs);
+  // five captions in 144 each: the long word "Compatibility" sends equal bodies under 26
+  const total = 5 * (158 - gap);
+  const equal = fitGroup(ROW, 40, 26, total / 5 - clear, 2, { maxH: 96 });
+  assert.ok(equal[0].fs < 26, `equal bodies are cramped: ${equal[0].fs}`);
+  const row = fitRow(ROW, 40, 26, total, clear, 2, { maxH: 96 });
+  assert.ok(row[0].fs > equal[0].fs, `unequal bodies buy size: ${row[0].fs} against ${equal[0].fs}`);
+  assert.equal(new Set(row.map((f) => f.fs)).size, 1);
+  assert.ok(Math.abs(row.reduce((n, f) => n + f.width, 0) - total) < 1e-6, "the row keeps its width");
+  row.forEach((f, i) => assert.ok(fits([f], [f.width - clear], 96), `${ROW[i]} fits its body`));
+  // the widest caption has the widest body
+  assert.equal(row.reduce((a, f, i) => (f.width > row[a].width ? i : a), 0), 2);
+  // every body is its caption's need or the one level the others share: as equal as the captions allow
+  const needs = row.map((f) => Math.max(...f.text.split("\n").map((l) => glyphWidth(l, f.fs))) + clear);
+  const level = new Set(row.filter((f, i) => f.width > needs[i] + 1e-6).map((f) => f.width.toFixed(6)));
+  assert.ok(level.size <= 1, `one shared level, got ${[...level]}`);
+  row.forEach((f, i) => assert.ok(f.width >= needs[i] - 1e-6));
+});
+
+test("a single caption row is just the group", () => {
+  document.documentElement.lang = "en-US";
+  const [only] = fitRow(["Extract"], 40, 26, 300, 28, 2, { maxH: 96 });
+  assert.equal(only.width, 300);
+  assert.equal(only.fs, fitGroup(["Extract"], 40, 26, 272, 2, { maxH: 96 })[0].fs);
+});
+
+// --- ink centring (inkShift, inkReference) ---
+test("ink centring is measured from the font, for one line and for two, without computed style", () => {
+  document.documentElement.lang = "en-US";
+  const px = 20, near = (a, b) => assert.ok(Math.abs(a - b) < 1e-9, `${a} != ${b}`);
+  // ink 0.72 above the baseline and none below; the font's own box 1.16 above and 0.29 below
+  near(inkShift("Occlusion", px), (0.72 - 0 - 1.16 + 0.29) * px / 2);
+  // two lines: the first line's top and the last line's bottom decide (a descender in the last line lifts the text)
+  near(inkShift("Occlusion\nGuide", px), inkShift("Occlusion", px));
+  near(inkShift("Occlusion\nGrid by", px), (0.72 - 0.2 - 1.16 + 0.29) * px / 2);
+  // a metric the browser does not give leaves the text where the box puts it
+  const measure = ctx.measureText;
+  ctx.measureText = () => ({ width: 10 });
+  try { assert.equal(inkShift("x", px), 0); } finally { ctx.measureText = measure; }
+});
+
+test("a reference glyph gives every Latin or Thai title of a script one baseline; CJK uses its own ink", () => {
+  document.documentElement.lang = "en-US";
+  assert.equal(inkReference("Students"), "H");
+  assert.equal(inkReference("Batch Import"), "H");
+  assert.equal(inkReference("Mod \u0e19\u0e31\u0e01\u0e40\u0e23\u0e35\u0e22\u0e19"), "\u0e01");
+  for (const text of ["\u5b66\u751f", "\u5b78\u751f", "\u751f\u5f92", "\ud559\uc0dd", "\u4e00\u62ec\u30a4\u30f3\u30dd\u30fc\u30c8"]) assert.equal(inkReference(text), null, text);
+  const px = 40, near = (a, b) => assert.ok(Math.abs(a - b) < 1e-9, `${a} != ${b}`);
+  // a descender does not move a Latin title
+  const a = inkShift("Students", px, { reference: true });
+  near(a, inkShift("Batch Import", px, { reference: true }));
+  near(a, inkShift("gyp", px, { reference: true }));
+  near(a, (0.72 - 0 - 1.16 + 0.29) * px / 2);
+  // without the option the letters' own ink counts
+  assert.ok(inkShift("gyp", px) !== a);
 });

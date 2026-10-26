@@ -546,6 +546,15 @@ export function fitText(str, fsMax, fsMin, maxW, maxLines = 2, lang = null) {
     measureLang = outer;
   }
 }
+// the narrowest width that still gives the same number of lines (no lone character on the last line)
+function balanced(tokens, fs, maxW, lines) {
+  let lo = 0, hi = maxW;
+  while (hi - lo > 2) {
+    const mid = (lo + hi) / 2, tryLines = breakLines(tokens, fs, mid);
+    if (tryLines.length === lines.length && tryLines.every((l) => glyphWidth(l, fs) <= mid)) hi = mid; else lo = mid;
+  }
+  return breakLines(tokens, fs, hi);
+}
 function fitLines(str, fsMax, fsMin, maxW, maxLines) {
   for (let fs = fsMax; fs >= fsMin; fs -= 2) if (glyphWidth(str, fs) <= maxW) return { text: str, fs, lines: 1 };
   // A single-line cell keeps its size floor; the caller clips or ellipsizes any remaining overflow.
@@ -553,20 +562,158 @@ function fitLines(str, fsMax, fsMin, maxW, maxLines) {
   for (const cjkBreaks of [false, true]) {
     const tokens = tokensOf(str, cjkBreaks);
     for (let fs = fsMin; fs >= fsMin - 8; fs -= 2) {
-      let lines = breakLines(tokens, fs, maxW);
+      const lines = breakLines(tokens, fs, maxW);
       if (lines.length > 1 && lines.length <= maxLines && lines.every((l) => glyphWidth(l, fs) <= maxW)) {
-        // balance: the narrowest width that still gives the same number of lines (no lone character on the last line)
-        let lo = 0, hi = maxW;
-        while (hi - lo > 2) {
-          const mid = (lo + hi) / 2, tryLines = breakLines(tokens, fs, mid);
-          if (tryLines.length === lines.length && tryLines.every((l) => glyphWidth(l, fs) <= mid)) hi = mid; else lo = mid;
-        }
-        lines = breakLines(tokens, fs, hi);
-        return { text: lines.join("\n"), fs, lines: lines.length };
+        const split = balanced(tokens, fs, maxW, lines);
+        return { text: split.join("\n"), fs, lines: split.length };
       }
     }
   }
+  // Nothing fits above fsMin - 8 (one long word): that size and smaller, down to 40 % of fsMin, so the text stays in its box.
+  for (let fs = fsMin - 8; fs >= sizeFloor(fsMin); fs -= 2) {
+    const lines = wrapAt(str, fs, maxW, maxLines);
+    if (lines) return { text: lines.join("\n"), fs, lines: lines.length };
+  }
   return { text: str, fs: fsMin - 8, lines: 1 };
+}
+
+// the lines str takes at size fs within maxW (one when it fits), at most maxLines; null when it does not fit
+function wrapAt(str, fs, maxW, maxLines) {
+  if (glyphWidth(str, fs) <= maxW) return [str];
+  if (maxLines < 2) return null;
+  for (const cjkBreaks of [false, true]) {
+    const tokens = tokensOf(str, cjkBreaks);
+    const lines = breakLines(tokens, fs, maxW);
+    if (lines.length > 1 && lines.length <= maxLines && lines.every((l) => glyphWidth(l, fs) <= maxW)) return balanced(tokens, fs, maxW, lines);
+  }
+  return null;
+}
+
+// NGUI's line pitch (render() lineHeight 1.15) of text drawn at fs
+export const LINE_PITCH = 1.15;
+// the smallest size text is shrunk to so that it stays in its box, 40 % of the size range's floor
+const sizeFloor = (fsMin) => Math.max(8, Math.floor(fsMin * 0.4));
+// Labels of widgets of one kind side by side (an action row, tabs, segments, the buttons of a popup) share one size: the
+// largest from fsMax down at which every label fits its box after wrapping onto at most maxLines lines (breaks as in
+// fitText: words in Latin scripts, words in Thai, CJK rules) and, with maxH, within that height. Wrapping that wins only a
+// step or two of size over every label on one line is not used. A size under fsMin only where some label cannot fit at fsMin,
+// in steps of 2 down to 40 % of it: text never runs past its box. maxW may be a list (a box per label). Gives
+// [{ text, fs, lines }] in the labels' order, every fs the same; overflow: true on each when not even the smallest size
+// fits (the caller shortens the text or enlarges the box).
+export function fitGroup(strs, fsMax, fsMin, maxW, maxLines = 2, { lang = null, maxH = Infinity } = {}) {
+  const outer = measureLang;
+  measureLang = lang || outer;
+  try {
+    const labels = strs.map((s) => String(s ?? "")), widths = labels.map((_, i) => (Array.isArray(maxW) ? maxW[i] : maxW));
+    const floor = sizeFloor(fsMin);
+    const solve = (lines) => {
+      for (let fs = fsMax; fs >= floor; fs -= 2) {
+        const rows = labels.map((s, i) => wrapAt(s, fs, widths[i], lines));
+        if (rows.every((r, i) => r && r.length * fontSizeFor(labels[i], fs) * LINE_PITCH <= maxH)) {
+          return rows.map((r) => ({ text: r.join("\n"), fs, lines: r.length }));
+        }
+      }
+      return null;
+    };
+    const wrapped = solve(maxLines);
+    if (wrapped) {
+      const single = maxLines > 1 && wrapped.some((f) => f.lines > 1) ? solve(1) : null;
+      return single && single[0].fs >= wrapped[0].fs - 4 && single[0].fs >= wrapped[0].fs * 0.92 ? single : wrapped;
+    }
+    return labels.map((s, i) => {
+      const lines = wrapAt(s, floor, widths[i], maxLines) || [s];
+      return { text: lines.join("\n"), fs: floor, lines: lines.length, overflow: true };
+    });
+  } finally {
+    measureLang = outer;
+  }
+}
+
+// the ways str can be set at fs on one line or, with maxLines 2, on the two lines that make it narrowest, within maxH, each
+// { lines, width }, narrowest first
+function layoutOptions(str, fs, maxLines, maxH) {
+  const options = [{ lines: [str], width: glyphWidth(str, fs) }];
+  if (maxLines > 1) {
+    let best = null;
+    for (const cjkBreaks of [false, true]) {
+      const tokens = tokensOf(str, cjkBreaks);
+      for (let k = 1; k < tokens.length; k++) {
+        const a = tokens.slice(0, k).join("").trimEnd(), b = tokens.slice(k).join("").trimStart();
+        const width = Math.max(glyphWidth(a, fs), glyphWidth(b, fs));
+        if (a && b && (!best || width < best.width - 0.01)) best = { lines: [a, b], width };
+      }
+    }
+    if (best && best.width < options[0].width) options.push(best);
+  }
+  return options.filter((o) => o.lines.length * fontSizeFor(str, fs) * LINE_PITCH <= maxH).sort((x, y) => x.width - y.width);
+}
+
+// A row of buttons that share the width `total` (their bodies, without the gaps between them): one size for every caption,
+// the largest at which each fits after wrapping onto at most two lines, with `inset` of clear space across each body (both
+// sides together). Bodies are equal. Only where equal bodies would force the size below fsMin, the bottom of the prefab's
+// range, is a body at least as wide as its caption needs and the rest as equal as the width allows: a long word takes width
+// from its neighbours, who keep the same size, so one word costs the row a little evenness instead of the size of every
+// caption. Gives [{ text, fs, lines, width }].
+export function fitRow(strs, fsMax, fsMin, total, inset, maxLines = 2, { lang = null, maxH = Infinity } = {}) {
+  const outer = measureLang;
+  measureLang = lang || outer;
+  try {
+    const labels = strs.map((s) => String(s ?? "")), n = labels.length, share = n ? total / n : 0;
+    const equal = fitGroup(labels, fsMax, fsMin, share - inset, maxLines, { lang, maxH });
+    const even = equal.map((f) => ({ ...f, width: share }));
+    if (n < 2) return even;
+    if (equal[0].fs >= fsMin) return even;
+    for (let fs = fsMax; fs >= equal[0].fs + 2; fs -= 2) {
+      const options = labels.map((s) => layoutOptions(s, fs, maxLines, maxH));
+      if (options.some((o) => !o.length)) continue;
+      const need = options.map((o) => o[0].width + inset);
+      if (need.reduce((a, b) => a + b, 0) > total) continue;
+      // the level every body reaches that needs less: what is left after the wide ones, shared by the rest
+      const order = need.map((_, i) => i).sort((x, y) => need[y] - need[x]);
+      let rest = total, level = rest / n;
+      for (let k = 0, left = n; k < n; k++, left--) {
+        level = rest / left;
+        if (need[order[k]] <= level) break;
+        rest -= need[order[k]];
+      }
+      return labels.map((s, i) => {
+        const width = Math.max(need[i], level), lines = wrapAt(s, fs, width - inset, maxLines) || options[i][0].lines;
+        return { text: lines.join("\n"), fs, lines: lines.length, width };
+      });
+    }
+    return even;
+  } finally {
+    measureLang = outer;
+  }
+}
+
+// A glyph that stands for the vertical band Latin and Thai text occupies, so a title does not move with the descenders and
+// ascenders of its own letters: capital H for Latin, a consonant for Thai. Han, kana and Hangul fill the same band whatever
+// the characters are: null, their own ink counts.
+export function inkReference(str) {
+  const text = String(str);
+  if (/[\u2e80-\u9fff\uff00-\uffef\uac00-\ud7af\u1100-\u11ff\u3130-\u318f]/.test(text)) return null;
+  return /[\u0e00-\u0e7f]/.test(text) ? "\u0e01" : "H";
+}
+// How far (CSS px, down) text drawn at px CSS pixels in a label box has to move for the centre of its ink to sit on the box's
+// centre: the box centres its lines (NGUI's 1.15 pitch) by font metrics, the ink of the first line's top and the last line's
+// bottom is what the eye centres. Measured with the font stack the text draws with, so it works on a tree that is not in
+// the document yet (computed style is empty there). reference: the ink of the script's reference glyph where it has one
+// (inkReference), not of these letters: one baseline for every title of a language.
+export function inkShift(str, px, { reference = false } = {}) {
+  const lines = String(str).split("\n");
+  measureCtx.font = `500 ${px}px ${fontStack()}`;
+  const glyph = reference ? inkReference(str) : null;
+  const first = measureCtx.measureText(glyph ?? lines[0]), last = measureCtx.measureText(glyph ?? lines.at(-1));
+  const [ascent, descent, fontAscent, fontDescent] = [first.actualBoundingBoxAscent, last.actualBoundingBoxDescent, first.fontBoundingBoxAscent, first.fontBoundingBoxDescent];
+  return [ascent, descent, fontAscent, fontDescent].every(Number.isFinite) ? (ascent - descent - fontAscent + fontDescent) / 2 : 0;
+}
+
+// fitGroup into the label widgets of one group: each one's text and size (the same for all), and its box at least maxW wide
+export function fitLabels(widgets, strs, fsMax, fsMin, maxW, maxLines = 2, opts = {}) {
+  const fits = fitGroup(strs, fsMax, fsMin, maxW, maxLines, { lang: widgets[0]?.lang, ...opts });
+  widgets.forEach((widget, i) => Object.assign(widget, { text: fits[i].text, fontSize: fits[i].fs, w_: Math.max(widget.w_ || 0, maxW) }));
+  return fits;
 }
 
 // fitText into a label widget: its text and size, and its box at least maxW wide, so text fitted to maxW never spills
