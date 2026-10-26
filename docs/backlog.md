@@ -756,8 +756,8 @@ Official provenance controls Delete visibility and direct-request rejection. Man
 
 ## BL-037: Design native window controls integrated into the top toolbar
 
-- Status: Implemented; the owner's macOS review of 0.6.0-alpha.5 found defects (below); fixes not started.
-- Note: M1/W1 adapters have reversible feasibility gates; measured single-row layout and shared Hall/writer close preflight are covered by fakes, not native acceptance.
+- Status: Implemented for local review; owner UAT/visual acceptance pending.
+- Note: Window-scoped macOS drag/double-click monitoring, menu lifecycle repair and five-scene immersion are covered by fakes; native acceptance remains pending on both platforms.
 - Requested: 2026-10-26.
 - Parent: BL-024.
 
@@ -1016,7 +1016,8 @@ unchanged.
 
 ## BL-049: Page titles cut off; titles at the Enable Mods caption size
 
-- Status: Open (owner finding, macOS review of 0.6.0-alpha.5, 2026-10-26).
+- Status: Implemented for local review; owner UAT/visual acceptance pending.
+- Note: Titles follow the rendered Enable Mods caption size; DOM text measurement includes shaping and trailing spacing before row fitting in native and fallback layouts.
 - Requested: 2026-10-26.
 - Related: BL-043 (title size) and BL-037 (single-row fitting).
 
@@ -1026,7 +1027,8 @@ BL-043's title size. A title is shortened only when the row really has no room l
 
 ## BL-050: No Back button in Student Hall
 
-- Status: Open (owner finding, macOS review of 0.6.0-alpha.5, 2026-10-26).
+- Status: Implemented for local review; owner UAT/visual acceptance pending.
+- Note: Hall hides Back and uses its title slot with native clearance; leaving restores the current route and BL-038 action geometry.
 - Requested: 2026-10-26.
 - Related: BL-038.
 
@@ -1035,7 +1037,8 @@ Owner decision (2026-10-26): the title moves left into the Back's place, keeping
 
 ## BL-051: Hairlines at the top bar
 
-- Status: Open (owner finding, macOS review of 0.6.0-alpha.5, 2026-10-26).
+- Status: Implemented for local review; owner UAT/visual acceptance pending.
+- Note: The bar and scrollbar use the shared contiguous NGUI raster; the switch already used it. Geometry checks retain the source cuts, caps, colours and shadow at scales 0.5–2 and DPR 1–3.
 - Requested: 2026-10-26.
 - Related: BL-026 and BL-035.
 

@@ -10,11 +10,15 @@ superseded by these decisions. No native app, preview, screenshot or package bui
 
 - `webui/window_chrome.py` owns injectable hosts, native state snapshots, valid/last-valid measurements and rollback.
   `window_macos.py` reveals `standardWindowButton:` results, changes only their y coordinates, checks the resulting
-  frames/container clipping and refreshes after native resize/fullscreen notifications. It uses a public `NSView`
-  for native window-background dragging, preserving AppKit's double-click handling. No private view class,
-  preference key, substitute drawing or reparenting of standard buttons is used. Cocoa attaches WKWebView at the
-  end of navigation in pywebview 6.2.1; installation therefore follows document load and rebinds its drag view if
-  contentView changes. Native close/keyboard guards are installed before the first page.
+  frames/container clipping and refreshes after native resize/fullscreen notifications. A window-scoped `NSEvent`
+  local left-mouse-down monitor tests the reported drag rectangles before WKWebView hit testing and calls
+  `performWindowDragWithEvent:`. It converts against the current content view, including flipped coordinates;
+  the former `ToolbarDragView` overlay is removed. Double-click reads only the owner-approved
+  `AppleActionOnDoubleClick` key: `Minimize` miniaturizes, `None`/`Do Nothing` consumes without action, and all
+  other values (including unset) zoom. These values and the actual event routing still require native acceptance.
+  No private view class, substitute drawing or reparenting of standard buttons is used. Cocoa attaches WKWebView
+  at the end of navigation in pywebview 6.2.1; installation therefore follows document load. Native close/keyboard
+  guards are installed before the first page.
 - `window_windows.py` attempts W1 only if the host's existing WebView2 Settings exposes
   `IsNonClientRegionSupportEnabled`. It restores native caption/system-menu/resize styles, extends only the top
   client edge, delegates caption hit testing and mouse-leave to DWM first, and clips the measured caption area
@@ -24,12 +28,18 @@ superseded by these decisions. No native app, preview, screenshot or package bui
   existing frameless host and HTML controls; they do not select W2 or raise the SDK/runtime floor.
 - `web/js/window-layout.js` and `window-chrome.js` anchor the existing prefab bar to the window for active adapters.
   Geometry uses viewport CSS pixels, measured native bounds and an 8-pixel gap. The row is at least 44 CSS pixels,
-  retaining BL-043's fill centre and 66-unit title. A measured collision hides only the Mods caption; the switch,
+  retaining BL-043's fill centre. BL-049 replaces the 66-unit title with the Enable Mods caption's rendered size;
+  natural DOM text measurement includes shaping and trailing spacing. A measured collision hides only the Mods caption; the switch,
   help badge and accessible label remain. The caption returns with 16 spare CSS pixels. The title can ellipsize
   while retaining its accessible name. There is no second row. BL-038 retains Settings in Home's safe outer slot.
+  BL-050 removes Hall's Back and moves the title from the 160-pixel slot into its 38-pixel slot with native clearance.
   Browser mode has no HTML window buttons; unsupported/failed desktop hosts retain one fallback group. The legacy
-  selector drag is excluded from active native rows. Hall/detail immersion keeps the prefab background and native
-  controls, inerts App actions, and excludes popup/action/focus bounds from dragging.
+  selector drag is excluded from active native rows and handles the fallback immersive strip. Portrait/L2D fullscreen,
+  their two cameras (`photo-active`) and Hall fullscreen hide the entire bar, including its background, shadow and
+  Back. Only native controls and a 64 × 12 CSS-pixel strip beside them remain, with an 8-pixel horizontal gap;
+  W1's strip starts below its retained 8-pixel resize edge. Scene action/focus bounds and popups exclude dragging.
+  Immersion restores the unshifted full-stage geometry; exit restores the bar. The bar's `Common_Top_Menu_Bg` and
+  the scrollbar's texture use NGUI's contiguous raster instead of independently composited CSS border-image slices.
 - `webui/window_close.py` preflights the existing `StudentHall.canLeave()` for native, menu, keyboard, App, tray,
   consent, safe restart and update exits. The first native attempt is vetoed synchronously. Repeated requests
   coalesce; writers refuse immediately. After Save/Discard, page input freezes, writer admission is reserved and
@@ -41,8 +51,12 @@ superseded by these decisions. No native app, preview, screenshot or package bui
   Cocoa uses `performClose:`; its Command-Q handler is intercepted before pywebview's direct `app.stop_` path.
 - The only added menu is Window, with existing Close, Minimize, Maximize/Restore and Fullscreen labels. Command-W/Q,
   Command-M and Control-Command-F remain reachable even in text inputs. Editing commands remain. Only the Window
-  menu title adds text, in all six locales; existing labels are unchanged. Dependencies, version and platform
-  minimums are unchanged.
+  menu title adds text, in all six locales; existing labels are unchanged. Menu titles are set explicitly.
+  A retained 250-ms main-loop timer repairs Window/Edit commands after a missing, replaced or cleared main menu;
+  Window installation logs once at INFO in English. Cocoa 6.2.1 calls `_recreate_menus`/`setMainMenu_` at startup
+  and conditionally on key-window changes, whereas the old repair ran only on document load. This establishes a
+  lifecycle gap, not the exact cause of the owner's observed missing menu, which could not be established without
+  a native run. Dependencies, version and platform minimums are unchanged.
 
 ### Experiment evidence and feasibility limits
 
@@ -51,13 +65,24 @@ view `steam-3557621-7791673520712697115-1955d55449` found exactly one
 `Assets/_MX/AddressableAsset/UI/UICharacterCollection.prefab` in
 `ui-_mxload-prefabs-2025-07-02_assets_all_2244454933.bundle`. Its `SeletControl/Top/BG_W/Bg` is
 `Common_Top_Menu_Bg`, 2996 × 166; `Label_Title` is 66; right Option/Lobby/Line positions and sizes match the geometry
-below. No owner's game installation or runtime data was inspected.
+below. Follow-up extraction confirms its Common atlas crop is 343 × 105 with 310/20 horizontal cuts (drawn caps
+172/11 stage pixels), and `CharacterCollection_ScrollBarBg` is 126 × 24. The unchanged corner sources are
+`UICharacterVisualMode/Inventory_ListControl_PC/{LeftTop/Btn_Back,RightTop/Btn_HideUI}` and
+`UILobby/Front/Right/ScreenshotMode/ModeInformation/Btn_Screen_Off/BG`. No owner's game installation or runtime data was inspected.
 
 Fake-host tests demonstrate rollback for AppKit clipping/relayout rejection and a missing optional WebView2 API;
 they also assert DWM-first message routing, preserved non-client side/bottom geometry, negative monitor origins,
 96/120/144/192/288 DPI conversion, invalid measurements, native state, callback lifetime and close refusal. Node
 geometry tests feed the real six-locale strings at minimum/default/wide/tall sizes, densities 1/2/3 and enlarged
 text. Font advances in those tests are deterministic fixtures, not native font-raster evidence.
+
+The alpha.5 toolbar follow-up passes **1,709 JavaScript tests** and **2,846 Python tests**, with **155 Python
+skips** in this isolated worktree (no test game view configured). Focused coverage comprises 61 native fake-host
+Python tests, 11 immersion/controller tests, 38 shared title/row/navigation tests and 89 bar/switch/scrollbar raster
+tests. The full JavaScript run initially exposed incomplete stage-geometry fakes in popup/fidelity tests; those
+fixtures now supply the DOM measurement contract and both full suites pass. `git diff main --
+src/ba_modding_toolkit/locales` is empty. The native event monitor, preference values and menu timer are verified
+with fakes; no real native event routing, preference UI mapping, menu replacement or WebKit painting is claimed.
 
 No real platform feasibility pass or failure is established by those tests. On a failing packaged host, the exact
 reason is logged as `Native window chrome inactive: ...` and exposed by `window.chrome` (`reason`, `active`,
