@@ -918,15 +918,12 @@ interrupted runs. Upstream's CLI options and the shared UnityFS reader are alrea
 
 ## BL-047: Fullscreen button left on a rotated fullscreen portrait
 
-- Status: Implemented for local review; owner UAT/visual acceptance pending.
+- Status: In progress (authorized 2026-10-26).
 - Requested: 2026-10-26.
 - Related: the portrait view's rotate and fullscreen controls.
 
-In the portrait view opened with the nameplate's rotate-phone button, the top-right button (the visual mode's
-`Btn_HideUI` / `Btn_ShowUI`, a double-arrow icon) is redundant in the App's already fullscreen view. Owner screenshot,
-2026-10-26: that button, not the desktop window controls.
-
-The visual mode no longer draws or reaches the RightTop group; Back and Reset keep their corners.
+In the portrait view, after rotating the screen and entering fullscreen, the fullscreen button is still shown in the
+top-right corner. It must not be shown once the view is fullscreen; leaving fullscreen restores it.
 
 ## BL-048: Remove the CLI as a built and installed command
 

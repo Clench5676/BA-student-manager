@@ -7,7 +7,8 @@ import {portraitMinimum} from './photography/camera.js';
 // - the portrait's own player (detail.js), so the face and the blink go on, framed by visual-view.js: the whole art,
 //   the body in the middle;
 // - TouchArea, a full-screen button whose press drags the portrait (OnPressScreen), and the zoom (PlayZoomInOut);
-// - Btn_Back top left (leaves), Btn_RefreshPos bottom right (UI_BUTTON_RESET_POS: back to the whole art; greyed out as
+// - Btn_Back top left (leaves), Btn_HideUI top right (the buttons slide out, Btn_ShowUI fades in in its place and
+//   brings them back), Btn_RefreshPos bottom right (UI_BUTTON_RESET_POS: back to the whole art; greyed out as
 //   Btn_RefreshPos_Disable while there), sliding in from the screen's edges with UIAni_CharacterVisualMode_PC.
 // Not reproduced: the phone's gyroscope moving the art (UpdateGyro, mobile only) and the button sounds.
 // Input: press and drag (any button, a finger) moves the art; the mouse wheel zooms at the pointer; a trackpad pinches
@@ -28,9 +29,7 @@ const ZOOM_TAU = 0.08;          // s: a wheel zoom eases to its target, as in th
 const WHEEL = 0.0015, LINE = 40, PINCH = 0.01, SCROLL_MS = 120; // as lobby-touch.js
 // the buttons' BoxColliders [width, height, centre y] in NGUI units around their node; the greyed reset has none
 const HIT = { Btn_Back: [228.83, 165, 0], Btn_HideUI: [228.83, 165, 0], Btn_ShowUI: [228.83, 165, 0], Btn_RefreshPos: [228.83, 195.2, 32] };
-// RightTop (Btn_HideUI / Btn_ShowUI) is left out: the owner found it redundant in the App's already fullscreen view
-// (BL-047). hideUI/showUI stay for the guarded paths below; nothing draws or reaches those buttons.
-const CORNERS = [["LeftTop", ["Btn_Back"]], ["RightBottom", ["Btn_RefreshPos", "Btn_RefreshPos_Disable"]]];
+const CORNERS = [["LeftTop", ["Btn_Back"]], ["RightTop", ["Btn_HideUI", "Btn_ShowUI"]], ["RightBottom", ["Btn_RefreshPos", "Btn_RefreshPos_Disable"]]];
 // the buttons the clip moves, and their keys
 const MOVING = { Btn_Back: SLIDE.Btn_Back, Btn_HideUI: SLIDE.Btn_HideUI, Btn_RefreshPos: SLIDE.Btn_RefreshPos, Btn_RefreshPos_Disable: SLIDE.Btn_RefreshPos };
 
