@@ -7,7 +7,8 @@ As of 2026-10-26. Verify the actual branch, working tree and `pyproject.toml` ve
 
 | Branch | State |
 | --- | --- |
-| `main` | Local version `0.6.0-alpha.2`: the published 0.5.0 baseline, the upstream syncs after it, the 0.6.0-alpha.1 review work and the BL-032 to BL-039 fixes. Not pushed. |
+| `main` | Local version `0.6.0-alpha.3`: the published 0.5.0 baseline, the upstream syncs after it, the 0.6.0-alpha.1 and alpha.2 review work, BL-020, BL-021, BL-040, BL-041, BL-043, BL-045 and BL-046. Not pushed. |
+| `codex/text-fit`, `codex/cli-cache`, `codex/server-dirs`, `codex/whats-new` | Merged into `main`; kept until the owner accepts their items. |
 
 The 0.6.0 work is unreleased. Nothing has been tagged, pushed or published since 0.5.0.
 
@@ -37,8 +38,8 @@ from passing tests or the presence of earlier code.
 
 ## Review artifact and validation
 
-`dist/Blue-Archive-Modding-and-Patching-Tool-0.6.0-alpha.2-macos-arm64.dmg`, MD5 `c4983520dd08f486ba68e846f03b9dbe`,
-built from `d4ce7094` (`chore(release): 0.6.0-alpha.2`). `main` adds only the upstream CLI sync on top of it.
+`dist/Blue-Archive-Modding-and-Patching-Tool-0.6.0-alpha.3-macos-arm64.dmg`, MD5 `b74b01fd3ea2497e682075e8c6ef7a65`,
+built from `3a897b2a` (`chore(release): 0.6.0-alpha.3`).
 
-On `main` after the merge: 1,441 JavaScript tests passed; 2,922 Python tests passed, 24 skipped. Native Windows
+On `main` before the build: 1,554 JavaScript tests passed; 2,976 Python tests passed, 26 skipped. Native Windows
 behavior is not verified on the macOS host.
