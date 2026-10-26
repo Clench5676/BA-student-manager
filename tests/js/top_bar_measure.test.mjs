@@ -3,10 +3,10 @@ import { test } from 'node:test';
 import { readFileSync } from 'node:fs';
 import { naturalTextWidth } from '../../src/ba_modding_toolkit/web/js/top-bar-measure.js';
 
-test('natural measurement retains shaping and trailing spacing outside the clipped or hidden row',()=>{
+test('caption measurement retains shaping and trailing spacing outside the compact row',()=>{
   for(const locale of ['en-US','zh-CN','zh-TW','ja-JP','ko-KR','th-TH']){
     const ui=JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${locale}.json`,import.meta.url))).webui;
-    for(const text of [ui.top.students,ui.hall.title,ui.nav.import,ui.mods.switch])for(const scale of [.5,1,2]){
+    for(const text of [ui.mods.switch])for(const scale of [.5,1,2]){
       let removed=false,probe;
       const shapedWidth=[...text].length*15.2+1; // includes the browser's last spacing advance
       const style={fontFamily:'"RHR Latin", "Thonburi", sans-serif',fontSize:'26px',fontWeight:'500',

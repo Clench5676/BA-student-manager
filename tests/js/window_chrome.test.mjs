@@ -39,11 +39,11 @@ class El {
     return {left,top,right:left+width,bottom:top+height,width,height};
   }
 }
-const root=new El(),body=new El(),stage=new El(),header=new El(),title=new El(),mods=new El(),label=new El(),
+const root=new El(),body=new El(),stage=new El(),header=new El(),mods=new El(),label=new El(),
   option=new El('button'),back=new El('button'),sceneBack=new El('button'),toggle=new El(),help=new El('button'),popup=new El();
-header.className='topbar';title.className='title';title.textContent='Student Hall';mods.className='mod-switch';
+header.className='topbar';mods.className='mod-switch';
 label.className='ms-label';label.textContent='Enable Mods';option.className='top-option';back.className='back';
-mods.append(toggle,label,help);header.append(back,title,mods,option);stage.append(header,sceneBack);body.append(stage);popup.hidden=true;
+mods.append(toggle,label,help);header.append(back,mods,option);stage.append(header,sceneBack);body.append(stage);popup.hidden=true;
 const frames=[],listeners={},handlers={},calls=[],observed=[];
 const doc={body,documentElement:root,createElement:name=>new El(name),createComment:()=>new El('comment'),
   getElementById:id=>id==='stage'?stage:body.descendants().find(el=>el.id===id),
@@ -56,10 +56,10 @@ let alignmentGate=null;
 let snapshot={active:true,valid:true,platform:'darwin',sequence:1,bounds:{left:12,top:8,right:80,bottom:30}};
 globalThis.chromeFixture={...geometry,on:(name,fn)=>handlers[name]=fn,rpc:async(name,value)=>{
   if(name==='window.chrome')return snapshot;calls.push({name,value});},T:key=>key,
-  reflowTopActions(){},sizeTitle(){title.style.fontSize='26px';},alignTopBar:async()=>{if(alignmentGate)await alignmentGate;},fitStage(){},
+  reflowTopActions(){},alignTopBar:async()=>{if(alignmentGate)await alignmentGate;},fitStage(){},
   naturalTextWidth:(el,scale)=>Math.ceil(el.textContent.length*13*scale),paintTopBar:async()=>{}};
 let source=readFileSync(new URL('../../src/ba_modding_toolkit/web/js/window-chrome.js',import.meta.url),'utf8').replace(/^import .*;$/gm,'');
-source=`const {on,rpc,T,reflowTopActions,sizeTitle,alignTopBar,fitStage,naturalTextWidth,paintTopBar,headerGeometry,rowLayout,isImmersive,dragRegions,expandRect}=globalThis.chromeFixture;\n${source}`;
+source=`const {on,rpc,T,reflowTopActions,alignTopBar,fitStage,naturalTextWidth,paintTopBar,headerGeometry,rowLayout,isImmersive,dragRegions,expandRect}=globalThis.chromeFixture;\n${source}`;
 const {setupWindowChrome}=await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
 async function settle(){for(let i=0;i<8;i++){frames.splice(0).forEach(fn=>fn());await new Promise(resolve=>setImmediate(resolve));}}
 const payload=()=>calls.filter(c=>c.name==='window.layout').at(-1).value;

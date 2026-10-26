@@ -1,7 +1,7 @@
 import { on, rpc } from "./api.js";
 import { T } from "./i18n.js";
 import { reflowTopActions } from "./nav.js";
-import { alignTopBar, sizeTitle } from "./top-bar.js";
+import { alignTopBar } from "./top-bar.js";
 import { fitStage } from "./util.js";
 import { paintTopBar } from "./top-bar-background.js";
 import { naturalTextWidth } from "./top-bar-measure.js";
@@ -43,21 +43,17 @@ function schedule() {
 }
 
 function fitRow(header, scale, nativeLeft = 0) {
-  const title = header.querySelector('.title'), mods = header.querySelector('.mod-switch'), label = mods?.querySelector('.ms-label');
+  const mods = header.querySelector('.mod-switch'), label = mods?.querySelector('.ms-label');
   const option = header.querySelector('.top-option').getBoundingClientRect();
-  sizeTitle(title);
-  // Measure outside the clipped title and the potentially hidden compact caption.
-  const measure = (element) => naturalTextWidth(element, scale);
-  const captionWidth = label ? measure(label) + 12 * scale : 0;
+  // Measure outside the potentially hidden compact caption.
+  const captionWidth = label ? naturalTextWidth(label, scale) + 12 * scale : 0;
   const fixedMods = mods && !mods.hidden ? [...mods.children].filter((el) => el !== label)
     .reduce((width, el) => width + el.getBoundingClientRect().width, 12 * scale) : 0;
   const row = rowLayout({ scale, nativeLeft, rightStart: option.left - header.getBoundingClientRect().left,
-    titleWidth: measure(title), modsWidth: fixedMods + captionWidth, captionWidth, compact, hall: header.classList.contains("hall-home"), modsVisible: !!mods && !mods.hidden });
+    modsWidth: fixedMods + captionWidth, captionWidth, compact, hall: header.classList.contains("hall-home"), modsVisible: !!mods && !mods.hidden });
   compact = row.compact;
   header.style.setProperty('--native-left', `${row.shift / scale}px`);
   header.classList.toggle('mods-compact', compact);
-  title.style.maxWidth = `${row.titleWidth / scale}px`;
-  title.setAttribute('aria-label', title.textContent);
   if (label) mods.querySelector('[role="switch"]')?.setAttribute('aria-label', label.textContent);
 }
 
@@ -78,7 +74,6 @@ async function layout() {
       placeholder.replaceWith(header); wrapper.remove(); wrapper = placeholder = null;
       header.style.removeProperty('width'); header.style.removeProperty('height'); header.style.removeProperty('transform');
       header.style.removeProperty('--native-left'); header.inert = false;
-      header.querySelector('.title').style.removeProperty('max-width');
       header.classList.remove('mods-compact', 'chrome-waiting', 'native-toolbar');
     }
     document.body.classList.remove('native-chrome');

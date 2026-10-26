@@ -27,7 +27,7 @@ The 0.6.0 work is unreleased. Nothing has been tagged, pushed or published since
 | BL-042 | Accepted by the owner on macOS (alpha.4) |
 | BL-044 | Review 1 (runtime-sliced badges) accepted on macOS (alpha.6); review 2 closed as won't fix by the owner. |
 | BL-047 | Direct switch accepted on macOS (alpha.6); owner asked for the `Common_Icon_Change` icon on the switch. |
-| BL-049 | Owner decision on alpha.6: remove page titles from the top bar; not started. |
+| BL-049 | Implemented for local review; owner UAT/visual acceptance pending. Titles removed; header names stay accessible and Enable Mods reuses the title/Back slot with native clearance. |
 | BL-050 | Accepted by the owner on macOS (alpha.6); Windows not reviewed |
 | BL-051 | Accepted by the owner on macOS (alpha.6); Windows not reviewed |
 | BL-052 | Implemented; owner review of alpha.6 asks for top-left Back level with the top-right button and the fullscreen Back in the cameras. |

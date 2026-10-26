@@ -3,7 +3,7 @@
 // of the bitmaps NGUI drew, so every element's visual centre lies on the same line whatever its box, pivot or padding is.
 import * as NGUI from "./ngui.js";
 import { inkBounds } from "./student-hall-icons.js";
-import { barCentre, barPadding, extent, inkRect, moveBy, titlePx } from "./top-bar-layout.js";
+import { barCentre, barPadding, extent, inkRect, moveBy } from "./top-bar-layout.js";
 
 let centre = barCentre(), fillRead = null, revision = 0, watching = false;
 
@@ -47,12 +47,6 @@ async function drawnInk(root, bar, filter = () => true) {
   return extent(rects);
 }
 
-// Keep the owner's caption size on every page, retaining the prefab fill-centre alignment.
-export function sizeTitle(title) {
-  const caption = document.querySelector(".ms-label");
-  if (title) title.style.fontSize = `${titlePx(caption ? parseFloat(getComputedStyle(caption).fontSize) : undefined)}px`;
-}
-
 const applied = new WeakMap(); // how far each element is moved now
 const moveTo = (el, dy) => {
   applied.set(el, dy);
@@ -67,9 +61,8 @@ export async function alignTopBar() {
   const targetCentre = geometry ? geometry.centre / geometry.scale : centre;
   const height = geometry ? geometry.rowHeight / geometry.scale : 64;
   bar.style.setProperty("--bar-padding", `${barPadding(targetCentre, height)}px`);
-  sizeTitle(bar.querySelector(".title"));
   // Text: its box is centred on the bar's centre by flex, the ink of the script's reference glyph moves onto it.
-  for (const el of bar.querySelectorAll(".title, .ms-label")) {
+  for (const el of bar.querySelectorAll(".ms-label")) {
     if (el.textContent && el.getClientRects().length) moveTo(el, NGUI.inkShift(el.textContent, parseFloat(getComputedStyle(el).fontSize), { reference: true }));
   }
   // Pictures: the ink of the bitmaps drawn, measured where they are now, plus what they have been moved already.
@@ -83,7 +76,7 @@ export async function alignTopBar() {
   }
 }
 
-// Keeps the alignment up to date: any change under the bar (a title, a language, a skin drawn again, Home shown or hidden),
+// Keeps the alignment up to date: any change under the bar (a language, a skin drawn again, Home shown or hidden),
 // the fonts arriving and the sprite being read. The measuring writes only styles, which are not observed.
 export function watchTopBar() {
   const bar = document.querySelector(".topbar");

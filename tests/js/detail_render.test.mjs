@@ -73,7 +73,7 @@ class El {
   toDataURL() { return "data:image/png;base64,c3ludGhldGljLW1hc2s="; }
 }
 const walk = (el) => [el, ...el.children.flatMap(walk)];
-const body = new El("body"), title = new El(), back = new El("button");
+const body = new El("body"), header = new El("header"), back = new El("button");
 const hosts = Object.fromEntries(["stage", "screen-detail", "ngui", "ngui-bg", "ngui-chips", "ngui-expr", "portrait", "lobby", "model",
   "popup", "picker", "dialog", "prompt", "consent", "notify", "fs-exit", "visual-ui", "visual-bg"].map((id) => {
   const el = body.appendChild(new El()); el.id = id; el.hidden = /popup|picker|dialog|prompt|consent/.test(id); return [id, el];
@@ -82,7 +82,7 @@ const documentEvents = new EventTarget();
 globalThis.window = new EventTarget();
 globalThis.document = { hidden: false, hasFocus: () => true, body, documentElement: new El("html"), activeElement: body,
   createElement: (tag) => new El(tag), createDocumentFragment: () => new El("fragment"), getElementById: (id) => hosts[id] || walk(body).find((el) => el.id === id),
-  querySelector: (s) => s === ".topbar .title" ? title : s === ".topbar .back" ? back : null,
+  querySelector: (s) => s === ".topbar" ? header : s === ".topbar .back" ? back : null,
   querySelectorAll: () => [], addEventListener: (...args) => documentEvents.addEventListener(...args),
   removeEventListener: (...args) => documentEvents.removeEventListener(...args) };
 Object.defineProperty(globalThis, "navigator", { value: { platform: "Mac" }, configurable: true });
@@ -95,6 +95,7 @@ globalThis.Audio = class { constructor() { assert.fail("Audio must remain muted 
 globalThis.requestAnimationFrame = (fn) => { queueMicrotask(() => { for (const p of thumbnailPlayers) if (!p.disposed) p.config.draw?.(p); fn(performance.now()); }); return 1; };
 globalThis.cancelAnimationFrame = () => {};
 globalThis.getComputedStyle = () => ({ opacity: "1" });
+globalThis.MutationObserver = class { observe() {} };
 
 const imageRequests = [], pendingImages = [];
 let imageMode = "ready", playerMode = "ready", portraitRevision = "a", portraitStatus = 200;

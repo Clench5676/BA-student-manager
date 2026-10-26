@@ -3,7 +3,9 @@ import { test } from 'node:test';
 import { readFileSync } from 'node:fs';
 import { headerGeometry, rowLayout, subtractRegions, expandRect } from '../../src/ba_modding_toolkit/web/js/window-layout.js';
 import { topActionLayout, nativeRightClearance } from '../../src/ba_modding_toolkit/web/js/top-action-layout.js';
-import { barCentre, CAPTION_PX } from '../../src/ba_modding_toolkit/web/js/top-bar-layout.js';
+import { barCentre } from '../../src/ba_modding_toolkit/web/js/top-bar-layout.js';
+import { cornerPrefabs } from './corner_prefabs.mjs';
+import { CORNER_MARGIN } from '../../src/ba_modding_toolkit/web/js/corner-layout.js';
 import { installCloseGuard } from '../../src/ba_modding_toolkit/web/js/window-close.js';
 
 const S = 24 / 37;
@@ -12,50 +14,77 @@ const near = (a,b) => assert.ok(Math.abs(a-b)<1e-7, `${a} != ${b}`);
 // Deterministic advance fixture: real locale strings feed the same measured-width
 // contract as the DOM canvas. Native font rendering remains owner acceptance.
 const textWidth = (text, font) => [...text].reduce((w,c) => w + font * (/[^\x00-\x7f]/.test(c) ? 1 : .65), 0);
-const boxes = {home:[44,7,62*S,59*S],option:[44+175*S,7,60*S,62*S],line:[44+116.5*S,12,4*S,49*S]};
-for (const locale of ['en-US','zh-CN','zh-TW','ja-JP','ko-KR','th-TH']) test(`one row, native safe areas and caption-sized title in ${locale}`, () => {
+const prefabs=cornerPrefabs.UICharacterCollection,right='NUITop_Scenes/Top/Right/';
+const cssSource=readFileSync(new URL('../../src/ba_modding_toolkit/web/css/app.css',import.meta.url),'utf8');
+const borderLeft=Number(/border-width: 0 11px 0 (\d+)px/.exec(cssSource)[1]);
+const marginLeft=Number(/\.mod-switch \{[^}]*margin-left: (-?[\d.]+)px/.exec(cssSource)[1]);
+const hallMargin=Number(/\.topbar\.hall-home \.mod-switch \{ margin-left: (-?[\d.]+)px/.exec(cssSource)[1]);
+const home=prefabs[right+'Lobby'];
+const boxes=Object.fromEntries([['home','Lobby'],['option','Option'],['line','Line (1)']].map(([key,path])=>{
+  const node=prefabs[right+path], [w,h]=node.size;
+  return [key,[CORNER_MARGIN+(home.pos[0]-node.pos[0]+(home.size[0]-w)/2)*S,
+    7+(home.pos[1]-node.pos[1]+(home.size[1]-h)/2)*S,w*S,h*S]];
+}));
+const pages=[{name:'Hall',hall:true,modsVisible:true},{name:'roster',hall:false,modsVisible:true},
+  {name:'detail',hall:false,modsVisible:true},{name:'import',hall:false,modsVisible:true},{name:'message',hall:false,modsVisible:false}];
+for (const locale of ['en-US','zh-CN','zh-TW','ja-JP','ko-KR','th-TH']) test(`title-free rows for every page and native bounds in ${locale}`, () => {
   const strings = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${locale}.json`,import.meta.url))).webui;
-  for (const [width,height] of sizes) for (const density of [1,2,3]) for (const hall of [true,false]) for (const platform of ['darwin','win32','fallback']) {
-    // Native APIs normalize device pixels/points before entering the web layout.
-    const native = platform==='darwin' ? {left:12,top:8,right:80,bottom:30} : {left:width-148,top:0,right:width,bottom:32};
-    const css = Object.fromEntries(Object.entries(native).map(([k,v]) => [k, v*density/density]));
-    const g = headerGeometry(width,height,platform==='win32'?css.bottom:0), k=g.scale;
-    assert.ok(g.rowHeight>=44); near(g.centre,barCentre(undefined,g.rowHeight));
-    assert.ok(g.contentScale<=k);
-    const base=topActionLayout(boxes,hall),safe=nativeRightClearance({left:0,top:0,right:width,width},platform==='win32'?css:null,base.option,k);
-    const actions=topActionLayout(boxes,hall,safe);
-    const rightStart=width-(actions.option[0]+actions.option[2])*k;
-    const captionWidth=textWidth(strings.mods.switch,26)*k+12*k;
-    for (const title of [strings.top.students,strings.hall.title,strings.nav.import]) for (const enlargement of [1,2]) {
-      const row=rowLayout({scale:k,nativeLeft:platform==='darwin'?css.right:0,rightStart,
-        titleWidth:textWidth(title,CAPTION_PX)*k*enlargement,modsWidth:240*k+captionWidth,captionWidth,hall});
-      assert.equal(CAPTION_PX,26);
-      if(platform==='darwin')assert.ok(38*k+row.shift>=css.right+8);
-      else if(platform==='win32') assert.ok(width-actions[hall?"option":"home"][0]*k<=css.left-8+1e-7);
-      assert.ok(row.titleLeft+row.titleWidth+32*k+row.modsWidth<=rightStart-64+1e-7);
-      assert.ok(row.titleWidth>=0);
-      if(enlargement===1) near(row.titleWidth,textWidth(title,CAPTION_PX)*k);
-      near(row.titleLeft,(hall?38:160)*k+row.shift);
-      // Hall keeps Settings in Home's former safe slot and all sprite sizes.
+  // Preserve the real ON/OFF labels, prefab switch/help widgets and CSS gaps.
+  const toggleWidth=[strings.settings.post.on,strings.settings.post.off].reduce((w,label)=>w+Math.max(82,textWidth(label,24)+28),0);
+  const fixedMods=toggleWidth+40+12;
+  const captionWidth=textWidth(strings.mods.switch,26)+12;
+  for (const [width,height] of sizes) for (const density of [1,2,3]) for (const {hall,modsVisible} of pages) {
+    for (const [platform,hasBounds] of [['darwin',true],['win32',true],['darwin',false],['win32',false],['fallback',false]]) {
+      // Native APIs normalize device pixels/points before entering the web layout.
+      const native = platform==='darwin' ? {left:12,top:8,right:80,bottom:30} : {left:width-148,top:0,right:width,bottom:32};
+      const css=hasBounds?Object.fromEntries(Object.entries(native).map(([k,v])=>[k,v*density/density])):null;
+      const g=headerGeometry(width,height,platform==='win32'?css?.bottom:0), k=g.scale;
+      assert.ok(g.rowHeight>=44); near(g.centre,barCentre(undefined,g.rowHeight));
+      assert.ok(g.contentScale<=k);
+      const base=topActionLayout(boxes,hall),safe=nativeRightClearance({left:0,top:0,right:width,width},platform==='win32'?css:null,base.option,k);
+      const actions=topActionLayout(boxes,hall,safe);
+      const rightStart=width-(actions.option[0]+actions.option[2])*k;
+      const row=rowLayout({scale:k,nativeLeft:platform==='darwin'?css?.right:0,rightStart,
+        modsWidth:(fixedMods+captionWidth)*k,captionWidth:captionWidth*k,hall,modsVisible});
+      if(platform==='darwin'&&css)assert.ok(38*k+row.shift>=css.right+8);
+      else if(platform==='win32'&&css)assert.ok(width-actions[hall?'option':'home'][0]*k<=css.left-8+1e-7);
+      assert.ok(row.modsLeft+row.modsWidth<=rightStart-64+1e-7);
+      near(row.modsLeft,(hall?38:160)*k+row.shift);
+      near(row.modsLeft,(borderLeft+(hall?hallMargin:marginLeft))*k+row.shift);
+      assert.equal(row.compact,false,'the real caption fits in all supported windows after title removal');
+      near(row.modsWidth,modsVisible?(fixedMods+captionWidth)*k:0);
+      if(modsVisible&&!hall){
+        const backRight=(CORNER_MARGIN+prefabs['SeletControl/Top/BG_W/Bg/Btn/Btn'].size[0]*S)*k+row.shift;
+        assert.ok(row.modsLeft>=backRight,'the group clears the prefab Back hit box');
+      }
+      // Hall retains Settings in Home's former safe slot; all sprite sizes stay.
+      for(const name of ['home','option','line'])assert.deepEqual(actions[name].slice(2),boxes[name].slice(2));
       if(hall)near(actions.option[0]+actions.option[2]/2,actions.home[0]+actions.home[2]/2);
-      else near(actions.option[0]-actions.home[0]+(actions.option[2]-actions.home[2])/2,174*S, .01);
+      else near(actions.option[0]-actions.home[0]+(actions.option[2]-actions.home[2])/2,174*S);
     }
   }
 });
 
-test('compact caption restores only with sixteen CSS pixels of spare width', () => {
-  const input={scale:1,nativeLeft:80,titleWidth:220,modsWidth:460,captionWidth:220};
-  const threshold=160+(80+8-38)+220+460+32+64;
-  assert.equal(rowLayout({...input,rightStart:threshold-1}).compact,true);
-  assert.equal(rowLayout({...input,rightStart:threshold,compact:false}).compact,false);
-  assert.equal(rowLayout({...input,rightStart:threshold+15,compact:true}).compact,true);
-  assert.equal(rowLayout({...input,rightStart:threshold+16,compact:true}).compact,false);
+test('compact row hides only the caption and restores with sixteen CSS pixels spare', () => {
+  for(const scale of [.5,1,2])for(const hall of [false,true]){
+    const input={scale,hall,nativeLeft:80,modsWidth:460*scale,captionWidth:220*scale};
+    const full=rowLayout({...input,rightStart:2000});
+    const threshold=full.modsLeft+input.modsWidth+64;
+    const compact=rowLayout({...input,rightStart:threshold-1});
+    assert.equal(compact.compact,true);
+    near(compact.modsWidth,240*scale,'switch and help keep their widths');
+    near(compact.modsLeft,full.modsLeft);
+    assert.equal(rowLayout({...input,rightStart:threshold,compact:false}).compact,false);
+    assert.equal(rowLayout({...input,rightStart:threshold+15,compact:true}).compact,true);
+    assert.equal(rowLayout({...input,rightStart:threshold+16,compact:true}).compact,false);
+    assert.equal(rowLayout({...input,rightStart:threshold-1,modsVisible:false}).modsWidth,0);
+  }
 });
 
 test('native bounds subtract only the missing right clearance, preserving sufficient margins',()=>{
   const stage={left:0,top:0,right:1600,width:1600};
   assert.equal(nativeRightClearance(stage,{left:1580,top:0,right:1600,bottom:32},boxes.home,1),28);
-  assert.equal(topActionLayout(boxes,false,28).home[0],44);
+  assert.equal(topActionLayout(boxes,false,28).home[0],CORNER_MARGIN);
 });
 
 test('every interactive hit and focus ring, native group and popup is excluded from native dragging',()=>{
@@ -114,11 +143,10 @@ test('a new Hall draft revision invalidates an earlier approval',async()=>{
 
 test('Hall uses the Back slot and restores the other rows without losing native clearance',()=>{
   for(const scale of [.5, 1, 2])for(const nativeLeft of [0,80]){
-    const input={scale,nativeLeft,rightStart:2000*scale,titleWidth:200*scale,modsWidth:400*scale,captionWidth:160*scale};
+    const input={scale,nativeLeft,rightStart:2000*scale,modsWidth:400*scale,captionWidth:160*scale};
     const before=rowLayout(input),hall=rowLayout({...input,hall:true}),after=rowLayout(input);
-    near(before.titleLeft-hall.titleLeft,122*scale);
+    near(before.modsLeft-hall.modsLeft,122*scale);
     assert.deepEqual(after,before);
-    if(nativeLeft)near(hall.titleLeft,nativeLeft+8);
-    assert.equal(hall.titleWidth,200*scale);
+    if(nativeLeft)near(hall.modsLeft,nativeLeft+8);
   }
 });

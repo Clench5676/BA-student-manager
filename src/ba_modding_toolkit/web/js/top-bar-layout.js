@@ -4,8 +4,6 @@
 // The sprite is a light fill with a dark lip and a shadow under it: the centre that content is aligned to is the fill's.
 
 export const BAR_HEIGHT = 64;
-// BL-049 replaces Label_Title's 66 units with the Enable Mods caption's drawn size.
-export const CAPTION_PX = 26;
 // Common_Top_Menu_Bg is 105 rows high; rows 0 to 96 are the light fill, the dark lip and its shadow start at row 97
 export const FILL = Object.freeze({ top: 0, bottom: 97, height: 105 });
 
@@ -14,9 +12,6 @@ export const barCentre = (fill = FILL, height = BAR_HEIGHT) => (fill.top + fill.
 
 // the padding under the bar's content that makes flex centring use the fill's centre instead of the whole height's
 export const barPadding = (centre, height = BAR_HEIGHT) => Math.max(0, height - 2 * centre);
-
-// The caption may fit down to 20 px; the title follows that same drawn size.
-export const titlePx = (captionSize = CAPTION_PX) => captionSize;
 
 // the vertical extent [top, bottom] of several rectangles together, or null without any
 export function extent(rects) {

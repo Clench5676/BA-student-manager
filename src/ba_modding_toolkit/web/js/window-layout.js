@@ -22,18 +22,15 @@ export function dragRegions({ width, height, bounds, immersive = false, blocked 
   return subtractRegions(background, [...exclusions, ...(bounds ? [expandRect(bounds, 8)] : [])]);
 }
 
-export function rowLayout({ scale, nativeLeft = 0, rightStart, titleWidth, modsWidth,
+export function rowLayout({ scale, nativeLeft = 0, rightStart, modsWidth,
   captionWidth, compact = false, modsVisible = true, hall = false }) {
   const shift = Math.max(0, nativeLeft + (nativeLeft ? 8 : 0) - 38 * scale);
-  const titleLeft = (hall ? 38 : 160) * scale + shift;
-  const available = Math.max(0, rightStart - 64 - titleLeft);
-  const gap = modsVisible ? 32 * scale : 0;
-  const full = titleWidth + (modsVisible ? modsWidth + gap : 0);
-  const hideCaption = modsVisible && (compact ? full + 16 > available : full > available);
+  // Reuse the former title slot; Hall owns the Back/title slot (BL-050).
+  const modsLeft = (hall ? 38 : 160) * scale + shift;
+  const available = Math.max(0, rightStart - 64 - modsLeft);
+  const hideCaption = modsVisible && (compact ? modsWidth + 16 > available : modsWidth > available);
   const mods = modsVisible ? modsWidth - (hideCaption ? captionWidth : 0) : 0;
-  return { shift, compact: hideCaption, titleLeft,
-    titleWidth: Math.max(0, Math.min(titleWidth, available - mods - gap)), modsWidth: mods,
-    dragWidth: 64 };
+  return { shift, compact: hideCaption, modsLeft, modsWidth: mods };
 }
 
 export function subtractRegions(background, exclusions) {

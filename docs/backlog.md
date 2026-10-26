@@ -1030,8 +1030,8 @@ unchanged.
 
 ## BL-049: Page titles cut off; titles at the Enable Mods caption size
 
-- Status: Owner decision on alpha.6: remove the page titles from the top bar; not started.
-- Note: Titles follow the rendered Enable Mods caption size; DOM text measurement includes shaping and trailing spacing before row fitting in native and fallback layouts.
+- Status: Implemented for local review; owner UAT/visual acceptance pending.
+- Note: Removed visible top-bar titles and title fitting; page names label the header, and Enable Mods occupies the former title/Back slot with native clearance and caption-only compacting.
 - Requested: 2026-10-26.
 - Related: BL-043 (title size) and BL-037 (single-row fitting).
 

@@ -142,19 +142,33 @@ test('native-control clearance is preserved at fractional window scales',async()
   }
 });
 
-test('Hall removes Back and moves the title slot; leaving restores Back for its current route',async()=>{
+test('page names remain accessible while Hall removes Back and leaving restores the current route',async()=>{
   const {setTitle,setTopActions}=await import('../../src/ba_modding_toolkit/web/js/nav.js');
   const classes=new Set();
   top['.topbar']=Object.assign(new El(),{classList:{toggle(name,on){on?classes.add(name):classes.delete(name);}}});
-  top['.topbar .title']=new El();
   const back=top['.topbar .back'],action=()=>{};
   for(let i=0;i<3;i++){
     setTopActions(false);setTitle('Students',action);
     assert.equal(back.hidden,false);assert.equal(back.onclick,action);
+    assert.equal(top['.topbar'].attrs['aria-label'],'Students');
     setTopActions(true);setTitle('Student Hall',action);
     assert.equal(back.hidden,true);assert.ok(classes.has('hall-home'));
+    assert.equal(top['.topbar'].attrs['aria-label'],'Student Hall');
     setTopActions(false);setTitle('Batch Import',action);
     assert.equal(back.hidden,false);assert.ok(!classes.has('hall-home'));
+    assert.equal(top['.topbar'].attrs['aria-label'],'Batch Import');
     setTitle('Students',null);assert.equal(back.hidden,true);
   }
+});
+
+for(const locale of ['en-US','zh-CN','zh-TW','ja-JP','ko-KR','th-TH'])test(`every page retains its accessible name without a visible title in ${locale}`,async()=>{
+  const {setTitle,setTopActions}=await import('../../src/ba_modding_toolkit/web/js/nav.js');
+  const ui=JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${locale}.json`,import.meta.url))).webui;
+  for(const [name,hall] of [[ui.top.students,false],[ui.hall.title,true],[ui.nav.import,false]]){
+    setTopActions(hall);setTitle(name,()=>{});
+    assert.equal(top['.topbar'].attrs['aria-label'],name);
+    assert.equal(top['.topbar .back'].hidden,hall);
+  }
+  const html=readFileSync(new URL('../../src/ba_modding_toolkit/web/index.html',import.meta.url),'utf8');
+  assert.doesNotMatch(html,/class="title"/);
 });

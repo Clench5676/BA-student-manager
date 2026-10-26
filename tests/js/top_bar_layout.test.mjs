@@ -1,4 +1,4 @@
-// The top bar's vertical alignment and title size (top-bar-layout.js, ngui.js inkShift / fontSizeFor): the numbers, in every
+// The top bar's vertical alignment (top-bar-layout.js, ngui.js inkShift / fontSizeFor): the numbers, in every
 // shipped language. Run by tests/test_top_bar.py.
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -93,42 +93,27 @@ test("every element's ink lands on the bar's centre, from the prefab's geometry 
   assert.ok(Math.abs(insideBox(help, 12, 52)) < 4.5);
 });
 
-for (const locale of LOCALES) test(`the title uses the caption's drawn size on every page in ${locale}`, async () => {
-  const ui = JSON.parse(await readFile(new URL(`../../src/ba_modding_toolkit/locales/${locale}.json`, import.meta.url), "utf8")).webui;
-  document.documentElement.lang = locale;
-  for (const title of [ui.top.students, ui.hall.title, ui.nav.import]) {
-    assert.ok(title);
-    for (const captionPx of [20, 23, 26]) assert.equal(Layout.titlePx(captionPx), captionPx);
+for (const locale of LOCALES) test(`the caption keeps its script reference baseline in ${locale}`, async () => {
+  const ui=JSON.parse(await readFile(new URL(`../../src/ba_modding_toolkit/locales/${locale}.json`,import.meta.url),'utf8')).webui;
+  document.documentElement.lang=locale;
+  for(const fs of [20,23,26]){
+    const shift=NGUI.inkShift(ui.mods.switch,fs,{reference:true});
+    // The deterministic font's ascent/descent place its reference ink 0.075 em
+    // below the line-box centre. Verify that the caption moves onto the fill.
+    for(const [width,height] of [[960,540],[1600,900],[2560,1080]])for(const density of [1,2,3]){
+      const scale=Math.min(width/1920,height/1080),centre=Layout.barCentre();
+      near((centre+0.075*fs+shift)*scale*density,centre*scale*density);
+    }
   }
-  assert.equal(Layout.titlePx(), 26);
 });
 
-test("the title is centred by its script's reference glyph, not by its own letters", async () => {
-  const nav = await readFile(new URL("../../src/ba_modding_toolkit/web/js/top-bar.js", import.meta.url), "utf8");
-  assert.match(nav, /inkShift\(el\.textContent, parseFloat\(getComputedStyle\(el\)\.fontSize\), \{ reference: true \}\)/);
-  // the same title on every page keeps one baseline: capital H for Latin
-  document.documentElement.lang = "en-US";
-  const px = Layout.titlePx();
-  const shifts = ["Students", "Student Hall", "Batch Import"].map((t) => NGUI.inkShift(t, px, { reference: true }));
-  assert.ok(shifts.every((v) => Math.abs(v - shifts[0]) < 1e-9));
-});
-
-test("the bar's padding and the title size come from the code, not fixed numbers in the style sheet alone", async () => {
+test("the bar still measures its fill and aligns the remaining caption by script reference ink", async () => {
   const css = await readFile(new URL("../../src/ba_modding_toolkit/web/css/app.css", import.meta.url), "utf8");
   assert.match(css, /padding-bottom: var\(--bar-padding, 4\.88px\)/);
   near(Layout.barPadding(Layout.barCentre()), 4.88, 0.01);
   const nav = await readFile(new URL("../../src/ba_modding_toolkit/web/js/nav.js", import.meta.url), "utf8");
-  assert.match(nav, /sizeTitle\(title\)/);
   assert.match(nav, /watchTopBar\(\)/);
-});
-
-test('the actual title sizing reads the fitted caption even when the caption is compact or unavailable',async()=>{
-  const {sizeTitle}=await import('../../src/ba_modding_toolkit/web/js/top-bar.js');
-  const title={style:{}},caption={};let size=26;
-  document.querySelector=()=>caption;
-  globalThis.getComputedStyle=()=>({fontSize:`${size}px`});
-  for(size of [20,23,26,28.5]){
-    sizeTitle(title);near(parseFloat(title.style.fontSize),size);
-  }
-  document.querySelector=()=>null;sizeTitle(title);assert.equal(title.style.fontSize,'26px');
+  const bar=await readFile(new URL('../../src/ba_modding_toolkit/web/js/top-bar.js',import.meta.url),'utf8');
+  assert.match(bar,/querySelectorAll\("\.ms-label"\)/);
+  assert.match(bar,/inkShift\(el\.textContent, parseFloat\(getComputedStyle\(el\)\.fontSize\), \{ reference: true \}\)/);
 });

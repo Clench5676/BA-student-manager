@@ -93,8 +93,6 @@ input[type="text"], input[type="search"], textarea { cursor: text; }
   padding-bottom: var(--bar-padding, 4.88px);
 }
 .back { position: absolute; left: calc(var(--corner-margin, 43.978378px) - 172px); top: 9px; width: 106.38px; height: 111.57px; }
-.topbar.hall-home .title { margin-left: -134px; }
-.title { margin-left: -12px; font: var(--w) 26px/1 var(--font); color: var(--navy-text); letter-spacing: 1px; }
 /* the game's top bar option button (Common_Top_Option_Btn tinted #466399) and the slanted divider before it */
 .top-option, .top-home { position: absolute; top: 7px; width: 50px; height: 50px; display: grid; place-items: center; }
 .top-option { right: calc(var(--corner-margin, 43.978378px) + 114px); }
@@ -105,11 +103,12 @@ input[type="text"], input[type="search"], textarea { cursor: text; }
   mask: url("/asset/ui/sprite/Common/Common_Top_Option_Btn.png") center / contain no-repeat; }
 .top-line { position: absolute; right: calc(var(--corner-margin, 43.978378px) + 76px); top: 12px; width: 3px; height: 32px; }
 
-/* the Enable Mods switch after the title (js/mod-switch.js): two of the roster filter's segments (UICharacterCollection
+/* the Enable Mods switch after Back (js/mod-switch.js): two of the roster filter's segments (UICharacterCollection
    FilterBtn: Common_Filter_Tab_Type1 and its flipped twin, 9-sliced and inclined 10 degrees like NGUI draws them, at
    40/104 of their size), ON pressed in the Support segment's blue and OFF in the All segment's navy; its label; the
    square "?" (Btn_Information: Common_Btn_Information in #2c4564 over a white square) */
-.mod-switch { display: flex; align-items: center; gap: 12px; margin-left: 32px; height: 64px; }
+.mod-switch { display: flex; align-items: center; gap: 12px; margin-left: -12px; height: 64px; }
+.topbar.hall-home .mod-switch { margin-left: -134px; }
 .mod-switch[hidden] { display: none; }
 .ms-toggle { position: relative; display: flex; height: 40px; filter: drop-shadow(0 1px 2px rgba(30, 60, 100, .3)); }
 .ms-seg { position: relative; display: grid; place-items: center; min-width: 82px; height: 40px; padding: 0 14px; }
@@ -412,8 +411,6 @@ input[type="text"], input[type="search"], textarea { cursor: text; }
 .native-chrome .topbar { transform-origin: top left; transition: none; padding-left: var(--native-left, 0px);
   font-family: var(--font); font-weight: var(--w); }
 .native-chrome .topbar .back { left: calc(var(--corner-margin, 43.978378px) - 172px + var(--native-left, 0px)); }
-.topbar .title { min-width: 0; flex: 0 1 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  padding-block: .5em; }
 .topbar .mod-switch { flex: none; }
 .topbar.mods-compact .ms-label { display: none; }
 .native-chrome .topbar.chrome-waiting > * { visibility: hidden; }
