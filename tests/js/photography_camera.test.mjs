@@ -56,23 +56,18 @@ test('memorial framing stays painted at every zoom and both pan extremes',()=>{
 });
 
 test('compact occlusion control retains the right edge, centering, hit target and neighbours',async()=>{
-  const {OCCLUSION_BUTTON:box,captionSize}=await import('../../src/ba_modding_toolkit/web/js/photography/camera.js');
+  const {OCCLUSION_BUTTON:box,TOOLBAR_CAPTION:caption}=await import('../../src/ba_modding_toolkit/web/js/photography/camera.js');
   assert.deepEqual(box,[1352,25,196,76]);
   assert.equal(box[0]+box[2],1548);assert.equal(1570-box[0]-box[2],22);
   for(const scale of [.75,1,1.25,1.5,2]){
     assert.ok(box[2]*scale>=44);assert.ok(box[3]*scale>=44);
     assert.equal((box[1]+box[3]/2)*scale,63*scale);
   }
-  for(const locale of ['en-US','zh-CN','zh-TW','ja-JP','ko-KR','th-TH']){
-    const data=JSON.parse(await readFile(new URL(`../../src/ba_modding_toolkit/locales/${locale}.json`,import.meta.url),'utf8'));
-    const label=data.webui.photo.occlusion;
-    assert.ok(label);
-    // Conservative full-em glyphs also exercise fitting long translations.
-    const measure=size=>[...label].length*size;
-    const size=captionSize(measure,box[2]-36,38*1920/2960);
-    assert.ok(measure(size)<=box[2]-36+1e-8);
-  }
+  // captions keep clear of the 196 x 76 body: 18 beside, 8 above and below
+  assert.deepEqual([caption.width,caption.height],[box[2]-36,box[3]-16]);
   const controller=await readFile(new URL('../../src/ba_modding_toolkit/web/js/photography/controller.js',import.meta.url),'utf8');
   assert.match(controller,/P\('occlusion'\),OCCLUSION_BUTTON/);
   assert.match(controller,/\[1570,25,196,76\]/);
+  // the fit never reads computed style of a layer that is not in the document yet (empty there, so nothing was ever fitted)
+  assert.doesNotMatch(controller,/getComputedStyle/);
 });

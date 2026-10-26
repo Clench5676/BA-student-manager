@@ -26,6 +26,6 @@ export function lobbyCaptureView(view,bounds,frame=FRAME){
 
 // Keep the existing right edge and neighbouring grid/mode controls fixed.
 export const OCCLUSION_BUTTON=Object.freeze([1352,25,196,76]);
-export function captionSize(measure,available,maximum){
-  return Math.min(maximum,maximum*available/Math.max(1,measure(maximum)));
-}
+// The toolbar's text buttons (Occlusion Guide, Grid) share one caption size: the largest up to 38 units at which every caption
+// fits its 196 x 76 body (18 clear of each side, 8 above and below) on up to two lines. Stage px.
+export const TOOLBAR_CAPTION=Object.freeze({size:38,min:26,width:196-36,height:76-16});

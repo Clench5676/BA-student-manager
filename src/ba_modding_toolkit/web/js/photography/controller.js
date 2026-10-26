@@ -8,7 +8,7 @@ import {clone,S,hitButton} from '../util.js';
 import {captureScene} from './capture.js';
 import {photograph} from './shoot.js';
 import {cameraFeedback} from './feedback.js';
-import {FRAME,choiceLayout,OCCLUSION_BUTTON,captionSize} from './camera.js';
+import {FRAME,choiceLayout,OCCLUSION_BUTTON,TOOLBAR_CAPTION} from './camera.js';
 import {alignIcon,buttonCenter} from '../student-hall-icons.js';
 import {anchoredCentre} from '../visual-view.js';
 import {wheelKind,wheelStep} from '../lobby-touch.js';
@@ -37,14 +37,16 @@ function errorText(error){return error.code?T(`error.${error.code}`,error.params
 function safe(fn){return (...args)=>Promise.resolve().then(()=>fn(...args)).catch(error=>{if(error.name==='AbortError')return;console.error('Photography action failed',error);return Popup.message({title:P('failed'),lines:[errorText(error)],ok:P('confirm')});});}
 function node(name,widgets,children=[]){return {name,active:true,pos:[0,0],scale:[1,1,1],rotZ:0,widgets,children};}
 let whiteTemplate;
-async function whiteButton(host,name,caption,box,action,{icon=null,atlas='Common',pressed=false,enabled=true}={}){
+// The captions of the two text buttons, one size for both states of the grid button too, so nothing changes size on a click.
+const toolbarCaptions=()=>NGUI.fitGroup([P('occlusion'),P('gridOn'),P('gridOff')],TOOLBAR_CAPTION.size,TOOLBAR_CAPTION.min,TOOLBAR_CAPTION.width/S,2,{maxH:TOOLBAR_CAPTION.height/S});
+async function whiteButton(host,name,caption,box,action,{icon=null,atlas='Common',pressed=false,enabled=true,fit=null}={}){
   whiteTemplate ||= NGUI.layout('UICharacterVisualMode').then(layout=>clone(NGUI.find(layout,'Inventory_ListControl_PC/LeftTop/Btn_Back')));
   const tree=clone(await whiteTemplate),[x,y,w,h]=box;
   tree.name=name;tree.pos=[0,0];tree.children=[];
   const body=tree.widgets.find(widget=>'sprite' in widget);body.w_=w/S;body.h_=h/S;body.depth=60;
   if(pressed)body.color='#b9eeff/1.00';
   if(icon)tree.children.push(node('Icon',[{sprite:icon,atlas,w_:Math.min(w-30,h-26)/S,h_:Math.min(w-30,h-26)/S,pivot:4,depth:65,color:'#2b496e/1.00',type:0}]));
-  else tree.children.push(node('Label',[{text:caption,fontSize:38,w_:(w-24)/S,h_:(h-16)/S,pivot:4,depth:65,color:'#2b496e/1.00',align:2}]));
+  else tree.children.push(node('Label',[{text:fit?.text??caption,fontSize:fit?.fs??TOOLBAR_CAPTION.size,w_:(w-24)/S,h_:(h-16)/S,pivot:4,depth:65,color:'#2b496e/1.00',align:2}]));
   const wrapper=document.createElement('div');wrapper.dataset.photoControl=name;host.append(wrapper);
   const view=await NGUI.render(tree,wrapper,{scale:S,origin:[x+w/2,y+h/2]});
   if(icon)await alignIcon(view,`${name}/Icon`,name,{height:h*.52,maxWidth:w*.64,center:'bounds',color:'#2b496e'});
@@ -57,13 +59,8 @@ async function whiteButton(host,name,caption,box,action,{icon=null,atlas='Common
     }
     const center=await buttonCenter(opticalBody),label=view.nodes.get(`${name}/Label`).els[0];
     Object.assign(label.style,{left:`${center.x-(w-24)/2}px`,top:`${center.y-(h-16)/2}px`,paddingBottom:'0px',justifyContent:'center'});
-    const style=getComputedStyle(label),canvas=document.createElement('canvas'),context=canvas.getContext('2d');
-    context.font=`${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
-    const maximum=parseFloat(style.fontSize),font=size=>`${style.fontWeight} ${size}px ${style.fontFamily}`;
-    const size=name==='Occlusion'?captionSize(size=>{context.font=font(size);return context.measureText(caption).width;},w-36,maximum):maximum;
-    label.style.fontSize=`${size}px`;context.font=font(size);
-    const metrics=context.measureText(caption),ascent=metrics.fontBoundingBoxAscent,descent=metrics.fontBoundingBoxDescent;
-    if(Number.isFinite(ascent)&&Number.isFinite(descent))label.style.translate=`0 ${(metrics.actualBoundingBoxAscent-metrics.actualBoundingBoxDescent-ascent+descent)/2}px`;
+    // The layer is not in the document yet, where computed style is empty: the size is the one the label was drawn with.
+    label.style.translate=`0 ${NGUI.inkShift(fit?.text??caption,parseFloat(label.style.fontSize))}px`;
   }
   const hit=hitButton(wrapper,box,safe(action),caption,90);hit.disabled=!enabled;hit.dataset.photoAction=name;
   if(pressed)hit.setAttribute('aria-pressed','true');return hit;
@@ -219,9 +216,10 @@ async function drawControls(){
   const layer=document.createElement('div');panSurface(layer);
   const guide=document.createElement('div');guide.className='photo-guide'+(grid?'':' no-grid');guide.innerHTML='<i></i><i></i><i></i><i></i>';layer.append(guide);
   Object.assign(guide.style,{left:`${FRAME.x}px`,top:`${FRAME.y}px`,width:`${FRAME.width}px`,height:`${FRAME.height}px`});
+  const captions=toolbarCaptions();
   const buttons=[backButton(layer),
-    whiteButton(layer,'Occlusion',P('occlusion'),OCCLUSION_BUTTON,async()=>{occlusion=!occlusion;await drawControls();},{pressed:occlusion}),
-    whiteButton(layer,'Grid',grid?P('gridOn'):P('gridOff'),[1570,25,196,76],async()=>{grid=!grid;await drawControls();},{pressed:grid}),
+    whiteButton(layer,'Occlusion',P('occlusion'),OCCLUSION_BUTTON,async()=>{occlusion=!occlusion;await drawControls();},{pressed:occlusion,fit:captions[0]}),
+    whiteButton(layer,'Grid',grid?P('gridOn'):P('gridOff'),[1570,25,196,76],async()=>{grid=!grid;await drawControls();},{pressed:grid,fit:captions[grid?1:2]}),
     modeButton(layer),
     whiteButton(layer,'Gallery',P('gallery'),[25,950,130,82],openGallery,{icon:'Cafe_Icon_Photo'}),
     shutter(layer),
