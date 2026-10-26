@@ -697,7 +697,7 @@ Source-picker primary Save now carries an explicit affirmative semantic. Update 
 
 ## BL-035: Fine seam in the Mod switch's On segment
 
-- Status: Residual defect. Investigation and correction not started; owner requested backlog only.
+- Status: Implemented for local review; owner UAT/visual acceptance pending.
 - Requested: 2026-10-26, following local alpha.1 review.
 - Parent: BL-026.
 
@@ -706,6 +706,8 @@ rendering corrections did not resolve this specific artifact. Inspect this contr
 including its scaled segment edges and active-state paint, before choosing a correction. Preserve the native
 shape, colors, text and click geometry; do not hide the defect by reducing image quality. Owner visual acceptance
 and accurately reported platform/DPI coverage are required when implementation is authorized.
+
+The switch bypassed NGUI's contiguous raster slicing: its active CSS mask and inactive border image sampled fractional tile edges independently. Both states now use the shared high-quality NGUI raster path, retaining the sprite, inclination, colors and hit box. Geometry checks cover stage scales 0.5–2 and device pixel ratios 1–3 with the shared 2× raster; native WebView visual acceptance remains pending.
 
 ## BL-036: Consistent asset deletion for official, previewed and applied sources
 

@@ -105,19 +105,10 @@ input[type="text"], input[type="search"], textarea { cursor: text; }
 .mod-switch[hidden] { display: none; }
 .ms-toggle { position: relative; display: flex; height: 40px; filter: drop-shadow(0 1px 2px rgba(30, 60, 100, .3)); }
 .ms-seg { position: relative; display: grid; place-items: center; min-width: 82px; height: 40px; padding: 0 14px; }
-.ms-seg::before { content: ""; position: absolute; inset: 0; opacity: .95; border-style: solid; border-width: 4.2px 1.9px 6.5px 5.8px;
-  border-image: url("/asset/ui/sprite/Common/Common_Filter_Tab_Type1.png") 11 5 17 15 fill stretch; transform: skewX(-10deg); }
-.ms-seg.ms-off::before { transform: skewX(-10deg) scaleX(-1); }
-.ms-seg b { position: relative; font: var(--w) 24px/1 var(--font); letter-spacing: .5px; white-space: nowrap; margin-top: -3px; }
+.ms-skin { position: absolute; inset: 0; pointer-events: none; }
+.ms-seg b { position: relative; z-index: 1; font: var(--w) 24px/1 var(--font); letter-spacing: .5px; white-space: nowrap; margin-top: -3px; }
 .ms-seg.ms-on b { color: #006bff; }
 .ms-seg.ms-off b { color: #1d2a38; }
-/* the pressed segment: Common_Filter_Tab_Type1_Pressed (324 x 99 at +2.6, no shadow) in the segment's colour */
-.ms-toggle.is-on .ms-on::before, .ms-toggle:not(.is-on) .ms-off::before {
-  inset: 0 .8px 2px .8px; opacity: 1; border: 0; border-image: none; background: #0664eb;
-  -webkit-mask-box-image-source: url("/asset/ui/sprite/Common/Common_Filter_Tab_Type1_Pressed.png");
-  -webkit-mask-box-image-slice: 11 1 12 13 fill; -webkit-mask-box-image-width: 4.2px .4px 4.6px 5px;
-  -webkit-mask-box-image-repeat: stretch; }
-.ms-toggle:not(.is-on) .ms-off::before { background: #153757; }
 .ms-toggle.is-on .ms-on b, .ms-toggle:not(.is-on) .ms-off b { color: #ffffff; margin-top: -1px; }
 /* busy: dimmed at the loading indicator's pace; unavailable: greyed */
 .ms-toggle.busy { animation: ms-busy 1.1667s ease-in-out infinite; }
