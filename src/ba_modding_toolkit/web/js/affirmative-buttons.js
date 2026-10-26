@@ -1,15 +1,14 @@
 // UIMailBox/Bottom/ObjectsDisplayed_Unread/ReceiveAll/Btn is the native gold affirmative branch.
 import {resizeButton} from './button-layout.js';
-const affirmative=/^(?:Btn_)?(?:Ok|Confirm|Save(?:Selection|Layout|List)?|Apply(?:Game|Selection)?|Import|Export|Install|Done|Finish)$/i;
-const blocked=/(?:Cancel|Disable|Delete|Remove|Previous|Next)/i;
+const affirmative=new Set(['confirm','save','apply','import','install','finish']);
+const isAffirmative=tree=>tree.affirmative===true||affirmative.has(tree.actionSemantic);
 export function hasAffirmative(tree){
-  return !blocked.test(tree.name||'')&&(tree.affirmative||affirmative.test(tree.name||'')||(tree.children||[]).some(hasAffirmative));
+  return isAffirmative(tree)||(tree.children||[]).some(hasAffirmative);
 }
 export function skinAffirmatives(tree,template){
   const findBody=n=>n.widgets?.some(w=>w.sprite==='Common_Btn_BG')?n:(n.children||[]).map(findBody).find(Boolean);
   const visit=(n,held=false)=>{
-    if(blocked.test(n.name||''))return;
-    if(!held&&(n.affirmative||affirmative.test(n.name||''))){
+    if(!held&&isAffirmative(n)){
       const body=findBody(n),original=body?.widgets.find(w=>w.sprite==='Common_Btn_BG');
       if(original&&!/^#(?:d6d6d6|828282)/i.test(original.color||'')){
         const source=structuredClone(template),gold=source.widgets.find(w=>w.sprite==='Common_Btn_BG');

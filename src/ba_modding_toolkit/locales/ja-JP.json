@@ -1653,7 +1653,7 @@
 			"server": "出力先サーバー",
 			"platform": "出力先プラットフォーム",
 			"library": "Mod ライブラリを出力",
-			"applied": "適用済みを出力",
+			"applied": "適用済みModを書き出す",
 			"success": "出力完了。フォルダーを開きますか？",
 			"openFolder": "フォルダーを開く"
 		},

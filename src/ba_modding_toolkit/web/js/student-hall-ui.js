@@ -121,9 +121,9 @@ export function createModal(title, onClose, { level = 0 } = {}) {
   };
   Popup.opened(host, onClose); return api;
 }
-export async function button(host, name, caption, [x, y, width, height], action, { enabled = true } = {}) {
+export async function button(host, name, caption, [x, y, width, height], action, { enabled = true, semantic = "secondary" } = {}) {
   await ready();
-  const tree = Buttons.smallButton(name, 0, 0, caption, { w: width / S, h: height / S, fs: 40, min: 26, enabled, depth: 65 });
+  const tree = Buttons.smallButton(name, 0, 0, caption, { w: width / S, h: height / S, fs: 40, min: 26, enabled, semantic, depth: 65 });
   const view = await NGUI.render(tree, host, { scale: S, origin: [x + width / 2, y + height / 2] });
   const path = NGUI.find(tree, "BG (1)") ? `${name}/BG (1)` : name;
   const hit = Popup.hit(host, view, path, action, { name: caption, action: name, z: 90 });

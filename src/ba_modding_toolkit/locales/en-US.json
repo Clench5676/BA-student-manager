@@ -1653,7 +1653,7 @@
 			"server": "Target Server",
 			"platform": "Target Platform",
 			"library": "Export Mod Library",
-			"applied": "Export Applied",
+			"applied": "Export Applied Mods",
 			"success": "Export successful. Open folder?",
 			"openFolder": "Open Folder"
 		},

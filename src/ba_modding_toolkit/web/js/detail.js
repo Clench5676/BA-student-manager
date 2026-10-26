@@ -1218,7 +1218,7 @@ async function drawPopup(scroll = 0) {
     .filter((it) => popupSeg === 0 || (popupSeg === 1) === !!it.recruit)
     .sort((a, b) => (b.fav ? 1 : 0) - (a.fav ? 1 : 0));
   await listPopup({
-    hostId: "popup", layoutKind: kind, title: T(isSpecial(v) ? "special.switch" : kind === "spr" ? "popup.switch" : `row.switch.${kind}`), okText: T(mode.button), items, selected: pending, keepScroll: scroll,
+    hostId: "popup", layoutKind: kind, title: T(isSpecial(v) ? "special.switch" : kind === "spr" ? "popup.switch" : `row.switch.${kind}`), okText: T(mode.button), okSemantic: "save", items, selected: pending, keepScroll: scroll,
     tools: { segs: ["seg.all", "seg.recruit", "seg.noRecruit"], seg: popupSeg, onSeg: (i) => { popupSeg = i; renderPopup(); }, sortKey: "sort.default" },
     onSelect: (key, s) => {
       const c = candidates(v, kind).find((x) => x.key === key);
@@ -1240,7 +1240,7 @@ async function drawPopup(scroll = 0) {
         title: T(isSpecial(v) ? "special.background" : kind === "spr" ? "info.title.portrait" : `info.title.${kind}`),
         fields: [[T("field.file"), baseName(file)], [T("field.size"), sizeText(size)], [T("field.status"), [status && T(status), error && T(`error.${error.code}`, error.params)].filter(Boolean).join("\n") || "—", statusColor],
           [T("field.crc"), crc ? T(crc[0]) : "—", crc?.[1] && `${crc[1]}/1.00`]],
-        actions: [[T("popup.apply"), () => applyCandidate(c.key, kind), !coreOf(v, kind) || isApplied(v, kind, c.key) || !!c.greyed || busy],
+        actions: [[T("popup.apply"), () => applyCandidate(c.key, kind), !coreOf(v, kind) || isApplied(v, kind, c.key) || !!c.greyed || busy, "apply"],
           [T(platform === "mac" ? "open.mac" : "open.win"), () => reveal(file)],
           ...(c.kind === "mod" ? [[T("compatibility.check"), async () => {
             let rebuilt = false;

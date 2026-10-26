@@ -1653,7 +1653,7 @@
 			"server": "目標伺服器",
 			"platform": "目標平台",
 			"library": "匯出 Mod 庫",
-			"applied": "匯出已套用",
+			"applied": "匯出已套用的Mod",
 			"success": "匯出成功。開啟資料夾？",
 			"openFolder": "開啟資料夾"
 		},

@@ -670,7 +670,7 @@ publication. Keep genuine storage/format/permanent failures distinguishable and 
 
 ## BL-034: Correct gold-button scope and applied-Mod export label
 
-- Status: Planned. Not started; owner requested backlog only.
+- Status: Implemented for local review; owner UAT/visual acceptance pending.
 - Requested: 2026-10-26, following local alpha.1 review.
 - Parent: BL-029; export wording also relates to BL-004.
 
@@ -692,6 +692,8 @@ export merely because other affirmative actions use gold. Owner review remains t
 
 Owner clarification confirmed that the photo gallery's Export must use the normal non-gold style. This is a
 confirmed backlog requirement; it does not authorize implementation in this documentation-only update.
+
+Source-picker primary Save now carries an explicit affirmative semantic. Update and both export entry points retain normal styling; the applied export label is localized in all six languages. Styling no longer infers meaning from names or captions.
 
 ## BL-035: Fine seam in the Mod switch's On segment
 

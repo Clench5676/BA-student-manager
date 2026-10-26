@@ -1652,8 +1652,8 @@
 			"confirm": "确认",
 			"server": "目标服务器",
 			"platform": "目标平台",
-			"library": "导出 Mod 仓库",
-			"applied": "导出已应用",
+			"library": "导出Mod仓库",
+			"applied": "导出已应用的Mod",
 			"success": "导出成功，是否打开文件夹？",
 			"openFolder": "打开文件夹"
 		},

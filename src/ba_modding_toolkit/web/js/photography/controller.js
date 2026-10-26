@@ -295,7 +295,7 @@ async function galleryDraw(){
     if(selectedPhoto){
       await image(layer,selectedPhoto.url,[1190,270,320,320]);
       await UI.caption(layer,selectedPhoto.name,[1190,625,320],{align:2});
-      await UI.button(layer,'Apply',P('apply'),[1200,670,140,64],safe(applyGame),{enabled:repository.applicable&&(!repository.game?.known||selected!==repository.game?.id||!!repository.game?.error||repository.game?.pending)});
+      await UI.button(layer,'Apply',P('apply'),[1200,670,140,64],safe(applyGame),{semantic:"apply",enabled:repository.applicable&&(!repository.game?.known||selected!==repository.game?.id||!!repository.game?.error||repository.game?.pending)});
       await UI.button(layer,'Delete',P('delete'),[1360,670,140,64],safe(async()=>{repository=normalized(await call('delete',{id:selected}));selected=repository.photos.at(-1)?.id||DEFAULT;await galleryDraw();}),{enabled:!selectedPhoto.original&&selected!==repository.app&&selected!==repository.game?.id});
     }
     if(allPhotos.length>6){
@@ -308,7 +308,7 @@ async function galleryDraw(){
       bridge.thumbnailChanged();selected=DEFAULT;page=0;await galleryDraw();
     }),{enabled:repository.app!==null||repository.game?.id!==DEFAULT});
     await UI.button(layer,'Export',P('export'),[565,835,180,64],safe(async()=>{await Loading.task(async()=>call('export',{id:selected,png:selected===DEFAULT?await generatedPNG():null}));}),{enabled:!!selectedPhoto});
-    await UI.button(layer,'SaveSelection',P('saveSelection'),[1280,835,140,64],safe(async()=>{repository=normalized({...repository,...await call('select',{id:selectedKey(selected)})});bridge.thumbnailChanged();modal.close();modal=null;bridge.pause(paused);}),{enabled:!!selected});
+    await UI.button(layer,'SaveSelection',P('saveSelection'),[1280,835,140,64],safe(async()=>{repository=normalized({...repository,...await call('select',{id:selectedKey(selected)})});bridge.thumbnailChanged();modal.close();modal=null;bridge.pause(paused);}),{semantic:"save",enabled:!!selected});
   },[],{width:2000,height:1200});
 }
 async function applyGame(){
