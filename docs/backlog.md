@@ -484,7 +484,7 @@ externally changed files; stale snapshots and cancellation; export-only runs; an
 
 ## BL-020: Release notes in update detection
 
-- Status: Implemented for local review; owner UAT/visual acceptance pending.
+- Status: Implemented for local review; owner UAT/visual acceptance pending. Owner review deferred until after the 0.6.0 release (2026-10-26).
 - Note: The detected tag's GitHub body opens in a scrollable notice popup, with a release-page fallback for empty notes.
 - Requested: 2026-10-25.
 
@@ -496,7 +496,7 @@ repository's agent guidance; do not publish an empty stable-release description.
 
 ## BL-021: First-launch new-version feature tour
 
-- Status: Implemented for local review; owner UAT/visual acceptance pending.
+- Status: Implemented for local review; owner UAT/visual acceptance pending. Owner review deferred until after the 0.6.0 release (2026-10-26).
 - Owner review of the 0.6.0 draft (2026-10-26): merge the photography and shared-gallery pages into one student
   thumbnail page (`学生详情全屏后增加大头照拍摄功能`), drop the release-notes page; publication awaits the owner's OK
   on the revised copy.
@@ -842,7 +842,7 @@ and review rule, kept in a UI guideline file rather than in the general agent ru
 
 ## BL-042: Restore Default on thumbnails creates an orphan generated default
 
-- Status: Planned; owner macOS review of 0.6.0-alpha.2.
+- Status: In progress (authorized 2026-10-26).
 - Requested: 2026-10-26.
 - Related: BL-022 (generated defaults) and BL-036 (deletion rules).
 
@@ -870,7 +870,7 @@ and display densities.
 
 ## BL-044: Applied and preview frames from the game's selected skill cards
 
-- Status: Planned; owner macOS review of 0.6.0-alpha.2.
+- Status: In progress (authorized 2026-10-26).
 - Requested: 2026-10-26.
 - Related: BL-015, BL-022 and BL-036.
 - Evidence: owner screenshots of the game's Formation Edit > starting skills > selected skill cards (animated yellow
@@ -916,7 +916,7 @@ interrupted runs. Upstream's CLI options and the shared UnityFS reader are alrea
 
 ## BL-047: Fullscreen button left on a rotated fullscreen portrait
 
-- Status: Planned; owner macOS review of 0.6.0-alpha.3.
+- Status: In progress (authorized 2026-10-26).
 - Requested: 2026-10-26.
 - Related: the portrait view's rotate and fullscreen controls.
 
@@ -925,7 +925,7 @@ top-right corner. It must not be shown once the view is fullscreen; leaving full
 
 ## BL-048: Remove the CLI as a built and installed command
 
-- Status: Implemented for local review.
+- Status: Accepted by the owner (2026-10-26).
 - Requested: 2026-10-26.
 - Related: BL-046.
 
