@@ -180,3 +180,12 @@ test("leaving glides the portrait back to the detail framing exactly and takes t
   assert.deepEqual({ x, y, width, height }, DETAIL);
   s.stage.remove();
 });
+
+test("the visual mode draws no top-right Hide UI / Show UI button (BL-047)", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const src = await readFile(new URL("../../src/ba_modding_toolkit/web/js/visual-mode.js", import.meta.url), "utf8");
+  const corners = /const CORNERS = (\[.*\]);/.exec(src)[1];
+  assert.doesNotMatch(corners, /RightTop|Btn_HideUI|Btn_ShowUI/);
+  assert.match(corners, /"LeftTop", \["Btn_Back"\]/);
+  assert.match(corners, /"RightBottom", \["Btn_RefreshPos", "Btn_RefreshPos_Disable"\]/);
+});
