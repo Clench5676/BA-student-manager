@@ -756,7 +756,7 @@ Official provenance controls Delete visibility and direct-request rejection. Man
 
 ## BL-037: Design native window controls integrated into the top toolbar
 
-- Status: Planned design task. Design, prototype and implementation not started; owner requested backlog only.
+- Status: Design proposed for owner review; implementation not started.
 - Requested: 2026-10-26.
 - Parent: BL-024.
 
