@@ -438,6 +438,8 @@ def register_api(rpc: Any, s: Any) -> None:
 
     @rpc.method("hall.options")
     def options() -> dict:
+        if not s.game_found():
+            raise ServiceError("game_directory_missing")
         families = s.catalog.families()
         variants = {v.key: v for f in families for v in f.variants}
         family_names = {family.key: family.names for family in families}

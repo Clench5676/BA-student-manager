@@ -1241,6 +1241,7 @@
 			"hall_last_memorial": "メモリアルロビーを1つ以上保持",
 			"hall_duplicate_portrait": "この立ち絵は追加済みです",
 			"hall_duplicate_memorial": "このメモリアルロビーは追加済みです",
+			"game_directory_missing": "設定でこのサーバーのゲームフォルダーを選択してください。",
 			"photo_capture_unavailable": "画面を取得できません。再試行してください",
 			"photo_invalid": "写真データが無効です",
 			"photo_missing": "写真が見つかりません",

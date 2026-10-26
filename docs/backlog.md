@@ -775,7 +775,7 @@ The Hall centers the native Settings sprite in Home’s former box and hides the
 
 ## BL-039: Missing Japanese directory causes server-switch error and blank Hall
 
-- Status: Reported defect. Investigation and correction not started; owner requested backlog only.
+- Status: Implemented for local review; owner UAT/visual acceptance pending.
 - Requested: 2026-10-26.
 - Related: BL-030 support audit, but this is a separately reported settings/navigation failure.
 - Evidence: `codex-clipboard-dd0d548d-05d4-46af-a634-31af2a05b43c.png`, supplied by the owner.
@@ -796,3 +796,5 @@ resources must produce an actionable missing-directory state rather than an Attr
 switch must preserve a usable screen and saved layout/selection, and recovery must work without restarting.
 Avoid committing stale cross-server refresh results, silently clearing Hall data or writing game files as a side
 effect of changing this setting. Owner UAT remains the acceptance step.
+
+Stored model fallback records lacked display metadata when the selected catalog had no installed entry. Offline metadata and complete fallback records now cover name display. Server changes validate the directory before saving; missing resources show a folder-selection message, retain the current server and Hall data, and recover in-session. Refresh ownership rejects stale server results.

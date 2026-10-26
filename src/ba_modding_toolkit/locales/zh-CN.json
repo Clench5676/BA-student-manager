@@ -1241,6 +1241,7 @@
 			"hall_last_memorial": "至少保留一个记忆大厅",
 			"hall_duplicate_portrait": "此立绘已在大厅中",
 			"hall_duplicate_memorial": "此记忆大厅已在清单中",
+			"game_directory_missing": "请在设置中选择此服务器的游戏目录。",
 			"photo_capture_unavailable": "画面暂不可用，请重试",
 			"photo_invalid": "缩略图数据无效",
 			"photo_missing": "缩略图不存在",

@@ -22,7 +22,6 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from functools import wraps
 from pathlib import Path
-from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, Callable, Iterator
 
 from UnityPy.helpers.ResourceReader import get_resource_data
@@ -686,13 +685,22 @@ class ModLibrary:
         except (KeyError, ServiceError) as error:
             if isinstance(error, ServiceError) and error.code != "catalog_variant_not_found":
                 raise
-            if any(record.get("assignment") == key for record in self._records.values()):
-                return self.catalog.assignment_variant(key)
+            if callable(getattr(self.catalog, "assignment_variant", None)) and any(
+                    (record.get("assignment") or record.get("target")) == key for record in self._records.values()):
+                try:
+                    return self.catalog.assignment_variant(key)
+                except (KeyError, ServiceError) as lookup:
+                    if isinstance(lookup, ServiceError) and lookup.code != "catalog_variant_not_found":
+                        raise
             # Current NPC bundles may have no roster entry. Their stored filename owns the model slot.
             record = next((record for record in self._records.values() if record["kind"] == "model"
                            and record["target"] == key and core_of(record["files"][0]) == key), None)
             if record:
-                return SimpleNamespace(key=key, family=key, spr=None, lobby=None, model=key)
+                from ..catalog.models import Variant
+                from ..catalog._names import LANGUAGES, BASE_SHORT
+                return Variant(key, key, key, {lang: {"full": key, "short": BASE_SHORT[lang]}
+                                               for lang in LANGUAGES}, False, 0, None, None, None, None, None,
+                               model=key)
             if isinstance(error, KeyError):
                 raise ServiceError("variant_not_found", variant=key) from error
             raise

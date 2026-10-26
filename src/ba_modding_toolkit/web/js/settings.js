@@ -324,8 +324,11 @@ async function checkUpdate(event) {
   }
 }
 
-let languageWrite = Promise.resolve();
+let languageWrite = Promise.resolve(),resourceWrite=Promise.resolve();
 function set(key, value) {
+  if(key==='fileSource'||key.startsWith('gameDir')){
+    const saved=resourceWrite.then(()=>saveSetting(key,value));resourceWrite=saved.catch(()=>{});return saved;
+  }
   if (key !== "language") return saveSetting(key, value);
   // Keep persisted language and visible strings in the same order when several
   // radio choices are clicked before the preceding request finishes.
