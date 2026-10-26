@@ -24,7 +24,9 @@ export function dragRegions({ width, height, bounds, platform, immersive = false
     // A small strip at the top beside the real controls leaves scene controls
     // below it free. Subtract their hit/focus bounds as well during transitions.
     const left = platform === 'darwin' ? bounds.right + 8 : bounds.left - 8 - 64;
-    background = { left: Math.max(0, left), top: 0, right: Math.min(width, left + 64), bottom: Math.min(height, 12) };
+    // W1 preserves an eight-CSS-pixel native resize edge above WebView2.
+    const top = platform === 'win32' ? 8 : 0;
+    background = { left: Math.max(0, left), top, right: Math.min(width, left + 64), bottom: Math.min(height, top + 12) };
     if (background.right <= background.left) return [];
   }
   return subtractRegions(background, [...exclusions, ...(bounds ? [expandRect(bounds, 8)] : [])]);

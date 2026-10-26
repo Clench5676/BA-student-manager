@@ -33,7 +33,7 @@ for(const platform of ['darwin','win32','fallback'])test(`immersion keeps only a
     assert.equal(g.extra,0);assert.equal(g.contentScale,g.scale,'scene controls retain their full-stage coordinates');
     const input={width,height:g.rowHeight,bounds,platform,immersive:true};
     const drag=dragRegions(input);assert.equal(drag.length,1);
-    const strip=drag[0];assert.equal(strip.right-strip.left,64);assert.equal(strip.bottom,12);
+    const strip=drag[0];assert.equal(strip.right-strip.left,64);assert.equal(strip.bottom-strip.top,12);assert.equal(strip.top,platform==='win32'?8:0);
     assert.ok(disjoint(strip,expandRect(bounds,8)));
     assert.equal(platform==='darwin'?strip.left-bounds.right:bounds.left-strip.right,8);
     // Camera Back is UICharacterCollection/Bg/Btn, 164 x 172 units, at (25,20)

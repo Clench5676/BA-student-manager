@@ -75,7 +75,7 @@ test('native and fallback controllers hide and restore every immersive scene and
       stage.classList=new Classes(stageFlags);root.classList=new Classes(rootFlags);await change();
       assert.ok(body.classList.has('window-immersive'));assert.equal(header.inert,true);
       assert.equal(globalThis.bamtHeaderGeometry.extra,0);assert.equal(sceneBack.inert,false);
-      assert.equal(payload().drag.length,1);assert.equal(payload().drag[0].bottom,12);
+      assert.equal(payload().drag.length,1);assert.equal(payload().drag[0].bottom,platform==='win32'?20:12);
       assert.equal(body.querySelectorAll('.window-drag-region').length,1);
       popup.hidden=false;await change();assert.deepEqual(payload().drag,[]);
       assert.equal(body.querySelectorAll('.window-drag-region').length,0);
@@ -90,7 +90,7 @@ test('native and fallback controllers hide and restore every immersive scene and
   stage.classList.add('fullscreen');await change();assert.deepEqual(payload().drag,[]);
   popup.hidden=false;await change();assert.deepEqual(payload().drag,[]);
   alignmentGate=null;release();await settle();assert.deepEqual(payload().drag,[]);
-  popup.hidden=true;await change();assert.equal(payload().drag[0].bottom,12);
+  popup.hidden=true;await change();assert.equal(payload().drag[0].bottom,20);
   stage.classList.clear();await change();
   snapshot={...snapshot,active:false,sequence:snapshot.sequence+1};handlers['window.chrome'](snapshot);await settle();
   assert.equal(header.parent,stage);assert.equal(body.classList.has('native-chrome'),false);
