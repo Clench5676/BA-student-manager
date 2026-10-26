@@ -12,7 +12,8 @@ export function spriteBorders(meta) {
 
 export function sliceAxis(source, before, after, extent, borderScale, density = 2) {
   const size = Math.max(1, Math.round(extent * density));
-  let a = before * borderScale * density, b = after * borderScale * density;
+  const [beforeScale, afterScale] = Array.isArray(borderScale) ? borderScale : [borderScale, borderScale];
+  let a = before * beforeScale * density, b = after * afterScale * density;
   if (a + b > size) { const f = size / (a + b); a *= f; b *= f; }
   a = Math.round(a); b = Math.round(b);
   return { size, extent, spans: [[0, before, 0, a], [before, source - after, a, size - b],

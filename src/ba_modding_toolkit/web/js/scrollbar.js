@@ -26,16 +26,29 @@ export async function scrollbar(host, [left, top, width, height], { collection =
   Object.assign(bar.style, { left: `${left}px`, top: `${top}px`, width: `${width}px`, height: `${height}px`, zIndex: z });
   if (horizontal) Object.assign(bar.style, { top: `${top + width}px`, transform: "rotate(-90deg)", transformOrigin: "top left" });
   const view = await NGUI.render(tree, bar, { scale: 1, origin: [0, 0] });
+  const paints = [];
   for (const part of tree.children) for (const element of view.nodes.get(`${tree.name}/${part.name}`).els) {
-    const source = element.style.backgroundImage;
-    Object.assign(element.style, { backgroundImage: "none", height: `${height}px`, top: "0px",
-      borderImageSource: source, borderImageSlice: "8 0 8 0 fill", borderImageWidth: `${cap}px 0`, borderImageRepeat: "stretch" });
+    const widget = part.widgets.find((w) => 'texture' in w);
+    const source = await NGUI.tinted(NGUI.textureIndex()[widget.texture], widget.color?.split('/')[0] || '#ffffff');
+    let revision = 0;
+    const paint = async (extent) => {
+      const mine = ++revision;
+      const scale = globalThis.bamtHeaderGeometry?.contentScale || document.getElementById('stage')?.getBoundingClientRect().width / 1920 || 1;
+      const url = await NGUI.slicedImage(source, [8, 0, 8, 0], width, extent, width / 126,
+        Math.max(2, (globalThis.devicePixelRatio || 1) * scale));
+      if (mine === revision) element.style.backgroundImage = `url("${url}")`;
+    };
+    Object.assign(element.style, { height: `${height}px`, top: '0px' });
+    paints.push({ element, paint });
   }
+  await Promise.all(paints.map(({ paint }) => paint(height)));
   const thumb = view.nodes.get(`${tree.name}/Foreground`).els[0];
   bar.sync = (visible, total, offset = 0) => {
     bar.hidden = total <= visible;
     const extent = Math.min(height, Math.max(cap * 2, height * Math.min(1, visible / Math.max(1, total))));
     Object.assign(thumb.style, { height: `${extent}px`, top: `${(height - extent) * (total > visible ? offset / (total - visible) : 0)}px` });
+    // Position updates remain synchronous; only a changed thumb size needs new pixels.
+    return paints.find(({ element }) => element === thumb).paint(extent).catch((error) => console.warn('scrollbar background', error));
   };
   host.appendChild(bar);
   return bar;

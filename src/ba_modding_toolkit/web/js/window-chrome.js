@@ -3,6 +3,7 @@ import { T } from "./i18n.js";
 import { reflowTopActions } from "./nav.js";
 import { alignTopBar, sizeTitle } from "./top-bar.js";
 import { fitStage } from "./util.js";
+import { barImage, paintTopBar } from "./top-bar-background.js";
 import { naturalTextWidth } from "./top-bar-measure.js";
 import { headerGeometry, rowLayout, isImmersive, dragRegions, expandRect } from "./window-layout.js";
 
@@ -82,13 +83,17 @@ async function layout() {
     }
     document.body.classList.remove('native-chrome');
     globalThis.bamtHeaderGeometry = null; fitStage(); reflowTopActions();
-    fitRow(header, stage.getBoundingClientRect().width / 1920);
+    const scale = stage.getBoundingClientRect().width / 1920;
+    fitRow(header, scale);
+    await paintTopBar(header, scale).catch((error) => console.warn("top bar background", error));
     await alignTopBar();
+    if (revision !== layoutRevision || snapshot?.active) return;
     const bounds = document.getElementById('native-controls')?.getBoundingClientRect();
     const drag = dragRegions({ width: innerWidth, height: 12, bounds, platform: 'fallback', immersive: true,
       blocked: blocked || !immersive, exclusions: visibleHits(stage) });
     const strip = document.createElement('div'); strip.className = 'window-fallback-strip';
-    drawDragRegions(strip, drag); document.body.append(strip);
+    await drawDragRegions(strip, drag, immersive ? { scale, height: 64 * scale } : null, () => revision === layoutRevision);
+    if (revision === layoutRevision && !snapshot?.active) document.body.append(strip);
     return;
   }
   if (!wrapper) {
@@ -105,6 +110,7 @@ async function layout() {
   if (!immersive) header.inert = !snapshot.valid;
   fitStage(); reflowTopActions();
   fitRow(header, g.scale, snapshot.platform === 'darwin' ? snapshot.bounds?.right || 0 : 0);
+  await paintTopBar(header, g.scale).catch((error) => console.warn("top bar background", error));
   await alignTopBar();
   if (revision !== layoutRevision || !snapshot?.active || !wrapper) return;
   // Native regions never cover popups or hanging Back art. During page immersion
@@ -114,15 +120,22 @@ async function layout() {
     platform: snapshot.platform, immersive, blocked: blocked || !snapshot.valid,
     exclusions: visibleHits(immersive ? stage : header) });
   wrapper.querySelectorAll('.window-drag-region').forEach((el) => el.remove());
-  if (snapshot.platform === 'win32' || immersive) drawDragRegions(wrapper, drag);
+  if (snapshot.platform === 'win32' || immersive) await drawDragRegions(wrapper, drag, immersive ? { scale: g.scale, height: g.rowHeight } : null, () => revision === layoutRevision);
+  if (revision !== layoutRevision || !snapshot?.active || !wrapper) return;
   const payload = JSON.stringify({ centre: g.centre, height: g.rowHeight, drag });
   if (payload !== lastLayout) { lastLayout = payload; await rpc('window.layout', JSON.parse(payload)); }
 }
 
-function drawDragRegions(host, drag) {
+async function drawDragRegions(host, drag, background = null, current = () => true) {
+  let url = null;
+  if (background && drag.length) url = await barImage(innerWidth / background.scale, background.height / background.scale, background.scale)
+    .catch((error) => console.warn("window drag background", error));
+  if (!current()) return;
   for (const rect of drag) {
     const region = document.createElement('div'); region.className = 'window-drag-region';
     Object.assign(region.style, { left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.right - rect.left}px`, height: `${rect.bottom - rect.top}px` });
+    if (url) Object.assign(region.style, { backgroundImage: `url("${url}")`,
+      backgroundSize: `${innerWidth}px ${background.height}px`, backgroundPosition: `${-rect.left}px ${-rect.top}px` });
     host.append(region);
   }
 }

@@ -29,15 +29,15 @@ test('both states use NGUI single-image paint, with no separately composited CSS
 
 test('the shared raster accepts effective DPI without reducing smoothing or logical geometry',async()=>{
   const renderer=await readFile(new URL('../../src/ba_modding_toolkit/web/js/ngui.js',import.meta.url),'utf8');
-  assert.match(renderer,/sliceAxis\(sw, l, r, wpx, bs, density\)/);
-  assert.match(renderer,/sliceAxis\(sh, t, bo, hpx, bs, density\)/);
+  assert.match(renderer,/sliceAxis\(sw, l, r, wpx, \[scales\[3\], scales\[1\]\], density\)/);
+  assert.match(renderer,/sliceAxis\(sh, t, bo, hpx, \[scales\[0\], scales\[2\]\], density\)/);
   assert.match(renderer,/Number\(opts.rasterDensity\)/);
   assert.match(renderer,/g.imageSmoothingQuality = "high"/);
 });
 
 test('the real sliced-image raster keeps exact tile boundaries and display-density resolution',async()=>{
   const source=await readFile(new URL('../../src/ba_modding_toolkit/web/js/ngui.js',import.meta.url),'utf8');
-  const code=source.slice(source.indexOf('const baked = new Map();'),source.indexOf('// halve repeatedly'));
+  const code=source.slice(source.indexOf('const baked = new Map();'),source.indexOf('// halve repeatedly')).replace('export function slicedImage', 'function slicedImage');
   const canvases=[];
   const document={createElement(){
     const canvas={getContext(){return this.context ||= {draws:[],drawImage(...args){this.draws.push(args);}};}};

@@ -173,12 +173,13 @@ async function gradientTint(url, colors) {
 
 // Draw a sliced sprite into one image, at least 2× with higher effective DPI when requested.
 const baked = new Map();
-function slicedImage(url, b, wpx, hpx, bs, density=2) {
-  const key = `${url}|${b.join(",")}|${wpx.toFixed(1)}x${hpx.toFixed(1)}|${bs.toFixed(3)}|${density.toFixed(3)}`;
+export function slicedImage(url, b, wpx, hpx, bs, density=2) {
+  const scales = Array.isArray(bs) ? bs : [bs, bs, bs, bs];
+  const key = `${url}|${b.join(",")}|${wpx}x${hpx}|${scales.join(",")}|${density}`;
   if (!baked.has(key)) {
     baked.set(key, load(url).then((img) => {
       const [t, r, bo, l] = b, sw = img.naturalWidth, sh = img.naturalHeight;
-      const horizontal = sliceAxis(sw, l, r, wpx, bs, density), vertical = sliceAxis(sh, t, bo, hpx, bs, density);
+      const horizontal = sliceAxis(sw, l, r, wpx, [scales[3], scales[1]], density), vertical = sliceAxis(sh, t, bo, hpx, [scales[0], scales[2]], density);
       const W = horizontal.size, H = vertical.size;
       const c = document.createElement("canvas");
       c.width = W; c.height = H;

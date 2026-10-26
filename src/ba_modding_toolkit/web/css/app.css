@@ -78,11 +78,11 @@ input[type="text"], input[type="search"], textarea { cursor: text; }
 /* The shipped font's full-width brackets and commas have blank half-em advances that look like added spaces. */
 .popup-layer:lang(zh-CN) { font-feature-settings: "halt"; }
 
-/* --- top bar (Common_Top_Menu_Bg 9-slice, left 310 keeps the triangle pattern) --- */
+/* UICharacterCollection/BG_W/Bg: one raster of Common_Top_Menu_Bg, retaining its caps and shadow. */
 .topbar {
   position: absolute; left: 0; top: 0; width: 100%; height: 64px; display: flex; align-items: center; z-index: 1000;
   border-style: solid; border-width: 0 11px 0 172px; border-color: transparent;
-  border-image: url("/asset/ui/sprite/Common/Common_Top_Menu_Bg.png") 0 20 0 310 fill / 0 11px 0 172px stretch;
+  background-origin: border-box; background-size: 100% 100%; background-repeat: no-repeat;
   filter: drop-shadow(0 2px 3px rgba(30, 60, 100, .18));
   /* content is centred on the fill (rows 0-96 of the sprite's 105: its dark lip and shadow below are not the bar), not on
      the whole height; top-bar.js sets --bar-padding from the sprite and moves each element's ink onto that centre */
@@ -417,7 +417,7 @@ input[type="text"], input[type="search"], textarea { cursor: text; }
 .window-immersive .window-header, .window-fallback-strip { pointer-events: none; }
 .window-fallback-strip { position: fixed; left: 0; top: 0; width: 100%; z-index: 1000; }
 .window-immersive .window-drag-region { pointer-events: auto;
-  background: url("/asset/ui/sprite/Common/Common_Top_Menu_Bg.png") left top / auto 64px no-repeat; }
+  background-repeat: no-repeat; }
 /* The optional WebView2 API routes these measured blank rectangles to native caption gestures. */
 .window-drag-region { position: absolute; app-region: drag; -webkit-app-region: drag; }
 .native-chrome button, .native-chrome [role="switch"], .native-chrome .mod-switch { app-region: no-drag; -webkit-app-region: no-drag; }
