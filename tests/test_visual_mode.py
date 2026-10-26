@@ -67,6 +67,8 @@ def test_real_visual_mode_layout(tmp_path):
 @pytest.mark.skipif(NODE is None or not GAME_DIR.is_dir(), reason="Node.js and an official game view are required")
 def test_real_fullscreen_control_geometry(tmp_path):
     game = GameAssets(get_search_dirs(GAME_DIR), AssetCache(root=tmp_path / "cache", allowed=True))
+    cycle = game.atlases()["Common"]["Common_Icon_Change"]
+    assert (cycle["width"], cycle["height"]) == (80, 80)
     fixture_module = (TESTS.parent / "visual_prefabs.mjs").as_uri()
     result = subprocess.run(
         [NODE, "--input-type=module", "-e",

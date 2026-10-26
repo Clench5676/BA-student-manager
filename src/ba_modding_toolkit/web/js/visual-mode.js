@@ -230,6 +230,11 @@ async function renderButtons(pc, strings, corners = CORNERS, onPress = press) {
       const el = document.createElement("div");
       el.className = "visual-btn";
       const tree = NGUI.node(corner, at, [], [{ ...clone(n), active: true }]);
+      if (name === "Btn_HideUI") {
+        // Student Hall's Flip sprite is 80x80. Fit it into this button's own 79x67 icon slot (67x67 ink).
+        const icon = NGUI.find(tree, `${name}/Icon`).widgets.find((w) => "sprite" in w);
+        Object.assign(icon, { atlas: "Common", sprite: "Common_Icon_Change", type: 0, keepAspect: true });
+      }
       made.push(NGUI.render(tree, el, { scale: S, origin: CENTRE, rootPath: "Inventory_ListControl_PC", texts: { Label_Locale_Reset: "" } }).then((view) => {
         const path = `Inventory_ListControl_PC/${corner}/${name}${corner === "RightBottom" ? "/Btn_RefreshPos" : ""}`;
         const body = view.nodes.get(path)?.els[0];

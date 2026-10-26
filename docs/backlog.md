@@ -993,7 +993,7 @@ interrupted runs. Upstream's CLI options and the shared UnityFS reader are alrea
 
 ## BL-047: Fullscreen button left on a rotated fullscreen portrait
 
-- Status: Direct switch accepted by the owner (macOS, alpha.6); icon change requested below.
+- Status: Implemented for local review; owner UAT/visual acceptance pending. The switch fits `Common_Icon_Change` in its original icon slot.
 - Requested: 2026-10-26.
 - Related: the portrait view's rotate and fullscreen controls.
 - Note: The prefab's RightTop button switches portrait and memorial lobby fullscreen; skins without a lobby omit it.

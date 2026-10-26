@@ -235,8 +235,9 @@ for (const path of ["BG/Deco", "Label_Name", "Char_CVCollectionBtn/Sprite", "Cha
 const atlas = { Common: Object.fromEntries([...new Set([
   ...[...readFileSync(new URL("../../src/ba_modding_toolkit/web/js/detail.js", import.meta.url), "utf8").matchAll(/"(Common_[A-Za-z0-9_]+)"/g)].map((m) => m[1]),
   "Common_Bg_Raius10px_Select", "Common_Icon_Check_Y_Off", "Common_Icon_Mulligan_1", "Common_Icon_Mulligan_2", "Card_Select_Line_Blue", "Cafe_Icon_NameEdit", "Common_Icon_Reddot2", "School_Icon_Schedule",
-  "Common_UIHide_Icon", "Common_Icon_Back", "Common_Empty", "Cafe_Icon_Rotate",
+  "Common_UIHide_Icon", "Common_Icon_Change", "Common_Icon_Back", "Common_Empty", "Cafe_Icon_Rotate",
 ])].map((name) => [name, name === 'Common_Bg_Raius10px_Select' ? selectionSprite : { width: 8, height: 8 }])), Event: { Event_Icon_ClueSearch_857: { width: 8, height: 8 } } };
+atlas.Common.Common_Icon_Change = { width: 80, height: 80 };
 const reply = (data, status = 200) => ({ ok: status === 200, status, json: async () => data });
 let family, indexMode = "ready", layoutMode = "ready", lobbyMode = "pending", optionalPending = false, modsEnabled = true;
 let seenReply = async () => ({ result: null });
@@ -1896,7 +1897,10 @@ for (const lang of ['en-US', 'zh-CN', 'zh-TW', 'ja-JP', 'ko-KR', 'th-TH']) test(
     near(parseFloat(icon.style.width), 79 * scale); near(parseFloat(icon.style.height), 67 * scale);
     near(parseFloat(icon.style.left) + 79 * scale / 2, switchBox[0] + switchBox[2] / 2);
     near(parseFloat(icon.style.top) + 67 * scale / 2, switchBox[1] + switchBox[3] / 2 - 8 * scale);
-    assert.ok(imageRequests.some((url) => url.includes('/Common_UIHide_Icon.png')), 'The original double-arrow sprite is rendered');
+    assert.equal(icon.style.backgroundSize, 'contain', 'The square cycle arrows fit inside the existing icon slot');
+    const fit = Math.min(79 / atlas.Common.Common_Icon_Change.width, 67 / atlas.Common.Common_Icon_Change.height);
+    near(atlas.Common.Common_Icon_Change.width * fit, 67); near(atlas.Common.Common_Icon_Change.height * fit, 67);
+    assert.ok(imageRequests.some((url) => url.includes('/Common_Icon_Change.png')), 'The Student Hall Flip sprite is rendered');
   }
   assert.deepEqual(layout, before, 'The source prefab is unchanged');
   const { CORNER_MARGIN, reflowCorners } = await import('../../src/ba_modding_toolkit/web/js/corner-layout.js');
