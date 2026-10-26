@@ -1,0 +1,29 @@
+.photo-active #visual-ui .visual-btn,.photo-active #fs-exit,.photo-active .lobby-text,.photo-active .lobby-subtitle,.photo-active .lobby-caption,.photo-active .lobby-balloon{display:none!important}
+#photo-overlay{position:absolute;inset:0;z-index:500;pointer-events:none}
+#photo-overlay .hit{pointer-events:auto}
+#photo-launcher{position:absolute;inset:0;z-index:500;pointer-events:none}
+#photo-launcher .hit{pointer-events:auto}
+.photo-active #photo-launcher{display:none}
+.photo-shutter-ring{position:absolute;width:98px;height:98px;box-sizing:border-box;border:3px solid #2b496e;border-radius:50%;z-index:75;pointer-events:none}
+.photo-preloading{opacity:0!important;pointer-events:none!important}
+.photo-active #stage{background:#0d1626}
+.photo-active #ngui-bg{visibility:hidden}
+.photo-active #lobby .lobby-extend,.photo-active #lobby .lobby-fade{display:none!important}
+.photo-active #lobby .lobby-view{mask-image:none!important;-webkit-mask-image:none!important}
+.photo-active .visual-bg{transition:none;opacity:1}
+.photo-guide{position:absolute;left:780px;top:360px;width:360px;height:360px;pointer-events:none;box-sizing:border-box;border:1px solid rgba(255,255,255,.65);background:linear-gradient(to right,transparent 33.33%,rgba(255,255,255,.4) 33.33%,rgba(255,255,255,.4) calc(33.33% + 1px),transparent calc(33.33% + 1px),transparent 66.66%,rgba(255,255,255,.4) 66.66%,rgba(255,255,255,.4) calc(66.66% + 1px),transparent calc(66.66% + 1px)),linear-gradient(to bottom,transparent 33.33%,rgba(255,255,255,.4) 33.33%,rgba(255,255,255,.4) calc(33.33% + 1px),transparent calc(33.33% + 1px),transparent 66.66%,rgba(255,255,255,.4) 66.66%,rgba(255,255,255,.4) calc(66.66% + 1px),transparent calc(66.66% + 1px))}
+.photo-guide.no-grid{background:none}
+.photo-guide i{position:absolute;width:30px;height:30px;border:4px solid #0db4ff;filter:drop-shadow(0 0 1px #fff)}
+.photo-guide i:nth-child(1){left:-3px;top:-3px;border-right:0;border-bottom:0}.photo-guide i:nth-child(2){right:-3px;top:-3px;border-left:0;border-bottom:0}.photo-guide i:nth-child(3){left:-3px;bottom:-3px;border-right:0;border-top:0}.photo-guide i:nth-child(4){right:-3px;bottom:-3px;border-left:0;border-top:0}
+.photo-pan{position:absolute;inset:0;pointer-events:auto;touch-action:none;cursor:grab}
+.photo-large-image{position:absolute;left:1270px;top:250px;width:405px;height:405px;object-fit:contain}
+.photo-inset-photo{position:absolute;width:90px;height:90px;object-fit:contain;pointer-events:none}
+.photo-raw-caption{position:absolute;color:#2b496e;font:500 24px/1.3 RHR,sans-serif;pointer-events:none}
+.photo-feedback{position:absolute;inset:0;z-index:600;pointer-events:none;overflow:hidden}
+.photo-shutter-flash{position:absolute;inset:0;background:#fff;opacity:0;z-index:3}
+.photo-shutter-curtain{position:absolute;left:0;width:100%;height:50%;background:#0d1626;z-index:2}
+.photo-shutter-curtain.top{top:0;transform:translateY(-100%)}
+.photo-shutter-curtain.bottom{bottom:0;transform:translateY(100%)}
+.photo-saved-flight{position:absolute;object-fit:contain;transform-origin:50% 50%;z-index:1;pointer-events:none;will-change:transform,opacity}
+.photo-active{--cursor:default!important;--cursor-press:pointer!important}
+.photo-active .touch-fx{display:none!important}

@@ -177,7 +177,7 @@ export function popupFrame(title, w, h, { ok = null, cancel = null, close = true
     const gap = 24, buttonWidth = Math.min(460, (w - 140 - gap * (buttons.length - 1)) / buttons.length), scale = buttonWidth / BTN_W;
     btn.active = true;
     btn.children = buttons.map((action, index) => {
-      const child = clone(action.primary ? primary : secondary); child.name = `Choice_${index}`; child.active = true;
+      const child = clone(action.primary ? primary : secondary); child.name = `Choice_${index}`; child.active = true; child.affirmative = !!action.primary;
       child.scale = [scale, scale]; child.pos = [(index - (buttons.length - 1) / 2) * (buttonWidth + gap), 0];
       NGUI.fitLabel(find(child, "Label_Locale").widgets[0], action.label, 64, 40, 420); return child;
     });
@@ -461,7 +461,7 @@ function detailsTree(it, title, fields, actions, portraitTexture = null, kind = 
     top -= rowH;
   });
   actions.forEach(([caption, , disabled], i) => {
-    const bw = (w - 60) / actions.length, x = b.l + 30 + bw / 2 + i * bw, f = fitText(caption, 40, 26, bw - 60);
+    const bw = (w - 60) / actions.length, x = b.l + 30 + bw / 2 + i * bw, f = fitText(caption, 40, 26, bw - 60, 3);
     let body = clone(find(layouts.sortPopup, "Center/Popup/Btn/Btn_Cancel/BG (1)"));
     let ink = "#2d5164/1.00";
     if (disabled) {
@@ -476,10 +476,12 @@ function detailsTree(it, title, fields, actions, portraitTexture = null, kind = 
     resizeButton(body, (bw - 14) / k);
     Object.assign(bg, { depth: 6, ...(!disabled ? { color: "#dbeef5/1.00" } : {}) });
     for (const child of body.children || []) for (const w of child.widgets) if ("w_" in w) w.depth = 7;
-    kids.push(node(`Act_${i}`, [x, b.b + 70], [], [
+    const actionNode=node(`Act_${i}`, [x, b.b + 70], [], [
       body,
-      node("Label", [0, 6], [label(f.text, f.fs, ink, bw - 40, 60 * f.lines, { depth: 8 })]),
-    ]));
+      node("Label", [0, 6], [label(f.text, f.fs, ink, bw - 48, Math.min(110, Math.max(60, f.fs * f.lines * 1.25)), { depth: 8 })]),
+    ]);
+    actionNode.affirmative=!disabled&&[T("popup.apply"),T("act.update"),T("btn.export")].includes(caption);
+    kids.push(actionNode);
   });
   const tree = node("Details", [0, 0], [], kids);
   if (portraitTexture) {

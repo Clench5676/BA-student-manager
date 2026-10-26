@@ -29,7 +29,7 @@ export function dragFeedback(visual, marker, pitch, count) {
       ghost.style.left = `${event.clientX - offset[0]}px`; ghost.style.top = `${event.clientY - offset[1] - lift}px`;
       const current = targetMarker();
       if (current) {
-        const width = current.offsetWidth || 10, end = Number.isFinite(count) ? count * pitch - width : Infinity;
+        const width = current.offsetWidth || parseFloat(current.style.width) || 2, end = Number.isFinite(count) ? count * pitch - width : Infinity;
         current.hidden = false; current.style.transform = `translateX(${Math.max(0, Math.min(end, target * pitch - width / 2))}px)`;
       }
     },

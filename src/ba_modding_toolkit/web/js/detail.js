@@ -1,3 +1,4 @@
+import * as Photo from "./photography/controller.js";
 import { notify } from "./popup.js";
 import { jobProgress, progressName } from "./job-progress.js";
 // Detail screen, built from the game's own prefab (UICharacterDetail) by ngui.js. The prefab supplies every frame,
@@ -514,6 +515,7 @@ async function drawScreen() {
     screenPics = [picturesReady([...lv.images, ...rv.images, ...bg.images], leftHost, rightHost, frag)];
     fillPictures([...lv.thumbnails, ...rv.thumbnails, ...bg.thumbnails, cardReady], leftHost, rightHost, frag);
   }
+  Photo.attach(photoBridge);
   hits(view, leftHost, rightHost);
   commit(() => {
     if (!ok()) return;
@@ -1802,7 +1804,7 @@ const wake = () => {
 let fullscreenRequest = 0;
 async function setFullscreen(on) {
   const request = ++fullscreenRequest, part = tab, key = variantKey;
-  if (on && tab === "portrait") { enterVisual(); return; }
+  if (on && tab === "portrait") { return enterVisual(); }
   if (on) {
     const layout = await (layouts.visual ||= NGUI.layout("UICharacterVisualMode").catch(() => null));
     if (layout) await Visual.exitControl($("fs-exit"), layout);
@@ -1812,7 +1814,8 @@ async function setFullscreen(on) {
   if (!on || tab === "lobby") { Lobby.frame(on ? "full" : "left"); Lobby.interactive(on); }
   if (!on || tab === "model") modelLib?.then((M) => M.frame(on ? "full" : "left"));
   showExit(on);
-  if (!on) stillAfterFullscreen();
+  await Photo.visualEntry(on);
+  if (!on) { await photoBridge.release(); stillAfterFullscreen(); }
 }
 // the UI slides out (app.css .stage.fullscreen) and out of the keyboard's reach; back, the visual mode closes and the
 // focus returns (visual-mode.js uiOut, uiBack)
@@ -1847,6 +1850,7 @@ async function enterVisual() {
   }))) return;
   if (!alive()) return;
   setStage(true);
+  await Photo.visualEntry(true);
   if (!parts) showExit(true);
 }
 // the switch card's still is taken in the left framing: when fullscreen was entered before the lobby or the model was
@@ -2051,6 +2055,7 @@ addEventListener("blur", () => keySteps.release());
 // ready (the panels, primary preview and decoded UI images). In place (another
 // variant or family while the screen is shown), the shown screen stays until then and every part swaps in one frame.
 export async function show(context, familyData, key, { inPlace = false, kind = null } = {}) {
+  Photo.destroy();
   ModAlias.close();
   leavePage();
   pageToken += 1;
@@ -2108,6 +2113,7 @@ export const currentVariant = () => (open || suspended) && fam ? variant().key :
 // Release page work before a destination waits on library locks, retaining the
 // complete current frame until that destination can replace it.
 export function suspend() {
+  Photo.destroy();
   switchThumbnails?.cancel();
   switchThumbnails = null;
   ModAlias.close(); leavePage(); open = false; suspended = true;
@@ -2116,6 +2122,7 @@ export function suspend() {
 
 // leaving the screen: stop the players, drop any change being prepared
 export function hide() {
+  Photo.destroy();
   switchThumbnails?.cancel();
   switchThumbnails = null;
   ModAlias.close();
@@ -2145,3 +2152,118 @@ export function hide() {
 }
 
 $("fs-exit")?.addEventListener("click", () => setFullscreen(false));
+
+// Student photography retains both real renderers during in-place camera mode changes.
+let photoLastAction="",photoPrepared=null,photoSession=false,photoOrigin=null;
+const photoFaces=new Map();
+async function photoPreload(){
+  if(photoPrepared)return photoPrepared;
+  photoOrigin=variantKey;photoSession=true;
+  photoPrepared=(async()=>{
+    const v=variant(),portraitAvailable=previewAvailable(v,'spr'),lobbyAvailable=previewAvailable(v,'lobby'),portrait=$("portrait"),lobby=$("lobby");
+    if(!mainPlayer){portrait.hidden=false;portrait.classList.add('photo-preloading');}
+    if(tab!=='lobby'){lobby.hidden=false;lobby.classList.add('photo-preloading');}
+    await Promise.all([
+      (async()=>{if(portraitAvailable&&!mainPlayer)await loadSpine(currentBase());if(portraitAvailable&&!mainPlayer?.skeleton)throw new Error('Portrait renderer is not ready');})(),
+      (async()=>{
+        if(!lobbyAvailable)return;
+        const c=current('lobby'),options={framing:specialFraming(v),deferPlayback:true,
+          mod:c.kind==='mod'&&(!!v.previewSources?.lobby||!!v.configured||!modsOn()||!v.lobby)?c.id:null,
+          official:c.kind==='self'&&(!!v.configured||!!v.previewSources?.lobby||!modsOn())};
+        if(!await Lobby.show(v.lobby,lobby,v.key,options))throw new Error('Memorial renderer is not ready');
+        lobbyFrom=fam.version;lobbyStale=false;Lobby.suspend();Lobby.frame('full');Lobby.photography(Photo.FRAME);Lobby.skipIntro();
+        await Lobby.prepareFrame();
+      })(),
+    ]);
+    if(photoOrigin!==variantKey||!open)throw new DOMException('Photography source changed','AbortError');
+    if(portraitAvailable&&!Visual.isOpen()){
+      const layout=await(layouts.visual ||= NGUI.layout('UICharacterVisualMode'));
+      const parts=await Visual.prepare({layout,bg:v.bg,strings:{reset:T('visual.reset'),back:T('lobby.exit'),hide:T('visual.hide'),show:T('visual.show')}});
+      await Visual.open({parts,skeleton:mainPlayer.skeleton,detail:detailViewport(),host:stage(),bgHost:$("visual-bg"),uiHost:$("visual-ui"),
+        players:()=>[...portrait.querySelectorAll('.layer')].map(layer=>layer.player).filter(Boolean),onBack:()=>setFullscreen(false),alive:()=>open&&photoOrigin===variantKey});
+    }
+    if(portraitAvailable){Visual.photography(true,Photo.FRAME);Visual.captureReady();mainPlayer.drawFrame?.(false);}
+  })().catch(error=>{photoPrepared=null;throw error;});
+  return photoPrepared;
+}
+function photoPortraitClock(on){
+  for(const layer of $("portrait").querySelectorAll('.layer')){
+    const p=layer.player;if(!p)continue;p.paused=!on;
+    if(on){p.drawFrame?.(false);if(p.stopRequestAnimationFrame)p.startRendering?.();}
+    else p.stopRendering?.();
+  }
+}
+function photoVisibility(mode){
+  const portrait=mode==='portrait';
+  for(const id of ['portrait','visual-bg','visual-ui'])$(id).style.visibility=portrait?'visible':'hidden';
+  $("portrait").hidden=!portrait;$("lobby").hidden=portrait;
+  $("lobby").style.visibility=portrait?'hidden':'visible';
+  for(const id of ['portrait','lobby'])$(id).classList.remove('photo-preloading','pending','leaving');
+  document.documentElement.classList.toggle('photo-lobby',!portrait);
+}
+const photoBridge={
+  info:()=>({variant:variantKey,mode:tab,source:tab==='portrait'?currentBase():shownSource(variant(),'lobby'),hasPortrait:previewAvailable(variant(),'spr'),hasLobby:previewAvailable(variant(),'lobby')}),
+  async full(mode){
+    await photoPreload();
+    if(mode==='portrait'){
+      Visual.photography(true,Photo.FRAME);mainPlayer.paused=false;mainPlayer.drawFrame?.(false);
+    }else await Lobby.prepareFrame();
+    await nextFrame();
+    tab=mode;fullscreen=true;stage().classList.add('fullscreen');Visual.uiOut(slidOut());
+    if(mode==='portrait'){Lobby.suspend();photoVisibility(mode);photoPortraitClock(true);}
+    else{photoPortraitClock(false);photoVisibility(mode);Lobby.resume();Lobby.interactive(false);}
+  },
+  async leave(){
+    Lobby.suspend();
+    shownLeft=tab;shownKey=leftKey(tab,variant());
+    await setFullscreen(false);
+    await renderAll();await settleImages();
+    if(tab==='lobby')await Lobby.prepareFrame();
+    await nextFrame();
+  },
+  async release(){
+    if(!photoSession)return;photoSession=false;photoPrepared=null;photoOrigin=null;
+    Visual.close({instant:true});Lobby.photography(null);
+    for(const id of ['portrait','lobby','visual-bg','visual-ui']){$(id).style.visibility='';$(id).classList.remove('photo-preloading');}
+    if(tab==='portrait'){Lobby.hide($("lobby"));$("lobby").hidden=true;photoPortraitClock(true);}
+    else{disposePortrait();$("portrait").hidden=true;Lobby.resume();}
+    photoFaces.clear();document.documentElement.classList.remove('photo-lobby');
+  },
+  cancel(){
+    const owned=photoSession;
+    void photoBridge.release();
+    if(owned&&fullscreen){setStage(false);showExit(false);Lobby.frame('left');Lobby.interactive(false);}
+  },
+  generatedThumbnail:async()=>variant().spr?await thumbnailWork.thumb(currentBase(),'roster'):variant().portrait,
+  defaultThumbnail:async()=>variant().portrait||(variant().spr?await thumb(spineBase('official-spr',variant().spr),'roster'):null),
+  thumbnailChanged(){ctx?.invalidateRoster();},
+  playbackTree(paused){
+    // layouts.list already starts at Inventory_ListControl.
+    const source=find(layouts.list,'LeftInfo/CharInfo/Char_Target/Char_ZoomBtn');
+    if(!source)throw new Error('Memorial playback control is unavailable');
+    const tree=clone(source);
+    tree.name='PhotoPlayback';tree.pos=[0,0];
+    const icon=tree.children[0].widgets[0];
+    if(paused){delete icon.texture;Object.assign(icon,{sprite:'Common_Icon_Play',w_:64,h_:64,color:'#2b496e/1.00'});}
+    else{delete icon.sprite;Object.assign(icon,{texture:'svg:stop',w_:54,h_:54,color:'#2b496e/1.00'});}
+    return {tree,textures:TEXTURES};
+  },
+  expressions:()=>(mainPlayer?.skeleton?.data.animations||[]).map(a=>a.name).filter(name=>/^\d{2}$/.test(name)),
+  expressionPreview(key){
+    if(!photoFaces.has(key))photoFaces.set(key,thumbnailWork.thumb(currentBase(),'face',key));
+    return photoFaces.get(key);
+  },
+  async prepareExpressions(){await Promise.all(photoBridge.expressions().map(key=>photoBridge.expressionPreview(key)));},
+  expressionCard(key,preview){const tree=stripCard(`Expression${key}`,0,{thumb:preview,selected:key===expression});tree.pos=[0,0];return tree;},
+  expression:()=>expression,
+  action:()=>Lobby.playing()||photoLastAction,
+  setExpression(value){expression=value;applyExpression();},
+  actions:()=>[...(Lobby.meta()?.sequences||[]),...[...new Set(Object.values(Lobby.meta()?.idles||{}).flat())].map(anim=>({anim}))].filter((item,index,list)=>list.findIndex(other=>other.anim===item.anim)===index),
+  play(value){photoLastAction=value;Lobby.resume();if((Lobby.meta()?.sequences||[]).some(seq=>seq.anim===value))Lobby.play(value);
+    else{Lobby.skipIntro();Lobby.stop();for(const p of Lobby.layerPlayers())if(p.skeleton?.data.findAnimation(value))p.animationState.setAnimation(0,value,true);}},
+  pause(on){if(tab==='lobby'){if(on)Lobby.suspend();else{Lobby.resume();Lobby.interactive(false);}}else if(mainPlayer)mainPlayer.paused=on;},
+  async redraw(){if(tab==='lobby')await Lobby.prepareFrame();else mainPlayer?.drawFrame?.(false);},
+  pan(dx,dy){if(tab==='portrait')Visual.panCapture(dx,dy);else Lobby.panBy(dx,dy);},
+  zoom(f,x,y){if(tab==='portrait')Visual.zoomCapture(f,x,y);else Lobby.zoomAt(f,x,y);},
+  paintRoots:()=>tab==='portrait'?[$("visual-bg"),$("portrait")]:[$("lobby")],
+};

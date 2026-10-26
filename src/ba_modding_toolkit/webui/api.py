@@ -89,6 +89,8 @@ FLAG_KEYS = {"tray": "tray", "classicPrompt": "classic_prompt",
 
 def build_api(s: Services) -> RpcRegistry:
     rpc = RpcRegistry(on_exception=lambda *args: s.reports.backend_exception(*args) if hasattr(s, "reports") else None)
+    from .photography import register as register_photography
+    register_photography(rpc, s)
 
     # --- app ---
 
@@ -176,6 +178,23 @@ def build_api(s: Services) -> RpcRegistry:
             s.restart_requested = False
             s.jobs.cancel_quit()
             raise
+
+    @rpc.method("window.control")
+    def window_control(action: str) -> None:
+        if action not in ("minimize", "maximize", "close"):
+            raise ServiceError("bad_params", key="action")
+        if s.window is None:
+            raise ServiceError("native_only")
+        if action == "close":
+            s.window.destroy()
+        elif action == "minimize":
+            s.window.minimize()
+        elif getattr(s.window, "maximized", False):
+            s.window.restore()
+            s.window.maximized = False
+        else:
+            s.window.maximize()
+            s.window.maximized = True
 
     @rpc.method("app.consent")
     def app_consent(granted: bool) -> None:
@@ -530,7 +549,16 @@ def build_api(s: Services) -> RpcRegistry:
                      modified: dict[str, str] | None = None, custom: dict[str, list[str]] | None = None,
                      roster_state: dict[str, Any] | None = None) -> dict[str, Any]:
         own = mods.get(v.key, [])
+        photograph = None
+        photographs = getattr(s, "photographs", None)
+        if photographs is not None:
+            photograph = photographs.app_url(v.key)
+            if photograph is None and photographs.selection(v.key) == "official" and v.portrait:
+                pin = s.library.current_pin()
+                if pin is not None:
+                    photograph = s.photography.default_url(v.key, pin)
         return {
+            **({"thumbnail": photograph} if photograph else {}),
             **stored_asset_fields(v, own),
             "custom": (custom or {}).get(v.key, []),
             "key": v.key, "fileId": v.file_id, "family": v.family, "names": v.names, "playable": v.playable,
@@ -709,9 +737,7 @@ def build_api(s: Services) -> RpcRegistry:
 
     @rpc.method("lobby.warm")
     def lobby_warm() -> None:
-        """Build the memorial lobby prefab index in the background (its first build reads every lobby element bundle,
-        about 8 s) and the index of every bundle's CABs (where the particle effects' materials, textures and meshes
-        are, about 4 s), once per game, so the first lobby shown does not wait for them. Nothing without a game."""
+        """Warm the memorial prefab index once per game. CAB dependencies resolve on demand."""
         if not s.game_found():
             return
         game = s.game
@@ -723,7 +749,6 @@ def build_api(s: Services) -> RpcRegistry:
         def build() -> None:
             try:
                 game._lobby_prefabs()
-                game._cab_index(everything=True)
             except Exception:  # the lobby builds them again when it needs them
                 logger.debug("Cannot build the memorial lobby indexes", exc_info=True)
 

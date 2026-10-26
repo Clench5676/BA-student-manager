@@ -5,6 +5,7 @@ import { language } from "./i18n.js";
 import { S } from "./util.js";
 import { talkExpression } from "./student-hall-portraits.js";
 import { spriteBorders, sliceAxis, slicePoint } from "./sprite-slices.js";
+import { dialogueText } from "./dialogue-text.js";
 
 const LANGS = { "en-US": "en", "zh-CN": "zh-CN", "zh-TW": "zh-TW", "ja-JP": "ja", "ko-KR": "ko", "th-TH": "th" };
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
@@ -129,8 +130,8 @@ export function createDialogue({ host, actorOf, choiceOf = () => null, info = ()
   onDiagnostic = (error, entry) => console.warn("Portrait dialogue unavailable", entry.variant, error) } = {}) {
   const linesCache = memoryMemo(4 * 1024 * 1024, 128), audioCache = memoryMemo(), turns = new Map();
   const unavailable = new Map();
-  let token = 0, disposed = false, busy = false, audio = null, url = null, clearTimer = null, prepareTimer = null;
-  let speaker = null, bubble = null, expressionKey = null;
+  let token = 0, drawSequence = 0, disposed = false, busy = false, audio = null, url = null, clearTimer = null, prepareTimer = null;
+  let speaker = null, bubble = null, bubbleFlip = false, positionTimer = null, expressionKey = null;
   let template = null, layoutFlight = null, current = null, requests = null;
   const preferences = () => typeof prefs === "function" ? prefs() : prefs;
   const information = () => typeof info === "function" ? info() : info;
@@ -140,8 +141,8 @@ export function createDialogue({ host, actorOf, choiceOf = () => null, info = ()
     if (url) { URL.revokeObjectURL(url); url = null; }
   }
   function stop() {
-    token++; busy = false; requests?.abort(); requests = null;
-    clearTimeout(clearTimer); clearTimeout(prepareTimer); clearTimer = prepareTimer = null; releaseAudio();
+    token++; drawSequence++; busy = false; requests?.abort(); requests = null;
+    clearTimeout(clearTimer); clearTimeout(prepareTimer); clearTimeout(positionTimer); clearTimer = prepareTimer = positionTimer = null; releaseAudio();
     if (speaker) expressions(speaker, false);
     speaker = current = expressionKey = null; bubble?.remove(); bubble = null;
     host?.replaceChildren();
@@ -176,6 +177,10 @@ export function createDialogue({ host, actorOf, choiceOf = () => null, info = ()
     timer = setTimeout(finish, milliseconds); requestSignal.addEventListener("abort", finish, { once: true });
   });
   async function draw(entry, row, my, requestSignal) {
+    if (my !== token || disposed || signal?.aborted || requestSignal?.aborted) return;
+    const version = ++drawSequence;
+    const selected = dialogueText(row, LANGS[currentLanguage()] || "en");
+    if (!selected) { bubble?.remove(); bubble = null; host.replaceChildren(); return; }
     if (!template && (!layoutFlight || layoutFlight.signal?.aborted)) {
       const flight = { signal: requestSignal };
       flight.promise = Promise.resolve().then(() => call("hall.dialogueLayout", {}, { signal: requestSignal })).then((value) => {
@@ -185,19 +190,35 @@ export function createDialogue({ host, actorOf, choiceOf = () => null, info = ()
       layoutFlight = flight;
     }
     const saved = template || await layoutFlight.promise;
-    if (my !== token || disposed || signal?.aborted) return;
+    if (my !== token || version !== drawSequence || disposed || signal?.aborted) return;
     await ui.init?.();
-    const lang = LANGS[currentLanguage()] || "en";
-    const chosen = [lang, ...(lang === "zh-TW" ? ["zh-CN"] : []), "ja", "en", "zh-CN"].find((key) => row[key]);
-    if (!chosen) return;
-    const placement = prepareBalloon(saved, row[chosen], actor(entry).rect, { ui, lang: chosen, bounds });
+    if (my !== token || version !== drawSequence || disposed || signal?.aborted) return;
+    const latest = dialogueText(row, LANGS[currentLanguage()] || "en");
+    if (!latest || latest.text !== selected.text || latest.language !== selected.language) return draw(entry, row, my, requestSignal);
+    const placement = prepareBalloon(saved, selected.text, actor(entry).rect, { ui, lang: selected.language, bounds });
     const scratch = document.createElement("div");
     Object.assign(scratch.style, { position: "absolute", left: `${placement.x}px`, top: `${placement.y}px`,
       width: `${placement.width}px`, height: `${placement.height}px`, pointerEvents: "none" });
-    scratch.setAttribute("role", "status"); scratch.setAttribute("aria-label", row[chosen]);
+    scratch.setAttribute("role", "status"); scratch.setAttribute("aria-label", selected.text);
     await ui.render(placement.tree, scratch, { scale: S, origin: [0, 0] });
-    if (my !== token || disposed || signal?.aborted) return;
-    bubble?.remove(); bubble = scratch; host.replaceChildren(scratch);
+    if (my !== token || version !== drawSequence || disposed || signal?.aborted) return;
+    const after = dialogueText(row, LANGS[currentLanguage()] || "en");
+    if (!after || after.text !== selected.text || after.language !== selected.language) return draw(entry, row, my, requestSignal);
+    bubble?.remove(); bubble = scratch; bubbleFlip = placement.flip; host.replaceChildren(scratch);
+  }
+  function reposition() {
+    if (!current || !bubble || disposed) return;
+    const placement = balloonPosition(actor(current.entry).rect,
+      { width: parseFloat(bubble.style.width), height: parseFloat(bubble.style.height) }, bounds);
+    Object.assign(bubble.style, { left: `${placement.x}px`, top: `${placement.y}px` });
+    clearTimeout(positionTimer); positionTimer = null;
+    if (placement.flip !== bubbleFlip) {
+      const my = token;
+      positionTimer = setTimeout(() => {
+        positionTimer = null;
+        if (my === token && current) draw(current.entry, current.row, my, requests?.signal).catch((error) => onError(error));
+      }, 120);
+    }
   }
   async function play(entry) {
     if (busy || disposed || signal?.aborted) return;
@@ -221,8 +242,8 @@ export function createDialogue({ host, actorOf, choiceOf = () => null, info = ()
     }, PREPARE_TIMEOUT);
     try {
       const delays = [500, 1500, 4000, 9000];
-      const caption = (value) => JSON.stringify(Object.values(LANGS).map((key) => value?.[key]));
-      let clip = null, row = null, animationPending = false;
+      const caption = (value) => JSON.stringify(dialogueText(value, LANGS[currentLanguage()] || "en"));
+      let clip = null, row = null, metadataPending = false;
       for (let attempt = 0; ; attempt++) {
         let response;
         try {
@@ -230,7 +251,7 @@ export function createDialogue({ host, actorOf, choiceOf = () => null, info = ()
             () => call("hall.lines", { variant: entry.variant, lang }, { signal: requestSignal }), undefined, requestSignal);
         } catch (error) { if (row && active()) break; throw error; }
         if (!active()) return;
-        animationPending = !!response.animationPending;
+        metadataPending = !!response.pending || !!response.animationPending;
         const table = response.lines || response, keys = Object.keys(table).filter((key) => /_lobby_\d/.test(key)
           && (table[key]?.voice || Object.values(LANGS).some((lang) => typeof table[key]?.[lang] === "string" && table[key][lang].trim())))
           .sort((a, b) => a.localeCompare(b, "en", { numeric: true }));
@@ -281,7 +302,7 @@ export function createDialogue({ host, actorOf, choiceOf = () => null, info = ()
         applyExpression(row, player);
         // Captions and local/Kivo audio may be ready before the Global animation metadata. Enrich this same
         // playing line without restarting its voice, replacing its bubble or consuming another dialogue turn.
-        if (animationPending) void (async () => {
+        if (metadataPending) void (async () => {
           for (const delay of delays) {
             if (!await waitPending(delay, requestSignal) || !active()) return;
             linesCache.forgetPending(cacheKey);
@@ -289,8 +310,12 @@ export function createDialogue({ host, actorOf, choiceOf = () => null, info = ()
               () => call("hall.lines", { variant: entry.variant, lang }, { signal: requestSignal }), undefined, requestSignal);
             if (!active()) return;
             const next = response.lines?.[clip];
-            if (next) { current.row = { ...current.row, ...next }; applyExpression(current.row, player); }
-            if (!response.animationPending) return;
+            if (next) {
+              const before = caption(current.row);
+              current.row = { ...current.row, ...next }; applyExpression(current.row, player);
+              if (caption(current.row) !== before) await draw(entry, current.row, my, requestSignal);
+            }
+            if (!response.pending && !response.animationPending) return;
           }
         })().catch((error) => { if (active()) onDiagnostic(error, entry); });
       } catch { if (active()) finishText(); }
@@ -302,13 +327,15 @@ export function createDialogue({ host, actorOf, choiceOf = () => null, info = ()
     linesCache.clear(); audioCache.clear(); turns.clear(); unavailable.clear(); template = layoutFlight = null;
   }
   signal?.addEventListener("abort", dispose, { once: true });
-  return { play, stop, dispose, relabel: async () => {
+  return { play, stop, dispose, reposition, relabel: async () => {
     if (!current) return;
     const shown = current, my = token, requestSignal = requests?.signal, lang = LANGS[currentLanguage()] || "en";
     try {
+      await draw(shown.entry, shown.row, my, requestSignal);
+      if (my !== token || disposed || requestSignal?.aborted || lang !== (LANGS[currentLanguage()] || "en")) return;
       const response = await linesCache.get(`${shown.entry.variant}:${lang}`,
         () => call("hall.lines", { variant: shown.entry.variant, lang }, { signal: requestSignal }), undefined, requestSignal);
-      if (my !== token || disposed || requestSignal?.aborted) return;
+      if (my !== token || disposed || requestSignal?.aborted || lang !== (LANGS[currentLanguage()] || "en")) return;
       shown.row = response.lines?.[shown.clip] || shown.row;
       await draw(shown.entry, shown.row, my, requestSignal);
     } catch { /* The current line remains readable when another translation is unavailable. */ }

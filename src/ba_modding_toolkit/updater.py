@@ -264,16 +264,29 @@ setlocal DisableDelayedExpansion
 rem waits for the program (the onefile launcher and the program it started) to quit, then replaces it with the
 rem downloaded build and starts it again; the move is retried while Windows still holds the old file
 {labels}
+rem stage beside the existing executable, preserving its path and every neighbouring user file
+powershell -NoProfile -NonInteractive -Command "try {{ Copy-Item -LiteralPath $env:BAMT_UPDATE_NEW_EXE -Destination $env:BAMT_UPDATE_STAGE -ErrorAction Stop; if ((Get-FileHash -LiteralPath $env:BAMT_UPDATE_STAGE -Algorithm MD5).Hash -ne $env:BAMT_UPDATE_MD5) {{ exit 1 }} }} catch {{ exit 1 }}" >nul 2>&1
+if errorlevel 1 goto failed
 set tries=0
 :move
-move /Y "%BAMT_UPDATE_NEW_EXE%" "%BAMT_UPDATE_EXE%" >nul && goto start
+powershell -NoProfile -NonInteractive -Command "try {{ [System.IO.File]::Replace($env:BAMT_UPDATE_STAGE,$env:BAMT_UPDATE_EXE,$env:BAMT_UPDATE_BACKUP); exit 0 }} catch {{ exit 1 }}" >nul 2>&1
+if not errorlevel 1 goto start
 set /a tries+=1
-if %tries% geq 60 goto end
+if %tries% geq 60 goto failed
 timeout /t 1 /nobreak >nul
 goto move
 :start
-start "" "%BAMT_UPDATE_EXE%"
+start "" /D "%BAMT_UPDATE_DIR%" "%BAMT_UPDATE_EXE%"
+if errorlevel 1 goto rollback
+del "%BAMT_UPDATE_NEW_EXE%" >nul 2>&1
+goto end
+:rollback
+powershell -NoProfile -NonInteractive -Command "if (Test-Path -LiteralPath $env:BAMT_UPDATE_BACKUP) {{ [System.IO.File]::Replace($env:BAMT_UPDATE_BACKUP,$env:BAMT_UPDATE_EXE,$null) }}" >nul 2>&1
+:failed
+rem a failed replacement leaves the original executable usable
+start "" /D "%BAMT_UPDATE_DIR%" "%BAMT_UPDATE_EXE%"
 :end
+del "%BAMT_UPDATE_STAGE%" >nul 2>&1
 del "%~f0"
 """
 
@@ -316,7 +329,10 @@ def prepare_install(downloaded: Path, expected_md5: str) -> Callable[[], None]:
             pids = [pid] + ([int(parent)] if parent.isdigit() else [])
             f.write(windows_script(pids))
         env = os.environ.copy()
-        env.update(BAMT_UPDATE_SCRIPT=name, BAMT_UPDATE_NEW_EXE=str(downloaded.resolve()), BAMT_UPDATE_EXE=str(target))
+        env.update(BAMT_UPDATE_SCRIPT=name, BAMT_UPDATE_NEW_EXE=str(downloaded.resolve()), BAMT_UPDATE_EXE=str(target),
+                   BAMT_UPDATE_DIR=str(target.parent), BAMT_UPDATE_MD5=expected_md5.lower(),
+                   BAMT_UPDATE_STAGE=str(target.with_name(f".{target.name}.update-{pid}.exe")),
+                   BAMT_UPDATE_BACKUP=str(target.with_name(f".{target.name}.update-{pid}.bak")))
         # cmd expands these variables once. Literal percent signs in their values are not expanded again.
         # Quoting the variable also protects the helper's own path when TEMP contains spaces or percent signs.
         cmd = env.get("COMSPEC", "cmd.exe")
@@ -329,3 +345,20 @@ def prepare_install(downloaded: Path, expected_md5: str) -> Callable[[], None]:
         return launch
     else:
         raise ServiceError("update_unsupported")
+
+
+def finalize_windows_update() -> None:
+    """Retire only this updater's backup after the new application reaches a complete first screen."""
+    if sys.platform != "win32" or devmode.active() or not is_compiled():
+        return
+    name = os.environ.pop("BAMT_UPDATE_BACKUP", "")
+    target = install_target()
+    if not name or target is None:
+        return
+    backup = Path(name).resolve()
+    if backup.parent != target.parent or not re.fullmatch(re.escape("." + target.name) + r"\.update-\d+\.bak", backup.name):
+        return
+    try:
+        backup.unlink(missing_ok=True)
+    except OSError:
+        logger.warning("Update backup retained until it can be removed")

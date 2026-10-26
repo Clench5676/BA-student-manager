@@ -43,7 +43,7 @@ export function createDraft(saved) {
     remove(id) {
       if (!draft) return false;
       const list = kind === "layout" ? draft.portraits : draft.memorials;
-      if (kind === "memorial" && list.length <= 1) return false;
+      if (list.length <= 1) return false;
       const index = list.findIndex((entry) => entry.id === id); if (index < 0) return false;
       list.splice(index, 1);
       if (draft.active === id) draft.active = list[Math.min(index, list.length - 1)]?.id || null;
@@ -111,7 +111,7 @@ function sourceMatches(choice, words) {
   return !words.length || words.every((word) => text.includes(word));
 }
 export function portraitRows(choices, view, query, label, locale) {
-  const mods = choices.filter((c) => c.kind === "spr" && c.source.startsWith("mod:"));
+  const mods = choices.filter((c) => c.kind === "spr");
   const cards = studentChoices(choices, view, query, label, locale, "spr"), words = terms(query);
   return cards.map((student) => ({ student, key: view.merged ? student.family : student.key,
     choices: mods.filter((c) => {

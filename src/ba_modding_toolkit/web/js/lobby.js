@@ -1,3 +1,4 @@
+import {lobbyCaptureView,lobbyMaximumWidth} from './photography/camera.js';
 // Memorial lobby for the detail screen's second tab, framed and played like the game.
 // The lobby's UILobbyElement prefab (lobby.json, read by the server) places every skeleton in NGUI units around the
 // prefab root, the screen centre; at 16:9 the game shows the 2960 x 1665 units G around it. Fullscreen shows exactly G.
@@ -560,6 +561,7 @@ function viewNow() {
       const w = v.w + (t.w - v.w) * k;
       c.view = { x: v.x + (t.x - v.x) * k, y: v.y + (t.y - v.y) * k, w, h: (w * 9) / 16 };
       if (Math.abs(t.w - w) < 0.05 && Math.abs(t.x - c.view.x) < 0.05 && Math.abs(t.y - c.view.y) < 0.05) c.view = t;
+      if(photoFrame)photoMatte(c.view);
       // sparse art (the fallback): the feather and the extension move with the art's border, while the view eases
       // (throttled) and once it settles
       if (c.meta?.sparse && (c.view === t || now - (c.featherAt ?? -Infinity) >= FEATHER_MS)) {
@@ -694,8 +696,16 @@ export function zoomBounds(zoom, m, G) {
 }
 const bounds = () => zoomBounds({ mode: zoomMode, custom: zoomCustom }, current.meta, game());
 const widest = (B) => Math.min(B.x1 - B.x0, ((B.y1 - B.y0) * 16) / 9);
+let photoFrame=null;
+export function photography(frame) {
+  photoFrame=frame;
+  const el=current?.host?.querySelector('.lobby-view');
+  if(!frame&&el)el.style.clipPath='';
+  reclamp();if(current?.view)feather(current.view);
+}
 function clampView(v) {
-  const B = bounds();
+  const B = photoFrame?current.meta.edge:bounds();
+  if(photoFrame)return lobbyCaptureView(v,B,photoFrame);
   return { x: clamp(v.x, B.x0, B.x1 - v.w), y: clamp(v.y, B.y0, B.y1 - v.h), w: v.w, h: v.h };
 }
 export function zoomAt(factor, sx, sy) {
@@ -703,7 +713,7 @@ export function zoomAt(factor, sx, sy) {
   current.userFramed = true;
   const T = current.target, full = current.meta.full;
   const fx = sx / STAGE.w, fy = 1 - sy / STAGE.h, ux = T.x + fx * T.w, uy = T.y + fy * T.h;
-  const w = clamp(T.w / factor, full.w / ZOOM_IN, Math.max(full.w, widest(bounds()))), h = (w * 9) / 16;
+  const w = clamp(T.w / factor, full.w / ZOOM_IN, photoFrame?lobbyMaximumWidth(current.meta.edge,full.w,photoFrame):Math.max(full.w, widest(bounds()))), h = (w * 9) / 16;
   setView(clampView({ x: ux - fx * w, y: uy - fy * h, w, h }), false);
 }
 // the zoom-out setting {mode, custom} (ZOOM_MODES; custom in game views across): a view wider than the new limit comes
@@ -731,6 +741,7 @@ export function setPostProcessing(on) {
 function reclamp() {
   if (!current?.meta || !current.target || mode !== "full") return;
   const T = current.target, full = current.meta.full;
+  if(photoFrame){setView(clampView(T),false);return;}
   if (T.w <= full.w + 1e-6) { setView(clampView(T), false); return; }
   const cx = T.x + T.w / 2, cy = T.y + T.h / 2, w = Math.max(full.w, Math.min(T.w, widest(bounds()))), h = (w * 9) / 16;
   setView(clampView({ x: cx - w / 2, y: cy - h / 2, w, h }), false);
@@ -913,6 +924,7 @@ function drawExtension(canvas, view) {
 // a view inside the painted area needs nothing; otherwise the sharp lobby fades out over the last stretch before its
 // painted border, into the blurred extension
 function feather(view) {
+  if(photoFrame){photoMatte(view);return;}
   const el = current?.host?.querySelector(".lobby-view"), ext = current?.host?.querySelector(".lobby-extend");
   if (!el || !current?.meta) return;
   clearInterval(extendTimer);
@@ -1226,6 +1238,7 @@ export async function prepareFrame() {
   if (current !== c || c.signal.aborted) return false;
   await withTimeout(Promise.all(c.visualLoads.values()), 15000, "Lobby visual assets", { signal: c.signal });
   if (current !== c || c.signal.aborted) return false;
+  if(photoFrame&&c.target){c.view={...c.target};c.viewAt=null;photoMatte(c.view);}
   const flags = new Map(players.map((player) => [player, player.paused]));
   c.preparingFrame = true;
   try {
@@ -1667,4 +1680,16 @@ function subtitle(text, immediate = false) {
     subtitleTimer = setTimeout(() => { box.hidden = true; box.textContent = ""; if (text) showNew(); }, 260);
   } else if (text) showNew();
   else box.hidden = true;
+}
+
+// A camera may show beyond the art, but never synthesize stretched/blurred border pixels.
+function photoMatte(view){
+  if(!current?.meta||!view)return;
+  clearInterval(extendTimer);
+  const el=current.host.querySelector('.lobby-view'),ext=current.host.querySelector('.lobby-extend');
+  if(ext)ext.hidden=true;
+  if(!el)return;
+  const r=rectOnStage(view,STAGE.w,STAGE.h);
+  el.style.webkitMaskImage=el.style.maskImage='none';
+  el.style.clipPath=`inset(${Math.max(0,r.t)}px ${Math.max(0,STAGE.w-r.r)}px ${Math.max(0,STAGE.h-r.b)}px ${Math.max(0,r.l)}px)`;
 }

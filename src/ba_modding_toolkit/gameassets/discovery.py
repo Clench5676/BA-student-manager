@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import struct
 from pathlib import Path
 
 from ..naming import parse_filename
@@ -81,51 +80,10 @@ def is_prefab(path: Path) -> bool:
 
 
 def cab_names(path: Path) -> list[str]:
-    """Lower-case CAB names of a UnityFS bundle, from its header and blocks info only (no data block is read).
+    """Read lower-case internal names, preserving corrupt-directory errors."""
+    from ..unityfs import read_cab_names
 
-    Raises ValueError for a file that is not a readable UnityFS bundle (a truncated or corrupt header or blocks
-    info included), OSError when the file cannot be read.
-    """
-    from UnityPy.helpers.CompressionHelper import DECOMPRESSION_MAP
-
-    try:
-        with open(path, "rb") as stream:
-            head = stream.read(4096)
-            end = head.index(b"\0")
-            if head[:end] != b"UnityFS":
-                return []
-            pos = end + 1
-            version = struct.unpack_from(">I", head, pos)[0]
-            pos = head.index(b"\0", pos + 4) + 1  # player version
-            pos = head.index(b"\0", pos) + 1      # engine version
-            _, compressed, size, flags = struct.unpack_from(">qIII", head, pos)
-            pos += 20
-            if version >= 7:
-                pos = (pos + 15) & ~15
-            if flags & 0x80:  # blocks info at the end of the file
-                stream.seek(-compressed, os.SEEK_END)
-            else:
-                stream.seek(pos)
-            info = stream.read(compressed)
-        if flags & 0x3F:
-            info = DECOMPRESSION_MAP[flags & 0x3F](info, size)
-        pos = 16  # data hash
-        pos += 4 + struct.unpack_from(">i", info, pos)[0] * 10
-        count = struct.unpack_from(">i", info, pos)[0]
-        pos += 4
-        names = []
-        for _ in range(count):
-            pos += 20  # offset, size, flags
-            end = info.index(b"\0", pos)
-            names.append(info[pos:end].decode("utf-8", "replace").lower())
-            pos = end + 1
-        return names
-    except OSError:
-        raise
-    except Exception as exc:
-        # besides struct, index and lookup errors, every decompressor raises its own type (LZ4BlockError,
-        # LZMAError, NotImplementedError for LZHAM): one damaged bundle must not break the callers' scans
-        raise ValueError(f"not a readable UnityFS bundle: {path}") from exc
+    return [name.lower() for name in read_cab_names(path) or ()]
 
 
 def is_model_dependency(path: Path) -> bool:

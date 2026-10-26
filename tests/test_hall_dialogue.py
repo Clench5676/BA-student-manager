@@ -364,3 +364,62 @@ def test_verified_portrait_clips_supply_real_expression_tracks(tmp_path):
             assert motion["animation"] == name and motion["mix"] == 0
         assert clips["Eye_Close_01"]["track"] == 2
         assert not any(name.startswith("Talk") for name in clips)
+
+
+def test_old_uncaptioned_recordings_do_not_duplicate_captioned_current_lines():
+    page = {"voice": [
+        {"description": "cbt_eimi_casual_lobby_1.ogg", "file": "https://static.kivo.wiki/old.ogg"},
+        {"description": "eimi_lobby_1.ogg", "text": "Translated current line", "text_original": "Original", "file": "https://static.kivo.wiki/current.ogg"},
+        {"description": "eimi_lobby_2.ogg", "file": "https://static.kivo.wiki/only.ogg"},
+    ]}
+    rows = student_hall.portrait_lines(page)
+    assert set(rows) == {"eimi_lobby_1", "eimi_lobby_2"}
+    assert rows["eimi_lobby_1"]["zh-CN"] == "Translated current line"
+    assert rows["eimi_lobby_2"]["audio"].endswith("only.ogg")
+
+
+def test_ready_official_rows_do_not_finish_a_chinese_request_before_its_ready_translation(app, services, dialogue_services, monkeypatch):
+    entered, release = threading.Event(), threading.Event()
+    original = PortraitVoices._get
+    def delayed(self, url):
+        if url.endswith("/123"):
+            entered.set()
+            assert release.wait(5)
+        return original(self, url)
+    monkeypatch.setattr(PortraitVoices, "_get", delayed)
+    services.global_lines._table = {}
+    services.global_lines._portraits = {10005: {1: [{"ja": "Original", "en": "English", "zh-TW": "Traditional"}]}}
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        pending = pool.submit(rpc, app, "hall.lines", variant="hoshino", lang="zh-CN")
+        assert entered.wait(1)
+        assert not pending.done()
+        release.set()
+        result = pending.result(timeout=5)["result"]
+    assert result["lines"]["hoshino_lobby_1"]["zh-CN"] == "Chinese text"
+    assert result["pending"] is False
+
+
+def test_flat_voice_numbers_follow_voiced_rows_instead_of_dialogue_group_ids():
+    # Hoshino's third ordinary group has two separately voiced rows; the fourth group is Lobby_5.
+    groups = {
+        1: [{"zh-TW": "First", "voiceIds": [4166716535]}],
+        2: [{"zh-TW": "Second", "voiceIds": [1116629168]}],
+        3: [{"zh-TW": "Third", "voiceIds": [2788647851], "expression": "02"},
+            {"zh-TW": "Fourth", "voiceIds": [3452918145], "expression": "10"}],
+        4: [{"zh-TW": "Fifth", "voiceIds": [2171344866], "expression": "16"}],
+    }
+    rows = globallines.portrait_voice_lines(groups, [f"hoshino_lobby_{n}" for n in range(1, 6)])
+    assert [rows[f"hoshino_lobby_{n}"]["zh-TW"] for n in range(1, 6)] == ["First", "Second", "Third", "Fourth", "Fifth"]
+    assert rows["hoshino_lobby_4"]["expression"] == "10"
+    partial = globallines.portrait_voice_lines(groups, ["hoshino_lobby_4", "hoshino_lobby_5"])
+    assert partial["hoshino_lobby_4"]["zh-TW"] == "Fourth"
+    assert partial["hoshino_lobby_5"]["zh-TW"] == "Fifth"
+    assert "hoshino_lobby_3" not in partial
+
+
+def test_nested_clip_numbers_and_legacy_caption_rows_keep_their_existing_group_mapping():
+    groups = {"3": [{"zh-TW": "One", "voiceIds": [1]}, {"zh-TW": "Two", "voiceIds": [2]}]}
+    rows = globallines.portrait_voice_lines(groups, ["hero_lobby_3_1", "hero_lobby_3_2"])
+    assert rows["hero_lobby_3_1"]["zh-TW"] == "One"
+    assert rows["hero_lobby_3_2"]["zh-TW"] == "Two"
+    assert globallines.portrait_voice_lines({"3": [{"zh-TW": "Legacy"}]}, ["hero_lobby_3"])["hero_lobby_3"]["zh-TW"] == "Legacy"

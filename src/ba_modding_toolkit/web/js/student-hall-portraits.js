@@ -25,6 +25,7 @@ export function pose(entry, skeleton, globalScale = 1) {
 export async function createPortraits(host, entries, choiceOf, { signal, onError, onRecover, globalScale = 1 } = {}) {
   const actors = new Map(), cachedActors = new Map(), loads = [], sources = new Map();
   let disposed = false, owner = null, revision = 0, tail = Promise.resolve(), pendingUpdates = 0, cover = null, active = true, recoveryPending = false;
+  let cameraView = VIEW;
   const baseOf = (entry) => {
     const choice = choiceOf(entry);
     return choice && spineBase(choice.source.startsWith("mod:") ? "mod" : "official-spr", choice.source.startsWith("mod:") ? choice.source.slice(4) : choice.core);
@@ -69,7 +70,7 @@ export async function createPortraits(host, entries, choiceOf, { signal, onError
         preserveDrawingBuffer: true, viewport: VIEW,
         frame: (p, delta) => {
           if (p !== owner || !active) return;
-          p.currentViewport = VIEW; p.previousViewport = null;
+          p.currentViewport = cameraView; p.previousViewport = null;
           for (const { entry, player: actor } of actors.values()) {
             pose(entry, actor.skeleton, globalScale);
             actor.blinkAt -= delta;
@@ -175,6 +176,11 @@ export async function createPortraits(host, entries, choiceOf, { signal, onError
     (globalThis.requestAnimationFrame || queueMicrotask)(() => {
       if (active && !disposed && load?.active?.() !== false && owner?.stopRequestAnimationFrame) owner.startRendering?.();
     });
+  }, setView(value, { draw = false } = {}) {
+    if (disposed) return;
+    const valid = value && [value.x, value.y, value.width, value.height].every(Number.isFinite) && value.width > 0 && value.height > 0;
+    cameraView = valid ? { ...VIEW, ...value } : VIEW;
+    if (owner) { owner.currentViewport = cameraView; owner.previousViewport = null; if (draw) owner.drawFrame?.(false); }
   }, setScale(value) {
     if (disposed) return;
     globalScale = value;

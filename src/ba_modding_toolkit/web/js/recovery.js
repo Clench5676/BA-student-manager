@@ -138,6 +138,7 @@
   }
   progress();
   window.BAMTRecovery = {
+    activity() { if(Date.now()-began < 180000) progress(); },
     importList(read) { importList = read; },
     report, forward, fail, context, presentReport(fn) { presenter = fn; }, isBooting: () => !finished, failed: () => failed,
     begin(name) { if (finished) return; pending.add(name); if (name !== "boot") phase = name; progress(); },

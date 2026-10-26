@@ -38,7 +38,7 @@ PRUNE_WAIT = 120.0  # seconds the start scan waits for the library.prune job sub
 PROGRESS_PUBLISH = 0.25  # seconds between two mods.state events while a toggle reports its progress
 UPDATE_QUIT_WAIT = 3.0  # seconds for the native window to close for an update
 # the library's files and folders a library move takes along; the lock files are made again where needed
-LIBRARY_ITEMS = ("mods", "originals", "built", "transactions", "state.json", "profiles.json", "profiles.json.prev",
+LIBRARY_ITEMS = ("mods", "originals", "built", "transactions", "import-transactions", "photographs", "state.json", "profiles.json", "profiles.json.prev",
                  "profiles.json.bad")
 
 
@@ -392,6 +392,24 @@ class Services:
             self.request_scan()  # the start scan (with scan consent), after the prune job
         return library
 
+    @property
+    def photographs(self):
+        from ..library.photographs import Photographs, student_family
+
+        root = self.library_dir()
+        store = getattr(self, "_photographs", None)
+        if store is None or store.root.parent != root:
+            self._photographs = store = Photographs(root, lambda key, catalog=self.catalog: student_family(catalog, key))
+        return store
+
+    @property
+    def photography(self):
+        from .photography import Photography
+
+        if not hasattr(self, "_photography"):
+            self._photography = Photography(self)
+        return self._photography
+
     def _start_prune(self, library: Any) -> None:
         def prune(log: Any, progress: Any) -> list[str]:
             with self.timings.measure("library.prune"):
@@ -450,7 +468,8 @@ class Services:
             raise ServiceError("busy")  # a running job still writes through the current library
 
         def has_library(folder: Path) -> bool:
-            return (folder / "state.json").exists() or (folder / "profiles.json").exists()
+            return ((folder / "state.json").exists() or (folder / "profiles.json").exists()
+                    or (folder / "photographs" / "index.json").exists())
 
         self.scanner.cancel()  # a running scan reads the current library
         self.scanner.wait_idle(5.0)
@@ -1049,6 +1068,8 @@ class Services:
             if self._startup_ready or self.safe_mode:
                 return
             self._startup_ready = True
+        from ..updater import finalize_windows_update
+        finalize_windows_update()
         threading.Thread(target=self._warm, name="bamt-library", daemon=True).start()
 
     def _warm(self) -> None:
@@ -1184,6 +1205,8 @@ class Services:
             raise ServiceError("game_not_found")
         parts = path.split("/")
         kind = parts[0]
+        if kind == "photography":
+            return self.photography.asset(parts[1:])
         if kind == "ui":
             return self._ui_asset(parts[1:], query)
         if kind == "office" and len(parts) == 3 and parts[2] == "layout.json":

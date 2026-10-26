@@ -2,7 +2,7 @@
 
 import copy
 import json
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from io import BytesIO
 from pathlib import Path
 from threading import RLock
@@ -52,6 +52,7 @@ def installed(tmp_path, monkeypatch):
         calls.append(("textures", [path.name for path in selected]))
         return {"textures": copy.deepcopy(texture_names), "names": {}}
     game = SimpleNamespace(_paths=lambda: list(paths), _lock=lambda key: RLock(), _indexes={}, _cab_index=lambda **kw: {},
+        _cab_discovery=lambda: SimpleNamespace(batch=nullcontext), _resolve_cabs=lambda *args: {},
         _scan_textures=scan, _texture_index=lambda: {"names": {}, "textures": {}})
     return SimpleNamespace(game=game, paths=paths, texture_path=texture_path, texture_names=texture_names,
                            trees=trees, calls=calls)

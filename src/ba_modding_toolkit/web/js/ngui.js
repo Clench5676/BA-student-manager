@@ -5,6 +5,7 @@
 //   - textures: the game's UITexture images, or per-node overrides
 //   - labels: plain text in the page font, sized from the label's font size (italic: a placeholder's slant)
 // Depth becomes z-index; NGUI y points up, the stage's y points down.
+import {hasAffirmative,skinAffirmatives,goldTemplate} from "./affirmative-buttons.js";
 import { labelEffect, labelClipPadding } from "./ngui-label.js";
 import { clipButtonPatterns } from "./button-layout.js";
 import { spriteUrl, uiExportUrl } from "./api.js";
@@ -171,7 +172,11 @@ function slicedImage(url, b, wpx, hpx, bs) {
       for (const [sx0, sx1, dx0, dx1] of xs) {
         for (const [sy0, sy1, dy0, dy1] of ys) {
           if (sx1 <= sx0 || sy1 <= sy0 || dx1 <= dx0 || dy1 <= dy0) continue;
-          g.drawImage(img, sx0, sy0, sx1 - sx0, sy1 - sy0, dx0, dy0, dx1 - dx0, dy1 - dy0);
+          // Clamp each source tile before interpolation: neighbouring atlas pixels otherwise bleed into seams.
+          const tile=document.createElement("canvas");tile.width=sx1-sx0;tile.height=sy1-sy0;
+          const source=tile.getContext("2d");source.imageSmoothingEnabled=false;
+          source.drawImage(img,sx0,sy0,sx1-sx0,sy1-sy0,0,0,tile.width,tile.height);
+          g.drawImage(tile,0,0,tile.width,tile.height,dx0,dy0,dx1-dx0,dy1-dy0);
         }
       }
       return canvasUrl(c);
@@ -222,6 +227,7 @@ const colorOf = (c) => {
 //       styles { name|path: css }, rootPath (prefix used in paths), z (z-index offset), deferImages (fill in later)
 // pictures includes all deferred work; images and thumbnails let a screen give optional thumbnails a shorter wait.
 export async function render(tree, host, opts = {}) {
+  if(hasAffirmative(tree))tree=skinAffirmatives(tree,goldTemplate);
   // Popup branches publish together, including decoded textures, even when the caller renders into a live layer.
   const target = host, popup = !!findNamed(tree, "Popup");
   if (popup) host = document.createElement("div");
@@ -457,7 +463,7 @@ export function layout(name) {
     const request = sub ? layout(root).then((tree) => findNamed(tree, sub)) : fetch(uiExportUrl(`/asset/ui/layout/${encodeURIComponent(root)}.json`), { cache: "no-cache" }).then((r) => {
       if (!r.ok) throw new Error(`layout ${root}: HTTP ${r.status}`);
       return r.json();
-    });
+    }).then(value=>{globalThis.BAMTRecovery?.activity?.();return value;});
     layouts.set(name, request
       .catch((err) => { layouts.delete(name); throw err; }));
   }

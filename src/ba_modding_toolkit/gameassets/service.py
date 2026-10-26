@@ -60,6 +60,8 @@ PREFAB_HINTS = {
     "UILoading": "prologgroup-assets-_mx-resources-ui-_mxprolog-2026-04-13_assets_all_2006567787.bundle",
     "UIRepeater": "ui-_mxload-prefabs-2025-07-02_assets_all_1187726256.bundle",
     # the lobby, whose bottom menu entries hold the game's disabled look (layouts.py STATE_FIELDS)
+    "UIPopup_Formation_CharEdit": "ui-_mxload-prefabs-2025-07-02_assets_all_762187506.bundle",
+    "UIMailBox": "ui-_mxload-prefabs-2025-07-02_assets_all_2967155606.bundle",
     "UILobby": "ui-_mxload-prefabs-2025-07-02_assets_all_2178802179.bundle",
 }
 
@@ -529,6 +531,28 @@ class GameAssets:
         """Return a lossless collection portrait as PNG bytes."""
         return self._collection_png(name, "Student_Portrait_")
 
+    def collection_target(self, name: str) -> dict:
+        """The installed student-roster texture locator; selection-card portraits are excluded."""
+        if not isinstance(name, str) or not name.startswith("Student_Portrait_") or name not in self._collection():
+            raise ServiceError("photo_target_unavailable")
+        return dict(self._collection()[name])
+
+    def collection_portrait_from(self, name: str, paths: list[Path]) -> bytes:
+        """Read the requested Collection image from explicitly verified original bundles."""
+        self.collection_target(name)
+        stamps = spine_stamps(paths)
+        def build() -> bytes:
+            found = []
+            for path in paths:
+                with open_bundle(path) as env:
+                    for obj in env.objects:
+                        if obj.type.name == "Texture2D" and obj.peek_name() == name:
+                            found.append(png_bytes(obj.read().image))
+            if len(found) != 1 or spine_stamps(paths) != stamps:
+                raise ServiceError("photo_target_unavailable")
+            return found[0]
+        return self._preview_bytes("photography/default/" + name + json.dumps(stamps), build)
+
     def spine_cores(self, kind: str) -> dict[str, list[Path]]:
         """Group portrait or lobby bundle parts by parsed Spine core."""
         categories = {"spr": ("spinecharacters",), "lobby": ("spinelobbies", "spinebackground", "spinecharacters")}
@@ -597,22 +621,21 @@ class GameAssets:
         """Lower-case dev names with a 3D chibi prefab bundle (character-<dev>-_mxload-*)."""
         return set(self._model_index())
 
+    def _cab_discovery(self):
+        from .cabs import CabIndex
+
+        with self._lock("cab-discovery"):
+            if "cab-discovery" not in self._indexes:
+                self._indexes["cab-discovery"] = CabIndex(self.resource_dirs, cache=self.preview_cache,
+                                                        namespace=self.preview_namespace, reader=cab_names)
+            return self._indexes["cab-discovery"]
+
+    def _resolve_cabs(self, wanted: set[str], hint_path: Path | None = None) -> dict[str, str]:
+        return self._cab_discovery().resolve(wanted, hint_path)
+
     def _cab_index(self, everything: bool = False) -> dict[str, str]:
-        """CAB name -> bundle path, from bundle headers only: the model families (about 2k bundles, 0.3 s cold), or
-        every bundle when a model points outside them (a few seconds, once per resource version)."""
-        def build() -> dict[str, str]:
-            index: dict[str, str] = {}
-            for path in self._paths():
-                if everything or is_model_dependency(path):
-                    try:
-                        names = cab_names(path)
-                    except (OSError, ValueError):
-                        logger.debug("Cannot read the CAB names of %s", path, exc_info=True)
-                        continue
-                    for cab in names:
-                        index.setdefault(cab, str(path))
-            return index
-        return self._index("cabs-all" if everything else "cabs", build, disk=False)
+        """Explicit full-index compatibility path; preview requests resolve on demand."""
+        return self._cab_discovery().all((lambda path: True) if everything else is_model_dependency)
 
     def model_glb(self, core: str, overrides: Iterable[Path] = ()) -> bytes:
         """Export a chibi to lossless GLB bytes. ``overrides`` are bundles that replace the official bundles
@@ -677,7 +700,6 @@ class GameAssets:
             cached = valid_cached()
             if cached is not None:
                 return cached
-            index = self._cab_index()
             started: dict[str, tuple[int, int, int] | None] = {}
 
             @contextmanager
@@ -695,7 +717,7 @@ class GameAssets:
                     if _stamp(path) != before:
                         raise AssetNotFound("Model dependency changed during extraction")
 
-            with BundleGraph(index, overrides, fallback=lambda: self._cab_index(everything=True), opener=tracked_bundle) as graph:
+            with self._cab_discovery().batch(), BundleGraph({}, overrides, resolver=self._resolve_cabs, opener=tracked_bundle) as graph:
                 data = export_chibi(graph, bundles, core)
                 read = {path: _stamp(path) for path in graph.loaded}
                 complete = not graph.missing_cabs
@@ -783,8 +805,7 @@ class GameAssets:
         # the particle renderers' materials, textures and meshes sit in other bundles (the lobbies' shared effect
         # bundles, the shader bundles, a character's own): one graph holds them open, so it runs alone like a model
         # export (see BundleGraph)
-        index = self._cab_index(everything=True)
-        with _MODEL_LOCK, BundleGraph(index) as graph:
+        with _MODEL_LOCK, self._cab_discovery().batch(), BundleGraph({}, resolver=self._resolve_cabs) as graph:
             env = graph.add(path)
             objects = {obj.path_id: obj for obj in env.objects}
             kinds = {pid: obj.type.name for pid, obj in objects.items()}
@@ -812,17 +833,7 @@ class GameAssets:
     def _lobby_behaviours(self, cab: str) -> dict[tuple[str, int], dict]:
         """The MonoBehaviours of another lobby core's bundle by (CAB name, path id): a few lobbies share a volume
         profile (Neru's is Serika's). Read on demand and kept in memory only, like the lobby data."""
-        def build() -> dict[str, str]:
-            index: dict[str, str] = {}
-            for paths in self.spine_cores("lobby").values():
-                for path in paths:
-                    try:
-                        for name in cab_names(path):
-                            index.setdefault(name, str(path))
-                    except (OSError, ValueError):
-                        logger.debug("Cannot read the CAB names of %s", path, exc_info=True)
-            return index
-        path = self._index("lobby-cabs", build, disk=False).get(cab.lower())
+        path = self._resolve_cabs({cab}).get(cab.lower())
         out: dict[tuple[str, int], dict] = {}
         if path is None:
             return out
@@ -846,7 +857,7 @@ class GameAssets:
                 wanted.setdefault(cab, set()).add(int(pid))
         if not wanted:
             return {}
-        index, out = self._cab_index(everything=True), {}
+        index, out = self._resolve_cabs(set(wanted)), {}
         for cab, pids in wanted.items():
             bundle = index.get(cab)
             if bundle is None:
@@ -877,7 +888,7 @@ class GameAssets:
         if not any(clip_id in e.get("clips", ()) for e in self.lobby_info(core).get("sounds", {}).values()):
             raise AssetNotFound(("lobby-sound", core, clip_id))
         cab, _, pid = clip_id.rpartition("_")
-        bundle = self._cab_index(everything=True).get(cab)
+        bundle = self._resolve_cabs({cab}).get(cab.lower())
         if bundle is None or not pid.lstrip("-").isdigit():
             raise AssetNotFound(("lobby-sound", core, clip_id))
 
@@ -903,7 +914,7 @@ class GameAssets:
         if tex_id not in self.lobby_info(core).get("fx", {}).get("textures", {}):
             raise AssetNotFound(("lobby-fx", core, tex_id))
         cab, _, pid = tex_id.rpartition("_")
-        bundle = self._cab_index(everything=True).get(cab)
+        bundle = self._resolve_cabs({cab}).get(cab.lower())
         if bundle is None or not pid.lstrip("-").isdigit():
             raise AssetNotFound(("lobby-fx", core, tex_id))
 

@@ -12,6 +12,8 @@ import { createPortraits } from "./student-hall-portraits.js";
 import { alignIcon } from "./student-hall-icons.js";
 import { createMemorialPool } from "./student-hall-memorial.js";
 import { createFullscreen } from "./student-hall-fullscreen.js";
+import { createSceneCamera, sceneRect, sceneViewport } from "./student-hall-camera.js";
+import { dialogueText } from "./dialogue-text.js";
 import { portraitRect } from "./student-hall-framing.js";
 import { rpc } from "./api.js";
 import { T, L, language } from "./i18n.js";
@@ -19,11 +21,13 @@ import { clone, S, hitButton, text } from "./util.js";
 import { lazyThumbnail } from "./lazy-thumbnail.js";
 import { thumbnailScope } from "./thumbs.js";
 
-let ctx, store, options, root, art, chrome, hits, subtitle, layouts, dialogue, fullscreen;
+let ctx, store, options, root, art, chrome, hits, subtitle, layouts, dialogue, fullscreen, sceneCamera;
 let page = 0, scene = 0, toolbar = 0, hitGeneration = 0, abort, portraits, selected = null, editor = null, leavePrompt = null;
 let saving = Promise.resolve(), leavePending = null, leaveResolve = null, pendingWrites = 0, needsSettlement = false;
 let sceneMode = null, backgroundHost = null, portraitHost = null, backgroundName = null, actorHover = null, portraitSceneHost = null, memorials = null, sceneCover = null;
 const backgroundCache = new Map(), revisions = new WeakMap();
+const memorialCaptions = new WeakMap();
+const lineLanguage = () => ({ "en-US": "en", "zh-CN": "zh-CN", "zh-TW": "zh-TW", "ja-JP": "ja", "ko-KR": "ko", "th-TH": "th" })[language()] || "en";
 // User-selected Common atlas icons; dimensions are the authored sprite sizes.
 const ACTION_ICONS = { Layout: ["Cafe_Icon_NameEdit", 50, 50], Background: ["Cafe_Icon_Photo", 120, 104], Adjust: null, Add: null };
 // The stacked icons include translucent backplates; their full visible outline supplies the visual center.
@@ -174,11 +178,26 @@ async function step(delta) {
   const at = Math.max(0, list.findIndex((entry) => entry.id === next.active)); next.active = list[(at + delta + list.length) % list.length].id;
   const result = await persist(next); if (gen !== page || !root) return; store.accept(result); await renderScene();
 }
-function rectOf(entry) { return portraitRect(entry, portraits?.actors.get(entry.id)?.bounds, current().portraitScale); }
+function rectOf(entry) {
+  const rect = portraitRect(entry, portraits?.actors.get(entry.id)?.bounds, current().portraitScale);
+  return sceneCamera && current().mode === "portraits" && !editing() ? sceneRect(rect, sceneCamera.view()) : rect;
+}
+function paintSceneView(view, immediate = false) {
+  portraits?.setView?.(sceneViewport(view), { draw: immediate });
+  if (backgroundHost) Object.assign(backgroundHost.style, { transformOrigin: "0 0", transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})` });
+  if (!root || !store || current().mode !== "portraits") return;
+  for (const button of hits.querySelectorAll("[data-entry]")) {
+    const entry = current().portraits.find((item) => item.id === button.dataset.entry);
+    if (!entry) continue;
+    const rect = rectOf(entry);
+    Object.assign(button.style, { left: `${rect.x}px`, top: `${rect.y}px`, width: `${rect.width}px`, height: `${rect.height}px` });
+  }
+  dialogue?.reposition?.();
+}
 function portraitActions(entry) {
   const list = current().portraits, index = list.findIndex((item) => item.id === entry.id);
-  const actions = [["Remove", "hall.remove", () => store.remove(entry.id), true]];
-  if (current().portraits.length > 2) actions.push(
+  const actions = list.length > 1 ? [["Remove", "hall.remove", () => store.remove(entry.id), true]] : [];
+  if (current().portraits.length >= 2) actions.push(
     ["Backward", "hall.layerBackward", () => store.layer(entry.id, -1), index > 0],
     ["Forward", "hall.layerForward", () => store.layer(entry.id, 1), index < list.length - 1],
     ["Front", "hall.layerFront", () => store.layer(entry.id, "front"), index < list.length - 1],
@@ -333,6 +352,19 @@ function configureMemorial(player, prefs = ctx?.prefs) {
   player.setVolume((prefs?.voiceVolume ?? 80) / 100, ctx?.info?.mute || prefs?.voiceMuted);
   player.setZoomLimit(prefs?.lobbyZoom); player.setPostProcessing(prefs?.lobbyPost !== false); player.setIntro(prefs?.lobbyIntro !== false);
 }
+function refreshMemorialCaptions(player, source = memorialCaptions.get(player)) {
+  if (!source || source.signal.aborted) return Promise.resolve();
+  memorialCaptions.set(player, source);
+  const request = source.request = (source.request || 0) + 1, lang = lineLanguage();
+  const pick = (line) => dialogueText(line, lineLanguage())?.text || "";
+  player.setLines(undefined, pick);
+  // Chinese requests also load the official Chinese script while Kivo's preferred text is being retrieved.
+  return rpc("lobby.lines", { variant: source.variant, talks: source.talks, lang: lang === "zh-CN" ? "zh-TW" : lang }, { signal: source.signal })
+    .then((lines) => {
+      if (!source.signal.aborted && request === source.request && memorialCaptions.get(player) === source)
+        player.setLines(lines, pick);
+    });
+}
 async function memorial(choice, host, signal, player) {
   configureMemorial(player);
   const meta = await player.show(choice.core, host, choice.variant, { mod: choice.source.startsWith("mod:") ? choice.source.slice(4) : null,
@@ -342,9 +374,8 @@ async function memorial(choice, host, signal, player) {
   player.frame("full"); player.interactive(true); host.querySelector(".lobby-frost")?.remove();
   if (!(await player.prepareFrame())) throw new Error("Memorial frame is unavailable");
   if (signal.aborted) throw new DOMException("Memorial load cancelled", "AbortError");
-  const lang = ({ "en-US": "en", "zh-CN": "zh-CN", "zh-TW": "zh-TW", "ja-JP": "ja", "ko-KR": "ko", "th-TH": "th" })[language()] || "en";
   const talks = Object.fromEntries(meta.sequences.map((sequence) => [sequence.anim, sequence.cues.map((cue) => cue.clip)]));
-  rpc("lobby.lines", { variant: choice.variant, talks, lang }, { signal }).then((lines) => { if (!signal.aborted) player.setLines(lines, (line) => line?.[lang] || ""); }).catch(() => {});
+  refreshMemorialCaptions(player, { variant: choice.variant, talks, signal }).catch(() => {});
   return true;
 }
 async function renderScene() {
@@ -438,6 +469,7 @@ async function renderScene() {
     }
     for (const child of [...art.children]) if (child !== portraitSceneHost && child !== memorials.current()?.host && child !== temporaryHost) child.remove();
     chrome.replaceChildren(nextChrome); hits.replaceWith(nextHits); hits = nextHits; sceneMode = mode;
+    sceneCamera?.sync({ reset: editing() });
     sceneCover?.remove(); sceneCover = null;
   };
   try {
@@ -546,6 +578,8 @@ export async function show(context, data = null) {
   fullscreen = createFullscreen({ root, stage: document.getElementById("stage"), chrome, prepareExit: fullscreenExit,
     popupOpen: () => Popup.anyOpen(), returnFocus: () => chrome?.querySelector('[data-action="hall-fullscreen"]'),
     onChange: () => { actorHover?.clearPointer(); } });
+  sceneCamera = createSceneCamera({ host: root, enabled: () => !!store && current().mode === "portraits" && !editing(),
+    blocked: () => !root || pendingWrites > 0 || Popup.anyOpen() || Loading.held() || Loading.covering(), onChange: paintSceneView });
   document.addEventListener("keydown", onKey); await renderScene();
 }
 function onKey(event) {
@@ -554,9 +588,16 @@ function onKey(event) {
   event.preventDefault(); step(event.key === "ArrowLeft" ? -1 : 1).catch(fail);
 }
 export function hide() {
-  const owned = !!root; fullscreen?.dispose(); fullscreen = null; ++page; ++toolbar; document.removeEventListener("keydown", onKey);
+  const owned = !!root; sceneCamera?.dispose(); sceneCamera = null; fullscreen?.dispose(); fullscreen = null; ++page; ++toolbar; document.removeEventListener("keydown", onKey);
   closeEditor(); leavePrompt?.close(); leavePrompt = null; leaveResolve?.("stay"); leaveResolve = null;
   if (owned) stopScene(); else { abort?.abort(); abort = null; }
   root?.replaceChildren(); root = art = chrome = hits = subtitle = null; store = null; selected = null; actorHover = null; needsSettlement = false;
 }
-export async function relabel() { const gen = page; if (root) { dialogue?.relabel(); fullscreen?.relabel(T("lobby.exit")); await renderChrome(); if (gen === page) await editor?.redraw?.(); } }
+export async function relabel() {
+  const gen = page;
+  if (root) {
+    dialogue?.relabel();
+    const memory = memorials?.current(); if (memory) refreshMemorialCaptions(memory.player).catch(() => {});
+    fullscreen?.relabel(T("lobby.exit")); await renderChrome(); if (gen === page) await editor?.redraw?.();
+  }
+}

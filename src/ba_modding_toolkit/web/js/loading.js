@@ -346,13 +346,10 @@ async function shadeEdges(o) {
     const node = structuredClone(template); node.name = name; node.pos = [0, 0]; node.active = true; node.children = [];
     // flipped: the gradient's dark side sits on the window edge and fades inwards; shorter and lighter than the prefab
     const [hex, alpha = "1"] = node.widgets[0].color.split("/");
-    Object.assign(node.widgets[0], { w_: width / S, h_: reach, pivot: 7, flip: (node.widgets[0].flip || 0) ^ 2,
+    Object.assign(node.widgets[0], { w_: width / S, h_: reach, pivot: 7, incline: 0, flip: (node.widgets[0].flip || 0) ^ 2,
       color: `${hex}/${(Number(alpha) * EDGE_ALPHA).toFixed(2)}` });
     await NGUI.render(node, host, { scale: S, origin: [0, 0] });
-    // Neighbours share the diagonal from the window corner to their inner joint, without overlapping alpha.
-    const outer = node.widgets[0].flip >= 2 ? "0" : "100%", inner = outer === "0" ? "100%" : "0";
-    for (const edge of host.querySelectorAll(".ngui")) edge.style.clipPath =
-      `polygon(0 ${outer}, 100% ${outer}, calc(100% - ${inset * S}px) ${inner}, ${inset * S}px ${inner})`;
+    // Full native gradients overlap smoothly; polygon joins exposed diagonal cuts on scaled windows.
     if (o.closing || (o !== overlay && o !== writerOverlay)) return;
     o.el.appendChild(host);
   }

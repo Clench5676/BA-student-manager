@@ -563,7 +563,10 @@ def _unityfs(names, *, version=7, at_end=False, compress=True):
     head += struct.pack(">qIII", 0, len(packed), len(info), flags)
     if version >= 7:
         head += b"\0" * (-len(head) % 16)
-    return head + b"DATA" + packed if at_end else head + packed + b"DATA"
+    result = bytearray(head + b"DATA" + packed if at_end else head + packed + b"DATA")
+    size_offset = len(b"UnityFS\0") + 4 + len(b"5.x.x\0") + len(b"2021.3.0f1\0")
+    struct.pack_into(">q", result, size_offset, len(result))
+    return bytes(result)
 
 
 @pytest.mark.parametrize("version,at_end,compress", [(7, False, True), (7, True, True), (6, False, True), (6, True, False)])

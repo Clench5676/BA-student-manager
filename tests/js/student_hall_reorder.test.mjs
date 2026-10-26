@@ -113,13 +113,13 @@ test("Alt arrows remain available and Escape cancels only the active grab",()=>{
 });
 test("drag ghost retains the decoded image and scaling, with a small finger clearance for touch",()=>{
   for(const pointerType of ["mouse","touch"]){
-    const children=[],marker={hidden:true,style:{}};
+    const children=[],marker={hidden:true,offsetWidth:0,style:{width:"2px"}};
     const visual={style:{opacity:".7"},offsetWidth:244,offsetHeight:175,getBoundingClientRect:()=>({left:100,top:100,width:122,height:87.5}),
       ownerDocument:{body:{appendChild(node){children.push(node);}}},cloneNode(){return{style:{},attrs:{},thumbnail:"decoded-current-frame",removeAttribute(){},setAttribute(key,value){this.attrs[key]=value;},remove(){children.splice(children.indexOf(this),1);}};}};
     const feedback=dragFeedback(visual,()=>marker,244,3);feedback.start({clientX:150,clientY:120,pointerType});
     assert.equal(visual.style.opacity,".5");assert.equal(children.length,1);assert.equal(children[0].thumbnail,"decoded-current-frame");assert.equal(children[0].style.transform,"scale(0.5)");
-    feedback.update({clientX:300,clientY:200},2);assert.equal(children[0].style.left,"250px");assert.equal(children[0].style.top,pointerType==="touch"?"156px":"180px");assert.equal(marker.hidden,false);assert.equal(marker.style.transform,"translateX(483px)");
-    feedback.update({clientX:100,clientY:200},0);assert.equal(marker.style.transform,"translateX(0px)");feedback.update({clientX:700,clientY:200},3);assert.equal(marker.style.transform,"translateX(722px)");
+    feedback.update({clientX:300,clientY:200},2);assert.equal(children[0].style.left,"250px");assert.equal(children[0].style.top,pointerType==="touch"?"156px":"180px");assert.equal(marker.hidden,false);assert.equal(marker.style.transform,"translateX(487px)");
+    feedback.update({clientX:100,clientY:200},0);assert.equal(marker.style.transform,"translateX(0px)");feedback.update({clientX:700,clientY:200},3);assert.equal(marker.style.transform,"translateX(730px)");
     feedback.cleanup();assert.equal(children.length,0);assert.equal(visual.style.opacity,".7");assert.equal(marker.hidden,true);
   }
 });

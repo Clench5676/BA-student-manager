@@ -192,6 +192,7 @@ function visited(fam, key) {
 }
 
 function showScreen(name) {
+  $("top-home").hidden = !info?.gameFound || name === "hall";
   for (const id of ["screen-hall", "screen-roster", "screen-detail", "screen-import", "screen-message"]) $(id).hidden = id !== `screen-${name}`;
 }
 
@@ -487,6 +488,17 @@ async function start() {
   $("top-option").setAttribute("aria-label", T("settings.button"));
   $("top-home").setAttribute("aria-label", T("hall.home"));
   $("top-home").hidden = !info.gameFound;
+  const setupWindowControls=()=>{
+    if(!globalThis.pywebview || document.getElementById('native-controls'))return;
+    const controls=document.createElement('div');controls.id='native-controls';
+    for(const [action,icon] of [['minimize','−'],['maximize','□'],['close','×']]){
+      const button=document.createElement('button');button.textContent=icon;button.setAttribute("aria-label",T(`window.${action}`));
+      button.addEventListener('click',()=>rpc('window.control',{action}).catch(console.error));controls.append(button);
+    }
+    document.body.append(controls);
+  };
+  setupWindowControls();
+  addEventListener("pywebviewready",setupWindowControls,{once:true});
   // subscribed before the no-game screen too, so choosing the game folder elsewhere reaches the page
   on("config.changed", () => { if (!info.gameFound) { location.reload(); return; } BatchImport.invalidate(); stepCards = null; ctx.invalidateRoster(); route(); });
   on("app.busy", () => notify(T("error.busy"), { kind: "error", error: { code: "busy" } }));
@@ -528,6 +540,12 @@ async function start() {
     if (family) ctx.go(family.key, key);
   }, goOther: () => Settings.open(settingsChanged, "mods") });
   on("library.changed", libraryChanged);
+  on("photography.changed", () => {
+    ctx.invalidateRoster();
+    if ($("screen-roster").hidden) return;
+    const token=routeToken;
+    Popup.whenIdle().then(() => { if(token===routeToken&&!$("screen-roster").hidden)return route(); }).catch(console.error);
+  });
   watchFront();
   // files dropped on the window are added to the library
   on("drop", async ({ paths }) => {

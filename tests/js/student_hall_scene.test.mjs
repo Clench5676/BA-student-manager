@@ -3,6 +3,8 @@ import { test } from "node:test";
 import { readFile } from "node:fs/promises";
 import { createDraft, sourceKey } from "../../src/ba_modding_toolkit/web/js/student-hall-model.js";
 import { createMemorialPool } from "../../src/ba_modding_toolkit/web/js/student-hall-memorial.js";
+import { dialogueText } from "../../src/ba_modding_toolkit/web/js/dialogue-text.js";
+import { sceneRect, sceneViewport } from "../../src/ba_modding_toolkit/web/js/student-hall-camera.js";
 import { portraitRect } from "../../src/ba_modding_toolkit/web/js/student-hall-framing.js";
 
 class Element {
@@ -23,25 +25,25 @@ class Element {
   emit(name,event={}) { for(const fn of this.listeners[name]||[]) fn(event); }
 }
 const saved=()=>({revision:0,mode:"portraits",background:"office-day",portraitScale:1,portraits:["a","b","c"].map((id)=>({id,variant:id,source:`mod:${id}`,x:700,y:1100,scale:1})),memorials:[],active:null});
-let loads=0,disposals=0,holds=0,updates=0,persisted=[],buttons=[],chromeDelay=null;
+let loads=0,disposals=0,holds=0,updates=0,persisted=[],buttons=[],chromeDelay=null,testLanguage="en-US";
 const renderer={actors:new Map(),allowed:true,needsLoad:()=>false,dispose(){disposals++;},setScale(){},update(entries){updates++;const previous=new Map(this.actors);this.actors.clear();for(const entry of entries)this.actors.set(entry.id,{...previous.get(entry.id),entry});return Promise.resolve(true);}};
 globalThis.sceneHarness={
-  createDraft,createMemorialPool,sourceKey,portraitRect,clone:structuredClone,S:1920/2960,T:(key)=>key,L:(names)=>names?.en,
+  createDraft,createMemorialPool,sourceKey,portraitRect,sceneRect,sceneViewport,dialogueText,language:()=>testLanguage,clone:structuredClone,S:1920/2960,T:(key)=>key,L:(names)=>names?.en,
   document:{createElement:()=>new Element(),activeElement:null,removeEventListener(){}},
   Backgrounds:{backgroundChoice:()=>({name:"office-day"}),render:async()=>{loads++;}},
   Loading:{hold:async(fn)=>{holds++;return fn();}},
   Lobby:{hide(){}},Popup:{notify(){}},
   UI:{button:async()=>{},caption:async()=>{}},
-  rpc:async(method,{value,revision})=>{persisted.push(method);return {...structuredClone(value),revision:revision+1};},
+  rpc:async(method,params)=>{if(method==="lobby.lines")return globalThis.sceneHarness.lineResponse(params);const {value,revision}=params;persisted.push(method);return {...structuredClone(value),revision:revision+1};},
   hitButton(parent,rect,click,label){const button=new Element();button.label=label;button.rect=rect;button.addEventListener("click",click);parent.append(button);buttons.push(button);return button;},
 };
 let source=await readFile(new URL("../../src/ba_modding_toolkit/web/js/student-hall.js",import.meta.url),"utf8");
 source=source.replace(/^import .*;$/gm,"");
-source=`const {createDraft,createMemorialPool,sourceKey,portraitRect,clone,S,T,L,document,Backgrounds,Loading,Lobby,Popup,UI,rpc,hitButton}=globalThis.sceneHarness;\n${source}
+source=`const {createDraft,createMemorialPool,sourceKey,portraitRect,sceneRect,sceneViewport,dialogueText,language,clone,S,T,L,document,Backgrounds,Loading,Lobby,Popup,UI,rpc,hitButton}=globalThis.sceneHarness;\n${source}
 const originalHits=renderHits;
 export function fixture(value,renderer,memory=null,shownMode=value.mode){
  store=createDraft(value);root=document.createElement('div');art=document.createElement('div');hits=document.createElement('div');chrome=document.createElement('div');subtitle=document.createElement('div');root.append(art,hits,chrome,subtitle);
- portraits=renderer;abort=new AbortController();sceneMode=shownMode;backgroundName='office-day';backgroundHost=document.createElement('div');portraitSceneHost=document.createElement('div');art.append(portraitSceneHost);ctx={prefs:{},info:{}};actorHover=null;sceneCover=null;fullscreen=null;dialogue=null;
+ portraits=renderer;abort=new AbortController();sceneMode=shownMode;backgroundName='office-day';backgroundHost=document.createElement('div');portraitSceneHost=document.createElement('div');art.append(portraitSceneHost);ctx={prefs:{},info:{}};actorHover=null;sceneCover=null;fullscreen=null;sceneCamera=null;dialogue=null;
  memorials=memory||{current:()=>null,suspend(){},cancelPending(){},dispose(){}};
  options={choices:[...value.portraits.map(e=>({...e,kind:'spr',names:{en:{full:e.id}}})),...value.memorials.map(e=>({...e,kind:'lobby',names:{en:{full:e.id}}}))],backgrounds:[]};
  renderChrome=async()=>{await globalThis.sceneHarness.chromeReady?.();return document.createElement('div');};renderHits=()=>Promise.resolve();renderPortraitActions=async()=>{};
@@ -49,7 +51,8 @@ export function fixture(value,renderer,memory=null,shownMode=value.mode){
 export function elements(){return {root,art,hits,chrome,portraitSceneHost,sceneCover,sceneMode};}
 export function immersiveFixture(active,onPlay){fullscreen={active:()=>active,dispose(){}};dialogue={play:onPlay};}
 
-export function draft(){return store;} export {controls,saveDraft,cancelDraft,renderScene,portraitActions,createHoverOwner,memorial,step};
+export function draft(){return store;} export {controls,saveDraft,cancelDraft,renderScene,portraitActions,createHoverOwner,memorial,step,refreshMemorialCaptions};
+export function cameraFixture(view){sceneCamera={view:()=>view,sync(){},dispose(){}};}
 export function hitsNow(){originalHits();return hits;}`;
 // The fixture is intentionally DOM-only; actual Spine identities and GPU resource reuse are covered by student_hall.test.
 source += "\n//# sourceURL=hall-scene-fixture.js";
@@ -75,13 +78,14 @@ test("portrait hit order follows saved layer order and wheel or keys cannot muta
   assert.ok(buttons.every(button=>!button.listeners.wheel&&!button.listeners.keydown));
   assert.equal(Hall.draft().current().portraitScale,1);assert.equal(value.portraits[0].scale,1);
 });
-test("only three-or-more portrait layouts offer layer and flip actions, with boundary moves disabled",()=>{
+test("two-or-more portrait layouts offer layer and flip actions, with boundary moves disabled",()=>{
   setup();Hall.draft().begin("layout");
   const list=Hall.draft().current().portraits;
   assert.equal(Hall.portraitActions(list[0]).length,6);
   assert.equal(Hall.portraitActions(list[0]).find(action=>action[0]==="Backward")[3],false);
   assert.equal(Hall.portraitActions(list[2]).find(action=>action[0]==="Front")[3],false);
-  Hall.draft().remove("c");assert.deepEqual(Hall.portraitActions(list[0]).map(action=>action[0]),["Remove"]);
+  Hall.draft().remove("c");assert.equal(Hall.portraitActions(list[0]).length,6);
+  Hall.draft().remove("b");assert.deepEqual(Hall.portraitActions(list[0]),[]);assert.equal(Hall.draft().remove("a"),false);
 });
 
 test("one hover owner keeps its palette during pointer entry, focus loss and overlapping actor entry",()=>{
@@ -173,4 +177,24 @@ test("immersive portrait interaction preserves its draft and renderer while disa
   const target=buttons[0];target.emit("pointerdown",{clientX:100,clientY:100,pointerId:1,preventDefault(){}});target.emit("pointermove",{clientX:300,clientY:400,buttons:1});target.emit("click");await Promise.resolve();
   assert.deepEqual(entry,before);assert.equal(spoken,entry.id);assert.equal(renderer.actors.get(entry.id),actor);assert.equal(Hall.draft().kind(),"layout");assert.equal(updates,0);assert.equal(disposals,0);
   Hall.immersiveFixture(false,async()=>{});
+});
+
+test("viewing zoom projects every portrait hit with the artwork, and editing keeps original layout coordinates",()=>{
+  setup();Hall.hitsNow();const before=buttons.slice(-3).map(button=>button.rect);
+  Hall.cameraFixture({scale:2,x:-500,y:-200});Hall.hitsNow();const after=buttons.slice(-3).map(button=>button.rect);
+  for(let i=0;i<before.length;i++)assert.deepEqual(after[i],[before[i][0]*2-500,before[i][1]*2-200,before[i][2]*2,before[i][3]*2]);
+  Hall.draft().begin("layout");Hall.hitsNow();assert.deepEqual(buttons.slice(-3).map(button=>button.rect),before);
+});
+
+test("a retained memorial changes caption language without replaying and rejects stale language requests",async()=>{
+  setup();const controller=new AbortController(),source={variant:"hero",talks:{Talk_01_M:["voice"]},signal:controller.signal};
+  const requests=[],published=[];let oldReady;
+  globalThis.sceneHarness.lineResponse=params=>{requests.push(params);return params.lang==="ja"?new Promise(resolve=>{oldReady=resolve;}):Promise.resolve({voice:{"zh-CN":"Current Chinese",ja:"Original"}});};
+  const player={setLines:(rows,text)=>published.push({rows,text}),show(){assert.fail("Localization cannot restart the scene");}};
+  testLanguage="ja-JP";const old=Hall.refreshMemorialCaptions(player,source);testLanguage="zh-CN";await Hall.refreshMemorialCaptions(player);
+  assert.equal(requests[1].lang,"zh-TW");const tables=published.filter(value=>value.rows!==undefined);
+  assert.equal(tables[0].text(tables[0].rows.voice),"Current Chinese");
+  assert.equal(published[1].text({ja:"Old foreign line"}),"");
+  oldReady({voice:{ja:"Obsolete"}});await old;assert.equal(published.filter(value=>value.rows!==undefined).length,1);
+  controller.abort();await Hall.refreshMemorialCaptions(player);assert.equal(requests.length,2);
 });

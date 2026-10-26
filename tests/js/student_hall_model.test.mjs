@@ -33,13 +33,13 @@ test("playlist reorder retains active UUID and the last entry cannot be removed"
   assert.equal(state.remove("a"), true); assert.equal(state.remove("b"), false);
   state.cancel(); assert.deepEqual(state.current().memorials.map((entry) => entry.id), ["a", "b"]);
 });
-test("portrait rows offer only library mods, merge skins without leaking other students, and match saved aliases", () => {
+test("portrait rows include official portraits and library mods, merge skins without leaking other students, and match saved aliases", () => {
   const choices = [source("hero", "spr", { source: "official" }), source("hero", "spr", { aliases: ["Alias Two"] }),
     source("hero_swimsuit", "spr", { custom: ["Summer Nickname"] }), source("other", "spr", { family: "other", familyNames: { en: "Other" } })];
   const view = normalizeView({ merged: true, sort: "name" });
   const all = portraitRows(choices, view, "", label, "en");
-  assert.equal(all.find((row) => row.key === "hero").choices.length, 2);
-  assert.ok(all.flatMap((row) => row.choices).every((choice) => choice.source.startsWith("mod:")));
+  assert.equal(all.find((row) => row.key === "hero").choices.length, 3);
+  assert.ok(all.flatMap((row) => row.choices).some((choice) => choice.source === "official"));
   assert.deepEqual(portraitRows(choices, view, "Alias Two", label, "en").flatMap((row) => row.choices).map((choice) => choice.variant), ["hero"]);
   assert.deepEqual(portraitRows(choices, view, "Summer Nickname", label, "en").flatMap((row) => row.choices).map((choice) => choice.variant), ["hero_swimsuit"]);
 });

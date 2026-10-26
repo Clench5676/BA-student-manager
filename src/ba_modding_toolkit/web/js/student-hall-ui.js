@@ -227,12 +227,12 @@ export async function queueMarker(host, pitch) {
   const tree = clone(NGUI.find(assets.formation, "Center/Popup/BG/Label_Title/DecoLine"));
   const blue = NGUI.find(assets.formation, "Center/Popup/RightBg/Inbox/Scroll View/Grid/UIFormationCharSlotGroup/UIPopupFormationCharSlot/UICharacterCard/Normal/Mulligan_Sub").widgets.find((widget) => "sprite" in widget).color;
   tree.name = "MemorialInsertionLine"; tree.active = true; tree.pos = [0, 0]; tree.children = [];
-  // Retain the game's line widget and blue selection palette, using its vertical gradient artwork.
-  Object.assign(tree.widgets.find((widget) => "sprite" in widget), { sprite: "Common_Gradient_Vertical", type: 0,
-    w_: 10 / S, h_: 155 / S, incline: 0, color: blue });
+  // Retain the game's solid line artwork and formation-selection blue palette.
+  Object.assign(tree.widgets.find((widget) => "sprite" in widget), { sprite: "Common_Line_Dot", type: 0,
+    w_: 2 / S, h_: 155 / S, incline: 0, color: blue });
   const marker = document.createElement("div"); marker.hidden = true; marker.setAttribute("aria-hidden", "true");
-  Object.assign(marker.style, { position: "absolute", left: "0", top: "0", width: "10px", height: "175px", pointerEvents: "none", zIndex: "100" });
-  host.append(marker); await NGUI.render(tree, marker, { scale: S, origin: [5, 82.5] }); return marker;
+  Object.assign(marker.style, { position: "absolute", left: "0", top: "0", width: "2px", height: "175px", pointerEvents: "none", zIndex: "100" });
+  host.append(marker); await NGUI.render(tree, marker, { scale: S, origin: [1, 82.5] }); return marker;
 }
 export function formationCardTree(formation, item, selected) {
   const tree = clone(NGUI.find(formation, "Center/Popup/RightBg/Inbox/Scroll View/Grid/UIFormationCharSlotGroup/UIPopupFormationCharSlot"));

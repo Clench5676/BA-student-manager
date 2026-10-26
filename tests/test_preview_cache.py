@@ -318,7 +318,7 @@ def test_missing_model_cab_is_not_persisted_and_new_dependency_exports_on_restar
     prefab.write_bytes(b"prefab")
     dependency = root / "extra.bundle"
     monkeypatch.setattr(GameAssets, "resource_version", property(lambda self: "same-catalog"))
-    monkeypatch.setattr(GameAssets, "_cab_index", lambda self, **kwargs: {"cab-extra": str(dependency)} if dependency.exists() else {})
+    monkeypatch.setattr(GameAssets, "_resolve_cabs", lambda self, wanted, hint=None: {"cab-extra": str(dependency)} if dependency.exists() else {})
     owner = SimpleNamespace(assets_file=SimpleNamespace(name="cab-owner", externals=[SimpleNamespace(path="cab-extra")]))
     builds = []
 

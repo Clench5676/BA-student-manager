@@ -30,7 +30,7 @@
 .stage [lang] { font-family: var(--font); }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
-html, body { height: 100%; background: #0d1626; overflow: hidden; }
+html, body { height: 100%; background: #000; overflow: hidden; }
 /* the page's own, not the host's: pywebview's text_select=False would add body { cursor: default } after this
    (webui/main.py) */
 body { cursor: var(--cursor); -webkit-user-select: none; user-select: none; }
@@ -42,7 +42,7 @@ input[type="text"], input[type="search"], textarea { cursor: text; }
   position: absolute; left: 50%; top: 50%; width: 1920px; height: 1080px;
   transform: translate(-50%, -50%) scale(var(--scale, .5));
   /* clip: focus and scrollIntoView must never scroll the stage onto its oversized backgrounds */
-  overflow: hidden; overflow: clip; font-family: var(--font); font-weight: var(--w); color: var(--navy-text); user-select: none;
+  overflow: hidden; overflow: clip; font-family: var(--font); font-weight: var(--w); color: var(--navy-text); user-select: none; text-rendering: geometricPrecision;
   background: linear-gradient(180deg, #d3eef9 0%, #b6e0f3 55%, #9fd4ee 100%);
 }
 .screen { position: absolute; inset: 0; }
@@ -402,3 +402,8 @@ input[type="text"], input[type="search"], textarea { cursor: text; }
 .repair-pages img { width: 100%; object-fit: contain; background: #dbe5ee; }
 .repair-player { position: relative; background: #dbe5ee; }
 .repair-player .spine-player { background: transparent !important; }
+
+/* Frameless desktop controls; they remain outside the fixed-aspect game stage. */
+#native-controls { position:fixed; right:0; top:0; display:flex; z-index:10000; opacity:0; transition:opacity .15s; }
+#native-controls:hover, #native-controls:focus-within { opacity:1; }
+#native-controls button { width:36px; height:24px; color:var(--navy-text); background:#eaf5fb; font:18px/1 sans-serif; display:grid; place-items:center; }

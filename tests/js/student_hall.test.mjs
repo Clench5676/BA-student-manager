@@ -143,3 +143,15 @@ test("inactive portrait sessions pause their actor clocks and resume the same GP
   assert.equal(actor.player.animationState.elapsed,.35);assert.equal(owner.stopRequestAnimationFrame,false);assert.equal(calls.length,fetches);assert.equal(result.actors.get(list[0].id),actor);
   result.dispose();
 });
+
+test("scene zoom updates the shared projection while retaining every skeleton, asset and animation state",async()=>{
+  const host=setup(),controller=new AbortController(),list=entries(2);
+  const result=await Hall.createPortraits(host,list,choice,{signal:controller.signal});
+  const actors=[...result.actors.values()],before=actors.map(actor=>({player:actor.player,x:actor.player.skeleton.x,y:actor.player.skeleton.y,scale:actor.player.skeleton.scaleX}));
+  const requestCount=calls.length,viewport={x:100,y:200,width:960,height:540};
+  result.setView(viewport,{draw:true});hooks[0].frame(players[0],.1);
+  assert.equal(players[0].currentViewport.width,960);assert.equal(players[0].currentViewport.x,100);
+  assert.equal(calls.length,requestCount);assert.equal(disposed.length,0);
+  for(let i=0;i<actors.length;i++){assert.equal(actors[i].player,before[i].player);assert.equal(actors[i].player.skeleton.x,before[i].x);assert.equal(actors[i].player.skeleton.scaleX,before[i].scale);}
+  result.setView(null);assert.equal(players[0].currentViewport.width,1920);controller.abort();
+});
