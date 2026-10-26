@@ -542,7 +542,8 @@ class Services:
             if not self.game_found():
                 return False
             version = self.game.resource_version
-        return bool(getattr(self.cache, "has_disk_entries", lambda _: False)(version))
+        cache_version = getattr(self.game, "cache_version", version)
+        return bool(getattr(self.cache, "has_disk_entries", lambda _: False)(cache_version))
 
     # --- the scan consent and the scan ---
 

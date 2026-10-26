@@ -128,6 +128,29 @@ def _coerce(key: str, value: Any) -> Any:
     return value
 
 
+def migrate_game_directories(directories: dict, detect: Callable[[str], str | None]) -> dict:
+    """Assign a legacy folder only when install detection identifies Japan unambiguously.
+
+    Keep the existing Global/Japan keys so older versions can still read both folders.
+    Explicit pairs and unrecognized folders retain their original assignments.
+    """
+    legacy = directories.get("game_resource_dir")
+    if not legacy or directories.get("game_resource_dir_japan") or not devmode.allows_read(legacy):
+        return directories
+    from .library.judge import install_root
+
+    try:
+        root = install_root(Path(legacy).expanduser())
+        matches = {region for region in ("global", "japan")
+                   if (folder := detect(region)) and devmode.allows_read(folder)
+                   and install_root(Path(folder).expanduser()) == root}
+    except (OSError, RuntimeError):
+        return directories
+    if matches != {"japan"}:
+        return directories
+    return {**directories, "game_resource_dir": "", "game_resource_dir_japan": str(legacy)}
+
+
 class Settings:
     """The settings in ``config.toml``. Thread-safe; ``reload_if_changed`` picks up saves made by the classic GUI.
 
@@ -162,6 +185,7 @@ class Settings:
                     detected[region] = get_BA_path(region) or ""
                 return detected[region]
 
+            data["Directories"] = migrate_game_directories(data.get("Directories", {}), detect)
             for key, f in FIELDS.items():
                 group = data.get(f.group, {})
                 if key in group:
@@ -237,9 +261,9 @@ class Settings:
     def server_region(self) -> str:
         return "japan" if self.get("file_source") in ("windows_japan", "adb_japan") else "global"
 
-    def game_dir(self) -> Path | None:
+    def game_dir(self, region: str | None = None) -> Path | None:
         """The local game folder for the current file source, or None in ADB mode or when it is not set."""
-        source = self.get("file_source")
+        source = self.get("file_source") if region is None else f"windows_{region}"
         key = {"windows_global": "game_resource_dir", "windows_japan": "game_resource_dir_japan"}.get(source)
         value = self.get(key) if key else ""
         if not value:
@@ -249,7 +273,7 @@ class Settings:
                 _ignored_game_dirs.add(value)
                 logger.warning("Game folder outside the dev roots, not used: %s", value)
             return None
-        return Path(value)
+        return Path(value).expanduser()
 
     def resource_dirs(self) -> list[Path]:
         """The existing resource folders of the local game (empty when there is none)."""

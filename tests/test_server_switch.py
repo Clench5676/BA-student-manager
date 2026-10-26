@@ -7,6 +7,7 @@ from ba_modding_toolkit.library import ModLibrary
 from ba_modding_toolkit.webui.photography import Photography
 from ba_modding_toolkit.webui.student_hall import empty_hall
 from test_webui import app, services, rpc
+from test_library import setup_library, game_bundle, make_mod
 
 
 def test_missing_japanese_folder_keeps_global_and_hall_then_recovers(app, services, tmp_path, monkeypatch):
@@ -81,3 +82,67 @@ def test_server_switch_cannot_reuse_a_catalog_retained_by_an_active_task(app, se
     monkeypatch.setattr(services.jobs, 'busy', lambda *args: True)
     assert rpc(app, 'settings.set', key='fileSource', value='windows_japan')['error']['code'] == 'busy'
     assert services.settings.path.read_bytes() == before
+
+
+def test_apply_and_restore_use_selected_install_and_preserve_other_choices(setup_library):
+    env = setup_library
+    japan = env.tmp / "japan"
+    japanese_file = game_bundle(japan)
+    japanese_original = japanese_file.read_bytes()
+    global_original = env.original.read_bytes()
+    env.settings.set("game_resource_dir_japan", str(japan))
+    entry, = env.library.add([make_mod(env.original, env.tmp / "upload")])
+    env.library.apply("test", f"mod:{entry.id}")
+    global_applied = env.original.read_bytes()
+    assert global_applied != global_original and japanese_file.read_bytes() == japanese_original
+    env.settings.set("file_source", "windows_japan")
+    assert env.library.current_pin().root == japan
+    assert env.library.current_pin().server == "japan"
+    assert env.library.configured("test")["spr"] is None
+    env.library.apply("test", f"mod:{entry.id}")
+    assert japanese_file.read_bytes() != japanese_original
+    assert env.original.read_bytes() == global_applied
+    env.library.restore("test")
+    assert japanese_file.read_bytes() == japanese_original
+    assert env.original.read_bytes() == global_applied
+    env.settings.set("file_source", "windows_global")
+    assert env.library.configured("test")["spr"] == f"mod:{entry.id}"
+    env.library.restore("test")
+    assert env.original.read_bytes() == global_original
+
+
+def test_switch_rebuilds_game_library_catalog_and_cab_index(tmp_path, monkeypatch):
+    from ba_modding_toolkit.config import Settings
+    from ba_modding_toolkit.webui.services import Services
+    from ba_modding_toolkit.webui.api import build_api
+    from ba_modding_toolkit.webui.server import WebApp
+    from test_cab_discovery import bundle
+
+    settings = Settings(tmp_path / "config.toml")
+    settings.set("bacii_map_path", str(tmp_path / "missing.csv"))
+    paths = {}
+    for region in ("global", "japan"):
+        folder = tmp_path / region
+        folder.mkdir()
+        paths[region] = bundle(folder, "same.bundle", "CAB-SHARED")
+        settings.set("game_resource_dir" + ("_japan" if region == "japan" else ""), str(folder))
+    settings.save()
+    services = Services(settings, tmp_path)
+    monkeypatch.setattr(services, "refresh_status", lambda: None)
+    monkeypatch.setattr(services, "request_scan", lambda: None)
+    app = WebApp(build_api(services), services.events, token="tok")
+    try:
+        old_game, old_library, old_catalog = services.game, services.library, services.catalog
+        assert old_game._cab_index(everything=True) == {"cab-shared": str(paths["global"])}
+        before = {key: path.read_bytes() for key, path in paths.items()}
+        assert "result" in rpc(app, "settings.set", key="fileSource", value="windows_japan")
+        assert services.game is not old_game and services.library is not old_library and services.catalog is not old_catalog
+        assert services.game.resource_version == old_game.resource_version
+        assert services.game.cache_version != old_game.cache_version
+        assert services.library.current_pin().root == paths["japan"].parent
+        assert services.catalog.server == "japan"
+        assert services.game._cab_index(everything=True) == {"cab-shared": str(paths["japan"])}
+        assert old_game._cab_index(everything=True) == {"cab-shared": str(paths["global"])}
+        assert before == {key: path.read_bytes() for key, path in paths.items()}
+    finally:
+        services.close()

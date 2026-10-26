@@ -319,7 +319,7 @@ def test_layout_cache_key_carries_the_export_format(tmp_path, monkeypatch):
     """A layout cached in the format before the state controllers ("layout/") is exported again under its new key;
     the old entry and every other cached entry stay."""
     game = GameAssets([tmp_path], AssetCache(root=tmp_path / "cache", allowed=True))
-    version = game.resource_version
+    version = game.cache_version
     stale = json.dumps({"name": "Root", "widgets": [{"cls": "OpenConditionButtonController"}]}).encode()
     game.cache.put(service._SCHEMA + "layout/Root", stale, version=version)
     game.cache.put(service._SCHEMA + "atlases", b"{}", version=version)
@@ -347,6 +347,29 @@ def test_layout_cache_key_carries_the_export_format(tmp_path, monkeypatch):
     assert warm.layout("Root", "") == fresh and exports == ["Root"]
     assert warm.cache.get(service._SCHEMA + "layout/Root", version=version) == stale
     assert warm.cache.get(service._SCHEMA + "atlases", version=version) == b"{}"
+
+
+def test_equal_resource_versions_do_not_share_install_indexes_or_late_results(tmp_path):
+    cache = AssetCache(root=tmp_path / "cache", allowed=True)
+    games = []
+    for region in ("global", "japan"):
+        folder = tmp_path / region
+        folder.mkdir()
+        (folder / "same.bundle").write_bytes(b"same size")
+        games.append(GameAssets([folder], cache))
+    global_game, japan_game = games
+    assert global_game.resource_version == japan_game.resource_version
+    assert global_game.cache_version != japan_game.cache_version
+    for game, region in zip(games, ("global", "japan")):
+        assert game._index("test-paths", lambda: [region]) == [region]
+        assert game._preview_bytes("test-preview", lambda: region.encode()) == region.encode()
+    # A retained old request can finish after the new install is selected.
+    assert global_game._cached("late", lambda: b"global") == b"global"
+    assert japan_game._cached("late", lambda: b"japan") == b"japan"
+    for game, region in zip(games, ("global", "japan")):
+        warm = GameAssets(game.resource_dirs, AssetCache(root=cache.root, allowed=True))
+        assert warm._index("test-paths", lambda: pytest.fail("disk index was not reused")) == [region]
+        assert warm._cached("late", lambda: pytest.fail("disk bytes were not reused")) == region.encode()
 
 
 def test_external_atlas_crop_orientation_and_decode_once(tmp_path, monkeypatch):
@@ -429,7 +452,7 @@ def test_atlas_cache_recovers_from_missing_bundles_and_legacy_empty_index(atlas_
     source = atlas_source
     game = source.game()
     version = game.resource_version
-    game.cache.put(service._SCHEMA + "atlases", b'{"sprites":{},"images":{},"names":{}}', version=version)
+    game.cache.put(service._SCHEMA + "atlases", b'{"sprites":{},"images":{},"names":{}}', version=game.cache_version)
     source.atlas.unlink()
     source.image.unlink()
     with pytest.raises(AssetNotFound, match="No UI atlas bundles"):

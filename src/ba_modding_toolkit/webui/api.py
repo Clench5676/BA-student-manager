@@ -354,10 +354,10 @@ def build_api(s: Services) -> RpcRegistry:
             with s._lock:
                 if s.jobs.busy():
                     raise ServiceError('busy')
-                folder = st.get("game_resource_dir_japan" if value == "windows_japan" else "game_resource_dir")
-                path = Path(folder).expanduser() if folder else None
+                region = "japan" if value == "windows_japan" else "global"
+                path = st.game_dir(region)
                 if path is None or not devmode.allows_read(path) or not path.is_dir() or not get_search_dirs(path):
-                    raise ServiceError("game_directory_missing")
+                    raise ServiceError("game_directory_missing", region=region)
                 st.set("file_source", value)
                 st.save()
                 s.reload_game()
@@ -368,9 +368,12 @@ def build_api(s: Services) -> RpcRegistry:
 
             if not path.is_dir() or not get_search_dirs(path):
                 raise ServiceError("game_not_found")
-            st.set("game_resource_dir" if key.endswith("global") else "game_resource_dir_japan", str(path))
-            st.save()
-            s.reload_game()
+            with s._lock:
+                if s.jobs.busy():
+                    raise ServiceError("busy")
+                st.set("game_resource_dir" if key.endswith("global") else "game_resource_dir_japan", str(path))
+                st.save()
+                s.reload_game()
         elif key == "outputDir":
             path = Path(str(value)).expanduser()
             devmode.check_read(path)

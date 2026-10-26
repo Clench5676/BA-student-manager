@@ -796,7 +796,8 @@ class FileListWindow(StoppableDialog):
             adb_source = self.app.get_adb_file_source()
             search_dirs = adb_source.get_search_dirs()
         else:
-            search_dirs = get_search_dirs(Path(self.app.game_resource_dir_var.get()))
+            folder = self.app.get_current_resource_dir()
+            search_dirs = get_search_dirs(Path(folder)) if folder else []
 
         bundle_paths_set: set[Path] = set()
         for file in selected:

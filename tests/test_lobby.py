@@ -635,7 +635,7 @@ def test_real_lobbies(real_game, monkeypatch):
     on_disk = {key for key, disk in puts if disk}
     assert on_disk == {_SCHEMA + "lobby-prefabs"}
     files = {p for p in cache.root.rglob("*") if p.is_file()}
-    assert files == {cache._path(real_game.resource_version, key) for key in on_disk}
+    assert files == {cache._path(real_game.cache_version, key) for key in on_disk}
 
 
 @pytest.mark.skipif(not GAME_DIR.is_dir(), reason="No local game install")
