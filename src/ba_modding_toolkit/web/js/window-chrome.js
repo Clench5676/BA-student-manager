@@ -8,7 +8,7 @@ import { naturalTextWidth } from "./top-bar-measure.js";
 import { headerGeometry, rowLayout, isImmersive, dragRegions, expandRect } from "./window-layout.js";
 
 let snapshot = null, wrapper = null, placeholder = null, compact = false, scheduled = false, lastLayout = "";
-let layoutRevision = 0;
+let layoutRevision = 0, lastImmersive = null;
 const bar = () => document.querySelector('.topbar');
 export const nativeChrome = () => snapshot?.active ? snapshot : null;
 
@@ -74,6 +74,7 @@ async function layout() {
     .map((el) => expandRect(el.getBoundingClientRect()));
   document.querySelector('.window-fallback-strip')?.remove();
   if (!snapshot?.active) {
+    lastImmersive = null;
     if (wrapper) {
       placeholder.replaceWith(header); wrapper.remove(); wrapper = placeholder = null;
       header.style.removeProperty('width'); header.style.removeProperty('height'); header.style.removeProperty('transform');
@@ -85,14 +86,14 @@ async function layout() {
     globalThis.bamtHeaderGeometry = null; fitStage(); reflowTopActions();
     const scale = stage.getBoundingClientRect().width / 1920;
     fitRow(header, scale);
-    await paintTopBar(header, scale).catch((error) => console.warn("top bar background", error));
+    paintTopBar(header, scale).catch((error) => console.warn("top bar background", error));
     await alignTopBar();
     if (revision !== layoutRevision || snapshot?.active) return;
     const bounds = document.getElementById('native-controls')?.getBoundingClientRect();
     const drag = dragRegions({ width: innerWidth, height: 12, bounds, platform: 'fallback', immersive: true,
       blocked: blocked || !immersive, exclusions: visibleHits(stage) });
     const strip = document.createElement('div'); strip.className = 'window-fallback-strip';
-    await drawDragRegions(strip, drag, immersive ? { scale, height: 64 * scale } : null, () => revision === layoutRevision);
+    drawDragRegions(strip, drag, immersive ? { scale, height: 64 * scale } : null, () => revision === layoutRevision);
     if (revision === layoutRevision && !snapshot?.active) document.body.append(strip);
     return;
   }
@@ -110,7 +111,16 @@ async function layout() {
   if (!immersive) header.inert = !snapshot.valid;
   fitStage(); reflowTopActions();
   fitRow(header, g.scale, snapshot.platform === 'darwin' ? snapshot.bounds?.right || 0 : 0);
-  await paintTopBar(header, g.scale).catch((error) => console.warn("top bar background", error));
+  paintTopBar(header, g.scale).catch((error) => console.warn("top bar background", error));
+  // Clear old page hit regions before any asynchronous art/ink measurement.
+  // A slow asset must not leave a fullscreen scene or popup under a broad drag row.
+  if (lastImmersive !== immersive || blocked || !snapshot.valid) {
+    lastImmersive = immersive;
+    wrapper.querySelectorAll('.window-drag-region').forEach((el) => el.remove());
+    header.inert = immersive || blocked || !snapshot.valid;
+    await publishLayout(g, []);
+    if (revision !== layoutRevision || !snapshot?.active || !wrapper || blocked || !snapshot.valid) return;
+  }
   await alignTopBar();
   if (revision !== layoutRevision || !snapshot?.active || !wrapper) return;
   // Native regions never cover popups or hanging Back art. During page immersion
@@ -120,24 +130,29 @@ async function layout() {
     platform: snapshot.platform, immersive, blocked: blocked || !snapshot.valid,
     exclusions: visibleHits(immersive ? stage : header) });
   wrapper.querySelectorAll('.window-drag-region').forEach((el) => el.remove());
-  if (snapshot.platform === 'win32' || immersive) await drawDragRegions(wrapper, drag, immersive ? { scale: g.scale, height: g.rowHeight } : null, () => revision === layoutRevision);
+  if (snapshot.platform === 'win32' || immersive) drawDragRegions(wrapper, drag, immersive ? { scale: g.scale, height: g.rowHeight } : null, () => revision === layoutRevision);
   if (revision !== layoutRevision || !snapshot?.active || !wrapper) return;
+  await publishLayout(g, drag);
+}
+
+async function publishLayout(g, drag) {
   const payload = JSON.stringify({ centre: g.centre, height: g.rowHeight, drag });
   if (payload !== lastLayout) { lastLayout = payload; await rpc('window.layout', JSON.parse(payload)); }
 }
 
-async function drawDragRegions(host, drag, background = null, current = () => true) {
-  let url = null;
-  if (background && drag.length) url = await barImage(innerWidth / background.scale, background.height / background.scale, background.scale)
-    .catch((error) => console.warn("window drag background", error));
+function drawDragRegions(host, drag, background = null, current = () => true) {
   if (!current()) return;
-  for (const rect of drag) {
+  const regions = drag.map((rect) => {
     const region = document.createElement('div'); region.className = 'window-drag-region';
     Object.assign(region.style, { left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.right - rect.left}px`, height: `${rect.bottom - rect.top}px` });
-    if (url) Object.assign(region.style, { backgroundImage: `url("${url}")`,
-      backgroundSize: `${innerWidth}px ${background.height}px`, backgroundPosition: `${-rect.left}px ${-rect.top}px` });
     host.append(region);
-  }
+    return region;
+  });
+  if (background && drag.length) barImage(innerWidth / background.scale, background.height / background.scale, background.scale).then((url) => {
+    if (!current()) return;
+    regions.forEach((region, i) => Object.assign(region.style, { backgroundImage: `url("${url}")`,
+      backgroundSize: `${innerWidth}px ${background.height}px`, backgroundPosition: `${-drag[i].left}px ${-drag[i].top}px` }));
+  }).catch((error) => console.warn("window drag background", error));
 }
 
 export function setupWindowChrome() {
