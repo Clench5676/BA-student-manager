@@ -16,7 +16,7 @@ from typing import Any, Callable
 import toml
 
 from . import devmode, utils
-from .data_paths import APP_DIR_NAME, default_cache_dir
+from .data_paths import APP_DIR_NAME, OLD_APP_DIR_NAME, default_cache_dir, migrate_cache_dir
 from .models import AnimCheckOptions, SaveOptions, SkelConvertOptions
 from .naming import CharacterInternalIDMap
 from .utils import EXE_DIR, get_BA_path, parse_hex_bytes
@@ -304,3 +304,12 @@ def user_cache_dir() -> Path:
     With ``BAMT_DATA_DIR`` (devmode) the cache is ``<BAMT_DATA_DIR>/cache``, never the released app's.
     """
     return default_cache_dir(utils.DATA_DIR_OVERRIDE, utils.EXE_DIR)
+
+
+def managed_cache_dir(parent: str | None = None) -> Path:
+    """Use Settings' selected cache parent, shared by the App and CLI."""
+    if not parent:
+        return user_cache_dir()
+    chosen = Path(parent)
+    devmode.check_read(chosen)
+    return migrate_cache_dir(chosen / OLD_APP_DIR_NAME / "cache", chosen / APP_DIR_NAME / "cache")

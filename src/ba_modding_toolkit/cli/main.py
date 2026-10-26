@@ -1,4 +1,7 @@
 # cli/main.py - CLI 主入口
+import os
+import sys
+
 from .taps import MainTap
 from ..i18n import i18n_manager
 from .handlers import (
@@ -44,7 +47,7 @@ def _resolve_language(lang: str) -> str:
             return code
     return normalized
 
-def main() -> None:
+def _run() -> None:
     """主函数，用于解析命令行参数并分派任务。"""
     args = MainTap().parse_args()
 
@@ -63,6 +66,17 @@ def main() -> None:
     else:
         # 如果没有提供子命令，显示帮助信息
         MainTap().print_help()
+
+def main() -> None:
+    """Finish cache publication even when the output consumer has exited."""
+    try:
+        _run()
+        sys.stdout.flush()
+    except BrokenPipeError:
+        # Avoid a second failure when Python flushes stdout at interpreter exit.
+        with open(os.devnull, "w") as sink:
+            os.dup2(sink.fileno(), sys.stdout.fileno())
+
 
 if __name__ == "__main__":
     main()

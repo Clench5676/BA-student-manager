@@ -13,7 +13,7 @@ from ba_modding_toolkit.core.mod_install import InstallAction, ModFilePlan, ModG
 from ba_modding_toolkit.core.introspect import inspect_bundles, trace_bundle
 from ba_modding_toolkit.naming import parse_filename
 from ba_modding_toolkit.references import BundleGraph, iter_pptrs, reference
-from ba_modding_toolkit.searching import CabCache, find_cab_bundles
+from ba_modding_toolkit.searching import find_cab_bundles, managed_cab_index
 
 
 def unityfs(path, *, compression=0, at_end=False, engine="2022.3.55f1", tail=b"CRC!"):
@@ -66,15 +66,16 @@ def test_introspection_reads_official_samples_without_writing(sample_case):
 def test_cab_scan_caches_and_invalidates_changed_bundle(tmp_path, monkeypatch):
     bundle = tmp_path / "sample.bundle"
     names = unityfs(bundle)
-    cache_path = tmp_path / "cache.json"
-    assert find_cab_bundles(names, [tmp_path], cache_path=cache_path) == dict.fromkeys(names, bundle)
-    cache = CabCache.load(cache_path)
-    assert cache.lookup(names) == (dict.fromkeys(names, bundle), set())
-    monkeypatch.setattr("ba_modding_toolkit.searching.get_cab_names",
-                        lambda path: pytest.fail("a valid cache must avoid scanning"))
-    assert find_cab_bundles(names, [tmp_path], cache_path=cache_path) == dict.fromkeys(names, bundle)
+    from ba_modding_toolkit import config, utils
+    monkeypatch.setattr(utils, "EXE_DIR", tmp_path / "data")
+    monkeypatch.setattr(config, "user_cache_dir", lambda: tmp_path / "cache")
+    assert find_cab_bundles(names, [tmp_path]) == dict.fromkeys(names, bundle)
+    cache = managed_cab_index([tmp_path])
+    cache.reader = lambda path: pytest.fail("a valid cache must avoid scanning")
+    assert find_cab_bundles(names, [tmp_path], index=cache) == dict.fromkeys(names, bundle)
     bundle.write_bytes(b"changed bundle")
-    assert cache.lookup(names) == ({}, names)
+    cache.reader = lambda path: ()
+    assert cache.resolve(names) == {}
 
 
 def test_same_group_cab_scan_stops_before_unrelated_bundle(tmp_path, monkeypatch):
@@ -87,10 +88,11 @@ def test_same_group_cab_scan_stops_before_unrelated_bundle(tmp_path, monkeypatch
 
     def headers(path):
         visited.append(path)
-        return {"CAB-target"}
+        return {"cab-target"}
 
-    monkeypatch.setattr("ba_modding_toolkit.searching.get_cab_names", headers)
-    assert find_cab_bundles({"CAB-target"}, [tmp_path], hint_path=hint) == {"CAB-target": sibling}
+    index = managed_cab_index([tmp_path], use_cache=False)
+    index.reader = headers
+    assert find_cab_bundles({"CAB-target"}, [tmp_path], hint_path=hint, index=index) == {"CAB-target": sibling}
     assert visited == [sibling]
 
 

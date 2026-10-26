@@ -15,8 +15,8 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .. import devmode, updater
-from ..config import APP_DIR_NAME, Settings, user_cache_dir
-from ..data_paths import OLD_APP_DIR_NAME, migrate_cache_dir
+from ..config import APP_DIR_NAME, Settings, managed_cache_dir
+from ..data_paths import OLD_APP_DIR_NAME
 from ..globallines import GlobalLines
 from ..kivo import Kivo
 from ..errors import ServiceError
@@ -420,12 +420,7 @@ class Services:
     def cache_dir(self) -> Path:
         """Where consented game assets are cached: a bluearchive-modding-patching-tool/cache folder inside the chosen folder,
         else the default user cache folder. Always a folder of its own, so clearing it never touches anything else."""
-        chosen = self.state.get("cache_parent")
-        if not chosen:
-            return user_cache_dir()
-        parent = Path(chosen)
-        devmode.check_read(parent)
-        return migrate_cache_dir(parent / OLD_APP_DIR_NAME / "cache", parent / APP_DIR_NAME / "cache")
+        return managed_cache_dir(self.state.get("cache_parent"))
 
     def set_cache_parent(self, parent: Path) -> Path:
         """Cache in another folder; the old cache is removed (it is rebuilt from the game files on demand)."""

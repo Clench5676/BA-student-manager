@@ -195,10 +195,27 @@ class PreviewCache:
         self._inventory: OrderedDict[Path, int] | None = None
         self._inventory_bytes = 0
         self._inventory_stamp: tuple[int, int, int, int] | None = None
+        self._root_id = self._root_identity()
+
+    def _root_identity(self) -> tuple[int, int] | None:
+        try:
+            stat = self.root.stat()
+            return stat.st_dev, stat.st_ino
+        except OSError:
+            return None
+
+    def _sync_generation(self) -> None:
+        # Settings can clear the shared folder from another App or CLI instance.
+        identity = self._root_identity()
+        if identity != self._root_id:
+            self._root_id = identity
+            self._generation = secrets.token_hex(16)
+            self._inventory = None
 
     @property
     def generation(self) -> str:
         with self._lock:
+            self._sync_generation()
             return self._generation
 
     @property
@@ -256,11 +273,13 @@ class PreviewCache:
         if not isinstance(value, bytes) or len(value) > min(self.max_bytes, PREVIEW_ENTRY_LIMIT):
             return False
         with self._lock:
+            self._sync_generation()
             if not self._allowed or generation != self._generation:
                 return False
             temporary = None
             try:
                 self.root.mkdir(parents=True, exist_ok=True)
+                self._root_id = self._root_identity()
                 self._sync_inventory()
                 path = self._path(key)
                 with tempfile.NamedTemporaryFile(dir=self.root, delete=False) as stream:
@@ -356,6 +375,7 @@ class PreviewCache:
         self._inventory_stamp = None
         if self.root.exists():
             shutil.rmtree(self.root)
+        self._root_id = None
 
     def clear(self) -> None:
         with self._lock:

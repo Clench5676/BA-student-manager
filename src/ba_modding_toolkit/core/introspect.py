@@ -7,12 +7,11 @@ CLI 专属命令的后端逻辑，英文输出、不走 i18n。
 from collections import Counter
 from pathlib import Path
 from typing import Callable
-import os
 
-from ..bundle import Bundle, get_cab_names
+from ..bundle import Bundle
 from ..models import LogFunc
 from ..references import BundleGraph, iter_pptrs, reference
-from ..searching import find_cab_bundles, get_search_dirs
+from ..searching import find_cab_bundles, get_search_dirs, managed_cab_index
 from ..utils import no_log
 
 
@@ -36,20 +35,9 @@ def _self_cabs(bundle: Bundle) -> list[str]:
     return [name for name in names if name]
 
 
-def _build_full_index(search_dirs: list[Path], log: LogFunc) -> dict[str, Path]:
-    """全量 CAB 索引：轻量解析所有 bundle 的头部文件名表（秒级，不解压数据块）"""
-    index: dict[str, Path] = {}
-    for dir in search_dirs:
-        if not dir.is_dir():
-            continue
-        with os.scandir(dir) as it:
-            for entry in it:
-                if not entry.name.endswith('.bundle') or not entry.is_file(follow_symlinks=False):
-                    continue
-                names = get_cab_names(Path(entry.path))
-                if names:
-                    for cab in names:
-                        index.setdefault(cab, Path(entry.path))
+def _build_full_index(discovery, log: LogFunc) -> dict[str, Path]:
+    """Reuse managed metadata for indirect dependencies as well as direct ones."""
+    index = {cab: Path(path) for cab, path in discovery.all().items()}
     log(f"  > Full CAB index built: {len(index)} CAB(s).")
     return index
 
@@ -59,6 +47,8 @@ def _make_graph(
     search_dirs: list[Path],
     log: LogFunc,
     cache_path: Path | None,
+    *,
+    use_cache: bool = True,
 ) -> BundleGraph:
     """为给定 bundle 组构建可跨包解析的对象图。
 
@@ -70,16 +60,17 @@ def _make_graph(
         cabs |= _collect_externals(bundle)
 
     index: dict[str, Path] = {}
-    if search_dirs and cabs:
+    discovery = managed_cab_index(search_dirs, cache_path, use_cache=use_cache) if search_dirs else None
+    if discovery is not None and cabs:
         # 同组先验以第一个 bundle 为准（多 bundle 时组名可能不同，但取其一即可受益）
         index = find_cab_bundles(cabs, search_dirs, log, cache_path=cache_path,
-                                 hint_path=bundles[0].path)
+                                 hint_path=bundles[0].path, index=discovery)
 
     fallback: Callable[[], dict[str, Path]] | None = None
     if search_dirs:
         def fallback() -> dict[str, Path]:
             log("  > CAB not in index, building full CAB index...")
-            return _build_full_index(search_dirs, log)
+            return _build_full_index(discovery, log)
 
     graph = BundleGraph(index, fallback=fallback, log=log)
     for bundle in bundles:
@@ -101,6 +92,8 @@ def inspect_bundles(
     resource_dir: Path | None = None,
     cache_path: Path | None = None,
     local_only: bool = False,
+    *,
+    use_cache: bool = True,
 ) -> None:
     """输出 bundle 内省信息：平台、自身 CAB、类型统计、外部引用、MonoBehaviour 清单、容器条目。"""
     search_dirs = [] if local_only else _resolve_game_dirs(resource_dir)
@@ -115,7 +108,7 @@ def inspect_bundles(
     if not bundles:
         return
 
-    graph = _make_graph(bundles, search_dirs, log, cache_path)
+    graph = _make_graph(bundles, search_dirs, log, cache_path, use_cache=use_cache)
 
     for bundle in bundles:
         log(f"\n=== {bundle.path.name} ===")
@@ -180,6 +173,8 @@ def trace_bundle(
     resource_dir: Path | None = None,
     cache_path: Path | None = None,
     local_only: bool = False,
+    *,
+    use_cache: bool = True,
 ) -> None:
     """追踪 bundle 内对象的全部引用，解析每个指针的落点。
 
@@ -187,7 +182,7 @@ def trace_bundle(
         bundle_path: 目标 bundle 文件
         path_id: 只追踪指定 path_id 的对象；None 表示追踪全部对象
         resource_dir: 游戏资源根目录（用于跨包解析；不提供则仅限本地与索引内解析）
-        cache_path: CAB 映射缓存文件路径
+        cache_path: Optional namespace selector inside the managed cache
         local_only: 仅本地解析，跳过跨包定位（未解析指针标注 local-only）
     """
     bundle = Bundle.load(bundle_path, log)
@@ -196,7 +191,7 @@ def trace_bundle(
         return
 
     search_dirs = [] if local_only else _resolve_game_dirs(resource_dir)
-    graph = _make_graph([bundle], search_dirs, log, cache_path)
+    graph = _make_graph([bundle], search_dirs, log, cache_path, use_cache=use_cache)
 
     objects = list(bundle.env.objects)
     if path_id is not None:

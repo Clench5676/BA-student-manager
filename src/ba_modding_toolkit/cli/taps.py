@@ -475,7 +475,7 @@ class InspectTap(BaseTap):
     # 跨包解析参数
     resource_dir: Path | None = None  # Path to the game resource directory. Enables cross-bundle resolution (MonoScript class names, external CAB locations).
     region: BARegion = 'auto'  # Game region used to auto-detect the install path (auto = global first, then japan).
-    cab_cache: Path | None = None  # Path to the CAB mapping cache file (default: <exe_dir>/Addons/cab_cache.json).
+    cab_cache: Path | None = None  # Optional CAB cache namespace; stored in Settings' managed cache, without reading or writing this path.
     no_cache: bool = False  # Disable the CAB mapping cache.
     local_only: bool = False  # Only resolve locally: skip cross-bundle resolution even if a resource directory is available (external references are labeled unresolved).
 
@@ -509,7 +509,7 @@ class TraceTap(BaseTap):
     resource_dir: Path | None = None  # Path to the game resource directory. Enables cross-bundle reference resolution.
     region: BARegion = 'auto'  # Game region used to auto-detect the install path (auto = global first, then japan).
     path_id: int | None = None  # Only trace the object with this path ID (default: trace all objects).
-    cab_cache: Path | None = None  # Path to the CAB mapping cache file (default: <exe_dir>/Addons/cab_cache.json).
+    cab_cache: Path | None = None  # Optional CAB cache namespace; stored in Settings' managed cache, without reading or writing this path.
     no_cache: bool = False  # Disable the CAB mapping cache.
     local_only: bool = False  # Only resolve locally: skip cross-bundle resolution even if a resource directory is available (unresolved pointers are labeled).
 

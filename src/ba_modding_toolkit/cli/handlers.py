@@ -35,6 +35,16 @@ class Logger:
         raise NotImplementedError
 
 
+class _CLIStreamHandler(logging.StreamHandler):
+    """Let the entry point terminate cleanly when a pipeline closes stdout."""
+
+    def handleError(self, record: logging.LogRecord) -> None:
+        error = sys.exc_info()[1]
+        if isinstance(error, BrokenPipeError):
+            raise error
+        super().handleError(record)
+
+
 class CLILogger(Logger):
     """CLI 日志记录器，输出到控制台。"""
 
@@ -42,7 +52,7 @@ class CLILogger(Logger):
         log = logging.getLogger('cli')
         if not log.handlers:
             log.setLevel(logging.INFO)
-            handler = logging.StreamHandler(sys.stdout)
+            handler = _CLIStreamHandler(sys.stdout)
             formatter = logging.Formatter('%(message)s')
             handler.setFormatter(formatter)
             log.addHandler(handler)
@@ -1026,13 +1036,6 @@ def handle_backup(args: BackupTap, logger: Logger = NULL_LOGGER) -> None:
     logger.log(f"✅ Backup complete: {mod_total} file(s) saved to {backup_dir.resolve()}")
 
 
-def _resolve_cab_cache(args: InspectTap | TraceTap) -> Path | None:
-    """解析 CAB 映射缓存路径：--no-cache 禁用；未指定 --cab-cache 时用默认位置"""
-    if getattr(args, 'no_cache', False):
-        return None
-    return args.cab_cache or (EXE_DIR / "Addons" / "cab_cache.json")
-
-
 @_dev_guarded
 def handle_inspect(args: InspectTap, logger: Logger = NULL_LOGGER) -> None:
     """处理 'inspect' 命令的逻辑。"""
@@ -1065,7 +1068,8 @@ def handle_inspect(args: InspectTap, logger: Logger = NULL_LOGGER) -> None:
         valid_paths,
         log=logger.log,
         resource_dir=Path(resource_dir) if resource_dir else None,
-        cache_path=_resolve_cab_cache(args),
+        cache_path=args.cab_cache,
+        use_cache=not args.no_cache,
         local_only=args.local_only,
     )
 
@@ -1096,6 +1100,7 @@ def handle_trace(args: TraceTap, logger: Logger = NULL_LOGGER) -> None:
         log=logger.log,
         path_id=args.path_id,
         resource_dir=Path(resource_dir) if resource_dir else None,
-        cache_path=_resolve_cab_cache(args),
+        cache_path=args.cab_cache,
+        use_cache=not args.no_cache,
         local_only=args.local_only,
     )

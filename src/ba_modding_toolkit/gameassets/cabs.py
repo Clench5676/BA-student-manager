@@ -215,7 +215,7 @@ class CabIndex:
         return names
 
     def resolve(self, wanted: set[str], hint_path: Path | None = None) -> dict[str, str]:
-        with self._lock:
+        with self._lock, self.batch():
             self._sync()
             remaining = {name.lower() for name in wanted}
             found = {}
@@ -257,8 +257,6 @@ class CabIndex:
                     self._complete = True
             # Recheck just the returned files; repeated scan prefixes can reuse batch metadata.
             found = {name: path for name, path in found.items() if name in self._read(Path(path))}
-            if not self._depth:
-                self._save()
             return found
 
     def all(self, predicate: Callable[[Path], bool] = lambda path: True) -> dict[str, str]:
