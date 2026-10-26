@@ -1585,14 +1585,14 @@ def test_the_window_leaves_the_pointer_and_text_selection_to_the_page(monkeypatc
 
     def create_window(title, url, **options):
         created.update(options)
-        return SimpleNamespace(events=SimpleNamespace(initialized=Hook(), loaded=Hook(), closing=Hook(), closed=Hook()))
+        return SimpleNamespace(events=SimpleNamespace(**{name: Hook() for name in ("initialized", "loaded", "closing", "closed", "before_show", "shown", "maximized", "minimized", "restored")}))
 
     monkeypatch.setitem(sys.modules, "webview", SimpleNamespace(settings={}, create_window=create_window,
                                                                 start=lambda **options: started.update(options)))
     from ba_modding_toolkit.webui.tray import Tray
 
     monkeypatch.setattr(Tray, "supported", staticmethod(lambda platform=sys.platform: False))  # tests/test_tray.py
-    main._run_window(SimpleNamespace(window=None, data_dir=tmp_path, timings=Timings()), SimpleNamespace(url="http://127.0.0.1:1/"), False)
+    main._run_window(SimpleNamespace(window=None, data_dir=tmp_path, timings=Timings(), events=EventBus()), SimpleNamespace(url="http://127.0.0.1:1/"), False)
     assert created["text_select"] is True
     assert started["private_mode"] is True
 
@@ -1602,7 +1602,7 @@ def test_the_window_leaves_the_pointer_and_text_selection_to_the_page(monkeypatc
         assert declaration in body
 
 
-def test_the_close_button_waits_only_for_a_writer_job(services, monkeypatch, tmp_path):
+def test_the_close_button_preflights_readers_and_refuses_writers(services, monkeypatch, tmp_path):
     import sys
     from types import SimpleNamespace
 
@@ -1619,17 +1619,26 @@ def test_the_close_button_waits_only_for_a_writer_job(services, monkeypatch, tmp
             return self
 
     def create_window(title, url, **options):
-        return SimpleNamespace(events=SimpleNamespace(initialized=Hook("initialized"), loaded=Hook("loaded"),
-                                                      closing=Hook("closing"), closed=Hook("closed")))
+        def destroy():
+            assert handlers["closing"]() is True
+            services.on_closed()
+            destroyed.set()
+        return SimpleNamespace(events=SimpleNamespace(**{name: Hook(name) for name in
+            ("initialized", "loaded", "closing", "closed", "before_show", "shown", "maximized", "minimized", "restored")}),
+            evaluate_js=lambda script, callback=None: callback(True) if callback else None, destroy=destroy)
 
     monkeypatch.setitem(sys.modules, "webview", SimpleNamespace(settings={}, create_window=create_window, start=lambda **o: None))
+    destroyed = threading.Event()
     main._run_window(services, SimpleNamespace(url="http://127.0.0.1:1/"), False)
     gate = threading.Event()
-    services.jobs.submit("extract", lambda log, progress: gate.wait(5))  # read-only: the window may close
-    assert handlers["closing"]() is True
-    services.jobs.submit("library.adopt", lambda log, progress: gate.wait(5), writes="library")
+    writer = services.jobs.submit("library.adopt", lambda log, progress: gate.wait(5), writes="library")
     assert handlers["closing"]() is False
+    assert not destroyed.is_set()
     gate.set()
+    assert services.jobs.wait(writer, 5)
+    services.jobs.submit("extract", lambda log, progress: None)
+    assert handlers["closing"]() is False  # synchronous veto, then asynchronous draft approval
+    assert destroyed.wait(5)
 
 
 @pytest.mark.parametrize("unread", [False, True])
@@ -1720,3 +1729,74 @@ def test_tours_rpc_requires_normal_ready_and_keeps_replay_local(app, services, m
     assert rpc(app, 'app.tourPresented', versions=automatic['versions']) == {'result': None}
     assert rpc(app, 'app.tours', launching=True)['result']['automatic']['pages'] == []
     assert len(rpc(app, 'app.tours')['result']['tours']) == 1
+
+
+@pytest.fixture
+def native_exit(services):
+    from ba_modding_toolkit.webui.window_close import CloseCoordinator
+    waiting, destroyed = threading.Event(), threading.Event()
+    callbacks = []
+    def evaluate(script, callback=None):
+        if callback and 'bamtValidateClose' in script:
+            callback(True)
+        elif callback:
+            callbacks.append(callback)
+            waiting.set()
+    def close():
+        assert services.on_closing() is True
+        services.on_closed()
+        destroyed.set()
+    services.window = SimpleNamespace(evaluate_js=evaluate)
+    services.chrome = SimpleNamespace(close=close)
+    services.close_coordinator = CloseCoordinator(services, close, prompt_wait=1, close_wait=.1)
+    return SimpleNamespace(waiting=waiting, destroyed=destroyed, callbacks=callbacks)
+
+
+@pytest.mark.parametrize('origin', ['app', 'fallback', 'native', 'tray', 'safe-restart', 'consent'])
+def test_exit_routes_share_hall_preflight_and_writer_admission(app, services, native_exit, monkeypatch, origin):
+    from ba_modding_toolkit.webui.tray import Tray
+    monkeypatch.setattr('ba_modding_toolkit.webui.api.can_restart_safe', lambda: True)
+    monkeypatch.setattr(services, 'set_consent', lambda granted: None)
+    if origin == 'native':
+        assert services.on_closing() is False
+    elif origin == 'tray':
+        Tray(services)._quit()
+    else:
+        method, params = {'app': ('app.quit', {}), 'fallback': ('window.control', {'action': 'close'}),
+                          'safe-restart': ('app.restartSafe', {}), 'consent': ('app.consent', {'granted': False})}[origin]
+        assert rpc(app, method, **params) == {'result': None}
+    assert native_exit.waiting.wait(1)
+    assert not native_exit.destroyed.is_set()
+    assert services.restart_requested is False
+    save = services.jobs.submit('hall.save', lambda log, progress: None, writes='library')
+    assert services.jobs.wait(save, 1)
+    native_exit.callbacks[0](True)
+    assert native_exit.destroyed.wait(1)
+    assert services.restart_requested is (origin == 'safe-restart')
+    with pytest.raises(ServiceError, match='busy'):
+        services.jobs.submit('writer', lambda log, progress: None, writes='game')
+
+
+def test_update_draft_preflight_precedes_native_timeout_and_reservation(app, services, update_env, monkeypatch):
+    from ba_modding_toolkit.webui.window_close import CloseCoordinator
+    rpc(app, 'app.checkUpdate')
+    file = download_update(app, services)
+    waiting, release = threading.Event(), threading.Event()
+    def evaluate(script, callback=None):
+        if callback:
+            if 'bamtPrepareClose' in script:
+                waiting.set()
+                assert release.wait(1)
+            callback(True)
+    services.window.evaluate_js = evaluate
+    services.close_coordinator = CloseCoordinator(services, services.window.destroy, prompt_wait=1, close_wait=.1)
+    with ThreadPoolExecutor() as pool:
+        installed = pool.submit(lambda: rpc(app, 'app.installUpdate', file=file))
+        assert waiting.wait(1)
+        assert not services.update_installing and services._pending_update is None
+        assert update_env.installs == []
+        save = services.jobs.submit('hall.save', lambda log, progress: None, writes='library')
+        assert services.jobs.wait(save, 1)
+        release.set()
+        assert installed.result(2) == {'result': True}
+    assert len(update_env.installs) == 1

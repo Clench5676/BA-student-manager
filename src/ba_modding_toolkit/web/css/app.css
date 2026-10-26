@@ -401,3 +401,17 @@ input[type="text"], input[type="search"], textarea { cursor: text; }
 #native-controls { position:fixed; right:0; top:0; display:flex; z-index:10000; opacity:0; transition:opacity .15s; }
 #native-controls:hover, #native-controls:focus-within { opacity:1; }
 #native-controls button { width:36px; height:24px; color:var(--navy-text); background:#eaf5fb; font:18px/1 sans-serif; display:grid; place-items:center; }
+
+/* M1/W1 keep the same Common_Top_Menu_Bg and NGUI children, anchored to the window. */
+.window-header { position: fixed; left: 0; top: 0; width: 100%; z-index: 1000; }
+.native-chrome .topbar { transform-origin: top left; transition: none; padding-left: var(--native-left, 0px);
+  font-family: var(--font); font-weight: var(--w); }
+.native-chrome .topbar .back { left: calc(-134px + var(--native-left, 0px)); }
+.topbar .title { min-width: 0; flex: 0 1 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  padding-block: .5em; }
+.topbar .mod-switch { flex: none; }
+.topbar.mods-compact .ms-label { display: none; }
+.native-chrome .topbar.chrome-waiting > *, .window-immersive .window-header .topbar > * { visibility: hidden; }
+/* The optional WebView2 API routes these measured blank rectangles to native caption gestures. */
+.window-drag-region { position: absolute; app-region: drag; -webkit-app-region: drag; }
+.native-chrome button, .native-chrome [role="switch"], .native-chrome .mod-switch { app-region: no-drag; -webkit-app-region: no-drag; }

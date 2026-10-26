@@ -1,8 +1,84 @@
 # BL-037: Native window controls in the top toolbar
 
-Status: Design proposed for owner review; implementation not started.
+Status: Implemented for local review; owner UAT/visual acceptance pending.
 
-Baseline: `codex/window-controls-design`, `main` commit `6bd15c6e`, version `0.6.0-alpha.4`.
+## Owner-approved experiment (2026-10-26)
+
+The experiment follows M1/W1 and the owner decisions in BL-037. The design research below is retained as historical
+rationale; its second-row proposal, open approval questions and statements that implementation is unstarted are
+superseded by these decisions. No native app, preview, screenshot or package build was run for this implementation.
+
+- `webui/window_chrome.py` owns injectable hosts, native state snapshots, valid/last-valid measurements and rollback.
+  `window_macos.py` reveals `standardWindowButton:` results, changes only their y coordinates, checks the resulting
+  frames/container clipping and refreshes after native resize/fullscreen notifications. It uses a public `NSView`
+  for native window-background dragging, preserving AppKit's double-click handling. No private view class,
+  preference key, substitute drawing or reparenting of standard buttons is used. Cocoa attaches WKWebView at the
+  end of navigation in pywebview 6.2.1; installation therefore follows document load and rebinds its drag view if
+  contentView changes. Native close/keyboard guards are installed before the first page.
+- `window_windows.py` attempts W1 only if the host's existing WebView2 Settings exposes
+  `IsNonClientRegionSupportEnabled`. It restores native caption/system-menu/resize styles, extends only the top
+  client edge, delegates caption hit testing and mouse-leave to DWM first, and clips the measured caption area
+  out of the docked WebView2 child. Resize edges remain native. A retained public comctl32 subclass forwards all
+  other messages. The optional WebView2 API supplies native gestures for measured CSS drag regions after one
+  initial reload. Button y coordinates are never rewritten. Missing capability or adapter exceptions restore the
+  existing frameless host and HTML controls; they do not select W2 or raise the SDK/runtime floor.
+- `web/js/window-layout.js` and `window-chrome.js` anchor the existing prefab bar to the window for active adapters.
+  Geometry uses viewport CSS pixels, measured native bounds and an 8-pixel gap. The row is at least 44 CSS pixels,
+  retaining BL-043's fill centre and 66-unit title. A measured collision hides only the Mods caption; the switch,
+  help badge and accessible label remain. The caption returns with 16 spare CSS pixels. The title can ellipsize
+  while retaining its accessible name. There is no second row. BL-038 retains Settings in Home's safe outer slot.
+  Browser mode has no HTML window buttons; unsupported/failed desktop hosts retain one fallback group. The legacy
+  selector drag is excluded from active native rows. Hall/detail immersion keeps the prefab background and native
+  controls, inerts App actions, and excludes popup/action/focus bounds from dragging.
+- `webui/window_close.py` preflights the existing `StudentHall.canLeave()` for native, menu, keyboard, App, tray,
+  consent, safe restart and update exits. The first native attempt is vetoed synchronously. Repeated requests
+  coalesce; writers refuse immediately. After Save/Discard, page input freezes, writer admission is reserved and
+  the draft revision is checked again. Stay, save failure, stale approval, an unanswered page or refused close
+  releases only the coordinator's own reservation and restores page input/focus. Updates retain their existing
+  classic-window interlock, reservation ownership, three-second native-close wait and helper-on-closed handling;
+  interactive preflight precedes that wait. A never-loaded page cannot contain a Hall editor and can close without
+  waiting for assets. A loaded page gets 120 seconds to answer before cancellation, never implicit permission.
+  Cocoa uses `performClose:`; its Command-Q handler is intercepted before pywebview's direct `app.stop_` path.
+- The only added menu is Window, with existing Close, Minimize, Maximize/Restore and Fullscreen labels. Command-W/Q,
+  Command-M and Control-Command-F remain reachable even in text inputs. Editing commands remain. Only the Window
+  menu title adds text, in all six locales; existing labels are unchanged. Dependencies, version and platform
+  minimums are unchanged.
+
+### Experiment evidence and feasibility limits
+
+The installed development interpreter reports pywebview **6.2.1**. Read-only extraction from the official development
+view `steam-3557621-7791673520712697115-1955d55449` found exactly one
+`Assets/_MX/AddressableAsset/UI/UICharacterCollection.prefab` in
+`ui-_mxload-prefabs-2025-07-02_assets_all_2244454933.bundle`. Its `SeletControl/Top/BG_W/Bg` is
+`Common_Top_Menu_Bg`, 2996 × 166; `Label_Title` is 66; right Option/Lobby/Line positions and sizes match the geometry
+below. No owner's game installation or runtime data was inspected.
+
+Fake-host tests demonstrate rollback for AppKit clipping/relayout rejection and a missing optional WebView2 API;
+they also assert DWM-first message routing, preserved non-client side/bottom geometry, negative monitor origins,
+96/120/144/192/288 DPI conversion, invalid measurements, native state, callback lifetime and close refusal. Node
+geometry tests feed the real six-locale strings at minimum/default/wide/tall sizes, densities 1/2/3 and enlarged
+text. Font advances in those tests are deterministic fixtures, not native font-raster evidence.
+
+No real platform feasibility pass or failure is established by those tests. On a failing packaged host, the exact
+reason is logged as `Native window chrome inactive: ...` and exposed by `window.chrome` (`reason`, `active`,
+`valid`, `bounds`, `state`). M1 specifically fails closed on a clipped button or a rejected y/frame write; W1
+specifically refuses installation without the optional SDK property and rolls back subclass/frame/clip failures.
+Invalid bounds while minimized/invisible keep the last safe area and suspend adjacent actions until refreshed.
+The owner must record any actual painting, event-routing or asynchronous AppKit relayout failure. Do not treat a
+successful frame write or a passing fake as visual acceptance, or switch to M2/W2 to hide a failure.
+
+### Owner native acceptance checklist
+
+| Platform | Checks still required |
+| --- | --- |
+| macOS | Confirm real accessible AppKit controls at the left with unchanged horizontal positions/sizes, centred on the prefab fill after repeated resize, zoom, minimize/restore and native fullscreen entry/exit; no clipping, delayed relayout drift or forced visibility during fullscreen transitions. Check Retina/non-Retina, inactive/hover states and green-button options. Check background/title dragging and double-click under every supported system preference, across monitors/Spaces; every App button/switch/help target must click. Verify Command-W/Q/M and Control-Command-F in the scene and text fields, menu Quit and application termination. Record `window.chrome` reason if M1 falls back. |
+| Windows 11 (primary) | Confirm system-drawn caption buttons above WebView2 with no blank/black painting holes. Measure their bounds and centre offset from the game's fill. Check maximize-hover Snap Layouts, Win+Z, Alt-Space, Alt-F4, standard snap/maximize/restore keys, caption right-click/double-click, drag-to-restore, all resize edges/corners and taskbar/work-area limits. Check 100/125/150/200% DPI, mixed-DPI/negative-origin monitors, theme/high contrast/Narrator and no child-HWND input holes. Record the optional API availability and any rollback reason. The retained 960-pixel minimum can exclude snap zones. |
+| Windows 10 | Check startup, genuine caption buttons if the existing host passes the capability gate, or the single restored fallback if it does not; ordinary drag/resize/maximize/restore, Alt-F4 and guarded close. No dedicated Windows 10 optimisation is claimed. |
+| Both | Exercise every route and all six languages at minimum/default/wide/tall sizes: native clearance, BL-038 Hall enter/leave, BL-043 ink alignment, caption hiding/restoration without oscillation or a second row, title readability and switch/help accessibility. Check no-game/pre-consent/recovery startup, loading and popups. Hall/detail immersion must retain native controls/drag background, remove hidden actions from focus, and restore focus on exit; combine with native fullscreen. For every exit origin check clean close, Stay, Discard, Save, failed Save, repeated requests, dirty/unresponsive page cancellation, writers queued during prompting, safe-restart refusal and update/classic refusal/retry/helper-once. Windows visual acceptance has not been performed. |
+
+## Original design research
+
+Design baseline: `codex/window-controls-design`, `main` commit `6bd15c6e`, version `0.6.0-alpha.4`.
 Research date: 2026-10-26. Scope: design only; no application changes, build, native run, screenshots or previews.
 
 Recommend **M1 on macOS: genuine AppKit traffic lights at the left of a window-anchored game toolbar**, and

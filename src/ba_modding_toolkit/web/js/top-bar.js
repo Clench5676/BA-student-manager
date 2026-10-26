@@ -38,7 +38,7 @@ function rowsOf(url) {
 
 // the vertical extent (px from the bar's top, in stage px) of what the bitmaps under root draw
 async function drawnInk(root, bar, filter = () => true) {
-  const stage = document.getElementById("stage").getBoundingClientRect(), k = stage.width / 1920 || 1, origin = bar.getBoundingClientRect().top;
+  const stage = document.getElementById("stage").getBoundingClientRect(), k = globalThis.bamtHeaderGeometry?.scale || stage.width / 1920 || 1, origin = bar.getBoundingClientRect().top;
   const rects = await Promise.all([...root.querySelectorAll("*")].filter(filter).map(async (el) => {
     const url = /url\("?(.*?)"?\)$/.exec(el.style.backgroundImage || "")?.[1], box = el.getBoundingClientRect();
     if (!url || !box.height) return null;
@@ -63,7 +63,10 @@ export async function alignTopBar() {
   const bar = document.querySelector(".topbar");
   if (!bar) return;
   const mine = ++revision;
-  bar.style.setProperty("--bar-padding", `${barPadding(centre)}px`);
+  const geometry = globalThis.bamtHeaderGeometry;
+  const targetCentre = geometry ? geometry.centre / geometry.scale : centre;
+  const height = geometry ? geometry.rowHeight / geometry.scale : 64;
+  bar.style.setProperty("--bar-padding", `${barPadding(targetCentre, height)}px`);
   sizeTitle(bar.querySelector(".title"));
   // Text: its box is centred on the bar's centre by flex, the ink of the script's reference glyph moves onto it.
   for (const el of bar.querySelectorAll(".title, .ms-label")) {
@@ -76,7 +79,7 @@ export async function alignTopBar() {
     if (!el || el.hidden || !el.getClientRects().length) continue;
     const ink = await drawnInk(el, bar, filter);
     if (mine !== revision) return;
-    if (ink) moveTo(el, (applied.get(el) || 0) + moveBy(centre, ink));
+    if (ink) moveTo(el, (applied.get(el) || 0) + moveBy(targetCentre, ink));
   }
 }
 

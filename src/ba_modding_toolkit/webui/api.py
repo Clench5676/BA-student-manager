@@ -174,37 +174,42 @@ def build_api(s: Services) -> RpcRegistry:
             raise ServiceError("safe_restart_unavailable")
         if s.restart_requested:
             return
-        s.jobs.reserve_quit()
-        s.restart_requested = True
-        try:
-            s.quit()
-        except Exception:
-            s.restart_requested = False
-            s.jobs.cancel_quit()
-            raise
+        s.quit(restart=True)
+
+    @rpc.method("window.chrome")
+    def window_chrome() -> dict:
+        return s.chrome.snapshot() if s.chrome is not None else {"active": False, "platform": "browser", "sequence": 0}
+
+    @rpc.method("window.layout")
+    def window_layout(centre: float, height: float, drag: list) -> None:
+        if s.chrome is not None:
+            try:
+                s.chrome.update(centre, height, drag)
+            except (ValueError, TypeError, KeyError):
+                raise ServiceError("bad_params", key="geometry") from None
 
     @rpc.method("window.control")
     def window_control(action: str) -> None:
-        if action not in ("minimize", "maximize", "close"):
+        if action not in ("minimize", "maximize", "close", "fullscreen"):
             raise ServiceError("bad_params", key="action")
         if s.window is None:
             raise ServiceError("native_only")
         if action == "close":
-            s.window.destroy()
+            s.quit()
+        elif s.chrome is not None:
+            s.chrome.command(action)
         elif action == "minimize":
             s.window.minimize()
-        elif getattr(s.window, "maximized", False):
-            s.window.restore()
-            s.window.maximized = False
+        elif action == "fullscreen":
+            s.window.toggle_fullscreen()
         else:
             s.window.maximize()
-            s.window.maximized = True
 
     @rpc.method("app.consent")
     def app_consent(granted: bool) -> None:
         s.set_consent(bool(granted))
         if not granted and s.window is not None and not s.jobs.busy():
-            s.window.destroy()
+            s.quit()
 
     @rpc.method("app.spineConsent")
     def app_spine_consent(granted: Any = ...) -> bool | None:
@@ -301,7 +306,7 @@ def build_api(s: Services) -> RpcRegistry:
             raise ServiceError("update_unsupported")
         if downloaded is None or Path(file) != downloaded[0] or not downloaded[0].is_file():
             raise ServiceError("update_unavailable")
-        s.install_update(downloaded[0], downloaded[1])
+        return s.install_update(downloaded[0], downloaded[1])
 
     # --- settings (the popup behind the top bar's settings button) ---
 

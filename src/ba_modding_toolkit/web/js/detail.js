@@ -1827,7 +1827,7 @@ async function setFullscreen(on) {
 }
 // the UI slides out (app.css .stage.fullscreen) and out of the keyboard's reach; back, the visual mode closes and the
 // focus returns (visual-mode.js uiOut, uiBack)
-const slidOut = () => [$("ngui"), $("ngui-chips"), $("ngui-expr"), stage().querySelector(".topbar"), stage().querySelector(".nav")];
+const slidOut = () => [$("ngui"), $("ngui-chips"), $("ngui-expr"), document.querySelector(".topbar"), stage().querySelector(".nav")];
 function setStage(on) {
   fullscreen = on;
   stage().classList.toggle("fullscreen", on);

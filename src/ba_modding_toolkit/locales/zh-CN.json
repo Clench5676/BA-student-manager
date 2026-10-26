@@ -1760,6 +1760,7 @@
 			"export": "导出"
 		},
 		"window": {
+			"menu": "窗口",
 			"minimize": "最小化",
 			"maximize": "最大化／还原",
 			"close": "关闭",

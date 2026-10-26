@@ -756,7 +756,8 @@ Official provenance controls Delete visibility and direct-request rejection. Man
 
 ## BL-037: Design native window controls integrated into the top toolbar
 
-- Status: Native experiment in progress (owner-approved direction, 2026-10-26).
+- Status: Implemented for local review; owner UAT/visual acceptance pending.
+- Note: M1/W1 adapters have reversible feasibility gates; measured single-row layout and shared Hall/writer close preflight are covered by fakes, not native acceptance.
 - Requested: 2026-10-26.
 - Parent: BL-024.
 

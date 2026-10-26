@@ -345,13 +345,15 @@ def test_safe_mode_disables_assets_and_maintenance_without_changing_consent(tmp_
 def test_restart_safe_refuses_writers_and_restarts_only_after_lock_release(monkeypatch, tmp_path):
     monkeypatch.setattr(diagnostics.updater, "is_compiled", lambda: True)
     monkeypatch.setattr(main.devmode, "active", lambda: False)
+    requested = []
     r = SimpleNamespace(jobs=SimpleNamespace(busy=lambda: True, reserve_quit=lambda: None, cancel_quit=lambda: None), window=object(), quit_handle=None,
-                        restart_requested=False, quit=lambda: None, timings=Timings())
+                        restart_requested=False, quit=lambda *, restart=False: requested.append(restart), timings=Timings())
     rpc = build_api(r)
     assert rpc.call("app.restartSafe", {})["error"]["code"] == "busy"
     assert r.restart_requested is False
     r.jobs.busy = lambda: False
-    assert "result" in rpc.call("app.restartSafe", {}) and r.restart_requested
+    assert "result" in rpc.call("app.restartSafe", {}) and requested == [True]
+    assert r.restart_requested is False  # The guarded service commits restart only after draft approval.
     order = []
     monkeypatch.setattr(main, "EXE_DIR", tmp_path)
     monkeypatch.setattr(main.devmode, "check_read", lambda _: None)

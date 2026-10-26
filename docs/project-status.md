@@ -22,7 +22,7 @@ The 0.6.0 work is unreleased. Nothing has been tagged, pushed or published since
 | BL-022 through BL-029, BL-031 | Implemented for alpha.1; later owner findings are separate entries |
 | BL-033 through BL-036, BL-038, BL-039 | Accepted by the owner on macOS (alpha.2); Windows not reviewed |
 | BL-032 | Implemented for alpha.2; the English label overflow continues as BL-040 |
-| BL-037 | Design task, not started |
+| BL-037 | Implemented for local review; owner UAT/visual acceptance pending. Gated M1/W1 experiment, single-row caption hiding and shared guarded close. |
 | BL-040, BL-041, BL-043, BL-045 | Accepted by the owner on macOS (alpha.3); Windows not reviewed |
 | BL-042 | Accepted by the owner on macOS (alpha.4) |
 | BL-044 | Implemented for local review; owner UAT/visual acceptance pending. Yellow badge: Applied; blue badge: Selected; shared fitted size in all six locales, with the frame effect and compositing unchanged. |

@@ -169,7 +169,7 @@ async function draw(host, info, resolve) {
     try {
       await render();
       if (installing) {
-        await rpc("app.installUpdate", { file });
+        if (await rpc("app.installUpdate", { file }) === false) { phase = "ready"; await render(); return; }
         await new Promise((resolve) => setTimeout(resolve, RESTART_WAIT));
         // A successful quit destroys this page. If it is still here, allow dismissal and another Restart.
         phase = "ready";

@@ -206,12 +206,35 @@ def _run_window(s: Services, server: Server, debug: bool) -> None:
     # default }" to the page, which replaces the game's pointer with the system arrow on everything but the buttons.
     # The page turns off text selection itself (app.css).
     webview.settings["SHOW_DEFAULT_MENUS"] = False
-    webview.settings["DRAG_REGION_SELECTOR"] = ".topbar"
+    webview.settings["DRAG_REGION_SELECTOR"] = ".topbar:not(.native-toolbar)"
     webview.settings["DRAG_REGION_DIRECT_TARGET_ONLY"] = True
     with s.timings.measure("native.create-window"):
         window = webview.create_window(t("ui.app_title"), server.url, width=1600, height=900, min_size=(960, 540),
                                        background_color="#000000", text_select=True, frameless=True, easy_drag=False)
     s.window = window
+    from .window_chrome import WindowChrome
+    from .window_close import CloseCoordinator
+    s.chrome = WindowChrome(window, s.events)
+    s.close_coordinator = CloseCoordinator(s, s.chrome.close, page_loaded=False)
+    commands = None
+
+    def before_show():
+        nonlocal commands
+        if sys.platform == "darwin":
+            commands = native.install_window_commands(s, s.chrome)
+
+    window.events.before_show += before_show
+    def on_shown():
+        if s.chrome.active:
+            s.chrome.host.dispatch(s.chrome.refresh)
+    window.events.shown += on_shown
+    for name, key, value in (("maximized", "maximized", True), ("restored", "maximized", False),
+                              ("minimized", "minimized", True)):
+        # Event handlers with default parameters are called with event arguments by pywebview.
+        def bind_state(key, value):
+            return lambda: s.chrome.fallback_state(key, value)
+        event = getattr(window.events, name)
+        event += bind_state(key, value)
     # the tray or menu bar icon, shown while the preference "tray" is on; it goes with the window (decision 7)
     tray = Tray(s) if Tray.supported() else None
     s.tray_supported = tray is not None
@@ -227,9 +250,22 @@ def _run_window(s: Services, server: Server, debug: bool) -> None:
         return False
 
     def on_loaded() -> None:
+        s.close_coordinator.page_loaded = True
         s.timings.record("native.document", time.perf_counter() - native_started)
+        if sys.platform == "win32" and s.chrome.host is None:
+            # WebView2 Settings exists after initialization, not at before_show.
+            def install_chrome():
+                from System import Action
+                window.native.BeginInvoke(Action(s.chrome.install))
+            install_chrome()
         if sys.platform == "darwin" and getattr(window, "native", None) is not None:
+            # Cocoa replaces its placeholder contentView when navigation finishes.
+            from PyObjCTools import AppHelper
+            if s.chrome.host is None:
+                AppHelper.callAfter(s.chrome.install)
             native.install_edit_menu()
+            if commands is not None:
+                AppHelper.callAfter(commands.refresh)
         try:
             watch_drops(window, lambda paths: s.events.publish("drop", {"paths": paths}))
         except Exception:
@@ -253,6 +289,9 @@ def _run_window(s: Services, server: Server, debug: bool) -> None:
                       debug=debug, private_mode=True, storage_path=str(storage),
                       gui="edgechromium" if sys.platform == "win32" else None)
     finally:
+        if commands is not None:
+            commands()
+        s.chrome.dispose()
         if tray is not None:
             tray.close()  # on the main thread once the loop ended: the icon goes with the window
 

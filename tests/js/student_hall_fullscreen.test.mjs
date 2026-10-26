@@ -50,3 +50,15 @@ test("cleanup restores UI without refocusing the departing route, and relabel af
   const h=fixture();await h.api.enter();h.api.relabel("Leave immersive view");assert.equal(h.built[0].button.attrs["aria-label"],"Leave immersive view");assert.deepEqual(h.detailExit.attrs,{});
   const destination=new Element(h.doc);destination.focus();h.api.dispose();assert.equal(h.doc.activeElement,destination);assert.equal(h.chrome.inert,false);assert.equal(h.stage.classes.has("hall-fullscreen"),false);
 });
+
+test('Hall immersion holds a window-anchored toolbar outside the stage and restores its focus',async()=>{
+  const f=fixture(),top=new Element(f.doc);
+  // The real header is now a document sibling of the scaled stage.
+  f.doc.querySelector=selector=>selector==='.topbar'?top:null;
+  top.append(f.entry);f.entry.focus();
+  await f.api.enter();
+  assert.equal(top.inert,true);
+  f.api.leave();
+  assert.equal(top.inert,false);
+  assert.equal(f.doc.activeElement,f.entry);
+});

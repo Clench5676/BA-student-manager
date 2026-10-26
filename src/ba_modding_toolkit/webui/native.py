@@ -223,3 +223,90 @@ def install_edit_menu() -> None:
             menu.addItemWithTitle_action_keyEquivalent_(t('webui.window.' + key), selector, shortcut)
         main.addItem_(item)
     AppHelper.callAfter(install)
+
+
+def install_window_commands(services, chrome):
+    """Intercept Command-Q before WKWebView's direct app.stop_ path, including in inputs."""
+    import AppKit
+    from ..i18n import t
+    from ..errors import ServiceError
+
+    window = services.window.native
+
+    def request_close():
+        try:
+            services.quit()
+        except ServiceError as error:
+            if error.code == "busy":
+                services.events.publish("app.busy")
+            else:
+                logger.warning("Native close refused: %s", error.code)
+
+    class WindowCommands(AppKit.NSObject):
+        def closeWindow_(self, sender):
+            request_close()
+
+        def minimizeWindow_(self, sender):
+            window.performMiniaturize_(sender)
+
+        def zoomWindow_(self, sender):
+            window.performZoom_(sender)
+
+        def fullscreenWindow_(self, sender):
+            window.toggleFullScreen_(sender)
+
+    target = WindowCommands.alloc().init()
+
+    def key(event):
+        flags = event.modifierFlags()
+        if event.window() != window or not flags & AppKit.NSEventModifierFlagCommand:
+            return event
+        if flags & (AppKit.NSEventModifierFlagOption | AppKit.NSEventModifierFlagShift):
+            return event
+        char = str(event.charactersIgnoringModifiers()).lower()
+        if char in ("q", "w") and not flags & AppKit.NSEventModifierFlagControl:
+            request_close()
+            return None
+        if char == "m" and not flags & AppKit.NSEventModifierFlagControl:
+            window.performMiniaturize_(None)
+            return None
+        if char == "f" and flags & AppKit.NSEventModifierFlagControl:
+            window.toggleFullScreen_(None)
+            return None
+        return event
+
+    monitor = AppKit.NSEvent.addLocalMonitorForEventsMatchingMask_handler_(AppKit.NSEventMaskKeyDown, key)
+    installed = []
+
+    def refresh():
+        main = AppKit.NSApplication.sharedApplication().mainMenu()
+        if main is None:
+            return
+        for item in main.itemArray():
+            submenu = item.submenu()
+            for command in submenu.itemArray() if submenu else []:
+                if str(command.action()) == "terminate:":
+                    command.setTarget_(target)
+                    command.setAction_("closeWindow:")
+        if installed and installed[0] in main.itemArray():
+            return
+        menu = AppKit.NSMenu.alloc().initWithTitle_(t("webui.window.menu"))
+        item = AppKit.NSMenuItem.alloc().init()
+        item.setSubmenu_(menu)
+        for label, selector, shortcut, flags in (
+            ("webui.window.close", "closeWindow:", "w", AppKit.NSEventModifierFlagCommand),
+            ("webui.window.minimize", "minimizeWindow:", "m", AppKit.NSEventModifierFlagCommand),
+            ("webui.window.maximize", "zoomWindow:", "", AppKit.NSEventModifierFlagCommand),
+            ("webui.lobby.fullscreen", "fullscreenWindow:", "f", AppKit.NSEventModifierFlagControl | AppKit.NSEventModifierFlagCommand),
+        ):
+            command = menu.addItemWithTitle_action_keyEquivalent_(t(label), selector, shortcut)
+            command.setKeyEquivalentModifierMask_(flags)
+            command.setTarget_(target)
+        main.addItem_(item)
+        installed[:] = [item]
+
+    def dispose():
+        AppKit.NSEvent.removeMonitor_(monitor)
+
+    dispose.refresh = refresh
+    return dispose

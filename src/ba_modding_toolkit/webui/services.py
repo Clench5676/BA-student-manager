@@ -225,6 +225,8 @@ class Services:
         self.jobs = jobs or JobRunner(self.events)
         with self.timings.measure("settings.ui-state"):
             self.state = state or UiState(self.data_dir / "webui.json")
+        self.chrome = None
+        self.close_coordinator = None
         self.window: Any = None  # the pywebview window, when there is one (see native.py)
         self.update_info: Any = None  # the last update check's result
         self.update_file: tuple[Path, str, str] | None = None  # verified path, MD5 and release version, for this session
@@ -1114,21 +1116,34 @@ class Services:
         if self.browser_url:
             webbrowser.open(self.browser_url)
 
-    def quit(self) -> None:
+    def quit(self, *, restart: bool = False) -> None:
         """``app.quit``: ``busy`` while a writer job is queued or running; closes the window, or in browser mode
         stops the server once the answer went out; ``native_unavailable`` with ``--serve``."""
         if self.jobs.busy():
             raise ServiceError("busy")
+        if self.close_coordinator is not None:
+            def close():
+                self.restart_requested = restart
+                self.chrome.close()
+            self.close_coordinator.request(close, cancelled=lambda: setattr(self, "restart_requested", False))
+            return
         if self.window is not None:
+            # Non-pywebview service hosts still pass the writer check above.
             self.window.destroy()
             return
         if self.quit_handle is not None:
+            self.restart_requested = restart
             threading.Timer(0.3, self.quit_handle).start()
             return
         raise ServiceError("native_unavailable")
 
     def install_update(self, path: Path, md5: str) -> None:
         """Reserve writer and classic admission until the native window closes or refuses the update."""
+        if self.close_coordinator is not None:
+            return self.close_coordinator.request(lambda: self._install_update(path, md5), reserve=False).result()
+        return self._install_update(path, md5)
+
+    def _install_update(self, path: Path, md5: str) -> None:
         done: Future = Future()
         with self.classic.starting():
             if self.update_installing:
@@ -1145,7 +1160,10 @@ class Services:
             self._pending_update = (launch, done)
         try:
             # destroy() may dispatch closing on another thread, or return without closing the window.
-            self.window.destroy()
+            if self.chrome is not None:
+                self.chrome.close()
+            else:
+                self.window.destroy()
             try:
                 done.result(timeout=UPDATE_QUIT_WAIT)
             except FutureTimeout:
@@ -1178,10 +1196,14 @@ class Services:
             if self._pending_update is not None and self.classic_open():
                 self._cancel_update(ServiceError("classic_open"))
                 return False
+            if self.close_coordinator is not None:
+                return self.close_coordinator.native_closing()
             return True
 
     def on_closed(self) -> None:
         """Launch a prepared helper once the window is gone, including backends that skip closing on destroy()."""
+        if self.close_coordinator is not None:
+            self.close_coordinator.closed()
         with self.classic.starting():
             pending = self._pending_update
             if pending is None:

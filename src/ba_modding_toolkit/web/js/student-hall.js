@@ -541,6 +541,8 @@ async function fullscreenExit(close) {
   const button = Popup.hit(host, view, "HallFullscreenExit/Bg", close, { name: T("lobby.exit"), action: "hall-fullscreen-exit" });
   return { host, button };
 }
+export const closeRevision = () => JSON.stringify([page, store?.current(), store?.kind(), pendingWrites]);
+
 export function canLeave() {
   if (!root || !store) return Promise.resolve(true);
   if (leavePending) return leavePending;

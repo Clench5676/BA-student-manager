@@ -30,6 +30,12 @@ import { studentName } from "./names.js";
 import { withTimeout } from "./async.js";
 import { previewCache } from "./preview-cache.js";
 import { ROOT_ROUTE, routeHistory } from "./route-history.js";
+import { setupWindowChrome } from "./window-chrome.js";
+import { installCloseGuard } from "./window-close.js";
+
+installCloseGuard({ prepare: () => StudentHall.canLeave(), revision: StudentHall.closeRevision, root: () => [document.querySelector('.viewport'),
+  document.querySelector('.window-header')].filter(Boolean) });
+setupWindowChrome();
 
 globalThis.BAMTRecovery?.presentReport((result) => Popup.message({ title: T("recovery.report"),
   lines: result ? [T("recovery.saved"), result.path, T(result.copied ? "recovery.copied" : "recovery.copyFailed"),
@@ -510,17 +516,6 @@ async function start() {
   $("top-option").setAttribute("aria-label", T("settings.button"));
   $("top-home").setAttribute("aria-label", T("hall.home"));
   $("top-home").hidden = !info.gameFound;
-  const setupWindowControls=()=>{
-    if(!globalThis.pywebview || document.getElementById('native-controls'))return;
-    const controls=document.createElement('div');controls.id='native-controls';
-    for(const [action,icon] of [['minimize','−'],['maximize','□'],['close','×']]){
-      const button=document.createElement('button');button.textContent=icon;button.setAttribute("aria-label",T(`window.${action}`));
-      button.addEventListener('click',()=>rpc('window.control',{action}).catch(console.error));controls.append(button);
-    }
-    document.body.append(controls);reflowTopActions();
-  };
-  setupWindowControls();
-  addEventListener("pywebviewready",setupWindowControls,{once:true});
   // subscribed before the no-game screen too, so choosing the game folder elsewhere reaches the page
   on("config.changed", () => refreshConfiguration().catch(console.error));
   on("app.busy", () => notify(T("error.busy"), { kind: "error", error: { code: "busy" } }));

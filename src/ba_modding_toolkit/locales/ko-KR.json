@@ -1760,6 +1760,7 @@
 			"export": "내보내기"
 		},
 		"window": {
+			"menu": "윈도우",
 			"minimize": "최소화",
 			"maximize": "최대화／복원",
 			"close": "닫기",

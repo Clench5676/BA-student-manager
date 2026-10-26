@@ -22,7 +22,7 @@ export function createFullscreen({ root, stage, chrome, prepareExit, popupOpen =
     catch (error) { if (version === generation) pending = false; throw error; }
     if (disposed || version !== generation || !root.isConnected) { prepared?.host.remove(); return false; }
     pending = false; previousFocus = doc.activeElement;
-    held = [stage.querySelector(".topbar"), stage.querySelector(".nav"), chrome].filter(Boolean).map((element) => [element, element.inert]);
+    held = [doc.querySelector?.(".topbar") || stage.querySelector(".topbar"), stage.querySelector(".nav"), chrome].filter(Boolean).map((element) => [element, element.inert]);
     if (held.some(([element]) => element.contains(previousFocus))) previousFocus?.blur?.();
     for (const [element] of held) element.inert = true;
     exit = prepared; root.append(exit.host); active = true;

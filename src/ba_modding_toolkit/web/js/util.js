@@ -78,4 +78,9 @@ export function markedLabel(caption, { fs = 40, fsMin = 26, color, maxW, mark = 
 // the game's red "new" dot
 export const DOT = (pos, size = 34) => NGUI.node("Dot", pos, [NGUI.sprite("Common_Icon_Reddot2", size, size * 31 / 34, { type: 0, depth: 45 })]);
 
-export const fitStage = () => document.getElementById("stage").style.setProperty("--scale", Math.min(innerWidth / 1920, innerHeight / 1080));
+export function fitStage() {
+  const stage = document.getElementById("stage"), header = globalThis.bamtHeaderGeometry;
+  stage.style.setProperty("--scale", header?.contentScale ?? Math.min(innerWidth / 1920, innerHeight / 1080));
+  if (header) stage.style.top = `calc(50% + ${header.extra / 2}px)`;
+  else stage.style.removeProperty("top");
+}
