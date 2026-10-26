@@ -8,7 +8,7 @@ As of 2026-10-26. Verify the actual branch, working tree and `pyproject.toml` ve
 | Branch | State |
 | --- | --- |
 | `main` | Local version `0.6.0-alpha.3`: the published 0.5.0 baseline, the upstream syncs after it, the 0.6.0-alpha.1 and alpha.2 review work, BL-020, BL-021, BL-040, BL-041, BL-043, BL-045 and BL-046. Not pushed. |
-| `codex/text-fit`, `codex/cli-cache`, `codex/server-dirs`, `codex/whats-new` | Merged into `main`; kept until the owner accepts their items. |
+| `codex/whats-new` | BL-020 and BL-021, merged into `main`; kept until the owner accepts them. |
 
 The 0.6.0 work is unreleased. Nothing has been tagged, pushed or published since 0.5.0.
 
@@ -23,10 +23,11 @@ The 0.6.0 work is unreleased. Nothing has been tagged, pushed or published since
 | BL-033 through BL-036, BL-038, BL-039 | Accepted by the owner on macOS (alpha.2); Windows not reviewed |
 | BL-032 | Implemented for alpha.2; the English label overflow continues as BL-040 |
 | BL-037 | Design task, not started |
-| BL-040, BL-041, BL-043 | Implemented for local review; owner UAT/visual acceptance pending |
+| BL-040, BL-041, BL-043, BL-045 | Accepted by the owner on macOS (alpha.3); Windows not reviewed |
 | BL-042, BL-044 | Owner's macOS findings on alpha.2, on hold |
-| BL-045 | Implemented for local review; owner UAT/visual acceptance pending. Separate server folders, legacy migration and missing-folder notices. |
-| BL-046 | Implemented for local review; owner UAT/visual acceptance pending. |
+| BL-046 | Closed by the owner without UAT (CLI-only) |
+| BL-047 | Planned (owner finding on alpha.3) |
+| BL-048 | Implemented for local review: CLI no longer built, installed or released |
 | BL-020 | Implemented for local review; owner UAT/visual acceptance pending. Exact-release notes and empty-body link fallback. |
 | BL-021 | Implemented for local review; owner UAT/visual acceptance pending. Tour framework and Settings replay; published registry empty, 0.6.0 draft awaiting owner review. |
 | BL-013, BL-019, BL-030 | Planned, not implemented |

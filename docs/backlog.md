@@ -497,6 +497,9 @@ repository's agent guidance; do not publish an empty stable-release description.
 ## BL-021: First-launch new-version feature tour
 
 - Status: Implemented for local review; owner UAT/visual acceptance pending.
+- Owner review of the 0.6.0 draft (2026-10-26): merge the photography and shared-gallery pages into one student
+  thumbnail page (`学生详情全屏后增加大头照拍摄功能`), drop the release-notes page; publication awaits the owner's OK
+  on the revised copy.
 - Note: Profile-local upgrade history and Settings replay support text-only tours; the published registry is empty and the six-locale 0.6.0 draft awaits approval.
 - Requested: 2026-10-25.
 - Flow: [New-version feature tour](feature-tour-flow.md).
@@ -809,7 +812,7 @@ Stored model fallback records lacked display metadata when the selected catalog 
 
 ## BL-040: Wrap the English Occlusion Guide label
 
-- Status: Implemented for local review; owner UAT/visual acceptance pending.
+- Status: Accepted by the owner (macOS review of 0.6.0-alpha.3, 2026-10-26); Windows not reviewed.
 - Requested: 2026-10-26.
 - Parent: BL-032.
 - Evidence: owner screenshot of the English photography toolbar.
@@ -822,14 +825,14 @@ Chinese label already fits. Check every shipped language, not only English.
 
 ## BL-041: Text fit and one font size for source action buttons
 
-- Status: Implemented for local review; owner UAT/visual acceptance pending.
+- Status: Accepted by the owner (macOS review of 0.6.0-alpha.3, 2026-10-26); Windows not reviewed.
 - Requested: 2026-10-26.
 - Related: BL-034 and BL-036 (source-picker actions).
 - Evidence: owner screenshot of the English L2D source picker (Apply, Show in Finder, Check Compatibility, Update,
   Delete).
 - Note: one caption size per same-kind group (shared group fitting), wrapping on up to two lines; applied to the
   source pickers and the other button rows, tabs and segments. Long English, Thai and Korean rows give the widest
-  caption a wider body.
+  caption a wider body. The owner accepted the wider body for the longest caption.
 
 In the L2D source picker, Check Compatibility overflows its button, and the buttons in the same row use different
 font sizes (Update is smaller than Delete). Long labels wrap inside the button; buttons in one row share one font
@@ -851,12 +854,13 @@ confirmation appears only for assets that are actually applied.
 
 ## BL-043: Top bar vertical centring and title size
 
-- Status: Implemented for local review; owner UAT/visual acceptance pending.
+- Status: Accepted by the owner (macOS review of 0.6.0-alpha.3, 2026-10-26); Windows not reviewed.
 - Requested: 2026-10-26.
 - Related: BL-038 and BL-037.
 - Evidence: owner screenshot of the Students top bar with a red line through the bar's centre.
 - Note: content centred on the fill of `Common_Top_Menu_Bg` by ink (text by its script's reference glyph, bitmaps
-  by their drawn rows); the title uses the prefab's `Label_Title` size 66 in the App's per-script drawing size.
+  by their drawn rows); the title uses the prefab's `Label_Title` size 66 in the App's per-script drawing size. The
+  owner kept the larger Latin title and the fill centre (not the whole bar including its dark edge).
 
 The top bar's content is not centred on its background: the right-hand actions (Settings, Home) sit a few pixels
 high and the left-hand items low. The current page title (e.g. 学生) is larger than the bar's other text and not
@@ -879,7 +883,7 @@ Proposed mapping for owner review: applied = yellow frame with the check badge, 
 
 ## BL-045: Separate Global and Japanese game directories
 
-- Status: Implemented for local review; owner UAT/visual acceptance pending.
+- Status: Accepted by the owner (macOS review of 0.6.0-alpha.3, 2026-10-26); Windows not reviewed.
 - Requested: 2026-10-26.
 - Related: BL-039 and BL-030.
 - Evidence: owner screenshot of the dialog shown when switching to the Japanese server (title `失败`, message
@@ -896,7 +900,7 @@ Settings exposes both server folders, migrates detected legacy Japanese installs
 
 ## BL-046: Managed CLI CAB cache and upstream introspection tests
 
-- Status: Implemented for local review; owner UAT/visual acceptance pending.
+- Status: Closed by the owner without UAT (2026-10-26): CLI-only; the App engine is unaffected apart from batched CAB index saves and preview-cache clear detection, covered by tests.
 - Requested: 2026-10-26.
 - Related: BL-012 and BL-014.
 - Note: CLI discovery shares managed scoped/versioned CAB metadata, publishes interrupted scans before output,
@@ -909,3 +913,24 @@ the file. The upstream test `tests/test_core/test_introspect.py` expects every n
 mode without separating local (`m_FileID == 0`) from external references, which official bundles with external
 references contradict; test the two cases separately and add tests for `--local-only`, cache isolation and
 interrupted runs. Upstream's CLI options and the shared UnityFS reader are already in `main`.
+
+## BL-047: Fullscreen button left on a rotated fullscreen portrait
+
+- Status: Planned; owner macOS review of 0.6.0-alpha.3.
+- Requested: 2026-10-26.
+- Related: the portrait view's rotate and fullscreen controls.
+
+In the portrait view, after rotating the screen and entering fullscreen, the fullscreen button is still shown in the
+top-right corner. It must not be shown once the view is fullscreen; leaving fullscreen restores it.
+
+## BL-048: Remove the CLI as a built and installed command
+
+- Status: Implemented for local review.
+- Requested: 2026-10-26.
+- Related: BL-046.
+
+The App does not need a dedicated command-line entry; scripts that can call the functions are enough. The classic
+GUI stays for users who still use it. The `bamt-cli` command, the Windows CLI executable and CLI release uploads are
+removed; `python -m ba_modding_toolkit.cli` keeps working from a source checkout, and the App and the classic GUI are
+unchanged.
+
