@@ -4,7 +4,7 @@ import { reflowTopActions } from "./nav.js";
 import { alignTopBar, sizeTitle } from "./top-bar.js";
 import { fitStage } from "./util.js";
 import { naturalTextWidth } from "./top-bar-measure.js";
-import { headerGeometry, rowLayout, subtractRegions, expandRect } from "./window-layout.js";
+import { headerGeometry, rowLayout, isImmersive, dragRegions, expandRect } from "./window-layout.js";
 
 let snapshot = null, wrapper = null, placeholder = null, compact = false, scheduled = false, lastLayout = "";
 let layoutRevision = 0;
@@ -65,6 +65,13 @@ async function layout() {
   fallbackControls();
   const header = bar(), stage = document.getElementById('stage');
   if (!header || !stage) return;
+  const immersive = isImmersive(stage.classList, document.documentElement.classList);
+  document.body.classList.toggle('window-immersive', immersive);
+  const blocked = [...document.querySelectorAll('.consent-host, .popup-host')].some((el) => !el.hidden && el.getClientRects().length);
+  const visibleHits = (root) => [...root.querySelectorAll('button, [role="switch"], .mod-switch')]
+    .filter((el) => !el.hidden && getComputedStyle(el).visibility !== 'hidden' && el.getClientRects().length)
+    .map((el) => expandRect(el.getBoundingClientRect()));
+  document.querySelector('.window-fallback-strip')?.remove();
   if (!snapshot?.active) {
     if (wrapper) {
       placeholder.replaceWith(header); wrapper.remove(); wrapper = placeholder = null;
@@ -73,10 +80,15 @@ async function layout() {
       header.querySelector('.title').style.removeProperty('max-width');
       header.classList.remove('mods-compact', 'chrome-waiting', 'native-toolbar');
     }
-    document.body.classList.remove('native-chrome', 'window-immersive');
+    document.body.classList.remove('native-chrome');
     globalThis.bamtHeaderGeometry = null; fitStage(); reflowTopActions();
     fitRow(header, stage.getBoundingClientRect().width / 1920);
     await alignTopBar();
+    const bounds = document.getElementById('native-controls')?.getBoundingClientRect();
+    const drag = dragRegions({ width: innerWidth, height: 12, bounds, platform: 'fallback', immersive: true,
+      blocked: blocked || !immersive, exclusions: visibleHits(stage) });
+    const strip = document.createElement('div'); strip.className = 'window-fallback-strip';
+    drawDragRegions(strip, drag); document.body.append(strip);
     return;
   }
   if (!wrapper) {
@@ -84,9 +96,7 @@ async function layout() {
     wrapper = document.createElement('div'); wrapper.className = 'window-header';
     document.body.append(wrapper); wrapper.append(header); header.classList.add('native-toolbar'); document.body.classList.add('native-chrome');
   }
-  const immersive = stage.classList.contains('fullscreen') || stage.classList.contains('hall-fullscreen');
-  document.body.classList.toggle('window-immersive', immersive);
-  const g = headerGeometry(innerWidth, innerHeight, snapshot.platform === 'win32' ? snapshot.bounds?.bottom || 0 : 0);
+  const g = headerGeometry(innerWidth, innerHeight, snapshot.platform === 'win32' ? snapshot.bounds?.bottom || 0 : 0, immersive);
   globalThis.bamtHeaderGeometry = g;
   wrapper.style.height = `${g.rowHeight}px`;
   Object.assign(header.style, { width: `${innerWidth / g.scale}px`, height: `${g.rowHeight / g.scale}px`, transform: `scale(${g.scale})` });
@@ -99,21 +109,22 @@ async function layout() {
   if (revision !== layoutRevision || !snapshot?.active || !wrapper) return;
   // Native regions never cover popups or hanging Back art. During page immersion
   // only the small game background strip and the real window controls remain.
-  const blocked = [...document.querySelectorAll('.consent-host, .popup-host')].some((el) => !el.hidden && el.getClientRects().length);
   header.inert = !snapshot.valid || immersive || blocked;
-  const exclusions = immersive ? [] : [...header.querySelectorAll('button, .mod-switch')]
-    .filter((el) => !el.hidden && getComputedStyle(el).visibility !== 'hidden' && el.getClientRects().length)
-    .map((el) => expandRect(el.getBoundingClientRect()));
-  if (snapshot.bounds) exclusions.push(expandRect(snapshot.bounds, 8));
-  const drag = blocked || !snapshot.valid ? [] : subtractRegions({ left: 0, top: 0, right: innerWidth, bottom: g.rowHeight }, exclusions);
+  const drag = dragRegions({ width: innerWidth, height: g.rowHeight, bounds: snapshot.bounds,
+    platform: snapshot.platform, immersive, blocked: blocked || !snapshot.valid,
+    exclusions: visibleHits(immersive ? stage : header) });
   wrapper.querySelectorAll('.window-drag-region').forEach((el) => el.remove());
-  if (snapshot.platform === 'win32') for (const rect of drag) {
-    const region = document.createElement('div'); region.className = 'window-drag-region';
-    Object.assign(region.style, { left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.right - rect.left}px`, height: `${rect.bottom - rect.top}px` });
-    wrapper.append(region);
-  }
+  if (snapshot.platform === 'win32' || immersive) drawDragRegions(wrapper, drag);
   const payload = JSON.stringify({ centre: g.centre, height: g.rowHeight, drag });
   if (payload !== lastLayout) { lastLayout = payload; await rpc('window.layout', JSON.parse(payload)); }
+}
+
+function drawDragRegions(host, drag) {
+  for (const rect of drag) {
+    const region = document.createElement('div'); region.className = 'window-drag-region';
+    Object.assign(region.style, { left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.right - rect.left}px`, height: `${rect.bottom - rect.top}px` });
+    host.append(region);
+  }
 }
 
 export function setupWindowChrome() {
@@ -126,6 +137,7 @@ export function setupWindowChrome() {
   document.fonts?.addEventListener('loadingdone', schedule);
   new MutationObserver(schedule).observe(document.getElementById('stage'), { subtree: true, childList: true, characterData: true,
     attributes: true, attributeFilter: ['hidden', 'class'] });
+  new MutationObserver(schedule).observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
   // The header leaves the stage only on active native hosts.
   new MutationObserver(schedule).observe(bar(), { subtree: true, childList: true, characterData: true,
     attributes: true, attributeFilter: ['hidden'] });

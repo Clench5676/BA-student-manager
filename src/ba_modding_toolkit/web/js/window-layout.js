@@ -1,12 +1,33 @@
 // UICharacterCollection top bar; all native rectangles are viewport CSS pixels.
 import { barCentre } from "./top-bar-layout.js";
 
-export function headerGeometry(width, height, nativeBottom = 0) {
+export function headerGeometry(width, height, nativeBottom = 0, immersive = false) {
   const scale = Math.min(width / 1920, height / 1080);
   const rowHeight = Math.max(64 * scale, 44, nativeBottom + 4);
-  const extra = Math.max(0, rowHeight - 64 * scale);
+  const extra = immersive ? 0 : Math.max(0, rowHeight - 64 * scale);
   return { scale, rowHeight, centre: barCentre(undefined, rowHeight), extra,
     contentScale: Math.min(width / 1920, (height - extra) / 1080) };
+}
+
+// Detail portrait/L2D share fullscreen; photography also owns an independent
+// root flag while preparing or switching those two renderers. Hall is separate.
+export function isImmersive(stageClasses, rootClasses) {
+  const stage = new Set(stageClasses), root = new Set(rootClasses);
+  return stage.has('fullscreen') || stage.has('hall-fullscreen') || root.has('photo-active');
+}
+
+export function dragRegions({ width, height, bounds, platform, immersive = false, blocked = false, exclusions = [] }) {
+  if (blocked) return [];
+  let background = { left: 0, top: 0, right: width, bottom: height };
+  if (immersive) {
+    if (!bounds) return [];
+    // A small strip at the top beside the real controls leaves scene controls
+    // below it free. Subtract their hit/focus bounds as well during transitions.
+    const left = platform === 'darwin' ? bounds.right + 8 : bounds.left - 8 - 64;
+    background = { left: Math.max(0, left), top: 0, right: Math.min(width, left + 64), bottom: Math.min(height, 12) };
+    if (background.right <= background.left) return [];
+  }
+  return subtractRegions(background, [...exclusions, ...(bounds ? [expandRect(bounds, 8)] : [])]);
 }
 
 export function rowLayout({ scale, nativeLeft = 0, rightStart, titleWidth, modsWidth,

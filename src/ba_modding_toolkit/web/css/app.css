@@ -412,7 +412,12 @@ input[type="text"], input[type="search"], textarea { cursor: text; }
   padding-block: .5em; }
 .topbar .mod-switch { flex: none; }
 .topbar.mods-compact .ms-label { display: none; }
-.native-chrome .topbar.chrome-waiting > *, .window-immersive .window-header .topbar > * { visibility: hidden; }
+.native-chrome .topbar.chrome-waiting > * { visibility: hidden; }
+.window-immersive .topbar { opacity: 0; visibility: hidden; pointer-events: none; filter: none; transition: none; }
+.window-immersive .window-header, .window-fallback-strip { pointer-events: none; }
+.window-fallback-strip { position: fixed; left: 0; top: 0; width: 100%; z-index: 1000; }
+.window-immersive .window-drag-region { pointer-events: auto;
+  background: url("/asset/ui/sprite/Common/Common_Top_Menu_Bg.png") left top / auto 64px no-repeat; }
 /* The optional WebView2 API routes these measured blank rectangles to native caption gestures. */
 .window-drag-region { position: absolute; app-region: drag; -webkit-app-region: drag; }
 .native-chrome button, .native-chrome [role="switch"], .native-chrome .mod-switch { app-region: no-drag; -webkit-app-region: no-drag; }
