@@ -5,6 +5,7 @@
 //   - textures: the game's UITexture images, or per-node overrides
 //   - labels: plain text in the page font, sized from the label's font size (italic: a placeholder's slant)
 // Depth becomes z-index; NGUI y points up, the stage's y points down.
+import {hasAffirmative,skinAffirmatives,goldTemplate} from "./affirmative-buttons.js";
 import { labelEffect, labelClipPadding } from "./ngui-label.js";
 import { clipButtonPatterns } from "./button-layout.js";
 import { spriteUrl, uiExportUrl } from "./api.js";
@@ -154,14 +155,14 @@ async function gradientTint(url, colors) {
   return gradients.get(key);
 }
 
-// draw a sliced sprite at its final pixel size (x2 for sharp edges on HiDPI) into a single image
+// Draw a sliced sprite into one image, at least 2× with higher effective DPI when requested.
 const baked = new Map();
-function slicedImage(url, b, wpx, hpx, bs) {
-  const key = `${url}|${b.join(",")}|${wpx.toFixed(1)}x${hpx.toFixed(1)}|${bs.toFixed(3)}`;
+function slicedImage(url, b, wpx, hpx, bs, density=2) {
+  const key = `${url}|${b.join(",")}|${wpx.toFixed(1)}x${hpx.toFixed(1)}|${bs.toFixed(3)}|${density.toFixed(3)}`;
   if (!baked.has(key)) {
     baked.set(key, load(url).then((img) => {
       const [t, r, bo, l] = b, sw = img.naturalWidth, sh = img.naturalHeight;
-      const horizontal = sliceAxis(sw, l, r, wpx, bs), vertical = sliceAxis(sh, t, bo, hpx, bs);
+      const horizontal = sliceAxis(sw, l, r, wpx, bs, density), vertical = sliceAxis(sh, t, bo, hpx, bs, density);
       const W = horizontal.size, H = vertical.size;
       const c = document.createElement("canvas");
       c.width = W; c.height = H;
@@ -171,7 +172,11 @@ function slicedImage(url, b, wpx, hpx, bs) {
       for (const [sx0, sx1, dx0, dx1] of xs) {
         for (const [sy0, sy1, dy0, dy1] of ys) {
           if (sx1 <= sx0 || sy1 <= sy0 || dx1 <= dx0 || dy1 <= dy0) continue;
-          g.drawImage(img, sx0, sy0, sx1 - sx0, sy1 - sy0, dx0, dy0, dx1 - dx0, dy1 - dy0);
+          // Clamp each source tile before interpolation: neighbouring atlas pixels otherwise bleed into seams.
+          const tile=document.createElement("canvas");tile.width=sx1-sx0;tile.height=sy1-sy0;
+          const source=tile.getContext("2d");source.imageSmoothingEnabled=false;
+          source.drawImage(img,sx0,sy0,sx1-sx0,sy1-sy0,0,0,tile.width,tile.height);
+          g.drawImage(tile,0,0,tile.width,tile.height,dx0,dy0,dx1-dx0,dy1-dy0);
         }
       }
       return canvasUrl(c);
@@ -219,9 +224,11 @@ const colorOf = (c) => {
 // opts: scale (stage px per unit), origin [x, y] (stage px of the root's origin),
 //       on / off (node names or paths to force), shift { name|path: [dx, dy] units },
 //       texts { name|path: text }, textures { name|path: url }, textureNames { texture name: url },
+//       rasterDensity (optional sliced-sprite pixels per stage px; minimum 2),
 //       styles { name|path: css }, rootPath (prefix used in paths), z (z-index offset), deferImages (fill in later)
 // pictures includes all deferred work; images and thumbnails let a screen give optional thumbnails a shorter wait.
 export async function render(tree, host, opts = {}) {
+  if(hasAffirmative(tree))tree=skinAffirmatives(tree,goldTemplate);
   // Popup branches publish together, including decoded textures, even when the caller renders into a live layer.
   const target = host, popup = !!findNamed(tree, "Popup");
   if (popup) host = document.createElement("div");
@@ -376,7 +383,7 @@ export async function render(tree, host, opts = {}) {
         const url = w.gradient ? await gradientTint(tintedUrl, w.gradient) : tintedUrl;
         const b = spriteBorders(meta);
         if (w.type === 1 && b.some(Boolean)) {
-          return slicedImage(url, b, ww * S, hh * S, S * Math.min(Math.abs(sx), Math.abs(sy))).then((img) => {
+          return slicedImage(url, b, ww * S, hh * S, S * Math.min(Math.abs(sx), Math.abs(sy)),Math.max(2,Number(opts.rasterDensity)||2)).then((img) => {
             Object.assign(el.style, { backgroundImage: `url("${img}")`, backgroundSize: "100% 100%", backgroundRepeat: "no-repeat" });
           });
         } else if (w.type === 2) {
@@ -457,7 +464,7 @@ export function layout(name) {
     const request = sub ? layout(root).then((tree) => findNamed(tree, sub)) : fetch(uiExportUrl(`/asset/ui/layout/${encodeURIComponent(root)}.json`), { cache: "no-cache" }).then((r) => {
       if (!r.ok) throw new Error(`layout ${root}: HTTP ${r.status}`);
       return r.json();
-    });
+    }).then(value=>{globalThis.BAMTRecovery?.activity?.();return value;});
     layouts.set(name, request
       .catch((err) => { layouts.delete(name); throw err; }));
   }

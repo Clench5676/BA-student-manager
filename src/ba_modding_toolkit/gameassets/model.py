@@ -535,12 +535,16 @@ class BundleGraph:
     """
 
     def __init__(self, index: Mapping[str, Any], overrides: Iterable[Path] = (), *,
-                 fallback: Callable[[], Mapping[str, Any]] | None = None, opener: Callable = open_bundle):
+                 fallback: Callable[[], Mapping[str, Any]] | None = None, opener: Callable = open_bundle,
+                 resolver: Callable[[set[str], Path | None], Mapping[str, str]] | None = None):
         self.index = {cab: str(path) for cab, path in index.items()}
         for path in overrides:
             for cab in cab_names(Path(path)):
                 self.index[cab] = str(path)
         self.fallback = fallback
+        self.resolver = resolver
+        self.locations: dict[str, str] = {}
+        self._unresolved: set[str] = set()
         self.opener = opener
         self.objects: dict[tuple[str, int], Any] = {}
         self.trees: dict[tuple[str, int], Any] = {}
@@ -559,6 +563,8 @@ class BundleGraph:
     def close(self) -> None:
         self.objects.clear()
         self.trees.clear()
+        self.locations.clear()
+        self._unresolved.clear()
         self._stack.close()
 
     def add(self, path: Path | str) -> Any:
@@ -570,6 +576,7 @@ class BundleGraph:
         env = self._stack.enter_context(self.opener(Path(path)))
         for obj in env.objects:
             self.objects[_key(obj)] = obj
+            self.locations[obj.assets_file.name.lower()] = path
         return env
 
     def tree(self, obj: Any) -> Any:
@@ -585,6 +592,12 @@ class BundleGraph:
         cab, pid = _external_cab(obj, pointer.get("m_FileID", 0)), pointer["m_PathID"]
         hit = self.objects.get((cab, pid))
         if hit is None:
+            if cab not in self.index and self.resolver is not None and cab.startswith("cab-") and cab not in self._unresolved:
+                owner = self.locations.get(obj.assets_file.name.lower())
+                found = self.resolver({cab}, Path(owner) if owner else None)
+                self.index = {**found, **self.index}
+                if cab not in self.index:
+                    self._unresolved.add(cab)
             if cab not in self.index and self.fallback is not None and cab.startswith("cab-"):
                 logger.debug("CAB %s is not in the model index; scanning every bundle", cab)
                 wider, self.fallback = self.fallback(), None

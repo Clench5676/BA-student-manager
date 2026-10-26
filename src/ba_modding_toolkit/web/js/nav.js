@@ -1,3 +1,4 @@
+import {topActionLayout,nativeRightClearance} from "./top-action-layout.js";
 // The lobby-style bottom navigation and the top bar. The entries are nav-items.js: one without a web screen is greyed
 // out with the game's disabled tint and hands over to the classic GUI on its tab, through the hand-off prompt
 // (decision 6: on every click, with Don't Ask Again, until the pref classicPrompt is turned off).
@@ -83,7 +84,22 @@ export async function renderNav(active = 0, opts = {}) {
   document.querySelector(".nav-bar")?.replaceChildren(...plate.childNodes);
 }
 
-let topReady;
+let topReady,topHall=false,topAvailable=true;
+const topBoxes={home:[44,7,50,50],option:[158,7,50,50],line:[120,12,3,32]};
+export function setTopActions(hall,available=true){topHall=hall;topAvailable=available;reflowTopActions();}
+export function reflowTopActions(){
+  const stage=document.getElementById('stage')?.getBoundingClientRect?.();
+  const controls=document.getElementById('native-controls')?.getBoundingClientRect?.();
+  const preliminary=topActionLayout(topBoxes,topHall);
+  const boxes=topActionLayout(topBoxes,topHall,nativeRightClearance(stage,controls,preliminary.option));
+  for(const [key,selector] of [['home','.top-home'],['option','.top-option'],['line','.top-line']]){
+    const host=document.querySelector(selector);if(!host)continue;
+    const [right,top,width,height]=boxes[key];Object.assign(host.style,{right:`${right}px`,top:`${top}px`,width:`${width}px`,height:`${height}px`});
+    if(key==='home')host.hidden=topHall||!topAvailable;
+    if(key==='line')host.hidden=topHall;
+  }
+}
+addEventListener('resize',reflowTopActions);
 function skinTop() {
   return topReady ||= NGUI.layout("UICharacterCollection").then(async (collection) => {
     const right = "NUITop_Scenes/Top/Right";
@@ -110,8 +126,13 @@ function skinTop() {
           top: `${7 + (home.pos[1] - original.pos[1] + (homeWidget.h_ - h) / 2) * S}px`,
         });
       }
+      if(path.startsWith(right)){
+        const key=selector==='.top-home'?'home':selector==='.top-option'?'option':'line';
+        topBoxes[key]=['right','top','width','height'].map(field=>parseFloat(host.style[field]));
+      }
       host.replaceChildren(...next.childNodes);
     }
+    reflowTopActions();
   }).catch((err) => { topReady = null; throw err; });
 }
 

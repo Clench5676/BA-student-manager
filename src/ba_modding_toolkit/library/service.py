@@ -22,7 +22,6 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from functools import wraps
 from pathlib import Path
-from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, Callable, Iterator
 
 from UnityPy.helpers.ResourceReader import get_resource_data
@@ -546,6 +545,7 @@ class ModLibrary:
             try:
                 self._recover_pending()
                 self._lookup_records()
+                self._migrate_collection_slots()
                 self._known()
             except ServiceError as error:
                 log_failure(logger, logging.WARNING, "Mod configuration not looked up", error)
@@ -685,13 +685,22 @@ class ModLibrary:
         except (KeyError, ServiceError) as error:
             if isinstance(error, ServiceError) and error.code != "catalog_variant_not_found":
                 raise
-            if any(record.get("assignment") == key for record in self._records.values()):
-                return self.catalog.assignment_variant(key)
+            if callable(getattr(self.catalog, "assignment_variant", None)) and any(
+                    (record.get("assignment") or record.get("target")) == key for record in self._records.values()):
+                try:
+                    return self.catalog.assignment_variant(key)
+                except (KeyError, ServiceError) as lookup:
+                    if isinstance(lookup, ServiceError) and lookup.code != "catalog_variant_not_found":
+                        raise
             # Current NPC bundles may have no roster entry. Their stored filename owns the model slot.
             record = next((record for record in self._records.values() if record["kind"] == "model"
                            and record["target"] == key and core_of(record["files"][0]) == key), None)
             if record:
-                return SimpleNamespace(key=key, family=key, spr=None, lobby=None, model=key)
+                from ..catalog.models import Variant
+                from ..catalog._names import LANGUAGES, BASE_SHORT
+                return Variant(key, key, key, {lang: {"full": key, "short": BASE_SHORT[lang]}
+                                               for lang in LANGUAGES}, False, 0, None, None, None, None, None,
+                               model=key)
             if isinstance(error, KeyError):
                 raise ServiceError("variant_not_found", variant=key) from error
             raise
@@ -735,6 +744,8 @@ class ModLibrary:
         alias = record.get("alias")
         if isinstance(alias, str) and alias:
             return alias
+        if record.get("roster_photography"):
+            return t("webui.photo.modName")
         source = record.get("repaired_from")
         if isinstance(source, str) and source and source not in seen:
             parent = self._records.get(source)
@@ -746,6 +757,94 @@ class ModLibrary:
     def mods(self) -> list[ModEntry]:
         """Return the mod entries in insertion order."""
         return [self._entry(record) for record in self._records.values()]
+
+    @property
+    def photographs(self):
+        from .photographs import Photographs, student_family
+
+        if not hasattr(self, "_photographs"):
+            self._photographs = Photographs(self.root, lambda key, catalog=self.catalog: student_family(catalog, key))
+        return self._photographs
+
+    def _migrate_collection_slots(self) -> None:
+        """Partition legacy shared Collection slots by batch without changing any game bytes."""
+        if not any(name.lower().startswith("uis-01_common-14_charactercollect-")
+                   for record in self._records.values() for name in record["files"]):
+            return
+        def update(data):
+            changed = False
+            for install, folder in data.get("folders", {}).items():
+                configured = folder.get("configured", {})
+                for old, entry in list(configured.items()):
+                    source = entry.get("source", "")
+                    record = self._records.get(source[4:], {}) if source.startswith("mod:") else {}
+                    names = [name for name in record.get("files", [])
+                             if name.lower().startswith("uis-01_common-14_charactercollect-")]
+                    targets = {core_of(name) for name in names if "other:" + hashlib.sha256(
+                        repr((parse_filename(name).prefix, parse_filename(name).res_type)).encode()).hexdigest() == old}
+                    if len(targets) != 1:
+                        continue
+                    new = targets.pop()
+                    if new == old or new in configured:
+                        continue
+                    configured[new] = configured.pop(old)
+                    for field in ("built", "updated"):
+                        if old in folder.get(field, {}):
+                            folder[field][new] = folder[field].pop(old)
+                    for marker in folder.get("dismissed", {}).values():
+                        if isinstance(marker, dict) and old in marker:
+                            marker[new] = marker.pop(old)
+                    for item in data.get("unfinished", []):
+                        if item.get("install") == install and item.get("core") == old:
+                            item["core"] = new
+                    changed = True
+            return changed
+        self.profiles.update(update)
+
+    @_serialized
+    def photograph_choice(self, descriptor: dict, pin: Pin | None = None) -> dict:
+        from . import portrait_edit
+
+        return portrait_edit.choice(self, descriptor, self._current(pin))
+
+    @_serialized
+    def photograph_removal_info(self, variant: str, key: str) -> dict:
+        from .portrait_edit import in_use
+        if key == 'official':
+            return {'official': True, 'used': False}
+        self.photographs._entry(variant, key)
+        return {'official': False, 'used': key in in_use(self)}
+
+    @_serialized
+    @_mod_writer
+    def delete_photograph(self, variant: str, key: str, confirm: bool = False, log: LogFunc = no_log) -> dict:
+        from . import portrait_edit
+
+        if key in ("official", None):
+            raise ServiceError("asset_official")
+        self.photographs._entry(variant, key)
+        if key in portrait_edit.in_use(self) and not confirm:
+            raise ServiceError("asset_delete_confirm")
+        from .asset_delete import transaction
+        with transaction(self) as deletion:
+            if key in portrait_edit.in_use(self):
+                portrait_edit.remove_photo(self, key, log)
+            portrait_edit._prune_composites(self)
+            deletion.remember_photo(variant, key)
+            result = self.photographs.delete(variant, key, portrait_edit.in_use(self))
+        return result
+
+    @_serialized
+    @_mod_writer
+    def apply_photograph(self, variant: str, key: str | None, descriptor: dict, pin: Pin | None = None,
+                         log: LogFunc = no_log, progress: ProgressCallback | None = None) -> ApplyResult:
+        from . import portrait_edit
+
+        target = self._variant(variant)
+        if not getattr(target, "portrait", None) or target.portrait != descriptor.get("name"):
+            raise ServiceError("photo_target_unavailable")
+        png = self.photographs.image(variant, key) if key is not None else None
+        return portrait_edit.apply(self, variant, key, png, descriptor, self._current(pin), log, progress)
 
     supports_kind = staticmethod(supports_kind)
 
@@ -1271,7 +1370,8 @@ class ModLibrary:
         return result
 
     def _store(self, files: dict[str, Path], label: str, target: str, kind: str,
-               *, repaired_from: str = "", user_added: bool = False, assignment: str = "") -> dict[str, Any]:
+               *, repaired_from: str = "", user_added: bool = False, assignment: str = "",
+               metadata: dict[str, Any] | None = None) -> dict[str, Any]:
         """Publish a complete directory before its metadata, with durable recovery of either outcome."""
         names = sorted(files)
         if not names or any(Path(name).name != name or not name.endswith(".bundle") for name in names):
@@ -1286,6 +1386,10 @@ class ModLibrary:
         record = {"id": mod_id, "files": names, "label": label, "target": target,
                   "kind": kind, "added": datetime.now(timezone.utc).isoformat(), "seen": False,
                   "user_added": user_added}
+        if metadata:
+            if set(metadata) & set(record):
+                raise ValueError("Generated Mod metadata overrides a reserved field")
+            record.update(copy.deepcopy(metadata))
         if repaired_from:
             record["repaired_from"] = repaired_from
         if assignment:
@@ -1476,7 +1580,7 @@ class ModLibrary:
         view = self._view([pin], "full") if pin else None
         rows = []
         for record in self._records.values():
-            if record["kind"] != "other":
+            if record["kind"] != "other" or record.get("roster_photography"):
                 continue
             source = f"mod:{record['id']}"
             try:
@@ -1503,6 +1607,9 @@ class ModLibrary:
     @_serialized
     def removal_info(self, mod_id: str) -> dict:
         """The confirmation's name and whether any configuration or applied record uses this source."""
+        return self._removal_info(mod_id)
+
+    def _removal_info(self, mod_id: str) -> dict:
         source = f"mod:{mod_id}"
         used = any(entry.get("source") == source
                    for folder in ((self.profiles.read() or {}).get("folders") or {}).values()
@@ -1511,9 +1618,11 @@ class ModLibrary:
 
     @_serialized
     @_mod_writer
-    def remove(self, mod_id: str, confirm: bool = False, log: LogFunc = no_log) -> DeleteResult:
-        """Delete a source and its library references, then restore affected game entries through the normal writer.
-        Refused game writes leave the new configuration and an unfinished entry for Retry."""
+    def remove(self, mod_id: str, confirm: bool = False, log: LogFunc = no_log,
+               reconcile: Callable[[], None] | None = None) -> DeleteResult:
+        """Reconcile every use through the protected writer before deleting its managed source."""
+        if mod_id == 'official':
+            raise ServiceError('asset_official')
         record = self._record(mod_id)
         directory = self.root / "mods" / mod_id
         self._paths(record)  # refuse a stored directory or file that resolves outside the library
@@ -1550,49 +1659,39 @@ class ModLibrary:
             data["unfinished"] = [item for item in data["unfinished"]
                                   if (item["install"], item["core"]) not in affected]
 
-        old_applied = copy.deepcopy(self._applied)
-        for applied in self._applied.values():
-            if applied.get("source") == source:
-                applied.update(source="removed", removed=True)
-                applied.pop("build", None)
-        del self._records[mod_id]
+        if self._removal_info(mod_id)["used"] and not confirm:
+            raise ServiceError("asset_delete_confirm")
+        from .asset_delete import transaction
+        done = []
         try:
-            self._save()
-        except OSError:
-            self._records[mod_id] = record
-            self._applied = old_applied
-            raise
-        try:
-            self._update_profiles(change, after=lambda data: self._delete_built_files(keys, data))
-        except Exception:
-            self._records[mod_id] = record
-            self._applied = old_applied
-            self._save()
-            raise
-        shutil.rmtree(directory)
-        done, failed, outcomes = [], [], {}
-        for key, core in sorted(affected):
-            pin = by_key.get(key)
-            if pin is None:
-                continue
-            config = ((self.profiles.read() or {}).get("folders") or {}).get(key, {})
-            configured = config.get("configured", {}).get(core)
-            target = configured["source"] if configured and profiles_mod.enabled(self.profiles.read()) else "official"
-            item = {"install": key, "core": core}
-            try:
-                with _errors("restore"):
-                    self._switch(pin, core, target, log)
-                done.append(item)
-                outcomes[key, core] = None
-            except ServiceError as error:
-                failed.append({"entry": item, "code": error.code, "params": error.to_json()["params"]})
-                outcomes[key, core] = "stuck" if error.code == "original_unavailable" else "pending"
-                log_failure(logger, logging.INFO, "Deleted mod; restore deferred", error)
-        self._save_outcomes(outcomes)
+            with transaction(self) as deletion:
+                deletion.remember_mods([mod_id])
+                self._update_profiles(change)
+                if profiles_mod.enabled(self.profiles.read()):
+                    for key, core in sorted(affected):
+                        pin = by_key.get(key)
+                        if pin is None:
+                            raise ServiceError('game_not_found')
+                        config = (self.profiles.read() or {}).get('folders', {}).get(key, {})
+                        target = config.get('configured', {}).get(core, {}).get('source', 'official')
+                        with _errors('restore'):
+                            self._switch(pin, core, target, log)
+                        done.append({'install': key, 'core': core})
+                for applied in self._applied.values():
+                    if applied.get('source') == source:
+                        applied.update(source='removed', removed=True)
+                        applied.pop('build', None)
+                del self._records[mod_id]
+                self._save()
+                shutil.rmtree(directory)
+                self._delete_built_files(keys, self.profiles.read())
+                if reconcile:
+                    reconcile()
+        except ServiceError as error:
+            return DeleteResult([], [{'entry': {'id': mod_id}, **error.to_json()}], [], [], [])
         self._prune_quietly()
-        return DeleteResult(done, failed, [{"install": key, "core": core} for key, core in sorted(affected)],
-                            sorted({core for _, core in affected}),
-                            [record["kind"]] if affected else [])
+        return DeleteResult(done, [], [{'install': key, 'core': core} for key, core in sorted(affected)],
+                            sorted({core for _, core in affected}), [record['kind']] if affected else [])
 
     def _in_use(self, mod_id: str) -> list[Path]:
         """The game files still carrying the mod: stats and tails first, then SHA-1 when their stamp changed.
@@ -1957,7 +2056,13 @@ class ModLibrary:
         available = [path for slot, paths in self._index(pin).items() if slot.startswith("other:") for path in paths]
         targets = set()
         for name, source in files.items():
-            current = integrity.replacements({name: source}, available)
+            collection = name.lower().startswith("uis-01_common-14_charactercollect-")
+            if collection:
+                exact = [path for path in available if path.name == name]
+                if exact:
+                    targets.update(exact)
+                    continue
+            current = None if collection else integrity.replacements({name: source}, available)
             if current:
                 targets.update(current)
                 continue
@@ -2129,6 +2234,15 @@ class ModLibrary:
         """Forget mods _keep_replaced added for a replacement that was rolled back (their files are in the game
         again). A state that cannot be saved still lists them; loading drops records without files."""
         if not mod_ids:
+            return
+        deletion = getattr(self, '_asset_deletion', None)
+        if deletion:
+            deletion.remember_mods(mod_ids)
+            for mod_id in mod_ids:
+                self._records.pop(mod_id, None)
+            self._save()
+            for mod_id in mod_ids:
+                shutil.rmtree(self.root / 'mods' / mod_id)
             return
         for mod_id in mod_ids:
             self._records.pop(mod_id, None)
@@ -2346,6 +2460,8 @@ class ModLibrary:
     def _prune_quietly(self) -> None:
         # Writers already hold the library lock, possibly followed by transaction
         # and Mod locks. Do not reacquire it after those higher-order locks.
+        if getattr(self, '_asset_deletion', None):
+            return
         if self._deferred_prunes:
             self._prune_pending = True
             return
@@ -2632,16 +2748,20 @@ class ModLibrary:
 
     def _commit(self, replacements: dict[Path, Path], source: str, log: LogFunc,
                 progress: ProgressCallback | None = None, pin: Pin | None = None, prune: bool = True,
-                build_keys: dict[Path, str] | None = None, create_backup: bool = False) -> list[Path]:
+                build_keys: dict[Path, str] | None = None, create_backup: bool = False,
+                expected: dict[Path, str] | None = None) -> list[Path]:
         """Write prepared files over game files as one unit, keeping what they replace: the official file in
         originals/ (once), a file kept nowhere else as a library mod (_keep_replaced). Every written part is rolled
         back on failure. With ``prune``, kept originals no longer needed are deleted afterwards, whatever the
         outcome; bulk operations prune once at their end."""
         pin = self._current(pin)
+        deletion = getattr(self, '_asset_deletion', None)
+        if deletion:
+            deletion.remember_game(replacements, pin)
         try:
             with self._transaction_lock():
                 return self._write(replacements, source, log, progress, pin, build_keys,
-                                   create_backup=create_backup)
+                                   create_backup=create_backup, **({"expected": expected} if expected else {}))
         finally:
             if prune:
                 self._prune_quietly()
@@ -2674,7 +2794,8 @@ class ModLibrary:
     def _recover_pending(self) -> None:
         """Recover before indexing game files, including one moved away just before a crash."""
         if not self._transacting and (any((self.root / "transactions").glob("*/journal.json"))
-                                    or any((self.root / "import-transactions").glob("*/journal.json"))):
+                                    or any((self.root / "import-transactions").glob("*/journal.json"))
+                                    or any((self.root / "asset-deletions").glob("*/journal.json"))):
             with self._transaction_lock():
                 pass
 
@@ -2711,6 +2832,8 @@ class ModLibrary:
                 logger.info("Recovered interrupted library write %s", path.parent.name)
             except (ValueError, TypeError, KeyError) as error:
                 raise ServiceError("library_io_error", file=path) from error
+        from .asset_delete import recover
+        recover(self)
 
     def _rollback_write(self, data: dict) -> None:
         """Return consumed originals before restoring mods. Repeating any completed step is safe."""
@@ -2750,7 +2873,7 @@ class ModLibrary:
 
     def _write(self, replacements: dict[Path, Path], source: str, log: LogFunc,
                progress: ProgressCallback | None, pin: Pin, build_keys: dict[Path, str] | None = None,
-               *, create_backup: bool = False) -> list[Path]:
+               *, create_backup: bool = False, expected: dict[Path, str] | None = None) -> list[Path]:
         dirs = list(pin.dirs)
         for target, prepared in replacements.items():
             check_resource_path(target, dirs)
@@ -2802,6 +2925,8 @@ class ModLibrary:
         saving_state = False
         try:
             with self._writable(list(changed), pin):
+                if expected and any(self._hashes.get(path).sha1 != digest for path, digest in expected.items()):
+                    raise ServiceError("entry_changed", core=core_of(next(iter(changed)).name))
                 officials = {target: self._official_for(target, pin) for target in changed}
                 kept = self._keep_replaced(list(changed), pin)
                 directory = self.root / "transactions" / uuid.uuid4().hex
@@ -3410,8 +3535,13 @@ class ModLibrary:
                     continue
                 path = self.root / "built" / f"{sha1}.bundle"
                 if path.resolve().is_relative_to(self.root) and path.parent == self.root / "built":
-                    with contextlib.suppress(OSError):
-                        path.unlink()
+                    deletion = getattr(self, '_asset_deletion', None)
+                    if deletion:
+                        deletion.remember_built(path)
+                        path.unlink(missing_ok=True)
+                    else:
+                        with contextlib.suppress(OSError):
+                            path.unlink()
 
     @_serialized
     def clear_built(self) -> int:
@@ -4006,6 +4136,10 @@ class ModLibrary:
                 raise ServiceError("state_changed")
             safety.check_game_not_running()
             self._check_idle(pins)
+            if drift is None:
+                from .portrait_edit import refresh_missing
+                refresh_missing(self, pins, log)
+                config = self.profiles.read()
             if drift is not None:
                 if not current:  # mods off: official files are the intent, there is no drift to apply
                     raise ServiceError("state_changed")

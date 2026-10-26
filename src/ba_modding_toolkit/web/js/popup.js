@@ -169,6 +169,7 @@ export function popupFrame(title, w, h, { ok = null, cancel = null, close = true
     const b = find(btn, name);
     resizeButton(find(b, "BG (1)"));
     b.active = !!caption;
+    b.actionSemantic=name==="Btn_Ok"?"confirm":"secondary";
     if (!(ok && cancel)) b.pos = [0, b.pos[1]];
     if (caption) NGUI.fitLabel(find(b, "Label_Locale").widgets[0], caption, 64, 40, 420);
   }
@@ -177,7 +178,7 @@ export function popupFrame(title, w, h, { ok = null, cancel = null, close = true
     const gap = 24, buttonWidth = Math.min(460, (w - 140 - gap * (buttons.length - 1)) / buttons.length), scale = buttonWidth / BTN_W;
     btn.active = true;
     btn.children = buttons.map((action, index) => {
-      const child = clone(action.primary ? primary : secondary); child.name = `Choice_${index}`; child.active = true;
+      const child = clone(action.primary ? primary : secondary); child.name = `Choice_${index}`; child.active = true; child.affirmative = !!action.primary;
       child.scale = [scale, scale]; child.pos = [(index - (buttons.length - 1) / 2) * (buttonWidth + gap), 0];
       NGUI.fitLabel(find(child, "Label_Locale").widgets[0], action.label, 64, 40, 420); return child;
     });
@@ -349,6 +350,7 @@ function listFrame(title, buttons, closeButton) {
     const n = clone(b.primary ? ok : cancel);
     resizeButton(find(n, "BG (1)"));
     n.name = `Btn_${i}`;
+    n.actionSemantic=b.semantic||(b.primary?"confirm":"secondary");
     n.active = true;
     n.scale = [k, k];
     n.pos = [right - bw / 2 - (buttons.length - 1 - i) * (bw + gap), LP.ok.y];
@@ -460,8 +462,8 @@ function detailsTree(it, title, fields, actions, portraitTexture = null, kind = 
     if (i < fields.length - 1) kids.push(node(`L_${i}`, [cx, y - rowH / 2], [sprite("Common_Line_Dot", w - 100, 4, { type: 2, depth: 7, color: "#c0c9d4/1.00" })]));
     top -= rowH;
   });
-  actions.forEach(([caption, , disabled], i) => {
-    const bw = (w - 60) / actions.length, x = b.l + 30 + bw / 2 + i * bw, f = fitText(caption, 40, 26, bw - 60);
+  actions.forEach(([caption, , disabled, semantic = "secondary"], i) => {
+    const bw = (w - 60) / actions.length, x = b.l + 30 + bw / 2 + i * bw, f = fitText(caption, 40, 26, bw - 60, 3);
     let body = clone(find(layouts.sortPopup, "Center/Popup/Btn/Btn_Cancel/BG (1)"));
     let ink = "#2d5164/1.00";
     if (disabled) {
@@ -476,10 +478,12 @@ function detailsTree(it, title, fields, actions, portraitTexture = null, kind = 
     resizeButton(body, (bw - 14) / k);
     Object.assign(bg, { depth: 6, ...(!disabled ? { color: "#dbeef5/1.00" } : {}) });
     for (const child of body.children || []) for (const w of child.widgets) if ("w_" in w) w.depth = 7;
-    kids.push(node(`Act_${i}`, [x, b.b + 70], [], [
+    const actionNode=node(`Act_${i}`, [x, b.b + 70], [], [
       body,
-      node("Label", [0, 6], [label(f.text, f.fs, ink, bw - 40, 60 * f.lines, { depth: 8 })]),
-    ]));
+      node("Label", [0, 6], [label(f.text, f.fs, ink, bw - 48, Math.min(110, Math.max(60, f.fs * f.lines * 1.25)), { depth: 8 })]),
+    ]);
+    actionNode.actionSemantic=disabled?"secondary":semantic;
+    kids.push(actionNode);
   });
   const tree = node("Details", [0, 0], [], kids);
   if (portraitTexture) {
@@ -543,7 +547,7 @@ export async function listPopup(options) {
   const redraw = () => listPopup({ ...options, keepScroll: 0 });
   const ticked = multi ? new Set(selected || []) : null;
   const isSelected = (key) => (multi ? ticked.has(key) : key === selected);
-  const btns = buttons || [{ label: okText, fn: onOk, primary: true, action: "ok" }];
+  const btns = buttons || [{ label: okText, fn: onOk, primary: true, semantic: options.okSemantic || "confirm", action: "ok" }];
   const next = document.createElement("div");
   const view = await NGUI.render(listFrame(title, btns, !!onClose), next, { scale: S, origin: [960, 540] });
   btns.forEach((b, i) => hit(next, view, `Center/Popup/Btn/Btn_${i}/BG (1)`, b.fn, { name: b.label, action: b.action || `button${i}` }));

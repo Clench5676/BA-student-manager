@@ -1061,7 +1061,7 @@ def test_lobby_warm_builds_the_prefab_index_once_per_game(app, services, monkeyp
         return {}
 
     monkeypatch.setattr(FakeGame, "_lobby_prefabs", prefabs, raising=False)
-    # then the index of every bundle's CABs, for the lobbies' particle effects
+    # Dependencies must remain demand-driven instead of scanning every CAB at startup.
     monkeypatch.setattr(FakeGame, "_cab_index", lambda game, everything=False: cabs.append((game, everything)) or {},
                         raising=False)
     first = services.game
@@ -1070,7 +1070,7 @@ def test_lobby_warm_builds_the_prefab_index_once_per_game(app, services, monkeyp
     release.set()
     for thread in [t for t in threading.enumerate() if t.name == "lobby-warm"]:
         thread.join(5)
-    assert calls == [first] and cabs == [(first, True)]
+    assert calls == [first] and cabs == []
     # another game (a new game folder or file source) is warmed again
     services._game = FakeGame()
     rpc(app, "lobby.warm")
@@ -1587,7 +1587,7 @@ def test_the_window_leaves_the_pointer_and_text_selection_to_the_page(monkeypatc
         created.update(options)
         return SimpleNamespace(events=SimpleNamespace(initialized=Hook(), loaded=Hook(), closing=Hook(), closed=Hook()))
 
-    monkeypatch.setitem(sys.modules, "webview", SimpleNamespace(create_window=create_window,
+    monkeypatch.setitem(sys.modules, "webview", SimpleNamespace(settings={}, create_window=create_window,
                                                                 start=lambda **options: started.update(options)))
     from ba_modding_toolkit.webui.tray import Tray
 
@@ -1622,7 +1622,7 @@ def test_the_close_button_waits_only_for_a_writer_job(services, monkeypatch, tmp
         return SimpleNamespace(events=SimpleNamespace(initialized=Hook("initialized"), loaded=Hook("loaded"),
                                                       closing=Hook("closing"), closed=Hook("closed")))
 
-    monkeypatch.setitem(sys.modules, "webview", SimpleNamespace(create_window=create_window, start=lambda **o: None))
+    monkeypatch.setitem(sys.modules, "webview", SimpleNamespace(settings={}, create_window=create_window, start=lambda **o: None))
     main._run_window(services, SimpleNamespace(url="http://127.0.0.1:1/"), False)
     gate = threading.Event()
     services.jobs.submit("extract", lambda log, progress: gate.wait(5))  # read-only: the window may close

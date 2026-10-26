@@ -153,7 +153,7 @@ def test_model_master_switch_and_remove(model_env):
     assert not env.library.toggle(False, True).failed
     assert env.parts[1].read_bytes() == env.official[env.parts[1]]
     assert not env.library.toggle(True, False).failed
-    assert env.library.remove(entry.id).failed == []
+    assert env.library.remove(entry.id, confirm=True).failed == []
     assert env.library.configured('hoshino')['model'] is None
     assert all(p.read_bytes() == data for p, data in env.official.items())
 
@@ -186,7 +186,7 @@ def test_model_library_relocation_keeps_restore_and_remove(model_env):
     shutil.move(env.root, relocated)
     library = ModLibrary(relocated, env.catalog, object(), env.settings)
     assert library.mods()[0].file.is_relative_to(relocated)
-    assert library.remove(entry.id).failed == []
+    assert library.remove(entry.id, confirm=True).failed == []
     assert all(p.read_bytes() == data for p, data in env.official.items())
 
 

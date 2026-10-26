@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { readFile } from "node:fs/promises";
+import { dialogueText } from "../../src/ba_modding_toolkit/web/js/dialogue-text.js";
 import { spriteBorders, sliceAxis, slicePoint } from "../../src/ba_modding_toolkit/web/js/sprite-slices.js";
 
 class Element {
@@ -18,14 +19,14 @@ const fireTimer = (delay) => {
 };
 const pendingTimers = () => [...timers.keys()].filter((id) => timerDelays.get(id) !== 25000);
 globalThis.hallDialogueHarness = {
-  spriteBorders, sliceAxis, slicePoint, NGUI: {}, defaultRpc: () => {}, language: () => "zh-TW", S: 1920 / 2960, talkExpression: () => {},
+  dialogueText, spriteBorders, sliceAxis, slicePoint, NGUI: {}, defaultRpc: () => {}, language: () => "zh-TW", S: 1920 / 2960, talkExpression: () => {},
   setTimeout: (callback, delay) => { timers.set(++nextTimer, callback); timerDelays.set(nextTimer, delay); return nextTimer; },
   clearTimeout: (id) => { timers.delete(id); timerDelays.delete(id); },
   URL: { createObjectURL: () => `blob:voice-${nextTimer}`, revokeObjectURL: (url) => revoked.push(url) },
 };
 let source = await readFile(new URL("../../src/ba_modding_toolkit/web/js/student-hall-dialogue.js", import.meta.url), "utf8");
 source = source.replace(/^import .*;$/gm, "");
-source = `const {NGUI, defaultRpc, language, S, talkExpression, setTimeout, clearTimeout, URL, spriteBorders, sliceAxis, slicePoint} = globalThis.hallDialogueHarness;\n${source}`;
+source = `const {NGUI, defaultRpc, language, S, talkExpression, setTimeout, clearTimeout, URL, spriteBorders, sliceAxis, slicePoint, dialogueText} = globalThis.hallDialogueHarness;\n${source}`;
 const { createDialogue, memoryMemo, prepareBalloon, balloonPosition, balloonBody, wrapDialogue } = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
 const flush = async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); };
@@ -103,7 +104,7 @@ test("repeated clicks are ignored during audio and the next finished turn reuses
 
 test("duplicate actors keep independent dialogue turns", async () => {
   const h = fixture({ call: (method) => method === "hall.lines" ? { lines: {
-    hoshino_lobby_1: { ja: "First", voice: false }, hoshino_lobby_2: { ja: "Second", voice: false },
+    hoshino_lobby_1: { "zh-TW": "First", voice: false }, hoshino_lobby_2: { "zh-TW": "Second", voice: false },
   } } : undefined });
   await h.controller.play(entry("one")); fireTimer(5000);
   await h.controller.play(entry("one")); fireTimer(5000); await h.controller.play(entry("two"));
@@ -118,7 +119,7 @@ test("the first pending text request owns the turn and ignored clicks never fetc
   const signal = h.calls[0].signal;
   await h.controller.play(entry("new")); assert.equal(signal.aborted, false);
   assert.equal(h.calls.length, 1);
-  first.resolve({ lines: { old_lobby_1: { ja: "First", voice: true }, old_lobby_2: { ja: "Second", voice: true } } }); await old;
+  first.resolve({ lines: { old_lobby_1: { "zh-TW": "First", voice: true }, old_lobby_2: { "zh-TW": "Second", voice: true } } }); await old;
   assert.equal(h.players.length, 1); assert.equal(h.host.children[0].attrs["aria-label"], "First");
   await h.controller.play(entry("old", "old")); assert.equal(h.players.length, 1);
   h.players[0].onended(); await h.controller.play(entry("old", "old"));
@@ -196,7 +197,7 @@ test("an aborted same-key flight cannot poison its replacement cache entry", asy
 test("a pending first click retries automatically and eventually displays and plays its first clip", async () => {
   let reads = 0;
   const h = fixture({ call: (method) => method === "hall.lines" ? ++reads === 1 ? { lines: {}, pending: true } : {
-    lines: { hoshino_lobby_1: { ja: "First", voice: true }, hoshino_lobby_2: { ja: "Second", voice: true } }, pending: false,
+    lines: { hoshino_lobby_1: { "zh-TW": "First", voice: true }, hoshino_lobby_2: { "zh-TW": "Second", voice: true } }, pending: false,
   } : undefined });
   const pending = h.controller.play(entry()); await flush();
   assert.equal(h.host.children.length, 0); assert.equal(pendingTimers().length, 1);
@@ -213,7 +214,7 @@ test("a pending first click retries automatically and eventually displays and pl
 test("pending voice metadata preserves immediate text and attaches voice to the same clip without another turn", async () => {
   let reads = 0;
   const h = fixture({ call: (method) => method === "hall.lines" ? { lines: {
-    hoshino_lobby_1: { ja: "First", voice: ++reads > 1 }, hoshino_lobby_2: { ja: "Second", voice: reads > 1 },
+    hoshino_lobby_1: { "zh-TW": "First", voice: ++reads > 1 }, hoshino_lobby_2: { "zh-TW": "Second", voice: reads > 1 },
   }, pending: reads === 1 } : undefined });
   const pending = h.controller.play(entry()); await flush(); await flush();
   assert.equal(h.host.children[0].attrs["aria-label"], "First"); assert.equal(h.players.length, 0);
@@ -235,7 +236,7 @@ test("cancelling a pending metadata retry clears its delay and issues no follow-
 test("pending retries are bounded and a later metadata failure keeps the existing text", async () => {
   let reads = 0;
   const h = fixture({ call: (method) => method === "hall.lines" ? ++reads === 1
-    ? { lines: { hoshino_lobby_1: { ja: "Readable", voice: false } }, pending: true }
+    ? { lines: { hoshino_lobby_1: { "zh-TW": "Readable", voice: false } }, pending: true }
     : Promise.reject(new Error("metadata unavailable")) : undefined });
   const pending = h.controller.play(entry()); await flush(); await flush();
   fireTimer(Math.min(...[...timers.keys()].map((id) => timerDelays.get(id)))); await pending;
@@ -288,7 +289,7 @@ test("stalled setup expires with no caption and a late completion cannot steal t
   const pending = h.controller.play(entry("one", "stalled")); await flush();
   fireTimer(25000); assert.equal(h.errors.length, 0); assert.equal(h.diagnostics[0].code, "lines_unavailable"); assert.equal(h.calls[0].signal.aborted, true);
   await h.controller.play(entry("two"));
-  stalled.resolve({ lines: { stalled_lobby_1: { ja: "Late", voice: true } } }); await pending;
+  stalled.resolve({ lines: { stalled_lobby_1: { "zh-TW": "Late", voice: true } } }); await pending;
   assert.equal(h.players.length, 1); assert.equal(h.rendered.length, 1); h.controller.dispose();
 });
 
@@ -338,7 +339,7 @@ test("native body geometry mirrors around the tail while all line boxes remain v
 test("disposing a text-only fallback also aborts its in-flight translation request", async () => {
   let language = "zh-TW"; const translation = deferred();
   const h = fixture({ language: () => language, call: (method, params) => method === "hall.lines"
-    ? params.lang === "en" ? translation.promise : { lines: { hoshino_lobby_1: { ja: "Original", voice: false } } }
+    ? params.lang === "en" ? translation.promise : { lines: { hoshino_lobby_1: { "zh-TW": "Original", voice: false } } }
     : undefined });
   await h.controller.play(entry()); language = "en-US";
   const relabel = h.controller.relabel(); await flush();
@@ -388,7 +389,7 @@ test("late exact expression metadata enriches the active voice without another b
 
 test("authored expression cues follow audio time, and late metadata cannot touch a finished voice", async () => {
   const h = fixture({ call: (method) => method === "hall.lines" ? { lines: { hoshino_lobby_1: {
-    ja: "Caption", voice: true, expression: "02", expressionCues: [{ time: 0, expression: "02" }, { time: 2.5, expression: "04" }],
+    "zh-TW": "Caption", voice: true, expression: "02", expressionCues: [{ time: 0, expression: "02" }, { time: 2.5, expression: "04" }],
   } } } : undefined });
   await h.controller.play(entry()); const player = h.players[0];
   assert.deepEqual(h.talking.at(-1), ["one", true, "02"]);
@@ -398,9 +399,58 @@ test("authored expression cues follow audio time, and late metadata cannot touch
   player.onended(); assert.equal(h.talking.at(-1)[1], false); assert.equal(player.ontimeupdate, null); h.controller.dispose();
   const late = deferred(); let reads = 0;
   const stopped = fixture({ call: (method) => method === "hall.lines" ? ++reads === 1 ? {
-    lines: { hoshino_lobby_1: { ja: "Caption", voice: true } }, pending: true, animationPending: true,
+    lines: { hoshino_lobby_1: { "zh-TW": "Caption", voice: true } }, pending: true, animationPending: true,
   } : late.promise : undefined });
   await stopped.controller.play(entry()); fireTimer(500); await flush(); stopped.players[0].onended();
-  late.resolve({ lines: { hoshino_lobby_1: { ja: "Late", voice: true, expression: "14" } }, animationPending: false }); await flush();
+  late.resolve({ lines: { hoshino_lobby_1: { "zh-TW": "Late", voice: true, expression: "14" } }, animationPending: false }); await flush();
   assert.equal(stopped.talking.some(([, on]) => on), false); assert.equal(stopped.host.children.length, 0); stopped.controller.dispose();
+});
+
+test("Chinese captions prefer the requested script and never select Japanese or English", () => {
+  const row = {ja:"Original Japanese", en:"English", "zh-TW":"Traditional", "zh-CN":"Simplified"};
+  assert.deepEqual(dialogueText(row,"zh-CN"),{text:"Simplified",language:"zh-CN"});
+  assert.deepEqual(dialogueText(row,"zh-TW"),{text:"Traditional",language:"zh-TW"});
+  assert.deepEqual(dialogueText({ja:"Original",en:"English","zh-TW":"Traditional"},"zh-CN"),{text:"Traditional",language:"zh-TW"});
+  assert.equal(dialogueText({ja:"Original",en:"English","zh-CN":"  "},"zh-CN"),null);
+  assert.equal(dialogueText({ja:"Original",en:"English"},"zh-TW"),null);
+});
+
+test("late Chinese metadata updates the current balloon without replaying or advancing its voice",async()=>{
+  let reads=0;
+  const h=fixture({language:()=>"zh-CN",call:method=>method==="hall.lines"?{
+    lines:{hoshino_lobby_1:{ja:"Original",en:"English","zh-TW":"Traditional",voice:true,
+      ...(++reads>1?{"zh-CN":"Simplified"}:{})},hoshino_lobby_2:{"zh-CN":"Second",voice:true}},
+    pending:reads===1,animationPending:false,
+  }:undefined});
+  await h.controller.play(entry());assert.equal(h.host.children[0].attrs["aria-label"],"Traditional");
+  fireTimer(500);await flush();
+  assert.equal(h.host.children[0].attrs["aria-label"],"Simplified");assert.equal(h.players.length,1);assert.equal(h.players[0].played,1);
+  assert.equal(h.calls.filter(value=>value.method==="hall.voice").length,1);
+  h.players[0].onended();await h.controller.play(entry());assert.equal(h.host.children[0].attrs["aria-label"],"Second");h.controller.dispose();
+});
+
+test("switching into Chinese immediately clears a foreign balloon while the requested translation is loading",async()=>{
+  let locale="ja-JP";const translated=deferred();
+  const h=fixture({language:()=>locale,call:(method,params)=>method==="hall.lines"?
+    params.lang==="zh-CN"?translated.promise:{lines:{hoshino_lobby_1:{ja:"Original",voice:true}}}:undefined});
+  await h.controller.play(entry());assert.equal(h.host.children[0].attrs["aria-label"],"Original");
+  locale="zh-CN";const update=h.controller.relabel();await flush();assert.equal(h.host.children.length,0);
+  translated.resolve({lines:{hoshino_lobby_1:{"zh-CN":"Translated",voice:true}}});await update;
+  assert.equal(h.host.children[0].attrs["aria-label"],"Translated");assert.equal(h.players[0].played,1);h.controller.dispose();
+});
+
+test("a late render from the old language cannot overwrite a newer Chinese balloon",async()=>{
+  let locale="ja-JP",draws=0;const delayed=deferred();
+  const h=fixture({language:()=>locale,render:()=>++draws===1?delayed.promise:undefined,
+    call:(method,params)=>method==="hall.lines"?{lines:{hoshino_lobby_1:{[params.lang]:params.lang==="ja"?"Original":"Translated",voice:true}}}:undefined});
+  const playing=h.controller.play(entry());await flush();locale="zh-CN";await h.controller.relabel();
+  assert.equal(h.host.children[0].attrs["aria-label"],"Translated");
+  delayed.resolve();await playing;assert.equal(h.host.children[0].attrs["aria-label"],"Translated");h.controller.dispose();
+});
+
+test("scene zoom moves an existing balloon with its actor without rerendering or interrupting its vocal",async()=>{
+  const h=fixture(),value=entry();await h.controller.play(value);
+  const before=parseFloat(h.host.children[0].style.left);value.x+=100;h.controller.reposition();
+  assert.ok(parseFloat(h.host.children[0].style.left)>before);assert.equal(h.rendered.length,1);
+  assert.equal(h.players[0].played,1);assert.equal(h.players[0].paused,0);h.controller.dispose();assert.equal(timers.size,0);
 });

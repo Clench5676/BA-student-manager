@@ -89,6 +89,8 @@ FLAG_KEYS = {"tray": "tray", "classicPrompt": "classic_prompt",
 
 def build_api(s: Services) -> RpcRegistry:
     rpc = RpcRegistry(on_exception=lambda *args: s.reports.backend_exception(*args) if hasattr(s, "reports") else None)
+    from .photography import register as register_photography
+    register_photography(rpc, s)
 
     # --- app ---
 
@@ -176,6 +178,23 @@ def build_api(s: Services) -> RpcRegistry:
             s.restart_requested = False
             s.jobs.cancel_quit()
             raise
+
+    @rpc.method("window.control")
+    def window_control(action: str) -> None:
+        if action not in ("minimize", "maximize", "close"):
+            raise ServiceError("bad_params", key="action")
+        if s.window is None:
+            raise ServiceError("native_only")
+        if action == "close":
+            s.window.destroy()
+        elif action == "minimize":
+            s.window.minimize()
+        elif getattr(s.window, "maximized", False):
+            s.window.restore()
+            s.window.maximized = False
+        else:
+            s.window.maximize()
+            s.window.maximized = True
 
     @rpc.method("app.consent")
     def app_consent(granted: bool) -> None:
@@ -324,9 +343,19 @@ def build_api(s: Services) -> RpcRegistry:
         elif key == "fileSource":
             if value not in ("windows_global", "windows_japan"):
                 raise ServiceError("bad_params", key=key)
-            st.set("file_source", value)
-            st.save()
-            s.reload_game()
+            from ..searching import get_search_dirs
+
+            # Validate before publishing the preference or invalidating a usable Hall.
+            with s._lock:
+                if s.jobs.busy():
+                    raise ServiceError('busy')
+                folder = st.get("game_resource_dir_japan" if value == "windows_japan" else "game_resource_dir")
+                path = Path(folder).expanduser() if folder else None
+                if path is None or not devmode.allows_read(path) or not path.is_dir() or not get_search_dirs(path):
+                    raise ServiceError("game_directory_missing")
+                st.set("file_source", value)
+                st.save()
+                s.reload_game()
         elif key in ("gameDir.global", "gameDir.japan"):
             path = Path(str(value)).expanduser()
             devmode.check_read(path)
@@ -530,7 +559,16 @@ def build_api(s: Services) -> RpcRegistry:
                      modified: dict[str, str] | None = None, custom: dict[str, list[str]] | None = None,
                      roster_state: dict[str, Any] | None = None) -> dict[str, Any]:
         own = mods.get(v.key, [])
+        photograph = None
+        photographs = getattr(s, "photographs", None)
+        if photographs is not None:
+            photograph = photographs.app_url(v.key)
+            if photograph is None and photographs.selection(v.key) == "official" and v.portrait:
+                pin = s.library.current_pin()
+                if pin is not None:
+                    photograph = s.photography.default_url(v.key, pin)
         return {
+            **({"thumbnail": photograph} if photograph else {}),
             **stored_asset_fields(v, own),
             "custom": (custom or {}).get(v.key, []),
             "key": v.key, "fileId": v.file_id, "family": v.family, "names": v.names, "playable": v.playable,
@@ -709,9 +747,7 @@ def build_api(s: Services) -> RpcRegistry:
 
     @rpc.method("lobby.warm")
     def lobby_warm() -> None:
-        """Build the memorial lobby prefab index in the background (its first build reads every lobby element bundle,
-        about 8 s) and the index of every bundle's CABs (where the particle effects' materials, textures and meshes
-        are, about 4 s), once per game, so the first lobby shown does not wait for them. Nothing without a game."""
+        """Warm the memorial prefab index once per game. CAB dependencies resolve on demand."""
         if not s.game_found():
             return
         game = s.game
@@ -723,7 +759,6 @@ def build_api(s: Services) -> RpcRegistry:
         def build() -> None:
             try:
                 game._lobby_prefabs()
-                game._cab_index(everything=True)
             except Exception:  # the lobby builds them again when it needs them
                 logger.debug("Cannot build the memorial lobby indexes", exc_info=True)
 
@@ -868,8 +903,29 @@ def build_api(s: Services) -> RpcRegistry:
     def mods_remove(id: str, confirm: bool = False) -> str:
         """Delete a library source as one writer job; game write refusals remain in its result and drift."""
         library = s.library
-        return s.submit("mods.remove", lambda log, progress: library.remove(id, confirm=bool(confirm), log=log),
-                        writes="library", library=library)
+        if id == 'official':
+            raise ServiceError('asset_official')
+        def fallback(variant, kind):
+            try:
+                value = variants[variant]
+                if getattr(value, kind, None):
+                    return 'official'
+            except (KeyError, ServiceError):
+                pass
+            return next(('mod:' + mod.id for mod in remaining
+                         if mod.id != id and mod.target == variant and mod.kind == kind), None)
+        remaining = []
+        variants = {}
+        def remove(log, progress):
+            remaining[:] = library.mods()
+            variants.update((v.key, v) for family in s.catalog.families() for v in family.variants)
+            result = library.remove(id, confirm=bool(confirm), log=log,
+                reconcile=lambda: s.state.reconcile_deleted_source('mod:' + id, fallback))
+            if result.failed:
+                error = result.failed[0]
+                raise ServiceError(error['code'], **error.get('params', {}))
+            return result
+        return s.submit("mods.remove", remove, writes="library", library=library)
 
     @rpc.method("mods.rename")
     def mods_rename(id: str, label: str) -> dict[str, Any]:

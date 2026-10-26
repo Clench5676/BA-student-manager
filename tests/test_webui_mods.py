@@ -1217,18 +1217,18 @@ def test_unchanged_apply_rescans_only_the_variants_cores(env, monkeypatch):
     assert scopes == [{'test_spr'}]
 
 
-def test_delete_rpc_is_a_library_writer_and_keeps_drift_when_classic_is_open(env):
+def test_delete_rpc_is_a_library_writer_and_retains_source_when_classic_is_open(env):
     mod = env.add(env.spr)
     assert env.job("actions.apply", variant="test", source=f"mod:{mod.id}").state == "done"
     env.s.library._write_check = lambda pin: (_ for _ in ()).throw(ServiceError("classic_open"))
     info = rpc(env.app, "mods.removalInfo", id=mod.id)["result"]
     assert info == {"name": mod.label, "used": True}
     job = env.job("mods.remove", id=mod.id, confirm=True)
-    assert job.state == "done" and job.writes == "library"
-    assert job.result["failed"][0]["code"] == "classic_open"
-    assert env.s.library.mods() == [] and not mod.file.exists()
-    assert env.s.library.configured("test")["spr"] is None
-    assert env.s.mods_state()["unfinished"]["pending"] == 1
+    assert job.state == "failed" and job.writes == "library"
+    assert job.error['code'] == 'classic_open'
+    assert env.s.library.mods() == [mod] and mod.file.exists()
+    assert env.s.library.configured("test")["spr"] == f'mod:{mod.id}'
+    assert env.s.mods_state()["unfinished"]["pending"] == 0
 
 
 def test_add_rpc_reports_duplicate_content(env):

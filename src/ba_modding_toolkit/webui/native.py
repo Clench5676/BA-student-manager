@@ -196,3 +196,30 @@ def startup_failure(reports, error: BaseException, *, runtime: bool = False) -> 
         text += "\n\n" + WEBVIEW2_URL
     message_box(t("webui.recovery.failed"), text)
     return result
+
+
+def install_edit_menu() -> None:
+    """Restore standard responder editing shortcuts without pywebview's default application menus."""
+    import sys
+    if sys.platform != 'darwin':
+        return
+    from AppKit import NSApplication, NSMenu, NSMenuItem
+    from PyObjCTools import AppHelper
+    from ..i18n import t
+
+    def install():
+        main = NSApplication.sharedApplication().mainMenu()
+        if main is None:
+            return
+        for existing in main.itemArray():
+            submenu = existing.submenu()
+            if submenu and any(str(item.action()) == 'copy:' for item in submenu.itemArray()):
+                return
+        menu = NSMenu.alloc().initWithTitle_(t('webui.window.edit'))
+        item = NSMenuItem.alloc().init()
+        item.setSubmenu_(menu)
+        for key, selector, shortcut in [('cut', 'cut:', 'x'), ('copy', 'copy:', 'c'),
+                                        ('paste', 'paste:', 'v'), ('selectAll', 'selectAll:', 'a')]:
+            menu.addItemWithTitle_action_keyEquivalent_(t('webui.window.' + key), selector, shortcut)
+        main.addItem_(item)
+    AppHelper.callAfter(install)

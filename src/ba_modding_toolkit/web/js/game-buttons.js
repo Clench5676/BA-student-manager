@@ -32,7 +32,7 @@ export function disabledButton(filter, original) {
 
 export const disable = (original) => disabledButton(layouts.filter, original);
 
-export function optionButton(option, filter, name, x, y, caption, { w = 300, h = 112, enabled = true, fs = 44, min = 30, depth = 10 } = {}) {
+export function optionButton(option, filter, name, x, y, caption, { w = 300, h = 112, enabled = true, fs = 44, min = 30, depth = 10, semantic = "secondary" } = {}) {
   let tree = clone(NGUI.find(option, "Center/Popup/List/Sound_Setting/ETCSetting/ButtonBg"));
   tree.name = name;
   tree.pos = [x, y];
@@ -46,6 +46,7 @@ export function optionButton(option, filter, name, x, y, caption, { w = 300, h =
     for (const widget of n.widgets) if ("sprite" in widget || "text" in widget) widget.depth = depth + ("text" in widget ? 2 : d);
     for (const child of n.children || []) shift(child, d + 1);
   };
+  tree.actionSemantic=enabled?semantic:"secondary";
   shift(tree);
   return tree;
 }
@@ -60,6 +61,7 @@ export async function skinPrimary(button, caption) {
     const tree = clone(NGUI.find(sort, "Center/Popup/Btn/Btn_Ok"));
     tree.pos = [0, 0];
     tree.active = true;
+    tree.actionSemantic="confirm";
     NGUI.fitLabel(NGUI.find(tree, "Label_Locale").widgets[0], caption, 64, 40, 420);
     const next = document.createElement("div"), scale = 0.4;
     await NGUI.render(tree, next, { scale, origin: [110, 42] });

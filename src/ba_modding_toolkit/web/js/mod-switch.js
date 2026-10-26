@@ -1,3 +1,4 @@
+import {segmentTree,segmentOrigin,segmentDensity,SEGMENT_SCALE} from './mod-switch-skin.js';
 // The Enable Mods switch (docs/web-ui.md, "Enable Mods switch"): one switch for every game folder, in the top bar
 // (#mod-switch) and in Settings' Mods tab. A click turns mods off or on at once (mods.toggle); the first toggle from
 // any place explains it once; the square "?" opens the help, with Retry and Details.
@@ -280,6 +281,7 @@ function build() {
   help.addEventListener("click", () => openHelp());
   host.append(toggle, label, help);
   els = { toggle, dot, label, help };
+  globalThis.addEventListener?.("resize",render);
   fitLabel(label);
 }
 
@@ -291,9 +293,10 @@ function fitLabel(el, max = 240) {
   }
 }
 
-let helpLayout;
+let helpLayout,skinRevision=0;
 async function render() {
   if (!host || !els) return;
+  const revision=++skinRevision;
   const v = view(state);
   host.hidden = v.hidden;
   const { toggle, dot, help } = els;
@@ -306,6 +309,17 @@ async function render() {
   dot.hidden = !v.dot;
   if (v.hidden) return;
   try {
+    const segments=[...toggle.children].filter(child=>child.className?.includes('ms-seg'));
+    await Promise.all(segments.map(async(segment,index)=>{
+      const pressed=index===0?v.on:!v.on,width=segment.offsetWidth||110;
+      const skin=document.createElement('span');skin.className='ms-skin';
+      const stageScale=(segment.getBoundingClientRect?.().width||width)/width;
+      const rasterDensity=segmentDensity(globalThis.devicePixelRatio||1,stageScale);
+      await NGUI.render(segmentTree(width,pressed,index===1),skin,{scale:SEGMENT_SCALE,origin:segmentOrigin(width,pressed),rasterDensity});
+      if(revision!==skinRevision)return;
+      segment.querySelector?.('.ms-skin')?.remove();segment.appendChild(skin);
+    }));
+    if(revision!==skinRevision)return;
     const collection = await (helpLayout ||= NGUI.layout("UICharacterCollection"));
     const information = NGUI.find(collection, "SeletControl/Top/BG_W/Bg/Label_Title/Btn_Information");
     if (information && !help.dataset.skinned) {

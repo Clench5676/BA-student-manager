@@ -1,3 +1,4 @@
+import {portraitMinimum} from './photography/camera.js';
 // The portrait's fullscreen view: the game's visual mode (UICharacterVisualMode), which UICharacterDetail opens from
 // its ZoomButton, the nameplate's square button with the rotate-phone icon (Char_ZoomBtn). Drawn from the prefab's PC
 // group (Inventory_ListControl_PC):
@@ -216,7 +217,7 @@ async function renderButtons(pc, strings) {
       const el = document.createElement("div");
       el.className = "visual-btn";
       const tree = NGUI.node(corner, at, [], [{ ...clone(n), active: true }]);
-      made.push(NGUI.render(tree, el, { scale: S, origin: CENTRE, rootPath: "Inventory_ListControl_PC", texts: { Label_Locale_Reset: strings.reset } }));
+      made.push(NGUI.render(tree, el, { scale: S, origin: CENTRE, rootPath: "Inventory_ListControl_PC", texts: { Label_Locale_Reset: "" } }));
       if (HIT[name]) {
         const [w, h, dy] = HIT[name], x = CENTRE[0] + (at[0] + n.pos[0]) * S, y = CENTRE[1] - (at[1] + n.pos[1] + dy) * S;
         hitButton(el, [x - (w * S) / 2, y - (h * S) / 2, w * S, h * S], (e) => { e.stopPropagation(); press(name); }, labels[name]);
@@ -405,3 +406,15 @@ export const state = () => (st ? {
   view: { ...st.view }, target: { ...st.target }, home: { ...st.home }, kMax: st.lim.kMax, box: [...st.lim.box],
   glide: st.glide?.kind || null, hidden: st.hidden, closing: !!st.closing,
 } : null);
+
+// Photography constrains only the framing guide while retaining the native portrait player.
+export function photography(on,frame) {
+  if(!st)return;
+  st.lim.photoFrame=on?frame:null;
+  st.lim.kMin=on?portraitMinimum(st.lim.box,st.home.k,frame):st.home.k;
+  const full=viewport(st.home);
+  st.lim.photoBounds=[Math.min(full.x,st.lim.box[0]),Math.min(full.y,st.lim.box[1]),Math.max(full.x+full.width,st.lim.box[2]),Math.max(full.y+full.height,st.lim.box[3])];
+}
+export function captureReady() { if(st){st.glide=null;st.view=st.target=st.home;syncReset(st);} }
+export function panCapture(dx,dy) { if(ready(st))pan(st,dx,dy); }
+export function zoomCapture(factor,x,y) { if(ready(st))zoomTo(st,factor,x,y); }

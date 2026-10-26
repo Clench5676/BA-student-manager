@@ -13,7 +13,7 @@ from collections import OrderedDict
 from concurrent.futures import FIRST_COMPLETED, Future, TimeoutError as FutureTimeout, wait
 from pathlib import Path
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from ..errors import ServiceError
 from .. import globallines
@@ -122,6 +122,8 @@ def save_hall(state: Any, value: dict, revision: int) -> dict:
         current = prefs.get("student_hall", empty_hall())
         if current.get("revision", 0) != revision:
             raise ServiceError("hall_conflict")
+        if current.get("portraits") and not clean["portraits"]:
+            raise ServiceError("hall_last_portrait")
         if current.get("memorials") and not clean["memorials"]:
             raise ServiceError("hall_last_memorial")
         clean["revision"] = revision + 1
@@ -150,7 +152,13 @@ def portrait_lines(page: dict) -> dict:
         if audio.startswith("//"):
             audio = "https:" + audio
         out[cid] = {"zh-CN": _one_line(c.get("text") or j.get("text")), "ja": _one_line(j.get("text_original")), "audio": audio}
-    return out
+    # Old test recordings can coexist with the current clip on the same page. Do not add an untranslated
+    # alternate to the rotation when that exact numbered line already has a captioned current recording.
+    def suffix(clip: str) -> str:
+        return clip.rsplit("_lobby_", 1)[1]
+    captioned = {suffix(clip) for clip, row in out.items() if row.get("zh-CN") or row.get("ja")}
+    return {clip: row for clip, row in out.items()
+            if row.get("zh-CN") or row.get("ja") or suffix(clip) not in captioned}
 
 
 class PortraitVoices(Kivo):
@@ -375,7 +383,10 @@ def register_api(rpc: Any, s: Any) -> None:
         # Return the first available text source. A slow Kivo request must not block ready official captions.
         if text_jobs and incoming_cached is None and global_cached is None:
             wait(text_jobs, timeout=max(0, 3 - (time.monotonic() - started)), return_when=FIRST_COMPLETED)
-        incoming = incoming_cached if incoming_cached is not None else ready(pending_incoming)
+        # An already available Global row is not proof that Kivo's Chinese caption is absent. Give the
+        # requested source the same bounded preparation budget before publishing a fallback response.
+        incoming = incoming_cached if incoming_cached is not None else ready(pending_incoming,
+            timeout=max(0, 3 - (time.monotonic() - started)) if lang == "zh-CN" else 0)
         animation_pending = global_cached is None and pending_global is not None and not pending_global.done()
         official = global_cached if global_cached is not None else ready(pending_global)
         installed = local_cached if local_cached is not None else ready(pending_local)
@@ -390,8 +401,8 @@ def register_api(rpc: Any, s: Any) -> None:
         # Official text remains useful without a voice source; no generated key claims playable audio.
         for group in official:
             groups.setdefault(str(group), [(0, f"{v.key.lower()}_lobby_{group}")])
-        translated = globallines.portrait_by_clip({str(key): value for key, value in official.items()},
-                                                {key: [clip for _, clip in sorted(items)] for key, items in groups.items()})
+        translated = globallines.portrait_voice_lines({str(key): value for key, value in official.items()},
+            [clip for items in groups.values() for _, clip in sorted(items)])
         result = globallines.merge(incoming, translated)
         for clip in clips - result.keys():
             result[clip] = {"voice": False}
@@ -408,10 +419,27 @@ def register_api(rpc: Any, s: Any) -> None:
 
     @rpc.method("hall.get")
     def get() -> dict:
-        return normalize_hall(s.state.get("student_hall", empty_hall()))
+        value = s.state.get("student_hall")
+        if value is None:
+            family = next((item for item in s.catalog.families() if item.key == "shiroko"), None)
+            variant = next((v for v in (family.variants if family else [])
+                            if v.key in ("shiroko", "shiroko_original") or v.file_id.lower() == "shiroko_original"), None)
+            if variant is not None and variant.spr and variant.lobby:
+                initial = empty_hall()
+                initial["portraits"] = [{"id": str(uuid4()), "variant": variant.key, "source": "official",
+                                         "x": PORTRAIT_ORIGIN[0], "y": PORTRAIT_ORIGIN[1], "scale": 1, "mirror": False}]
+                initial["memorials"] = [{"id": str(uuid4()), "variant": variant.key, "source": "official"}]
+                initial["active"] = initial["memorials"][0]["id"]
+                def initialize(data):
+                    data.setdefault("prefs", {}).setdefault("student_hall", initial)
+                s.state._update(initialize)
+                value = s.state.get("student_hall")
+        return normalize_hall(value)
 
     @rpc.method("hall.options")
     def options() -> dict:
+        if not s.game_found():
+            raise ServiceError("game_directory_missing")
         families = s.catalog.families()
         variants = {v.key: v for f in families for v in f.variants}
         family_names = {family.key: family.names for family in families}

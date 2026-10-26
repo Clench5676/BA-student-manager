@@ -186,6 +186,7 @@ function cardTree(e) {
 }
 
 const portraitOf = (e) => {
+  if(e.thumbnail)return e.thumbnail;
   if (!spineAllowed()) return e.portrait || null;
   const thumb = thumbnailWork.thumb;
   const kind = primaryKind(e), variants = data.families.find((f) => f.key === e.family)?.variants || [];
@@ -195,7 +196,7 @@ const portraitOf = (e) => {
     return thumb(previewBase(e, kind, false, variants), "roster", null, kind === "lobby", specialFraming(e), e.bg);
   }
   const core = kind === "spr" ? e.spr : e.lobby;
-  return e.portrait || (core ? thumb(spineBase(kind, core), "roster", null, kind === "lobby", specialFraming(e), e.bg) : null);
+  return core ? thumb(spineBase(kind, core), "roster", null, kind === "lobby", specialFraming(e), e.bg) : e.portrait || null;
 };
 
 // --- rows near the view ---

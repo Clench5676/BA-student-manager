@@ -88,8 +88,7 @@ def _add_materials(game, path: Path, tree: dict) -> set[Path]:
         for child in node.get("children", []):
             collect(child, name)
     collect(tree)
-    index = game._cab_index(everything=True)
-    with _MODEL_LOCK, BundleGraph(index, opener=open_bundle) as graph:
+    with _MODEL_LOCK, game._cab_discovery().batch(), BundleGraph({}, resolver=game._resolve_cabs, opener=open_bundle) as graph:
         env = graph.add(path)
         objects = {obj.path_id: obj for obj in env.objects}
         names, owners, parents = {}, {}, {}

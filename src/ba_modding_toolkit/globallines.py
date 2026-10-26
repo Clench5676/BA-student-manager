@@ -109,7 +109,7 @@ def portrait_dialogues(rows: Iterable[dict[str, Any]]) -> dict[int, dict[int, li
     return out
 
 
-def portrait_by_clip(groups: dict, clips: dict[str, list[str]]) -> dict[str, dict[str, Any]]:
+def portrait_by_clip(groups: dict, clips: dict[str, list[str | None]]) -> dict[str, dict[str, Any]]:
     """Keep timed expression rows on the voice they continue, including rows with no new VoiceId."""
     out = {}
     for group, ids in clips.items():
@@ -123,7 +123,7 @@ def portrait_by_clip(groups: dict, clips: dict[str, list[str]]) -> dict[str, dic
             segments[-1].append(row)
         assigned = [*segments[:len(ids) - 1], [row for segment in segments[len(ids) - 1:] for row in segment]]
         for clip, values in zip(ids, assigned):
-            if not values:
+            if not clip or not values:
                 continue
             line = {}
             for row in values:
@@ -144,6 +144,33 @@ def portrait_by_clip(groups: dict, clips: dict[str, list[str]]) -> dict[str, dic
                 line["expressionCues"] = cues
             out[clip] = line
     return out
+
+
+def portrait_voice_lines(groups: dict, clips: Iterable[str]) -> dict[str, dict[str, Any]]:
+    """Ordinary flat Lobby_N clips count voices, not dialogue groups (a group may contain two voices)."""
+    groups = {str(key): rows for key, rows in groups.items()}
+    sources: dict[str, list[tuple[int, int | None, str]]] = {}
+    for clip in clips:
+        match = re.fullmatch(r"(.+)_lobby_(\d+)(?:_(\d+))?", clip)
+        if match:
+            sources.setdefault(match[1], []).append((int(match[2]), int(match[3]) if match[3] else None, clip))
+    authored = bool(groups) and all("voiceIds" in row for rows in groups.values() for row in rows)
+    result = {}
+    for values in sources.values():
+        mapped = {}
+        if authored and all(part is None for _, part, _ in values):
+            numbered = {number: clip for number, _, clip in values}
+            number = 0
+            for group, rows in sorted(groups.items(), key=lambda pair: int(pair[0])):
+                count = max(1, sum(bool(row.get("voiceIds")) for row in rows))
+                # Empty slots preserve exact correspondence when one recording is unavailable.
+                mapped[str(group)] = [numbered.get(number + offset + 1) for offset in range(count)]
+                number += count
+        else:
+            for number, part, clip in sorted(values, key=lambda item: (item[0], item[1] or 0)):
+                mapped.setdefault(str(number), []).append(clip)
+        result.update(portrait_by_clip(groups, mapped))
+    return result
 
 
 def talks_of(clips: Iterable[str]) -> dict[str, list[str]]:

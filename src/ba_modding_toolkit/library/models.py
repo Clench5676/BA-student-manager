@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
@@ -132,6 +132,14 @@ class ApplyResult(JsonResult):
     files: list[Path]
     unchanged: bool = False
     deferred: bool = False  # mods are off: the source is configured and applied when mods are on
+
+
+@dataclass(frozen=True)
+class PhotographApplyResult(ApplyResult):
+    """A photograph changes a shared Collection slot, rather than the student's Spine core."""
+
+    cores: list[str] = field(default_factory=list)
+    kinds: list[str] = field(default_factory=lambda: ["other"])
 
 
 @dataclass(frozen=True)

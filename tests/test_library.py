@@ -224,7 +224,7 @@ def test_add_groups_parts_and_deduplicates_whole_mods(setup_library, parts):
     # A separate partial mod remains selectable, and sharing a file with it must
     # not strip that part from a later complete pack.
     partial, = library.add([sources[0]])
-    library.remove(entry.id)
+    library.remove(entry.id, confirm=True)
     complete, = library.add(sources)
     assert partial.id != complete.id
     assert complete.size == entry.size
@@ -507,7 +507,7 @@ def test_state_round_trip_seen_labels_favorites_and_removal(setup_library):
     snapshot.clear()
     assert library.favorites() == {"test"}
     library.set_favorite("test", False)
-    library.remove(entry.id)
+    library.remove(entry.id, confirm=True)
     assert reload_library(env).mods() == []
     assert not entry.file.exists()
     assert reload_library(env).favorites() == set()
@@ -579,7 +579,7 @@ def test_repaired_default_name_tracks_original_alias_and_has_its_own_override(se
     assert label() == "Own alias"
     env.library.rename(repaired_id, "")
     assert label() == translate("webui.remap.name", name=entry.label)
-    env.library.remove(entry.id)
+    env.library.remove(entry.id, confirm=True)
     assert label() == translate("webui.remap.name", name="Original alias")
     assert next(m for m in reload_library(env).mods() if m.id == repaired_id).label_base == "Original alias"
 
@@ -1600,7 +1600,7 @@ def test_deleting_an_applied_mod_restores_official(setup_library):
     entry, = env.library.add([make_mod(env.original, env.tmp / "input")])
     env.library.apply("test", f"mod:{entry.id}")
     assert env.library.removal_info(entry.id) == {"name": entry.label, "used": True}
-    result = env.library.remove(entry.id)
+    result = env.library.remove(entry.id, confirm=True)
     assert result.failed == [] and result.done
     assert env.original.read_bytes() == official
     assert not entry.file.exists() and reload_library(env).mods() == []
@@ -1616,7 +1616,7 @@ def test_deleting_a_mod_restores_every_game_folder(setup_library):
     env.library.apply("test", f"mod:{entry.id}")
     use_install(env, env.original)
     env.library.apply("test", f"mod:{entry.id}")
-    result = env.library.remove(entry.id)
+    result = env.library.remove(entry.id, confirm=True)
     assert len(result.done) == 2 and result.failed == []
     assert second.read_bytes() == env.original.read_bytes() == official
     assert env.library.mods() == []
@@ -1631,7 +1631,7 @@ def test_a_mod_whose_changed_part_is_official_again_can_be_removed(setup_library
     # a launcher check writes the official bytes back to the part the mod changed
     env.original.write_bytes(official)
     library = reload_library(env)
-    library.remove(entry.id)
+    library.remove(entry.id, confirm=True)
     assert library.mods() == []
     # the untouched official part, still recorded under the removed mod, is not kept as a mod by the next switch
     other, = library.add([make_mod(env.original, env.tmp / "next", payload=b"next mod")])
@@ -1653,7 +1653,7 @@ def test_deleting_a_mod_restores_an_adapted_variant(setup_library, monkeypatch):
     entry, = env.library.add([make_mod(other, env.tmp / "input")])
     swap_by_copying(monkeypatch)
     env.library.apply("test", f"mod:{entry.id}")
-    assert env.library.remove(entry.id).failed == []
+    assert env.library.remove(entry.id, confirm=True).failed == []
     assert env.library.state("test").applied == "official"
     assert env.library.mods() == []
 
@@ -1795,7 +1795,7 @@ def test_integration_real_bundle_add_apply_compare_restore(tmp_path, monkeypatch
     assert library.state("test").applied == "official"
 
     # A filename from a previous game release takes the classic UPDATE path.
-    library.remove(entry.id)
+    library.remove(entry.id, confirm=True)
     old_mod = mod_dir / selected.name.replace(parsed.date, "2000-01-01")
     old_mod.write_bytes(pairs[0].output.read_bytes())
     old_entry = library.add([old_mod])[0]

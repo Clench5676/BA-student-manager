@@ -424,6 +424,7 @@ test("generic go-to opens Settings' Mods tab with the same preference updates as
   let context;
   const env = { ctx: { invalidateRoster: () => changes.push("invalidated"), go: (...args) => destinations.push(args) },
     previewCache: { configure() {} },
+    refreshConfiguration: async()=>changes.push("invalidated","routed"),
     StudentHall: { applyPrefs() {} },
     Detail: { applyPrefs: (prefs) => changes.push(prefs) }, variantNames: () => {}, route: () => changes.push("routed"),
     Settings: { open: (...args) => opened.push(args) }, ModAdd: { init: (value) => { context = value; } },
@@ -433,10 +434,10 @@ test("generic go-to opens Settings' Mods tab with the same preference updates as
   await context.goOther();
   assert.equal(opened[0][1], "mods");
   const prefs = { voiceVolume: 50 };
-  opened[0][0]("voiceVolume", prefs);
+  await opened[0][0]("voiceVolume", prefs);
   assert.equal(env.ctx.prefs, prefs);
   assert.deepEqual(changes, [prefs]);
-  opened[0][0]("gameDir.global", prefs);
+  await opened[0][0]("gameDir.global", prefs);
   assert.deepEqual(changes, [prefs, prefs, "invalidated", "routed"]);
   context.go("base");
   assert.deepEqual(destinations, [["mutsuki", "base"]]);

@@ -103,8 +103,8 @@ def test_scripts_wait_replace_and_restart():
     assert "kill -0 42" in mac and "'/tmp/u/new app.dmg'" in mac and "open /Applications/Tool.app" in mac
     win = updater.windows_script([42, 7])
     assert 'PID eq 42' in win and 'PID eq 7' in win and "goto move" in win
-    assert 'move /Y "%BAMT_UPDATE_NEW_EXE%" "%BAMT_UPDATE_EXE%"' in win
-    assert 'start "" "%BAMT_UPDATE_EXE%"' in win
+    assert '[System.IO.File]::Replace' in win and 'Get-FileHash' in win and ':rollback' in win
+    assert 'start "" /D "%BAMT_UPDATE_DIR%" "%BAMT_UPDATE_EXE%"' in win
     assert "setlocal DisableDelayedExpansion" in win
     win.encode("ascii")
 
@@ -272,7 +272,8 @@ def test_windows_helper_moves_with_literal_unicode_and_percent_paths(tmp_path: P
     script = folder / "update.cmd"
     script.write_text(updater.windows_script([]), encoding="ascii")
     env = dict(os.environ, BAMT_UPDATE_SCRIPT=str(script), BAMT_UPDATE_NEW_EXE=str(new),
-               BAMT_UPDATE_EXE=str(target))
+               BAMT_UPDATE_EXE=str(target), BAMT_UPDATE_MD5=expected, BAMT_UPDATE_DIR=str(folder),
+               BAMT_UPDATE_STAGE=str(folder / "stage.exe"), BAMT_UPDATE_BACKUP=str(folder / "backup.exe"))
     command = f'"{env.get("COMSPEC", "cmd.exe")}" /d /v:off /s /c ""%BAMT_UPDATE_SCRIPT%""'
     subprocess.run(command, env=env, creationflags=0x08000200, check=True, timeout=10)
     assert updater.md5_of(target) == expected

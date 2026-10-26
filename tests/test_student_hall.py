@@ -122,7 +122,7 @@ def test_library_only_cross_server_entries_are_available_without_local_core(tmp_
     from ba_modding_toolkit.webui.student_hall import register_api
     variant = SimpleNamespace(key="unreleased", names={"en": {"full": "Unreleased"}}, spr=None, lobby=None, portrait=None)
     mod = SimpleNamespace(id="future-mod", target="unreleased", kind="lobby", alias="", label="Future lobby")
-    service = SimpleNamespace(state=UiState(tmp_path / "ui.json"),
+    service = SimpleNamespace(game_found=lambda: True, state=UiState(tmp_path / "ui.json"),
                               catalog=SimpleNamespace(families=lambda: []),
                               library=SimpleNamespace(mods=lambda: [mod], variant_metadata=lambda key: variant),
                               game=SimpleNamespace(collection_names=lambda: {"bg": ["BG_School_Collection"]}))

@@ -205,9 +205,12 @@ def _run_window(s: Services, server: Server, debug: bool) -> None:
     # text_select stays True: with False (pywebview's default) pywebview appends "body { user-select: none; cursor:
     # default }" to the page, which replaces the game's pointer with the system arrow on everything but the buttons.
     # The page turns off text selection itself (app.css).
+    webview.settings["SHOW_DEFAULT_MENUS"] = False
+    webview.settings["DRAG_REGION_SELECTOR"] = ".topbar"
+    webview.settings["DRAG_REGION_DIRECT_TARGET_ONLY"] = True
     with s.timings.measure("native.create-window"):
         window = webview.create_window(t("ui.app_title"), server.url, width=1600, height=900, min_size=(960, 540),
-                                       background_color="#000000", text_select=True)
+                                       background_color="#000000", text_select=True, frameless=True, easy_drag=False)
     s.window = window
     # the tray or menu bar icon, shown while the preference "tray" is on; it goes with the window (decision 7)
     tray = Tray(s) if Tray.supported() else None
@@ -225,6 +228,8 @@ def _run_window(s: Services, server: Server, debug: bool) -> None:
 
     def on_loaded() -> None:
         s.timings.record("native.document", time.perf_counter() - native_started)
+        if sys.platform == "darwin" and getattr(window, "native", None) is not None:
+            native.install_edit_menu()
         try:
             watch_drops(window, lambda paths: s.events.publish("drop", {"paths": paths}))
         except Exception:

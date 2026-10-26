@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 MAX_BODY = 4 * 1024 * 1024
+MAX_PHOTOGRAPH_BODY = 49 * 1024 * 1024
 HTTP_EXPORT_SCHEMA = "http-exports-v1"
 
 MIME = {
@@ -164,11 +165,13 @@ class WebApp:
             length = int(environ.get("CONTENT_LENGTH") or 0)
         except ValueError:
             length = 0
-        if length <= 0 or length > MAX_BODY:
+        if length <= 0 or length > MAX_PHOTOGRAPH_BODY:
             return self._json(start_response, {"error": {"code": "bad_request", "params": {}}}, "400 Bad Request")
         try:
             body = json.loads(environ["wsgi.input"].read(length))
             name, params = body["method"], body.get("params") or {}
+            if length > MAX_BODY and name not in ("photography.save", "photography.apply", "photography.restore", "photography.export"):
+                raise ValueError("Oversized RPC body")
         except (ValueError, KeyError, TypeError):
             return self._json(start_response, {"error": {"code": "bad_request", "params": {}}}, "400 Bad Request")
         return self._json(start_response, self.rpc.call(name, params))

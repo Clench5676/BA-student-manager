@@ -18,11 +18,11 @@ function harness({ locale = "en-US", used = true, button = "ok", error = null } 
 }
 
 test("delete names the mod and explains the saved source before submitting a writer job", async () => {
-  for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR"]) {
+  for (const locale of ["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "th-TH"]) {
     const h = harness({ locale });
     assert.equal(await h.remove("m1"), true);
     assert.deepEqual(h.calls[0], ["mods.removalInfo", { id: "m1" }]);
-    assert.deepEqual(h.messages[0].lines, [h.T("mods.deleteConfirm", { name: "My portrait" }), h.T("mods.deleteRestore")]);
+    assert.deepEqual(h.messages[0].lines, [h.T("error.asset_delete_confirm")]);
     assert.equal(h.messages[0].ok, h.T("btn.delete"));
     assert.equal(h.messages[0].cancel, h.T("popup.cancel"));
     assert.deepEqual(h.calls[1].slice(0, 2), ["mods.remove", { id: "m1", confirm: true }]);
@@ -50,15 +50,10 @@ test("a failed confirmation lookup shows the error and cannot delete", async () 
   assert.match(h.calls[1][1], /lookup failed/);
 });
 
-test("a completed deletion reports any pending restoration from its single writer job", async () => {
-  for (const failed of [[], [{ code: "game_running" }]]) {
-    const h = harness();
-    await h.remove("m1");
-    assert.equal(h.calls.filter(([method]) => method === "mods.remove").length, 1);
-    h.calls[1][2].onDone({ failed });
-    assert.deepEqual(h.calls.filter(([method]) => method === "notify"),
-      failed.length ? [["notify", h.T("mods.deletePending")]] : []);
-  }
+test("failed restoration cannot report a successful deletion",async()=>{
+  const h=harness();await h.remove('m1');
+  assert.throws(()=>h.calls[1][2].onDone({failed:[{code:'game_running',params:{}}]}),{code:'game_running'});
+  assert.doesNotThrow(()=>h.calls[1][2].onDone({failed:[]}));
 });
 
 test("applying the manifest's current source does not start another job", async () => {

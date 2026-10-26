@@ -20,7 +20,7 @@ import { on, rpc, spinePrefix } from "./api.js";
 import { L, T, setStrings, languageRefresh } from "./i18n.js";
 import { neighbour, visit } from "./roster-order.js";
 import { hasAsset, primaryKind } from "./switch-sources.js";
-import { renderNav, setTitle } from "./nav.js";
+import { renderNav, setTitle, setTopActions, reflowTopActions } from "./nav.js";
 import { confirmQuit, quitKey } from "./quit.js";
 import { forget } from "./thumbs.js";
 import { setSpineConsent } from "./spine-runtime.js";
@@ -35,7 +35,7 @@ globalThis.BAMTRecovery?.presentReport((result) => Popup.message({ title: T("rec
     ...(!result.copied ? [result.summary] : [])] : [T("recovery.actionFailed")], ok: T("picker.ok"), plain: true,
 }));
 
-let info = null, rosterData = null, rosterStale = true;
+let info = null, rosterData = null, rosterStale = true,resourceEpoch=0,configurationRevision=0;
 const startup = {};
 async function timed(phase, work) {
   const began = performance.now();
@@ -91,7 +91,9 @@ const ctx = {
 async function roster() {
   if (!rosterData || rosterStale) {
     const before = rosterData;
-    rosterData = await rpc("roster.list");
+    const epoch=resourceEpoch,next=await rpc("roster.list");
+    if(epoch!==resourceEpoch)throw new DOMException('Game resources changed','AbortError');
+    rosterData=next;
     rosterStale = false;
     forgetReplaced(before, rosterData);
   }
@@ -192,6 +194,7 @@ function visited(fam, key) {
 }
 
 function showScreen(name) {
+  setTopActions(name === "hall",!!info?.gameFound);
   for (const id of ["screen-hall", "screen-roster", "screen-detail", "screen-import", "screen-message"]) $(id).hidden = id !== `screen-${name}`;
 }
 
@@ -228,17 +231,31 @@ addEventListener("keydown", (ev) => {
 
 // without a game folder the game's UI cannot be drawn: plain buttons to find or choose one
 function noGame() {
+  const region=ctx.prefs?.fileSource==='windows_japan'?'japan':'global';
   const setDir = async (path) => {
-    try { await rpc("settings.set", { key: "gameDir.global", value: path }); location.reload(); }
+    try { await rpc("settings.set", { key: `gameDir.${region}`, value: path }); await refreshConfiguration(); }
     catch (err) { notify(T(`error.${err.code}`, err.params), { kind: "error", error: err }); }
   };
-  message(T("app.noGame.title"), T("app.noGame.hint"), [
+  message(T("app.noGame.title"), T("error.game_directory_missing"), [
     [T("settings.detect"), async () => {
-      const found = await rpc("settings.detectGame", { region: "global" }).catch(() => []);
-      if (found.length) setDir(found[0]); else notify(T("app.noGame.title"), { kind: "error", error: { code: "game_not_found" } });
+      const found = await rpc("settings.detectGame", { region }).catch(() => []);
+      if (found.length) setDir(found[0]); else notify(T("error.game_directory_missing"), { kind: "error", error: { code: "game_directory_missing" } });
     }],
     ...(info?.native ? [[T("settings.change"), async () => { const p = await rpc("settings.pickFolder", {}).catch(() => null); if (p) setDir(p); }]] : []),
   ]);
+}
+
+async function refreshConfiguration(){
+  const revision=++configurationRevision;++resourceEpoch;++routeToken;++routeAttempt;endRoute();
+  StudentHall.hide();Detail.hide();Roster.hide();BatchImport.invalidate();stepCards=null;ctx.invalidateRoster();
+  const [next,prefs]=await Promise.all([rpc('app.info'),rpc('settings.get')]);
+  if(revision!==configurationRevision)return;
+  info=next;ctx.info=next;ctx.prefs=prefs;
+  await renderNav(-1,{game:!!next.gameFound});
+  if(revision!==configurationRevision)return;
+  if(!next.gameFound){noGame();return;}
+  await NGUI.init();if(revision!==configurationRevision)return;
+  await route();
 }
 
 let routeToken = 0, routeAttempt = 0, permissionAttempt = 0, endRoute = () => {}, homeRequested = false;
@@ -399,7 +416,7 @@ async function route() {
       homeRequested = false;
     }
   } catch (err) {
-    if (!current()) return;
+    if (!current()||err.name==='AbortError') return;
     homeRequested = false;
     if (globalThis.BAMTRecovery?.isBooting() && err.code !== "game_not_found") throw err;
     console.error(err);
@@ -487,20 +504,25 @@ async function start() {
   $("top-option").setAttribute("aria-label", T("settings.button"));
   $("top-home").setAttribute("aria-label", T("hall.home"));
   $("top-home").hidden = !info.gameFound;
+  const setupWindowControls=()=>{
+    if(!globalThis.pywebview || document.getElementById('native-controls'))return;
+    const controls=document.createElement('div');controls.id='native-controls';
+    for(const [action,icon] of [['minimize','−'],['maximize','□'],['close','×']]){
+      const button=document.createElement('button');button.textContent=icon;button.setAttribute("aria-label",T(`window.${action}`));
+      button.addEventListener('click',()=>rpc('window.control',{action}).catch(console.error));controls.append(button);
+    }
+    document.body.append(controls);reflowTopActions();
+  };
+  setupWindowControls();
+  addEventListener("pywebviewready",setupWindowControls,{once:true});
   // subscribed before the no-game screen too, so choosing the game folder elsewhere reaches the page
-  on("config.changed", () => { if (!info.gameFound) { location.reload(); return; } BatchImport.invalidate(); stepCards = null; ctx.invalidateRoster(); route(); });
+  on("config.changed", () => refreshConfiguration().catch(console.error));
   on("app.busy", () => notify(T("error.busy"), { kind: "error", error: { code: "busy" } }));
   await timed("fonts", () => document.fonts.ready);
   // the bottom bar: its greyed entries hand over to the classic UI (with or without a game folder), their prompt
   // following the pref classicPrompt
   const navOptions = { game: !!info.gameFound, prefs: () => ctx.prefs, setPrefs: (prefs) => { ctx.prefs = prefs; },
     canLeave: () => $("screen-hall").hidden || StudentHall.canLeave?.() };
-  if (!info.gameFound) {
-    renderNav(-1, navOptions);
-    noGame();
-    ModSwitch.listenTray(); // the tray still switches the known installs
-    return;
-  }
   await ui;
   renderNav(-1, navOptions);
   // the Enable Mods switch in the top bar, and what the writer jobs switched
@@ -520,7 +542,8 @@ async function start() {
     if (key === "language") { await refreshLanguage(prefs.language); return; }
     Detail.applyPrefs(prefs);
     StudentHall.applyPrefs?.(prefs);
-    if (key === "fileSource" || key.startsWith("gameDir") || key === "libraryDir" || key === "spineConsent") { stepCards = null; ctx.invalidateRoster(); route(); }
+    if (key === "fileSource" || key.startsWith("gameDir") || key === "libraryDir") { await refreshConfiguration(); }
+    else if(key === "spineConsent"){stepCards=null;ctx.invalidateRoster();await route();}
   };
   ctx.goOther = () => Settings.open(settingsChanged, "mods");
   ModAdd.init({ names: variantNames, changed: ctx.invalidateRoster, go: (key) => {
@@ -528,6 +551,12 @@ async function start() {
     if (family) ctx.go(family.key, key);
   }, goOther: () => Settings.open(settingsChanged, "mods") });
   on("library.changed", libraryChanged);
+  on("photography.changed", () => {
+    ctx.invalidateRoster();
+    if ($("screen-roster").hidden) return;
+    const token=routeToken;
+    Popup.whenIdle().then(() => { if(token===routeToken&&!$("screen-roster").hidden)return route(); }).catch(console.error);
+  });
   watchFront();
   // files dropped on the window are added to the library
   on("drop", async ({ paths }) => {
@@ -544,6 +573,7 @@ async function start() {
   $("top-home").addEventListener("click", goHome);
   if (!location.hash) history.replaceState(null, "", ROOT_ROUTE);
   addEventListener("hashchange", route);
+  if(!info.gameFound){noGame();return;}
   await timed("first-screen", route);
 }
 

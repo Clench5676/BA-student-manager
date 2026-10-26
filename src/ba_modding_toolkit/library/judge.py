@@ -77,6 +77,9 @@ def other_target(names: Iterable[str]) -> str:
 def part_of(name: str) -> tuple[str, str | None]:
     """Which part of its core a bundle file is, whatever its date and CRC: its prefix and resource type."""
     parsed = parse_filename(name)
+    # Collection batches coexist across dates; a later batch does not replace an earlier batch's portraits.
+    if name.lower().startswith("uis-01_common-14_charactercollect-"):
+        return parsed.prefix + parsed.date + ":", parsed.res_type
     return parsed.prefix, parsed.res_type
 
 

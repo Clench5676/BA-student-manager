@@ -1,10 +1,10 @@
 <div align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/logo-dark.png">
-    <img alt="BMPT" src="docs/logo.png" width="280">
+    <source media="(prefers-color-scheme: dark)" srcset="docs/logo-zh-CN-dark.png">
+    <img alt="BMPT" src="docs/logo-zh-CN.png" width="280">
   </picture>
 
-  <h1>Blue Archive Modding and Patching Tool</h1>
+  <h1>BA便民平台</h1>
 
   <p><b>像游戏一样好用的碧蓝档案 Mod 管理工具。</b></p>
 
@@ -17,17 +17,14 @@
   <p><a href="README.md">English</a> | 简体中文</p>
 </div>
 
-> [!NOTE]
-> 本文由 AI 从[英文版](README.md)翻译，内容以英文版为准。
-
 ## 为什么选 BMPT
 
-- **所见即所得的 Mod 管理器。** BMPT 里看到的，就是游戏里的样子。
-- **所有学生都可预览。** 包括没有抽到过的。
+- **预览并管理 Mod。** 先查看效果，再应用到游戏。
+- **本机有资源的学生都可预览。** 包括没有抽到过的。
 - **一键切换 Mod。** 替换时自动保留官方/原文件，随时一键还原。
 - **一键开关。** 一键关掉游戏中的 Mod 显示，恢复正常。
 
-支持 Steam（国际服）与日服 PC 客户端；安卓文件可通过 ADB 处理。
+包含 Steam 国际服、日服 PC 资源处理及经典 ADB 工具；日服及 ADB 尚未完成端到端验证。
 
 ## 下载
 
@@ -35,7 +32,7 @@
 
 | 平台 | 文件 | 要求 |
 |---|---|---|
-| Windows | `...-windows-x64.exe` | Windows 10 或 11，需要 [WebView2 运行时](https://developer.microsoft.com/microsoft-edge/webview2/)（Windows 11 已内置） |
+| Windows | `...-windows-x64.exe` | 64 位 Windows 10 或 11，需要 [WebView2 运行时](https://developer.microsoft.com/microsoft-edge/webview2/) |
 | macOS | `...-macos-arm64.dmg` | macOS 11 及以上，Apple 芯片 |
 
 每个安装包都附带 `.md5` 文件，可用于校验下载。
@@ -43,7 +40,7 @@
 ## 三步上手
 
 1. 打开 BMPT。它会自动找到游戏目录；找不到时在设置中选择。
-2. 允许一次素材缓存，之后打开即刻载入游戏界面。
+2. 按提示选择界面素材缓存；预览缓存默认开启，可在设置中清除。
 3. 选择学生，打开「切换立绘」，选好立绘后点「应用」。
 
 把 Mod 文件拖进窗口即可加入 Mod 仓库。
@@ -51,15 +48,15 @@
 ## 你的游戏，只在你的设备上
 
 - 游戏素材每次都从你本机的游戏中读取，不会离开你的电脑。BMPT 不附带任何游戏素材。
-- 经你同意后，只缓存轻量界面素材（图标、按钮、边框），存放在用户目录。立绘、记忆大厅、语音和背景从不保存。可随时在设置中清除缓存。
-- 记忆大厅台词与语音按需从[基沃托斯古书馆（Kivo）](https://kivo.wiki)读取，只保留在内存中。
+- 经你同意后，缓存轻量界面素材。预览缓存默认开启，可保存立绘、记忆大厅、背景及缩略图，在设置中清除。
+- 台词与语音按需读取，部分来源（如[基沃托斯古书馆（Kivo）](https://kivo.wiki)）需要联网；语音只保留在内存中。
 
 macOS 用户数据保存在 `~/Library/Application Support/bluearchive-modding-patching-tool`；Windows 版本将数据保存在可执行文件旁。
 首次启动时会自动重命名旧的 `BA-Modding-Toolkit` 用户文件夹，请先退出旧版应用。
 
 ## 经典工具
 
-原工具箱的全部功能都在底部导航栏中，一键打开（也可用 `--classic` 打开经典窗口）：
+尚未迁移的工具保留经典窗口入口（也可用 `--classic` 打开经典窗口）：
 
 | 工具 | 用途 |
 |---|---|
@@ -86,7 +83,7 @@ macOS 用户数据保存在 `~/Library/Application Support/bluearchive-modding-p
 
 ## 语言
 
-简体中文、繁體中文、English、日本語、한국어。接下来是泰文和越南文。
+简体中文、繁體中文、English、日本語、한국어、ภาษาไทย。
 
 ## 从源码构建
 

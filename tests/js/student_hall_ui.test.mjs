@@ -90,15 +90,15 @@ test("the memorial queue preserves artwork size, halves the actual gap, and uses
   assert.equal(body.w_*(1920/2960),1685);assert.equal(body.h_*(1920/2960),195);assert.deepEqual(drawn.options.origin,[957.5,817.5]);
 });
 
-test("queue drag feedback renders a native blue vertical gradient line rather than a card outline",async()=>{
+test("queue drag feedback renders a thin native solid blue line rather than a card outline",async()=>{
   const n=(name,children=[],widgets=[])=>({name,children,widgets,pos:[0,0]});
   const blue={sprite:"Common_Line_Raius20px",color:"#0db4ff/1.00"};
   let branch=n("Mulligan_Sub",[],[blue]);for(const name of ["Normal","UICharacterCard","UIPopupFormationCharSlot","UIFormationCharSlotGroup","Grid","Scroll View","Inbox","RightBg"])branch=n(name,[branch]);
   const formation=n("Root",[n("Center",[n("Popup",[branch,n("BG",[n("Label_Title",[n("DecoLine",[],[{sprite:"Common_Line_Dot",color:"#ffee00/0.99",type:1,incline:0}])])])])])]);
   UI.assetsFixture({formation});let drawn;globalThis.uiHarness.NGUI.render=async(tree,host,options)=>{drawn={tree,options};};
   const marker=await UI.queueMarker(new Element(),UI.MEMORIAL_QUEUE_PITCH),widget=drawn.tree.widgets[0];
-  assert.equal(widget.sprite,"Common_Gradient_Vertical");assert.equal(widget.color,blue.color);assert.equal(widget.incline,0);
-  assert.equal(widget.w_*(1920/2960),10);assert.equal(widget.h_*(1920/2960),155);assert.equal(marker.hidden,true);assert.deepEqual(drawn.tree.children,[]);
+  assert.equal(widget.sprite,"Common_Line_Dot");assert.equal(widget.color,blue.color);assert.equal(widget.incline,0);
+  assert.equal(widget.w_*(1920/2960),2);assert.equal(widget.h_*(1920/2960),155);assert.equal(marker.hidden,true);assert.equal(marker.style.width,"2px");assert.deepEqual(drawn.options.origin,[1,82.5]);assert.deepEqual(drawn.tree.children,[]);
 });
 
 
