@@ -955,7 +955,8 @@ check, and between them a run of identical pixel columns) and repeats only that 
 corners keep their shape. Only the border numbers ship, verified numerically against the official sprite.
 
 Owner review of 0.6.0-alpha.6 on macOS (2026-10-26): review 1 (badges widened by runtime slicing) accepted. Review 2 (base colour
-at the frame corners) is not fixed by alpha.6; the owner stops work on it (won't fix).
+at the frame corners) is not fixed by alpha.6; the owner stops work on it (won't fix). The owner keeps alpha.6's art
+coverage change (no revert).
 
 ## BL-045: Separate Global and Japanese game directories
 
