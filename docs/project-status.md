@@ -25,7 +25,9 @@ The 0.6.0 work is unreleased. Nothing has been tagged, pushed or published since
 | BL-040, BL-041, BL-043 | Implemented for local review; owner UAT/visual acceptance pending |
 | BL-042, BL-044, BL-045 | Owner's macOS findings on alpha.2, on hold |
 | BL-046 | Implemented for local review; owner UAT/visual acceptance pending. |
-| BL-013, BL-019 through BL-021, BL-030 | Planned, not implemented; BL-021 has a proposed flow only |
+| BL-020 | Implemented for local review; owner UAT/visual acceptance pending. Exact-release notes and empty-body link fallback. |
+| BL-021 | Implemented for local review; owner UAT/visual acceptance pending. Tour framework and Settings replay; published registry empty, 0.6.0 draft awaiting owner review. |
+| BL-013, BL-019, BL-030 | Planned, not implemented |
 | BL-014 | Candidate, not scheduled |
 | BL-016 through BL-018 | Deferred |
 

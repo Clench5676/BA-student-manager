@@ -484,7 +484,8 @@ externally changed files; stale snapshots and cancellation; export-only runs; an
 
 ## BL-020: Release notes in update detection
 
-- Status: Planned for a future version. Not implemented.
+- Status: Implemented for local review; owner UAT/visual acceptance pending.
+- Note: The detected tag's GitHub body opens in a scrollable notice popup, with a release-page fallback for empty notes.
 - Requested: 2026-10-25.
 
 Add a localized Release Notes action to the update-detection dialog. Display the notes approved for that exact
@@ -495,16 +496,17 @@ repository's agent guidance; do not publish an empty stable-release description.
 
 ## BL-021: First-launch new-version feature tour
 
-- Status: Planned. User flow drafted; implementation not started.
+- Status: Implemented for local review; owner UAT/visual acceptance pending.
+- Note: Profile-local upgrade history and Settings replay support text-only tours; the published registry is empty and the six-locale 0.6.0 draft awaits approval.
 - Requested: 2026-10-25.
 - Flow: [New-version feature tour](feature-tour-flow.md).
 
 On the first normal launch after an upgrade, present a short, dismissible tour of newly introduced features.
-Each page covers one feature with concise text and an approved screenshot. Previous/Next, page count and Close
+Each page covers one feature with concise text and an optional approved App UI illustration or text-only layout. Previous/Next, page count and Close
 remain available; the last page finishes into the current App screen. Settings provides permanent access to
 published tours, including earlier versions. Dismissal must not affect existing preferences or ongoing work.
 
-The agent drafts the copy and screenshots in the development environment; a human reviews both before shipping.
+The agent drafts the copy and optional App UI illustrations outside packaged sources; a human reviews them before shipping. Never package screenshots or images made from game files.
 Wait for the first screen, required consents and higher-priority recovery/update dialogs to settle before showing
 the tour. Do not introduce new startup scans, rendering work or network dependencies for this presentation.
 Remember presentation per user-data profile/version, avoid duplicate prompts on restarts/reinstalls/downgrades,
