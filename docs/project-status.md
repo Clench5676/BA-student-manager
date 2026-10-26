@@ -26,7 +26,7 @@ The 0.6.0 work is unreleased. Nothing has been tagged, pushed or published since
 | BL-040, BL-041, BL-043, BL-045 | Accepted by the owner on macOS (alpha.3); Windows not reviewed |
 | BL-042 | Accepted by the owner on macOS (alpha.4) |
 | BL-044 | Implemented for local review; owner UAT/visual acceptance pending. Yellow badge: Applied; blue badge: Selected; shared fitted size in all six locales, with the frame effect and compositing unchanged. |
-| BL-047 | Reopened: button restored; new portrait/memorial-lobby switch function awaits the owner's confirmation |
+| BL-047 | Implemented for local review; owner UAT/visual acceptance pending. Prefab RightTop switches portrait/memorial lobby; omitted without a lobby. |
 | BL-046 | Closed by the owner without UAT (CLI-only) |
 | BL-048 | Accepted: CLI no longer built, installed or released |
 | BL-020 | Implemented for local review; owner UAT/visual acceptance pending. Exact-release notes and empty-body link fallback. |

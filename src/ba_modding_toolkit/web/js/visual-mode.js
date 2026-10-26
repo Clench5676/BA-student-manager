@@ -7,8 +7,8 @@ import {portraitMinimum} from './photography/camera.js';
 // - the portrait's own player (detail.js), so the face and the blink go on, framed by visual-view.js: the whole art,
 //   the body in the middle;
 // - TouchArea, a full-screen button whose press drags the portrait (OnPressScreen), and the zoom (PlayZoomInOut);
-// - Btn_Back top left (leaves), Btn_HideUI top right (the buttons slide out, Btn_ShowUI fades in in its place and
-//   brings them back), Btn_RefreshPos bottom right (UI_BUTTON_RESET_POS: back to the whole art; greyed out as
+// - Btn_Back top left (leaves), Btn_HideUI top right (switches to this skin's memorial lobby when available),
+//   Btn_RefreshPos bottom right (UI_BUTTON_RESET_POS: back to the whole art; greyed out as
 //   Btn_RefreshPos_Disable while there), sliding in from the screen's edges with UIAni_CharacterVisualMode_PC.
 // Not reproduced: the phone's gyroscope moving the art (UpdateGyro, mobile only) and the button sounds.
 // Input: press and drag (any button, a finger) moves the art; the mouse wheel zooms at the pointer; a trackpad pinches
@@ -24,12 +24,11 @@ import {
 const CENTRE = [960, 540];      // the screen's centre on the stage
 const GLIDE_MS = 450;           // in and out, in step with the UI slide (app.css .45s)
 const RESET_MS = 300;           // Btn_RefreshPos: back to the whole art
-const SHOW_MS = 250;            // Btn_ShowUI's TweenAlpha, 0.02 to 1
 const ZOOM_TAU = 0.08;          // s: a wheel zoom eases to its target, as in the lobby
 const WHEEL = 0.0015, LINE = 40, PINCH = 0.01, SCROLL_MS = 120; // as lobby-touch.js
 // the buttons' BoxColliders [width, height, centre y] in NGUI units around their node; the greyed reset has none
-const HIT = { Btn_Back: [228.83, 165, 0], Btn_HideUI: [228.83, 165, 0], Btn_ShowUI: [228.83, 165, 0], Btn_RefreshPos: [228.83, 195.2, 32] };
-const CORNERS = [["LeftTop", ["Btn_Back"]], ["RightTop", ["Btn_HideUI", "Btn_ShowUI"]], ["RightBottom", ["Btn_RefreshPos", "Btn_RefreshPos_Disable"]]];
+const HIT = { Btn_Back: [228.83, 165, 0], Btn_HideUI: [228.83, 165, 0], Btn_RefreshPos: [228.83, 195.2, 32] };
+const CORNERS = [["LeftTop", ["Btn_Back"]], ["RightTop", ["Btn_HideUI"]], ["RightBottom", ["Btn_RefreshPos", "Btn_RefreshPos_Disable"]]];
 // the buttons the clip moves, and their keys
 const MOVING = { Btn_Back: SLIDE.Btn_Back, Btn_HideUI: SLIDE.Btn_HideUI, Btn_RefreshPos: SLIDE.Btn_RefreshPos, Btn_RefreshPos_Disable: SLIDE.Btn_RefreshPos };
 
@@ -40,12 +39,21 @@ const ease = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
 export const isOpen = () => !!st && !st.closing;
 
 // prepare({layout, bg, strings}): the prefab's background and buttons rendered off screen, for one open(); null
-// without the prefab. strings: {reset, back, hide, show}.
+// without the prefab. strings: {reset, back, switch}; omit switch for skins without a memorial lobby.
 export async function prepare({ layout, bg, strings }) {
   const pc = layout ? NGUI.find(layout, "Inventory_ListControl_PC") : null;
   if (!pc) return null;
   const [back, groups] = await Promise.all([renderBg(pc, bg), renderButtons(pc, strings)]);
   return { pc, bg: back, groups };
+}
+
+// The memorial lobby reuses the exact portrait switch widget, without a portrait touch area or reset control.
+// Return it detached so the detail screen can discard a superseded request before publishing it.
+export async function prepareSwitch({ layout, label, onSwitch }) {
+  const pc = layout ? NGUI.find(layout, "Inventory_ListControl_PC") : null;
+  if (!pc || !label) return null;
+  const groups = await renderButtons(pc, { switch: label }, [["RightTop", ["Btn_HideUI"]]], onSwitch);
+  return groups.Btn_HideUI || null;
 }
 
 // The same complete Back widget for memorial lobby and model fullscreen.
@@ -75,7 +83,7 @@ export async function open(o) {
   const s = st = {
     o, home, lim: limits(box, home), detail, view: detail, target: home, last: null,
     glide: { from: detail, to: home, t0: null, ms: GLIDE_MS, kind: "open" },
-    groups: parts?.groups || {}, hidden: false, homeShown: null, ptrs: new Map(), pinch: null,
+    groups: parts?.groups || {}, homeShown: null, ptrs: new Map(), pinch: null,
     scroll: { kind: null, at: -Infinity }, pinchUntil: -Infinity, gesture: 1,
   };
   const touch = document.createElement("div");
@@ -83,7 +91,6 @@ export async function open(o) {
   for (const [type, fn, opts] of HANDLERS) touch.addEventListener(type, fn, opts);
   s.touch = touch;
   const g = s.groups;
-  if (g.Btn_ShowUI) g.Btn_ShowUI.hidden = true;
   syncReset(s);
   o.uiHost.replaceChildren(touch, ...Object.values(g));
   o.uiHost.hidden = false;
@@ -111,8 +118,7 @@ export function close({ instant = false } = {}) {
   s.ptrs.clear();
   s.touch.classList.remove("grabbing");
   s.touch.style.pointerEvents = "none";
-  for (const [name, keys] of Object.entries(MOVING)) if (!s.hidden && s.groups[name]) slide(s.groups[name], keys, true);
-  if (s.groups.Btn_ShowUI) s.groups.Btn_ShowUI.hidden = true;
+  for (const [name, keys] of Object.entries(MOVING)) if (s.groups[name]) slide(s.groups[name], keys, true);
   s.o.bgHost.classList.remove("on");
   s.glide = { from: s.view, to: s.detail, t0: null, ms: GLIDE_MS, kind: "close" };
   // the players draw the glide and end it; a portrait that broke meanwhile draws nothing, so a timer ends it too
@@ -135,6 +141,7 @@ function finish(s) {
 // takes the keyboard's focus nor acts; the focused one lets go. uiBack(parts): they come back, the visual mode closes
 // whichever tab the screen shows by then (a tab changed meanwhile must not leave its full-screen touch area over the
 // screen), and the control that had the focus gets it back (refocus: false while the screen is being left).
+// fallback resolves its replacement when a fullscreen view switch rebuilt the detail controls.
 let asideFocus = null;
 export function uiOut(parts) {
   const live = parts.filter(Boolean), focused = document.activeElement;
@@ -144,12 +151,13 @@ export function uiOut(parts) {
   }
   for (const p of live) p.inert = true;
 }
-export function uiBack(parts, { refocus = true } = {}) {
+export function uiBack(parts, { refocus = true, fallback } = {}) {
   close();
   for (const p of parts) if (p) p.inert = false;
   const back = asideFocus;
   asideFocus = null;
-  if (refocus && back?.isConnected && !back.closest("[inert]")) back.focus({ preventScroll: true });
+  const target = back?.isConnected ? back : back ? fallback?.() : null;
+  if (refocus && target?.isConnected && !target.closest("[inert]")) target.focus({ preventScroll: true });
 }
 
 // spine-player's per-frame hook (detail.js passes it as the portrait players' config.frame): before the player
@@ -204,14 +212,15 @@ async function renderBg(pc, bg) {
 }
 
 // one layer per button, so each slides on its own; the corners are anchored to the screen's edges
-async function renderButtons(pc, strings) {
+async function renderButtons(pc, strings, corners = CORNERS, onPress = press) {
   const groups = {}, made = [];
-  const labels = { Btn_Back: strings.back, Btn_HideUI: strings.hide, Btn_ShowUI: strings.show, Btn_RefreshPos: strings.reset };
-  for (const [corner, names] of CORNERS) {
+  const labels = { Btn_Back: strings.back, Btn_HideUI: strings.switch, Btn_RefreshPos: strings.reset };
+  for (const [corner, names] of corners) {
     const c = NGUI.find(pc, corner);
     if (!c) continue;
     const at = anchoredCentre(c.widgets.find((w) => w.anchors)) || c.pos;
     for (const name of names) {
+      if (name === "Btn_HideUI" && !strings.switch) continue;
       const n = NGUI.find(c, name);
       if (!n) continue;
       const el = document.createElement("div");
@@ -220,7 +229,8 @@ async function renderButtons(pc, strings) {
       made.push(NGUI.render(tree, el, { scale: S, origin: CENTRE, rootPath: "Inventory_ListControl_PC", texts: { Label_Locale_Reset: "" } }));
       if (HIT[name]) {
         const [w, h, dy] = HIT[name], x = CENTRE[0] + (at[0] + n.pos[0]) * S, y = CENTRE[1] - (at[1] + n.pos[1] + dy) * S;
-        hitButton(el, [x - (w * S) / 2, y - (h * S) / 2, w * S, h * S], (e) => { e.stopPropagation(); press(name); }, labels[name]);
+        const hit = hitButton(el, [x - (w * S) / 2, y - (h * S) / 2, w * S, h * S], (e) => { e.stopPropagation(); return onPress(name); }, labels[name]);
+        hit.dataset.visualAction = name;
       }
       groups[name] = el;
     }
@@ -232,9 +242,8 @@ async function renderButtons(pc, strings) {
 function press(name) {
   const s = st;
   if (!s || s.closing) return;
-  if (name === "Btn_Back") s.o.onBack();
-  else if (name === "Btn_HideUI") hideUI(s);
-  else if (name === "Btn_ShowUI") showUI(s);
+  if (name === "Btn_Back") return s.o.onBack();
+  else if (name === "Btn_HideUI") return s.o.onSwitch?.();
   else if (name === "Btn_RefreshPos") reset(s);
 }
 
@@ -257,30 +266,6 @@ function syncReset(s) {
   offBtn.hidden = !home;
 }
 
-function hideUI(s) {
-  if (s.hidden) return;
-  s.hidden = true;
-  const runs = Object.entries(MOVING).map(([name, keys]) => s.groups[name] && slide(s.groups[name], keys, true)).filter(Boolean);
-  Promise.all(runs.map((a) => a.finished)).catch(() => {}).then(() => {
-    if (st !== s || !s.hidden || s.closing) return;
-    for (const name of Object.keys(MOVING)) if (s.groups[name]) s.groups[name].style.visibility = "hidden";
-    const show = s.groups.Btn_ShowUI;
-    if (!show) return;
-    show.hidden = false;
-    show.animate?.([{ opacity: 0.02 }, { opacity: 1 }], { duration: SHOW_MS, fill: "both" });
-  });
-}
-function showUI(s) {
-  if (!s.hidden) return;
-  s.hidden = false;
-  if (s.groups.Btn_ShowUI) s.groups.Btn_ShowUI.hidden = true;
-  for (const [name, keys] of Object.entries(MOVING)) {
-    const el = s.groups[name];
-    if (!el) continue;
-    el.style.visibility = "";
-    slide(el, keys, false);
-  }
-}
 // back to the whole art (co_ReturnToDefaultPosition); a press or a scroll meanwhile takes over
 function reset(s) {
   s.glide = { from: s.view, to: s.home, t0: null, ms: RESET_MS, kind: "reset" };
@@ -404,7 +389,7 @@ function onKey(e) {
 // for checks: the view, the home view and the limits
 export const state = () => (st ? {
   view: { ...st.view }, target: { ...st.target }, home: { ...st.home }, kMax: st.lim.kMax, box: [...st.lim.box],
-  glide: st.glide?.kind || null, hidden: st.hidden, closing: !!st.closing,
+  glide: st.glide?.kind || null, closing: !!st.closing,
 } : null);
 
 // Photography constrains only the framing guide while retaining the native portrait player.

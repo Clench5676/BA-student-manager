@@ -950,9 +950,10 @@ interrupted runs. Upstream's CLI options and the shared UnityFS reader are alrea
 
 ## BL-047: Fullscreen button left on a rotated fullscreen portrait
 
-- Status: In progress (function confirmed by the owner, 2026-10-26).
+- Status: Implemented for local review; owner UAT/visual acceptance pending.
 - Requested: 2026-10-26.
 - Related: the portrait view's rotate and fullscreen controls.
+- Note: The prefab's RightTop button switches portrait and memorial lobby fullscreen; skins without a lobby omit it.
 
 In the portrait view, after rotating the screen and entering fullscreen, the fullscreen button is still shown in the
 top-right corner. It must not be shown once the view is fullscreen; leaving fullscreen restores it.

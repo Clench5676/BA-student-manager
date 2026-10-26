@@ -1810,13 +1810,21 @@ const wake = () => {
 // Leaving puts every part back whatever the tab is by now (an in-place show may have changed it); setStage(false)
 // closes the visual mode.
 let fullscreenRequest = 0;
-async function setFullscreen(on) {
+async function setFullscreen(on, { switching = false } = {}) {
   const request = ++fullscreenRequest, part = tab, key = variantKey;
-  if (on && tab === "portrait") { return enterVisual(); }
+  if (on && tab === "portrait") { return enterVisual({ switching }); }
   if (on) {
     const layout = await (layouts.visual ||= NGUI.layout("UICharacterVisualMode").catch(() => null));
     if (layout) await Visual.exitControl($("fs-exit"), layout);
+    const control = tab === "lobby" && previewAvailable(variant(), "spr") ? await Visual.prepareSwitch({
+      layout, label: T("row.switch.portrait"), onSwitch: switchFullscreenView,
+    }) : null;
     if (request !== fullscreenRequest || !open || tab !== part || variantKey !== key) return;
+    $("visual-ui").replaceChildren(...(control ? [control] : []));
+    $("visual-ui").hidden = !control;
+  } else if (part !== "portrait") {
+    $("visual-ui").hidden = true;
+    $("visual-ui").replaceChildren();
   }
   setStage(on);
   if (!on || tab === "lobby") { Lobby.frame(on ? "full" : "left"); Lobby.interactive(on); }
@@ -1832,7 +1840,8 @@ function setStage(on) {
   fullscreen = on;
   stage().classList.toggle("fullscreen", on);
   if (on) Visual.uiOut(slidOut());
-  else Visual.uiBack(slidOut(), { refocus: open });
+  else Visual.uiBack(slidOut(), { refocus: open, fallback: () => [...$("ngui").querySelectorAll("button")]
+    .find((button) => button.getAttribute("aria-label") === T("lobby.fullscreen")) });
 }
 function showExit(on) {
   $("fs-exit").hidden = !on;
@@ -1842,24 +1851,54 @@ function showExit(on) {
 // glides into the whole art and they come in. Without the prefab (another game version) the portrait still goes
 // fullscreen, with the tool's exit button.
 let visualToken = 0;
-async function enterVisual() {
-  if (fullscreen || !mainPlayer?.skeleton) return; // the portrait is not in yet
-  const my = ++visualToken, key = variantKey;
-  const alive = () => my === visualToken && open && !fullscreen && tab === "portrait" && variantKey === key && !!mainPlayer?.skeleton;
+async function enterVisual({ switching = false } = {}) {
+  if ((fullscreen && !switching) || !mainPlayer?.skeleton) return; // the portrait is not in yet
+  const my = ++visualToken, key = variantKey, request = fullscreenRequest;
+  const alive = () => my === visualToken && request === fullscreenRequest && open && fullscreen === switching
+    && tab === "portrait" && variantKey === key && !!mainPlayer?.skeleton;
   const layout = await (layouts.visual ||= NGUI.layout("UICharacterVisualMode").catch(() => null));
-  const strings = { reset: T("visual.reset"), back: T("lobby.exit"), hide: T("visual.hide"), show: T("visual.show") };
+  const strings = { reset: T("visual.reset"), back: T("lobby.exit"),
+    switch: previewAvailable(variant(), "lobby") ? T("row.switch.lobby") : null };
   const parts = await Visual.prepare({ layout, bg: variant().bg, strings }).catch((err) => { console.error(err); return null; });
   if (!alive()) return;
   if (!(await Visual.open({
     parts, skeleton: mainPlayer.skeleton, detail: detailViewport(), host: stage(), bgHost: $("visual-bg"), uiHost: $("visual-ui"),
     players: () => [...$("portrait").querySelectorAll(".layer")].map((l) => l.player).filter(Boolean),
     onBack: () => setFullscreen(false),
+    onSwitch: switchFullscreenView,
     alive,
   }))) return;
   if (!alive()) return;
   setStage(true);
   await Photo.visualEntry(true);
-  if (!parts) showExit(true);
+  showExit(!parts);
+}
+
+// Reuse the detail preview loaders and source selection while keeping the stage fullscreen. These paths only
+// read previews; the selected skin, expression, mod toggle and configured sources remain owned by the detail page.
+let fullscreenSwitching = false;
+async function switchFullscreenView() {
+  if (!fullscreen || fullscreenSwitching || busy || Loading.held() || photoSession || !["portrait", "lobby"].includes(tab)) return;
+  const target = tab === "portrait" ? "lobby" : "portrait", key = variantKey;
+  if (!previewAvailable(variant(), switchKindOf(target))) return;
+  const request = ++fullscreenRequest;
+  const alive = () => request === fullscreenRequest && open && fullscreen && variantKey === key;
+  fullscreenSwitching = true;
+  try {
+    const ready = await changeInPlace(async () => {
+      if (!alive()) return;
+      Visual.close({ instant: true });
+      $("visual-ui").hidden = true;
+      $("visual-ui").replaceChildren();
+      showExit(false);
+      tab = target;
+      await Promise.all([renderAll(), renderLeft()]);
+      if (alive()) await setFullscreen(true, { switching: true });
+    });
+    if (ready && open && fullscreen && variantKey === key && tab === target) {
+      [...$("visual-ui").querySelectorAll("button")].find((button) => button.dataset.visualAction === "Btn_HideUI")?.focus({ preventScroll: true });
+    }
+  } finally { fullscreenSwitching = false; }
 }
 // the switch card's still is taken in the left framing: when fullscreen was entered before the lobby or the model was
 // in, the still is taken once the left framing is back
@@ -2051,6 +2090,11 @@ const keySteps = pacer(async (delta) => {
   arrivals = arrivals.filter((r) => r !== resolve);
 });
 addEventListener("keydown", (ev) => {
+  if (ev.key === "Escape" && open && fullscreen && !Visual.isOpen() && !photoSession) {
+    ev.preventDefault();
+    void setFullscreen(false);
+    return;
+  }
   const delta = deltaOf(ev);
   if (!delta || typing(ev.target) || blocked() || (changing() && !keySteps.busy)) return;
   ev.preventDefault(); // the page's own use of the arrows (scrolling the unfolded strip) gives way to the step
@@ -2186,7 +2230,7 @@ async function photoPreload(){
     if(photoOrigin!==variantKey||!open)throw new DOMException('Photography source changed','AbortError');
     if(portraitAvailable&&!Visual.isOpen()){
       const layout=await(layouts.visual ||= NGUI.layout('UICharacterVisualMode'));
-      const parts=await Visual.prepare({layout,bg:v.bg,strings:{reset:T('visual.reset'),back:T('lobby.exit'),hide:T('visual.hide'),show:T('visual.show')}});
+      const parts=await Visual.prepare({layout,bg:v.bg,strings:{reset:T('visual.reset'),back:T('lobby.exit')}});
       await Visual.open({parts,skeleton:mainPlayer.skeleton,detail:detailViewport(),host:stage(),bgHost:$("visual-bg"),uiHost:$("visual-ui"),
         players:()=>[...portrait.querySelectorAll('.layer')].map(layer=>layer.player).filter(Boolean),onBack:()=>setFullscreen(false),alive:()=>open&&photoOrigin===variantKey});
     }

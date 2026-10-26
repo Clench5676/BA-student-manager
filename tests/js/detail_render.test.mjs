@@ -6,6 +6,7 @@ import { test } from "node:test";
 import { switchPrefabs } from "./switch_prefabs.mjs";
 import { selectionPrefab } from "./selection_prefabs.mjs";
 import { controls } from "./control_prefabs.mjs";
+import { visualPrefab } from "./visual_prefabs.mjs";
 const controlLayouts = controls();
 const switchLayouts = switchPrefabs();
 
@@ -55,7 +56,10 @@ class El {
   getAttribute(k) { return this.attrs[k] ?? null; }
   removeAttribute(k) { delete this.attrs[k]; }
   focus() { document.activeElement = this; }
-  click() { return Promise.all((this.listeners.click || []).map((f) => f({ type: "click" }))); }
+  blur() { if (document.activeElement === this) document.activeElement = body; }
+  closest(selector) { assert.equal(selector, "[inert]"); for (let n = this; n; n = n.parentNode) if (n.inert) return n; return null; }
+  getBoundingClientRect() { return { left: 0, top: 0, width: 1920, height: 1080 }; }
+  click() { return Promise.all((this.listeners.click || []).map((f) => f({ type: "click", stopPropagation() {} }))); }
   getContext() {
     return { font: "", measureText(s) {
       const fs = parseFloat(/([\d.]+)px/.exec(this.font)?.[1] || 10);
@@ -70,19 +74,23 @@ class El {
 const walk = (el) => [el, ...el.children.flatMap(walk)];
 const body = new El("body"), title = new El(), back = new El("button");
 const hosts = Object.fromEntries(["stage", "screen-detail", "ngui", "ngui-bg", "ngui-chips", "ngui-expr", "portrait", "lobby", "model",
-  "popup", "picker", "dialog", "prompt", "consent", "notify", "fs-exit"].map((id) => {
+  "popup", "picker", "dialog", "prompt", "consent", "notify", "fs-exit", "visual-ui", "visual-bg"].map((id) => {
   const el = body.appendChild(new El()); el.id = id; el.hidden = /popup|picker|dialog|prompt|consent/.test(id); return [id, el];
 }));
 const documentEvents = new EventTarget();
 globalThis.window = new EventTarget();
 globalThis.document = { hidden: false, hasFocus: () => true, body, documentElement: new El("html"), activeElement: body,
-  createElement: (tag) => new El(tag), createDocumentFragment: () => new El("fragment"), getElementById: (id) => hosts[id],
+  createElement: (tag) => new El(tag), createDocumentFragment: () => new El("fragment"), getElementById: (id) => hosts[id] || walk(body).find((el) => el.id === id),
   querySelector: (s) => s === ".topbar .title" ? title : s === ".topbar .back" ? back : null,
   querySelectorAll: () => [], addEventListener: (...args) => documentEvents.addEventListener(...args),
   removeEventListener: (...args) => documentEvents.removeEventListener(...args) };
 Object.defineProperty(globalThis, "navigator", { value: { platform: "Mac" }, configurable: true });
 globalThis.location = { hash: "#/student/ibuki/ibuki" };
-globalThis.addEventListener = () => {};
+const globalListeners = {};
+globalThis.addEventListener = (type, fn) => (globalListeners[type] ||= new Set()).add(fn);
+globalThis.removeEventListener = (type, fn) => globalListeners[type]?.delete(fn);
+const keydown = (key) => { for (const fn of [...(globalListeners.keydown || [])]) fn({ key, preventDefault() {} }); };
+globalThis.Audio = class { constructor() { assert.fail("Audio must remain muted in tests"); } };
 globalThis.requestAnimationFrame = (fn) => { queueMicrotask(() => { for (const p of thumbnailPlayers) if (!p.disposed) p.config.draw?.(p); fn(performance.now()); }); return 1; };
 globalThis.cancelAnimationFrame = () => {};
 globalThis.getComputedStyle = () => ({ opacity: "1" });
@@ -129,6 +137,7 @@ globalThis.spine = { Vector2: class {}, Physics: { update: 1 }, RegionAttachment
     assert.equal(config.premultipliedAlpha, false, "portraits and thumbnails retain the 0.2.0 PMA flag");
     playerRequests.push(config.skeleton);
     this.dispose = () => { this.disposed = true; }; this.config = config;
+    this.currentViewport = { ...config.viewport };
     this.canvas = new EventTarget(); this.stopRequestAnimationFrame = false;
     this.stopRendering = () => { this.stopRequestAnimationFrame = true; };
     this.startRendering = () => { this.stopRequestAnimationFrame = false; };
@@ -140,7 +149,8 @@ globalThis.spine = { Vector2: class {}, Physics: { update: 1 }, RegionAttachment
     } }, slots: [], setToSetupPose() {}, updateWorldTransform() {},
       getBounds: (offset, size) => { Object.assign(offset, { x: 0, y: 0 }); Object.assign(size, { x: 800, y: 1600 }); },
     };
-    this.animationState = { setAnimation: () => ({ animation: {} }), setEmptyAnimation: () => ({ animation: {} }), addEmptyAnimation() {}, clearTracks() {}, apply() {} };
+    this.trackNames = {};
+    this.animationState = { setAnimation: (track, name) => { this.trackNames[track] = name; return { animation: {} }; }, setEmptyAnimation: () => ({ animation: {} }), addEmptyAnimation() {}, clearTracks() {}, apply() {} };
     if (playerMode === "lobby-ready" && el.className === "lobby-layer") {
       this.skeleton.data.findBone = () => null;
       this.skeleton = new Skeleton(this.skeleton.data);
@@ -222,6 +232,7 @@ for (const path of ["BG/Deco", "Label_Name", "Char_CVCollectionBtn/Sprite", "Cha
 const atlas = { Common: Object.fromEntries([...new Set([
   ...[...readFileSync(new URL("../../src/ba_modding_toolkit/web/js/detail.js", import.meta.url), "utf8").matchAll(/"(Common_[A-Za-z0-9_]+)"/g)].map((m) => m[1]),
   "Common_Bg_Raius10px_Select", "Common_Icon_Check_Y_Off", "Common_Icon_Mulligan_1", "Common_Icon_Mulligan_2", "Card_Select_Line_Blue", "Cafe_Icon_NameEdit", "Common_Icon_Reddot2", "School_Icon_Schedule",
+  "Common_UIHide_Icon", "Common_Icon_Back", "Common_Empty", "Cafe_Icon_Rotate",
 ])].map((name) => [name, { width: 8, height: 8 }])), Event: { Event_Icon_ClueSearch_857: { width: 8, height: 8 } } };
 const reply = (data, status = 200) => ({ ok: status === 200, status, json: async () => data });
 let family, indexMode = "ready", layoutMode = "ready", lobbyMode = "pending", optionalPending = false, modsEnabled = true;
@@ -284,6 +295,7 @@ globalThis.fetch = async (url, opts = {}) => {
     if (url.endsWith("UIPopup_Mulligan.json")) return reply(selectionPrefab());
     if (url.endsWith("UIPopup_Option_PC.json")) return reply(controlLayouts.option);
     if (url.endsWith("UIPopup_FilterSort.json")) return reply(controlLayouts.filter);
+    if (url.endsWith("UICharacterVisualMode.json")) return reply(visualPrefab());
     if (url.endsWith("UICharacterCollection.json") || url.endsWith("UIPopup_GachaCharList.Btn_Checkbox.json")) return reply(null, 404);
     return reply(node("Empty"));
   }
@@ -373,7 +385,7 @@ const ModSwitch = await import("../../src/ba_modding_toolkit/web/js/mod-switch.j
 const ModAlias = await import("../../src/ba_modding_toolkit/web/js/mod-alias.js");
 const Popup = await import("../../src/ba_modding_toolkit/web/js/popup.js");
 let invalidations = 0;
-const context = { prefs: {}, info: {}, invalidateRoster() { invalidations++; }, step() {}, go() {} };
+const context = { prefs: { voiceMuted: true, voiceVolume: 0 }, info: {}, invalidateRoster() { invalidations++; }, step() {}, go() {} };
 function modFamily(kind = "spr", id = "test") {
   return { key: "ibuki", version: id, variants: [{ key: "ibuki", spr: "ibuki_spr", lobby: "ibuki_home", names: { en: { full: "Ibuki", short: "Ibuki" } },
     modList: [{ id, target: "ibuki", kind, label: id }], state: { files: [{ kind, applied: `mod:${id}`, official: false, restorable: true, crc: "fixed" }] } }] };
@@ -1714,4 +1726,174 @@ test("an unselected library-only Mod can be saved for preview without applying",
     const apply = walk(hosts.ngui).find((e) => e.dataset.part?.endsWith("SkillData_EX (3)/Bg"));
     assert.equal(apply.disabled, true);
   } finally { Detail.hide(); await flush(); t.mock.timers.reset(); }
+});
+
+const visualButton = (name) => walk(hosts['visual-ui']).find((el) => el.dataset.visualAction === name);
+const zoomButton = () => walk(hosts.ngui).find((el) => el.dataset.part === `${PLATE}/Char_ZoomBtn`);
+function assertPhotographyCorner(mode) {
+  const launcher = document.getElementById('photo-launcher');
+  const hit = walk(launcher).find((el) => el.tagName === 'BUTTON'), scale = 1920 / 2960;
+  const width = 171 * scale, height = 116 * scale;
+  const expected = [960 + 1352 * scale - width / 2 - (mode === 'portrait' ? width + 26 : 0),
+    540 - (-112.5 - 658 + 61.1) * scale - height / 2, width, height];
+  ['left', 'top', 'width', 'height'].forEach((key, index) => assert.ok(Math.abs(parseFloat(hit.style[key]) - expected[index]) < 0.02, `Photography ${key} follows the existing ${mode} corner`));
+}
+async function clickFullscreen(t, button) {
+  assert.ok(button, 'The fullscreen action must exist');
+  const result = button.click(); await flush(); await finish(t, result);
+}
+
+for (const enabled of [true, false]) test(`fullscreen switches both ways on the selected skin with mods ${enabled ? 'on' : 'off'} and keeps preview state`, async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    errors.length = 0; lobbyMode = 'ready'; playerMode = 'lobby-ready';
+    setStrings('en-US', localeTable('en-US'));
+    modsEnabled = enabled; await ModSwitch.refresh();
+    family = modFamily('spr', `fullscreen-${enabled}`);
+    const selected = structuredClone(family.variants[0]); selected.key = 'selected-skin'; selected.spr = 'selected_skin_spr'; selected.lobby = 'selected_skin_home';
+    selected.previewSources = { spr: 'mod:portrait-preview', lobby: 'mod:library-only-lobby' };
+    selected.configured = { spr: 'mod:configured-portrait', lobby: 'mod:configured-lobby' };
+    selected.modList = [{ id: 'portrait-preview', target: selected.key, kind: 'spr' }, { id: 'library-only-lobby', target: selected.key, kind: 'lobby' }];
+    family.variants.push(selected);
+    await showPortrait(t, selected.key);
+    await walk(hosts['ngui-expr']).filter((el) => el.tagName === 'BUTTON')[1].click(); await flush();
+    const saved = structuredClone(selected), start = rpcRequests.length, assets = playerRequests.length, requests = assetRequests.length;
+    const origin = zoomButton(); origin.focus();
+    await clickFullscreen(t, origin);
+    assert.equal(hosts.stage.classList.contains('fullscreen'), true);
+    assert.equal(visualButton('Btn_HideUI').getAttribute('aria-label'), 'Switch Memorial Lobby');
+    assert.equal(visualButton('Btn_Back').hidden, false);
+    assert.equal(hosts.ngui.inert, true);
+    assertPhotographyCorner('portrait');
+    visualButton('Btn_HideUI').focus();
+    await clickFullscreen(t, visualButton('Btn_HideUI'));
+    assert.equal(hosts.stage.classList.contains('fullscreen'), true);
+    assert.equal(Detail.currentVariant(), selected.key);
+    assert.equal(hosts.lobby.hidden, false);
+    assert.equal(hosts['visual-ui'].querySelector('.visual-touch'), null, 'Lobby input has no portrait overlay');
+    assert.equal(visualButton('Btn_HideUI').getAttribute('aria-label'), 'Switch Portrait');
+    assert.equal(document.activeElement, visualButton('Btn_HideUI'), 'The replacement switch retains keyboard focus');
+    assert.equal(hosts['fs-exit'].hidden, false, 'Back remains available in the lobby');
+    const s = 1920 / 2960, backBounds = [960 + (-1354 - 171 / 2) * s, 540 - (650 + 116 / 2) * s, 171 * s, 116 * s];
+    ['left', 'top', 'width', 'height'].forEach((key, index) => assert.ok(Math.abs(parseFloat(hosts['fs-exit'].style[key]) - backBounds[index]) < 0.02, `Lobby Back ${key} keeps its existing position`));
+    assertPhotographyCorner('lobby');
+    await clickFullscreen(t, visualButton('Btn_HideUI'));
+    assert.equal(hosts.portrait.hidden, false);
+    assert.equal(hosts['fs-exit'].hidden, true, 'The portrait keeps its own Back control');
+    assert.equal(visualButton('Btn_HideUI').getAttribute('aria-label'), 'Switch Memorial Lobby');
+    const player = [...hosts.portrait.querySelectorAll('.layer')].at(-1).player;
+    assert.equal(player.trackNames[1], '01', 'The selected expression survives the round trip');
+    assert.equal(document.activeElement, visualButton('Btn_HideUI'));
+    assertPhotographyCorner('portrait');
+    assert.ok(playerRequests.slice(assets).some((url) => url.includes('/mod/library-only-lobby/')));
+    assert.ok(assetRequests.slice(requests).some((url) => url.includes('/lobby/selected_skin_home/')));
+    assert.ok(!assetRequests.slice(requests).some((url) => url.includes('/lobby/ibuki_home/')), 'No other skin supplies the lobby');
+    assert.ok(playerRequests.slice(assets).some((url) => url.includes('/mod/portrait-preview/')));
+    await clickFullscreen(t, visualButton('Btn_Back'));
+    assert.equal(hosts.stage.classList.contains('fullscreen'), false);
+    await clickFullscreen(t, zoomButton()); keydown('Escape'); await flush();
+    assert.equal(hosts.stage.classList.contains('fullscreen'), false);
+    assert.equal(hosts.ngui.inert, false);
+    assert.equal(document.activeElement, zoomButton(), 'Back returns focus to the rebuilt detail launcher');
+    assert.deepEqual(selected, saved);
+    assert.equal(ModSwitch.current().enabled, enabled);
+    assert.ok(!rpcRequests.slice(start).some((r) => /^(actions\.|ui\.preview|mods\.(set|toggle))/.test(r.method)), 'Fullscreen navigation performs no game or preview writes');
+    assert.ok(!errors.some((args) => args[0] === 'Detail render failed'), errors.map(String).join('\n'));
+  } finally { Detail.hide(); modsEnabled = true; await ModSwitch.refresh(); lobbyMode = 'pending'; playerMode = 'ready'; await flush(); t.mock.timers.reset(); }
+});
+
+test('a skin without a lobby omits the switch even when another skin has a lobby', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    family = modFamily();
+    const selected = { ...structuredClone(family.variants[0]), key: 'portrait-only', lobby: null };
+    family.variants.push(selected);
+    await showPortrait(t, selected.key);
+    await clickFullscreen(t, zoomButton());
+    assert.equal(visualButton('Btn_HideUI'), undefined);
+    assert.ok(visualButton('Btn_Back'));
+    assert.ok(walk(hosts['visual-ui']).some((el) => el.dataset.path?.includes('Btn_RefreshPos_Disable')));
+    assert.ok(document.getElementById('photo-launcher'), 'Photography remains available');
+    await clickFullscreen(t, visualButton('Btn_Back'));
+    assert.equal(hosts.stage.classList.contains('fullscreen'), false);
+  } finally { Detail.hide(); await flush(); t.mock.timers.reset(); }
+});
+
+for (const viaSwitch of [true, false]) test(`Back and Escape leave the lobby fullscreen ${viaSwitch ? 'after the portrait switch' : 'from the lobby detail tab'}`, async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    lobbyMode = 'ready'; playerMode = 'lobby-ready'; family = modFamily();
+    await showPortrait(t);
+    if (!viaSwitch) await clickFullscreen(t, tabButton(2));
+    zoomButton().focus(); await clickFullscreen(t, zoomButton());
+    if (viaSwitch) await clickFullscreen(t, visualButton('Btn_HideUI'));
+    await clickFullscreen(t, hosts['fs-exit']);
+    assert.equal(hosts.stage.classList.contains('fullscreen'), false);
+    assert.equal(hosts['visual-ui'].hidden, true);
+    assert.equal(document.activeElement, zoomButton());
+    await clickFullscreen(t, zoomButton()); keydown('Escape'); await flush();
+    assert.equal(hosts.stage.classList.contains('fullscreen'), false);
+    assert.equal(hosts['visual-ui'].hidden, true);
+    assert.equal(hosts.ngui.inert, false);
+  } finally { Detail.hide(); lobbyMode = 'pending'; playerMode = 'ready'; await flush(); t.mock.timers.reset(); }
+});
+
+test('Escape while a fullscreen switch is loading cannot reopen fullscreen with stale controls', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    family = modFamily(); lobbyMode = 'pending'; await showPortrait(t);
+    await clickFullscreen(t, zoomButton());
+    const switching = visualButton('Btn_HideUI').click(); await flush();
+    keydown('Escape'); await flush();
+    await finish(t, switching);
+    assert.equal(hosts.stage.classList.contains('fullscreen'), false);
+    assert.equal(hosts['visual-ui'].hidden, true);
+    assert.equal(hosts['fs-exit'].hidden, true);
+    assert.equal(hosts.ngui.inert, false);
+  } finally { Detail.hide(); await flush(); t.mock.timers.reset(); }
+});
+
+for (const lang of ['en-US', 'zh-CN', 'zh-TW', 'ja-JP', 'ko-KR', 'th-TH']) test(`fullscreen prefab corners and native switch buttons preserve geometry in ${lang}`, async () => {
+  const Visual = await import('../../src/ba_modding_toolkit/web/js/visual-mode.js');
+  const strings = localeTable(lang), scale = 1920 / 2960, layout = visualPrefab();
+  const labels = { back: strings['webui.lobby.exit'], reset: strings['webui.visual.reset'], switch: strings['webui.row.switch.lobby'] };
+  const before = structuredClone(layout);
+  const parts = await Visual.prepare({ layout, strings: labels });
+  let switched = 0;
+  const lobby = await Visual.prepareSwitch({ layout, label: strings['webui.row.switch.portrait'], onSwitch: () => { switched++; } });
+  const button = (group) => walk(group).find((el) => el.tagName === 'BUTTON');
+  const portraitSwitch = button(parts.groups.Btn_HideUI), lobbySwitch = button(lobby);
+  for (const key of ['left', 'top', 'width', 'height', 'zIndex']) assert.equal(lobbySwitch.style[key], portraitSwitch.style[key], 'Both views use the identical hit area');
+  assert.equal(portraitSwitch.getAttribute('aria-label'), strings['webui.row.switch.lobby']);
+  assert.equal(lobbySwitch.getAttribute('aria-label'), strings['webui.row.switch.portrait']);
+  for (const control of [portraitSwitch, lobbySwitch]) {
+    assert.equal(control.tagName, 'BUTTON', 'Native buttons support Tab, Enter and Space');
+    assert.notEqual(control.tabIndex, -1);
+    assert.equal(control.disabled, undefined);
+    assert.equal(control.closest('[inert]'), null);
+  }
+  await lobbySwitch.click(); assert.equal(switched, 1);
+  assert.equal(parts.groups.Btn_ShowUI, undefined, 'No Hide/Show UI alternate remains');
+  const near = (a, b) => assert.ok(Math.abs(a - b) < 0.02, `${a} != ${b}`);
+  const bounds = (el) => ['left', 'top', 'width', 'height'].map((key) => parseFloat(el.style[key]));
+  const switchBox = bounds(portraitSwitch);
+  const backBox = bounds(button(parts.groups.Btn_Back));
+  const resetBox = bounds(button(parts.groups.Btn_RefreshPos));
+  const expected = [
+    [switchBox, [960 + (1352 - 228.83 / 2) * scale, 540 - (78.5 + 650 + 165 / 2) * scale, 228.83 * scale, 165 * scale]],
+    [backBox, [960 + (-1354 - 228.83 / 2) * scale, switchBox[1], 228.83 * scale, 165 * scale]],
+    [resetBox, [switchBox[0], 540 - (-112.5 - 658 + 32 + 195.2 / 2) * scale, 228.83 * scale, 195.2 * scale]],
+  ];
+  for (const [width, height] of [[960, 540], [1600, 900], [2560, 1440]]) for (const density of [1, 2]) {
+    const factor = Math.min(width / 1920, height / 1080) * density;
+    for (const [actual, reference] of expected) actual.forEach((value, index) => near(value * factor, reference[index] * factor));
+  }
+  for (const group of [parts.groups.Btn_HideUI, lobby]) {
+    const icon = walk(group).find((el) => el.dataset.path?.endsWith('RightTop/Btn_HideUI/Icon'));
+    near(parseFloat(icon.style.width), 79 * scale); near(parseFloat(icon.style.height), 67 * scale);
+    near(parseFloat(icon.style.left) + 79 * scale / 2, switchBox[0] + switchBox[2] / 2);
+    near(parseFloat(icon.style.top) + 67 * scale / 2, switchBox[1] + switchBox[3] / 2 - 8 * scale);
+    assert.ok(imageRequests.some((url) => url.includes('/Common_UIHide_Icon.png')), 'The original double-arrow sprite is rendered');
+  }
+  assert.deepEqual(layout, before, 'The source prefab is unchanged');
 });
