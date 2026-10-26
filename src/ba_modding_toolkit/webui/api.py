@@ -347,6 +347,8 @@ def build_api(s: Services) -> RpcRegistry:
 
             # Validate before publishing the preference or invalidating a usable Hall.
             with s._lock:
+                if s.jobs.busy():
+                    raise ServiceError('busy')
                 folder = st.get("game_resource_dir_japan" if value == "windows_japan" else "game_resource_dir")
                 path = Path(folder).expanduser() if folder else None
                 if path is None or not devmode.allows_read(path) or not path.is_dir() or not get_search_dirs(path):

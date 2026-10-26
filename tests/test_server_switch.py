@@ -70,3 +70,14 @@ def test_saved_model_target_uses_offline_student_metadata(tmp_path):
     value = library.variant_metadata('shiroko')
     assert value.names == catalog.assignment_variant('shiroko').names
     assert value.spr is None and value.lobby is None
+
+
+def test_server_switch_cannot_reuse_a_catalog_retained_by_an_active_task(app, services, tmp_path, monkeypatch):
+    folder = tmp_path / 'japan'; folder.mkdir()
+    services.settings.set('file_source', 'windows_global')
+    services.settings.set('game_resource_dir_japan', str(folder))
+    services.settings.save()
+    before = services.settings.path.read_bytes()
+    monkeypatch.setattr(services.jobs, 'busy', lambda *args: True)
+    assert rpc(app, 'settings.set', key='fileSource', value='windows_japan')['error']['code'] == 'busy'
+    assert services.settings.path.read_bytes() == before
