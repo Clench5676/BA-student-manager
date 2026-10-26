@@ -885,9 +885,11 @@ Keep BL-039's behaviour: the current server, Hall and saved choices stay as they
 
 ## BL-046: Managed CLI CAB cache and upstream introspection tests
 
-- Status: Planned; from the 2026-10-26 upstream sync assessment.
+- Status: Implemented for local review; owner UAT/visual acceptance pending.
 - Requested: 2026-10-26.
 - Related: BL-012 and BL-014.
+- Note: CLI discovery shares managed scoped/versioned CAB metadata, publishes interrupted scans before output,
+  and tests local and external PPtrs separately.
 
 The CLI `inspect`/`trace` cache still defaults to `Addons/cab_cache.json` beside the program: unbounded, not keyed by
 the game's resource version, not cleared from Settings, and since the latest upstream sync rewritten in full on every
