@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -121,7 +122,8 @@ def test_cache_opt_out_keeps_discovery_in_memory(managed, tmp_path, opt_out):
     assert not (data / "cache").exists()
 
 
-def test_settings_clear_removes_cli_cache_and_invalidates_a_running_index(managed, tmp_path):
+@pytest.mark.parametrize("custom_namespace", [False, True])
+def test_settings_clear_removes_cli_cache_and_invalidates_a_running_index(managed, tmp_path, custom_namespace):
     data, state = managed
     chosen = tmp_path / "selected cache parent"
     chosen.mkdir()
@@ -129,7 +131,7 @@ def test_settings_clear_removes_cli_cache_and_invalidates_a_running_index(manage
     game = tmp_path / "game"
     game.mkdir()
     target = bundle(game, "target.bundle", "CAB-TARGET")
-    cli = managed_cab_index([game])
+    cli = managed_cab_index([game], tmp_path / "selected.json" if custom_namespace else None)
     assert cli.resolve({"cab-target"})
     services = Services(config.Settings(data / "config.toml"), data, state=state,
                         game=FakeGame(), catalog=FakeCatalog(), library=FakeLibrary())
@@ -234,3 +236,44 @@ cli.main()
     restarted = managed_cab_index([game])
     restarted.reader = no_header
     assert restarted.resolve({"cab-target"}) == {"cab-target": str(target)}
+
+
+def test_cli_discovers_bundles_above_the_legacy_size_cutoff(managed, tmp_path):
+    game = tmp_path / "game"
+    game.mkdir()
+    target = bundle(game, "large.bundle", "CAB-LARGE", padding=65 * 1024 * 1024)
+    assert target.stat().st_size > 64 * 1024 * 1024
+    assert find_cab_bundles({"CAB-LARGE"}, [game], max_bundle_size=1) == {"CAB-LARGE": target}
+
+
+def test_indirect_graph_fallback_persists_metadata_and_confines_paths(managed, tmp_path, monkeypatch):
+    from ba_modding_toolkit.bundle import Bundle
+    from ba_modding_toolkit.core.introspect import _make_graph
+
+    game = tmp_path / "game"
+    game.mkdir()
+    direct_path = bundle(game, "a.bundle", "CAB-FIRST")
+    indirect_path = bundle(game, "b.bundle", "CAB-SECOND")
+    outside = bundle(tmp_path, "outside.bundle", "CAB-OUTSIDE")
+    (game / "escape.bundle").symlink_to(outside)
+    local_sf = SimpleNamespace(name="CAB-local", externals=[SimpleNamespace(path="CAB-FIRST")])
+    direct_sf = SimpleNamespace(name="CAB-FIRST", externals=[SimpleNamespace(path="CAB-SECOND")])
+    indirect_sf = SimpleNamespace(name="CAB-SECOND", externals=[SimpleNamespace(path="CAB-OUTSIDE")])
+    source = SimpleNamespace(assets_file=local_sf, path_id=1)
+    direct = SimpleNamespace(assets_file=direct_sf, path_id=2)
+    indirect = SimpleNamespace(assets_file=indirect_sf, path_id=3)
+    source_path = tmp_path / "source.bundle"
+    bundles = {
+        path: SimpleNamespace(path=path, env=SimpleNamespace(assets=[sf], objects=[obj]))
+        for path, sf, obj in [(source_path, local_sf, source), (direct_path, direct_sf, direct),
+                              (indirect_path, indirect_sf, indirect)]}
+    monkeypatch.setattr(Bundle, "load", lambda path, log: bundles[path])
+    graph = _make_graph([bundles[source_path]], [game], lambda message: None, None)
+    assert graph.deref(source, {"m_FileID": 1, "m_PathID": 2}) is direct
+    assert graph.deref(direct, {"m_FileID": 1, "m_PathID": 3}) is indirect
+    assert graph.deref(indirect, {"m_FileID": 1, "m_PathID": 4}) is None
+    assert {Path(path) for path in graph.index.values()} == {direct_path, indirect_path}
+    restarted = managed_cab_index([game])
+    restarted.reader = no_header
+    assert restarted.resolve({"cab-first", "cab-second"}) == {
+        "cab-first": str(direct_path), "cab-second": str(indirect_path)}

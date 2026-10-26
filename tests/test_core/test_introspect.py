@@ -68,7 +68,7 @@ class TestGraphResolution:
         for ptr in refs:
             resolved = graph.deref(target, ptr)
             assert resolved is not None, f"Unresolved local pointer: {ptr}"
-            assert resolved.assets_file is target.assets_file
+            assert resolved.assets_file.name.lower() == target.assets_file.name.lower()
 
     def test_external_refs_remain_unresolved_without_their_bundle(self, sample_case: "SampleCase") -> None:
         """External references need not resolve in local-only mode."""
