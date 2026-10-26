@@ -22,11 +22,12 @@ The 0.6.0 work is unreleased. Nothing has been tagged, pushed or published since
 | BL-022 through BL-029, BL-031 | Implemented for alpha.1; later owner findings are separate entries |
 | BL-033 through BL-036, BL-038, BL-039 | Accepted by the owner on macOS (alpha.2); Windows not reviewed |
 | BL-032 | Implemented for alpha.2; the English label overflow continues as BL-040 |
-| BL-037 | Implemented for local review; owner UAT/visual acceptance pending. Gated M1/W1 experiment, single-row caption hiding and shared guarded close. |
+| BL-037 | Implemented; owner's macOS review of alpha.5 found defects (drag, double-click, Window menu, top bar over immersive pages); fixes not started. Windows not reviewed. |
 | BL-040, BL-041, BL-043, BL-045 | Accepted by the owner on macOS (alpha.3); Windows not reviewed |
 | BL-042 | Accepted by the owner on macOS (alpha.4) |
-| BL-044 | Implemented for local review; owner UAT/visual acceptance pending. Yellow badge: Applied; blue badge: Selected; shared fitted size in all six locales, with the frame effect and compositing unchanged. |
-| BL-047 | Implemented for local review; owner UAT/visual acceptance pending. Prefab RightTop switches portrait/memorial lobby; omitted without a lobby. |
+| BL-044 | Implemented; owner's macOS review of alpha.5 found defects (caption overflow, corner base colour); fixes not started. |
+| BL-047 | Implemented; owner's macOS review of alpha.5 found defects (position reset before switching); fixes not started. |
+| BL-049 through BL-053 | Open owner findings from the alpha.5 macOS review, not started |
 | BL-046 | Closed by the owner without UAT (CLI-only) |
 | BL-048 | Accepted: CLI no longer built, installed or released |
 | BL-020 | Implemented for local review; owner UAT/visual acceptance pending. Exact-release notes and empty-body link fallback. |

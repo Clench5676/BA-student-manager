@@ -756,7 +756,7 @@ Official provenance controls Delete visibility and direct-request rejection. Man
 
 ## BL-037: Design native window controls integrated into the top toolbar
 
-- Status: Implemented for local review; owner UAT/visual acceptance pending.
+- Status: Implemented; the owner's macOS review of 0.6.0-alpha.5 found defects (below); fixes not started.
 - Note: M1/W1 adapters have reversible feasibility gates; measured single-row layout and shared Hall/writer close preflight are covered by fakes, not native acceptance.
 - Requested: 2026-10-26.
 - Parent: BL-024.
@@ -779,6 +779,22 @@ the "Enable Mods" caption text, keeping the switch and its help badge. Windows 1
 keeps working without dedicated optimisation. Close: every quit origin uses the existing unsaved-change prompt,
 a clean close needs no prompt, active writers still refuse. Immersion: native controls stay with a small drag
 background; add only the window/fullscreen keyboard commands needed.
+
+Owner review of 0.6.0-alpha.5 on macOS (2026-10-26; Windows not reviewed yet):
+
+1. Dragging the blank top bar does not move the window, and double-clicking it does nothing. Lead's diagnosis: the
+   native row left pywebview's drag selector (`.topbar:not(.native-toolbar)`) and relies only on the
+   `ToolbarDragView` overlay (`mouseDownCanMoveWindow` with `setMovableByWindowBackground_`); nothing handles a
+   double-click, contrary to the comment in `window_macos.py`. Proposed: handle a left mouse-down inside the reported
+   drag rectangles natively (`performWindowDragWithEvent:`) and a double-click with the system's title-bar
+   double-click action.
+2. Immersion: no small drag area beside the native controls (same cause).
+3. The Window menu does not appear. The cause could not be determined from the code.
+4. The fullscreen portrait, the memorial lobby fullscreen and the lobby camera still show the white top bar and its
+   Back over the page's own Back (two Back buttons). Lead's diagnosis: the header moved from `#stage` into
+   `.window-header`, so `.stage.fullscreen .topbar` and `.stage.hall-fullscreen .topbar` no longer match, and
+   `.window-immersive .window-header .topbar > *` hides the bar's children but not its background or the Back.
+5. Page titles are cut off although the row has room: BL-049.
 
 ## BL-038: Reflow Settings when Home is hidden in Student Hall
 
@@ -880,7 +896,7 @@ and display densities.
 
 ## BL-044: Applied and preview frames from the game's selected skill cards
 
-- Status: Implemented for local review; owner UAT/visual acceptance pending.
+- Status: Implemented; the owner's macOS review of 0.6.0-alpha.5 found defects (below); fixes not started.
 - Note: Yellow badges read Applied and blue badges Selected, fitted at one shared size per locale; no second check, and the frame effect and compositing are unchanged.
 - Requested: 2026-10-26.
 - Related: BL-015, BL-022 and BL-036.
@@ -914,6 +930,13 @@ showed at the corners is for the owner to judge.
 Owner decisions (2026-10-26): keep the new glow compositing for review. Badge text by state: the yellow (applied)
 badge reads the existing "Applied" label (`webui.status.applied`, zh-CN `已应用`); the blue (previewed) frame gets the
 prefab's blue badge (`Common_Icon_Mulligan_2`) reading "Selected" (`webui.status.selected`, zh-CN `已选择`).
+
+Owner review of 0.6.0-alpha.5 on macOS (2026-10-26):
+
+1. The badge captions overflow the badge ("Applied", `已应用`, `已选择`), in the other languages too. Owner request:
+   widen the badge to the left until the caption fits.
+2. A little uncovered base colour still shows at the frame's top-left and bottom-left corners.
+3. Two thumbnails show Applied at once: BL-053.
 
 ## BL-045: Separate Global and Japanese game directories
 
@@ -950,7 +973,7 @@ interrupted runs. Upstream's CLI options and the shared UnityFS reader are alrea
 
 ## BL-047: Fullscreen button left on a rotated fullscreen portrait
 
-- Status: Implemented for local review; owner UAT/visual acceptance pending.
+- Status: Implemented; the owner's macOS review of 0.6.0-alpha.5 found defects (below); fixes not started.
 - Requested: 2026-10-26.
 - Related: the portrait view's rotate and fullscreen controls.
 - Note: The prefab's RightTop button switches portrait and memorial lobby fullscreen; skins without a lobby omit it.
@@ -965,6 +988,12 @@ owner's confirmation of the exact behaviour.
 Owner confirmation (2026-10-26): in the fullscreen view the top-right button (double-arrow icon kept) switches
 between this skin's portrait and its memorial lobby; the Hide UI function is dropped.
 
+Owner review of 0.6.0-alpha.5 on macOS (2026-10-26):
+
+1. Switching first moves the portrait back to the detail page's initial position and only then shows the memorial
+   lobby. It must switch at once, without restoring the position.
+2. The button touches the top edge, under the top bar that should be hidden there: BL-037 item 4 and BL-052.
+
 ## BL-048: Remove the CLI as a built and installed command
 
 - Status: Accepted by the owner (2026-10-26).
@@ -976,3 +1005,54 @@ GUI stays for users who still use it. The `bamt-cli` command, the Windows CLI ex
 removed; `python -m ba_modding_toolkit.cli` keeps working from a source checkout, and the App and the classic GUI are
 unchanged.
 
+## BL-049: Page titles cut off; titles at the Enable Mods caption size
+
+- Status: Open (owner finding, macOS review of 0.6.0-alpha.5, 2026-10-26).
+- Requested: 2026-10-26.
+- Related: BL-043 (title size) and BL-037 (single-row fitting).
+
+Page titles are cut off with an ellipsis on every page and in every language although the row has free space
+(`Student H…`, `学…`). Owner decision: draw page titles at the same size as the "Enable Mods" caption, replacing
+BL-043's title size. A title is shortened only when the row really has no room left.
+
+## BL-050: No Back button in Student Hall
+
+- Status: Open (owner finding, macOS review of 0.6.0-alpha.5, 2026-10-26).
+- Requested: 2026-10-26.
+- Related: BL-038.
+
+Student Hall is the App's home: remove the top bar's Back button there. Other pages keep Back.
+
+## BL-051: Hairlines at the top bar
+
+- Status: Open (owner finding, macOS review of 0.6.0-alpha.5, 2026-10-26).
+- Requested: 2026-10-26.
+- Related: BL-026 and BL-035.
+
+Thin lines show at the top bar: at its right end beside Settings and at its top left beside the title. The owner
+asks what these recurring lines are. Lead's diagnosis to confirm: the bar's `Common_Top_Menu_Bg` is drawn with a CSS
+`border-image` 9-slice (172 px left, 11 px right) under a fractional `transform: scale()`; WebKit draws each slice on
+its own, so the slice edges fall between device pixels and blend into a faint line. BL-035 removed the same kind of
+seam from the Mod switch with the shared NGUI raster path (`ngui.js` `slicedImage`, one baked image).
+`mod-switch-skin.js` and `scrollbar.js` still use `border-image`.
+
+## BL-052: One corner-button margin across the App
+
+- Status: Open (owner finding, macOS review of 0.6.0-alpha.5, 2026-10-26).
+- Requested: 2026-10-26.
+- Related: BL-037 and BL-047.
+
+Corner buttons sit at different distances from the edges. Student Hall's three top-right buttons hang too low (owner:
+move them up to just below the bar); the fullscreen view's top-right button touches the top edge (owner: move it
+down). Use one margin from the edges for corner buttons throughout the App.
+
+## BL-053: Thumbnail picker marks other skins' applied photos
+
+- Status: Open (owner finding, macOS review of 0.6.0-alpha.5, 2026-10-26).
+- Requested: 2026-10-26.
+- Related: BL-015, BL-022 and BL-044.
+
+The thumbnail picker shows Applied on two photos at once: the one applied to the alternative skin and the one applied
+to the original skin. Only the photo applied to the shown skin's Collection portrait is Applied. Lead's diagnosis:
+`PhotographyService.list` sets `applied` from `photograph_removal_info(...)["used"]`, which is true when the photo is
+applied to any target. The delete warning for photos in use elsewhere stays as it is.
