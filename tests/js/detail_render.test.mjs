@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { register } from "node:module";
 import { test } from "node:test";
 import { switchPrefabs } from "./switch_prefabs.mjs";
+import { selectionPrefab } from "./selection_prefabs.mjs";
 import { controls } from "./control_prefabs.mjs";
 const controlLayouts = controls();
 const switchLayouts = switchPrefabs();
@@ -220,7 +221,7 @@ for (const path of ["BG/Deco", "Label_Name", "Char_CVCollectionBtn/Sprite", "Cha
 
 const atlas = { Common: Object.fromEntries([...new Set([
   ...[...readFileSync(new URL("../../src/ba_modding_toolkit/web/js/detail.js", import.meta.url), "utf8").matchAll(/"(Common_[A-Za-z0-9_]+)"/g)].map((m) => m[1]),
-  "Card_Select_Line_Blue", "Cafe_Icon_NameEdit", "Common_Icon_Reddot2", "School_Icon_Schedule",
+  "Common_Bg_Raius10px_Select", "Common_Icon_Check_Y_Off", "Common_Icon_Mulligan_1", "Card_Select_Line_Blue", "Cafe_Icon_NameEdit", "Common_Icon_Reddot2", "School_Icon_Schedule",
 ])].map((name) => [name, { width: 8, height: 8 }])), Event: { Event_Icon_ClueSearch_857: { width: 8, height: 8 } } };
 const reply = (data, status = 200) => ({ ok: status === 200, status, json: async () => data });
 let family, indexMode = "ready", layoutMode = "ready", lobbyMode = "pending", optionalPending = false, modsEnabled = true;
@@ -280,6 +281,7 @@ globalThis.fetch = async (url, opts = {}) => {
     if (url.endsWith("UICharacterCollectionPopulatorUnit.json")) return reply(switchLayouts.unit);
     if (url.endsWith("UINonEquipmentInventory.json")) return reply(switchLayouts.inventory);
     if (url.endsWith("UIPopup_Sort.json")) return reply(sortPopup);
+    if (url.endsWith("UIPopup_Mulligan.json")) return reply(selectionPrefab());
     if (url.endsWith("UIPopup_Option_PC.json")) return reply(controlLayouts.option);
     if (url.endsWith("UIPopup_FilterSort.json")) return reply(controlLayouts.filter);
     if (url.endsWith("UICharacterCollection.json") || url.endsWith("UIPopup_GachaCharList.Btn_Checkbox.json")) return reply(null, 404);
@@ -1016,7 +1018,9 @@ test("repaired names and own aliases keep a separate repair tag in every locale"
         assert.equal(part("Details/Name").getAttribute("aria-label"), name);
         assert.equal(walk(part("Details/Chip_0/Text/Text")).map((el) => el.textContent).join(""), ui.webui.remap.repaired);
         assert.equal((part("Card_m:fixed/Tag/Text").textContent || part("Card_m:fixed/Tag/Text").children[0].textContent), ui.webui.remap.repaired);
-        assert.equal((part("Card_m:fixed/Using/Text").textContent || part("Card_m:fixed/Using/Text").children[0].textContent), ui.webui.status.applied);
+        assert.ok(part("Card_m:fixed/Select/AppliedBadge"));
+        assert.ok(part("Card_m:fixed/Select/Check"));
+        assert.ok(walk(hosts.popup).find(el => el.dataset.key === "m:fixed").getAttribute("aria-label").includes(ui.webui.status.applied));
         assert.ok(walk(hosts.popup).some((el) => el.dataset.action === "alias:m:fixed"));
         assert.equal(walk(hosts.popup).filter((el) => el.getAttribute("aria-label") === ui.webui.act.update).length, 1);
         await closeSwitch();
@@ -1187,7 +1191,7 @@ for (const kind of ["spr", "lobby"]) test(`an auto-applied ${kind} mod has no ca
     const popup = switchButton().click(); await flush(); await popup;
     const own = walk(hosts.popup).find((e) => e.dataset.key === "self");
     assert.ok(own); await own.click(); await flush();
-    assert.ok(walk(hosts.popup).some((e) => e.dataset.path?.endsWith("Card_m:test/Using")));
+    assert.ok(walk(hosts.popup).some((e) => e.dataset.path?.endsWith("Card_m:test/Select/AppliedBadge")));
     assert.equal(walk(hosts.popup).find((e) => e.dataset.path?.match(/Card_m:test\/(?:Dot|NewIcon)$/)), undefined);
     assert.ok(tabDot(tab)); assert.ok(chipDot("ibuki"), "card rendering leaves the unread marks intact");
     await closeSwitch();
