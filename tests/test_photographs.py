@@ -64,16 +64,14 @@ def test_metadata_failure_leaves_no_partial_photo_or_choice(tmp_path, monkeypatc
     assert not list((gallery.root / "images").iterdir())
 
 
-def test_selected_and_configured_captures_are_protected(tmp_path):
+def test_preview_selection_is_deletable_but_unreconciled_game_use_is_protected(tmp_path):
     gallery = Photographs(tmp_path)
     key = gallery.save("a", capture()[0], "portrait")["saved"]
     gallery.select("a", key)
     with pytest.raises(ServiceError, match="photo_in_use"):
-        gallery.delete("a", key)
-    gallery.select("a", None)
-    with pytest.raises(ServiceError, match="photo_in_use"):
         gallery.delete("a", key, {key})
     gallery.delete("a", key)
+    assert gallery.selection('a') is None
     assert gallery.list("a")["photos"] == []
 
 
@@ -152,8 +150,9 @@ def test_family_gallery_has_independent_variant_counters_and_selections(tmp_path
     assert store.list('student_swimsuit')['app'] is None
     assert store.list('another_base')['photos'] == []
     builtin = store.save('student_base', png, 'portrait', builtin=True)['saved']
-    assert builtin not in {item['id'] for item in store.list('student_base')['photos']}
-    assert store.save('student_base', png, 'portrait')['photos'][-1]['number'] == 2
+    generated = next(item for item in store.list('student_base')['photos'] if item['id'] == builtin)
+    assert generated['provenance'] == 'generated' and generated['managed']
+    assert next(item for item in store.save('student_base', png, 'portrait')['photos'] if item['number'] == 2)
     store.select('student_base', 'official')
     assert store.selection('student_base') == 'official'
     assert store.app_url('student_base') is None

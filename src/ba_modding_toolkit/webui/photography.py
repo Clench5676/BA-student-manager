@@ -96,10 +96,20 @@ class Photography:
         self.services.events.publish("photography.changed", {"variant": variant})
         return self.describe(result)
 
-    def delete(self, variant: str, key: str) -> dict:
+    def removal_info(self, variant: str, key: str) -> dict:
         self._variant(variant)
-        self.services.library.delete_photograph(variant, key)
-        return self.list(variant)
+        return self.services.library.photograph_removal_info(variant, key)
+
+    def delete(self, variant: str, key: str, confirm: bool = False) -> str:
+        self._variant(variant)
+        if key == 'official':
+            raise ServiceError('asset_official')
+        s, library = self.services, self.services.library
+        def run(log, progress):
+            library.delete_photograph(variant, key, confirm=confirm, log=log)
+            s.events.publish('photography.changed', {'variant': variant})
+            return self.list(variant)
+        return s.submit('photography.delete', run, writes='library', library=library)
 
     def apply(self, variant: str, key: str | None, *, png: str | None = None, restore_app: bool = False) -> str:
         self._variant(variant)
@@ -204,8 +214,12 @@ def register(rpc, services: Services) -> None:
         return services.photography.select(variant, id)
 
     @rpc.method("photography.delete")
-    def delete(variant: str, id: str):
-        return services.photography.delete(variant, id)
+    def delete(variant: str, id: str, confirm: bool = False):
+        return services.photography.delete(variant, id, confirm=confirm)
+
+    @rpc.method('photography.removalInfo')
+    def removal_info(variant: str, id: str):
+        return services.photography.removal_info(variant, id)
 
     @rpc.method("photography.apply")
     def apply(variant: str, id: str | None, png: str | None = None):

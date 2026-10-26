@@ -901,8 +901,29 @@ def build_api(s: Services) -> RpcRegistry:
     def mods_remove(id: str, confirm: bool = False) -> str:
         """Delete a library source as one writer job; game write refusals remain in its result and drift."""
         library = s.library
-        return s.submit("mods.remove", lambda log, progress: library.remove(id, confirm=bool(confirm), log=log),
-                        writes="library", library=library)
+        if id == 'official':
+            raise ServiceError('asset_official')
+        def fallback(variant, kind):
+            try:
+                value = variants[variant]
+                if getattr(value, kind, None):
+                    return 'official'
+            except (KeyError, ServiceError):
+                pass
+            return next(('mod:' + mod.id for mod in remaining
+                         if mod.id != id and mod.target == variant and mod.kind == kind), None)
+        remaining = []
+        variants = {}
+        def remove(log, progress):
+            remaining[:] = library.mods()
+            variants.update((v.key, v) for family in s.catalog.families() for v in family.variants)
+            result = library.remove(id, confirm=bool(confirm), log=log,
+                reconcile=lambda: s.state.reconcile_deleted_source('mod:' + id, fallback))
+            if result.failed:
+                error = result.failed[0]
+                raise ServiceError(error['code'], **error.get('params', {}))
+            return result
+        return s.submit("mods.remove", remove, writes="library", library=library)
 
     @rpc.method("mods.rename")
     def mods_rename(id: str, label: str) -> dict[str, Any]:

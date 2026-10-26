@@ -59,7 +59,7 @@ def test_generic_multi_file_add_apply_restore_reload_and_remove(other_env):
     assert library.apply(mod.target, f'mod:{mod.id}', kind='other').unchanged
     library.restore(mod.target, kind='other')
     assert all(p.read_bytes() == data for p, data in env.official.items())
-    assert not library.remove(mod.id).failed
+    assert not library.remove(mod.id, confirm=True).failed
     assert not library.mods()
 
 
@@ -72,7 +72,7 @@ def test_generic_overlapping_mods_are_independent_alternatives_and_official_rest
     rows = {row['id']: row for row in env.library.other_mods()}
     assert rows[first.id]['state'] == 'mixed' and not rows[first.id]['selected']
     assert rows[second.id]['state'] == 'active' and rows[second.id]['selected']
-    assert not env.library.remove(first.id).failed
+    assert not env.library.remove(first.id, confirm=True).failed
     assert env.parts[0].read_bytes() == second.file.read_bytes()
     assert env.parts[1].read_bytes() == env.official[env.parts[1]]
     env.library.restore(second.target, kind='other')
@@ -92,7 +92,7 @@ def test_generic_master_switch_defers_and_reapplies_multiple_slots(other_env):
         assert not env.library.toggle(on, not on).failed
         for path in env.parts:
             assert path.read_bytes() == ((mod.file.parent / path.name).read_bytes() if on else env.official[path])
-    assert not env.library.remove(mod.id).failed
+    assert not env.library.remove(mod.id, confirm=True).failed
     assert all(p.read_bytes() == data for p, data in env.official.items())
 
 
@@ -115,7 +115,7 @@ def test_generic_drift_untracked_adoption_and_relocation(other_env):
     relocated = env.tmp / 'relocated'
     shutil.move(env.root, relocated)
     library = ModLibrary(relocated, env.catalog, object(), env.settings)
-    assert not library.remove(adopted.added[0].id).failed
+    assert not library.remove(adopted.added[0].id, confirm=True).failed
     assert target.read_bytes() == env.official[target]
 
 

@@ -808,11 +808,31 @@ class ModLibrary:
         return portrait_edit.choice(self, descriptor, self._current(pin))
 
     @_serialized
+    def photograph_removal_info(self, variant: str, key: str) -> dict:
+        from .portrait_edit import in_use
+        if key == 'official':
+            return {'official': True, 'used': False}
+        self.photographs._entry(variant, key)
+        return {'official': False, 'used': key in in_use(self)}
+
+    @_serialized
     @_mod_writer
-    def delete_photograph(self, variant: str, key: str) -> dict:
+    def delete_photograph(self, variant: str, key: str, confirm: bool = False, log: LogFunc = no_log) -> dict:
         from . import portrait_edit
 
-        return self.photographs.delete(variant, key, portrait_edit.in_use(self))
+        if key in ("official", None):
+            raise ServiceError("asset_official")
+        self.photographs._entry(variant, key)
+        if key in portrait_edit.in_use(self) and not confirm:
+            raise ServiceError("asset_delete_confirm")
+        from .asset_delete import transaction
+        with transaction(self) as deletion:
+            if key in portrait_edit.in_use(self):
+                portrait_edit.remove_photo(self, key, log)
+            portrait_edit._prune_composites(self)
+            deletion.remember_photo(variant, key)
+            result = self.photographs.delete(variant, key, portrait_edit.in_use(self))
+        return result
 
     @_serialized
     @_mod_writer
@@ -1587,6 +1607,9 @@ class ModLibrary:
     @_serialized
     def removal_info(self, mod_id: str) -> dict:
         """The confirmation's name and whether any configuration or applied record uses this source."""
+        return self._removal_info(mod_id)
+
+    def _removal_info(self, mod_id: str) -> dict:
         source = f"mod:{mod_id}"
         used = any(entry.get("source") == source
                    for folder in ((self.profiles.read() or {}).get("folders") or {}).values()
@@ -1595,9 +1618,11 @@ class ModLibrary:
 
     @_serialized
     @_mod_writer
-    def remove(self, mod_id: str, confirm: bool = False, log: LogFunc = no_log) -> DeleteResult:
-        """Delete a source and its library references, then restore affected game entries through the normal writer.
-        Refused game writes leave the new configuration and an unfinished entry for Retry."""
+    def remove(self, mod_id: str, confirm: bool = False, log: LogFunc = no_log,
+               reconcile: Callable[[], None] | None = None) -> DeleteResult:
+        """Reconcile every use through the protected writer before deleting its managed source."""
+        if mod_id == 'official':
+            raise ServiceError('asset_official')
         record = self._record(mod_id)
         directory = self.root / "mods" / mod_id
         self._paths(record)  # refuse a stored directory or file that resolves outside the library
@@ -1634,49 +1659,39 @@ class ModLibrary:
             data["unfinished"] = [item for item in data["unfinished"]
                                   if (item["install"], item["core"]) not in affected]
 
-        old_applied = copy.deepcopy(self._applied)
-        for applied in self._applied.values():
-            if applied.get("source") == source:
-                applied.update(source="removed", removed=True)
-                applied.pop("build", None)
-        del self._records[mod_id]
+        if self._removal_info(mod_id)["used"] and not confirm:
+            raise ServiceError("asset_delete_confirm")
+        from .asset_delete import transaction
+        done = []
         try:
-            self._save()
-        except OSError:
-            self._records[mod_id] = record
-            self._applied = old_applied
-            raise
-        try:
-            self._update_profiles(change, after=lambda data: self._delete_built_files(keys, data))
-        except Exception:
-            self._records[mod_id] = record
-            self._applied = old_applied
-            self._save()
-            raise
-        shutil.rmtree(directory)
-        done, failed, outcomes = [], [], {}
-        for key, core in sorted(affected):
-            pin = by_key.get(key)
-            if pin is None:
-                continue
-            config = ((self.profiles.read() or {}).get("folders") or {}).get(key, {})
-            configured = config.get("configured", {}).get(core)
-            target = configured["source"] if configured and profiles_mod.enabled(self.profiles.read()) else "official"
-            item = {"install": key, "core": core}
-            try:
-                with _errors("restore"):
-                    self._switch(pin, core, target, log)
-                done.append(item)
-                outcomes[key, core] = None
-            except ServiceError as error:
-                failed.append({"entry": item, "code": error.code, "params": error.to_json()["params"]})
-                outcomes[key, core] = "stuck" if error.code == "original_unavailable" else "pending"
-                log_failure(logger, logging.INFO, "Deleted mod; restore deferred", error)
-        self._save_outcomes(outcomes)
+            with transaction(self) as deletion:
+                deletion.remember_mods([mod_id])
+                self._update_profiles(change)
+                if profiles_mod.enabled(self.profiles.read()):
+                    for key, core in sorted(affected):
+                        pin = by_key.get(key)
+                        if pin is None:
+                            raise ServiceError('game_not_found')
+                        config = (self.profiles.read() or {}).get('folders', {}).get(key, {})
+                        target = config.get('configured', {}).get(core, {}).get('source', 'official')
+                        with _errors('restore'):
+                            self._switch(pin, core, target, log)
+                        done.append({'install': key, 'core': core})
+                for applied in self._applied.values():
+                    if applied.get('source') == source:
+                        applied.update(source='removed', removed=True)
+                        applied.pop('build', None)
+                del self._records[mod_id]
+                self._save()
+                shutil.rmtree(directory)
+                self._delete_built_files(keys, self.profiles.read())
+                if reconcile:
+                    reconcile()
+        except ServiceError as error:
+            return DeleteResult([], [{'entry': {'id': mod_id}, **error.to_json()}], [], [], [])
         self._prune_quietly()
-        return DeleteResult(done, failed, [{"install": key, "core": core} for key, core in sorted(affected)],
-                            sorted({core for _, core in affected}),
-                            [record["kind"]] if affected else [])
+        return DeleteResult(done, [], [{'install': key, 'core': core} for key, core in sorted(affected)],
+                            sorted({core for _, core in affected}), [record['kind']] if affected else [])
 
     def _in_use(self, mod_id: str) -> list[Path]:
         """The game files still carrying the mod: stats and tails first, then SHA-1 when their stamp changed.
@@ -2220,6 +2235,15 @@ class ModLibrary:
         again). A state that cannot be saved still lists them; loading drops records without files."""
         if not mod_ids:
             return
+        deletion = getattr(self, '_asset_deletion', None)
+        if deletion:
+            deletion.remember_mods(mod_ids)
+            for mod_id in mod_ids:
+                self._records.pop(mod_id, None)
+            self._save()
+            for mod_id in mod_ids:
+                shutil.rmtree(self.root / 'mods' / mod_id)
+            return
         for mod_id in mod_ids:
             self._records.pop(mod_id, None)
         try:
@@ -2436,6 +2460,8 @@ class ModLibrary:
     def _prune_quietly(self) -> None:
         # Writers already hold the library lock, possibly followed by transaction
         # and Mod locks. Do not reacquire it after those higher-order locks.
+        if getattr(self, '_asset_deletion', None):
+            return
         if self._deferred_prunes:
             self._prune_pending = True
             return
@@ -2729,6 +2755,9 @@ class ModLibrary:
         back on failure. With ``prune``, kept originals no longer needed are deleted afterwards, whatever the
         outcome; bulk operations prune once at their end."""
         pin = self._current(pin)
+        deletion = getattr(self, '_asset_deletion', None)
+        if deletion:
+            deletion.remember_game(replacements, pin)
         try:
             with self._transaction_lock():
                 return self._write(replacements, source, log, progress, pin, build_keys,
@@ -2765,7 +2794,8 @@ class ModLibrary:
     def _recover_pending(self) -> None:
         """Recover before indexing game files, including one moved away just before a crash."""
         if not self._transacting and (any((self.root / "transactions").glob("*/journal.json"))
-                                    or any((self.root / "import-transactions").glob("*/journal.json"))):
+                                    or any((self.root / "import-transactions").glob("*/journal.json"))
+                                    or any((self.root / "asset-deletions").glob("*/journal.json"))):
             with self._transaction_lock():
                 pass
 
@@ -2802,6 +2832,8 @@ class ModLibrary:
                 logger.info("Recovered interrupted library write %s", path.parent.name)
             except (ValueError, TypeError, KeyError) as error:
                 raise ServiceError("library_io_error", file=path) from error
+        from .asset_delete import recover
+        recover(self)
 
     def _rollback_write(self, data: dict) -> None:
         """Return consumed originals before restoring mods. Repeating any completed step is safe."""
@@ -3503,8 +3535,13 @@ class ModLibrary:
                     continue
                 path = self.root / "built" / f"{sha1}.bundle"
                 if path.resolve().is_relative_to(self.root) and path.parent == self.root / "built":
-                    with contextlib.suppress(OSError):
-                        path.unlink()
+                    deletion = getattr(self, '_asset_deletion', None)
+                    if deletion:
+                        deletion.remember_built(path)
+                        path.unlink(missing_ok=True)
+                    else:
+                        with contextlib.suppress(OSError):
+                            path.unlink()
 
     @_serialized
     def clear_built(self) -> int:

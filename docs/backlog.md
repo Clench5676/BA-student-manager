@@ -713,7 +713,7 @@ The switch bypassed NGUI's contiguous raster slicing: its active CSS mask and in
 
 ## BL-036: Consistent asset deletion for official, previewed and applied sources
 
-- Status: Planned. Not started; owner requested backlog only.
+- Status: Implemented for local review; owner UAT/visual acceptance pending.
 - Requested: 2026-10-26, following local alpha.1 review.
 - Related: BL-015/BL-022 photograph protection, BL-001 atomic operations and existing library-source deletion.
 
@@ -742,6 +742,8 @@ Generated/custom assets must not be silently reclassified as official merely to 
 requirement supersedes the earlier default/App-selected/custom-applied blanket protections; only genuine official
 assets keep permanent deletion protection. Runtime resources outside user-managed asset/library choices are not
 targets for a bulk filesystem-delete operation.
+
+Official provenance controls Delete visibility and direct-request rejection. Managed previews can be deleted with fallback across skins; applied/deferred choices require confirmation. Source, shared Collection recipes, protected game writes and metadata cleanup share a recoverable undo transaction; Mods-off deletion changes configuration without game writes.
 
 ## BL-037: Design native window controls integrated into the top toolbar
 

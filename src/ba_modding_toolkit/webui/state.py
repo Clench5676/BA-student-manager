@@ -242,6 +242,47 @@ class UiState:
             data.setdefault("asset_previews", {}).setdefault(install, {}).setdefault(variant, {})[kind] = source
         self._update(change)
 
+    def reconcile_deleted_source(self, source: str, fallback) -> None:
+        """Clear a removed preview everywhere; retain Hall placement when another source exists."""
+        def change(data):
+            for folder in data.get('asset_previews', {}).values():
+                for variant, choices in folder.items():
+                    for kind, selected in list(choices.items()):
+                        if selected == source:
+                            replacement = fallback(variant, kind)
+                            if replacement:
+                                choices[kind] = replacement
+                            else:
+                                del choices[kind]
+            hall = data.get('prefs', {}).get('student_hall')
+            if hall:
+                changed = False
+                replacements = {}
+                for group, kind in [('portraits', 'spr'), ('memorials', 'lobby')]:
+                    kept = []
+                    existing = {(entry['variant'], entry['source']): entry['id'] for entry in hall.get(group, [])
+                                if entry.get('source') != source}
+                    for entry in hall.get(group, []):
+                        if entry.get('source') == source:
+                            changed = True
+                            replacement = fallback(entry['variant'], kind)
+                            if not replacement:
+                                continue
+                            identity = (entry['variant'], replacement)
+                            if identity in existing:
+                                replacements[entry['id']] = existing[identity]
+                                continue
+                            entry['source'] = replacement
+                            existing[identity] = entry['id']
+                        kept.append(entry)
+                    hall[group] = kept
+                if changed:
+                    hall['active'] = replacements.get(hall.get('active'), hall.get('active'))
+                    if not any(entry['id'] == hall.get('active') for entry in hall.get('memorials', [])):
+                        hall['active'] = next((entry['id'] for entry in hall.get('memorials', [])), None)
+                    hall['revision'] = hall.get('revision', 0) + 1
+        self._update(change)
+
     def visit(self, variant_key: str) -> None:
         def change(data: dict[str, Any]) -> None:
             recent = [v for v in _recent_of(data) if v != variant_key]

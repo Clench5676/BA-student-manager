@@ -23,9 +23,9 @@ const call=async(name,params={})=>{
   if(scope!==generation||key!==sessionVariant)throw new DOMException('Photography ended','AbortError');
   return value;
 };
-const normalized=value=>({...value,photos:value.photos.map(entry=>({...entry,name:[entry.variant!==sessionVariant?(L(entry.names)?.full||entry.variant):'',T('photo.captureName',{n:entry.number})].filter(Boolean).join(' - ')}))});
+const normalized=value=>({...value,photos:value.photos.map(entry=>({...entry,name:entry.builtin?P('generatedThumbnail'):[entry.variant!==sessionVariant?(L(entry.names)?.full||entry.variant):'',T('photo.captureName',{n:entry.number})].filter(Boolean).join(' - ')}))});
 const DEFAULT='generated',OFFICIAL='official';
-const galleryPhotos=()=>[{id:DEFAULT,name:P('generatedThumbnail'),url:generatedThumbnail,original:true},{id:OFFICIAL,name:P('officialThumbnail'),url:defaultThumbnail,original:true},...(repository?.photos||[])].filter(entry=>entry.url);
+const galleryPhotos=()=>[{id:DEFAULT,name:P('generatedThumbnail'),url:generatedThumbnail,provenance:'runtime',managed:false},{id:OFFICIAL,name:P('officialThumbnail'),url:defaultThumbnail,provenance:'official',managed:false},...(repository?.photos||[])].filter(entry=>entry.url);
 const photo=id=>galleryPhotos().find(item=>item.id===id);
 const selectedKey=key=>key===DEFAULT?null:key;
 async function generatedPNG(){const img=await NGUI.load(generatedThumbnail),canvas=document.createElement('canvas');canvas.width=img.naturalWidth||img.width;canvas.height=img.naturalHeight||img.height;canvas.getContext('2d').drawImage(img,0,0);return canvas.toDataURL('image/png');}
@@ -296,7 +296,7 @@ async function galleryDraw(){
       await image(layer,selectedPhoto.url,[1190,270,320,320]);
       await UI.caption(layer,selectedPhoto.name,[1190,625,320],{align:2});
       await UI.button(layer,'Apply',P('apply'),[1200,670,140,64],safe(applyGame),{semantic:"apply",enabled:repository.applicable&&(!repository.game?.known||selected!==repository.game?.id||!!repository.game?.error||repository.game?.pending)});
-      await UI.button(layer,'Delete',P('delete'),[1360,670,140,64],safe(async()=>{repository=normalized(await call('delete',{id:selected}));selected=repository.photos.at(-1)?.id||DEFAULT;await galleryDraw();}),{enabled:!selectedPhoto.original&&selected!==repository.app&&selected!==repository.game?.id});
+      if(selectedPhoto.managed!==false&&selectedPhoto.provenance!=='official')await UI.button(layer,'Delete',P('delete'),[1360,670,140,64],safe(deletePhoto));
     }
     if(allPhotos.length>6){
       await UI.button(layer,'Previous',P('previous'),[365,748,180,55],safe(async()=>{page=Math.max(0,page-1);await galleryDraw();}),{enabled:page>0});
@@ -311,6 +311,22 @@ async function galleryDraw(){
     await UI.button(layer,'SaveSelection',P('saveSelection'),[1280,835,140,64],safe(async()=>{repository=normalized({...repository,...await call('select',{id:selectedKey(selected)})});bridge.thumbnailChanged();modal.close();modal=null;bridge.pause(paused);}),{semantic:"save",enabled:!!selected});
   },[],{width:2000,height:1200});
 }
+async function deletePhoto(){
+  const key=selected,info=await call('removalInfo',{id:key});
+  if(info.official)return;
+  if(info.used){
+    const answer=await Popup.message({title:P('delete'),lines:[T('error.asset_delete_confirm')],ok:P('delete'),cancel:T('popup.cancel')});
+    if(answer.button!=='ok')return;
+  }
+  const scope=generation;
+  await Loading.task(async()=>{
+    const result=await waitJob(await call('delete',{id:key,confirm:!!info.used}));
+    if(scope!==generation)throw new DOMException('Photography ended','AbortError');
+    repository=normalized(result);
+  });
+  bridge.thumbnailChanged();selected=repository.photos.at(-1)?.id||DEFAULT;await galleryDraw();
+}
+
 async function applyGame(){
   if(!photo(selected)||!repository.applicable)return;
   const scope=generation;

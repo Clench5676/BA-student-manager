@@ -1241,6 +1241,8 @@
 			"hall_last_memorial": "Keep at least one Memorial Lobby",
 			"hall_duplicate_portrait": "This portrait is already in the hall",
 			"hall_duplicate_memorial": "This Memorial Lobby is already in the playlist",
+			"asset_delete_confirm": "This asset is applied. Delete it?",
+			"asset_official": "Official assets cannot be deleted.",
 			"game_directory_missing": "Choose a game folder for this server in Settings.",
 			"photo_capture_unavailable": "Frame Unavailable. Try Again.",
 			"photo_invalid": "Invalid photo data",

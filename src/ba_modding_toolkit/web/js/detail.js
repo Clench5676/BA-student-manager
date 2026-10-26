@@ -1308,15 +1308,16 @@ function closePopup(apply) {
 async function removeMod(id) {
   try {
     const info = await rpc("mods.removalInfo", { id });
+    if(info.official)return false;
     const r = await message({
       title: T("btn.delete"),
-      lines: [T("mods.deleteConfirm", { name: info.name }), ...(info.used ? [T("mods.deleteRestore")] : [])],
+      lines: info.used?[T("error.asset_delete_confirm")]:[T("mods.deleteConfirm", { name: info.name })],
       ok: T("btn.delete"), cancel: T("popup.cancel"),
     });
     if (r.button !== "ok") return false;
     return await job("mods.remove", { id, confirm: true }, {
       name: info.name,
-      onDone: (result) => { if (result?.failed?.length) notify(T("mods.deletePending"), { kind: "error", error: { code: result.failed[0]?.code || "internal", params: { failed: result.failed } } }); },
+      onDone: (result) => { if (result?.failed?.length) throw Object.assign(new Error('Asset deletion failed'),result.failed[0]); },
     });
   } catch (err) {
     notify(errorText(err), { kind: "error", error: err });

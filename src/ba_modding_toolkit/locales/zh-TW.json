@@ -1241,6 +1241,8 @@
 			"hall_last_memorial": "至少保留一個紀念大廳",
 			"hall_duplicate_portrait": "此立繪已在大廳中",
 			"hall_duplicate_memorial": "此紀念大廳已在清單中",
+			"asset_delete_confirm": "此資產正在套用中，是否刪除？",
+			"asset_official": "無法刪除官方資產。",
 			"game_directory_missing": "請在設定中選擇此伺服器的遊戲目錄。",
 			"photo_capture_unavailable": "畫面暫不可用，請重試",
 			"photo_invalid": "縮圖資料無效",

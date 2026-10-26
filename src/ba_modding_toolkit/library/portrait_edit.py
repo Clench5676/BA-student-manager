@@ -158,15 +158,70 @@ def _referenced_sources(library: ModLibrary) -> set:
     config = library.profiles.read() or {}
     sources = {entry.get("source") for folder in config.get("folders", {}).values()
                for entry in folder.get("configured", {}).values()}
-    sources.update(entry.get("source") for path, entry in library._applied.items() if Path(path).exists())
+    sources.update(entry.get("source") for path, entry in library._applied.items() if Path(path).exists() and not entry.get('removed'))
     return sources
 
 
 def in_use(library: ModLibrary) -> set[str]:
-    sources = _referenced_sources(library)
-    return {item["photo"] for source in sources if isinstance(source, str) and source.startswith("mod:")
-            for item in ((library._records.get(source[4:], {}).get(TAG) or {}).get("choices") or {}).values()
-            if isinstance(item, dict) and isinstance(item.get("photo"), str)}
+    config = library.profiles.read() or {}
+    uses = [(entry.get('source'), set(entry.get('photo_defaults', [])))
+            for folder in config.get('folders', {}).values() for entry in folder.get('configured', {}).values()]
+    uses.extend((entry.get('source'), set()) for path, entry in library._applied.items()
+                if Path(path).exists() and not entry.get('removed'))
+    return {item['photo'] for source, defaults in uses if isinstance(source, str) and source.startswith('mod:')
+            for name, item in ((library._records.get(source[4:], {}).get(TAG) or {}).get('choices') or {}).items()
+            if name not in defaults and isinstance(item, dict) and isinstance(item.get('photo'), str)}
+
+
+def remove_photo(library: ModLibrary, key: str, log) -> None:
+    """Reset every affected texture, retaining other choices in each shared Collection recipe."""
+    config = library.profiles.read() or {}
+    enabled = profiles.enabled(config)
+    pins = {pin.key: pin for pin in library._all_pins()}
+    # Applied-only recipes also own real texture choices. Reconcile a different desired recipe first.
+    for path, applied in list(library._applied.items()):
+        source = applied.get('source', '')
+        record = library._records.get(source[4:], {}) if source.startswith('mod:') else {}
+        if applied.get('removed') or not any(value.get('photo') == key
+                for value in (record.get(TAG) or {}).get('choices', {}).values()):
+            continue
+        target = Path(path)
+        if not target.exists():
+            continue
+        pin = next((pin for pin in pins.values() if target.parent in pin.dirs), None)
+        if not enabled:
+            applied.update(source='removed', removed=True)
+            applied.pop('build', None)
+            continue
+        if pin is None:
+            raise ServiceError('game_not_found')
+        core = core_of(target.name)
+        desired = config.get('folders', {}).get(pin.key, {}).get('configured', {}).get(core)
+        if desired and desired.get('source') != source:
+            library._switch(pin, core, desired['source'], log)
+        elif not desired:
+            library._configure(pin, core, {core: core}, source)
+    tasks = []
+    for install, folder in (library.profiles.read() or {}).get('folders', {}).items():
+        for core, entry in folder.get('configured', {}).items():
+            source = entry.get('source', '')
+            record = library._records.get(source[4:], {}) if source.startswith('mod:') else {}
+            matches = [(name, value) for name, value in (record.get(TAG) or {}).get('choices', {}).items()
+                       if value.get('photo') == key and name not in entry.get('photo_defaults', [])]
+            if not matches:
+                continue
+            pin = pins.get(install)
+            if pin is None:
+                raise ServiceError('game_not_found')
+            paths = library._index(pin).get(core, [])
+            if len(paths) != 1:
+                raise ServiceError('photo_target_unavailable')
+            tasks.extend((pin, {'bundle': paths[0].name, 'name': name}, value['variant']) for name, value in matches)
+    for pin, descriptor, variant in tasks:
+        apply(library, variant, None, None, descriptor, pin, log, None)
+    library._save()
+    if key in in_use(library):
+        raise ServiceError('photo_in_use')
 
 
 def _prune_composites(library: ModLibrary) -> None:

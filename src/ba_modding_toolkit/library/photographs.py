@@ -140,8 +140,9 @@ class Photographs:
     def list(self, variant: str) -> dict:
         with self._lock:
             data = self._read()
-            photos = [{**entry, "url": self.url(variant, key)} for key, entry in data["photos"].items()
-                      if self.family(entry["variant"]) == self.family(variant) and not entry.get("builtin")]
+            photos = [{**entry, "url": self.url(variant, key), "managed": True,
+                       "provenance": "generated" if entry.get("builtin") else "capture"} for key, entry in data["photos"].items()
+                      if self.family(entry["variant"]) == self.family(variant)]
             return {"variant": variant, "photos": photos, "app": data["selected"].get(variant)}
 
     def app_url(self, variant: str) -> str | None:
@@ -218,16 +219,35 @@ class Photographs:
         return self.list(variant)
 
     def delete(self, variant: str, key: str, protected: set[str] = frozenset()) -> dict:
+        if key == "official":
+            raise ServiceError("asset_official")
         self.root.mkdir(parents=True, exist_ok=True)
         with self._lock, file_lock(self.root / "index.lock"):
             self._cached = None
             data = copy.deepcopy(self._read())
             self._entry(variant, key)
-            if data["photos"][key].get("builtin") or key in protected or key in data["selected"].values():
+            if key in protected:
                 raise ServiceError("photo_in_use")
+            before = copy.deepcopy(data)
+            raw = self.image(variant, key)
             del data["photos"][key]
-            self._write(data)
-            self._path(key).unlink(missing_ok=True)
+            for selected_variant, selected in list(data["selected"].items()):
+                if selected == key:
+                    data["selected"][selected_variant] = None
+            try:
+                self._write(data)
+                self._path(key).unlink()
+                sync_directory(self.root / "images")
+            except BaseException:
+                path = self._path(key)
+                if not path.exists():
+                    with path.open("xb") as stream:
+                        stream.write(raw)
+                        stream.flush()
+                        os.fsync(stream.fileno())
+                    sync_directory(path.parent)
+                self._write(before)
+                raise
         return self.list(variant)
 
     def image(self, variant: str, key: str) -> bytes:

@@ -28,7 +28,14 @@ def photography_env(services, tmp_path):
     game.collection_target = lambda name: dict(descriptor)
     chosen = {'id': None, 'known': True, 'enabled': True}
     library.photograph_choice = lambda target, selected: dict(chosen)
-    library.delete_photograph = lambda variant, key: services.photographs.delete(variant, key, {chosen['id']} if chosen['id'] else set())
+    library.photograph_removal_info = lambda variant, key: {'official': key == 'official', 'used': chosen['id'] == key}
+    def delete(variant, key, confirm=False, log=None):
+        if key == chosen['id']:
+            if not confirm:
+                raise ServiceError('asset_delete_confirm')
+            chosen['id'] = None
+        return services.photographs.delete(variant, key)
+    library.delete_photograph = delete
     def apply(variant, key, target, pin=None, log=None, progress=None):
         assert pin.key == 'install' and target['name'] == descriptor['name']
         chosen['id'] = key
@@ -68,7 +75,11 @@ def test_apply_waits_for_real_job_and_restore_resets_app_choice(app, services, p
     rpc(app, 'photography.select', variant='hoshino', id=key)
     done(services, rpc(app, 'photography.apply', variant='hoshino', id=key)['result'])
     assert rpc(app, 'photography.list', variant='hoshino')['result']['game']['id'] == key
-    assert rpc(app, 'photography.delete', variant='hoshino', id=key)['error']['code'] == 'photo_in_use'
+    failed = rpc(app, 'photography.delete', variant='hoshino', id=key)['result']
+    deadline = time.monotonic() + 3
+    while services.jobs.get(failed).pending and time.monotonic() < deadline:
+        time.sleep(.01)
+    assert services.jobs.get(failed).error['code'] == 'asset_delete_confirm'
     done(services, rpc(app, 'photography.restore', variant='hoshino')['result'])
     result = rpc(app, 'photography.list', variant='hoshino')['result']
     assert result['app'] is None and result['game']['id'] == 'official'
