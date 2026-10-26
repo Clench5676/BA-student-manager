@@ -756,7 +756,7 @@ Official provenance controls Delete visibility and direct-request rejection. Man
 
 ## BL-037: Design native window controls integrated into the top toolbar
 
-- Status: Implemented for local review; owner UAT/visual acceptance pending.
+- Status: Accepted by the owner (macOS review of 0.6.0-alpha.7, 2026-10-27); Windows not reviewed.
 - Note: Removed immersive drag strips and the Window menu/timer; window notifications restore Edit and guarded Quit while accepted bar dragging and double-click remain unchanged.
 - Requested: 2026-10-26.
 - Parent: BL-024.
@@ -993,7 +993,7 @@ interrupted runs. Upstream's CLI options and the shared UnityFS reader are alrea
 
 ## BL-047: Fullscreen button left on a rotated fullscreen portrait
 
-- Status: Implemented for local review; owner UAT/visual acceptance pending. The switch fits `Common_Icon_Change` in its original icon slot.
+- Status: Accepted by the owner (macOS review of 0.6.0-alpha.7, 2026-10-27); Windows not reviewed.
 - Requested: 2026-10-26.
 - Related: the portrait view's rotate and fullscreen controls.
 - Note: The prefab's RightTop button switches portrait and memorial lobby fullscreen; skins without a lobby omit it.
@@ -1030,7 +1030,7 @@ unchanged.
 
 ## BL-049: Page titles cut off; titles at the Enable Mods caption size
 
-- Status: Implemented for local review; owner UAT/visual acceptance pending.
+- Status: Accepted by the owner (macOS review of 0.6.0-alpha.7, 2026-10-27); Windows not reviewed.
 - Note: Removed visible top-bar titles and title fitting; page names label the header, and Enable Mods occupies the former title/Back slot with native clearance and caption-only compacting.
 - Requested: 2026-10-26.
 - Related: BL-043 (title size) and BL-037 (single-row fitting).
@@ -1068,7 +1068,7 @@ seam from the Mod switch with the shared NGUI raster path (`ngui.js` `slicedImag
 
 ## BL-052: One corner-button margin across the App
 
-- Status: Implemented for local review; owner UAT/visual acceptance pending. Top controls stay level, clear native controls horizontally, and cameras reuse the fullscreen Back.
+- Status: Owner review of alpha.7: the rest accepted on macOS; the fullscreen Back position must match (below); Windows not reviewed.
 - Requested: 2026-10-26.
 - Related: BL-037 and BL-047.
 
@@ -1086,9 +1086,14 @@ as the top-right button; the lead's assumption of measuring below the native row
 native window controls is resolved along the edge, not downward. The camera's Back must use the same button as the
 fullscreen views (`UICharacterVisualMode/Inventory_ListControl_PC/LeftTop/Btn_Back`), not the top bar's round Back.
 
+Owner review of 0.6.0-alpha.7 on macOS (2026-10-27): the Back sits in different places in the portrait fullscreen
+(pushed right of the traffic lights) and the memorial lobby fullscreen (at the left margin, below the traffic lights).
+Owner decision: both use the memorial lobby's placement. Only the visible button body decides whether it would cover
+the native controls; its larger prefab collider does not push it aside. Left and right top controls stay level.
+
 ## BL-053: Thumbnail picker marks other skins' applied photos
 
-- Status: Implemented for local review; owner UAT/visual acceptance pending.
+- Status: Accepted by the owner (macOS review of 0.6.0-alpha.7, 2026-10-27); Windows not reviewed.
 - Note: Photo deletion reports target skins and distinguishes other-skin-only usage in all six locales; shown-skin usage keeps the existing warning.
 - Requested: 2026-10-26.
 - Related: BL-015, BL-022 and BL-044.

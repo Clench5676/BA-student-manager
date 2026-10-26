@@ -22,16 +22,16 @@ The 0.6.0 work is unreleased. Nothing has been tagged, pushed or published since
 | BL-022 through BL-029, BL-031 | Implemented for alpha.1; later owner findings are separate entries |
 | BL-033 through BL-036, BL-038, BL-039 | Accepted by the owner on macOS (alpha.2); Windows not reviewed |
 | BL-032 | Implemented for alpha.2; the English label overflow continues as BL-040 |
-| BL-037 | Implemented for local review; owner UAT/visual acceptance pending. Immersive drag strips and the Window menu/timer removed; Edit and guarded Quit restored by window notifications. |
+| BL-037 | Accepted by the owner on macOS (alpha.7); Windows not reviewed |
 | BL-040, BL-041, BL-043, BL-045 | Accepted by the owner on macOS (alpha.3); Windows not reviewed |
 | BL-042 | Accepted by the owner on macOS (alpha.4) |
 | BL-044 | Review 1 (runtime-sliced badges) accepted on macOS (alpha.6); review 2 closed as won't fix by the owner. |
-| BL-047 | Implemented for local review; owner UAT/visual acceptance pending. The switch fits `Common_Icon_Change` in its original icon slot. |
-| BL-049 | Implemented for local review; owner UAT/visual acceptance pending. Titles removed; header names stay accessible and Enable Mods reuses the title/Back slot with native clearance. |
+| BL-047 | Accepted by the owner on macOS (alpha.7); Windows not reviewed |
+| BL-049 | Accepted by the owner on macOS (alpha.7): page titles removed; Windows not reviewed |
 | BL-050 | Accepted by the owner on macOS (alpha.6); Windows not reviewed |
 | BL-051 | Accepted by the owner on macOS (alpha.6); Windows not reviewed |
-| BL-052 | Implemented for local review; owner UAT/visual acceptance pending. Top controls stay level, clear native controls horizontally, and cameras reuse the fullscreen Back. |
-| BL-053 | Implemented for local review; owner UAT/visual acceptance pending. Photo deletion distinguishes other-skin-only usage in all six locales. |
+| BL-052 | Accepted on macOS (alpha.7) except the fullscreen Back placement, which must match the memorial lobby's; fix not started |
+| BL-053 | Accepted by the owner on macOS (alpha.7); Windows not reviewed |
 | BL-046 | Closed by the owner without UAT (CLI-only) |
 | BL-048 | Accepted: CLI no longer built, installed or released |
 | BL-020 | Implemented for local review; owner UAT/visual acceptance pending. Exact-release notes and empty-body link fallback. |
