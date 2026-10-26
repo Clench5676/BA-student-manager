@@ -11,7 +11,7 @@ class El {
   toBlob(fn) { fn(new Blob()); }
   querySelectorAll() { return this.children.flatMap((child) => [child, ...child.querySelectorAll()]); }
 }
-globalThis.document = { createElement: () => new El(), documentElement: { lang: "en-US" } };
+globalThis.document = { getElementById: () => null, createElement: () => new El(), documentElement: { lang: "en-US" } };
 Object.defineProperty(globalThis, "navigator", { value: { platform: "Mac" }, configurable: true });
 globalThis.addEventListener = () => {};
 let decodeHold = null;

@@ -96,6 +96,7 @@ const settings = host("settings");
 settings.className = "popup-host";
 consent.className = "consent-host";
 const stage = host("stage");
+stage.getBoundingClientRect = () => ({ width: 1920 });
 stage.hidden = false;
 
 // --- the server: a small atlas index (the progress and button sprites only), the popup
