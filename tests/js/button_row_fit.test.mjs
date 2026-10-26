@@ -119,9 +119,10 @@ for (const locale of LOCALES) test(`the four action cards and the three tabs sha
   }
 });
 
-// --- popup buttons: Ok / Cancel pairs (popupFrame, listFrame, consent, update), Common_Btn_BG 496 x 177 ---
+// --- popup buttons: Ok / Cancel pairs (popupFrame, listFrame, consent) and the update popup's three, Common_Btn_BG 496 x 177 ---
 const PAIRS = [["picker.ok", "popup.cancel"], ["popup.save", "popup.cancel"], ["consent.no", "consent.yes"], ["mods.scan.no", "mods.scan.yes"],
-  ["spine.license.no", "spine.license.yes"], ["update.later", "update.now"], ["update.later", "update.restart"], ["update.later", "update.page"]];
+  ["spine.license.no", "spine.license.yes"], ["update.later", "update.notes", "update.now"], ["update.later", "update.notes", "update.restart"],
+  ["update.later", "update.notes", "update.page"]];
 for (const locale of LOCALES) test(`pairs of popup buttons share one size and fit the 496 x 177 body in ${locale}`, async () => {
   const popup = await source("popup.js"), consent = await source("consent.js"), update = await source("update.js");
   assert.match(popup, /export const BUTTON_TEXT_H = 140;/);
@@ -130,8 +131,8 @@ for (const locale of LOCALES) test(`pairs of popup buttons share one size and fi
   assert.match(consent, /64, 40, 380, 2, \{ maxH: 140 \}/);
   assert.match(update, /fitLabels\(captions, captions\.map\(\(l\) => l\.text\), 64, 34, 400, 1\)/);
   document.documentElement.lang = locale;
-  for (const [a, b] of PAIRS) {
-    const captions = [text(locale, a), text(locale, b)];
+  for (const keys of PAIRS) {
+    const captions = keys.map((key) => text(locale, key)), [a, b] = [keys[0], keys.slice(1).join("/")];
     for (const [max, min, width, lines, height, where] of [[64, 40, 420, 2, 140, "popupFrame"], [72, 48, 360, 2, 140, "listFrame"], [64, 40, 380, 2, 140, "consent"], [64, 34, 400, 1, Infinity, "update"]]) {
       const widgets = captions.map(() => ({ text: "", fontSize: 72, w_: 400 }));
       const fits = fitLabels(widgets, captions, max, min, width, lines, { maxH: height });

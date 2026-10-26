@@ -81,10 +81,12 @@ class UpdateInfo:
     checksum: Asset | None
     prerelease: bool = False
     installable: bool = field(default=False)
+    notes: str = ""
 
     def to_json(self) -> dict:
         return {"version": self.version, "current": self.current, "page": self.page, "prerelease": self.prerelease,
-                "asset": self.asset.to_json() if self.asset else None, "installable": self.installable}
+                "asset": self.asset.to_json() if self.asset else None, "installable": self.installable,
+                "notes": self.notes}
 
 
 def platform_suffix() -> str | None:
@@ -133,8 +135,10 @@ def latest(releases: list[dict], current: str, suffix: str | None) -> UpdateInfo
     rel = best[1]
     version = rel["tag_name"].removeprefix("v")
     asset, checksum = pick_assets(rel.get("assets", []), suffix, version)
-    return UpdateInfo(version=version, current=current, page=rel.get("html_url", ""),
+    return UpdateInfo(version=version, current=current,
+                      page=f"https://github.com/{REPO}/releases/tag/{rel['tag_name']}",
                       asset=asset, checksum=checksum, prerelease=bool(rel.get("prerelease")),
+                      notes=rel.get("body") if isinstance(rel.get("body"), str) else "",
                       installable=bool(asset and checksum and is_compiled() and install_target() is not None))
 
 

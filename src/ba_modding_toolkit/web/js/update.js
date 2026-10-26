@@ -12,6 +12,15 @@ const { node, sprite, label, find } = NGUI;
 const checks = new WeakMap();
 const RESTART_WAIT = 3000;
 
+// Literal text on the same UIPopup_Sort frame used by notices. No HTML, Markdown images or update jobs.
+export async function releaseNotes(info) {
+  const notes = typeof info.notes === "string" ? info.notes.trim() : "";
+  const result = await Popup.message({ title: `${T("update.notes")} - ${info.version}`,
+    lines: notes ? notes.split(/\r?\n/) : [T("update.notesEmpty")], plain: true, scroll: true, width: 2458,
+    ok: T("update.releasePage"), cancel: T("display.close") });
+  if (result.button === "ok") await rpc("app.openReleasePage", { page: info.page });
+}
+
 // resolves with what closed the popup: "later" (Later or Escape), "page" (the download page opened) or "update" (a
 // failed update, once dismissed). A successful retry clears that failure; Restart quits the app on success.
 // null without a newer release, offline or when the popup cannot be drawn. Settings may pass its check's result.
@@ -71,8 +80,8 @@ async function draw(host, info, resolve) {
   const popup = find(t, "Popup");
   popup.children = popup.children.filter((c) => ["Base", "Btn"].includes(c.name));
   const bg = find(popup, "Base/BG");
-  Object.assign(bg.widgets[0], { w_: 1500, h_: 820 });
-  find(bg, "Texture_Top").pos = [-750 + 248, 410 - 66];
+  Object.assign(bg.widgets[0], { w_: 1700, h_: 820 });
+  find(bg, "Texture_Top").pos = [-850 + 248, 410 - 66];
   const title = find(bg, "Label_Title_Locale");
   const tf = NGUI.fitText(T("update.title"), 72, 52, 1100);
   Object.assign(title.widgets[0], { text: tf.text, fontSize: tf.fs, w_: 1200 });
@@ -81,6 +90,13 @@ async function draw(host, info, resolve) {
   find(bg, "Btn_Close").active = false;
   const btn = find(popup, "Btn");
   btn.pos = [0, -274];
+  const notesButton = clone(find(btn, "Btn_Cancel"));
+  notesButton.name = "Btn_Notes";
+  find(notesButton, "Label_Locale").widgets[0].text = T("update.notes");
+  btn.children.push(notesButton);
+  for (const [name, x] of [["Btn_Cancel", -550], ["Btn_Notes", 0], ["Btn_Ok", 550]]) {
+    find(btn, name).pos = [x, 0];
+  }
   const installable = info.installable;
   find(btn, "Btn_Cancel/Label_Locale").widgets[0].text = T("update.later");
   find(t, "BlackBg/BlackBgClickArea").widgets.find((w) => "sprite" in w).color = "#000000/0.65";
@@ -109,10 +125,11 @@ async function draw(host, info, resolve) {
     const action = !installable ? "page" : phase === "ready" || phase === "installing" ? "restart" : "update";
     const okText = T(action === "update" ? "update.now" : `update.${action}`);
     find(controls, "Btn_Ok/Label_Locale").widgets[0].text = okText;
-    // one line on the slanted 496-wide body, shrinking long captions rather than running into the edges; both share one size
-    const captions = ["Btn_Cancel", "Btn_Ok"].map((name) => find(controls, `${name}/Label_Locale`).widgets[0]);
+    // one line on the slanted 496-wide bodies, shrinking long captions rather than running into the edges; all three share one size
+    const names = ["Btn_Cancel", "Btn_Notes", "Btn_Ok"];
+    const captions = names.map((name) => find(controls, `${name}/Label_Locale`).widgets[0]);
     NGUI.fitLabels(captions, captions.map((l) => l.text), 64, 34, 400, 1);
-    for (const name of ["Btn_Cancel", "Btn_Ok"]) {
+    for (const name of names) {
       if (locked) {
         const index = controls.children.findIndex((child) => child.name === name);
         controls.children[index] = Buttons.disable(controls.children[index]);
@@ -131,6 +148,7 @@ async function draw(host, info, resolve) {
     if (ended || rev !== revision) return;
     const hit = (name, fn, caption, action) => Popup.hit(next, view, `Center/Popup/Btn/${name}/BG (1)`, fn, { name: caption, action, z: 2100 });
     buttons = [hit("Btn_Cancel", () => close("later"), T("update.later"), "later"),
+      hit("Btn_Notes", () => releaseNotes(info).catch((err) => console.error("release notes", err)), T("update.notes"), "notes"),
       hit("Btn_Ok", () => act(action), okText, action)];
     for (const b of buttons) { b.disabled = locked; b.setAttribute("aria-disabled", String(locked)); }
     host.replaceChildren(...next.childNodes);
@@ -140,7 +158,7 @@ async function draw(host, info, resolve) {
     if (ended || blocked()) return;
     if ((action === "update" && phase !== "offer") || (action === "restart" && phase !== "ready")) return;
     if (!installable) {
-      if (close("page")) rpc("app.openReleasePage").catch(() => {});
+      if (close("page")) rpc("app.openReleasePage", { page: info.page }).catch(() => {});
       return;
     }
     const installing = phase === "ready";

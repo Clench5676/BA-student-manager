@@ -447,3 +447,13 @@ def test_release_requires_exact_prerelease_version(release_workspace, build_vers
     else:
         assert result.returncode != 0 and "is not a 0.1.0-alpha build" in result.stderr
         assert not Path(env["BAMT_RELEASE_LOG"]).exists()
+
+
+def test_release_notes_belong_to_the_exact_detected_tag():
+    old = {**release('0.5.0'), 'body': 'Old notes'}
+    selected = {**release('v0.6.0'), 'body': '<script>literal</script>\n![image](https://example.invalid/x)'}
+    info = updater.latest([old, selected, {**release('0.7.0', draft=True), 'body': 'Draft'}], '0.4.0', None)
+    assert info.to_json()['notes'] == selected['body']
+    assert info.page == f'https://github.com/{updater.REPO}/releases/tag/v0.6.0'
+    for body in ('', None, {}, 42):
+        assert updater.latest([{**selected, 'body': body}], '0.4.0', None).notes == ''

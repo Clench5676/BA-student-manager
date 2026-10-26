@@ -1267,7 +1267,10 @@
 			"complete": "下載完成",
 			"restart": "重新啟動",
 			"restarting": "即將重新啟動以完成更新",
-			"page": "前往下載頁面"
+			"page": "前往下載頁面",
+			"notes": "更新說明",
+			"notesEmpty": "暫無更新說明",
+			"releasePage": "前往發布頁"
 		},
 		"classic": {
 			"hint": "此功能尚未遷移，將在經典介面中開啟",

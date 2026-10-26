@@ -1867,3 +1867,48 @@ test("Hall's opt-in failure caption stays hidden until a lazy still actually fai
     if(outcome==="success")assert.equal(note(),undefined);else { assert.equal(note().hidden,false);assert.equal(note().style.display,"flex"); }
   }
 });
+
+test("release notes are literal, scroll, retain the offer and never download or install", async () => {
+  setStrings("en-US", Object.fromEntries(strings(english)));
+  const start = calls.length;
+  const notes = '<script>literal</script> ![remote](https://example.invalid/image)\n' + 'More changes\n'.repeat(100);
+  const release = { ...available, version: '0.6.0', page: 'https://github.com/example/releases/tag/0.6.0', notes };
+  const offered = Update.check(consent, release);
+  (await drawn(consent, "notes")).click();
+  await drawn(dialog, "ok");
+  const area = walk(dialog).find((el) => el.className === "popup-cards");
+  assert.ok(area);
+  assert.ok(parseFloat(area.children[0].style.height) > parseFloat(area.style.height));
+  const text = walk(dialog).find((el) => el.dataset.path === "Lines/Line_0");
+  assert.ok(text.textContent.includes('<script>literal</script>'));
+  assert.ok(text.textContent.includes('![remote]'));
+  assert.equal(text.children.length, 0);
+  action(dialog, "cancel").click();
+  assert.equal(consent.hidden, false);
+  assert.equal(await state(offered), 'pending');
+  assert.equal(calls.slice(start).some((m) => ['app.update', 'app.installUpdate'].includes(m)), false);
+  action(consent, "later").click();
+  await offered;
+});
+
+test("empty and unavailable notes offer the exact release page in every locale", async () => {
+  for (const lang of ['en-US', 'zh-CN', 'zh-TW', 'ja-JP', 'ko-KR', 'th-TH']) {
+    const ui = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${lang}.json`, import.meta.url))).webui;
+    setStrings(lang, Object.fromEntries(strings(ui)));
+    const release = { ...available, version: '0.6.0', page: 'https://github.com/example/releases/tag/v0.6.0' };
+    const offered = Update.check(consent, release);
+    (await drawn(consent, 'notes')).click();
+    await drawn(dialog, 'ok');
+    assert.ok(walk(dialog).some((el) => el.textContent === ui.update.notesEmpty));
+    const buttons = ['Btn_Cancel', 'Btn_Notes', 'Btn_Ok'].map((name) => walk(consent).find((el) => el.dataset.path === `Center/Popup/Btn/${name}/Label_Locale`));
+    assert.equal(new Set(buttons.map((el) => el.style.fontSize)).size, 1);
+    const bounds = ['Btn_Cancel', 'Btn_Notes', 'Btn_Ok'].map((name) => walk(consent).find((el) => el.dataset.path === `Center/Popup/Btn/${name}/BG (1)`));
+    for (let i = 1; i < bounds.length; i++) assert.ok(parseFloat(bounds[i - 1].style.left) + parseFloat(bounds[i - 1].style.width) < parseFloat(bounds[i].style.left));
+    action(dialog, 'ok').click();
+    await until(() => requests.at(-1)?.method === 'app.openReleasePage');
+    assert.deepEqual(requests.at(-1).params, { page: release.page });
+    action(consent, 'later').click();
+    await offered;
+  }
+  setStrings('en-US', Object.fromEntries(strings(english)));
+});

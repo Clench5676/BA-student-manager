@@ -1267,7 +1267,10 @@
 			"complete": "下载完成",
 			"restart": "重启",
 			"restarting": "即将重启以完成更新",
-			"page": "前往下载页"
+			"page": "前往下载页",
+			"notes": "更新说明",
+			"notesEmpty": "暂无更新说明",
+			"releasePage": "前往发布页"
 		},
 		"classic": {
 			"hint": "该功能尚未迁移，将在经典界面中打开",

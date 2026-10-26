@@ -280,11 +280,13 @@ def build_api(s: Services) -> RpcRegistry:
         return s.jobs.submit("update.download", download)
 
     @rpc.method("app.openReleasePage")
-    def app_open_release_page() -> None:
+    def app_open_release_page(page: str | None = None) -> None:
         info = getattr(s, "update_info", None)
-        if info is None or not info.page.startswith(f"https://github.com/{updater.REPO}/"):
+        target = page if page is not None else info.page if info else ""
+        prefix = f"https://github.com/{updater.REPO}/releases/tag/"
+        if not isinstance(target, str) or not target.startswith(prefix) or updater.parse_version(target[len(prefix):]) is None:
             raise ServiceError("update_unavailable")
-        webbrowser.open(info.page)
+        webbrowser.open(target)
 
     @rpc.method("app.installUpdate")
     def app_install_update(file: str) -> None:

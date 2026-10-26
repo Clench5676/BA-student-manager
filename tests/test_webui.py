@@ -1682,3 +1682,19 @@ def test_migrated_020_library_supplies_repair_labels_markers_and_counts(app, ser
             if not orphan:
                 assert fixed["repaired_from"] == original["id"]
                 assert mods[original["id"]]["repaired_id"] == repaired["id"]
+
+
+def test_release_page_snapshot_survives_another_check(app, services, update_env, monkeypatch):
+    from ba_modding_toolkit import updater
+    opened = []
+    monkeypatch.setattr('ba_modding_toolkit.webui.api.webbrowser.open', opened.append)
+    page = f'https://github.com/{updater.REPO}/releases/tag/v1.1.0'
+    update_env.info.page, update_env.info.notes = page, 'Exact release notes'
+    assert rpc(app, 'app.checkUpdate')['result']['notes'] == 'Exact release notes'
+    update_env.info = None
+    rpc(app, 'app.checkUpdate')
+    assert rpc(app, 'app.openReleasePage', page=page) == {'result': None}
+    assert opened == [page]
+    for invalid in ('https://example.invalid/releases/tag/1.1.0', page + '/bad', page + '?next=bad', 42):
+        assert rpc(app, 'app.openReleasePage', page=invalid)['error']['code'] == 'update_unavailable'
+    assert update_env.downloads == update_env.installs == []

@@ -1267,7 +1267,10 @@
 			"complete": "Download Complete",
 			"restart": "Restart",
 			"restarting": "Restarting to finish the update",
-			"page": "Open Download Page"
+			"page": "Open Download Page",
+			"notes": "Release Notes",
+			"notesEmpty": "No release notes",
+			"releasePage": "Open Release Page"
 		},
 		"classic": {
 			"hint": "Not migrated yet, opens in the classic UI",
