@@ -1761,7 +1761,6 @@
 			"export": "エクスポート"
 		},
 		"window": {
-			"menu": "ウインドウ",
 			"minimize": "最小化",
 			"maximize": "最大化／元に戻す",
 			"close": "閉じる",

@@ -206,7 +206,7 @@ def _run_window(s: Services, server: Server, debug: bool) -> None:
     # default }" to the page, which replaces the game's pointer with the system arrow on everything but the buttons.
     # The page turns off text selection itself (app.css).
     webview.settings["SHOW_DEFAULT_MENUS"] = False
-    webview.settings["DRAG_REGION_SELECTOR"] = ".topbar:not(.native-toolbar), .window-fallback-strip .window-drag-region"
+    webview.settings["DRAG_REGION_SELECTOR"] = ".topbar:not(.native-toolbar)"
     webview.settings["DRAG_REGION_DIRECT_TARGET_ONLY"] = True
     with s.timings.measure("native.create-window"):
         window = webview.create_window(t("ui.app_title"), server.url, width=1600, height=900, min_size=(960, 540),

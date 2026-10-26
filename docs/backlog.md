@@ -756,8 +756,8 @@ Official provenance controls Delete visibility and direct-request rejection. Man
 
 ## BL-037: Design native window controls integrated into the top toolbar
 
-- Status: Implemented; the owner accepted dragging and double-click on macOS (alpha.6); removals requested below; Windows not reviewed.
-- Note: Window-scoped macOS drag/double-click monitoring, menu lifecycle repair and five-scene immersion are covered by fakes; native acceptance remains pending on both platforms.
+- Status: Implemented for local review; owner UAT/visual acceptance pending.
+- Note: Removed immersive drag strips and the Window menu/timer; window notifications restore Edit and guarded Quit while accepted bar dragging and double-click remain unchanged.
 - Requested: 2026-10-26.
 - Parent: BL-024.
 

@@ -57,9 +57,9 @@ let snapshot={active:true,valid:true,platform:'darwin',sequence:1,bounds:{left:1
 globalThis.chromeFixture={...geometry,on:(name,fn)=>handlers[name]=fn,rpc:async(name,value)=>{
   if(name==='window.chrome')return snapshot;calls.push({name,value});},T:key=>key,
   reflowTopActions(){},sizeTitle(){title.style.fontSize='26px';},alignTopBar:async()=>{if(alignmentGate)await alignmentGate;},fitStage(){},
-  naturalTextWidth:(el,scale)=>Math.ceil(el.textContent.length*13*scale),barImage:async()=> 'baked-background',paintTopBar:async()=>{}};
+  naturalTextWidth:(el,scale)=>Math.ceil(el.textContent.length*13*scale),paintTopBar:async()=>{}};
 let source=readFileSync(new URL('../../src/ba_modding_toolkit/web/js/window-chrome.js',import.meta.url),'utf8').replace(/^import .*;$/gm,'');
-source=`const {on,rpc,T,reflowTopActions,sizeTitle,alignTopBar,fitStage,naturalTextWidth,barImage,paintTopBar,headerGeometry,rowLayout,isImmersive,dragRegions,expandRect}=globalThis.chromeFixture;\n${source}`;
+source=`const {on,rpc,T,reflowTopActions,sizeTitle,alignTopBar,fitStage,naturalTextWidth,paintTopBar,headerGeometry,rowLayout,isImmersive,dragRegions,expandRect}=globalThis.chromeFixture;\n${source}`;
 const {setupWindowChrome}=await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
 async function settle(){for(let i=0;i<8;i++){frames.splice(0).forEach(fn=>fn());await new Promise(resolve=>setImmediate(resolve));}}
 const payload=()=>calls.filter(c=>c.name==='window.layout').at(-1).value;
@@ -75,8 +75,8 @@ test('native and fallback controllers hide and restore every immersive scene and
       stage.classList=new Classes(stageFlags);root.classList=new Classes(rootFlags);await change();
       assert.ok(body.classList.has('window-immersive'));assert.equal(header.inert,true);
       assert.equal(globalThis.bamtHeaderGeometry.extra,0);assert.equal(sceneBack.inert,false);
-      assert.equal(payload().drag.length,1);assert.equal(payload().drag[0].bottom,platform==='win32'?20:12);
-      assert.equal(body.querySelectorAll('.window-drag-region').length,1);
+      assert.deepEqual(payload().drag,[]);
+      assert.equal(body.querySelectorAll('.window-drag-region').length,0);
       popup.hidden=false;await change();assert.deepEqual(payload().drag,[]);
       assert.equal(body.querySelectorAll('.window-drag-region').length,0);
       popup.hidden=true;stage.classList.clear();root.classList.clear();await change();
@@ -90,13 +90,13 @@ test('native and fallback controllers hide and restore every immersive scene and
   stage.classList.add('fullscreen');await change();assert.deepEqual(payload().drag,[]);
   popup.hidden=false;await change();assert.deepEqual(payload().drag,[]);
   alignmentGate=null;release();await settle();assert.deepEqual(payload().drag,[]);
-  popup.hidden=true;await change();assert.equal(payload().drag[0].bottom,20);
+  popup.hidden=true;await change();assert.deepEqual(payload().drag,[]);
   stage.classList.clear();await change();
   snapshot={...snapshot,active:false,sequence:snapshot.sequence+1};handlers['window.chrome'](snapshot);await settle();
   assert.equal(header.parent,stage);assert.equal(body.classList.has('native-chrome'),false);
   assert.equal(body.descendants().filter(el=>el.id==='native-controls').length,1);
   root.classList.add('photo-active');await change();
-  assert.ok(body.classList.has('window-immersive'));assert.equal(body.querySelectorAll('.window-drag-region').length,1);
+  assert.ok(body.classList.has('window-immersive'));assert.equal(body.querySelectorAll('.window-drag-region').length,0);
   popup.hidden=false;await change();assert.equal(body.querySelectorAll('.window-drag-region').length,0);
   popup.hidden=true;root.classList.clear();await change();
   assert.equal(body.classList.has('window-immersive'),false);assert.equal(body.querySelectorAll('.window-drag-region').length,0);

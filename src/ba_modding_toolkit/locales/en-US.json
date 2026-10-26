@@ -1761,7 +1761,6 @@
 			"export": "Export"
 		},
 		"window": {
-			"menu": "Window",
 			"minimize": "Minimize",
 			"maximize": "Maximize / Restore",
 			"close": "Close",

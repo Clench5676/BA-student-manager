@@ -3,7 +3,7 @@ import { T } from "./i18n.js";
 import { reflowTopActions } from "./nav.js";
 import { alignTopBar, sizeTitle } from "./top-bar.js";
 import { fitStage } from "./util.js";
-import { barImage, paintTopBar } from "./top-bar-background.js";
+import { paintTopBar } from "./top-bar-background.js";
 import { naturalTextWidth } from "./top-bar-measure.js";
 import { headerGeometry, rowLayout, isImmersive, dragRegions, expandRect } from "./window-layout.js";
 
@@ -72,7 +72,6 @@ async function layout() {
   const visibleHits = (root) => [...root.querySelectorAll('button, [role="switch"], .mod-switch')]
     .filter((el) => !el.hidden && getComputedStyle(el).visibility !== 'hidden' && el.getClientRects().length)
     .map((el) => expandRect(el.getBoundingClientRect()));
-  document.querySelector('.window-fallback-strip')?.remove();
   if (!snapshot?.active) {
     lastImmersive = null;
     if (wrapper) {
@@ -89,12 +88,6 @@ async function layout() {
     paintTopBar(header, scale).catch((error) => console.warn("top bar background", error));
     await alignTopBar();
     if (revision !== layoutRevision || snapshot?.active) return;
-    const bounds = document.getElementById('native-controls')?.getBoundingClientRect();
-    const drag = dragRegions({ width: innerWidth, height: 12, bounds, platform: 'fallback', immersive: true,
-      blocked: blocked || !immersive, exclusions: visibleHits(stage) });
-    const strip = document.createElement('div'); strip.className = 'window-fallback-strip';
-    drawDragRegions(strip, drag, immersive ? { scale, height: 64 * scale } : null, () => revision === layoutRevision);
-    if (revision === layoutRevision && !snapshot?.active) document.body.append(strip);
     return;
   }
   if (!wrapper) {
@@ -123,14 +116,14 @@ async function layout() {
   }
   await alignTopBar();
   if (revision !== layoutRevision || !snapshot?.active || !wrapper) return;
-  // Native regions never cover popups or hanging Back art. During page immersion
-  // only the small game background strip and the real window controls remain.
+  // Native regions never cover popups or hanging Back art. Immersive scenes
+  // keep only the real window controls, with no toolbar or drag regions.
   header.inert = !snapshot.valid || immersive || blocked;
   const drag = dragRegions({ width: innerWidth, height: g.rowHeight, bounds: snapshot.bounds,
     platform: snapshot.platform, immersive, blocked: blocked || !snapshot.valid,
     exclusions: visibleHits(immersive ? stage : header) });
   wrapper.querySelectorAll('.window-drag-region').forEach((el) => el.remove());
-  if (snapshot.platform === 'win32' || immersive) drawDragRegions(wrapper, drag, immersive ? { scale: g.scale, height: g.rowHeight } : null, () => revision === layoutRevision);
+  if (snapshot.platform === 'win32') drawDragRegions(wrapper, drag);
   if (revision !== layoutRevision || !snapshot?.active || !wrapper) return;
   await publishLayout(g, drag);
 }
@@ -140,19 +133,12 @@ async function publishLayout(g, drag) {
   if (payload !== lastLayout) { lastLayout = payload; await rpc('window.layout', JSON.parse(payload)); }
 }
 
-function drawDragRegions(host, drag, background = null, current = () => true) {
-  if (!current()) return;
-  const regions = drag.map((rect) => {
+function drawDragRegions(host, drag) {
+  for (const rect of drag) {
     const region = document.createElement('div'); region.className = 'window-drag-region';
     Object.assign(region.style, { left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.right - rect.left}px`, height: `${rect.bottom - rect.top}px` });
     host.append(region);
-    return region;
-  });
-  if (background && drag.length) barImage(innerWidth / background.scale, background.height / background.scale, background.scale).then((url) => {
-    if (!current()) return;
-    regions.forEach((region, i) => Object.assign(region.style, { backgroundImage: `url("${url}")`,
-      backgroundSize: `${innerWidth}px ${background.height}px`, backgroundPosition: `${-drag[i].left}px ${-drag[i].top}px` }));
-  }).catch((error) => console.warn("window drag background", error));
+  }
 }
 
 export function setupWindowChrome() {

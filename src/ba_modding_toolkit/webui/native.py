@@ -234,7 +234,7 @@ def install_edit_menu() -> None:
 def install_window_commands(services, chrome):
     """Intercept Command-Q before WKWebView's direct app.stop_ path, including in inputs."""
     import AppKit
-    from ..i18n import t
+    from PyObjCTools import AppHelper
     from ..errors import ServiceError
 
     window = services.window.native
@@ -251,15 +251,6 @@ def install_window_commands(services, chrome):
     class WindowCommands(AppKit.NSObject):
         def closeWindow_(self, sender):
             request_close()
-
-        def minimizeWindow_(self, sender):
-            window.performMiniaturize_(sender)
-
-        def zoomWindow_(self, sender):
-            window.performZoom_(sender)
-
-        def fullscreenWindow_(self, sender):
-            window.toggleFullScreen_(sender)
 
     target = WindowCommands.alloc().init()
 
@@ -282,11 +273,11 @@ def install_window_commands(services, chrome):
         return event
 
     monitor = AppKit.NSEvent.addLocalMonitorForEventsMatchingMask_handler_(AppKit.NSEventMaskKeyDown, key)
-    installed = []
-    logged = False
+    disposed = False
 
     def refresh():
-        nonlocal logged
+        if disposed:
+            return
         main = AppKit.NSApplication.sharedApplication().mainMenu()
         if main is None:
             return
@@ -297,36 +288,21 @@ def install_window_commands(services, chrome):
                 if str(command.action()) == "terminate:":
                     command.setTarget_(target)
                     command.setAction_("closeWindow:")
-        if installed and installed[0] in main.itemArray():
-            return
-        title = t("webui.window.menu")
-        menu = AppKit.NSMenu.alloc().initWithTitle_(title)
-        item = AppKit.NSMenuItem.alloc().init()
-        item.setTitle_(title)
-        item.setSubmenu_(menu)
-        for label, selector, shortcut, flags in (
-            ("webui.window.close", "closeWindow:", "w", AppKit.NSEventModifierFlagCommand),
-            ("webui.window.minimize", "minimizeWindow:", "m", AppKit.NSEventModifierFlagCommand),
-            ("webui.window.maximize", "zoomWindow:", "", AppKit.NSEventModifierFlagCommand),
-            ("webui.lobby.fullscreen", "fullscreenWindow:", "f", AppKit.NSEventModifierFlagControl | AppKit.NSEventModifierFlagCommand),
-        ):
-            command = menu.addItemWithTitle_action_keyEquivalent_(t(label), selector, shortcut)
-            command.setKeyEquivalentModifierMask_(flags)
-            command.setTarget_(target)
-        main.addItem_(item)
-        installed[:] = [item]
-        if not logged:
-            logger.info("Native Window menu installed")
-            logged = True
 
-    # Cocoa 6.2.1 recreates the main menu in first_show and on some key-window
-    # transitions. Document load alone is not a menu lifecycle notification.
-    # Repair even replacements made without a window notification, or before load.
-    timer = AppKit.NSTimer.scheduledTimerWithTimeInterval_repeats_block_(0.25, True, lambda timer: refresh())
+    # pywebview 6.2.1 rebuilds menus in first_show and windowDidBecomeKey_.
+    # Defer past its delegate and first_show so the rebuilt menu receives Edit
+    # and guarded Quit, regardless of notification observer ordering.
+    centre = AppKit.NSNotificationCenter.defaultCenter()
+    observer = centre.addObserverForName_object_queue_usingBlock_(
+        AppKit.NSWindowDidBecomeKeyNotification, window, None,
+        lambda notification: AppHelper.callAfter(refresh))
     refresh()
+    AppHelper.callAfter(refresh)
 
     def dispose():
-        timer.invalidate()
+        nonlocal disposed
+        disposed = True
+        centre.removeObserver_(observer)
         AppKit.NSEvent.removeMonitor_(monitor)
 
     dispose.refresh = refresh

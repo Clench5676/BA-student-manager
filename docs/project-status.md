@@ -22,7 +22,7 @@ The 0.6.0 work is unreleased. Nothing has been tagged, pushed or published since
 | BL-022 through BL-029, BL-031 | Implemented for alpha.1; later owner findings are separate entries |
 | BL-033 through BL-036, BL-038, BL-039 | Accepted by the owner on macOS (alpha.2); Windows not reviewed |
 | BL-032 | Implemented for alpha.2; the English label overflow continues as BL-040 |
-| BL-037 | Dragging and double-click accepted on macOS (alpha.6); owner asked to remove the immersive drag strip and the Window menu; Windows not reviewed. |
+| BL-037 | Implemented for local review; owner UAT/visual acceptance pending. Immersive drag strips and the Window menu/timer removed; Edit and guarded Quit restored by window notifications. |
 | BL-040, BL-041, BL-043, BL-045 | Accepted by the owner on macOS (alpha.3); Windows not reviewed |
 | BL-042 | Accepted by the owner on macOS (alpha.4) |
 | BL-044 | Review 1 (runtime-sliced badges) accepted on macOS (alpha.6); review 2 closed as won't fix by the owner. |

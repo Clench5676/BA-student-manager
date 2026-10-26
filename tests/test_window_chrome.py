@@ -376,7 +376,7 @@ def test_windows_subclass_retains_callback_forwards_and_cleans_up():
     assert calls[0][1][1] is calls[-1][1][1] is hook.callback
 
 
-def test_macos_keyboard_and_minimal_menu_commands_route_close_before_webkit(monkeypatch, caplog):
+def test_macos_keyboard_and_edit_menu_restore_after_rebuild_without_timer(monkeypatch):
     from ba_modding_toolkit.webui.native import install_window_commands
     class Object:
         @classmethod
@@ -390,7 +390,6 @@ def test_macos_keyboard_and_minimal_menu_commands_route_close_before_webkit(monk
         def action(self): return self.selector
         def setAction_(self, selector): self.selector = selector
         def setTarget_(self, target): self.target = target
-        def setKeyEquivalentModifierMask_(self, flags): self.flags = flags
     class Menu(Object):
         def __init__(self): self.items = []
         def initWithTitle_(self, title): self.title = title; return self
@@ -399,44 +398,49 @@ def test_macos_keyboard_and_minimal_menu_commands_route_close_before_webkit(monk
         def addItemWithTitle_action_keyEquivalent_(self, title, selector, key):
             item = Item(); item.title, item.selector, item.key = title, selector, key
             self.items.append(item); return item
-    main, app_menu = Menu(), Menu()
-    app_item = Item(); app_item.setSubmenu_(app_menu); main.addItem_(app_item)
-    quit_item = app_menu.addItemWithTitle_action_keyEquivalent_('Quit', 'terminate:', 'q')
-    monitors, removed, calls, timers = [], [], [], []
+    def app_menu():
+        main, app = Menu(), Menu()
+        item = Item(); item.setSubmenu_(app); main.addItem_(item)
+        quit_item = app.addItemWithTitle_action_keyEquivalent_('Quit', 'terminate:', 'q')
+        return main, quit_item
+    monitors, removed, calls, observers, deferred = [], [], [], [], []
     current = {"main": None}
-    def timer(interval, repeats, fn):
-        assert interval == .25 and repeats
-        result = NS(fire=lambda: fn(result), invalidate=lambda: calls.append("timer-disposed"))
-        timers.append(result)
-        return result
+    def observe(name, obj, queue, fn):
+        assert name == 'became-key' and obj is window and queue is None
+        observers.append(fn)
+        return fn
+    centre = NS(addObserverForName_object_queue_usingBlock_=observe, removeObserver_=removed.append)
+    # No NSTimer is provided: using one fails this test immediately.
     api = NS(NSObject=Object, NSMenu=Menu, NSMenuItem=Item,
              NSApplication=NS(sharedApplication=lambda: NS(mainMenu=lambda: current["main"])),
-             NSTimer=NS(scheduledTimerWithTimeInterval_repeats_block_=timer),
+             NSNotificationCenter=NS(defaultCenter=lambda: centre), NSWindowDidBecomeKeyNotification='became-key',
              NSEvent=NS(addLocalMonitorForEventsMatchingMask_handler_=lambda mask, fn: monitors.append(fn) or fn,
                         removeMonitor_=removed.append), NSEventMaskKeyDown=1,
              NSEventModifierFlagCommand=1, NSEventModifierFlagShift=2,
              NSEventModifierFlagOption=4, NSEventModifierFlagControl=8)
     monkeypatch.setitem(sys.modules, 'AppKit', api)
+    monkeypatch.setitem(sys.modules, 'PyObjCTools', NS(AppHelper=NS(callAfter=deferred.append)))
     window = NS(performMiniaturize_=lambda sender: calls.append('minimize'),
-                performZoom_=lambda sender: calls.append('zoom'), toggleFullScreen_=lambda sender: calls.append('fullscreen'))
+                toggleFullScreen_=lambda sender: calls.append('fullscreen'))
     services = NS(window=NS(native=window), quit=lambda: calls.append('guarded-close'))
-    caplog.set_level("INFO")
     cleanup = install_window_commands(services, None)
-    assert len(main.items) == 1, "installation can precede the application main menu"
-    current["main"] = main
-    timers[0].fire(); cleanup.refresh()
-    assert len(main.items) == 3
-    assert main.items[1].title and main.items[2].title
-    commands = main.items[2].submenu().items
-    assert len(commands) == 4
-    assert [item.key for item in commands] == ['w','m','','f']
-    assert quit_item.selector == 'closeWindow:'
-    quit_item.target.closeWindow_(None)
+    assert len(deferred) == 1, 'first_show repair runs after pywebview creates its menu'
+    main, quit_item = app_menu(); current["main"] = main
+    deferred.pop(0)(); cleanup.refresh()
+    def assert_menu(main, quit_item):
+        assert len(main.items) == 2, 'only App and Edit; no Window menu or duplicates'
+        assert [item.selector for item in main.items[1].submenu().items] == ['cut:', 'copy:', 'paste:', 'selectAll:']
+        assert [item.key for item in main.items[1].submenu().items] == ['x', 'c', 'v', 'a']
+        assert quit_item.selector == 'closeWindow:'
+    assert_menu(main, quit_item)
+    target = quit_item.target
+    target.closeWindow_(None)
     for char, flags in [('q',1),('w',1),('m',1),('f',9)]:
         event = NS(window=lambda: window, modifierFlags=lambda: flags, charactersIgnoringModifiers=lambda: char)
         assert monitors[0](event) is None
-    ordinary = NS(window=lambda: window, modifierFlags=lambda: 1, charactersIgnoringModifiers=lambda: 'c')
-    assert monitors[0](ordinary) is ordinary
+    for char, flags, event_window in [('c',1,window),('q',3,window),('w',5,window),('q',9,window),('m',9,window),('q',1,object())]:
+        event = NS(window=lambda: event_window, modifierFlags=lambda: flags, charactersIgnoringModifiers=lambda: char)
+        assert monitors[0](event) is event
     assert calls == ['guarded-close','guarded-close','guarded-close','minimize','fullscreen']
     def busy():
         raise ServiceError('busy')
@@ -445,17 +449,27 @@ def test_macos_keyboard_and_minimal_menu_commands_route_close_before_webkit(monk
     event = NS(window=lambda: window, modifierFlags=lambda: 1, charactersIgnoringModifiers=lambda: 'q')
     assert monitors[0](event) is None
     assert calls[-1] == 'app.busy'
-    # first_show / windowDidBecomeKey can replace the menu after document load.
-    replacement = Menu(); current["main"] = replacement
-    timers[0].fire(); timers[0].fire()
-    assert len(replacement.items) == 2
-    assert replacement.items[1].title == main.items[2].title
-    assert replacement.items[1].submenu().items[0].target is commands[0].target
-    replacement.items.clear()  # also repair in-place clearing
-    timers[0].fire()
-    assert len(replacement.items) == 2
-    assert sum(record.message == "Native Window menu installed" for record in caplog.records) == 1
-    cleanup(); assert removed == monitors and calls[-1] == "timer-disposed"
+    # Observer delivery may precede the pywebview delegate's menu rebuild.
+    # Neither replacing the whole menu nor clearing it in place may lose Edit/Quit.
+    for replace in [True, False]:
+        observers[0](None)
+        rebuilt, quit_item = app_menu()
+        if replace:
+            current["main"] = rebuilt
+        else:
+            current["main"].items[:] = rebuilt.items
+        assert quit_item.selector == 'terminate:', 'repair must be deferred beyond the delegate'
+        deferred.pop(0)()
+        assert_menu(current["main"], quit_item)
+        assert quit_item.target is target
+        observers[0](None); deferred.pop(0)()
+        assert_menu(current["main"], quit_item)
+    observers[0](None)
+    cleanup()
+    assert removed == observers + monitors
+    current["main"], quit_item = app_menu()
+    deferred.pop(0)()
+    assert quit_item.selector == 'terminate:', 'queued callbacks become inert after disposal'
 
 
 @pytest.fixture
