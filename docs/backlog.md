@@ -1,7 +1,7 @@
 # Backlog
 
-Current checkout/version handoff: [Development status](project-status.md). Verify that handoff against the actual
-working directory and Git state; the legacy primary checkout's 0.5.1-alpha backlog is an earlier development state.
+Current version handoff: [Development status](project-status.md). Verify it against the actual branch, working tree
+and `pyproject.toml` version before reporting progress.
 
 BL-001 through BL-008 describe the implementation included in 0.5.0, following the 0.4.1 baseline (`d936decd`).
 Later entries track unreleased local review work and planned or deferred requirements.
@@ -18,6 +18,9 @@ The owner's 2026-10-26 feedback is recorded as **BL-022 through BL-031**. See th
 [complete requirement/evidence map](feedback-2026-10-26.md) for every sub-item, supplied screenshot/report,
 acceptance boundary and proposed execution order. BL-022 through BL-029 and BL-031 were implemented for local 0.6.0-alpha.1 review. BL-030 remains planned. The preceding
 Chinese README/CHANGELOG drafts and fork synchronization are complete; the initial BL-015 implementation has owner acceptance.
+
+BL-032 through BL-039 (except the BL-037 design task) were implemented for local 0.6.0-alpha.2 review. The owner's
+macOS review of alpha.2 on 2026-10-26 is recorded as **BL-040 through BL-045**; Windows has not been reviewed yet.
 
 ## BL-001: Per-Mod atomic library import and game installation
 
@@ -646,7 +649,7 @@ branding only; keep other-language assets untouched and hand candidates to the o
 
 ## BL-032: Compact photography occlusion control
 
-- Status: Implemented for local review; owner UAT/visual acceptance pending.
+- Status: Implemented for local review; owner macOS review found the English label overflowing (BL-040).
 - Requested: 2026-10-26, following local alpha.1 review.
 - Parent: BL-023.
 
@@ -800,3 +803,95 @@ Avoid committing stale cross-server refresh results, silently clearing Hall data
 effect of changing this setting. Owner UAT remains the acceptance step.
 
 Stored model fallback records lacked display metadata when the selected catalog had no installed entry. Offline metadata and complete fallback records now cover name display. Server changes validate the directory before saving; missing resources show a folder-selection message, retain the current server and Hall data, and recover in-session. Refresh ownership rejects stale server results.
+
+## BL-040: Wrap the English Occlusion Guide label
+
+- Status: Planned; owner macOS review of 0.6.0-alpha.2.
+- Requested: 2026-10-26.
+- Parent: BL-032.
+- Evidence: owner screenshot of the English photography toolbar.
+
+The compact Occlusion Guide button from BL-032 overflows in English. Wrap the label inside the native button instead
+of letting it spill out; keep BL-032's compact width, fixed right edge and the neighbouring controls' geometry. The
+Chinese label already fits. Check every shipped language, not only English.
+
+## BL-041: Text fit and one font size for source action buttons
+
+- Status: Planned; owner macOS review of 0.6.0-alpha.2.
+- Requested: 2026-10-26.
+- Related: BL-034 and BL-036 (source-picker actions).
+- Evidence: owner screenshot of the English L2D source picker (Apply, Show in Finder, Check Compatibility, Update,
+  Delete).
+
+In the L2D source picker, Check Compatibility overflows its button, and the buttons in the same row use different
+font sizes (Update is smaller than Delete). Long labels wrap inside the button; buttons in one row share one font
+size that fits all of them. Chinese shows no problem; audit every other language on every source picker (portrait,
+memorial, L2D, model, thumbnail) and the other action rows. The owner asked for this to become a standing UI design
+and review rule, kept in a UI guideline file rather than in the general agent rules.
+
+## BL-042: Restore Default on thumbnails creates an orphan generated default
+
+- Status: Planned; owner macOS review of 0.6.0-alpha.2.
+- Requested: 2026-10-26.
+- Related: BL-022 (generated defaults) and BL-036 (deletion rules).
+
+Observed: in the thumbnail picker, with a user-made thumbnail selected, Restore Default adds another generated
+default thumbnail. The new entry shows no Applied marker, yet Delete answers that the asset is in use
+(`该资产正在被应用中，是否删除？`). Restore Default must reuse the existing generated default and create one only
+when none exists. The Applied/preview markers and the deletion check must read the same state, so the in-use
+confirmation appears only for assets that are actually applied.
+
+## BL-043: Top bar vertical centring and title size
+
+- Status: Planned; owner macOS review of 0.6.0-alpha.2.
+- Requested: 2026-10-26.
+- Related: BL-038 and BL-037.
+- Evidence: owner screenshot of the Students top bar with a red line through the bar's centre.
+
+The top bar's content is not centred on its background: the right-hand actions (Settings, Home) sit a few pixels
+high and the left-hand items low. The current page title (e.g. 学生) is larger than the bar's other text and not
+consistent. Measure against the game's top bar prefab and name it; align each element's visual centre with the
+bar's centre and use the prefab's title size on every page. Check all pages and languages at several window sizes
+and display densities.
+
+## BL-044: Applied and preview frames from the game's selected skill cards
+
+- Status: Planned; owner macOS review of 0.6.0-alpha.2.
+- Requested: 2026-10-26.
+- Related: BL-015, BL-022 and BL-036.
+- Evidence: owner screenshots of the game's Formation Edit > starting skills > selected skill cards (animated yellow
+  and blue frames, numbered top-right badges with a check).
+
+The portrait, L2D and thumbnail pickers (and the other source pickers) tell the applied choice from the one being
+previewed. Show both with the game's animated selected-card frames, built from the game's prefab (identify and name
+it), not CSS. Move the Applied marker from the top-left corner to the top-right, in the numbered check-badge style.
+Proposed mapping for owner review: applied = yellow frame with the check badge, previewed = blue frame.
+
+## BL-045: Separate Global and Japanese game directories
+
+- Status: Planned; owner macOS review of 0.6.0-alpha.2.
+- Requested: 2026-10-26.
+- Related: BL-039 and BL-030.
+- Evidence: owner screenshot of the dialog shown when switching to the Japanese server (title `失败`, message
+  `请在设置中选择此服务器的游戏目录。`, buttons Generate Error Report and Confirm).
+
+Settings has no place to choose a Japanese game directory, so that message cannot be acted on. Add separate Global
+and Japanese game directory settings, using each language's official server names, and assign the existing single
+directory to the server it belongs to. When the selected server's directory is not set, show a plain notice instead
+of a failure: no `失败` title and no error-report button, a message such as `未设置日服游戏目录`, and Confirm only.
+Keep BL-039's behaviour: the current server, Hall and saved choices stay as they are.
+
+
+## BL-046: Managed CLI CAB cache and upstream introspection tests
+
+- Status: Planned; from the 2026-10-26 upstream sync assessment.
+- Requested: 2026-10-26.
+- Related: BL-012 and BL-014.
+
+The CLI `inspect`/`trace` cache still defaults to `Addons/cab_cache.json` beside the program: unbounded, not keyed by
+the game's resource version, not cleared from Settings, and since the latest upstream sync rewritten in full on every
+CAB hit. Move it onto the App's managed CAB index/preview cache (bounded, versioned, cleared in Settings) and retire
+the file. The upstream test `tests/test_core/test_introspect.py` expects every non-null PPtr to resolve in local-only
+mode without separating local (`m_FileID == 0`) from external references, which official bundles with external
+references contradict; test the two cases separately and add tests for `--local-only`, cache isolation and
+interrupted runs. Upstream's CLI options and the shared UnityFS reader are already in `main`.
