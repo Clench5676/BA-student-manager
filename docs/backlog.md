@@ -941,6 +941,12 @@ Owner review of 0.6.0-alpha.5 on macOS (2026-10-26):
 2. A little uncovered base colour still shows at the frame's top-left and bottom-left corners.
 3. Two thumbnails show Applied at once: BL-053.
 
+The badge sprites (`Common_Icon_Mulligan_1`/`_2`, 64x69) have no slice borders, so NGUI could only stretch them whole.
+Owner decision (2026-10-26): widen the badge by slicing the original sprite at runtime. The App keeps reading the
+sprite from the game; it defines its own horizontal slice borders (the rounded left end, the right part with the
+check, and between them a run of identical pixel columns) and repeats only that run leftward, so the check and the
+corners keep their shape. Only the border numbers ship, verified numerically against the official sprite.
+
 ## BL-045: Separate Global and Japanese game directories
 
 - Status: Accepted by the owner (macOS review of 0.6.0-alpha.3, 2026-10-26); Windows not reviewed.
