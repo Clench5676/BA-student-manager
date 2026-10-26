@@ -2,7 +2,7 @@
 // Its actual mesh and material come from UIPopup_Mulligan. The mask shader scrolls FX_TEX_Bulletline_03;
 // no TweenAlpha, UISpriteAnimation or CSS animation is involved.
 import { fragmentSource } from './particles-gl.js';
-import { toLinear } from './touch-fx.js';
+import { toLinear, toSrgb } from './touch-fx.js';
 import { uiExportUrl } from './api.js';
 import { applyDir, euler } from './particles.js';
 
@@ -23,6 +23,26 @@ export function frameMesh(effect) {
   }
   return new Float32Array(data);
 }
+
+// The material's blend is One / OneMinusSrcAlpha in linear light: result = light + behind * (1 - alpha). The effect's light
+// is HDR (the material colour is 5.6 and 24 in sRGB, 44 and 1084 in linear light), so it saturates long before its alpha,
+// which is only the mask. The page composites the canvas over the card in sRGB values, as a premultiplied layer
+// (result = colour + behind * (1 - alpha), the colour is allowed to exceed the alpha, as linear.js relies on for the
+// lobby): the layer carries the light in sRGB values and, as its alpha, what the game's blend leaves of what is behind,
+// sRGB-encoded. The result is exact over black, exact over white where a channel has no light or is saturated, and never
+// darker than the game's blend (a partly lit channel can come out up to 0.32 brighter). A canvas that wrote the straight
+// colour light / alpha instead weighted the light by the mask, up to 0.97 darker than the game's. The canvas draws nothing
+// where the mask is zero (no colour, no alpha), so the card keeps its own pixels there.
+// frameBlend is the JavaScript twin of FRAME_OUTPUT: emission is the shader's linear colour, alpha its coverage.
+export function frameBlend(emission, alpha) {
+  const clamp = v => Math.min(1, Math.max(0, v));
+  return { color: emission.map(c => toSrgb(clamp(c))), alpha: 1 - toSrgb(1 - clamp(alpha)) };
+}
+export const FRAME_OUTPUT = `
+vec3 displayColor(vec3 c){return mix(12.92*c,1.055*pow(max(c,vec3(0.)),vec3(1./2.4))-.055,step(vec3(.0031308),c));}
+void main(){frameMain();vec3 light=displayColor(clamp(o.rgb,vec3(0.),vec3(1.)));float cover=1.-displayColor(vec3(1.-clamp(o.a,0.,1.))).x;o=vec4(light,cover);}`;
+// What the page makes of one channel: the premultiplied layer over what is behind it, in sRGB values.
+export const frameOver = (layer, behind) => Math.min(1, layer.color + behind * (1 - layer.alpha));
 
 const live = new Set();
 const pending = new WeakMap();
@@ -66,8 +86,8 @@ export async function renderFrameEffect(effect, host, { x, y, sx, sy, z, load })
   canvas.width = Math.ceil(width * density); canvas.height = Math.ceil(height * density);
   Object.assign(canvas.style, { position: 'absolute', left: `${x - width / 2}px`, top: `${y - height / 2}px`,
     width: `${width}px`, height: `${height}px`, zIndex: String(z + effect.depth), pointerEvents: 'none' });
-  const gl = canvas.getContext('webgl2', { alpha: true, premultipliedAlpha: false, antialias: true });
-  if (!gl?.createShader) return; // The prefab's static frame and check remain available without WebGL2.
+  const gl = canvas.getContext('webgl2', { alpha: true, premultipliedAlpha: true, antialias: true });
+  if (!gl?.createShader) return; // The prefab's static frame and badge remain available without WebGL2.
   const shader = (type, source) => {
     const s = gl.createShader(type); gl.shaderSource(s, source); gl.compileShader(s);
     if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
@@ -78,9 +98,7 @@ in vec2 a_pos; in vec2 a_uv; in vec4 a_color;
 uniform vec2 u_half; out vec4 v_t0; out vec4 v_t1; out vec4 v_t2; out vec4 v_col; out vec3 v_n;
 void main(){gl_Position=vec4(a_pos/u_half,0.,1.);v_t0=vec4(a_uv,0.,0.);v_t1=vec4(0.);v_t2=vec4(0.);v_col=a_color;v_n=vec3(0.,0.,1.);}`);
   // Reuse the App's port of DSFX/FX_SHADER_AlphaBlend_Add_Mask_0. NGUI's panel clipping is the list viewport.
-  const fs = shader(gl.FRAGMENT_SHADER, fragmentSource('mask').replace('void main()', 'void frameMain()') + `
-vec3 displayColor(vec3 c){return mix(12.92*c,1.055*pow(max(c,vec3(0.)),vec3(1./2.4))-.055,step(vec3(.0031308),c));}
-void main(){frameMain();o.rgb=displayColor(o.rgb/max(o.a,.00001));}`);
+  const fs = shader(gl.FRAGMENT_SHADER, fragmentSource('mask').replace('void main()', 'void frameMain()') + FRAME_OUTPUT);
   const program = gl.createProgram(); gl.attachShader(program, vs); gl.attachShader(program, fs); gl.linkProgram(program);
   gl.deleteShader(vs); gl.deleteShader(fs);
   if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(program));
