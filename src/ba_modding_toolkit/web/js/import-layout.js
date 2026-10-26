@@ -160,7 +160,14 @@ export function importArtwork(ui, layouts) {
     },
     // MailboxContent/List_01/Btn_Receive supplies every blue action; Items/Bottom/Use/UseBtn supplies Import.
     // Clone the entire disabled state, including its dark dotted B_C patterns, not just its body/label colours.
-    button(caption, width, primary = false, enabled = true) {
+    // The caption size buttons side by side share (secondary ones, MailboxContent/List_01/Btn_Receive): the largest from the
+    // prefab's size down to 70 % of it at which every caption fits its button (the widths, units) after wrapping.
+    buttonSize(captions, widths) {
+      const t = content("List_01/Btn_Receive"), w = ui.find(t, "Label_Locale").widgets.find((w) => "text" in w);
+      return ui.fitGroup(captions, w.fontSize, w.fontSize * 0.7, widths.map((width) => width - 60), 2, { maxH: t.widgets.find((x) => "sprite" in x).h_ - 20 })[0]?.fs;
+    },
+    // size: the row's shared caption size (buttonSize)
+    button(caption, width, primary = false, enabled = true, size = null) {
       const t = primary ? inventory(`${INVENTORY}/RightCanvas/Bottom/${enabled ? "Use" : "None"}/UseBtn`)
         : enabled ? content("List_01/Btn_Receive") : mail("Bottom/ObjectsDisplayed_Unread/ReceiveAll/Btn_Disable");
       at(t);
@@ -176,8 +183,14 @@ export function importArtwork(ui, layouts) {
         c.scale = c.scale.map(Math.abs);
       }
       const captionNode = ui.find(t, primary ? enabled ? "Label_Locale_Use" : "Text" : "Label_Locale");
-      label(captionNode, caption, width - 60, 2);
       const w = captionNode.widgets.find((w) => "text" in w), height = body.widgets.find((w) => "sprite" in w).h_ - 20;
+      if (size) {
+        // the row's size: wrapped within the button at that size, whatever the prefab's own size is
+        const f = ui.fitText(caption, size, size, width - 60, 2);
+        Object.assign(w, { text: f.text, fontSize: f.fs, w_: Math.max(w.w_ || 0, width - 60), h_: height });
+        return t;
+      }
+      label(captionNode, caption, width - 60, 2);
       if (w.h_ > height) { w.fontSize *= height / w.h_; w.h_ = height; }
       return t;
     },

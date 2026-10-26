@@ -99,9 +99,11 @@ function valueRow(name, y, title, value, buttons, { below = false } = {}) {
   const h = 130 + blockH + 30 + (below ? 132 : 0), row = rowBase(name, y, h, title), hits = [];
   const midY = h / 2 - 130 - blockH / 2;
   row.children.push(node("Value", [-718, midY], [label(f.text, f.fs, "#2d4664/1.00", room, lineH * f.lines + 10, { pivot: 3, depth: 8 })]));
+  // buttons side by side share one caption size (Buttons.smallButton's 300 x 112, range 44 down to 30)
+  const size = buttons.length > 1 ? NGUI.fitGroup(buttons.map(([caption]) => caption), 44, 30, 300 - 60, 2, { maxH: 112 - 20 })[0].fs : null;
   buttons.forEach(([caption, fn, enabled = true], i) => {
     const x = 700 - (buttons.length - 1 - i) * 320 - 150;
-    row.children.push(buttonNode(`Btn_${i}`, x, below ? -h / 2 + 75 : midY, caption, { enabled }));
+    row.children.push(buttonNode(`Btn_${i}`, x, below ? -h / 2 + 75 : midY, caption, { enabled, ...(size ? { fs: size, min: size } : {}) }));
     if (enabled) hits.push({ path: `${name}/Btn_${i}`, fn, name: caption });
   });
   return { tree: row, h, hits };
@@ -153,13 +155,15 @@ function frameTree() {
   const tf = fitText(T("settings.title"), 72, 52, 1000);
   Object.assign(titleNode_.widgets[0], { text: tf.text, fontSize: tf.fs, w_: 1100 });
   find(titleNode_, "Line").widgets[0].w_ = glyphsOf(tf.text, tf.fs) + 14;
+  // the tabs' captions share one size
+  const tabFits = NGUI.fitGroup(TABS.map((id) => T(`settings.tab.${id}`)), 56, 40, 300, 2);
   TABS.forEach((id, i) => {
     const n = clone(template);
     n.name = `Tab_${id}`;
     n.pos = [-680, 316 - i * 136.5];
     for (const state of ["Tab_On", "Tab_Off"]) {
       const lbl = find(n, `${state}/Label_Locale`);
-      const f = fitText(T(`settings.tab.${id}`), 56, 40, 300);
+      const f = tabFits[i];
       Object.assign(lbl.widgets[0], { text: f.text, fontSize: f.fs, w_: 320 });
       find(n, state).active = (state === "Tab_On") === (id === tab);
     }
@@ -227,8 +231,9 @@ function rows({ builtSize = null, sizeError = null } = {}) {
     add(helpAfterTitle(sw, T("mods.switch"), v.dot));
     const exportRow = rowBase("Export", 0, 270, T("export.title"));
     const exportHits = [];
+    const exportSize = NGUI.fitGroup([T("export.library"), T("export.applied")], 44, 30, 680 - 60, 2, { maxH: 112 - 20 })[0].fs;
     [["library", "export.library"], ["applied", "export.applied"]].forEach(([scope, key], i) => {
-      exportRow.children.push(buttonNode(`Btn_${i}`, -370 + i * 740, -50, T(key), { w: 680 }));
+      exportRow.children.push(buttonNode(`Btn_${i}`, -370 + i * 740, -50, T(key), { w: 680, fs: exportSize, min: exportSize }));
       exportHits.push({ path: `Export/Btn_${i}`, fn: () => ModExport.open({ scope }), name: T(key) });
     });
     add({ tree: exportRow, h: 270, hits: exportHits });

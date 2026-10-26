@@ -53,7 +53,8 @@ export function toolbarLayout(view, { title = T("roster.title"), left = -1270, r
   const steps = [[230, 44, 56, 40, 62], [210, 40, 48, 38, 62], [200, 36, 44, 34, 58], [190, 34, 42, 32, 54], [180, 32, 40, 30, 50], [170, 30, 36, 28, 46]];
   for (const [segW, segFs, sortFs, cbFs, titleFs] of steps) {
     const titleEnd = left + advanceOf(title, titleFs) + 40;
-    const segLabels = ["seg.all", "seg.mods", "seg.noMods", "seg.all", "seg.recruit", "seg.noRecruit"].map((k) => fitText(T(k), segFs, 22, segW - 26));
+    // the six segments of both filters share one size
+    const segLabels = NGUI.fitGroup(["seg.all", "seg.mods", "seg.noMods", "seg.all", "seg.recruit", "seg.noRecruit"].map((k) => T(k)), segFs, 22, segW - 26, 2, { maxH: 96 });
     // the sort button is as wide as its longest key, so choosing another one moves nothing
     const sortTexts = SORTS.map((k) => fitText(T(`sort.${k}`), sortFs, 28, 420));
     const sortText = sortTexts[Math.max(0, SORTS.indexOf(view.sort))];

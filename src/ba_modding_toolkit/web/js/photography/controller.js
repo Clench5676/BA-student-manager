@@ -295,19 +295,22 @@ async function galleryDraw(){
     if(selectedPhoto){
       await image(layer,selectedPhoto.url,[1190,270,320,320]);
       await UI.caption(layer,selectedPhoto.name,[1190,625,320],{align:2});
-      await UI.button(layer,'Apply',P('apply'),[1200,670,140,64],safe(applyGame),{semantic:"apply",enabled:repository.applicable&&(!repository.game?.known||selected!==repository.game?.id||!!repository.game?.error||repository.game?.pending)});
-      if(selectedPhoto.managed!==false&&selectedPhoto.provenance!=='official')await UI.button(layer,'Delete',P('delete'),[1360,670,140,64],safe(deletePhoto));
+      const pair=UI.buttonSize([P('apply'),P('delete')],140,64);
+      await UI.button(layer,'Apply',P('apply'),[1200,670,140,64],safe(applyGame),{semantic:"apply",size:pair,enabled:repository.applicable&&(!repository.game?.known||selected!==repository.game?.id||!!repository.game?.error||repository.game?.pending)});
+      if(selectedPhoto.managed!==false&&selectedPhoto.provenance!=='official')await UI.button(layer,'Delete',P('delete'),[1360,670,140,64],safe(deletePhoto),{size:pair});
     }
     if(allPhotos.length>6){
-      await UI.button(layer,'Previous',P('previous'),[365,748,180,55],safe(async()=>{page=Math.max(0,page-1);await galleryDraw();}),{enabled:page>0});
-      await UI.button(layer,'Next',P('next'),[565,748,180,55],safe(async()=>{page++;await galleryDraw();}),{enabled:(page+1)*6<allPhotos.length});
+      const paging=UI.buttonSize([P('previous'),P('next')],180,55);
+      await UI.button(layer,'Previous',P('previous'),[365,748,180,55],safe(async()=>{page=Math.max(0,page-1);await galleryDraw();}),{enabled:page>0,size:paging});
+      await UI.button(layer,'Next',P('next'),[565,748,180,55],safe(async()=>{page++;await galleryDraw();}),{enabled:(page+1)*6<allPhotos.length,size:paging});
     }
+    const tools=UI.buttonSize([P('restore'),P('export')],180,64);
     await UI.button(layer,'Restore',P('restore'),[365,835,180,64],safe(async()=>{
       const scope=generation;
       await Loading.task(async()=>{await waitJob(await call('restore',{png:await generatedPNG()}));if(scope!==generation)throw new DOMException('Photography ended','AbortError');await repositoryRead();});
       bridge.thumbnailChanged();selected=DEFAULT;page=0;await galleryDraw();
-    }),{enabled:repository.app!==null||repository.game?.id!==DEFAULT});
-    await UI.button(layer,'Export',P('export'),[565,835,180,64],safe(async()=>{await Loading.task(async()=>call('export',{id:selected,png:selected===DEFAULT?await generatedPNG():null}));}),{enabled:!!selectedPhoto});
+    }),{enabled:repository.app!==null||repository.game?.id!==DEFAULT,size:tools});
+    await UI.button(layer,'Export',P('export'),[565,835,180,64],safe(async()=>{await Loading.task(async()=>call('export',{id:selected,png:selected===DEFAULT?await generatedPNG():null}));}),{enabled:!!selectedPhoto,size:tools});
     await UI.button(layer,'SaveSelection',P('saveSelection'),[1280,835,140,64],safe(async()=>{repository=normalized({...repository,...await call('select',{id:selectedKey(selected)})});bridge.thumbnailChanged();modal.close();modal=null;bridge.pause(paused);}),{semantic:"save",enabled:!!selected});
   },[],{width:2000,height:1200});
 }

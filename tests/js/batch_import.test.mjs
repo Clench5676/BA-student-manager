@@ -119,7 +119,7 @@ async function fixture({ licensed = false, native = true, suggest, countIcons = 
   const layouts = makeImportLayouts(), layoutSnapshot = structuredClone(layouts), rendered = [], loaded = [];
   let renderHold = null, imagesHold = null, thumbsHold = null, decodeHold = null, thumbnailFor = null;
   const label = (text, fontSize, color, w_, h_, opts = {}) => ({ text, fontSize, color, w_, h_, pivot: 4, depth: 9, ...opts });
-  const ui = { node, label, fitText: (text, fs) => ({ text, fs }), glyphWidth: (text, fs) => String(text).length * fs, init: async () => {},
+  const ui = { node, label, fitText: (text, fs) => ({ text, fs }), fitGroup: (captions, fs) => captions.map((text) => ({ text, fs: fs - 2 })), glyphWidth: (text, fs) => String(text).length * fs, init: async () => {},
     layout: async (name) => { loaded.push(name); assert.ok(layouts[name], `Unexpected layout ${name}`); return layouts[name]; },
     atlasIndex: () => ({ Common: { Card_Select_Line: FRAME_META, ...(countIcons ? Object.fromEntries(["Student", "Play", "Craft"].map((name) => [`Common_Icon_${name}`, { width: 48, height: 48 }])) : {}) } }),
     spritePixels: async () => framePixels(),
@@ -898,6 +898,55 @@ test("both preview tags align to the panel top and both image slots to its heade
     assert.equal(circle, undefined, "preview decorations are removed from both pictures");
   }
   assert.equal(h.host.querySelectorAll(".import-preview").length, 2);
+});
+
+test("buttons side by side share one caption size: the list's tools, and Advanced Options with Recheck", async () => {
+  // a group fit that shrinks the longest caption: the shared size is the smallest any caption needs
+  const asked = [];
+  const ui = { find, fitText: (text, fs) => ({ text, fs }), fitGroup: (captions, max, min, widths, lines, opts) => {
+    asked.push({ captions, max, min, widths, lines, opts });
+    const fs = Math.min(max, ...captions.map((text, i) => Math.floor(widths[i] / String(text).length)));
+    return captions.map((text) => ({ text, fs, lines: 1 }));
+  } };
+  const layouts = makeImportLayouts(), art = importArtwork(ui, layouts);
+  const captions = ["Add Files", "Add Folder", "Select All", "Deselect All", "Remove", "Remove Imported", "Clear"];
+  const widths = [174, 190, 126, 140, 150, 224, 156].map((width) => width / 0.34);
+  const size = art.buttonSize(captions, widths);
+  // the prefab's own size (Btn_Receive) down to 70 %, each caption's room 60 less than its button, inside the body less 20
+  const body = find(layouts.UIMailBoxContent, "List_01/Btn_Receive"), label = find(body, "Label_Locale").widgets.find((w) => "text" in w);
+  assert.equal(asked[0].max, label.fontSize);
+  assert.equal(asked[0].min, label.fontSize * 0.7);
+  assert.deepEqual(asked[0].widths, widths.map((width) => width - 60));
+  assert.equal(asked[0].lines, 2);
+  assert.equal(asked[0].opts.maxH, body.widgets.find((w) => "sprite" in w).h_ - 20);
+  const sizes = widths.map((width, i) => {
+    const tree = art.button(captions[i], width, false, true, size);
+    const text = treeNodes(tree).flatMap((n) => n.widgets).find((w) => "text" in w && w.text === captions[i]);
+    assert.ok(text, captions[i]);
+    assert.ok(text.w_ >= width - 60, "the label box is as wide as the room the caption was fitted to");
+    assert.equal(text.h_, body.widgets.find((w) => "sprite" in w).h_ - 20);
+    return text.fontSize;
+  });
+  assert.equal(new Set(sizes).size, 1, `one size on every button: ${sizes}`);
+  assert.equal(sizes[0], size);
+  // without a shared size a button fits its own caption as before
+  const alone = art.button("Remove Imported", widths[5]);
+  assert.ok(treeNodes(alone).flatMap((n) => n.widgets).some((w) => "text" in w && w.text === "Remove Imported"));
+});
+
+test("the page gives the list's tools one size, Advanced Options and Recheck another, and leaves Import alone", async () => {
+  const h = await fixture();
+  await h.page.settled();
+  const size = (action) => {
+    const { tree } = drawn(h, h.action(action));
+    return treeNodes(tree).flatMap((n) => n.widgets).find((w) => "text" in w && w.text).fontSize;
+  };
+  const tools = ["files", "folder", "all", "none", "remove", "removeImported", "clear"].map(size);
+  assert.equal(new Set(tools).size, 1, `the seven tools: ${tools}`);
+  assert.equal(size("options"), size("recheck"));
+  // the shared size comes from the group fit (the stand-in takes 2 off the prefab's size), not from each caption alone
+  assert.ok(tools[0] < 60 && size("options") < 60);
+  assert.equal(size("start"), 72, "the primary button keeps its own prefab size");
 });
 
 test("every page action swaps its whole disabled prefab, including both dotted patterns, through the job lifecycle", async () => {

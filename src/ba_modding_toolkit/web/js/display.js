@@ -41,14 +41,17 @@ function frameTree() {
   const title = find(popup, "Base/BG/Label_Title_Locale");
   const tf = setText(title, T("display.title"), 72, 52, 1100);
   find(title, "Line").widgets[0].w_ = glyphsOf(tf.text, tf.fs) + 14;
+  const tabLabels = [];
   for (const [widget, id, key] of [["FilterWidget/Filter", "filter", "display.tab.filter"], ["SortWidget/Sort", "sort", "display.tab.sort"]]) {
     const n = find(popup, `Tab/${widget}`);
     n.active = !sortOnly || id === "sort";
     for (const state of ["Tab_On", "Tab_Off"]) {
-      setText(find(n, `${state}/Label_Locale`), T(key), 56, 40, 360);
+      tabLabels.push([find(n, `${state}/Label_Locale`).widgets.find((x) => "text" in x), T(key)]);
       find(n, state).active = (state === "Tab_On") === (id === tab);
     }
   }
+  // the tabs' captions share one size
+  NGUI.fitLabels(tabLabels.map(([widget]) => widget), tabLabels.map(([, text]) => text), 56, 40, 360);
   const filter = find(popup, "Filter"), sort = find(popup, "Sort");
   filter.active = tab === "filter";
   sort.active = tab === "sort";

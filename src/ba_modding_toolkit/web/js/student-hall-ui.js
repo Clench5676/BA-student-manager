@@ -83,8 +83,9 @@ export function createModal(title, onClose, { level = 0 } = {}) {
         await build(layer, live, drawSignal);
         const actionWidth = Math.min(280, (width * S - 180) / Math.max(1, actions.length) - 20);
         const right = 960 + width * S / 2 - 70, bottom = 540 + (height / 2 - 120) * S;
+        const footerSize = buttonSize(actions.map((action) => action.label), actionWidth, 66);
         await Promise.all(actions.map((action, index) => button(layer, `Footer${index}`, action.label,
-          [right - (actions.length - index) * (actionWidth + 20), bottom, actionWidth, 66], action.fn, { enabled: action.enabled !== false })));
+          [right - (actions.length - index) * (actionWidth + 20), bottom, actionWidth, 66], action.fn, { enabled: action.enabled !== false, size: footerSize })));
         await document.fonts?.ready;
         const scrollSnapshot = () => new Map([...host.querySelectorAll('[data-scroll]')].map((el) => [el.dataset.scroll, [el.scrollLeft, el.scrollTop]]));
         let oldScroll;
@@ -121,9 +122,13 @@ export function createModal(title, onClose, { level = 0 } = {}) {
   };
   Popup.opened(host, onClose); return api;
 }
-export async function button(host, name, caption, [x, y, width, height], action, { enabled = true, semantic = "secondary" } = {}) {
+// The caption size buttons side by side share: the largest of Buttons.smallButton's range (40 down to 26) at which every
+// caption fits its button (label box: 60 less across, 20 less down) after wrapping, for buttons of one size.
+export const buttonSize = (captions, width, height) => NGUI.fitGroup(captions, 40, 26, width / S - 60, 2, { maxH: height / S - 20 })[0]?.fs;
+// size: the shared caption size of the row this button is in (buttonSize)
+export async function button(host, name, caption, [x, y, width, height], action, { enabled = true, semantic = "secondary", size = null } = {}) {
   await ready();
-  const tree = Buttons.smallButton(name, 0, 0, caption, { w: width / S, h: height / S, fs: 40, min: 26, enabled, semantic, depth: 65 });
+  const tree = Buttons.smallButton(name, 0, 0, caption, { w: width / S, h: height / S, fs: size ?? 40, min: size ?? 26, enabled, semantic, depth: 65 });
   const view = await NGUI.render(tree, host, { scale: S, origin: [x + width / 2, y + height / 2] });
   const path = NGUI.find(tree, "BG (1)") ? `${name}/BG (1)` : name;
   const hit = Popup.hit(host, view, path, action, { name: caption, action: name, z: 90 });

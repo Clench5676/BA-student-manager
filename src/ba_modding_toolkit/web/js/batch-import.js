@@ -138,13 +138,24 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
     const b = el("button", "hit import-button"); b.type = "button"; b.dataset.action = action;
     Object.assign(b.style, { width: `${width}px`, height: `${(primary ? 166 : 162) * scale}px` });
     b.refresh = () => {
-      const key = JSON.stringify([b.caption, b.disabled]); if (key === b.drawKey) return; b.drawKey = key;
-      paint(b, art.button(b.caption, width / scale, primary, !b.disabled), { scale, origin: [width / 2, (primary ? 166 : 162) * scale / 2] });
+      const key = JSON.stringify([b.caption, b.disabled, b.size]); if (key === b.drawKey) return; b.drawKey = key;
+      paint(b, art.button(b.caption, width / scale, primary, !b.disabled, b.size), { scale, origin: [width / 2, (primary ? 166 : 162) * scale / 2] });
     };
+    b.buttonWidth = width / scale;
     setCaption(b, caption); return b;
   }
   function setCaption(b, caption) {
     b.caption = caption; b.setAttribute("aria-label", caption); b.refresh();
+  }
+  // Buttons side by side share one caption size: the list's seven tools, and Advanced Options with Recheck.
+  const TOOLBAR = [["files", "addFiles", 26, 174], ["folder", "addFolder", 210, 190], ["all", "all", 410, 126], ["none", "none", 546, 140],
+    ["remove", "remove", 696, 150], ["removeImported", "removeImported", 856, 224], ["clear", "clear", 1090, 156]];
+  function shareSizes() {
+    for (const keys of [TOOLBAR.map(([key]) => key), ["options", "recheck"]]) {
+      const buttons = keys.map((key) => dom[key]).filter(Boolean);
+      const size = buttons.length > 1 && art ? art.buttonSize(buttons.map((b) => b.caption), buttons.map((b) => b.buttonWidth)) : null;
+      for (const b of buttons) { b.size = size; b.refresh(); }
+    }
   }
   function checkbox(caption, checked, onChange, { labelWidth = 540 } = {}) {
     const label = el("label", "import-check"), input = el("input", "hit"); input.type = "checkbox"; input.checked = checked;
@@ -255,14 +266,13 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
     dom.list = el("div", "import-list"); dom.list.setAttribute("aria-label", T("import.list")); panel.appendChild(dom.list);
     dom.list.addEventListener("scroll", () => prepareVisibleRows(dom.list, rows.values()));
     layoutList();
-    for (const [key, caption, x, width] of [["files", "addFiles", 26, 174], ["folder", "addFolder", 210, 190],
-      ["all", "all", 410, 126], ["none", "none", 546, 140], ["remove", "remove", 696, 150],
-      ["removeImported", "removeImported", 856, 224], ["clear", "clear", 1090, 156]]) {
+    for (const [key, caption, x, width] of TOOLBAR) {
       dom[key] = button(T(`import.${caption}`), key, { width, scale: 0.34 }); place(dom[key], x, 629, width, 56); panel.appendChild(dom[key]);
     }
     root.appendChild(panel);
     dom.options = button(T("import.options.title"), "options", { width: 290, scale: 0.5 });
     dom.recheck = button(T("import.recheck"), "recheck", { width: 230, scale: 0.5 });
+    shareSizes();
     dom.start = button(T("import.action", { n: 0 }), "start", { width: 330, scale: 0.6, primary: true });
     // As on the roster/detail screens, reserve the nav's entire 104 px area, with 24 px above it.
     const footerY = 902;
@@ -680,6 +690,7 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
     dom.previewAfterImport.relabel(T("import.selectPreview")); dom.enableAfterImport.relabel(T("import.applyGame"));
     for (const [key, label] of [["files", "addFiles"], ["folder", "addFolder"], ["all", "all"], ["none", "none"],
       ["remove", "remove"], ["removeImported", "removeImported"], ["clear", "clear"], ["options", "options.title"], ["recheck", "recheck"]]) setCaption(dom[key], T(`import.${label}`));
+    shareSizes();
     render();
   }
 

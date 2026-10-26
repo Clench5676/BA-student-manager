@@ -1,5 +1,5 @@
-"""The text fitting (web/js/ngui.js fitText, fitLabel) is front-end code: its tests run with Node's test runner, skipped
-where Node is not installed."""
+"""The text fitting (web/js/ngui.js fitText, fitLabel, fitGroup, fitRow) is front-end code: its tests run with Node's test
+runner, skipped where Node is not installed."""
 
 import shutil
 import subprocess
@@ -14,4 +14,11 @@ TESTS = Path(__file__).parent / "js" / "ngui_fit.test.mjs"
 @pytest.mark.skipif(NODE is None, reason="Node.js is not installed")
 def test_text_fitting_in_node():
     result = subprocess.run([NODE, "--test", str(TESTS)], capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.skipif(NODE is None, reason="Node.js is not installed")
+def test_button_rows_fit_in_every_language_in_node():
+    tests = Path(__file__).parent / "js" / "button_row_fit.test.mjs"
+    result = subprocess.run([NODE, "--test", str(tests)], capture_output=True, text=True, timeout=120)
     assert result.returncode == 0, result.stdout + result.stderr

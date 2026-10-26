@@ -143,6 +143,9 @@ export function hit(host, view, path, fn, { name = "", action = "", z = 80 } = {
 }
 
 // --- the frame ---
+// a popup button (UIPopup_Sort Btn_Ok / Btn_Cancel, Common_Btn_BG 496 x 177): its caption, even on two lines, keeps clear of
+// the body's top and bottom edges
+export const BUTTON_TEXT_H = 140;
 // the game's popup frame at a size: backdrop, title, close button and, when given, its Cancel and OK buttons with
 // these labels near the bottom edge (a lone one in the middle). The frame's centre sits 12 units under the stage's
 // (Base -20, BG +8).
@@ -171,8 +174,10 @@ export function popupFrame(title, w, h, { ok = null, cancel = null, close = true
     b.active = !!caption;
     b.actionSemantic=name==="Btn_Ok"?"confirm":"secondary";
     if (!(ok && cancel)) b.pos = [0, b.pos[1]];
-    if (caption) NGUI.fitLabel(find(b, "Label_Locale").widgets[0], caption, 64, 40, 420);
   }
+  // the two captions share one size
+  const captions = [["Btn_Ok", ok], ["Btn_Cancel", cancel]].filter(([, caption]) => caption);
+  NGUI.fitLabels(captions.map(([name]) => find(btn, `${name}/Label_Locale`).widgets[0]), captions.map(([, caption]) => caption), 64, 40, 420, 2, { maxH: BUTTON_TEXT_H });
   if (buttons?.length) {
     const primary = find(btn, "Btn_Ok"), secondary = find(btn, "Btn_Cancel");
     const gap = 24, buttonWidth = Math.min(460, (w - 140 - gap * (buttons.length - 1)) / buttons.length), scale = buttonWidth / BTN_W;
@@ -180,8 +185,10 @@ export function popupFrame(title, w, h, { ok = null, cancel = null, close = true
     btn.children = buttons.map((action, index) => {
       const child = clone(action.primary ? primary : secondary); child.name = `Choice_${index}`; child.active = true; child.affirmative = !!action.primary;
       child.scale = [scale, scale]; child.pos = [(index - (buttons.length - 1) / 2) * (buttonWidth + gap), 0];
-      NGUI.fitLabel(find(child, "Label_Locale").widgets[0], action.label, 64, 40, 420); return child;
+      return child;
     });
+    // the captions of the choices share one size
+    NGUI.fitLabels(btn.children.map((child) => find(child, "Label_Locale").widgets[0]), buttons.map((action) => action.label), 64, 40, 420, 2, { maxH: BUTTON_TEXT_H });
   }
   find(t, "BlackBg/BlackBgClickArea").widgets.find((x) => "sprite" in x).color = "#000000/0.60";
   return t;
@@ -304,14 +311,16 @@ function toolbar(right, y, { segs = null, sortKey = "sort.default", active = 0, 
     const filter = clone(find(menu, "FilterBtn"));
     const segW = 230, sx = segW / 328;
     filter.scale = [sx, 1];
+    // the three segments share one size
+    const segFits = NGUI.fitGroup(segs.map((key) => T(key)), 44, 26, segW - 30, 2, { maxH: 96 });
     [["All", segs[0]], ["Main", segs[1]], ["Support", segs[2]]].forEach(([k, key], i) => {
       const seg = find(filter, k);
       for (const state of seg.children) {
         for (const c of state.children || []) {
           const tex = c.widgets.find((w) => "texture" in w);
           if (tex) {
-            const f = fitText(T(key), 44, 26, segW - 30);
-            c.widgets = [label(f.text, f.fs, tex.color, (segW - 20) / sx, 60, { depth: 9 })];
+            const f = segFits[i];
+            c.widgets = [label(f.text, f.fs, tex.color, (segW - 20) / sx, Math.max(60, f.fs * f.lines * 1.3), { depth: 9 })];
           }
         }
         state.active = (state.name === "Btn_Pressed") === (i === active);
@@ -346,6 +355,8 @@ function listFrame(title, buttons, closeButton) {
   const [ok, cancel] = [find(btn, "Btn_Ok"), find(btn, "Btn_Cancel")];
   btn.pos = [0, 0];
   const k = buttons.length > 2 ? 0.8 : 1, bw = BTN_W * k, gap = 24, right = LP.ok.x + BTN_W / 2;
+  // the buttons' captions share one size: the largest at which every one fits after wrapping
+  const fits = NGUI.fitGroup(buttons.map((b) => b.label), 72, 48, 360, 2, { maxH: BUTTON_TEXT_H });
   btn.children = buttons.map((b, i) => {
     const n = clone(b.primary ? ok : cancel);
     resizeButton(find(n, "BG (1)"));
@@ -354,7 +365,7 @@ function listFrame(title, buttons, closeButton) {
     n.active = true;
     n.scale = [k, k];
     n.pos = [right - bw / 2 - (buttons.length - 1 - i) * (bw + gap), LP.ok.y];
-    const f = fitText(b.label, 72, 48, 360);
+    const f = fits[i];
     Object.assign(find(n, "Label_Locale").widgets[0], { text: f.text, fontSize: f.fs });
     if (b.greyed) return Buttons.disable(n);
     return n;
@@ -406,6 +417,9 @@ export function listCard(it, x, y, selected, card = LP.card, kind = null) {
   return node(`Card_${it.key}`, [x, y], [sprite("Common_Btn_BG", w, h, { incline: 10, depth: 7, color: "#ffffff/1.00" })], kids);
 }
 
+// the details panel's action buttons: a caption keeps 14 clear of each edge of the slanted body (the slant moves the text
+// band's top and bottom lines by up to 4), and two lines of it stay inside the body's 120 height
+const ACTION_CLEAR = 28, ACTION_TEXT_H = 96;
 // the details panel: title bar, the picture, name, kind chips, fields, actions
 function detailsTree(it, title, fields, actions, portraitTexture = null, kind = null) {
   const b = LP.left, cx = (b.l + b.r) / 2, w = b.r - b.l;
@@ -462,8 +476,14 @@ function detailsTree(it, title, fields, actions, portraitTexture = null, kind = 
     if (i < fields.length - 1) kids.push(node(`L_${i}`, [cx, y - rowH / 2], [sprite("Common_Line_Dot", w - 100, 4, { type: 2, depth: 7, color: "#c0c9d4/1.00" })]));
     top -= rowH;
   });
+  // One size for the whole row: the largest at which every caption fits its button after wrapping onto two lines. The bodies
+  // are equal slots less a gap, until one long word would cost every caption size: then it takes width from its neighbours.
+  const bw = (w - 60) / actions.length, gap = 14;
+  const fits = NGUI.fitRow(actions.map(([caption]) => caption), 40, 26, actions.length * (bw - gap), ACTION_CLEAR, 2, { maxH: ACTION_TEXT_H });
+  let edge = b.l + 30 + gap / 2;
   actions.forEach(([caption, , disabled, semantic = "secondary"], i) => {
-    const bw = (w - 60) / actions.length, x = b.l + 30 + bw / 2 + i * bw, f = fitText(caption, 40, 26, bw - 60, 3);
+    const f = fits[i], bodyW = f.width, x = edge + bodyW / 2;
+    edge += bodyW + gap;
     let body = clone(find(layouts.sortPopup, "Center/Popup/Btn/Btn_Cancel/BG (1)"));
     let ink = "#2d5164/1.00";
     if (disabled) {
@@ -475,12 +495,12 @@ function detailsTree(it, title, fields, actions, portraitTexture = null, kind = 
     body.name = "Body";
     body.pos = [0, 0];
     body.scale = [k, k];
-    resizeButton(body, (bw - 14) / k);
+    resizeButton(body, bodyW / k);
     Object.assign(bg, { depth: 6, ...(!disabled ? { color: "#dbeef5/1.00" } : {}) });
     for (const child of body.children || []) for (const w of child.widgets) if ("w_" in w) w.depth = 7;
     const actionNode=node(`Act_${i}`, [x, b.b + 70], [], [
       body,
-      node("Label", [0, 6], [label(f.text, f.fs, ink, bw - 48, Math.min(110, Math.max(60, f.fs * f.lines * 1.25)), { depth: 8 })]),
+      node("Label", [0, 6], [label(f.text, f.fs, ink, bodyW - ACTION_CLEAR + 4, Math.min(110, Math.max(60, f.fs * f.lines * 1.25)), { depth: 8 })]),
     ]);
     actionNode.actionSemantic=disabled?"secondary":semantic;
     kids.push(actionNode);

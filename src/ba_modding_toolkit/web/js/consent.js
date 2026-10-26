@@ -43,10 +43,9 @@ async function draw(host, cacheDir, native, resolve) {
   btn.pos = [0, -430];
   find(btn, "Btn_Cancel/Label_Locale").widgets[0].text = T("consent.no");
   find(btn, "Btn_Ok/Label_Locale").widgets[0].text = T("consent.yes");
-  for (const name of ["Btn_Cancel", "Btn_Ok"]) {
-    const l = find(btn, `${name}/Label_Locale`).widgets[0];
-    l.fontSize = NGUI.fitText(l.text, 64, 40, 380).fs;
-  }
+  // the two captions share one size
+  const labels = ["Btn_Cancel", "Btn_Ok"].map((name) => find(btn, `${name}/Label_Locale`).widgets[0]);
+  NGUI.fitLabels(labels, labels.map((l) => l.text), 64, 40, 380, 2, { maxH: 140 });
   find(t, "BlackBg/BlackBgClickArea").widgets.find((w) => "sprite" in w).color = "#000000/0.65";
   // two rows: what is cached, what never is; each a white section with the game's title bar
   const row = (name, y, titleText, items, tone) => node(name, [0, y], [], [
@@ -184,12 +183,8 @@ function consentFrame(sort, title, w, h, [no, yes]) {
   find(bg, "Btn_Close").active = false;
   const btn = find(popup, "Btn");
   btn.pos = [0, -h / 2 + 160];
-  for (const [name, caption] of [["Btn_Cancel", no], ["Btn_Ok", yes]]) {
-    const l = find(btn, `${name}/Label_Locale`).widgets[0];
-    const fitted = NGUI.fitText(caption, 64, 40, 380);
-    l.text = fitted.text;
-    l.fontSize = fitted.fs;
-  }
+  // the two captions share one size
+  NGUI.fitLabels(["Btn_Cancel", "Btn_Ok"].map((name) => find(btn, `${name}/Label_Locale`).widgets[0]), [no, yes], 64, 40, 380, 2, { maxH: 140 });
   find(t, "BlackBg/BlackBgClickArea").widgets.find((x) => "sprite" in x).color = "#000000/0.65";
   return { tree: t, popup };
 }

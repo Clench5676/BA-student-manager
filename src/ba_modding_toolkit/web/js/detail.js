@@ -277,10 +277,13 @@ function screenTree() {
 
   // tabs: portrait / memorial lobby / 3D model (disabled where unavailable)
   const tabs = [["Tab_1", "tab.portrait", "portrait", hasKind(v, "spr")], ["Tab_2", "tab.lobby", "lobby", hasLobby(v)], ["Tab_3", "tab.model", "model", hasModel(v)]];
-  for (const [node_, key, id, enabled] of tabs) {
+  // the three captions share one size: the largest at which every one fits its tab on one line
+  const tabLabels = tabs.map(([, key, id]) => T(isSpecial(v) && id === "lobby" ? "special.background" : key));
+  const tabSize = NGUI.fitGroup(tabLabels, 52, 36, 360, 1)[0].fs;
+  for (const [index, [node_, key, id, enabled]] of tabs.entries()) {
     const base = `RightInfo/Target/Active/CharacterTab/${node_}`;
-    const label = T(isSpecial(v) && id === "lobby" ? "special.background" : key);
-    for (const state of ["Tab_On", "Tab_Off"]) text(t, `${base}/${state}/Label`, label, { w_: 400, fontSize: fitText(label, 52, 36, 360).fs });
+    const label = tabLabels[index];
+    for (const state of ["Tab_On", "Tab_Off"]) text(t, `${base}/${state}/Label`, label, { w_: 400, fontSize: tabSize });
     if (!enabled) widget(t, `${base}/Tab_Off/Label`).color = "#ffffff/0.35";
     at(t, `${base}/Tab_On`).active = id === tab;
     at(t, `${base}/Tab_Off`).active = id !== tab;
@@ -356,16 +359,19 @@ function screenTree() {
     find(t, `${base}/Bg/Bg_Line`).widgets[0].w_ = CW - 10;
   });
   off(t, `${INFO}/Skill/Btn_Up_Wrapper`); // the install button, removed for now
-  for (const [card, key, glyph, enabled] of actions) {
+  // the four titles share one size: the largest at which every one fits its card after wrapping onto two lines
+  const titles = NGUI.fitGroup(actions.map(([, key]) => T(key)), 40, 28, CW - 60, 2, { maxH: 90 });
+  for (const [index, [card, key, glyph, enabled]] of actions.entries()) {
     const base = `${INFO}/Skill/${card}`;
     actionState(at(t, base), enabled, layouts.disabled);
     off(t, `${base}/Normal/Label_SkillType (1)`, `${base}/Normal/Line (1)`);
     const max = find(t, `${base}/Normal/Icon_Max`);
     if (max) max.active = false;
     const bgX = at(t, `${base}/Bg`).pos[0] + 1, midY = 158.3 - 126; // Bg_Line centre: the card's visible body
-    const title = fitText(T(key), 40, 28, 170);
+    const title = titles[index];
     const disabledInk = layouts.disabled && find(layouts.disabled, "Label_Locale")?.widgets.find((w) => "text" in w)?.color;
-    text(t, `${base}/Normal/Label_SkillType`, title.text, { fontSize: title.fs, color: !enabled && disabledInk ? disabledInk : "#466399/1.00" });
+    text(t, `${base}/Normal/Label_SkillType`, title.text, { fontSize: title.fs, w_: CW - 56, h_: Math.max(46, title.fs * title.lines * 1.3),
+      color: !enabled && disabledInk ? disabledInk : "#466399/1.00" });
     at(t, `${base}/Normal/Label_SkillType`).pos = [bgX + 66 * TAN10, midY + 66];
     const icon = at(t, `${base}/Normal/SkillIconBg`);
     icon.pos = [bgX - 30 * TAN10, midY - 30];

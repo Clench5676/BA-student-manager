@@ -19,7 +19,7 @@ class Element {
 let stage=new Element("stage"),top;
 globalThis.document={createElement:()=>new Element(),getElementById:()=>stage,activeElement:null};
 const find=(tree,path)=>path.split("/").reduce((node,key)=>node.children.find((child)=>child.name===key),tree);
-globalThis.uiHarness={withTimeout,Loading:{hold:async(work)=>work()},T:key=>key,clone:structuredClone,NGUI:{find,fitLabel(widget,text){widget.text=text;}},Popup:{opened(host,close){top={host,close};},closed(){top=null;},top:()=>top}};
+globalThis.uiHarness={withTimeout,Loading:{hold:async(work)=>work()},T:key=>key,clone:structuredClone,NGUI:{find,fitLabel(widget,text){widget.text=text;},fitGroup:(captions)=>captions.map(()=>({fs:40}))},Popup:{opened(host,close){top={host,close};},closed(){top=null;},top:()=>top}};
 let source=await readFile(new URL("../../src/ba_modding_toolkit/web/js/student-hall-ui.js",import.meta.url),"utf8");
 source=source.replace(/^import .*;$/gm,"");source=`const {Popup,clone,NGUI,Loading,withTimeout,T}=globalThis.uiHarness; const S=1920/2960;\n${source}\nexport function areaFixture(fn){area=fn;} export function assetsFixture(value){assets=value;} export function readinessFixture(host,fn){visibleReadiness.set(host,fn);} export {pictureReadiness};\n//# sourceURL=hall-ui-fixture.js`;
 const UI=await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);

@@ -109,11 +109,10 @@ async function draw(host, info, resolve) {
     const action = !installable ? "page" : phase === "ready" || phase === "installing" ? "restart" : "update";
     const okText = T(action === "update" ? "update.now" : `update.${action}`);
     find(controls, "Btn_Ok/Label_Locale").widgets[0].text = okText;
-    // one line on the slanted 496-wide body, shrinking long captions rather than running into the edges
+    // one line on the slanted 496-wide body, shrinking long captions rather than running into the edges; both share one size
+    const captions = ["Btn_Cancel", "Btn_Ok"].map((name) => find(controls, `${name}/Label_Locale`).widgets[0]);
+    NGUI.fitLabels(captions, captions.map((l) => l.text), 64, 34, 400, 1);
     for (const name of ["Btn_Cancel", "Btn_Ok"]) {
-      const l = find(controls, `${name}/Label_Locale`).widgets[0];
-      const f = NGUI.fitText(l.text, 64, 34, 400, 1);
-      Object.assign(l, { text: f.text, fontSize: f.fs });
       if (locked) {
         const index = controls.children.findIndex((child) => child.name === name);
         controls.children[index] = Buttons.disable(controls.children[index]);
