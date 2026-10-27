@@ -7,7 +7,7 @@ As of 2026-10-26. Verify the actual branch, working tree and `pyproject.toml` ve
 
 | Branch | State |
 | --- | --- |
-| `main` | Local version `0.6.0-alpha.9`: the published 0.5.0 baseline, the upstream syncs after it, the 0.6.0-alpha.1 and alpha.2 review work, BL-020, BL-021, BL-040, BL-041, BL-043, BL-042, BL-044, BL-045, BL-046, BL-047, BL-048 the alpha.5 to alpha.8 review fixes and the prerelease-only BL-020/BL-021 previews (BL-037, BL-044, BL-047, BL-049 through BL-053). Not pushed. |
+| `main` | Local version `0.6.0-alpha.10`: the published 0.5.0 baseline, the upstream syncs after it, the 0.6.0-alpha.1 and alpha.2 review work, BL-020, BL-021, BL-040, BL-041, BL-043, BL-042, BL-044, BL-045, BL-046, BL-047, BL-048 the alpha.5 to alpha.8 review fixes and the prerelease-only BL-020/BL-021 previews (BL-037, BL-044, BL-047, BL-049 through BL-053). Not pushed. |
 | `codex/whats-new` | BL-020 and BL-021, merged into `main`; owner review before the 0.6.0 release. |
 
 The 0.6.0 work is unreleased. Nothing has been tagged, pushed or published since 0.5.0.
@@ -49,8 +49,8 @@ from passing tests or the presence of earlier code.
 
 ## Review artifact and validation
 
-`dist/Blue-Archive-Modding-and-Patching-Tool-0.6.0-alpha.9-macos-arm64.dmg`, MD5 `1e7a4ac1712f5a9d51d6ae513c8fb1bc`,
-built from `b1d62854` (`chore(release): 0.6.0-alpha.9`).
+`dist/Blue-Archive-Modding-and-Patching-Tool-0.6.0-alpha.10-macos-arm64.dmg`, MD5 `c3089340f342775e147511df26f2a8e4`,
+built from `20f09c80` (`chore(release): 0.6.0-alpha.10`).
 
-On `main` before the build: 1,889 JavaScript tests passed; 3,236 Python tests passed, 26 skipped (with the official
+On `main` before the build: 1,891 JavaScript tests passed; 3,236 Python tests passed, 26 skipped (with the official
 development view). Native Windows behavior is not verified on the macOS host.
