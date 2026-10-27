@@ -602,3 +602,203 @@ The worktree index is blocked (`index.lock: Operation not permitted`). K4 commit
 Git metadata and are delivered in `/tmp/portrait-assembly.bundle`, branch `codex/portrait-assembly`, based on
 `d46d9dd14a7c2376be19547f2b611807e77e9ce7`. Tests used only its temporary `GIT_INDEX_FILE` so the development
 tripwire recognizes the new files; the original worktree index/refs and primary checkout remain untouched.
+
+## 9. K5: setup-pose composite generation and projection
+
+The engine is implemented and remains outside every UI path. `web/js/refine-composite.js` accepts the
+App's shipped Spine 4.2.120 runtime, atlas text and binary 4.2 skeleton bytes, with optional slot attachment
+replacements. `SkeletonBinary`, `AtlasAttachmentLoader`, `Skeleton.setToSetupPose`, `setAttachment`,
+`updateWorldTransform(Physics.reset)`, attachment `computeWorldVertices`, and `SkeletonClipping`'s public
+unpacked triangle API supply geometry. No runtime internals are copied or ported. The same module executes
+under Node without a DOM or texture upload, and can accept the already-loaded runtime in the App. Python
+never starts Node; the Node helper is test/experiment code only. Synthetic tests use JSON skeletons; the
+opt-in official-view test proves the actual binary skeleton loads, composes, and poses all seven named face
+attachments plus eye-close. Null replacements remove a slot attachment.
+
+`refine_composite.py` performs bilinear triangle sampling, draw-order composition, skeleton/attachment/slot
+colour multiplication and the four Spine premultiplied framebuffer blend-factor pairs (normal, additive,
+multiply, screen), returning straight RGBA. Page PMA follows only the atlas declaration; the earlier material
+versus decoded-pixel discrepancy is still unresolved. These trials use the omitted-PMA/false atlas default.
+This does not change the App renderer. No gamma conversion or native GPU rendering is introduced.
+
+The inverse map records sparse atlas texel centres, composite coordinates, visible colour contributions and
+blend derivatives per drawn attachment. Texels outside its UV triangles are implicitly off-composite;
+explicit off-frame/covered entries are retained but not edited. Projection solves the generated-minus-official
+colour residual through those derivatives. Coincident UV/world triangles sum their colour contributions
+(normal halo plus additive glow); noncoincident reuse of the same atlas texel has no unique solution and uses
+the first visible occurrence. Such compromises remain measurable in the per-instance re-render errors.
+Unobservable colour channels keep their official values. Exact identity bypasses conversion and filtering.
+
+Alpha and untouched RGBA remain exact, relative to nearest-neighbour official replication on 2x pages.
+Generated alpha is diagnostic only. A configurable three-official-texel inward fade returns RGB to official
+colour at alpha and visibility/UV boundaries. Edge and seam reporting bands are disjoint; the seam band
+excludes the alpha-edge band. Optional attachment colour matching removes a low-frequency DC join residual;
+it is disabled in these trials to retain the jointly generated palette. Face projection can select only its
+posed slot. The `assemble_mod(projected=Assembly(...))` extension validates page size, exact official alpha
+and outside-region bytes, then reuses K4's RGBA32 named-PNG packer, released filename, LZ4 and CRC fix.
+Reload verifies exact pixels and unchanged unrelated serialized objects. Atlas and skeleton bytes remain
+unchanged. Both final pages are 2048 square; no 1x fallback was needed.
+
+The movement gate compares alpha-at-least-0.5 silhouette IoU against 0.960 and symmetric nearest luminance-line
+Chebyshev distance p95 against three official texels. Lines use a 0.16 luminance-gradient threshold and alpha
+above 0.9; distances are capped at 12.5 texels at 2x. It checks the whole composite and attachment bounding
+crops, rejecting flagged input by default. Local crops can include overlapping parts: these are diagnostics,
+not isolated semantic feature registration. Explicit `allow_flagged=True` is used only to build the requested
+flagged owner-review candidates. The gate cannot certify lettering, facial expression or stylistic fidelity.
+
+### Diagnosis evidence
+
+The K4 mechanism supports the lead's diagnosis. In the setup-pose inverse map, D3's upper-body packed box
+also intersects **10,534 visible lower-body texels**; that lower attachment has 179,342 visible texels in total.
+A rectangular upper-body edit therefore both misses most lower-body detail and modifies pixels used by another
+attachment. K4 has no world-space occlusion map or seam fade. Its existing report records S1 raw-page IoU 0.521
+and up to 29.588 texels of line-centroid drift, consistent with the owner's displaced halo and dark patches.
+The new synthetic gate rejects a 20-pixel silhouette shift and a 25-pixel internal-line shift. New R1/S2
+composite generations also trip the gate, so assembled prompting alone does not enforce geometry.
+
+This confirms a missing assembled context/visibility/edge-control mechanism, not a theorem that per-page
+processing can never produce consistent art. Likewise, fixed alpha cannot repair moved internal RGB features.
+The inverse map and blend bands address that mechanism, but the residuals below and owner UAT determine whether
+the result is useful. No claim of seamless joins, recovered original detail, or visual approval is made.
+The previously proved 2x UV behaviour and successful CRC/import checks refute atlas-size or import corruption
+as the demonstrated cause of these failures.
+
+### Generation, density, and stop rule
+
+All official inputs were extracted again from the verified development view in section 1, with no disk cache,
+and matched the saved atlas/skeleton/page inputs. New inputs, crops, generated copies, scripts, metrics and
+mods are under `/private/tmp/bl056/k5/`. Automatic image-tool copies below are the sole allowed exception.
+No owner installation, App data folder, GUI, browser preview, screenshot, audio, package build or UI integration
+was used. The imagegen skill's built-in tool was used; no other model/service or API-key fallback was used.
+
+Density 1x is derived from the largest drawn UV triangle's texture/world area ratio, rather than assuming one
+world unit equals one texture pixel. At 2x the target canvas is **1513 x 2035**; the 1x original-Shiroko style
+reference is **1427 x 2871**. Both full-character generations returned **1081 x 1455**, approximately 1.43x
+native texture detail in this framing. A 2x projection/page preserves that returned detail without reducing
+it to 1x, but does not imply 2x newly recovered information. The official comparison uses the same frame and
+2x replicated baseline as the assembled mod; generation inputs sample the native pages at 2x.
+
+R1 restores the entire setup-pose character. Each distinct remaining expression is composed separately, then
+only its face crop is generated against R1's restored face as a style/detail reference; projection edits only
+the selected expression slot. `01_normal` aliases `00_default` at identical atlas coordinates and reuses its
+restoration. The five other named faces and the separately posed eye-close overlay have six generated edits.
+Face crops keep their exact geometry-derived boxes and surrounding context; generated alpha is discarded.
+S2 uses the original `shiroko_spr` composite as a line/shading-only reference and preserves official nondefault
+expression regions. The exact prompts, input/output SHA-256, dimensions, timings, thresholds, flags, all
+per-attachment/expression metrics, output bundle size/SHA-256 and import results are in local `mods.json`.
+Face calls were submitted together; their wall times include service queueing, not isolated backend latency.
+
+**Eight generations were used. S2 is flagged. Its stricter retry would require a ninth image, so the task's
+explicit stop-and-report rule was applied: that retry was not run.** R1 is also flagged. Both diagnostic mods
+are supplied as requested, with flags retained in `mods.json`; neither is silently approved or corrected by
+warping. This is the remaining uncompleted generation step, not an unavailable-service fallback.
+
+| Generation | Returned pixels | Wall seconds |
+| --- | --- | ---: |
+| r1 | 1081 x 1455 | 52.350 |
+| s2 | 1081 x 1455 | 70.051 |
+| 02_respond | 1385 x 1136 | 84.772 |
+| 03_smile | 1414 x 1112 | 118.825 |
+| 04_embarrassed | 1362 x 1155 | 180.357 |
+| 05_serious | 1422 x 1106 | 275.675 |
+| 06_depressed | 1451 x 1084 | 237.363 |
+| eyeclose | 1333 x 1180 | 323.434 |
+
+### Final bundle re-render measurements
+
+Each row reports straight RGB RMSE in 0–255 units at visible atlas texel centres mapped into the final decoded
+bundle re-render, compared with its generated target in the same framing. Edge and seam columns use the
+three-texel disjoint bands described above. A dash means no samples in that band. IoU and line p95 compare the
+preprojection official and generated composite crops; expression rows use their actual face crops. They are
+not alpha metrics of the assembled pages: assembled alpha is exactly official by construction.
+
+| Label / slot | Visible RGB RMSE | Edge RGB RMSE | Seam RGB RMSE | IoU | Line p95 (px) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| shiroko-cycling-r1 / halo1 | 71.373 | 93.666 | 43.996 | 0.795 | 4.000 |
+| shiroko-cycling-r1 / halo4 | 71.436 | 93.933 | 42.453 | 0.786 | 4.500 |
+| shiroko-cycling-r1 / halo2 | 65.734 | 78.464 | 49.972 | 0.768 | 3.000 |
+| shiroko-cycling-r1 / halo3 | 65.893 | 78.724 | 49.875 | 0.755 | 3.000 |
+| shiroko-cycling-r1 / shiroko_ridingsuit | 15.235 | 38.500 | 8.199 | 0.967 | 1.000 |
+| shiroko-cycling-r1 / shiroko_ridingsuit2 | 20.469 | 40.380 | 5.170 | 0.944 | 1.500 |
+| shiroko-cycling-r1 / 00_default | 10.674 | 12.091 | — | 1.000 | 1.000 |
+| shiroko-cycling-r1 / fronthair | 7.602 | 7.497 | — | 1.000 | 1.000 |
+| shiroko-cycling-r1 / 02_respond | 20.701 | 24.931 | — | 1.000 | 2.000 |
+| shiroko-cycling-r1 / 03_smile | 33.790 | 38.119 | — | 1.000 | 2.000 |
+| shiroko-cycling-r1 / 04_embarrassed | 23.902 | 27.293 | — | 1.000 | 2.000 |
+| shiroko-cycling-r1 / 05_serious | 26.849 | 30.451 | — | 1.000 | 2.000 |
+| shiroko-cycling-r1 / 06_depressed | 26.026 | 28.873 | — | 1.000 | 2.000 |
+| shiroko-cycling-r1 / eyeclose | 47.287 | 47.312 | — | 1.000 | 2.500 |
+| shiroko-cycling-s2 / halo1 | 67.766 | 88.470 | 46.658 | 0.736 | 2.500 |
+| shiroko-cycling-s2 / halo4 | 67.814 | 88.676 | 45.924 | 0.725 | 2.500 |
+| shiroko-cycling-s2 / halo2 | 64.059 | 75.403 | 53.094 | 0.692 | 2.500 |
+| shiroko-cycling-s2 / halo3 | 64.184 | 75.637 | 53.576 | 0.681 | 2.500 |
+| shiroko-cycling-s2 / shiroko_ridingsuit | 19.942 | 51.683 | 12.189 | 0.937 | 2.000 |
+| shiroko-cycling-s2 / shiroko_ridingsuit2 | 26.381 | 52.366 | 10.636 | 0.846 | 5.000 |
+| shiroko-cycling-s2 / 00_default | 17.416 | 20.102 | — | 1.000 | 1.500 |
+| shiroko-cycling-s2 / fronthair | 12.506 | 10.869 | — | 1.000 | 2.000 |
+
+| Mod | Page | Changed pixels | Bundle bytes | Global IoU | Global line p95 | Import |
+| --- | --- | ---: | ---: | ---: | ---: | --- |
+| shiroko-cycling-r1 (flagged) | 2048 x 2048 | 1174530 | 4579184 | 0.951 | 1.500 | Accepted, direct |
+| shiroko-cycling-s2 (flagged) | 2048 x 2048 | 1151172 | 4459270 | 0.880 | 3.500 | Accepted, direct |
+
+Each `k5/mods/<label>/` contains only the official-named texture bundle. Unchanged `ModLibrary.identify_import`,
+`inspect_import(conversion=True)` and `add` accepted both as `shiroko_ridingsuit`, kind `spr`, without rebuild.
+Actual bundle texture extraction equals the projected RGBA32 page byte-for-byte, and its re-render equals the
+saved candidate. No mod was applied. Official source hashes were rechecked after packing. The lead's comparison
+files are `k5/r1-side-by-side.png` and `k5/s2-side-by-side.png` (official left, final bundle right, same frame),
+with individual `*-rerendered.png` copies. They are local review artifacts and are not embedded in Git.
+
+Automatic tool copies (all retained locally; matching evaluated copies and hashes are in `mods.json`):
+
+- `/Users/A200237264/.codex/generated_images/01a17dee-207c-7430-84d0-62749c5803ca/exec-5a3a4b48-eadc-43f0-81ad-3f03918fe762.png` -> `k5/r1-generated.png`.
+- `/Users/A200237264/.codex/generated_images/01a17dee-207c-7430-84d0-62749c5803ca/exec-a9f880ef-5db1-45b3-8102-bc98a53b72e5.png` -> `k5/s2-generated.png`.
+- `/Users/A200237264/.codex/generated_images/01a17dee-207c-7430-84d0-62749c5803ca/exec-e026eeee-2b00-43b0-9620-dff8608be00c.png` -> `k5/02_respond-generated.png`.
+- `/Users/A200237264/.codex/generated_images/01a17dee-207c-7430-84d0-62749c5803ca/exec-aa1ee97b-588b-44b3-9d4a-89f79897f4f9.png` -> `k5/03_smile-generated.png`.
+- `/Users/A200237264/.codex/generated_images/01a17dee-207c-7430-84d0-62749c5803ca/exec-d68e07f9-ef40-4d55-8a1d-16c181868959.png` -> `k5/04_embarrassed-generated.png`.
+- `/Users/A200237264/.codex/generated_images/01a17dee-207c-7430-84d0-62749c5803ca/exec-93180e70-881b-47c0-99af-4242e4609d9b.png` -> `k5/05_serious-generated.png`.
+- `/Users/A200237264/.codex/generated_images/01a17dee-207c-7430-84d0-62749c5803ca/exec-9cc130a5-4ccf-4442-9d8e-fe238b2c54e7.png` -> `k5/06_depressed-generated.png`.
+- `/Users/A200237264/.codex/generated_images/01a17dee-207c-7430-84d0-62749c5803ca/exec-861ba96f-8f10-429e-a709-6f9a0a8aeba4.png` -> `k5/eyeclose-generated.png`.
+
+### Validation, files, and limits
+
+The synthetic repository tests cover all atlas rotations, region/mesh/weighted vertices, clipping, draw order,
+slot colour, PMA, all four blend factors, partial overlap, off-frame/unused texels, exact identity at 1x/2x,
+slot-only edits, colour matching, inward fade widths, distinct edge/seam bands, coincident normal/additive
+instances, saturated colour channels, movement rejection, and K4 projected-page invariant/CRC validation.
+The official-view test composes Shiroko (Cycling), proves byte-exact identity across the entire page (a stronger
+bound than a nonzero visible-pixel tolerance), and poses every expression. It skips without `BAMT_TEST_GAME_DIR`.
+There are no committed skeletons, atlases or images from the game.
+
+- Related coverage in the final suites: 68 Python tests and 13 new Node tests passed.
+- Full JavaScript suite: 1914 passed, zero failed/skipped.
+- Full Python suite with the official development-view plugin: **3340 passed, 27 skipped, 3 existing locale-deprecation warnings**, 254.75 s.
+  An earlier full run passed 3338 tests / 27 skips before the two final projection regressions were added;
+  the final repeat is justified by the subsequent shared-UV/channel/band fixes.
+- NumPy was absent from the named venv. The experiment copied an existing NumPy 2.3.5 runtime package into
+  `k5/deps` and used that extra PYTHONPATH; the primary venv was not changed. The new engine dependency is
+  declared and locked, with hashes checked against [PyPI's release files](https://pypi.org/project/numpy/2.3.5/#files).
+  `uv lock --check --offline` passes. No package was built.
+- Python command used the requested official-view plugin, worktree `src`, the primary checkout's read-only
+  `.bamt-dev-path`, `TMPDIR=/private/tmp/bl056/k5`, `-q -p no:cacheprovider`, and the temporary Git index so
+  isolation recognizes the new tracked files. Full logs remain in `k5/`.
+- Engine files: `refine_composite.py`, `web/js/refine-composite.js`, and the projected-page extension to
+  `refine_assembly.py`; dependency declarations: `pyproject.toml`, `uv.lock`, `requirements.txt`.
+  Tests: `test_refine_composite.py`, `test_refine_assembly.py`, `js/refine_composite.test.mjs`, and the Node-only
+  binary helper `js/helpers/refine-pose.mjs`. Documentation: this section and one BL-056 status line.
+- No UI/prefab or locale changes. The existing portrait framing node remains
+  `UICharacterDetail/Inventory_ListControl/CharacterPos`; no new prefab/widget was constructed.
+  `git diff main -- src/ba_modding_toolkit/locales` is empty for all six locales.
+- The worktree's index is blocked. Authorized temporary Git metadata under `k5/git` delivers separate
+  `feat(core): ...`, `test: ...` and `docs: ...` commits in `/tmp/portrait-composite.bundle`, branch
+  `codex/portrait-composite`. The normal index/refs, primary checkout and `main` remain untouched; the bundle
+  is recreated after each commit. Commit hashes are given in the delivery message.
+
+Assumptions are explicit: setup pose rather than animation sampling; largest-triangle density; atlas PMA
+rather than the unresolved material override; exact official alpha and nearest replication at 2x; three-texel
+bands, no DC matching; default alias reuse; only face-slot colour changes for nondefault R1 expressions; first
+visible mapping where noncoincident shared UVs cannot satisfy multiple targets. These controls cannot correct
+invented details, moved lettering, feature shape changes, hidden parts revealed by animation or style jumps
+in S2's unprocessed expressions. Native/visual owner acceptance must judge seam quality, halos/fringes, faces,
+small text, pose/expression/animation transitions, detail consistency, game blending and actual game loading.
+No visual acceptance or successful geometric preservation by the image model is claimed.
