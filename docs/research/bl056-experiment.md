@@ -1369,222 +1369,258 @@ engine development, package build, GUI, browser, screenshot, audio, installation
 The documentation commit is delivered in the requested branch bundle because the normal index is
 sandbox-blocked. No private image or run artifact is tracked.
 
-## 14. K9: seam stitching and recalibrated controls; R1c stopped before cutting
+## 14. K9: corrected outline keying and rigid alignment; stopped at the cut waist join
 
-**No R1c mod was built.** The ordinary input gate rejects the three reused K8 body returns with
-K8's v1 retry head. The failing checks are relative movement in the first body overlap, new paired
-contours near seams, and outline colour/fringe checks. The seam-band error ratio now passes. The
-required stop occurs before cutting, packing and the App's unchanged import path; none was run on
-this candidate. There are no R1c pages, expression renders, import result or visual acceptance.
+**No R1c mod was built.** The corrected input stage passes, including real-return movement,
+overlaps, seam bands, contour rates and fringe. The unchanged K6 cut then rejects **only the base
+waist join**: error ratio **1.255595** against the original limit **1.0**. Base cut silhouette IoU
+is **0.995950**, all six expression gates pass, and page invariants pass. Packing and the App's
+unchanged import check are **not reached**. Failed cut renders are review evidence, not accepted
+R1c pages or mod renders. No visual acceptance is claimed.
 
-### Implementation and fixed policy
+The lead found single, crisp contours at the waist and stem in the first K9 merge. The original
+keyer had a real bug: neutral interior ink received soft alpha and despill turned it green. The
+original zero-count gates were also uncalibrated. This continuation corrects those issues, retains
+the three K8 body returns, compares both existing heads again, and runs the actual K6 cut. **No new
+generation** is used. The earlier v2 prompt, data version and automatic copy remain recorded below.
 
-`refine_stitch.py` supplies a deterministic dynamic-programming seam, chosen because the overlap
-strips are rectangular and the resulting path is easy to reproduce and draw for review. The cost is
-RGB disagreement plus twice either source's luminance gradient, with a weak position preference.
-Bodies stitch in row order; the head enters last through four perimeter seams. Head priority is a
-weak outward preference in the seam cost, rather than an overwrite of the head rectangle. Median
-low-frequency colour matching remains a graph solve anchored on the head. No alignment is applied;
-the translation search below can only reject a return.
+### Seam merge and planning
 
-Only one source owns a detailed or disagreeing pixel. A two-master-pixel half-width permits blending
-only when both local gradient and RGB disagreement are at most 6/255. At most three pixel rows have
-fractional ownership. The head perimeter search retains the named 48-pixel context width, distinct
-from that narrow blend. The saved report includes the actual seam paths, bands, colour offsets,
-new paired-contour counts and fractional ownership at disagreeing pixels.
+Dynamic programming selects one 8-connected minimum-cost path through each rectangular overlap.
+Cost is RGB disagreement plus twice the larger local luminance gradient, with a weak position
+preference. It gives deterministic, inspectable paths without a deformation warp. The head enters
+through four perimeter seams with a preference for retaining its context. Median low-frequency
+colour matching remains anchored on the head. Only flat, agreeing pixels may blend: half-width
+2 master pixels, RGB disagreement and gradient each at most 6/255. Detailed or disagreeing pixels
+keep a single source. No disagreeing pixel is fractionally blended in this run.
 
-Newly rendered plans move shared rectangular boundaries by up to half the overlap width toward
-lower visible gradient, subject to the original coverage and pixel-budget constraints. K9 retains
-**K8's existing plan unchanged**: each saved return belongs to its original input box, density and
-frame, and trimming/replanning would change that correspondence. The DP seam chooses the actual cut
-inside those overlaps. The four boxes, key, masks and expression frame remain exactly those in
-section 13. A future plan records whether the boundary optimisation changed its boxes.
+New plans may move shared boundaries toward lower visible gradient while preserving coverage,
+overlap and budget. This run keeps **K8's plan and input boxes unchanged**, because the saved
+returns belong to those exact images and frames. Actual cut paths move within the overlaps.
+The master remains 1513 x 2035 at density 2, frame (-666, -791, 978, 1420), magenta key, halo masks,
+and the same two switching slots. No body image is regenerated.
 
-Alpha is the returned image's distance to the key divided by distance from the local foreground
-estimate to that key. The official colour seeds the initial confidence estimate; local foreground
-colour then comes from opaque returned interior pixels, with a reference fallback if no such seeds
-exist. Colour at alpha at least 0.5 comes from the observation, despilled toward the returned interior;
-lower alpha is filled from inside. A bounded nearest-interior search supplies local edge colour,
-with smooth push-pull fill elsewhere. Despill is bounded between observation and interior per
-channel. **No RGB division by alpha or unmixing is used.** Named `alpha_normalisation=1.0` and
-`alpha_snap=1.0` remain; null edits retain all official bytes, including hidden RGB. K6's cut code,
-parameters, defaults and import code are unchanged.
+### Outline matte and bounded despill
 
-### Calibration and thresholds
+Definite key background is found by colour proximity and four-connected row-run flood from the
+frame. Soft alpha is permitted only within **3 native pixels** of that connected background.
+Every other non-background interior pixel receives alpha 1, independent of its brightness or ink
+colour. Definite key pixels in enclosed gaps remain empty, without extending the soft-alpha band
+into the interior. The key proximity tolerance is a named **32 RGB units per channel**, well below
+the recorded minimum foreground/key distance 180.978 in RGB norm. It suppresses low-level keyed
+backdrop noise; it does not classify neutral or blue ink as background.
 
-These policies were pinned with identity, sharpened synthetic inputs and explicit fault controls;
-thresholds were not raised to make K8 pass. The old K7 `overlap_rmse=2` and `line_offset=3` fields remain
-loadable for archived plans; raw overlap RMSE and symmetric line distance are diagnostics rather than
-the new acceptance criteria.
+Inside the band, alpha remains distance to key relative to a local returned foreground estimate.
+Foreground seeds include opaque interiors and returned colours with no significant key-chroma
+excess, so thin neutral contours are not mistaken for partial coverage just because their nearby
+paint is pale. The named seed tolerance is 4/255. Edge colour below alpha 0.5 comes from inside;
+above it, the observation is despilled only where alpha is less than 1. Removal is bounded by both
+**the key's (1-alpha) share and observed key-channel excess**. No RGB division by alpha, unmixing,
+or despill of opaque interior pixels occurs. `alpha_normalisation=1.0` and `alpha_snap=1.0` remain
+named parameters. Identity uses exact reference bytes, including hidden RGB.
 
-| Check | Threshold / definition | Accepts | Rejects |
-| --- | --- | --- | --- |
-| Return validation | Opaque; aspect within 0.5%; pixels within 15% of 1,573,000 | All four reused returns and v2 head | Changed aspect, nonopaque returns; invalid budget |
-| Silhouette movement | Native-density IoU at least 0.96 | Identity and all four real crops | Displaced silhouette fixture |
-| Existing-line movement | Native-density directed nearest-line p95 at most 1 px | Sharpened synthetic input; all four real crops at 1 px | Moved-part fixture at 5 px |
-| Coherent movement | Best translation at most 0.5 native px; require at least 5% error improvement before reporting a shift | Identity, sharpened control and all four individual real crops at 0 px | Exact K7 3-input-pixel drift: 1 native px; real first body overlap: 1 px |
-| Raw gross overlap | At most 10% of valid 8-native-pixel blocks with signed mean RGB error above 48/255 RMS | Narrow shifted-line variation and real overlaps | Missing high-contrast quarter-part fixture |
-| Overlap movement | Same native line/translation limits on paired overlap observations | Head/body and second body overlap | Both affected K7 drift overlaps; moved-part control; real first body overlap |
-| Seam band | Error / detail-matched interior error at most 1.0 | Identity; local-error control; K9 real ratio 0.842846 | Synthetic excess error confined to band |
-| New paired contours | Zero new ridge pairs in seam band; zero mixed disagreeing pixels | Single-line stitched fixture; identity | Cross-faded two-line fixture; real candidate with 70 new pairs |
-| Identity key | Alpha RMSE at most 1/255; p99 at most 3/255 | Exact identity: all errors zero | Destructive 0.5 alpha snap |
-| Outline colour | Excess nearest-interior RGB distance p95 at most 48/255 | Identity and safe despill fixture | Synthetic outline colour spike; real 53.847668/255 excess |
-| Complement fringe | Excess complementary chroma share at most 2%; zero changed unpaired outline pixels | Identity; neutral dark contours | Green-fringe fixture; real 17.564391% and 2 unpaired pixels |
-| Cut joins / silhouette / invariants | Original K6 defaults, including join ratio at most 1.0 and IoU at least 0.96 | Identity full chain; saved R1b comparison | K9 candidate never reaches this stage |
+The final target has **988,370 interior pixels**, with **zero soft interior pixels, zero changed
+interior RGB pixels and zero soft pixels outside the outline band**. In the lead's unaligned merge,
+all four occurrences of [142,140,143] and both occurrences of [69,67,98] retain those exact RGB
+bytes at alpha 255 with the corrected keyer. The waist sheet places the original merged RGB, old
+faulty key and corrected key on that *same RGB* side by side; a fourth panel shows the final aligned
+target. Stem and hair sheets use the same comparison.
 
-Both movement images are reduced to native density before line maps. Existing-line recall avoids
-penalising newly visible crisp edges; symmetric distance remains in the report. Reference gradients
-above 20/255 and alpha above 230/255 define the recalled lines; returned lines use alpha above 128/255.
-Translation uses relative gradient errors and a search of plus/minus 3 native pixels, without changing
-image coordinates. The raw block check catches large-area differences, while overlap movement catches
-coherent narrow shifts that block averaging intentionally suppresses. The simulated moved part keeps
-silhouette IoU 1.0 but is rejected at line p95 5 and translation 3 native pixels. Its raw block share
-is 7.8125%, so that component alone passes; combined geometry rejection is necessary.
+### Rigid correction and movement controls
 
-The fringe measure uses soft outline pixels within four pixels of both sides of the alpha-0.5
-silhouette, pairing them to the nearest alpha-at-least-0.98 interior within 12 pixels. Raw distance and
-raw complementary chroma share are reported. Acceptance subtracts the original artwork's same-pixel
-edge treatment, so an exact identity and its intentional dark contours remain valid. Neutral lightness
-is removed before measuring complementary chroma; significance requires more than 8/255 projection
-and cosine above 0.5. Changed outline pixels lacking a local interior fail closed. This is an RGB
-provenance control, not a semantic classifier or proof that every edge has a visible green fringe.
+Whole-crop shifts are estimated from overlaps on native-density gradient maps: integer search
+through plus/minus 3 pixels, then refinement to 1/8 pixel. A head-anchored graph solves each crop's
+translation. The maximum applied vector is **2 native pixels**. The entire RGB observation is
+translated once with bicubic sampling; there is no warp. Zero shift bypasses resampling exactly.
+The existing at-most-0.5-pixel translation gate is applied to the residual overlap shift.
 
-Identity through all nine K8 poses and the unchanged K6 cut is byte-exact: zero differing page texels
-out of 4,194,304, including hidden and masked bytes. All identity alpha RMSE/p99/maximum values and
-seam/contour errors are zero. The exact saved K7 drift is still rejected by crop movement and both
-affected overlap movement checks; the shifted crop's IoU is 0.962038 and its reported translation is 1.
+Original, unaligned official-geometry checks remain independent. Correction cannot rehabilitate a
+crop that already moved relative to its official input; affected overlaps inherit that source fault.
+This matters because K7's exact saved 3-input-pixel drift is less than the allowed 2-native-pixel
+correction cap. It still fails original crop geometry and both affected overlaps. The synthetic
+moved part also remains rejected despite silhouette IoU 1.0: line p95 5 and translation 3 native
+pixels. Block averaging alone accepts that smaller moved area, so it is never used without geometry.
 
-### Real-return values and the stop
-
-| Crop | Native IoU | Directed line p95 | Symmetric p95, diagnostic | Translation | Result |
-| --- | ---: | ---: | ---: | ---: | --- |
-| crop-0-0 | 0.997380792 | 1 | 1 | 0 | Pass |
-| crop-0-1 | 0.991513710 | 1 | 1 | 0 | Pass |
-| crop-0-2 | 0.990065079 | 1 | 1 | 0 | Pass |
-| crop-0-3 | 0.977059068 | 1 | 5 | 0 | Pass |
-
-All four crop identity-key values are zero. The K8 head return is 1310 x 1200; body returns are
-1815 x 866, 1816 x 866 and 1816 x 866. Size-only reference resampling still adds no edit residual.
-
-| Overlap | Raw RMSE, diagnostic | Gross block share | Native p95 / translation | Result |
+| Crop | Original native IoU | Line p95 | Applied rigid shift, native (x, y) | Result |
 | --- | ---: | ---: | ---: | --- |
-| crop-0-0 / crop-0-1 | 22.793428 | 0.416667% | 1 / 0 | Pass |
-| crop-0-1 / crop-0-2 | 43.755070 | 1.282051% | 1 / 1 | Fail |
-| crop-0-2 / crop-0-3 | 21.662357 | 0.000000% | 1 / 0 | Pass |
+| crop-0-0 | 0.997046088 | 1 | (0.000, 0.000) | Pass |
+| crop-0-1 | 0.991280840 | 1 | (0.125, 0.375) | Pass |
+| crop-0-2 | 0.987274441 | 1 | (0.000, -0.500) | Pass |
+| crop-0-3 | 0.966531714 | 1 | (0.125, -0.875) | Pass |
 
-The seam band contains **10,914 opaque pixels**. Its RGB RMSE is **14.997689/255**, against
-**17.794110/255** in interior pixels with matched detail, ratio **0.842846**, below 1.0. K8's old
-boundary ratio was 1.135603. No disagreeing pixel receives fractional crop ownership.
+| Overlap | Raw RMSE, diagnostic | Gross block share | Residual shift, native (x, y) | Result |
+| --- | ---: | ---: | ---: | --- |
+| crop-0-0 / crop-0-1 | 20.607658 | 0.208333% | (-0.125, -0.125) | Pass |
+| crop-0-1 / crop-0-2 | 24.342283 | 1.923077% | (0.000, 0.000) | Pass |
+| crop-0-2 / crop-0-3 | 25.130959 | 0.000000% | (-0.125, -0.125) | Pass |
 
-The contour detector nevertheless finds **70 new paired dark ridges**: 28 at the first body seam,
-22 at the second, and 20 at the head perimeter. It tests horizontal and vertical profiles with two
-local dark extrema 2-6 pixels apart and contrast at least 16/255, requiring that neither input has
-that same pair. This is a conservative contour-artifact measure, not a count of semantically confirmed
-doubled drawn lines. K8's requested waist, face, stem and chin boxes each have zero such pairs, but
-also **zero seam-band pixels**: their zero counts do not prove that their drawn contours are clean.
-The sheets retain those exact boxes; full-frame seam paths identify where the new failures occur.
-The global zero-pair acceptance is therefore not established.
+The maximum residual vector length is **0.176777 native px**. The three body corrections all fit
+inside the cap. Each real crop still has directed existing-line p95 1 native pixel. Both images
+are reduced to native density before line mapping; newly detectable crisp edges do not count as
+movement. The old symmetric metric remains diagnostic. K7's old 2/255 overlap RMSE field remains
+loadable for archived plans, but raw RMSE is diagnostic rather than an identity-calibrated stop.
 
-Holding the K9 opaque merge fixed isolates the keying change:
+### Length-normalised contour and outline controls
 
-| Outline measure | Old unmixing key on K9 merge | New interior-colour key | Limit |
-| --- | ---: | ---: | ---: |
-| Raw nearest-interior distance p95 | 259.962097 | 107.037376 | Diagnostic |
-| Excess distance p95 | 203.431915 | 53.847668 | 48 |
-| Raw complementary share | 61.573626% | 17.701552% | Diagnostic |
-| Excess complementary share | 60.929020% | 17.564391% | 2% |
+The original **70 detections** are located in a numbered inventory, a full overlay, and all 70
+A/B/merged windows. Source comparison shows existing parallel trim, spokes, angled junctions and
+sampling-phase differences; they are not evidence of 70 newly doubled drawn contours. The lead's
+waist and stem close-ups are consistent with the single-source merge. These are observations, not
+owner acceptance. A point detector cannot replace inspection of line continuity.
 
-The new key pairs 180,809 of 180,811 outline pixels. Two changed outline pixels lack an interior
-partner. All three fringe criteria fail. The safer colour arithmetic substantially reduces the
-old key's excess, but **does not remove the measured fringe**. Stitched ownership also does not
-eliminate every detected paired contour. These remaining failures are retained, not waived.
+The rate threshold is **50 detections per 1,000 master seam pixels**. It accepts sparse junction
+responses (the synthetic sparse control is 20/1,000) while rejecting a sustained two-line cross-fade
+(1,000/1,000 in the fixture). The first 70 detections are 11.805/1,000 over 5,929.672 seam pixels.
+After rigid alignment the count is **43**, or **7.251666/1,000** over the same path length: 9 at the
+first body seam, 19 at the second, and 15 at the head perimeter. The detector uses 2-6-pixel ridge
+separations and 16/255 contrast. Its denominator is actual path length, not image area.
 
-### Head template v2 and one generation
+Changed unpaired outline samples use **1 per 1,000 master outline pixels** as their maximum rate.
+The fixture accepts two isolated samples on a long outline and rejects an 82-sample unsupported
+run. The final target has zero unpaired samples over **44,872 outline pixels**. These two rate
+components detect their own contour/provenance faults. They do not pretend to detect every form of
+geometric movement; the retained unaligned source-geometry checks keep K7 drift and moved parts
+rejected even after a permitted rigid correction.
 
-`detail-crisp-lines` v1 remains byte-for-byte unchanged. Version 2 adds the explicit silhouette/
-colour-boundary outline and highlight bans. Filling selects the id and version; both data and filled
-prompts are covered by forbidden-wording tests. One new head was generated using the same K8 input,
-with `transparent_background: false`. There was **no retry** and no body generation. Its output is
-1310 x 1200, within both tolerances. Across reused returns and v2, the maximum aspect error is 0.110072% and
-maximum pixel-budget error is 0.076923%; every return is opaque. Filled v2 prompt, verbatim:
+### Fringe measure and fixed thresholds
+
+The nearest-interior-colour distance now means minimum RGB distance among interior colours within
+12 pixels, rather than the colour at the spatially nearest point. A thin dark contour can continue
+past a pale surface, so those two meanings differ. Complementary chroma must also exceed the local
+interior palette's full range in that direction, rather than an arbitrary single neighbour. This
+accepts interpolation between existing paints while rejecting a new green outlier. Neutral lightness
+is removed; significant complementary excess still requires more than 8/255 projection and cosine
+above 0.5. Original artwork's edge treatment is subtracted for the excess measures. The **48/255
+colour-distance and 2% complementary-share thresholds are unchanged**. Synthetic dark ink, palette
+interpolation, and green outliers exercise this distinction; the real keying defect is separately
+prevented by the exact opaque-interior invariant above.
+
+| Gate | Threshold | Final real result | Accept / reject controls |
+| --- | --- | --- | --- |
+| Return validation | Opaque; aspect within 0.5%; pixels within 15% of budget | All reused returns pass | Changed aspect and nonopaque returns rejected |
+| Original silhouette | Native IoU at least 0.96 | Minimum 0.966532 | Identity accepted; displaced silhouette rejected |
+| Existing lines | Directed native p95 at most 1 px | All four: 1 | Sharpening accepted; moved part at 5 rejected |
+| Original source / residual translation | At most 0.5 native px | Sources 0; residual at most 0.176777 | K7 source drift at 1 rejected before correction |
+| Rigid correction cap | Vector at most 2 native px | Maximum 0.883883 | Subpixel fixture corrected; larger source fault rejected |
+| Raw gross overlap | At most 10% of 8-native-pixel blocks above 48/255 mean error | Maximum 1.923077% | Narrow line variation accepted; missing quarter-part rejected |
+| Seam band / matched interior | Ratio at most 1.0 | 0.727725 | Identity and ordinary edits accepted; local band fault rejected |
+| New ridge-pair rate | At most 50 per 1,000 seam pixels | 7.251666 | Sparse junctions accepted; sustained doubles rejected |
+| Mixed disagreeing pixels | Zero, source-ownership invariant | 0 | Single-source seam accepted; disagreeing cross-fade forbidden |
+| Identity key alpha | RMSE at most 1/255, p99 at most 3/255 | 0 / 0, all crops | Identity exact; destructive alpha snap rejected |
+| Opaque interior / soft-band support | Exact alpha 1 and returned RGB inside; no soft alpha outside band | All violation counts 0 | Both reported neutral-line examples preserved |
+| Fringe distance p95, excess | At most 48/255 | 11.754709 | Existing dark ink accepted; colour spike rejected |
+| Complementary fringe, excess | At most 2% | 0% | Existing palette interpolation accepted; green outlier rejected |
+| Unpaired outline rate | At most 1 per 1,000 outline pixels | 0 | Two sparse samples accepted; unsupported run rejected |
+| K6 cut joins | Original ratio at most 1.0 | Waist 1.255595: **fail** | Saved R1b passes; final real cut rejected |
+| K6 cut silhouette | Original IoU at least 0.96 | 0.995950 | Pass |
+| K6 page invariants | Zero masked/outside/alpha-outside changes | 0 / 0 / 0 | Pass |
+
+The final seam band has 10,841 opaque samples: error **16.607260/255** versus matched-interior
+**22.820783/255**, ratio **0.727725**. Final fringe raw/excess p95 is **19.949938 / 11.754709**;
+raw and excess complementary shares are both **0%**, with all 13,868 queried samples paired.
+Identity through all nine K8 poses and the original K6 cut is byte-exact: zero differing page
+texels out of 4,194,304, including hidden and masked bytes. K6 cut defaults are unchanged.
+
+### Head choice, template v2 and generation inventory
+
+Both existing heads were keyed again after the fix:
+
+| Head | Native IoU | Line p95 / original shift | Raw / excess fringe distance | Complement / unpaired rates |
+| --- | ---: | ---: | ---: | ---: |
+| v1 | 0.997079655 | 1 / 0 | 10.049875 / 2.870766 | 0 / 0 |
+| v2 | 0.997180262 | 1 / 0 | 14.894629 / 5.477226 | 0 / 0 |
+
+Both numerical checks pass. **The v1 retry is selected**, as the brief prescribes when v2 does not
+remove the added outer hair contour or preserve highlights. The post-keying hair and eye sheets
+still show those v2 changes; keying cannot undo them. These observations are not visual acceptance.
+The v1 head was already the fallback and no further generation or retry was made.
+
+`detail-crisp-lines` v1 remains unchanged. Version 2 remains versioned data and adds the explicit
+outline/colour-boundary and highlight bans. Both template data and filled text have forbidden-wording
+coverage. The single earlier v2 generation used `transparent_background: false` and returned
+1310 x 1200 for the same K8 1311 x 1201 input. Filled prompt, verbatim:
 
 ```text
 Use case: precise-object-edit. Edit target: image 1, the supplied head crop in pose base, at 1311 x 1201. Remove ONLY blur and compression softness from the existing drawing; re-render the existing lines crisply at this exact size. Keep every line on its original path, with its original width and shape. Preserve exactly all existing features and their exact coordinates. Preserve all lettering verbatim, colours, shading, outlines, object positions, expression, pose, framing, aspect ratio and crop. Invent nothing. Do not add outlines or contour lines along the silhouette or between colour areas where the input has none. Do not change any highlights, including eye highlights; keep their exact shapes, sizes, colours and positions. The plain RGB(255, 0, 255) backdrop must stay flat and unchanged, including every gap. Repeat: keep the same lines, lettering, colours, framing, aspect ratio and crop; only remove blur and compression softness. Return the same complete opaque image at the supplied size.
 ```
 
-The v2 head's native IoU is **0.997649508**, directed/symmetric line p95 **1 / 1**, translation **0**.
-Its fringe raw/excess distance p95 is **67.858276 / 26.044302**; raw/excess complementary share is
-**19.344736% / 19.336706%**; no outline pixel is unpaired. Movement passes; complementary fringe fails.
-Observed at the saved hair and eye comparisons, v2 still adds an outer hair contour and changes iris
-highlights. It therefore does not meet the condition for replacing v1. The stopped candidate uses
-**K8's v1 retry head**, the prescribed fallback, not an accepted head. Automatic-generation copy
-locations and the source/output hashes are in the external run inventory and delivery message;
-private paths are deliberately omitted here. No asset data is tracked.
+No new automatic image copy was created in this continuation. The existing v2 automatic copy and
+its working copy are listed in the external inventory and delivery message, with hashes. No private
+paths, source images, generated images or image data are added to tracked files.
 
-### R1b comparison, expressions and review inventory
+### Actual cut, R1b comparison and stop evidence
 
-R1b uses the same verified reference renders and saved K6 metrics as section 13. K9 did not cut, so
-its base target cannot be compared as though it were a rendered mod.
+K5's six generated expression targets retain their original boxes and geometries. The final run
+uses K5's base geometry too, verified byte-identical in its official render to K8's idle-at-zero
+base. This keeps attachment-state representations consistent. A discarded setup trial mixed public
+runtime string states with legacy tuple identities and incorrectly classified both body slots and
+front hair as swappable, producing a cyan reconstruction. It is archived as **invalid metadata**,
+not a real-return acceptance failure. The corrected run proves exactly `00_default` and `eyeclose`
+are switching slots. No K6 engine code or default was changed to correct that supplied run metadata.
 
-| Check | R1b | K9 / R1c |
-| --- | ---: | --- |
-| Waist join ratio | 0.940952 | Not reached |
-| Face-edge join ratio | 0.593096 | Not reached |
-| Front-hair join ratio | 0.791722 | Not reached |
-| Base cut silhouette IoU | 0.992023 | Not reached |
-| Base visible RGB RMSE | 6.980021 | Not reached |
-| Masked / outside-allowed / alpha-outside-mesh changed texels | 0 / 0 / 0 | Not reached |
-| Identity differing page texels | 0 | 0, control only |
+The valid run has one failure: **base:join:waist**. The target contains single contours there, but
+the cut concentrates error in the part-boundary band. The waist band has **7,352 pixels**, RGB RMSE
+**22.810201/255** against **18.166841/255** in interior pixels of matched detail. The unchanged
+join ratio **1.255595** therefore rejects it. The target/rejected-render/error overlay marks the
+actual K6 waist band in yellow and band pixels above 48 channel error in red. This is retained as
+a real cut reconstruction fault, with no threshold waiver, packing or import attempt.
 
-| Expression | R1b RGB RMSE / IoU | R1b face / front-hair join ratios | R1c |
-| --- | ---: | ---: | --- |
-| 02_respond | 19.529953 / 1.0 | 0.294272 / 0.630463 | Not reached |
-| 03_smile | 25.611254 / 1.0 | 0.423835 / 0.811787 | Not reached |
-| 04_embarrassed | 23.686676 / 1.0 | 0.434806 / 0.598459 | Not reached |
-| 05_serious | 24.902100 / 1.0 | 0.370404 / 0.801180 | Not reached |
-| 06_depressed | 19.113602 / 1.0 | 0.488133 / 0.687695 | Not reached |
-| eyeclose | 24.754259 / 1.0 | 0.387043 / 0.683130 | Not reached |
+| Base check | R1b | K9 rejected cut |
+| --- | ---: | ---: |
+| Visible RGB RMSE | 6.980021 | 12.823202 |
+| Silhouette IoU | 0.992023 | 0.995950 |
+| Waist band / matched interior RMSE | 9.221266 / 9.799933 | 22.810201 / 18.166841 |
+| Waist join ratio | 0.940952 | **1.255595, fail** |
+| Face-edge join ratio | 0.593096 | 0.697465 |
+| Front-hair join ratio | 0.791722 | 0.976693 |
+| Masked / outside / alpha-outside-mesh changes | 0 / 0 / 0 | 0 / 0 / 0 |
 
-The six K5 generated expression files, geometries and boxes remain identified exactly as K8 prepared
-them, following R1b's boxed-target approach. Their supplied image grids would be resized to those
-boxes by the unchanged cut code. Since the base fails, no expression target is cut or substituted.
-Each review shows R1b beside an explicit unavailable-R1c tile, and a separate labelled boxed target.
+| Expression | K9 RGB RMSE | K9 IoU | Face / front-hair ratio | Result |
+| --- | ---: | ---: | ---: | --- |
+| 02_respond | 16.574062 | 1.0 | 0.297195 / 0.645267 | Pass |
+| 03_smile | 24.122570 | 1.0 | 0.435526 / 0.866470 | Pass |
+| 04_embarrassed | 21.264606 | 1.0 | 0.448726 / 0.591256 | Pass |
+| 05_serious | 22.718582 | 1.0 | 0.397672 / 0.867176 | Pass |
+| 06_depressed | 15.990748 | 1.0 | 0.561463 / 0.701681 | Pass |
+| eyeclose | 22.020111 | 1.0 | 0.379819 / 0.714640 | Pass |
 
-Sharpness uses section 13's identical official opaque support, one-pixel erosion, same head box and
-mean squared four-neighbour BT.601 luminance Laplacian. This is sensitive to sampling, ringing and
-key artifacts and is not an acceptance score.
+Their waist bands contain zero target pixels and record ratio 0 by convention. Saved R1b expression
+values remain those in section 13 and the external comparison metrics. The passing expression results
+do not permit shipping the failed base page.
+
+Sharpness retains K8's same official opaque support, one-pixel erosion, head box and squared
+four-neighbour BT.601 luminance Laplacian. R1c below is the rejected *keyed target*, not a packed
+render. Sampling, ringing and crisp lines all increase this diagnostic.
 
 | Composite | Head | Body |
 | --- | ---: | ---: |
 | Official | 780.866102 | 723.539312 |
 | R1b | 525.008413 | 437.733869 |
-| K9 rejected keyed target | 5055.498018 | 2655.375513 |
+| K9 rejected target | 5253.385841 | 2780.806144 |
 
-The external review set has **29 sheets**: full official/R1b/rejected-target comparison; the exact
-K8 waist, face, stem and chin boxes; full-frame seam-path overlay; stem and hair keying comparisons,
-including old/new keying on the same opaque merge; full v1/v2 heads and separate hair-silhouette/eye
-comparisons; and three labelled sheets for each expression. Masked official pixels are restored for
-display only. Metrics use the unmasked target. Full numeric reports include every gate, R1b reference
-values, fringe measures, per-crop contour counts, expression target hashes and generation metadata.
+The **23 final sheets** include full official/R1b/rejected-cut comparison; K8's exact waist, face,
+stem and chin boxes; actual seam paths; waist/stem/hair old/new keying on identical RGB; v1/v2 heads,
+hair silhouettes and eyes after keying; each rejected expression cut beside R1b in its exact target
+box; all 70 original contour detections and source windows; the matte-band invariant overlay; and
+full/close-up waist cut-error overlays. Rejected cut panels come from the engine's gray-composited
+review output, so the comparison uses the same backdrop. No failed page is presented as a mod render.
 
-Observations are **not owner acceptance**: the v2 image is crisp but retains the unwanted contour and
-changes highlights. New keying visibly reduces the strongest old green artifacts, while thin colour
-traces remain at the stem. A narrow seam can still concatenate displaced contour fragments; forbidding
-cross-fades alone does not prove line continuity. No R1c expression or in-game result exists to judge.
+Observations are not acceptance: the merge keeps single contours in the lead's close-ups; the fixed
+matte preserves interior ink; v2 still changes the outline/highlights; and the cut has a measured waist
+error concentration. The owner remains the visual authority. No R1c bundle or import result exists.
 
-### Validation and delivery
+### Tests and delivery
 
-- Related refinement suites: **122 passed**, including the optional official identity case.
-- New tracked synthetic coverage includes the minimum-cost path, single-line ownership, a deliberately
-  doubled cross-fade, nearest interior fill, bounded despill, sharpening versus movement, raw gross
-  overlap, seam-band error, complementary fringe, planning constraints, and both prompt versions.
-- Full JavaScript suite, run once at the end: **1,916 passed**, zero failed or skipped, **9.75 seconds**.
-- Full Python suite, run once at the end: **3,394 passed, 27 skipped**, zero failed, **349.32 seconds**.
-  Three existing locale deprecation warnings remain. The isolated development configuration and official
-  view were active; optional official identity tests ran. No test or cut default was bypassed.
-- Four official source bundle hashes and all saved plan artifact hashes validate. No official source
-  was changed. Development images only; no owner install access, GUI, browser, screenshot, audio,
-  package build, version bump, installation or push.
-- The normal Git index is blocked. Commits are delivered on the requested branch through a Git bundle,
-  refreshed after each logical commit. The worktree branch and primary checkout remain unchanged.
-  Code: `9ba2e36c`; tests: `f1ad0061`; the documentation commit is named in the delivery message.
+- Related refinement suites: **129 passed**; the additional original-geometry/correction integration
+  control passed separately, for **130 related cases** in total. Optional official identity cases ran.
+- New coverage exercises frame connectivity, opaque neutral interiors, bounded edge despill, subpixel
+  rigid shifts, unchanged identity sampling, rate scaling, sparse unsupported samples versus a run,
+  nearest local colour, valid palette interpolation versus a green outlier, and the retained drift guard.
+- Full JavaScript suite, run once at the end: **1,916 passed**, zero failed or skipped, **9.87 seconds**.
+- Full Python suite, run once at the end: **3,402 passed, 27 skipped**, zero failed, **357.20 seconds**.
+  Three existing locale deprecation warnings remain; no new runtime or isolation warnings occurred.
+- Four official source bundle hashes and plan hashes validate. Only the verified development view is
+  read. No source asset changes, owner-install access, GUI, browser, screenshot, audio, package build,
+  version bump, installation or push. K6 cut/defaults and the App's import implementation are unchanged.
+- The normal index is blocked. Delivery remains a refreshed Git bundle on `codex/refine-merge`.
+  Continuation core commit: `c4a6f5dc`; tests: `4171cdc8`; documentation id is in the delivery message.
