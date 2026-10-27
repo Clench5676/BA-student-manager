@@ -40,7 +40,7 @@ The 0.6.0 work is unreleased. Nothing has been tagged, pushed or published since
 | BL-020 | Implemented; owner review through a prerelease-only simulated update prompt |
 | BL-021 | Implemented; revised 0.6.0 tour goes into the next prerelease for review; stable needs the owner's final OK |
 | BL-013, BL-019, BL-030 | Planned, not implemented |
-| BL-054 | Requested; scheduled for the next development cycle |
+| BL-054 | In this cycle; design proposal in progress |
 | BL-014 | Candidate, not scheduled |
 | BL-016 through BL-018 | Deferred |
 
