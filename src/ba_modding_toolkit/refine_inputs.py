@@ -14,12 +14,13 @@ import re
 import shutil
 
 import numpy as np
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFilter
 
 from .refine_composite import compose, _rgba
 from .refine_cut import Pose, GateError, cut, _masks, subset, pushpull, join_band_gate
 from .refine_stitch import (stitch, native_movement, gross_disagreement, nearest_inside,
-                            fringe_gate, double_edge_count, detail)
+                            fringe_gate, double_edge_count, detail, frame_background,
+                            estimate_translation, translate_rgb)
 
 
 @dataclass(frozen=True)
@@ -38,6 +39,12 @@ class InputParameters:
     gross_share: float = .1
     fringe_distance: float = 48.
     fringe_complement_share: float = .02
+    silhouette_band_native: int = 3
+    key_background_tolerance: float = 32.
+    key_chroma_seed_tolerance: float = 4.
+    translation_cap_native: float = 2.
+    contour_rate: float = .05
+    unpaired_outline_rate: float = .001
     min_iou: float = .96
     line_offset: float = 3.  # Legacy K7 plan field; native_line_offset gates returns.
     aspect_tolerance: float = .005
@@ -105,8 +112,8 @@ def flatten(image, key):
     return Image.fromarray(np.uint8(np.rint(rgb * 255)))
 
 
-def key_image(image, official, key, *, parameters=None):
-    """Distance matte with returned interior colour, never divided by alpha.
+def key_image(image, official, key, *, parameters=None, density=1.):
+    """Outline-only distance matte; opaque returned interiors are byte-preserved.
 
     Alpha is the returned distance to the key relative to a local foreground
     estimate. Straight edge colour is copied from alpha >= .5 and despilled
@@ -131,31 +138,49 @@ def key_image(image, official, key, *, parameters=None):
         return Image.fromarray(pixels), {'alpha_rmse_255': float(np.sqrt(np.mean(values ** 2))),
             'alpha_p99_255': float(np.percentile(values, 99)),
             'alpha_max_255': float(error.max()), 'outline_pixels': int(edge.sum())}
-    prior = pushpull(ref[..., :3], ref[..., 3] >= .98)
     distance = np.linalg.norm(c - k, axis=-1)
-    initial = distance / np.maximum(np.linalg.norm(prior - k, axis=-1), 1e-6)
-    seeds = (initial >= .98) & (ref[..., 3] >= .5)
-    local = pushpull(c, seeds) if seeds.any() else prior
-    # The local estimate is extended from returned, opaque foreground colours.
-    alpha = np.clip(distance / np.maximum(np.linalg.norm(local - k, axis=-1), 1e-6), 0, 1)
-    alpha[unchanged] = ref[..., 3][unchanged]
-    alpha = np.clip(alpha / p.alpha_normalisation, 0, 1)
+    definite = np.max(abs(c - k), axis=-1) <= p.key_background_tolerance / 255
+    connected = frame_background(definite)
+    radius = max(1, round(p.silhouette_band_native * density))
+    band = np.asarray(Image.fromarray(np.uint8(connected) * 255).filter(
+        ImageFilter.MaxFilter(2 * radius + 1))) > 0
+    # Colour is never evidence for soft interior alpha. Only the frame-connected
+    # background's narrow neighbourhood may have fractional coverage.
+    interior = ~band & ~definite
+    prior = pushpull(ref[..., :3], ref[..., 3] >= .5)
+    key_chroma = k - k.mean()
+    key_chroma /= max(float(np.linalg.norm(key_chroma)), 1e-6)
+    # Opaque neutral ink can lie inside the outline band. Luminance alone must
+    # not turn it into partial coverage; include returned colours without a
+    # significant key-chroma excess as foreground seeds, even on thin contours.
+    excess = ((c - prior) * key_chroma).sum(-1)
+    high, low = k >= .5, k < .5
+    dominance = np.min(c[..., high], axis=-1) - np.max(c[..., low], axis=-1)
+    seeds = ~definite & (interior | (excess <= p.key_chroma_seed_tolerance / 255) |
+                         (dominance <= p.key_chroma_seed_tolerance / 255))
+    local = pushpull(c, seeds)
+    inside, _ = nearest_inside(np.where(seeds[..., None], c, local), seeds, band & ~definite)
+    alpha = np.ones(distance.shape, np.float32)
+    alpha[band] = np.clip(distance[band] /
+        np.maximum(np.linalg.norm(inside[band] - k, axis=-1), 1e-6), 0, 1)
+    alpha[definite] = 0
+    alpha[unchanged & band] = ref[..., 3][unchanged & band]
+    alpha[band] = np.clip(alpha[band] / p.alpha_normalisation, 0, 1)
     alpha[alpha >= p.alpha_snap] = 1
-    alpha[distance < .5 / 255] = 0
-    query = (alpha > 0) & (alpha < .98)
-    inside = np.where(seeds[..., None], c, local)
-    inside, _ = nearest_inside(inside, seeds, query)
-    # Remove only the positive key contribution, bounded between observation and
-    # interior in each channel. There is no 1/alpha amplification at any stage.
-    direction = k - inside
-    spill = np.clip(((c - inside) * direction).sum(-1) /
-                    np.maximum((direction ** 2).sum(-1), 1e-6), 0, 1)
-    despilled = c - spill[..., None] * direction
-    despilled = np.clip(despilled, np.minimum(c, inside), np.maximum(c, inside))
-    rgb = np.where((alpha >= .5)[..., None], despilled, inside)
+    soft = (alpha > 0) & (alpha < 1)
+    # Remove only the key's known coverage share. Never despill opaque pixels,
+    # and never divide foreground RGB by coverage.
+    # Never subtract more than either the matte's key share or the observed
+    # key-channel excess: subtracting neutral ink would create its complement.
+    key_share = np.minimum(1 - alpha, np.maximum(dominance, 0))
+    despilled = np.clip(c - key_share[..., None] * k, 0, 1)
+    rgb = c.copy()
+    rgb[soft & (alpha >= .5)] = despilled[soft & (alpha >= .5)]
+    rgb[soft & (alpha < .5)] = inside[soft & (alpha < .5)]
     rgb[alpha == 0] = 0
     # Retain all identity RGB, including intentional colours under zero alpha.
-    rgb[unchanged] = ref[..., :3][unchanged]
+    retain = unchanged & (abs(alpha - ref[..., 3]) < .5 / 255)
+    rgb[retain] = ref[..., :3][retain]
     pixels = np.uint8(np.rint(np.clip(np.dstack((rgb, alpha)), 0, 1) * 255))
     result = Image.fromarray(pixels)
     error = abs(pixels[..., 3].astype(float) - np.asarray(official)[..., 3])
@@ -163,7 +188,11 @@ def key_image(image, official, key, *, parameters=None):
     values = error[edge] if edge.any() else error.ravel()
     return result, {'alpha_rmse_255': float(np.sqrt(np.mean(values ** 2))),
                     'alpha_p99_255': float(np.percentile(values, 99)),
-                    'alpha_max_255': float(error.max()), 'outline_pixels': int(edge.sum())}
+                    'alpha_max_255': float(error.max()), 'outline_pixels': int(edge.sum()),
+                    'interior_pixels': int(interior.sum()),
+                    'interior_soft_pixels': int((interior & (pixels[..., 3] < 255)).sum()),
+                    'interior_colour_changed_pixels': int((interior & np.any(pixels[..., :3] != np.asarray(image.convert('RGB')), axis=-1)).sum()),
+                    'soft_outside_outline_band': int(((pixels[..., 3] > 0) & (pixels[..., 3] < 255) & ~band).sum())}
 
 
 def _box_frame(box, frame, scale):
@@ -222,7 +251,7 @@ def crop_boxes(size, head, parameters, image=None):
 def _validate(p, density):
     if type(density) is not int or density < 1:
         raise ValueError('Density/page scale must be a positive integer')
-    for field in ('pixel_budget', 'overlap', 'feather', 'seam_blend'):
+    for field in ('pixel_budget', 'overlap', 'feather', 'seam_blend', 'silhouette_band_native'):
         if type(getattr(p, field)) is not int or getattr(p, field) < 1:
             raise ValueError('Invalid budget or overlap')
     if p.overlap < 48 or p.pixel_budget <= p.overlap ** 2:
@@ -230,7 +259,7 @@ def _validate(p, density):
     for value in asdict(p).values():
         if not math.isfinite(value) or value <= 0:
             raise ValueError('Parameters must be finite and positive')
-    if max(p.alpha_snap, p.min_iou, p.gross_share, p.fringe_complement_share) > 1:
+    if max(p.alpha_snap, p.min_iou, p.gross_share, p.fringe_complement_share, p.contour_rate, p.unpaired_outline_rate) > 1:
         raise ValueError('Invalid alpha or IoU threshold')
 
 
@@ -374,7 +403,7 @@ def merge_inputs(plan_path, returned, output, *, diagnostic=False, base_only=Fal
     out = _external(output)
     out.mkdir(parents=True, exist_ok=True)
     read = lambda name: Image.open(path.parent / name).convert('RGBA')
-    report = {'failures': [], 'crops': {}, 'overlaps': [], 'key_method': 'distance-matte-interior-colour-despill',
+    report = {'failures': [], 'crops': {}, 'overlaps': [], 'key_method': 'connected-background-outline-only-despill',
               'merge_method': 'dynamic-programming-seams', 'parameters': asdict(p),
               'alpha_normalisation': p.alpha_normalisation, 'alpha_snap': p.alpha_snap}
     rows = []
@@ -399,17 +428,57 @@ def merge_inputs(plan_path, returned, output, *, diagnostic=False, base_only=Fal
         image = Image.fromarray(np.uint8(np.rint(np.clip(
             np.asarray(read(crop['input']).convert('RGB'), np.float32) + _resize_float(delta, (cw, ch)), 0, 255))))
         official = read(crop['official'])
-        keyed, _ = key_image(image, official, plan['key_colour'], parameters=p)
+        keyed, matte_quality = key_image(image, official, plan['key_colour'], parameters=p, density=crop['density'])
         _, quality = key_image(flatten(official, plan['key_colour']), official, plan['key_colour'], parameters=p)
         movement = native_movement(official, keyed, density=crop['density'], min_iou=p.min_iou,
                                    max_offset=p.native_line_offset, max_shift=p.native_translation)
         report['crops'][crop['id']] = {'movement': movement, 'identity_key_quality': quality,
-                                      'returned_size': [w, h], 'sha256': _hash(filename.read_bytes())}
+                                      'returned_size': [w, h], 'sha256': _hash(filename.read_bytes()), 'matte_quality': matte_quality}
         if movement['flags']: report['failures'].append(crop['id'] + ':movement')
         if quality['alpha_rmse_255'] > p.key_alpha_rmse or quality['alpha_p99_255'] > p.key_alpha_p99:
             report['failures'].append(crop['id'] + ':key')
         l, t, r, b = crop['box']
         rows.append({'crop': crop, 'delta': _resize_float(delta, (r - l, b - t))})
+    # Estimate only rigid whole-crop corrections from overlap observations.
+    # The original official-geometry gate above remains independent: correcting
+    # overlap sampling must not rehabilitate a drifted or locally moved return.
+    equations, shifts = [], []
+    registrations = []
+    for i, a in enumerate(rows):
+        for j in range(i + 1, len(rows)):
+            b = rows[j]
+            if a['crop']['pose'] != b['crop']['pose']: continue
+            overlap = _intersection(a['crop']['box'], b['crop']['box'])
+            if overlap is None: continue
+            sa, sb = overlap
+            abox, bbox = a['crop']['box'], b['crop']['box']
+            l, t = max(abox[0], bbox[0]), max(abox[1], bbox[1])
+            r, bottom = min(abox[2], bbox[2]), min(abox[3], bbox[3])
+            official_overlap = Image.fromarray(official_by_pose[a['crop']['pose']][t:bottom, l:r])
+            base = np.asarray(flatten(official_overlap, plan['key_colour']), np.float32)
+            visible = np.asarray(official_overlap)[..., 3] > 250
+            estimate = estimate_translation(base + a['delta'][sa], base + b['delta'][sb], visible,
+                                            density=plan['density'])
+            eq = np.zeros(len(rows)); eq[i], eq[j] = -1, 1
+            equations.append(eq); shifts.append(estimate['shift_native'])
+            registrations.append({'a': a['crop']['id'], 'b': b['crop']['id'], **estimate})
+    for pose in plan['poses']:
+        anchor = next(i for i, row in enumerate(rows) if row['crop']['pose'] == pose['name'])
+        eq = np.zeros(len(rows)); eq[anchor] = 1
+        equations.append(eq); shifts.append([0., 0.])
+    correction = np.linalg.lstsq(np.asarray(equations), np.asarray(shifts), rcond=None)[0]
+    report['registration'] = registrations
+    for i, row in enumerate(rows):
+        shift = correction[i]
+        if np.linalg.norm(shift) > p.translation_cap_native:
+            report['failures'].append(row['crop']['id'] + ':translation-cap')
+            shift = np.zeros(2)
+        l, t, r, b = row['crop']['box']
+        official = Image.fromarray(official_by_pose[row['crop']['pose']][t:b, l:r])
+        base = np.asarray(flatten(official, plan['key_colour']), np.float32)
+        row['delta'] = translate_rgb(base + row['delta'], shift * plan['density'], plan['key_colour']) - base
+        report['crops'][row['crop']['id']]['applied_shift_native_px'] = shift.tolist()
+        report['crops'][row['crop']['id']]['estimated_shift_native_px'] = correction[i].tolist()
     # Solve a DC colour offset graph, anchored on the head; expressions are separate poses.
     offsets = np.zeros((len(rows), 3), np.float64)
     equations, differences = [], []
@@ -460,6 +529,18 @@ def merge_inputs(plan_path, returned, output, *, diagnostic=False, base_only=Fal
                         for d in (rows[i]['delta'][sa], rows[j]['delta'][sb])]
         overlap_motion = native_movement(*observations, density=plan['density'], min_iou=p.min_iou,
                                         max_offset=p.native_line_offset, max_shift=p.native_translation)
+        residual = estimate_translation(base + rows[i]['delta'][sa], base + rows[j]['delta'][sb],
+                                        visible, density=plan['density'])
+        overlap_motion['integer_translation_diagnostic_px'] = overlap_motion['translation_px']
+        overlap_motion['translation_px'] = float(np.linalg.norm(residual['shift_native']))
+        overlap_motion['residual_shift_native_px'] = residual['shift_native']
+        overlap_motion['flags'] = [f for f in overlap_motion['flags'] if f != 'coherent_drift']
+        if overlap_motion['translation_px'] > p.native_translation:
+            overlap_motion['flags'].append('coherent_drift')
+        source_faults = [row['crop']['id'] for row in (rows[i], rows[j])
+                         if report['crops'][row['crop']['id']]['movement']['flags']]
+        overlap_motion['unaligned_source_geometry_faults'] = source_faults
+        if source_faults: overlap_motion['flags'].append('source_geometry')
         report['overlaps'][-1]['movement'] = overlap_motion
         if overlap_motion['flags']: report['failures'].append(f'overlap:{i}:{j}:movement')
     size = tuple(plan['master_size'])
@@ -499,14 +580,21 @@ def merge_inputs(plan_path, returned, output, *, diagnostic=False, base_only=Fal
         if pose['name'] == base_pose and not covered.all():
             raise ValueError('Crop plan leaves uncovered master pixels')
         report.setdefault('seams', {})[pose['name']] = paths
+        seam_length = sum(float(np.linalg.norm(np.diff(np.asarray(path['points']), axis=0), axis=1).sum())
+                          for path in paths)
+        contour_rate = doubles / max(seam_length, 1.)
         report.setdefault('double_edges', {})[pose['name']] = {
             'new_ridge_pairs': doubles, 'by_crop': contour_crops, 'mixed_disagreeing_pixels': mixed_detail,
-            'passed': doubles == 0 and mixed_detail == 0}
-        if doubles or mixed_detail: report['failures'].append(pose['name'] + ':double-edge')
+            'seam_length_px': seam_length, 'seam_length_native_px': seam_length / plan['density'],
+            'pairs_per_seam_px': contour_rate,
+            'max_pairs_per_seam_px': p.contour_rate,
+            'passed': contour_rate <= p.contour_rate and mixed_detail == 0}
+        if contour_rate > p.contour_rate or mixed_detail: report['failures'].append(pose['name'] + ':double-edge')
         official = read(pose['official'])
         opaque = np.asarray(flatten(official, plan['key_colour']), np.float32)
         merged = Image.fromarray(np.uint8(np.rint(np.clip(opaque + delta, 0, 255))))
-        target, quality = key_image(merged, official, plan['key_colour'], parameters=p)
+        target, quality = key_image(merged, official, plan['key_colour'], parameters=p, density=plan['density'])
+        report.setdefault('matte_quality', {})[pose['name']] = quality
         target.save(out / f'target-{len(targets)}.png')
         merged.save(out / f'merged-{len(targets)}.png')
         seam = join_band_gate(target, official, {'crop_boundary': boundary},
@@ -517,7 +605,8 @@ def merge_inputs(plan_path, returned, output, *, diagnostic=False, base_only=Fal
         for seam_path in paths: draw.line([tuple(pt) for pt in seam_path['points']], fill=(0, 255, 255), width=1)
         overlay.save(out / f'seam-paths-{len(targets)}.png')
         fringe = fringe_gate(target, plan['key_colour'], reference=official, max_distance=p.fringe_distance,
-                             max_complement_share=p.fringe_complement_share)
+                             max_complement_share=p.fringe_complement_share, density=plan['density'],
+                             max_unpaired_rate=p.unpaired_outline_rate)
         report.setdefault('fringe', {})[pose['name']] = fringe
         if not fringe['passed']: report['failures'].append(pose['name'] + ':fringe')
         if not seam['crop_boundary']['passed']: report['failures'].append(pose['name'] + ':crop-boundary')

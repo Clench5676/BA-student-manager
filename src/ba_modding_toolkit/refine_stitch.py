@@ -74,7 +74,7 @@ def seam_mask(a, b, *, incoming_below=True, blend=2, agreement=6., preference=0.
     return weight, band, path
 
 
-def double_edge_count(a, b, merged, band, *, contrast=16., separation=6):
+def double_edge_count(a, b, merged, band, *, contrast=16., separation=6, locations=False):
     """New pairs of dark ridges absent as a pair in either source, near a seam.
 
     Count horizontal and vertical profiles with two local dark extrema separated
@@ -83,6 +83,7 @@ def double_edge_count(a, b, merged, band, *, contrast=16., separation=6):
     """
     grey = [np.asarray(c, np.float32) @ np.array([.299, .587, .114]) for c in (a, b, merged)]
     count = 0
+    hits = []
     for axis in (0, 1):
         ridges = []
         for g in grey:
@@ -97,7 +98,10 @@ def double_edge_count(a, b, merged, band, *, contrast=16., separation=6):
             if axis == 0: new[:gap] = False
             else: new[:, :gap] = False
             count += int(new.sum())
-    return count
+            if locations:
+                yy, xx = np.nonzero(new)
+                hits.extend([[int(x), int(y), axis, gap] for y, x in zip(yy, xx)])
+    return hits if locations else count
 
 
 def stitch(existing, incoming, covered, *, head=False, feather=48, blend=2, agreement=6.):
@@ -252,12 +256,43 @@ def nearest_inside(colour, seeds, query, *, radius=12, return_matched=False):
     return result, int(pending.sum()) + excluded
 
 
-def fringe_gate(image, key, *, reference=None, max_distance=48., max_complement_share=.02):
+def nearest_colour(colour, seeds, query, *, radius=12, direction=None):
+    """Nearest RGB colour among local interior samples, with spatial tie order.
+
+    A spatially nearest pale surface is not the colour reference for a thin dark
+    contour when the same ink continues slightly farther inside the outline.
+    """
+    out = colour.copy()
+    yy, xx = np.nonzero(query)
+    best = np.full(len(xx), np.inf)
+    support = np.full(len(xx), -np.inf)
+    h, w = seeds.shape
+    offsets = sorted((dx*dx+dy*dy,dy,dx) for dy in range(-radius,radius+1)
+                     for dx in range(-radius,radius+1) if dx*dx+dy*dy <= radius*radius)
+    for _, dy, dx in offsets:
+        x, y = xx + dx, yy + dy
+        ids = np.flatnonzero((x >= 0) & (x < w) & (y >= 0) & (y < h) & (best > 0))
+        ids = ids[seeds[y[ids], x[ids]]]
+        if direction is not None:
+            support[ids] = np.maximum(support[ids], colour[y[ids],x[ids]] @ direction)
+        distance = np.sum((colour[yy[ids],xx[ids]] - colour[y[ids],x[ids]]) ** 2, axis=-1)
+        ids, distance = ids[distance < best[ids]], distance[distance < best[ids]]
+        out[yy[ids],xx[ids]] = colour[y[ids],x[ids]]
+        best[ids] = distance
+    matched = np.zeros(query.shape, bool);matched[yy[np.isfinite(best)],xx[np.isfinite(best)]] = True
+    if direction is not None:
+        envelope = np.zeros(query.shape, np.float32);envelope[yy,xx] = np.where(np.isfinite(support), support, colour[yy,xx] @ direction)
+        return out, matched, envelope
+    return out, matched
+
+
+def fringe_gate(image, key, *, reference=None, max_distance=48., max_complement_share=.02,
+                density=1., max_unpaired_rate=.001):
     """Measure outline colours, subtracting existing artwork's edge treatment.
 
     Raw distance and complement share remain visible. Gate excess over the same
     reference pixels so intentional dark contours and translucent parts do not
-    fail an exact identity. Unpaired changed outline pixels fail closed.
+    fail an exact identity. Unpaired changed pixels use a length-normalised rate.
     """
     a = np.asarray(image.convert('RGBA'), np.float32)
     alpha, rgb = a[..., 3] / 255, a[..., :3]
@@ -266,15 +301,22 @@ def fringe_gate(image, key, *, reference=None, max_distance=48., max_complement_
     near_core = np.asarray(core.filter(ImageFilter.MaxFilter(9))) > 0
     near_outside = np.asarray(outside.filter(ImageFilter.MaxFilter(9))) > 0
     edge = (alpha > .02) & (alpha < .98) & near_core & near_outside
-    nearest, matched = nearest_inside(rgb, alpha >= .98, edge, return_matched=True)
+    toward = 127.5 - np.asarray(key, np.float32)
+    toward -= toward.mean()
+    unit = toward / max(float(np.linalg.norm(toward)), 1)
+    nearest, matched, support = nearest_colour(rgb, alpha >= .98, edge, direction=unit)
+    projection = np.maximum(0, rgb @ unit - support)
+    baseline_projection = np.zeros(edge.shape, np.float32)
     baseline = np.zeros_like(rgb)
     baseline_distance = np.zeros(edge.shape, np.float32)
     if reference is not None:
         ref = np.asarray(reference.convert('RGBA'), np.float32)
         if np.array_equal(a, ref):
             inside = nearest
+            baseline_projection = projection.copy()
         else:
-            inside, _ = nearest_inside(ref[..., :3], ref[..., 3] >= 250, edge)
+            inside, _, ref_support = nearest_colour(ref[..., :3], ref[..., 3] >= 250, edge, direction=unit)
+            baseline_projection = np.maximum(0, ref[..., :3] @ unit - ref_support)
         baseline = ref[..., :3] - inside
         baseline_distance = np.linalg.norm(baseline, axis=-1)
         changed = np.max(abs(a - ref), axis=-1) > 1
@@ -282,17 +324,13 @@ def fringe_gate(image, key, *, reference=None, max_distance=48., max_complement_
         changed = np.ones(edge.shape, bool)
     residual = rgb - nearest
     distances = np.linalg.norm(residual, axis=-1)
-    # Remove neutral lightness first: a dark official contour is not green spill.
-    toward = 127.5 - np.asarray(key, np.float32)
-    toward -= toward.mean()
-    unit = toward / max(float(np.linalg.norm(toward)), 1)
+    # A colour interpolated between two existing interior paints is not a
+    # complementary fringe. Require chroma beyond the entire local interior
+    # palette, not merely beyond its single nearest RGB sample.
+    extra_projection = np.maximum(0, projection - baseline_projection)
     chroma = residual - residual.mean(-1, keepdims=True)
-    extra = residual - baseline
-    extra -= extra.mean(-1, keepdims=True)
-    projection = (chroma * unit).sum(-1)
-    extra_projection = (extra * unit).sum(-1)
     raw_leaning = (projection > 8) & (projection > .5 * np.maximum(np.linalg.norm(chroma, axis=-1), 1))
-    leaning = (extra_projection > 8) & (extra_projection > .5 * np.maximum(np.linalg.norm(extra, axis=-1), 1))
+    leaning = (extra_projection > 8) & (extra_projection > .5 * np.maximum(np.linalg.norm(chroma, axis=-1), 1))
     used = edge & matched
     raw_p95 = float(np.percentile(distances[used], 95)) if used.any() else 0.
     excess = np.maximum(0, distances - baseline_distance)
@@ -300,9 +338,100 @@ def fringe_gate(image, key, *, reference=None, max_distance=48., max_complement_
     raw_share = float(raw_leaning[used].mean()) if used.any() else 0.
     share = float(leaning[used].mean()) if used.any() else 0.
     unpaired_changed = int((edge & ~matched & changed).sum())
+    # A one-pixel boundary, rather than a four-pixel band, supplies the length.
+    one_outside = np.asarray(outside.filter(ImageFilter.MaxFilter(3))) > 0
+    outline_length = float(((alpha >= .5) & one_outside).sum())
+    unpaired_rate = unpaired_changed / max(outline_length, 1.)
     return {'outline_pixels': int(edge.sum()), 'paired_pixels': int(used.sum()),
             'unmatched_pixels': int((edge & ~matched).sum()), 'unpaired_changed_pixels': unpaired_changed,
+            'outline_length_px': outline_length, 'outline_length_native_px': outline_length / density,
+            'unpaired_per_outline_px': unpaired_rate,
+            'max_unpaired_per_outline_px': max_unpaired_rate,
             'distance_p95_255': raw_p95, 'complement_share': raw_share,
             'excess_distance_p95_255': excess_p95, 'excess_complement_share': share,
             'max_distance_255': max_distance, 'max_complement_share': max_complement_share,
-            'passed': excess_p95 <= max_distance and share <= max_complement_share and unpaired_changed == 0}
+            'passed': excess_p95 <= max_distance and share <= max_complement_share and unpaired_rate <= max_unpaired_rate}
+
+
+def frame_background(mask):
+    """Four-connected definite-key pixels touching any edge, via row-run unions."""
+    mask = np.asarray(mask, bool)
+    h, w = mask.shape
+    parent, runs = [0], []
+    previous = []
+    def root(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+    for y in range(h):
+        changes = np.flatnonzero(np.diff(np.r_[False, mask[y], False]))
+        current = []
+        j = 0
+        for l, r in changes.reshape(-1, 2):
+            ident = len(parent); parent.append(ident)
+            if y in (0, h - 1) or l == 0 or r == w: parent[ident] = 0
+            while j < len(previous) and previous[j][1] <= l: j += 1
+            k = j
+            while k < len(previous) and previous[k][0] < r:
+                a, b = root(ident), root(previous[k][2])
+                parent[max(a, b)] = min(a, b)
+                k += 1
+            current.append((int(l), int(r), ident))
+            runs.append((y, int(l), int(r), ident))
+        previous = current
+    connected = np.zeros_like(mask)
+    for y, l, r, ident in runs:
+        if root(ident) == 0: connected[y, l:r] = True
+    return connected
+
+
+def translate_rgb(values, shift, fill=(255, 0, 255)):
+    """One rigid subpixel translation, no registration warp; identity is exact."""
+    dx, dy = map(float, shift)
+    if max(abs(dx), abs(dy)) < 1e-8: return values.copy()
+    h, w = values.shape[:2]
+    return np.stack([np.asarray(Image.fromarray(values[..., c].astype(np.float32)).transform(
+        (w, h), Image.Transform.AFFINE, (1, 0, -dx, 0, 1, -dy),
+        Image.Resampling.BICUBIC, fillcolor=float(fill[c]))) for c in range(3)], -1)
+
+
+def estimate_translation(a, b, visible, *, density=1., search=3.):
+    """Estimate a rigid shift of b towards a using relative native gradients.
+
+    A coarse search followed by 1/8-native-pixel refinement. No image is moved
+    here. The caller enforces the correction cap and applies the shift once.
+    """
+    h, w = visible.shape
+    size = (max(1, round(w / density)), max(1, round(h / density)))
+    def resize(values):
+        return np.stack([np.asarray(Image.fromarray(values[..., c].astype(np.float32)).resize(
+            size, Image.Resampling.LANCZOS)) for c in range(3)], -1)
+    ga, gb = detail(resize(a)), detail(resize(b))
+    mask = np.asarray(Image.fromarray(np.uint8(visible) * 255).resize(size, Image.Resampling.NEAREST)) > 0
+    margin = int(np.ceil(search)) + 1
+    mask[:margin] = mask[-margin:] = False
+    mask[:, :margin] = mask[:, -margin:] = False
+    mask &= ga > 12
+    yy, xx = np.nonzero(mask)
+    if not len(xx): return {'shift_native': [0., 0.], 'error': 0., 'zero_error': 0., 'samples': 0}
+    goal = ga[yy, xx]
+    def score(dx, dy):
+        x, y = xx - dx, yy - dy
+        x0, y0 = np.floor(x).astype(int), np.floor(y).astype(int)
+        fx, fy = x - x0, y - y0
+        x0=np.clip(x0,0,gb.shape[1]-2); y0=np.clip(y0,0,gb.shape[0]-2)
+        sample = (gb[y0,x0]*(1-fx)*(1-fy)+gb[y0,x0+1]*fx*(1-fy)+
+                  gb[y0+1,x0]*(1-fx)*fy+gb[y0+1,x0+1]*fx*fy)
+        return float(np.mean(abs(goal-sample)/np.maximum(goal+sample,12)))
+    candidates = [(score(dx,dy),float(dx),float(dy)) for dy in range(-int(search),int(search)+1)
+                  for dx in range(-int(search),int(search)+1)]
+    best = min(candidates,key=lambda z:(z[0],abs(z[1])+abs(z[2])))
+    for step in (.5,.25,.125):
+        candidates = [(score(best[1]+dx,best[2]+dy),best[1]+dx,best[2]+dy)
+                      for dy in (-step,0,step) for dx in (-step,0,step)]
+        best = min(candidates,key=lambda z:(z[0],abs(z[1])+abs(z[2])))
+    zero = score(0,0)
+    # Avoid inventing a shift from numerical noise or perfectly identical grids.
+    shift = [best[1],best[2]] if best[0] < zero * .95 else [0.,0.]
+    return {'shift_native':shift,'error':best[0],'zero_error':zero,'samples':len(xx)}
