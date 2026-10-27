@@ -161,10 +161,10 @@ def test_outline_matte_preserves_neutral_interior_and_softens_only_outer_band():
     allowed=np.asarray(Image.fromarray(np.uint8(connected)*255).filter(ImageFilter.MaxFilter(7)))>0
     assert not (((a[...,3]>0)&(a[...,3]<255))&~allowed).any()
     soft=(a[...,3]>0)&(a[...,3]<255)&(a[...,3]>=128)
-    # No channel may lose more than the key's actual (1-alpha) contribution.
+    # Chroma cleanup may also act at alpha 1, without RGB amplification.
     removed=c.astype(float)-a[...,:3]
-    assert (removed[soft,0] <= 255-a[soft,3]+1).all()
-    assert (removed[soft,2] <= 255-a[soft,3]+1).all()
+    assert (removed[soft,0] >= 0).all()
+    assert (removed[soft,2] >= 0).all()
     assert np.array_equal(a[soft,1],c[soft,1])
 
 
@@ -227,3 +227,48 @@ def test_complement_gate_accepts_palette_interpolation_rejects_new_green():
     a[8:40,7]=(20,240,30,150)
     fault=fringe_gate(Image.fromarray(a),(255,0,255),reference=reference)
     assert not fault['passed'] and fault['excess_complement_share'] > .02
+
+
+@pytest.mark.parametrize('coverage',[1.,.75])
+def test_key_chroma_despill_includes_opaque_edges_without_changing_interior(coverage):
+    from ba_modding_toolkit.refine_stitch import despill_key_band
+    rgb=np.zeros((96,96,3),np.float32);rgb[16:80,16:80]=(.25,.25,.4)
+    alpha=np.zeros((96,96),np.float32);alpha[16:80,16:80]=1
+    band=np.zeros((96,96),bool);band[16:19,16:80]=True
+    rgb[16,20:76]=(.9,.25,.9);alpha[16,20:76]=coverage
+    original=rgb.copy()
+    out=despill_key_band(rgb,alpha,(1,0,1),band)
+    direction=np.array([1,-2,1])/np.sqrt(6)
+    allowed=np.array([.25,.25,.4])@direction
+    assert np.max(out[16,20:76]@direction) <= allowed+1e-5
+    assert np.array_equal(out[~band],original[~band])
+    assert (out<=original+1e-6).all()
+    assert np.array_equal(out[...,1],original[...,1])
+    assert (alpha[16,20:76]==coverage).all()
+
+
+def test_key_chroma_despill_uses_the_crop_own_interior_palette():
+    from ba_modding_toolkit.refine_stitch import despill_key_band
+    results=[]
+    for paint in ((.2,.2,.35),(.4,.2,.45)):
+        rgb=np.zeros((80,80,3),np.float32);rgb[12:68,12:68]=paint
+        alpha=np.zeros((80,80),np.float32);alpha[12:68,12:68]=1
+        band=np.zeros((80,80),bool);band[12:15,12:68]=True
+        rgb[12,20:60]=(.9,.2,.9)
+        results.append(despill_key_band(rgb,alpha,(1,0,1),band)[12,30])
+    unit=np.array([1,-2,1])/np.sqrt(6)
+    assert results[1]@unit > results[0]@unit+.05
+
+
+def test_key_direction_gate_rejects_opaque_magenta_rim_accepts_interior_paint():
+    from ba_modding_toolkit.refine_stitch import key_fringe_gate
+    a=np.zeros((128,128,4),np.uint8);a[...,:3]=(100,100,130);a[16:112,16:112,3]=255
+    a[50:60,50:60,:3]=(220,80,220)
+    good=Image.fromarray(a.copy())
+    accepted=key_fringe_gate(good,(255,0,255))
+    assert accepted['visible_key_lean_pixels']==100 and accepted['key_gate_passed']
+    a[16,20:108,:3]=(240,60,240)
+    bad=Image.fromarray(a)
+    rejected=key_fringe_gate(bad,(255,0,255))
+    assert rejected['band_key_excess_pixels']>=88 and not rejected['key_gate_passed']
+    assert not fringe_gate(bad,(255,0,255),reference=good)['passed']
