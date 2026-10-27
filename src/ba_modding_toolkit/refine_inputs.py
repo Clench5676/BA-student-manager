@@ -1,4 +1,4 @@
-"""Offline generation inputs, reference-guided keying and crop merge for refinement.
+"""Offline generation inputs, distance keying and seam stitching for refinement.
 
 No generator or runtime is launched. The caller supplies posed public-runtime
 geometry. All images and plans are external artifacts. Cut policy stays in K6.
@@ -16,8 +16,10 @@ import shutil
 import numpy as np
 from PIL import Image, ImageDraw
 
-from .refine_composite import compose, movement_check, _rgba
+from .refine_composite import compose, _rgba
 from .refine_cut import Pose, GateError, cut, _masks, subset, pushpull, join_band_gate
+from .refine_stitch import (stitch, native_movement, gross_disagreement, nearest_inside,
+                            fringe_gate, double_edge_count, detail)
 
 
 @dataclass(frozen=True)
@@ -26,9 +28,18 @@ class InputParameters:
     overlap: int = 64
     head_context: float = .65
     feather: int = 48
+    # Retained for loading K7 plans; raw RMSE is diagnostic only.
     overlap_rmse: float = 2.
+    seam_blend: int = 2
+    seam_agreement: float = 6.
+    native_line_offset: float = 1.
+    native_translation: float = .5
+    gross_block_contrast: float = 48.
+    gross_share: float = .1
+    fringe_distance: float = 48.
+    fringe_complement_share: float = .02
     min_iou: float = .96
-    line_offset: float = 3.
+    line_offset: float = 3.  # Legacy K7 plan field; native_line_offset gates returns.
     aspect_tolerance: float = .005
     budget_tolerance: float = .15
     alpha_normalisation: float = 1.
@@ -95,14 +106,12 @@ def flatten(image, key):
 
 
 def key_image(image, official, key, *, parameters=None):
-    """Calibrated one-background matte, using official foreground colour directions.
+    """Distance matte with returned interior colour, never divided by alpha.
 
-    A single RGB observation cannot uniquely determine four RGBA channels. The
-    official composite supplies the foreground-colour prior, smoothly extended
-    beyond its outline. Project the returned-minus-official opaque residual onto
-    that direction for alpha; unmix the remainder into straight foreground RGB.
-    Calibration removes opaque PNG rounding error and makes null edits exact.
-    This is not semantic matting and does not repair displaced content.
+    Alpha is the returned distance to the key relative to a local foreground
+    estimate. Straight edge colour is copied from alpha >= .5 and despilled
+    towards the interior; weaker coverage is filled from inside. Null edits
+    preserve the reference's otherwise unobservable bytes exactly.
     """
     p = parameters or InputParameters()
     c = np.asarray(image.convert('RGB'), np.float32) / 255
@@ -110,29 +119,46 @@ def key_image(image, official, key, *, parameters=None):
     if c.shape[:2] != ref.shape[:2]:
         raise ValueError('Key and reference grids must match')
     k = np.asarray(key, np.float32) / 255
-    colour = pushpull(ref[..., :3], ref[..., 3] > .02)
-    colour = np.where((ref[..., 3] > 0)[..., None], ref[..., :3], colour)
-    direction = colour - k
-    reference_opaque = np.asarray(flatten(official, key), np.float32) / 255
-    delta = c - reference_opaque
-    change = (delta * direction).sum(-1) / np.maximum((direction ** 2).sum(-1), 1e-6)
-    alpha = np.clip((ref[..., 3] + change) / p.alpha_normalisation, 0, 1)
+    unchanged = np.all(c == np.asarray(flatten(official, key), np.float32) / 255, -1)
+    if unchanged.all():
+        pixels = np.array(official.convert('RGBA'))
+        alpha = np.clip(ref[..., 3] / p.alpha_normalisation, 0, 1)
+        alpha[alpha >= p.alpha_snap] = 1
+        pixels[..., 3] = np.uint8(np.rint(alpha * 255))
+        error = abs(pixels[..., 3].astype(float) - np.asarray(official)[..., 3])
+        edge = (ref[..., 3] > 0) & (ref[..., 3] < 1)
+        values = error[edge] if edge.any() else error.ravel()
+        return Image.fromarray(pixels), {'alpha_rmse_255': float(np.sqrt(np.mean(values ** 2))),
+            'alpha_p99_255': float(np.percentile(values, 99)),
+            'alpha_max_255': float(error.max()), 'outline_pixels': int(edge.sum())}
+    prior = pushpull(ref[..., :3], ref[..., 3] >= .98)
+    distance = np.linalg.norm(c - k, axis=-1)
+    initial = distance / np.maximum(np.linalg.norm(prior - k, axis=-1), 1e-6)
+    seeds = (initial >= .98) & (ref[..., 3] >= .5)
+    local = pushpull(c, seeds) if seeds.any() else prior
+    # The local estimate is extended from returned, opaque foreground colours.
+    alpha = np.clip(distance / np.maximum(np.linalg.norm(local - k, axis=-1), 1e-6), 0, 1)
+    alpha[unchanged] = ref[..., 3][unchanged]
+    alpha = np.clip(alpha / p.alpha_normalisation, 0, 1)
     alpha[alpha >= p.alpha_snap] = 1
-    # Exact key pixels are empty, including a vacated old silhouette.
-    unchanged = np.all(delta == 0, -1)
-    alpha[(np.max(abs(c - k), -1) < .5 / 255) & ~unchanged] = 0
-    base = colour * ref[..., 3:] + k * (1 - ref[..., 3:])
-    calibrated = base + delta
-    rgb = np.divide(calibrated - k * (1 - alpha[..., None]), alpha[..., None],
-                    out=colour.copy(), where=alpha[..., None] > 1e-5)
+    alpha[distance < .5 / 255] = 0
+    query = (alpha > 0) & (alpha < .98)
+    inside = np.where(seeds[..., None], c, local)
+    inside, _ = nearest_inside(inside, seeds, query)
+    # Remove only the positive key contribution, bounded between observation and
+    # interior in each channel. There is no 1/alpha amplification at any stage.
+    direction = k - inside
+    spill = np.clip(((c - inside) * direction).sum(-1) /
+                    np.maximum((direction ** 2).sum(-1), 1e-6), 0, 1)
+    despilled = c - spill[..., None] * direction
+    despilled = np.clip(despilled, np.minimum(c, inside), np.maximum(c, inside))
+    rgb = np.where((alpha >= .5)[..., None], despilled, inside)
     rgb[alpha == 0] = 0
+    # Retain all identity RGB, including intentional colours under zero alpha.
+    rgb[unchanged] = ref[..., :3][unchanged]
     pixels = np.uint8(np.rint(np.clip(np.dstack((rgb, alpha)), 0, 1) * 255))
-    # RGB under zero alpha is unobservable in an opaque input. Preserve the
-    # reference bytes for unchanged observations, as for every other null edit.
-    invisible = unchanged & (ref[..., 3] == 0)
-    pixels[invisible] = np.asarray(official.convert('RGBA'))[invisible]
     result = Image.fromarray(pixels)
-    error = abs(np.asarray(result, float)[..., 3] - np.asarray(official, float)[..., 3])
+    error = abs(pixels[..., 3].astype(float) - np.asarray(official)[..., 3])
     edge = (ref[..., 3] > 0) & (ref[..., 3] < 1)
     values = error[edge] if edge.any() else error.ravel()
     return result, {'alpha_rmse_255': float(np.sqrt(np.mean(values ** 2))),
@@ -146,7 +172,7 @@ def _box_frame(box, frame, scale):
             frame[0] + r / scale, frame[3] - t / scale]
 
 
-def crop_boxes(size, head, parameters):
+def crop_boxes(size, head, parameters, image=None):
     """Fewest rectangular tiles fitting the budget at master density; no gaps."""
     w, h = size
     p = parameters
@@ -166,13 +192,37 @@ def crop_boxes(size, head, parameters):
             left = round(x * (w - tw) / max(nx - 1, 1))
             top = round(y * (h - th) / max(ny - 1, 1))
             boxes.append(('body', (left, top, min(left + tw, w), min(top + th, h))))
+    if image is not None:
+        # Move shared boundaries together, keeping overlap width and the budget.
+        # Existing plans are immutable; only newly rendered plans use this choice.
+        gradient = detail(np.asarray(image.convert('RGB')))
+        alpha = np.asarray(image.convert('RGBA'))[..., 3] >= 128
+        body = [list(box) for _, box in boxes[1:]]
+        for axis in (0, 1):
+            starts = sorted({box[axis] for box in body})[1:]
+            for start in starts:
+                ends = min(box[axis + 2] for box in body if box[axis + 2] > start)
+                candidates = []
+                for shift in range(-p.overlap // 2, p.overlap // 2 + 1):
+                    trial = [box.copy() for box in body]
+                    for box in trial:
+                        if box[axis] == start: box[axis] += shift
+                        if box[axis + 2] == ends: box[axis + 2] += shift
+                    if any(not (0 <= b[0] < b[2] <= w and 0 <= b[1] < b[3] <= h) or
+                           (b[2] - b[0]) * (b[3] - b[1]) > p.pixel_budget for b in trial): continue
+                    sl = (slice(start + shift, ends + shift), slice(None)) if axis else (slice(None), slice(start + shift, ends + shift))
+                    mask = alpha[sl]
+                    score = float(gradient[sl][mask].mean()) if mask.any() else 0.
+                    candidates.append((score, abs(shift), shift, trial))
+                if candidates: body = min(candidates, key=lambda c: c[:3])[3]
+        boxes = boxes[:1] + [('body', tuple(box)) for box in body]
     return boxes
 
 
 def _validate(p, density):
     if type(density) is not int or density < 1:
         raise ValueError('Density/page scale must be a positive integer')
-    for field in ('pixel_budget', 'overlap', 'feather'):
+    for field in ('pixel_budget', 'overlap', 'feather', 'seam_blend'):
         if type(getattr(p, field)) is not int or getattr(p, field) < 1:
             raise ValueError('Invalid budget or overlap')
     if p.overlap < 48 or p.pixel_budget <= p.overlap ** 2:
@@ -180,12 +230,12 @@ def _validate(p, density):
     for value in asdict(p).values():
         if not math.isfinite(value) or value <= 0:
             raise ValueError('Parameters must be finite and positive')
-    if p.alpha_snap > 1 or p.min_iou > 1:
+    if max(p.alpha_snap, p.min_iou, p.gross_share, p.fringe_complement_share) > 1:
         raise ValueError('Invalid alpha or IoU threshold')
 
 
 def plan_inputs(poses, pages, output, *, density=2, frame=None, masked_slots=(),
-                parameters=None, template_id='detail-crisp-lines', source_hashes=None):
+                parameters=None, template_id='detail-crisp-lines', template_version=1, source_hashes=None):
     """Write opaque crops and a self-contained, hashed plan to an external folder.
 
     Page replication matches K6. Each input is rendered directly on its recorded
@@ -227,7 +277,7 @@ def plan_inputs(poses, pages, output, *, density=2, frame=None, masked_slots=(),
     plan = {'version': 1, 'density': density, 'page_scale': density, 'frame': list(frame), 'master_size': list(size),
             'parameters': asdict(p), 'key_colour': key, 'key_candidate_distances_255': scores,
             'masked_slots': sorted(masked), 'switching_slots': sorted(swaps), 'crops': [], 'poses': [], 'pages': {},
-            'source_hashes': source_hashes or {}, 'prompt_template': {'id': template_id, 'version': 1}}
+            'source_hashes': source_hashes or {}, 'prompt_template': {'id': template_id, 'version': template_version}}
     hashes = plan['artifact_hashes'] = {}
 
     def save_image(image, filename):
@@ -238,7 +288,9 @@ def plan_inputs(poses, pages, output, *, density=2, frame=None, masked_slots=(),
     for i, (name, image) in enumerate(pages.items()):
         plan['pages'][name] = save_image(image, f'source-page-{i}.png')
         plan['source_hashes'][f'page:{name}'] = _hash(image.convert('RGBA').tobytes())
-    boxes = crop_boxes(size, head, p)
+    boxes = crop_boxes(size, head, p, master.image)
+    plan['boundary_strategy'] = 'minimum-visible-gradient-within-budget'
+    plan['boundary_boxes_changed'] = boxes != crop_boxes(size, head, p)
     for i, (pose, geometry) in enumerate(zip(poses, clean)):
         geom_file = f'geometry-{i}.json'
         (out / geom_file).write_bytes(_json(pose.geometry))
@@ -258,14 +310,15 @@ def plan_inputs(poses, pages, output, *, density=2, frame=None, masked_slots=(),
             rgba_file = save_image(expected, ident + '-official.png')
             input_file = save_image(flatten(expected, key), ident + '.png')
             tid = template_id if i == 0 else 'expression-crisp-lines'
-            text = prompt(tid, crop_role=role, pose=pose.name, width=expected.width, height=expected.height,
+            version = template_version if i == 0 else 1
+            text = prompt(tid, version=version, crop_role=role, pose=pose.name, width=expected.width, height=expected.height,
                           preserve='all existing features and their exact coordinates',
                           key_colour=f'RGB({key[0]}, {key[1]}, {key[2]})',
                           style_edit='the existing line and shading treatment to match the reference')
             plan['crops'].append({'id': ident, 'role': role, 'pose': pose.name, 'box': list(box), 'world_frame': world,
                                   'density': crop_density, 'size': list(expected.size), 'pixels': expected.width * expected.height,
                                   'input': input_file, 'official': rgba_file,
-                                  'prompt_template': {'id': tid, 'version': 1}, 'prompt': text})
+                                  'prompt_template': {'id': tid, 'version': version}, 'prompt': text})
     overlay = flatten(master.image, key)
     draw = ImageDraw.Draw(overlay)
     for n, crop in enumerate(c for c in plan['crops'] if c['pose'] == poses[0].name):
@@ -296,20 +349,6 @@ def _resize_float(values, size):
                      for k in range(values.shape[-1])], -1)
 
 
-def _weights(box, master_size, feather):
-    l, t, r, b = box
-    # Small head boxes still need an interior at full priority. An absolute
-    # feather wider than the crop would otherwise dilute every head edit.
-    feather = min(feather, max(1., min(r - l, b - t) / 4))
-    x, y = np.arange(r - l) + .5, np.arange(b - t) + .5
-    wx, wy = np.ones(r - l), np.ones(b - t)
-    if l: wx *= np.minimum(x / feather, 1)
-    if r < master_size[0]: wx *= np.minimum((r - l - x) / feather, 1)
-    if t: wy *= np.minimum(y / feather, 1)
-    if b < master_size[1]: wy *= np.minimum((b - t - y) / feather, 1)
-    return wy[:, None] * wx[None, :]
-
-
 def _intersection(a, b):
     l, t, r, bottom = max(a[0], b[0]), max(a[1], b[1]), min(a[2], b[2]), min(a[3], b[3])
     if l >= r or t >= bottom:
@@ -318,7 +357,7 @@ def _intersection(a, b):
 
 
 def merge_inputs(plan_path, returned, output, *, diagnostic=False, base_only=False):
-    """Validate returns, colour-match overlaps, feather residuals, key and gate.
+    """Validate returns, colour-match overlaps, stitch residuals, key and gate.
 
     ``returned`` is a directory containing each crop id plus .png. Inputs are
     valid identity returns. Explicit diagnostic mode retains failed targets;
@@ -335,7 +374,8 @@ def merge_inputs(plan_path, returned, output, *, diagnostic=False, base_only=Fal
     out = _external(output)
     out.mkdir(parents=True, exist_ok=True)
     read = lambda name: Image.open(path.parent / name).convert('RGBA')
-    report = {'failures': [], 'crops': {}, 'overlaps': [], 'key_method': 'calibrated-official-colour-prior',
+    report = {'failures': [], 'crops': {}, 'overlaps': [], 'key_method': 'distance-matte-interior-colour-despill',
+              'merge_method': 'dynamic-programming-seams', 'parameters': asdict(p),
               'alpha_normalisation': p.alpha_normalisation, 'alpha_snap': p.alpha_snap}
     rows = []
     official_by_pose = {pose['name']: np.asarray(read(pose['official'])) for pose in plan['poses']}
@@ -356,11 +396,13 @@ def merge_inputs(plan_path, returned, output, *, diagnostic=False, base_only=Fal
         # would manufacture an edit, especially at the head/body density change.
         expected_grid = read(crop['input']).convert('RGB').resize((w, h), Image.Resampling.LANCZOS)
         delta = np.asarray(image, np.float32) - np.asarray(expected_grid, np.float32)
-        image = image.resize((cw, ch), Image.Resampling.LANCZOS)
+        image = Image.fromarray(np.uint8(np.rint(np.clip(
+            np.asarray(read(crop['input']).convert('RGB'), np.float32) + _resize_float(delta, (cw, ch)), 0, 255))))
         official = read(crop['official'])
         keyed, _ = key_image(image, official, plan['key_colour'], parameters=p)
         _, quality = key_image(flatten(official, plan['key_colour']), official, plan['key_colour'], parameters=p)
-        movement = movement_check(official, keyed, density=crop['density'], min_iou=p.min_iou, max_offset=p.line_offset)
+        movement = native_movement(official, keyed, density=crop['density'], min_iou=p.min_iou,
+                                   max_offset=p.native_line_offset, max_shift=p.native_translation)
         report['crops'][crop['id']] = {'movement': movement, 'identity_key_quality': quality,
                                       'returned_size': [w, h], 'sha256': _hash(filename.read_bytes())}
         if movement['flags']: report['failures'].append(crop['id'] + ':movement')
@@ -404,45 +446,80 @@ def merge_inputs(plan_path, returned, output, *, diagnostic=False, base_only=Fal
     for i, j, sa, sb, visible in edges:
         rmse = float(np.sqrt(np.mean((rows[i]['delta'][sa] - rows[j]['delta'][sb])[visible] ** 2)))
         report['overlaps'].append({'a': rows[i]['crop']['id'], 'b': rows[j]['crop']['id'], 'rmse_255': rmse})
-        if rmse > p.overlap_rmse: report['failures'].append(f'overlap:{i}:{j}')
+        gross = gross_disagreement(rows[i]['delta'][sa], rows[j]['delta'][sb], visible,
+                                   block=max(1, round(8 * plan['density'])),
+                                   limit=p.gross_block_contrast, max_share=p.gross_share)
+        report['overlaps'][-1]['raw_disagreement'] = gross
+        if not gross['passed']: report['failures'].append(f'overlap:{i}:{j}:gross')
+        abox, bbox = rows[i]['crop']['box'], rows[j]['crop']['box']
+        l, t = max(abox[0], bbox[0]), max(abox[1], bbox[1])
+        r, b = min(abox[2], bbox[2]), min(abox[3], bbox[3])
+        ref = Image.fromarray(official_by_pose[rows[i]['crop']['pose']][t:b, l:r])
+        base = np.asarray(flatten(ref, plan['key_colour']), np.float32)
+        observations = [Image.fromarray(np.uint8(np.rint(np.clip(np.dstack((base + d, np.asarray(ref)[..., 3])), 0, 255))))
+                        for d in (rows[i]['delta'][sa], rows[j]['delta'][sb])]
+        overlap_motion = native_movement(*observations, density=plan['density'], min_iou=p.min_iou,
+                                        max_offset=p.native_line_offset, max_shift=p.native_translation)
+        report['overlaps'][-1]['movement'] = overlap_motion
+        if overlap_motion['flags']: report['failures'].append(f'overlap:{i}:{j}:movement')
     size = tuple(plan['master_size'])
     targets = {}
     base_pose = plan['poses'][0]['name']
     for pose in plan['poses']:
         selected = [r for r in rows if r['crop']['pose'] == pose['name']]
-        accum = np.zeros(size[::-1] + (3,), np.float32)
-        weights = np.zeros(size[::-1], np.float32)
-        head_weight = np.zeros_like(weights)
+        delta = np.zeros(size[::-1] + (3,), np.float32)
+        covered = np.zeros(size[::-1], bool)
+        boundary = np.zeros(size[::-1], bool)
+        paths = []
+        doubles = 0
+        mixed_detail = 0
+        contour_crops = []
+        # Row-order bodies first, then the head's four perimeter seams.
+        selected.sort(key=lambda row: (row['crop']['role'] == 'head', row['crop']['box'][1], row['crop']['box'][0]))
+        opaque = np.asarray(flatten(read(pose['official']), plan['key_colour']), np.float32)
         for row in selected:
             crop = row['crop']; l, t, r, b = crop['box']
-            weight = _weights(crop['box'], size, p.feather)
-            if crop['role'] == 'head': head_weight[t:b, l:r] = weight
-        for row in selected:
-            crop = row['crop']; l, t, r, b = crop['box']
-            weight = _weights(crop['box'], size, p.feather)
-            if crop['role'] == 'body': weight *= 1 - head_weight[t:b, l:r]
-            accum[t:b, l:r] += row['delta'] * weight[..., None]
-            weights[t:b, l:r] += weight
-        if pose['name'] == base_pose and (weights <= 0).any():
+            base = opaque[t:b, l:r]
+            merged_crop, band, cuts, ownership = stitch(base + delta[t:b, l:r], base + row['delta'],
+                covered[t:b, l:r], head=crop['role'] == 'head', feather=p.feather,
+                blend=p.seam_blend, agreement=p.seam_agreement)
+            added_pairs = double_edge_count(base + delta[t:b, l:r], base + row['delta'], merged_crop, band)
+            doubles += added_pairs
+            contour_crops.append({'crop': crop['id'], 'new_ridge_pairs': added_pairs})
+            mixed = (ownership > 0) & (ownership < 1)
+            disagreement = np.sqrt(np.mean((delta[t:b, l:r] - row['delta']) ** 2, axis=-1))
+            mixed_detail += int((mixed & (disagreement > p.seam_agreement)).sum())
+            delta[t:b, l:r] = merged_crop - base
+            boundary[t:b, l:r] |= band
+            covered[t:b, l:r] = True
+            for seam_path in cuts:
+                seam_path['crop'] = crop['id']
+                seam_path['points'] = [[x + l, y + t] for x, y in seam_path['points']]
+                paths.append(seam_path)
+        if pose['name'] == base_pose and not covered.all():
             raise ValueError('Crop plan leaves uncovered master pixels')
-        delta = np.divide(accum, weights[..., None], out=np.zeros_like(accum), where=weights[..., None] > 0)
+        report.setdefault('seams', {})[pose['name']] = paths
+        report.setdefault('double_edges', {})[pose['name']] = {
+            'new_ridge_pairs': doubles, 'by_crop': contour_crops, 'mixed_disagreeing_pixels': mixed_detail,
+            'passed': doubles == 0 and mixed_detail == 0}
+        if doubles or mixed_detail: report['failures'].append(pose['name'] + ':double-edge')
         official = read(pose['official'])
         opaque = np.asarray(flatten(official, plan['key_colour']), np.float32)
         merged = Image.fromarray(np.uint8(np.rint(np.clip(opaque + delta, 0, 255))))
         target, quality = key_image(merged, official, plan['key_colour'], parameters=p)
         target.save(out / f'target-{len(targets)}.png')
         merged.save(out / f'merged-{len(targets)}.png')
-        boundary = np.zeros(size[::-1], bool)
-        for row in selected:
-            if not any(r['crop']['role'] == 'body' for r in selected): continue
-            l, t, r, b = row['crop']['box']
-            if l: boundary[t:b, max(0, l - 3):l + 4] = True
-            if r < size[0]: boundary[t:b, r - 3:min(size[0], r + 4)] = True
-            if t: boundary[max(0, t - 3):t + 4, l:r] = True
-            if b < size[1]: boundary[b - 3:min(size[1], b + 4), l:r] = True
         seam = join_band_gate(target, official, {'crop_boundary': boundary},
                               np.asarray(official)[..., 3] > 250, max_ratio=p.boundary_ratio)
         report.setdefault('crop_boundaries', {})[pose['name']] = seam['crop_boundary']
+        Image.fromarray(np.uint8(boundary) * 255).save(out / f'seam-band-{len(targets)}.png')
+        overlay = merged.copy(); draw = ImageDraw.Draw(overlay)
+        for seam_path in paths: draw.line([tuple(pt) for pt in seam_path['points']], fill=(0, 255, 255), width=1)
+        overlay.save(out / f'seam-paths-{len(targets)}.png')
+        fringe = fringe_gate(target, plan['key_colour'], reference=official, max_distance=p.fringe_distance,
+                             max_complement_share=p.fringe_complement_share)
+        report.setdefault('fringe', {})[pose['name']] = fringe
+        if not fringe['passed']: report['failures'].append(pose['name'] + ':fringe')
         if not seam['crop_boundary']['passed']: report['failures'].append(pose['name'] + ':crop-boundary')
         box = None if pose['name'] == base_pose else selected[0]['crop']['box']
         targets[pose['name']] = (target if box is None else target.crop(box), box)
@@ -472,7 +549,8 @@ def expression_inputs(plan_path, base_target, output):
     if base.size != tuple(plan['master_size']):
         raise ValueError('Base context must use the master grid')
     original = Image.open(path.parent / plan['poses'][0]['official']).convert('RGBA')
-    check = movement_check(original, base, density=plan['density'], min_iou=p.min_iou, max_offset=p.line_offset)
+    check = native_movement(original, base, density=plan['density'], min_iou=p.min_iou,
+                            max_offset=p.native_line_offset, max_shift=p.native_translation)
     if check['flags']:
         raise InputGateError({'failures': ['base-context:movement'], 'movement': check})
     for filename in plan['artifact_hashes']:
@@ -603,6 +681,7 @@ def main(argv=None):
         result = plan_inputs(poses, pages, args.output, density=spec.get('density', 2), frame=spec.get('frame'),
                              masked_slots=spec.get('masked_slots', ()), parameters=InputParameters(**spec.get('input_parameters', {})),
                              template_id=spec.get('prompt_template', 'detail-crisp-lines'),
+                             template_version=spec.get('prompt_version', 1),
                              source_hashes={'manifest': _hash(manifest.read_bytes())})
         # Packing sources are explicit, never inferred from a portrait name.
         if spec.get('pack'):
