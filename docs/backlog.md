@@ -1266,6 +1266,8 @@ remain for owner UAT; Windows is not natively reviewed.
   0.59 (1.26), front hair edge 0.79 (0.86); silhouette IoU against the generation 0.992 (0.957). Halos byte-identical.
   Known residue: a faint light trace under the smile's mouth and above the right eye in the eye-close pose. Details in
   the [experiment report](research/bl056-experiment.md#10-r1b-re-cut-with-the-revised-method).
+- Owner review of R1b (2026-10-27): good, no defect found. R1b is a local re-cut, not yet engine code; its
+  structure is the simplest class (one page, one face slot, an idle that moves the whole body).
 - Owner review of the K4 test mods (2026-10-27): D1 and D3 are acceptable as generated images, but the joins are
   the problem. D3 2x shows seams at the forearms and along the waist where the restored upper body meets the
   unprocessed lower body, rough edge pixels on the forearm, and a lower body visibly blurrier than the upper body.
