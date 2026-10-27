@@ -951,3 +951,214 @@ Visual fidelity, lettering, expression character and the appearance in the game 
 acceptance. Numerical agreement with the accepted local R1b result proves reproduction, not a new visual
 verdict. The strict variant would need its own visual acceptance before use.
 No GUI, screenshots, browser preview, audio, image generation, package build, push or installation was used.
+
+## 12. K7: generation inputs, crop merge and prompt templates
+
+No generation was run. `refine_inputs.py` adds an offline sibling to K6's manifest command. It consumes
+posed public-runtime geometries, official straight-alpha pages and explicit masks. It writes inputs,
+plans, targets, reports and review PNGs only outside the repository. `refine_prompts.json` contains three
+English templates with stable ids and integer versions. No shipped path imports this optional module.
+K6's cut code and its accepted R1b defaults are unchanged.
+
+### Part 1: plan and render
+
+The input uses K6's shared-region mask propagation: caller-named masks and every non-Normal slot,
+including any Normal slot sharing a masked region, are excluded before rendering. The tested halo slots
+are all masked through this rule. A caller must explicitly identify other effects and Normal-only halos;
+the engine does not infer semantic slot names. The public runtime applies setup, idle at time zero and
+the expression animation; Python consumes that geometry and never launches the runtime.
+
+The key maximises the minimum Euclidean RGB distance to visible character colours among green,
+magenta, cyan, orange and blue. A candidate less than 16 RGB units from a used colour is refused.
+Shiroko (Cycling) selects **RGB(255, 0, 255)**, whose minimum distance is **180.978/255**.
+The plan records the key, all candidate distances, page scale, master density and frame, every pose and
+geometry, crop boxes and world frames, crop densities and sizes, source and artifact SHA-256 hashes,
+and each filled prompt's template id/version. PNG pages and geometry copies remain external artifacts.
+
+The master uses K6's nearest-replicated official pages at **2x**. A head box surrounds the union of all
+switching-slot vertices, with a context margin of **0.65 times their largest extent** on every side.
+This is geometric local hair context, not semantic hair recognition. Body tiles cover the whole master,
+including redundant head context, with **64 master pixels** of overlap; the configurable minimum is 48.
+The grid uses the fewest rectangular tiles fitting the pixel budget at master density. Each crop is
+then rendered directly at its own density near **1,573,000 pixels**, never below master density.
+Integer raster dimensions can exceed that budget slightly; the largest excess below is 0.10%.
+
+Shiroko (Cycling), `shiroko_ridingsuit_spr`, has a **1513 x 1952** unmasked master. Coordinates below are
+half-open master boxes, with the origin at the upper left. Density is relative to native texture density.
+
+| Crop | Master box (left, top, right, bottom) | Density | Input size | Pixels |
+| --- | --- | ---: | --- | ---: |
+| Head | 338, 93, 756, 476 | 6.269124x | 1311 x 1201 | 1,574,511 |
+| Body 1 | 0, 0, 1513, 1008 | 2.031162x | 1537 x 1024 | 1,573,888 |
+| Body 2 | 0, 944, 1513, 1952 | 2.031162x | 1537 x 1024 | 1,573,888 |
+
+The two switching slots are **`00_default` and `eyeclose`**. The input set includes the base plus `01`
+through `06`, `99`, and the middle blink sample: three base crops and eight expression head crops,
+**11 inputs** total. Expressions use exactly the base head's box, density and world frame. Aliased poses
+are retained as explicit inputs, rather than silently dropping an expression.
+
+The second portrait is **Hoshino, `hoshino_spr`**. Runtime attachment states prove three switching slots:
+**`00_default`, `eyeclose`, and `eyeclose2`**. It exercises two eyelid slots in addition to the expression
+slot. Its master is **2340 x 4010**, with the same 2x page scale and 64-pixel minimum overlap.
+
+| Crop | Master box | Density | Input size | Pixels |
+| --- | --- | ---: | --- | ---: |
+| Head | 622, 80, 1782, 1156 | 2.245222x | 1303 x 1208 | 1,574,024 |
+| Body 1 | 0, 0, 1202, 1051 | 2.231725x | 1342 x 1173 | 1,574,166 |
+| Body 2 | 1138, 0, 2340, 1051 | 2.231725x | 1342 x 1173 | 1,574,166 |
+| Body 3 | 0, 986, 1202, 2037 | 2.231725x | 1342 x 1173 | 1,574,166 |
+| Body 4 | 1138, 986, 2340, 2037 | 2.231725x | 1342 x 1173 | 1,574,166 |
+| Body 5 | 0, 1973, 1202, 3024 | 2.231725x | 1342 x 1173 | 1,574,166 |
+| Body 6 | 1138, 1973, 2340, 3024 | 2.231725x | 1342 x 1173 | 1,574,166 |
+| Body 7 | 0, 2959, 1202, 4010 | 2.231725x | 1342 x 1173 | 1,574,166 |
+| Body 8 | 1138, 2959, 2340, 4010 | 2.231725x | 1342 x 1173 | 1,574,166 |
+
+Hoshino has 20 supplied poses: base, `01` through `17`, `99`, and the middle blink sample. Its plan
+contains **28 inputs**: nine base crops and 19 head crops. This proves planning and rendering on this
+portrait; no generated Hoshino target, cut acceptance or visual verdict is claimed.
+
+### Part 2: merge, key and gates
+
+Merge compares each returned RGB image with the official opaque input **resized onto the returned
+image's actual grid**, then resamples that edit residual onto the master. This is an explicit departure
+from resizing absolute image colours: it preserves the official sampling phase and avoids manufacturing
+an edit from the known size conversion. It assumes Pillow's Lanczos reference resampling for that
+conversion. A size-only Lanczos return therefore has zero residual; an independently tested real edit
+at a changed return size survives. No alignment, shift correction or warping is performed.
+
+Overlapping residuals are matched by a median DC colour offset over opaque foreground, solved as an
+overlap graph anchored on the head. Backdrop pixels receive no offset. The residuals use feathered
+weights; the head excludes body contributions in its full-weight interior and feathers over 48 master
+pixels at its edge. For a small box the feather is capped at one quarter of its shortest side, so it
+still has an interior with full priority. Expression returns become boxed K6 targets.
+
+**Keying uses an official colour prior.** One RGB image over one key cannot uniquely determine four
+RGBA channels. The official straight foreground supplies the colour direction, extended smoothly
+beyond its outline with push-pull fill. The returned-minus-official opaque residual is projected onto
+that direction to estimate alpha, then unmixed into straight RGB. Calibration removes opaque-PNG
+rounding error. Unchanged observations retain unobservable RGB bytes under zero alpha. This is a
+reference-guided matte, not a claim that a blind single-key operation recovers arbitrary edited edges.
+Changed foreground colour parallel to the key direction can be confused with changed alpha; only a
+future generated run and the owner's edge inspection can establish its adequacy for those edits.
+
+The named key parameters are `alpha_normalisation=1.0` and `alpha_snap=1.0`; K6 subsequently applies its
+own existing interior normalisation and 0.95 snap unchanged. The identity key gate's stated tolerance
+is **1/255 alpha RMSE and 3/255 p99** over official soft-alpha pixels. The calibrated identity achieves
+**0 RMSE, 0 p99 and 0 maximum alpha error**. Before calibration, the official-colour least-squares probe
+measured **0.092173/255 RMSE**, **0/255 p99**, and **1/255 maximum** over **401,493** outline pixels.
+The key stop rule was not triggered.
+
+Every return is checked for opacity, aspect within 0.5%, and pixel count within 15% of the configured
+budget. Gates raise by default: overlap RMSE at most **2/255** after colour matching; K5's silhouette
+IoU at least **0.96** and line-offset p95 at most **3 native pixels**, per crop; identity key quality;
+and the gradient-matched crop-boundary error ratio at most **1.0**, including head and body boundaries.
+K6 then runs its unchanged cut gates. Only an explicit diagnostic run retains failures, and a failed
+diagnostic run is never packed. Lettering and semantic fidelity remain visual checks.
+
+### Part 3: prompts, verbatim
+
+The minimal detail edit removes blur and compression softness and re-renders **existing** lines at the
+given size. This keeps the owner's precise-edit framing while naming a concrete defect. It avoids
+asking for broad reconstruction, new details or a different design. The expression template confines
+the edit to existing expression lines; the style template requires one specified line/shading change.
+All repeat the invariants and keep the plain key-coloured backdrop flat. Templates describe edits,
+without describing the depicted character's body. Runtime filling rejects forbidden wording as well.
+
+`detail-crisp-lines`, version **1**:
+
+```text
+Use case: precise-object-edit. Edit target: image 1, the supplied {crop_role} crop in pose {pose}, at {width} x {height}. Remove ONLY blur and compression softness from the existing drawing; re-render the existing lines crisply at this exact size. Keep every line on its original path, with its original width and shape. Preserve exactly {preserve}. Preserve all lettering verbatim, colours, shading, outlines, object positions, expression, pose, framing, aspect ratio and crop. Invent nothing. The plain {key_colour} backdrop must stay flat and unchanged, including every gap. Repeat: keep the same lines, lettering, colours, framing, aspect ratio and crop; only remove blur and compression softness. Return the same complete opaque image at the supplied size.
+```
+
+`expression-crisp-lines`, version **1**:
+
+```text
+Use case: precise-object-edit. Edit target: image 1, the supplied {crop_role} crop in pose {pose}, at {width} x {height}. Image 2 is the base-pass head in the same frame, provided as fixed context. Remove ONLY blur and compression softness from the existing expression lines in image 1; re-render those existing lines crisply at this exact size. Keep image 1's expression and each line's path, width, shape and position exactly. Keep the surrounding base-pass head context exactly as supplied; never copy image 2's expression. Preserve exactly {preserve}. Preserve all lettering verbatim, colours, shading, outlines, pose, framing, aspect ratio and crop. Invent nothing. The plain {key_colour} backdrop must stay flat and unchanged, including every gap. Repeat: preserve the expression, fixed surrounding context, lines, lettering, colours, framing, aspect ratio and crop. Return the same complete opaque image at the supplied size.
+```
+
+`reference-line-style`, version **1**:
+
+```text
+Use case: precise-object-edit. Edit target: image 1, the supplied {crop_role} crop in pose {pose}, at {width} x {height}. Image 2 is a style reference posed and framed the same way. Change ONLY {style_edit}, using image 2 solely to guide that specified line and shading treatment. Keep every existing line's path, width, shape and position exactly. Preserve exactly {preserve}. Preserve all lettering verbatim, colours, outlines, object positions, expression, pose, framing, aspect ratio and crop. Invent nothing and transfer no objects or features from image 2. The plain {key_colour} backdrop must stay flat and unchanged, including every gap. Repeat: preserve the lines, lettering, colours, framing, aspect ratio and crop; change only the specified treatment. Return the same complete opaque image at the supplied size.
+```
+
+### Part 4: command and acceptance
+
+The sibling manifest accepts K6's `pages`, `poses`, `density`, `frame`, `masked_slots` and optional
+`atlas` fields, plus named `input_parameters`, a `prompt_template`, and optional packing sources:
+`pack.bundles` and `pack.atlas_name`. Geometry is supplied, rather than inferred from portrait names.
+Returned images are named by crop id, for example `crop-0-0.png`.
+
+With caller-owned absolute paths in the variables, the same command handles both sides of generation:
+
+```sh
+python -m ba_modding_toolkit.refine_inputs plan "$MANIFEST" --output "$INPUTS"
+python -m ba_modding_toolkit.refine_inputs finish "$INPUTS/plan.json" --returns "$RETURNS" --output "$RESULT"
+```
+
+`finish` validates hashes, merges, keys, cuts, gates and optionally packs. Packing reuses K6's edited
+mesh masks and `assemble_mod(allow_generated_alpha=True)`. Multiple pages in one bundle are staged
+sequentially so later pages retain earlier edits; only the final bundles enter the `packed` folder.
+Synthetic bundle tests verify decoded pages, metadata, CRC checks and unchanged official sources.
+
+For stage 4 after a base generation, `merge-base` accepts just the base crop returns and writes the
+unmasked base target. `expressions --base-target "$BASE_TARGET"` writes a new plan with that generated
+head as fixed surrounding context and an opaque base-head reference at each expression input's exact
+size and frame. The feature window is the union of all switching-slot alpha, expanded by the named
+`expression_context_radius=8` master pixels. It retains the animated official expression inside that
+window. Its context SHA-256 is recorded. An unchanged base leaves these inputs byte-exact. No service
+mask or inpainting capability is assumed or was queried.
+
+Shiroko acceptance uses all nine supplied poses and the official 2x page baseline:
+
+| Check | Result |
+| --- | --- |
+| Identity visible page RGB RMSE / maximum channel difference | **0 / 0** in 0-255 units; tolerance 1/255 maximum |
+| Identity differing page texels, visible or otherwise | **0 of 4,194,304**; all bytes identical, including masks and hidden RGB |
+| Identity key alpha RMSE / p99 / maximum | **0 / 0 / 0** |
+| Simulated return sizes | Head **1310 x 1200**; both body crops **1536 x 1024**; every input changes size |
+| Simulated overlap RMSE after colour match | **0/255**, both overlaps |
+| Simulated crop-boundary band / matched interior RMSE | **0 / 0** over **11,974** band pixels; ratio **0** by the zero-error convention |
+| Simulated cut join ratios | **0** for waist, face, front hair and eye-close, all nine poses |
+| Simulated differing page texels | **0**; size-only reference resampling has zero edit residual |
+| Shift one body return horizontally by 3 input pixels | **Rejected** by movement and both overlaps; RMSE **38.503/255** and **30.452/255** |
+
+These controls prove identity preservation, size handling and rejection, not model fidelity. An initial
+unfiltered-reference comparison failed the head boundary ratio (1.060482) and two front-hair join ratios
+(1.000504). Comparing both images on the returned grid removes that resampling bias; no gate threshold
+or K6 cut default was loosened. A separate synthetic edited-size test prevents silently discarding
+actual changes under the size-only calibration.
+
+External lead-review artifacts include each portrait's `crop-plan.png`, the `cycling-input-crops.png`
+and `hoshino-input-crops.png` contact sheets, the individual input PNGs, and the identity/simulated
+merged opaque frames, keyed targets and K6 join review sheets. No game assets or derived images are
+tracked. No GUI, browser, screenshot, audio, image generation, package build, push or installation was used.
+
+### Validation, delivery and limits
+
+Engine/data files: `src/ba_modding_toolkit/refine_inputs.py` and `refine_prompts.json` (parts 1-4).
+Tests: `tests/test_refine_inputs.py`, **20 cases**, covering synthetic planning, masks, hash tampering,
+soft alpha and unmixed colour, identity, changed return sizes, surviving real edits, colour offsets,
+drift rejection, diagnostic gates, context preparation, prompt wording, commands and multi-page packing.
+Only the optional official identity case uses game data; it skips without `BAMT_TEST_GAME_DIR`.
+
+- Related synthetic run: **104 passed, 6 skipped** across the four refinement modules.
+- New coverage by part: **9** planning/context cases, **7** merge/key/gate cases, **1** template case,
+  and **3** command/packing/official-chain cases; all 20 pass in the full suite.
+- Full JavaScript suite: **1,916 passed**, zero failed or skipped, **9.99 seconds**.
+- Full Python suite: **3,382 passed, 27 skipped**, zero failed, **400.13 seconds**. Three existing locale
+  deprecation warnings remain. The requested isolated configuration and official view were used, with
+  the worktree source and temporary Git index; the official identity case ran.
+- The normal index is sandbox-blocked. Delivery uses temporary Git metadata and the requested bundle
+  branch `codex/refine-inputs`, based on `3c701fda`; the normal index, primary checkout and `main` remain
+  unchanged. The bundle is refreshed after every commit. No new worktree or alternate development branch
+  was created. Commit ids are in the delivery message.
+
+Assumptions and limits are explicit: supplied animation geometry; atlas-declared straight alpha; nearest
+page replication; geometric rather than semantic head context; RGB distance rather than perceptual key
+selection; DC rather than spatially varying tone matching; Lanczos reference resampling; official-colour
+guided matte with a smooth extension at new outlines; fixed official expression features inside the
+context window; and no automatic text, identity or style recognition. Hoshino has planning evidence only.
+The owner must visually accept line crispness, lettering, expression character, backdrop removal and
+fringes, crop transitions, consistency between generated expressions and the head, animation reveals and
+the final appearance in the game. No numerical control here establishes those visual results.

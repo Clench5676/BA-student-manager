@@ -1269,6 +1269,7 @@ remain for owner UAT; Windows is not natively reviewed.
 - Owner review of R1b (2026-10-27): good, no defect found. R1b is a local re-cut, not yet engine code; its
   structure is the simplest class (one page, one face slot, an idle that moves the whole body).
 - Join, generate, cut implemented in the engine; R1b reproduced (2026-10-27; K6, no UI integration).
+- Generation inputs, crop merge and prompt templates implemented; no generation yet (2026-10-27; K7).
 - Owner review of the K4 test mods (2026-10-27): D1 and D3 are acceptable as generated images, but the joins are
   the problem. D3 2x shows seams at the forearms and along the waist where the restored upper body meets the
   unprocessed lower body, rough edge pixels on the forearm, and a lower body visibly blurrier than the upper body.
