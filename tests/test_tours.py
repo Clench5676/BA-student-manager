@@ -1,4 +1,4 @@
-"""Tours use synthetic copy, isolated profiles and no game assets or network."""
+"""Tours use locale files, isolated profiles and no game assets or network."""
 import copy
 import json
 import shutil
@@ -6,19 +6,39 @@ import shutil
 import pytest
 
 from ba_modding_toolkit.errors import ServiceError
-from ba_modding_toolkit.webui import tours
+from ba_modding_toolkit.webui import strings, tours
 from ba_modding_toolkit.webui.state import UiState
 
 
 def release(version, *features):
     return {'version': version, 'approved': True, 'pages': [
-        {'id': feature, 'copy': {lang: {'title': f'{feature} {version}', 'body': 'Short feature copy'}
-                                for lang in tours.LOCALES}} for feature in features]}
+        {'id': feature, 'copy': f'webui.tours.v{version.replace(".", "_")}.{feature}'} for feature in features]}
+
+
+def write_locales(folder, records):
+    for lang in tours.LOCALES:
+        data = {}
+        for record in records:
+            for page in record['pages']:
+                node = data
+                for key in page['copy'].split('.'):
+                    node = node.setdefault(key, {})
+                node.update(title=f"{lang} {page['id']} {record['version']}", body=f'{lang} feature copy')
+        (folder / f'{lang}.json').write_text(json.dumps(data), encoding='utf-8')
 
 
 @pytest.fixture
-def manifest(monkeypatch):
+def locale_files(tmp_path, monkeypatch):
+    folder = tmp_path / 'locales'
+    folder.mkdir()
+    monkeypatch.setattr(strings, 'get_locale_dir', lambda: folder)
+    return folder
+
+
+@pytest.fixture
+def manifest(monkeypatch, locale_files):
     records = (release('0.5.0', 'old'), release('0.6.0', 'photos', 'shared'), release('0.7.0', 'shared', 'hall'))
+    write_locales(locale_files, records)
     monkeypatch.setattr(tours, 'PUBLISHED_TOURS', records)
     return records
 
@@ -42,17 +62,33 @@ def test_review_manifest_matches_draft_and_is_text_only(current):
         assert [p['id'] for p in available[0]['pages']] == ['student-thumbnails', 'hall-viewing-zoom']
         for page in available[0]['pages']:
             assert f"| {lang} | {page['title']} | {page['body']} |" in draft
+            localized = strings.ui_strings(lang, fallback=False)
+            key = f"webui.tours.v0_6_0.{page['id']}"
+            assert (page['title'], page['body']) == (localized[f'{key}.title'], localized[f'{key}.body'])
             assert page['image'] is None and page['caption'] == ''
-    page = tours.published(current, 'zh-CN')[0]['pages'][1]
-    assert (page['title'], page['body']) == ('缩放学生大厅', '滚轮、捏合放大立绘场景，平移查看')
 
 
 @pytest.mark.parametrize('current', ['0.6.0', '0.6.0+build.9', '0.7.0', 'invalid', '0.5.0-alpha.9'])
-def test_review_manifest_is_hidden_outside_eligible_prereleases(tmp_path, current):
+def test_review_manifest_is_hidden_outside_eligible_prereleases(tmp_path, monkeypatch, current):
+    monkeypatch.setattr(tours, 'ui_strings', lambda *args, **kwargs: pytest.fail('hidden tours must not load copy'))
     state = UiState(tmp_path / 'webui.json')
     plan(state, '0.5.0')
-    assert tours.published(current, 'en-US') == []
+    for lang in tours.LOCALES:
+        assert tours.published(current, lang) == []
     assert plan(state, current)['pages'] == []
+
+
+def test_final_approval_allows_the_localized_tour_in_stable(monkeypatch):
+    records = copy.deepcopy(tours.PUBLISHED_TOURS)
+    records[0]['approved'] = True
+    monkeypatch.setattr(tours, 'PUBLISHED_TOURS', records)
+    for lang in tours.LOCALES:
+        assert tours.published('0.6.0', lang) == tours.published('0.6.0-alpha.9', lang)
+        assert len(tours.published('0.6.0', lang)[0]['pages']) == 2
+
+
+def test_unknown_language_uses_english_copy():
+    assert tours.published('0.6.0-alpha.9', 'unknown') == tours.published('0.6.0-alpha.9', 'en-US')
 
 
 @pytest.mark.parametrize('previous', ['0.5.0', '0.6.0-alpha.8', '0.6.0-alpha.8-dev'])
@@ -83,7 +119,7 @@ def test_skipped_releases_use_newest_copy_deduplicate_and_acknowledge_on_display
     pending = plan(state, '0.7.0')
     assert pending['versions'] == ['0.7.0', '0.6.0', '0.5.0']
     assert [p['id'] for p in pending['pages']] == ['shared', 'hall', 'photos', 'old']
-    assert pending['pages'][0]['title'] == 'shared 0.7.0'
+    assert pending['pages'][0]['title'] == 'en-US shared 0.7.0'
     # A crash/failure before first render must not lose the pending offer.
     assert plan(UiState(state.path), '0.7.0') == pending
     acknowledge(state, '0.7.0', pending)
@@ -123,11 +159,12 @@ def test_manual_replay_consumes_pending_but_keeps_earlier_tours_available(tmp_pa
         tours.presented(state, ['0.7.0'], tours.published('0.6.0', 'en-US'))
 
 
-def test_approvals_all_locales_missing_copy_and_images(monkeypatch):
+def test_approvals_invalid_keys_and_images(monkeypatch, locale_files):
     complete = release('0.6.0', 'photos')
+    write_locales(locale_files, (complete,))
     draft, missing, invalid = [copy.deepcopy(complete) for _ in range(3)]
     draft['approved'] = False
-    del missing['pages'][0]['copy']['th-TH']
+    del missing['pages'][0]['copy']
     invalid['pages'][0]['id'] = 'bad id'
     for record in (draft, missing, invalid, {}, None):
         monkeypatch.setattr(tours, 'PUBLISHED_TOURS', (record,))
@@ -138,15 +175,67 @@ def test_approvals_all_locales_missing_copy_and_images(monkeypatch):
         for lang in tours.LOCALES:
             page = tours.published('0.6.0', lang)[0]['pages'][0]
             assert page['image'] == (image if image == '/tours/approved-ui.png' else None)
-            assert page['body'] == complete['pages'][0]['copy'][lang]['body']
+            assert page['body'] == f'{lang} feature copy'
 
 
-def test_empty_manifest_records_baseline_without_scans_then_allows_future_content(tmp_path, monkeypatch):
+@pytest.mark.parametrize('lang', tours.LOCALES)
+@pytest.mark.parametrize('field, limit', [('title', 80), ('body', 320)])
+@pytest.mark.parametrize('invalid', ['missing', 'empty', 'whitespace', 'null', 'number', 'object', 'list', 'too-long'])
+def test_incomplete_locale_omits_only_its_page_for_every_language(locale_files, monkeypatch, lang, field, limit, invalid):
+    records = (release('0.6.0', 'photos', 'shared'),)
+    write_locales(locale_files, records)
+    monkeypatch.setattr(tours, 'PUBLISHED_TOURS', records)
+    path = locale_files / f'{lang}.json'
+    data = json.loads(path.read_text())
+    page = data['webui']['tours']['v0_6_0']['photos']
+    if invalid == 'missing':
+        del page[field]
+    else:
+        page[field] = {'empty': '', 'whitespace': ' \t\n', 'null': None, 'number': 42,
+                       'object': {}, 'list': [], 'too-long': 'x' * (limit + 1)}[invalid]
+    path.write_text(json.dumps(data), encoding='utf-8')
+    for selected in tours.LOCALES:
+        available = tours.published('0.6.0', selected)
+        assert [page['id'] for page in available[0]['pages']] == ['shared']
+
+
+@pytest.mark.parametrize('lang', tours.LOCALES)
+def test_missing_locale_file_cannot_be_hidden_by_english_fallback(locale_files, monkeypatch, lang):
+    records = (release('0.6.0', 'photos'),)
+    write_locales(locale_files, records)
+    monkeypatch.setattr(tours, 'PUBLISHED_TOURS', records)
+    (locale_files / f'{lang}.json').unlink()
+    for selected in tours.LOCALES:
+        assert tours.published('0.6.0', selected) == []
+
+
+@pytest.mark.parametrize('lang', tours.LOCALES)
+def test_title_body_limits_are_inclusive_and_captions_are_optional(locale_files, monkeypatch, lang):
+    records = (release('0.6.0', 'photos'),)
+    write_locales(locale_files, records)
+    monkeypatch.setattr(tours, 'PUBLISHED_TOURS', records)
+    records[0]['pages'][0]['image'] = '/tours/app-ui.png'
+    path = locale_files / f'{lang}.json'
+    data = json.loads(path.read_text())
+    localized = data['webui']['tours']['v0_6_0']['photos']
+    localized.update(title='x' * 80, body='x' * 320)
+    for caption in (None, 'x' * 40, 'x' * 41, 'two\nlines'):
+        localized['caption'] = caption
+        path.write_text(json.dumps(data), encoding='utf-8')
+        page = tours.published('0.6.0', lang)[0]['pages'][0]
+        assert page['title'] == 'x' * 80 and page['body'] == 'x' * 320
+        assert page['caption'] == (caption if caption == 'x' * 40 else '')
+        assert page['image'] == (None if caption in ('x' * 41, 'two\nlines') else '/tours/app-ui.png')
+
+
+def test_empty_manifest_records_baseline_without_scans_then_allows_future_content(tmp_path, monkeypatch, locale_files):
     monkeypatch.setattr(tours, 'PUBLISHED_TOURS', ())
     state = UiState(tmp_path / 'webui.json')
     assert plan(state, '0.5.0')['pages'] == []
     assert json.loads(state.path.read_text())['tours']['highest'] == '0.5.0'
-    monkeypatch.setattr(tours, 'PUBLISHED_TOURS', (release('0.6.0', 'photos'),))
+    records = (release('0.6.0', 'photos'),)
+    write_locales(locale_files, records)
+    monkeypatch.setattr(tours, 'PUBLISHED_TOURS', records)
     assert len(plan(UiState(state.path), '0.6.0')['pages']) == 1
 
 

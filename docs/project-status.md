@@ -38,7 +38,7 @@ The 0.6.0 work is unreleased. Nothing has been tagged, pushed or published since
 | BL-046 | Closed by the owner without UAT (CLI-only) |
 | BL-048 | Accepted: CLI no longer built, installed or released |
 | BL-020 | Implemented for local review; owner UAT/visual acceptance pending. Prerelease Settings offers both note cases without network or installation. |
-| BL-021 | Implemented for local review; owner UAT/visual acceptance pending. Two text-only pages are available only in prereleases. |
+| BL-021 | Implemented for local review; owner UAT/visual acceptance pending. Two prerelease pages resolve unchanged copy from all six locale files. |
 | BL-013, BL-019, BL-030 | Planned, not implemented |
 | BL-054 | Deferred by the owner for research; design proposal on file |
 | BL-014 | Candidate, not scheduled |

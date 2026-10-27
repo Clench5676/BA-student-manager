@@ -107,9 +107,17 @@ counts as presentation and avoids a second automatic popup later in that launch.
 
 ## Release preparation
 
+Runtime tour text belongs in all six `src/ba_modding_toolkit/locales/*.json` files. For 0.6.0, the keys are
+`webui.tours.v0_6_0.<page-id>.title` and `.body` (with an optional `.caption`). `PUBLISHED_TOURS` in
+`webui/tours.py` stores metadata and each page's `copy` locale key prefix. The existing web UI i18n loader resolves
+the selected language at runtime, without fallback: a missing, blank, non-string or oversized title/body in any
+locale omits that page in every language. Limits remain 80 characters for titles and 320 for bodies. The tables
+in `docs/tours/` are the owner review record, mirrored from locale text.
+
 1. Finalize the implemented feature list and update the developer-facing CHANGELOG.
 2. The agent prepares user-facing feature cards in all six locales and optional plain illustrations of the App's
-   own UI. Never package screenshots or images made from game files. Text-only pages are supported.
+   own UI. Keep runtime text in the locale files and mirror it in `docs/tours/` for review. Never package screenshots
+   or images made from game files. Text-only pages are supported.
 3. Hand the concrete copy and any illustrations to the human owner together. Label illustration concepts as drafts;
    do not treat them as screenshots or approved publication assets.
 4. After human review, package only approved tour materials for the corresponding release. Keep raw game files,

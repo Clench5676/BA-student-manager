@@ -2191,16 +2191,14 @@ test('source cards use the state badge and fitted locale caption in every picker
 
 test('shipped text-only tour copy fits the notice geometry in every locale, window and density', async () => {
   const NGUI = await import('../../src/ba_modding_toolkit/web/js/ngui.js');
-  const draft = readFileSync(new URL('../../docs/tours/0.6.0-draft.md', import.meta.url), 'utf8');
   await Popup.ready();
   try {
     for (const lang of ['en-US', 'zh-CN', 'zh-TW', 'ja-JP', 'ko-KR', 'th-TH']) {
       const ui = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${lang}.json`, import.meta.url))).webui;
       setStrings(lang, Object.fromEntries(strings(ui)));
-      const rows = draft.split('\n').filter((line) => line.startsWith(`| ${lang} |`));
-      assert.equal(rows.length, 2);
-      for (const [index, row] of rows.entries()) {
-        const [, , title, copy] = row.split('|').map((cell) => cell.trim());
+      const pages = Object.entries(ui.tours.v0_6_0);
+      assert.deepEqual(pages.map(([id]) => id), ['student-thumbnails', 'hall-viewing-zoom']);
+      for (const [index, [, { title, body: copy }]] of pages.entries()) {
         const tree = Tours.pageTree({ version: '0.6.0', title, body: copy }, index, 2);
         const popup = NGUI.find(tree, 'Popup');
         assert.equal(NGUI.find(popup, 'ImageSlot'), null);

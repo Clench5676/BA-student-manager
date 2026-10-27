@@ -1709,16 +1709,25 @@ def test_release_page_snapshot_survives_another_check(app, services, update_env,
     assert update_env.downloads == update_env.installs == []
 
 
-def test_tours_rpc_requires_normal_ready_and_keeps_replay_local(app, services, monkeypatch):
+def test_tours_rpc_requires_normal_ready_and_keeps_replay_local(app, services, monkeypatch, tmp_path):
+    from ba_modding_toolkit.i18n import i18n_manager
     from ba_modding_toolkit.webui import tours
-    manifest = ({'version': '0.2.0', 'approved': True, 'pages': [
-        {'id': 'photos', 'copy': {lang: {'title': 'Photos', 'body': 'Your photos'} for lang in tours.LOCALES}}]},)
+    from test_tours import release, write_locales
+
+    manifest = (release('0.2.0', 'photos'),)
+    write_locales(tmp_path, manifest)
+    monkeypatch.setattr('ba_modding_toolkit.webui.strings.get_locale_dir', lambda: tmp_path)
     monkeypatch.setattr(tours, 'PUBLISHED_TOURS', manifest)
     monkeypatch.setattr(services, 'game_found', lambda: pytest.fail('tour must not inspect the game'))
     monkeypatch.setattr(services, 'ready', lambda: None)
     tours.launch(services.state, '0.1.0', [])
     assert rpc(app, 'app.tours', launching=True)['result']['automatic']['pages'] == []
-    assert len(rpc(app, 'app.tours')['result']['tours']) == 1
+    for lang in tours.LOCALES:
+        monkeypatch.setattr(i18n_manager, 'lang', lang)
+        available = rpc(app, 'app.tours')['result']['tours']
+        assert len(available) == 1
+        page = available[0]['pages'][0]
+        assert (page['title'], page['body']) == (f'{lang} photos 0.2.0', f'{lang} feature copy')
     services.safe_mode = True
     rpc(app, 'app.ready')
     assert rpc(app, 'app.tours', launching=True)['result']['automatic']['pages'] == []
@@ -1806,8 +1815,11 @@ def test_update_draft_preflight_precedes_native_timeout_and_reservation(app, ser
     ('0.6.0-alpha.9', True), ('0.6.0-alpha.9-dev', True), ('0.6.0-dev', True),
     ('0.6.0', False), ('0.6.0+build.9', False),
 ])
-def test_both_review_features_share_the_running_version_gate(app, services, monkeypatch, version, enabled):
+@pytest.mark.parametrize('lang', ['en-US', 'zh-CN', 'zh-TW', 'ja-JP', 'ko-KR', 'th-TH'])
+def test_both_review_features_share_the_running_version_gate(app, services, monkeypatch, version, enabled, lang):
+    from ba_modding_toolkit.i18n import i18n_manager
     from ba_modding_toolkit.webui import tours
+    monkeypatch.setattr(i18n_manager, 'lang', lang)
     monkeypatch.setattr('ba_modding_toolkit.webui.api.get_version_info', lambda: {'version': version})
     monkeypatch.setattr('ba_modding_toolkit.utils.get_version_info', lambda: {'version': version})
     app.rpc = build_api(services)
@@ -1819,3 +1831,8 @@ def test_both_review_features_share_the_running_version_gate(app, services, monk
     assert prefs['prereleasePreviews'] is enabled
     assert bool(result['tours']) is enabled
     assert bool(result['automatic']['pages']) is enabled
+    if enabled:
+        localized = ui_strings(lang)
+        for page in result['automatic']['pages']:
+            key = f"webui.tours.v0_6_0.{page['id']}"
+            assert (page['title'], page['body']) == (localized[f'{key}.title'], localized[f'{key}.body'])

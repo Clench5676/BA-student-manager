@@ -1779,6 +1779,18 @@
 			"paste": "ペースト",
 			"selectAll": "すべて選択"
 		},
+		"tours": {
+			"v0_6_0": {
+				"student-thumbnails": {
+					"title": "生徒のサムネイル",
+					"body": "生徒詳細の全画面表示でサムネイル撮影が可能に"
+				},
+				"hall-viewing-zoom": {
+					"title": "生徒ロビーを拡大",
+					"body": "ホイールやピンチで立ち絵のシーンを拡大、移動して表示"
+				}
+			}
+		},
 		"tour": {
 			"title": "新機能",
 			"previous": "前へ",

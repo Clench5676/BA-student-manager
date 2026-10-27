@@ -7,47 +7,24 @@ from typing import Any
 from ..errors import ServiceError
 from ..updater import parse_version, prerelease_previews
 from .state import UiState
+from .strings import ui_strings
 
 LOCALES = ('en-US', 'zh-CN', 'zh-TW', 'ja-JP', 'ko-KR', 'th-TH')
 # True publishes owner-approved content to all builds; 'prerelease' is local review content, hidden in stable.
-# Final stable publication requires the owner's approval of every locale. Review copy lives in docs/tours/.
+# Final stable publication requires the owner's approval of every locale. Review tables live in docs/tours/.
+# Each page's copy key names webui.tours.v<major>_<minor>_<patch>.<page-id> in locales/*.json;
+# its title/body (80/320 characters) and optional caption are resolved without language fallback.
 PUBLISHED_TOURS: tuple[dict, ...] = ({
     'version': '0.6.0',
     'approved': 'prerelease',
     'pages': [
         {
             'id': 'student-thumbnails',
-            'copy': {
-                'en-US': {'title': 'Student Thumbnails',
-                          'body': 'Take thumbnail photos from the full-screen student details.'},
-                'zh-CN': {'title': '学生大头照',
-                          'body': '学生详情全屏后增加大头照拍摄功能'},
-                'zh-TW': {'title': '學生大頭照',
-                          'body': '學生詳情全螢幕後增加大頭照拍攝功能'},
-                'ja-JP': {'title': '生徒のサムネイル',
-                          'body': '生徒詳細の全画面表示でサムネイル撮影が可能に'},
-                'ko-KR': {'title': '학생 썸네일',
-                          'body': '학생 상세 전체 화면에서 썸네일 촬영 기능 추가'},
-                'th-TH': {'title': 'ภาพย่อนักเรียน',
-                          'body': 'ถ่ายภาพย่อได้จากรายละเอียดนักเรียนแบบเต็มจอ'},
-            },
+            'copy': 'webui.tours.v0_6_0.student-thumbnails',
         },
         {
             'id': 'hall-viewing-zoom',
-            'copy': {
-                'en-US': {'title': 'Zoom Student Hall',
-                          'body': 'Use the wheel or pinch to zoom the portrait scene, then pan to explore.'},
-                'zh-CN': {'title': '缩放学生大厅',
-                          'body': '滚轮、捏合放大立绘场景，平移查看'},
-                'zh-TW': {'title': '縮放學生大廳',
-                          'body': '滾輪、捏合放大立繪場景，平移查看'},
-                'ja-JP': {'title': '生徒ロビーを拡大',
-                          'body': 'ホイールやピンチで立ち絵のシーンを拡大、移動して表示'},
-                'ko-KR': {'title': '학생 로비 확대',
-                          'body': '휠이나 핀치로 스탠딩 장면을 확대하고 이동하여 보기'},
-                'th-TH': {'title': 'ขยายล็อบบี้นักเรียน',
-                          'body': 'หมุนล้อหรือจีบนิ้วเพื่อขยายฉากภาพยืน แล้วเลื่อนดู'},
-            },
+            'copy': 'webui.tours.v0_6_0.hall-viewing-zoom',
         },
     ],
 },)
@@ -69,6 +46,7 @@ def published(current: str, language: str) -> list[dict]:
     """Ignore incomplete content; an absent illustration is always optional. Newest release first."""
     current_key = version_key(current)
     result, versions = [], set()
+    locale_strings = {}
     for tour in PUBLISHED_TOURS:
         if not isinstance(tour, dict) or not (tour.get('approved') is True
                 or (tour.get('approved') == 'prerelease' and prerelease_previews(current))):
@@ -82,24 +60,28 @@ def published(current: str, language: str) -> list[dict]:
         for page in pages:
             if not isinstance(page, dict):
                 continue
-            feature, copies = page.get('id'), page.get('copy')
+            feature, copy_key = page.get('id'), page.get('copy')
             if not isinstance(feature, str) or not re.fullmatch(r'[a-z0-9][a-z0-9-]{0,79}', feature) or feature in ids:
                 continue
-            if not isinstance(copies, dict) or any(
-                not isinstance(copies.get(lang), dict) or any(
-                    not isinstance(copies[lang].get(field), str) or not copies[lang][field].strip()
-                    or len(copies[lang][field]) > limit for field, limit in (('title', 80), ('body', 320)))
-                for lang in LOCALES
+            if not isinstance(copy_key, str) or not copy_key.strip():
+                continue
+            if not locale_strings:
+                locale_strings = {lang: ui_strings(lang, fallback=False) for lang in LOCALES}
+            # Fallback must not make an incomplete locale look ready for publication.
+            if any(
+                not isinstance(value := strings.get(f'{copy_key}.{field}'), str)
+                or not value.strip() or len(value) > limit
+                for strings in locale_strings.values() for field, limit in (('title', 80), ('body', 320))
             ):
                 continue
-            text = copies[language if language in LOCALES else 'en-US']
+            text = locale_strings[language if language in LOCALES else 'en-US']
             image = page.get('image')
             # Only bundled App UI illustrations; never a URL, game-asset endpoint or startup capture.
             image = image if isinstance(image, str) and re.fullmatch(r'/tours/[A-Za-z0-9_-]+\.png', image) else None
-            caption = text.get('caption') if isinstance(text.get('caption'), str) else ''
+            caption = text.get(f'{copy_key}.caption', '')
             if len(caption) > 40 or '\n' in caption:
                 image, caption = None, ''
-            localized.append({'id': feature, 'title': text['title'], 'body': text['body'],
+            localized.append({'id': feature, 'title': text[f'{copy_key}.title'], 'body': text[f'{copy_key}.body'],
                               'image': image, 'caption': caption, 'version': version})
             ids.add(feature)
         if localized:

@@ -106,6 +106,16 @@ def test_web_ui_strings_of_a_new_language(monkeypatch, tmp_path):
     assert webui_api.ui_strings("ko-KR") == {"webui.languageName": "한국어", "webui.x": "en"}
 
 
+def test_web_ui_strings_can_check_a_locale_without_fallback(tmp_path):
+    from ba_modding_toolkit.webui.strings import ui_strings
+
+    write_locale(tmp_path, "en-US", {"webui": {"shared": "English fallback"}})
+    write_locale(tmp_path, "ko-KR", {"webui": {"own": "Locale value", "invalid": 42}})
+    assert ui_strings("ko-KR", tmp_path) == {"webui.shared": "English fallback", "webui.own": "Locale value"}
+    assert ui_strings("ko-KR", tmp_path, fallback=False) == {"webui.own": "Locale value"}
+    assert ui_strings("th-TH", tmp_path, fallback=False) == {}
+
+
 def test_thai_strings_selection_and_classic_language_list(tmp_path):
     write_locale(tmp_path, "en-US", {"name": "English", "missing": "English fallback"})
     write_locale(tmp_path, "th-TH", {"name": "ไทย"})

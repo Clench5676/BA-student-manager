@@ -1779,6 +1779,18 @@
 			"paste": "붙여넣기",
 			"selectAll": "모두 선택"
 		},
+		"tours": {
+			"v0_6_0": {
+				"student-thumbnails": {
+					"title": "학생 썸네일",
+					"body": "학생 상세 전체 화면에서 썸네일 촬영 기능 추가"
+				},
+				"hall-viewing-zoom": {
+					"title": "학생 로비 확대",
+					"body": "휠이나 핀치로 스탠딩 장면을 확대하고 이동하여 보기"
+				}
+			}
+		},
 		"tour": {
 			"title": "새 기능",
 			"previous": "이전",

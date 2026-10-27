@@ -1779,6 +1779,18 @@
 			"paste": "貼上",
 			"selectAll": "全選"
 		},
+		"tours": {
+			"v0_6_0": {
+				"student-thumbnails": {
+					"title": "學生大頭照",
+					"body": "學生詳情全螢幕後增加大頭照拍攝功能"
+				},
+				"hall-viewing-zoom": {
+					"title": "縮放學生大廳",
+					"body": "滾輪、捏合放大立繪場景，平移查看"
+				}
+			}
+		},
 		"tour": {
 			"title": "新功能",
 			"previous": "上一頁",

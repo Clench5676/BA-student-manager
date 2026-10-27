@@ -10,12 +10,12 @@ from typing import Any
 from ..i18n import fallback_language, get_locale_dir
 
 
-def ui_strings(lang: str, locale_dir: Path | None = None) -> dict[str, str]:
-    """The ``webui.*`` strings for a language, falling back key by key like the Python side does."""
-    fallback = fallback_language(lang)
+def ui_strings(lang: str, locale_dir: Path | None = None, *, fallback: bool = True) -> dict[str, str]:
+    """The ``webui.*`` strings, falling back by default; disable fallback for locale completeness checks."""
     folder = locale_dir or get_locale_dir()
     out: dict[str, str] = {}
-    for code in dict.fromkeys((fallback, lang)):  # fallback first, the language itself wins
+    codes = dict.fromkeys((fallback_language(lang), lang)) if fallback else (lang,)
+    for code in codes:  # fallback first, the language itself wins
         path = folder / f"{code}.json"
         try:
             data = json.loads(path.read_text(encoding="utf-8")).get("webui", {})

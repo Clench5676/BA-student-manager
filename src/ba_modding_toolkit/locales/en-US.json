@@ -1779,6 +1779,18 @@
 			"paste": "Paste",
 			"selectAll": "Select All"
 		},
+		"tours": {
+			"v0_6_0": {
+				"student-thumbnails": {
+					"title": "Student Thumbnails",
+					"body": "Take thumbnail photos from the full-screen student details."
+				},
+				"hall-viewing-zoom": {
+					"title": "Zoom Student Hall",
+					"body": "Use the wheel or pinch to zoom the portrait scene, then pan to explore."
+				}
+			}
+		},
 		"tour": {
 			"title": "New Features",
 			"previous": "Previous",
