@@ -161,7 +161,8 @@ def _object_bytes(bundle: Bundle) -> dict:
 def assemble_mod(official_bundles: list[Path], generated: Path | Image.Image, output_dir: Path, *,
                  atlas_name: str, page_name: str, region: tuple[str, int] | None = None,
                  box: tuple[int, int, int, int] | None = None, scale: int = 1,
-                 generated_pma: bool = False, page_pma: bool | None = None) -> dict:
+                 generated_pma: bool = False, page_pma: bool | None = None,
+                 projected: Assembly | None = None) -> dict:
     """Build one released-form texture mod, with its official name, LZ4 and fixed CRC.
 
 Supply all official portrait parts, including atlas and skeleton. Only the bundle
@@ -170,6 +171,8 @@ avoid BC7/etc. re-encoding changes to untouched pixels and alpha. This uses the 
 lossless format policy as library.portrait_edit, then the existing named-PNG packer.
 The output directory must not already contain the target file.
 """
+    if type(scale) is not int or scale < 1:
+        raise ValueError("Page scale must be a positive integer")
     paths = [Path(path).resolve() for path in official_bundles]
     inputs = remap.read_inputs(paths)
     if atlas_name not in inputs.atlases or atlas_name not in remap.pair_atlases(inputs.skeletons, {atlas_name: b""}):
@@ -200,8 +203,27 @@ The output directory must not already contain the target file.
             image = image.convert("RGBA")
     else:
         image = generated
-    assembly = assemble_page(atlas, page_name, official, image, region=region, box=box,
-                             scale=scale, generated_pma=generated_pma, page_pma=page_pma)
+    if projected is None:
+        assembly = assemble_page(atlas, page_name, official, image, region=region, box=box,
+                                 scale=scale, generated_pma=generated_pma, page_pma=page_pma)
+    else:
+        # Composite projection already preserves colour/alpha. Validate the K4
+        # invariants without another PMA conversion or resampling pass.
+        baseline = official.resize((official.width * scale, official.height * scale), Image.Resampling.NEAREST)
+        if projected.image.mode != "RGBA" or projected.image.size != baseline.size:
+            raise ValueError("Projected page must be RGBA at the requested integer scale")
+        if projected.image.getchannel("A").tobytes() != baseline.getchannel("A").tobytes():
+            raise ValueError("Projected page changed official alpha")
+        mask = Image.new("L", baseline.size)
+        draw = ImageDraw.Draw(mask)
+        for item in atlas.regions.values():
+            if item.page == page_name:
+                l, t, r, b = remap._box(item, atlas.pages[page_name], baseline)
+                draw.rectangle((l, t, r - 1, b - 1), fill=255)
+        outside = Image.composite(baseline, projected.image, mask)
+        if outside.tobytes() != baseline.tobytes():
+            raise ValueError("Projected page changed pixels outside official regions")
+        assembly = projected
     output_dir = Path(output_dir).resolve()
     target = output_dir / source.name
     devmode.check_write(target)
