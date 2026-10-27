@@ -492,8 +492,8 @@ externally changed files; stale snapshots and cancellation; export-only runs; an
 
 ## BL-020: Release notes in update detection
 
-- Status: Implemented; owner decision (2026-10-27): review through a simulated update prompt in the next prerelease, never in a stable build.
-- Note: The detected tag's GitHub body opens in a scrollable notice popup, with a release-page fallback for empty notes.
+- Status: Implemented for local review; owner UAT/visual acceptance pending.
+- Note: Prerelease Settings offers notes-present and notes-empty simulations through the real update dialog; update and release-page actions stay local without network or installation.
 - Requested: 2026-10-25.
 
 Add a localized Release Notes action to the update-detection dialog. Display the notes approved for that exact

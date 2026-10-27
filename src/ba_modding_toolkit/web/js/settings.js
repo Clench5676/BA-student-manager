@@ -14,6 +14,7 @@ import * as Consent from "./consent.js";
 import * as OtherMods from "./settings-other.js";
 import * as ModExport from "./mod-export.js";
 import * as Tours from "./tours.js";
+import * as Update from "./update.js";
 import * as Buttons from "./game-buttons.js";
 import { rowBase, radioRow } from "./settings-rows.js";
 import { on, rpc } from "./api.js";
@@ -221,6 +222,8 @@ function rows({ builtSize = null, sizeError = null } = {}) {
       }));
     add(valueRow("Version", 0, T("settings.version"), (p.version || "").replace(/-dev$/, ""), [[T("settings.update.check"), checkUpdate, !checkingUpdate]]));
     add(valueRow("Tours", 0, T("tour.title"), "", [[T("tour.open"), () => call(Tours.browse)]]));
+    if (p.prereleasePreviews === true) add(valueRow("UpdateSimulation", 0, T("update.simulation.entry"), T("update.simulation.choose"),
+      [[T("update.notes"), () => simulateUpdate(true)], [T("update.simulation.empty"), () => simulateUpdate(false)]]));
     add(radioRow("StartupUpdate", 0, T("settings.update.startup"), ON_OFF(), p.startupUpdate !== false, (v) => set("startupUpdate", v)));
     add(valueRow("Log", 0, T("settings.log.label"), p.logPath, [
       [T("settings.log.open"), openLog], [open, reveal(p.logPath)],
@@ -317,6 +320,11 @@ async function openLog() {
       } finally { input.remove(); }
     }
   }) });
+}
+
+function simulateUpdate(notes) {
+  close();
+  return call(() => Update.simulate($("consent"), prefs, notes));
 }
 
 async function checkUpdate(event) {

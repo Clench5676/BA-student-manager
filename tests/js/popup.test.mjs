@@ -110,7 +110,7 @@ const SORT = n("UIPopup_Sort", [0, 0], [], [n("Center", [0, 0], [], [
   n("Popup", [0, 0], [], [
     n("Base", [0, -20], [], [n("BG", [0, 8], [spr("Common_Popup_Bg", 2458, 1355)], [
       n("Texture_Top", [-977, 609], [{ texture: "Top", w_: 500, h_: 100, pivot: 4, depth: 6, color: "#ffffff/1.00" }]),
-      n("Label_Title_Locale", [0, 611], [lbl()], [n("Line", [0, -52], [spr("Common_Square_Bg", 160, 12)])]),
+      n("Label_Title_Locale", [0, 611], [{ ...lbl(), w_: 146, h_: 72 }], [n("Line", [0, -52], [spr("Common_Square_Bg", 160, 12)])]),
       n("Btn_Close", [1144, 616], [spr("Common_Icon_Close", 60, 60, { type: 0 })]),
     ])]),
     n("Btn", [0, -499], [], [
@@ -2222,4 +2222,134 @@ test('shipped text-only tour copy fits the notice geometry in every locale, wind
       }
     }
   } finally { setStrings('en-US', Object.fromEntries(strings(english))); }
+});
+
+
+test('Settings exposes one prerelease simulation row with both cases and stable exposes none', async () => {
+  const Settings = await import('../../src/ba_modding_toolkit/web/js/settings.js');
+  try {
+    for (const lang of ['en-US', 'zh-CN', 'zh-TW', 'ja-JP', 'ko-KR', 'th-TH']) {
+      const ui = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${lang}.json`, import.meta.url))).webui;
+      setStrings(lang, Object.fromEntries(strings(ui)));
+      for (const enabled of [false, true]) {
+        const prefs = { version: enabled ? '0.6.0-alpha.9' : '0.6.0', prereleasePreviews: enabled,
+          language: lang, languages: [{ code: lang, name: ui.languageName }] };
+        handlers.set('settings.get', () => ({ result: prefs }));
+        handlers.set('mods.state', () => ({ result: {} }));
+        await Settings.open(null, 'general');
+        const rowTitle = walk(settings).filter((el) => el.dataset.path === 'Rows/UpdateSimulation/Title');
+        assert.equal(rowTitle.length, enabled ? 1 : 0);
+        if (!enabled) {
+          const start = calls.length;
+          assert.equal(await Update.simulate(consent, prefs), null);
+          assert.equal(consent.hidden, true);
+          assert.equal(calls.length, start);
+          continue;
+        }
+        assert.equal(rowTitle[0].textContent.replace(/\n/g, ' '), ui.update.simulation.entry);
+        const labels = [0, 1].map((i) => walk(settings).find((el) => el.dataset.path === `Rows/UpdateSimulation/Btn_${i}/Label_Locale`));
+        assert.equal(new Set(labels.map((el) => el.style.fontSize)).size, 1);
+        for (const [i, original] of [ui.update.notes, ui.update.simulation.empty].entries()) {
+          const el = labels[i], fs = parseFloat(el.style.fontSize);
+          assert.equal(el.textContent.replace(/\s/g, ''), original.replace(/\s/g, ''));
+          for (const line of el.textContent.split('\n')) assert.ok(line.length * 0.6 * fs <= 240 * S + 0.1, `${lang}: ${line} at ${fs}, width ${line.length * 0.6 * fs}`);
+          assert.ok(el.textContent.split('\n').length * fs * 1.15 <= 92 * S + 0.01);
+        }
+        const value = walk(settings).find((el) => el.dataset.path === 'Rows/UpdateSimulation/Value');
+        const bodies = [0, 1].map((i) => walk(settings).find((el) => el.dataset.path === `Rows/UpdateSimulation/Btn_${i}`));
+        for (const [el, original] of [[rowTitle[0], ui.update.simulation.entry], [value, ui.update.simulation.choose]]) {
+          assert.equal(el.textContent.replace(/\s/g, ''), original.replace(/\s/g, ''));
+          for (const line of el.textContent.split('\n')) assert.ok(line.length * 0.6 * parseFloat(el.style.fontSize) <= parseFloat(el.style.width) + 0.1);
+        }
+        for (const [width, height] of [[960, 540], [1600, 900], [2560, 1440]]) for (const density of [1, 2]) {
+          const scale = Math.min(width / 1920, height / 1080) * density;
+          assert.ok((parseFloat(value.style.left) + parseFloat(value.style.width)) * scale < parseFloat(bodies[0].style.left) * scale);
+          assert.ok((parseFloat(bodies[0].style.left) + parseFloat(bodies[0].style.width)) * scale < parseFloat(bodies[1].style.left) * scale);
+          for (const body of bodies) {
+            assert.ok(Math.abs(parseFloat(body.style.width) - 300 * S) < 0.01);
+            assert.ok(Math.abs(parseFloat(body.style.height) - 112 * S) < 0.01);
+            const centre = (el) => parseFloat(el.style.top) + parseFloat(el.style.height) / 2;
+            assert.ok(Math.abs(centre(body) - centre(value)) * scale < 0.01 * scale);
+          }
+        }
+        // Both Settings actions enter the same real update renderer.
+        for (const [i, caption] of [ui.update.notes, ui.update.simulation.empty].entries()) {
+          if (i) await Settings.open(null, 'general');
+          const button = walk(settings).find((el) => el.tagName === 'BUTTON' && el.getAttribute('aria-label') === caption);
+          const start = calls.length;
+          const done = button.click();
+          await drawn(consent, 'update');
+          assert.equal(settings.hidden, true);
+          assert.ok(part('Box/V_1'));
+          (await drawn(consent, 'notes')).click();
+          await drawn(dialog, 'page');
+          assert.ok(walk(dialog).some((el) => el.textContent === (i ? ui.update.notesEmpty : ui.update.simulation.sample)));
+          action(dialog, 'dismiss').click();
+          action(consent, 'later').click();
+          await done;
+          assert.equal(calls.length, start, 'simulation makes no RPC, including check, download, install or browser open');
+        }
+      }
+    }
+  } finally { action(consent, 'later')?.click(); settings.hidden = true; handlers.clear(); setStrings('en-US', Object.fromEntries(strings(english))); }
+});
+
+test('simulated offers use the real prefab and notes builder, intercept every action and fit every locale', async () => {
+  const byPath = (root, path) => walk(root).find((el) => el.dataset.path === path);
+  try {
+    for (const lang of ['en-US', 'zh-CN', 'zh-TW', 'ja-JP', 'ko-KR', 'th-TH']) {
+      const ui = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${lang}.json`, import.meta.url))).webui;
+      setStrings(lang, Object.fromEntries(strings(ui)));
+      for (const notes of [true, false]) {
+        const start = calls.length;
+        const offered = Update.simulate(consent, { version: '0.6.0-alpha.9', prereleasePreviews: true }, notes);
+        await drawn(consent, 'update');
+        const title = byPath(consent, 'Center/Popup/Base/BG/Label_Title_Locale');
+        assert.equal(title.textContent.replace(/\n/g, ''), ui.update.title + ui.update.simulation.suffix);
+        const geometry = ['Btn_Cancel', 'Btn_Notes', 'Btn_Ok'].map((name) => byPath(consent, `Center/Popup/Btn/${name}/BG (1)`));
+        assert.equal(actionsIn(consent).length, 3);
+        for (const el of geometry) {
+          assert.ok(Math.abs(parseFloat(el.style.width) - 496 * S) < 0.01);
+          assert.ok(Math.abs(parseFloat(el.style.height) - 177 * S) < 0.01);
+        }
+        for (let i = 1; i < geometry.length; i++) assert.ok(parseFloat(geometry[i - 1].style.left) + parseFloat(geometry[i - 1].style.width) < parseFloat(geometry[i].style.left));
+        const labels = ['Btn_Cancel', 'Btn_Notes', 'Btn_Ok'].map((name) => byPath(consent, `Center/Popup/Btn/${name}/Label_Locale`));
+        assert.equal(new Set(labels.map((el) => el.style.fontSize)).size, 1);
+        for (const el of [title, ...labels]) {
+          const fs = parseFloat(el.style.fontSize);
+          for (const line of el.textContent.split('\n')) assert.ok(line.length * 0.6 * fs <= (el === title ? 1100 : 400) * S + 0.01, `${lang}: ${line}`);
+        }
+        (await drawn(consent, 'notes')).click();
+        await drawn(dialog, 'page');
+        assert.ok(walk(dialog).some((el) => el.className === 'popup-cards'), 'real scrollable release-notes view');
+        const notesTitle = byPath(dialog, 'Center/Popup/Base/BG/Label_Title_Locale');
+        assert.ok(notesTitle.textContent.includes(ui.update.simulation.suffix.trim()));
+        action(dialog, 'page').click();
+        await until(() => part('Status')?.textContent.replace(/\n/g, ' ') === ui.update.simulation.pageStatus);
+        assert.equal(action(consent, 'restart'), undefined);
+        action(consent, 'update').click();
+        await until(() => part('Status')?.textContent.replace(/\n/g, ' ') === ui.update.simulation.status);
+        // Retained/repeated clicks never enter a writer phase or offer Restart.
+        action(consent, 'update').click(); await tick();
+        assert.equal(action(consent, 'restart'), undefined);
+        assert.equal(action(consent, 'later').disabled, false);
+        const status = part('Status'), fs = parseFloat(status.style.fontSize);
+        for (const [w, h] of [[960, 540], [1600, 900], [2560, 1440]]) for (const density of [1, 2]) {
+          const scale = Math.min(w / 1920, h / 1080) * density;
+          for (const line of status.textContent.split('\n')) assert.ok(line.length * 0.6 * fs * scale <= 1250 * S * scale + 0.01);
+          assert.ok(status.textContent.split('\n').length * fs * 1.15 <= 96 * S + 0.01);
+        }
+        action(consent, 'later').click(); await offered;
+        assert.equal(calls.length, start, 'no network RPC, updater job, staging, installation or external browser');
+      }
+    }
+  } finally { action(consent, 'later')?.click(); setStrings('en-US', Object.fromEntries(strings(english))); }
+});
+
+test('simulation never joins or replaces an existing real update offer', async () => {
+  const offered = Update.check(consent, { ...available, downloaded: true, file: '/verified/update.dmg' });
+  await drawn(consent, 'restart');
+  assert.equal(await Update.simulate(consent, { version: '0.6.0-alpha.9', prereleasePreviews: true }), null);
+  assert.ok(action(consent, 'restart'));
+  action(consent, 'later').click(); await offered;
 });

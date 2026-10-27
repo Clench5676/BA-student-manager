@@ -1272,7 +1272,16 @@
 			"page": "前往下载页",
 			"notes": "更新说明",
 			"notesEmpty": "暂无更新说明",
-			"releasePage": "前往发布页"
+			"releasePage": "前往发布页",
+			"simulation": {
+				"entry": "模拟更新提示",
+				"suffix": "（模拟）",
+				"choose": "选择说明情形",
+				"empty": "无发布说明",
+				"sample": "模拟内容，非正式发布说明",
+				"status": "模拟，未安装任何内容",
+				"pageStatus": "模拟，未打开发布页面"
+			}
 		},
 		"classic": {
 			"hint": "该功能尚未迁移，将在经典界面中打开",

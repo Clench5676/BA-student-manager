@@ -317,6 +317,7 @@ def build_api(s: Services) -> RpcRegistry:
     @rpc.method("settings.get")
     def settings_get() -> dict[str, Any]:
         st = s.settings
+        version = get_version_info().get("version") or ""
         return {
             "language": i18n_manager.lang,
             "languages": [{"code": c, "name": language_name(c)} for c in offered_languages()],
@@ -334,7 +335,8 @@ def build_api(s: Services) -> RpcRegistry:
             "spineConsent": s.state.spine_consent,
             "previewCache": s.state.preview_cache,
             "previewCacheGeneration": s.preview_cache.generation,
-            "version": get_version_info().get("version"), "native": s.window is not None,
+            "version": version, "native": s.window is not None,
+            "prereleasePreviews": updater.prerelease_previews(version),
             "logPath": str(s.log_path),
             # the tray or menu bar icon, the hand-off prompt
             "tray": s.state.flag("tray"),

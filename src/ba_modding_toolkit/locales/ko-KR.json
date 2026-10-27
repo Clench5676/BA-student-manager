@@ -1272,7 +1272,16 @@
 			"page": "다운로드 페이지 열기",
 			"notes": "업데이트 내역",
 			"notesEmpty": "업데이트 내역 없음",
-			"releasePage": "릴리스 페이지"
+			"releasePage": "릴리스 페이지",
+			"simulation": {
+				"entry": "업데이트 알림 모의 실행",
+				"suffix": " (모의 실행)",
+				"choose": "노트 유무 선택",
+				"empty": "노트 없음",
+				"sample": "모의 내용이며 정식 릴리스 노트가 아닙니다",
+				"status": "모의 실행: 설치된 항목 없음",
+				"pageStatus": "모의 실행: 릴리스 페이지를 열지 않음"
+			}
 		},
 		"classic": {
 			"hint": "아직 이전되지 않은 기능, 클래식 화면에서 열림",

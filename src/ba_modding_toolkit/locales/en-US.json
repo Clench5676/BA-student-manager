@@ -1272,7 +1272,16 @@
 			"page": "Open Download Page",
 			"notes": "Release Notes",
 			"notesEmpty": "No release notes",
-			"releasePage": "Open Release Page"
+			"releasePage": "Open Release Page",
+			"simulation": {
+				"entry": "Simulate Update",
+				"suffix": " (Simulation)",
+				"choose": "Choose a notes case",
+				"empty": "Empty Notes",
+				"sample": "Sample only, not official release notes",
+				"status": "Simulation. Nothing installed.",
+				"pageStatus": "Simulation. Release page not opened."
+			}
 		},
 		"classic": {
 			"hint": "Not migrated yet, opens in the classic UI",

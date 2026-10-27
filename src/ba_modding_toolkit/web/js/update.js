@@ -13,19 +13,31 @@ const checks = new WeakMap();
 const RESTART_WAIT = 3000;
 
 // Literal text on the same UIPopup_Sort frame used by notices. No HTML, Markdown images or update jobs.
-export async function releaseNotes(info) {
+const dialogTitle = (key, simulation) => T(key) + (simulation ? T("update.simulation.suffix") : "");
+
+export async function releaseNotes(info, { simulation = false, onSimulatedPage } = {}) {
   const notes = typeof info.notes === "string" ? info.notes.trim() : "";
-  const result = await Popup.message({ title: `${T("update.notes")} - ${info.version}`,
+  const result = await Popup.message({ title: `${dialogTitle("update.notes", simulation)} - ${info.version}`,
     lines: notes ? notes.split(/\r?\n/) : [T("update.notesEmpty")], plain: true, scroll: true, width: 2458,
     sharedButtonSize: true, buttons: [{ label: T("update.releasePage"), value: "page" },
       { label: T("display.close"), value: "dismiss" }] });
-  if (result.button === "page") await rpc("app.openReleasePage", { page: info.page });
+  if (result.button === "page") {
+    if (simulation) await onSimulatedPage?.();
+    else await rpc("app.openReleasePage", { page: info.page });
+  }
+}
+
+// Settings supplies the server's shared prerelease gate. Synthetic data never enters the updater service.
+export function simulate(host, prefs, notes = true) {
+  if (prefs?.prereleasePreviews !== true || checks.has(host)) return Promise.resolve(null);
+  return check(host, { current: prefs.version, version: "0.6.0", installable: true,
+    notes: notes ? T("update.simulation.sample") : "" }, { simulation: true });
 }
 
 // resolves with what closed the popup: "later" (Later or Escape), "page" (the download page opened) or "update" (a
 // failed update, once dismissed). A successful retry clears that failure; Restart quits the app on success.
 // null without a newer release, offline or when the popup cannot be drawn. Settings may pass its check's result.
-export function check(host, info, { onCheck, onError, beforeShow } = {}) {
+export function check(host, info, { onCheck, onError, beforeShow, simulation = false } = {}) {
   const observe = (checked) => {
     if (onCheck || onError) checked.then(onCheck, onError).catch((err) => console.error("update check", err));
   };
@@ -40,15 +52,15 @@ export function check(host, info, { onCheck, onError, beforeShow } = {}) {
   const done = checked.then(async (release) => {
     if (!release) return null;
     await beforeShow?.();
-    return show(host, release);
+    return show(host, release, { simulation });
   }, () => null).finally(() => checks.delete(host)); // automatic checks stay quiet when offline
   checks.set(host, { checked, done });
   return done;
 }
 
-function show(host, info) {
+function show(host, info, options) {
   return new Promise((resolve) => {
-    draw(host, info, resolve).catch((err) => {
+    draw(host, info, resolve, options).catch((err) => {
       console.error("update popup", err);
       host.hidden = true;
       host.innerHTML = "";
@@ -57,11 +69,11 @@ function show(host, info) {
   });
 }
 
-async function draw(host, info, resolve) {
+async function draw(host, info, resolve, { simulation = false } = {}) {
   host.hidden = false;
   let ended = false;
-  let phase = info.installable && info.downloaded ? "ready" : "offer";
-  let file = info.file, error = "", percent = 0, revision = 0;
+  let phase = !simulation && info.installable && info.downloaded ? "ready" : "offer";
+  let file = info.file, error = "", status = "", percent = 0, revision = 0;
   let buttons = [];
   const blocked = () => phase === "downloading" || phase === "installing";
   const close = (how) => {
@@ -84,7 +96,7 @@ async function draw(host, info, resolve) {
   Object.assign(bg.widgets[0], { w_: 1700, h_: 820 });
   find(bg, "Texture_Top").pos = [-850 + 248, 410 - 66];
   const title = find(bg, "Label_Title_Locale");
-  const tf = NGUI.fitText(T("update.title"), 72, 52, 1100);
+  const tf = NGUI.fitText(dialogTitle("update.title", simulation), 72, 52, 1100);
   Object.assign(title.widgets[0], { text: tf.text, fontSize: tf.fs, w_: 1200 });
   title.pos = [0, 410 - 64];
   find(title, "Line").widgets[0].w_ = NGUI.glyphWidth(tf.text, tf.fs) + 14;
@@ -98,7 +110,7 @@ async function draw(host, info, resolve) {
   for (const [name, x] of [["Btn_Cancel", -550], ["Btn_Notes", 0], ["Btn_Ok", 550]]) {
     find(btn, name).pos = [x, 0];
   }
-  const installable = info.installable;
+  const installable = simulation || info.installable;
   find(btn, "Btn_Cancel/Label_Locale").widgets[0].text = T("update.later");
   find(t, "BlackBg/BlackBgClickArea").widgets.find((w) => "sprite" in w).color = "#000000/0.65";
   // the two versions on the game's light stats box
@@ -136,7 +148,7 @@ async function draw(host, info, resolve) {
         controls.children[index] = Buttons.disable(controls.children[index]);
       }
     }
-    const text = error || (phase === "downloading" ? T("update.downloading", { p: percent })
+    const text = error || status || (phase === "downloading" ? T("update.downloading", { p: percent })
       : phase === "ready" ? T("update.complete") : phase === "installing" ? T("update.restarting") : "");
     const f = NGUI.fitText(text, 40, 30, 1250, 2);
     Object.assign(find(body, "Status").widgets[0], { text: f.text, fontSize: f.fs, color: error ? "#c74646/1.00" : "#2d4664/1.00" });
@@ -149,7 +161,9 @@ async function draw(host, info, resolve) {
     if (ended || rev !== revision) return;
     const hit = (name, fn, caption, action) => Popup.hit(next, view, `Center/Popup/Btn/${name}/BG (1)`, fn, { name: caption, action, z: 2100 });
     buttons = [hit("Btn_Cancel", () => close("later"), T("update.later"), "later"),
-      hit("Btn_Notes", () => releaseNotes(info).catch((err) => console.error("release notes", err)), T("update.notes"), "notes"),
+      hit("Btn_Notes", () => releaseNotes(info, { simulation, onSimulatedPage: async () => {
+        status = T("update.simulation.pageStatus"); await render();
+      } }).catch((err) => console.error("release notes", err)), T("update.notes"), "notes"),
       hit("Btn_Ok", () => act(action), okText, action)];
     for (const b of buttons) { b.disabled = locked; b.setAttribute("aria-disabled", String(locked)); }
     host.replaceChildren(...next.childNodes);
@@ -158,6 +172,12 @@ async function draw(host, info, resolve) {
   async function act(action) {
     if (ended || blocked()) return;
     if ((action === "update" && phase !== "offer") || (action === "restart" && phase !== "ready")) return;
+    // Intercept every simulated action before download, staged-file handling or native installation.
+    if (simulation) {
+      status = T("update.simulation.status");
+      await render();
+      return;
+    }
     if (!installable) {
       if (close("page")) rpc("app.openReleasePage", { page: info.page }).catch(() => {});
       return;

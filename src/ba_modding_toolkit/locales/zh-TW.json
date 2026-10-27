@@ -1272,7 +1272,16 @@
 			"page": "前往下載頁面",
 			"notes": "更新說明",
 			"notesEmpty": "暫無更新說明",
-			"releasePage": "前往發布頁"
+			"releasePage": "前往發布頁",
+			"simulation": {
+				"entry": "模擬更新提示",
+				"suffix": "（模擬）",
+				"choose": "選擇說明情境",
+				"empty": "無發布說明",
+				"sample": "模擬內容，非正式發布說明",
+				"status": "模擬，未安裝任何內容",
+				"pageStatus": "模擬，未開啟發布頁面"
+			}
 		},
 		"classic": {
 			"hint": "此功能尚未遷移，將在經典介面中開啟",

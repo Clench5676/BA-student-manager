@@ -1800,3 +1800,22 @@ def test_update_draft_preflight_precedes_native_timeout_and_reservation(app, ser
         release.set()
         assert installed.result(2) == {'result': True}
     assert len(update_env.installs) == 1
+
+
+@pytest.mark.parametrize('version, enabled', [
+    ('0.6.0-alpha.9', True), ('0.6.0-alpha.9-dev', True), ('0.6.0-dev', True),
+    ('0.6.0', False), ('0.6.0+build.9', False),
+])
+def test_both_review_features_share_the_running_version_gate(app, services, monkeypatch, version, enabled):
+    from ba_modding_toolkit.webui import tours
+    monkeypatch.setattr('ba_modding_toolkit.webui.api.get_version_info', lambda: {'version': version})
+    monkeypatch.setattr('ba_modding_toolkit.utils.get_version_info', lambda: {'version': version})
+    app.rpc = build_api(services)
+    tours.launch(services.state, '0.6.0-alpha.8', [])
+    services.tours_ready = True
+    prefs = rpc(app, 'settings.get')['result']
+    result = rpc(app, 'app.tours', launching=True)['result']
+    assert prefs['version'] == version
+    assert prefs['prereleasePreviews'] is enabled
+    assert bool(result['tours']) is enabled
+    assert bool(result['automatic']['pages']) is enabled
