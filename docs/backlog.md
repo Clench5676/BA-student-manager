@@ -1239,7 +1239,7 @@ remain for owner UAT; Windows is not natively reviewed.
 ## BL-056: AI-assisted refinement of official portraits (funnel)
 
 - Status: Funnel (2026-10-27): idea being refined with the owner; not designed, not scheduled.
-- Experiment report ready for owner review: [evidence and environment blockers](research/bl056-experiment.md).
+- Experiment report ready for owner review: [report and local image inventory](research/bl056-experiment.md).
 - Requested: 2026-10-27.
 - Related: the editor plan (portrait module before L2D; AI as an optional module with deferred dependencies), the
   portrait repair editor milestone, BL-016 through BL-018.
