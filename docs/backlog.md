@@ -1281,3 +1281,10 @@ Owner decisions (2026-10-27):
 - References for style repair: at first only other portraits from the game, of the same or another character.
 - Development: official images from the dev store may be sent to AI services for development; they must never be
   published on UGC platforms, committed or shipped.
+
+Owner decisions, continued (2026-10-27):
+
+- Engine: prefer Codex CLI with the user's ChatGPT subscription (most users have one and can spend its usage) over an
+  API key. Usage is not a concern for the experiment.
+- Upscaling really means restoring detail: most portraits are already large but very blurry, as if enlarged.
+- A previous Codex trial on Shiroko (Cycling) looked good; continue the experiment from there.
