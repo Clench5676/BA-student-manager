@@ -286,8 +286,73 @@ def nearest_colour(colour, seeds, query, *, radius=12, direction=None):
     return out, matched
 
 
+def despill_key_band(rgb, alpha, key, band, *, tolerance=4 / 255):
+    """Remove excess key chroma at every visible band pixel, including alpha 1.
+
+    Neighbour colours come from the same observation. Opaque, neutral thin ink
+    is a safe fallback seed when a narrow part has no deep interior. Removal
+    follows the positive RGB key vector and stops at neutral or the selected
+    interior chroma, so it cannot invent the key's complement or amplify RGB.
+    """
+    rgb = np.asarray(rgb, np.float32)
+    k = np.asarray(key, np.float32)
+    direction = k - k.mean()
+    direction /= max(float(np.linalg.norm(direction)), 1e-6)
+    high, low = k >= .5, k < .5
+    dominance = np.min(rgb[..., high], axis=-1) - np.max(rgb[..., low], axis=-1)
+    seeds = (alpha >= .98) & (~band | (dominance <= tolerance))
+    query = band & (alpha > 0) & ((rgb @ direction) > tolerance)
+    from .refine_cut import pushpull
+    fallback = pushpull(rgb, seeds)
+    out = rgb.copy()
+    # Removing spill can change the nearest palette entry. Re-evaluate that
+    # choice until stable; each step only removes positive key RGB.
+    for _ in range(4):
+        closest, matched = nearest_colour(out, seeds, query)
+        closest[query & ~matched] = fallback[query & ~matched]
+        allowed = np.maximum(closest @ direction, 0)
+        excess = np.maximum(out @ direction - allowed, 0)
+        amount = excess / max(float(k @ direction), 1e-6)
+        updated = out.copy()
+        updated[query] = np.clip(out[query] - amount[query, None] * k, 0, 1)
+        change = float(np.max(abs(updated - out)))
+        out = updated
+        if change < .25 / 255: break
+    return out
+
+
+def key_fringe_gate(image, key, *, density=1., max_rate=.001, band_native=3,
+                    lean_threshold=40., excess_threshold=8.):
+    """Visible spill towards the key, with opaque silhouette samples included."""
+    a = np.asarray(image.convert('RGBA'), np.float32)
+    rgb, alpha = a[..., :3], a[..., 3] / 255
+    outside = Image.fromarray(np.uint8(alpha < .5) * 255)
+    radius = max(1, round(band_native * density))
+    band = np.asarray(outside.filter(ImageFilter.MaxFilter(2 * radius + 1))) > 0
+    key = np.asarray(key, np.float32)
+    k = key / 255
+    direction = k - k.mean()
+    direction /= max(float(np.linalg.norm(direction)), 1e-6)
+    high, low = k >= .5, k < .5
+    visible = a[..., 3] > 128
+    lean = (np.min(rgb[..., high], axis=-1) > np.max(rgb[..., low], axis=-1) + lean_threshold) & visible
+    query = band & lean
+    interior = (alpha >= .98) & ~band
+    closest, matched = nearest_colour(rgb, interior, query)
+    excess = ((rgb - closest) @ direction) > excess_threshold
+    faults = query & (~matched | excess)
+    one_outside = np.asarray(outside.filter(ImageFilter.MaxFilter(3))) > 0
+    length = float(((alpha >= .5) & one_outside).sum())
+    rate = float(faults.sum() / max(length, 1.))
+    return {'visible_key_lean_pixels': int(lean.sum()), 'band_key_lean_pixels': int(query.sum()),
+            'band_key_excess_pixels': int(faults.sum()), 'band_key_unpaired_pixels': int((query & ~matched).sum()),
+            'key_outline_length_px': length, 'key_excess_per_outline_px': rate,
+            'max_key_excess_per_outline_px': max_rate, 'key_lean_threshold_255': lean_threshold,
+            'key_excess_threshold_255': excess_threshold, 'key_gate_passed': rate <= max_rate}
+
+
 def fringe_gate(image, key, *, reference=None, max_distance=48., max_complement_share=.02,
-                density=1., max_unpaired_rate=.001):
+                density=1., max_unpaired_rate=.001, max_key_rate=.001, band_native=3):
     """Measure outline colours, subtracting existing artwork's edge treatment.
 
     Raw distance and complement share remain visible. Gate excess over the same
@@ -342,7 +407,8 @@ def fringe_gate(image, key, *, reference=None, max_distance=48., max_complement_
     one_outside = np.asarray(outside.filter(ImageFilter.MaxFilter(3))) > 0
     outline_length = float(((alpha >= .5) & one_outside).sum())
     unpaired_rate = unpaired_changed / max(outline_length, 1.)
-    return {'outline_pixels': int(edge.sum()), 'paired_pixels': int(used.sum()),
+    key_report = key_fringe_gate(image, key, density=density, max_rate=max_key_rate, band_native=band_native)
+    return {**key_report, 'outline_pixels': int(edge.sum()), 'paired_pixels': int(used.sum()),
             'unmatched_pixels': int((edge & ~matched).sum()), 'unpaired_changed_pixels': unpaired_changed,
             'outline_length_px': outline_length, 'outline_length_native_px': outline_length / density,
             'unpaired_per_outline_px': unpaired_rate,
@@ -350,7 +416,7 @@ def fringe_gate(image, key, *, reference=None, max_distance=48., max_complement_
             'distance_p95_255': raw_p95, 'complement_share': raw_share,
             'excess_distance_p95_255': excess_p95, 'excess_complement_share': share,
             'max_distance_255': max_distance, 'max_complement_share': max_complement_share,
-            'passed': excess_p95 <= max_distance and share <= max_complement_share and unpaired_rate <= max_unpaired_rate}
+            'passed': excess_p95 <= max_distance and share <= max_complement_share and unpaired_rate <= max_unpaired_rate and key_report['key_gate_passed']}
 
 
 def frame_background(mask):

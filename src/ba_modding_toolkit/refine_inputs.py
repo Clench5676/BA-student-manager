@@ -20,7 +20,7 @@ from .refine_composite import compose, _rgba
 from .refine_cut import Pose, GateError, cut, _masks, subset, pushpull, join_band_gate
 from .refine_stitch import (stitch, native_movement, gross_disagreement, nearest_inside,
                             fringe_gate, double_edge_count, detail, frame_background,
-                            estimate_translation, translate_rgb)
+                            estimate_translation, translate_rgb, despill_key_band)
 
 
 @dataclass(frozen=True)
@@ -39,6 +39,7 @@ class InputParameters:
     gross_share: float = .1
     fringe_distance: float = 48.
     fringe_complement_share: float = .02
+    fringe_key_rate: float = .001
     silhouette_band_native: int = 3
     key_background_tolerance: float = 32.
     key_chroma_seed_tolerance: float = 4.
@@ -168,19 +169,20 @@ def key_image(image, official, key, *, parameters=None, density=1.):
     alpha[band] = np.clip(alpha[band] / p.alpha_normalisation, 0, 1)
     alpha[alpha >= p.alpha_snap] = 1
     soft = (alpha > 0) & (alpha < 1)
-    # Remove only the key's known coverage share. Never despill opaque pixels,
-    # and never divide foreground RGB by coverage.
-    # Never subtract more than either the matte's key share or the observed
-    # key-channel excess: subtracting neutral ink would create its complement.
-    key_share = np.minimum(1 - alpha, np.maximum(dominance, 0))
-    despilled = np.clip(c - key_share[..., None] * k, 0, 1)
     rgb = c.copy()
-    rgb[soft & (alpha >= .5)] = despilled[soft & (alpha >= .5)]
     rgb[soft & (alpha < .5)] = inside[soft & (alpha < .5)]
     rgb[alpha == 0] = 0
-    # Retain all identity RGB, including intentional colours under zero alpha.
+    # Identity observations keep hidden reference bytes. Changed images still
+    # require edge cleanup even when individual opaque observations are equal.
     retain = unchanged & (abs(alpha - ref[..., 3]) < .5 / 255)
     rgb[retain] = ref[..., :3][retain]
+    # Chroma cleanup covers every foreground/background boundary, including
+    # enclosed key gaps. Alpha's soft band remains frame-connected as before.
+    outside = Image.fromarray(np.uint8(alpha < .5) * 255)
+    chroma_band = np.asarray(outside.filter(ImageFilter.MaxFilter(2 * radius + 1))) > 0
+    rgb = despill_key_band(rgb, alpha, k, chroma_band,
+                          tolerance=p.key_chroma_seed_tolerance / 255)
+    colour_interior = ~chroma_band & ~definite
     pixels = np.uint8(np.rint(np.clip(np.dstack((rgb, alpha)), 0, 1) * 255))
     result = Image.fromarray(pixels)
     error = abs(pixels[..., 3].astype(float) - np.asarray(official)[..., 3])
@@ -189,9 +191,9 @@ def key_image(image, official, key, *, parameters=None, density=1.):
     return result, {'alpha_rmse_255': float(np.sqrt(np.mean(values ** 2))),
                     'alpha_p99_255': float(np.percentile(values, 99)),
                     'alpha_max_255': float(error.max()), 'outline_pixels': int(edge.sum()),
-                    'interior_pixels': int(interior.sum()),
+                    'interior_pixels': int(interior.sum()), 'colour_interior_pixels': int(colour_interior.sum()),
                     'interior_soft_pixels': int((interior & (pixels[..., 3] < 255)).sum()),
-                    'interior_colour_changed_pixels': int((interior & np.any(pixels[..., :3] != np.asarray(image.convert('RGB')), axis=-1)).sum()),
+                    'interior_colour_changed_pixels': int((colour_interior & np.any(pixels[..., :3] != np.asarray(image.convert('RGB')), axis=-1)).sum()),
                     'soft_outside_outline_band': int(((pixels[..., 3] > 0) & (pixels[..., 3] < 255) & ~band).sum())}
 
 
@@ -259,7 +261,7 @@ def _validate(p, density):
     for value in asdict(p).values():
         if not math.isfinite(value) or value <= 0:
             raise ValueError('Parameters must be finite and positive')
-    if max(p.alpha_snap, p.min_iou, p.gross_share, p.fringe_complement_share, p.contour_rate, p.unpaired_outline_rate) > 1:
+    if max(p.alpha_snap, p.min_iou, p.gross_share, p.fringe_complement_share, p.contour_rate, p.unpaired_outline_rate, p.fringe_key_rate) > 1:
         raise ValueError('Invalid alpha or IoU threshold')
 
 
@@ -606,7 +608,8 @@ def merge_inputs(plan_path, returned, output, *, diagnostic=False, base_only=Fal
         overlay.save(out / f'seam-paths-{len(targets)}.png')
         fringe = fringe_gate(target, plan['key_colour'], reference=official, max_distance=p.fringe_distance,
                              max_complement_share=p.fringe_complement_share, density=plan['density'],
-                             max_unpaired_rate=p.unpaired_outline_rate)
+                             max_unpaired_rate=p.unpaired_outline_rate, max_key_rate=p.fringe_key_rate,
+                             band_native=p.silhouette_band_native)
         report.setdefault('fringe', {})[pose['name']] = fringe
         if not fringe['passed']: report['failures'].append(pose['name'] + ':fringe')
         if not seam['crop_boundary']['passed']: report['failures'].append(pose['name'] + ':crop-boundary')
