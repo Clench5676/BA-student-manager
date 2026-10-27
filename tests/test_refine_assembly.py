@@ -253,3 +253,18 @@ def test_official_cycling_mod_is_accepted_and_identified_by_app_import(cycling_o
     assert files["shiroko_ridingsuit_spr.skel"] == inputs.skeletons["shiroko_ridingsuit_spr.skel"]
     with Image.open(BytesIO(files["shiroko_ridingsuit_spr.png"])) as image:
         assert image.size == expected.image.size and image.tobytes() == actual.tobytes()
+
+
+def test_projected_page_uses_k4_packer_and_rejects_alpha_or_outside_changes(tmp_path):
+    from ba_modding_toolkit.refine_assembly import Assembly
+    text=atlas_text([('page.png',(20,18),[('body',-1,(4,3),(6,4),(6,4),(0,0),0)])])
+    source=write_bundle(tmp_path/'official'/NAME,{'hero.atlas':text},{'page':page()})
+    original=remap.read_inputs([source]).textures['page']
+    candidate=original.resize((40,36),Image.Resampling.NEAREST);candidate.putpixel((10,8),(100,120,140,candidate.getpixel((10,8))[3]))
+    result=assemble_mod([source],candidate,tmp_path/'valid',atlas_name='hero.atlas',page_name='page.png',scale=2,projected=Assembly(candidate,{'composite':True}))
+    assert result['composite'] and result['texture_format']==4
+    assert remap.read_inputs([tmp_path/'valid'/result['bundle']]).textures['page'].tobytes()==candidate.tobytes()
+    for label,xy,colour,message in [('alpha',(10,8),(100,120,140,7),'alpha'),('outside',(0,0),(1,2,3,candidate.getpixel((0,0))[3]),'outside')]:
+        bad=candidate.copy();bad.putpixel(xy,colour)
+        with pytest.raises(ValueError,match=message):
+            assemble_mod([source],bad,tmp_path/label,atlas_name='hero.atlas',page_name='page.png',scale=2,projected=Assembly(bad,{}))
