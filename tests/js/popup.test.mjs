@@ -2189,37 +2189,136 @@ test('source cards use the state badge and fitted locale caption in every picker
 });
 
 
-test('shipped text-only tour copy fits the notice geometry in every locale, window and density', async () => {
+test('shipped text-only tours use one fitted message frame in every locale, window and density', async () => {
   const NGUI = await import('../../src/ba_modding_toolkit/web/js/ngui.js');
   await Popup.ready();
   try {
     for (const lang of ['en-US', 'zh-CN', 'zh-TW', 'ja-JP', 'ko-KR', 'th-TH']) {
       const ui = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${lang}.json`, import.meta.url))).webui;
       setStrings(lang, Object.fromEntries(strings(ui)));
-      const pages = Object.entries(ui.tours.v0_6_0);
-      assert.deepEqual(pages.map(([id]) => id), ['student-thumbnails', 'hall-viewing-zoom']);
-      for (const [index, [, { title, body: copy }]] of pages.entries()) {
-        const tree = Tours.pageTree({ version: '0.6.0', title, body: copy }, index, 2);
+      const pages = Object.entries(ui.tours.v0_6_0).map(([id, copy]) => ({ id, version: '0.6.0', ...copy }));
+      assert.deepEqual(pages.map(({ id }) => id), ['student-thumbnails', 'hall-viewing-zoom']);
+      const size = Tours.pageSize(pages);
+      const confirmation = Popup.messageLayout({ lines: [ui.error.asset_delete_confirm], ok: ui.photo.delete, cancel: ui.popup.cancel });
+      assert.equal(size.width, confirmation.width, 'ordinary message width, including the photo delete confirmation');
+      assert.equal(size.width, 1700);
+      assert.ok(size.height >= confirmation.height && size.height < Tours.GEOMETRY.height);
+      const individual = pages.map((page, i) => NGUI.find(Tours.pageTree(page, i, pages.length), 'Popup/Base/BG').widgets[0].h_);
+      assert.equal(size.height, Math.max(...individual), 'the longest localized page determines the frame');
+      for (const [index, page] of pages.entries()) {
+        const { title, body: copy } = page;
+        const tree = Tours.pageTree(page, index, pages.length, size);
         const popup = NGUI.find(tree, 'Popup');
+        const frame = NGUI.find(popup, 'Base/BG').widgets[0], controls = NGUI.find(popup, 'Btn');
+        assert.deepEqual([frame.w_, frame.h_], [size.width, size.height]);
         assert.equal(NGUI.find(popup, 'ImageSlot'), null);
         assert.equal(NGUI.find(popup, 'Caption'), null);
-        for (const [path, original] of [['FeatureTitle', title], ['FeatureBody', copy]]) {
+        const large = NGUI.find(Tours.pageTree({ ...page, image: '/tours/app-ui.png' }, index, pages.length), 'Popup');
+        assert.deepEqual(controls.children, NGUI.find(large, 'Btn').children, 'footer widgets, captions and states are unchanged');
+        const bodies = ['Btn_Cancel', 'Btn_Ok'].map((name) => NGUI.find(controls, `${name}/BG (1)`));
+        for (const [i, name] of ['Btn_Cancel', 'Btn_Ok'].entries()) {
+          assert.deepEqual(NGUI.find(controls, name).pos, [i ? 292 : -292, 0], 'UIPopup_Sort button spacing');
+          assert.deepEqual(bodies[i].pos, [0, -4]);
+          assert.deepEqual([bodies[i].widgets[0].w_, bodies[i].widgets[0].h_], [496, 177], 'UIPopup_Sort button size');
+        }
+        const close = NGUI.find(popup, 'Base/BG/Btn_Close');
+        assert.equal(close.active, true);
+        assert.deepEqual(close.widgets, NGUI.find(large, 'Base/BG/Btn_Close').widgets);
+        assert.deepEqual(close.pos, [frame.w_ / 2 - 90, frame.h_ / 2 - 60]);
+        const heading = NGUI.find(popup, 'Base/BG/Label_Title_Locale');
+        assert.equal(heading.widgets[0].text.replace(/\s/g, ''), `${ui.tour.title} - 0.6.0`.replace(/\s/g, ''));
+        const counter = ui.tour.count.replace('{page}', String(index + 1)).replace('{total}', '2');
+        let previousBottom = Popup.FRAME_Y + heading.pos[1] - heading.widgets[0].h_ / 2;
+        for (const [path, original] of [['Count', counter], ['FeatureTitle', title], ['FeatureBody', copy]]) {
           const node = NGUI.find(popup, path), w = node.widgets[0];
           assert.equal(w.text.replace(/\s/g, ''), original.replace(/\s/g, ''));
-          assert.ok(w.fontSize >= (path === 'FeatureTitle' ? 44 : 40));
-          assert.ok(w.text.split('\n').length <= (path === 'FeatureTitle' ? 2 : 3));
+          assert.ok(w.fontSize >= (path === 'FeatureTitle' ? 44 : 40), `${lang}: ${path} font floor`);
+          assert.ok(w.text.split('\n').length * NGUI.fontSizeFor(w.text, w.fontSize) * NGUI.LINE_PITCH <= w.h_, `${lang}: ${path} text height`);
+          assert.ok(node.pos[1] + w.h_ / 2 < previousBottom, `${lang}: ${path} clears the preceding text`);
+          previousBottom = node.pos[1] - w.h_ / 2;
           for (const [width, height] of [[960, 540], [1600, 900], [2560, 1440]]) for (const density of [1, 2]) {
             const scale = Math.min(width / 1920, height / 1080) * S * density;
+            const left = width * density / 2 - frame.w_ / 2 * scale;
+            const top = height * density / 2 - (Popup.FRAME_Y + frame.h_ / 2) * scale;
+            assert.ok(left >= 0 && left + frame.w_ * scale <= width * density);
+            assert.ok(top >= 0 && top + frame.h_ * scale <= height * density);
             for (const line of w.text.split('\n')) assert.ok(NGUI.glyphWidth(line, w.fontSize) * scale <= w.w_ * scale);
-            assert.ok((Math.abs(node.pos[0]) + w.w_ / 2) * scale < Tours.GEOMETRY.width / 2 * scale);
-            assert.ok((Math.abs(node.pos[1]) + w.h_ / 2) * scale < Tours.GEOMETRY.height / 2 * scale);
-            const controls = NGUI.find(popup, 'Btn');
-            assert.ok((node.pos[1] - w.h_ / 2) * scale > (controls.pos[1] + 177 / 2) * scale);
+            assert.ok((Math.abs(node.pos[0]) + w.w_ / 2) * scale < frame.w_ / 2 * scale);
+            assert.ok((Math.abs(node.pos[1] - Popup.FRAME_Y) + w.h_ / 2) * scale < frame.h_ / 2 * scale);
+            assert.ok((node.pos[1] - w.h_ / 2) * scale > (controls.pos[1] + bodies[0].pos[1] + bodies[0].widgets[0].h_ / 2) * scale);
           }
         }
       }
+      const opened = Tours.show(pages, ['0.6.0']);
+      await drawn(dialog, 'next');
+      const renderedFrame = () => walk(dialog).find((el) => el.dataset.path === 'Center/Popup/Base/BG');
+      const firstBounds = NGUI.rect(renderedFrame());
+      assert.equal(firstBounds[2], Number((size.width * S).toFixed(2)));
+      assert.equal(firstBounds[3], Number((size.height * S).toFixed(2)));
+      action(dialog, 'next').click();
+      await until(() => action(dialog, 'previous')?.disabled === false);
+      assert.deepEqual(NGUI.rect(renderedFrame()), firstBounds, 'actual navigation preserves the frame');
+      action(dialog, 'close').click(); await opened;
     }
   } finally { setStrings('en-US', Object.fromEntries(strings(english))); }
+});
+
+test('illustrated and mixed tours retain the original geometry, including a missing image', async () => {
+  const NGUI = await import('../../src/ba_modding_toolkit/web/js/ngui.js');
+  await Popup.ready();
+  const pages = [tourPages[0], { ...tourPages[1], image: '/tours/missing-ui.png', caption: 'App controls' }];
+  const size = Tours.pageSize(pages);
+  assert.deepEqual(size, { width: 2458, height: 1400, image: [-1000, -400, 2000, 500] });
+  for (const [i, page] of pages.entries()) {
+    const popup = NGUI.find(Tours.pageTree(page, i, pages.length, size), 'Popup');
+    assert.deepEqual([NGUI.find(popup, 'Base/BG').widgets[0].w_, NGUI.find(popup, 'Base/BG').widgets[0].h_], [2458, 1400]);
+    assert.deepEqual(NGUI.find(popup, 'Count').pos, [0, 520]);
+    assert.deepEqual(NGUI.find(popup, 'FeatureTitle').pos, [0, page.image ? 405 : 300]);
+    assert.deepEqual(NGUI.find(popup, 'FeatureBody').pos, [0, page.image ? 220 : -40]);
+    assert.equal(NGUI.find(popup, 'FeatureTitle').widgets[0].w_, 2100);
+    assert.deepEqual(NGUI.find(popup, 'Btn').pos, [0, -590]);
+    if (page.image) {
+      const slot = NGUI.find(popup, 'ImageSlot');
+      assert.deepEqual(slot.pos, [0, -150]);
+      assert.deepEqual([slot.widgets[0].w_, slot.widgets[0].h_], [2000, 500]);
+      assert.deepEqual(NGUI.find(popup, 'Caption').pos, [0, -445]);
+    }
+  }
+  const opened = Tours.show(pages, ['0.6.0']);
+  await drawn(dialog, 'next');
+  const frame = () => NGUI.rect(walk(dialog).find((el) => el.dataset.path === 'Center/Popup/Base/BG'));
+  const initial = frame();
+  action(dialog, 'next').click();
+  await until(() => action(dialog, 'previous')?.disabled === false);
+  assert.deepEqual(frame(), initial);
+  const image = walk(dialog).find((el) => el.tagName === 'IMG');
+  assert.deepEqual([image.style.left, image.style.top, image.style.width, image.style.height],
+    [`${960 - 1000 * S}px`, `${540 - 100 * S}px`, `${2000 * S}px`, `${500 * S}px`]);
+  image.onerror();
+  assert.deepEqual(frame(), initial);
+  action(dialog, 'close').click(); await opened;
+});
+
+test('tour frame height grows for longer copy and is scoped to its version', async () => {
+  const NGUI = await import('../../src/ba_modding_toolkit/web/js/ngui.js');
+  await Popup.ready();
+  const pages = [tourPages[0], { ...tourPages[1], body: 'A longer explanation of the feature. '.repeat(12).trim() }];
+  const size = Tours.pageSize(pages);
+  assert.ok(size.height > Tours.pageSize([pages[0]]).height);
+  assert.deepEqual(Tours.pageSize([...pages].reverse()), size);
+  const earlier = { ...tourPages[0], version: '0.5.0', image: '/tours/app-ui.png' };
+  const opened = Tours.show([...pages, earlier], ['0.6.0', '0.5.0']);
+  await drawn(dialog, 'next');
+  const frame = () => NGUI.rect(walk(dialog).find((el) => el.dataset.path === 'Center/Popup/Base/BG'));
+  const initial = frame();
+  assert.equal(initial[3], Number((size.height * S).toFixed(2)));
+  action(dialog, 'next').click();
+  await until(() => walk(dialog).some((el) => el.textContent.includes('A longer explanation')));
+  assert.deepEqual(frame(), initial);
+  action(dialog, 'next').click();
+  await until(() => !!walk(dialog).find((el) => el.tagName === 'IMG'));
+  assert.equal(frame()[3], Number((Tours.GEOMETRY.height * S).toFixed(2)));
+  action(dialog, 'close').click(); await opened;
 });
 
 

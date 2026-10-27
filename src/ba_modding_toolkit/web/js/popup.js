@@ -766,6 +766,7 @@ const MSG = { title: 150, gap: 28, rowMin: 104, check: 150, buttons: 236, none: 
 // checkbox's state then (null without one).
 //   lines: text, or {text, button: {label, fn}} for a line with a small button at its end (fn({close}), where
 //          close(button) closes the popup); with such a line every line shows as a row of the game's light box
+//          fontSize/minFontSize optionally keep a row's existing type size (the tour counter and body).
 //   fitTogether: line indices fitted at one shared size, using the smallest fit within the popup's size floor
 //   plain: left-aligned lines without a box or separators, including lines with a button at the right
 //   ok, cancel: the buttons' labels (either may be left out); check: {label, checked}
@@ -857,7 +858,7 @@ function messageLines(lines, w, fitTogether, plain) {
     const bf = r.button ? fitText(r.button.label, 40, 28, 340) : null;
     const bw = bf ? Math.max(230, glyphsOf(bf.text, bf.fs) + 90) : 0;
     const room = w - (boxed ? 280 : 240) - (bw ? bw + 30 : 0);
-    return { r, bf, bw, room, f: messageText(r.text, max, min, room) };
+    return { r, bf, bw, room, f: messageText(r.text, r.fontSize ?? max, r.minFontSize ?? min, room) };
   });
   const group = fitTogether.map((i) => fitted[i]).filter(Boolean);
   if (group.length) {
@@ -893,7 +894,21 @@ function messageLines(lines, w, fitTogether, plain) {
   return { tree: node("Lines", [0, 0], [], out), height: boxed ? boxH : Math.max(0, -y - 16), buttons };
 }
 
-async function showMessage({ title = "", lines = [], ok = null, cancel = null, buttons = null, sharedButtonSize = false, check = null, host: hostArg = "dialog", width = 1700, close: dismissable = true, confirmKeys = null, fitTogether = [], scroll = false, plain = false }, resolve) {
+// Shared by ordinary messages and text-only tours, including row fitting, frame padding and footer clearance.
+export function messageLayout({ lines = [], width = 1700, ok = null, cancel = null, buttons = null, check = null,
+  fitTogether = [], scroll = false, plain = false } = {}) {
+  const body = messageLines(lines, width, fitTogether, plain);
+  const hasButtons = !!(ok || cancel || buttons?.length);
+  const need = MSG.title + body.height + (check ? MSG.check : 0) + MSG.gap + (hasButtons ? MSG.buttons : MSG.none);
+  const height = Math.min(scroll ? 1400 : Infinity, Math.max(MSG.minH, need));
+  const top = FRAME_Y + height / 2 - MSG.title, bottom = FRAME_Y - height / 2 + (hasButtons ? MSG.buttons : MSG.none);
+  const visible = Math.min(body.height, top - bottom - (check ? MSG.check : 0));
+  const used = (scroll ? visible : body.height) + (check ? MSG.check : 0);
+  const y0 = top - Math.max(0, (top - bottom - used) / 2);
+  return { body, width, height, visible, y0 };
+}
+
+async function showMessage({ title = "", lines = [], ok = null, cancel = null, buttons = null, sharedButtonSize = false, check = null, host: hostArg = "dialog", width, close: dismissable = true, confirmKeys = null, fitTogether = [], scroll = false, plain = false }, resolve) {
   const host = hostOf(hostArg);
   const layer = document.createElement("div");
   layer.className = "popup-layer";
@@ -932,33 +947,26 @@ async function showMessage({ title = "", lines = [], ok = null, cancel = null, b
     return;
   }
   try {
-    const body = messageLines(lines, width, fitTogether, plain);
-    const hasButtons = !!(ok || cancel || buttons?.length);
-    const need = MSG.title + body.height + (state ? MSG.check : 0) + MSG.gap + (hasButtons ? MSG.buttons : MSG.none);
-    const h = Math.min(scroll ? 1400 : Infinity, Math.max(MSG.minH, need));
-    const t = popupFrame(title, width, h, { ok, cancel, buttons, sharedButtonSize, close: dismissable });
+    const { body, width: w, height, visible, y0 } = messageLayout({ lines, width, ok, cancel, buttons, check: state, fitTogether, scroll, plain });
+    const t = popupFrame(title, w, height, { ok, cancel, buttons, sharedButtonSize, close: dismissable });
     const popup = find(t, "Popup");
     // the content in the middle of the room between the title and the buttons
-    const top = FRAME_Y + h / 2 - MSG.title, bottom = FRAME_Y - h / 2 + (hasButtons ? MSG.buttons : MSG.none);
-    const visible = Math.min(body.height, top - bottom - (state ? MSG.check : 0));
-    const used = (scroll ? visible : body.height) + (state ? MSG.check : 0);
-    const y0 = top - Math.max(0, (top - bottom - used) / 2);
     if (!scroll) {
       body.tree.pos = [0, y0];
       popup.children.push(body.tree);
     }
     if (state) {
-      const cb = checkbox("Check", 0, y0 - (scroll ? visible : body.height) - MSG.check / 2 - 10, state.label, state.checked, width - 300);
+      const cb = checkbox("Check", 0, y0 - (scroll ? visible : body.height) - MSG.check / 2 - 10, state.label, state.checked, w - 300);
       cb.tree.pos[0] = -cb.w / 2;
       popup.children.push(cb.tree);
     }
     const next = document.createElement("div");
     const view = await NGUI.render(t, next, { scale: S, origin: [960, 540], z: 10 });
-    const bodyHost = scroll ? scrollArea(next, [960 - (width - 120) * S / 2, 540 - y0 * S,
-      (width - 120) * S, visible * S], body.height * S) : next;
+    const bodyHost = scroll ? scrollArea(next, [960 - (w - 120) * S / 2, 540 - y0 * S,
+      (w - 120) * S, visible * S], body.height * S) : next;
     await bodyHost.ready;
     const bodyView = scroll ? await NGUI.render(body.tree, bodyHost,
-      { scale: S, origin: [(width - 120) * S / 2, 0], z: 10 }) : view;
+      { scale: S, origin: [(w - 120) * S / 2, 0], z: 10 }) : view;
     if (ended) return;
     for (const [index, action] of (buttons || []).entries()) hit(next, view, `Center/Popup/Btn/Choice_${index}/BG (1)`, () => finish(action.value), { name: action.label, action: action.value });
     if (ok) hit(next, view, "Center/Popup/Btn/Btn_Ok/BG (1)", () => finish("ok"), { name: ok, action: "ok" });

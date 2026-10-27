@@ -51,6 +51,12 @@ def test_review_controls_use_official_popup_and_settings_nodes(request, tmp_path
     game = GameAssets(official.resource_dirs, cache)
     official.require_layout('UIPopup_Sort')
     tree = game.layout('UIPopup_Sort')
+    assert subtree(tree, 'Center/Popup/Base')['pos'] == [0, -20]
+    assert subtree(tree, 'Center/Popup/Btn')['pos'] == [0, -499]
+    close = subtree(tree, 'Center/Popup/Base/BG/Btn_Close')
+    assert close['pos'] == [1144, 616]
+    icon = next(w for w in close['widgets'] if 'sprite' in w)
+    assert [icon[k] for k in ('sprite', 'w_', 'h_', 'pivot')] == ['Common_Icon_Close', 60, 60, 4]
     title = subtree(tree, 'Center/Popup/Base/BG/Label_Title_Locale')
     assert title['pos'] == [0, 611]
     assert [title['widgets'][0][k] for k in ('w_', 'h_', 'fontSize', 'pivot')] == [146, 72, 72, 4]

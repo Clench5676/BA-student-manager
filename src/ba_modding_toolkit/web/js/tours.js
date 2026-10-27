@@ -23,10 +23,25 @@ function fitCopy(text, max, min, width, limit) {
   return fitted;
 }
 
+function textLayout(page, index, count) {
+  return Popup.messageLayout({ ok: true, cancel: true, lines: [
+    { text: T("tour.count", { page: index + 1, total: count }), fontSize: 40, minFontSize: 40, color: "#506e8e" },
+    { text: page.title },
+    { text: page.body, fontSize: 48, minFontSize: 40 },
+  ] });
+}
+
+// A tour keeps the longest localized page's message size; an illustration keeps the original large frame.
+export function pageSize(pages) {
+  if (pages.some((page) => page.image)) return GEOMETRY;
+  const layouts = pages.map((page, index) => textLayout(page, index, pages.length));
+  return { width: layouts[0].width, height: Math.max(...layouts.map((layout) => layout.height)) };
+}
+
 // Every caption wraps before shrinking within the popup's range; sibling controls use one font size.
-export function pageTree(page, index, count) {
+export function pageTree(page, index, count, size = pageSize([page])) {
   const previous = T("tour.previous"), next = T(index === count - 1 ? "tour.finish" : "tour.next");
-  const tree = Popup.popupFrame(`${T("tour.title")} - ${page.version}`, GEOMETRY.width, GEOMETRY.height,
+  const tree = Popup.popupFrame(`${T("tour.title")} - ${page.version}`, size.width, size.height,
     { cancel: previous, ok: next });
   const popup = find(tree, "Popup"), controls = find(popup, "Btn");
   find(controls, "Btn_Ok").actionSemantic = index === count - 1 ? "finish" : "navigation";
@@ -37,6 +52,13 @@ export function pageTree(page, index, count) {
   }
   if (index === 0) controls.children[controls.children.findIndex((child) => child.name === "Btn_Cancel")] = Buttons.disable(find(controls, "Btn_Cancel"));
   find(popup, "Base/BG/Label_Title_Locale").widgets[0].h_ = 100;
+  if (!size.image) {
+    const { body, y0 } = textLayout(page, index, count);
+    const names = ["Count", "FeatureTitle", "FeatureBody"];
+    body.tree.children.forEach((child, i) => { child.name = names[i]; child.pos[1] += y0; });
+    popup.children.push(...body.tree.children);
+    return tree;
+  }
   const title = fitCopy(page.title, 52, 44, 2100, 2);
   const body = fitCopy(page.body, 48, 40, 2100, 3);
   const bodyHeight = body.lines * body.fs * 1.3 + 12;
@@ -108,7 +130,7 @@ function view(pages, versions) {
     const draw = async () => {
       rendering = true;
       const page = pages[index], next = document.createElement("div");
-      const tree = pageTree(page, index, pages.length);
+      const tree = pageTree(page, index, pages.length, pageSize(pages.filter((candidate) => candidate.version === page.version)));
       const rendered = await NGUI.render(tree, next, { scale: S, origin: [960, 540], z: 10 });
       if (ended) return;
       const previous = Popup.hit(next, rendered, "Center/Popup/Btn/Btn_Cancel/BG (1)", () => move(-1), { name: T("tour.previous"), action: "previous" });
