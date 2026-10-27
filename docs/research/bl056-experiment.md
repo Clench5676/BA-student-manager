@@ -1162,3 +1162,165 @@ context window; and no automatic text, identity or style recognition. Hoshino ha
 The owner must visually accept line crispness, lettering, expression character, backdrop removal and
 fringes, crop transitions, consistency between generated expressions and the head, animation reveals and
 the final appearance in the game. No numerical control here establishes those visual results.
+
+## 13. K8: R1c stopped at the frame/crop-plan check
+
+R1c was not generated or built. The unchanged planner reproduced K7's three base crops, but its default
+unmasked frame does not match K5's boxed expression targets. Supplying K5's frame instead requires four
+base crops. That cannot fit this run's three-generation budget: the one extra call is reserved for a
+retry after a rejected crop. No retry was used. This is a verified input/budget conflict, not evidence
+of a failed generation, failed numerical gate or exception inside the engine.
+
+### Method and stop trace
+
+The official portrait is `shiroko_ridingsuit_spr`, read only from the verified development view. Its
+atlas, skeleton and decoded page match the supplied K6 inputs exactly. The public runtime's pose
+listing supplied `base`: `Idle_01` at time zero on track 0, and `00` at time zero on track 1, both
+looping. Every base attachment vertex is identical to K5's setup geometry (maximum difference 0).
+No attachment-only posing was substituted. Nine listed poses supplied switching-slot metadata for
+planning; only the base crops were candidates for generation. K5's six expression targets were retained
+as supplied, with their original setup geometries and boxes; they were never moved or resampled.
+
+Both plans use `plan_inputs` with the unchanged defaults: master density 2, pixel budget 1,573,000,
+overlap 64, head context 0.65, feather 48, and `detail-crisp-lines` v1. The frame-matched plan alone
+supplies the frame from K5's `base-frame.json`; the comparison plan leaves frame selection at its
+default. Both select key RGB(255, 0, 255), mask `halo1` through `halo4`, and identify switching slots
+`00_default` and `eyeclose`.
+
+| Candidate | World frame (left, bottom, right, top) | Master size | Base crops |
+| --- | --- | --- | ---: |
+| K7 default, unmasked | -666, -791, 978, 1330 | 1513 x 1952 | 3 |
+| K5 expression frame | -666, -791, 978, 1420 | 1513 x 2035 | 4 |
+
+The driver first requested the K5 frame to satisfy the expression-frame requirement, then stopped at:
+
+```python
+assert len([c for c in plan['crops'] if c['pose'] == 'base']) == 3
+# AssertionError: the returned plan has four base crops.
+```
+
+The engine returned a valid plan; the assertion belongs to the run driver. A comparison plan
+then confirmed the three-crop K7 result. The 90-world-unit top difference is **82.825053845 master
+pixels** at the recorded screen scale of 0.920278376. It is not an integer-pixel translation. Passing
+K5's boxes unchanged into the default frame would address different pixels. Shifting by 83 pixels
+would still change the sampling phase; resizing the base target into K5's frame would change scale.
+Neither operation was performed.
+
+With K5's frame, two body tiles stacked vertically each need **1513 x 1050 = 1,588,650 pixels**;
+two placed horizontally each need **789 x 2035 = 1,605,615 pixels**. Both exceed the fixed 1,573,000
+planning budget at master density. The planner therefore correctly chooses three body tiles plus the
+head. The returned-image budget tolerance does not change the planning limit. No parameter, crop,
+template, engine source or generation budget was changed to force a three-crop result.
+
+### Planned inputs and filled prompts, unsubmitted
+
+Boxes are half-open master coordinates. Each candidate plan has its own origin, as recorded above.
+
+| Plan | Crop id | Role | Box | Density | Input size |
+| --- | --- | --- | --- | ---: | --- |
+| K7 default | crop-0-0 | head | 338, 93, 756, 476 | 6.269124x | 1311 x 1201 |
+| K7 default | crop-0-1 | body | 0, 0, 1513, 1008 | 2.031162x | 1537 x 1024 |
+| K7 default | crop-0-2 | body | 0, 944, 1513, 1952 | 2.031162x | 1537 x 1024 |
+| K5 frame | crop-0-0 | head | 338, 176, 756, 559 | 6.269124x | 1311 x 1201 |
+| K5 frame | crop-0-1 | body | 0, 0, 1513, 721 | 2.401636x | 1817 x 866 |
+| K5 frame | crop-0-2 | body | 0, 657, 1513, 1378 | 2.401636x | 1817 x 866 |
+| K5 frame | crop-0-3 | body | 0, 1314, 1513, 2035 | 2.401636x | 1817 x 866 |
+
+All filled base prompts are preserved verbatim below. Identical strings are mapped explicitly to each
+crop, so repeated text is printed once. None was submitted. Had generation been reached, each call
+would have referenced only that crop's input and requested an opaque return.
+
+Head prompt: `crop-0-0` in both candidate plans:
+
+```text
+Use case: precise-object-edit. Edit target: image 1, the supplied head crop in pose base, at 1311 x 1201. Remove ONLY blur and compression softness from the existing drawing; re-render the existing lines crisply at this exact size. Keep every line on its original path, with its original width and shape. Preserve exactly all existing features and their exact coordinates. Preserve all lettering verbatim, colours, shading, outlines, object positions, expression, pose, framing, aspect ratio and crop. Invent nothing. The plain RGB(255, 0, 255) backdrop must stay flat and unchanged, including every gap. Repeat: keep the same lines, lettering, colours, framing, aspect ratio and crop; only remove blur and compression softness. Return the same complete opaque image at the supplied size.
+```
+
+Body prompt: K7-default `crop-0-1` and `crop-0-2` (identical):
+
+```text
+Use case: precise-object-edit. Edit target: image 1, the supplied body crop in pose base, at 1537 x 1024. Remove ONLY blur and compression softness from the existing drawing; re-render the existing lines crisply at this exact size. Keep every line on its original path, with its original width and shape. Preserve exactly all existing features and their exact coordinates. Preserve all lettering verbatim, colours, shading, outlines, object positions, expression, pose, framing, aspect ratio and crop. Invent nothing. The plain RGB(255, 0, 255) backdrop must stay flat and unchanged, including every gap. Repeat: keep the same lines, lettering, colours, framing, aspect ratio and crop; only remove blur and compression softness. Return the same complete opaque image at the supplied size.
+```
+
+Body prompt: K5-frame `crop-0-1`, `crop-0-2` and `crop-0-3` (identical):
+
+```text
+Use case: precise-object-edit. Edit target: image 1, the supplied body crop in pose base, at 1817 x 866. Remove ONLY blur and compression softness from the existing drawing; re-render the existing lines crisply at this exact size. Keep every line on its original path, with its original width and shape. Preserve exactly all existing features and their exact coordinates. Preserve all lettering verbatim, colours, shading, outlines, object positions, expression, pose, framing, aspect ratio and crop. Invent nothing. The plain RGB(255, 0, 255) backdrop must stay flat and unchanged, including every gap. Repeat: keep the same lines, lettering, colours, framing, aspect ratio and crop; only remove blur and compression softness. Return the same complete opaque image at the supplied size.
+```
+
+### Metrics and available review material
+
+R1c has no generated target, cut page, packed bundle or import result. Every generation-dependent gate
+is **not reached**, rather than passed. R1b's values below are the saved K6 golden measurements; the
+page and all seven saved renders were checked byte for byte before using them as references.
+
+| Metric | R1b | R1c |
+| --- | ---: | --- |
+| Crop-overlap RGB RMSE, limit 2/255 | N/A: no crop merge | Not reached |
+| Per-crop movement IoU / line-offset p95 | N/A: no K7 crop returns | Not reached |
+| Identity key alpha RMSE / p99 | N/A: no keying | Not reached |
+| Crop-boundary band / matched-interior ratio | N/A: no crop merge | Not reached |
+| Waist join band / matched-interior RMSE | 9.221266 / 9.799933 | Not reached |
+| Waist join ratio, limit 1 | 0.940952 | Not reached |
+| Face-edge join band / matched-interior RMSE | 6.478621 / 10.923400 | Not reached |
+| Face-edge join ratio, limit 1 | 0.593096 | Not reached |
+| Front-hair join band / matched-interior RMSE | 6.590058 / 8.323697 | Not reached |
+| Front-hair join ratio, limit 1 | 0.791722 | Not reached |
+| Base silhouette IoU against generated target | 0.992023 | Not reached |
+| Base visible RGB RMSE against generated target | 6.980021 | Not reached |
+| Masked / outside-allowed / alpha-outside-mesh changed texels | 0 / 0 / 0 | Not reached |
+
+R1b's remaining saved target-pose gates, measured only within their boxed targets:
+
+| Pose | Visible RGB RMSE | Silhouette IoU | Face-edge ratio | Front-hair ratio |
+| --- | ---: | ---: | ---: | ---: |
+| 02_respond | 19.529953 | 1.000000 | 0.294272 | 0.630463 |
+| 03_smile | 25.611254 | 1.000000 | 0.423835 | 0.811787 |
+| 04_embarrassed | 23.686676 | 1.000000 | 0.434806 | 0.598459 |
+| 05_serious | 24.902100 | 1.000000 | 0.370404 | 0.801180 |
+| 06_depressed | 19.113602 | 1.000000 | 0.488133 | 0.687695 |
+| eyeclose | 24.754259 | 1.000000 | 0.387043 | 0.683130 |
+
+Their waist bands contain zero target pixels; the engine records ratio 0 by convention. These are
+historical K6 results, not a new acceptance of R1b or a successful R1c gate.
+
+Sharpness was measured as the mean squared four-neighbour Laplacian of BT.601 luminance in 0-255
+units. Both images use the same support: official unmasked alpha at least 253, eroded one pixel.
+The head box is **338, 176, 756, 559** in K5's frame; body is the remaining opaque support, including
+the bicycle. There are 112,664 head samples and 813,721 body samples. This measure responds to pixel-grid
+edges as well as drawing detail, so a larger value alone does not establish better visual quality.
+
+| Composite | Head, squared luminance units | Body, squared luminance units |
+| --- | ---: | ---: |
+| Official | 780.866102 | 723.539312 |
+| R1b | 525.008413 | 437.733869 |
+| R1c | Not generated | Not generated |
+
+R1c generation calls: **0**, retry calls: **0**, generation time: **0 seconds**, returned sizes: **none**.
+R1b made no new calls; its inherited R1 base generation returned 1081 x 1455 in 52.350 seconds.
+Its inherited expression sizes and wall times are retained from section 9: respond 1385 x 1136 / 84.772 s;
+smile 1414 x 1112 / 118.825 s; embarrassed 1362 x 1155 / 180.357 s; serious 1422 x 1106 / 275.675 s;
+depressed 1451 x 1084 / 237.363 s; eye-close 1333 x 1180 / 323.434 s. Those times include queueing.
+Image-tool automatic copies from K8: **none**.
+
+External review sheets include the full official/R1b character in K5's frame, the requested waist
+(560, 780, 1000, 1000), face (430, 270, 670, 480), stem (420, 900, 560, 1000) and chin
+(440, 400, 660, 480) close-ups, all seven candidate base inputs next to an explicit unavailable-return
+tile, and all six R1b expression renders at full frame and face scale. Every R1c column is explicitly
+marked unavailable. No placeholder is presented as generated output.
+
+Observations from these sheets: R1b has smoother eyelash, iris and hair contours than the official
+render; its chin outline and stem rings have fewer block-like steps. The shorts' curved seam and jersey
+lettering remain visible in the waist view. A faint light trace is visible below the smile's mouth and
+above the right eyelid in the eye-close pose, consistent with the residue recorded for R1b. R1c has
+no image to compare, so this run cannot answer whether K7 matches or improves R1b. These are observations
+for the lead; visual acceptance remains the owner's.
+
+### Validation and delivery limits
+
+Only this section and one BL-056 backlog line changed in tracked files. No engine changes, full suite,
+package build, GUI, browser, screenshots, audio, installation or push were performed. No R1c mod or
+throwaway-library import was attempted after the stop. The atlas, skeleton and page match the official
+inputs, the time-zero base vertices match K5 exactly, and the reconstructed official/R1b reference
+renders match their saved images exactly. The two plans and the driver assertion trace remain external
+run artifacts. The four fixed engine files were checked unchanged against the starting commit.
