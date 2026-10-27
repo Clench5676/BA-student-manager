@@ -27,12 +27,15 @@ def pick_folder(window: Any, multiple: bool = True) -> list[Path]:
     return [Path(p) for p in result or ()]
 
 
-def watch_drops(window: Any, on_paths: Callable[[list[str]], None]) -> None:
+def watch_drops(window: Any, on_paths: Callable[[list[str]], None], *,
+                stopped: Callable[[], bool] = lambda: False) -> bool:
     """Report the full paths of files dropped on the page. pywebview only adds the paths when the drop handler is
-    registered from Python."""
+    registered from Python. Return False if shutdown abandons registration."""
     from webview.dom import DOMEventHandler
 
     def on_drop(event: dict) -> None:
+        if stopped():
+            return
         files = event.get("dataTransfer", {}).get("files", [])
         paths = [f.get("pywebviewFullPath") for f in files if f.get("pywebviewFullPath")]
         if paths:
@@ -41,16 +44,19 @@ def watch_drops(window: Any, on_paths: Callable[[list[str]], None]) -> None:
     def noop(_event: dict) -> None:
         pass
 
-    doc = window.dom.document
-    logger.info("Native drop registration: begin event=dragenter")
-    doc.events.dragenter += DOMEventHandler(noop, True, True)
-    logger.info("Native drop registration: begin event=dragstart")
-    doc.events.dragstart += DOMEventHandler(noop, True, True)
-    logger.info("Native drop registration: begin event=dragover")
-    doc.events.dragover += DOMEventHandler(noop, True, True, debounce=500)
-    logger.info("Native drop registration: begin event=drop")
-    doc.events.drop += DOMEventHandler(on_drop, True, True)
+    for name in ("dragenter", "dragstart", "dragover", "drop"):
+        if stopped():
+            logger.info("Native drop registration: abandoned event=%s", name)
+            return False
+        logger.info("Native drop registration: begin event=%s", name)
+        event = getattr(window.dom.document.events, name)
+        event += DOMEventHandler(on_drop if name == "drop" else noop, True, True,
+                                 debounce=500 if name == "dragover" else 0)
+    if stopped():
+        logger.info("Native drop registration: abandoned after=drop")
+        return False
     logger.info("Native drop registration: complete")
+    return True
 
 
 def renderer_supported(renderer: str) -> bool:

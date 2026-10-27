@@ -1152,7 +1152,7 @@ forwarding to a running App, a window-less transient mode with a small result wi
 
 ## BL-055: First launch of 0.6.0-alpha.10 hangs on macOS
 
-- Status: Implemented for local review; owner UAT/visual acceptance pending. Diagnostic logging only; the launch-exit trigger remains unresolved.
+- Status: Implemented for local review; owner UAT/visual acceptance pending. Loaded drop work cannot hold interpreter shutdown; the early loop-exit trigger remains logged and unresolved.
 - Requested: 2026-10-27.
 - Evidence: macOS hang report from the owner (`error report.txt` in the repository root, git-ignored, never commit
   it); the App process section is extracted to the lead's private brief folder.
@@ -1188,7 +1188,7 @@ were traced, but no sampled frame identifies that earlier trigger. Candidates an
   but the stacks contain no earlier exception. A loop exception-type marker and the existing startup error log
   would distinguish this from a normal return.
 
-Per the brief's fallback, no speculative lifecycle fix or pywebview patch is included. INFO logs now
+The initial diagnostic change followed the brief's fallback, without a speculative lifecycle fix or pywebview patch. INFO logs
 record initialized/before-show/shown/loaded/closing/closed, each drop registration stage, native loop return
 versus exception type, cleanup state and completion before the session log closes. They contain only stage names,
 booleans and renderer/exception types, with no paths, dropped names or exception contents. The deciding evidence
@@ -1208,3 +1208,30 @@ join blocked by the loaded worker, then supply the missing GUI result to release
 diagnostic distinction, exception propagation, unchanged drop options/path delivery and close return values;
 they do not claim to prove a hang fix. No prefab, geometry, startup ordering, tour or locale wording is changed.
 Native launch/close reproduction and visual acceptance remain the owner's; Windows is not reviewed.
+
+J2 fix (2026-10-27, owner authorized): the pywebview `loaded` callback now hands document/native setup to an
+App-owned daemon worker and returns without waiting for JavaScript. The four drop registrations retain their
+order, Python callbacks, prevent-default/stop-propagation options and dragover debounce on every live load,
+including reloads and a vetoed close. There is no registration timeout that could discard a slow normal launch.
+An approved close, `closed`, or native loop exit marks the window stopped: late load work and queued chrome
+installation are skipped, remaining registrations are abandoned, and late drop callbacks no longer publish.
+A registration already waiting inside Cocoa or WebView2 may remain blocked, but its daemon worker cannot hold
+interpreter shutdown. No site-packages changes are needed; Windows still queues chrome installation with
+`BeginInvoke`, never evaluating JavaScript on the GUI thread. All earlier lifecycle/drop diagnostics remain.
+
+Other App window handlers were checked: shown/maximized/minimized/restored only queue native refresh work
+(`callAfter`/`BeginInvoke`) or publish local state; initialized/before-show do not wait for JavaScript; closing
+retains the synchronous approval result and its asynchronous close coordinator already uses daemon page-call
+workers with bounded waits. Closed still signals that coordinator and handles prepared update helpers. These
+handlers do not wait for a result from a stopped GUI loop. Native chrome, close approval and writer admission
+are unchanged. The load worker owns no writer or instance lock: `_serve` still stops the server and calls
+`Services.close` to drain writers, and `main` releases the instance lock in its existing `finally` path.
+
+Headless regressions now cover a stalled GUI result at each of the four registration stages for Cocoa and
+WebView2, including real subprocess shutdown without releasing that result, normal/reloaded/vetoed-close drop
+registration and path delivery, late work suppression, GUI-dispatched chrome setup and the other asynchronous
+window handlers. A lifecycle integration check drains a real test writer before cleanup completes and then
+reacquires the released instance lock while the registration worker is still blocked. The shutdown deadlock
+is fixed; why the native loop ended about one second after startup is still unknown. No prefab, geometry or
+locale text changed. Native macOS/Windows launch, drag-and-drop, close/menu/chrome behaviour and visual acceptance
+remain for owner UAT; Windows is not natively reviewed.

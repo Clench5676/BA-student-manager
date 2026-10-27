@@ -221,6 +221,7 @@ def _run_window(s: Services, server: Server, debug: bool) -> None:
     s.close_coordinator = CloseCoordinator(s, s.chrome.close, page_loaded=False)
     commands = None
     lifecycle = {"shown": False, "loaded": False, "closing": False, "closed": False, "drops": "not-started"}
+    window_stopped = threading.Event()
 
     def before_show():
         nonlocal commands
@@ -258,42 +259,56 @@ def _run_window(s: Services, server: Server, debug: bool) -> None:
         native.startup_failure(s.reports, RuntimeError(f"Unsupported renderer: {renderer}"), runtime=True)
         return False
 
-    def on_loaded() -> None:
-        lifecycle["loaded"] = True
-        logger.info("Native lifecycle: loaded begin")
-        s.close_coordinator.page_loaded = True
-        s.timings.record("native.document", time.perf_counter() - native_started)
+    def install_chrome() -> None:
+        if not window_stopped.is_set():
+            s.chrome.install()
+
+    def load_document() -> None:
+        if window_stopped.is_set():
+            logger.info("Native lifecycle: loaded skipped stopped=True")
+            return
         if sys.platform == "win32" and s.chrome.host is None:
             # WebView2 Settings exists after initialization, not at before_show.
-            def install_chrome():
-                from System import Action
-                window.native.BeginInvoke(Action(s.chrome.install))
-            install_chrome()
+            from System import Action
+            window.native.BeginInvoke(Action(install_chrome))
         if sys.platform == "darwin" and getattr(window, "native", None) is not None:
             # Cocoa replaces its placeholder contentView when navigation finishes.
             from PyObjCTools import AppHelper
             if s.chrome.host is None:
-                AppHelper.callAfter(s.chrome.install)
+                AppHelper.callAfter(install_chrome)
             if commands is not None:
                 AppHelper.callAfter(commands.refresh)
         try:
             lifecycle["drops"] = "running"
-            watch_drops(window, lambda paths: s.events.publish("drop", {"paths": paths}))
-            lifecycle["drops"] = "complete"
+            complete = watch_drops(window, lambda paths: s.events.publish("drop", {"paths": paths}),
+                                   stopped=window_stopped.is_set)
+            lifecycle["drops"] = "complete" if complete else "abandoned"
         except Exception:
             lifecycle["drops"] = "failed"
             logger.exception("drag and drop is unavailable")
         logger.info("Native lifecycle: loaded complete drops=%s", lifecycle["drops"])
 
+    def on_loaded() -> None:
+        lifecycle["loaded"] = True
+        logger.info("Native lifecycle: loaded begin")
+        s.close_coordinator.page_loaded = True
+        s.timings.record("native.document", time.perf_counter() - native_started)
+        # pywebview's event thread is non-daemon. Cocoa and WebView2 can wait forever
+        # for a GUI result after the loop ends; only this UI work may be abandoned.
+        threading.Thread(target=load_document, name="bamt-window-loaded", daemon=True).start()
+
     def on_closing() -> bool:
         lifecycle["closing"] = True
         logger.info("Native lifecycle: closing begin")
         allowed = s.on_closing()
+        if allowed:
+            window_stopped.set()
         logger.info("Native lifecycle: closing complete allowed=%s", allowed)
         return allowed
 
     def on_closed() -> None:
         lifecycle["closed"] = True
+        window_stopped.set()
         logger.info("Native lifecycle: closed begin")
         s.on_closed()
         logger.info("Native lifecycle: closed complete")
@@ -316,6 +331,7 @@ def _run_window(s: Services, server: Server, debug: bool) -> None:
     else:
         logger.info("Native lifecycle: loop returned")
     finally:
+        window_stopped.set()
         logger.info("Native lifecycle: cleanup begin shown=%s loaded=%s closing=%s closed=%s drops=%s",
                     lifecycle["shown"], lifecycle["loaded"], lifecycle["closing"], lifecycle["closed"], lifecycle["drops"])
         if commands is not None:
