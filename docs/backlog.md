@@ -534,7 +534,9 @@ put the tour into the next prerelease (Settings tour entry and the first launch 
 build shows it only after the owner's final OK.
 
 Owner review of 0.6.0-alpha.9 on macOS (2026-10-27): the tour popup ("新功能 - 0.6.0", page 1/2, Previous/Next)
-fills almost the whole window; it is far too large for two short lines.
+fills almost the whole window; it is far too large for two short lines. Owner decision: text-only pages use the size of the App's
+ordinary message popups (for example the delete confirmation), fitted to the text; title, page counter and
+Previous/Next stay, with their button size unchanged.
 
 ## BL-022: Shared student galleries, generated defaults and photo export
 
